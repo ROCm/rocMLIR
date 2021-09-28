@@ -427,7 +427,9 @@ enum BwdPaddingKernelStatus {
   GemmMPadStrideTwoXdlopsNCHW,
   GemmNPadStrideTwoXdlopsNCHW,
   GemmMNPadStrideTwoXdlopsNCHW,
-  GemmNPadStrideTwoXdlopsNHWC
+  GemmNPadStrideTwoXdlopsNHWC,
+  GemmMNPadStrideTwoXdlopsNHWC,
+  GemmMPadStrideTwoXdlopsNHWC
 };
 inline void emitStoreLogic(
     BwdPaddingKernelStatus bwdPaddingStatus, OpBuilder &b, Location loc,
@@ -574,11 +576,25 @@ inline void emitStoreLogic(
                      zeroConstantOp, destLowerIndices[3], destLowerIndices[4]});
     } else if (bwdPaddingStatus ==
                BwdPaddingKernelStatus::GemmNPadStrideTwoXdlopsNHWC) {
-      // n!=64 pad=0 nhwc
+      // gemmn%64!=0 padh=padw=0 nhwc
       elseBuilder.create<scf::YieldOp>(
           loc, ValueRange{oobAddrOp, zeroConstantOp, destLowerIndices[1],
                           destLowerIndices[2], destLowerIndices[3],
                           destLowerIndices[4]});
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::GemmMPadStrideTwoXdlopsNHWC) {
+      // gemmm%64!=0 padh=padw=0 nhwc
+      elseBuilder.create<scf::YieldOp>(
+          loc,
+          ValueRange{oobAddrOp, destLowerIndices[0], destLowerIndices[1],
+                     destLowerIndices[2], destLowerIndices[3], zeroConstantOp});
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::GemmMNPadStrideTwoXdlopsNHWC) {
+      // gemmm%64!=0 gemmN%64!=0 padh=padw=0 nhwc
+      elseBuilder.create<scf::YieldOp>(
+          loc,
+          ValueRange{oobAddrOp, zeroConstantOp, destLowerIndices[1],
+                     destLowerIndices[2], destLowerIndices[3], zeroConstantOp});
     }
 
     // ifWithinBoundsOp results:
@@ -3522,14 +3538,20 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     bool isSupportPaddingKernel = true;
     bool isXdlopsStride2Pad0NCHW = false;
+    bool isXdlopsStride2Pad0NHWC = false;
     // non xdlops also have limitations ,will add it
     // if isSupportPaddingKernel  ,don't do padding kernel teansformation
     if (isXdlops) {
-      if (cIndex ==
-          4 && (strideH > 1 || strideW > 1)) // nhwc only support gemmN pad =0 padding, disable nhwc now
-        isSupportPaddingKernel = false;
-      // nchw can't support stride 2 pad 1
-      else if ((strideH > 1 || strideW > 1)) {
+      if (cIndex == 4 && (strideH > 1 || strideW > 1)) {
+        if (leftPadH > 0 || leftPadW > 0 || rightPadH > 0 || rightPadW > 0) {
+          isSupportPaddingKernel = false;
+          llvm::errs() << "we don't support xdlops nhwc stride2 pad_h>0 or "
+                          "pad_w>0 backward data convolution padding kernel\n ";
+        } else {
+          isXdlopsStride2Pad0NHWC = true;
+        }
+        // nchw can't support stride 2 pad 1
+      } else if ((strideH > 1 || strideW > 1)) {
         if (leftPadH > 0 || leftPadW > 0 || rightPadH > 0 || rightPadW > 0) {
           isSupportPaddingKernel = false;
           llvm::errs() << "we don't support xdlops nchw stride2 pad_h>0 or "
@@ -3549,6 +3571,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                        &gemmMExtra, &gemmNExtra, &gemmKExtra,
                                        isSupportPaddingKernel,
                                        isXdlopsStride2Pad0NCHW,
+                                       isXdlopsStride2Pad0NHWC,
                                        isXdlops](auto &populateParams) {
       auto config_params = populateParams.getTuningParameters();
       unsigned numOfFailedConfigs = 0;
@@ -3603,6 +3626,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             llvm::errs() << "we don't support backward data convolution nchw "
                             "stride 2 padh=padw=0 , pad both gemmN and gemmM, "
                             "but pad both gemmK and gemmM is ok \n";
+          }
+        } else if (isXdlopsStride2Pad0NHWC) {
+          if (gemmKExtra && gemmMExtra) {
+            llvm::errs() << "we don't support backward data convolution nhwc "
+                            "stride 2 padh=padw=0 , pad both gemmK and gemmM, "
+                            "but pad both gemmN and gemmM is ok \n";
           }
         }
       }
@@ -9016,6 +9045,12 @@ struct ThreadwiseCopyV2RewritePattern
           if (gemmMExtra == 0 && gemmNExtra > 0)
             bwdPaddingStatus =
                 BwdPaddingKernelStatus::GemmNPadStrideTwoXdlopsNHWC;
+          else if (gemmMExtra > 0 && gemmNExtra > 0)
+            bwdPaddingStatus =
+                BwdPaddingKernelStatus::GemmMNPadStrideTwoXdlopsNHWC;
+          else if (gemmMExtra > 0 && gemmNExtra == 0)
+            bwdPaddingStatus =
+                BwdPaddingKernelStatus::GemmMPadStrideTwoXdlopsNHWC;
         } else if (PaddingKernelStatus ==
                    BwdPaddingKernelStatus::StrideTwoXdlopsNCHW) {
           if (gemmMExtra > 0 && gemmNExtra > 0)

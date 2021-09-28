@@ -61,11 +61,13 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
       isSupport = true;
       if (getStrideVal()[0] > 1 && getStrideVal()[1] > 1) {
         // nhwc stride 2 only support gemmN padding , so disable it now
-        if (getDimIndexVal()["ci"].first == 4)
-          isSupport = false;
-        // nchw stride2 and padh,padw>0 fail ,diable it now
-        if (getPaddingVal()[0] >= 1 || getPaddingVal()[1] >= 1 ||
-            getPaddingVal()[2] >= 1 || getPaddingVal()[3] >= 1) {
+        if (getDimIndexVal()["ci"].first == 4) {
+          if (getPaddingVal()[0] >= 1 || getPaddingVal()[1] >= 1 ||
+              getPaddingVal()[2] >= 1 || getPaddingVal()[3] >= 1)
+            isSupport = false;
+          // nchw stride2 and padh,padw>0 fail ,diable it now
+        } else if (getPaddingVal()[0] >= 1 || getPaddingVal()[1] >= 1 ||
+                   getPaddingVal()[2] >= 1 || getPaddingVal()[3] >= 1) {
           isSupport = false;
         }
       }
