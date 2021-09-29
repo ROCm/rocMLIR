@@ -13,7 +13,6 @@ if (MLIR_ENABLE_ROCM_CONVERSIONS)
     AMDGPUCodeGen
     AMDGPUDesc
     AMDGPUInfo
-    ipo
     target
   )
 endif()
@@ -160,6 +159,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
   target_link_libraries(MLIRGPUTransforms
     PRIVATE
     lldELF
+    MLIRExecutionEngine
     MLIRROCDLToLLVMIRTranslation
   )
 

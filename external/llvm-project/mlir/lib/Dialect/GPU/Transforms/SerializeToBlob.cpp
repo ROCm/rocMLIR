@@ -39,13 +39,13 @@ gpu::SerializeToBlobPass::translateToISA(llvm::Module &llvmModule,
                                          llvm::TargetMachine &targetMachine) {
   llvmModule.setDataLayout(targetMachine.createDataLayout());
 
+  if (failed(optimizeLlvm(llvmModule, targetMachine))) {
+    return llvm::None;
+  }
   std::string targetISA;
   llvm::raw_string_ostream stream(targetISA);
 
   llvm::legacy::PassManager codegenPasses;
-  if (failed(addPreCodegenPasses(codegenPasses, targetMachine))) {
-    return llvm::None;
-  }
 
   { // Drop pstream after this to prevent the ISA from being stuck buffering
     llvm::buffer_ostream pstream(stream);
@@ -90,8 +90,9 @@ void gpu::SerializeToBlobPass::runOnOperation() {
   getOperation()->setAttr(gpuBinaryAnnotation, attr);
 }
 
-LogicalResult gpu::SerializeToBlobPass::addPreCodegenPasses(
-    llvm::legacy::PassManagerBase &pm, llvm::TargetMachine &targetMachine) {
+LogicalResult
+gpu::SerializeToBlobPass::optimizeLlvm(llvm::Module &llvmModule,
+                                       llvm::TargetMachine &targetMachine) {
   return success();
 }
 

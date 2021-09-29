@@ -14,9 +14,11 @@
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Support/CodeGen.h"
+#include "llvm/Support/Error.h"
 #include "llvm/Target/CGPassBuilderOption.h"
 
 #if MLIR_GPU_TO_HSACO_PASS_ENABLE
+#include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
@@ -41,7 +43,6 @@
 #include "llvm/Support/WithColor.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
-#include "llvm/Transforms/IPO/PassManagerBuilder.h"
 
 #include "lld/Common/Driver.h"
 
@@ -71,9 +72,8 @@ private:
   serializeISA(const std::string &isa) override;
 
   // Adds LLVM optimization passes
-  LogicalResult
-  addPreCodegenPasses(llvm::legacy::PassManagerBase &pm,
-                      llvm::TargetMachine &targetMachine) override;
+  LogicalResult optimizeLlvm(llvm::Module &llvmModule,
+                             llvm::TargetMachine &targetMachine) override;
 
   std::unique_ptr<SmallVectorImpl<char>> assembleIsa(const std::string &isa);
   std::unique_ptr<std::vector<char>>
@@ -165,25 +165,28 @@ void SerializeToHsacoPass::getDependentDialects(
 }
 
 LogicalResult
-SerializeToHsacoPass::addPreCodegenPasses(llvm::legacy::PassManagerBase &pm,
-                                          llvm::TargetMachine &targetMachine) {
+SerializeToHsacoPass::optimizeLlvm(llvm::Module &llvmModule,
+                                   llvm::TargetMachine &targetMachine) {
   if (optLevel < 0 || optLevel > 3) {
     llvm::errs() << "Invalid optimization level passed to SerializeToHsaco: "
                  << optLevel << "\n";
     return failure();
   }
+  // TODO(kdrewnia): enable more aggressive optimizations once we're happy
+  // with the current set
+  // targetMachine.setOptLevel(static_cast<llvm::CodeGenOpt::Level>(optLevel));
 
-  llvm::PassManagerBuilder builder;
-  builder.OptLevel = optLevel;
-  builder.SizeLevel = 0;
-  // Borrowed and simplified from opt.cpp
-  builder.DisableUnrollLoops = (optLevel == 0);
-  builder.LoopVectorize = (optLevel > 1);
-  builder.SLPVectorize = (optLevel > 1);
-  targetMachine.setOptLevel(static_cast<llvm::CodeGenOpt::Level>(optLevel));
-  targetMachine.adjustPassManager(builder);
-
-  builder.populateModulePassManager(pm);
+  auto transformer =
+      makeOptimizingTransformer(optLevel, /*sizeLevel=*/0, &targetMachine);
+  auto error = transformer(&llvmModule);
+  if (error) {
+    llvm::handleAllErrors(std::move(error), [](const llvm::ErrorInfoBase &ei) {
+      llvm::errs() << "Could not optimize LLVM IR: ";
+      ei.log(llvm::errs());
+      llvm::errs() << "\n";
+    });
+    return failure();
+  }
   return success();
 }
 

@@ -68,9 +68,9 @@ private:
   virtual Optional<std::string>
   translateToISA(llvm::Module &llvmModule, llvm::TargetMachine &targetMachine);
 
-  /// Hook allowing users to add optimization passes for the ISA serilization
-  virtual LogicalResult addPreCodegenPasses(llvm::legacy::PassManagerBase &pm,
-                                            llvm::TargetMachine &targetMachine);
+  /// Hook allowing the application of optimizations before codegen
+  virtual LogicalResult optimizeLlvm(llvm::Module &llvmModule,
+                                     llvm::TargetMachine &targetMachine);
 
   /// Serializes the target ISA to binary form.
   virtual std::unique_ptr<std::vector<char>>
