@@ -172,9 +172,7 @@ SerializeToHsacoPass::optimizeLlvm(llvm::Module &llvmModule,
                  << optLevel << "\n";
     return failure();
   }
-  // TODO(kdrewnia): enable more aggressive optimizations once we're happy
-  // with the current set
-  // targetMachine.setOptLevel(static_cast<llvm::CodeGenOpt::Level>(optLevel));
+  targetMachine.setOptLevel(static_cast<llvm::CodeGenOpt::Level>(optLevel));
 
   auto transformer =
       makeOptimizingTransformer(optLevel, /*sizeLevel=*/0, &targetMachine);
