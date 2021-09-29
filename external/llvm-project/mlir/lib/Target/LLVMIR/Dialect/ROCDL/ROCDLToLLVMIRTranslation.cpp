@@ -79,7 +79,7 @@ public:
       llvm::Function *llvmFunc =
           moduleTranslation.lookupFunction(func.getName());
       llvmFunc->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
-      llvmFunc->addFnAttr("amdgpu-flat-work-group-size", "1, 1024");
+      llvmFunc->addFnAttr("amdgpu-flat-work-group-size", "1, 256");
     }
     return success();
   }
