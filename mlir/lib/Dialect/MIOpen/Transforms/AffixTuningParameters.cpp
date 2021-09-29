@@ -7,7 +7,6 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Target/MIOpenCPP.h"
 
 #include "llvm/Support/raw_ostream.h"
 

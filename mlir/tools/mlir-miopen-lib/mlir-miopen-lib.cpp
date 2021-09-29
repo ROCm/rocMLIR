@@ -8,7 +8,6 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Support/LogicalResult.h"
-#include "mlir/Target/MIOpenCPP.h"
 
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
@@ -220,7 +219,7 @@ extern "C" const char *miirGenIgemmSource(MiirHandle mlirHandle) {
     return "";
 
   handle->genTxt = "";
-  translateModuleFromMIOpenToCpp(handle->getModule(), handle->genTxt);
+  // TBD: FIXME.
   return (handle->genTxt).c_str();
 }
 
@@ -231,7 +230,7 @@ extern "C" const char *miirGenIgemmHeader(MiirHandle mlirHandle) {
     return "";
 
   handle->genTxt = "";
-  translateModuleFromMIOpenToHeader(handle->getModule(), handle->genTxt);
+  // TBD: FIXME.
   return (handle->genTxt).c_str();
 }
 
@@ -242,7 +241,7 @@ extern "C" const char *miirGenIgemmCflags(MiirHandle mlirHandle) {
     return "";
 
   handle->genTxt = "";
-  translateModuleFromMIOpenToCFlags(handle->getModule(), handle->genTxt);
+  // TBD: FIXME.
   return (handle->genTxt).c_str();
 }
 

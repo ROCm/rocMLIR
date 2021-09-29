@@ -18,7 +18,6 @@ set(LIBS
   MLIRTransforms
   MLIRSupport
   MLIRIR
-  MLIRTargetMIOpenCppTranslation
 )
 
 set(CMAKE_BUILD_RPATH ${CMAKE_BUILD_DIR}/external/llvm-project/llvm/lib)
