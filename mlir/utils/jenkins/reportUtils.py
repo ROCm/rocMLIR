@@ -7,6 +7,9 @@ from typing import Tuple, List
 PERF_REPORT_FILE = 'mlir_vs_miopen_perf.csv'
 PERF_PLOT_REPORT_FILE = 'mlir_vs_miopen_perf_for_plot.csv'
 PERF_STATS_REPORT_FILE = 'mlir_vs_miopen_perf_means.csv'
+MIOPEN_REPORT_FILE = 'miopen_perf.csv'
+MIOPEN_TUNED_REPORT_FILE = 'miopen_tuned_perf.csv'
+MIOPEN_UNTUNED_REPORT_FILE = 'miopen_untuned_perf.csv'
 
 TEST_PARAMETERS = ['Direction', 'DataType', 'XDLOPS', 'FilterLayout', 'InputLayout', 'OutputLayout',
                        'N', 'C', 'H', 'W', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW',
@@ -33,7 +36,7 @@ def colorForSpeedups(value):
     else:
         return ''
 
-def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedupCol: str):
+def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedupCols: list):
     styler.set_table_styles([
         {'selector': 'tbody tr:nth-child(odd)', 'props': [('background-color', '#e0e0e0')]},
         {'selector': 'tbody tr:nth-child(even)', 'props': [('background-color', '#eeeeee')]},
@@ -41,8 +44,9 @@ def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedupCol: str):
         {'selector': 'th, td', 'props': [('padding', '0.5em'), ('text-align', 'center')]}])
     styler.set_precision(ROUND_DIGITS)
     styler.set_na_rep("FAILED")
-    if speedupCol in styler.columns:
-        styler.applymap(colorForSpeedups, subset=[speedupCol])
+    for col in speedupCols:
+        if col in styler.columns:
+            styler.applymap(colorForSpeedups, subset=[col])
 
 # Adapted from
 # https://stackoverflow.com/questions/54405704/check-if-all-values-in-dataframe-column-are-the-same
@@ -81,7 +85,7 @@ def cleanDataForHumans(data: pd.DataFrame, title: str)\
     return data, title, list(indexCols.values())
 
 def htmlReport(data: pd.DataFrame, stats: pd.DataFrame, title: str,
-                  speedupCol: str, stream=None):
+                  speedupCols: list, stream=None):
     data, longTitle, indexCols = cleanDataForHumans(data, title)
     print(f"""
 <!doctype html>
@@ -103,18 +107,19 @@ caption {{
 
     statsPrinter = stats.style
     statsPrinter.set_caption(f"Summary statistics for {title}")
-    setCommonStyles(statsPrinter, speedupCol)
+    setCommonStyles(statsPrinter, speedupCols)
     print(statsPrinter.render(), file=stream)
 
     print("<h2>Details</h2>", file=stream)
-    indexed = data.set_index(indexCols)
-    dataPrinter = indexed.style
-    dataPrinter.set_caption(f"{title}: Per-test breakdown")
-    setCommonStyles(dataPrinter, speedupCol)
-    print(dataPrinter.render(), file=stream)
+    dataPrinter = data.style
+    if len(indexCols) > 0 :
+        indexed = data.set_index(indexCols)
+        dataPrinter = indexed.style
+        dataPrinter.set_caption(f"{title}: Per-test breakdown")
+        setCommonStyles(dataPrinter, speedupCols)
+        print(dataPrinter.render(), file=stream)
     print("""
 </body>
 </html>
 """, file=stream)
-
 
