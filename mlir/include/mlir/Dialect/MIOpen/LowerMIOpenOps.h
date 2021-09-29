@@ -3260,19 +3260,21 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto arguments = SmallVector<Value, 3>{gemmA, gemmB, gemmC};
 
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
-      b.create<miopen::GridwiseGemmV2Op>(
+      auto gop = b.create<miopen::GridwiseGemmV2Op>(
           loc, ArrayRef<Type>{},
           ValueRange{arguments[fields.gridwiseGemmArgumentPosition[0]],
                      arguments[fields.gridwiseGemmArgumentPosition[1]],
                      arguments[fields.gridwiseGemmArgumentPosition[2]]},
           gridwiseGemmAttrs);
+      affixGridwiseGemmAttributes(op, gop, b);
     } else {
-      b.create<miopen::GridwiseGemmOp>(
+      auto gop = b.create<miopen::GridwiseGemmOp>(
           loc, ArrayRef<Type>{},
           ValueRange{arguments[fields.gridwiseGemmArgumentPosition[0]],
                      arguments[fields.gridwiseGemmArgumentPosition[1]],
                      arguments[fields.gridwiseGemmArgumentPosition[2]]},
           gridwiseGemmAttrs);
+      affixGridwiseGemmAttributes(op, gop, b);
     }
 
     // Finally, erase the original Conv2D op.
@@ -4698,19 +4700,21 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto arguments = SmallVector<Value, 3>{gemmA, gemmB, gemmC};
 
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
-      b.create<miopen::GridwiseGemmV2Op>(
+      auto gop = b.create<miopen::GridwiseGemmV2Op>(
           loc, ArrayRef<Type>{},
           ValueRange{arguments[fields.gridwiseGemmArgumentPosition[0]],
                      arguments[fields.gridwiseGemmArgumentPosition[1]],
                      arguments[fields.gridwiseGemmArgumentPosition[2]]},
           gridwiseGemmAttrs);
+      affixGridwiseGemmAttributes(op, gop, b);
     } else {
-      b.create<miopen::GridwiseGemmOp>(
+      auto gop = b.create<miopen::GridwiseGemmOp>(
           loc, ArrayRef<Type>{},
           ValueRange{arguments[fields.gridwiseGemmArgumentPosition[0]],
                      arguments[fields.gridwiseGemmArgumentPosition[1]],
                      arguments[fields.gridwiseGemmArgumentPosition[2]]},
           gridwiseGemmAttrs);
+      affixGridwiseGemmAttributes(op, gop, b);
     }
     // Finally, erase the original Conv2D op.
     op.erase();
@@ -4842,6 +4846,44 @@ void affixBlockwiseCopyAttributes(
     blockwiseCopyBoundsAttr.push_back(b.getI32IntegerAttr(v));
   }
   bop->setAttr("bound", b.getArrayAttr(blockwiseCopyBoundsAttr));
+}
+
+template <typename T, typename U>
+void affixGridwiseGemmAttributes(T &convOp, U &gop, OpBuilder &b) {
+  gop->setAttr("block_size", convOp->getAttr("block_size"));
+  gop->setAttr("m_per_block", convOp->getAttr("m_per_block"));
+  gop->setAttr("n_per_block", convOp->getAttr("n_per_block"));
+  gop->setAttr("k_per_block", convOp->getAttr("k_per_block"));
+  gop->setAttr("matrix_a_dest_data_per_write_dim_m",
+               convOp->getAttr("matrix_a_dest_data_per_write_dim_m"));
+  gop->setAttr("matrix_a_source_data_per_read",
+               convOp->getAttr("matrix_a_source_data_per_read"));
+  gop->setAttr("matrix_a_source_vector_read_dim",
+               convOp->getAttr("matrix_a_source_vector_read_dim"));
+  gop->setAttr("matrix_b_dest_data_per_write_dim_n",
+               convOp->getAttr("matrix_b_dest_data_per_write_dim_n"));
+  gop->setAttr("matrix_b_source_data_per_read",
+               convOp->getAttr("matrix_b_source_data_per_read"));
+  gop->setAttr("matrix_b_source_vector_read_dim",
+               convOp->getAttr("matrix_b_source_vector_read_dim"));
+  gop->setAttr("matrix_c_dest_data_per_write",
+               convOp->getAttr("matrix_c_dest_data_per_write"));
+  gop->setAttr("matrix_c_source_dest_vector_read_write_dim",
+               convOp->getAttr("matrix_c_source_dest_vector_read_write_dim"));
+
+  auto xdlopsV2Attr = convOp->template getAttrOfType<BoolAttr>("xdlopsV2");
+  if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
+    gop->setAttr("m_per_wave", convOp->getAttr("m_per_wave"));
+    gop->setAttr("n_per_wave", convOp->getAttr("n_per_wave"));
+  } else {
+    gop->setAttr("m_per_thread", convOp->getAttr("m_per_thread"));
+    gop->setAttr("n_per_thread", convOp->getAttr("n_per_thread"));
+    gop->setAttr("k_per_thread", convOp->getAttr("k_per_thread"));
+    gop->setAttr("m_level0_cluster", convOp->getAttr("m_level0_cluster"));
+    gop->setAttr("m_level1_cluster", convOp->getAttr("m_level1_cluster"));
+    gop->setAttr("n_level0_cluster", convOp->getAttr("n_level0_cluster"));
+    gop->setAttr("n_level1_cluster", convOp->getAttr("n_level1_cluster"));
+  }
 }
 
 //===----------------------------------------------------------------------===//
