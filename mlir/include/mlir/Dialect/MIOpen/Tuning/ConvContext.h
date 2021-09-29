@@ -15,6 +15,7 @@
 
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
 
@@ -105,18 +106,18 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   }
 };
 
-// T is either GriwiseGemmOp or GridwiseGemmV2Op
+// T would be one of the following:
+// - miopen::Conv2DOp
+// - miopen::Conv2DBwdDataOp
+// - miopen::Conv2DBwdWeightOp
 template <typename T> static miopen::ConvOpType ObtainConvDirection(T &op) {
-  miopen::ConvOpType opType;
-  auto kernel_algorithm =
-      op->template getAttrOfType<StringAttr>("kernel_algorithm").getValue();
-  if (kernel_algorithm.find(StringRef("backward_data")) != StringRef::npos) {
-    opType = miopen::ConvOpType::Conv2DBwdDataOpType;
-  } else if (kernel_algorithm.find(StringRef("backward_weight")) !=
-             StringRef::npos) {
-    opType = miopen::ConvOpType::Conv2DBwdWeightOpType;
-  } else {
+  miopen::ConvOpType opType = miopen::ConvOpType::Conv2DOpType;
+  if (isa<miopen::Conv2DOp>(*op)) {
     opType = miopen::ConvOpType::Conv2DOpType;
+  } else if (isa<miopen::Conv2DBwdDataOp>(*op)) {
+    opType = miopen::ConvOpType::Conv2DBwdDataOpType;
+  } else if (isa<miopen::Conv2DBwdWeightOp>(*op)) {
+    opType = miopen::ConvOpType::Conv2DBwdWeightOpType;
   }
   return opType;
 }
@@ -125,6 +126,7 @@ template <typename T> static mlir::Type obtainDataType(T &op) {
   return op.input().getType().template cast<MemRefType>().getElementType();
 }
 
+// TBD: Remove this function along with C++ code emitter.
 static inline void
 populateDimVal(const ArrayAttr &layoutAttr, const ArrayAttr &dimAttr,
                llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal) {
@@ -133,6 +135,18 @@ populateDimVal(const ArrayAttr &layoutAttr, const ArrayAttr &dimAttr,
   for (size_t i = 0; i < dimValSize; ++i) {
     auto key = layoutAttr.getValue()[i].cast<StringAttr>().getValue();
     auto value = dimAttr.getValue()[i].cast<IntegerAttr>().getInt();
+    dimIndexVal[key] = std::make_pair(i, value);
+  }
+}
+
+static inline void
+populateDimVal(const ArrayAttr &layoutAttr, const ArrayRef<int64_t> &dim,
+               llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal) {
+  assert(layoutAttr.size() == dim.size());
+  size_t dimValSize = layoutAttr.size();
+  for (size_t i = 0; i < dimValSize; ++i) {
+    auto key = layoutAttr.getValue()[i].cast<StringAttr>().getValue();
+    auto value = dim[i];
     dimIndexVal[key] = std::make_pair(i, value);
   }
 }
@@ -158,7 +172,15 @@ static inline void populateSeqVal(const ArrayAttr &seqAttr,
   }
 }
 
-// T is either GriwiseGemmOp or GridwiseGemmV2Op
+// T would be one of the following:
+// - miopen::Conv2DOp
+// - miopen::Conv2DBwdDataOp
+// - miopen::Conv2DBwdWeightOp
+//
+// TBD. Obsolete. Only used in C++ emitter path.
+// Remove along with C++ emitter path.
+// - miopen::GridwiseGemmOp
+// - miopen::GridwiseGemmV2Op
 template <typename T> static ConvolutionContext populateConvContext(T &op) {
   miopen::ConvOpType opType = ObtainConvDirection(op);
 
@@ -174,18 +196,9 @@ template <typename T> static ConvolutionContext populateConvContext(T &op) {
 
   auto filterLayoutAttr =
       op->template getAttrOfType<ArrayAttr>("filter_layout");
-  auto filterDimensionAttr =
-      op->template getAttrOfType<ArrayAttr>("filter_dimension");
-  populateDimVal(filterLayoutAttr, filterDimensionAttr, dimIndexVal);
   auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
-  auto inputDimensionAttr =
-      op->template getAttrOfType<ArrayAttr>("input_dimension");
-  populateDimVal(inputLayoutAttr, inputDimensionAttr, dimIndexVal);
   auto outputLayoutAttr =
       op->template getAttrOfType<ArrayAttr>("output_layout");
-  auto outputDimensionAttr =
-      op->template getAttrOfType<ArrayAttr>("output_dimension");
-  populateDimVal(outputLayoutAttr, outputDimensionAttr, dimIndexVal);
 
   auto strideAttr = op->template getAttrOfType<ArrayAttr>("strides");
   llvm::SmallVector<int64_t, 0> strideVal;
@@ -198,6 +211,28 @@ template <typename T> static ConvolutionContext populateConvContext(T &op) {
   auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
   llvm::SmallVector<int64_t, 0> paddingVal;
   populateSeqVal(paddingAttr, paddingVal);
+
+  if (isa<miopen::GridwiseGemmOp>(*op) || isa<miopen::GridwiseGemmV2Op>(*op)) {
+    auto filterDimensionAttr =
+        op->template getAttrOfType<ArrayAttr>("filter_dimension");
+    auto inputDimensionAttr =
+        op->template getAttrOfType<ArrayAttr>("input_dimension");
+    auto outputDimensionAttr =
+        op->template getAttrOfType<ArrayAttr>("output_dimension");
+    populateDimVal(filterLayoutAttr, filterDimensionAttr, dimIndexVal);
+    populateDimVal(inputLayoutAttr, inputDimensionAttr, dimIndexVal);
+    populateDimVal(outputLayoutAttr, outputDimensionAttr, dimIndexVal);
+  } else {
+    populateDimVal(filterLayoutAttr,
+                   op.filter().getType().template cast<MemRefType>().getShape(),
+                   dimIndexVal);
+    populateDimVal(inputLayoutAttr,
+                   op.input().getType().template cast<MemRefType>().getShape(),
+                   dimIndexVal);
+    populateDimVal(outputLayoutAttr,
+                   op.output().getType().template cast<MemRefType>().getShape(),
+                   dimIndexVal);
+  }
 
   auto dataType = obtainDataType(op);
 

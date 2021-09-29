@@ -1011,19 +1011,21 @@ LogicalResult backwardWeightAtomicAdd(T op, PatternRewriter &b,
   auto arguments = SmallVector<Value, 3>{gemmA, gemmB, gemmC};
 
   if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
-    b.create<miopen::GridwiseGemmV2Op>(
+    auto gop = b.create<miopen::GridwiseGemmV2Op>(
         loc, ArrayRef<Type>{},
         ValueRange{arguments[fields.gridwiseGemmArgumentPosition[0]],
                    arguments[fields.gridwiseGemmArgumentPosition[1]],
                    arguments[fields.gridwiseGemmArgumentPosition[2]]},
         gridwiseGemmAttrs);
+    affixGridwiseGemmAttributes(op, gop, b);
   } else {
-    b.create<miopen::GridwiseGemmOp>(
+    auto gop = b.create<miopen::GridwiseGemmOp>(
         loc, ArrayRef<Type>{},
         ValueRange{arguments[fields.gridwiseGemmArgumentPosition[0]],
                    arguments[fields.gridwiseGemmArgumentPosition[1]],
                    arguments[fields.gridwiseGemmArgumentPosition[2]]},
         gridwiseGemmAttrs);
+    affixGridwiseGemmAttributes(op, gop, b);
   }
   // Finally, erase the original Conv2D op.
   op.erase();

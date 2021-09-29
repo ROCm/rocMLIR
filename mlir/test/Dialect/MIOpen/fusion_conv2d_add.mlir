@@ -1,4 +1,4 @@
-// RUN: mlir-opt  --tosa-to-miopen --tosa-to-linalg-on-tensors --linalg-fusion-for-tensor-ops --linalg-bufferize --func-bufferize --buffer-results-to-out-params --finalizing-bufferize -miopen-lowering -miopen-affine-transform -miopen-affix-params -miopen-lowering-step2 -miopen-linalg-align  %s -o -| FileCheck %s
+// RUN: mlir-opt  --tosa-to-miopen --tosa-to-linalg-on-tensors --linalg-fusion-for-tensor-ops --linalg-bufferize --func-bufferize --buffer-results-to-out-params --finalizing-bufferize -miopen-affix-params -miopen-lowering -miopen-affine-transform -miopen-lowering-step2 -miopen-linalg-align  %s -o -| FileCheck %s
 
 // CHECK-LABEL: test_fusion
 // CHECK: %{{.*}} = index_cast %{{.*}} : i32 to index
