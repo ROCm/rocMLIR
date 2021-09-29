@@ -317,7 +317,7 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
   pm.addPass(createStripDebugInfoPass());
   pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
   pm.addPass(createGpuSerializeToHsacoPass(
-      utils.getTriple(), utils.getChip(), utils.getFeatures()));
+      utils.getTriple(), utils.getChip(), utils.getFeatures(), /*optLevel=*/3));
 
   status = pm.run(module);
 

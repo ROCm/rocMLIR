@@ -34,6 +34,18 @@
 using namespace mlir;
 using namespace llvm;
 
+static cl::OptionCategory optFlags{"ROCm runner opt-like flags"};
+
+// CLI variables for -On options.
+static cl::opt<bool> optO0{
+    "Og0", cl::desc("Run GPU opt passes and codegen at O0"), cl::cat(optFlags)};
+static cl::opt<bool> optO1{
+    "Og1", cl::desc("Run GPU opt passes and codegen at O1"), cl::cat(optFlags)};
+static cl::opt<bool> optO2{
+    "Og2", cl::desc("Run GPU opt passes and codegen at O2"), cl::cat(optFlags)};
+static cl::opt<bool> optO3{
+    "Og3", cl::desc("Run GPU opt passes and codegen at O3"), cl::cat(optFlags)};
+
 static cl::opt<std::string> tripleName("triple", cl::desc("target triple"),
                                        cl::value_desc("triple string"),
                                        cl::init(""));
@@ -59,6 +71,21 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   if (tripleName.empty() && targetChip.empty() && features.empty()) {
     systemOverride = true;
   }
+
+  int optLevel = 3;
+  if (optO0) {
+    optLevel = 0;
+  }
+  if (optO1) {
+    optLevel = 1;
+  }
+  if (optO2) {
+    optLevel = 2;
+  }
+  if (optO3) {
+    optLevel = 3;
+  }
+
   BackendUtils utils(tripleName, targetChip, features, systemOverride);
 
   pm.addPass(createLowerToCFGPass());
@@ -67,7 +94,7 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   kernelPm.addPass(createStripDebugInfoPass());
   kernelPm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
   kernelPm.addPass(createGpuSerializeToHsacoPass(
-                       utils.getTriple(), utils.getChip(), utils.getFeatures()));
+      utils.getTriple(), utils.getChip(), utils.getFeatures(), optLevel));
   auto &funcPm = pm.nest<FuncOp>();
   funcPm.addPass(createGpuAsyncRegionPass());
   pm.addPass(createGpuToLLVMConversionPass());
