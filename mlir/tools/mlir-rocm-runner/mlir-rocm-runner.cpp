@@ -20,6 +20,7 @@
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/Async/Passes.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/TargetSelect.h"
 
@@ -29,10 +30,16 @@
 #include "mlir/InitAllDialects.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include <cstdlib>
 #include <mutex>
 
 using namespace mlir;
 using namespace llvm;
+
+// CLI variables for -On options.
+static cl::opt<int> gpuOpt("gO",
+                           cl::desc("Optimization level for GPU compilation"),
+                           cl::value_desc("Integer from 0 to 3"), cl::init(3));
 
 static cl::opt<std::string> tripleName("triple", cl::desc("target triple"),
                                        cl::value_desc("triple string"),
@@ -63,6 +70,12 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   if (tripleName.empty() && targetChip.empty() && features.empty()) {
     systemOverride = true;
   }
+
+  int optLevel = gpuOpt.getValue();
+  if (optLevel < 0 || optLevel > 3) {
+    llvm::errs() << "Invalid GPU optimization level: " << optLevel << "\n";
+    return failure();
+  }
   BackendUtils utils(tripleName, targetChip, features, systemOverride);
 
   pm.addPass(createLowerToCFGPass());
@@ -73,7 +86,7 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
     kernelPm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
   }
   kernelPm.addPass(createGpuSerializeToHsacoPass(
-                       utils.getTriple(), utils.getChip(), utils.getFeatures()));
+      utils.getTriple(), utils.getChip(), utils.getFeatures(), optLevel));
   auto &funcPm = pm.nest<FuncOp>();
   funcPm.addPass(createGpuAsyncRegionPass());
   pm.addPass(createGpuToLLVMConversionPass());
