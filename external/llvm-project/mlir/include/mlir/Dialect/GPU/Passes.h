@@ -69,7 +69,8 @@ private:
   translateToISA(llvm::Module &llvmModule, llvm::TargetMachine &targetMachine);
 
   /// Hook allowing users to add optimization passes for the ISA serilization
-  virtual LogicalResult addPreCodegenPasses(llvm::legacy::PassManagerBase &pm);
+  virtual LogicalResult addPreCodegenPasses(llvm::legacy::PassManagerBase &pm,
+                                            llvm::TargetMachine &targetMachine);
 
   /// Serializes the target ISA to binary form.
   virtual std::unique_ptr<std::vector<char>>
@@ -100,8 +101,10 @@ void registerGpuSerializeToCubinPass();
 /// Register pass to serialize GPU kernel functions to a HSAco binary
 /// annotation.
 void registerGpuSerializeToHsacoPass();
-std::unique_ptr<Pass> createGpuSerializeToHsacoPass(
-    StringRef triple, StringRef arch, StringRef features);
+std::unique_ptr<Pass> createGpuSerializeToHsacoPass(StringRef triple,
+                                                    StringRef arch,
+                                                    StringRef features,
+                                                    int optLevel);
 
 /// Generate the code for registering passes.
 #define GEN_PASS_REGISTRATION

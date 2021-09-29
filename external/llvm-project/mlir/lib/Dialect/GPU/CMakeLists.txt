@@ -13,6 +13,8 @@ if (MLIR_ENABLE_ROCM_CONVERSIONS)
     AMDGPUCodeGen
     AMDGPUDesc
     AMDGPUInfo
+    ipo
+    target
   )
 endif()
 

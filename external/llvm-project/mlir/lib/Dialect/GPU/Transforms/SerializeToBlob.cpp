@@ -43,7 +43,7 @@ gpu::SerializeToBlobPass::translateToISA(llvm::Module &llvmModule,
   llvm::raw_string_ostream stream(targetISA);
 
   llvm::legacy::PassManager codegenPasses;
-  if (failed(addPreCodegenPasses(codegenPasses))) {
+  if (failed(addPreCodegenPasses(codegenPasses, targetMachine))) {
     return llvm::None;
   }
 
@@ -91,7 +91,7 @@ void gpu::SerializeToBlobPass::runOnOperation() {
 }
 
 LogicalResult gpu::SerializeToBlobPass::addPreCodegenPasses(
-    llvm::legacy::PassManagerBase &pm) {
+    llvm::legacy::PassManagerBase &pm, llvm::TargetMachine &targetMachine) {
   return success();
 }
 
