@@ -33,7 +33,7 @@ class SQLite::impl {
     } else {
       LLVM_DEBUG(dbgs() << "FATAL ERROR! Does not support user db\n");
     }
-    Sqlite3Ptr ptrDb = Sqlite3Ptr{ptr_tmp};
+    ptrDb = Sqlite3Ptr{ptr_tmp};
     return rc;
   }
 
