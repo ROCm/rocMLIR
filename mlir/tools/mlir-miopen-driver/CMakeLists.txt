@@ -22,7 +22,6 @@ set(LIBS
   MLIRSupport
   MLIRIR
   MLIRTestDialect
-  MLIRTargetMIOpenCppTranslation
   MLIRMIOpenThin
   )
 

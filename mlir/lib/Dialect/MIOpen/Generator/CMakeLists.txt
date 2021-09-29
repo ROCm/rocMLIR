@@ -19,7 +19,6 @@ set(LIBS
   MLIRTransforms
   MLIRSupport
   MLIRIR
-  MLIRTargetMIOpenCppTranslation
 )
 
 add_mlir_dialect_library(MLIRMIOpenConv2dGenerator

@@ -17,7 +17,6 @@
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Support/LogicalResult.h"
-#include "mlir/Target/MIOpenCPP.h"
 #include "mlir/Translation.h"
 
 using namespace mlir;
@@ -26,8 +25,6 @@ namespace mlir {
 // Defined in the test directory, no public header.
 void registerTestRoundtripSPIRV();
 void registerTestRoundtripDebugSPIRV();
-
-void registerFromMIOpenToCPPTranslation();
 } // namespace mlir
 
 static void registerTestTranslations() {
@@ -39,7 +36,6 @@ int main(int argc, char **argv) {
   registerAllTranslations();
   registerToROCDLIRTranslation();
   registerTestTranslations();
-  mlir::registerFromMIOpenToCPPTranslation();
   mlir::registerMIOpenConversionPasses();
   miopen::registerPasses();
   return failed(mlirTranslateMain(argc, argv, "MLIR Translation Testing Tool"));
