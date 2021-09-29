@@ -145,7 +145,7 @@ pipeline {
                             when { allOf {
                                 equals expected: false, actual: params.nightly;
                                 // Avoid this test running twice
-                                equals expected: false, actual: params.canXdlops
+                                equals expected: true, actual: params.canXdlops
                             } }
                             steps {
                                 preMergeCheck()
