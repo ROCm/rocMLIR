@@ -45,7 +45,7 @@ public:
     isValid = (rc == 0);
     if (!isValid) {
       LLVM_DEBUG(dbgs() << "FATAL ERROR! COULD NOT OPEN DB "
-                              << "CONNECTION to " << filename_ << "\n";
+                              << "CONNECTION to " << filename_ << "\n");
     } else {
       LLVM_DEBUG(dbgs() << "Successfully opened connection to PerfDb.\n");
     }

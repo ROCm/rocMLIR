@@ -10,7 +10,9 @@ import pandas as pd
 
 def loadMlirData(filename: str):
     df = pd.read_csv(filename, sep=',', header=0, index_col=False)
-    df.drop(columns=['MIOpen TFlops'], inplace=True, errors='ignore')
+    COLUMNS_DROPPED = ['MIOpen TFlops', 'MLIR/MIOpen', 'MIOpen TFlops (Tuned MLIR Kernels)', 
+                       'MIOpen TFlops (Untuned MLIR Kernels)', 'Tuned/Untuned']
+    df.drop(columns=COLUMNS_DROPPED, inplace=True, errors='ignore')
     return df
 
 def summarizeStat(grouped, func, data):
@@ -32,8 +34,7 @@ def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, ne
     oldLabel = f"MLIR TFlops ({oldLabel})"
     newLabel = f"MLIR TFlops ({newLabel})"
     data.rename(columns={'MLIR TFlops_old': oldLabel,
-        'MLIR TFlops_new': newLabel}, inplace=True)
-    data.drop(columns=['MLIR/MIOpen_old', 'MLIR/MIOpen_new'], inplace=True)
+                         'MLIR TFlops_new': newLabel}, inplace=True)
     data['Current/Previous'] = data[newLabel] / data[oldLabel]
 
     columnsToAverage = [oldLabel, newLabel, 'Current/Previous']
@@ -77,4 +78,4 @@ if __name__ == '__main__':
 
     data, summary = computePerfStats(oldDf, newDf, oldLabel, newLabel)
     with open(outputPath, "w") as outputStream:
-        reportUtils.htmlReport(data, summary, "MLIR Performance Changes", "Current/Previous", outputStream)
+        reportUtils.htmlReport(data, summary, "MLIR Performance Changes", ["Current/Previous"], outputStream)
