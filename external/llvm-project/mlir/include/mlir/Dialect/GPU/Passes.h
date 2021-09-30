@@ -64,11 +64,12 @@ private:
   virtual std::unique_ptr<llvm::Module>
   translateToLLVMIR(llvm::LLVMContext &llvmContext);
 
-  // Trannslates the module to ISA
+  /// Translates the module to ISA
   virtual Optional<std::string>
   translateToISA(llvm::Module &llvmModule, llvm::TargetMachine &targetMachine);
 
   /// Hook allowing the application of optimizations before codegen
+  /// By default, does nothing
   virtual LogicalResult optimizeLlvm(llvm::Module &llvmModule,
                                      llvm::TargetMachine &targetMachine);
 

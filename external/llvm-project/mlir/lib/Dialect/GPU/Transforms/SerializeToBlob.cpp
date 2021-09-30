@@ -93,6 +93,8 @@ void gpu::SerializeToBlobPass::runOnOperation() {
 LogicalResult
 gpu::SerializeToBlobPass::optimizeLlvm(llvm::Module &llvmModule,
                                        llvm::TargetMachine &targetMachine) {
+  // TODO: If serializeToCubin ends up defining optimizations, factor them
+  // into here from SerializeToHsaco
   return success();
 }
 
