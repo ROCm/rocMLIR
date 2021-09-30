@@ -1,4 +1,4 @@
-// RUN: mlir-opt  --tosa-to-miopen --tosa-to-linalg-on-tensors --linalg-fuse-elementwise-ops --linalg-bufferize --func-bufferize --buffer-results-to-out-params --finalizing-bufferize -miopen-lowering -miopen-affine-transform -miopen-affix-params -miopen-lowering-step2 -miopen-linalg-align  %s -o -| FileCheck %s
+// RUN: mlir-opt  --tosa-to-miopen --tosa-to-linalg-on-tensors --linalg-fuse-elementwise-ops --linalg-bufferize --func-bufferize --buffer-results-to-out-params --finalizing-bufferize -miopen-affine-transform -miopen-affix-params -miopen-lowering -miopen-lowering-step2 -miopen-linalg-align  %s -o -| FileCheck %s
 
 // CHECK-LABEL: test_fusion
 // CHECK: linalg.generic {indexing_maps = [#map{{.*}}, #map{{.*}}, #map{{.*}}], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel"]} ins(%{{.*}}, %{{.*}} : memref<1x2x4x2x4xf32, #map{{.*}}, 5>, memref<1x2x4x2x4xf32, #map{{.*}}>) outs(%{{.*}} : memref<1x2x4x2x4xf32, #map{{.*}}, 5>)
