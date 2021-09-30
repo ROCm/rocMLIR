@@ -5614,15 +5614,15 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
               GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp),
           GemmABlockCopyClusterLengths_GemmKConstantOp);
 
-      GemmAThreadDataIdBegin_Z = b.create<MulIOp>(
-          loc, GemmABlockCopyThreadClusterId_Z,
-          GemmABlockCopyThreadSliceLengths_GemmKConstantOp);
+      GemmAThreadDataIdBegin_Z =
+          b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_Z,
+                           GemmABlockCopyThreadSliceLengths_GemmKConstantOp);
       GemmAThreadDataIdBegin_Y =
           b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_Y,
                            GemmABlockCopyThreadSliceLengths_GemmMConstantOp);
-      GemmAThreadDataIdBegin_X =
-          b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_X,
-                           GemmABlockCopyThreadSliceLengths_GemmKPackConstantOp);
+      GemmAThreadDataIdBegin_X = b.create<MulIOp>(
+          loc, GemmABlockCopyThreadClusterId_X,
+          GemmABlockCopyThreadSliceLengths_GemmKPackConstantOp);
     } else {
       GemmABlockCopyThreadClusterId_Y = b.create<SignedRemIOp>(
           loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
@@ -5661,8 +5661,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       GemmABlockCopySourceCoord_X_i32 = b.create<AddIOp>(
           loc, zeroConstantI32Op, GemmAThreadDataIdBegin_X_i32);
     } else {
-      GemmABlockCopySourceCoord_Y_i32 =
-          b.create<AddIOp>(loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Y_i32);
+      GemmABlockCopySourceCoord_Y_i32 = b.create<AddIOp>(
+          loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Y_i32);
       GemmABlockCopySourceCoord_X_i32 = b.create<AddIOp>(
           loc, m_block_data_on_global_i32, GemmAThreadDataIdBegin_X_i32);
     }
@@ -5729,15 +5729,15 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                                  GemmBBlockCopyClusterLengths_GemmNConstantOp),
           GemmBBlockCopyClusterLengths_GemmKPackConstantOp);
 
-      GemmBThreadDataIdBegin_Z = b.create<MulIOp>(
-          loc, GemmBBlockCopyThreadClusterId_Z,
-          GemmBBlockCopyThreadSliceLengths_GemmKConstantOp);
+      GemmBThreadDataIdBegin_Z =
+          b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Z,
+                           GemmBBlockCopyThreadSliceLengths_GemmKConstantOp);
       GemmBThreadDataIdBegin_Y =
           b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Y,
                            GemmBBlockCopyThreadSliceLengths_GemmNConstantOp);
-      GemmBThreadDataIdBegin_X =
-          b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_X,
-                           GemmBBlockCopyThreadSliceLengths_GemmKPackConstantOp);
+      GemmBThreadDataIdBegin_X = b.create<MulIOp>(
+          loc, GemmBBlockCopyThreadClusterId_X,
+          GemmBBlockCopyThreadSliceLengths_GemmKPackConstantOp);
     } else {
       GemmBBlockCopyThreadClusterId_Y = b.create<SignedDivIOp>(
           loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
@@ -5771,13 +5771,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     if (KPack > 1) {
       GemmBBlockCopySourceCoord_Z_i32 = b.create<AddIOp>(
           loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Z_i32);
-      GemmBBlockCopySourceCoord_Y_i32 =
-          b.create<AddIOp>(loc, n_block_data_on_global_i32, GemmBThreadDataIdBegin_Y_i32);
+      GemmBBlockCopySourceCoord_Y_i32 = b.create<AddIOp>(
+          loc, n_block_data_on_global_i32, GemmBThreadDataIdBegin_Y_i32);
       GemmBBlockCopySourceCoord_X_i32 = b.create<AddIOp>(
           loc, zeroConstantI32Op, GemmBThreadDataIdBegin_X_i32);
     } else {
-      GemmBBlockCopySourceCoord_Y_i32 =
-          b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Y_i32);
+      GemmBBlockCopySourceCoord_Y_i32 = b.create<AddIOp>(
+          loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Y_i32);
       GemmBBlockCopySourceCoord_X_i32 = b.create<AddIOp>(
           loc, n_block_data_on_global_i32, GemmBThreadDataIdBegin_X_i32);
     }
@@ -6976,15 +6976,15 @@ struct GridwiseGemmV2RewritePattern
               GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp),
           GemmABlockCopyClusterLengths_GemmKConstantOp);
 
-      GemmAThreadDataIdBegin_Z = b.create<MulIOp>(
-          loc, GemmABlockCopyThreadClusterId_Z,
-          GemmABlockCopyThreadSliceLengths_GemmKConstantOp);
+      GemmAThreadDataIdBegin_Z =
+          b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_Z,
+                           GemmABlockCopyThreadSliceLengths_GemmKConstantOp);
       GemmAThreadDataIdBegin_Y =
           b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_Y,
                            GemmABlockCopyThreadSliceLengths_GemmMConstantOp);
-      GemmAThreadDataIdBegin_X =
-          b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_X,
-                           GemmABlockCopyThreadSliceLengths_GemmKPackConstantOp);
+      GemmAThreadDataIdBegin_X = b.create<MulIOp>(
+          loc, GemmABlockCopyThreadClusterId_X,
+          GemmABlockCopyThreadSliceLengths_GemmKPackConstantOp);
     } else {
       GemmABlockCopyThreadClusterId_Y = b.create<SignedRemIOp>(
           loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
@@ -7018,13 +7018,13 @@ struct GridwiseGemmV2RewritePattern
     if (KPack > 1) {
       GemmABlockCopySourceCoord_Z_i32 = b.create<AddIOp>(
           loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Z_i32);
-      GemmABlockCopySourceCoord_Y_i32 =
-          b.create<AddIOp>(loc, m_block_data_on_global_i32, GemmAThreadDataIdBegin_Y_i32);
+      GemmABlockCopySourceCoord_Y_i32 = b.create<AddIOp>(
+          loc, m_block_data_on_global_i32, GemmAThreadDataIdBegin_Y_i32);
       GemmABlockCopySourceCoord_X_i32 = b.create<AddIOp>(
           loc, zeroConstantI32Op, GemmAThreadDataIdBegin_X_i32);
     } else {
-      GemmABlockCopySourceCoord_Y_i32 =
-          b.create<AddIOp>(loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Y_i32);
+      GemmABlockCopySourceCoord_Y_i32 = b.create<AddIOp>(
+          loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Y_i32);
       GemmABlockCopySourceCoord_X_i32 = b.create<AddIOp>(
           loc, m_block_data_on_global_i32, GemmAThreadDataIdBegin_X_i32);
     }
@@ -7090,15 +7090,15 @@ struct GridwiseGemmV2RewritePattern
                                  GemmBBlockCopyClusterLengths_GemmNConstantOp),
           GemmBBlockCopyClusterLengths_GemmKPackConstantOp);
 
-      GemmBThreadDataIdBegin_Z = b.create<MulIOp>(
-          loc, GemmBBlockCopyThreadClusterId_Z,
-          GemmBBlockCopyThreadSliceLengths_GemmKConstantOp);
+      GemmBThreadDataIdBegin_Z =
+          b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Z,
+                           GemmBBlockCopyThreadSliceLengths_GemmKConstantOp);
       GemmBThreadDataIdBegin_Y =
           b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Y,
                            GemmBBlockCopyThreadSliceLengths_GemmNConstantOp);
-      GemmBThreadDataIdBegin_X =
-          b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_X,
-                           GemmBBlockCopyThreadSliceLengths_GemmKPackConstantOp);
+      GemmBThreadDataIdBegin_X = b.create<MulIOp>(
+          loc, GemmBBlockCopyThreadClusterId_X,
+          GemmBBlockCopyThreadSliceLengths_GemmKPackConstantOp);
     } else {
       GemmBBlockCopyThreadClusterId_Y = b.create<SignedDivIOp>(
           loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
@@ -7132,13 +7132,13 @@ struct GridwiseGemmV2RewritePattern
     if (KPack > 1) {
       GemmBBlockCopySourceCoord_Z_i32 = b.create<AddIOp>(
           loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Z_i32);
-      GemmBBlockCopySourceCoord_Y_i32 =
-          b.create<AddIOp>(loc, n_block_data_on_global_i32, GemmBThreadDataIdBegin_Y_i32);
+      GemmBBlockCopySourceCoord_Y_i32 = b.create<AddIOp>(
+          loc, n_block_data_on_global_i32, GemmBThreadDataIdBegin_Y_i32);
       GemmBBlockCopySourceCoord_X_i32 = b.create<AddIOp>(
           loc, zeroConstantI32Op, GemmBThreadDataIdBegin_X_i32);
     } else {
-      GemmBBlockCopySourceCoord_Y_i32 =
-          b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Y_i32);
+      GemmBBlockCopySourceCoord_Y_i32 = b.create<AddIOp>(
+          loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Y_i32);
       GemmBBlockCopySourceCoord_X_i32 = b.create<AddIOp>(
           loc, n_block_data_on_global_i32, GemmBThreadDataIdBegin_X_i32);
     }
@@ -9258,7 +9258,8 @@ struct ThreadwiseLoadRewritePattern
               loc, destElementType, loadedValue,
               b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32)));
           int64_t decomposedTupleIndex = tupleIndex + iter * vectorDimStride;
-          // llvm::errs() << "decomposedTupleIndex: " << decomposedTupleIndex << "\n";
+          // llvm::errs() << "decomposedTupleIndex: " << decomposedTupleIndex <<
+          // "\n";
 
           loadedValues[decomposedTupleIndex] = loadedElement;
         }
@@ -9513,7 +9514,8 @@ struct ThreadwiseStoreRewritePattern
         valueToStore = b.create<SplatOp>(loc, zeroOp, typeToStore);
         for (int64_t iter = 0; iter < dstDataPerWrite; ++iter) {
           int64_t decomposedTupleIndex = tupleIndex + iter * vectorDimStride;
-          // llvm::errs() << "decomposedTupleIndex: " << decomposedTupleIndex << "\n";
+          // llvm::errs() << "decomposedTupleIndex: " << decomposedTupleIndex <<
+          // "\n";
           Value element = b.create<vector::TupleGetOp>(
               loc, sourceElementType, op.data(),
               b.getI32IntegerAttr(decomposedTupleIndex));
@@ -10198,7 +10200,9 @@ struct XdlopsGemmV2RewritePattern
               ilmkb.create<MulIOp>(loc, MPerXdlopsConstantOp, olmiv)));
 
       if (KPack > 1)
-        sourceOffsetBeforeTransformA = ilmkb.create<MulIOp>(loc, sourceOffsetBeforeTransformA, ilmkb.create<ConstantIndexOp>(loc, KPack));
+        sourceOffsetBeforeTransformA =
+            ilmkb.create<MulIOp>(loc, sourceOffsetBeforeTransformA,
+                                 ilmkb.create<ConstantIndexOp>(loc, KPack));
 
       // Apply coord_transform for matrix A if necessarily.
       SmallVector<Value, 8> sourceOffsetA;
@@ -10215,7 +10219,10 @@ struct XdlopsGemmV2RewritePattern
 
       Value valueA;
       if (KPack > 1) {
-        valueA = emitLoadLogic(ilmkb, loc, op.matrixA().getType().template cast<MemRefType>(), op.bufferA().getType().template cast<MemRefType>().getElementType(), false, {}, op.matrixA(), ValueRange{sourceOffsetA});
+        valueA = emitLoadLogic(
+            ilmkb, loc, op.matrixA().getType().template cast<MemRefType>(),
+            op.bufferA().getType().template cast<MemRefType>().getElementType(),
+            false, {}, op.matrixA(), ValueRange{sourceOffsetA});
       } else {
         valueA = ilmkb.create<LoadOp>(loc, dataType, op.matrixA(), sourceOffsetA);
       }
@@ -10247,7 +10254,9 @@ struct XdlopsGemmV2RewritePattern
               ilnkb.create<MulIOp>(loc, NPerXdlopsConstantOp, olniv)));
 
       if (KPack > 1)
-        sourceOffsetBeforeTransformB = ilnkb.create<MulIOp>(loc, sourceOffsetBeforeTransformB, ilnkb.create<ConstantIndexOp>(loc, KPack));
+        sourceOffsetBeforeTransformB =
+            ilnkb.create<MulIOp>(loc, sourceOffsetBeforeTransformB,
+                                 ilnkb.create<ConstantIndexOp>(loc, KPack));
 
       // Apply coord_transform for matrix B if necessarily.
       SmallVector<Value, 8> sourceOffsetB;
@@ -10264,7 +10273,10 @@ struct XdlopsGemmV2RewritePattern
 
       Value valueB;
       if (KPack > 1) {
-        valueB = emitLoadLogic(ilnkb, loc, op.matrixB().getType().template cast<MemRefType>(), op.bufferB().getType().template cast<MemRefType>().getElementType(), false, {}, op.matrixB(), ValueRange{sourceOffsetB});
+        valueB = emitLoadLogic(
+            ilnkb, loc, op.matrixB().getType().template cast<MemRefType>(),
+            op.bufferB().getType().template cast<MemRefType>().getElementType(),
+            false, {}, op.matrixB(), ValueRange{sourceOffsetB});
       } else {
         valueB = ilnkb.create<LoadOp>(loc, dataType, op.matrixB(), sourceOffsetB);
       }
@@ -10355,8 +10367,12 @@ struct XdlopsGemmV2RewritePattern
         } else {
           // bufferA/BElement loaded on LDS are scalars.
           // argA/B to be supplied to MFMA XDLOPS are vectors.
-          argA = innerLoopb.create<vector::TransferReadOp>(loc, argType.template cast<VectorType>(), op.bufferA(), ValueRange{offset});
-          argB = innerLoopb.create<vector::TransferReadOp>(loc, argType.template cast<VectorType>(), op.bufferB(), ValueRange{offset});
+          argA = innerLoopb.create<vector::TransferReadOp>(
+              loc, argType.template cast<VectorType>(), op.bufferA(),
+              ValueRange{offset});
+          argB = innerLoopb.create<vector::TransferReadOp>(
+              loc, argType.template cast<VectorType>(), op.bufferB(),
+              ValueRange{offset});
         }
       } else {
         if (bufferAElementType.isa<VectorType>()) {
@@ -10365,9 +10381,12 @@ struct XdlopsGemmV2RewritePattern
           assert(bufferAElementType.isa<VectorType>());
           assert(bufferBElementType.isa<VectorType>());
 
-          Value innerLoopiv_i32 = innerLoopb.create<IndexCastOp>(loc, innerLoopiv, innerLoopb.getIntegerType(32));
-          argA = innerLoopb.create<vector::ExtractElementOp>(loc, dataType, bufferAElement, innerLoopiv_i32);
-          argB = innerLoopb.create<vector::ExtractElementOp>(loc, dataType, bufferBElement, innerLoopiv_i32);
+          Value innerLoopiv_i32 = innerLoopb.create<IndexCastOp>(
+              loc, innerLoopiv, innerLoopb.getIntegerType(32));
+          argA = innerLoopb.create<vector::ExtractElementOp>(
+              loc, dataType, bufferAElement, innerLoopiv_i32);
+          argB = innerLoopb.create<vector::ExtractElementOp>(
+              loc, dataType, bufferBElement, innerLoopiv_i32);
         } else {
           // bufferA/BElement loaded on LDS are scalars.
           // argA/B to be supplied to MFMA XDLOPS are also scalars.
@@ -10522,7 +10541,8 @@ struct XdlopsGemmV2RewritePattern
           KBaseConstantOp);
 
       Value argA = innerLoopb.create<LoadOp>(loc, argType, op.bufferA(), ValueRange{offset});
-      Value argB = innerLoopb.create<LoadOp>(loc, argType, op.bufferB(), ValueRange{offset});
+      Value argB = innerLoopb.create<LoadOp>(loc, argType, op.bufferB(),
+                                             ValueRange{offset});
 
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
