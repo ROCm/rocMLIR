@@ -5460,8 +5460,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       }
       break;
     case GemmG:
-      llvm_unreachable("Vector loads/stores aren't possible in the G dimension "
-                       "and should not haven been attempted");
+      llvm::errs() << "Vector loads/stores aren't possible in the G dimension "
+                      "and should not haven been attempted";
+      return failure();
     }
 
     // llvm::errs() << "thread slice lengths for Matrix A\n";
@@ -5469,10 +5470,18 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmM << " ";
     // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
 
+    if (GemmABlockCopyThreadSliceLengths_GemmK == 0 ||
+        GemmABlockCopyThreadSliceLengths_GemmM == 0 ||
+        GemmABlockCopyThreadSliceLengths_GemmKPack == 0) {
+      llvm::errs() << "Blockwise copy slice lengths for matrix A is zero which "
+                      "is invalid.\n";
+      return failure();
+    }
+
     // Compute ThreadClusterLengths for Matrix A.
-    int64_t GemmABlockCopyClusterLengths_GemmKPack =
+    uint64_t GemmABlockCopyClusterLengths_GemmKPack =
         KPack / GemmABlockCopyThreadSliceLengths_GemmKPack;
-    int64_t GemmABlockCopyClusterLengths_GemmK =
+    uint64_t GemmABlockCopyClusterLengths_GemmK =
         KPerBlock / GemmABlockCopyThreadSliceLengths_GemmK;
     // int64_t GemmABlockCopyClusterLengths_GemmM =
     //    MPerBlock / GemmABlockCopyThreadSliceLengths_GemmM;
@@ -5522,14 +5531,23 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       }
       break;
     case GemmG:
-      llvm_unreachable("Vector loads/stores aren't possible in the G dimension "
-                       "and should not haven been attempted");
+      llvm::errs() << "Vector loads/stores aren't possible in the G dimension "
+                      "and should not haven been attempted";
+      return failure();
     }
 
     // llvm::errs() << "thread slice lengths for Matrix B\n";
     // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmK << " ";
     // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmN << " ";
     // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
+
+    if (GemmBBlockCopyThreadSliceLengths_GemmK == 0 ||
+        GemmBBlockCopyThreadSliceLengths_GemmN == 0 ||
+        GemmBBlockCopyThreadSliceLengths_GemmKPack == 0) {
+      llvm::errs() << "Blockwise copy slice lengths for matrix B is zero which "
+                      "is invalid.\n";
+      return failure();
+    }
 
     // Compute ThreadClusterLengths for Matrix B.
     uint64_t GemmBBlockCopyClusterLengths_GemmKPack =
@@ -6822,14 +6840,23 @@ struct GridwiseGemmV2RewritePattern
       }
       break;
     case GemmG:
-      llvm_unreachable("Vector loads/stores aren't possible in the G dimension "
-                       "and should not haven been attempted");
+      llvm::errs() << "Vector loads/stores aren't possible in the G dimension "
+                      "and should not haven been attempted";
+      return failure();
     }
 
     // llvm::errs() << "thread slice lengths for Matrix A\n";
     // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmK << " ";
     // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmM << " ";
     // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
+
+    if (GemmABlockCopyThreadSliceLengths_GemmK == 0 ||
+        GemmABlockCopyThreadSliceLengths_GemmM == 0 ||
+        GemmABlockCopyThreadSliceLengths_GemmKPack == 0) {
+      llvm::errs() << "Blockwise copy slice lengths for matrix A is zero which "
+                      "is invalid.\n";
+      return failure();
+    }
 
     // Compute ThreadClusterLengths for Matrix A.
     uint64_t GemmABlockCopyClusterLengths_GemmKPack =
@@ -6886,14 +6913,23 @@ struct GridwiseGemmV2RewritePattern
       }
       break;
     case GemmG:
-      llvm_unreachable("Vector loads/stores aren't possible in the G dimension "
-                       "and should not haven been attempted");
+      llvm::errs() << "Vector loads/stores aren't possible in the G dimension "
+                      "and should not haven been attempted";
+      return failure();
     }
 
     // llvm::errs() << "thread slice lengths for Matrix B\n";
     // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmK << " ";
     // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmN << " ";
     // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
+
+    if (GemmBBlockCopyThreadSliceLengths_GemmK == 0 ||
+        GemmBBlockCopyThreadSliceLengths_GemmN == 0 ||
+        GemmBBlockCopyThreadSliceLengths_GemmKPack == 0) {
+      llvm::errs() << "Blockwise copy slice lengths for matrix B is zero which "
+                      "is invalid.\n";
+      return failure();
+    }
 
     assert(GemmBBlockCopyThreadSliceLengths_GemmK > 0);
     assert(GemmBBlockCopyThreadSliceLengths_GemmN > 0);
