@@ -138,7 +138,7 @@ computeLoadStoreTypeInfo(OpBuilder &b, T &gop, Type elementType,
 
   // In case KPack and vector load is used, use the last dimensions.
   if (loadLength > 1 && KPack > 1) {
-    // XXX.
+    // XXX. MUST REVIEW THIS PER DIFFERENT LAYOUT CONFIG.
     if (isMatrixA) {
       vectorDim = dims.size() - 1;
     } else {
@@ -1419,21 +1419,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
   const static miopen::ConvOpType convOpType;
   using OpRewritePattern<T>::OpRewritePattern;
 
-  int64_t computeKPack(PatternRewriter &b, int64_t gemmK,
-                       Type inputElementType) const {
-    // FIXME. Hard-code initial KPack as 4 for f16, 4 for f32 now.
-    int64_t KPack = 1;
-    if (inputElementType == b.getF16Type()) {
-      KPack = 4;
-    } else if (inputElementType == b.getF32Type()) {
-      KPack = 4;
-    }
-    while (gemmK % KPack != 0)
-      KPack /= 2;
-    // llvm::errs() << "KPack: " << KPack << "\n";
-    return KPack;
-  }
-
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
     bool isXdlops = false;
     auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
@@ -1449,6 +1434,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     auto archAttr = op->template getAttrOfType<StringAttr>("arch");
     auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
+
+    auto KPackAttr = op->template getAttrOfType<IntegerAttr>("kpack");
+    int64_t KPack = KPackAttr.getInt();
 
     auto filterLayoutAttr =
         op->template getAttrOfType<ArrayAttr>("filter_layout");
@@ -1632,10 +1620,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // compute padding hi/wi.
     auto hiPadded = hi + leftPadH + rightPadH;
     auto wiPadded = wi + leftPadW + rightPadW;
-
-    // Compute KPACK.
-    assert(filterElementType == inputElementType);
-    int64_t KPack = computeKPack(b, gemmK_size + gemmKExtra, filterElementType);
 
     // Transform filter tensor.
 

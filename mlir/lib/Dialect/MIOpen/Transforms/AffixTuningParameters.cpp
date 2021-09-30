@@ -80,6 +80,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("m_per_wave", b.getI32IntegerAttr(validParams.gemmMPerWave));
     op->setAttr("n_per_wave", b.getI32IntegerAttr(validParams.gemmNPerWave));
     op->setAttr("block_size", b.getI32IntegerAttr(blockSize));
+    op->setAttr("kpack", b.getI32IntegerAttr(validParams.gemmKPack));
 
     // Set attributes on the function.
     getFunction()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
@@ -130,6 +131,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("n_per_thread",
                 b.getI32IntegerAttr(validParams.gemmNPerThread));
     op->setAttr("block_size", b.getI32IntegerAttr(validParams.blockSize));
+    // For non-XDLOPS path, do not use KPack for now.
+    op->setAttr("kpack", b.getI32IntegerAttr(1));
 
     // Set attributes on the function.
     getFunction()->setAttr("block_size",

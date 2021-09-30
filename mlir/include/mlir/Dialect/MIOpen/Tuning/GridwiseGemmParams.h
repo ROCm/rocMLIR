@@ -741,17 +741,14 @@ class PopulateParamsXDL : public PopulateParamsBase {
 private:
   llvm::SmallVector<InitParamsXDL, 4> initParameters = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-      // FIXME. Temporarily disable this config to restrict MRepeats/NRepeats
-      // to 1 to reduce potential AGPR spills.
-      //{256, 128, 16, 128, 64, 0, false, false},
-      {128, 128, 4, 64, 64, 0, false, false},
-      {128, 128, 8, 64, 64, 0, false, false},
-      {128, 128, 16, 64, 64, 0, false, false},
-      {8, 64, 8, 8, 64, 0, false, false},
-      {4, 64, 16, 4, 64, 0, false, false},
-      {32, 64, 4, 32, 64, 0, false, false},
-      {16, 16, 16, 16, 16, 0, false, false},
-      {16, 16, 4, 16, 16, 0, false, false},
+      {128, 128, 4, 64, 64, 4, false, false},
+      {128, 128, 8, 64, 64, 4, false, false},
+      {128, 128, 16, 64, 64, 4, false, false},
+      {8, 64, 8, 8, 64, 4, false, false},
+      {4, 64, 16, 4, 64, 4, false, false},
+      {32, 64, 4, 32, 64, 4, false, false},
+      {16, 16, 16, 16, 16, 4, false, false},
+      {16, 16, 4, 16, 16, 4, false, false},
   };
   const int64_t waveSize = 64;
 
