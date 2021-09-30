@@ -20,6 +20,7 @@
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/Transforms/IPO/PassManagerBuilder.h"
 
 using namespace mlir;
 
@@ -38,7 +39,10 @@ static std::string translateToISA(llvm::Module &llvmModule,
   std::string targetISA;
   llvm::raw_string_ostream stream(targetISA);
   llvm::buffer_ostream pstream(stream);
+  llvm::PassManagerBuilder builder;
+  builder.OptLevel = 3;
   llvm::legacy::PassManager codegenPasses;
+  builder.populateModulePassManager(codegenPasses);
   targetMachine.addPassesToEmitFile(codegenPasses, pstream, nullptr,
                                     llvm::CGFT_AssemblyFile);
   codegenPasses.run(llvmModule);

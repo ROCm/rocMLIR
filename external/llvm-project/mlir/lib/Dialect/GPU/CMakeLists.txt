@@ -50,6 +50,7 @@ add_mlir_dialect_library(MLIRGPUTransforms
 
   LINK_COMPONENTS
   Core
+  IPO
   MC
   ${NVPTX_LIBS}
   ${AMDGPU_LIBS}
