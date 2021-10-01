@@ -1,4 +1,6 @@
-// RUN: mlir-opt -test-miopen-lowering-gpu-module -convert-miopen-to-gpu %s | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: mlir-opt -test-miopen-lowering-gpu-module -convert-miopen-to-gpu %s \
+// RUN: | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext \
+// RUN: --entry-point-result=void | FileCheck %s
 
 module attributes {gpu.container_module} {
   gpu.module @gpu_kernels {
