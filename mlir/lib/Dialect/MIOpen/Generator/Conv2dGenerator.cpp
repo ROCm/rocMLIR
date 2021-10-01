@@ -104,9 +104,11 @@ LogicalResult hasDimensions(const llvm::StringMap<int64_t> &map,
   return success();
 }
 
-LogicalResult smallEnough(const ArrayRef<int64_t> dims, size_t elemWidth, StringRef name) {
+LogicalResult smallEnough(const ArrayRef<int64_t> dims, size_t elemWidth,
+                          StringRef name) {
   int64_t size = std::accumulate(dims.begin(), dims.end(), 1LL,
-    std::multiplies<int64_t>()) * elemWidth;
+                                 std::multiplies<int64_t>()) *
+                 elemWidth;
   if (size >= (1LL << 31)) { // 2^31 = 2 GB
     llvm::dbgs() << name << " tensor cannot be larger than 2 GB\n";
     return failure();
@@ -146,10 +148,11 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
     return failure();
   }
 
-  static const llvm::StringMap<size_t> typeWidths{
-    {"f32", sizeof(float)}, {"fp32", sizeof(float)},
-    {"fp16", 2}, {"f16", 2},
-    {"bf16", sizeof(uint16_t)}};
+  static const llvm::StringMap<size_t> typeWidths{{"f32", sizeof(float)},
+                                                  {"fp32", sizeof(float)},
+                                                  {"fp16", 2},
+                                                  {"f16", 2},
+                                                  {"bf16", sizeof(uint16_t)}};
 
   auto checkDimSizes = [](const SmallVector<int64_t, 5> &dims) -> bool {
     return std::all_of(dims.begin(), dims.end(),
@@ -233,10 +236,10 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
     return failure();
   }
 
-  if (failed(smallEnough(config.inputDimension, elementWidth, "input"))
-    || failed(smallEnough(config.filterDimension, elementWidth, "filter"))
-    || failed(smallEnough(config.outputDimension, elementWidth, "output"))) {
-      return failure();
+  if (failed(smallEnough(config.inputDimension, elementWidth, "input")) ||
+      failed(smallEnough(config.filterDimension, elementWidth, "filter")) ||
+      failed(smallEnough(config.outputDimension, elementWidth, "output"))) {
+    return failure();
   }
 
   return success();
