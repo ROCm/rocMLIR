@@ -16,6 +16,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/Support/Debug.h"
 
 #include <algorithm>
 #include <functional>
@@ -107,7 +108,7 @@ LogicalResult smallEnough(const ArrayRef<int64_t> dims, size_t elemWidth, String
   int64_t size = std::accumulate(dims.begin(), dims.end(), 1LL,
     std::multiplies<int64_t>()) * elemWidth;
   if (size >= (1LL << 31)) { // 2^31 = 2 GB
-    llvm::errs() << name << " tensor cannot be larger than 2 GB\n";
+    llvm::dbgs() << name << " tensor cannot be larger than 2 GB\n";
     return failure();
   }
   return success();
@@ -146,9 +147,9 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
   }
 
   static const llvm::StringMap<size_t> typeWidths{
-    {"f32", 4}, {"fp32", 4},
+    {"f32", sizeof(float)}, {"fp32", sizeof(float)},
     {"fp16", 2}, {"f16", 2},
-    {"bf16", 4}};
+    {"bf16", sizeof(uint16_t)}};
 
   auto checkDimSizes = [](const SmallVector<int64_t, 5> &dims) -> bool {
     return std::all_of(dims.begin(), dims.end(),
