@@ -11,10 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 #include "mlir/Dialect/GPU/Passes.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
-#include "llvm/IR/LegacyPassManager.h"
-#include "llvm/Support/CodeGen.h"
-#include "llvm/Support/Error.h"
+#include "llvm/IR/Module.h"
 #include "llvm/Target/CGPassBuilderOption.h"
 
 #if MLIR_GPU_TO_HSACO_PASS_ENABLE
@@ -23,6 +22,20 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
+
+#include "llvm/ADT/APInt.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+
+#include "llvm/IR/Constants.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/GlobalValue.h"
+#include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/LegacyPassManager.h"
+
+#include "llvm/IRReader/IRReader.h"
+#include "llvm/Linker/Linker.h"
 
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCAsmInfo.h"
@@ -34,21 +47,31 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 
+#include "llvm/Support/Alignment.h"
+#include "llvm/Support/CodeGen.h"
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Error.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FileUtilities.h"
-#include "llvm/Support/LineIterator.h"
+#include "llvm/Support/Path.h"
+#include "llvm/Support/Process.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/WithColor.h"
+
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
 
+#include "llvm/Transforms/IPO/Internalize.h"
+
 #include "lld/Common/Driver.h"
 
-#include "hip/hip_version.h"
-
+#include <iterator>
+#include <memory>
 #include <mutex>
+#include <string>
 
 using namespace mlir;
 
@@ -56,6 +79,24 @@ namespace {
 class SerializeToHsacoPass
     : public PassWrapper<SerializeToHsacoPass, gpu::SerializeToBlobPass> {
 public:
+  // Needed to make options work
+  SerializeToHsacoPass();
+  SerializeToHsacoPass(const SerializeToHsacoPass &other) {
+    if (other.triple.hasValue()) {
+      this->triple = other.triple;
+    }
+    if (other.chip.hasValue()) {
+      this->chip = other.chip;
+    }
+    if (other.features.hasValue()) {
+      this->features = other.features;
+    }
+    if (other.rocmPath.hasValue()) {
+      this->rocmPath = other.rocmPath;
+    }
+    this->optLevel = other.optLevel;
+  };
+
   SerializeToHsacoPass(StringRef triple, StringRef arch, StringRef features,
                        int optLevel);
 
@@ -64,12 +105,20 @@ public:
     return "Lower GPU kernel function to HSACO binary annotations";
   }
 
+protected:
+  Option<std::string> rocmPath{*this, "rocm-path",
+                               llvm::cl::desc("Path to ROCm install")};
+
 private:
   void getDependentDialects(DialectRegistry &registry) const override;
 
   // Serializes ROCDL to HSACO.
   std::unique_ptr<std::vector<char>>
   serializeISA(const std::string &isa) override;
+
+  // Overload to allow linking in device libs
+  std::unique_ptr<llvm::Module>
+  translateToLLVMIR(llvm::LLVMContext &llvmContext) override;
 
   // Adds LLVM optimization passes
   LogicalResult optimizeLlvm(llvm::Module &llvmModule,
@@ -79,65 +128,24 @@ private:
   std::unique_ptr<std::vector<char>>
   createHsaco(const SmallVectorImpl<char> &isaBinary);
 
+  std::string getRocmPath();
+
   int optLevel;
 };
-} // namespace
+} // end namespace
 
-static std::string getDefaultChip() {
-  const char kDefaultChip[] = "gfx900";
+/// Get a user-specified path to ROCm
+// Tries, in order, the --rocm-path option, the ROCM_PATH environment variable
+// and a compile-time default
 
-  // Locate rocm_agent_enumerator.
-  const char kRocmAgentEnumerator[] = "rocm_agent_enumerator";
-  llvm::ErrorOr<std::string> rocmAgentEnumerator = llvm::sys::findProgramByName(
-      kRocmAgentEnumerator, {__ROCM_PATH__ "/bin"});
-  if (!rocmAgentEnumerator) {
-    llvm::WithColor::warning(llvm::errs())
-        << kRocmAgentEnumerator << "couldn't be located under " << __ROCM_PATH__
-        << "/bin\n";
-    return kDefaultChip;
+std::string SerializeToHsacoPass::getRocmPath() {
+  if (rocmPath.getNumOccurrences() > 0) {
+    return rocmPath.getValue();
   }
-
-  // Prepare temp file to hold the outputs.
-  int tempFd = -1;
-  SmallString<128> tempFilename;
-  if (llvm::sys::fs::createTemporaryFile("rocm_agent", "txt", tempFd,
-                                         tempFilename)) {
-    llvm::WithColor::warning(llvm::errs())
-        << "temporary file for " << kRocmAgentEnumerator << " creation error\n";
-    return kDefaultChip;
+  if (auto env = llvm::sys::Process::GetEnv("ROCM_PATH")) {
+    return env.getValue();
   }
-  llvm::FileRemover cleanup(tempFilename);
-
-  // Invoke rocm_agent_enumerator.
-  std::string errorMessage;
-  SmallVector<StringRef, 2> args{"-t", "GPU"};
-  Optional<StringRef> redirects[3] = {{""}, tempFilename.str(), {""}};
-  int result =
-      llvm::sys::ExecuteAndWait(rocmAgentEnumerator.get(), args, llvm::None,
-                                redirects, 0, 0, &errorMessage);
-  if (result) {
-    llvm::WithColor::warning(llvm::errs())
-        << kRocmAgentEnumerator << " invocation error: " << errorMessage
-        << "\n";
-    return kDefaultChip;
-  }
-
-  // Load and parse the result.
-  auto gfxIsaList = openInputFile(tempFilename);
-  if (!gfxIsaList) {
-    llvm::WithColor::error(llvm::errs())
-        << "read ROCm agent list temp file error\n";
-    return kDefaultChip;
-  }
-  for (llvm::line_iterator lines(*gfxIsaList); !lines.is_at_end(); ++lines) {
-    // Skip the line with content "gfx000".
-    if (*lines == "gfx000")
-      continue;
-    // Use the first ISA version found.
-    return lines->str();
-  }
-
-  return kDefaultChip;
+  return __DEFAULT_ROCM_PATH__;
 }
 
 // Sets the 'option' to 'value' unless it already has a value.
@@ -152,7 +160,6 @@ SerializeToHsacoPass::SerializeToHsacoPass(StringRef triple, StringRef arch,
     : optLevel(optLevel) {
   maybeSetOption(this->triple, [&triple] { return triple.str(); });
   maybeSetOption(this->chip, [&arch] {
-    //static auto chip = getDefaultChip();
     return arch.str();
   });
   maybeSetOption(this->features, [&features] { return features.str(); });
@@ -162,6 +169,182 @@ void SerializeToHsacoPass::getDependentDialects(
     DialectRegistry &registry) const {
   registerROCDLDialectTranslation(registry);
   gpu::SerializeToBlobPass::getDependentDialects(registry);
+}
+
+static Optional<SmallVector<std::unique_ptr<llvm::Module>, 3>>
+loadLibraries(SmallVectorImpl<char> &path,
+              SmallVectorImpl<StringRef> &libraries,
+              llvm::LLVMContext &context) {
+  SmallVector<std::unique_ptr<llvm::Module>, 3> ret;
+  auto dirLength = path.size();
+
+  if (!llvm::sys::fs::is_directory(path)) {
+    llvm::dbgs() << "Bitcode path: " << path
+                 << " does not exist or is not a directory\n";
+    return llvm::None;
+  }
+
+  for (const auto &file : libraries) {
+    llvm::SMDiagnostic error;
+    llvm::sys::path::append(path, file);
+    llvm::StringRef pathRef(path.data(), path.size());
+    std::unique_ptr<llvm::Module> library =
+        llvm::getLazyIRFileModule(pathRef, error, context);
+    path.set_size(dirLength);
+    if (!library) {
+      llvm::dbgs() << "Failed to load library " << file << " from " << path;
+      error.print("[MLIR backend]", llvm::dbgs());
+      return llvm::None;
+    }
+    // Some ROCM builds don't strip this like they should
+    if (auto *openclVersion = library->getNamedMetadata("opencl.ocl.version")) {
+      library->eraseNamedMetadata(openclVersion);
+    }
+    // Stop spamming us with clang version numbers
+    if (auto *ident = library->getNamedMetadata("llvm.ident")) {
+      library->eraseNamedMetadata(ident);
+    }
+    ret.push_back(std::move(library));
+  }
+
+  return ret;
+}
+
+std::unique_ptr<llvm::Module>
+SerializeToHsacoPass::translateToLLVMIR(llvm::LLVMContext &llvmContext) {
+  // MLIR -> LLVM translation
+  std::unique_ptr<llvm::Module> ret =
+      gpu::SerializeToBlobPass::translateToLLVMIR(llvmContext);
+
+  if (!ret) {
+    llvm::dbgs() << "Module creation failed";
+    return ret;
+  }
+  // Walk the LLVM module in order to determine if we need to link in device
+  // libs
+  bool needOpenCl = false;
+  bool needOckl = false;
+  bool needOcml = false;
+  for (auto &f : ret->functions()) {
+    if (f.hasExternalLinkage() && f.hasName() && !f.hasExactDefinition()) {
+      StringRef funcName = f.getName();
+      if ("printf" == funcName) {
+        needOpenCl = true;
+      }
+      if (funcName.startswith("__ockl_")) {
+        needOckl = true;
+      }
+      if (funcName.startswith("__ocml_")) {
+        needOcml = true;
+      }
+    }
+  }
+
+  if (needOpenCl) {
+    needOcml = needOckl = true;
+  }
+
+  // No libraries needed (the typical case)
+  if (!(needOpenCl || needOcml || needOckl)) {
+    return ret;
+  }
+
+  auto addControlConstant = [&module = *ret](StringRef name, uint32_t value,
+                                             uint32_t bitwidth) {
+    using llvm::GlobalVariable;
+    if (module.getNamedGlobal(name)) {
+      return;
+    }
+    llvm::IntegerType *type =
+        llvm::IntegerType::getIntNTy(module.getContext(), bitwidth);
+    auto *initializer = llvm::ConstantInt::get(type, value, /*isSigned=*/false);
+    auto *constant = new GlobalVariable(
+        module, type,
+        /*isConstant=*/true, GlobalVariable::LinkageTypes::LinkOnceODRLinkage,
+        initializer, name,
+        /*before=*/nullptr,
+        /*threadLocalMode=*/GlobalVariable::ThreadLocalMode::NotThreadLocal,
+        /*addressSpace=*/4);
+    constant->setUnnamedAddr(GlobalVariable::UnnamedAddr::Local);
+    constant->setVisibility(
+        GlobalVariable::VisibilityTypes::ProtectedVisibility);
+    constant->setAlignment(llvm::MaybeAlign(bitwidth / 8));
+  };
+
+  // Set up control variables in the module instead of linking in tiny bitcode
+  if (needOcml) {
+    addControlConstant("__oclc_finite_only_opt", optLevel >= 2, 8);
+    addControlConstant("__oclc_daz_opt", optLevel >= 1, 8);
+    addControlConstant("__oclc_correctly_rounded_sqrt32", optLevel >= 3, 8);
+    addControlConstant("__oclc_unsafe_math_opt", 0, 8);
+  }
+  if (needOcml || needOckl) {
+    addControlConstant("__oclc_wavefrontsize64", 1, 8);
+    StringRef chipSet = this->chip.getValue();
+    if (chipSet.startswith("gfx")) {
+      chipSet = chipSet.substr(3);
+    }
+    uint32_t minor =
+        llvm::APInt(32, chipSet.substr(chipSet.size() - 2), 16).getZExtValue();
+    uint32_t major = llvm::APInt(32, chipSet.substr(0, chipSet.size() - 2), 10)
+                         .getZExtValue();
+    uint32_t isaNumber = minor + 1000 * major;
+    addControlConstant("__oclc_ISA_version", isaNumber, 32);
+  }
+
+  // Determine libraries we need to link
+  llvm::SmallVector<StringRef, 4> libraries;
+  if (needOpenCl) {
+    libraries.push_back("opencl.bc");
+  }
+  if (needOcml) {
+    libraries.push_back("ocml.bc");
+  }
+  if (needOckl) {
+    libraries.push_back("ockl.bc");
+  }
+
+  Optional<SmallVector<std::unique_ptr<llvm::Module>, 3>> mbModules;
+  auto theRocmPath = getRocmPath();
+  llvm::SmallString<32> bitcodePath(theRocmPath);
+  llvm::sys::path::append(bitcodePath, "amdgcn", "bitcode");
+  mbModules = loadLibraries(bitcodePath, libraries, llvmContext);
+
+  // Handle legacy override variable
+  auto env = llvm::sys::Process::GetEnv("HIP_DEVICE_LIB_PATH");
+  if (env && (rocmPath.getNumOccurrences() == 0)) {
+    llvm::SmallString<32> overrideValue(env.getValue());
+    auto mbAtOldPath = loadLibraries(overrideValue, libraries, llvmContext);
+    if (mbAtOldPath) {
+      mbModules = std::move(mbAtOldPath);
+    }
+  }
+
+  if (!mbModules) {
+    llvm::WithColor::warning(llvm::errs())
+        << "Warning: Could not load required device labraries\n";
+    llvm::WithColor::note(llvm::errs())
+        << "Note: this will probably cause link-time or run-time failures\n";
+    return ret; // We can still abort here
+  }
+
+  llvm::Linker linker(*ret);
+  for (auto &libModule : mbModules.getValue()) {
+    // Failure is true
+    auto err = linker.linkInModule(
+        std::move(libModule), llvm::Linker::Flags::LinkOnlyNeeded,
+        [](llvm::Module &m, const StringSet<> &gvs) {
+          llvm::internalizeModule(m, [&gvs](const llvm::GlobalValue &gv) {
+            return !gv.hasName() || (gvs.count(gv.getName()) == 0);
+          });
+        });
+    if (err) {
+      llvm::errs() << "Error: Failure in library bitcode linking\n";
+      // We have no guaranties about the state of `ret`, so bail
+      return nullptr;
+    }
+  }
+  return ret;
 }
 
 LogicalResult
@@ -323,9 +506,8 @@ void mlir::registerGpuSerializeToHsacoPass() {
         LLVMInitializeAMDGPUTargetInfo();
         LLVMInitializeAMDGPUTargetMC();
 
-        auto chip = getDefaultChip();
-        return std::make_unique<SerializeToHsacoPass>("amdgcn-amd-amdhsa", chip,
-                                                      "", 2);
+        return std::make_unique<SerializeToHsacoPass>(
+            "", "[GARBAGE]", "+veryfake,-cantsurface", -1);
       });
 }
 
