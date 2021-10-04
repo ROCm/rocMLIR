@@ -108,9 +108,6 @@ pipeline {
     }
     stages {
         stage("Whole-model runs") {
-            when {
-                beforeAgent true;
-            }
             agent {
                 docker {
                     image "pcf0/mlir-plus-tf"
