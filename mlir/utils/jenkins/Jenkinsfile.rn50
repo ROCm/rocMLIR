@@ -1,0 +1,125 @@
+// ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
+void buildProject(String target, String cmakeOpts) {
+    cmakeBuild generator: 'Ninja',\
+        buildDir: 'build',\
+        buildType: 'RelWithDebInfo',\
+        installation: 'InSearchPath',\
+        steps: [[args: target]],\
+        cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
+}
+
+void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
+    git branch: 'develop', poll: false,\
+        url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+    cmake arguments: "-P install_deps.cmake --minimum ${prefixOpt}",\
+        installation: "InSearchPath"
+    sh '[ ! -d build ] || rm -rf build'
+    cmakeBuild generator: 'Unix Makefiles',\
+        buildDir: 'build',\
+        buildType: 'Release',\
+        installation: 'InSearchPath',\
+        cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                     -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                     ${cmakeOpts}
+                     """
+    sh 'cd build; make -j $(nproc) MIOpenDriver'
+}
+
+void showEnv() {
+    sh 'hostname'
+    sh 'cat /etc/os-release'
+    sh '/opt/rocm/bin/rocm-smi'
+}
+
+String dockerArgs() {
+    return '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+}
+
+String dockerImage() {
+    return 'rocm/mlir:rocm4.1-latest'
+}
+
+void preMergeCheck() {
+    sh '''
+    if [ ! -f ./build/compile_commands.json ];  then
+      echo "No compile commands, bailing."
+      exit 1
+    fi
+    if [ ! -f ./compile_commands.json ]; then
+      ln -s build/compile_commands.json compile_commands.json
+    fi
+    '''
+    sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
+}
+
+void testMIOpenDriver(String dtype, String xdlops, String layout, String direction, String tuning) {
+    echo "Config is (${dtype}, ${layout}, xdlops=${xdlops}, dir=${direction}, tuning=${tuning})"
+    sh 'ldconfig'
+    dir('MIOpen/build/') {
+        sh """
+        bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh \
+        --layout ${layout} \
+        --direction ${direction} \
+        --dtype ${dtype} \
+        ${xdlops == '1' ? '--xdlops' : '--no-xdlops'} \
+        ${tuning == '1' ? '--tuning' : '--no-tuning'} \
+        < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+    }
+}
+
+void postProcessPerfRes() {
+    publishHTML (target: [
+        allowMissing: false,
+        alwaysLinkToLastBuild: false,
+        keepAll: true,
+        reportDir: 'build',
+        reportFiles: 'MLIR_Performance_Changes.html,MLIR_vs_MIOpen.html',
+        reportName: 'Performance report'
+    ])
+
+    plot csvFileName: 'plot-nightly-perf-results-000001.csv',\
+        csvSeries: [[file: 'build/mlir_vs_miopen_perf_for_plot.csv', displayTableFlag: false]],\
+        title: 'Test performance summary',\
+        yaxis: 'TFlops',\
+        style: 'line',\
+        group: 'Performance plots'
+
+    // Save results for future comparison
+    archiveArtifacts artifacts: 'build/mlir_*.csv,build/perf-run-date', onlyIfSuccessful: true
+}
+
+pipeline {
+    agent none
+    parameters {
+        // Below should be set statically by Jenkins job
+        booleanParam(name: 'nightly', defaultValue: params.nightly ?: false,
+                     description: 'Run extra nightly-only tests')
+        booleanParam(name: 'canXdlops', defaultValue: params.canXdlops ?: false,
+                     description: 'Can this CI instance use xdlops (no for public server)')
+
+        // Each below control whether to run a individual stage from parallel run
+        // They default to true but deverloper can toggle them for debugging purpose
+        booleanParam(name: 'sharedLib', defaultValue: true,
+                     description: 'Run the shared library stage')
+        booleanParam(name: 'staticLib', defaultValue: true,
+                     description: 'Run the static library stage')
+        booleanParam(name: 'perfTest', defaultValue: true,
+                     description: 'Run the performance testing stage')
+    }
+    stages {
+        stage("Whole-model runs") {
+            agent {
+                docker {
+                    image "pcf0/mlir-plus-tf"
+                    args dockerArgs()
+                    label "${params.canXdlops ? 'gfx908' : 'rocm' }"
+                    alwaysPull true
+                }
+            }
+            steps {
+                sh 'apt install -y parallel'
+                buildProject('check-mlir check-mlir-miopen', '-DMLIR_INCLUDE_TESTS=ON -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=1 -DCMAKE_EXPORT_COMPILE_COMMANDS=1')
+            }
+        }
+    }
+}
