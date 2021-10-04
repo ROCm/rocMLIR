@@ -117,7 +117,7 @@ pipeline {
                 }
             }
             steps {
-                sh 'apt install parallel'
+                sh 'apt install -y parallel'
                 buildProject('check-mlir-miopen', '')
             }
         }
