@@ -269,7 +269,7 @@ pipeline {
                                 stash name:"MIOpen-kernels",\
                                    includes: "MIOpen/build/**"
                            }
-                        } 
+                        }
                         stage("Build libMLIRMIOpen and MLIR") {
                             steps {
                                 buildProject('libMLIRMIOpen', '-DBUILD_FAT_LIBMLIRMIOPEN=ON')
@@ -281,7 +281,7 @@ pipeline {
                             steps {
                                 dir('MIOpen') {
                                 getAndBuildMIOpen('--prefix ./MIOpenDeps',
-                                       '''-DMIOPEN_BACKEND=HIP -DMIOPEN_USE_MLIR=On 
+                                       '''-DMIOPEN_BACKEND=HIP -DMIOPEN_USE_MLIR=On
                                           -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
                                           -DMIOPEN_USER_DB_PATH=${WORKSPACE}/MIOpen/build/MIOpenUserDB
                                        ''')
@@ -348,7 +348,7 @@ pipeline {
                                 stash name:"Perf-report", includes:"build/mlir_vs_miopen_perf.csv"
                             }
                         }
-                    }   
+                    }
                     post {
                         always {
                            cleanWs()
@@ -389,7 +389,7 @@ pipeline {
                                    sh 'rm -rf MIOpen/build/MIOpenUserDB'
                                    sh 'python3 ./bin/MIOpenDriver.py -bmiopen_use_untuned_mlir'
                                }
-                               stash name:"MLIR-kernel-reports", 
+                               stash name:"MLIR-kernel-reports",
                                      includes:"build/miopen_tuned_perf.csv, build/miopen_untuned_perf.csv"
                            }
                        }
@@ -519,6 +519,26 @@ pipeline {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        stage("Whole-model runs") {
+            when {
+                beforeAgent true;
+            }
+            agent {
+                docker {
+                    image "pcf0/mlir-plus-tf"
+                    args dockerArgs()
+                    label "${params.canXdlops ? 'gfx908' : 'rocm' }"
+                    alwaysPull true
+                }
+            }
+            steps {
+                buildProject('mlir-opt mlir-cpu-runner mlir-rocm-runner', '')
+                dir('build') {
+                    sh 'python3 issue-152/resnet50-test.py 590px-Red_Smooth_Saluki.jpg |  /tensorflow/bazel-bin/tensorflow/compiler/mlir/tf-opt -tensor-bufferize --tf-to-tosa-pipeline | ./bin/mlir-opt --tosa-partition --tosa-to-linalg-on-tensors --tosa-to-standard --linalg-detensorize -tensor-constant-bufferize -std-bufferize -linalg-bufferize -tensor-bufferize -func-bufferize -finalizing-bufferize --convert-linalg-to-loops --tosa-to-standard -lower-affine -convert-linalg-to-llvm --convert-scf-to-std --convert-math-to-llvm --convert-std-to-llvm --reconcile-unrealized-casts | ./bin/mlir-cpu-runner -e main -entry-point-result=void -shared-libs=./lib/libmlir_runner_utils.so,./lib/libmlir_c_runner_utils.so'
                 }
             }
         }
