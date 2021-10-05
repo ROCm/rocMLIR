@@ -145,7 +145,7 @@ function run_tests() {
     # command-line argument
     # The 'awk' invocation prints all lines of output while ensuring indicators of
     # success are present
-    parallel bash -c {} '|' awk \
+    parallel -j 1 bash -c {} '|' awk \
     "'BEGIN { status=2 } /Verifies OK/ { status=status-1 } /ConvMlirIgemm/ { status=status-1 } 1; END { exit(status) }'" \
     <"$TMPFILE"
     exit_status=$?
