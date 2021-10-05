@@ -18,7 +18,7 @@ if [[ "$1" == "--test-only-ops" ]]; then
 fi
 
 declare -i exit_status
-parallel run-conv-integration-test.sh -p=false "$@" \
+parallel -j 1 run-conv-integration-test.sh -p=false "$@" \
     @MLIR_XDLOPS@  @MLIR_POPULATE_VALIDATION@ @MLIR_RANDOM_DATA@ \
     --operation {1} --in_layout {2} --fil_layout {3} --out_layout {4} -t {5} -c \
     '|' perl -e "'$perl_validation_prog'" ::: "${operations[@]}" \
