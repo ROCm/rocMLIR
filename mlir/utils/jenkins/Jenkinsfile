@@ -114,9 +114,9 @@ pipeline {
                 }
             }
         }
-        stage("Builds and tests") {
+        stage("Build and Test") {
             parallel {
-                stage("Shared library: fixed E2E test") {
+                stage("Shared Library: fixed E2E tests") {
                     when {
                         beforeAgent true;
                         equals expected: true, actual: params.sharedLib;
@@ -164,7 +164,7 @@ pipeline {
                         }
                     }
                 }
-                stage("Shared library: random E2E test") {
+                stage("Shared Library: random E2E tests") {
                     when {
                         beforeAgent true;
                         allOf {
@@ -416,7 +416,7 @@ pipeline {
                 }
              }
         }
-        stage("MIOpen resnet50 config test") {
+        stage("MIOpen Resnet50 Config Test") {
             when { allOf {
                 equals expected: true, actual: params.nightly;
                 equals expected: true, actual: params.canXdlops;
