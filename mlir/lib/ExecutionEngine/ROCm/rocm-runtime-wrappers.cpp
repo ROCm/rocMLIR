@@ -1207,3 +1207,7 @@ extern "C" void mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2,
                            in_w * inputStrides[4]] = acc;
           }
 }
+
+extern "C" void mgpuSetDefaultDevice(int32_t device) {
+  reportErrorIfAny(hipSetDevice(device), "hipSetDevice");
+}
