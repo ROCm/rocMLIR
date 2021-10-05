@@ -12,6 +12,7 @@
 
 #include "mlir/Conversion/MIOpenPasses.h"
 #include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
+#include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
@@ -305,6 +306,13 @@ static cl::opt<std::string> randomSide(
              "For conv2d_bwd_weight, -rand_side input or -rand_side output. "
              "By default, populate random numbers to both tensors."),
     cl::value_desc("tensor"), cl::init("both"));
+
+static cl::opt<int> deviceNum(
+    "device",
+    cl::desc("Device index on which to run the kernel (only with host code)"),
+    cl::value_desc("Between 0 and number of GPUs on system. "
+                   "Omission leaves current device intact."));
+static cl::alias deviceShort("dev", cl::aliasopt(deviceNum));
 
 namespace test {
 void registerTestDialect(DialectRegistry &);
@@ -1241,6 +1249,14 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   // Emit gpu convolution logic.
   // Create a new block
   Block *gpuConvBlock = gpuConvFuncOp.addEntryBlock();
+
+  // Emit device selection
+  if (deviceNum.getNumOccurrences() > 0) {
+    auto op = builder.create<gpu::SetDefaultDeviceOp>(
+        builder.getUnknownLoc(),
+        builder.getI32IntegerAttr(deviceNum.getValue()));
+    gpuConvBlock->push_back(op);
+  }
 
   // Emit memref_cast.
   auto fiveDimUnknownSizeMemRefType =

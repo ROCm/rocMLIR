@@ -90,6 +90,9 @@ BackendUtils::BackendUtils(const std::string &defaultTriple,
 
 BackendUtils::BackendUtils() : BackendUtils("", "", "", true) {}
 
+// TODO(kdrewnia): Assumes that GPU 0 has the same chipset as the GPU that
+// the kernel will be running on
+// This is true in our testing environment, but is not true in general
 void BackendUtils::configTarget(std::string &targetChip,
                                 std::string &features) {
   // Locate rocm_agent_enumerator.
