@@ -183,6 +183,10 @@ protected:
       {llvmPointerType /* void *dst */, llvmInt32Type /* unsigned int value */,
        llvmIntPtrType /* intptr_t sizeBytes */,
        llvmPointerType /* void *stream */}};
+  FunctionCallBuilder setDefaultDeviceCallBuilder = {
+      "mgpuSetDefaultDevice",
+      llvmVoidType,
+      {llvmInt32Type /* uint32_t devIndex */}};
 };
 
 /// A rewrite pattern to convert gpu.host_register operations into a GPU runtime
@@ -338,6 +342,22 @@ public:
 private:
   LogicalResult
   matchAndRewrite(gpu::MemsetOp memsetOp, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+
+/// A rewrite pattern to convert gpu.memset operations into a GPU runtime
+/// call. Currently it supports CUDA and ROCm (HIP).
+class ConvertSetDefaultDeviceOpToGpuRuntimeCallPattern
+    : public ConvertOpToGpuRuntimeCallPattern<gpu::SetDefaultDeviceOp> {
+public:
+  ConvertSetDefaultDeviceOpToGpuRuntimeCallPattern(
+      LLVMTypeConverter &typeConverter)
+      : ConvertOpToGpuRuntimeCallPattern<gpu::SetDefaultDeviceOp>(
+            typeConverter) {}
+
+private:
+  LogicalResult
+  matchAndRewrite(gpu::SetDefaultDeviceOp op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override;
 };
 } // namespace
@@ -845,6 +865,19 @@ LogicalResult ConvertMemsetOpToGpuRuntimeCallPattern::matchAndRewrite(
   return success();
 }
 
+LogicalResult ConvertSetDefaultDeviceOpToGpuRuntimeCallPattern::matchAndRewrite(
+    gpu::SetDefaultDeviceOp op, ArrayRef<Value> operands,
+    ConversionPatternRewriter &rewriter) const {
+  gpu::SetDefaultDeviceOpAdaptor adaptor(operands, op->getAttrDictionary());
+
+  Location loc = op.getLoc();
+  mlir::Value argument =
+      rewriter.create<LLVM::ConstantOp>(loc, llvmInt32Type, adaptor.devIndex());
+  setDefaultDeviceCallBuilder.create(loc, rewriter, {argument});
+  rewriter.replaceOp(op, {});
+  return success();
+}
+
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
 mlir::createGpuToLLVMConversionPass() {
   return std::make_unique<GpuToLLVMConversionPass>();
@@ -862,6 +895,7 @@ void mlir::populateGpuToLLVMConversionPatterns(
                ConvertHostRegisterOpToGpuRuntimeCallPattern,
                ConvertMemcpyOpToGpuRuntimeCallPattern,
                ConvertMemsetOpToGpuRuntimeCallPattern,
+               ConvertSetDefaultDeviceOpToGpuRuntimeCallPattern,
                ConvertWaitAsyncOpToGpuRuntimeCallPattern,
                ConvertWaitOpToGpuRuntimeCallPattern,
                ConvertAsyncYieldToGpuRuntimeCallPattern>(converter);

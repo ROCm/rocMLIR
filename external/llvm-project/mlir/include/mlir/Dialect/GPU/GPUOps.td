@@ -526,6 +526,18 @@ def GPU_LaunchOp : GPU_Op<"launch">,
   let hasCanonicalizer = 1;
 }
 
+def GPU_SetDefaultDeviceOp : GPU_Op<"set_default_device",
+                                    [MemoryEffects<[MemWrite]>]>,
+    Arguments<(ins I32Attr:$devIndex)> {
+  let summary = "Set default GPU for operations after this by index";
+  let description = [{
+    Operation that sets the current default GPU, using a zero-based index
+    into the set of GPUs on the system. The default GPU setting may be
+    thread-local.
+  }];
+  let assemblyFormat = "attr-dict";
+}
+
 def GPU_ReturnOp : GPU_Op<"return", [HasParent<"GPUFuncOp">, NoSideEffect,
                                      Terminator]>,
     Arguments<(ins Variadic<AnyType>:$operands)>, Results<(outs)> {
