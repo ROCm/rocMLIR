@@ -772,4 +772,11 @@ module attributes {gpu.container_module} {
         gpu.return
       }
    }
+
+   // CHECK-LABEL: func @set_default_device
+   func @set_default_device() {
+     // CHECK-NEXT: gpu.set_default_device {devIndex = 0 : i32}
+     gpu.set_default_device {devIndex = 0 : i32}
+     return
+   }
 }

@@ -35,8 +35,11 @@
     fprintf(stderr, "'%s' failed with '%s'\n", #expr, name);                   \
   }(expr)
 
-// Make the primary context of device 0 current for the duration of the instance
-// and restore the previous context on destruction.
+thread_local static int32_t defaultDevice = 0;
+
+// Make the primary context of the current default device current for the
+// duration
+//  of the instance and restore the previous context on destruction.
 class ScopedContext {
 public:
   ScopedContext() {
@@ -44,7 +47,7 @@ public:
     static CUcontext context = [] {
       CUDA_REPORT_IF_ERROR(cuInit(/*flags=*/0));
       CUdevice device;
-      CUDA_REPORT_IF_ERROR(cuDeviceGet(&device, /*ordinal=*/0));
+      CUDA_REPORT_IF_ERROR(cuDeviceGet(&device, /*ordinal=*/defaultDevice));
       CUcontext ctx;
       // Note: this does not affect the current context.
       CUDA_REPORT_IF_ERROR(cuDevicePrimaryCtxRetain(&ctx, device));
@@ -185,4 +188,8 @@ mgpuMemHostRegisterMemRef(int64_t rank, StridedMemRefType<char, 1> *descriptor,
 
   auto *ptr = descriptor->data + descriptor->offset * elementSizeBytes;
   mgpuMemHostRegister(ptr, sizeBytes);
+}
+
+extern "C" MLIR_CUDA_WRAPPERS_EXPORT void mgpuSetDefaultDevice(int32_t device) {
+  defaultDevice = device;
 }

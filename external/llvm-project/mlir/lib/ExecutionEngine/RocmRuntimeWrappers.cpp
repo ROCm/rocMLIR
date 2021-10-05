@@ -199,3 +199,7 @@ mgpuMemGetDeviceMemRef1dInt32(int32_t *allocated, int32_t *aligned,
   mgpuMemGetDevicePointer(aligned, &devicePtr);
   return {devicePtr, devicePtr, offset, {size}, {stride}};
 }
+
+extern "C" void mgpuSetDefaultDevice(int32_t device) {
+  HIP_REPORT_IF_ERROR(hipSetDevice(device));
+}
