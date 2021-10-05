@@ -92,9 +92,9 @@ pipeline {
     agent none
     parameters {
         // Below should be set statically by Jenkins job
-        booleanParam(name: 'nightly', defaultValue: params.nightly ?: false,
+        booleanParam(name: 'nightly', defaultValue: params.nightly ? true : false,
                      description: 'Run extra nightly-only tests')
-        booleanParam(name: 'canXdlops', defaultValue: params.canXdlops ?: true,
+        booleanParam(name: 'canXdlops', defaultValue: params.canXdlops == false ? false : true,
                      description: 'Can this CI instance use xdlops (no for public server)')
 
         // Each below control whether to run a individual stage from parallel run
