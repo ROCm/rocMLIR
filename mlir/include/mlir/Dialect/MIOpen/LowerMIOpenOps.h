@@ -136,14 +136,10 @@ computeLoadStoreTypeInfo(OpBuilder &b, T &gop, Type elementType,
                     .getInt();
   }
 
-  // In case KPack and vector load is used, use the last dimensions.
-  if (loadLength > 1 && KPack > 1) {
-    // XXX. MUST REVIEW THIS PER DIFFERENT LAYOUT CONFIG.
-    if (isMatrixA) {
-      vectorDim = dims.size() - 1;
-    } else {
-      vectorDim = dims.size() - 2;
-    }
+  // In case KPack and vector load is used, and we vector load on GemmK
+  // dimension (1), use the last dimension (GemmKPack) instead.
+  if ((loadLength > 1) && (KPack > 1) && (vectorDim == GemmK)) {
+    vectorDim = dims.size() - 1;
   }
 
   int64_t itemsToCopy = 1;
