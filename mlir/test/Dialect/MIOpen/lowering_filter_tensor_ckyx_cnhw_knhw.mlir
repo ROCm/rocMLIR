@@ -1,7 +1,7 @@
 // This tests checks the following aspects of lowering component:
 // * Filter is transformed correctly
 
-// RUN: mlir-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s
+// RUN: miopen-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s
 
 func @miopen_conv2d_ckyx_cnhw_knhw(%filter : memref<1x8x128x3x3xf32>, %input : memref<1x8x128x32x32xf32>, %output : memref<1x128x128x30x30xf32>) {
   miopen.conv2d(%filter, %input, %output) {

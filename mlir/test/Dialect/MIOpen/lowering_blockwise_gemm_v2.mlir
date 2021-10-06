@@ -1,5 +1,5 @@
 // XFAIL: *
-// RUN: mlir-opt -miopen-lowering-step3 %s | FileCheck %s
+// RUN: miopen-opt -miopen-lowering-step3 %s | FileCheck %s
 
 func @miopen_blockwise_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>) -> (vector<32xf32>, vector<32xf32>) {
   %c0 = constant 0 : index

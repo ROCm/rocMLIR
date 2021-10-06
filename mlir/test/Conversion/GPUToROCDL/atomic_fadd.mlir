@@ -1,4 +1,4 @@
-// RUN: mlir-opt %s -convert-gpu-to-rocdl | FileCheck %s
+// RUN: miopen-opt %s -convert-gpu-to-rocdl | FileCheck %s
 
 gpu.module @atomic_fadd {
   // f32 tests.

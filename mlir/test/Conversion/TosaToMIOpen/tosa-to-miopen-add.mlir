@@ -1,4 +1,4 @@
-// RUN: mlir-opt --tosa-to-miopen %s -verify-diagnostics -o -| FileCheck %s
+// RUN: miopen-opt --tosa-to-miopen %s -verify-diagnostics -o -| FileCheck %s
 
 // CHECK-LABEL: test_fusion
 func @test_fusion(%arg0: tensor<128x32x32x8xf32>, %arg1: tensor<128x3x3x8xf32>, %arg2: tensor<8xf32>, %arg3: tensor<128x30x30x128xf32>) -> tensor<128x30x30x128xf32> {

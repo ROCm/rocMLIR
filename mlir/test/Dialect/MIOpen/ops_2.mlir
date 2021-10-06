@@ -1,6 +1,6 @@
-// RUN: mlir-opt %s | FileCheck %s
-// RUN: mlir-opt %s | mlir-opt | FileCheck %s
-// Run: mlir-opt -mlir-print-op-generic %s | mlir-opt | FileCheck %s
+// RUN: miopen-opt %s | FileCheck %s
+// RUN: miopen-opt %s | miopen-opt | FileCheck %s
+// Run: miopen-opt -mlir-print-op-generic %s | miopen-opt | FileCheck %s
 
 func @miopen_alloc() {
   // allocation on global.

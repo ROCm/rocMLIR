@@ -1,4 +1,4 @@
-// RUN: mlir-opt %s | FileCheck %s
+// RUN: miopen-opt %s | FileCheck %s
 
 module {
   func @main(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {

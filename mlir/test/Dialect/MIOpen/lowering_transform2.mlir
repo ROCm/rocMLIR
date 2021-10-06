@@ -1,4 +1,4 @@
-// RUN: mlir-opt -miopen-affine-transform %s | FileCheck %s
+// RUN: miopen-opt -miopen-affine-transform %s | FileCheck %s
 
 module  {
   func @miopen_conv2d_gkcyx_ngchw_ngkhw_0(%arg0: memref<1x128x8x3x3xf32>, %arg1: memref<128x1x8x32x32xf32>, %arg2: memref<128x1x128x30x30xf32>) attributes {kernel = 0 : i32} {

@@ -63,8 +63,8 @@ configure_lit_site_cfg(
 
 set(MLIR_TEST_DEPENDS
   FileCheck count not
-  mlir-miopen-opt
-  mlir-miopen-translate
+  miopen-opt
+  miopen-translate
   mlir-mixr-capi-test
   mlir-opt
   mlir-reduce
@@ -91,7 +91,7 @@ if(MLIR_BINDINGS_PYTHON_ENABLED)
     MLIRTransformsBindingsPythonExtension
   )
 endif()
-  
+
 # MIOpen dialect tools.
 if(MLIR_MIOPEN_DRIVER_ENABLED)
   list(APPEND MLIR_TEST_DEPENDS
@@ -103,7 +103,7 @@ if(MLIR_MIOPEN_DRIVER_ENABLED)
     )
 endif()
 
-# check-mlir-miopen runs MLIR-MIOpen regression tests including E2E tests 
+# check-mlir-miopen runs MLIR-MIOpen regression tests including E2E tests
 # when MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED is set
 add_lit_testsuite(check-mlir-miopen "Running the MLIR-MIOpen regression tests"
   ${CMAKE_CURRENT_BINARY_DIR}
