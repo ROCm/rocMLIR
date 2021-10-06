@@ -14,6 +14,7 @@
 #define MLIR_DIALECT_MIOPEN_CONV2DGENERATOR_H_
 
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/utility/BackwardDataValidation.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
 
@@ -113,6 +114,9 @@ public:
   }
   LogicalResult isApplicable() const;
 
+  int64_t getBwdDataNumberOfGemm() const;
+  std::tuple<int64_t, int64_t, int64_t> getBwdDataGemmSizes(int64_t) const;
+
 private:
   template <typename Vector>
   std::vector<int64_t> layoutPermutation(const Vector &src,
@@ -128,6 +132,7 @@ private:
   int getBwdDataKernelCount() const;
   LogicalResult hasValidDimension() const;
   LogicalResult hasValidChip() const;
+  LogicalResult hasValidGemmSizes() const;
 
   // Generator config
   Config config;

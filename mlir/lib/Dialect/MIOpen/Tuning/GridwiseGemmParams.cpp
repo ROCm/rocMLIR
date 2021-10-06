@@ -21,8 +21,8 @@ LogicalResult PopulateParams::populateDerived(
   }
 
   if (ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType &&
-      !(gemmSize.gemmM % 32 == 0 && gemmSize.gemmN % 32 == 0 &&
-        gemmSize.gemmK % 4 == 0)) {
+      failed(isValidGemmNonXdlops(gemmSize.gemmM, gemmSize.gemmN,
+                                  gemmSize.gemmK))) {
     LLVM_DEBUG(llvm::dbgs() << "Invalid gemm sizes for backward data.\n");
     return failure();
   }
@@ -229,7 +229,8 @@ LogicalResult PopulateParamsXDL::populateDerived(
   }
 
   if (ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType &&
-      failed(isValidGridGemmXdlops(gemmSize))) {
+      failed(isValidGridGemmXdlops(gemmSize.gemmM, gemmSize.gemmN,
+                                   gemmSize.gemmK, waveSize))) {
     LLVM_DEBUG(llvm::dbgs()
                << "Invalid XDLops gemm sizes for backward data.\n");
     return failure();

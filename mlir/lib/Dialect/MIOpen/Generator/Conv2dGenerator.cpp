@@ -126,6 +126,11 @@ LogicalResult Conv2dGenerator::isApplicable() const {
     return failure();
   }
 
+  if (config.operation == miopen::Conv2DBwdDataOpType &&
+      failed(hasValidGemmSizes())) {
+    return failure();
+  }
+
   return success();
 }
 
@@ -258,6 +263,25 @@ LogicalResult Conv2dGenerator::hasValidChip() const {
 
   if ((chipHexNumber > 0x908) || (chipHexNumber < 0x900))
     return failure();
+
+  return success();
+}
+
+LogicalResult Conv2dGenerator::hasValidGemmSizes() const {
+  const int64_t waveSize = 64;
+  if (config.operation != miopen::Conv2DBwdDataOpType)
+    return success();
+
+  int64_t gemmM, gemmN, gemmK;
+  for (int64_t gemmId = 0; gemmId < getBwdDataNumberOfGemm(); ++gemmId) {
+    std::tie(gemmM, gemmN, gemmK) = getBwdDataGemmSizes(gemmId);
+    if (config.xdlops) {
+      if (failed(isValidGridGemmXdlops(gemmM, gemmN, gemmK, waveSize)))
+        return failure();
+    } else if (failed(isValidGemmNonXdlops(gemmM, gemmN, gemmK))) {
+      return failure();
+    }
+  }
 
   return success();
 }
@@ -622,4 +646,42 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   block->push_back(returnOp);
 
   return success();
+}
+
+int64_t Conv2dGenerator::getBwdDataNumberOfGemm() const {
+  auto gcdStrideDilationH =
+      math_util::gcd(config.strideHeight, config.dilationHeight);
+  auto gcdStrideDilationW =
+      math_util::gcd(config.strideWidth, config.dilationWidth);
+
+  auto yTilda = config.strideHeight / gcdStrideDilationH;
+  auto xTilda = config.strideWidth / gcdStrideDilationW;
+  return yTilda * xTilda;
+}
+
+std::tuple<int64_t, int64_t, int64_t>
+Conv2dGenerator::getBwdDataGemmSizes(int64_t gemmId) const {
+  auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
+  auto filDim = canonicalizeDims(config.filterDimension, config.filterLayout);
+  auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
+
+  int64_t y = filDim["y"];
+  int64_t x = filDim["x"];
+  int64_t ho = outDim["h"];
+  int64_t wo = outDim["w"];
+  int64_t hi = inDim["hi"];
+  int64_t wi = inDim["wi"];
+  int64_t c = inDim["c"];
+  int64_t n = outDim["n"];
+  int64_t k = outDim["k"];
+  int64_t strideH = config.strideHeight;
+  int64_t strideW = config.strideWidth;
+  int64_t dilationH = config.dilationHeight;
+  int64_t dilationW = config.dilationWidth;
+  int64_t leftPadH = config.paddingHeightLeft;
+  int64_t leftPadW = config.paddingWidthLeft;
+
+  return calculateBwdDataGemmSizes(y, x, c, n, k, ho, wo, hi, wi, strideH,
+                                   strideW, dilationH, dilationW, leftPadH,
+                                   leftPadW, gemmId);
 }

@@ -17,6 +17,7 @@
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
 #include "mlir/Dialect/MIOpen/utility/BackwardDataPaddingKernel.h"
+#include "mlir/Dialect/MIOpen/utility/BackwardDataValidation.h"
 #include "mlir/Dialect/MIOpen/utility/BackwardWeightV4R4Helper.h"
 #include "mlir/Dialect/MIOpen/utility/math.h"
 #include "mlir/Support/FileUtilities.h"
@@ -427,14 +428,15 @@ protected:
                        ctx.dimIndexVal["y"].second *
                        ctx.dimIndexVal["x"].second;
     } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
-      int64_t y, x, ho, wo, hi, wi;
-      y = x = ho = wo = hi = wi = 0;
-      y = ctx.dimIndexVal["y"].second;
-      x = ctx.dimIndexVal["x"].second;
-      ho = ctx.dimIndexVal["ho"].second;
-      wo = ctx.dimIndexVal["wo"].second;
-      hi = ctx.dimIndexVal["hi"].second;
-      wi = ctx.dimIndexVal["wi"].second;
+      int64_t y = ctx.dimIndexVal["y"].second;
+      int64_t x = ctx.dimIndexVal["x"].second;
+      int64_t c = ctx.dimIndexVal["c"].second;
+      int64_t n = ctx.dimIndexVal["no"].second;
+      int64_t k = ctx.dimIndexVal["k"].second;
+      int64_t ho = ctx.dimIndexVal["ho"].second;
+      int64_t wo = ctx.dimIndexVal["wo"].second;
+      int64_t hi = ctx.dimIndexVal["hi"].second;
+      int64_t wi = ctx.dimIndexVal["wi"].second;
       auto strideH = ctx.strideVal[0];
       auto strideW = ctx.strideVal[1];
       auto dilationH = ctx.dilationVal[0];
@@ -442,39 +444,10 @@ protected:
       auto leftPadH = ctx.paddingVal[0];
       auto leftPadW = ctx.paddingVal[1];
 
-      auto gcdStrideDilationH = math_util::gcd(strideH, dilationH);
-      auto gcdStrideDilationW = math_util::gcd(strideW, dilationW);
-
-      auto yTilda = strideH / gcdStrideDilationH;
-      auto xTilda = strideW / gcdStrideDilationW;
-
-      auto hTilda =
-          ho + math_util::integer_divide_ceil(dilationH * (y - 1), strideH);
-      auto wTilda =
-          wo + math_util::integer_divide_ceil(dilationW * (x - 1), strideW);
-
-      auto iHTildaLeft = math_util::integer_divide_floor(
-          std::max(0l, leftPadH - dilationH * (yTilda - 1)), strideH);
-      auto iWTildaLeft = math_util::integer_divide_floor(
-          std::max(0l, leftPadW - dilationW * (xTilda - 1)), strideW);
-
-      auto iHTildaRight = std::min(
-          hTilda, math_util::integer_divide_ceil(leftPadH + hi - 1, strideH) + 1);
-      auto iWTildaRight = std::min(
-          wTilda, math_util::integer_divide_ceil(leftPadW + wi - 1, strideW) + 1);
-
-      auto hTildaSlice = iHTildaRight - iHTildaLeft;
-      auto wTildaSlice = iWTildaRight - iWTildaLeft;
-
-      auto gemmId = ctx.gemmId;
-      auto iYTilda = gemmId / xTilda;
-      auto iXTilda = gemmId % xTilda;
-      auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
-      auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
-
-      gemmSize.gemmM = ctx.dimIndexVal["c"].second;
-      gemmSize.gemmN = ctx.dimIndexVal["no"].second * hTildaSlice * wTildaSlice;
-      gemmSize.gemmK = ctx.dimIndexVal["k"].second * yDotSlice * xDotSlice;
+      std::tie(gemmSize.gemmM, gemmSize.gemmN, gemmSize.gemmK) =
+          calculateBwdDataGemmSizes(y, x, c, n, k, ho, wo, hi, wi, strideH,
+                                    strideW, dilationH, dilationW, leftPadH,
+                                    leftPadW, ctx.gemmId);
     } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
       gemmSize.gemmM = ctx.dimIndexVal["k"].second;
       gemmSize.gemmK = ctx.dimIndexVal["no"].second *
@@ -869,22 +842,6 @@ private:
       ConvolutionContext &ctx, InitParamsXDL &validParams, GemmSize &gemmSize,
       DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
       int64_t &blockSize, int64_t &gridSize);
-
-  LogicalResult isValidGridGemmXdlops(GemmSize &gemmSize) {
-    auto gemmM = gemmSize.gemmM;
-    auto gemmN = gemmSize.gemmN;
-    auto gemmK = gemmSize.gemmK;
-
-    // unsupported xdlops-gemm
-    if (gemmM % 16 != 0 && gemmN % 64 != 0)
-      return failure();
-
-    if ((gemmM * gemmN) % 256 == 0 && (gemmK * gemmM) % waveSize == 0 &&
-        (gemmK * gemmN) % waveSize == 0 && gemmN % 16 == 0 && gemmM % 4 == 0 &&
-        gemmK % 4 == 0)
-      return success();
-    return failure();
-  }
 
 public:
   LogicalResult paramsFromCtx(ConvolutionContext &ctx,

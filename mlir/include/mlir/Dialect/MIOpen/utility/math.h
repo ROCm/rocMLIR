@@ -22,7 +22,7 @@ template <typename T> T gcd(T x, T y) {
 }
 
 template <typename X, typename... Ys> auto gcd(X x, Ys... ys) {
-  return gcd(x, ys...);
+  return gcd(x, gcd(ys...));
 }
 
 // least common multiple

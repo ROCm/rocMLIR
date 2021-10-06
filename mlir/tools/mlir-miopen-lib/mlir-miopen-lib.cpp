@@ -94,7 +94,6 @@ LogicalResult MIOpenEnabled(const Conv2dGenerator::Config& conf) {
   bool noBF16 = conf.dataTypeStr != "bf16";
   return LogicalResult::success(layoutSupported && noBF16);
 }
-
 } // namespace
 
 typedef void *MiirHandle;
@@ -112,13 +111,13 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
     return nullptr;
   }
 
-  MiirHandle_s *handle = new MiirHandle_s;
-  OpBuilder builder(&(handle->getContext()));
-
   const auto &config = conv2dGenerator.getConfig();
   if (failed(MIOpenEnabled(config))) {
     return nullptr;
   }
+
+  MiirHandle_s *handle = new MiirHandle_s;
+  OpBuilder builder(&(handle->getContext()));
 
   handle->triple = config.triple;
   handle->chip = config.chip;
@@ -265,11 +264,12 @@ extern "C" const char *miirGenIgemmCflags(MiirHandle mlirHandle) {
 
 extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
   const std::lock_guard<std::mutex> lock(mutex);
-  miirLazyInit();
 
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;
+
+  miirLazyInit();
 
   ModuleOp module = handle->getModule();
 
@@ -289,11 +289,12 @@ extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
 
 extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
   const std::lock_guard<std::mutex> lock(mutex);
-  miirLazyInit();
 
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;
+
+  miirLazyInit();
 
   ModuleOp module = handle->getModule();
 
