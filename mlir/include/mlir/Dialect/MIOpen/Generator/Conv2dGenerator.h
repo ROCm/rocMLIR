@@ -26,7 +26,9 @@ namespace mlir {
 class Conv2dGenerator {
 public:
   struct Config {
-    std::string arch;
+    std::string chip;
+    std::string triple;
+    std::string features;
     std::string perfConfig;
     int num_cu;
     bool xdlops;
@@ -52,7 +54,8 @@ public:
     int filterWidth;
   };
 
-  Conv2dGenerator(const std::string &arch = "",
+  Conv2dGenerator(const std::string &chip = "", const std::string &triple = "",
+                  const std::string &features = "",
                   const std::string &perfConfig = "", int num_cu = 0,
                   bool xdlops = false,
                   const miopen::ConvOpType operation = miopen::Conv2DOpType,
@@ -77,9 +80,6 @@ public:
 
   void flipXdlops();
 
-  static Optional<miopen::ConvOpType> getOpForName(const StringRef name);
-  static const char *getNameForOp(const miopen::ConvOpType);
-
   static inline constexpr int64_t outputDim(int64_t inputLen, int64_t filLen,
                                             int64_t leftPadLen,
                                             int64_t rightPadLen,
@@ -91,13 +91,13 @@ public:
 
   LogicalResult parseConvConfig(const char *arguments);
 
-  LogicalResult isValidConvolution() const;
-
   LogicalResult parseConvDims(int64_t batchSize, int64_t groupSize,
                               int64_t inputChannel, int64_t inputHeight,
                               int64_t inputWidth, int64_t outputChannel,
                               int64_t outputHeight, int64_t outputWidth,
                               int64_t filterHeight, int64_t filterWidth);
+  LogicalResult isValidDimension() const;
+  LogicalResult isValidChip() const;
 
   LogicalResult genConvModule(ModuleOp &module, OpBuilder &builder,
                               int kernel_id = -1);
