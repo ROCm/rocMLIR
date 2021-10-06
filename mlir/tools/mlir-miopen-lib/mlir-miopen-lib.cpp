@@ -34,6 +34,7 @@ struct MiirHandle_s {
     return registry;
   }
   MiirHandle_s() : context(initRegistry()) {
+    context.disableMultithreading();
     context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect>();
     OpBuilder builder(&context);
     module = ModuleOp::create(builder.getUnknownLoc());
