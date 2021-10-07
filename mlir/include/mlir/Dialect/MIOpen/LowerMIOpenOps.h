@@ -2058,7 +2058,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     llvm::SmallVector<int64_t, 3> kpackFilterShape;
     llvm::SmallVector<NamedAttribute, 3> kpackFilterAttrs;
 
-    // FIXME. consider backward weight.
+    // FIXME. consider backward convolution.
     if ((KPack > 1) && (convOpType == miopen::ConvOpType::Conv2DOpType)) {
       Value gemmASource = (isFilterPad) ? gemmAPad : gemmA;
       llvm::SmallVector<int64_t, 3> &filterShape =
@@ -2961,7 +2961,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     llvm::SmallVector<int64_t, 3> kpackInputShape;
     llvm::SmallVector<NamedAttribute, 3> kpackInputAttrs;
 
-    // FIXME. consider backward weight.
+    // FIXME. consider backward convolution.
     if ((KPack > 1) && (convOpType == miopen::ConvOpType::Conv2DOpType)) {
       Value gemmBSource = (isInputPad) ? gemmBPad : gemmB;
       llvm::SmallVector<int64_t, 3> &inputShape =
@@ -3487,13 +3487,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // Emit miopen.gridwise_gemm_v2 if xdlopsV2 attribute is true.
     if (isFilterPad)
       gemmA = gemmAPad;
-    // FIXME. consider backward weight.
+    // FIXME. consider backward convolution.
     if ((KPack > 1) && (convOpType == miopen::ConvOpType::Conv2DOpType))
       gemmA = gemmAKPack;
 
     if (isInputPad)
       gemmB = gemmBPad;
-    // FIXME. consider backward weight.
+    // FIXME. consider backward convolution.
     if ((KPack > 1) && (convOpType == miopen::ConvOpType::Conv2DOpType))
       gemmB = gemmBKPack;
 
@@ -3501,9 +3501,15 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       gemmC = gemmCPad;
 
     // Supply KPack information into gridwiseGemmAttrs.
-    if (KPack > 1)
+    // FIXME. consider backward convolution.
+    if ((KPack > 1) && (convOpType == miopen::ConvOpType::Conv2DOpType)) {
       gridwiseGemmAttrs.push_back(
           b.getNamedAttr("kpack", b.getI32IntegerAttr(KPack)));
+    } else {
+      // FIXME. Skip KPACK for backward passes for now.
+      gridwiseGemmAttrs.push_back(
+          b.getNamedAttr("kpack", b.getI32IntegerAttr(1)));
+    }
 
     auto arguments = SmallVector<Value, 3>{gemmA, gemmB, gemmC};
 
