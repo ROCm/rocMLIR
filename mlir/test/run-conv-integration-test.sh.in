@@ -1,6 +1,0 @@
-#!/bin/bash
-set -e
-set -o pipefail
-
-mlir-miopen-driver "$@" | mlir-rocm-runner --entry-point-result=void \
-    "--shared-libs=@MLIR_ROCM_WRAPPER_LIBRARY_DIR@/librocm-runtime-wrappers@LTDL_SHLIB_EXT@,@MLIR_DIALECT_LINALG_INTEGRATION_TEST_LIB_DIR@/libmlir_runner_utils@LTDL_SHLIB_EXT@"
