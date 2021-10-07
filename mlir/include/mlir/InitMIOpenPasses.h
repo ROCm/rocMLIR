@@ -16,7 +16,6 @@
 #define MLIR_INITMIOPENPASSES_H_
 
 #include "mlir/Conversion/MIOpenPasses.h"
-#include "mlir/Dialect/MIGraphX/Passes.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 
 #include "mlir/Transforms/Passes.h"
@@ -35,7 +34,6 @@ namespace mlir {
 inline void registerMIOpenPasses() {
   registerMIOpenConversionPasses();
   miopen::registerPasses();
-  migraphx::registerPasses();
 }
 
 } // namespace mlir
