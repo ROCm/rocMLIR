@@ -3537,41 +3537,18 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       isXdlops = true;
 
     bool isSupportPaddingKernel = true;
-    bool isXdlopsStride2Pad0NCHW = false;
-    bool isXdlopsStride2Pad0NHWC = false;
-    // non xdlops also have limitations ,will add it
-    // if isSupportPaddingKernel  ,don't do padding kernel teansformation
-    if (isXdlops) {
-      if (cIndex == 4 && (strideH > 1 || strideW > 1)) {
-        if (leftPadH > 0 || leftPadW > 0 || rightPadH > 0 || rightPadW > 0) {
-          isSupportPaddingKernel = false;
-          llvm::errs() << "we don't support xdlops nhwc stride2 pad_h>0 or "
-                          "pad_w>0 backward data convolution padding kernel\n ";
-        } else {
-          isXdlopsStride2Pad0NHWC = true;
-        }
-        // nchw can't support stride 2 pad 1
-      } else if ((strideH > 1 || strideW > 1)) {
-        if (leftPadH > 0 || leftPadW > 0 || rightPadH > 0 || rightPadW > 0) {
-          isSupportPaddingKernel = false;
-          llvm::errs() << "we don't support xdlops nchw stride2 pad_h>0 or "
-                          "pad_w>0 backward data convolution padding kernel, "
-                          "only padding GemmK works\n";
-        } else {
-          isXdlopsStride2Pad0NCHW = true;
-        }
+    bool isStride2Pad1 = false;
+    if (strideH > 1 || strideW > 1) {
+      if (leftPadH > 0 || leftPadW > 0 || rightPadH > 0 || rightPadW > 0) {
+        isStride2Pad1 = true;
       }
     }
-
     // we use this lamda to compute extra padding size
     // for example, if gemmM size is 3 and gemmMPerBlock is 64
     // we gemmMExtra is 64 so (gemmM + gemmMExtra )%gemmMPerBlock =0
     auto calculatePaddingKernelSize = [&isOriginalKernelSupport, &needExtraPad,
                                        gemmM_size, gemmN_size, gemmK_size,
                                        &gemmMExtra, &gemmNExtra, &gemmKExtra,
-                                       isSupportPaddingKernel,
-                                       isXdlopsStride2Pad0NCHW,
-                                       isXdlopsStride2Pad0NHWC,
                                        isXdlops](auto &populateParams) {
       auto config_params = populateParams.getTuningParameters();
       unsigned numOfFailedConfigs = 0;
@@ -3588,8 +3565,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       }
 
       auto extraParams = populateParams.getUniversalParameters();
-      if (numOfFailedConfigs == config_params.size() &&
-          isSupportPaddingKernel) {
+      if (numOfFailedConfigs == config_params.size()) {
 
         needExtraPad = true;
         int gemmM_remain, gemmK_remain, gemmN_remain;
@@ -3608,32 +3584,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
         // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
         // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
-        if (gemmNExtra && gemmKExtra) {
-          if (!isXdlops) {
-            llvm::errs() << "we don't support backward data convolution non "
-                            "xdlops padding GemmN + "
-                            "GemmK, if format is nchw, we can fix it "
-                            "via change load oob address\n";
-            llvm::errs() << "but non xdlops nhwc padding GemmN + GemmK , no "
-                            "solutions now,"
-                            "we only know it's load oob address problem\n";
-          } else {
-            llvm::errs() << "we don't support backward data convolution "
-                            "xdlops padding GemmN + GemmK\n";
-          }
-        } else if (isXdlopsStride2Pad0NCHW) {
-          if (gemmNExtra && gemmMExtra) {
-            llvm::errs() << "we don't support backward data convolution nchw "
-                            "stride 2 padh=padw=0 , pad both gemmN and gemmM, "
-                            "but pad both gemmK and gemmM is ok \n";
-          }
-        } else if (isXdlopsStride2Pad0NHWC) {
-          if (gemmKExtra && gemmMExtra) {
-            llvm::errs() << "we don't support backward data convolution nhwc "
-                            "stride 2 padh=padw=0 , pad both gemmK and gemmM, "
-                            "but pad both gemmN and gemmM is ok \n";
-          }
-        }
       }
     }; // calculatePaddingKernelSize end
 
@@ -3645,6 +3595,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       calculatePaddingKernelSize(populateParamsXDL);
     }
 
+    isSupportPaddingKernel = isSupportBackwardDataPaddingKernel(
+        isXdlops, isStride2Pad1, gemmMExtra, gemmKExtra, gemmNExtra);
     // don't do backward data padding kernel if isSupportPaddingKernel=false
     if (!isSupportPaddingKernel && !isOriginalKernelSupport)
       return failure();

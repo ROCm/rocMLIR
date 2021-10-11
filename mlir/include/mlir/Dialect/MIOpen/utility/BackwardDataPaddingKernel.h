@@ -48,6 +48,28 @@ using namespace mlir::miopen;
 
 namespace mlir {
 namespace miopen {
+inline bool isSupportBackwardDataPaddingKernel(bool isXdlops,
+                                               bool isStride2Pad1,
+                                               int gemmMExtra, int gemmKExtra,
+                                               int gemmNExtra) {
+  if (gemmNExtra && gemmKExtra) {
+    llvm::errs() << "can't support backward data padding kernel when both pad "
+                    "gemmN and gemmK due to load issue\n";
+    return false;
+  }
+
+  if (isXdlops && (gemmMExtra || gemmNExtra)) {
+    if (isStride2Pad1) {
+      llvm::errs()
+          << "can't support backward data padding kernel when xdlops stride 2 "
+             "pad_h,pad_w>0 and pad gemmM or gemmN due to store issue\n";
+      return false;
+    }
+  }
+  llvm::errs() << "backward data padding kernel support\n";
+  return true;
+}
+
 inline Value padFilter(bool isXdlops, int64_t gemmMExtra, int64_t gemmNExtra,
                        int64_t gemmKExtra, Value &gemmAPad, PatternRewriter &b,
                        Location loc, llvm::DenseSet<int> &filterOobCheckDims,
