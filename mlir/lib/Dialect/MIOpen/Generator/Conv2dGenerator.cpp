@@ -102,18 +102,18 @@ LogicalResult hasDimensions(const llvm::StringMap<int64_t> &map,
 } // namespace
 
 LogicalResult Conv2dGenerator::isApplicable() const {
-  if (failed(isValidDimension())) {
+  if (failed(hasValidDimension())) {
     return failure();
   }
 
-  if (failed(isValidChip())) {
+  if (failed(hasValidChip())) {
     return failure();
   }
 
   return success();
 }
 
-LogicalResult Conv2dGenerator::isValidDimension() const {
+LogicalResult Conv2dGenerator::hasValidDimension() const {
   static const SmallVector<int64_t, 4> strictlyPositiveParams{
       config.dilationHeight, config.dilationWidth, config.strideHeight,
       config.strideWidth};
@@ -212,7 +212,7 @@ LogicalResult Conv2dGenerator::isValidDimension() const {
   return success();
 }
 
-LogicalResult Conv2dGenerator::isValidChip() const {
+LogicalResult Conv2dGenerator::hasValidChip() const {
   // We support xdlops iff it is a gfx908 chip, fail otherwise
   if (config.xdlops && config.chip != "gfx908")
     return failure();

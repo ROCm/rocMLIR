@@ -126,8 +126,8 @@ private:
     return permutation;
   }
   int getBwdDataKernelCount() const;
-  LogicalResult isValidDimension() const;
-  LogicalResult isValidChip() const;
+  LogicalResult hasValidDimension() const;
+  LogicalResult hasValidChip() const;
 
   // Generator config
   Config config;
