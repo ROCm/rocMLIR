@@ -509,7 +509,7 @@ pipeline {
                                 }
                                 steps {
                                     testMIOpenDriver('$DTYPE', '$XDLOPS', '$LAYOUT', '$DIRECTION', '0')
-                                    testMIOpenDriver('$DTYPE', '$XDLOPS', '$LAYOUT', '$DIRECTION', '1')
+                                    //testMIOpenDriver('$DTYPE', '$XDLOPS', '$LAYOUT', '$DIRECTION', '1')
                                 }
                             }
                         }
