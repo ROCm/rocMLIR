@@ -96,8 +96,6 @@ public:
                               int64_t inputWidth, int64_t outputChannel,
                               int64_t outputHeight, int64_t outputWidth,
                               int64_t filterHeight, int64_t filterWidth);
-  LogicalResult isValidDimension() const;
-  LogicalResult isValidChip() const;
 
   LogicalResult genConvModule(ModuleOp &module, OpBuilder &builder,
                               int kernel_id = -1);
@@ -113,6 +111,7 @@ public:
                    [&targetSpec](int64_t p) { return targetSpec[p]; });
     return targetLayout;
   }
+  LogicalResult isApplicable() const;
 
 private:
   template <typename Vector>
@@ -127,6 +126,8 @@ private:
     return permutation;
   }
   int getBwdDataKernelCount() const;
+  LogicalResult isValidDimension() const;
+  LogicalResult isValidChip() const;
 
   // Generator config
   Config config;

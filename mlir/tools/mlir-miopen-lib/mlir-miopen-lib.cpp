@@ -108,11 +108,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
     return nullptr;
   }
 
-  if (failed(conv2dGenerator.isValidDimension())) {
-    return nullptr;
-  }
-
-  if (failed(conv2dGenerator.isValidChip())) {
+  if (failed(conv2dGenerator.isApplicable())) {
     return nullptr;
   }
 

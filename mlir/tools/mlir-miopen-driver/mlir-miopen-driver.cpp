@@ -2631,16 +2631,9 @@ int main(int argc, char **argv) {
     }
   }
 
-  // TODO: Extract isValid check to be its own component
-  auto status = conv2dGenerator.isValidDimension();
-  if (failed(status)) {
-    llvm::errs() << "Invalid convolution dimension\n";
-    exit(1);
-  }
-
-  status = conv2dGenerator.isValidChip();
-  if (failed(status)) {
-    llvm::errs() << "Unsupported chip\n";
+  // TODO: Extract isApplicable check to be its own component
+  if (failed(conv2dGenerator.isApplicable())) {
+    llvm::errs() << "Convolution configuration not applicable\n";
     exit(1);
   }
 

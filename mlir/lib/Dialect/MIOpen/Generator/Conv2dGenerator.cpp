@@ -101,6 +101,18 @@ LogicalResult hasDimensions(const llvm::StringMap<int64_t> &map,
 
 } // namespace
 
+LogicalResult Conv2dGenerator::isApplicable() const {
+  if (failed(isValidDimension())) {
+    return failure();
+  }
+
+  if (failed(isValidChip())) {
+    return failure();
+  }
+
+  return success();
+}
+
 LogicalResult Conv2dGenerator::isValidDimension() const {
   static const SmallVector<int64_t, 4> strictlyPositiveParams{
       config.dilationHeight, config.dilationWidth, config.strideHeight,
@@ -205,11 +217,13 @@ LogicalResult Conv2dGenerator::isValidChip() const {
   if (config.xdlops && config.chip != "gfx908")
     return failure();
 
-  // We support up to gfx908 for nonxdlops algorithm
-  // For example, both gfx90a and gfx1030 are unsupported now
+  // We support in between gfx900 to gfx908 for nonxdlops algorithm
+  // For example, gfx803, gfx90a and gfx1030 are unsupported now
   unsigned int chipHexNumber = 0;
-  sscanf(config.chip.c_str(), "gfx%x", &chipHexNumber);
-  if (chipHexNumber > 0x908)
+  if (sscanf(config.chip.c_str(), "gfx%x", &chipHexNumber) != 1)
+    return failure();
+
+  if ((chipHexNumber > 0x908) || (chipHexNumber < 0x900))
     return failure();
 
   return success();
@@ -320,9 +334,8 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   std::string arch;
   strToStr("arch", arch);
   IsaNameParser parser(arch);
-  auto status =
-      parser.parseIsaName(config.chip, config.triple, config.features);
-  if (status.failed()) {
+  if (failed(
+          parser.parseIsaName(config.chip, config.triple, config.features))) {
     return failure();
   }
 
@@ -358,11 +371,11 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
       argMap["out_layout"], std::string("NGCHW"), std::string("ngkhw"));
 
   // Determine tensor dimensions.
-  status = parseConvDims(strToLong("batchsize"), strToLong("groupsize"),
-                         strToLong("in_channels"), strToLong("in_h"),
-                         strToLong("in_w"), strToLong("out_channels"),
-                         strToLong("out_h"), strToLong("out_w"),
-                         strToLong("fil_w"), strToLong("fil_h"));
+  auto status = parseConvDims(strToLong("batchsize"), strToLong("groupsize"),
+                              strToLong("in_channels"), strToLong("in_h"),
+                              strToLong("in_w"), strToLong("out_channels"),
+                              strToLong("out_h"), strToLong("out_w"),
+                              strToLong("fil_w"), strToLong("fil_h"));
 
   if (status.failed()) {
     return failure();
