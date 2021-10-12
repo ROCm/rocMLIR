@@ -66,7 +66,6 @@ inline bool isSupportBackwardDataPaddingKernel(bool isXdlops,
       return false;
     }
   }
-  llvm::errs() << "backward data padding kernel support\n";
   return true;
 }
 
