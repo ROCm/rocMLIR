@@ -26,7 +26,7 @@ func @miopen_conv2d_kcyx_nchw_nkhw(%filter : memref<1x128x8x3x3xf32>, %input : m
 // CHECK-NEXT:  {{miopen.gridwise_gemm.*{.*}.*memref.*memref.*memref}}
 
 func @miopen_conv2d_bwd_data_gkcyx_ngchw_ngkhw(%filter: memref<1x1024x1024x1x1xf32>, %input: memref<128x1x1024x14x14xf32>, %output: memref<128x1x1024x14x14xf32>) attributes {kernel = 0 : i32} {
-    padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
+    padding = [0 , 0 , 0 , 0],
     strides = [1 : i32, 1 : i32],
     xdlopsV2 = true
   } : memref<1x1024x1024x1x1xf32>, memref<128x1x1024x14x14xf32>, memref<128x1x1024x14x14xf32>
