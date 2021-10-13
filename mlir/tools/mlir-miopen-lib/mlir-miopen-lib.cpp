@@ -34,7 +34,6 @@ struct MiirHandle_s {
     return registry;
   }
   MiirHandle_s() : context(initRegistry()) {
-    context.disableMultithreading();
     context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect>();
     OpBuilder builder(&context);
     module = ModuleOp::create(builder.getUnknownLoc());
@@ -96,7 +95,6 @@ static std::mutex mutex;
 
 extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   const std::lock_guard<std::mutex> lock(mutex);
-  mlir::registerAllPasses();
 
   Conv2dGenerator conv2dGenerator;
   if (failed(conv2dGenerator.parseConvConfig(arguments))) {
