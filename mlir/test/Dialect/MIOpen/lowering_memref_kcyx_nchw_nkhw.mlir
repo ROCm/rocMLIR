@@ -28,13 +28,13 @@ func @miopen_conv2d_kcyx_nchw_nkhw(%filter : memref<1x128x8x3x3xf32>, %input : m
 func @miopen_conv2d_bwd_data_gkcyx_ngchw_ngkhw(%filter: memref<1x1024x1024x1x1xf32>, %input: memref<128x1x1024x14x14xf32>, %output: memref<128x1x1024x14x14xf32>) attributes {kernel = 0 : i32} {
   miopen.conv2d_bwd_data(%filter, %input, %output) {
     arch = "gfx908",
-    num_cu = 120 : i32,
+    dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
-    input_layout = ["ni","gi", "ci", "hi", "wi"],
-    output_layout = ["no", "go",  "ko", "ho", "wo"],
-    dilations = [1, 1],
     gemm_id = 0 : i32,
-    padding = [0 , 0 , 0 , 0],
+    input_layout = ["ni","gi", "ci", "hi", "wi"],
+    num_cu = 120 : i32,
+    output_layout = ["no", "go",  "ko", "ho", "wo"],
+    padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
     strides = [1 : i32, 1 : i32],
     xdlopsV2 = true
   } : memref<1x1024x1024x1x1xf32>, memref<128x1x1024x14x14xf32>, memref<128x1x1024x14x14xf32>
