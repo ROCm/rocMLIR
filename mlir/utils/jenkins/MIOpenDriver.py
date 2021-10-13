@@ -350,16 +350,19 @@ def tuneMLIRKernels(configs, xdlops):
         commandLine = testVector.split(sep=' ')
         config = ConvConfiguration.fromCommandLine(commandLine, xdlops)
         if config.inputLayout == 'nchw':
-            MIOpenDriverCommand = [MIOPEN_DRIVER, *commandLine,'-V', '0']
-            print(' '.join(MIOpenDriverCommand))
+            MIOpenDriverCommand = [MIOPEN_DRIVER, *commandLine,'-V', '1']
+            print(' '.join(MIOpenDriverCommand), flush=True)
             p1 = subprocess.Popen(MIOpenDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envs)
             # get output.
             try:
-               outs, errs = p1.communicate(timeout=180)
-            except subprocess.TimeoutExpired:
-                p1.kill()
-                print("MIOpen tuning timed out")
-                outs, errs = p1.communicate() 
+               #outs, errs = p1.communicate(timeout=180)
+               outs, errs = p1.communicate()
+               print(outs.decode('utf-8', flush=True)
+            except subprocess.Exception:
+               p1.kill()
+               print("Warning: MIOpen tuning timed out", flush=True)
+               print(errs.decode('utf-8'), flush=True)
+               #outs, errs = p1.communicate() 
 
 # Main function.
 if __name__ == '__main__':
