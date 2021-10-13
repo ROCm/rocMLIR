@@ -3,6 +3,7 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
   AffineTransforms.cpp
   AlignTiling.cpp
   LowerMIOpenOps.cpp
+  CopyOpt.cpp
   TestAffineTransforms.cpp
 
   ADDITIONAL_HEADER_DIRS
