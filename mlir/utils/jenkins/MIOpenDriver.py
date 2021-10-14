@@ -357,12 +357,12 @@ def tuneMLIRKernels(configs, xdlops):
             try:
                #outs, errs = p1.communicate(timeout=180)
                outs, errs = p1.communicate()
-               print(outs.decode('utf-8', flush=True)
+               print(outs.decode('utf-8'), flush=True)
             except subprocess.Exception:
                p1.kill()
                print("Warning: MIOpen tuning timed out", flush=True)
                print(errs.decode('utf-8'), flush=True)
-               #outs, errs = p1.communicate() 
+               outs, errs = p1.communicate() 
 
 # Main function.
 if __name__ == '__main__':
