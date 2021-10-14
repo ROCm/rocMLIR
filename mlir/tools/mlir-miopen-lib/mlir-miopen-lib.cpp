@@ -28,18 +28,24 @@
 
 namespace {
 struct MiirHandle_s {
-  DialectRegistry initRegistry() {
-    DialectRegistry registry;
-    registerAllDialects(registry);
-    return registry;
+  MLIRContext &getContext() {
+    auto getRegistry = []() {
+      DialectRegistry registry;
+      registerAllDialects(registry);
+      return registry;
+    };
+    static MLIRContext context(getRegistry());
+    static bool once = []() {
+      context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect>();
+      return true;
+    }();
+    return context;
   }
-  MiirHandle_s() : context(initRegistry()) {
-    context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect>();
-    OpBuilder builder(&context);
+  MiirHandle_s() {
+    OpBuilder builder(&getContext());
     module = ModuleOp::create(builder.getUnknownLoc());
   }
   mlir::ModuleOp getModule() { return module.get(); }
-  MLIRContext context;
   mlir::OwningModuleRef module;
   std::string arch;
   std::string perfConfig;
@@ -102,7 +108,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   }
 
   MiirHandle_s *handle = new MiirHandle_s;
-  OpBuilder builder(&(handle->context));
+  OpBuilder builder(&(handle->getContext()));
 
   const auto &config = conv2dGenerator.getConfig();
   if (failed(MIOpenEnabled(config))) {
