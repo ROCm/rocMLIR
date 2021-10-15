@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/Lower/IO.h"
-#include "../../runtime/io-api.h"
 #include "RTBuilder.h"
 #include "flang/Lower/Bridge.h"
 #include "flang/Lower/CharacterExpr.h"
@@ -17,6 +16,7 @@
 #include "flang/Lower/Runtime.h"
 #include "flang/Lower/Utils.h"
 #include "flang/Parser/parse-tree.h"
+#include "flang/Runtime/io-api.h"
 #include "flang/Semantics/tools.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 
@@ -39,12 +39,10 @@ static constexpr std::tuple<
     mkIOKey(BeginInternalArrayFormattedOutput),
     mkIOKey(BeginInternalArrayFormattedInput), mkIOKey(BeginInternalListOutput),
     mkIOKey(BeginInternalListInput), mkIOKey(BeginInternalFormattedOutput),
-    mkIOKey(BeginInternalFormattedInput), mkIOKey(BeginInternalNamelistOutput),
-    mkIOKey(BeginInternalNamelistInput), mkIOKey(BeginExternalListOutput),
+    mkIOKey(BeginInternalFormattedInput), mkIOKey(BeginExternalListOutput),
     mkIOKey(BeginExternalListInput), mkIOKey(BeginExternalFormattedOutput),
     mkIOKey(BeginExternalFormattedInput), mkIOKey(BeginUnformattedOutput),
-    mkIOKey(BeginUnformattedInput), mkIOKey(BeginExternalNamelistOutput),
-    mkIOKey(BeginExternalNamelistInput), mkIOKey(BeginAsynchronousOutput),
+    mkIOKey(BeginUnformattedInput), mkIOKey(BeginAsynchronousOutput),
     mkIOKey(BeginAsynchronousInput), mkIOKey(BeginWait), mkIOKey(BeginWaitAll),
     mkIOKey(BeginClose), mkIOKey(BeginFlush), mkIOKey(BeginBackspace),
     mkIOKey(BeginEndfile), mkIOKey(BeginRewind), mkIOKey(BeginOpenUnit),
@@ -178,11 +176,11 @@ static void makeNextConditionalOn(Fortran::lower::FirOpBuilder &builder,
   // loop scope.  That is done in genIoLoop, but it is enabled here.
   auto whereOp =
       inIterWhileLoop
-          ? builder.create<fir::WhereOp>(loc, builder.getI1Type(), ok, true)
-          : builder.create<fir::WhereOp>(loc, ok, /*withOtherwise=*/false);
+          ? builder.create<fir::IfOp>(loc, builder.getI1Type(), ok, true)
+          : builder.create<fir::IfOp>(loc, ok, /*withOtherwise=*/false);
   if (!insertPt.isSet())
     insertPt = builder.saveInsertionPoint();
-  builder.setInsertionPointToStart(&whereOp.whereRegion().front());
+  builder.setInsertionPointToStart(&whereOp.thenRegion().front());
 }
 
 template <typename D>
@@ -411,13 +409,13 @@ static void genIoLoop(Fortran::lower::AbstractConverter &converter,
   auto falseValue = builder.createIntegerConstant(loc, builder.getI1Type(), 0);
   genItemList(ioImpliedDo, true);
   // Unwind nested I/O call scopes, filling in true and false ResultOp's.
-  for (auto *op = builder.getBlock()->getParentOp(); isa<fir::WhereOp>(op);
+  for (auto *op = builder.getBlock()->getParentOp(); isa<fir::IfOp>(op);
        op = op->getBlock()->getParentOp()) {
-    auto whereOp = dyn_cast<fir::WhereOp>(op);
-    auto *lastOp = &whereOp.whereRegion().front().back();
+    auto whereOp = dyn_cast<fir::IfOp>(op);
+    auto *lastOp = &whereOp.thenRegion().front().back();
     builder.setInsertionPointAfter(lastOp);
     builder.create<fir::ResultOp>(loc, lastOp->getResult(0)); // runtime result
-    builder.setInsertionPointToStart(&whereOp.otherRegion().front());
+    builder.setInsertionPointToStart(&whereOp.elseRegion().front());
     builder.create<fir::ResultOp>(loc, falseValue); // known false result
   }
   builder.restoreInsertionPoint(insertPt);
@@ -490,7 +488,7 @@ lowerSourceTextAsStringLit(Fortran::lower::AbstractConverter &converter,
   text = text.take_front(text.rfind(')') + 1);
   auto &builder = converter.getFirOpBuilder();
   auto lit = builder.createStringLit(
-      loc, /*FIXME*/ fir::CharacterType::get(builder.getContext(), 1), text);
+      loc, /*FIXME*/ fir::CharacterType::get(builder.getContext(), 1, 1), text);
   auto data =
       Fortran::lower::CharacterExprHelper{builder, loc}.materializeCharacter(
           lit);
@@ -810,7 +808,7 @@ static const auto *getIOControl(const A &stmt) {
 }
 
 /// returns true iff the expression in the parse tree is not really a format but
-/// rather a namelist variable.
+/// rather a namelist group
 template <typename A>
 static bool formatIsActuallyNamelist(const A &format) {
   if (auto *e = std::get_if<Fortran::parser::Expr>(&format.u)) {
@@ -1159,26 +1157,20 @@ mlir::FuncOp getBeginDataTransfer(mlir::Location loc, FirOpBuilder &builder,
       return getIORuntimeFunc<mkIOKey(BeginAsynchronousInput)>(loc, builder);
     if (isFormatted) {
       if (isIntern) {
-        if (isNml)
-          return getIORuntimeFunc<mkIOKey(BeginInternalNamelistInput)>(loc,
-                                                                       builder);
         if (isOtherIntern) {
-          if (isList)
+          if (isList || isNml)
             return getIORuntimeFunc<mkIOKey(BeginInternalArrayListInput)>(
                 loc, builder);
           return getIORuntimeFunc<mkIOKey(BeginInternalArrayFormattedInput)>(
               loc, builder);
         }
-        if (isList)
+        if (isList || isNml)
           return getIORuntimeFunc<mkIOKey(BeginInternalListInput)>(loc,
                                                                    builder);
         return getIORuntimeFunc<mkIOKey(BeginInternalFormattedInput)>(loc,
                                                                       builder);
       }
-      if (isNml)
-        return getIORuntimeFunc<mkIOKey(BeginExternalNamelistInput)>(loc,
-                                                                     builder);
-      if (isList)
+      if (isList || isNml)
         return getIORuntimeFunc<mkIOKey(BeginExternalListInput)>(loc, builder);
       return getIORuntimeFunc<mkIOKey(BeginExternalFormattedInput)>(loc,
                                                                     builder);
@@ -1189,26 +1181,20 @@ mlir::FuncOp getBeginDataTransfer(mlir::Location loc, FirOpBuilder &builder,
       return getIORuntimeFunc<mkIOKey(BeginAsynchronousOutput)>(loc, builder);
     if (isFormatted) {
       if (isIntern) {
-        if (isNml)
-          return getIORuntimeFunc<mkIOKey(BeginInternalNamelistOutput)>(
-              loc, builder);
         if (isOtherIntern) {
-          if (isList)
+          if (isList || isNml)
             return getIORuntimeFunc<mkIOKey(BeginInternalArrayListOutput)>(
                 loc, builder);
           return getIORuntimeFunc<mkIOKey(BeginInternalArrayFormattedOutput)>(
               loc, builder);
         }
-        if (isList)
+        if (isList || isNml)
           return getIORuntimeFunc<mkIOKey(BeginInternalListOutput)>(loc,
                                                                     builder);
         return getIORuntimeFunc<mkIOKey(BeginInternalFormattedOutput)>(loc,
                                                                        builder);
       }
-      if (isNml)
-        return getIORuntimeFunc<mkIOKey(BeginExternalNamelistOutput)>(loc,
-                                                                      builder);
-      if (isList)
+      if (isList || isNml)
         return getIORuntimeFunc<mkIOKey(BeginExternalListOutput)>(loc, builder);
       return getIORuntimeFunc<mkIOKey(BeginExternalFormattedOutput)>(loc,
                                                                      builder);

@@ -15,12 +15,23 @@ add_mlir_dialect_library(MLIRMIOpenOps
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/MIOpen
 
   DEPENDS
+  MLIRStandardOpsIncGen
   MLIRMIOpenOpsIncGen
   )
 target_link_libraries(MLIRMIOpenOps
   PUBLIC
-  MLIRGPU
+  MLIRGPUOps
   MLIRIR
+  MLIRDialect
+  MLIRJitRunner
+  MLIRAnalysis
+  MLIRExecutionEngine
+  MLIRParser
+  MLIRROCDLIR
+  MLIRSupport
+  MLIRTargetLLVMIRExport
+  MLIRToLLVMIRTranslationRegistration
+  MLIRTransforms
   LLVMSupport
   )
 

@@ -21,6 +21,8 @@
 using namespace mlir;
 using namespace mlir::miopen;
 
+#include "mlir/Dialect/MIOpen/MIOpenOpsDialect.cpp.inc"
+
 //===----------------------------------------------------------------------===//
 // MIOpenDialect Interfaces
 //===----------------------------------------------------------------------===//
@@ -175,9 +177,5 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
 
-namespace mlir {
-
 #define GET_OP_CLASSES
 #include "mlir/Dialect/MIOpen/MIOpenOps.cpp.inc"
-
-} // namespace mlir

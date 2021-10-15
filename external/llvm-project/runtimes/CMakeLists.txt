@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.13.4)
 project(Runtimes C CXX ASM)
 
-set(LLVM_ALL_RUNTIMES "compiler-rt;libcxx;libcxxabi;libunwind;openmp")
+set(LLVM_ALL_RUNTIMES "compiler-rt;libc;libcxx;libcxxabi;libunwind;openmp")
 set(LLVM_ENABLE_RUNTIMES "" CACHE STRING
   "Semicolon-separated list of runtimes to build (${LLVM_ALL_RUNTIMES}), or \"all\".")
 if(LLVM_ENABLE_RUNTIMES STREQUAL "all" )
@@ -58,17 +58,28 @@ if(compiler_rt_path)
   endif()
 endif()
 
+# If building standalone by pointing CMake at this runtimes directory,
+# LLVM_BINARY_DIR isn't set, find_package(LLVM) will fail and these
+# intermediate paths are unset.
+if (NOT LLVM_BINARY_DIR)
+  set(LLVM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+endif()
+if (NOT LLVM_FOUND)
+  set(LLVM_TOOLS_BINARY_DIR ${LLVM_BINARY_DIR}/bin)
+  set(LLVM_LIBRARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/lib)
+endif()
+
 # Setting these variables will allow the sub-build to put their outputs into
 # the library and bin directories of the top-level build.
 set(LLVM_LIBRARY_OUTPUT_INTDIR ${LLVM_LIBRARY_DIR})
 set(LLVM_RUNTIME_OUTPUT_INTDIR ${LLVM_TOOLS_BINARY_DIR})
 
 # This variable makes sure that e.g. llvm-lit is found.
-set(LLVM_MAIN_SRC_DIR ${LLVM_BUILD_MAIN_SRC_DIR})
-set(LLVM_CMAKE_PATH ${LLVM_MAIN_SRC_DIR}/cmake/modules)
+set(LLVM_MAIN_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../llvm)
+set(LLVM_CMAKE_DIR ${LLVM_MAIN_SRC_DIR}/cmake/modules)
 
 # This variable is used by individual runtimes to locate LLVM files.
-set(LLVM_PATH ${LLVM_BUILD_MAIN_SRC_DIR})
+set(LLVM_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../llvm)
 
 if(APPLE)
   set(LLVM_ENABLE_LIBCXX ON CACHE BOOL "")
@@ -76,16 +87,19 @@ endif()
 
 include(CheckLibraryExists)
 include(CheckCCompilerFlag)
+include(CheckCXXCompilerFlag)
 
-# Disable use of the installed C++ standard library when building runtimes. If
-# MSVC is true, we must be using the clang-cl driver, which doesn't understand
-# these flags.
-if (NOT MSVC)
-  set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -nostdinc++ -nostdlib++")
-
-  if (LLVM_EXTERNAL_LIBCXX_SOURCE_DIR AND "libcxx" IN_LIST LLVM_ENABLE_RUNTIMES)
-    set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -isystem ${LLVM_EXTERNAL_LIBCXX_SOURCE_DIR}/include")
-  endif()
+# Disable use of the installed C++ standard library when building runtimes.
+# Check for -nostdlib++ first; if there's no C++ standard library yet,
+# all check_cxx_compiler_flag commands will fail until we add -nostdlib++
+# (or -nodefaultlibs).
+check_c_compiler_flag(-nostdlib++ LLVM_RUNTIMES_SUPPORT_NOSTDLIBXX_FLAG)
+if (LLVM_RUNTIMES_SUPPORT_NOSTDLIBXX_FLAG)
+  set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -nostdlib++")
+endif()
+check_cxx_compiler_flag(-nostdinc++ LLVM_RUNTIMES_SUPPORT_NOSTDINCXX_FLAG)
+if (LLVM_RUNTIMES_SUPPORT_NOSTDINCXX_FLAG)
+  set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -nostdinc++")
 endif()
 
 # Avoid checking whether the compiler is working.
@@ -94,10 +108,13 @@ set(LLVM_COMPILER_CHECKED ON)
 # Handle common options used by all runtimes.
 include(AddLLVM)
 include(HandleLLVMOptions)
-include(FindPythonInterp)
 
-# Remove the -nostdlib++ option we've added earlier.
-string(REPLACE "-nostdlib++" "" CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS}")
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+if (NOT LLVM_DEFAULT_TARGET_TRIPLE)
+  include(GetHostTriple)
+  get_host_triple(LLVM_DEFAULT_TARGET_TRIPLE)
+endif()
 
 # Use libtool instead of ar if you are both on an Apple host, and targeting Apple.
 if(CMAKE_HOST_APPLE AND APPLE)
@@ -105,7 +122,7 @@ if(CMAKE_HOST_APPLE AND APPLE)
 endif()
 
 # This can be used to detect whether we're in the runtimes build.
-set(RUNTIMES_BUILD ON)
+set(LLVM_RUNTIMES_BUILD ON)
 
 foreach(entry ${runtimes})
   get_filename_component(projName ${entry} NAME)
@@ -114,12 +131,11 @@ foreach(entry ${runtimes})
   string(REPLACE "-" "_" canon_name ${projName})
   string(TOUPPER ${canon_name} canon_name)
 
-  # The subdirectories need to treat this as standalone builds. D57992 tried
-  # to get rid of this, but the runtimes treat *_STANDALONE_BUILD=OFF as if
-  # llvm & clang are configured in the same CMake, and setup dependencies
-  # against their targets. OpenMP has fixed the issue so we don't set the
-  # variable.
-  if (NOT ${canon_name} STREQUAL "OPENMP")
+  # TODO: compiler-rt has to use standalone build for now. We tried to remove
+  # this in D57992 but this broke the build because compiler-rt assumes that
+  # LLVM and Clang are configured in the same build to set up dependencies. We
+  # should clean up the compiler-rt build and remove this eventually.
+  if ("${canon_name}" STREQUAL "COMPILER_RT")
     set(${canon_name}_STANDALONE_BUILD ON)
   endif()
 

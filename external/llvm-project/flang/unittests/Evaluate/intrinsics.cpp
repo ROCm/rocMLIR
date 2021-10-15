@@ -24,7 +24,7 @@ public:
     offsets_[s] = cooked_.Put(s);
     cooked_.PutProvenance(allSources_.AddCompilerInsertion(s));
   }
-  void Marshal() { cooked_.Marshal(allSources_); }
+  void Marshal() { cooked_.Marshal(allCookedSources_); }
   parser::CharBlock operator()(const std::string &s) {
     return {cooked_.AsCharBlock().begin() + offsets_[s], s.size()};
   }
@@ -237,7 +237,9 @@ void TestIntrinsics() {
   TestCall{defaults, table, "conjg"}
       .Push(Const(Scalar<Complex8>{}))
       .DoCall(Complex8::GetType());
-  TestCall{defaults, table, "dconjg"}.Push(Const(Scalar<Complex4>{})).DoCall();
+  TestCall{defaults, table, "dconjg"}
+      .Push(Const(Scalar<Complex4>{}))
+      .DoCall(Complex8::GetType());
   TestCall{defaults, table, "dconjg"}
       .Push(Const(Scalar<Complex8>{}))
       .DoCall(Complex8::GetType());

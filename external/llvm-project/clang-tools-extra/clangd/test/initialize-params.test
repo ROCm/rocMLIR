@@ -81,7 +81,22 @@
 # CHECK-NEXT:          "delta": true
 # CHECK-NEXT:        },
 # CHECK-NEXT:        "legend": {
-# CHECK-NEXT:          "tokenModifiers": [],
+# CHECK-NEXT:          "tokenModifiers": [
+# CHECK-NEXT:            "declaration",
+# CHECK-NEXT:            "deprecated",
+# CHECK-NEXT:            "deduced",
+# CHECK-NEXT:            "readonly",
+# CHECK-NEXT:            "static",
+# CHECK-NEXT:            "abstract",
+# CHECK-NEXT:            "virtual",
+# CHECK-NEXT:            "dependentName",
+# CHECK-NEXT:            "defaultLibrary",
+# CHECK-NEXT:            "usedAsMutableReference",
+# CHECK-NEXT:            "functionScope",
+# CHECK-NEXT:            "classScope",
+# CHECK-NEXT:            "fileScope",
+# CHECK-NEXT:            "globalScope"
+# CHECK-NEXT:          ],
 # CHECK-NEXT:          "tokenTypes": [
 # CHECK-NEXT:            "variable",
 # CHECK:               ]

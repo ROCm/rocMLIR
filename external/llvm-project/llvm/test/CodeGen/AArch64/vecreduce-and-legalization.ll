@@ -97,12 +97,12 @@ define i8 @test_v9i8(<9 x i8> %a) nounwind {
 ; CHECK-LABEL: test_v9i8:
 ; CHECK:       // %bb.0:
 ; CHECK-NEXT:    mov w8, #-1
-; CHECK-NEXT:    mov v0.b[9], w8
-; CHECK-NEXT:    mov v0.b[10], w8
-; CHECK-NEXT:    mov v0.b[11], w8
-; CHECK-NEXT:    mov v0.b[12], w8
-; CHECK-NEXT:    mov v0.b[13], w8
-; CHECK-NEXT:    ext v1.16b, v0.16b, v0.16b, #8
+; CHECK-NEXT:    mov v1.16b, v0.16b
+; CHECK-NEXT:    mov v1.b[9], w8
+; CHECK-NEXT:    mov v1.b[10], w8
+; CHECK-NEXT:    mov v1.b[11], w8
+; CHECK-NEXT:    mov v1.b[13], w8
+; CHECK-NEXT:    ext v1.16b, v1.16b, v1.16b, #8
 ; CHECK-NEXT:    and v1.8b, v0.8b, v1.8b
 ; CHECK-NEXT:    umov w8, v1.b[1]
 ; CHECK-NEXT:    umov w9, v1.b[0]
@@ -113,7 +113,7 @@ define i8 @test_v9i8(<9 x i8> %a) nounwind {
 ; CHECK-NEXT:    and w8, w8, w9
 ; CHECK-NEXT:    umov w9, v0.b[4]
 ; CHECK-NEXT:    and w8, w8, w9
-; CHECK-NEXT:    umov w9, v1.b[5]
+; CHECK-NEXT:    umov w9, v0.b[5]
 ; CHECK-NEXT:    and w8, w8, w9
 ; CHECK-NEXT:    umov w9, v0.b[6]
 ; CHECK-NEXT:    and w8, w8, w9

@@ -62,6 +62,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Error.h"
@@ -281,6 +282,7 @@ struct CodeCompletionBuilder {
       : ASTCtx(ASTCtx),
         EnableFunctionArgSnippets(Opts.EnableFunctionArgSnippets),
         IsUsingDeclaration(IsUsingDeclaration), NextTokenKind(NextTokenKind) {
+    Completion.Deprecated = true; // cleared by any non-deprecated overload.
     add(C, SemaCCS);
     if (C.SemaResult) {
       assert(ASTCtx);
@@ -309,8 +311,6 @@ struct CodeCompletionBuilder {
         return std::tie(X.range.start.line, X.range.start.character) <
                std::tie(Y.range.start.line, Y.range.start.character);
       });
-      Completion.Deprecated |=
-          (C.SemaResult->Availability == CXAvailability_Deprecated);
     }
     if (C.IndexResult) {
       Completion.Origin |= C.IndexResult->Origin;
@@ -332,7 +332,6 @@ struct CodeCompletionBuilder {
         }
         Completion.RequiredQualifier = std::string(ShortestQualifier);
       }
-      Completion.Deprecated |= (C.IndexResult->Flags & Symbol::Deprecated);
     }
     if (C.IdentifierResult) {
       Completion.Origin |= SymbolOrigin::Identifier;
@@ -404,9 +403,18 @@ struct CodeCompletionBuilder {
       if (C.IndexResult) {
         SetDoc(C.IndexResult->Documentation);
       } else if (C.SemaResult) {
-        SetDoc(getDocComment(*ASTCtx, *C.SemaResult,
-                             /*CommentsFromHeader=*/false));
+        const auto DocComment = getDocComment(*ASTCtx, *C.SemaResult,
+                                              /*CommentsFromHeader=*/false);
+        SetDoc(formatDocumentation(*SemaCCS, DocComment));
       }
+    }
+    if (Completion.Deprecated) {
+      if (C.SemaResult)
+        Completion.Deprecated &=
+            C.SemaResult->Availability == CXAvailability_Deprecated;
+      if (C.IndexResult)
+        Completion.Deprecated &=
+            bool(C.IndexResult->Flags & Symbol::Deprecated);
     }
   }
 
@@ -452,18 +460,52 @@ private:
   std::string summarizeSnippet() const {
     if (IsUsingDeclaration)
       return "";
-    // Suppress function argument snippets if args are already present.
-    if ((Completion.Kind == CompletionItemKind::Function ||
-         Completion.Kind == CompletionItemKind::Method ||
-         Completion.Kind == CompletionItemKind::Constructor) &&
-        NextTokenKind == tok::l_paren)
-      return "";
     auto *Snippet = onlyValue<&BundledEntry::SnippetSuffix>();
     if (!Snippet)
       // All bundles are function calls.
       // FIXME(ibiryukov): sometimes add template arguments to a snippet, e.g.
       // we need to complete 'forward<$1>($0)'.
       return "($0)";
+    // Suppress function argument snippets cursor is followed by left
+    // parenthesis (and potentially arguments) or if there are potentially
+    // template arguments. There are cases where it would be wrong (e.g. next
+    // '<' token is a comparison rather than template argument list start) but
+    // it is less common and suppressing snippet provides better UX.
+    if (Completion.Kind == CompletionItemKind::Function ||
+        Completion.Kind == CompletionItemKind::Method ||
+        Completion.Kind == CompletionItemKind::Constructor) {
+      // If there is a potential template argument list, drop snippet and just
+      // complete symbol name. Ideally, this could generate an edit that would
+      // paste function arguments after template argument list but it would be
+      // complicated. Example:
+      //
+      // fu^<int> -> function<int>
+      if (NextTokenKind == tok::less && Snippet->front() == '<')
+        return "";
+      // Potentially followed by argument list.
+      if (NextTokenKind == tok::l_paren) {
+        // If snippet contains template arguments we will emit them and drop
+        // function arguments. Example:
+        //
+        // fu^(42) -> function<int>(42);
+        if (Snippet->front() == '<') {
+          // Find matching '>'. Snippet->find('>') will not work in cases like
+          // template <typename T=std::vector<int>>. Hence, iterate through
+          // the snippet until the angle bracket balance reaches zero.
+          int Balance = 0;
+          size_t I = 0;
+          do {
+            if (Snippet->at(I) == '>')
+              --Balance;
+            else if (Snippet->at(I) == '<')
+              ++Balance;
+            ++I;
+          } while (Balance > 0);
+          return Snippet->substr(0, I);
+        }
+        return "";
+      }
+    }
     if (EnableFunctionArgSnippets)
       return *Snippet;
 
@@ -674,6 +716,7 @@ bool contextAllowsIndex(enum CodeCompletionContext::Kind K) {
   case CodeCompletionContext::CCC_ObjCInstanceMessage:
   case CodeCompletionContext::CCC_ObjCClassMessage:
   case CodeCompletionContext::CCC_IncludedFile:
+  case CodeCompletionContext::CCC_Attribute:
   // FIXME: Provide identifier based completions for the following contexts:
   case CodeCompletionContext::CCC_Other: // Be conservative.
   case CodeCompletionContext::CCC_NaturalLanguage:
@@ -1071,14 +1114,19 @@ void loadMainFilePreambleMacros(const Preprocessor &PP,
   ExternalPreprocessorSource *PreambleMacros = PP.getExternalSource();
   // As we have the names of the macros, we can look up their IdentifierInfo
   // and then use this to load just the macros we want.
+  const auto &ITable = PP.getIdentifierTable();
   IdentifierInfoLookup *PreambleIdentifiers =
-      PP.getIdentifierTable().getExternalIdentifierLookup();
+      ITable.getExternalIdentifierLookup();
+
   if (!PreambleIdentifiers || !PreambleMacros)
     return;
-  for (const auto &MacroName : Preamble.Macros.Names)
+  for (const auto &MacroName : Preamble.Macros.Names) {
+    if (ITable.find(MacroName.getKey()) != ITable.end())
+      continue;
     if (auto *II = PreambleIdentifiers->get(MacroName.getKey()))
       if (II->isOutOfDate())
         PreambleMacros->updateOutOfDateIdentifier(*II);
+  }
 }
 
 // Invokes Sema code completion on a file.
@@ -1640,7 +1688,7 @@ private:
           C.SemaResult->Kind == CodeCompletionResult::RK_Macro) ||
          (C.IndexResult &&
           C.IndexResult->SymInfo.Kind == index::SymbolKind::Macro)) &&
-        !C.Name.startswith_lower(Filter->pattern()))
+        !C.Name.startswith_insensitive(Filter->pattern()))
       return None;
     return Filter->match(C.Name);
   }
@@ -1794,14 +1842,14 @@ CompletionPrefix guessCompletionPrefix(llvm::StringRef Content,
   CompletionPrefix Result;
 
   // Consume the unqualified name. We only handle ASCII characters.
-  // isIdentifierBody will let us match "0invalid", but we don't mind.
-  while (!Rest.empty() && isIdentifierBody(Rest.back()))
+  // isAsciiIdentifierContinue will let us match "0invalid", but we don't mind.
+  while (!Rest.empty() && isAsciiIdentifierContinue(Rest.back()))
     Rest = Rest.drop_back();
   Result.Name = Content.slice(Rest.size(), Offset);
 
   // Consume qualifiers.
   while (Rest.consume_back("::") && !Rest.endswith(":")) // reject ::::
-    while (!Rest.empty() && isIdentifierBody(Rest.back()))
+    while (!Rest.empty() && isAsciiIdentifierContinue(Rest.back()))
       Rest = Rest.drop_back();
   Result.Qualifier =
       Content.slice(Rest.size(), Result.Name.begin() - Content.begin());
@@ -1826,9 +1874,10 @@ CodeCompleteResult codeComplete(PathRef FileName, Position Pos,
              ? std::move(Flow).runWithoutSema(ParseInput.Contents, *Offset,
                                               *ParseInput.TFS)
              : std::move(Flow).run({FileName, *Offset, *Preamble,
-                                    // We want to serve code completions with
-                                    // low latency, so don't bother patching.
-                                    /*PreamblePatch=*/llvm::None, ParseInput});
+                                    /*PreamblePatch=*/
+                                    PreamblePatch::createMacroPatch(
+                                        FileName, ParseInput, *Preamble),
+                                    ParseInput});
 }
 
 SignatureHelp signatureHelp(PathRef FileName, Position Pos,
@@ -1850,7 +1899,8 @@ SignatureHelp signatureHelp(PathRef FileName, Position Pos,
                                                Result),
       Options,
       {FileName, *Offset, Preamble,
-       PreamblePatch::create(FileName, ParseInput, Preamble), ParseInput});
+       PreamblePatch::createFullPatch(FileName, ParseInput, Preamble),
+       ParseInput});
   return Result;
 }
 
@@ -1869,6 +1919,13 @@ bool isIndexedForCodeCompletion(const NamedDecl &ND, ASTContext &ASTCtx) {
   // We only complete symbol's name, which is the same as the name of the
   // *primary* template in case of template specializations.
   if (isExplicitTemplateSpecialization(&ND))
+    return false;
+
+  // Category decls are not useful on their own outside the interface or
+  // implementation blocks. Moreover, sema already provides completion for
+  // these, even if it requires preamble deserialization. So by excluding them
+  // from the index, we reduce the noise in all the other completion scopes.
+  if (llvm::isa<ObjCCategoryDecl>(&ND) || llvm::isa<ObjCCategoryImplDecl>(&ND))
     return false;
 
   if (InTopLevelScope(ND))
@@ -2002,8 +2059,8 @@ bool allowImplicitCompletion(llvm::StringRef Content, unsigned Offset) {
     return true;
 
   // Complete words. Give non-ascii characters the benefit of the doubt.
-  return !Content.empty() &&
-         (isIdentifierBody(Content.back()) || !llvm::isASCII(Content.back()));
+  return !Content.empty() && (isAsciiIdentifierContinue(Content.back()) ||
+                              !llvm::isASCII(Content.back()));
 }
 
 } // namespace clangd

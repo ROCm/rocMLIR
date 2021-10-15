@@ -10,12 +10,16 @@
 
 // UNSUPPORTED: no-exceptions, c++03
 
+// These tests fail on previously released dylibs, investigation needed.
+// XFAIL: use_system_cxx_lib && target={{.+}}-apple-macosx10.{{9|10|11|12|13|14|15}}
+
 #include <exception>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <unwind.h>
 #include <tuple>
+#include <__cxxabi_config.h>
 
 template <typename T>
 struct Stop;
@@ -37,7 +41,7 @@ struct Stop<R (*)(Args...)> {
 
 static void forced_unwind() {
   _Unwind_Exception* exc = new _Unwind_Exception;
-  exc->exception_class = 0;
+  memset(&exc->exception_class, 0, sizeof(exc->exception_class));
   exc->exception_cleanup = 0;
   _Unwind_ForcedUnwind(exc, Stop<_Unwind_Stop_Fn>::stop, 0);
   abort();
@@ -47,7 +51,7 @@ static void test() noexcept { forced_unwind(); }
 
 static void terminate() { exit(0); }
 
-int main() {
+int main(int, char**) {
   std::set_terminate(terminate);
   try {
     test();

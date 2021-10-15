@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef DEMANGLE_ITANIUMDEMANGLE_H
-#define DEMANGLE_ITANIUMDEMANGLE_H
+#ifndef LLVM_DEMANGLE_ITANIUMDEMANGLE_H
+#define LLVM_DEMANGLE_ITANIUMDEMANGLE_H
 
 // FIXME: (possibly) incomplete list of features that clang mangles that this
 // file does not yet support:
@@ -108,6 +108,126 @@
     X(BracedRangeExpr)
 
 DEMANGLE_NAMESPACE_BEGIN
+
+template <class T, size_t N> class PODSmallVector {
+  static_assert(std::is_pod<T>::value,
+                "T is required to be a plain old data type");
+
+  T *First = nullptr;
+  T *Last = nullptr;
+  T *Cap = nullptr;
+  T Inline[N] = {0};
+
+  bool isInline() const { return First == Inline; }
+
+  void clearInline() {
+    First = Inline;
+    Last = Inline;
+    Cap = Inline + N;
+  }
+
+  void reserve(size_t NewCap) {
+    size_t S = size();
+    if (isInline()) {
+      auto *Tmp = static_cast<T *>(std::malloc(NewCap * sizeof(T)));
+      if (Tmp == nullptr)
+        std::terminate();
+      std::copy(First, Last, Tmp);
+      First = Tmp;
+    } else {
+      First = static_cast<T *>(std::realloc(First, NewCap * sizeof(T)));
+      if (First == nullptr)
+        std::terminate();
+    }
+    Last = First + S;
+    Cap = First + NewCap;
+  }
+
+public:
+  PODSmallVector() : First(Inline), Last(First), Cap(Inline + N) {}
+
+  PODSmallVector(const PODSmallVector &) = delete;
+  PODSmallVector &operator=(const PODSmallVector &) = delete;
+
+  PODSmallVector(PODSmallVector &&Other) : PODSmallVector() {
+    if (Other.isInline()) {
+      std::copy(Other.begin(), Other.end(), First);
+      Last = First + Other.size();
+      Other.clear();
+      return;
+    }
+
+    First = Other.First;
+    Last = Other.Last;
+    Cap = Other.Cap;
+    Other.clearInline();
+  }
+
+  PODSmallVector &operator=(PODSmallVector &&Other) {
+    if (Other.isInline()) {
+      if (!isInline()) {
+        std::free(First);
+        clearInline();
+      }
+      std::copy(Other.begin(), Other.end(), First);
+      Last = First + Other.size();
+      Other.clear();
+      return *this;
+    }
+
+    if (isInline()) {
+      First = Other.First;
+      Last = Other.Last;
+      Cap = Other.Cap;
+      Other.clearInline();
+      return *this;
+    }
+
+    std::swap(First, Other.First);
+    std::swap(Last, Other.Last);
+    std::swap(Cap, Other.Cap);
+    Other.clear();
+    return *this;
+  }
+
+  // NOLINTNEXTLINE(readability-identifier-naming)
+  void push_back(const T &Elem) {
+    if (Last == Cap)
+      reserve(size() * 2);
+    *Last++ = Elem;
+  }
+
+  // NOLINTNEXTLINE(readability-identifier-naming)
+  void pop_back() {
+    assert(Last != First && "Popping empty vector!");
+    --Last;
+  }
+
+  void dropBack(size_t Index) {
+    assert(Index <= size() && "dropBack() can't expand!");
+    Last = First + Index;
+  }
+
+  T *begin() { return First; }
+  T *end() { return Last; }
+
+  bool empty() const { return First == Last; }
+  size_t size() const { return static_cast<size_t>(Last - First); }
+  T &back() {
+    assert(Last != First && "Calling back() on empty vector!");
+    return *(Last - 1);
+  }
+  T &operator[](size_t Index) {
+    assert(Index < size() && "Invalid access!");
+    return *(begin() + Index);
+  }
+  void clear() { Last = First; }
+
+  ~PODSmallVector() {
+    if (!isInline())
+      std::free(First);
+  }
+};
 
 // Base class of all AST nodes. The AST is built by the parser, then is
 // traversed by the printLeft/Right functions to produce a demangled string.
@@ -280,17 +400,20 @@ public:
 class VendorExtQualType final : public Node {
   const Node *Ty;
   StringView Ext;
+  const Node *TA;
 
 public:
-  VendorExtQualType(const Node *Ty_, StringView Ext_)
-      : Node(KVendorExtQualType), Ty(Ty_), Ext(Ext_) {}
+  VendorExtQualType(const Node *Ty_, StringView Ext_, const Node *TA_)
+      : Node(KVendorExtQualType), Ty(Ty_), Ext(Ext_), TA(TA_) {}
 
-  template<typename Fn> void match(Fn F) const { F(Ty, Ext); }
+  template <typename Fn> void match(Fn F) const { F(Ty, Ext, TA); }
 
   void printLeft(OutputStream &S) const override {
     Ty->print(S);
     S += " ";
     S += Ext;
+    if (TA != nullptr)
+      TA->print(S);
   }
 };
 
@@ -528,8 +651,15 @@ class ReferenceType : public Node {
   // Dig through any refs to refs, collapsing the ReferenceTypes as we go. The
   // rule here is rvalue ref to rvalue ref collapses to a rvalue ref, and any
   // other combination collapses to a lvalue ref.
+  //
+  // A combination of a TemplateForwardReference and a back-ref Substitution
+  // from an ill-formed string may have created a cycle; use cycle detection to
+  // avoid looping forever.
   std::pair<ReferenceKind, const Node *> collapse(OutputStream &S) const {
     auto SoFar = std::make_pair(RK, Pointee);
+    // Track the chain of nodes for the Floyd's 'tortoise and hare'
+    // cycle-detection algorithm, since getSyntaxNode(S) is impure
+    PODSmallVector<const Node *, 8> Prev;
     for (;;) {
       const Node *SN = SoFar.second->getSyntaxNode(S);
       if (SN->getKind() != KReferenceType)
@@ -537,6 +667,14 @@ class ReferenceType : public Node {
       auto *RT = static_cast<const ReferenceType *>(SN);
       SoFar.second = RT->Pointee;
       SoFar.first = std::min(SoFar.first, RT->RK);
+
+      // The middle of `Prev` is the 'slow' pointer moving at half speed
+      Prev.push_back(SoFar.second);
+      if (Prev.size() > 1 && SoFar.second == Prev[(Prev.size() - 1) / 2]) {
+        // Cycle detected
+        SoFar.second = nullptr;
+        break;
+      }
     }
     return SoFar;
   }
@@ -557,6 +695,8 @@ public:
       return;
     SwapAndRestore<bool> SavePrinting(Printing, true);
     std::pair<ReferenceKind, const Node *> Collapsed = collapse(s);
+    if (!Collapsed.second)
+      return;
     Collapsed.second->printLeft(s);
     if (Collapsed.second->hasArray(s))
       s += " ";
@@ -570,6 +710,8 @@ public:
       return;
     SwapAndRestore<bool> SavePrinting(Printing, true);
     std::pair<ReferenceKind, const Node *> Collapsed = collapse(s);
+    if (!Collapsed.second)
+      return;
     if (Collapsed.second->hasArray(s) || Collapsed.second->hasFunction(s))
       s += ")";
     Collapsed.second->printRight(s);
@@ -2214,125 +2356,6 @@ FOR_EACH_NODE_KIND(SPECIALIZATION)
 
 #undef FOR_EACH_NODE_KIND
 
-template <class T, size_t N>
-class PODSmallVector {
-  static_assert(std::is_pod<T>::value,
-                "T is required to be a plain old data type");
-
-  T* First = nullptr;
-  T* Last = nullptr;
-  T* Cap = nullptr;
-  T Inline[N] = {0};
-
-  bool isInline() const { return First == Inline; }
-
-  void clearInline() {
-    First = Inline;
-    Last = Inline;
-    Cap = Inline + N;
-  }
-
-  void reserve(size_t NewCap) {
-    size_t S = size();
-    if (isInline()) {
-      auto* Tmp = static_cast<T*>(std::malloc(NewCap * sizeof(T)));
-      if (Tmp == nullptr)
-        std::terminate();
-      std::copy(First, Last, Tmp);
-      First = Tmp;
-    } else {
-      First = static_cast<T*>(std::realloc(First, NewCap * sizeof(T)));
-      if (First == nullptr)
-        std::terminate();
-    }
-    Last = First + S;
-    Cap = First + NewCap;
-  }
-
-public:
-  PODSmallVector() : First(Inline), Last(First), Cap(Inline + N) {}
-
-  PODSmallVector(const PODSmallVector&) = delete;
-  PODSmallVector& operator=(const PODSmallVector&) = delete;
-
-  PODSmallVector(PODSmallVector&& Other) : PODSmallVector() {
-    if (Other.isInline()) {
-      std::copy(Other.begin(), Other.end(), First);
-      Last = First + Other.size();
-      Other.clear();
-      return;
-    }
-
-    First = Other.First;
-    Last = Other.Last;
-    Cap = Other.Cap;
-    Other.clearInline();
-  }
-
-  PODSmallVector& operator=(PODSmallVector&& Other) {
-    if (Other.isInline()) {
-      if (!isInline()) {
-        std::free(First);
-        clearInline();
-      }
-      std::copy(Other.begin(), Other.end(), First);
-      Last = First + Other.size();
-      Other.clear();
-      return *this;
-    }
-
-    if (isInline()) {
-      First = Other.First;
-      Last = Other.Last;
-      Cap = Other.Cap;
-      Other.clearInline();
-      return *this;
-    }
-
-    std::swap(First, Other.First);
-    std::swap(Last, Other.Last);
-    std::swap(Cap, Other.Cap);
-    Other.clear();
-    return *this;
-  }
-
-  void push_back(const T& Elem) {
-    if (Last == Cap)
-      reserve(size() * 2);
-    *Last++ = Elem;
-  }
-
-  void pop_back() {
-    assert(Last != First && "Popping empty vector!");
-    --Last;
-  }
-
-  void dropBack(size_t Index) {
-    assert(Index <= size() && "dropBack() can't expand!");
-    Last = First + Index;
-  }
-
-  T* begin() { return First; }
-  T* end() { return Last; }
-
-  bool empty() const { return First == Last; }
-  size_t size() const { return static_cast<size_t>(Last - First); }
-  T& back() {
-    assert(Last != First && "Calling back() on empty vector!");
-    return *(Last - 1);
-  }
-  T& operator[](size_t Index) {
-    assert(Index < size() && "Invalid access!");
-    return *(begin() + Index);
-  }
-  void clear() { Last = First; }
-
-  ~PODSmallVector() {
-    if (!isInline())
-      std::free(First);
-  }
-};
-
 template <typename Derived, typename Alloc> struct AbstractManglingParser {
   const char *First;
   const char *Last;
@@ -3680,8 +3703,6 @@ Node *AbstractManglingParser<Derived, Alloc>::parseQualifiedType() {
     if (Qual.empty())
       return nullptr;
 
-    // FIXME parse the optional <template-args> here!
-
     // extension            ::= U <objc-name> <objc-type>  # objc-type<identifier>
     if (Qual.startsWith("objcproto")) {
       StringView ProtoSourceName = Qual.dropFront(std::strlen("objcproto"));
@@ -3699,10 +3720,17 @@ Node *AbstractManglingParser<Derived, Alloc>::parseQualifiedType() {
       return make<ObjCProtoName>(Child, Proto);
     }
 
+    Node *TA = nullptr;
+    if (look() == 'I') {
+      TA = getDerived().parseTemplateArgs();
+      if (TA == nullptr)
+        return nullptr;
+    }
+
     Node *Child = getDerived().parseQualifiedType();
     if (Child == nullptr)
       return nullptr;
-    return make<VendorExtQualType>(Child, Qual);
+    return make<VendorExtQualType>(Child, Qual, TA);
   }
 
   Qualifiers Quals = parseCVQualifiers();
@@ -3875,7 +3903,7 @@ Node *AbstractManglingParser<Derived, Alloc>::parseType() {
     //                ::= Dh   # IEEE 754r half-precision floating point (16 bits)
     case 'h':
       First += 2;
-      return make<NameType>("decimal16");
+      return make<NameType>("half");
     //                ::= Di   # char32_t
     case 'i':
       First += 2;
@@ -5227,14 +5255,18 @@ Node *AbstractManglingParser<Derived, Alloc>::parseEncoding() {
   class SaveTemplateParams {
     AbstractManglingParser *Parser;
     decltype(TemplateParams) OldParams;
+    decltype(OuterTemplateParams) OldOuterParams;
 
   public:
     SaveTemplateParams(AbstractManglingParser *TheParser) : Parser(TheParser) {
       OldParams = std::move(Parser->TemplateParams);
+      OldOuterParams = std::move(Parser->OuterTemplateParams);
       Parser->TemplateParams.clear();
+      Parser->OuterTemplateParams.clear();
     }
     ~SaveTemplateParams() {
       Parser->TemplateParams = std::move(OldParams);
+      Parser->OuterTemplateParams = std::move(OldOuterParams);
     }
   } SaveTemplateParams(this);
 
@@ -5702,4 +5734,4 @@ struct ManglingParser : AbstractManglingParser<ManglingParser<Alloc>, Alloc> {
 
 DEMANGLE_NAMESPACE_END
 
-#endif // DEMANGLE_ITANIUMDEMANGLE_H
+#endif // LLVM_DEMANGLE_ITANIUMDEMANGLE_H

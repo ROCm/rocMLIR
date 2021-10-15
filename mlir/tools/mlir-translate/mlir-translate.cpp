@@ -14,6 +14,7 @@
 #include "mlir/Conversion/MIOpenPasses.h"
 #include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
 #include "mlir/InitAllTranslations.h"
+#include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Translation.h"
@@ -33,6 +34,7 @@ static void registerTestTranslations() {
 
 int main(int argc, char **argv) {
   registerAllTranslations();
+  registerToROCDLIRTranslation();
   registerTestTranslations();
   mlir::registerMIOpenConversionPasses();
   miopen::registerPasses();

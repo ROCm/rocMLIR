@@ -115,10 +115,23 @@ TEST(HighlightsTest, All) {
           f.[[^~]]Foo();
         }
       )cpp",
+      R"cpp(// ObjC methods with split selectors.
+        @interface Foo
+          +(void) [[x]]:(int)a [[y]]:(int)b;
+        @end
+        @implementation Foo
+          +(void) [[x]]:(int)a [[y]]:(int)b {}
+        @end
+        void go() {
+          [Foo [[x]]:2 [[^y]]:4];
+        }
+      )cpp",
   };
   for (const char *Test : Tests) {
     Annotations T(Test);
-    auto AST = TestTU::withCode(T.code()).build();
+    auto TU = TestTU::withCode(T.code());
+    TU.ExtraArgs.push_back("-xobjective-c++");
+    auto AST = TU.build();
     EXPECT_THAT(findDocumentHighlights(AST, T.point()), HighlightsFrom(T))
         << Test;
   }
@@ -293,6 +306,7 @@ MATCHER_P(Sym, Name, "") { return arg.Name == Name; }
 
 MATCHER_P(RangeIs, R, "") { return arg.Loc.range == R; }
 MATCHER_P(AttrsAre, A, "") { return arg.Attributes == A; }
+MATCHER_P(HasID, ID, "") { return arg.ID == ID; }
 
 TEST(LocateSymbol, WithIndex) {
   Annotations SymbolHeader(R"cpp(
@@ -406,6 +420,18 @@ TEST(LocateSymbol, All) {
   //   $def is the definition location (if absent, symbol has no definition)
   //   unnamed range becomes both $decl and $def.
   const char *Tests[] = {
+      R"cpp(
+        struct X {
+          union {
+            int [[a]];
+            float b;
+          };
+        };
+        int test(X &x) {
+          return x.^a;
+        }
+      )cpp",
+
       R"cpp(// Local variable
         int main() {
           int [[bonjour]];
@@ -896,9 +922,6 @@ TEST(LocateSymbol, All) {
     TestTU TU;
     TU.Code = std::string(T.code());
 
-    // FIXME: Auto-completion in a template requires disabling delayed template
-    // parsing.
-    TU.ExtraArgs.push_back("-fno-delayed-template-parsing");
     TU.ExtraArgs.push_back("-xobjective-c++");
 
     auto AST = TU.build();
@@ -909,12 +932,31 @@ TEST(LocateSymbol, All) {
     } else {
       ASSERT_THAT(Results, ::testing::SizeIs(1)) << Test;
       EXPECT_EQ(Results[0].PreferredDeclaration.range, *WantDecl) << Test;
+      EXPECT_TRUE(Results[0].ID) << Test;
       llvm::Optional<Range> GotDef;
       if (Results[0].Definition)
         GotDef = Results[0].Definition->range;
       EXPECT_EQ(WantDef, GotDef) << Test;
     }
   }
+}
+TEST(LocateSymbol, ValidSymbolID) {
+  auto T = Annotations(R"cpp(
+    #define MACRO(x, y) ((x) + (y))
+    int add(int x, int y) { return $MACRO^MACRO(x, y); }
+    int sum = $add^add(1, 2);
+  )cpp");
+
+  TestTU TU = TestTU::withCode(T.code());
+  auto AST = TU.build();
+  auto Index = TU.index();
+  EXPECT_THAT(locateSymbolAt(AST, T.point("add"), Index.get()),
+              ElementsAre(AllOf(Sym("add"),
+                                HasID(getSymbolID(&findDecl(AST, "add"))))));
+  EXPECT_THAT(
+      locateSymbolAt(AST, T.point("MACRO"), Index.get()),
+      ElementsAre(AllOf(Sym("MACRO"),
+                        HasID(findSymbol(TU.headerSymbols(), "MACRO").ID))));
 }
 
 TEST(LocateSymbol, AllMulti) {
@@ -1062,8 +1104,10 @@ TEST(LocateSymbol, TextualSmoke) {
   auto TU = TestTU::withCode(T.code());
   auto AST = TU.build();
   auto Index = TU.index();
-  EXPECT_THAT(locateSymbolAt(AST, T.point(), Index.get()),
-              ElementsAre(Sym("MyClass", T.range(), T.range())));
+  EXPECT_THAT(
+      locateSymbolAt(AST, T.point(), Index.get()),
+      ElementsAre(AllOf(Sym("MyClass", T.range(), T.range()),
+                        HasID(getSymbolID(&findDecl(AST, "MyClass"))))));
 }
 
 TEST(LocateSymbol, Textual) {
@@ -1865,6 +1909,26 @@ TEST(FindReferences, WithinAST) {
         [[X]] x1;
         Vector<int> x2;
         Vector<double> y;
+      )cpp",
+      R"cpp(// Dependent code
+        template <typename T> void $decl[[foo]](T t);
+        template <typename T> void bar(T t) { [[foo]](t); } // foo in bar is uninstantiated.
+        void baz(int x) { [[f^oo]](x); }
+      )cpp",
+      R"cpp(
+        namespace ns {
+        struct S{};
+        void $decl[[foo]](S s);
+        } // namespace ns
+        template <typename T> void foo(T t);
+        // FIXME: Maybe report this foo as a ref to ns::foo (because of ADL)
+        // when bar<ns::S> is instantiated?
+        template <typename T> void bar(T t) { foo(t); }
+        void baz(int x) {
+          ns::S s;
+          bar<ns::S>(s);
+          [[f^oo]](s);
+        }
       )cpp",
   };
   for (const char *Test : Tests)

@@ -10,7 +10,6 @@ builtin_check_c_compiler_flag(-fPIE                 COMPILER_RT_HAS_FPIE_FLAG)
 builtin_check_c_compiler_flag(-fno-builtin          COMPILER_RT_HAS_FNO_BUILTIN_FLAG)
 builtin_check_c_compiler_flag(-std=c11              COMPILER_RT_HAS_STD_C11_FLAG)
 builtin_check_c_compiler_flag(-fvisibility=hidden   COMPILER_RT_HAS_VISIBILITY_HIDDEN_FLAG)
-builtin_check_c_compiler_flag(-fomit-frame-pointer  COMPILER_RT_HAS_OMIT_FRAME_POINTER_FLAG)
 builtin_check_c_compiler_flag(-ffreestanding        COMPILER_RT_HAS_FREESTANDING_FLAG)
 builtin_check_c_compiler_flag(-fxray-instrument     COMPILER_RT_HAS_XRAY_COMPILER_FLAG)
 
@@ -37,7 +36,7 @@ asm(\"cas w0, w1, [x2]\");
 ")
 
 set(ARM64 aarch64)
-set(ARM32 arm armhf armv6m armv7m armv7em armv7 armv7s armv7k)
+set(ARM32 arm armhf armv6m armv7m armv7em armv7 armv7s armv7k armv8m.main armv8.1m.main)
 set(HEXAGON hexagon)
 set(X86 i386)
 set(X86_64 x86_64)
@@ -83,7 +82,8 @@ if(APPLE)
     execute_process(COMMAND
         /usr/libexec/PlistBuddy -c "Print :SupportedTargets:${os}:Archs" ${sdk_path}/SDKSettings.plist
       OUTPUT_VARIABLE SDK_SUPPORTED_ARCHS
-      RESULT_VARIABLE PLIST_ERROR)
+      RESULT_VARIABLE PLIST_ERROR
+      ERROR_QUIET)
     if (PLIST_ERROR EQUAL 0 AND
         SDK_SUPPORTED_ARCHS MATCHES " ${arch}\n")
       message(STATUS "Found ${arch} support in ${sdk_path}/SDKSettings.plist")
@@ -122,7 +122,7 @@ if(APPLE)
     set(DARWIN_watchos_BUILTIN_MIN_VER 2.0)
     set(DARWIN_watchos_BUILTIN_MIN_VER_FLAG
       ${DARWIN_watchos_MIN_VER_FLAG}=${DARWIN_watchos_BUILTIN_MIN_VER})
-    set(DARWIN_watchos_BUILTIN_ALL_POSSIBLE_ARCHS armv7 armv7k)
+    set(DARWIN_watchos_BUILTIN_ALL_POSSIBLE_ARCHS armv7 armv7k arm64_32)
     set(DARWIN_watchossim_BUILTIN_ALL_POSSIBLE_ARCHS ${X86})
   endif()
   if(COMPILER_RT_ENABLE_TVOS)

@@ -55,13 +55,13 @@ inline __int64_t calculateKBlockNum(__int64_t n, __int64_t ho, __int64_t wo) {
   __int64_t gemmK = n * ho * wo;
   __int64_t gemmKBlocks = 1;
   if (gemmK % 16 == 0) {
-    auto lcm = math::lcm(ho * wo, (__int64_t)16);
+    auto lcm = math_util::lcm(ho * wo, (__int64_t)16);
     gemmKBlocks = std::min(gemmK / lcm, n);
   } else if (gemmK % 8 == 0) {
-    auto comm = math::lcm(ho * wo, (__int64_t)8);
+    auto comm = math_util::lcm(ho * wo, (__int64_t)8);
     gemmKBlocks = std::min(gemmK / comm, n);
   } else if (gemmK % 4 == 0) {
-    auto comm = math::lcm(ho * wo, (__int64_t)4);
+    auto comm = math_util::lcm(ho * wo, (__int64_t)4);
     gemmKBlocks = std::min(gemmK / comm, n);
   }
   // not more than n
