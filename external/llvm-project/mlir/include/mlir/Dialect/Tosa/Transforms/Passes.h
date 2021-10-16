@@ -22,6 +22,9 @@ namespace tosa {
 std::unique_ptr<Pass> createTosaInferShapesPass();
 std::unique_ptr<Pass> createTosaMakeBroadcastablePass();
 std::unique_ptr<Pass> createTosaTestQuantUtilAPIPass();
+std::unique_ptr<Pass> createTosaPartitionPass();
+std::unique_ptr<Pass> createPostPartitionCollapsePass();
+void registerTosaPartitionPipelinePass();
 
 #define GEN_PASS_REGISTRATION
 #include "mlir/Dialect/Tosa/Transforms/Passes.h.inc"
