@@ -95,7 +95,23 @@ public:
 
     // TODO(sjw): get these from options
     StringRef arch = "gfx906";
-    int32_t num_cu = 64;
+    uint32_t num_cu = 64;
+    bool xdlopsV2 = false;
+
+    if (auto attr = op->getAttrOfType<StringAttr>("arch"))
+      arch = attr.getValue();
+    else if (auto attr = func->getAttrOfType<StringAttr>("arch"))
+      arch = attr.getValue();
+
+    if (auto attr = op->getAttrOfType<IntegerAttr>("num_cu"))
+      num_cu = attr.getValue().getZExtValue();
+    else if (auto attr = func->getAttrOfType<IntegerAttr>("num_cu"))
+      num_cu = attr.getValue().getZExtValue();
+
+    if (auto attr = op->getAttrOfType<BoolAttr>("xdlopsV2"))
+      xdlopsV2 = attr.getValue();
+    else if (auto attr = func->getAttrOfType<BoolAttr>("xdlopsV2"))
+      xdlopsV2 = attr.getValue();
 
     // translate attributes
     int32_t padTop = op.pad()[0].dyn_cast<IntegerAttr>().getInt();
@@ -126,6 +142,7 @@ public:
     // arch-specific attributes
     cop->setAttr("arch", rewriter.getStringAttr(arch));
     cop->setAttr("num_cu", rewriter.getI32IntegerAttr(num_cu));
+    cop->setAttr("xdlopsV2", rewriter.getBoolAttr(xdlopsV2));
 
     // convolution config attributes
     cop->setAttr("filter_layout",
