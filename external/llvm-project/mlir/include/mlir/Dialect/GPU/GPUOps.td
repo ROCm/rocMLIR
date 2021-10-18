@@ -1111,7 +1111,8 @@ def GPU_SubgroupMmaConstantMatrixOp : GPU_Op<"subgroup_mma_constant_matrix",
 
 // mfma
 def GPU_MFMAOp:
-    GPU_Op<"mfma">,
+    GPU_Op<"mfma", [AllTypesMatch<["sourceA", "sourceB"]>,
+                        AllTypesMatch<["destC", "destD"]>]>,
     Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [I16]>, VectorOfLengthAndType<[4], [I16]>]>: $sourceA,
                    AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [I16]>, VectorOfLengthAndType<[4], [I16]>]>: $sourceB,
                    VectorOfRankAndType<[1], [F32, F16]>: $destC)>,
@@ -1120,8 +1121,9 @@ def GPU_MFMAOp:
   let description = [{
     The `gpu.mfma` op is an abstraction of XDLOPS.
   }];
-  let parser = [{ return parseMFMAOp(parser, result); }];
-  let verifier = [{ return ::verify(*this); }];
+  let assemblyFormat = [{
+    `(` $sourceA `,` $sourceB `,` $destC `)` attr-dict `:` type($sourceA) `,` type($destC)
+  }];
 }
 
 def GPU_BFConvertOp :
@@ -1132,8 +1134,7 @@ def GPU_BFConvertOp :
   let description = [{
     The 'gpu.bf_convert' op converts an fp32 value to bf16 value. Stored as i16 for usage compatibility.
   }];
-  let parser = [{ return parseBFConvertOp(parser, result); }];
-  let verifier = [{ return ::verify(*this); }];
+  let assemblyFormat = "attr-dict $in `:` type($in) `to` type($out)";
 }
 
 // buffer load
@@ -1150,8 +1151,9 @@ def GPU_MubufLoadOp :
     `vector.transfer_read` is too tightly coupled with masked load which is not
     supported well on AMD GPU.
   }];
-  let parser = [{ return parseMubufLoadOp(parser, result); }];
-  let verifier = [{ return ::verify(*this); }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type($memref) `,` type($result) `,` type($indices)
+  }];
 }
 
 // buffer store
@@ -1172,8 +1174,9 @@ def GPU_MubufStoreOp :
     `vector.transfer_write` is too tightly coupled with masked load which is not
     supported well on AMD GPU.
   }];
-  let parser = [{ return parseMubufStoreOp(parser, result); }];
-  let verifier = [{ return ::verify(*this); }];
+  let assemblyFormat = [{
+    `(` operands`)` attr-dict `:` type(operands)
+  }];
 }
 
 // buffer store
@@ -1194,8 +1197,9 @@ def GPU_RawbufStoreOp :
     `vector.transfer_write` is too tightly coupled with masked load which is not
     supported well on AMD GPU.
   }];
-  let parser = [{ return parseRawbufStoreOp(parser, result); }];
-  let verifier = [{ return ::verify(*this); }];
+  let assemblyFormat = [{
+    `(` operands`)` attr-dict `:` type(operands)
+  }];
 }
 
 // atomic add
@@ -1209,7 +1213,8 @@ def GPU_AtomicFAddOp :
     The `gpu.atomic_add` op is an abstraction of AMD GPU atomic floating point add
     intrinsics.
   }];
-  let parser = [{ return parseAtomicFAddOp(parser, result); }];
-  let verifier = [{ return ::verify(*this); }];
+  let assemblyFormat = [{
+    `(` operands`)` attr-dict `:` type(operands)
+  }];
 }
 #endif // GPU_OPS
