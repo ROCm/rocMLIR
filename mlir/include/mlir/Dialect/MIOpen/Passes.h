@@ -32,7 +32,7 @@ std::unique_ptr<Pass> createLowerMIOpenOpsStep2Pass();
 /// the miopen.conv2d op after lowering step2.
 std::unique_ptr<Pass> createMIOpenLinalgAlignPass();
 
-/// Create a pass to 
+/// Create a pass to
 std::unique_ptr<Pass> createMIOpenCopyOptPass();
 
 /// Create a pass to convert MIOpen blockwise operations to threadwise

@@ -27,9 +27,9 @@
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Conversion/SCFToStandard/SCFToStandard.h"
 #include "mlir/Dialect/Linalg/IR/LinalgOps.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
@@ -96,7 +96,8 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     return Value();
   }
 
-  Value makeThreadwiseCopy(PatternRewriter &b, miopen::ThreadwiseCopyOp &miTWCopy,
+  Value makeThreadwiseCopy(PatternRewriter &b,
+                           miopen::ThreadwiseCopyOp &miTWCopy,
                            Value inp) const {
     // 0. capture reg alloc for miTWCopy output regs
     auto twinp = miTWCopy.getOperand(0);
@@ -116,11 +117,13 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     auto nTWCopy = b.clone(*miTWCopy, cloningMap);
 
     // 3. swap input coords with output coords
-    for (uint i=0; i<5; ++i) {
-      auto inCoord = nTWCopy->getOperand(2+i);
-      auto outCoord = nTWCopy->getOperand(2+5+i);
-      nTWCopy->setOperand(2+i, outCoord);
-      nTWCopy->setOperand(2+5+i, inCoord);
+    for (uint i = 0; i < 5; ++i) {
+      uint inIdx = 2 + i;
+      uint outIdx = 2 + 5 + i;
+      auto inCoord = nTWCopy->getOperand(inIdx);
+      auto outCoord = nTWCopy->getOperand(outIdx);
+      nTWCopy->setOperand(inIdx, outCoord);
+      nTWCopy->setOperand(outIdx, inCoord);
     }
 
     return nAlloc->getResult(0);
@@ -149,7 +152,8 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     }
 
     // 2. also create threadwise_copy from global to regs
-    //    TODO(sjw): make sure output buffer writes (means these inputs will be buffer reads)
+    //    TODO(sjw): make sure output buffer writes (means these inputs will be
+    //    buffer reads)
     return makeThreadwiseCopy(b, miTWCopy, ret);
   }
 
@@ -185,7 +189,8 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     return ret;
   }
 
-  LogicalResult matchAndRewrite(T laGeneric, PatternRewriter &b) const override {
+  LogicalResult matchAndRewrite(T laGeneric,
+                                PatternRewriter &b) const override {
     LogicalResult fail = failure();
     auto loc = laGeneric.getLoc();
     auto ctx = laGeneric.getContext();
@@ -215,7 +220,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
       }
       // first trace to back to regs, then forward to twcopy
       auto twinp_t = traceToThreadwiseCopy(inp, transforms);
-      
+
       if (twinp_t) {
         // 1.2. Only one input should trace to twcopy
         assert(!twinp);
@@ -277,7 +282,8 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         twcopy->setOperand(0, regTransform);
 
         // 2.6. Reset output on threadwise_copy
-        auto mrReshape = transforms.front().getDefiningOp<memref::ExpandShapeOp>();
+        auto mrReshape =
+            transforms.front().getDefiningOp<memref::ExpandShapeOp>();
         mrReshape->setOperand(0, out);
 
         return success();

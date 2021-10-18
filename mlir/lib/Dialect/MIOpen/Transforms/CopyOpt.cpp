@@ -27,9 +27,9 @@
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Conversion/SCFToStandard/SCFToStandard.h"
 #include "mlir/Dialect/Linalg/IR/LinalgOps.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
@@ -52,8 +52,7 @@
 using namespace mlir;
 
 namespace {
-struct MIOpenCopyOptPass
-    : public MIOpenCopyOptPassBase<MIOpenCopyOptPass> {
+struct MIOpenCopyOptPass : public MIOpenCopyOptPassBase<MIOpenCopyOptPass> {
   void runOnOperation() override;
 };
 
