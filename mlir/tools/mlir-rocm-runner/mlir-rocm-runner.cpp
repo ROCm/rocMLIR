@@ -46,6 +46,11 @@ static cl::opt<std::string> features("feature", cl::desc("target features"),
                                      cl::value_desc("AMDGPU target features"),
                                      cl::init(""));
 
+static cl::opt<bool>
+    rocdlInput("rocdl-input",
+               cl::desc("input is in the MLIR LLVM/ROCDL dialect"),
+               cl::init(false));
+
 namespace test {
 void registerTestDialect(DialectRegistry &);
 } // namespace test
@@ -64,7 +69,9 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   pm.addPass(createGpuKernelOutliningPass());
   auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
   kernelPm.addPass(createStripDebugInfoPass());
-  kernelPm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
+  if (!rocdlInput.getValue()) {
+    kernelPm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
+  }
   kernelPm.addPass(createGpuSerializeToHsacoPass(
                        utils.getTriple(), utils.getChip(), utils.getFeatures()));
   auto &funcPm = pm.nest<FuncOp>();
