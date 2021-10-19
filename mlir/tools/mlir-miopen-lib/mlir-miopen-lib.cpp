@@ -3,7 +3,6 @@
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
-#include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitAllPasses.h"
@@ -47,7 +46,9 @@ struct MiirHandle_s {
   }
   mlir::ModuleOp getModule() { return module.get(); }
   mlir::OwningModuleRef module;
-  std::string arch;
+  std::string triple;
+  std::string chip;
+  std::string features;
   std::string perfConfig;
   std::string genTxt;
   int kernelCount;
@@ -107,6 +108,10 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
     return nullptr;
   }
 
+  if (failed(conv2dGenerator.isApplicable())) {
+    return nullptr;
+  }
+
   MiirHandle_s *handle = new MiirHandle_s;
   OpBuilder builder(&(handle->getContext()));
 
@@ -115,7 +120,9 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
     return nullptr;
   }
 
-  handle->arch = config.arch;
+  handle->triple = config.triple;
+  handle->chip = config.chip;
+  handle->features = config.features;
   handle->perfConfig = config.perfConfig;
   handle->kernelCount = conv2dGenerator.getKernelCount();
 
@@ -292,16 +299,7 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
 
-  IsaNameParser parser(handle->arch);
-  std::string chip;
-  std::string triple;
-  std::string features;
-  auto status = parser.parseIsaName(chip, triple, features);
-  if (status.failed()) {
-    return MIIR_INVALID_PARAM;
-  }
-
-  BackendUtils utils(triple, chip, features);
+  BackendUtils utils(handle->triple, handle->chip, handle->features);
 
   // Passes for lowering MIOpen dialect.
   pm.addPass(
@@ -326,7 +324,7 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
   pm.addPass(createGpuSerializeToHsacoPass(
       utils.getTriple(), utils.getChip(), utils.getFeatures()));
 
-  status = pm.run(module);
+  auto status = pm.run(module);
 
   return status.succeeded() ? MIIR_SUCCESS : MIIR_BUILD_FAILURE;
 }

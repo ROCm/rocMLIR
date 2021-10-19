@@ -16,6 +16,7 @@
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
@@ -2595,28 +2596,45 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
-  Conv2dGenerator conv2dGenerator(
-      arch.getValue(), perfConfig.getValue(), num_cu.getValue(),
-      xdlopsV2.getValue(), operation.getValue(), tensorDataType.getValue(),
-      dilationHeight.getValue(), dilationWidth.getValue(),
-      strideHeight.getValue(), strideWidth.getValue(),
-      paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
-      paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
-      filterLayout.getValue(), inputLayout.getValue(), outputLayout.getValue());
-
+  Conv2dGenerator conv2dGenerator;
+  // Scenario 1: We use conv config to initialize everything
   if (!convConfig.empty()) {
     if (failed(conv2dGenerator.parseConvConfig(convConfig.c_str()))) {
       llvm::errs() << "Module population failed.\n";
       exit(1);
     }
+    // Scenario 2: We use cl::opt to initialize everything
   } else {
-    LogicalResult parseSucceded = conv2dGenerator.parseConvDims(
-        batchSize, groupSize, inputChannel, inputHeight, inputWidth,
-        outputChannel, outputHeight, outputWidth, filterHeight, filterWidth);
-    if (failed(parseSucceded)) {
-      llvm::errs() << "Could not form a valid convolution\n";
+    std::string chip, triple, features;
+    IsaNameParser parser(arch.getValue());
+    auto status = parser.parseIsaName(chip, triple, features);
+    if (status.failed()) {
       exit(1);
     }
+
+    conv2dGenerator = Conv2dGenerator(
+        chip, triple, features, perfConfig.getValue(), num_cu.getValue(),
+        xdlopsV2.getValue(), operation.getValue(), tensorDataType.getValue(),
+        dilationHeight.getValue(), dilationWidth.getValue(),
+        strideHeight.getValue(), strideWidth.getValue(),
+        paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
+        paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
+        filterLayout.getValue(), inputLayout.getValue(),
+        outputLayout.getValue());
+
+    status = conv2dGenerator.parseConvDims(
+        batchSize, groupSize, inputChannel, inputHeight, inputWidth,
+        outputChannel, outputHeight, outputWidth, filterHeight, filterWidth);
+    if (failed(status)) {
+      llvm::errs() << "Could not parse convolution dimensions\n";
+      exit(1);
+    }
+  }
+
+  // TODO: Extract isApplicable check to be its own component
+  if (failed(conv2dGenerator.isApplicable())) {
+    llvm::errs() << "Convolution configuration not applicable\n";
+    exit(1);
   }
 
   const auto &genConfig = conv2dGenerator.getConfig();
