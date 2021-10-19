@@ -68,7 +68,17 @@ endif()
 if( BUILD_FAT_LIBMLIRMIOPEN )
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
   set(LLVM_BUILD_LLVM_DYLIB OFF CACHE BOOL "")
-  set(LLVM_INSTALL_TOOLCHAIN_ONLY ON CACHE BOOL "")
+  # TODO remove
+  # This is a temporary fix because it is required by AddMLIR.cmake
+  # Otherwise cmake complains that lld is not exported or installed
+  # In reality, the fat library already link with lld and should
+  # not need to export lld
+  set(LLVM_INSTALL_TOOLCHAIN_ONLY OFF CACHE BOOL "")
+  # TODO remove
+  # This is a temporary fix because MLIRGPUTransforms has to
+  # compile with MLIR_GPU_TO_HSACO_PASS_ENABLE=1, which is
+  # enabled only when MLIR_ENABLE_ROCM_RUNNER turned on
+  set(MLIR_ENABLE_ROCM_RUNNER 1 CACHE BOOL "")
   # Skip linking with HIP so our library is runtime independent
   set(USE_ROCM_4_4_OR_OLDER 0 CACHE BOOL "Make libMLIRMIOpen runtime independent")
   set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE STRING "")
@@ -77,8 +87,15 @@ else()
   set(LLVM_BUILD_LLVM_DYLIB ON CACHE BOOL "")
   set(LLVM_BUILD_EXAMPLES ON CACHE BOOL "")
   set(MLIR_ROCM_RUNNER_ENABLED 1 CACHE BOOL "")
+  set(MLIR_ENABLE_ROCM_RUNNER 1 CACHE BOOL "")
   set(USE_ROCM_4_4_OR_OLDER 1 CACHE BOOL "Use the rocm_4.4 or older release")
 endif()
+
+# Disable other runners
+set(MLIR_CUDA_RUNNER_ENABLED 0 CACHE BOOL "")
+set(MLIR_SPIRV_CPU_RUNNER_ENABLED 0 CACHE BOOL "")
+set(MLIR_VULKAN_RUNNER_ENABLED 0 CACHE BOOL "")
+set(MLIR_BINDINGS_PYTHON_ENABLED 0 CACHE BOOL "")
 
 # Set up the build for the LLVM/MLIR git-submodule
 include(cmake/llvm-project.cmake)

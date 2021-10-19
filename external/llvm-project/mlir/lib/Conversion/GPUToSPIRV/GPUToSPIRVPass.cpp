@@ -15,6 +15,7 @@
 
 #include "../PassDetail.h"
 #include "mlir/Conversion/GPUToSPIRV/GPUToSPIRV.h"
+#include "mlir/Conversion/MemRefToSPIRV/MemRefToSPIRV.h"
 #include "mlir/Conversion/StandardToSPIRV/StandardToSPIRV.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/SPIRV/IR/SPIRVDialect.h"
@@ -54,12 +55,16 @@ void GPUToSPIRVPass::runOnOperation() {
 
   auto targetAttr = spirv::lookupTargetEnvOrDefault(module);
   std::unique_ptr<ConversionTarget> target =
-      spirv::SPIRVConversionTarget::get(targetAttr);
+      SPIRVConversionTarget::get(targetAttr);
 
   SPIRVTypeConverter typeConverter(targetAttr);
-  OwningRewritePatternList patterns;
-  populateGPUToSPIRVPatterns(context, typeConverter, patterns);
-  populateStandardToSPIRVPatterns(context, typeConverter, patterns);
+  RewritePatternSet patterns(context);
+  populateGPUToSPIRVPatterns(typeConverter, patterns);
+
+  // TODO: Change SPIR-V conversion to be progressive and remove the following
+  // patterns.
+  populateMemRefToSPIRVPatterns(typeConverter, patterns);
+  populateStandardToSPIRVPatterns(typeConverter, patterns);
 
   if (failed(applyFullConversion(kernelModules, *target, std::move(patterns))))
     return signalPassFailure();

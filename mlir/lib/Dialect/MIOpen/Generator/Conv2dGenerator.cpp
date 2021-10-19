@@ -20,14 +20,17 @@
 using namespace mlir;
 
 Conv2dGenerator::Conv2dGenerator(
-    const std::string &arch, const std::string &perfConfig, int num_cu,
+    const std::string &chip, const std::string &triple,
+    const std::string &features, const std::string &perfConfig, int num_cu,
     bool xdlops, const miopen::ConvOpType operation,
     const std::string &dataTypeStr, int dilationHeight, int dilationWidth,
     int strideHeight, int strideWidth, int paddingHeightLeft,
     int paddingHeightRight, int paddingWidthLeft, int paddingWidthRight,
     const std::string &filterLayout, const std::string &inputLayout,
     const std::string &outputLayout, const std::string &kernelName)
-    : config{arch,
+    : config{chip,
+             triple,
+             features,
              perfConfig,
              num_cu,
              xdlops,
@@ -98,7 +101,19 @@ LogicalResult hasDimensions(const llvm::StringMap<int64_t> &map,
 
 } // namespace
 
-LogicalResult Conv2dGenerator::isValidConvolution() const {
+LogicalResult Conv2dGenerator::isApplicable() const {
+  if (failed(hasValidDimension())) {
+    return failure();
+  }
+
+  if (failed(hasValidChip())) {
+    return failure();
+  }
+
+  return success();
+}
+
+LogicalResult Conv2dGenerator::hasValidDimension() const {
   static const SmallVector<int64_t, 4> strictlyPositiveParams{
       config.dilationHeight, config.dilationWidth, config.strideHeight,
       config.strideWidth};
@@ -197,6 +212,23 @@ LogicalResult Conv2dGenerator::isValidConvolution() const {
   return success();
 }
 
+LogicalResult Conv2dGenerator::hasValidChip() const {
+  // We support xdlops iff it is a gfx908 chip, fail otherwise
+  if (config.xdlops && config.chip != "gfx908")
+    return failure();
+
+  // We support in between gfx900 to gfx908 for nonxdlops algorithm
+  // For example, gfx803, gfx90a and gfx1030 are unsupported now
+  unsigned int chipHexNumber = 0;
+  if (sscanf(config.chip.c_str(), "gfx%x", &chipHexNumber) != 1)
+    return failure();
+
+  if ((chipHexNumber > 0x908) || (chipHexNumber < 0x900))
+    return failure();
+
+  return success();
+}
+
 int Conv2dGenerator::getKernelCount() const {
   if (config.kernelId > 0) { // generate only 1 specified kernel
     return 1;
@@ -213,8 +245,8 @@ int Conv2dGenerator::getKernelCount() const {
 
 int Conv2dGenerator::getBwdDataKernelCount() const {
   auto gcdStrideDilationH =
-      math::gcd(config.strideHeight, config.dilationHeight);
-  auto gcdStrideDilationW = math::gcd(config.strideWidth, config.dilationWidth);
+      math_util::gcd(config.strideHeight, config.dilationHeight);
+  auto gcdStrideDilationW = math_util::gcd(config.strideWidth, config.dilationWidth);
 
   auto yTilda = config.strideHeight / gcdStrideDilationH;
   auto xTilda = config.strideWidth / gcdStrideDilationW;
@@ -227,8 +259,8 @@ int Conv2dGenerator::getBwdDataKernelCount() const {
     const auto iYTilda = gemmId / xTilda;
     const auto iXTilda = gemmId % xTilda;
 
-    auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
-    auto xDotSlice = math::integer_divide_ceil(x - iXTilda, xTilda);
+    auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
+    auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
     // gemmK must > 0, otherwise not need to run
     if (yDotSlice * xDotSlice > 0)
       count++;
@@ -280,65 +312,76 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
 
   // Proceed only if we have a valid argMap. Otherwise leave the handle to be
   // empty
-  if (isValid()) {
+  if (!isValid())
+    return failure();
 
-    auto strToLong = [&argMap](std::string argKey) {
-      return std::stoul(argMap[argKey]);
-    };
+  auto strToLong = [&argMap](std::string argKey) {
+    return std::stoul(argMap[argKey]);
+  };
 
-    auto strToInt = [&argMap](const std::string &key, auto &setting) {
-      if (argMap.find(key) != argMap.end()) {
-        setting = std::stoi(argMap[key]);
-      }
-    };
-
-    auto strToStr = [&argMap](const std::string &key, std::string &setting) {
-      if (argMap.find(key) != argMap.end()) {
-        setting = argMap[key];
-      }
-    };
-
-    strToStr("arch", config.arch);
-    strToStr("perf_config", config.perfConfig);
-    strToInt("num_cu", config.num_cu);
-    strToInt("x2", config.xdlops);
-
-    // conv settings
-    auto const op = miopen::getConvOpTypeForName(argMap["operation"]);
-    if (!op.hasValue()) {
-      return failure();
+  auto strToInt = [&argMap](const std::string &key, auto &setting) {
+    if (argMap.find(key) != argMap.end()) {
+      setting = std::stoi(argMap[key]);
     }
-    config.operation = op.getValue();
-    strToInt("kernel_id", config.kernelId);
-    config.dataTypeStr = argMap["out_type"];
-    strToInt("dilation_h", config.dilationHeight);
-    strToInt("dilation_w", config.dilationWidth);
-    strToInt("conv_stride_h", config.strideHeight);
-    strToInt("conv_stride_w", config.strideWidth);
-    strToInt("padding_h", config.paddingHeightLeft);
-    strToInt("padding_h", config.paddingHeightRight);
-    strToInt("padding_w", config.paddingWidthLeft);
-    strToInt("padding_w", config.paddingWidthRight);
+  };
 
-    strToStr("kernel_name", config.kernelName);
+  auto strToStr = [&argMap](const std::string &key, std::string &setting) {
+    if (argMap.find(key) != argMap.end()) {
+      setting = argMap[key];
+    }
+  };
 
-    // MIOpen has NCHW as layout string for all three tensors
-    config.inputLayout = translateLayout(
-        argMap["in_layout"], std::string("NGCHW"), std::string("ngchw"));
-    config.filterLayout = translateLayout(
-        argMap["fil_layout"], std::string("GNCHW"), std::string("gkcyx"));
-    config.outputLayout = translateLayout(
-        argMap["out_layout"], std::string("NGCHW"), std::string("ngkhw"));
-
-    // Determine tensor dimensions.
-    return parseConvDims(strToLong("batchsize"), strToLong("groupsize"),
-                         strToLong("in_channels"), strToLong("in_h"),
-                         strToLong("in_w"), strToLong("out_channels"),
-                         strToLong("out_h"), strToLong("out_w"),
-                         strToLong("fil_w"), strToLong("fil_h"));
+  std::string arch;
+  strToStr("arch", arch);
+  IsaNameParser parser(arch);
+  if (failed(
+          parser.parseIsaName(config.chip, config.triple, config.features))) {
+    return failure();
   }
 
-  return failure();
+  strToStr("perf_config", config.perfConfig);
+  strToInt("num_cu", config.num_cu);
+  strToInt("x2", config.xdlops);
+
+  // conv settings
+  auto const op = miopen::getConvOpTypeForName(argMap["operation"]);
+  if (!op.hasValue()) {
+    return failure();
+  }
+  config.operation = op.getValue();
+  strToInt("kernel_id", config.kernelId);
+  config.dataTypeStr = argMap["out_type"];
+  strToInt("dilation_h", config.dilationHeight);
+  strToInt("dilation_w", config.dilationWidth);
+  strToInt("conv_stride_h", config.strideHeight);
+  strToInt("conv_stride_w", config.strideWidth);
+  strToInt("padding_h", config.paddingHeightLeft);
+  strToInt("padding_h", config.paddingHeightRight);
+  strToInt("padding_w", config.paddingWidthLeft);
+  strToInt("padding_w", config.paddingWidthRight);
+
+  strToStr("kernel_name", config.kernelName);
+
+  // MIOpen has NCHW as layout string for all three tensors
+  config.inputLayout = translateLayout(
+      argMap["in_layout"], std::string("NGCHW"), std::string("ngchw"));
+  config.filterLayout = translateLayout(
+      argMap["fil_layout"], std::string("GNCHW"), std::string("gkcyx"));
+  config.outputLayout = translateLayout(
+      argMap["out_layout"], std::string("NGCHW"), std::string("ngkhw"));
+
+  // Determine tensor dimensions.
+  auto status = parseConvDims(strToLong("batchsize"), strToLong("groupsize"),
+                              strToLong("in_channels"), strToLong("in_h"),
+                              strToLong("in_w"), strToLong("out_channels"),
+                              strToLong("out_h"), strToLong("out_w"),
+                              strToLong("fil_w"), strToLong("fil_h"));
+
+  if (status.failed()) {
+    return failure();
+  }
+
+  return success();
 }
 
 LogicalResult
@@ -402,7 +445,7 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
                         config.outputLayout + "_" + std::to_string(id);
   }
 
-  return isValidConvolution();
+  return success();
 }
 
 void Conv2dGenerator::setKernelName(std::string newName) {
@@ -473,19 +516,9 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
         (StringRef(&config.outputLayout[i], 1) + "o").str()));
   }
 
-  // Use only the chip in the lowering process
-  IsaNameParser parser(config.arch);
-  std::string chip;
-  std::string triple;
-  std::string features;
-  auto status = parser.parseIsaName(chip, triple, features);
-  if (status.failed()) {
-    return failure();
-  }
-
   std::vector<NamedAttribute> attributes{
       builder.getNamedAttr("gemm_id", builder.getI32IntegerAttr(kernel_id)),
-      builder.getNamedAttr("arch", builder.getStringAttr(chip)),
+      builder.getNamedAttr("arch", builder.getStringAttr(config.chip)),
       builder.getNamedAttr("num_cu", builder.getI32IntegerAttr(config.num_cu)),
 
       builder.getNamedAttr(

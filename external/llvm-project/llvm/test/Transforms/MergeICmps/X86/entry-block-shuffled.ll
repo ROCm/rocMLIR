@@ -20,15 +20,15 @@ define zeroext i1 @opeq1(
 ; CHECK:       entry2:
 ; CHECK-NEXT:    [[TMP3:%.*]] = getelementptr inbounds [[S]], %S* [[A]], i64 0, i32 3
 ; CHECK-NEXT:    [[TMP4:%.*]] = getelementptr inbounds [[S]], %S* [[B]], i64 0, i32 2
-; CHECK-NEXT:    [[TMP5:%.*]] = load i32, i32* [[TMP3]]
-; CHECK-NEXT:    [[TMP6:%.*]] = load i32, i32* [[TMP4]]
+; CHECK-NEXT:    [[TMP5:%.*]] = load i32, i32* [[TMP3]], align 4
+; CHECK-NEXT:    [[TMP6:%.*]] = load i32, i32* [[TMP4]], align 4
 ; CHECK-NEXT:    [[TMP7:%.*]] = icmp eq i32 [[TMP5]], [[TMP6]]
 ; CHECK-NEXT:    br i1 [[TMP7]], label [[LAND_RHS_I_31:%.*]], label [[OPEQ1_EXIT]]
 ; CHECK:       land.rhs.i.31:
 ; CHECK-NEXT:    [[TMP8:%.*]] = getelementptr inbounds [[S]], %S* [[A]], i64 0, i32 3
 ; CHECK-NEXT:    [[TMP9:%.*]] = getelementptr inbounds [[S]], %S* [[B]], i64 0, i32 3
-; CHECK-NEXT:    [[TMP10:%.*]] = load i32, i32* [[TMP8]]
-; CHECK-NEXT:    [[TMP11:%.*]] = load i32, i32* [[TMP9]]
+; CHECK-NEXT:    [[TMP10:%.*]] = load i32, i32* [[TMP8]], align 4
+; CHECK-NEXT:    [[TMP11:%.*]] = load i32, i32* [[TMP9]], align 4
 ; CHECK-NEXT:    [[TMP12:%.*]] = icmp eq i32 [[TMP10]], [[TMP11]]
 ; CHECK-NEXT:    br label [[OPEQ1_EXIT]]
 ; CHECK:       opeq1.exit:
@@ -36,7 +36,7 @@ define zeroext i1 @opeq1(
 ; CHECK-NEXT:    ret i1 [[TMP13]]
 ;
   %S* nocapture readonly dereferenceable(16) %a,
-  %S* nocapture readonly dereferenceable(16) %b) local_unnamed_addr #0 {
+  %S* nocapture readonly dereferenceable(16) %b) local_unnamed_addr nofree nosync {
 entry:
   %first.i = getelementptr inbounds %S, %S* %a, i64 0, i32 3
   %0 = load i32, i32* %first.i, align 4

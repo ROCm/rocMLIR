@@ -1,4 +1,4 @@
-// RUN: mlir-opt -miopen-affine-transform  %s| FileCheck %s
+// RUN: miopen-opt -miopen-affine-transform  %s| FileCheck %s
 module  {
   func @miopen_unmerge_test(%arg0: memref<1x144x128xf32>) {
     //unmerge gemmKtotal to gemmK and gemmKpack, the dimension length is 18 and 8

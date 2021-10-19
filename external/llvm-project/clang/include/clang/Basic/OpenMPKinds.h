@@ -14,6 +14,7 @@
 #ifndef LLVM_CLANG_BASIC_OPENMPKINDS_H
 #define LLVM_CLANG_BASIC_OPENMPKINDS_H
 
+#include "clang/Basic/LangOptions.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 
@@ -167,7 +168,7 @@ enum OpenMPReductionClauseModifier {
 };
 
 unsigned getOpenMPSimpleClauseType(OpenMPClauseKind Kind, llvm::StringRef Str,
-                                   unsigned OpenMPVersion);
+                                   const LangOptions &LangOpts);
 const char *getOpenMPSimpleClauseTypeName(OpenMPClauseKind Kind, unsigned Type);
 
 /// Checks if the specified directive is a directive with an associated
@@ -266,6 +267,11 @@ bool isOpenMPTaskingDirective(OpenMPDirectiveKind Kind);
 /// directives that need loop bound sharing across loops outlined in nested
 /// functions
 bool isOpenMPLoopBoundSharingDirective(OpenMPDirectiveKind Kind);
+
+/// Checks if the specified directive is a loop transformation directive.
+/// \param DKind Specified directive.
+/// \return True iff the directive is a loop transformation.
+bool isOpenMPLoopTransformationDirective(OpenMPDirectiveKind DKind);
 
 /// Return the captured regions of an OpenMP directive.
 void getOpenMPCaptureRegions(

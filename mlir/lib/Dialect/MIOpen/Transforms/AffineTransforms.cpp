@@ -207,7 +207,7 @@ void AffineTransforms::runOnFunction() {
 
     OpBuilder b(op.getOperation());
     auto loc = op.getLoc();
-    auto newOp = b.create<miopen::TransformOp>(loc, transformedOutputType, op.input(), op.getAttrs());
+    auto newOp = b.create<miopen::TransformOp>(loc, transformedOutputType, op.input(), op->getAttrs());
 
     op.output().replaceAllUsesWith(newOp);
     op.erase();

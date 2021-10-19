@@ -3,7 +3,6 @@
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
-#include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitAllPasses.h"
@@ -28,16 +27,28 @@
 
 namespace {
 struct MiirHandle_s {
+  MLIRContext &getContext() {
+    auto getRegistry = []() {
+      DialectRegistry registry;
+      registerAllDialects(registry);
+      return registry;
+    };
+    static MLIRContext context(getRegistry());
+    static bool once = []() {
+      context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect>();
+      return true;
+    }();
+    return context;
+  }
   MiirHandle_s() {
-    context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect>();
-    mlir::registerAllDialects(context.getDialectRegistry());
-    OpBuilder builder(&context);
+    OpBuilder builder(&getContext());
     module = ModuleOp::create(builder.getUnknownLoc());
   }
   mlir::ModuleOp getModule() { return module.get(); }
-  MLIRContext context;
   mlir::OwningModuleRef module;
-  std::string arch;
+  std::string triple;
+  std::string chip;
+  std::string features;
   std::string perfConfig;
   std::string genTxt;
   int kernelCount;
@@ -91,22 +102,27 @@ static std::mutex mutex;
 
 extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   const std::lock_guard<std::mutex> lock(mutex);
-  mlir::registerAllPasses();
 
   Conv2dGenerator conv2dGenerator;
   if (failed(conv2dGenerator.parseConvConfig(arguments))) {
     return nullptr;
   }
 
+  if (failed(conv2dGenerator.isApplicable())) {
+    return nullptr;
+  }
+
   MiirHandle_s *handle = new MiirHandle_s;
-  OpBuilder builder(&(handle->context));
+  OpBuilder builder(&(handle->getContext()));
 
   const auto &config = conv2dGenerator.getConfig();
   if (failed(MIOpenEnabled(config))) {
     return nullptr;
   }
 
-  handle->arch = config.arch;
+  handle->triple = config.triple;
+  handle->chip = config.chip;
+  handle->features = config.features;
   handle->perfConfig = config.perfConfig;
   handle->kernelCount = conv2dGenerator.getKernelCount();
 
@@ -283,16 +299,7 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
 
-  IsaNameParser parser(handle->arch);
-  std::string chip;
-  std::string triple;
-  std::string features;
-  auto status = parser.parseIsaName(chip, triple, features);
-  if (status.failed()) {
-    return MIIR_INVALID_PARAM;
-  }
-
-  BackendUtils utils(triple, chip, features);
+  BackendUtils utils(handle->triple, handle->chip, handle->features);
 
   // Passes for lowering MIOpen dialect.
   pm.addPass(
@@ -314,18 +321,10 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
   pm.addPass(createGpuKernelOutliningPass());
   pm.addPass(createStripDebugInfoPass());
   pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
-  pm.addPass(createConvertGPUKernelToBlobPass(
-      [&utils](Operation *m, llvm::LLVMContext &llvmContext,
-               llvm::StringRef name) {
-        return utils.compileModuleToROCDLIR(m, llvmContext, name);
-      },
-      [&utils](const std::string isa, Location loc, StringRef name) {
-        return utils.compileISAToHsaco(isa, loc, name);
-      },
-      utils.getTriple(), utils.getChip(), utils.getFeatures(),
-      /*gpuBinaryAnnotation=*/"rocdl.hsaco"));
+  pm.addPass(createGpuSerializeToHsacoPass(
+      utils.getTriple(), utils.getChip(), utils.getFeatures()));
 
-  status = pm.run(module);
+  auto status = pm.run(module);
 
   return status.succeeded() ? MIIR_SUCCESS : MIIR_BUILD_FAILURE;
 }
@@ -342,7 +341,7 @@ extern "C" MiirStatus miirBufferGet(MiirHandle mlirHandle, char *buffer,
   // 1st call: give client the size of buffer to allocate
   if ((buffer == nullptr) && (size != nullptr)) {
     module.walk([&](gpu::GPUModuleOp gpuModule) {
-      auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>("rocdl.hsaco");
+      auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>(gpu::getDefaultGpuBinaryAnnotation());
       if (hsacoAttr) {
         *size = hsacoAttr.getValue().size();
       }
@@ -350,7 +349,7 @@ extern "C" MiirStatus miirBufferGet(MiirHandle mlirHandle, char *buffer,
     // 2nd call: copy the hsaco to the target buffer
   } else {
     module.walk([&](gpu::GPUModuleOp gpuModule) {
-      auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>("rocdl.hsaco");
+      auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>(gpu::getDefaultGpuBinaryAnnotation());
       if (hsacoAttr) {
         std::string hsaco = hsacoAttr.getValue().str();
         std::copy(hsaco.begin(), hsaco.end(), buffer);

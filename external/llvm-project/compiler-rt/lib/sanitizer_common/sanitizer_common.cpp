@@ -37,10 +37,9 @@ void NORETURN ReportMmapFailureAndDie(uptr size, const char *mem_type,
                                       const char *mmap_type, error_t err,
                                       bool raw_report) {
   static int recursion_count;
-  if (SANITIZER_RTEMS || raw_report || recursion_count) {
-    // If we are on RTEMS or raw report is requested or we went into recursion,
-    // just die.  The Report() and CHECK calls below may call mmap recursively
-    // and fail.
+  if (raw_report || recursion_count) {
+    // If raw report is requested or we went into recursion just die.  The
+    // Report() and CHECK calls below may call mmap recursively and fail.
     RawWrite("ERROR: Failed to mmap\n");
     Die();
   }
@@ -87,7 +86,7 @@ const char *StripModuleName(const char *module) {
 void ReportErrorSummary(const char *error_message, const char *alt_tool_name) {
   if (!common_flags()->print_summary)
     return;
-  InternalScopedString buff(kMaxSummaryLength);
+  InternalScopedString buff;
   buff.append("SUMMARY: %s: %s",
               alt_tool_name ? alt_tool_name : SanitizerToolName, error_message);
   __sanitizer_report_error_summary(buff.data());
@@ -330,6 +329,14 @@ static int InstallMallocFreeHooks(void (*malloc_hook)(const void *, uptr),
   }
   return 0;
 }
+
+void internal_sleep(unsigned seconds) {
+  internal_usleep((u64)seconds * 1000 * 1000);
+}
+void SleepForSeconds(unsigned seconds) {
+  internal_usleep((u64)seconds * 1000 * 1000);
+}
+void SleepForMillis(unsigned millis) { internal_usleep((u64)millis * 1000); }
 
 } // namespace __sanitizer
 

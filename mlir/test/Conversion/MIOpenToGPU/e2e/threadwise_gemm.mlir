@@ -1,4 +1,4 @@
-// RUN: mlir-opt -test-miopen-lowering-gpu-module -convert-miopen-to-gpu %s | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: miopen-opt -test-miopen-lowering-gpu-module -convert-miopen-to-gpu %s | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
 
 module attributes {gpu.container_module} {
   gpu.module @gpu_kernels {
@@ -25,13 +25,13 @@ module attributes {gpu.container_module} {
 
   func @main() {
     // allocate CPU memory.
-    %0 = alloc() : memref<1x4x8xf32>
-    %1 = alloc() : memref<1x4x8xf32>
-    %2 = alloc() : memref<1x8x8xf32>
+    %0 = memref.alloc() : memref<1x4x8xf32>
+    %1 = memref.alloc() : memref<1x4x8xf32>
+    %2 = memref.alloc() : memref<1x8x8xf32>
   
-    %3 = memref_cast %0 : memref<1x4x8xf32> to memref<?x?x?xf32>
-    %4 = memref_cast %1 : memref<1x4x8xf32> to memref<?x?x?xf32>
-    %5 = memref_cast %2 : memref<1x8x8xf32> to memref<?x?x?xf32>
+    %3 = memref.cast %0 : memref<1x4x8xf32> to memref<?x?x?xf32>
+    %4 = memref.cast %1 : memref<1x4x8xf32> to memref<?x?x?xf32>
+    %5 = memref.cast %2 : memref<1x8x8xf32> to memref<?x?x?xf32>
   
     // populate initial values.
     %cst1 = constant 1.0 : f32
@@ -40,9 +40,9 @@ module attributes {gpu.container_module} {
     call @mcpuMemset3DFloat(%4, %cst1) : (memref<?x?x?xf32>, f32) -> ()
     call @mcpuMemset3DFloat(%5, %cst0) : (memref<?x?x?xf32>, f32) -> ()
   
-    %lhs_cpu = memref_cast %3 : memref<?x?x?xf32> to memref<*xf32>
-    %rhs_cpu = memref_cast %4 : memref<?x?x?xf32> to memref<*xf32>
-    %output_cpu = memref_cast %5 : memref<?x?x?xf32> to memref<*xf32>
+    %lhs_cpu = memref.cast %3 : memref<?x?x?xf32> to memref<*xf32>
+    %rhs_cpu = memref.cast %4 : memref<?x?x?xf32> to memref<*xf32>
+    %output_cpu = memref.cast %5 : memref<?x?x?xf32> to memref<*xf32>
 
     // Print data on CPU prior to kernel launch.
     // call @print_memref_f32(%lhs_cpu) : (memref<*xf32>) -> ()
@@ -63,9 +63,9 @@ module attributes {gpu.container_module} {
     call @mgpuMemCopy3DFloat(%4, %7, %cst_h2d) : (memref<?x?x?xf32>, memref<?x?x?xf32>, i32) -> ()
     call @mgpuMemCopy3DFloat(%5, %8, %cst_h2d) : (memref<?x?x?xf32>, memref<?x?x?xf32>, i32) -> ()
   
-    %lhs = memref_cast %6 : memref<?x?x?xf32> to memref<1x4x8xf32>
-    %rhs = memref_cast %7 : memref<?x?x?xf32> to memref<1x4x8xf32>
-    %output = memref_cast %8 : memref<?x?x?xf32> to memref<1x8x8xf32>
+    %lhs = memref.cast %6 : memref<?x?x?xf32> to memref<1x4x8xf32>
+    %rhs = memref.cast %7 : memref<?x?x?xf32> to memref<1x4x8xf32>
+    %output = memref.cast %8 : memref<?x?x?xf32> to memref<1x8x8xf32>
 
     // launch kernel.
     call @threadwise_gemm(%lhs, %rhs, %output) : (memref<1x4x8xf32>, memref<1x4x8xf32>, memref<1x8x8xf32>) -> ()
@@ -86,9 +86,9 @@ module attributes {gpu.container_module} {
     call @mgpuMemDealloc3DFloat(%8) : (memref<?x?x?xf32>) -> ()
   
     // deallocate CPU memory.
-    dealloc %0 : memref<1x4x8xf32>
-    dealloc %1 : memref<1x4x8xf32>
-    dealloc %2 : memref<1x8x8xf32>
+    memref.dealloc %0 : memref<1x4x8xf32>
+    memref.dealloc %1 : memref<1x4x8xf32>
+    memref.dealloc %2 : memref<1x8x8xf32>
   
     return
   }

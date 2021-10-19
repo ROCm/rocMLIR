@@ -1,7 +1,7 @@
 // This tests checks the following aspects of lowering component:
 // * gridwise_gemm argument positions are correct
 
-// RUN: mlir-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s
+// RUN: miopen-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s
 
 func @miopen_conv2d_cyxk_chwn_khwn(%filter : memref<1x8x3x3x128xf32>, %input : memref<1x8x32x32x128xf32>, %output : memref<1x128x30x30x128xf32>) {
   miopen.conv2d(%filter, %input, %output) {

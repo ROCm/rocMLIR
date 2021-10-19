@@ -2,7 +2,7 @@
 // * Input has three transformations in total
 // * Input has correct output_layout across transformations
 
-// RUN: mlir-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s
+// RUN: miopen-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s
 
 func @miopen_conv2d_cyxk_cnhw_knhw(%filter : memref<1x8x3x3x128xf32>, %input : memref<1x8x128x32x32xf32>, %output : memref<1x128x128x30x30xf32>) {
   miopen.conv2d(%filter, %input, %output) {

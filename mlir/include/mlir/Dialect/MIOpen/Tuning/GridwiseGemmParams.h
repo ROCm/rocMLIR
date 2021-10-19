@@ -442,26 +442,26 @@ protected:
       auto leftPadH = ctx.paddingVal[0];
       auto leftPadW = ctx.paddingVal[1];
 
-      auto gcdStrideDilationH = math::gcd(strideH, dilationH);
-      auto gcdStrideDilationW = math::gcd(strideW, dilationW);
+      auto gcdStrideDilationH = math_util::gcd(strideH, dilationH);
+      auto gcdStrideDilationW = math_util::gcd(strideW, dilationW);
 
       auto yTilda = strideH / gcdStrideDilationH;
       auto xTilda = strideW / gcdStrideDilationW;
 
       auto hTilda =
-          ho + math::integer_divide_ceil(dilationH * (y - 1), strideH);
+          ho + math_util::integer_divide_ceil(dilationH * (y - 1), strideH);
       auto wTilda =
-          wo + math::integer_divide_ceil(dilationW * (x - 1), strideW);
+          wo + math_util::integer_divide_ceil(dilationW * (x - 1), strideW);
 
-      auto iHTildaLeft = math::integer_divide_floor(
+      auto iHTildaLeft = math_util::integer_divide_floor(
           std::max(0l, leftPadH - dilationH * (yTilda - 1)), strideH);
-      auto iWTildaLeft = math::integer_divide_floor(
+      auto iWTildaLeft = math_util::integer_divide_floor(
           std::max(0l, leftPadW - dilationW * (xTilda - 1)), strideW);
 
       auto iHTildaRight = std::min(
-          hTilda, math::integer_divide_ceil(leftPadH + hi - 1, strideH) + 1);
+          hTilda, math_util::integer_divide_ceil(leftPadH + hi - 1, strideH) + 1);
       auto iWTildaRight = std::min(
-          wTilda, math::integer_divide_ceil(leftPadW + wi - 1, strideW) + 1);
+          wTilda, math_util::integer_divide_ceil(leftPadW + wi - 1, strideW) + 1);
 
       auto hTildaSlice = iHTildaRight - iHTildaLeft;
       auto wTildaSlice = iWTildaRight - iWTildaLeft;
@@ -469,8 +469,8 @@ protected:
       auto gemmId = ctx.gemmId;
       auto iYTilda = gemmId / xTilda;
       auto iXTilda = gemmId % xTilda;
-      auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
-      auto xDotSlice = math::integer_divide_ceil(x - iXTilda, xTilda);
+      auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
+      auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
 
       gemmSize.gemmM = ctx.dimIndexVal["c"].second;
       gemmSize.gemmN = ctx.dimIndexVal["no"].second * hTildaSlice * wTildaSlice;

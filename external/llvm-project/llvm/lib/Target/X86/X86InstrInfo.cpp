@@ -699,6 +699,8 @@ static bool isFrameLoadOpcode(int Opcode, unsigned &MemBytes) {
     return true;
   case X86::MOV16rm:
   case X86::KMOVWkm:
+  case X86::VMOVSHZrm:
+  case X86::VMOVSHZrm_alt:
     MemBytes = 2;
     return true;
   case X86::MOV32rm:
@@ -795,6 +797,7 @@ static bool isFrameStoreOpcode(int Opcode, unsigned &MemBytes) {
     return true;
   case X86::MOV16mr:
   case X86::KMOVWmk:
+  case X86::VMOVSHZmr:
     MemBytes = 2;
     return true;
   case X86::MOV32mr:
@@ -905,7 +908,7 @@ unsigned X86InstrInfo::isLoadFromStackSlotPostFE(const MachineInstr &MI,
       FrameIndex =
           cast<FixedStackPseudoSourceValue>(Accesses.front()->getPseudoValue())
               ->getFrameIndex();
-      return 1;
+      return MI.getOperand(0).getReg();
     }
   }
   return 0;
@@ -940,7 +943,7 @@ unsigned X86InstrInfo::isStoreToStackSlotPostFE(const MachineInstr &MI,
       FrameIndex =
           cast<FixedStackPseudoSourceValue>(Accesses.front()->getPseudoValue())
               ->getFrameIndex();
-      return 1;
+      return MI.getOperand(X86::AddrNumOperands).getReg();
     }
   }
   return 0;
@@ -980,6 +983,7 @@ bool X86InstrInfo::isReallyTriviallyReMaterializable(const MachineInstr &MI,
   case X86::AVX512_512_SET0:
   case X86::AVX512_512_SETALLONES:
   case X86::AVX512_FsFLD0SD:
+  case X86::AVX512_FsFLD0SH:
   case X86::AVX512_FsFLD0SS:
   case X86::AVX512_FsFLD0F128:
   case X86::AVX_SET0:
@@ -1006,6 +1010,7 @@ bool X86InstrInfo::isReallyTriviallyReMaterializable(const MachineInstr &MI,
   case X86::MOV64ri:
   case X86::MOV64ri32:
   case X86::MOV8ri:
+  case X86::PTILEZEROV:
     return true;
 
   case X86::MOV8rm:
@@ -1046,6 +1051,8 @@ bool X86InstrInfo::isReallyTriviallyReMaterializable(const MachineInstr &MI,
   case X86::VMOVSSZrm_alt:
   case X86::VMOVSDZrm:
   case X86::VMOVSDZrm_alt:
+  case X86::VMOVSHZrm:
+  case X86::VMOVSHZrm_alt:
   case X86::VMOVAPDZ128rm:
   case X86::VMOVAPDZ256rm:
   case X86::VMOVAPDZrm:
@@ -2234,6 +2241,10 @@ MachineInstr *X86InstrInfo::commuteInstructionImpl(MachineInstr &MI, bool NewMI,
   case X86::VCMPSSZrr:
   case X86::VCMPPDZrri:
   case X86::VCMPPSZrri:
+  case X86::VCMPSHZrr:
+  case X86::VCMPPHZrri:
+  case X86::VCMPPHZ128rri:
+  case X86::VCMPPHZ256rri:
   case X86::VCMPPDZ128rri:
   case X86::VCMPPSZ128rri:
   case X86::VCMPPDZ256rri:
@@ -2480,6 +2491,10 @@ bool X86InstrInfo::findCommutedOpIndices(const MachineInstr &MI,
   case X86::VCMPSSZrr:
   case X86::VCMPPDZrri:
   case X86::VCMPPSZrri:
+  case X86::VCMPSHZrr:
+  case X86::VCMPPHZrri:
+  case X86::VCMPPHZ128rri:
+  case X86::VCMPPHZ256rri:
   case X86::VCMPPDZ128rri:
   case X86::VCMPPSZ128rri:
   case X86::VCMPPDZ256rri:
@@ -2666,6 +2681,58 @@ bool X86InstrInfo::findCommutedOpIndices(const MachineInstr &MI,
 
     return TargetInstrInfo::findCommutedOpIndices(MI, SrcOpIdx1, SrcOpIdx2);
   }
+  return false;
+}
+
+static bool isConvertibleLEA(MachineInstr *MI) {
+  unsigned Opcode = MI->getOpcode();
+  if (Opcode != X86::LEA32r && Opcode != X86::LEA64r &&
+      Opcode != X86::LEA64_32r)
+    return false;
+
+  const MachineOperand &Scale = MI->getOperand(1 + X86::AddrScaleAmt);
+  const MachineOperand &Disp = MI->getOperand(1 + X86::AddrDisp);
+  const MachineOperand &Segment = MI->getOperand(1 + X86::AddrSegmentReg);
+
+  if (Segment.getReg() != 0 || !Disp.isImm() || Disp.getImm() != 0 ||
+      Scale.getImm() > 1)
+    return false;
+
+  return true;
+}
+
+bool X86InstrInfo::hasCommutePreference(MachineInstr &MI, bool &Commute) const {
+  // Currently we're interested in following sequence only.
+  //   r3 = lea r1, r2
+  //   r5 = add r3, r4
+  // Both r3 and r4 are killed in add, we hope the add instruction has the
+  // operand order
+  //   r5 = add r4, r3
+  // So later in X86FixupLEAs the lea instruction can be rewritten as add.
+  unsigned Opcode = MI.getOpcode();
+  if (Opcode != X86::ADD32rr && Opcode != X86::ADD64rr)
+    return false;
+
+  const MachineRegisterInfo &MRI = MI.getParent()->getParent()->getRegInfo();
+  Register Reg1 = MI.getOperand(1).getReg();
+  Register Reg2 = MI.getOperand(2).getReg();
+
+  // Check if Reg1 comes from LEA in the same MBB.
+  if (MachineInstr *Inst = MRI.getUniqueVRegDef(Reg1)) {
+    if (isConvertibleLEA(Inst) && Inst->getParent() == MI.getParent()) {
+      Commute = true;
+      return true;
+    }
+  }
+
+  // Check if Reg2 comes from LEA in the same MBB.
+  if (MachineInstr *Inst = MRI.getUniqueVRegDef(Reg2)) {
+    if (isConvertibleLEA(Inst) && Inst->getParent() == MI.getParent()) {
+      Commute = false;
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -3552,6 +3619,10 @@ static unsigned getLoadStoreRegOpcode(Register Reg,
   case 2:
     if (X86::VK16RegClass.hasSubClassEq(RC))
       return load ? X86::KMOVWkm : X86::KMOVWmk;
+    if (X86::FR16XRegClass.hasSubClassEq(RC)) {
+      assert(STI.hasFP16());
+      return load ? X86::VMOVSHZrm_alt : X86::VMOVSHZmr;
+    }
     assert(X86::GR16RegClass.hasSubClassEq(RC) && "Unknown 2-byte regclass");
     return load ? X86::MOV16rm : X86::MOV16mr;
   case 4:
@@ -3851,8 +3922,8 @@ void X86InstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
 }
 
 bool X86InstrInfo::analyzeCompare(const MachineInstr &MI, Register &SrcReg,
-                                  Register &SrcReg2, int &CmpMask,
-                                  int &CmpValue) const {
+                                  Register &SrcReg2, int64_t &CmpMask,
+                                  int64_t &CmpValue) const {
   switch (MI.getOpcode()) {
   default: break;
   case X86::CMP64ri32:
@@ -3939,7 +4010,7 @@ bool X86InstrInfo::analyzeCompare(const MachineInstr &MI, Register &SrcReg,
 /// ImmValue: immediate for FlagI if it takes an immediate.
 inline static bool isRedundantFlagInstr(const MachineInstr &FlagI,
                                         Register SrcReg, Register SrcReg2,
-                                        int ImmMask, int ImmValue,
+                                        int64_t ImmMask, int64_t ImmValue,
                                         const MachineInstr &OI) {
   if (((FlagI.getOpcode() == X86::CMP64rr && OI.getOpcode() == X86::SUB64rr) ||
        (FlagI.getOpcode() == X86::CMP32rr && OI.getOpcode() == X86::SUB32rr) ||
@@ -3971,8 +4042,10 @@ inline static bool isRedundantFlagInstr(const MachineInstr &FlagI,
 
 /// Check whether the definition can be converted
 /// to remove a comparison against zero.
-inline static bool isDefConvertible(const MachineInstr &MI, bool &NoSignFlag) {
+inline static bool isDefConvertible(const MachineInstr &MI, bool &NoSignFlag,
+                                    bool &ClearsOverflowFlag) {
   NoSignFlag = false;
+  ClearsOverflowFlag = false;
 
   switch (MI.getOpcode()) {
   default: return false;
@@ -4007,21 +4080,6 @@ inline static bool isDefConvertible(const MachineInstr &MI, bool &NoSignFlag) {
   case X86::ADD16rr:   case X86::ADD8rr:   case X86::ADD64rm:
   case X86::ADD32rm:   case X86::ADD16rm:  case X86::ADD8rm:
   case X86::INC64r:    case X86::INC32r:   case X86::INC16r: case X86::INC8r:
-  case X86::AND64ri32: case X86::AND64ri8: case X86::AND32ri:
-  case X86::AND32ri8:  case X86::AND16ri:  case X86::AND16ri8:
-  case X86::AND8ri:    case X86::AND64rr:  case X86::AND32rr:
-  case X86::AND16rr:   case X86::AND8rr:   case X86::AND64rm:
-  case X86::AND32rm:   case X86::AND16rm:  case X86::AND8rm:
-  case X86::XOR64ri32: case X86::XOR64ri8: case X86::XOR32ri:
-  case X86::XOR32ri8:  case X86::XOR16ri:  case X86::XOR16ri8:
-  case X86::XOR8ri:    case X86::XOR64rr:  case X86::XOR32rr:
-  case X86::XOR16rr:   case X86::XOR8rr:   case X86::XOR64rm:
-  case X86::XOR32rm:   case X86::XOR16rm:  case X86::XOR8rm:
-  case X86::OR64ri32:  case X86::OR64ri8:  case X86::OR32ri:
-  case X86::OR32ri8:   case X86::OR16ri:   case X86::OR16ri8:
-  case X86::OR8ri:     case X86::OR64rr:   case X86::OR32rr:
-  case X86::OR16rr:    case X86::OR8rr:    case X86::OR64rm:
-  case X86::OR32rm:    case X86::OR16rm:   case X86::OR8rm:
   case X86::ADC64ri32: case X86::ADC64ri8: case X86::ADC32ri:
   case X86::ADC32ri8:  case X86::ADC16ri:  case X86::ADC16ri8:
   case X86::ADC8ri:    case X86::ADC64rr:  case X86::ADC32rr:
@@ -4036,16 +4094,6 @@ inline static bool isDefConvertible(const MachineInstr &MI, bool &NoSignFlag) {
   case X86::SAR8r1:    case X86::SAR16r1:  case X86::SAR32r1:case X86::SAR64r1:
   case X86::SHR8r1:    case X86::SHR16r1:  case X86::SHR32r1:case X86::SHR64r1:
   case X86::SHL8r1:    case X86::SHL16r1:  case X86::SHL32r1:case X86::SHL64r1:
-  case X86::ANDN32rr:  case X86::ANDN32rm:
-  case X86::ANDN64rr:  case X86::ANDN64rm:
-  case X86::BLSI32rr:  case X86::BLSI32rm:
-  case X86::BLSI64rr:  case X86::BLSI64rm:
-  case X86::BLSMSK32rr:case X86::BLSMSK32rm:
-  case X86::BLSMSK64rr:case X86::BLSMSK64rm:
-  case X86::BLSR32rr:  case X86::BLSR32rm:
-  case X86::BLSR64rr:  case X86::BLSR64rm:
-  case X86::BZHI32rr:  case X86::BZHI32rm:
-  case X86::BZHI64rr:  case X86::BZHI64rm:
   case X86::LZCNT16rr: case X86::LZCNT16rm:
   case X86::LZCNT32rr: case X86::LZCNT32rm:
   case X86::LZCNT64rr: case X86::LZCNT64rm:
@@ -4055,6 +4103,30 @@ inline static bool isDefConvertible(const MachineInstr &MI, bool &NoSignFlag) {
   case X86::TZCNT16rr: case X86::TZCNT16rm:
   case X86::TZCNT32rr: case X86::TZCNT32rm:
   case X86::TZCNT64rr: case X86::TZCNT64rm:
+    return true;
+  case X86::AND64ri32:   case X86::AND64ri8:  case X86::AND32ri:
+  case X86::AND32ri8:    case X86::AND16ri:   case X86::AND16ri8:
+  case X86::AND8ri:      case X86::AND64rr:   case X86::AND32rr:
+  case X86::AND16rr:     case X86::AND8rr:    case X86::AND64rm:
+  case X86::AND32rm:     case X86::AND16rm:   case X86::AND8rm:
+  case X86::XOR64ri32:   case X86::XOR64ri8:  case X86::XOR32ri:
+  case X86::XOR32ri8:    case X86::XOR16ri:   case X86::XOR16ri8:
+  case X86::XOR8ri:      case X86::XOR64rr:   case X86::XOR32rr:
+  case X86::XOR16rr:     case X86::XOR8rr:    case X86::XOR64rm:
+  case X86::XOR32rm:     case X86::XOR16rm:   case X86::XOR8rm:
+  case X86::OR64ri32:    case X86::OR64ri8:   case X86::OR32ri:
+  case X86::OR32ri8:     case X86::OR16ri:    case X86::OR16ri8:
+  case X86::OR8ri:       case X86::OR64rr:    case X86::OR32rr:
+  case X86::OR16rr:      case X86::OR8rr:     case X86::OR64rm:
+  case X86::OR32rm:      case X86::OR16rm:    case X86::OR8rm:
+  case X86::ANDN32rr:    case X86::ANDN32rm:
+  case X86::ANDN64rr:    case X86::ANDN64rm:
+  case X86::BLSI32rr:    case X86::BLSI32rm:
+  case X86::BLSI64rr:    case X86::BLSI64rm:
+  case X86::BLSMSK32rr:  case X86::BLSMSK32rm:
+  case X86::BLSMSK64rr:  case X86::BLSMSK64rm:
+  case X86::BLSR32rr:    case X86::BLSR32rm:
+  case X86::BLSR64rr:    case X86::BLSR64rm:
   case X86::BLCFILL32rr: case X86::BLCFILL32rm:
   case X86::BLCFILL64rr: case X86::BLCFILL64rm:
   case X86::BLCI32rr:    case X86::BLCI32rm:
@@ -4069,16 +4141,23 @@ inline static bool isDefConvertible(const MachineInstr &MI, bool &NoSignFlag) {
   case X86::BLSFILL64rr: case X86::BLSFILL64rm:
   case X86::BLSIC32rr:   case X86::BLSIC32rm:
   case X86::BLSIC64rr:   case X86::BLSIC64rm:
+  case X86::BZHI32rr:    case X86::BZHI32rm:
+  case X86::BZHI64rr:    case X86::BZHI64rm:
   case X86::T1MSKC32rr:  case X86::T1MSKC32rm:
   case X86::T1MSKC64rr:  case X86::T1MSKC64rm:
   case X86::TZMSK32rr:   case X86::TZMSK32rm:
   case X86::TZMSK64rr:   case X86::TZMSK64rm:
+    // These instructions clear the overflow flag just like TEST.
+    // FIXME: These are not the only instructions in this switch that clear the
+    // overflow flag.
+    ClearsOverflowFlag = true;
     return true;
   case X86::BEXTR32rr:   case X86::BEXTR64rr:
   case X86::BEXTR32rm:   case X86::BEXTR64rm:
   case X86::BEXTRI32ri:  case X86::BEXTRI32mi:
   case X86::BEXTRI64ri:  case X86::BEXTRI64mi:
-    // BEXTR doesn't update the sign flag so we can't use it.
+    // BEXTR doesn't update the sign flag so we can't use it. It does clear
+    // the overflow flag, but that's not useful without the sign flag.
     NoSignFlag = true;
     return true;
   }
@@ -4128,8 +4207,8 @@ static X86::CondCode isUseDefConvertible(const MachineInstr &MI) {
 /// operates on the same source operands and sets flags in the same way as
 /// Compare; remove Compare if possible.
 bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
-                                        Register SrcReg2, int CmpMask,
-                                        int CmpValue,
+                                        Register SrcReg2, int64_t CmpMask,
+                                        int64_t CmpValue,
                                         const MachineRegisterInfo *MRI) const {
   // Check whether we can replace SUB with CMP.
   switch (CmpInstr.getOpcode()) {
@@ -4173,6 +4252,8 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
     }
     CmpInstr.setDesc(get(NewOpcode));
     CmpInstr.RemoveOperand(0);
+    // Mutating this instruction invalidates any debug data associated with it.
+    CmpInstr.dropDebugNumber();
     // Fall through to optimize Cmp if Cmp is CMPrr or CMPri.
     if (NewOpcode == X86::CMP64rm || NewOpcode == X86::CMP32rm ||
         NewOpcode == X86::CMP16rm || NewOpcode == X86::CMP8rm)
@@ -4198,8 +4279,9 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
   // right way.
   bool ShouldUpdateCC = false;
   bool NoSignFlag = false;
+  bool ClearsOverflowFlag = false;
   X86::CondCode NewCC = X86::COND_INVALID;
-  if (IsCmpZero && !isDefConvertible(*MI, NoSignFlag)) {
+  if (IsCmpZero && !isDefConvertible(*MI, NoSignFlag, ClearsOverflowFlag)) {
     // Scan forward from the use until we hit the use we're looking for or the
     // compare instruction.
     for (MachineBasicBlock::iterator J = MI;; ++J) {
@@ -4311,11 +4393,15 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
       default: break;
       case X86::COND_A: case X86::COND_AE:
       case X86::COND_B: case X86::COND_BE:
+        // CF is used, we can't perform this optimization.
+        return false;
       case X86::COND_G: case X86::COND_GE:
       case X86::COND_L: case X86::COND_LE:
       case X86::COND_O: case X86::COND_NO:
-        // CF and OF are used, we can't perform this optimization.
-        return false;
+        // If OF is used, the instruction needs to clear it like CmpZero does.
+        if (!ClearsOverflowFlag)
+          return false;
+        break;
       case X86::COND_S: case X86::COND_NS:
         // If SF is used, but the instruction doesn't update the SF, then we
         // can't do the optimization.
@@ -4484,7 +4570,7 @@ static bool Expand2AddrKreg(MachineInstrBuilder &MIB, const MCInstrDesc &Desc,
 static bool expandMOV32r1(MachineInstrBuilder &MIB, const TargetInstrInfo &TII,
                           bool MinusOne) {
   MachineBasicBlock &MBB = *MIB->getParent();
-  DebugLoc DL = MIB->getDebugLoc();
+  const DebugLoc &DL = MIB->getDebugLoc();
   Register Reg = MIB.getReg(0);
 
   // Insert the XOR.
@@ -4503,7 +4589,7 @@ static bool ExpandMOVImmSExti8(MachineInstrBuilder &MIB,
                                const TargetInstrInfo &TII,
                                const X86Subtarget &Subtarget) {
   MachineBasicBlock &MBB = *MIB->getParent();
-  DebugLoc DL = MIB->getDebugLoc();
+  const DebugLoc &DL = MIB->getDebugLoc();
   int64_t Imm = MIB->getOperand(1).getImm();
   assert(Imm != 0 && "Using push/pop for 0 is not efficient.");
   MachineBasicBlock::iterator I = MIB.getInstr();
@@ -4560,7 +4646,7 @@ static bool ExpandMOVImmSExti8(MachineInstrBuilder &MIB,
 static void expandLoadStackGuard(MachineInstrBuilder &MIB,
                                  const TargetInstrInfo &TII) {
   MachineBasicBlock &MBB = *MIB->getParent();
-  DebugLoc DL = MIB->getDebugLoc();
+  const DebugLoc &DL = MIB->getDebugLoc();
   Register Reg = MIB.getReg(0);
   const GlobalValue *GV =
       cast<GlobalValue>((*MIB->memoperands_begin())->getValue());
@@ -4687,6 +4773,7 @@ bool X86InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     return true;
   }
   case X86::AVX512_128_SET0:
+  case X86::AVX512_FsFLD0SH:
   case X86::AVX512_FsFLD0SS:
   case X86::AVX512_FsFLD0SD:
   case X86::AVX512_FsFLD0F128: {
@@ -5090,6 +5177,26 @@ static bool hasUndefRegUpdate(unsigned Opcode, unsigned OpNum,
   case X86::VCVTUSI642SDZrr_Int:
   case X86::VCVTUSI642SDZrrb_Int:
   case X86::VCVTUSI642SDZrm_Int:
+  case X86::VCVTSI2SHZrr:
+  case X86::VCVTSI2SHZrm:
+  case X86::VCVTSI2SHZrr_Int:
+  case X86::VCVTSI2SHZrrb_Int:
+  case X86::VCVTSI2SHZrm_Int:
+  case X86::VCVTSI642SHZrr:
+  case X86::VCVTSI642SHZrm:
+  case X86::VCVTSI642SHZrr_Int:
+  case X86::VCVTSI642SHZrrb_Int:
+  case X86::VCVTSI642SHZrm_Int:
+  case X86::VCVTUSI2SHZrr:
+  case X86::VCVTUSI2SHZrm:
+  case X86::VCVTUSI2SHZrr_Int:
+  case X86::VCVTUSI2SHZrrb_Int:
+  case X86::VCVTUSI2SHZrm_Int:
+  case X86::VCVTUSI642SHZrr:
+  case X86::VCVTUSI642SHZrm:
+  case X86::VCVTUSI642SHZrr_Int:
+  case X86::VCVTUSI642SHZrrb_Int:
+  case X86::VCVTUSI642SHZrm_Int:
     // Load folding won't effect the undef register update since the input is
     // a GPR.
     return OpNum == 1 && !ForLoadFold;
@@ -5162,6 +5269,29 @@ static bool hasUndefRegUpdate(unsigned Opcode, unsigned OpNum,
   case X86::VRCP14SDZrm:
   case X86::VRCP14SSZrr:
   case X86::VRCP14SSZrm:
+  case X86::VRCPSHZrr:
+  case X86::VRCPSHZrm:
+  case X86::VRSQRTSHZrr:
+  case X86::VRSQRTSHZrm:
+  case X86::VREDUCESHZrmi:
+  case X86::VREDUCESHZrri:
+  case X86::VREDUCESHZrrib:
+  case X86::VGETEXPSHZr:
+  case X86::VGETEXPSHZrb:
+  case X86::VGETEXPSHZm:
+  case X86::VGETMANTSHZrri:
+  case X86::VGETMANTSHZrrib:
+  case X86::VGETMANTSHZrmi:
+  case X86::VRNDSCALESHZr:
+  case X86::VRNDSCALESHZr_Int:
+  case X86::VRNDSCALESHZrb_Int:
+  case X86::VRNDSCALESHZm:
+  case X86::VRNDSCALESHZm_Int:
+  case X86::VSQRTSHZr:
+  case X86::VSQRTSHZr_Int:
+  case X86::VSQRTSHZrb_Int:
+  case X86::VSQRTSHZm:
+  case X86::VSQRTSHZm_Int:
   case X86::VRCP28SDZr:
   case X86::VRCP28SDZrb:
   case X86::VRCP28SDZm:
@@ -5191,6 +5321,26 @@ static bool hasUndefRegUpdate(unsigned Opcode, unsigned OpNum,
   case X86::VSQRTSDZrb_Int:
   case X86::VSQRTSDZm:
   case X86::VSQRTSDZm_Int:
+  case X86::VCVTSD2SHZrr:
+  case X86::VCVTSD2SHZrr_Int:
+  case X86::VCVTSD2SHZrrb_Int:
+  case X86::VCVTSD2SHZrm:
+  case X86::VCVTSD2SHZrm_Int:
+  case X86::VCVTSS2SHZrr:
+  case X86::VCVTSS2SHZrr_Int:
+  case X86::VCVTSS2SHZrrb_Int:
+  case X86::VCVTSS2SHZrm:
+  case X86::VCVTSS2SHZrm_Int:
+  case X86::VCVTSH2SDZrr:
+  case X86::VCVTSH2SDZrr_Int:
+  case X86::VCVTSH2SDZrrb_Int:
+  case X86::VCVTSH2SDZrm:
+  case X86::VCVTSH2SDZrm_Int:
+  case X86::VCVTSH2SSZrr:
+  case X86::VCVTSH2SSZrr_Int:
+  case X86::VCVTSH2SSZrrb_Int:
+  case X86::VCVTSH2SSZrm:
+  case X86::VCVTSH2SSZrm_Int:
     return OpNum == 1;
   case X86::VMOVSSZrrk:
   case X86::VMOVSDZrrk:
@@ -5700,7 +5850,7 @@ X86InstrInfo::foldMemoryOperandImpl(MachineFunction &MF, MachineInstr &MI,
   Align Alignment = MFI.getObjectAlign(FrameIndex);
   // If the function stack isn't realigned we don't want to fold instructions
   // that need increased alignment.
-  if (!RI.needsStackRealignment(MF))
+  if (!RI.hasStackRealignment(MF))
     Alignment =
         std::min(Alignment, Subtarget.getFrameLowering()->getStackAlign());
   if (Ops.size() == 2 && Ops[0] == 0 && Ops[1] == 1) {
@@ -5968,6 +6118,49 @@ static bool isNonFoldablePartialRegisterLoad(const MachineInstr &LoadMI,
     }
   }
 
+  if ((Opc == X86::VMOVSHZrm || Opc == X86::VMOVSHZrm_alt) && RegSize > 16) {
+    // These instructions only load 16 bits, we can't fold them if the
+    // destination register is wider than 16 bits (2 bytes), and its user
+    // instruction isn't scalar (SH).
+    switch (UserOpc) {
+    case X86::VADDSHZrr_Int:
+    case X86::VCMPSHZrr_Int:
+    case X86::VDIVSHZrr_Int:
+    case X86::VMAXSHZrr_Int:
+    case X86::VMINSHZrr_Int:
+    case X86::VMULSHZrr_Int:
+    case X86::VSUBSHZrr_Int:
+    case X86::VADDSHZrr_Intk: case X86::VADDSHZrr_Intkz:
+    case X86::VCMPSHZrr_Intk:
+    case X86::VDIVSHZrr_Intk: case X86::VDIVSHZrr_Intkz:
+    case X86::VMAXSHZrr_Intk: case X86::VMAXSHZrr_Intkz:
+    case X86::VMINSHZrr_Intk: case X86::VMINSHZrr_Intkz:
+    case X86::VMULSHZrr_Intk: case X86::VMULSHZrr_Intkz:
+    case X86::VSUBSHZrr_Intk: case X86::VSUBSHZrr_Intkz:
+    case X86::VFMADD132SHZr_Int: case X86::VFNMADD132SHZr_Int:
+    case X86::VFMADD213SHZr_Int: case X86::VFNMADD213SHZr_Int:
+    case X86::VFMADD231SHZr_Int: case X86::VFNMADD231SHZr_Int:
+    case X86::VFMSUB132SHZr_Int: case X86::VFNMSUB132SHZr_Int:
+    case X86::VFMSUB213SHZr_Int: case X86::VFNMSUB213SHZr_Int:
+    case X86::VFMSUB231SHZr_Int: case X86::VFNMSUB231SHZr_Int:
+    case X86::VFMADD132SHZr_Intk: case X86::VFNMADD132SHZr_Intk:
+    case X86::VFMADD213SHZr_Intk: case X86::VFNMADD213SHZr_Intk:
+    case X86::VFMADD231SHZr_Intk: case X86::VFNMADD231SHZr_Intk:
+    case X86::VFMSUB132SHZr_Intk: case X86::VFNMSUB132SHZr_Intk:
+    case X86::VFMSUB213SHZr_Intk: case X86::VFNMSUB213SHZr_Intk:
+    case X86::VFMSUB231SHZr_Intk: case X86::VFNMSUB231SHZr_Intk:
+    case X86::VFMADD132SHZr_Intkz: case X86::VFNMADD132SHZr_Intkz:
+    case X86::VFMADD213SHZr_Intkz: case X86::VFNMADD213SHZr_Intkz:
+    case X86::VFMADD231SHZr_Intkz: case X86::VFNMADD231SHZr_Intkz:
+    case X86::VFMSUB132SHZr_Intkz: case X86::VFNMSUB132SHZr_Intkz:
+    case X86::VFMSUB213SHZr_Intkz: case X86::VFNMSUB213SHZr_Intkz:
+    case X86::VFMSUB231SHZr_Intkz: case X86::VFNMSUB231SHZr_Intkz:
+      return false;
+    default:
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -6033,6 +6226,9 @@ MachineInstr *X86InstrInfo::foldMemoryOperandImpl(
     case X86::AVX512_FsFLD0SS:
       Alignment = Align(4);
       break;
+    case X86::AVX512_FsFLD0SH:
+      Alignment = Align(2);
+      break;
     default:
       return nullptr;
     }
@@ -6068,6 +6264,7 @@ MachineInstr *X86InstrInfo::foldMemoryOperandImpl(
   case X86::AVX512_256_SET0:
   case X86::AVX512_512_SET0:
   case X86::AVX512_512_SETALLONES:
+  case X86::AVX512_FsFLD0SH:
   case X86::FsFLD0SD:
   case X86::AVX512_FsFLD0SD:
   case X86::FsFLD0SS:
@@ -6084,15 +6281,16 @@ MachineInstr *X86InstrInfo::foldMemoryOperandImpl(
 
     // x86-32 PIC requires a PIC base register for constant pools.
     unsigned PICBase = 0;
-    if (MF.getTarget().isPositionIndependent()) {
-      if (Subtarget.is64Bit())
-        PICBase = X86::RIP;
-      else
-        // FIXME: PICBase = getGlobalBaseReg(&MF);
-        // This doesn't work for several reasons.
-        // 1. GlobalBaseReg may have been spilled.
-        // 2. It may not be live at MI.
-        return nullptr;
+    // Since we're using Small or Kernel code model, we can always use
+    // RIP-relative addressing for a smaller encoding.
+    if (Subtarget.is64Bit()) {
+      PICBase = X86::RIP;
+    } else if (MF.getTarget().isPositionIndependent()) {
+      // FIXME: PICBase = getGlobalBaseReg(&MF);
+      // This doesn't work for several reasons.
+      // 1. GlobalBaseReg may have been spilled.
+      // 2. It may not be live at MI.
+      return nullptr;
     }
 
     // Create a constant-pool entry.
@@ -6105,6 +6303,8 @@ MachineInstr *X86InstrInfo::foldMemoryOperandImpl(
       Ty = Type::getDoubleTy(MF.getFunction().getContext());
     else if (Opc == X86::FsFLD0F128 || Opc == X86::AVX512_FsFLD0F128)
       Ty = Type::getFP128Ty(MF.getFunction().getContext());
+    else if (Opc == X86::AVX512_FsFLD0SH)
+      Ty = Type::getHalfTy(MF.getFunction().getContext());
     else if (Opc == X86::AVX512_512_SET0 || Opc == X86::AVX512_512_SETALLONES)
       Ty = FixedVectorType::get(Type::getInt32Ty(MF.getFunction().getContext()),
                                 16);
@@ -6342,7 +6542,7 @@ bool X86InstrInfo::unfoldMemoryOperand(
   case X86::CMP8ri: {
     MachineOperand &MO0 = DataMI->getOperand(0);
     MachineOperand &MO1 = DataMI->getOperand(1);
-    if (MO1.getImm() == 0) {
+    if (MO1.isImm() && MO1.getImm() == 0) {
       unsigned NewOpc;
       switch (DataMI->getOpcode()) {
       default: llvm_unreachable("Unreachable!");
@@ -7708,8 +7908,10 @@ void X86InstrInfo::setExecutionDomain(MachineInstr &MI, unsigned Domain) const {
 }
 
 /// Return the noop instruction to use for a noop.
-void X86InstrInfo::getNoop(MCInst &NopInst) const {
-  NopInst.setOpcode(X86::NOOP);
+MCInst X86InstrInfo::getNop() const {
+  MCInst Nop;
+  Nop.setOpcode(X86::NOOP);
+  return Nop;
 }
 
 bool X86InstrInfo::isHighLatencyDef(int opc) const {
@@ -8313,6 +8515,14 @@ bool X86InstrInfo::isAssociativeAndCommutative(const MachineInstr &Inst) const {
   case X86::VMINCSSrr:
   case X86::VMINCSDZrr:
   case X86::VMINCSSZrr:
+  case X86::VMAXCPHZ128rr:
+  case X86::VMAXCPHZ256rr:
+  case X86::VMAXCPHZrr:
+  case X86::VMAXCSHZrr:
+  case X86::VMINCPHZ128rr:
+  case X86::VMINCPHZ256rr:
+  case X86::VMINCPHZrr:
+  case X86::VMINCSHZrr:
     return true;
   case X86::ADDPDrr:
   case X86::ADDPSrr:
@@ -8350,6 +8560,14 @@ bool X86InstrInfo::isAssociativeAndCommutative(const MachineInstr &Inst) const {
   case X86::VMULSSrr:
   case X86::VMULSDZrr:
   case X86::VMULSSZrr:
+  case X86::VADDPHZ128rr:
+  case X86::VADDPHZ256rr:
+  case X86::VADDPHZrr:
+  case X86::VADDSHZrr:
+  case X86::VMULPHZ128rr:
+  case X86::VMULPHZ256rr:
+  case X86::VMULPHZrr:
+  case X86::VMULSHZrr:
     return Inst.getFlag(MachineInstr::MIFlag::FmReassoc) &&
            Inst.getFlag(MachineInstr::MIFlag::FmNsz);
   default:

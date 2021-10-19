@@ -1,4 +1,4 @@
-// RUN: mlir-opt -miopen-lowering-step4 %s | FileCheck %s
+// RUN: miopen-opt -miopen-lowering-step4 %s | FileCheck %s
 
 #map0 = affine_map<(d0, d1, d2) -> (d0 * 32 + d1 * 4 + d2)>
 #map6 = affine_map<(d0, d1, d2, d3, d4) -> (d1 * 4 + d3)>

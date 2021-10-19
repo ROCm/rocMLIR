@@ -31,8 +31,6 @@ public:
 
   ConstString GetPluginName() override;
 
-  uint32_t GetPluginVersion() override { return 1; }
-
   // lldb_private::Platform functions
   const char *GetDescription() override {
     return GetPluginDescriptionStatic(IsHost());
@@ -43,9 +41,6 @@ public:
   bool GetSupportedArchitectureAtIndex(uint32_t idx, ArchSpec &arch) override;
 
   bool CanDebugProcess() override;
-
-  size_t GetSoftwareBreakpointTrapOpcode(Target &target,
-                                         BreakpointSite *bp_site) override;
 
   void CalculateTrapHandlerSymbolNames() override;
 

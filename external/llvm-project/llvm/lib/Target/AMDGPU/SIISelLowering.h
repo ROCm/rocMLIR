@@ -16,6 +16,7 @@
 
 #include "AMDGPUISelLowering.h"
 #include "AMDGPUArgumentUsageInfo.h"
+#include "llvm/CodeGen/MachineFunction.h"
 
 namespace llvm {
 
@@ -144,7 +145,11 @@ private:
   SDValue lowerEXTRACT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const;
+
   SDValue lowerTRAP(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerTrapEndpgm(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerTrapHsaQueuePtr(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerTrapHsa(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerDEBUGTRAP(SDValue Op, SelectionDAG &DAG) const;
 
   SDNode *adjustWritemask(MachineSDNode *&N, SelectionDAG &DAG) const;
@@ -227,10 +232,8 @@ private:
   // Analyze a combined offset from an amdgcn_buffer_ intrinsic and store the
   // three offsets (voffset, soffset and instoffset) into the SDValue[3] array
   // pointed to by Offsets.
-  /// \returns 0 If there is a non-constant offset or if the offset is 0.
-  /// Otherwise returns the constant offset.
-  unsigned setBufferOffsets(SDValue CombinedOffset, SelectionDAG &DAG,
-                            SDValue *Offsets, Align Alignment = Align(4)) const;
+  void setBufferOffsets(SDValue CombinedOffset, SelectionDAG &DAG,
+                        SDValue *Offsets, Align Alignment = Align(4)) const;
 
   // Handle 8 bit and 16 bit buffer loads
   SDValue handleByteShortBufferLoads(SelectionDAG &DAG, EVT LoadVT, SDLoc DL,
@@ -265,7 +268,7 @@ public:
                              Instruction *I = nullptr) const override;
 
   bool canMergeStoresTo(unsigned AS, EVT MemVT,
-                        const SelectionDAG &DAG) const override;
+                        const MachineFunction &MF) const override;
 
   bool allowsMisalignedMemoryAccessesImpl(
       unsigned Size, unsigned AddrSpace, Align Alignment,
@@ -393,6 +396,7 @@ public:
 
   SDValue PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const override;
   SDNode *PostISelFolding(MachineSDNode *N, SelectionDAG &DAG) const override;
+  void AddIMGInit(MachineInstr &MI) const;
   void AdjustInstrPostInstrSelection(MachineInstr &MI,
                                      SDNode *Node) const override;
 
@@ -439,7 +443,10 @@ public:
 
   bool isCanonicalized(SelectionDAG &DAG, SDValue Op,
                        unsigned MaxDepth = 5) const;
+  bool isCanonicalized(Register Reg, MachineFunction &MF,
+                       unsigned MaxDepth = 5) const;
   bool denormalsEnabledForType(const SelectionDAG &DAG, EVT VT) const;
+  bool denormalsEnabledForType(LLT Ty, MachineFunction &MF) const;
 
   bool isKnownNeverNaNForTargetNode(SDValue Op,
                                     const SelectionDAG &DAG,
@@ -483,8 +490,8 @@ public:
                                       const SIRegisterInfo &TRI,
                                       SIMachineFunctionInfo &Info) const;
 
-  std::pair<int, MVT> getTypeLegalizationCost(const DataLayout &DL,
-                                              Type *Ty) const;
+  std::pair<InstructionCost, MVT> getTypeLegalizationCost(const DataLayout &DL,
+                                                          Type *Ty) const;
 };
 
 } // End namespace llvm

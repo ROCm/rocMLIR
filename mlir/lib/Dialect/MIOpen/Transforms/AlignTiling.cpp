@@ -27,6 +27,7 @@
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Conversion/SCFToStandard/SCFToStandard.h"
 #include "mlir/Dialect/Linalg/IR/LinalgOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
@@ -145,7 +146,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
       sizes[i] = b.getIndexAttr(regShape[i]);
     }
 
-    return b.create<SubViewOp>(loc, transform, offsets, sizes, strides);
+    return b.create<memref::SubViewOp>(loc, transform, offsets, sizes, strides);
   }
 
   Value traceToThreadwiseCopy(Value inp,
@@ -158,7 +159,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
       if (auto op = dyn_cast<linalg::GenericOp>(use.getOwner())) {
         // reader
       } else if (!laReshape) {
-        laReshape = getOpResult<linalg::ReshapeOp>(use);
+        laReshape = getOpResult<memref::ExpandShapeOp>(use);
       }
       cnt++;
     }
@@ -193,7 +194,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         cloningMap.map(miTransform->getOperand(0), ret);
         tcopy = b.clone(*miTransform, cloningMap);
       } else if (auto laReshape =
-                     transform.getDefiningOp<linalg::ReshapeOp>()) {
+                     transform.getDefiningOp<memref::ExpandShapeOp>()) {
         cloningMap.map(laReshape->getOperand(0), ret);
         tcopy = b.clone(*laReshape, cloningMap);
       } else {
@@ -293,8 +294,8 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         twcopy->setOperand(0, oRegs);
 
         // 2.6. Reset output on threadwise_copy
-        auto laReshape = transforms.front().getDefiningOp<linalg::ReshapeOp>();
-        auto outOp = out.getDefiningOp<AllocOp>();
+        auto laReshape = transforms.front().getDefiningOp<memref::ExpandShapeOp>();
+        auto outOp = out.getDefiningOp<memref::AllocOp>();
         outOp->moveBefore(laReshape);
         laReshape->setOperand(0, out);
 
@@ -310,8 +311,9 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
 //===- MIOpenLinalgAlignPass - Align Tiling of Linalg Ops -----------------===//
 //
 void MIOpenLinalgAlignPass::runOnOperation() {
-  OwningRewritePatternList patterns;
-  patterns.insert<MILARewritePattern<linalg::GenericOp>>(&getContext());
+  MLIRContext *ctx = &getContext();
+  OwningRewritePatternList patterns(ctx);
+  patterns.insert<MILARewritePattern<linalg::GenericOp>>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }

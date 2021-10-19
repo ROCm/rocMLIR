@@ -13,13 +13,8 @@
 #ifndef MIOPEN_OPS
 #define MIOPEN_OPS
 
-include "mlir/IR/OpBase.td"
+include "mlir/Dialect/MIOpen/MIOpenBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
-
-def MIOpen_Dialect : Dialect {
-  let name = "miopen";
-  let cppNamespace = "miopen";
-}
 
 // Base class for MIOpen dialect ops.
 class MIOpen_Op<string mnemonic, list<OpTrait> traits = []> :
@@ -90,7 +85,7 @@ def MIOpen_TransformOp :
   }];
   let builders = [
    // Custom builder to populate bounds of input and output memrefs as attributes.
-   OpBuilderDAG<(ins "Type": $output, "Value":$input, "ArrayRef<NamedAttribute>":$attributes, "bool":$populateBounds),
+   OpBuilder<(ins "Type": $output, "Value":$input, "ArrayRef<NamedAttribute>":$attributes, "bool":$populateBounds),
    [{
      $_state.addOperands({input});
      if (populateBounds) {
@@ -269,10 +264,10 @@ def MIOpen_BlockwiseLoadOp:
     MIOpen_Op<"blockwise_load">,
     Arguments<(ins AnyMemRef:$source,
                   VectorOfLengthAndType<[3], [I32]>:$sourceCoordVector)>,
-    Results<(outs TupleOf<[F32, F16, I16,
+    Results<(outs Variadic<AnyTypeOf<[F32, F16, I16,
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16]>,
-                             VectorOfLengthAndType<[2, 4, 8], [I16]>]>:$result)> {
+                             VectorOfLengthAndType<[2, 4, 8], [I16]>]>>:$result)> {
   let summary = "Blockwise GPU data load";
   let description = [{
     The `miopen.blockwise_load` op moves data on GPU. Following movements are
@@ -280,17 +275,17 @@ def MIOpen_BlockwiseLoadOp:
     - Global (generic tensor) to register (naive tensor).
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)  `->` type(results)
+    $source `[` $sourceCoordVector `]` attr-dict `:` type(operands)  `->` type(results)
   }];
 }
 
 // blockwise_store
 def MIOpen_BlockwiseStoreOp:
     MIOpen_Op<"blockwise_store">,
-    Arguments<(ins TupleOf<[F32, F16, I16,
+    Arguments<(ins Variadic<AnyTypeOf<[F32, F16, I16,
                               VectorOfLengthAndType<[2, 4], [F32]>,
                               VectorOfLengthAndType<[2, 4, 8], [F16]>,
-                              VectorOfLengthAndType<[2, 4, 8], [I16]>]>:$data,
+                              VectorOfLengthAndType<[2, 4, 8], [I16]>]>>:$data,
                    AnyMemRef:$dest,
                    VectorOfLengthAndType<[3], [I32]>:$destCoordVector)> {
   let summary = "Blockwise GPU data store";
@@ -300,7 +295,7 @@ def MIOpen_BlockwiseStoreOp:
     - Register (naive tensor) to LDS (naive tensor).
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
+    $data `->` $dest `[` $destCoordVector `]`  attr-dict `:` type($data) `->` type($dest) `,` type($destCoordVector)
   }];
 }
 
@@ -331,10 +326,10 @@ def MIOpen_ThreadwiseLoadOp:
     MIOpen_Op<"threadwise_load">,
     Arguments<(ins AnyMemRef:$source,
                    Variadic<I32>:$sourceCoord)>,
-    Results<(outs TupleOf<[F32, F16, I16,
+    Results<(outs Variadic<AnyTypeOf<[F32, F16, I16,
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16]>,
-                             VectorOfLengthAndType<[2, 4, 8], [I16]>]>:$result)> {
+                             VectorOfLengthAndType<[2, 4, 8], [I16]>]>>:$result)> {
   let summary = "Threadwise GPU data load";
   let description = [{
     The `miopen.threadwise_load` op moves data on GPU. Following movements are
@@ -342,17 +337,17 @@ def MIOpen_ThreadwiseLoadOp:
     - Global (generic tensor) to register (naive tensor).
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type($source) `,` type($sourceCoord) `->` type($result)
+    $source `[` $sourceCoord `]` attr-dict `:` type($source) `,` type($sourceCoord) `->` type($result)
   }];
 }
 
 // threadwise_store
 def MIOpen_ThreadwiseStoreOp:
-    MIOpen_Op<"threadwise_store">,
-    Arguments<(ins TupleOf<[F32, F16, I16,
+    MIOpen_Op<"threadwise_store", [AttrSizedOperandSegments]>,
+    Arguments<(ins Variadic<AnyTypeOf<[F32, F16, I16,
                               VectorOfLengthAndType<[2, 4], [F32]>,
                               VectorOfLengthAndType<[2, 4, 8], [F16]>,
-                              VectorOfLengthAndType<[2, 4, 8], [I16]>]>:$data,
+                              VectorOfLengthAndType<[2, 4, 8], [I16]>]>>:$data,
                    AnyMemRef:$dest,
                    Variadic<I32>:$destCoord)> {
   let summary = "Threadwise GPU data store";
@@ -362,7 +357,7 @@ def MIOpen_ThreadwiseStoreOp:
     - Register (naive tensor) to LDS (naive tensor).
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type($data) `,` type($dest) `,` type($destCoord)
+    $data `->` $dest `[` $destCoord `]` attr-dict `:` type($data) `->` type($dest) `,` type($destCoord)
   }];
 }
 

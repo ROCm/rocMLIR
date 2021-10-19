@@ -2,7 +2,7 @@
 // * transform has the right number of memref
 // * gridwise_gemm has the right number of memref
 
-// RUN: mlir-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s
+// RUN: miopen-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s
 
 func @miopen_conv2d_kcyx_nchw_nkhw(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
   miopen.conv2d(%filter, %input, %output) {
