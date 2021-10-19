@@ -15,3 +15,5 @@ target_link_libraries(MLIRMIGraphX
   MLIRIR
   LLVMSupport
   )
+
+add_subdirectory(Pipeline)

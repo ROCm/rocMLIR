@@ -79,10 +79,10 @@ def MIGraphXToTosa : FunctionPass<"migraphx-to-tosa"> {
     Pass that converts MIGraphX operations to TOSA operations.
   }];
 
-  let constructor = "migraphx::createMIGraphXToTosa()";
+  let constructor = "migraphx::createMIGraphXToTosaPass()";
 }
 
-#endif // MIOPEN_MLIR_CONVERSION_PASSES
+//===----------------------------------------------------------------------===//
 // GPUToMIGraphX
 //===----------------------------------------------------------------------===//
 
@@ -92,7 +92,7 @@ def GPUToMIGraphX : FunctionPass<"gpu-to-migraphx"> {
     Pass that converts func operations with gpu.launch to MIGraphX operation.
   }];
 
-  let constructor = "migraphx::createGPUToMIGraphX()";
+  let constructor = "migraphx::createGPUToMIGraphXPass()";
   let dependentDialects = [
     "migraphx::MIGraphXDialect",
     "StandardOpsDialect",

@@ -64,9 +64,9 @@ public:
 
 } // namespace
 
-std::unique_ptr<Pass> mlir::migraphx::createMIGraphXToTosa() {
+std::unique_ptr<Pass> mlir::migraphx::createMIGraphXToTosaPass() {
   return std::make_unique<MIGraphXToTosa>();
 }
 void mlir::migraphx::addMIGraphXToTosaPasses(OpPassManager &pm) {
-  pm.addNestedPass<FuncOp>(createMIGraphXToTosa());
+  pm.addNestedPass<FuncOp>(createMIGraphXToTosaPass());
 }

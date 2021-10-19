@@ -64,9 +64,9 @@ public:
   }
 };
 
-std::unique_ptr<Pass> migraphx::createGPUToMIGraphX() {
+std::unique_ptr<Pass> migraphx::createGPUToMIGraphXPass() {
   return std::make_unique<GPUToMIGraphX>();
 }
 void migraphx::addGPUToMIGraphXPasses(OpPassManager &pm) {
-  pm.addNestedPass<FuncOp>(createGPUToMIGraphX());
+  pm.addNestedPass<FuncOp>(createGPUToMIGraphXPass());
 }
