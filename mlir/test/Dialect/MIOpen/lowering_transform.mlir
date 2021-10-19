@@ -1,4 +1,4 @@
-// RUN: mlir-opt -miopen-affine-transform %s | FileCheck %s
+// RUN: miopen-opt -miopen-affine-transform %s | FileCheck %s
 
 // test 1-1 dimension mappings.
 func @miopen_transform_1_to_1(%memref: memref<1x2x3x4xf32>) {

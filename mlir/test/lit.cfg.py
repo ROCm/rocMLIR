@@ -79,6 +79,8 @@ tool_dirs = [config.mlir_miopen_tools_dir, config.mlir_tools_dir, config.llvm_to
 tools = [
     'mlir-opt',
     'mlir-translate',
+    'miopen-opt',
+    'miopen-translate'
 ]
 
 # The following tools are optional

@@ -1,4 +1,4 @@
-// RUN: mlir-opt %s -convert-gpu-to-rocdl='index-bitwidth=32' | FileCheck %s
+// RUN: miopen-opt %s -convert-gpu-to-rocdl='index-bitwidth=32' | FileCheck %s
 
 gpu.module @mubuf_store {
   // f32 tests.

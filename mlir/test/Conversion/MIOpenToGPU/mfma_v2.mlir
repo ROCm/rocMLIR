@@ -1,4 +1,4 @@
-// RUN: mlir-opt -convert-miopen-to-gpu %s | FileCheck %s
+// RUN: miopen-opt -convert-miopen-to-gpu %s | FileCheck %s
 
 module {
   func @mfma_f32(%a : f32, %b : f32, %c : vector<32xf32>) attributes {kernel = 0 : i32} {

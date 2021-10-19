@@ -1,6 +1,6 @@
-// RUN: mlir-opt %s | FileCheck %s
-// RUN: mlir-opt %s | mlir-opt | FileCheck %s
-// Run: mlir-opt -mlir-print-op-generic %s | mlir-opt | FileCheck %s
+// RUN: miopen-opt %s | FileCheck %s
+// RUN: miopen-opt %s | miopen-opt | FileCheck %s
+// Run: miopen-opt -mlir-print-op-generic %s | miopen-opt | FileCheck %s
 
 #map0 = affine_map<(d0, d1) -> (d0, d1, d0, d1)>
 #map1 = affine_map<(d0, d1) -> (d1, d0, d1, d0)>

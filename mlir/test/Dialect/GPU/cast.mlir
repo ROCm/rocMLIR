@@ -1,4 +1,4 @@
-// RUN: mlir-opt -allow-unregistered-dialect %s | mlir-opt -convert-gpu-to-rocdl |FileCheck %s
+// RUN: miopen-opt -allow-unregistered-dialect %s | miopen-opt -convert-gpu-to-rocdl |FileCheck %s
 module attributes {gpu.container_module} {
   gpu.module @cast {
 // CHECK-LABEL: llvm.func @cast

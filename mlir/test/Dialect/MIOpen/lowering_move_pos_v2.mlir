@@ -1,4 +1,4 @@
-// RUN: mlir-opt -miopen-lowering-step3 %s | FileCheck %s
+// RUN: miopen-opt -miopen-lowering-step3 %s | FileCheck %s
 
 // CHECK-LABEL: @miopen_lowering_move_pos_v2_i32
 func @miopen_lowering_move_pos_v2_i32(%vector_i32 : vector<2xi32>) -> vector<2xi32> {

@@ -1,4 +1,4 @@
-// RUN: mlir-opt -convert-miopen-to-gpu %s | FileCheck %s
+// RUN: miopen-opt -convert-miopen-to-gpu %s | FileCheck %s
 
 // CHECK: module attributes {gpu.container_module}
 // CHECK: gpu.module @emptykernel_module
