@@ -866,13 +866,6 @@ func @constant_mask_with_zero_mask_dim_size() {
 
 // -----
 
-func @tuple_get_of_non_vectors(%arg0 : tuple<vector<4x2xf32>, index>) {
-  // expected-error@+1 {{vector of any type values}}
-  %0 = vector.tuple_get %arg0, 0 : tuple<vector<4x2xf32>, index>
-}
-
-// -----
-
 func @print_no_result(%arg0 : f32) -> i32 {
   // expected-error@+1 {{cannot name an operation with no results}}
   %0 = vector.print %arg0 : f32
