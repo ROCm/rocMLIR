@@ -10,12 +10,17 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Support/LogicalResult.h"
+#include "mlir/Support/MathExtras.h"
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/Support/Debug.h"
 
 #include <algorithm>
+#include <functional>
+#include <numeric>
 
 using namespace mlir;
 
@@ -99,6 +104,17 @@ LogicalResult hasDimensions(const llvm::StringMap<int64_t> &map,
   return success();
 }
 
+LogicalResult smallEnough(const ArrayRef<int64_t> dims, size_t elemWidth,
+                          StringRef name) {
+  int64_t size = std::accumulate(dims.begin(), dims.end(), 1LL,
+                                 std::multiplies<int64_t>()) *
+                 elemWidth;
+  if (size >= (1LL << 31)) { // 2^31 = 2 GB
+    llvm::dbgs() << name << " tensor cannot be larger than 2 GB\n";
+    return failure();
+  }
+  return success();
+}
 } // namespace
 
 LogicalResult Conv2dGenerator::isApplicable() const {
@@ -132,10 +148,21 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
     return failure();
   }
 
+  static const llvm::StringMap<size_t> typeWidths{{"f32", sizeof(float)},
+                                                  {"fp32", sizeof(float)},
+                                                  {"fp16", 2},
+                                                  {"f16", 2},
+                                                  {"bf16", sizeof(uint16_t)}};
+
   auto checkDimSizes = [](const SmallVector<int64_t, 5> &dims) -> bool {
     return std::all_of(dims.begin(), dims.end(),
                        [](const int64_t &a) { return a > 0; });
   };
+
+  if (typeWidths.count(config.dataTypeStr) == 0) {
+    llvm::errs() << config.dataTypeStr << " is not a known datatype";
+  }
+  size_t elementWidth = typeWidths.lookup(config.dataTypeStr);
 
   if (!checkDimSizes(config.inputDimension)) {
     llvm::errs() << "Input tensor dimensions must be strictly positive\n";
@@ -206,6 +233,12 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
   if (inDim["w"] + config.paddingWidthLeft + config.paddingWidthRight <
       filDim["x"]) {
     llvm::errs() << "Input, including padding, is narrower than the filter\n";
+    return failure();
+  }
+
+  if (failed(smallEnough(config.inputDimension, elementWidth, "input")) ||
+      failed(smallEnough(config.filterDimension, elementWidth, "filter")) ||
+      failed(smallEnough(config.outputDimension, elementWidth, "output"))) {
     return failure();
   }
 
