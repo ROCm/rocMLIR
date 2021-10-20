@@ -3515,8 +3515,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto gemmId = getGemmId(gemmIdAttr.getInt());
     auto iYTilda = gemmId / xTilda;
     auto iXTilda = gemmId % xTilda;
-    auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
-    auto xDotSlice = math::integer_divide_ceil(x - iXTilda, xTilda);
+    auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
+    auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
 
     bool needExtraPad = false;
     bool isOriginalKernelSupport = true;
@@ -3599,8 +3599,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // don't do backward data padding kernel if isSupportPaddingKernel=false
     if (!isSupportPaddingKernel && !isOriginalKernelSupport)
       return failure();
-    auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
-    auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
     // Transform filter tensor.
 
     // set layout attribute.
