@@ -337,7 +337,7 @@ def Vector_MultiDimReductionOp :
 
     static SmallVector<int64_t> inferDestShape(
       ArrayRef<int64_t> shape, ArrayRef<bool> reducedDimsMask) {
-      assert(shape.size() == reducedDimsMask.size() && 
+      assert(shape.size() == reducedDimsMask.size() &&
              "shape and maks of different sizes");
       SmallVector<int64_t> res;
       for (auto it : llvm::zip(reducedDimsMask, shape))
@@ -2107,39 +2107,6 @@ def Vector_CreateMaskOp :
   let assemblyFormat = "$operands attr-dict `:` type(results)";
 }
 
-def Vector_TupleOp :
-  Vector_Op<"tuple", [NoSideEffect]>,
-    Arguments<(ins Variadic<AnyType>:$vectors)>,
-    Results<(outs TupleOf<[AnyType]>)> {
-  let summary = "make tuple of vectors operation";
-  let description = [{
-    Returns a tuple of its operands 'vectors'.
-
-    Note that this operation is used during the vector op unrolling
-    transformation and should be removed before lowering to lower-level
-    dialects.
-
-
-    Example:
-
-    ```mlir
-    %0 = vector.transfer_read ... : vector<2x2xf32>
-    %1 = vector.transfer_read ... : vector<2x1xf32>
-    %2 = vector.transfer_read ... : vector<2x2xf32>
-    %3 = vector.transfer_read ... : vector<2x1xf32>
-
-    %4 = vector.tuple %0, %1, %2, %3
-      : vector<2x2xf32>, vector<2x1xf32>, vector<2x2xf32>, vector<2x1xf32>
-    ```
-  }];
-
-  let extraClassDeclaration = [{
-    TupleType getResultTupleType() {
-      return getResult().getType().cast<TupleType>();
-    }
-  }];
-}
-
 def Vector_TransposeOp :
   Vector_Op<"transpose", [NoSideEffect,
     PredOpTrait<"operand and result have same element type",
@@ -2187,43 +2154,6 @@ def Vector_TransposeOp :
     $vector `,` $transp attr-dict `:` type($vector) `to` type($result)
   }];
   let hasCanonicalizer = 1;
-  let hasFolder = 1;
-}
-
-def Vector_TupleGetOp :
-  Vector_Op<"tuple_get", [NoSideEffect]>,
-    Arguments<(ins TupleOf<[AnyVector]>:$vectors, APIntAttr:$index)>,
-    Results<(outs AnyVector)> {
-  let summary = "vector tuple get operation";
-  let description = [{
-    Returns the tuple element of 'vectors' at 'index'.
-
-    Note that this operation is used during the vector op unrolling
-   transformation and should be removed before lowering to lower-level
-    dialects.
-
-    Example:
-
-    ```mlir
-   %4 = vector.tuple %0, %1, %2, %3
-      : vector<2x2xf32>, vector<2x1xf32>, vector<2x2xf32>, vector<2x1xf32>>
-
-    %5 = vector.tuple_get %4, 1
-      : tuple<vector<2x2xf32>, vector<2x1xf32>,
-              vector<2x2xf32>, vector<2x1xf32>>
-    ```
-  }];
-
-  let extraClassDeclaration = [{
-    VectorType getResultVectorType() {
-      return getResult().getType().cast<VectorType>();
-    }
-    int64_t getIndex() {
-      auto index = (*this)->getAttrOfType<IntegerAttr>("index");
-      return index.getValue().getSExtValue();
-    }
-    static StringRef getIndexAttrName() { return "index"; }
-  }];
   let hasFolder = 1;
 }
 

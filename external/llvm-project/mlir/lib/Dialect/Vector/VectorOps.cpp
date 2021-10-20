@@ -3562,33 +3562,6 @@ static LogicalResult verify(TypeCastOp op) {
 }
 
 //===----------------------------------------------------------------------===//
-// TupleOp
-//===----------------------------------------------------------------------===//
-
-static ParseResult parseTupleOp(OpAsmParser &parser, OperationState &result) {
-  SmallVector<OpAsmParser::OperandType, 4> operandInfos;
-  SmallVector<Type, 4> types;
-  auto loc = parser.getCurrentLocation();
-  auto *ctx = parser.getBuilder().getContext();
-  return failure(
-      parser.parseOperandList(operandInfos) ||
-      parser.parseOptionalAttrDict(result.attributes) ||
-      parser.parseColonTypeList(types) ||
-      parser.resolveOperands(operandInfos, types, loc, result.operands) ||
-      parser.addTypeToList(TupleType::get(ctx, types), result.types));
-}
-
-static void print(OpAsmPrinter &p, TupleOp op) {
-  p << op.getOperationName() << ' ';
-  p.printOperands(op.getOperands());
-  p.printOptionalAttrDict(op->getAttrs());
-  p << " : ";
-  llvm::interleaveComma(op->getOperandTypes(), p);
-}
-
-static LogicalResult verify(TupleOp op) { return success(); }
-
-//===----------------------------------------------------------------------===//
 // TransposeOp
 //===----------------------------------------------------------------------===//
 
@@ -3697,58 +3670,6 @@ void vector::TransposeOp::getCanonicalizationPatterns(
 
 void vector::TransposeOp::getTransp(SmallVectorImpl<int64_t> &results) {
   populateFromInt64AttrArray(transp(), results);
-}
-
-//===----------------------------------------------------------------------===//
-// TupleGetOp
-//===----------------------------------------------------------------------===//
-
-static ParseResult parseTupleGetOp(OpAsmParser &parser,
-                                   OperationState &result) {
-  OpAsmParser::OperandType operandInfo;
-  IntegerAttr indexAttr;
-  StringRef indexAttrName = TupleGetOp::getIndexAttrName();
-  Type indexType = parser.getBuilder().getIndexType();
-  TupleType tupleType;
-  if (parser.parseOperand(operandInfo) || parser.parseComma() ||
-      parser.parseAttribute(indexAttr, indexType, indexAttrName,
-                            result.attributes) ||
-      parser.parseOptionalAttrDict(result.attributes) ||
-      parser.parseColonType(tupleType) ||
-      parser.resolveOperand(operandInfo, tupleType, result.operands))
-    return failure();
-  if (indexAttr.getInt() < 0 ||
-      indexAttr.getInt() >= static_cast<int64_t>(tupleType.size()))
-    return failure();
-  parser.addTypeToList(tupleType.getType(indexAttr.getInt()), result.types);
-  return success();
-}
-
-static void print(OpAsmPrinter &p, TupleGetOp op) {
-  p << op.getOperationName() << ' ' << op.getOperand() << ", " << op.index();
-  p.printOptionalAttrDict(op->getAttrs(),
-                          /*elidedAttrs=*/{TupleGetOp::getIndexAttrName()});
-  p << " : " << op.getOperand().getType();
-}
-
-static LogicalResult verify(TupleGetOp op) {
-  auto tupleType = op.getOperand().getType().cast<TupleType>();
-  if (op.getIndex() < 0 ||
-      op.getIndex() >= static_cast<int64_t>(tupleType.size()))
-    return op.emitOpError("tuple get index out of range");
-  return success();
-}
-
-OpFoldResult TupleGetOp::fold(ArrayRef<Attribute> operands) {
-  // Rewrite:
-  //    %t = vector.tuple .., %e_i, ..
-  //    %x = vector.tuple_get %t, i
-  // into:
-  //    %t = vector.tuple .., %e_i, ..  // one less use
-  //    %x = %e_i
-  if (auto tupleOp = getOperand().getDefiningOp<TupleOp>())
-    return tupleOp.getOperand(getIndex());
-  return {};
 }
 
 //===----------------------------------------------------------------------===//
