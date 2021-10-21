@@ -71,7 +71,8 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
     // 0. Test compatibility
     // 0.0 Global Memory Space
     auto allocType = op.getType().template cast<MemRefType>();
-    if (allocType.getMemorySpaceAsInt() != 0)
+    auto memSpace = allocType.getMemorySpaceAsInt();
+    if (memSpace == 3 || memSpace == 5)
       return fail;
 
     Value mem = op->getResult(0);
