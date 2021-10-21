@@ -55,6 +55,6 @@ list(APPEND CMAKE_EXE_LINKER_FLAGS
 
 if( BUILD_FAT_LIBMLIRMIOPEN )
   add_subdirectory("${LLVM_PROJ_SRC}/llvm" "external/llvm-project/llvm" EXCLUDE_FROM_ALL)
-else
+else()
   add_subdirectory("${LLVM_PROJ_SRC}/llvm" "external/llvm-project/llvm")
 endif()
