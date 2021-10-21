@@ -72,7 +72,8 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
     // 0.0 Global Memory Space
     auto allocType = op.getType().template cast<MemRefType>();
     auto memSpace = allocType.getMemorySpaceAsInt();
-    if (memSpace == 3 || memSpace == 5)
+    if (memSpace == gpu::GPUDialect::getWorkgroupAddressSpace() ||
+        memSpace == gpu::GPUDialect::getPrivateAddressSpace())
       return fail;
 
     Value mem = op->getResult(0);
