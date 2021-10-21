@@ -2,8 +2,8 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
   AffixTuningParameters.cpp
   AffineTransforms.cpp
   AlignTiling.cpp
-  LowerMIOpenOps.cpp
   CopyOpt.cpp
+  LowerMIOpenOps.cpp
   TestAffineTransforms.cpp
 
   ADDITIONAL_HEADER_DIRS
