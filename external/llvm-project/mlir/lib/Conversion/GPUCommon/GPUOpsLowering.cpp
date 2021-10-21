@@ -12,6 +12,7 @@
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -268,7 +269,15 @@ LogicalResult GPUPrintfOpToHIPLowering::matchAndRewrite(
         loc, llvmI32, rewriter.getI32IntegerAttr(numArgsThisCall)));
     for (size_t i = group; i < bound; ++i) {
       Value arg = adaptor.args()[i];
-      if (arg.getType().getIntOrFloatBitWidth() != 64) {
+      auto type = arg.getType();
+      if (type.isa<FloatType>()) {
+        arg = rewriter.create<LLVM::BitcastOp>(
+            loc,
+            typeConverter->convertType(
+                rewriter.getIntegerType(type.getIntOrFloatBitWidth())),
+            arg);
+      }
+      if (type.getIntOrFloatBitWidth() != 64) {
         arg = rewriter.create<LLVM::ZExtOp>(loc, llvmI64, arg);
       }
       arguments.push_back(arg);
