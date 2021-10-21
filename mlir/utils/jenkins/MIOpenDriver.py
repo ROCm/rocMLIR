@@ -355,7 +355,7 @@ def tuneMLIRKernels(configs, xdlops):
             p1 = subprocess.Popen(MIOpenDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envs)
             # get output.
             try:
-               outs, errs = p1.communicate(timeout=180)
+               outs, errs = p1.communicate(timeout=300)
             except subprocess.TimeoutExpired:
                 p1.kill()
                 print("MIOpen tuning timed out")
