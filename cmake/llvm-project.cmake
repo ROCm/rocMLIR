@@ -53,4 +53,8 @@ list(APPEND CMAKE_EXE_LINKER_FLAGS
   " -Wl,-rpath -Wl,${CMAKE_CURRENT_BINARY_DIR}/external/llvm-project/llvm/lib"
 )
 
-add_subdirectory("${LLVM_PROJ_SRC}/llvm" "external/llvm-project/llvm")
+if( BUILD_FAT_LIBMLIRMIOPEN )
+  add_subdirectory("${LLVM_PROJ_SRC}/llvm" "external/llvm-project/llvm" EXCLUDE_FROM_ALL)
+else
+  add_subdirectory("${LLVM_PROJ_SRC}/llvm" "external/llvm-project/llvm")
+endif()

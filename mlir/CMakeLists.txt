@@ -34,3 +34,46 @@ add_subdirectory(lib)
 add_subdirectory(lib/CAPI)
 add_subdirectory(test)
 add_subdirectory(tools)
+
+if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
+  install(DIRECTORY include/mlir include/mlir-c
+    DESTINATION include
+    COMPONENT mlir-miopen-headers
+    FILES_MATCHING
+    PATTERN "*.def"
+    PATTERN "*.h"
+    PATTERN "*.inc"
+    PATTERN "*.td"
+    PATTERN "LICENSE.TXT"
+  )
+
+  install(DIRECTORY ${MLIR_INCLUDE_DIRS}
+    DESTINATION include/external
+    COMPONENT mlir-miopen-headers
+    FILES_MATCHING
+    PATTERN "*.def"
+    PATTERN "*.h"
+    PATTERN "*.gen"
+    PATTERN "*.inc"
+    PATTERN "*.td"
+    PATTERN "CMakeFiles" EXCLUDE
+    PATTERN "config.h" EXCLUDE
+  )
+
+  install(DIRECTORY ${PROJECT_BINARY_DIR}/mlir/include
+    DESTINATION include/build
+    COMPONENT mlir-miopen-headers
+    FILES_MATCHING
+    PATTERN "*.def"
+    PATTERN "*.h"
+    PATTERN "*.gen"
+    PATTERN "*.inc"
+    PATTERN "*.td"
+    PATTERN "CMakeFiles" EXCLUDE
+    PATTERN "config.h" EXCLUDE
+  )
+
+  add_llvm_install_targets(install-mlir-miopen-headers
+                           DEPENDS mlir-miopen-headers
+                           COMPONENT mlir-miopen-headers)
+endif()
