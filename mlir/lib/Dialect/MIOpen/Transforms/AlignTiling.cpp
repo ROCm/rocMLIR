@@ -128,9 +128,10 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     auto nTWCopy = b.clone(*miTWCopy, cloningMap);
 
     // 3. swap input coords with output coords
-    for (uint i = 0; i < 5; ++i) {
+    auto shape = twinp.getType().cast<ShapedType>().getShape();
+    for (uint i = 0; i < shape.size(); ++i) {
       uint inIdx = 2 + i;
-      uint outIdx = 2 + 5 + i;
+      uint outIdx = 2 + shape.size() + i;
       auto inCoord = nTWCopy->getOperand(inIdx);
       auto outCoord = nTWCopy->getOperand(outIdx);
       nTWCopy->setOperand(inIdx, outCoord);
@@ -139,7 +140,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
 
     // 4. add bound attr with the register dims
     SmallVector<Attribute, 2> twCopyBoundsAttr;
-    for (auto v : twinp.getType().cast<ShapedType>().getShape()) {
+    for (auto v : shape) {
       twCopyBoundsAttr.push_back(b.getI32IntegerAttr(v));
     }
     nTWCopy->setAttr("bound", b.getArrayAttr(twCopyBoundsAttr));
