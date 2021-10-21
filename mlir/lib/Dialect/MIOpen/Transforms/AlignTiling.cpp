@@ -137,6 +137,13 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
       nTWCopy->setOperand(outIdx, inCoord);
     }
 
+    // 4. add bound attr with the register dims
+    SmallVector<Attribute, 2> twCopyBoundsAttr;
+    for (auto v : twinp.getType().cast<ShapedType>().getShape()) {
+      twCopyBoundsAttr.push_back(b.getI32IntegerAttr(v));
+    }
+    nTWCopy->setAttr("bound", b.getArrayAttr(twCopyBoundsAttr));
+
     return nAlloc->getResult(0);
   }
 
