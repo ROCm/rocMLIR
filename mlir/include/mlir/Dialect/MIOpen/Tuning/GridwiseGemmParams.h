@@ -16,6 +16,7 @@
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
+#include "mlir/Dialect/MIOpen/utility/BackwardDataPaddingKernel.h"
 #include "mlir/Dialect/MIOpen/utility/BackwardWeightV4R4Helper.h"
 #include "mlir/Dialect/MIOpen/utility/math.h"
 #include "mlir/Support/FileUtilities.h"

@@ -31,9 +31,9 @@ func @miopen_conv2d_bwd_data_gkcyx_ngchw_ngkhw(%filter: memref<1x1024x1024x1x1xf
     dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 0 : i32,
-    input_layout = ["ni", "gi", "ci", "hi", "wi"],
+    input_layout = ["ni","gi", "ci", "hi", "wi"],
     num_cu = 120 : i32,
-    output_layout = ["no", "go", "ko", "ho", "wo"],
+    output_layout = ["no", "go",  "ko", "ho", "wo"],
     padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
     strides = [1 : i32, 1 : i32],
     xdlopsV2 = true

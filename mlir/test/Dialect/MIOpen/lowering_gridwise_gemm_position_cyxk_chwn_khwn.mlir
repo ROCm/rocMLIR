@@ -44,7 +44,9 @@ func @miopen_conv2d_bwd_data_gcyxk_gcnhw_gknhw(%filter: memref<1x1024x1x1x1024xf
 }
 // CHECK-LABEL: func @miopen_conv2d_bwd_data
 // CHECK-NEXT:  miopen.transform
+// CHECK-NEXT:  miopen.transform
 // CHECK:       gridwise_gemm_argument_position = 0
+// CHECK-NEXT:  miopen.transform
 // CHECK-NEXT:  miopen.transform
 // CHECK-NEXT:  miopen.transform
 // CHECK-NEXT:  miopen.transform

@@ -407,14 +407,36 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
 // Utility function to emit store instructions with potentially OOB checks.
 //===----------------------------------------------------------------------===//
 enum InMemoryDataOperation { Set, AtomicAdd };
-inline void
-emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
-               Type typeToStore, bool toEmitOOBStoreCheckLogic,
-               const SmallVector<unsigned, 8> &oobStoreCheckDims,
-               const Value &dest, const SmallVector<Value, 8> &destLowerIndices,
-               const Value &value,
-               InMemoryDataOperation memoryOp = InMemoryDataOperation::Set) {
-  auto emitStoreInstruction = [&b, &loc](
+// we set attr at affixThreadwiseCopyV2Attributes or
+// affixThreadwiseCopyAttributes first we use
+// NotBwdPaddingOrStrideOne,StrideTwoXdlopsNHWC,StrideTwoXdlopsNCHW,StrideTwoNonXdlopsNCHW,
+// StrideTwoNonXdlopsNHWC then in ThreadwiseCopyV2RewritePattern, due to xdlops
+// have lots of different workaround we split
+// NotBwdPaddingOrStrideOne,StrideTwoXdlopsNHWC,StrideTwoXdlopsNCHW, into
+// GemmMPadStrideTwoXdlopsNCHW,
+// GemmNPadStrideTwoXdlopsNCHW,GemmMNPadStrideTwoXdlopsNCHW,GemmNPadStrideTwoXdlopsNHWC
+// if we don't need workaround , use NotBwdPaddingOrStrideOne
+// non xdlops should split also ,but not implement yet
+enum BwdPaddingKernelStatus {
+  NotBwdPaddingOrStrideOne,
+  StrideTwoNonXdlopsNCHW,
+  StrideTwoNonXdlopsNHWC,
+  StrideTwoXdlopsNHWC,
+  StrideTwoXdlopsNCHW,
+  GemmMPadStrideTwoXdlopsNCHW,
+  GemmNPadStrideTwoXdlopsNCHW,
+  GemmMNPadStrideTwoXdlopsNCHW,
+  GemmNPadStrideTwoXdlopsNHWC,
+  GemmMNPadStrideTwoXdlopsNHWC,
+  GemmMPadStrideTwoXdlopsNHWC
+};
+inline void emitStoreLogic(
+    BwdPaddingKernelStatus bwdPaddingStatus, OpBuilder &b, Location loc,
+    MemRefType destType, Type typeToStore, bool toEmitOOBStoreCheckLogic,
+    const SmallVector<unsigned, 8> &oobStoreCheckDims, const Value &dest,
+    const SmallVector<Value, 8> &destLowerIndices, const Value &value,
+    InMemoryDataOperation memoryOp = InMemoryDataOperation::Set) {
+  auto emitStoreInstruction = [&b, &loc, &memoryOp](
                                   const Value &value, MemRefType destType,
                                   Type typeToStore, const Value &dest,
                                   const SmallVector<Value, 8> &destLowerIndices,
@@ -508,12 +530,71 @@ emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
         loc, ValueRange{zeroConstantOp, destLowerIndices[0],
                         destLowerIndices[1], destLowerIndices[2],
                         destLowerIndices[3], destLowerIndices[4]});
+
     auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
-    elseBuilder.create<scf::YieldOp>(
-        loc,
-        ValueRange{oobAddrOp, destLowerStoreOOBIndices[0],
-                   destLowerStoreOOBIndices[1], destLowerStoreOOBIndices[2],
-                   destLowerStoreOOBIndices[3], destLowerStoreOOBIndices[4]});
+    // here is workaround of backward data padding kernel to avoid compiler
+    // issues
+    if (bwdPaddingStatus == BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne) {
+      elseBuilder.create<scf::YieldOp>(
+          loc,
+          ValueRange{oobAddrOp, destLowerStoreOOBIndices[0],
+                     destLowerStoreOOBIndices[1], destLowerStoreOOBIndices[2],
+                     destLowerStoreOOBIndices[3], destLowerStoreOOBIndices[4]});
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::StrideTwoNonXdlopsNHWC) {
+      elseBuilder.create<scf::YieldOp>(
+          loc,
+          ValueRange{oobAddrOp, destLowerIndices[0], zeroConstantOp,
+                     zeroConstantOp, destLowerIndices[3], destLowerIndices[4]});
+
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::StrideTwoNonXdlopsNCHW) {
+      elseBuilder.create<scf::YieldOp>(
+          loc, ValueRange{oobAddrOp, destLowerIndices[0], destLowerIndices[1],
+                          destLowerIndices[2], zeroConstantOp, zeroConstantOp});
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::GemmMPadStrideTwoXdlopsNCHW) {
+      // c!=64 pad=0 nchw
+      elseBuilder.create<scf::YieldOp>(
+          loc,
+          ValueRange{oobAddrOp, destLowerIndices[0], destLowerIndices[1],
+                     zeroConstantOp, destLowerIndices[3], destLowerIndices[4]});
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::GemmNPadStrideTwoXdlopsNCHW) {
+      // n!=64 pad=0 nchw
+      elseBuilder.create<scf::YieldOp>(
+          loc, ValueRange{oobAddrOp, zeroConstantOp, destLowerIndices[1],
+                          destLowerIndices[2], destLowerIndices[3],
+                          destLowerIndices[4]});
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::GemmMNPadStrideTwoXdlopsNCHW) {
+      // n!=64 c!=64 pad=0 nchw
+      elseBuilder.create<scf::YieldOp>(
+          loc,
+          ValueRange{oobAddrOp, zeroConstantOp, destLowerIndices[1],
+                     zeroConstantOp, destLowerIndices[3], destLowerIndices[4]});
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::GemmNPadStrideTwoXdlopsNHWC) {
+      // gemmn%64!=0 padh=padw=0 nhwc
+      elseBuilder.create<scf::YieldOp>(
+          loc, ValueRange{oobAddrOp, zeroConstantOp, destLowerIndices[1],
+                          destLowerIndices[2], destLowerIndices[3],
+                          destLowerIndices[4]});
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::GemmMPadStrideTwoXdlopsNHWC) {
+      // gemmm%64!=0 padh=padw=0 nhwc
+      elseBuilder.create<scf::YieldOp>(
+          loc,
+          ValueRange{oobAddrOp, destLowerIndices[0], destLowerIndices[1],
+                     destLowerIndices[2], destLowerIndices[3], zeroConstantOp});
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::GemmMNPadStrideTwoXdlopsNHWC) {
+      // gemmm%64!=0 gemmN%64!=0 padh=padw=0 nhwc
+      elseBuilder.create<scf::YieldOp>(
+          loc,
+          ValueRange{oobAddrOp, zeroConstantOp, destLowerIndices[1],
+                     destLowerIndices[2], destLowerIndices[3], zeroConstantOp});
+    }
 
     // ifWithinBoundsOp results:
     // - 0 : oob address, 0 if inbound, 2GB if oob.
@@ -525,6 +606,7 @@ emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
     emitStoreInstruction(value, destType, typeToStore, dest,
                          destLowerIndicesUpdated,
                          /*oob=*/ifWithinBoundsOp.getResults()[0]);
+
   } else {
     if (memoryOp == InMemoryDataOperation::AtomicAdd) {
       SmallVector<Value, 8> destLowerStoreIndices;
@@ -3334,6 +3416,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // get y, x, ho, wo, hi, wi
     int64_t g, n, k, c, y, x, ho, wo, hi, wi;
     g = n = k = c = y = x = ho = wo = hi = wi = 0;
+
+    // nameToDims can store <dim name ,dim index> ,we can use it to do oob check
+    llvm::DenseSet<int> filterOobCheckDims;
+    llvm::DenseMap<StringRef, int> nameToDims;
+    int cIndex = 0;
+
     for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template cast<StringAttr>();
@@ -3342,12 +3430,17 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       auto outputAttr =
           outputLayoutAttr.getValue()[i].template cast<StringAttr>();
 
+      nameToDims[filterAttr.getValue()] = i;
+      nameToDims[inputAttr.getValue()] = i;
+      nameToDims[outputAttr.getValue()] = i;
+
       if (filterAttr.getValue() == "g") {
         g = filterShape[i];
       } else if (filterAttr.getValue() == "k") {
         k = filterShape[i];
       } else if (filterAttr.getValue() == "c") {
         c = filterShape[i];
+        cIndex = i;
       } else if (filterAttr.getValue() == "y") {
         y = filterShape[i];
       } else if (filterAttr.getValue() == "x") {
@@ -3424,6 +3517,88 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto iXTilda = gemmId % xTilda;
     auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
     auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
+
+    bool needExtraPad = false;
+    bool isOriginalKernelSupport = true;
+    int64_t gemmM_size, gemmN_size, gemmK_size;
+    int64_t gemmMExtra, gemmNExtra, gemmKExtra;
+    // backward data only, it's igemm v4r1 algo
+    // c is input chaneels , k is output channels
+    // n is batch , yDotSlice,xDotSlice computed in above
+    gemmMExtra = gemmNExtra = gemmKExtra = 0;
+    gemmM_size = c;
+    gemmK_size = k * yDotSlice * xDotSlice;
+    gemmN_size = n * hTildaSlice * wTildaSlice;
+
+    bool isXdlops = false;
+    auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
+    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
+      isXdlops = true;
+
+    bool isSupportPaddingKernel = true;
+    bool isStride2Pad1 = false;
+    if (strideH > 1 || strideW > 1) {
+      if (leftPadH > 0 || leftPadW > 0 || rightPadH > 0 || rightPadW > 0) {
+        isStride2Pad1 = true;
+      }
+    }
+    // we use this lamda to compute extra padding size
+    // for example, if gemmM size is 3 and gemmMPerBlock is 64
+    // we gemmMExtra is 64 so (gemmM + gemmMExtra )%gemmMPerBlock =0
+    auto calculatePaddingKernelSize = [&isOriginalKernelSupport, &needExtraPad,
+                                       gemmM_size, gemmN_size, gemmK_size,
+                                       &gemmMExtra, &gemmNExtra, &gemmKExtra,
+                                       isXdlops](auto &populateParams) {
+      auto config_params = populateParams.getTuningParameters();
+      unsigned numOfFailedConfigs = 0;
+      for (auto &params : config_params) {
+        if (gemmM_size % params.gemmMPerBlock == 0 &&
+            gemmK_size % params.gemmKPerBlock == 0 &&
+            gemmN_size % params.gemmNPerBlock == 0) {
+          isOriginalKernelSupport = true;
+          break;
+        } else {
+          isOriginalKernelSupport = false;
+          numOfFailedConfigs++;
+        }
+      }
+
+      auto extraParams = populateParams.getUniversalParameters();
+      if (numOfFailedConfigs == config_params.size()) {
+
+        needExtraPad = true;
+        int gemmM_remain, gemmK_remain, gemmN_remain;
+
+        gemmM_remain = gemmM_size % extraParams.gemmMPerBlock;
+        if (gemmM_remain != 0)
+          gemmMExtra = extraParams.gemmMPerBlock - gemmM_remain;
+
+        gemmN_remain = gemmN_size % extraParams.gemmNPerBlock;
+        if (gemmN_remain != 0)
+          gemmNExtra = extraParams.gemmNPerBlock - gemmN_remain;
+
+        gemmK_remain = gemmK_size % extraParams.gemmKPerBlock;
+        if (gemmK_remain != 0)
+          gemmKExtra = extraParams.gemmKPerBlock - gemmK_remain;
+
+        // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
+        // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
+      }
+    }; // calculatePaddingKernelSize end
+
+    if (!isXdlops) {
+      PopulateParams populateParams;
+      calculatePaddingKernelSize(populateParams);
+    } else { // xdlops
+      PopulateParamsXDL populateParamsXDL;
+      calculatePaddingKernelSize(populateParamsXDL);
+    }
+
+    isSupportPaddingKernel = isSupportBackwardDataPaddingKernel(
+        isXdlops, isStride2Pad1, gemmMExtra, gemmKExtra, gemmNExtra);
+    // don't do backward data padding kernel if isSupportPaddingKernel=false
+    if (!isSupportPaddingKernel && !isOriginalKernelSupport)
+      return failure();
     // Transform filter tensor.
 
     // set layout attribute.
@@ -3784,7 +3959,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       };
       auto weiGemmGGemmKGemmM = getWeiGemmGGemmKGemmM(secondFilterDimName);
 
-      return weiGemmGGemmKGemmM;
+      // if the config do not do padding kernel,
+      // gemmAPad = weiGemmGGemmKGemmM
+      Value gemmAPad = padFilter(isXdlops, gemmMExtra, gemmNExtra, gemmKExtra,
+                                 weiGemmGGemmKGemmM, b, loc, filterOobCheckDims,
+                                 nameToDims, filterShape, filterElementType, g,
+                                 k, c, yDotSlice, xDotSlice);
+      return gemmAPad;
     };
 
     auto getGemmB = [&]() -> Value {
@@ -4274,7 +4455,16 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             loc, transformedMemRefType,
             inGNCYTildaSliceHTidaSliceXTildaSliceWTildaSlice, transformedAttrs,
             /*populateBounds=*/true);
-        return gemm;
+
+        // if the config do not do padding kernel,
+        // gemmBPad = gemm
+
+        Value gemmBPad =
+            padInput(isXdlops, gemmMExtra, gemmNExtra, gemmKExtra, gemm, b, loc,
+                     inputOobCheckDims, nameToDims, transformedShape,
+                     inputShape, inputElementType);
+
+        return gemmBPad;
       };
       auto inGemmGGemmMGemmN = getInGemmGGemmMGemmN(thirdOutputDimName);
 
@@ -4656,7 +4846,14 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             loc, transformedMemRefType,
             outGNKYDotSliceHTidaSliceXDotSliceWTildaSlice, transformedAttrs,
             /*populateBounds=*/true);
-        return gemm;
+
+        // if the config do not do padding kernel,
+        // gemmCPad = gemm
+        Value gemmCPad =
+            padOutput(isXdlops, gemmMExtra, gemmNExtra, gemmKExtra, gemm, b,
+                      loc, outputOobCheckDims, nameToDims, transformedShape,
+                      outputShape, outputElementType);
+        return gemmCPad;
       };
       auto outGemmGGemmKGemmN = getOutGemmGGemmKGemmN(secondOutputDimName);
 
@@ -4685,8 +4882,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     };
 
     // xdlopsV2.
-    auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
+    if (isXdlops)
       gridwiseGemmAttrs.push_back(
           b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
 
@@ -4742,6 +4938,34 @@ const miopen::ConvOpType
 static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
                                           miopen::GridwiseGemmOp gop,
                                           OpBuilder &b) {
+  //  gop.getNamedAttr("padding", paddingAttr)
+  auto stridesAttr = gop->template getAttrOfType<ArrayAttr>("strides");
+  auto strideH =
+      stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
+  auto strideW =
+      stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
+
+  auto algorithmAttr =
+      gop->template getAttrOfType<StringAttr>("kernel_algorithm");
+  auto algorithm_name = algorithmAttr.getValue();
+
+  BwdPaddingKernelStatus status =
+      BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+  if (strideH > 1 && strideW > 1 && algorithm_name == "backward_data_v4r1") {
+    status = BwdPaddingKernelStatus::StrideTwoNonXdlopsNHWC;
+    auto inputLayoutAttr =
+        gop->template getAttrOfType<ArrayAttr>("input_layout");
+    int indexC = 0;
+    for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
+      auto inputAttr =
+          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
+      if (inputAttr.getValue() == "ci") {
+        if (i == 2) // gnchw
+          status = BwdPaddingKernelStatus::StrideTwoNonXdlopsNCHW;
+      }
+    }
+  }
+
   top->setAttr("dim_access_order", b.getArrayAttr({
                                        b.getI32IntegerAttr(0),
                                        b.getI32IntegerAttr(1),
@@ -4752,6 +4976,7 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
   top->setAttr("vector_read_write_dim",
                gop->getAttr("matrix_c_source_dest_vector_read_write_dim"));
   top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
+  top->setAttr("bwd_padding_kernel_status", b.getI32IntegerAttr(status));
   top->setAttr("dest_data_per_write",
                gop->getAttr("matrix_c_dest_data_per_write"));
 }
@@ -4759,6 +4984,34 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
 static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top,
                                             miopen::GridwiseGemmV2Op gop,
                                             OpBuilder &b) {
+  auto stridesAttr = gop->template getAttrOfType<ArrayAttr>("strides");
+  auto strideH =
+      stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
+  auto strideW =
+      stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
+
+  auto algorithmAttr =
+      gop->template getAttrOfType<StringAttr>("kernel_algorithm");
+  auto algorithm_name = algorithmAttr.getValue();
+
+  BwdPaddingKernelStatus status;
+  if ((strideH > 1 && strideW > 1) && algorithm_name == "backward_data_v4r1") {
+
+    status = BwdPaddingKernelStatus::StrideTwoXdlopsNHWC;
+    auto inputLayoutAttr =
+        gop->template getAttrOfType<ArrayAttr>("input_layout");
+    int indexC = 0;
+    for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
+      auto inputAttr =
+          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
+      if (inputAttr.getValue() == "ci") {
+        if (i == 2) // gnchw
+          status = BwdPaddingKernelStatus::StrideTwoXdlopsNCHW;
+      }
+    }
+  }
+
+  top->setAttr("bwd_padding_kernel_status", b.getI32IntegerAttr(status));
   top->setAttr("dim_access_order", b.getArrayAttr({
                                        b.getI32IntegerAttr(0),
                                        b.getI32IntegerAttr(1),
@@ -4790,7 +5043,6 @@ static void affixThreadwiseCopyAttributes(T &top, U &bop, OpBuilder &b,
     top->setAttr("source_data_per_read", bop->getAttr("source_data_per_read"));
     top->setAttr("dest_data_per_write", bop->getAttr("dest_data_per_write"));
   }
-
   // set bound attribute.
   top->setAttr("bound", bop->getAttr("bound"));
 }
@@ -7902,6 +8154,60 @@ struct ThreadwiseCopyRewritePattern
         loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
       }
 
+      int gemmNExtra = 0;
+      int gemmMExtra = 0;
+      int gemmKExtra = 0;
+      // judge extra pad
+      if (destTransformSpec) {
+        Attribute metadataAttr = destTransformSpec.get("metadata");
+        if (metadataAttr) {
+          ArrayAttr layeredTransformMetadata =
+              metadataAttr.template cast<ArrayAttr>();
+          for (unsigned iter = 0; iter < layeredTransformMetadata.size();
+               ++iter) {
+            DictionaryAttr dictAttr =
+                layeredTransformMetadata[iter].template cast<DictionaryAttr>();
+            auto gemmKExtraAttr = dictAttr.get("gemmKExtra");
+            auto gemmMExtraAttr = dictAttr.get("gemmMExtra");
+            auto gemmNExtraAttr = dictAttr.get("gemmNExtra");
+            if (gemmNExtraAttr) {
+              gemmNExtra = gemmNExtraAttr.template cast<IntegerAttr>().getInt();
+            }
+
+            if (gemmMExtraAttr) {
+              gemmMExtra = gemmMExtraAttr.template cast<IntegerAttr>().getInt();
+            }
+            if (gemmKExtraAttr) {
+              gemmKExtra = gemmKExtraAttr.template cast<IntegerAttr>().getInt();
+            }
+          }
+        }
+      }
+      BwdPaddingKernelStatus bwdPaddingStatus =
+          BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+
+      if ((gemmMExtra || gemmKExtra || gemmNExtra)) {
+
+        auto PaddingKernelStatusAttr = op->getAttr("bwd_padding_kernel_status");
+        if (PaddingKernelStatusAttr) {
+          int64_t PaddingKernelStatus =
+              PaddingKernelStatusAttr.template cast<IntegerAttr>().getInt();
+          if (PaddingKernelStatus ==
+              BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne)
+            bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+          else if (PaddingKernelStatus ==
+                   BwdPaddingKernelStatus::StrideTwoNonXdlopsNHWC)
+            bwdPaddingStatus = BwdPaddingKernelStatus::StrideTwoNonXdlopsNHWC;
+          else if (PaddingKernelStatus ==
+                   BwdPaddingKernelStatus::StrideTwoNonXdlopsNCHW)
+            bwdPaddingStatus = BwdPaddingKernelStatus::StrideTwoNonXdlopsNCHW;
+          else
+            bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+        }
+      } else {
+        bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+      }
+
       // Main code emission loop.
       bool toExit = false;
       do {
@@ -7943,7 +8249,7 @@ struct ThreadwiseCopyRewritePattern
         }
 
         // Store to dest.
-        emitStoreLogic(b, loc, destType, destElementType,
+        emitStoreLogic(bwdPaddingStatus, b, loc, destType, destElementType,
                        toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
                        destLowerIndices, convertedScalarValue);
 
@@ -8452,10 +8758,13 @@ struct ThreadwiseStoreRewritePattern
         valueToStore = op.data()[inputsIndex];
       }
 
-      // Store to dest.
-      emitStoreLogic(b, loc, destType, typeToStore, toEmitOOBStoreCheckLogic,
-                     oobStoreCheckDims, op.dest(), destLowerIndices,
-                     valueToStore);
+      // Store to dest. this part do not need backward data padding kernel
+      // workaround just use NotBwdPaddingOrStrideOne
+      BwdPaddingKernelStatus bwdPaddingStatus =
+          BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+      emitStoreLogic(bwdPaddingStatus, b, loc, destType, typeToStore,
+                     toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
+                     destLowerIndices, valueToStore);
 
       // increase IVs
       bool toIncreaseNextDigit = true;
@@ -8632,6 +8941,76 @@ struct ThreadwiseCopyV2RewritePattern
       loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
     }
 
+    int gemmNExtra = 0;
+    int gemmMExtra = 0;
+    int gemmKExtra = 0;
+    // judge extra pad
+    if (destTransformSpec) {
+      Attribute metadataAttr = destTransformSpec.get("metadata");
+      if (metadataAttr) {
+        ArrayAttr layeredTransformMetadata =
+            metadataAttr.template cast<ArrayAttr>();
+        for (unsigned iter = 0; iter < layeredTransformMetadata.size();
+             ++iter) {
+          DictionaryAttr dictAttr =
+              layeredTransformMetadata[iter].template cast<DictionaryAttr>();
+          auto gemmKExtraAttr = dictAttr.get("gemmKExtra");
+          auto gemmMExtraAttr = dictAttr.get("gemmMExtra");
+          auto gemmNExtraAttr = dictAttr.get("gemmNExtra");
+          if (gemmNExtraAttr) {
+            gemmNExtra = gemmNExtraAttr.template cast<IntegerAttr>().getInt();
+          }
+
+          if (gemmMExtraAttr) {
+            gemmMExtra = gemmMExtraAttr.template cast<IntegerAttr>().getInt();
+          }
+          if (gemmKExtraAttr) {
+            gemmKExtra = gemmKExtraAttr.template cast<IntegerAttr>().getInt();
+          }
+        }
+      }
+    }
+
+    BwdPaddingKernelStatus bwdPaddingStatus =
+        BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+    if ((gemmMExtra || gemmKExtra || gemmNExtra)) {
+      auto PaddingKernelStatusAttr = op->getAttr("bwd_padding_kernel_status");
+      if (PaddingKernelStatusAttr) {
+        int64_t PaddingKernelStatus =
+            PaddingKernelStatusAttr.template cast<IntegerAttr>().getInt();
+        if (PaddingKernelStatus ==
+            BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne)
+          bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+        else if (PaddingKernelStatus ==
+                 BwdPaddingKernelStatus::StrideTwoXdlopsNHWC) {
+          // gemmMExtra>0 can't get correct results now
+          if (gemmMExtra == 0 && gemmNExtra > 0)
+            bwdPaddingStatus =
+                BwdPaddingKernelStatus::GemmNPadStrideTwoXdlopsNHWC;
+          else if (gemmMExtra > 0 && gemmNExtra > 0)
+            bwdPaddingStatus =
+                BwdPaddingKernelStatus::GemmMNPadStrideTwoXdlopsNHWC;
+          else if (gemmMExtra > 0 && gemmNExtra == 0)
+            bwdPaddingStatus =
+                BwdPaddingKernelStatus::GemmMPadStrideTwoXdlopsNHWC;
+        } else if (PaddingKernelStatus ==
+                   BwdPaddingKernelStatus::StrideTwoXdlopsNCHW) {
+          if (gemmMExtra > 0 && gemmNExtra > 0)
+            bwdPaddingStatus =
+                BwdPaddingKernelStatus::GemmMNPadStrideTwoXdlopsNCHW;
+          if (gemmMExtra > 0)
+            bwdPaddingStatus =
+                BwdPaddingKernelStatus::GemmMPadStrideTwoXdlopsNCHW;
+          else if (gemmNExtra > 0)
+            bwdPaddingStatus =
+                BwdPaddingKernelStatus::GemmNPadStrideTwoXdlopsNCHW;
+        } else
+          bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+      }
+    } else {
+      bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+    }
+
     bool toExit = false;
     do {
       // Load from source vector.
@@ -8666,7 +9045,7 @@ struct ThreadwiseCopyV2RewritePattern
           layeredDestTransform, layeredDestIndices, destLowerIndices);
 
       // Store to dest.
-      emitStoreLogic(b, loc, destType, destElementType,
+      emitStoreLogic(bwdPaddingStatus, b, loc, destType, destElementType,
                      toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
                      destLowerIndices, convertedScalarValue, dataOpration);
 
