@@ -181,8 +181,8 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
 // InWarpTransposeOp
 //===----------------------------------------------------------------------===//
 
-static constexpr size_t warpGroupSize = 4;
 static LogicalResult verify(InWarpTransposeOp op) {
+  constexpr size_t swizzleGroupSize = InWarpTransposeOp::swizzleGroupSize;
   if (!llvm::isPowerOf2_32(op.size())) {
     return op.emitOpError("transpose size " + Twine(op.size()) +
                           "must be a power of 2");
@@ -193,9 +193,9 @@ static LogicalResult verify(InWarpTransposeOp op) {
 
   auto vectorLen = static_cast<size_t>(
       op.vector().getType().cast<VectorType>().getNumElements());
-  if (vectorLen < warpGroupSize) {
+  if (vectorLen < swizzleGroupSize) {
     return op.emitOpError("Vector input must have at least" +
-                          Twine(warpGroupSize) + "elements");
+                          Twine(swizzleGroupSize) + "elements");
   }
   if (vectorLen < op.size()) {
     return op.emitError("Vector input can't be shorter than transpose size");
@@ -207,10 +207,10 @@ static LogicalResult verify(InWarpTransposeOp op) {
 
   auto inGroupPerm = op.inGroupPerm();
 
-  llvm::SmallSet<uint32_t, warpGroupSize> expected;
-  llvm::SmallSet<uint32_t, warpGroupSize> found;
+  llvm::SmallSet<uint32_t, swizzleGroupSize> expected;
+  llvm::SmallSet<uint32_t, swizzleGroupSize> found;
 
-  for (uint32_t i = 0; i < warpGroupSize; i++) {
+  for (uint32_t i = 0; i < swizzleGroupSize; i++) {
     expected.insert(i);
   }
 

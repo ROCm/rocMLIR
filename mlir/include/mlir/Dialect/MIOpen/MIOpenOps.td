@@ -484,7 +484,7 @@ def MIOpen_DataConvertOp :
   }];
 }
 
-// TODO: upstream these
+// TODO(kdrewnia): upstream these
 // Whether the vector's length is divisible by `divisor`
 class IsVectorOfDivisibleLengthPred<int divisor> :
   And<[IsVectorTypePred,
@@ -504,14 +504,17 @@ class VectorOfDivisibleLengthAndType<int  divisor,
   VectorOf<allowedTypes>.summary # VectorOfDivisibleLength<divisor>.summary,
   "::mlir::VectorType">;
 
+defvar swizzleGroupSize = 4;
 def MIOpen_InWarpTransposeOp :
     MIOpen_Op<"in_warp_transpose", [AllTypesMatch<["vector", "res"]>]>,
-    Arguments<(ins VectorOfDivisibleLengthAndType<4, [F32, I32]>:$vector,
+    Arguments<(ins VectorOfDivisibleLengthAndType<swizzleGroupSize,
+                                                          [F32, I32]>:$vector,
                   Index:$laneId,
-                  Confined<I32Attr, [IntMaxValue<4>]>:$size,
-                  DefaultValuedAttr<Confined<I32ArrayAttr, [ArrayCount<4>]>,
+                  Confined<I32Attr, [IntMaxValue<swizzleGroupSize>]>:$size,
+                  DefaultValuedAttr<Confined<I32ArrayAttr,
+                        [ArrayCount<swizzleGroupSize>]>,
                     "{0, 1, 2, 3}">:$inGroupPerm)>,
-    Results<(outs VectorOfDivisibleLengthAndType<4, [F32, I32]>:$res)> {
+    Results<(outs VectorOfDivisibleLengthAndType<swizzleGroupSize, [F32, I32]>:$res)> {
   let summary = "Transpose blocks of data distributed accross a warp";
   let description = [{
     `MIOpen.in_warp_transpose` takes a vector representing a matrix of values
@@ -528,6 +531,9 @@ def MIOpen_InWarpTransposeOp :
   let assemblyFormat = [{
     attr-dict $vector `,` $laneId `:` type($vector) `,` type($laneId)
   }];
+
+  let extraClassDeclaration = "static constexpr size_t swizzleGroupSize = "
+    # !cast<string>(swizzleGroupSize) # ";\n";
 }
 
 #endif // MIOPEN_OPS
