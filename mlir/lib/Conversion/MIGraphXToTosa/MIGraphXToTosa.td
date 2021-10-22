@@ -29,7 +29,7 @@ def GetZeroConst : NativeCodeCall<"$_builder.getArrayAttr({0})">;
 def : Pat<(MIGraphX_ConvolutionOp $input1, $filter, $pad, $stride, $dilation,
       $group, $_ // ignore padding mode
       ),
-    (Tosa_Conv2DOp $input1, $filter, (Tosa_ConstOp (GetZeroConst)), (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr))>;
+    (Tosa_Conv2DOp $input1, $filter, (Tosa_ConstOp ConstantAttr<RankedF32ElementsAttr<[1]>, "{0.0f}">:$f32attr), (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr))>;
 
 // N.B., conv ops not satisfying the match will be silently erased.
 //def : Pat<(MIGraphX_ConvolutionOp $input1, $_, $_, $_, $_, $_, $_),
