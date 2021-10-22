@@ -366,126 +366,128 @@ bool isFunctionallyEquivalentTo(Operation *lhs, Operation *rhs) {
 // test/lib/Transforms/TestSCFUtils.cpp.
 class TosaPartitionPass : public TosaPartitionBase<TosaPartitionPass> {
 public:
-  void runOnFunction() override {
+  void runOnOperation() override {
     int count = 0;
-    FuncOp func = getFunction();
     std::vector<OutliningCandidate> candidates;
+    ModuleOp module = getOperation();
+    auto funcOps = module.getOps<FuncOp>();
+    for (auto func : funcOps) {
+      auto callback = [&](tosa::Conv2DOp convOp) {
+        auto strCount = std::string("_outlined_part_") + std::to_string(count++);
 
-    auto callback = [&](tosa::Conv2DOp convOp) {
-      auto strCount = std::string("_outlined_part_") + std::to_string(count++);
+        // Given a Conv2DOp, gather all the element-wise ops that are reachable
+        // from its results, contiguously.
+        //
+        // The ops after the Conv2D are "second" ops.
+        // inputNodes gathers what will become the parameters of the outlined
+        // function;  initially it's the Conv2D's arguments, and it accumulates
+        // arguments to other ops that don't come from inside the outlined
+        // function.
+        // resultNodes will become the results of the outlined function.  It
+        // starts with Conv2D's result(s) and gains the results of each new
+        // secondOp.  When all a resultNode's users can be determined to lie
+        // within the outlined function, it's removed from the set.
+        //
+        // These are SetVectors because we test with contains() a lot, but still
+        // want to preserve order.
+        SetVector<Operation *> secondOps;
+        SetVector<Value> inputNodes(convOp->getOperands().begin(),
+                                    convOp->getOperands().end());
+        SetVector<Value> resultNodes(convOp->getResults().begin(),
+                                     convOp->getResults().end());
 
-      // Given a Conv2DOp, gather all the element-wise ops that are reachable
-      // from its results, contiguously.
-      //
-      // The ops after the Conv2D are "second" ops.
-      // inputNodes gathers what will become the parameters of the outlined
-      // function;  initially it's the Conv2D's arguments, and it accumulates
-      // arguments to other ops that don't come from inside the outlined
-      // function.
-      // resultNodes will become the results of the outlined function.  It
-      // starts with Conv2D's result(s) and gains the results of each new
-      // secondOp.  When all a resultNode's users can be determined to lie
-      // within the outlined function, it's removed from the set.
-      //
-      // These are SetVectors because we test with contains() a lot, but still
-      // want to preserve order.
-      SetVector<Operation *> secondOps;
-      SetVector<Value> inputNodes(convOp->getOperands().begin(),
-                                  convOp->getOperands().end());
-      SetVector<Value> resultNodes(convOp->getResults().begin(),
-                                   convOp->getResults().end());
-
-      // Grab a useful set of leading ops, like we do for trailing.
-      // Let's limit it to only first arguments, with single uses.
-      SmallVector<Operation *> frontOps;
-      if (!nofront) {
-        Operation *op = convOp;
-        while (true) {
-          if (op->getNumOperands() < 1)
-            break;
-          Operation *usedOp = op->getOpOperand(0).get().getDefiningOp();
-          if (!usedOp)
-            break;
-          if (!isElementwiseOp(usedOp) || !usedOp->hasOneUse())
-            break;
-          // Remove the first operand from the function inputs, if present.
-          // Add usedOp's operands to the function inputs.
-          inputNodes.remove(op->getOpOperand(0).get());
-          inputNodes.insert(usedOp->getOperands().begin(),
-                            usedOp->getOperands().end());
-          frontOps.push_back(usedOp);
-          op = usedOp;
+        // Grab a useful set of leading ops, like we do for trailing.
+        // Let's limit it to only first arguments, with single uses.
+        SmallVector<Operation *> frontOps;
+        if (!nofront) {
+          Operation *op = convOp;
+          while (true) {
+            if (op->getNumOperands() < 1)
+              break;
+            Operation *usedOp = op->getOpOperand(0).get().getDefiningOp();
+            if (!usedOp)
+              break;
+            if (!isElementwiseOp(usedOp) || !usedOp->hasOneUse())
+              break;
+            // Remove the first operand from the function inputs, if present.
+            // Add usedOp's operands to the function inputs.
+            inputNodes.remove(op->getOpOperand(0).get());
+            inputNodes.insert(usedOp->getOperands().begin(),
+                              usedOp->getOperands().end());
+            frontOps.push_back(usedOp);
+            op = usedOp;
+          }
         }
-      }
 
-      DominanceInfo domInfo(func);
-      std::deque<Operation *> worklist; // cuz I want to pull from the front.
+        DominanceInfo domInfo(func);
+        std::deque<Operation *> worklist; // cuz I want to pull from the front.
 
-      worklist.push_back(convOp);
-      while (!worklist.empty()) {
-        Operation *op = worklist.front();
-        worklist.pop_front();
-        for (auto *userOp : op->getUsers()) {
-          if (isElementwiseOp(userOp) /* && userOp->hasOneUse() */) {
-            bool skip = false;
-            // First criterion is that the op is element-wise.  Second criterion
-            // is that the op dominates all the users of the accumulated results
-            // of the outlined function.  In other words, we can't take an op
-            // that comes "after" a user of the result from the eventual call,
-            // because the call needs to dominate all its users.
-            for (const Value &val : resultNodes) {
-              for (auto *user : val.getDefiningOp()->getUsers()) {
-                if (user != userOp &&
-                    !domInfo.properlyDominates(userOp, user)) {
-                  skip = true;
-                }
-              }
-            }
-
-            // userOp is acceptable.  Keep it as a secondOp, put it on the
-            // worklist.  Add its operands to inputNodes unless they come
-            // from other secondOps (indicated by being in resultNodes).
-            // If all the users of any resultNode are in secondOps, there's
-            // no need to return it so remove from resultNodes.  Finally,
-            // add all userOp's results to resultNodes.
-            if (!skip) {
-              secondOps.insert(userOp);
-              worklist.push_back(userOp);
-              for (Value opnd : userOp->getOperands()) {
-                if (!resultNodes.contains(opnd)) {
-                  inputNodes.insert(opnd);
-                }
-              }
+        worklist.push_back(convOp);
+        while (!worklist.empty()) {
+          Operation *op = worklist.front();
+          worklist.pop_front();
+          for (auto *userOp : op->getUsers()) {
+            if (isElementwiseOp(userOp)) {
+              bool skip = false;
+              // First criterion is that the op is element-wise.  Second criterion
+              // is that the op dominates all the users of the accumulated results
+              // of the outlined function.  In other words, we can't take an op
+              // that comes "after" a user of the result from the eventual call,
+              // because the call needs to dominate all its users.
               for (const Value &val : resultNodes) {
-                if (llvm::all_of(val.getUsers(), [&](Operation *u) {
-                      return secondOps.contains(u);
-                    })) {
-                  resultNodes.remove(val);
+                for (auto *user : val.getDefiningOp()->getUsers()) {
+                  if (user != userOp &&
+                      !domInfo.properlyDominates(userOp, user)) {
+                    skip = true;
+                  }
                 }
               }
-              for (auto res : userOp->getResults()) {
-                resultNodes.insert(res);
+
+              // userOp is acceptable.  Keep it as a secondOp, put it on the
+              // worklist.  Add its operands to inputNodes unless they come
+              // from other secondOps (indicated by being in resultNodes).
+              // If all the users of any resultNode are in secondOps, there's
+              // no need to return it so remove from resultNodes.  Finally,
+              // add all userOp's results to resultNodes.
+              if (!skip) {
+                secondOps.insert(userOp);
+                worklist.push_back(userOp);
+                for (Value opnd : userOp->getOperands()) {
+                  if (!resultNodes.contains(opnd)) {
+                    inputNodes.insert(opnd);
+                  }
+                }
+                for (const Value &val : resultNodes) {
+                  if (llvm::all_of(val.getUsers(), [&](Operation *u) {
+                                                     return secondOps.contains(u);
+                                                   })) {
+                    resultNodes.remove(val);
+                  }
+                }
+                for (auto res : userOp->getResults()) {
+                  resultNodes.insert(res);
+                }
               }
             }
           }
         }
-      }
 
-      if (!secondOps.empty() || !frontOps.empty()) {
-        // Make the outlined function from the ops we've gathered.
-        outlineConvPartOps(convOp, secondOps.getArrayRef(), frontOps,
-                           inputNodes.getArrayRef(), resultNodes.getArrayRef(),
-                           std::string(func.sym_name()) + strCount,
-                           candidates);
-        // Outlining will erase nodes and thus perturb the walk, so
-        // signal interrupted to exit it and restart.
-        return WalkResult::interrupt();
-      }
-      return WalkResult::advance();
-    };
+        if (!secondOps.empty() || !frontOps.empty()) {
+          // Make the outlined function from the ops we've gathered.
+          outlineConvPartOps(convOp, secondOps.getArrayRef(), frontOps,
+                             inputNodes.getArrayRef(), resultNodes.getArrayRef(),
+                             std::string(func.sym_name()) + strCount,
+                             candidates);
+          // Outlining will erase nodes and thus perturb the walk, so
+          // signal interrupted to exit it and restart.
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      };
 
-    // Walk until we've outlined all the Conv2D ops we can.
-    while (func.walk(callback).wasInterrupted()) {
+      // Walk until we've outlined all the Conv2D ops we can.
+      while (func.walk(callback).wasInterrupted()) {
+      }
     }
   }
 };
