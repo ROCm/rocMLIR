@@ -32,7 +32,7 @@ def HasUsed: Constraint<CPred<"!($_self.use_empty())">, "has been used">;
 def : Pat<(MIGraphX_ConvolutionOp:$result $input1, $filter, $pad, $stride, $dilation,
       $group, $_ // ignore padding mode
       ),
-    (Tosa_Conv2DOp $input1, $filter, (Tosa_ConstOp ConstantAttr<RankedF32ElementsAttr<[1]>, "{0.0f}">:$f32attr), (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr)), [(HasUsed:$result)], (addBenefit 2)>;
+    (Tosa_Conv2DOp $input1, $filter, (Tosa_ConstOp ConstantAttr<RankedF32ElementsAttr<[1]>, "{0.0f}">:$f32attr), (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr)), [(HasUsed:$result)]>;
 
 def : Pat<(MIGraphX_RsqrtOp $input1), (Tosa_RsqrtOp $input1)>;
 // Clamp to Relu if it clamps to max/min number, otherwise convert to ceil + floor
