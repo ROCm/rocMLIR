@@ -26,6 +26,7 @@ class GPUModuleOp;
 } // namespace gpu
 
 /// Collect a set of patterns to convert from the GPU dialect to ROCDL.
+/// If `runtime` is Unknown, gpu.printf will not be lowered
 void populateGpuToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                           RewritePatternSet &patterns,
                                           gpu::amd::Runtime runtime);

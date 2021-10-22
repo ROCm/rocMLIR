@@ -257,6 +257,7 @@ LogicalResult GPUPrintfOpToHIPLowering::matchAndRewrite(
       rewriter.create<LLVM::CallOp>(loc, ocklAppendStringN, appendFormatArgs);
   printfDesc = appendFormatCall.getResult(0);
 
+  // __ockl_printf_append_args takes 7 values per append call
   constexpr size_t argsPerAppend = 7;
   size_t nArgs = adaptor.args().size();
   for (size_t group = 0; group < nArgs; group += argsPerAppend) {
@@ -282,7 +283,7 @@ LogicalResult GPUPrintfOpToHIPLowering::matchAndRewrite(
       }
       arguments.push_back(arg);
     }
-    // Pad out to 7 arguments
+    // Pad out to 7 arguments since the hostcall always needs 7
     for (size_t extra = numArgsThisCall; extra < argsPerAppend; ++extra) {
       arguments.push_back(zeroI64);
     }

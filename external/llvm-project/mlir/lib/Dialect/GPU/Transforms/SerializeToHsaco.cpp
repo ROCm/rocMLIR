@@ -273,9 +273,11 @@ SerializeToHsacoPass::translateToLLVMIR(llvm::LLVMContext &llvmContext) {
 
   // Set up control variables in the module instead of linking in tiny bitcode
   if (needOcml) {
-    addControlConstant("__oclc_finite_only_opt", optLevel >= 2, 8);
-    addControlConstant("__oclc_daz_opt", optLevel >= 1, 8);
-    addControlConstant("__oclc_correctly_rounded_sqrt32", optLevel >= 3, 8);
+    // TODO(kdrewnia): Enable math optimizations once we have support for
+    // `-ffast-math`-like options
+    addControlConstant("__oclc_finite_only_opt", 0, 8);
+    addControlConstant("__oclc_daz_opt", 0, 8);
+    addControlConstant("__oclc_correctly_rounded_sqrt32", 1, 8);
     addControlConstant("__oclc_unsafe_math_opt", 0, 8);
   }
   if (needOcml || needOckl) {
@@ -506,6 +508,8 @@ void mlir::registerGpuSerializeToHsacoPass() {
         LLVMInitializeAMDGPUTargetInfo();
         LLVMInitializeAMDGPUTargetMC();
 
+        // Known-bad values for constructor arguments since the instance of the
+        // pass that's registered here will never be used directly
         return std::make_unique<SerializeToHsacoPass>(
             "", "[GARBAGE]", "+veryfake,-cantsurface", -1);
       });
