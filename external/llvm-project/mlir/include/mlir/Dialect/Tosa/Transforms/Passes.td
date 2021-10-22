@@ -58,14 +58,4 @@ def TosaPartition : FunctionPass<"tosa-partition"> {
   let dependentDialects = ["tosa::TosaDialect"];
 }
 
-def PostPartitionCollapse : Pass<"tosa-collapse", "ModuleOp"> {
-  let summary = "After --tosa-partition, merge identical functions";
-  let description = [{
-    Replace calls to identical functions with calls to the first one,
-    allowing the others to be dead-coded.
-  }];
-
-  let constructor = "createPostPartitionCollapsePass()";
-}
-
 #endif // MLIR_DIALECT_TOSA_TRANSFORMS_PASSES
