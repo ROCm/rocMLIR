@@ -25,18 +25,16 @@ def : Pat<(MIGraphX_AddOp
       ), $bias),
       (Tosa_Conv2DOp $input1, $filter, $bias, (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr))>;
 
-def GetZeroConst : NativeCodeCall<"$_builder.getArrayAttr({0})">;
 def : Pat<(MIGraphX_ConvolutionOp $input1, $filter, $pad, $stride, $dilation,
       $group, $_ // ignore padding mode
       ),
     (Tosa_Conv2DOp $input1, $filter, (Tosa_ConstOp ConstantAttr<RankedF32ElementsAttr<[1]>, "{0.0f}">:$f32attr), (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr))>;
 
-// N.B., conv ops not satisfying the match will be silently erased.
-//def : Pat<(MIGraphX_ConvolutionOp $input1, $_, $_, $_, $_, $_, $_),
-//    (replaceWithValue $input1)>;
+def HasNoUseOf: Constraint<CPred<"$_self.use_empty()">, "has no use">;
+def : Pat<(MIGraphX_ConvolutionOp $input1, $_, $_, $_, $_, $_, $_):$result,
+    (replaceWithValue $input1), [HasNoUseOf:$result]>;
 
 def : Pat<(MIGraphX_RsqrtOp $input1), (Tosa_RsqrtOp $input1)>;
-
 // Clamp to Relu if it clamps to max/min number, otherwise convert to ceil + floor
 // {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} 
 def : Pat<(MIGraphX_ReluOp $input1), 
