@@ -101,11 +101,6 @@ OutliningCandidate::OutliningCandidate(Operation *convOp_,
     returnVals.push_back(val);
   }
 
-  llvm::errs() << "new candidate " << partFnName << "\n";
-  convOp->dump();
-  for (auto *op : secondOps) op->dump();
-  for (auto *op : frontOps) op->dump();
-
   hash = OperationEquivalence::computeHash(
       convOp, OperationEquivalence::ignoreHashValue,
       OperationEquivalence::ignoreHashValue,
@@ -125,40 +120,30 @@ OutliningCandidate::OutliningCandidate(Operation *convOp_,
         OperationEquivalence::IgnoreLocations);
     hash = llvm::hash_combine(hash, opHash);
   }
-
-  llvm::errs() << "hash is " << hash << "\n";
 }
 
 bool isFunctionallyEquivalentTo(Operation *lhs, Operation *rhs);
 
 bool outliningCandidatesEquivalent(OutliningCandidate &one,
                                    OutliningCandidate &two) {
-  llvm::errs() << "compare " << one.partFnName << " (" << one.hash << ")\n";
-  llvm::errs() << "  vs    " << two.partFnName << " (" << two.hash << ")\n";
-
   if (one.hash != two.hash) {
-//    llvm::errs() << "hash\n";
     return false;
   }
   if (!isFunctionallyEquivalentTo(one.convOp, two.convOp)) {
-//    llvm::errs() << "conv\n";
     return false;
   }
   for (auto itOperation : llvm::zip(one.secondOps, two.secondOps)) {
     if (!isFunctionallyEquivalentTo(std::get<0>(itOperation),
                                     std::get<1>(itOperation))) {
-//      llvm::errs() << "seconds\n";
       return false;
     }
   }
   for (auto itOperation : llvm::zip(one.frontOps, two.frontOps)) {
     if (!isFunctionallyEquivalentTo(std::get<0>(itOperation),
                                     std::get<1>(itOperation))) {
-//      llvm::errs() << "fronts\n";
       return false;
     }
   }
-//  llvm::errs() << "yes\n";
   return true;
 }
 
@@ -195,10 +180,7 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
                                                          candidates)) {
     // Matches one we already have.
     outlinedFunc = found->function;
-    llvm::errs() << "match\n";
   } else {
-    llvm::errs() << "no\n";
-
     // ------------------------------------------------------------
     // Construction part.
 
@@ -505,69 +487,11 @@ public:
     // Walk until we've outlined all the Conv2D ops we can.
     while (func.walk(callback).wasInterrupted()) {
     }
-
-    // Count on the SymbolDCE pass to clean up the dead functions.
   }
 };
-
-// Replace calls to identical functions with calls to the first one,
-// allowing the others to be dead-coded.
-struct PostPartitionCollapsePass
-    : public PostPartitionCollapseBase<PostPartitionCollapsePass> {
-  void runOnOperation() override;
-};
-
-void PostPartitionCollapsePass::runOnOperation() {
-  ModuleOp module = getOperation();
-  // For all FuncOps, make a mapping to replace those that are identical to
-  // another.
-  SmallVector<Operation *> opsSeen;
-  DenseMap<StringRef, StringRef> replacements;
-  for (auto f : module.getOps<FuncOp>()) {
-    bool replaced = false;
-    for (Operation *o : opsSeen) {
-      if (isFunctionallyEquivalentTo(f, o)) {
-        replacements[f.sym_name()] = dyn_cast<FuncOp>(o).sym_name();
-        replaced = true;
-      }
-    }
-    if (!replaced) {
-      opsSeen.push_back(f);
-    }
-  }
-  // Then walk all the CallOps and remap callees where appropriate.
-  module.walk([&](CallOp call) {
-    if (replacements.find(call.getCallee()) != replacements.end()) {
-      call.calleeAttr(FlatSymbolRefAttr::get(module->getContext(),
-                                             replacements[call.getCallee()]));
-    }
-  });
-}
 
 } // namespace
 
 std::unique_ptr<Pass> mlir::tosa::createTosaPartitionPass() {
   return std::make_unique<TosaPartitionPass>();
 }
-
-std::unique_ptr<Pass> mlir::tosa::createPostPartitionCollapsePass() {
-  return std::make_unique<PostPartitionCollapsePass>();
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-static void tosaPartitionPipeline(OpPassManager &pm) {
-  pm.addPass(std::make_unique<TosaPartitionPass>());
-  pm.addPass(std::make_unique<PostPartitionCollapsePass>());
-  pm.addPass(mlir::createSymbolDCEPass());
-}
-
-namespace mlir {
-namespace tosa {
-void registerTosaPartitionPipelinePass() {
-  PassPipelineRegistration<>("tosa-partition-pipeline",
-                             "Partition around Conv2D ops and clean up after",
-                             tosaPartitionPipeline);
-}
-} // namespace tosa
-} // namespace mlir
