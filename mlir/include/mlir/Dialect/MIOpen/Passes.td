@@ -50,6 +50,12 @@ def MIOpenLinalgAlignPass : Pass<"miopen-linalg-align", "ModuleOp"> {
   let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "linalg::LinalgDialect", "vector::VectorDialect", "memref::MemRefDialect"];
 }
 
+def MIOpenCopyOptPass : Pass<"miopen-copy-opt", "ModuleOp"> {
+  let summary = "Optimize global tensor allocations";
+  let constructor = "mlir::miopen::createMIOpenCopyOptPass()";
+  let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "linalg::LinalgDialect", "vector::VectorDialect", "memref::MemRefDialect"];
+}
+
 def MIOpenOpsStep3Pass : Pass<"miopen-lowering-step3", "ModuleOp"> {
   let summary = "expand blockwise copy into threadwise copy, blockwise gemm into threadwise gemm";
   let constructor = "mlir::miopen::createLowerMIOpenOpsStep3Pass()";
