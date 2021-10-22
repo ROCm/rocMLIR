@@ -30,7 +30,6 @@ def : Pat<(MIGraphX_ConvolutionOp $input1, $filter, $pad, $stride, $dilation,
       ),
     (Tosa_Conv2DOp $input1, $filter, (Tosa_ConstOp ConstantAttr<RankedF32ElementsAttr<[1]>, "{0.0f}">:$f32attr), (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr))>;
 
-def HasNoUseOf: Constraint<CPred<"$_self.use_empty()">, "has no use">;
 def : Pat<(MIGraphX_ConvolutionOp $input1, $_, $_, $_, $_, $_, $_):$result,
     (replaceWithValue $input1), [HasNoUseOf:$result]>;
 
