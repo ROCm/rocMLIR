@@ -7853,6 +7853,7 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
 //===----------------------------------------------------------------------===//
 // InWarpTranspose lowering.
 //===----------------------------------------------------------------------===//
+static constexpr size_t swizzleGroupSize = InWarpTransposeOp::swizzleGroupSize;
 struct InWarpTransposeRewritePattern
     : public OpRewritePattern<miopen::InWarpTransposeOp> {
   using OpRewritePattern<miopen::InWarpTransposeOp>::OpRewritePattern;
@@ -7864,6 +7865,23 @@ struct InWarpTransposeRewritePattern
     Right
   };
 
+  // Emit the in-regester rotations needed for an in-register transpose
+  //
+  // This will rotate the values each line holds by `laneId % groupSize`
+  // The emitted code uses a barrel rotator to enable performing these
+  // `groupSize` different rotations in O(log(groupSize)) operations Arguments:
+  // - `vector`: The vector of values to be rotated
+  // - `laneId`: The current lane ID (thread ID % warpSize)
+  // - `rotationDir`: whether to rotate left or right
+  // - `groupSize` and `totalSize`: the size of the transpose
+  // and the total vector length, respectively
+
+  // - `lanePerm` : A mapping of physical lanes to logical lanes in each grou
+  // That is, lanePerm[i] tells you where the value in lane i would "normally"
+  // be, with all indices modulo the swizzle group size. If empty, the identity
+  // map is used. For example, with lanePerm = [0, 2, 1, 3], lanes 1 and 3 will
+  // rotate their values by 2 places, as opposed to lanes  2 and 3 Returns: The
+  // vector of rotated values
   Value emitRotations(Location loc, PatternRewriter &b, Value vector,
                       Value laneId, RotationDirection dir, uint32_t groupSize,
                       uint32_t totalSize,
@@ -7889,14 +7907,14 @@ struct InWarpTransposeRewritePattern
 
     Value zeroConst = b.create<ConstantIndexOp>(loc, 0);
 
-    llvm::SmallVector<Value, 4> indexConsts;
+    llvm::SmallVector<Value, swizzleGroupSize> indexConsts;
     for (uint32_t i = 0; i < totalSize; ++i) {
       indexConsts.push_back(b.create<ConstantIntOp>(loc, i, b.getI32Type()));
     }
 
     Value laneInSwizzleGroup;
     if (lanePerm.hasValue()) {
-      Value groupSizeConst = b.create<ConstantIndexOp>(loc, 4);
+      Value groupSizeConst = b.create<ConstantIndexOp>(loc, swizzleGroupSize);
       laneInSwizzleGroup =
           b.create<UnsignedRemIOp>(loc, laneId, groupSizeConst);
     }
@@ -7910,7 +7928,7 @@ struct InWarpTransposeRewritePattern
       if (lanePerm.hasValue()) {
         // Non-standard arrangement of rows -> lanes, use longer test
         ArrayRef<uint32_t> theLanePerm = lanePerm.getValue();
-        llvm::SmallVector<Value, 4> comparisons;
+        llvm::SmallVector<Value, swizzleGroupSize> comparisons;
         for (uint32_t i = 0; i < theLanePerm.size(); ++i) {
           if ((theLanePerm[i] & rotation) != 0) {
             Value toTest = b.create<ConstantIndexOp>(loc, i);
@@ -7934,7 +7952,9 @@ struct InWarpTransposeRewritePattern
                                              shouldParticipateVal, zeroConst);
       }
 
-#if 0 // Compiler is busted, explicitly emit selects
+// TODO(kdrewnia): xplicitly emit selects until SWDEV-302607 and SWDEV-302609
+// are fixed
+#if 0
       scf::IfOp ifb = b.create<scf::IfOp>(
           loc, vector.getType(), shouldParticipate, /*withElseRegion=*/true);
       OpBuilder thenb = ifb.getThenBodyBuilder(b.getListener());
@@ -8028,17 +8048,17 @@ struct InWarpTransposeRewritePattern
                      uint32_t groupSize, uint32_t totalSize,
                      ArrayRef<uint32_t> inGroupPerm) const {
 
-    llvm::SmallVector<ArrayAttr, 4> swizzlePerms;
+    llvm::SmallVector<ArrayAttr, swizzleGroupSize> swizzlePerms;
 
-    llvm::SmallVector<int32_t, 4> perm;
-    llvm::SmallVector<uint32_t, 4> have;
-    llvm::SmallVector<uint32_t, 4> want;
+    llvm::SmallVector<int32_t, swizzleGroupSize> perm;
+    llvm::SmallVector<uint32_t, swizzleGroupSize> have;
+    llvm::SmallVector<uint32_t, swizzleGroupSize> want;
     for (uint32_t r = 0; r < groupSize; ++r) {
       perm.clear();
       have.clear();
       want.clear();
 
-      for (uint32_t t = 0; t < 4; ++t) {
+      for (uint32_t t = 0; t < swizzleGroupSize; ++t) {
         // Must correct for, say, 2x2 transpose being a 4 thread x 2 register
         // swizzle
         uint32_t smallGroupDup = groupSize * (t / groupSize);
@@ -8050,8 +8070,9 @@ struct InWarpTransposeRewritePattern
         uint32_t postSwizzleI = expectedThread;
         uint32_t postSwizzleJ = (r + (groupSize - expectedThread)) % groupSize +
                                 groupSize * (expectedThread / groupSize);
-        uint32_t preSwizzleElem = preSwizzleJ + 4 * preSwizzleI;
-        uint32_t postSwizzleElem = postSwizzleJ + 4 * postSwizzleI;
+        uint32_t preSwizzleElem = preSwizzleJ + swizzleGroupSize * preSwizzleI;
+        uint32_t postSwizzleElem =
+            postSwizzleJ + swizzleGroupSize * postSwizzleI;
         /*         llvm::dbgs() << "//r = " << r << " t = " << t << ": " <<
            "have ("
                   << preSwizzleI << ", " << preSwizzleJ << ") = " <<
@@ -8062,7 +8083,7 @@ struct InWarpTransposeRewritePattern
         want.push_back(postSwizzleElem);
       }
 
-      for (uint32_t t = 0; t < 4; ++t) {
+      for (uint32_t t = 0; t < swizzleGroupSize; ++t) {
         auto *srcElemIter = std::find(have.begin(), have.end(), want[t]);
         assert(srcElemIter != have.end() && "swizzle is not a permutation");
         auto readIdx = srcElemIter - have.begin();
@@ -8125,10 +8146,10 @@ struct InWarpTransposeRewritePattern
     uint32_t groupSize = op.size();
 
     ArrayAttr inGroupPermAttr = op.inGroupPerm();
-    llvm::SmallVector<uint32_t, 4> inGroupPerm;
+    llvm::SmallVector<uint32_t, swizzleGroupSize> inGroupPerm;
     auto inGroupPermArr = inGroupPermAttr.getValue();
     // ::verify() ensures this is a permutation
-    for (uint32_t i = 0; i < 4; ++i) {
+    for (uint32_t i = 0; i < swizzleGroupSize; ++i) {
       inGroupPerm.push_back(inGroupPermArr[i]
                                 .cast<mlir::IntegerAttr>()
                                 .getValue()
