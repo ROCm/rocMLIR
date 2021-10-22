@@ -52,62 +52,209 @@ bool isElementwiseOp(Operation *op) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// Inspired by / adapted from outlineIfOp() in SCF/Transforms/Utils.cpp.
+// Inspired by / adapted from outlineIfOp() in SCF/Transforms/Utils.cpp
+// and mergeIdenticalBlocks() in Utils/RegionUtils.cpp.
+
+struct OutliningCandidate {
+  OutliningCandidate(Operation *_convOp, ArrayRef<Operation *> &_secondOps,
+                     ArrayRef<Operation *> &_frontOps, ArrayRef<Value> &_params,
+                     ArrayRef<Value> &_returnVals, StringRef _partFnName);
+
+  Operation *convOp;
+  SmallVector<Operation *> secondOps;
+  SmallVector<Operation *> frontOps;
+  SmallVector<Value> params;
+  SmallVector<Value> returnVals;
+  std::string partFnName;
+  llvm::hash_code hash;
+  FuncOp function;
+
+//   /// Return the order index for the given value that is within the block of
+//   /// this data.
+//   unsigned getOrderOf(Value value) const;
+//
+//   /// A map of result producing operations to their relative orders within this
+//   /// block. The order of an operation is the number of defined values that are
+//   /// produced within the block before this operation.
+//   DenseMap<Operation *, unsigned> opOrderIndex;
+};
+
+OutliningCandidate::OutliningCandidate(Operation *convOp_,
+                                       ArrayRef<Operation *> &secondOps_,
+                                       ArrayRef<Operation *> &frontOps_,
+                                       ArrayRef<Value> &params_,
+                                       ArrayRef<Value> &returnVals_,
+                                       StringRef partFnName_)
+    : convOp(convOp_), partFnName(partFnName_),
+      function(nullptr) {
+  // We'll need to grab the cloned ops to avoid use-after-free.
+  for (auto *op : secondOps_) {
+    secondOps.push_back(op);
+  }
+  for (auto *op : frontOps_) {
+    frontOps.push_back(op);
+  }
+  for (auto val : params_) {
+    params.push_back(val);
+  }
+  for (auto val : returnVals_) {
+    returnVals.push_back(val);
+  }
+
+  llvm::errs() << "new candidate " << partFnName << "\n";
+  convOp->dump();
+  for (auto *op : secondOps) op->dump();
+  for (auto *op : frontOps) op->dump();
+
+  hash = OperationEquivalence::computeHash(
+      convOp, OperationEquivalence::ignoreHashValue,
+      OperationEquivalence::ignoreHashValue,
+      OperationEquivalence::IgnoreLocations);
+
+  for (auto *op : secondOps) {
+    auto opHash = OperationEquivalence::computeHash(
+        op, OperationEquivalence::ignoreHashValue,
+        OperationEquivalence::ignoreHashValue,
+        OperationEquivalence::IgnoreLocations);
+    hash = llvm::hash_combine(hash, opHash);
+  }
+  for (auto *op : frontOps) {
+    auto opHash = OperationEquivalence::computeHash(
+        op, OperationEquivalence::ignoreHashValue,
+        OperationEquivalence::ignoreHashValue,
+        OperationEquivalence::IgnoreLocations);
+    hash = llvm::hash_combine(hash, opHash);
+  }
+
+  llvm::errs() << "hash is " << hash << "\n";
+}
+
+bool isFunctionallyEquivalentTo(Operation *lhs, Operation *rhs);
+
+bool outliningCandidatesEquivalent(OutliningCandidate &one,
+                                   OutliningCandidate &two) {
+  llvm::errs() << "compare " << one.partFnName << " (" << one.hash << ")\n";
+  llvm::errs() << "  vs    " << two.partFnName << " (" << two.hash << ")\n";
+
+  if (one.hash != two.hash) {
+//    llvm::errs() << "hash\n";
+    return false;
+  }
+  if (!isFunctionallyEquivalentTo(one.convOp, two.convOp)) {
+//    llvm::errs() << "conv\n";
+    return false;
+  }
+  for (auto itOperation : llvm::zip(one.secondOps, two.secondOps)) {
+    if (!isFunctionallyEquivalentTo(std::get<0>(itOperation),
+                                    std::get<1>(itOperation))) {
+//      llvm::errs() << "seconds\n";
+      return false;
+    }
+  }
+  for (auto itOperation : llvm::zip(one.frontOps, two.frontOps)) {
+    if (!isFunctionallyEquivalentTo(std::get<0>(itOperation),
+                                    std::get<1>(itOperation))) {
+//      llvm::errs() << "fronts\n";
+      return false;
+    }
+  }
+//  llvm::errs() << "yes\n";
+  return true;
+}
+
+OutliningCandidate *
+findOutliningCandidate(OutliningCandidate &newCandidate,
+                       std::vector<OutliningCandidate> &candidates) {
+  for (auto &candidate : candidates) {
+    if (outliningCandidatesEquivalent(candidate, newCandidate)) {
+      return &candidate;
+    }
+  }
+  return nullptr;
+}
+
 // Given a convolution op and its fuse-able trailing (second) and leading
 // (front) ops, remove them into a separate function.
-void outlineConvPartOps(Operation *convOp, SetVector<Operation *> &secondOps,
+void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
                         ArrayRef<Operation *> frontOps, ArrayRef<Value> params,
-                        ArrayRef<Value> returnVals, StringRef partFnName) {
+                        ArrayRef<Value> returnVals, StringRef partFnName,
+                        std::vector<OutliningCandidate> &candidates) {
+  ValueRange values(params);
+  Operation *lastOp = secondOps[secondOps.size() - 1];
   OpBuilder b(convOp);
   Location loc = convOp->getLoc();
-  MLIRContext *ctx = convOp->getContext();
+  FuncOp outlinedFunc;
 
-  // Insert outlined function before current function.
-  OpBuilder::InsertionGuard g(b);
-  b.setInsertionPoint(convOp->getParentOfType<FuncOp>());
+  // ------------------------------------------------------------
+  // Merging part.
 
-  // Make FuncOp from convOp's operand types and secondOp's result type.
-  ValueRange values(params);
-  ValueRange results(returnVals);
-  FunctionType type =
+  OutliningCandidate newCandidate(convOp, secondOps, frontOps, params,
+                                  returnVals, partFnName);
+
+  if (OutliningCandidate *found = findOutliningCandidate(newCandidate,
+                                                         candidates)) {
+    // Matches one we already have.
+    outlinedFunc = found->function;
+    llvm::errs() << "match\n";
+  } else {
+    llvm::errs() << "no\n";
+
+    // ------------------------------------------------------------
+    // Construction part.
+
+    // Insert outlined function before current function.
+    OpBuilder::InsertionGuard g(b);
+    b.setInsertionPoint(convOp->getParentOfType<FuncOp>());
+
+    // Make FuncOp from convOp's operand types and secondOp's result type.
+    MLIRContext *ctx = convOp->getContext();
+    ValueRange results(returnVals);
+    FunctionType type =
       FunctionType::get(ctx, values.getTypes(), results.getTypes());
-  SmallVector<NamedAttribute, 1> kernelAttrs{
-      b.getNamedAttr("kernel", b.getUnitAttr()),
-  };
-  auto outlinedFunc = b.create<FuncOp>(loc, partFnName, type,
-                                       ArrayRef<NamedAttribute>(kernelAttrs));
-  outlinedFunc->setAttr("sym_visibility", StringAttr::get(ctx, "private"));
+    SmallVector<NamedAttribute, 1> kernelAttrs{
+                                               b.getNamedAttr("kernel", b.getUnitAttr()),
+    };
+    outlinedFunc = b.create<FuncOp>(loc, partFnName, type,
+                                    ArrayRef<NamedAttribute>(kernelAttrs));
+    outlinedFunc->setAttr("sym_visibility", StringAttr::get(ctx, "private"));
+    newCandidate.function = outlinedFunc;
 
-  // Clone convOp and secondOps into the body of the new function.
-  b.setInsertionPointToStart(outlinedFunc.addEntryBlock());
-  BlockAndValueMapping bvm;
-  for (auto it : llvm::zip(values, outlinedFunc.getArguments()))
-    bvm.map(std::get<0>(it), std::get<1>(it));
+    // Clone convOp and secondOps into the body of the new function.
+    b.setInsertionPointToStart(outlinedFunc.addEntryBlock());
+    BlockAndValueMapping bvm;
+    for (auto it : llvm::zip(values, outlinedFunc.getArguments()))
+      bvm.map(std::get<0>(it), std::get<1>(it));
 
-  for (auto *op : llvm::reverse(frontOps)) {
-    b.clone(*op, bvm);
+    newCandidate.frontOps.clear();
+    for (auto *op : llvm::reverse(frontOps)) {
+      newCandidate.frontOps.push_back(b.clone(*op, bvm));
+    }
+    std::reverse(newCandidate.frontOps.begin(), newCandidate.frontOps.end());
+
+    newCandidate.convOp = b.clone(*convOp, bvm);
+
+    newCandidate.secondOps.clear();
+    for (auto *op : secondOps) {
+      // All operands should already be in bvm.
+      assert(llvm::all_of(op->getOperands(),
+                          [&](Value v) { return bvm.lookupOrNull(v); }));
+      newCandidate.secondOps.push_back(b.clone(*op, bvm));
+    }
+
+    // Make ReturnOp from secondOps' results.
+    SmallVector<Value> returnOperands;
+    for (auto op : returnVals) {
+      returnOperands.push_back(bvm.lookup(op));
+    }
+    // Can't also supply return types, because it'll see a mismatch
+    // in numbers where there isn't one.
+    b.create<ReturnOp>(loc, returnOperands);
+
+    candidates.push_back(newCandidate);
   }
 
-  b.clone(*convOp, bvm);
-
-  // Since secondOps is a SetVector, it's in the order that the ops were
-  // seen in the main function, which is safe to iterate through.
-  Operation *lastOp = convOp;
-  for (auto *op : secondOps) {
-    assert(llvm::all_of(op->getOperands(),
-                        [&](Value v) { return bvm.lookupOrNull(v); }));
-    b.clone(*op, bvm);
-    lastOp = op;
-  }
-
-  // Make ReturnOp from secondOps' results.
-  SmallVector<Value> returnOperands;
-  for (auto op : returnVals) {
-    returnOperands.push_back(bvm.lookup(op));
-  }
-  // Can't also supply return types, because it'll see a mismatch
-  // in numbers where there isn't one.
-  b.create<ReturnOp>(loc, returnOperands);
+  // ------------------------------------------------------------
+  // Replacement part.
 
   // Replace convOp and secondOps with CallOp to new function.
   b.setInsertionPointAfter(lastOp);
@@ -240,6 +387,7 @@ public:
   void runOnFunction() override {
     int count = 0;
     FuncOp func = getFunction();
+    std::vector<OutliningCandidate> candidates;
 
     auto callback = [&](tosa::Conv2DOp convOp) {
       auto strCount = std::string("_outlined_part_") + std::to_string(count++);
@@ -343,9 +491,10 @@ public:
 
       if (!secondOps.empty() || !frontOps.empty()) {
         // Make the outlined function from the ops we've gathered.
-        outlineConvPartOps(convOp, secondOps, frontOps,
+        outlineConvPartOps(convOp, secondOps.getArrayRef(), frontOps,
                            inputNodes.getArrayRef(), resultNodes.getArrayRef(),
-                           std::string(func.sym_name()) + strCount);
+                           std::string(func.sym_name()) + strCount,
+                           candidates);
         // Outlining will erase nodes and thus perturb the walk, so
         // signal interrupted to exit it and restart.
         return WalkResult::interrupt();
