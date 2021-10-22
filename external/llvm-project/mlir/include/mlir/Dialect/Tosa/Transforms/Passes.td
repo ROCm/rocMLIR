@@ -43,7 +43,7 @@ def TosaMakeBroadcastable : FunctionPass<"tosa-make-broadcastable"> {
   let constructor = "createTosaMakeBroadcastablePass()";
 }
 
-def TosaPartition : FunctionPass<"tosa-partition"> {
+def TosaPartition : Pass<"tosa-partition", "ModuleOp"> {
   let summary = "Outline TOSA Conv2D ops and adjacent element-wise ops";
   let description = [{
     Outline kernels of tosa::Conv2D and surrounding elementwise ops.
