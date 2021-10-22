@@ -367,11 +367,13 @@ bool isFunctionallyEquivalentTo(Operation *lhs, Operation *rhs) {
 class TosaPartitionPass : public TosaPartitionBase<TosaPartitionPass> {
 public:
   void runOnOperation() override {
-    int count = 0;
-    std::vector<OutliningCandidate> candidates;
     ModuleOp module = getOperation();
     auto funcOps = module.getOps<FuncOp>();
-    for (auto func : funcOps) {
+    for (auto func : llvm::make_early_inc_range(funcOps)) {
+      int count = 0;
+      // (Problems with node mismatches and unexpected uses if we have the
+      // candidates list at module level.)
+      std::vector<OutliningCandidate> candidates;
       auto callback = [&](tosa::Conv2DOp convOp) {
         auto strCount = std::string("_outlined_part_") + std::to_string(count++);
 
