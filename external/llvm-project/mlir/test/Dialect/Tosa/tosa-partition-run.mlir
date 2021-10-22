@@ -16,7 +16,7 @@
 // CHECK-NEXT:     [0.214844,     0.595831],
 // CHECK-NEXT:     [0.0928252,     0.721703],
 //
-// RUN: mlir-opt %s --tosa-partition-pipeline --tosa-to-linalg-on-tensors --tosa-to-standard --linalg-detensorize \
+// RUN: mlir-opt %s --tosa-partition --tosa-to-linalg-on-tensors --tosa-to-standard --linalg-detensorize \
 // RUN:   -tensor-constant-bufferize -std-bufferize -linalg-bufferize -tensor-bufferize \
 // RUN:   -func-bufferize -finalizing-bufferize --convert-linalg-to-loops \
 // RUN:   --tosa-to-standard -lower-affine -convert-linalg-to-llvm --convert-scf-to-std \
