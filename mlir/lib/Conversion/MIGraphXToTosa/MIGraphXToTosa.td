@@ -23,7 +23,7 @@ def : Pat<(MIGraphX_AddOp
     (MIGraphX_ConvolutionOp $input1, $filter, $pad, $stride, $dilation,
       $group, $_ // ignore padding mode
       ), $bias),
-      (Tosa_Conv2DOp $input1, $filter, $bias, (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr)), , (addBenefit 3)>;
+      (Tosa_Conv2DOp $input1, $filter, $bias, (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr)), [], (addBenefit 3)>;
 
 //def : Pat<(MIGraphX_ConvolutionOp:$result $input1, $_, $_, $_, $_, $_, $_),
 //    (replaceWithValue $input1), (HasNoUseOf:$result)>;
