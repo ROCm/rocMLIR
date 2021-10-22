@@ -70,7 +70,6 @@ inline void registerAllPasses() {
   registerStandardPasses();
   tensor::registerTensorPasses();
   tosa::registerTosaOptPasses();
-  tosa::registerTosaPartitionPipelinePass();
 }
 
 } // namespace mlir
