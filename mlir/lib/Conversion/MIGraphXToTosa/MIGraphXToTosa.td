@@ -25,8 +25,8 @@ def : Pat<(MIGraphX_AddOp
       ), $bias),
       (Tosa_Conv2DOp $input1, $filter, $bias, (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr))>;
 
-def : Pat<(MIGraphX_ConvolutionOp:$result $input1, $_, $_, $_, $_, $_, $_),
-    (replaceWithValue $input1), [(HasNoUseOf:$result)]>;
+//def : Pat<(MIGraphX_ConvolutionOp:$result $input1, $_, $_, $_, $_, $_, $_),
+//    (replaceWithValue $input1), [(HasNoUseOf:$result)]>;
 
 def HasUsed: Constraint<CPred<"!($_self.use_empty())">, "has been used">;
 def : Pat<(MIGraphX_ConvolutionOp:$result $input1, $filter, $pad, $stride, $dilation,
