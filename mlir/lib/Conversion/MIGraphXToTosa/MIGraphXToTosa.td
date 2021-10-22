@@ -20,10 +20,6 @@ def Convert2DTo4DSymmPad : NativeCodeCall<
     "$_builder.getArrayAttr({($0.getValue()[0]), ($0.getValue()[0]), ($0.getValue()[1]), ($0.getValue()[1])})">;
 def GetNullAttr : NativeCodeCall<"Attribute()">;
 
-//def : Pat<(MIGraphX_ConvolutionOp:$result $input1, $_, $_, $_, $_, $_, $_),
-//    (replaceWithValue $input1), [(HasNoUseOf:$result)]>;
-
-def HasUsed: Constraint<CPred<"!($_self.use_empty())">, "has been used">;
 def : Pat<(MIGraphX_ConvolutionOp:$result $input1, $filter, $pad, $stride, $dilation,
       $group, $_ // ignore padding mode
       ),
