@@ -25,12 +25,15 @@ def : Pat<(MIGraphX_AddOp
       ), $bias),
       (Tosa_Conv2DOp $input1, $filter, $bias, (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr))>;
 
-//def : Pat<(MIGraphX_ConvolutionOp $input1, $filter, $pad, $stride, $dilation,
-//      $group, $_ // ignore padding mode
-//      ),
-//    (Tosa_Conv2DOp $input1, $filter, (Tosa_ConstOp ConstantAttr<RankedF32ElementsAttr<[1]>, "{0.0f}">:$f32attr), (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr))>;
+def : Pat<(MIGraphX_ConvolutionOp $input1, $filter, $pad, $stride, $dilation,
+      $group, $_ // ignore padding mode
+      ),
+    (Tosa_Conv2DOp $input1, $filter, (Tosa_ConstOp ConstantAttr<RankedF32ElementsAttr<[1]>, "{0.0f}">:$f32attr), (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr))>;
 
-def : Pat<(MIGraphX_ConvolutionOp:$result $input1, $_, $_, $_, $_, $_, $_),
+//def : Pat<(MIGraphX_ConvolutionOp:$result $input1, $_, $_, $_, $_, $_, $_),
+//    (replaceWithValue $input1), [(HasNoUseOf:$result)]>;
+
+def : Pat<(Tosa_Conv2DOp:$result $input1, $_, $_, $_, $_, $_, $_),
     (replaceWithValue $input1), [(HasNoUseOf:$result)]>;
 
 def : Pat<(MIGraphX_RsqrtOp $input1), (Tosa_RsqrtOp $input1)>;
