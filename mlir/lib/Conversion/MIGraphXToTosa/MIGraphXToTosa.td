@@ -23,7 +23,7 @@ def : Pat<(MIGraphX_AddOp
     (MIGraphX_ConvolutionOp $input1, $filter, $pad, $stride, $dilation,
       $group, $_ // ignore padding mode
       ), $bias),
-      (Tosa_Conv2DOp $input1, $filter, $bias, (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr)), (addBenefit 3)>;
+      (Tosa_Conv2DOp $input1, $filter, $bias, (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr)), [(addBenefit 3)]>;
 
 //def : Pat<(MIGraphX_ConvolutionOp:$result $input1, $_, $_, $_, $_, $_, $_),
 //    (replaceWithValue $input1), (HasNoUseOf:$result)>;
@@ -32,7 +32,7 @@ def HasUsed: Constraint<CPred<"!($_self.use_empty())">, "has been used">;
 def : Pat<(MIGraphX_ConvolutionOp:$result $input1, $filter, $pad, $stride, $dilation,
       $group, $_ // ignore padding mode
       ),
-    (Tosa_Conv2DOp $input1, $filter, (Tosa_ConstOp ConstantAttr<RankedF32ElementsAttr<[1]>, "{0.0f}">:$f32attr), (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr)), [(HasUsed:$result)], (addBenefit 2)>;
+    (Tosa_Conv2DOp $input1, $filter, (Tosa_ConstOp ConstantAttr<RankedF32ElementsAttr<[1]>, "{0.0f}">:$f32attr), (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr)), [(HasUsed:$result)], [(addBenefit 2)]>;
 
 def : Pat<(MIGraphX_RsqrtOp $input1), (Tosa_RsqrtOp $input1)>;
 // Clamp to Relu if it clamps to max/min number, otherwise convert to ceil + floor
