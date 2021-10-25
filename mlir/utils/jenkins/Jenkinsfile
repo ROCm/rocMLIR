@@ -64,7 +64,7 @@ void testMIOpenDriver(String dtype, String xdlops, String layout, String directi
         --dtype ${dtype} \
         ${xdlops == '1' ? '--xdlops' : '--no-xdlops'} \
         ${tuning == '1' ? '--tuning' : '--no-tuning'} \
-        < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnext101-miopen-configs"""
+        < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
     }
 }
 
@@ -474,7 +474,7 @@ pipeline {
                                 }
                                 steps {
                                     testMIOpenDriver('$DTYPE', '$XDLOPS', '$LAYOUT', '$DIRECTION', '0')
-                                    testMIOpenDriver('$DTYPE', '$XDLOPS', '$LAYOUT', '$DIRECTION', '1')
+                                    //testMIOpenDriver('$DTYPE', '$XDLOPS', '$LAYOUT', '$DIRECTION', '1')
                                 }
                             }
                         }
