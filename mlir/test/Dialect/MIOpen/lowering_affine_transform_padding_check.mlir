@@ -7,8 +7,12 @@
 // CHECK0-NEXT: hasPadding = false
 // CHECK0-NEXT: hasPadding = false
 // CHECK0-NEXT: hasPadding = false
+// CHECK0-NEXT: hasPadding = false
+// CHECK0-NEXT: hasPadding = false
 
 // CHECK1: hasPadding = false
+// CHECK1-NEXT: hasPadding = false
+// CHECK1-NEXT: hasPadding = true
 // CHECK1-NEXT: hasPadding = true
 // CHECK1-NEXT: hasPadding = true
 // CHECK1-NEXT: hasPadding = true
