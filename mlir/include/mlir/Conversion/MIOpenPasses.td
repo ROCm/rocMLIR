@@ -66,7 +66,7 @@ def TosaToMIOpen : FunctionPass<"tosa-to-miopen"> {
     Pass that converts TOSA operations to bufferized MIOpen operations.
   }];
 
-  let constructor = "tosa::createTosaToMIOpen()";
+  let constructor = "tosa::createTosaToMIOpenPass()";
 }
 
 //===----------------------------------------------------------------------===//
