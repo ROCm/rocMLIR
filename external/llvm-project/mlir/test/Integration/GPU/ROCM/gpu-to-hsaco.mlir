@@ -29,7 +29,7 @@ func @main() {
   gpu.host_register %cast : memref<*xf32>
   %23 = memref.cast %22 : memref<?xf32> to memref<*xf32>
   call @print_memref_f32(%23) : (memref<*xf32>) -> ()
-  %24 = constant 1.0 : f32
+  %24 = arith.constant 1.0 : f32
   %25 = call @mgpuMemGetDeviceMemRef1dFloat(%22) : (memref<?xf32>) -> (memref<?xf32>)
   call @other_func(%24, %25) : (f32, memref<?xf32>) -> ()
   call @print_memref_f32(%23) : (memref<*xf32>) -> ()

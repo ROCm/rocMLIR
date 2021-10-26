@@ -34,6 +34,7 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 
+#include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/LineIterator.h"
 #include "llvm/Support/Program.h"

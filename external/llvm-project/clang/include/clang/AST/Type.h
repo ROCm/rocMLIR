@@ -6016,10 +6016,9 @@ inline ObjCProtocolDecl **ObjCTypeParamType::getProtocolStorageImpl() {
 class ObjCInterfaceType : public ObjCObjectType {
   friend class ASTContext; // ASTContext creates these.
   friend class ASTReader;
-  friend class ObjCInterfaceDecl;
   template <class T> friend class serialization::AbstractTypeReader;
 
-  mutable ObjCInterfaceDecl *Decl;
+  ObjCInterfaceDecl *Decl;
 
   ObjCInterfaceType(const ObjCInterfaceDecl *D)
       : ObjCObjectType(Nonce_ObjCInterface),
@@ -6027,7 +6026,7 @@ class ObjCInterfaceType : public ObjCObjectType {
 
 public:
   /// Get the declaration of this interface.
-  ObjCInterfaceDecl *getDecl() const { return Decl; }
+  ObjCInterfaceDecl *getDecl() const;
 
   bool isSugared() const { return false; }
   QualType desugar() const { return QualType(this, 0); }
@@ -7146,7 +7145,7 @@ inline const StreamingDiagnostic &operator<<(const StreamingDiagnostic &PD,
 /// into a diagnostic with <<.
 inline const StreamingDiagnostic &operator<<(const StreamingDiagnostic &PD,
                                              QualType T) {
-  PD.AddTaggedVal(reinterpret_cast<intptr_t>(T.getAsOpaquePtr()),
+  PD.AddTaggedVal(reinterpret_cast<uint64_t>(T.getAsOpaquePtr()),
                   DiagnosticsEngine::ak_qualtype);
   return PD;
 }

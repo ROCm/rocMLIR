@@ -78,7 +78,6 @@ static const std::vector<std::vector<uint8_t>> nopInstructions = {
 X86_64::X86_64() {
   copyRel = R_X86_64_COPY;
   gotRel = R_X86_64_GLOB_DAT;
-  noneRel = R_X86_64_NONE;
   pltRel = R_X86_64_JUMP_SLOT;
   relativeRel = R_X86_64_RELATIVE;
   iRelativeRel = R_X86_64_IRELATIVE;
@@ -87,6 +86,7 @@ X86_64::X86_64() {
   tlsGotRel = R_X86_64_TPOFF64;
   tlsModuleIndexRel = R_X86_64_DTPMOD64;
   tlsOffsetRel = R_X86_64_DTPOFF64;
+  gotBaseSymInGotPlt = true;
   gotEntrySize = 8;
   pltHeaderSize = 16;
   pltEntrySize = 16;
@@ -356,6 +356,8 @@ RelExpr X86_64::getRelExpr(RelType type, const Symbol &s,
     return R_GOT_PC;
   case R_X86_64_GOTOFF64:
     return R_GOTPLTREL;
+  case R_X86_64_PLTOFF64:
+    return R_PLT_GOTPLT;
   case R_X86_64_GOTPC32:
   case R_X86_64_GOTPC64:
     return R_GOTPLTONLY_PC;
@@ -718,6 +720,7 @@ int64_t X86_64::getImplicitAddend(const uint8_t *buf, RelType type) const {
   case R_X86_64_GOT64:
   case R_X86_64_GOTOFF64:
   case R_X86_64_GOTPC64:
+  case R_X86_64_PLTOFF64:
   case R_X86_64_IRELATIVE:
   case R_X86_64_RELATIVE:
     return read64le(buf);
@@ -779,6 +782,7 @@ void X86_64::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
   case R_X86_64_GOT64:
   case R_X86_64_GOTOFF64:
   case R_X86_64_GOTPC64:
+  case R_X86_64_PLTOFF64:
     write64le(loc, val);
     break;
   default:

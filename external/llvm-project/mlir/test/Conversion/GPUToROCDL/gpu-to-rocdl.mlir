@@ -84,7 +84,7 @@ gpu.module @test_module {
   gpu.func @gpu_index_comp(%idx : index) -> index {
     // CHECK: = llvm.add %{{.*}}, %{{.*}} : i64
     // CHECK32: = llvm.add %{{.*}}, %{{.*}} : i32
-    %0 = addi %idx, %idx : index
+    %0 = arith.addi %idx, %idx : index
     // CHECK: llvm.return %{{.*}} : i64
     // CHECK32: llvm.return %{{.*}} : i32
     gpu.return %0 : index
@@ -118,11 +118,11 @@ gpu.module @test_module {
 gpu.module @test_module {
   // CHECK: llvm.func @__ocml_fabs_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_fabs_f64(f64) -> f64
-  // CHECK-LABEL: llvm.func @gpu_fabs
-  gpu.func @gpu_fabs(%arg_f32 : f32, %arg_f64 : f64, %out0 : memref<?xf32>, %out1 : memref<?xf64>) -> () {
-    %result32 = std.absf %arg_f32 : f32
+  // CHECK-LABEL: func @gpu_fabs
+  builtin.func @gpu_fabs(%arg_f32 : f32, %arg_f64 : f64) -> (f32, f64) {
+    %result32 = math.abs %arg_f32 : f32
     // CHECK: llvm.call @__ocml_fabs_f32(%{{.*}}) : (f32) -> f32
-    %result64 = std.absf %arg_f64 : f64
+    %result64 = math.abs %arg_f64 : f64
     // CHECK: llvm.call @__ocml_fabs_f64(%{{.*}}) : (f64) -> f64
 
     %c0 = constant 0 : index
@@ -142,7 +142,7 @@ gpu.module @test_module {
   gpu.func @gpu_ceil(%arg_f32 : f32, %arg_f64 : f64, %out0 : memref<?xf32>, %out1 : memref<?xf64>) -> () {
     %result32 = std.ceilf %arg_f32 : f32
     // CHECK: llvm.call @__ocml_ceil_f32(%{{.*}}) : (f32) -> f32
-    %result64 = std.ceilf %arg_f64 : f64
+    %result64 = math.ceil %arg_f64 : f64
     // CHECK: llvm.call @__ocml_ceil_f64(%{{.*}}) : (f64) -> f64
 
     %c0 = constant 0 : index
@@ -162,7 +162,7 @@ gpu.module @test_module {
   gpu.func @gpu_floor(%arg_f32 : f32, %arg_f64 : f64, %out0 : memref<?xf32>, %out1 : memref<?xf64>) -> () {
     %result32 = std.floorf %arg_f32 : f32
     // CHECK: llvm.call @__ocml_floor_f32(%{{.*}}) : (f32) -> f32
-    %result64 = std.floorf %arg_f64 : f64
+    %result64 = math.floor %arg_f64 : f64
     // CHECK: llvm.call @__ocml_floor_f64(%{{.*}}) : (f64) -> f64
 
     %c0 = constant 0 : index
@@ -950,7 +950,7 @@ gpu.module @test_module_mfma_bf16 {
     memref.store %30, %arg2[%c1_8] : memref<16xvector<4xf32>>
     gpu.return
   }
-} 
+}
 gpu.module @test_module {
   // CHECK-LABEL: @kernel_func
   // CHECK: attributes
