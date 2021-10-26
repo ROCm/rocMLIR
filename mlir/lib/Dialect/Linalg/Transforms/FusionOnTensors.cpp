@@ -1,4 +1,4 @@
-//===- Fusion.cpp - Implementation of linalg Fusion -----------------------===//
+//===- FusionOnTensors.cpp - Implementation of linalg Fusion --------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -35,8 +35,8 @@ using namespace linalg;
 /// producer is always possible. However, depending on the consumer indexing
 /// map, not all slice elements may be consumed and the tiles may overlap. In
 /// these cases, fusion introduces redundant computation.
-SmallVector<int64_t> getTiledSliceDims(OpOperand *consumerOperand,
-                                       ArrayRef<int64_t> tiledLoopDims) {
+static SmallVector<int64_t> getTiledSliceDims(OpOperand *consumerOperand,
+                                              ArrayRef<int64_t> tiledLoopDims) {
   // Get the consumer operand indexing map.
   LinalgOp consumerOp = consumerOperand->getOwner();
   AffineMap indexingMap = consumerOp.getTiedIndexingMap(consumerOperand);
@@ -110,7 +110,7 @@ static LinalgOp getTiledProducer(OpBuilder &b, OpResult producerResult,
   // `tiledSliceDims` and store the tile offset and size for the tiled slice
   // dimension. Assumes the mapping from slice dimensions to producer loops is a
   // permutation.
-  auto zero = b.create<ConstantIndexOp>(loc, 0);
+  auto zero = b.create<arith::ConstantIndexOp>(loc, 0);
   SmallVector<Value> tileIvs(producerOp.getNumLoops(), nullptr);
   SmallVector<Value> tileSizes(producerOp.getNumLoops(), zero);
   SmallVector<Value> allIvs(producerOp.getNumLoops(), nullptr);
@@ -245,10 +245,15 @@ LogicalResult TileLoopNest::tileRootOp(OpBuilder &b,
                       .setLoopType(LinalgTilingLoopType::Loops);
   Optional<TiledLinalgOp> tiledRootOp = tileLinalgOp(b, rootOp, tilingOptions);
 
-  // Replace all uses of the root operation.
+  // Exit if tiling the root operation fails.
   if (!tiledRootOp.hasValue())
     return failure();
-  rootOp->replaceAllUsesWith(tiledRootOp->tensorResults);
+
+  // Replace all uses of the root operation if it has been tiled before. All
+  // uses of the original untiled root operation are updated by the calling pass
+  // or pattern.
+  if (!isEmpty())
+    rootOp->replaceAllUsesWith(tiledRootOp->tensorResults);
 
   // Update the root operation and append the loops and tile loop dimensions.
   rootOp = tiledRootOp->op;
@@ -321,6 +326,11 @@ FailureOr<LinalgOp> TileLoopNest::fuseProducer(OpBuilder &b,
   // Replace the `sliceOp` uses except for the `clonedOp` output uses.
   sliceOp.getResult().replaceAllUsesExcept(newResult, clonedOp);
   return clonedOp;
+}
+
+ValueRange TileLoopNest::getRootOpReplacementResults() {
+  assert(!isEmpty() && "expect tile loop nest to be non-empty");
+  return loopOps.front()->getOpResults();
 }
 
 //===----------------------------------------------------------------------===//
@@ -420,7 +430,7 @@ struct LinalgTileAndFuseTensorOps
         tileSizes.begin(), tileSizes.begin() + rootOp.getNumLoops());
     SmallVector<int64_t> rootInterchange =
         tileInterchange.empty()
-            ? llvm::to_vector<6>(llvm::seq<int64_t>(0, tileSizes.size()))
+            ? llvm::to_vector<6>(llvm::seq<int64_t>(0, rootOp.getNumLoops()))
             : SmallVector<int64_t>(tileInterchange.begin(),
                                    tileInterchange.begin() +
                                        rootOp.getNumLoops());
@@ -433,9 +443,13 @@ struct LinalgTileAndFuseTensorOps
           "expect the tile interchange permutes the root loops");
 
     // Tile `rootOp` and fuse its producers.
-    if (failed(tileConsumerAndFuseProducers(b, rootOp, rootTileSizes,
-                                            rootInterchange)))
+    FailureOr<TileLoopNest> tileLoopNest =
+        tileConsumerAndFuseProducers(b, rootOp, rootTileSizes, rootInterchange);
+    if (failed(tileLoopNest))
       return notifyFailure("tileConsumerAndFuseProducers failed unexpectedly");
+
+    // Replace all uses of the tiled loop operation.
+    rootOp->replaceAllUsesWith(tileLoopNest->getRootOpReplacementResults());
   }
 };
 } // namespace

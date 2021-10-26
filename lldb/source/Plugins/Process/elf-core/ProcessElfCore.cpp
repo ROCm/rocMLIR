@@ -110,9 +110,6 @@ ProcessElfCore::~ProcessElfCore() {
   Finalize();
 }
 
-// PluginInterface
-ConstString ProcessElfCore::GetPluginName() { return GetPluginNameStatic(); }
-
 lldb::addr_t ProcessElfCore::AddAddressRangeFromLoadSegment(
     const elf::ELFProgramHeader &header) {
   const lldb::addr_t addr = header.p_vaddr;
@@ -255,7 +252,7 @@ Status ProcessElfCore::DoLoadCore() {
 lldb_private::DynamicLoader *ProcessElfCore::GetDynamicLoader() {
   if (m_dyld_up.get() == nullptr)
     m_dyld_up.reset(DynamicLoader::FindPlugin(
-        this, DynamicLoaderPOSIXDYLD::GetPluginNameStatic().GetCString()));
+        this, DynamicLoaderPOSIXDYLD::GetPluginNameStatic()));
   return m_dyld_up.get();
 }
 

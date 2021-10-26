@@ -54,7 +54,7 @@ public:
   static void Terminate();
 
   // ABI
-  static bool RegisterPlugin(ConstString name, const char *description,
+  static bool RegisterPlugin(llvm::StringRef name, llvm::StringRef description,
                              ABICreateInstance create_callback);
 
   static bool UnregisterPlugin(ABICreateInstance create_callback);
@@ -62,7 +62,7 @@ public:
   static ABICreateInstance GetABICreateCallbackAtIndex(uint32_t idx);
 
   // Architecture
-  static void RegisterPlugin(ConstString name, llvm::StringRef description,
+  static void RegisterPlugin(llvm::StringRef name, llvm::StringRef description,
                              ArchitectureCreateInstance create_callback);
 
   static void UnregisterPlugin(ArchitectureCreateInstance create_callback);
@@ -71,7 +71,7 @@ public:
   CreateArchitectureInstance(const ArchSpec &arch);
 
   // Disassembler
-  static bool RegisterPlugin(ConstString name, const char *description,
+  static bool RegisterPlugin(llvm::StringRef name, llvm::StringRef description,
                              DisassemblerCreateInstance create_callback);
 
   static bool UnregisterPlugin(DisassemblerCreateInstance create_callback);
@@ -80,11 +80,11 @@ public:
   GetDisassemblerCreateCallbackAtIndex(uint32_t idx);
 
   static DisassemblerCreateInstance
-  GetDisassemblerCreateCallbackForPluginName(ConstString name);
+  GetDisassemblerCreateCallbackForPluginName(llvm::StringRef name);
 
   // DynamicLoader
   static bool
-  RegisterPlugin(ConstString name, const char *description,
+  RegisterPlugin(llvm::StringRef name, llvm::StringRef description,
                  DynamicLoaderCreateInstance create_callback,
                  DebuggerInitializeCallback debugger_init_callback = nullptr);
 
@@ -94,11 +94,11 @@ public:
   GetDynamicLoaderCreateCallbackAtIndex(uint32_t idx);
 
   static DynamicLoaderCreateInstance
-  GetDynamicLoaderCreateCallbackForPluginName(ConstString name);
+  GetDynamicLoaderCreateCallbackForPluginName(llvm::StringRef name);
 
   // JITLoader
   static bool
-  RegisterPlugin(ConstString name, const char *description,
+  RegisterPlugin(llvm::StringRef name, llvm::StringRef description,
                  JITLoaderCreateInstance create_callback,
                  DebuggerInitializeCallback debugger_init_callback = nullptr);
 
@@ -108,7 +108,7 @@ public:
   GetJITLoaderCreateCallbackAtIndex(uint32_t idx);
 
   // EmulateInstruction
-  static bool RegisterPlugin(ConstString name, const char *description,
+  static bool RegisterPlugin(llvm::StringRef name, llvm::StringRef description,
                              EmulateInstructionCreateInstance create_callback);
 
   static bool
@@ -118,10 +118,10 @@ public:
   GetEmulateInstructionCreateCallbackAtIndex(uint32_t idx);
 
   static EmulateInstructionCreateInstance
-  GetEmulateInstructionCreateCallbackForPluginName(ConstString name);
+  GetEmulateInstructionCreateCallbackForPluginName(llvm::StringRef name);
 
   // OperatingSystem
-  static bool RegisterPlugin(ConstString name, const char *description,
+  static bool RegisterPlugin(llvm::StringRef name, llvm::StringRef description,
                              OperatingSystemCreateInstance create_callback,
                              DebuggerInitializeCallback debugger_init_callback);
 
@@ -131,7 +131,7 @@ public:
   GetOperatingSystemCreateCallbackAtIndex(uint32_t idx);
 
   static OperatingSystemCreateInstance
-  GetOperatingSystemCreateCallbackForPluginName(ConstString name);
+  GetOperatingSystemCreateCallbackForPluginName(llvm::StringRef name);
 
   // Language
   static bool RegisterPlugin(ConstString name, const char *description,
@@ -170,7 +170,7 @@ public:
 
   // ObjectFile
   static bool
-  RegisterPlugin(ConstString name, const char *description,
+  RegisterPlugin(llvm::StringRef name, llvm::StringRef description,
                  ObjectFileCreateInstance create_callback,
                  ObjectFileCreateMemoryInstance create_memory_callback,
                  ObjectFileGetModuleSpecifications get_module_specifications,
@@ -188,16 +188,16 @@ public:
   GetObjectFileGetModuleSpecificationsCallbackAtIndex(uint32_t idx);
 
   static ObjectFileCreateMemoryInstance
-  GetObjectFileCreateMemoryCallbackForPluginName(ConstString name);
+  GetObjectFileCreateMemoryCallbackForPluginName(llvm::StringRef name);
 
   static Status SaveCore(const lldb::ProcessSP &process_sp,
                          const FileSpec &outfile,
                          lldb::SaveCoreStyle &core_style,
-                         const ConstString plugin_name);
+                         llvm::StringRef plugin_name);
 
   // ObjectContainer
   static bool
-  RegisterPlugin(ConstString name, const char *description,
+  RegisterPlugin(llvm::StringRef name, llvm::StringRef description,
                  ObjectContainerCreateInstance create_callback,
                  ObjectFileGetModuleSpecifications get_module_specifications);
 
@@ -211,7 +211,7 @@ public:
 
   // Platform
   static bool
-  RegisterPlugin(ConstString name, const char *description,
+  RegisterPlugin(llvm::StringRef name, llvm::StringRef description,
                  PlatformCreateInstance create_callback,
                  DebuggerInitializeCallback debugger_init_callback = nullptr);
 
@@ -220,11 +220,11 @@ public:
   static PlatformCreateInstance GetPlatformCreateCallbackAtIndex(uint32_t idx);
 
   static PlatformCreateInstance
-  GetPlatformCreateCallbackForPluginName(ConstString name);
+  GetPlatformCreateCallbackForPluginName(llvm::StringRef name);
 
-  static const char *GetPlatformPluginNameAtIndex(uint32_t idx);
+  static llvm::StringRef GetPlatformPluginNameAtIndex(uint32_t idx);
 
-  static const char *GetPlatformPluginDescriptionAtIndex(uint32_t idx);
+  static llvm::StringRef GetPlatformPluginDescriptionAtIndex(uint32_t idx);
 
   static void AutoCompletePlatformName(llvm::StringRef partial_name,
                                        CompletionRequest &request);
