@@ -57,11 +57,118 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
   ConvolutionContext convContext = populateConvContext(op);
 
-  auto xdlopsAttr = op->template getAttrOfType<BoolAttr>("xdlops");
-  auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-  if ((xdlopsAttr && xdlopsAttr.getValue() == true) ||
-      (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)) {
+  auto filterLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("filter_layout");
+  auto inputLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("input_layout");
+  auto outputLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("output_layout");
 
+  // Get shape of filter tensor.
+  auto filterType = op.filter().getType().template cast<MemRefType>();
+  auto filterShape = filterType.getShape();
+
+  // Get shape of input tensor.
+  auto inputType = op.input().getType().template cast<MemRefType>();
+  auto inputShape = inputType.getShape();
+
+  // Get shape of output tensor.
+  auto outputType = op.output().getType().template cast<MemRefType>();
+  auto outputShape = outputType.getShape();
+
+  // get y, x, ho, wo, hi, wi, k, c, n
+  int64_t y, x, ho, wo, hi, wi, k, c, n;
+  y = x = ho = wo = hi = wi = k = c = n = 0;
+  llvm::DenseMap<StringRef, int> nameToDims;
+  for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
+    auto filterAttr =
+        filterLayoutAttr.getValue()[i].template cast<StringAttr>();
+    auto inputAttr =
+        inputLayoutAttr.getValue()[i].template cast<StringAttr>();
+    auto outputAttr =
+        outputLayoutAttr.getValue()[i].template cast<StringAttr>();
+
+    nameToDims[filterAttr.getValue()] = i;
+    nameToDims[inputAttr.getValue()] = i;
+    nameToDims[outputAttr.getValue()] = i;
+
+    if (filterAttr.getValue() == "y") {
+      y = filterShape[i];
+    } else if (filterAttr.getValue() == "x") {
+      x = filterShape[i];
+    } else if (filterAttr.getValue() == "k") {
+      k = filterShape[i];
+    } else if (filterAttr.getValue() == "c") {
+      c = filterShape[i];
+    }
+
+    if (inputAttr.getValue() == "hi") {
+      hi = inputShape[i];
+    } else if (inputAttr.getValue() == "wi") {
+      wi = inputShape[i];
+    } else if (inputAttr.getValue() == "ni") {
+      n = inputShape[i];
+    }
+
+    if (outputAttr.getValue() == "ho") {
+      ho = outputShape[i];
+    } else if (outputAttr.getValue() == "wo") {
+      wo = outputShape[i];
+    }
+  }
+
+  int64_t gemmM_size, gemmN_size, gemmK_size;
+  int64_t gemmMExtra, gemmNExtra, gemmKExtra;
+  gemmM_size = gemmN_size = gemmK_size = 0;
+  gemmMExtra = gemmNExtra = gemmKExtra = 0;
+  // FIXME : support forward convolution only right now.
+  // compute we should use extra padding kernel or not
+  // c,k already / g ,so we can skip / g here
+  gemmM_size = k;
+  gemmK_size = c * y * x;
+  gemmN_size = n * ho * wo;
+
+  bool needExtraPad = false;
+
+  auto calculatePaddingKernelSize = [&needExtraPad, gemmM_size, gemmN_size,
+                                     gemmK_size, &gemmMExtra, &gemmNExtra,
+                                     &gemmKExtra](auto populateParams) {
+    auto config_params = populateParams.getTuningParameters();
+    unsigned numOfFailedConfigs = 0;
+    for (auto &params : config_params) {
+      if (gemmM_size % params.gemmMPerBlock == 0 &&
+          gemmK_size % params.gemmKPerBlock == 0 &&
+          gemmN_size % params.gemmNPerBlock == 0) {
+        break;
+      } else {
+        numOfFailedConfigs++;
+      }
+    }
+
+    auto extraParams = populateParams.getUniversalParameters();
+    if (numOfFailedConfigs == config_params.size()) {
+      needExtraPad = true;
+      int gemmM_remain, gemmK_remain, gemmN_remain;
+
+      gemmM_remain = gemmM_size % extraParams.gemmMPerBlock;
+      if (gemmM_remain != 0)
+        gemmMExtra = extraParams.gemmMPerBlock - gemmM_remain;
+
+      gemmN_remain = gemmN_size % extraParams.gemmNPerBlock;
+      if (gemmN_remain != 0)
+        gemmNExtra = extraParams.gemmNPerBlock - gemmN_remain;
+
+      gemmK_remain = gemmK_size % extraParams.gemmKPerBlock;
+      if (gemmK_remain != 0)
+        gemmKExtra = extraParams.gemmKPerBlock - gemmK_remain;
+
+      // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
+      // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
+    }
+  };
+
+  auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
+  if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
     PopulateParamsXDL populateParamsXDL;
     InitParamsXDL validParams;
     DerivedParams gemmADerivedParam;
@@ -80,6 +187,11 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("m_per_wave", b.getI32IntegerAttr(validParams.gemmMPerWave));
     op->setAttr("n_per_wave", b.getI32IntegerAttr(validParams.gemmNPerWave));
     op->setAttr("block_size", b.getI32IntegerAttr(blockSize));
+
+    // Disable kpack in case we need padding kernel.
+    calculatePaddingKernelSize(populateParamsXDL);
+    if (needExtraPad)
+      validParams.gemmKPack = 1;
     op->setAttr("kpack", b.getI32IntegerAttr(validParams.gemmKPack));
 
     // Set attributes on the function.
