@@ -201,7 +201,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   return moduleOp;
 }
 
-static int constructAndTraverseIr(MlirContext ctx) {
+static MiirStatus constructAndTraverseIr(MlirContext ctx) {
   MlirLocation location1 = mlirLocationUnknownGet(ctx);
   MlirModule moduleOp1 = makeAndDumpMIXR(ctx, location1);
 
@@ -218,13 +218,13 @@ static int constructAndTraverseIr(MlirContext ctx) {
 
   // CHECK: PASSED!
   printf("PASSED!\n");
-  return 0;
+  return MIIR_SUCCESS;
 }
 
 int main() {
   MlirContext ctx = mlirContextCreate();
   mlirRegisterAllDialects(ctx);
-  if (constructAndTraverseIr(ctx))
+  if (constructAndTraverseIr(ctx) != MIIR_SUCCESS)
     return 1;
 
   mlirContextDestroy(ctx);
