@@ -197,6 +197,13 @@ module attributes {gpu.container_module} {
     return
   }
 
+  func @warp_swizzle(%in : i32) -> i32 {
+    // CHECK-LABEL func @warp_swizzle
+    // CHECK %{{.*}} gpu.warp_swizzle { selector = [0 : i32, 3 : i32, 2 : i32, 1 : i32]} %{{.*}} : i32
+    %0 = gpu.warp_swizzle { selector = [0 : i32, 3 : i32, 2 : i32, 1 : i32] } %in : i32
+    return %0 : i32
+  }
+
   gpu.module @mfma {
     // CHECK-LABEL: gpu.func @mfma_f32
     //   CHECK:      gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : f32, vector<32xf32>

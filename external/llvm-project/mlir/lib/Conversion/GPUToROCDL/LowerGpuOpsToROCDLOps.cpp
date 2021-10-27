@@ -22,14 +22,17 @@
 #include "mlir/Conversion/VectorToROCDL/VectorToROCDL.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/GPU/Passes.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/VectorOps.h"
+#include "mlir/IR/Attributes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/FormatVariadic.h"
+#include <iterator>
 
 #include "../GPUCommon/GPUOpsLowering.h"
 #include "../GPUCommon/IndexIntrinsicsOpLowering.h"
@@ -916,6 +919,49 @@ struct BFOpLowering : ConvertToLLVMPattern {
     return success();
   }
 };
+
+struct WarpSwizzleOpLowering : ConvertToLLVMPattern {
+  explicit WarpSwizzleOpLowering(MLIRContext *context,
+                                 LLVMTypeConverter &typeConverter)
+      : ConvertToLLVMPattern(gpu::WarpSwizzleOp::getOperationName(), context,
+                             typeConverter) {}
+
+  LogicalResult
+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto swizzleOp = cast<gpu::WarpSwizzleOp>(op);
+    auto loc = swizzleOp.getLoc();
+    auto adaptor = gpu::WarpSwizzleOpAdaptor(operands, op->getAttrDictionary());
+
+    auto mlirI32Type = rewriter.getI32Type();
+    auto llvmI32Type = typeConverter->convertType(mlirI32Type);
+    auto llvmI1Type = typeConverter->convertType(rewriter.getI1Type());
+
+    int32_t permConst = 0;
+    const ArrayRef<mlir::Attribute> selector = adaptor.selector().getValue();
+    for (auto v = selector.rbegin(); v != selector.rend(); ++v) {
+      permConst = (permConst << 2) |
+                  v->cast<mlir::IntegerAttr>().getValue().getZExtValue();
+    }
+
+    auto dppCtrlConstImm = rewriter.create<LLVM::ConstantOp>(
+        loc, llvmI32Type, rewriter.getI32IntegerAttr(permConst));
+
+    // DPP instructions support a mask that allows selectively disabling
+    // rows and/or banks of VGPRs during the shuffle. Since we want to shuffle
+    // all lanes, we use all 1s to avoid disabling any writes
+    auto noMaskConstImm = rewriter.create<LLVM::ConstantOp>(
+        loc, llvmI32Type, rewriter.getI32IntegerAttr(0b1111));
+    auto noBoundsControlConstImm = rewriter.create<LLVM::ConstantOp>(
+        loc, llvmI1Type, rewriter.getBoolAttr(true));
+
+    auto intrinsic = rewriter.create<ROCDL::DPPMovOp>(
+        loc, llvmI32Type, adaptor.in(), dppCtrlConstImm, noMaskConstImm,
+        noMaskConstImm, noBoundsControlConstImm);
+    rewriter.replaceOp(op, {intrinsic});
+    return success();
+  }
+};
 } // namespace mlir
 
 void mlir::populateGpuToROCDLConversionPatterns(LLVMTypeConverter &converter,
@@ -977,6 +1023,8 @@ void mlir::populateGpuToROCDLConversionPatterns(LLVMTypeConverter &converter,
 
   patterns.insert<BFOpLowering>(converter.getDialect()->getContext(),
                                 converter);
+  patterns.insert<WarpSwizzleOpLowering>(converter.getDialect()->getContext(),
+                                         converter);
 
   patterns.insert<MubufLoadOpLowering>(converter.getDialect()->getContext(),
                                        converter);

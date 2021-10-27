@@ -152,6 +152,7 @@ void LowerMIOpenOpsStep3Pass::runOnOperation() {
 void LowerMIOpenOpsStep4Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   OwningRewritePatternList patterns(ctx);
+  patterns.insert<InWarpTransposeRewritePattern>(ctx);
   patterns.insert<ThreadwiseGemmRewritePattern>(ctx);
   patterns.insert<ThreadwiseCopyRewritePattern>(ctx);
   patterns.insert<ThreadwiseLoadRewritePattern>(ctx);

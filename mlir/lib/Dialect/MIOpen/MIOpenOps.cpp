@@ -10,6 +10,7 @@
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpImplementation.h"
@@ -17,6 +18,9 @@
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/MathExtras.h"
+
+#include "llvm/ADT/SmallSet.h"
+#include "llvm/Support/MathExtras.h"
 
 using namespace mlir;
 using namespace mlir::miopen;
@@ -170,6 +174,53 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
     return op.emitError(
         "Number of coordinates supplied doesn't match the rank, or affine maps "
         "of source and destination memrefs");
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// InWarpTransposeOp
+//===----------------------------------------------------------------------===//
+
+static LogicalResult verify(InWarpTransposeOp op) {
+  constexpr size_t swizzleGroupSize = InWarpTransposeOp::swizzleGroupSize;
+  if (!llvm::isPowerOf2_32(op.size())) {
+    return op.emitOpError("transpose size " + Twine(op.size()) +
+                          "must be a power of 2");
+  }
+  if (op.size() <= 0) {
+    return op.emitOpError("transpose size must be strictly positive");
+  }
+
+  auto vectorLen = static_cast<size_t>(
+      op.vector().getType().cast<VectorType>().getNumElements());
+  if (vectorLen < swizzleGroupSize) {
+    return op.emitOpError("Vector input must have at least" +
+                          Twine(swizzleGroupSize) + "elements");
+  }
+  if (vectorLen < op.size()) {
+    return op.emitError("Vector input can't be shorter than transpose size");
+  }
+
+  if (op.vector().getType().cast<VectorType>().getRank() != 1) {
+    return op.emitError("Input vector must be 1-dimensional");
+  }
+
+  auto inGroupPerm = op.inGroupPerm();
+
+  llvm::SmallSet<uint32_t, swizzleGroupSize> expected;
+  llvm::SmallSet<uint32_t, swizzleGroupSize> found;
+
+  for (uint32_t i = 0; i < swizzleGroupSize; i++) {
+    expected.insert(i);
+  }
+
+  for (auto &i : inGroupPerm) {
+    found.insert(i.cast<IntegerAttr>().getValue().getZExtValue());
+  }
+
+  if (found != expected) {
+    return op.emitOpError("inGroupPerm is not a permutation on the output row");
+  }
   return success();
 }
 
