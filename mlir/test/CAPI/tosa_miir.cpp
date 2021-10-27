@@ -208,13 +208,13 @@ static int constructAndTraverseIr(MlirContext ctx) {
   const char *arch = "amdgcn-amd-amdhsa:gfx908";
   MiirHandle handle = miirCreateHandleWithModule(moduleOp1, arch);
 
-  int status = miirLowerBin(handle);
+  MiirStatus status = miirLowerBin(handle);
   if (status != MIIR_SUCCESS) {
     printf("miirLowerBin FAILED!\n");
     return status;
   }
 
-  mlirModuleDestroy(moduleOp1);
+  miirDestroyHandle(handle);
 
   // CHECK: PASSED!
   printf("PASSED!\n");
@@ -224,7 +224,6 @@ static int constructAndTraverseIr(MlirContext ctx) {
 int main() {
   MlirContext ctx = mlirContextCreate();
   mlirRegisterAllDialects(ctx);
-  mlirContextSetAllowUnregisteredDialects(ctx, true /*allow*/);
   if (constructAndTraverseIr(ctx))
     return 1;
 

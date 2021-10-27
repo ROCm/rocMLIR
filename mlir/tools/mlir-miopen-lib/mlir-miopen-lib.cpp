@@ -29,19 +29,6 @@
 
 namespace {
 struct MiirHandle_s {
-  MLIRContext &getContext() {
-    auto getRegistry = []() {
-      DialectRegistry registry;
-      registerAllDialects(registry);
-      return registry;
-    };
-    static MLIRContext context(getRegistry());
-    static std::once_flag once;
-    std::call_once(once, []() {
-      context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect>();
-    });
-    return context;
-  }
   MiirHandle_s() {
     OpBuilder builder(&getContext());
     module = ModuleOp::create(builder.getUnknownLoc());
@@ -56,6 +43,21 @@ struct MiirHandle_s {
   std::string genTxt;
   int kernelCount = 0;
   bool tosa = false;
+
+private:
+  MLIRContext &getContext() {
+    auto getRegistry = []() {
+      DialectRegistry registry;
+      registerAllDialects(registry);
+      return registry;
+    };
+    static MLIRContext context(getRegistry());
+    static std::once_flag once;
+    std::call_once(once, []() {
+      context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect>();
+    });
+    return context;
+  }
 };
 
 // In multi-threaded context, static intialization is guaranteed to
@@ -116,7 +118,6 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   }
 
   MiirHandle_s *handle = new MiirHandle_s;
-  OpBuilder builder(&(handle->getContext()));
 
   const auto &config = conv2dGenerator.getConfig();
   if (failed(MIOpenEnabled(config))) {
@@ -131,7 +132,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
 
   ModuleOp module = handle->getModule();
 
-  if (failed(conv2dGenerator.genConvModule(module, builder))) {
+  if (failed(conv2dGenerator.genConvModule(module))) {
     return nullptr;
   }
   return handle;
