@@ -11,6 +11,7 @@
 
 #include "mlir/Pass/Pass.h"
 
+#include "mlir/Conversion/GPUToROCDL/Runtimes.h"
 namespace mlir {
 class AffineDialect;
 class StandardOpsDialect;
