@@ -597,7 +597,9 @@ public:
   }
 
   bool d16PreservesUnusedBits() const {
-    return hasD16LoadStore() && !TargetID.isSramEccOnOrAny();
+    // gff90a's d16 loads don't preserve unused bits
+    return hasD16LoadStore() && !TargetID.isSramEccOnOrAny() &&
+           !hasGFX90AInsts();
   }
 
   bool hasD16Images() const {

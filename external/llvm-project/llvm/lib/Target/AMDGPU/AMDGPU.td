@@ -1343,7 +1343,8 @@ def HasPackedD16VMem : Predicate<"!Subtarget->hasUnpackedD16VMem()">,
 
 def D16PreservesUnusedBits :
   Predicate<"Subtarget->d16PreservesUnusedBits()">,
-  AssemblerPredicate<(all_of FeatureGFX9Insts, (not FeatureSRAMECC))>;
+  AssemblerPredicate<(all_of FeatureGFX9Insts, (not FeatureSRAMECC),
+    (not FeatureGFX90AInsts))>;
 
 def LDSRequiresM0Init : Predicate<"Subtarget->ldsRequiresM0Init()">;
 def NotLDSRequiresM0Init : Predicate<"!Subtarget->ldsRequiresM0Init()">;
