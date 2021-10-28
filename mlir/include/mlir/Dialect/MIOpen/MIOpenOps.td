@@ -178,21 +178,6 @@ def MIOpen_FillOp:
   }];
 }
 
-def MIOpen_MovePosV2Op:
-    MIOpen_Op<"move_pos_v2", [SameOperandsElementType,
-      AllTypesMatch<["input", "output"]>]>,
-    Arguments<(ins VectorOfRankAndType<[1], [AnyInteger, AnyFloat]>:$input,
-                   Variadic<AnyTypeOf<[AnyInteger, AnyFloat]>>:$values)>,
-    Results<(outs VectorOfRankAndType<[1], [AnyInteger, AnyFloat]>:$output)> {
-    let summary = "Add values to indices within the vector.";
-    let description = [{
-      The `miopen.move_pos_v2` op adds values to indices within the vector.
-    }];
-    let assemblyFormat = [{
-      `(` operands `)` attr-dict `:` type($input) `,` type($values)
-    }];
-}
-
 def MIOpen_WorkgroupBarrierOp:
     MIOpen_Op<"workgroup_barrier"> {
   let summary = "Setup an workgroup barrier";
@@ -236,8 +221,8 @@ def MIOpen_BlockwiseCopyOp:
     MIOpen_Op<"blockwise_copy">,
     Arguments<(ins AnyMemRef:$source,
                    AnyMemRef:$dest,
-                   VectorOfLengthAndType<[3], [I32]>:$sourceCoordVector,
-                   VectorOfLengthAndType<[3], [I32]>:$destCoordVector,
+                   I32:$sourceCoord0, I32:$sourceCoord1, I32:$sourceCoord2,
+                   I32:$destCoord0, I32:$destCoord1, I32:$destCoord2,
                    Optional<AnyMemRef>:$buffer)> {
   let summary = "Blockwise GPU data movement";
   let description = [{
@@ -256,7 +241,7 @@ def MIOpen_BlockwiseCopyOp:
 def MIOpen_BlockwiseLoadOp:
     MIOpen_Op<"blockwise_load">,
     Arguments<(ins AnyMemRef:$source,
-                  VectorOfLengthAndType<[3], [I32]>:$sourceCoordVector)>,
+                  I32:$sourceCoord0, I32:$sourceCoord1, I32:$sourceCoord2)>,
     Results<(outs Variadic<AnyTypeOf<[F32, F16, I16,
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16]>,
@@ -268,7 +253,8 @@ def MIOpen_BlockwiseLoadOp:
     - Global (generic tensor) to register (naive tensor).
   }];
   let assemblyFormat = [{
-    $source `[` $sourceCoordVector `]` attr-dict `:` type(operands)  `->` type(results)
+    $source `[` $sourceCoord0 `,` $sourceCoord1 `,` $sourceCoord2 `]`
+      attr-dict `:` type(operands)  `->` type(results)
   }];
 }
 
@@ -280,7 +266,7 @@ def MIOpen_BlockwiseStoreOp:
                               VectorOfLengthAndType<[2, 4, 8], [F16]>,
                               VectorOfLengthAndType<[2, 4, 8], [I16]>]>>:$data,
                    AnyMemRef:$dest,
-                   VectorOfLengthAndType<[3], [I32]>:$destCoordVector)> {
+                   I32:$destCoord0, I32:$destCoord1, I32:$destCoord2)> {
   let summary = "Blockwise GPU data store";
   let description = [{
     The `miopen.blockwise_store` op moves data on GPU. Following movements are
@@ -288,7 +274,9 @@ def MIOpen_BlockwiseStoreOp:
     - Register (naive tensor) to LDS (naive tensor).
   }];
   let assemblyFormat = [{
-    $data `->` $dest `[` $destCoordVector `]`  attr-dict `:` type($data) `->` type($dest) `,` type($destCoordVector)
+    $data `->` $dest `[` $destCoord0 `,` $destCoord1 `,` $destCoord2 `]`
+      attr-dict `:` type($data) `->` type($dest) `,` type($destCoord0)
+      `,` type($destCoord1) `,` type($destCoord2)
   }];
 }
 

@@ -23,9 +23,9 @@ func @miopen_blockwise_gemm_f16(%A : memref<?x?x?xf16, 3>, %B : memref<?x?x?xf16
 // CHECK-LABEL: func @miopen_blockwise_gemm_f16
 //  CHECK: miopen.blockwise_gemm
 
-func @miopen_blockwise_copy_f16(%source : memref<?x?x?xf16>, %dest : memref<?x?x?xf16, 3>, %source_coord : vector<3xi32>, %dest_coord : vector<3xi32>) {
-  miopen.blockwise_copy(%source, %dest, %source_coord, %dest_coord) : memref<?x?x?xf16>, memref<?x?x?xf16, 3>, vector<3xi32>, vector<3xi32>
-  miopen.blockwise_copy(%source, %dest, %source_coord, %dest_coord) { move_source_offset = 16 } : memref<?x?x?xf16>, memref<?x?x?xf16, 3>, vector<3xi32>, vector<3xi32>
+func @miopen_blockwise_copy_f16(%source : memref<?x?x?xf16>, %dest : memref<?x?x?xf16, 3>, %sc0 : i32, %sc1 : i32, %sc2 : i32, %dc0 : i32, %dc1 : i32, %dc2 : i32) {
+  miopen.blockwise_copy(%source, %dest, %sc0, %sc1, %sc2, %dc0, %dc1, %dc2) : memref<?x?x?xf16>, memref<?x?x?xf16, 3>, i32, i32, i32, i32, i32, i32
+  miopen.blockwise_copy(%source, %dest, %sc0, %sc1, %sc2, %dc0, %dc1, %dc2) { move_source_offset = 16 } : memref<?x?x?xf16>, memref<?x?x?xf16, 3>, i32, i32, i32, i32, i32, i32
   return
 }
 
