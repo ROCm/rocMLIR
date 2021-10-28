@@ -384,41 +384,6 @@ static LogicalResult runRegionDCE(RewriterBase &rewriter,
 //===----------------------------------------------------------------------===//
 // BlockEquivalenceData
 
-namespace {
-/// This class contains the information for comparing the equivalencies of two
-/// blocks. Blocks are considered equivalent if they contain the same operations
-/// in the same order. The only allowed divergence is for operands that come
-/// from sources outside of the parent block, i.e. the uses of values produced
-/// within the block must be equivalent.
-///   e.g.,
-/// Equivalent:
-///  ^bb1(%arg0: i32)
-///    return %arg0, %foo : i32, i32
-///  ^bb2(%arg1: i32)
-///    return %arg1, %bar : i32, i32
-/// Not Equivalent:
-///  ^bb1(%arg0: i32)
-///    return %foo, %arg0 : i32, i32
-///  ^bb2(%arg1: i32)
-///    return %arg1, %bar : i32, i32
-struct BlockEquivalenceData {
-  BlockEquivalenceData(Block *block);
-
-  /// Return the order index for the given value that is within the block of
-  /// this data.
-  unsigned getOrderOf(Value value) const;
-
-  /// The block this data refers to.
-  Block *block;
-  /// A hash value for this block.
-  llvm::hash_code hash;
-  /// A map of result producing operations to their relative orders within this
-  /// block. The order of an operation is the number of defined values that are
-  /// produced within the block before this operation.
-  DenseMap<Operation *, unsigned> opOrderIndex;
-};
-} // end anonymous namespace
-
 BlockEquivalenceData::BlockEquivalenceData(Block *block)
     : block(block), hash(0) {
   unsigned orderIt = block->getNumArguments();

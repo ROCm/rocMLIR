@@ -59,6 +59,12 @@ struct OutliningCandidate {
   OutliningCandidate(Operation *_convOp, ArrayRef<Operation *> &_secondOps,
                      ArrayRef<Operation *> &_frontOps, ArrayRef<Value> &_params,
                      ArrayRef<Value> &_returnVals, StringRef _partFnName);
+  ~OutliningCandidate() {
+    for (auto &op : llvm::make_early_inc_range(llvm::reverse(*pseudoBlock))) {
+      assert(op.use_empty() && "expected 'op' to have no uses");
+      op.erase();
+    }
+  }
 
   Operation *convOp;
   SmallVector<Operation *> secondOps;
@@ -68,6 +74,9 @@ struct OutliningCandidate {
   std::string partFnName;
   llvm::hash_code hash;
   FuncOp function;
+
+  Block *pseudoBlock;
+  BlockEquivalenceData *equivData;
 
 //   /// Return the order index for the given value that is within the block of
 //   /// this data.
@@ -101,6 +110,20 @@ OutliningCandidate::OutliningCandidate(Operation *convOp_,
     returnVals.push_back(val);
   }
 
+  BlockAndValueMapping bvm;
+  pseudoBlock = new Block();
+  for (auto *op : llvm::reverse(frontOps)) {
+    pseudoBlock->push_back(op->clone(bvm));
+  }
+  pseudoBlock->push_back(convOp->clone(bvm));
+  for (auto *op : secondOps) {
+    pseudoBlock->push_back(op->clone(bvm));
+  }
+  for (auto val : params) {
+    pseudoBlock->addArgument(val.getType());
+  }
+  equivData = new BlockEquivalenceData(pseudoBlock);
+
   hash = OperationEquivalence::computeHash(
       convOp, OperationEquivalence::ignoreHashValue,
       OperationEquivalence::ignoreHashValue,
@@ -126,6 +149,13 @@ bool isFunctionallyEquivalentTo(Operation *lhs, Operation *rhs);
 
 bool outliningCandidatesEquivalent(OutliningCandidate &one,
                                    OutliningCandidate &two) {
+  if (one.pseudoBlock && two.pseudoBlock) {
+    llvm::errs() << "both have blocks\n";
+    if (one.equivData->hash == two.equivData->hash) {
+      llvm::errs() << "  and the hashes match\n";
+    }
+  }
+
   if (one.hash != two.hash) {
     return false;
   }
@@ -296,6 +326,12 @@ bool areAttributesEffectivelyEqual(Operation *lhs, Operation *rhs) {
 // always be different.  Another approach would be to temporarily modify
 // the functions to remove the names (and anything else unimportant).
 bool isFunctionallyEquivalentTo(Operation *lhs, Operation *rhs) {
+#if 0
+  return OperationEquivalence::isEquivalentTo(lhs, rhs,
+            OperationEquivalence::ignoreValueEquivalence,
+            OperationEquivalence::ignoreValueEquivalence,
+            OperationEquivalence::Flags::IgnoreLocations);
+#else
   if (lhs == rhs)
     return true;
 
@@ -360,6 +396,7 @@ bool isFunctionallyEquivalentTo(Operation *lhs, Operation *rhs) {
     }
   }
   return true;
+#endif  /* 0 */
 }
 
 // Inspired by / adapted from TestSCFIfUtilsPass in
