@@ -3683,7 +3683,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // nameToDims can store <dim name ,dim index> ,we can use it to do oob check
     llvm::DenseSet<int> filterOobCheckDims;
     llvm::DenseMap<StringRef, int> nameToDims;
-    int cIndex = 0;
 
     for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
       auto filterAttr =
@@ -3703,7 +3702,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         k = filterShape[i];
       } else if (filterAttr.getValue() == "c") {
         c = filterShape[i];
-        cIndex = i;
       } else if (filterAttr.getValue() == "y") {
         y = filterShape[i];
       } else if (filterAttr.getValue() == "x") {
@@ -5219,7 +5217,6 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
     status = BwdPaddingKernelStatus::StrideTwoNonXdlopsNHWC;
     auto inputLayoutAttr =
         gop->template getAttrOfType<ArrayAttr>("input_layout");
-    int indexC = 0;
     for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
       auto inputAttr =
           inputLayoutAttr.getValue()[i].template cast<StringAttr>();
@@ -5264,7 +5261,6 @@ static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top,
     status = BwdPaddingKernelStatus::StrideTwoXdlopsNHWC;
     auto inputLayoutAttr =
         gop->template getAttrOfType<ArrayAttr>("input_layout");
-    int indexC = 0;
     for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
       auto inputAttr =
           inputLayoutAttr.getValue()[i].template cast<StringAttr>();
