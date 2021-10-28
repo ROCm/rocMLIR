@@ -5640,7 +5640,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     SmallVector<uint64_t, 3> blockwiseCopyBBounds = {
         1, GemmBBlockCopyThreadSliceLengths_GemmK,
         GemmBBlockCopyThreadSliceLengths_GemmN};
-    TypeRange blockwiseLoadBType;
+    Type blockwiseLoadBType;
     SmallVector<Type, 8> blockwiseLoadBTypes;
     int blockwiseBVectorDim;
     int blockwiseLoadBVectorLength;
