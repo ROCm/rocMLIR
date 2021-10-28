@@ -77,11 +77,7 @@ static void temp_file_name(char *buf, size_t bufsize, const char *prefix) {
 #else
   const char *tmpdir = "/tmp";
 #if SANITIZER_ANDROID
-  // I don't know a way to query temp directory location on Android without
-  // going through Java interfaces. The code below is not ideal, but should
-  // work. May require "adb root", but it is needed for almost any use of ASan
-  // on Android already.
-  tmpdir = GetEnv("EXTERNAL_STORAGE");
+  tmpdir = GetEnv("TMPDIR");
 #endif
   internal_snprintf(buf, bufsize, "%s/%sXXXXXX", tmpdir, prefix);
   ASSERT_TRUE(mkstemp(buf));
@@ -218,9 +214,9 @@ TEST_P(SanitizerCommonFileTest, ReadFileToVectorHalf) {
   EXPECT_EQ(data_, std::vector<char>(buff.begin(), buff.end()));
 }
 
-INSTANTIATE_TEST_CASE_P(FileSizes, SanitizerCommonFileTest,
-                        ::testing::Values(0, 1, 7, 13, 32, 4096, 4097, 1048575,
-                                          1048576, 1048577));
+INSTANTIATE_TEST_SUITE_P(FileSizes, SanitizerCommonFileTest,
+                         ::testing::Values(0, 1, 7, 13, 32, 4096, 4097, 1048575,
+                                           1048576, 1048577));
 
 static const size_t kStrlcpyBufSize = 8;
 void test_internal_strlcpy(char *dbuf, const char *sbuf) {
@@ -281,6 +277,23 @@ TEST(SanitizerCommon, InternalStrFunctions) {
   EXPECT_EQ(internal_strcmp(dcatbuf, "1231231"), 0);
   EXPECT_EQ(internal_strlen(dcatbuf), (uptr)7);
   EXPECT_EQ(retval, (uptr)9);
+}
+
+TEST(SanitizerCommon, InternalWideStringFunctions) {
+  const wchar_t *emptystr = L"";
+  const wchar_t *samesizestr = L"1234567";
+  const wchar_t *shortstr = L"123";
+  const wchar_t *longerstr = L"123456789";
+
+  ASSERT_EQ(internal_wcslen(emptystr), 0ul);
+  ASSERT_EQ(internal_wcslen(samesizestr), 7ul);
+  ASSERT_EQ(internal_wcslen(shortstr), 3ul);
+  ASSERT_EQ(internal_wcslen(longerstr), 9ul);
+
+  ASSERT_EQ(internal_wcsnlen(emptystr, 7), 0ul);
+  ASSERT_EQ(internal_wcsnlen(samesizestr, 7), 7ul);
+  ASSERT_EQ(internal_wcsnlen(shortstr, 7), 3ul);
+  ASSERT_EQ(internal_wcsnlen(longerstr, 7), 7ul);
 }
 
 // FIXME: File manipulations are not yet supported on Windows

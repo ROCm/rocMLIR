@@ -14,9 +14,11 @@ set(LIBS
   MLIRPass
   MLIRQuant
   MLIRShape
-  MLIRSDBM
   MLIRTransforms
   MLIRSupport
+  MLIRGPUTransforms
+  MLIRTargetLLVMIRExport
+  MLIRToLLVMIRTranslationRegistration
   MLIRIR
 )
 

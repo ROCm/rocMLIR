@@ -20,6 +20,7 @@
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/Async/Passes.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/TargetSelect.h"
 
@@ -29,10 +30,16 @@
 #include "mlir/InitAllDialects.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include <cstdlib>
 #include <mutex>
 
 using namespace mlir;
 using namespace llvm;
+
+// CLI variables for -On options.
+static cl::opt<int> gpuOpt("gO",
+                           cl::desc("Optimization level for GPU compilation"),
+                           cl::value_desc("Integer from 0 to 3"), cl::init(3));
 
 static cl::opt<std::string> tripleName("triple", cl::desc("target triple"),
                                        cl::value_desc("triple string"),
@@ -46,6 +53,15 @@ static cl::opt<std::string> features("feature", cl::desc("target features"),
                                      cl::value_desc("AMDGPU target features"),
                                      cl::init(""));
 
+static cl::opt<bool>
+    rocdlInput("rocdl-input",
+               cl::desc("input is in the MLIR LLVM/ROCDL dialect"),
+               cl::init(false));
+
+namespace test {
+void registerTestDialect(DialectRegistry &);
+} // namespace test
+
 static LogicalResult runMLIRPasses(ModuleOp m) {
   PassManager pm(m.getContext());
   applyPassManagerCLOptions(pm);
@@ -54,31 +70,31 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   if (tripleName.empty() && targetChip.empty() && features.empty()) {
     systemOverride = true;
   }
+
+  int optLevel = gpuOpt.getValue();
+  if (optLevel < 0 || optLevel > 3) {
+    llvm::errs() << "Invalid GPU optimization level: " << optLevel << "\n";
+    return failure();
+  }
   BackendUtils utils(tripleName, targetChip, features, systemOverride);
 
-  const char gpuBinaryAnnotation[] = "rocdl.hsaco";
   pm.addPass(createLowerToCFGPass());
   pm.addPass(createGpuKernelOutliningPass());
   auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
   kernelPm.addPass(createStripDebugInfoPass());
-  kernelPm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
-  kernelPm.addPass(createConvertGPUKernelToBlobPass(
-      [&utils](Operation *m, llvm::LLVMContext &llvmContext,
-               llvm::StringRef name) {
-        return utils.compileModuleToROCDLIR(m, llvmContext, name);
-      },
-      [&utils](const std::string isa, Location loc, StringRef name) {
-        return utils.compileISAToHsaco(isa, loc, name);
-      },
-      utils.getTriple(), utils.getChip(), utils.getFeatures(),
-      gpuBinaryAnnotation));
+  if (!rocdlInput.getValue()) {
+    kernelPm.addPass(
+        createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32,
+                                        /*runtime=*/gpu::amd::Runtime::HIP));
+  }
+  kernelPm.addPass(createGpuSerializeToHsacoPass(
+      utils.getTriple(), utils.getChip(), utils.getFeatures(), optLevel));
   auto &funcPm = pm.nest<FuncOp>();
   funcPm.addPass(createGpuAsyncRegionPass());
-  funcPm.addPass(createAsyncRefCountingPass());
-  pm.addPass(createGpuToLLVMConversionPass(gpuBinaryAnnotation));
+  pm.addPass(createGpuToLLVMConversionPass());
   pm.addPass(createAsyncToAsyncRuntimePass());
   pm.addPass(createConvertAsyncToLLVMPass());
-  mlir::LowerToLLVMOptions lower_to_llvm_opts;
+  mlir::LowerToLLVMOptions lower_to_llvm_opts(m.getContext());
   pm.addPass(mlir::createLowerToLLVMPass(lower_to_llvm_opts));
 
   return pm.run(m);
@@ -92,6 +108,9 @@ int main(int argc, char **argv) {
   llvm::InitializeAllTargetMCs();
   llvm::InitializeAllAsmParsers();
   llvm::InitializeAllAsmPrinters();
+  llvm::InitializeNativeTarget();
+  llvm::InitializeNativeTargetAsmPrinter();
+  llvm::InitializeNativeTargetAsmParser();
 
   // Initialize LLVM AMDGPU backend.
   LLVMInitializeAMDGPUTarget();
@@ -101,8 +120,14 @@ int main(int argc, char **argv) {
 
   mlir::initializeLLVMPasses();
 
+  DialectRegistry registry;
+  registerAllDialects(registry);
+#ifdef MLIR_INCLUDE_TESTS
+  ::test::registerTestDialect(registry);
+#endif
+
   mlir::JitRunnerConfig jitRunnerConfig;
   jitRunnerConfig.mlirTransformer = runMLIRPasses;
 
-  return mlir::JitRunnerMain(argc, argv, jitRunnerConfig);
+  return mlir::JitRunnerMain(argc, argv, registry, jitRunnerConfig);
 }

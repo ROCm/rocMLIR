@@ -13,6 +13,7 @@
 #include "mlir/Conversion/TosaToMIOpen/TosaToMIOpen.h"
 #include "mlir/Dialect/Linalg/IR/LinalgOps.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
@@ -28,8 +29,9 @@ class ConvConverter final : public OpConversionPattern<tosa::Conv2DOp> {
 public:
   using OpConversionPattern<tosa::Conv2DOp>::OpConversionPattern;
 
-  Value expandTensor(tosa::Conv2DOp op, Value operand,
+  Value expandMemRef(tosa::Conv2DOp op, Value operand,
                      ConversionPatternRewriter &rewriter) const {
+    auto loc = op->getLoc();
     auto context = rewriter.getContext();
     auto oprType = operand.getType().template cast<ShapedType>();
     if (!oprType.hasStaticShape()) {
@@ -42,7 +44,7 @@ public:
     expShape.push_back(1);
     auto newType = MemRefType::get(expShape, oprType.getElementType());
 
-    SmallVector<linalg::ReassociationExprs, 5> reassociations;
+    SmallVector<ReassociationExprs, 5> reassociations;
     uint32_t dim = 0;
     for (; dim < shape.size() - 1; ++dim) {
       reassociations.push_back({getAffineDimExpr(dim, context)});
@@ -52,9 +54,8 @@ public:
     reassociations.push_back(
         {getAffineDimExpr(dim, context), getAffineDimExpr(dim + 1, context)});
 
-    auto oprExpand = rewriter.create<mlir::linalg::ReshapeOp>(
-        op->getLoc(), newType, operand, reassociations);
-
+    auto oprExpand = rewriter.create<memref::ExpandShapeOp>(
+        loc, newType, operand, reassociations);
     return oprExpand;
   }
 
@@ -75,27 +76,42 @@ public:
     assert(results.size() == 1);
 
     // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
-    auto inputExpanded = expandTensor(op, input_t, rewriter);
+    auto inputExpanded = expandMemRef(op, input_t, rewriter);
 
-    auto filterExpanded = expandTensor(op, filter_t, rewriter);
+    auto filterExpanded = expandMemRef(op, filter_t, rewriter);
 
     auto outputType = getTypeConverter<BufferizeTypeConverter>()
                           ->convertType(results[0].getType())
                           .cast<MemRefType>();
-
-    Value output_mr = rewriter.create<AllocOp>(loc, outputType);
-    auto outputExpanded = expandTensor(op, output_mr, rewriter);
+    Value output_mr = rewriter.create<memref::AllocOp>(loc, outputType);
+    auto outputExpanded = expandMemRef(op, output_mr, rewriter);
 
     SmallVector<Value, 4> args({filterExpanded, inputExpanded, outputExpanded});
 
     // Construct a new Conv2DOp.
     TypeRange resultTypes;
-    auto cop = rewriter.create<mlir::miopen::Conv2DOp>(
+    auto cop = rewriter.create<miopen::Conv2DOp>(
         loc, resultTypes, ValueRange{args[0], args[1], args[2]});
 
     // TODO(sjw): get these from options
     StringRef arch = "gfx906";
-    int32_t num_cu = 64;
+    uint32_t num_cu = 64;
+    bool xdlopsV2 = false;
+
+    if (auto attr = op->getAttrOfType<StringAttr>("arch"))
+      arch = attr.getValue();
+    else if (auto attr = func->getAttrOfType<StringAttr>("arch"))
+      arch = attr.getValue();
+
+    if (auto attr = op->getAttrOfType<IntegerAttr>("num_cu"))
+      num_cu = attr.getValue().getZExtValue();
+    else if (auto attr = func->getAttrOfType<IntegerAttr>("num_cu"))
+      num_cu = attr.getValue().getZExtValue();
+
+    if (auto attr = op->getAttrOfType<BoolAttr>("xdlopsV2"))
+      xdlopsV2 = attr.getValue();
+    else if (auto attr = func->getAttrOfType<BoolAttr>("xdlopsV2"))
+      xdlopsV2 = attr.getValue();
 
     // translate attributes
     int32_t padTop = op.pad()[0].dyn_cast<IntegerAttr>().getInt();
@@ -126,16 +142,17 @@ public:
     // arch-specific attributes
     cop->setAttr("arch", rewriter.getStringAttr(arch));
     cop->setAttr("num_cu", rewriter.getI32IntegerAttr(num_cu));
+    cop->setAttr("xdlopsV2", rewriter.getBoolAttr(xdlopsV2));
 
     // convolution config attributes
     cop->setAttr("filter_layout",
-                 rewriter.getArrayAttr(ArrayRef<mlir::Attribute>(
+                 rewriter.getArrayAttr(ArrayRef<Attribute>(
                      filterLayoutSpec.begin(), filterLayoutSpec.end())));
     cop->setAttr("input_layout",
-                 rewriter.getArrayAttr(ArrayRef<mlir::Attribute>(
+                 rewriter.getArrayAttr(ArrayRef<Attribute>(
                      inputLayoutSpec.begin(), inputLayoutSpec.end())));
     cop->setAttr("output_layout",
-                 rewriter.getArrayAttr(ArrayRef<mlir::Attribute>(
+                 rewriter.getArrayAttr(ArrayRef<Attribute>(
                      outputLayoutSpec.begin(), outputLayoutSpec.end())));
 
     cop->setAttr("dilations", rewriter.getArrayAttr({
@@ -161,7 +178,7 @@ public:
 
 } // namespace
 
-void mlir::tosa::populateTosaToMIOpenConversionPatterns(
+void tosa::populateTosaToMIOpenConversionPatterns(
     MLIRContext *context, OwningRewritePatternList *patterns) {
   static BufferizeTypeConverter bufferizer;
   patterns->insert<ConvConverter>(bufferizer, context);

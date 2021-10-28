@@ -1,4 +1,4 @@
-// RUN: mlir-opt -miopen-affine-transform  %s| FileCheck %s
+// RUN: miopen-opt -miopen-affine-transform  %s| FileCheck %s
 module  {
   func @miopen_conv2d(%arg0: memref<160x192x3xf32>) {
     %0 = miopen.transform(%arg0) { layout = [{upper_layer_dimensions = [0 : i32], upper_layer_names = ["gemmG"], lower_layer_dimensions = [2 : i32], 

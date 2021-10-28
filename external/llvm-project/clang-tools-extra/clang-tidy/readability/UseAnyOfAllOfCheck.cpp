@@ -1,9 +1,8 @@
 //===--- UseAnyOfAllOfCheck.cpp - clang-tidy-------------------------------===//
 //
-//                     The LLVM Compiler Infrastructure
-//
-// This file is distributed under the University of Illinois Open Source
-// License. See LICENSE.TXT for details.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
 
@@ -88,19 +87,20 @@ static bool isViableLoop(const CXXForRangeStmt &S, ASTContext &Context) {
 }
 
 void UseAnyOfAllOfCheck::check(const MatchFinder::MatchResult &Result) {
-  StringRef Ranges = getLangOpts().CPlusPlus20 ? "::ranges" : "";
 
   if (const auto *S = Result.Nodes.getNodeAs<CXXForRangeStmt>("any_of_loop")) {
     if (!isViableLoop(*S, *Result.Context))
       return;
 
-    diag(S->getForLoc(), "replace loop by 'std%0::any_of()'") << Ranges;
+    diag(S->getForLoc(), "replace loop by 'std%select{|::ranges}0::any_of()'")
+        << getLangOpts().CPlusPlus20;
   } else if (const auto *S =
                  Result.Nodes.getNodeAs<CXXForRangeStmt>("all_of_loop")) {
     if (!isViableLoop(*S, *Result.Context))
       return;
 
-    diag(S->getForLoc(), "replace loop by 'std%0::all_of()'") << Ranges;
+    diag(S->getForLoc(), "replace loop by 'std%select{|::ranges}0::all_of()'")
+        << getLangOpts().CPlusPlus20;
   }
 }
 

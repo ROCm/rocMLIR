@@ -24,6 +24,7 @@
 #include "hip/hip_runtime.h"
 #pragma GCC diagnostic pop
 #include <unordered_map>
+#include <array>
 
 namespace {
 int32_t reportErrorIfAny(hipError_t result, const char *where) {
@@ -275,6 +276,36 @@ extern "C" void mgpuMemCopy(float *sourceAllocated, float *sourceAligned,
                             int64_t destSize, int64_t destStride,
                             unsigned copyDirection) {
   hipMemcpy(destAligned, sourceAligned, sourceSize * sizeof(float),
+            static_cast<hipMemcpyKind>(copyDirection));
+}
+
+extern "C" StridedMemRefType<int32_t, 1>
+mgpuMemAllocInt32(int32_t *allocated, int32_t *aligned, int64_t offset,
+                  int64_t size, int64_t stride) {
+  int32_t *gpuPtr;
+  hipMalloc((void **)&gpuPtr, size * sizeof(int32_t));
+  return {gpuPtr, gpuPtr, offset, {size}, {stride}};
+}
+
+extern "C" void mgpuMemDeallocInt32(int32_t *allocated, int32_t *aligned,
+                                    int64_t offset, int64_t size,
+                                    int64_t stride) {
+  hipFree(aligned);
+}
+
+extern "C" void mgpuMemSetInt32(int32_t *allocated, int32_t *aligned,
+                                int64_t offset, int64_t size, int64_t stride,
+                                int32_t value) {
+  hipMemset((void *)aligned, value, size * sizeof(int32_t));
+}
+
+extern "C" void mgpuMemCopyInt32(int32_t *sourceAllocated,
+                                 int32_t *sourceAligned, int64_t sourceOffset,
+                                 int64_t sourceSize, int64_t sourceStride,
+                                 int32_t *destAllocated, int32_t *destAligned,
+                                 int64_t destOffset, int64_t destSize,
+                                 int64_t destStride, unsigned copyDirection) {
+  hipMemcpy(destAligned, sourceAligned, sourceSize * sizeof(int32_t),
             static_cast<hipMemcpyKind>(copyDirection));
 }
 
@@ -954,12 +985,12 @@ getSizesAndStrides(int64_t rank1, StridedMemRefType<float, 5> *filter,
                    int64_t rank2, StridedMemRefType<float, 5> *input,
                    int64_t rank3, StridedMemRefType<float, 5> *output,
                    void *f_layout, void *i_layout, void *o_layout,
-                   llvm::SmallVector<int64_t, 5> &fSizes,
-                   llvm::SmallVector<int64_t, 5> &fStrides,
-                   llvm::SmallVector<int64_t, 5> &iSizes,
-                   llvm::SmallVector<int64_t, 5> &iStrides,
-                   llvm::SmallVector<int64_t, 5> &oSizes,
-                   llvm::SmallVector<int64_t, 5> &oStrides) {
+                   std::array<int64_t, 5> &fSizes,
+                   std::array<int64_t, 5> &fStrides,
+                   std::array<int64_t, 5> &iSizes,
+                   std::array<int64_t, 5> &iStrides,
+                   std::array<int64_t, 5> &oSizes,
+                   std::array<int64_t, 5> &oStrides) {
   auto filterSizes = llvm::ArrayRef<int64_t>(filter->sizes, rank1);
   auto filterStrides = llvm::ArrayRef<int64_t>(filter->strides, rank1);
 
@@ -1035,9 +1066,9 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
   auto *outputAllocated = output->data + output->offset;
 
   // Extract proper tensor sizes and strides based on layouts
-  llvm::SmallVector<int64_t, 5> filterSizes(5), filterStrides(5);
-  llvm::SmallVector<int64_t, 5> inputSizes(5), inputStrides(5);
-  llvm::SmallVector<int64_t, 5> outputSizes(5), outputStrides(5);
+  std::array<int64_t, 5> filterSizes, filterStrides;
+  std::array<int64_t, 5> inputSizes, inputStrides;
+  std::array<int64_t, 5> outputSizes, outputStrides;
 
   getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
                      i_layout, o_layout, filterSizes, filterStrides, inputSizes,
@@ -1103,9 +1134,9 @@ extern "C" void mcpuConv2dBwdWeight(
   auto *outputAllocated = output->data + output->offset;
 
   // Extract proper tensor sizes and strides based on layouts
-  llvm::SmallVector<int64_t, 5> filterSizes, filterStrides;
-  llvm::SmallVector<int64_t, 5> inputSizes, inputStrides;
-  llvm::SmallVector<int64_t, 5> outputSizes, outputStrides;
+  std::array<int64_t, 5> filterSizes, filterStrides;
+  std::array<int64_t, 5> inputSizes, inputStrides;
+  std::array<int64_t, 5> outputSizes, outputStrides;
   getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
                      i_layout, o_layout, filterSizes, filterStrides, inputSizes,
                      inputStrides, outputSizes, outputStrides);
@@ -1165,9 +1196,9 @@ extern "C" void mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2,
   auto *outputAllocated = output->data + output->offset;
 
   // Extract proper tensor sizes and strides based on layouts
-  llvm::SmallVector<int64_t, 5> filterSizes, filterStrides;
-  llvm::SmallVector<int64_t, 5> inputSizes, inputStrides;
-  llvm::SmallVector<int64_t, 5> outputSizes, outputStrides;
+  std::array<int64_t, 5> filterSizes, filterStrides;
+  std::array<int64_t, 5> inputSizes, inputStrides;
+  std::array<int64_t, 5> outputSizes, outputStrides;
   getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
                      i_layout, o_layout, filterSizes, filterStrides, inputSizes,
                      inputStrides, outputSizes, outputStrides);
@@ -1205,4 +1236,8 @@ extern "C" void mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2,
                            c * inputStrides[2] + in_h * inputStrides[3] +
                            in_w * inputStrides[4]] = acc;
           }
+}
+
+extern "C" void mgpuSetDefaultDevice(int32_t device) {
+  reportErrorIfAny(hipSetDevice(device), "hipSetDevice");
 }

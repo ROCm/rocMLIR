@@ -392,7 +392,7 @@ CXXMethodDecl *Sema::startLambdaDefinition(CXXRecordDecl *Class,
       Context, Class, EndLoc,
       DeclarationNameInfo(MethodName, IntroducerRange.getBegin(),
                           MethodNameLoc),
-      MethodType, MethodTypeInfo, SC_None,
+      MethodType, MethodTypeInfo, SC_None, getCurFPFeatures().isFPConstrained(),
       /*isInline=*/true, ConstexprKind, EndLoc, TrailingRequiresClause);
   Method->setAccess(AS_public);
   if (!TemplateParams)
@@ -429,15 +429,16 @@ CXXMethodDecl *Sema::startLambdaDefinition(CXXRecordDecl *Class,
 
 void Sema::handleLambdaNumbering(
     CXXRecordDecl *Class, CXXMethodDecl *Method,
-    Optional<std::tuple<unsigned, bool, Decl *>> Mangling) {
+    Optional<std::tuple<bool, unsigned, unsigned, Decl *>> Mangling) {
   if (Mangling) {
-    unsigned ManglingNumber;
     bool HasKnownInternalLinkage;
+    unsigned ManglingNumber, DeviceManglingNumber;
     Decl *ManglingContextDecl;
-    std::tie(ManglingNumber, HasKnownInternalLinkage, ManglingContextDecl) =
-        Mangling.getValue();
+    std::tie(HasKnownInternalLinkage, ManglingNumber, DeviceManglingNumber,
+             ManglingContextDecl) = Mangling.getValue();
     Class->setLambdaMangling(ManglingNumber, ManglingContextDecl,
                              HasKnownInternalLinkage);
+    Class->setDeviceLambdaManglingNumber(DeviceManglingNumber);
     return;
   }
 
@@ -460,11 +461,15 @@ void Sema::handleLambdaNumbering(
   std::tie(MCtx, ManglingContextDecl) =
       getCurrentMangleNumberContext(Class->getDeclContext());
   bool HasKnownInternalLinkage = false;
-  if (!MCtx && getLangOpts().CUDA) {
+  if (!MCtx && (getLangOpts().CUDA || getLangOpts().SYCLIsDevice ||
+                getLangOpts().SYCLIsHost)) {
     // Force lambda numbering in CUDA/HIP as we need to name lambdas following
     // ODR. Both device- and host-compilation need to have a consistent naming
     // on kernel functions. As lambdas are potential part of these `__global__`
     // function names, they needs numbering following ODR.
+    // Also force for SYCL, since we need this for the
+    // __builtin_sycl_unique_stable_name implementation, which depends on lambda
+    // mangling.
     MCtx = getMangleNumberingContext(Class, ManglingContextDecl);
     assert(MCtx && "Retrieving mangle numbering context failed!");
     HasKnownInternalLinkage = true;
@@ -473,6 +478,7 @@ void Sema::handleLambdaNumbering(
     unsigned ManglingNumber = MCtx->getManglingNumber(Method);
     Class->setLambdaMangling(ManglingNumber, ManglingContextDecl,
                              HasKnownInternalLinkage);
+    Class->setDeviceLambdaManglingNumber(MCtx->getDeviceManglingNumber(Method));
   }
 }
 
@@ -680,7 +686,7 @@ static void adjustBlockReturnsToEnum(Sema &S, ArrayRef<ReturnStmt*> returns,
 
     Expr *E = (cleanups ? cleanups->getSubExpr() : retValue);
     E = ImplicitCastExpr::Create(S.Context, returnType, CK_IntegralCast, E,
-                                 /*base path*/ nullptr, VK_RValue,
+                                 /*base path*/ nullptr, VK_PRValue,
                                  FPOptionsOverride());
     if (cleanups) {
       cleanups->setSubExpr(E);
@@ -1441,6 +1447,7 @@ static void addFunctionPointerConversion(Sema &S, SourceRange IntroducerRange,
   CXXConversionDecl *Conversion = CXXConversionDecl::Create(
       S.Context, Class, Loc,
       DeclarationNameInfo(ConversionName, Loc, ConvNameLoc), ConvTy, ConvTSI,
+      S.getCurFPFeatures().isFPConstrained(),
       /*isInline=*/true, ExplicitSpecifier(),
       S.getLangOpts().CPlusPlus17 ? ConstexprSpecKind::Constexpr
                                   : ConstexprSpecKind::Unspecified,
@@ -1482,6 +1489,7 @@ static void addFunctionPointerConversion(Sema &S, SourceRange IntroducerRange,
   CXXMethodDecl *Invoke = CXXMethodDecl::Create(
       S.Context, Class, Loc, DeclarationNameInfo(InvokerName, Loc),
       InvokerFunctionTy, CallOperator->getTypeSourceInfo(), SC_Static,
+      S.getCurFPFeatures().isFPConstrained(),
       /*isInline=*/true, ConstexprSpecKind::Unspecified,
       CallOperator->getBody()->getEndLoc());
   for (unsigned I = 0, N = CallOperator->getNumParams(); I != N; ++I)
@@ -1550,6 +1558,7 @@ static void addBlockPointerConversion(Sema &S,
   CXXConversionDecl *Conversion = CXXConversionDecl::Create(
       S.Context, Class, Loc, DeclarationNameInfo(Name, Loc, NameLoc), ConvTy,
       S.Context.getTrivialTypeSourceInfo(ConvTy, Loc),
+      S.getCurFPFeatures().isFPConstrained(),
       /*isInline=*/true, ExplicitSpecifier(), ConstexprSpecKind::Unspecified,
       CallOperator->getBody()->getEndLoc());
   Conversion->setAccess(AS_public);

@@ -11,8 +11,8 @@
 
 #ifndef FORTRAN_RUNTIME_STAT_H_
 #define FORTRAN_RUNTIME_STAT_H_
-#include "magic-numbers.h"
 #include "flang/ISO_Fortran_binding.h"
+#include "flang/Runtime/magic-numbers.h"
 namespace Fortran::runtime {
 
 class Descriptor;
@@ -47,8 +47,8 @@ enum Stat {
 };
 
 const char *StatErrorString(int);
-int ToErrmsg(Descriptor *errmsg, int stat); // returns stat
-int ReturnError(
-    Terminator &, int stat, Descriptor *errmsg = nullptr, bool hasStat = false);
+int ToErrmsg(const Descriptor *errmsg, int stat); // returns stat
+int ReturnError(Terminator &, int stat, const Descriptor *errmsg = nullptr,
+    bool hasStat = false);
 } // namespace Fortran::runtime
 #endif // FORTRAN_RUNTIME_STAT_H

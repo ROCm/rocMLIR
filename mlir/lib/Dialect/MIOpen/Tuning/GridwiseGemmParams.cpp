@@ -192,7 +192,6 @@ LogicalResult PopulateParams::paramsFromCtx(
     LLVM_DEBUG(llvm::dbgs() << "FATAL ERROR! COULD NOT FIND VALID TUNING"
                             << " PARAMETERS!\n");
 
-    if (ctx.opType != miopen::ConvOpType::Conv2DBwdDataOpType) {
       LLVM_DEBUG(llvm::dbgs() << "BUT PADDING KERNEL CAN EXECUTE IT\n");
 
       for (auto &params : initParameters) {
@@ -207,11 +206,6 @@ LogicalResult PopulateParams::paramsFromCtx(
         validParams = params;
         break;
       }
-    } else {
-      LLVM_DEBUG(
-          llvm::dbgs()
-          << "PADDING KERNEL only support forward, backward weights now\n");
-    }
   } else {
     LLVM_DEBUG(llvm::dbgs() << "Successfully picked tuning params from backup"
                             << " path.\n");
@@ -410,7 +404,6 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
     LLVM_DEBUG(llvm::dbgs() << "FATAL ERROR! COULD NOT FIND VALID TUNING"
                             << " PARAMETERS!\n");
 
-    if (ctx.opType != miopen::ConvOpType::Conv2DBwdDataOpType) {
       LLVM_DEBUG(llvm::dbgs() << "BUT PADDING KERNEL CAN EXECUTE IT\n");
       for (auto &params : initParameters) {
         res = populatePaddingKernelDerived(ctx, params, gemmSize,
@@ -423,11 +416,6 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
         validParams = params;
         break;
       }
-    } else {
-      LLVM_DEBUG(
-          llvm::dbgs()
-          << "PADDING KERNEL only support forward, backward weights now\n");
-    }
   } else {
     LLVM_DEBUG(llvm::dbgs() << "Successfully picked tuning params from backup"
                             << " path.\n");

@@ -10,12 +10,12 @@ set(LIBS
   ${conversion_libs}
   LLVMROCmBackendUtils
   MLIRAnalysis
+  MLIRDialect
   MLIRMIOpenOps
   MLIRParser
   MLIRPass
   MLIRQuant
   MLIRShape
-  MLIRSDBM
   MLIRTransforms
   MLIRSupport
   MLIRIR

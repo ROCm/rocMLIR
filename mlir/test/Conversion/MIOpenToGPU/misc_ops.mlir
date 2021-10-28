@@ -1,4 +1,4 @@
-// RUN: mlir-opt -convert-miopen-to-gpu %s | FileCheck %s
+// RUN: miopen-opt -convert-miopen-to-gpu %s | FileCheck %s
 
 // CHECK: module attributes {gpu.container_module}
 // CHECK-NEXT: gpu.module @misckernel_module
@@ -19,9 +19,9 @@ module {
 
     %idx = muli %bid, %tid : index
 
-    %val = load %arg0[%idx] : memref<?xf32>
+    %val = memref.load %arg0[%idx] : memref<?xf32>
 
-    store %val, %arg1[%idx] : memref<?xf32>
+    memref.store %val, %arg1[%idx] : memref<?xf32>
     return
   }
 }

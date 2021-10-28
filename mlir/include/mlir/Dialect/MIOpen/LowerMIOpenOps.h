@@ -19,13 +19,17 @@
 #include "mlir/Dialect/MIOpen/AffineMapHelper.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Vector/VectorOps.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
@@ -43,9 +47,13 @@
 #include "mlir/Dialect/MIOpen/utility/common.h"
 #include "mlir/Dialect/MIOpen/utility/math.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/IndexedMap.h"
+#include "llvm/ADT/None.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MathExtras.h"
+#include <algorithm>
 
 using namespace mlir;
 using namespace mlir::miopen;
@@ -59,7 +67,8 @@ static constexpr int kTwoGB = 2147483647;
 // Workaround to obtain gemmKExtra / gemmMExtra / gemmNExtra attribute.
 // And use it to override legacy load/store debug switch.
 //===----------------------------------------------------------------------===//
-inline bool overrideLoadStoreHack(const DictionaryAttr &transformSpec) {
+inline bool overrideLoadStoreHack(const DictionaryAttr &transformSpec,
+                                  bool original) {
   if (transformSpec) {
     Attribute metadataAttr = transformSpec.get("metadata");
     if (metadataAttr) {
@@ -100,15 +109,16 @@ inline bool overrideLoadStoreHack(const DictionaryAttr &transformSpec) {
       }
     }
   }
-  return false;
+  return original;
 }
 
 //===----------------------------------------------------------------------===//
 // Utility function to determine the type to be loaded
 //===----------------------------------------------------------------------===//
 template <typename T>
-inline std::tuple<Type, TupleType, int, int, int>
+inline std::tuple<Type, int, int, int>
 computeLoadStoreTypeInfo(OpBuilder &b, T &gop, Type elementType,
+                         SmallVectorImpl<Type> &variadicTypes,
                          const SmallVector<uint64_t, 3> &dims, bool isMatrixA,
                          int64_t KPack = 1) {
   uint64_t loadLength = 1;
@@ -146,13 +156,10 @@ computeLoadStoreTypeInfo(OpBuilder &b, T &gop, Type elementType,
   for (auto l : dims)
     itemsToCopy *= l;
 
-  SmallVector<Type, 8> tupleElements;
   for (unsigned iter = 0; iter < itemsToCopy; ++iter)
-    tupleElements.push_back(elementType);
-  TupleType tupleType = b.getTupleType(tupleElements);
+    variadicTypes.push_back(elementType);
 
-  return std::make_tuple(elementType, tupleType, vectorDim, loadLength,
-                         storeLength);
+  return std::make_tuple(elementType, vectorDim, loadLength, storeLength);
 }
 
 //===----------------------------------------------------------------------===//
@@ -264,7 +271,7 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
     Value loadedValue;
     if (loadedType.isa<VectorType>()) {
       // Issue vector load.
-      if (sourceType.getMemorySpace() == 0) {
+      if (sourceType.getMemorySpaceAsInt() == 0) {
         // Option 1: buffer load.
         // use buffer load if the source memref is on address space 0
         SmallVector<Value, 4> srcLowerIndicesI32;
@@ -290,7 +297,7 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
               b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32));
           srcLowerIndicesUpdated[dim] =
               b.create<AddIOp>(loc, srcLowerIndices[dim], iterIndex);
-          auto loadedElement = b.create<LoadOp>(loc, elementType, source,
+          auto loadedElement = b.create<memref::LoadOp>(loc, elementType, source,
                                                 srcLowerIndicesUpdated);
           loadedVector = b.create<vector::InsertElementOp>(
               loc, loadedVectorType, loadedElement, loadedVector, iterI32);
@@ -299,7 +306,7 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
       }
     } else {
       // Issue scalar load.
-      loadedValue = b.create<LoadOp>(loc, loadedType, source, srcLowerIndices);
+      loadedValue = b.create<memref::LoadOp>(loc, loadedType, source, srcLowerIndices);
     }
     return loadedValue;
   };
@@ -414,21 +421,43 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
 // Utility function to emit store instructions with potentially OOB checks.
 //===----------------------------------------------------------------------===//
 enum InMemoryDataOperation { Set, AtomicAdd };
-inline void
-emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
-               Type typeToStore, bool toEmitOOBStoreCheckLogic,
-               const SmallVector<unsigned, 8> &oobStoreCheckDims,
-               const Value &dest, const SmallVector<Value, 8> &destLowerIndices,
-               const Value &value,
-               InMemoryDataOperation memoryOp = InMemoryDataOperation::Set) {
-  auto emitStoreInstruction = [&b, &loc](
+// we set attr at affixThreadwiseCopyV2Attributes or
+// affixThreadwiseCopyAttributes first we use
+// NotBwdPaddingOrStrideOne,StrideTwoXdlopsNHWC,StrideTwoXdlopsNCHW,StrideTwoNonXdlopsNCHW,
+// StrideTwoNonXdlopsNHWC then in ThreadwiseCopyV2RewritePattern, due to xdlops
+// have lots of different workaround we split
+// NotBwdPaddingOrStrideOne,StrideTwoXdlopsNHWC,StrideTwoXdlopsNCHW, into
+// GemmMPadStrideTwoXdlopsNCHW,
+// GemmNPadStrideTwoXdlopsNCHW,GemmMNPadStrideTwoXdlopsNCHW,GemmNPadStrideTwoXdlopsNHWC
+// if we don't need workaround , use NotBwdPaddingOrStrideOne
+// non xdlops should split also ,but not implement yet
+enum BwdPaddingKernelStatus {
+  NotBwdPaddingOrStrideOne,
+  StrideTwoNonXdlopsNCHW,
+  StrideTwoNonXdlopsNHWC,
+  StrideTwoXdlopsNHWC,
+  StrideTwoXdlopsNCHW,
+  GemmMPadStrideTwoXdlopsNCHW,
+  GemmNPadStrideTwoXdlopsNCHW,
+  GemmMNPadStrideTwoXdlopsNCHW,
+  GemmNPadStrideTwoXdlopsNHWC,
+  GemmMNPadStrideTwoXdlopsNHWC,
+  GemmMPadStrideTwoXdlopsNHWC
+};
+inline void emitStoreLogic(
+    BwdPaddingKernelStatus bwdPaddingStatus, OpBuilder &b, Location loc,
+    MemRefType destType, Type typeToStore, bool toEmitOOBStoreCheckLogic,
+    const SmallVector<unsigned, 8> &oobStoreCheckDims, const Value &dest,
+    const SmallVector<Value, 8> &destLowerIndices, const Value &value,
+    InMemoryDataOperation memoryOp = InMemoryDataOperation::Set) {
+  auto emitStoreInstruction = [&b, &loc, &memoryOp](
                                   const Value &value, MemRefType destType,
                                   Type typeToStore, const Value &dest,
                                   const SmallVector<Value, 8> &destLowerIndices,
                                   const Value &oob) {
     if (typeToStore.isa<VectorType>()) {
       // Issue vector store.
-      if (destType.getMemorySpace() == 0) {
+      if (destType.getMemorySpaceAsInt() == 0) {
         // use raw buffer store if the dest memref is on address space 0
         Value oobI32 = b.create<IndexCastOp>(loc, oob, b.getIntegerType(32));
         SmallVector<Value, 4> destLowerIndicesI32;
@@ -451,12 +480,12 @@ emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
           auto element = b.create<vector::ExtractElementOp>(
               loc, elementType, value,
               b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32)));
-          b.create<StoreOp>(loc, element, dest, destLowerIndicesUpdated);
+          b.create<memref::StoreOp>(loc, element, dest, destLowerIndicesUpdated);
         }
       }
     } else {
       // Issue scalar store.
-      if (destType.getMemorySpace() == 0) {
+      if (destType.getMemorySpaceAsInt() == 0) {
         // use raw buffer store if the dest memref is on address space 0
         SmallVector<Value, 4> destLowerIndicesI32;
         Value oobI32 = b.create<IndexCastOp>(loc, oob, b.getIntegerType(32));
@@ -466,7 +495,7 @@ emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
         b.create<gpu::RawbufStoreOp>(loc, value, dest, oobI32,
                                      destLowerIndicesI32);
       } else {
-        b.create<StoreOp>(loc, value, dest, destLowerIndices);
+        b.create<memref::StoreOp>(loc, value, dest, destLowerIndices);
       }
     }
   };
@@ -515,12 +544,71 @@ emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
         loc, ValueRange{zeroConstantOp, destLowerIndices[0],
                         destLowerIndices[1], destLowerIndices[2],
                         destLowerIndices[3], destLowerIndices[4]});
+
     auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
-    elseBuilder.create<scf::YieldOp>(
-        loc,
-        ValueRange{oobAddrOp, destLowerStoreOOBIndices[0],
-                   destLowerStoreOOBIndices[1], destLowerStoreOOBIndices[2],
-                   destLowerStoreOOBIndices[3], destLowerStoreOOBIndices[4]});
+    // here is workaround of backward data padding kernel to avoid compiler
+    // issues
+    if (bwdPaddingStatus == BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne) {
+      elseBuilder.create<scf::YieldOp>(
+          loc,
+          ValueRange{oobAddrOp, destLowerStoreOOBIndices[0],
+                     destLowerStoreOOBIndices[1], destLowerStoreOOBIndices[2],
+                     destLowerStoreOOBIndices[3], destLowerStoreOOBIndices[4]});
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::StrideTwoNonXdlopsNHWC) {
+      elseBuilder.create<scf::YieldOp>(
+          loc,
+          ValueRange{oobAddrOp, destLowerIndices[0], zeroConstantOp,
+                     zeroConstantOp, destLowerIndices[3], destLowerIndices[4]});
+
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::StrideTwoNonXdlopsNCHW) {
+      elseBuilder.create<scf::YieldOp>(
+          loc, ValueRange{oobAddrOp, destLowerIndices[0], destLowerIndices[1],
+                          destLowerIndices[2], zeroConstantOp, zeroConstantOp});
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::GemmMPadStrideTwoXdlopsNCHW) {
+      // c!=64 pad=0 nchw
+      elseBuilder.create<scf::YieldOp>(
+          loc,
+          ValueRange{oobAddrOp, destLowerIndices[0], destLowerIndices[1],
+                     zeroConstantOp, destLowerIndices[3], destLowerIndices[4]});
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::GemmNPadStrideTwoXdlopsNCHW) {
+      // n!=64 pad=0 nchw
+      elseBuilder.create<scf::YieldOp>(
+          loc, ValueRange{oobAddrOp, zeroConstantOp, destLowerIndices[1],
+                          destLowerIndices[2], destLowerIndices[3],
+                          destLowerIndices[4]});
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::GemmMNPadStrideTwoXdlopsNCHW) {
+      // n!=64 c!=64 pad=0 nchw
+      elseBuilder.create<scf::YieldOp>(
+          loc,
+          ValueRange{oobAddrOp, zeroConstantOp, destLowerIndices[1],
+                     zeroConstantOp, destLowerIndices[3], destLowerIndices[4]});
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::GemmNPadStrideTwoXdlopsNHWC) {
+      // gemmn%64!=0 padh=padw=0 nhwc
+      elseBuilder.create<scf::YieldOp>(
+          loc, ValueRange{oobAddrOp, zeroConstantOp, destLowerIndices[1],
+                          destLowerIndices[2], destLowerIndices[3],
+                          destLowerIndices[4]});
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::GemmMPadStrideTwoXdlopsNHWC) {
+      // gemmm%64!=0 padh=padw=0 nhwc
+      elseBuilder.create<scf::YieldOp>(
+          loc,
+          ValueRange{oobAddrOp, destLowerIndices[0], destLowerIndices[1],
+                     destLowerIndices[2], destLowerIndices[3], zeroConstantOp});
+    } else if (bwdPaddingStatus ==
+               BwdPaddingKernelStatus::GemmMNPadStrideTwoXdlopsNHWC) {
+      // gemmm%64!=0 gemmN%64!=0 padh=padw=0 nhwc
+      elseBuilder.create<scf::YieldOp>(
+          loc,
+          ValueRange{oobAddrOp, zeroConstantOp, destLowerIndices[1],
+                     destLowerIndices[2], destLowerIndices[3], zeroConstantOp});
+    }
 
     // ifWithinBoundsOp results:
     // - 0 : oob address, 0 if inbound, 2GB if oob.
@@ -532,6 +620,7 @@ emitStoreLogic(OpBuilder &b, Location loc, MemRefType destType,
     emitStoreInstruction(value, destType, typeToStore, dest,
                          destLowerIndicesUpdated,
                          /*oob=*/ifWithinBoundsOp.getResults()[0]);
+
   } else {
     if (memoryOp == InMemoryDataOperation::AtomicAdd) {
       SmallVector<Value, 8> destLowerStoreIndices;
@@ -724,7 +813,7 @@ inline void emitNaiveTensorCopyLogic(
       // Load from source.
       // Issue scalar load.
       Value scalarValue =
-          b.create<LoadOp>(loc, sourceElementType, source, srcLowerIndices);
+          b.create<memref::LoadOp>(loc, sourceElementType, source, srcLowerIndices);
 
       // Convert from sourceElementType to destElementType if necessary.
       Value convertedScalarValue = createTypeConversionOp(
@@ -769,7 +858,7 @@ inline void emitNaiveTensorCopyLogic(
 
       // Store to dest.
       // Issue scalar store.
-      b.create<StoreOp>(loc, convertedScalarValue, dest, destLowerIndices);
+      b.create<memref::StoreOp>(loc, convertedScalarValue, dest, destLowerIndices);
 
     } // ivi
   }   // ivo
@@ -3590,6 +3679,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // get y, x, ho, wo, hi, wi
     int64_t g, n, k, c, y, x, ho, wo, hi, wi;
     g = n = k = c = y = x = ho = wo = hi = wi = 0;
+
+    // nameToDims can store <dim name ,dim index> ,we can use it to do oob check
+    llvm::DenseSet<int> filterOobCheckDims;
+    llvm::DenseMap<StringRef, int> nameToDims;
+    int cIndex = 0;
+
     for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template cast<StringAttr>();
@@ -3598,12 +3693,17 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       auto outputAttr =
           outputLayoutAttr.getValue()[i].template cast<StringAttr>();
 
+      nameToDims[filterAttr.getValue()] = i;
+      nameToDims[inputAttr.getValue()] = i;
+      nameToDims[outputAttr.getValue()] = i;
+
       if (filterAttr.getValue() == "g") {
         g = filterShape[i];
       } else if (filterAttr.getValue() == "k") {
         k = filterShape[i];
       } else if (filterAttr.getValue() == "c") {
         c = filterShape[i];
+        cIndex = i;
       } else if (filterAttr.getValue() == "y") {
         y = filterShape[i];
       } else if (filterAttr.getValue() == "x") {
@@ -3630,27 +3730,27 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto wiPadded = wi + leftPadW + rightPadW;
 
     // Compute how to dissect backward data into smaller convolutions.
-    auto gcdStrideDilationH = math::gcd(strideH, dilationH);
-    auto gcdStrideDilationW = math::gcd(strideW, dilationW);
+    auto gcdStrideDilationH = math_util::gcd(strideH, dilationH);
+    auto gcdStrideDilationW = math_util::gcd(strideW, dilationW);
 
     auto yTilda = strideH / gcdStrideDilationH;
     auto xTilda = strideW / gcdStrideDilationW;
 
-    auto yDot = math::integer_divide_ceil(y, yTilda);
-    auto xDot = math::integer_divide_ceil(x, xTilda);
+    auto yDot = math_util::integer_divide_ceil(y, yTilda);
+    auto xDot = math_util::integer_divide_ceil(x, xTilda);
 
-    auto hTilda = ho + math::integer_divide_ceil(dilationH * (y - 1), strideH);
-    auto wTilda = wo + math::integer_divide_ceil(dilationW * (x - 1), strideW);
+    auto hTilda = ho + math_util::integer_divide_ceil(dilationH * (y - 1), strideH);
+    auto wTilda = wo + math_util::integer_divide_ceil(dilationW * (x - 1), strideW);
 
-    auto iHTildaLeft = math::integer_divide_floor(
+    auto iHTildaLeft = math_util::integer_divide_floor(
         std::max(0l, leftPadH - dilationH * (yTilda - 1)), strideH);
-    auto iWTildaLeft = math::integer_divide_floor(
+    auto iWTildaLeft = math_util::integer_divide_floor(
         std::max(0l, leftPadW - dilationW * (xTilda - 1)), strideW);
 
     auto iHTildaRight = std::min(
-        hTilda, math::integer_divide_ceil(leftPadH + hi - 1, strideH) + 1);
+        hTilda, math_util::integer_divide_ceil(leftPadH + hi - 1, strideH) + 1);
     auto iWTildaRight = std::min(
-        wTilda, math::integer_divide_ceil(leftPadW + wi - 1, strideW) + 1);
+        wTilda, math_util::integer_divide_ceil(leftPadW + wi - 1, strideW) + 1);
 
     auto hTildaSlice = iHTildaRight - iHTildaLeft;
     auto wTildaSlice = iWTildaRight - iWTildaLeft;
@@ -3666,8 +3766,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
         const auto iYTilda = gemmId / xTilda;
         const auto iXTilda = gemmId % xTilda;
 
-        auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
-        auto xDotSlice = math::integer_divide_ceil(x - iXTilda, xTilda);
+        auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
+        auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
         // gemmK must > 0, otherwise not need to run
         if (yDotSlice * xDotSlice > 0) {
           gemmIds.push_back(gemmId);
@@ -3679,8 +3779,90 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto gemmId = getGemmId(gemmIdAttr.getInt());
     auto iYTilda = gemmId / xTilda;
     auto iXTilda = gemmId % xTilda;
-    auto yDotSlice = math::integer_divide_ceil(y - iYTilda, yTilda);
-    auto xDotSlice = math::integer_divide_ceil(x - iXTilda, xTilda);
+    auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
+    auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
+
+    bool needExtraPad = false;
+    bool isOriginalKernelSupport = true;
+    int64_t gemmM_size, gemmN_size, gemmK_size;
+    int64_t gemmMExtra, gemmNExtra, gemmKExtra;
+    // backward data only, it's igemm v4r1 algo
+    // c is input chaneels , k is output channels
+    // n is batch , yDotSlice,xDotSlice computed in above
+    gemmMExtra = gemmNExtra = gemmKExtra = 0;
+    gemmM_size = c;
+    gemmK_size = k * yDotSlice * xDotSlice;
+    gemmN_size = n * hTildaSlice * wTildaSlice;
+
+    bool isXdlops = false;
+    auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
+    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
+      isXdlops = true;
+
+    bool isSupportPaddingKernel = true;
+    bool isStride2Pad1 = false;
+    if (strideH > 1 || strideW > 1) {
+      if (leftPadH > 0 || leftPadW > 0 || rightPadH > 0 || rightPadW > 0) {
+        isStride2Pad1 = true;
+      }
+    }
+    // we use this lamda to compute extra padding size
+    // for example, if gemmM size is 3 and gemmMPerBlock is 64
+    // we gemmMExtra is 64 so (gemmM + gemmMExtra )%gemmMPerBlock =0
+    auto calculatePaddingKernelSize = [&isOriginalKernelSupport, &needExtraPad,
+                                       gemmM_size, gemmN_size, gemmK_size,
+                                       &gemmMExtra, &gemmNExtra, &gemmKExtra,
+                                       isXdlops](auto &populateParams) {
+      auto config_params = populateParams.getTuningParameters();
+      unsigned numOfFailedConfigs = 0;
+      for (auto &params : config_params) {
+        if (gemmM_size % params.gemmMPerBlock == 0 &&
+            gemmK_size % params.gemmKPerBlock == 0 &&
+            gemmN_size % params.gemmNPerBlock == 0) {
+          isOriginalKernelSupport = true;
+          break;
+        } else {
+          isOriginalKernelSupport = false;
+          numOfFailedConfigs++;
+        }
+      }
+
+      auto extraParams = populateParams.getUniversalParameters();
+      if (numOfFailedConfigs == config_params.size()) {
+
+        needExtraPad = true;
+        int gemmM_remain, gemmK_remain, gemmN_remain;
+
+        gemmM_remain = gemmM_size % extraParams.gemmMPerBlock;
+        if (gemmM_remain != 0)
+          gemmMExtra = extraParams.gemmMPerBlock - gemmM_remain;
+
+        gemmN_remain = gemmN_size % extraParams.gemmNPerBlock;
+        if (gemmN_remain != 0)
+          gemmNExtra = extraParams.gemmNPerBlock - gemmN_remain;
+
+        gemmK_remain = gemmK_size % extraParams.gemmKPerBlock;
+        if (gemmK_remain != 0)
+          gemmKExtra = extraParams.gemmKPerBlock - gemmK_remain;
+
+        // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
+        // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
+      }
+    }; // calculatePaddingKernelSize end
+
+    if (!isXdlops) {
+      PopulateParams populateParams;
+      calculatePaddingKernelSize(populateParams);
+    } else { // xdlops
+      PopulateParamsXDL populateParamsXDL;
+      calculatePaddingKernelSize(populateParamsXDL);
+    }
+
+    isSupportPaddingKernel = isSupportBackwardDataPaddingKernel(
+        isXdlops, isStride2Pad1, gemmMExtra, gemmKExtra, gemmNExtra);
+    // don't do backward data padding kernel if isSupportPaddingKernel=false
+    if (!isSupportPaddingKernel && !isOriginalKernelSupport)
+      return failure();
     // Transform filter tensor.
 
     // set layout attribute.
@@ -4041,7 +4223,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
       };
       auto weiGemmGGemmKGemmM = getWeiGemmGGemmKGemmM(secondFilterDimName);
 
-      return weiGemmGGemmKGemmM;
+      // if the config do not do padding kernel,
+      // gemmAPad = weiGemmGGemmKGemmM
+      Value gemmAPad = padFilter(isXdlops, gemmMExtra, gemmNExtra, gemmKExtra,
+                                 weiGemmGGemmKGemmM, b, loc, filterOobCheckDims,
+                                 nameToDims, filterShape, filterElementType, g,
+                                 k, c, yDotSlice, xDotSlice);
+      return gemmAPad;
     };
 
     auto getGemmB = [&]() -> Value {
@@ -4531,7 +4719,16 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             loc, transformedMemRefType,
             inGNCYTildaSliceHTidaSliceXTildaSliceWTildaSlice, transformedAttrs,
             /*populateBounds=*/true);
-        return gemm;
+
+        // if the config do not do padding kernel,
+        // gemmBPad = gemm
+
+        Value gemmBPad =
+            padInput(isXdlops, gemmMExtra, gemmNExtra, gemmKExtra, gemm, b, loc,
+                     inputOobCheckDims, nameToDims, transformedShape,
+                     inputShape, inputElementType);
+
+        return gemmBPad;
       };
       auto inGemmGGemmMGemmN = getInGemmGGemmMGemmN(thirdOutputDimName);
 
@@ -4913,7 +5110,14 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
             loc, transformedMemRefType,
             outGNKYDotSliceHTidaSliceXDotSliceWTildaSlice, transformedAttrs,
             /*populateBounds=*/true);
-        return gemm;
+
+        // if the config do not do padding kernel,
+        // gemmCPad = gemm
+        Value gemmCPad =
+            padOutput(isXdlops, gemmMExtra, gemmNExtra, gemmKExtra, gemm, b,
+                      loc, outputOobCheckDims, nameToDims, transformedShape,
+                      outputShape, outputElementType);
+        return gemmCPad;
       };
       auto outGemmGGemmKGemmN = getOutGemmGGemmKGemmN(secondOutputDimName);
 
@@ -4942,8 +5146,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     };
 
     // xdlopsV2.
-    auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
+    if (isXdlops)
       gridwiseGemmAttrs.push_back(
           b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
 
@@ -4999,6 +5202,34 @@ const miopen::ConvOpType
 static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
                                           miopen::GridwiseGemmOp gop,
                                           OpBuilder &b) {
+  //  gop.getNamedAttr("padding", paddingAttr)
+  auto stridesAttr = gop->template getAttrOfType<ArrayAttr>("strides");
+  auto strideH =
+      stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
+  auto strideW =
+      stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
+
+  auto algorithmAttr =
+      gop->template getAttrOfType<StringAttr>("kernel_algorithm");
+  auto algorithm_name = algorithmAttr.getValue();
+
+  BwdPaddingKernelStatus status =
+      BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+  if (strideH > 1 && strideW > 1 && algorithm_name == "backward_data_v4r1") {
+    status = BwdPaddingKernelStatus::StrideTwoNonXdlopsNHWC;
+    auto inputLayoutAttr =
+        gop->template getAttrOfType<ArrayAttr>("input_layout");
+    int indexC = 0;
+    for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
+      auto inputAttr =
+          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
+      if (inputAttr.getValue() == "ci") {
+        if (i == 2) // gnchw
+          status = BwdPaddingKernelStatus::StrideTwoNonXdlopsNCHW;
+      }
+    }
+  }
+
   top->setAttr("dim_access_order", b.getArrayAttr({
                                        b.getI32IntegerAttr(0),
                                        b.getI32IntegerAttr(1),
@@ -5009,6 +5240,7 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
   top->setAttr("vector_read_write_dim",
                gop->getAttr("matrix_c_source_dest_vector_read_write_dim"));
   top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
+  top->setAttr("bwd_padding_kernel_status", b.getI32IntegerAttr(status));
   top->setAttr("dest_data_per_write",
                gop->getAttr("matrix_c_dest_data_per_write"));
 }
@@ -5016,6 +5248,34 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
 static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top,
                                             miopen::GridwiseGemmV2Op gop,
                                             OpBuilder &b) {
+  auto stridesAttr = gop->template getAttrOfType<ArrayAttr>("strides");
+  auto strideH =
+      stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
+  auto strideW =
+      stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
+
+  auto algorithmAttr =
+      gop->template getAttrOfType<StringAttr>("kernel_algorithm");
+  auto algorithm_name = algorithmAttr.getValue();
+
+  BwdPaddingKernelStatus status;
+  if ((strideH > 1 && strideW > 1) && algorithm_name == "backward_data_v4r1") {
+
+    status = BwdPaddingKernelStatus::StrideTwoXdlopsNHWC;
+    auto inputLayoutAttr =
+        gop->template getAttrOfType<ArrayAttr>("input_layout");
+    int indexC = 0;
+    for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
+      auto inputAttr =
+          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
+      if (inputAttr.getValue() == "ci") {
+        if (i == 2) // gnchw
+          status = BwdPaddingKernelStatus::StrideTwoXdlopsNCHW;
+      }
+    }
+  }
+
+  top->setAttr("bwd_padding_kernel_status", b.getI32IntegerAttr(status));
   top->setAttr("dim_access_order", b.getArrayAttr({
                                        b.getI32IntegerAttr(0),
                                        b.getI32IntegerAttr(1),
@@ -5047,7 +5307,6 @@ static void affixThreadwiseCopyAttributes(T &top, U &bop, OpBuilder &b,
     top->setAttr("source_data_per_read", bop->getAttr("source_data_per_read"));
     top->setAttr("dest_data_per_write", bop->getAttr("dest_data_per_write"));
   }
-
   // set bound attribute.
   top->setAttr("bound", bop->getAttr("bound"));
 }
@@ -5185,7 +5444,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         op->getAttr("n_per_thread").template cast<IntegerAttr>().getInt();
 
     int64_t max_lds_align =
-        math::lcm(ABlockCopyDstDataPerWrite_M, BBlockCopyDstDataPerWrite_N,
+        math_util::lcm(ABlockCopyDstDataPerWrite_M, BBlockCopyDstDataPerWrite_N,
                   ThreadGemmAThreadCopySrcDataPerRead_M,
                   ThreadGemmBThreadCopySrcDataPerRead_N);
 
@@ -5198,7 +5457,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     int64_t AlignedNPerBlock =
         max_lds_align *
-        math::integer_divide_ceil<int64_t>(NPerBlock, max_lds_align);
+        math_util::integer_divide_ceil<int64_t>(NPerBlock, max_lds_align);
 
     // A matrix in LDS memory, dst of blockwise copy
     //   be careful of LDS alignment
@@ -5206,12 +5465,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // constexpr auto a_k_m_block_desc = make_native_tensor_descriptor_aligned(
     //    Sequence<KPerBlock, MPerBlock>{}, Number<max_lds_align>{});
     // constexpr index_t a_block_space =
-    //    math::integer_least_multiple(a_k_m_block_desc.GetElementSpace(),
+    //    math_util::integer_least_multiple(a_k_m_block_desc.GetElementSpace(),
     //    max_lds_align);
     int64_t AlignedMPerBlock =
         max_lds_align *
-        math::integer_divide_ceil<int64_t>(MPerBlock, max_lds_align);
-    a_block_space = math::integer_least_multiple(KPerBlock * AlignedMPerBlock,
+        math_util::integer_divide_ceil<int64_t>(MPerBlock, max_lds_align);
+    a_block_space = math_util::integer_least_multiple(KPerBlock * AlignedMPerBlock,
                                                  max_lds_align) * KPack;
 
     // B matrix in LDS memory, dst of blockwise copy
@@ -5220,9 +5479,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // constexpr auto b_k_n_block_desc = make_native_tensor_descriptor_aligned(
     //    Sequence<KPerBlock, NPerBlock>{}, Number<max_lds_align>{});
     // constexpr index_t b_block_space =
-    //    math::integer_least_multiple(b_k_n_block_desc.GetElementSpace(),
+    //    math_util::integer_least_multiple(b_k_n_block_desc.GetElementSpace(),
     //    max_lds_align);
-    b_block_space = math::integer_least_multiple(KPerBlock * AlignedNPerBlock,
+    b_block_space = math_util::integer_least_multiple(KPerBlock * AlignedNPerBlock,
                                                  max_lds_align) * KPack;
 
     block_space = a_block_space + b_block_space;
@@ -5277,7 +5536,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     }
     auto transformedOutputType =
         MemRefType::get(outputShape, outputElementType, {outputAffineMap},
-                        inputType.getMemorySpace());
+                        inputType.getMemorySpaceAsInt());
     return transformedOutputType;
   }
 
@@ -5898,7 +6157,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                               GemmABlockCopyThreadSliceLengths_GemmM};
     }
     Type blockwiseLoadAType;
-    TupleType blockwiseLoadATupleType;
+    SmallVector<Type, 8> blockwiseLoadATypes;
     int blockwiseAVectorDim;
     int blockwiseLoadAVectorLength;
     int blockwiseStoreAVectorLength;
@@ -5914,10 +6173,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     //   llvm::errs() << v << " ";
     // llvm::errs() << "\n";
 
-    std::tie(blockwiseLoadAType, blockwiseLoadATupleType, blockwiseAVectorDim,
+    std::tie(blockwiseLoadAType, blockwiseAVectorDim,
              blockwiseLoadAVectorLength, blockwiseStoreAVectorLength) =
-        computeLoadStoreTypeInfo(b, op, elementType, blockwiseCopyABounds, true,
-                                 KPack);
+        computeLoadStoreTypeInfo(b, op, elementType, blockwiseLoadATypes,
+                                 blockwiseCopyABounds, true, KPack);
 
     // llvm::errs() << "vector load dim: " << blockwiseAVectorDim << "\n";
     // llvm::errs() << "element type: " << blockwiseLoadAType << "\n";
@@ -5933,8 +6192,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       blockwiseCopyBBounds = {1, GemmBBlockCopyThreadSliceLengths_GemmK,
                               GemmBBlockCopyThreadSliceLengths_GemmN};
     }
-    Type blockwiseLoadBType;
-    TupleType blockwiseLoadBTupleType;
+    TypeRange blockwiseLoadBType;
+    SmallVector<Type, 8> blockwiseLoadBTypes;
     int blockwiseBVectorDim;
     int blockwiseLoadBVectorLength;
     int blockwiseStoreBVectorLength;
@@ -5950,10 +6209,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     //   llvm::errs() << v << " ";
     // llvm::errs() << "\n";
 
-    std::tie(blockwiseLoadBType, blockwiseLoadBTupleType, blockwiseBVectorDim,
+    std::tie(blockwiseLoadBType, blockwiseBVectorDim,
              blockwiseLoadBVectorLength, blockwiseStoreBVectorLength) =
-        computeLoadStoreTypeInfo(b, op, elementType, blockwiseCopyBBounds,
-                                 false, KPack);
+        computeLoadStoreTypeInfo(b, op, elementType, blockwiseLoadBTypes,
+                                 blockwiseCopyBBounds, false, KPack);
 
     // llvm::errs() << "vector load dim: " << blockwiseBVectorDim << "\n";
     // llvm::errs() << "element type: " << blockwiseLoadBType << "\n";
@@ -6143,7 +6402,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Emit blockwise_load for matrix A.
     auto blockwiseLoadA = b.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadATupleType, op.filter(), blockwiseCopyASrcVector);
+        loc, blockwiseLoadATypes, op.filter(), blockwiseCopyASrcVector);
     affixBlockwiseCopyAttributes(
         blockwiseLoadA, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
         /*vectorDim=*/blockwiseAVectorDim,
@@ -6151,7 +6410,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
     // Emit blockwise_store for matrix A.
     auto blockwiseStoreA = b.create<miopen::BlockwiseStoreOp>(
-        loc, blockwiseLoadA.getResult(), ldsMatrixASubviewOp,
+        loc, blockwiseLoadA.getResults(), ldsMatrixASubviewOp,
         blockwiseCopyADstVector);
     affixBlockwiseCopyAttributes(
         blockwiseStoreA, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
@@ -6161,7 +6420,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Emit blockwise_load for matrix B.
     auto blockwiseLoadB = b.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadBTupleType, op.input(), blockwiseCopyBSrcVector);
+        loc, blockwiseLoadBTypes, op.input(), blockwiseCopyBSrcVector);
     affixBlockwiseCopyAttributes(
         blockwiseLoadB, op, b,
         /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
@@ -6170,7 +6429,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         /*blockwiseStoreLength=*/blockwiseStoreBVectorLength);
     // Emit blockwise_store for matrix B.
     auto blockwiseStoreB = b.create<miopen::BlockwiseStoreOp>(
-        loc, blockwiseLoadB.getResult(), ldsMatrixBSubviewOp,
+        loc, blockwiseLoadB.getResults(), ldsMatrixBSubviewOp,
         blockwiseCopyBDstVector);
     affixBlockwiseCopyAttributes(
         blockwiseStoreB, op, b,
@@ -6232,8 +6491,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     }
     // Emit blockwise_load for matrix A.
     auto blockwiseLoadATop = lb.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadATupleType, op.filter(),
-        blockwiseCopyASrcVectorUpdated);
+        loc, blockwiseLoadATypes, op.filter(), blockwiseCopyASrcVectorUpdated);
     affixBlockwiseCopyAttributes(
         blockwiseLoadATop, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
         /*vectorDim=*/blockwiseAVectorDim,
@@ -6254,8 +6512,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     }
     // Emit blockwise_load for matrix B.
     auto blockwiseLoadBTop = lb.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadBTupleType, op.input(),
-        blockwiseCopyBSrcVectorUpdated);
+        loc, blockwiseLoadBTypes, op.input(), blockwiseCopyBSrcVectorUpdated);
     affixBlockwiseCopyAttributes(
         blockwiseLoadBTop, op, b, /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
         /*vectorDim=*/blockwiseBVectorDim,
@@ -6266,7 +6523,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Emit blockwise_store for matrix A.
     auto blockwiseStoreABottom = lb.create<miopen::BlockwiseStoreOp>(
-        loc, blockwiseLoadATop.getResult(), ldsMatrixASubviewOp,
+        loc, blockwiseLoadATop.getResults(), ldsMatrixASubviewOp,
         loopOp.getRegionIterArgs()[1]);
     affixBlockwiseCopyAttributes(
         blockwiseStoreABottom, op, b,
@@ -6277,7 +6534,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // Emit blockwise_store for matrix B.
     auto blockwiseStoreBBottom = lb.create<miopen::BlockwiseStoreOp>(
-        loc, blockwiseLoadBTop.getResult(), ldsMatrixBSubviewOp,
+        loc, blockwiseLoadBTop.getResults(), ldsMatrixBSubviewOp,
         loopOp.getRegionIterArgs()[3]);
     affixBlockwiseCopyAttributes(
         blockwiseStoreBBottom, op, b,
@@ -6541,7 +6798,7 @@ struct GridwiseGemmV2RewritePattern
             .getInt();
 
     int64_t max_lds_align =
-        math::lcm(ABlockCopyDstDataPerWrite_M, BBlockCopyDstDataPerWrite_N);
+        math_util::lcm(ABlockCopyDstDataPerWrite_M, BBlockCopyDstDataPerWrite_N);
 
     int64_t KPerBlock =
         op->getAttr("k_per_block").template cast<IntegerAttr>().getInt();
@@ -6552,12 +6809,12 @@ struct GridwiseGemmV2RewritePattern
 
     int64_t AlignedNPerBlock =
         max_lds_align *
-        math::integer_divide_ceil<int64_t>(NPerBlock, max_lds_align);
+        math_util::integer_divide_ceil<int64_t>(NPerBlock, max_lds_align);
 
     // A matrix in LDS memory, dst of blockwise copy
     int64_t AlignedMPerBlock =
         max_lds_align *
-        math::integer_divide_ceil<int64_t>(MPerBlock, max_lds_align);
+        math_util::integer_divide_ceil<int64_t>(MPerBlock, max_lds_align);
 
     // llvm::errs() << "MPerBlock : " << MPerBlock << "\n";
     // llvm::errs() << "NPerBlock : " << NPerBlock << "\n";
@@ -6565,11 +6822,11 @@ struct GridwiseGemmV2RewritePattern
     // llvm::errs() << "AlignedMPerBlock : " << AlignedMPerBlock << "\n";
     // llvm::errs() << "AlignedNPerBlock : " << AlignedNPerBlock << "\n";
 
-    a_block_space = math::integer_least_multiple(KPerBlock * AlignedMPerBlock,
+    a_block_space = math_util::integer_least_multiple(KPerBlock * AlignedMPerBlock,
                                                  max_lds_align) * KPack;
 
     // B matrix in LDS memory, dst of blockwise copy
-    b_block_space = math::integer_least_multiple(KPerBlock * AlignedNPerBlock,
+    b_block_space = math_util::integer_least_multiple(KPerBlock * AlignedNPerBlock,
                                                  max_lds_align) * KPack;
 
     total_block_space = a_block_space + b_block_space;
@@ -6645,7 +6902,7 @@ struct GridwiseGemmV2RewritePattern
     }
     auto transformedOutputType =
         MemRefType::get(outputShape, outputElementType, {outputAffineMap},
-                        inputType.getMemorySpace());
+                        inputType.getMemorySpaceAsInt());
     return transformedOutputType;
   }
 
@@ -7263,7 +7520,7 @@ struct GridwiseGemmV2RewritePattern
                               GemmABlockCopyThreadSliceLengths_GemmM};
     }
     Type blockwiseLoadAType;
-    TupleType blockwiseLoadATupleType;
+    SmallVector<Type, 8> blockwiseLoadATypes;
     int blockwiseAVectorDim;
     int blockwiseLoadAVectorLength;
     int blockwiseStoreAVectorLength;
@@ -7279,10 +7536,10 @@ struct GridwiseGemmV2RewritePattern
     //   llvm::errs() << v << " ";
     // llvm::errs() << "\n";
 
-    std::tie(blockwiseLoadAType, blockwiseLoadATupleType, blockwiseAVectorDim,
+    std::tie(blockwiseLoadAType, blockwiseAVectorDim,
              blockwiseLoadAVectorLength, blockwiseStoreAVectorLength) =
-        computeLoadStoreTypeInfo(b, op, elementType, blockwiseCopyABounds, true,
-                                 KPack);
+        computeLoadStoreTypeInfo(b, op, elementType, blockwiseLoadATypes,
+			         blockwiseCopyABounds, true, KPack);
 
     // llvm::errs() << "vector load dim: " << blockwiseAVectorDim << "\n";
     // llvm::errs() << "element type: " << blockwiseLoadAType << "\n";
@@ -7299,7 +7556,7 @@ struct GridwiseGemmV2RewritePattern
                               GemmBBlockCopyThreadSliceLengths_GemmN};
     }
     Type blockwiseLoadBType;
-    TupleType blockwiseLoadBTupleType;
+    SmallVector<Type, 8> blockwiseLoadBTypes;
     int blockwiseBVectorDim;
     int blockwiseLoadBVectorLength;
     int blockwiseStoreBVectorLength;
@@ -7315,10 +7572,10 @@ struct GridwiseGemmV2RewritePattern
     //   llvm::errs() << v << " ";
     // llvm::errs() << "\n";
 
-    std::tie(blockwiseLoadBType, blockwiseLoadBTupleType, blockwiseBVectorDim,
+    std::tie(blockwiseLoadBType, blockwiseBVectorDim,
              blockwiseLoadBVectorLength, blockwiseStoreBVectorLength) =
-        computeLoadStoreTypeInfo(b, op, elementType, blockwiseCopyBBounds,
-                                 false, KPack);
+        computeLoadStoreTypeInfo(b, op, elementType, blockwiseLoadBTypes,
+			         blockwiseCopyBBounds, false, KPack);
 
     // llvm::errs() << "vector load dim: " << blockwiseBVectorDim << "\n";
     // llvm::errs() << "element type: " << blockwiseLoadBType << "\n";
@@ -7453,7 +7710,7 @@ struct GridwiseGemmV2RewritePattern
 
     // Emit blockwise_load for matrix A.
     auto blockwiseLoadA = b.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadATupleType, op.filter(), blockwiseCopyASrcVector);
+        loc, blockwiseLoadATypes, op.filter(), blockwiseCopyASrcVector);
     affixBlockwiseCopyAttributes(
         blockwiseLoadA, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
         /*vectorDim=*/blockwiseAVectorDim,
@@ -7461,7 +7718,7 @@ struct GridwiseGemmV2RewritePattern
         /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
     // Emit blockwise_store for matrix A.
     auto blockwiseStoreA = b.create<miopen::BlockwiseStoreOp>(
-        loc, blockwiseLoadA.getResult(), ldsMatrixASubviewOp,
+        loc, blockwiseLoadA.getResults(), ldsMatrixASubviewOp,
         blockwiseCopyADstVector);
     affixBlockwiseCopyAttributes(
         blockwiseStoreA, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
@@ -7471,7 +7728,7 @@ struct GridwiseGemmV2RewritePattern
 
     // Emit blockwise_load for matrix B.
     auto blockwiseLoadB = b.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadBTupleType, op.input(), blockwiseCopyBSrcVector);
+        loc, blockwiseLoadBTypes, op.input(), blockwiseCopyBSrcVector);
     affixBlockwiseCopyAttributes(
         blockwiseLoadB, op, b, /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
         /*vectorDim=*/blockwiseBVectorDim,
@@ -7479,7 +7736,7 @@ struct GridwiseGemmV2RewritePattern
         /*blockwiseStoreLength=*/blockwiseStoreBVectorLength);
     // Emit blockwise_store for matrix B.
     auto blockwiseStoreB = b.create<miopen::BlockwiseStoreOp>(
-        loc, blockwiseLoadB.getResult(), ldsMatrixBSubviewOp,
+        loc, blockwiseLoadB.getResults(), ldsMatrixBSubviewOp,
         blockwiseCopyBDstVector);
     affixBlockwiseCopyAttributes(
         blockwiseStoreB, op, b, /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
@@ -7617,8 +7874,7 @@ struct GridwiseGemmV2RewritePattern
     }
     // Emit blockwise_load for matrix A.
     auto blockwiseLoadATop = mfmalb.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadATupleType, op.filter(),
-        blockwiseCopyASrcVectorUpdated);
+        loc, blockwiseLoadATypes, op.filter(), blockwiseCopyASrcVectorUpdated);
     affixBlockwiseCopyAttributes(
         blockwiseLoadATop, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
         /*vectorDim=*/blockwiseAVectorDim,
@@ -7639,8 +7895,7 @@ struct GridwiseGemmV2RewritePattern
     }
     // Emit blockwise_load for matrix B.
     auto blockwiseLoadBTop = mfmalb.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadBTupleType, op.input(),
-        blockwiseCopyBSrcVectorUpdated);
+        loc, blockwiseLoadBTypes, op.input(), blockwiseCopyBSrcVectorUpdated);
     affixBlockwiseCopyAttributes(
         blockwiseLoadBTop, op, b, /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
         /*vectorDim=*/blockwiseBVectorDim,
@@ -7663,7 +7918,7 @@ struct GridwiseGemmV2RewritePattern
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
     // Emit blockwise_store for matrix A.
     auto blockwiseStoreABottom = mfmalb.create<miopen::BlockwiseStoreOp>(
-        loc, blockwiseLoadATop.getResult(), ldsMatrixASubviewOp,
+        loc, blockwiseLoadATop.getResults(), ldsMatrixASubviewOp,
         mfmaLoopOp.getRegionIterArgs()[1]);
     affixBlockwiseCopyAttributes(
         blockwiseStoreABottom, op, b,
@@ -7673,7 +7928,7 @@ struct GridwiseGemmV2RewritePattern
         /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
     // Emit blockwise_store for matrix B.
     auto blockwiseStoreBBottom = mfmalb.create<miopen::BlockwiseStoreOp>(
-        loc, blockwiseLoadBTop.getResult(), ldsMatrixBSubviewOp,
+        loc, blockwiseLoadBTop.getResults(), ldsMatrixBSubviewOp,
         mfmaLoopOp.getRegionIterArgs()[3]);
     affixBlockwiseCopyAttributes(
         blockwiseStoreBBottom, op, b,
@@ -7787,19 +8042,29 @@ struct GridwiseGemmV2RewritePattern
     auto M2TimesM1I32Op =
         b.create<MulIOp>(loc, M2ConstantI32Op, M1ConstantI32Op);
 
+    auto laneId_xdlops_gemm =
+        b.create<UnsignedRemIOp>(loc, tid, wave_size_ConstantOp);
+    auto blk_id_xdlops_gemm = b.create<UnsignedDivIOp>(
+        loc, laneId_xdlops_gemm, num_threads_blk_ConstantOp);
+    auto blk_td_xdlops_gemm = b.create<UnsignedRemIOp>(
+        loc, laneId_xdlops_gemm, num_threads_blk_ConstantOp);
+
+    // emit vector swizzles
+
+    auto *ctx = op.getContext();
+
+    const auto &tailResults = blockwiseGemmV2TailOp->getResults();
     // build affine expression: d0 = g
     // (d0, d1, d2, d3, d4) -> (d0, d1 * M1 * M2 + d2 * M2 + d3, d4)
-    auto affineMap5to3 =
-        AffineMap::get(5, 0,
-                       {getAffineDimExpr(0, op.getContext()),
-                        getAffineDimExpr(1, op.getContext()) *
-                                getAffineConstantExpr(M1, op.getContext()) *
-                                getAffineConstantExpr(M2, op.getContext()) +
-                            getAffineDimExpr(2, op.getContext()) *
-                                getAffineConstantExpr(M2, op.getContext()) +
-                            getAffineDimExpr(3, op.getContext()),
-                        getAffineDimExpr(4, op.getContext())},
-                       op.getContext());
+    auto affineMap5to3 = AffineMap::get(
+        5, 0,
+        {getAffineDimExpr(0, ctx),
+         getAffineDimExpr(1, ctx) * getAffineConstantExpr(M1, ctx) *
+                 getAffineConstantExpr(M2, ctx) +
+             getAffineDimExpr(2, ctx) * getAffineConstantExpr(M2, ctx) +
+             getAffineDimExpr(3, ctx),
+         getAffineDimExpr(4, ctx)},
+        ctx);
 
     // compose with output tensor affine map.
     auto outputType = op.output().getType().template cast<MemRefType>();
@@ -7878,12 +8143,11 @@ struct GridwiseGemmV2RewritePattern
 
     // Build affine expression for Sequence<1, M0, 1, M2, 1>
     // (d0, d1, d2, d3, d4) -> (d1 * M2 + d3)
-    auto matrixCAffineMap5to1 =
-        AffineMap::get(5, 0,
-                       {getAffineDimExpr(1, op.getContext()) *
-                            getAffineConstantExpr(M2, op.getContext()) +
-                        getAffineDimExpr(3, op.getContext())},
-                       op.getContext());
+    auto matrixCAffineMap5to1 = AffineMap::get(
+        5, 0,
+        {getAffineDimExpr(1, ctx) * getAffineConstantExpr(M2, ctx) +
+         getAffineDimExpr(3, ctx)},
+        op.getContext());
 
     Value c_thread_mtx_index_row, c_thread_mtx_index_col;
     Value c_thread_mtx_index_row_i32, c_thread_mtx_index_col_i32;
@@ -7939,12 +8203,6 @@ struct GridwiseGemmV2RewritePattern
       auto n_i_xdlops_gemm =
           b.create<UnsignedRemIOp>(loc, xdlops_i_xdlops_gemm, NRepeatsConstantOp);
 
-      auto laneId_xdlops_gemm =
-          b.create<UnsignedRemIOp>(loc, tid, wave_size_ConstantOp);
-      auto blk_id_xdlops_gemm = b.create<UnsignedDivIOp>(
-          loc, laneId_xdlops_gemm, num_threads_blk_ConstantOp);
-      auto blk_td_xdlops_gemm = b.create<UnsignedRemIOp>(
-          loc, laneId_xdlops_gemm, num_threads_blk_ConstantOp);
       Value col_blk_xdlops_gemm, row_blk_xdlops_gemm;
       bool IsABroadcast = (NPerXdlops >= MPerXdlops);
       if (IsABroadcast) {
@@ -7960,7 +8218,6 @@ struct GridwiseGemmV2RewritePattern
         row_blk_xdlops_gemm = b.create<UnsignedRemIOp>(
             loc, j_xdlops_gemm, num_output_blks_ConstantOp);
       }
-
       // Original C++ logic.
       //     index_t col = col_blk * mfma_type.n + blk_td + n_i * NPerXdlops;
       auto thread_mtx_on_blk_col = b.create<AddIOp>(
@@ -8091,9 +8348,8 @@ struct GridwiseGemmV2RewritePattern
 
       // Emit threadwise_copy_v2.
       auto threadwiseCopyV2CMatrixOp = b.create<miopen::ThreadwiseCopyV2Op>(
-          loc, blockwiseGemmV2TailOp.getResults()[vectorCIndex],
-          newOutputTransformOp, vectorCOffsetConstantOp,
-          matrixCThreadwiseCopySourceAndDestCoords);
+          loc, tailResults[vectorCIndex], newOutputTransformOp,
+          vectorCOffsetConstantOp, matrixCThreadwiseCopySourceAndDestCoords);
       affixThreadwiseCopyV2Attributes(threadwiseCopyV2CMatrixOp, op, b);
 
       // affix coord_transforms attributes.
@@ -8430,7 +8686,7 @@ struct BlockwiseCopyRewritePattern
     // - 0 (global) -> 3 (LDS) : load + store
     // - 0 (global) -> 5 (register) : load
     // - 5 (register) -> 3 (LDS) : store
-    if (sourceType.getMemorySpace() == 0 && destType.getMemorySpace() == 3) {
+    if (sourceType.getMemorySpaceAsInt() == 0 && destType.getMemorySpaceAsInt() == 3) {
       // Threadwise copy from global (generic tensor) to register (naive
       // tensor).
       SmallVector<Value, 4> ThreadwiseCopySourceAndBufferCoords;
@@ -8465,8 +8721,8 @@ struct BlockwiseCopyRewritePattern
           loc, op.buffer(), op.dest(), ThreadwiseCopyBufferAndDestCoords);
       affixThreadwiseCopyAttributes(threadwiseCopyStoreOp, op, b,
                                     /*isThreadwiseLoad=*/false);
-    } else if (sourceType.getMemorySpace() == 0 &&
-               destType.getMemorySpace() == 5) {
+    } else if (sourceType.getMemorySpaceAsInt() == 0 &&
+               destType.getMemorySpaceAsInt() == 5) {
       // Threadwise copy from global (generic tensor) to register (naive
       // tensor).
       SmallVector<Value, 4> ThreadwiseCopySourceAndDestCoords;
@@ -8484,8 +8740,8 @@ struct BlockwiseCopyRewritePattern
           loc, op.source(), op.dest(), ThreadwiseCopySourceAndDestCoords);
       affixThreadwiseCopyAttributes(threadwiseCopyLoadOp, op, b,
                                     /*isThreadwiseLoad=*/true);
-    } else if (sourceType.getMemorySpace() == 5 &&
-               destType.getMemorySpace() == 3) {
+    } else if (sourceType.getMemorySpaceAsInt() == 5 &&
+               destType.getMemorySpaceAsInt() == 3) {
       // Threadwise copy from register (naive tensor) to LDS (naive tensor).
       SmallVector<Value, 4> ThreadwiseCopySourceAndDestCoords;
       for (unsigned i = 0; i < sourceType.getRank(); ++i)
@@ -8524,7 +8780,7 @@ struct BlockwiseLoadRewritePattern
   LogicalResult matchAndRewrite(miopen::BlockwiseLoadOp op,
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
-    Type resultType = op.result().getType();
+    TypeRange resultTypes = op.result().getTypes();
     auto sourceCoordVectorType =
         op.sourceCoordVector().getType().cast<VectorType>();
 
@@ -8543,11 +8799,11 @@ struct BlockwiseLoadRewritePattern
     }
 
     auto threadwiseLoadOp = b.create<miopen::ThreadwiseLoadOp>(
-        loc, resultType, op.source(), ThreadwiseCopySourceCoords);
+        loc, resultTypes, op.source(), ThreadwiseCopySourceCoords);
     affixThreadwiseCopyAttributes(threadwiseLoadOp, op, b,
                                   /*isThreadwiseLoad=*/true);
 
-    op.replaceAllUsesWith(threadwiseLoadOp.getResult());
+    op.replaceAllUsesWith(threadwiseLoadOp.getResults());
     op.erase();
     return success();
   }
@@ -8571,17 +8827,17 @@ struct BlockwiseStoreRewritePattern
     // - 5 (register) -> 3 (LDS) : store
 
     // Threadwise copy from register (naive tensor) to LDS (naive tensor).
-    SmallVector<Value, 3> ThreadwiseCopyDestCoords;
+    SmallVector<Value, 3> threadwiseCopyDestCoords;
     for (unsigned i = 0; i < destCoordVectorType.getShape()[0]; ++i) {
       auto iter = b.create<ConstantIntOp>(loc, i, b.getIntegerType(32));
       auto coord = b.create<vector::ExtractElementOp>(
           loc, destCoordVectorType.getElementType(), op.destCoordVector(),
           iter);
-      ThreadwiseCopyDestCoords.push_back(coord);
+      threadwiseCopyDestCoords.push_back(coord);
     }
 
     auto threadwiseStoreOp = b.create<miopen::ThreadwiseStoreOp>(
-        loc, op.data(), op.dest(), ThreadwiseCopyDestCoords);
+        loc, op.data(), op.dest(), threadwiseCopyDestCoords);
     affixThreadwiseCopyAttributes(threadwiseStoreOp, op, b,
                                   /*isThreadwiseLoad=*/false);
 
@@ -8619,9 +8875,334 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
     }
 
     // Store fill value
-    currentScope.create<StoreOp>(loc, op.value(), op.input(), range);
+    currentScope.create<memref::StoreOp>(loc, op.value(), op.input(), range);
 
     op.erase();
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// InWarpTranspose lowering.
+//===----------------------------------------------------------------------===//
+static constexpr size_t swizzleGroupSize = InWarpTransposeOp::swizzleGroupSize;
+struct InWarpTransposeRewritePattern
+    : public OpRewritePattern<miopen::InWarpTransposeOp> {
+  using OpRewritePattern<miopen::InWarpTransposeOp>::OpRewritePattern;
+
+  enum RotationDirection {
+    // left rotation by 1 is a b c d -> b c d a
+    // right rotation by 1 is a b c d -> d a b c
+    Left,
+    Right
+  };
+
+  // Emit the in-regester rotations needed for an in-register transpose
+  //
+  // This will rotate the values each line holds by `laneId % groupSize`
+  // The emitted code uses a barrel rotator to enable performing these
+  // `groupSize` different rotations in O(log(groupSize)) operations Arguments:
+  // - `vector`: The vector of values to be rotated
+  // - `laneId`: The current lane ID (thread ID % warpSize)
+  // - `rotationDir`: whether to rotate left or right
+  // - `groupSize` and `totalSize`: the size of the transpose
+  // and the total vector length, respectively
+
+  // - `lanePerm` : A mapping of physical lanes to logical lanes in each grou
+  // That is, lanePerm[i] tells you where the value in lane i would "normally"
+  // be, with all indices modulo the swizzle group size. If empty, the identity
+  // map is used. For example, with lanePerm = [0, 2, 1, 3], lanes 1 and 3 will
+  // rotate their values by 2 places, as opposed to lanes  2 and 3 Returns: The
+  // vector of rotated values
+  Value emitRotations(Location loc, PatternRewriter &b, Value vector,
+                      Value laneId, RotationDirection dir, uint32_t groupSize,
+                      uint32_t totalSize,
+                      Optional<ArrayRef<uint32_t>> lanePerm) const {
+    assert(totalSize % groupSize == 0 &&
+           "block size is divisible by group size");
+
+    uint32_t logGroupSize = llvm::Log2_32_Ceil(groupSize);
+
+    int32_t base = 0, offset = 0, target = 0;
+    switch (dir) {
+    case Left:
+      base = 0;
+      offset = 1;
+      target = logGroupSize;
+      break;
+    case Right:
+      base = logGroupSize - 1;
+      offset = -1;
+      target = -1;
+      break;
+    }
+
+    Value zeroConst = b.create<ConstantIndexOp>(loc, 0);
+
+    llvm::SmallVector<Value, swizzleGroupSize> indexConsts;
+    for (uint32_t i = 0; i < totalSize; ++i) {
+      indexConsts.push_back(b.create<ConstantIntOp>(loc, i, b.getI32Type()));
+    }
+
+    Value laneInSwizzleGroup;
+    if (lanePerm.hasValue()) {
+      Value groupSizeConst = b.create<ConstantIndexOp>(loc, swizzleGroupSize);
+      laneInSwizzleGroup =
+          b.create<UnsignedRemIOp>(loc, laneId, groupSizeConst);
+    }
+
+    Value result = vector;
+
+    for (int32_t logRotation = base; logRotation != target;
+         logRotation += offset) {
+      uint32_t rotation = 1 << logRotation;
+      Value shouldParticipate;
+      if (lanePerm.hasValue()) {
+        // Non-standard arrangement of rows -> lanes, use longer test
+        ArrayRef<uint32_t> theLanePerm = lanePerm.getValue();
+        llvm::SmallVector<Value, swizzleGroupSize> comparisons;
+        for (uint32_t i = 0; i < theLanePerm.size(); ++i) {
+          if ((theLanePerm[i] & rotation) != 0) {
+            Value toTest = b.create<ConstantIndexOp>(loc, i);
+            comparisons.push_back(b.create<CmpIOp>(loc, CmpIPredicate::eq,
+                                                   laneInSwizzleGroup, toTest));
+          }
+        }
+        if (comparisons.empty()) {
+          llvm_unreachable("Permutation on [0, 2^k) didn't have any entries "
+                           "with some bit set");
+        }
+        shouldParticipate =
+            std::accumulate(comparisons.begin() + 1, comparisons.end(),
+                            comparisons[0], [&b, &loc](Value v1, Value v2) {
+                              return b.create<OrOp>(loc, v1, v2);
+                            });
+      } else { // The usual case
+        Value maskConst = b.create<ConstantIndexOp>(loc, rotation);
+        Value shouldParticipateVal = b.create<AndOp>(loc, laneId, maskConst);
+        shouldParticipate = b.create<CmpIOp>(loc, CmpIPredicate::ne,
+                                             shouldParticipateVal, zeroConst);
+      }
+
+// TODO(kdrewnia): xplicitly emit selects until SWDEV-302607 and SWDEV-302609
+// are fixed
+#if 0
+      scf::IfOp ifb = b.create<scf::IfOp>(
+          loc, vector.getType(), shouldParticipate, /*withElseRegion=*/true);
+      OpBuilder thenb = ifb.getThenBodyBuilder(b.getListener());
+
+      Value thenResult = result;
+      SmallVector<Value> extracted;
+      for (uint32_t i = 0; i < totalSize; ++i) {
+        extracted.push_back(thenb.create<vector::ExtractElementOp>(
+            loc, thenResult, indexConsts[i]));
+      }
+      for (uint32_t group = 0; group < totalSize; group += groupSize) {
+        for (uint32_t i = 0; i < groupSize; ++i) {
+          uint32_t dest = 0xdeadbeef;
+          switch (dir) {
+          case Left:
+            // We use groupSize - rotation to prevent underflow
+            dest = (i + (groupSize - rotation)) % groupSize;
+            break;
+          case Right:
+            dest = (i + rotation) % groupSize;
+            break;
+          }
+          Value toInsert = extracted[group + i];
+          thenResult = thenb.create<vector::InsertElementOp>(
+              loc, toInsert, thenResult, indexConsts[group + dest]);
+        }
+      }
+      thenb.create<scf::YieldOp>(loc, thenResult);
+
+      OpBuilder elseb = ifb.getElseBodyBuilder(b.getListener());
+      elseb.create<scf::YieldOp>(loc, result);
+
+      result = ifb.getResult(0);
+#endif
+
+      SmallVector<Value> extracted;
+      for (uint32_t i = 0; i < totalSize; ++i) {
+        extracted.push_back(
+            b.create<vector::ExtractElementOp>(loc, result, indexConsts[i]));
+      }
+      for (uint32_t group = 0; group < totalSize; group += groupSize) {
+        for (uint32_t i = 0; i < groupSize; ++i) {
+          uint32_t dest = 0xdeadbeef;
+          switch (dir) {
+          case Left:
+            // We use groupSize - rotation to prevent underflow
+            dest = (i + (groupSize - rotation)) % groupSize;
+            break;
+          case Right:
+            dest = (i + rotation) % groupSize;
+            break;
+          }
+          Value whenRotating = extracted[group + i];
+          Value stable = extracted[group + dest];
+          Value toInsert =
+              b.create<SelectOp>(loc, shouldParticipate, whenRotating, stable);
+          result = b.create<vector::InsertElementOp>(loc, toInsert, result,
+                                                     indexConsts[group + dest]);
+        }
+      }
+    }
+
+    return result;
+  }
+
+  // Before calling this function, we will have emitted rotations so that the
+  // group
+  //  r[]: 0   1   2   3
+  //  t0: 0,0 1,0 2,0 3,0
+  //  t1: 0,1 1,1 2,1 3,1
+  //  t2: 0,2 1,2 2,2 3,2
+  //  t3: 0,3 1,3 2,3 3,3
+  // will have become
+  //  0,0 1,0 2,0 3,0
+  //  3,1 0,1 1,1 2,1
+  //  2,2 3,2 0,2 1,2
+  //  1,3 2,3 3,3 0,3
+
+  // (plus-minus size changes for other operations).
+  // These rotations are the first step in the in-register transpose algorithm
+  // as they allow the inter-lane shuffles to be permutation.
+
+  // The goal of this function is to emit code that will lead to the result
+  // state
+  //  0,0 0,1 0,2 0,3
+  //  1,3 1,0 1,1 1,2
+  //  2,2 2,3 2,0 2,1
+  //  3,1 3,2 3,3 3,0
+
+  Value emitSwizzles(Location loc, PatternRewriter &b, Value vector,
+                     uint32_t groupSize, uint32_t totalSize,
+                     ArrayRef<uint32_t> inGroupPerm) const {
+
+    llvm::SmallVector<ArrayAttr, swizzleGroupSize> swizzlePerms;
+
+    llvm::SmallVector<int32_t, swizzleGroupSize> perm;
+    llvm::SmallVector<uint32_t, swizzleGroupSize> have;
+    llvm::SmallVector<uint32_t, swizzleGroupSize> want;
+    for (uint32_t r = 0; r < groupSize; ++r) {
+      perm.clear();
+      have.clear();
+      want.clear();
+
+      for (uint32_t t = 0; t < swizzleGroupSize; ++t) {
+        // Must correct for, say, 2x2 transpose being a 4 thread x 2 register
+        // swizzle
+        uint32_t smallGroupDup = groupSize * (t / groupSize);
+        uint32_t preSwizzleI =
+            (r + (groupSize - t)) % groupSize + smallGroupDup;
+        uint32_t preSwizzleJ = t;
+
+        uint32_t expectedThread = inGroupPerm[t];
+        uint32_t postSwizzleI = expectedThread;
+        uint32_t postSwizzleJ = (r + (groupSize - expectedThread)) % groupSize +
+                                groupSize * (expectedThread / groupSize);
+        uint32_t preSwizzleElem = preSwizzleJ + swizzleGroupSize * preSwizzleI;
+        uint32_t postSwizzleElem =
+            postSwizzleJ + swizzleGroupSize * postSwizzleI;
+        /*         llvm::dbgs() << "//r = " << r << " t = " << t << ": " <<
+           "have ("
+                  << preSwizzleI << ", " << preSwizzleJ << ") = " <<
+           preSwizzleElem
+                  << " want (" << postSwizzleI << ", " << postSwizzleJ << ") = "
+                  << postSwizzleElem << "\n"; */
+        have.push_back(preSwizzleElem);
+        want.push_back(postSwizzleElem);
+      }
+
+      for (uint32_t t = 0; t < swizzleGroupSize; ++t) {
+        auto *srcElemIter = std::find(have.begin(), have.end(), want[t]);
+        assert(srcElemIter != have.end() && "swizzle is not a permutation");
+        auto readIdx = srcElemIter - have.begin();
+        perm.push_back(readIdx);
+      }
+
+      if (perm[0] == 0 && perm[1] == 1 && perm[2] == 2 && perm[3] == 3) {
+        swizzlePerms.push_back(b.getI32ArrayAttr({}));
+      } else {
+        swizzlePerms.push_back(b.getI32ArrayAttr(perm));
+      }
+    }
+
+    Value result = b.create<vector::BitCastOp>(
+        loc,
+        VectorType::get(vector.getType().cast<VectorType>().getShape(),
+                        b.getI32Type()),
+        vector);
+    // TODO(kdrewnia): Make this operation variadic and not just vector-valued
+    SmallVector<Value> accessConsts;
+    SmallVector<Value> initialRegisters;
+    for (uint32_t i = 0; i < totalSize; ++i) {
+      Value accessConst = b.create<ConstantIntOp>(loc, i, b.getI32Type());
+      initialRegisters.push_back(
+          b.create<vector::ExtractElementOp>(loc, result, accessConst));
+      accessConsts.push_back(accessConst);
+    }
+
+    SmallVector<Value> swizzledRegisters;
+    for (uint32_t i = 0; i < totalSize; ++i) {
+      ArrayAttr swizzleSelector = swizzlePerms[i % groupSize];
+      if (0 == swizzleSelector.size()) {
+        swizzledRegisters.push_back(initialRegisters[i]);
+        continue;
+      }
+      Value swizzled = b.create<gpu::WarpSwizzleOp>(
+          loc, b.getI32Type(), initialRegisters[i], swizzleSelector);
+      swizzledRegisters.push_back(swizzled);
+    }
+
+    for (uint32_t i = 0; i < totalSize; ++i) {
+      if (swizzledRegisters[i] != initialRegisters[i]) {
+        result = b.create<vector::InsertElementOp>(loc, swizzledRegisters[i],
+                                                   result, accessConsts[i]);
+      }
+    }
+
+    result = b.create<vector::BitCastOp>(loc, vector.getType(), result);
+    return result;
+  }
+
+  LogicalResult matchAndRewrite(miopen::InWarpTransposeOp op,
+                                PatternRewriter &b) const override {
+    Location loc = op.getLoc();
+
+    Value vector = op.vector();
+    uint32_t totalSize = vector.getType().cast<VectorType>().getNumElements();
+
+    Value laneId = op.laneId();
+    uint32_t groupSize = op.size();
+
+    ArrayAttr inGroupPermAttr = op.inGroupPerm();
+    llvm::SmallVector<uint32_t, swizzleGroupSize> inGroupPerm;
+    auto inGroupPermArr = inGroupPermAttr.getValue();
+    // ::verify() ensures this is a permutation
+    for (uint32_t i = 0; i < swizzleGroupSize; ++i) {
+      inGroupPerm.push_back(inGroupPermArr[i]
+                                .cast<mlir::IntegerAttr>()
+                                .getValue()
+                                .getZExtValue());
+    }
+
+    Optional<ArrayRef<uint32_t>> maybeInGroupPerm = llvm::None;
+    if (inGroupPermAttr != b.getI32ArrayAttr({0, 1, 2, 3})) {
+      maybeInGroupPerm = inGroupPerm;
+    }
+
+    Value rotatedRight = emitRotations(loc, b, vector, laneId, Right, groupSize,
+                                       totalSize, llvm::None);
+    Value swizzled =
+        emitSwizzles(loc, b, rotatedRight, groupSize, totalSize, inGroupPerm);
+    Value rotatedLeft = emitRotations(loc, b, swizzled, laneId, Left, groupSize,
+                                      totalSize, maybeInGroupPerm);
+
+    op.replaceAllUsesWith(rotatedLeft);
+    op.erase();
+
     return success();
   }
 };
@@ -8842,8 +9423,8 @@ struct ThreadwiseCopyRewritePattern
     }
 
     // FIXME. XXX.
-    legacyLoad = overrideLoadStoreHack(srcTransformSpec);
-    legacyStore = overrideLoadStoreHack(destTransformSpec);
+    legacyLoad = overrideLoadStoreHack(srcTransformSpec, legacyLoad);
+    legacyStore = overrideLoadStoreHack(destTransformSpec, legacyStore);
 
     // Populate the vector to hold source and dest coordinate.
     SmallVector<Value, 8> sourceCoord;
@@ -8993,6 +9574,60 @@ struct ThreadwiseCopyRewritePattern
         loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
       }
 
+      int gemmNExtra = 0;
+      int gemmMExtra = 0;
+      int gemmKExtra = 0;
+      // judge extra pad
+      if (destTransformSpec) {
+        Attribute metadataAttr = destTransformSpec.get("metadata");
+        if (metadataAttr) {
+          ArrayAttr layeredTransformMetadata =
+              metadataAttr.template cast<ArrayAttr>();
+          for (unsigned iter = 0; iter < layeredTransformMetadata.size();
+               ++iter) {
+            DictionaryAttr dictAttr =
+                layeredTransformMetadata[iter].template cast<DictionaryAttr>();
+            auto gemmKExtraAttr = dictAttr.get("gemmKExtra");
+            auto gemmMExtraAttr = dictAttr.get("gemmMExtra");
+            auto gemmNExtraAttr = dictAttr.get("gemmNExtra");
+            if (gemmNExtraAttr) {
+              gemmNExtra = gemmNExtraAttr.template cast<IntegerAttr>().getInt();
+            }
+
+            if (gemmMExtraAttr) {
+              gemmMExtra = gemmMExtraAttr.template cast<IntegerAttr>().getInt();
+            }
+            if (gemmKExtraAttr) {
+              gemmKExtra = gemmKExtraAttr.template cast<IntegerAttr>().getInt();
+            }
+          }
+        }
+      }
+      BwdPaddingKernelStatus bwdPaddingStatus =
+          BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+
+      if ((gemmMExtra || gemmKExtra || gemmNExtra)) {
+
+        auto PaddingKernelStatusAttr = op->getAttr("bwd_padding_kernel_status");
+        if (PaddingKernelStatusAttr) {
+          int64_t PaddingKernelStatus =
+              PaddingKernelStatusAttr.template cast<IntegerAttr>().getInt();
+          if (PaddingKernelStatus ==
+              BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne)
+            bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+          else if (PaddingKernelStatus ==
+                   BwdPaddingKernelStatus::StrideTwoNonXdlopsNHWC)
+            bwdPaddingStatus = BwdPaddingKernelStatus::StrideTwoNonXdlopsNHWC;
+          else if (PaddingKernelStatus ==
+                   BwdPaddingKernelStatus::StrideTwoNonXdlopsNCHW)
+            bwdPaddingStatus = BwdPaddingKernelStatus::StrideTwoNonXdlopsNCHW;
+          else
+            bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+        }
+      } else {
+        bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+      }
+
       // Main code emission loop.
       bool toExit = false;
       do {
@@ -9034,7 +9669,7 @@ struct ThreadwiseCopyRewritePattern
         }
 
         // Store to dest.
-        emitStoreLogic(b, loc, destType, destElementType,
+        emitStoreLogic(bwdPaddingStatus, b, loc, destType, destElementType,
                        toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
                        destLowerIndices, convertedScalarValue);
 
@@ -9074,12 +9709,11 @@ struct ThreadwiseLoadRewritePattern
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
-    // The types in elements of the TupleType are all the same.
-    auto destElementType =
-        op.result().getType().cast<TupleType>().getType(0).cast<Type>();
+    // The types in elements of the input are all the same.
+    auto destElementType = op.getResult(0).getType().cast<Type>();
 
     auto sourceType = op.source().getType().cast<MemRefType>();
-    auto destType = op.result().getType().cast<TupleType>();
+    auto destTypes = op.getResultTypes();
 
     // Debug switches.
     // true : use the slow but proven affine map.
@@ -9113,7 +9747,7 @@ struct ThreadwiseLoadRewritePattern
     // FIXME. XXX.
     // Workaround to obtain gemmKExtra attribute.
     // And use it to override legacy load/store debug switch.
-    legacyLoad = overrideLoadStoreHack(srcTransformSpec);
+    legacyLoad = overrideLoadStoreHack(srcTransformSpec, legacyLoad);
 
     // Determine if we need to emit codes for out-of-bound check, and which
     // dimensions need to dconduct such check.
@@ -9147,7 +9781,7 @@ struct ThreadwiseLoadRewritePattern
 
     computeSliceLengths(sliceLengths, composedSourceTransform,
                         /*composedDestTransform=*/Optional<AffineMap>{},
-                        coordTransformsAttr, boundAttr, sourceType, destType);
+                        coordTransformsAttr, boundAttr, sourceType, nullptr);
 
     // llvm::errs() << "slice lengths: ";
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
@@ -9256,11 +9890,11 @@ struct ThreadwiseLoadRewritePattern
                         oobLoadCheckDims, op.source(), srcLowerIndices);
 
       // Compute the final index on the loadedValues, following IVs.
-      int64_t tupleIndex = 0;
+      int64_t inputsIndex = 0;
       int64_t stride = 1;
       int64_t vectorDimStride = 0;
       for (int64_t iter = loopIVsPerAccessOrder.size() - 1; iter >= 0; --iter) {
-        tupleIndex += loopIVsPerAccessOrder[iter] * stride;
+        inputsIndex += loopIVsPerAccessOrder[iter] * stride;
         if (iter == vectorReadWriteDim) {
           vectorDimStride = stride;
           stride *= (loopBoundsPerAccessOrder[iter] * srcDataPerRead);
@@ -9268,10 +9902,10 @@ struct ThreadwiseLoadRewritePattern
           stride *= loopBoundsPerAccessOrder[iter];
         }
       }
-      // llvm::errs() << "tupleIndex: " << tupleIndex << "\n";
+      // llvm::errs() << "inputsIndex: " << inputsIndex << "\n";
 
-      // In case we do vector load, decompose the elements as the tuple
-      // result of threadwise_load only hold scalars.
+      // In case we do vector load, decompose the elements as the
+      // results of threadwise_load only hold scalars.
       if (srcDataPerRead > 1) {
         assert(loadedValue.getType().isa<VectorType>());
 
@@ -9279,14 +9913,14 @@ struct ThreadwiseLoadRewritePattern
           auto loadedElement = b.create<vector::ExtractElementOp>(
               loc, destElementType, loadedValue,
               b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32)));
-          int64_t decomposedTupleIndex = tupleIndex + iter * vectorDimStride;
-          // llvm::errs() << "decomposedTupleIndex: " << decomposedTupleIndex <<
-          // "\n";
+          int64_t decomposedInputsIndex = inputsIndex + iter * vectorDimStride;
+          // llvm::errs() << "decomposedInputsIndex: " << decomposedInputsIndex
+          //              << "\n";
 
-          loadedValues[decomposedTupleIndex] = loadedElement;
+          loadedValues[decomposedInputsIndex] = loadedElement;
         }
       } else {
-        loadedValues[tupleIndex] = loadedValue;
+        loadedValues[inputsIndex] = loadedValue;
       }
 
       // increase IVs
@@ -9310,15 +9944,14 @@ struct ThreadwiseLoadRewritePattern
 
     // --------------------------------
 
-    // Convert the loaded values to a tuple.
-    assert(loadedValues.size() == destType.size());
-    SmallVector<Value, 8> tupleValues;
+    // Extract the loaded values into a variadic results.
+    assert(loadedValues.size() == destTypes.size());
+    SmallVector<Value, 8> outputValues;
     for (int64_t iter = 0; iter < loadedValues.size(); ++iter) {
       assert(loadedValues.count(iter) == 1);
-      tupleValues.push_back(loadedValues[iter]);
+      outputValues.push_back(loadedValues[iter]);
     }
-    Value tuple = b.create<vector::TupleOp>(loc, destType, tupleValues);
-    op.replaceAllUsesWith(tuple);
+    op.replaceAllUsesWith(outputValues);
     op.erase();
     return success();
   }
@@ -9336,10 +9969,10 @@ struct ThreadwiseStoreRewritePattern
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
-    // The types in elements of the TupleType are all the same.
-    auto sourceElementType = op.data().getType().cast<TupleType>().getType(0);
+    auto sourceTypes = op.data().getTypes();
+    // The types in the data arguments are all the same.
+    auto sourceElementType = sourceTypes[0];
 
-    auto sourceType = op.data().getType().cast<TupleType>();
     auto destType = op.dest().getType().cast<MemRefType>();
 
     // Debug switches.
@@ -9361,20 +9994,20 @@ struct ThreadwiseStoreRewritePattern
     // Obtain coordinate lengths, as well as information of affine
     // transformations.
     unsigned destCoordLength = obtainGenericTensorTransformationInfo(
-        /*operandIndex=*/1, destType, coordTransformsAttr,
+        /*operandIndex=*/sourceTypes.size(), destType, coordTransformsAttr,
         composedDestTransform, layeredDestTransform, destTransformSpec,
         boundCheckDestAttr);
 
     auto destCoord = op.destCoord();
     if (destCoordLength != destCoord.size()) {
-      llvm::errs() << "INCORRECT dest coordinates assigned!";
+      llvm::errs() << "INCORRECT dest coordinates assigned!\n";
       return failure();
     }
 
     // FIXME. XXX.
     // Workaround to obtain gemmKExtra attribute.
     // And use it to override legacy load/store debug switch.
-    legacyStore = overrideLoadStoreHack(destTransformSpec);
+    legacyStore = overrideLoadStoreHack(destTransformSpec, legacyStore);
 
     // Determine if we need to emit codes for out-of-bound check, and which
     // dimensions need to dconduct such check.
@@ -9409,7 +10042,7 @@ struct ThreadwiseStoreRewritePattern
     computeSliceLengths(sliceLengths,
                         /*composedSourceTransform=*/Optional<AffineMap>{},
                         composedDestTransform, coordTransformsAttr, boundAttr,
-                        sourceType, destType);
+                        nullptr, destType);
 
     // llvm::errs() << "slice lengths: ";
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
@@ -9511,12 +10144,12 @@ struct ThreadwiseStoreRewritePattern
       if (dstDataPerWrite > 1)
         typeToStore = VectorType::get({dstDataPerWrite}, sourceElementType);
 
-      // Compute the starting index inside the tuple, following IVs.
-      int64_t tupleIndex = 0;
+      // Compute the starting index inside the inputs, following IVs.
+      int64_t inputsIndex = 0;
       int64_t stride = 1;
       int64_t vectorDimStride = 0;
       for (int iter = loopIVsPerAccessOrder.size() - 1; iter >= 0; --iter) {
-        tupleIndex += loopIVsPerAccessOrder[iter] * stride;
+        inputsIndex += loopIVsPerAccessOrder[iter] * stride;
         if (iter == vectorReadWriteDim) {
           vectorDimStride = stride;
           stride *= (loopBoundsPerAccessOrder[iter] * dstDataPerWrite);
@@ -9524,9 +10157,9 @@ struct ThreadwiseStoreRewritePattern
           stride *= loopBoundsPerAccessOrder[iter];
         }
       }
-      // llvm::errs() << "tupleIndex: " << tupleIndex << "\n";
+      // llvm::errs() << "inputsIndex: " << inputsIndex << "\n";
 
-      // In case we do vector store, decompose the elements as the tuple
+      // In case we do vector store, decompose the elements as the arguments
       // only hold scalars.
       Value valueToStore;
       if (dstDataPerWrite > 1) {
@@ -9535,25 +10168,25 @@ struct ThreadwiseStoreRewritePattern
         Value zeroOp = createZeroConstantFloatOp(b, loc, sourceElementType);
         valueToStore = b.create<SplatOp>(loc, zeroOp, typeToStore);
         for (int64_t iter = 0; iter < dstDataPerWrite; ++iter) {
-          int64_t decomposedTupleIndex = tupleIndex + iter * vectorDimStride;
-          // llvm::errs() << "decomposedTupleIndex: " << decomposedTupleIndex <<
-          // "\n";
-          Value element = b.create<vector::TupleGetOp>(
-              loc, sourceElementType, op.data(),
-              b.getI32IntegerAttr(decomposedTupleIndex));
+          int64_t decomposedInputsIndex = inputsIndex + iter * vectorDimStride;
+          // llvm::errs() << "decomposedInputsIndex: " << decomposedInputsIndex
+          // << "\n";
+          Value element = op.data()[decomposedInputsIndex];
           valueToStore = b.create<vector::InsertElementOp>(
               loc, typeToStore, element, valueToStore,
               b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32)));
         }
       } else {
-        valueToStore = b.create<vector::TupleGetOp>(
-            loc, sourceElementType, op.data(), b.getI32IntegerAttr(tupleIndex));
+        valueToStore = op.data()[inputsIndex];
       }
 
-      // Store to dest.
-      emitStoreLogic(b, loc, destType, typeToStore, toEmitOOBStoreCheckLogic,
-                     oobStoreCheckDims, op.dest(), destLowerIndices,
-                     valueToStore);
+      // Store to dest. this part do not need backward data padding kernel
+      // workaround just use NotBwdPaddingOrStrideOne
+      BwdPaddingKernelStatus bwdPaddingStatus =
+          BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+      emitStoreLogic(bwdPaddingStatus, b, loc, destType, typeToStore,
+                     toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
+                     destLowerIndices, valueToStore);
 
       // increase IVs
       bool toIncreaseNextDigit = true;
@@ -9730,6 +10363,76 @@ struct ThreadwiseCopyV2RewritePattern
       loopBoundsPerAccessOrder.push_back(sliceLengths[dim]);
     }
 
+    int gemmNExtra = 0;
+    int gemmMExtra = 0;
+    int gemmKExtra = 0;
+    // judge extra pad
+    if (destTransformSpec) {
+      Attribute metadataAttr = destTransformSpec.get("metadata");
+      if (metadataAttr) {
+        ArrayAttr layeredTransformMetadata =
+            metadataAttr.template cast<ArrayAttr>();
+        for (unsigned iter = 0; iter < layeredTransformMetadata.size();
+             ++iter) {
+          DictionaryAttr dictAttr =
+              layeredTransformMetadata[iter].template cast<DictionaryAttr>();
+          auto gemmKExtraAttr = dictAttr.get("gemmKExtra");
+          auto gemmMExtraAttr = dictAttr.get("gemmMExtra");
+          auto gemmNExtraAttr = dictAttr.get("gemmNExtra");
+          if (gemmNExtraAttr) {
+            gemmNExtra = gemmNExtraAttr.template cast<IntegerAttr>().getInt();
+          }
+
+          if (gemmMExtraAttr) {
+            gemmMExtra = gemmMExtraAttr.template cast<IntegerAttr>().getInt();
+          }
+          if (gemmKExtraAttr) {
+            gemmKExtra = gemmKExtraAttr.template cast<IntegerAttr>().getInt();
+          }
+        }
+      }
+    }
+
+    BwdPaddingKernelStatus bwdPaddingStatus =
+        BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+    if ((gemmMExtra || gemmKExtra || gemmNExtra)) {
+      auto PaddingKernelStatusAttr = op->getAttr("bwd_padding_kernel_status");
+      if (PaddingKernelStatusAttr) {
+        int64_t PaddingKernelStatus =
+            PaddingKernelStatusAttr.template cast<IntegerAttr>().getInt();
+        if (PaddingKernelStatus ==
+            BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne)
+          bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+        else if (PaddingKernelStatus ==
+                 BwdPaddingKernelStatus::StrideTwoXdlopsNHWC) {
+          // gemmMExtra>0 can't get correct results now
+          if (gemmMExtra == 0 && gemmNExtra > 0)
+            bwdPaddingStatus =
+                BwdPaddingKernelStatus::GemmNPadStrideTwoXdlopsNHWC;
+          else if (gemmMExtra > 0 && gemmNExtra > 0)
+            bwdPaddingStatus =
+                BwdPaddingKernelStatus::GemmMNPadStrideTwoXdlopsNHWC;
+          else if (gemmMExtra > 0 && gemmNExtra == 0)
+            bwdPaddingStatus =
+                BwdPaddingKernelStatus::GemmMPadStrideTwoXdlopsNHWC;
+        } else if (PaddingKernelStatus ==
+                   BwdPaddingKernelStatus::StrideTwoXdlopsNCHW) {
+          if (gemmMExtra > 0 && gemmNExtra > 0)
+            bwdPaddingStatus =
+                BwdPaddingKernelStatus::GemmMNPadStrideTwoXdlopsNCHW;
+          if (gemmMExtra > 0)
+            bwdPaddingStatus =
+                BwdPaddingKernelStatus::GemmMPadStrideTwoXdlopsNCHW;
+          else if (gemmNExtra > 0)
+            bwdPaddingStatus =
+                BwdPaddingKernelStatus::GemmNPadStrideTwoXdlopsNCHW;
+        } else
+          bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+      }
+    } else {
+      bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
+    }
+
     bool toExit = false;
     do {
       // Load from source vector.
@@ -9764,7 +10467,7 @@ struct ThreadwiseCopyV2RewritePattern
           layeredDestTransform, layeredDestIndices, destLowerIndices);
 
       // Store to dest.
-      emitStoreLogic(b, loc, destType, destElementType,
+      emitStoreLogic(bwdPaddingStatus, b, loc, destType, destElementType,
                      toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
                      destLowerIndices, convertedScalarValue, dataOpration);
 
@@ -9985,7 +10688,7 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
                                                outputType.getAffineMaps())),
               b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec)),
               b.getNamedAttr("metadata", b.getArrayAttr({b.getDictionaryAttr(
-                                             op.getAttrs())}))};
+                                             op->getAttrs())}))};
 
           if (boundCheckAttr)
             arrayAttr.push_back(b.getNamedAttr("bound_check", boundCheckAttr));
@@ -10017,7 +10720,7 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
               llvm::SmallVector<Attribute, 5> augmentedMetadata;
               augmentedMetadata.append(existingMetadata.begin(),
                                        existingMetadata.end());
-              augmentedMetadata.push_back(b.getDictionaryAttr(op.getAttrs()));
+              augmentedMetadata.push_back(b.getDictionaryAttr(op->getAttrs()));
 
               llvm::SmallVector<NamedAttribute, 4> arrayAttr{
                   b.getNamedAttr("operand",
@@ -10061,7 +10764,7 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
                                                  outputType.getAffineMaps())),
                 b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec)),
                 b.getNamedAttr("metadata", b.getArrayAttr({b.getDictionaryAttr(
-                                               op.getAttrs())}))};
+                                               op->getAttrs())}))};
 
             if (boundCheckAttr)
               arrayAttr.push_back(
@@ -10246,9 +10949,9 @@ struct XdlopsGemmV2RewritePattern
             op.bufferA().getType().template cast<MemRefType>().getElementType(),
             false, {}, op.matrixA(), ValueRange{sourceOffsetA});
       } else {
-        valueA = ilmkb.create<LoadOp>(loc, dataType, op.matrixA(), sourceOffsetA);
+        valueA = ilmkb.create<memref::LoadOp>(loc, dataType, op.matrixA(), sourceOffsetA);
       }
-      ilmkb.create<StoreOp>(loc, valueA, op.bufferA(), ValueRange{destOffsetA});
+      ilmkb.create<memref::StoreOp>(loc, valueA, op.bufferA(), ValueRange{destOffsetA});
 
       // store bufferB logic.
 
@@ -10300,9 +11003,9 @@ struct XdlopsGemmV2RewritePattern
             op.bufferB().getType().template cast<MemRefType>().getElementType(),
             false, {}, op.matrixB(), ValueRange{sourceOffsetB});
       } else {
-        valueB = ilnkb.create<LoadOp>(loc, dataType, op.matrixB(), sourceOffsetB);
+        valueB = ilnkb.create<memref::LoadOp>(loc, dataType, op.matrixB(), sourceOffsetB);
       }
-      ilnkb.create<StoreOp>(loc, valueB, op.bufferB(), ValueRange{destOffsetB});
+      ilnkb.create<memref::StoreOp>(loc, valueB, op.bufferB(), ValueRange{destOffsetB});
 
       // Original C++ logic.
       //
@@ -10339,9 +11042,9 @@ struct XdlopsGemmV2RewritePattern
           op.bufferA().getType().template cast<MemRefType>().getElementType();
       Type bufferBElementType =
           op.bufferB().getType().template cast<MemRefType>().getElementType();
-      Value bufferAElement = outerLoopb.create<LoadOp>(
+      Value bufferAElement = outerLoopb.create<memref::LoadOp>(
           loc, bufferAElementType, op.bufferA(), ValueRange{outerLoopiv});
-      Value bufferBElement = outerLoopb.create<LoadOp>(
+      Value bufferBElement = outerLoopb.create<memref::LoadOp>(
           loc, bufferBElementType, op.bufferB(), ValueRange{outerLoopiv});
 
       auto innerLoop = outerLoopb.create<AffineForOp>(
@@ -10495,9 +11198,9 @@ struct XdlopsGemmV2RewritePattern
       if (KPack > 1) {
         valueA = emitLoadLogic(lklb, loc, op.matrixA().getType().template cast<MemRefType>(), argType, false, {}, op.matrixA(), ValueRange{sourceOffsetA});
       } else {
-        valueA = lklb.create<LoadOp>(loc, dataType, op.matrixA(), ValueRange{sourceOffsetA});
+        valueA = lklb.create<memref::LoadOp>(loc, dataType, op.matrixA(), ValueRange{sourceOffsetA});
       }
-      lklb.create<StoreOp>(loc, valueA, op.bufferA(), ValueRange{lkliv});
+      lklb.create<memref::StoreOp>(loc, valueA, op.bufferA(), ValueRange{lkliv});
 
       // NOTICE: We times k_i by num_input_blks in MLIR path.
       Value sourceOffsetBeforeTransformB = lklb.create<AddIOp>(
@@ -10527,9 +11230,9 @@ struct XdlopsGemmV2RewritePattern
       if (KPack > 1) {
         valueB = emitLoadLogic(lklb, loc, op.matrixB().getType().template cast<MemRefType>(), argType, false, {}, op.matrixB(), ValueRange{sourceOffsetB});
       } else {
-        valueB = lklb.create<LoadOp>(loc, dataType, op.matrixB(), ValueRange{sourceOffsetB});
+        valueB = lklb.create<memref::LoadOp>(loc, dataType, op.matrixB(), ValueRange{sourceOffsetB});
       }
-      lklb.create<StoreOp>(loc, valueB, op.bufferB(), ValueRange{lkliv});
+      lklb.create<memref::StoreOp>(loc, valueB, op.bufferB(), ValueRange{lkliv});
 
       // Original C++ logic.
       // for(index_t k_i = 0; k_i < K; k_i += mfma_type.num_input_blks)
@@ -10562,9 +11265,8 @@ struct XdlopsGemmV2RewritePattern
               innerLoopiv),
           KBaseConstantOp);
 
-      Value argA = innerLoopb.create<LoadOp>(loc, argType, op.bufferA(), ValueRange{offset});
-      Value argB = innerLoopb.create<LoadOp>(loc, argType, op.bufferB(),
-                                             ValueRange{offset});
+      Value argA = innerLoopb.create<memref::LoadOp>(loc, argType, op.bufferA(), ValueRange{offset});
+      Value argB = innerLoopb.create<memref::LoadOp>(loc, argType, op.bufferB(), ValueRange{offset});
 
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
