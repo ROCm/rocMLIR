@@ -759,27 +759,22 @@ inline void emitNaiveTensorCopyLogic(
     const Optional<AffineMap> &composedSourceTransform,
     const Optional<AffineMap> &composedDestTransform, Type sourceElementType,
     Type destElementType, Value source, Value dest) {
-  auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+  auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
+  SmallVector<Value, 8> srcUpperIndices;
+  for (const auto &coord : sourceCoord) {
+    srcUpperIndices.push_back(
+        b.create<IndexCastOp>(loc, coord, b.getIndexType()));
+  }
+  SmallVector<Value, 8> destUpperIndices;
+  for (const auto &coord : destCoord) {
+    destUpperIndices.push_back(
+        b.create<IndexCastOp>(loc, coord, b.getIndexType()));
+  }
   // Emit fully-unrolled loops.
   for (unsigned ivo = 0; ivo < NSliceRow; ++ivo) {
-    auto ivo_i32 = b.create<ConstantIntOp>(loc, ivo, b.getIntegerType(32));
     for (unsigned ivi = 0; ivi < NSliceCol; ivi += DataPerAccess) {
-      auto ivi_i32 = b.create<ConstantIntOp>(loc, ivi, b.getIntegerType(32));
-
-      // Compute high-level coordinate for source memref.
       // src_index = (0, ivo_i32, ivi_i32) + sourceCoord
-      SmallVector<Value, 8> srcUpperIndices;
-      srcUpperIndices.push_back(b.create<IndexCastOp>(
-          loc, b.create<AddIOp>(loc, zeroConstantOp, sourceCoord[0]),
-          b.getIndexType()));
-      srcUpperIndices.push_back(b.create<IndexCastOp>(
-          loc, b.create<AddIOp>(loc, ivo_i32, sourceCoord[1]),
-          b.getIndexType()));
-      srcUpperIndices.push_back(b.create<IndexCastOp>(
-          loc, b.create<AddIOp>(loc, ivi_i32, sourceCoord[2]),
-          b.getIndexType()));
-
       // Apply affine transformations to compute the low-level coordinate.
       SmallVector<Value, 8> srcLowerIndices;
       if (composedSourceTransform)
@@ -793,22 +788,13 @@ inline void emitNaiveTensorCopyLogic(
       // Issue scalar load.
       Value scalarValue =
           b.create<memref::LoadOp>(loc, sourceElementType, source, srcLowerIndices);
-
+      srcUpperIndices[2] =
+          b.create<AddIOp>(loc, srcUpperIndices[2], oneConstantOp);
       // Convert from sourceElementType to destElementType if necessary.
       Value convertedScalarValue = createTypeConversionOp(
           b, loc, scalarValue, sourceElementType, destElementType);
 
-      // Compute high-level coordinate for dest memref.
       // dst_index = (0, ivo_i32, ivi_i32) + destCoord
-      SmallVector<Value, 8> destUpperIndices;
-      destUpperIndices.push_back(b.create<IndexCastOp>(
-          loc, b.create<AddIOp>(loc, zeroConstantOp, destCoord[0]),
-          b.getIndexType()));
-      destUpperIndices.push_back(b.create<IndexCastOp>(
-          loc, b.create<AddIOp>(loc, ivo_i32, destCoord[1]), b.getIndexType()));
-      destUpperIndices.push_back(b.create<IndexCastOp>(
-          loc, b.create<AddIOp>(loc, ivi_i32, destCoord[2]), b.getIndexType()));
-
       // Apply affine transformations to compute the low-level coordinate.
       SmallVector<Value, 8> destLowerIndices;
       if (composedDestTransform)
@@ -821,8 +807,14 @@ inline void emitNaiveTensorCopyLogic(
       // Store to dest.
       // Issue scalar store.
       b.create<memref::StoreOp>(loc, convertedScalarValue, dest, destLowerIndices);
+      destUpperIndices[2] =
+          b.create<AddIOp>(loc, destUpperIndices[2], oneConstantOp);
 
     } // ivi
+    srcUpperIndices[1] =
+        b.create<AddIOp>(loc, srcUpperIndices[1], oneConstantOp);
+    destUpperIndices[1] =
+        b.create<AddIOp>(loc, destUpperIndices[1], oneConstantOp);
   }   // ivo
 }
 
@@ -7032,13 +7024,10 @@ struct GridwiseGemmV2RewritePattern
     // llvm::errs() << "M2: group_size: " << M2 << "\n";
     // llvm::errs() << "M3: num_groups_blk: " << M3 << "\n\n";
 
-    auto M1ConstantI32Op =
-        b.create<ConstantIntOp>(loc, M1, b.getIntegerType(32));
     auto M2ConstantI32Op =
         b.create<ConstantIntOp>(loc, M2, b.getIntegerType(32));
-
     auto M2TimesM1I32Op =
-        b.create<MulIOp>(loc, M2ConstantI32Op, M1ConstantI32Op);
+        b.create<ConstantIntOp>(loc, M2 * M1, b.getIntegerType(32));
 
     auto laneId_xdlops_gemm =
         b.create<UnsignedRemIOp>(loc, tid, wave_size_ConstantOp);
@@ -9802,9 +9791,8 @@ struct XdlopsGemmV2RewritePattern
 
     auto MPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, MPerXdlops);
     auto NPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, NPerXdlops);
-    auto KBaseConstantOp = b.create<ConstantIndexOp>(loc, k_base);
-
-    auto KRepeatsConstantOp = b.create<ConstantIndexOp>(loc, KRepeats);
+    auto kBaseKRepeatsConstantOp =
+        b.create<ConstantIndexOp>(loc, KRepeats * k_base);
 
     if (!IsKReduction) {
       // store bufferA logic.
@@ -9820,6 +9808,9 @@ struct XdlopsGemmV2RewritePattern
       auto outerLoopM = b.create<AffineForOp>(loc, 0, MRepeats);
       auto olmb = OpBuilder::atBlockTerminator(outerLoopM.getBody());
       auto olmiv = outerLoopM.getInductionVar();
+      auto mOffset = olmb.create<MulIOp>(loc, MPerXdlopsConstantOp, olmiv);
+      auto kOffsetA = olmb.create<MulIOp>(loc, olmiv, KConstantOp);
+
       auto innerLoopMK = olmb.create<AffineForOp>(loc, 0, K);
       auto ilmkb = OpBuilder::atBlockTerminator(innerLoopMK.getBody());
       auto ilmkiv = innerLoopMK.getInductionVar();
@@ -9833,7 +9824,7 @@ struct XdlopsGemmV2RewritePattern
               loc,
               ilmkb.create<AddIOp>(
                   loc, ilmkb.create<MulIOp>(loc, ilmkiv, MConstantOp), laneId),
-              ilmkb.create<MulIOp>(loc, MPerXdlopsConstantOp, olmiv)));
+              mOffset));
 
       // Apply coord_transform for matrix A if necessarily.
       SmallVector<Value, 8> sourceOffsetA;
@@ -9845,8 +9836,7 @@ struct XdlopsGemmV2RewritePattern
       else
         sourceOffsetA.push_back(sourceOffsetBeforeTransformA);
 
-      auto destOffsetA = ilmkb.create<AddIOp>(
-          loc, ilmkiv, ilmkb.create<MulIOp>(loc, olmiv, KConstantOp));
+      auto destOffsetA = ilmkb.create<AddIOp>(loc, ilmkiv, kOffsetA);
 
       auto valueA =
           ilmkb.create<memref::LoadOp>(loc, dataType, op.matrixA(), sourceOffsetA);
@@ -9864,6 +9854,9 @@ struct XdlopsGemmV2RewritePattern
       auto outerLoopN = b.create<AffineForOp>(loc, 0, NRepeats);
       auto olnb = OpBuilder::atBlockTerminator(outerLoopN.getBody());
       auto olniv = outerLoopN.getInductionVar();
+      auto nOffset = olnb.create<MulIOp>(loc, NPerXdlopsConstantOp, olniv);
+      auto kOffsetB = olnb.create<MulIOp>(loc, olniv, KConstantOp);
+
       auto innerLoopNK = olnb.create<AffineForOp>(loc, 0, K);
       auto ilnkb = OpBuilder::atBlockTerminator(innerLoopNK.getBody());
       auto ilnkiv = innerLoopNK.getInductionVar();
@@ -9877,7 +9870,7 @@ struct XdlopsGemmV2RewritePattern
               loc,
               ilnkb.create<AddIOp>(
                   loc, ilnkb.create<MulIOp>(loc, ilnkiv, NConstantOp), laneId),
-              ilnkb.create<MulIOp>(loc, NPerXdlopsConstantOp, olniv)));
+              nOffset));
 
       // Apply coord_transform for matrix B if necessarily.
       SmallVector<Value, 8> sourceOffsetB;
@@ -9889,8 +9882,7 @@ struct XdlopsGemmV2RewritePattern
       else
         sourceOffsetB.push_back(sourceOffsetBeforeTransformB);
 
-      auto destOffsetB = ilnkb.create<AddIOp>(
-          loc, ilnkiv, ilnkb.create<MulIOp>(loc, olniv, KConstantOp));
+      auto destOffsetB = ilnkb.create<AddIOp>(loc, ilnkiv, kOffsetB);
 
       auto valueB =
           ilnkb.create<memref::LoadOp>(loc, dataType, op.matrixB(), sourceOffsetB);
@@ -10055,19 +10047,15 @@ struct XdlopsGemmV2RewritePattern
                                              op.vectorCs());
       auto outerLoopb = OpBuilder::atBlockBegin(outerLoop.getBody());
       auto outerLoopiv = outerLoop.getInductionVar();
+      auto outerOffset =
+          outerLoopb.create<MulIOp>(loc, outerLoopiv, kBaseKRepeatsConstantOp);
 
       auto innerLoop = outerLoopb.create<AffineForOp>(
-          loc, 0, KRepeats, 1, outerLoop.getRegionIterArgs());
+          loc, 0, KRepeats * k_base, k_base, outerLoop.getRegionIterArgs());
       auto innerLoopb = OpBuilder::atBlockBegin(innerLoop.getBody());
       auto innerLoopiv = innerLoop.getInductionVar();
 
-      auto offset = innerLoopb.create<MulIOp>(
-          loc,
-          innerLoopb.create<AddIOp>(
-              loc,
-              innerLoopb.create<MulIOp>(loc, outerLoopiv, KRepeatsConstantOp),
-              innerLoopiv),
-          KBaseConstantOp);
+      auto offset = innerLoopb.create<AddIOp>(loc, outerOffset, innerLoopiv);
 
       Value argA, argB;
       if (dataType == b.getF32Type()) {
