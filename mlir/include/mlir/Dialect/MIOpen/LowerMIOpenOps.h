@@ -6188,7 +6188,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       blockwiseCopyBBounds = {1, GemmBBlockCopyThreadSliceLengths_GemmK,
                               GemmBBlockCopyThreadSliceLengths_GemmN};
     }
-    TypeRange blockwiseLoadBType;
+    Type blockwiseLoadBType;
     SmallVector<Type, 8> blockwiseLoadBTypes;
     int blockwiseBVectorDim;
     int blockwiseLoadBVectorLength;
