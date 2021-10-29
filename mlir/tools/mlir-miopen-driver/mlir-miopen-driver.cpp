@@ -875,7 +875,7 @@ createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   cpuConvBlock->push_back(hConstantOp);
   cpuConvBlock->push_back(wConstantOp);
 
-  std::unordered_map<char, mlir::ConstantOp> layoutConstOps;
+  std::unordered_map<char, arith::ConstantOp> layoutConstOps;
   layoutConstOps['g'] = gConstantOp;
   layoutConstOps['k'] = kConstantOp;
   layoutConstOps['c'] = cConstantOp;
@@ -1170,7 +1170,7 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
 
   scf::IfOp ifOp;
   if (outputMemRefType.getElementType() == builder.getIntegerType(16)) {
-    auto cmpOp = bt4.create<arith::CmpIOp>(builder.getUnknownLoc(), CmpIPredicate::ne,
+    auto cmpOp = bt4.create<arith::CmpIOp>(builder.getUnknownLoc(), arith::CmpIPredicate::ne,
                                     cpuLoadOp, gpuLoadOp);
     ifOp = bt4.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, false);
   } else {
@@ -1185,13 +1185,13 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
           builder.getFloatAttr(outputMemRefType.getElementType(), delta));
       auto subfOp =
           bt4.create<arith::SubFOp>(builder.getUnknownLoc(), cpuLoadOp, gpuLoadOp);
-      auto absfOp = bt4.create<arith::AbsFOp>(builder.getUnknownLoc(), subfOp);
+      auto absfOp = bt4.create<math::AbsOp>(builder.getUnknownLoc(), subfOp);
       auto cmpOp = bt4.create<arith::CmpFOp>(
-          builder.getUnknownLoc(), CmpFPredicate::UGT, absfOp, deltaConstantOp);
+          builder.getUnknownLoc(), arith::CmpFPredicate::UGT, absfOp, deltaConstantOp);
       ifOp = bt4.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, false);
     } else {
       auto cmpOp = bt4.create<arith::CmpFOp>(builder.getUnknownLoc(),
-                                      CmpFPredicate::UNE, cpuLoadOp, gpuLoadOp);
+                                      arith::CmpFPredicate::UNE, cpuLoadOp, gpuLoadOp);
       ifOp = bt4.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, false);
     }
   }
@@ -1511,7 +1511,7 @@ static void generateTensorInitValues(
     mlir::Value &filterMemsetMinValue, mlir::Value &filterMemsetMaxValue,
     mlir::Value &inputMemsetMinValue, mlir::Value &inputMemsetMaxValue,
     mlir::Value &outputMemsetMinValue, mlir::Value &outputMemsetMaxValue,
-    mlir::ConstantOp &seedarith::ConstantIntOp, mlir::miopen::ConvOpType convOpType) {
+    mlir::ConstantOp &seedConstantIntOp, mlir::miopen::ConvOpType convOpType) {
   auto int16Type = builder.getIntegerType(16);
   auto int32Type = builder.getIntegerType(32);
   unsigned short zero = 0, one = 1;
@@ -1519,26 +1519,26 @@ static void generateTensorInitValues(
   int seed = 1;
   std::tie(min, max, seed) = configRandomTestData();
 
-  mlir::ConstantOp onearith::ConstantIntOp;
+  mlir::ConstantOp oneConstantIntOp;
   if (randomSeed.getValue() != "none" && randomSide.getValue() != "both") {
-    onearith::ConstantIntOp = builder.create<ConstantOp>(
+    oneConstantIntOp = builder.create<ConstantOp>(
         builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(one));
-    block->push_back(onearith::ConstantIntOp);
+    block->push_back(oneConstantIntOp);
   }
 
-  auto zeroarith::ConstantIntOp = builder.create<ConstantOp>(
+  auto zeroConstantIntOp = builder.create<ConstantOp>(
       builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(zero));
-  auto minarith::ConstantIntOp = builder.create<ConstantOp>(
+  auto minConstantIntOp = builder.create<ConstantOp>(
       builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(min));
-  auto maxarith::ConstantIntOp = builder.create<ConstantOp>(
+  auto maxConstantIntOp = builder.create<ConstantOp>(
       builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(max));
-  seedarith::ConstantIntOp = builder.create<ConstantOp>(
+  seedConstantIntOp = builder.create<ConstantOp>(
       builder.getUnknownLoc(), int32Type, builder.getI32IntegerAttr(seed));
 
-  block->push_back(zeroarith::ConstantIntOp);
-  block->push_back(minarith::ConstantIntOp);
-  block->push_back(maxarith::ConstantIntOp);
-  block->push_back(seedarith::ConstantIntOp);
+  block->push_back(zeroConstantIntOp);
+  block->push_back(minConstantIntOp);
+  block->push_back(maxConstantIntOp);
+  block->push_back(seedConstantIntOp);
 
   switch (convOpType) {
   case miopen::Conv2DOpType:
@@ -1546,78 +1546,78 @@ static void generateTensorInitValues(
         (randomSeed.getValue() != "none" &&
          (randomSide.getValue() == "filter" ||
           randomSide.getValue() == "both"))) {
-      filterMemsetMinValue = minarith::ConstantIntOp;
-      filterMemsetMaxValue = maxarith::ConstantIntOp;
+      filterMemsetMinValue = minConstantIntOp;
+      filterMemsetMaxValue = maxConstantIntOp;
     } else {
-      filterMemsetMinValue = onearith::ConstantIntOp;
-      filterMemsetMaxValue = onearith::ConstantIntOp;
+      filterMemsetMinValue = oneConstantIntOp;
+      filterMemsetMaxValue = oneConstantIntOp;
     }
 
     if (randomSeed.getValue() == "none" ||
         (randomSeed.getValue() != "none" &&
          (randomSide.getValue() == "input" ||
           randomSide.getValue() == "both"))) {
-      inputMemsetMinValue = minarith::ConstantIntOp;
-      inputMemsetMaxValue = maxarith::ConstantIntOp;
+      inputMemsetMinValue = minConstantIntOp;
+      inputMemsetMaxValue = maxConstantIntOp;
     } else {
-      inputMemsetMinValue = onearith::ConstantIntOp;
-      inputMemsetMaxValue = onearith::ConstantIntOp;
+      inputMemsetMinValue = oneConstantIntOp;
+      inputMemsetMaxValue = oneConstantIntOp;
     }
 
-    outputMemsetMinValue = zeroarith::ConstantIntOp;
-    outputMemsetMaxValue = zeroarith::ConstantIntOp;
+    outputMemsetMinValue = zeroConstantIntOp;
+    outputMemsetMaxValue = zeroConstantIntOp;
     break;
   case miopen::Conv2DBwdDataOpType:
     if (randomSeed.getValue() == "none" ||
         (randomSeed.getValue() != "none" &&
          (randomSide.getValue() == "filter" ||
           randomSide.getValue() == "both"))) {
-      filterMemsetMinValue = minarith::ConstantIntOp;
-      filterMemsetMaxValue = maxarith::ConstantIntOp;
+      filterMemsetMinValue = minConstantIntOp;
+      filterMemsetMaxValue = maxConstantIntOp;
     } else {
-      filterMemsetMinValue = onearith::ConstantIntOp;
-      filterMemsetMaxValue = onearith::ConstantIntOp;
+      filterMemsetMinValue = oneConstantIntOp;
+      filterMemsetMaxValue = oneConstantIntOp;
     }
 
     if (randomSeed.getValue() == "none" ||
         (randomSeed.getValue() != "none" &&
          (randomSide.getValue() == "output" ||
           randomSide.getValue() == "both"))) {
-      outputMemsetMinValue = minarith::ConstantIntOp;
-      outputMemsetMaxValue = maxarith::ConstantIntOp;
+      outputMemsetMinValue = minConstantIntOp;
+      outputMemsetMaxValue = maxConstantIntOp;
     } else {
-      outputMemsetMinValue = onearith::ConstantIntOp;
-      outputMemsetMaxValue = onearith::ConstantIntOp;
+      outputMemsetMinValue = oneConstantIntOp;
+      outputMemsetMaxValue = oneConstantIntOp;
     }
 
-    inputMemsetMinValue = zeroarith::ConstantIntOp;
-    inputMemsetMaxValue = zeroarith::ConstantIntOp;
+    inputMemsetMinValue = zeroConstantIntOp;
+    inputMemsetMaxValue = zeroConstantIntOp;
     break;
   case miopen::Conv2DBwdWeightOpType:
     if (randomSeed.getValue() == "none" ||
         (randomSeed.getValue() != "none" &&
          (randomSide.getValue() == "input" ||
           randomSide.getValue() == "both"))) {
-      inputMemsetMinValue = minarith::ConstantIntOp;
-      inputMemsetMaxValue = maxarith::ConstantIntOp;
+      inputMemsetMinValue = minConstantIntOp;
+      inputMemsetMaxValue = maxConstantIntOp;
     } else {
-      inputMemsetMinValue = onearith::ConstantIntOp;
-      inputMemsetMaxValue = onearith::ConstantIntOp;
+      inputMemsetMinValue = oneConstantIntOp;
+      inputMemsetMaxValue = oneConstantIntOp;
     }
 
     if (randomSeed.getValue() == "none" ||
         (randomSeed.getValue() != "none" &&
          (randomSide.getValue() == "output" ||
           randomSide.getValue() == "both"))) {
-      outputMemsetMinValue = minarith::ConstantIntOp;
-      outputMemsetMaxValue = maxarith::ConstantIntOp;
+      outputMemsetMinValue = minConstantIntOp;
+      outputMemsetMaxValue = maxConstantIntOp;
     } else {
-      outputMemsetMinValue = onearith::ConstantIntOp;
-      outputMemsetMaxValue = onearith::ConstantIntOp;
+      outputMemsetMinValue = oneConstantIntOp;
+      outputMemsetMaxValue = oneConstantIntOp;
     }
 
-    filterMemsetMinValue = zeroarith::ConstantIntOp;
-    filterMemsetMaxValue = zeroarith::ConstantIntOp;
+    filterMemsetMinValue = zeroConstantIntOp;
+    filterMemsetMaxValue = zeroConstantIntOp;
     break;
   }
   return;
@@ -1711,26 +1711,26 @@ static LogicalResult populateHostHarnessLogic(
   // Populate initial values.
   mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
   mlir::Value filterMemsetMaxValue, inputMemsetMaxValue, outputMemsetMaxValue;
-  mlir::ConstantOp seedarith::ConstantIntOp;
+  mlir::ConstantOp seedConstantIntOp;
 
   generateTensorInitValues(builder, block, mcpuMemset5DFuncOp,
                            filterMemsetMinValue, filterMemsetMaxValue,
                            inputMemsetMinValue, inputMemsetMaxValue,
                            outputMemsetMinValue, outputMemsetMaxValue,
-                           seedarith::ConstantIntOp, convOpType);
+                           seedConstantIntOp, convOpType);
 
   auto filterCpuMemsetOp = builder.create<CallOp>(
       builder.getUnknownLoc(), mcpuMemset5DFuncOp,
       ValueRange{filterMemRefCastOp, filterMemsetMinValue, filterMemsetMaxValue,
-                 seedarith::ConstantIntOp});
+                 seedConstantIntOp});
   auto inputCpuMemsetOp = builder.create<CallOp>(
       builder.getUnknownLoc(), mcpuMemset5DFuncOp,
       ValueRange{inputMemRefCastOp, inputMemsetMinValue, inputMemsetMaxValue,
-                 seedarith::ConstantIntOp});
+                 seedConstantIntOp});
   auto outputCpuMemsetOp = builder.create<CallOp>(
       builder.getUnknownLoc(), mcpuMemset5DFuncOp,
       ValueRange{outputMemRefCastOp, outputMemsetMinValue, outputMemsetMaxValue,
-                 seedarith::ConstantIntOp});
+                 seedConstantIntOp});
   block->push_back(filterCpuMemsetOp);
   block->push_back(inputCpuMemsetOp);
   block->push_back(outputCpuMemsetOp);
@@ -1905,26 +1905,26 @@ static LogicalResult populateValidationLogic(
   // Populate initial values.
   mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
   mlir::Value filterMemsetMaxValue, inputMemsetMaxValue, outputMemsetMaxValue;
-  mlir::ConstantOp seedarith::ConstantIntOp;
+  mlir::ConstantOp seedConstantIntOp;
 
   generateTensorInitValues(builder, block, mcpuMemset5DFuncOp,
                            filterMemsetMinValue, filterMemsetMaxValue,
                            inputMemsetMinValue, inputMemsetMaxValue,
                            outputMemsetMinValue, outputMemsetMaxValue,
-                           seedarith::ConstantIntOp, convOpType);
+                           seedConstantIntOp, convOpType);
 
   auto filterCpuMemsetOp = builder.create<CallOp>(
       builder.getUnknownLoc(), mcpuMemset5DFuncOp,
       ValueRange{filterMemRefCastOp, filterMemsetMinValue, filterMemsetMaxValue,
-                 seedarith::ConstantIntOp});
+                 seedConstantIntOp});
   auto inputCpuMemsetOp = builder.create<CallOp>(
       builder.getUnknownLoc(), mcpuMemset5DFuncOp,
       ValueRange{inputMemRefCastOp, inputMemsetMinValue, inputMemsetMaxValue,
-                 seedarith::ConstantIntOp});
+                 seedConstantIntOp});
   auto outputCpuMemsetOp = builder.create<CallOp>(
       builder.getUnknownLoc(), mcpuMemset5DFuncOp,
       ValueRange{outputMemRefCastOp, outputMemsetMinValue, outputMemsetMaxValue,
-                 seedarith::ConstantIntOp});
+                 seedConstantIntOp});
   block->push_back(filterCpuMemsetOp);
   block->push_back(inputCpuMemsetOp);
   block->push_back(outputCpuMemsetOp);
@@ -2005,19 +2005,19 @@ static LogicalResult populateValidationLogic(
     // If not using random data, emit CPU alloc and initialization
     verifierFilterHostAllocOp = allocAndInitializeTensor(
         builder, block, floatType, mcpuMemset5DFuncOp, filterMemRefType,
-        filterMemsetMinValue, filterMemsetMaxValue, seedarith::ConstantIntOp);
+        filterMemsetMinValue, filterMemsetMaxValue, seedConstantIntOp);
     verifierInputHostAllocOp = allocAndInitializeTensor(
         builder, block, floatType, mcpuMemset5DFuncOp, inputMemRefType,
-        inputMemsetMinValue, inputMemsetMaxValue, seedarith::ConstantIntOp);
+        inputMemsetMinValue, inputMemsetMaxValue, seedConstantIntOp);
     verifierOutputHostAllocOp = allocAndInitializeTensor(
         builder, block, floatType, mcpuMemset5DFuncOp, outputMemRefType,
-        outputMemsetMinValue, outputMemsetMaxValue, seedarith::ConstantIntOp);
+        outputMemsetMinValue, outputMemsetMaxValue, seedConstantIntOp);
   } else {
-    auto zeroarith::ConstantIntOp = builder.create<ConstantOp>(
+    auto zeroConstantIntOp = builder.create<ConstantOp>(
         builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(0));
-    block->push_back(zeroarith::ConstantIntOp);
+    block->push_back(zeroConstantIntOp);
 
-    mlir::Value memsetValue = zeroarith::ConstantIntOp;
+    mlir::Value memsetValue = zeroConstantIntOp;
 
     // If using random data, emit CPU alloc and copy input data
     switch (convOpType) {
@@ -2030,7 +2030,7 @@ static LogicalResult populateValidationLogic(
                              inputHostAllocOp, inputDimension);
       verifierOutputHostAllocOp = allocAndInitializeTensor(
           builder, block, floatType, mcpuMemset5DFuncOp, outputMemRefType,
-          memsetValue, memsetValue, seedarith::ConstantIntOp);
+          memsetValue, memsetValue, seedConstantIntOp);
       break;
     case miopen::Conv2DBwdDataOpType:
       verifierFilterHostAllocOp =
@@ -2038,7 +2038,7 @@ static LogicalResult populateValidationLogic(
                              filterHostAllocOp, filterDimension);
       verifierInputHostAllocOp = allocAndInitializeTensor(
           builder, block, floatType, mcpuMemset5DFuncOp, inputMemRefType,
-          memsetValue, memsetValue, seedarith::ConstantIntOp);
+          memsetValue, memsetValue, seedConstantIntOp);
       verifierOutputHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              outputHostAllocOp, outputDimension);
@@ -2046,7 +2046,7 @@ static LogicalResult populateValidationLogic(
     case miopen::Conv2DBwdWeightOpType:
       verifierFilterHostAllocOp = allocAndInitializeTensor(
           builder, block, floatType, mcpuMemset5DFuncOp, filterMemRefType,
-          memsetValue, memsetValue, seedarith::ConstantIntOp);
+          memsetValue, memsetValue, seedConstantIntOp);
       verifierInputHostAllocOp =
           allocAndCopyTensor(module, builder, block, mcpuMemCopy5DFuncOp,
                              inputHostAllocOp, inputDimension);
@@ -2210,26 +2210,26 @@ static LogicalResult populateCpuConvolutionLogic(
 
   mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
   mlir::Value filterMemsetMaxValue, inputMemsetMaxValue, outputMemsetMaxValue;
-  mlir::ConstantOp seedarith::ConstantIntOp;
+  mlir::ConstantOp seedConstantIntOp;
 
   generateTensorInitValues(builder, block, mcpuMemset5DFuncOp,
                            filterMemsetMinValue, filterMemsetMaxValue,
                            inputMemsetMinValue, inputMemsetMaxValue,
                            outputMemsetMinValue, outputMemsetMaxValue,
-                           seedarith::ConstantIntOp, convOpType);
+                           seedConstantIntOp, convOpType);
 
   // Emit CPU alloc and populate initial values.
   auto cpuFilterAllocOp = allocAndInitializeTensor(
       builder, block, dataType, mcpuMemset5DFuncOp, filterMemRefType,
-      filterMemsetMinValue, filterMemsetMaxValue, seedarith::ConstantIntOp);
+      filterMemsetMinValue, filterMemsetMaxValue, seedConstantIntOp);
 
   auto cpuInputAllocOp = allocAndInitializeTensor(
       builder, block, dataType, mcpuMemset5DFuncOp, inputMemRefType,
-      inputMemsetMinValue, inputMemsetMaxValue, seedarith::ConstantIntOp);
+      inputMemsetMinValue, inputMemsetMaxValue, seedConstantIntOp);
 
   auto cpuOutputAllocOp = allocAndInitializeTensor(
       builder, block, dataType, mcpuMemset5DFuncOp, outputMemRefType,
-      outputMemsetMinValue, outputMemsetMaxValue, seedarith::ConstantIntOp);
+      outputMemsetMinValue, outputMemsetMaxValue, seedConstantIntOp);
 
   auto floatType = builder.getF32Type();
   auto fiveDimUnknownSizeFloatType =
@@ -2464,6 +2464,7 @@ static LogicalResult populateKernelLaunchLogic(
         builder.getUnknownLoc(), theGpuFunc,
         gpu::KernelDim3{cstGridSize, cstOne, cstOne},
         gpu::KernelDim3{cstBlockSize, cstOne, cstOne},
+        nullptr,
         ValueRange{theFunc.getArgument(0), theFunc.getArgument(1),
                    theFunc.getArgument(2)});
     gpuLaunchFuncOp->setAttr(
