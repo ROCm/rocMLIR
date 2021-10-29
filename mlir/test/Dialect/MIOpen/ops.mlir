@@ -93,7 +93,7 @@ func @miopen_transform_1_to_1(%memref: memref<?x?x?x?x?xf32>) {
     layout = [
       {
         upper_layer_dimensions = [0],
-        upper_layer_names = ["g"], 
+        upper_layer_names = ["g"],
         transformation = "PassThrough",
         lower_layer_dimensions = [1],
         lower_layer_names = ["g"]
@@ -178,7 +178,7 @@ func @miopen_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
     layout = [
       {
         upper_layer_dimensions = [0],
-        upper_layer_names = ["g"], 
+        upper_layer_names = ["g"],
         transformation = "PassThrough",
         lower_layer_dimensions = [1],
         lower_layer_names = ["g"]
@@ -260,7 +260,7 @@ func @miopen_gridwise_gemm_v2(%A : memref<?x?x?xf32>, %B : memref<?x?x?xf32>, %C
 //  CHECK-NEXT: miopen.gridwise_gemm_v2
 
 func @miopen_data_convert() {
-    %0 = constant 3.2 : f32
+    %0 = arith.constant 3.2 : f32
     %1 = miopen.data_convert %0  : f32 to i16
     return
 }

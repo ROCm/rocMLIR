@@ -12,7 +12,7 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
                                 %source : vector<32xf32>,
                                 %dest1D : memref<32xf32>,
                                 %dest5D : memref<128x1x1024x14x14xf32>) {
-  %c0_i32 = constant 0 : i32
+  %c0_i32 = arith.constant 0 : i32
 
   // A simplified usage of threadwise_copy_v2.
   // Source vector has a transformation.
@@ -180,4 +180,3 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
 
   return
 }
-

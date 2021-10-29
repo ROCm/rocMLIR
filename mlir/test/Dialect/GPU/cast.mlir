@@ -7,7 +7,7 @@ module attributes {gpu.container_module} {
 // CHECK: llvm.mlir.constant
 // CHECK: llvm.lshr
     gpu.func @cast() {
-      %0 = constant 3.2 : f32
+      %0 = arith.constant 3.2 : f32
       gpu.bf_convert %0  : f32 to i16
       gpu.return
     }

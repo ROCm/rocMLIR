@@ -4,7 +4,7 @@ module attributes {gpu.container_module} {
   gpu.module @gpu_kernels {
     gpu.func @lds_fillzero_kernel(%arg2 : memref<?xf32>) kernel {
       %d = miopen.alloc() : memref<16xf32, 3>
-      %cst = constant 0.0 : f32
+      %cst = arith.constant 0.0 : f32
       miopen.fill(%d, %cst) : memref<16xf32, 3>, f32
       miopen.workgroup_barrier
 
@@ -16,8 +16,8 @@ module attributes {gpu.container_module} {
   }
 
   func @lds_fillzero(%arg2 : memref<?xf32>) {
-    %cst = constant 1 : index
-    %c0 = constant 0 : index
+    %cst = arith.constant 1 : index
+    %c0 = arith.constant 0 : index
     %cst2 = memref.dim %arg2, %c0 : memref<?xf32>
     "gpu.launch_func"(%cst, %cst, %cst, %cst2, %cst, %cst, %arg2) { kernel = @gpu_kernels::@lds_fillzero_kernel, operand_segment_sizes = dense<[0,1,1,1,1,1,1,1]> : vector<8xi32> } : (index, index, index, index, index, index, memref<?xf32>) -> ()
     return
@@ -31,15 +31,15 @@ module attributes {gpu.container_module} {
     %5 = memref.cast %2 : memref<16xf32> to memref<?xf32>
 
     // populate initial values.
-    %cst = constant 1.23 : f32
+    %cst = arith.constant 1.23 : f32
     call @mcpuMemset(%5, %cst) : (memref<?xf32>, f32) -> ()
 
     // allocate GPU memory.
     %8 = call @mgpuMemAlloc(%5) : (memref<?xf32>) -> (memref<?xf32>)
 
     // copy direction constants.
-    %cst_h2d = constant 1 : i32
-    %cst_d2h = constant 2 : i32
+    %cst_h2d = arith.constant 1 : i32
+    %cst_d2h = arith.constant 2 : i32
 
     // launch kernel.
     call @lds_fillzero(%8) : (memref<?xf32>) -> ()
