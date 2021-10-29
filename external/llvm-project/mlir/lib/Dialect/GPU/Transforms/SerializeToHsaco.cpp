@@ -39,7 +39,6 @@
 #include "llvm/Support/LineIterator.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/SourceMgr.h"
-#include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/WithColor.h"
 #include "llvm/Target/TargetMachine.h"

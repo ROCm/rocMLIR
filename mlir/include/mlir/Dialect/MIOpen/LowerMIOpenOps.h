@@ -21,6 +21,7 @@
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/SCF.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Vector/VectorOps.h"
 #include "mlir/IR/AffineMap.h"
@@ -50,6 +51,7 @@
 
 using namespace mlir;
 using namespace mlir::miopen;
+using namespace mlir::arith;
 
 // 2G ,INT MAX Value = 2147483647, use 2147483648 as offset and buffer
 // store do nothing
@@ -217,7 +219,7 @@ inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
   } else if (elementType == b.getF16Type()) {
     auto valueF32Op =
         b.create<ConstantFloatOp>(loc, APFloat(value), b.getF32Type());
-    ret = b.create<FPTruncOp>(loc, valueF32Op, elementType);
+    ret = b.create<arith::TruncFOp>(loc, valueF32Op, elementType);
   } else if (elementType == b.getIntegerType(16)) {
     ret = b.create<ConstantIntOp>(loc, static_cast<int>(value),
                                   b.getIntegerType(16));
@@ -328,10 +330,10 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
       Value upperBoundCheckOp =
           b.create<CmpIOp>(loc, CmpIPredicate::slt, coord, upperBoundOp);
       Value withinBoundInOneDimOp =
-          b.create<AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
+        b.create<LLVM::AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
 
       withinBoundsOp =
-          b.create<AndOp>(loc, withinBoundsOp, withinBoundInOneDimOp);
+          b.create<LLVM::AndOp>(loc, withinBoundsOp, withinBoundInOneDimOp);
 
       // Prepare srcLowerLoadOOBIndices.
       srcLowerLoadOOBIndices[dim] = zeroConstantOp;
@@ -511,10 +513,10 @@ inline void emitStoreLogic(
       Value upperBoundCheckOp =
           b.create<CmpIOp>(loc, CmpIPredicate::slt, coordStore, upperBoundOp);
       Value withinBoundInOneDimOp =
-          b.create<AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
+          b.create<LLVM::AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
 
       withinStoreBoundsOp =
-          b.create<AndOp>(loc, withinStoreBoundsOp, withinBoundInOneDimOp);
+          b.create<LLVM::AndOp>(loc, withinStoreBoundsOp, withinBoundInOneDimOp);
 
       destLowerStoreOOBIndices[dim] = zeroConstantOp;
     }
@@ -665,11 +667,11 @@ inline unsigned obtainGenericTensorTransformationInfo(
   // 3. For memrefs with embedded maps, use its input rank.
   assert(type.isa<MemRefType>() || type.isa<VectorType>());
   unsigned coordLength = 0;
-  ArrayRef<AffineMap> typeAffineMaps;
+  AffineMap typeAffineMap;
   if (type.isa<MemRefType>()) {
     MemRefType memrefType = type.cast<MemRefType>();
     coordLength = memrefType.getRank();
-    typeAffineMaps = memrefType.getAffineMaps();
+    typeAffineMap = memrefType.getLayout().getAffineMap();
   } else if (type.isa<VectorType>()) {
     VectorType vectorType = type.cast<VectorType>();
     coordLength = vectorType.getShape().size();
@@ -677,13 +679,14 @@ inline unsigned obtainGenericTensorTransformationInfo(
     // Keep typeAffineMaps uninitialized.
   }
 
-  if (typeAffineMaps.size()) {
-    coordLength = typeAffineMaps[0].getNumInputs();
+  if (type.isa<MemRefType>()) {
+    coordLength = typeAffineMap.getNumInputs();
     // Compose affine maps.
-    composedTransform = composeTransforms(typeAffineMaps);
+    composedTransform = typeAffineMap;
 
     // Populate affine maps for each layer.
-    layeredTransform.assign(typeAffineMaps.begin(), typeAffineMaps.end());
+    layeredTransform.resize(1);
+    layeredTransform[0] = typeAffineMap;
   }
   // Obtain metadata of coordinate transformations.
   if (coordTransformsAttr) {
@@ -730,9 +733,9 @@ inline Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
     // - fp32 -> fp16 : use fptrunc.
     // - fp16/fp32 -> bf16(i16) : use miopen.data_convert.
     if (sourceType == b.getF16Type() && destType == b.getF32Type()) {
-      result = b.create<FPExtOp>(loc, source, destType);
+      result = b.create<arith::ExtFOp>(loc, source, destType);
     } else if (sourceType == b.getF32Type() && destType == b.getF16Type()) {
-      result = b.create<FPTruncOp>(loc, source, destType);
+      result = b.create<arith::TruncFOp>(loc, source, destType);
     } else if (destType == b.getIntegerType(16)) {
       result = b.create<miopen::DataConvertOp>(loc, destType, source);
     }
@@ -1053,7 +1056,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
       auto upperDiffOp = upperIndicesDiff[upperDim].getDefiningOp();
       if (auto v = dyn_cast<ConstantIntOp>(upperDiffOp)) {
         // In case upper level diff is a constant, use constantFold.
-        int64_t upperDiff = v.getValue();
+        int64_t upperDiff = v.value();
 
         // Populate an upper diff vector with all indices 0, other than
         // upperDim dimension set as upperDiff.
@@ -5226,8 +5229,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                                       unsigned offset,
                                       ArrayRef<int64_t> outputShape,
                                       Type outputElementType) const {
-    auto inputAffineMaps = inputType.getAffineMaps();
-
     auto outputRank = outputShape.size();
 
     auto expr = getAffineConstantExpr(offset, op.getContext());
@@ -5240,13 +5241,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     AffineMap transformAffineMap = AffineMap::get(
         outputRank, 0, ArrayRef<AffineExpr>{expr}, op.getContext());
-    AffineMap outputAffineMap;
-    if (inputAffineMaps.size() != 0) {
-      auto inputAffineMap = inputAffineMaps[0];
-      outputAffineMap = inputAffineMap.compose(transformAffineMap);
-    } else {
-      outputAffineMap = transformAffineMap;
-    }
+    AffineMap inputAffineMap = inputType.getLayout().getAffineMap();
+    AffineMap outputAffineMap = inputAffineMap.compose(transformAffineMap);
     auto transformedOutputType =
         MemRefType::get(outputShape, outputElementType, {outputAffineMap},
                         inputType.getMemorySpaceAsInt());
@@ -5362,12 +5358,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto NBlockWorkConstantOp = b.create<ConstantIndexOp>(loc, NBlockWork);
     auto GStridOp = b.create<ConstantIndexOp>(loc, GStride);
     auto block_work_id_g =
-        b.create<UnsignedDivIOp>(loc, bid, GStridOp); // id_g of coordinate
-    auto block_work_rem = b.create<UnsignedRemIOp>(loc, bid, GStridOp);
+        b.create<arith::DivUIOp>(loc, bid, GStridOp); // id_g of coordinate
+    auto block_work_rem = b.create<arith::RemUIOp>(loc, bid, GStridOp);
     auto block_work_id_m =
-        b.create<UnsignedDivIOp>(loc, block_work_rem, NBlockWorkConstantOp);
+        b.create<arith::DivUIOp>(loc, block_work_rem, NBlockWorkConstantOp);
     auto block_work_id_n =
-        b.create<UnsignedRemIOp>(loc, block_work_rem, NBlockWorkConstantOp);
+        b.create<arith::RemUIOp>(loc, block_work_rem, NBlockWorkConstantOp);
     auto MPerBlockConstantOp = b.create<ConstantIndexOp>(loc, MPerBlock);
     auto NPerBlockConstantOp = b.create<ConstantIndexOp>(loc, NPerBlock);
     auto m_block_data_on_global =
@@ -5476,9 +5472,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto GemmABlockCopyThreadSliceLengths_GemmMConstantOp =
         b.create<ConstantIndexOp>(loc, GemmABlockCopyThreadSliceLengths_GemmM);
 
-    auto GemmABlockCopyThreadClusterId_Y = b.create<UnsignedRemIOp>(
+    auto GemmABlockCopyThreadClusterId_Y = b.create<arith::RemUIOp>(
         loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
-    auto GemmABlockCopyThreadClusterId_X = b.create<UnsignedDivIOp>(
+    auto GemmABlockCopyThreadClusterId_X = b.create<arith::DivUIOp>(
         loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
     auto GemmAThreadDataIdBegin_Y =
         b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_Y,
@@ -5510,9 +5506,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto GemmBBlockCopyThreadSliceLengths_GemmNConstantOp =
         b.create<ConstantIndexOp>(loc, GemmBBlockCopyThreadSliceLengths_GemmN);
 
-    auto GemmBBlockCopyThreadClusterId_Y = b.create<UnsignedDivIOp>(
+    auto GemmBBlockCopyThreadClusterId_Y = b.create<arith::DivUIOp>(
         loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
-    auto GemmBBlockCopyThreadClusterId_X = b.create<UnsignedRemIOp>(
+    auto GemmBBlockCopyThreadClusterId_X = b.create<arith::RemUIOp>(
         loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
     auto GemmBThreadDataIdBegin_Y =
         b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Y,
@@ -5731,18 +5727,18 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto ThreadPerLevel0ClusterConstantOp =
         b.create<ConstantIndexOp>(loc, ThreadPerLevel0Cluster);
     auto level1_id =
-        b.create<UnsignedDivIOp>(loc, tid, ThreadPerLevel0ClusterConstantOp);
+        b.create<arith::DivUIOp>(loc, tid, ThreadPerLevel0ClusterConstantOp);
     auto level1_m_id =
-        b.create<UnsignedDivIOp>(loc, level1_id, NLevel1ClusterConstantOp);
+        b.create<arith::DivUIOp>(loc, level1_id, NLevel1ClusterConstantOp);
     auto level1_n_id =
-        b.create<UnsignedRemIOp>(loc, level1_id, NLevel1ClusterConstantOp);
+        b.create<arith::RemUIOp>(loc, level1_id, NLevel1ClusterConstantOp);
 
     auto level0_id =
-        b.create<UnsignedRemIOp>(loc, tid, ThreadPerLevel0ClusterConstantOp);
+        b.create<arith::RemUIOp>(loc, tid, ThreadPerLevel0ClusterConstantOp);
     auto level0_m_id =
-        b.create<UnsignedDivIOp>(loc, level0_id, NLevel0ClusterConstantOp);
+        b.create<arith::DivUIOp>(loc, level0_id, NLevel0ClusterConstantOp);
     auto level0_n_id =
-        b.create<UnsignedRemIOp>(loc, level0_id, NLevel0ClusterConstantOp);
+        b.create<arith::RemUIOp>(loc, level0_id, NLevel0ClusterConstantOp);
 
     int64_t MPerLevel0Cluster = MPerThread * MLevel0Cluster;
     int64_t NPerLevel0Cluster = NPerThread * NLevel0Cluster;
@@ -5941,11 +5937,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // compose with output tensor affine map.
     auto outputType = op.output().getType().template cast<MemRefType>();
-    auto outputAffineMaps = outputType.getAffineMaps();
-    SmallVector<AffineMap> newOutputAffineMaps;
-    newOutputAffineMaps.assign(outputAffineMaps.begin(),
-                               outputAffineMaps.end());
-    newOutputAffineMaps.insert(newOutputAffineMaps.begin(), affineMap5to3);
+    auto outputAffineMap = outputType.getLayout().getAffineMap();
+    auto newOutputAffineMap = outputAffineMap.compose(affineMap5to3);
 
     // emit TransformOp for output tensor.
     llvm::SmallVector<NamedAttribute, 3> transformedNewOutputAttrs;
@@ -6011,7 +6004,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                         b.getStringAttr("m1"), b.getStringAttr("n0"),
                         b.getStringAttr("n1")})));
     auto newOutputType = MemRefType::get(
-        {G, M0, M1, N0, N1}, outputType.getElementType(), newOutputAffineMaps);
+        {G, M0, M1, N0, N1}, outputType.getElementType(), newOutputAffineMap);
     auto newOutputTransformOp = b.create<miopen::TransformOp>(
         loc, newOutputType, op.output(), transformedNewOutputAttrs,
         /*populateBounds=*/true);
@@ -6111,13 +6104,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // g index
     matrixCThreadwiseCopySourceAndDestCoords.push_back(GemmDataIdBegin_G_i32);
-    matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<UnsignedDivIOp>(
+    matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<arith::DivUIOp>(
         loc, m_thread_data_on_global_i32, M1ConstantI32Op));
-    matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<UnsignedRemIOp>(
+    matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<arith::RemUIOp>(
         loc, m_thread_data_on_global_i32, M1ConstantI32Op));
-    matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<UnsignedDivIOp>(
+    matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<arith::DivUIOp>(
         loc, n_thread_data_on_global_i32, N1ConstantI32Op));
-    matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<UnsignedRemIOp>(
+    matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<arith::RemUIOp>(
         loc, n_thread_data_on_global_i32, N1ConstantI32Op));
 
     auto threadwiseCopyCMatrixOp = b.create<miopen::ThreadwiseCopyOp>(
@@ -6257,8 +6250,6 @@ struct GridwiseGemmV2RewritePattern
                                       unsigned offset,
                                       ArrayRef<int64_t> outputShape,
                                       Type outputElementType) const {
-    auto inputAffineMaps = inputType.getAffineMaps();
-
     auto outputRank = outputShape.size();
 
     auto expr = getAffineConstantExpr(offset, op.getContext());
@@ -6271,13 +6262,8 @@ struct GridwiseGemmV2RewritePattern
 
     AffineMap transformAffineMap = AffineMap::get(
         outputRank, 0, ArrayRef<AffineExpr>{expr}, op.getContext());
-    AffineMap outputAffineMap;
-    if (inputAffineMaps.size() != 0) {
-      auto inputAffineMap = inputAffineMaps[0];
-      outputAffineMap = inputAffineMap.compose(transformAffineMap);
-    } else {
-      outputAffineMap = transformAffineMap;
-    }
+    AffineMap outputAffineMap =
+      inputType.getLayout().getAffineMap().compose(transformAffineMap);
     auto transformedOutputType =
         MemRefType::get(outputShape, outputElementType, {outputAffineMap},
                         inputType.getMemorySpaceAsInt());
@@ -6416,12 +6402,12 @@ struct GridwiseGemmV2RewritePattern
 
     // Result block_work_desc is <NBlockWorkd, MBlockWork>
 
-    auto block_work_id_g = b.create<UnsignedDivIOp>(loc, bid, GStridOp);
-    auto block_work_rem = b.create<UnsignedRemIOp>(loc, bid, GStridOp);
+    auto block_work_id_g = b.create<arith::DivUIOp>(loc, bid, GStridOp);
+    auto block_work_rem = b.create<arith::RemUIOp>(loc, bid, GStridOp);
     auto block_work_id_m =
-        b.create<UnsignedRemIOp>(loc, block_work_rem, MBlockWorkConstantOp);
+        b.create<arith::RemUIOp>(loc, block_work_rem, MBlockWorkConstantOp);
     auto block_work_id_n =
-        b.create<UnsignedDivIOp>(loc, block_work_rem, MBlockWorkConstantOp);
+        b.create<arith::DivUIOp>(loc, block_work_rem, MBlockWorkConstantOp);
 
     auto m_block_data_on_global =
         b.create<MulIOp>(loc, block_work_id_m, MPerBlockConstantOp);
@@ -6523,9 +6509,9 @@ struct GridwiseGemmV2RewritePattern
     auto GemmABlockCopyThreadSliceLengths_GemmMConstantOp =
         b.create<ConstantIndexOp>(loc, GemmABlockCopyThreadSliceLengths_GemmM);
 
-    auto GemmABlockCopyThreadClusterId_Y = b.create<UnsignedRemIOp>(
+    auto GemmABlockCopyThreadClusterId_Y = b.create<arith::RemUIOp>(
         loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
-    auto GemmABlockCopyThreadClusterId_X = b.create<UnsignedDivIOp>(
+    auto GemmABlockCopyThreadClusterId_X = b.create<arith::DivUIOp>(
         loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
     auto GemmAThreadDataIdBegin_Y =
         b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_Y,
@@ -6557,9 +6543,9 @@ struct GridwiseGemmV2RewritePattern
     auto GemmBBlockCopyThreadSliceLengths_GemmNConstantOp =
         b.create<ConstantIndexOp>(loc, GemmBBlockCopyThreadSliceLengths_GemmN);
 
-    auto GemmBBlockCopyThreadClusterId_Y = b.create<UnsignedDivIOp>(
+    auto GemmBBlockCopyThreadClusterId_Y = b.create<arith::DivUIOp>(
         loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
-    auto GemmBBlockCopyThreadClusterId_X = b.create<UnsignedRemIOp>(
+    auto GemmBBlockCopyThreadClusterId_X = b.create<arith::RemUIOp>(
         loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
     auto GemmBThreadDataIdBegin_Y =
         b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Y,
@@ -6803,9 +6789,9 @@ struct GridwiseGemmV2RewritePattern
     // const index_t waveId_n = waveId % GemmNWaves;
     // mMyWaveOffsetA = waveId_m * GemmMPerWave;
     // mMyWaveOffsetB = waveId_n * GemmNPerWave;
-    auto waveId = b.create<UnsignedDivIOp>(loc, tid, waveSizeConstantOp);
-    auto waveId_m = b.create<UnsignedDivIOp>(loc, waveId, NWavesConstantOp);
-    auto waveId_n = b.create<UnsignedRemIOp>(loc, waveId, NWavesConstantOp);
+    auto waveId = b.create<arith::DivUIOp>(loc, tid, waveSizeConstantOp);
+    auto waveId_m = b.create<arith::DivUIOp>(loc, waveId, NWavesConstantOp);
+    auto waveId_n = b.create<arith::RemUIOp>(loc, waveId, NWavesConstantOp);
 
     Value mMyWaveOffsetA, mMyWaveOffsetB;
     mMyWaveOffsetA = b.create<MulIOp>(loc, waveId_m, MPerWaveConstantOp);
@@ -7052,10 +7038,7 @@ struct GridwiseGemmV2RewritePattern
 
     // compose with output tensor affine map.
     auto outputType = op.output().getType().template cast<MemRefType>();
-    auto outputAffineMaps = outputType.getAffineMaps();
-    SmallVector<AffineMap> newOutputAffineMaps;
-    newOutputAffineMaps.assign(outputAffineMaps.begin(),
-                               outputAffineMaps.end());
+    SmallVector<AffineMap> newOutputAffineMaps({outputType.getLayout().getAffineMap()});
     newOutputAffineMaps.insert(newOutputAffineMaps.begin(), affineMap5to3);
 
     // emit TransformOp for output tensor.
@@ -7120,7 +7103,7 @@ struct GridwiseGemmV2RewritePattern
                         b.getStringAttr("m1"), b.getStringAttr("m2"),
                         b.getStringAttr("n")})));
     auto newOutputType = MemRefType::get(
-        {G, M0, M1, M2, N}, outputType.getElementType(), newOutputAffineMaps);
+        {G, M0, M1, M2, N}, outputType.getElementType(), composeTransforms(newOutputAffineMaps));
     auto newOutputTransformOp = b.create<miopen::TransformOp>(
         loc, newOutputType, op.output(), transformedNewOutputAttrs,
         /*populateBounds=*/true);
@@ -7180,33 +7163,33 @@ struct GridwiseGemmV2RewritePattern
       // }
       //
       auto xdlops_i_xdlops_gemm =
-          b.create<UnsignedDivIOp>(loc, iv, NumBlksPerXdlopsConstantOp);
+          b.create<arith::DivUIOp>(loc, iv, NumBlksPerXdlopsConstantOp);
       auto j_xdlops_gemm =
-          b.create<UnsignedRemIOp>(loc, iv, NumBlksPerXdlopsConstantOp);
+          b.create<arith::RemUIOp>(loc, iv, NumBlksPerXdlopsConstantOp);
       auto m_i_xdlops_gemm =
-          b.create<UnsignedDivIOp>(loc, xdlops_i_xdlops_gemm, NRepeatsConstantOp);
+          b.create<arith::DivUIOp>(loc, xdlops_i_xdlops_gemm, NRepeatsConstantOp);
       auto n_i_xdlops_gemm =
-          b.create<UnsignedRemIOp>(loc, xdlops_i_xdlops_gemm, NRepeatsConstantOp);
+          b.create<arith::RemUIOp>(loc, xdlops_i_xdlops_gemm, NRepeatsConstantOp);
 
       auto laneId_xdlops_gemm =
-          b.create<UnsignedRemIOp>(loc, tid, wave_size_ConstantOp);
-      auto blk_id_xdlops_gemm = b.create<UnsignedDivIOp>(
+          b.create<arith::RemUIOp>(loc, tid, wave_size_ConstantOp);
+      auto blk_id_xdlops_gemm = b.create<arith::DivUIOp>(
           loc, laneId_xdlops_gemm, num_threads_blk_ConstantOp);
-      auto blk_td_xdlops_gemm = b.create<UnsignedRemIOp>(
+      auto blk_td_xdlops_gemm = b.create<arith::RemUIOp>(
           loc, laneId_xdlops_gemm, num_threads_blk_ConstantOp);
       Value col_blk_xdlops_gemm, row_blk_xdlops_gemm;
       bool IsABroadcast = (NPerXdlops >= MPerXdlops);
       if (IsABroadcast) {
         // IsABroadcast
-        col_blk_xdlops_gemm = b.create<UnsignedRemIOp>(
+        col_blk_xdlops_gemm = b.create<arith::RemUIOp>(
             loc, j_xdlops_gemm, num_output_blks_ConstantOp);
-        row_blk_xdlops_gemm = b.create<UnsignedDivIOp>(
+        row_blk_xdlops_gemm = b.create<arith::DivUIOp>(
             loc, j_xdlops_gemm, num_output_blks_ConstantOp);
       } else {
         // !IsABroadcast
-        col_blk_xdlops_gemm = b.create<UnsignedDivIOp>(
+        col_blk_xdlops_gemm = b.create<arith::DivUIOp>(
             loc, j_xdlops_gemm, num_output_blks_ConstantOp);
-        row_blk_xdlops_gemm = b.create<UnsignedRemIOp>(
+        row_blk_xdlops_gemm = b.create<arith::RemUIOp>(
             loc, j_xdlops_gemm, num_output_blks_ConstantOp);
       }
 
@@ -7254,10 +7237,10 @@ struct GridwiseGemmV2RewritePattern
       // }
 
       auto xdlops_i_blockwise_gemm =
-          b.create<UnsignedDivIOp>(loc, iv, NumBlksConstantOp);
-      auto m_blockwise_gemm = b.create<UnsignedDivIOp>(
+          b.create<arith::DivUIOp>(loc, iv, NumBlksConstantOp);
+      auto m_blockwise_gemm = b.create<arith::DivUIOp>(
           loc, xdlops_i_blockwise_gemm, NRepeatsConstantOp);
-      auto n_blockwise_gemm = b.create<UnsignedRemIOp>(
+      auto n_blockwise_gemm = b.create<arith::RemUIOp>(
           loc, xdlops_i_blockwise_gemm, NRepeatsConstantOp);
 
       // Original C++ logic.
@@ -7268,7 +7251,7 @@ struct GridwiseGemmV2RewritePattern
           b.create<AddIOp>(
               loc,
               b.create<MulIOp>(
-                  loc, b.create<UnsignedRemIOp>(loc, waveId, NWavesConstantOp),
+                  loc, b.create<arith::RemUIOp>(loc, waveId, NWavesConstantOp),
                   NPerWaveConstantOp),
               b.create<MulIOp>(loc, n_blockwise_gemm, NPerXdlopsConstantOp)),
           thread_mtx_on_blk_col);
@@ -7283,7 +7266,7 @@ struct GridwiseGemmV2RewritePattern
           b.create<AddIOp>(
               loc,
               b.create<MulIOp>(
-                  loc, b.create<UnsignedDivIOp>(loc, waveId, NWavesConstantOp),
+                  loc, b.create<arith::DivUIOp>(loc, waveId, NWavesConstantOp),
                   MPerWaveConstantOp),
               b.create<MulIOp>(loc, m_blockwise_gemm, MPerXdlopsConstantOp)),
           thread_mtx_on_blk_row);
@@ -7314,18 +7297,18 @@ struct GridwiseGemmV2RewritePattern
       // g
       matrixCThreadwiseCopySourceAndDestCoords.push_back(GemmDataIdBegin_G_i32);
       // m_thread_data_on_global / (M2 * M1)
-      matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<UnsignedDivIOp>(
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<arith::DivUIOp>(
           loc, m_thread_data_on_global_i32, M2TimesM1I32Op));
 
       // m_thread_data_on_global % (M2 * M1) / M2
-      matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<UnsignedDivIOp>(
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<arith::DivUIOp>(
           loc,
-          b.create<UnsignedRemIOp>(loc, m_thread_data_on_global_i32,
+          b.create<arith::RemUIOp>(loc, m_thread_data_on_global_i32,
                                  M2TimesM1I32Op),
           M2ConstantI32Op));
 
       // m_thread_data_on_global % M2
-      matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<UnsignedRemIOp>(
+      matrixCThreadwiseCopySourceAndDestCoords.push_back(b.create<arith::RemUIOp>(
           loc, m_thread_data_on_global_i32, M2ConstantI32Op));
 
       // n_thread_data_on_global
@@ -9125,7 +9108,7 @@ struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
         // Populate metadata attribute.
         DictionaryAttr metadata = b.getDictionaryAttr(
             {b.getNamedAttr(
-                 "map", b.getAffineMapArrayAttr(outputType.getAffineMaps())),
+                 "map", b.getAffineMapArrayAttr({outputType.getLayout().getAffineMap()})),
              b.getNamedAttr(
                  "layout",
                  b.getArrayAttr({b.getDictionaryAttr(
@@ -9148,7 +9131,7 @@ struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
                 {b.getNamedAttr("operand",
                                 b.getI32IntegerAttr(userOperandIndex)),
                  b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
-                                                  outputType.getAffineMaps())),
+                                                {outputType.getLayout().getAffineMap()})),
                  b.getNamedAttr("metadata", b.getArrayAttr({metadata}))})}));
       } else {
         // Only do this for miopen.xdlops_gemm_v2 operation.
@@ -9165,8 +9148,8 @@ struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
           //coordTransformAttrs.dump();
           //llvm::errs() << "\ntransform to be added:\n";
           //llvm::errs() << "operand: " << userOperandIndex << "\n";
-          //if (outputType.getAffineMaps().size() > 0) {
-          //  llvm::errs() << "transforms: " << outputType.getAffineMaps()[0] << "\n";
+          //if (!outputType.getLayout().isIdentity()) {
+          //  llvm::errs() << "transforms: " << outputType.getAffineMap() << "\n";
           //}
 
           bool augmented = false;
@@ -9183,9 +9166,8 @@ struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
               llvm::SmallVector<Attribute, 4> augmentedTransforms;
               //augmentedTransforms.append(existingTransforms.begin(),
               //                           existingTransforms.end());
-              if (outputType.getAffineMaps().size() > 0)
-                augmentedTransforms.push_back(
-                    AffineMapAttr::get(outputType.getAffineMaps()[0]));
+              augmentedTransforms.push_back(
+                 AffineMapAttr::get(outputType.getLayout().getAffineMap()));
 
               augmentedArrayAttr.push_back(b.getDictionaryAttr(
                   {b.getNamedAttr("operand",
@@ -9200,7 +9182,7 @@ struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
                 {b.getNamedAttr("operand",
                                 b.getI32IntegerAttr(userOperandIndex)),
                  b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
-                                                  outputType.getAffineMaps()))}));
+                                              {outputType.getLayout().getAffineMap()}))}));
 
           //llvm::errs() << "\naugmented transforms:\n";
           //b.getArrayAttr(augmentedArrayAttr).dump();
@@ -9245,7 +9227,7 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
     // op.dump();
 
     // Pass the output affine map to users of this op.
-    if (outputType.getAffineMaps().size() > 0)
+    if (!outputType.getLayout().isIdentity())
       for (auto user : op.output().getUsers()) {
         // llvm::errs() << "\n========\nTransformOp user:\n";
         // user->dump();
@@ -9263,7 +9245,7 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
           llvm::SmallVector<NamedAttribute, 5> arrayAttr{
               b.getNamedAttr("operand", b.getI32IntegerAttr(userOperandIndex)),
               b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
-                                               outputType.getAffineMaps())),
+                                           {outputType.getLayout().getAffineMap()})),
               b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec)),
               b.getNamedAttr("metadata", b.getArrayAttr({b.getDictionaryAttr(
                                              op->getAttrs())}))};
@@ -9339,7 +9321,7 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
                 b.getNamedAttr("operand",
                                b.getI32IntegerAttr(userOperandIndex)),
                 b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
-                                                 outputType.getAffineMaps())),
+                                                 {outputType.getLayout().getAffineMap()})),
                 b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec)),
                 b.getNamedAttr("metadata", b.getArrayAttr({b.getDictionaryAttr(
                                                op->getAttrs())}))};
@@ -9451,7 +9433,7 @@ struct XdlopsGemmV2RewritePattern
     // K * KRepeats; constexpr index_t BStride = K * KRepeats;
 
     auto tid = b.create<miopen::WorkitemIdOp>(loc, b.getIndexType());
-    auto laneId = b.create<UnsignedRemIOp>(
+    auto laneId = b.create<arith::RemUIOp>(
         loc, tid, b.create<ConstantIndexOp>(loc, wave_size));
 
     // TBD. FloatA / FloatB could be vectorized via KPack tuning parameter.
@@ -9626,8 +9608,8 @@ struct XdlopsGemmV2RewritePattern
       //     const index_t blk_td = laneId % mfma_type.num_threads_blk;
 
       auto NumThreadsBlkConstantOp = b.create<ConstantIndexOp>(loc, num_threads_blk);
-      auto blk_id = b.create<UnsignedDivIOp>(loc, laneId, NumThreadsBlkConstantOp);
-      auto blk_td = b.create<UnsignedRemIOp>(loc, laneId, NumThreadsBlkConstantOp);
+      auto blk_id = b.create<arith::DivUIOp>(loc, laneId, NumThreadsBlkConstantOp);
+      auto blk_td = b.create<arith::RemUIOp>(loc, laneId, NumThreadsBlkConstantOp);
 
       // Original C++ logic.
       //     // load into registers

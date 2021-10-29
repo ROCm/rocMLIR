@@ -9,8 +9,8 @@
 // RUN: | FileCheck %s
 
 func @other_func(%arg0 : f32, %arg1 : memref<?xf32>) {
-  %c0 = constant 0 : index
-  %c1 = constant 1 : index
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
   %block_dim = memref.dim %arg1, %c0 : memref<?xf32>
   gpu.launch blocks(%bx, %by, %bz) in (%grid_x = %c1, %grid_y = %c1, %grid_z = %c1)
              threads(%tx, %ty, %tz) in (%block_x = %block_dim, %block_y = %c1, %block_z = %c1) {
@@ -23,7 +23,7 @@ func @other_func(%arg0 : f32, %arg1 : memref<?xf32>) {
 // CHECK: [1, 1, 1, 1, 1]
 func @main() {
   %arg0 = memref.alloc() : memref<5xf32>
-  %21 = constant 5 : i32
+  %21 = arith.constant 5 : i32
   %22 = memref.cast %arg0 : memref<5xf32> to memref<?xf32>
   %cast = memref.cast %22 : memref<?xf32> to memref<*xf32>
   gpu.host_register %cast : memref<*xf32>

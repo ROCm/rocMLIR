@@ -120,17 +120,15 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
   auto destType = op.dest().getType().cast<MemRefType>();
   auto sourceRank = sourceType.getRank();
   auto destRank = destType.getRank();
-  auto sourceAffineMaps = sourceType.getAffineMaps();
-  auto destAffineMaps = destType.getAffineMaps();
+  auto sourceAffineMap = sourceType.getLayout().getAffineMap();
+  auto destAffineMap = destType.getLayout().getAffineMap();
 
   unsigned expectedSourceCoords = sourceRank;
   unsigned expectedDestCoords = destRank;
 
   // check if memrefs have embedded affine maps.
-  if (sourceAffineMaps.size() != 0)
-    expectedSourceCoords = sourceAffineMaps[0].getNumInputs();
-  if (destAffineMaps.size() != 0)
-    expectedDestCoords = destAffineMaps[0].getNumInputs();
+  expectedSourceCoords = sourceAffineMap.getNumInputs();
+  expectedDestCoords = destAffineMap.getNumInputs();
 
   // check if memrefs have externally defined affine maps.
   auto coordTransformAttrs = op->getAttr("coord_transforms");
