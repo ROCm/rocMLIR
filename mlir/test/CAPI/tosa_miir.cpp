@@ -28,6 +28,7 @@
 #include <string.h>
 
 #include <string>
+#include <vector>
 
 void printToString(MlirStringRef str, void *userData) {
   std::string *strref = static_cast<std::string *>(userData);
@@ -201,7 +202,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   return moduleOp;
 }
 
-static MiirStatus constructAndTraverseIr(MlirContext ctx) {
+static bool constructAndTraverseIr(MlirContext ctx) {
   MlirLocation location1 = mlirLocationUnknownGet(ctx);
   MlirModule moduleOp1 = makeAndDumpMIXR(ctx, location1);
 
@@ -209,23 +210,43 @@ static MiirStatus constructAndTraverseIr(MlirContext ctx) {
   MiirHandle handle = miirCreateHandleWithModule(moduleOp1, arch);
 
   MiirStatus status = miirLowerBin(handle);
-  if (status != MIIR_SUCCESS) {
-    printf("miirLowerBin FAILED!\n");
-    return status;
-  }
+  if (status != MIIR_SUCCESS)
+    return false;
+
+  size_t size = 0;
+  status = miirBufferGet(handle, nullptr, &size);
+  if (status != MIIR_SUCCESS)
+    return false;
+
+  std::vector<char> buffer(size);
+  status = miirBufferGet(handle, buffer.data(), &size);
+  if (status != MIIR_SUCCESS)
+    return false;
+
+  size_t globalSize, localSize;
+  status = miirGetExecutionDims(handle, &globalSize, &localSize);
+  if (status != MIIR_SUCCESS)
+    return false;
+
+  printf("ExecutionDims - globalSize=%lu, localSize=%lu\n", globalSize, localSize);
+
+  if (globalSize == 0)
+    return false;
 
   miirDestroyHandle(handle);
 
   // CHECK: PASSED!
   printf("PASSED!\n");
-  return MIIR_SUCCESS;
+  return true;
 }
 
 int main() {
   MlirContext ctx = mlirContextCreate();
   mlirRegisterAllDialects(ctx);
-  if (constructAndTraverseIr(ctx) != MIIR_SUCCESS)
+  if (!constructAndTraverseIr(ctx)) {
+    printf("FAILED!\n");
     return 1;
+  }
 
   mlirContextDestroy(ctx);
 

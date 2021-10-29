@@ -117,12 +117,12 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
     return nullptr;
   }
 
-  MiirHandle_s *handle = new MiirHandle_s;
-
   const auto &config = conv2dGenerator.getConfig();
   if (failed(MIOpenEnabled(config))) {
     return nullptr;
   }
+
+  MiirHandle_s *handle = new MiirHandle_s;
 
   handle->triple = config.triple;
   handle->chip = config.chip;
@@ -153,18 +153,11 @@ extern "C" MiirHandle miirCreateHandleWithModule(MlirModule module,
   ModuleOp m = unwrap(module);
   MiirHandle_s *handle = new MiirHandle_s(m);
 
-  // Conv2dGenerator conv2dGenerator; //(chip, triple, features);
-
-  // walk module and test conv2d
-  // const auto &config = conv2dGenerator.getConfig();
-  // if (failed(MIOpenEnabled(config))) {
-  //   return nullptr;
-  // }
-
+  // TODO(sjw): check MIOpenEnabled
+  
   handle->triple = triple;
   handle->chip = chip;
   handle->features = features;
-  // handle->perfConfig = config.perfConfig;
 
   // count kernels from module funcs
   handle->kernelCount = 0;
