@@ -218,11 +218,11 @@ def MIOpen_WorkitemIdOp:
 
 // blockwise_copy
 def MIOpen_BlockwiseCopyOp:
-    MIOpen_Op<"blockwise_copy">,
+    MIOpen_Op<"blockwise_copy", [AttrSizedOperandSegments]>,
     Arguments<(ins AnyMemRef:$source,
                    AnyMemRef:$dest,
-                   I32:$sourceCoord0, I32:$sourceCoord1, I32:$sourceCoord2,
-                   I32:$destCoord0, I32:$destCoord1, I32:$destCoord2,
+                   Variadic<I32>:$sourceCoord,
+                   Variadic<I32>:$destCoord,
                    Optional<AnyMemRef>:$buffer)> {
   let summary = "Blockwise GPU data movement";
   let description = [{
@@ -233,7 +233,9 @@ def MIOpen_BlockwiseCopyOp:
     - Register (naive tensor) to LDS (naive tensor).
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
+    $source `[` $sourceCoord `]` `->` $dest `[` $destCoord `]` attr-dict
+      (`via` $buffer^)? `:` type($source) `,` type($sourceCoord) `->`
+      type($dest) `,` type($destCoord) (`via` type($buffer)^)?
   }];
 }
 
@@ -241,7 +243,7 @@ def MIOpen_BlockwiseCopyOp:
 def MIOpen_BlockwiseLoadOp:
     MIOpen_Op<"blockwise_load">,
     Arguments<(ins AnyMemRef:$source,
-                  I32:$sourceCoord0, I32:$sourceCoord1, I32:$sourceCoord2)>,
+                  Variadic<I32>:$sourceCoord)>,
     Results<(outs Variadic<AnyTypeOf<[F32, F16, I16,
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16]>,
@@ -253,20 +255,20 @@ def MIOpen_BlockwiseLoadOp:
     - Global (generic tensor) to register (naive tensor).
   }];
   let assemblyFormat = [{
-    $source `[` $sourceCoord0 `,` $sourceCoord1 `,` $sourceCoord2 `]`
+    $source `[` $sourceCoord `]`
       attr-dict `:` type(operands)  `->` type(results)
   }];
 }
 
 // blockwise_store
 def MIOpen_BlockwiseStoreOp:
-    MIOpen_Op<"blockwise_store">,
+    MIOpen_Op<"blockwise_store", [AttrSizedOperandSegments]>,
     Arguments<(ins Variadic<AnyTypeOf<[F32, F16, I16,
                               VectorOfLengthAndType<[2, 4], [F32]>,
                               VectorOfLengthAndType<[2, 4, 8], [F16]>,
                               VectorOfLengthAndType<[2, 4, 8], [I16]>]>>:$data,
                    AnyMemRef:$dest,
-                   I32:$destCoord0, I32:$destCoord1, I32:$destCoord2)> {
+                   Variadic<I32>:$destCoord)> {
   let summary = "Blockwise GPU data store";
   let description = [{
     The `miopen.blockwise_store` op moves data on GPU. Following movements are
@@ -274,18 +276,18 @@ def MIOpen_BlockwiseStoreOp:
     - Register (naive tensor) to LDS (naive tensor).
   }];
   let assemblyFormat = [{
-    $data `->` $dest `[` $destCoord0 `,` $destCoord1 `,` $destCoord2 `]`
-      attr-dict `:` type($data) `->` type($dest) `,` type($destCoord0)
-      `,` type($destCoord1) `,` type($destCoord2)
+    $data `->` $dest `[` $destCoord `]`
+      attr-dict `:` type($data) `->` type($dest) `,` type($destCoord)
   }];
 }
 
 // threadwise_copy
 def MIOpen_ThreadwiseCopyOp:
-    MIOpen_Op<"threadwise_copy">,
+    MIOpen_Op<"threadwise_copy", [SameVariadicOperandSize]>,
     Arguments<(ins AnyMemRef:$source,
                    AnyMemRef:$dest,
-                   Variadic<I32>:$sourceAndDestCoord)> {
+                   Variadic<I32>:$sourceCoord,
+                   Variadic<I32>:$destCoord)> {
   let summary = "Threadwise GPU data movement";
   let description = [{
     The `miopen.threadwise` op moves data on GPU. Following movements are
@@ -296,8 +298,9 @@ def MIOpen_ThreadwiseCopyOp:
     - Register (naive tensor) to global (generic tensor).
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type($source) `,` type($dest)
-    `,` type($sourceAndDestCoord)
+    $source `[` $sourceCoord `]` `->` $dest `[` $destCoord `]`
+    attr-dict `:` type($source) `,` type($sourceCoord)
+    `->` type($dest) `,` type($destCoord)
   }];
   let verifier = [{ return ::verify(*this); }];
 }
@@ -344,11 +347,12 @@ def MIOpen_ThreadwiseStoreOp:
 
 // threadwise_copy_v2
 def MIOpen_ThreadwiseCopyV2Op:
-    MIOpen_Op<"threadwise_copy_v2">,
+    MIOpen_Op<"threadwise_copy_v2", [AttrSizedOperandSegments]>,
     Arguments<(ins VectorOfRankAndType<[1], [F32, F16]>:$source,
                    AnyMemRef:$dest,
                    I32: $sourceOffset,
-                   Variadic<I32>:$sourceAndDestCoord)> {
+                   Variadic<I32>:$sourceCoord,
+                   Variadic<I32>:$destCoord)> {
   let summary = "Threadwise GPU data movement XDLOPS version";
   let description = [{
     The `miopen.threadwise_v2` op moves data on GPU. Following movements are
@@ -358,8 +362,10 @@ def MIOpen_ThreadwiseCopyV2Op:
     The op is used to store C matrices, stored as vectors, back to global VMEM.
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type($source) `,` type($dest)
-    `,` type($sourceOffset) `,` type($sourceAndDestCoord)
+    $source `[` $sourceOffset `,` $sourceCoord `]`
+    `->` $dest `[` $destCoord `]` attr-dict
+    `:` type($source) `,` type($sourceOffset) `,` type($sourceCoord) `->`
+    type($dest) `,` type($destCoord)
   }];
 }
 
