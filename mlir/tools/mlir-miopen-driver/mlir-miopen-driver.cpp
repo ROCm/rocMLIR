@@ -538,7 +538,7 @@ static mlir::Value allocAndInitializeTensor(OpBuilder &builder, Block *block,
                                             mlir::MemRefType &memRefType,
                                             mlir::Value &memsetMinValue,
                                             mlir::Value &memsetMaxValue,
-                                            mlir::ConstantOp &seedValue) {
+                                            arith::ConstantIntOp &seedValue) {
   auto fiveDimUnknownSizeMemRefType =
       MemRefType::get({-1, -1, -1, -1, -1}, dataType);
 
@@ -1511,7 +1511,7 @@ static void generateTensorInitValues(
     mlir::Value &filterMemsetMinValue, mlir::Value &filterMemsetMaxValue,
     mlir::Value &inputMemsetMinValue, mlir::Value &inputMemsetMaxValue,
     mlir::Value &outputMemsetMinValue, mlir::Value &outputMemsetMaxValue,
-    mlir::ConstantOp &seedConstantIntOp, mlir::miopen::ConvOpType convOpType) {
+    arith::ConstantIntOp &seedConstantIntOp, mlir::miopen::ConvOpType convOpType) {
   auto int16Type = builder.getIntegerType(16);
   auto int32Type = builder.getIntegerType(32);
   unsigned short zero = 0, one = 1;
@@ -1519,21 +1519,21 @@ static void generateTensorInitValues(
   int seed = 1;
   std::tie(min, max, seed) = configRandomTestData();
 
-  mlir::ConstantOp oneConstantIntOp;
+  mlir::arith::ConstantIntOp oneConstantIntOp;
   if (randomSeed.getValue() != "none" && randomSide.getValue() != "both") {
-    oneConstantIntOp = builder.create<ConstantOp>(
-        builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(one));
+    oneConstantIntOp = builder.create<arith::ConstantIntOp>(
+        builder.getUnknownLoc(), one, int16Type);
     block->push_back(oneConstantIntOp);
   }
 
-  auto zeroConstantIntOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(zero));
-  auto minConstantIntOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(min));
-  auto maxConstantIntOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(max));
-  seedConstantIntOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), int32Type, builder.getI32IntegerAttr(seed));
+  auto zeroConstantIntOp = builder.create<arith::ConstantIntOp>(
+      builder.getUnknownLoc(), zero, int16Type);
+  auto minConstantIntOp = builder.create<arith::ConstantIntOp>(
+      builder.getUnknownLoc(), min, int16Type);
+  auto maxConstantIntOp = builder.create<arith::ConstantIntOp>(
+      builder.getUnknownLoc(), max, int16Type);
+  seedConstantIntOp = builder.create<arith::ConstantIntOp>(
+      builder.getUnknownLoc(), seed, int32Type);
 
   block->push_back(zeroConstantIntOp);
   block->push_back(minConstantIntOp);
@@ -1711,7 +1711,7 @@ static LogicalResult populateHostHarnessLogic(
   // Populate initial values.
   mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
   mlir::Value filterMemsetMaxValue, inputMemsetMaxValue, outputMemsetMaxValue;
-  mlir::ConstantOp seedConstantIntOp;
+  arith::ConstantIntOp seedConstantIntOp;
 
   generateTensorInitValues(builder, block, mcpuMemset5DFuncOp,
                            filterMemsetMinValue, filterMemsetMaxValue,
@@ -1905,7 +1905,7 @@ static LogicalResult populateValidationLogic(
   // Populate initial values.
   mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
   mlir::Value filterMemsetMaxValue, inputMemsetMaxValue, outputMemsetMaxValue;
-  mlir::ConstantOp seedConstantIntOp;
+  arith::ConstantIntOp seedConstantIntOp;
 
   generateTensorInitValues(builder, block, mcpuMemset5DFuncOp,
                            filterMemsetMinValue, filterMemsetMaxValue,
@@ -2013,8 +2013,8 @@ static LogicalResult populateValidationLogic(
         builder, block, floatType, mcpuMemset5DFuncOp, outputMemRefType,
         outputMemsetMinValue, outputMemsetMaxValue, seedConstantIntOp);
   } else {
-    auto zeroConstantIntOp = builder.create<ConstantOp>(
-        builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(0));
+    auto zeroConstantIntOp = builder.create<arith::ConstantIntOp>(
+      builder.getUnknownLoc(), 0, int16Type);
     block->push_back(zeroConstantIntOp);
 
     mlir::Value memsetValue = zeroConstantIntOp;
@@ -2210,7 +2210,7 @@ static LogicalResult populateCpuConvolutionLogic(
 
   mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
   mlir::Value filterMemsetMaxValue, inputMemsetMaxValue, outputMemsetMaxValue;
-  mlir::ConstantOp seedConstantIntOp;
+  arith::ConstantIntOp seedConstantIntOp;
 
   generateTensorInitValues(builder, block, mcpuMemset5DFuncOp,
                            filterMemsetMinValue, filterMemsetMaxValue,
