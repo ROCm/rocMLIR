@@ -34,10 +34,10 @@ struct MiirHandle_s {
       return registry;
     };
     static MLIRContext context(getRegistry());
-    static bool once = []() {
+    static std::once_flag once;
+    std::call_once(once, []() {
       context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect>();
-      return true;
-    }();
+    });
     return context;
   }
   MiirHandle_s() {
@@ -61,8 +61,9 @@ struct MiirHandle_s {
 // With this guarantee, we are protected from the possible race
 // condition of one thread doing intialization and another doing
 // lowering.
-bool miirLazyInit() {
-  static const bool once = []() {
+void miirLazyInit() {
+  static std::once_flag once;
+  std::call_once(once, []() {
     llvm::InitializeAllTargets();
     llvm::InitializeAllTargetInfos();
     llvm::InitializeAllTargetMCs();
@@ -75,9 +76,7 @@ bool miirLazyInit() {
     LLVMInitializeAMDGPUTargetMC();
     LLVMInitializeAMDGPUAsmPrinter();
     mlir::initializeLLVMPasses();
-    return true;
-  }();
-  return once;
+  });
 }
 
 LogicalResult MIOpenEnabled(const Conv2dGenerator::Config& conf) {
