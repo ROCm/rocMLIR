@@ -4991,7 +4991,8 @@ static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top,
       gop->template getAttrOfType<StringAttr>("kernel_algorithm");
   auto algorithm_name = algorithmAttr.getValue();
 
-  BwdPaddingKernelStatus status;
+  BwdPaddingKernelStatus status =
+          BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
   if ((strideH > 1 && strideW > 1) && algorithm_name == "backward_data_v4r1") {
 
     status = BwdPaddingKernelStatus::StrideTwoXdlopsNHWC;
