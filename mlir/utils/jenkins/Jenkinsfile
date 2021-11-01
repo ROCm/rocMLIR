@@ -243,7 +243,10 @@ pipeline {
                         stage("Build MIOpen with libMLIRMIOpen") {
                             when { anyOf {
                                     equals expected: true, actual: params.nightly;
-                                    equals expected: true, actual: params.weekly;
+                                    allOf {
+                                        equals expected: true, actual: params.weekly;
+                                        equals expected: true, actual: params.staticLib;
+                                    }
                             }}
                             steps {
                                 dir('MIOpen') {
@@ -271,7 +274,10 @@ pipeline {
                         stage("Stash MIOpen with libMLIRMIOpen") {
                             when { anyOf {
                                     equals expected: true, actual: params.nightly;
-                                    equals expected: true, actual: params.weekly;
+                                    allOf {
+                                        equals expected: true, actual: params.weekly;
+                                        equals expected: true, actual: params.staticLib;
+                                    }
                             }}
                             steps {
                                 stash name:"MIOpen-MLIR-kernels",\
@@ -284,6 +290,7 @@ pipeline {
                         stage("Test MIOpen config with tuning") {
                             when {
                                     equals expected: true, actual: params.weekly;
+                                    equals expected: true, actual: params.staticLib;
                             }
                             environment {
                                 // Make libMIOpen.so accessible to the test driver
