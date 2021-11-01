@@ -35,7 +35,7 @@ add_subdirectory(lib/CAPI)
 add_subdirectory(test)
 add_subdirectory(tools)
 
-if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
+if ((NOT LLVM_INSTALL_TOOLCHAIN_ONLY) AND MLIR_EXPORT_ALL)
   install(DIRECTORY include/mlir include/mlir-c
     DESTINATION include
     COMPONENT mlir-miopen-headers
