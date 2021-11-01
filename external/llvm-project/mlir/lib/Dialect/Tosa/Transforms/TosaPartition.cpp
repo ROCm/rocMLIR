@@ -59,12 +59,8 @@ struct OutliningCandidate {
   OutliningCandidate(Operation *_convOp, ArrayRef<Operation *> &_secondOps,
                      ArrayRef<Operation *> &_frontOps, ArrayRef<Value> &_params,
                      ArrayRef<Value> &_returnVals, StringRef _partFnName);
-  ~OutliningCandidate() {
-    for (auto &op : llvm::make_early_inc_range(llvm::reverse(*pseudoBlock))) {
-      assert(op.use_empty() && "expected 'op' to have no uses");
-      op.erase();
-    }
-  }
+
+  unsigned addOp(Operation *op, unsigned orderIt);
 
   Operation *convOp;
   SmallVector<Operation *> secondOps;
@@ -75,18 +71,30 @@ struct OutliningCandidate {
   llvm::hash_code hash;
   FuncOp function;
 
-  Block *pseudoBlock;
-  BlockEquivalenceData *equivData;
+  /// Return the order index for the given value that is within the block of
+  /// this data.
+  unsigned getOrderOf(Value value) const;
 
-//   /// Return the order index for the given value that is within the block of
-//   /// this data.
-//   unsigned getOrderOf(Value value) const;
-//
-//   /// A map of result producing operations to their relative orders within this
-//   /// block. The order of an operation is the number of defined values that are
-//   /// produced within the block before this operation.
-//   DenseMap<Operation *, unsigned> opOrderIndex;
+  /// A map of result producing operations to their relative orders within this
+  /// block. The order of an operation is the number of defined values that are
+  /// produced within the block before this operation.
+  DenseMap<Operation *, unsigned> opOrderIndex;
 };
+
+unsigned OutliningCandidate::addOp(Operation *op, unsigned orderIt) {
+  if (unsigned numResults = op->getNumResults()) {
+    opOrderIndex.try_emplace(op, orderIt);
+    orderIt += numResults;
+  }
+
+  auto opHash = OperationEquivalence::computeHash(
+      op, OperationEquivalence::ignoreHashValue,
+      OperationEquivalence::ignoreHashValue,
+      OperationEquivalence::IgnoreLocations);
+  hash = llvm::hash_combine(hash, opHash);
+
+  return orderIt;
+}
 
 OutliningCandidate::OutliningCandidate(Operation *convOp_,
                                        ArrayRef<Operation *> &secondOps_,
@@ -94,8 +102,7 @@ OutliningCandidate::OutliningCandidate(Operation *convOp_,
                                        ArrayRef<Value> &params_,
                                        ArrayRef<Value> &returnVals_,
                                        StringRef partFnName_)
-    : convOp(convOp_), partFnName(partFnName_),
-      function(nullptr) {
+    : convOp(convOp_), partFnName(partFnName_), hash(0), function(nullptr) {
   // We'll need to grab the cloned ops to avoid use-after-free.
   for (auto *op : secondOps_) {
     secondOps.push_back(op);
@@ -110,52 +117,103 @@ OutliningCandidate::OutliningCandidate(Operation *convOp_,
     returnVals.push_back(val);
   }
 
-  BlockAndValueMapping bvm;
-  pseudoBlock = new Block();
-  for (auto *op : llvm::reverse(frontOps)) {
-    pseudoBlock->push_back(op->clone(bvm));
-  }
-  pseudoBlock->push_back(convOp->clone(bvm));
-  for (auto *op : secondOps) {
-    pseudoBlock->push_back(op->clone(bvm));
-  }
-  for (auto val : params) {
-    pseudoBlock->addArgument(val.getType());
-  }
-  equivData = new BlockEquivalenceData(pseudoBlock);
-
-  hash = OperationEquivalence::computeHash(
-      convOp, OperationEquivalence::ignoreHashValue,
-      OperationEquivalence::ignoreHashValue,
-      OperationEquivalence::IgnoreLocations);
-
-  for (auto *op : secondOps) {
-    auto opHash = OperationEquivalence::computeHash(
-        op, OperationEquivalence::ignoreHashValue,
-        OperationEquivalence::ignoreHashValue,
-        OperationEquivalence::IgnoreLocations);
-    hash = llvm::hash_combine(hash, opHash);
-  }
+  unsigned orderIt = params.size();
   for (auto *op : frontOps) {
-    auto opHash = OperationEquivalence::computeHash(
-        op, OperationEquivalence::ignoreHashValue,
-        OperationEquivalence::ignoreHashValue,
-        OperationEquivalence::IgnoreLocations);
-    hash = llvm::hash_combine(hash, opHash);
+    orderIt = addOp(op, orderIt);
   }
+  orderIt = addOp(convOp, orderIt);
+  for (auto *op : secondOps) {
+    orderIt = addOp(op, orderIt);
+  }
+}
+
+unsigned OutliningCandidate::getOrderOf(Value value) const {
+  // Otherwise, the result order is offset from the parent op's order.
+  auto *definingOp = value.getDefiningOp();
+  if (definingOp) {
+    auto opOrderIt = opOrderIndex.find(definingOp);
+    assert(opOrderIt != opOrderIndex.end() && "expected op to have an order");
+    return opOrderIt->second + value.cast<OpResult>().getResultNumber();
+  }
+
+  // Arguments use the argument number as the order index.
+  if (BlockArgument arg = value.dyn_cast<BlockArgument>())
+    return arg.getArgNumber();
+  for (unsigned i = 0;  i < params.size();  i++) {
+    if (params[i] == value)
+      return i;
+  }
+  llvm::errs() << "should have been found in params: ";
+  llvm::errs() << value << "\n";
+  return 0;
+}
+
+bool opsMatch(Operation *lhs, Operation *rhs,
+              OutliningCandidate &one, OutliningCandidate &two) {
+  // Check that the operations are equivalent.
+  if (!OperationEquivalence::isEquivalentTo(
+          lhs, rhs, OperationEquivalence::ignoreValueEquivalence,
+          OperationEquivalence::ignoreValueEquivalence,
+          OperationEquivalence::Flags::IgnoreLocations))
+    return false;
+
+  // Compare the operands of the two operations. If the operand is within
+  // the block, it must refer to the same operation.
+  auto lhsOperands = lhs->getOperands(), rhsOperands = rhs->getOperands();
+  if (lhs->getNumOperands() != rhs->getNumOperands()) {
+    return false;
+  }
+  for (int operand : llvm::seq<int>(0, lhs->getNumOperands())) {
+    Value lhsOperand = lhsOperands[operand];
+    Value rhsOperand = rhsOperands[operand];
+    if (lhsOperand == rhsOperand)
+      continue;
+    // Check that the types of the operands match.
+    if (lhsOperand.getType() != rhsOperand.getType())
+        return false;
+
+    // Otherwise, these operands must have the same logical order within the
+    // parent block.
+    if (one.getOrderOf(lhsOperand) != two.getOrderOf(rhsOperand)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 bool isFunctionallyEquivalentTo(Operation *lhs, Operation *rhs);
 
 bool outliningCandidatesEquivalent(OutliningCandidate &one,
                                    OutliningCandidate &two) {
-  if (one.pseudoBlock && two.pseudoBlock) {
-    llvm::errs() << "both have blocks\n";
-    if (one.equivData->hash == two.equivData->hash) {
-      llvm::errs() << "  and the hashes match\n";
+#if 1
+  if (one.hash != two.hash) {
+    return false;
+  }
+
+  if (one.params.size() != two.params.size()) {
+    return false;
+  }
+  for (unsigned i = 0; i < one.params.size(); i++) {
+    if (one.params[i].getType() != two.params[i].getType()) {
+      return false;
     }
   }
 
+  for (auto ops : llvm::zip(one.frontOps, two.frontOps)) {
+    if (!opsMatch(std::get<0>(ops), std::get<1>(ops), one, two)) {
+      return false;
+    }
+  }
+  if (!opsMatch(one.convOp, two.convOp, one, two)) {
+    return false;
+  }
+  for (auto ops : llvm::zip(one.secondOps, two.secondOps)) {
+    if (!opsMatch(std::get<0>(ops), std::get<1>(ops), one, two)) {
+      return false;
+    }
+  }
+#else
   if (one.hash != two.hash) {
     return false;
   }
@@ -174,6 +232,7 @@ bool outliningCandidatesEquivalent(OutliningCandidate &one,
       return false;
     }
   }
+#endif  /* 1 */
   return true;
 }
 
