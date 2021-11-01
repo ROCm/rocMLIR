@@ -17,6 +17,7 @@ add_mlir_conversion_library(MLIRMIGraphXToTosa
   MLIRPass
   MLIRTosa
   MLIRTosaTransforms
+  MLIRTransforms
   MLIRSupport
   MLIRMIGraphX
   )
