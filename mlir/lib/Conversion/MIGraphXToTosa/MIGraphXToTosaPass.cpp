@@ -52,7 +52,7 @@ public:
       signalPassFailure();
     }
 
-    OpPassManager cleanPM("builtin.func");
+    OpPassManager cleanPM("builtin.module");
     cleanPM.addPass(createCSEPass());
     (void)runPipeline(cleanPM, func);
   }
