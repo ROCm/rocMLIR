@@ -17,7 +17,7 @@ static cl::opt<std::string> args(
 static cl::opt<std::string>
     option("option", cl::desc("Code gen options: source/header/cflags"),
            cl::value_desc("Igemm convolution option string"),
-           cl::init("source"));
+           cl::init("tuningparams"));
 
 int main(int argc, char **argv) {
   // Parse pass names in main to ensure static initialization completed.
@@ -29,24 +29,7 @@ int main(int argc, char **argv) {
 
   MiirHandle handle = miirCreateHandle(args.getValue().c_str());
 
-  // Cpp backend source/header/cflags generation
-  if ((option.getValue() == "source") || (option.getValue() == "header") ||
-      (option.getValue() == "cflags")) {
-    status = miirLowerCpp(handle);
-    if (status == MIIR_SUCCESS) {
-      if (option.getValue() == "source") {
-        std::string source = miirGenIgemmSource(handle);
-        std::cout << source << std::endl;
-      } else if (option.getValue() == "header") {
-        std::string header = miirGenIgemmHeader(handle);
-        std::cout << header << std::endl;
-      } else if (option.getValue() == "cflags") {
-        std::string cflags = miirGenIgemmCflags(handle);
-        std::cout << cflags << std::endl;
-      }
-    }
-    // Bin backend binary generation
-  } else if (option.getValue() == "tuningparams") {
+  if (option.getValue() == "tuningparams") {
     status = miirLowerTuningParams(handle);
     if (status != MIIR_SUCCESS) {
       return status;

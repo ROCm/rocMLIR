@@ -53,29 +53,6 @@ extern "C" MiirHandle miirCreateHandle(const char *options);
  */
 extern "C" int miirGetKernelCount(MiirHandle handle);
 
-/*! @brief Lower the MLIR module to c++ code
- *  @param handle   MLIR handle
- */
-extern "C" MiirStatus miirLowerCpp(MiirHandle handle);
-
-/*! @brief Populate Conv2d implicitgemm host code for MIOpen
- *  @param handle   MLIR handle
- *  @return         Source string
- */
-extern "C" const char *miirGenIgemmSource(MiirHandle handle);
-
-/*! @brief Populate Conv2d implicitgemm header code for MIOpen
- *  @param handle   MLIR handle
- *  @return         Header string
- */
-extern "C" const char *miirGenIgemmHeader(MiirHandle handle);
-
-/*! @brief Populate Conv2d implicitgemm compilation flags for MIOpen
- *  @param handle   MLIR handle
- *  @return         Compilation flags string
- */
-extern "C" const char *miirGenIgemmCflags(MiirHandle handle);
-
 /*! @brief Lower the MLIR module to be able to obtain tuning parameters
  *  @param handle MLIR handle
  */
