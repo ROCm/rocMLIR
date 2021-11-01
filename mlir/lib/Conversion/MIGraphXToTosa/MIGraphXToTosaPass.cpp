@@ -51,6 +51,10 @@ public:
     if (failed(applyFullConversion(func, target, std::move(patterns)))) {
       signalPassFailure();
     }
+
+    OpPassManager cleanPM("builtin.func");
+    cleanPM.addPass(createCSEPass());
+    (void)runPipeline(cleanPM, func);
   }
 };
 
@@ -61,5 +65,4 @@ std::unique_ptr<Pass> mlir::migraphx::createMIGraphXToTosa() {
 }
 void mlir::migraphx::addMIGraphXToTosaPasses(OpPassManager &pm) {
   pm.addNestedPass<FuncOp>(createMIGraphXToTosa());
-  pm.addPass(createCSEPass());
 }
