@@ -11030,7 +11030,16 @@ struct XdlopsGemmV2RewritePattern
       //       p_c_thread);
       // }
 
-      auto outerLoop = b.create<AffineForOp>(loc, 0, K, 1, op.vectorCs());
+      // FIXME: This modified KForOuterLoop shall be removed once we can be
+      // certain KPACK logic can be applied everywhere for f16 data type.
+      int64_t KForOuterLoop;
+      if (KPack > 1) {
+        KForOuterLoop = K;
+      } else {
+        KForOuterLoop = K / k_base;
+      }
+      auto outerLoop =
+          b.create<AffineForOp>(loc, 0, KForOuterLoop, 1, op.vectorCs());
       auto outerLoopb = OpBuilder::atBlockBegin(outerLoop.getBody());
       auto outerLoopiv = outerLoop.getInductionVar();
 
