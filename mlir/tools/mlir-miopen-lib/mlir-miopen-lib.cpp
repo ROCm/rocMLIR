@@ -213,55 +213,6 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
   return MIIR_INVALID_MODULE;
 }
 
-extern "C" MiirStatus miirLowerCpp(MiirHandle mlirHandle) {
-  const std::lock_guard<std::mutex> lock(mutex);
-  MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
-  if (handle == nullptr)
-    return MIIR_INVALID_PARAM;
-
-  ModuleOp module = handle->getModule();
-
-  PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
-  pm.addPass(
-      mlir::miopen::createAffixTuningParametersPass(0, 0, handle->perfConfig));
-  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
-  LogicalResult result = pm.run(module);
-  return (result.succeeded()) ? MIIR_SUCCESS : MIIR_BUILD_FAILURE;
-}
-
-extern "C" const char *miirGenIgemmSource(MiirHandle mlirHandle) {
-  const std::lock_guard<std::mutex> lock(mutex);
-  MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
-  if (handle == nullptr)
-    return "";
-
-  handle->genTxt = "";
-  // TBD: FIXME.
-  return (handle->genTxt).c_str();
-}
-
-extern "C" const char *miirGenIgemmHeader(MiirHandle mlirHandle) {
-  const std::lock_guard<std::mutex> lock(mutex);
-  MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
-  if (handle == nullptr)
-    return "";
-
-  handle->genTxt = "";
-  // TBD: FIXME.
-  return (handle->genTxt).c_str();
-}
-
-extern "C" const char *miirGenIgemmCflags(MiirHandle mlirHandle) {
-  const std::lock_guard<std::mutex> lock(mutex);
-  MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
-  if (handle == nullptr)
-    return "";
-
-  handle->genTxt = "";
-  // TBD: FIXME.
-  return (handle->genTxt).c_str();
-}
-
 extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
   const std::lock_guard<std::mutex> lock(mutex);
   miirLazyInit();
