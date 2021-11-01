@@ -1,4 +1,4 @@
-// RUN: miopen-opt t --migraphx-to-tosa %s -verify-diagnostics -o -| FileCheck %s
+// RUN: miopen-opt --migraphx-to-tosa %s -verify-diagnostics -o -| FileCheck %s
 
 module  {
   // CHECK-LABEL: func @ConvBias
