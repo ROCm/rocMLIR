@@ -508,10 +508,8 @@ void mlir::registerGpuSerializeToHsacoPass() {
         LLVMInitializeAMDGPUTargetInfo();
         LLVMInitializeAMDGPUTargetMC();
 
-        // Known-bad values for constructor arguments since the instance of the
-        // pass that's registered here will never be used directly
-        return std::make_unique<SerializeToHsacoPass>(
-            "", "[GARBAGE]", "+veryfake,-cantsurface", -1);
+        return std::make_unique<SerializeToHsacoPass>("amdgcn-amd-amdhsa", "",
+                                                      "", 2);
       });
 }
 
