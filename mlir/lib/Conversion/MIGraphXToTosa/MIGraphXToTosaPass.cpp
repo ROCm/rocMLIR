@@ -60,4 +60,5 @@ std::unique_ptr<Pass> mlir::migraphx::createMIGraphXToTosa() {
 }
 void mlir::migraphx::addMIGraphXToTosaPasses(OpPassManager &pm) {
   pm.addNestedPass<FuncOp>(createMIGraphXToTosa());
+  pm.addNestedPass<FuncOp>(createCSEPass());
 }

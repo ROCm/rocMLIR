@@ -4,7 +4,6 @@ add_public_tablegen_target(MLIRMIGraphXToTosaConversionIncGen)
 
 add_mlir_conversion_library(MLIRMIGraphXToTosa
   MIGraphXToTosaPass.cpp
-  #MIGraphXToTosa.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Tosa
