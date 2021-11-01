@@ -22,9 +22,6 @@
 namespace mlir {
 namespace migraphx {
 
-std::unique_ptr<Pass> createMIGraphXToTosa();
-void addMIGraphXToTosaPasses(OpPassManager &pm);
-
 /// Populates conversion passes from MIGraphX dialect to TOSA dialect.
 std::unique_ptr<Pass> createMIGraphXToTosa();
 void addMIGraphXToTosaPasses(OpPassManager &pm);
@@ -32,6 +29,4 @@ void addMIGraphXToTosaPasses(OpPassManager &pm);
 } // namespace migraphx
 } // namespace mlir
 
-#else
-  #error
 #endif // MLIR_CONVERSION_MIGRAPHXTOTOSA_H

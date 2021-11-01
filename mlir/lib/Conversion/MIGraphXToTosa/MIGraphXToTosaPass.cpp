@@ -51,10 +51,11 @@ public:
     if (failed(applyFullConversion(func, target, std::move(patterns)))) {
       signalPassFailure();
     }
-
-    OpPassManager cleanPM("builtin.module");
+/*
+    OpPassManager cleanPM("builtin.func");
     cleanPM.addPass(createCSEPass());
     (void)runPipeline(cleanPM, func);
+    */
   }
 };
 
