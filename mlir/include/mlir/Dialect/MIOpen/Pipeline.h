@@ -26,14 +26,14 @@ struct PipelineConfig {
   bool tuningTest = false;
   bool runBackend = false;
   struct PerfConfig {
-    const std::string &config = "";
+    std::string config;
     int64_t gridSize = 0;
     int64_t blockSize = 0;
   } perf;
   struct TargetConfig {
-    const std::string &triple = "";
-    const std::string &chip = "";
-    const std::string &features = "";
+    std::string triple;
+    std::string chip;
+    std::string features;
   } target;
 };
 
