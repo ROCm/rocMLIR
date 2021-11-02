@@ -13,8 +13,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <mlir-c/IR.h>
-
 #define MIIR_VERSION_FLAT 5
 
 enum MiirStatus {
@@ -48,14 +46,6 @@ struct StridedMemRef5D {
  *  @return        MLIR handle
  */
 extern "C" MiirHandle miirCreateHandle(const char *options);
-
-/*! @brief Create the MLIR handle with an MLIR module
- *  @param module  An MLIR module built with the MLIR C-API
- *  @param arch    The architectural designation
- *  @return        MLIR handle
- */
-extern "C" MiirHandle miirCreateHandleWithModule(MlirModule module,
-                                                 const char *arch);
 
 /*! @brief Return the number of kernels required for operation
  *  @param handle  MLIR handle

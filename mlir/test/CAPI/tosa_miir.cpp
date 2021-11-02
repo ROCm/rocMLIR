@@ -19,7 +19,10 @@
 #include "mlir-c/IntegerSet.h"
 #include "mlir-c/Registration.h"
 
-#include "../../tools/mlir-miopen-lib/Miir.h"
+#include "mlir/CAPI/IR.h"
+#include "mlir/Dialect/MIOpen/Pipeline.h"
+#include "mlir/ExecutionEngine/OptUtils.h"
+#include "llvm/Support/TargetSelect.h"
 
 #include <assert.h>
 #include <math.h>
@@ -206,38 +209,38 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   MlirLocation location1 = mlirLocationUnknownGet(ctx);
   MlirModule moduleOp1 = makeAndDumpMIXR(ctx, location1);
 
-  const char *arch = "amdgcn-amd-amdhsa:gfx908";
-  MiirHandle handle = miirCreateHandleWithModule(moduleOp1, arch);
+  auto module = unwrap(moduleOp1);
 
-  MiirStatus status = miirLowerBin(handle);
-  if (status != MIIR_SUCCESS)
-    return false;
+  llvm::InitializeAllAsmParsers();
+  llvm::InitializeAllAsmPrinters();
 
-  size_t size = 0;
-  status = miirBufferGet(handle, nullptr, &size);
-  if (status != MIIR_SUCCESS)
-    return false;
+  // Initialize LLVM AMDGPU backend.
+  LLVMInitializeAMDGPUTarget();
+  LLVMInitializeAMDGPUTargetInfo();
+  LLVMInitializeAMDGPUTargetMC();
+  LLVMInitializeAMDGPUAsmPrinter();
+  mlir::initializeLLVMPasses();
 
-  std::vector<char> buffer(size);
-  status = miirBufferGet(handle, buffer.data(), &size);
-  if (status != MIIR_SUCCESS)
-    return false;
+  const char *triple = "amdgcn-amd-amdhsa";
+  const char *chip = "gfx908";
+  const char *features = "";
 
-  size_t globalSize, localSize;
-  status = miirGetExecutionDims(handle, &globalSize, &localSize);
-  if (status != MIIR_SUCCESS)
-    return false;
+  mlir::PassManager pm(module.getContext(),
+                       mlir::PassManager::Nesting::Implicit);
 
-  printf("ExecutionDims - globalSize=%lu, localSize=%lu\n", globalSize, localSize);
+  mlir::miopen::addPipeline(
+      pm, mlir::miopen::KernelPipeline<true>(triple, chip, features));
 
-  if (globalSize == 0)
-    return false;
+  auto status = pm.run(module);
 
-  miirDestroyHandle(handle);
+  mlirModuleDestroy(moduleOp1);
 
-  // CHECK: PASSED!
-  printf("PASSED!\n");
-  return true;
+  if (status.succeeded()) {
+    // CHECK: PASSED!
+    printf("PASSED!\n");
+    return true;
+  }
+  return false;
 }
 
 int main() {

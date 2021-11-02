@@ -1,18 +1,12 @@
 #include "Miir.h"
-#include "mlir/CAPI/IR.h"
-#include "mlir/Conversion/MIOpenPasses.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
-#include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIOpen/Pipeline.h"
 #include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/InitAllPasses.h"
 #include "mlir/Support/LogicalResult.h"
 
-#include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/ExecutionEngine/ROCm/BackendUitls.h"
 #include "mlir/InitAllDialects.h"
@@ -33,7 +27,6 @@ struct MiirHandle_s {
     OpBuilder builder(&getContext());
     module = ModuleOp::create(builder.getUnknownLoc());
   }
-  MiirHandle_s(ModuleOp _module) : module(_module) { tosa = true; }
   mlir::ModuleOp getModule() { return module.get(); }
   mlir::OwningModuleRef module;
   std::string triple;
@@ -42,7 +35,6 @@ struct MiirHandle_s {
   std::string perfConfig;
   std::string genTxt;
   int kernelCount = 0;
-  bool tosa = false;
 
 private:
   MLIRContext &getContext() {
@@ -138,37 +130,6 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   return handle;
 }
 
-extern "C" MiirHandle miirCreateHandleWithModule(MlirModule module,
-                                                 const char *arch) {
-  const std::lock_guard<std::mutex> lock(mutex);
-
-  std::string triple;
-  std::string chip;
-  std::string features;
-  IsaNameParser parser(arch);
-  if (failed(parser.parseIsaName(chip, triple, features))) {
-    return nullptr;
-  }
-
-  ModuleOp m = unwrap(module);
-  MiirHandle_s *handle = new MiirHandle_s(m);
-
-  // TODO(sjw): check MIOpenEnabled
-  
-  handle->triple = triple;
-  handle->chip = chip;
-  handle->features = features;
-
-  // count kernels from module funcs
-  handle->kernelCount = 0;
-  m.walk([&](FuncOp func) {
-    if (func->hasAttr("kernel"))
-      handle->kernelCount++;
-  });
-
-  return handle;
-}
-
 extern "C" int miirGetKernelCount(MiirHandle mlirHandle) {
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
@@ -261,12 +222,7 @@ extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
 
-  // Passes for lowering MIOpen dialect.
-  pm.addPass(
-      mlir::miopen::createAffixTuningParametersPass(0, 0, handle->perfConfig));
-  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
-  pm.addPass(mlir::miopen::createAffineTransformPass());
-  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep2Pass());
+  miopen::addPipeline(pm, miopen::TuningPipeline(handle->perfConfig));
 
   auto status = pm.run(module);
 
@@ -285,46 +241,9 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
 
-  BackendUtils utils(handle->triple, handle->chip, handle->features);
-
-  // passes for TOSA
-  if (handle->tosa) {
-    pm.addPass(mlir::tosa::createTosaToMIOpenPass());
-    pm.addPass(mlir::tosa::createTosaToLinalgOnTensors());
-    pm.addPass(mlir::createLinalgElementwiseOpFusionPass());
-    pm.addPass(mlir::createLinalgBufferizePass());
-    pm.addPass(mlir::createFuncBufferizePass());
-    pm.addPass(mlir::createBufferResultsToOutParamsPass());
-    pm.addPass(mlir::createFinalizingBufferizePass());
-    pm.addPass(mlir::miopen::createMIOpenCopyOptPass());
-  }
-
-  // Passes for lowering MIOpen dialect.
-  pm.addPass(
-      mlir::miopen::createAffixTuningParametersPass(0, 0, handle->perfConfig));
-  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
-  pm.addPass(mlir::miopen::createAffineTransformPass());
-  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep2Pass());
-  if (handle->tosa) {
-    pm.addPass(mlir::miopen::createMIOpenLinalgAlignPass());
-    pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
-  }
-  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
-  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
-  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep5Pass());
-  pm.addPass(mlir::createLowerMIOpenOpsToGPUPass());
-
-  // Passes for lowering linalg dialect.
-  pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
-  pm.addPass(mlir::createLowerAffinePass());
-  pm.addPass(mlir::createLowerToCFGPass());
-
-  // Passes for lowering ROCDL dialect
-  pm.addPass(createGpuKernelOutliningPass());
-  pm.addPass(createStripDebugInfoPass());
-  pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
-  pm.addPass(createGpuSerializeToHsacoPass(
-      utils.getTriple(), utils.getChip(), utils.getFeatures(), /*optLevel=*/3));
+  miopen::addPipeline(pm, miopen::KernelPipeline<>(handle->triple, handle->chip,
+                                                   handle->features,
+                                                   handle->perfConfig));
 
   auto status = pm.run(module);
 

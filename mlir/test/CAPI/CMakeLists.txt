@@ -28,5 +28,7 @@ target_link_libraries(mlir-tosa-miir-test
   PRIVATE
   MLIRCAPIIR
   MLIRCAPIRegistration
-  MLIRMIOpenThin
+  MLIRMIOpenPipeline
+  LLVMAMDGPUAsmParser
+  LLVMX86AsmParser
   )
