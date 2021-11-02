@@ -131,7 +131,7 @@ unsigned OutliningCandidate::getOrderOf(Value value) const {
   // Arguments use the argument number as the order index.
   if (BlockArgument arg = value.dyn_cast<BlockArgument>())
     return arg.getArgNumber();
-  for (unsigned i = 0;  i < params.size();  i++) {
+  for (unsigned i = 0; i < params.size(); i++) {
     if (params[i] == value)
       return i;
   }
@@ -148,8 +148,8 @@ unsigned OutliningCandidate::getOrderOf(Value value) const {
   return 0;
 }
 
-bool opsMatch(Operation *lhs, Operation *rhs,
-              OutliningCandidate &one, OutliningCandidate &two) {
+bool opsMatch(Operation *lhs, Operation *rhs, OutliningCandidate &one,
+              OutliningCandidate &two) {
   // Check that the operations are equivalent.
   if (!OperationEquivalence::isEquivalentTo(
           lhs, rhs, OperationEquivalence::ignoreValueEquivalence,
@@ -170,7 +170,7 @@ bool opsMatch(Operation *lhs, Operation *rhs,
       continue;
     // Check that the types of the operands match.
     if (lhsOperand.getType() != rhsOperand.getType())
-        return false;
+      return false;
 
     // Otherwise, these operands must have the same logical order within the
     // parent block.
@@ -182,11 +182,8 @@ bool opsMatch(Operation *lhs, Operation *rhs,
   return true;
 }
 
-bool isFunctionallyEquivalentTo(Operation *lhs, Operation *rhs);
-
 bool outliningCandidatesEquivalent(OutliningCandidate &one,
                                    OutliningCandidate &two) {
-#if 1
   if (one.hash != two.hash) {
     return false;
   }
@@ -213,26 +210,6 @@ bool outliningCandidatesEquivalent(OutliningCandidate &one,
       return false;
     }
   }
-#else
-  if (one.hash != two.hash) {
-    return false;
-  }
-  if (!isFunctionallyEquivalentTo(one.convOp, two.convOp)) {
-    return false;
-  }
-  for (auto itOperation : llvm::zip(one.secondOps, two.secondOps)) {
-    if (!isFunctionallyEquivalentTo(std::get<0>(itOperation),
-                                    std::get<1>(itOperation))) {
-      return false;
-    }
-  }
-  for (auto itOperation : llvm::zip(one.frontOps, two.frontOps)) {
-    if (!isFunctionallyEquivalentTo(std::get<0>(itOperation),
-                                    std::get<1>(itOperation))) {
-      return false;
-    }
-  }
-#endif  /* 1 */
   return true;
 }
 
@@ -265,8 +242,8 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
   OutliningCandidate newCandidate(convOp, secondOps, frontOps, params,
                                   returnVals, partFnName);
 
-  if (OutliningCandidate *found = findOutliningCandidate(newCandidate,
-                                                         candidates)) {
+  if (OutliningCandidate *found =
+          findOutliningCandidate(newCandidate, candidates)) {
     // Matches one we already have.
     outlinedFunc = found->function;
   } else {
@@ -281,7 +258,7 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
     MLIRContext *ctx = convOp->getContext();
     ValueRange results(returnVals);
     FunctionType type =
-      FunctionType::get(ctx, values.getTypes(), results.getTypes());
+        FunctionType::get(ctx, values.getTypes(), results.getTypes());
     SmallVector<NamedAttribute, 1> kernelAttrs{
         b.getNamedAttr("kernel", b.getUnitAttr()),
     };
@@ -300,12 +277,14 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
     newCandidate.frontOps.clear();
     for (auto *op : llvm::reverse(frontOps)) {
       newCandidate.frontOps.push_back(b.clone(*op, bvm));
-      newCandidate.opOrderIndex[newCandidate.frontOps.back()] = newCandidate.opOrderIndex[op];
+      newCandidate.opOrderIndex[newCandidate.frontOps.back()] =
+          newCandidate.opOrderIndex[op];
     }
     std::reverse(newCandidate.frontOps.begin(), newCandidate.frontOps.end());
 
     newCandidate.convOp = b.clone(*convOp, bvm);
-    newCandidate.opOrderIndex[newCandidate.convOp] = newCandidate.opOrderIndex[convOp];
+    newCandidate.opOrderIndex[newCandidate.convOp] =
+        newCandidate.opOrderIndex[convOp];
 
     newCandidate.secondOps.clear();
     for (auto *op : secondOps) {
@@ -313,7 +292,8 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
       assert(llvm::all_of(op->getOperands(),
                           [&](Value v) { return bvm.lookupOrNull(v); }));
       newCandidate.secondOps.push_back(b.clone(*op, bvm));
-      newCandidate.opOrderIndex[newCandidate.secondOps.back()] = newCandidate.opOrderIndex[op];
+      newCandidate.opOrderIndex[newCandidate.secondOps.back()] =
+          newCandidate.opOrderIndex[op];
     }
 
     // Make ReturnOp from secondOps' results.
@@ -352,116 +332,6 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
   }
 }
 
-// Can't just use an equality test on attributes, because the sym_name
-// attribute will always be different.  Here we get NamedAttrLists,
-// which are implicitly sorted, and walk down them in parallel, ignoring
-// sym_name.  If they're equivalent, then all the attributes will pair
-// up.
-bool areAttributesEffectivelyEqual(Operation *lhs, Operation *rhs) {
-  NamedAttrList lhsAttrs(lhs->getAttrs());
-  NamedAttrList rhsAttrs(rhs->getAttrs());
-
-  const auto *lhsIterator = lhsAttrs.begin();
-  const auto *rhsIterator = rhsAttrs.begin();
-
-  while (lhsIterator != lhsAttrs.end() && rhsIterator != rhsAttrs.end()) {
-    NamedAttribute lhsAttr = *lhsIterator;
-    NamedAttribute rhsAttr = *rhsIterator;
-
-    // Skip names, which always differ.
-    if (lhsAttr.first == "sym_name")
-      lhsAttr = *(++lhsIterator);
-    if (rhsAttr.first == "sym_name")
-      rhsAttr = *(++rhsIterator);
-
-    if (lhsAttr != rhsAttr)
-      return false;
-
-    ++lhsIterator;
-    ++rhsIterator;
-  }
-
-  return (lhsIterator == lhsAttrs.end() && rhsIterator == rhsAttrs.end());
-}
-
-// OperationEquivalence::isEquivalentTo() doesn't do what I want because
-// the attributes it compares also include the function names, which will
-// always be different.  Another approach would be to temporarily modify
-// the functions to remove the names (and anything else unimportant).
-bool isFunctionallyEquivalentTo(Operation *lhs, Operation *rhs) {
-#if 0
-  return OperationEquivalence::isEquivalentTo(lhs, rhs,
-            OperationEquivalence::ignoreValueEquivalence,
-            OperationEquivalence::ignoreValueEquivalence,
-            OperationEquivalence::Flags::IgnoreLocations);
-#else
-  if (lhs == rhs)
-    return true;
-
-  // Compare the operation name.
-  if (lhs->getName() != rhs->getName())
-    return false;
-  // Check operand counts.
-  if (lhs->getNumOperands() != rhs->getNumOperands())
-    return false;
-  SmallVector<Type> lhsOperandTypes(lhs->getOperandTypes().begin(),
-                                    lhs->getOperandTypes().end());
-  SmallVector<Type> rhsOperandTypes(rhs->getOperandTypes().begin(),
-                                    rhs->getOperandTypes().end());
-  if (lhsOperandTypes.size() != rhsOperandTypes.size())
-    return false;
-  for (auto it : llvm::zip(lhsOperandTypes, rhsOperandTypes)) {
-    if (std::get<0>(it) != std::get<1>(it))
-      return false;
-  }
-  // Compare attributes.
-  if (!areAttributesEffectivelyEqual(lhs, rhs))
-    return false;
-  // Compare result types.
-  SmallVector<Type> lhsResultTypes(lhs->getResultTypes());
-  SmallVector<Type> rhsResultTypes(rhs->getResultTypes());
-  if (lhsResultTypes.size() != rhsResultTypes.size())
-    return false;
-  switch (lhsResultTypes.size()) {
-  case 0:
-    break;
-  case 1:
-    // Compare the single result type.
-    if (lhsResultTypes.front() != rhsResultTypes.front())
-      return false;
-    break;
-  default:
-    // Use the type buffer for the comparison, as we can guarantee it is the
-    // same for any given range of result types. This takes advantage of the
-    // fact the result types >1 are stored in a TupleType and uniqued.
-    if (lhsResultTypes.data() != rhsResultTypes.data())
-      return false;
-    break;
-  }
-
-  auto isExternFunc = [](Operation *op) {
-    FuncOp f = dyn_cast<FuncOp>(op);
-    return isa<FuncOp>(op) &&
-           (f->getRegions().size() != 1 || f->getRegions()[0].empty());
-  };
-  if (isExternFunc(lhs) || isExternFunc(rhs)) {
-    return false;
-  }
-
-  // TODO: Allow commutative operations to have different ordering.
-  for (auto itRegion : llvm::zip(lhs->getRegions(), rhs->getRegions())) {
-    for (auto itOperation : llvm::zip(std::get<0>(itRegion).getOps(),
-                                      std::get<1>(itRegion).getOps())) {
-      if (!isFunctionallyEquivalentTo(&std::get<0>(itOperation),
-                                      &std::get<1>(itOperation))) {
-        return false;
-      }
-    }
-  }
-  return true;
-#endif  /* 0 */
-}
-
 // Inspired by / adapted from TestSCFIfUtilsPass in
 // test/lib/Transforms/TestSCFUtils.cpp.
 class TosaPartitionPass : public TosaPartitionBase<TosaPartitionPass> {
@@ -475,7 +345,8 @@ public:
       // candidates list at module level.)
       std::vector<OutliningCandidate> candidates;
       auto callback = [&](tosa::Conv2DOp convOp) {
-        auto strCount = std::string("_outlined_part_") + std::to_string(count++);
+        auto strCount =
+            std::string("_outlined_part_") + std::to_string(count++);
 
         // Given a Conv2DOp, gather all the element-wise ops that are reachable
         // from its results, contiguously.
@@ -531,11 +402,12 @@ public:
           for (auto *userOp : op->getUsers()) {
             if (isElementwiseOp(userOp)) {
               bool skip = false;
-              // First criterion is that the op is element-wise.  Second criterion
-              // is that the op dominates all the users of the accumulated results
-              // of the outlined function.  In other words, we can't take an op
-              // that comes "after" a user of the result from the eventual call,
-              // because the call needs to dominate all its users.
+              // First criterion is that the op is element-wise.  Second
+              // criterion is that the op dominates all the users of the
+              // accumulated results of the outlined function.  In other words,
+              // we can't take an op that comes "after" a user of the result
+              // from the eventual call, because the call needs to dominate all
+              // its users.
               for (const Value &val : resultNodes) {
                 for (auto *user : val.getDefiningOp()->getUsers()) {
                   if (user != userOp &&
@@ -561,8 +433,8 @@ public:
                 }
                 for (const Value &val : resultNodes) {
                   if (llvm::all_of(val.getUsers(), [&](Operation *u) {
-                                                     return secondOps.contains(u);
-                                                   })) {
+                        return secondOps.contains(u);
+                      })) {
                     resultNodes.remove(val);
                   }
                 }
@@ -576,10 +448,10 @@ public:
 
         if (!secondOps.empty() || !frontOps.empty()) {
           // Make the outlined function from the ops we've gathered.
-          outlineConvPartOps(convOp, secondOps.getArrayRef(), frontOps,
-                             inputNodes.getArrayRef(), resultNodes.getArrayRef(),
-                             std::string(func.sym_name()) + strCount,
-                             candidates);
+          outlineConvPartOps(
+              convOp, secondOps.getArrayRef(), frontOps,
+              inputNodes.getArrayRef(), resultNodes.getArrayRef(),
+              std::string(func.sym_name()) + strCount, candidates);
           // Outlining will erase nodes and thus perturb the walk, so
           // signal interrupted to exit it and restart.
           return WalkResult::interrupt();
