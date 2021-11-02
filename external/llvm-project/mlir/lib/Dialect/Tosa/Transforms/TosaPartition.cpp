@@ -128,14 +128,6 @@ OutliningCandidate::OutliningCandidate(Operation *convOp_,
 }
 
 unsigned OutliningCandidate::getOrderOf(Value value) const {
-  // Otherwise, the result order is offset from the parent op's order.
-  auto *definingOp = value.getDefiningOp();
-  if (definingOp) {
-    auto opOrderIt = opOrderIndex.find(definingOp);
-    assert(opOrderIt != opOrderIndex.end() && "expected op to have an order");
-    return opOrderIt->second + value.cast<OpResult>().getResultNumber();
-  }
-
   // Arguments use the argument number as the order index.
   if (BlockArgument arg = value.dyn_cast<BlockArgument>())
     return arg.getArgNumber();
@@ -143,8 +135,16 @@ unsigned OutliningCandidate::getOrderOf(Value value) const {
     if (params[i] == value)
       return i;
   }
-  llvm::errs() << "should have been found in params: ";
-  llvm::errs() << value << "\n";
+
+  // Otherwise, the result order is offset from the parent op's order.
+  auto *definingOp = value.getDefiningOp();
+  if (definingOp) {
+    auto opOrderIt = opOrderIndex.find(definingOp);
+    // Candidate arguments will have a definingOp that won't be in opOrderIndex.
+    assert(opOrderIt != opOrderIndex.end() && "expected op to have an order");
+    return opOrderIt->second + value.cast<OpResult>().getResultNumber();
+  }
+
   return 0;
 }
 
@@ -283,14 +283,15 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
     FunctionType type =
       FunctionType::get(ctx, values.getTypes(), results.getTypes());
     SmallVector<NamedAttribute, 1> kernelAttrs{
-                                               b.getNamedAttr("kernel", b.getUnitAttr()),
+        b.getNamedAttr("kernel", b.getUnitAttr()),
     };
     outlinedFunc = b.create<FuncOp>(loc, partFnName, type,
                                     ArrayRef<NamedAttribute>(kernelAttrs));
     outlinedFunc->setAttr("sym_visibility", StringAttr::get(ctx, "private"));
     newCandidate.function = outlinedFunc;
 
-    // Clone convOp and secondOps into the body of the new function.
+    // Clone frontOps, convOp, and secondOps into the body of the new function,
+    // while also updating the comparison details for future candidates.
     b.setInsertionPointToStart(outlinedFunc.addEntryBlock());
     BlockAndValueMapping bvm;
     for (auto it : llvm::zip(values, outlinedFunc.getArguments()))
@@ -299,10 +300,12 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
     newCandidate.frontOps.clear();
     for (auto *op : llvm::reverse(frontOps)) {
       newCandidate.frontOps.push_back(b.clone(*op, bvm));
+      newCandidate.opOrderIndex[newCandidate.frontOps.back()] = newCandidate.opOrderIndex[op];
     }
     std::reverse(newCandidate.frontOps.begin(), newCandidate.frontOps.end());
 
     newCandidate.convOp = b.clone(*convOp, bvm);
+    newCandidate.opOrderIndex[newCandidate.convOp] = newCandidate.opOrderIndex[convOp];
 
     newCandidate.secondOps.clear();
     for (auto *op : secondOps) {
@@ -310,6 +313,7 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
       assert(llvm::all_of(op->getOperands(),
                           [&](Value v) { return bvm.lookupOrNull(v); }));
       newCandidate.secondOps.push_back(b.clone(*op, bvm));
+      newCandidate.opOrderIndex[newCandidate.secondOps.back()] = newCandidate.opOrderIndex[op];
     }
 
     // Make ReturnOp from secondOps' results.
