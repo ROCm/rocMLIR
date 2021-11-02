@@ -2,7 +2,7 @@
 
 declare -a FIXED_CONFIG_ARGS
 declare -g TMPFILE
-declare -ig XDLOPS=0
+declare -ig XDLOPS=-1
 declare -ig TUNING=0
 declare -ig TUNEALL=0
 declare -g DTYPE=""
@@ -18,6 +18,7 @@ declare -a ALL_CONFIGS=()
 function usage() {
     cat <<END
 $0: [-d | --direction] DIR [-t | --dtype] [fp16 | fp32] [-l | --layout] LAYOUT
+[-x | --xdlops] [-X | --no-xdlops (default)]
 [--tuning | --no-tuning (default)] [--driver DRIVER (default bin/MIOpenDriver)] [--tune-all]
 
 DIR is either 1 (forward (fwd)) 2 (backward data (bwd)), or 
@@ -40,7 +41,7 @@ function parse_options() {
 
     local parsed_args
     parsed_args=$(getopt -n "$0" -o d:t:l:xXh \
-                         --long direction:,dtype:,layout:,driver:,tuning,no-tuning,tune-all,help -- "$@")
+                         --long direction:,dtype:,layout:,xdlops,no-xdlops,driver:,driver:,tuning,no-tuning,tune-all,help -- "$@")
     local -i valid_args=$?
     if [[ $valid_args -ne 0 ]]; then
         usage
@@ -50,6 +51,8 @@ function parse_options() {
     do
         case "$1" in
             -h | --help ) usage ;;
+            -x | --xdlops ) XDLOPS=1; shift; ;;
+            -X | --no-xdlops ) XDLOPS=0; shift ;;
             --tuning ) TUNING=1; shift; ;;
             --no-tuning ) TUNING=0; shift; ;;
             --tune-all ) TUNEALL=1; shift; ;;
@@ -72,6 +75,17 @@ function parse_options() {
             * ) echo "$0: Invalid dtype $DTYPE"; usage ;;
         esac
     fi
+
+    # Detect XDLOPS if not specified
+    local xdlops
+    if [[ $XDLOPS == -1 ]]; then
+      xdlops=$(/opt/rocm/bin/rocm_agent_enumerator |grep gfx908)
+      if [[ ! -z "$xdlops" ]]; then
+        XDLOPS=1
+      else
+        XDLOPS=0
+      fi
+    fi
 }
 
 function get_configs() {
@@ -80,7 +94,7 @@ function get_configs() {
         if [[ $line == \#* || $line == "" ]]; then
             continue
         fi
-        ALL_CONFIGS+=("$line") 
+        ALL_CONFIGS+=("$line")
     done
 }
 
@@ -136,12 +150,9 @@ function setup_environment() {
         4) MIOPEN_DEBUG_FIND_ONLY_SOLVER=ConvMlirIgemmWrW ;;
         *) echo "$0: Unsupported direction flag $DIRECTION"; exit 2
     esac
-    local xdlops
-    xdlops=$(/opt/rocm/bin/rocm_agent_enumerator |grep gfx908)
 
-    if [[ ! -z "$xdlops" ]]; then
+    if [[ $XDLOPS == 1 ]]; then
        MIOPEN_DEBUG_FIND_ONLY_SOLVER+="Xdlops"
-       XDLOPS=1
     fi
     export MIOPEN_DEBUG_FIND_ONLY_SOLVER
 }
