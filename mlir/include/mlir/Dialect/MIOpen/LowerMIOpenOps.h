@@ -482,8 +482,7 @@ inline void emitStoreLogic(
     MemRefType destType, Type typeToStore, bool toEmitOOBStoreCheckLogic,
     const SmallVector<unsigned, 8> &oobStoreCheckDims, const Value &dest,
     const SmallVector<Value, 8> &destLowerIndices, const Value &value,
-    InMemoryDataOperation memoryOp = InMemoryDataOperation::Set,
-    bool print = false) {
+    InMemoryDataOperation memoryOp = InMemoryDataOperation::Set) {
   auto emitStoreInstruction = [&b, &loc](
                                   const Value &value, MemRefType destType,
                                   Type typeToStore, const Value &dest,
@@ -650,21 +649,6 @@ inline void emitStoreLogic(
     SmallVector<Value, 8> destLowerIndicesUpdated;
     for (unsigned iter = 1; iter <= 5; ++iter)
       destLowerIndicesUpdated.push_back(ifWithinBoundsOp.getResults()[iter]);
-
-    if (print) {
-      SmallString<128> printFormat;
-      printFormat.append("thread %02d stores (oob = %x) to [");
-      SmallVector<Value, 8> printArgs = {
-          b.create<miopen::WorkitemIdOp>(loc, b.getIndexType()),
-          ifWithinBoundsOp.getResults()[0]};
-      printArgs.append(destLowerIndicesUpdated);
-      for (size_t i = 0; i < destLowerIndicesUpdated.size(); ++i) {
-        printFormat.append("%02d");
-        printFormat.append(i == destLowerIndicesUpdated.size() - 1 ? "]\n"
-                                                                   : ", ");
-      }
-      b.create<gpu::PrintfOp>(loc, printFormat, printArgs);
-    }
     emitStoreInstruction(value, destType, typeToStore, dest,
                          destLowerIndicesUpdated,
                          /*oob=*/ifWithinBoundsOp.getResults()[0]);
@@ -678,9 +662,10 @@ inline void emitStoreLogic(
         destLowerStoreIndices.push_back(dstIndex);
       }
       b.create<gpu::AtomicFAddOp>(loc, value, dest, destLowerStoreIndices);
-    } else
+    } else {
       emitStoreInstruction(value, destType, typeToStore, dest, destLowerIndices,
                            /*oob=*/zeroConstantOp);
+    }
   }
 }
 //===----------------------------------------------------------------------===//
@@ -5038,7 +5023,7 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
 
 static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top,
                                             miopen::GridwiseGemmV2Op gop,
-                                            OpBuilder &b, bool canSwizzle) {
+                                            OpBuilder &b, bool isSwizzled) {
   auto stridesAttr = gop->template getAttrOfType<ArrayAttr>("strides");
   auto strideH =
       stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
@@ -5067,7 +5052,7 @@ static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top,
   }
 
   top->setAttr("bwd_padding_kernel_status", b.getI32IntegerAttr(status));
-  if (canSwizzle) {
+  if (isSwizzled) {
     top->setAttr("dim_access_order", b.getI32ArrayAttr({0, 1, 2, 3, 4, 5}));
   } else {
     top->setAttr("dim_access_order", b.getI32ArrayAttr({0, 1, 2, 3, 4}));
@@ -6879,7 +6864,7 @@ struct GridwiseGemmV2RewritePattern
         b.create<RemUIOp>(loc, laneId_xdlops_gemm, num_threads_blk_ConstantOp);
 
     constexpr int64_t swizzleGroup = 4;
-    bool canSwizzle =
+    bool enableOutSwizzles =
         (M2 == swizzleGroup && (m % swizzleGroup == 0) &&
          (n % swizzleGroup == 0) && (MPerWave % swizzleGroup == 0) &&
          (NPerWave % swizzleGroup == 0));
@@ -6890,31 +6875,28 @@ struct GridwiseGemmV2RewritePattern
     SmallVector<Value, 4> vectors;
     vectors.reserve(tailResults.size());
     AffineMap tensorToXdlopsVectorMap;
-    if (canSwizzle) {
-      // Original 5 -> 3 affine map
-      // (d0, d1, d2, d3, d4) -> (d0, d1 * M1 * M2 + d2 * M2 + d3, d4)
-      // transformed by a 4x4 (that is, M2 x M2) transpose
-      // that is, (d0, d1, d2) -> (d0, d1 / 4 * 4 + d2 % 4, d2 / 4 * 4 + d1 % 4)
-      // becomes
-      // (d0, d1, d2, d3, d4) ->
-      // (d0, d1 * M1 * M2 + d2 * M2 + d4 % M2, d4 * M2 / M2 + d3)
-      // Since d3 is in [0, 4), we don't need to care about how it corresponds
-      // to the transposed index
+    if (enableOutSwizzles) {
+      // The swizzle operation doesn't fundamentally affect the mapping
+      // of "expanded GEMM" (G x M0 X M1 X M2 X N) to GEMM (G X M X N)
+      // space, just how we walk across it and where each thread starts.
 
-      // However, since the transformation methods above don't support the sort
-      // of modulo reasoning we need for transpose, we'll split N into N0 and N1
-      // and then rearrange to have a G x M0 x M1 x M2 x N0 x N1 logical
-      // coordinate system, giving us (d0, d1, d2, d3, d4, d5)
-      //  -> (d0, d1 * M1 * M2 + d2 * M2 + d5, d4 * M2 + d3)
+      // However, because of the 4x4 transpose we'll be imposing
+      // instead of holding N constant and walking up the M2 dimension,
+      // we'll need to take 4 steps in the N dimension but hold the
+      // divisible-by-4 part of the N coordinate constant. Therefore, we need to
+      // break the N dimension into N0 and N1 The affine map remains otherwise
+      // unchanged and becomes
+      //  (d0, d1, d2, d3, d4, d5) ->
+      //  (d0, d1 * M1 * M2 + d2 * M2 + d3, d4 * M1 + d5)
       auto affineMap6to3 = AffineMap::get(
           6, 0,
           {getAffineDimExpr(0, ctx),
            getAffineDimExpr(1, ctx) * getAffineConstantExpr(M1, ctx) *
                    getAffineConstantExpr(M2, ctx) +
                getAffineDimExpr(2, ctx) * getAffineConstantExpr(M2, ctx) +
-               getAffineDimExpr(5, ctx),
+               getAffineDimExpr(3, ctx),
            getAffineDimExpr(4, ctx) * getAffineConstantExpr(N1, ctx) +
-               getAffineDimExpr(3, ctx)},
+               getAffineDimExpr(5, ctx)},
           ctx);
 
       // compose with output tensor affine map.
@@ -6947,28 +6929,28 @@ struct GridwiseGemmV2RewritePattern
                    b.getNamedAttr("upper_layer_dimensions",
                                   b.getArrayAttr({b.getI32IntegerAttr(1),
                                                   b.getI32IntegerAttr(2),
-                                                  b.getI32IntegerAttr(5)})),
+                                                  b.getI32IntegerAttr(3)})),
                    b.getNamedAttr("upper_layer_names",
                                   b.getArrayAttr({b.getStringAttr("m0"),
                                                   b.getStringAttr("m1"),
-                                                  b.getStringAttr("n1")})),
+                                                  b.getStringAttr("m2")})),
                    b.getNamedAttr("lower_layer_dimensions",
                                   b.getArrayAttr({b.getI32IntegerAttr(1)})),
                    b.getNamedAttr("lower_layer_names",
                                   b.getArrayAttr({b.getStringAttr("gemmM")})),
                    b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                    b.getNamedAttr("parameters",
-                                  b.getArrayAttr({b.getI32IntegerAttr(M1 * N1),
-                                                  b.getI32IntegerAttr(N1),
+                                  b.getArrayAttr({b.getI32IntegerAttr(M1 * M2),
+                                                  b.getI32IntegerAttr(M2),
                                                   b.getI32IntegerAttr(1)})),
                }),
                b.getDictionaryAttr(
                    {b.getNamedAttr("upper_layer_dimensions",
                                    b.getArrayAttr({b.getI32IntegerAttr(4),
-                                                   b.getI32IntegerAttr(3)})),
+                                                   b.getI32IntegerAttr(5)})),
                     b.getNamedAttr("upper_layer_names",
                                    b.getArrayAttr({b.getStringAttr("n0"),
-                                                   b.getStringAttr("m2")})),
+                                                   b.getStringAttr("n1")})),
                     b.getNamedAttr("lower_layer_dimensions",
                                    b.getArrayAttr({b.getI32IntegerAttr(2)})),
                     b.getNamedAttr("lower_layer_names",
@@ -6976,7 +6958,7 @@ struct GridwiseGemmV2RewritePattern
                     b.getNamedAttr("transformation", b.getStringAttr("Embed")),
                     b.getNamedAttr(
                         "parameters",
-                        b.getArrayAttr({b.getI32IntegerAttr(M2),
+                        b.getArrayAttr({b.getI32IntegerAttr(N1),
                                         b.getI32IntegerAttr(1)}))})})));
       // set lower_layer_layout attribute.
       transformedNewOutputAttrs.push_back(b.getNamedAttr(
@@ -6996,14 +6978,19 @@ struct GridwiseGemmV2RewritePattern
           loc, newOutputType, op.output(), transformedNewOutputAttrs,
           /*populateBounds=*/true);
 
-      // We must also swizzle the tensor -> vector map
-      // The original is (d0, d1, d2, d3, d4) -> (d1 * M2 + d3)
-      // Except now, within each block, the elements are indexed by d5, not d3
+      // Here is the first main effect of the swizzling transformation
+      // Instead of having the fastest coordinate be the M2 dimension
+      // it's now the N1 dimension, since each group of 4 values in a vector
+      // corresponds to 4 successive N values after the transpose, as opposed
+      // to 4 successive M values.
+
+      // Therefore, this map is (d0, d1, d2, d3, d4, d5) -> (d1 * M3 + d5)
       tensorToXdlopsVectorMap = AffineMap::get(
           6, 0,
           {getAffineDimExpr(1, ctx) * getAffineConstantExpr(M2, ctx) +
            getAffineDimExpr(5, ctx)},
           ctx);
+      // Actually perform the swizzles
       for (const Value &result : tailResults) {
         auto swizzle = b.create<miopen::InWarpTransposeOp>(
             loc, result.getType(), result, laneId_xdlops_gemm,
@@ -7164,11 +7151,23 @@ struct GridwiseGemmV2RewritePattern
         row_blk_xdlops_gemm = j_xdlops_gemm % num_output_blks;
       }
 
+      // Within a group of elements, a non-swizzled loop will output
+      // to (ignoring OOB) [(i, j), (i + 1, j), (i + 2, j), (i + 3, j)]
+      // for some starting position (i, j) that's a function of coordinates
+      // that very slower.
+
+      // The swizzles mean that each thread instead outputs to
+      //  [(i, j), (i, j+1), (i, j+2), (i, j+3)]
+      // Therefore, in order to ensure that values remain output to the correct
+      // place we must map the starting coordinates through
+      //  (i, j) -> (i / 4 * 4 + j % 4, j / 4 + 4 + i % 4)
       Value threadMtxColInBlock;
-      if (canSwizzle) {
-        // In the swizzled case, clear off the group index, as it'll be replaced
-        // by the corresponding low bits of the row index due to the transpose
-        // Said low bits are always 0
+      if (enableOutSwizzles) {
+        // The starting coordinate remap means that we must start
+        // at (blk_td / 4) * 4, since blk_td % 4 is moved to the
+        // row coordinate by the transpose and nothing replaces it
+        // (the unswizzled row coordinate is always a multiple of 4
+        // in cases where swizzles are enabled)
         threadMtxColInBlock =
             b.create<MulIOp>(loc,
                              b.create<arith::DivUIOp>(loc, blk_td_xdlops_gemm,
@@ -7188,7 +7187,11 @@ struct GridwiseGemmV2RewritePattern
       //     + m_i * MPerXdlops;
       Value threadMtxRowInBlock =
           b.create<MulIOp>(loc, blk_id_xdlops_gemm, group_size_ConstantOp);
-      if (canSwizzle) {
+      if (enableOutSwizzles) {
+        // Here, we must incorporate the mod-4 parts of blk_td
+        // since while, without swizzles, these four values
+        // were stored on successive threads, now they're stored
+        // in four consecutive vector entries on the same thread
         threadMtxRowInBlock =
             b.create<AddIOp>(loc, threadMtxRowInBlock,
                              b.create<arith::RemUIOp>(loc, blk_td_xdlops_gemm,
@@ -7273,7 +7276,7 @@ struct GridwiseGemmV2RewritePattern
 
       SmallVector<Value, 6> matrixCThreadwiseCopySourceCoords;
       SmallVector<Value, 6> matrixCThreadwiseCopyDestCoords;
-      if (canSwizzle) {
+      if (enableOutSwizzles) {
         std::fill_n(std::back_inserter(matrixCThreadwiseCopySourceCoords), 6,
                     zeroConstantOp.getResult());
         matrixCThreadwiseCopyDestCoords.append(
@@ -7316,21 +7319,14 @@ struct GridwiseGemmV2RewritePattern
       auto vectorCOffsetConstantAttr = b.getIndexAttr(vectorCOffset);
 
       // Emit threadwise_copy_v2.
-      /*       b.create<gpu::PrintfOp>(loc,
-              "thread %02d output dest coords [%02d, %02d, %02d, %02d, %02d,
-         %02d]\n", ValueRange{tid.getResult(),
-         matrixCThreadwiseCopyDestCoords[0], matrixCThreadwiseCopyDestCoords[1],
-         matrixCThreadwiseCopyDestCoords[2], matrixCThreadwiseCopyDestCoords[3],
-         matrixCThreadwiseCopyDestCoords[4], canSwizzle ?
-         matrixCThreadwiseCopyDestCoords[5] : zeroConstantOp}); */
       auto threadwiseCopyV2CMatrixOp = b.create<miopen::ThreadwiseCopyV2Op>(
           loc, vectors[vectorCIndex], newOutputTransformOp,
           vectorCOffsetConstantAttr, matrixCThreadwiseCopySourceCoords,
           matrixCThreadwiseCopyDestCoords);
       affixThreadwiseCopyV2Attributes(threadwiseCopyV2CMatrixOp, op, b,
-                                      canSwizzle);
+                                      enableOutSwizzles);
 
-      if (canSwizzle) {
+      if (enableOutSwizzles) {
         // affix coord_transforms attributes.
         threadwiseCopyV2CMatrixOp->setAttr(
             "coord_transforms",
@@ -9339,18 +9335,6 @@ struct ThreadwiseCopyV2RewritePattern
       emitStoreLogic(bwdPaddingStatus, b, loc, destType, destElementType,
                      toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
                      destLowerIndices, convertedScalarValue, dataOpration);
-      /*       SmallString<128> printFormat;
-            printFormat.append("thread %02d v[%02d] -> C[");
-            SmallVector<Value, 8> printArgs = {
-              b.create<miopen::WorkitemIdOp>(loc, b.getIndexType()),
-              srcPosition};
-            printArgs.append(destLowerIndices);
-            for (size_t i = 0; i < destLowerIndices.size(); ++i) {
-              printFormat.append("%02d");
-              printFormat.append(i == destLowerIndices.size() - 1 ? "]\n" : ",
-         ");
-            }
-            b.create<gpu::PrintfOp>(loc, printFormat, printArgs); */
       // increase IVs
       bool toIncreaseNextDigit = true;
       int iter = loopIVsPerAccessOrder.size() - 1;
