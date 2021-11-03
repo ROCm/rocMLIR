@@ -1649,6 +1649,12 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     bool needExtraPad = false;
 
+    bool filterLastDimStaysLast = false;
+    // TODO(kderwnia): gemmC -> input sprays results all over the place
+    // so it's not clear whene we can swizzle
+    bool inputLastDimStaysLast = false;
+    bool outputLastDimStaysLast = false;
+
     auto calculatePaddingKernelSize = [&needExtraPad, gemmM_size, gemmN_size,
                                        gemmK_size, &gemmMExtra, &gemmNExtra,
                                        &gemmKExtra](auto populateParams) {
@@ -1838,6 +1844,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                            targetGemm2DimAttr.end());
         layoutAttr2.append(sourceProbKDimAttr.begin(),
                            sourceProbKDimAttr.end());
+        filterLastDimStaysLast =
+            (kDim.getValue().getZExtValue() == (filterShape.size() - 1));
       } else {
         layoutAttr0.append(targetGemm0DimAttr.begin(),
                            targetGemm0DimAttr.end());
@@ -1851,6 +1859,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                            targetGemm2DimAttr.end());
         layoutAttr2.append(sourceProbCYXDimAttr.begin(),
                            sourceProbCYXDimAttr.end());
+        filterLastDimStaysLast =
+            ((nonKDims[nonKDims.size() - 1].getValue().getZExtValue()) ==
+             (filterShape.size() - 1));
       }
 
       transformedFilterAttrs.push_back(b.getNamedAttr(
@@ -3059,6 +3070,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                            targetGemm2DimAttr.end());
         layoutAttr2.append(sourceProbKDimAttr.begin(),
                            sourceProbKDimAttr.end());
+        outputLastDimStaysLast =
+            (kDim.getValue().getZExtValue() == (outputShape.size() - 1));
       } else {
         layoutAttr0.append(targetGemm0DimAttr.begin(),
                            targetGemm0DimAttr.end());
@@ -3072,6 +3085,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                            targetGemm2DimAttr.end());
         layoutAttr2.append(sourceProbNHoWoDimAttr.begin(),
                            sourceProbNHoWoDimAttr.end());
+        outputLastDimStaysLast =
+            nonKDims[nonKDims.size() - 1].getValue().getZExtValue() ==
+            (outputShape.size() - 1);
       }
 
       transformedOutputAttrs.push_back(b.getNamedAttr(
@@ -3361,9 +3377,18 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     };
 
     // xdlopsV2.
-    if (isXdlops)
+    if (isXdlops) {
       gridwiseGemmAttrs.push_back(
           b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
+      llvm::SmallVector<bool, 3> shouldSwizzleVals = {filterLastDimStaysLast,
+                                                      inputLastDimStaysLast,
+                                                      outputLastDimStaysLast};
+      bool shouldSwizzleOut =
+          shouldSwizzleVals[fields.gridwiseGemmArgumentPosition[2]];
+
+      gridwiseGemmAttrs.push_back(
+          b.getNamedAttr("swizzleOut", b.getBoolAttr(shouldSwizzleOut)));
+    }
 
     if (convOpType == miopen::ConvOpType::Conv2DBwdDataOpType) {
       gridwiseGemmAttrs.push_back(b.getNamedAttr(
@@ -4928,9 +4953,13 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     };
 
     // xdlopsV2.
-    if (isXdlops)
+    if (isXdlops) {
       gridwiseGemmAttrs.push_back(
           b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
+      bool shouldSwizzleOutput = (nameToDims["wi"] == 4);
+      gridwiseGemmAttrs.push_back(
+          b.getNamedAttr("swizzleOut", b.getBoolAttr(shouldSwizzleOutput)));
+    }
 
     gridwiseGemmAttrs.push_back(b.getNamedAttr(
         "kernel_algorithm", b.getStringAttr("backward_data_v4r1")));
@@ -6863,7 +6892,9 @@ struct GridwiseGemmV2RewritePattern
         b.create<RemUIOp>(loc, laneId_xdlops_gemm, num_threads_blk_ConstantOp);
 
     constexpr int64_t swizzleGroup = 4;
+    bool swizzleOutAttr = op->getAttr("swizzleOut").cast<BoolAttr>().getValue();
     bool enableOutSwizzles =
+        swizzleOutAttr &&
         (M2 == swizzleGroup && (m % swizzleGroup == 0) &&
          (n % swizzleGroup == 0) && (MPerWave % swizzleGroup == 0) &&
          (NPerWave % swizzleGroup == 0));
