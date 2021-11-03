@@ -37,7 +37,7 @@ String dockerArgs() {
 }
 
 String dockerImage() {
-    return 'rocm/mlir:rocm4.1-latest'
+    return 'rocm/mlir:rocm4.3-latest'
 }
 
 void preMergeCheck() {
@@ -226,6 +226,11 @@ pipeline {
                         PATH="/opt/rocm/llvm/bin:$PATH"
                     }
                     stages {
+                        stage('Environment') {
+                            steps {
+                                showEnv()
+                            }
+                        }
                         stage("Igemm build") {
                             steps {
                                 checkout scm
@@ -386,7 +391,7 @@ pipeline {
                            sh 'rm -rf ${WORKSPACE}/MIOpen/build/MIOpenUserDB'
                            sh 'python3 ./bin/MIOpenDriver.py -bmiopen_use_untuned_mlir'
                         }
-                    } 
+                    }
                 }
                 stage("Copy earlier performance results") {
                     steps {
