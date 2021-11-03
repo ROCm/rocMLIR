@@ -4,7 +4,7 @@ declare -a FIXED_CONFIG_ARGS
 declare -g TMPFILE
 declare -ig XDLOPS=-1
 declare -ig TUNING=0
-declare -ig TUNEALL=0
+declare -ig TESTALL=0
 declare -g DTYPE=""
 declare -g DIRECTION=""
 declare -g LAYOUT=""
@@ -18,8 +18,8 @@ declare -a ALL_CONFIGS=()
 function usage() {
     cat <<END
 $0: [-d | --direction] DIR [-t | --dtype] [fp16 | fp32] [-l | --layout] LAYOUT
-[-x | --xdlops] [-X | --no-xdlops (default)]
-[--tuning | --no-tuning (default)] [--driver DRIVER (default bin/MIOpenDriver)] [--tune-all]
+[-x | --xdlops] [-X | --no-xdlops (default)] [--tuning | --no-tuning (default)]
+[--driver DRIVER (default bin/MIOpenDriver)] [--test-all]
 
 DIR is either 1 (forward (fwd)) 2 (backward data (bwd)), or 
 4 (backward weights (wrw)), other values are currently unsupported 
@@ -41,7 +41,7 @@ function parse_options() {
 
     local parsed_args
     parsed_args=$(getopt -n "$0" -o d:t:l:xXh \
-                         --long direction:,dtype:,layout:,xdlops,no-xdlops,driver:,driver:,tuning,no-tuning,tune-all,help -- "$@")
+                         --long direction:,dtype:,layout:,xdlops,no-xdlops,driver:,driver:,tuning,no-tuning,test-all,help -- "$@")
     local -i valid_args=$?
     if [[ $valid_args -ne 0 ]]; then
         usage
@@ -55,7 +55,7 @@ function parse_options() {
             -X | --no-xdlops ) XDLOPS=0; shift ;;
             --tuning ) TUNING=1; shift; ;;
             --no-tuning ) TUNING=0; shift; ;;
-            --tune-all ) TUNEALL=1; shift; ;;
+            --test-all ) TESTALL=1; shift; ;;
             -d | --direction ) got_direction=1; DIRECTION="$2"; shift 2 ;;
             -l | --layout ) got_layout=1; LAYOUT="$2"; shift 2 ;;
             -t | --dtype ) got_dtype=1; DTYPE="$2"; shift 2 ;;
@@ -66,7 +66,7 @@ function parse_options() {
     done
 
     # Check required args
-    [[ $got_layout == 1 && $got_direction == 1 && $got_dtype == 1 ]] || [[ $TUNEALL == 1 ]] || usage
+    [[ $got_layout == 1 && $got_direction == 1 && $got_dtype == 1 ]] || [[ $TESTALL == 1 ]] || usage
 
     # Validate options
     if [[ $got_dtype == 1 ]]; then
@@ -139,7 +139,7 @@ function setup_environment() {
     export MIOPEN_FIND_MODE=1
     export MIOPEN_DRIVER_USE_GPU_REFERENCE=1
 
-    if [[ $TUNING == 1 || $TUNEALL == 1 ]]; then
+    if [[ $TUNING == 1 ]]; then
         export MIOPEN_FIND_ENFORCE=4
     fi
 
@@ -191,7 +191,7 @@ function run_tests_for_a_config() {
     run_tests
 }
 
-function tune_all_configs() {
+function run_tests_for_all_configs() {
     for t in ${ALL_DTYPES[@]}; do
         for d in ${ALL_DIRECTIONS[@]}; do
             for l in ${ALL_LAYOUTS[@]}; do
@@ -208,8 +208,8 @@ function main() {
     clean_miopen_caches
     parse_options "$@"
     get_configs
-    if [[ $TUNEALL == 1 ]]; then
-        tune_all_configs
+    if [[ $TESTALL == 1 ]]; then
+        run_tests_for_all_configs
     else
         run_tests_for_a_config
     fi

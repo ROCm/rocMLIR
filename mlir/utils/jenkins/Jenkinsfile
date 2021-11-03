@@ -301,7 +301,7 @@ pipeline {
                                 dir('MIOpen/build/') {
                                     sh 'date --utc +%Y-%m-%d > tuning-date'
                                     sh """
-                                    bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --tune-all\
+                                    bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
                                        < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
                                     sh 'ls -l MIOpenUserDB'
                                 }
