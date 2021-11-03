@@ -999,9 +999,14 @@ LogicalResult backwardWeightAtomicAdd(T op, PatternRewriter &b,
 
   // xdlopsV2.
   auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-  if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
+  if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
     gridwiseGemmAttrs.push_back(
         b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
+    // TODO(kdrewnia): Work out when this is applicable
+    // I'm calling it a day now
+    gridwiseGemmAttrs.push_back(
+        b.getNamedAttr("swizzleOut", b.getBoolAttr(false)));
+  }
 
   gridwiseGemmAttrs.push_back(b.getNamedAttr(
       "kernel_algorithm", b.getStringAttr("backward_weight_v4r4")));
