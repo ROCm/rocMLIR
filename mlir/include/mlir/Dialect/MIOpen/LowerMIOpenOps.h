@@ -16,14 +16,15 @@
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MIOpen/AffineMapHelper.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/SCF.h"
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Vector/VectorOps.h"
+#include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
@@ -481,7 +482,8 @@ inline void emitStoreLogic(
     MemRefType destType, Type typeToStore, bool toEmitOOBStoreCheckLogic,
     const SmallVector<unsigned, 8> &oobStoreCheckDims, const Value &dest,
     const SmallVector<Value, 8> &destLowerIndices, const Value &value,
-    InMemoryDataOperation memoryOp = InMemoryDataOperation::Set) {
+    InMemoryDataOperation memoryOp = InMemoryDataOperation::Set,
+    bool print = false) {
   auto emitStoreInstruction = [&b, &loc](
                                   const Value &value, MemRefType destType,
                                   Type typeToStore, const Value &dest,
@@ -649,6 +651,20 @@ inline void emitStoreLogic(
     for (unsigned iter = 1; iter <= 5; ++iter)
       destLowerIndicesUpdated.push_back(ifWithinBoundsOp.getResults()[iter]);
 
+    if (print) {
+      SmallString<128> printFormat;
+      printFormat.append("thread %02d stores (oob = %x) to [");
+      SmallVector<Value, 8> printArgs = {
+          b.create<miopen::WorkitemIdOp>(loc, b.getIndexType()),
+          ifWithinBoundsOp.getResults()[0]};
+      printArgs.append(destLowerIndicesUpdated);
+      for (size_t i = 0; i < destLowerIndicesUpdated.size(); ++i) {
+        printFormat.append("%02d");
+        printFormat.append(i == destLowerIndicesUpdated.size() - 1 ? "]\n"
+                                                                   : ", ");
+      }
+      b.create<gpu::PrintfOp>(loc, printFormat, printArgs);
+    }
     emitStoreInstruction(value, destType, typeToStore, dest,
                          destLowerIndicesUpdated,
                          /*oob=*/ifWithinBoundsOp.getResults()[0]);
@@ -5022,7 +5038,7 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
 
 static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top,
                                             miopen::GridwiseGemmV2Op gop,
-                                            OpBuilder &b) {
+                                            OpBuilder &b, bool canSwizzle) {
   auto stridesAttr = gop->template getAttrOfType<ArrayAttr>("strides");
   auto strideH =
       stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
@@ -5051,7 +5067,11 @@ static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top,
   }
 
   top->setAttr("bwd_padding_kernel_status", b.getI32IntegerAttr(status));
-  top->setAttr("dim_access_order", b.getI32ArrayAttr({0, 1, 2, 3, 4}));
+  if (canSwizzle) {
+    top->setAttr("dim_access_order", b.getI32ArrayAttr({0, 1, 2, 3, 4, 5}));
+  } else {
+    top->setAttr("dim_access_order", b.getI32ArrayAttr({0, 1, 2, 3, 4}));
+  }
   top->setAttr("vector_read_write_dim",
                gop->getAttr("matrix_c_source_dest_vector_read_write_dim"));
   top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
@@ -6841,7 +6861,8 @@ struct GridwiseGemmV2RewritePattern
     int64_t M1 = num_input_blks;
     int64_t M2 = group_size;
     int64_t M0 = M / (M1 * M2);
-
+    int64_t N1 = group_size;
+    int64_t N0 = N / N1;
     // llvm::errs() << "M0: " << M0 << "\n";
     // llvm::errs() << "M1: num_input_blks: " << M1 << "\n";
     // llvm::errs() << "M2: group_size: " << M2 << "\n";
@@ -6849,6 +6870,7 @@ struct GridwiseGemmV2RewritePattern
 
     auto M2ConstantOp = b.create<ConstantIndexOp>(loc, M2);
     auto M2TimesM1Op = b.create<ConstantIndexOp>(loc, M2 * M1);
+    auto N1ConstantOp = M2ConstantOp;
 
     auto laneId_xdlops_gemm = b.create<RemUIOp>(loc, tid, wave_size_ConstantOp);
     auto blk_id_xdlops_gemm =
@@ -6856,101 +6878,235 @@ struct GridwiseGemmV2RewritePattern
     auto blk_td_xdlops_gemm =
         b.create<RemUIOp>(loc, laneId_xdlops_gemm, num_threads_blk_ConstantOp);
 
-    // emit vector swizzles
-
+    constexpr int64_t swizzleGroup = 4;
+    bool canSwizzle =
+        (M2 == swizzleGroup && (m % swizzleGroup == 0) &&
+         (n % swizzleGroup == 0) && (MPerWave % swizzleGroup == 0) &&
+         (NPerWave % swizzleGroup == 0));
+    const auto &tailResults = blockwiseGemmV2TailOp->getResults();
     auto *ctx = op.getContext();
 
-    const auto &tailResults = blockwiseGemmV2TailOp->getResults();
-    // build affine expression: d0 = g
-    // (d0, d1, d2, d3, d4) -> (d0, d1 * M1 * M2 + d2 * M2 + d3, d4)
-    auto affineMap5to3 = AffineMap::get(
-        5, 0,
-        {getAffineDimExpr(0, ctx),
-         getAffineDimExpr(1, ctx) * getAffineConstantExpr(M1, ctx) *
-                 getAffineConstantExpr(M2, ctx) +
-             getAffineDimExpr(2, ctx) * getAffineConstantExpr(M2, ctx) +
-             getAffineDimExpr(3, ctx),
-         getAffineDimExpr(4, ctx)},
-        ctx);
+    Value newOutputTransformOp;
+    SmallVector<Value, 4> vectors;
+    vectors.reserve(tailResults.size());
+    AffineMap tensorToXdlopsVectorMap;
+    if (canSwizzle) {
+      // Original 5 -> 3 affine map
+      // (d0, d1, d2, d3, d4) -> (d0, d1 * M1 * M2 + d2 * M2 + d3, d4)
+      // transformed by a 4x4 (that is, M2 x M2) transpose
+      // that is, (d0, d1, d2) -> (d0, d1 / 4 * 4 + d2 % 4, d2 / 4 * 4 + d1 % 4)
+      // becomes
+      // (d0, d1, d2, d3, d4) ->
+      // (d0, d1 * M1 * M2 + d2 * M2 + d4 % M2, d4 * M2 / M2 + d3)
+      // Since d3 is in [0, 4), we don't need to care about how it corresponds
+      // to the transposed index
 
-    // compose with output tensor affine map.
-    auto outputType = op.output().getType().template cast<MemRefType>();
-    SmallVector<AffineMap> newOutputAffineMaps({outputType.getLayout().getAffineMap()});
-    newOutputAffineMaps.insert(newOutputAffineMaps.begin(), affineMap5to3);
+      // However, since the transformation methods above don't support the sort
+      // of modulo reasoning we need for transpose, we'll split N into N0 and N1
+      // and then rearrange to have a G x M0 x M1 x M2 x N0 x N1 logical
+      // coordinate system, giving us (d0, d1, d2, d3, d4, d5)
+      //  -> (d0, d1 * M1 * M2 + d2 * M2 + d5, d4 * M2 + d3)
+      auto affineMap6to3 = AffineMap::get(
+          6, 0,
+          {getAffineDimExpr(0, ctx),
+           getAffineDimExpr(1, ctx) * getAffineConstantExpr(M1, ctx) *
+                   getAffineConstantExpr(M2, ctx) +
+               getAffineDimExpr(2, ctx) * getAffineConstantExpr(M2, ctx) +
+               getAffineDimExpr(5, ctx),
+           getAffineDimExpr(4, ctx) * getAffineConstantExpr(N1, ctx) +
+               getAffineDimExpr(3, ctx)},
+          ctx);
 
-    // emit TransformOp for output tensor.
-    llvm::SmallVector<NamedAttribute, 3> transformedNewOutputAttrs;
-    // set map attribute.
-    transformedNewOutputAttrs.push_back(
-        b.getNamedAttr("map", b.getAffineMapArrayAttr({affineMap5to3})));
-    // set layout attribute.
-    transformedNewOutputAttrs.push_back(b.getNamedAttr(
-        "layout",
-        b.getArrayAttr(
-            {b.getDictionaryAttr(
-                 {b.getNamedAttr("upper_layer_dimensions",
-                                 b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                  b.getNamedAttr("upper_layer_names",
-                                 b.getArrayAttr({b.getStringAttr("g")})),
-                  b.getNamedAttr("lower_layer_dimensions",
-                                 b.getArrayAttr({b.getI32IntegerAttr(0)})),
-                  b.getNamedAttr("lower_layer_names",
-                                 b.getArrayAttr({b.getStringAttr("gemmG")})),
-                  b.getNamedAttr("transformation",
-                                 b.getStringAttr("PassThrough"))}),
-             b.getDictionaryAttr({
-                 b.getNamedAttr("upper_layer_dimensions",
-                                b.getI32ArrayAttr({1, 2, 3})),
-                 b.getNamedAttr("upper_layer_names",
-                                b.getArrayAttr({b.getStringAttr("m0"),
-                                                b.getStringAttr("m1"),
-                                                b.getStringAttr("m2")})),
-                 b.getNamedAttr("lower_layer_dimensions",
-                                b.getArrayAttr({b.getI32IntegerAttr(1)})),
-                 b.getNamedAttr("lower_layer_names",
-                                b.getArrayAttr({b.getStringAttr("gemmM")})),
-                 b.getNamedAttr("transformation", b.getStringAttr("Embed")),
-                 b.getNamedAttr("parameters",
-                                b.getArrayAttr({b.getI32IntegerAttr(M1 * M2),
-                                                b.getI32IntegerAttr(M2),
-                                                b.getI32IntegerAttr(1)})),
-             }),
-             b.getDictionaryAttr(
-                 {b.getNamedAttr("upper_layer_dimensions",
-                                 b.getArrayAttr({b.getI32IntegerAttr(4)})),
-                  b.getNamedAttr("upper_layer_names",
-                                 b.getArrayAttr({b.getStringAttr("n")})),
-                  b.getNamedAttr("lower_layer_dimensions",
-                                 b.getArrayAttr({b.getI32IntegerAttr(2)})),
-                  b.getNamedAttr("lower_layer_names",
-                                 b.getArrayAttr({b.getStringAttr("gemmN")})),
-                  b.getNamedAttr("transformation",
-                                 b.getStringAttr("PassThrough"))})})));
-    // set lower_layer_layout attribute.
-    transformedNewOutputAttrs.push_back(b.getNamedAttr(
-        "lower_layer_layout",
-        b.getArrayAttr({b.getStringAttr("gemmG"), b.getStringAttr("gemmM"),
-                        b.getStringAttr("gemmN")})));
-    // set upper_layer_layout attribute.
-    transformedNewOutputAttrs.push_back(b.getNamedAttr(
-        "upper_layer_layout",
-        b.getArrayAttr({b.getStringAttr("g"), b.getStringAttr("m0"),
-                        b.getStringAttr("m1"), b.getStringAttr("m2"),
-                        b.getStringAttr("n")})));
-    auto newOutputType = MemRefType::get(
-        {G, M0, M1, M2, N}, outputType.getElementType(), composeTransforms(newOutputAffineMaps));
-    auto newOutputTransformOp = b.create<miopen::TransformOp>(
-        loc, newOutputType, op.output(), transformedNewOutputAttrs,
-        /*populateBounds=*/true);
+      // compose with output tensor affine map.
+      auto outputType = op.output().getType().template cast<MemRefType>();
+      SmallVector<AffineMap> newOutputAffineMaps(
+          {outputType.getLayout().getAffineMap()});
+      newOutputAffineMaps.insert(newOutputAffineMaps.begin(), affineMap6to3);
 
-    // Build affine expression for Sequence<1, M0, 1, M2, 1>
-    // (d0, d1, d2, d3, d4) -> (d1 * M2 + d3)
-    auto matrixCAffineMap5to1 = AffineMap::get(
-        5, 0,
-        {getAffineDimExpr(1, ctx) * getAffineConstantExpr(M2, ctx) +
-         getAffineDimExpr(3, ctx)},
-        op.getContext());
+      // emit TransformOp for output tensor.
+      llvm::SmallVector<NamedAttribute, 3> transformedNewOutputAttrs;
+      // set map attribute.
+      transformedNewOutputAttrs.push_back(
+          b.getNamedAttr("map", b.getAffineMapArrayAttr({affineMap6to3})));
+      // set layout attribute.
+      transformedNewOutputAttrs.push_back(b.getNamedAttr(
+          "layout",
+          b.getArrayAttr(
+              {b.getDictionaryAttr(
+                   {b.getNamedAttr("upper_layer_dimensions",
+                                   b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                    b.getNamedAttr("upper_layer_names",
+                                   b.getArrayAttr({b.getStringAttr("g")})),
+                    b.getNamedAttr("lower_layer_dimensions",
+                                   b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                    b.getNamedAttr("lower_layer_names",
+                                   b.getArrayAttr({b.getStringAttr("gemmG")})),
+                    b.getNamedAttr("transformation",
+                                   b.getStringAttr("PassThrough"))}),
+               b.getDictionaryAttr({
+                   b.getNamedAttr("upper_layer_dimensions",
+                                  b.getArrayAttr({b.getI32IntegerAttr(1),
+                                                  b.getI32IntegerAttr(2),
+                                                  b.getI32IntegerAttr(5)})),
+                   b.getNamedAttr("upper_layer_names",
+                                  b.getArrayAttr({b.getStringAttr("m0"),
+                                                  b.getStringAttr("m1"),
+                                                  b.getStringAttr("n1")})),
+                   b.getNamedAttr("lower_layer_dimensions",
+                                  b.getArrayAttr({b.getI32IntegerAttr(1)})),
+                   b.getNamedAttr("lower_layer_names",
+                                  b.getArrayAttr({b.getStringAttr("gemmM")})),
+                   b.getNamedAttr("transformation", b.getStringAttr("Embed")),
+                   b.getNamedAttr("parameters",
+                                  b.getArrayAttr({b.getI32IntegerAttr(M1 * N1),
+                                                  b.getI32IntegerAttr(N1),
+                                                  b.getI32IntegerAttr(1)})),
+               }),
+               b.getDictionaryAttr(
+                   {b.getNamedAttr("upper_layer_dimensions",
+                                   b.getArrayAttr({b.getI32IntegerAttr(4),
+                                                   b.getI32IntegerAttr(3)})),
+                    b.getNamedAttr("upper_layer_names",
+                                   b.getArrayAttr({b.getStringAttr("n0"),
+                                                   b.getStringAttr("m2")})),
+                    b.getNamedAttr("lower_layer_dimensions",
+                                   b.getArrayAttr({b.getI32IntegerAttr(2)})),
+                    b.getNamedAttr("lower_layer_names",
+                                   b.getArrayAttr({b.getStringAttr("gemmN")})),
+                    b.getNamedAttr("transformation", b.getStringAttr("Embed")),
+                    b.getNamedAttr(
+                        "parameters",
+                        b.getArrayAttr({b.getI32IntegerAttr(M2),
+                                        b.getI32IntegerAttr(1)}))})})));
+      // set lower_layer_layout attribute.
+      transformedNewOutputAttrs.push_back(b.getNamedAttr(
+          "lower_layer_layout",
+          b.getArrayAttr({b.getStringAttr("gemmG"), b.getStringAttr("gemmM"),
+                          b.getStringAttr("gemmN")})));
+      // set upper_layer_layout attribute.
+      transformedNewOutputAttrs.push_back(b.getNamedAttr(
+          "upper_layer_layout",
+          b.getArrayAttr({b.getStringAttr("g"), b.getStringAttr("m0"),
+                          b.getStringAttr("m1"), b.getStringAttr("m2"),
+                          b.getStringAttr("n0"), b.getStringAttr("n1")})));
+      auto newOutputType =
+          MemRefType::get({G, M0, M1, M2, N0, N1}, outputType.getElementType(),
+                          composeTransforms(newOutputAffineMaps));
+      newOutputTransformOp = b.create<miopen::TransformOp>(
+          loc, newOutputType, op.output(), transformedNewOutputAttrs,
+          /*populateBounds=*/true);
 
+      // We must also swizzle the tensor -> vector map
+      // The original is (d0, d1, d2, d3, d4) -> (d1 * M2 + d3)
+      // Except now, within each block, the elements are indexed by d5, not d3
+      tensorToXdlopsVectorMap = AffineMap::get(
+          6, 0,
+          {getAffineDimExpr(1, ctx) * getAffineConstantExpr(M2, ctx) +
+           getAffineDimExpr(5, ctx)},
+          ctx);
+      for (const Value &result : tailResults) {
+        auto swizzle = b.create<miopen::InWarpTransposeOp>(
+            loc, result.getType(), result, laneId_xdlops_gemm,
+            b.getI32IntegerAttr(group_size), b.getI32ArrayAttr({0, 1, 2, 3}));
+        vectors.push_back(swizzle);
+      }
+    } else {
+      // build affine expression: d0 = g
+      // (d0, d1, d2, d3, d4) -> (d0, d1 * M1 * M2 + d2 * M2 + d3, d4)
+      auto affineMap5to3 = AffineMap::get(
+          5, 0,
+          {getAffineDimExpr(0, ctx),
+           getAffineDimExpr(1, ctx) * getAffineConstantExpr(M1, ctx) *
+                   getAffineConstantExpr(M2, ctx) +
+               getAffineDimExpr(2, ctx) * getAffineConstantExpr(M2, ctx) +
+               getAffineDimExpr(3, ctx),
+           getAffineDimExpr(4, ctx)},
+          ctx);
+
+      // compose with output tensor affine map.
+      auto outputType = op.output().getType().template cast<MemRefType>();
+      SmallVector<AffineMap> newOutputAffineMaps(
+          {outputType.getLayout().getAffineMap()});
+      newOutputAffineMaps.insert(newOutputAffineMaps.begin(), affineMap5to3);
+
+      // emit TransformOp for output tensor.
+      llvm::SmallVector<NamedAttribute, 3> transformedNewOutputAttrs;
+      // set map attribute.
+      transformedNewOutputAttrs.push_back(
+          b.getNamedAttr("map", b.getAffineMapArrayAttr({affineMap5to3})));
+      // set layout attribute.
+      transformedNewOutputAttrs.push_back(b.getNamedAttr(
+          "layout",
+          b.getArrayAttr(
+              {b.getDictionaryAttr(
+                   {b.getNamedAttr("upper_layer_dimensions",
+                                   b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                    b.getNamedAttr("upper_layer_names",
+                                   b.getArrayAttr({b.getStringAttr("g")})),
+                    b.getNamedAttr("lower_layer_dimensions",
+                                   b.getArrayAttr({b.getI32IntegerAttr(0)})),
+                    b.getNamedAttr("lower_layer_names",
+                                   b.getArrayAttr({b.getStringAttr("gemmG")})),
+                    b.getNamedAttr("transformation",
+                                   b.getStringAttr("PassThrough"))}),
+               b.getDictionaryAttr({
+                   b.getNamedAttr("upper_layer_dimensions",
+                                  b.getArrayAttr({b.getI32IntegerAttr(1),
+                                                  b.getI32IntegerAttr(2),
+                                                  b.getI32IntegerAttr(3)})),
+                   b.getNamedAttr("upper_layer_names",
+                                  b.getArrayAttr({b.getStringAttr("m0"),
+                                                  b.getStringAttr("m1"),
+                                                  b.getStringAttr("m2")})),
+                   b.getNamedAttr("lower_layer_dimensions",
+                                  b.getArrayAttr({b.getI32IntegerAttr(1)})),
+                   b.getNamedAttr("lower_layer_names",
+                                  b.getArrayAttr({b.getStringAttr("gemmM")})),
+                   b.getNamedAttr("transformation", b.getStringAttr("Embed")),
+                   b.getNamedAttr("parameters",
+                                  b.getArrayAttr({b.getI32IntegerAttr(M1 * M2),
+                                                  b.getI32IntegerAttr(M2),
+                                                  b.getI32IntegerAttr(1)})),
+               }),
+               b.getDictionaryAttr(
+                   {b.getNamedAttr("upper_layer_dimensions",
+                                   b.getArrayAttr({b.getI32IntegerAttr(4)})),
+                    b.getNamedAttr("upper_layer_names",
+                                   b.getArrayAttr({b.getStringAttr("n")})),
+                    b.getNamedAttr("lower_layer_dimensions",
+                                   b.getArrayAttr({b.getI32IntegerAttr(2)})),
+                    b.getNamedAttr("lower_layer_names",
+                                   b.getArrayAttr({b.getStringAttr("gemmN")})),
+                    b.getNamedAttr("transformation",
+                                   b.getStringAttr("PassThrough"))})})));
+      // set lower_layer_layout attribute.
+      transformedNewOutputAttrs.push_back(b.getNamedAttr(
+          "lower_layer_layout",
+          b.getArrayAttr({b.getStringAttr("gemmG"), b.getStringAttr("gemmM"),
+                          b.getStringAttr("gemmN")})));
+      // set upper_layer_layout attribute.
+      transformedNewOutputAttrs.push_back(b.getNamedAttr(
+          "upper_layer_layout",
+          b.getArrayAttr({b.getStringAttr("g"), b.getStringAttr("m0"),
+                          b.getStringAttr("m1"), b.getStringAttr("m2"),
+                          b.getStringAttr("n")})));
+      auto newOutputType =
+          MemRefType::get({G, M0, M1, M2, N}, outputType.getElementType(),
+                          composeTransforms(newOutputAffineMaps));
+      newOutputTransformOp = b.create<miopen::TransformOp>(
+          loc, newOutputType, op.output(), transformedNewOutputAttrs,
+          /*populateBounds=*/true);
+
+      // Build affine expression for Sequence<1, M0, 1, M2, 1>
+      // (d0, d1, d2, d3, d4) -> (d1 * M2 + d3)
+      tensorToXdlopsVectorMap = AffineMap::get(
+          5, 0,
+          {getAffineDimExpr(1, ctx) * getAffineConstantExpr(M2, ctx) +
+           getAffineDimExpr(3, ctx)},
+          op.getContext());
+      std::copy(tailResults.begin(), tailResults.end(),
+                std::back_inserter(vectors));
+    }
     Value c_thread_mtx_index_row, c_thread_mtx_index_col;
     Value m_thread_data_on_global, n_thread_data_on_global;
 
@@ -7007,21 +7163,44 @@ struct GridwiseGemmV2RewritePattern
         col_blk_xdlops_gemm = j_xdlops_gemm / num_output_blks;
         row_blk_xdlops_gemm = j_xdlops_gemm % num_output_blks;
       }
-      // Original C++ logic.
-      //     index_t col = col_blk * mfma_type.n + blk_td + n_i * NPerXdlops;
+
+      Value threadMtxColInBlock;
+      if (canSwizzle) {
+        // In the swizzled case, clear off the group index, as it'll be replaced
+        // by the corresponding low bits of the row index due to the transpose
+        // Said low bits are always 0
+        threadMtxColInBlock =
+            b.create<MulIOp>(loc,
+                             b.create<arith::DivUIOp>(loc, blk_td_xdlops_gemm,
+                                                      group_size_ConstantOp),
+                             group_size_ConstantOp);
+      } else {
+        threadMtxColInBlock = blk_td_xdlops_gemm;
+      }
       int64_t thread_mtx_on_blk_col_const =
           col_blk_xdlops_gemm * n + n_i_xdlops_gemm * NPerXdlops;
       Value thread_mtx_on_blk_col = b.create<AddIOp>(
-          loc, blk_td_xdlops_gemm,
+          loc, threadMtxColInBlock,
           b.create<ConstantIndexOp>(loc, thread_mtx_on_blk_col_const));
+
       // Original C++ logic.
       //     index_t row = row_blk * mfma_type.m + blk_id * mfma_type.group_size
       //     + m_i * MPerXdlops;
+      Value threadMtxRowInBlock =
+          b.create<MulIOp>(loc, blk_id_xdlops_gemm, group_size_ConstantOp);
+      if (canSwizzle) {
+        threadMtxRowInBlock =
+            b.create<AddIOp>(loc, threadMtxRowInBlock,
+                             b.create<arith::RemUIOp>(loc, blk_td_xdlops_gemm,
+                                                      group_size_ConstantOp));
+      }
       int64_t thread_mtx_on_blk_row_const =
           row_blk_xdlops_gemm * m + m_i_xdlops_gemm * MPerXdlops;
       auto thread_mtx_on_blk_row = b.create<AddIOp>(
-          loc, b.create<MulIOp>(loc, blk_id_xdlops_gemm, group_size_ConstantOp),
+          loc, threadMtxRowInBlock,
           b.create<ConstantIndexOp>(loc, thread_mtx_on_blk_row_const));
+
+      // xdlop output space is, logically, a space of
 
       // compute c_thread_mtx_index_row, c_thread_mtx_index_col.
       // compute c_thread_mtx_index_row_i32, c_thread_mtx_index_col_i32.
@@ -7092,123 +7271,254 @@ struct GridwiseGemmV2RewritePattern
       n_thread_data_on_global =
           b.create<AddIOp>(loc, n_block_data_on_global, c_thread_mtx_index_col);
 
-      SmallVector<Value, 5> matrixCThreadwiseCopySourceCoords;
-      std::fill_n(std::back_inserter(matrixCThreadwiseCopySourceCoords), 5,
-                  zeroConstantOp.getResult());
-      SmallVector<Value, 5> matrixCThreadwiseCopyDestCoords = {
-          // g
-          GemmBlockCoord_G,
-          // m_thread_data_on_global / (M2 * M1)
-          b.create<DivUIOp>(loc, m_thread_data_on_global, M2TimesM1Op),
-          // m_thread_data_on_global % (M2 * M1) / M2
-          b.create<DivUIOp>(
-              loc, b.create<RemUIOp>(loc, m_thread_data_on_global, M2TimesM1Op),
-              M2ConstantOp),
-          // m_thread_data_on_global % M2
-          b.create<RemUIOp>(loc, m_thread_data_on_global, M2ConstantOp),
-          // n_thread_data_on_global
-          n_thread_data_on_global};
-
+      SmallVector<Value, 6> matrixCThreadwiseCopySourceCoords;
+      SmallVector<Value, 6> matrixCThreadwiseCopyDestCoords;
+      if (canSwizzle) {
+        std::fill_n(std::back_inserter(matrixCThreadwiseCopySourceCoords), 6,
+                    zeroConstantOp.getResult());
+        matrixCThreadwiseCopyDestCoords.append(
+            {// g
+             GemmBlockCoord_G,
+             // m_thread_data_on_global / (M2 * M1)
+             b.create<DivUIOp>(loc, m_thread_data_on_global, M2TimesM1Op),
+             // m_thread_data_on_global % (M2 * M1) / M2
+             b.create<DivUIOp>(
+                 loc,
+                 b.create<RemUIOp>(loc, m_thread_data_on_global, M2TimesM1Op),
+                 M2ConstantOp),
+             // m_thread_data_on_global % M2
+             b.create<DivUIOp>(loc, m_thread_data_on_global, M2ConstantOp),
+             // n_thread_data_on_global / N1
+             b.create<DivUIOp>(loc, n_thread_data_on_global, N1ConstantOp),
+             // n_thread-data_on_global % N1
+             b.create<RemUIOp>(loc, n_thread_data_on_global, N1ConstantOp)});
+      } else {
+        std::fill_n(std::back_inserter(matrixCThreadwiseCopySourceCoords), 5,
+                    zeroConstantOp.getResult());
+        matrixCThreadwiseCopyDestCoords.append(
+            {// g
+             GemmBlockCoord_G,
+             // m_thread_data_on_global / (M2 * M1)
+             b.create<DivUIOp>(loc, m_thread_data_on_global, M2TimesM1Op),
+             // m_thread_data_on_global % (M2 * M1) / M2
+             b.create<DivUIOp>(
+                 loc,
+                 b.create<RemUIOp>(loc, m_thread_data_on_global, M2TimesM1Op),
+                 M2ConstantOp),
+             // m_thread_data_on_global % M2
+             b.create<RemUIOp>(loc, m_thread_data_on_global, M2ConstantOp),
+             // n_thread_data_on_global
+             n_thread_data_on_global});
+      }
       // Select which vector C to use, and offset.
       int64_t vectorCIndex = iter / iterationsPerVectorC;
       int64_t vectorCOffset = vectorCoffset * (iter % iterationsPerVectorC);
       auto vectorCOffsetConstantAttr = b.getIndexAttr(vectorCOffset);
 
       // Emit threadwise_copy_v2.
+      /*       b.create<gpu::PrintfOp>(loc,
+              "thread %02d output dest coords [%02d, %02d, %02d, %02d, %02d,
+         %02d]\n", ValueRange{tid.getResult(),
+         matrixCThreadwiseCopyDestCoords[0], matrixCThreadwiseCopyDestCoords[1],
+         matrixCThreadwiseCopyDestCoords[2], matrixCThreadwiseCopyDestCoords[3],
+         matrixCThreadwiseCopyDestCoords[4], canSwizzle ?
+         matrixCThreadwiseCopyDestCoords[5] : zeroConstantOp}); */
       auto threadwiseCopyV2CMatrixOp = b.create<miopen::ThreadwiseCopyV2Op>(
-          loc, tailResults[vectorCIndex], newOutputTransformOp,
+          loc, vectors[vectorCIndex], newOutputTransformOp,
           vectorCOffsetConstantAttr, matrixCThreadwiseCopySourceCoords,
           matrixCThreadwiseCopyDestCoords);
-      affixThreadwiseCopyV2Attributes(threadwiseCopyV2CMatrixOp, op, b);
+      affixThreadwiseCopyV2Attributes(threadwiseCopyV2CMatrixOp, op, b,
+                                      canSwizzle);
 
-      // affix coord_transforms attributes.
-      threadwiseCopyV2CMatrixOp->setAttr(
-          "coord_transforms",
-          b.getArrayAttr({b.getDictionaryAttr({
-              b.getNamedAttr("operand", b.getI32IntegerAttr(0)),
-              b.getNamedAttr("transforms",
-                             b.getAffineMapArrayAttr(matrixCAffineMap5to1)),
-              b.getNamedAttr(
-                  "metadata",
-                  b.getArrayAttr({
-                      b.getDictionaryAttr(
-                          {b.getNamedAttr("map", b.getAffineMapArrayAttr(
-                                                     {matrixCAffineMap5to1})),
-                           b.getNamedAttr(
-                               "layout",
-                               b.getArrayAttr({
-                                   b.getDictionaryAttr(
-                                       {b.getNamedAttr(
-                                            "lower_layer_dimensions",
-                                            b.getArrayAttr(
-                                                {b.getI32IntegerAttr(0)})),
-                                        b.getNamedAttr(
-                                            "lower_layer_names",
-                                            b.getArrayAttr(
-                                                {b.getStringAttr("raw")})),
-                                        b.getNamedAttr(
-                                            "transformation",
-                                            b.getStringAttr("Embed")),
-                                        b.getNamedAttr(
-                                            "upper_layer_dimensions",
-                                            b.getArrayAttr(
-                                                {b.getI32IntegerAttr(0),
-                                                 b.getI32IntegerAttr(1),
-                                                 b.getI32IntegerAttr(2),
-                                                 b.getI32IntegerAttr(3),
-                                                 b.getI32IntegerAttr(4)})),
-                                        b.getNamedAttr(
-                                            "parameters",
-                                            b.getArrayAttr(
-                                                {b.getI32IntegerAttr(M3 * M2),
-                                                 b.getI32IntegerAttr(M2),
-                                                 b.getI32IntegerAttr(M2),
-                                                 b.getI32IntegerAttr(1),
-                                                 b.getI32IntegerAttr(1)})),
-                                        b.getNamedAttr(
-                                            "upper_layer_names",
-                                            b.getArrayAttr(
-                                                {b.getStringAttr("dim0"),
-                                                 b.getStringAttr("m3"),
-                                                 b.getStringAttr("dim2"),
-                                                 b.getStringAttr("m2"),
-                                                 b.getStringAttr(
-                                                     "dim4")}))}) // dicitionary
+      if (canSwizzle) {
+        // affix coord_transforms attributes.
+        threadwiseCopyV2CMatrixOp->setAttr(
+            "coord_transforms",
+            b.getArrayAttr({b.getDictionaryAttr({
+                b.getNamedAttr("operand", b.getI32IntegerAttr(0)),
+                b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
+                                                 tensorToXdlopsVectorMap)),
+                b.getNamedAttr(
+                    "metadata",
+                    b.getArrayAttr({
+                        b.getDictionaryAttr(
+                            {b.getNamedAttr("map",
+                                            b.getAffineMapArrayAttr(
+                                                {tensorToXdlopsVectorMap})),
+                             b.getNamedAttr(
+                                 "layout",
+                                 b.getArrayAttr({
+                                     b.getDictionaryAttr(
+                                         {b.getNamedAttr(
+                                              "lower_layer_dimensions",
+                                              b.getArrayAttr(
+                                                  {b.getI32IntegerAttr(0)})),
+                                          b.getNamedAttr(
+                                              "lower_layer_names",
+                                              b.getArrayAttr(
+                                                  {b.getStringAttr("raw")})),
+                                          b.getNamedAttr(
+                                              "transformation",
+                                              b.getStringAttr("Embed")),
+                                          b.getNamedAttr(
+                                              "upper_layer_dimensions",
+                                              b.getArrayAttr(
+                                                  {b.getI32IntegerAttr(0),
+                                                   b.getI32IntegerAttr(1),
+                                                   b.getI32IntegerAttr(2),
+                                                   b.getI32IntegerAttr(3),
+                                                   b.getI32IntegerAttr(4),
+                                                   b.getI32IntegerAttr(5)})),
+                                          b.getNamedAttr(
+                                              "parameters",
+                                              b.getArrayAttr(
+                                                  {b.getI32IntegerAttr(M3 * N1),
+                                                   b.getI32IntegerAttr(N1),
+                                                   b.getI32IntegerAttr(N1),
+                                                   b.getI32IntegerAttr(N1),
+                                                   b.getI32IntegerAttr(N1),
+                                                   b.getI32IntegerAttr(1)})),
+                                          b.getNamedAttr(
+                                              "upper_layer_names",
+                                              b.getArrayAttr(
+                                                  {b.getStringAttr("dim0"),
+                                                   b.getStringAttr("m3"),
+                                                   b.getStringAttr("dim2"),
+                                                   b.getStringAttr("dim3"),
+                                                   b.getStringAttr("dim4"),
+                                                   b.getStringAttr(
+                                                       "n1")}))}) // dicitionary
                                                                   // attr inside
                                                                   // layout
-                               })),                               // layout
-                           b.getNamedAttr("lower_layer_bounds",
-                                          b.getArrayAttr({b.getI32IntegerAttr(
-                                              1 * M3 * 1 * M2 * 1)})),
-                           b.getNamedAttr(
-                               "lower_layer_layout",
-                               b.getArrayAttr({b.getStringAttr("raw")})),
-                           b.getNamedAttr(
-                               "upper_layer_bounds",
-                               b.getArrayAttr({b.getI32IntegerAttr(1),
-                                               b.getI32IntegerAttr(M3),
-                                               b.getI32IntegerAttr(1),
-                                               b.getI32IntegerAttr(M2),
-                                               b.getI32IntegerAttr(1)})),
-                           b.getNamedAttr(
-                               "upper_layer_layout",
-                               b.getArrayAttr({b.getStringAttr("dim0"),
-                                               b.getStringAttr("m3"),
-                                               b.getStringAttr("dim2"),
-                                               b.getStringAttr("m2"),
-                                               b.getStringAttr(
-                                                   "dim4")}))}) // metadata dict
-                  }))                                           // metadata
-          })}));
+                                 })),                             // layout
+                             b.getNamedAttr("lower_layer_bounds",
+                                            b.getArrayAttr({b.getI32IntegerAttr(
+                                                1 * M3 * 1 * 1 * 1 * N1)})),
+                             b.getNamedAttr(
+                                 "lower_layer_layout",
+                                 b.getArrayAttr({b.getStringAttr("raw")})),
+                             b.getNamedAttr(
+                                 "upper_layer_bounds",
+                                 b.getArrayAttr({b.getI32IntegerAttr(1),
+                                                 b.getI32IntegerAttr(M3),
+                                                 b.getI32IntegerAttr(1),
+                                                 b.getI32IntegerAttr(1),
+                                                 b.getI32IntegerAttr(1),
+                                                 b.getI32IntegerAttr(N1)})),
+                             b.getNamedAttr(
+                                 "upper_layer_layout",
+                                 b.getArrayAttr({b.getStringAttr("dim0"),
+                                                 b.getStringAttr("m3"),
+                                                 b.getStringAttr("dim2"),
+                                                 b.getStringAttr("dim3"),
+                                                 b.getStringAttr("dim4"),
+                                                 b.getStringAttr(
+                                                     "n1")}))}) // metadata dict
+                    }))                                         // metadata
+            })}));
 
-      // affix bound attributes.
-      threadwiseCopyV2CMatrixOp->setAttr("bound", b.getArrayAttr({
-                                                      b.getI32IntegerAttr(1),
-                                                      b.getI32IntegerAttr(M3),
-                                                      b.getI32IntegerAttr(1),
-                                                      b.getI32IntegerAttr(M2),
-                                                      b.getI32IntegerAttr(1),
-                                                  }));
+        // affix bound attributes.
+        threadwiseCopyV2CMatrixOp->setAttr("bound", b.getArrayAttr({
+                                                        b.getI32IntegerAttr(1),
+                                                        b.getI32IntegerAttr(M3),
+                                                        b.getI32IntegerAttr(1),
+                                                        b.getI32IntegerAttr(1),
+                                                        b.getI32IntegerAttr(1),
+                                                        b.getI32IntegerAttr(N1),
+                                                    }));
+      } else {
+        // affix coord_transforms attributes.
+        threadwiseCopyV2CMatrixOp->setAttr(
+            "coord_transforms",
+            b.getArrayAttr({b.getDictionaryAttr({
+                b.getNamedAttr("operand", b.getI32IntegerAttr(0)),
+                b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
+                                                 tensorToXdlopsVectorMap)),
+                b.getNamedAttr(
+                    "metadata",
+                    b.getArrayAttr({
+                        b.getDictionaryAttr(
+                            {b.getNamedAttr("map",
+                                            b.getAffineMapArrayAttr(
+                                                {tensorToXdlopsVectorMap})),
+                             b.getNamedAttr(
+                                 "layout",
+                                 b.getArrayAttr({
+                                     b.getDictionaryAttr(
+                                         {b.getNamedAttr(
+                                              "lower_layer_dimensions",
+                                              b.getArrayAttr(
+                                                  {b.getI32IntegerAttr(0)})),
+                                          b.getNamedAttr(
+                                              "lower_layer_names",
+                                              b.getArrayAttr(
+                                                  {b.getStringAttr("raw")})),
+                                          b.getNamedAttr(
+                                              "transformation",
+                                              b.getStringAttr("Embed")),
+                                          b.getNamedAttr(
+                                              "upper_layer_dimensions",
+                                              b.getArrayAttr(
+                                                  {b.getI32IntegerAttr(0),
+                                                   b.getI32IntegerAttr(1),
+                                                   b.getI32IntegerAttr(2),
+                                                   b.getI32IntegerAttr(3),
+                                                   b.getI32IntegerAttr(4)})),
+                                          b.getNamedAttr(
+                                              "parameters",
+                                              b.getArrayAttr(
+                                                  {b.getI32IntegerAttr(M3 * M2),
+                                                   b.getI32IntegerAttr(M2),
+                                                   b.getI32IntegerAttr(M2),
+                                                   b.getI32IntegerAttr(1),
+                                                   b.getI32IntegerAttr(1)})),
+                                          b.getNamedAttr(
+                                              "upper_layer_names",
+                                              b.getArrayAttr(
+                                                  {b.getStringAttr("dim0"),
+                                                   b.getStringAttr("m3"),
+                                                   b.getStringAttr("dim2"),
+                                                   b.getStringAttr("m2"),
+                                                   b.getStringAttr(
+                                                       "dim4")}))}) // dicitionary
+                                                                    // attr
+                                                                    // inside
+                                                                    // layout
+                                 })), // layout
+                             b.getNamedAttr("lower_layer_bounds",
+                                            b.getArrayAttr({b.getI32IntegerAttr(
+                                                1 * M3 * 1 * M2 * 1)})),
+                             b.getNamedAttr(
+                                 "lower_layer_layout",
+                                 b.getArrayAttr({b.getStringAttr("raw")})),
+                             b.getNamedAttr(
+                                 "upper_layer_bounds",
+                                 b.getArrayAttr({b.getI32IntegerAttr(1),
+                                                 b.getI32IntegerAttr(M3),
+                                                 b.getI32IntegerAttr(1),
+                                                 b.getI32IntegerAttr(M2),
+                                                 b.getI32IntegerAttr(1)})),
+                             b.getNamedAttr(
+                                 "upper_layer_layout",
+                                 b.getArrayAttr(
+                                     {b.getStringAttr("dim0"),
+                                      b.getStringAttr("m3"),
+                                      b.getStringAttr("dim2"),
+                                      b.getStringAttr("m2"),
+                                      b.getStringAttr("dim4")}))}) // metadata
+                                                                   // dict
+                    }))                                            // metadata
+            })}));
+
+        // affix bound attributes.
+        threadwiseCopyV2CMatrixOp->setAttr("bound", b.getArrayAttr({
+                                                        b.getI32IntegerAttr(1),
+                                                        b.getI32IntegerAttr(M3),
+                                                        b.getI32IntegerAttr(1),
+                                                        b.getI32IntegerAttr(M2),
+                                                        b.getI32IntegerAttr(1),
+                                                    }));
+      }
       auto dataOperation = op->getAttr("data_operation");
       if (dataOperation) {
         threadwiseCopyV2CMatrixOp->setAttr("data_operation", dataOperation);
@@ -9029,7 +9339,18 @@ struct ThreadwiseCopyV2RewritePattern
       emitStoreLogic(bwdPaddingStatus, b, loc, destType, destElementType,
                      toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
                      destLowerIndices, convertedScalarValue, dataOpration);
-
+      /*       SmallString<128> printFormat;
+            printFormat.append("thread %02d v[%02d] -> C[");
+            SmallVector<Value, 8> printArgs = {
+              b.create<miopen::WorkitemIdOp>(loc, b.getIndexType()),
+              srcPosition};
+            printArgs.append(destLowerIndices);
+            for (size_t i = 0; i < destLowerIndices.size(); ++i) {
+              printFormat.append("%02d");
+              printFormat.append(i == destLowerIndices.size() - 1 ? "]\n" : ",
+         ");
+            }
+            b.create<gpu::PrintfOp>(loc, printFormat, printArgs); */
       // increase IVs
       bool toIncreaseNextDigit = true;
       int iter = loopIVsPerAccessOrder.size() - 1;
