@@ -24,7 +24,6 @@
 #include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Vector/VectorOps.h"
-#include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
@@ -56,7 +55,6 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <iterator>
 
@@ -651,6 +649,7 @@ inline void emitStoreLogic(
     SmallVector<Value, 8> destLowerIndicesUpdated;
     for (unsigned iter = 1; iter <= 5; ++iter)
       destLowerIndicesUpdated.push_back(ifWithinBoundsOp.getResults()[iter]);
+
     emitStoreInstruction(value, destType, typeToStore, dest,
                          destLowerIndicesUpdated,
                          /*oob=*/ifWithinBoundsOp.getResults()[0]);
@@ -7285,6 +7284,8 @@ struct GridwiseGemmV2RewritePattern
                                                       group_size_ConstantOp),
                              group_size_ConstantOp);
       } else {
+        // Original C++ logic.
+        //     index_t col = col_blk * mfma_type.n + blk_td + n_i * NPerXdlops;
         threadMtxColInBlock = blk_td_xdlops_gemm;
       }
       int64_t thread_mtx_on_blk_col_const =
@@ -7313,8 +7314,6 @@ struct GridwiseGemmV2RewritePattern
       auto thread_mtx_on_blk_row = b.create<AddIOp>(
           loc, threadMtxRowInBlock,
           b.create<ConstantIndexOp>(loc, thread_mtx_on_blk_row_const));
-
-      // xdlop output space is, logically, a space of
 
       // compute c_thread_mtx_index_row, c_thread_mtx_index_col.
       // compute c_thread_mtx_index_row_i32, c_thread_mtx_index_col_i32.
@@ -9486,6 +9485,7 @@ struct ThreadwiseCopyV2RewritePattern
       emitStoreLogic(bwdPaddingStatus, b, loc, destType, destElementType,
                      toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
                      destLowerIndices, convertedScalarValue, dataOpration);
+
       // increase IVs
       bool toIncreaseNextDigit = true;
       int iter = loopIVsPerAccessOrder.size() - 1;
