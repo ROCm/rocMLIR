@@ -264,18 +264,6 @@ pipeline {
                                 }
                             }
                         }
-                        stage("Tune MLIR Kernels") {
-                            when { allOf{
-                                equals expected: true, actual: params.nightly;
-                                equals expected: true, actual: params.perfTest;
-                            } }
-                            steps {
-                                buildProject('ci-performance-scripts', '')
-                                dir('build') {
-                                    sh 'python3 ./bin/MIOpenDriver.py -tuning'
-                                }
-                            }
-                        }
                         stage("Stash MIOpen with libMLIRMIOpen") {
                             when { anyOf {
                                     equals expected: true, actual: params.nightly;
@@ -304,18 +292,39 @@ pipeline {
                             steps {
                                 sh 'ldconfig'
                                 dir('MIOpen/build/') {
-                                    sh 'date --utc +%Y-%m-%d > tuning-date'
                                     sh """
                                     bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
                                        < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+                                    sh 'date --utc +%Y-%m-%d > MIOpenUserDB/tuning-date'
                                     sh 'ls -l MIOpenUserDB'
                                 }
-                                // Save user database  for nightly jobs
+                                // Save user database for nightly jobs
                                 archiveArtifacts artifacts: 'MIOpen/build/MIOpenUserDB/**, MIOpen/build/tuning-date',\
                                                  onlyIfSuccessful: true
                             }
                         }
- 
+                        stage("Test selected MIOpen configs") {
+                            when {
+                                    equals expected: true, actual: params.nightly;
+                                    equals expected: true, actual: params.staticLib;
+                            }
+                            environment {
+                                    // Make libMIOpen.so accessible to the test driver
+                                    LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                            }
+                            steps {
+                                showEnv()
+                                sh 'ldconfig'
+                                dir('MIOpen/build/') {
+                                    sh """
+                                    bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --no-tuning\
+                                       < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
+                                    sh """
+                                    bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
+                                       < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
+                                }
+                            }
+                        }
                     }
                     post {
                         always {
@@ -410,14 +419,14 @@ pipeline {
                     steps {
                         sh 'rm -rf MIOpen'
                         unstash name: "MIOpen-MLIR-kernels"
-                        //copyArtifacts filter: 'MIOpen/build/MIOpenUserDB,MIOpen/build/tuning-date',\
-                        //                       optional: true,\
-                        //                       flatten: true,\
-                        //                       projectName: "/${JOB_NAME}",\
-                        //                       selector: lastSuccessful(),\
-                        //                       target: 'MIOpen/build/'
-                        //sh 'ls MIOpen/build/MIOpenUserDB'
-                        //sh 'cat MIOpen/build/tuning-date'
+                        copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
+                                               optional: true,\
+                                               flatten: true,\
+                                               projectName: "mlir-weekly",\
+                                               selector: lastSuccessful(),\
+                                               target: 'MIOpen/build/MIOpenUserDB'
+                        sh 'ls MIOpen/build/MIOpenUserDB'
+                        sh 'cat MIOpen/build/MIOpenUserDB/tuning-date'
                     }
                 }
                 stage("Performance Test: Tuned vs Untuned") {
@@ -462,11 +471,8 @@ pipeline {
         }
         stage("MIOpen Resnet50 Config Test") {
             when { allOf {
-                anyOf {
-                    equals expected: true, actual: params.nightly;
                     equals expected: true, actual: params.weekly;
-                }
-                equals expected: true, actual: params.staticLib;
+                    equals expected: true, actual: params.staticLib;
             }}
             matrix {
                 options {
