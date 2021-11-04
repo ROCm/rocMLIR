@@ -1,4 +1,4 @@
-// RUN:   python3 %S/Inputs/resnet50-test.py %S/Inputs/590px-Red_Smooth_Saluki.jpg \
+// RUN:   python3.7 %S/Inputs/resnet50-test.py %S/Inputs/590px-Red_Smooth_Saluki.jpg \
 // RUN: | mlir-opt --tosa-partition --tosa-to-linalg-on-tensors --tosa-to-standard \
 // RUN:   --linalg-detensorize -tensor-constant-bufferize -std-bufferize -linalg-bufferize \
 // RUN:   -tensor-bufferize -func-bufferize -finalizing-bufferize --convert-linalg-to-loops \
@@ -9,6 +9,5 @@
 // RUN:   -shared-libs=%mlir_runner_utils_dir/../lib/libmlir_c_runner_utils%shlibext \
 // RUN: | FileCheck %s
 
-// CHECK:  Expected result is [176]
 // CHECK:  Unranked Memref
 // CHECK:  [176]
