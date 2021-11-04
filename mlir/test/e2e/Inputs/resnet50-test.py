@@ -4,6 +4,7 @@ import tensorflow as tf
 import numpy as np
 import argparse
 import sys
+from contextlib import redirect_stdout
 from tensorflow.keras.applications.resnet50 import preprocess_input, decode_predictions
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.applications.resnet50 import ResNet50
@@ -19,7 +20,10 @@ def run_model_on_image(image_file):
     x = np.expand_dims(x, axis=0)
     x = preprocess_input(x)
 
-    model = ResNet50(weights='imagenet')
+    # Stifle the "Downloading ..." message, which goes to stdout, because
+    # we print the MLIR to stdout later and will pipe it to mlir-opt.
+    with redirect_stdout(None):
+        model = ResNet50(weights='imagenet')
 
     print(f">> Expected result is {tf.argmax(model(x), 1).numpy()}", file=sys.stderr)
 
