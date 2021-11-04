@@ -243,7 +243,8 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
 
   miopen::addPipeline(pm, handle->perfConfig);
 
-  miopen::addBackendPipeline(pm, handle->triple, handle->chip, handle->features);
+  miopen::addBackendPipeline(pm, handle->triple, handle->chip,
+                             handle->features);
 
   auto status = pm.run(module);
 

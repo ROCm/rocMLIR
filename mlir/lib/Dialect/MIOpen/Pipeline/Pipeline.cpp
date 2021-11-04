@@ -20,7 +20,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-
 #include "mlir/Dialect/MIOpen/Pipeline.h"
 
 #include "mlir/Conversion/MIOpenPasses.h"
@@ -51,7 +50,8 @@ void miopen::addHighLevelPipeline(PassManager &pm) {
   pm.addPass(miopen::createMIOpenCopyOptPass());
 }
 
-void miopen::addPipeline(PassManager &pm, const std::string &perfConfig, bool applicability, bool highLevel) {
+void miopen::addPipeline(PassManager &pm, const std::string &perfConfig,
+                         bool applicability, bool highLevel) {
   // Passes for lowering MIOpen dialect.
   pm.addPass(miopen::createAffixTuningParametersPass(0, 0, perfConfig));
   pm.addPass(miopen::createLowerMIOpenOpsStep1Pass());
@@ -75,11 +75,12 @@ void miopen::addPipeline(PassManager &pm, const std::string &perfConfig, bool ap
   }
 }
 
-void miopen::addBackendPipeline(PassManager &pm, const std::string &triple, const std::string &chip, const std::string &features, int32_t optLevel) {
+void miopen::addBackendPipeline(PassManager &pm, const std::string &triple,
+                                const std::string &chip,
+                                const std::string &features, int32_t optLevel) {
   // Passes for lowering ROCDL dialect
   pm.addPass(createGpuKernelOutliningPass());
   pm.addPass(createStripDebugInfoPass());
   pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
-  pm.addPass(createGpuSerializeToHsacoPass(triple, chip, features,
-                                           optLevel));
+  pm.addPass(createGpuSerializeToHsacoPass(triple, chip, features, optLevel));
 }
