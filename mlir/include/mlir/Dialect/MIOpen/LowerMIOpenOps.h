@@ -6996,10 +6996,22 @@ struct GridwiseGemmV2RewritePattern
     // llvm::errs() << "iterationsPerVectorC: " << iterationsPerVectorC << "\n";
     // llvm::errs() << "vectorCoffset: " << vectorCoffset << "\n";
 
+    auto MPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, MPerXdlops);
+    auto NPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, NPerXdlops);
+    auto NRepeatsConstantOp = b.create<ConstantIndexOp>(loc, NRepeats);
+
     auto group_size_ConstantOp = b.create<ConstantIndexOp>(loc, group_size);
     auto wave_size_ConstantOp = b.create<ConstantIndexOp>(loc, wave_size);
     auto num_threads_blk_ConstantOp =
         b.create<ConstantIndexOp>(loc, num_threads_blk);
+    auto num_output_blks_ConstantOp =
+        b.create<ConstantIndexOp>(loc, num_output_blks);
+    auto m_ConstantOp = b.create<ConstantIndexOp>(loc, m);
+    auto n_ConstantOp = b.create<ConstantIndexOp>(loc, n);
+
+    auto NumBlksPerXdlopsConstantOp =
+        b.create<ConstantIndexOp>(loc, NumBlksPerXdlops);
+    auto NumBlksConstantOp = b.create<ConstantIndexOp>(loc, NumBlks);
 
     // Threadwise copy from register (naive tensor) to global (generic tensor).
 
@@ -7131,6 +7143,8 @@ struct GridwiseGemmV2RewritePattern
 
     // emit unrolled loop.
     for (int64_t iter = 0; iter < NumBlks; ++iter) {
+      auto iv = b.create<ConstantIndexOp>(loc, iter);
+
       // In gridwise_gemm_xdlops.hpp:
       //
       // Original C++ logic:
@@ -7168,35 +7182,47 @@ struct GridwiseGemmV2RewritePattern
       //     + m_i * MPerXdlops; return MatrixIndex{row, col};
       // }
       //
-      int64_t xdlops_i_xdlops_gemm = iter / NumBlksPerXdlops;
-      int64_t j_xdlops_gemm = iter % NumBlksPerXdlops;
-      int64_t m_i_xdlops_gemm = xdlops_i_xdlops_gemm / NRepeats;
-      int64_t n_i_xdlops_gemm = xdlops_i_xdlops_gemm % NRepeats;
+      auto xdlops_i_xdlops_gemm =
+          b.create<UnsignedDivIOp>(loc, iv, NumBlksPerXdlopsConstantOp);
+      auto j_xdlops_gemm =
+          b.create<UnsignedRemIOp>(loc, iv, NumBlksPerXdlopsConstantOp);
+      auto m_i_xdlops_gemm =
+          b.create<UnsignedDivIOp>(loc, xdlops_i_xdlops_gemm, NRepeatsConstantOp);
+      auto n_i_xdlops_gemm =
+          b.create<UnsignedRemIOp>(loc, xdlops_i_xdlops_gemm, NRepeatsConstantOp);
 
-      int64_t col_blk_xdlops_gemm, row_blk_xdlops_gemm;
+      Value col_blk_xdlops_gemm, row_blk_xdlops_gemm;
       bool IsABroadcast = (NPerXdlops >= MPerXdlops);
       if (IsABroadcast) {
-        col_blk_xdlops_gemm = j_xdlops_gemm % num_output_blks;
-        row_blk_xdlops_gemm = j_xdlops_gemm / num_output_blks;
+        // IsABroadcast
+        col_blk_xdlops_gemm = b.create<UnsignedRemIOp>(
+            loc, j_xdlops_gemm, num_output_blks_ConstantOp);
+        row_blk_xdlops_gemm = b.create<UnsignedDivIOp>(
+            loc, j_xdlops_gemm, num_output_blks_ConstantOp);
       } else {
-        col_blk_xdlops_gemm = j_xdlops_gemm / num_output_blks;
-        row_blk_xdlops_gemm = j_xdlops_gemm % num_output_blks;
+        // !IsABroadcast
+        col_blk_xdlops_gemm = b.create<UnsignedDivIOp>(
+            loc, j_xdlops_gemm, num_output_blks_ConstantOp);
+        row_blk_xdlops_gemm = b.create<UnsignedRemIOp>(
+            loc, j_xdlops_gemm, num_output_blks_ConstantOp);
       }
       // Original C++ logic.
       //     index_t col = col_blk * mfma_type.n + blk_td + n_i * NPerXdlops;
-      int64_t thread_mtx_on_blk_col_const =
-          col_blk_xdlops_gemm * n + n_i_xdlops_gemm * NumBlksPerXdlops;
-      Value thread_mtx_on_blk_col = b.create<AddIOp>(
-          loc, blk_td_xdlops_gemm,
-          b.create<ConstantIndexOp>(loc, thread_mtx_on_blk_col_const));
+      auto thread_mtx_on_blk_col = b.create<AddIOp>(
+          loc,
+          b.create<AddIOp>(
+              loc, b.create<MulIOp>(loc, col_blk_xdlops_gemm, n_ConstantOp),
+              blk_td_xdlops_gemm),
+          b.create<MulIOp>(loc, n_i_xdlops_gemm, NPerXdlopsConstantOp));
       // Original C++ logic.
       //     index_t row = row_blk * mfma_type.m + blk_id * mfma_type.group_size
       //     + m_i * MPerXdlops;
-      int64_t thread_mtx_on_blk_row_const =
-          row_blk_xdlops_gemm * m + m_i_xdlops_gemm * MPerXdlops;
       auto thread_mtx_on_blk_row = b.create<AddIOp>(
-          loc, b.create<MulIOp>(loc, blk_id_xdlops_gemm, group_size_ConstantOp),
-          b.create<ConstantIndexOp>(loc, thread_mtx_on_blk_row_const));
+          loc,
+          b.create<AddIOp>(
+              loc, b.create<MulIOp>(loc, row_blk_xdlops_gemm, m_ConstantOp),
+              b.create<MulIOp>(loc, blk_id_xdlops_gemm, group_size_ConstantOp)),
+          b.create<MulIOp>(loc, m_i_xdlops_gemm, MPerXdlopsConstantOp));
 
       // compute c_thread_mtx_index_row, c_thread_mtx_index_col.
       // compute c_thread_mtx_index_row_i32, c_thread_mtx_index_col_i32.
@@ -7223,9 +7249,12 @@ struct GridwiseGemmV2RewritePattern
       //     return MatrixIndex{row, col};
       // }
 
-      int64_t xdlops_i_blockwise_gemm = iter / NumBlks;
-      int64_t m_blockwise_gemm = xdlops_i_blockwise_gemm / NRepeats;
-      int64_t n_blockwise_gemm = xdlops_i_blockwise_gemm % NRepeats;
+      auto xdlops_i_blockwise_gemm =
+          b.create<UnsignedDivIOp>(loc, iv, NumBlksConstantOp);
+      auto m_blockwise_gemm = b.create<UnsignedDivIOp>(
+          loc, xdlops_i_blockwise_gemm, NRepeatsConstantOp);
+      auto n_blockwise_gemm = b.create<UnsignedRemIOp>(
+          loc, xdlops_i_blockwise_gemm, NRepeatsConstantOp);
 
       // Original C++ logic.
       // const index_t col = (waveId % GemmNWaves) * GemmNPerWave + n *
@@ -7237,7 +7266,7 @@ struct GridwiseGemmV2RewritePattern
               b.create<MulIOp>(
                   loc, b.create<UnsignedRemIOp>(loc, waveId, NWavesConstantOp),
                   NPerWaveConstantOp),
-              b.create<ConstantIndexOp>(loc, n_blockwise_gemm * NPerXdlops)),
+              b.create<MulIOp>(loc, n_blockwise_gemm, NPerXdlopsConstantOp)),
           thread_mtx_on_blk_col);
       c_thread_mtx_index_col_i32 = b.create<IndexCastOp>(
           loc, c_thread_mtx_index_col, b.getIntegerType(32));
@@ -7252,7 +7281,7 @@ struct GridwiseGemmV2RewritePattern
               b.create<MulIOp>(
                   loc, b.create<UnsignedDivIOp>(loc, waveId, NWavesConstantOp),
                   MPerWaveConstantOp),
-              b.create<ConstantIndexOp>(loc, m_blockwise_gemm * MPerXdlops)),
+              b.create<MulIOp>(loc, m_blockwise_gemm, MPerXdlopsConstantOp)),
           thread_mtx_on_blk_row);
       c_thread_mtx_index_row_i32 = b.create<IndexCastOp>(
           loc, c_thread_mtx_index_row, b.getIntegerType(32));
