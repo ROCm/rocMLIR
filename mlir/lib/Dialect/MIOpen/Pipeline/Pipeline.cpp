@@ -1,7 +1,6 @@
-//===- Pipeline.cpp - Create MIOpen compilation pipeline
-//------------------===//
+//===- Pipeline.cpp - Create MIOpen compilation pipeline ---------------===//
 //
-// Copyright 2020 The MLIR Authors.
+// Copyright 2021 The MLIR Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,9 +15,11 @@
 // limitations under the License.
 // =============================================================================
 //
-// This
+// This interface adds the MIOpen compilation pipeline for various flows but
+// keeping a unified ordering of the pipeline.
 //
 //===----------------------------------------------------------------------===//
+
 
 #include "mlir/Dialect/MIOpen/Pipeline.h"
 
@@ -36,31 +37,29 @@
 
 using namespace mlir;
 
-//===- miopen::createPipeline -----------------------------------===//
-//===- Consolidate the MIOpen Pipeline here ---------------------===//
+//===- Consolidate the MIOpen Pipelines here ---------------------===//
 
-void miopen::addPipeline(PassManager &pm, const PipelineConfig &pc) {
-  if (pc.highLevelInput) {
-    // passes for TOSA and bufferization
-    pm.addPass(tosa::createTosaToMIOpenPass());
-    pm.addPass(tosa::createTosaToLinalgOnTensors());
-    pm.addPass(createLinalgElementwiseOpFusionPass());
-    pm.addPass(createLinalgBufferizePass());
-    pm.addPass(createFuncBufferizePass());
-    pm.addPass(createBufferResultsToOutParamsPass());
-    pm.addPass(createFinalizingBufferizePass());
-    pm.addPass(miopen::createMIOpenCopyOptPass());
-  }
+void miopen::addHighLevelPipeline(PassManager &pm) {
+  // passes for TOSA and bufferization
+  pm.addPass(tosa::createTosaToMIOpenPass());
+  pm.addPass(tosa::createTosaToLinalgOnTensors());
+  pm.addPass(createLinalgElementwiseOpFusionPass());
+  pm.addPass(createLinalgBufferizePass());
+  pm.addPass(createFuncBufferizePass());
+  pm.addPass(createBufferResultsToOutParamsPass());
+  pm.addPass(createFinalizingBufferizePass());
+  pm.addPass(miopen::createMIOpenCopyOptPass());
+}
 
+void miopen::addPipeline(PassManager &pm, const std::string &perfConfig, bool applicability, bool highLevel) {
   // Passes for lowering MIOpen dialect.
-  pm.addPass(miopen::createAffixTuningParametersPass(
-      pc.perf.gridSize, pc.perf.blockSize, pc.perf.config));
+  pm.addPass(miopen::createAffixTuningParametersPass(0, 0, perfConfig));
   pm.addPass(miopen::createLowerMIOpenOpsStep1Pass());
   pm.addPass(miopen::createAffineTransformPass());
   pm.addPass(miopen::createLowerMIOpenOpsStep2Pass());
 
-  if (!pc.tuningTest) {
-    if (pc.highLevelInput) {
+  if (!applicability) {
+    if (highLevel) {
       pm.addPass(miopen::createMIOpenLinalgAlignPass());
       pm.addPass(createConvertLinalgToAffineLoopsPass());
     }
@@ -73,15 +72,14 @@ void miopen::addPipeline(PassManager &pm, const PipelineConfig &pc) {
     pm.addPass(createConvertLinalgToAffineLoopsPass());
     pm.addPass(createLowerAffinePass());
     pm.addPass(createLowerToCFGPass());
-
-    // Passes for lowering ROCDL dialect
-    if (pc.runBackend) {
-      pm.addPass(createGpuKernelOutliningPass());
-      pm.addPass(createStripDebugInfoPass());
-      pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
-      pm.addPass(createGpuSerializeToHsacoPass(pc.target.triple, pc.target.chip,
-                                               pc.target.features,
-                                               /*optLevel=*/3));
-    }
   }
+}
+
+void miopen::addBackendPipeline(PassManager &pm, const std::string &triple, const std::string &chip, const std::string &features, int32_t optLevel) {
+  // Passes for lowering ROCDL dialect
+  pm.addPass(createGpuKernelOutliningPass());
+  pm.addPass(createStripDebugInfoPass());
+  pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
+  pm.addPass(createGpuSerializeToHsacoPass(triple, chip, features,
+                                           optLevel));
 }

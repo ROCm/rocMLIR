@@ -21,43 +21,14 @@
 namespace mlir {
 namespace miopen {
 
-struct PipelineConfig {
-  bool highLevelInput = false;
-  bool tuningTest = false;
-  bool runBackend = false;
-  struct PerfConfig {
-    std::string config;
-    int64_t gridSize = 0;
-    int64_t blockSize = 0;
-  } perf;
-  struct TargetConfig {
-    std::string triple;
-    std::string chip;
-    std::string features;
-  } target;
-};
+// Compilation pipeline from MIXR/TOSA to MIOpen
+void addHighLevelPipeline(PassManager &pm);
 
-struct TuningPipeline : PipelineConfig {
-  TuningPipeline(const std::string &perfConfig, int64_t gridSize = 0,
-                 int64_t blockSize = 0)
-      : PipelineConfig{false, true, false, {perfConfig, gridSize, blockSize}} {}
-};
+// Compilation pipeline from MIOpen to LLVM
+void addPipeline(PassManager &pm, const std::string &perfConfig="", bool applicability=false, bool highLevel=false);
 
-struct DriverPipeline : PipelineConfig {
-  DriverPipeline(const std::string &perfConfig)
-      : PipelineConfig{false, false, false, {perfConfig}} {}
-};
-
-template <bool highLevel = false> struct KernelPipeline : PipelineConfig {
-  KernelPipeline(const std::string &triple, const std::string &chip,
-                 const std::string &features,
-                 const std::string &perfConfig = "")
-      : PipelineConfig{
-            highLevel, false, true, {perfConfig}, {triple, chip, features}} {}
-};
-
-// Consolidate MIOpen pipeline creation
-void addPipeline(mlir::PassManager &pm, const PipelineConfig &pc);
+// Compilation pipeline from LLVM to Binary
+void addBackendPipeline(PassManager &pm, const std::string &triple, const std::string &chip, const std::string &features, int32_t optLevel=3);
 
 } // namespace miopen
 } // namespace mlir

@@ -224,12 +224,16 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   const char *triple = "amdgcn-amd-amdhsa";
   const char *chip = "gfx908";
   const char *features = "";
+  const char *perfConfig = "";
 
   mlir::PassManager pm(module.getContext(),
                        mlir::PassManager::Nesting::Implicit);
 
-  mlir::miopen::addPipeline(
-      pm, mlir::miopen::KernelPipeline<true>(triple, chip, features));
+  mlir::miopen::addHighLevelPipeline(pm);
+
+  mlir::miopen::addPipeline(pm, perfConfig, false, true);
+
+  mlir::miopen::addBackendPipeline(pm, triple, chip, features);
 
   auto status = pm.run(module);
 

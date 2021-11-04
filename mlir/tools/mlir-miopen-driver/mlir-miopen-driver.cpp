@@ -2513,10 +2513,10 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
       populateTuningPipeline(pm, perfConfig);
     } else if (pipeline == "gpu") {
       // Set up the default lowering pipeline which goes down to GPU dialect.
-      miopen::addPipeline(pm, miopen::DriverPipeline(perfConfig));
+      miopen::addPipeline(pm, perfConfig);
     } else if (pipeline == "rocdl") {
       // Set up the lowering pipeline which goes down to ROCDL dialect.
-      miopen::addPipeline(pm, miopen::DriverPipeline(perfConfig));
+      miopen::addPipeline(pm, perfConfig);
       pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
     }
   } else {

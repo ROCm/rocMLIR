@@ -222,7 +222,7 @@ extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
 
-  miopen::addPipeline(pm, miopen::TuningPipeline(handle->perfConfig));
+  miopen::addPipeline(pm, handle->perfConfig, true);
 
   auto status = pm.run(module);
 
@@ -241,9 +241,9 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
 
-  miopen::addPipeline(pm, miopen::KernelPipeline<>(handle->triple, handle->chip,
-                                                   handle->features,
-                                                   handle->perfConfig));
+  miopen::addPipeline(pm, handle->perfConfig);
+
+  miopen::addBackendPipeline(pm, handle->triple, handle->chip, handle->features);
 
   auto status = pm.run(module);
 
