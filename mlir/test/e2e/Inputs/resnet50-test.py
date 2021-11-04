@@ -22,8 +22,9 @@ def run_model_on_image(image_file):
 
     # Stifle the "Downloading ..." message, which goes to stdout, because
     # we print the MLIR to stdout later and will pipe it to mlir-opt.
-    with redirect_stdout(None):
-        model = ResNet50(weights='imagenet')
+    with open('/dev/null', 'w') as f:
+        with redirect_stdout(f):
+            model = ResNet50(weights='imagenet')
 
     print(f">> Expected result is {tf.argmax(model(x), 1).numpy()}", file=sys.stderr)
 
