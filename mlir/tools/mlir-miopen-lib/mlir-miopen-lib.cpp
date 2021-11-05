@@ -215,12 +215,12 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
 
 extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
   const std::lock_guard<std::mutex> lock(mutex);
-  miirLazyInit();
 
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;
 
+  miirLazyInit();
   ModuleOp module = handle->getModule();
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
@@ -239,12 +239,12 @@ extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
 
 extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
   const std::lock_guard<std::mutex> lock(mutex);
-  miirLazyInit();
 
   MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
   if (handle == nullptr)
     return MIIR_INVALID_PARAM;
 
+  miirLazyInit();
   ModuleOp module = handle->getModule();
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
