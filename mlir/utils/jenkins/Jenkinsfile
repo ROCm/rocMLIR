@@ -510,10 +510,9 @@ pipeline {
                                     LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
                                 }
                                 steps {
-                                    testMIOpenDriver('$DTYPE', '$LAYOUT', '1', '0')
-                                    testMIOpenDriver('$DTYPE', '$LAYOUT', '2', '0')
-                                    testMIOpenDriver('$DTYPE', '$LAYOUT', '4', '0')
-                                    //testMIOpenDriver('$DTYPE', '$XDLOPS', '$LAYOUT', '$DIRECTION', '1')
+                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "1", "0")
+                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "2", "0")
+                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "4", "0")
                                 }
                             }
                         }
