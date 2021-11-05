@@ -7186,10 +7186,10 @@ struct GridwiseGemmV2RewritePattern
           b.create<UnsignedDivIOp>(loc, iv, NumBlksPerXdlopsConstantOp);
       auto j_xdlops_gemm =
           b.create<UnsignedRemIOp>(loc, iv, NumBlksPerXdlopsConstantOp);
-      auto m_i_xdlops_gemm =
-          b.create<UnsignedDivIOp>(loc, xdlops_i_xdlops_gemm, NRepeatsConstantOp);
-      auto n_i_xdlops_gemm =
-          b.create<UnsignedRemIOp>(loc, xdlops_i_xdlops_gemm, NRepeatsConstantOp);
+      auto m_i_xdlops_gemm = b.create<UnsignedDivIOp>(loc, xdlops_i_xdlops_gemm,
+                                                      NRepeatsConstantOp);
+      auto n_i_xdlops_gemm = b.create<UnsignedRemIOp>(loc, xdlops_i_xdlops_gemm,
+                                                      NRepeatsConstantOp);
 
       Value col_blk_xdlops_gemm, row_blk_xdlops_gemm;
       bool IsABroadcast = (NPerXdlops >= MPerXdlops);
