@@ -15,6 +15,7 @@ target_link_libraries(miopen-translate
   ${translation_libs}
   ${test_libs}
   MLIRIR
+  MLIRMIGraphXToTosa
   MLIRMIOpenOps
   MLIRMIOpenThin
   MLIRMIOpenToGPU

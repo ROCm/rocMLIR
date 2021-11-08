@@ -39,6 +39,10 @@ class LLVMAVX512Dialect;
 class LLVMDialect;
 } // end namespace LLVM
 
+namespace migraphx {
+class MIGraphXDialect;
+} // namespace migraphx
+
 namespace miopen {
 class MIOpenDialect;
 } // namespace miopen
