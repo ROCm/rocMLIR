@@ -1,4 +1,5 @@
-//===- MIGraphXToTosaPass.cpp - Lowering MIGraphX to Tosa Dialect -------------===//
+//===- MIGraphXToTosaPass.cpp - Lowering MIGraphX to Tosa Dialect
+//-------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -18,36 +19,38 @@
 #include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/Passes.h"
 
 using namespace mlir;
 namespace {
 // import tablegen'ed populate function
 #include "MIGraphXToTosa.cpp.inc"
 
-struct MIGraphXToTosa
-    : public MIGraphXToTosaBase<MIGraphXToTosa> {
+struct MIGraphXToTosa : public MIGraphXToTosaBase<MIGraphXToTosa> {
 public:
   void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<tosa::TosaDialect, migraphx::MIGraphXDialect, StandardOpsDialect>();
+    registry.insert<tosa::TosaDialect, migraphx::MIGraphXDialect,
+                    StandardOpsDialect>();
   }
 
   void runOnFunction() override {
     auto &ctx = getContext();
     OwningRewritePatternList patterns(&ctx);
     ConversionTarget target(ctx);
-    target.addLegalDialect<tosa::TosaDialect, migraphx::MIGraphXDialect, StandardOpsDialect>();
-    target.addIllegalOp<migraphx::AddOp, migraphx::ConstantOp, migraphx::ConvolutionOp,
-      migraphx::RsqrtOp, migraphx::ReluOp, migraphx::TransposeOp, migraphx::ReshapeOp
-                        >();
+    target.addLegalDialect<tosa::TosaDialect, migraphx::MIGraphXDialect,
+                           StandardOpsDialect>();
+    target.addIllegalOp<migraphx::AddOp, migraphx::ConstantOp,
+                        migraphx::ConvolutionOp, migraphx::RsqrtOp,
+                        migraphx::ReluOp, migraphx::TransposeOp,
+                        migraphx::ReshapeOp>();
 
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     FuncOp func = getFunction();
     populateWithGenerated(patterns);
-   
+
     if (failed(applyFullConversion(func, target, std::move(patterns)))) {
       signalPassFailure();
     }
