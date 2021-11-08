@@ -100,7 +100,7 @@ pipeline {
                      description: 'Run extra nightly-only tests')
         booleanParam(name: 'canXdlops', defaultValue: params.canXdlops == false ? false : true,
                      description: 'Can this CI instance use xdlops (no for public server)')
-        booleanParam(name: 'weekly', defaultValue: params.weekly == false ? false : true,
+        booleanParam(name: 'weekly', defaultValue: params.weekly ? true : false,
                      description: 'Run weekly-only jobs')
 
         // Each below control whether to run a individual stage from parallel run
