@@ -247,7 +247,7 @@ pipeline {
                         }
                         stage("Build MIOpen with libMLIRMIOpen") {
                             when { anyOf {
-                                    equals expected: true, actual: params.nightly;
+                                    equals expected: false, actual: params.weekly;
                                     allOf {
                                         equals expected: true, actual: params.weekly;
                                         equals expected: true, actual: params.staticLib;
@@ -280,7 +280,7 @@ pipeline {
                                       """
                             }
                         }
-                        stage("Test MIOpen config with tuning") {
+                        stage("Tune MLIR kernels") {
                             when {
                                     equals expected: true, actual: params.weekly;
                                     equals expected: true, actual: params.staticLib;
@@ -305,7 +305,8 @@ pipeline {
                         }
                         stage("Test selected MIOpen configs") {
                             when {
-                                    equals expected: true, actual: params.nightly;
+                                    equals expected: false, actual: params.nightly;
+                                    equals expected: false, actual: params.weekly;
                                     equals expected: true, actual: params.staticLib;
                             }
                             environment {
@@ -471,7 +472,7 @@ pipeline {
         }
         stage("MIOpen Resnet50 Config Test") {
             when { allOf {
-                    equals expected: true, actual: params.weekly;
+                    equals expected: true, actual: params.nightly;
                     equals expected: true, actual: params.staticLib;
             }}
             matrix {
@@ -508,6 +509,14 @@ pipeline {
                             stage("Copy MIOpen test environment") {
                                 steps {
                                     unstash name: "MIOpen-MLIR-kernels"
+                                    copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
+                                               optional: true,\
+                                               flatten: true,\
+                                               projectName: "mlir-weekly",\
+                                               selector: lastSuccessful(),\
+                                               target: 'MIOpen/build/MIOpenUserDB'
+                                    sh 'ls MIOpen/build/MIOpenUserDB'
+                                    sh 'cat MIOpen/build/MIOpenUserDB/tuning-date'
                                 }
                             }
                             stage("Test MIOpen config") {
@@ -516,6 +525,12 @@ pipeline {
                                     LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
                                 }
                                 steps {
+                                    // Test with perfDb
+                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "1", "0")
+                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "2", "0")
+                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "4", "0")
+                                    // Test without perfDb
+                                    sh 'rm -rf ${WORKSPACE}/MIOpen/build/MIOpenUserDB'
                                     testMIOpenDriver("$DTYPE", "$LAYOUT", "1", "0")
                                     testMIOpenDriver("$DTYPE", "$LAYOUT", "2", "0")
                                     testMIOpenDriver("$DTYPE", "$LAYOUT", "4", "0")
