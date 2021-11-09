@@ -471,14 +471,14 @@ protected:
       }
       break;
     case mlir::miopen::Conv2DBwdWeightOpType:
-      if (dimIndexVal["ci"].first == 4) {
+      if (dimIndexVal["k"].first == 4) {
         out.gemmVectorDim = 1;
         out.destVectorDim = 4;
       } else {
-        // The need to skip padding renders vectorization impossible
-        // in the general case
-        out.gemmVectorDim = -1;
-        out.destVectorDim = -1;
+        out.gemmVectorDim = 2;
+        // Backward weight computations fold the {c, y, x} dimensions
+        // into N using the native order
+        out.destVectorDim = 4;
       }
       break;
     case mlir::miopen::Conv2DBwdDataOpType:
