@@ -28,6 +28,13 @@ void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
     buildMIOpen(cmakeOpts)
 }
 
+void showEnv() {
+    sh 'hostname'
+    sh 'cat /etc/os-release'
+    sh 'ulimit -a'
+    sh '/opt/rocm/bin/rocm-smi'
+}
+
 String dockerArgs() {
     return '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
 }
