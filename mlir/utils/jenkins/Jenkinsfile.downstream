@@ -38,9 +38,6 @@ String dockerImage() {
 
 pipeline {
     agent none
-    environment {
-        PATH="$PATH:/opt/rocm/llvm/bin"
-    }
     stages {
         stage('Build and Test') {
             parallel {
@@ -52,6 +49,9 @@ pipeline {
                             label "rocm"
                             alwaysPull true
                         }
+                    }
+                    environment {
+                        PATH="$PATH:/opt/rocm/llvm/bin"
                     }
                     stages {
                         stage("Shared library build and fixed tests") { 
@@ -73,7 +73,7 @@ pipeline {
                         }
                     }
                 }
-                stage(""Static Library") {
+                stage("Static Library") {
                     agent {
                         docker {
                             image dockerImage()
@@ -81,6 +81,9 @@ pipeline {
                             label "rocm"
                             alwaysPull true
                         }
+                    }
+                    environment {
+                        PATH="$PATH:/opt/rocm/llvm/bin"
                     }
                     stages {
                         stage("Igemm build") {
