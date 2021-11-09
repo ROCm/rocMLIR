@@ -15,6 +15,7 @@
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MIOpen/AffineMapHelper.h"
@@ -261,11 +262,13 @@ inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc, Type type) {
   Value retValue;
 
   if (auto vecType = type.dyn_cast<VectorType>()) {
-    Attribute constValue = b.getFloatAttr(elementType, zero);
+    Attribute constValue;
     if (auto intType = elementType.dyn_cast<IntegerType>()) {
       auto intZero = zero.bitcastToAPInt();
       assert(intType.getIntOrFloatBitWidth() == intZero.getBitWidth());
       constValue = b.getIntegerAttr(elementType, intZero);
+    } else {
+      constValue = b.getFloatAttr(elementType, zero);
     }
     llvm::SmallVector<Attribute> constValues;
     std::fill_n(std::back_inserter(constValues), vecType.getNumElements(),
@@ -770,17 +773,46 @@ inline Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
                                     Type sourceType, Type destType) {
   // Convert from sourceType to destType if necessary.
   Value result = source;
-  if (sourceType != destType) {
+  Type sourceElemType = sourceType;
+  Type destElemType = destType;
+  if (auto sourceVec = sourceType.dyn_cast<VectorType>()) {
+    if (auto destVec = destType.dyn_cast<VectorType>()) {
+      assert(sourceVec.getNumElements() == destVec.getNumElements() &&
+             "source and destinatioon have same length");
+      sourceElemType = sourceVec.getElementType();
+      destElemType = destVec.getElementType();
+    } else {
+      llvm_unreachable("Can't store vector sources to scalar destinations in "
+                       "output writeback");
+    }
+  }
+  if (sourceElemType != destElemType) {
     // Possible cases:
     // - fp16 -> fp32 : use fpext.
     // - fp32 -> fp16 : use fptrunc.
     // - fp16/fp32 -> bf16(i16) : use miopen.data_convert.
-    if (sourceType == b.getF16Type() && destType == b.getF32Type()) {
-      result = b.create<ExtFOp>(loc, source, destType);
-    } else if (sourceType == b.getF32Type() && destType == b.getF16Type()) {
-      result = b.create<TruncFOp>(loc, source, destType);
-    } else if (destType == b.getIntegerType(16)) {
-      result = b.create<miopen::DataConvertOp>(loc, destType, source);
+    // All these ops act elementwise on vectors
+    // except the BFloat conversion
+    if (sourceElemType == b.getF16Type() && destElemType == b.getF32Type()) {
+      result = b.create<arith::ExtFOp>(loc, source, destType);
+    } else if (sourceElemType == b.getF32Type() &&
+               destElemType == b.getF16Type()) {
+      result = b.create<arith::TruncFOp>(loc, source, destType);
+    } else if (destElemType == b.getIntegerType(16)) {
+      if (sourceElemType == sourceType) {
+        result = b.create<miopen::DataConvertOp>(loc, destType, source);
+      } else {
+        result = createZeroConstantFloatOp(b, loc, destType);
+        int64_t numElements = destType.cast<VectorType>().getNumElements();
+        for (int64_t i = 0; i < numElements; ++i) {
+          Value extracted = b.create<vector::ExtractElementOp>(
+              loc, source, b.create<ConstantIndexOp>(loc, i));
+          Value converted =
+              b.create<miopen::DataConvertOp>(loc, destElemType, extracted);
+          result = b.create<vector::InsertElementOp>(
+              loc, converted, result, b.create<ConstantIndexOp>(loc, i));
+        }
+      }
     }
   }
   return result;
@@ -5012,12 +5044,12 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
   }
 
   top->setAttr("dim_access_order", b.getI32ArrayAttr({0, 1, 2, 3, 4}));
+  // NOTE: these are currently ignored by ThreadwiseCopy
   top->setAttr("vector_read_write_dim",
-               gop->getAttr("matrix_c_source_dest_vector_read_write_dim"));
-  top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
+               gop->getAttr("matrix_c_dest_vector_write_dim"));
+  top->setAttr("source_data_per_read", gop->getAttr("matrix_c_data_per_copy"));
   top->setAttr("bwd_padding_kernel_status", b.getI32IntegerAttr(status));
-  top->setAttr("dest_data_per_write",
-               gop->getAttr("matrix_c_dest_data_per_write"));
+  top->setAttr("dest_data_per_write", gop->getAttr("matrix_c_data_per_copy"));
 }
 
 static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top,
@@ -5056,11 +5088,32 @@ static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top,
   } else {
     top->setAttr("dim_access_order", b.getI32ArrayAttr({0, 1, 2, 3, 4}));
   }
+
+  // Account for split m/n dimension
+  bool vectorStoreOverride = false;
+  int64_t vectorGemmDim =
+      gop->getAttrOfType<IntegerAttr>("matrix_c_source_vector_read_dim")
+          .getInt();
+  if (vectorGemmDim == 1) {
+    vectorGemmDim = 3;
+  } else if (vectorGemmDim == 2) {
+    if (isSwizzled) {
+      vectorGemmDim = 5;
+    } else {
+      vectorGemmDim = 4;
+      // Need swizzles for this to be vector motion but swizzles are off
+      vectorStoreOverride = true;
+    }
+  }
+  Attribute dataPerCopy = gop->getAttr("matrix_c_data_per_copy");
+  if (vectorStoreOverride) {
+    dataPerCopy = b.getI32IntegerAttr(1);
+  }
+  top->setAttr("upper_vector_read_dim", b.getI32IntegerAttr(vectorGemmDim));
   top->setAttr("vector_read_write_dim",
-               gop->getAttr("matrix_c_source_dest_vector_read_write_dim"));
-  top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
-  top->setAttr("dest_data_per_write",
-               gop->getAttr("matrix_c_dest_data_per_write"));
+               gop->getAttr("matrix_c_dest_vector_write_dim"));
+  top->setAttr("source_data_per_read", dataPerCopy);
+  top->setAttr("dest_data_per_write", dataPerCopy);
 }
 
 // XXX: Figure out a way to do away with isThreadwiseLoad parameter.
@@ -5145,10 +5198,12 @@ void affixGridwiseGemmAttributes(T &convOp, U &gop, OpBuilder &b) {
                convOp->getAttr("matrix_b_source_data_per_read"));
   gop->setAttr("matrix_b_source_vector_read_dim",
                convOp->getAttr("matrix_b_source_vector_read_dim"));
-  gop->setAttr("matrix_c_dest_data_per_write",
-               convOp->getAttr("matrix_c_dest_data_per_write"));
-  gop->setAttr("matrix_c_source_dest_vector_read_write_dim",
-               convOp->getAttr("matrix_c_source_dest_vector_read_write_dim"));
+  gop->setAttr("matrix_c_data_per_copy",
+               convOp->getAttr("matrix_c_data_per_copy"));
+  gop->setAttr("matrix_c_dest_vector_write_dim",
+               convOp->getAttr("matrix_c_dest_vector_write_dim"));
+  gop->setAttr("matrix_c_source_vector_read_dim",
+               convOp->getAttr("matrix_c_source_vector_read_dim"));
 
   auto xdlopsV2Attr = convOp->template getAttrOfType<BoolAttr>("xdlopsV2");
   if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
@@ -6862,8 +6917,11 @@ struct GridwiseGemmV2RewritePattern
     auto blk_td_xdlops_gemm =
         b.create<RemUIOp>(loc, laneId_xdlops_gemm, num_threads_blk_ConstantOp);
 
+    auto gemmCVectorizedMatrixDim =
+        op->getAttrOfType<IntegerAttr>("matrix_c_source_vector_read_dim");
     constexpr int64_t swizzleGroup = 4;
     bool enableOutSwizzles =
+        gemmCVectorizedMatrixDim.getInt() == 2 &&
         (M2 == swizzleGroup && (m % swizzleGroup == 0) &&
          (n % swizzleGroup == 0) && (MPerWave % swizzleGroup == 0) &&
          (NPerWave % swizzleGroup == 0));
@@ -8252,6 +8310,10 @@ struct ThreadwiseCopyRewritePattern
     : public OpRewritePattern<miopen::ThreadwiseCopyOp> {
   using OpRewritePattern<miopen::ThreadwiseCopyOp>::OpRewritePattern;
 
+  // NOTE: when extending this logic to support vectors
+  // ensure the results of the non-xdlops gemm are stored in a vectorizable
+  // layout. This'll likely require something analogous to the in_warp_transpose
+  // call in the xdlops case
   LogicalResult matchAndRewrite(miopen::ThreadwiseCopyOp op,
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
@@ -9121,6 +9183,20 @@ struct ThreadwiseCopyV2RewritePattern
     ArrayAttr boundCheckSourceAttr;
     ArrayAttr boundCheckDestAttr;
 
+    int64_t dataPerCopy =
+        op->getAttrOfType<IntegerAttr>("dest_data_per_write").getInt();
+    int64_t sourceDataPerRead =
+        op->getAttrOfType<IntegerAttr>("source_data_per_read").getInt();
+    assert(dataPerCopy == sourceDataPerRead &&
+           "source and dest vector copy lengths are equal");
+
+    int64_t upperVectorDim =
+        op->getAttrOfType<IntegerAttr>("upper_vector_read_dim").getInt();
+    int64_t lowerVectorDim =
+        op->getAttrOfType<IntegerAttr>("vector_read_write_dim").getInt();
+    assert((dataPerCopy == 1 || lowerVectorDim == 4) &&
+           "Was asked to vectorize non-final dimension");
+
     auto coordTransformsAttr =
         op->getAttr("coord_transforms").template cast<ArrayAttr>();
 
@@ -9154,6 +9230,11 @@ struct ThreadwiseCopyV2RewritePattern
     SmallVector<unsigned, 8> oobStoreCheckDims;
     bool toEmitOOBStoreCheckLogic = obtainOOBCheckInfo(
         composedDestTransform, boundCheckDestAttr, oobStoreCheckDims);
+    if (toEmitOOBStoreCheckLogic) {
+      // TODO(kdrewnia) Work out if we can have stores that statically
+      // won't OOB still be vectorized
+      dataPerCopy = 1;
+    }
 
     // llvm::errs() << "\nthreadwise_copy_v2 op:\n";
     // op.dump();
@@ -9172,12 +9253,13 @@ struct ThreadwiseCopyV2RewritePattern
     computeSliceLengths(sliceLengths, composedSourceTransform,
                         composedDestTransform, coordTransformsAttr, boundAttr,
                         sourceType, destType);
+    sliceLengths[upperVectorDim] /= dataPerCopy;
+    assert(sliceLengths[upperVectorDim] != 0);
 
     // llvm::errs() << "slice lengths: ";
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
     //   llvm::errs() << sliceLengths[i] << " ";
     // llvm::errs() << "\n";
-
     // Compute high-level coordinate for source memref.
     SmallVector<Value, 8> srcUpperIndices;
     srcUpperIndices.append(sourceCoord.begin(), sourceCoord.end());
@@ -9299,6 +9381,15 @@ struct ThreadwiseCopyV2RewritePattern
       bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
     }
 
+    Type typeToLoad = sourceElementType;
+    if (dataPerCopy > 1) {
+      typeToLoad = VectorType::get({dataPerCopy}, typeToLoad);
+    }
+    Type typeToStore = destElementType;
+    if (dataPerCopy > 1) {
+      typeToStore = VectorType::get({dataPerCopy}, typeToStore);
+    }
+
     bool toExit = false;
     do {
       // Load from source vector.
@@ -9309,18 +9400,32 @@ struct ThreadwiseCopyV2RewritePattern
           b, loc, loopIVsPerAccessOrder, layeredSourceTransformMetadata,
           layeredSourceTransform, layeredSourceIndices, srcLowerIndices);
 
+      Value rawSourceIndex =
+          b.create<IndexCastOp>(loc, srcLowerIndices[0], b.getIntegerType(32));
+
       // Add sourceOffset to derive the position in the vector.
-      auto srcPosition =
-          b.create<AddIOp>(loc, srcLowerIndices[0], sourceOffsetOp);
+      auto srcPosition = b.create<AddIOp>(loc, rawSourceIndex, sourceOffsetOp);
 
       // Load from source.
-      // Issue scalar load.
-      Value scalarValue = b.create<vector::ExtractElementOp>(
-          loc, sourceElementType, op.source(), srcPosition);
+      Value loadedValue;
+      if (dataPerCopy > 1) {
+        loadedValue = createZeroConstantFloatOp(b, loc, typeToLoad);
+        for (int64_t i = 0; i < dataPerCopy; ++i) {
+          Value index = b.create<ConstantIntOp>(loc, i, /*bitwidth=*/32);
+          Value extracted = b.create<vector::ExtractElementOp>(
+              loc, sourceElementType, op.source(),
+              b.create<AddIOp>(loc, srcPosition, index));
+          loadedValue = b.create<vector::InsertElementOp>(loc, extracted,
+                                                          loadedValue, index);
+        }
+      } else {
+        loadedValue = b.create<vector::ExtractElementOp>(
+            loc, sourceElementType, op.source(), srcPosition);
+      }
 
       // Convert from sourceElementType to destElementType if necessary.
-      Value convertedScalarValue = createTypeConversionOp(
-          b, loc, scalarValue, sourceElementType, destElementType);
+      Value convertedValue =
+          createTypeConversionOp(b, loc, loadedValue, typeToLoad, typeToStore);
 
       // Store to dest memref.
 
@@ -9331,10 +9436,9 @@ struct ThreadwiseCopyV2RewritePattern
           layeredDestTransform, layeredDestIndices, destLowerIndices);
 
       // Store to dest.
-      emitStoreLogic(bwdPaddingStatus, b, loc, destType, destElementType,
+      emitStoreLogic(bwdPaddingStatus, b, loc, destType, typeToStore,
                      toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
-                     destLowerIndices, convertedScalarValue, dataOpration);
-
+                     destLowerIndices, convertedValue, dataOpration);
       // increase IVs
       bool toIncreaseNextDigit = true;
       int iter = loopIVsPerAccessOrder.size() - 1;
