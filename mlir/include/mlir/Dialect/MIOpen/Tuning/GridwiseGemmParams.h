@@ -445,12 +445,6 @@ protected:
       vectorizationSize = 1;
     }
 
-    // Shrink vectorization size to get some vectorization where we wouldn't
-    // have any
-    if ((vectorizationSize > 2) && (dataPerThread % vectorizationSize != 0)) {
-      vectorizationSize = 2;
-    }
-
     if ((cVectorLength > 0) && (dataPerThread % vectorizationSize == 0)) {
       out.dataPerCopy = gcd(dataPerThread, vectorizationSize);
     } else {
