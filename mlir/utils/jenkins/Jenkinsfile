@@ -397,79 +397,6 @@ pipeline {
                 }
             }
         }
-        stage("Benchmark and Report Performance") {
-            when {
-                beforeAgent true;
-                equals expected: true, actual: params.perfTest;
-                equals expected: true, actual: params.nightly;
-            }
-            agent {
-                docker {
-                    image dockerImage()
-                    args dockerArgs()
-                    label "${params.canXdlops ? 'gfx908' : 'rocm' }"
-                    alwaysPull true
-                }
-            }
-            environment {
-                // Make libMIOpen.so accessible to the test driver
-                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
-            }
-            stages {
-                stage("Copy MIOpen with MLIR kernels") {
-                    steps {
-                        sh 'rm -rf MIOpen'
-                        unstash name: "MIOpen-MLIR-kernels"
-                        copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
-                                               optional: true,\
-                                               flatten: true,\
-                                               projectName: "mlir-weekly",\
-                                               selector: lastSuccessful(),\
-                                               target: 'MIOpen/build/MIOpenUserDB'
-                        sh 'ls MIOpen/build/MIOpenUserDB'
-                        sh 'cat MIOpen/build/MIOpenUserDB/tuning-date'
-                    }
-                }
-                stage("Performance Test: Tuned vs Untuned") {
-                    steps {
-                        buildProject('ci-performance-scripts', '')
-                        sh 'ldconfig'
-                        dir('build') {
-                           sh 'python3 ./bin/MIOpenDriver.py -bmiopen_use_tuned_mlir'
-                           sh 'rm -rf ${WORKSPACE}/MIOpen/build/MIOpenUserDB'
-                           sh 'python3 ./bin/MIOpenDriver.py -bmiopen_use_untuned_mlir'
-                        }
-                    }
-                }
-                stage("Copy earlier performance results") {
-                    steps {
-                        copyArtifacts filter: 'build/*.csv,build/perf-run-date',\
-                                               optional: true,\
-                                               flatten: true,\
-                                               projectName: "/${JOB_NAME}",\
-                                               selector: lastSuccessful(),\
-                                               target: 'build/oldData'
-                    }
-                }
-
-                stage("Create performance reports") {
-                    steps {
-                        unstash name: "Perf-report"
-                        dir('build') {
-                            sh 'ls -l'
-                            sh 'python3 ./bin/createPerformanceReports.py'
-                            sh 'python3 ./bin/perfRegressionReport.py'
-                        }
-                        postProcessPerfRes()
-                    }
-                }
-            }
-            post {
-                always {
-                    cleanWs()
-                }
-             }
-        }
         stage("MIOpen Resnet50 Config Test") {
             when { allOf {
                     equals expected: true, actual: params.nightly;
@@ -545,6 +472,79 @@ pipeline {
                     }
                 }
             }
+        }
+        stage("Benchmark and Report Performance") {
+            when {
+                beforeAgent true;
+                equals expected: true, actual: params.perfTest;
+                equals expected: true, actual: params.nightly;
+            }
+            agent {
+                docker {
+                    image dockerImage()
+                    args dockerArgs()
+                    label "${params.canXdlops ? 'gfx908' : 'rocm' }"
+                    alwaysPull true
+                }
+            }
+            environment {
+                // Make libMIOpen.so accessible to the test driver
+                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+            }
+            stages {
+                stage("Copy MIOpen with MLIR kernels") {
+                    steps {
+                        sh 'rm -rf MIOpen'
+                        unstash name: "MIOpen-MLIR-kernels"
+                        copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
+                                               optional: true,\
+                                               flatten: true,\
+                                               projectName: "mlir-weekly",\
+                                               selector: lastSuccessful(),\
+                                               target: 'MIOpen/build/MIOpenUserDB'
+                        sh 'ls MIOpen/build/MIOpenUserDB'
+                        sh 'cat MIOpen/build/MIOpenUserDB/tuning-date'
+                    }
+                }
+                stage("Performance Test: Tuned vs Untuned") {
+                    steps {
+                        buildProject('ci-performance-scripts', '')
+                        sh 'ldconfig'
+                        dir('build') {
+                           sh 'python3 ./bin/MIOpenDriver.py -bmiopen_use_tuned_mlir'
+                           sh 'rm -rf ${WORKSPACE}/MIOpen/build/MIOpenUserDB'
+                           sh 'python3 ./bin/MIOpenDriver.py -bmiopen_use_untuned_mlir'
+                        }
+                    }
+                }
+                stage("Copy earlier performance results") {
+                    steps {
+                        copyArtifacts filter: 'build/*.csv,build/perf-run-date',\
+                                               optional: true,\
+                                               flatten: true,\
+                                               projectName: "/${JOB_NAME}",\
+                                               selector: lastSuccessful(),\
+                                               target: 'build/oldData'
+                    }
+                }
+
+                stage("Create performance reports") {
+                    steps {
+                        unstash name: "Perf-report"
+                        dir('build') {
+                            sh 'ls -l'
+                            sh 'python3 ./bin/createPerformanceReports.py'
+                            sh 'python3 ./bin/perfRegressionReport.py'
+                        }
+                        postProcessPerfRes()
+                    }
+                }
+            }
+            post {
+                always {
+                    cleanWs()
+                }
+             }
         }
     }
 }
