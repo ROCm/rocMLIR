@@ -897,7 +897,6 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
                     SmallVector<Value, 8> &lowerIndicesUpdated) {
   auto zeroConstantI32Op =
       b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
-  auto oneConstantI32Op = b.create<ConstantIntOp>(loc, 1, b.getIntegerType(32));
 
   // Obtain the shape of lower level memref.
   ArrayAttr lowerLayerShape =
@@ -1052,7 +1051,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
       auto e = g.get("parameters").template cast<ArrayAttr>();
       assert(e.size() == p.size());
       assert(q.size() == 1);
-      Value lowerDiff = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
+      Value lowerDiff = zeroConstantI32Op;
       for (unsigned iter = 0; iter < e.size(); ++iter) {
         int64_t coefficient = e[iter].template cast<IntegerAttr>().getInt();
         int64_t upperDim = p[iter].template cast<IntegerAttr>().getInt();
@@ -1233,7 +1232,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
 
         // We only implement carry logic. Borrow logic would never happen as
         // upper index diffs would always be positive in the current algorithm.
-        Value overflowOp = b.create<ConstantIntOp>(loc, 0, 32);
+        Value overflowOp = zeroConstantI32Op;
         for (ssize_t iter = q.size() - 1; iter >= 0; --iter) {
           int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
           int64_t upperBound = lowerLayerBounds[iter];
@@ -1252,7 +1251,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
             int64_t index = mbConstantIndex.getValue();
             int64_t diff = mbConstantDiff.getValue();
             if (index < upperBound) {
-              overflowOp = b.create<ConstantIntOp>(loc, 0, 32);
+              overflowOp = zeroConstantI32Op;
               lowerIndicesCarryChecked[lowerDim] =
                   b.create<ConstantIntOp>(loc, index, 32);
               lowerDiffsCarryChecked[lowerDim] =
@@ -1267,6 +1266,11 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
               lowerDiffsCarryChecked[lowerDim] =
                   b.create<ConstantIntOp>(loc, newDiff, 32);
             }
+            continue;
+          }
+          // No change -> no carry-out
+          if (mbConstantDiff.getValueOr(-1L) == 0) {
+            overflowOp = zeroConstantI32Op;
             continue;
           }
 
