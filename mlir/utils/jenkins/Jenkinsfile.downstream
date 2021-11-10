@@ -7,6 +7,34 @@ void buildProject(String target, String cmakeOpts) {
         cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
 }
 
+void buildMIOpen(String cmakeOpts) {
+    sh '[ ! -d build ] || rm -rf build'
+    cmakeBuild generator: 'Unix Makefiles',\
+        buildDir: 'build',\
+        buildType: 'Release',\
+        installation: 'InSearchPath',\
+        cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                     -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                     ${cmakeOpts}
+                     """
+    sh 'cd build; make -j $(nproc) MIOpenDriver'
+}
+
+void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
+    git branch: 'develop', poll: false,\
+        url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+    cmake arguments: "-P install_deps.cmake --minimum ${prefixOpt}",\
+        installation: "InSearchPath"
+    buildMIOpen(cmakeOpts)
+}
+
+void showEnv() {
+    sh 'hostname'
+    sh 'cat /etc/os-release'
+    sh 'ulimit -a'
+    sh '/opt/rocm/bin/rocm-smi'
+}
+
 String dockerArgs() {
     return '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
 }
@@ -16,34 +44,102 @@ String dockerImage() {
 }
 
 pipeline {
-    agent {
-        docker {
-            image dockerImage()
-            args dockerArgs()
-            label "rocm"
-            alwaysPull true
-        }
-    }
-    environment {
-        PATH="$PATH:/opt/rocm/llvm/bin"
-    }
+    agent none
     stages {
         stage('Build and Test') {
-            steps {
-                buildProject('check-mlir check-mlir-miopen', """
-                    -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=1
-                    -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=0
-                    -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=0
-                    -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=0
-                    -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=1
-                    -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-                    """)
+            parallel {
+                stage("Shared Library: fixed E2E tests") {
+                    agent {
+                        docker {
+                            image dockerImage()
+                            args dockerArgs()
+                            label "rocm"
+                            alwaysPull true
+                        }
+                    }
+                    environment {
+                        PATH="$PATH:/opt/rocm/llvm/bin"
+                    }
+                    stages {
+                        stage("Shared library build and fixed tests") { 
+                            steps {
+                                buildProject('check-mlir check-mlir-miopen', """
+                                  -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=1
+                                  -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=0
+                                  -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=0
+                                  -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=0
+                                  -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=1
+                                  -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+                                """)
+                             }
+                        }
+                    }
+                    post {
+                        always {
+                            cleanWs()
+                        }
+                    }
+                }
+                stage("Static Library") {
+                    agent {
+                        docker {
+                            image dockerImage()
+                            args dockerArgs()
+                            label "rocm"
+                            alwaysPull true
+                        }
+                    }
+                    environment {
+                        PATH="$PATH:/opt/rocm/llvm/bin"
+                    }
+                    stages {
+                        stage("Igemm build") {
+                            steps {
+                                checkout scm
+                                buildProject('libMLIRMIOpen',
+                                             '-DBUILD_FAT_LIBMLIRMIOPEN=ON')
+                                cmake arguments: '--install . --component libMLIRMIOpen --prefix /opt/rocm',\
+                                installation: 'InSearchPath', workingDir: 'build'
+                            }
+                        }
+                        stage("Build MIOpen with libMLIRMIOpen") {
+                            steps {
+                                dir('MIOpen') {
+                                getAndBuildMIOpen('--prefix ./MIOpenDeps', '''-DMIOPEN_USE_MLIR=On
+                                        -DMIOPEN_BACKEND=HIP
+                                        -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
+                                        -DMIOPEN_USER_DB_PATH=${WORKSPACE}/MIOpen/build/MIOpenUserDB
+                                        -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
+                                        ''')
+                                }
+                            }
+                        }
+                        stage("Test selected MIOpen configs") {
+                            environment {
+                                // Make libMIOpen.so accessible to the test driver
+                                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                            }
+                            steps {
+                                showEnv()
+                                sh 'ldconfig'
+                                dir('MIOpen/build/') {
+                                    sh """
+                                    bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --no-tuning\
+                                       < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
+                                    sh """
+                                    bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
+                                       < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
+                                }
+                            }
+                        }
+                    }
+                    post {
+                        always {
+                            cleanWs()
+                        }
+                    }
+                }
             }
-        }
-    }
-    post {
-        always {
-            cleanWs()
         }
     }
 }
