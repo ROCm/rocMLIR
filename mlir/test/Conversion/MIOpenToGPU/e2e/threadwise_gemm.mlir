@@ -10,7 +10,7 @@ module attributes {gpu.container_module} {
 
   func @threadwise_gemm(%arg0 : memref<1x4x8xf32>, %arg1 : memref<1x4x8xf32>, %arg2 : memref<1x8x8xf32>) {
     %cst = arith.constant 1 : index
-    "gpu.launch_func"(%cst, %cst, %cst, %cst, %cst, %cst, %arg0, %arg1, %arg2) { kernel = @gpu_kernels::@threadwise_gemm_kernel, operand_segment_sizes = dense<[0,1,1,1,1,1,1,3]> : vector<8xi32> } : (index, index, index, index, index, index, memref<1x4x8xf32>, memref<1x4x8xf32>, memref<1x8x8xf32>) -> ()
+    "gpu.launch_func"(%cst, %cst, %cst, %cst, %cst, %cst, %arg0, %arg1, %arg2) { kernel = @gpu_kernels::@threadwise_gemm_kernel, operand_segment_sizes = dense<[0,1,1,1,1,1,1,0,3]> : vector<9xi32> } : (index, index, index, index, index, index, memref<1x4x8xf32>, memref<1x4x8xf32>, memref<1x8x8xf32>) -> ()
     return
   }
 

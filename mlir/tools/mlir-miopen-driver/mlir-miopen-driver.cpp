@@ -2476,6 +2476,7 @@ static LogicalResult populateKernelLaunchLogic(
                                   static_cast<int32_t>(1),    // blockX
                                   static_cast<int32_t>(1),    // blockY
                                   static_cast<int32_t>(1),    // blockZ
+                                  static_cast<int32_t>(0),    // dynamicSharedMemorySize
                                   static_cast<int32_t>(3)})); // arg count
 
     block->push_back(gpuLaunchFuncOp);

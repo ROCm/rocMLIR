@@ -19,7 +19,7 @@ module attributes {gpu.container_module} {
     %cst = arith.constant 1 : index
     %c0 = arith.constant 0 : index
     %cst2 = memref.dim %arg2, %c0 : memref<?xf32>
-    "gpu.launch_func"(%cst, %cst, %cst, %cst2, %cst, %cst, %arg2) { kernel = @gpu_kernels::@lds_fillzero_kernel, operand_segment_sizes = dense<[0,1,1,1,1,1,1,1]> : vector<8xi32> } : (index, index, index, index, index, index, memref<?xf32>) -> ()
+    "gpu.launch_func"(%cst, %cst, %cst, %cst2, %cst, %cst, %arg2) { kernel = @gpu_kernels::@lds_fillzero_kernel, operand_segment_sizes = dense<[0,1,1,1,1,1,1,0,1]> : vector<9xi32> } : (index, index, index, index, index, index, memref<?xf32>) -> ()
     return
   }
 
