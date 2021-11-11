@@ -7185,7 +7185,7 @@ struct GridwiseGemmV2RewritePattern
       // Original C++ logic.
       //     index_t col = col_blk * mfma_type.n + blk_td + n_i * NPerXdlops;
       int64_t thread_mtx_on_blk_col_const =
-          col_blk_xdlops_gemm * n + n_i_xdlops_gemm * NumBlksPerXdlops;
+          col_blk_xdlops_gemm * n + n_i_xdlops_gemm * NPerXdlops;
       Value thread_mtx_on_blk_col = b.create<AddIOp>(
           loc, blk_td_xdlops_gemm,
           b.create<ConstantIndexOp>(loc, thread_mtx_on_blk_col_const));
