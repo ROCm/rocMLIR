@@ -1,19 +1,25 @@
 #!/bin/bash
 
-declare -a FIXED_CONFIG_ARGS=()
+declare -a FIXED_CONFIG_ARGS
 declare -g TMPFILE
-declare -ig XDLOPS=0
+declare -ig XDLOPS=-1
 declare -ig TUNING=0
+declare -ig TESTALL=0
 declare -g DTYPE=""
 declare -g DIRECTION=""
 declare -g LAYOUT=""
 declare -g DRIVER="./bin/MIOpenDriver"
 
+declare -a ALL_DTYPES=(fp16 fp32)
+declare -a ALL_DIRECTIONS=(1 2 4)
+declare -a ALL_LAYOUTS=(NCHW NHWC)
+declare -a ALL_CONFIGS=()
+
 function usage() {
     cat <<END
-$0: [-d | --direction] DIR [-t | --dtype] [fp16 | fp32]
-[-l | --layout] LAYOUT [-x | --xdlops] [-X | --no-xdlops (default)]
-[--tuning | --no-tuning (default)] [--driver DRIVER (default bin/MIOpenDriver)]
+$0: [-d | --direction] DIR [-t | --dtype] [fp16 | fp32] [-l | --layout] LAYOUT
+[-x | --xdlops] [-X | --no-xdlops (default)] [--tuning | --no-tuning (default)]
+[--driver DRIVER (default bin/MIOpenDriver)] [--test-all]
 
 DIR is either 1 (forward (fwd)) 2 (backward data (bwd)), or 
 4 (backward weights (wrw)), other values are currently unsupported 
@@ -35,7 +41,7 @@ function parse_options() {
 
     local parsed_args
     parsed_args=$(getopt -n "$0" -o d:t:l:xXh \
-                         --long direction:,dtype:,layout:,xdlops,no-xdlops,driver:,tuning,no-tuning,help -- "$@")
+                         --long direction:,dtype:,layout:,xdlops,no-xdlops,driver:,driver:,tuning,no-tuning,test-all,help -- "$@")
     local -i valid_args=$?
     if [[ $valid_args -ne 0 ]]; then
         usage
@@ -49,6 +55,7 @@ function parse_options() {
             -X | --no-xdlops ) XDLOPS=0; shift ;;
             --tuning ) TUNING=1; shift; ;;
             --no-tuning ) TUNING=0; shift; ;;
+            --test-all ) TESTALL=1; shift; ;;
             -d | --direction ) got_direction=1; DIRECTION="$2"; shift 2 ;;
             -l | --layout ) got_layout=1; LAYOUT="$2"; shift 2 ;;
             -t | --dtype ) got_dtype=1; DTYPE="$2"; shift 2 ;;
@@ -59,13 +66,36 @@ function parse_options() {
     done
 
     # Check required args
-    [[ $got_layout == 1 && $got_direction == 1 && $got_dtype == 1 ]] || usage
+    [[ $got_layout == 1 && $got_direction == 1 && $got_dtype == 1 ]] || [[ $TESTALL == 1 ]] || usage
 
     # Validate options
-    case "$DTYPE" in
-        fp16 | fp32 ) ;;
-        * ) echo "$0: Invalid dtype $DTYPE"; usage ;;
-    esac
+    if [[ $got_dtype == 1 ]]; then
+        case "$DTYPE" in
+            fp16 | fp32 ) ;;
+            * ) echo "$0: Invalid dtype $DTYPE"; usage ;;
+        esac
+    fi
+
+    # Detect XDLOPS if not specified
+    local xdlops
+    if [[ $XDLOPS == -1 ]]; then
+      xdlops=$(/opt/rocm/bin/rocm_agent_enumerator |grep gfx908)
+      if [[ ! -z "$xdlops" ]]; then
+        XDLOPS=1
+      else
+        XDLOPS=0
+      fi
+    fi
+}
+
+function get_configs() {
+    local line="#"
+    while IFS= read -r line; do
+        if [[ $line == \#* || $line == "" ]]; then
+            continue
+        fi
+        ALL_CONFIGS+=("$line")
+    done
 }
 
 function construct_fixed_args() {
@@ -78,8 +108,8 @@ function construct_fixed_args() {
        exit 2
     fi
     case "$DTYPE" in
-        fp16 ) FIXED_CONFIG_ARGS+=("convfp16") ;;
-        fp32 ) FIXED_CONFIG_ARGS+=("conv") ;;
+        fp16 ) FIXED_CONFIG_ARGS=("convfp16") ;;
+        fp32 ) FIXED_CONFIG_ARGS=("conv") ;;
         * ) echo "Can't happen"; exit 3 ;;
     esac
 
@@ -94,14 +124,9 @@ function create_configs() {
        exit 1
     fi
 
-    local line="#"
-    while IFS= read -r line; do
-        if [[ $line == \#* || $line == "" ]]; then
-            continue
-        fi
+    for line in "${ALL_CONFIGS[@]}"; do
         echo "$DRIVER" "${FIXED_CONFIG_ARGS[@]}" "$line" >>"$TMPFILE"
     done
-    cat "$TMPFILE"
 }
 
 function clean_miopen_caches() {
@@ -125,6 +150,7 @@ function setup_environment() {
         4) MIOPEN_DEBUG_FIND_ONLY_SOLVER=ConvMlirIgemmWrW ;;
         *) echo "$0: Unsupported direction flag $DIRECTION"; exit 2
     esac
+
     if [[ $XDLOPS == 1 ]]; then
        MIOPEN_DEBUG_FIND_ONLY_SOLVER+="Xdlops"
     fi
@@ -137,8 +163,6 @@ function run_tests() {
         echo "Test execution preconditions not met"
         exit 3
     fi
-
-    clean_miopen_caches
 
     local exit_status
     # The extra bash -c accounts for parallel trying to pass each line as one
@@ -160,12 +184,35 @@ function run_tests() {
     fi
 }
 
-function main() {
-    parse_options "$@"
+function run_tests_for_a_config() {
     construct_fixed_args
     create_configs
     setup_environment
     run_tests
+}
+
+function run_tests_for_all_configs() {
+    for t in ${ALL_DTYPES[@]}; do
+        for d in ${ALL_DIRECTIONS[@]}; do
+            for l in ${ALL_LAYOUTS[@]}; do
+                DTYPE=$t
+                DIRECTION=$d
+                LAYOUT=$l
+                run_tests_for_a_config
+            done
+        done
+    done
+}
+
+function main() {
+    clean_miopen_caches
+    parse_options "$@"
+    get_configs
+    if [[ $TESTALL == 1 ]]; then
+        run_tests_for_all_configs
+    else
+        run_tests_for_a_config
+    fi
 }
 
 main "$@"

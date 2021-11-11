@@ -38,7 +38,6 @@ private:
   std::string chip;
   std::string features;
 
-  using Blob = SmallVector<char, 0>;
   void setupDefaults(std::string &chip, std::string &features,
                      std::string &triple);
   void configTarget(std::string &targetChip, std::string &features);

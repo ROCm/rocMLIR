@@ -10,6 +10,7 @@ set(LIBS
   MLIRAnalysis
   MLIRExecutionEngine
   MLIRMIOpenOps
+  MLIRMIOpenPipeline
   MLIRParser
   MLIRPass
   MLIRQuant

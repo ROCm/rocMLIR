@@ -492,8 +492,9 @@ void Conv2dGenerator::setDataType(std::string newType) {
 void Conv2dGenerator::flipXdlops() { config.xdlops = !config.xdlops; }
 
 LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
-                                             OpBuilder &builder,
                                              int kernel_id) {
+  OpBuilder builder(module.getContext());
+
   if (kernel_id == -1) {
     kernel_id = std::max(config.kernelId, 0);
   }

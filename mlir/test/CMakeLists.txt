@@ -66,6 +66,7 @@ set(MLIR_TEST_DEPENDS
   miopen-opt
   miopen-translate
   mlir-mixr-capi-test
+  mlir-tosa-miir-test
   mlir-opt
   mlir-reduce
   mlir-translate
