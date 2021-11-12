@@ -1,5 +1,5 @@
 // RUN:   python3.7 %S/Inputs/resnet50-test.py %S/Inputs/590px-Red_Smooth_Saluki.jpg \
-// RUN: | mlir-opt --tosa-partition --tosa-to-linalg-on-tensors --tosa-to-standard \
+// RUN: | mlir-opt --tosa-partition-pipeline --tosa-to-linalg-on-tensors --tosa-to-standard \
 // RUN:   --linalg-detensorize -tensor-constant-bufferize -std-bufferize -linalg-bufferize \
 // RUN:   -tensor-bufferize -func-bufferize -finalizing-bufferize --convert-linalg-to-loops \
 // RUN:   --tosa-to-standard -lower-affine -convert-linalg-to-llvm --convert-scf-to-std \
