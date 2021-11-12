@@ -1,11 +1,11 @@
 # This Dockerfile provides the enviornment for a ROCm installation of MLIR
-FROM ubuntu:bionic
+FROM ubuntu:latest
 MAINTAINER Zhuoran Yin <zhuoran.yin@amd.com>
 
-ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/4.3.1/
-ARG ROCM_BUILD_NAME=xenial
+ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/4.5
+ARG ROCM_BUILD_NAME=ubuntu
 ARG ROCM_BUILD_NUM=main
-ARG ROCM_PATH=/opt/rocm-4.3.1
+ARG ROCM_PATH=/opt/rocm-4.5
 
 ENV DEBIAN_FRONTEND noninteractive
 ENV HOME /root/
@@ -30,7 +30,7 @@ RUN echo 'install build dependencies'; \
 RUN apt-get update ;\
     apt-get upgrade -y ;\
     apt-get install -y \
-        clang-10 lld-10 clang-tidy-10 clang-format-10 \
+        clang-12 lld-12 clang-tidy-12 clang-format-12 \
         ;\
     apt-get clean
 
@@ -54,15 +54,15 @@ RUN pip3 install -r requirements.txt
 # Needed to output performance tests
 RUN pip3 install pandas numpy scipy jinja2
 
-RUN ln -s /usr/bin/clang-10 /usr/bin/clang;\
-    ln -s /usr/bin/clang++-10 /usr/bin/clang++;\
-    ln -s /usr/bin/clang-tidy-10 /usr/bin/clang-tidy;\
-    ln -s /usr/bin/clang-tidy-diff-10.py /usr/bin/clang-tidy-diff;\
-    ln -s /usr/bin/clang-format-10 /usr/bin/clang-format;\
-    ln -s /usr/bin/git-clang-format-10 /usr/bin/git-clang-format;\
-    ln -s /usr/bin/clang-format-diff-10 /usr/bin/clang-format-diff;\
-    ln -s /usr/bin/lld-10 /usr/bin/lld;\
-    ln -s /usr/bin/llvm-symbolizer-10 /usr/bin/llvm-symbolizer
+RUN ln -s /usr/bin/clang-12 /usr/bin/clang;\
+    ln -s /usr/bin/clang++-12 /usr/bin/clang++;\
+    ln -s /usr/bin/clang-tidy-12 /usr/bin/clang-tidy;\
+    ln -s /usr/bin/clang-tidy-diff-12.py /usr/bin/clang-tidy-diff;\
+    ln -s /usr/bin/clang-format-12 /usr/bin/clang-format;\
+    ln -s /usr/bin/git-clang-format-12 /usr/bin/git-clang-format;\
+    ln -s /usr/bin/clang-format-diff-12 /usr/bin/clang-format-diff;\
+    ln -s /usr/bin/lld-12 /usr/bin/lld;\
+    ln -s /usr/bin/llvm-symbolizer-12 /usr/bin/llvm-symbolizer
 
 # --------------------- Section 2: MIOpen dialect setups -----------------
 
@@ -79,7 +79,7 @@ RUN echo "deb [arch=amd64] $ROCM_DEB_REPO $ROCM_BUILD_NAME $ROCM_BUILD_NUM" > /e
 
 # Install cmake distribution
 RUN wget --no-check-certificate -qO - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | apt-key add -
-RUN apt-add-repository 'deb https://apt.kitware.com/ubuntu/ bionic main'
+RUN apt-add-repository 'deb https://apt.kitware.com/ubuntu/ focal main'
 
 # Note instead of installing the latest, we should always manually bump cmake version when necessary.
 # This make sure that we don't accidentally use newer cmake features incompatible with our client.
@@ -93,8 +93,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   vim \
   kmod \
   file \
-  cmake-data=3.15.1-0kitware1 \
-  cmake=3.15.1-0kitware1 \
+  cmake-data=3.21.3-0kitware1ubuntu20.04.1 \
+  cmake=3.21.3-0kitware1ubuntu20.04.1 \
   libsqlite3-dev \
   parallel \
   python3-venv  && \
