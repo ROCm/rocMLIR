@@ -117,6 +117,7 @@ endif()
 if(MLIR_MIOPEN_DRIVER_ENABLED)
   list(APPEND MLIR_MIOPEN_TEST_DEPENDS
     mlir-miopen-driver
+    miopen-gen
     mlir-miopen-lib-test
     mlir-translate
     opt
