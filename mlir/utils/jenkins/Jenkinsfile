@@ -35,10 +35,11 @@ void showEnv() {
     sh 'ulimit -a'
     sh '/opt/rocm/bin/rocm-smi'
     sh '/opt/rocm/bin/rocm_agent_enumerator'
+    sh 'id'
 }
 
 String dockerArgs() {
-    return '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+    return "--device=/dev/kfd --device=/dev/dri --group-add video -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
 }
 
 String dockerImage() {
@@ -60,7 +61,6 @@ void preMergeCheck() {
 
 void testMIOpenDriver(String dtype, String layout, String direction, String tuning) {
     echo "Config is (${dtype}, ${layout}, dir=${direction}, tuning=${tuning})"
-    sh 'ldconfig'
     dir('MIOpen/build/') {
         sh """
         bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh \
@@ -136,6 +136,9 @@ pipeline {
                             alwaysPull true
                         }
                     }
+                    environment {
+                        HOME="${WORKSPACE}"
+                    }
                     stages {
                         stage('Environment') {
                             steps {
@@ -167,7 +170,7 @@ pipeline {
                      }
                      post {
                         always {
-                            cleanWs()
+                            deleteDir()
                         }
                     }
                 }
@@ -186,6 +189,9 @@ pipeline {
                             label "${params.canXdlops ? 'gfx908' : 'rocm' }"
                             alwaysPull true
                         }
+                    }
+                    environment {
+                        HOME="${WORKSPACE}"
                     }
                     stages {
                         stage('Environment') {
@@ -208,7 +214,7 @@ pipeline {
                     }
                     post {
                         always {
-                            cleanWs()
+                            deleteDir()
                         }
                     }
                 }
@@ -230,6 +236,7 @@ pipeline {
                     }
                     environment {
                         PATH="/opt/rocm/llvm/bin:$PATH"
+                        HOME="${WORKSPACE}"
                     }
                     stages {
                         stage('Environment') {
@@ -242,7 +249,7 @@ pipeline {
                                 checkout scm
                                 buildProject('libMLIRMIOpen',
                                              '-DBUILD_FAT_LIBMLIRMIOPEN=ON')
-                                cmake arguments: '--install . --component libMLIRMIOpen --prefix /opt/rocm',\
+                                cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/libMLIRMIOpen",\
                                 installation: 'InSearchPath', workingDir: 'build'
                             }
                         }
@@ -256,7 +263,14 @@ pipeline {
                             }}
                             steps {
                                 dir('MIOpen') {
-                                getAndBuildMIOpen('--prefix ./MIOpenDeps', '''-DMIOPEN_USE_MLIR=On
+                                git branch: 'develop', poll: false,\
+                                    url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+                                sh 'sed -i "/ROCmSoftwarePlatform\\/llvm-project-mlir/d" ./requirements.txt'
+                                cmake arguments: "-P install_deps.cmake --minimum --prefix ${WORKSPACE}/MIOpen/MIOpenDeps",\
+                                    installation: "InSearchPath"
+                                sh "cp ${WORKSPACE}/libMLIRMIOpen/lib/libMLIRMIOpen.a ${WORKSPACE}/MIOpen/MIOpenDeps/lib"
+                                sh "cp ${WORKSPACE}/libMLIRMIOpen/include/Miir.h ${WORKSPACE}/MIOpen/MIOpenDeps/include"
+                                buildMIOpen('''-DMIOPEN_USE_MLIR=On
                                         -DMIOPEN_BACKEND=HIP
                                         -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
                                         -DMIOPEN_USER_DB_PATH=${WORKSPACE}/MIOpen/build/MIOpenUserDB
@@ -291,7 +305,6 @@ pipeline {
                                 LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
                             }
                             steps {
-                                sh 'ldconfig'
                                 dir('MIOpen/build/') {
                                     sh """
                                     bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
@@ -311,12 +324,11 @@ pipeline {
                                     equals expected: true, actual: params.staticLib;
                             }
                             environment {
-                                    // Make libMIOpen.so accessible to the test driver
-                                    LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                                // Make libMIOpen.so accessible to the test driver
+                                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
                             }
                             steps {
                                 showEnv()
-                                sh 'ldconfig'
                                 dir('MIOpen/build/') {
                                     sh """
                                     bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --no-tuning\
@@ -330,7 +342,7 @@ pipeline {
                     }
                     post {
                         always {
-                            cleanWs()
+                            deleteDir()
                         }
                     }
                 }
@@ -351,6 +363,7 @@ pipeline {
                     }
                     environment {
                         PATH="/opt/rocm/llvm/bin:$PATH"
+                        HOME="${WORKSPACE}"
                     }
                     stages {
                         stage("Environment") {
@@ -361,7 +374,7 @@ pipeline {
                         stage("Build MIOpen with HIP") {
                            steps {
                                dir('MIOpen') {
-                                   getAndBuildMIOpen('--prefix ./MIOpenDeps',
+                                   getAndBuildMIOpen("--prefix ${WORKSPACE}/MIOpen/MIOpenDeps",
                                                      '''-DMIOPEN_BACKEND=HIP
                                    -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
                                    -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/MIOpen/build/MIOpenInstallDir
@@ -380,7 +393,6 @@ pipeline {
                         }
                         stage("Test MLIR vs MIOpen") {
                             steps {
-                                sh 'ldconfig'
                                 dir('build') {
                                     sh 'date --utc +%Y-%m-%d > perf-run-date'
                                     // Run MLIR perf benchmarks
@@ -392,7 +404,7 @@ pipeline {
                     }
                     post {
                         always {
-                            cleanWs()
+                            deleteDir()
                         }
                     }
                 }
@@ -451,6 +463,7 @@ pipeline {
                                 environment {
                                     // Make libMIOpen.so accessible to the test driver
                                     LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                                    HOME="${WORKSPACE}"
                                 }
                                 steps {
                                     // Test with perfDb
@@ -467,7 +480,7 @@ pipeline {
                         }
                         post {
                             always {
-                                cleanWs()
+                                deleteDir()
                             }
                         }
                     }
@@ -491,6 +504,7 @@ pipeline {
             environment {
                 // Make libMIOpen.so accessible to the test driver
                 LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                HOME="${WORKSPACE}"
             }
             stages {
                 stage("Copy MIOpen with MLIR kernels") {
@@ -510,7 +524,6 @@ pipeline {
                 stage("Performance Test: Tuned vs Untuned") {
                     steps {
                         buildProject('ci-performance-scripts', '')
-                        sh 'ldconfig'
                         dir('build') {
                            sh 'python3 ./bin/MIOpenDriver.py -bmiopen_use_tuned_mlir'
                            sh 'rm -rf ${WORKSPACE}/MIOpen/build/MIOpenUserDB'
@@ -543,7 +556,7 @@ pipeline {
             }
             post {
                 always {
-                    cleanWs()
+                    deleteDir()
                 }
              }
         }
