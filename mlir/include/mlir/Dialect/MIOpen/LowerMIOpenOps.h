@@ -54,6 +54,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <iterator>
 
@@ -1090,15 +1091,15 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
         if (mbUpperDiff.hasValue() && mbLowerDiff.hasValue()) {
           lowerDiff = b.create<ConstantIntOp>(
               loc,
-              mbLowerDiff.getValue() + coefficient * mbUpperDiff.getValue(),
+              mbUpperDiff.getValue() + coefficient * mbLowerDiff.getValue(),
               /*bitwidth=*/32);
         } else {
           lowerDiff = b.create<AddIOp>(
-              loc, lowerDiff,
+              loc, upperIndicesDiff[upperDim],
               b.create<MulIOp>(loc,
                                b.create<ConstantIntOp>(loc, coefficient,
                                                        b.getIntegerType(32)),
-                               upperIndicesDiff[upperDim]));
+                               lowerDiff));
         }
       }
       int64_t lowerDim = q[0].template cast<IntegerAttr>().getInt();
@@ -1150,11 +1151,12 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
         (void)transform.constantFold(upperDiffModified, lowerDiffModifiedAttr);
         assert(lowerDiffModifiedAttr.size() == lowerIndicesOriginal.size());
 
-        for (unsigned iter = 0; iter < lowerDiffModifiedAttr.size(); ++iter)
+        for (unsigned iter = 0; iter < lowerDiffModifiedAttr.size(); ++iter) {
           lowerDiffModified.push_back(b.create<ConstantIntOp>(
               loc,
               lowerDiffModifiedAttr[iter].template cast<IntegerAttr>().getInt(),
               b.getIntegerType(32)));
+        }
         assert(lowerDiffModified.size() == lowerIndicesOriginal.size());
       } else {
         // In case upper level diff is not constant, use expandAffineMap.
@@ -1242,6 +1244,13 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
           Value index =
               addToOriginal(lowerIndicesCarryChecked[lowerDim], overflowOp);
 
+          // Don't generate overflow for the uppermost dimension,
+          // as this can lead to oob loads
+          if (iter == 0) {
+            lowerDiffsCarryChecked[lowerDim] = diff;
+            lowerIndicesCarryChecked[lowerDim] = index;
+            continue;
+          }
           auto mbConstantDiff = isConstantValue(diff);
           auto mbConstantIndex = isConstantValue(index);
 
@@ -1271,6 +1280,8 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
           // No change -> no carry-out
           if (mbConstantDiff.getValueOr(-1L) == 0) {
             overflowOp = zeroConstantI32Op;
+            lowerDiffsCarryChecked[lowerDim] = diff;
+            lowerIndicesCarryChecked[lowerDim] = index;
             continue;
           }
 
