@@ -331,6 +331,7 @@ def benchmarkMIOpenWithMLIRKernels(configs, xdlops, filename):
     envs = os.environ.copy()
     envs['MIOPEN_FIND_MODE'] = '1'
     envs['MIOPEN_DRIVER_USE_GPU_REFERENCE'] = '1'
+    envs['MIOPEN_LOG_LEVEL'] ='6'
     perf_list = []
     for testVector in configs:
         envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER']=solver_names[testVector]
