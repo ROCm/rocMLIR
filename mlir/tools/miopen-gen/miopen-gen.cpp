@@ -44,6 +44,9 @@
 #include "bf16convert.hpp"
 #include <unordered_map>
 
+#include <list>
+#include <tuple>
+
 using namespace llvm;
 using namespace mlir;
 
@@ -213,12 +216,6 @@ static cl::opt<bool>
                           cl::value_desc("To "),
                           cl::init(false));
 
-// populate entry point
-static cl::opt<std::string>
-    populateEntryPoint("entry-point", cl::desc("Populate entry point function"),
-                       cl::value_desc("Populate entry point function"),
-                       cl::init("conv2d"));
-
 // populate entry point function for gpu validation
 static cl::opt<std::string> populateValidateEntryPoint(
     "validate-entry-point",
@@ -296,6 +293,11 @@ static cl::opt<int> deviceNum(
     cl::value_desc("Between 0 and number of GPUs on system. "
                    "Omission leaves current device intact."));
 static cl::alias deviceShort("dev", cl::aliasopt(deviceNum));
+
+struct KernelIF {
+  FuncOp func;
+  std::list<mlir::Type> params;
+};
 
 namespace test {
 void registerTestDialect(DialectRegistry &);
@@ -507,11 +509,17 @@ static LogicalResult detectMissingArguments() {
   return success();
 }
 
-static FuncOp makeFuncDecl(OpBuilder &builder, StringRef funcName,
+static FuncOp makeFuncDecl(ModuleOp module, StringRef funcName,
                            TypeRange inputs, TypeRange results) {
-  auto func = FuncOp::create(builder.getUnknownLoc(), funcName,
-                             builder.getFunctionType(inputs, results));
-  func.sym_visibilityAttr(builder.getStringAttr("private"));
+  FuncOp func = module.lookupSymbol<FuncOp>(funcName);
+  if (!func) {
+    OpBuilder builder(module.getContext());
+    func = FuncOp::create(builder.getUnknownLoc(), funcName,
+                          builder.getFunctionType(inputs, results));
+    func.sym_visibilityAttr(builder.getStringAttr("private"));
+    module.push_back(func);
+  }
+
   return func;
 }
 
@@ -942,7 +950,7 @@ createCPUConvolution(ModuleOp &module, OpBuilder &builder,
 
   // Emit cpu convolution function call op
   auto mcpuConv2dFuncOp =
-      makeFuncDecl(builder, mcpuFuncName,
+      makeFuncDecl(module, mcpuFuncName,
                    {unrankedMemRefType, unrankedMemRefType, unrankedMemRefType,
                     unrankedLayoutMemRefType, unrankedLayoutMemRefType,
                     unrankedLayoutMemRefType, intType, intType, intType,
@@ -959,7 +967,6 @@ createCPUConvolution(ModuleOp &module, OpBuilder &builder,
                  paddingWidthRightConstantOp, dilationHeightConstantOp,
                  dilationWidthConstantOp});
 
-  module.push_back(mcpuConv2dFuncOp);
   cpuConvBlock->push_back(mcpuConv2dCallOp);
 
   // Emit return op
@@ -1005,9 +1012,8 @@ getConvertedCpuResults(ModuleOp &module, OpBuilder &builder, Block *block,
         MemRefType::get({-1, -1, -1, -1, -1}, dataType);
 
     auto convertFuncOp = makeFuncDecl(
-        builder, convertFuncName,
+        module, convertFuncName,
         {fiveDimUnknownSizeMemRefFloat, fiveDimUnknownSizeMemRefType}, {});
-    module.push_back(convertFuncOp);
 
     // Emit memref cast
     auto cpuConvertedMemRefCastOp = builder.create<memref::CastOp>(
@@ -1191,11 +1197,11 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
   auto printMemRefCastOp = builder.create<memref::CastOp>(
       builder.getUnknownLoc(), cmpResultAllocOp, unrankedMemRefType);
   auto printMemRefFuncOp =
-      makeFuncDecl(builder, "print_memref_i32", {unrankedMemRefType}, {});
+      makeFuncDecl(module, "print_memref_i32", {unrankedMemRefType}, {});
   auto printMemRefCallOp =
       builder.create<CallOp>(builder.getUnknownLoc(), printMemRefFuncOp,
                              ValueRange{printMemRefCastOp});
-  module.push_back(printMemRefFuncOp);
+
   verifyResultsBlock->push_back(printMemRefCastOp);
   verifyResultsBlock->push_back(printMemRefCallOp);
 
@@ -1278,11 +1284,9 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   });
   // Build an alloc function if it didn't already exist
   if (!walkResult.wasInterrupted()) {
-    mgpuMemAlloc5DFuncOp = makeFuncDecl(builder, gpuMemAllocFuncName,
+    mgpuMemAlloc5DFuncOp = makeFuncDecl(module, gpuMemAllocFuncName,
                                         {fiveDimUnknownSizeMemRefType},
                                         {fiveDimUnknownSizeMemRefType});
-
-    module.push_back(mgpuMemAlloc5DFuncOp);
   }
 
   auto filterGpuAllocOp =
@@ -1326,11 +1330,10 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   });
   if (!walkResult.wasInterrupted()) {
     mgpuMemCopy5DFuncOp =
-        makeFuncDecl(builder, gpuMemCopyFuncName,
+        makeFuncDecl(module, gpuMemCopyFuncName,
                      {fiveDimUnknownSizeMemRefType,
                       fiveDimUnknownSizeMemRefType, builder.getIntegerType(32)},
                      {});
-    module.push_back(mgpuMemCopy5DFuncOp);
   }
 
   auto filterCpuToGpuCopyOp = builder.create<CallOp>(
@@ -1422,9 +1425,8 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
     return WalkResult::advance();
   });
   if (!walkResult.wasInterrupted()) {
-    mgpuMemDealloc5DFuncOp = makeFuncDecl(builder, gpuMemDeallocFuncName,
+    mgpuMemDealloc5DFuncOp = makeFuncDecl(module, gpuMemDeallocFuncName,
                                           {fiveDimUnknownSizeMemRefType}, {});
-    module.push_back(mgpuMemDealloc5DFuncOp);
   }
 
   auto filterGpuDeallocOp =
@@ -1606,23 +1608,145 @@ static void generateTensorInitValues(
   return;
 }
 
-static LogicalResult populateHostHarnessLogic(
-    ModuleOp &module, OpBuilder &builder, MLIRContext &context,
-    const mlir::Conv2dGenerator::Config &genConfig, mlir::Type dataType) {
+static void generateTensorInitValues(OpBuilder &builder,
+                                     mlir::FuncOp &mcpuMemset5DFuncOp,
+                                     mlir::Value &filterMemsetMinValue,
+                                     mlir::Value &filterMemsetMaxValue,
+                                     mlir::ConstantOp &seedConstantIntOp) {
+  auto int16Type = builder.getIntegerType(16);
+  auto int32Type = builder.getIntegerType(32);
+  unsigned short zero = 0, one = 1;
+  short min, max;
+  int seed = 1;
+  std::tie(min, max, seed) = configRandomTestData();
 
-  auto filterDimension = genConfig.filterDimension;
-  auto inputDimension = genConfig.inputDimension;
-  auto outputDimension = genConfig.outputDimension;
-  auto convOpType = genConfig.operation;
+  mlir::ConstantOp oneConstantIntOp;
+  if (randomSeed.getValue() != "none" && randomSide.getValue() != "both") {
+    oneConstantIntOp = builder.create<ConstantOp>(
+        builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(one));
+  }
+
+  auto zeroConstantIntOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(zero));
+  auto minConstantIntOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(min));
+  auto maxConstantIntOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(max));
+  seedConstantIntOp = builder.create<ConstantOp>(
+      builder.getUnknownLoc(), int32Type, builder.getI32IntegerAttr(seed));
+
+  filterMemsetMinValue = minConstantIntOp;
+  filterMemsetMaxValue = maxConstantIntOp;
+
+  return;
+}
+
+static mlir::Value make5DMemRef(OpBuilder &builder, mlir::Value var) {
+  auto loc = var.getLoc();
+  auto context = builder.getContext();
+  auto oprType = var.getType().template cast<ShapedType>();
+  if (!oprType.hasStaticShape())
+    return mlir::Value();
+  auto shape = oprType.getShape();
+  if (shape.size() < 5) {
+    SmallVector<int64_t, 5> expShape(shape.begin(), shape.end());
+    for (int i = shape.size(); i < 5; ++i)
+      expShape.push_back(1);
+    auto newType = MemRefType::get(expShape, oprType.getElementType());
+
+    SmallVector<ReassociationExprs, 5> reassociations;
+    uint32_t dim = 0;
+    for (; dim < shape.size() - 1; ++dim) {
+      reassociations.push_back({getAffineDimExpr(dim, context)});
+    }
+
+    // last dimensions
+    SmallVector<AffineExpr, 2> exprs;
+    for (; dim < 5; ++dim)
+      exprs.push_back(getAffineDimExpr(dim, context));
+    reassociations.push_back(exprs);
+
+    var = builder.create<memref::ExpandShapeOp>(loc, newType, var,
+                                                reassociations);
+  }
+  return var;
+}
+
+static LogicalResult
+populateHostHarnessLogic(ModuleOp &module, const std::list<KernelIF> &kernels) {
+
+  auto context = module.getContext();
+  OpBuilder builder(context);
+  auto loc = builder.getUnknownLoc();
 
   // Construct main function.
-  auto func = FuncOp::create(builder.getUnknownLoc(), "main",
-                             builder.getFunctionType({}, {}));
+  auto func = FuncOp::create(loc, "main", builder.getFunctionType({}, {}));
   module.push_back(func);
 
   // Construct a new Block.
   Block *block = func.addEntryBlock();
+  builder.setInsertionPoint(block, block->begin());
 
+  auto int16Type = builder.getIntegerType(16);
+  auto int32Type = builder.getIntegerType(32);
+
+  // Emit CPU memset function calls.
+  std::string memsetFuncName = getMemsetFuncName(builder, builder.getF32Type());
+
+  auto fiveDimUnknownSizeMemRefType =
+      MemRefType::get({-1, -1, -1, -1, -1}, builder.getF32Type());
+  auto mcpuMemset5DFuncOp = makeFuncDecl(
+      module, memsetFuncName,
+      {fiveDimUnknownSizeMemRefType, int16Type, int16Type, int32Type}, {});
+
+  StringRef printMemRefFuncName = "print_memref_f32";
+  auto unrankedMemRefType = UnrankedMemRefType::get(builder.getF32Type(), 0);
+  auto printMemRefFuncOp =
+      makeFuncDecl(module, printMemRefFuncName, {unrankedMemRefType}, {});
+
+  // Create all local variables for each kernel param
+  for (const auto &kernel : kernels) {
+    std::list<mlir::Value> localVars;
+    SmallVector<mlir::Value, 5> args;
+    for (auto &paramType : kernel.params) {
+      auto paramMRType = paramType.template dyn_cast<MemRefType>();
+      assert(paramMRType && "currently only supports memref types");
+      auto lvar = builder.create<memref::AllocOp>(loc, paramMRType);
+      localVars.push_back(lvar);
+      args.push_back(lvar);
+      auto lv5D = make5DMemRef(builder, lvar);
+      auto lvU5D = builder.create<memref::CastOp>(loc, lv5D,
+                                                  fiveDimUnknownSizeMemRefType);
+      mlir::Value filterMemsetMinValue;
+      mlir::Value filterMemsetMaxValue;
+      mlir::ConstantOp seedConstantIntOp;
+
+      generateTensorInitValues(builder, mcpuMemset5DFuncOp,
+                               filterMemsetMinValue, filterMemsetMaxValue,
+                               seedConstantIntOp);
+
+      auto filterCpuMemsetOp = builder.create<CallOp>(
+          loc, mcpuMemset5DFuncOp,
+          ValueRange{lvU5D, filterMemsetMinValue, filterMemsetMaxValue,
+                     seedConstantIntOp});
+    }
+
+    auto kernelCall = builder.create<CallOp>(loc, kernel.func, args);
+
+    for (auto &lvar : localVars) {
+      // print lvar
+      auto printMemRefCastOp =
+          builder.create<memref::CastOp>(loc, lvar, unrankedMemRefType);
+      auto printMemRefCallOp = builder.create<CallOp>(
+          loc, printMemRefFuncOp, ValueRange{printMemRefCastOp});
+      // dealloc lvar
+      builder.create<memref::DeallocOp>(loc, lvar);
+    }
+  }
+
+  builder.create<ReturnOp>(loc, ValueRange{});
+
+#if 0
   auto filterMemRefType = MemRefType::get(
       ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
       dataType);
@@ -1679,18 +1803,9 @@ static LogicalResult populateHostHarnessLogic(
   block->push_back(filterMemRefCastOp);
   block->push_back(inputMemRefCastOp);
   block->push_back(outputMemRefCastOp);
+#endif
 
-  auto int16Type = builder.getIntegerType(16);
-  auto int32Type = builder.getIntegerType(32);
-
-  // Emit CPU memset function calls.
-  std::string memsetFuncName = getMemsetFuncName(builder, dataType);
-
-  auto mcpuMemset5DFuncOp = makeFuncDecl(
-      builder, memsetFuncName,
-      {fiveDimUnknownSizeMemRefType, int16Type, int16Type, int32Type}, {});
-  module.push_back(mcpuMemset5DFuncOp);
-
+#if 0
   // Populate initial values.
   mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
   mlir::Value filterMemsetMaxValue, inputMemsetMaxValue, outputMemsetMaxValue;
@@ -1717,17 +1832,21 @@ static LogicalResult populateHostHarnessLogic(
   block->push_back(filterCpuMemsetOp);
   block->push_back(inputCpuMemsetOp);
   block->push_back(outputCpuMemsetOp);
+#endif
 
+#if 0
   // launch gpu_conv
   auto gpuConvFuncOp = launchGPUConvolution(
       module, builder, dataType, convOpType, filterHostAllocOp,
-      inputHostAllocOp, outputHostAllocOp, populateEntryPoint);
+      inputHostAllocOp, outputHostAllocOp, "conv2d");
 
   auto gpuConvCallOp = builder.create<CallOp>(
       builder.getUnknownLoc(), gpuConvFuncOp,
       ValueRange{filterHostAllocOp, inputHostAllocOp, outputHostAllocOp});
   block->push_back(gpuConvCallOp);
+#endif
 
+#if 0
   mlir::Value resultCpuValue, resultOriginalCpuValue;
   mlir::MemRefType resultOriginalCpuType;
   switch (convOpType) {
@@ -1766,9 +1885,8 @@ static LogicalResult populateHostHarnessLogic(
       block->push_back(printUnkownSizeMemRefCastOp);
 
       auto cpuMemConvertOp = makeFuncDecl(
-          builder, "mcpuMem5DBF16ConvertFloat",
+          module, "mcpuMem5DBF16ConvertFloat",
           {fiveDimUnknownSizeMemRefType, unknownSizeMemRefFloatType}, {});
-      module.push_back(cpuMemConvertOp);
 
       auto printMemConvertCallOp = builder.create<CallOp>(
           builder.getUnknownLoc(), cpuMemConvertOp,
@@ -1791,11 +1909,10 @@ static LogicalResult populateHostHarnessLogic(
     auto printMemRefCastOp = builder.create<memref::CastOp>(
         builder.getUnknownLoc(), printHostAllocOp, unrankedMemRefType);
     auto printMemRefFuncOp =
-        makeFuncDecl(builder, printMemRefFuncName, {unrankedMemRefType}, {});
+        makeFuncDecl(module, printMemRefFuncName, {unrankedMemRefType}, {});
     auto printMemRefCallOp =
         builder.create<CallOp>(builder.getUnknownLoc(), printMemRefFuncOp,
                                ValueRange{printMemRefCastOp});
-    module.push_back(printMemRefFuncOp);
     block->push_back(printMemRefCastOp);
     block->push_back(printMemRefCallOp);
 
@@ -1818,6 +1935,7 @@ static LogicalResult populateHostHarnessLogic(
   auto returnOp =
       builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
   block->push_back(returnOp);
+#endif
 
   return success();
 }
@@ -1881,9 +1999,8 @@ static LogicalResult populateValidationLogic(
   std::string memsetFuncName = getMemsetFuncName(builder, dataType);
 
   auto mcpuMemset5DFuncOp = makeFuncDecl(
-      builder, memsetFuncName,
+      module, memsetFuncName,
       {fiveDimUnknownSizeMemRefType, int16Type, int16Type, int32Type}, {});
-  module.push_back(mcpuMemset5DFuncOp);
 
   // Populate initial values.
   mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
@@ -1915,7 +2032,7 @@ static LogicalResult populateValidationLogic(
   // Populate host harness logic
   auto gpuConvFuncOp = launchGPUConvolution(
       module, builder, dataType, convOpType, filterHostAllocOp,
-      inputHostAllocOp, outputHostAllocOp, populateEntryPoint);
+      inputHostAllocOp, outputHostAllocOp, "conv2d");
 
   auto gpuConvCallOp = builder.create<CallOp>(
       builder.getUnknownLoc(), gpuConvFuncOp,
@@ -1959,14 +2076,13 @@ static LogicalResult populateValidationLogic(
   mlir::FuncOp mcpuMemCopy5DFuncOp;
   if (dataType == builder.getIntegerType(16)) { // bf16
     mcpuMemCopy5DFuncOp = makeFuncDecl(
-        builder, "mcpuMem5DBF16ConvertFloat",
+        module, "mcpuMem5DBF16ConvertFloat",
         {fiveDimUnknownSizeMemRefType, fiveDimUnknownSizeFloatType}, {});
   } else { // fp32 or fp16
     mcpuMemCopy5DFuncOp = makeFuncDecl(
-        builder, "mcpuMemCopy5DFloat",
+        module, "mcpuMemCopy5DFloat",
         {fiveDimUnknownSizeFloatType, fiveDimUnknownSizeFloatType}, {});
   }
-  module.push_back(mcpuMemCopy5DFuncOp);
 
   // Emit CPU memset function calls
   if (dataType != builder.getF32Type()) {
@@ -1976,9 +2092,8 @@ static LogicalResult populateValidationLogic(
     else
       funcName = "mcpuMemset5DFloatRandInt";
     mcpuMemset5DFuncOp = makeFuncDecl(
-        builder, funcName,
+        module, funcName,
         {fiveDimUnknownSizeFloatType, int16Type, int16Type, int32Type}, {});
-    module.push_back(mcpuMemset5DFuncOp);
   }
 
   // Prepare input data for verifier convolution.
@@ -2187,9 +2302,8 @@ static LogicalResult populateCpuConvolutionLogic(
   std::string memsetFuncName = getMemsetFuncName(builder, dataType);
 
   auto mcpuMemset5DFuncOp = makeFuncDecl(
-      builder, memsetFuncName,
+      module, memsetFuncName,
       {fiveDimUnknownSizeMemRefType, int16Type, int16Type, int32Type}, {});
-  module.push_back(mcpuMemset5DFuncOp);
 
   mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
   mlir::Value filterMemsetMaxValue, inputMemsetMaxValue, outputMemsetMaxValue;
@@ -2227,10 +2341,8 @@ static LogicalResult populateCpuConvolutionLogic(
   if (dataType != builder.getF32Type()) {
     // CPU bf16->f32 conversion function
     mcpuMemCopy5DFuncOp = makeFuncDecl(
-        builder, "mcpuMem5DBF16ConvertFloat",
+        module, "mcpuMem5DBF16ConvertFloat",
         {fiveDimUnknownSizeMemRefType, fiveDimUnknownSizeFloatType}, {});
-    if (dataType == builder.getIntegerType(16))
-      module.push_back(mcpuMemCopy5DFuncOp);
 
     // Emit CPU alloc and conversion function calls
     cpuFilterHostAllocOp =
@@ -2340,11 +2452,10 @@ static LogicalResult populateCpuConvolutionLogic(
   auto printMemRefCastOp = builder.create<memref::CastOp>(
       builder.getUnknownLoc(), printAllocOp, unrankedMemRefType);
   auto printMemRefFuncOp =
-      makeFuncDecl(builder, printMemRefFuncName, {unrankedMemRefType}, {});
+      makeFuncDecl(module, printMemRefFuncName, {unrankedMemRefType}, {});
   auto printMemRefCallOp =
       builder.create<CallOp>(builder.getUnknownLoc(), printMemRefFuncOp,
                              ValueRange{printMemRefCastOp});
-  module.push_back(printMemRefFuncOp);
   block->push_back(printMemRefCastOp);
   block->push_back(printMemRefCallOp);
 
@@ -2386,9 +2497,11 @@ static LogicalResult populateCpuConvolutionLogic(
   return success();
 }
 
-static LogicalResult populateKernelLaunchLogic(
-    ModuleOp &module, OpBuilder &builder, MLIRContext &context,
-    const SmallVector<std::string, 4> &kernels, const std::string entryPoint) {
+static LogicalResult
+populateKernelLaunchLogic(ModuleOp &module, OpBuilder &builder,
+                          MLIRContext &context,
+                          const SmallVector<std::string, 4> &kernels,
+                          const std::string entryPoint = "conv2d") {
   // Check if populate entry point exist.
   FuncOp theFunc;
   auto walkResult = module.walk([&](FuncOp funcOp) -> WalkResult {
@@ -2482,10 +2595,6 @@ int main(int argc, char **argv) {
   MLIRContext context(registry);
   context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect,
                       scf::SCFDialect, AffineDialect, memref::MemRefDialect>();
-  mlir::registerAllPasses();
-  mlir::registerMIOpenConversionPasses();
-  miopen::registerPasses();
-  InitLLVM y(argc, argv);
 
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv, "MLIR MIOpen Dialect host generation\n");
@@ -2495,6 +2604,14 @@ int main(int argc, char **argv) {
 
   OpBuilder builder(&context);
   ModuleOp module;
+
+  verifyLayout();
+  correctParameters();
+  populateDefaults();
+
+  Conv2dGenerator conv2dGenerator;
+
+  std::list<KernelIF> kernels_l;
 
   SmallVector<std::string, 4> kernels;
 
@@ -2520,27 +2637,24 @@ int main(int argc, char **argv) {
     module = moduleRef.get();
 
     module.walk([&](FuncOp func) -> WalkResult {
-        if (func->hasAttr("kernel"))
-          kernels.push_back(func.getName().str());
-        return WalkResult::advance();
-      });
-    
+      if (func->hasAttr("kernel")) {
+        KernelIF kernel{func};
+        // assert(func.getNumFuncResults() == 0);
+        for (auto &paramType : func.getType().getInputs()) {
+          kernel.params.push_back(paramType);
+        }
+        kernels_l.emplace_back(kernel);
+        kernels.push_back(func.getName().str());
+      }
+      return WalkResult::advance();
+    });
+
   } else {
     // Construct a new ModuleOp.
     module = ModuleOp::create(builder.getUnknownLoc());
   }
 
-  verifyLayout();
-  correctParameters();
-  populateDefaults();
-
-  Conv2dGenerator conv2dGenerator;
-
-  if (kernels.size()) {
-    // capture config of kernels???
-
-  } else {
-
+  if (!kernels.size()) {
     auto convConfig = populateConvConfig.getValue();
 
     if (convConfig.empty() && failed(detectMissingArguments())) {
@@ -2631,6 +2745,7 @@ int main(int argc, char **argv) {
     }
   }
 
+#if 0
   // Populate the module for gpu validation.
   SmallVector<std::string, 4> kernels_v;
   if (populateValidationWithGPU.getValue() &&
@@ -2671,6 +2786,7 @@ int main(int argc, char **argv) {
       kernels_v.push_back(kName);
     }
   }
+#endif
 
   // populate CPU convolution and print the results.
   if (populateCpuConvolution.getValue()) {
@@ -2683,8 +2799,7 @@ int main(int argc, char **argv) {
 
   // populate host logic.
   if (populateHostHarness.getValue()) {
-    if (failed(populateHostHarnessLogic(module, builder, context, genConfig,
-                                        dataType))) {
+    if (failed(populateHostHarnessLogic(module, kernels_l))) {
       llvm::errs() << "Host logic populated failed.\n";
       exit(1);
     }
@@ -2693,13 +2808,13 @@ int main(int argc, char **argv) {
   // populate host launch logic.
   if (useHostHarness.getValue() || populateHostHarness.getValue() ||
       populateValidation.getValue()) {
-    if (failed(populateKernelLaunchLogic(module, builder, context, kernels,
-                                         populateEntryPoint.getValue()))) {
+    if (failed(populateKernelLaunchLogic(module, builder, context, kernels))) {
       llvm::errs() << "Host kernel launch logic populated failed.\n";
       exit(1);
     }
   }
 
+#if 0
   if (populateValidationWithGPU.getValue()) {
     if (failed(
             populateKernelLaunchLogic(module, builder, context, kernels_v,
@@ -2708,6 +2823,7 @@ int main(int argc, char **argv) {
       exit(1);
     }
   }
+#endif
 
   // Set up the output file.
   auto output = openOutputFile(outputFilename, &errorMessage);

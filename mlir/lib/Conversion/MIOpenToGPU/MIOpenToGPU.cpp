@@ -174,19 +174,36 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     return gpuModule;
   };
 
-  auto processGpuKernelFunc = [&](FuncOp &theFunc,
-                                  OpBuilder &b) -> gpu::GPUFuncOp {
+  auto processGpuKernelFunc = [&](gpu::GPUModuleOp &gpuMod,
+                                  FuncOp &theFunc) -> gpu::GPUFuncOp {
+    // Set up the symbol table for the GPU ModuleOp.
+    SymbolTable gpuModuleSymbolTable(gpuMod);
+    // Reset builder insertion point to the beginning of the GPU module,
+    // as it would be modified inside the lambda.
+    OpBuilder b(gpuMod.getContext());
+
     // create a GPUFuncOp.
     FunctionType gpuFuncType = theFunc.getType();
     auto gpuFunc =
         b.create<gpu::GPUFuncOp>(loc, theFunc.getName(), gpuFuncType);
 
+    // insert the GPUFuncOp into GPUModuleOp.
+    gpuModuleSymbolTable.insert(gpuFunc);
+
     // Set kernel attribute.
+    int64_t gridSize = 0;
+    int64_t blockSize = 0;
     gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(), b.getUnitAttr());
-    if (auto attr = theFunc->getAttr("block_size"))
+    if (auto attr = theFunc->getAttr("block_size")) {
       gpuFunc->setAttr("block_size", attr);
-    if (auto attr = theFunc->getAttr("grid_size"))
+      blockSize = attr.template cast<IntegerAttr>().getInt();
+      ;
+    }
+    if (auto attr = theFunc->getAttr("grid_size")) {
       gpuFunc->setAttr("grid_size", attr);
+      gridSize = attr.template cast<IntegerAttr>().getInt();
+      ;
+    }
 
     // associate arguments for newly created GPUFuncOp.
     BlockAndValueMapping map;
@@ -209,6 +226,31 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     b.setInsertionPointToEnd(&gpuFuncEntry);
     b.create<BranchOp>(loc, clonedFuncEntry);
 
+    // convert all calls to gpu.launch_func
+    SmallVector<CallOp, 4> calls;
+    op.walk([&](CallOp call) {
+      if (auto callable = call.getCallableForCallee()) {
+        if (FlatSymbolRefAttr symRef = callable.dyn_cast<SymbolRefAttr>()
+                                           .dyn_cast<FlatSymbolRefAttr>()) {
+          if (symRef.getValue() == theFunc.getName()) {
+            OpBuilder b(call);
+            auto gridVal = b.create<ConstantIndexOp>(loc, gridSize);
+            auto blockVal = b.create<ConstantIndexOp>(loc, blockSize);
+            auto cst1 = b.create<ConstantIndexOp>(loc, 1);
+            gpu::KernelDim3 gridDims{gridVal, cst1, cst1};
+            gpu::KernelDim3 blockDims{blockVal, cst1, cst1};
+            b.create<gpu::LaunchFuncOp>(loc, gpuFunc, gridDims, blockDims,
+                                        call.getArgOperands());
+            calls.push_back(call);
+          }
+        }
+      }
+    });
+
+    for (auto &call : calls) {
+      call.erase();
+    }
+
     return gpuFunc;
   };
 
@@ -219,15 +261,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
       std::string gfname = func.getName().str();
       gfname += "_module";
       auto gpuMod = makeGpuModule(gfname);
-      // Set up the symbol table for the GPU ModuleOp.
-      SymbolTable gpuModuleSymbolTable(gpuMod);
-      // Reset builder insertion point to the beginning of the GPU module,
-      // as it would be modified inside the lambda.
-      OpBuilder bmod(gpuMod.getContext());
-      auto gpuFunc = processGpuKernelFunc(func, bmod);
-
-      // insert the GPUFuncOp into GPUModuleOp.
-      gpuModuleSymbolTable.insert(gpuFunc);
+      auto gpuFunc = processGpuKernelFunc(gpuMod, func);
 
       processedFuncs.push_back(func);
     }
