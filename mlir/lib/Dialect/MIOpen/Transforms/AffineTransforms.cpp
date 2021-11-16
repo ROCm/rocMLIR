@@ -197,13 +197,14 @@ void AffineTransforms::runOnFunction() {
     llvm::SmallVector<AffineMap> affineMaps;
     affineMaps.push_back(indexAffineMap);
     auto inputType = op.input().getType().cast<MemRefType>();
-    affineMaps.push_back(inputType.getLayout().getAffineMap());
+    auto inputAffineMap = inputType.getLayout().getAffineMap();
+    affineMaps.push_back(inputAffineMap);
 
     auto outputType = op.output().getType().cast<MemRefType>();
     auto outputShape = outputType.getShape();
     auto transformedOutputType =
       MemRefType::get(outputShape, outputType.getElementType(),
-                      mlir::miopen::composeTransforms(affineMaps));
+                      miopen::composeTransforms(affineMaps));
 
     OpBuilder b(op.getOperation());
     auto loc = op.getLoc();
