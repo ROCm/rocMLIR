@@ -1,6 +1,3 @@
-// XFAIL: *
-// FIXME: 4X output values.
-
 // kyxc/nhwc/nhwk f16 bwd_weight
 // RUN: mlir-miopen-driver -fil_layout=kyxc -in_layout=nhwc -out_layout=nhwk -batchsize=256 -in_channels=1024 -in_h=14 -in_w=14 -out_channels=2048 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=2 --conv_stride_w=2 --padding_h=0 --padding_w=0 -t f16 --operation conv2d_bwd_weight %pv -c %random_data %xdlops | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CHECK_NHWC_WRW_1
 
