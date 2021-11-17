@@ -54,6 +54,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <iterator>
 
@@ -472,6 +473,7 @@ enum BwdPaddingKernelStatus {
   GemmMNPadStrideTwoXdlopsNHWC,
   GemmMPadStrideTwoXdlopsNHWC
 };
+
 inline void emitStoreLogic(
     BwdPaddingKernelStatus bwdPaddingStatus, OpBuilder &b, Location loc,
     MemRefType destType, Type typeToStore, bool toEmitOOBStoreCheckLogic,
@@ -866,6 +868,24 @@ populateTransformMetadataFromLowerType(OpBuilder &b, ShapedType lowerType,
       "lower_layer_bounds", b.getArrayAttr({lowerShapeAttr}))})});
 }
 
+//===---------------------------------------------------------
+// Determine if the operation provided is a constant, and return its value if it
+// is
+//===---------------------------------------------------------
+inline Optional<int64_t> isConstantValue(Value v) {
+  auto *op = v.getDefiningOp();
+  while (auto cast = dyn_cast<IndexCastOp>(op)) {
+    op = cast.in().getDefiningOp();
+  }
+  if (auto intOp = dyn_cast<ConstantIntOp>(op)) {
+    return intOp.getValue();
+  }
+  if (auto indexOp = dyn_cast<ConstantIndexOp>(op)) {
+    return indexOp.getValue();
+  }
+  return llvm::None;
+}
+
 //===----------------------------------------------------------------------===//
 // Utility function to compute index diff map.
 //===----------------------------------------------------------------------===//
@@ -878,7 +898,6 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
                     SmallVector<Value, 8> &lowerIndicesUpdated) {
   auto zeroConstantI32Op =
       b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
-  auto oneConstantI32Op = b.create<ConstantIntOp>(loc, 1, b.getIntegerType(32));
 
   // Obtain the shape of lower level memref.
   ArrayAttr lowerLayerShape =
@@ -998,6 +1017,26 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
   // value : lower level updated coordinate on that dimension.
   DenseMap<int64_t, Value> lowerIndicesUpdatedMap;
 
+  auto addToOriginal = [&b, loc](Value original, Value diff) -> Value {
+    auto mbDiffConst = isConstantValue(diff);
+    if (mbDiffConst.hasValue()) {
+      int64_t diff = mbDiffConst.getValue();
+      if (diff == 0) {
+        if (original.getType() == b.getIndexType()) {
+          return b.create<IndexCastOp>(loc, original, b.getI32Type());
+        }
+        return original;
+      }
+      auto mbOriginalConst = isConstantValue(original);
+      if (mbOriginalConst.hasValue()) {
+        return b.create<ConstantIntOp>(loc, diff + mbOriginalConst.getValue(),
+                                       32);
+      }
+    }
+    return b.create<AddIOp>(
+        loc, b.create<IndexCastOp>(loc, original, b.getI32Type()), diff);
+  };
+
   // Iterate through all transformations specified in g.
   for (auto &mapping : layoutArrayAttr) {
     DictionaryAttr g = mapping.template cast<DictionaryAttr>();
@@ -1013,25 +1052,31 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
       auto e = g.get("parameters").template cast<ArrayAttr>();
       assert(e.size() == p.size());
       assert(q.size() == 1);
-      Value lowerDiff = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
+      Value lowerDiff = zeroConstantI32Op;
       for (unsigned iter = 0; iter < e.size(); ++iter) {
         int64_t coefficient = e[iter].template cast<IntegerAttr>().getInt();
         int64_t upperDim = p[iter].template cast<IntegerAttr>().getInt();
-        lowerDiff = b.create<AddIOp>(
-            loc, lowerDiff,
-            b.create<MulIOp>(
-                loc,
-                b.create<ConstantIntOp>(loc, coefficient, b.getIntegerType(32)),
-                upperIndicesDiff[upperDim]));
+        auto mbUpperDiff = isConstantValue(upperIndicesDiff[upperDim]);
+        auto mbLowerDiff = isConstantValue(lowerDiff);
+        if (mbUpperDiff.hasValue() && mbLowerDiff.hasValue()) {
+          lowerDiff = b.create<ConstantIntOp>(
+              loc,
+              mbLowerDiff.getValue() + coefficient * mbUpperDiff.getValue(),
+              /*bitwidth=*/32);
+        } else {
+          lowerDiff = b.create<AddIOp>(
+              loc, lowerDiff,
+              b.create<MulIOp>(loc,
+                               b.create<ConstantIntOp>(loc, coefficient,
+                                                       b.getIntegerType(32)),
+                               upperIndicesDiff[upperDim]));
+        }
       }
 
       int64_t lowerDim = q[0].template cast<IntegerAttr>().getInt();
       lowerIndicesDiffMap[lowerDim] = lowerDiff;
-      lowerIndicesUpdatedMap[lowerDim] = b.create<AddIOp>(
-          loc,
-          b.create<IndexCastOp>(loc, lowerIndicesOriginal[lowerDim],
-                                b.getIntegerType(32)),
-          lowerDiff);
+      lowerIndicesUpdatedMap[lowerDim] =
+          addToOriginal(lowerIndicesOriginal[lowerDim], lowerDiff);
     } else if (transformation.getValue() == "UnMerge") {
       auto e = g.get("parameters").template cast<ArrayAttr>();
       assert(e.size() == p.size());
@@ -1041,21 +1086,26 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
       for (unsigned iter = 1; iter < e.size(); ++iter) {
         int64_t coefficient = e[iter].template cast<IntegerAttr>().getInt();
         int64_t upperDim = p[iter].template cast<IntegerAttr>().getInt();
-        lowerDiff = b.create<AddIOp>(
-            loc, upperIndicesDiff[upperDim],
-            b.create<MulIOp>(
-                loc,
-                b.create<ConstantIntOp>(loc, coefficient, b.getIntegerType(32)),
-                lowerDiff));
+        auto mbUpperDiff = isConstantValue(upperIndicesDiff[upperDim]);
+        auto mbLowerDiff = isConstantValue(lowerDiff);
+        if (mbUpperDiff.hasValue() && mbLowerDiff.hasValue()) {
+          lowerDiff = b.create<ConstantIntOp>(
+              loc,
+              mbUpperDiff.getValue() + coefficient * mbLowerDiff.getValue(),
+              /*bitwidth=*/32);
+        } else {
+          lowerDiff = b.create<AddIOp>(
+              loc, upperIndicesDiff[upperDim],
+              b.create<MulIOp>(loc,
+                               b.create<ConstantIntOp>(loc, coefficient,
+                                                       b.getIntegerType(32)),
+                               lowerDiff));
+        }
       }
-
       int64_t lowerDim = q[0].template cast<IntegerAttr>().getInt();
       lowerIndicesDiffMap[lowerDim] = lowerDiff;
-      lowerIndicesUpdatedMap[lowerDim] = b.create<AddIOp>(
-          loc,
-          b.create<IndexCastOp>(loc, lowerIndicesOriginal[lowerDim],
-                                b.getIntegerType(32)),
-          lowerDiff);
+      lowerIndicesUpdatedMap[lowerDim] =
+          addToOriginal(lowerIndicesOriginal[lowerDim], lowerDiff);
     } else if ((transformation.getValue() == "PassThrough") ||
                (transformation.getValue() == "Pad") ||
                (transformation.getValue() == "Slice")) {
@@ -1066,11 +1116,8 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
         Value upperDiff = upperIndicesDiff[upperDim];
         Value lowerDiff = upperDiff;
         lowerIndicesDiffMap[lowerDim] = lowerDiff;
-        lowerIndicesUpdatedMap[lowerDim] = b.create<AddIOp>(
-            loc,
-            b.create<IndexCastOp>(loc, lowerIndicesOriginal[lowerDim],
-                                  b.getIntegerType(32)),
-            lowerDiff);
+        lowerIndicesUpdatedMap[lowerDim] =
+            addToOriginal(lowerIndicesOriginal[lowerDim], lowerDiff);
       }
     } else if ((transformation.getValue() == "Merge") ||
                (transformation.getValue() == "Unfold")) {
@@ -1084,10 +1131,10 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
                                 .getValue();
 
       SmallVector<Value, 8> lowerDiffModified;
-      auto upperDiffOp = upperIndicesDiff[upperDim].getDefiningOp();
-      if (auto v = dyn_cast<ConstantIntOp>(upperDiffOp)) {
+      auto mbUpperDiffVal = isConstantValue(upperIndicesDiff[upperDim]);
+      if (mbUpperDiffVal.hasValue()) {
         // In case upper level diff is a constant, use constantFold.
-        int64_t upperDiff = v.getValue();
+        int64_t upperDiff = mbUpperDiffVal.getValue();
 
         // Populate an upper diff vector with all indices 0, other than
         // upperDim dimension set as upperDiff.
@@ -1104,11 +1151,12 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
         (void)transform.constantFold(upperDiffModified, lowerDiffModifiedAttr);
         assert(lowerDiffModifiedAttr.size() == lowerIndicesOriginal.size());
 
-        for (unsigned iter = 0; iter < lowerDiffModifiedAttr.size(); ++iter)
+        for (unsigned iter = 0; iter < lowerDiffModifiedAttr.size(); ++iter) {
           lowerDiffModified.push_back(b.create<ConstantIntOp>(
               loc,
               lowerDiffModifiedAttr[iter].template cast<IntegerAttr>().getInt(),
               b.getIntegerType(32)));
+        }
         assert(lowerDiffModified.size() == lowerIndicesOriginal.size());
       } else {
         // In case upper level diff is not constant, use expandAffineMap.
@@ -1154,11 +1202,8 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
       SmallVector<Value, 8> lowerIndicesModified;
       for (unsigned iter = 0; iter < q.size(); ++iter) {
         int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
-        lowerIndicesModified.push_back(b.create<AddIOp>(
-            loc,
-            b.create<IndexCastOp>(loc, lowerIndicesOriginal[lowerDim],
-                                  b.getIntegerType(32)),
-            lowerDiffs[iter]));
+        lowerIndicesModified.push_back(
+            addToOriginal(lowerIndicesOriginal[lowerDim], lowerDiffs[iter]));
       }
       assert(lowerIndicesModified.size() == q.size());
 
@@ -1166,13 +1211,12 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
       // For Unfold it's not needed.
       if (transformation.getValue() == "Merge") {
         // Get lower layer bounds.
-        SmallVector<Value, 8> lowerLayerBounds;
+        SmallVector<int64_t, 8> lowerLayerBounds;
         for (unsigned iter = 0; iter < q.size(); ++iter) {
           int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
           int64_t v =
               lowerLayerShape[lowerDim].template cast<IntegerAttr>().getInt();
-          auto cv = b.create<ConstantIntOp>(loc, v, b.getIntegerType(32));
-          lowerLayerBounds.push_back(cv);
+          lowerLayerBounds.push_back(v);
         }
         assert(lowerLayerBounds.size() == lowerIndicesModified.size());
 
@@ -1190,67 +1234,70 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
 
         // We only implement carry logic. Borrow logic would never happen as
         // upper index diffs would always be positive in the current algorithm.
-
-        // setup carryOp for the first iteration
-        Value carryOp = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(1));
-        for (int64_t iter = q.size() - 1; iter >= 0; --iter) {
+        Value overflowOp = zeroConstantI32Op;
+        for (ssize_t iter = q.size() - 1; iter >= 0; --iter) {
           int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
+          int64_t upperBound = lowerLayerBounds[iter];
+          // If the overflow is statically 0, nothing gets added
+          Value diff =
+              addToOriginal(lowerDiffsCarryChecked[lowerDim], overflowOp);
+          Value index =
+              addToOriginal(lowerIndicesCarryChecked[lowerDim], overflowOp);
 
-          // carry logic.
-          auto ifCarryOp = b.create<scf::IfOp>(
-              loc, TypeRange{b.getIntegerType(32), b.getIntegerType(32)},
-              carryOp, /*withElseRegion=*/true);
-          auto ifCarryThenBuilder = ifCarryOp.getThenBodyBuilder();
-          auto carriedLowerDiff = ifCarryThenBuilder.create<AddIOp>(
-              loc, lowerDiffsCarryChecked[lowerDim], oneConstantI32Op);
-          auto carriedLowerIndice = ifCarryThenBuilder.create<AddIOp>(
-              loc, lowerIndicesCarryChecked[lowerDim], oneConstantI32Op);
-          ifCarryThenBuilder.create<scf::YieldOp>(
-              loc, ValueRange{carriedLowerDiff.getResult(),
-                              carriedLowerIndice.getResult()});
-          auto ifCarryElseBuilder = ifCarryOp.getElseBodyBuilder();
-          carriedLowerDiff = ifCarryElseBuilder.create<AddIOp>(
-              loc, lowerDiffsCarryChecked[lowerDim], zeroConstantI32Op);
-          carriedLowerIndice = ifCarryElseBuilder.create<AddIOp>(
-              loc, lowerIndicesCarryChecked[lowerDim], zeroConstantI32Op);
-          ifCarryElseBuilder.create<scf::YieldOp>(
-              loc, ValueRange{carriedLowerDiff.getResult(),
-                              carriedLowerIndice.getResult()});
-          auto carriedLowerDiffResult = ifCarryOp.results()[0];
-          auto carriedLowerIndiceResult = ifCarryOp.results()[1];
+          // Don't generate overflow for the uppermost dimension,
+          // as this can lead to oob loads
+          if (iter == 0) {
+            lowerDiffsCarryChecked[lowerDim] = diff;
+            lowerIndicesCarryChecked[lowerDim] = index;
+            continue;
+          }
+          auto mbConstantDiff = isConstantValue(diff);
+          auto mbConstantIndex = isConstantValue(index);
 
-          // set carry flag for the next digit.
-          carryOp = b.create<CmpIOp>(loc, CmpIPredicate::sge,
-                                     carriedLowerIndiceResult,
-                                     lowerLayerBounds[iter]);
+          // If we get lucky, everything is constant and so we have a constant
+          // result
+          if (mbConstantIndex.hasValue() && mbConstantDiff.hasValue()) {
+            int64_t index = mbConstantIndex.getValue();
+            int64_t diff = mbConstantDiff.getValue();
+            if (index < upperBound) {
+              overflowOp = zeroConstantI32Op;
+              lowerIndicesCarryChecked[lowerDim] =
+                  b.create<ConstantIntOp>(loc, index, 32);
+              lowerDiffsCarryChecked[lowerDim] =
+                  b.create<ConstantIntOp>(loc, diff, 32);
+            } else {
+              int64_t carry = index / upperBound;
+              int64_t newIndex = index % upperBound;
+              int64_t newDiff = diff - (carry * upperBound);
+              overflowOp = b.create<ConstantIntOp>(loc, carry, 32);
+              lowerIndicesCarryChecked[lowerDim] =
+                  b.create<ConstantIntOp>(loc, newIndex, 32);
+              lowerDiffsCarryChecked[lowerDim] =
+                  b.create<ConstantIntOp>(loc, newDiff, 32);
+            }
+            continue;
+          }
+          // No change -> no carry-out
+          if (mbConstantDiff.getValueOr(-1L) == 0) {
+            overflowOp = zeroConstantI32Op;
+            lowerDiffsCarryChecked[lowerDim] = diff;
+            lowerIndicesCarryChecked[lowerDim] = index;
+            continue;
+          }
 
-          // overflow logic.
-          auto ifOverflowOp = b.create<scf::IfOp>(
-              loc, TypeRange{b.getIntegerType(32), b.getIntegerType(32)},
-              carryOp, /*withElseRegion=*/true);
-          auto ifOverflowThenBuilder = ifOverflowOp.getThenBodyBuilder();
-          auto updatedLowerDiff = ifOverflowThenBuilder.create<SubIOp>(
-              loc, carriedLowerDiffResult, lowerLayerBounds[iter]);
-          auto updatedLowerIndice = ifOverflowThenBuilder.create<SubIOp>(
-              loc, carriedLowerIndiceResult, lowerLayerBounds[iter]);
-          ifOverflowThenBuilder.create<scf::YieldOp>(
-              loc, ValueRange{updatedLowerDiff.getResult(),
-                              updatedLowerIndice.getResult()});
-          auto ifOverflowElseBuilder = ifOverflowOp.getElseBodyBuilder();
-          updatedLowerDiff = ifOverflowElseBuilder.create<SubIOp>(
-              loc, carriedLowerDiffResult, zeroConstantI32Op);
-          updatedLowerIndice = ifOverflowElseBuilder.create<SubIOp>(
-              loc, carriedLowerIndiceResult, zeroConstantI32Op);
-          ifOverflowElseBuilder.create<scf::YieldOp>(
-              loc, ValueRange{updatedLowerDiff.getResult(),
-                              updatedLowerIndice.getResult()});
+          Value upperBoundOp = b.create<ConstantIntOp>(loc, upperBound, 32);
+          Value carry = b.create<UnsignedDivIOp>(loc, index, upperBoundOp);
+          Value newIndex = b.create<UnsignedRemIOp>(loc, index, upperBoundOp);
+          // If the merge is, as is typical, near the end of the transformations
+          // this computation should get hit by the dead code eleminator
+          Value newDiff = b.create<SubIOp>(
+              loc, diff, b.create<MulIOp>(loc, carry, upperBoundOp));
 
-          // updatedResult is by default of i32 type.
-          Value updatedLowerDiffResult = ifOverflowOp.results()[0];
-          Value updatedLowerIndiceResult = ifOverflowOp.results()[1];
-          lowerDiffsCarryChecked[lowerDim] = updatedLowerDiffResult;
-          lowerIndicesCarryChecked[lowerDim] = updatedLowerIndiceResult;
+          overflowOp = carry;
+          lowerDiffsCarryChecked[lowerDim] = newDiff;
+          lowerIndicesCarryChecked[lowerDim] = newIndex;
         }
+
         assert(lowerDiffsCarryChecked.size() == lowerIndicesModified.size());
         assert(lowerIndicesCarryChecked.size() == lowerIndicesModified.size());
         lowerDiffs.clear();
