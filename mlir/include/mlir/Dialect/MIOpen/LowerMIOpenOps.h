@@ -9496,7 +9496,6 @@ struct ThreadwiseCopyRewritePattern
       ArrayAttr layeredSourceTransformMetadata;
       ArrayAttr layeredDestTransformMetadata;
 
-      legacyLoad = true;
       // Obtain transform metadata and populate coordinates for all layers
       // wthe the metadata.
       // Only do such computation in the new approach where index diff maps
