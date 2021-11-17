@@ -100,7 +100,6 @@ unsigned LLVMTypeConverter::getPointerBitwidth(unsigned addressSpace) {
 }
 
 Type LLVMTypeConverter::convertIndexType(IndexType type) {
-  llvm::errs() << "converting index type\n";
   return getIndexType();
 }
 
