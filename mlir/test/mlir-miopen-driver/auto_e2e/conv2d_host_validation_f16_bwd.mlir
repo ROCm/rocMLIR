@@ -1,3 +1,6 @@
+// XFAIL: *
+// MARK THIS TEST MODULE AS XFAIL AS OF NOW.
+
 // COM: bwd_weight
 // FIXME
 // NOT: mlir-miopen-driver %pv %random_data %xdlops -fil_layout=kcyx -in_layout=nchw -out_layout=nkhw  -batchsize=256 -in_channels=64 -out_channels=64  -in_h=7 -in_w=7 -fil_h=1 -fil_w=1   --dilation_h=1 --dilation_w=1 --padding_h=0 --padding_w=0 --conv_stride_h=1 --conv_stride_w=1 -p=false -t f16  --operation=conv2d_bwd_weight -c | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CHECK_BWD_WEIGHT1
