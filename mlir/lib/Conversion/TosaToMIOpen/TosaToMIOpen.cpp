@@ -176,10 +176,19 @@ public:
     bool zero_bias = false;
     if (auto cst = bias_t.getDefiningOp<ConstantOp>()) {
       auto val = cst.getValue().cast<ElementsAttr>();
-      zero_bias = true;
-      for (auto ii = val.value_begin<APFloat>();
-           zero_bias && ii != val.value_end<APFloat>(); ++ii)
-        zero_bias &= (*ii).isZero();
+      auto valType = val.getType().dyn_cast<ShapedType>();
+      auto valElemType = valType.getElementType();
+      if (valElemType.isa<FloatType>()) {
+        zero_bias = true;
+        for (auto ii = val.value_begin<APFloat>();
+             zero_bias && ii != val.value_end<APFloat>(); ++ii)
+          zero_bias &= (*ii).isZero();
+      } else if (valElemType.isa<IntegerType>()) {
+        zero_bias = true;
+        for (auto ii = val.value_begin<APInt>();
+             zero_bias && ii != val.value_end<APInt>(); ++ii)
+          zero_bias &= (*ii).isZero();
+      }
     }
     if (!zero_bias) {
       // non-zero bias, replace with tosa.add w/ broadcast
