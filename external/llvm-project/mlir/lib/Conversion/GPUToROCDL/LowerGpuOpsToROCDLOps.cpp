@@ -74,11 +74,12 @@ struct LowerGpuOpsToROCDLOpsPass
     populateGpuRewritePatterns(patterns);
     (void)applyPatternsAndFoldGreedily(m, std::move(patterns));
 
-    vector::populateVectorMaskMaterializationPatterns(llvmPatterns, true); // +++pf
-    vector::populateVectorTransferLoweringPatterns(llvmPatterns); // +++pf
-
     mlir::arith::populateArithmeticToLLVMConversionPatterns(converter,
                                                             llvmPatterns);
+    // Need these two because VectorToLLVM only does rank==1 transfer ops.
+    // VectorToSCF does the others, but we don't call it.
+    vector::populateVectorMaskMaterializationPatterns(llvmPatterns, true);
+    vector::populateVectorTransferLoweringPatterns(llvmPatterns);
     populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
     populateVectorToROCDLConversionPatterns(converter, llvmPatterns);
     populateStdToLLVMConversionPatterns(converter, llvmPatterns);
