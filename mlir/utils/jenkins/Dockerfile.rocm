@@ -37,7 +37,7 @@ RUN echo 'configure locale'; \
     sed --in-place '/en_US.UTF-8/s/^#//' /etc/locale.gen ;\
     locale-gen ;\
     echo 'make python 3 default'; \
-    rm -f /usr/bin/python && ln -s /usr/bin/python3 /usr/bin/python; \
+    update-alternatives --install /usr/bin/python python /usr/bin/python3 10 \
     pip3 install wheel
 
 # Configure locale
@@ -53,15 +53,15 @@ RUN pip3 install -r requirements.txt
 # Needed to output performance tests
 RUN pip3 install pandas numpy scipy jinja2
 
-RUN ln -s /usr/bin/clang-10 /usr/bin/clang;\
-    ln -s /usr/bin/clang++-10 /usr/bin/clang++;\
-    ln -s /usr/bin/clang-tidy-10 /usr/bin/clang-tidy;\
-    ln -s /usr/bin/clang-tidy-diff-10.py /usr/bin/clang-tidy-diff;\
-    ln -s /usr/bin/clang-format-10 /usr/bin/clang-format;\
-    ln -s /usr/bin/git-clang-format-10 /usr/bin/git-clang-format;\
-    ln -s /usr/bin/clang-format-diff-10 /usr/bin/clang-format-diff;\
-    ln -s /usr/bin/lld-10 /usr/bin/lld;\
-    ln -s /usr/bin/llvm-symbolizer-10 /usr/bin/llvm-symbolizer
+RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-10 10 ;\
+    update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-10 10 ;\
+    update-alternatives --install /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-10 10 ;\
+    update-alternatives --install /usr/bin/clang-tidy-diff clang-tidy-diff /usr/bin/clang-tidy-diff-10.py 10 ;\
+    update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-10 10 ;\
+    update-alternatives --install /usr/bin/git-clang-format git-clang-format /usr/bin/git-clang-format-10 10 ;\
+    update-alternatives --install /usr/bin/clang-format-diff clang-format-diff /usr/bin/clang-format-diff-10 10 ;\
+    update-alternatives --install /usr/bin/lld lld /usr/bin/lld-10 10 ;\
+    update-alternatives --install /usr/bin/llvm-symboliz llvm-symboliz /usr/bin/llvm-symbolizer-10 10
 
 # --------------------- Section 2: MIOpen dialect setups -----------------
 
@@ -110,6 +110,6 @@ RUN git clone https://github.com/RadeonOpenCompute/rocminfo.git && \
 RUN apt-add-repository ppa:deadsnakes/ppa && apt-get update \
     && apt-get install -y --no-install-recommends \
            python3.7 python3.7-venv \
-    && rm -f /usr/bin/python3 && ln -s /usr/bin/python3.7 /usr/bin/python3 \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.7 10
     && python3 -m pip install --upgrade pip \
     && python3 -m pip install pillow tf-nightly
