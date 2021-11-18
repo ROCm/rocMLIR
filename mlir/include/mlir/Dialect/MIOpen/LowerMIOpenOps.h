@@ -9253,8 +9253,10 @@ struct ThreadwiseCopyV2RewritePattern
     computeSliceLengths(sliceLengths, composedSourceTransform,
                         composedDestTransform, coordTransformsAttr, boundAttr,
                         sourceType, destType);
-    sliceLengths[upperVectorDim] /= dataPerCopy;
-    assert(sliceLengths[upperVectorDim] != 0);
+    if (upperVectorDim >= 0) {
+      sliceLengths[upperVectorDim] /= dataPerCopy;
+      assert(sliceLengths[upperVectorDim] != 0);
+    }
 
     // llvm::errs() << "slice lengths: ";
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
