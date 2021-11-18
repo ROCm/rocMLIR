@@ -11,6 +11,7 @@
 #define MLIR_C_DIALECT_MIGRAPHX_H
 
 #include "mlir-c/Registration.h"
+#include "mlir-c/Pass.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,6 +19,31 @@ extern "C" {
 
 MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(MIGraphX, migraphx);
 
+// Phase 0 functions : Assuming the given module contains only one function
+
+// Returns the number of operands in the FuncOp and fill information in the passed ptr.
+MLIR_CAPI_EXPORTED void mlirGetKernelInfo(MlirModule module, void *data);
+MLIR_CAPI_EXPORTED int mlirGetKernelInfoSize(MlirModule module);
+
+// Returns block_size and grid_size as int[2]
+MLIR_CAPI_EXPORTED void
+mlirGetKernelAttrs(MlirModule module, int *attrs);
+
+// Returns the size of compiled binary
+MLIR_CAPI_EXPORTED int
+mlirGetBinarySize(MlirModule module);
+
+// Returns the compiled binary
+MLIR_CAPI_EXPORTED bool
+mlirGetBinary(MlirModule module, char *bin);
+
+// pipelines
+
+MLIR_CAPI_EXPORTED void
+mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm);
+
+MLIR_CAPI_EXPORTED void
+mlirMIGraphXAddBackendPipeline(MlirPassManager pm);
 #ifdef __cplusplus
 }
 #endif
