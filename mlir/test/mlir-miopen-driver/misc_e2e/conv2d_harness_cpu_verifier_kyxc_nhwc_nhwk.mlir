@@ -38,7 +38,7 @@ module {
     %12 = memref.alloc() : memref<128x30x30x1x128xf32>
     %13 = memref.cast %12 : memref<128x30x30x1x128xf32> to memref<?x?x?x?x?xf32>
     call @mcpuMemset5DFloatRandInt(%13, %c0_i16, %c0_i16, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
-    
+
     // launch cpu convolution
     call @conv2d_host(%6, %9, %12) : (memref<1x128x3x3x8xf32>, memref<128x32x32x1x8xf32>, memref<128x30x30x1x128xf32>) -> ()
 
@@ -71,7 +71,7 @@ module {
     // copy direction constants.
     %c1_i32 = constant 1 : i32
     %c2_i32 = constant 2 : i32
-  
+
     // transfer data CPU -> GPU.
     call @mgpuMemCopy5DFloat(%0, %3, %c1_i32) : (memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, i32) -> ()
     call @mgpuMemCopy5DFloat(%1, %4, %c1_i32) : (memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, i32) -> ()
@@ -123,7 +123,7 @@ module {
     %c2 = constant 2 : index
     %c3 = constant 3 : index
     %c4 = constant 4 : index
-    
+
     // set up constants (ascii code) for layout letters
     %g = constant 103 : i8
     %k = constant 107 : i8
@@ -133,8 +133,8 @@ module {
     %n = constant 110 : i8
     %h = constant 104 : i8
     %w = constant 119 : i8
- 
-    // allocate memory for layouts 
+
+    // allocate memory for layouts
     %6 = memref.alloca() : memref<5xi8>
     %7 = memref.alloca() : memref<5xi8>
     %8 = memref.alloca() : memref<5xi8>
@@ -161,7 +161,7 @@ module {
     %11 = memref.cast %8 : memref<5xi8> to memref<*xi8>
     call @mcpuConv2d(%3, %4, %5, %9, %10, %11, %c1_i32, %c1_i32_0, %c0_i32, %c0_i32_1, %c0_i32, %c0_i32_1,%c1_i32_2, %c1_i32_3) :
                     ( memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xi8>, memref<*xi8>, memref<*xi8>, i32, i32, i32, i32, i32, i32, i32, i32) -> ()
-    
+
     return
   }
   func private @mcpuConv2d(memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xi8>, memref<*xi8>, memref<*xi8>, i32, i32, i32, i32, i32, i32,i32, i32)
@@ -185,9 +185,9 @@ module {
               %2 = memref.load %arg0[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<128x30x30x1x128xf32>
               %3 = memref.load %arg1[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<128x30x30x1x128xf32>
               %cst = constant 1.000000e-07 : f32
-              %4 = subf %2, %3 : f32
-              %5 = absf %4 : f32
-              %6 = cmpf ugt, %5, %cst : f32
+              %4 = arith.subf %2, %3 : f32
+              %5 = arith.absf %4 : f32
+              %6 = arith.cmpf ugt, %5, %cst : f32
               scf.if %6 {
                 memref.store %c0_i32, %0[%c0] : memref<1xi32>
               }
