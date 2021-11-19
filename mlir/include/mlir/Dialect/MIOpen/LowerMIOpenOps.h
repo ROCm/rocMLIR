@@ -667,11 +667,11 @@ inline unsigned obtainGenericTensorTransformationInfo(
   // 3. For memrefs with embedded maps, use its input rank.
   assert(type.isa<MemRefType>() || type.isa<VectorType>());
   unsigned coordLength = 0;
-  AffineMap typeAffineMap;
+  SmallVector<AffineMap> typeAffineMaps;
   if (type.isa<MemRefType>()) {
     MemRefType memrefType = type.cast<MemRefType>();
     coordLength = memrefType.getRank();
-    typeAffineMap = memrefType.getLayout().getAffineMap();
+    typeAffineMaps.push_back(memrefType.getLayout().getAffineMap());
   } else if (type.isa<VectorType>()) {
     VectorType vectorType = type.cast<VectorType>();
     coordLength = vectorType.getShape().size();
@@ -679,14 +679,13 @@ inline unsigned obtainGenericTensorTransformationInfo(
     // Keep typeAffineMaps uninitialized.
   }
 
-  if (type.isa<MemRefType>()) {
-    coordLength = typeAffineMap.getNumInputs();
+  if (typeAffineMaps.size()) {
+    coordLength = typeAffineMaps[0].getNumInputs();
     // Compose affine maps.
-    composedTransform = typeAffineMap;
+    composedTransform = composeTransforms(typeAffineMaps);
 
     // Populate affine maps for each layer.
-    layeredTransform.resize(1);
-    layeredTransform[0] = typeAffineMap;
+    layeredTransform.assign(typeAffineMaps.begin(), typeAffineMaps.end());
   }
   // Obtain metadata of coordinate transformations.
   if (coordTransformsAttr) {
@@ -1405,6 +1404,10 @@ inline void populateLayeredIndicesWithAffineMap(
     SmallVector<SmallVector<Value, 8>, 2> &layeredIndices,
     const SmallVector<Value, 8> &topIndices,
     const SmallVector<AffineMap> &layeredTransform) {
+  llvm::errs() << "topIndices.size() " << topIndices.size()
+               << ", layeredTransform.size() " << layeredTransform.size()
+               << ", layeredIndices.size() "
+               << layeredIndices.size() << "\n";
   SmallVector<Value, 8> currentIndices = topIndices;
   layeredIndices.push_back(currentIndices);
   for (auto am : layeredTransform) {
@@ -5937,8 +5940,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     // compose with output tensor affine map.
     auto outputType = op.output().getType().template cast<MemRefType>();
-    auto outputAffineMap = outputType.getLayout().getAffineMap();
-    auto newOutputAffineMap = outputAffineMap.compose(affineMap5to3);
+    SmallVector<AffineMap> newOutputAffineMaps({outputType.getLayout().getAffineMap()});
+    newOutputAffineMaps.insert(newOutputAffineMaps.begin(), affineMap5to3);
 
     // emit TransformOp for output tensor.
     llvm::SmallVector<NamedAttribute, 3> transformedNewOutputAttrs;
@@ -6004,7 +6007,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                         b.getStringAttr("m1"), b.getStringAttr("n0"),
                         b.getStringAttr("n1")})));
     auto newOutputType = MemRefType::get(
-        {G, M0, M1, N0, N1}, outputType.getElementType(), newOutputAffineMap);
+        {G, M0, M1, N0, N1}, outputType.getElementType(), composeTransforms(newOutputAffineMaps));
     auto newOutputTransformOp = b.create<miopen::TransformOp>(
         loc, newOutputType, op.output(), transformedNewOutputAttrs,
         /*populateBounds=*/true);

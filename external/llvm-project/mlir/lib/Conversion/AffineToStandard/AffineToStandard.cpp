@@ -227,6 +227,7 @@ Optional<SmallVector<Value, 8>> mlir::expandAffineMap(OpBuilder &builder,
                                                       AffineMap affineMap,
                                                       ValueRange operands) {
   auto numDims = affineMap.getNumDims();
+  llvm::errs() << "numDims " << numDims << " vs operands.size() " << operands.size() << "\n";
   auto expanded = llvm::to_vector<8>(
       llvm::map_range(affineMap.getResults(),
                       [numDims, &builder, loc, operands](AffineExpr expr) {
