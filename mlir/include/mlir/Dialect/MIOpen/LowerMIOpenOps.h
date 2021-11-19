@@ -671,7 +671,8 @@ inline unsigned obtainGenericTensorTransformationInfo(
   if (type.isa<MemRefType>()) {
     MemRefType memrefType = type.cast<MemRefType>();
     coordLength = memrefType.getRank();
-    typeAffineMaps.push_back(memrefType.getLayout().getAffineMap());
+    if (!memrefType.getLayout().isIdentity())
+      typeAffineMaps.push_back(memrefType.getLayout().getAffineMap());
   } else if (type.isa<VectorType>()) {
     VectorType vectorType = type.cast<VectorType>();
     coordLength = vectorType.getShape().size();
@@ -1404,10 +1405,6 @@ inline void populateLayeredIndicesWithAffineMap(
     SmallVector<SmallVector<Value, 8>, 2> &layeredIndices,
     const SmallVector<Value, 8> &topIndices,
     const SmallVector<AffineMap> &layeredTransform) {
-  llvm::errs() << "topIndices.size() " << topIndices.size()
-               << ", layeredTransform.size() " << layeredTransform.size()
-               << ", layeredIndices.size() "
-               << layeredIndices.size() << "\n";
   SmallVector<Value, 8> currentIndices = topIndices;
   layeredIndices.push_back(currentIndices);
   for (auto am : layeredTransform) {
