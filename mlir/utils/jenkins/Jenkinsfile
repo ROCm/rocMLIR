@@ -92,6 +92,10 @@ void postProcessPerfRes() {
     archiveArtifacts artifacts: 'build/mlir_*.csv,build/perf-run-date', onlyIfSuccessful: true
 }
 
+def reboot(){
+    build job: 'reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
+}
+
 pipeline {
     agent none
     parameters {
@@ -167,6 +171,7 @@ pipeline {
                      post {
                         always {
                             cleanWs()
+                            reboot()
                         }
                     }
                 }
@@ -208,6 +213,7 @@ pipeline {
                     post {
                         always {
                             cleanWs()
+                            reboot()
                         }
                     }
                 }
@@ -330,6 +336,7 @@ pipeline {
                     post {
                         always {
                             cleanWs()
+                            reboot()
                         }
                     }
                 }
@@ -392,6 +399,7 @@ pipeline {
                     post {
                         always {
                             cleanWs()
+                            reboot()
                         }
                     }
                 }
@@ -467,6 +475,7 @@ pipeline {
                         post {
                             always {
                                 cleanWs()
+                                reboot()
                             }
                         }
                     }
@@ -543,6 +552,7 @@ pipeline {
             post {
                 always {
                     cleanWs()
+                    reboot()
                 }
              }
         }
