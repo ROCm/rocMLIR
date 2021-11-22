@@ -552,7 +552,6 @@ pipeline {
             post {
                 always {
                     cleanWs()
-                    reboot()
                 }
              }
         }
