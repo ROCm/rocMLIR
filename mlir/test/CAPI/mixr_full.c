@@ -169,11 +169,6 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   MlirLocation location1 = mlirLocationUnknownGet(ctx);
   MlirModule module = makeAndDumpMIXR(ctx, location1);
 
-  const char *triple = "amdgcn-amd-amdhsa";
-  const char *chip = "gfx908";
-  const char *features = "";
-  const char *perfConfig = "";
-
   MlirPassManager pm = mlirPassManagerCreate(ctx);
   // 1st pipeline to call
   mlirMIGraphXAddHighLevelPipeline(pm);
