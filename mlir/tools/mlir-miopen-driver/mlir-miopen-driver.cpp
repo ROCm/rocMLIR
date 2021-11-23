@@ -782,7 +782,7 @@ createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   cpuConvBlock->push_back(inputMemRefCastOp);
   cpuConvBlock->push_back(outputMemRefCastOp);
 
-  // Emit ConstantOps to be used for strides, paddings and dilations
+  // Emit ConstantIntOps to be used for strides, paddings and dilations
   auto intType = builder.getIntegerType(32);
 
   auto strideHeightConstantOp = builder.create<arith::ConstantIntOp>(
@@ -875,7 +875,7 @@ createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   cpuConvBlock->push_back(hConstantOp);
   cpuConvBlock->push_back(wConstantOp);
 
-  std::unordered_map<char, arith::ConstantOp> layoutConstOps;
+  std::unordered_map<char, arith::ConstantIntOp> layoutConstOps;
   layoutConstOps['g'] = gConstantOp;
   layoutConstOps['k'] = kConstantOp;
   layoutConstOps['c'] = cConstantOp;
@@ -1176,13 +1176,13 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
   } else {
     if (randomSeed.getValue() != "none" &&
         randomDataType.getValue() == "float") {
-      float delta = 0.0000001;
+      std::string delta = "0.0000001";
       if (outputMemRefType.getElementType() == builder.getF16Type())
-        delta = 0.0001;
+        delta = "0.0001";
 
-      auto deltaConstantOp = bt4.create<ConstantOp>(
-          builder.getUnknownLoc(), outputMemRefType.getElementType(),
-          builder.getFloatAttr(outputMemRefType.getElementType(), delta));
+      auto deltaType = outputMemRefType.getElementType().cast<FloatType>();
+      auto deltaConstantOp = bt4.create<arith::ConstantFloatOp>(
+          builder.getUnknownLoc(), APFloat(APFloat::IEEEhalf(), delta), deltaType);
       auto subfOp =
           bt4.create<arith::SubFOp>(builder.getUnknownLoc(), cpuLoadOp, gpuLoadOp);
       auto absfOp = bt4.create<math::AbsOp>(builder.getUnknownLoc(), subfOp);
