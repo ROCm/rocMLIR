@@ -2560,8 +2560,9 @@ int main(int argc, char **argv) {
   test::registerTestDialect(registry);
 #endif
   MLIRContext context(registry);
-  context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect,
-                      scf::SCFDialect, AffineDialect, memref::MemRefDialect>();
+  context.loadDialect < miopen::MIOpenDialect, StandardOpsDialect,
+      scf::SCFDialect, AffineDialect, memref::MemRefDialect,
+      math::MathDialect, arith::ArithmeticDialect>();
   mlir::registerAllPasses();
   mlir::registerMIOpenConversionPasses();
   miopen::registerPasses();
