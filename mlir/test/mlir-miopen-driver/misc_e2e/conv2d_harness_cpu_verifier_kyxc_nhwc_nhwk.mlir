@@ -186,7 +186,7 @@ module {
               %3 = memref.load %arg1[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<128x30x30x1x128xf32>
               %cst = constant 1.000000e-07 : f32
               %4 = arith.subf %2, %3 : f32
-              %5 = arith.absf %4 : f32
+              %5 = math.abs %4 : f32
               %6 = arith.cmpf ugt, %5, %cst : f32
               scf.if %6 {
                 memref.store %c0_i32, %0[%c0] : memref<1xi32>
