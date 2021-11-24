@@ -43,7 +43,7 @@ MLIR_CAPI_EXPORTED void
 mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm);
 
 MLIR_CAPI_EXPORTED void
-mlirMIGraphXAddBackendPipeline(MlirPassManager pm);
+mlirMIGraphXAddBackendPipeline(MlirPassManager pm, const char* chip);
 #ifdef __cplusplus
 }
 #endif

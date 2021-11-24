@@ -127,14 +127,13 @@ void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
 }
 
 MLIR_CAPI_EXPORTED void
-mlirMIGraphXAddBackendPipeline(MlirPassManager pm) {
+mlirMIGraphXAddBackendPipeline(MlirPassManager pm, const char* chip) {
   mlir::registerGpuSerializeToHsacoPass();
 
   auto passMan = unwrap(pm);
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
 
   const char *triple = "amdgcn-amd-amdhsa";
-  const char *chip = "gfx908";
   const char *features = "";
   const char *perfConfig = "";
   mlir::miopen::addPipeline(*passMan, perfConfig, false, true);
