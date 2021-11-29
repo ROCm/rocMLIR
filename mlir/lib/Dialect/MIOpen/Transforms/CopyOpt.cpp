@@ -61,7 +61,7 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
     memref::CopyOp reader = nullptr;
     for (auto &use : mem.getUses()) {
       if (auto laop = dyn_cast<linalg::GenericOp>(use.getOwner())) {
-        // 0.1 Output of linalg.generic
+        // 1.0 Output of linalg.generic
         if (writer)
           return fail;
         for (auto out : laop.outputs()) {
@@ -70,8 +70,25 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
         }
         if (!writer)
           return fail;
+      } else if (auto mrop = dyn_cast<memref::ExpandShapeOp>(use.getOwner())) {
+        // 1.1 Input of memref.expand_shape
+        if (writer)
+          return fail;
+        Value mrval = mrop;
+        // 1.1.0 Confirm output of miopen.conv2d
+        int cnt = 0;
+        for (auto &mruse : mrval.getUses()) {
+          if (auto convop = dyn_cast<miopen::Conv2DOp>(mruse.getOwner())) {
+            if (convop.getOperand(2) != mrval)
+              return fail;
+          }
+          cnt++;
+        }
+        if (cnt != 1)
+          return fail;
+        writer = mrop;
       } else if (auto mrop = dyn_cast<memref::CopyOp>(use.getOwner())) {
-        // 0.2 Only one final memref.copy into interface memref
+        // 1.2 Only one final memref.copy into interface memref
         if (reader)
           return fail;
         if (mrop.getSource() != mem)
@@ -83,7 +100,7 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
       }
     }
 
-    // do it
+    // 2. do it
     if (reader && writer) {
       auto realMem = reader.getTarget();
 
