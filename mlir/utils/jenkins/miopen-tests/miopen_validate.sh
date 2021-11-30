@@ -175,7 +175,7 @@ function run_tests() {
     rm "$TMPFILE"
     echo -n "$DTYPE $LAYOUT XDLOPS=$XDLOPS DIR=$DIRECTION: "
     if [[ $exit_status != 0 ]]; then
-        echo "$exit_status tests failed on $(hostname)"
+        echo "$exit_status tests failed"
         exit $exit_status
     else
         echo "Success!"
