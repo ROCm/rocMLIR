@@ -37,7 +37,7 @@ void showEnv() {
 }
 
 String dockerArgs() {
-    return '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
+    return '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -h $(hostname) -u 0'
 }
 
 String dockerImage() {
