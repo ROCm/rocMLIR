@@ -34,6 +34,7 @@ void showEnv() {
     sh 'cat /etc/os-release'
     sh 'ulimit -a'
     sh '/opt/rocm/bin/rocm-smi'
+    sh '/opt/rocm/bin/rocm_agent_enumerator'
 }
 
 String dockerArgs() {
