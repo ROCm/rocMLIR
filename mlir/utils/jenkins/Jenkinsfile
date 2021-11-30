@@ -30,14 +30,14 @@ void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
 }
 
 void showEnv() {
-    sh 'hostname'
+    echo "$env.NODE_NAME"
     sh 'cat /etc/os-release'
     sh 'ulimit -a'
     sh '/opt/rocm/bin/rocm-smi'
 }
 
 String dockerArgs() {
-    return '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -h "$(hostname)" -u 0'
+    return '--user "$(id -u):$(id -g)" --device=/dev/kfd --device=/dev/dri --group-add video -u 0'
 }
 
 String dockerImage() {
