@@ -30,7 +30,7 @@ void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
 }
 
 void showEnv() {
-    sh 'hostname'
+    echo "$env.NODE_NAME"
     sh 'cat /etc/os-release'
     sh 'ulimit -a'
     sh '/opt/rocm/bin/rocm-smi'
