@@ -10,8 +10,12 @@ set(LIBS
 
 add_flang_unittest(FlangOptimizerTests
   Builder/CharacterTest.cpp
+  Builder/ComplexTest.cpp
   Builder/DoLoopHelperTest.cpp
   Builder/FIRBuilderTest.cpp
+  Builder/Runtime/AssignTest.cpp
+  Builder/Runtime/ReductionTest.cpp
+  Builder/Runtime/TransformationalTest.cpp
   FIRContextTest.cpp
   InternalNamesTest.cpp
   KindMappingTest.cpp

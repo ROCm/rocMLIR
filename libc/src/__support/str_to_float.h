@@ -9,38 +9,18 @@
 #ifndef LIBC_SRC_SUPPORT_STR_TO_FLOAT_H
 #define LIBC_SRC_SUPPORT_STR_TO_FLOAT_H
 
+#include "src/__support/CPP/Limits.h"
 #include "src/__support/FPUtil/FPBits.h"
 #include "src/__support/ctype_utils.h"
 #include "src/__support/detailed_powers_of_ten.h"
 #include "src/__support/high_precision_decimal.h"
-#include "src/__support/str_conv_utils.h"
-#include "utils/CPP/Limits.h"
+#include "src/__support/str_to_integer.h"
 #include <errno.h>
 
 namespace __llvm_libc {
 namespace internal {
 
-// Shifts right and rounds according to the following rules:
-// 1) If the part being cut off is more than 2^(amountToShift - 1) then round
-// up
-// 2) If it is less than that number then round down
-// 3) If it is exactly that number, then round so that the final number will be
-// even
-template <class T>
-static inline T shiftRightAndRound(T numToShift, unsigned int amountToShift) {
-  T result = numToShift >> amountToShift;
-  T truncated = numToShift & ((1 << amountToShift) - 1);
-
-  if (truncated < (1 << (amountToShift - 1))) {
-    return result;
-  } else if (truncated > (1 << (amountToShift - 1))) {
-    return result + 1;
-  } else {
-    return result + (result & 1); // This rounds towards even.
-  }
-}
-
-template <class T> uint32_t leadingZeroes(T inputNumber) {
+template <class T> uint32_t inline leadingZeroes(T inputNumber) {
   // TODO(michaelrj): investigate the portability of using something like
   // __builtin_clz for specific types.
   constexpr uint32_t bitsInT = sizeof(T) * 8;
@@ -69,6 +49,14 @@ template <class T> uint32_t leadingZeroes(T inputNumber) {
     curGuess++;
   }
   return bitsInT - curGuess;
+}
+
+template <> uint32_t inline leadingZeroes<uint32_t>(uint32_t inputNumber) {
+  return inputNumber == 0 ? 32 : __builtin_clz(inputNumber);
+}
+
+template <> uint32_t inline leadingZeroes<uint64_t>(uint64_t inputNumber) {
+  return inputNumber == 0 ? 64 : __builtin_clzll(inputNumber);
 }
 
 static inline uint64_t low64(__uint128_t num) {
@@ -197,7 +185,7 @@ simpleDecimalConversion(const char *__restrict numStart,
                         uint32_t *outputExp2) {
 
   int32_t exp2 = 0;
-  HighPrecsisionDecimal hpd = HighPrecsisionDecimal(numStart);
+  HighPrecisionDecimal hpd = HighPrecisionDecimal(numStart);
 
   if (hpd.getNumDigits() == 0) {
     *outputMantissa = 0;
@@ -209,20 +197,20 @@ simpleDecimalConversion(const char *__restrict numStart,
   // float, return inf.
   if (hpd.getDecimalPoint() > 0 &&
       exp10ToExp2(hpd.getDecimalPoint() - 1) >
-          static_cast<int32_t>(fputil::FloatProperties<T>::exponentBias)) {
+          static_cast<int64_t>(fputil::FloatProperties<T>::exponentBias)) {
     *outputMantissa = 0;
     *outputExp2 = fputil::FPBits<T>::maxExponent;
-    errno = ERANGE; // NOLINT
+    errno = ERANGE;
     return;
   }
   // If the exponent is too small even for a subnormal, return 0.
   if (hpd.getDecimalPoint() < 0 &&
       exp10ToExp2(-hpd.getDecimalPoint()) >
-          static_cast<int32_t>(fputil::FloatProperties<T>::exponentBias +
+          static_cast<int64_t>(fputil::FloatProperties<T>::exponentBias +
                                fputil::FloatProperties<T>::mantissaWidth)) {
     *outputMantissa = 0;
     *outputExp2 = 0;
-    errno = ERANGE; // NOLINT
+    errno = ERANGE;
     return;
   }
 
@@ -265,7 +253,7 @@ simpleDecimalConversion(const char *__restrict numStart,
   if (exp2 >= fputil::FPBits<T>::maxExponent) {
     *outputMantissa = 0;
     *outputExp2 = fputil::FPBits<T>::maxExponent;
-    errno = ERANGE; // NOLINT
+    errno = ERANGE;
     return;
   }
 
@@ -300,8 +288,89 @@ simpleDecimalConversion(const char *__restrict numStart,
     ++exp2;
   }
 
+  if (exp2 == 0) {
+    errno = ERANGE;
+  }
+
   *outputMantissa = finalMantissa;
   *outputExp2 = exp2;
+}
+
+// This class is used for templating the constants for Clinger's Fast Path,
+// described as a method of approximation in
+// Clinger WD. How to Read Floating Point Numbers Accurately. SIGPLAN Not 1990
+// Jun;25(6):92–101. https://doi.org/10.1145/93548.93557.
+// As well as the additions by Gay that extend the useful range by the number of
+// exact digits stored by the float type, described in
+// Gay DM, Correctly rounded binary-decimal and decimal-binary conversions;
+// 1990. AT&T Bell Laboratories Numerical Analysis Manuscript 90-10.
+template <class T> class ClingerConsts;
+
+template <> class ClingerConsts<float> {
+public:
+  static constexpr float powersOfTenArray[] = {1e0, 1e1, 1e2, 1e3, 1e4, 1e5,
+                                               1e6, 1e7, 1e8, 1e9, 1e10};
+  static constexpr int32_t exactPowersOfTen = 10;
+  static constexpr int32_t digitsInMantissa = 7;
+  static constexpr float maxExactInt = 16777215.0;
+};
+
+template <> class ClingerConsts<double> {
+public:
+  static constexpr double powersOfTenArray[] = {
+      1e0,  1e1,  1e2,  1e3,  1e4,  1e5,  1e6,  1e7,  1e8,  1e9,  1e10, 1e11,
+      1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22};
+  static constexpr int32_t exactPowersOfTen = 22;
+  static constexpr int32_t digitsInMantissa = 15;
+  static constexpr double maxExactInt = 9007199254740991.0;
+};
+
+// Take an exact mantissa and exponent and attempt to convert it using only
+// exact floating point arithmetic. This only handles numbers with low
+// exponents, but handles them quickly. This is an implementation of Clinger's
+// Fast Path, as described above.
+template <class T>
+static inline bool
+clingerFastPath(typename fputil::FPBits<T>::UIntType mantissa, int32_t exp10,
+                typename fputil::FPBits<T>::UIntType *outputMantissa,
+                uint32_t *outputExp2) {
+  if (mantissa >> fputil::FloatProperties<T>::mantissaWidth > 0) {
+    return false;
+  }
+
+  fputil::FPBits<T> result;
+  T floatMantissa = static_cast<T>(mantissa);
+
+  if (exp10 == 0) {
+    result = fputil::FPBits<T>(floatMantissa);
+  }
+  if (exp10 > 0) {
+    if (exp10 > ClingerConsts<T>::exactPowersOfTen +
+                    ClingerConsts<T>::digitsInMantissa) {
+      return false;
+    }
+    if (exp10 > ClingerConsts<T>::exactPowersOfTen) {
+      floatMantissa =
+          floatMantissa *
+          ClingerConsts<
+              T>::powersOfTenArray[exp10 - ClingerConsts<T>::exactPowersOfTen];
+      exp10 = ClingerConsts<T>::exactPowersOfTen;
+    }
+    if (floatMantissa > ClingerConsts<T>::maxExactInt) {
+      return false;
+    }
+    result = fputil::FPBits<T>(floatMantissa *
+                               ClingerConsts<T>::powersOfTenArray[exp10]);
+  } else if (exp10 < 0) {
+    if (-exp10 > ClingerConsts<T>::exactPowersOfTen) {
+      return false;
+    }
+    result = fputil::FPBits<T>(floatMantissa /
+                               ClingerConsts<T>::powersOfTenArray[-exp10]);
+  }
+  *outputMantissa = result.getMantissa();
+  *outputExp2 = result.getUnbiasedExponent();
+  return true;
 }
 
 // Takes a mantissa and base 10 exponent and converts it into its closest
@@ -315,8 +384,33 @@ decimalExpToFloat(typename fputil::FPBits<T>::UIntType mantissa, int32_t exp10,
                   const char *__restrict numStart, bool truncated,
                   typename fputil::FPBits<T>::UIntType *outputMantissa,
                   uint32_t *outputExp2) {
+  // If the exponent is too large and can't be represented in this size of
+  // float, return inf. These bounds are very loose, but are mostly serving as a
+  // first pass. Some close numbers getting through is okay.
+  if (exp10 >
+      static_cast<int64_t>(fputil::FloatProperties<T>::exponentBias) / 3) {
+    *outputMantissa = 0;
+    *outputExp2 = fputil::FPBits<T>::maxExponent;
+    errno = ERANGE;
+    return;
+  }
+  // If the exponent is too small even for a subnormal, return 0.
+  if (exp10 < 0 &&
+      -static_cast<int64_t>(exp10) >
+          static_cast<int64_t>(fputil::FloatProperties<T>::exponentBias +
+                               fputil::FloatProperties<T>::mantissaWidth) /
+              2) {
+    *outputMantissa = 0;
+    *outputExp2 = 0;
+    errno = ERANGE;
+    return;
+  }
 
-  // TODO: Implement Clinger's fast path, as well as other shortcuts here.
+  if (!truncated) {
+    if (clingerFastPath<T>(mantissa, exp10, outputMantissa, outputExp2)) {
+      return;
+    }
+  }
 
   // Try Eisel-Lemire
   if (eiselLemire<T>(mantissa, exp10, outputMantissa, outputExp2)) {
@@ -340,6 +434,95 @@ decimalExpToFloat(typename fputil::FPBits<T>::UIntType mantissa, int32_t exp10,
   return;
 }
 
+// Takes a mantissa and base 2 exponent and converts it into its closest
+// floating point type T equivalient. Since the exponent is already in the right
+// form, this is mostly just shifting and rounding. This is used for hexadecimal
+// numbers since a base 16 exponent multiplied by 4 is the base 2 exponent.
+template <class T>
+static inline void
+binaryExpToFloat(typename fputil::FPBits<T>::UIntType mantissa, int32_t exp2,
+                 bool truncated,
+                 typename fputil::FPBits<T>::UIntType *outputMantissa,
+                 uint32_t *outputExp2) {
+  using BitsType = typename fputil::FPBits<T>::UIntType;
+
+  // This is the number of leading zeroes a properly normalized float of type T
+  // should have.
+  constexpr int32_t NUMBITS = sizeof(BitsType) * 8;
+  constexpr int32_t INF_EXP =
+      (1 << fputil::FloatProperties<T>::exponentWidth) - 1;
+
+  // Normalization step 1: Bring the leading bit to the highest bit of BitsType.
+  uint32_t amountToShiftLeft = leadingZeroes<BitsType>(mantissa);
+  mantissa <<= amountToShiftLeft;
+
+  // Keep exp2 representing the exponent of the lowest bit of BitsType.
+  exp2 -= amountToShiftLeft;
+
+  // biasedExponent represents the biased exponent of the most significant bit.
+  int32_t biasedExponent = exp2 + NUMBITS + fputil::FPBits<T>::exponentBias - 1;
+
+  // Handle numbers that're too large and get squashed to inf
+  if (biasedExponent >= INF_EXP) {
+    // This indicates an overflow, so we make the result INF and set errno.
+    *outputExp2 = (1 << fputil::FloatProperties<T>::exponentWidth) - 1;
+    *outputMantissa = 0;
+    errno = ERANGE;
+    return;
+  }
+
+  uint32_t amountToShiftRight =
+      NUMBITS - fputil::FloatProperties<T>::mantissaWidth - 1;
+
+  // Handle subnormals.
+  if (biasedExponent <= 0) {
+    amountToShiftRight += 1 - biasedExponent;
+    biasedExponent = 0;
+
+    if (amountToShiftRight > NUMBITS) {
+      // Return 0 if the exponent is too small.
+      *outputMantissa = 0;
+      *outputExp2 = 0;
+      errno = ERANGE;
+      return;
+    }
+  }
+
+  BitsType roundBitMask = BitsType(1) << (amountToShiftRight - 1);
+  BitsType stickyMask = roundBitMask - 1;
+  bool roundBit = mantissa & roundBitMask;
+  bool stickyBit = static_cast<bool>(mantissa & stickyMask) || truncated;
+
+  if (amountToShiftRight < NUMBITS) {
+    // Shift the mantissa and clear the implicit bit.
+    mantissa >>= amountToShiftRight;
+    mantissa &= fputil::FloatProperties<T>::mantissaMask;
+  } else {
+    mantissa = 0;
+  }
+  bool leastSignificantBit = mantissa & BitsType(1);
+  // Perform rounding-to-nearest, tie-to-even.
+  if (roundBit && (leastSignificantBit || stickyBit)) {
+    ++mantissa;
+  }
+
+  if (mantissa > fputil::FloatProperties<T>::mantissaMask) {
+    // Rounding causes the exponent to increase.
+    ++biasedExponent;
+
+    if (biasedExponent == INF_EXP) {
+      errno = ERANGE;
+    }
+  }
+
+  if (biasedExponent == 0) {
+    errno = ERANGE;
+  }
+
+  *outputMantissa = mantissa & fputil::FloatProperties<T>::mantissaMask;
+  *outputExp2 = biasedExponent;
+}
+
 // checks if the next 4 characters of the string pointer are the start of a
 // hexadecimal floating point number. Does not advance the string pointer.
 static inline bool is_float_hex_start(const char *__restrict src,
@@ -352,6 +535,189 @@ static inline bool is_float_hex_start(const char *__restrict src,
   } else {
     return isalnum(*(src + 2)) && b36_char_to_int(*(src + 2)) < 16;
   }
+}
+
+// Takes the start of a string representing a decimal float, as well as the
+// local decimalPoint. It returns if it suceeded in parsing any digits, and if
+// the return value is true then the outputs are pointer to the end of the
+// number, and the mantissa and exponent for the closest float T representation.
+// If the return value is false, then it is assumed that there is no number
+// here.
+template <class T>
+static inline bool
+decimalStringToFloat(const char *__restrict src, const char DECIMAL_POINT,
+                     char **__restrict strEnd,
+                     typename fputil::FPBits<T>::UIntType *outputMantissa,
+                     uint32_t *outputExponent) {
+  using BitsType = typename fputil::FPBits<T>::UIntType;
+  constexpr uint32_t BASE = 10;
+  constexpr char EXPONENT_MARKER = 'e';
+
+  const char *__restrict numStart = src;
+  bool truncated = false;
+  bool seenDigit = false;
+  bool afterDecimal = false;
+  BitsType mantissa = 0;
+  int32_t exponent = 0;
+
+  // The goal for the first step of parsing is to convert the number in src to
+  // the format mantissa * (base ^ exponent)
+
+  // The loop fills the mantissa with as many digits as it can hold
+  const BitsType BITSTYPE_MAX_DIV_BY_BASE =
+      __llvm_libc::cpp::NumericLimits<BitsType>::max() / BASE;
+  while (true) {
+    if (isdigit(*src)) {
+      uint32_t digit = *src - '0';
+      seenDigit = true;
+
+      if (mantissa < BITSTYPE_MAX_DIV_BY_BASE) {
+        mantissa = (mantissa * BASE) + digit;
+        if (afterDecimal) {
+          --exponent;
+        }
+      } else {
+        if (digit > 0)
+          truncated = true;
+        if (!afterDecimal)
+          ++exponent;
+      }
+
+      ++src;
+      continue;
+    }
+    if (*src == DECIMAL_POINT) {
+      if (afterDecimal) {
+        break; // this means that *src points to a second decimal point, ending
+               // the number.
+      }
+      afterDecimal = true;
+      ++src;
+      continue;
+    }
+    // The character is neither a digit nor a decimal point.
+    break;
+  }
+
+  if (!seenDigit)
+    return false;
+
+  if ((*src | 32) == EXPONENT_MARKER) {
+    if (*(src + 1) == '+' || *(src + 1) == '-' || isdigit(*(src + 1))) {
+      ++src;
+      char *tempStrEnd;
+      int32_t add_to_exponent = strtointeger<int32_t>(src, &tempStrEnd, 10);
+      if (add_to_exponent > 100000)
+        add_to_exponent = 100000;
+      else if (add_to_exponent < -100000)
+        add_to_exponent = -100000;
+
+      src = tempStrEnd;
+      exponent += add_to_exponent;
+    }
+  }
+
+  *strEnd = const_cast<char *>(src);
+  if (mantissa == 0) { // if we have a 0, then also 0 the exponent.
+    *outputMantissa = 0;
+    *outputExponent = 0;
+  } else {
+    decimalExpToFloat<T>(mantissa, exponent, numStart, truncated,
+                         outputMantissa, outputExponent);
+  }
+  return true;
+}
+
+// Takes the start of a string representing a hexadecimal float, as well as the
+// local decimal point. It returns if it suceeded in parsing any digits, and if
+// the return value is true then the outputs are pointer to the end of the
+// number, and the mantissa and exponent for the closest float T representation.
+// If the return value is false, then it is assumed that there is no number
+// here.
+template <class T>
+static inline bool
+hexadecimalStringToFloat(const char *__restrict src, const char DECIMAL_POINT,
+                         char **__restrict strEnd,
+                         typename fputil::FPBits<T>::UIntType *outputMantissa,
+                         uint32_t *outputExponent) {
+  using BitsType = typename fputil::FPBits<T>::UIntType;
+  constexpr uint32_t BASE = 16;
+  constexpr char EXPONENT_MARKER = 'p';
+
+  bool truncated = false;
+  bool seenDigit = false;
+  bool afterDecimal = false;
+  BitsType mantissa = 0;
+  int32_t exponent = 0;
+
+  // The goal for the first step of parsing is to convert the number in src to
+  // the format mantissa * (base ^ exponent)
+
+  // The loop fills the mantissa with as many digits as it can hold
+  const BitsType BITSTYPE_MAX_DIV_BY_BASE =
+      __llvm_libc::cpp::NumericLimits<BitsType>::max() / BASE;
+  while (true) {
+    if (isalnum(*src)) {
+      uint32_t digit = b36_char_to_int(*src);
+      if (digit < BASE)
+        seenDigit = true;
+      else
+        break;
+
+      if (mantissa < BITSTYPE_MAX_DIV_BY_BASE) {
+        mantissa = (mantissa * BASE) + digit;
+        if (afterDecimal)
+          --exponent;
+      } else {
+        if (digit > 0)
+          truncated = true;
+        if (!afterDecimal)
+          ++exponent;
+      }
+      ++src;
+      continue;
+    }
+    if (*src == DECIMAL_POINT) {
+      if (afterDecimal) {
+        break; // this means that *src points to a second decimal point, ending
+               // the number.
+      }
+      afterDecimal = true;
+      ++src;
+      continue;
+    }
+    // The character is neither a hexadecimal digit nor a decimal point.
+    break;
+  }
+
+  if (!seenDigit)
+    return false;
+
+  // Convert the exponent from having a base of 16 to having a base of 2.
+  exponent *= 4;
+
+  if ((*src | 32) == EXPONENT_MARKER) {
+    if (*(src + 1) == '+' || *(src + 1) == '-' || isdigit(*(src + 1))) {
+      ++src;
+      char *tempStrEnd;
+      int32_t add_to_exponent = strtointeger<int32_t>(src, &tempStrEnd, 10);
+      if (add_to_exponent > 100000)
+        add_to_exponent = 100000;
+      else if (add_to_exponent < -100000)
+        add_to_exponent = -100000;
+      src = tempStrEnd;
+      exponent += add_to_exponent;
+    }
+  }
+  *strEnd = const_cast<char *>(src);
+  if (mantissa == 0) { // if we have a 0, then also 0 the exponent.
+    *outputMantissa = 0;
+    *outputExponent = 0;
+  } else {
+    binaryExpToFloat<T>(mantissa, exponent, truncated, outputMantissa,
+                        outputExponent);
+  }
+  return true;
 }
 
 // Takes a pointer to a string and a pointer to a string pointer. This function
@@ -376,178 +742,61 @@ static inline T strtofloatingpoint(const char *__restrict src,
   static const char *INF_STRING = "infinity";
   static const char *NAN_STRING = "nan";
 
-  bool truncated = false;
+  // bool truncated = false;
 
   if (isdigit(*src) || *src == DECIMAL_POINT) { // regular number
     int base = 10;
-    char exponentMarker = 'e';
     if (is_float_hex_start(src, DECIMAL_POINT)) {
       base = 16;
       src += 2;
-      exponentMarker = 'p';
       seenDigit = true;
     }
-    const char *__restrict numStart = src;
-    bool afterDecimal = false;
+    char *newStrEnd = nullptr;
 
-    BitsType mantissa = 0;
-    int32_t exponent = 0;
-
-    // The goal for the first step of parsing is to convert the number in src to
-    // the format mantissa * (base ^ exponent)
-
-    constexpr BitsType MANTISSA_MAX =
-        BitsType(1) << (fputil::FloatProperties<T>::mantissaWidth +
-                        1); // The extra bit is to give space for the implicit 1
-    const BitsType BITSTYPE_MAX_DIV_BY_BASE =
-        __llvm_libc::cpp::NumericLimits<BitsType>::max() / base;
-    while ((isalnum(*src) || *src == DECIMAL_POINT) &&
-           mantissa < BITSTYPE_MAX_DIV_BY_BASE) {
-      if (*src == DECIMAL_POINT && afterDecimal) {
-        break; // this means that *src points to a second decimal point, ending
-               // the number.
-      } else if (*src == DECIMAL_POINT) {
-        afterDecimal = true;
-        ++src;
-        continue;
-      }
-      int digit = b36_char_to_int(*src);
-      if (digit >= base) {
-        break;
-      }
-
-      mantissa = (mantissa * base) + digit;
-      seenDigit = true;
-      if (afterDecimal) {
-        --exponent;
-      }
-
-      ++src;
-    }
-
-    // The second loop is to run through the remaining digits after we've filled
-    // the mantissa.
-    while (isalnum(*src) || *src == DECIMAL_POINT) {
-      if (*src == DECIMAL_POINT && afterDecimal) {
-        break; // this means that *src points to a second decimal point, ending
-               // the number.
-      } else if (*src == DECIMAL_POINT) {
-        afterDecimal = true;
-        ++src;
-        continue;
-      }
-      int digit = b36_char_to_int(*src);
-      if (digit >= base) {
-        break;
-      }
-
-      if (digit > 0) {
-        truncated = true;
-      }
-
-      if (!afterDecimal) {
-        exponent++;
-      }
-
-      ++src;
-    }
-
-    // if our base is 16 then convert the exponent to base 2
+    BitsType outputMantissa = 0;
+    uint32_t outputExponent = 0;
     if (base == 16) {
-      exponent *= 4;
-    }
-
-    if ((*src | 32) == exponentMarker) {
-      if (*(src + 1) == '+' || *(src + 1) == '-' || isdigit(*(src + 1))) {
-        ++src;
-        char *tempStrEnd;
-        int32_t add_to_exponent = strtointeger<int32_t>(src, &tempStrEnd, 10);
-        src += tempStrEnd - src;
-        exponent += add_to_exponent;
-      }
-    }
-
-    if (mantissa == 0) { // if we have a 0, then also 0 the exponent.
-      exponent = 0;
-    } else if (base == 16) {
-
-      // These two loops should normalize the number if we assume the decimal
-      // point is after the bit at mantissaWidth.
-      // For example if type T is a 32 bit float, this should result in a
-      // mantissa with its most significant 1 being at bit 23.
-      while (mantissa < (MANTISSA_MAX >> 1)) {
-        mantissa = mantissa << 1;
-        --exponent;
-      }
-      BitsType mantissaCopy = mantissa;
-      unsigned int amountToShift = 0;
-      while (mantissaCopy > MANTISSA_MAX) {
-        mantissaCopy = mantissaCopy >> 1;
-        ++amountToShift;
-      }
-      exponent += amountToShift;
-      mantissa = shiftRightAndRound(mantissa, amountToShift);
-
-      // Account for the fact that the mantissa represented an integer
-      // previously, but now represents the fractional part of a normalized
-      // number.
-      exponent += fputil::FloatProperties<T>::mantissaWidth;
-
-      int32_t biasedExponent = exponent + fputil::FPBits<T>::exponentBias;
-      if (biasedExponent <= 0) {
-        // handle subnormals here
-
-        // the most mantissa is currently normalized, meaning that the msb is
-        // one bit left of where the decimal point should go.
-        amountToShift = 1;
-        mantissaCopy = mantissa >> 1;
-        while (biasedExponent < 0 && mantissaCopy > 0) {
-          mantissaCopy = mantissaCopy >> 1;
-          ++amountToShift;
-          ++biasedExponent;
-        }
-        // If we cut off any bits to fit this number into a subnormal, then it's
-        // out of range for this size of float.
-        if ((mantissa & ((1 << amountToShift) - 1)) > 0) {
-          errno = ERANGE; // NOLINT
-        }
-        mantissa = shiftRightAndRound(mantissa, amountToShift);
-        if (mantissa == 0) {
-          biasedExponent = 0;
-        }
-      } else if (biasedExponent > result.maxExponent) {
-        // This indicates an overflow, so we make the result INF and set errno.
-        biasedExponent = result.maxExponent;
-        mantissa = 0;
-        errno = ERANGE; // NOLINT
-      }
-
-      result.setUnbiasedExponent(biasedExponent);
-      result.setMantissa(mantissa);
+      seenDigit = hexadecimalStringToFloat<T>(src, DECIMAL_POINT, &newStrEnd,
+                                              &outputMantissa, &outputExponent);
     } else { // base is 10
-      BitsType outputMantissa = 0;
-      uint32_t outputExponent = 0;
-      decimalExpToFloat<T>(mantissa, exponent, numStart, truncated,
-                           &outputMantissa, &outputExponent);
+      seenDigit = decimalStringToFloat<T>(src, DECIMAL_POINT, &newStrEnd,
+                                          &outputMantissa, &outputExponent);
+    }
+
+    if (seenDigit) {
+      src += newStrEnd - src;
       result.setMantissa(outputMantissa);
       result.setUnbiasedExponent(outputExponent);
     }
-
   } else if ((*src | 32) == 'n') { // NaN
     if ((src[1] | 32) == NAN_STRING[1] && (src[2] | 32) == NAN_STRING[2]) {
       seenDigit = true;
       src += 3;
       BitsType NaNMantissa = 0;
+      // this handles the case of `NaN(n-character-sequence)`, where the
+      // n-character-sequence is made of 0 or more letters and numbers in any
+      // order.
       if (*src == '(') {
-        char *tempSrc = 0;
-        if (isdigit(*(src + 1)) || *(src + 1) == ')') {
-          NaNMantissa = strtointeger<BitsType>(src + 1, &tempSrc, 0);
-          if (*tempSrc != ')') {
-            NaNMantissa = 0;
-          } else {
-            src = tempSrc + 1;
+        const char *leftParen = src;
+        ++src;
+        while (isalnum(*src))
+          ++src;
+        if (*src == ')') {
+          ++src;
+          char *tempSrc = 0;
+          if (isdigit(*(leftParen + 1))) {
+            // This is to prevent errors when BitsType is larger than 64 bits,
+            // since strtointeger only supports up to 64 bits. This is actually
+            // more than is required by the specification, which says for the
+            // input type "NAN(n-char-sequence)" that "the meaning of
+            // the n-char sequence is implementation-defined."
+            NaNMantissa = static_cast<BitsType>(
+                strtointeger<uint64_t>(leftParen + 1, &tempSrc, 0));
+            if (*tempSrc != ')')
+              NaNMantissa = 0;
           }
-        }
+        } else
+          src = leftParen;
       }
       NaNMantissa |= fputil::FloatProperties<T>::quietNaNMask;
       if (result.getSign()) {

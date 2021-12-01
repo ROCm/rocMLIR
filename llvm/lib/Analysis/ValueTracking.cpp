@@ -396,6 +396,14 @@ unsigned llvm::ComputeNumSignBits(const Value *V, const DataLayout &DL,
       V, Depth, Query(DL, AC, safeCxtI(V, CxtI), DT, UseInstrInfo));
 }
 
+unsigned llvm::ComputeMinSignedBits(const Value *V, const DataLayout &DL,
+                                    unsigned Depth, AssumptionCache *AC,
+                                    const Instruction *CxtI,
+                                    const DominatorTree *DT) {
+  unsigned SignBits = ComputeNumSignBits(V, DL, Depth, AC, CxtI, DT);
+  return V->getType()->getScalarSizeInBits() - SignBits + 1;
+}
+
 static void computeKnownBitsAddSub(bool Add, const Value *Op0, const Value *Op1,
                                    bool NSW, const APInt &DemandedElts,
                                    KnownBits &KnownOut, KnownBits &Known2,
@@ -1519,7 +1527,7 @@ static void computeKnownBitsFromOperator(const Operator *I,
     // taking conservative care to avoid excessive recursion.
     if (Depth < MaxAnalysisRecursionDepth - 1 && !Known.Zero && !Known.One) {
       // Skip if every incoming value references to ourself.
-      if (dyn_cast_or_null<UndefValue>(P->hasConstantValue()))
+      if (isa_and_nonnull<UndefValue>(P->hasConstantValue()))
         break;
 
       Known.Zero.setAllBits();
@@ -4963,19 +4971,9 @@ bool llvm::isOverflowIntrinsicNoWrap(const WithOverflowInst *WO,
 
 static bool canCreateUndefOrPoison(const Operator *Op, bool PoisonOnly,
                                    bool ConsiderFlags) {
-  if (ConsiderFlags) {
-    // See whether I has flags that may create poison
-    if (const auto *OvOp = dyn_cast<OverflowingBinaryOperator>(Op)) {
-      if (OvOp->hasNoSignedWrap() || OvOp->hasNoUnsignedWrap())
-        return true;
-    }
-    if (const auto *ExactOp = dyn_cast<PossiblyExactOperator>(Op))
-      if (ExactOp->isExact())
-        return true;
-    if (const auto *GEP = dyn_cast<GEPOperator>(Op))
-      if (GEP->isInBounds())
-        return true;
-  }
+
+  if (ConsiderFlags && Op->hasPoisonGeneratingFlags())
+    return true;
 
   // TODO: this should really be under the ConsiderFlags block, but currently
   // these are not dropped by dropPoisonGeneratingFlags
@@ -7074,6 +7072,23 @@ static void setLimitsForSelectPattern(const SelectInst &SI, APInt &Lower,
   }
 }
 
+static void setLimitForFPToI(const Instruction *I, APInt &Lower, APInt &Upper) {
+  // The maximum representable value of a half is 65504. For floats the maximum
+  // value is 3.4e38 which requires roughly 129 bits.
+  unsigned BitWidth = I->getType()->getScalarSizeInBits();
+  if (!I->getOperand(0)->getType()->getScalarType()->isHalfTy())
+    return;
+  if (isa<FPToSIInst>(I) && BitWidth >= 17) {
+    Lower = APInt(BitWidth, -65504);
+    Upper = APInt(BitWidth, 65505);
+  }
+
+  if (isa<FPToUIInst>(I) && BitWidth >= 16) {
+    // For a fptoui the lower limit is left as 0.
+    Upper = APInt(BitWidth, 65505);
+  }
+}
+
 ConstantRange llvm::computeConstantRange(const Value *V, bool UseInstrInfo,
                                          AssumptionCache *AC,
                                          const Instruction *CtxI,
@@ -7098,6 +7113,8 @@ ConstantRange llvm::computeConstantRange(const Value *V, bool UseInstrInfo,
     setLimitsForIntrinsic(*II, Lower, Upper);
   else if (auto *SI = dyn_cast<SelectInst>(V))
     setLimitsForSelectPattern(*SI, Lower, Upper, IIQ);
+  else if (isa<FPToUIInst>(V) || isa<FPToSIInst>(V))
+    setLimitForFPToI(cast<Instruction>(V), Lower, Upper);
 
   ConstantRange CR = ConstantRange::getNonEmpty(Lower, Upper);
 

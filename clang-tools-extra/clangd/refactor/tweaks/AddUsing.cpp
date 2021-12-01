@@ -187,7 +187,7 @@ findInsertionPoint(const Tweak::Selection &Inputs,
       return Tok.kind() == tok::l_brace;
     });
     if (Tok == Toks.end() || Tok->endLocation().isInvalid()) {
-      return error("Namespace with no {");
+      return error("Namespace with no {{");
     }
     if (!Tok->endLocation().isMacroID() && IsValidPoint(Tok->endLocation())) {
       InsertionPointData Out;
@@ -250,7 +250,8 @@ bool AddUsing::prepare(const Selection &Inputs) {
   for (; Node->Parent; Node = Node->Parent) {
     if (Node->ASTNode.get<NestedNameSpecifierLoc>()) {
       continue;
-    } else if (auto *T = Node->ASTNode.get<TypeLoc>()) {
+    }
+    if (auto *T = Node->ASTNode.get<TypeLoc>()) {
       if (T->getAs<ElaboratedTypeLoc>()) {
         break;
       } else if (Node->Parent->ASTNode.get<TypeLoc>() ||

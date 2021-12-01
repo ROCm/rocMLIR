@@ -63,7 +63,7 @@ can only contain function passes:
   // InstSimplifyPass is a function pass
   FPM.addPass(InstSimplifyPass());
 
-If you want add a loop pass that runs on all loops in a function to a
+If you want to add a loop pass that runs on all loops in a function to a
 ``FunctionPassManager``, the loop pass must be wrapped in a function pass
 adaptor that goes through all the loops in the function and runs the loop
 pass on each one.
@@ -287,7 +287,7 @@ proper analyses invalidated.
   PreservedAnalyses PA;
   PA.preserveSet<CFGAnalyses>();
   return PA;
-  
+
 The pass manager will call the analysis manager's ``invalidate()`` method
 with the pass's returned ``PreservedAnalyses``. This can be also done
 manually within the pass:

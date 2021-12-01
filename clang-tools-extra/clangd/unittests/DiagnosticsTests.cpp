@@ -476,6 +476,13 @@ TEST(DiagnosticTest, ClangTidySuppressionComment) {
       double g = [[8]] / i;
       #define BAD2 BAD
       double h = BAD2;  // NOLINT
+      // NOLINTBEGIN
+      double x = BAD2;
+      double y = BAD2;
+      // NOLINTEND
+
+      // verify no crashes on unmatched nolints.
+      // NOLINTBEIGN
     }
   )cpp");
   TestTU TU = TestTU::withCode(Main.code());
@@ -1483,7 +1490,10 @@ TEST(Diagnostics, Tags) {
 TEST(DiagnosticsTest, IncludeCleaner) {
   Annotations Test(R"cpp(
 $fix[[  $diag[[#include "unused.h"]]
-]]  #include "used.h"
+]]
+  #include "used.h"
+
+  #include <system_header.h>
 
   void foo() {
     used();
@@ -1492,11 +1502,15 @@ $fix[[  $diag[[#include "unused.h"]]
   TestTU TU;
   TU.Code = Test.code().str();
   TU.AdditionalFiles["unused.h"] = R"cpp(
+    #pragma once
     void unused() {}
   )cpp";
   TU.AdditionalFiles["used.h"] = R"cpp(
+    #pragma once
     void used() {}
   )cpp";
+  TU.AdditionalFiles["system/system_header.h"] = "";
+  TU.ExtraArgs = {"-isystem" + testPath("system")};
   // Off by default.
   EXPECT_THAT(*TU.build().getDiagnostics(), IsEmpty());
   Config Cfg;

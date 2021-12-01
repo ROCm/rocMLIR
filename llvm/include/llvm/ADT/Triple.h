@@ -93,6 +93,8 @@ public:
     hsail64,        // AMD HSAIL with 64-bit pointers
     spir,           // SPIR: standard portable IR for OpenCL 32-bit version
     spir64,         // SPIR: standard portable IR for OpenCL 64-bit version
+    spirv32,        // SPIR-V with 32-bit pointers
+    spirv64,        // SPIR-V with 64-bit pointers
     kalimba,        // Kalimba: generic kalimba
     shave,          // SHAVE: Movidius vector VLIW processors
     lanai,          // Lanai: Lanai 32-bit
@@ -699,6 +701,11 @@ public:
     return getArch() == Triple::spir || getArch() == Triple::spir64;
   }
 
+  /// Tests whether the target is SPIR-V (32/64-bit).
+  bool isSPIRV() const {
+    return getArch() == Triple::spirv32 || getArch() == Triple::spirv64;
+  }
+
   /// Tests whether the target is NVPTX (32- or 64-bit).
   bool isNVPTX() const {
     return getArch() == Triple::nvptx || getArch() == Triple::nvptx64;
@@ -719,6 +726,19 @@ public:
   /// Tests whether the target is ARM (little and big endian).
   bool isARM() const {
     return getArch() == Triple::arm || getArch() == Triple::armeb;
+  }
+
+  /// Tests whether the target supports the EHABI exception
+  /// handling standard.
+  bool isTargetEHABICompatible() const {
+    return (isARM() || isThumb()) &&
+           (getEnvironment() == Triple::EABI ||
+            getEnvironment() == Triple::GNUEABI ||
+            getEnvironment() == Triple::MuslEABI ||
+            getEnvironment() == Triple::EABIHF ||
+            getEnvironment() == Triple::GNUEABIHF ||
+            getEnvironment() == Triple::MuslEABIHF || isAndroid()) &&
+           isOSBinFormatELF();
   }
 
   /// Tests whether the target is AArch64 (little and big endian).

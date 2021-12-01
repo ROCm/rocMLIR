@@ -1,8 +1,6 @@
 set(LLVM_LINK_COMPONENTS
   ${LLVM_TARGETS_TO_BUILD}
   Core
-  OrcJIT
-  Support
   )
 
 add_clang_unittest(ClangReplInterpreterTests
@@ -14,6 +12,7 @@ target_link_libraries(ClangReplInterpreterTests PUBLIC
   clangBasic
   clangInterpreter
   clangFrontend
+  clangSema
   )
 
 # Exceptions on Windows are not yet supported.

@@ -56,6 +56,9 @@ isBroadcastableTo(Type srcType, VectorType dstVectorType,
 void populateVectorToVectorCanonicalizationPatterns(
     RewritePatternSet &patterns);
 
+/// Collect a set of vector.shape_cast folding patterns.
+void populateShapeCastFoldingPatterns(RewritePatternSet &patterns);
+
 /// Collect a set of leading one dimension removal patterns.
 ///
 /// These patterns insert vector.shape_cast to remove leading one dimensions
@@ -81,15 +84,9 @@ void populateVectorTransferLoweringPatterns(
     RewritePatternSet &patterns,
     llvm::Optional<unsigned> maxTransferRank = llvm::None);
 
-/// Collect a set of transfer read/write lowering patterns that simplify the
-/// permutation map (e.g., converting it to a minor identity map) by inserting
-/// broadcasts and transposes.
-void populateVectorTransferPermutationMapLoweringPatterns(
-    RewritePatternSet &patterns);
-
 /// These patterns materialize masks for various vector ops such as transfers.
 void populateVectorMaskMaterializationPatterns(RewritePatternSet &patterns,
-                                               bool enableIndexOptimizations);
+                                               bool indexOptimizations);
 
 /// Collect a set of patterns to propagate insert_map/extract_map in the ssa
 /// chain.
@@ -107,8 +104,8 @@ public:
 
   CombiningKind getKind() const;
 
-  void print(DialectAsmPrinter &p) const;
-  static Attribute parse(DialectAsmParser &parser);
+  void print(AsmPrinter &p) const;
+  static Attribute parse(AsmParser &parser, Type type);
 };
 
 /// Collects patterns to progressively lower vector.broadcast ops on high-D
