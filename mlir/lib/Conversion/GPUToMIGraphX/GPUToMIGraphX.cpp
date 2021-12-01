@@ -51,7 +51,7 @@ class FuncToCOBJPattern : public OpConversionPattern<CallOp> {
     auto fusedFuncOp =
       op->getParentOfType<ModuleOp>().lookupSymbol<FuncOp>(fnAttr.getValue());
 
-    fusedFuncOp.walk([&](gpu::LaunchFuncOp Wop) {
+    fusedFuncOp.walk([&](gpu::LaunchFuncOp Lop) {
       // x, y, z
       auto gridSize = Lop.getGridSizeOperandValues();
       auto blockSize = Lop.getBlockSizeOperandValues();
