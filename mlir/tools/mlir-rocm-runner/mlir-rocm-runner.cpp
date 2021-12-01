@@ -16,6 +16,7 @@
 
 #include "mlir/Conversion/AsyncToLLVM/AsyncToLLVM.h"
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
+#include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
 #include "mlir/Conversion/SCFToStandard/SCFToStandard.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
@@ -89,6 +90,7 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
       utils.getTriple(), utils.getChip(), utils.getFeatures(), optLevel));
   auto &funcPm = pm.nest<FuncOp>();
   funcPm.addPass(createGpuAsyncRegionPass());
+  funcPm.addPass(createConvertMathToLLVMPass());
   pm.addPass(createGpuToLLVMConversionPass());
   pm.addPass(createAsyncToAsyncRuntimePass());
   pm.addPass(createConvertAsyncToLLVMPass());
