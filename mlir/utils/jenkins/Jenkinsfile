@@ -224,7 +224,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "${params.canXdlops ? 'gfx908' : 'rocm' }"
+                            label "${params.canXdlops ? 'gfx908' : 'gfx906' }"
                             alwaysPull true
                         }
                     }
@@ -423,7 +423,7 @@ pipeline {
                             docker {
                                 image dockerImage()
                                 args dockerArgs()
-                                label "${params.canXdlops ? 'gfx908' : 'rocm'}"
+                                label "${params.canXdlops ? 'gfx908' : 'gfx906'}"
                                 alwaysPull true
                             }
                         }
