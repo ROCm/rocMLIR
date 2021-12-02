@@ -270,7 +270,7 @@ func @miopen_data_convert() {
 func @miopen_in_warp_transpose(%v : vector<8xf32>) -> vector<8xf32> {
   %cst4 = constant 4 : index
   %l = miopen.workitem_id : index
-  %l2 = remi_unsigned %l, %cst4 : index
+  %l2 = arith.remui %l, %cst4 : index
   %0 = miopen.in_warp_transpose { size = 4 : i32,
     inGroupPerm = [0 : i32, 1 : i32, 2 : i32, 3 : i32]
   } %v, %l2 : vector<8xf32>, index
@@ -278,4 +278,3 @@ func @miopen_in_warp_transpose(%v : vector<8xf32>) -> vector<8xf32> {
 }
 // CHECK-LABEL: func @miopen_in_warp_transpose
 // CHECK: miopen.in_warp_transpose
-

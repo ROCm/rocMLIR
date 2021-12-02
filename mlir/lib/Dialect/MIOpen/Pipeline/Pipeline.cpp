@@ -41,7 +41,7 @@ using namespace mlir;
 void miopen::addHighLevelPipeline(PassManager &pm) {
   // passes for TOSA and bufferization
   pm.addPass(tosa::createTosaToMIOpenPass());
-  pm.addPass(tosa::createTosaToLinalgOnTensors());
+  pm.addPass(tosa::createTosaToLinalg());
   pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(createLinalgBufferizePass());
   pm.addPass(createFuncBufferizePass());

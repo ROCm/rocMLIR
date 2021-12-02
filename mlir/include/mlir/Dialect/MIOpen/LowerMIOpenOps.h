@@ -271,17 +271,17 @@ inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc, Type type) {
     llvm::SmallVector<Attribute> constValues;
     std::fill_n(std::back_inserter(constValues), vecType.getNumElements(),
                 constValue);
-    retValue = b.create<ConstantOp>(
+    retValue = b.create<mlir::ConstantOp>(
         loc, DenseElementsAttr::get(vecType, constValues), type);
   } else {
     if (auto intType = elementType.dyn_cast<IntegerType>()) {
       auto intZero = zero.bitcastToAPInt();
       assert(intType.getIntOrFloatBitWidth() == intZero.getBitWidth());
       retValue =
-          b.create<ConstantOp>(loc, b.getIntegerAttr(intType, intZero), type);
+          b.create<mlir::ConstantOp>(loc, b.getIntegerAttr(intType, intZero), type);
     } else {
       retValue =
-          b.create<ConstantOp>(loc, b.getFloatAttr(elementType, zero), type);
+          b.create<mlir::ConstantOp>(loc, b.getFloatAttr(elementType, zero), type);
     }
   }
 
@@ -881,10 +881,10 @@ inline Optional<int64_t> isConstantValue(Value v) {
     op = cast.in().getDefiningOp();
   }
   if (auto intOp = dyn_cast<ConstantIntOp>(op)) {
-    return intOp.getValue();
+    return intOp.value();
   }
   if (auto indexOp = dyn_cast<ConstantIndexOp>(op)) {
-    return indexOp.getValue();
+    return indexOp.value();
   }
   return llvm::None;
 }
@@ -1289,8 +1289,8 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
           }
 
           Value upperBoundOp = b.create<ConstantIntOp>(loc, upperBound, 32);
-          Value carry = b.create<UnsignedDivIOp>(loc, index, upperBoundOp);
-          Value newIndex = b.create<UnsignedRemIOp>(loc, index, upperBoundOp);
+          Value carry = b.create<arith::DivUIOp>(loc, index, upperBoundOp);
+          Value newIndex = b.create<arith::RemUIOp>(loc, index, upperBoundOp);
           // If the merge is, as is typical, near the end of the transformations
           // this computation should get hit by the dead code eleminator
           Value newDiff = b.create<SubIOp>(
@@ -6124,13 +6124,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     SmallVector<Value, 5> matrixCThreadwiseCopyDestCoords = {
         GemmDataIdBegin_G_i32,
-        b.create<UnsignedDivIOp>(loc, m_thread_data_on_global_i32,
+        b.create<arith::DivUIOp>(loc, m_thread_data_on_global_i32,
                                  M1ConstantI32Op),
-        b.create<UnsignedRemIOp>(loc, m_thread_data_on_global_i32,
+        b.create<arith::RemUIOp>(loc, m_thread_data_on_global_i32,
                                  M1ConstantI32Op),
-        b.create<UnsignedDivIOp>(loc, n_thread_data_on_global_i32,
+        b.create<arith::DivUIOp>(loc, n_thread_data_on_global_i32,
                                  N1ConstantI32Op),
-        b.create<UnsignedRemIOp>(loc, n_thread_data_on_global_i32,
+        b.create<arith::RemUIOp>(loc, n_thread_data_on_global_i32,
                                  N1ConstantI32Op)};
     // g index
 
@@ -6966,10 +6966,10 @@ struct GridwiseGemmV2RewritePattern
         b.create<ConstantIntOp>(loc, M2 * M1, b.getIntegerType(32));
 
     auto laneId_xdlops_gemm =
-        b.create<UnsignedRemIOp>(loc, tid, wave_size_ConstantOp);
-    auto blk_id_xdlops_gemm = b.create<UnsignedDivIOp>(
+        b.create<arith::RemUIOp>(loc, tid, wave_size_ConstantOp);
+    auto blk_id_xdlops_gemm = b.create<arith::DivUIOp>(
         loc, laneId_xdlops_gemm, num_threads_blk_ConstantOp);
-    auto blk_td_xdlops_gemm = b.create<UnsignedRemIOp>(
+    auto blk_td_xdlops_gemm = b.create<arith::RemUIOp>(
         loc, laneId_xdlops_gemm, num_threads_blk_ConstantOp);
 
     // emit vector swizzles
@@ -7222,16 +7222,16 @@ struct GridwiseGemmV2RewritePattern
           // g
           GemmBlockCoord_G_i32,
           // m_thread_data_on_global / (M2 * M1)
-          b.create<UnsignedDivIOp>(loc, m_thread_data_on_global_i32,
+          b.create<arith::DivUIOp>(loc, m_thread_data_on_global_i32,
                                    M2TimesM1I32Op),
           // m_thread_data_on_global % (M2 * M1) / M2
-          b.create<UnsignedDivIOp>(
+          b.create<arith::DivUIOp>(
               loc,
-              b.create<UnsignedRemIOp>(loc, m_thread_data_on_global_i32,
+              b.create<arith::RemUIOp>(loc, m_thread_data_on_global_i32,
                                        M2TimesM1I32Op),
               M2ConstantI32Op),
           // m_thread_data_on_global % M2
-          b.create<UnsignedRemIOp>(loc, m_thread_data_on_global_i32,
+          b.create<arith::RemUIOp>(loc, m_thread_data_on_global_i32,
                                    M2ConstantI32Op),
           // n_thread_data_on_global
           n_thread_data_on_global_i32};
@@ -7750,7 +7750,7 @@ struct InWarpTransposeRewritePattern
     if (lanePerm.hasValue()) {
       Value groupSizeConst = b.create<ConstantIndexOp>(loc, swizzleGroupSize);
       laneInSwizzleGroup =
-          b.create<UnsignedRemIOp>(loc, laneId, groupSizeConst);
+          b.create<arith::RemUIOp>(loc, laneId, groupSizeConst);
     }
 
     Value result = vector;
@@ -7777,11 +7777,11 @@ struct InWarpTransposeRewritePattern
         shouldParticipate =
             std::accumulate(comparisons.begin() + 1, comparisons.end(),
                             comparisons[0], [&b, &loc](Value v1, Value v2) {
-                              return b.create<OrOp>(loc, v1, v2);
+                              return b.create<LLVM::OrOp>(loc, v1, v2);
                             });
       } else { // The usual case
         Value maskConst = b.create<ConstantIndexOp>(loc, rotation);
-        Value shouldParticipateVal = b.create<AndOp>(loc, laneId, maskConst);
+        Value shouldParticipateVal = b.create<LLVM::AndOp>(loc, laneId, maskConst);
         shouldParticipate = b.create<CmpIOp>(loc, CmpIPredicate::ne,
                                              shouldParticipateVal, zeroConst);
       }
