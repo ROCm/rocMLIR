@@ -10,6 +10,7 @@
 #add_subdirectory(GPUToVulkan)
 #add_subdirectory(LinalgToLLVM)
 #add_subdirectory(LinalgToSPIRV)
+add_subdirectory(MIGraphXToTosa)
 add_subdirectory(MIOpenToGPU)
 #add_subdirectory(LinalgToStandard)
 #add_subdirectory(OpenMPToLLVM)

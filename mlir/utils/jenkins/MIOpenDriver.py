@@ -259,7 +259,7 @@ def runConfigWithMLIR(config):
             print("Test printed errors: ", errs.decode('utf-8'))
             print("Failing command line: ", mlirMIOpenDriverCommand)
     except subprocess.TimeoutExpired:
-        print("Test timed out: ", mlirMIOpenDriverCommand())
+        print("Test timed out: ", mlirMIOpenDriverCommand)
         p2.kill()
         outs, errs = p2.communicate()
 
