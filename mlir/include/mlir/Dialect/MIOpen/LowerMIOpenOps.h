@@ -11066,8 +11066,9 @@ struct XdlopsGemmV2RewritePattern
       if (argTypeVectorLength > 1) {
         Value zeroOp = createZeroConstantFloatOp(innerLoopb, loc, dataType);
 
-        Value offset =
-            innerLoopb.create<MulIOp>(loc, innerLoopiv, KBaseConstantOp);
+        Value offset = innerLoopb.create<AddIOp>(loc,
+            innerLoopb.create<MulIOp>(loc, outerLoopiv, KBaseConstantOp),
+            innerLoopb.create<MulIOp>(loc, innerLoopiv, KBaseConstantOp));
         if (bufferAElementType.isa<VectorType>()) {
           // bufferA/BElement loaded on LDS are vectors.
           // argA/B to be supplied to MFMA XDLOPS are also vectors.
