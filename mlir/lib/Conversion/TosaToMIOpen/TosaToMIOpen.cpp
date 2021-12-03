@@ -11,13 +11,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/TosaToMIOpen/TosaToMIOpen.h"
+#include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/Linalg/IR/LinalgOps.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Transforms/Bufferize.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -60,8 +60,9 @@ public:
   }
 
   LogicalResult
-  matchAndRewrite(tosa::Conv2DOp op, ArrayRef<Value> operands,
+  matchAndRewrite(tosa::Conv2DOp op, tosa::Conv2DOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    auto operands = adaptor.getOperands();
     auto loc = op->getLoc();
     auto input_t = operands[0];
     auto filter_t = operands[1];
@@ -80,7 +81,7 @@ public:
 
     auto filterExpanded = expandMemRef(op, filter_t, rewriter);
 
-    auto outputType = getTypeConverter<BufferizeTypeConverter>()
+    auto outputType = getTypeConverter<mlir::bufferization::BufferizeTypeConverter>()
                           ->convertType(results[0].getType())
                           .cast<MemRefType>();
     Value output_mr = rewriter.create<memref::AllocOp>(loc, outputType);
@@ -180,6 +181,6 @@ public:
 
 void tosa::populateTosaToMIOpenConversionPatterns(
     MLIRContext *context, OwningRewritePatternList *patterns) {
-  static BufferizeTypeConverter bufferizer;
+  static mlir::bufferization::BufferizeTypeConverter bufferizer;
   patterns->insert<ConvConverter>(bufferizer, context);
 }
