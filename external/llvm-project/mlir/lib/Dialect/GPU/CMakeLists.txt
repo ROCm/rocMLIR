@@ -8,6 +8,8 @@ endif()
 
 if (MLIR_ENABLE_ROCM_CONVERSIONS)
   set(AMDGPU_LIBS
+    IRReader
+    linker
     MCParser
     AMDGPUAsmParser
     AMDGPUCodeGen
@@ -25,6 +27,7 @@ add_mlir_dialect_library(MLIRGPUOps
 
   DEPENDS
   MLIRGPUOpsIncGen
+  MLIRGPUOpsEnumsGen
   MLIRGPUOpInterfacesIncGen
 
   LINK_LIBS PUBLIC
@@ -128,6 +131,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     message(SEND_ERROR "lld is not enabled. Please revise LLVM_ENABLE_PROJECTS")
   endif()
 
+  set(DEFAULT_ROCM_PATH "/opt/rocm" CACHE PATH "Fallback path to search for ROCm installs")
   # Configure ROCm support.
   if (NOT DEFINED ROCM_PATH)
     if (NOT DEFINED ENV{ROCM_PATH})
@@ -147,16 +151,13 @@ if(MLIR_ENABLE_ROCM_RUNNER)
 
   target_compile_definitions(obj.MLIRGPUTransforms
     PRIVATE
-    __HIP_PLATFORM_HCC__
-    __ROCM_PATH__="${ROCM_PATH}"
+    __DEFAULT_ROCM_PATH__="${DEFAULT_ROCM_PATH}"
     MLIR_GPU_TO_HSACO_PASS_ENABLE=1
   )
 
   target_include_directories(obj.MLIRGPUTransforms
     PRIVATE
     ${MLIR_SOURCE_DIR}/../lld/include
-    ${HIP_PATH}/include
-    ${ROCM_PATH}/include
   )
 
   target_link_libraries(MLIRGPUTransforms

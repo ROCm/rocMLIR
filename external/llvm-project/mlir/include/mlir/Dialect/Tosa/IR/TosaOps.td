@@ -118,6 +118,8 @@ def Tosa_Conv2DOp : Tosa_Op<"conv2d", [
   let builders = [Tosa_ConvOpQuantInfoBuilder];
 
   let verifier = [{ return verifyConvOp(*this); }];
+
+  let hasCanonicalizer = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -321,9 +323,11 @@ def Tosa_ClampOp : Tosa_Op<"clamp", [
   let summary = "Computes clamp(features, min, max).";
 
   let description = [{
-    Clamp to an arbitrary minimum and maximum value. Note that the maximum and
-    minimum values are specified as signed quantized values, no scaling happens
-    before or after this operation.
+    Clamp to an arbitrary minimum and maximum value.
+    Maximum and minimum values are specified as values in the range of the 
+    input type.
+    No zero point subtraction is done to the values, thus to clamp to the zero 
+    point value, the zero point itself should be supplied as the minimum value.
   }];
 
   let arguments = (ins
@@ -442,6 +446,8 @@ def Tosa_AddOp : Tosa_Op<"add", [
   let results = (outs
     Tosa_Tensor:$output
   );
+
+  let hasCanonicalizer = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -756,6 +762,8 @@ def Tosa_MulOp : Tosa_Op<"mul", [
   let results = (outs
     Tosa_Tensor:$output
   );
+
+  let hasCanonicalizer = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1393,15 +1401,16 @@ def Tosa_PadOp : Tosa_Op<"pad", [
     DeclareOpInterfaceMethods<InferShapedTypeOpInterface,
                               ["inferReturnTypeComponents"]>,
     NoSideEffect]> {
-  let summary = "Pads a tensor with zeros.";
+  let summary = "Pads a tensor with value specified.";
 
   let description = [{
-    Zero-pads a tensor along borders of each dimension.
+    Pads a tensor along borders of each dimension with pad_value. 
   }];
 
   let arguments = (ins
     Tosa_RankedTensor:$input1,
     Tosa_Int32Or64Tensor:$padding,
+    Optional<Tosa_ScalarTensor>:$pad_const,
     OptionalAttr<Tosa_PadOpQuantizationAttr>:$quantization_info
   );
 
@@ -1409,7 +1418,11 @@ def Tosa_PadOp : Tosa_Op<"pad", [
     Tosa_RankedTensor:$output
   );
 
-  let builders = [Tosa_PadOpQuantInfoBuilder];
+  let builders = [Tosa_PadOpQuantInfoBuilder,
+                  Tosa_ExplicitValuePadOpQuantInfoBuilder];
+
+  let hasCanonicalizer = 1;
+  let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//

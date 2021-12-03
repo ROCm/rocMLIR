@@ -11,76 +11,46 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <climits>
+#include <cstddef>
+
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Math/Transforms/Approximation.h"
 #include "mlir/Dialect/Math/Transforms/Passes.h"
 #include "mlir/Dialect/Vector/VectorOps.h"
+#include "mlir/Dialect/Vector/VectorUtils.h"
 #include "mlir/Dialect/X86Vector/X86VectorDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/ImplicitLocOpBuilder.h"
-#include "mlir/Transforms/Bufferize.h"
+#include "mlir/IR/TypeUtilities.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/ArrayRef.h"
-#include <climits>
-#include <cstddef>
 
 using namespace mlir;
 using namespace mlir::math;
 using namespace mlir::vector;
 
-using TypePredicate = llvm::function_ref<bool(Type)>;
-
-// Returns vector shape if the element type is matching the predicate (scalars
-// that do match the predicate have shape equal to `{1}`).
-static Optional<SmallVector<int64_t, 2>> vectorShape(Type type,
-                                                     TypePredicate pred) {
-  // If the type matches the predicate then its shape is `{1}`.
-  if (pred(type))
-    return SmallVector<int64_t, 2>{1};
-
-  // Otherwise check if the type is a vector type.
+// Returns vector shape if the type is a vector. Returns an empty shape if it is
+// not a vector.
+static ArrayRef<int64_t> vectorShape(Type type) {
   auto vectorType = type.dyn_cast<VectorType>();
-  if (vectorType && pred(vectorType.getElementType())) {
-    return llvm::to_vector<2>(vectorType.getShape());
-  }
-
-  return llvm::None;
+  return vectorType ? vectorType.getShape() : ArrayRef<int64_t>();
 }
 
-// Returns vector shape of the type. If the type is a scalar returns `1`.
-static SmallVector<int64_t, 2> vectorShape(Type type) {
-  auto vectorType = type.dyn_cast<VectorType>();
-  return vectorType ? llvm::to_vector<2>(vectorType.getShape())
-                    : SmallVector<int64_t, 2>{1};
-}
-
-// Returns vector element type. If the type is a scalar returns the argument.
-LLVM_ATTRIBUTE_UNUSED static Type elementType(Type type) {
-  auto vectorType = type.dyn_cast<VectorType>();
-  return vectorType ? vectorType.getElementType() : type;
-}
-
-LLVM_ATTRIBUTE_UNUSED static bool isF32(Type type) { return type.isF32(); }
-
-LLVM_ATTRIBUTE_UNUSED static bool isI32(Type type) {
-  return type.isInteger(32);
+static ArrayRef<int64_t> vectorShape(Value value) {
+  return vectorShape(value.getType());
 }
 
 //----------------------------------------------------------------------------//
 // Broadcast scalar types and values into vector types and values.
 //----------------------------------------------------------------------------//
 
-// Returns true if shape != {1}.
-static bool isNonScalarShape(ArrayRef<int64_t> shape) {
-  return shape.size() > 1 || shape[0] > 1;
-}
-
 // Broadcasts scalar type into vector type (iff shape is non-scalar).
 static Type broadcast(Type type, ArrayRef<int64_t> shape) {
   assert(!type.isa<VectorType>() && "must be scalar type");
-  return isNonScalarShape(shape) ? VectorType::get(shape, type) : type;
+  return !shape.empty() ? VectorType::get(shape, type) : type;
 }
 
 // Broadcasts scalar value into vector (iff shape is non-scalar).
@@ -88,8 +58,102 @@ static Value broadcast(ImplicitLocOpBuilder &builder, Value value,
                        ArrayRef<int64_t> shape) {
   assert(!value.getType().isa<VectorType>() && "must be scalar value");
   auto type = broadcast(value.getType(), shape);
-  return isNonScalarShape(shape) ? builder.create<BroadcastOp>(type, value)
-                                 : value;
+  return !shape.empty() ? builder.create<BroadcastOp>(type, value) : value;
+}
+
+//----------------------------------------------------------------------------//
+// Helper function to handle n-D vectors with 1-D operations.
+//----------------------------------------------------------------------------//
+
+// Expands and unrolls n-D vector operands into multiple fixed size 1-D vectors
+// and calls the compute function with 1-D vector operands. Stitches back all
+// results into the original n-D vector result.
+//
+// Examples: vectorWidth = 8
+//   - vector<4x8xf32> unrolled 4 times
+//   - vector<16xf32> expanded to vector<2x8xf32> and unrolled 2 times
+//   - vector<4x16xf32> expanded to vector<4x2x8xf32> and unrolled 4*2 times
+//
+// Some math approximations rely on ISA-specific operations that only accept
+// fixed size 1-D vectors (e.g. AVX expects vectors of width 8).
+//
+// It is the caller's responsibility to verify that the inner dimension is
+// divisible by the vectorWidth, and that all operands have the same vector
+// shape.
+static Value
+handleMultidimensionalVectors(ImplicitLocOpBuilder &builder,
+                              ValueRange operands, int64_t vectorWidth,
+                              std::function<Value(ValueRange)> compute) {
+  assert(!operands.empty() && "operands must be not empty");
+  assert(vectorWidth > 0 && "vector width must be larger than 0");
+
+  VectorType inputType = operands[0].getType().cast<VectorType>();
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+
+  // If input shape matches target vector width, we can just call the
+  // user-provided compute function with the operands.
+  if (inputShape == llvm::makeArrayRef(vectorWidth))
+    return compute(operands);
+
+  // Check if the inner dimension has to be expanded, or we can directly iterate
+  // over the outer dimensions of the vector.
+  int64_t innerDim = inputShape.back();
+  int64_t expansionDim = innerDim / vectorWidth;
+  assert((innerDim % vectorWidth == 0) && "invalid inner dimension size");
+
+  // Maybe expand operands to the higher rank vector shape that we'll use to
+  // iterate over and extract one dimensional vectors.
+  SmallVector<int64_t> expandedShape(inputShape.begin(), inputShape.end());
+  SmallVector<Value> expandedOperands(operands);
+
+  if (expansionDim > 1) {
+    // Expand shape from [..., innerDim] to [..., expansionDim, vectorWidth].
+    expandedShape.insert(expandedShape.end() - 1, expansionDim);
+    expandedShape.back() = vectorWidth;
+
+    for (unsigned i = 0; i < operands.size(); ++i) {
+      auto operand = operands[i];
+      auto eltType = operand.getType().cast<VectorType>().getElementType();
+      auto expandedType = VectorType::get(expandedShape, eltType);
+      expandedOperands[i] =
+          builder.create<vector::ShapeCastOp>(expandedType, operand);
+    }
+  }
+
+  // Iterate over all outer dimensions of the compute shape vector type.
+  auto iterationDims = ArrayRef<int64_t>(expandedShape).drop_back();
+  int64_t maxLinearIndex = computeMaxLinearIndex(iterationDims);
+
+  SmallVector<int64_t> ones(iterationDims.size(), 1);
+  auto strides = computeStrides(iterationDims, ones);
+
+  // Compute results for each one dimensional vector.
+  SmallVector<Value> results(maxLinearIndex);
+
+  for (int64_t i = 0; i < maxLinearIndex; ++i) {
+    auto offsets = delinearize(strides, i);
+
+    SmallVector<Value> extracted(expandedOperands.size());
+    for (auto tuple : llvm::enumerate(expandedOperands))
+      extracted[tuple.index()] =
+          builder.create<vector::ExtractOp>(tuple.value(), offsets);
+
+    results[i] = compute(extracted);
+  }
+
+  // Stitch results together into one large vector.
+  Type resultEltType = results[0].getType().cast<VectorType>().getElementType();
+  Type resultExpandedType = VectorType::get(expandedShape, resultEltType);
+  Value result = builder.create<ConstantOp>(
+      resultExpandedType, builder.getZeroAttr(resultExpandedType));
+
+  for (int64_t i = 0; i < maxLinearIndex; ++i)
+    result = builder.create<vector::InsertOp>(results[i], result,
+                                              delinearize(strides, i));
+
+  // Reshape back to the original vector shape.
+  return builder.create<vector::ShapeCastOp>(
+      VectorType::get(inputShape, resultEltType), result);
 }
 
 //----------------------------------------------------------------------------//
@@ -132,9 +196,8 @@ static Value clamp(ImplicitLocOpBuilder &builder, Value value, Value lowerBound,
 // an integral power of two (see std::frexp). Returned values have float type.
 static std::pair<Value, Value> frexp(ImplicitLocOpBuilder &builder, Value arg,
                                      bool is_positive = false) {
-  assert(isF32(elementType(arg.getType())) && "argument must be f32 type");
-
-  auto shape = vectorShape(arg.getType());
+  assert(getElementTypeOrSelf(arg).isF32() && "arg must be f32 type");
+  ArrayRef<int64_t> shape = vectorShape(arg);
 
   auto bcast = [&](Value value) -> Value {
     return broadcast(builder, value, shape);
@@ -173,9 +236,8 @@ static std::pair<Value, Value> frexp(ImplicitLocOpBuilder &builder, Value arg,
 
 // Computes exp2 for an i32 argument.
 static Value exp2I32(ImplicitLocOpBuilder &builder, Value arg) {
-  assert(isI32(elementType(arg.getType())) && "argument must be i32 type");
-
-  auto shape = vectorShape(arg.getType());
+  assert(getElementTypeOrSelf(arg).isInteger(32) && "arg must be i32 type");
+  ArrayRef<int64_t> shape = vectorShape(arg);
 
   auto bcast = [&](Value value) -> Value {
     return broadcast(builder, value, shape);
@@ -198,12 +260,15 @@ static Value exp2I32(ImplicitLocOpBuilder &builder, Value arg) {
 namespace {
 Value makePolynomialCalculation(ImplicitLocOpBuilder &builder,
                                 llvm::ArrayRef<Value> coeffs, Value x) {
-  auto shape = vectorShape(x.getType(), isF32);
-  if (coeffs.size() == 0) {
-    return broadcast(builder, f32Cst(builder, 0.0f), *shape);
-  } else if (coeffs.size() == 1) {
+  assert(getElementTypeOrSelf(x).isF32() && "x must be f32 type");
+  ArrayRef<int64_t> shape = vectorShape(x);
+
+  if (coeffs.empty())
+    return broadcast(builder, f32Cst(builder, 0.0f), shape);
+
+  if (coeffs.size() == 1)
     return coeffs[0];
-  }
+
   Value res = builder.create<math::FmaOp>(x, coeffs[coeffs.size() - 1],
                                           coeffs[coeffs.size() - 2]);
   for (auto i = ptrdiff_t(coeffs.size()) - 3; i >= 0; --i) {
@@ -230,24 +295,25 @@ public:
 LogicalResult
 TanhApproximation::matchAndRewrite(math::TanhOp op,
                                    PatternRewriter &rewriter) const {
-  auto shape = vectorShape(op.operand().getType(), isF32);
-  if (!shape.hasValue())
+  if (!getElementTypeOrSelf(op.getOperand()).isF32())
     return rewriter.notifyMatchFailure(op, "unsupported operand type");
+
+  ArrayRef<int64_t> shape = vectorShape(op.getOperand());
 
   ImplicitLocOpBuilder builder(op->getLoc(), rewriter);
   auto bcast = [&](Value value) -> Value {
-    return broadcast(builder, value, *shape);
+    return broadcast(builder, value, shape);
   };
 
   // Clamp operand into [plusClamp, minusClamp] range.
   Value minusClamp = bcast(f32Cst(builder, -7.99881172180175781f));
   Value plusClamp = bcast(f32Cst(builder, 7.99881172180175781f));
-  Value x = clamp(builder, op.operand(), minusClamp, plusClamp);
+  Value x = clamp(builder, op.getOperand(), minusClamp, plusClamp);
 
   // Mask for tiny values that are approximated with `operand`.
   Value tiny = bcast(f32Cst(builder, 0.0004f));
   Value tinyMask = builder.create<arith::CmpFOp>(
-      arith::CmpFPredicate::OLT, builder.create<math::AbsOp>(op.operand()),
+      arith::CmpFPredicate::OLT, builder.create<math::AbsOp>(op.getOperand()),
       tiny);
 
   // The monomial coefficients of the numerator polynomial (odd).
@@ -317,13 +383,14 @@ template <typename Op>
 LogicalResult
 LogApproximationBase<Op>::logMatchAndRewrite(Op op, PatternRewriter &rewriter,
                                              bool base2) const {
-  auto shape = vectorShape(op.operand().getType(), isF32);
-  if (!shape.hasValue())
+  if (!getElementTypeOrSelf(op.getOperand()).isF32())
     return rewriter.notifyMatchFailure(op, "unsupported operand type");
+
+  ArrayRef<int64_t> shape = vectorShape(op.getOperand());
 
   ImplicitLocOpBuilder builder(op->getLoc(), rewriter);
   auto bcast = [&](Value value) -> Value {
-    return broadcast(builder, value, *shape);
+    return broadcast(builder, value, shape);
   };
 
   Value cstZero = bcast(f32Cst(builder, 0.0f));
@@ -348,7 +415,7 @@ LogApproximationBase<Op>::logMatchAndRewrite(Op op, PatternRewriter &rewriter,
   Value cstCephesLogP7 = bcast(f32Cst(builder, -2.4999993993E-1f));
   Value cstCephesLogP8 = bcast(f32Cst(builder, +3.3333331174E-1f));
 
-  Value x = op.operand();
+  Value x = op.getOperand();
 
   // Truncate input values to the minimum positive normal.
   x = max(builder, x, cstMinNormPos);
@@ -402,11 +469,11 @@ LogApproximationBase<Op>::logMatchAndRewrite(Op op, PatternRewriter &rewriter,
   }
 
   Value invalidMask = builder.create<arith::CmpFOp>(arith::CmpFPredicate::ULT,
-                                                    op.operand(), cstZero);
+                                                    op.getOperand(), cstZero);
   Value zeroMask = builder.create<arith::CmpFOp>(arith::CmpFPredicate::OEQ,
-                                                 op.operand(), cstZero);
+                                                 op.getOperand(), cstZero);
   Value posInfMask = builder.create<arith::CmpFOp>(arith::CmpFPredicate::OEQ,
-                                                   op.operand(), cstPosInf);
+                                                   op.getOperand(), cstPosInf);
 
   // Filter out invalid values:
   //  • x == 0     -> -INF
@@ -463,13 +530,14 @@ public:
 LogicalResult
 Log1pApproximation::matchAndRewrite(math::Log1pOp op,
                                     PatternRewriter &rewriter) const {
-  auto shape = vectorShape(op.operand().getType(), isF32);
-  if (!shape.hasValue())
+  if (!getElementTypeOrSelf(op.getOperand()).isF32())
     return rewriter.notifyMatchFailure(op, "unsupported operand type");
+
+  ArrayRef<int64_t> shape = vectorShape(op.getOperand());
 
   ImplicitLocOpBuilder builder(op->getLoc(), rewriter);
   auto bcast = [&](Value value) -> Value {
-    return broadcast(builder, value, *shape);
+    return broadcast(builder, value, shape);
   };
 
   // Approximate log(1+x) using the following, due to W. Kahan:
@@ -479,7 +547,7 @@ Log1pApproximation::matchAndRewrite(math::Log1pOp op,
   //          ^^^^^^^^^^^^^^^^^^^^^^
   //             "logLarge" below.
   Value cstOne = bcast(f32Cst(builder, 1.0f));
-  Value x = op.operand();
+  Value x = op.getOperand();
   Value u = builder.create<arith::AddFOp>(x, cstOne);
   Value uSmall =
       builder.create<arith::CmpFOp>(arith::CmpFPredicate::OEQ, u, cstOne);
@@ -509,13 +577,14 @@ Log1pApproximation::matchAndRewrite(math::Log1pOp op,
 LogicalResult
 ErfPolynomialApproximation::matchAndRewrite(math::ErfOp op,
                                             PatternRewriter &rewriter) const {
-  auto shape = vectorShape(op.operand().getType(), isF32);
-  if (!shape.hasValue())
+  if (!getElementTypeOrSelf(op.getOperand()).isF32())
     return rewriter.notifyMatchFailure(op, "unsupported operand type");
+
+  ArrayRef<int64_t> shape = vectorShape(op.getOperand());
 
   ImplicitLocOpBuilder builder(op->getLoc(), rewriter);
   auto bcast = [&](Value value) -> Value {
-    return broadcast(builder, value, *shape);
+    return broadcast(builder, value, shape);
   };
 
   const int intervalsCount = 3;
@@ -568,9 +637,9 @@ ErfPolynomialApproximation::matchAndRewrite(math::ErfOp op,
   bounds[2] = bcast(f32Cst(builder, 3.75f));
 
   Value isNegativeArg = builder.create<arith::CmpFOp>(arith::CmpFPredicate::OLT,
-                                                      op.operand(), zero);
-  Value negArg = builder.create<arith::NegFOp>(op.operand());
-  Value x = builder.create<SelectOp>(isNegativeArg, negArg, op.operand());
+                                                      op.getOperand(), zero);
+  Value negArg = builder.create<arith::NegFOp>(op.getOperand());
+  Value x = builder.create<SelectOp>(isNegativeArg, negArg, op.getOperand());
 
   Value offset = offsets[0];
   Value p[polyDegree + 1];
@@ -632,15 +701,17 @@ public:
 LogicalResult
 ExpApproximation::matchAndRewrite(math::ExpOp op,
                                   PatternRewriter &rewriter) const {
-  auto shape = vectorShape(op.operand().getType(), isF32);
-  if (!shape.hasValue())
+  if (!getElementTypeOrSelf(op.getOperand()).isF32())
     return rewriter.notifyMatchFailure(op, "unsupported operand type");
+
+  ArrayRef<int64_t> shape = vectorShape(op.getOperand());
+
   ImplicitLocOpBuilder builder(op->getLoc(), rewriter);
 
   // TODO: Consider a common pattern rewriter with all methods below to
   // write the approximations.
   auto bcast = [&](Value value) -> Value {
-    return broadcast(builder, value, *shape);
+    return broadcast(builder, value, shape);
   };
   auto fmla = [&](Value a, Value b, Value c) {
     return builder.create<math::FmaOp>(a, b, c);
@@ -664,7 +735,7 @@ ExpApproximation::matchAndRewrite(math::ExpOp op,
   Value cstCephesExpP4 = bcast(f32Cst(builder, 0.03668965196652099192f));
   Value cstCephesExpP5 = bcast(f32Cst(builder, 0.01314350012789660196f));
 
-  Value x = op.operand();
+  Value x = op.getOperand();
 
   // Reduced y = x - floor(x / ln(2)) * ln(2) = x - k * ln(2)
   Value xL2Inv = mul(x, cstLog2E);
@@ -683,7 +754,7 @@ ExpApproximation::matchAndRewrite(math::ExpOp op,
   Value expY = fmla(q1, y2, q0);
   expY = fmla(q2, y4, expY);
 
-  auto i32Vec = broadcast(builder.getI32Type(), *shape);
+  auto i32Vec = broadcast(builder.getI32Type(), shape);
 
   // exp2(k)
   Value k = builder.create<arith::FPToSIOp>(kF32, i32Vec);
@@ -752,13 +823,14 @@ public:
 LogicalResult
 ExpM1Approximation::matchAndRewrite(math::ExpM1Op op,
                                     PatternRewriter &rewriter) const {
-  auto shape = vectorShape(op.operand().getType(), isF32);
-  if (!shape.hasValue())
+  if (!getElementTypeOrSelf(op.getOperand()).isF32())
     return rewriter.notifyMatchFailure(op, "unsupported operand type");
+
+  ArrayRef<int64_t> shape = vectorShape(op.getOperand());
 
   ImplicitLocOpBuilder builder(op->getLoc(), rewriter);
   auto bcast = [&](Value value) -> Value {
-    return broadcast(builder, value, *shape);
+    return broadcast(builder, value, shape);
   };
 
   // expm1(x) = exp(x) - 1 = u - 1.
@@ -766,7 +838,7 @@ ExpM1Approximation::matchAndRewrite(math::ExpM1Op op,
   // and when the input is ~= -inf, i.e. u - 1 ~= -1.
   Value cstOne = bcast(f32Cst(builder, 1.0f));
   Value cstNegOne = bcast(f32Cst(builder, -1.0f));
-  Value x = op.operand();
+  Value x = op.getOperand();
   Value u = builder.create<math::ExpOp>(x);
   Value uEqOne =
       builder.create<arith::CmpFOp>(arith::CmpFPredicate::OEQ, u, cstOne);
@@ -819,13 +891,15 @@ LogicalResult SinAndCosApproximation<isSine, OpTy>::matchAndRewrite(
   static_assert(
       llvm::is_one_of<OpTy, math::SinOp, math::CosOp>::value,
       "SinAndCosApproximation pattern expects math::SinOp or math::CosOp");
-  auto shape = vectorShape(op.operand().getType(), isF32);
-  if (!shape.hasValue())
+
+  if (!getElementTypeOrSelf(op.getOperand()).isF32())
     return rewriter.notifyMatchFailure(op, "unsupported operand type");
+
+  ArrayRef<int64_t> shape = vectorShape(op.getOperand());
 
   ImplicitLocOpBuilder builder(op->getLoc(), rewriter);
   auto bcast = [&](Value value) -> Value {
-    return broadcast(builder, value, *shape);
+    return broadcast(builder, value, shape);
   };
   auto mul = [&](Value a, Value b) -> Value {
     return builder.create<arith::MulFOp>(a, b);
@@ -835,7 +909,7 @@ LogicalResult SinAndCosApproximation<isSine, OpTy>::matchAndRewrite(
   };
   auto floor = [&](Value a) { return builder.create<math::FloorOp>(a); };
 
-  auto i32Vec = broadcast(builder.getI32Type(), *shape);
+  auto i32Vec = broadcast(builder.getI32Type(), shape);
   auto fPToSingedInteger = [&](Value a) -> Value {
     return builder.create<arith::FPToSIOp>(a, i32Vec);
   };
@@ -867,7 +941,7 @@ LogicalResult SinAndCosApproximation<isSine, OpTy>::matchAndRewrite(
   Value twoOverPi = bcast(f32Cst(builder, TWO_OVER_PI));
   Value piOverTwo = bcast(f32Cst(builder, PI_OVER_2));
 
-  Value x = op.operand();
+  Value x = op.getOperand();
 
   Value k = floor(mul(x, twoOverPi));
 
@@ -941,14 +1015,18 @@ struct RsqrtApproximation : public OpRewritePattern<math::RsqrtOp> {
 LogicalResult
 RsqrtApproximation::matchAndRewrite(math::RsqrtOp op,
                                     PatternRewriter &rewriter) const {
-  auto shape = vectorShape(op.operand().getType(), isF32);
+  if (!getElementTypeOrSelf(op.getOperand()).isF32())
+    return rewriter.notifyMatchFailure(op, "unsupported operand type");
+
+  ArrayRef<int64_t> shape = vectorShape(op.getOperand());
+
   // Only support already-vectorized rsqrt's.
-  if (!shape.hasValue() || (*shape)[0] != 8)
+  if (shape.empty() || shape.back() % 8 != 0)
     return rewriter.notifyMatchFailure(op, "unsupported operand type");
 
   ImplicitLocOpBuilder builder(op->getLoc(), rewriter);
   auto bcast = [&](Value value) -> Value {
-    return broadcast(builder, value, *shape);
+    return broadcast(builder, value, shape);
   };
 
   Value cstPosInf = bcast(f32FromBits(builder, 0x7f800000u));
@@ -956,18 +1034,21 @@ RsqrtApproximation::matchAndRewrite(math::RsqrtOp op,
   Value cstNegHalf = bcast(f32Cst(builder, -0.5f));
   Value cstMinNormPos = bcast(f32FromBits(builder, 0x00800000u));
 
-  Value negHalf = builder.create<arith::MulFOp>(op.operand(), cstNegHalf);
+  Value negHalf = builder.create<arith::MulFOp>(op.getOperand(), cstNegHalf);
 
   // Select only the inverse sqrt of positive normals (denormals are
   // flushed to zero).
-  Value ltMinMask = builder.create<arith::CmpFOp>(arith::CmpFPredicate::OLT,
-                                                  op.operand(), cstMinNormPos);
+  Value ltMinMask = builder.create<arith::CmpFOp>(
+      arith::CmpFPredicate::OLT, op.getOperand(), cstMinNormPos);
   Value infMask = builder.create<arith::CmpFOp>(arith::CmpFPredicate::OEQ,
-                                                op.operand(), cstPosInf);
+                                                op.getOperand(), cstPosInf);
   Value notNormalFiniteMask = builder.create<arith::OrIOp>(ltMinMask, infMask);
 
   // Compute an approximate result.
-  Value yApprox = builder.create<x86vector::RsqrtOp>(op.operand());
+  Value yApprox = handleMultidimensionalVectors(
+      builder, op->getOperands(), 8, [&builder](ValueRange operands) -> Value {
+        return builder.create<x86vector::RsqrtOp>(operands);
+      });
 
   // Do a single step of Newton-Raphson iteration to improve the approximation.
   // This uses the formula y_{n+1} = y_n * (1.5 - y_n * (0.5 * x) * y_n).

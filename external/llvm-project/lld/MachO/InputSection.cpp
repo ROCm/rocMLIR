@@ -26,6 +26,14 @@ using namespace llvm::support;
 using namespace lld;
 using namespace lld::macho;
 
+// Verify ConcatInputSection's size on 64-bit builds. The size of std::vector
+// can differ based on STL debug levels (e.g. iterator debugging on MSVC's STL),
+// so account for that.
+static_assert(sizeof(void *) != 8 ||
+                  sizeof(ConcatInputSection) == sizeof(std::vector<Reloc>) + 96,
+              "Try to minimize ConcatInputSection's size, we create many "
+              "instances of it");
+
 std::vector<ConcatInputSection *> macho::inputSections;
 
 uint64_t InputSection::getFileSize() const {
@@ -110,15 +118,16 @@ void ConcatInputSection::foldIdentical(ConcatInputSection *copy) {
   copy->symbols.clear();
 
   // Remove duplicate compact unwind info for symbols at the same address.
-  if (symbols.size() == 0)
+  if (symbols.empty())
     return;
   it = symbols.begin();
   uint64_t v = (*it)->value;
   for (++it; it != symbols.end(); ++it) {
-    if ((*it)->value == v)
-      (*it)->compactUnwind = nullptr;
+    Defined *d = *it;
+    if (d->value == v)
+      d->unwindEntry = nullptr;
     else
-      v = (*it)->value;
+      v = d->value;
   }
 }
 
@@ -227,14 +236,14 @@ WordLiteralInputSection::WordLiteralInputSection(StringRef segname,
 
 uint64_t WordLiteralInputSection::getOffset(uint64_t off) const {
   auto *osec = cast<WordLiteralSection>(parent);
-  const uint8_t *buf = data.data();
+  const uintptr_t buf = reinterpret_cast<uintptr_t>(data.data());
   switch (sectionType(getFlags())) {
   case S_4BYTE_LITERALS:
-    return osec->getLiteral4Offset(buf + off);
+    return osec->getLiteral4Offset(buf + (off & ~3LLU)) | (off & 3);
   case S_8BYTE_LITERALS:
-    return osec->getLiteral8Offset(buf + off);
+    return osec->getLiteral8Offset(buf + (off & ~7LLU)) | (off & 7);
   case S_16BYTE_LITERALS:
-    return osec->getLiteral16Offset(buf + off);
+    return osec->getLiteral16Offset(buf + (off & ~15LLU)) | (off & 15);
   default:
     llvm_unreachable("invalid literal section type");
   }

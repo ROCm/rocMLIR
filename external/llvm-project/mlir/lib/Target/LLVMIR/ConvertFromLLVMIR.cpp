@@ -803,7 +803,7 @@ LogicalResult Importer::processFunction(llvm::Function *f) {
                            convertLinkageFromLLVM(f->getLinkage()));
 
   if (FlatSymbolRefAttr personality = getPersonalityAsAttr(f))
-    fop->setAttr(b.getIdentifier("personality"), personality);
+    fop->setAttr(b.getStringAttr("personality"), personality);
   else if (f->hasPersonalityFn())
     emitWarning(UnknownLoc::get(context),
                 "could not deduce personality, skipping it");
@@ -814,7 +814,7 @@ LogicalResult Importer::processFunction(llvm::Function *f) {
   // Eagerly create all blocks.
   SmallVector<Block *, 4> blockList;
   for (llvm::BasicBlock &bb : *f) {
-    blockList.push_back(b.createBlock(&fop.body(), fop.body().end()));
+    blockList.push_back(b.createBlock(&fop.getBody(), fop.getBody().end()));
     blocks[&bb] = blockList.back();
   }
   currentEntryBlock = blockList[0];

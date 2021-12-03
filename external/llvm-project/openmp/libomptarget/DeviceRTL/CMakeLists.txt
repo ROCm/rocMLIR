@@ -60,7 +60,7 @@ set(devicertl_base_directory ${CMAKE_CURRENT_SOURCE_DIR})
 set(include_directory ${devicertl_base_directory}/include)
 set(source_directory ${devicertl_base_directory}/src)
 
-set(all_capabilities 35 37 50 52 53 60 61 62 70 72 75 80)
+set(all_capabilities 35 37 50 52 53 60 61 62 70 72 75 80 86)
 
 set(LIBOMPTARGET_NVPTX_COMPUTE_CAPABILITIES ${all_capabilities} CACHE STRING
   "List of CUDA Compute Capabilities to be used to compile the NVPTX DeviceRTL.")
@@ -226,6 +226,5 @@ foreach(sm ${nvptx_sm_list})
 endforeach()
 
 foreach(mcpu ${amdgpu_mcpus})
-  # require D112227 or similar to enable the compilation for amdgpu
-  # compileDeviceRTLLibrary(${mcpu} amdgpu -target amdgcn-amd-amdhsa -D__AMDGCN__ -fvisibility=default -nogpulib)
+  compileDeviceRTLLibrary(${mcpu} amdgpu -target amdgcn-amd-amdhsa -D__AMDGCN__ -fvisibility=default -nogpulib)
 endforeach()

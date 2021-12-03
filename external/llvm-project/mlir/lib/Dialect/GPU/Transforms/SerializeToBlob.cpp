@@ -39,20 +39,20 @@ gpu::SerializeToBlobPass::translateToISA(llvm::Module &llvmModule,
                                          llvm::TargetMachine &targetMachine) {
   llvmModule.setDataLayout(targetMachine.createDataLayout());
 
-  if (failed(optimizeLlvm(llvmModule, targetMachine))) {
+  if (failed(optimizeLlvm(llvmModule, targetMachine)))
     return llvm::None;
-  }
+
   std::string targetISA;
   llvm::raw_string_ostream stream(targetISA);
 
-  llvm::legacy::PassManager codegenPasses;
-
   { // Drop pstream after this to prevent the ISA from being stuck buffering
     llvm::buffer_ostream pstream(stream);
+    llvm::legacy::PassManager codegenPasses;
+
     if (targetMachine.addPassesToEmitFile(codegenPasses, pstream, nullptr,
-                                          llvm::CGFT_AssemblyFile)) {
+                                          llvm::CGFT_AssemblyFile))
       return llvm::None;
-    }
+
     codegenPasses.run(llvmModule);
   }
   return stream.str();
@@ -74,10 +74,10 @@ void gpu::SerializeToBlobPass::runOnOperation() {
   Optional<std::string> maybeTargetISA =
       translateToISA(*llvmModule, *targetMachine);
 
-  if (!maybeTargetISA.hasValue()) {
+  if (!maybeTargetISA.hasValue())
     return signalPassFailure();
-  }
-  std::string targetISA = maybeTargetISA.getValue();
+
+  std::string targetISA = std::move(maybeTargetISA.getValue());
 
   // Serialize the target ISA.
   std::unique_ptr<std::vector<char>> blob = serializeISA(targetISA);

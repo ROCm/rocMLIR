@@ -161,7 +161,7 @@ static llvm::FastMathFlags getFastmathFlags(FastmathFlagsInterface &op) {
       // clang-format on
   };
   llvm::FastMathFlags ret;
-  auto fmf = op.fastmathFlags();
+  auto fmf = op.getFastmathFlags();
   for (auto it : handlers)
     if (bitEnumContains(fmf, it.first))
       (ret.*(it.second))(true);
@@ -224,9 +224,9 @@ static void setLoopMetadata(Operation &opInst, llvm::Instruction &llvmInst,
         SmallVector<llvm::Metadata *> parallelAccess;
         parallelAccess.push_back(
             llvm::MDString::get(ctx, "llvm.loop.parallel_accesses"));
-        for (SymbolRefAttr accessGroupRef :
-             parallelAccessGroup->second.cast<ArrayAttr>()
-                 .getAsRange<SymbolRefAttr>())
+        for (SymbolRefAttr accessGroupRef : parallelAccessGroup->getValue()
+                                                .cast<ArrayAttr>()
+                                                .getAsRange<SymbolRefAttr>())
           parallelAccess.push_back(
               moduleTranslation.getAccessGroup(opInst, accessGroupRef));
         loopOptions.push_back(llvm::MDNode::get(ctx, parallelAccess));
@@ -317,18 +317,20 @@ convertOperationImpl(Operation &opInst, llvm::IRBuilderBase &builder,
     }
     auto ft = LLVM::LLVMFunctionType::get(resultType, operandTypes);
     llvm::InlineAsm *inlineAsmInst =
-        inlineAsmOp.asm_dialect().hasValue()
+        inlineAsmOp.getAsmDialect().hasValue()
             ? llvm::InlineAsm::get(
                   static_cast<llvm::FunctionType *>(
                       moduleTranslation.convertType(ft)),
-                  inlineAsmOp.asm_string(), inlineAsmOp.constraints(),
-                  inlineAsmOp.has_side_effects(), inlineAsmOp.is_align_stack(),
-                  convertAsmDialectToLLVM(*inlineAsmOp.asm_dialect()))
-            : llvm::InlineAsm::get(
-                  static_cast<llvm::FunctionType *>(
-                      moduleTranslation.convertType(ft)),
-                  inlineAsmOp.asm_string(), inlineAsmOp.constraints(),
-                  inlineAsmOp.has_side_effects(), inlineAsmOp.is_align_stack());
+                  inlineAsmOp.getAsmString(), inlineAsmOp.getConstraints(),
+                  inlineAsmOp.getHasSideEffects(),
+                  inlineAsmOp.getIsAlignStack(),
+                  convertAsmDialectToLLVM(*inlineAsmOp.getAsmDialect()))
+            : llvm::InlineAsm::get(static_cast<llvm::FunctionType *>(
+                                       moduleTranslation.convertType(ft)),
+                                   inlineAsmOp.getAsmString(),
+                                   inlineAsmOp.getConstraints(),
+                                   inlineAsmOp.getHasSideEffects(),
+                                   inlineAsmOp.getIsAlignStack());
     llvm::Value *result = builder.CreateCall(
         inlineAsmInst,
         moduleTranslation.lookupValues(inlineAsmOp.getOperands()));
@@ -384,14 +386,12 @@ convertOperationImpl(Operation &opInst, llvm::IRBuilderBase &builder,
     return success();
   }
   if (auto condbrOp = dyn_cast<LLVM::CondBrOp>(opInst)) {
-    auto weights = condbrOp.getBranchWeights();
     llvm::MDNode *branchWeights = nullptr;
-    if (weights) {
+    if (auto weights = condbrOp.getBranchWeights()) {
       // Map weight attributes to LLVM metadata.
-      auto trueWeight =
-          weights.getValue().getValue(0).cast<IntegerAttr>().getInt();
-      auto falseWeight =
-          weights.getValue().getValue(1).cast<IntegerAttr>().getInt();
+      auto weightValues = weights->getValues<APInt>();
+      auto trueWeight = weightValues[0].getSExtValue();
+      auto falseWeight = weightValues[1].getSExtValue();
       branchWeights =
           llvm::MDBuilder(moduleTranslation.getLLVMContext())
               .createBranchWeights(static_cast<uint32_t>(trueWeight),
@@ -407,7 +407,7 @@ convertOperationImpl(Operation &opInst, llvm::IRBuilderBase &builder,
   }
   if (auto switchOp = dyn_cast<LLVM::SwitchOp>(opInst)) {
     llvm::MDNode *branchWeights = nullptr;
-    if (auto weights = switchOp.branch_weights()) {
+    if (auto weights = switchOp.getBranchWeights()) {
       llvm::SmallVector<uint32_t> weightValues;
       weightValues.reserve(weights->size());
       for (llvm::APInt weight : weights->cast<DenseIntElementsAttr>())
@@ -417,15 +417,15 @@ convertOperationImpl(Operation &opInst, llvm::IRBuilderBase &builder,
     }
 
     llvm::SwitchInst *switchInst = builder.CreateSwitch(
-        moduleTranslation.lookupValue(switchOp.value()),
-        moduleTranslation.lookupBlock(switchOp.defaultDestination()),
-        switchOp.caseDestinations().size(), branchWeights);
+        moduleTranslation.lookupValue(switchOp.getValue()),
+        moduleTranslation.lookupBlock(switchOp.getDefaultDestination()),
+        switchOp.getCaseDestinations().size(), branchWeights);
 
     auto *ty = llvm::cast<llvm::IntegerType>(
-        moduleTranslation.convertType(switchOp.value().getType()));
+        moduleTranslation.convertType(switchOp.getValue().getType()));
     for (auto i :
-         llvm::zip(switchOp.case_values()->cast<DenseIntElementsAttr>(),
-                   switchOp.caseDestinations()))
+         llvm::zip(switchOp.getCaseValues()->cast<DenseIntElementsAttr>(),
+                   switchOp.getCaseDestinations()))
       switchInst->addCase(
           llvm::ConstantInt::get(ty, std::get<0>(i).getLimitedValue()),
           moduleTranslation.lookupBlock(std::get<1>(i)));

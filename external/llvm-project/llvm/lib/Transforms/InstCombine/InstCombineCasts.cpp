@@ -2555,7 +2555,7 @@ Instruction *InstCombinerImpl::optimizeBitCastFromPhi(CastInst &CI,
         // As long as the user is another old PHI node, then even if we don't
         // rewrite it, the PHI web we're considering won't have any users
         // outside itself, so it'll be dead.
-        if (OldPhiNodes.count(PHI) == 0)
+        if (!OldPhiNodes.contains(PHI))
           return nullptr;
       } else {
         return nullptr;
@@ -2771,7 +2771,7 @@ Instruction *InstCombinerImpl::visitBitCast(BitCastInst &CI) {
     if (match(Src, m_OneUse(m_InsertElt(m_OneUse(m_BitCast(m_Value(X))),
                                         m_Value(Y), m_ConstantInt(IndexC)))) &&
         DestTy->isIntegerTy() && X->getType() == DestTy &&
-        isDesirableIntType(BitWidth)) {
+        Y->getType()->isIntegerTy() && isDesirableIntType(BitWidth)) {
       // Adjust for big endian - the LSBs are at the high index.
       if (DL.isBigEndian())
         IndexC = SrcVTy->getNumElements() - 1 - IndexC;

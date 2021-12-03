@@ -286,7 +286,7 @@ Status GDBRemoteCommunicationServerLLGS::LaunchProcess() {
   if (should_forward_stdio) {
     // nullptr means it's not redirected to file or pty (in case of LLGS local)
     // at least one of stdio will be transferred pty<->gdb-remote we need to
-    // give the pty master handle to this object to read and/or write
+    // give the pty primary handle to this object to read and/or write
     LLDB_LOG(log,
              "pid = {0}: setting up stdout/stderr redirection via $O "
              "gdb-remote commands",
@@ -1087,18 +1087,6 @@ void GDBRemoteCommunicationServerLLGS::NewSubprocess(
 
 void GDBRemoteCommunicationServerLLGS::DataAvailableCallback() {
   Log *log(GetLogIfAnyCategoriesSet(GDBR_LOG_COMM));
-
-  if (!m_handshake_completed) {
-    if (!HandshakeWithClient()) {
-      LLDB_LOGF(log,
-                "GDBRemoteCommunicationServerLLGS::%s handshake with "
-                "client failed, exiting",
-                __FUNCTION__);
-      m_mainloop.RequestTermination();
-      return;
-    }
-    m_handshake_completed = true;
-  }
 
   bool interrupt = false;
   bool done = false;
@@ -3917,12 +3905,8 @@ lldb_private::process_gdb_remote::LLGSArgToURL(llvm::StringRef url_arg,
   if (url_arg.startswith(":"))
     host_port.insert(0, "localhost");
 
-  std::string host_str;
-  std::string port_str;
-  uint16_t port;
   // Try parsing the (preprocessed) argument as host:port pair.
-  if (!llvm::errorToBool(
-          Socket::DecodeHostAndPort(host_port, host_str, port_str, port)))
+  if (!llvm::errorToBool(Socket::DecodeHostAndPort(host_port).takeError()))
     return (reverse_connect ? "connect://" : "listen://") + host_port;
 
   // If none of the above applied, interpret the argument as UNIX socket path.

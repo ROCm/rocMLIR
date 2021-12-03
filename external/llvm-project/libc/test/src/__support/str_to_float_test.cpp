@@ -14,6 +14,33 @@
 class LlvmLibcStrToFloatTest : public __llvm_libc::testing::Test {
 public:
   template <class T>
+  void ClingerFastPathTest(
+      const typename __llvm_libc::fputil::FPBits<T>::UIntType inputMantissa,
+      const int32_t inputExp10,
+      const typename __llvm_libc::fputil::FPBits<T>::UIntType
+          expectedOutputMantissa,
+      const uint32_t expectedOutputExp2) {
+    typename __llvm_libc::fputil::FPBits<T>::UIntType actualOutputMantissa = 0;
+    uint32_t actualOutputExp2 = 0;
+
+    ASSERT_TRUE(__llvm_libc::internal::clingerFastPath<T>(
+        inputMantissa, inputExp10, &actualOutputMantissa, &actualOutputExp2));
+    EXPECT_EQ(actualOutputMantissa, expectedOutputMantissa);
+    EXPECT_EQ(actualOutputExp2, expectedOutputExp2);
+  }
+
+  template <class T>
+  void ClingerFastPathFailsTest(
+      const typename __llvm_libc::fputil::FPBits<T>::UIntType inputMantissa,
+      const int32_t inputExp10) {
+    typename __llvm_libc::fputil::FPBits<T>::UIntType actualOutputMantissa = 0;
+    uint32_t actualOutputExp2 = 0;
+
+    ASSERT_FALSE(__llvm_libc::internal::clingerFastPath<T>(
+        inputMantissa, inputExp10, &actualOutputMantissa, &actualOutputExp2));
+  }
+
+  template <class T>
   void EiselLemireTest(
       const typename __llvm_libc::fputil::FPBits<T>::UIntType inputMantissa,
       const int32_t inputExp10,
@@ -84,6 +111,44 @@ TEST(LlvmLibcStrToFloatTest, LeadingZeroes) {
   EXPECT_EQ(__llvm_libc::internal::leadingZeroes<uint32_t>(0xffffffff), 0u);
 }
 
+TEST_F(LlvmLibcStrToFloatTest, ClingerFastPathFloat64Simple) {
+  ClingerFastPathTest<double>(123, 0, 0xEC00000000000, 1029);
+  ClingerFastPathTest<double>(1234567890123456, 1, 0x5ee2a2eb5a5c0, 1076);
+  ClingerFastPathTest<double>(1234567890, -10, 0xf9add3739635f, 1019);
+}
+
+TEST_F(LlvmLibcStrToFloatTest, ClingerFastPathFloat64ExtendedExp) {
+  ClingerFastPathTest<double>(1, 30, 0x93e5939a08cea, 1122);
+  ClingerFastPathTest<double>(1, 37, 0xe17b84357691b, 1145);
+  ClingerFastPathFailsTest<double>(10, 37);
+  ClingerFastPathFailsTest<double>(1, 100);
+}
+
+TEST_F(LlvmLibcStrToFloatTest, ClingerFastPathFloat64NegativeExp) {
+  ClingerFastPathTest<double>(1, -10, 0xb7cdfd9d7bdbb, 989);
+  ClingerFastPathTest<double>(1, -20, 0x79ca10c924223, 956);
+  ClingerFastPathFailsTest<double>(1, -25);
+}
+
+TEST_F(LlvmLibcStrToFloatTest, ClingerFastPathFloat32Simple) {
+  ClingerFastPathTest<float>(123, 0, 0x760000, 133);
+  ClingerFastPathTest<float>(1234567, 1, 0x3c6146, 150);
+  ClingerFastPathTest<float>(12345, -5, 0x7cd35b, 123);
+}
+
+TEST_F(LlvmLibcStrToFloatTest, ClingerFastPathFloat32ExtendedExp) {
+  ClingerFastPathTest<float>(1, 15, 0x635fa9, 176);
+  ClingerFastPathTest<float>(1, 17, 0x31a2bc, 183);
+  ClingerFastPathFailsTest<float>(10, 17);
+  ClingerFastPathFailsTest<float>(1, 50);
+}
+
+TEST_F(LlvmLibcStrToFloatTest, ClingerFastPathFloat32NegativeExp) {
+  ClingerFastPathTest<float>(1, -5, 0x27c5ac, 110);
+  ClingerFastPathTest<float>(1, -10, 0x5be6ff, 93);
+  ClingerFastPathFailsTest<float>(1, -15);
+}
+
 TEST_F(LlvmLibcStrToFloatTest, EiselLemireFloat64Simple) {
   EiselLemireTest<double>(12345678901234567890u, 1, 0x1AC53A7E04BCDA, 1089);
   EiselLemireTest<double>(123, 0, 0x1EC00000000000, 1029);
@@ -141,8 +206,8 @@ TEST_F(LlvmLibcStrToFloatTest, SimpleDecimalConversion64BasicExponents) {
 }
 
 TEST_F(LlvmLibcStrToFloatTest, SimpleDecimalConversion64BasicSubnormals) {
-  SimpleDecimalConversionTest<double>("1e-320", 0x7e8, 0);
-  SimpleDecimalConversionTest<double>("1e-308", 0x730d67819e8d2, 0);
+  SimpleDecimalConversionTest<double>("1e-320", 0x7e8, 0, ERANGE);
+  SimpleDecimalConversionTest<double>("1e-308", 0x730d67819e8d2, 0, ERANGE);
   SimpleDecimalConversionTest<double>("2.9e-308", 0x14da6df5e4bcc8, 1);
 }
 
@@ -152,7 +217,7 @@ TEST_F(LlvmLibcStrToFloatTest, SimpleDecimalConversion64SubnormalRounding) {
   // but this is the shortest string that results in the maximum subnormal that
   // I found.
   SimpleDecimalConversionTest<double>("2.225073858507201e-308", 0xfffffffffffff,
-                                      0);
+                                      0, ERANGE);
 
   // Same here, if you were to extend the max subnormal out for another 800
   // digits, incrementing any one of those digits would create a normal number.
@@ -162,7 +227,8 @@ TEST_F(LlvmLibcStrToFloatTest, SimpleDecimalConversion64SubnormalRounding) {
 
 TEST_F(LlvmLibcStrToFloatTest, SimpleDecimalConversion32SpecificFailures) {
   SimpleDecimalConversionTest<float>(
-      "1.4012984643248170709237295832899161312802619418765e-45", 0x1, 0);
+      "1.4012984643248170709237295832899161312802619418765e-45", 0x1, 0,
+      ERANGE);
 }
 
 TEST(LlvmLibcStrToFloatTest, SimpleDecimalConversionExtraTypes) {
