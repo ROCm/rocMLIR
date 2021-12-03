@@ -7781,7 +7781,7 @@ struct InWarpTransposeRewritePattern
                             });
       } else { // The usual case
         Value maskConst = b.create<ConstantIndexOp>(loc, rotation);
-        Value shouldParticipateVal = b.create<LLVM::AndOp>(loc, laneId, maskConst);
+        Value shouldParticipateVal = b.create<AndIOp>(loc, laneId, maskConst);
         shouldParticipate = b.create<CmpIOp>(loc, CmpIPredicate::ne,
                                              shouldParticipateVal, zeroConst);
       }

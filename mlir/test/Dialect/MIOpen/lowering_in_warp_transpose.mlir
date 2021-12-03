@@ -1,4 +1,3 @@
-// XFAIL *
 //  miopen.in_warp_transpose requires that %lane be index, but the llvm.and
 //  it expands into requires that it be an integral type.
 // RUN: miopen-opt -miopen-lowering-step4 %s | FileCheck %s
