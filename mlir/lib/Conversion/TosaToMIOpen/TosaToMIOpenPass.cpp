@@ -53,10 +53,10 @@ public:
 };
 } // namespace
 
-std::unique_ptr<Pass> mlir::tosa::createTosaToMIOpen() {
+std::unique_ptr<Pass> mlir::tosa::createTosaToMIOpenPass() {
   return std::make_unique<TosaToMIOpen>();
 }
 
 void mlir::tosa::addTosaToMIOpenPasses(OpPassManager &pm) {
-  pm.addNestedPass<FuncOp>(createTosaToMIOpen());
+  pm.addNestedPass<FuncOp>(createTosaToMIOpenPass());
 }

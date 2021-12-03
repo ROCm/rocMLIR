@@ -137,7 +137,6 @@ void LowerMIOpenOpsStep3Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   OwningRewritePatternList patterns(ctx);
   patterns.insert<FillRewritePattern>(ctx);
-  patterns.insert<MovePosV2RewritePattern>(ctx);
   patterns.insert<SubviewRewritePattern>(ctx);
   patterns.insert<TransformRewritePattern>(ctx);
   patterns.insert<BlockwiseGemmRewritePattern>(ctx);
@@ -152,6 +151,7 @@ void LowerMIOpenOpsStep3Pass::runOnOperation() {
 void LowerMIOpenOpsStep4Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   OwningRewritePatternList patterns(ctx);
+  patterns.insert<InWarpTransposeRewritePattern>(ctx);
   patterns.insert<ThreadwiseGemmRewritePattern>(ctx);
   patterns.insert<ThreadwiseCopyRewritePattern>(ctx);
   patterns.insert<ThreadwiseLoadRewritePattern>(ctx);

@@ -20,9 +20,9 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
   // Source vector has a bound.
   // Dest memref has a transformation.
   // CHECK-NOT: scf.for
-  miopen.threadwise_copy_v2(%source, %dest1D, %c0_i32,
-                            %c0_i32, %c0_i32, %c0_i32,
-                            %c0_i32, %c0_i32, %c0_i32) {
+  miopen.threadwise_copy_v2 %source[%c0_i32,
+                            %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32] ->
+                            %dest1D[%c0_i32] {
     dim_access_order = [0 : i32, 1 : i32, 2 : i32],
     source_data_per_read = 1,
     dest_data_per_write = 1,
@@ -77,16 +77,17 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
         ]
       }
     ]
-  } : vector<32xf32>, memref<32xf32>, i32, i32, i32, i32, i32, i32, i32
+  } : vector<32xf32>, i32, i32, i32, i32, i32, i32 ->
+    memref<32xf32>, i32
 
   // A real use case of threadwise_copy_v2.
   // Source vector has a transformation.
   // Source vector has offset and bound.
   // Dest memref has 2 transformations.
   // CHECK-NOT: scf.for
-  miopen.threadwise_copy_v2(%source, %dest5D, %source_offset,
-    %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32,
-    %c0_i32, %c0_i32, %c0_i32) {
+  miopen.threadwise_copy_v2 %source[%source_offset,
+    %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32] ->
+    %dest5D[%c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32] {
       bound = [1 : i32, 4 : i32, 1 : i32, 4 : i32, 1 : i32],
       coord_transforms = [
         {metadata = [{
@@ -174,9 +175,9 @@ func @miopen_threadwise_copy_v2(%source_offset : i32,
       dest_data_per_write = 1 : i32,
       dim_access_order = [0 : i32, 1 : i32, 2 : i32, 3 : i32, 4 : i32],
       source_data_per_read = 1 : i32, vector_read_write_dim = 4 : i32}
-      : vector<32xf32>, memref<128x1x1024x14x14xf32>, i32,
-      i32, i32, i32, i32, i32,
-      i32, i32, i32, i32, i32
+      : vector<32xf32>, i32,
+      i32, i32, i32, i32, i32 ->
+      memref<128x1x1024x14x14xf32>, i32, i32, i32, i32, i32
 
   return
 }

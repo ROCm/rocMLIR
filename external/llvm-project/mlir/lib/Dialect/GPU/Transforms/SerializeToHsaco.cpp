@@ -11,10 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 #include "mlir/Dialect/GPU/Passes.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
-#include "llvm/IR/LegacyPassManager.h"
-#include "llvm/Support/CodeGen.h"
-#include "llvm/Support/Error.h"
+#include "llvm/IR/Module.h"
 #include "llvm/Target/CGPassBuilderOption.h"
 
 #if MLIR_GPU_TO_HSACO_PASS_ENABLE
@@ -24,9 +23,17 @@
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
 
+#include "llvm/ADT/APInt.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/GlobalVariable.h"
-#include "llvm/IR/Module.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/LegacyPassManager.h"
+
 #include "llvm/IRReader/IRReader.h"
 #include "llvm/Linker/Linker.h"
 
@@ -40,9 +47,14 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/TargetRegistry.h"
-
+#include "llvm/Support/Alignment.h"
+#include "llvm/Support/CodeGen.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Error.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FileUtilities.h"
+#include "llvm/Support/Path.h"
+#include "llvm/Support/Process.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetSelect.h"
@@ -55,7 +67,10 @@
 
 #include "lld/Common/Driver.h"
 
+#include <iterator>
+#include <memory>
 #include <mutex>
+#include <string>
 
 using namespace mlir;
 
@@ -63,6 +78,24 @@ namespace {
 class SerializeToHsacoPass
     : public PassWrapper<SerializeToHsacoPass, gpu::SerializeToBlobPass> {
 public:
+  // Needed to make options work
+  SerializeToHsacoPass();
+  SerializeToHsacoPass(const SerializeToHsacoPass &other) {
+    if (other.triple.hasValue()) {
+      this->triple = other.triple;
+    }
+    if (other.chip.hasValue()) {
+      this->chip = other.chip;
+    }
+    if (other.features.hasValue()) {
+      this->features = other.features;
+    }
+    if (other.rocmPath.hasValue()) {
+      this->rocmPath = other.rocmPath;
+    }
+    this->optLevel = other.optLevel;
+  };
+
   SerializeToHsacoPass(StringRef triple, StringRef arch, StringRef features,
                        int optLevel);
   SerializeToHsacoPass(const SerializeToHsacoPass &other);
@@ -119,7 +152,9 @@ SerializeToHsacoPass::SerializeToHsacoPass(const SerializeToHsacoPass &other)
 std::string SerializeToHsacoPass::getRocmPath() {
   if (rocmPath.getNumOccurrences() > 0)
     return rocmPath.getValue();
-
+  if (auto env = llvm::sys::Process::GetEnv("ROCM_PATH")) {
+    return env.getValue();
+  }
   return __DEFAULT_ROCM_PATH__;
 }
 
@@ -242,6 +277,7 @@ SerializeToHsacoPass::translateToLLVMIR(llvm::LLVMContext &llvmContext) {
     constant->setAlignment(llvm::MaybeAlign(bitwidth / 8));
   };
 
+  // Set up control variables in the module instead of linking in tiny bitcode
   if (needOcml) {
     // TODO(kdrewnia): Enable math optimizations once we have support for
     // `-ffast-math`-like options

@@ -559,6 +559,22 @@ def GPU_SetDefaultDeviceOp : GPU_Op<"set_default_device",
   let assemblyFormat = "attr-dict";
 }
 
+def GPU_PrintfOp : GPU_Op<"printf", [MemoryEffects<[MemWrite]>]>,
+  Arguments<(ins StrAttr:$format,
+                Variadic<AnyTypeOf<[AnyInteger, Index, AnyFloat]>>:$args)> {
+  let summary = "Device-side printf, as in CUDA or OpenCL, for debugging";
+  let description = [{
+    `gpu.printf` takes a literal format string `format` and an arbitrary number of
+    scalar arguments that should be printed.
+
+    The format string is a C-style printf string, subject to any restrictions
+    imposed by one's target platform.
+  }];
+  let assemblyFormat = [{
+    attr-dict ($args^ `:` type($args))?
+  }];
+}
+
 def GPU_ReturnOp : GPU_Op<"return", [HasParent<"GPUFuncOp">, NoSideEffect,
                                      Terminator]>,
     Arguments<(ins Variadic<AnyType>:$operands)>, Results<(outs)> {
@@ -1318,6 +1334,32 @@ def GPU_AtomicFAddOp :
   }];
   let assemblyFormat = [{
     `(` operands`)` attr-dict `:` type(operands)
+  }];
+}
+
+def GPU_WarpSwizzleOp :
+    GPU_Op<"warp_swizzle">,
+    Arguments<(ins I32:$in, Confined<I32ArrayAttr, [ArrayCount<4>]>:$selector)>,
+    Results<(outs I32:$out)> {
+  let summary = "Swizzle a value accross lanes/threads according to `selector``";
+  let description = [{
+    For a thread with ID t, the result of the operation will be the value of in
+    on thread s = (t / 4) * 4 + selector[t % 4]
+
+    If s is not executing, the result of this operation is undefined.
+
+    selector is not required to be a permutation of {0, 1, 2, 3}, but can't contain
+    any values from outside of that set
+  }];
+  let assemblyFormat = "attr-dict $in `:` type($in)";
+  let verifier = [{
+    for(auto&& v : this->selector()) {
+      int32_t val = v.cast<::mlir::IntegerAttr>().getValue().getZExtValue();
+      if (val < 0 || val > 3) {
+        return this->emitOpError("value outside of range in selector");
+      }
+    }
+    return success();
   }];
 }
 #endif // GPU_OPS

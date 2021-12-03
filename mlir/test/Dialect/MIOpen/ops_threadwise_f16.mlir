@@ -22,88 +22,82 @@ func @miopen_threadwise_copy_f16(%source_coord : memref<2xi32, 5>, %dest_coord :
   %dest_coord_x = memref.load %dest_coord[%c0] : memref<2xi32, 5>
 
   // check source and dest as vanilla memrefs.
-  miopen.threadwise_copy(%source, %dest,
-    %source_coord_x, %source_coord_y,
-    %dest_coord_x, %dest_coord_y)
-  : memref<?x?xf16, 5>, memref<?x?xf16, 5>, i32, i32, i32, i32
+  miopen.threadwise_copy %source[%source_coord_x, %source_coord_y] ->
+    %dest[%dest_coord_x, %dest_coord_y]
+  : memref<?x?xf16, 5>, i32, i32 -> memref<?x?xf16, 5>, i32, i32
 
   // -----
 
   // check source with embedded affine maps.
-  miopen.threadwise_copy(%source_with_embedded_affine, %dest,
-  %source_coord_x, %source_coord_y,
-  %dest_coord_x, %dest_coord_y)
-  : memref<?x?xf16, #map0, 3>, memref<?x?xf16, 5>, i32, i32, i32, i32
+  miopen.threadwise_copy %source_with_embedded_affine[%source_coord_x, %source_coord_y] ->
+  %dest[%dest_coord_x, %dest_coord_y]
+  : memref<?x?xf16, #map0, 3>, i32, i32 -> memref<?x?xf16, 5>, i32, i32
 
   // check dest with embedded affine maps.
-  miopen.threadwise_copy(%source, %dest_with_embedded_affine,
-    %source_coord_x, %source_coord_y,
-    %dest_coord_x, %dest_coord_y)
-    : memref<?x?xf16, 5>, memref<?x?xf16, #map1, 3>, i32, i32, i32, i32
+  miopen.threadwise_copy %source[%source_coord_x, %source_coord_y] ->
+    %dest_with_embedded_affine[%dest_coord_x, %dest_coord_y]
+    : memref<?x?xf16, 5>, i32, i32 -> memref<?x?xf16, #map1, 3>, i32, i32
 
   // check source and dest with embedded affine maps.
-  miopen.threadwise_copy(%source_with_embedded_affine, %dest_with_embedded_affine,
-    %source_coord_x, %source_coord_y,
-    %dest_coord_x, %dest_coord_y)
-    : memref<?x?xf16, #map0, 3>, memref<?x?xf16, #map1, 3>, i32, i32, i32, i32
+  miopen.threadwise_copy %source_with_embedded_affine[%source_coord_x, %source_coord_y] ->
+    %dest_with_embedded_affine[%dest_coord_x, %dest_coord_y]
+    : memref<?x?xf16, #map0, 3>, i32, i32 -> memref<?x?xf16, #map1, 3>, i32, i32
 
   // -----
 
   // check source with one externally defined affine map.
-  miopen.threadwise_copy(%source_with_externally_defined_affine, %dest,
-    %source_coord_x, %source_coord_y,
-    %dest_coord_x, %dest_coord_y)
+  miopen.threadwise_copy
+    %source_with_externally_defined_affine[%source_coord_x, %source_coord_y] ->
+    %dest[%dest_coord_x, %dest_coord_y]
     {
       coord_transforms = [ { operand = 0, transforms = [#map2] } ]
-    } : memref<?x?x?x?xf16>, memref<?x?xf16, 5>, i32, i32, i32, i32
+    } : memref<?x?x?x?xf16>, i32, i32 -> memref<?x?xf16, 5>, i32, i32
 
   // check source with multiple externally defined affine maps.
-  miopen.threadwise_copy(%source_with_externally_defined_affine, %dest,
-    %source_coord_x, %source_coord_y,
-    %dest_coord_x, %dest_coord_y)
+  miopen.threadwise_copy
+    %source_with_externally_defined_affine[%source_coord_x, %source_coord_y] ->
+    %dest[%dest_coord_x, %dest_coord_y]
     {
       coord_transforms = [ { operand = 0, transforms = [#map2, #map3] } ]
-    } : memref<?x?x?x?xf16>, memref<?x?xf16, 5>, i32, i32, i32, i32
+    } : memref<?x?x?x?xf16>, i32, i32 -> memref<?x?xf16, 5>, i32, i32
 
   // check destination with one externally defined affine map.
-  miopen.threadwise_copy(%source, %dest_with_externally_defined_affine,
-    %source_coord_x, %source_coord_y,
-    %dest_coord_x, %dest_coord_y)
+  miopen.threadwise_copy %source[%source_coord_x, %source_coord_y] ->
+   %dest_with_externally_defined_affine[%dest_coord_x, %dest_coord_y]
     {
       coord_transforms = [ { operand = 1, transforms = [#map2] } ]
-    } : memref<?x?xf16, 5>, memref<?x?x?x?xf16>, i32, i32, i32, i32
+    } : memref<?x?xf16, 5>, i32, i32 -> memref<?x?x?x?xf16>, i32, i32
 
   // check destination with multiple externally defined affine map.
-  miopen.threadwise_copy(%source, %dest_with_externally_defined_affine,
-    %source_coord_x, %source_coord_y,
-    %dest_coord_x, %dest_coord_y)
+  miopen.threadwise_copy %source[%source_coord_x, %source_coord_y] ->
+   %dest_with_externally_defined_affine[%dest_coord_x, %dest_coord_y]
     {
       coord_transforms = [ { operand = 1, transforms = [#map2, #map3] } ]
-    } : memref<?x?xf16, 5>, memref<?x?x?x?xf16>, i32, i32, i32, i32
+    } : memref<?x?xf16, 5>, i32, i32 -> memref<?x?x?x?xf16>, i32, i32
 
   // -----
 
   // check source and destination with one externally defined affine map.
-  miopen.threadwise_copy(%source_with_externally_defined_affine, %dest_with_externally_defined_affine,
-    %source_coord_x, %source_coord_y,
-    %dest_coord_x, %dest_coord_y)
+  miopen.threadwise_copy
+    %source_with_externally_defined_affine[%source_coord_x, %source_coord_y] ->
+    %dest_with_externally_defined_affine[%dest_coord_x, %dest_coord_y]
     {
       coord_transforms = [
         { operand = 0, transforms = [#map2] },
         { operand = 1, transforms = [#map2] }
       ]
-    } : memref<?x?x?x?xf16>, memref<?x?x?x?xf16>, i32, i32, i32, i32
+    } : memref<?x?x?x?xf16>, i32, i32 -> memref<?x?x?x?xf16>, i32, i32
 
   // check source and destination with multiple externally defined affine maps.
-  miopen.threadwise_copy(%source_with_externally_defined_affine, %dest_with_externally_defined_affine,
-    %source_coord_x, %source_coord_y,
-    %dest_coord_x, %dest_coord_y)
+  miopen.threadwise_copy
+    %source_with_externally_defined_affine[%source_coord_x, %source_coord_y] ->
+    %dest_with_externally_defined_affine[%dest_coord_x, %dest_coord_y]
     {
       coord_transforms = [
         { operand = 0, transforms = [#map2, #map3] },
         { operand = 1, transforms = [#map2, #map3] }
       ]
-    } : memref<?x?x?x?xf16>, memref<?x?x?x?xf16>, i32, i32, i32, i32
+    } : memref<?x?x?x?xf16>, i32, i32 -> memref<?x?x?x?xf16>, i32, i32
 
   return
 }
@@ -130,52 +124,51 @@ func @miopen_threadwise_copy_v2_f16(%source_offset : i32, %source_coord : memref
   %dest_coord_x = memref.load %dest_coord[%c1] : memref<2xi32, 5>
 
   // check dest as a vanilla memref.
-  miopen.threadwise_copy_v2(%source, %dest, %source_offset,
-    %c0_i32,
-    %dest_coord_x, %dest_coord_y)
-    : vector<32xf16>, memref<?x?xf16>, i32, i32, i32, i32
+  miopen.threadwise_copy_v2 %source[%source_offset, %c0_i32] ->
+    %dest[%dest_coord_x, %dest_coord_y]
+    : vector<32xf16>, i32, i32 -> memref<?x?xf16>, i32, i32
 
   // -----
 
   // check source with one externally defined affine map.
-  miopen.threadwise_copy_v2(%source, %dest, %source_offset,
-    %source_coord_x, %source_coord_y,
-    %dest_coord_x, %dest_coord_y)
+  miopen.threadwise_copy_v2
+    %source[%source_offset, %source_coord_x, %source_coord_y] ->
+    %dest[%dest_coord_x, %dest_coord_y]
     {
       coord_transforms = [ { operand = 0, transforms = [#map12] } ]
-    } : vector<32xf16>, memref<?x?xf16>, i32, i32, i32, i32, i32
+    } : vector<32xf16>, i32, i32, i32 -> memref<?x?xf16>, i32, i32
 
   // check source with multiple externally defined affine maps.
-  miopen.threadwise_copy_v2(%source, %dest, %source_offset,
-    %source_coord_x, %source_coord_y,
-    %dest_coord_x, %dest_coord_y)
+  miopen.threadwise_copy_v2
+    %source[%source_offset, %source_coord_x, %source_coord_y] ->
+    %dest[%dest_coord_x, %dest_coord_y]
     {
       coord_transforms = [ { operand = 0, transforms = [#map12, #map13] } ]
-    } : vector<32xf16>, memref<?x?xf16>, i32, i32, i32, i32, i32
+    } : vector<32xf16>, i32, i32, i32 -> memref<?x?xf16>, i32, i32
 
   // -----
 
   // check source and destination with one externally defined affine map.
-  miopen.threadwise_copy_v2(%source, %dest_with_externally_defined_affine, %source_offset,
-    %source_coord_x, %source_coord_y,
-    %dest_coord_x, %dest_coord_y)
+  miopen.threadwise_copy_v2
+    %source[%source_offset, %source_coord_x, %source_coord_y] ->
+    %dest_with_externally_defined_affine[%dest_coord_x, %dest_coord_y]
     {
       coord_transforms = [
         { operand = 0, transforms = [#map12] },
         { operand = 1, transforms = [#map12] }
       ]
-    } : vector<32xf16>, memref<?x?x?x?xf16>, i32, i32, i32, i32, i32
+    } : vector<32xf16>, i32, i32, i32 -> memref<?x?x?x?xf16>, i32, i32
 
   // check source and destination with multiple externally defined affine maps.
-  miopen.threadwise_copy_v2(%source, %dest_with_externally_defined_affine, %source_offset,
-    %source_coord_x, %source_coord_y,
-    %dest_coord_x, %dest_coord_y)
+  miopen.threadwise_copy_v2
+    %source[%source_offset, %source_coord_x, %source_coord_y] ->
+    %dest_with_externally_defined_affine[%dest_coord_x, %dest_coord_y]
     {
       coord_transforms = [
         { operand = 0, transforms = [#map12, #map13] },
         { operand = 1, transforms = [#map12, #map13] }
       ]
-    } : vector<32xf16>, memref<?x?x?x?xf16>, i32, i32, i32, i32, i32
+    } : vector<32xf16>, i32, i32, i32 -> memref<?x?x?x?xf16>, i32, i32
 
   return
 }

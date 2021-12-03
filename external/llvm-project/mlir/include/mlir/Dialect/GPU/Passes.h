@@ -68,6 +68,10 @@ private:
   /// Creates the LLVM target machine to generate the ISA.
   std::unique_ptr<llvm::TargetMachine> createTargetMachine();
 
+private:
+  /// Creates the LLVM target machine to generate the ISA.
+  std::unique_ptr<llvm::TargetMachine> createTargetMachine();
+
   /// Translates the module to ISA
   Optional<std::string> translateToISA(llvm::Module &llvmModule,
                                        llvm::TargetMachine &targetMachine);

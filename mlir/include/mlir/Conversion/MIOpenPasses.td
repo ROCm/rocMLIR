@@ -66,7 +66,20 @@ def TosaToMIOpen : FunctionPass<"tosa-to-miopen"> {
     Pass that converts TOSA operations to bufferized MIOpen operations.
   }];
 
-  let constructor = "tosa::createTosaToMIOpen()";
+  let constructor = "tosa::createTosaToMIOpenPass()";
+}
+
+//===----------------------------------------------------------------------===//
+// MIGraphXToTosa
+//===----------------------------------------------------------------------===//
+
+def MIGraphXToTosa : FunctionPass<"migraphx-to-tosa"> {
+  let summary = "Lower MIGraphX to TOSA";
+  let description = [{
+    Pass that converts MIGraphX operations to TOSA operations.
+  }];
+
+  let constructor = "migraphx::createMIGraphXToTosa()";
 }
 
 #endif // MIOPEN_MLIR_CONVERSION_PASSES

@@ -84,7 +84,9 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
   kernelPm.addPass(createStripDebugInfoPass());
   if (!rocdlInput.getValue()) {
-    kernelPm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
+    kernelPm.addPass(
+        createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32,
+                                        /*runtime=*/gpu::amd::Runtime::HIP));
   }
   kernelPm.addPass(createGpuSerializeToHsacoPass(
       utils.getTriple(), utils.getChip(), utils.getFeatures(), optLevel));

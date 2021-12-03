@@ -76,10 +76,13 @@ public:
       // For GPU kernels,
       // 1. Insert AMDGPU_KERNEL calling convention.
       // 2. Insert amdgpu-flat-workgroup-size(1, 256) attribute.
+      // 3. Insert amdgpu-implicitarg-num-bytes=56 (which must be set on OpenCL
+      // and HIP kernels per Clang)
       llvm::Function *llvmFunc =
           moduleTranslation.lookupFunction(func.getName());
       llvmFunc->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
       llvmFunc->addFnAttr("amdgpu-flat-work-group-size", "1, 256");
+      llvmFunc->addFnAttr("amdgpu-implicitarg-num-bytes", "56");
     }
     return success();
   }

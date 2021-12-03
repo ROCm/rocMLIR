@@ -120,6 +120,14 @@ module attributes {gpu.container_module} {
       gpu.return
     }
 
+    // CHECK-LABEL gpu.func @printf_test
+    // CHECK: (%[[ARG0:.*]]: i32)
+    // CHECK: gpu.printf {format = "Value: %d"} %[[ARG0]] : i32
+    gpu.func @printf_test(%arg0 : i32) {
+      gpu.printf {format = "Value: %d"} %arg0 : i32
+      gpu.return
+    }
+
     // CHECK-LABEL: @no_attribution_attrs
     // CHECK:       attributes
     // CHECK:       {
@@ -204,6 +212,13 @@ module attributes {gpu.container_module} {
     // CHECK: {{.*}} = gpu.memcpy async [%[[t0]]] {{.*}}, {{.*}} : memref<3x7xf32>, memref<3x7xf32, 1>
     %1 = gpu.memcpy async [%0] %dst, %src : memref<3x7xf32>, memref<3x7xf32, 1>
     return
+  }
+
+  func @warp_swizzle(%in : i32) -> i32 {
+    // CHECK-LABEL func @warp_swizzle
+    // CHECK %{{.*}} gpu.warp_swizzle { selector = [0 : i32, 3 : i32, 2 : i32, 1 : i32]} %{{.*}} : i32
+    %0 = gpu.warp_swizzle { selector = [0 : i32, 3 : i32, 2 : i32, 1 : i32] } %in : i32
+    return %0 : i32
   }
 
   gpu.module @mfma {
