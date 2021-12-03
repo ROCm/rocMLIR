@@ -1505,6 +1505,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
   using OpRewritePattern<T>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
+    ConvolutionContext convContext = populateConvContext(op);
+
     bool isXdlops = false;
     auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
@@ -1653,8 +1655,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     auto calculatePaddingKernelSize = [&needExtraPad, gemmM_size, gemmN_size,
                                        gemmK_size, &gemmMExtra, &gemmNExtra,
-                                       &gemmKExtra](auto populateParams) {
-      auto config_params = populateParams.getTuningParameters();
+                                       &gemmKExtra,
+                                       &convContext](auto populateParams) {
+      auto config_params = populateParams.getTuningParameters(convContext);
       unsigned numOfFailedConfigs = 0;
       for (auto &params : config_params) {
         if (gemmM_size % params.gemmMPerBlock == 0 &&
@@ -3627,6 +3630,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
   }
 
   LogicalResult backwardData(T op, PatternRewriter &b) const {
+    ConvolutionContext convContext = populateConvContext(op);
+
     auto loc = op.getLoc();
     auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
     auto archAttr = op->template getAttrOfType<StringAttr>("arch");
@@ -3810,8 +3815,9 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto calculatePaddingKernelSize = [&isOriginalKernelSupport, &needExtraPad,
                                        gemmM_size, gemmN_size, gemmK_size,
                                        &gemmMExtra, &gemmNExtra, &gemmKExtra,
-                                       isXdlops](auto &populateParams) {
-      auto config_params = populateParams.getTuningParameters();
+                                       isXdlops,
+                                       &convContext](auto &populateParams) {
+      auto config_params = populateParams.getTuningParameters(convContext);
       unsigned numOfFailedConfigs = 0;
       for (auto &params : config_params) {
         if (gemmM_size % params.gemmMPerBlock == 0 &&

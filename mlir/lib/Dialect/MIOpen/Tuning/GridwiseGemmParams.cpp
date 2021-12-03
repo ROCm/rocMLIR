@@ -381,7 +381,7 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
 #endif // MLIR_ENABLE_SQLITE
 
   LogicalResult res = failure();
-  for (auto &params : initParameters) {
+  for (auto &params : getTuningParameters(ctx)) {
     blockSize = obtainBlockSize(params, waveSize);
     // We have an override on the blockSize, only loop through the
     // initParameters with the same blockSize
@@ -405,7 +405,7 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
                             << " PARAMETERS!\n");
 
       LLVM_DEBUG(llvm::dbgs() << "BUT PADDING KERNEL CAN EXECUTE IT\n");
-      for (auto &params : initParameters) {
+      for (auto &params : getTuningParameters(ctx)) {
         res = populatePaddingKernelDerived(ctx, params, gemmSize,
                                            gemmADerivedParam, gemmBDerivedParam,
                                            blockSize, gridSize);

@@ -731,7 +731,8 @@ public:
                               DerivedBlockGemmParams &blockGemmDerivedParam,
                               int64_t &gemmCDstPerWrite, int64_t &gridSize);
 
-  llvm::SmallVector<InitParamsNonXDL, 8> getTuningParameters() {
+  llvm::SmallVector<InitParamsNonXDL, 8>
+  getTuningParameters(ConvolutionContext &ctx) {
     return initParameters;
   }
 
@@ -740,17 +741,30 @@ public:
 
 class PopulateParamsXDL : public PopulateParamsBase {
 private:
-  llvm::SmallVector<InitParamsXDL, 4> initParameters = {
+  // Initial tuning parameters for forward convolution.
+  llvm::SmallVector<InitParamsXDL, 4> initParametersForward = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-      //{128, 128, 2, 64, 64, 2, false, false},
-      //{128, 128, 4, 64, 64, 2, false, false},
-      //{32, 64, 2, 32, 64, 2, false, false},
+      {128, 128, 2, 64, 64, 2, false, false},
+      {128, 128, 4, 64, 64, 2, false, false},
+      {32, 64, 2, 32, 64, 2, false, false},
 
       {128, 128, 8, 64, 64, 1, false, false},
       {128, 128, 16, 64, 64, 1, false, false},
       {8, 64, 8, 8, 64, 1, false, false},
       {4, 64, 16, 4, 64, 1, false, false},
-      {32, 64, 4, 32, 64, 2, false, false},
+      {32, 64, 4, 32, 64, 1, false, false},
+      {16, 16, 16, 16, 16, 1, false, false},
+      {16, 16, 4, 16, 16, 1, false, false},
+  };
+
+  // Initial tuning parameters for backward convolution.
+  llvm::SmallVector<InitParamsXDL, 4> initParametersBackward = {
+      // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
+      {128, 128, 8, 64, 64, 1, false, false},
+      {128, 128, 16, 64, 64, 1, false, false},
+      {8, 64, 8, 8, 64, 1, false, false},
+      {4, 64, 16, 4, 64, 1, false, false},
+      {32, 64, 4, 32, 64, 1, false, false},
       {16, 16, 16, 16, 16, 1, false, false},
       {16, 16, 4, 16, 16, 1, false, false},
   };
@@ -897,8 +911,17 @@ public:
                               DerivedParams &gemmBDerivedParam,
                               int64_t &blockSize, int64_t &gridSize);
 
-  llvm::SmallVector<InitParamsXDL, 4> getTuningParameters() {
-    return initParameters;
+  llvm::SmallVector<InitParamsXDL, 4>
+  getTuningParameters(ConvolutionContext &ctx) {
+    switch (ctx.getOpType()) {
+    case miopen::ConvOpType::Conv2DOpType:
+      return initParametersForward;
+    case miopen::ConvOpType::Conv2DBwdDataOpType:
+      return initParametersBackward;
+    case miopen::ConvOpType::Conv2DBwdWeightOpType:
+      return initParametersBackward;
+    }
+    return initParametersForward;
   }
 
   InitParams getUniversalParameters() { return universal_Parameters; }

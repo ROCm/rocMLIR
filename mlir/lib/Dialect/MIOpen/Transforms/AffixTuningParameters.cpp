@@ -132,8 +132,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
   auto calculatePaddingKernelSize = [&needExtraPad, gemmM_size, gemmN_size,
                                      gemmK_size, &gemmMExtra, &gemmNExtra,
-                                     &gemmKExtra](auto populateParams) {
-    auto config_params = populateParams.getTuningParameters();
+                                     &gemmKExtra,
+                                     &convContext](auto populateParams) {
+    auto config_params = populateParams.getTuningParameters(convContext);
     unsigned numOfFailedConfigs = 0;
     for (auto &params : config_params) {
       if (gemmM_size % params.gemmMPerBlock == 0 &&
