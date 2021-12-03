@@ -65,6 +65,7 @@ class SerializeToHsacoPass
 public:
   SerializeToHsacoPass(StringRef triple, StringRef arch, StringRef features,
                        int optLevel);
+  SerializeToHsacoPass(const SerializeToHsacoPass &other);
 
   StringRef getArgument() const override { return "gpu-to-hsaco"; }
   StringRef getDescription() const override {
@@ -100,10 +101,6 @@ private:
   // Serializes ROCDL to HSACO.
   std::unique_ptr<std::vector<char>>
   serializeISA(const std::string &isa) override;
-
-  // Adds LLVM optimization passes
-  LogicalResult optimizeLlvm(llvm::Module &llvmModule,
-                             llvm::TargetMachine &targetMachine) override;
 
   std::unique_ptr<SmallVectorImpl<char>> assembleIsa(const std::string &isa);
   std::unique_ptr<std::vector<char>>
