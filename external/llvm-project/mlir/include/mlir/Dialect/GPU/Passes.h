@@ -64,9 +64,6 @@ protected:
   /// Translates the 'getOperation()' result to an LLVM module.
   virtual std::unique_ptr<llvm::Module>
   translateToLLVMIR(llvm::LLVMContext &llvmContext);
-private:
-  /// Creates the LLVM target machine to generate the ISA.
-  std::unique_ptr<llvm::TargetMachine> createTargetMachine();
 
 private:
   /// Creates the LLVM target machine to generate the ISA.

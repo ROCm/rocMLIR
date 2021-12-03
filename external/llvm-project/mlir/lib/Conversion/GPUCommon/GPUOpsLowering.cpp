@@ -173,10 +173,9 @@ static LLVM::LLVMFuncOp getOrDefineFunction(T &moduleOp, const Location loc,
 }
 
 LogicalResult GPUPrintfOpToHIPLowering::matchAndRewrite(
-    gpu::PrintfOp gpuPrintfOp, ArrayRef<Value> operands,
+    gpu::PrintfOp gpuPrintfOp, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = gpuPrintfOp->getLoc();
-  gpu::PrintfOpAdaptor adaptor(operands, gpuPrintfOp->getAttrDictionary());
 
   mlir::Type llvmI8 = typeConverter->convertType(rewriter.getI8Type());
   mlir::Type i8Ptr = LLVM::LLVMPointerType::get(llvmI8);
@@ -296,10 +295,9 @@ LogicalResult GPUPrintfOpToHIPLowering::matchAndRewrite(
 }
 
 LogicalResult GPUPrintfOpToLLVMCallLowering::matchAndRewrite(
-    gpu::PrintfOp gpuPrintfOp, ArrayRef<Value> operands,
+    gpu::PrintfOp gpuPrintfOp, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = gpuPrintfOp->getLoc();
-  gpu::PrintfOpAdaptor adaptor(operands, gpuPrintfOp->getAttrDictionary());
 
   mlir::Type llvmI8 = typeConverter->convertType(rewriter.getIntegerType(8));
   mlir::Type i8Ptr = LLVM::LLVMPointerType::get(llvmI8, addressSpace);

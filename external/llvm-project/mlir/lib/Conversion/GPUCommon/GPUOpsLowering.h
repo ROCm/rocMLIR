@@ -45,7 +45,7 @@ struct GPUPrintfOpToHIPLowering : public ConvertOpToLLVMPattern<gpu::PrintfOp> {
   using ConvertOpToLLVMPattern<gpu::PrintfOp>::ConvertOpToLLVMPattern;
 
   LogicalResult
-  matchAndRewrite(gpu::PrintfOp gpuPrintfOp, ArrayRef<Value> operands,
+  matchAndRewrite(gpu::PrintfOp gpuPrintfOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
 
@@ -63,7 +63,7 @@ struct GPUPrintfOpToLLVMCallLowering
         addressSpace(addressSpace) {}
 
   LogicalResult
-  matchAndRewrite(gpu::PrintfOp gpuPrintfOp, ArrayRef<Value> operands,
+  matchAndRewrite(gpu::PrintfOp gpuPrintfOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 
 private:

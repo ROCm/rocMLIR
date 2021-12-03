@@ -78,24 +78,6 @@ namespace {
 class SerializeToHsacoPass
     : public PassWrapper<SerializeToHsacoPass, gpu::SerializeToBlobPass> {
 public:
-  // Needed to make options work
-  SerializeToHsacoPass();
-  SerializeToHsacoPass(const SerializeToHsacoPass &other) {
-    if (other.triple.hasValue()) {
-      this->triple = other.triple;
-    }
-    if (other.chip.hasValue()) {
-      this->chip = other.chip;
-    }
-    if (other.features.hasValue()) {
-      this->features = other.features;
-    }
-    if (other.rocmPath.hasValue()) {
-      this->rocmPath = other.rocmPath;
-    }
-    this->optLevel = other.optLevel;
-  };
-
   SerializeToHsacoPass(StringRef triple, StringRef arch, StringRef features,
                        int optLevel);
   SerializeToHsacoPass(const SerializeToHsacoPass &other);
