@@ -1183,7 +1183,9 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
 
       auto deltaType = outputMemRefType.getElementType().cast<FloatType>();
       auto deltaConstantOp = bt4.create<arith::ConstantFloatOp>(
-          builder.getUnknownLoc(), APFloat(APFloat::IEEEhalf(), delta), deltaType);
+          builder.getUnknownLoc(),
+          APFloat(deltaType.getFloatSemantics(), delta),
+          deltaType);
       auto subfOp =
           bt4.create<arith::SubFOp>(builder.getUnknownLoc(), cpuLoadOp, gpuLoadOp);
       auto absfOp = bt4.create<math::AbsOp>(builder.getUnknownLoc(), subfOp);
