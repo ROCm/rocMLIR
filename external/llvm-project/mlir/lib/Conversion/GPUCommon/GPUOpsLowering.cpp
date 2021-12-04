@@ -219,6 +219,7 @@ LogicalResult GPUPrintfOpToHIPLowering::matchAndRewrite(
   } while (moduleOp.lookupSymbol(stringConstName));
 
   llvm::SmallString<20> formatString(adaptor.format().getValue());
+  llvm::errs() << "format is '" << adaptor.format().getValue() << "'\n";
   formatString.push_back('\0'); // Null terminate for C
   size_t formatStringSize = formatString.size_in_bytes();
 
