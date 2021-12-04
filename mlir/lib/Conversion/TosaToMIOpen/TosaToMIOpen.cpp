@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/TosaToMIOpen/TosaToMIOpen.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/Linalg/IR/LinalgOps.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
@@ -193,7 +194,7 @@ public:
     }
     if (!zero_bias) {
       // non-zero bias, replace with tosa.add w/ broadcast
-      auto conv_output_t = rewriter.create<memref::TensorLoadOp>(loc, output);
+      auto conv_output_t = rewriter.create<bufferization::ToTensorOp>(loc, output);
 
       auto biasType = bias_mr.getType().template cast<ShapedType>();
       if (!biasType.hasStaticShape())
@@ -213,7 +214,7 @@ public:
       auto bias_expand_mr = rewriter.create<memref::ExpandShapeOp>(
           loc, newType, bias_mr, reassociations);
 
-      auto bias_t = rewriter.create<memref::TensorLoadOp>(loc, bias_expand_mr);
+      auto bias_t = rewriter.create<bufferization::ToTensorOp>(loc, bias_expand_mr);
       output = rewriter.create<tosa::AddOp>(loc, op.getType(),
                                             ValueRange{conv_output_t, bias_t});
     }

@@ -325,13 +325,15 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
         int64_t dim = sourceType.getRank() - 1;
         for (int64_t iter = 0; iter < vectorLength; ++iter) {
           auto iterIndex = b.create<ConstantIndexOp>(loc, iter);
+          auto iterI32 =
+              b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32));
           srcLowerIndicesUpdated[dim] =
               b.create<AddIOp>(loc, srcLowerIndices[dim], iterIndex);
           auto loadedElement = b.create<memref::LoadOp>(loc, elementType, source,
                                                 srcLowerIndicesUpdated);
 
-          loadedVector = b.create<vector::InsertElementOp>(loc, loadedElement,
-                                                           loadedVector, iter);
+          loadedVector = b.create<vector::InsertElementOp>(
+              loc, loadedVectorType, loadedElement, loadedVector, iterI32);
         }
         loadedValue = loadedVector;
       }
