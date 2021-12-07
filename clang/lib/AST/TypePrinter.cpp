@@ -232,8 +232,8 @@ bool TypePrinter::canPrefixQualifiers(const Type *T,
     case Type::ObjCInterface:
     case Type::Atomic:
     case Type::Pipe:
-    case Type::ExtInt:
-    case Type::DependentExtInt:
+    case Type::BitInt:
+    case Type::DependentBitInt:
       CanPrefixQualifiers = true;
       break;
 
@@ -242,6 +242,7 @@ bool TypePrinter::canPrefixQualifiers(const Type *T,
         T->isObjCQualifiedIdType() || T->isObjCQualifiedClassType();
       break;
 
+    case Type::VariableArray:
     case Type::DependentSizedArray:
       NeedARCStrongQualifier = true;
       LLVM_FALLTHROUGH;
@@ -251,9 +252,6 @@ bool TypePrinter::canPrefixQualifiers(const Type *T,
       return canPrefixQualifiers(
           cast<ArrayType>(UnderlyingType)->getElementType().getTypePtr(),
           NeedARCStrongQualifier);
-    case Type::VariableArray:
-      NeedARCStrongQualifier = true;
-      LLVM_FALLTHROUGH;
 
     case Type::Adjusted:
     case Type::Decayed:
@@ -505,7 +503,6 @@ void TypePrinter::printMemberPointerAfter(const MemberPointerType *T,
 void TypePrinter::printConstantArrayBefore(const ConstantArrayType *T,
                                            raw_ostream &OS) {
   IncludeStrongLifetimeRAII Strong(Policy);
-  SaveAndRestore<bool> NonEmptyPH(HasEmptyPlaceHolder, false);
   printBefore(T->getElementType(), OS);
 }
 
@@ -528,7 +525,6 @@ void TypePrinter::printConstantArrayAfter(const ConstantArrayType *T,
 void TypePrinter::printIncompleteArrayBefore(const IncompleteArrayType *T,
                                              raw_ostream &OS) {
   IncludeStrongLifetimeRAII Strong(Policy);
-  SaveAndRestore<bool> NonEmptyPH(HasEmptyPlaceHolder, false);
   printBefore(T->getElementType(), OS);
 }
 
@@ -541,7 +537,6 @@ void TypePrinter::printIncompleteArrayAfter(const IncompleteArrayType *T,
 void TypePrinter::printVariableArrayBefore(const VariableArrayType *T,
                                            raw_ostream &OS) {
   IncludeStrongLifetimeRAII Strong(Policy);
-  SaveAndRestore<bool> NonEmptyPH(HasEmptyPlaceHolder, false);
   printBefore(T->getElementType(), OS);
 }
 
@@ -588,7 +583,6 @@ void TypePrinter::printDependentSizedArrayBefore(
                                                const DependentSizedArrayType *T,
                                                raw_ostream &OS) {
   IncludeStrongLifetimeRAII Strong(Policy);
-  SaveAndRestore<bool> NonEmptyPH(HasEmptyPlaceHolder, false);
   printBefore(T->getElementType(), OS);
 }
 
@@ -1206,26 +1200,26 @@ void TypePrinter::printPipeBefore(const PipeType *T, raw_ostream &OS) {
 
 void TypePrinter::printPipeAfter(const PipeType *T, raw_ostream &OS) {}
 
-void TypePrinter::printExtIntBefore(const ExtIntType *T, raw_ostream &OS) {
+void TypePrinter::printBitIntBefore(const BitIntType *T, raw_ostream &OS) {
   if (T->isUnsigned())
     OS << "unsigned ";
-  OS << "_ExtInt(" << T->getNumBits() << ")";
+  OS << "_BitInt(" << T->getNumBits() << ")";
   spaceBeforePlaceHolder(OS);
 }
 
-void TypePrinter::printExtIntAfter(const ExtIntType *T, raw_ostream &OS) {}
+void TypePrinter::printBitIntAfter(const BitIntType *T, raw_ostream &OS) {}
 
-void TypePrinter::printDependentExtIntBefore(const DependentExtIntType *T,
+void TypePrinter::printDependentBitIntBefore(const DependentBitIntType *T,
                                              raw_ostream &OS) {
   if (T->isUnsigned())
     OS << "unsigned ";
-  OS << "_ExtInt(";
+  OS << "_BitInt(";
   T->getNumBitsExpr()->printPretty(OS, nullptr, Policy);
   OS << ")";
   spaceBeforePlaceHolder(OS);
 }
 
-void TypePrinter::printDependentExtIntAfter(const DependentExtIntType *T,
+void TypePrinter::printDependentBitIntAfter(const DependentBitIntType *T,
                                             raw_ostream &OS) {}
 
 /// Appends the given scope to the end of a string.
@@ -1370,9 +1364,11 @@ void TypePrinter::printTag(TagDecl *D, raw_ostream &OS) {
 
 void TypePrinter::printRecordBefore(const RecordType *T, raw_ostream &OS) {
   // Print the preferred name if we have one for this type.
-  for (const auto *PNA : T->getDecl()->specific_attrs<PreferredNameAttr>()) {
-    if (declaresSameEntity(PNA->getTypedefType()->getAsCXXRecordDecl(),
-                           T->getDecl())) {
+  if (Policy.UsePreferredNames) {
+    for (const auto *PNA : T->getDecl()->specific_attrs<PreferredNameAttr>()) {
+      if (!declaresSameEntity(PNA->getTypedefType()->getAsCXXRecordDecl(),
+                              T->getDecl()))
+        continue;
       // Find the outermost typedef or alias template.
       QualType T = PNA->getTypedefType();
       while (true) {
@@ -1750,6 +1746,9 @@ void TypePrinter::printAttributedAfter(const AttributedType *T,
   case attr::ArmMveStrictPolymorphism:
     OS << "__clang_arm_mve_strict_polymorphism";
     break;
+  case attr::BTFTypeTag:
+    OS << "btf_type_tag";
+    break;
   }
   OS << "))";
 }
@@ -2043,9 +2042,9 @@ printTo(raw_ostream &OS, ArrayRef<TA> Args, const PrintingPolicy &Policy,
       if (!FirstArg)
         OS << Comma;
       // Tries to print the argument with location info if exists.
-      printArgument(
-          Arg, Policy, ArgOS,
-          TemplateParameterList::shouldIncludeTypeForArgument(TPL, ParmIndex));
+      printArgument(Arg, Policy, ArgOS,
+                    TemplateParameterList::shouldIncludeTypeForArgument(
+                        Policy, TPL, ParmIndex));
     }
     StringRef ArgString = ArgOS.str();
 

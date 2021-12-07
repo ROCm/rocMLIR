@@ -24,8 +24,6 @@
 using namespace mlir;
 using namespace detail;
 
-DialectAsmParser::~DialectAsmParser() {}
-
 //===----------------------------------------------------------------------===//
 // DialectRegistry
 //===----------------------------------------------------------------------===//
@@ -158,7 +156,7 @@ Attribute Dialect::parseAttribute(DialectAsmParser &parser, Type type) const {
 Type Dialect::parseType(DialectAsmParser &parser) const {
   // If this dialect allows unknown types, then represent this with OpaqueType.
   if (allowsUnknownTypes()) {
-    Identifier ns = Identifier::get(getNamespace(), getContext());
+    StringAttr ns = StringAttr::get(getContext(), getNamespace());
     return OpaqueType::get(ns, parser.getFullSymbolSpec());
   }
 

@@ -13,6 +13,7 @@
 #ifndef POLLY_SCHEDULETREETRANSFORM_H
 #define POLLY_SCHEDULETREETRANSFORM_H
 
+#include "polly/Support/ISLTools.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "isl/isl-noexceptions.h"
@@ -147,8 +148,7 @@ struct RecursiveScheduleTreeVisitor
 
   /// By default, recursively visit the child nodes.
   RetTy visitNode(isl::schedule_node Node, Args... args) {
-    isl_size NumChildren = Node.n_children().release();
-    for (isl_size i = 0; i < NumChildren; i += 1)
+    for (unsigned i : rangeIslSize(0, Node.n_children()))
       getDerived().visit(Node.child(i), std::forward<Args>(args)...);
     return RetTy();
   }
@@ -178,6 +178,9 @@ isl::schedule applyFullUnroll(isl::schedule_node BandToUnroll);
 /// Replace the AST band @p BandToUnroll by a partially unrolled equivalent.
 isl::schedule applyPartialUnroll(isl::schedule_node BandToUnroll, int Factor);
 
+/// Loop-distribute the band @p BandToFission as much as possible.
+isl::schedule applyMaxFission(isl::schedule_node BandToFission);
+
 /// Build the desired set of partial tile prefixes.
 ///
 /// We build a set of partial tile prefixes, which are prefixes of the vector
@@ -205,7 +208,7 @@ isl::set getPartialTilePrefixes(isl::set ScheduleRange, int VectorWidth);
 ///                      belong to the current band node.
 /// @param OutDimsNum    A number of dimensions that should belong to
 ///                      the current band node.
-isl::union_set getIsolateOptions(isl::set IsolateDomain, isl_size OutDimsNum);
+isl::union_set getIsolateOptions(isl::set IsolateDomain, unsigned OutDimsNum);
 
 /// Create an isl::union_set, which describes the specified option for the
 /// dimension of the current node.
@@ -236,6 +239,14 @@ isl::schedule_node tileNode(isl::schedule_node Node, const char *Identifier,
 isl::schedule_node applyRegisterTiling(isl::schedule_node Node,
                                        llvm::ArrayRef<int> TileSizes,
                                        int DefaultTileSize);
+
+/// Apply greedy fusion. That is, fuse any loop that is possible to be fused
+/// top-down.
+///
+/// @param Sched  Sched tree to fuse all the loops in.
+/// @param Deps   Validity constraints that must be preserved.
+isl::schedule applyGreedyFusion(isl::schedule Sched,
+                                const isl::union_map &Deps);
 
 } // namespace polly
 

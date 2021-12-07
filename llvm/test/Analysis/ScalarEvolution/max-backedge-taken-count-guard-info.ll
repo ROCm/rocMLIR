@@ -911,7 +911,7 @@ define void @crash(i8* %ptr) {
 ; CHECK-NEXT:    %lastout.2271 = phi i8* [ %incdec.ptr126, %while.body125 ], [ %ptr, %while.end117 ]
 ; CHECK-NEXT:    --> {%ptr,+,1}<nuw><%while.body125> U: full-set S: full-set Exits: {(-2 + (-1 * (ptrtoint i8* %ptr to i64)) + %ptr),+,-1}<nw><%while.cond111> LoopDispositions: { %while.body125: Computable }
 ; CHECK-NEXT:    %incdec.ptr126 = getelementptr inbounds i8, i8* %lastout.2271, i64 1
-; CHECK-NEXT:    --> {(1 + %ptr)<nuw>,+,1}<nuw><%while.body125> U: [1,0) S: [1,0) Exits: {(-1 + (-1 * (ptrtoint i8* %ptr to i64)) + %ptr),+,-1}<nw><%while.cond111> LoopDispositions: { %while.body125: Computable }
+; CHECK-NEXT:    --> {(1 + %ptr),+,1}<nuw><%while.body125> U: full-set S: full-set Exits: {(-1 + (-1 * (ptrtoint i8* %ptr to i64)) + %ptr),+,-1}<nw><%while.cond111> LoopDispositions: { %while.body125: Computable }
 ; CHECK-NEXT:  Determining loop execution counts for: @crash
 ; CHECK-NEXT:  Loop %while.body125: backedge-taken count is {(-2 + (-1 * (ptrtoint i8* %ptr to i64))),+,-1}<nw><%while.cond111>
 ; CHECK-NEXT:  Loop %while.body125: max backedge-taken count is -2
@@ -1274,6 +1274,42 @@ define void @optimized_range_check_unsigned(i16* %pred, i32 %N) {
 entry:
   %N.off = add i32 %N, -1
   %cmp = icmp ult i32 %N.off, 7
+  br i1 %cmp, label %loop, label %exit
+
+loop:
+  %iv = phi i32 [ 0, %entry ], [ %iv.next, %loop ]
+  %gep = getelementptr inbounds i16, i16* %pred, i32 %iv
+  store i16 0, i16* %gep, align 2
+  %iv.next = add nuw nsw i32 %iv, 1
+  %ec = icmp eq i32 %iv.next, %N
+  br i1 %ec, label %exit, label %loop
+
+exit:
+  ret void
+}
+
+; Same as @optimized_range_check_unsigned, but with the icmp operands swapped.
+define void @optimized_range_check_unsigned_icmp_ops_swapped(i16* %pred, i32 %N) {
+; CHECK-LABEL: 'optimized_range_check_unsigned_icmp_ops_swapped'
+; CHECK-NEXT:  Classifying expressions for: @optimized_range_check_unsigned_icmp_ops_swapped
+; CHECK-NEXT:    %N.off = add i32 %N, -1
+; CHECK-NEXT:    --> (-1 + %N) U: full-set S: full-set
+; CHECK-NEXT:    %iv = phi i32 [ 0, %entry ], [ %iv.next, %loop ]
+; CHECK-NEXT:    --> {0,+,1}<nuw><nsw><%loop> U: [0,7) S: [0,7) Exits: (-1 + %N) LoopDispositions: { %loop: Computable }
+; CHECK-NEXT:    %gep = getelementptr inbounds i16, i16* %pred, i32 %iv
+; CHECK-NEXT:    --> {%pred,+,2}<nuw><%loop> U: full-set S: full-set Exits: ((2 * (zext i32 (-1 + %N) to i64))<nuw><nsw> + %pred) LoopDispositions: { %loop: Computable }
+; CHECK-NEXT:    %iv.next = add nuw nsw i32 %iv, 1
+; CHECK-NEXT:    --> {1,+,1}<nuw><nsw><%loop> U: [1,8) S: [1,8) Exits: %N LoopDispositions: { %loop: Computable }
+; CHECK-NEXT:  Determining loop execution counts for: @optimized_range_check_unsigned_icmp_ops_swapped
+; CHECK-NEXT:  Loop %loop: backedge-taken count is (-1 + %N)
+; CHECK-NEXT:  Loop %loop: max backedge-taken count is 6
+; CHECK-NEXT:  Loop %loop: Predicated backedge-taken count is (-1 + %N)
+; CHECK-NEXT:   Predicates:
+; CHECK:       Loop %loop: Trip multiple is 1
+;
+entry:
+  %N.off = add i32 %N, -1
+  %cmp = icmp ugt i32 7, %N.off
   br i1 %cmp, label %loop, label %exit
 
 loop:

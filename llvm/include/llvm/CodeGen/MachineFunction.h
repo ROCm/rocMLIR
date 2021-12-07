@@ -149,6 +149,15 @@ public:
   //  all sizes attached to them have been eliminated.
   // TiedOpsRewritten: The twoaddressinstruction pass will set this flag, it
   //  means that tied-def have been rewritten to meet the RegConstraint.
+  // FailsVerification: Means that the function is not expected to pass machine
+  //  verification. This can be set by passes that introduce known problems that
+  //  have not been fixed yet.
+  // TracksDebugUserValues: Without this property enabled, debug instructions
+  // such as DBG_VALUE are allowed to reference virtual registers even if those
+  // registers do not have a definition. With the property enabled virtual
+  // registers must only be used if they have a definition. This property
+  // allows earlier passes in the pipeline to skip updates of `DBG_VALUE`
+  // instructions to save compile time.
   enum class Property : unsigned {
     IsSSA,
     NoPHIs,
@@ -159,7 +168,9 @@ public:
     RegBankSelected,
     Selected,
     TiedOpsRewritten,
-    LastProperty = TiedOpsRewritten,
+    FailsVerification,
+    TracksDebugUserValues,
+    LastProperty = TracksDebugUserValues,
   };
 
   bool hasProperty(Property P) const {
@@ -540,6 +551,10 @@ public:
   /// instruction referencing.
   bool useDebugInstrRef() const;
 
+  /// A reserved operand number representing the instructions memory operand,
+  /// for instructions that have a stack spill fused into them.
+  const static unsigned int DebugOperandMemNumber;
+
   MachineFunction(Function &F, const LLVMTargetMachine &Target,
                   const TargetSubtargetInfo &STI, unsigned FunctionNum,
                   MachineModuleInfo &MMI);
@@ -875,7 +890,7 @@ public:
 
   /// CreateMachineInstr - Allocate a new MachineInstr. Use this instead
   /// of `new MachineInstr'.
-  MachineInstr *CreateMachineInstr(const MCInstrDesc &MCID, const DebugLoc &DL,
+  MachineInstr *CreateMachineInstr(const MCInstrDesc &MCID, DebugLoc DL,
                                    bool NoImplicit = false);
 
   /// Create a new MachineInstr which is a copy of \p Orig, identical in all
@@ -930,7 +945,8 @@ public:
                                           int64_t Offset, LLT Ty);
   MachineMemOperand *getMachineMemOperand(const MachineMemOperand *MMO,
                                           int64_t Offset, uint64_t Size) {
-    return getMachineMemOperand(MMO, Offset, LLT::scalar(8 * Size));
+    return getMachineMemOperand(
+        MMO, Offset, Size == ~UINT64_C(0) ? LLT() : LLT::scalar(8 * Size));
   }
 
   /// getMachineMemOperand - Allocate a new MachineMemOperand by copying
