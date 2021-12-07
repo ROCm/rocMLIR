@@ -5,6 +5,7 @@ func @miopen_blockwise_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %mat
   %c0f = constant 0.0 : f32
   %vectorC0 = splat %c0f : vector<32xf32>
   %vectorC1 = splat %c0f : vector<32xf32>
+  // CHECK:  miopen.xdlops_gemm_v2
   %vectorD0, %vectorD1 = miopen.blockwise_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0, %vectorC1) {
     m = 256,
     n = 256,

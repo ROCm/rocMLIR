@@ -1,10 +1,12 @@
-// RUN: miopen-opt -miopen-lowering-step5 %s | FileCheck %s
+// RUN: miopen-opt -miopen-lowering-step4 %s | FileCheck %s
 
 func @miopen_xdlops_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>, %bufferA : memref<4xf32, 5>, %bufferB : memref<4xf32, 5>) -> (vector<32xf32>, vector<32xf32>) {
   %c0 = constant 0 : index
   %c0f = constant 0.0 : f32
   %vectorC0 = splat %c0f : vector<32xf32>
   %vectorC1 = splat %c0f : vector<32xf32>
+  // CHECK: miopen.mfma_v2
+  // CHECK-NEXT: miopen.mfma_v2
   %vectorD0, %vectorD1 = miopen.xdlops_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0, %vectorC1) {
     m = 256,
     n = 256,
