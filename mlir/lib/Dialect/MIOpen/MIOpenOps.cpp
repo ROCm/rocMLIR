@@ -119,7 +119,8 @@ ArrayAttr TransformOp::buildMemRefShapeAttr(OpBuilder &b,
 //===----------------------------------------------------------------------===//
 
 static LogicalResult verify(ThreadwiseCopyOp op) {
-  auto coords = op.sourceAndDestCoord();
+  auto sourceCoord = op.sourceCoord();
+  auto destCoord = op.destCoord();
   auto sourceType = op.source().getType().cast<MemRefType>();
   auto destType = op.dest().getType().cast<MemRefType>();
   auto sourceRank = sourceType.getRank();
@@ -170,10 +171,15 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
     }
   }
 
-  if (coords.size() != expectedSourceCoords + expectedDestCoords)
+  if (sourceCoord.size() != expectedSourceCoords)
     return op.emitError(
         "Number of coordinates supplied doesn't match the rank, or affine maps "
-        "of source and destination memrefs");
+        "of source memref");
+  if (destCoord.size() != expectedSourceCoords)
+    return op.emitError(
+        "Number of coordinates supplied doesn't match the rank, or affine maps "
+        "of destination memref");
+
   return success();
 }
 

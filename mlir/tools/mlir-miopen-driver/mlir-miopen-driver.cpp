@@ -16,6 +16,7 @@
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIOpen/Pipeline.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 #include "mlir/IR/Attributes.h"
@@ -2496,25 +2497,6 @@ static void populateTuningPipeline(PassManager &pm,
                                                            perfConfig));
 }
 
-static void populateDefaultLoweringPipeline(PassManager &pm,
-                                            const std::string &perfConfig) {
-  // Passes for lowering MIOpen dialect.
-  populateTuningPipeline(pm, perfConfig);
-  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep1Pass());
-  pm.addPass(mlir::miopen::createAffineTransformPass());
-  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep2Pass());
-  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep3Pass());
-  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep4Pass());
-  pm.addPass(mlir::miopen::createLowerMIOpenOpsStep5Pass());
-  pm.addPass(mlir::createLowerMIOpenOpsToGPUPass());
-  // pm.addPass(mlir::createGpuKernelOutliningPass());
-
-  // Passes for lowering linalg dialect.
-  pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
-  pm.addPass(mlir::createLowerAffinePass());
-  pm.addPass(mlir::createLowerToCFGPass());
-}
-
 static LogicalResult runMLIRPasses(ModuleOp &module,
                                    mlir::PassPipelineCLParser &passPipeline,
                                    const std::string &perfConfig) {
@@ -2531,10 +2513,10 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
       populateTuningPipeline(pm, perfConfig);
     } else if (pipeline == "gpu") {
       // Set up the default lowering pipeline which goes down to GPU dialect.
-      populateDefaultLoweringPipeline(pm, perfConfig);
+      miopen::addPipeline(pm, perfConfig);
     } else if (pipeline == "rocdl") {
       // Set up the lowering pipeline which goes down to ROCDL dialect.
-      populateDefaultLoweringPipeline(pm, perfConfig);
+      miopen::addPipeline(pm, perfConfig);
       pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
     }
   } else {
@@ -2667,7 +2649,7 @@ int main(int argc, char **argv) {
       for (int i = 0; i < kernelCount; ++i) {
         std::string kName = kernelBaseName + std::to_string(i);
         conv2dGenerator.setKernelName(kName);
-        if (failed(conv2dGenerator.genConvModule(module, builder, i))) {
+        if (failed(conv2dGenerator.genConvModule(module, i))) {
           llvm::errs() << "Module population failed.\n";
           exit(1);
         }
@@ -2675,7 +2657,7 @@ int main(int argc, char **argv) {
       }
     } else {
       // generate a specific kernel (kernel_id >= 0)
-      if (failed(conv2dGenerator.genConvModule(module, builder))) {
+      if (failed(conv2dGenerator.genConvModule(module))) {
         llvm::errs() << "Module population failed.\n";
         exit(1);
       }
@@ -2718,7 +2700,7 @@ int main(int argc, char **argv) {
       for (int i = 0; i < kernelCount; ++i) {
         std::string kName = kernelBaseName + std::to_string(1000 + i);
         conv2dGenerator.setKernelName(kName);
-        if (failed(conv2dGenerator.genConvModule(module, builder, i))) {
+        if (failed(conv2dGenerator.genConvModule(module, i))) {
           llvm::errs() << "Module population failed.\n";
           exit(1);
         }
@@ -2728,7 +2710,7 @@ int main(int argc, char **argv) {
       // generate a specific kernel (kernel_id >= 0)
       std::string kName = genConfig.kernelName + std::to_string(1000);
       conv2dGenerator.setKernelName(kName);
-      if (failed(conv2dGenerator.genConvModule(module, builder))) {
+      if (failed(conv2dGenerator.genConvModule(module))) {
         llvm::errs() << "Module population failed.\n";
         exit(1);
       }
