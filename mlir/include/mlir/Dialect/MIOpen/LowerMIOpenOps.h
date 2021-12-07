@@ -267,11 +267,13 @@ inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc, Type type) {
   Value retValue;
 
   if (auto vecType = type.dyn_cast<VectorType>()) {
-    Attribute constValue = b.getFloatAttr(elementType, zero);
+    Attribute constValue;
     if (auto intType = elementType.dyn_cast<IntegerType>()) {
       auto intZero = zero.bitcastToAPInt();
       assert(intType.getIntOrFloatBitWidth() == intZero.getBitWidth());
       constValue = b.getIntegerAttr(elementType, intZero);
+    } else {
+      constValue = b.getFloatAttr(elementType, zero);
     }
     llvm::SmallVector<Attribute> constValues;
     std::fill_n(std::back_inserter(constValues), vecType.getNumElements(),
