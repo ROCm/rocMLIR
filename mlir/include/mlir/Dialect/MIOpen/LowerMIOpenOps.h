@@ -830,8 +830,8 @@ inline void emitNaiveTensorCopyLogic(
       // Issue scalar load.
       Value scalarValue =
           b.create<memref::LoadOp>(loc, sourceElementType, source, srcLowerIndices);
-      srcUpperIndices[sourceCoord.size() - 1] =
-          b.create<AddIOp>(loc, srcUpperIndices[sourceCoord.size() - 1], oneConstantOp);
+      srcUpperIndices[sourceCoord.size() - 1] = b.create<AddIOp>(
+          loc, srcUpperIndices[sourceCoord.size() - 1], oneConstantOp);
       // Convert from sourceElementType to destElementType if necessary.
       Value convertedScalarValue = createTypeConversionOp(
           b, loc, scalarValue, sourceElementType, destElementType);
@@ -849,14 +849,14 @@ inline void emitNaiveTensorCopyLogic(
       // Store to dest.
       // Issue scalar store.
       b.create<memref::StoreOp>(loc, convertedScalarValue, dest, destLowerIndices);
-      destUpperIndices[destCoord.size() - 1] =
-          b.create<AddIOp>(loc, destUpperIndices[destCoord.size() - 1], oneConstantOp);
+      destUpperIndices[destCoord.size() - 1] = b.create<AddIOp>(
+          loc, destUpperIndices[destCoord.size() - 1], oneConstantOp);
 
     } // ivi
-    srcUpperIndices[sourceCoord.size() - 2] =
-        b.create<AddIOp>(loc, srcUpperIndices[sourceCoord.size() - 2], oneConstantOp);
-    destUpperIndices[destCoord.size() - 2] =
-        b.create<AddIOp>(loc, destUpperIndices[destCoord.size() - 2], oneConstantOp);
+    srcUpperIndices[sourceCoord.size() - 2] = b.create<AddIOp>(
+        loc, srcUpperIndices[sourceCoord.size() - 2], oneConstantOp);
+    destUpperIndices[destCoord.size() - 2] = b.create<AddIOp>(
+        loc, destUpperIndices[destCoord.size() - 2], oneConstantOp);
   }   // ivo
 }
 
@@ -6319,9 +6319,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     SmallVector<Value, 4> blockwiseLoadACoords;
     if (KPack > 1) {
-      blockwiseLoadACoords = { GemmBlockCoord_G_i32, GemmABlockCopySourceCoord_Z_i32, GemmABlockCopySourceCoord_Y_i32, GemmABlockCopySourceCoord_X_i32};
+      blockwiseLoadACoords = {
+          GemmBlockCoord_G_i32, GemmABlockCopySourceCoord_Z_i32,
+          GemmABlockCopySourceCoord_Y_i32, GemmABlockCopySourceCoord_X_i32};
     } else {
-      blockwiseLoadACoords = { GemmBlockCoord_G_i32, GemmABlockCopySourceCoord_Y_i32, GemmABlockCopySourceCoord_X_i32};
+      blockwiseLoadACoords = {GemmBlockCoord_G_i32,
+                              GemmABlockCopySourceCoord_Y_i32,
+                              GemmABlockCopySourceCoord_X_i32};
     }
     // Emit blockwise_load for matrix A.
     auto blockwiseLoadA = b.create<miopen::BlockwiseLoadOp>(
@@ -6334,9 +6338,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     SmallVector<Value, 4> blockwiseStoreACoords;
     if (KPack > 1) {
-      blockwiseStoreACoords = {zeroConstantI32Op, GemmABlockCopyDestCoord_Z_i32, GemmABlockCopyDestCoord_Y_i32, GemmABlockCopyDestCoord_X_i32};
+      blockwiseStoreACoords = {zeroConstantI32Op, GemmABlockCopyDestCoord_Z_i32,
+                               GemmABlockCopyDestCoord_Y_i32,
+                               GemmABlockCopyDestCoord_X_i32};
     } else {
-      blockwiseStoreACoords = {zeroConstantI32Op, GemmABlockCopyDestCoord_Y_i32, GemmABlockCopyDestCoord_X_i32};
+      blockwiseStoreACoords = {zeroConstantI32Op, GemmABlockCopyDestCoord_Y_i32,
+                               GemmABlockCopyDestCoord_X_i32};
     }
     // Emit blockwise_store for matrix A.
     auto blockwiseStoreA = b.create<miopen::BlockwiseStoreOp>(
@@ -6350,9 +6357,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     SmallVector<Value, 4> blockwiseLoadBCoords;
     if (KPack > 1) {
-      blockwiseLoadBCoords = { GemmBlockCoord_G_i32, GemmBBlockCopySourceCoord_Z_i32, GemmBBlockCopySourceCoord_Y_i32, GemmBBlockCopySourceCoord_X_i32};
+      blockwiseLoadBCoords = {
+          GemmBlockCoord_G_i32, GemmBBlockCopySourceCoord_Z_i32,
+          GemmBBlockCopySourceCoord_Y_i32, GemmBBlockCopySourceCoord_X_i32};
     } else {
-      blockwiseLoadBCoords = { GemmBlockCoord_G_i32, GemmBBlockCopySourceCoord_Y_i32, GemmBBlockCopySourceCoord_X_i32};
+      blockwiseLoadBCoords = {GemmBlockCoord_G_i32,
+                              GemmBBlockCopySourceCoord_Y_i32,
+                              GemmBBlockCopySourceCoord_X_i32};
     }
     // Emit blockwise_load for matrix B.
     auto blockwiseLoadB = b.create<miopen::BlockwiseLoadOp>(
@@ -6366,9 +6377,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     SmallVector<Value, 4> blockwiseStoreBCoords;
     if (KPack > 1) {
-      blockwiseStoreBCoords = {zeroConstantI32Op, GemmBBlockCopyDestCoord_Z_i32, GemmBBlockCopyDestCoord_Y_i32, GemmBBlockCopyDestCoord_X_i32};
+      blockwiseStoreBCoords = {zeroConstantI32Op, GemmBBlockCopyDestCoord_Z_i32,
+                               GemmBBlockCopyDestCoord_Y_i32,
+                               GemmBBlockCopyDestCoord_X_i32};
     } else {
-      blockwiseStoreBCoords = {zeroConstantI32Op, GemmBBlockCopyDestCoord_Y_i32, GemmBBlockCopyDestCoord_X_i32};
+      blockwiseStoreBCoords = {zeroConstantI32Op, GemmBBlockCopyDestCoord_Y_i32,
+                               GemmBBlockCopyDestCoord_X_i32};
     }
     // Emit blockwise_store for matrix B.
     auto blockwiseStoreB = b.create<miopen::BlockwiseStoreOp>(
@@ -7500,9 +7514,13 @@ struct GridwiseGemmV2RewritePattern
 
     SmallVector<Value, 4> blockwiseLoadACoords;
     if (KPack > 1) {
-      blockwiseLoadACoords = {GemmBlockCoord_G_i32, GemmABlockCopySourceCoord_Z_i32, GemmABlockCopySourceCoord_Y_i32, GemmABlockCopySourceCoord_X_i32};
+      blockwiseLoadACoords = {
+          GemmBlockCoord_G_i32, GemmABlockCopySourceCoord_Z_i32,
+          GemmABlockCopySourceCoord_Y_i32, GemmABlockCopySourceCoord_X_i32};
     } else {
-      blockwiseLoadACoords = {GemmBlockCoord_G_i32, GemmABlockCopySourceCoord_Y_i32, GemmABlockCopySourceCoord_X_i32};
+      blockwiseLoadACoords = {GemmBlockCoord_G_i32,
+                              GemmABlockCopySourceCoord_Y_i32,
+                              GemmABlockCopySourceCoord_X_i32};
     }
     // Emit blockwise_load for matrix A.
     auto blockwiseLoadA = b.create<miopen::BlockwiseLoadOp>(
@@ -7515,9 +7533,12 @@ struct GridwiseGemmV2RewritePattern
 
     SmallVector<Value, 4> blockwiseStoreACoords;
     if (KPack > 1) {
-      blockwiseStoreACoords = {zeroConstantI32Op, GemmABlockCopyDestCoord_Z_i32, GemmABlockCopyDestCoord_Y_i32, GemmABlockCopyDestCoord_X_i32};
+      blockwiseStoreACoords = {zeroConstantI32Op, GemmABlockCopyDestCoord_Z_i32,
+                               GemmABlockCopyDestCoord_Y_i32,
+                               GemmABlockCopyDestCoord_X_i32};
     } else {
-      blockwiseStoreACoords = {zeroConstantI32Op, GemmABlockCopyDestCoord_Y_i32, GemmABlockCopyDestCoord_X_i32};
+      blockwiseStoreACoords = {zeroConstantI32Op, GemmABlockCopyDestCoord_Y_i32,
+                               GemmABlockCopyDestCoord_X_i32};
     }
     // Emit blockwise_store for matrix A.
     auto blockwiseStoreA = b.create<miopen::BlockwiseStoreOp>(
@@ -7531,9 +7552,13 @@ struct GridwiseGemmV2RewritePattern
 
     SmallVector<Value, 4> blockwiseLoadBCoords;
     if (KPack > 1) {
-      blockwiseLoadBCoords = {GemmBlockCoord_G_i32, GemmBBlockCopySourceCoord_Z_i32, GemmBBlockCopySourceCoord_Y_i32, GemmBBlockCopySourceCoord_X_i32};
+      blockwiseLoadBCoords = {
+          GemmBlockCoord_G_i32, GemmBBlockCopySourceCoord_Z_i32,
+          GemmBBlockCopySourceCoord_Y_i32, GemmBBlockCopySourceCoord_X_i32};
     } else {
-      blockwiseLoadBCoords = {GemmBlockCoord_G_i32, GemmBBlockCopySourceCoord_Y_i32, GemmBBlockCopySourceCoord_X_i32};
+      blockwiseLoadBCoords = {GemmBlockCoord_G_i32,
+                              GemmBBlockCopySourceCoord_Y_i32,
+                              GemmBBlockCopySourceCoord_X_i32};
     }
     // Emit blockwise_load for matrix B.
     auto blockwiseLoadB = b.create<miopen::BlockwiseLoadOp>(
@@ -7546,9 +7571,12 @@ struct GridwiseGemmV2RewritePattern
 
     SmallVector<Value, 4> blockwiseStoreBCoords;
     if (KPack > 1) {
-      blockwiseStoreBCoords = {zeroConstantI32Op, GemmBBlockCopyDestCoord_Z_i32, GemmBBlockCopyDestCoord_Y_i32, GemmBBlockCopyDestCoord_X_i32};
+      blockwiseStoreBCoords = {zeroConstantI32Op, GemmBBlockCopyDestCoord_Z_i32,
+                               GemmBBlockCopyDestCoord_Y_i32,
+                               GemmBBlockCopyDestCoord_X_i32};
     } else {
-      blockwiseStoreBCoords = {zeroConstantI32Op, GemmBBlockCopyDestCoord_Y_i32, GemmBBlockCopyDestCoord_X_i32};
+      blockwiseStoreBCoords = {zeroConstantI32Op, GemmBBlockCopyDestCoord_Y_i32,
+                               GemmBBlockCopyDestCoord_X_i32};
     }
     // Emit blockwise_store for matrix B.
     auto blockwiseStoreB = b.create<miopen::BlockwiseStoreOp>(
@@ -8331,33 +8359,31 @@ struct BlockwiseGemmRewritePattern
     SmallVector<Value, 4> matrixAThreadwiseCopySourceCoords;
     if (KPack > 1) {
       matrixAThreadwiseCopySourceCoords = {
-        zeroConstantI32Op,
-        zeroConstantI32Op, iv_i32,
-        lab.create<AddIOp>(
-            loc,
-            lab.create<MulIOp>(loc, iva_i32, MPerLevel1ClusterConstantI32Op),
-            lab.create<IndexCastOp>(loc, op.threadOffsetA(),
-                                    lab.getIntegerType(32)))};
+          zeroConstantI32Op, zeroConstantI32Op, iv_i32,
+          lab.create<AddIOp>(
+              loc,
+              lab.create<MulIOp>(loc, iva_i32, MPerLevel1ClusterConstantI32Op),
+              lab.create<IndexCastOp>(loc, op.threadOffsetA(),
+                                      lab.getIntegerType(32)))};
     } else {
       matrixAThreadwiseCopySourceCoords = {
-        zeroConstantI32Op, iv_i32,
-        lab.create<AddIOp>(
-            loc,
-            lab.create<MulIOp>(loc, iva_i32, MPerLevel1ClusterConstantI32Op),
-            lab.create<IndexCastOp>(loc, op.threadOffsetA(),
-                                    lab.getIntegerType(32)))};
+          zeroConstantI32Op, iv_i32,
+          lab.create<AddIOp>(
+              loc,
+              lab.create<MulIOp>(loc, iva_i32, MPerLevel1ClusterConstantI32Op),
+              lab.create<IndexCastOp>(loc, op.threadOffsetA(),
+                                      lab.getIntegerType(32)))};
     }
 
     SmallVector<Value, 4> matrixAThreadwiseCopyDestCoords;
     if (KPack > 1) {
       matrixAThreadwiseCopyDestCoords = {
-        zeroConstantI32Op,
-        zeroConstantI32Op, zeroConstantI32Op,
-        lab.create<MulIOp>(loc, iva_i32, MPerThreadSubCConstantI32Op)};
+          zeroConstantI32Op, zeroConstantI32Op, zeroConstantI32Op,
+          lab.create<MulIOp>(loc, iva_i32, MPerThreadSubCConstantI32Op)};
     } else {
       matrixAThreadwiseCopyDestCoords = {
-        zeroConstantI32Op, zeroConstantI32Op,
-        lab.create<MulIOp>(loc, iva_i32, MPerThreadSubCConstantI32Op)};
+          zeroConstantI32Op, zeroConstantI32Op,
+          lab.create<MulIOp>(loc, iva_i32, MPerThreadSubCConstantI32Op)};
     }
 
     // Emit threadwise_copy.
@@ -8384,33 +8410,31 @@ struct BlockwiseGemmRewritePattern
     SmallVector<Value, 4> matrixBThreadwiseCopySourceCoords;
     if (KPack > 1) {
       matrixBThreadwiseCopySourceCoords = {
-      zeroConstantI32Op,
-      zeroConstantI32Op, iv_i32,
-      lbb.create<AddIOp>(
-            loc,
-            lbb.create<MulIOp>(loc, ivb_i32, NPerLevel1ClusterConstantI32Op),
-            lbb.create<IndexCastOp>(loc, op.threadOffsetB(),
-                                    lbb.getIntegerType(32)))};
+          zeroConstantI32Op, zeroConstantI32Op, iv_i32,
+          lbb.create<AddIOp>(
+              loc,
+              lbb.create<MulIOp>(loc, ivb_i32, NPerLevel1ClusterConstantI32Op),
+              lbb.create<IndexCastOp>(loc, op.threadOffsetB(),
+                                      lbb.getIntegerType(32)))};
     } else {
       matrixBThreadwiseCopySourceCoords = {
-      zeroConstantI32Op, iv_i32,
-      lbb.create<AddIOp>(
-            loc,
-            lbb.create<MulIOp>(loc, ivb_i32, NPerLevel1ClusterConstantI32Op),
-            lbb.create<IndexCastOp>(loc, op.threadOffsetB(),
-                                    lbb.getIntegerType(32)))};
+          zeroConstantI32Op, iv_i32,
+          lbb.create<AddIOp>(
+              loc,
+              lbb.create<MulIOp>(loc, ivb_i32, NPerLevel1ClusterConstantI32Op),
+              lbb.create<IndexCastOp>(loc, op.threadOffsetB(),
+                                      lbb.getIntegerType(32)))};
     }
 
     SmallVector<Value, 4> matrixBThreadwiseCopyDestCoords;
     if (KPack > 1) {
       matrixBThreadwiseCopyDestCoords = {
-        zeroConstantI32Op,
-        zeroConstantI32Op, zeroConstantI32Op,
-        lbb.create<MulIOp>(loc, ivb_i32, NPerThreadSubCConstantI32Op)};
+          zeroConstantI32Op, zeroConstantI32Op, zeroConstantI32Op,
+          lbb.create<MulIOp>(loc, ivb_i32, NPerThreadSubCConstantI32Op)};
     } else {
       matrixBThreadwiseCopyDestCoords = {
-        zeroConstantI32Op, zeroConstantI32Op,
-        lbb.create<MulIOp>(loc, ivb_i32, NPerThreadSubCConstantI32Op)};
+          zeroConstantI32Op, zeroConstantI32Op,
+          lbb.create<MulIOp>(loc, ivb_i32, NPerThreadSubCConstantI32Op)};
     }
 
     // Emit threadwise_copy.
