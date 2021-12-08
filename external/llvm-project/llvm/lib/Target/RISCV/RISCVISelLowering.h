@@ -164,12 +164,13 @@ enum NodeType : unsigned {
   VFNCVT_ROD_VL,
   // These nodes match the semantics of the corresponding RVV vector reduction
   // instructions. They produce a vector result which is the reduction
-  // performed over the first vector operand plus the first element of the
-  // second vector operand. The first operand is an unconstrained vector type,
-  // and the result and second operand's types are expected to be the
-  // corresponding full-width LMUL=1 type for the first operand:
-  //   nxv8i8 = vecreduce_add nxv32i8, nxv8i8
-  //   nxv2i32 = vecreduce_add nxv8i32, nxv2i32
+  // performed over the second vector operand plus the first element of the
+  // third vector operand. The first operand is the pass-thru operand. The
+  // second operand is an unconstrained vector type, and the result, first, and
+  // third operand's types are expected to be the corresponding full-width
+  // LMUL=1 type for the second operand:
+  //   nxv8i8 = vecreduce_add nxv8i8, nxv32i8, nxv8i8
+  //   nxv2i32 = vecreduce_add nxv2i32, nxv8i32, nxv2i32
   // The different in types does introduce extra vsetvli instructions but
   // similarly it reduces the number of registers consumed per reduction.
   // Also has a mask and VL operand.
@@ -262,8 +263,8 @@ enum NodeType : unsigned {
   VSEXT_VL,
   VZEXT_VL,
 
-  //  vpopc.m with additional mask and VL operands.
-  VPOPC_VL,
+  //  vcpop.m with additional mask and VL operands.
+  VCPOP_VL,
 
   // Reads value of CSR.
   // The first operand is a chain pointer. The second specifies address of the
@@ -314,6 +315,7 @@ public:
   bool isSExtCheaperThanZExt(EVT SrcVT, EVT DstVT) const override;
   bool isCheapToSpeculateCttz() const override;
   bool isCheapToSpeculateCtlz() const override;
+  bool hasAndNot(SDValue Y) const override;
   bool shouldSinkOperands(Instruction *I,
                           SmallVectorImpl<Use *> &Ops) const override;
   bool isFPImmLegal(const APFloat &Imm, EVT VT,
@@ -512,6 +514,8 @@ public:
 
   bool isLegalElementTypeForRVV(Type *ScalarTy) const;
 
+  bool shouldConvertFpToSat(unsigned Op, EVT FPVT, EVT VT) const override;
+
 private:
   /// RISCVCCAssignFn - This target-specific function extends the default
   /// CCValAssign with additional information used to lower RISC-V calling
@@ -561,8 +565,10 @@ private:
   SDValue LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerINTRINSIC_W_CHAIN(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerINTRINSIC_VOID(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerVPREDUCE(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerVECREDUCE(SDValue Op, SelectionDAG &DAG) const;
-  SDValue lowerVectorMaskVECREDUCE(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerVectorMaskVecReduction(SDValue Op, SelectionDAG &DAG,
+                                      bool IsVP) const;
   SDValue lowerFPVECREDUCE(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerINSERT_SUBVECTOR(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerEXTRACT_SUBVECTOR(SDValue Op, SelectionDAG &DAG) const;
@@ -616,6 +622,14 @@ private:
   /// NOTE: Once BUILD_VECTOR can be custom lowered for all legal vector types,
   /// this override can be removed.
   bool mergeStoresAfterLegalization(EVT VT) const override;
+
+  /// Disable normalizing
+  /// select(N0&N1, X, Y) => select(N0, select(N1, X, Y), Y) and
+  /// select(N0|N1, X, Y) => select(N0, select(N1, X, Y, Y))
+  /// RISCV doesn't have flags so it's better to perform the and/or in a GPR.
+  bool shouldNormalizeToSelectSequence(LLVMContext &, EVT) const override {
+    return false;
+  };
 };
 
 namespace RISCV {

@@ -24,6 +24,12 @@ def int_wasm_memory_grow : Intrinsic<[llvm_anyint_ty],
                                      []>;
 
 //===----------------------------------------------------------------------===//
+// ref.null intrinsics
+//===----------------------------------------------------------------------===//
+def int_wasm_ref_null_extern : Intrinsic<[llvm_externref_ty], [], [IntrNoMem]>;
+def int_wasm_ref_null_func : Intrinsic<[llvm_funcref_ty], [], [IntrNoMem]>;
+
+//===----------------------------------------------------------------------===//
 // Trapping float-to-int conversions
 //===----------------------------------------------------------------------===//
 
@@ -181,6 +187,59 @@ def int_wasm_extadd_pairwise_unsigned :
   Intrinsic<[llvm_anyvector_ty],
             [LLVMSubdivide2VectorType<0>],
             [IntrNoMem, IntrSpeculatable]>;
+
+//===----------------------------------------------------------------------===//
+// Relaxed SIMD intrinsics (experimental)
+//===----------------------------------------------------------------------===//
+
+def int_wasm_fma :
+  Intrinsic<[llvm_anyvector_ty],
+            [LLVMMatchType<0>, LLVMMatchType<0>, LLVMMatchType<0>],
+            [IntrNoMem, IntrSpeculatable]>;
+def int_wasm_fms :
+  Intrinsic<[llvm_anyvector_ty],
+            [LLVMMatchType<0>, LLVMMatchType<0>, LLVMMatchType<0>],
+            [IntrNoMem, IntrSpeculatable]>;
+
+def int_wasm_laneselect :
+  Intrinsic<[llvm_anyvector_ty],
+            [LLVMMatchType<0>, LLVMMatchType<0>, LLVMMatchType<0>],
+            [IntrNoMem, IntrSpeculatable]>;
+
+def int_wasm_relaxed_swizzle :
+  Intrinsic<[llvm_v16i8_ty],
+            [llvm_v16i8_ty, llvm_v16i8_ty],
+            [IntrNoMem, IntrSpeculatable]>;
+
+def int_wasm_relaxed_min :
+  Intrinsic<[llvm_anyvector_ty],
+            [LLVMMatchType<0>, LLVMMatchType<0>],
+            [IntrNoMem, IntrSpeculatable]>;
+def int_wasm_relaxed_max :
+  Intrinsic<[llvm_anyvector_ty],
+            [LLVMMatchType<0>, LLVMMatchType<0>],
+            [IntrNoMem, IntrSpeculatable]>;
+
+def int_wasm_relaxed_trunc_signed:
+  Intrinsic<[llvm_v4i32_ty],
+            [llvm_v4f32_ty],
+            [IntrNoMem, IntrSpeculatable]>;
+
+def int_wasm_relaxed_trunc_unsigned:
+  Intrinsic<[llvm_v4i32_ty],
+            [llvm_v4f32_ty],
+            [IntrNoMem, IntrSpeculatable]>;
+
+def int_wasm_relaxed_trunc_zero_signed:
+  Intrinsic<[llvm_v4i32_ty],
+            [llvm_v2f64_ty],
+            [IntrNoMem, IntrSpeculatable]>;
+
+def int_wasm_relaxed_trunc_zero_unsigned:
+  Intrinsic<[llvm_v4i32_ty],
+            [llvm_v2f64_ty],
+            [IntrNoMem, IntrSpeculatable]>;
+
 
 //===----------------------------------------------------------------------===//
 // Thread-local storage intrinsics

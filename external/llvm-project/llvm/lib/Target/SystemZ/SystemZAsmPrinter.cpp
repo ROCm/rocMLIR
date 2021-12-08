@@ -24,7 +24,7 @@
 #include "llvm/MC/MCInstBuilder.h"
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCStreamer.h"
-#include "llvm/Support/TargetRegistry.h"
+#include "llvm/MC/TargetRegistry.h"
 
 using namespace llvm;
 
@@ -775,9 +775,10 @@ bool SystemZAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
                                               unsigned OpNo,
                                               const char *ExtraCode,
                                               raw_ostream &OS) {
-  SystemZInstPrinter::printAddress(MAI, MI->getOperand(OpNo).getReg(),
-                                   MI->getOperand(OpNo + 1).getImm(),
-                                   MI->getOperand(OpNo + 2).getReg(), OS);
+  SystemZInstPrinter::
+    printAddress(MAI, MI->getOperand(OpNo).getReg(),
+                 MCOperand::createImm(MI->getOperand(OpNo + 1).getImm()),
+                 MI->getOperand(OpNo + 2).getReg(), OS);
   return false;
 }
 

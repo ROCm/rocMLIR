@@ -148,10 +148,8 @@ bool StackProtector::ContainsProtectableArray(Type *Ty, bool &IsLarge,
     return false;
 
   bool NeedsProtector = false;
-  for (StructType::element_iterator I = ST->element_begin(),
-                                    E = ST->element_end();
-       I != E; ++I)
-    if (ContainsProtectableArray(*I, IsLarge, Strong, true)) {
+  for (Type *ET : ST->elements())
+    if (ContainsProtectableArray(ET, IsLarge, Strong, true)) {
       // If the element is a protectable array and is large (>= SSPBufferSize)
       // then we are done.  If the protectable array is not large, then
       // keep looking in case a subsequent element is a large array.
@@ -436,9 +434,8 @@ bool StackProtector::InsertStackProtectors() {
   // protection in SDAG.
   bool SupportsSelectionDAGSP =
       TLI->useStackGuardXorFP() ||
-      (EnableSelectionDAGSP && !TM->Options.EnableFastISel &&
-       !TM->Options.EnableGlobalISel);
-  AllocaInst *AI = nullptr;       // Place on stack that stores the stack guard.
+      (EnableSelectionDAGSP && !TM->Options.EnableFastISel);
+  AllocaInst *AI = nullptr; // Place on stack that stores the stack guard.
 
   for (BasicBlock &BB : llvm::make_early_inc_range(*F)) {
     ReturnInst *RI = dyn_cast<ReturnInst>(BB.getTerminator());
