@@ -10757,6 +10757,10 @@ struct XdlopsGemmV2RewritePattern
       } else {
         KForOuterLoop = K / k_base;
       }
+      llvm::errs() << "KPack: " << KPack << "\n";
+      llvm::errs() << "KForOuterLoop: " << KForOuterLoop << "\n";
+      llvm::errs() << "KRepeats: " << KRepeats << "\n";
+
       auto outerLoop =
           b.create<AffineForOp>(loc, 0, KForOuterLoop, 1, op.vectorCs());
       auto outerLoopb = OpBuilder::atBlockBegin(outerLoop.getBody());
@@ -10785,9 +10789,14 @@ struct XdlopsGemmV2RewritePattern
       if (argTypeVectorLength > 1) {
         Value zeroOp = createZeroConstantFloatOp(innerLoopb, loc, dataType);
 
-        Value offset = innerLoopb.create<AddIOp>(
-            loc, innerLoopb.create<MulIOp>(loc, outerLoopiv, KBaseConstantOp),
+	Value offset;
+	if (KPack > 1) {
+	  offset = innerLoopb.create<MulIOp>(loc, innerLoopiv, KBaseConstantOp);
+	} else {
+          offset = innerLoopb.create<AddIOp>(loc,
+            innerLoopb.create<MulIOp>(loc, outerLoopiv, KBaseConstantOp),
             innerLoopb.create<MulIOp>(loc, innerLoopiv, KBaseConstantOp));
+	}
         if (bufferAElementType.isa<VectorType>()) {
           // bufferA/BElement loaded on LDS are vectors.
           // argA/B to be supplied to MFMA XDLOPS are also vectors.
