@@ -170,7 +170,7 @@ pipeline {
                      }
                      post {
                         always {
-                            deleteDir()
+                            cleanWs()
                         }
                     }
                 }
@@ -214,7 +214,7 @@ pipeline {
                     }
                     post {
                         always {
-                            deleteDir()
+                            cleanWs()
                         }
                     }
                 }
@@ -249,7 +249,7 @@ pipeline {
                                 checkout scm
                                 buildProject('libMLIRMIOpen',
                                              '-DBUILD_FAT_LIBMLIRMIOPEN=ON')
-                                cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/libMLIRMIOpen",\
+                                cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/MIOpenDeps",\
                                 installation: 'InSearchPath', workingDir: 'build'
                             }
                         }
@@ -266,13 +266,11 @@ pipeline {
                                 git branch: 'develop', poll: false,\
                                     url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
                                 sh 'sed -i "/ROCmSoftwarePlatform\\/llvm-project-mlir/d" ./requirements.txt'
-                                cmake arguments: "-P install_deps.cmake --minimum --prefix ${WORKSPACE}/MIOpen/MIOpenDeps",\
+                                cmake arguments: "-P install_deps.cmake --minimum --prefix ${WORKSPACE}/MIOpenDeps",\
                                     installation: "InSearchPath"
-                                sh "cp ${WORKSPACE}/libMLIRMIOpen/lib/libMLIRMIOpen.a ${WORKSPACE}/MIOpen/MIOpenDeps/lib"
-                                sh "cp ${WORKSPACE}/libMLIRMIOpen/include/Miir.h ${WORKSPACE}/MIOpen/MIOpenDeps/include"
                                 buildMIOpen('''-DMIOPEN_USE_MLIR=On
                                         -DMIOPEN_BACKEND=HIP
-                                        -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
+                                        -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpenDeps"
                                         -DMIOPEN_USER_DB_PATH=${WORKSPACE}/MIOpen/build/MIOpenUserDB
                                         -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
                                         ''')
@@ -342,7 +340,7 @@ pipeline {
                     }
                     post {
                         always {
-                            deleteDir()
+                            cleanWs()
                         }
                     }
                 }
@@ -404,7 +402,7 @@ pipeline {
                     }
                     post {
                         always {
-                            deleteDir()
+                            cleanWs()
                         }
                     }
                 }
@@ -480,7 +478,7 @@ pipeline {
                         }
                         post {
                             always {
-                                deleteDir()
+                                cleanWs()
                             }
                         }
                     }
@@ -556,7 +554,7 @@ pipeline {
             }
             post {
                 always {
-                    deleteDir()
+                    cleanWs()
                 }
              }
         }
