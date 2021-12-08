@@ -10757,9 +10757,6 @@ struct XdlopsGemmV2RewritePattern
       } else {
         KForOuterLoop = K / k_base;
       }
-      llvm::errs() << "KPack: " << KPack << "\n";
-      llvm::errs() << "KForOuterLoop: " << KForOuterLoop << "\n";
-      llvm::errs() << "KRepeats: " << KRepeats << "\n";
 
       auto outerLoop =
           b.create<AffineForOp>(loc, 0, KForOuterLoop, 1, op.vectorCs());
