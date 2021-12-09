@@ -38,6 +38,13 @@ LLVM_YAML_IS_STRING_MAP(int)
 // 2 : gemmM or gemmN dimension.
 enum GemmDimensions { GemmG = 0, GemmK = 1, GemmMorN = 2 };
 
+constexpr int64_t gemmCDimG = 0;
+constexpr int64_t gemmCDimM = 1;
+constexpr int64_t gemmCDimN = 2;
+constexpr int64_t gemmCSplitDimM2 = 3;
+constexpr int64_t gemmCSplitDimN = 4;
+constexpr int64_t gemmCSplitDimN2 = 5;
+
 // greatest common divisor, aka highest common factor
 template <typename T> T gcd(T x, T y) {
   if (x == y || x == 0) {
@@ -441,6 +448,8 @@ protected:
 
     // TODO: Allow vectorization group size of 2
     int64_t vectorizationSize = 4;
+    // No swizzling or vectorization for backward data
+    // TODO(kdrewnia): Understand when it might be possible
     if (ConvOpType::Conv2DBwdDataOpType == op) {
       vectorizationSize = 1;
     }
@@ -456,20 +465,20 @@ protected:
     switch (op) {
     case mlir::miopen::Conv2DOpType:
       if (dimIndexVal["ko"].first == 4) {
-        out.gemmVectorDim = 1;
+        out.gemmVectorDim = gemmCDimM;
         out.destVectorDim = 4;
       } else {
-        out.gemmVectorDim = 2;
+        out.gemmVectorDim = gemmCDimN;
         // This relies on assumptions about how we load our data for GEMM
         out.destVectorDim = dimIndexVal["wo"].first;
       }
       break;
     case mlir::miopen::Conv2DBwdWeightOpType:
       if (dimIndexVal["k"].first == 4) {
-        out.gemmVectorDim = 1;
+        out.gemmVectorDim = gemmCDimM;
         out.destVectorDim = 4;
       } else {
-        out.gemmVectorDim = 2;
+        out.gemmVectorDim = gemmCDimN;
         // Backward weight computations fold the {c, y, x} dimensions
         // into N using the native order
         out.destVectorDim = 4;
