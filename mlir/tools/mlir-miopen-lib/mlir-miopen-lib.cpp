@@ -124,7 +124,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
 
   ModuleOp module = handle->getModule();
 
-  if (failed(conv2dGenerator.genConvModule(module))) {
+  if (failed(conv2dGenerator.genConvModule(module, config.kernelId))) {
     return nullptr;
   }
   return handle;

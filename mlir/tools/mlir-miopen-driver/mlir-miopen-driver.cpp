@@ -2646,27 +2646,21 @@ int main(int argc, char **argv) {
 
   // Populate the module.
   if (!populateCpuConvolution.getValue()) {
-    if (genConfig.kernelId < 0) {
-      // generate all sub-kernels, and get corresponding gemmId
-      int kernelCount = conv2dGenerator.getKernelCount();
-      auto knSize = genConfig.kernelName.size();
-      std::string kernelBaseName = genConfig.kernelName.substr(0, knSize - 1);
-      for (int i = 0; i < kernelCount; ++i) {
-        std::string kName = kernelBaseName + std::to_string(i);
-        conv2dGenerator.setKernelName(kName);
-        if (failed(conv2dGenerator.genConvModule(module, i))) {
-          llvm::errs() << "Module population failed.\n";
-          exit(1);
-        }
-        kernels.push_back(kName);
-      }
+    // generate all sub-kernels, and get corresponding gemmId
+    int kernelStart = genConfig.kernelId;
+    int kernelCount = conv2dGenerator.getKernelCount();
+    if (kernelStart < 0) {
+      kernelStart = 0;
     } else {
-      // generate a specific kernel (kernel_id >= 0)
-      if (failed(conv2dGenerator.genConvModule(module))) {
+      kernelCount = kernelStart + 1;
+    }
+    // generate all sub-kernels, and get corresponding gemmId
+    for (int i = kernelStart; i < kernelCount; ++i) {
+      if (failed(conv2dGenerator.genConvModule(module, i))) {
         llvm::errs() << "Module population failed.\n";
         exit(1);
       }
-      kernels.push_back(genConfig.kernelName);
+      kernels.push_back(conv2dGenerator.getKernelFunc().getName().str());
     }
   }
 
@@ -2692,34 +2686,20 @@ int main(int argc, char **argv) {
     // use f32 data type to verify non-f32 or xdlops f32 kernels
     conv2dGenerator.setDataType("f32");
 
-    if (genConfig.kernelId < 0) {
-      // generate all sub-kernels, and get corresponding gemmId
-      int kernelCount = conv2dGenerator.getKernelCount();
-      if (kernelCount > 1000) {
-        llvm::errs() << "Populating gpu kernels for validation failed.\n";
-        exit(1);
-      }
-
-      auto knSize = genConfig.kernelName.size();
-      std::string kernelBaseName = genConfig.kernelName.substr(0, knSize - 1);
-      for (int i = 0; i < kernelCount; ++i) {
-        std::string kName = kernelBaseName + std::to_string(1000 + i);
-        conv2dGenerator.setKernelName(kName);
-        if (failed(conv2dGenerator.genConvModule(module, i))) {
-          llvm::errs() << "Module population failed.\n";
-          exit(1);
-        }
-        kernels_v.push_back(kName);
-      }
+    int kernelStart = genConfig.kernelId;
+    int kernelCount = conv2dGenerator.getKernelCount();
+    if (kernelStart < 0) {
+      kernelStart = 0;
     } else {
-      // generate a specific kernel (kernel_id >= 0)
-      std::string kName = genConfig.kernelName + std::to_string(1000);
-      conv2dGenerator.setKernelName(kName);
-      if (failed(conv2dGenerator.genConvModule(module))) {
+      kernelCount = kernelStart + 1;
+    }
+    // generate all sub-kernels, and get corresponding gemmId
+    for (int i = kernelStart; i < kernelCount; ++i) {
+      if (failed(conv2dGenerator.genConvModule(module, i, true))) {
         llvm::errs() << "Module population failed.\n";
         exit(1);
       }
-      kernels_v.push_back(kName);
+      kernels_v.push_back(conv2dGenerator.getKernelFunc().getName().str());
     }
   }
 

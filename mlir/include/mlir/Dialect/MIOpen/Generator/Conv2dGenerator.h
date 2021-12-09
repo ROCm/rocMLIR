@@ -42,7 +42,7 @@ public:
     std::string inputLayout;
     std::string outputLayout;
 
-    std::string kernelName;
+    std::string kernelBaseName;
 
     int kernelId;
 
@@ -67,10 +67,11 @@ public:
                   const std::string &filterLayout = "kcyx",
                   const std::string &inputLayout = "nchw",
                   const std::string &outputLayout = "nkhw",
-                  const std::string &kernelName = "");
+                  const std::string &kernelBaseName = "");
+
+  Conv2dGenerator(const Config &_config);
 
   const Config &getConfig() const { return config; }
-  void setKernelName(std::string newName);
 
   int getKernelCount() const;
 
@@ -97,7 +98,9 @@ public:
                               int64_t outputHeight, int64_t outputWidth,
                               int64_t filterHeight, int64_t filterWidth);
 
-  LogicalResult genConvModule(ModuleOp &module, int kernel_id = -1);
+  LogicalResult genConvModule(ModuleOp &module, int kernel_id, bool is_verifier = false);
+
+  FuncOp getKernelFunc() const;
 
   template <typename Vector>
   std::string translateLayout(const Vector &src, const Vector &srcSpec,
@@ -130,6 +133,9 @@ private:
 
   // Generator config
   Config config;
+
+  // Generated Kernel Func
+  FuncOp kernelFunc;
 };
 
 } // namespace mlir

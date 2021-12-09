@@ -1,5 +1,6 @@
-// RUN: mlir-miopen-driver -p -prc | FileCheck %s --check-prefix=F32
+// RUN: miopen-gen -p -prc -pr | FileCheck %s --check-prefix=F32
 
+// F32: func @main()
 // F32:  [[RES:%.*]] = memref.cast {{.*}} : memref<{{.*}}> to memref<*xf32>
 // F32-NEXT:    call @print_memref_f32([[RES]]) : (memref<*xf32>) -> () 
 

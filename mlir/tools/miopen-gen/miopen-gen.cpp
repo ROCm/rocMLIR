@@ -198,60 +198,6 @@ static cl::opt<int> paddingWidthRight("padding_w_r",
                                       cl::value_desc("attribute value"),
                                       cl::init(0));
 
-// conv-config
-static cl::opt<std::string> populateConvConfig(
-    "conv-config",
-    cl::desc("Populate full config settings (overrides all specific settings)"),
-    cl::value_desc("config settings"), cl::init(""));
-
-// populate default values
-static cl::opt<bool>
-    populateDefaultValues("p", cl::desc("To populate default values"),
-                          cl::value_desc("To populate default values"),
-                          cl::init(false));
-
-// populate default values
-static cl::opt<bool>
-    noConv("no-conv", cl::desc(""),
-                          cl::value_desc("To "),
-                          cl::init(false));
-
-// populate entry point function for gpu validation
-static cl::opt<std::string> populateValidateEntryPoint(
-    "validate-entry-point",
-    cl::desc("Populate entry point function for validation"),
-    cl::value_desc("Populate entry point function for validation"),
-    cl::init("conv2d_1"));
-
-// use host harness program.
-static cl::opt<bool> useHostHarness(
-    "host", cl::desc("To use host harness"),
-    cl::value_desc("To use host harness"), cl::init(false));
-
-static cl::opt<bool> populateHostHarness(
-    "ph", cl::desc("To populate host harness logic"),
-    cl::value_desc("To populate host harness logic"), cl::init(false));
-
-// populate host validation logic.
-static cl::opt<bool> populateValidation(
-    "pv", cl::desc("To populate host validation logic for conv2d"),
-    cl::value_desc("To populate host validation logic"), cl::init(false));
-
-static cl::opt<bool> populateValidationWithGPU(
-    "pv_with_gpu",
-    cl::desc("To populate host validation logic using gpu kernels"),
-    cl::value_desc("To populate host validation logic"), cl::init(false));
-
-static cl::opt<bool>
-    printResultTensor("pr", cl::desc("To print result tensor for verification"),
-                      cl::value_desc("To print result tensor for verification"),
-                      cl::init(false));
-
-static cl::opt<bool> populateCpuConvolution(
-    "prc", cl::desc("To run cpu conv2d and print results for verification"),
-    cl::value_desc("To run cpu conv2d and print results for verification"),
-    cl::init(false));
-
 // use XDLOPS
 static cl::opt<bool>
     xdlopsV2("x2", cl::desc("To use XDLOPS V2 lowering pipeline"),
@@ -264,6 +210,99 @@ static cl::opt<std::string>
                    cl::value_desc("Data type for convolution"),
                    cl::init("f32"));
 
+// conv-config
+static cl::opt<std::string> populateConvConfig(
+    "conv-config",
+    cl::desc("Populate full config settings (overrides all specific settings)"),
+    cl::value_desc("config settings matching the C-API"), cl::init(""));
+
+// populate default values
+static cl::opt<bool>
+    populateDefaultValues("p", cl::desc("To populate default values"),
+                          cl::value_desc("To populate default values"),
+                          cl::init(false));
+
+//////////////////////////////////////////////////////////////////////////
+////  Host Generator options
+//////////////////////////////////////////////////////////////////////////
+////  * Host harness
+////    * kernel options
+////      * cmd-line def (see above)
+////        * gpu gen
+////        * cpu gen (TBD)
+////      * user defined (input file)
+////    * verifier
+////      * cpu gen
+////      * gpu gen (TBD)
+////      * compare results
+////    * print results
+////      * optionally print inputs
+////    * profiling (TBD)
+////      * plumb thru runner (TBD)
+//////////////////////////////////////////////////////////////////////////
+
+// generate host harness program.
+static cl::opt<bool> genHostHarness("host", cl::desc("To use host harness"),
+                                    cl::value_desc("To use host harness"),
+                                    cl::init(false));
+
+static cl::alias aliasGenHostHarness("ph", cl::aliasopt(genHostHarness));
+
+// populate host validation logic.
+static cl::opt<std::string> genValidation(
+    "verifier", cl::desc("Select verification from: none(default), cpu, gpu"),
+    cl::cb<void, std::string>([](const std::string &v) {
+      if (!v.empty())
+        genHostHarness.setValue(true);
+    }),
+    cl::value_desc("Specify host validation logic"), cl::init(""));
+
+static cl::opt<bool> genCPUValidation("pv", cl::Hidden, cl::init(false),
+                                      cl::Optional,
+                                      cl::cb<void, bool>([](bool v) {
+                                        if (v) {
+                                          genValidation.setValue("cpu");
+                                          genHostHarness.setValue(true);
+                                        }
+                                      }));
+
+static cl::opt<bool> genGPUValidation("pv_with_gpu", cl::Hidden,
+                                      cl::init(false), cl::Optional,
+                                      cl::cb<void, bool>([](bool v) {
+                                        if (v) {
+                                          genValidation.setValue("gpu");
+                                          genHostHarness.setValue(true);
+                                        }
+                                      }));
+
+static cl::opt<bool> genCPUKernel("cpu_kernels",
+                                  cl::desc("Generate CPU kernel for test"),
+                                  cl::init(false), cl::Optional,
+                                  cl::cb<void, bool>([](bool v) {
+                                    if (v)
+                                      genHostHarness.setValue(true);
+                                  }));
+static cl::alias aliasGenCPUKernel("prc", cl::aliasopt(genCPUKernel));
+
+// print results
+static cl::opt<bool> printResults("print_results",
+                                  cl::desc("To print result tensor"),
+                                  cl::init(false));
+static cl::alias aliasPrintResults("pr", cl::aliasopt(printResults));
+
+static cl::opt<bool> printInputs("print_inputs",
+                                 cl::desc("To print input tensors"),
+                                 cl::init(false));
+static cl::alias aliasPrintInputs("pi", cl::aliasopt(printInputs));
+
+static cl::opt<bool>
+    printValidationResults("print_validation_results",
+                           cl::desc("To print result tensor for validation"),
+                           cl::init(false));
+static cl::alias
+    aliasPrintValidationResults("pvr", cl::aliasopt(printValidationResults));
+
+// Input spec
 static cl::opt<std::string> randomSeed(
     "rand",
     cl::desc(
@@ -294,10 +333,21 @@ static cl::opt<int> deviceNum(
                    "Omission leaves current device intact."));
 static cl::alias deviceShort("dev", cl::aliasopt(deviceNum));
 
+////////////////////////////////////////////////////////////////////////////////
+////  Struck KernelIF
+////  - Detected kernel interface
+////    - assumes last param is output
+////////////////////////////////////////////////////////////////////////////////
 struct KernelIF {
   FuncOp func;
   SmallVector<mlir::Type, 8> params;
-  // TODO(capture inputs/outputs)
+
+  // CTOR w/ FuncOp
+  KernelIF(FuncOp _f) : func(_f) {
+    assert(func.getNumResults() == 0);
+    for (auto &paramType : func.getType().getInputs())
+      params.push_back(paramType);
+  }
 };
 
 namespace test {
@@ -736,14 +786,17 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
 }
 
 // Determine the range and seed for the random data generator
-static std::tuple<short, short, int> configRandomTestData() {
-  short min, max;
+static std::tuple<short, short, int> getRandomTestData(int idx, bool isOut) {
+  short min, max = min = (isOut ? 0 : 1);
   int seed = 1;
-  if (randomSeed.getValue() == "none") {
-    min = 1;
-    max = 1;
-  } else {
-    if (randomDataType.getValue() == "int") {
+
+  static auto idxTbl = std::map<std::string, int>{
+      {"both", -1}, {"filter", 0}, {"input", 1}, {"output", 2}};
+  int32_t idx_spec = idxTbl[randomSide.getValue()];
+
+  if (randomSeed.getValue() != "none") {
+    if ((idx_spec >= 0 && idx_spec != idx) || isOut) {
+    } else if (randomDataType.getValue() == "int") {
       // generate random integer in [-5, 5)
       min = -5;
       max = 5;
@@ -777,38 +830,6 @@ static std::string getMemsetFuncName(mlir::Type dataType) {
   return memsetFuncName;
 }
 
-static void generateTensorInitValues(OpBuilder &builder,
-                                     mlir::Value &minValue,
-                                     mlir::Value &maxValue,
-                                     mlir::ConstantOp &seedConstantIntOp) {
-  auto int16Type = builder.getIntegerType(16);
-  auto int32Type = builder.getIntegerType(32);
-  unsigned short zero = 0, one = 1;
-  short min, max;
-  int seed = 1;
-  std::tie(min, max, seed) = configRandomTestData();
-
-  mlir::ConstantOp oneConstantIntOp;
-  if (randomSeed.getValue() != "none" && randomSide.getValue() != "both") {
-    oneConstantIntOp = builder.create<ConstantOp>(
-        builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(one));
-  }
-
-  auto zeroConstantIntOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(zero));
-  auto minConstantIntOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(min));
-  auto maxConstantIntOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(max));
-  seedConstantIntOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), int32Type, builder.getI32IntegerAttr(seed));
-
-  minValue = minConstantIntOp;
-  maxValue = maxConstantIntOp;
-
-  return;
-}
-
 static FuncOp getMemsetFunc(ModuleOp module, mlir::Type elemType) {
   OpBuilder b(module.getContext());
 
@@ -824,27 +845,13 @@ static FuncOp getMemsetFunc(ModuleOp module, mlir::Type elemType) {
       {fiveDimUnknownSizeMemRefType, int16Type, int16Type, int32Type});
 }
 
+static FuncOp
+createCPUConvFunc(ModuleOp module,
+                  const mlir::Conv2dGenerator::Config &genConfig) {
 
-static FuncOp getPrintFunc(ModuleOp module, mlir::Type elemType) {
-  OpBuilder b(module.getContext());
-  StringRef printMemRefFuncName = "print_memref_f32";
-  auto unrankedMemRefType = UnrankedMemRefType::get(elemType, 0);
-  if (elemType.isF16()) {
-    printMemRefFuncName = "print_memref_f16";
-  } else if (elemType.isInteger(16)) {
-    printMemRefFuncName = "print_memref_i16";
-  } else if (elemType.isInteger(32)) {
-    printMemRefFuncName = "print_memref_i32";
-  } else {
-    assert(elemType.isF32());
-  }
-  return makeFuncDecl(module, printMemRefFuncName, {unrankedMemRefType});
-}
+  std::string funcName = miopen::getNameForConvOpType(genConfig.operation);
 
-static FuncOp createCPUConvFunc(ModuleOp module, const KernelIF &kernel,
-                                const mlir::Conv2dGenerator::Config &genConfig) {
-  auto kfunc = kernel.func;
-  std::string funcName = kfunc.getName().str() + "_cpu";
+  funcName += "_cpu";
   FuncOp func = module.lookupSymbol<FuncOp>(funcName);
   if (func) // already exists
     return func;
@@ -1009,6 +1016,8 @@ static FuncOp createCPUConvFunc(ModuleOp module, const KernelIF &kernel,
   std::string mcpuFuncName;
 
   switch (convOpType) {
+  case mlir::miopen::NoOpType:
+    break;
   case mlir::miopen::Conv2DOpType:
     mcpuFuncName = "mcpuConv2d";
     break;
@@ -1043,6 +1052,137 @@ static FuncOp createCPUConvFunc(ModuleOp module, const KernelIF &kernel,
   return func;
 }
 
+const char *getTypeStr(const mlir::Type &type) {
+  if (type.isF32())
+    return "f32";
+  else if (type.isF16())
+    return "f16";
+  else if (type.isInteger(32))
+    return "i32";
+  else if (type.isInteger(16))
+    return "i16";
+  return "na";
+}
+
+static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
+                                const mlir::Type &dstElemType) {
+  OpBuilder b(module.getContext());
+
+  // memcpy_<srcElemType>_<dstElemType>
+  std::string funcName = "_memcpy_";
+  funcName += getTypeStr(srcElemType);
+  funcName += "_";
+  funcName += getTypeStr(dstElemType);
+
+  FuncOp func = module.lookupSymbol<FuncOp>(funcName);
+  if (func) // already exists
+    return func;
+
+  auto loc = b.getUnknownLoc();
+
+  auto rSrcType = MemRefType::get({-1}, srcElemType);
+  auto rDstType = MemRefType::get({-1}, dstElemType);
+
+  // clang-format off
+  // func _memcpy_<srcElemType>_<dstElemType> (%arg0 : memref<?xf32>, %arg1 : memref<?xf16, %arg2 : index) {
+  //   scf.for %i0 = %c0 to %arg2 step %c1 {
+  //     %2 = load %arg0[%i0] : memref<?xf32>
+  //     store %2, %arg1[%i0] : memref<?xf32>
+  //   }
+  // }
+  // clang-format on
+
+  // Emit function definition
+  func = FuncOp::create(
+      loc, funcName,
+      b.getFunctionType({rSrcType, rDstType, b.getIndexType()}, {}));
+
+  module.push_back(func);
+
+  // Create a new block
+  Block *block = func.addEntryBlock();
+  b.setInsertionPoint(block, block->begin());
+
+  auto src = block->getArgument(0);
+  auto dst = block->getArgument(1);
+  auto size = block->getArgument(2);
+
+  auto cst0Op = b.create<ConstantIndexOp>(loc, 0);
+  auto cst1Op = b.create<ConstantIndexOp>(loc, 1);
+
+  auto loop0 = b.create<scf::ForOp>(loc, cst0Op, size, cst1Op);
+  auto bt0 = OpBuilder::atBlockTerminator(loop0.getBody());
+  auto iv0 = loop0.getInductionVar();
+
+  mlir::Value loadOp = bt0.create<memref::LoadOp>(loc, src, ValueRange{iv0});
+  if (srcElemType != dstElemType) {
+    // insert conversion logic
+    // TODO: support bf16
+    assert(!srcElemType.isInteger(16) && !dstElemType.isInteger(16));
+    loadOp = bt0.create<FPExtOp>(loc, loadOp, dstElemType);
+  }
+  bt0.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{iv0});
+
+  b.create<ReturnOp>(loc, ValueRange{});
+
+  return func;
+}
+
+static void emitMemcpy(OpBuilder &b, mlir::Value src, mlir::Value dst) {
+  auto module = b.getBlock()->getParentOp()->getParentOfType<ModuleOp>();
+  auto loc = b.getUnknownLoc();
+
+  auto srcType = src.getType().template dyn_cast<MemRefType>();
+  auto dstType = dst.getType().template dyn_cast<MemRefType>();
+
+  auto srcElemType = srcType.getElementType();
+  auto dstElemType = dstType.getElementType();
+
+  auto memcpyFunc = getMemcpyFuncDecl(module, srcElemType, dstElemType);
+
+  // Emit call to memcopy
+  auto srcFlatType = MemRefType::get({-1}, srcElemType);
+  auto srcFlat =
+      b.create<memref::CastOp>(loc, makeNDMemRef(b, src, 1), srcFlatType);
+  auto dstFlatType = MemRefType::get({-1}, dstElemType);
+  auto dstFlat =
+      b.create<memref::CastOp>(loc, makeNDMemRef(b, dst, 1), dstFlatType);
+
+  auto cstSize = b.create<ConstantIndexOp>(loc, srcType.getNumElements());
+  b.create<CallOp>(loc, memcpyFunc, ValueRange{srcFlat, dstFlat, cstSize});
+}
+
+static void emitPrintTensor(OpBuilder &b, mlir::Value var, bool flag = true) {
+  if (flag) {
+    auto loc = b.getUnknownLoc();
+    auto varType = var.getType().template dyn_cast<MemRefType>();
+    auto elemType = varType.getElementType();
+    auto floatType = b.getF32Type();
+
+    // get print func
+    mlir::Value pvar = var;
+    if (elemType != floatType) {
+      // make copy
+      auto pvarType = MemRefType::get(varType.getShape(), floatType);
+      pvar = b.create<memref::AllocOp>(loc, pvarType);
+      emitMemcpy(b, var, pvar);
+    }
+
+    auto module = b.getBlock()->getParentOp()->getParentOfType<ModuleOp>();
+    auto unrankedMRType = UnrankedMemRefType::get(b.getF32Type(), 0);
+    auto printFunc = makeFuncDecl(module, "print_memref_f32", {unrankedMRType});
+
+    // Emit cast + call print
+    auto printCast = b.create<memref::CastOp>(loc, pvar, unrankedMRType);
+    b.create<CallOp>(loc, printFunc, ValueRange{printCast});
+
+    if (pvar != var) {
+      // dealloc pvar
+      b.create<memref::DeallocOp>(loc, pvar);
+    }
+  }
+}
+
 static FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
                                  const mlir::Conv2dGenerator::Config &genConfig) {
 
@@ -1067,6 +1207,7 @@ static FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   
   SmallVector<int64_t, 5> dims;
   switch (genConfig.operation) {
+  case miopen::NoOpType:
   case miopen::Conv2DOpType:
     dims = genConfig.outputDimension;
     break;
@@ -1187,85 +1328,10 @@ static FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   thenBody.create<memref::StoreOp>(loc, c0ConstantInt32Op, cmpResultAllocOp, ValueRange{c0IndexOp});
 
   // Emit print function call
-  auto unrankedMemRefType = UnrankedMemRefType::get(intType, 0);
-  auto printCast = b.create<memref::CastOp>(loc, cmpResultAllocOp, unrankedMemRefType);
-  b.create<CallOp>(loc, getPrintFunc(module, intType), ValueRange{printCast});
+  emitPrintTensor(b, cmpResultAllocOp);
 
   b.create<ReturnOp>(loc, ValueRange{});
   
-  return func;
-}
-
-const char *getTypeStr(const mlir::Type &type) {
-  if (type.isF32())
-    return "f32";
-  else if (type.isF16())
-    return "f16";
-  else if (type.isInteger(32))
-    return "i32";
-  else if (type.isInteger(16))
-    return "i16";
-  return "na";
-}
-
-static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType, const mlir::Type &dstElemType) {
-  OpBuilder b(module.getContext());
-
-  // memcpy_<srcElemType>_<dstElemType>
-  std::string funcName = "_memcpy_";
-  funcName += getTypeStr(srcElemType);
-  funcName += "_";
-  funcName += getTypeStr(dstElemType);
-
-  FuncOp func = module.lookupSymbol<FuncOp>(funcName);
-  if (func) // already exists
-    return func;
-  
-  auto loc = b.getUnknownLoc();
-
-  auto rSrcType = MemRefType::get({-1}, srcElemType);
-  auto rDstType = MemRefType::get({-1}, dstElemType);
-
-  // clang-format off
-  // func _memcpy_<srcElemType>_<dstElemType> (%arg0 : memref<?xf32>, %arg1 : memref<?xf16, %arg2 : index) {
-  //   scf.for %i0 = %c0 to %arg2 step %c1 {
-  //     %2 = load %arg0[%i0] : memref<?xf32>
-  //     store %2, %arg1[%i0] : memref<?xf32>
-  //   }
-  // }
-  // clang-format on
-
-  // Emit function definition
-  func = FuncOp::create(loc, funcName, b.getFunctionType({rSrcType, rDstType, b.getIndexType()}, {}));
-
-  module.push_back(func);
-
-  // Create a new block
-  Block *block = func.addEntryBlock();
-  b.setInsertionPoint(block, block->begin());
-
-  auto src = block->getArgument(0);
-  auto dst = block->getArgument(1);
-  auto size = block->getArgument(2);
-
-  auto cst0Op = b.create<ConstantIndexOp>(loc, 0);
-  auto cst1Op = b.create<ConstantIndexOp>(loc, 1);
-
-  auto loop0 = b.create<scf::ForOp>(loc, cst0Op, size, cst1Op);
-  auto bt0 = OpBuilder::atBlockTerminator(loop0.getBody());
-  auto iv0 = loop0.getInductionVar();
-
-  mlir::Value loadOp = bt0.create<memref::LoadOp>(loc, src, ValueRange{iv0});
-  if (srcElemType != dstElemType) {
-    // insert conversion logic
-    // TODO: support bf16
-    assert(!srcElemType.isInteger(16) && !dstElemType.isInteger(16));
-    loadOp = bt0.create<FPExtOp>(loc, loadOp, dstElemType);
-  }
-  bt0.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{iv0});
-
-  b.create<ReturnOp>(loc, ValueRange{});
-
   return func;
 }
 
@@ -1285,107 +1351,148 @@ populateHostHarnessLogic(ModuleOp &module, const std::list<KernelIF> &kernels,
   Block *block = func.addEntryBlock();
   b.setInsertionPoint(block, block->begin());
 
+  static auto outTable =
+      std::map<miopen::ConvOpType, int>{{miopen::NoOpType, -1},
+                                        {miopen::Conv2DOpType, 2},
+                                        {miopen::Conv2DBwdDataOpType, 1},
+                                        {miopen::Conv2DBwdWeightOpType, 0}};
+  int32_t outIdx = outTable[genConfig.operation];
+
+  std::map<short, mlir::Value> i16vals;
+  auto getI16Val = [&](short v) {
+    if (i16vals.find(v) == i16vals.end()) {
+      auto i16Type = b.getIntegerType(16);
+      i16vals.emplace(
+          v, b.create<ConstantOp>(loc, i16Type, b.getI16IntegerAttr(v)));
+    }
+    return i16vals[v];
+  };
+
+  std::map<int32_t, mlir::Value> i32vals;
+  auto getI32Val = [&](int32_t v) {
+    if (i32vals.find(v) == i32vals.end()) {
+      auto i32Type = b.getIntegerType(32);
+      i32vals.emplace(
+          v, b.create<ConstantOp>(loc, i32Type, b.getI32IntegerAttr(v)));
+    }
+    return i32vals[v];
+  };
   auto floatType = b.getF32Type();
 
+  auto validationType = genValidation.getValue();
+
   // Create all local variables for each kernel param
+  // - assumes all kernels read the same memrefs
+  auto kernel0 = kernels.front();
+  SmallVector<mlir::Value, 5> localVars;
+  SmallVector<mlir::Value, 5> valVars;
+  int32_t idx = 0;
+  for (auto &paramType : kernel0.params) {
+    auto paramMRType = paramType.template dyn_cast<MemRefType>();
+    assert(paramMRType && "currently only supports memref types");
+    auto elemType = paramMRType.getElementType();
+    auto mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
+    auto lvar = b.create<memref::AllocOp>(loc, paramMRType);
+    localVars.push_back(lvar);
+    auto lv5D = makeNDMemRef(b, lvar, 5);
+    auto lvU5D = b.create<memref::CastOp>(loc, lv5D, mr5DUnkType);
+
+    short min, max;
+    int seed = 1;
+    std::tie(min, max, seed) = getRandomTestData(idx, idx == outIdx);
+
+    b.create<CallOp>(
+        loc, getMemsetFunc(module, elemType),
+        ValueRange{lvU5D, getI16Val(min), getI16Val(max), getI32Val(seed)});
+
+    if (!validationType.empty()) {
+      // Emit validation var
+      auto valType = MemRefType::get(paramMRType.getShape(), floatType);
+      auto vvar = b.create<memref::AllocOp>(loc, valType);
+      valVars.push_back(vvar);
+
+      emitMemcpy(b, lvar, vvar);
+    }
+    idx++;
+  }
+
+  // capture result index
+  if (outIdx < 0) {
+    outIdx = localVars.size() - 1;
+  }
+
+  // Run kernels
   for (auto &kernel : kernels) {
-    SmallVector<mlir::Value, 5> localVars;
-    SmallVector<mlir::Value, 5> valVars;
-    for (auto &paramType : kernel.params) {
-      auto paramMRType = paramType.template dyn_cast<MemRefType>();
-      assert(paramMRType && "currently only supports memref types");
-      auto elemType = paramMRType.getElementType();
-      auto mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
-      auto lvar = b.create<memref::AllocOp>(loc, paramMRType);
-      localVars.push_back(lvar);
-      auto lv5D = makeNDMemRef(b, lvar, 5);
-      auto lvU5D = b.create<memref::CastOp>(loc, lv5D, mr5DUnkType);
-      mlir::Value lvMinVal;
-      mlir::Value lvMaxVal;
-      mlir::ConstantOp seedOp;
-
-      generateTensorInitValues(b, lvMinVal, lvMaxVal, seedOp);
-
-      b.create<CallOp>(loc, getMemsetFunc(module, elemType),
-          ValueRange{lvU5D, lvMinVal, lvMaxVal, seedOp});
-
-      if (populateValidation.getValue()) {
-        // Emit validation copy
-        auto valType = MemRefType::get(paramMRType.getShape(), floatType);
-        auto vvar = b.create<memref::AllocOp>(loc, valType);
-        valVars.push_back(vvar);
-
-        auto mcpuMemCopy5DFuncOp = getMemcpyFuncDecl(module, elemType, floatType);
-
-        // Emit call to memcopy
-        auto lvarFlatType = MemRefType::get({-1}, elemType);
-        auto lvarFlat = b.create<memref::CastOp>(loc, makeNDMemRef(b, lvar, 1), lvarFlatType);
-        auto vvarFlatType = MemRefType::get({-1}, floatType);
-        auto vvarFlat = b.create<memref::CastOp>(loc, makeNDMemRef(b, vvar, 1), vvarFlatType);
-        auto cstSize = b.create<ConstantIndexOp>(loc, paramMRType.getNumElements());
-        b.create<CallOp>(loc, mcpuMemCopy5DFuncOp, ValueRange{lvarFlat, vvarFlat, cstSize});
-      }
-    }
-
     // Emit call to kernel wrapper
-    auto kernelWrapperFunc = createGPUWrapper(module, kernel);
-    b.create<CallOp>(loc, kernelWrapperFunc, localVars);
+    if (kernel.func->hasAttr("kernel")) {
+      auto kernelWrapperFunc = createGPUWrapper(module, kernel);
+      b.create<CallOp>(loc, kernelWrapperFunc, localVars);
+    } else {
+      b.create<CallOp>(loc, kernel.func, localVars);
+    }
+  }
 
-    if (populateValidation.getValue()) {
+  // Run validation
+  if (!validationType.empty()) {
+    if (validationType == "cpu") {
       // Emit call to host_<conv>
-      auto cpuConvFunc = createCPUConvFunc(module, kernel, genConfig);
+      auto cpuConvFunc = createCPUConvFunc(module, genConfig);
       b.create<CallOp>(loc, cpuConvFunc, valVars);
+    } else if (validationType == "gpu" &&
+               (genConfig.xdlops || genConfig.dataTypeStr != "f32")) {
+      // generate generic kernels
+      Conv2dGenerator conv2dGenerator(genConfig);
+      // use non-xdlops kernels to verify xdlops kernels
+      if (genConfig.xdlops)
+        conv2dGenerator.flipXdlops();
+      // use f32 data type to verify non-f32 or xdlops f32 kernels
+      conv2dGenerator.setDataType("f32");
 
-      // Emit call to verifier
-      mlir::Value testResult;
-      mlir::Value valResult;
-      switch (genConfig.operation) {
-      case miopen::Conv2DOpType:
-        testResult = localVars[2];
-        valResult = valVars[2];
-        break;
-      case miopen::Conv2DBwdDataOpType:
-        testResult = localVars[1];
-        valResult = valVars[1];
-        break;
-      case miopen::Conv2DBwdWeightOpType:
-        testResult = localVars[0];
-        valResult = valVars[0];
-        break;
+      int kernelStart = genConfig.kernelId;
+      int kernelCount = conv2dGenerator.getKernelCount();
+      if (kernelStart < 0) {
+        kernelStart = 0;
+      } else {
+        kernelCount = kernelStart + 1;
       }
-
-      auto verifierFunc = createVerifierFunc(module, kernel, genConfig);
-      b.create<CallOp>(loc, verifierFunc, ValueRange{testResult, valResult});
-
-      for (auto &vvar : valVars) {
-        // print vvar
-        #if 0
-        if (printResultTensor.getValue()) {
-          auto vvarType = vvar.getType().template dyn_cast<MemRefType>();
-          auto elemType = vvarType.getElementType();
-          auto unrankedMemRefType = UnrankedMemRefType::get(elemType, 0);
-          auto printCast = b.create<memref::CastOp>(loc, vvar, unrankedMemRefType);
-          b.create<CallOp>(loc, getPrintFunc(module, elemType), ValueRange{printCast});
+      // generate all sub-kernels, and get corresponding gemmId
+      for (int i = kernelStart; i < kernelCount; ++i) {
+        if (failed(conv2dGenerator.genConvModule(module, i, true))) {
+          llvm::errs() << "Module population failed.\n";
+          exit(1);
         }
-        #endif
-        // dealloc vvar
-        b.create<memref::DeallocOp>(loc, vvar);
+        KernelIF kernel(conv2dGenerator.getKernelFunc());
+        auto kernelWrapperFunc = createGPUWrapper(module, kernel);
+        b.create<CallOp>(loc, kernelWrapperFunc, valVars);
       }
-    }
-  
-    for (auto &lvar : localVars) {
-      // print lvar
-      if (printResultTensor.getValue()) {
-        auto lvarType = lvar.getType().template dyn_cast<MemRefType>();
-        auto elemType = lvarType.getElementType();
-        auto unrankedMemRefType = UnrankedMemRefType::get(elemType, 0);
-        auto printCast = b.create<memref::CastOp>(loc, lvar, unrankedMemRefType);
-        b.create<CallOp>(loc, getPrintFunc(module, elemType), ValueRange{printCast});
-      }
-      // dealloc lvar
-      b.create<memref::DeallocOp>(loc, lvar);
+    } else {
+      // assert( no verifier needed );
     }
 
+    // Emit call to verifier
+    mlir::Value testResult = localVars[outIdx];
+    mlir::Value valResult = valVars[outIdx];
+
+    auto verifierFunc = createVerifierFunc(module, kernel0, genConfig);
+    b.create<CallOp>(loc, verifierFunc, ValueRange{testResult, valResult});
+
+    // Print and cleanup validation vars
+    for (auto &vvar : valVars) {
+      // print vvar
+      emitPrintTensor(b, vvar, printValidationResults.getValue());
+      // dealloc vvar
+      b.create<memref::DeallocOp>(loc, vvar);
+    }
+  }
+
+  // Print and cleanup
+  for (auto &lvar : localVars) {
+    // print lvar
+    emitPrintTensor(b, lvar,
+                    (lvar == localVars[outIdx]) ? printResults.getValue()
+                                                : printInputs.getValue());
+    // dealloc lvar
+    b.create<memref::DeallocOp>(loc, lvar);
   }
 
   b.create<ReturnOp>(loc, ValueRange{});
@@ -1406,9 +1513,6 @@ int main(int argc, char **argv) {
 
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv, "MLIR MIOpen Dialect host generation\n");
-
-  if (populateValidationWithGPU.getValue())
-    populateValidation.setValue(true);
 
   OpBuilder builder(&context);
   ModuleOp module;
@@ -1441,7 +1545,7 @@ int main(int argc, char **argv) {
       llvm::errs() << "Parse host harness " << inputFilename << " failed.\n";
       exit(1);
     }
-    module = moduleRef.get();
+    module = moduleRef.release();
 
     module.walk([&](FuncOp func) -> WalkResult {
       if (func->hasAttr("kernel")) {
@@ -1506,24 +1610,21 @@ int main(int argc, char **argv) {
   const auto &genConfig = conv2dGenerator.getConfig();
 
   if (!hasUserKernel) {
-    // Populate the module.
-    if (!populateCpuConvolution.getValue()) {
-      if (genConfig.kernelId < 0) {
-        // generate all sub-kernels, and get corresponding gemmId
-        int kernelCount = conv2dGenerator.getKernelCount();
-        auto knSize = genConfig.kernelName.size();
-        std::string kernelBaseName = genConfig.kernelName.substr(0, knSize - 1);
-        for (int i = 0; i < kernelCount; ++i) {
-          std::string kName = kernelBaseName + std::to_string(i);
-          conv2dGenerator.setKernelName(kName);
-          if (failed(conv2dGenerator.genConvModule(module, i))) {
-            llvm::errs() << "Module population failed.\n";
-            exit(1);
-          }
-        }
+    if (genCPUKernel.getValue()) {
+      auto func = createCPUConvFunc(module, genConfig);
+      kernels.emplace_back(func);
+    } else {
+      // Populate the module.
+      int kernelStart = genConfig.kernelId;
+      int kernelCount = conv2dGenerator.getKernelCount();
+      if (kernelStart < 0) {
+        kernelStart = 0;
       } else {
-        // generate a specific kernel (kernel_id >= 0)
-        if (failed(conv2dGenerator.genConvModule(module))) {
+        kernelCount = kernelStart + 1;
+      }
+      // generate all sub-kernels, and get corresponding gemmId
+      for (int i = kernelStart; i < kernelCount; ++i) {
+        if (failed(conv2dGenerator.genConvModule(module, i))) {
           llvm::errs() << "Module population failed.\n";
           exit(1);
         }
@@ -1533,62 +1634,13 @@ int main(int argc, char **argv) {
 
   module.walk([&](FuncOp func) -> WalkResult {
     if (func->hasAttr("kernel")) {
-      KernelIF kernel{func};
-      assert(func.getNumResults() == 0);
-      for (auto &paramType : func.getType().getInputs()) {
-        kernel.params.push_back(paramType);
-      }
-      kernels.emplace_back(kernel);
+      kernels.emplace_back(func);
     }
     return WalkResult::advance();
   });
 
-  // Determine data type.
-  mlir::Type dataType = conv2dGenerator.getDataType(builder);
-
-  // Populate the module for gpu validation.
-  SmallVector<std::string, 4> kernels_v;
-  if (!hasUserKernel && populateValidationWithGPU.getValue() &&
-      (genConfig.xdlops || dataType != builder.getF32Type())) {
-    // use non-xdlops kernels to verify xdlops kernels
-    if (genConfig.xdlops)
-      conv2dGenerator.flipXdlops();
-    // use f32 data type to verify non-f32 or xdlops f32 kernels
-    conv2dGenerator.setDataType("f32");
-
-    if (genConfig.kernelId < 0) {
-      // generate all sub-kernels, and get corresponding gemmId
-      int kernelCount = conv2dGenerator.getKernelCount();
-      if (kernelCount > 1000) {
-        llvm::errs() << "Populating gpu kernels for validation failed.\n";
-        exit(1);
-      }
-
-      auto knSize = genConfig.kernelName.size();
-      std::string kernelBaseName = genConfig.kernelName.substr(0, knSize - 1);
-      for (int i = 0; i < kernelCount; ++i) {
-        std::string kName = kernelBaseName + std::to_string(1000 + i);
-        conv2dGenerator.setKernelName(kName);
-        if (failed(conv2dGenerator.genConvModule(module, i))) {
-          llvm::errs() << "Module population failed.\n";
-          exit(1);
-        }
-        kernels_v.push_back(kName);
-      }
-    } else {
-      // generate a specific kernel (kernel_id >= 0)
-      std::string kName = genConfig.kernelName + std::to_string(1000);
-      conv2dGenerator.setKernelName(kName);
-      if (failed(conv2dGenerator.genConvModule(module))) {
-        llvm::errs() << "Module population failed.\n";
-        exit(1);
-      }
-      kernels_v.push_back(kName);
-    }
-  }
-
   // populate host logic.
-  if (populateHostHarness.getValue()) {
+  if (genHostHarness.getValue()) {
     if (failed(populateHostHarnessLogic(module, kernels, genConfig))) {
       llvm::errs() << "Host logic populated failed.\n";
       exit(1);

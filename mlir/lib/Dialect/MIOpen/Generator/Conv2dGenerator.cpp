@@ -33,7 +33,7 @@ Conv2dGenerator::Conv2dGenerator(
     int strideHeight, int strideWidth, int paddingHeightLeft,
     int paddingHeightRight, int paddingWidthLeft, int paddingWidthRight,
     const std::string &filterLayout, const std::string &inputLayout,
-    const std::string &outputLayout, const std::string &kernelName)
+    const std::string &outputLayout, const std::string &kernelBaseName)
     : config{chip,
              triple,
              features,
@@ -53,13 +53,15 @@ Conv2dGenerator::Conv2dGenerator(
              filterLayout,
              inputLayout,
              outputLayout,
-             kernelName,
+             kernelBaseName,
              -1,
              {},
              {},
              {},
              -1,
              -1} {}
+
+Conv2dGenerator::Conv2dGenerator(const Conv2dGenerator::Config &_config) : config(_config) {}
 
 namespace {
 
@@ -394,7 +396,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   strToInt("padding_w", config.paddingWidthLeft);
   strToInt("padding_w", config.paddingWidthRight);
 
-  strToStr("kernel_name", config.kernelName);
+  strToStr("kernel_name", config.kernelBaseName);
 
   // MIOpen has NCHW as layout string for all three tensors
   config.inputLayout = translateLayout(
@@ -471,20 +473,14 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
   }
 
   // Determine kernel name, if there isn't one.
-  if (config.kernelName.empty()) {
-    int id = std::max(config.kernelId, 0);
-    config.kernelName = (llvm::Twine("miopen_") +
-                         miopen::getNameForConvOpType(config.operation) + "_" +
-                         config.filterLayout + "_" + config.inputLayout + "_" +
-                         config.outputLayout + "_" + std::to_string(id))
-                            .str();
+  if (config.kernelBaseName.empty()) {
+    config.kernelBaseName = std::string("miopen_") +
+                        miopen::getNameForConvOpType(config.operation) + "_" +
+                        config.filterLayout + "_" + config.inputLayout + "_" +
+                        config.outputLayout;
   }
 
   return success();
-}
-
-void Conv2dGenerator::setKernelName(std::string newName) {
-  config.kernelName = newName;
 }
 
 void Conv2dGenerator::setDataType(std::string newType) {
@@ -494,12 +490,8 @@ void Conv2dGenerator::setDataType(std::string newType) {
 void Conv2dGenerator::flipXdlops() { config.xdlops = !config.xdlops; }
 
 LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
-                                             int kernel_id) {
+                                             int kernel_id, bool is_verifier) {
   OpBuilder builder(module.getContext());
-
-  if (kernel_id == -1) {
-    kernel_id = std::max(config.kernelId, 0);
-  }
 
   Type dataType = getDataType(builder);
   if (!dataType) {
@@ -522,7 +514,13 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   auto funcType =
       builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
 
-  std::string kernelName = config.kernelName;
+  std::string kernelName = config.kernelBaseName;
+  kernelName += "_";
+  kernelName += std::to_string(kernel_id);
+  if (is_verifier) {
+    kernelName += "_ver";
+  }
+  
   // Annotate kernel attribute to the FuncOp.
   SmallVector<NamedAttribute, 1> kernelAttrs{
       builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernel_id)),
@@ -535,6 +533,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   if (func.getName() != kernelName) {
     return failure();
   }
+  kernelFunc = func;
 
   // Construct a new Block.
   Block *block = func.addEntryBlock();
@@ -625,4 +624,8 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   block->push_back(returnOp);
 
   return success();
+}
+
+FuncOp Conv2dGenerator::getKernelFunc() const {
+  return kernelFunc;
 }
