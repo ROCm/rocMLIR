@@ -60,7 +60,6 @@
 #include "llvm/Support/Process.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/SourceMgr.h"
-#include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/WithColor.h"
 
@@ -119,14 +118,6 @@ private:
   // Serializes ROCDL to HSACO.
   std::unique_ptr<std::vector<char>>
   serializeISA(const std::string &isa) override;
-
-  // Overload to allow linking in device libs
-  std::unique_ptr<llvm::Module>
-  translateToLLVMIR(llvm::LLVMContext &llvmContext) override;
-
-  // Adds LLVM optimization passes
-  LogicalResult optimizeLlvm(llvm::Module &llvmModule,
-                             llvm::TargetMachine &targetMachine) override;
 
   std::unique_ptr<SmallVectorImpl<char>> assembleIsa(const std::string &isa);
   std::unique_ptr<std::vector<char>>
@@ -347,6 +338,13 @@ SerializeToHsacoPass::translateToLLVMIR(llvm::LLVMContext &llvmContext) {
       return nullptr;
     }
   }
+
+  // Set amdgpu_hostcall if host calls have been linked, as needed by newer LLVM
+  // FIXME: Is there a way to set this during printf() lowering that makes sense
+  if (ret->getFunction("__ockl_hostcall_internal"))
+    if (!ret->getModuleFlag("amdgpu_hostcall"))
+      ret->addModuleFlag(llvm::Module::Override, "amdgpu_hostcall", 1);
+
   return ret;
 }
 

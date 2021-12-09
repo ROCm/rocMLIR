@@ -820,6 +820,23 @@ static LogicalResult verify(ConstantOp &op) {
     return op.emitOpError() << "requires attribute's type (" << value.getType()
                             << ") to match op's return type (" << type << ")";
 
+  if (auto intAttr = value.dyn_cast<IntegerAttr>()) {
+    if (type.isa<IndexType>() || value.isa<BoolAttr>())
+      return success();
+    IntegerType intType = type.cast<IntegerType>();
+    if (!intType.isSignless())
+      return op.emitOpError("requires integer result types to be signless");
+
+    // If the type has a known bitwidth we verify that the value can be
+    // represented with the given bitwidth.
+    unsigned bitwidth = intType.getWidth();
+    APInt intVal = intAttr.getValue();
+    if (!intVal.isSignedIntN(bitwidth) && !intVal.isIntN(bitwidth))
+      return op.emitOpError("requires 'value' to be an integer within the "
+                            "range of the integer result type");
+    return success();
+  }
+
   if (auto complexTy = type.dyn_cast<ComplexType>()) {
     auto arrayAttr = value.dyn_cast<ArrayAttr>();
     if (!complexTy || arrayAttr.size() != 2)
@@ -835,6 +852,18 @@ static LogicalResult verify(ConstantOp &op) {
              << ") to match the element type of the op's return type ("
              << complexEltTy << ")";
     }
+    return success();
+  }
+
+  if (type.isa<FloatType>()) {
+    if (!value.isa<FloatAttr>())
+      return op.emitOpError("requires 'value' to be a floating point constant");
+    return success();
+  }
+
+  if (type.isa<ShapedType>()) {
+    if (!value.isa<ElementsAttr>())
+      return op.emitOpError("requires 'value' to be a shaped constant");
     return success();
   }
 

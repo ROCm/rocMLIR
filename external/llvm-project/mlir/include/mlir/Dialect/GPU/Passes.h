@@ -56,6 +56,15 @@ public:
 protected:
   void getDependentDialects(DialectRegistry &registry) const override;
 
+  /// Hook allowing the application of optimizations before codegen
+  /// By default, does nothing
+  virtual LogicalResult optimizeLlvm(llvm::Module &llvmModule,
+                                     llvm::TargetMachine &targetMachine);
+
+  /// Translates the 'getOperation()' result to an LLVM module.
+  virtual std::unique_ptr<llvm::Module>
+  translateToLLVMIR(llvm::LLVMContext &llvmContext);
+
 private:
   /// Creates the LLVM target machine to generate the ISA.
   std::unique_ptr<llvm::TargetMachine> createTargetMachine();
@@ -63,11 +72,6 @@ private:
   /// Translates the module to ISA
   virtual Optional<std::string>
   translateToISA(llvm::Module &llvmModule, llvm::TargetMachine &targetMachine);
-
-  /// Hook allowing the application of optimizations before codegen
-  /// By default, does nothing
-  virtual LogicalResult optimizeLlvm(llvm::Module &llvmModule,
-                                     llvm::TargetMachine &targetMachine);
 
   /// Serializes the target ISA to binary form.
   virtual std::unique_ptr<std::vector<char>>

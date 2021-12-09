@@ -356,9 +356,8 @@ public:
       : ConvertOpToGpuRuntimeCallPattern<gpu::SetDefaultDeviceOp>(
             typeConverter) {}
 
-private:
   LogicalResult
-  matchAndRewrite(gpu::SetDefaultDeviceOp op, ArrayRef<Value> operands,
+  matchAndRewrite(gpu::SetDefaultDeviceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
 } // namespace
@@ -863,10 +862,8 @@ LogicalResult ConvertMemsetOpToGpuRuntimeCallPattern::matchAndRewrite(
 }
 
 LogicalResult ConvertSetDefaultDeviceOpToGpuRuntimeCallPattern::matchAndRewrite(
-    gpu::SetDefaultDeviceOp op, ArrayRef<Value> operands,
+    gpu::SetDefaultDeviceOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
-  gpu::SetDefaultDeviceOpAdaptor adaptor(operands, op->getAttrDictionary());
-
   Location loc = op.getLoc();
   mlir::Value argument =
       rewriter.create<LLVM::ConstantOp>(loc, llvmInt32Type, adaptor.devIndex());

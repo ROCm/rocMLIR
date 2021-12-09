@@ -147,9 +147,9 @@ bool areAttributesEffectivelyEqual(Operation *lhs, Operation *rhs) {
     NamedAttribute rhsAttr = *rhsIterator;
 
     // Skip names, which always differ.
-    if (lhsAttr.first == "sym_name")
+    if (lhsAttr.getName() == "sym_name")
       lhsAttr = *(++lhsIterator);
-    if (rhsAttr.first == "sym_name")
+    if (rhsAttr.getName() == "sym_name")
       rhsAttr = *(++rhsIterator);
 
     if (lhsAttr != rhsAttr)
