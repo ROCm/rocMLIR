@@ -5094,13 +5094,14 @@ static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top,
   int64_t vectorGemmDim =
       gop->getAttrOfType<IntegerAttr>("matrix_c_source_vector_read_dim")
           .getInt();
-  if (vectorGemmDim == 1) {
-    vectorGemmDim = 3;
-  } else if (vectorGemmDim == 2) {
+  // Remap vectorized gemm dimensions to account for
+  if (vectorGemmDim == gemmCDimM) {
+    vectorGemmDim = gemmCSplitDimM2;
+  } else if (vectorGemmDim == gemmCDimN) {
     if (isSwizzled) {
-      vectorGemmDim = 5;
+      vectorGemmDim = gemmCSplitDimN2;
     } else {
-      vectorGemmDim = 4;
+      vectorGemmDim = gemmCSplitDimN;
       // Need swizzles for this to be vector motion but swizzles are off
       vectorStoreOverride = true;
     }
@@ -6920,8 +6921,14 @@ struct GridwiseGemmV2RewritePattern
     auto gemmCVectorizedMatrixDim =
         op->getAttrOfType<IntegerAttr>("matrix_c_source_vector_read_dim");
     constexpr int64_t swizzleGroup = 4;
+    // Ensure that the prerequisites are met
+    // - The N dimension of the output will be stored vectorized
+    // - The lowest level of splitting in registers is equal to swizzleGroup
+    //    so transpose is well defined
+    // - None of the larger dimensions of interest have overhangs that lead to
+    //    incomplete transposes
     bool enableOutSwizzles =
-        gemmCVectorizedMatrixDim.getInt() == 2 &&
+        gemmCVectorizedMatrixDim.getInt() == gemmCDimN &&
         (M2 == swizzleGroup && (m % swizzleGroup == 0) &&
          (n % swizzleGroup == 0) && (MPerWave % swizzleGroup == 0) &&
          (NPerWave % swizzleGroup == 0));
