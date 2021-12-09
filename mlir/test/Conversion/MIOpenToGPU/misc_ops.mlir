@@ -17,7 +17,7 @@ module {
     // CHECK: %{{.*}} = "gpu.thread_id"() {dimension = "x"} : () -> index
     %tid = miopen.workitem_id : index
 
-    %idx = muli %bid, %tid : index
+    %idx = arith.muli %bid, %tid : index
 
     %val = memref.load %arg0[%idx] : memref<?xf32>
 

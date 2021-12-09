@@ -23,21 +23,17 @@ struct TestAffineTransforms
 } // anonymous namespace
 
 void TestAffineTransforms::runOnFunction() {
-  FuncOp func = getFunction();
+  if (testMethod == "hasPadding") {
+    FuncOp func = getFunction();
 
-  func.walk([&](miopen::TransformOp op) {
-    OpBuilder b(op.getOperation());
-    auto output = op.output();
-    auto outputType = output.getType().dyn_cast<MemRefType>();
-    auto outputAffineMaps = outputType.getAffineMaps();
-
-    if (testMethod == "hasPadding") {
-      bool ret = false;
-      for (auto &affineMap : outputAffineMaps)
-        ret |= hasPadding(affineMap);
-      op->setAttr("hasPadding", b.getBoolAttr(ret));
-    }
-  });
+    func.walk([&](miopen::TransformOp op) {
+        OpBuilder b(op.getOperation());
+        auto output = op.output();
+        auto outputType = output.getType().dyn_cast<MemRefType>();
+        auto outputAffineMap = outputType.getLayout().getAffineMap();
+        op->setAttr("hasPadding", b.getBoolAttr(hasPadding(outputAffineMap)));
+      });
+  }
 }
 
 std::unique_ptr<Pass> mlir::miopen::createTestAffineTransformPass() {

@@ -539,7 +539,7 @@ static mlir::Value allocAndInitializeTensor(OpBuilder &builder, Block *block,
                                             mlir::MemRefType &memRefType,
                                             mlir::Value &memsetMinValue,
                                             mlir::Value &memsetMaxValue,
-                                            mlir::ConstantOp &seedValue) {
+                                            arith::ConstantIntOp &seedValue) {
   auto fiveDimUnknownSizeMemRefType =
       MemRefType::get({-1, -1, -1, -1, -1}, dataType);
 
@@ -604,8 +604,8 @@ static FuncOp createConvertTensor(ModuleOp &module, OpBuilder &builder,
 
   // Insert loop to convert data.
   auto printMemRefShape = convertedMemRefType.getShape();
-  auto zero = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 0);
-  auto one = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 1);
+  auto zero = builder.create<arith::ConstantIndexOp>(builder.getUnknownLoc(), 0);
+  auto one = builder.create<arith::ConstantIndexOp>(builder.getUnknownLoc(), 1);
   block->push_back(zero);
   block->push_back(one);
   SmallVector<mlir::Value, 4> boundVector;
@@ -615,7 +615,7 @@ static FuncOp createConvertTensor(ModuleOp &module, OpBuilder &builder,
   // Emit loop bounds.
   for (unsigned i = 0; i < printMemRefShape.size(); ++i) {
     auto dim = printMemRefShape[i];
-    auto bound = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), dim);
+    auto bound = builder.create<arith::ConstantIndexOp>(builder.getUnknownLoc(), dim);
     block->push_back(bound);
     boundVector.push_back(bound);
   }
@@ -655,16 +655,16 @@ static FuncOp createConvertTensor(ModuleOp &module, OpBuilder &builder,
     auto f32Type = builder.getF32Type();
     // f16->f32, emit fpext
     if (originalDataType == f16Type && convertedDataType == f32Type)
-      convertedValue = innermostLoopBuilder.create<FPExtOp>(
+      convertedValue = innermostLoopBuilder.create<arith::ExtFOp>(
           builder.getUnknownLoc(), sourceValue, f32Type);
     // f32->f16, emit fptrunc
     else if (originalDataType == f32Type && convertedDataType == f16Type)
-      convertedValue = innermostLoopBuilder.create<FPTruncOp>(
+      convertedValue = innermostLoopBuilder.create<arith::TruncFOp>(
           builder.getUnknownLoc(), sourceValue, f16Type);
     else if (originalDataType == builder.getIntegerType(16))
       // Treat I16 as BF16.
       // TBD: Implement proper conversion logic. Force cast for now.
-      convertedValue = innermostLoopBuilder.create<SIToFPOp>(
+      convertedValue = innermostLoopBuilder.create<arith::SIToFPOp>(
           builder.getUnknownLoc(), sourceValue, f32Type);
   }
   innermostLoopBuilder.create<memref::StoreOp>(builder.getUnknownLoc(), convertedValue,
@@ -783,31 +783,31 @@ createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   cpuConvBlock->push_back(inputMemRefCastOp);
   cpuConvBlock->push_back(outputMemRefCastOp);
 
-  // Emit ConstantOps to be used for strides, paddings and dilations
+  // Emit ConstantIntOps to be used for strides, paddings and dilations
   auto intType = builder.getIntegerType(32);
 
-  auto strideHeightConstantOp = builder.create<ConstantIntOp>(
+  auto strideHeightConstantOp = builder.create<arith::ConstantIntOp>(
       builder.getUnknownLoc(), genConfig.strideHeight, intType);
 
-  auto strideWidthConstantOp = builder.create<ConstantIntOp>(
+  auto strideWidthConstantOp = builder.create<arith::ConstantIntOp>(
       builder.getUnknownLoc(), genConfig.strideWidth, intType);
 
-  auto paddingHeightLeftConstantOp = builder.create<ConstantIntOp>(
+  auto paddingHeightLeftConstantOp = builder.create<arith::ConstantIntOp>(
       builder.getUnknownLoc(), genConfig.paddingHeightLeft, intType);
 
-  auto paddingHeightRightConstantOp = builder.create<ConstantIntOp>(
+  auto paddingHeightRightConstantOp = builder.create<arith::ConstantIntOp>(
       builder.getUnknownLoc(), genConfig.paddingHeightRight, intType);
 
-  auto paddingWidthLeftConstantOp = builder.create<ConstantIntOp>(
+  auto paddingWidthLeftConstantOp = builder.create<arith::ConstantIntOp>(
       builder.getUnknownLoc(), genConfig.paddingWidthLeft, intType);
 
-  auto paddingWidthRightConstantOp = builder.create<ConstantIntOp>(
+  auto paddingWidthRightConstantOp = builder.create<arith::ConstantIntOp>(
       builder.getUnknownLoc(), genConfig.paddingWidthRight, intType);
 
-  auto dilationHeightConstantOp = builder.create<ConstantIntOp>(
+  auto dilationHeightConstantOp = builder.create<arith::ConstantIntOp>(
       builder.getUnknownLoc(), genConfig.dilationHeight, intType);
 
-  auto dilationWidthConstantOp = builder.create<ConstantIntOp>(
+  auto dilationWidthConstantOp = builder.create<arith::ConstantIntOp>(
       builder.getUnknownLoc(), genConfig.dilationWidth, intType);
 
   cpuConvBlock->push_back(strideHeightConstantOp);
@@ -825,9 +825,9 @@ createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   // %c_2 = constant 2 : index
   // %c_3 = constant 3 : index
   // %c_4 = constant 4 : index
-  std::vector<ConstantIndexOp> indexOpVec;
+  std::vector<arith::ConstantIndexOp> indexOpVec;
   for (int i = 0; i < 5; i++) {
-    auto indexOp = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), i);
+    auto indexOp = builder.create<arith::ConstantIndexOp>(builder.getUnknownLoc(), i);
     cpuConvBlock->push_back(indexOp);
     indexOpVec.push_back(indexOp);
   }
@@ -844,28 +844,28 @@ createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   //  %h = constant 104 : i8
   //  %w = constant 119 : i8
   auto kConstantOp =
-      builder.create<ConstantIntOp>(builder.getUnknownLoc(), 'k', charType);
+      builder.create<arith::ConstantIntOp>(builder.getUnknownLoc(), 'k', charType);
 
   auto cConstantOp =
-      builder.create<ConstantIntOp>(builder.getUnknownLoc(), 'c', charType);
+      builder.create<arith::ConstantIntOp>(builder.getUnknownLoc(), 'c', charType);
 
   auto yConstantOp =
-      builder.create<ConstantIntOp>(builder.getUnknownLoc(), 'y', charType);
+      builder.create<arith::ConstantIntOp>(builder.getUnknownLoc(), 'y', charType);
 
   auto xConstantOp =
-      builder.create<ConstantIntOp>(builder.getUnknownLoc(), 'x', charType);
+      builder.create<arith::ConstantIntOp>(builder.getUnknownLoc(), 'x', charType);
 
   auto nConstantOp =
-      builder.create<ConstantIntOp>(builder.getUnknownLoc(), 'n', charType);
+      builder.create<arith::ConstantIntOp>(builder.getUnknownLoc(), 'n', charType);
 
   auto hConstantOp =
-      builder.create<ConstantIntOp>(builder.getUnknownLoc(), 'h', charType);
+      builder.create<arith::ConstantIntOp>(builder.getUnknownLoc(), 'h', charType);
 
   auto wConstantOp =
-      builder.create<ConstantIntOp>(builder.getUnknownLoc(), 'w', charType);
+      builder.create<arith::ConstantIntOp>(builder.getUnknownLoc(), 'w', charType);
 
   auto gConstantOp =
-      builder.create<ConstantIntOp>(builder.getUnknownLoc(), 'g', charType);
+      builder.create<arith::ConstantIntOp>(builder.getUnknownLoc(), 'g', charType);
 
   cpuConvBlock->push_back(gConstantOp);
   cpuConvBlock->push_back(kConstantOp);
@@ -876,7 +876,7 @@ createCPUConvolution(ModuleOp &module, OpBuilder &builder,
   cpuConvBlock->push_back(hConstantOp);
   cpuConvBlock->push_back(wConstantOp);
 
-  std::unordered_map<char, mlir::ConstantOp> layoutConstOps;
+  std::unordered_map<char, arith::ConstantIntOp> layoutConstOps;
   layoutConstOps['g'] = gConstantOp;
   layoutConstOps['k'] = kConstantOp;
   layoutConstOps['c'] = cConstantOp;
@@ -1065,7 +1065,7 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
   Block *verifyResultsBlock = verifyFuncOp.addEntryBlock();
 
   // %c0 = constant 0: index
-  auto c0IndexOp = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 0);
+  auto c0IndexOp = builder.create<arith::ConstantIndexOp>(builder.getUnknownLoc(), 0);
   verifyResultsBlock->push_back(c0IndexOp);
 
   // %result = alloca() : memref<1xi32>
@@ -1079,10 +1079,10 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
 
   // %c0_i32 = constant 0 : i32
   // %c1_i32 = constant 1 : i32
-  auto c0ConstantInt32Op = builder.create<ConstantIntOp>(
+  auto c0ConstantInt32Op = builder.create<arith::ConstantIntOp>(
       builder.getUnknownLoc(), 0, builder.getIntegerType(32));
   verifyResultsBlock->push_back(c0ConstantInt32Op);
-  auto c1ConstantInt32Op = builder.create<ConstantIntOp>(
+  auto c1ConstantInt32Op = builder.create<arith::ConstantIntOp>(
       builder.getUnknownLoc(), 1, builder.getIntegerType(32));
   verifyResultsBlock->push_back(c1ConstantInt32Op);
 
@@ -1093,24 +1093,24 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
   verifyResultsBlock->push_back(storeOp1);
 
   // %%c1 = constant 1 : index
-  auto c1IndexOp = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 1);
+  auto c1IndexOp = builder.create<arith::ConstantIndexOp>(builder.getUnknownLoc(), 1);
   verifyResultsBlock->push_back(c1IndexOp);
 
   // Emit constant index Ops for loop upper bounds
-  auto indexOp0 = builder.create<ConstantIndexOp>(builder.getUnknownLoc(),
+  auto indexOp0 = builder.create<arith::ConstantIndexOp>(builder.getUnknownLoc(),
                                                   outputDimension[0]);
   verifyResultsBlock->push_back(indexOp0);
-  auto indexOp1 = builder.create<ConstantIndexOp>(builder.getUnknownLoc(),
+  auto indexOp1 = builder.create<arith::ConstantIndexOp>(builder.getUnknownLoc(),
                                                   outputDimension[1]);
   verifyResultsBlock->push_back(indexOp1);
-  auto indexOp2 = builder.create<ConstantIndexOp>(builder.getUnknownLoc(),
+  auto indexOp2 = builder.create<arith::ConstantIndexOp>(builder.getUnknownLoc(),
                                                   outputDimension[2]);
   verifyResultsBlock->push_back(indexOp2);
-  auto indexOp3 = builder.create<ConstantIndexOp>(builder.getUnknownLoc(),
+  auto indexOp3 = builder.create<arith::ConstantIndexOp>(builder.getUnknownLoc(),
                                                   outputDimension[3]);
   verifyResultsBlock->push_back(indexOp3);
 
-  auto indexOp4 = builder.create<ConstantIndexOp>(builder.getUnknownLoc(),
+  auto indexOp4 = builder.create<arith::ConstantIndexOp>(builder.getUnknownLoc(),
                                                   outputDimension[4]);
   verifyResultsBlock->push_back(indexOp4);
 
@@ -1171,28 +1171,30 @@ static FuncOp createVerifyFuncOp(ModuleOp &module, OpBuilder &builder,
 
   scf::IfOp ifOp;
   if (outputMemRefType.getElementType() == builder.getIntegerType(16)) {
-    auto cmpOp = bt4.create<CmpIOp>(builder.getUnknownLoc(), CmpIPredicate::ne,
+    auto cmpOp = bt4.create<arith::CmpIOp>(builder.getUnknownLoc(), arith::CmpIPredicate::ne,
                                     cpuLoadOp, gpuLoadOp);
     ifOp = bt4.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, false);
   } else {
     if (randomSeed.getValue() != "none" &&
         randomDataType.getValue() == "float") {
-      float delta = 0.0000001;
+      std::string delta = "0.0000001";
       if (outputMemRefType.getElementType() == builder.getF16Type())
-        delta = 0.0001;
+        delta = "0.0001";
 
-      auto deltaConstantOp = bt4.create<ConstantOp>(
-          builder.getUnknownLoc(), outputMemRefType.getElementType(),
-          builder.getFloatAttr(outputMemRefType.getElementType(), delta));
+      auto deltaType = outputMemRefType.getElementType().cast<FloatType>();
+      auto deltaConstantOp = bt4.create<arith::ConstantFloatOp>(
+          builder.getUnknownLoc(),
+          APFloat(deltaType.getFloatSemantics(), delta),
+          deltaType);
       auto subfOp =
-          bt4.create<SubFOp>(builder.getUnknownLoc(), cpuLoadOp, gpuLoadOp);
-      auto absfOp = bt4.create<AbsFOp>(builder.getUnknownLoc(), subfOp);
-      auto cmpOp = bt4.create<CmpFOp>(
-          builder.getUnknownLoc(), CmpFPredicate::UGT, absfOp, deltaConstantOp);
+          bt4.create<arith::SubFOp>(builder.getUnknownLoc(), cpuLoadOp, gpuLoadOp);
+      auto absfOp = bt4.create<math::AbsOp>(builder.getUnknownLoc(), subfOp);
+      auto cmpOp = bt4.create<arith::CmpFOp>(
+          builder.getUnknownLoc(), arith::CmpFPredicate::UGT, absfOp, deltaConstantOp);
       ifOp = bt4.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, false);
     } else {
-      auto cmpOp = bt4.create<CmpFOp>(builder.getUnknownLoc(),
-                                      CmpFPredicate::UNE, cpuLoadOp, gpuLoadOp);
+      auto cmpOp = bt4.create<arith::CmpFOp>(builder.getUnknownLoc(),
+                                      arith::CmpFPredicate::UNE, cpuLoadOp, gpuLoadOp);
       ifOp = bt4.create<scf::IfOp>(builder.getUnknownLoc(), cmpOp, false);
     }
   }
@@ -1317,9 +1319,9 @@ static FuncOp launchGPUConvolution(ModuleOp &module, OpBuilder &builder,
   gpuConvBlock->push_back(outputGpuAllocOp);
 
   // Emit some constant values for HIP runtime API calls.
-  auto oneConstantI32Op = builder.create<ConstantIntOp>(
+  auto oneConstantI32Op = builder.create<arith::ConstantIntOp>(
       builder.getUnknownLoc(), 1, builder.getIntegerType(32));
-  auto twoConstantI32Op = builder.create<ConstantIntOp>(
+  auto twoConstantI32Op = builder.create<arith::ConstantIntOp>(
       builder.getUnknownLoc(), 2, builder.getIntegerType(32));
   gpuConvBlock->push_back(oneConstantI32Op);
   gpuConvBlock->push_back(twoConstantI32Op);
@@ -1512,7 +1514,7 @@ static void generateTensorInitValues(
     mlir::Value &filterMemsetMinValue, mlir::Value &filterMemsetMaxValue,
     mlir::Value &inputMemsetMinValue, mlir::Value &inputMemsetMaxValue,
     mlir::Value &outputMemsetMinValue, mlir::Value &outputMemsetMaxValue,
-    mlir::ConstantOp &seedConstantIntOp, mlir::miopen::ConvOpType convOpType) {
+    arith::ConstantIntOp &seedConstantIntOp, mlir::miopen::ConvOpType convOpType) {
   auto int16Type = builder.getIntegerType(16);
   auto int32Type = builder.getIntegerType(32);
   unsigned short zero = 0, one = 1;
@@ -1520,21 +1522,21 @@ static void generateTensorInitValues(
   int seed = 1;
   std::tie(min, max, seed) = configRandomTestData();
 
-  mlir::ConstantOp oneConstantIntOp;
+  mlir::arith::ConstantIntOp oneConstantIntOp;
   if (randomSeed.getValue() != "none" && randomSide.getValue() != "both") {
-    oneConstantIntOp = builder.create<ConstantOp>(
-        builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(one));
+    oneConstantIntOp = builder.create<arith::ConstantIntOp>(
+        builder.getUnknownLoc(), one, int16Type);
     block->push_back(oneConstantIntOp);
   }
 
-  auto zeroConstantIntOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(zero));
-  auto minConstantIntOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(min));
-  auto maxConstantIntOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(max));
-  seedConstantIntOp = builder.create<ConstantOp>(
-      builder.getUnknownLoc(), int32Type, builder.getI32IntegerAttr(seed));
+  auto zeroConstantIntOp = builder.create<arith::ConstantIntOp>(
+      builder.getUnknownLoc(), zero, int16Type);
+  auto minConstantIntOp = builder.create<arith::ConstantIntOp>(
+      builder.getUnknownLoc(), min, int16Type);
+  auto maxConstantIntOp = builder.create<arith::ConstantIntOp>(
+      builder.getUnknownLoc(), max, int16Type);
+  seedConstantIntOp = builder.create<arith::ConstantIntOp>(
+      builder.getUnknownLoc(), seed, int32Type);
 
   block->push_back(zeroConstantIntOp);
   block->push_back(minConstantIntOp);
@@ -1712,7 +1714,7 @@ static LogicalResult populateHostHarnessLogic(
   // Populate initial values.
   mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
   mlir::Value filterMemsetMaxValue, inputMemsetMaxValue, outputMemsetMaxValue;
-  mlir::ConstantOp seedConstantIntOp;
+  arith::ConstantIntOp seedConstantIntOp;
 
   generateTensorInitValues(builder, block, mcpuMemset5DFuncOp,
                            filterMemsetMinValue, filterMemsetMaxValue,
@@ -1906,7 +1908,7 @@ static LogicalResult populateValidationLogic(
   // Populate initial values.
   mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
   mlir::Value filterMemsetMaxValue, inputMemsetMaxValue, outputMemsetMaxValue;
-  mlir::ConstantOp seedConstantIntOp;
+  arith::ConstantIntOp seedConstantIntOp;
 
   generateTensorInitValues(builder, block, mcpuMemset5DFuncOp,
                            filterMemsetMinValue, filterMemsetMaxValue,
@@ -2014,8 +2016,8 @@ static LogicalResult populateValidationLogic(
         builder, block, floatType, mcpuMemset5DFuncOp, outputMemRefType,
         outputMemsetMinValue, outputMemsetMaxValue, seedConstantIntOp);
   } else {
-    auto zeroConstantIntOp = builder.create<ConstantOp>(
-        builder.getUnknownLoc(), int16Type, builder.getI16IntegerAttr(0));
+    auto zeroConstantIntOp = builder.create<arith::ConstantIntOp>(
+      builder.getUnknownLoc(), 0, int16Type);
     block->push_back(zeroConstantIntOp);
 
     mlir::Value memsetValue = zeroConstantIntOp;
@@ -2211,7 +2213,7 @@ static LogicalResult populateCpuConvolutionLogic(
 
   mlir::Value filterMemsetMinValue, inputMemsetMinValue, outputMemsetMinValue;
   mlir::Value filterMemsetMaxValue, inputMemsetMaxValue, outputMemsetMaxValue;
-  mlir::ConstantOp seedConstantIntOp;
+  arith::ConstantIntOp seedConstantIntOp;
 
   generateTensorInitValues(builder, block, mcpuMemset5DFuncOp,
                            filterMemsetMinValue, filterMemsetMaxValue,
@@ -2452,11 +2454,11 @@ static LogicalResult populateKernelLaunchLogic(
     auto gridSizeAttr = theGpuFunc->getAttr("grid_size")
                             .template dyn_cast<IntegerAttr>()
                             .getInt();
-    auto cstOne = builder.create<ConstantIndexOp>(builder.getUnknownLoc(), 1);
+    auto cstOne = builder.create<arith::ConstantIndexOp>(builder.getUnknownLoc(), 1);
     auto cstBlockSize =
-        builder.create<ConstantIndexOp>(builder.getUnknownLoc(), blockSizeAttr);
+        builder.create<arith::ConstantIndexOp>(builder.getUnknownLoc(), blockSizeAttr);
     auto cstGridSize =
-        builder.create<ConstantIndexOp>(builder.getUnknownLoc(), gridSizeAttr);
+        builder.create<arith::ConstantIndexOp>(builder.getUnknownLoc(), gridSizeAttr);
     block->push_back(cstOne);
     block->push_back(cstBlockSize);
     block->push_back(cstGridSize);
@@ -2465,6 +2467,7 @@ static LogicalResult populateKernelLaunchLogic(
         builder.getUnknownLoc(), theGpuFunc,
         gpu::KernelDim3{cstGridSize, cstOne, cstOne},
         gpu::KernelDim3{cstBlockSize, cstOne, cstOne},
+        nullptr,
         ValueRange{theFunc.getArgument(0), theFunc.getArgument(1),
                    theFunc.getArgument(2)});
     gpuLaunchFuncOp->setAttr(
@@ -2476,6 +2479,7 @@ static LogicalResult populateKernelLaunchLogic(
                                   static_cast<int32_t>(1),    // blockX
                                   static_cast<int32_t>(1),    // blockY
                                   static_cast<int32_t>(1),    // blockZ
+                                  static_cast<int32_t>(0),    // dynamicSharedMemorySize
                                   static_cast<int32_t>(3)})); // arg count
 
     block->push_back(gpuLaunchFuncOp);
@@ -2540,8 +2544,9 @@ int main(int argc, char **argv) {
   test::registerTestDialect(registry);
 #endif
   MLIRContext context(registry);
-  context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect,
-                      scf::SCFDialect, AffineDialect, memref::MemRefDialect>();
+  context.loadDialect < miopen::MIOpenDialect, StandardOpsDialect,
+      scf::SCFDialect, AffineDialect, memref::MemRefDialect,
+      math::MathDialect, arith::ArithmeticDialect>();
   mlir::registerAllPasses();
   mlir::registerMIOpenConversionPasses();
   miopen::registerPasses();

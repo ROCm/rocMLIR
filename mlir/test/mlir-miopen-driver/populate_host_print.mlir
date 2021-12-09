@@ -9,10 +9,10 @@
 // F32-NEXT: memref.cast {{.*}} : memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]> to memref<?x?x?x?x?x[[TYPE]]>
 // F32-NEXT: memref.cast {{.*}} : memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]> to memref<?x?x?x?x?x[[TYPE]]>
 // F32-NEXT: memref.cast {{.*}} : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]> to memref<?x?x?x?x?x[[TYPE]]>
-// F32-NEXT: constant 0 : i16
-// F32-NEXT: constant {{.*}} : i16
-// F32-NEXT: constant {{.*}} : i16
-// F32-NEXT: constant {{.*}} : i32
+// F32-NEXT: arith.constant 0 : i16
+// F32-NEXT: arith.constant {{.*}} : i16
+// F32-NEXT: arith.constant {{.*}} : i16
+// F32-NEXT: arith.constant {{.*}} : i32
 // F32-NEXT: call @mcpuMemset5DFloatRandInt({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x?x[[TYPE]]>, i16, i16, i32) -> ()
 // F32-NEXT: call @mcpuMemset5DFloatRandInt{{.*}}({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x?x[[TYPE]]>, i16, i16, i32) -> ()
 // F32-NEXT: call @mcpuMemset5DFloatRandInt{{.*}}({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x?x[[TYPE]]>, i16, i16, i32) -> ()
@@ -34,10 +34,10 @@
 // F16-NEXT: memref.cast {{.*}} : memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]> to memref<?x?x?x?x?x[[TYPE]]>
 // F16-NEXT: memref.cast {{.*}} : memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]> to memref<?x?x?x?x?x[[TYPE]]>
 // F16-NEXT: memref.cast {{.*}} : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]> to memref<?x?x?x?x?x[[TYPE]]>
-// F16-NEXT: constant 0 : i16
-// F16-NEXT: constant {{.*}} : i16 
-// F16-NEXT: constant {{.*}} : i16
-// F16-NEXT: constant {{.*}} : i32
+// F16-NEXT: arith.constant 0 : i16
+// F16-NEXT: arith.constant {{.*}} : i16
+// F16-NEXT: arith.constant {{.*}} : i16
+// F16-NEXT: arith.constant {{.*}} : i32
 // F16-NEXT: call @mcpuMemset5DHalfRandInt({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x?x[[TYPE]]>, i16, i16, i32) -> ()
 // F16-NEXT: call @mcpuMemset5DHalfRandInt({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x?x[[TYPE]]>, i16, i16, i32) -> ()
 // F16-NEXT: call @mcpuMemset5DHalfRandInt({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x?x[[TYPE]]>, i16, i16, i32) -> ()
@@ -59,10 +59,10 @@
 // BF16-NEXT: memref.cast {{.*}} : memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]> to memref<?x?x?x?x?x[[TYPE]]>
 // BF16-NEXT: memref.cast {{.*}} : memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]> to memref<?x?x?x?x?x[[TYPE]]>
 // BF16-NEXT: memref.cast {{.*}} : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]> to memref<?x?x?x?x?x[[TYPE]]>
-// BF16-NEXT: constant 0 : i16 
-// BF16-NEXT: constant {{.*}} : i16 
-// BF16-NEXT: constant {{.*}} : i16
-// BF16-NEXT: constant {{.*}} : i32
+// BF16-NEXT: arith.constant 0 : i16
+// BF16-NEXT: arith.constant {{.*}} : i16
+// BF16-NEXT: arith.constant {{.*}} : i16
+// BF16-NEXT: arith.constant {{.*}} : i32
 // BF16-NEXT: call @mcpuMemset5DBF16RandInt({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x?x[[TYPE]]>, i16, i16, i32) -> ()
 // BF16-NEXT: call @mcpuMemset5DBF16RandInt({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x?x[[TYPE]]>, i16, i16, i32) -> ()
 // BF16-NEXT: call @mcpuMemset5DBF16RandInt({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x?x[[TYPE]]>, i16, i16, i32) -> ()

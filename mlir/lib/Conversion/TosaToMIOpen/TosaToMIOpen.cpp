@@ -11,13 +11,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/TosaToMIOpen/TosaToMIOpen.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/Linalg/IR/LinalgOps.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Transforms/Bufferize.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -60,8 +61,9 @@ public:
   }
 
   LogicalResult
-  matchAndRewrite(tosa::Conv2DOp op, ArrayRef<Value> operands,
+  matchAndRewrite(tosa::Conv2DOp op, tosa::Conv2DOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    auto operands = adaptor.getOperands();
     auto loc = op->getLoc();
     auto context = op->getContext();
     auto input_t = operands[0];
@@ -80,7 +82,7 @@ public:
 
     auto filterExpanded = expandMemRef(op, filter_t, rewriter);
 
-    auto outputType = getTypeConverter<BufferizeTypeConverter>()
+    auto outputType = getTypeConverter<mlir::bufferization::BufferizeTypeConverter>()
                           ->convertType(results[0].getType())
                           .cast<MemRefType>();
     Value output = rewriter.create<memref::AllocOp>(loc, outputType);
@@ -174,7 +176,7 @@ public:
     // test for zero bias, and ignore
     auto bias_t = op.getOperand(2);
     bool zero_bias = false;
-    if (auto cst = bias_t.getDefiningOp<ConstantOp>()) {
+    if (auto cst = bias_t.getDefiningOp<arith::ConstantOp>()) {
       auto val = cst.getValue().cast<ElementsAttr>();
       auto valType = val.getType().dyn_cast<ShapedType>();
       auto valElemType = valType.getElementType();
@@ -192,7 +194,7 @@ public:
     }
     if (!zero_bias) {
       // non-zero bias, replace with tosa.add w/ broadcast
-      auto conv_output_t = rewriter.create<memref::TensorLoadOp>(loc, output);
+      auto conv_output_t = rewriter.create<bufferization::ToTensorOp>(loc, output);
 
       auto biasType = bias_mr.getType().template cast<ShapedType>();
       if (!biasType.hasStaticShape())
@@ -212,7 +214,7 @@ public:
       auto bias_expand_mr = rewriter.create<memref::ExpandShapeOp>(
           loc, newType, bias_mr, reassociations);
 
-      auto bias_t = rewriter.create<memref::TensorLoadOp>(loc, bias_expand_mr);
+      auto bias_t = rewriter.create<bufferization::ToTensorOp>(loc, bias_expand_mr);
       output = rewriter.create<tosa::AddOp>(loc, op.getType(),
                                             ValueRange{conv_output_t, bias_t});
     }
@@ -227,6 +229,6 @@ public:
 
 void tosa::populateTosaToMIOpenConversionPatterns(
     MLIRContext *context, OwningRewritePatternList *patterns) {
-  static BufferizeTypeConverter bufferizer;
+  static mlir::bufferization::BufferizeTypeConverter bufferizer;
   patterns->insert<ConvConverter>(bufferizer, context);
 }
