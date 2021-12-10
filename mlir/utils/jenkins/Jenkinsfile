@@ -2,7 +2,7 @@
 void buildProject(String target, String cmakeOpts) {
     cmakeBuild generator: 'Ninja',\
         buildDir: 'build',\
-        buildType: 'RelWithDebInfo',\
+        buildType: 'Release',\
         installation: 'InSearchPath',\
         steps: [[args: target]],\
         cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
@@ -105,13 +105,14 @@ pipeline {
                      description: 'Run weekly-only jobs')
 
         // Each below control whether to run a individual stage from parallel run
-        // They default to true but deverloper can toggle them for debugging purpose
+        // They default to true or empty but deverloper can toggle them for debugging purpose
         booleanParam(name: 'sharedLib', defaultValue: true,
                      description: 'Run the shared library stage')
         booleanParam(name: 'staticLib', defaultValue: true,
                      description: 'Run the static library stage')
         booleanParam(name: 'perfTest', defaultValue: true,
                      description: 'Run the performance testing stage')
+        string(name: 'releaseBranch', defaultValue: '', description: 'release branch name')
     }
     stages {
         stage("Set System Property") {
@@ -558,6 +559,52 @@ pipeline {
                     cleanWs()
                 }
              }
+        }
+        stage("Store a Release Build") {
+            when {
+                beforeAgent true;
+                equals expected: false, actual: params.weekly;
+                equals expected: false, actual: params.nightly;
+                not {equals expected: '', actual: params.releaseBranch}
+            }
+            agent {
+                docker {
+                    image dockerImage()
+                    args dockerArgs()
+                    label "${params.canXdlops ? 'gfx908' : 'rocm' }"
+                    alwaysPull true
+                }
+            }
+            stages{
+                stage ('Build and Archive a Release Branch') {
+                    steps {
+                        showEnv()
+                        sh "git checkout ${params.releaseBranch}"
+                        buildProject('', """
+                          -DBUILD_FAT_LIBMLIRMIOPEN=ON
+                          -DCMAKE_BUILD_TYPE=Release
+                          -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+                        """)
+                        cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/build/include",\
+                                installation: 'InSearchPath', workingDir: 'build'
+                        sh """#!/bin/bash
+                            temp=$params.releaseBranch
+                            release=\${temp////-}
+                            tar cvzf mlir-\$release.tar.gz ./build/bin ./build/lib ./build/include\
+                                                         ./build/external/llvm-project/llvm/bin\
+                                                         ./build/external/llvm-project/llvm/lib\
+                                                         ./build/external/llvm-project/llvm/include
+                            ls -l mlir-\$release.tar.gz
+                        """
+                        archiveArtifacts artifacts: '*.tar.gz', onlyIfSuccessful: true
+                     }
+                }
+            }
+            post {
+                always {
+                    cleanWs()
+                }
+            }
         }
     }
 }
