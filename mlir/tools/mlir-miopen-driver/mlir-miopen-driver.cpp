@@ -2568,7 +2568,7 @@ int main(int argc, char **argv) {
   std::string errorMessage;
   SourceMgr sourceMgr;
   OwningModuleRef moduleRef;
-  if (useHostHarness.getValue()) {
+  if (1 || useHostHarness.getValue()) {
     // Set up the input file.
     auto file = openInputFile(inputFilename, &errorMessage);
     if (!file) {
@@ -2589,6 +2589,7 @@ int main(int argc, char **argv) {
     module = ModuleOp::create(builder.getUnknownLoc());
   }
 
+#if 0
   verifyLayout();
   correctParameters();
   populateDefaults();
@@ -2711,13 +2712,15 @@ int main(int argc, char **argv) {
       exit(1);
     }
   }
-
+#endif
+  
   // Run MLIR passes with passed in tuning parameters
-  if (failed(runMLIRPasses(module, passPipeline, genConfig.perfConfig))) {
+  if (failed(runMLIRPasses(module, passPipeline, ""))) { // perfConfig???
     llvm::errs() << "Lowering failed.\n";
     exit(1);
   }
 
+#if 0
   // populate host logic.
   if (populateHostHarness.getValue()) {
     if (failed(populateHostHarnessLogic(module, builder, context, genConfig,
@@ -2745,7 +2748,8 @@ int main(int argc, char **argv) {
       exit(1);
     }
   }
-
+#endif
+  
   // Set up the output file.
   auto output = openOutputFile(outputFilename, &errorMessage);
   if (!output) {

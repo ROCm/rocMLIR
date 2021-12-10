@@ -1117,9 +1117,23 @@ static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
   mlir::Value loadOp = bt0.create<memref::LoadOp>(loc, src, ValueRange{iv0});
   if (srcElemType != dstElemType) {
     // insert conversion logic
+    auto srcBitWidth = srcElemType.getIntOrFloatBitWidth();
+    auto dstBitWidth = dstElemType.getIntOrFloatBitWidth();
     // TODO: support bf16
-    assert(!srcElemType.isInteger(16) && !dstElemType.isInteger(16));
-    loadOp = bt0.create<FPExtOp>(loc, loadOp, dstElemType);
+    if (srcElemType.isIntOrIndex()) {
+      assert(!dstElemType.isIntOrIndex());
+      loadOp = bt0.create<SIToFPOp>(loc, loadOp, dstElemType);
+    } else {
+      assert(srcElemType.isa<FloatType>());
+      if (dstElemType.isIntOrIndex()) {
+        loadOp = bt0.create<FPToSIOp>(loc, loadOp, dstElemType);
+      } else {
+        if (srcBitWidth < dstBitWidth)
+          loadOp = bt0.create<FPExtOp>(loc, loadOp, dstElemType);
+        else 
+          loadOp = bt0.create<FPTruncOp>(loc, loadOp, dstElemType);
+      }
+    }
   }
   bt0.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{iv0});
 

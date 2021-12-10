@@ -520,6 +520,12 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   if (is_verifier) {
     kernelName += "_ver";
   }
+
+  FuncOp func = module.lookupSymbol<FuncOp>(kernelName);
+  if (func) {
+    assert(func.isDeclaration());
+    func.erase();
+  }
   
   // Annotate kernel attribute to the FuncOp.
   SmallVector<NamedAttribute, 1> kernelAttrs{
@@ -527,7 +533,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   };
 
   // Construct the FuncOp.
-  auto func = FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
+  func = FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
                              ArrayRef<NamedAttribute>(kernelAttrs));
   module.push_back(func);
   if (func.getName() != kernelName) {

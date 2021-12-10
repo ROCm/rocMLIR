@@ -1,6 +1,7 @@
-// RUN: mlir-miopen-driver -p -rand 1 -t f16 -fil_layout=gkyxc -in_layout=nhwgc -out_layout=nhwgk --host %s -c | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
+// RUN: miopen-gen -p -rand 1 -t f16 -fil_layout=gkyxc -in_layout=nhwgc -out_layout=nhwgk %s | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
 
 module  {
+  func private @miopen_conv2d_gkyxc_nhwgc_nhwgk_0(%arg0: memref<1x128x3x3x8xf32>, %arg1: memref<128x32x32x1x8xf32>, %arg2: memref<128x30x30x1x128xf32>)
   func @main() {
     // allocate CPU memory for gpu_conv.
     %0 = memref.alloc() : memref<1x128x3x3x8xf16>
@@ -100,7 +101,7 @@ module  {
     %6 = memref.cast %3 : memref<?x?x?x?x?xf16> to memref<1x128x3x3x8xf16>
     %7 = memref.cast %4 : memref<?x?x?x?x?xf16> to memref<128x32x32x1x8xf16>
     %8 = memref.cast %5 : memref<?x?x?x?x?xf16> to memref<128x30x30x1x128xf16>
-    call @conv2d(%6, %7, %8) : (memref<1x128x3x3x8xf16>, memref<128x32x32x1x8xf16>, memref<128x30x30x1x128xf16>) -> ()
+    call @miopen_conv2d_gkyxc_nhwgc_nhwgk_0(%6, %7, %8) : (memref<1x128x3x3x8xf16>, memref<128x32x32x1x8xf16>, memref<128x30x30x1x128xf16>) -> ()
     call @mgpuMemCopy5DHalf(%5, %2, %c2_i32) : (memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, i32) -> ()
 
     // deallocate GPU memory
@@ -112,10 +113,6 @@ module  {
 
   func private @mgpuMemAlloc5DHalf(memref<?x?x?x?x?xf16>) -> memref<?x?x?x?x?xf16>
   func private @mgpuMemCopy5DHalf(memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, i32)
-
-  func @conv2d(%arg0: memref<1x128x3x3x8xf16>, %arg1: memref<128x32x32x1x8xf16>, %arg2: memref<128x30x30x1x128xf16>) {
-    return
-  }
 
   func private @mgpuMemDealloc5DHalf(memref<?x?x?x?x?xf16>)
 
