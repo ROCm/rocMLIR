@@ -9002,19 +9002,21 @@ struct ThreadwiseGemmRewritePattern
       auto gemmBKN = b.create<AffineLoadOp>(loc, gemmB, memIndicesKN);
 
       Value mul;
-      if (dataType.isa<IntegerType>())
+      if (dataType.isa<IntegerType>()) {
         mul = b.create<MulIOp>(loc, dataType, gemmAKM, gemmBKN);
-      else
+      } else {
         mul = b.create<MulFOp>(loc, dataType, gemmAKM, gemmBKN);
+      }
       SmallVector<Value, 3> memIndicesMN;
       extractForInductionVars({loopG, loopM, loopN}, &memIndicesMN);
       auto gemmCMN = b.create<AffineLoadOp>(loc, gemmC, memIndicesMN);
 
       Value add;
-      if (dataType.isa<IntegerType>())
+      if (dataType.isa<IntegerType>()) {
         add = b.create<AddIOp>(loc, dataType, mul, gemmCMN);
-      else
+      } else {
         add = b.create<AddFOp>(loc, dataType, mul, gemmCMN);
+      }
       b.create<AffineStoreOp>(loc, add, gemmC, memIndicesMN);
     } else if (gemmAShape.size() == 4) {
       // KPack path.
@@ -9049,19 +9051,21 @@ struct ThreadwiseGemmRewritePattern
       auto gemmBKNKPack = b.create<AffineLoadOp>(loc, gemmB, memIndicesKNKPack);
 
       Value mul;
-      if (dataType.isa<IntegerType>())
+      if (dataType.isa<IntegerType>()) {
         mul = b.create<MulIOp>(loc, dataType, gemmAKMKPack, gemmBKNKPack);
-      else
+      } else {
         mul = b.create<MulFOp>(loc, dataType, gemmAKMKPack, gemmBKNKPack);
+      }
       SmallVector<Value, 4> memIndicesMN;
       extractForInductionVars({loopG, loopM, loopN}, &memIndicesMN);
       auto gemmCMN = b.create<AffineLoadOp>(loc, gemmC, memIndicesMN);
 
       Value add;
-      if (dataType.isa<IntegerType>())
+      if (dataType.isa<IntegerType>()) {
         add = b.create<AddIOp>(loc, dataType, mul, gemmCMN);
-      else
+      } else {
         add = b.create<AddFOp>(loc, dataType, mul, gemmCMN);
+      }
       b.create<AffineStoreOp>(loc, add, gemmC, memIndicesMN);
     }
 
