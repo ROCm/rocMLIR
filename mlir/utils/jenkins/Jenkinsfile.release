@@ -1,0 +1,62 @@
+void buildProject(String target, String cmakeOpts) {
+    cmakeBuild generator: 'Ninja',\
+        buildDir: 'build',\
+        buildType: 'RelWithDebInfo',\
+        installation: 'InSearchPath',\
+        steps: [[args: target]],\
+        cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
+}
+
+void showEnv() {
+    sh 'hostname'
+    sh 'cat /etc/os-release'
+    sh 'ulimit -a'
+    sh '/opt/rocm/bin/rocm-smi'
+}
+
+String dockerImage() {
+    return 'rocm/mlir:rocm4.3-latest'
+}
+
+String dockerArgs() {
+    return '--device=/dev/kfd --device=/dev/dri --group-add video -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro'
+}
+
+pipeline {
+   agent {
+       docker {
+           image dockerImage()
+           args dockerArgs()
+           label 'rocm'
+           alwaysPull true
+       }
+   }
+   parameters {
+       string(name: 'releaseBranch', defaultValue: 'release/rocm-5.1', description: 'release branch name') 
+   }
+   stages {
+       stage('Build a Release Branch') {
+           steps {
+                  showEnv()
+                  sh "git checkout ${params.releaseBranch}"
+                  buildProject('', """
+                      -DBUILD_FAT_LIBMLIRMIOPEN=ON
+                      -DCMAKE_BUILD_TYPE=Release
+                      -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+                  """)
+                  sh """#!/bin/bash
+                      temp=$params.releaseBranch
+                      release=\${temp////-}
+                      tar cvzf mlir-\$release.tar.gz ./build 
+                      ls -l mlir-\$release.tar.gz
+                  """ 
+                  archiveArtifacts artifacts: '*.tar.gz', onlyIfSuccessful: true
+                 }
+            }
+    }
+    post {
+        always {
+             cleanWs()
+        }
+    }
+}
