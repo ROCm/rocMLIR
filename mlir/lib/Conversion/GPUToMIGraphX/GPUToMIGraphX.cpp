@@ -46,7 +46,7 @@ class FuncToCOBJPattern : public OpConversionPattern<CallOp> {
 
     // Only convert fused kernel
     if (!fusedFuncOp.getOperation()->getAttr("kernel")) {
-      return success();
+      return success(false);
     }
 
     // Insert alloc for result buffer
