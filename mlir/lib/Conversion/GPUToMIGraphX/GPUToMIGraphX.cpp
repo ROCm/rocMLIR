@@ -34,22 +34,21 @@ class FuncToCOBJPattern : public OpConversionPattern<CallOp> {
     auto loc = op->getLoc();
     auto results = op->getResults();
     auto resultType = results[0].getType().template cast<MemRefType>();
-
-    // Insert alloc for result buffer
-    rewriter.setInsertionPoint(op);
-    auto resultAlloc = rewriter.create<memref::AllocOp>(loc, resultType);
-    
     auto fnAttr = op->getAttrOfType<FlatSymbolRefAttr>("callee");
     SmallVector<Value, 8> mrOperands(op.getOperands());
     SmallVector<Value, 8> cobjArgs;
     mrOperands.push_back(resultAlloc);
-
     SmallVector<IntegerAttr, 5> globalSizeAttr;
     SmallVector<IntegerAttr, 5> localSizeAttr;
     SymbolRefAttr kernelRefAttr;
-
     auto fusedFuncOp =
       op->getParentOfType<ModuleOp>().lookupSymbol<FuncOp>(fnAttr.getValue());
+    if (!fusedFuncOp.getAttr("kernel")) {
+      return success();
+    }
+    // Insert alloc for result buffer
+    rewriter.setInsertionPoint(op);
+    auto resultAlloc = rewriter.create<memref::AllocOp>(loc, resultType);
 
     fusedFuncOp.walk([&](gpu::LaunchFuncOp Lop) {
       // x, y, z
