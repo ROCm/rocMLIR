@@ -6920,6 +6920,9 @@ struct GridwiseGemmV2RewritePattern
 
     auto gemmCVectorizedMatrixDim =
         op->getAttrOfType<IntegerAttr>("matrix_c_source_vector_read_dim");
+    int64_t matrixCDataPerCopy =
+        op->getAttrOfType<IntegerAttr>("matrix_c_data_per_copy").getInt();
+
     constexpr int64_t swizzleGroup = 4;
     // Ensure that the prerequisites are met
     // - The N dimension of the output will be stored vectorized
@@ -6927,8 +6930,11 @@ struct GridwiseGemmV2RewritePattern
     //    so transpose is well defined
     // - None of the larger dimensions of interest have overhangs that lead to
     //    incomplete transposes
+    // - The writes will vectorize: if we're not getting vectorization
+    //    due to HW % swizzleGroup != 0, then there's no point
     bool enableOutSwizzles =
         gemmCVectorizedMatrixDim.getInt() == gemmCDimN &&
+        (matrixCDataPerCopy >= swizzleGroup) &&
         (M2 == swizzleGroup && (m % swizzleGroup == 0) &&
          (n % swizzleGroup == 0) && (MPerWave % swizzleGroup == 0) &&
          (NPerWave % swizzleGroup == 0));
