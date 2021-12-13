@@ -281,29 +281,31 @@ pipeline {
                                       """
                             }
                         }
-                        stage("Tune MLIR kernels") {
-                            when {
-                                    equals expected: true, actual: params.weekly;
-                                    equals expected: true, actual: params.staticLib;
-                            }
-                            environment {
-                                // Make libMIOpen.so accessible to the test driver
-                                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
-                            }
-                            steps {
-                                sh 'ldconfig'
-                                dir('MIOpen/build/') {
-                                    sh """
-                                    bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
-                                       < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
-                                    sh 'date --utc +%Y-%m-%d > MIOpenUserDB/tuning-date'
-                                    sh 'ls -l MIOpenUserDB'
-                                }
-                                // Save user database for nightly jobs
-                                archiveArtifacts artifacts: 'MIOpen/build/MIOpenUserDB/**, MIOpen/build/tuning-date',\
-                                                 onlyIfSuccessful: true
-                            }
-                        }
+                        // FIXME. Disable "Tune MLIR kernels" stage for now.
+                        // Parameter space for KPACK needs to be carefully studied.
+                        // stage("Tune MLIR kernels") {
+                        //     when {
+                        //             equals expected: true, actual: params.weekly;
+                        //             equals expected: true, actual: params.staticLib;
+                        //     }
+                        //     environment {
+                        //         // Make libMIOpen.so accessible to the test driver
+                        //         LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                        //     }
+                        //     steps {
+                        //         sh 'ldconfig'
+                        //         dir('MIOpen/build/') {
+                        //             sh """
+                        //             bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
+                        //                < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+                        //             sh 'date --utc +%Y-%m-%d > MIOpenUserDB/tuning-date'
+                        //             sh 'ls -l MIOpenUserDB'
+                        //         }
+                        //         // Save user database for nightly jobs
+                        //         archiveArtifacts artifacts: 'MIOpen/build/MIOpenUserDB/**, MIOpen/build/tuning-date',\
+                        //                          onlyIfSuccessful: true
+                        //     }
+                        // }
                         stage("Test selected MIOpen configs") {
                             when {
                                     equals expected: false, actual: params.nightly;
