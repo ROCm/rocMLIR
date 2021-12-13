@@ -52,7 +52,7 @@ public:
 
     ConversionTarget target(ctx);
     target.addLegalDialect<migraphx::MIGraphXDialect, StandardOpsDialect, gpu::GPUDialect, memref::MemRefDialect, LLVM::LLVMDialect>();
-    //target.addIllegalOp<CallOp>();
+    target.addDynamicallyLegalOp<CallOp>();
 
     FuncOp func = getFunction();
     mlir::migraphx::populateFuncToCOBJPatterns(
