@@ -55,7 +55,7 @@ public:
     target.addDynamicallyLegalOp<CallOp>([&](Operation *op) {
       auto fnAttr = op->getAttrOfType<FlatSymbolRefAttr>("callee");
       auto fusedFuncOp = op->getParentOfType<ModuleOp>().lookupSymbol<FuncOp>(fnAttr.getValue());
-      return (fusedFuncOp.getOperation()->getAttr("kernel") != nullptr); 
+      return (fusedFuncOp.getOperation()->getAttr("kernel") == nullptr); 
     });
 
     FuncOp func = getFunction();
