@@ -45,7 +45,7 @@ class FuncToCOBJPattern : public OpConversionPattern<CallOp> {
       op->getParentOfType<ModuleOp>().lookupSymbol<FuncOp>(fnAttr.getValue());
 
     // Only convert fused kernel
-    if (!fusedFuncOp.getOperation.getAttr("kernel")) {
+    if (!fusedFuncOp.getOperation().getAttr("kernel")) {
       return success();
     }
 
