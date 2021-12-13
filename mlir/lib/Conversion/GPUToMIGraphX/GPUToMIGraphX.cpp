@@ -43,9 +43,11 @@ class FuncToCOBJPattern : public OpConversionPattern<CallOp> {
     SymbolRefAttr kernelRefAttr;
     auto fusedFuncOp =
       op->getParentOfType<ModuleOp>().lookupSymbol<FuncOp>(fnAttr.getValue());
+/*
     if (!fusedFuncOp.getArgAttr(2, "kernel")) {
       return success();
     }
+    */
     // Insert alloc for result buffer
     rewriter.setInsertionPoint(op);
     auto resultAlloc = rewriter.create<memref::AllocOp>(loc, resultType);
