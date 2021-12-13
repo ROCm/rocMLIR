@@ -43,7 +43,7 @@ class FuncToCOBJPattern : public OpConversionPattern<CallOp> {
     SymbolRefAttr kernelRefAttr;
     auto fusedFuncOp =
       op->getParentOfType<ModuleOp>().lookupSymbol<FuncOp>(fnAttr.getValue());
-    if (!fusedFuncOp.dyn_cast<mlir::Operation>().getAttr("kernel")) {
+    if (!fusedFuncOp.getArgAttr(2, "kernel")) {
       return success();
     }
     // Insert alloc for result buffer
