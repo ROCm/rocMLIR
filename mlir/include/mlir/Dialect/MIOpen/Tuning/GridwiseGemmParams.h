@@ -454,7 +454,8 @@ protected:
       vectorizationSize = 1;
     }
 
-    if ((cVectorLength > 0) && (dataPerThread % vectorizationSize == 0)) {
+    if ((cVectorLength > 0) && (dataPerThread % vectorizationSize == 0)
+        && (cVectorLength % vectorizationSize == 0)) {
       out.dataPerCopy = gcd(dataPerThread, vectorizationSize);
     } else {
       out.dataPerCopy = 1;
