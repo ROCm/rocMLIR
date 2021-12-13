@@ -48,9 +48,8 @@ public:
   void runOnFunction() override {
     auto &ctx = getContext();
     OwningRewritePatternList patterns(&ctx);
-    LLVMTypeConverter converter(&ctx);
+    LLVMConversionTarget target(&ctx);
 
-    ConversionTarget target(ctx);
     target.addLegalDialect<migraphx::MIGraphXDialect, StandardOpsDialect, gpu::GPUDialect, memref::MemRefDialect, LLVM::LLVMDialect>();
     target.addDynamicallyLegalOp<CallOp>();
 
