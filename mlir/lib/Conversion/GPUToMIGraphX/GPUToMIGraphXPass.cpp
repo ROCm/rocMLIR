@@ -48,10 +48,13 @@ public:
   void runOnFunction() override {
     auto &ctx = getContext();
     OwningRewritePatternList patterns(&ctx);
-    LLVMConversionTarget target(&ctx);
+    LLVMTypeConverter converter(&ctx);
 
+    ConversionTarget target(ctx);
     target.addLegalDialect<migraphx::MIGraphXDialect, StandardOpsDialect, gpu::GPUDialect, memref::MemRefDialect, LLVM::LLVMDialect>();
-    target.addDynamicallyLegalOp<CallOp>();
+    target.addDynamicallyLegalOp<CallOp>(
+          [&](Operation *op) {auto fusedFuncOp = op->getParentOfType<ModuleOp>().lookupSymbol<FuncOp>(fnAttr.getValue());
+        return (fusedFuncOp.getOperation()->getAttr("kernel") != nullptr); });
 
     FuncOp func = getFunction();
     mlir::migraphx::populateFuncToCOBJPatterns(
