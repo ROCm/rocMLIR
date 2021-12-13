@@ -37,7 +37,7 @@ class FuncToCOBJPattern : public OpConversionPattern<CallOp> {
     auto fnAttr = op->getAttrOfType<FlatSymbolRefAttr>("callee");
     SmallVector<Value, 8> mrOperands(op.getOperands());
     SmallVector<Value, 8> cobjArgs;
-    mrOperands.push_back(resultAlloc);
+
     SmallVector<IntegerAttr, 5> globalSizeAttr;
     SmallVector<IntegerAttr, 5> localSizeAttr;
     SymbolRefAttr kernelRefAttr;
@@ -49,6 +49,7 @@ class FuncToCOBJPattern : public OpConversionPattern<CallOp> {
     // Insert alloc for result buffer
     rewriter.setInsertionPoint(op);
     auto resultAlloc = rewriter.create<memref::AllocOp>(loc, resultType);
+    mrOperands.push_back(resultAlloc);
 
     fusedFuncOp.walk([&](gpu::LaunchFuncOp Lop) {
       // x, y, z
