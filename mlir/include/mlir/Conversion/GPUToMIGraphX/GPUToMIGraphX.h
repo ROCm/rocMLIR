@@ -14,9 +14,9 @@
 #ifndef MLIR_CONVERSION_GPUTOMIGRAPHX_GPUTOMIGRAPHX_H
 #define MLIR_CONVERSION_GPUTOMIGRAPHX_GPUTOMIGRAPHX_H
 
-#include "mlir/Pass/Pass.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Pass/Pass.h"
 
 namespace mlir {
 class LLVMTypeConverter;
@@ -31,7 +31,7 @@ void addGPUToMIGraphXPasses(OpPassManager &pm);
 
 /// Populates conversion passes GPU to MIGraphX.
 void populateFuncToCOBJPatterns(MLIRContext *context,
-                                            OwningRewritePatternList *patterns);
+                                OwningRewritePatternList *patterns);
 
 } // namespace migraphx
 } // namespace mlir
