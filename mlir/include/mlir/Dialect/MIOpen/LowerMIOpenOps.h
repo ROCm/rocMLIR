@@ -7360,7 +7360,7 @@ struct GridwiseGemmV2RewritePattern
                  b.create<RemUIOp>(loc, m_thread_data_on_global, M2TimesM1Op),
                  M2ConstantOp),
              // m_thread_data_on_global % M2
-             b.create<DivUIOp>(loc, m_thread_data_on_global, M2ConstantOp),
+             b.create<RemUIOp>(loc, m_thread_data_on_global, M2ConstantOp),
              // n_thread_data_on_global / N1
              b.create<DivUIOp>(loc, n_thread_data_on_global, N1ConstantOp),
              // n_thread-data_on_global % N1
