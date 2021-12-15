@@ -9242,7 +9242,6 @@ struct ThreadwiseCopyRewritePattern
         srcLowerIndices = layeredSourceIndices[layeredSourceIndices.size() - 1];
       }
 
-      legacyStore = true;
       // Obtain transform metadata and populate coordinates for all layers
       // wthe the metadata.
       // Only do such computation in the new approach where index diff maps
@@ -9519,7 +9518,6 @@ struct ThreadwiseLoadRewritePattern
 
     ArrayAttr layeredSourceTransformMetadata;
 
-    legacyLoad = true;
     // Obtain transform metadata and populate coordinates for all layers
     // wthe the metadata.
     // Only do such computation in the new approach where index diff maps
@@ -9780,7 +9778,6 @@ struct ThreadwiseStoreRewritePattern
 
     ArrayAttr layeredDestTransformMetadata;
 
-    legacyStore = true;
     // Obtain transform metadata and populate coordinates for all layers
     // wthe the metadata.
     // Only do such computation in the new approach where index diff maps
