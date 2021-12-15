@@ -375,10 +375,10 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
       Value upperBoundCheckOp =
           b.create<CmpIOp>(loc, CmpIPredicate::slt, coord, upperBoundOp);
       Value withinBoundInOneDimOp =
-        b.create<LLVM::AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
+        b.create<AndIOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
 
       withinBoundsOp =
-          b.create<LLVM::AndOp>(loc, withinBoundsOp, withinBoundInOneDimOp);
+          b.create<AndIOp>(loc, withinBoundsOp, withinBoundInOneDimOp);
 
       // Prepare srcLowerLoadOOBIndices.
       srcLowerLoadOOBIndices[dim] = zeroConstantOp;
@@ -559,10 +559,10 @@ inline void emitStoreLogic(
       Value upperBoundCheckOp =
           b.create<CmpIOp>(loc, CmpIPredicate::slt, coordStore, upperBoundOp);
       Value withinBoundInOneDimOp =
-          b.create<LLVM::AndOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
+          b.create<AndIOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
 
       withinStoreBoundsOp =
-          b.create<LLVM::AndOp>(loc, withinStoreBoundsOp, withinBoundInOneDimOp);
+          b.create<AndIOp>(loc, withinStoreBoundsOp, withinBoundInOneDimOp);
 
       destLowerStoreOOBIndices[dim] = zeroConstantOp;
     }
@@ -779,9 +779,9 @@ inline Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
     // - fp32 -> fp16 : use fptrunc.
     // - fp16/fp32 -> bf16(i16) : use miopen.data_convert.
     if (sourceType == b.getF16Type() && destType == b.getF32Type()) {
-      result = b.create<arith::ExtFOp>(loc, source, destType);
+      result = b.create<ExtFOp>(loc, source, destType);
     } else if (sourceType == b.getF32Type() && destType == b.getF16Type()) {
-      result = b.create<arith::TruncFOp>(loc, source, destType);
+      result = b.create<TruncFOp>(loc, source, destType);
     } else if (destType == b.getIntegerType(16)) {
       result = b.create<miopen::DataConvertOp>(loc, destType, source);
     }
@@ -1291,8 +1291,8 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
           }
 
           Value upperBoundOp = b.create<ConstantIntOp>(loc, upperBound, 32);
-          Value carry = b.create<arith::DivUIOp>(loc, index, upperBoundOp);
-          Value newIndex = b.create<arith::RemUIOp>(loc, index, upperBoundOp);
+          Value carry = b.create<DivUIOp>(loc, index, upperBoundOp);
+          Value newIndex = b.create<RemUIOp>(loc, index, upperBoundOp);
           // If the merge is, as is typical, near the end of the transformations
           // this computation should get hit by the dead code eleminator
           Value newDiff = b.create<SubIOp>(
@@ -5433,12 +5433,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto NBlockWorkConstantOp = b.create<ConstantIndexOp>(loc, NBlockWork);
     auto GStridOp = b.create<ConstantIndexOp>(loc, GStride);
     auto block_work_id_g =
-        b.create<arith::DivUIOp>(loc, bid, GStridOp); // id_g of coordinate
-    auto block_work_rem = b.create<arith::RemUIOp>(loc, bid, GStridOp);
+        b.create<DivUIOp>(loc, bid, GStridOp); // id_g of coordinate
+    auto block_work_rem = b.create<RemUIOp>(loc, bid, GStridOp);
     auto block_work_id_m =
-        b.create<arith::DivUIOp>(loc, block_work_rem, NBlockWorkConstantOp);
+        b.create<DivUIOp>(loc, block_work_rem, NBlockWorkConstantOp);
     auto block_work_id_n =
-        b.create<arith::RemUIOp>(loc, block_work_rem, NBlockWorkConstantOp);
+        b.create<RemUIOp>(loc, block_work_rem, NBlockWorkConstantOp);
     auto MPerBlockConstantOp = b.create<ConstantIndexOp>(loc, MPerBlock);
     auto NPerBlockConstantOp = b.create<ConstantIndexOp>(loc, NPerBlock);
     auto m_block_data_on_global =
@@ -5547,9 +5547,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto GemmABlockCopyThreadSliceLengths_GemmMConstantOp =
         b.create<ConstantIndexOp>(loc, GemmABlockCopyThreadSliceLengths_GemmM);
 
-    auto GemmABlockCopyThreadClusterId_Y = b.create<arith::RemUIOp>(
+    auto GemmABlockCopyThreadClusterId_Y = b.create<RemUIOp>(
         loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
-    auto GemmABlockCopyThreadClusterId_X = b.create<arith::DivUIOp>(
+    auto GemmABlockCopyThreadClusterId_X = b.create<DivUIOp>(
         loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
     auto GemmAThreadDataIdBegin_Y =
         b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_Y,
@@ -5581,9 +5581,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto GemmBBlockCopyThreadSliceLengths_GemmNConstantOp =
         b.create<ConstantIndexOp>(loc, GemmBBlockCopyThreadSliceLengths_GemmN);
 
-    auto GemmBBlockCopyThreadClusterId_Y = b.create<arith::DivUIOp>(
+    auto GemmBBlockCopyThreadClusterId_Y = b.create<DivUIOp>(
         loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
-    auto GemmBBlockCopyThreadClusterId_X = b.create<arith::RemUIOp>(
+    auto GemmBBlockCopyThreadClusterId_X = b.create<RemUIOp>(
         loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
     auto GemmBThreadDataIdBegin_Y =
         b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Y,
@@ -5750,18 +5750,18 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto ThreadPerLevel0ClusterConstantOp =
         b.create<ConstantIndexOp>(loc, ThreadPerLevel0Cluster);
     auto level1_id =
-        b.create<arith::DivUIOp>(loc, tid, ThreadPerLevel0ClusterConstantOp);
+        b.create<DivUIOp>(loc, tid, ThreadPerLevel0ClusterConstantOp);
     auto level1_m_id =
-        b.create<arith::DivUIOp>(loc, level1_id, NLevel1ClusterConstantOp);
+        b.create<DivUIOp>(loc, level1_id, NLevel1ClusterConstantOp);
     auto level1_n_id =
-        b.create<arith::RemUIOp>(loc, level1_id, NLevel1ClusterConstantOp);
+        b.create<RemUIOp>(loc, level1_id, NLevel1ClusterConstantOp);
 
     auto level0_id =
-        b.create<arith::RemUIOp>(loc, tid, ThreadPerLevel0ClusterConstantOp);
+        b.create<RemUIOp>(loc, tid, ThreadPerLevel0ClusterConstantOp);
     auto level0_m_id =
-        b.create<arith::DivUIOp>(loc, level0_id, NLevel0ClusterConstantOp);
+        b.create<DivUIOp>(loc, level0_id, NLevel0ClusterConstantOp);
     auto level0_n_id =
-        b.create<arith::RemUIOp>(loc, level0_id, NLevel0ClusterConstantOp);
+        b.create<RemUIOp>(loc, level0_id, NLevel0ClusterConstantOp);
 
     int64_t MPerLevel0Cluster = MPerThread * MLevel0Cluster;
     int64_t NPerLevel0Cluster = NPerThread * NLevel0Cluster;
@@ -6126,13 +6126,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     SmallVector<Value, 5> matrixCThreadwiseCopyDestCoords = {
         GemmDataIdBegin_G_i32,
-        b.create<arith::DivUIOp>(loc, m_thread_data_on_global_i32,
+        b.create<DivUIOp>(loc, m_thread_data_on_global_i32,
                                  M1ConstantI32Op),
-        b.create<arith::RemUIOp>(loc, m_thread_data_on_global_i32,
+        b.create<RemUIOp>(loc, m_thread_data_on_global_i32,
                                  M1ConstantI32Op),
-        b.create<arith::DivUIOp>(loc, n_thread_data_on_global_i32,
+        b.create<DivUIOp>(loc, n_thread_data_on_global_i32,
                                  N1ConstantI32Op),
-        b.create<arith::RemUIOp>(loc, n_thread_data_on_global_i32,
+        b.create<RemUIOp>(loc, n_thread_data_on_global_i32,
                                  N1ConstantI32Op)};
     // g index
 
@@ -6418,12 +6418,12 @@ struct GridwiseGemmV2RewritePattern
 
     // Result block_work_desc is <NBlockWorkd, MBlockWork>
 
-    auto block_work_id_g = b.create<arith::DivUIOp>(loc, bid, GStridOp);
-    auto block_work_rem = b.create<arith::RemUIOp>(loc, bid, GStridOp);
+    auto block_work_id_g = b.create<DivUIOp>(loc, bid, GStridOp);
+    auto block_work_rem = b.create<RemUIOp>(loc, bid, GStridOp);
     auto block_work_id_m =
-        b.create<arith::RemUIOp>(loc, block_work_rem, MBlockWorkConstantOp);
+        b.create<RemUIOp>(loc, block_work_rem, MBlockWorkConstantOp);
     auto block_work_id_n =
-        b.create<arith::DivUIOp>(loc, block_work_rem, MBlockWorkConstantOp);
+        b.create<DivUIOp>(loc, block_work_rem, MBlockWorkConstantOp);
 
     auto m_block_data_on_global =
         b.create<MulIOp>(loc, block_work_id_m, MPerBlockConstantOp);
@@ -6525,9 +6525,9 @@ struct GridwiseGemmV2RewritePattern
     auto GemmABlockCopyThreadSliceLengths_GemmMConstantOp =
         b.create<ConstantIndexOp>(loc, GemmABlockCopyThreadSliceLengths_GemmM);
 
-    auto GemmABlockCopyThreadClusterId_Y = b.create<arith::RemUIOp>(
+    auto GemmABlockCopyThreadClusterId_Y = b.create<RemUIOp>(
         loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
-    auto GemmABlockCopyThreadClusterId_X = b.create<arith::DivUIOp>(
+    auto GemmABlockCopyThreadClusterId_X = b.create<DivUIOp>(
         loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
     auto GemmAThreadDataIdBegin_Y =
         b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_Y,
@@ -6559,9 +6559,9 @@ struct GridwiseGemmV2RewritePattern
     auto GemmBBlockCopyThreadSliceLengths_GemmNConstantOp =
         b.create<ConstantIndexOp>(loc, GemmBBlockCopyThreadSliceLengths_GemmN);
 
-    auto GemmBBlockCopyThreadClusterId_Y = b.create<arith::DivUIOp>(
+    auto GemmBBlockCopyThreadClusterId_Y = b.create<DivUIOp>(
         loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
-    auto GemmBBlockCopyThreadClusterId_X = b.create<arith::RemUIOp>(
+    auto GemmBBlockCopyThreadClusterId_X = b.create<RemUIOp>(
         loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
     auto GemmBThreadDataIdBegin_Y =
         b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Y,
@@ -6758,9 +6758,9 @@ struct GridwiseGemmV2RewritePattern
     // const index_t waveId_n = waveId % GemmNWaves;
     // mMyWaveOffsetA = waveId_m * GemmMPerWave;
     // mMyWaveOffsetB = waveId_n * GemmNPerWave;
-    auto waveId = b.create<arith::DivUIOp>(loc, tid, waveSizeConstantOp);
-    auto waveId_m = b.create<arith::DivUIOp>(loc, waveId, NWavesConstantOp);
-    auto waveId_n = b.create<arith::RemUIOp>(loc, waveId, NWavesConstantOp);
+    auto waveId = b.create<DivUIOp>(loc, tid, waveSizeConstantOp);
+    auto waveId_m = b.create<DivUIOp>(loc, waveId, NWavesConstantOp);
+    auto waveId_n = b.create<RemUIOp>(loc, waveId, NWavesConstantOp);
 
     Value mMyWaveOffsetA, mMyWaveOffsetB;
     mMyWaveOffsetA = b.create<MulIOp>(loc, waveId_m, MPerWaveConstantOp);
@@ -6968,10 +6968,10 @@ struct GridwiseGemmV2RewritePattern
         b.create<ConstantIntOp>(loc, M2 * M1, b.getIntegerType(32));
 
     auto laneId_xdlops_gemm =
-        b.create<arith::RemUIOp>(loc, tid, wave_size_ConstantOp);
-    auto blk_id_xdlops_gemm = b.create<arith::DivUIOp>(
+        b.create<RemUIOp>(loc, tid, wave_size_ConstantOp);
+    auto blk_id_xdlops_gemm = b.create<DivUIOp>(
         loc, laneId_xdlops_gemm, num_threads_blk_ConstantOp);
-    auto blk_td_xdlops_gemm = b.create<arith::RemUIOp>(
+    auto blk_td_xdlops_gemm = b.create<RemUIOp>(
         loc, laneId_xdlops_gemm, num_threads_blk_ConstantOp);
 
     // emit vector swizzles
@@ -7181,7 +7181,7 @@ struct GridwiseGemmV2RewritePattern
           b.create<AddIOp>(
               loc,
               b.create<MulIOp>(
-                  loc, b.create<arith::RemUIOp>(loc, waveId, NWavesConstantOp),
+                  loc, b.create<RemUIOp>(loc, waveId, NWavesConstantOp),
                   NPerWaveConstantOp),
               b.create<ConstantIndexOp>(loc, n_blockwise_gemm * NPerXdlops)),
           thread_mtx_on_blk_col);
@@ -7196,7 +7196,7 @@ struct GridwiseGemmV2RewritePattern
           b.create<AddIOp>(
               loc,
               b.create<MulIOp>(
-                  loc, b.create<arith::DivUIOp>(loc, waveId, NWavesConstantOp),
+                  loc, b.create<DivUIOp>(loc, waveId, NWavesConstantOp),
                   MPerWaveConstantOp),
               b.create<ConstantIndexOp>(loc, m_blockwise_gemm * MPerXdlops)),
           thread_mtx_on_blk_row);
@@ -7224,16 +7224,16 @@ struct GridwiseGemmV2RewritePattern
           // g
           GemmBlockCoord_G_i32,
           // m_thread_data_on_global / (M2 * M1)
-          b.create<arith::DivUIOp>(loc, m_thread_data_on_global_i32,
+          b.create<DivUIOp>(loc, m_thread_data_on_global_i32,
                                    M2TimesM1I32Op),
           // m_thread_data_on_global % (M2 * M1) / M2
-          b.create<arith::DivUIOp>(
+          b.create<DivUIOp>(
               loc,
-              b.create<arith::RemUIOp>(loc, m_thread_data_on_global_i32,
+              b.create<RemUIOp>(loc, m_thread_data_on_global_i32,
                                        M2TimesM1I32Op),
               M2ConstantI32Op),
           // m_thread_data_on_global % M2
-          b.create<arith::RemUIOp>(loc, m_thread_data_on_global_i32,
+          b.create<RemUIOp>(loc, m_thread_data_on_global_i32,
                                    M2ConstantI32Op),
           // n_thread_data_on_global
           n_thread_data_on_global_i32};
@@ -7752,7 +7752,7 @@ struct InWarpTransposeRewritePattern
     if (lanePerm.hasValue()) {
       Value groupSizeConst = b.create<ConstantIndexOp>(loc, swizzleGroupSize);
       laneInSwizzleGroup =
-          b.create<arith::RemUIOp>(loc, laneId, groupSizeConst);
+          b.create<RemUIOp>(loc, laneId, groupSizeConst);
     }
 
     Value result = vector;
@@ -7779,7 +7779,7 @@ struct InWarpTransposeRewritePattern
         shouldParticipate =
             std::accumulate(comparisons.begin() + 1, comparisons.end(),
                             comparisons[0], [&b, &loc](Value v1, Value v2) {
-                              return b.create<LLVM::OrOp>(loc, v1, v2);
+                              return b.create<OrIOp>(loc, v1, v2);
                             });
       } else { // The usual case
         Value maskConst = b.create<ConstantIndexOp>(loc, rotation);
@@ -9589,7 +9589,7 @@ struct XdlopsGemmV2RewritePattern
     // K * KRepeats; constexpr index_t BStride = K * KRepeats;
 
     auto tid = b.create<miopen::WorkitemIdOp>(loc, b.getIndexType());
-    auto laneId = b.create<arith::RemUIOp>(
+    auto laneId = b.create<RemUIOp>(
         loc, tid, b.create<ConstantIndexOp>(loc, wave_size));
 
     // TBD. FloatA / FloatB could be vectorized via KPack tuning parameter.
@@ -9767,8 +9767,8 @@ struct XdlopsGemmV2RewritePattern
       //     const index_t blk_td = laneId % mfma_type.num_threads_blk;
 
       auto NumThreadsBlkConstantOp = b.create<ConstantIndexOp>(loc, num_threads_blk);
-      auto blk_id = b.create<arith::DivUIOp>(loc, laneId, NumThreadsBlkConstantOp);
-      auto blk_td = b.create<arith::RemUIOp>(loc, laneId, NumThreadsBlkConstantOp);
+      auto blk_id = b.create<DivUIOp>(loc, laneId, NumThreadsBlkConstantOp);
+      auto blk_td = b.create<RemUIOp>(loc, laneId, NumThreadsBlkConstantOp);
 
       // Original C++ logic.
       //     // load into registers
