@@ -5389,29 +5389,11 @@ void affixBlockwiseCopyAttributes(
   bop->setAttr("block_size", gop->getAttr("block_size"));
 
   if (KPack > 1) {
-    bop->setAttr("source_dim_access_order", b.getArrayAttr({
-                                                b.getI32IntegerAttr(0),
-                                                b.getI32IntegerAttr(1),
-                                                b.getI32IntegerAttr(2),
-                                                b.getI32IntegerAttr(3),
-                                            }));
-    bop->setAttr("dest_dim_access_order", b.getArrayAttr({
-                                              b.getI32IntegerAttr(0),
-                                              b.getI32IntegerAttr(1),
-                                              b.getI32IntegerAttr(2),
-                                              b.getI32IntegerAttr(3),
-                                          }));
+    bop->setAttr("source_dim_access_order", b.getI32ArrayAttr({0, 1, 2, 3}));
+    bop->setAttr("dest_dim_access_order", b.getI32ArrayAttr({0, 1, 2, 3}));
   } else {
-    bop->setAttr("source_dim_access_order", b.getArrayAttr({
-                                                b.getI32IntegerAttr(0),
-                                                b.getI32IntegerAttr(1),
-                                                b.getI32IntegerAttr(2),
-                                            }));
-    bop->setAttr("dest_dim_access_order", b.getArrayAttr({
-                                              b.getI32IntegerAttr(0),
-                                              b.getI32IntegerAttr(1),
-                                              b.getI32IntegerAttr(2),
-                                          }));
+    bop->setAttr("source_dim_access_order", b.getI32ArrayAttr({0, 1, 2}));
+    bop->setAttr("dest_dim_access_order", b.getI32ArrayAttr({0, 1, 2}));
   }
   bop->setAttr("source_vector_read_dim", b.getI32IntegerAttr(vectorDim));
   bop->setAttr("dest_vector_write_dim", b.getI32IntegerAttr(vectorDim));
