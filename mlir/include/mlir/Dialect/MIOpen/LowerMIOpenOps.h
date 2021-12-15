@@ -7477,7 +7477,7 @@ struct GridwiseGemmV2RewritePattern
                                           M2TimesM1I32Op),
                  M2ConstantI32Op),
              // m_thread_data_on_global % M2
-             b.create<arith::DivUIOp>(loc, m_thread_data_on_global_i32,
+             b.create<arith::RemUIOp>(loc, m_thread_data_on_global_i32,
                                       M2ConstantI32Op),
              // n_thread_data_on_global / N1
              b.create<arith::DivUIOp>(loc, n_thread_data_on_global_i32,
