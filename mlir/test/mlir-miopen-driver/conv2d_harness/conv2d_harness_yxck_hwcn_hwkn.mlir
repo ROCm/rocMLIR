@@ -1,16 +1,13 @@
-// RUN: mlir-miopen-driver -p -fil_layout=gyxck -in_layout=hwgcn -out_layout=hwgkn --host %s | FileCheck %s --check-prefix=HARNESS
-// RUN: mlir-miopen-driver -pc -fil_layout=gyxck -in_layout=hwgcn -out_layout=hwgkn --host %s | FileCheck %s --check-prefix=LOWERING
-// RUN: mlir-miopen-driver -p -fil_layout=gyxck -in_layout=hwgcn -out_layout=hwgkn -c --host %s | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
+// RUN: miopen-gen -p -fil_layout=gyxck -in_layout=hwgcn -out_layout=hwgkn --host %s | FileCheck %s --check-prefix=HARNESS
+// RUN: miopen-gen -p -fil_layout=gyxck -in_layout=hwgcn -out_layout=hwgkn --host %s | mlir-miopen-driver -c | FileCheck %s --check-prefix=LOWERING
+// RUN: miopen-gen -p -fil_layout=gyxck -in_layout=hwgcn -out_layout=hwgkn --host %s | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
 
-func @conv2d(%filter : memref<1x3x3x8x128xf32>, %input : memref<32x32x1x8x128xf32>, %output : memref<30x30x1x128x128xf32>) {
-  // Convolution host-side logic would be populated here.
-  return
-}
+func private @miopen_conv2d_gyxck_hwgcn_hwgkn_0(%filter : memref<1x3x3x8x128xf32>, %input : memref<32x32x1x8x128xf32>, %output : memref<30x30x1x128x128xf32>) -> ()
+
 // HARNESS: module
-// HARNESS: func @conv2d([[FILTER_MEMREF:%.*]]: memref<1x3x3x8x128xf32>, [[INPUT_MEMREF:%.*]]: memref<32x32x1x8x128xf32>, [[OUTPUT_MEMREF:%.*]]: memref<30x30x1x128x128xf32>)
+// HARNESS: func @miopen_conv2d_gyxck_hwgcn_hwgkn_0([[FILTER_MEMREF:%.*]]: memref<1x3x3x8x128xf32>, [[INPUT_MEMREF:%.*]]: memref<32x32x1x8x128xf32>, [[OUTPUT_MEMREF:%.*]]: memref<30x30x1x128x128xf32>)
 // LOWERING: module
-// LOWERING: func @conv2d([[FILTER_MEMREF:%.*]]: memref<1x3x3x8x128xf32>, [[INPUT_MEMREF:%.*]]: memref<32x32x1x8x128xf32>, [[OUTPUT_MEMREF:%.*]]: memref<30x30x1x128x128xf32>)
-// LOWERING: gpu.launch_func  @miopen_conv2d_gyxck_hwgcn_hwgkn_0_module::@miopen_conv2d_gyxck_hwgcn_hwgkn_0 blocks in (%{{.*}}, %{{.*}}, %{{.*}}) threads in (%{{.*}}, %{{.*}}, %{{.*}}) args([[FILTER_MEMREF]] : memref<1x3x3x8x128xf32>, [[INPUT_MEMREF]] : memref<32x32x1x8x128xf32>, [[OUTPUT_MEMREF]] : memref<30x30x1x128x128xf32>)
+// LOWERING: gpu.launch_func  @miopen_conv2d_gyxck_hwgcn_hwgkn_0_module::@miopen_conv2d_gyxck_hwgcn_hwgkn_0 blocks in (%{{.*}}, %{{.*}}, %{{.*}}) threads in (%{{.*}}, %{{.*}}, %{{.*}}) args(%{{.*}} : memref<1x3x3x8x128xf32>, %{{.*}} : memref<32x32x1x8x128xf32>, %{{.*}} : memref<30x30x1x128x128xf32>)
 
 func @main() {
   // memref.allocate CPU memory.
@@ -47,7 +44,7 @@ func @main() {
   %filter = memref.cast %6 : memref<?x?x?x?x?xf32> to memref<1x3x3x8x128xf32>
   %input = memref.cast %7 : memref<?x?x?x?x?xf32> to memref<32x32x1x8x128xf32>
   %output = memref.cast %8 : memref<?x?x?x?x?xf32> to memref<30x30x1x128x128xf32>
-  call @conv2d(%filter, %input, %output) : (memref<1x3x3x8x128xf32>, memref<32x32x1x8x128xf32>, memref<30x30x1x128x128xf32>) -> ()
+  call @miopen_conv2d_gyxck_hwgcn_hwgkn_0(%filter, %input, %output) : (memref<1x3x3x8x128xf32>, memref<32x32x1x8x128xf32>, memref<30x30x1x128x128xf32>) -> ()
 
   // transfer data GPU -> CPU.
   call @mgpuMemCopy5DFloat(%8, %5, %cst_d2h) : (memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, i32) -> ()

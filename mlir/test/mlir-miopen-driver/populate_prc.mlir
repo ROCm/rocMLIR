@@ -4,42 +4,28 @@
 // F32:  [[RES:%.*]] = memref.cast {{.*}} : memref<{{.*}}> to memref<*xf32>
 // F32-NEXT:    call @print_memref_f32([[RES]]) : (memref<*xf32>) -> () 
 
-// RUN: mlir-miopen-driver -p -prc -t f16 | FileCheck %s --check-prefix=F16
+// RUN: miopen-gen -p -prc -t f16 | FileCheck %s --check-prefix=F16
 
-// F16:    call @convert_tensor{{.*}}(%{{.*}}, [[FILTER:%.*]]) : (memref<{{.*}}>, memref<{{.*}}>) -> ()
-// F16-NEXT:    [[IN:%.*]] = memref.alloc() : memref<{{.*}}>
-// F16-NEXT:    call @convert_tensor{{.*}}(%{{.*}}, [[IN]]) : (memref<{{.*}}>, memref<{{.*}}>) -> ()
-// F16-NEXT:    [[OUT:%.*]] = memref.alloc() : memref<{{.*}}>
-// F16-NEXT:    call @convert_tensor{{.*}}(%{{.*}}, [[OUT]]) : (memref<{{.*}}>, memref<{{.*}}>) -> ()
-// F16-NEXT:    call @conv2d_host([[FILTER]], [[IN]], [[OUT]]) : (memref<{{.*}}>, memref<{{.*}}>, memref<{{.*}}>) -> ()
-// F16-NEXT:    [[OUT_F16:%.*]] = memref.alloc() : memref<128x1x128x30x30xf16>
-// F16-NEXT:    call @convert_tensor{{.*}}([[OUT]], [[OUT_F16]]) : (memref<{{.*}}>, memref<{{.*}}>) -> ()
-// F16-NEXT:    [[OUT_PRINT:%.*]] = memref.alloc() : memref<[[TYPE:[a-zA-Z0-9]+]]xf32>
-// F16-NEXT:    call @convert_tensor[[TYPE]]xf16([[OUT_F16]], [[OUT_PRINT]]) : (memref<[[TYPE]]xf16>, memref<[[TYPE]]xf32>) -> ()
-// F16-NEXT:    [[RES:%.*]] = memref.cast [[OUT_PRINT]] : memref<[[TYPE]]xf32> to memref<*xf32>
-// F16-NEXT:    call @print_memref_f32([[RES]]) : (memref<*xf32>) -> ()
+// F16:    %{{.*}} = memref.alloc() : memref<1x128x8x3x3xf16>
+// F16:    call @_memcpy_f16_f32(%{{.*}}, %{{.*}}, %c{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>, index) -> ()
+// F16:    %{{.*}} = memref.alloc() : memref<128x1x8x32x32xf16>
+// F16:    call @_memcpy_f16_f32(%{{.*}}, %{{.*}}, %c{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>, index) -> ()
+// F16:    %{{.*}} = memref.alloc() : memref<{{.*}}>
+// F16:    call @_memcpy_f16_f32(%{{.*}}, %{{.*}}, %c{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>, index) -> ()
+// F16-NEXT:    call @conv2d_cpu(%{{.*}}, %{{.*}}, [[RES1:%.*]]) : (memref<1x128x8x3x3xf32>, memref<{{.*}}>, memref<{{.*}}>) -> ()
+// F16:    [[RES2:%.*]] = memref.cast [[RES1]] : memref<{{.*}}> to memref<*xf32>
+// F16:    call @print_memref_f32([[RES2]]) : (memref<*xf32>) -> ()
 
 
-// RUN: mlir-miopen-driver -p -prc -t bf16 | FileCheck %s --check-prefix=BF16
+// RUN: miopen-gen -p -prc -t bf16 | FileCheck %s --check-prefix=BF16
 
-// BF16:    call @mcpuMem5DBF16ConvertFloat(%{{.*}}, %{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>) -> ()
-// BF16-NEXT:    %{{.*}} = memref.alloc() : memref<{{.*}}>
-// BF16-NEXT:    %{{.*}} = memref.cast %{{.*}} : memref<{{.*}}> to memref<{{.*}}>
-// BF16-NEXT:    %{{.*}} = memref.cast %{{.*}} : memref<128x1x8x32x32xi16> to memref<{{.*}}>
-// BF16-NEXT:    call @mcpuMem5DBF16ConvertFloat(%{{.*}}, %{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>) -> ()
-// BF16-NEXT:    %{{.*}} = memref.alloc() : memref<{{.*}}>
-// BF16-NEXT:    %{{.*}} = memref.cast %{{.*}}12 : memref<{{.*}}> to memref<{{.*}}>
-// BF16-NEXT:    %{{.*}} = memref.cast %{{.*}}4 : memref<{{.*}}> to memref<{{.*}}>
-// BF16-NEXT:    call @mcpuMem5DBF16ConvertFloat(%{{.*}}, %{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>) -> ()
-// BF16-NEXT:    call @conv2d_host(%{{.*}}, %{{.*}}, %{{.*}}) : (memref<1x128x8x3x3xf32>, memref<{{.*}}>, memref<{{.*}}>) -> ()
-// BF16-NEXT:    %{{.*}} = memref.alloc() : memref<{{.*}}>
-// BF16-NEXT:    %{{.*}} = memref.cast %{{.*}} : memref<{{.*}}> to memref<{{.*}}>
-// BF16-NEXT:    %{{.*}} = memref.cast %{{.*}} : memref<{{.*}}> to memref<{{.*}}>
-// BF16-NEXT:    call @mcpuMem5DFloatConvertBF16(%{{.*}}, %{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>) -> ()
-// BF16-NEXT:    %{{.*}} = memref.alloc() : memref<{{.*}}>
-// BF16-NEXT:    %{{.*}} = memref.cast %{{.*}} : memref<{{.*}}> to memref<{{.*}}>
-// BF16-NEXT:    %{{.*}} = memref.cast %{{.*}} : memref<{{.*}}> to memref<{{.*}}>
-// BF16-NEXT:    call @mcpuMem5DBF16ConvertFloat({{.*}}, {{.*}}) : (memref<{{.*}}>, memref<{{.*}}>) -> ()
-// BF16-NEXT:    [[RES:%.*]] = memref.cast {{.*}} : memref<{{.*}}> to memref<*xf32>
-// BF16-NEXT:    call @print_memref_f32([[RES]]) : (memref<*xf32>) -> ()
+// BF16:    %{{.*}} = memref.alloc() : memref<1x128x8x3x3xi16>
+// BF16:    call @_memcpy_i16_f32(%{{.*}}, %{{.*}}, %c{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>, index) -> ()
+// BF16:    %{{.*}} = memref.alloc() : memref<128x1x8x32x32xi16>
+// BF16:    call @_memcpy_i16_f32(%{{.*}}, %{{.*}}, %c{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>, index) -> ()
+// BF16:    %{{.*}} = memref.alloc() : memref<{{.*}}>
+// BF16:    call @_memcpy_i16_f32(%{{.*}}, %{{.*}}, %c{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>, index) -> ()
+// BF16-NEXT:    call @conv2d_cpu(%{{.*}}, %{{.*}}, [[RES1:%.*]]) : (memref<1x128x8x3x3xf32>, memref<{{.*}}>, memref<{{.*}}>) -> ()
+// BF16:    [[RES2:%.*]] = memref.cast [[RES1]] : memref<{{.*}}> to memref<*xf32>
+// BF16:    call @print_memref_f32([[RES2]]) : (memref<*xf32>) -> ()
 

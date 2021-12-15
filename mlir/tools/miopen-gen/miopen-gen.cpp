@@ -73,11 +73,6 @@ static cl::opt<std::string>
          cl::desc("amdgpu architecture, eg: gfx803, gfx900, gfx906, gfx908"),
          cl::value_desc("GFX architecture string"), cl::init("gfx906"));
 
-static cl::opt<std::string>
-    perfConfig("perf_config",
-               cl::desc("performance config data used for tuning"),
-               cl::value_desc("Serialized tuning parameters"), cl::init(""));
-
 static cl::opt<int>
     num_cu("num_cu",
            cl::desc("Number of compute units, valid combinations include: "
@@ -242,11 +237,33 @@ static cl::opt<bool>
 //////////////////////////////////////////////////////////////////////////
 
 // generate host harness program.
-static cl::opt<bool> genHostHarness("host", cl::desc("To use host harness"),
+static cl::opt<bool> readHostHarness("host", cl::desc("To use host harness"),
+                                    cl::value_desc("To use host harness"),
+                                    cl::init(false));
+
+static cl::opt<bool> genHostHarness("host_harness", cl::desc("To use host harness"),
                                     cl::value_desc("To use host harness"),
                                     cl::init(false));
 
 static cl::alias aliasGenHostHarness("ph", cl::aliasopt(genHostHarness));
+
+// print results
+static cl::opt<bool> printResults("print_results",
+                                  cl::desc("To print result tensor"),
+                                  cl::init(false));
+static cl::alias aliasPrintResults("pr", cl::aliasopt(printResults));
+
+static cl::opt<bool> printInputs("print_inputs",
+                                 cl::desc("To print input tensors"),
+                                 cl::init(false));
+static cl::alias aliasPrintInputs("pi", cl::aliasopt(printInputs));
+
+static cl::opt<bool>
+    printValidationResults("print_validation_results",
+                           cl::desc("To print result tensor for validation"),
+                           cl::init(false));
+static cl::alias
+    aliasPrintValidationResults("pvr", cl::aliasopt(printValidationResults));
 
 // populate host validation logic.
 static cl::opt<std::string> genValidation(
@@ -281,28 +298,11 @@ static cl::opt<bool> genCPUKernel("cpu_kernels",
                                   cl::cb<void, bool>([](bool v) {
                                     if (v)
                                       genHostHarness.setValue(true);
+                                      printValidationResults.setValue(true);
                                   }));
 static cl::alias aliasGenCPUKernel("prc", cl::aliasopt(genCPUKernel));
 
-// print results
-static cl::opt<bool> printResults("print_results",
-                                  cl::desc("To print result tensor"),
-                                  cl::init(false));
-static cl::alias aliasPrintResults("pr", cl::aliasopt(printResults));
-
-static cl::opt<bool> printInputs("print_inputs",
-                                 cl::desc("To print input tensors"),
-                                 cl::init(false));
-static cl::alias aliasPrintInputs("pi", cl::aliasopt(printInputs));
-
-static cl::opt<bool>
-    printValidationResults("print_validation_results",
-                           cl::desc("To print result tensor for validation"),
-                           cl::init(false));
-static cl::alias
-    aliasPrintValidationResults("pvr", cl::aliasopt(printValidationResults));
-
-// Input spec
+// Input data spec
 static cl::opt<std::string> randomSeed(
     "rand",
     cl::desc(
@@ -334,7 +334,7 @@ static cl::opt<int> deviceNum(
 static cl::alias deviceShort("dev", cl::aliasopt(deviceNum));
 
 ////////////////////////////////////////////////////////////////////////////////
-////  Struck KernelIF
+////  Struct KernelIF
 ////  - Detected kernel interface
 ////    - assumes last param is output
 ////////////////////////////////////////////////////////////////////////////////
@@ -1122,7 +1122,13 @@ static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
     // TODO: support bf16
     if (srcElemType.isIntOrIndex()) {
       assert(!dstElemType.isIntOrIndex());
-      loadOp = bt0.create<SIToFPOp>(loc, loadOp, dstElemType);
+      if (srcBitWidth == 16) {
+        // HACK for bf16
+        loadOp = bt0.create<BitcastOp>(loc, loadOp, bt0.getBF16Type());
+        loadOp = bt0.create<FPExtOp>(loc, loadOp, dstElemType);
+      } else {
+        loadOp = bt0.create<SIToFPOp>(loc, loadOp, dstElemType);
+      }
     } else {
       assert(srcElemType.isa<FloatType>());
       if (dstElemType.isIntOrIndex()) {
@@ -1135,6 +1141,7 @@ static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
       }
     }
   }
+  
   bt0.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{iv0});
 
   b.create<ReturnOp>(loc, ValueRange{});
@@ -1215,7 +1222,7 @@ static FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   if (genConfig.dataTypeStr == "f32") {
   } else if (genConfig.dataTypeStr == "f16") {
     elemType = b.getF16Type();
-  } else if (genConfig.dataTypeStr == "i16") {
+  } else if (genConfig.dataTypeStr == "bf16") {
     elemType = b.getIntegerType(16);
   }
   
@@ -1306,11 +1313,14 @@ static FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   }
 
   // Inner loop body
-  mlir::Value cpuLoadOp = loopB.create<memref::LoadOp>(loc, block->getArgument(0), idxs);
-  mlir::Value gpuLoadOp = loopB.create<memref::LoadOp>(loc, block->getArgument(1), idxs);
+  mlir::Value gpuLoadOp = loopB.create<memref::LoadOp>(loc, block->getArgument(0), idxs);
+  mlir::Value cpuLoadOp = loopB.create<memref::LoadOp>(loc, block->getArgument(1), idxs);
 
-  if (elemType != floatType) {
-    cpuLoadOp = loopB.create<FPExtOp>(loc, cpuLoadOp, floatType);
+  if (!elemType.isF32()) {
+    if (elemType.isInteger(16)) {
+      gpuLoadOp = loopB.create<BitcastOp>(loc, gpuLoadOp, loopB.getBF16Type());
+    }
+    gpuLoadOp = loopB.create<FPExtOp>(loc, gpuLoadOp, floatType);
   }
   
   scf::IfOp ifOp;
@@ -1398,6 +1408,7 @@ populateHostHarnessLogic(ModuleOp &module, const std::list<KernelIF> &kernels,
   // Create all local variables for each kernel param
   // - assumes all kernels read the same memrefs
   auto kernel0 = kernels.front();
+  bool isCPUKernel = !kernel0.func->hasAttr("kernel");
   SmallVector<mlir::Value, 5> localVars;
   SmallVector<mlir::Value, 5> valVars;
   int32_t idx = 0;
@@ -1405,6 +1416,14 @@ populateHostHarnessLogic(ModuleOp &module, const std::list<KernelIF> &kernels,
     auto paramMRType = paramType.template dyn_cast<MemRefType>();
     assert(paramMRType && "currently only supports memref types");
     auto elemType = paramMRType.getElementType();
+    if (isCPUKernel) {
+      assert(elemType.isF32());
+      if (tensorDataType == "f16")
+        elemType = b.getF16Type();
+      else
+        elemType = b.getIntegerType(16);
+      paramMRType = MemRefType::get(paramMRType.getShape(), elemType);
+    }
     auto mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
     auto lvar = b.create<memref::AllocOp>(loc, paramMRType);
     localVars.push_back(lvar);
@@ -1419,7 +1438,7 @@ populateHostHarnessLogic(ModuleOp &module, const std::list<KernelIF> &kernels,
         loc, getMemsetFunc(module, elemType),
         ValueRange{lvU5D, getI16Val(min), getI16Val(max), getI32Val(seed)});
 
-    if (!validationType.empty()) {
+    if (!validationType.empty() || isCPUKernel) {
       // Emit validation var
       auto valType = MemRefType::get(paramMRType.getShape(), floatType);
       auto vvar = b.create<memref::AllocOp>(loc, valType);
@@ -1442,7 +1461,7 @@ populateHostHarnessLogic(ModuleOp &module, const std::list<KernelIF> &kernels,
       auto kernelWrapperFunc = createGPUWrapper(module, kernel);
       b.create<CallOp>(loc, kernelWrapperFunc, localVars);
     } else {
-      b.create<CallOp>(loc, kernel.func, localVars);
+      b.create<CallOp>(loc, kernel.func, valVars);
     }
   }
 
@@ -1489,14 +1508,14 @@ populateHostHarnessLogic(ModuleOp &module, const std::list<KernelIF> &kernels,
 
     auto verifierFunc = createVerifierFunc(module, kernel0, genConfig);
     b.create<CallOp>(loc, verifierFunc, ValueRange{testResult, valResult});
+  }
 
-    // Print and cleanup validation vars
-    for (auto &vvar : valVars) {
-      // print vvar
-      emitPrintTensor(b, vvar, printValidationResults.getValue());
-      // dealloc vvar
-      b.create<memref::DeallocOp>(loc, vvar);
-    }
+  // Print and cleanup validation vars
+  for (auto &vvar : valVars) {
+    // print vvar
+    emitPrintTensor(b, vvar, printValidationResults.getValue());
+    // dealloc vvar
+    b.create<memref::DeallocOp>(loc, vvar);
   }
 
   // Print and cleanup
@@ -1596,7 +1615,7 @@ int main(int argc, char **argv) {
       }
 
       conv2dGenerator = Conv2dGenerator(
-          chip, triple, features, perfConfig.getValue(), num_cu.getValue(),
+          chip, triple, features, num_cu.getValue(),
           xdlopsV2.getValue(), operation.getValue(), tensorDataType.getValue(),
           dilationHeight.getValue(), dilationWidth.getValue(),
           strideHeight.getValue(), strideWidth.getValue(),

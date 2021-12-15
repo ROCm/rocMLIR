@@ -1,50 +1,29 @@
-// RUN: mlir-miopen-driver -p -ph -pr | FileCheck %s --check-prefix=F32
-// RUN: mlir-miopen-driver -p -ph -pr -t f16 | FileCheck %s --check-prefix=F16
-// RUN: mlir-miopen-driver -p -ph -pr -t bf16 | FileCheck %s --check-prefix=BF16
+// RUN: miopen-gen -p -ph -pr | FileCheck %s --check-prefix=F32
+// RUN: miopen-gen -p -ph -pr -t f16 | FileCheck %s --check-prefix=F16
+// RUN: miopen-gen -p -ph -pr -t bf16 | FileCheck %s --check-prefix=BF16
 
-// F32: func @convert_tensor[[N:[0-9]+]]x[[G:[0-9]+]]x[[K:[0-9]+]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]xf32([[SOURCE:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE:[a-zA-Z0-9]+]]>, [[DEST:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE:[a-zA-Z0-9]+]]>)
-// F32-NEXT: [[ZERO:%[a-zA-Z_0-9]+]] = arith.constant 0 : index
-// F32-NEXT: [[ONE:%[a-zA-Z_0-9]+]] = arith.constant 1 : index
-// F32-NEXT: [[BOUND_N:%[a-zA-Z_0-9]+]] = arith.constant [[N]] : index
-// F32-NEXT: [[BOUND_G:%[a-zA-Z_0-9]+]] = arith.constant [[G]] : index
-// F32-NEXT: [[BOUND_K:%[a-zA-Z_0-9]+]] = arith.constant [[K]] : index
-// F32-NEXT: [[BOUND_HO:%[a-zA-Z_0-9]+]] = arith.constant [[HO]] : index
-// F32-NEXT: [[BOUND_WO:%[a-zA-Z_0-9]+]] = arith.constant [[WO]] : index
-// F32-NEXT: scf.for [[IV_N:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_N]] step [[ONE]] {
-// F32-NEXT:   scf.for [[IV_G:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_G]] step [[ONE]] {
-// F32-NEXT:     scf.for [[IV_K:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_K]] step [[ONE]] {
-// F32-NEXT:       scf.for [[IV_HO:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_HO]] step [[ONE]] {
-// F32-NEXT:         scf.for [[IV_WO:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_WO]] step [[ONE]] {
-// F32-NEXT:           [[VALUE:%[a-zA-Z_0-9]+]] = memref.load [[SOURCE]]{{\[}}[[IV_N]], [[IV_G]], [[IV_K]], [[IV_HO]], [[IV_WO]]] : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]>
-// F32-NEXT:           memref.store [[VALUE]], [[DEST]]{{\[}}[[IV_N]], [[IV_G]], [[IV_K]], [[IV_HO]], [[IV_WO]]] : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE]]>
-// F32-NEXT:         }
-// F32-NEXT:       }
-// F32-NEXT:     }
-// F32-NEXT:   }
-// F32-NEXT: }
-// F32-NEXT: return
+// F32-NOT: func @_memcpy_
 
-// F16: func @convert_tensor[[N:[0-9]+]]x[[G:[0-9]+]]x[[K:[0-9]+]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]xf16([[SOURCE:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE:[a-zA-Z0-9]+]]>, [[DEST:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE:[a-zA-Z0-9]+]]>)
-// F16-NEXT: [[ZERO:%[a-zA-Z_0-9]+]] = arith.constant 0 : index
-// F16-NEXT: [[ONE:%[a-zA-Z_0-9]+]] = arith.constant 1 : index
-// F16-NEXT: [[BOUND_N:%[a-zA-Z_0-9]+]] = arith.constant [[N]] : index
-// F16-NEXT: [[BOUND_G:%[a-zA-Z_0-9]+]] = arith.constant [[G]] : index
-// F16-NEXT: [[BOUND_K:%[a-zA-Z_0-9]+]] = arith.constant [[K]] : index
-// F16-NEXT: [[BOUND_HO:%[a-zA-Z_0-9]+]] = arith.constant [[HO]] : index
-// F16-NEXT: [[BOUND_WO:%[a-zA-Z_0-9]+]] = arith.constant [[WO]] : index
-// F16-NEXT: scf.for [[IV_N:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_N]] step [[ONE]] {
-// F16-NEXT:   scf.for [[IV_G:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_G]] step [[ONE]] {
-// F16-NEXT:     scf.for [[IV_K:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_K]] step [[ONE]] {
-// F16-NEXT:       scf.for [[IV_HO:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_HO]] step [[ONE]] {
-// F16-NEXT:         scf.for [[IV_WO:%[a-zA-Z_0-9]+]] = [[ZERO]] to [[BOUND_WO]] step [[ONE]] {
-// F16-NEXT:           [[VALUE:%[a-zA-Z_0-9]+]] = memref.load [[SOURCE]]{{\[}}[[IV_N]], [[IV_G]], [[IV_K]], [[IV_HO]], [[IV_WO]]] : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]>
-// F16-NEXT:           [[CONVERTED_VALUE:%[a-zA-Z_0-9]+]] = arith.extf [[VALUE]] : [[TYPE]] to [[PRINT_TYPE]]
-// F16-NEXT:           memref.store [[CONVERTED_VALUE]], [[DEST]]{{\[}}[[IV_N]], [[IV_G]], [[IV_K]], [[IV_HO]], [[IV_WO]]] : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE]]>
-// F16-NEXT:         }
-// F16-NEXT:       }
-// F16-NEXT:     }
+// F16: func @_memcpy_f16_f32(%arg0: memref<?xf16>, %arg1: memref<?xf32>, %arg2: index) {
+// F16-NEXT:   %c0 = arith.constant 0 : index
+// F16-NEXT:   %c1 = arith.constant 1 : index
+// F16-NEXT:   scf.for %arg3 = %c0 to %arg2 step %c1 {
+// F16-NEXT:     %0 = memref.load %arg0[%arg3] : memref<?xf16>
+// F16-NEXT:     %1 = fpext %0 : f16 to f32
+// F16-NEXT:     memref.store %1, %arg1[%arg3] : memref<?xf32>
 // F16-NEXT:   }
+// F16-NEXT:   return
 // F16-NEXT: }
-// F16-NEXT: return
 
-//BF16-NOT: func @convert_tensor[[N:[0-9]+]]x[[G:[0-9]+]]x[[K:[0-9]+]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]([[SOURCE:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE:[a-zA-Z0-9]+]]>, [[DEST:%[a-zA-Z_0-9]+]]: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE:[a-zA-Z0-9]+]]>)
+// BF16: func @_memcpy_i16_f32(%arg0: memref<?xi16>, %arg1: memref<?xf32>, %arg2: index) {
+// BF16-NEXT:   %c0 = arith.constant 0 : index
+// BF16-NEXT:   %c1 = arith.constant 1 : index
+// BF16-NEXT:   scf.for %arg3 = %c0 to %arg2 step %c1 {
+// BF16-NEXT:     %0 = memref.load %arg0[%arg3] : memref<?xi16>
+// BF16-NEXT:     %1 = bitcast %0 : i16 to bf16
+// BF16-NEXT:     %2 = fpext %1 : bf16 to f32
+// BF16-NEXT:     memref.store %2, %arg1[%arg3] : memref<?xf32>
+// BF16-NEXT:   }
+// BF16-NEXT:   return
+// BF16-NEXT: }
+

@@ -27,7 +27,7 @@ using namespace mlir;
 
 Conv2dGenerator::Conv2dGenerator(
     const std::string &chip, const std::string &triple,
-    const std::string &features, const std::string &perfConfig, int num_cu,
+    const std::string &features, int num_cu,
     bool xdlops, const miopen::ConvOpType operation,
     const std::string &dataTypeStr, int dilationHeight, int dilationWidth,
     int strideHeight, int strideWidth, int paddingHeightLeft,
@@ -37,7 +37,7 @@ Conv2dGenerator::Conv2dGenerator(
     : config{chip,
              triple,
              features,
-             perfConfig,
+             "",
              num_cu,
              xdlops,
              operation,

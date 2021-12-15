@@ -1,4 +1,5 @@
 // RUN: miopen-gen -p -rand 1 -t f16 -fil_layout=gkyxc -in_layout=nhwgc -out_layout=nhwgk %s | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
+ -p -rand 1 -t f16 -fil_layout=gkyxc -in_layout=nhwgc -out_layout=nhwgk %s | miopen-gen | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
 
 module  {
   func private @miopen_conv2d_gkyxc_nhwgc_nhwgk_0(%arg0: memref<1x128x3x3x8xf32>, %arg1: memref<128x32x32x1x8xf32>, %arg2: memref<128x30x30x1x128xf32>)

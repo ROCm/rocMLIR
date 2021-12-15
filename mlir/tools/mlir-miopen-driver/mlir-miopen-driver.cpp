@@ -2568,7 +2568,10 @@ int main(int argc, char **argv) {
   std::string errorMessage;
   SourceMgr sourceMgr;
   OwningModuleRef moduleRef;
-  if (1 || useHostHarness.getValue()) {
+#define MIOPEN_GEN
+#ifndef MIOPEN_GEN
+  if (useHostHarness.getValue()) {
+#endif // MIOPEN_GEN
     // Set up the input file.
     auto file = openInputFile(inputFilename, &errorMessage);
     if (!file) {
@@ -2584,12 +2587,14 @@ int main(int argc, char **argv) {
       exit(1);
     }
     module = moduleRef.get();
+#ifndef MIOPEN_GEN
   } else {
     // Construct a new ModuleOp.
     module = ModuleOp::create(builder.getUnknownLoc());
   }
+#endif // MIOPEN_GEN
 
-#if 0
+#ifndef MIOPEN_GEN
   verifyLayout();
   correctParameters();
   populateDefaults();
@@ -2617,7 +2622,7 @@ int main(int argc, char **argv) {
     }
 
     conv2dGenerator = Conv2dGenerator(
-        chip, triple, features, perfConfig.getValue(), num_cu.getValue(),
+        chip, triple, features, num_cu.getValue(),
         xdlopsV2.getValue(), operation.getValue(), tensorDataType.getValue(),
         dilationHeight.getValue(), dilationWidth.getValue(),
         strideHeight.getValue(), strideWidth.getValue(),
@@ -2715,12 +2720,12 @@ int main(int argc, char **argv) {
 #endif
   
   // Run MLIR passes with passed in tuning parameters
-  if (failed(runMLIRPasses(module, passPipeline, ""))) { // perfConfig???
+  if (failed(runMLIRPasses(module, passPipeline, perfConfig.getValue()))) {
     llvm::errs() << "Lowering failed.\n";
     exit(1);
   }
 
-#if 0
+#ifndef MIOPEN_GEN
   // populate host logic.
   if (populateHostHarness.getValue()) {
     if (failed(populateHostHarnessLogic(module, builder, context, genConfig,
