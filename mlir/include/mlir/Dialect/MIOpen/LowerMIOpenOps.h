@@ -325,15 +325,13 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
         int64_t dim = sourceType.getRank() - 1;
         for (int64_t iter = 0; iter < vectorLength; ++iter) {
           auto iterIndex = b.create<ConstantIndexOp>(loc, iter);
-          auto iterI32 =
-              b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32));
           srcLowerIndicesUpdated[dim] =
               b.create<AddIOp>(loc, srcLowerIndices[dim], iterIndex);
           auto loadedElement = b.create<memref::LoadOp>(loc, elementType, source,
                                                 srcLowerIndicesUpdated);
 
           loadedVector = b.create<vector::InsertElementOp>(
-              loc, loadedVectorType, loadedElement, loadedVector, iterI32);
+              loc, loadedVectorType, loadedElement, loadedVector, iterIndex);
         }
         loadedValue = loadedVector;
       }
@@ -664,7 +662,6 @@ inline void emitStoreLogic(
         destLowerStoreIndices.push_back(dstIndex);
       }
       b.create<gpu::AtomicFAddOp>(loc, value, dest, destLowerStoreIndices);
-
     } else
       emitStoreInstruction(value, destType, typeToStore, dest, destLowerIndices,
                            /*oob=*/zeroConstantOp);
@@ -803,15 +800,10 @@ inline void emitNaiveTensorCopyLogic(
   auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
   SmallVector<Value, 8> srcUpperIndices;
-  for (const auto &coord : sourceCoord) {
-    srcUpperIndices.push_back(
-        b.create<IndexCastOp>(loc, coord, b.getIndexType()));
-  }
+  srcUpperIndices.append(sourceCoord);
   SmallVector<Value, 8> destUpperIndices;
-  for (const auto &coord : destCoord) {
-    destUpperIndices.push_back(
-        b.create<IndexCastOp>(loc, coord, b.getIndexType()));
-  }
+  destUpperIndices.append(destCoord);
+
   // Emit fully-unrolled loops.
   for (unsigned ivo = 0; ivo < NSliceRow; ++ivo) {
     for (unsigned ivi = 0; ivi < NSliceCol; ivi += DataPerAccess) {
@@ -901,9 +893,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
                     const SmallVector<Value, 8> &lowerIndicesOriginal,
                     SmallVector<Value, 8> &lowerIndicesDiff,
                     SmallVector<Value, 8> &lowerIndicesUpdated) {
-  auto zeroConstantI32Op =
-      b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
-
+  Value zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
   // Obtain the shape of lower level memref.
   ArrayAttr lowerLayerShape =
       transformMetadata.get("lower_layer_bounds").template cast<ArrayAttr>();
@@ -1027,19 +1017,15 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
     if (mbDiffConst.hasValue()) {
       int64_t diff = mbDiffConst.getValue();
       if (diff == 0) {
-        if (original.getType() == b.getIndexType()) {
-          return b.create<IndexCastOp>(loc, original, b.getI32Type());
-        }
         return original;
       }
       auto mbOriginalConst = isConstantValue(original);
       if (mbOriginalConst.hasValue()) {
-        return b.create<ConstantIntOp>(loc, diff + mbOriginalConst.getValue(),
-                                       32);
+        return b.create<ConstantIndexOp>(loc,
+                                         diff + mbOriginalConst.getValue());
       }
     }
-    return b.create<AddIOp>(
-        loc, b.create<IndexCastOp>(loc, original, b.getI32Type()), diff);
+    return b.create<AddIOp>(loc, original, diff);
   };
 
   // Iterate through all transformations specified in g.
@@ -1057,23 +1043,20 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
       auto e = g.get("parameters").template cast<ArrayAttr>();
       assert(e.size() == p.size());
       assert(q.size() == 1);
-      Value lowerDiff = zeroConstantI32Op;
+      Value lowerDiff = zeroConstantOp;
       for (unsigned iter = 0; iter < e.size(); ++iter) {
         int64_t coefficient = e[iter].template cast<IntegerAttr>().getInt();
         int64_t upperDim = p[iter].template cast<IntegerAttr>().getInt();
         auto mbUpperDiff = isConstantValue(upperIndicesDiff[upperDim]);
         auto mbLowerDiff = isConstantValue(lowerDiff);
         if (mbUpperDiff.hasValue() && mbLowerDiff.hasValue()) {
-          lowerDiff = b.create<ConstantIntOp>(
+          lowerDiff = b.create<ConstantIndexOp>(
               loc,
-              mbLowerDiff.getValue() + coefficient * mbUpperDiff.getValue(),
-              /*bitwidth=*/32);
+              mbLowerDiff.getValue() + coefficient * mbUpperDiff.getValue());
         } else {
           lowerDiff = b.create<AddIOp>(
               loc, lowerDiff,
-              b.create<MulIOp>(loc,
-                               b.create<ConstantIntOp>(loc, coefficient,
-                                                       b.getIntegerType(32)),
+              b.create<MulIOp>(loc, b.create<ConstantIndexOp>(loc, coefficient),
                                upperIndicesDiff[upperDim]));
         }
       }
@@ -1094,16 +1077,13 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
         auto mbUpperDiff = isConstantValue(upperIndicesDiff[upperDim]);
         auto mbLowerDiff = isConstantValue(lowerDiff);
         if (mbUpperDiff.hasValue() && mbLowerDiff.hasValue()) {
-          lowerDiff = b.create<ConstantIntOp>(
+          lowerDiff = b.create<ConstantIndexOp>(
               loc,
-              mbUpperDiff.getValue() + coefficient * mbLowerDiff.getValue(),
-              /*bitwidth=*/32);
+              mbUpperDiff.getValue() + coefficient * mbLowerDiff.getValue());
         } else {
           lowerDiff = b.create<AddIOp>(
               loc, upperIndicesDiff[upperDim],
-              b.create<MulIOp>(loc,
-                               b.create<ConstantIntOp>(loc, coefficient,
-                                                       b.getIntegerType(32)),
+              b.create<MulIOp>(loc, b.create<ConstantIndexOp>(loc, coefficient),
                                lowerDiff));
         }
       }
@@ -1157,27 +1137,22 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
         assert(lowerDiffModifiedAttr.size() == lowerIndicesOriginal.size());
 
         for (unsigned iter = 0; iter < lowerDiffModifiedAttr.size(); ++iter) {
-          lowerDiffModified.push_back(b.create<ConstantIntOp>(
-              loc,
-              lowerDiffModifiedAttr[iter].template cast<IntegerAttr>().getInt(),
-              b.getIntegerType(32)));
+          lowerDiffModified.push_back(
+              b.create<ConstantIndexOp>(loc, lowerDiffModifiedAttr[iter]
+                                                 .template cast<IntegerAttr>()
+                                                 .getInt()));
         }
         assert(lowerDiffModified.size() == lowerIndicesOriginal.size());
       } else {
         // In case upper level diff is not constant, use expandAffineMap.
 
-        // Implementation detail: due to a potential bug in expandAffineMap,
-        // use index type for arguments sent to expandAffineMap.
-        // We convert everything back from index to i32 after expandAffineMap.
-        Value upperDiff = b.create<IndexCastOp>(loc, upperIndicesDiff[upperDim],
-                                                b.getIndexType());
+        Value upperDiff = upperIndicesDiff[upperDim];
 
         // Populate an upper diff vector with all indices 0, other than
         // upperDim dimension set as upperDiff.
         SmallVector<Value, 8> upperDiffModified;
         for (unsigned iter = 0; iter < upperIndicesDiff.size(); ++iter) {
-          Value v = (iter == upperDim) ? upperDiff
-                                       : b.create<ConstantIndexOp>(loc, 0);
+          Value v = (iter == upperDim) ? upperDiff : zeroConstantOp;
           upperDiffModified.push_back(v);
         }
         assert(upperDiffModified.size() == upperIndicesDiff.size());
@@ -1186,10 +1161,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
         // expandAffineMap.
         lowerDiffModified =
             expandAffineMap(b, loc, transform, upperDiffModified).getValue();
-        for (unsigned iter = 0; iter < lowerDiffModified.size(); ++iter)
-          // Convert from index type to i32.
-          lowerDiffModified[iter] = b.create<IndexCastOp>(
-              loc, lowerDiffModified[iter], b.getIntegerType(32));
+        ;
         assert(lowerDiffModified.size() == lowerIndicesOriginal.size());
       }
 
@@ -1239,7 +1211,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
 
         // We only implement carry logic. Borrow logic would never happen as
         // upper index diffs would always be positive in the current algorithm.
-        Value overflowOp = zeroConstantI32Op;
+        Value overflowOp = zeroConstantOp;
         for (ssize_t iter = q.size() - 1; iter >= 0; --iter) {
           int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
           int64_t upperBound = lowerLayerBounds[iter];
@@ -1265,32 +1237,32 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
             int64_t index = mbConstantIndex.getValue();
             int64_t diff = mbConstantDiff.getValue();
             if (index < upperBound) {
-              overflowOp = zeroConstantI32Op;
+              overflowOp = zeroConstantOp;
               lowerIndicesCarryChecked[lowerDim] =
-                  b.create<ConstantIntOp>(loc, index, 32);
+                  b.create<ConstantIndexOp>(loc, index);
               lowerDiffsCarryChecked[lowerDim] =
-                  b.create<ConstantIntOp>(loc, diff, 32);
+                  b.create<ConstantIndexOp>(loc, diff);
             } else {
               int64_t carry = index / upperBound;
               int64_t newIndex = index % upperBound;
               int64_t newDiff = diff - (carry * upperBound);
-              overflowOp = b.create<ConstantIntOp>(loc, carry, 32);
+              overflowOp = b.create<ConstantIndexOp>(loc, carry);
               lowerIndicesCarryChecked[lowerDim] =
-                  b.create<ConstantIntOp>(loc, newIndex, 32);
+                  b.create<ConstantIndexOp>(loc, newIndex);
               lowerDiffsCarryChecked[lowerDim] =
-                  b.create<ConstantIntOp>(loc, newDiff, 32);
+                  b.create<ConstantIndexOp>(loc, newDiff);
             }
             continue;
           }
           // No change -> no carry-out
           if (mbConstantDiff.getValueOr(-1L) == 0) {
-            overflowOp = zeroConstantI32Op;
+            overflowOp = zeroConstantOp;
             lowerDiffsCarryChecked[lowerDim] = diff;
             lowerIndicesCarryChecked[lowerDim] = index;
             continue;
           }
 
-          Value upperBoundOp = b.create<ConstantIntOp>(loc, upperBound, 32);
+          Value upperBoundOp = b.create<ConstantIndexOp>(loc, upperBound);
           Value carry = b.create<DivUIOp>(loc, index, upperBoundOp);
           Value newIndex = b.create<RemUIOp>(loc, index, upperBoundOp);
           // If the merge is, as is typical, near the end of the transformations
@@ -1371,11 +1343,8 @@ inline void populateLayeredIndicesWithIndexDiffMap(
     assert(layeredIndices.size() == 1);
     SmallVector<Value, 8> lowerIndicesOriginal = layeredIndices[0];
     for (unsigned iter = 0; iter < lowerDiff.size(); ++iter)
-      lowerIndicesUpdated.push_back(b.create<AddIOp>(
-          loc,
-          b.create<IndexCastOp>(loc, lowerIndicesOriginal[iter],
-                                b.getIntegerType(32)),
-          lowerDiff[iter]));
+      lowerIndicesUpdated.push_back(
+          b.create<AddIOp>(loc, lowerIndicesOriginal[iter], lowerDiff[iter]));
     layeredDiffs.push_back(upperDiff);
     layeredIndicesUpdated.push_back(lowerIndicesUpdated);
   } else {
@@ -1399,7 +1368,7 @@ inline void populateLayeredIndicesWithIndexDiffMap(
       layeredDiffs.push_back(lowerDiff);
       layeredIndicesUpdated.push_back(lowerIndicesUpdated);
       upperDiff.clear();
-      upperDiff = lowerDiff;
+      upperDiff.append(lowerDiff);
     }
   }
 }
@@ -1423,8 +1392,8 @@ inline void computeBottomIndicesWithIndexDiffMap(
 
   SmallVector<Value, 8> topDiff;
   for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter)
-    topDiff.push_back(b.create<ConstantIntOp>(loc, loopIVsPerAccessOrder[iter],
-                                              b.getIntegerType(32)));
+    topDiff.push_back(
+        b.create<ConstantIndexOp>(loc, loopIVsPerAccessOrder[iter]));
   layeredDiffs.push_back(topDiff);
   // Progressively apply index diff maps across all coordinate
   // transformation layers.
@@ -1435,11 +1404,7 @@ inline void computeBottomIndicesWithIndexDiffMap(
   // Fetch bottom most layer coordinate.
   SmallVector<Value, 8> bottomIndicesUpdated =
       layeredIndicesUpdated[layeredIndicesUpdated.size() - 1];
-  // computeIndexDiffMap by default emit indices of type i32, convert to
-  // index type.
-  bottomIndices.clear();
-  for (auto &v : bottomIndicesUpdated)
-    bottomIndices.push_back(b.create<IndexCastOp>(loc, v, b.getIndexType()));
+  bottomIndices = bottomIndicesUpdated;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1458,24 +1423,23 @@ inline void populateLayeredIndicesWithTransformMetadata(
     // In case there is no metadata, simply return. The top layer indices have
     // recorded earlier.
     return;
-  } else {
-    // Go through each layer of transform metadata, fetch the map attribute
-    // and apply it to obtain the indices for the next layer.
-    for (unsigned layer = 0; layer < layeredTransformMetadata.size(); ++layer) {
-      DictionaryAttr transformMetadata =
-          layeredTransformMetadata[layer].template cast<DictionaryAttr>();
-      AffineMap am = transformMetadata.get("map")
-                         .template cast<ArrayAttr>()[0]
-                         .template cast<AffineMapAttr>()
-                         .getValue();
-      SmallVector<Value, 8> nextLayerIndices =
-          expandAffineMap(b, loc, am, currentIndices).getValue();
+  }
+  // Go through each layer of transform metadata, fetch the map attribute
+  // and apply it to obtain the indices for the next layer.
+  for (unsigned layer = 0; layer < layeredTransformMetadata.size(); ++layer) {
+    DictionaryAttr transformMetadata =
+        layeredTransformMetadata[layer].template cast<DictionaryAttr>();
+    AffineMap am = transformMetadata.get("map")
+                       .template cast<ArrayAttr>()[0]
+                       .template cast<AffineMapAttr>()
+                       .getValue();
+    SmallVector<Value, 8> nextLayerIndices =
+        expandAffineMap(b, loc, am, currentIndices).getValue();
 
-      layeredIndices.push_back(nextLayerIndices);
+    layeredIndices.push_back(nextLayerIndices);
 
-      currentIndices.clear();
-      currentIndices = nextLayerIndices;
-    }
+    currentIndices.clear();
+    currentIndices = nextLayerIndices;
   }
 }
 
@@ -1515,9 +1479,7 @@ inline void computeTopAndBottomIndicesWithAffineMap(
   // Compute high-level coordinate.
   // index = (iv_0, iv_1, ...) + originalCoords
   topIndices.clear();
-  for (unsigned iter = 0; iter < originalCoords.size(); ++iter)
-    topIndices.push_back(
-        b.create<IndexCastOp>(loc, originalCoords[iter], b.getIndexType()));
+  topIndices.append(originalCoords);
 
   for (unsigned iter = 0; iter < loopIVsPerAccessOrder.size(); ++iter) {
     auto dim = dimAccessOrder[iter].template cast<IntegerAttr>().getInt();
@@ -5049,13 +5011,7 @@ static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
     }
   }
 
-  top->setAttr("dim_access_order", b.getArrayAttr({
-                                       b.getI32IntegerAttr(0),
-                                       b.getI32IntegerAttr(1),
-                                       b.getI32IntegerAttr(2),
-                                       b.getI32IntegerAttr(3),
-                                       b.getI32IntegerAttr(4),
-                                   }));
+  top->setAttr("dim_access_order", b.getI32ArrayAttr({0, 1, 2, 3, 4}));
   top->setAttr("vector_read_write_dim",
                gop->getAttr("matrix_c_source_dest_vector_read_write_dim"));
   top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
@@ -5095,13 +5051,7 @@ static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top,
   }
 
   top->setAttr("bwd_padding_kernel_status", b.getI32IntegerAttr(status));
-  top->setAttr("dim_access_order", b.getArrayAttr({
-                                       b.getI32IntegerAttr(0),
-                                       b.getI32IntegerAttr(1),
-                                       b.getI32IntegerAttr(2),
-                                       b.getI32IntegerAttr(3),
-                                       b.getI32IntegerAttr(4),
-                                   }));
+  top->setAttr("dim_access_order", b.getI32ArrayAttr({0, 1, 2, 3, 4}));
   top->setAttr("vector_read_write_dim",
                gop->getAttr("matrix_c_source_dest_vector_read_write_dim"));
   top->setAttr("source_data_per_read", b.getI32IntegerAttr(1));
@@ -5156,16 +5106,8 @@ void affixBlockwiseCopyAttributes(
     int blockwiseLoadLength, int blockwiseStoreLength) {
   bop->setAttr("block_size", gop->getAttr("block_size"));
 
-  bop->setAttr("source_dim_access_order", b.getArrayAttr({
-                                              b.getI32IntegerAttr(0),
-                                              b.getI32IntegerAttr(1),
-                                              b.getI32IntegerAttr(2),
-                                          }));
-  bop->setAttr("dest_dim_access_order", b.getArrayAttr({
-                                            b.getI32IntegerAttr(0),
-                                            b.getI32IntegerAttr(1),
-                                            b.getI32IntegerAttr(2),
-                                        }));
+  bop->setAttr("source_dim_access_order", b.getI32ArrayAttr({0, 1, 2}));
+  bop->setAttr("dest_dim_access_order", b.getI32ArrayAttr({0, 1, 2}));
   bop->setAttr("source_vector_read_dim", b.getI32IntegerAttr(vectorDim));
   bop->setAttr("dest_vector_write_dim", b.getI32IntegerAttr(vectorDim));
   bop->setAttr("source_data_per_read",
@@ -5351,8 +5293,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Prepare some useful constants.
     Value zeroConstantFloatOp =
         createZeroConstantFloatOp(b, loc, accumulatorType);
-    auto zeroConstantI32Op =
-        b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
     // Obtain critical matrix dimensions.
@@ -5445,10 +5385,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         b.create<MulIOp>(loc, block_work_id_m, MPerBlockConstantOp);
     auto n_block_data_on_global =
         b.create<MulIOp>(loc, block_work_id_n, NPerBlockConstantOp);
-    auto m_block_data_on_global_i32 = b.create<IndexCastOp>(
-        loc, m_block_data_on_global, b.getIntegerType(32));
-    auto n_block_data_on_global_i32 = b.create<IndexCastOp>(
-        loc, n_block_data_on_global, b.getIntegerType(32));
 
     // llvm::errs() << "KPerBlock: " << KPerBlock << "\n";
     // llvm::errs() << "MPerBlock: " << MPerBlock << "\n";
@@ -5557,19 +5493,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto GemmAThreadDataIdBegin_X =
         b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_X,
                          GemmABlockCopyThreadSliceLengths_GemmMConstantOp);
-    auto GemmAThreadDataIdBegin_Y_i32 = b.create<IndexCastOp>(
-        loc, GemmAThreadDataIdBegin_Y, b.getIntegerType(32));
-    auto GemmAThreadDataIdBegin_X_i32 = b.create<IndexCastOp>(
-        loc, GemmAThreadDataIdBegin_X, b.getIntegerType(32));
 
-    auto GemmABlockCopySourceCoord_Y_i32 =
-        b.create<AddIOp>(loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Y_i32);
-    auto GemmABlockCopySourceCoord_X_i32 = b.create<AddIOp>(
-        loc, m_block_data_on_global_i32, GemmAThreadDataIdBegin_X_i32);
-    auto GemmABlockCopyDestCoord_Y_i32 =
-        b.create<AddIOp>(loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Y_i32);
-    auto GemmABlockCopyDestCoord_X_i32 =
-        b.create<AddIOp>(loc, zeroConstantI32Op, GemmAThreadDataIdBegin_X_i32);
+    auto GemmABlockCopySourceCoord_Y = GemmAThreadDataIdBegin_Y;
+    auto GemmABlockCopySourceCoord_X =
+        b.create<AddIOp>(loc, m_block_data_on_global, GemmAThreadDataIdBegin_X);
+    auto GemmABlockCopyDestCoord_Y = GemmAThreadDataIdBegin_Y;
+    auto GemmABlockCopyDestCoord_X = GemmAThreadDataIdBegin_X;
 
     // Compute thread_data_id_begin for Matrix B.
     // ClusterArrangeOrder for Matrix B is <0, 1>
@@ -5591,24 +5520,15 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     auto GemmBThreadDataIdBegin_X =
         b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_X,
                          GemmBBlockCopyThreadSliceLengths_GemmNConstantOp);
-    auto GemmBThreadDataIdBegin_Y_i32 = b.create<IndexCastOp>(
-        loc, GemmBThreadDataIdBegin_Y, b.getIntegerType(32));
-    auto GemmBThreadDataIdBegin_X_i32 = b.create<IndexCastOp>(
-        loc, GemmBThreadDataIdBegin_X, b.getIntegerType(32));
 
-    auto GemmBBlockCopySourceCoord_Y_i32 =
-        b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Y_i32);
-    auto GemmBBlockCopySourceCoord_X_i32 = b.create<AddIOp>(
-        loc, n_block_data_on_global_i32, GemmBThreadDataIdBegin_X_i32);
-    auto GemmBBlockCopyDestCoord_Y_i32 =
-        b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Y_i32);
-    auto GemmBBlockCopyDestCoord_X_i32 =
-        b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_X_i32);
+    auto GemmBBlockCopySourceCoord_Y = GemmBThreadDataIdBegin_Y;
+    auto GemmBBlockCopySourceCoord_X =
+        b.create<AddIOp>(loc, n_block_data_on_global, GemmBThreadDataIdBegin_X);
+    auto GemmBBlockCopyDestCoord_Y = GemmBThreadDataIdBegin_Y;
+    auto GemmBBlockCopyDestCoord_X = GemmBThreadDataIdBegin_X;
 
-    auto GemmDataIdBegin_G_i32 =
-        b.create<IndexCastOp>(loc, block_work_id_g, b.getIntegerType(32));
-    auto GemmBlockCoord_G_i32 =
-        b.create<AddIOp>(loc, zeroConstantI32Op, GemmDataIdBegin_G_i32);
+    auto GemmDataIdBegin_G = block_work_id_g;
+    auto GemmBlockCoord_G = GemmDataIdBegin_G;
     // Compute required LDS sizes.
     int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
     computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize);
@@ -5742,8 +5662,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     Value mMyThreadOffsetA, mMyThreadOffsetB;
     Value c_thread_mtx_index_row, c_thread_mtx_index_col;
-    Value c_thread_mtx_index_row_i32, c_thread_mtx_index_col_i32;
-    Value m_thread_data_on_global_i32, n_thread_data_on_global_i32;
+    Value m_thread_data_on_global, n_thread_data_on_global;
 
     // Compute c_thread_mtx_index for Matrix C.
     int64_t ThreadPerLevel0Cluster = MLevel0Cluster * NLevel0Cluster;
@@ -5776,8 +5695,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         loc, b.create<MulIOp>(loc, level1_m_id, MPerLevel0ClusterConstantOp),
         b.create<MulIOp>(loc, level0_m_id, MPerThreadConstantOp));
     mMyThreadOffsetA = c_thread_mtx_index_row;
-    c_thread_mtx_index_row_i32 = b.create<IndexCastOp>(
-        loc, c_thread_mtx_index_row, b.getIntegerType(32));
 
     // mMyThreadOffsetB = BlockMatrixB::GetOffsetFromMultiIndex{0,
     // c_thread_mtx_index.col} = c_thread_mtx_index_col
@@ -5785,17 +5702,15 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         loc, b.create<MulIOp>(loc, level1_n_id, NPerLevel0ClusterConstantOp),
         b.create<MulIOp>(loc, level0_n_id, NPerThreadConstantOp));
     mMyThreadOffsetB = c_thread_mtx_index_col;
-    c_thread_mtx_index_col_i32 = b.create<IndexCastOp>(
-        loc, c_thread_mtx_index_col, b.getIntegerType(32));
 
-    m_thread_data_on_global_i32 = b.create<AddIOp>(
-        loc, m_block_data_on_global_i32, c_thread_mtx_index_row_i32);
-    n_thread_data_on_global_i32 = b.create<AddIOp>(
-        loc, n_block_data_on_global_i32, c_thread_mtx_index_col_i32);
+    m_thread_data_on_global =
+        b.create<AddIOp>(loc, m_block_data_on_global, c_thread_mtx_index_row);
+    n_thread_data_on_global =
+        b.create<AddIOp>(loc, n_block_data_on_global, c_thread_mtx_index_col);
 
     SmallVector<Value, 4> blockwiseLoadACoords =
-        ValueRange{GemmBlockCoord_G_i32, GemmABlockCopySourceCoord_Y_i32,
-                   GemmABlockCopySourceCoord_X_i32};
+        ValueRange{GemmBlockCoord_G, GemmABlockCopySourceCoord_Y,
+                   GemmABlockCopySourceCoord_X};
     // Emit blockwise_load for matrix A.
     auto blockwiseLoadA = b.create<miopen::BlockwiseLoadOp>(
         loc, blockwiseLoadATypes, op.filter(), blockwiseLoadACoords);
@@ -5807,8 +5722,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Emit blockwise_store for matrix A.
     auto blockwiseStoreA = b.create<miopen::BlockwiseStoreOp>(
         loc, blockwiseLoadA.getResults(), lds2DMatrixASubviewOp,
-        ValueRange{zeroConstantI32Op, GemmABlockCopyDestCoord_Y_i32,
-                   GemmABlockCopyDestCoord_X_i32});
+        ValueRange{zeroConstantOp, GemmABlockCopyDestCoord_Y,
+                   GemmABlockCopyDestCoord_X});
     affixBlockwiseCopyAttributes(
         blockwiseStoreA, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
         /*vectorDim=*/blockwiseAVectorDim,
@@ -5816,9 +5731,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
 
     // Emit blockwise_load for matrix B.
-    SmallVector<Value, 4> blockwiseLoadBCoords = {
-        GemmBlockCoord_G_i32, GemmBBlockCopySourceCoord_Y_i32,
-        GemmBBlockCopySourceCoord_X_i32};
+    SmallVector<Value, 4> blockwiseLoadBCoords = {GemmBlockCoord_G,
+                                                  GemmBBlockCopySourceCoord_Y,
+                                                  GemmBBlockCopySourceCoord_X};
     auto blockwiseLoadB = b.create<miopen::BlockwiseLoadOp>(
         loc, blockwiseLoadBTypes, op.input(), blockwiseLoadBCoords);
     affixBlockwiseCopyAttributes(
@@ -5830,8 +5745,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Emit blockwise_store for matrix B.
     auto blockwiseStoreB = b.create<miopen::BlockwiseStoreOp>(
         loc, blockwiseLoadB.getResults(), lds2DMatrixBSubviewOp,
-        ValueRange{zeroConstantI32Op, GemmBBlockCopyDestCoord_Y_i32,
-                   GemmBBlockCopyDestCoord_X_i32});
+        ValueRange{zeroConstantOp, GemmBBlockCopyDestCoord_Y,
+                   GemmBBlockCopyDestCoord_X});
     affixBlockwiseCopyAttributes(
         blockwiseStoreB, op, b,
         /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
@@ -5842,8 +5757,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Emit loop.
     // Compute loop iterations from attributes.
 
-    auto KPerBlockConstantI32Op =
-        b.create<ConstantIntOp>(loc, KPerBlock, b.getIntegerType(32));
+    auto KPerBlockConstantOp = b.create<ConstantIndexOp>(loc, KPerBlock);
 
     int64_t loopIteration = (K - KPerBlock) / KPerBlock;
 
@@ -5873,7 +5787,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     const auto &args = loopOp.getRegionIterArgs();
     Value blockwiseCopyASrcUpdated =
-        lb.create<AddIOp>(loc, args[0], KPerBlockConstantI32Op);
+        lb.create<AddIOp>(loc, args[0], KPerBlockConstantOp);
     // Emit blockwise_load for matrix A.
     blockwiseLoadACoords[1] = blockwiseCopyASrcUpdated;
     auto blockwiseLoadATop = lb.create<miopen::BlockwiseLoadOp>(
@@ -5885,7 +5799,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
         /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
 
     Value blockwiseCopyBSrcUpdated =
-        lb.create<AddIOp>(loc, args[1], KPerBlockConstantI32Op);
+        lb.create<AddIOp>(loc, args[1], KPerBlockConstantOp);
     blockwiseLoadBCoords[1] = blockwiseCopyBSrcUpdated;
     // Emit blockwise_load for matrix B.
     auto blockwiseLoadBTop = lb.create<miopen::BlockwiseLoadOp>(
@@ -5942,10 +5856,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     int64_t N1 = NPerThread * NLevel0Cluster * NLevel1Cluster;
     int64_t N0 = N / N1;
 
-    auto M1ConstantI32Op =
-        b.create<ConstantIntOp>(loc, M1, b.getIntegerType(32));
-    auto N1ConstantI32Op =
-        b.create<ConstantIntOp>(loc, N1, b.getIntegerType(32));
+    auto M1ConstantOp = b.create<ConstantIndexOp>(loc, M1);
+    auto N1ConstantOp = b.create<ConstantIndexOp>(loc, N1);
 
     // build affine expression: d0 = g
     // (d0, d1, d2, d3, d4) -> (d0, d1 * M1 + d2, d3 * N1 + d4)
@@ -6122,14 +6034,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     SmallVector<Value, 5> matrixCThreadwiseCopySourceCoords;
     std::fill_n(std::back_inserter(matrixCThreadwiseCopySourceCoords), 5,
-                zeroConstantI32Op.getResult());
+                zeroConstantOp.getResult());
 
     SmallVector<Value, 5> matrixCThreadwiseCopyDestCoords = {
-        GemmDataIdBegin_G_i32,
-        b.create<DivUIOp>(loc, m_thread_data_on_global_i32, M1ConstantI32Op),
-        b.create<RemUIOp>(loc, m_thread_data_on_global_i32, M1ConstantI32Op),
-        b.create<DivUIOp>(loc, n_thread_data_on_global_i32, N1ConstantI32Op),
-        b.create<RemUIOp>(loc, n_thread_data_on_global_i32, N1ConstantI32Op)};
+        GemmDataIdBegin_G,
+        b.create<DivUIOp>(loc, m_thread_data_on_global, M1ConstantOp),
+        b.create<RemUIOp>(loc, m_thread_data_on_global, M1ConstantOp),
+        b.create<DivUIOp>(loc, n_thread_data_on_global, N1ConstantOp),
+        b.create<RemUIOp>(loc, n_thread_data_on_global, N1ConstantOp)};
     // g index
 
     auto threadwiseCopyCMatrixOp = b.create<miopen::ThreadwiseCopyOp>(
@@ -6298,8 +6210,6 @@ struct GridwiseGemmV2RewritePattern
         op.output().getType().cast<MemRefType>().getElementType();
 
     // Prepare some useful constants.
-    auto zeroConstantI32Op =
-        b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
     // Obtain critical matrix dimensions.
@@ -6395,8 +6305,7 @@ struct GridwiseGemmV2RewritePattern
 
     auto MPerBlockConstantOp = b.create<ConstantIndexOp>(loc, MPerBlock);
     auto NPerBlockConstantOp = b.create<ConstantIndexOp>(loc, NPerBlock);
-    auto KPerBlockConstantI32Op =
-        b.create<ConstantIntOp>(loc, KPerBlock, b.getIntegerType(32));
+    auto KPerBlockConstantOp = b.create<ConstantIndexOp>(loc, KPerBlock);
     auto MBlockWorkConstantOp = b.create<ConstantIndexOp>(loc, MBlockWork);
     auto GStridOp = b.create<ConstantIndexOp>(loc, GStride);
     // -----
@@ -6425,11 +6334,6 @@ struct GridwiseGemmV2RewritePattern
         b.create<MulIOp>(loc, block_work_id_m, MPerBlockConstantOp);
     auto n_block_data_on_global =
         b.create<MulIOp>(loc, block_work_id_n, NPerBlockConstantOp);
-
-    auto m_block_data_on_global_i32 = b.create<IndexCastOp>(
-        loc, m_block_data_on_global, b.getIntegerType(32));
-    auto n_block_data_on_global_i32 = b.create<IndexCastOp>(
-        loc, n_block_data_on_global, b.getIntegerType(32));
 
     // -----
 
@@ -6531,19 +6435,12 @@ struct GridwiseGemmV2RewritePattern
     auto GemmAThreadDataIdBegin_X =
         b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_X,
                          GemmABlockCopyThreadSliceLengths_GemmMConstantOp);
-    auto GemmAThreadDataIdBegin_Y_i32 = b.create<IndexCastOp>(
-        loc, GemmAThreadDataIdBegin_Y, b.getIntegerType(32));
-    auto GemmAThreadDataIdBegin_X_i32 = b.create<IndexCastOp>(
-        loc, GemmAThreadDataIdBegin_X, b.getIntegerType(32));
 
-    auto GemmABlockCopySourceCoord_Y_i32 =
-        b.create<AddIOp>(loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Y_i32);
-    auto GemmABlockCopySourceCoord_X_i32 = b.create<AddIOp>(
-        loc, m_block_data_on_global_i32, GemmAThreadDataIdBegin_X_i32);
-    auto GemmABlockCopyDestCoord_Y_i32 =
-        b.create<AddIOp>(loc, zeroConstantI32Op, GemmAThreadDataIdBegin_Y_i32);
-    auto GemmABlockCopyDestCoord_X_i32 =
-        b.create<AddIOp>(loc, zeroConstantI32Op, GemmAThreadDataIdBegin_X_i32);
+    auto GemmABlockCopySourceCoord_Y = GemmAThreadDataIdBegin_Y;
+    auto GemmABlockCopySourceCoord_X =
+        b.create<AddIOp>(loc, m_block_data_on_global, GemmAThreadDataIdBegin_X);
+    auto GemmABlockCopyDestCoord_Y = GemmAThreadDataIdBegin_Y;
+    auto GemmABlockCopyDestCoord_X = GemmAThreadDataIdBegin_X;
 
     // Compute thread_data_id_begin for Matrix B.
     // ClusterArrangeOrder for Matrix B is <0, 1>
@@ -6565,22 +6462,14 @@ struct GridwiseGemmV2RewritePattern
     auto GemmBThreadDataIdBegin_X =
         b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_X,
                          GemmBBlockCopyThreadSliceLengths_GemmNConstantOp);
-    auto GemmBThreadDataIdBegin_Y_i32 = b.create<IndexCastOp>(
-        loc, GemmBThreadDataIdBegin_Y, b.getIntegerType(32));
-    auto GemmBThreadDataIdBegin_X_i32 = b.create<IndexCastOp>(
-        loc, GemmBThreadDataIdBegin_X, b.getIntegerType(32));
 
-    auto GemmBBlockCopySourceCoord_Y_i32 =
-        b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Y_i32);
-    auto GemmBBlockCopySourceCoord_X_i32 = b.create<AddIOp>(
-        loc, n_block_data_on_global_i32, GemmBThreadDataIdBegin_X_i32);
-    auto GemmBBlockCopyDestCoord_Y_i32 =
-        b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_Y_i32);
-    auto GemmBBlockCopyDestCoord_X_i32 =
-        b.create<AddIOp>(loc, zeroConstantI32Op, GemmBThreadDataIdBegin_X_i32);
+    auto GemmBBlockCopySourceCoord_Y = GemmBThreadDataIdBegin_Y;
+    auto GemmBBlockCopySourceCoord_X =
+        b.create<AddIOp>(loc, n_block_data_on_global, GemmBThreadDataIdBegin_X);
+    auto GemmBBlockCopyDestCoord_Y = GemmBThreadDataIdBegin_Y;
+    auto GemmBBlockCopyDestCoord_X = GemmBThreadDataIdBegin_X;
 
-    auto GemmBlockCoord_G_i32 =
-        b.create<IndexCastOp>(loc, block_work_id_g, b.getIntegerType(32));
+    auto GemmBlockCoord_G = block_work_id_g;
     // -----
 
     // Alocate LDS and create subviews.
@@ -6670,9 +6559,9 @@ struct GridwiseGemmV2RewritePattern
     // Blockwise copy from global (generic tensor) to LDS (naive tensor).
 
     // Emit blockwise_load for matrix A.
-    SmallVector<Value, 4> blockwiseLoadACoords = {
-        GemmBlockCoord_G_i32, GemmABlockCopySourceCoord_Y_i32,
-        GemmABlockCopySourceCoord_X_i32};
+    SmallVector<Value, 4> blockwiseLoadACoords = {GemmBlockCoord_G,
+                                                  GemmABlockCopySourceCoord_Y,
+                                                  GemmABlockCopySourceCoord_X};
     auto blockwiseLoadA = b.create<miopen::BlockwiseLoadOp>(
         loc, blockwiseLoadATypes, op.filter(), blockwiseLoadACoords);
     affixBlockwiseCopyAttributes(
@@ -6683,8 +6572,8 @@ struct GridwiseGemmV2RewritePattern
     // Emit blockwise_store for matrix A.
     auto blockwiseStoreA = b.create<miopen::BlockwiseStoreOp>(
         loc, blockwiseLoadA.getResults(), lds2DMatrixASubviewOp,
-        ValueRange{zeroConstantI32Op, GemmABlockCopyDestCoord_Y_i32,
-                   GemmABlockCopyDestCoord_X_i32});
+        ValueRange{zeroConstantOp, GemmABlockCopyDestCoord_Y,
+                   GemmABlockCopyDestCoord_X});
     affixBlockwiseCopyAttributes(
         blockwiseStoreA, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
         /*vectorDim=*/blockwiseAVectorDim,
@@ -6692,9 +6581,9 @@ struct GridwiseGemmV2RewritePattern
         /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
 
     // Emit blockwise_load for matrix B.
-    SmallVector<Value, 4> blockwiseLoadBCoords = {
-        GemmBlockCoord_G_i32, GemmBBlockCopySourceCoord_Y_i32,
-        GemmBBlockCopySourceCoord_X_i32};
+    SmallVector<Value, 4> blockwiseLoadBCoords = {GemmBlockCoord_G,
+                                                  GemmBBlockCopySourceCoord_Y,
+                                                  GemmBBlockCopySourceCoord_X};
     auto blockwiseLoadB = b.create<miopen::BlockwiseLoadOp>(
         loc, blockwiseLoadBTypes, op.input(), blockwiseLoadBCoords);
     affixBlockwiseCopyAttributes(
@@ -6705,8 +6594,8 @@ struct GridwiseGemmV2RewritePattern
     // Emit blockwise_store for matrix B.
     auto blockwiseStoreB = b.create<miopen::BlockwiseStoreOp>(
         loc, blockwiseLoadB.getResults(), lds2DMatrixBSubviewOp,
-        ValueRange{zeroConstantI32Op, GemmBBlockCopyDestCoord_Y_i32,
-                   GemmBBlockCopyDestCoord_X_i32});
+        ValueRange{zeroConstantOp, GemmBBlockCopyDestCoord_Y,
+                   GemmBBlockCopyDestCoord_X});
     affixBlockwiseCopyAttributes(
         blockwiseStoreB, op, b, /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
         /*vectorDim=*/blockwiseBVectorDim,
@@ -6814,7 +6703,7 @@ struct GridwiseGemmV2RewritePattern
 
     // Blockwise copy from global (generic tensor) to register (naive tensor).
     Value blockwiseCopyASrcUpdated =
-        mfmalb.create<AddIOp>(loc, mfmalArgs[0], KPerBlockConstantI32Op);
+        mfmalb.create<AddIOp>(loc, mfmalArgs[0], KPerBlockConstantOp);
     blockwiseLoadACoords[1] = blockwiseCopyASrcUpdated;
     // Emit blockwise_load for matrix A.
     auto blockwiseLoadATop = mfmalb.create<miopen::BlockwiseLoadOp>(
@@ -6826,7 +6715,7 @@ struct GridwiseGemmV2RewritePattern
         /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
 
     Value blockwiseCopyBSrcUpdated =
-        mfmalb.create<AddIOp>(loc, mfmalArgs[1], KPerBlockConstantI32Op);
+        mfmalb.create<AddIOp>(loc, mfmalArgs[1], KPerBlockConstantOp);
     blockwiseLoadBCoords[1] = blockwiseCopyBSrcUpdated;
     // Emit blockwise_load for matrix B.
     auto blockwiseLoadBTop = mfmalb.create<miopen::BlockwiseLoadOp>(
@@ -6958,10 +6847,8 @@ struct GridwiseGemmV2RewritePattern
     // llvm::errs() << "M2: group_size: " << M2 << "\n";
     // llvm::errs() << "M3: num_groups_blk: " << M3 << "\n\n";
 
-    auto M2ConstantI32Op =
-        b.create<ConstantIntOp>(loc, M2, b.getIntegerType(32));
-    auto M2TimesM1I32Op =
-        b.create<ConstantIntOp>(loc, M2 * M1, b.getIntegerType(32));
+    auto M2ConstantOp = b.create<ConstantIndexOp>(loc, M2);
+    auto M2TimesM1Op = b.create<ConstantIndexOp>(loc, M2 * M1);
 
     auto laneId_xdlops_gemm = b.create<RemUIOp>(loc, tid, wave_size_ConstantOp);
     auto blk_id_xdlops_gemm =
@@ -7013,9 +6900,7 @@ struct GridwiseGemmV2RewritePattern
                                  b.getStringAttr("PassThrough"))}),
              b.getDictionaryAttr({
                  b.getNamedAttr("upper_layer_dimensions",
-                                b.getArrayAttr({b.getI32IntegerAttr(1),
-                                                b.getI32IntegerAttr(2),
-                                                b.getI32IntegerAttr(3)})),
+                                b.getI32ArrayAttr({1, 2, 3})),
                  b.getNamedAttr("upper_layer_names",
                                 b.getArrayAttr({b.getStringAttr("m0"),
                                                 b.getStringAttr("m1"),
@@ -7067,8 +6952,7 @@ struct GridwiseGemmV2RewritePattern
         op.getContext());
 
     Value c_thread_mtx_index_row, c_thread_mtx_index_col;
-    Value c_thread_mtx_index_row_i32, c_thread_mtx_index_col_i32;
-    Value m_thread_data_on_global_i32, n_thread_data_on_global_i32;
+    Value m_thread_data_on_global, n_thread_data_on_global;
 
     // emit unrolled loop.
     for (int64_t iter = 0; iter < NumBlks; ++iter) {
@@ -7180,8 +7064,6 @@ struct GridwiseGemmV2RewritePattern
                                NPerWaveConstantOp),
               b.create<ConstantIndexOp>(loc, n_blockwise_gemm * NPerXdlops)),
           thread_mtx_on_blk_col);
-      c_thread_mtx_index_col_i32 = b.create<IndexCastOp>(
-          loc, c_thread_mtx_index_col, b.getIntegerType(32));
 
       // Original C++ logic.
       // const index_t row = (waveId / GemmNWaves) * GemmMPerWave + m *
@@ -7195,8 +7077,6 @@ struct GridwiseGemmV2RewritePattern
                                MPerWaveConstantOp),
               b.create<ConstantIndexOp>(loc, m_blockwise_gemm * MPerXdlops)),
           thread_mtx_on_blk_row);
-      c_thread_mtx_index_row_i32 = b.create<IndexCastOp>(
-          loc, c_thread_mtx_index_row, b.getIntegerType(32));
 
       // In gridwise_gemm_xdlops.hpp:
       //
@@ -7207,39 +7087,37 @@ struct GridwiseGemmV2RewritePattern
       // const index_t n_thread_data_on_global =
       //     n_block_data_on_global + c_thread_mtx_on_block.col;
 
-      m_thread_data_on_global_i32 = b.create<AddIOp>(
-          loc, m_block_data_on_global_i32, c_thread_mtx_index_row_i32);
-      n_thread_data_on_global_i32 = b.create<AddIOp>(
-          loc, n_block_data_on_global_i32, c_thread_mtx_index_col_i32);
+      m_thread_data_on_global =
+          b.create<AddIOp>(loc, m_block_data_on_global, c_thread_mtx_index_row);
+      n_thread_data_on_global =
+          b.create<AddIOp>(loc, n_block_data_on_global, c_thread_mtx_index_col);
 
       SmallVector<Value, 5> matrixCThreadwiseCopySourceCoords;
       std::fill_n(std::back_inserter(matrixCThreadwiseCopySourceCoords), 5,
-                  zeroConstantI32Op.getResult());
+                  zeroConstantOp.getResult());
       SmallVector<Value, 5> matrixCThreadwiseCopyDestCoords = {
           // g
-          GemmBlockCoord_G_i32,
+          GemmBlockCoord_G,
           // m_thread_data_on_global / (M2 * M1)
-          b.create<DivUIOp>(loc, m_thread_data_on_global_i32, M2TimesM1I32Op),
+          b.create<DivUIOp>(loc, m_thread_data_on_global, M2TimesM1Op),
           // m_thread_data_on_global % (M2 * M1) / M2
-          b.create<DivUIOp>(loc,
-                            b.create<RemUIOp>(loc, m_thread_data_on_global_i32,
-                                              M2TimesM1I32Op),
-                            M2ConstantI32Op),
+          b.create<DivUIOp>(
+              loc, b.create<RemUIOp>(loc, m_thread_data_on_global, M2TimesM1Op),
+              M2ConstantOp),
           // m_thread_data_on_global % M2
-          b.create<RemUIOp>(loc, m_thread_data_on_global_i32, M2ConstantI32Op),
+          b.create<RemUIOp>(loc, m_thread_data_on_global, M2ConstantOp),
           // n_thread_data_on_global
-          n_thread_data_on_global_i32};
+          n_thread_data_on_global};
 
       // Select which vector C to use, and offset.
       int64_t vectorCIndex = iter / iterationsPerVectorC;
       int64_t vectorCOffset = vectorCoffset * (iter % iterationsPerVectorC);
-      auto vectorCOffsetConstantOp =
-          b.create<ConstantIntOp>(loc, vectorCOffset, b.getIntegerType(32));
+      auto vectorCOffsetConstantAttr = b.getIndexAttr(vectorCOffset);
 
       // Emit threadwise_copy_v2.
       auto threadwiseCopyV2CMatrixOp = b.create<miopen::ThreadwiseCopyV2Op>(
           loc, tailResults[vectorCIndex], newOutputTransformOp,
-          vectorCOffsetConstantOp, matrixCThreadwiseCopySourceCoords,
+          vectorCOffsetConstantAttr, matrixCThreadwiseCopySourceCoords,
           matrixCThreadwiseCopyDestCoords);
       affixThreadwiseCopyV2Attributes(threadwiseCopyV2CMatrixOp, op, b);
 
@@ -7356,8 +7234,7 @@ struct BlockwiseGemmRewritePattern
     auto loc = op.getLoc();
 
     // Prepare some useful constants.
-    auto zeroConstantI32Op =
-        b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
+    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
     auto blockAType = op.matrixA().getType().cast<MemRefType>();
 
@@ -7386,10 +7263,10 @@ struct BlockwiseGemmRewritePattern
     // llvm::errs() << "NPerThread: " << NPerThread << "\n";
     // llvm::errs() << "NPerThreadSubC: " << NPerThreadSubC << "\n";
 
-    auto MPerThreadSubCConstantI32Op =
-        b.create<ConstantIntOp>(loc, MPerThreadSubC, b.getIntegerType(32));
-    auto NPerThreadSubCConstantI32Op =
-        b.create<ConstantIntOp>(loc, NPerThreadSubC, b.getIntegerType(32));
+    auto MPerThreadSubCConstantOp =
+        b.create<ConstantIndexOp>(loc, MPerThreadSubC);
+    auto NPerThreadSubCConstantOp =
+        b.create<ConstantIndexOp>(loc, NPerThreadSubC);
 
     int64_t MLevel0Cluster =
         op->getAttr("m_level0_cluster").template cast<IntegerAttr>().getInt();
@@ -7404,10 +7281,10 @@ struct BlockwiseGemmRewritePattern
         MPerThreadSubC * MLevel0Cluster * MLevel1Cluster;
     int64_t NPerLevel1Cluster =
         NPerThreadSubC * NLevel0Cluster * NLevel1Cluster;
-    auto MPerLevel1ClusterConstantI32Op =
-        b.create<ConstantIntOp>(loc, MPerLevel1Cluster, b.getIntegerType(32));
-    auto NPerLevel1ClusterConstantI32Op =
-        b.create<ConstantIntOp>(loc, NPerLevel1Cluster, b.getIntegerType(32));
+    auto MPerLevel1ClusterConstantOp =
+        b.create<ConstantIndexOp>(loc, MPerLevel1Cluster);
+    auto NPerLevel1ClusterConstantOp =
+        b.create<ConstantIndexOp>(loc, NPerLevel1Cluster);
 
     int64_t MRepeat = MPerThread / MPerThreadSubC;
     int64_t NRepeat = NPerThread / NPerThreadSubC;
@@ -7433,7 +7310,6 @@ struct BlockwiseGemmRewritePattern
     auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
 
     auto iv = loopOp.getInductionVar();
-    auto iv_i32 = lb.create<IndexCastOp>(loc, iv, lb.getIntegerType(32));
 
     // read matrix A loop.
     auto loopReadMatrixAIteration = MRepeat;
@@ -7444,21 +7320,18 @@ struct BlockwiseGemmRewritePattern
     auto lab = OpBuilder::atBlockTerminator(loopReadMatrixAOp.getBody());
 
     auto iva = loopReadMatrixAOp.getInductionVar();
-    auto iva_i32 = lab.create<IndexCastOp>(loc, iva, lab.getIntegerType(32));
 
     // Threadwise copy from LDS (naive tensor) to register (generic tensor).
 
     // Set copy sorce and dest coordinate acoording to original C++ logic:
     SmallVector<Value, 3> matrixAThreadwiseCopySourceCoords = {
-        zeroConstantI32Op, iv_i32,
+        zeroConstantOp, iv,
         lab.create<AddIOp>(
-            loc,
-            lab.create<MulIOp>(loc, iva_i32, MPerLevel1ClusterConstantI32Op),
-            lab.create<IndexCastOp>(loc, op.threadOffsetA(),
-                                    lab.getIntegerType(32)))};
+            loc, lab.create<MulIOp>(loc, iva, MPerLevel1ClusterConstantOp),
+            op.threadOffsetA())};
     SmallVector<Value, 3> matrixAThreadwiseCopyDestCoords = {
-        zeroConstantI32Op, zeroConstantI32Op,
-        lab.create<MulIOp>(loc, iva_i32, MPerThreadSubCConstantI32Op)};
+        zeroConstantOp, zeroConstantOp,
+        lab.create<MulIOp>(loc, iva, MPerThreadSubCConstantOp)};
 
     // Emit threadwise_copy.
     auto threadwiseCopyAMatrixOp = lab.create<miopen::ThreadwiseCopyOp>(
@@ -7476,21 +7349,18 @@ struct BlockwiseGemmRewritePattern
     auto lbb = OpBuilder::atBlockTerminator(loopReadMatrixBOp.getBody());
 
     auto ivb = loopReadMatrixBOp.getInductionVar();
-    auto ivb_i32 = lbb.create<IndexCastOp>(loc, ivb, lbb.getIntegerType(32));
 
     // Threadwise copy from LDS (naive tensor) to register (generic tensor).
 
     // Set copy sorce and dest coordinate acoording to original C++ logic:
     SmallVector<Value, 3> matrixBThreadwiseCopySourceCoords{
-        zeroConstantI32Op, iv_i32,
+        zeroConstantOp, iv,
         lbb.create<AddIOp>(
-            loc,
-            lbb.create<MulIOp>(loc, ivb_i32, NPerLevel1ClusterConstantI32Op),
-            lbb.create<IndexCastOp>(loc, op.threadOffsetB(),
-                                    lbb.getIntegerType(32)))};
+            loc, lbb.create<MulIOp>(loc, ivb, NPerLevel1ClusterConstantOp),
+            op.threadOffsetB())};
     SmallVector<Value, 3> matrixBThreadwiseCopyDestCoords = {
-        zeroConstantI32Op, zeroConstantI32Op,
-        lbb.create<MulIOp>(loc, ivb_i32, NPerThreadSubCConstantI32Op)};
+        zeroConstantOp, zeroConstantOp,
+        lbb.create<MulIOp>(loc, ivb, NPerThreadSubCConstantOp)};
 
     // Emit threadwise_copy.
     auto threadwiseCopyBMatrixOp = lbb.create<miopen::ThreadwiseCopyOp>(
@@ -7526,8 +7396,7 @@ struct BlockwiseCopyRewritePattern
       bufferType = op.buffer().getType().cast<MemRefType>();
 
     // Prepare some useful constants.
-    auto zeroConstantI32Op =
-        b.create<ConstantIntOp>(loc, 0, b.getIntegerType(32));
+    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
     // Check the address spaces of source and destination values and determine
     // lowering logic.
@@ -7539,7 +7408,7 @@ struct BlockwiseCopyRewritePattern
       // tensor).
       SmallVector<Value, 5> threadwiseCopyBufferCoords;
       std::fill_n(std::back_inserter(threadwiseCopyBufferCoords),
-                  bufferType.getRank(), zeroConstantI32Op.getResult());
+                  bufferType.getRank(), zeroConstantOp.getResult());
 
       auto threadwiseCopyLoadOp = b.create<miopen::ThreadwiseCopyOp>(
           loc, op.source(), op.buffer(), op.sourceCoord(),
@@ -7559,7 +7428,7 @@ struct BlockwiseCopyRewritePattern
       // tensor).
       SmallVector<Value, 5> threadwiseCopyDestCoords;
       std::fill_n(std::back_inserter(threadwiseCopyDestCoords),
-                  destType.getRank(), zeroConstantI32Op.getResult());
+                  destType.getRank(), zeroConstantOp.getResult());
 
       auto threadwiseCopyLoadOp = b.create<miopen::ThreadwiseCopyOp>(
           loc, op.source(), op.dest(), op.sourceCoord(),
@@ -7571,7 +7440,7 @@ struct BlockwiseCopyRewritePattern
       // Threadwise copy from register (naive tensor) to LDS (naive tensor).
       SmallVector<Value, 5> threadwiseCopySourceCoords;
       std::fill_n(std::back_inserter(threadwiseCopySourceCoords),
-                  sourceType.getRank(), zeroConstantI32Op.getResult());
+                  sourceType.getRank(), zeroConstantOp.getResult());
 
       auto threadwiseCopyStoreOp = b.create<miopen::ThreadwiseCopyOp>(
           loc, op.source(), op.dest(), threadwiseCopySourceCoords,
@@ -7737,7 +7606,7 @@ struct InWarpTransposeRewritePattern
 
     llvm::SmallVector<Value, swizzleGroupSize> indexConsts;
     for (uint32_t i = 0; i < totalSize; ++i) {
-      indexConsts.push_back(b.create<ConstantIntOp>(loc, i, b.getI32Type()));
+      indexConsts.push_back(b.create<ConstantIndexOp>(loc, i));
     }
 
     Value laneInSwizzleGroup;
@@ -8224,10 +8093,7 @@ struct ThreadwiseCopyRewritePattern
         }
 
         // Compute high-level coordinate for source memref.
-        for (const Value &val : sourceCoord) {
-          srcUpperIndices.push_back(
-              b.create<IndexCastOp>(loc, val, b.getIndexType()));
-        }
+        srcUpperIndices.append(sourceCoord.begin(), sourceCoord.end());
 
         // Populate coorindates across the layers of transformations.
         populateLayeredIndicesWithTransformMetadata(
@@ -8255,10 +8121,7 @@ struct ThreadwiseCopyRewritePattern
         }
 
         // Compute high-level coordinate for dest memref.
-        for (const Value &val : destCoord) {
-          destUpperIndices.push_back(
-              b.create<IndexCastOp>(loc, val, b.getIndexType()));
-        }
+        destUpperIndices.append(destCoord.begin(), destCoord.end());
 
         // Populate coorindates across the layers of transformations.
         populateLayeredIndicesWithTransformMetadata(
@@ -8531,10 +8394,7 @@ struct ThreadwiseLoadRewritePattern
       }
 
       // Compute high-level coordinate for source memref.
-      for (unsigned i = 0; i < sourceCoordLength; ++i) {
-        srcUpperIndices.push_back(
-            b.create<IndexCastOp>(loc, sourceCoord[i], b.getIndexType()));
-      }
+      srcUpperIndices.append(sourceCoord.begin(), sourceCoord.end());
 
       // Populate coorindates across the layers of transformations.
       populateLayeredIndicesWithTransformMetadata(
@@ -8791,10 +8651,7 @@ struct ThreadwiseStoreRewritePattern
       }
 
       // Compute high-level coordinate for dest memref.
-      for (unsigned i = 0; i < destCoordLength; ++i) {
-        destUpperIndices.push_back(
-            b.create<IndexCastOp>(loc, destCoord[i], b.getIndexType()));
-      }
+      destUpperIndices.append(destCoord.begin(), destCoord.end());
 
       // Populate coorindates across the layers of transformations.
       populateLayeredIndicesWithTransformMetadata(b, loc, layeredDestIndices,
@@ -8942,6 +8799,8 @@ struct ThreadwiseCopyV2RewritePattern
         dataOpration = InMemoryDataOperation::AtomicAdd;
     }
 
+    Value sourceOffsetOp =
+        b.create<ConstantIndexOp>(loc, op.sourceOffset().getZExtValue());
     // Get source offset, and dest coordinates.
     //
     // 1. For memrefs with no externally defined affine maps in coord_transforms
@@ -9016,10 +8875,7 @@ struct ThreadwiseCopyV2RewritePattern
 
     // Compute high-level coordinate for source memref.
     SmallVector<Value, 8> srcUpperIndices;
-    for (const Value &val : sourceCoord) {
-      srcUpperIndices.push_back(
-          b.create<IndexCastOp>(loc, val, b.getIndexType()));
-    }
+    srcUpperIndices.append(sourceCoord.begin(), sourceCoord.end());
 
     // Coordinates across the layers of transformations.
     // If the vector is of size n, 0 is the top layer, and
@@ -9040,10 +8896,7 @@ struct ThreadwiseCopyV2RewritePattern
 
     // Compute high-level coordinate for dest memref.
     SmallVector<Value, 8> destUpperIndices;
-    for (const Value &val : destCoord) {
-      destUpperIndices.push_back(
-          b.create<IndexCastOp>(loc, val, b.getIndexType()));
-    }
+    destUpperIndices.append(destCoord.begin(), destCoord.end());
 
     // Coordinates across the layers of transformations.
     // If the vector is of size n, 0 is the top layer, and
@@ -9152,10 +9005,8 @@ struct ThreadwiseCopyV2RewritePattern
           layeredSourceTransform, layeredSourceIndices, srcLowerIndices);
 
       // Add sourceOffset to derive the position in the vector.
-      auto srcPosition = b.create<AddIOp>(
-          loc,
-          b.create<IndexCastOp>(loc, srcLowerIndices[0], b.getIntegerType(32)),
-          op.sourceOffset());
+      auto srcPosition =
+          b.create<AddIOp>(loc, srcLowerIndices[0], sourceOffsetOp);
 
       // Load from source.
       // Issue scalar load.
