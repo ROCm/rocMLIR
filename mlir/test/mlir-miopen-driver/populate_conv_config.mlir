@@ -4,22 +4,22 @@
 //PV: [[FIL2:%.*]] = memref.alloc() : memref<1x2048x1024x1x1xf32>
 //PV: call @verify_results([[FIL2]], [[FIL1]])
 //PV: %{{.*}} = memref.cast %{{.*}} : memref<256x1x2048x8x8xf32> to memref<*xf32>
-//PV-NEXT: [[S1:%.*]] = constant 2 : i32
-//PV-NEXT: [[S2:%.*]] = constant 2 : i32
-//PV-NEXT: [[P1:%.*]] = constant 1 : i32
-//PV-NEXT: [[P2:%.*]] = constant 1 : i32
-//PV-NEXT: [[P3:%.*]] = constant 1 : i32
-//PV-NEXT: [[P4:%.*]] = constant 1 : i32
-//PV-NEXT: [[D1:%.*]] = constant 2 : i32
-//PV-NEXT: [[D2:%.*]] = constant 2 : i32
-//PV: [[G:%.*]] = constant 103 : i8
-//PV: [[K:%.*]] = constant 107 : i8
-//PV: [[C:%.*]] = constant 99 : i8
-//PV: [[Y:%.*]] = constant 121 : i8
-//PV: [[X:%.*]] = constant 120 : i8
-//PV: [[N:%.*]] = constant 110 : i8
-//PV: [[H:%.*]] = constant 104 : i8
-//PV: [[W:%.*]] = constant 119 : i8
+//PV-NEXT: [[S1:%.*]] = arith.constant 2 : i32
+//PV-NEXT: [[S2:%.*]] = arith.constant 2 : i32
+//PV-NEXT: [[P1:%.*]] = arith.constant 1 : i32
+//PV-NEXT: [[P2:%.*]] = arith.constant 1 : i32
+//PV-NEXT: [[P3:%.*]] = arith.constant 1 : i32
+//PV-NEXT: [[P4:%.*]] = arith.constant 1 : i32
+//PV-NEXT: [[D1:%.*]] = arith.constant 2 : i32
+//PV-NEXT: [[D2:%.*]] = arith.constant 2 : i32
+//PV: [[G:%.*]] = arith.constant 103 : i8
+//PV: [[K:%.*]] = arith.constant 107 : i8
+//PV: [[C:%.*]] = arith.constant 99 : i8
+//PV: [[Y:%.*]] = arith.constant 121 : i8
+//PV: [[X:%.*]] = arith.constant 120 : i8
+//PV: [[N:%.*]] = arith.constant 110 : i8
+//PV: [[H:%.*]] = arith.constant 104 : i8
+//PV: [[W:%.*]] = arith.constant 119 : i8
 //PV: memref.store [[G]], %{{.*}} : memref<5xi8>
 //PV-NEXT: memref.store [[K]], %{{.*}} : memref<5xi8>
 //PV-NEXT: memref.store [[C]], %{{.*}} : memref<5xi8>
@@ -47,22 +47,22 @@
 //PRC:[[FIL:%.*]] = memref.cast %{{.*}} : memref<1x2048x1024x1x1xf32> to memref<*xf32>
 //PRC-NEXT: call @print_memref_f32([[FIL]]) : (memref<*xf32>) -> ()
 //PRC: %{{.*}} = memref.cast %{{.*}} : memref<256x1x2048x8x8xf32> to memref<*xf32>
-//PRC-NEXT: [[S1:%.*]] = constant 2 : i32
-//PRC-NEXT: [[S2:%.*]] = constant 2 : i32
-//PRC-NEXT: [[P1:%.*]] = constant 1 : i32
-//PRC-NEXT: [[P2:%.*]] = constant 1 : i32
-//PRC-NEXT: [[P3:%.*]] = constant 1 : i32
-//PRC-NEXT: [[P4:%.*]] = constant 1 : i32
-//PRC-NEXT: [[D1:%.*]] = constant 2 : i32
-//PRC-NEXT: [[D2:%.*]] = constant 2 : i32
-//PRC: [[G:%.*]] = constant 103 : i8
-//PRC: [[K:%.*]] = constant 107 : i8
-//PRC: [[C:%.*]] = constant 99 : i8
-//PRC: [[Y:%.*]] = constant 121 : i8
-//PRC: [[X:%.*]] = constant 120 : i8
-//PRC: [[N:%.*]] = constant 110 : i8
-//PRC: [[H:%.*]] = constant 104 : i8
-//PRC: [[W:%.*]] = constant 119 : i8
+//PRC-NEXT: [[S1:%.*]] = arith.constant 2 : i32
+//PRC-NEXT: [[S2:%.*]] = arith.constant 2 : i32
+//PRC-NEXT: [[P1:%.*]] = arith.constant 1 : i32
+//PRC-NEXT: [[P2:%.*]] = arith.constant 1 : i32
+//PRC-NEXT: [[P3:%.*]] = arith.constant 1 : i32
+//PRC-NEXT: [[P4:%.*]] = arith.constant 1 : i32
+//PRC-NEXT: [[D1:%.*]] = arith.constant 2 : i32
+//PRC-NEXT: [[D2:%.*]] = arith.constant 2 : i32
+//PRC: [[G:%.*]] = arith.constant 103 : i8
+//PRC: [[K:%.*]] = arith.constant 107 : i8
+//PRC: [[C:%.*]] = arith.constant 99 : i8
+//PRC: [[Y:%.*]] = arith.constant 121 : i8
+//PRC: [[X:%.*]] = arith.constant 120 : i8
+//PRC: [[N:%.*]] = arith.constant 110 : i8
+//PRC: [[H:%.*]] = arith.constant 104 : i8
+//PRC: [[W:%.*]] = arith.constant 119 : i8
 //PRC: memref.store [[G]], %{{.*}} : memref<5xi8>
 //PRC-NEXT: memref.store [[K]], %{{.*}} : memref<5xi8>
 //PRC-NEXT: memref.store [[C]], %{{.*}} : memref<5xi8>
@@ -84,4 +84,3 @@
 
 //PH: [[FIL:%.*]] = memref.cast %{{.*}} : memref<1x2048x1024x1x1xf32> to memref<*xf32>
 //PH-NEXT: call @print_memref_f32([[FIL]]) : (memref<*xf32>) -> ()
-

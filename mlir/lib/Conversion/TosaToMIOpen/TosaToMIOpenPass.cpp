@@ -12,6 +12,7 @@
 
 #include "../PassDetail.h"
 #include "mlir/Conversion/TosaToMIOpen/TosaToMIOpen.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Linalg/IR/LinalgOps.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
@@ -31,15 +32,15 @@ struct TosaToMIOpen : public TosaToMIOpenBase<TosaToMIOpen> {
 public:
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<miopen::MIOpenDialect, linalg::LinalgDialect,
-                    StandardOpsDialect>();
+                    bufferization::BufferizationDialect, StandardOpsDialect>();
   }
 
   void runOnFunction() override {
     auto &ctx = getContext();
     OwningRewritePatternList patterns(&ctx);
     ConversionTarget target(ctx);
-    target.addLegalDialect<miopen::MIOpenDialect, linalg::LinalgDialect,
-                           StandardOpsDialect>();
+    target.addLegalDialect <miopen::MIOpenDialect, linalg::LinalgDialect,
+        bufferization::BufferizationDialect, StandardOpsDialect>();
     target.addIllegalOp<tosa::Conv2DOp>();
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 

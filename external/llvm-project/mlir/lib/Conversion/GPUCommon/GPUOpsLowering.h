@@ -19,13 +19,13 @@ namespace mlir {
 
 struct GPUFuncOpLowering : ConvertOpToLLVMPattern<gpu::GPUFuncOp> {
   GPUFuncOpLowering(LLVMTypeConverter &converter, unsigned allocaAddrSpace,
-                    Identifier kernelAttributeName)
+                    StringAttr kernelAttributeName)
       : ConvertOpToLLVMPattern<gpu::GPUFuncOp>(converter),
         allocaAddrSpace(allocaAddrSpace),
         kernelAttributeName(kernelAttributeName) {}
 
   LogicalResult
-  matchAndRewrite(gpu::GPUFuncOp gpuFuncOp, ArrayRef<Value> operands,
+  matchAndRewrite(gpu::GPUFuncOp gpuFuncOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 
 private:
@@ -33,7 +33,7 @@ private:
   unsigned allocaAddrSpace;
 
   /// The attribute name to use instead of `gpu.kernel`.
-  Identifier kernelAttributeName;
+  StringAttr kernelAttributeName;
 };
 
 /// The lowering of gpu.printf to a call to HIP hostcalls
@@ -45,7 +45,7 @@ struct GPUPrintfOpToHIPLowering : public ConvertOpToLLVMPattern<gpu::PrintfOp> {
   using ConvertOpToLLVMPattern<gpu::PrintfOp>::ConvertOpToLLVMPattern;
 
   LogicalResult
-  matchAndRewrite(gpu::PrintfOp gpuPrintfOp, ArrayRef<Value> operands,
+  matchAndRewrite(gpu::PrintfOp gpuPrintfOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
 
@@ -63,7 +63,7 @@ struct GPUPrintfOpToLLVMCallLowering
         addressSpace(addressSpace) {}
 
   LogicalResult
-  matchAndRewrite(gpu::PrintfOp gpuPrintfOp, ArrayRef<Value> operands,
+  matchAndRewrite(gpu::PrintfOp gpuPrintfOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 
 private:
@@ -74,9 +74,9 @@ struct GPUReturnOpLowering : public ConvertOpToLLVMPattern<gpu::ReturnOp> {
   using ConvertOpToLLVMPattern<gpu::ReturnOp>::ConvertOpToLLVMPattern;
 
   LogicalResult
-  matchAndRewrite(gpu::ReturnOp op, ArrayRef<Value> operands,
+  matchAndRewrite(gpu::ReturnOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<LLVM::ReturnOp>(op, operands);
+    rewriter.replaceOpWithNewOp<LLVM::ReturnOp>(op, adaptor.getOperands());
     return success();
   }
 };

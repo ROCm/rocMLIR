@@ -144,6 +144,7 @@ class LLVM_LIBRARY_VISIBILITY X86TargetInfo : public TargetInfo {
   bool HasTSXLDTRK = false;
   bool HasUINTR = false;
   bool HasCRC32 = false;
+  bool HasX87 = false;
 
 protected:
   llvm::X86::CPUKind CPU = llvm::X86::CK_None;
@@ -412,8 +413,8 @@ public:
 
     // Use fpret for all types.
     RealTypeUsesObjCFPRet =
-        ((1 << TargetInfo::Float) | (1 << TargetInfo::Double) |
-         (1 << TargetInfo::LongDouble));
+        ((1 << (int)FloatModeKind::Float) | (1 << (int)FloatModeKind::Double) |
+         (1 << (int)FloatModeKind::LongDouble));
 
     // x86-32 has atomics up to 8 bytes
     MaxAtomicPromoteWidth = 64;
@@ -461,7 +462,7 @@ public:
 
   ArrayRef<Builtin::Info> getTargetBuiltins() const override;
 
-  bool hasExtIntType() const override { return true; }
+  bool hasBitIntType() const override { return true; }
 };
 
 class LLVM_LIBRARY_VISIBILITY NetBSDI386TargetInfo
@@ -692,7 +693,7 @@ public:
                                         "64-i64:64-f80:128-n8:16:32:64-S128");
 
     // Use fpret only for long double.
-    RealTypeUsesObjCFPRet = (1 << TargetInfo::LongDouble);
+    RealTypeUsesObjCFPRet = (1 << (int)FloatModeKind::LongDouble);
 
     // Use fp2ret for _Complex long double.
     ComplexLongDoubleUsesFP2Ret = true;
@@ -768,7 +769,7 @@ public:
 
   ArrayRef<Builtin::Info> getTargetBuiltins() const override;
 
-  bool hasExtIntType() const override { return true; }
+  bool hasBitIntType() const override { return true; }
 };
 
 // x86-64 Windows target

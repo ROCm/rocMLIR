@@ -84,6 +84,7 @@
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/Utils/CallPromotionUtils.h"
 #include "llvm/Transforms/Utils/Cloning.h"
+#include "llvm/Transforms/Utils/SampleProfileInference.h"
 #include "llvm/Transforms/Utils/SampleProfileLoaderBaseImpl.h"
 #include "llvm/Transforms/Utils/SampleProfileLoaderBaseUtil.h"
 #include <algorithm>
@@ -143,6 +144,12 @@ static cl::opt<bool> ProfileSampleAccurate(
              "callsite and function as having 0 samples. Otherwise, treat "
              "un-sampled callsites and functions conservatively as unknown. "));
 
+static cl::opt<bool> ProfileSampleBlockAccurate(
+    "profile-sample-block-accurate", cl::Hidden, cl::init(false),
+    cl::desc("If the sample profile is accurate, we will mark all un-sampled "
+             "branches and calls as having 0 samples. Otherwise, treat "
+             "them conservatively as unknown. "));
+
 static cl::opt<bool> ProfileAccurateForSymsInList(
     "profile-accurate-for-symsinlist", cl::Hidden, cl::ZeroOrMore,
     cl::init(true),
@@ -167,6 +174,9 @@ static cl::opt<bool>
                          cl::desc("Process functions in a top-down order "
                                   "defined by the profiled call graph when "
                                   "-sample-profile-top-down-load is on."));
+cl::opt<bool>
+    SortProfiledSCC("sort-profiled-scc-member", cl::init(true), cl::Hidden,
+                    cl::desc("Sort profiled recursion by edge weights."));
 
 static cl::opt<bool> ProfileSizeInline(
     "sample-profile-inline-size", cl::Hidden, cl::init(false),
@@ -230,6 +240,50 @@ static cl::opt<std::string> ProfileInlineReplayFile(
         "Optimization remarks file containing inline remarks to be replayed "
         "by inlining from sample profile loader."),
     cl::Hidden);
+
+static cl::opt<ReplayInlinerSettings::Scope> ProfileInlineReplayScope(
+    "sample-profile-inline-replay-scope",
+    cl::init(ReplayInlinerSettings::Scope::Function),
+    cl::values(clEnumValN(ReplayInlinerSettings::Scope::Function, "Function",
+                          "Replay on functions that have remarks associated "
+                          "with them (default)"),
+               clEnumValN(ReplayInlinerSettings::Scope::Module, "Module",
+                          "Replay on the entire module")),
+    cl::desc("Whether inline replay should be applied to the entire "
+             "Module or just the Functions (default) that are present as "
+             "callers in remarks during sample profile inlining."),
+    cl::Hidden);
+
+static cl::opt<ReplayInlinerSettings::Fallback> ProfileInlineReplayFallback(
+    "sample-profile-inline-replay-fallback",
+    cl::init(ReplayInlinerSettings::Fallback::Original),
+    cl::values(
+        clEnumValN(
+            ReplayInlinerSettings::Fallback::Original, "Original",
+            "All decisions not in replay send to original advisor (default)"),
+        clEnumValN(ReplayInlinerSettings::Fallback::AlwaysInline,
+                   "AlwaysInline", "All decisions not in replay are inlined"),
+        clEnumValN(ReplayInlinerSettings::Fallback::NeverInline, "NeverInline",
+                   "All decisions not in replay are not inlined")),
+    cl::desc("How sample profile inline replay treats sites that don't come "
+             "from the replay. Original: defers to original advisor, "
+             "AlwaysInline: inline all sites not in replay, NeverInline: "
+             "inline no sites not in replay"),
+    cl::Hidden);
+
+static cl::opt<CallSiteFormat::Format> ProfileInlineReplayFormat(
+    "sample-profile-inline-replay-format",
+    cl::init(CallSiteFormat::Format::LineColumnDiscriminator),
+    cl::values(
+        clEnumValN(CallSiteFormat::Format::Line, "Line", "<Line Number>"),
+        clEnumValN(CallSiteFormat::Format::LineColumn, "LineColumn",
+                   "<Line Number>:<Column Number>"),
+        clEnumValN(CallSiteFormat::Format::LineDiscriminator,
+                   "LineDiscriminator", "<Line Number>.<Discriminator>"),
+        clEnumValN(CallSiteFormat::Format::LineColumnDiscriminator,
+                   "LineColumnDiscriminator",
+                   "<Line Number>:<Column Number>.<Discriminator> (default)")),
+    cl::desc("How sample profile inline replay file is formatted"), cl::Hidden);
 
 static cl::opt<unsigned>
     MaxNumPromotions("sample-profile-icp-max-prom", cl::init(3), cl::Hidden,
@@ -387,7 +441,7 @@ protected:
   findFunctionSamples(const Instruction &I) const override;
   std::vector<const FunctionSamples *>
   findIndirectCallFunctionSamples(const Instruction &I, uint64_t &Sum) const;
-  void findExternalInlineCandidate(const FunctionSamples *Samples,
+  void findExternalInlineCandidate(CallBase *CB, const FunctionSamples *Samples,
                                    DenseSet<GlobalValue::GUID> &InlinedGUIDs,
                                    const StringMap<Function *> &SymbolMap,
                                    uint64_t Threshold);
@@ -395,8 +449,11 @@ protected:
   bool tryPromoteAndInlineCandidate(
       Function &F, InlineCandidate &Candidate, uint64_t SumOrigin,
       uint64_t &Sum, SmallVector<CallBase *, 8> *InlinedCallSites = nullptr);
+
   bool inlineHotFunctions(Function &F,
                           DenseSet<GlobalValue::GUID> &InlinedGUIDs);
+  Optional<InlineCost> getExternalInlineAdvisorCost(CallBase &CB);
+  bool getExternalInlineAdvisorShouldInline(CallBase &CB);
   InlineCost shouldInlineCandidate(InlineCandidate &Candidate);
   bool getInlineCandidate(InlineCandidate *NewCandidate, CallBase *CB);
   bool
@@ -471,7 +528,7 @@ protected:
   bool ProfAccForSymsInList;
 
   // External inline advisor used to replay inline decision from remarks.
-  std::unique_ptr<ReplayInlineAdvisor> ExternalInlineAdvisor;
+  std::unique_ptr<InlineAdvisor> ExternalInlineAdvisor;
 
   // A pseudo probe helper to correlate the imported sample counts.
   std::unique_ptr<PseudoProbeManager> ProbeManager;
@@ -960,8 +1017,24 @@ void SampleProfileLoader::emitOptimizationRemarksForInlineCandidates(
 }
 
 void SampleProfileLoader::findExternalInlineCandidate(
-    const FunctionSamples *Samples, DenseSet<GlobalValue::GUID> &InlinedGUIDs,
+    CallBase *CB, const FunctionSamples *Samples,
+    DenseSet<GlobalValue::GUID> &InlinedGUIDs,
     const StringMap<Function *> &SymbolMap, uint64_t Threshold) {
+
+  // If ExternalInlineAdvisor wants to inline an external function
+  // make sure it's imported
+  if (CB && getExternalInlineAdvisorShouldInline(*CB)) {
+    // Samples may not exist for replayed function, if so
+    // just add the direct GUID and move on
+    if (!Samples) {
+      InlinedGUIDs.insert(
+          FunctionSamples::getGUID(CB->getCalledFunction()->getName()));
+      return;
+    }
+    // Otherwise, drop the threshold to import everything that we can
+    Threshold = 0;
+  }
+
   assert(Samples && "expect non-null caller profile");
 
   // For AutoFDO profile, retrieve candidate profiles by walking over
@@ -1056,16 +1129,20 @@ bool SampleProfileLoader::inlineHotFunctions(
       for (auto &I : BB.getInstList()) {
         const FunctionSamples *FS = nullptr;
         if (auto *CB = dyn_cast<CallBase>(&I)) {
-          if (!isa<IntrinsicInst>(I) && (FS = findCalleeFunctionSamples(*CB))) {
-            assert((!FunctionSamples::UseMD5 || FS->GUIDToFuncNameMap) &&
-                   "GUIDToFuncNameMap has to be populated");
-            AllCandidates.push_back(CB);
-            if (FS->getEntrySamples() > 0 || ProfileIsCS)
-              LocalNotInlinedCallSites.try_emplace(CB, FS);
-            if (callsiteIsHot(FS, PSI, ProfAccForSymsInList))
-              Hot = true;
-            else if (shouldInlineColdCallee(*CB))
-              ColdCandidates.push_back(CB);
+          if (!isa<IntrinsicInst>(I)) {
+            if ((FS = findCalleeFunctionSamples(*CB))) {
+              assert((!FunctionSamples::UseMD5 || FS->GUIDToFuncNameMap) &&
+                     "GUIDToFuncNameMap has to be populated");
+              AllCandidates.push_back(CB);
+              if (FS->getEntrySamples() > 0 || ProfileIsCS)
+                LocalNotInlinedCallSites.try_emplace(CB, FS);
+              if (callsiteIsHot(FS, PSI, ProfAccForSymsInList))
+                Hot = true;
+              else if (shouldInlineColdCallee(*CB))
+                ColdCandidates.push_back(CB);
+            } else if (getExternalInlineAdvisorShouldInline(*CB)) {
+              AllCandidates.push_back(CB);
+            }
           }
         }
       }
@@ -1092,7 +1169,7 @@ bool SampleProfileLoader::inlineHotFunctions(
         for (const auto *FS : findIndirectCallFunctionSamples(*I, Sum)) {
           uint64_t SumOrigin = Sum;
           if (LTOPhase == ThinOrFullLTOPhase::ThinLTOPreLink) {
-            findExternalInlineCandidate(FS, InlinedGUIDs, SymbolMap,
+            findExternalInlineCandidate(I, FS, InlinedGUIDs, SymbolMap,
                                         PSI->getOrCompHotCountThreshold());
             continue;
           }
@@ -1112,8 +1189,8 @@ bool SampleProfileLoader::inlineHotFunctions(
           LocalChanged = true;
         }
       } else if (LTOPhase == ThinOrFullLTOPhase::ThinLTOPreLink) {
-        findExternalInlineCandidate(findCalleeFunctionSamples(*I), InlinedGUIDs,
-                                    SymbolMap,
+        findExternalInlineCandidate(I, findCalleeFunctionSamples(*I),
+                                    InlinedGUIDs, SymbolMap,
                                     PSI->getOrCompHotCountThreshold());
       }
     }
@@ -1198,8 +1275,8 @@ bool SampleProfileLoader::tryInlineCandidate(
                                                *CalledFunction);
 
     // The call to InlineFunction erases I, so we can't pass it here.
-    emitInlinedInto(*ORE, DLoc, BB, *CalledFunction, *BB->getParent(), Cost,
-                    true, CSINLINE_DEBUG);
+    emitInlinedIntoBasedOnCost(*ORE, DLoc, BB, *CalledFunction,
+                               *BB->getParent(), Cost, true, CSINLINE_DEBUG);
 
     // Now populate the list of newly exposed call sites.
     if (InlinedCallSites) {
@@ -1242,7 +1319,9 @@ bool SampleProfileLoader::getInlineCandidate(InlineCandidate *NewCandidate,
 
   // Find the callee's profile. For indirect call, find hottest target profile.
   const FunctionSamples *CalleeSamples = findCalleeFunctionSamples(*CB);
-  if (!CalleeSamples)
+  // If ExternalInlineAdvisor wants to inline this site, do so even
+  // if Samples are not present.
+  if (!CalleeSamples && !getExternalInlineAdvisorShouldInline(*CB))
     return false;
 
   float Factor = 1.0;
@@ -1261,19 +1340,34 @@ bool SampleProfileLoader::getInlineCandidate(InlineCandidate *NewCandidate,
   return true;
 }
 
-InlineCost
-SampleProfileLoader::shouldInlineCandidate(InlineCandidate &Candidate) {
+Optional<InlineCost>
+SampleProfileLoader::getExternalInlineAdvisorCost(CallBase &CB) {
   std::unique_ptr<InlineAdvice> Advice = nullptr;
   if (ExternalInlineAdvisor) {
-    Advice = ExternalInlineAdvisor->getAdvice(*Candidate.CallInstr);
-    if (!Advice->isInliningRecommended()) {
-      Advice->recordUnattemptedInlining();
-      return InlineCost::getNever("not previously inlined");
+    Advice = ExternalInlineAdvisor->getAdvice(CB);
+    if (Advice) {
+      if (!Advice->isInliningRecommended()) {
+        Advice->recordUnattemptedInlining();
+        return InlineCost::getNever("not previously inlined");
+      }
+      Advice->recordInlining();
+      return InlineCost::getAlways("previously inlined");
     }
-    Advice->recordInlining();
-    return InlineCost::getAlways("previously inlined");
   }
 
+  return {};
+}
+
+bool SampleProfileLoader::getExternalInlineAdvisorShouldInline(CallBase &CB) {
+  Optional<InlineCost> Cost = getExternalInlineAdvisorCost(CB);
+  return Cost ? !!Cost.getValue() : false;
+}
+
+InlineCost
+SampleProfileLoader::shouldInlineCandidate(InlineCandidate &Candidate) {
+  if (Optional<InlineCost> ReplayCost =
+          getExternalInlineAdvisorCost(*Candidate.CallInstr))
+    return ReplayCost.getValue();
   // Adjust threshold based on call site hotness, only do this for callsite
   // prioritized inliner because otherwise cost-benefit check is done earlier.
   int SampleThreshold = SampleColdCallSiteThreshold;
@@ -1392,7 +1486,7 @@ bool SampleProfileLoader::inlineHotFunctionsWithPriority(
       for (const auto *FS : CalleeSamples) {
         // TODO: Consider disable pre-lTO ICP for MonoLTO as well
         if (LTOPhase == ThinOrFullLTOPhase::ThinLTOPreLink) {
-          findExternalInlineCandidate(FS, InlinedGUIDs, SymbolMap,
+          findExternalInlineCandidate(I, FS, InlinedGUIDs, SymbolMap,
                                       PSI->getOrCompHotCountThreshold());
           continue;
         }
@@ -1440,8 +1534,9 @@ bool SampleProfileLoader::inlineHotFunctionsWithPriority(
         Changed = true;
       }
     } else if (LTOPhase == ThinOrFullLTOPhase::ThinLTOPreLink) {
-      findExternalInlineCandidate(Candidate.CalleeSamples, InlinedGUIDs,
-                                  SymbolMap, PSI->getOrCompHotCountThreshold());
+      findExternalInlineCandidate(I, findCalleeFunctionSamples(*I),
+                                  InlinedGUIDs, SymbolMap,
+                                  PSI->getOrCompHotCountThreshold());
     }
   }
 
@@ -1529,7 +1624,7 @@ void SampleProfileLoader::generateMDProfMetadata(Function &F) {
                             {static_cast<uint32_t>(BlockWeights[BB])}));
         }
       }
-    } else if (OverwriteExistingWeights) {
+    } else if (OverwriteExistingWeights || ProfileSampleBlockAccurate) {
       // Set profile metadata (possibly annotated by LTO prelink) to zero or
       // clear it for cold code.
       for (auto &I : BB->getInstList()) {
@@ -1557,6 +1652,19 @@ void SampleProfileLoader::generateMDProfMetadata(Function &F) {
     SmallVector<uint32_t, 4> Weights;
     uint32_t MaxWeight = 0;
     Instruction *MaxDestInst;
+    // Since profi treats multiple edges (multiway branches) as a single edge,
+    // we need to distribute the computed weight among the branches. We do
+    // this by evenly splitting the edge weight among destinations.
+    DenseMap<const BasicBlock *, uint64_t> EdgeMultiplicity;
+    std::vector<uint64_t> EdgeIndex;
+    if (SampleProfileUseProfi) {
+      EdgeIndex.resize(TI->getNumSuccessors());
+      for (unsigned I = 0; I < TI->getNumSuccessors(); ++I) {
+        const BasicBlock *Succ = TI->getSuccessor(I);
+        EdgeIndex[I] = EdgeMultiplicity[Succ];
+        EdgeMultiplicity[Succ]++;
+      }
+    }
     for (unsigned I = 0; I < TI->getNumSuccessors(); ++I) {
       BasicBlock *Succ = TI->getSuccessor(I);
       Edge E = std::make_pair(BB, Succ);
@@ -1569,9 +1677,19 @@ void SampleProfileLoader::generateMDProfMetadata(Function &F) {
         LLVM_DEBUG(dbgs() << " (saturated due to uint32_t overflow)");
         Weight = std::numeric_limits<uint32_t>::max();
       }
-      // Weight is added by one to avoid propagation errors introduced by
-      // 0 weights.
-      Weights.push_back(static_cast<uint32_t>(Weight + 1));
+      if (!SampleProfileUseProfi) {
+        // Weight is added by one to avoid propagation errors introduced by
+        // 0 weights.
+        Weights.push_back(static_cast<uint32_t>(Weight + 1));
+      } else {
+        // Profi creates proper weights that do not require "+1" adjustments but
+        // we evenly split the weight among branches with the same destination.
+        uint64_t W = Weight / EdgeMultiplicity[Succ];
+        // Rounding up, if needed, so that first branches are hotter.
+        if (EdgeIndex[I] < Weight % EdgeMultiplicity[Succ])
+          W++;
+        Weights.push_back(static_cast<uint32_t>(W));
+      }
       if (Weight != 0) {
         if (Weight > MaxWeight) {
           MaxWeight = Weight;
@@ -1762,7 +1880,13 @@ SampleProfileLoader::buildFunctionOrder(Module &M, CallGraph *CG) {
     std::unique_ptr<ProfiledCallGraph> ProfiledCG = buildProfiledCallGraph(*CG);
     scc_iterator<ProfiledCallGraph *> CGI = scc_begin(ProfiledCG.get());
     while (!CGI.isAtEnd()) {
-      for (ProfiledCallGraphNode *Node : *CGI) {
+      auto Range = *CGI;
+      if (SortProfiledSCC) {
+        // Sort nodes in one SCC based on callsite hotness.
+        scc_member_iterator<ProfiledCallGraph *> SI(*CGI);
+        Range = *SI;
+      }
+      for (auto *Node : Range) {
         Function *F = SymbolMap.lookup(Node->Name);
         if (F && !F->isDeclaration() && F->hasFnAttribute("use-sample-profile"))
           FunctionOrderList.push_back(F);
@@ -1827,11 +1951,13 @@ bool SampleProfileLoader::doInitialization(Module &M,
   }
 
   if (FAM && !ProfileInlineReplayFile.empty()) {
-    ExternalInlineAdvisor = std::make_unique<ReplayInlineAdvisor>(
-        M, *FAM, Ctx, /*OriginalAdvisor=*/nullptr, ProfileInlineReplayFile,
+    ExternalInlineAdvisor = getReplayInlineAdvisor(
+        M, *FAM, Ctx, /*OriginalAdvisor=*/nullptr,
+        ReplayInlinerSettings{ProfileInlineReplayFile,
+                              ProfileInlineReplayScope,
+                              ProfileInlineReplayFallback,
+                              {ProfileInlineReplayFormat}},
         /*EmitRemarks=*/false);
-    if (!ExternalInlineAdvisor->areReplayRemarksLoaded())
-      ExternalInlineAdvisor.reset();
   }
 
   // Apply tweaks if context-sensitive profile is available.
@@ -1856,6 +1982,9 @@ bool SampleProfileLoader::doInitialization(Module &M,
     // Enable iterative-BFI by default for CSSPGO.
     if (!UseIterativeBFIInference.getNumOccurrences())
       UseIterativeBFIInference = true;
+    // Enable Profi by default for CSSPGO.
+    if (!SampleProfileUseProfi.getNumOccurrences())
+      SampleProfileUseProfi = true;
 
     // Tracker for profiles under different context
     ContextTracker = std::make_unique<SampleContextTracker>(

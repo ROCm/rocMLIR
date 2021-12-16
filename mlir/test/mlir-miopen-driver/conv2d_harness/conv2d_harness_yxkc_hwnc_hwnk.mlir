@@ -23,8 +23,8 @@ func @main() {
   %5 = memref.cast %2 : memref<30x30x128x1x128xf32> to memref<?x?x?x?x?xf32>
 
   // populate initial values.
-  %cst = constant 1.0 : f32
-  %cst0 = constant 0.0 : f32
+  %cst = arith.constant 1.0 : f32
+  %cst0 = arith.constant 0.0 : f32
   call @mcpuMemset5DFloat(%3, %cst) : (memref<?x?x?x?x?xf32>, f32) -> ()
   call @mcpuMemset5DFloat(%4, %cst) : (memref<?x?x?x?x?xf32>, f32) -> ()
   call @mcpuMemset5DFloat(%5, %cst0) : (memref<?x?x?x?x?xf32>, f32) -> ()
@@ -35,8 +35,8 @@ func @main() {
   %8 = call @mgpuMemAlloc5DFloat(%5) : (memref<?x?x?x?x?xf32>) -> (memref<?x?x?x?x?xf32>)
 
   // copy direction constants.
-  %cst_h2d = constant 1 : i32
-  %cst_d2h = constant 2 : i32
+  %cst_h2d = arith.constant 1 : i32
+  %cst_d2h = arith.constant 2 : i32
 
   // transfer data CPU -> GPU.
   call @mgpuMemCopy5DFloat(%3, %6, %cst_h2d) : (memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, i32) -> ()

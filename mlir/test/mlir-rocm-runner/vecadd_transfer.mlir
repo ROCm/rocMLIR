@@ -1,14 +1,14 @@
 // RUN: mlir-rocm-runner %s --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
 
 func @vecadd(%arg0 : memref<?xf32>, %arg1 : memref<?xf32>, %arg2 : memref<?xf32>) {
-  %cst = constant 1 : index
-  %cst0 = constant 0 : index
+  %cst = arith.constant 1 : index
+  %cst0 = arith.constant 0 : index
   %cst2 = memref.dim %arg0, %cst0 : memref<?xf32>
   gpu.launch blocks(%bx, %by, %bz) in (%grid_x = %cst, %grid_y = %cst, %grid_z = %cst)
              threads(%tx, %ty, %tz) in (%block_x = %cst2, %block_y = %cst, %block_z = %cst) {
     %a = memref.load %arg0[%tx] : memref<?xf32>
     %b = memref.load %arg1[%tx] : memref<?xf32>
-    %c = addf %a, %b : f32
+    %c = arith.addf %a, %b : f32
     memref.store %c, %arg2[%tx] : memref<?xf32>
     gpu.terminator
   } {operand_segment_sizes = dense<[1,1,1, 1,1,1, 1,1,1]> : vector<9xi32>}
@@ -27,8 +27,8 @@ func @main() {
   %5 = memref.cast %2 : memref<16xf32> to memref<?xf32>
 
   // populate initial values.
-  %cst = constant 1.23 : f32
-  %cst0 = constant 0.0 : f32
+  %cst = arith.constant 1.23 : f32
+  %cst0 = arith.constant 0.0 : f32
   call @mcpuMemset(%3, %cst) : (memref<?xf32>, f32) -> ()
   call @mcpuMemset(%4, %cst) : (memref<?xf32>, f32) -> ()
   call @mcpuMemset(%5, %cst0) : (memref<?xf32>, f32) -> ()
@@ -39,8 +39,8 @@ func @main() {
   %8 = call @mgpuMemAlloc(%5) : (memref<?xf32>) -> (memref<?xf32>)
 
   // copy direction constants.
-  %cst_h2d = constant 1 : i32
-  %cst_d2h = constant 2 : i32
+  %cst_h2d = arith.constant 1 : i32
+  %cst_d2h = arith.constant 2 : i32
 
   // transfer data CPU -> GPU.
   call @mgpuMemCopy(%3, %6, %cst_h2d) : (memref<?xf32>, memref<?xf32>, i32) -> ()

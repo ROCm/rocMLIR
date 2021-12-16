@@ -21,8 +21,8 @@ func @miopen_alloc() {
 //   CHECK-NEXT: miopen.alloc
 
 func @miopen_subview(%buffer : memref<1024xi8>) {
-  %c0 = constant 0 : index
-  %c512 = constant 512 : index
+  %c0 = arith.constant 0 : index
+  %c512 = arith.constant 512 : index
 
   // 0 offset, same type.
   %view_0 = miopen.subview(%buffer, %c0) : memref<1024xi8> to memref<1024xi8>
@@ -71,13 +71,13 @@ func @miopen_subview(%buffer : memref<1024xi8>) {
 
 
 func @miopen_fill(%buffer_f32 : memref<1024xf32, 5>, %buffer_i32 : memref<2xi32, 5>, %buffer_f16 : memref<1024xf16, 5>) {
-  %cst = constant 0.0 : f32
+  %cst = arith.constant 0.0 : f32
   miopen.fill(%buffer_f32, %cst) : memref<1024xf32, 5>, f32
 
-  %cst_f16 = constant 0.0 : f16
+  %cst_f16 = arith.constant 0.0 : f16
   miopen.fill(%buffer_f16, %cst_f16) : memref<1024xf16, 5>, f16
 
-  %c0 = constant 0 : i32
+  %c0 = arith.constant 0 : i32
   miopen.fill(%buffer_i32, %c0) : memref<2xi32, 5>, i32
   return
 }
@@ -114,7 +114,7 @@ func @miopen_indexing() {
 //   CHECK-NEXT: miopen.workitem_id
 
 func @miopen_blockwise_gemm(%A : memref<?x?x?xf32, 3>, %B : memref<?x?x?xf32, 3>, %C : memref<?x?x?xf32, 5>) {
-  %c0 = constant 0 : index
+  %c0 = arith.constant 0 : index
   miopen.blockwise_gemm(%A, %B, %C, %c0, %c0) {
     m_per_thread = 64,
     n_per_thread = 64,
@@ -351,8 +351,8 @@ func @miopen_threadwise_copy(%source_coord : memref<2xi32, 5>, %dest_coord : mem
                              %dest_with_embedded_affine : memref<?x?xf32, #map1, 3>,
                              %source_with_externally_defined_affine : memref<?x?x?x?xf32>,
                              %dest_with_externally_defined_affine : memref<?x?x?x?xf32>) {
-  %c0 = constant 0 : index
-  %c1 = constant 1 : index
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
   %source_coord_y = memref.load %source_coord[%c0] : memref<2xi32, 5>
   %source_coord_x = memref.load %source_coord[%c0] : memref<2xi32, 5>
   %dest_coord_y = memref.load %dest_coord[%c0] : memref<2xi32, 5>
@@ -456,8 +456,8 @@ func @miopen_threadwise_load(%source_coord : memref<2xi32, 5>,
                              %source : memref<?x?xf32>,
                              %source_with_embedded_affine : memref<?x?xf32, #map0>,
                              %source_with_externally_defined_affine : memref<?x?x?x?xf32>) {
-  %c0 = constant 0 : index
-  %c1 = constant 1 : index
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
   %source_coord_y = memref.load %source_coord[%c0] : memref<2xi32, 5>
   %source_coord_x = memref.load %source_coord[%c0] : memref<2xi32, 5>
 
@@ -510,8 +510,8 @@ func @miopen_threadwise_store(%data_scalar : f32,
                               %dest : memref<?x?xf32>,
                               %dest_with_embedded_affine : memref<?x?xf32, #map1>,
                               %dest_with_externally_defined_affine : memref<?x?x?x?xf32>) {
-  %c0 = constant 0 : index
-  %c1 = constant 1 : index
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
   %dest_coord_y = memref.load %dest_coord[%c0] : memref<2xi32, 5>
   %dest_coord_x = memref.load %dest_coord[%c0] : memref<2xi32, 5>
 
@@ -566,9 +566,9 @@ func @miopen_threadwise_copy_v2(%source_offset : i32, %source_coord : memref<2xi
                                 %source : vector<32xf32>, %dest : memref<?x?xf32>,
                                 %dest_with_embedded_affine : memref<?x?xf32, #map11>,
                                 %dest_with_externally_defined_affine : memref<?x?x?x?xf32>) {
-  %c0 = constant 0 : index
-  %c1 = constant 1 : index
-  %c0_i32 = constant 0 : i32
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %c0_i32 = arith.constant 0 : i32
 
   %source_coord_y = memref.load %source_coord[%c0] : memref<2xi32, 5>
   %source_coord_x = memref.load %source_coord[%c1] : memref<2xi32, 5>
@@ -667,8 +667,8 @@ func @miopen_mfma_v2_bf16(%a : vector<2xi16>, %b : vector<2xi16>, %c : vector<32
 
 func @miopen_xdlops_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
                                        %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>) -> vector<32xf32> {
-  %c0 = constant 0 : index
-  %c0f = constant 0.0 : f32
+  %c0 = arith.constant 0 : index
+  %c0f = arith.constant 0.0 : f32
   %vectorC0 = splat %c0f : vector<32xf32>
   %vectorD0 = miopen.xdlops_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0) {
     m = 256,
@@ -688,8 +688,8 @@ func @miopen_xdlops_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matrixB
 
 func @miopen_xdlops_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
                                         %bufferA : memref<32xf32, 5>, %bufferB: memref<16xf32, 5>) -> (vector<32xf32>, vector<32xf32>) {
-  %c0 = constant 0 : index
-  %c0f = constant 0.0 : f32
+  %c0 = arith.constant 0 : index
+  %c0f = arith.constant 0.0 : f32
   %vectorC0 = splat %c0f : vector<32xf32>
   %vectorC1 = splat %c0f : vector<32xf32>
   %vectorD0, %vectorD1 = miopen.xdlops_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0, %vectorC1) {
@@ -710,8 +710,8 @@ func @miopen_xdlops_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %matrix
 
 func @miopen_blockwise_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
                                           %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>) -> vector<32xf32> {
-  %c0 = constant 0 : index
-  %c0f = constant 0.0 : f32
+  %c0 = arith.constant 0 : index
+  %c0f = arith.constant 0.0 : f32
   %vectorC0 = splat %c0f : vector<32xf32>
   %vectorD0 = miopen.blockwise_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0) {
     m = 256,
@@ -731,8 +731,8 @@ func @miopen_blockwise_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matr
 
 func @miopen_blockwise_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
                                            %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>) -> (vector<32xf32>, vector<32xf32>) {
-  %c0 = constant 0 : index
-  %c0f = constant 0.0 : f32
+  %c0 = arith.constant 0 : index
+  %c0f = arith.constant 0.0 : f32
   %vectorC0 = splat %c0f : vector<32xf32>
   %vectorC1 = splat %c0f : vector<32xf32>
   %vectorD0, %vectorD1 = miopen.blockwise_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0, %vectorC1) {

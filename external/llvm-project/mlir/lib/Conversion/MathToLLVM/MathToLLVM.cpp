@@ -18,9 +18,18 @@
 using namespace mlir;
 
 namespace {
+using AbsOpLowering = VectorConvertToLLVMPattern<math::AbsOp, LLVM::FAbsOp>;
+using CeilOpLowering = VectorConvertToLLVMPattern<math::CeilOp, LLVM::FCeilOp>;
+using CopySignOpLowering =
+    VectorConvertToLLVMPattern<math::CopySignOp, LLVM::CopySignOp>;
 using CosOpLowering = VectorConvertToLLVMPattern<math::CosOp, LLVM::CosOp>;
+using CtPopFOpLowering =
+    VectorConvertToLLVMPattern<math::CtPopOp, LLVM::CtPopOp>;
 using ExpOpLowering = VectorConvertToLLVMPattern<math::ExpOp, LLVM::ExpOp>;
 using Exp2OpLowering = VectorConvertToLLVMPattern<math::Exp2Op, LLVM::Exp2Op>;
+using FloorOpLowering =
+    VectorConvertToLLVMPattern<math::FloorOp, LLVM::FFloorOp>;
+using FmaOpLowering = VectorConvertToLLVMPattern<math::FmaOp, LLVM::FMAOp>;
 using Log10OpLowering =
     VectorConvertToLLVMPattern<math::Log10Op, LLVM::Log10Op>;
 using Log2OpLowering = VectorConvertToLLVMPattern<math::Log2Op, LLVM::Log2Op>;
@@ -34,10 +43,9 @@ struct ExpM1OpLowering : public ConvertOpToLLVMPattern<math::ExpM1Op> {
   using ConvertOpToLLVMPattern<math::ExpM1Op>::ConvertOpToLLVMPattern;
 
   LogicalResult
-  matchAndRewrite(math::ExpM1Op op, ArrayRef<Value> operands,
+  matchAndRewrite(math::ExpM1Op op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    math::ExpM1Op::Adaptor transformed(operands);
-    auto operandType = transformed.operand().getType();
+    auto operandType = adaptor.getOperand().getType();
 
     if (!operandType || !LLVM::isCompatibleType(operandType))
       return failure();
@@ -56,7 +64,7 @@ struct ExpM1OpLowering : public ConvertOpToLLVMPattern<math::ExpM1Op> {
       } else {
         one = rewriter.create<LLVM::ConstantOp>(loc, operandType, floatOne);
       }
-      auto exp = rewriter.create<LLVM::ExpOp>(loc, transformed.operand());
+      auto exp = rewriter.create<LLVM::ExpOp>(loc, adaptor.getOperand());
       rewriter.replaceOpWithNewOp<LLVM::FSubOp>(op, operandType, exp, one);
       return success();
     }
@@ -66,7 +74,7 @@ struct ExpM1OpLowering : public ConvertOpToLLVMPattern<math::ExpM1Op> {
       return rewriter.notifyMatchFailure(op, "expected vector result type");
 
     return LLVM::detail::handleMultidimensionalVectors(
-        op.getOperation(), operands, *getTypeConverter(),
+        op.getOperation(), adaptor.getOperands(), *getTypeConverter(),
         [&](Type llvm1DVectorTy, ValueRange operands) {
           auto splatAttr = SplatElementsAttr::get(
               mlir::VectorType::get(
@@ -88,10 +96,9 @@ struct Log1pOpLowering : public ConvertOpToLLVMPattern<math::Log1pOp> {
   using ConvertOpToLLVMPattern<math::Log1pOp>::ConvertOpToLLVMPattern;
 
   LogicalResult
-  matchAndRewrite(math::Log1pOp op, ArrayRef<Value> operands,
+  matchAndRewrite(math::Log1pOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    math::Log1pOp::Adaptor transformed(operands);
-    auto operandType = transformed.operand().getType();
+    auto operandType = adaptor.getOperand().getType();
 
     if (!operandType || !LLVM::isCompatibleType(operandType))
       return rewriter.notifyMatchFailure(op, "unsupported operand type");
@@ -111,7 +118,7 @@ struct Log1pOpLowering : public ConvertOpToLLVMPattern<math::Log1pOp> {
               : rewriter.create<LLVM::ConstantOp>(loc, operandType, floatOne);
 
       auto add = rewriter.create<LLVM::FAddOp>(loc, operandType, one,
-                                               transformed.operand());
+                                               adaptor.getOperand());
       rewriter.replaceOpWithNewOp<LLVM::LogOp>(op, operandType, add);
       return success();
     }
@@ -121,7 +128,7 @@ struct Log1pOpLowering : public ConvertOpToLLVMPattern<math::Log1pOp> {
       return rewriter.notifyMatchFailure(op, "expected vector result type");
 
     return LLVM::detail::handleMultidimensionalVectors(
-        op.getOperation(), operands, *getTypeConverter(),
+        op.getOperation(), adaptor.getOperands(), *getTypeConverter(),
         [&](Type llvm1DVectorTy, ValueRange operands) {
           auto splatAttr = SplatElementsAttr::get(
               mlir::VectorType::get(
@@ -143,10 +150,9 @@ struct RsqrtOpLowering : public ConvertOpToLLVMPattern<math::RsqrtOp> {
   using ConvertOpToLLVMPattern<math::RsqrtOp>::ConvertOpToLLVMPattern;
 
   LogicalResult
-  matchAndRewrite(math::RsqrtOp op, ArrayRef<Value> operands,
+  matchAndRewrite(math::RsqrtOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    math::RsqrtOp::Adaptor transformed(operands);
-    auto operandType = transformed.operand().getType();
+    auto operandType = adaptor.getOperand().getType();
 
     if (!operandType || !LLVM::isCompatibleType(operandType))
       return failure();
@@ -165,7 +171,7 @@ struct RsqrtOpLowering : public ConvertOpToLLVMPattern<math::RsqrtOp> {
       } else {
         one = rewriter.create<LLVM::ConstantOp>(loc, operandType, floatOne);
       }
-      auto sqrt = rewriter.create<LLVM::SqrtOp>(loc, transformed.operand());
+      auto sqrt = rewriter.create<LLVM::SqrtOp>(loc, adaptor.getOperand());
       rewriter.replaceOpWithNewOp<LLVM::FDivOp>(op, operandType, one, sqrt);
       return success();
     }
@@ -175,7 +181,7 @@ struct RsqrtOpLowering : public ConvertOpToLLVMPattern<math::RsqrtOp> {
       return failure();
 
     return LLVM::detail::handleMultidimensionalVectors(
-        op.getOperation(), operands, *getTypeConverter(),
+        op.getOperation(), adaptor.getOperands(), *getTypeConverter(),
         [&](Type llvm1DVectorTy, ValueRange operands) {
           auto splatAttr = SplatElementsAttr::get(
               mlir::VectorType::get(
@@ -212,10 +218,16 @@ void mlir::populateMathToLLVMConversionPatterns(LLVMTypeConverter &converter,
                                                 RewritePatternSet &patterns) {
   // clang-format off
   patterns.add<
+    AbsOpLowering,
+    CeilOpLowering,
+    CopySignOpLowering,
     CosOpLowering,
+    CtPopFOpLowering,
     ExpOpLowering,
     Exp2OpLowering,
     ExpM1OpLowering,
+    FloorOpLowering,
+    FmaOpLowering,
     Log10OpLowering,
     Log1pOpLowering,
     Log2OpLowering,

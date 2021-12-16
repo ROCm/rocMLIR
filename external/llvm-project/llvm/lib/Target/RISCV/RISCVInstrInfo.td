@@ -705,6 +705,7 @@ def PseudoLD  : PseudoLoad<"ld">;
 def PseudoSD  : PseudoStore<"sd">;
 } // Predicates = [IsRV64]
 
+def : InstAlias<"li $rd, $imm",  (ADDI GPR:$rd, X0, simm12:$imm)>;
 def : InstAlias<"mv $rd, $rs",   (ADDI GPR:$rd, GPR:$rs,       0)>;
 def : InstAlias<"not $rd, $rs",  (XORI GPR:$rd, GPR:$rs,      -1)>;
 def : InstAlias<"neg $rd, $rs",  (SUB  GPR:$rd,      X0, GPR:$rs)>;
@@ -920,11 +921,11 @@ def : InstAlias<".insn_r $opcode, $funct3, $funct7, $rd, $rs1, $rs2",
                 (InsnR AnyReg:$rd, uimm7:$opcode, uimm3:$funct3, uimm7:$funct7,
                        AnyReg:$rs1, AnyReg:$rs2)>;
 // Accept 4 register form of ".insn r" as alias for ".insn r4".
-def : InstAlias<".insn_r $opcode, $funct3, $funct7, $rd, $rs1, $rs2, $rs3",
-                (InsnR4 AnyReg:$rd, uimm7:$opcode, uimm3:$funct3, uimm7:$funct7,
+def : InstAlias<".insn_r $opcode, $funct3, $funct2, $rd, $rs1, $rs2, $rs3",
+                (InsnR4 AnyReg:$rd, uimm7:$opcode, uimm3:$funct3, uimm2:$funct2,
                         AnyReg:$rs1, AnyReg:$rs2, AnyReg:$rs3)>;
-def : InstAlias<".insn_r4 $opcode, $funct3, $funct7, $rd, $rs1, $rs2, $rs3",
-                (InsnR4 AnyReg:$rd, uimm7:$opcode, uimm3:$funct3, uimm7:$funct7,
+def : InstAlias<".insn_r4 $opcode, $funct3, $funct2, $rd, $rs1, $rs2, $rs3",
+                (InsnR4 AnyReg:$rd, uimm7:$opcode, uimm3:$funct3, uimm2:$funct2,
                         AnyReg:$rs1, AnyReg:$rs2, AnyReg:$rs3)>;
 def : InstAlias<".insn_i $opcode, $funct3, $rd, $rs1, $imm12",
                 (InsnI AnyReg:$rd, uimm7:$opcode, uimm3:$funct3, AnyReg:$rs1,
@@ -1460,6 +1461,6 @@ include "RISCVInstrInfoA.td"
 include "RISCVInstrInfoF.td"
 include "RISCVInstrInfoD.td"
 include "RISCVInstrInfoC.td"
-include "RISCVInstrInfoB.td"
+include "RISCVInstrInfoZb.td"
 include "RISCVInstrInfoV.td"
 include "RISCVInstrInfoZfh.td"
