@@ -296,9 +296,10 @@ static cl::opt<bool> genCPUKernel("cpu_kernels",
                                   cl::desc("Generate CPU kernel for test"),
                                   cl::init(false), cl::Optional,
                                   cl::cb<void, bool>([](bool v) {
-                                    if (v)
-                                      genHostHarness.setValue(true);
-                                      printValidationResults.setValue(true);
+                                      if (v) {
+                                        genHostHarness.setValue(true);
+                                        printValidationResults.setValue(true);
+                                      }
                                   }));
 static cl::alias aliasGenCPUKernel("prc", cl::aliasopt(genCPUKernel));
 
@@ -660,8 +661,8 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
         loc, b.getI32IntegerAttr(deviceNum.getValue()));
 
   // Emit some constant values for HIP runtime API calls.
-  auto oneConstantI32Op = b.create<ConstantIntOp>(loc, 1, b.getIntegerType(32));
-  auto twoConstantI32Op = b.create<ConstantIntOp>(loc, 2, b.getIntegerType(32));
+  auto oneConstantI32Op = b.create<arith::ConstantIntOp>(loc, 1, b.getIntegerType(32));
+  auto twoConstantI32Op = b.create<arith::ConstantIntOp>(loc, 2, b.getIntegerType(32));
 
   auto getGpuAllocFunc = [&](mlir::Type elemType) -> FuncOp {
     StringRef allocFuncName = "mgpuMemAlloc5DFloat";
@@ -898,28 +899,28 @@ createCPUConvFunc(ModuleOp module,
   // Emit ConstantOps to be used for strides, paddings and dilations
   auto intType = b.getIntegerType(32);
 
-  auto strideHeightConstantOp = b.create<ConstantIntOp>(
+  auto strideHeightConstantOp = b.create<arith::ConstantIntOp>(
       loc, genConfig.strideHeight, intType);
 
-  auto strideWidthConstantOp = b.create<ConstantIntOp>(
+  auto strideWidthConstantOp = b.create<arith::ConstantIntOp>(
       loc, genConfig.strideWidth, intType);
 
-  auto paddingHeightLeftConstantOp = b.create<ConstantIntOp>(
+  auto paddingHeightLeftConstantOp = b.create<arith::ConstantIntOp>(
       loc, genConfig.paddingHeightLeft, intType);
 
-  auto paddingHeightRightConstantOp = b.create<ConstantIntOp>(
+  auto paddingHeightRightConstantOp = b.create<arith::ConstantIntOp>(
       loc, genConfig.paddingHeightRight, intType);
 
-  auto paddingWidthLeftConstantOp = b.create<ConstantIntOp>(
+  auto paddingWidthLeftConstantOp = b.create<arith::ConstantIntOp>(
       loc, genConfig.paddingWidthLeft, intType);
 
-  auto paddingWidthRightConstantOp = b.create<ConstantIntOp>(
+  auto paddingWidthRightConstantOp = b.create<arith::ConstantIntOp>(
       loc, genConfig.paddingWidthRight, intType);
 
-  auto dilationHeightConstantOp = b.create<ConstantIntOp>(
+  auto dilationHeightConstantOp = b.create<arith::ConstantIntOp>(
       loc, genConfig.dilationHeight, intType);
 
-  auto dilationWidthConstantOp = b.create<ConstantIntOp>(
+  auto dilationWidthConstantOp = b.create<arith::ConstantIntOp>(
       loc, genConfig.dilationWidth, intType);
 
   // Emit ConstantIndex ops
@@ -928,9 +929,9 @@ createCPUConvFunc(ModuleOp module,
   // %c_2 = constant 2 : index
   // %c_3 = constant 3 : index
   // %c_4 = constant 4 : index
-  std::vector<ConstantIndexOp> indexOpVec;
+  std::vector<arith::ConstantIndexOp> indexOpVec;
   for (int i = 0; i < 5; i++) {
-    auto indexOp = b.create<ConstantIndexOp>(loc, i);
+    auto indexOp = b.create<arith::ConstantIndexOp>(loc, i);
     indexOpVec.push_back(indexOp);
   }
 
@@ -945,23 +946,23 @@ createCPUConvFunc(ModuleOp module,
   //  %n = constant 110 : i8
   //  %h = constant 104 : i8
   //  %w = constant 119 : i8
-  auto kConstantOp = b.create<ConstantIntOp>(loc, 'k', charType);
+  auto kConstantOp = b.create<arith::ConstantIntOp>(loc, 'k', charType);
 
-  auto cConstantOp = b.create<ConstantIntOp>(loc, 'c', charType);
+  auto cConstantOp = b.create<arith::ConstantIntOp>(loc, 'c', charType);
 
-  auto yConstantOp = b.create<ConstantIntOp>(loc, 'y', charType);
+  auto yConstantOp = b.create<arith::ConstantIntOp>(loc, 'y', charType);
 
-  auto xConstantOp = b.create<ConstantIntOp>(loc, 'x', charType);
+  auto xConstantOp = b.create<arith::ConstantIntOp>(loc, 'x', charType);
 
-  auto nConstantOp = b.create<ConstantIntOp>(loc, 'n', charType);
+  auto nConstantOp = b.create<arith::ConstantIntOp>(loc, 'n', charType);
 
-  auto hConstantOp = b.create<ConstantIntOp>(loc, 'h', charType);
+  auto hConstantOp = b.create<arith::ConstantIntOp>(loc, 'h', charType);
 
-  auto wConstantOp = b.create<ConstantIntOp>(loc, 'w', charType);
+  auto wConstantOp = b.create<arith::ConstantIntOp>(loc, 'w', charType);
 
-  auto gConstantOp = b.create<ConstantIntOp>(loc, 'g', charType);
+  auto gConstantOp = b.create<arith::ConstantIntOp>(loc, 'g', charType);
 
-  std::unordered_map<char, mlir::ConstantOp> layoutConstOps;
+  std::unordered_map<char, arith::ConstantIntOp> layoutConstOps;
   layoutConstOps['g'] = gConstantOp;
   layoutConstOps['k'] = kConstantOp;
   layoutConstOps['c'] = cConstantOp;
@@ -1107,8 +1108,8 @@ static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
   auto dst = block->getArgument(1);
   auto size = block->getArgument(2);
 
-  auto cst0Op = b.create<ConstantIndexOp>(loc, 0);
-  auto cst1Op = b.create<ConstantIndexOp>(loc, 1);
+  auto cst0Op = b.create<arith::ConstantIndexOp>(loc, 0);
+  auto cst1Op = b.create<arith::ConstantIndexOp>(loc, 1);
 
   auto loop0 = b.create<scf::ForOp>(loc, cst0Op, size, cst1Op);
   auto bt0 = OpBuilder::atBlockTerminator(loop0.getBody());
@@ -1124,20 +1125,20 @@ static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
       assert(!dstElemType.isIntOrIndex());
       if (srcBitWidth == 16) {
         // HACK for bf16
-        loadOp = bt0.create<BitcastOp>(loc, loadOp, bt0.getBF16Type());
-        loadOp = bt0.create<FPExtOp>(loc, loadOp, dstElemType);
+        loadOp = bt0.create<arith::BitcastOp>(loc, loadOp, bt0.getBF16Type());
+        loadOp = bt0.create<arith::ExtFOp>(loc, loadOp, dstElemType);
       } else {
-        loadOp = bt0.create<SIToFPOp>(loc, loadOp, dstElemType);
+        loadOp = bt0.create<arith::SIToFPOp>(loc, loadOp, dstElemType);
       }
     } else {
       assert(srcElemType.isa<FloatType>());
       if (dstElemType.isIntOrIndex()) {
-        loadOp = bt0.create<FPToSIOp>(loc, loadOp, dstElemType);
+        loadOp = bt0.create<arith::FPToSIOp>(loc, loadOp, dstElemType);
       } else {
         if (srcBitWidth < dstBitWidth)
-          loadOp = bt0.create<FPExtOp>(loc, loadOp, dstElemType);
+          loadOp = bt0.create<arith::ExtFOp>(loc, loadOp, dstElemType);
         else 
-          loadOp = bt0.create<FPTruncOp>(loc, loadOp, dstElemType);
+          loadOp = bt0.create<arith::TruncFOp>(loc, loadOp, dstElemType);
       }
     }
   }
@@ -1169,7 +1170,7 @@ static void emitMemcpy(OpBuilder &b, mlir::Value src, mlir::Value dst) {
   auto dstFlat =
       b.create<memref::CastOp>(loc, makeNDMemRef(b, dst, 1), dstFlatType);
 
-  auto cstSize = b.create<ConstantIndexOp>(loc, srcType.getNumElements());
+  auto cstSize = b.create<arith::ConstantIndexOp>(loc, srcType.getNumElements());
   b.create<CallOp>(loc, memcpyFunc, ValueRange{srcFlat, dstFlat, cstSize});
 }
 
@@ -1253,7 +1254,7 @@ static FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   b.setInsertionPoint(block, block->begin());
 
   // %c0 = constant 0: index
-  auto c0IndexOp = b.create<ConstantIndexOp>(loc, 0);
+  auto c0IndexOp = b.create<arith::ConstantIndexOp>(loc, 0);
 
   // %result = alloca() : memref<1xi32>
   SmallVector<int64_t, 1> oneElementVector({1});
@@ -1264,15 +1265,15 @@ static FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 
   // %c0_i32 = constant 0 : i32
   // %c1_i32 = constant 1 : i32
-  auto c0ConstantInt32Op = b.create<ConstantIntOp>(loc, 0, intType);
-  auto c1ConstantInt32Op = b.create<ConstantIntOp>(loc, 1, intType);
+  auto c0ConstantInt32Op = b.create<arith::ConstantIntOp>(loc, 0, intType);
+  auto c1ConstantInt32Op = b.create<arith::ConstantIntOp>(loc, 1, intType);
 
   // store %c1_i32, %result[%c0] : memref<1xi32>
   b.create<memref::StoreOp>(loc, c1ConstantInt32Op,
                             cmpResultAllocOp, ValueRange{c0IndexOp});
 
   // %%c1 = constant 1 : index
-  auto c1IndexOp = b.create<ConstantIndexOp>(loc, 1);
+  auto c1IndexOp = b.create<arith::ConstantIndexOp>(loc, 1);
 
   // Emit constant index Ops for loop upper bounds
 
@@ -1300,7 +1301,7 @@ static FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 
   SmallVector<mlir::Value, 5> dimOps;
   for (uint32_t i = 0; i < dims.size(); ++i) {
-    dimOps.push_back(b.create<ConstantIndexOp>(loc, dims[i]));
+    dimOps.push_back(b.create<arith::ConstantIndexOp>(loc, dims[i]));
   }
   
   scf::ForOp loop;
@@ -1318,35 +1319,30 @@ static FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 
   if (!elemType.isF32()) {
     if (elemType.isInteger(16)) {
-      gpuLoadOp = loopB.create<BitcastOp>(loc, gpuLoadOp, loopB.getBF16Type());
+      gpuLoadOp = loopB.create<arith::BitcastOp>(loc, gpuLoadOp, loopB.getBF16Type());
     }
-    gpuLoadOp = loopB.create<FPExtOp>(loc, gpuLoadOp, floatType);
+    gpuLoadOp = loopB.create<arith::ExtFOp>(loc, gpuLoadOp, floatType);
   }
-  
-  scf::IfOp ifOp;
-  if (elemType.isInteger(16)) {
-    // ???
-    auto cmpOp = loopB.create<CmpIOp>(loc, CmpIPredicate::ne, cpuLoadOp, gpuLoadOp);
-    ifOp = loopB.create<scf::IfOp>(loc, cmpOp, false);
-  } else {
-    if (randomSeed.getValue() != "none" &&
-        randomDataType.getValue() == "float") {
-      float delta = 0.0000001;
-      if (elemType.isF16())
-        delta = 0.0001;
 
-      auto deltaConstantOp = loopB.create<ConstantOp>(loc, cpuType.getElementType(),
-                                                    b.getFloatAttr(cpuType.getElementType(), delta));
-      auto subfOp = loopB.create<SubFOp>(loc, cpuLoadOp, gpuLoadOp);
-      auto absfOp = loopB.create<AbsFOp>(loc, subfOp);
+  mlir::Value cmpOp;
+  if ((randomSeed.getValue() != "none" &&
+       randomDataType.getValue() == "float") ||
+      !elemType.isF32()) {
+    float delta = 0.0000001;
+    if (elemType.getIntOrFloatBitWidth() < 32)
+      delta = 0.0001;
+
+    auto deltaConstantOp = loopB.create<arith::ConstantOp>(loc, cpuType.getElementType(),
+                                                           b.getFloatAttr(cpuType.getElementType(), delta));
+    auto subfOp = loopB.create<arith::SubFOp>(loc, cpuLoadOp, gpuLoadOp);
+    auto absfOp = loopB.create<math::AbsOp>(loc, subfOp);
       
-      auto cmpOp = loopB.create<CmpFOp>(loc, CmpFPredicate::UGT, absfOp, deltaConstantOp);
-      ifOp = loopB.create<scf::IfOp>(loc, cmpOp, false);
-    } else {
-      auto cmpOp = loopB.create<CmpFOp>(loc, CmpFPredicate::UNE, cpuLoadOp, gpuLoadOp);
-      ifOp = loopB.create<scf::IfOp>(loc, cmpOp, false);
-    }
+    cmpOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT, absfOp, deltaConstantOp);
+  } else {
+    cmpOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE, cpuLoadOp, gpuLoadOp);
   }
+
+  scf::IfOp ifOp = loopB.create<scf::IfOp>(loc, cmpOp, false);
   auto thenBody = ifOp.getThenBodyBuilder();
 
   thenBody.create<memref::StoreOp>(loc, c0ConstantInt32Op, cmpResultAllocOp, ValueRange{c0IndexOp});
@@ -1387,7 +1383,7 @@ populateHostHarnessLogic(ModuleOp &module, const std::list<KernelIF> &kernels,
     if (i16vals.find(v) == i16vals.end()) {
       auto i16Type = b.getIntegerType(16);
       i16vals.emplace(
-          v, b.create<ConstantOp>(loc, i16Type, b.getI16IntegerAttr(v)));
+          v, b.create<arith::ConstantIntOp>(loc, v, i16Type));
     }
     return i16vals[v];
   };
@@ -1397,7 +1393,7 @@ populateHostHarnessLogic(ModuleOp &module, const std::list<KernelIF> &kernels,
     if (i32vals.find(v) == i32vals.end()) {
       auto i32Type = b.getIntegerType(32);
       i32vals.emplace(
-          v, b.create<ConstantOp>(loc, i32Type, b.getI32IntegerAttr(v)));
+          v, b.create<arith::ConstantIntOp>(loc, v, i32Type));
     }
     return i32vals[v];
   };
@@ -1542,7 +1538,8 @@ int main(int argc, char **argv) {
 #endif
   MLIRContext context(registry);
   context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect,
-                      scf::SCFDialect, AffineDialect, memref::MemRefDialect>();
+                      scf::SCFDialect, AffineDialect, memref::MemRefDialect,
+                      math::MathDialect, arith::ArithmeticDialect>();
 
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv, "MLIR MIOpen Dialect host generation\n");

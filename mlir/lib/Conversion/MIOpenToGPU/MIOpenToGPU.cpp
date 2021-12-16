@@ -237,9 +237,10 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             auto gridVal = b.create<ConstantIndexOp>(loc, gridSize);
             auto blockVal = b.create<ConstantIndexOp>(loc, blockSize);
             auto cst1 = b.create<ConstantIndexOp>(loc, 1);
+            auto dynamicSharedMemSize = b.create<ConstantIntOp>(loc, 0, b.getI32Type());
             gpu::KernelDim3 gridDims{gridVal, cst1, cst1};
             gpu::KernelDim3 blockDims{blockVal, cst1, cst1};
-            b.create<gpu::LaunchFuncOp>(loc, gpuFunc, gridDims, blockDims,
+            b.create<gpu::LaunchFuncOp>(loc, gpuFunc, gridDims, blockDims, dynamicSharedMemSize,
                                         call.getArgOperands());
             calls.push_back(call);
           }
