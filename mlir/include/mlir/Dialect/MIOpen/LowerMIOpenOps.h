@@ -10976,25 +10976,10 @@ struct XdlopsGemmV2RewritePattern
 
       auto offset = innerLoopb.create<AddIOp>(loc, outerOffset, innerLoopiv);
 
-      Value argA;
-      Value argB;
-      int64_t argTypeVectorLength =
-          (argType.isa<VectorType>())
-              ? argType.template cast<VectorType>().getShape()[0]
-              : 1;
-      if (argTypeVectorLength > 1) {
-        argA = innerLoopb.create<vector::TransferReadOp>(
-            loc, argType.template cast<VectorType>(), op.bufferA(),
-            ValueRange{offset});
-        argB = innerLoopb.create<vector::TransferReadOp>(
-            loc, argType.template cast<VectorType>(), op.bufferB(),
-            ValueRange{offset});
-      } else {
-        argA = innerLoopb.create<memref::LoadOp>(loc, argType, op.bufferA(),
-                                                 ValueRange{offset});
-        argB = innerLoopb.create<memref::LoadOp>(loc, argType, op.bufferB(),
-                                                 ValueRange{offset});
-      }
+      Value argA = innerLoopb.create<memref::LoadOp>(loc, argType, op.bufferA(),
+                                                     ValueRange{offset});
+      Value argB = innerLoopb.create<memref::LoadOp>(loc, argType, op.bufferB(),
+                                                     ValueRange{offset});
 
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
