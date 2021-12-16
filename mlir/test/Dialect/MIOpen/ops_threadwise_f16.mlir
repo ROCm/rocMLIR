@@ -14,8 +14,8 @@ func @miopen_threadwise_copy_f16(%source_coord : memref<2xi32, 5>, %dest_coord :
                              %dest_with_embedded_affine : memref<?x?xf16, #map1, 3>,
                              %source_with_externally_defined_affine : memref<?x?x?x?xf16>,
                              %dest_with_externally_defined_affine : memref<?x?x?x?xf16>) {
-  %c0 = constant 0 : index
-  %c1 = constant 1 : index
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
   %source_coord_y = memref.load %source_coord[%c0] : memref<2xi32, 5>
   %source_coord_x = memref.load %source_coord[%c0] : memref<2xi32, 5>
   %dest_coord_y = memref.load %dest_coord[%c0] : memref<2xi32, 5>
@@ -114,9 +114,9 @@ func @miopen_threadwise_copy_v2_f16(%source_offset : i32, %source_coord : memref
                                 %source : vector<32xf16>, %dest : memref<?x?xf16>,
                                 %dest_with_embedded_affine : memref<?x?xf16, #map11>,
                                 %dest_with_externally_defined_affine : memref<?x?x?x?xf16>) {
-  %c0 = constant 0 : index
-  %c1 = constant 1 : index
-  %c0_i32 = constant 0 : i32
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %c0_i32 = arith.constant 0 : i32
 
   %source_coord_y = memref.load %source_coord[%c0] : memref<2xi32, 5>
   %source_coord_x = memref.load %source_coord[%c1] : memref<2xi32, 5>

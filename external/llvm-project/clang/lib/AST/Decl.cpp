@@ -1088,13 +1088,29 @@ NamedDecl::isReserved(const LangOptions &LangOpts) const {
     return ReservedIdentifierStatus::NotReserved;
 
   ReservedIdentifierStatus Status = II->isReserved(LangOpts);
-  if (Status == ReservedIdentifierStatus::StartsWithUnderscoreAtGlobalScope) {
-    // Check if we're at TU level or not.
+  if (isReservedAtGlobalScope(Status) && !isReservedInAllContexts(Status)) {
+    // This name is only reserved at global scope. Check if this declaration
+    // conflicts with a global scope declaration.
     if (isa<ParmVarDecl>(this) || isTemplateParameter())
       return ReservedIdentifierStatus::NotReserved;
+
+    // C++ [dcl.link]/7:
+    //   Two declarations [conflict] if [...] one declares a function or
+    //   variable with C language linkage, and the other declares [...] a
+    //   variable that belongs to the global scope.
+    //
+    // Therefore names that are reserved at global scope are also reserved as
+    // names of variables and functions with C language linkage.
     const DeclContext *DC = getDeclContext()->getRedeclContext();
-    if (!DC->isTranslationUnit())
-      return ReservedIdentifierStatus::NotReserved;
+    if (DC->isTranslationUnit())
+      return Status;
+    if (auto *VD = dyn_cast<VarDecl>(this))
+      if (VD->isExternC())
+        return ReservedIdentifierStatus::StartsWithUnderscoreAndIsExternC;
+    if (auto *FD = dyn_cast<FunctionDecl>(this))
+      if (FD->isExternC())
+        return ReservedIdentifierStatus::StartsWithUnderscoreAndIsExternC;
+    return ReservedIdentifierStatus::NotReserved;
   }
 
   return Status;
@@ -1647,8 +1663,7 @@ void NamedDecl::printNestedNameSpecifier(raw_ostream &OS,
     NameInScope = ND->getDeclName();
   }
 
-  for (unsigned I = Contexts.size(); I != 0; --I) {
-    const DeclContext *DC = Contexts[I - 1];
+  for (const DeclContext *DC : llvm::reverse(Contexts)) {
     if (const auto *Spec = dyn_cast<ClassTemplateSpecializationDecl>(DC)) {
       OS << Spec->getName();
       const TemplateArgumentList &TemplateArgs = Spec->getTemplateArgs();
@@ -2773,11 +2788,15 @@ SourceRange ParmVarDecl::getSourceRange() const {
 }
 
 bool ParmVarDecl::isDestroyedInCallee() const {
+  // ns_consumed only affects code generation in ARC
   if (hasAttr<NSConsumedAttr>())
-    return true;
+    return getASTContext().getLangOpts().ObjCAutoRefCount;
 
+  // FIXME: isParamDestroyedInCallee() should probably imply
+  // isDestructedType()
   auto *RT = getType()->getAs<RecordType>();
-  if (RT && RT->getDecl()->isParamDestroyedInCallee())
+  if (RT && RT->getDecl()->isParamDestroyedInCallee() &&
+      getType().isDestructedType())
     return true;
 
   return false;
@@ -3176,7 +3195,9 @@ bool FunctionDecl::isInlineBuiltinDeclaration() const {
     return false;
 
   const FunctionDecl *Definition;
-  return hasBody(Definition) && Definition->isInlineSpecified();
+  return hasBody(Definition) && Definition->isInlineSpecified() &&
+         Definition->hasAttr<AlwaysInlineAttr>() &&
+         Definition->hasAttr<GNUInlineAttr>();
 }
 
 bool FunctionDecl::isDestroyingOperatorDelete() const {
@@ -3250,6 +3271,8 @@ MultiVersionKind FunctionDecl::getMultiVersionKind() const {
     return MultiVersionKind::CPUDispatch;
   if (hasAttr<CPUSpecificAttr>())
     return MultiVersionKind::CPUSpecific;
+  if (hasAttr<TargetClonesAttr>())
+    return MultiVersionKind::TargetClones;
   return MultiVersionKind::None;
 }
 
@@ -3263,6 +3286,10 @@ bool FunctionDecl::isCPUSpecificMultiVersion() const {
 
 bool FunctionDecl::isTargetMultiVersion() const {
   return isMultiVersion() && hasAttr<TargetAttr>();
+}
+
+bool FunctionDecl::isTargetClonesMultiVersion() const {
+  return isMultiVersion() && hasAttr<TargetClonesAttr>();
 }
 
 void
@@ -4500,6 +4527,17 @@ unsigned EnumDecl::getODRHash() {
   setHasODRHash(true);
   ODRHash = Hash.CalculateHash();
   return ODRHash;
+}
+
+SourceRange EnumDecl::getSourceRange() const {
+  auto Res = TagDecl::getSourceRange();
+  // Set end-point to enum-base, e.g. enum foo : ^bar
+  if (auto *TSI = getIntegerTypeSourceInfo()) {
+    // TagDecl doesn't know about the enum base.
+    if (!getBraceRange().getEnd().isValid())
+      Res.setEnd(TSI->getTypeLoc().getEndLoc());
+  }
+  return Res;
 }
 
 //===----------------------------------------------------------------------===//

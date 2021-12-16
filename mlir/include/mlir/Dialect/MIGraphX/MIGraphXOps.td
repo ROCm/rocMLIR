@@ -311,14 +311,16 @@ def MIGraphX_ConstantOp :
 //--------- Execution layer Ops
 def MIGraphX_CodeObjOp :
     MIGraphX_Op<"code_object">,
-    Arguments<(ins Variadic<AnyType>:$kernelArgs
-                   )>,
+    Arguments<(ins SymbolRefAttr:$kernel,
+      I64ArrayAttr:$globalSize,
+      I64ArrayAttr:$localSize,
+      Variadic<AnyType>:$kernelArgs)>,
 	Results<(outs Variadic<AnyType>:$outputs)> {	  
   let summary = "OP representing a code object";
   let description = [{
     The `migraphx.code_object` op. Holds the compiled kernel binary and arguments.
   }];
-  let assemblyFormat = "`(`$kernelArgs`)` attr-dict `:` `(`type($kernelArgs)`)` `->` type($outputs)";
+  let assemblyFormat = "attr-dict `(`$kernelArgs`)` `:` `(`type($kernelArgs)`)` `->` type($outputs)";
   let verifier = [{ return success(); }];
 }
 

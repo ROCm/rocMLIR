@@ -24,10 +24,8 @@
 using namespace mlir;
 
 LogicalResult
-GPUFuncOpLowering::matchAndRewrite(gpu::GPUFuncOp gpuFuncOp,
-                                   ArrayRef<Value> operands,
+GPUFuncOpLowering::matchAndRewrite(gpu::GPUFuncOp gpuFuncOp, OpAdaptor adaptor,
                                    ConversionPatternRewriter &rewriter) const {
-  assert(operands.empty() && "func op is not expected to have operands");
   Location loc = gpuFuncOp.getLoc();
 
   SmallVector<LLVM::GlobalOp, 3> workgroupBuffers;
@@ -67,9 +65,9 @@ GPUFuncOpLowering::matchAndRewrite(gpu::GPUFuncOp gpuFuncOp,
   // not specific to function modeling.
   SmallVector<NamedAttribute, 4> attributes;
   for (const auto &attr : gpuFuncOp->getAttrs()) {
-    if (attr.first == SymbolTable::getSymbolAttrName() ||
-        attr.first == function_like_impl::getTypeAttrName() ||
-        attr.first == gpu::GPUFuncOp::getNumWorkgroupAttributionsAttrName())
+    if (attr.getName() == SymbolTable::getSymbolAttrName() ||
+        attr.getName() == function_like_impl::getTypeAttrName() ||
+        attr.getName() == gpu::GPUFuncOp::getNumWorkgroupAttributionsAttrName())
       continue;
     attributes.push_back(attr);
   }
@@ -105,7 +103,7 @@ GPUFuncOpLowering::matchAndRewrite(gpu::GPUFuncOp gpuFuncOp,
       auto elementType =
           global.getType().cast<LLVM::LLVMArrayType>().getElementType();
       Value memory = rewriter.create<LLVM::GEPOp>(
-          loc, LLVM::LLVMPointerType::get(elementType, global.addr_space()),
+          loc, LLVM::LLVMPointerType::get(elementType, global.getAddrSpace()),
           address, ArrayRef<Value>{zero, zero});
 
       // Build a memref descriptor pointing to the buffer to plug with the
@@ -175,10 +173,9 @@ static LLVM::LLVMFuncOp getOrDefineFunction(T &moduleOp, const Location loc,
 }
 
 LogicalResult GPUPrintfOpToHIPLowering::matchAndRewrite(
-    gpu::PrintfOp gpuPrintfOp, ArrayRef<Value> operands,
+    gpu::PrintfOp gpuPrintfOp, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = gpuPrintfOp->getLoc();
-  gpu::PrintfOpAdaptor adaptor(operands, gpuPrintfOp->getAttrDictionary());
 
   mlir::Type llvmI8 = typeConverter->convertType(rewriter.getI8Type());
   mlir::Type i8Ptr = LLVM::LLVMPointerType::get(llvmI8);
@@ -298,10 +295,9 @@ LogicalResult GPUPrintfOpToHIPLowering::matchAndRewrite(
 }
 
 LogicalResult GPUPrintfOpToLLVMCallLowering::matchAndRewrite(
-    gpu::PrintfOp gpuPrintfOp, ArrayRef<Value> operands,
+    gpu::PrintfOp gpuPrintfOp, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = gpuPrintfOp->getLoc();
-  gpu::PrintfOpAdaptor adaptor(operands, gpuPrintfOp->getAttrDictionary());
 
   mlir::Type llvmI8 = typeConverter->convertType(rewriter.getIntegerType(8));
   mlir::Type i8Ptr = LLVM::LLVMPointerType::get(llvmI8, addressSpace);

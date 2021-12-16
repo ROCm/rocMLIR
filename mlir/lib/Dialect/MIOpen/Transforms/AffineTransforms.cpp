@@ -1,5 +1,6 @@
 #include "PassDetail.h"
 
+#include "mlir/Dialect/MIOpen/AffineMapHelper.h"
 #include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/IR/AffineExpr.h"
@@ -195,14 +196,14 @@ void AffineTransforms::runOnFunction() {
     llvm::SmallVector<AffineMap> affineMaps;
     affineMaps.push_back(indexAffineMap);
     auto inputType = op.input().getType().cast<MemRefType>();
-    auto inputAffineMaps = inputType.getAffineMaps();
-    for (auto &am : inputAffineMaps)
-      affineMaps.push_back(am);
+    auto inputAffineMap = inputType.getLayout().getAffineMap();
+    affineMaps.push_back(inputAffineMap);
 
     auto outputType = op.output().getType().cast<MemRefType>();
     auto outputShape = outputType.getShape();
     auto transformedOutputType =
-        MemRefType::get(outputShape, outputType.getElementType(), affineMaps);
+      MemRefType::get(outputShape, outputType.getElementType(),
+                      miopen::composeTransforms(affineMaps));
 
     OpBuilder b(op.getOperation());
     auto loc = op.getLoc();
@@ -216,4 +217,3 @@ void AffineTransforms::runOnFunction() {
 std::unique_ptr<Pass> mlir::miopen::createAffineTransformPass() {
   return std::make_unique<AffineTransforms>();
 }
-

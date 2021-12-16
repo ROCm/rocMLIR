@@ -9,7 +9,7 @@ endif()
 if (MLIR_ENABLE_ROCM_CONVERSIONS)
   set(AMDGPU_LIBS
     IRReader
-    Linker
+    linker
     MCParser
     AMDGPUAsmParser
     AMDGPUCodeGen
@@ -27,9 +27,11 @@ add_mlir_dialect_library(MLIRGPUOps
 
   DEPENDS
   MLIRGPUOpsIncGen
+  MLIRGPUOpsEnumsGen
   MLIRGPUOpInterfacesIncGen
 
   LINK_LIBS PUBLIC
+  MLIRArithmetic
   MLIRDLTI
   MLIRIR
   MLIRMemRef
@@ -64,6 +66,7 @@ add_mlir_dialect_library(MLIRGPUTransforms
   MLIRParallelLoopMapperEnumsGen
 
   LINK_LIBS PUBLIC
+  MLIRArithmetic
   MLIRAsync
   MLIRDataLayoutInterfaces
   MLIRGPUOps
@@ -129,7 +132,6 @@ if(MLIR_ENABLE_ROCM_RUNNER)
   endif()
 
   set(DEFAULT_ROCM_PATH "/opt/rocm" CACHE PATH "Fallback path to search for ROCm installs")
-
   target_compile_definitions(obj.MLIRGPUTransforms
     PRIVATE
     __DEFAULT_ROCM_PATH__="${DEFAULT_ROCM_PATH}"

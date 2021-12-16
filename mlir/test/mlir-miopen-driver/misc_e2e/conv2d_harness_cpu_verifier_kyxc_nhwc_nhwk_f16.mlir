@@ -23,8 +23,8 @@ module  {
     // launch GPU convolution
     call @gpu_conv(%0, %1, %2) : (memref<1x128x3x3x8xf16>, memref<128x32x32x1x8xf16>, memref<128x30x30x1x128xf16>) -> ()
 
-    %c0_i16_0 = constant 0 : i16 
-    // allocate CPU memory for CPU filter tensor    
+    %c0_i16_0 = constant 0 : i16
+    // allocate CPU memory for CPU filter tensor
     %6 = memref.alloc() : memref<1x128x3x3x8xf32>
     %7 = memref.cast %6 : memref<1x128x3x3x8xf32> to memref<?x?x?x?x?xf32>
     // convert gpu filter tensor to f32
@@ -34,8 +34,8 @@ module  {
     // copy values of gpu filter tensor to cpu filter tensor
     call @mcpuMemCopy5DFloat(%9, %7) : (memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>) -> ()
     memref.dealloc %9 : memref<?x?x?x?x?xf32>
-    
-    // allocate CPU memory for cpu input tensor 
+
+    // allocate CPU memory for cpu input tensor
     %10 = memref.alloc() : memref<128x32x32x1x8xf32>
     %11 = memref.cast %10 : memref<128x32x32x1x8xf32> to memref<?x?x?x?x?xf32>
     // onvert gpu input tensor to f32
@@ -54,7 +54,7 @@ module  {
     // launch cpu convolution
     call @conv2d_host(%6, %10, %14) : (memref<1x128x3x3x8xf32>, memref<128x32x32x1x8xf32>, memref<128x30x30x1x128xf32>) -> ()
 
-    // allocate CPU memory 
+    // allocate CPU memory
     %16 = memref.alloc() : memref<128x30x30x1x128xf16>
     %17 = memref.cast %14 : memref<128x30x30x1x128xf32> to memref<?x?x?x?x?xf32>
     %18 = memref.cast %16 : memref<128x30x30x1x128xf16> to memref<?x?x?x?x?xf16>
@@ -137,7 +137,7 @@ module  {
           scf.for %arg5 = %c0 to %c3_1 step %c1 {
             scf.for %arg6 = %c0 to %c8 step %c1 {
               %0 = memref.load %arg0[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<1x128x3x3x8xf16>
-              %1 = fpext %0 : f16 to f32
+              %1 = arith.extf %0 : f16 to f32
               memref.store %1, %arg1[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<1x128x3x3x8xf32>
             }
           }
@@ -161,7 +161,7 @@ module  {
           scf.for %arg5 = %c0 to %c1_1 step %c1 {
             scf.for %arg6 = %c0 to %c8 step %c1 {
               %0 = memref.load %arg0[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<128x32x32x1x8xf16>
-              %1 = fpext %0 : f16 to f32
+              %1 = arith.extf %0 : f16 to f32
               memref.store %1, %arg1[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<128x32x32x1x8xf32>
             }
           }
@@ -242,7 +242,7 @@ module  {
             scf.for %arg6 = %c0 to %c128_2 step %c1 {
               %2 = memref.load %arg0[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<128x30x30x1x128xf16>
               %3 = memref.load %arg1[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<128x30x30x1x128xf16>
-              %4 = cmpf une, %2, %3 : f16
+              %4 = arith.cmpf une, %2, %3 : f16
               scf.if %4 {
                 memref.store %c0_i32, %0[%c0] : memref<1xi32>
               }

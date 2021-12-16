@@ -12,7 +12,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "CGOpenMPRuntimeGPU.h"
-#include "CGOpenMPRuntimeNVPTX.h"
 #include "CodeGenFunction.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/DeclOpenMP.h"
@@ -21,7 +20,6 @@
 #include "clang/Basic/Cuda.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Frontend/OpenMP/OMPGridValues.h"
-#include "llvm/IR/IntrinsicsNVPTX.h"
 #include "llvm/Support/MathExtras.h"
 
 using namespace clang;
@@ -1112,11 +1110,12 @@ void CGOpenMPRuntimeGPU::emitSPMDKernel(const OMPExecutableDirective &D,
 // warps participate in parallel work.
 static void setPropertyExecutionMode(CodeGenModule &CGM, StringRef Name,
                                      bool Mode) {
-  auto *GVMode =
-      new llvm::GlobalVariable(CGM.getModule(), CGM.Int8Ty, /*isConstant=*/true,
-                               llvm::GlobalValue::WeakAnyLinkage,
-                               llvm::ConstantInt::get(CGM.Int8Ty, Mode ? 0 : 1),
-                               Twine(Name, "_exec_mode"));
+  auto *GVMode = new llvm::GlobalVariable(
+      CGM.getModule(), CGM.Int8Ty, /*isConstant=*/true,
+      llvm::GlobalValue::WeakAnyLinkage,
+      llvm::ConstantInt::get(CGM.Int8Ty, Mode ? OMP_TGT_EXEC_MODE_SPMD
+                                              : OMP_TGT_EXEC_MODE_GENERIC),
+      Twine(Name, "_exec_mode"));
   CGM.addCompilerUsedGlobal(GVMode);
 }
 
@@ -1196,11 +1195,17 @@ unsigned CGOpenMPRuntimeGPU::getDefaultLocationReserved2Flags() const {
 CGOpenMPRuntimeGPU::CGOpenMPRuntimeGPU(CodeGenModule &CGM)
     : CGOpenMPRuntime(CGM, "_", "$") {
   if (!CGM.getLangOpts().OpenMPIsDevice)
-    llvm_unreachable("OpenMP NVPTX can only handle device code.");
+    llvm_unreachable("OpenMP can only handle device code.");
 
   llvm::OpenMPIRBuilder &OMPBuilder = getOMPBuilder();
-  if (CGM.getLangOpts().OpenMPTargetNewRuntime)
-    OMPBuilder.createDebugKind(CGM.getLangOpts().OpenMPTargetDebug);
+  if (CGM.getLangOpts().OpenMPTargetNewRuntime) {
+    OMPBuilder.createGlobalFlag(CGM.getLangOpts().OpenMPTargetDebug,
+                                "__omp_rtl_debug_kind");
+    OMPBuilder.createGlobalFlag(CGM.getLangOpts().OpenMPTeamSubscription,
+                                "__omp_rtl_assume_teams_oversubscription");
+    OMPBuilder.createGlobalFlag(CGM.getLangOpts().OpenMPThreadSubscription,
+                                "__omp_rtl_assume_threads_oversubscription");
+  }
 }
 
 void CGOpenMPRuntimeGPU::emitProcBindClause(CodeGenFunction &CGF,
@@ -1493,7 +1498,7 @@ void CGOpenMPRuntimeGPU::emitTeamsCall(CodeGenFunction &CGF,
 
   Address ZeroAddr = CGF.CreateDefaultAlignTempAlloca(CGF.Int32Ty,
                                                       /*Name=*/".zero.addr");
-  CGF.InitTempAlloca(ZeroAddr, CGF.Builder.getInt32(/*C*/ 0));
+  CGF.Builder.CreateStore(CGF.Builder.getInt32(/*C*/ 0), ZeroAddr);
   llvm::SmallVector<llvm::Value *, 16> OutlinedFnArgs;
   OutlinedFnArgs.push_back(emitThreadIDAddress(CGF, Loc).getPointer());
   OutlinedFnArgs.push_back(ZeroAddr.getPointer());
@@ -3481,7 +3486,7 @@ llvm::Function *CGOpenMPRuntimeGPU::createParallelDataSharingWrapper(
 
   Address ZeroAddr = CGF.CreateDefaultAlignTempAlloca(CGF.Int32Ty,
                                                       /*Name=*/".zero.addr");
-  CGF.InitTempAlloca(ZeroAddr, CGF.Builder.getInt32(/*C*/ 0));
+  CGF.Builder.CreateStore(CGF.Builder.getInt32(/*C*/ 0), ZeroAddr);
   // Get the array of arguments.
   SmallVector<llvm::Value *, 8> Args;
 
@@ -3939,4 +3944,32 @@ void CGOpenMPRuntimeGPU::clear() {
                                                              CGM.VoidPtrTy));
   }
   CGOpenMPRuntime::clear();
+}
+
+llvm::Value *CGOpenMPRuntimeGPU::getGPUNumThreads(CodeGenFunction &CGF) {
+  CGBuilderTy &Bld = CGF.Builder;
+  llvm::Module *M = &CGF.CGM.getModule();
+  const char *LocSize = "__kmpc_get_hardware_num_threads_in_block";
+  llvm::Function *F = M->getFunction(LocSize);
+  if (!F) {
+    F = llvm::Function::Create(
+        llvm::FunctionType::get(CGF.Int32Ty, llvm::None, false),
+        llvm::GlobalVariable::ExternalLinkage, LocSize, &CGF.CGM.getModule());
+  }
+  return Bld.CreateCall(F, llvm::None, "nvptx_num_threads");
+}
+
+llvm::Value *CGOpenMPRuntimeGPU::getGPUThreadID(CodeGenFunction &CGF) {
+  ArrayRef<llvm::Value *> Args{};
+  return CGF.EmitRuntimeCall(
+      OMPBuilder.getOrCreateRuntimeFunction(
+          CGM.getModule(), OMPRTL___kmpc_get_hardware_thread_id_in_block),
+      Args);
+}
+
+llvm::Value *CGOpenMPRuntimeGPU::getGPUWarpSize(CodeGenFunction &CGF) {
+  ArrayRef<llvm::Value *> Args{};
+  return CGF.EmitRuntimeCall(OMPBuilder.getOrCreateRuntimeFunction(
+                                 CGM.getModule(), OMPRTL___kmpc_get_warp_size),
+                             Args);
 }
