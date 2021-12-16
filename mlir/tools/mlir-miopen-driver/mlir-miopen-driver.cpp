@@ -2622,8 +2622,8 @@ int main(int argc, char **argv) {
     }
 
     conv2dGenerator = Conv2dGenerator(
-        chip, triple, features, num_cu.getValue(),
-        xdlopsV2.getValue(), operation.getValue(), tensorDataType.getValue(),
+        chip, triple, features, num_cu.getValue(), xdlopsV2.getValue(),
+        operation.getValue(), tensorDataType.getValue(),
         dilationHeight.getValue(), dilationWidth.getValue(),
         strideHeight.getValue(), strideWidth.getValue(),
         paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
@@ -2718,7 +2718,7 @@ int main(int argc, char **argv) {
     }
   }
 #endif
-  
+
   // Run MLIR passes with passed in tuning parameters
   if (failed(runMLIRPasses(module, passPipeline, perfConfig.getValue()))) {
     llvm::errs() << "Lowering failed.\n";
@@ -2754,7 +2754,7 @@ int main(int argc, char **argv) {
     }
   }
 #endif
-  
+
   // Set up the output file.
   auto output = openOutputFile(outputFilename, &errorMessage);
   if (!output) {

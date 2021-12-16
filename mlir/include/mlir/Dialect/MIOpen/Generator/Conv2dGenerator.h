@@ -97,7 +97,8 @@ public:
                               int64_t outputHeight, int64_t outputWidth,
                               int64_t filterHeight, int64_t filterWidth);
 
-  LogicalResult genConvModule(ModuleOp &module, int kernel_id, bool is_verifier = false);
+  LogicalResult genConvModule(ModuleOp &module, int kernel_id,
+                              bool is_verifier = false);
 
   FuncOp getKernelFunc() const;
 

@@ -27,13 +27,13 @@ using namespace mlir;
 
 Conv2dGenerator::Conv2dGenerator(
     const std::string &chip, const std::string &triple,
-    const std::string &features, int num_cu,
-    bool xdlops, const miopen::ConvOpType operation,
-    const std::string &dataTypeStr, int dilationHeight, int dilationWidth,
-    int strideHeight, int strideWidth, int paddingHeightLeft,
-    int paddingHeightRight, int paddingWidthLeft, int paddingWidthRight,
-    const std::string &filterLayout, const std::string &inputLayout,
-    const std::string &outputLayout, const std::string &kernelBaseName)
+    const std::string &features, int num_cu, bool xdlops,
+    const miopen::ConvOpType operation, const std::string &dataTypeStr,
+    int dilationHeight, int dilationWidth, int strideHeight, int strideWidth,
+    int paddingHeightLeft, int paddingHeightRight, int paddingWidthLeft,
+    int paddingWidthRight, const std::string &filterLayout,
+    const std::string &inputLayout, const std::string &outputLayout,
+    const std::string &kernelBaseName)
     : config{chip,
              triple,
              features,
@@ -61,7 +61,8 @@ Conv2dGenerator::Conv2dGenerator(
              -1,
              -1} {}
 
-Conv2dGenerator::Conv2dGenerator(const Conv2dGenerator::Config &_config) : config(_config) {}
+Conv2dGenerator::Conv2dGenerator(const Conv2dGenerator::Config &_config)
+    : config(_config) {}
 
 namespace {
 
@@ -475,9 +476,9 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
   // Determine kernel name, if there isn't one.
   if (config.kernelBaseName.empty()) {
     config.kernelBaseName = std::string("miopen_") +
-                        miopen::getNameForConvOpType(config.operation) + "_" +
-                        config.filterLayout + "_" + config.inputLayout + "_" +
-                        config.outputLayout;
+                            miopen::getNameForConvOpType(config.operation) +
+                            "_" + config.filterLayout + "_" +
+                            config.inputLayout + "_" + config.outputLayout;
   }
 
   return success();
@@ -489,8 +490,8 @@ void Conv2dGenerator::setDataType(std::string newType) {
 
 void Conv2dGenerator::flipXdlops() { config.xdlops = !config.xdlops; }
 
-LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
-                                             int kernel_id, bool is_verifier) {
+LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
+                                             bool is_verifier) {
   OpBuilder builder(module.getContext());
 
   Type dataType = getDataType(builder);
@@ -526,7 +527,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
     assert(func.isDeclaration());
     func.erase();
   }
-  
+
   // Annotate kernel attribute to the FuncOp.
   SmallVector<NamedAttribute, 1> kernelAttrs{
       builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernel_id)),
@@ -534,7 +535,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
 
   // Construct the FuncOp.
   func = FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
-                             ArrayRef<NamedAttribute>(kernelAttrs));
+                        ArrayRef<NamedAttribute>(kernelAttrs));
   module.push_back(func);
   if (func.getName() != kernelName) {
     return failure();
@@ -632,6 +633,4 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   return success();
 }
 
-FuncOp Conv2dGenerator::getKernelFunc() const {
-  return kernelFunc;
-}
+FuncOp Conv2dGenerator::getKernelFunc() const { return kernelFunc; }
