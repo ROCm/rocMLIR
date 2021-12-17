@@ -3045,7 +3045,21 @@ class APFloatParameter<string desc> :
 class ArrayRefParameter<string arrayOf, string desc = ""> :
     AttrOrTypeParameter<"::llvm::ArrayRef<" # arrayOf # ">", desc> {
   let allocator = [{$_dst = $_allocator.copyInto($_self);}];
-  let cppStorageType = "::llvm::SmallVector<" # arrayOf # ">";
+  let cppStorageType =  "::llvm::SmallVector<" # arrayOf # ">";
+}
+
+class ArrayRefOfStringRefParameter<string desc = ""> :
+    AttrOrTypeParameter<"::llvm::ArrayRef<::llvm::StringRef>", desc> {
+  let allocator = [{ {
+    ::llvm::SmallVector<::llvm::StringRef> tmpFields;
+    size_t len = $_self.size();
+    tmpFields.reserve(len);
+    for (size_t i = 0; i < len; ++i) {
+      tmpFields.push_back($_allocator.copyInto($_self[i]));
+    }
+    $_dst = $_allocator.copyInto(::llvm::ArrayRef<StringRef>(tmpFields));
+  } }];
+  let cppStorageType = "::llvm::SmallVector<StringRef>";
 }
 
 // For classes which require allocation and have their own allocateInto method.
@@ -3053,6 +3067,7 @@ class SelfAllocationParameter<string type, string desc> :
     AttrOrTypeParameter<type, desc> {
   let allocator = [{$_dst = $_self.allocateInto($_allocator);}];
 }
+
 
 // For ArrayRefs which contain things which allocate themselves.
 class ArrayRefOfSelfAllocationParameter<string arrayOf, string desc> :
