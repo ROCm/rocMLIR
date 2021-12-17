@@ -58,8 +58,8 @@ def main_function(callee_name):
     %t0 = call @rtclock() : () -> f64
     %0 = call @{callee_name}() : () -> tensor<1xi64>
     %t1 = call @rtclock() : () -> f64
-    %t1024 = subf %t1, %t0 : f64
-    %1 = memref.buffer_cast %0 :  memref<1xi64>
+    %t1024 = arith.subf %t1, %t0 : f64
+    %1 = bufferization.to_memref %0 :  memref<1xi64>
     %2 = memref.cast %1 : memref<1xi64> to memref<*xi64>
     call @print_memref_i64(%2) : (memref<*xi64>) -> ()
     call @printNewline() : () -> ()
