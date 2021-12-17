@@ -136,6 +136,7 @@ function clean_miopen_caches() {
 function setup_environment() {
     export MIOPEN_FIND_MODE=1
     export MIOPEN_DRIVER_USE_GPU_REFERENCE=1
+    export MIOPEN_COMPILE_PARALLEL_LEVEL=1
 
     if [[ $TUNING == 1 ]]; then
         export MIOPEN_FIND_ENFORCE=4
