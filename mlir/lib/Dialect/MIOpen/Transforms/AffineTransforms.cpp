@@ -1,7 +1,7 @@
 #include "PassDetail.h"
 
 #include "mlir/Dialect/MIOpen/AffineMapHelper.h"
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"

@@ -1,4 +1,4 @@
-//===- MIOpenOps.h - MIOpen MLIR Operations ---------------------*- C++ -*-===//
+//===- MIOpenOps.h - MIOpen MLIR Dialect ---------------------*- C++ -*-===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file defines MIOpen memref operations.
+// This file defines MIOpen memref attributes and operations.
 //
 //===----------------------------------------------------------------------===//
 
@@ -26,7 +26,6 @@
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringRef.h"
 
-
 //===----------------------------------------------------------------------===//
 //  MIOpen Dialect
 //===----------------------------------------------------------------------===//
@@ -36,6 +35,18 @@ namespace mlir {
 
 namespace miopen {
 
+enum class TransformType {
+  PassThrough,
+  Pad,
+  Slice,
+  Embed,
+  Unmerge,
+  Merge,
+  Unfold
+};
+llvm::Optional<TransformType> getTransformTypeForName(llvm::StringRef name);
+const char *getNameForTransformType(const TransformType);
+
 enum ConvOpType { Conv2DOpType, Conv2DBwdDataOpType, Conv2DBwdWeightOpType };
 
 llvm::Optional<ConvOpType> getConvOpTypeForName(llvm::StringRef name);
@@ -44,6 +55,8 @@ const char *getNameForConvOpType(const ConvOpType);
 } // end namespace miopen
 } // end namespace mlir
 
+#define GET_ATTRDEF_CLASSES
+#include "mlir/Dialect/MIOpen/MIOpenAttrDefs.h.inc"
 
 #define GET_OP_CLASSES
 #include "mlir/Dialect/MIOpen/MIOpenOps.h.inc"

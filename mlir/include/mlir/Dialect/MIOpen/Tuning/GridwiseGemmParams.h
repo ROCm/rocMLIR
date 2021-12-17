@@ -13,7 +13,7 @@
 #ifndef MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H
 #define MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H
 
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
 #include "mlir/Dialect/MIOpen/utility/BackwardDataPaddingKernel.h"

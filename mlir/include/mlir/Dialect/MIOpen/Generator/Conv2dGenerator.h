@@ -13,7 +13,7 @@
 #ifndef MLIR_DIALECT_MIOPEN_CONV2DGENERATOR_H_
 #define MLIR_DIALECT_MIOPEN_CONV2DGENERATOR_H_
 
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
 

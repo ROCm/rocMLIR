@@ -6,20 +6,27 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
+
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Support/MathExtras.h"
 
 #include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/MathExtras.h"
 
 using namespace mlir;
@@ -30,9 +37,7 @@ using namespace mlir::miopen;
 //===----------------------------------------------------------------------===//
 // MIOpenDialect Interfaces
 //===----------------------------------------------------------------------===//
-namespace {
-
-} // namespace
+namespace {} // namespace
 
 namespace mlir {
 namespace miopen {
@@ -60,6 +65,24 @@ const char *getNameForConvOpType(const miopen::ConvOpType op) {
   }
   llvm_unreachable("Invalid ConvOp type");
 }
+
+//===---------------------------------------------------------
+// TransformAttr
+//===---------------------------------------------------------
+mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
+  return {};
+}
+
+void TransformAttr::print(mlir::AsmPrinter &printer) const { return; }
+
+LogicalResult TransformAttr::verify(
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
+    TransformType type, llvm::ArrayRef<llvm::StringRef> upperNames,
+    llvm::ArrayRef<unsigned> upperDims,
+    llvm::ArrayRef<llvm::StringRef> lowerNames,
+    llvm::ArrayRef<unsigned> lowerDims, llvm::ArrayRef<int64_t> parameters) {
+  return success();
+}
 } // namespace miopen
 } // namespace mlir
 //===----------------------------------------------------------------------===//
@@ -67,6 +90,10 @@ const char *getNameForConvOpType(const miopen::ConvOpType op) {
 //===----------------------------------------------------------------------===//
 
 void MIOpenDialect::initialize() {
+  addAttributes<
+#define GET_ATTRDEF_LIST
+#include "mlir/Dialect/MIOpen/MIOpenAttrDefs.cpp.inc"
+      >();
   addOperations<
 #define GET_OP_LIST
 #include "mlir/Dialect/MIOpen/MIOpenOps.cpp.inc"
@@ -76,8 +103,7 @@ void MIOpenDialect::initialize() {
 //===----------------------------------------------------------------------===//
 // Convolution operations
 //===----------------------------------------------------------------------===//
-template <typename T>
-static LogicalResult verifyConvOp(T op) {
+template <typename T> static LogicalResult verifyConvOp(T op) {
   auto isDisjointed = [&](llvm::StringRef tensor, llvm::StringRef dim1,
                           llvm::StringRef dim2) {
     auto layout = op->getAttr(tensor).template cast<ArrayAttr>().getValue();
@@ -112,7 +138,6 @@ ArrayAttr TransformOp::buildMemRefShapeAttr(OpBuilder &b,
     shapeAttr.push_back(b.getI32IntegerAttr(s));
   return b.getArrayAttr(shapeAttr);
 }
-
 
 //===----------------------------------------------------------------------===//
 // ThreadwiseCopyOp
@@ -231,6 +256,9 @@ static LogicalResult verify(InWarpTransposeOp op) {
 //===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
+
+#define GET_ATTRDEF_CLASSES
+#include "mlir/Dialect/MIOpen/MIOpenAttrDefs.cpp.inc"
 
 #define GET_OP_CLASSES
 #include "mlir/Dialect/MIOpen/MIOpenOps.cpp.inc"

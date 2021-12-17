@@ -13,7 +13,7 @@
 #ifndef MLIR_DIALECT_MIOPEN_CONVCONTEXT_H
 #define MLIR_DIALECT_MIOPEN_CONVCONTEXT_H
 
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallString.h"
