@@ -509,11 +509,11 @@ inline void emitStoreLogic(
         int64_t vectorLength = valueVectorType.getShape()[0];
         SmallVector<Value, 8> destLowerIndicesUpdated = destLowerIndices;
         for (int64_t iter = 0; iter < vectorLength; ++iter) {
-          destLowerIndicesUpdated[0] = b.create<AddIOp>(
-              loc, destLowerIndices[0], b.create<ConstantIndexOp>(loc, iter));
-          auto element = b.create<vector::ExtractElementOp>(
-              loc, elementType, value,
-              b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32)));
+          Value iterOp = b.create<ConstantIndexOp>(loc, iter);
+          destLowerIndicesUpdated[0] =
+              b.create<AddIOp>(loc, destLowerIndices[0], iterOp);
+          auto element = b.create<vector::ExtractElementOp>(loc, elementType,
+                                                            value, iterOp);
           b.create<memref::StoreOp>(loc, element, dest, destLowerIndicesUpdated);
         }
       }
@@ -8178,7 +8178,7 @@ struct InWarpTransposeRewritePattern
     SmallVector<Value> accessConsts;
     SmallVector<Value> initialRegisters;
     for (uint32_t i = 0; i < totalSize; ++i) {
-      Value accessConst = b.create<ConstantIntOp>(loc, i, b.getI32Type());
+      Value accessConst = b.create<ConstantIndexOp>(loc, i);
       initialRegisters.push_back(
           b.create<vector::ExtractElementOp>(loc, result, accessConst));
       accessConsts.push_back(accessConst);
@@ -8855,7 +8855,7 @@ struct ThreadwiseLoadRewritePattern
         for (int64_t iter = 0; iter < srcDataPerRead; ++iter) {
           auto loadedElement = b.create<vector::ExtractElementOp>(
               loc, destElementType, loadedValue,
-              b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32)));
+              b.create<ConstantIndexOp>(loc, iter));
           int64_t decomposedInputsIndex = inputsIndex + iter * vectorDimStride;
           // llvm::errs() << "decomposedInputsIndex: " << decomposedInputsIndex
           //              << "\n";
@@ -9112,7 +9112,7 @@ struct ThreadwiseStoreRewritePattern
           Value element = op.data()[decomposedInputsIndex];
           valueToStore = b.create<vector::InsertElementOp>(
               loc, typeToStore, element, valueToStore,
-              b.create<ConstantIntOp>(loc, iter, b.getIntegerType(32)));
+              b.create<ConstantIndexOp>(loc, iter));
         }
       } else {
         valueToStore = op.data()[inputsIndex];
@@ -9415,18 +9415,16 @@ struct ThreadwiseCopyV2RewritePattern
           b, loc, loopIVsPerAccessOrder, layeredSourceTransformMetadata,
           layeredSourceTransform, layeredSourceIndices, srcLowerIndices);
 
-      Value rawSourceIndex =
-          b.create<IndexCastOp>(loc, srcLowerIndices[0], b.getIntegerType(32));
-
       // Add sourceOffset to derive the position in the vector.
-      auto srcPosition = b.create<AddIOp>(loc, rawSourceIndex, sourceOffsetOp);
+      auto srcPosition =
+          b.create<AddIOp>(loc, srcLowerIndices[0], sourceOffsetOp);
 
       // Load from source.
       Value loadedValue;
       if (dataPerCopy > 1) {
         loadedValue = createZeroConstantFloatOp(b, loc, typeToLoad);
         for (int64_t i = 0; i < dataPerCopy; ++i) {
-          Value index = b.create<ConstantIntOp>(loc, i, /*bitwidth=*/32);
+          Value index = b.create<ConstantIndexOp>(loc, i);
           Value extracted = b.create<vector::ExtractElementOp>(
               loc, sourceElementType, op.source(),
               b.create<AddIOp>(loc, srcPosition, index));

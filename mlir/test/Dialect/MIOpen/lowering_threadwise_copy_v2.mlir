@@ -31,10 +31,10 @@ func @miopen_threadwise_copy_v2(%source : vector<32xf32>,
                             %dest1D[%c0, %c0, %c0] {
     sourceOffset = 0 : index,
     dim_access_order = [0 : i32, 1 : i32, 2 : i32],
-    source_data_per_read = 1,
-    dest_data_per_write = 1,
-    vector_read_write_dim = 0,
-    upper_vector_read_dim = 4,
+    source_data_per_read = 1 : i32,
+    dest_data_per_write = 1 : i32,
+    vector_read_write_dim = 0 : i32,
+    upper_vector_read_dim = -1 : i32,
     bound = [1 : i32, 8 : i32, 4 : i32],
     coord_transforms = [
       {
@@ -180,29 +180,28 @@ func @miopen_threadwise_copy_v2(%source : vector<32xf32>,
           operand = 1 : i32, transforms = [#map8, #map9]
         }
       ],
+      upper_vector_read_dim = 0 : i32,
       dest_data_per_write = 1 : i32,
       dim_access_order = [0 : i32, 1 : i32, 2 : i32, 3 : i32, 4 : i32],
       source_data_per_read = 1 : i32, vector_read_write_dim = 4 : i32}
-      : vector<32xf32>,
-      index, index, index, index, index ->
+      : vector<32xf32>, index, index, index, index, index ->
       memref<128x1x1024x14x14xf32>, index, index, index, index, index
 
   return
 }
 
 // CHECK-LABEL: @miopen_threadwise_copy_v2_vectorized_nchw
-func @miopen_threadwise_copy_v2_vectorized_nchw(%source_offset : i32,
-                                %source : vector<32xf32>,
+func @miopen_threadwise_copy_v2_vectorized_nchw(%source : vector<32xf32>,
                                 %dest5D : memref<128x1x1024x16x16xf32>) {
-  %c0_i32 = constant 0 : i32
+  %c0 = constant 0 : index
 
   // A usecase of threadwise_copy_v2 that should be vectorized
   // This threadwise_copy takes the extra n dimension split used in swizzling
   // and has dimensions that are an even multiple of 4 to prevent OOB checks
   // CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %c0_i32, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf32>,
-  miopen.threadwise_copy_v2 %source[%source_offset,
-    %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32] ->
-    %dest5D[%c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32] {
+  miopen.threadwise_copy_v2 %source[%c0, %c0, %c0, %c0, %c0, %c0] ->
+    %dest5D[%c0, %c0, %c0, %c0, %c0, %c0] {
+      sourceOffset = 0 : index,
       bound = [1 : i32, 4 : i32, 1 : i32, 1 : i32, 1 : i32, 4 : i32],
       coord_transforms = [
         {metadata = [{
@@ -292,9 +291,8 @@ func @miopen_threadwise_copy_v2_vectorized_nchw(%source_offset : i32,
       dim_access_order = [0 : i32, 1 : i32, 2 : i32, 3 : i32, 4 : i32, 5 : i32],
       source_data_per_read = 4 : i32, vector_read_write_dim = 4 : i32,
       upper_vector_read_dim = 5 : i32}
-      : vector<32xf32>, i32,
-      i32, i32, i32, i32, i32, i32 ->
-      memref<128x1x1024x16x16xf32>, i32, i32, i32, i32, i32, i32
+      : vector<32xf32>, index, index, index, index, index, index ->
+      memref<128x1x1024x16x16xf32>, index, index, index, index, index, index
 
   return
 }
@@ -303,15 +301,15 @@ func @miopen_threadwise_copy_v2_vectorized_nchw(%source_offset : i32,
 func @miopen_threadwise_copy_v2_vectorized_nhwc(%source_offset : i32,
                                 %source : vector<32xf32>,
                                 %dest5D : memref<128x1x16x16x1024xf32>) {
-  %c0_i32 = constant 0 : i32
+  %c0 = constant 0 : index
 
   // A usecase of threadwise_copy_v2 that should be vectorized
   // This threadwise_copy takes the extra n dimension split used in swizzling
   // and has dimensions that are an even multiple of 4 to prevent OOB checks
   // CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %c0_i32, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf32>,
-  miopen.threadwise_copy_v2 %source[%source_offset,
-    %c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32] ->
-    %dest5D[%c0_i32, %c0_i32, %c0_i32, %c0_i32, %c0_i32] {
+  miopen.threadwise_copy_v2 %source[%c0, %c0, %c0, %c0, %c0] ->
+    %dest5D[%c0, %c0, %c0, %c0, %c0] {
+      sourceOffset = 0 : index,
       bound = [1 : i32, 4 : i32, 1 : i32, 4 : i32, 1 : i32],
       coord_transforms = [
         {metadata = [{
@@ -400,9 +398,8 @@ func @miopen_threadwise_copy_v2_vectorized_nhwc(%source_offset : i32,
       dim_access_order = [0 : i32, 1 : i32, 2 : i32, 3 : i32, 4 : i32],
       source_data_per_read = 4 : i32, vector_read_write_dim = 4 : i32,
       upper_vector_read_dim = 3 : i32}
-      : vector<32xf32>, i32,
-      i32, i32, i32, i32, i32 ->
-      memref<128x1x16x16x1024xf32>, i32, i32, i32, i32, i32
+      : vector<32xf32>, index, index, index, index, index ->
+      memref<128x1x16x16x1024xf32>, index, index, index, index, index
 
   return
 }
