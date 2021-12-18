@@ -81,6 +81,14 @@ LogicalResult backwardWeightAtomicAdd(T op, PatternRewriter &b,
   auto archAttr = op->template getAttrOfType<StringAttr>("arch");
   auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
 
+  // TODO(kdrewnia) We can't use vector stores since this operation
+  // transforms KYXC outputs to KCYX ones. Until we stop doing the twist,
+  // we can't vectorize the writes
+  if (auto gemmVectorization =
+          op->template getAttrOfType<IntegerAttr>("matrix_c_data_per_copy")) {
+    op->setAttr("matrix_c_data_per_copy", b.getI32IntegerAttr(1));
+  }
+
   auto filterLayoutAttr =
       op->template getAttrOfType<ArrayAttr>("filter_layout");
   auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
