@@ -1122,13 +1122,19 @@ static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
     // insert conversion logic
     auto srcBitWidth = srcElemType.getIntOrFloatBitWidth();
     auto dstBitWidth = dstElemType.getIntOrFloatBitWidth();
-    // TODO: support bf16
     if (srcElemType.isIntOrIndex()) {
       assert(!dstElemType.isIntOrIndex());
       if (srcBitWidth == 16) {
         // HACK for bf16
-        loadOp = bt0.create<arith::BitcastOp>(loc, loadOp, bt0.getBF16Type());
-        loadOp = bt0.create<arith::ExtFOp>(loc, loadOp, dstElemType);
+        // loadOp = bt0.create<arith::BitcastOp>(loc, loadOp,
+        // bt0.getBF16Type()); loadOp = bt0.create<arith::ExtFOp>(loc, loadOp,
+        // dstElemType); BF16 not supported by x86 isel
+        loadOp =
+            bt0.create<arith::ExtUIOp>(loc, loadOp, bt0.getIntegerType(32));
+        auto cst16Op =
+            bt0.create<arith::ConstantIntOp>(loc, 16, b.getIntegerType(32));
+        loadOp = bt0.create<arith::ShLIOp>(loc, loadOp, cst16Op);
+        loadOp = bt0.create<arith::BitcastOp>(loc, loadOp, bt0.getF32Type());
       } else {
         loadOp = bt0.create<arith::SIToFPOp>(loc, loadOp, dstElemType);
       }
@@ -1336,14 +1342,14 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
        randomDataType.getValue() == "float") ||
       !elemType.isF32()) {
     float delta = 0.0000001;
-    if (elemType.getIntOrFloatBitWidth() < 32)
-      delta = 0.0001;
-
-    auto deltaConstantOp = loopB.create<arith::ConstantOp>(
-        loc, cpuType.getElementType(),
-        b.getFloatAttr(cpuType.getElementType(), delta));
+    if (elemType.getIntOrFloatBitWidth() < 32) {
+      delta = 0.001;
+    }
+    auto deltaConstantOp = loopB.create<arith::ConstantFloatOp>(
+        loc, llvm::APFloat(delta), b.getF32Type());
     auto subfOp = loopB.create<arith::SubFOp>(loc, cpuLoadOp, gpuLoadOp);
-    auto absfOp = loopB.create<math::AbsOp>(loc, subfOp);
+    auto divfOp = loopB.create<arith::DivFOp>(loc, subfOp, cpuLoadOp);
+    auto absfOp = loopB.create<math::AbsOp>(loc, divfOp);
 
     cmpOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT, absfOp,
                                         deltaConstantOp);
@@ -1357,6 +1363,11 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 
   thenBody.create<memref::StoreOp>(loc, c0ConstantInt32Op, cmpResultAllocOp,
                                    ValueRange{c0IndexOp});
+
+  // call mcpuPrintF32(float f1, float f2)
+  auto printFunc = makeFuncDecl(module, "mcpuPrintF32", {floatType, floatType});
+
+  thenBody.create<CallOp>(loc, printFunc, ValueRange{gpuLoadOp, cpuLoadOp});
 
   // Emit print function call
   emitPrintTensor(b, cmpResultAllocOp);
@@ -1472,12 +1483,8 @@ populateHostHarnessLogic(ModuleOp &module, const std::list<KernelIF> &kernels,
 
   // Run validation
   if (!validationType.empty()) {
-    if (validationType == "cpu") {
-      // Emit call to host_<conv>
-      auto cpuConvFunc = createCPUConvFunc(module, genConfig);
-      b.create<CallOp>(loc, cpuConvFunc, valVars);
-    } else if (validationType == "gpu" &&
-               (genConfig.xdlops || genConfig.dataTypeStr != "f32")) {
+    if (validationType == "gpu" &&
+        (genConfig.xdlops || genConfig.dataTypeStr != "f32")) {
       // generate generic kernels
       Conv2dGenerator conv2dGenerator(genConfig);
       // use non-xdlops kernels to verify xdlops kernels
@@ -1503,8 +1510,10 @@ populateHostHarnessLogic(ModuleOp &module, const std::list<KernelIF> &kernels,
         auto kernelWrapperFunc = createGPUWrapper(module, kernel);
         b.create<CallOp>(loc, kernelWrapperFunc, valVars);
       }
-    } else {
-      // assert( no verifier needed );
+    } else { // if (validationType == "cpu")
+      // Emit call to host_<conv>
+      auto cpuConvFunc = createCPUConvFunc(module, genConfig);
+      b.create<CallOp>(loc, cpuConvFunc, valVars);
     }
 
     // Emit call to verifier
@@ -1518,7 +1527,9 @@ populateHostHarnessLogic(ModuleOp &module, const std::list<KernelIF> &kernels,
   // Print and cleanup validation vars
   for (auto &vvar : valVars) {
     // print vvar
-    emitPrintTensor(b, vvar, printValidationResults.getValue());
+    emitPrintTensor(
+        b, vvar,
+        (vvar == valVars[outIdx]) ? printValidationResults.getValue() : false);
     // dealloc vvar
     b.create<memref::DeallocOp>(loc, vvar);
   }

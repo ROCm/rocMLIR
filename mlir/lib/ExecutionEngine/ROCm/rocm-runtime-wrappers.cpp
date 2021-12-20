@@ -56,8 +56,8 @@ static unsigned short float_to_bfloat16(float src_val) {
 
 // Generate tables for float-to-fp16 conversion
 // ref. http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
-static void generateTables(unsigned short *basetable,
-                           unsigned char *shifttable) {
+static int generateTables(unsigned short *basetable,
+                          unsigned char *shifttable) {
   unsigned int i;
   int e;
   for (i = 0; i < 256; ++i) {
@@ -90,12 +90,15 @@ static void generateTables(unsigned short *basetable,
     }
   }
 
-  return;
+  return 1;
 }
 
-static unsigned short float_to_fp16(float src_val,
-                                    unsigned short const *basetable,
-                                    unsigned char const *shifttable) {
+static unsigned short float_to_fp16(float src_val) {
+  // Generate tables for converting float to fp16
+  static unsigned short basetable[512];
+  static unsigned char shifttable[512];
+  static int foo = generateTables(basetable, shifttable);
+
   // ref. http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
   bf16_fp32_cvt_t target_val;
   target_val.f32 = src_val;
@@ -320,14 +323,9 @@ extern "C" void mcpuMem5DFloatConvertHalf(
   assert(size0 * size1 * size2 * size3 * size4 ==
          size5 * size6 * size7 * size8 * size9);
 
-  // Generate tables for converting float to fp16
-  unsigned short basetable[512];
-  unsigned char shifttable[512];
-  generateTables(basetable, shifttable);
-
   int64_t dataSize = size0 * size1 * size2 * size3 * size4;
   for (int64_t i = 0; i < dataSize; i++) {
-    destAligned[i] = float_to_fp16(sourceAligned[i], basetable, shifttable);
+    destAligned[i] = float_to_fp16(sourceAligned[i]);
   }
 }
 
@@ -375,6 +373,11 @@ extern "C" void mcpuPrintBF16(unsigned short *allocated,
     printf("%f\t", fvalue);
   }
 }
+
+extern "C" void mcpuPrintF32(float f1, float f2) {
+  printf("Values: %f, %f\n", f1, f2);
+}
+
 // 2D float memref utility routines.
 
 extern "C" void mcpuMemset2DFloat(float *allocated, float *aligned,
@@ -422,9 +425,9 @@ short randomIntegerValue(short min, short max) {
 }
 
 float randomFloatValue(short min, short max) {
-  float minAsF = static_cast<float>(min);
+  auto minAsF = static_cast<float>(min);
   if (min == max)
-    return minAsF;
+    return minAsF * 0.1f;
   return static_cast<float>((max - min) * static_cast<double>(std::rand()) /
                             static_cast<double>(RAND_MAX)) +
          minAsF;
@@ -673,25 +676,22 @@ extern "C" void mcpuMemset5DHalfRandInt(
     int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
     int64_t stride4, short min, short max, uint32_t seed) {
 
-  // Generate tables for converting float to fp16
-  unsigned short basetable[512];
-  unsigned char shifttable[512];
-  generateTables(basetable, shifttable);
-
   if (seed == 0)
     std::srand(time(0));
   else
     std::srand(seed);
 
-  float value;
+  float minf = min;
+  float maxf = max;
+
   for (unsigned i = 0; i < size0; ++i)
     for (unsigned j = 0; j < size1; ++j)
       for (unsigned k = 0; k < size2; ++k)
         for (unsigned l = 0; l < size3; ++l)
           for (unsigned m = 0; m < size4; ++m) {
-            value = randomIntegerValue(min, max);
+            float value = randomFloatValue(minf, maxf);
             aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
-                    m * stride4] = float_to_fp16(value, basetable, shifttable);
+                    m * stride4] = float_to_fp16(value);
           }
 }
 
@@ -700,11 +700,6 @@ extern "C" void mcpuMemset5DHalfRandFloat(
     int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
     int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
     int64_t stride4, short min, short max, uint32_t seed) {
-
-  // Generate tables for converting float to fp16
-  unsigned short basetable[512];
-  unsigned char shifttable[512];
-  generateTables(basetable, shifttable);
 
   if (seed == 0)
     std::srand(time(0));
@@ -719,7 +714,7 @@ extern "C" void mcpuMemset5DHalfRandFloat(
           for (unsigned m = 0; m < size4; ++m) {
             value = randomFloatValue(min, max);
             aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
-                    m * stride4] = float_to_fp16(value, basetable, shifttable);
+                    m * stride4] = float_to_fp16(value);
           }
 }
 

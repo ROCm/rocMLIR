@@ -20,9 +20,11 @@
 // BF16-NEXT:   %c1 = arith.constant 1 : index
 // BF16-NEXT:   scf.for %arg3 = %c0 to %arg2 step %c1 {
 // BF16-NEXT:     %0 = memref.load %arg0[%arg3] : memref<?xi16>
-// BF16-NEXT:     %1 = arith.bitcast %0 : i16 to bf16
-// BF16-NEXT:     %2 = arith.extf %1 : bf16 to f32
-// BF16-NEXT:     memref.store %2, %arg1[%arg3] : memref<?xf32>
+// BF16-NEXT:     %1 = arith.extui %0 : i16 to i32
+// BF16-NEXT:     %c16_i32 = arith.constant 16 : i32
+// BF16-NEXT:     %2 = arith.shli %1, %c16_i32 : i32
+// BF16-NEXT:     %3 = arith.bitcast %2 : i32 to f32
+// BF16-NEXT:     memref.store %3, %arg1[%arg3] : memref<?xf32>
 // BF16-NEXT:   }
 // BF16-NEXT:   return
 // BF16-NEXT: }

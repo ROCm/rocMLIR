@@ -7,7 +7,7 @@ func private @miopen_conv2d_gkyxc_nhwgc_nhwgk_0(%filter : memref<1x128x3x3x8xf32
 // HARNESS: module
 // HARNESS: func @miopen_conv2d_gkyxc_nhwgc_nhwgk_0([[FILTER_MEMREF:%.*]]: memref<1x128x3x3x8xf32>, [[INPUT_MEMREF:%.*]]: memref<128x32x32x1x8xf32>, [[OUTPUT_MEMREF:%.*]]: memref<128x30x30x1x128xf32>)
 // LOWERING: module
-// LOWERING: gpu.launch_func  @miopen_conv2d_gkyxc_nhwgc_nhwgk_0_module::@miopen_conv2d_gkyxc_nhwgc_nhwgk_0 blocks in (%{{.*}}, %{{.*}}, %{{.*}}) threads in (%{{.*}}, %{{.*}}, %{{.*}}) args(%{{.*}} : memref<1x128x3x3x8xf32>, %{{.*}} : memref<128x32x32x1x8xf32>, %{{.*}} : memref<128x30x30x1x128xf32>)
+// LOWERING: gpu.launch_func  @miopen_conv2d_gkyxc_nhwgc_nhwgk_0_module::@miopen_conv2d_gkyxc_nhwgc_nhwgk_0 blocks in (%{{.*}}, %{{.*}}, %{{.*}}) threads in (%{{.*}}, %{{.*}}, %{{.*}}) dynamic_shared_memory_size %{{.*}} args(%{{.*}} : memref<1x128x3x3x8xf32>, %{{.*}} : memref<128x32x32x1x8xf32>, %{{.*}} : memref<128x30x30x1x128xf32>)
     
 
 func @main() {
