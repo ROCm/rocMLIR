@@ -1,4 +1,4 @@
-//===- mlir-miopen-driver.cpp - MLIR MIOpen Dialect Driver ----------------===//
+//===- miopen-gen.cpp - MLIR MIOpen Test Generator ------------------------===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Main entry function for mlir-miopen-driver.
+// Main entry function for miopen-gen test generator.
 //
 //===----------------------------------------------------------------------===//
 
@@ -224,14 +224,15 @@ static cl::opt<bool>
 ////    * kernel options
 ////      * cmd-line def (see above)
 ////        * gpu gen
-////        * cpu gen (TBD)
+////        * cpu gen
 ////      * user defined (input file)
 ////    * verifier
 ////      * cpu gen
-////      * gpu gen (TBD)
+////      * gpu gen
 ////      * compare results
 ////    * print results
 ////      * optionally print inputs
+////      * optionally print validation results
 ////    * profiling (TBD)
 ////      * plumb thru runner (TBD)
 //////////////////////////////////////////////////////////////////////////
@@ -337,8 +338,7 @@ static cl::alias deviceShort("dev", cl::aliasopt(deviceNum));
 
 ////////////////////////////////////////////////////////////////////////////////
 ////  Struct KernelIF
-////  - Detected kernel interface
-////    - assumes last param is output
+////  - Detected/capture kernel interface
 ////////////////////////////////////////////////////////////////////////////////
 struct KernelIF {
   FuncOp func;
@@ -948,19 +948,12 @@ createCPUConvFunc(ModuleOp module,
   //  %h = constant 104 : i8
   //  %w = constant 119 : i8
   auto kConstantOp = b.create<arith::ConstantIntOp>(loc, 'k', charType);
-
   auto cConstantOp = b.create<arith::ConstantIntOp>(loc, 'c', charType);
-
   auto yConstantOp = b.create<arith::ConstantIntOp>(loc, 'y', charType);
-
   auto xConstantOp = b.create<arith::ConstantIntOp>(loc, 'x', charType);
-
   auto nConstantOp = b.create<arith::ConstantIntOp>(loc, 'n', charType);
-
   auto hConstantOp = b.create<arith::ConstantIntOp>(loc, 'h', charType);
-
   auto wConstantOp = b.create<arith::ConstantIntOp>(loc, 'w', charType);
-
   auto gConstantOp = b.create<arith::ConstantIntOp>(loc, 'g', charType);
 
   std::unordered_map<char, arith::ConstantIntOp> layoutConstOps;

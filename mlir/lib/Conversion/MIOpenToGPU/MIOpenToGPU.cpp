@@ -197,12 +197,10 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     if (auto attr = theFunc->getAttr("block_size")) {
       gpuFunc->setAttr("block_size", attr);
       blockSize = attr.template cast<IntegerAttr>().getInt();
-      ;
     }
     if (auto attr = theFunc->getAttr("grid_size")) {
       gpuFunc->setAttr("grid_size", attr);
       gridSize = attr.template cast<IntegerAttr>().getInt();
-      ;
     }
 
     // associate arguments for newly created GPUFuncOp.
