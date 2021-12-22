@@ -16,6 +16,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/Matchers.h"
+#include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeUtilities.h"
@@ -23,11 +24,15 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/MathExtras.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/SMLoc.h"
+#include <algorithm>
+#include <iterator>
 
 using namespace mlir;
 using namespace mlir::miopen;
@@ -41,6 +46,51 @@ namespace {} // namespace
 
 namespace mlir {
 namespace miopen {
+Optional<TransformType> getTransformTypeForName(const StringRef name) {
+  if (name == "PassThrough") {
+    return TransformType::PassThrough;
+  }
+  if (name == "Pad") {
+    return TransformType::Pad;
+  }
+  if (name == "Slice") {
+    return TransformType::Slice;
+  }
+  if (name == "Embed") {
+    return TransformType::Embed;
+  }
+  if (name == "Unmerge") {
+    return TransformType::Unmerge;
+  }
+  if (name == "Merge") {
+    return TransformType::Merge;
+  }
+  if (name == "Unfold") {
+    return TransformType::Unfold;
+  }
+  return llvm::None;
+}
+
+const char *getNameForTransformType(const TransformType type) {
+  switch (type) {
+  case TransformType::PassThrough:
+    return "PassThrough";
+  case TransformType::Pad:
+    return "Pad";
+  case TransformType::Slice:
+    return "Slice";
+  case TransformType::Embed:
+    return "Embed";
+  case TransformType::Unmerge:
+    return "Unmerge";
+  case TransformType::Merge:
+    return "Merge";
+  case TransformType::Unfold:
+    return "Unfold";
+  }
+  llvm_unreachable("Enum not one of the valid cases");
+}
+
 Optional<ConvOpType> getConvOpTypeForName(const StringRef name) {
   if (name == "conv2d") {
     return Conv2DOpType;
@@ -69,18 +119,193 @@ const char *getNameForConvOpType(const miopen::ConvOpType op) {
 //===---------------------------------------------------------
 // TransformAttr
 //===---------------------------------------------------------
-mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
-  return {};
+template <typename T>
+static ParseResult
+parseAndGather(mlir::AsmParser &parser, SmallVector<T> &ret,
+               llvm::function_ref<ParseResult(T &)> getElement) {
+  return parser.parseCommaSeparatedList([&]() -> ParseResult {
+    T out;
+    ParseResult res = getElement(out);
+    if (res.succeeded()) {
+      ret.push_back(out);
+    }
+    return res;
+  });
 }
 
-void TransformAttr::print(mlir::AsmPrinter &printer) const { return; }
+mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
+  llvm::SMLoc startLoc = parser.getCurrentLocation();
+  if (parser.parseLess()) {
+    return {};
+  }
 
-LogicalResult TransformAttr::verify(
-    llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
-    TransformType type, llvm::ArrayRef<llvm::StringRef> upperNames,
-    llvm::ArrayRef<unsigned> upperDims,
-    llvm::ArrayRef<llvm::StringRef> lowerNames,
-    llvm::ArrayRef<unsigned> lowerDims, llvm::ArrayRef<int64_t> parameters) {
+  std::string transformName;
+  if (parser.parseKeywordOrString(&transformName)) {
+    return {};
+  }
+
+  llvm::SMLoc typeLoc = parser.getCurrentLocation();
+  Optional<TransformType> transformType =
+      getTransformTypeForName(transformName);
+  if (!transformType.hasValue()) {
+    parser.emitError(typeLoc, "expected a name of a known transform")
+            .attachNote()
+        << "The transforms are PassThrough, Pad, Slice, Embed, Unmerge, Merge, "
+           "Unfold";
+    return {};
+  }
+
+  llvm::SmallVector<int64_t> params;
+  if (parser.parseOptionalLBrace().succeeded()) {
+    if (parseAndGather<int64_t>(parser, params,
+                                [&](int64_t &out) -> ParseResult {
+                                  return parser.parseInteger(out);
+                                }) ||
+        parser.parseRBrace()) {
+      return {};
+    }
+  }
+
+  llvm::SmallVector<std::string> upperNamesStorage;
+  llvm::SmallVector<unsigned> upperDims;
+  if (parser.parseLSquare() ||
+      parseAndGather<std::string>(parser, upperNamesStorage,
+                                  [&](std::string &out) -> ParseResult {
+                                    return parser.parseKeywordOrString(&out);
+                                  }) ||
+      parser.parseRSquare() || parser.parseKeyword("at") ||
+      parser.parseLSquare() ||
+      parseAndGather<unsigned>(parser, upperDims,
+                               [&](unsigned &out) -> ParseResult {
+                                 return parser.parseInteger(out);
+                               }) ||
+      parser.parseRSquare()) {
+    return {};
+  }
+
+  if (parser.parseArrow()) {
+    return {};
+  }
+
+  llvm::SmallVector<std::string> lowerNamesStorage;
+  llvm::SmallVector<unsigned> lowerDims;
+  if (parser.parseLSquare() ||
+      parseAndGather<std::string>(parser, lowerNamesStorage,
+                                  [&](std::string &out) -> ParseResult {
+                                    return parser.parseKeywordOrString(&out);
+                                  }) ||
+      parser.parseRSquare() || parser.parseKeyword("at") ||
+      parser.parseLSquare() ||
+      parseAndGather<unsigned>(parser, lowerDims,
+                               [&](unsigned &out) -> ParseResult {
+                                 return parser.parseInteger(out);
+                               }) ||
+      parser.parseRSquare()) {
+    return {};
+  }
+
+  AffineMapAttr map;
+  if (parser.parseKeyword("map") || parser.parseEqual() ||
+      parser.parseAttribute<AffineMapAttr>(map)) {
+    return {};
+  }
+  if (parser.parseGreater()) {
+    return {};
+  }
+
+  SmallVector<StringRef> upperNames;
+  for (const std::string &name : upperNamesStorage) {
+    upperNames.push_back(name);
+  }
+  SmallVector<StringRef> lowerNames;
+  for (const std::string &name : lowerNamesStorage) {
+    lowerNames.push_back(name);
+  }
+
+  return parser.getChecked<TransformAttr>(
+      startLoc, parser.getContext(), transformType.getValue(), params,
+      upperNames, upperDims, lowerNames, lowerDims, map);
+}
+
+void TransformAttr::print(mlir::AsmPrinter &printer) const {
+  printer << "<";
+  const char *name = getNameForTransformType(getType());
+  printer.printKeywordOrString(name);
+  ArrayRef<int64_t> params = getParams();
+  if (params.size() > 0) {
+    printer << "{";
+    llvm::interleaveComma(params, printer);
+    printer << "}";
+  }
+  printer << " [";
+  llvm::interleaveComma(getUpperNames(), printer,
+                        [&](StringRef s) { printer << "\"" << s << "\""; });
+  printer << "] at [";
+  llvm::interleaveComma(getUpperDims(), printer);
+  printer << "] -> [";
+  llvm::interleaveComma(getLowerNames(), printer,
+                        [&](StringRef s) { printer << "\"" << s << "\""; });
+  printer << "] at [";
+  llvm::interleaveComma(getLowerDims(), printer);
+  printer << "] map = ";
+  getMap().print(printer.getStream());
+}
+
+LogicalResult
+TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
+                      TransformType type, llvm::ArrayRef<int64_t> params,
+                      llvm::ArrayRef<llvm::StringRef> upperNames,
+                      llvm::ArrayRef<unsigned> upperDims,
+                      llvm::ArrayRef<llvm::StringRef> lowerNames,
+                      llvm::ArrayRef<unsigned> lowerDims, AffineMapAttr map) {
+  if (upperNames.size() != upperDims.size()) {
+    return emitError() << "Have " << upperNames.size() << " names for "
+                       << upperDims.size() << " dimensions";
+  }
+  if (lowerNames.size() != lowerDims.size()) {
+    return emitError() << "Have " << lowerNames.size() << " names for "
+                       << lowerDims.size() << " dimensions";
+  }
+  switch (type) {
+  case TransformType::PassThrough: {
+    if (upperDims.size() != lowerDims.size()) {
+      return emitError()
+             << "PassThrough must have the same number of inputs and outputs";
+    }
+    if (params.size() != 0) {
+      return emitError() << "PassThrough has no parameters";
+    }
+    break;
+  }
+  case TransformType::Pad: // TODO, work out how this works
+    break;
+  case TransformType::Slice: // TODO, work out how this works
+    break;
+  case TransformType::Embed:
+  case TransformType::Unmerge: {
+    if (upperDims.size() != 1) {
+      return emitError()
+             << "Embed and unmerge can only have one input argument";
+    }
+    if (params.size() != lowerDims.size()) {
+      return emitError() << "Embed and unmerge must specify one coefficient "
+                            "per output dimension";
+    }
+    break;
+  }
+  case TransformType::Merge:
+  case TransformType::Unfold: {
+    if (lowerDims.size() != 1) {
+      return emitError()
+             << "Merge and unfold can only have one output dimension";
+    }
+    if (params.size() != upperDims.size()) {
+      return emitError()
+             << "Merge and unfold have one parameter per coefficient";
+    }
+    break;
+  }
+  }
   return success();
 }
 } // namespace miopen

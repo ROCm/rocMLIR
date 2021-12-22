@@ -27,6 +27,8 @@ def MIOpen_TransformAttr : MIOpen_Attr<"Transform"> {
         ins
         AttrParameter<"mlir::miopen::TransformType",
             "The type of transformation to perform">:$type,
+        ArrayRefParameter<"int64_t",
+            "The parameters to the transformation, if any">:$params,
         ArrayRefOfStringRefParameter<
             "The names of the upper dimensions (input arguments) of this transform">:$upperNames,
         ArrayRefParameter<"unsigned",
@@ -35,8 +37,8 @@ def MIOpen_TransformAttr : MIOpen_Attr<"Transform"> {
             "The names of the lower dimensions (outputs) of this transformation">:$lowerNames,
         ArrayRefParameter<"unsigned",
             "The indices of the lower dimensions (outputs) of this transformation">:$lowerDims,
-        ArrayRefParameter<"int64_t",
-            "The parameters to the transformation, if any">:$params
+        AttrParameter<"AffineMapAttr",
+            "The affine map representing this transformation">:$map
     );
 
     let genVerifyDecl = 1;
