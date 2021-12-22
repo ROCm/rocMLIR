@@ -14,6 +14,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpDefinition.h"
@@ -204,11 +205,6 @@ mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
     return {};
   }
 
-  AffineMapAttr map;
-  if (parser.parseKeyword("map") || parser.parseEqual() ||
-      parser.parseAttribute<AffineMapAttr>(map)) {
-    return {};
-  }
   if (parser.parseGreater()) {
     return {};
   }
@@ -224,7 +220,7 @@ mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
 
   return parser.getChecked<TransformAttr>(
       startLoc, parser.getContext(), transformType.getValue(), params,
-      upperNames, upperDims, lowerNames, lowerDims, map);
+      upperNames, upperDims, lowerNames, lowerDims);
 }
 
 void TransformAttr::print(mlir::AsmPrinter &printer) const {
@@ -247,8 +243,7 @@ void TransformAttr::print(mlir::AsmPrinter &printer) const {
                         [&](StringRef s) { printer << "\"" << s << "\""; });
   printer << "] at [";
   llvm::interleaveComma(getLowerDims(), printer);
-  printer << "] map = ";
-  getMap().print(printer.getStream());
+  printer << "]>";
 }
 
 LogicalResult
@@ -257,7 +252,7 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
                       llvm::ArrayRef<llvm::StringRef> upperNames,
                       llvm::ArrayRef<unsigned> upperDims,
                       llvm::ArrayRef<llvm::StringRef> lowerNames,
-                      llvm::ArrayRef<unsigned> lowerDims, AffineMapAttr map) {
+                      llvm::ArrayRef<unsigned> lowerDims) {
   if (upperNames.size() != upperDims.size()) {
     return emitError() << "Have " << upperNames.size() << " names for "
                        << upperDims.size() << " dimensions";
@@ -308,6 +303,47 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
   }
   return success();
 }
+
+TransformAttr getTransformAttrChecked(
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
+    mlir::MLIRContext *context, TransformType type, ArrayRef<int64_t> params,
+    ArrayRef<StringRef> upperNames, ArrayRef<uint32_t> upperDims,
+    ArrayRef<StringRef> lowerNames, ArrayRef<uint32_t> lowerDims) {
+  return TransformAttr::getChecked(emitError, context, type, params, upperNames,
+                                   upperDims, lowerNames, lowerDims);
+}
+
+//===---------------------------------------------------------
+// TransformsAttr
+//===---------------------------------------------------------
+
+TransformsAttr getTransformsAttrChecked(
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
+    mlir::MLIRContext *context, ArrayRef<TransformAttr> ops, AffineMapAttr map,
+    ArrayRef<int64_t> upperBounds, ArrayRef<int64_t> lowerBounds) {
+  return TransformsAttr::getChecked(emitError, context, ops, map, upperBounds,
+                                    lowerBounds);
+}
+
+LogicalResult
+TransformsAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
+                       ::llvm::ArrayRef<::mlir::miopen::TransformAttr> ops,
+                       AffineMapAttr map, ArrayRef<int64_t> upperBounds,
+                       ArrayRef<int64_t> lowerBounds) {
+  AffineMap rawMap = map.getAffineMap();
+  if (rawMap.getNumInputs() != upperBounds.size()) {
+    return emitError() << "Affine map has " << rawMap.getNumInputs()
+                       << " inputs but there are " << upperBounds.size()
+                       << " input dimensions";
+  }
+  if (rawMap.getNumResults() != lowerBounds.size()) {
+    return emitError() << "Affine map has " << rawMap.getNumResults()
+                       << " outputs but there are " << lowerBounds.size()
+                       << " outut dimensions";
+  }
+  return success();
+}
+
 } // namespace miopen
 } // namespace mlir
 //===----------------------------------------------------------------------===//
@@ -340,17 +376,14 @@ template <typename T> static LogicalResult verifyConvOp(T op) {
         pos2 = i;
     }
 
-    if ((pos2 != pos1 + 1) && (pos1 != pos2 + 1))
-      return true;
-    else
-      return false;
+    return (pos2 != pos1 + 1) && (pos1 != pos2 + 1);
   };
 
   if (isDisjointed("filter_layout", "y", "x") ||
       isDisjointed("input_layout", "hi", "wi"))
     return op.emitError("Disjointed yx or hw!");
-  else
-    return success();
+
+  return success();
 }
 
 // Utility static member function of TransformOp to populate an ArrayAttr to
