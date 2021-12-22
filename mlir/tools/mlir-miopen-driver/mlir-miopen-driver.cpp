@@ -73,11 +73,20 @@ static cl::opt<int> gridSize("grid_size", cl::desc("Grid size"),
 // When users specify "-c -target=rocdl", compiles down to LLVM dialect.
 // The output of the pipeline can be piped to mlir-translate for translation to
 // LLVM IR.
-static cl::opt<bool> loweringWithBuiltinPipeline(
-    "c", cl::desc("Compile with the specified pipeline"),
+static cl::opt<bool> miopenBuiltinPipeline(
+    "miopen_pipeline", cl::desc("Compile with the specified pipeline"),
     cl::value_desc("By default, compiles down to GPU dialect. Set "
                    "-target=rocdl compiles to ROCDL dialect."),
     cl::init(false));
+
+static cl::alias aliasMIOpenBuiltinPipeline("c", cl::aliasopt(miopenBuiltinPipeline));
+
+
+static cl::opt<bool> highLevelPipeline(
+    "high_level_pipeline", cl::desc("Compile with the specified pipeline"),
+    cl::init(false));
+
+static cl::alias aliasHighLevelPipeline("hlp", cl::aliasopt(highLevelPipeline));
 
 static cl::opt<std::string> loweringTargetDialect(
     "target",
@@ -108,9 +117,14 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
   applyPassManagerCLOptions(pm);
 
+  // Set up high-level pipeline.
+  bool isHighLevel = highLevelPipeline.getValue();
+  if (isHighLevel) {
+    miopen::addHighLevelPipeline(pm);
+  }
+  
   // Set up lowering pipeline.
-  bool toUseBuiltinPipeline = loweringWithBuiltinPipeline.getValue();
-  if (toUseBuiltinPipeline) {
+  if (miopenBuiltinPipeline.getValue()) {
     StringRef pipeline = loweringTargetDialect.getValue();
     if (pipeline == "tuning") {
       // Set up the default lowering pipeline which goes down to affix tuning

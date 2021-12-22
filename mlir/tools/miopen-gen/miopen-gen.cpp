@@ -1334,16 +1334,27 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   if ((randomSeed.getValue() != "none" &&
        randomDataType.getValue() == "float") ||
       !elemType.isF32()) {
+    // <test> = |(<cpu> - <gpu>) / <cpu>| > <delta>
     float delta = 0.0000001;
     if (elemType.getIntOrFloatBitWidth() < 32) {
       delta = 0.001;
     }
     auto deltaConstantOp = loopB.create<arith::ConstantFloatOp>(
         loc, llvm::APFloat(delta), b.getF32Type());
+    // <test> = <cpu> - <gpu>
     auto subfOp = loopB.create<arith::SubFOp>(loc, cpuLoadOp, gpuLoadOp);
     auto divfOp = loopB.create<arith::DivFOp>(loc, subfOp, cpuLoadOp);
-    auto absfOp = loopB.create<math::AbsOp>(loc, divfOp);
+    // <test> = select (<cpu> != 0.0), <divf>, <subf>)
+    auto zerofOp = loopB.create<arith::ConstantFloatOp>(
+        loc, llvm::APFloat(0.0f), b.getF32Type());
+    auto notZeroOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
+                                        cpuLoadOp, zerofOp);
+    auto testOp = loopB.create<SelectOp>(loc, notZeroOp, divfOp, subfOp);
+    
+    // <test> = |<test>|
+    auto absfOp = loopB.create<math::AbsOp>(loc, testOp);
 
+    // <test> < <delta>
     cmpOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT, absfOp,
                                         deltaConstantOp);
   } else {
