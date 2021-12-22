@@ -1348,9 +1348,9 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     auto zerofOp = loopB.create<arith::ConstantFloatOp>(
         loc, llvm::APFloat(0.0f), b.getF32Type());
     auto notZeroOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
-                                        cpuLoadOp, zerofOp);
+                                                 cpuLoadOp, zerofOp);
     auto testOp = loopB.create<SelectOp>(loc, notZeroOp, divfOp, subfOp);
-    
+
     // <test> = |<test>|
     auto absfOp = loopB.create<math::AbsOp>(loc, testOp);
 

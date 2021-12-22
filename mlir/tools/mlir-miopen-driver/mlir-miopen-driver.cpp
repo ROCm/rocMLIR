@@ -79,12 +79,13 @@ static cl::opt<bool> miopenBuiltinPipeline(
                    "-target=rocdl compiles to ROCDL dialect."),
     cl::init(false));
 
-static cl::alias aliasMIOpenBuiltinPipeline("c", cl::aliasopt(miopenBuiltinPipeline));
+static cl::alias
+    aliasMIOpenBuiltinPipeline("c", cl::aliasopt(miopenBuiltinPipeline));
 
-
-static cl::opt<bool> highLevelPipeline(
-    "high_level_pipeline", cl::desc("Compile with the specified pipeline"),
-    cl::init(false));
+static cl::opt<bool>
+    highLevelPipeline("high_level_pipeline",
+                      cl::desc("Compile with the specified pipeline"),
+                      cl::init(false));
 
 static cl::alias aliasHighLevelPipeline("hlp", cl::aliasopt(highLevelPipeline));
 
@@ -122,7 +123,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   if (isHighLevel) {
     miopen::addHighLevelPipeline(pm);
   }
-  
+
   // Set up lowering pipeline.
   if (miopenBuiltinPipeline.getValue()) {
     StringRef pipeline = loweringTargetDialect.getValue();
