@@ -1337,7 +1337,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     // <test> = |(<cpu> - <gpu>) / <cpu>| > <delta>
     float delta = 0.0000001;
     if (elemType.getIntOrFloatBitWidth() < 32) {
-      delta = 0.001;
+      delta = 1;
     }
     auto deltaConstantOp = loopB.create<arith::ConstantFloatOp>(
         loc, llvm::APFloat(delta), b.getF32Type());

@@ -1,5 +1,4 @@
 // RUN: miopen-gen -p -fil_layout=gkyxc -in_layout=nhwgc -out_layout=nhwgk %s | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
- -p -fil_layout=gkyxc -in_layout=nhwgc -out_layout=nhwgk %s | miopen-gen | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
 
 // filter: GKYXC
 // input : NHWGC
