@@ -1334,13 +1334,13 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   if ((randomSeed.getValue() != "none" &&
        randomDataType.getValue() == "float") ||
       !elemType.isF32()) {
-    // <test> = |(<cpu> - <gpu>) / <cpu>| > <delta>
-    float delta = 0.0000001;
+    // <test> = |(<cpu> - <gpu>) / <cpu>| > <max_percent>
+    float maxPercent = 0.0000001f; // 0.00001 %
     if (elemType.getIntOrFloatBitWidth() < 32) {
-      delta = 1;
+      maxPercent = 0.10f; // 10 %
     }
-    auto deltaConstantOp = loopB.create<arith::ConstantFloatOp>(
-        loc, llvm::APFloat(delta), b.getF32Type());
+    auto maxPercentOp = loopB.create<arith::ConstantFloatOp>(
+        loc, llvm::APFloat(maxPercent), b.getF32Type());
     // <test> = <cpu> - <gpu>
     auto subfOp = loopB.create<arith::SubFOp>(loc, cpuLoadOp, gpuLoadOp);
     auto divfOp = loopB.create<arith::DivFOp>(loc, subfOp, cpuLoadOp);
@@ -1354,9 +1354,19 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     // <test> = |<test>|
     auto absfOp = loopB.create<math::AbsOp>(loc, testOp);
 
-    // <test> < <delta>
+    // <test> >= <max_percent>
     cmpOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT, absfOp,
-                                        deltaConstantOp);
+                                        maxPercentOp);
+    if (elemType.getIntOrFloatBitWidth() < 32) {
+      // && <cpu> >= 0.0001f
+      auto minF16Op = loopB.create<arith::ConstantFloatOp>(
+          loc, llvm::APFloat(0.001f), b.getF32Type());
+      auto cmp1Op = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT, cpuLoadOp,
+                                        minF16Op);
+
+      cmpOp = loopB.create<arith::AndIOp>(loc, cmpOp, cmp1Op);
+    }
+    
   } else {
     cmpOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
                                         cpuLoadOp, gpuLoadOp);
