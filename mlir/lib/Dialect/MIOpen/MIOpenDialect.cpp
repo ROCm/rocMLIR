@@ -278,25 +278,25 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     break;
   case TransformType::Embed:
   case TransformType::Unmerge: {
-    if (upperDims.size() != 1) {
+    if (lowerDims.size() != 1) {
       return emitError()
-             << "Embed and unmerge can only have one input argument";
+             << "Embed and unmerge can only have one output argument";
     }
-    if (params.size() != lowerDims.size()) {
+    if (params.size() != upperDims.size()) {
       return emitError() << "Embed and unmerge must specify one coefficient "
-                            "per output dimension";
+                            "per input dimension";
     }
     break;
   }
   case TransformType::Merge:
   case TransformType::Unfold: {
-    if (lowerDims.size() != 1) {
+    if (upperDims.size() != 1) {
       return emitError()
-             << "Merge and unfold can only have one output dimension";
+             << "Merge and unfold can only have one input dimension";
     }
-    if (params.size() != upperDims.size()) {
-      return emitError()
-             << "Merge and unfold have one parameter per coefficient";
+    if (params.size() != lowerDims.size()) {
+      return emitError() << "Merge and unfold have one parameter per output "
+                            "dimension (its size)";
     }
     break;
   }

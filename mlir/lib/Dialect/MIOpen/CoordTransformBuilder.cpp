@@ -100,11 +100,11 @@ AffineMapAttr assembleMapFor(Builder &b, ArrayRef<TransformAttr> transforms,
 
       // Build affine transformation expressions.
       AffineExpr remainder = b.getAffineDimExpr(upperDims[0]);
-      for (uint32_t i = 0, e = upperDims.size(); i < e; ++i) {
+      for (uint32_t i = 0, e = lowerDims.size(); i < e; ++i) {
         AffineExpr stride = b.getAffineConstantExpr(lowerDimStrides[i]);
         AffineExpr thisDim = remainder.floorDiv(stride);
         remainder = remainder % stride;
-        affExprsMap.insert({upperDims[i], thisDim});
+        affExprsMap.insert({lowerDims[i], thisDim});
       }
     } else {
       llvm_unreachable("Handled all the cases in affine map building");
@@ -165,14 +165,19 @@ SmallString<8> CoordTransformsBuilder::startName(uint32_t dim) {
 }
 
 SmallString<8> CoordTransformsBuilder::endName(uint32_t dim) {
+  assert(endNames.count(dim) == 1 &&
+         "Dimension not defined in ending dimension space");
   return endNames[dim];
 }
 
 uint32_t CoordTransformsBuilder::startIndex(StringRef name) {
+  assert(startIndices.count(name) == 1 && "Key not in starting set of names");
   return startIndices[name];
 }
 
 uint32_t CoordTransformsBuilder::endIndex(StringRef name) {
+  assert(endIndices.count(name) == 1 &&
+         "Key has not yet been defined in the ending set of names");
   return endIndices[name];
 }
 
@@ -258,6 +263,12 @@ void CoordTransformsBuilder::pad(ArrayRef<StringRef> outNames,
                                  ArrayRef<uint32_t> outDims,
                                  ArrayRef<StringRef> inNames,
                                  ArrayRef<int64_t> params) {
+  assert(outNames.size() == outDims.size() &&
+         "One name needed per dimension in padding");
+  assert(outNames.size() == inNames.size() &&
+         "Same number of output and input dimensions");
+  assert(params.size() == 2 * outNames.size() &&
+         "Two padding parameters given per dimension");
   llvm::SmallVector<uint32_t, 8> inDims;
   inDims.reserve(inNames.size());
   std::transform(inNames.begin(), inNames.end(), std::back_inserter(inDims),
@@ -348,7 +359,7 @@ void TopDownCTBuilder::unmerge(StringRef lowerName, uint32_t lowerDim,
                                ArrayRef<StringRef> upperNames,
                                ArrayRef<int64_t> lengths) {
   assert(upperNames.size() == lengths.size() &&
-         "Must provide a coefficient for each dimension");
+         "Must provide a length for each dimension");
   SmallVector<uint32_t, 8> upperDims;
   upperDims.reserve(upperNames.size());
   for (const StringRef name : upperNames) {
@@ -367,9 +378,9 @@ void TopDownCTBuilder::merge(ArrayRef<StringRef> lowerNames,
                              ArrayRef<uint32_t> lowerDims, StringRef upperName,
                              ArrayRef<int64_t> sizes, bool isUnfold) {
   assert(lowerNames.size() == lowerDims.size() &&
-         "One name per dimension required");
+         "One name per dimension required in merge");
   assert(lowerDims.size() == sizes.size() &&
-         "One size per output dimension required");
+         "One size per output dimension required in merge");
 
   uint32_t upperDim = startIndex(upperName);
   int64_t upperSize = startSize(upperDim);
@@ -440,7 +451,7 @@ void BottomUpCTBuilder::extractBounds(SmallVectorImpl<int64_t> &upperBounds,
 int64_t BottomUpCTBuilder::paddingSign() const {
   // When building bottom-up, the output size (upper dimension) is the input
   // size (bottom dimension) plus padding
-  return -1;
+  return 1;
 }
 
 void BottomUpCTBuilder::slice(ArrayRef<StringRef> upperNames,
@@ -448,7 +459,7 @@ void BottomUpCTBuilder::slice(ArrayRef<StringRef> upperNames,
                               ArrayRef<int64_t> begins,
                               ArrayRef<int64_t> ends) {
   assert(upperNames.size() == lowerNames.size() &&
-         "Need same number of input and output dimensions");
+         "Need same number of input and output dimensions in slice");
   assert(upperNames.size() == begins.size() &&
          "Need beginning of slice for each dimension");
   assert(upperNames.size() == ends.size() &&
@@ -479,11 +490,11 @@ void BottomUpCTBuilder::embed(ArrayRef<StringRef> upperNames,
                               ArrayRef<int64_t> upperSizes, StringRef lowerName,
                               ArrayRef<int64_t> coefficients) {
   assert(upperNames.size() == upperDims.size() &&
-         "One name per upper dimension needed");
+         "One name per upper dimension needed in merge");
   assert(upperDims.size() == coefficients.size() &&
-         "One coefficient per upper dimension needed");
+         "One coefficient per upper dimension needed in merge");
   assert(upperDims.size() == upperSizes.size() &&
-         "One size per upper dimension needed");
+         "One size per upper dimension needed in merge");
 
   uint32_t lowerDim = startIndex(lowerName);
   for (auto triple : llvm::zip(upperNames, upperDims, upperSizes)) {
@@ -504,17 +515,15 @@ void BottomUpCTBuilder::unmerge(ArrayRef<StringRef> upperNames,
 
   uint32_t lowerDim = startIndex(lowerName);
 
-  int64_t remainder = startSize(lowerDim);
-  SmallVector<int64_t, 4> upperSizes;
-  upperSizes.reserve(upperNames.size());
+  int64_t totalLength = startSize(lowerDim);
+  int64_t lengthsProd = 1;
   for (int64_t length : lengths) {
-    upperSizes.push_back(remainder / length);
-    remainder = remainder % length;
+    lengthsProd *= length;
   }
-  assert(remainder == 0 &&
+  assert(lengthsProd == totalLength &&
          "failed to partition unmerge length among upper dimensions");
 
-  for (auto triple : llvm::zip(upperNames, upperDims, upperSizes)) {
+  for (auto triple : llvm::zip(upperNames, upperDims, lengths)) {
     defineDim(std::get<0>(triple), std::get<1>(triple), std::get<2>(triple));
   }
   addTransform(TransformType::Unmerge, lengths, {lowerName}, {lowerDim},
@@ -539,7 +548,7 @@ void BottomUpCTBuilder::merge(StringRef upperName, uint32_t upperDim,
   }
   defineDim(upperName, upperDim, upperSize);
   addTransform(isUnfold ? TransformType::Unfold : TransformType::Merge,
-               lowerSizes, {upperName}, {upperDim}, lowerNames, lowerDims);
+               lowerSizes, lowerNames, lowerDims, {upperName}, {upperDim});
 }
 } // namespace miopen
 } // namespace mlir
