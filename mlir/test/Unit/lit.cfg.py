@@ -15,7 +15,7 @@ config.suffixes = []
 
 # test_source_root: The root path where tests are located.
 # test_exec_root: The root path where tests should be run.
-config.test_exec_root = os.path.join(config.mlir_obj_root, 'unittests')
+config.test_exec_root = os.path.join(config.mlir_obj_root, 'mlir', 'unittests')
 config.test_source_root = config.test_exec_root
 
 # testFormat: The test format to use to interpret tests.
