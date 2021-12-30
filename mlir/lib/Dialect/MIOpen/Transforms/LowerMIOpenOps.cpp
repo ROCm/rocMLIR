@@ -85,7 +85,7 @@ const ArgumentFields Conv2DRewritePattern<miopen::Conv2DOp>::fields = {
 };
 template <>
 const miopen::ConvOpType Conv2DRewritePattern<miopen::Conv2DOp>::convOpType =
-    miopen::ConvOpType::Conv2DOpType;
+    miopen::ConvOpType::Fwd;
 
 template <>
 const ArgumentFields Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::fields = {
@@ -96,7 +96,7 @@ const ArgumentFields Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::fields = {
 template <>
 const miopen::ConvOpType
     Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::convOpType =
-        miopen::ConvOpType::Conv2DBwdDataOpType;
+        miopen::ConvOpType::BwdData;
 
 template <>
 const ArgumentFields Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>::fields = {
@@ -107,7 +107,7 @@ const ArgumentFields Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>::fields = {
 template <>
 const miopen::ConvOpType
     Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>::convOpType =
-        miopen::ConvOpType::Conv2DBwdWeightOpType;
+        miopen::ConvOpType::BwdWeight;
 
 // Explicitly instantiate the template to operation type
 template struct Conv2DRewritePattern<miopen::Conv2DOp>;

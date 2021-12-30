@@ -106,7 +106,7 @@ public:
       llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
       bool &input1GemmKVectorizable) {
     // Vectorizable flag is opposite between forwad and bwd_data
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (opType == mlir::miopen::ConvOpType::Fwd) {
       // When K is not the fastest changing dimension,
       // gemmK dimension is vectorizable, gemmM is not, and vice versa.
       // Vectorization width depending on which among C, Y, X be the fastest
@@ -116,10 +116,10 @@ public:
       } else {
         input1GemmKVectorizable = true;
       }
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdData) {
       // always load gemmM first
       input1GemmKVectorizable = false;
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdWeight) {
       // When K is the fastest changing dimension,
       // gemmM dimension is vectorizable, gemmK is not, and vice versa.
       // Vectorization width depending on which among N, and HoWo be the fastest
@@ -137,7 +137,7 @@ public:
       llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
       bool &input2GemmKVectorizable) {
     // Vectorizable flag is opposite between forwad and bwd_data
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (opType == mlir::miopen::ConvOpType::Fwd) {
       // For input tensor.
       // When C is the fastest changing dimension,
       // gemmK dimension is vectorizable, gemmN is not, and vice versa.
@@ -147,7 +147,7 @@ public:
       } else {
         input2GemmKVectorizable = false;
       }
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdData) {
       // For output tensor.
       // When K is the fastest changing dimension(3),
       // gemmK dimension is vectorizable, gemmN is not, and vice versa.
@@ -157,7 +157,7 @@ public:
       } else {
         input2GemmKVectorizable = false;
       }
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdWeight) {
       // For input tensor
       // When C is the fastest changing dimension,
       // gemmN dimension is vectorizable, gemmK is not, and vice versa.
@@ -284,33 +284,33 @@ public:
 
   static void obtainGemmAVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto opType = ctx.opType;
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (opType == mlir::miopen::ConvOpType::Fwd) {
       obtainFilterVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdData) {
       obtainBwdDataFilterVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdWeight) {
       obtainOutputVecLen(ctx, vecLen);
     }
   }
 
   static void obtainGemmBVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto opType = ctx.opType;
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (opType == mlir::miopen::ConvOpType::Fwd) {
       obtainInputVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdData) {
       obtainBwdDataOutputVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdWeight) {
       obtainInputVecLen(ctx, vecLen);
     }
   }
 
   static void obtainGemmCVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto opType = ctx.opType;
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (opType == mlir::miopen::ConvOpType::Fwd) {
       obtainOutputVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdData) {
       obtainInputVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdWeight) {
       obtainFilterVecLen(ctx, vecLen);
     }
   }
@@ -362,8 +362,8 @@ protected:
     // The logic for deciding vectorization size and dimension for
     // backward data and backward weight has to be reviewed.
     auto opType = ctx.opType;
-    if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType ||
-        opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    if (opType == mlir::miopen::ConvOpType::BwdData ||
+        opType == mlir::miopen::ConvOpType::BwdWeight) {
       vectorizationSize = 1;
     }
     // srcDataPerRead bounded by size of threadwise copy
@@ -418,7 +418,7 @@ protected:
   static void obtainGemmSize(ConvolutionContext &ctx, GemmSize &gemmSize) {
     gemmSize.gemmG = ctx.dimIndexVal["g"].second;
 
-    if (ctx.opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (ctx.opType == mlir::miopen::ConvOpType::Fwd) {
       gemmSize.gemmM = ctx.dimIndexVal["k"].second;
       gemmSize.gemmN = ctx.dimIndexVal["no"].second *
                        ctx.dimIndexVal["ho"].second *
@@ -426,7 +426,7 @@ protected:
       gemmSize.gemmK = ctx.dimIndexVal["c"].second *
                        ctx.dimIndexVal["y"].second *
                        ctx.dimIndexVal["x"].second;
-    } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (ctx.opType == mlir::miopen::ConvOpType::BwdData) {
       int64_t y, x, ho, wo, hi, wi;
       y = x = ho = wo = hi = wi = 0;
       y = ctx.dimIndexVal["y"].second;
@@ -475,7 +475,7 @@ protected:
       gemmSize.gemmM = ctx.dimIndexVal["c"].second;
       gemmSize.gemmN = ctx.dimIndexVal["no"].second * hTildaSlice * wTildaSlice;
       gemmSize.gemmK = ctx.dimIndexVal["k"].second * yDotSlice * xDotSlice;
-    } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (ctx.opType == mlir::miopen::ConvOpType::BwdWeight) {
       gemmSize.gemmM = ctx.dimIndexVal["k"].second;
       gemmSize.gemmK = ctx.dimIndexVal["no"].second *
                        ctx.dimIndexVal["ho"].second *
@@ -621,11 +621,11 @@ private:
   int64_t calculateGemmCDestDataPerWrite(const InitParamsNonXDL &param,
                                          ConvolutionContext &ctx) {
     int64_t outputVecLen = 0;
-    if ((ctx.opType == miopen::ConvOpType::Conv2DOpType) &&
+    if ((ctx.opType == miopen::ConvOpType::Fwd) &&
         (ctx.dimIndexVal["ko"].first == 4)) {
       // gemmM vectorizable. However, there is no parameters for vectorizing
       // gemmM dimension for matrix C. Do nothing here.
-    } else if ((ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType) &&
+    } else if ((ctx.opType == miopen::ConvOpType::BwdData) &&
                (ctx.dimIndexVal["ci"].first == 4)) {
       // gemmM vectorizable. However, there is no parameters for vectorizing
       // gemmM dimension for matrix C. Do nothing here.

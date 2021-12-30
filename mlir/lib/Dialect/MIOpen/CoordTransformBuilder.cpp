@@ -11,10 +11,12 @@
 
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Location.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <algorithm>
@@ -114,6 +116,8 @@ AffineMapAttr assembleMapFor(Builder &b, ArrayRef<TransformAttr> transforms,
   llvm::SmallVector<AffineExpr, 8> affExprsVec;
   affExprsVec.reserve(affExprsMap.size());
   for (uint32_t i = 0, e = lowerBounds.size(); i < e; ++i) {
+    assert(affExprsMap.count(i) == 1 &&
+           "Lower dimension must have associated output expression");
     affExprsVec.push_back(affExprsMap[i]);
   }
   AffineMap ret =
@@ -156,8 +160,17 @@ TransformsAttr CoordTransformsBuilder::get() {
     }
     return err;
   };
+  frozen = true;
   return getTransformsAttrChecked(errorEmitter, b.getContext(), result, map,
                                   upperBounds, lowerBounds);
+}
+
+void CoordTransformsBuilder::getEndNames(SmallVectorImpl<StringRef> &names) {
+  uint32_t e = nEndDims();
+  names.reserve(e);
+  for (uint32_t i = 0; i < e; ++i) {
+    names.emplace_back(endNames[i]);
+  }
 }
 
 SmallString<8> CoordTransformsBuilder::startName(uint32_t dim) {
@@ -201,6 +214,8 @@ int64_t CoordTransformsBuilder::endSize(uint32_t dim) { return endShape[dim]; }
 
 void CoordTransformsBuilder::defineDim(StringRef name, uint32_t dim,
                                        int64_t size) {
+  assert(!frozen && "It's a bug to add to a coordinate transform after "
+                    "fetching the attribute");
   endIndices.insert_or_assign(name, dim);
   SmallString<8> nameCopy = name;
   bool insertResult = endNames.insert({dim, nameCopy}).second;
@@ -257,6 +272,13 @@ void CoordTransformsBuilder::pad(ArrayRef<StringRef> names,
   std::transform(names.begin(), names.end(), std::back_inserter(dims),
                  [&](StringRef s) -> uint32_t { return startIndex(s); });
   pad(names, dims, names, params);
+}
+
+void CoordTransformsBuilder::pad(StringRef outName, StringRef inName,
+                                 int64_t left, int64_t right) {
+  uint32_t dim = startIndex(inName);
+  SmallVector<int64_t, 2> params = {left, right};
+  pad({outName}, {dim}, {inName}, params);
 }
 
 void CoordTransformsBuilder::pad(ArrayRef<StringRef> outNames,

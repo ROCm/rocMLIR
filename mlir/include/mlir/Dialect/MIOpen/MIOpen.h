@@ -18,9 +18,11 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Dialect.h"
+#include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/TypeID.h"
@@ -33,33 +35,42 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
+#include <type_traits>
 
 //===----------------------------------------------------------------------===//
 //  MIOpen Dialect
 //===----------------------------------------------------------------------===//
 #include "mlir/Dialect/MIOpen/MIOpenOpsDialect.h.inc"
+#include "mlir/Dialect/MIOpen/MIOpenTypes.h.inc"
+
+template <> struct mlir::FieldParser<mlir::miopen::BwdPaddingKernelInfo> {
+  static FailureOr<mlir::miopen::BwdPaddingKernelInfo>
+  parse(mlir::AsmParser &parser) {
+    std::string bits;
+    llvm::SMLoc startLoc = parser.getCurrentLocation();
+    if (parser.parseString(&bits)) {
+      return failure();
+    }
+    auto ret = mlir::miopen::getBwdPaddingKernelInfoForBits(bits);
+    if (!ret.hasValue()) {
+      parser.emitError(startLoc, "Expected a | seperated list of status bits");
+      return failure();
+    }
+    return ret.getValue();
+  }
+};
 
 namespace mlir {
-
 namespace miopen {
-
-enum class TransformType {
-  PassThrough,
-  Pad,
-  Slice,
-  Embed,
-  Unmerge,
-  Merge,
-  Unfold
-};
-llvm::Optional<TransformType> getTransformTypeForName(llvm::StringRef name);
-const char *getNameForTransformType(const TransformType);
-
-enum ConvOpType { Conv2DOpType, Conv2DBwdDataOpType, Conv2DBwdWeightOpType };
-
-llvm::Optional<ConvOpType> getConvOpTypeForName(llvm::StringRef name);
-const char *getNameForConvOpType(const ConvOpType);
-
+AsmPrinter &operator<<(AsmPrinter &printer, BwdPaddingKernelInfo v);
+//===----------------------------------------------------------------------===//
+// Utility method for creating an array attribute of n empty array attributes.
+// We use this structure so transforms can be uniformly copied onto the final
+// user(s) of the transformed value
+//
+// TODO(kdrewnia) See if this declaration should be elsewhere
+//===----------------------------------------------------------------------===//
+ArrayAttr noTransformsArray(Builder &b, size_t n);
 } // end namespace miopen
 } // end namespace mlir
 
@@ -85,7 +96,12 @@ namespace miopen {
 class CoordTransformsBuilder {
 public:
   virtual ~CoordTransformsBuilder() = default;
+
+  // Get the TransformsAttr that's being built up by the builder
   TransformsAttr get();
+  // Only valid after the transformation has been built.
+  // The names live as long as the CoordTransformBuilder
+  void getEndNames(SmallVectorImpl<StringRef> &names);
 
   SmallString<8> startName(uint32_t dim);
   SmallString<8> endName(uint32_t dim);
@@ -107,12 +123,21 @@ public:
   // right and then y with 1 above and 2 below would lead to pad({"x", "y"}, {2,
   // 1, 1, 2})
   void pad(ArrayRef<StringRef> names, ArrayRef<int64_t> params);
+  void pad(StringRef outName, StringRef inName, int64_t left, int64_t right);
   void pad(ArrayRef<StringRef> outNames, ArrayRef<uint32_t> outDims,
            ArrayRef<StringRef> inNames, ArrayRef<int64_t> params);
 
 protected:
   CoordTransformsBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
                          ArrayRef<int64_t> startShape, mlir::Location loc);
+
+  template <class T, typename = typename std::enable_if<std::is_base_of<
+                         CoordTransformsBuilder, T>::value>::type>
+  static T nextTransforms(T &previous, ArrayRef<int64_t> startShape) {
+    llvm::SmallVector<StringRef, 8> previousNames;
+    previous.getEndNames(previousNames);
+    return T(previous.b, previousNames, startShape, previous.loc);
+  }
 
   virtual void addTransform(TransformType type, ArrayRef<int64_t> params,
                             ArrayRef<StringRef> startNames,
@@ -141,6 +166,8 @@ private:
   llvm::StringMap<uint32_t> endIndices;
   llvm::SmallMapVector<uint32_t, SmallString<8>, 8> endNames;
   llvm::SmallVector<int64_t, 8> endShape;
+
+  bool frozen = false;
 };
 
 class TopDownCTBuilder : public CoordTransformsBuilder {
@@ -153,6 +180,12 @@ public:
   TopDownCTBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
                    ArrayRef<int64_t> startShape, mlir::Location loc)
       : CoordTransformsBuilder(builder, startNames, startShape, loc) {}
+
+  static TopDownCTBuilder below(TopDownCTBuilder &previous,
+                                TransformsAttr &result) {
+    return CoordTransformsBuilder::nextTransforms(previous,
+                                                  result.getLowerBounds());
+  }
 
   // NOTE: There is no  builder for slice() as it isn't used in this context
   // If you find you need one, please add it, bearing in mind
@@ -188,6 +221,12 @@ public:
   BottomUpCTBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
                     ArrayRef<int64_t> startShape, mlir::Location loc)
       : CoordTransformsBuilder(builder, startNames, startShape, loc) {}
+
+  static BottomUpCTBuilder above(BottomUpCTBuilder &previous,
+                                 TransformsAttr &result) {
+    return CoordTransformsBuilder::nextTransforms(previous,
+                                                  result.getUpperBounds());
+  }
 
   void slice(ArrayRef<StringRef> upperNames, ArrayRef<StringRef> lowerNames,
              ArrayRef<int64_t> begins, ArrayRef<int64_t> ends);

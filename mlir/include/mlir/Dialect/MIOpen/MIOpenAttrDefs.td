@@ -11,9 +11,66 @@
 
 include "mlir/Dialect/MIOpen/MIOpenBase.td"
 
+class MIOpen_I32Enum<string name, string summary, list<I32EnumAttrCase> cases>
+  : I32EnumAttr<name, summary, cases> {
+  let cppNamespace = "::mlir::miopen";
+
+  let stringToSymbolFnName = "get" # name # "ForName";
+  let symbolToStringFnName = "getNameFor" # name;
+}
+
 class MIOpen_Attr<string name, list<Trait> traits = []> :
     AttrDef<MIOpen_Dialect, name, traits>;
 
+/// ConvOpType
+def ConvOp2DType : I32EnumAttrCase<"Fwd", 0, "conv2d">;
+def ConvOp2DBwdDataType : I32EnumAttrCase<"BwdData", 1, "conv2d_bwd_data">;
+def ConvOp2DBwdWeightType : I32EnumAttrCase<"BwdWeight", 2, "conv2d_bwd_weight">;
+
+def ConvOpType : MIOpen_I32Enum<"ConvOpType", "The type of a 2D convolution operation",
+  [ConvOp2DType, ConvOp2DBwdDataType, ConvOp2DBwdWeightType]>;
+
+/// TransformType
+def PassThrough : I32EnumAttrCase<"PassThrough", 0>;
+def Pad : I32EnumAttrCase<"Pad", 1>;
+def Slice : I32EnumAttrCase<"Slice", 2>;
+def Embed : I32EnumAttrCase<"Embed", 3>;
+def Unmerge : I32EnumAttrCase<"Unmerge", 4>;
+def Merge : I32EnumAttrCase<"Merge", 5>;
+def Unfold : I32EnumAttrCase<"Unfold", 6>;
+
+def TransformType : MIOpen_I32Enum<"TransformType",
+    "The operation type for a coordinate transformation",
+    [PassThrough, Pad, Slice, Embed, Unmerge, Merge, Unfold]>;
+
+/// InMemoryDataOperation
+
+def DataOperation_Set : I32EnumAttrCase<"Set", 0>;
+def DataOperation_AtomicAdd : I32EnumAttrCase<"AtomicAdd", 1>;
+
+def InMemoryDataOperation : MIOpen_I32Enum<"InMemoryDataOperation",
+    "What operation should be used to write data to memory",
+    [DataOperation_Set, DataOperation_AtomicAdd]>;
+
+/// BwdPaddingKernelInfo
+def BwdPadding_NA : BitEnumAttrCase<"NA", 0x0000>;
+def BwdPadding_StrideTwo : BitEnumAttrCase<"StrideTwo", 0x0001>;
+def BwdPadding_Xdlops : BitEnumAttrCase<"Xdlops", 0x0002>;
+def BwdPadding_NCHW : BitEnumAttrCase<"isNCHW", 0x0004>;
+def BwdPadding_PadM : BitEnumAttrCase<"PadM", 0x0008>;
+def BwdPadding_PadN : BitEnumAttrCase<"PadN", 0x0010>;
+
+def BwdPaddingKernelInfo : BitEnumAttr<"BwdPaddingKernelInfo",
+    "Information about what workarounds will be needed in out of bounds checks for backwards data kernels with stride > 1",
+    [BwdPadding_NA, BwdPadding_StrideTwo, BwdPadding_Xdlops,
+    BwdPadding_NCHW, BwdPadding_PadM, BwdPadding_PadN]> {
+
+    let cppNamespace = "::mlir::miopen";
+    let symbolToStringFnName = "getBitsForBwdPaddingKernelInfo";
+    let stringToSymbolFnName = "getBwdPaddingKernelInfoForBits";
+}
+
+/// TransformAttr
 def MIOpen_TransformAttr : MIOpen_Attr<"Transform"> {
     let mnemonic = "transform";
 
@@ -24,7 +81,7 @@ def MIOpen_TransformAttr : MIOpen_Attr<"Transform"> {
     }];
 
     let parameters = (ins
-    AttrParameter<"mlir::miopen::TransformType",
+    AttrParameter<"::mlir::miopen::TransformType",
         "The type of transformation to perform">:$type,
     ArrayRefParameter<"int64_t",
         "The parameters to the transformation, if any">:$params,
@@ -41,6 +98,7 @@ def MIOpen_TransformAttr : MIOpen_Attr<"Transform"> {
     let genVerifyDecl = 1;
 }
 
+/// TransformsAttr
 def MIOpen_TransformsAttr : MIOpen_Attr<"Transforms"> {
     let mnemonic = "transforms";
     let description = [{
@@ -64,6 +122,26 @@ def MIOpen_TransformsAttr : MIOpen_Attr<"Transforms"> {
         `<` $map `by` $ops `:` `[` $upperBounds `]` `->` `[` $lowerBounds `]` `>`
     }];
     let genVerifyDecl = 1;
+}
+
+/// PaddingInfoAttr
+def MIOpen_PaddingInfoAttr : MIOpen_Attr<"PaddingInfo"> {
+    let mnemonic = "padding_info";
+
+    let description = [{
+        A structure packaging information about what padding has been
+        applied to the M, K, and N dimensions of a matrix multiplication,
+        as well as information about what backward padding kernel workarounds,
+        if any, will be needed.
+    }];
+    let parameters =
+    (ins
+    "int64_t":$extraM,
+    "int64_t":$extraK,
+    "int64_t":$extraN,
+    "::mlir::miopen::BwdPaddingKernelInfo":$bwdPaddingInfo);
+
+    let assemblyFormat = "`<` struct($extraM, $extraK, $extraN, $bwdPaddingInfo) `>`";
 }
 
 #endif

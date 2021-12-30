@@ -20,7 +20,7 @@ LogicalResult PopulateParams::populateDerived(
     return failure();
   }
 
-  if (ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType &&
+  if (ctx.opType == miopen::ConvOpType::BwdData &&
       !(gemmSize.gemmM % 32 == 0 && gemmSize.gemmN % 32 == 0 &&
         gemmSize.gemmK % 4 == 0)) {
     LLVM_DEBUG(llvm::dbgs() << "Invalid gemm sizes for backward data.\n");
@@ -145,9 +145,9 @@ LogicalResult PopulateParams::paramsFromCtx(
 
 #if __MLIR_ENABLE_SQLITE__
   std::string solverId;
-  if (ctx.opType == miopen::ConvOpType::Conv2DOpType) {
+  if (ctx.opType == miopen::ConvOpType::Fwd) {
     solverId = "ConvHipImplicitGemmV4R4Fwd";
-  } else if (ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+  } else if (ctx.opType == miopen::ConvOpType::BwdData) {
     solverId = "ConvHipImplicitGemmBwdDataV1R1";
   } else {
     solverId = "ConvHipImplicitGemmV4R4WrW";
@@ -228,7 +228,7 @@ LogicalResult PopulateParamsXDL::populateDerived(
     return failure();
   }
 
-  if (ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType &&
+  if (ctx.opType == miopen::ConvOpType::BwdData &&
       failed(isValidGridGemmXdlops(gemmSize))) {
     LLVM_DEBUG(llvm::dbgs()
                << "Invalid XDLops gemm sizes for backward data.\n");
@@ -269,7 +269,7 @@ LogicalResult PopulateParamsXDL::populateDerived(
 
   // parameters derivable from tunable parameters.
   int64_t nKBlocks = 1;
-  if (ctx.opType == miopen::Conv2DBwdWeightOpType && ctx.getDataType().isF32())
+  if (ctx.opType == miopen::ConvOpType::BwdWeight && ctx.getDataType().isF32())
     nKBlocks = getKBlocks(ctx);
   gridSize = obtainGridSize(gemmSize, &params) * nKBlocks;
   return success();
@@ -360,9 +360,9 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
 
 #if __MLIR_ENABLE_SQLITE__
   std::string solverId;
-  if (ctx.opType == miopen::ConvOpType::Conv2DOpType) {
+  if (ctx.opType == miopen::ConvOpType::Fwd) {
     solverId = "ConvHipImplicitGemmForwardV4R4Xdlops";
-  } else if (ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+  } else if (ctx.opType == miopen::ConvOpType::BwdData) {
     solverId = "ConvHipImplicitGemmBwdDataV4R1Xdlops";
   } else {
     solverId = "ConvHipImplicitGemmWrwV4R4Xdlops";

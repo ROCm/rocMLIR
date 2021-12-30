@@ -28,6 +28,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/MathExtras.h"
@@ -39,7 +40,7 @@ using namespace mlir;
 using namespace mlir::miopen;
 
 #include "mlir/Dialect/MIOpen/MIOpenOpsDialect.cpp.inc"
-
+#include "mlir/Dialect/MIOpen/MIOpenTypes.cpp.inc"
 //===----------------------------------------------------------------------===//
 // MIOpenDialect Interfaces
 //===----------------------------------------------------------------------===//
@@ -47,74 +48,18 @@ namespace {} // namespace
 
 namespace mlir {
 namespace miopen {
-Optional<TransformType> getTransformTypeForName(const StringRef name) {
-  if (name == "PassThrough") {
-    return TransformType::PassThrough;
+ArrayAttr noTransformsArray(Builder &b, size_t n) {
+  llvm::SmallVector<Attribute, 4> ret;
+  ret.reserve(n);
+  for (size_t i = 0; i < n; ++i) {
+    ret.push_back(b.getArrayAttr({}));
   }
-  if (name == "Pad") {
-    return TransformType::Pad;
-  }
-  if (name == "Slice") {
-    return TransformType::Slice;
-  }
-  if (name == "Embed") {
-    return TransformType::Embed;
-  }
-  if (name == "Unmerge") {
-    return TransformType::Unmerge;
-  }
-  if (name == "Merge") {
-    return TransformType::Merge;
-  }
-  if (name == "Unfold") {
-    return TransformType::Unfold;
-  }
-  return llvm::None;
+  return b.getArrayAttr(ret);
 }
 
-const char *getNameForTransformType(const TransformType type) {
-  switch (type) {
-  case TransformType::PassThrough:
-    return "PassThrough";
-  case TransformType::Pad:
-    return "Pad";
-  case TransformType::Slice:
-    return "Slice";
-  case TransformType::Embed:
-    return "Embed";
-  case TransformType::Unmerge:
-    return "Unmerge";
-  case TransformType::Merge:
-    return "Merge";
-  case TransformType::Unfold:
-    return "Unfold";
-  }
-  llvm_unreachable("Enum not one of the valid cases");
-}
-
-Optional<ConvOpType> getConvOpTypeForName(const StringRef name) {
-  if (name == "conv2d") {
-    return Conv2DOpType;
-  }
-  if (name == "conv2d_bwd_data") {
-    return Conv2DBwdDataOpType;
-  }
-  if (name == "conv2d_bwd_weight") {
-    return Conv2DBwdWeightOpType;
-  }
-  return llvm::None;
-}
-
-const char *getNameForConvOpType(const miopen::ConvOpType op) {
-  switch (op) {
-  case Conv2DOpType:
-    return "conv2d";
-  case Conv2DBwdDataOpType:
-    return "conv2d_bwd_data";
-  case Conv2DBwdWeightOpType:
-    return "conv2d_bwd_weight";
-  }
-  llvm_unreachable("Invalid ConvOp type");
+AsmPrinter &operator<<(AsmPrinter &printer, BwdPaddingKernelInfo v) {
+  std::string toPrint = getBitsForBwdPaddingKernelInfo(v);
+  return printer << "\"" << toPrint << "\"";
 }
 
 //===---------------------------------------------------------
@@ -225,7 +170,7 @@ mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
 
 void TransformAttr::print(mlir::AsmPrinter &printer) const {
   printer << "<";
-  const char *name = getNameForTransformType(getType());
+  StringRef name = getNameForTransformType(getType());
   printer.printKeywordOrString(name);
   ArrayRef<int64_t> params = getParams();
   if (params.size() > 0) {
@@ -384,17 +329,6 @@ template <typename T> static LogicalResult verifyConvOp(T op) {
     return op.emitError("Disjointed yx or hw!");
 
   return success();
-}
-
-// Utility static member function of TransformOp to populate an ArrayAttr to
-// track the bounds of a MemRefType.
-ArrayAttr TransformOp::buildMemRefShapeAttr(OpBuilder &b,
-                                            MemRefType memRefType) {
-  auto shape = memRefType.getShape();
-  SmallVector<Attribute> shapeAttr;
-  for (auto s : shape)
-    shapeAttr.push_back(b.getI32IntegerAttr(s));
-  return b.getArrayAttr(shapeAttr);
 }
 
 //===----------------------------------------------------------------------===//
