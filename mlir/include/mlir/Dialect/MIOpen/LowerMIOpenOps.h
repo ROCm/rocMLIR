@@ -13,12 +13,13 @@
 #ifndef MLIR_DIALECT_MIOPEN_LOWERMIOPENOPS_H
 #define MLIR_DIALECT_MIOPEN_LOWERMIOPENOPS_H
 
+#include "mlir/Dialect/MIOpen/MIOpen.h"
+
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MIOpen/AffineMapHelper.h"
-#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/SCF.h"
@@ -1507,28 +1508,28 @@ inline ArrayAttr getBoundsCheckAttr(Builder &b, OobCheckSet &set,
 }
 
 template <typename T>
-struct Conv2DRewritePattern : public OpRewritePattern<T> {
+LogicalResult checkNames(ArrayRef<StringRef> actual,
+                         ArrayRef<StringRef> expected, StringRef argName,
+                         T op) {
+  if (actual.size() != expected.size()) {
+    return op.emitOpError("Layout mismatch in ")
+           << argName << " tensor: Expected " << expected.size()
+           << " dimensions but have " << actual.size();
+  }
+  for (StringRef name : expected) {
+    if (std::find(actual.begin(), actual.end(), name) == actual.end()) {
+      return op.emitOpError("Layout mismatch in ")
+             << argName << " tensor: Expected it to have a `" << name
+             << "` dimension";
+    }
+  }
+  return success();
+}
+
+template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
   const static ArgumentFields fields;
   const static miopen::ConvOpType convOpType;
   using OpRewritePattern<T>::OpRewritePattern;
-
-  LogicalResult checkNames(ArrayRef<StringRef> actual,
-                           ArrayRef<StringRef> expected, StringRef argName,
-                           T &op) const {
-    if (actual.size() != expected.size()) {
-      return op.emitOpError("Layout mismatch in ")
-             << argName << " tensor: Expected " << expected.size()
-             << " dimensions but have " << actual.size();
-    }
-    for (StringRef name : expected) {
-      if (std::find(actual.begin(), actual.end(), name) == actual.end()) {
-        return op.emitOpError("Layout mismatch in ")
-               << argName << " tensor: Expected it to have a `" << name
-               << "` dimension";
-      }
-    }
-    return success();
-  }
 
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
     bool isXdlops = false;
@@ -1538,7 +1539,7 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto dataType =
         op.input().getType().template cast<MemRefType>().getElementType();
     if (miopen::ConvOpType::BwdData == convOpType) {
-      return backwardData(op, b);
+      return backwardData(cast<miopen::Conv2DBwdDataOp>(op), b);
     }
     auto loc = op.getLoc();
 
@@ -2142,9 +2143,8 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
     return success();
   }
 
-  LogicalResult backwardData(T rawOp, PatternRewriter &b) const {
-    miopen::Conv2DBwdDataOp op = rawOp.template cast<miopen::Conv2DBwdDataOp>();
-
+  LogicalResult backwardData(miopen::Conv2DBwdDataOp op,
+                             PatternRewriter &b) const {
     auto loc = op.getLoc();
     auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
     auto archAttr = op->template getAttrOfType<StringAttr>("arch");
@@ -2241,10 +2241,6 @@ struct Conv2DRewritePattern : public OpRewritePattern<T> {
                           op))) {
       return failure();
     }
-
-    // compute padding hi/wi.
-    int64_t hiPadded = hi + leftPadH + rightPadH;
-    int64_t wiPadded = wi + leftPadW + rightPadW;
 
     int64_t gcdStrideDilationH = math_util::gcd(strideH, dilationH);
     int64_t gcdStrideDilationW = math_util::gcd(strideW, dilationW);
@@ -3087,6 +3083,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
              << " B[2] = " << N << " C[2] = " << cShape[2];
     }
 
+    Attribute aTransforms = op.transforms()[0];
+    Attribute bTransforms = op.transforms()[1];
+    Attribute cTransforms = op.transforms()[2];
+    Attribute noTransforms = b.getArrayAttr({});
+
     // Obtain critical tuning parameters.
     int64_t BlockSize =
         op->getAttr("block_size").template cast<IntegerAttr>().getInt();
@@ -3499,7 +3500,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                    GemmABlockCopySourceCoord_X};
     // Emit blockwise_load for matrix A.
     auto blockwiseLoadA = b.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadATypes, op.a(), blockwiseLoadACoords);
+        loc, blockwiseLoadATypes, op.a(), b.getArrayAttr({aTransforms}),
+        op.paddingInfo(), op.aOobDims(), blockwiseLoadACoords);
     affixBlockwiseCopyAttributes(
         blockwiseLoadA, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
         /*vectorDim=*/blockwiseAVectorDim,
@@ -3521,7 +3523,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
                                                   GemmBBlockCopySourceCoord_Y,
                                                   GemmBBlockCopySourceCoord_X};
     auto blockwiseLoadB = b.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadBTypes, op.b(), blockwiseLoadBCoords);
+        loc, blockwiseLoadBTypes, op.b(), b.getArrayAttr({bTransforms}),
+        op.paddingInfo(), op.bOobDims(), blockwiseLoadBCoords);
     affixBlockwiseCopyAttributes(
         blockwiseLoadB, op, b,
         /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
@@ -3577,7 +3580,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     // Emit blockwise_load for matrix A.
     blockwiseLoadACoords[1] = blockwiseCopyASrcUpdated;
     auto blockwiseLoadATop = lb.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadATypes, op.a(), blockwiseLoadACoords);
+        loc, blockwiseLoadATypes, op.a(), blockwiseLoadA.transforms(),
+        blockwiseLoadA.paddingInfo(), blockwiseLoadA.oobDims(),
+        blockwiseLoadACoords);
     affixBlockwiseCopyAttributes(
         blockwiseLoadATop, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
         /*vectorDim=*/blockwiseAVectorDim,
@@ -3589,7 +3594,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     blockwiseLoadBCoords[1] = blockwiseCopyBSrcUpdated;
     // Emit blockwise_load for matrix B.
     auto blockwiseLoadBTop = lb.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadBTypes, op.b(), blockwiseLoadBCoords);
+        loc, blockwiseLoadBTypes, op.b(), blockwiseLoadB.transforms(),
+        blockwiseLoadB.paddingInfo(), blockwiseLoadB.oobDims(),
+        blockwiseLoadBCoords);
     affixBlockwiseCopyAttributes(
         blockwiseLoadBTop, op, b, /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
         /*vectorDim=*/blockwiseBVectorDim,
@@ -3688,7 +3695,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     auto threadwiseCopyCMatrixOp = b.create<miopen::ThreadwiseCopyOp>(
         loc, registerCTransformed, cTransformed,
-        matrixCThreadwiseCopySourceCoords, matrixCThreadwiseCopyDestCoords);
+        b.getArrayAttr({noTransforms, cTransforms}), op.paddingInfo(),
+        op.cOobDims(), b.getIndexAttr(1), matrixCThreadwiseCopySourceCoords,
+        matrixCThreadwiseCopyDestCoords);
     affixThreadwiseCopyAttributes(threadwiseCopyCMatrixOp, op, b);
 
     op.erase();
@@ -3877,11 +3886,14 @@ struct GridwiseGemmV2RewritePattern
       return op.emitOpError("Mismatched K dimensions in matrix multiply:")
              << " A[1] = " << K << " B[1] = " << bShape[1];
     }
-
     if (cShape[2] != N) {
       return op.emitOpError("Mismatched N dimensions in matrix multiply:")
              << " B[2] = " << N << " C[2] = " << cShape[2];
     }
+
+    Attribute aTransforms = op.transforms()[0];
+    Attribute bTransforms = op.transforms()[1];
+    Attribute cTransforms = op.transforms()[2];
 
     // Obtain critical tuning parameters.
     int64_t BlockSize =
@@ -4228,7 +4240,8 @@ struct GridwiseGemmV2RewritePattern
                                                   GemmABlockCopySourceCoord_Y,
                                                   GemmABlockCopySourceCoord_X};
     auto blockwiseLoadA = b.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadATypes, op.a(), blockwiseLoadACoords);
+        loc, blockwiseLoadATypes, op.a(), b.getArrayAttr({aTransforms}),
+        op.paddingInfo(), op.aOobDims(), blockwiseLoadACoords);
     affixBlockwiseCopyAttributes(
         blockwiseLoadA, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
         /*vectorDim=*/blockwiseAVectorDim,
@@ -4250,7 +4263,8 @@ struct GridwiseGemmV2RewritePattern
                                                   GemmBBlockCopySourceCoord_Y,
                                                   GemmBBlockCopySourceCoord_X};
     auto blockwiseLoadB = b.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadBTypes, op.b(), blockwiseLoadBCoords);
+        loc, blockwiseLoadBTypes, op.b(), b.getArrayAttr({bTransforms}),
+        op.paddingInfo(), op.bOobDims(), blockwiseLoadBCoords);
     affixBlockwiseCopyAttributes(
         blockwiseLoadB, op, b, /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
         /*vectorDim=*/blockwiseBVectorDim,
@@ -4372,7 +4386,9 @@ struct GridwiseGemmV2RewritePattern
     blockwiseLoadACoords[1] = blockwiseCopyASrcUpdated;
     // Emit blockwise_load for matrix A.
     auto blockwiseLoadATop = mfmalb.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadATypes, op.a(), blockwiseLoadACoords);
+        loc, blockwiseLoadATypes, op.a(), blockwiseLoadA.transforms(),
+        blockwiseLoadA.paddingInfo(), blockwiseLoadA.oobDims(),
+        blockwiseLoadACoords);
     affixBlockwiseCopyAttributes(
         blockwiseLoadATop, op, b, /*blockwiseCopyBounds=*/blockwiseCopyABounds,
         /*vectorDim=*/blockwiseAVectorDim,
@@ -4384,7 +4400,9 @@ struct GridwiseGemmV2RewritePattern
     blockwiseLoadBCoords[1] = blockwiseCopyBSrcUpdated;
     // Emit blockwise_load for matrix B.
     auto blockwiseLoadBTop = mfmalb.create<miopen::BlockwiseLoadOp>(
-        loc, blockwiseLoadBTypes, op.b(), blockwiseLoadBCoords);
+        loc, blockwiseLoadBTypes, op.b(), blockwiseLoadB.transforms(),
+        blockwiseLoadB.paddingInfo(), blockwiseLoadB.oobDims(),
+        blockwiseLoadBCoords);
     affixBlockwiseCopyAttributes(
         blockwiseLoadBTop, op, b, /*blockwiseCopyBounds=*/blockwiseCopyBBounds,
         /*vectorDim=*/blockwiseBVectorDim,
@@ -4547,7 +4565,7 @@ struct GridwiseGemmV2RewritePattern
     // The transform for the destination memref will be copied in
     // by TransformOp lowering
     llvm::SmallVector<Attribute, 2> threadwiseCopyV2Transforms = {
-        b.getArrayAttr({cVectorAccessTransformAttr}), b.getArrayAttr({})};
+        b.getArrayAttr({cVectorAccessTransformAttr}), cTransforms};
     ArrayAttr threadwiseCopyV2ArgTransform =
         b.getArrayAttr(threadwiseCopyV2Transforms);
 
@@ -4717,8 +4735,8 @@ struct GridwiseGemmV2RewritePattern
       // Emit threadwise_copy_v2.
       auto threadwiseCopyV2CMatrixOp = b.create<miopen::ThreadwiseCopyV2Op>(
           loc, tailResults[vectorCIndex], cTransformed,
-          threadwiseCopyV2ArgTransform, op.paddingInfoAttr(),
-          op.storeOperationAttr(), op.cOobDimsAttr(), vectorCOffsetConstantAttr,
+          threadwiseCopyV2ArgTransform, op.paddingInfo(),
+          op.storeOperationAttr(), op.cOobDims(), vectorCOffsetConstantAttr,
           matrixCThreadwiseCopySourceCoords, matrixCThreadwiseCopyDestCoords);
       affixThreadwiseCopyV2Attributes(threadwiseCopyV2CMatrixOp, op, b);
     }
@@ -4752,6 +4770,11 @@ struct BlockwiseGemmRewritePattern
     // Obtain critical matrix dimensions.
     int64_t K = blockAType.getShape()[1];
 
+    ArrayAttr noTransforms = noTransformsArray(b, 2);
+    auto noPadding =
+        PaddingInfoAttr::get(b.getContext(), 0, 0, 0, BwdPaddingKernelInfo::NA);
+    auto noOobDims = b.getArrayAttr({});
+    IntegerAttr noGlobals = b.getIndexAttr(-1);
     // Non-xdlops path.
 
     // Obtain critical attributes.
@@ -4843,7 +4866,8 @@ struct BlockwiseGemmRewritePattern
 
     // Emit threadwise_copy.
     auto threadwiseCopyAMatrixOp = lab.create<miopen::ThreadwiseCopyOp>(
-        loc, op.matrixA(), threadAAllocOp, matrixAThreadwiseCopySourceCoords,
+        loc, op.matrixA(), threadAAllocOp, noTransforms, noPadding, noOobDims,
+        noGlobals, matrixAThreadwiseCopySourceCoords,
         matrixAThreadwiseCopyDestCoords);
     affixThreadwiseCopyAttributes(threadwiseCopyAMatrixOp, op, b,
                                   /*isMatrixA=*/true);
@@ -4872,92 +4896,14 @@ struct BlockwiseGemmRewritePattern
 
     // Emit threadwise_copy.
     auto threadwiseCopyBMatrixOp = lbb.create<miopen::ThreadwiseCopyOp>(
-        loc, op.matrixB(), threadBAllocOp, matrixBThreadwiseCopySourceCoords,
+        loc, op.matrixB(), threadBAllocOp, noTransforms, noPadding, noOobDims,
+        noGlobals, matrixBThreadwiseCopySourceCoords,
         matrixBThreadwiseCopyDestCoords);
     affixThreadwiseCopyAttributes(threadwiseCopyBMatrixOp, op, b,
                                   /*isMatrixA=*/false);
 
     lb.create<miopen::ThreadwiseGemmOp>(loc, threadAAllocOp, threadBAllocOp,
                                         op.matrixC());
-
-    op.erase();
-    return success();
-  }
-};
-
-//===----------------------------------------------------------------------===//
-// BlockwiseCopy lowering.
-//===----------------------------------------------------------------------===//
-
-struct BlockwiseCopyRewritePattern
-    : public OpRewritePattern<miopen::BlockwiseCopyOp> {
-  using OpRewritePattern<miopen::BlockwiseCopyOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(miopen::BlockwiseCopyOp op,
-                                PatternRewriter &b) const override {
-    auto loc = op.getLoc();
-
-    MemRefType sourceType = op.source().getType().cast<MemRefType>();
-    MemRefType destType = op.dest().getType().cast<MemRefType>();
-    MemRefType bufferType;
-    if (op.buffer())
-      bufferType = op.buffer().getType().cast<MemRefType>();
-
-    // Prepare some useful constants.
-    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-
-    // Check the address spaces of source and destination values and determine
-    // lowering logic.
-    // - 0 (global) -> 3 (LDS) : load + store
-    // - 0 (global) -> 5 (register) : load
-    // - 5 (register) -> 3 (LDS) : store
-    if (sourceType.getMemorySpaceAsInt() == 0 && destType.getMemorySpaceAsInt() == 3) {
-      // Threadwise copy from global (generic tensor) to register (naive
-      // tensor).
-      SmallVector<Value, 5> threadwiseCopyBufferCoords;
-      std::fill_n(std::back_inserter(threadwiseCopyBufferCoords),
-                  bufferType.getRank(), zeroConstantOp.getResult());
-
-      auto threadwiseCopyLoadOp = b.create<miopen::ThreadwiseCopyOp>(
-          loc, op.source(), op.buffer(), op.sourceCoord(),
-          threadwiseCopyBufferCoords);
-      affixThreadwiseCopyAttributes(threadwiseCopyLoadOp, op, b,
-                                    /*isThreadwiseLoad=*/true);
-
-      // Threadwise copy from register (naive tensor) to LDS (naive tensor).
-      auto threadwiseCopyStoreOp = b.create<miopen::ThreadwiseCopyOp>(
-          loc, op.buffer(), op.dest(), threadwiseCopyBufferCoords,
-          op.destCoord());
-      affixThreadwiseCopyAttributes(threadwiseCopyStoreOp, op, b,
-                                    /*isThreadwiseLoad=*/false);
-    } else if (sourceType.getMemorySpaceAsInt() == 0 &&
-               destType.getMemorySpaceAsInt() == 5) {
-      // Threadwise copy from global (generic tensor) to register (naive
-      // tensor).
-      SmallVector<Value, 5> threadwiseCopyDestCoords;
-      std::fill_n(std::back_inserter(threadwiseCopyDestCoords),
-                  destType.getRank(), zeroConstantOp.getResult());
-
-      auto threadwiseCopyLoadOp = b.create<miopen::ThreadwiseCopyOp>(
-          loc, op.source(), op.dest(), op.sourceCoord(),
-          threadwiseCopyDestCoords);
-      affixThreadwiseCopyAttributes(threadwiseCopyLoadOp, op, b,
-                                    /*isThreadwiseLoad=*/true);
-    } else if (sourceType.getMemorySpaceAsInt() == 5 &&
-               destType.getMemorySpaceAsInt() == 3) {
-      // Threadwise copy from register (naive tensor) to LDS (naive tensor).
-      SmallVector<Value, 5> threadwiseCopySourceCoords;
-      std::fill_n(std::back_inserter(threadwiseCopySourceCoords),
-                  sourceType.getRank(), zeroConstantOp.getResult());
-
-      auto threadwiseCopyStoreOp = b.create<miopen::ThreadwiseCopyOp>(
-          loc, op.source(), op.dest(), threadwiseCopySourceCoords,
-          op.destCoord());
-      affixThreadwiseCopyAttributes(threadwiseCopyStoreOp, op, b,
-                                    /*isThreadwiseLoad=*/false);
-    } else {
-      return op.emitOpError("UNSUPPORTED ThreadwiseCopyOp\n");
-    }
 
     op.erase();
     return success();
@@ -4984,7 +4930,8 @@ struct BlockwiseLoadRewritePattern
     // tensor).
 
     auto threadwiseLoadOp = b.create<miopen::ThreadwiseLoadOp>(
-        loc, resultTypes, op.source(), op.sourceCoord());
+        loc, resultTypes, op.source(), op.transforms(), op.paddingInfo(),
+        op.oobDims(), op.sourceCoord());
     affixThreadwiseCopyAttributes(threadwiseLoadOp, op, b,
                                   /*isThreadwiseLoad=*/true);
 

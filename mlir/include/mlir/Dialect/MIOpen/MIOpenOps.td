@@ -270,36 +270,13 @@ def MIOpen_WorkitemIdOp:
   let assemblyFormat = "attr-dict `:` type($id)";
 }
 
-// blockwise_copy
-def MIOpen_BlockwiseCopyOp:
-    MIOpen_Op<"blockwise_copy", [AttrSizedOperandSegments]>,
-    Arguments<(ins AnyMemRef:$source,
-                   AnyMemRef:$dest,
-                   ArgTransforms<2>:$transforms,
-                   Variadic<Index>:$sourceCoord,
-                   Variadic<Index>:$destCoord,
-                   Optional<AnyMemRef>:$buffer)> {
-  let summary = "Blockwise GPU data movement";
-  let description = [{
-    The `miopen.blockwise` op moves data on GPU. Following movements are
-    allowed:
-    - Global (generic tensor) to LDS (naive tensor).
-    - Global (generic tensor) to register (naive tensor).
-    - Register (naive tensor) to LDS (naive tensor).
-  }];
-  let assemblyFormat = [{
-    $source `[` $sourceCoord `]` `->` $dest `[` $destCoord `]`
-      (`via` $buffer^)? `with` $transforms attr-dict
-      `:` type($source) `,` type($sourceCoord) `->`
-      type($dest) `,` type($destCoord) (`via` type($buffer)^)?
-  }];
-}
-
 // blockwise_load
 def MIOpen_BlockwiseLoadOp:
     MIOpen_Op<"blockwise_load">,
     Arguments<(ins AnyMemRef:$source,
                   ArgTransforms<1>:$transforms,
+                  MIOpen_PaddingInfoAttr:$paddingInfo,
+                  BoolArrayAttr:$oobDims,
                   Variadic<Index>:$sourceCoord)>,
     Results<(outs Variadic<AnyTypeOf<[F32, F16, I16,
                              VectorOfLengthAndType<[2, 4], [F32]>,
@@ -325,7 +302,6 @@ def MIOpen_BlockwiseStoreOp:
                               VectorOfLengthAndType<[2, 4, 8], [F16]>,
                               VectorOfLengthAndType<[2, 4, 8], [I16]>]>>:$data,
                    AnyMemRef:$dest,
-                   ArgTransforms<1>:$transforms,
                    Variadic<Index>:$destCoord)> {
   let summary = "Blockwise GPU data store";
   let description = [{
@@ -334,8 +310,8 @@ def MIOpen_BlockwiseStoreOp:
     - Register (naive tensor) to LDS (naive tensor).
   }];
   let assemblyFormat = [{
-    $data `->` $dest `[` $destCoord `]`
-      `with` $transforms attr-dict `:` type($data) `->` type($dest) `,` type($destCoord)
+    $data `->` $dest `[` $destCoord `]` attr-dict
+    `:` type($data) `->` type($dest) `,` type($destCoord)
   }];
 }
 
@@ -346,11 +322,13 @@ def MIOpen_ThreadwiseCopyOp:
                    AnyMemRef:$dest,
                    ArgTransforms<2>:$transforms,
                    MIOpen_PaddingInfoAttr:$paddingInfo,
+                   BoolArrayAttr:$oobDims,
+                   IndexAttr:$globalArg,
                    Variadic<Index>:$sourceCoord,
                    Variadic<Index>:$destCoord)> {
   let summary = "Threadwise GPU data movement";
   let description = [{
-    The `miopen.threadwise` op moves data on GPU. Following movements are
+    The `miopen.threadwise_copy` op moves data on GPU. Following movements are
     allowed:
     - Global (generic tensor) to register (naive tensor).
     - Register (naive tensor) to LDS (naive tensor).
@@ -370,6 +348,8 @@ def MIOpen_ThreadwiseLoadOp:
     MIOpen_Op<"threadwise_load">,
     Arguments<(ins AnyMemRef:$source,
                    ArgTransforms<1>:$transforms,
+                   MIOpen_PaddingInfoAttr:$paddingInfo,
+                   BoolArrayAttr:$oobDims,
                    Variadic<Index>:$sourceCoord)>,
     Results<(outs Variadic<AnyTypeOf<[F32, F16, I16,
                              VectorOfLengthAndType<[2, 4], [F32]>,
@@ -396,7 +376,6 @@ def MIOpen_ThreadwiseStoreOp:
                               VectorOfLengthAndType<[2, 4, 8], [F16]>,
                               VectorOfLengthAndType<[2, 4, 8], [I16]>]>>:$data,
                    AnyMemRef:$dest,
-                   ArgTransforms<1>:$transforms,
                    Variadic<Index>:$destCoord)> {
   let summary = "Threadwise GPU data store";
   let description = [{
@@ -405,7 +384,7 @@ def MIOpen_ThreadwiseStoreOp:
     - Register (naive tensor) to LDS (naive tensor).
   }];
   let assemblyFormat = [{
-    $data `->` $dest `[` $destCoord `]` `with` $transforms attr-dict
+    $data `->` $dest `[` $destCoord `]` attr-dict
     `:` type($data) `->` type($dest) `,` type($destCoord)
   }];
 }
@@ -445,8 +424,6 @@ def MIOpen_BlockwiseGemmOp:
     Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$matrixA,
                    MemRefRankOf<[F32, F16, I16], [3]>:$matrixB,
                    AnyMemRef:$matrixC,
-                   ArgTransforms<3>:$transforms,
-                   MIOpen_PaddingInfoAttr:$paddingInfo,
                    Index:$threadOffsetA,
                    Index:$threadOffsetB)> {
   let summary = "Blockwise GEMM non-XDLOPS version";
@@ -456,7 +433,7 @@ def MIOpen_BlockwiseGemmOp:
     - Matrix C shall reside on register (naive tensor).
   }];
   let assemblyFormat = [{
-    `(` operands `)` `with` $transforms attr-dict `:` type(operands)
+    `(` operands `)` attr-dict `:` type(operands)
   }];
 }
 
@@ -465,7 +442,6 @@ def MIOpen_BlockwiseGemmV2Op:
     MIOpen_Op<"blockwise_gemm_v2">,
     Arguments<(ins MemRefOf<[F32, F16, I16]>:$matrixA,
                    MemRefOf<[F32, F16, I16]>:$matrixB,
-                   ArgTransforms<2>:$transforms,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
                    MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferA,
@@ -479,7 +455,7 @@ def MIOpen_BlockwiseGemmV2Op:
     - Matrix C shall be vectors.
   }];
   let assemblyFormat = [{
-    `(` operands `)` `with` $transforms attr-dict `:` type(operands) `->` type($vectorDs)
+    `(` operands `)` attr-dict `:` type(operands) `->` type($vectorDs)
   }];
 }
 
@@ -488,9 +464,7 @@ def MIOpen_ThreadwiseGemmOp:
     MIOpen_Op<"threadwise_gemm">,
     Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$matrixA,
                    MemRefRankOf<[F32, F16, I16], [3]>:$matrixB,
-                   MemRefRankOf<[F32, F16, I16], [3]>:$matrixC,
-                   ArgTransforms<3>:$transforms,
-                   MIOpen_PaddingInfoAttr:$paddingInfo)> {
+                   MemRefRankOf<[F32, F16, I16], [3]>:$matrixC)> {
   let summary = "Threadwise GEMM non-XDLOPS version";
   let description = [{
     The `miopen.threadwise_gemm` op does GEMM at thread level.
@@ -498,8 +472,7 @@ def MIOpen_ThreadwiseGemmOp:
     - Matrix C shall reside on LDS (naive tensor).
   }];
   let assemblyFormat = [{
-    `(` operands `)` `with` $transforms
-    attr-dict `:` type(operands)
+    `(` operands `)` attr-dict `:` type(operands)
   }];
 }
 
@@ -525,7 +498,6 @@ def MIOpen_XdlopsGemmV2Op:
     MIOpen_Op<"xdlops_gemm_v2">,
     Arguments<(ins MemRefOf<[F32, F16, I16]>:$matrixA,
                    MemRefOf<[F32, F16, I16]>:$matrixB,
-                   ArgTransforms<2>:$transforms,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
                    MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferA,
@@ -538,7 +510,7 @@ def MIOpen_XdlopsGemmV2Op:
     It would employ a series of `miopen.mfma` operations.
   }];
   let assemblyFormat = [{
-    `(` operands `)` `with` $transforms attr-dict `:` type(operands) `->` type(results)
+    `(` operands `)` attr-dict `:` type(operands) `->` type(results)
   }];
 }
 

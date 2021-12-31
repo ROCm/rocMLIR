@@ -141,7 +141,6 @@ void LowerMIOpenOpsStep3Pass::runOnOperation() {
   patterns.insert<TransformRewritePattern>(ctx);
   patterns.insert<BlockwiseGemmRewritePattern>(ctx);
   patterns.insert<BlockwiseGemmV2RewritePattern>(ctx);
-  patterns.insert<BlockwiseCopyRewritePattern>(ctx);
   patterns.insert<BlockwiseLoadRewritePattern>(ctx);
   patterns.insert<BlockwiseStoreRewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))

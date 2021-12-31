@@ -289,7 +289,6 @@ void LowerMIOpenOpsWithinGPUModulePass::runOnOperation() {
   patterns.insert<SubviewRewritePattern>(ctx);
   patterns.insert<TransformRewritePattern>(ctx);
   patterns.insert<BlockwiseGemmRewritePattern>(ctx);
-  patterns.insert<BlockwiseCopyRewritePattern>(ctx);
 
   // miopen-lowering-step4
   patterns.insert<ThreadwiseGemmRewritePattern>(ctx);
