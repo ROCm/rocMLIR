@@ -824,7 +824,7 @@ private:
     int64_t n = ctx.dimIndexVal["no"].second;
     int64_t ho = ctx.dimIndexVal["ho"].second;
     int64_t wo = ctx.dimIndexVal["wo"].second;
-    return miopen::calculateKBlockNum(n, ho, wo);
+    return mlir::miopen::calculateKBlockNum(n, ho, wo);
   }
 
   LogicalResult calculateGemmABlockCopyPerformanceParameters(
