@@ -38,10 +38,11 @@ def Embed : I32EnumAttrCase<"Embed", 3>;
 def Unmerge : I32EnumAttrCase<"Unmerge", 4>;
 def Merge : I32EnumAttrCase<"Merge", 5>;
 def Unfold : I32EnumAttrCase<"Unfold", 6>;
+def AddDim : I32EnumAttrCase<"AddDim", 7>;
 
 def TransformType : MIOpen_I32Enum<"TransformType",
     "The operation type for a coordinate transformation",
-    [PassThrough, Pad, Slice, Embed, Unmerge, Merge, Unfold]>;
+    [PassThrough, Pad, Slice, Embed, Unmerge, Merge, Unfold, AddDim]>;
 
 /// InMemoryDataOperation
 

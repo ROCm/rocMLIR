@@ -7,8 +7,6 @@ struct ArgumentFields {
   StringRef gemmTargetCharName[3];
 };
 
-template <typename T, typename U>
-void affixGridwiseGemmAttributes(T &convOp, U &gop, OpBuilder &b);
-
-ArrayAttr noTransforms(Builder &b, size_t n);
+void affixGridwiseGemmAttributes(Operation *convOp, Operation *gop,
+                                 OpBuilder &b);
 #endif

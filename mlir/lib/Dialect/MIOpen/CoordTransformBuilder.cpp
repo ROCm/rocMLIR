@@ -108,6 +108,10 @@ AffineMapAttr assembleMapFor(Builder &b, ArrayRef<TransformAttr> transforms,
         remainder = remainder % stride;
         affExprsMap.insert({lowerDims[i], thisDim});
       }
+    } else if (type == TransformType::AddDim) {
+      assert(upperDims.size() == 1 && lowerDims.size() == 0 &&
+             "Invalid AddDim");
+      // dimension is ignored, do nothing
     } else {
       llvm_unreachable("Handled all the cases in affine map building");
     }
@@ -216,11 +220,13 @@ void CoordTransformsBuilder::defineDim(StringRef name, uint32_t dim,
                                        int64_t size) {
   assert(!frozen && "It's a bug to add to a coordinate transform after "
                     "fetching the attribute");
-  endIndices.insert_or_assign(name, dim);
+  bool nameInsertResult = endIndices.insert({name, dim}).second;
+  assert(nameInsertResult &&
+         "Trying to redife a result name in a coordinate transformation");
   SmallString<8> nameCopy = name;
-  bool insertResult = endNames.insert({dim, nameCopy}).second;
-  assert(insertResult &&
-         "Trying to define multiple outputs for a coordinate transform");
+  bool dimInsertResult = endNames.insert({dim, nameCopy}).second;
+  assert(dimInsertResult &&
+         "Trying to redefine a result dimension in a coordinate transform");
   for (uint32_t e = endShape.size(); e <= dim; ++e) {
     endShape.push_back(0);
   }
@@ -315,22 +321,20 @@ void TopDownCTBuilder::addTransform(TransformType type,
                                     ArrayRef<uint32_t> endDims) {
   auto emitError = [&]() -> InFlightDiagnostic {
     InFlightDiagnostic err =
-        mlir::emitError(loc, "Error constructing coordinate transofrmation: ");
-    if (b.getContext()->shouldPrintOpOnDiagnostic()) {
-      err.attachNote(loc)
-          .append("The operation type was ")
-          .append(getNameForTransformType(type))
-          .append("\n  Upper dimensions =")
-          .appendRange(startNames)
-          .append(" at ")
-          .appendRange(startDims)
-          .append("\n  Lower dimensions = ")
-          .appendRange(endNames)
-          .append(" at ")
-          .appendRange(endDims)
-          .append("\n  Parameters = ")
-          .appendRange(params);
-    }
+        mlir::emitError(loc, "Error constructing coordinate transformation: ");
+    err.attachNote(loc)
+        .append("The operation type was ")
+        .append(getNameForTransformType(type))
+        .append("\n  Upper dimensions =")
+        .appendRange(startNames)
+        .append(" at ")
+        .appendRange(startDims)
+        .append("\n  Lower dimensions = ")
+        .appendRange(endNames)
+        .append(" at ")
+        .appendRange(endDims)
+        .append("\n  Parameters = ")
+        .appendRange(params);
     return err;
   };
   TransformAttr attr =
@@ -359,6 +363,12 @@ int64_t TopDownCTBuilder::paddingSign() const {
   // When building top-down, the output size (lower dimension) is the input size
   // (upper dimension) minus padding
   return -1;
+}
+
+void TopDownCTBuilder::ignore(StringRef name) {
+  uint32_t dim = startIndex(name);
+  int64_t size = startSize(dim);
+  addTransform(TransformType::AddDim, {size}, {name}, {dim}, {}, {});
 }
 
 void TopDownCTBuilder::embed(StringRef lowerName, uint32_t lowerDim,
@@ -430,22 +440,20 @@ void BottomUpCTBuilder::addTransform(TransformType type,
                                      ArrayRef<uint32_t> endDims) {
   auto emitError = [&]() -> InFlightDiagnostic {
     InFlightDiagnostic err =
-        mlir::emitError(loc, "Error constructing coordinate transofrmation: ");
-    if (b.getContext()->shouldPrintOpOnDiagnostic()) {
-      err.attachNote(loc)
-          .append("The operation type was ")
-          .append(getNameForTransformType(type))
-          .append("\n  Upper dimensions =")
-          .appendRange(endNames)
-          .append(" at ")
-          .appendRange(endDims)
-          .append("\n  Lower dimensions = ")
-          .appendRange(startNames)
-          .append(" at ")
-          .appendRange(startDims)
-          .append("\n  Parameters = ")
-          .appendRange(params);
-    }
+        mlir::emitError(loc, "Error constructing coordinate transformation: ");
+    err.attachNote(loc)
+        .append("The operation type was ")
+        .append(getNameForTransformType(type))
+        .append("\n  Upper dimensions =")
+        .appendRange(endNames)
+        .append(" at ")
+        .appendRange(endDims)
+        .append("\n  Lower dimensions = ")
+        .appendRange(startNames)
+        .append(" at ")
+        .appendRange(startDims)
+        .append("\n  Parameters = ")
+        .appendRange(params);
     return err;
   };
   TransformAttr attr =
@@ -474,6 +482,11 @@ int64_t BottomUpCTBuilder::paddingSign() const {
   // When building bottom-up, the output size (upper dimension) is the input
   // size (bottom dimension) plus padding
   return 1;
+}
+
+void BottomUpCTBuilder::addDim(StringRef name, uint32_t dim, int64_t size) {
+  defineDim(name, dim, size);
+  addTransform(TransformType::AddDim, {size}, {}, {}, {name}, {dim});
 }
 
 void BottomUpCTBuilder::slice(ArrayRef<StringRef> upperNames,

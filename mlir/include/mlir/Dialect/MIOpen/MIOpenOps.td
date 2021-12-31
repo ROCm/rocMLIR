@@ -96,7 +96,7 @@ def MIOpen_TransformOp :
      MemRefType lowerType = input.getType().template cast<MemRefType>();
      Type elemType = lowerType.getElementType();
      AffineMap lowerMap = lowerType.getLayout().getAffineMap();
-     AffineMap composed = transforms.getMap().getAffineMap().compose(lowerMap);
+     AffineMap composed = lowerMap.compose(transforms.getMap().getAffineMap());
      MemRefType upperType = MemRefType::get(transforms.getUpperBounds(), elemType,
       composed, memorySpace);
      $_state.addAttribute("transforms", $_builder.getArrayAttr({transforms}));

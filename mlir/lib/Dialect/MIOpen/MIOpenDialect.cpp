@@ -206,6 +206,13 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     return emitError() << "Have " << lowerNames.size() << " names for "
                        << lowerDims.size() << " dimensions";
   }
+  if (type != TransformType::AddDim && lowerDims.size() == 0) {
+    return emitError() << "The transformation must define outputs";
+  }
+  if (upperDims.size() == 0) {
+    return emitError() << "The transformation must have at least one input";
+  }
+
   switch (type) {
   case TransformType::PassThrough: {
     if (upperDims.size() != lowerDims.size()) {
@@ -245,6 +252,17 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     }
     break;
   }
+  case TransformType::AddDim:
+    if (upperDims.size() != 1) {
+      return emitError() << "Can only add one dimension at a time";
+    }
+    if (params.size() != upperDims.size()) {
+      return emitError() << "Must supply a size parameter for each dimension";
+    }
+    if (lowerDims.size() != 0) {
+      return emitError() << "The added dimension cannot be mapped anywhere";
+    }
+    break;
   }
   return success();
 }

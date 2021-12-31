@@ -192,6 +192,7 @@ public:
   // that your start dimension is already sliced so you need to pass the full
   // length
 
+  void ignore(StringRef dim);
   void embed(StringRef lowerName, uint32_t lowerDim, int64_t lowerSize,
              ArrayRef<StringRef> upperNames, ArrayRef<int64_t> coefficients);
   void unmerge(StringRef lowerName, uint32_t lowerDim,
@@ -227,6 +228,9 @@ public:
     return CoordTransformsBuilder::nextTransforms(previous,
                                                   result.getUpperBounds());
   }
+
+  // Defines a dimension that is not mapped to any coordinates in the output
+  void addDim(StringRef name, uint32_t dim, int64_t size);
 
   void slice(ArrayRef<StringRef> upperNames, ArrayRef<StringRef> lowerNames,
              ArrayRef<int64_t> begins, ArrayRef<int64_t> ends);

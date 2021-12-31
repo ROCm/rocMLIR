@@ -175,6 +175,24 @@ TEST_F(CTBuilderTest, Merge) {
   EXPECT_EQ(resDown, resUp);
 }
 
+TEST_F(CTBuilderTest, AddDim) {
+  auto buildUp = makeBottomUp({"a", "c"}, {1, 3});
+  auto buildDown = makeTopDown({"a", "b", "c"}, {1, 2, 3});
+
+  buildDown.passThrough({"a", "c"}, {0, 1}, {"a", "c"});
+  buildUp.passThrough({"a", "c"}, {0, 2}, {"a", "c"});
+
+  buildDown.ignore("b");
+  buildUp.addDim("b", 1, 2);
+
+  TransformsAttr resDown = buildDown.get();
+  TransformsAttr resUp = buildUp.get();
+
+  EXPECT_EQ(resUp.getMap().getAffineMap(),
+            AffineMap::get(3, 0, {affD(0), affD(2)}, &context));
+  EXPECT_EQ(resUp, resDown);
+}
+
 TEST_F(CTBuilderTest, GemmOut) {
   auto buildDown =
       makeTopDown({"gemmG", "gemmM", "gemmN"}, {1, 64, 32 * 14 * 14});

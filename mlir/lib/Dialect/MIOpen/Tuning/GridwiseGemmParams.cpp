@@ -1,6 +1,8 @@
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/Tuning/SqliteDb.h"
 
+#include "llvm/Support//Debug.h"
+
 #define DEBUG_TYPE "miopen-tuning-parameter"
 
 LogicalResult PopulateParams::populateDerived(
