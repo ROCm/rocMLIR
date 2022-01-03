@@ -55,7 +55,6 @@ void miopen::addPipeline(PassManager &pm, const std::string &perfConfig,
   // Passes for lowering MIOpen dialect.
   pm.addPass(miopen::createAffixTuningParametersPass(0, 0, perfConfig));
   pm.addPass(miopen::createLowerMIOpenOpsStep1Pass());
-  pm.addPass(miopen::createAffineTransformPass());
   pm.addPass(miopen::createLowerMIOpenOpsStep2Pass());
 
   if (!applicability) {

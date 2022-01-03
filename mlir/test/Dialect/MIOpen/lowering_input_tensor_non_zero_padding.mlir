@@ -2,7 +2,7 @@
 // * Input tensor has non-zero padding.
 
 // RUN: miopen-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s --check-prefix=LOWERING
-// RUN: miopen-opt -miopen-affix-params -miopen-lowering -miopen-affine-transform %s | FileCheck %s --check-prefix=AFFINE
+// RUN: miopen-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s --check-prefix=AFFINE
 
 func @miopen_conv2d_gcyxk_gcnhw_gknhw(%filter : memref<1x8x3x3x128xf32>, %input : memref<1x8x128x32x32xf32>, %output : memref<1x128x128x32x32xf32>) {
   miopen.conv2d(%filter, %input, %output) {
