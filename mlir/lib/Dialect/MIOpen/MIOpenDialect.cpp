@@ -304,6 +304,17 @@ TransformsAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
                        << " outputs but there are " << lowerBounds.size()
                        << " outut dimensions";
   }
+
+  for (int64_t v : upperBounds) {
+    if (v < 0) {
+      return emitError() << "Upper bound/shape component less than 0";
+    }
+  }
+  for (int64_t v : lowerBounds) {
+    if (v < 0) {
+      return emitError() << "Lower bound/shape component less than 0";
+    }
+  }
   return success();
 }
 
@@ -371,35 +382,30 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
   expectedDestCoords = destAffineMap.getNumInputs();
 
   // check if memrefs have externally defined affine maps.
-  auto coordTransformAttrs = op->getAttr("coord_transforms");
-  if (coordTransformAttrs) {
-    for (auto coordTransformAttr :
-         coordTransformAttrs.cast<ArrayAttr>().getValue()) {
-      auto coordTransformDictAttr = coordTransformAttr.cast<DictionaryAttr>();
-      auto operandIndex =
-          coordTransformDictAttr.get("operand").cast<IntegerAttr>().getInt();
-      auto affineMapsArrayAttr =
-          coordTransformDictAttr.get("transforms").cast<ArrayAttr>().getValue();
-      auto firstTransform =
-          affineMapsArrayAttr[0].cast<AffineMapAttr>().getValue();
-      auto lastTransform = affineMapsArrayAttr[affineMapsArrayAttr.size() - 1]
-                               .cast<AffineMapAttr>()
-                               .getValue();
-
-      if (operandIndex == 0) {
-        if (lastTransform.getNumResults() != sourceRank)
+  for (auto outerPair :
+       llvm::enumerate(op.transforms().getAsRange<ArrayAttr>())) {
+    size_t index = outerPair.index();
+    ArrayAttr transforms = outerPair.value();
+    if (transforms.size() > 0) {
+      auto firstTransform = transforms[0].cast<TransformsAttr>();
+      auto lastTransform =
+          transforms[transforms.size() - 1].cast<TransformsAttr>();
+      AffineMap firstMap = firstTransform.getMap().getValue();
+      AffineMap lastMap = lastTransform.getMap().getValue();
+      if (index == 0) {
+        if (lastMap.getNumResults() != sourceRank)
           return op.emitError(
               "Number of coordindates in externally defined affine map doesn't "
               "match the rank of the source memref");
 
-        expectedSourceCoords = firstTransform.getNumInputs();
-      } else if (operandIndex == 1) {
-        if (lastTransform.getNumResults() != destRank)
+        expectedSourceCoords = firstMap.getNumInputs();
+      } else if (index == 1) {
+        if (lastMap.getNumResults() != destRank)
           return op.emitError(
               "Number of coordindates in externally defined affine map doesn't "
               "match the rank of the destination memref");
 
-        expectedDestCoords = firstTransform.getNumInputs();
+        expectedDestCoords = firstMap.getNumInputs();
       }
     }
   }

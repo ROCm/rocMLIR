@@ -32,6 +32,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
@@ -50,6 +51,7 @@
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/Dialect/MIOpen/utility/math.h"
 #include "llvm/ADT/APFloat.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/IndexedMap.h"
 #include "llvm/ADT/None.h"
@@ -73,47 +75,11 @@ static constexpr int kTwoGB = 2147483647;
 // Workaround to obtain gemmKExtra / gemmMExtra / gemmNExtra attribute.
 // And use it to override legacy load/store debug switch.
 //===----------------------------------------------------------------------===//
-inline bool overrideLoadStoreHack(const DictionaryAttr &transformSpec,
+inline bool overrideLoadStoreHack(const PaddingInfoAttr paddingInfo,
                                   bool original) {
-  if (transformSpec) {
-    Attribute metadataAttr = transformSpec.get("metadata");
-    if (metadataAttr) {
-      ArrayAttr layeredTransformMetadata =
-          metadataAttr.template cast<ArrayAttr>();
-      for (unsigned iter = 0; iter < layeredTransformMetadata.size(); ++iter) {
-        DictionaryAttr dictAttr =
-            layeredTransformMetadata[iter].template cast<DictionaryAttr>();
-        // enable workaround when padding kernel,
-        // if gemmKExtra || gemmMExtra || gemmNExtraAttr
-        // use workaround to skip index map errors
-        auto gemmKExtraAttr = dictAttr.get("gemmKExtra");
-        auto gemmMExtraAttr = dictAttr.get("gemmMExtra");
-        auto gemmNExtraAttr = dictAttr.get("gemmNExtra");
-        if (gemmKExtraAttr) {
-          auto gemmKExtra =
-              gemmKExtraAttr.template cast<IntegerAttr>().getInt();
-          if (gemmKExtra > 0) {
-            return true;
-          }
-        }
-
-        if (gemmMExtraAttr) {
-          auto gemmMExtra =
-              gemmMExtraAttr.template cast<IntegerAttr>().getInt();
-          if (gemmMExtra > 0) {
-            return true;
-          }
-        }
-
-        if (gemmNExtraAttr) {
-          auto gemmNExtra =
-              gemmNExtraAttr.template cast<IntegerAttr>().getInt();
-          if (gemmNExtra > 0) {
-            return true;
-          }
-        }
-      }
-    }
+  if (paddingInfo.getExtraM() > 0 || paddingInfo.getExtraK() > 0 ||
+      paddingInfo.getExtraM() > 0) {
+    return true;
   }
   return original;
 }
@@ -165,15 +131,12 @@ computeLoadStoreTypeInfo(OpBuilder &b, T &gop, Type elementType,
 // Utility function to compute sliceLengths for threadwise_copy and
 // threadwise_copy_v2 to determine the bounds of load/store loops.
 //===----------------------------------------------------------------------===//
-inline void
-computeSliceLengths(SmallVector<uint64_t, 2> &sliceLengths,
-                    const Optional<AffineMap> &composedSourceTransform,
-                    const Optional<AffineMap> &composedDestTransform,
-                    const ArrayAttr &coordTransformsAttr,
-                    const Optional<ArrayAttr> &boundAttr, Type sourceType,
-                    Type destType) {
+inline void computeSliceLengths(SmallVectorImpl<uint64_t> &sliceLengths,
+                                const ArrayAttr sourceTransforms,
+                                const ArrayAttr destTransforms, Type sourceType,
+                                Type destType) {
   auto populateSliceLengthsWithTypeShape =
-      [](SmallVector<uint64_t, 2> &sliceLengths, Type type) {
+      [](SmallVectorImpl<uint64_t> &sliceLengths, Type type) {
         assert(type.isa<MemRefType>() || type.isa<VectorType>());
         if (type.isa<MemRefType>()) {
           // Use the shape of memref as initial slice lengths.
@@ -187,36 +150,26 @@ computeSliceLengths(SmallVector<uint64_t, 2> &sliceLengths,
       };
 
   // Order to decide the slice lengths:
-  // - bound attribute.
-  // - domain attribute from the source in case both source and dest has affine
-  //   transformations.
+  // - If both the source and destination have coordinate transforms,
+  //    the lower bounds of the source (this handles the threadwise_copy_v2
+  //    loop)
   // - shape of the dest in case only the source has affine transformations.
   // - shape of the source in case the source has no affine transfromations.
-  if (boundAttr) {
-    for (unsigned i = 0; i < boundAttr->size(); ++i)
-      sliceLengths.push_back(
-          (*boundAttr)[i].template cast<IntegerAttr>().getInt());
-  } else {
-    if (composedSourceTransform) {
-      if (composedDestTransform) {
-        // Use domain attribute from source.
-        for (auto attr : coordTransformsAttr) {
-          auto dictAttr = attr.template cast<DictionaryAttr>();
-          auto operandIndex =
-              dictAttr.get("operand").template cast<IntegerAttr>().getInt();
-          if (operandIndex == 0) {
-            auto domainAttr = dictAttr.get("domain").template cast<ArrayAttr>();
-            for (unsigned i = 0; i < domainAttr.size(); ++i)
-              sliceLengths.push_back(
-                  domainAttr[i].template cast<IntegerAttr>().getInt());
-          }
-        }
-      } else {
-        populateSliceLengthsWithTypeShape(sliceLengths, destType);
+  if (sourceTransforms && sourceTransforms.size() > 0) {
+    if (destTransforms && destTransforms.size() > 0) {
+      auto lastSourceTransform =
+          sourceTransforms[sourceTransforms.size() - 1].cast<TransformsAttr>();
+      ArrayRef<int64_t> bounds = lastSourceTransform.getLowerBounds();
+      for (int64_t v : bounds) {
+        assert(v >= 0 &&
+               "Negative shapes not permitted, should've been caught earlier");
+        sliceLengths.push_back(static_cast<uint64_t>(v));
       }
     } else {
-      populateSliceLengthsWithTypeShape(sliceLengths, sourceType);
+      populateSliceLengthsWithTypeShape(sliceLengths, destType);
     }
+  } else {
+    populateSliceLengthsWithTypeShape(sliceLengths, sourceType);
   }
 }
 
@@ -296,13 +249,12 @@ inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc, Type type) {
 //===----------------------------------------------------------------------===//
 inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
                            Type loadedType, bool toEmitOOBLoadCheckLogic,
-                           const SmallVector<unsigned, 8> &oobLoadCheckDims,
-                           const Value &source,
-                           const SmallVector<Value, 8> &srcLowerIndices) {
-  auto emitLoadInstruction =
-      [&b, &loc](const SmallVector<Value, 8> &srcLowerIndices,
-                 MemRefType sourceType, Type loadedType,
-                 const Value &source) -> Value {
+                           const ArrayRef<uint32_t> oobLoadCheckDims,
+                           const Value source,
+                           const ArrayRef<Value> srcLowerIndices) {
+  auto emitLoadInstruction = [&b, &loc](const ArrayRef<Value> &srcLowerIndices,
+                                        MemRefType sourceType, Type loadedType,
+                                        const Value &source) -> Value {
     Value loadedValue;
     if (loadedType.isa<VectorType>()) {
       // Issue vector load.
@@ -324,7 +276,9 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
         Value loadedVector =
             createZeroConstantFloatOp(b, loc, loadedVectorType);
 
-        SmallVector<Value, 8> srcLowerIndicesUpdated = srcLowerIndices;
+        SmallVector<Value, 8> srcLowerIndicesUpdated;
+        srcLowerIndicesUpdated.append(srcLowerIndices.begin(),
+                                      srcLowerIndices.end());
         int64_t dim = sourceType.getRank() - 1;
         for (int64_t iter = 0; iter < vectorLength; ++iter) {
           auto iterIndex = b.create<ConstantIndexOp>(loc, iter);
@@ -351,7 +305,9 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
   if (toEmitOOBLoadCheckLogic) {
     // Pre-populate srcLowerLoadOOBIndices. It will be modified inside
     // toEmitOOBCheckLogic basic block.
-    SmallVector<Value, 8> srcLowerLoadOOBIndices = srcLowerIndices;
+    SmallVector<Value, 8> srcLowerLoadOOBIndices;
+    srcLowerLoadOOBIndices.append(srcLowerIndices.begin(),
+                                  srcLowerIndices.end());
 
     // Emit a useful constant 0f for later use.
     Value zeroOp = createZeroConstantFloatOp(b, loc, loadedType);
@@ -454,41 +410,25 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
 //===----------------------------------------------------------------------===//
 // Utility function to emit store instructions with potentially OOB checks.
 //===----------------------------------------------------------------------===//
-// we set attr at affixThreadwiseCopyV2Attributes or
-// affixThreadwiseCopyAttributes first we use
-// NotBwdPaddingOrStrideOne,StrideTwoXdlopsNHWC,StrideTwoXdlopsNCHW,StrideTwoNonXdlopsNCHW,
-// StrideTwoNonXdlopsNHWC then in ThreadwiseCopyV2RewritePattern, due to xdlops
-// have lots of different workaround we split
-// NotBwdPaddingOrStrideOne,StrideTwoXdlopsNHWC,StrideTwoXdlopsNCHW, into
-// GemmMPadStrideTwoXdlopsNCHW,
-// GemmNPadStrideTwoXdlopsNCHW,GemmMNPadStrideTwoXdlopsNCHW,GemmNPadStrideTwoXdlopsNHWC
-// if we don't need workaround , use NotBwdPaddingOrStrideOne
-// non xdlops should split also ,but not implement yet
-enum BwdPaddingKernelStatus {
-  NotBwdPaddingOrStrideOne,
-  StrideTwoNonXdlopsNCHW,
-  StrideTwoNonXdlopsNHWC,
-  StrideTwoXdlopsNHWC,
-  StrideTwoXdlopsNCHW,
-  GemmMPadStrideTwoXdlopsNCHW,
-  GemmNPadStrideTwoXdlopsNCHW,
-  GemmMNPadStrideTwoXdlopsNCHW,
-  GemmNPadStrideTwoXdlopsNHWC,
-  GemmMNPadStrideTwoXdlopsNHWC,
-  GemmMPadStrideTwoXdlopsNHWC
-};
+inline void
+emitStoreLogic(BwdPaddingKernelInfo bwdPaddingInfo, OpBuilder &b, Location loc,
+               MemRefType destType, Type typeToStore,
+               bool toEmitOOBStoreCheckLogic,
+               const ArrayRef<uint32_t> oobStoreCheckDims, const Value dest,
+               const ArrayRef<Value> destLowerIndices, const Value value,
+               InMemoryDataOperation memoryOp = InMemoryDataOperation::Set) {
+  // Reduce noise of backward data padding info checks
+  constexpr auto strideTwo = BwdPaddingKernelInfo::StrideTwo;
+  constexpr auto isNCHW = BwdPaddingKernelInfo::isNCHW;
+  constexpr auto xdlops = BwdPaddingKernelInfo::Xdlops;
+  constexpr auto padM = BwdPaddingKernelInfo::PadM;
+  constexpr auto padN = BwdPaddingKernelInfo::PadN;
 
-inline void emitStoreLogic(
-    BwdPaddingKernelStatus bwdPaddingStatus, OpBuilder &b, Location loc,
-    MemRefType destType, Type typeToStore, bool toEmitOOBStoreCheckLogic,
-    const SmallVector<unsigned, 8> &oobStoreCheckDims, const Value &dest,
-    const SmallVector<Value, 8> &destLowerIndices, const Value &value,
-    InMemoryDataOperation memoryOp = InMemoryDataOperation::Set) {
-  auto emitStoreInstruction = [&b, &loc](
-                                  const Value &value, MemRefType destType,
-                                  Type typeToStore, const Value &dest,
-                                  const SmallVector<Value, 8> &destLowerIndices,
-                                  const Value &oob) {
+  auto emitStoreInstruction = [&b,
+                               &loc](const Value &value, MemRefType destType,
+                                     Type typeToStore, const Value &dest,
+                                     const ArrayRef<Value> &destLowerIndices,
+                                     const Value &oob) {
     if (typeToStore.isa<VectorType>()) {
       // Issue vector store.
       if (destType.getMemorySpaceAsInt() == 0) {
@@ -507,7 +447,9 @@ inline void emitStoreLogic(
         VectorType valueVectorType = typeToStore.template cast<VectorType>();
         Type elementType = destType.getElementType();
         int64_t vectorLength = valueVectorType.getShape()[0];
-        SmallVector<Value, 8> destLowerIndicesUpdated = destLowerIndices;
+        SmallVector<Value, 8> destLowerIndicesUpdated;
+        destLowerIndicesUpdated.append(destLowerIndices.begin(),
+                                       destLowerIndices.end());
         for (int64_t iter = 0; iter < vectorLength; ++iter) {
           Value iterOp = b.create<ConstantIndexOp>(loc, iter);
           destLowerIndicesUpdated[0] =
@@ -538,7 +480,9 @@ inline void emitStoreLogic(
   auto oobAddrOp = b.create<ConstantIndexOp>(loc, kTwoGB);
 
   if (toEmitOOBStoreCheckLogic) {
-    SmallVector<Value, 8> destLowerStoreOOBIndices = destLowerIndices;
+    SmallVector<Value, 8> destLowerStoreOOBIndices;
+    destLowerStoreOOBIndices.append(destLowerIndices.begin(),
+                                    destLowerIndices.end());
 
     // Logic in C++:
     // bool withinBounds = true;
@@ -582,66 +526,61 @@ inline void emitStoreLogic(
     auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
     // here is workaround of backward data padding kernel to avoid compiler
     // issues
-    if (bwdPaddingStatus == BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne) {
+    // FIXME: Work out how these if statements can be consolidated
+    if (bwdPaddingInfo == BwdPaddingKernelInfo::NA) {
       elseBuilder.create<scf::YieldOp>(
           loc,
           ValueRange{oobAddrOp, destLowerStoreOOBIndices[0],
                      destLowerStoreOOBIndices[1], destLowerStoreOOBIndices[2],
                      destLowerStoreOOBIndices[3], destLowerStoreOOBIndices[4]});
-    } else if (bwdPaddingStatus ==
-               BwdPaddingKernelStatus::StrideTwoNonXdlopsNHWC) {
+    } else if (bwdPaddingInfo == (strideTwo | isNCHW)) {
+      elseBuilder.create<scf::YieldOp>(
+          loc, ValueRange{oobAddrOp, destLowerIndices[0], destLowerIndices[1],
+                          destLowerIndices[2], zeroConstantOp, zeroConstantOp});
+    } else if (bwdPaddingInfo == strideTwo) {
       elseBuilder.create<scf::YieldOp>(
           loc,
           ValueRange{oobAddrOp, destLowerIndices[0], zeroConstantOp,
                      zeroConstantOp, destLowerIndices[3], destLowerIndices[4]});
-
-    } else if (bwdPaddingStatus ==
-               BwdPaddingKernelStatus::StrideTwoNonXdlopsNCHW) {
-      elseBuilder.create<scf::YieldOp>(
-          loc, ValueRange{oobAddrOp, destLowerIndices[0], destLowerIndices[1],
-                          destLowerIndices[2], zeroConstantOp, zeroConstantOp});
-    } else if (bwdPaddingStatus ==
-               BwdPaddingKernelStatus::GemmMPadStrideTwoXdlopsNCHW) {
+    } else if (bwdPaddingInfo == (strideTwo | isNCHW | xdlops | padM)) {
       // c!=64 pad=0 nchw
       elseBuilder.create<scf::YieldOp>(
           loc,
           ValueRange{oobAddrOp, destLowerIndices[0], destLowerIndices[1],
                      zeroConstantOp, destLowerIndices[3], destLowerIndices[4]});
-    } else if (bwdPaddingStatus ==
-               BwdPaddingKernelStatus::GemmNPadStrideTwoXdlopsNCHW) {
+    } else if (bwdPaddingInfo == (strideTwo | isNCHW | xdlops | padN)) {
       // n!=64 pad=0 nchw
       elseBuilder.create<scf::YieldOp>(
           loc, ValueRange{oobAddrOp, zeroConstantOp, destLowerIndices[1],
                           destLowerIndices[2], destLowerIndices[3],
                           destLowerIndices[4]});
-    } else if (bwdPaddingStatus ==
-               BwdPaddingKernelStatus::GemmMNPadStrideTwoXdlopsNCHW) {
+    } else if (bwdPaddingInfo == (strideTwo | isNCHW | xdlops | padM | padN)) {
       // n!=64 c!=64 pad=0 nchw
       elseBuilder.create<scf::YieldOp>(
           loc,
           ValueRange{oobAddrOp, zeroConstantOp, destLowerIndices[1],
                      zeroConstantOp, destLowerIndices[3], destLowerIndices[4]});
-    } else if (bwdPaddingStatus ==
-               BwdPaddingKernelStatus::GemmNPadStrideTwoXdlopsNHWC) {
+    } else if (bwdPaddingInfo == (strideTwo | isNCHW | xdlops | padN)) {
       // gemmn%64!=0 padh=padw=0 nhwc
       elseBuilder.create<scf::YieldOp>(
           loc, ValueRange{oobAddrOp, zeroConstantOp, destLowerIndices[1],
                           destLowerIndices[2], destLowerIndices[3],
                           destLowerIndices[4]});
-    } else if (bwdPaddingStatus ==
-               BwdPaddingKernelStatus::GemmMPadStrideTwoXdlopsNHWC) {
+    } else if (bwdPaddingInfo == (strideTwo | xdlops | padM)) {
       // gemmm%64!=0 padh=padw=0 nhwc
       elseBuilder.create<scf::YieldOp>(
           loc,
           ValueRange{oobAddrOp, destLowerIndices[0], destLowerIndices[1],
                      destLowerIndices[2], destLowerIndices[3], zeroConstantOp});
-    } else if (bwdPaddingStatus ==
-               BwdPaddingKernelStatus::GemmMNPadStrideTwoXdlopsNHWC) {
+    } else if (bwdPaddingInfo == (strideTwo | xdlops | padM | padN)) {
       // gemmm%64!=0 gemmN%64!=0 padh=padw=0 nhwc
       elseBuilder.create<scf::YieldOp>(
           loc,
           ValueRange{oobAddrOp, zeroConstantOp, destLowerIndices[1],
                      destLowerIndices[2], destLowerIndices[3], zeroConstantOp});
+    } else {
+      mlir::emitError(loc, "Unsupported backwards padding flags")
+          << getBitsForBwdPaddingKernelInfo(bwdPaddingInfo);
     }
 
     // ifWithinBoundsOp results:
@@ -673,17 +612,18 @@ inline void emitStoreLogic(
 //===----------------------------------------------------------------------===//
 // Utility function to determine if we need to emit codes for OOB checks.
 //===----------------------------------------------------------------------===//
-inline bool obtainOOBCheckInfo(const Optional<AffineMap> &composedTransform,
-                               const ArrayAttr &boundCheckAttr,
-                               SmallVector<unsigned, 8> &oobCheckDims) {
+inline bool obtainOOBCheckInfo(const Optional<AffineMap> composedTransform,
+                               const ArrayAttr boundCheckAttr,
+                               SmallVectorImpl<uint32_t> &oobCheckDims) {
   // Determine if we need to emit codes for out-of-bound check.
   bool ret = false;
   if (composedTransform && boundCheckAttr) {
     if (boundCheckAttr.size() == composedTransform->getNumResults()) {
-      for (unsigned iter = 0; iter < boundCheckAttr.size(); ++iter) {
-        if (boundCheckAttr[iter].template cast<IntegerAttr>().getInt()) {
+      for (auto pair :
+           llvm::enumerate(boundCheckAttr.getAsValueRange<BoolAttr>())) {
+        if (pair.value()) {
           ret = true;
-          oobCheckDims.push_back(iter);
+          oobCheckDims.push_back(pair.index());
         }
       }
     }
@@ -696,14 +636,11 @@ inline bool obtainOOBCheckInfo(const Optional<AffineMap> &composedTransform,
 // - coordinate length : return value.
 // - composed affine transform.
 // - layered affine transform.
-// - specification of transformation.
-// - bound check attribute.
 //===----------------------------------------------------------------------===//
-inline unsigned obtainGenericTensorTransformationInfo(
-    int64_t operandIndex, const Type type, const ArrayAttr &coordTransformsAttr,
-    Optional<AffineMap> &composedTransform,
-    SmallVector<AffineMap> &layeredTransform, DictionaryAttr &transformSpec,
-    ArrayAttr &boundCheckAttr) {
+inline unsigned
+obtainGenericTensorTransformationInfo(const Type type,
+                                      const ArrayAttr coordTransformsAttr,
+                                      Optional<AffineMap> &composedTransform) {
   // Get source and dest coordinates.
   //
   // 1. For memrefs with no externally defined affine maps in
@@ -713,12 +650,12 @@ inline unsigned obtainGenericTensorTransformationInfo(
   // 3. For memrefs with embedded maps, use its input rank.
   assert(type.isa<MemRefType>() || type.isa<VectorType>());
   unsigned coordLength = 0;
-  SmallVector<AffineMap> typeAffineMaps;
+  AffineMap typeAffineMap;
   if (type.isa<MemRefType>()) {
     MemRefType memrefType = type.cast<MemRefType>();
     coordLength = memrefType.getRank();
     if (!memrefType.getLayout().isIdentity())
-      typeAffineMaps.push_back(memrefType.getLayout().getAffineMap());
+      typeAffineMap = memrefType.getLayout().getAffineMap();
   } else if (type.isa<VectorType>()) {
     VectorType vectorType = type.cast<VectorType>();
     coordLength = vectorType.getShape().size();
@@ -726,42 +663,23 @@ inline unsigned obtainGenericTensorTransformationInfo(
     // Keep typeAffineMaps uninitialized.
   }
 
-  if (typeAffineMaps.size()) {
-    coordLength = typeAffineMaps[0].getNumInputs();
-    // Compose affine maps.
-    composedTransform = composeTransforms(typeAffineMaps);
-
-    // Populate affine maps for each layer.
-    layeredTransform.assign(typeAffineMaps.begin(), typeAffineMaps.end());
+  if (typeAffineMap) {
+    coordLength = typeAffineMap.getNumInputs();
+    composedTransform = typeAffineMap;
   }
   // Obtain metadata of coordinate transformations.
-  if (coordTransformsAttr) {
-    for (auto attr : coordTransformsAttr) {
-      auto dictAttr = attr.template cast<DictionaryAttr>();
-      auto index =
-          dictAttr.get("operand").template cast<IntegerAttr>().getInt();
-      auto transforms = dictAttr.get("transforms").template cast<ArrayAttr>();
-      if (index == operandIndex) {
-        coordLength = transforms[0]
-                          .template cast<AffineMapAttr>()
-                          .getValue()
-                          .getNumInputs();
-        transformSpec = dictAttr;
-        // Compose affine maps.
-        composedTransform = composeTransforms(transforms);
-
-        // Populate affine maps for each layer.
-        for (auto &am : transforms)
-          layeredTransform.push_back(
-              am.template cast<AffineMapAttr>().getValue());
-
-        auto bcAttr = dictAttr.get("bound_check");
-        if (bcAttr)
-          boundCheckAttr = bcAttr.template cast<ArrayAttr>();
-      }
+  if (coordTransformsAttr && coordTransformsAttr.size() > 0) {
+    coordLength = coordTransformsAttr[0]
+                      .cast<TransformsAttr>()
+                      .getMap()
+                      .getValue()
+                      .getNumInputs();
+    SmallVector<AffineMap, 8> maps;
+    for (auto attr : coordTransformsAttr.getAsRange<TransformsAttr>()) {
+      maps.push_back(attr.getMap().getValue());
     }
+    composedTransform = composeTransforms(maps);
   }
-
   // Return computed coordinate length.
   return coordLength;
 }
@@ -823,22 +741,22 @@ inline Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
 // This function is used within the lowering logic of threadwise_copy.
 //===----------------------------------------------------------------------===//
 inline void emitNaiveTensorCopyLogic(
-    OpBuilder &b, Location loc, int64_t NSliceRow, int64_t NSliceCol,
-    int64_t DataPerAccess, const SmallVector<Value, 8> &sourceCoord,
-    const SmallVector<Value, 8> &destCoord,
-    const Optional<AffineMap> &composedSourceTransform,
-    const Optional<AffineMap> &composedDestTransform, Type sourceElementType,
+    OpBuilder &b, Location loc, int64_t nSliceRow, int64_t nSliceCol,
+    int64_t dataPerAccess, const OperandRange sourceCoord,
+    const OperandRange destCoord,
+    const Optional<AffineMap> composedSourceTransform,
+    const Optional<AffineMap> composedDestTransform, Type sourceElementType,
     Type destElementType, Value source, Value dest) {
   auto oneConstantOp = b.create<ConstantIndexOp>(loc, 1);
 
   SmallVector<Value, 8> srcUpperIndices;
-  srcUpperIndices.append(sourceCoord);
+  srcUpperIndices.append(sourceCoord.begin(), sourceCoord.end());
   SmallVector<Value, 8> destUpperIndices;
-  destUpperIndices.append(destCoord);
+  destUpperIndices.append(destCoord.begin(), destCoord.end());
 
   // Emit fully-unrolled loops.
-  for (unsigned ivo = 0; ivo < NSliceRow; ++ivo) {
-    for (unsigned ivi = 0; ivi < NSliceCol; ivi += DataPerAccess) {
+  for (unsigned ivo = 0; ivo < nSliceRow; ++ivo) {
+    for (unsigned ivi = 0; ivi < nSliceCol; ivi += dataPerAccess) {
       // src_index = (0, ivo_i32, ivi_i32) + sourceCoord
       // Apply affine transformations to compute the low-level coordinate.
       SmallVector<Value, 8> srcLowerIndices;
@@ -880,21 +798,7 @@ inline void emitNaiveTensorCopyLogic(
         b.create<AddIOp>(loc, srcUpperIndices[1], oneConstantOp);
     destUpperIndices[1] =
         b.create<AddIOp>(loc, destUpperIndices[1], oneConstantOp);
-  }   // ivo
-}
-
-//===----------------------------------------------------------------------===//
-// Utility function to populate the transform metadata in cases there is none.
-// Just populate "lower_layer_bounds" attribute from the lower level shape.
-//===----------------------------------------------------------------------===//
-inline void
-populateTransformMetadataFromLowerType(OpBuilder &b, ShapedType lowerType,
-                                       ArrayAttr &transformMetadata) {
-  SmallVector<Attribute, 4> lowerShapeAttr;
-  for (auto &v : lowerType.getShape())
-    lowerShapeAttr.push_back(b.getI32IntegerAttr(v));
-  transformMetadata = b.getArrayAttr({b.getDictionaryAttr({b.getNamedAttr(
-      "lower_layer_bounds", b.getArrayAttr({lowerShapeAttr}))})});
+  } // ivo
 }
 
 //===---------------------------------------------------------
@@ -918,17 +822,15 @@ inline Optional<int64_t> isConstantValue(Value v) {
 //===----------------------------------------------------------------------===//
 // Utility function to compute index diff map.
 //===----------------------------------------------------------------------===//
-inline void
-computeIndexDiffMap(OpBuilder &b, Location loc,
-                    const SmallVector<Value, 8> &upperIndicesDiff,
-                    const DictionaryAttr &transformMetadata,
-                    const SmallVector<Value, 8> &lowerIndicesOriginal,
-                    SmallVector<Value, 8> &lowerIndicesDiff,
-                    SmallVector<Value, 8> &lowerIndicesUpdated) {
+inline void computeIndexDiffMap(OpBuilder &b, Location loc,
+                                const ArrayRef<Value> upperIndicesDiff,
+                                const TransformsAttr transforms,
+                                const ArrayRef<Value> lowerIndicesOriginal,
+                                SmallVectorImpl<Value> &lowerIndicesDiff,
+                                SmallVectorImpl<Value> &lowerIndicesUpdated) {
   Value zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
   // Obtain the shape of lower level memref.
-  ArrayAttr lowerLayerShape =
-      transformMetadata.get("lower_layer_bounds").template cast<ArrayAttr>();
+  ArrayRef<int64_t> lowerLayerShape = transforms.getLowerBounds();
 
   // Input:
   // - upper_diff
@@ -937,8 +839,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
   // - lower_indices_original
   // - lower_layer_bounds
   // - F : a vector of functions mapping upper level dimensions to lower level
-  // dimensions.
-  // - G : metadata of F
+  // dimensions with attached metadata about how they're constructed
   //
   // Output:
   // - lower_diff : the computed diffs on the lower layer. such information
@@ -946,12 +847,12 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
   // - lower_indices_updated : the updated lower layer indices. clients will
   //                           use the values to issue loads / stores.
   //
-  // For each transform g specified in G:
-  //   Let P be the upper dimensions used by g.
-  //   Let Q be the lower dimensions used by g.
+  // For each transform f specified in F:
+  //   Let P be the upper dimensions used by f.
+  //   Let Q be the lower dimensions used by f.
   //   Let T be upper_layer_bounds.
   //
-  //   Switch g:
+  //   Switch f.type:
   //     Case Pad :
   //       |P| = |Q|
   //       For each i in P, and its counterpart j in Q
@@ -1029,20 +930,16 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
   //              << lowerIndicesOriginal.size() << "\n\n";
 
   // Look into layout attribute inside transform metadata.
-  auto layoutAttr = transformMetadata.get("layout");
-  assert(layoutAttr);
-  // layoutArrayAttr is G in the pseudo code above.
-  ArrayAttr layoutArrayAttr = layoutAttr.template cast<ArrayAttr>();
 
   // lower level diff map
   // key : lower level dimension value.
   // value : lower level diff on that dimension.
-  DenseMap<int64_t, Value> lowerIndicesDiffMap;
+  DenseMap<uint32_t, Value> lowerIndicesDiffMap;
 
   // lower level updated coordinate map
   // key : lower level dimension value.
   // value : lower level updated coordinate on that dimension.
-  DenseMap<int64_t, Value> lowerIndicesUpdatedMap;
+  DenseMap<uint32_t, Value> lowerIndicesUpdatedMap;
 
   auto addToOriginal = [&b, loc](Value original, Value diff) -> Value {
     auto mbDiffConst = isConstantValue(diff);
@@ -1061,24 +958,22 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
   };
 
   // Iterate through all transformations specified in g.
-  for (auto &mapping : layoutArrayAttr) {
-    DictionaryAttr g = mapping.template cast<DictionaryAttr>();
-    // llvm::errs() << "g: " << g << "\n";
+  for (auto mapping : transforms.getOps()) {
+    // llvm::errs() << "f: " << f << "\n";
 
-    // Obtain transformation information from g.
-    StringAttr transformation =
-        g.get("transformation").template cast<StringAttr>();
-    auto p = g.get("upper_layer_dimensions").template cast<ArrayAttr>();
-    auto q = g.get("lower_layer_dimensions").template cast<ArrayAttr>();
+    // Obtain transformation information from f.
+    TransformType transformation = mapping.getType();
+    ArrayRef<uint32_t> p = mapping.getUpperDims();
+    ArrayRef<uint32_t> q = mapping.getLowerDims();
+    ArrayRef<int64_t> e = mapping.getParams();
 
-    if (transformation.getValue() == "Embed") {
-      auto e = g.get("parameters").template cast<ArrayAttr>();
+    if (transformation == TransformType::Embed) {
       assert(e.size() == p.size());
       assert(q.size() == 1);
       Value lowerDiff = zeroConstantOp;
       for (unsigned iter = 0; iter < e.size(); ++iter) {
-        int64_t coefficient = e[iter].template cast<IntegerAttr>().getInt();
-        int64_t upperDim = p[iter].template cast<IntegerAttr>().getInt();
+        int64_t coefficient = e[iter];
+        uint32_t upperDim = p[iter];
         auto mbUpperDiff = isConstantValue(upperIndicesDiff[upperDim]);
         auto mbLowerDiff = isConstantValue(lowerDiff);
         if (mbUpperDiff.hasValue() && mbLowerDiff.hasValue()) {
@@ -1093,19 +988,18 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
         }
       }
 
-      int64_t lowerDim = q[0].template cast<IntegerAttr>().getInt();
+      uint32_t lowerDim = q[0];
       lowerIndicesDiffMap[lowerDim] = lowerDiff;
       lowerIndicesUpdatedMap[lowerDim] =
           addToOriginal(lowerIndicesOriginal[lowerDim], lowerDiff);
-    } else if (transformation.getValue() == "UnMerge") {
-      auto e = g.get("parameters").template cast<ArrayAttr>();
+    } else if (transformation == TransformType::Unmerge) {
       assert(e.size() == p.size());
       assert(q.size() == 1);
-      int64_t upperDim = p[0].template cast<IntegerAttr>().getInt();
+      uint32_t upperDim = p[0];
       Value lowerDiff = upperIndicesDiff[upperDim];
       for (unsigned iter = 1; iter < e.size(); ++iter) {
-        int64_t coefficient = e[iter].template cast<IntegerAttr>().getInt();
-        int64_t upperDim = p[iter].template cast<IntegerAttr>().getInt();
+        int64_t coefficient = e[iter];
+        uint32_t upperDim = p[iter];
         auto mbUpperDiff = isConstantValue(upperIndicesDiff[upperDim]);
         auto mbLowerDiff = isConstantValue(lowerDiff);
         if (mbUpperDiff.hasValue() && mbLowerDiff.hasValue()) {
@@ -1119,33 +1013,30 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
                                lowerDiff));
         }
       }
-      int64_t lowerDim = q[0].template cast<IntegerAttr>().getInt();
+      uint32_t lowerDim = q[0];
       lowerIndicesDiffMap[lowerDim] = lowerDiff;
       lowerIndicesUpdatedMap[lowerDim] =
           addToOriginal(lowerIndicesOriginal[lowerDim], lowerDiff);
-    } else if ((transformation.getValue() == "PassThrough") ||
-               (transformation.getValue() == "Pad") ||
-               (transformation.getValue() == "Slice")) {
+    } else if ((transformation == TransformType::PassThrough) ||
+               (transformation == TransformType::Pad) ||
+               (transformation == TransformType::Slice)) {
       assert(p.size() == q.size());
       for (unsigned iter = 0; iter < q.size(); ++iter) {
-        int64_t upperDim = p[iter].template cast<IntegerAttr>().getInt();
-        int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
+        uint32_t upperDim = p[iter];
+        uint32_t lowerDim = q[iter];
         Value upperDiff = upperIndicesDiff[upperDim];
         Value lowerDiff = upperDiff;
         lowerIndicesDiffMap[lowerDim] = lowerDiff;
         lowerIndicesUpdatedMap[lowerDim] =
             addToOriginal(lowerIndicesOriginal[lowerDim], lowerDiff);
       }
-    } else if ((transformation.getValue() == "Merge") ||
-               (transformation.getValue() == "Unfold")) {
+    } else if ((transformation == TransformType::Merge) ||
+               (transformation == TransformType::Unfold)) {
       assert(p.size() == 1);
-      int64_t upperDim = p[0].template cast<IntegerAttr>().getInt();
+      uint32_t upperDim = p[0];
 
       // Obtain the transformation.
-      AffineMap transform = transformMetadata.get("map")
-                                .template cast<ArrayAttr>()[0]
-                                .template cast<AffineMapAttr>()
-                                .getValue();
+      AffineMap transformMap = transforms.getMap().getAffineMap();
 
       SmallVector<Value, 8> lowerDiffModified;
       auto mbUpperDiffVal = isConstantValue(upperIndicesDiff[upperDim]);
@@ -1165,10 +1056,11 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
         // Apply map to compute index lower diff, from index upper diff using
         // constantFold.
         SmallVector<Attribute, 8> lowerDiffModifiedAttr;
-        (void)transform.constantFold(upperDiffModified, lowerDiffModifiedAttr);
+        (void)transformMap.constantFold(upperDiffModified,
+                                        lowerDiffModifiedAttr);
         assert(lowerDiffModifiedAttr.size() == lowerIndicesOriginal.size());
 
-        for (unsigned iter = 0; iter < lowerDiffModifiedAttr.size(); ++iter) {
+        for (uint32_t iter = 0; iter < lowerDiffModifiedAttr.size(); ++iter) {
           lowerDiffModified.push_back(
               b.create<ConstantIndexOp>(loc, lowerDiffModifiedAttr[iter]
                                                  .template cast<IntegerAttr>()
@@ -1183,7 +1075,7 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
         // Populate an upper diff vector with all indices 0, other than
         // upperDim dimension set as upperDiff.
         SmallVector<Value, 8> upperDiffModified;
-        for (unsigned iter = 0; iter < upperIndicesDiff.size(); ++iter) {
+        for (uint32_t iter = 0; iter < upperIndicesDiff.size(); ++iter) {
           Value v = (iter == upperDim) ? upperDiff : zeroConstantOp;
           upperDiffModified.push_back(v);
         }
@@ -1192,15 +1084,14 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
         // Apply map to compute index lower diff, from index upper diff using
         // expandAffineMap.
         lowerDiffModified =
-            expandAffineMap(b, loc, transform, upperDiffModified).getValue();
-        ;
+            expandAffineMap(b, loc, transformMap, upperDiffModified).getValue();
         assert(lowerDiffModified.size() == lowerIndicesOriginal.size());
       }
 
       // Obtain lower diffs prior to carry check.
       SmallVector<Value, 8> lowerDiffs;
       for (unsigned iter = 0; iter < q.size(); ++iter) {
-        int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
+        uint32_t lowerDim = q[iter];
         Value lowerDiff = lowerDiffModified[lowerDim];
         lowerDiffs.push_back(lowerDiff);
       }
@@ -1209,8 +1100,8 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
       // Compute updated lower indices by adding original lower indices with
       // lower diffs.
       SmallVector<Value, 8> lowerIndicesModified;
-      for (unsigned iter = 0; iter < q.size(); ++iter) {
-        int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
+      for (uint32_t iter = 0; iter < q.size(); ++iter) {
+        uint32_t lowerDim = q[iter];
         lowerIndicesModified.push_back(
             addToOriginal(lowerIndicesOriginal[lowerDim], lowerDiffs[iter]));
       }
@@ -1218,23 +1109,13 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
 
       // Add carry check for Merge.
       // For Unfold it's not needed.
-      if (transformation.getValue() == "Merge") {
-        // Get lower layer bounds.
-        SmallVector<int64_t, 8> lowerLayerBounds;
-        for (unsigned iter = 0; iter < q.size(); ++iter) {
-          int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
-          int64_t v =
-              lowerLayerShape[lowerDim].template cast<IntegerAttr>().getInt();
-          lowerLayerBounds.push_back(v);
-        }
-        assert(lowerLayerBounds.size() == lowerIndicesModified.size());
-
+      if (transformation == TransformType::Merge) {
         // Carry checked lower indices.
         // FIXME: study how to properly lowerDiffsCarryChecked.
-        DenseMap<int64_t, Value> lowerDiffsCarryChecked;
-        DenseMap<int64_t, Value> lowerIndicesCarryChecked;
-        for (unsigned iter = 0; iter < q.size(); ++iter) {
-          int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
+        DenseMap<uint32_t, Value> lowerDiffsCarryChecked;
+        DenseMap<uint32_t, Value> lowerIndicesCarryChecked;
+        for (uint32_t iter = 0; iter < q.size(); ++iter) {
+          int64_t lowerDim = q[iter];
           lowerDiffsCarryChecked[lowerDim] = lowerDiffs[iter];
           lowerIndicesCarryChecked[lowerDim] = lowerIndicesModified[iter];
         }
@@ -1245,8 +1126,8 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
         // upper index diffs would always be positive in the current algorithm.
         Value overflowOp = zeroConstantOp;
         for (ssize_t iter = q.size() - 1; iter >= 0; --iter) {
-          int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
-          int64_t upperBound = lowerLayerBounds[iter];
+          uint32_t lowerDim = q[iter];
+          int64_t upperBound = e[iter];
           // If the overflow is statically 0, nothing gets added
           Value diff =
               addToOriginal(lowerDiffsCarryChecked[lowerDim], overflowOp);
@@ -1311,8 +1192,8 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
         assert(lowerIndicesCarryChecked.size() == lowerIndicesModified.size());
         lowerDiffs.clear();
         lowerIndicesModified.clear();
-        for (unsigned iter = 0; iter < q.size(); ++iter) {
-          int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
+        for (uint32_t iter = 0; iter < q.size(); ++iter) {
+          uint32_t lowerDim = q[iter];
           lowerDiffs.push_back(lowerDiffsCarryChecked[lowerDim]);
           lowerIndicesModified.push_back(lowerIndicesCarryChecked[lowerDim]);
         }
@@ -1321,13 +1202,15 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
       }
 
       // Set lowerIndicesDiffMap and lowerIndicesUpdatedMap.
-      for (unsigned iter = 0; iter < q.size(); ++iter) {
-        int64_t lowerDim = q[iter].template cast<IntegerAttr>().getInt();
+      for (uint32_t iter = 0; iter < q.size(); ++iter) {
+        int64_t lowerDim = q[iter];
         lowerIndicesDiffMap[lowerDim] = lowerDiffs[iter];
         lowerIndicesUpdatedMap[lowerDim] = lowerIndicesModified[iter];
       }
+    } else if (transformation == TransformType::AddDim) {
+      // Do nothing - the dimension will be dropped by the code below
     }
-  } // for (auto &mapping : layoutAttr)
+  } // for (auto mapping : transforms.getOps())
 
   // Convert lowerIndicesDiffMap to lowerIndicesDiff.
   assert(lowerIndicesDiffMap.size() == lowerLayerShape.size());
@@ -1341,100 +1224,46 @@ computeIndexDiffMap(OpBuilder &b, Location loc,
 }
 
 //===----------------------------------------------------------------------===//
-// Utility function to progresseively apply index diff maps to compute the
-// coordinate for the next layer.
-//===----------------------------------------------------------------------===//
-inline void populateLayeredIndicesWithIndexDiffMap(
-    OpBuilder &b, Location loc, const ArrayAttr &layeredTransformMetadata,
-    const SmallVector<AffineMap> &layeredTransform,
-    const SmallVector<SmallVector<Value, 8>, 2> &layeredIndices,
-    const SmallVector<Value, 8> &topDiff,
-    SmallVector<SmallVector<Value, 8>, 2> &layeredDiffs,
-    SmallVector<SmallVector<Value, 8>, 2> &layeredIndicesUpdated) {
-  SmallVector<Value, 8> upperDiff = topDiff;
-  // llvm::errs() << "\npopulateLayeredIndicesWithIndexDiffMap\n";
-  // llvm::errs() << "layeredTransformMetadata: " << layeredTransformMetadata
-  //              << "\n";
-  // llvm::errs() << "layeredTransformMetadata.size():
-  //              << layeredTransformMetadata.size() << "\n";
-  // llvm::errs() << "layeredTransform.size(): " << layeredTransform.size()
-  //              << "\n";
-  // for (unsigned layer = 0; layer < layeredTransform.size(); ++layer) {
-  //   llvm::errs() << "layeredTransform: " << layeredTransform[layer] << "\n";
-  // }
-  // llvm::errs() << "layeredIndices.size(): " << layeredIndices.size() << "\n";
-  // llvm::errs() << "topDiff.size(): " << topDiff.size() << "\n";
-
-  if (layeredTransform.size() == 0) {
-    // In case there is no transform:
-    // - lower level diff =  upper level diff
-    // - lower level indices updated = lower level indices original + lower
-    // level diff
-    SmallVector<Value, 8> lowerDiff = upperDiff;
-    SmallVector<Value, 8> lowerIndicesUpdated;
-    assert(layeredIndices.size() == 1);
-    SmallVector<Value, 8> lowerIndicesOriginal = layeredIndices[0];
-    for (unsigned iter = 0; iter < lowerDiff.size(); ++iter)
-      lowerIndicesUpdated.push_back(
-          b.create<AddIOp>(loc, lowerIndicesOriginal[iter], lowerDiff[iter]));
-    layeredDiffs.push_back(upperDiff);
-    layeredIndicesUpdated.push_back(lowerIndicesUpdated);
-  } else {
-    // Use layeredTransformMetadata to count the layer.
-    //
-    // Why layeredTransform is not used here is because in some layers
-    // identity map may be used and that would result in MLIR optimizing away
-    // the map. layeredTransformMetadata has the most authentic number of
-    // layers.
-    //
-    // For example, in Slice transformation where "begins" parameters are 0,
-    // an identity map will be built.
-    for (unsigned layer = 0; layer < layeredTransformMetadata.size(); ++layer) {
-      SmallVector<Value, 8> lowerDiff;
-      SmallVector<Value, 8> lowerIndicesUpdated;
-      DictionaryAttr transformMetadata =
-          layeredTransformMetadata[layer].template cast<DictionaryAttr>();
-      SmallVector<Value, 8> lowerIndicesOriginal = layeredIndices[layer + 1];
-      computeIndexDiffMap(b, loc, upperDiff, transformMetadata,
-                          lowerIndicesOriginal, lowerDiff, lowerIndicesUpdated);
-      layeredDiffs.push_back(lowerDiff);
-      layeredIndicesUpdated.push_back(lowerIndicesUpdated);
-      upperDiff.clear();
-      upperDiff.append(lowerDiff);
-    }
-  }
-}
-
-//===----------------------------------------------------------------------===//
 // Utility function to progressively use index diff map to compute the
 // coordinate at the bottom most layer.
 //===----------------------------------------------------------------------===//
 inline void computeBottomIndicesWithIndexDiffMap(
-    OpBuilder &b, Location loc, const SmallVector<int64_t, 8> &loopIVs,
-    const ArrayAttr &layeredTransformMetadata,
-    const SmallVector<AffineMap> &layeredTransform,
-    const SmallVector<SmallVector<Value, 8>, 2> &layeredIndices,
-    SmallVector<Value, 8> &bottomIndices) {
-  // Coordinates across the layers of transformations.
-  // If the vector is of size n, 0 is the top layer, and
-  // n-1 is the bottom layer.
-  SmallVector<SmallVector<Value, 8>, 2> layeredDiffs;
-  SmallVector<SmallVector<Value, 8>, 2> layeredIndicesUpdated;
-
+    OpBuilder &b, Location loc,
+    const ArrayRef<SmallVector<Value, 8>> layeredIndicesOrig,
+    const ArrayRef<int64_t> loopIVs, const ArrayAttr transforms,
+    SmallVectorImpl<Value> &bottomIndices) {
   SmallVector<Value, 8> topDiff;
   for (unsigned iter = 0; iter < loopIVs.size(); ++iter)
     topDiff.push_back(b.create<ConstantIndexOp>(loc, loopIVs[iter]));
-  layeredDiffs.push_back(topDiff);
-  // Progressively apply index diff maps across all coordinate
-  // transformation layers.
-  populateLayeredIndicesWithIndexDiffMap(
-      b, loc, layeredTransformMetadata, layeredTransform, layeredIndices,
-      topDiff, layeredDiffs, layeredIndicesUpdated);
-
-  // Fetch bottom most layer coordinate.
-  SmallVector<Value, 8> bottomIndicesUpdated =
-      layeredIndicesUpdated[layeredIndicesUpdated.size() - 1];
-  bottomIndices = bottomIndicesUpdated;
+  if (!transforms || transforms.size() == 0) {
+    // No transformations mean that the updates to the lower coordinates are the
+    // updates to the upper coordinates
+    assert(layeredIndicesOrig.size() == 1 &&
+           "With no transforms, the layered values are {upper (aka lower)}");
+    const SmallVector<Value, 8> &bottomOrig = layeredIndicesOrig[0];
+    assert(bottomOrig.size() == loopIVs.size() &&
+           "One loop variable needed per upper index");
+    for (auto pair : llvm::zip(bottomOrig, topDiff)) {
+      bottomIndices.push_back(
+          b.create<AddIOp>(loc, std::get<0>(pair), std::get<1>(pair)));
+    }
+  } else {
+    SmallVector<Value, 8> upperDiffs = topDiff;
+    SmallVector<Value, 8> lowerDiffs, lowerIndices;
+    for (auto pair : llvm::zip(transforms.getAsRange<TransformsAttr>(),
+                               layeredIndicesOrig.slice(1))) {
+      TransformsAttr mapping = std::get<0>(pair);
+      const SmallVector<Value, 8> &lowerOrig = std::get<1>(pair);
+      lowerDiffs.clear();
+      lowerIndices.clear();
+      computeIndexDiffMap(b, loc, upperDiffs, mapping, lowerOrig, lowerDiffs,
+                          lowerIndices);
+      upperDiffs.clear();
+      upperDiffs.append(lowerDiffs);
+    }
+    // Having applied all the transforms, output the result of the last one
+    bottomIndices = lowerIndices;
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -1443,51 +1272,23 @@ inline void computeBottomIndicesWithIndexDiffMap(
 //===----------------------------------------------------------------------===//
 inline void populateLayeredIndicesWithTransformMetadata(
     OpBuilder &b, Location loc,
-    SmallVector<SmallVector<Value, 8>, 2> &layeredIndices,
-    const SmallVector<Value, 8> &topIndices,
-    const ArrayAttr &layeredTransformMetadata) {
-  SmallVector<Value, 8> currentIndices = topIndices;
+    SmallVectorImpl<SmallVector<Value, 8>> &layeredIndices,
+    const ArrayRef<Value> topIndices, const ArrayAttr transforms) {
+  SmallVector<Value, 8> currentIndices;
+  currentIndices.append(topIndices.begin(), topIndices.end());
   layeredIndices.push_back(currentIndices);
 
-  if (!layeredTransformMetadata) {
+  if (!transforms || transforms.size() == 0) {
     // In case there is no metadata, simply return. The top layer indices have
     // recorded earlier.
     return;
   }
   // Go through each layer of transform metadata, fetch the map attribute
   // and apply it to obtain the indices for the next layer.
-  for (unsigned layer = 0; layer < layeredTransformMetadata.size(); ++layer) {
-    DictionaryAttr transformMetadata =
-        layeredTransformMetadata[layer].template cast<DictionaryAttr>();
-    AffineMap am = transformMetadata.get("map")
-                       .template cast<ArrayAttr>()[0]
-                       .template cast<AffineMapAttr>()
-                       .getValue();
+  for (auto mapping : transforms.getAsRange<TransformsAttr>()) {
+    AffineMap am = mapping.getMap().getAffineMap();
     SmallVector<Value, 8> nextLayerIndices =
         expandAffineMap(b, loc, am, currentIndices).getValue();
-
-    layeredIndices.push_back(nextLayerIndices);
-
-    currentIndices.clear();
-    currentIndices = nextLayerIndices;
-  }
-}
-
-//===----------------------------------------------------------------------===//
-// Utility function to repeatedly apply affine transformation to compute the
-// coordinate for the next layer.
-//===----------------------------------------------------------------------===//
-inline void populateLayeredIndicesWithAffineMap(
-    OpBuilder &b, Location loc,
-    SmallVector<SmallVector<Value, 8>, 2> &layeredIndices,
-    const SmallVector<Value, 8> &topIndices,
-    const SmallVector<AffineMap> &layeredTransform) {
-  SmallVector<Value, 8> currentIndices = topIndices;
-  layeredIndices.push_back(currentIndices);
-  for (auto am : layeredTransform) {
-    SmallVector<Value, 8> nextLayerIndices =
-        expandAffineMap(b, loc, am, currentIndices).getValue();
-
     layeredIndices.push_back(nextLayerIndices);
 
     currentIndices.clear();
@@ -1499,29 +1300,28 @@ inline void populateLayeredIndicesWithAffineMap(
 // Utility function to compute the uppermost layer and bottommost layer
 // coorindates using affine map.
 //===----------------------------------------------------------------------===//
-inline void computeTopAndBottomIndicesWithAffineMap(
-    OpBuilder &b, Location &loc, SmallVector<Value, 8> &topIndices,
-    SmallVector<Value, 8> &bottomIndices,
-    const SmallVector<Value, 8> &originalCoords,
-    const SmallVector<int64_t, 8> &loopIVs,
-    const SmallVector<AffineMap> &layeredTransforms) {
+inline void computeBottomIndicesWithAffineMap(
+    OpBuilder &b, Location &loc, SmallVectorImpl<Value> &bottomIndices,
+    const ArrayRef<Value> originalCoords, const ArrayRef<int64_t> loopIVs,
+    Optional<AffineMap> map) {
   // Compute high-level coordinate.
   // index = (iv_0, iv_1, ...) + originalCoords
-  topIndices.clear();
-  topIndices.append(originalCoords);
+  SmallVector<Value, 8> topIndices;
+  topIndices.append(originalCoords.begin(), originalCoords.end());
 
   for (unsigned iter = 0; iter < loopIVs.size(); ++iter) {
     auto loopIV = b.create<ConstantIndexOp>(loc, loopIVs[iter]);
     topIndices[iter] = b.create<AddIOp>(loc, loopIV, topIndices[iter]);
   }
-
-  // Populate coorindates across the layers of transformations.
-  SmallVector<SmallVector<Value, 8>, 2> layeredIndices;
-  populateLayeredIndicesWithAffineMap(b, loc, layeredIndices, topIndices,
-                                      layeredTransforms);
-
-  // Fetch low-level coordinate.
-  bottomIndices = layeredIndices[layeredIndices.size() - 1];
+  if (!map.hasValue() || !(map.getValue())) {
+    bottomIndices.clear();
+    bottomIndices.append(topIndices);
+  } else {
+    SmallVector<Value, 8> mapResults =
+        expandAffineMap(b, loc, map.getValue(), topIndices).getValue();
+    bottomIndices.clear();
+    bottomIndices.append(mapResults);
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -2192,71 +1992,15 @@ const miopen::ConvOpType
 static void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
                                           miopen::GridwiseGemmOp gop,
                                           OpBuilder &b) {
-  //  gop.getNamedAttr("padding", paddingAttr)
-  auto stridesAttr = gop->template getAttrOfType<ArrayAttr>("strides");
-  auto strideH =
-      stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-  auto strideW =
-      stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-
-  auto algorithmAttr =
-      gop->template getAttrOfType<StringAttr>("kernel_algorithm");
-  auto algorithm_name = algorithmAttr.getValue();
-
-  BwdPaddingKernelStatus status =
-      BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
-  if (strideH > 1 && strideW > 1 && algorithm_name == "backward_data_v4r1") {
-    status = BwdPaddingKernelStatus::StrideTwoNonXdlopsNHWC;
-    auto inputLayoutAttr =
-        gop->template getAttrOfType<ArrayAttr>("input_layout");
-    for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
-      auto inputAttr =
-          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-      if (inputAttr.getValue() == "ci") {
-        if (i == 2) // gnchw
-          status = BwdPaddingKernelStatus::StrideTwoNonXdlopsNCHW;
-      }
-    }
-  }
-
   top->setAttr("vector_read_write_dim",
                gop->getAttr("matrix_c_dest_vector_write_dim"));
   top->setAttr("source_data_per_read", gop->getAttr("matrix_c_data_per_copy"));
-  top->setAttr("bwd_padding_kernel_status", b.getI32IntegerAttr(status));
   top->setAttr("dest_data_per_write", gop->getAttr("matrix_c_data_per_copy"));
 }
 
 static void affixThreadwiseCopyV2Attributes(miopen::ThreadwiseCopyV2Op top,
                                             miopen::GridwiseGemmV2Op gop,
                                             OpBuilder &b, bool isSwizzled) {
-  auto stridesAttr = gop->template getAttrOfType<ArrayAttr>("strides");
-  auto strideH =
-      stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-  auto strideW =
-      stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-
-  auto algorithmAttr =
-      gop->template getAttrOfType<StringAttr>("kernel_algorithm");
-  auto algorithm_name = algorithmAttr.getValue();
-
-  BwdPaddingKernelStatus status =
-          BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
-  if ((strideH > 1 && strideW > 1) && algorithm_name == "backward_data_v4r1") {
-
-    status = BwdPaddingKernelStatus::StrideTwoXdlopsNHWC;
-    auto inputLayoutAttr =
-        gop->template getAttrOfType<ArrayAttr>("input_layout");
-    for (unsigned i = 0; i < inputLayoutAttr.size(); ++i) {
-      auto inputAttr =
-          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-      if (inputAttr.getValue() == "ci") {
-        if (i == 2) // gnchw
-          status = BwdPaddingKernelStatus::StrideTwoXdlopsNCHW;
-      }
-    }
-  }
-
-  top->setAttr("bwd_padding_kernel_status", b.getI32IntegerAttr(status));
   // Account for split m/n dimension
   bool vectorStoreOverride = false;
   int64_t vectorGemmDim =
@@ -3288,8 +3032,6 @@ struct GridwiseGemmV2RewritePattern
     bop->setAttr("m", b.getI32IntegerAttr(M));
     bop->setAttr("n", b.getI32IntegerAttr(N));
     bop->setAttr("k", b.getI32IntegerAttr(K));
-
-    bop->setAttr("coord_transforms", b.getArrayAttr({}));
   }
 
   template <typename T>
@@ -4045,13 +3787,14 @@ struct GridwiseGemmV2RewritePattern
       // unchanged and becomes
       //  (d0, d1, d2, d3, d4, d5) ->
       //  (d0, d1 * M1 * M2 + d2 * M2 + d3, d4 * N1 + d5)
-    TopDownCTBuilder splitCTransform(b, {"G", "M0", "M1", "M2", "N0, N1"},
-                                     {G, M0, M1, M2, N0, N1}, loc);
-    splitCTransform.passThrough({"gemmG"}, {0}, {"G"});
-    splitCTransform.embed("gemmM", 1, M, {"M0", "M1", "M2"}, {M1 * M2, M2, 1});
-    splitCTransform.embed("gemmN", 2, N, {"N0", "N1"}, {N1, 1});
+      TopDownCTBuilder splitCTransform(b, {"G", "M0", "M1", "M2", "N0", "N1"},
+                                       {G, M0, M1, M2, N0, N1}, loc);
+      splitCTransform.passThrough({"gemmG"}, {0}, {"G"});
+      splitCTransform.embed("gemmM", 1, M, {"M0", "M1", "M2"},
+                            {M1 * M2, M2, 1});
+      splitCTransform.embed("gemmN", 2, N, {"N0", "N1"}, {N1, 1});
 
-    splitCTransformAttr = splitCTransform.get();
+      splitCTransformAttr = splitCTransform.get();
 
       // Here is the first main effect of the swizzling transformation
       // Instead of having the fastest coordinate be the M2 dimension
@@ -5007,6 +4750,8 @@ struct ThreadwiseCopyRewritePattern
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
+    int64_t globalArg = op.globalArg().getSExtValue();
+
     auto sourceElementType =
         op.source().getType().cast<MemRefType>().getElementType().cast<Type>();
     auto destElementType =
@@ -5027,24 +4772,16 @@ struct ThreadwiseCopyRewritePattern
         (legacyStoreAttr &&
          legacyStoreAttr.template cast<BoolAttr>().getValue() == true);
 
+    ArrayAttr sourceTransforms = op.transforms()[0].cast<ArrayAttr>();
+    ArrayAttr destTransforms = op.transforms()[1].cast<ArrayAttr>();
+
     Optional<AffineMap> composedSourceTransform;
     Optional<AffineMap> composedDestTransform;
-    SmallVector<AffineMap> layeredSourceTransform;
-    SmallVector<AffineMap> layeredDestTransform;
-    DictionaryAttr srcTransformSpec;
-    DictionaryAttr destTransformSpec;
-    ArrayAttr boundCheckSourceAttr;
-    ArrayAttr boundCheckDestAttr;
-
-    auto coordTransformsAttr =
-        op->getAttr("coord_transforms").template cast<ArrayAttr>();
 
     // Obtain coordinate lengths, as well as information of affine
     // transformations.
-    unsigned sourceCoordLength = obtainGenericTensorTransformationInfo(
-        /*operandIndex=*/0, sourceType, coordTransformsAttr,
-        composedSourceTransform, layeredSourceTransform, srcTransformSpec,
-        boundCheckSourceAttr);
+    uint32_t sourceCoordLength = obtainGenericTensorTransformationInfo(
+        sourceType, sourceTransforms, composedSourceTransform);
     auto sourceCoord = op.sourceCoord();
     if (sourceCoordLength != sourceCoord.size()) {
       return op.emitOpError("Got " + Twine(sourceCoord.size()) +
@@ -5052,10 +4789,8 @@ struct ThreadwiseCopyRewritePattern
                             Twine(sourceCoordLength));
     }
 
-    unsigned destCoordLength = obtainGenericTensorTransformationInfo(
-        /*operandIndex=*/1, destType, coordTransformsAttr,
-        composedDestTransform, layeredDestTransform, destTransformSpec,
-        boundCheckDestAttr);
+    uint32_t destCoordLength = obtainGenericTensorTransformationInfo(
+        destType, destTransforms, composedDestTransform);
     auto destCoord = op.destCoord();
     if (destCoordLength != destCoord.size()) {
       return op.emitOpError("Got " + Twine(destCoord.size()) +
@@ -5064,15 +4799,23 @@ struct ThreadwiseCopyRewritePattern
     }
 
     // FIXME. XXX.
-    legacyLoad = overrideLoadStoreHack(srcTransformSpec, legacyLoad);
-    legacyStore = overrideLoadStoreHack(destTransformSpec, legacyStore);
+    legacyLoad = overrideLoadStoreHack(op.paddingInfo(), legacyLoad);
+    legacyStore = overrideLoadStoreHack(op.paddingInfo(), legacyStore);
 
     // Determine if we need to emit codes for out-of-bound check, and which
     // dimensions need to dconduct such check.
-    SmallVector<unsigned, 8> oobLoadCheckDims;
+    ArrayAttr boundCheckSourceAttr, boundCheckDestAttr;
+    if (globalArg == 0) {
+      boundCheckSourceAttr = op.oobDimsAttr();
+    } else if (globalArg == 1) {
+      boundCheckDestAttr = op.oobDimsAttr();
+    } else {
+      // No global memrefs means no oob loads/stores
+    }
+    SmallVector<uint32_t, 8> oobLoadCheckDims;
     bool toEmitOOBLoadCheckLogic = obtainOOBCheckInfo(
         composedSourceTransform, boundCheckSourceAttr, oobLoadCheckDims);
-    SmallVector<unsigned, 8> oobStoreCheckDims;
+    SmallVector<uint32_t, 8> oobStoreCheckDims;
     bool toEmitOOBStoreCheckLogic = obtainOOBCheckInfo(
         composedDestTransform, boundCheckDestAttr, oobStoreCheckDims);
 
@@ -5100,15 +4843,10 @@ struct ThreadwiseCopyRewritePattern
       // op.dump();
       // llvm::errs() << "\n";
 
-      Optional<ArrayAttr> boundAttr;
-      if (op->getAttr("bound"))
-        boundAttr = op->getAttr("bound").template cast<ArrayAttr>();
-
       // Figure out the bounds of load/store loops.
-      SmallVector<uint64_t, 2> sliceLengths;
+      SmallVector<uint64_t, 6> sliceLengths;
 
-      computeSliceLengths(sliceLengths, composedSourceTransform,
-                          composedDestTransform, coordTransformsAttr, boundAttr,
+      computeSliceLengths(sliceLengths, sourceTransforms, destTransforms,
                           sourceType, destType);
 
       // llvm::errs() << "slice lengths: ";
@@ -5116,9 +4854,14 @@ struct ThreadwiseCopyRewritePattern
       //   llvm::errs() << sliceLengths[i] << " ";
       // llvm::errs() << "\n";
 
+      // Copy coordinates into vectors so that we don't have issues
+      // passing ArrayRef<Value>s
       SmallVector<Value, 8> srcUpperIndices;
-      SmallVector<Value, 8> srcLowerIndices;
+      srcUpperIndices.append(sourceCoord.begin(), sourceCoord.end());
       SmallVector<Value, 8> destUpperIndices;
+      destUpperIndices.append(destCoord.begin(), destCoord.end());
+
+      SmallVector<Value, 8> srcLowerIndices;
       SmallVector<Value, 8> destLowerIndices;
       // Coordinates across the layers of transformations.
       // If the vector is of size n, 0 is the top layer, and
@@ -5126,32 +4869,14 @@ struct ThreadwiseCopyRewritePattern
       SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndices;
       SmallVector<SmallVector<Value, 8>, 2> layeredDestIndices;
 
-      ArrayAttr layeredSourceTransformMetadata;
-      ArrayAttr layeredDestTransformMetadata;
-
       // Obtain transform metadata and populate coordinates for all layers
       // wthe the metadata.
       // Only do such computation in the new approach where index diff maps
       // would be used.
       if (legacyLoad == false) {
         // Populate coorindates across the layers of transformations.
-        if (srcTransformSpec) {
-          Attribute metadataAttr = srcTransformSpec.get("metadata");
-          if (metadataAttr)
-            layeredSourceTransformMetadata =
-                metadataAttr.template cast<ArrayAttr>();
-          else
-            populateTransformMetadataFromLowerType(
-                b, sourceType, layeredSourceTransformMetadata);
-        }
-
-        // Compute high-level coordinate for source memref.
-        srcUpperIndices.append(sourceCoord.begin(), sourceCoord.end());
-
-        // Populate coorindates across the layers of transformations.
         populateLayeredIndicesWithTransformMetadata(
-            b, loc, layeredSourceIndices, srcUpperIndices,
-            layeredSourceTransformMetadata);
+            b, loc, layeredSourceIndices, srcUpperIndices, sourceTransforms);
 
         // Fetch low-level coordinate.
         srcLowerIndices = layeredSourceIndices[layeredSourceIndices.size() - 1];
@@ -5163,23 +4888,8 @@ struct ThreadwiseCopyRewritePattern
       // would be used.
       if (legacyStore == false) {
         // Populate coorindates across the layers of transformations.
-        if (destTransformSpec) {
-          Attribute metadataAttr = destTransformSpec.get("metadata");
-          if (metadataAttr)
-            layeredDestTransformMetadata =
-                metadataAttr.template cast<ArrayAttr>();
-          else
-            populateTransformMetadataFromLowerType(
-                b, destType, layeredDestTransformMetadata);
-        }
-
-        // Compute high-level coordinate for dest memref.
-        destUpperIndices.append(destCoord.begin(), destCoord.end());
-
-        // Populate coorindates across the layers of transformations.
         populateLayeredIndicesWithTransformMetadata(
-            b, loc, layeredDestIndices, destUpperIndices,
-            layeredDestTransformMetadata);
+            b, loc, layeredDestIndices, destUpperIndices, destTransforms);
 
         // Fetch low-level coordinate.
         destLowerIndices = layeredDestIndices[layeredDestIndices.size() - 1];
@@ -5193,75 +4903,21 @@ struct ThreadwiseCopyRewritePattern
         loopBounds.push_back(sliceLengths[iter]);
       }
 
-      int gemmNExtra = 0;
-      int gemmMExtra = 0;
-      int gemmKExtra = 0;
-      // judge extra pad
-      if (destTransformSpec) {
-        Attribute metadataAttr = destTransformSpec.get("metadata");
-        if (metadataAttr) {
-          ArrayAttr layeredTransformMetadata =
-              metadataAttr.template cast<ArrayAttr>();
-          for (unsigned iter = 0; iter < layeredTransformMetadata.size();
-               ++iter) {
-            DictionaryAttr dictAttr =
-                layeredTransformMetadata[iter].template cast<DictionaryAttr>();
-            auto gemmKExtraAttr = dictAttr.get("gemmKExtra");
-            auto gemmMExtraAttr = dictAttr.get("gemmMExtra");
-            auto gemmNExtraAttr = dictAttr.get("gemmNExtra");
-            if (gemmNExtraAttr) {
-              gemmNExtra = gemmNExtraAttr.template cast<IntegerAttr>().getInt();
-            }
-
-            if (gemmMExtraAttr) {
-              gemmMExtra = gemmMExtraAttr.template cast<IntegerAttr>().getInt();
-            }
-            if (gemmKExtraAttr) {
-              gemmKExtra = gemmKExtraAttr.template cast<IntegerAttr>().getInt();
-            }
-          }
-        }
-      }
-      BwdPaddingKernelStatus bwdPaddingStatus =
-          BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
-
-      if ((gemmMExtra || gemmKExtra || gemmNExtra)) {
-
-        auto PaddingKernelStatusAttr = op->getAttr("bwd_padding_kernel_status");
-        if (PaddingKernelStatusAttr) {
-          int64_t PaddingKernelStatus =
-              PaddingKernelStatusAttr.template cast<IntegerAttr>().getInt();
-          if (PaddingKernelStatus ==
-              BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne)
-            bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
-          else if (PaddingKernelStatus ==
-                   BwdPaddingKernelStatus::StrideTwoNonXdlopsNHWC)
-            bwdPaddingStatus = BwdPaddingKernelStatus::StrideTwoNonXdlopsNHWC;
-          else if (PaddingKernelStatus ==
-                   BwdPaddingKernelStatus::StrideTwoNonXdlopsNCHW)
-            bwdPaddingStatus = BwdPaddingKernelStatus::StrideTwoNonXdlopsNCHW;
-          else
-            bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
-        }
-      } else {
-        bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
-      }
-
       // Main code emission loop.
       bool toExit = false;
       do {
         // Use the old logic in case "legacy_load" attribute is specified.
         if (legacyLoad == true) {
-          computeTopAndBottomIndicesWithAffineMap(
-              b, loc, srcUpperIndices, srcLowerIndices, sourceCoord, loopIVs,
-              layeredSourceTransform);
+          computeBottomIndicesWithAffineMap(b, loc, srcLowerIndices,
+                                            srcUpperIndices, loopIVs,
+                                            composedSourceTransform);
         } else {
           // New approach. Use index diff map.
           // Progressively use index diff map to compute the coordinate at the
           // bottom most layer.
-          computeBottomIndicesWithIndexDiffMap(
-              b, loc, loopIVs, layeredSourceTransformMetadata,
-              layeredSourceTransform, layeredSourceIndices, srcLowerIndices);
+          computeBottomIndicesWithIndexDiffMap(b, loc, layeredSourceIndices,
+                                               loopIVs, sourceTransforms,
+                                               srcLowerIndices);
         }
 
         // Load from source.
@@ -5275,22 +4931,23 @@ struct ThreadwiseCopyRewritePattern
 
         // Use the old logic in case "legacy_store" attribute is specified.
         if (legacyStore == true) {
-          computeTopAndBottomIndicesWithAffineMap(
-              b, loc, destUpperIndices, destLowerIndices, destCoord, loopIVs,
-              layeredDestTransform);
+          computeBottomIndicesWithAffineMap(b, loc, destLowerIndices,
+                                            destUpperIndices, loopIVs,
+                                            composedDestTransform);
         } else {
           // New approach. Use index diff map.
           // Progressively use index diff map to compute the coordinate at the
           // bottom most layer.
-          computeBottomIndicesWithIndexDiffMap(
-              b, loc, loopIVs, layeredDestTransformMetadata,
-              layeredDestTransform, layeredDestIndices, destLowerIndices);
+          computeBottomIndicesWithIndexDiffMap(b, loc, layeredDestIndices,
+                                               loopIVs, destTransforms,
+                                               destLowerIndices);
         }
 
         // Store to dest.
-        emitStoreLogic(bwdPaddingStatus, b, loc, destType, destElementType,
-                       toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
-                       destLowerIndices, convertedScalarValue);
+        emitStoreLogic(op.paddingInfo().getBwdPaddingInfo(), b, loc, destType,
+                       destElementType, toEmitOOBStoreCheckLogic,
+                       oobStoreCheckDims, op.dest(), destLowerIndices,
+                       convertedScalarValue);
 
         // increase IVs
         bool toIncreaseNextDigit = true;
@@ -5328,6 +4985,7 @@ struct ThreadwiseLoadRewritePattern
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
+    ArrayAttr transforms = op.transforms()[0].cast<ArrayAttr>();
     // The types in elements of the input are all the same.
     auto destElementType = op.getResult(0).getType().cast<Type>();
 
@@ -5343,19 +5001,11 @@ struct ThreadwiseLoadRewritePattern
          legacyLoadAttr.template cast<BoolAttr>().getValue() == true);
 
     Optional<AffineMap> composedSourceTransform;
-    SmallVector<AffineMap> layeredSourceTransform;
-    DictionaryAttr srcTransformSpec;
-    ArrayAttr boundCheckSourceAttr;
-
-    auto coordTransformsAttr =
-        op->getAttr("coord_transforms").template cast<ArrayAttr>();
 
     // Obtain coordinate lengths, as well as information of affine
     // transformations.
-    unsigned sourceCoordLength = obtainGenericTensorTransformationInfo(
-        /*operandIndex=*/0, sourceType, coordTransformsAttr,
-        composedSourceTransform, layeredSourceTransform, srcTransformSpec,
-        boundCheckSourceAttr);
+    uint32_t sourceCoordLength = obtainGenericTensorTransformationInfo(
+        sourceType, transforms, composedSourceTransform);
 
     auto sourceCoord = op.sourceCoord();
     if (sourceCoordLength != sourceCoord.size()) {
@@ -5366,13 +5016,13 @@ struct ThreadwiseLoadRewritePattern
     // FIXME. XXX.
     // Workaround to obtain gemmKExtra attribute.
     // And use it to override legacy load/store debug switch.
-    legacyLoad = overrideLoadStoreHack(srcTransformSpec, legacyLoad);
+    legacyLoad = overrideLoadStoreHack(op.paddingInfo(), legacyLoad);
 
     // Determine if we need to emit codes for out-of-bound check, and which
     // dimensions need to dconduct such check.
     SmallVector<unsigned, 8> oobLoadCheckDims;
     bool toEmitOOBLoadCheckLogic = obtainOOBCheckInfo(
-        composedSourceTransform, boundCheckSourceAttr, oobLoadCheckDims);
+        composedSourceTransform, op.oobDims(), oobLoadCheckDims);
 
     // llvm::errs() << "\nthreadwise_load op:\n";
     // op.dump();
@@ -5388,16 +5038,10 @@ struct ThreadwiseLoadRewritePattern
                                   .template cast<IntegerAttr>()
                                   .getInt();
 
-    Optional<ArrayAttr> boundAttr;
-    if (op->getAttr("bound"))
-      boundAttr = op->getAttr("bound").template cast<ArrayAttr>();
-
     // Figure out the bounds of load/store loops.
     SmallVector<uint64_t, 2> sliceLengths;
 
-    computeSliceLengths(sliceLengths, composedSourceTransform,
-                        /*composedDestTransform=*/Optional<AffineMap>{},
-                        coordTransformsAttr, boundAttr, sourceType, nullptr);
+    computeSliceLengths(sliceLengths, transforms, nullptr, sourceType, nullptr);
 
     // llvm::errs() << "slice lengths: ";
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
@@ -5418,13 +5062,12 @@ struct ThreadwiseLoadRewritePattern
     // --------------------------------
 
     SmallVector<Value, 8> srcUpperIndices;
+    srcUpperIndices.append(sourceCoord.begin(), sourceCoord.end());
     SmallVector<Value, 8> srcLowerIndices;
     // Coordinates across the layers of transformations.
     // If the vector is of size n, 0 is the top layer, and
     // n-1 is the bottom layer.
     SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndices;
-
-    ArrayAttr layeredSourceTransformMetadata;
 
     // Obtain transform metadata and populate coordinates for all layers
     // wthe the metadata.
@@ -5432,23 +5075,8 @@ struct ThreadwiseLoadRewritePattern
     // would be used.
     if (legacyLoad == false) {
       // Populate coorindates across the layers of transformations.
-      if (srcTransformSpec) {
-        Attribute metadataAttr = srcTransformSpec.get("metadata");
-        if (metadataAttr)
-          layeredSourceTransformMetadata =
-              metadataAttr.template cast<ArrayAttr>();
-        else
-          populateTransformMetadataFromLowerType(
-              b, sourceType, layeredSourceTransformMetadata);
-      }
-
-      // Compute high-level coordinate for source memref.
-      srcUpperIndices.append(sourceCoord.begin(), sourceCoord.end());
-
-      // Populate coorindates across the layers of transformations.
-      populateLayeredIndicesWithTransformMetadata(
-          b, loc, layeredSourceIndices, srcUpperIndices,
-          layeredSourceTransformMetadata);
+      populateLayeredIndicesWithTransformMetadata(b, loc, layeredSourceIndices,
+                                                  srcUpperIndices, transforms);
 
       // Fetch low-level coordinate.
       srcLowerIndices = layeredSourceIndices[layeredSourceIndices.size() - 1];
@@ -5477,16 +5105,15 @@ struct ThreadwiseLoadRewritePattern
 
       // Use the old logic in case "legacy_load" attribute is specified.
       if (legacyLoad == true) {
-        computeTopAndBottomIndicesWithAffineMap(
-            b, loc, srcUpperIndices, srcLowerIndices, sourceCoord, loopIVs,
-            layeredSourceTransform);
+        computeBottomIndicesWithAffineMap(b, loc, srcLowerIndices,
+                                          srcUpperIndices, loopIVs,
+                                          composedSourceTransform);
       } else {
         // New approach. Use index diff map.
         // Progressively use index diff map to compute the coordinate at the
         // bottom most layer.
         computeBottomIndicesWithIndexDiffMap(
-            b, loc, loopIVs, layeredSourceTransformMetadata,
-            layeredSourceTransform, layeredSourceIndices, srcLowerIndices);
+            b, loc, layeredSourceIndices, loopIVs, transforms, srcLowerIndices);
       }
 
       // Determine the type to be loaded.
@@ -5586,45 +5213,20 @@ struct ThreadwiseStoreRewritePattern
 
     auto destType = op.dest().getType().cast<MemRefType>();
 
-    // Debug switches.
-    // true : use the slow but proven affine map.
-    // false : use the faster index diff map.
-    auto legacyStoreAttr = op->getAttr("legacy_store");
-    bool legacyStore =
-        (legacyStoreAttr &&
-         legacyStoreAttr.template cast<BoolAttr>().getValue() == true);
-
-    Optional<AffineMap> composedDestTransform;
-    SmallVector<AffineMap> layeredDestTransform;
-    DictionaryAttr destTransformSpec;
-    ArrayAttr boundCheckDestAttr;
-
-    auto coordTransformsAttr =
-        op->getAttr("coord_transforms").template cast<ArrayAttr>();
+    // This lowering is much simpler than other threadwise* ops since
+    // threadwise_store cannot have a global tensor as an argument.
+    // This means that it does not participate in the coordinate transformations
+    // scheme.
 
     // Obtain coordinate lengths, as well as information of affine
     // transformations.
-    unsigned destCoordLength = obtainGenericTensorTransformationInfo(
-        /*operandIndex=*/sourceTypes.size(), destType, coordTransformsAttr,
-        composedDestTransform, layeredDestTransform, destTransformSpec,
-        boundCheckDestAttr);
+    uint32_t destCoordLength = destType.getRank();
 
     auto destCoord = op.destCoord();
     if (destCoordLength != destCoord.size()) {
       llvm::errs() << "INCORRECT dest coordinates assigned!\n";
       return failure();
     }
-
-    // FIXME. XXX.
-    // Workaround to obtain gemmKExtra attribute.
-    // And use it to override legacy load/store debug switch.
-    legacyStore = overrideLoadStoreHack(destTransformSpec, legacyStore);
-
-    // Determine if we need to emit codes for out-of-bound check, and which
-    // dimensions need to dconduct such check.
-    SmallVector<unsigned, 8> oobStoreCheckDims;
-    bool toEmitOOBStoreCheckLogic = obtainOOBCheckInfo(
-        composedDestTransform, boundCheckDestAttr, oobStoreCheckDims);
 
     // llvm::errs() << "\nthreadwise_store op:\n";
     // op.dump();
@@ -5640,17 +5242,11 @@ struct ThreadwiseStoreRewritePattern
                                   .template cast<IntegerAttr>()
                                   .getInt();
 
-    Optional<ArrayAttr> boundAttr;
-    if (op->getAttr("bound"))
-      boundAttr = op->getAttr("bound").template cast<ArrayAttr>();
-
     // Figure out the bounds of load/store loops.
-    SmallVector<uint64_t, 2> sliceLengths;
-
-    computeSliceLengths(sliceLengths,
-                        /*composedSourceTransform=*/Optional<AffineMap>{},
-                        composedDestTransform, coordTransformsAttr, boundAttr,
-                        nullptr, destType);
+    SmallVector<uint64_t, 5> sliceLengths;
+    for (uint64_t v : destType.getShape()) {
+      sliceLengths.push_back(static_cast<uint64_t>(v));
+    }
 
     // llvm::errs() << "slice lengths: ";
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
@@ -5671,41 +5267,8 @@ struct ThreadwiseStoreRewritePattern
     // --------------------------------
 
     SmallVector<Value, 8> destUpperIndices;
+    destUpperIndices.append(destCoord.begin(), destCoord.end());
     SmallVector<Value, 8> destLowerIndices;
-    // Coordinates across the layers of transformations.
-    // If the vector is of size n, 0 is the top layer, and
-    // n-1 is the bottom layer.
-    SmallVector<SmallVector<Value, 8>, 2> layeredDestIndices;
-
-    ArrayAttr layeredDestTransformMetadata;
-
-    // Obtain transform metadata and populate coordinates for all layers
-    // wthe the metadata.
-    // Only do such computation in the new approach where index diff maps
-    // would be used.
-    if (legacyStore == false) {
-      // Populate coorindates across the layers of transformations.
-      if (destTransformSpec) {
-        Attribute metadataAttr = destTransformSpec.get("metadata");
-        if (metadataAttr)
-          layeredDestTransformMetadata =
-              metadataAttr.template cast<ArrayAttr>();
-        else
-          populateTransformMetadataFromLowerType(b, destType,
-                                                 layeredDestTransformMetadata);
-      }
-
-      // Compute high-level coordinate for dest memref.
-      destUpperIndices.append(destCoord.begin(), destCoord.end());
-
-      // Populate coorindates across the layers of transformations.
-      populateLayeredIndicesWithTransformMetadata(b, loc, layeredDestIndices,
-                                                  destUpperIndices,
-                                                  layeredDestTransformMetadata);
-
-      // Fetch low-level coordinate.
-      destLowerIndices = layeredDestIndices[layeredDestIndices.size() - 1];
-    }
 
     // --------------------------------
 
@@ -5727,20 +5290,13 @@ struct ThreadwiseStoreRewritePattern
       //   llvm::errs() << v << " ";
       // llvm::errs() << "\n";
 
-      // Use the old logic in case "legacy_store" attribute is specified.
-      if (legacyStore == true) {
-        computeTopAndBottomIndicesWithAffineMap(b, loc, destUpperIndices,
-                                                destLowerIndices, destCoord,
-                                                loopIVs, layeredDestTransform);
-      } else {
-        // New approach. Use index diff map.
-        // Progressively use index diff map to compute the coordinate at the
-        // bottom most layer.
-        computeBottomIndicesWithIndexDiffMap(
-            b, loc, loopIVs, layeredDestTransformMetadata, layeredDestTransform,
-            layeredDestIndices, destLowerIndices);
+      // Compute bottom indices from loop IVs
+      destLowerIndices.clear();
+      for (auto pair : llvm::zip(destUpperIndices, loopIVs)) {
+        Value original = std::get<0>(pair);
+        Value diff = b.create<ConstantIndexOp>(loc, std::get<1>(pair));
+        destLowerIndices.push_back(b.create<AddIOp>(loc, original, diff));
       }
-
       // Determine the type to be stored.
       // Construct a vector in case we can do vector store.
       Type typeToStore = sourceElementType;
@@ -5783,12 +5339,11 @@ struct ThreadwiseStoreRewritePattern
       }
 
       // Store to dest. this part do not need backward data padding kernel
-      // workaround just use NotBwdPaddingOrStrideOne
-      BwdPaddingKernelStatus bwdPaddingStatus =
-          BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
-      emitStoreLogic(bwdPaddingStatus, b, loc, destType, typeToStore,
-                     toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
-                     destLowerIndices, valueToStore);
+      // workaround just use "not applicable"
+      BwdPaddingKernelInfo bwdPaddingInfo = BwdPaddingKernelInfo::NA;
+      emitStoreLogic(bwdPaddingInfo, b, loc, destType, typeToStore,
+                     /*toEmitOOBStoreLogic=*/false, /*oobStoreCheckDims=*/{},
+                     op.dest(), destLowerIndices, valueToStore);
 
       // increase IVs
       bool toIncreaseNextDigit = true;
@@ -5838,20 +5393,6 @@ struct ThreadwiseCopyV2RewritePattern
     InMemoryDataOperation dataOpration = op.dataOperation();
     Value sourceOffsetOp =
         b.create<ConstantIndexOp>(loc, op.sourceOffset().getZExtValue());
-    // Get source offset, and dest coordinates.
-    //
-    // 1. For memrefs with no externally defined affine maps in coord_transforms
-    //    attribute, or embedded affine maps. Use its rank.
-    // 2. For memrefs with externally defined maps, use its input rank.
-    // 3. For memrefs with embedded maps, use its input rank.
-    Optional<AffineMap> composedSourceTransform;
-    Optional<AffineMap> composedDestTransform;
-    SmallVector<AffineMap> layeredSourceTransform;
-    SmallVector<AffineMap> layeredDestTransform;
-    DictionaryAttr srcTransformSpec;
-    DictionaryAttr destTransformSpec;
-    ArrayAttr boundCheckSourceAttr;
-    ArrayAttr boundCheckDestAttr;
 
     int64_t dataPerCopy =
         op->getAttrOfType<IntegerAttr>("dest_data_per_write").getInt();
@@ -5867,16 +5408,16 @@ struct ThreadwiseCopyV2RewritePattern
     assert((dataPerCopy == 1 || lowerVectorDim == 4) &&
            "Was asked to vectorize non-final dimension");
 
-    auto coordTransformsAttr =
-        op->getAttr("coord_transforms").template cast<ArrayAttr>();
+    auto sourceTransforms = op.transforms()[0].cast<ArrayAttr>();
+    auto destTransforms = op.transforms()[1].cast<ArrayAttr>();
+
+    Optional<AffineMap> composedSourceTransform;
+    Optional<AffineMap> composedDestTransform;
 
     // Obtain coordinate lengths, as well as information of affine
     // transformations.
-    unsigned sourceCoordLength = obtainGenericTensorTransformationInfo(
-        /*operandIndex=*/0, sourceType, coordTransformsAttr,
-        composedSourceTransform, layeredSourceTransform, srcTransformSpec,
-        boundCheckSourceAttr);
-
+    uint32_t sourceCoordLength = obtainGenericTensorTransformationInfo(
+        sourceType, sourceTransforms, composedSourceTransform);
     auto sourceCoord = op.sourceCoord();
     if (sourceCoordLength != sourceCoord.size()) {
       return op.emitOpError("Got " + Twine(sourceCoord.size()) +
@@ -5884,10 +5425,8 @@ struct ThreadwiseCopyV2RewritePattern
                             Twine(sourceCoordLength));
     }
 
-    unsigned destCoordLength = obtainGenericTensorTransformationInfo(
-        /*operandIndex=*/1, destType, coordTransformsAttr,
-        composedDestTransform, layeredDestTransform, destTransformSpec,
-        boundCheckDestAttr);
+    uint32_t destCoordLength = obtainGenericTensorTransformationInfo(
+        destType, destTransforms, composedDestTransform);
     auto destCoord = op.destCoord();
     if (destCoordLength != destCoord.size()) {
       return op.emitOpError("Got " + Twine(destCoord.size()) +
@@ -5897,9 +5436,10 @@ struct ThreadwiseCopyV2RewritePattern
 
     // Determine if we need to emit codes for out-of-bound check, and which
     // dimensions need to dconduct such check.
-    SmallVector<unsigned, 8> oobStoreCheckDims;
+    SmallVector<uint32_t, 8> oobStoreCheckDims;
     bool toEmitOOBStoreCheckLogic = obtainOOBCheckInfo(
-        composedDestTransform, boundCheckDestAttr, oobStoreCheckDims);
+        composedDestTransform, op.destOobDims(), oobStoreCheckDims);
+
     if (toEmitOOBStoreCheckLogic) {
       // TODO(kdrewnia) Work out if we can have stores that statically
       // won't OOB still be vectorized
@@ -5910,16 +5450,10 @@ struct ThreadwiseCopyV2RewritePattern
     // op.dump();
     // llvm::errs() << "\n";
 
-    Optional<ArrayAttr> boundAttr;
-    if (op->getAttr("bound"))
-      llvm_unreachable("Not currently being handled correctly");
-    // boundAttr = op->getAttr("bound").template cast<ArrayAttr>();
-
     // Figure out the bounds of load/store loops.
-    SmallVector<uint64_t, 2> sliceLengths;
+    SmallVector<uint64_t, 5> sliceLengths;
 
-    computeSliceLengths(sliceLengths, composedSourceTransform,
-                        composedDestTransform, coordTransformsAttr, boundAttr,
+    computeSliceLengths(sliceLengths, sourceTransforms, destTransforms,
                         sourceType, destType);
     if (upperVectorDim >= 0) {
       sliceLengths[upperVectorDim] /= dataPerCopy;
@@ -5940,12 +5474,8 @@ struct ThreadwiseCopyV2RewritePattern
     SmallVector<SmallVector<Value, 8>, 2> layeredSourceIndices;
 
     // Populate coorindates across the layers of transformations.
-    ArrayAttr layeredSourceTransformMetadata =
-        srcTransformSpec.get("metadata").template cast<ArrayAttr>();
-    // Populate coorindates across the layers of transformations.
-    populateLayeredIndicesWithTransformMetadata(b, loc, layeredSourceIndices,
-                                                srcUpperIndices,
-                                                layeredSourceTransformMetadata);
+    populateLayeredIndicesWithTransformMetadata(
+        b, loc, layeredSourceIndices, srcUpperIndices, sourceTransforms);
 
     // Fetch low-level coordinate.
     SmallVector<Value, 8> srcLowerIndices =
@@ -5961,12 +5491,8 @@ struct ThreadwiseCopyV2RewritePattern
     SmallVector<SmallVector<Value, 8>, 2> layeredDestIndices;
 
     // Populate coorindates across the layers of transformations.
-    ArrayAttr layeredDestTransformMetadata =
-        destTransformSpec.get("metadata").template cast<ArrayAttr>();
-    // Populate coorindates across the layers of transformations.
-    populateLayeredIndicesWithTransformMetadata(b, loc, layeredDestIndices,
-                                                destUpperIndices,
-                                                layeredDestTransformMetadata);
+    populateLayeredIndicesWithTransformMetadata(
+        b, loc, layeredDestIndices, destUpperIndices, destTransforms);
 
     // Fetch low-level coordinate.
     SmallVector<Value, 8> destLowerIndices =
@@ -5978,76 +5504,6 @@ struct ThreadwiseCopyV2RewritePattern
     for (unsigned iter = 0; iter < srcUpperIndices.size(); ++iter) {
       loopIVs.push_back(0);
       loopBounds.push_back(sliceLengths[iter]);
-    }
-
-    int gemmNExtra = 0;
-    int gemmMExtra = 0;
-    int gemmKExtra = 0;
-    // judge extra pad
-    if (destTransformSpec) {
-      Attribute metadataAttr = destTransformSpec.get("metadata");
-      if (metadataAttr) {
-        ArrayAttr layeredTransformMetadata =
-            metadataAttr.template cast<ArrayAttr>();
-        for (unsigned iter = 0; iter < layeredTransformMetadata.size();
-             ++iter) {
-          DictionaryAttr dictAttr =
-              layeredTransformMetadata[iter].template cast<DictionaryAttr>();
-          auto gemmKExtraAttr = dictAttr.get("gemmKExtra");
-          auto gemmMExtraAttr = dictAttr.get("gemmMExtra");
-          auto gemmNExtraAttr = dictAttr.get("gemmNExtra");
-          if (gemmNExtraAttr) {
-            gemmNExtra = gemmNExtraAttr.template cast<IntegerAttr>().getInt();
-          }
-
-          if (gemmMExtraAttr) {
-            gemmMExtra = gemmMExtraAttr.template cast<IntegerAttr>().getInt();
-          }
-          if (gemmKExtraAttr) {
-            gemmKExtra = gemmKExtraAttr.template cast<IntegerAttr>().getInt();
-          }
-        }
-      }
-    }
-
-    BwdPaddingKernelStatus bwdPaddingStatus =
-        BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
-    if ((gemmMExtra || gemmKExtra || gemmNExtra)) {
-      auto PaddingKernelStatusAttr = op->getAttr("bwd_padding_kernel_status");
-      if (PaddingKernelStatusAttr) {
-        int64_t PaddingKernelStatus =
-            PaddingKernelStatusAttr.template cast<IntegerAttr>().getInt();
-        if (PaddingKernelStatus ==
-            BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne)
-          bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
-        else if (PaddingKernelStatus ==
-                 BwdPaddingKernelStatus::StrideTwoXdlopsNHWC) {
-          // gemmMExtra>0 can't get correct results now
-          if (gemmMExtra == 0 && gemmNExtra > 0)
-            bwdPaddingStatus =
-                BwdPaddingKernelStatus::GemmNPadStrideTwoXdlopsNHWC;
-          else if (gemmMExtra > 0 && gemmNExtra > 0)
-            bwdPaddingStatus =
-                BwdPaddingKernelStatus::GemmMNPadStrideTwoXdlopsNHWC;
-          else if (gemmMExtra > 0 && gemmNExtra == 0)
-            bwdPaddingStatus =
-                BwdPaddingKernelStatus::GemmMPadStrideTwoXdlopsNHWC;
-        } else if (PaddingKernelStatus ==
-                   BwdPaddingKernelStatus::StrideTwoXdlopsNCHW) {
-          if (gemmMExtra > 0 && gemmNExtra > 0)
-            bwdPaddingStatus =
-                BwdPaddingKernelStatus::GemmMNPadStrideTwoXdlopsNCHW;
-          if (gemmMExtra > 0)
-            bwdPaddingStatus =
-                BwdPaddingKernelStatus::GemmMPadStrideTwoXdlopsNCHW;
-          else if (gemmNExtra > 0)
-            bwdPaddingStatus =
-                BwdPaddingKernelStatus::GemmNPadStrideTwoXdlopsNCHW;
-        } else
-          bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
-      }
-    } else {
-      bwdPaddingStatus = BwdPaddingKernelStatus::NotBwdPaddingOrStrideOne;
     }
 
     Type typeToLoad = sourceElementType;
@@ -6065,9 +5521,9 @@ struct ThreadwiseCopyV2RewritePattern
 
       // Progressively use index diff map to compute the coordinate at the
       // bottom most layer.
-      computeBottomIndicesWithIndexDiffMap(
-          b, loc, loopIVs, layeredSourceTransformMetadata,
-          layeredSourceTransform, layeredSourceIndices, srcLowerIndices);
+      computeBottomIndicesWithIndexDiffMap(b, loc, layeredSourceIndices,
+                                           loopIVs, sourceTransforms,
+                                           srcLowerIndices);
 
       // Add sourceOffset to derive the position in the vector.
       auto srcPosition =
@@ -6098,14 +5554,13 @@ struct ThreadwiseCopyV2RewritePattern
 
       // Progressively use index diff map to compute the coordinate at the
       // bottom most layer.
-      computeBottomIndicesWithIndexDiffMap(
-          b, loc, loopIVs, layeredDestTransformMetadata, layeredDestTransform,
-          layeredDestIndices, destLowerIndices);
+      computeBottomIndicesWithIndexDiffMap(b, loc, layeredDestIndices, loopIVs,
+                                           destTransforms, destLowerIndices);
 
       // Store to dest.
-      emitStoreLogic(bwdPaddingStatus, b, loc, destType, typeToStore,
-                     toEmitOOBStoreCheckLogic, oobStoreCheckDims, op.dest(),
-                     destLowerIndices, convertedValue, dataOpration);
+      emitStoreLogic(op.paddingInfo().getBwdPaddingInfo(), b, loc, destType,
+                     typeToStore, toEmitOOBStoreCheckLogic, oobStoreCheckDims,
+                     op.dest(), destLowerIndices, convertedValue, dataOpration);
       // increase IVs
       bool toIncreaseNextDigit = true;
       int iter = loopIVs.size() - 1;
@@ -6275,6 +5730,9 @@ struct SubviewRewritePattern : public OpRewritePattern<miopen::SubviewOp> {
 
 //===----------------------------------------------------------------------===//
 // Transform lowering.
+//
+// Gathers a chain of transformations and puts them into the appropriate index
+// of the transforms attribute of the user of that chain.
 //===----------------------------------------------------------------------===//
 
 struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
@@ -6282,142 +5740,106 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
 
   LogicalResult matchAndRewrite(miopen::TransformOp op,
                                 PatternRewriter &b) const override {
-    auto outputType = op.output().getType().cast<MemRefType>();
-    auto outputShape = outputType.getShape();
-    auto boundCheckAttr = op->template getAttrOfType<ArrayAttr>("bound_check");
+    // To cut down on the number of intermediate arrays we pull in,
+    // we'll deal with entire chains of transform ops at once
 
-    // determine output shape and track it in an attribute.
-    llvm::SmallVector<Attribute, 4> shapeAttrVec;
-    for (unsigned i = 0; i < outputShape.size(); ++i) {
-      shapeAttrVec.push_back(b.getI32IntegerAttr(outputShape[i]));
+    TransformOp lastTransform = op;
+    TransformOp firstTransform = op;
+
+    while (auto pred = dyn_cast_or_null<TransformOp>(
+               firstTransform.input().getDefiningOp())) {
+      firstTransform = pred;
     }
 
-    // auto attr = b.getNamedAttr("domain",
-    //               b.getArrayAttr(shapeAttrVec));
-    // llvm::errs() << "\n\ndomain attr:\n";
-    // attr.second.dump();
-    // llvm::errs() << "\n";
-    // llvm::errs() << "\n========\nTransformOp:\n";
-    // op.dump();
-
-    // Pass the output affine map to users of this op.
-    if (!outputType.getLayout().isIdentity())
-      for (auto user : op.output().getUsers()) {
-        // llvm::errs() << "\n========\nTransformOp user:\n";
-        // user->dump();
-
-        // determine user domain
-
-        unsigned userOperandIndex = 0;
-        for (userOperandIndex = 0; userOperandIndex < user->getNumOperands();
-             ++userOperandIndex)
-          if (user->getOperand(userOperandIndex) == op.output())
-            break;
-
-        auto coordTransformAttrs = user->getAttr("coord_transforms");
-        if (!coordTransformAttrs) {
-          llvm::SmallVector<NamedAttribute, 5> arrayAttr{
-              b.getNamedAttr("operand", b.getI32IntegerAttr(userOperandIndex)),
-              b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
-                                           {outputType.getLayout().getAffineMap()})),
-              b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec)),
-              b.getNamedAttr("metadata", b.getArrayAttr({b.getDictionaryAttr(
-                                             op->getAttrs())}))};
-
-          if (boundCheckAttr)
-            arrayAttr.push_back(b.getNamedAttr("bound_check", boundCheckAttr));
-
-          user->setAttr("coord_transforms",
-                        b.getArrayAttr({b.getDictionaryAttr(
-                            {arrayAttr.begin(), arrayAttr.end()})}));
-        } else {
-          // create a deep-copy of existing attributes, and amend the new one.
-          // need to figure out if there's a better way than this.
-          auto arrayAttr = coordTransformAttrs.cast<ArrayAttr>();
-          llvm::SmallVector<Attribute, 2> augmentedArrayAttr;
-
-          bool augmented = false;
-          for (unsigned idx = 0; idx < arrayAttr.size(); ++idx) {
-            auto dictAttr = arrayAttr.getValue()[idx].cast<DictionaryAttr>();
-            auto operandIndex =
-                dictAttr.get("operand").cast<IntegerAttr>().getInt();
-
-            if (operandIndex != userOperandIndex) {
-              augmentedArrayAttr.push_back(dictAttr);
-            } else {
-              auto existingTransforms =
-                  dictAttr.get("transforms").cast<ArrayAttr>();
-
-              auto existingDomain = dictAttr.get("domain").cast<ArrayAttr>();
-              auto existingMetadata =
-                  dictAttr.get("metadata").cast<ArrayAttr>();
-              llvm::SmallVector<Attribute, 5> augmentedMetadata;
-              augmentedMetadata.append(existingMetadata.begin(),
-                                       existingMetadata.end());
-              augmentedMetadata.push_back(b.getDictionaryAttr(op->getAttrs()));
-
-              llvm::SmallVector<NamedAttribute, 4> arrayAttr{
-                  b.getNamedAttr("operand",
-                                 b.getI32IntegerAttr(userOperandIndex)),
-                  b.getNamedAttr("transforms", existingTransforms),
-                  b.getNamedAttr("domain", existingDomain),
-                  b.getNamedAttr("metadata",
-                                 b.getArrayAttr(augmentedMetadata))};
-              auto existingBoundCheck = dictAttr.get("bound_check");
-              if (boundCheckAttr && !existingBoundCheck)
-                arrayAttr.push_back(
-                    b.getNamedAttr("bound_check", boundCheckAttr));
-              else if (!boundCheckAttr && existingBoundCheck)
-                arrayAttr.push_back(
-                    b.getNamedAttr("bound_check", existingBoundCheck));
-              else if (boundCheckAttr && existingBoundCheck) {
-                llvm::SmallVector<Attribute, 5> boundVector;
-                for (size_t j = 0; j < boundCheckAttr.size(); j++) {
-                  auto value = boundCheckAttr[j].cast<IntegerAttr>().getInt();
-                  if (value)
-                    boundVector.push_back(boundCheckAttr[j]);
-                  else
-                    boundVector.push_back(
-                        existingBoundCheck.cast<ArrayAttr>()[j]);
-                }
-                arrayAttr.push_back(b.getNamedAttr(
-                    "bound_check",
-                    b.getArrayAttr({boundVector.begin(), boundVector.end()})));
-              }
-              augmentedArrayAttr.push_back(
-                  b.getDictionaryAttr({arrayAttr.begin(), arrayAttr.end()}));
-
-              augmented = true;
-            }
-          }
-          if (!augmented) {
-            llvm::SmallVector<NamedAttribute, 4> arrayAttr{
-                b.getNamedAttr("operand",
-                               b.getI32IntegerAttr(userOperandIndex)),
-                b.getNamedAttr("transforms", b.getAffineMapArrayAttr(
-                                                 {outputType.getLayout().getAffineMap()})),
-                b.getNamedAttr("domain", b.getArrayAttr(shapeAttrVec)),
-                b.getNamedAttr("metadata", b.getArrayAttr({b.getDictionaryAttr(
-                                               op->getAttrs())}))};
-
-            if (boundCheckAttr)
-              arrayAttr.push_back(
-                  b.getNamedAttr("bound_check", boundCheckAttr));
-            augmentedArrayAttr.push_back(
-                b.getDictionaryAttr({arrayAttr.begin(), arrayAttr.end()}));
-          }
-          user->setAttr("coord_transforms", b.getArrayAttr(augmentedArrayAttr));
+    bool userIsOneTransform = false;
+    do {
+      userIsOneTransform = false;
+      if (lastTransform.output().hasOneUse()) {
+        if (auto succ = dyn_cast<TransformOp>(
+                *(lastTransform.output().getUsers().begin()))) {
+          userIsOneTransform = true;
+          lastTransform = succ;
         }
-
-        // llvm::errs() << "\n========\nTransformOp updated user:\n";
-        // user->dump();
-        // llvm::errs() << "\n";
       }
+    } while (userIsOneTransform);
 
-    // Pass the input to uses of this op.
-    op.replaceAllUsesWith(op.input());
+    // Each successive transform op creates an upper view from a lower view
+    // so the transforms must be composed with the last (uppermost) transform
+    // at the front.
+    SmallVector<Attribute, 5> transforms;
+    SmallVector<TransformOp, 5> transformOpStack;
+    {
+      Operation *beforeFirstTransform = firstTransform.input().getDefiningOp();
+      Operation *currentOp = lastTransform.getOperation();
+      while (currentOp != beforeFirstTransform) {
+        auto currentTransform = cast<TransformOp>(currentOp);
+        transformOpStack.push_back(currentTransform);
+        // verify() would've failed if we couldn't cast<> these
+        for (Attribute attr : currentTransform.transforms()) {
+          TransformsAttr ta = attr.cast<TransformsAttr>();
+          transforms.push_back(ta);
+        }
+        currentOp = currentTransform.input().getDefiningOp();
+      }
+    }
 
-    op.erase();
+    // Check module-level invariants before applying the rewrite
+    for (OpOperand &use : lastTransform.output().getUses()) {
+      uint32_t argNum = use.getOperandNumber();
+      Operation *useOp = use.getOwner();
+      if (auto useTransforms =
+              useOp->getAttr("transforms").dyn_cast_or_null<ArrayAttr>()) {
+        if (useTransforms.size() <= argNum && !isa<TransformOp>(useOp)) {
+          useOp->emitOpError("The transforms attribute does not have an entry "
+                             "for each transformed argument");
+        }
+      } else {
+        return useOp->emitOpError(
+            "Operation taking a miopen.transform()'ed argument does not have a "
+            "transforms attribute in which to place the transforms");
+      }
+    }
+
+    // And now actually do the amendments
+    for (OpOperand &use : lastTransform.output().getUses()) {
+      uint32_t argNum = use.getOperandNumber();
+      Operation *useOp = use.getOwner();
+      auto argTransforms = useOp->getAttrOfType<ArrayAttr>("transforms");
+
+      // Edge case: A transformed value is transformed in multiple ways
+      if (auto useTransform = dyn_cast<TransformOp>(useOp)) {
+        // The new set of transformations is the composition we're removing
+        // going below/after the transforms this operation defines
+        llvm::SmallVector<Attribute, 5> newTransforms;
+        std::copy(argTransforms.begin(), argTransforms.end(),
+                  std::back_inserter(newTransforms));
+        newTransforms.append(transforms);
+        useTransform->setAttr("transforms", b.getArrayAttr(newTransforms));
+      } else {
+        ArrayAttr thisArgTransforms = argTransforms[argNum].cast<ArrayAttr>();
+        ArrayAttr newTransformsAttr;
+        if (thisArgTransforms.size() == 0) {
+          newTransformsAttr = b.getArrayAttr(transforms);
+        } else {
+          // The set of transformations is those being applied to the output of
+          // the output transformation followed by those this chain of
+          // transformations is performing.
+          llvm::SmallVector<Attribute, 5> newTransforms;
+          std::copy(thisArgTransforms.begin(), thisArgTransforms.end(),
+                    std::back_inserter(newTransforms));
+          newTransforms.append(transforms);
+          newTransformsAttr = b.getArrayAttr(newTransforms);
+        }
+        useOp->setAttr("transforms", argTransforms.replaceImmediateSubAttribute(
+                                         {{argNum, newTransformsAttr}}));
+      }
+    }
+
+    Value replacement = firstTransform.input();
+    lastTransform.output().replaceAllUsesWith(replacement);
+    b.replaceOp(lastTransform, {replacement});
+
+    // The stack of transformations will now remove itself by canonicalization
     return success();
   }
 };

@@ -15,6 +15,7 @@
 
 include "mlir/Dialect/MIOpen/MIOpenAttrDefs.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Interfaces/ViewLikeInterface.td"
 
 // Base class for MIOpen dialect ops.
 class MIOpen_Op<string mnemonic, list<OpTrait> traits = []> :
@@ -77,7 +78,7 @@ def MIOpen_Conv2DBwdWeightOp :
 }
 
 def MIOpen_TransformOp :
-    MIOpen_Op<"transform">,
+    MIOpen_Op<"transform", [NoSideEffect, ViewLikeOpInterface]>,
     Arguments<(ins AnyMemRef:$input, TransformsArrayAttr:$transforms)>,
     Results<(outs AnyMemRef:$output)> {
   let summary = "Tensor transformation";
@@ -105,6 +106,10 @@ def MIOpen_TransformOp :
   ];
   let assemblyFormat = [{
     $input `by` $transforms attr-dict `:` type($input) `to` type($output)
+  }];
+
+  let extraClassDeclaration = [{
+    Value getViewSource() { return input(); }
   }];
 }
 

@@ -120,7 +120,7 @@ def MIOpen_TransformsAttr : MIOpen_Attr<"Transforms"> {
     );
 
     let assemblyFormat = [{
-        `<` $map `by` $ops `:` `[` $upperBounds `]` `->` `[` $lowerBounds `]` `>`
+        `<` $map `by` `[` $ops `]` `bounds` `=` `[` $upperBounds `]` `->` `[` $lowerBounds `]` `>`
     }];
     let genVerifyDecl = 1;
 }
@@ -143,6 +143,12 @@ def MIOpen_PaddingInfoAttr : MIOpen_Attr<"PaddingInfo"> {
     "::mlir::miopen::BwdPaddingKernelInfo":$bwdPaddingInfo);
 
     let assemblyFormat = "`<` struct($extraM, $extraK, $extraN, $bwdPaddingInfo) `>`";
+
+    let extraClassDeclaration = [{
+      bool hasPadding() {
+          return getExtraM() > 0 || getExtraK() > 0 || getExtraN() > 0;
+      }
+    }];
 }
 
 #endif
