@@ -160,14 +160,14 @@ inline void computeSliceLengths(SmallVectorImpl<uint64_t> &sliceLengths,
 
   // Order to decide the slice lengths:
   // - If both the source and destination have coordinate transforms,
-  //    the lower bounds of the source (FIXME: do we have this case)
+  //    use the input shape of the source transform (this covers threadwise_copy
+  //    to globals)
   // - shape of the dest in case only the source has affine transformations.
   // - shape of the source in case the source has no affine transfromations.
   if (sourceTransforms && sourceTransforms.size() > 0) {
     if (destTransforms && destTransforms.size() > 0) {
-      auto lastSourceTransform =
-          sourceTransforms[sourceTransforms.size() - 1].cast<TransformsAttr>();
-      ArrayRef<int64_t> bounds = lastSourceTransform.getLowerBounds();
+      auto firstSourceTransform = sourceTransforms[0].cast<TransformsAttr>();
+      ArrayRef<int64_t> bounds = firstSourceTransform.getUpperBounds();
       for (int64_t v : bounds) {
         assert(v >= 0 &&
                "Negative shapes not permitted, should've been caught earlier");
