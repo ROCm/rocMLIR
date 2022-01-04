@@ -436,7 +436,7 @@ def MIOpen_BlockwiseGemmOp:
     Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$matrixA,
                    MemRefRankOf<[F32, F16, I16], [3]>:$matrixB,
                    AnyMemRef:$matrixC,
-                   ArgTransforms<3>:$transforms,
+                   ArgTransforms<2>:$transforms,
                    Index:$threadOffsetA,
                    Index:$threadOffsetB)> {
   let summary = "Blockwise GEMM non-XDLOPS version";

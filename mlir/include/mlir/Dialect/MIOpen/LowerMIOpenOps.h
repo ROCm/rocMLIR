@@ -160,8 +160,7 @@ inline void computeSliceLengths(SmallVectorImpl<uint64_t> &sliceLengths,
 
   // Order to decide the slice lengths:
   // - If both the source and destination have coordinate transforms,
-  //    the lower bounds of the source (this handles the threadwise_copy_v2
-  //    loop)
+  //    the lower bounds of the source (FIXME: do we have this case)
   // - shape of the dest in case only the source has affine transformations.
   // - shape of the source in case the source has no affine transfromations.
   if (sourceTransforms && sourceTransforms.size() > 0) {
@@ -2986,7 +2985,8 @@ struct GridwiseGemmV2RewritePattern
   }
 
   void affixBlockwiseGemmV2Attributes(miopen::BlockwiseGemmV2Op bop,
-                                      miopen::GridwiseGemmV2Op gop,
+                                      miopen::GridwiseGemmV2Op gop, int64_t m,
+                                      int64_t n, int64_t k,
                                       OpBuilder &b) const {
     bop->setAttr("block_size", gop->getAttr("block_size"));
 
@@ -3006,16 +3006,9 @@ struct GridwiseGemmV2RewritePattern
     bop->setAttr("m_waves", b.getI32IntegerAttr(MWaves));
     bop->setAttr("n_waves", b.getI32IntegerAttr(NWaves));
 
-    int64_t M =
-        bop.matrixA().getType().template cast<MemRefType>().getShape()[2];
-    int64_t N =
-        bop.matrixB().getType().template cast<MemRefType>().getShape()[2];
-    int64_t K =
-        bop.matrixA().getType().template cast<MemRefType>().getShape()[1];
-
-    bop->setAttr("m", b.getI32IntegerAttr(M));
-    bop->setAttr("n", b.getI32IntegerAttr(N));
-    bop->setAttr("k", b.getI32IntegerAttr(K));
+    bop->setAttr("m", b.getI32IntegerAttr(m));
+    bop->setAttr("n", b.getI32IntegerAttr(n));
+    bop->setAttr("k", b.getI32IntegerAttr(k));
   }
 
   LogicalResult matchAndRewrite(miopen::GridwiseGemmV2Op op,
@@ -3565,11 +3558,13 @@ struct GridwiseGemmV2RewritePattern
     mfmalb.create<miopen::LDSBarrierOp>(loc);
 
     // Emit blockwise V2 GEMM.
+    // The xdlops gemms take a 1D buffer because reasons
     auto blockwiseGemmV2Op = mfmalb.create<miopen::BlockwiseGemmV2Op>(
-        loc, vectorCTypes, lds2DMatrixASubviewOp, lds2DMatrixBSubviewOp,
+        loc, vectorCTypes, ldsBlockASubviewOp, ldsBlockBSubviewOp,
         noTransformsArray(b, 2), mMyWaveOffsetA, mMyWaveOffsetB, arrayA, arrayB,
         vectorCs);
-    affixBlockwiseGemmV2Attributes(blockwiseGemmV2Op, op, b);
+    affixBlockwiseGemmV2Attributes(blockwiseGemmV2Op, op, MPerBlock, KPerBlock,
+                                   NPerBlock, b);
 
     // LDS barrier : defer the next LDS update until this round's GEMM calculation is done.
     // requires barrier only.
@@ -3618,10 +3613,11 @@ struct GridwiseGemmV2RewritePattern
 
     // Emit blockwise GEMM for the loop tail.
     auto blockwiseGemmV2TailOp = b.create<miopen::BlockwiseGemmV2Op>(
-        loc, vectorCTypes, lds2DMatrixASubviewOp, lds2DMatrixBSubviewOp,
+        loc, vectorCTypes, ldsBlockASubviewOp, ldsBlockBSubviewOp,
         blockwiseGemmV2Op.transforms(), mMyWaveOffsetA, mMyWaveOffsetB, arrayA,
         arrayB, vectorCs);
-    affixBlockwiseGemmV2Attributes(blockwiseGemmV2TailOp, op, b);
+    affixBlockwiseGemmV2Attributes(blockwiseGemmV2TailOp, op, MPerBlock,
+                                   KPerBlock, NPerBlock, b);
 
     // -----
 
