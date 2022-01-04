@@ -1737,15 +1737,23 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
         BottomUpCTBuilder::above(embedInputTransform, embedInputTransformAttr);
     gemmInputTransform.passThrough({"gemmG"}, {0}, {"gi"});
 
+    llvm::SmallVector<StringRef, 3> nonNHWDims = {"ci", "y", "x"};
+    std::sort(nonNHWDims.begin(), nonNHWDims.end(),
+              [&gemmInputTransform](const StringRef &v1,
+                                    const StringRef &v2) -> bool {
+                return gemmInputTransform.startIndex(v1) <
+                       gemmInputTransform.startIndex(v2);
+              });
+
     llvm::SmallVector<StringRef, 3> mergeToK, mergeToN;
     switch (convOpType) {
     case miopen::ConvOpType::Fwd:
-      mergeToK = {"y", "x", "ci"};
+      mergeToK = std::move(nonNHWDims);
       mergeToN = {"ni", "ho", "wo"};
       break;
     case miopen::ConvOpType::BwdWeight:
       mergeToK = {"ni", "ho", "wo"};
-      mergeToN = {"y", "x", "ci"};
+      mergeToN = std::move(nonNHWDims);
       break;
     case miopen::ConvOpType::BwdData:
       llvm_unreachable("Backward data is in another function");
