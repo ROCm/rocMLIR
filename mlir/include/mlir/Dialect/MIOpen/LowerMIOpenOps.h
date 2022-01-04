@@ -533,9 +533,13 @@ emitStoreLogic(BwdPaddingKernelInfo bwdPaddingInfo, OpBuilder &b, Location loc,
 
     auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
     // here is workaround of backward data padding kernel to avoid compiler
-    // issues
+    // issues.
+    // Note that the xdlops kernel doesn't need a workaround unless there's
+    // extra padding on the GEMM.
     // FIXME: Work out how these if statements can be consolidated
-    if (bwdPaddingInfo == BwdPaddingKernelInfo::NA) {
+    if (bwdPaddingInfo == BwdPaddingKernelInfo::NA ||
+        bwdPaddingInfo == (strideTwo | isNCHW | xdlops) ||
+        bwdPaddingInfo == (strideTwo | xdlops)) {
       elseBuilder.create<scf::YieldOp>(
           loc,
           ValueRange{oobAddrOp, destLowerStoreOOBIndices[0],
