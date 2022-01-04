@@ -14,6 +14,7 @@
 
 #include <cassert>
 #include <numeric>
+#include <mutex>
 
 #include "mlir/ExecutionEngine/CRunnerUtils.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -97,7 +98,8 @@ static unsigned short float_to_fp16(float src_val) {
   // Generate tables for converting float to fp16
   static unsigned short basetable[512];
   static unsigned char shifttable[512];
-  static int foo = generateTables(basetable, shifttable);
+  static std::once_flag flag;
+  std::call_once(flag, generateTables, basetable, shifttable);
 
   // ref. http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
   bf16_fp32_cvt_t target_val;
@@ -427,7 +429,7 @@ short randomIntegerValue(short min, short max) {
 float randomFloatValue(short min, short max) {
   auto minAsF = static_cast<float>(min);
   if (min == max)
-    return minAsF * 0.1f;
+    return minAsF * 0.1f; // avoid inf
   return static_cast<float>((max - min) * static_cast<double>(std::rand()) /
                             static_cast<double>(RAND_MAX)) +
          minAsF;

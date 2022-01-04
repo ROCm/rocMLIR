@@ -1322,12 +1322,21 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   mlir::Value cpuLoadOp =
       loopB.create<memref::LoadOp>(loc, block->getArgument(1), idxs);
 
+  mlir::Value gpuFPVal = gpuLoadOp;
+  mlir::Value cpuFPVal = cpuLoadOp;
+
+  // Lower cpu values to gpu precision
+  mlir::FloatType elemFType = floatType;
   if (!elemType.isF32()) {
     if (elemType.isInteger(16)) {
       gpuLoadOp =
           loopB.create<arith::BitcastOp>(loc, gpuLoadOp, loopB.getBF16Type());
+      elemFType = b.getBF16Type();
+    } else {
+      elemFType = b.getF16Type();
     }
-    gpuLoadOp = loopB.create<arith::ExtFOp>(loc, gpuLoadOp, floatType);
+    cpuLoadOp = loopB.create<arith::TruncFOp>(loc, cpuLoadOp, elemFType);
+    gpuFPVal = loopB.create<arith::ExtFOp>(loc, gpuLoadOp, floatType);
   }
 
   mlir::Value cmpOp;
@@ -1337,16 +1346,31 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     // <test> = |(<cpu> - <gpu>) / <cpu>| > <max_percent>
     float maxPercent = 0.0000001f; // 0.00001 %
     if (elemType.getIntOrFloatBitWidth() < 32) {
-      maxPercent = 0.10f; // 10 %
+      maxPercent = 0.02f; // 2 %
     }
+
+    auto getFVal = [&](float val) {
+      llvm::APFloat apVal(val);
+      bool ignored;
+      if (elemFType.isF16()) {
+        apVal.convert(llvm::APFloat::IEEEhalf(),
+                      APFloat::rmNearestTiesToEven, &ignored);
+      } else if (elemFType.isBF16()) {
+        apVal.convert(llvm::APFloat::BFloat(),
+                      APFloat::rmNearestTiesToEven, &ignored);
+      }
+      return apVal;
+    };
+    
     auto maxPercentOp = loopB.create<arith::ConstantFloatOp>(
-        loc, llvm::APFloat(maxPercent), b.getF32Type());
+        loc, getFVal(maxPercent), elemFType);
+    
     // <test> = <cpu> - <gpu>
     auto subfOp = loopB.create<arith::SubFOp>(loc, cpuLoadOp, gpuLoadOp);
     auto divfOp = loopB.create<arith::DivFOp>(loc, subfOp, cpuLoadOp);
     // <test> = select (<cpu> != 0.0), <divf>, <subf>)
     auto zerofOp = loopB.create<arith::ConstantFloatOp>(
-        loc, llvm::APFloat(0.0f), b.getF32Type());
+        loc, getFVal(0.0f), elemFType);
     auto notZeroOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
                                                  cpuLoadOp, zerofOp);
     auto testOp = loopB.create<SelectOp>(loc, notZeroOp, divfOp, subfOp);
@@ -1360,7 +1384,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     if (elemType.getIntOrFloatBitWidth() < 32) {
       // && <cpu> >= 0.0001f
       auto minF16Op = loopB.create<arith::ConstantFloatOp>(
-          loc, llvm::APFloat(0.001f), b.getF32Type());
+          loc, getFVal(0.001f), elemFType);
       auto cmp1Op = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT, cpuLoadOp,
                                         minF16Op);
 
@@ -1381,7 +1405,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   // call mcpuPrintF32(float f1, float f2)
   auto printFunc = makeFuncDecl(module, "mcpuPrintF32", {floatType, floatType});
 
-  thenBody.create<CallOp>(loc, printFunc, ValueRange{gpuLoadOp, cpuLoadOp});
+  thenBody.create<CallOp>(loc, printFunc, ValueRange{gpuFPVal, cpuFPVal});
 
   // Emit print function call
   emitPrintTensor(b, cmpResultAllocOp);
