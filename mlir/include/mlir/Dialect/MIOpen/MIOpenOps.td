@@ -279,6 +279,7 @@ def MIOpen_WorkitemIdOp:
 def MIOpen_BlockwiseLoadOp:
     MIOpen_Op<"blockwise_load">,
     Arguments<(ins AnyMemRef:$source,
+                  IndexArrayAttr:$bounds,
                   ArgTransforms<1>:$transforms,
                   MIOpen_PaddingInfoAttr:$paddingInfo,
                   BoolArrayAttr:$oobDims,
@@ -303,6 +304,7 @@ def MIOpen_BlockwiseLoadOp:
 def MIOpen_BlockwiseStoreOp:
     MIOpen_Op<"blockwise_store", [AttrSizedOperandSegments]>,
     Arguments<(ins AnyMemRef:$dest,
+                  IndexArrayAttr:$bounds,
                   ArgTransforms<1>:$transforms,
                   Variadic<AnyTypeOf<[F32, F16, I16,
                               VectorOfLengthAndType<[2, 4], [F32]>,
@@ -401,6 +403,7 @@ def MIOpen_ThreadwiseCopyV2Op:
     MIOpen_Op<"threadwise_copy_v2", [AttrSizedOperandSegments]>,
     Arguments<(ins VectorOfRankAndType<[1], [F32, F16]>:$source,
                    AnyMemRef:$dest,
+                   IndexArrayAttr:$bounds,
                    ArgTransforms<2>:$transforms,
                    MIOpen_PaddingInfoAttr:$paddingInfo,
                    InMemoryDataOperation:$dataOperation,

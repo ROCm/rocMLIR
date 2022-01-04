@@ -72,6 +72,8 @@ AsmPrinter &operator<<(AsmPrinter &printer, BwdPaddingKernelInfo v);
 // TODO(kdrewnia) See if this declaration should be elsewhere
 //===----------------------------------------------------------------------===//
 ArrayAttr noTransformsArray(Builder &b, size_t n);
+
+ArrayAttr getIndexArrayAttr(Builder &b, ArrayRef<int64_t> values);
 } // end namespace miopen
 } // end namespace mlir
 

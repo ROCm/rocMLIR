@@ -44,7 +44,23 @@ using namespace mlir::miopen;
 //===----------------------------------------------------------------------===//
 // MIOpenDialect Interfaces
 //===----------------------------------------------------------------------===//
-namespace {} // namespace
+namespace {
+struct MIOpenOpAsmDialectInterface : public OpAsmDialectInterface {
+  using OpAsmDialectInterface::OpAsmDialectInterface;
+
+  AliasResult getAlias(Attribute attr, raw_ostream &os) const override {
+    if (attr.isa<TransformsAttr>()) {
+      os << "transforms";
+      return AliasResult::OverridableAlias;
+    }
+    if (attr.isa<PaddingInfoAttr>()) {
+      os << "gemm_padding_info";
+      return AliasResult::OverridableAlias;
+    }
+    return AliasResult::NoAlias;
+  }
+};
+} // namespace
 
 namespace mlir {
 namespace miopen {
@@ -333,6 +349,7 @@ void MIOpenDialect::initialize() {
 #define GET_OP_LIST
 #include "mlir/Dialect/MIOpen/MIOpenOps.cpp.inc"
       >();
+  addInterfaces<MIOpenOpAsmDialectInterface>();
 }
 
 //===----------------------------------------------------------------------===//

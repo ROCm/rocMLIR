@@ -11,6 +11,26 @@
 
 include "mlir/Dialect/MIOpen/MIOpenBase.td"
 
+//TODO: submit this to upstream
+class ArrayRefOfStringRefParameter<string desc = ""> :
+    AttrOrTypeParameter<"::llvm::ArrayRef<::llvm::StringRef>", desc> {
+  let allocator = [{ {
+    ::llvm::SmallVector<::llvm::StringRef> tmpFields;
+    size_t len = $_self.size();
+    tmpFields.reserve(len);
+    for (size_t i = 0; i < len; ++i) {
+      tmpFields.push_back($_allocator.copyInto($_self[i]));
+    }
+    $_dst = $_allocator.copyInto(::llvm::ArrayRef<StringRef>(tmpFields));
+  } }];
+  let cppStorageType = "::llvm::SmallVector<StringRef>";
+}
+
+def IndexArrayAttr : TypedArrayAttrBase<IndexAttr,
+                                      "Index integer array attribute"> {
+  let constBuilderCall = "$_builder.getIndexArrayAttr($0)";
+}
+
 class MIOpen_I32Enum<string name, string summary, list<I32EnumAttrCase> cases>
   : I32EnumAttr<name, summary, cases> {
   let cppNamespace = "::mlir::miopen";
