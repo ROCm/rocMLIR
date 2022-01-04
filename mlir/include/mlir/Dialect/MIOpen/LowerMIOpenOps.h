@@ -133,7 +133,8 @@ computeLoadStoreTypeInfo(OpBuilder &b, T &gop, Type elementType,
 // Utility function to compute sliceLengths for threadwise_copy and
 // threadwise_copy_v2 to determine the bounds of load/store loops.
 //===----------------------------------------------------------------------===//
-inline void computeSliceLengths(SmallVectorImpl<uint64_t> &sliceLengths, const ArrayAttr bounds) {
+inline void computeSliceLengths(SmallVectorImpl<uint64_t> &sliceLengths,
+                                const ArrayAttr bounds) {
   for (llvm::APInt v : bounds.getAsValueRange<IntegerAttr>()) {
     sliceLengths.push_back(v.getZExtValue());
   }
@@ -645,11 +646,10 @@ inline bool obtainOOBCheckInfo(const Optional<AffineMap> composedTransform,
 // - composed affine transform.
 // - layered affine transform.
 //===----------------------------------------------------------------------===//
-inline uint32_t
-obtainGenericTensorTransformationInfo(const Type type,
-                                      const ArrayAttr coordTransformsAttr,
-                                      Optional<AffineMap> &composedTransform,
-                                      Optional<ArrayAttr> boundsAttr=llvm::None) {
+inline uint32_t obtainGenericTensorTransformationInfo(
+    const Type type, const ArrayAttr coordTransformsAttr,
+    Optional<AffineMap> &composedTransform,
+    Optional<ArrayAttr> boundsAttr = llvm::None) {
   // Infer info from a set of transformations.
   //
   // 1. If there are coordinate transforms defined, use the input rank of those
@@ -4228,9 +4228,8 @@ struct BlockwiseLoadRewritePattern
     // tensor).
 
     auto threadwiseLoadOp = b.create<miopen::ThreadwiseLoadOp>(
-        loc, resultTypes, op.source(), op.bounds(),
-        op.transforms(), op.paddingInfo(),
-        op.oobDims(), op.sourceCoord());
+        loc, resultTypes, op.source(), op.bounds(), op.transforms(),
+        op.paddingInfo(), op.oobDims(), op.sourceCoord());
     affixThreadwiseCopyAttributes(threadwiseLoadOp, op, b,
                                   /*isThreadwiseLoad=*/true);
 
@@ -4256,7 +4255,8 @@ struct BlockwiseStoreRewritePattern
 
     // Threadwise copy from register (naive tensor) to LDS (naive tensor).
     auto threadwiseStoreOp = b.create<miopen::ThreadwiseStoreOp>(
-        loc, op.dest(), op.bounds(), op.transforms(), op.data(), op.destCoord());
+        loc, op.dest(), op.bounds(), op.transforms(), op.data(),
+        op.destCoord());
     affixThreadwiseCopyAttributes(threadwiseStoreOp, op, b,
                                   /*isThreadwiseLoad=*/false);
 
