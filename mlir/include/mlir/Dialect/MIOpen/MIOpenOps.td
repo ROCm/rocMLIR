@@ -302,11 +302,12 @@ def MIOpen_BlockwiseLoadOp:
 // blockwise_store
 def MIOpen_BlockwiseStoreOp:
     MIOpen_Op<"blockwise_store", [AttrSizedOperandSegments]>,
-    Arguments<(ins Variadic<AnyTypeOf<[F32, F16, I16,
+    Arguments<(ins AnyMemRef:$dest,
+                  ArgTransforms<1>:$transforms,
+                  Variadic<AnyTypeOf<[F32, F16, I16,
                               VectorOfLengthAndType<[2, 4], [F32]>,
                               VectorOfLengthAndType<[2, 4, 8], [F16]>,
                               VectorOfLengthAndType<[2, 4, 8], [I16]>]>>:$data,
-                   AnyMemRef:$dest,
                    Variadic<Index>:$destCoord)> {
   let summary = "Blockwise GPU data store";
   let description = [{
@@ -376,11 +377,12 @@ def MIOpen_ThreadwiseLoadOp:
 // threadwise_store
 def MIOpen_ThreadwiseStoreOp:
     MIOpen_Op<"threadwise_store", [AttrSizedOperandSegments]>,
-    Arguments<(ins Variadic<AnyTypeOf<[F32, F16, I16,
+    Arguments<(ins AnyMemRef:$dest,
+                   ArgTransforms<1>:$transforms,
+                   Variadic<AnyTypeOf<[F32, F16, I16,
                               VectorOfLengthAndType<[2, 4], [F32]>,
                               VectorOfLengthAndType<[2, 4, 8], [F16]>,
                               VectorOfLengthAndType<[2, 4, 8], [I16]>]>>:$data,
-                   AnyMemRef:$dest,
                    Variadic<Index>:$destCoord)> {
   let summary = "Threadwise GPU data store";
   let description = [{
@@ -429,6 +431,7 @@ def MIOpen_BlockwiseGemmOp:
     Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$matrixA,
                    MemRefRankOf<[F32, F16, I16], [3]>:$matrixB,
                    AnyMemRef:$matrixC,
+                   ArgTransforms<3>:$transforms,
                    Index:$threadOffsetA,
                    Index:$threadOffsetB)> {
   let summary = "Blockwise GEMM non-XDLOPS version";
@@ -447,6 +450,7 @@ def MIOpen_BlockwiseGemmV2Op:
     MIOpen_Op<"blockwise_gemm_v2">,
     Arguments<(ins MemRefOf<[F32, F16, I16]>:$matrixA,
                    MemRefOf<[F32, F16, I16]>:$matrixB,
+                   ArgTransforms<2>:$transforms,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
                    MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferA,
@@ -458,6 +462,9 @@ def MIOpen_BlockwiseGemmV2Op:
     The `miopen.block_gemm` op does GEMM at workgroup (block) level.
     - Matrix A and Matrix B shall reside on LDS (naive tensor).
     - Matrix C shall be vectors.
+
+    There are only two slots for argument transforms since the buffers are
+    not slices of a larger object.
   }];
   let assemblyFormat = [{
     `(` operands `)` attr-dict `:` type(operands) `->` type($vectorDs)
@@ -474,7 +481,7 @@ def MIOpen_ThreadwiseGemmOp:
   let description = [{
     The `miopen.threadwise_gemm` op does GEMM at thread level.
     - Matrix A and Matrix B shall reside on register (naive tensor).
-    - Matrix C shall reside on LDS (naive tensor).
+    - Matrix C is in registers.
   }];
   let assemblyFormat = [{
     `(` operands `)` attr-dict `:` type(operands)
@@ -503,6 +510,7 @@ def MIOpen_XdlopsGemmV2Op:
     MIOpen_Op<"xdlops_gemm_v2">,
     Arguments<(ins MemRefOf<[F32, F16, I16]>:$matrixA,
                    MemRefOf<[F32, F16, I16]>:$matrixB,
+                   ArgTransforms<2>:$transforms,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
                    MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferA,
@@ -513,6 +521,8 @@ def MIOpen_XdlopsGemmV2Op:
   let description = [{
     The `miopen.xdlops_gemm_v2` op is an abstraction of doing GEMM based on XDLOPS.
     It would employ a series of `miopen.mfma` operations.
+
+    Matrices A and B reside in LDS, the buffers live in registers, C is a vector
   }];
   let assemblyFormat = [{
     `(` operands `)` attr-dict `:` type(operands) `->` type(results)
