@@ -1740,12 +1740,12 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     llvm::SmallVector<StringRef, 3> mergeToK, mergeToN;
     switch (convOpType) {
     case miopen::ConvOpType::Fwd:
-      mergeToK = {"ci", "y", "x"};
+      mergeToK = {"y", "x", "ci"};
       mergeToN = {"ni", "ho", "wo"};
       break;
     case miopen::ConvOpType::BwdWeight:
       mergeToK = {"ni", "ho", "wo"};
-      mergeToN = {"ci", "y", "x"};
+      mergeToN = {"y", "x", "ci"};
       break;
     case miopen::ConvOpType::BwdData:
       llvm_unreachable("Backward data is in another function");
