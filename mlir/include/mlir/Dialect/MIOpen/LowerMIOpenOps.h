@@ -3768,7 +3768,7 @@ struct GridwiseGemmV2RewritePattern
       splitCTransform.passThrough({"gemmG"}, {0}, {"G"});
       splitCTransform.embed("gemmM", 1, M, {"M0", "M1", "M2"},
                             {M1 * M2, M2, 1});
-      splitCTransform.passThrough({"gemmN"}, {1}, {"N"});
+      splitCTransform.passThrough({"gemmN"}, {2}, {"N"});
 
       splitCTransformAttr = splitCTransform.get();
 
