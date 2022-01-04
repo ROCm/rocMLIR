@@ -2986,7 +2986,7 @@ struct GridwiseGemmV2RewritePattern
 
   void affixBlockwiseGemmV2Attributes(miopen::BlockwiseGemmV2Op bop,
                                       miopen::GridwiseGemmV2Op gop, int64_t m,
-                                      int64_t n, int64_t k,
+                                      int64_t k, int64_t n,
                                       OpBuilder &b) const {
     bop->setAttr("block_size", gop->getAttr("block_size"));
 
