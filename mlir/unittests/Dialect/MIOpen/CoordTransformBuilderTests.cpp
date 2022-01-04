@@ -1,4 +1,5 @@
-//===- CoordTransformBuilderTests.cpp - Tests for the MIOpen Coordinate Transform Builder -----===//
+//===- CoordTransformBuilderTests.cpp - Tests for the MIOpen Coordinate
+//Transform Builder -----===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.

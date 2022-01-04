@@ -4020,7 +4020,8 @@ struct GridwiseGemmV2RewritePattern
           threadwiseCopyV2ArgTransform, op.paddingInfo(),
           op.storeOperationAttr(), op.cOobDims(), vectorCOffsetConstantAttr,
           matrixCThreadwiseCopySourceCoords, matrixCThreadwiseCopyDestCoords);
-      affixThreadwiseCopyV2Attributes(threadwiseCopyV2CMatrixOp, op, b, enableOutSwizzles);
+      affixThreadwiseCopyV2Attributes(threadwiseCopyV2CMatrixOp, op, b,
+                                      enableOutSwizzles);
     }
 
     op.erase();
