@@ -355,6 +355,7 @@ def MIOpen_ThreadwiseCopyOp:
 def MIOpen_ThreadwiseLoadOp:
     MIOpen_Op<"threadwise_load">,
     Arguments<(ins AnyMemRef:$source,
+                   IndexArrayAttr:$bounds,
                    ArgTransforms<1>:$transforms,
                    MIOpen_PaddingInfoAttr:$paddingInfo,
                    BoolArrayAttr:$oobDims,
@@ -380,6 +381,7 @@ def MIOpen_ThreadwiseLoadOp:
 def MIOpen_ThreadwiseStoreOp:
     MIOpen_Op<"threadwise_store", [AttrSizedOperandSegments]>,
     Arguments<(ins AnyMemRef:$dest,
+                   IndexArrayAttr:$bounds,
                    ArgTransforms<1>:$transforms,
                    Variadic<AnyTypeOf<[F32, F16, I16,
                               VectorOfLengthAndType<[2, 4], [F32]>,

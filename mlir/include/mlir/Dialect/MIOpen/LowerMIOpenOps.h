@@ -51,6 +51,7 @@
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/Dialect/MIOpen/utility/math.h"
 #include "llvm/ADT/APFloat.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/IndexedMap.h"
@@ -132,6 +133,12 @@ computeLoadStoreTypeInfo(OpBuilder &b, T &gop, Type elementType,
 // Utility function to compute sliceLengths for threadwise_copy and
 // threadwise_copy_v2 to determine the bounds of load/store loops.
 //===----------------------------------------------------------------------===//
+inline void computeSliceLengths(SmallVectorImpl<uint64_t> &sliceLengths, const ArrayAttr bounds) {
+  for (llvm::APInt v : bounds.getAsValueRange<IntegerAttr>()) {
+    sliceLengths.push_back(v.getZExtValue());
+  }
+}
+
 inline void computeSliceLengths(SmallVectorImpl<uint64_t> &sliceLengths,
                                 const ArrayAttr sourceTransforms,
                                 const ArrayAttr destTransforms, Type sourceType,
@@ -638,15 +645,17 @@ inline bool obtainOOBCheckInfo(const Optional<AffineMap> composedTransform,
 // - composed affine transform.
 // - layered affine transform.
 //===----------------------------------------------------------------------===//
-inline unsigned
+inline uint32_t
 obtainGenericTensorTransformationInfo(const Type type,
                                       const ArrayAttr coordTransformsAttr,
-                                      Optional<AffineMap> &composedTransform) {
-  // Get source and dest coordinates.
+                                      Optional<AffineMap> &composedTransform,
+                                      Optional<ArrayAttr> boundsAttr=llvm::None) {
+  // Infer info from a set of transformations.
   //
   // 1. If there are coordinate transforms defined, use the input rank of those
   // 2. Otherwise, use the rank of the affine map applied to the memref
   //  which is the identiy if unspecified
+  // 3. A bounds attribute overrides this calculation
   assert(type.isa<MemRefType>() || type.isa<VectorType>());
   unsigned coordLength = 0;
   AffineMap typeAffineMap;
@@ -678,6 +687,9 @@ obtainGenericTensorTransformationInfo(const Type type,
       maps.push_back(attr.getMap().getValue());
     }
     composedTransform = composeTransforms(maps);
+  }
+  if (boundsAttr) {
+    coordLength = boundsAttr->size();
   }
   // Return computed coordinate length.
   return coordLength;
@@ -2043,8 +2055,6 @@ static void affixThreadwiseCopyAttributes(T &top, U &bop, OpBuilder &b,
     top->setAttr("source_data_per_read", bop->getAttr("source_data_per_read"));
     top->setAttr("dest_data_per_write", bop->getAttr("dest_data_per_write"));
   }
-  // set bound attribute.
-  top->setAttr("bound", bop->getAttr("bound"));
 }
 
 // XXX: figure out a better way to get rid of isMatrixA parameter.
@@ -4218,7 +4228,8 @@ struct BlockwiseLoadRewritePattern
     // tensor).
 
     auto threadwiseLoadOp = b.create<miopen::ThreadwiseLoadOp>(
-        loc, resultTypes, op.source(), op.transforms(), op.paddingInfo(),
+        loc, resultTypes, op.source(), op.bounds(),
+        op.transforms(), op.paddingInfo(),
         op.oobDims(), op.sourceCoord());
     affixThreadwiseCopyAttributes(threadwiseLoadOp, op, b,
                                   /*isThreadwiseLoad=*/true);
@@ -4245,7 +4256,7 @@ struct BlockwiseStoreRewritePattern
 
     // Threadwise copy from register (naive tensor) to LDS (naive tensor).
     auto threadwiseStoreOp = b.create<miopen::ThreadwiseStoreOp>(
-        loc, op.dest(), op.transforms(), op.data(), op.destCoord());
+        loc, op.dest(), op.bounds(), op.transforms(), op.data(), op.destCoord());
     affixThreadwiseCopyAttributes(threadwiseStoreOp, op, b,
                                   /*isThreadwiseLoad=*/false);
 
@@ -4953,7 +4964,7 @@ struct ThreadwiseLoadRewritePattern
     // Obtain coordinate lengths, as well as information of affine
     // transformations.
     uint32_t sourceCoordLength = obtainGenericTensorTransformationInfo(
-        sourceType, transforms, composedSourceTransform);
+        sourceType, transforms, composedSourceTransform, op.bounds());
 
     auto sourceCoord = op.sourceCoord();
     if (sourceCoordLength != sourceCoord.size()) {
@@ -4989,7 +5000,7 @@ struct ThreadwiseLoadRewritePattern
     // Figure out the bounds of load/store loops.
     SmallVector<uint64_t, 2> sliceLengths;
 
-    computeSliceLengths(sliceLengths, transforms, nullptr, sourceType, nullptr);
+    computeSliceLengths(sliceLengths, op.bounds());
 
     // llvm::errs() << "slice lengths: ";
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
@@ -5171,7 +5182,7 @@ struct ThreadwiseStoreRewritePattern
     // transformations.
     Optional<AffineMap> composedDestTransform;
     uint32_t destCoordLength = obtainGenericTensorTransformationInfo(
-        destType, transforms, composedDestTransform);
+        destType, transforms, composedDestTransform, op.bounds());
 
     auto destCoord = op.destCoord();
     if (destCoordLength != destCoord.size()) {
@@ -5195,9 +5206,7 @@ struct ThreadwiseStoreRewritePattern
 
     // Figure out the bounds of load/store loops.
     SmallVector<uint64_t, 5> sliceLengths;
-    for (uint64_t v : destType.getShape()) {
-      sliceLengths.push_back(static_cast<uint64_t>(v));
-    }
+    computeSliceLengths(sliceLengths, op.bounds());
 
     // llvm::errs() << "slice lengths: ";
     // for (unsigned i = 0; i < sliceLengths.size(); ++i)
@@ -5369,7 +5378,7 @@ struct ThreadwiseCopyV2RewritePattern
     // Obtain coordinate lengths, as well as information of affine
     // transformations.
     uint32_t sourceCoordLength = obtainGenericTensorTransformationInfo(
-        sourceType, sourceTransforms, composedSourceTransform);
+        sourceType, sourceTransforms, composedSourceTransform, op.bounds());
     auto sourceCoord = op.sourceCoord();
     if (sourceCoordLength != sourceCoord.size()) {
       return op.emitOpError("Got " + Twine(sourceCoord.size()) +
@@ -5378,7 +5387,7 @@ struct ThreadwiseCopyV2RewritePattern
     }
 
     uint32_t destCoordLength = obtainGenericTensorTransformationInfo(
-        destType, destTransforms, composedDestTransform);
+        destType, destTransforms, composedDestTransform, op.bounds());
     auto destCoord = op.destCoord();
     if (destCoordLength != destCoord.size()) {
       return op.emitOpError("Got " + Twine(destCoord.size()) +
@@ -5405,8 +5414,7 @@ struct ThreadwiseCopyV2RewritePattern
     // Figure out the bounds of load/store loops.
     SmallVector<uint64_t, 5> sliceLengths;
 
-    computeSliceLengths(sliceLengths, sourceTransforms, destTransforms,
-                        sourceType, destType);
+    computeSliceLengths(sliceLengths, op.bounds());
     if (upperVectorDim >= 0) {
       sliceLengths[upperVectorDim] /= dataPerCopy;
       assert(sliceLengths[upperVectorDim] != 0);
