@@ -1346,7 +1346,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     // <test> = |(<cpu> - <gpu>) / <cpu>| > <max_percent>
     float maxPercent = 0.0000001f; // 0.00001 %
     if (elemType.getIntOrFloatBitWidth() < 32) {
-      maxPercent = 0.02f; // 2 %
+      maxPercent = 0.03f; // 3 %
     }
 
     auto getFVal = [&](float val) {
