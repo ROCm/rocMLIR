@@ -206,23 +206,6 @@ def MIOpen_GpuAllocOp:
   }];
 }
 
-// subview provides a subsection view of a memref.
-def MIOpen_SubviewOp:
-    MIOpen_Op<"subview">,
-    Arguments<(ins AnyMemRef:$input,
-                   Index:$offset)>,
-    Results<(outs AnyMemRef:$output)> {
-  let summary = "Subview of memref on GPU";
-  let description = [{
-    The `miopen.subview` op creates a subview of a memref on GPU.
-    The memref must be on either LDS (address space 3) or private (address
-    space 5).
-  }];
-  let assemblyFormat = [{
-    `(` $input `,` $offset `)` attr-dict `:` type($input) `to` type($output)
-  }];
-}
-
 // TBD: eventually replace this with linalg.fill?
 def MIOpen_FillOp:
     MIOpen_Op<"fill", [AllElementTypesMatch<["input", "value"]>]>,
