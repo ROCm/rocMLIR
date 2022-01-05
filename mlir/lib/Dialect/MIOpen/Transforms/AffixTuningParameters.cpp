@@ -174,12 +174,14 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     InitParamsXDL validParams;
     DerivedParams gemmADerivedParam;
     DerivedParams gemmBDerivedParam;
+    DerivedOutParams gemmCDerivedParam;
     int64_t blockSize = 0;
     int64_t gridSize = 0;
 
     LogicalResult status = populateParamsXDL.paramsFromCtx(
         convContext, blockSizeOverride, perfConfig, validParams,
-        gemmADerivedParam, gemmBDerivedParam, blockSize, gridSize);
+        gemmADerivedParam, gemmBDerivedParam, gemmCDerivedParam, blockSize,
+        gridSize);
 
     if (failed(status)) {
       signalPassFailure();
@@ -221,19 +223,25 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("matrix_b_source_vector_read_dim",
                 b.getI32IntegerAttr(gemmBDerivedParam.srcVectorReadDim));
 
+    op->setAttr("matrix_c_data_per_copy",
+                b.getI32IntegerAttr(gemmCDerivedParam.dataPerCopy));
+    op->setAttr("matrix_c_source_vector_read_dim",
+                b.getI32IntegerAttr(gemmCDerivedParam.gemmVectorDim));
+    op->setAttr("matrix_c_dest_vector_write_dim",
+                b.getI32IntegerAttr(gemmCDerivedParam.destVectorDim));
   } else {
     InitParamsNonXDL validParams;
     DerivedParams gemmADerivedParam;
     DerivedParams gemmBDerivedParam;
     DerivedBlockGemmParams blockGemmDerivedParam;
-    int64_t gemmCDstPerWrite;
+    DerivedOutParams gemmCDerivedParam;
     int64_t gridSize;
 
     PopulateParams populateParams;
     LogicalResult status = populateParams.paramsFromCtx(
         convContext, blockSizeOverride, perfConfig, validParams,
         gemmADerivedParam, gemmBDerivedParam, blockGemmDerivedParam,
-        gemmCDstPerWrite, gridSize);
+        gemmCDerivedParam, gridSize);
 
     if (failed(status)) {
       signalPassFailure();
@@ -285,16 +293,14 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
                 b.getI32IntegerAttr(blockGemmDerivedParam.gemmMLevel1Cluster));
     op->setAttr("n_level1_cluster",
                 b.getI32IntegerAttr(blockGemmDerivedParam.gemmNLevel1Cluster));
-  }
 
-  // Derived parameters for gemmC.
-  // TODO: Pending fix from
-  // https://github.com/whchung/llvm-project/pull/26/files#r444968168
-  // op->setAttr("matrix_c_dest_data_per_write",
-  //           b.getI32IntegerAttr(gemmCDstPerWrite));
-  op->setAttr("matrix_c_dest_data_per_write", b.getI32IntegerAttr(1));
-  op->setAttr("matrix_c_source_dest_vector_read_write_dim",
-              b.getI32IntegerAttr(4));
+    op->setAttr("matrix_c_data_per_copy",
+                b.getI32IntegerAttr(gemmCDerivedParam.dataPerCopy));
+    op->setAttr("matrix_c_source_vector_read_dim",
+                b.getI32IntegerAttr(gemmCDerivedParam.gemmVectorDim));
+    op->setAttr("matrix_c_dest_vector_write_dim",
+                b.getI32IntegerAttr(gemmCDerivedParam.destVectorDim));
+  }
 }
 
 std::unique_ptr<Pass>
