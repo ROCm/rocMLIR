@@ -1349,48 +1349,52 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
       maxPercent = 0.10f; // 10 %
     }
 
-    auto getFVal = [&](float val) {
+    auto getFVal = [&](float val) -> mlir::Value {
       llvm::APFloat apVal(val);
       bool ignored;
       if (elemFType.isF16()) {
-        apVal.convert(llvm::APFloat::IEEEhalf(),
-                      APFloat::rmNearestTiesToEven, &ignored);
+        apVal.convert(llvm::APFloat::IEEEhalf(), APFloat::rmNearestTiesToEven,
+                      &ignored);
       } else if (elemFType.isBF16()) {
-        apVal.convert(llvm::APFloat::BFloat(),
-                      APFloat::rmNearestTiesToEven, &ignored);
+        apVal.convert(llvm::APFloat::BFloat(), APFloat::rmNearestTiesToEven,
+                      &ignored);
       }
-      return apVal;
+      return loopB.create<arith::ConstantFloatOp>(loc, apVal, elemFType);
     };
-    
-    auto maxPercentOp = loopB.create<arith::ConstantFloatOp>(
-        loc, getFVal(maxPercent), elemFType);
-    
+
     // <test> = <cpu> - <gpu>
     auto subfOp = loopB.create<arith::SubFOp>(loc, cpuLoadOp, gpuLoadOp);
     auto divfOp = loopB.create<arith::DivFOp>(loc, subfOp, cpuLoadOp);
     // <test> = select (<cpu> != 0.0), <divf>, <subf>)
-    auto zerofOp = loopB.create<arith::ConstantFloatOp>(
-        loc, getFVal(0.0f), elemFType);
     auto notZeroOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
-                                                 cpuLoadOp, zerofOp);
+                                                 cpuLoadOp, getFVal(0.0f));
     auto testOp = loopB.create<SelectOp>(loc, notZeroOp, divfOp, subfOp);
 
     // <test> = |<test>|
     auto absfOp = loopB.create<math::AbsOp>(loc, testOp);
 
+    auto absCpuVal = loopB.create<math::AbsOp>(loc, cpuLoadOp);
+
+    mlir::Value maxPercentVal = getFVal(maxPercent);
+    if (elemType.getIntOrFloatBitWidth() < 32) {
+      // <maxPercent> = select (|<cpu>| < 0.01), 10%, 1%)
+      auto thresholdTestOp = loopB.create<arith::CmpFOp>(
+          loc, arith::CmpFPredicate::ULT, absCpuVal, getFVal(0.01f));
+      maxPercentVal = loopB.create<SelectOp>(loc, thresholdTestOp,
+                                             getFVal(0.10f), maxPercentVal);
+    }
+
     // <test> >= <max_percent>
     cmpOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT, absfOp,
-                                        maxPercentOp);
+                                        maxPercentVal);
     if (elemType.getIntOrFloatBitWidth() < 32) {
-      // && <cpu> >= 0.0001f
-      auto minF16Op = loopB.create<arith::ConstantFloatOp>(
-          loc, getFVal(0.001f), elemFType);
-      auto cmp1Op = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT, cpuLoadOp,
-                                        minF16Op);
+      // && <cpu> >= 0.001f
+      auto cmp1Op = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT,
+                                                absCpuVal, getFVal(0.001f));
 
       cmpOp = loopB.create<arith::AndIOp>(loc, cmpOp, cmp1Op);
     }
-    
+
   } else {
     cmpOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
                                         cpuLoadOp, gpuLoadOp);

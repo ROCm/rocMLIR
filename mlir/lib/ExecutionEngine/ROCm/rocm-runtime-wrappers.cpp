@@ -13,8 +13,8 @@
 //===----------------------------------------------------------------------===//
 
 #include <cassert>
-#include <numeric>
 #include <mutex>
+#include <numeric>
 
 #include "mlir/ExecutionEngine/CRunnerUtils.h"
 #include "llvm/ADT/ArrayRef.h"
