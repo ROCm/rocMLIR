@@ -208,6 +208,7 @@ pipeline {
                                              -DMLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED=1
                                              -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=0
                                              -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=0
+                                             -DMLIR_MIOPEN_DRIVER_TIMING_TEST_ENABLED=1
                                              -DCMAKE_EXPORT_COMPILE_COMMANDS=1""")
                             }
                         }
