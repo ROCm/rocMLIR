@@ -74,13 +74,14 @@ static constexpr int kTwoGB = 2147483647;
 
 //===----------------------------------------------------------------------===//
 // FIXME. XXX.
-// Workaround to obtain gemmKExtra / gemmMExtra / gemmNExtra attribute.
-// And use it to override legacy load/store debug switch.
+// Force the use of affine maps over index maps in the presence of padding on
+// GEMM during threadwise load/store/copy when the gemm is padded due to bugs in
+// the index diff map implementation (or incompletenesses in it?)
 //===----------------------------------------------------------------------===//
 inline bool overrideLoadStoreHack(const PaddingInfoAttr paddingInfo,
                                   bool original) {
   if (paddingInfo.getExtraM() > 0 || paddingInfo.getExtraK() > 0 ||
-      paddingInfo.getExtraM() > 0) {
+      paddingInfo.getExtraN() > 0) {
     return true;
   }
   return original;
