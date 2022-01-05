@@ -140,6 +140,19 @@ function setup_environment() {
 
     if [[ $TUNING == 1 ]]; then
         export MIOPEN_FIND_ENFORCE=4
+        # XXX. FIXME.
+        # Disable tuning for backward data and backward weight for fp16 type.
+        # Due to unknown reason, the fastest kernel yield at the tuning process is
+        # NOT correct.
+        # By disabling tuning, the default heuristic tuning parameter in MLIR
+        # MIOpen dialect would be used, which has been verified to produce correct
+        # results.
+        if [[ "$DTYPE" == "fp16" ]]; then
+          if [[ "$DIRECTION" == "2" || "$DIRECTION" == "4" ]]; then
+            echo "XXX. FIXME. Disable tuning for fp16 backward convolutions."
+            export -n MIOPEN_FIND_ENFORCE
+          fi
+        fi
     fi
 
     declare -xg MIOPEN_DEBUG_FIND_ONLY_SOLVER
