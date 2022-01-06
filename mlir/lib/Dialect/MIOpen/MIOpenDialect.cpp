@@ -49,12 +49,12 @@ struct MIOpenOpAsmDialectInterface : public OpAsmDialectInterface {
   using OpAsmDialectInterface::OpAsmDialectInterface;
 
   AliasResult getAlias(Attribute attr, raw_ostream &os) const override {
-    if (attr.isa<TransformsAttr>()) {
-      os << "transforms";
+    if (attr.isa<TransformMapAttr>()) {
+      os << "transform_map";
       return AliasResult::OverridableAlias;
     }
     if (attr.isa<PaddingInfoAttr>()) {
-      os << "gemm_padding_info";
+      os << "gemm_padding";
       return AliasResult::OverridableAlias;
     }
     return AliasResult::NoAlias;
@@ -296,19 +296,18 @@ TransformAttr getTransformAttrChecked(
 // TransformsAttr
 //===---------------------------------------------------------
 
-TransformsAttr getTransformsAttrChecked(
+TransformMapAttr getTransformMapAttrChecked(
     llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     mlir::MLIRContext *context, ArrayRef<TransformAttr> ops, AffineMapAttr map,
     ArrayRef<int64_t> upperBounds, ArrayRef<int64_t> lowerBounds) {
-  return TransformsAttr::getChecked(emitError, context, ops, map, upperBounds,
-                                    lowerBounds);
+  return TransformMapAttr::getChecked(emitError, context, ops, map, upperBounds,
+                                      lowerBounds);
 }
 
-LogicalResult
-TransformsAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
-                       ::llvm::ArrayRef<::mlir::miopen::TransformAttr> ops,
-                       AffineMapAttr map, ArrayRef<int64_t> upperBounds,
-                       ArrayRef<int64_t> lowerBounds) {
+LogicalResult TransformMapAttr::verify(
+    llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
+    ::llvm::ArrayRef<::mlir::miopen::TransformAttr> ops, AffineMapAttr map,
+    ArrayRef<int64_t> upperBounds, ArrayRef<int64_t> lowerBounds) {
   AffineMap rawMap = map.getAffineMap();
   if (rawMap.getNumInputs() != upperBounds.size()) {
     return emitError() << "Affine map has " << rawMap.getNumInputs()
@@ -404,9 +403,9 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
     size_t index = outerPair.index();
     ArrayAttr transforms = outerPair.value();
     if (transforms.size() > 0) {
-      auto firstTransform = transforms[0].cast<TransformsAttr>();
+      auto firstTransform = transforms[0].cast<TransformMapAttr>();
       auto lastTransform =
-          transforms[transforms.size() - 1].cast<TransformsAttr>();
+          transforms[transforms.size() - 1].cast<TransformMapAttr>();
       AffineMap firstMap = firstTransform.getMap().getValue();
       AffineMap lastMap = lastTransform.getMap().getValue();
       if (index == 0) {

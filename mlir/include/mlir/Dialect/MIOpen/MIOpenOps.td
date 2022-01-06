@@ -24,10 +24,10 @@ class MIOpen_Op<string mnemonic, list<OpTrait> traits = []> :
   }];
 }
 
-def TransformsArrayAttr : TypedArrayAttrBase<MIOpen_TransformsAttr,
-  "Coordinate transforms array attribute, giving the sequence of transforms applicable to a value, uppermost to lowermost"> {}
+def TransformMapArrayAttr : TypedArrayAttrBase<MIOpen_TransformMapAttr,
+  "Coordinate transforms array attribute, giving the sequence of transform maps applicable to a value, uppermost to lowermost"> {}
 
-def ArgTransformsAttr : TypedArrayAttrBase<TransformsArrayAttr,
+def ArgTransformsAttr : TypedArrayAttrBase<TransformMapArrayAttr,
   "An array of arrays of transformations, one per operation argument">;
 
 class ArgTransforms<int n> : Confined<ArgTransformsAttr, [ArrayCount<n>]>;
@@ -79,7 +79,7 @@ def MIOpen_Conv2DBwdWeightOp :
 
 def MIOpen_TransformOp :
     MIOpen_Op<"transform", [NoSideEffect, ViewLikeOpInterface]>,
-    Arguments<(ins AnyMemRef:$input, TransformsArrayAttr:$transforms)>,
+    Arguments<(ins AnyMemRef:$input, TransformMapArrayAttr:$transforms)>,
     Results<(outs AnyMemRef:$output)> {
   let summary = "Tensor transformation";
   let description = [{
@@ -90,7 +90,7 @@ def MIOpen_TransformOp :
   }];
   let builders = [
    // Custom builder to populate bounds of input and output memrefs as attributes.
-   OpBuilder<(ins "Value":$input, "TransformsAttr":$transforms,
+   OpBuilder<(ins "Value":$input, "TransformMapAttr":$transforms,
     CArg<"unsigned", "0">:$memorySpace),
    [{
      $_state.addOperands({input});

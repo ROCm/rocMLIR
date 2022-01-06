@@ -101,7 +101,7 @@ public:
   virtual ~CoordTransformsBuilder() = default;
 
   // Get the TransformsAttr that's being built up by the builder
-  TransformsAttr get();
+  TransformMapAttr get();
   // Only valid after the transformation has been built.
   // The names live as long as the CoordTransformBuilder
   void getEndNames(SmallVectorImpl<StringRef> &names);
@@ -185,7 +185,7 @@ public:
       : CoordTransformsBuilder(builder, startNames, startShape, loc) {}
 
   static TopDownCTBuilder below(TopDownCTBuilder &previous,
-                                TransformsAttr &result) {
+                                TransformMapAttr &result) {
     return CoordTransformsBuilder::nextTransforms(previous,
                                                   result.getLowerBounds());
   }
@@ -227,7 +227,7 @@ public:
       : CoordTransformsBuilder(builder, startNames, startShape, loc) {}
 
   static BottomUpCTBuilder above(BottomUpCTBuilder &previous,
-                                 TransformsAttr &result) {
+                                 TransformMapAttr &result) {
     return CoordTransformsBuilder::nextTransforms(previous,
                                                   result.getUpperBounds());
   }
@@ -265,7 +265,7 @@ TransformAttr getTransformAttrChecked(
     ArrayRef<StringRef> upperNames, ArrayRef<uint32_t> upperDims,
     ArrayRef<StringRef> lowerNames, ArrayRef<uint32_t> lowerDims);
 
-TransformsAttr getTransformsAttrChecked(
+TransformMapAttr getTransformMapAttrChecked(
     llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     mlir::MLIRContext *context, ArrayRef<TransformAttr> ops, AffineMapAttr map,
     ArrayRef<int64_t> upperBounds, ArrayRef<int64_t> lowerBounds);

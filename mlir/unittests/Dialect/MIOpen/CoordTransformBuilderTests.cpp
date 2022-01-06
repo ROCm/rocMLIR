@@ -60,7 +60,7 @@ protected:
 TEST_F(CTBuilderTest, PassThroughDoesNothingTD) {
   auto buildDown = makeTopDown({"x"}, {4});
   buildDown.passThrough("x");
-  TransformsAttr res = buildDown.get();
+  TransformMapAttr res = buildDown.get();
 
   SmallVector<int64_t> bounds = {4};
   EXPECT_ARRAY_EQ(int64_t, res.getUpperBounds(), bounds);
@@ -79,8 +79,8 @@ TEST_F(CTBuilderTest, PassThroughWorksBothWays) {
   buildUp.passThrough("a", "b");
   buildDown.passThrough("b", "a");
 
-  TransformsAttr resUp = buildUp.get();
-  TransformsAttr resDown = buildDown.get();
+  TransformMapAttr resUp = buildUp.get();
+  TransformMapAttr resDown = buildDown.get();
   ASSERT_EQ(resUp, resDown);
 }
 
@@ -89,7 +89,7 @@ TEST_F(CTBuilderTest, PassThroughExchange) {
 
   buildUp.passThrough({"y"}, {0}, {"y"});
   buildUp.passThrough({"x"}, {1}, {"x"});
-  TransformsAttr resUp = buildUp.get();
+  TransformMapAttr resUp = buildUp.get();
 
   EXPECT_EQ(resUp.getMap().getAffineMap(),
             AffineMap::get(2, 0, {affD(1), affD(0)}, &context));
@@ -111,7 +111,7 @@ TEST_F(CTBuilderTest, Padding) {
 
   auto buildUp = makeBottomUp({"a", "b"}, lowerBounds);
   buildUp.pad({"a", "b"}, {2, 1, 1, 0});
-  TransformsAttr resUp = buildUp.get();
+  TransformMapAttr resUp = buildUp.get();
   EXPECT_ARRAY_EQ(int64_t, resUp.getUpperBounds(), upperBounds);
   EXPECT_EQ(
       resUp.getMap().getAffineMap(),
@@ -119,7 +119,7 @@ TEST_F(CTBuilderTest, Padding) {
 
   auto buildDown = makeTopDown({"a", "b"}, upperBounds);
   buildDown.pad({"a", "b"}, {2, 1, 1, 0});
-  TransformsAttr resDown = buildDown.get();
+  TransformMapAttr resDown = buildDown.get();
   EXPECT_ARRAY_EQ(int64_t, resDown.getLowerBounds(), lowerBounds);
   EXPECT_EQ(resUp, resDown);
 }
@@ -131,8 +131,8 @@ TEST_F(CTBuilderTest, Embed) {
   buildDown.embed("a", 0, 24, {"a", "b", "c"}, {6, 2, 1});
   buildUp.embed({"a", "b", "c"}, {0, 1, 2}, {2, 3, 4}, "a", {6, 2, 1});
 
-  TransformsAttr resDown = buildDown.get();
-  TransformsAttr resUp = buildUp.get();
+  TransformMapAttr resDown = buildDown.get();
+  TransformMapAttr resUp = buildUp.get();
 
   EXPECT_EQ(
       resDown.getMap().getAffineMap(),
@@ -147,8 +147,8 @@ TEST_F(CTBuilderTest, Unmerge) {
   buildDown.unmerge("a", 0, {"a", "b", "c"}, {2, 3, 4});
   buildUp.unmerge({"a", "b", "c"}, {0, 1, 2}, "a", {2, 3, 4});
 
-  TransformsAttr resDown = buildDown.get();
-  TransformsAttr resUp = buildUp.get();
+  TransformMapAttr resDown = buildDown.get();
+  TransformMapAttr resUp = buildUp.get();
 
   EXPECT_EQ(resDown.getMap().getAffineMap(),
             AffineMap::get(3, 0,
@@ -164,8 +164,8 @@ TEST_F(CTBuilderTest, Merge) {
   buildDown.merge({"x", "y", "z"}, {0, 1, 2}, "top", {2, 3, 5});
   buildUp.merge("top", 0, {"x", "y", "z"});
 
-  TransformsAttr resDown = buildDown.get();
-  TransformsAttr resUp = buildUp.get();
+  TransformMapAttr resDown = buildDown.get();
+  TransformMapAttr resUp = buildUp.get();
 
   EXPECT_EQ(
       resDown.getMap().getAffineMap(),
@@ -186,8 +186,8 @@ TEST_F(CTBuilderTest, AddDim) {
   buildDown.ignore("b");
   buildUp.addDim("b", 1, 2);
 
-  TransformsAttr resDown = buildDown.get();
-  TransformsAttr resUp = buildUp.get();
+  TransformMapAttr resDown = buildDown.get();
+  TransformMapAttr resUp = buildUp.get();
 
   EXPECT_EQ(resUp.getMap().getAffineMap(),
             AffineMap::get(3, 0, {affD(0), affD(2)}, &context));
@@ -207,8 +207,8 @@ TEST_F(CTBuilderTest, GemmOut) {
   buildUp.passThrough({"gemmM"}, {1}, {"k"});
   buildUp.merge("gemmN", 2, {"n", "h", "w"});
 
-  TransformsAttr resDown = buildDown.get();
-  TransformsAttr resUp = buildUp.get();
+  TransformMapAttr resDown = buildDown.get();
+  TransformMapAttr resUp = buildUp.get();
 
   EXPECT_EQ(
       resDown.getMap().getAffineMap(),

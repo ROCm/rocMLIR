@@ -152,7 +152,7 @@ CoordTransformsBuilder::CoordTransformsBuilder(
   }
 }
 
-TransformsAttr CoordTransformsBuilder::get() {
+TransformMapAttr CoordTransformsBuilder::get() {
   SmallVector<int64_t, 8> upperBounds, lowerBounds;
   extractBounds(upperBounds, lowerBounds);
   AffineMapAttr map = assembleMapFor(b, result, upperBounds, lowerBounds);
@@ -165,8 +165,8 @@ TransformsAttr CoordTransformsBuilder::get() {
     return err;
   };
   frozen = true;
-  return getTransformsAttrChecked(errorEmitter, b.getContext(), result, map,
-                                  upperBounds, lowerBounds);
+  return getTransformMapAttrChecked(errorEmitter, b.getContext(), result, map,
+                                    upperBounds, lowerBounds);
 }
 
 void CoordTransformsBuilder::getEndNames(SmallVectorImpl<StringRef> &names) {

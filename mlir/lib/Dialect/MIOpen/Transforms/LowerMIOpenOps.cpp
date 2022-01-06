@@ -228,7 +228,7 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
     addKBlockTransform.passThrough({"k", "c", "y", "x"}, {2, 3, 4, 5},
                                    {"k", "c", "y", "x"});
 
-    TransformsAttr addKBlockTransformAttr = addKBlockTransform.get();
+    TransformMapAttr addKBlockTransformAttr = addKBlockTransform.get();
     Value withKBlock =
         b.create<miopen::TransformOp>(loc, op.filter(), addKBlockTransformAttr);
 
@@ -241,7 +241,7 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
     gemmTransform.passThrough({"gemmM"}, {1}, {"k"});
     gemmTransform.merge("gemmN", 2, {"c", "y", "x"});
 
-    TransformsAttr gemmTransformAttr = gemmTransform.get();
+    TransformMapAttr gemmTransformAttr = gemmTransform.get();
     gemmFilter =
         b.create<miopen::TransformOp>(loc, withKBlock, gemmTransformAttr);
     // This kernel is only invoked when there's no need for gemm padding
@@ -259,7 +259,7 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
     firstTransform.pad({"hipad", "wipad"}, {4, 5}, {"hi", "wi"},
                        {leftPadH, rightPadH, leftPadW, rightPadW});
 
-    TransformsAttr firstTransformAttr = firstTransform.get();
+    TransformMapAttr firstTransformAttr = firstTransform.get();
     Value firstTransformed =
         b.create<miopen::TransformOp>(loc, op.input(), firstTransformAttr);
 
@@ -285,7 +285,7 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
     embedTransform.embed({"x", "wo"}, {6, 7}, {x, wo}, "wipad",
                          {dilationW, strideW});
 
-    TransformsAttr embedTransformAttr = embedTransform.get();
+    TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embedded = b.create<miopen::TransformOp>(loc, firstTransformed,
                                                    embedTransformAttr);
 
@@ -296,7 +296,7 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
     gemmTransform.merge("gemmK", 1, {"n1", "ho", "wo"});
     gemmTransform.merge("gemmN", 2, {"ci", "y", "x"});
 
-    TransformsAttr gemmTransformAttr = gemmTransform.get();
+    TransformMapAttr gemmTransformAttr = gemmTransform.get();
     gemmInput = b.create<miopen::TransformOp>(loc, embedded, gemmTransformAttr);
   }
 
@@ -310,7 +310,7 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
     firstTransform.passThrough({"ko", "ho", "wo"}, {3, 4, 5},
                                {"ko", "ho", "wo"});
 
-    TransformsAttr firstTransformAttr = firstTransform.get();
+    TransformMapAttr firstTransformAttr = firstTransform.get();
     Value transformed =
         b.create<miopen::TransformOp>(loc, op.output(), firstTransformAttr);
 
@@ -321,7 +321,7 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
     gemmTransform.merge("gemmK", 1, {"n1", "ho", "wo"});
     gemmTransform.passThrough({"gemmM"}, {2}, {"ko"});
 
-    TransformsAttr gemmTransformAttr = gemmTransform.get();
+    TransformMapAttr gemmTransformAttr = gemmTransform.get();
     gemmOutput =
         b.create<miopen::TransformOp>(loc, transformed, gemmTransformAttr);
   }
@@ -626,7 +626,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
     firstTransform.embed({"xdot", "xtilda"}, {5, 6}, {xDot, xTilda}, "x",
                          {strideW / gcdStrideDilationW, 1});
 
-    TransformsAttr firstTransformAttr = firstTransform.get();
+    TransformMapAttr firstTransformAttr = firstTransform.get();
     Value firstTransformedFilter =
         b.create<miopen::TransformOp>(loc, op.filter(), firstTransformAttr);
 
@@ -640,7 +640,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
     sliceTransform.slice({"ytildaslice", "xtildaslice"}, {"ytilda", "xtilda"},
                          {iYTilda, iXTilda}, {iYTilda + 1, iXTilda + 1});
 
-    TransformsAttr sliceTransformAttr = sliceTransform.get();
+    TransformMapAttr sliceTransformAttr = sliceTransform.get();
     Value slicedFilter = b.create<miopen::TransformOp>(
         loc, firstTransformedFilter, sliceTransformAttr);
 
@@ -653,7 +653,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
     gemmTransform.merge("gemmK", 1, {"k", "ydotslice", "xdotslice"});
     gemmTransform.merge("gemmM", 2, {"c", "ytildaslice", "xtildaslice"});
 
-    TransformsAttr gemmTransformAttr = gemmTransform.get();
+    TransformMapAttr gemmTransformAttr = gemmTransform.get();
     gemmFilter =
         b.create<miopen::TransformOp>(loc, slicedFilter, gemmTransformAttr);
 
@@ -687,7 +687,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
         padTransform.passThrough("gemmM");
       }
 
-      TransformsAttr padTransformAttr = padTransform.get();
+      TransformMapAttr padTransformAttr = padTransform.get();
       // Replace filter gemm with padded version
       gemmFilter =
           b.create<miopen::TransformOp>(loc, gemmFilter, padTransformAttr);
@@ -705,7 +705,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
     toGNCHWPaddedTransform.pad({"hipad", "wipad"}, {3, 4}, {"hi", "wi"},
                                {leftPadH, rightPadH, leftPadW, rightPadW});
 
-    TransformsAttr toGNCHWPaddedTransformAttr = toGNCHWPaddedTransform.get();
+    TransformMapAttr toGNCHWPaddedTransformAttr = toGNCHWPaddedTransform.get();
     Value gnchwPaddedInput = b.create<miopen::TransformOp>(
         loc, op.input(), toGNCHWPaddedTransformAttr);
 
@@ -734,7 +734,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
     tildaEmbedTransform.embed({"xtilda", "wtilda"}, {5, 6}, {xTilda, wTilda},
                               "wipad", {dilationW, strideW});
 
-    TransformsAttr tildaEmbedTransformAttr = tildaEmbedTransform.get();
+    TransformMapAttr tildaEmbedTransformAttr = tildaEmbedTransform.get();
     Value tildaEmbedded = b.create<miopen::TransformOp>(
         loc, gnchwPaddedInput, tildaEmbedTransformAttr);
 
@@ -750,7 +750,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
                          {iHTildaLeft, iWTildaLeft},
                          {iHTildaRight, iWTildaRight});
 
-    TransformsAttr sliceTransformAttr = sliceTransform.get();
+    TransformMapAttr sliceTransformAttr = sliceTransform.get();
     Value sliced =
         b.create<miopen::TransformOp>(loc, tildaEmbedded, sliceTransformAttr);
 
@@ -762,7 +762,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
     gemmTransform.merge("gemmM", 1, {"ci", "yslice", "xslice"});
     gemmTransform.merge("gemmN", 2, {"ni", "hslice", "wslice"});
 
-    TransformsAttr gemmTransformAttr = gemmTransform.get();
+    TransformMapAttr gemmTransformAttr = gemmTransform.get();
     gemmInput = b.create<miopen::TransformOp>(loc, sliced, gemmTransformAttr);
 
     bool inputCheckPadGemmM = (gemmMExtra > 0);
@@ -794,7 +794,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
         padTransform.passThrough("gemmN");
       }
 
-      TransformsAttr padTransformAttr = padTransform.get();
+      TransformMapAttr padTransformAttr = padTransform.get();
       // Replace input gemm with padded version
       gemmInput =
           b.create<miopen::TransformOp>(loc, gemmInput, padTransformAttr);
@@ -813,7 +813,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
     embedTransform.embed({"xdot", "wtilda"}, {5, 6}, {xDot, wTilda}, "wo",
                          {(-dilationW) / gcdStrideDilationW, 1});
 
-    TransformsAttr embedTransformAttr = embedTransform.get();
+    TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embedded =
         b.create<miopen::TransformOp>(loc, op.output(), embedTransformAttr);
 
@@ -840,7 +840,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
                          {iHTildaLeft, iWTildaLeft},
                          {iHTildaRight, iWTildaRight});
 
-    TransformsAttr sliceTransformAttr = sliceTransform.get();
+    TransformMapAttr sliceTransformAttr = sliceTransform.get();
     Value sliced =
         b.create<miopen::TransformOp>(loc, embedded, sliceTransformAttr);
 
@@ -851,7 +851,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
     gemmTransform.merge("gemmK", 1, {"ko", "yslice", "xslice"});
     gemmTransform.merge("gemmN", 2, {"no", "hslice", "wslice"});
 
-    TransformsAttr gemmTransformAttr = gemmTransform.get();
+    TransformMapAttr gemmTransformAttr = gemmTransform.get();
     gemmOutput = b.create<miopen::TransformOp>(loc, sliced, gemmTransformAttr);
 
     bool outputCheckPadGemmK = (gemmKExtra > 0);
@@ -883,7 +883,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
         padTransform.passThrough("gemmN");
       }
 
-      TransformsAttr padTransformAttr = padTransform.get();
+      TransformMapAttr padTransformAttr = padTransform.get();
       // Replace output gemm with padded version
       gemmOutput =
           b.create<miopen::TransformOp>(loc, gemmOutput, padTransformAttr);

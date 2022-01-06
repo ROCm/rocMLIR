@@ -167,7 +167,7 @@ inline void computeSliceLengths(SmallVectorImpl<uint64_t> &sliceLengths,
   // - shape of the source in case the source has no affine transfromations.
   if (sourceTransforms && sourceTransforms.size() > 0) {
     if (destTransforms && destTransforms.size() > 0) {
-      auto firstSourceTransform = sourceTransforms[0].cast<TransformsAttr>();
+      auto firstSourceTransform = sourceTransforms[0].cast<TransformMapAttr>();
       ArrayRef<int64_t> bounds = firstSourceTransform.getUpperBounds();
       for (int64_t v : bounds) {
         assert(v >= 0 &&
@@ -682,12 +682,12 @@ inline uint32_t obtainGenericTensorTransformationInfo(
   // Obtain metadata of coordinate transformations.
   if (coordTransformsAttr && coordTransformsAttr.size() > 0) {
     coordLength = coordTransformsAttr[0]
-                      .cast<TransformsAttr>()
+                      .cast<TransformMapAttr>()
                       .getMap()
                       .getValue()
                       .getNumInputs();
     SmallVector<AffineMap, 8> maps;
-    for (auto attr : coordTransformsAttr.getAsRange<TransformsAttr>()) {
+    for (auto attr : coordTransformsAttr.getAsRange<TransformMapAttr>()) {
       maps.push_back(attr.getMap().getValue());
     }
     composedTransform = composeTransforms(maps);
@@ -839,13 +839,13 @@ inline Optional<int64_t> isConstantValue(Value v) {
 //===----------------------------------------------------------------------===//
 inline void computeIndexDiffMap(OpBuilder &b, Location loc,
                                 const ArrayRef<Value> upperIndicesDiff,
-                                const TransformsAttr transforms,
+                                const TransformMapAttr transformMap,
                                 const ArrayRef<Value> lowerIndicesOriginal,
                                 SmallVectorImpl<Value> &lowerIndicesDiff,
                                 SmallVectorImpl<Value> &lowerIndicesUpdated) {
   Value zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
   // Obtain the shape of lower level memref.
-  ArrayRef<int64_t> lowerLayerShape = transforms.getLowerBounds();
+  ArrayRef<int64_t> lowerLayerShape = transformMap.getLowerBounds();
 
   // Input:
   // - upper_diff
@@ -973,7 +973,7 @@ inline void computeIndexDiffMap(OpBuilder &b, Location loc,
   };
 
   // Iterate through all transformations specified in g.
-  for (auto mapping : transforms.getOps()) {
+  for (auto mapping : transformMap.getOps()) {
     // llvm::errs() << "f: " << f << "\n";
 
     // Obtain transformation information from f.
@@ -1050,8 +1050,8 @@ inline void computeIndexDiffMap(OpBuilder &b, Location loc,
       assert(p.size() == 1);
       uint32_t upperDim = p[0];
 
-      // Obtain the transformation.
-      AffineMap transformMap = transforms.getMap().getAffineMap();
+      // Obtain the affine map underlying the transform.
+      AffineMap affineMap = transformMap.getMap().getAffineMap();
 
       SmallVector<Value, 8> lowerDiffModified;
       auto mbUpperDiffVal = isConstantValue(upperIndicesDiff[upperDim]);
@@ -1071,8 +1071,7 @@ inline void computeIndexDiffMap(OpBuilder &b, Location loc,
         // Apply map to compute index lower diff, from index upper diff using
         // constantFold.
         SmallVector<Attribute, 8> lowerDiffModifiedAttr;
-        (void)transformMap.constantFold(upperDiffModified,
-                                        lowerDiffModifiedAttr);
+        (void)affineMap.constantFold(upperDiffModified, lowerDiffModifiedAttr);
         assert(lowerDiffModifiedAttr.size() == lowerIndicesOriginal.size());
 
         for (uint32_t iter = 0; iter < lowerDiffModifiedAttr.size(); ++iter) {
@@ -1099,7 +1098,7 @@ inline void computeIndexDiffMap(OpBuilder &b, Location loc,
         // Apply map to compute index lower diff, from index upper diff using
         // expandAffineMap.
         lowerDiffModified =
-            expandAffineMap(b, loc, transformMap, upperDiffModified).getValue();
+            expandAffineMap(b, loc, affineMap, upperDiffModified).getValue();
         assert(lowerDiffModified.size() == lowerIndicesOriginal.size());
       }
 
@@ -1265,9 +1264,9 @@ inline void computeBottomIndicesWithIndexDiffMap(
   } else {
     SmallVector<Value, 8> upperDiffs = topDiff;
     SmallVector<Value, 8> lowerDiffs, lowerIndices;
-    for (auto pair : llvm::zip(transforms.getAsRange<TransformsAttr>(),
+    for (auto pair : llvm::zip(transforms.getAsRange<TransformMapAttr>(),
                                layeredIndicesOrig.slice(1))) {
-      TransformsAttr mapping = std::get<0>(pair);
+      TransformMapAttr mapping = std::get<0>(pair);
       const SmallVector<Value, 8> &lowerOrig = std::get<1>(pair);
       lowerDiffs.clear();
       lowerIndices.clear();
@@ -1300,7 +1299,7 @@ inline void populateLayeredIndicesWithTransformMetadata(
   }
   // Go through each layer of transform metadata, fetch the map attribute
   // and apply it to obtain the indices for the next layer.
-  for (auto mapping : transforms.getAsRange<TransformsAttr>()) {
+  for (auto mapping : transforms.getAsRange<TransformMapAttr>()) {
     AffineMap am = mapping.getMap().getAffineMap();
     SmallVector<Value, 8> nextLayerIndices =
         expandAffineMap(b, loc, am, currentIndices).getValue();
@@ -1594,7 +1593,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       break;
     }
 
-    TransformsAttr filterTransformAttr = filterTransform.get();
+    TransformMapAttr filterTransformAttr = filterTransform.get();
     Value gemmFilter =
         b.create<miopen::TransformOp>(loc, op.filter(), filterTransformAttr);
 
@@ -1647,7 +1646,8 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
         padGemmFilterTransform.passThrough("gemmN");
       }
 
-      TransformsAttr padGemmFilterTransformAttr = padGemmFilterTransform.get();
+      TransformMapAttr padGemmFilterTransformAttr =
+          padGemmFilterTransform.get();
       gemmFilterPad = b.create<miopen::TransformOp>(loc, gemmFilter,
                                                     padGemmFilterTransformAttr);
       // filter pad end
@@ -1680,7 +1680,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       inputOobCheckDims.insert(padInputTransform.startIndex("wi"));
     }
 
-    TransformsAttr padInputTransformAttr = padInputTransform.get();
+    TransformMapAttr padInputTransformAttr = padInputTransform.get();
 
     Value paddedInput =
         b.create<miopen::TransformOp>(loc, op.input(), padInputTransformAttr);
@@ -1723,7 +1723,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
                               {embeddedInputDims["x"], embeddedInputDims["wo"]},
                               {x, wo}, "wipad", {dilationW, strideW});
 
-    TransformsAttr embedInputTransformAttr = embedInputTransform.get();
+    TransformMapAttr embedInputTransformAttr = embedInputTransform.get();
     Value embeddedInput = b.create<miopen::TransformOp>(
         loc, paddedInput, embedInputTransformAttr);
 
@@ -1766,7 +1766,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     gemmInputTransform.merge("gemmK", 1, mergeToK);
     gemmInputTransform.merge("gemmN", 2, mergeToN);
 
-    TransformsAttr gemmInputTransformAttr = gemmInputTransform.get();
+    TransformMapAttr gemmInputTransformAttr = gemmInputTransform.get();
     Value gemmInput = b.create<miopen::TransformOp>(loc, embeddedInput,
                                                     gemmInputTransformAttr);
     Value gemmInputPad = gemmInput;
@@ -1820,7 +1820,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
         padGemmInputTransform.passThrough("gemmN");
       }
 
-      TransformsAttr padGemmInputTransformAttr = padGemmInputTransform.get();
+      TransformMapAttr padGemmInputTransformAttr = padGemmInputTransform.get();
       gemmInputPad = b.create<miopen::TransformOp>(loc, gemmInput,
                                                    padGemmInputTransformAttr);
       // input padding end
@@ -1857,7 +1857,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       break;
     }
 
-    TransformsAttr outputTransformAttr = outputTransform.get();
+    TransformMapAttr outputTransformAttr = outputTransform.get();
     Value gemmOutput =
         b.create<miopen::TransformOp>(loc, op.output(), outputTransformAttr);
     Value gemmOutputPad = gemmOutput;
@@ -1916,7 +1916,8 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
         padGemmOutputTransform.passThrough("gemmN");
       }
 
-      TransformsAttr padGemmOutputTransformAttr = padGemmOutputTransform.get();
+      TransformMapAttr padGemmOutputTransformAttr =
+          padGemmOutputTransform.get();
       gemmOutputPad = b.create<miopen::TransformOp>(loc, gemmOutput,
                                                     padGemmOutputTransformAttr);
       // output padding end
@@ -2158,7 +2159,7 @@ inline Value sliceBufferSubview(OpBuilder &b, Location loc, Value buffer,
   BottomUpCTBuilder transform(b, {"buffer"}, shape, loc);
   transform.slice({"slice"}, {"buffer"}, {start}, {end});
 
-  TransformsAttr transformAttr = transform.get();
+  TransformMapAttr transformAttr = transform.get();
   Value subview = b.create<miopen::TransformOp>(
       loc, buffer, transformAttr, bufferType.getMemorySpaceAsInt());
   return subview;
@@ -2193,7 +2194,7 @@ inline Value reshapeBufferSubview(OpBuilder &b, Location loc, Value buffer,
   TopDownCTBuilder transform(b, nameRefs, shape, loc);
   transform.embed("slice", 0, outShape[0], nameRefs, strides);
 
-  TransformsAttr transformAttr = transform.get();
+  TransformMapAttr transformAttr = transform.get();
   Value ret = b.create<miopen::TransformOp>(loc, buffer, transformAttr,
                                             bufferType.getMemorySpaceAsInt());
   return ret;
@@ -2892,7 +2893,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     cSplitTransform.embed("gemmM", 1, M1 * M0, {"M0", "M1"}, {M1, 1});
     cSplitTransform.embed("gemmN", 2, N1 * N0, {"N0", "N1"}, {N1, 1});
 
-    TransformsAttr cSplitTransformAttr = cSplitTransform.get();
+    TransformMapAttr cSplitTransformAttr = cSplitTransform.get();
     auto cTransformed =
         b.create<miopen::TransformOp>(loc, op.c(), cSplitTransformAttr);
 
@@ -2908,7 +2909,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
     registerCTransform.embed("gemmN", 2, GemmNRepeat * NPerThread,
                              {"gemmNRepeat", "nPerThread"}, {NPerThread, 1});
 
-    TransformsAttr registerCTransformAttr = registerCTransform.get();
+    TransformMapAttr registerCTransformAttr = registerCTransform.get();
     Value registerCTransformed = b.create<miopen::TransformOp>(
         loc, registerMatrixCAllocOp, registerCTransformAttr,
         gpu::GPUDialect::getPrivateAddressSpace());
@@ -3724,7 +3725,7 @@ struct GridwiseGemmV2RewritePattern
          (NPerWave % swizzleGroup == 0));
     const auto &tailResults = blockwiseGemmV2TailOp->getResults();
 
-    TransformsAttr splitCTransformAttr, cVectorAccessTransformAttr;
+    TransformMapAttr splitCTransformAttr, cVectorAccessTransformAttr;
     ArrayAttr copyBounds;
     llvm::SmallVector<Value, 4> vectors;
     vectors.reserve(tailResults.size());
@@ -5601,7 +5602,7 @@ struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
         transformOpStack.push_back(currentTransform);
         // verify() would've failed if we couldn't cast<> these
         for (Attribute attr : currentTransform.transforms()) {
-          TransformsAttr ta = attr.cast<TransformsAttr>();
+          TransformMapAttr ta = attr.cast<TransformMapAttr>();
           transforms.push_back(ta);
         }
         currentOp = currentTransform.input().getDefiningOp();

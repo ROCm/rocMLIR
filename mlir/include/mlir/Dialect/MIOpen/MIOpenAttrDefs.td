@@ -120,8 +120,8 @@ def MIOpen_TransformAttr : MIOpen_Attr<"Transform"> {
 }
 
 /// TransformsAttr
-def MIOpen_TransformsAttr : MIOpen_Attr<"Transforms"> {
-    let mnemonic = "transforms";
+def MIOpen_TransformMapAttr : MIOpen_Attr<"TransformMap"> {
+    let mnemonic = "transform_map";
     let description = [{
         A package of a series of coordinate transformation descriptions
         that completely defines how to map from some upper dimensions P
