@@ -1,9 +1,13 @@
 // This tests checks the following aspects of lowering component:
 // * Input tensor has non-zero padding.
+// * Memrefs get the correct affine map attached after transforms
 
-// RUN: miopen-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s --check-prefix=LOWERING
-// RUN: miopen-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s --check-prefix=AFFINE
+// RUN: miopen-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s
 
+// CHECK-DAG: #[[$AFFINE:map[0-9]+]] = #map1 = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3 - 1, d4 - 1)>
+// CHECK-DAG: #[[$MAP:transform_map[0-9]+]] = #transform_map1 = #miopen.transform_map<affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3 - 1, d4 - 1)> by[#miopen.transform<PassThrough ["ni"] at [2] -> ["ni"] at [2]>, #miopen.transform<PassThrough ["gi"] at [0] -> ["gi"] at [0]>, #miopen.transform<PassThrough ["ci"] at [1] -> ["ci"] at [1]>, #miopen.transform<Pad{1, 1, 1, 1} ["hipad", "wipad"] at [3, 4] -> ["hi", "wi"] at [3, 4]>] bounds = [1, 8, 128, 34, 34] -> [1, 8, 128, 32, 32]>
+// CHECK-LABEL: func @miopen_conv2d_gcyxk_gcnhw_gknhw
+// CHECK: miopen.transform %arg1 by [#[[MAP]]] : memref<1x8x128x32x32xf32> to memref<1x8x128x34x34xf32, #[[$AFFINE]]>
 func @miopen_conv2d_gcyxk_gcnhw_gknhw(%filter : memref<1x8x3x3x128xf32>, %input : memref<1x8x128x32x32xf32>, %output : memref<1x128x128x32x32xf32>) {
   miopen.conv2d(%filter, %input, %output) {
     arch = "gfx906",
@@ -17,16 +21,3 @@ func @miopen_conv2d_gcyxk_gcnhw_gknhw(%filter : memref<1x8x3x3x128xf32>, %input 
   } : memref<1x8x3x3x128xf32>, memref<1x8x128x32x32xf32>, memref<1x128x128x32x32xf32>
   return
 }
-
-// LOWERING-LABEL: func @miopen_conv2d
-// LOWERING:  miopen.transform(%arg1)
-// LOWERING:  upper_layer_layout = ["gi", "ci", "ni", "hipad", "wipad"]
-// LOWERING:  memref<1x8x128x34x34xf32>
-
-// AFFINE: #map{{[0-9]+}} = affine_map<(d0, d1, d2) -> (d0, d1 floordiv 9, (d1 mod 9) floordiv 3, d1 mod 3, d2)>
-// AFFINE-NEXT: #map{{[0-9]+}} = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3 - 1, d4 - 1)>
-// AFFINE-NEXT: #map{{[0-9]+}} = affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (d0, d1, d2, d3 + d4, d5 + d6)>
-// AFFINE-NEXT: #map{{[0-9]+}} = affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (d0, d1, d2, d3 + d4 - 1, d5 + d6 - 1)>
-// AFFINE-NEXT: #map{{[0-9]+}} = affine_map<(d0, d1, d2) -> (d0, d1 floordiv 9, d2 floordiv 1024, (d1 mod 9) floordiv 3, (d2 mod 1024) floordiv 32, d1 mod 3, d2 mod 32)>
-// AFFINE-NEXT: #map{{[0-9]+}} = affine_map<(d0, d1, d2) -> (d0, d1 floordiv 9, d2 floordiv 1024, (d1 mod 9) floordiv 3 + (d2 mod 1024) floordiv 32 - 1, d1 mod 3 + d2 mod 32 - 1)>
-// AFFINE-NEXT: #map{{[0-9]+}} = affine_map<(d0, d1, d2) -> (d0, d1, d2 floordiv 1024, (d2 mod 1024) floordiv 32, d2 mod 32)>
