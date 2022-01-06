@@ -20,10 +20,12 @@
 #include "mlir/Dialect/MIOpen/utility/BackwardWeightV4R4Helper.h"
 #include "mlir/Dialect/MIOpen/utility/math.h"
 #include "mlir/Support/FileUtilities.h"
+#include "mlir/Support/LogicalResult.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/YAMLTraits.h"
 
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 
@@ -35,6 +37,13 @@ LLVM_YAML_IS_STRING_MAP(int)
 // 1 : gemmK dimension.
 // 2 : gemmM or gemmN dimension.
 enum GemmDimensions { GemmG = 0, GemmK = 1, GemmMorN = 2 };
+
+constexpr int64_t gemmCDimG = 0;
+constexpr int64_t gemmCDimM = 1;
+constexpr int64_t gemmCDimN = 2;
+constexpr int64_t gemmCSplitDimM2 = 3;
+constexpr int64_t gemmCSplitDimN = 4;
+constexpr int64_t gemmCSplitDimN2 = 5;
 
 // greatest common divisor, aka highest common factor
 template <typename T> T gcd(T x, T y) {
@@ -97,6 +106,13 @@ struct DerivedParams {
   DerivedParams()
       : srcVectorReadDim(GemmG), srcDataPerRead(1), dstDataPerWrite(1),
         clusterLenGemmPos1(0), clusterLenGemmPos2(0) {}
+};
+
+struct DerivedOutParams {
+  int64_t gemmVectorDim;
+  int64_t destVectorDim;
+  int64_t dataPerCopy;
+  DerivedOutParams() : gemmVectorDim(-1), destVectorDim(-1), dataPerCopy(1) {}
 };
 
 class PopulateParamsBase {
@@ -366,6 +382,7 @@ protected:
         opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
       vectorizationSize = 1;
     }
+
     // srcDataPerRead bounded by size of threadwise copy
     if ((vectorizableLength > 0) && (vectorizableLength % 4 == 0)) {
       derived.srcDataPerRead = gcd(vectorizationSize, dataPerThreadCopy);
@@ -413,6 +430,67 @@ protected:
       return mlir::failure();
 
     return mlir::success();
+  }
+
+  mlir::LogicalResult calculateOutputDerivedParams(InitParams *params,
+                                                   int64_t blockSize,
+                                                   ConvolutionContext &ctx,
+                                                   DerivedOutParams &out) {
+    int64_t cVectorLength = 0;
+    ConvOpType op = ctx.getOpType();
+
+    obtainGemmCVecLen(ctx, cVectorLength);
+    int64_t dataPerThread =
+        (params->gemmMPerBlock * params->gemmNPerBlock) / blockSize;
+    if (!(dataPerThread > 0)) {
+      return failure();
+    }
+
+    // TODO: Allow vectorization group size of 2
+    int64_t vectorizationSize = 4;
+    // No swizzling or vectorization for backward data
+    // TODO(kdrewnia): Understand when it might be possible
+    if (ConvOpType::Conv2DBwdDataOpType == op) {
+      vectorizationSize = 1;
+    }
+
+    if ((cVectorLength > 0) && (dataPerThread % vectorizationSize == 0) &&
+        (cVectorLength % vectorizationSize == 0)) {
+      out.dataPerCopy = gcd(dataPerThread, vectorizationSize);
+    } else {
+      out.dataPerCopy = 1;
+    }
+
+    auto &dimIndexVal = ctx.dimIndexVal;
+    // Find dimensions in which the copy will take place
+    switch (op) {
+    case mlir::miopen::Conv2DOpType:
+      if (dimIndexVal["ko"].first == 4) {
+        out.gemmVectorDim = gemmCDimM;
+        out.destVectorDim = 4;
+      } else {
+        out.gemmVectorDim = gemmCDimN;
+        // This relies on assumptions about how we load our data for GEMM
+        out.destVectorDim = dimIndexVal["wo"].first;
+      }
+      break;
+    case mlir::miopen::Conv2DBwdWeightOpType:
+      if (dimIndexVal["k"].first == 4) {
+        out.gemmVectorDim = gemmCDimM;
+        out.destVectorDim = 4;
+      } else {
+        out.gemmVectorDim = gemmCDimN;
+        // Backward weight computations fold the {c, y, x} dimensions
+        // into N using the native order
+        out.destVectorDim = 4;
+      }
+      break;
+    case mlir::miopen::Conv2DBwdDataOpType:
+      out.gemmVectorDim = -1;
+      out.destVectorDim = -1;
+      break;
+    }
+    return success();
   }
 
   static void obtainGemmSize(ConvolutionContext &ctx, GemmSize &gemmSize) {
@@ -618,30 +696,10 @@ private:
                                        derived);
   }
 
-  int64_t calculateGemmCDestDataPerWrite(const InitParamsNonXDL &param,
-                                         ConvolutionContext &ctx) {
-    int64_t outputVecLen = 0;
-    if ((ctx.opType == miopen::ConvOpType::Conv2DOpType) &&
-        (ctx.dimIndexVal["ko"].first == 4)) {
-      // gemmM vectorizable. However, there is no parameters for vectorizing
-      // gemmM dimension for matrix C. Do nothing here.
-    } else if ((ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType) &&
-               (ctx.dimIndexVal["ci"].first == 4)) {
-      // gemmM vectorizable. However, there is no parameters for vectorizing
-      // gemmM dimension for matrix C. Do nothing here.
-    } else {
-      obtainGemmCVecLen(ctx, outputVecLen);
-    }
-
-    outputVecLen = gcd(outputVecLen, param.gemmNPerThread);
-
-    if ((outputVecLen > 0) && (outputVecLen % 4 == 0)) {
-      return 4;
-    } else if ((outputVecLen > 0) && (outputVecLen % 2 == 0)) {
-      return 2;
-    }
-
-    return 1;
+  LogicalResult calculateGemmCBlockwiseCopyParams(InitParamsNonXDL *params,
+                                                  ConvolutionContext &ctx,
+                                                  DerivedOutParams &out) {
+    return calculateOutputDerivedParams(params, params->blockSize, ctx, out);
   }
 
   LogicalResult
@@ -706,30 +764,28 @@ private:
     return success();
   }
 
-  LogicalResult populateDerived(ConvolutionContext &ctx,
-                                InitParamsNonXDL &validParams,
-                                GemmSize &gemmSize,
-                                DerivedParams &gemmADerivedParam,
-                                DerivedParams &gemmBDerivedParam,
-                                DerivedBlockGemmParams &blockGemmDerivedParam,
-                                int64_t &gemmCDstPerWrite, int64_t &gridSize);
+  LogicalResult
+  populateDerived(ConvolutionContext &ctx, InitParamsNonXDL &validParams,
+                  GemmSize &gemmSize, DerivedParams &gemmADerivedParam,
+                  DerivedParams &gemmBDerivedParam,
+                  DerivedBlockGemmParams &blockGemmDerivedParam,
+                  DerivedOutParams &gemmCDerivedParam, int64_t &gridSize);
 
   LogicalResult populatePaddingKernelDerived(
       ConvolutionContext &ctx, InitParamsNonXDL &validParams,
       GemmSize &gemmSize, DerivedParams &gemmADerivedParam,
       DerivedParams &gemmBDerivedParam,
-      DerivedBlockGemmParams &blockGemmDerivedParam, int64_t &gemmCDstPerWrite,
-      int64_t &gridSize);
+      DerivedBlockGemmParams &blockGemmDerivedParam,
+      DerivedOutParams &gemmCDerivedParam, int64_t &gridSize);
 
 public:
-  LogicalResult paramsFromCtx(ConvolutionContext &ctx,
-                              int64_t blockSizeOverride,
-                              const std::string &perfConfig,
-                              InitParamsNonXDL &validParams,
-                              DerivedParams &gemmADerivedParam,
-                              DerivedParams &gemmBDerivedParam,
-                              DerivedBlockGemmParams &blockGemmDerivedParam,
-                              int64_t &gemmCDstPerWrite, int64_t &gridSize);
+  LogicalResult
+  paramsFromCtx(ConvolutionContext &ctx, int64_t blockSizeOverride,
+                const std::string &perfConfig, InitParamsNonXDL &validParams,
+                DerivedParams &gemmADerivedParam,
+                DerivedParams &gemmBDerivedParam,
+                DerivedBlockGemmParams &blockGemmDerivedParam,
+                DerivedOutParams &gemmCDerivedParam, int64_t &gridSize);
 
   llvm::SmallVector<InitParamsNonXDL, 8> getTuningParameters() {
     return initParameters;
@@ -768,7 +824,7 @@ private:
     int64_t n = ctx.dimIndexVal["no"].second;
     int64_t ho = ctx.dimIndexVal["ho"].second;
     int64_t wo = ctx.dimIndexVal["wo"].second;
-    return miopen::calculateKBlockNum(n, ho, wo);
+    return mlir::miopen::calculateKBlockNum(n, ho, wo);
   }
 
   LogicalResult calculateGemmABlockCopyPerformanceParameters(
@@ -863,12 +919,14 @@ private:
                                 InitParamsXDL &validParams, GemmSize &gemmSize,
                                 DerivedParams &gemmADerivedParam,
                                 DerivedParams &gemmBDerivedParam,
+                                DerivedOutParams &gemmCDerivedParam,
                                 int64_t &blockSize, int64_t &gridSize);
 
   LogicalResult populatePaddingKernelDerived(
       ConvolutionContext &ctx, InitParamsXDL &validParams, GemmSize &gemmSize,
       DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
-      int64_t &blockSize, int64_t &gridSize);
+      DerivedOutParams &gemmCDerivedParam, int64_t &blockSize,
+      int64_t &gridSize);
 
   LogicalResult isValidGridGemmXdlops(GemmSize &gemmSize) {
     auto gemmM = gemmSize.gemmM;
@@ -893,6 +951,7 @@ public:
                               InitParamsXDL &validParams,
                               DerivedParams &gemmADerivedParam,
                               DerivedParams &gemmBDerivedParam,
+                              DerivedOutParams &gemmCDerivedParam,
                               int64_t &blockSize, int64_t &gridSize);
 
   llvm::SmallVector<InitParamsXDL, 4> getTuningParameters() {
