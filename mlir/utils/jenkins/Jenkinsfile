@@ -2,7 +2,7 @@
 void buildProject(String target, String cmakeOpts) {
     cmakeBuild generator: 'Ninja',\
         buildDir: 'build',\
-        buildType: 'Release',\
+        buildType: 'RelWithDebInfo',\
         installation: 'InSearchPath',\
         steps: [[args: target]],\
         cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
