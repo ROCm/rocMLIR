@@ -1,10 +1,19 @@
 // RUN: miopen-opt %s | FileCheck %s
 // RUN: miopen-opt %s | miopen-opt | FileCheck %s
 // Run: miopen-opt -mlir-print-op-generic %s | miopen-opt | FileCheck %s
+#transform_map0 = #miopen.transform_map<
+  affine_map<(d0) -> (d0)> by [
+    #miopen.transform<Slice{0, 4096} ["x"] at [0] -> ["x"] at [0]>
+  ] bounds = [4096] -> [12288]>
+#transform_map1 = #miopen.transform_map<
+  affine_map<(d0) -> (d0 + 8192)> by [
+    #miopen.transform<Slice{8192, 12288} ["x"] at [0] -> ["x"] at [0]>
+  ] bounds = [4096] -> [12288]>
 
 func @miopen_blockwise_gemm_f16(%A : memref<?x?x?xf16, 3>, %B : memref<?x?x?xf16, 3>, %C : memref<?x?x?xf16, 5>) {
   %c0 = arith.constant 0 : index
   miopen.blockwise_gemm(%A, %B, %C, %c0, %c0) {
+    transforms = [[], []],
     m_per_thread = 64,
     n_per_thread = 64,
     k_per_thread = 16,
@@ -23,16 +32,6 @@ func @miopen_blockwise_gemm_f16(%A : memref<?x?x?xf16, 3>, %B : memref<?x?x?xf16
 // CHECK-LABEL: func @miopen_blockwise_gemm_f16
 //  CHECK: miopen.blockwise_gemm
 
-func @miopen_blockwise_copy_f16(%source : memref<?x?x?xf16>, %dest : memref<?x?x?xf16, 3>, %sc0 : index, %sc1 : index, %sc2 : index, %dc0 : index, %dc1 : index, %dc2 : index) {
-  miopen.blockwise_copy %source[%sc0, %sc1, %sc2] -> %dest[%dc0, %dc1, %dc2] : memref<?x?x?xf16>, index, index, index -> memref<?x?x?xf16, 3>, index, index, index
-  miopen.blockwise_copy %source[%sc0, %sc1, %sc2] -> %dest[%dc0, %dc1, %dc2] { move_source_offset = 16 } : memref<?x?x?xf16>, index, index, index -> memref<?x?x?xf16, 3>, index, index, index
-  return
-}
-
-// CHECK-LABEL: func @miopen_blockwise_copy_f16
-//  CHECK-NEXT: miopen.blockwise_copy
-//  CHECK-NEXT: miopen.blockwise_copy
-
 // ----
 
 func @miopen_xdlops_gemm_v2_one_result_f16(%matrixA : memref<12288xf16, 3>, %matrixB : memref<12288xf16, 3>,
@@ -46,7 +45,7 @@ func @miopen_xdlops_gemm_v2_one_result_f16(%matrixA : memref<12288xf16, 3>, %mat
     k = 16,
     m_per_wave = 128,
     n_per_wave = 64,
-    coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
+    transforms = [[#transform_map0], [#transform_map1]]
   } : memref<12288xf16, 3>, memref<12288xf16, 3>, index, index, memref<32xf16, 5>, memref<16xf16, 5>, vector<32xf16> -> vector<32xf16>
   return %vectorD0 : vector<32xf16>
 }
@@ -68,7 +67,7 @@ func @miopen_xdlops_gemm_v2_two_results_f16(%matrixA : memref<12288xf16, 3>, %ma
     k = 16,
     m_per_wave = 128,
     n_per_wave = 64,
-    coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
+    transforms = [[#transform_map0], [#transform_map1]]
   } : memref<12288xf16, 3>, memref<12288xf16, 3>, index, index, memref<32xf16, 5>, memref<16xf16, 5>, vector<32xf16>, vector<32xf16> -> vector<32xf16>, vector<32xf16>
   return %vectorD0, %vectorD1 : vector<32xf16>, vector<32xf16>
 }
@@ -89,7 +88,7 @@ func @miopen_blockwise_gemm_v2_one_result_f16(%matrixA : memref<12288xf16, 3>, %
     k = 16,
     m_per_wave = 128,
     n_per_wave = 64,
-    coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
+    transforms = [[#transform_map0], [#transform_map1]]
   } : memref<12288xf16, 3>, memref<12288xf16, 3>, index, index, memref<32xf16, 5>, memref<16xf16, 5>, vector<32xf16> -> vector<32xf16>
   return %vectorD0 : vector<32xf16>
 }
@@ -111,7 +110,7 @@ func @miopen_blockwise_gemm_v2_two_results_f16(%matrixA : memref<12288xf16, 3>, 
     k = 16,
     m_per_wave = 128,
     n_per_wave = 64,
-    coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
+    transforms = [[#transform_map0], [#transform_map1]]
   } : memref<12288xf16, 3>, memref<12288xf16, 3>, index, index, memref<32xf16, 5>, memref<16xf16, 5>, vector<32xf16>, vector<32xf16> -> vector<32xf16>, vector<32xf16>
   return %vectorD0, %vectorD1 : vector<32xf16>, vector<32xf16>
 }

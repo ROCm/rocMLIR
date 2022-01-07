@@ -301,7 +301,7 @@ def MIOpen_BlockwiseStoreOp:
     - Register (naive tensor) to LDS (naive tensor).
   }];
   let assemblyFormat = [{
-    $data `->` $dest `[` $destCoord `]` attr-dict
+    $data `->` $dest `[` $destCoord `]` `with` $transforms attr-dict
     `:` type($data) `->` type($dest) `,` type($destCoord)
   }];
 }
@@ -378,7 +378,7 @@ def MIOpen_ThreadwiseStoreOp:
     - Register (naive tensor) to LDS (naive tensor).
   }];
   let assemblyFormat = [{
-    $data `->` $dest `[` $destCoord `]` attr-dict
+    $data `->` $dest `[` $destCoord `]` `with` $transforms attr-dict
     `:` type($data) `->` type($dest) `,` type($destCoord)
   }];
 }
