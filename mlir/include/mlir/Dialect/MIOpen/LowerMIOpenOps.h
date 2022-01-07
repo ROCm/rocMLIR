@@ -4729,6 +4729,11 @@ struct ThreadwiseCopyRewritePattern
     auto sourceType = op.source().getType().cast<MemRefType>();
     auto destType = op.dest().getType().cast<MemRefType>();
 
+    ArrayAttr boundsAttr = op->getAttr("bounds").dyn_cast_or_null<ArrayAttr>();
+    Optional<ArrayAttr> mbBoundsAttr = llvm::None;
+    if (boundsAttr) {
+      mbBoundsAttr = boundsAttr;
+    }
     // Debug switches.
     // true : use the slow but proven affine map.
     // false : use the faster index diff map.
@@ -4750,7 +4755,7 @@ struct ThreadwiseCopyRewritePattern
     // Obtain coordinate lengths, as well as information of affine
     // transformations.
     uint32_t sourceCoordLength = obtainGenericTensorTransformationInfo(
-        sourceType, sourceTransforms, composedSourceTransform);
+        sourceType, sourceTransforms, composedSourceTransform, mbBoundsAttr);
     auto sourceCoord = op.sourceCoord();
     if (sourceCoordLength != sourceCoord.size()) {
       return op.emitOpError("Got " + Twine(sourceCoord.size()) +
@@ -4759,7 +4764,7 @@ struct ThreadwiseCopyRewritePattern
     }
 
     uint32_t destCoordLength = obtainGenericTensorTransformationInfo(
-        destType, destTransforms, composedDestTransform);
+        destType, destTransforms, composedDestTransform, mbBoundsAttr);
     auto destCoord = op.destCoord();
     if (destCoordLength != destCoord.size()) {
       return op.emitOpError("Got " + Twine(destCoord.size()) +
@@ -4815,8 +4820,12 @@ struct ThreadwiseCopyRewritePattern
       // Figure out the bounds of load/store loops.
       SmallVector<uint64_t, 6> sliceLengths;
 
-      computeSliceLengths(sliceLengths, sourceTransforms, destTransforms,
-                          sourceType, destType);
+      if (mbBoundsAttr) {
+        computeSliceLengths(sliceLengths, boundsAttr);
+      } else {
+        computeSliceLengths(sliceLengths, sourceTransforms, destTransforms,
+                            sourceType, destType);
+      }
 
       // llvm::errs() << "slice lengths: ";
       // for (unsigned i = 0; i < sliceLengths.size(); ++i)
