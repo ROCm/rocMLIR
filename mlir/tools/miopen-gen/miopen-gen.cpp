@@ -44,7 +44,6 @@
 #include "bf16convert.hpp"
 #include <unordered_map>
 
-#include <list>
 #include <tuple>
 
 using namespace llvm;
@@ -794,9 +793,21 @@ static std::tuple<short, short, int> getRandomTestData(int idx, bool isOut) {
   short min, max = min = (isOut ? 0 : 1);
   int seed = 1;
 
-  static auto idxTbl = std::map<std::string, int>{
-      {"both", -1}, {"filter", 0}, {"input", 1}, {"output", 2}};
-  int32_t idx_spec = idxTbl[randomSide.getValue()];
+  int32_t idx_spec = -1;
+  switch (randomSide.getValue()[0]) {
+  case 'f':
+    idx_spec = 0;
+    break;
+  case 'i':
+    idx_spec = 1;
+    break;
+  case 'o':
+    idx_spec = 2;
+    break;
+  case 'b':
+  default:
+    break;
+  }
 
   if (randomSeed.getValue() != "none") {
     if ((idx_spec >= 0 && idx_spec != idx) || isOut) {
@@ -1424,7 +1435,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 }
 
 static LogicalResult
-populateHostHarnessLogic(ModuleOp &module, const std::list<KernelIF> &kernels,
+populateHostHarnessLogic(ModuleOp &module, const SmallVector<KernelIF, 8> &kernels,
                          const mlir::Conv2dGenerator::Config &genConfig) {
 
   auto context = module.getContext();
@@ -1454,20 +1465,20 @@ populateHostHarnessLogic(ModuleOp &module, const std::list<KernelIF> &kernels,
     }
   }
 
-  std::map<short, mlir::Value> i16vals;
+  llvm::SmallDenseMap<short, mlir::Value> i16vals;
   auto getI16Val = [&](short v) {
     if (i16vals.find(v) == i16vals.end()) {
       auto i16Type = b.getIntegerType(16);
-      i16vals.emplace(v, b.create<arith::ConstantIntOp>(loc, v, i16Type));
+      i16vals.try_emplace(v, b.create<arith::ConstantIntOp>(loc, v, i16Type));
     }
     return i16vals[v];
   };
 
-  std::map<int32_t, mlir::Value> i32vals;
+  llvm::SmallDenseMap<int32_t, mlir::Value> i32vals;
   auto getI32Val = [&](int32_t v) {
     if (i32vals.find(v) == i32vals.end()) {
       auto i32Type = b.getIntegerType(32);
-      i32vals.emplace(v, b.create<arith::ConstantIntOp>(loc, v, i32Type));
+      i32vals.try_emplace(v, b.create<arith::ConstantIntOp>(loc, v, i32Type));
     }
     return i32vals[v];
   };
@@ -1627,7 +1638,7 @@ int main(int argc, char **argv) {
 
   Conv2dGenerator conv2dGenerator;
 
-  std::list<KernelIF> kernels;
+  SmallVector<KernelIF, 8> kernels;
 
   bool hasUserKernel = false;
 
