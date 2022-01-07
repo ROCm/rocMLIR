@@ -1375,11 +1375,11 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 
     mlir::Value maxPercentVal;
     if (elemType.getIntOrFloatBitWidth() < 32) {
-      // <maxPercent> = select (|<cpu>| < 0.01), 10%, 2%)
+      // <maxPercent> = select (|<cpu>| < 0.01), 20%, 3%)
       auto thresholdTestOp = loopB.create<arith::CmpFOp>(
           loc, arith::CmpFPredicate::ULT, absCpuVal, getFVal(0.01f));
       maxPercentVal = loopB.create<SelectOp>(loc, thresholdTestOp,
-                                             getFVal(0.10f), getFVal(0.02f));
+                                             getFVal(0.20f), getFVal(0.03f));
     } else {
       maxPercentVal = getFVal(0.0000001f); // 0.00001 %
     }
@@ -1441,12 +1441,21 @@ populateHostHarnessLogic(ModuleOp &module, const std::list<KernelIF> &kernels,
   Block *block = func.addEntryBlock();
   b.setInsertionPoint(block, block->begin());
 
-  static auto outTable =
-      std::map<miopen::ConvOpType, int>{{miopen::NoOpType, -1},
-                                        {miopen::Conv2DOpType, 2},
-                                        {miopen::Conv2DBwdDataOpType, 1},
-                                        {miopen::Conv2DBwdWeightOpType, 0}};
-  int32_t outIdx = outTable[genConfig.operation];
+  int32_t outIdx;
+  switch (genConfig.operation) {
+  case miopen::NoOpType:
+    outIdx = -1;
+    break;
+  case miopen::Conv2DOpType:
+    outIdx = 2;
+    break;
+  case miopen::Conv2DBwdDataOpType:
+    outIdx = 1;
+    break;
+  case miopen::Conv2DBwdWeightOpType:
+    outIdx = 0;
+    break;
+  }
 
   std::map<short, mlir::Value> i16vals;
   auto getI16Val = [&](short v) {
