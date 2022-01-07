@@ -853,7 +853,8 @@ static FuncOp
 createCPUConvFunc(ModuleOp module,
                   const mlir::Conv2dGenerator::Config &genConfig) {
 
-  std::string funcName = miopen::getNameForConvOpType(genConfig.operation);
+  assert(genConfig.operation.hasValue());
+  std::string funcName = miopen::getNameForConvOpType(genConfig.operation.getValue());
 
   funcName += "_cpu";
   FuncOp func = module.lookupSymbol<FuncOp>(funcName);
@@ -866,7 +867,6 @@ createCPUConvFunc(ModuleOp module,
   auto filterDimension = genConfig.filterDimension;
   auto inputDimension = genConfig.inputDimension;
   auto outputDimension = genConfig.outputDimension;
-  auto convOpType = genConfig.operation;
 
   auto floatType = b.getF32Type();
   auto filterType = MemRefType::get(filterDimension, floatType);
@@ -1010,9 +1010,7 @@ createCPUConvFunc(ModuleOp module,
 
   std::string mcpuFuncName;
 
-  switch (convOpType) {
-  case mlir::miopen::NoOpType:
-    break;
+  switch (genConfig.operation.getValue()) {
   case mlir::miopen::Conv2DOpType:
     mcpuFuncName = "mcpuConv2d";
     break;
@@ -1230,9 +1228,9 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     elemType = b.getIntegerType(16);
   }
 
+  assert(genConfig.operation.hasValue());
   SmallVector<int64_t, 5> dims;
-  switch (genConfig.operation) {
-  case miopen::NoOpType:
+  switch (genConfig.operation.getValue()) {
   case miopen::Conv2DOpType:
     dims = genConfig.outputDimension;
     break;
@@ -1441,20 +1439,19 @@ populateHostHarnessLogic(ModuleOp &module, const std::list<KernelIF> &kernels,
   Block *block = func.addEntryBlock();
   b.setInsertionPoint(block, block->begin());
 
-  int32_t outIdx;
-  switch (genConfig.operation) {
-  case miopen::NoOpType:
-    outIdx = -1;
-    break;
-  case miopen::Conv2DOpType:
-    outIdx = 2;
-    break;
-  case miopen::Conv2DBwdDataOpType:
-    outIdx = 1;
-    break;
-  case miopen::Conv2DBwdWeightOpType:
-    outIdx = 0;
-    break;
+  int32_t outIdx = -1;
+  if (genConfig.operation.hasValue()) {
+    switch (genConfig.operation.getValue()) {
+    case miopen::Conv2DOpType:
+      outIdx = 2;
+      break;
+    case miopen::Conv2DBwdDataOpType:
+      outIdx = 1;
+      break;
+    case miopen::Conv2DBwdWeightOpType:
+      outIdx = 0;
+      break;
+    }
   }
 
   std::map<short, mlir::Value> i16vals;

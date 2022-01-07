@@ -32,7 +32,7 @@ public:
     std::string perfConfig;
     int num_cu;
     bool xdlops;
-    miopen::ConvOpType operation;
+    llvm::Optional<miopen::ConvOpType> operation;
     std::string dataTypeStr;
     int dilationHeight, dilationWidth;
     int strideHeight, strideWidth;
@@ -57,7 +57,7 @@ public:
   Conv2dGenerator(const std::string &chip = "", const std::string &triple = "",
                   const std::string &features = "", int num_cu = 0,
                   bool xdlops = false,
-                  const miopen::ConvOpType operation = miopen::ConvOpType::Fwd,
+                  const Optional<miopen::ConvOpType> operation = llvm::None,
                   const std::string &dataTypeStr = "f32",
                   int dilationHeight = 1, int dilationWidth = 1,
                   int strideHeight = 1, int strideWidth = 1,

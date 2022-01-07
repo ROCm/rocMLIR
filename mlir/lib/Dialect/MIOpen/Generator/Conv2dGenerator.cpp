@@ -28,7 +28,7 @@ using namespace mlir;
 Conv2dGenerator::Conv2dGenerator(
     const std::string &chip, const std::string &triple,
     const std::string &features, int num_cu, bool xdlops,
-    const miopen::ConvOpType operation, const std::string &dataTypeStr,
+    const Optional<miopen::ConvOpType> operation, const std::string &dataTypeStr,
     int dilationHeight, int dilationWidth, int strideHeight, int strideWidth,
     int paddingHeightLeft, int paddingHeightRight, int paddingWidthLeft,
     int paddingWidthRight, const std::string &filterLayout,
@@ -270,7 +270,8 @@ int Conv2dGenerator::getKernelCount() const {
   if (config.kernelId > 0) { // generate only 1 specified kernel
     return 1;
   }
-  switch (config.operation) {
+  assert(config.operation.hasValue());
+  switch (config.operation.getValue()) {
   case miopen::ConvOpType::BwdData:
     return getBwdDataKernelCount();
   case miopen::ConvOpType::Fwd:
@@ -475,8 +476,10 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
 
   // Determine kernel name, if there isn't one.
   if (config.kernelBaseName.empty()) {
+    assert(config.operation.hasValue());
+    auto opType = config.operation.getValue();
     config.kernelBaseName = std::string("miopen_") +
-                            miopen::getNameForConvOpType(config.operation) +
+                            miopen::getNameForConvOpType(opType) +
                             "_" + config.filterLayout + "_" +
                             config.inputLayout + "_" + config.outputLayout;
   }
@@ -599,7 +602,8 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
     attributes.push_back(
         builder.getNamedAttr("xdlopsV2", builder.getBoolAttr(true)));
 
-  switch (config.operation) {
+  assert(config.operation.hasValue());
+  switch (config.operation.getValue()) {
   case miopen::ConvOpType::Fwd: {
     auto convOp = builder.create<miopen::Conv2DOp>(
         builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
