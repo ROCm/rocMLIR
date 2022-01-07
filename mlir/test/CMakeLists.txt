@@ -9,6 +9,7 @@ llvm_canonicalize_cmake_booleans(
   MLIR_ROCM_RUNNER_ENABLED
   MLIR_SPIRV_CPU_RUNNER_ENABLED
   MLIR_VULKAN_RUNNER_ENABLED
+  MLIR_MIOPEN_DRIVER_TIMING_TEST_ENABLED
   )
 
 # Passed to lit.site.cfg.py.so that the out of tree Standalone dialect test
