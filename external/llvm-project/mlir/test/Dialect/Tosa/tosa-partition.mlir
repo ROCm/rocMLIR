@@ -1,4 +1,4 @@
-// RUN: mlir-opt --split-input-file --tosa-partition-pipeline %s -verify-each=0 -o -| FileCheck %s
+// RUN: mlir-opt --split-input-file --tosa-partition %s -verify-each=0 -o -| FileCheck %s
 
 // CHECK-LABEL: func private @test_fusion_outlined_part_0
 // CHECK: tosa.conv2d
