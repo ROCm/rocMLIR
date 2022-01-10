@@ -20,11 +20,18 @@
 #include "llvm/ADT/None.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
+
+#include <mutex>
 #include <string>
 
 using namespace mlir;
+
+// Ensure multiple threads don't try to simultaneously dump the assembly for
+// separate modules
+static std::mutex dumpAsmLock;
 
 std::string gpu::getDefaultGpuBinaryAnnotation() { return "gpu.binary"; }
 
@@ -78,6 +85,12 @@ void gpu::SerializeToBlobPass::runOnOperation() {
     return signalPassFailure();
 
   std::string targetISA = std::move(maybeTargetISA.getValue());
+
+  if (dumpAsm.getValue()) {
+    const std::lock_guard<std::mutex> lock(dumpAsmLock);
+    llvm::dbgs() << targetISA << "\n";
+    llvm::dbgs().flush();
+  }
 
   // Serialize the target ISA.
   std::unique_ptr<std::vector<char>> blob = serializeISA(targetISA);
