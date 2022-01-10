@@ -82,7 +82,7 @@ class SerializeToHsacoPass
     : public PassWrapper<SerializeToHsacoPass, gpu::SerializeToBlobPass> {
 public:
   SerializeToHsacoPass(StringRef triple, StringRef arch, StringRef features,
-                       int optLevel);
+                       int optLevel, bool dumpAsm = false);
   SerializeToHsacoPass(const SerializeToHsacoPass &other);
   StringRef getArgument() const override { return "gpu-to-hsaco"; }
   StringRef getDescription() const override {
@@ -149,12 +149,15 @@ static void maybeSetOption(Pass::Option<std::string> &option,
 }
 
 SerializeToHsacoPass::SerializeToHsacoPass(StringRef triple, StringRef arch,
-                                           StringRef features, int optLevel) {
+                                           StringRef features, int optLevel,
+                                           bool dumpAsm) {
   maybeSetOption(this->triple, [&triple] { return triple.str(); });
   maybeSetOption(this->chip, [&arch] { return arch.str(); });
   maybeSetOption(this->features, [&features] { return features.str(); });
   if (this->optLevel.getNumOccurrences() == 0)
     this->optLevel.setValue(optLevel);
+  if (this->dumpAsm.getNumOccurrences() == 0 && dumpAsm)
+    this->dumpAsm.setValue(dumpAsm);
 }
 
 void SerializeToHsacoPass::getDependentDialects(
@@ -516,9 +519,10 @@ void mlir::registerGpuSerializeToHsacoPass() {
 std::unique_ptr<Pass> mlir::createGpuSerializeToHsacoPass(StringRef triple,
                                                           StringRef arch,
                                                           StringRef features,
-                                                          int optLevel) {
+                                                          int optLevel,
+                                                          bool dumpASM) {
   return std::make_unique<SerializeToHsacoPass>(triple, arch, features,
-                                                optLevel);
+                                                optLevel, dumpASM);
 }
 
 #else  // MLIR_GPU_TO_HSACO_PASS_ENABLE
