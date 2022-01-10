@@ -108,11 +108,11 @@ def MIOpen_TransformAttr : MIOpen_Attr<"Transform"> {
         "The parameters to the transformation, if any">:$params,
     ArrayRefOfStringRefParameter<
         "The names of the upper dimensions (input arguments) of this transform">:$upperNames,
-    ArrayRefParameter<"unsigned",
+    ArrayRefParameter<"uint32_t",
         "The indices of the upper dimensions (input arguments) of this transform">:$upperDims,
     ArrayRefOfStringRefParameter<
         "The names of the lower dimensions (outputs) of this transformation">:$lowerNames,
-    ArrayRefParameter<"unsigned",
+    ArrayRefParameter<"uint32_t",
         "The indices of the lower dimensions (outputs) of this transformation">:$lowerDims
     );
 

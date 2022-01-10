@@ -114,6 +114,46 @@ template struct Conv2DRewritePattern<miopen::Conv2DOp>;
 template struct Conv2DRewritePattern<miopen::Conv2DBwdDataOp>;
 template struct Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>;
 
+void affixGridwiseGemmAttributes(Operation *convOp, Operation *gop,
+                                 OpBuilder &b) {
+  gop->setAttr("block_size", convOp->getAttr("block_size"));
+  gop->setAttr("m_per_block", convOp->getAttr("m_per_block"));
+  gop->setAttr("n_per_block", convOp->getAttr("n_per_block"));
+  gop->setAttr("k_per_block", convOp->getAttr("k_per_block"));
+  gop->setAttr("matrix_a_dest_data_per_write_dim_m",
+               convOp->getAttr("matrix_a_dest_data_per_write_dim_m"));
+  gop->setAttr("matrix_a_source_data_per_read",
+               convOp->getAttr("matrix_a_source_data_per_read"));
+  gop->setAttr("matrix_a_source_vector_read_dim",
+               convOp->getAttr("matrix_a_source_vector_read_dim"));
+  gop->setAttr("matrix_b_dest_data_per_write_dim_n",
+               convOp->getAttr("matrix_b_dest_data_per_write_dim_n"));
+  gop->setAttr("matrix_b_source_data_per_read",
+               convOp->getAttr("matrix_b_source_data_per_read"));
+  gop->setAttr("matrix_b_source_vector_read_dim",
+               convOp->getAttr("matrix_b_source_vector_read_dim"));
+  gop->setAttr("matrix_c_data_per_copy",
+               convOp->getAttr("matrix_c_data_per_copy"));
+  gop->setAttr("matrix_c_dest_vector_write_dim",
+               convOp->getAttr("matrix_c_dest_vector_write_dim"));
+  gop->setAttr("matrix_c_source_vector_read_dim",
+               convOp->getAttr("matrix_c_source_vector_read_dim"));
+
+  auto xdlopsV2Attr = convOp->getAttrOfType<BoolAttr>("xdlopsV2");
+  if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
+    gop->setAttr("m_per_wave", convOp->getAttr("m_per_wave"));
+    gop->setAttr("n_per_wave", convOp->getAttr("n_per_wave"));
+  } else {
+    gop->setAttr("m_per_thread", convOp->getAttr("m_per_thread"));
+    gop->setAttr("n_per_thread", convOp->getAttr("n_per_thread"));
+    gop->setAttr("k_per_thread", convOp->getAttr("k_per_thread"));
+    gop->setAttr("m_level0_cluster", convOp->getAttr("m_level0_cluster"));
+    gop->setAttr("m_level1_cluster", convOp->getAttr("m_level1_cluster"));
+    gop->setAttr("n_level0_cluster", convOp->getAttr("n_level0_cluster"));
+    gop->setAttr("n_level1_cluster", convOp->getAttr("n_level1_cluster"));
+  }
+}
+
 /// Lowerings for particular convolution algorithms (TODO, new file?)
 LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
                                       PatternRewriter &b) {
