@@ -1077,7 +1077,7 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
         for (int64_t out_h = 0; out_h < outputSizes[3]; out_h++)
           for (int64_t out_w = 0; out_w < outputSizes[4]; out_w++) {
 
-            float acc = 0.0;
+            double acc = 0.0;
             for (int64_t c = 0; c < inputSizes[2]; c++)
               for (int64_t fil_h = 0; fil_h < filterSizes[3]; fil_h++)
                 for (int64_t fil_w = 0; fil_w < filterSizes[4]; fil_w++) {
@@ -1099,16 +1099,18 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
                                            in_h * inputStrides[3] +
                                            in_w * inputStrides[4]];
 
-                  acc += input * filterAllocated[g * filterStrides[0] +
+                  acc += (double)(input * filterAllocated[g * filterStrides[0] +
                                                  k * filterStrides[1] +
                                                  c * filterStrides[2] +
                                                  fil_h * filterStrides[3] +
-                                                 fil_w * filterStrides[4]];
+                                                 fil_w * filterStrides[4]]);
+                  if ((fil_w + fil_h + c) % 4 == 3)
+                    acc = (float)acc;
                 }
 
             outputAllocated[g * outputStrides[0] + n * outputStrides[1] +
                             k * outputStrides[2] + out_h * outputStrides[3] +
-                            out_w * outputStrides[4]] = acc;
+                            out_w * outputStrides[4]] = (float)acc;
           }
 }
 
@@ -1145,7 +1147,7 @@ extern "C" void mcpuConv2dBwdWeight(
         for (int64_t y = 0; y < filterSizes[3]; y++)
           for (int64_t x = 0; x < filterSizes[4]; x++) {
 
-            float acc = 0.0;
+            double acc = 0.0;
             for (int64_t n = 0; n < outputSizes[1]; n++)
               for (int64_t out_h = 0; out_h < outputSizes[3]; out_h++)
                 for (int64_t out_w = 0; out_w < outputSizes[4]; out_w++) {
@@ -1155,7 +1157,7 @@ extern "C" void mcpuConv2dBwdWeight(
                       out_w * stride_w + x * dilation_w - padding_w_l;
                   if (in_h >= 0 && in_h < inputSizes[3] && in_w >= 0 &&
                       in_w < inputSizes[4])
-                    acc += inputAllocated[g * inputStrides[0] +
+                    acc += (double)(inputAllocated[g * inputStrides[0] +
                                           n * inputStrides[1] +
                                           c * inputStrides[2] +
                                           in_h * inputStrides[3] +
@@ -1164,11 +1166,13 @@ extern "C" void mcpuConv2dBwdWeight(
                                            n * outputStrides[1] +
                                            k * outputStrides[2] +
                                            out_h * outputStrides[3] +
-                                           out_w * outputStrides[4]];
+                                           out_w * outputStrides[4]]);
+                  if ((out_w + out_h + n) % 4 == 3)
+                    acc = (float)acc;
                 }
             filterAllocated[g * filterStrides[0] + k * filterStrides[1] +
                             c * filterStrides[2] + y * filterStrides[3] +
-                            x * filterStrides[4]] = acc;
+                            x * filterStrides[4]] = (float)acc;
           }
 }
 
@@ -1207,7 +1211,7 @@ extern "C" void mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2,
         for (int64_t in_h = 0; in_h < inputSizes[3]; in_h++)
           for (int64_t in_w = 0; in_w < inputSizes[4]; in_w++) {
 
-            float acc = 0.0;
+            double acc = 0.0;
             for (int64_t k = 0; k < filterSizes[1]; k++)
               for (int64_t y = 0; y < filterSizes[3]; y++)
                 for (int64_t x = 0; x < filterSizes[4]; x++) {
@@ -1218,7 +1222,7 @@ extern "C" void mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2,
                   if (out_h_tmp % stride_h == 0 && out_w_tmp % stride_w == 0 &&
                       out_h >= 0 && out_h < outputSizes[3] && out_w >= 0 &&
                       out_w < outputSizes[4])
-                    acc += filterAllocated[g * filterStrides[0] +
+                    acc += (double)(filterAllocated[g * filterStrides[0] +
                                            k * filterStrides[1] +
                                            c * filterStrides[2] +
                                            y * filterStrides[3] +
@@ -1227,7 +1231,9 @@ extern "C" void mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2,
                                            n * outputStrides[1] +
                                            k * outputStrides[2] +
                                            out_h * outputStrides[3] +
-                                           out_w * outputStrides[4]];
+                                           out_w * outputStrides[4]]);
+                  if ((x + y + k) % 4 == 3)
+                    acc = (float)acc;
                 }
             inputAllocated[g * inputStrides[0] + n * inputStrides[1] +
                            c * inputStrides[2] + in_h * inputStrides[3] +

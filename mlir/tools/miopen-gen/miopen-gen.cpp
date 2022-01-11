@@ -1385,10 +1385,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     mlir::Value maxPercentVal;
     if (elemType.getIntOrFloatBitWidth() < 32) {
       // <maxPercent> = select (|<cpu>| < 0.01), 20%, 3%)
-      auto thresholdTestOp = loopB.create<arith::CmpFOp>(
-          loc, arith::CmpFPredicate::ULT, absCpuVal, getFVal(0.01f));
-      maxPercentVal = loopB.create<SelectOp>(loc, thresholdTestOp,
-                                             getFVal(0.20f), getFVal(0.03f));
+      maxPercentVal = getFVal(0.02f);
     } else {
       maxPercentVal = getFVal(0.0000001f); // 0.00001 %
     }
@@ -1425,6 +1422,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     percentDiffVal = thenBody.create<arith::ExtFOp>(loc, percentDiffVal, floatType);
   }
   thenBody.create<CallOp>(loc, printFunc, ValueRange{percentDiffVal, cpuFPVal});
+  thenBody.create<CallOp>(loc, printFunc, ValueRange{gpuFPVal, cpuFPVal});
 
   // Emit print function call
   emitPrintTensor(b, cmpResultAllocOp);
