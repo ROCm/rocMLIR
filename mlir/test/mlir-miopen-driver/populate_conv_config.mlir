@@ -20,6 +20,7 @@
 //PV: [[H:%.*]] = arith.constant 104 : i8
 //PV: [[W:%.*]] = arith.constant 119 : i8
 //PV: [[G:%.*]] = arith.constant 103 : i8
+//PV: [[X2:%.*]] = arith.constant 1 : i32
 //PV: memref.store [[G]], %{{.*}} : memref<5xi8>
 //PV-NEXT: memref.store [[K]], %{{.*}} : memref<5xi8>
 //PV-NEXT: memref.store [[C]], %{{.*}} : memref<5xi8>
@@ -35,7 +36,7 @@
 //PV-NEXT: memref.store [[K]], %{{.*}} : memref<5xi8>
 //PV-NEXT: memref.store [[H]], %{{.*}} : memref<5xi8>
 //PV-NEXT: memref.store [[W]], %{{.*}} : memref<5xi8>
-//PV: call @mcpuConv2dBwdWeight(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, [[S1]], [[S2]], [[P1]], [[P2]], [[P3]], [[P4]], [[D1]], [[D2]]) : {{.*}}
+//PV: call @mcpuConv2dBwdWeight(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, [[S1]], [[S2]], [[P1]], [[P2]], [[P3]], [[P4]], [[D1]], [[D2]], [[X2]]) : {{.*}}
 
 // RUN: miopen-gen --conv-config "--x2 1 --operation conv2d_bwd_weight --kernel_id 0 --num_cu 120 --arch amdgcn-amd-amdhsa:gfx908:sramecc+:xnack- --groupsize 1 --fil_layout GNCHW --fil_type fp32 --in_layout NGCHW --out_layout NGCHW --in_type fp32 --out_type fp32 --batchsize 256 --in_channels 1024 --out_channels 2048 --in_h 14 --in_w 14 --fil_h 1 --fil_w 1 --out_h 8 --out_w 8 --dilation_h 2 --dilation_w 2 --conv_stride_h 2 --conv_stride_w 2 --padding_h 1 --padding_w 1 --kernel_name mlir_gen_igemm_conv2d_v4r4_wrw_xdlops" -pv_with_gpu | FileCheck %s --check-prefix=PVGPU
 
@@ -62,6 +63,7 @@
 //PRC: [[H:%.*]] = arith.constant 104 : i8
 //PRC: [[W:%.*]] = arith.constant 119 : i8
 //PRC: [[G:%.*]] = arith.constant 103 : i8
+//PRC: [[X2:%.*]] = arith.constant 1 : i32
 //PRC: memref.store [[G]], %{{.*}} : memref<5xi8>
 //PRC-NEXT: memref.store [[K]], %{{.*}} : memref<5xi8>
 //PRC-NEXT: memref.store [[C]], %{{.*}} : memref<5xi8>
@@ -77,7 +79,7 @@
 //PRC-NEXT: memref.store [[K]], %{{.*}} : memref<5xi8>
 //PRC-NEXT: memref.store [[H]], %{{.*}} : memref<5xi8>
 //PRC-NEXT: memref.store [[W]], %{{.*}} : memref<5xi8>
-//PRC: call @mcpuConv2dBwdWeight(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, [[S1]], [[S2]], [[P1]], [[P2]], [[P3]], [[P4]], [[D1]], [[D2]]) : {{.*}}
+//PRC: call @mcpuConv2dBwdWeight(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, [[S1]], [[S2]], [[P1]], [[P2]], [[P3]], [[P4]], [[D1]], [[D2]], [[X2]]) : {{.*}}
 
 // RUN:  miopen-gen --conv-config "--x2 1 --operation conv2d_bwd_weight  --kernel_id 0 --num_cu 120 --arch amdgcn-amd-amdhsa:gfx908:sramecc+:xnack- --groupsize 1 --fil_layout GNCHW --fil_type fp32 --in_layout NGCHW --out_layout NGCHW --in_type fp32 --out_type fp32 --batchsize 256 --in_channels 1024 --out_channels 2048 --in_h 14 --in_w 14 --fil_h 1 --fil_w 1 --out_h 8 --out_w 8 --dilation_h 2 --dilation_w 2 --conv_stride_h 2 --conv_stride_w 2 --padding_h 1 --padding_w 1 --kernel_name mlir_gen_igemm_conv2d_v4r4_wrw_xdlops" -ph -pr  | FileCheck %s --check-prefix=PH
 
