@@ -602,6 +602,7 @@ pipeline {
                             cpack -G STGZ                            
                             ls -l 
                         """
+                        }
                         archiveArtifacts artifacts: '*.sh', onlyIfSuccessful: true
                      }
                 }
