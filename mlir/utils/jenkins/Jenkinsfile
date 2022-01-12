@@ -581,17 +581,17 @@ pipeline {
                         branchName=sh(returnStdout:true, script:"""#!/bin/bash
                             temp=$params.releaseBranch
                             release=\${temp////-}
-                            echo $release""").trim()
+                            echo \$release""").trim()
                     }
                     steps {
                         showEnv()
                         sh "git checkout ${params.releaseBranch}"
-                        sh "echo $branchName"
+                        sh "echo ${branchName}"
                         buildProject('', """
                           -DBUILD_FAT_LIBMLIRMIOPEN=ON
                           -DCMAKE_BUILD_TYPE=Release
                           -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-                          -DCPACK_PACKAGE_NAME=$branchName
+                          -DCPACK_PACKAGE_NAME=${branchName}
                         """)
                         cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/build/include",\
                                 installation: 'InSearchPath', workingDir: 'build'
