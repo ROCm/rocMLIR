@@ -574,6 +574,9 @@ pipeline {
                     label "${params.canXdlops ? 'gfx908' : 'rocm' }"
                     alwaysPull true
                 }
+                options {
+                    skipDefaultCheckout true
+                }
             }
             stages{
                 stage ('Build and Archive a Release Branch') {
@@ -596,14 +599,10 @@ pipeline {
                         cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/build/include",\
                                 installation: 'InSearchPath', workingDir: 'build'
                         dir('build'){
-                        sh """#!/bin/bash
-                            temp=$params.releaseBranch
-                            release=\${temp////-}
-                            cpack -G STGZ                            
-                            ls -l 
-                        """
+                            sh "cpack -G STGZ"                       
+                            sh "ls -l" 
+                            archiveArtifacts artifacts: '*.sh', onlyIfSuccessful: true
                         }
-                        archiveArtifacts artifacts: '*.sh', onlyIfSuccessful: true
                      }
                 }
             }
