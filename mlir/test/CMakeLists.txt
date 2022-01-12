@@ -73,6 +73,7 @@ set(MLIR_TEST_DEPENDS
   FileCheck count not
   miopen-opt
   miopen-translate
+  miopen-lsp-server
   mlir-mixr-capi-test
   mlir-tosa-miir-test
   mlir-opt
