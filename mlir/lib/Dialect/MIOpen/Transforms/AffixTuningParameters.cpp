@@ -193,8 +193,15 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
     // Disable kpack in case we need padding kernel.
     calculatePaddingKernelSize(populateParamsXDL);
-    if (needExtraPad)
+    if (needExtraPad) {
       validParams.gemmKPack = 1;
+    }
+
+    // Disable kpack in case we do backward convolution.
+    if (convContext.opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType ||
+        convContext.opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+      validParams.gemmKPack = 1;
+    }
     op->setAttr("kpack", b.getI32IntegerAttr(validParams.gemmKPack));
 
     // Set attributes on the function.
