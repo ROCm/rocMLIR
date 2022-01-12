@@ -574,9 +574,6 @@ pipeline {
                     label "${params.canXdlops ? 'gfx908' : 'rocm' }"
                     alwaysPull true
                 }
-                options {
-                    skipDefaultCheckout true
-                }
             }
             stages{
                 stage ('Build and Archive a Release Branch') {
