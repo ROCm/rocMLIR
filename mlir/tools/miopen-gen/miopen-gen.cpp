@@ -1385,12 +1385,12 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     mlir::Value maxPercentVal;
     if (elemType.getIntOrFloatBitWidth() < 32) {
       if (genConfig.xdlops) {
-        maxPercentVal = getFVal(0.01f); // 1%
+        maxPercentVal = getFVal(0.02f); // 2%
       } else {
         maxPercentVal = getFVal(0.15f); // 15%
       }
     } else {
-      maxPercentVal = getFVal(0.0000001f); // 0.00001 %
+      maxPercentVal = getFVal(0.000001f); // 0.00001 %
     }
 
     // <test> >= <max_percent>
