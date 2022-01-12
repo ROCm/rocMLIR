@@ -580,23 +580,29 @@ pipeline {
                     steps {
                         showEnv()
                         sh "git checkout ${params.releaseBranch}"
+                        script {
+                        env.branchName=bat(returnStdout:true, script:"""#!/bin/bash
+                            temp=$params.releaseBranch
+                            release=\${temp////-}
+                            echo $release""").trim()
+                        echo $env.branchName
+                        }
                         buildProject('', """
                           -DBUILD_FAT_LIBMLIRMIOPEN=ON
                           -DCMAKE_BUILD_TYPE=Release
                           -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+                          -DCPACK_PACKAGE_NAME=$env.branchName
                         """)
                         cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/build/include",\
                                 installation: 'InSearchPath', workingDir: 'build'
+                        dir('build'){
                         sh """#!/bin/bash
                             temp=$params.releaseBranch
                             release=\${temp////-}
-                            tar cvzf mlir-\$release.tar.gz ./build/bin ./build/lib ./build/include\
-                                                         ./build/external/llvm-project/llvm/bin\
-                                                         ./build/external/llvm-project/llvm/lib\
-                                                         ./build/external/llvm-project/llvm/include
-                            ls -l mlir-\$release.tar.gz
+                            cpack -G STGZ                            
+                            ls -l 
                         """
-                        archiveArtifacts artifacts: '*.tar.gz', onlyIfSuccessful: true
+                        archiveArtifacts artifacts: '*.sh', onlyIfSuccessful: true
                      }
                 }
             }
