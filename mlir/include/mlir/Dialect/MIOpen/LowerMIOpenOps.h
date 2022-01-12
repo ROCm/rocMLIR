@@ -10930,15 +10930,16 @@ struct XdlopsGemmV2RewritePattern
       //       p_c_thread);
       // }
 
-      // FIXME: This modified KForOuterLoop shall be removed once we can be
-      // certain KPACK logic can be applied everywhere for f16 data type.
       int64_t KForOuterLoop;
       if (KPack > 1) {
         KForOuterLoop = K;
       } else {
         KForOuterLoop = K / k_base;
+	if (KForOuterLoop == 0) {
+	  // KForOuterLoop is too small. Reject lowering.
+	  return failure();
+	}
       }
-
       auto outerLoop =
           b.create<AffineForOp>(loc, 0, KForOuterLoop, 1, op.vectorCs());
       auto outerLoopb = OpBuilder::atBlockBegin(outerLoop.getBody());
@@ -11160,6 +11161,10 @@ struct XdlopsGemmV2RewritePattern
       // Change loop bound to the same as loopKLoadIteration.
       // Instead of increasing num_input_blks, increase k_base.
 
+      if (loopKLoadIteration == 0) {
+	// K load iteration is too small. Reject lowering.
+	return failure();
+      }
       auto outerLoop = b.create<AffineForOp>(loc, 0, loopKLoadIteration, k_base,
                                              op.vectorCs());
       auto outerLoopb = OpBuilder::atBlockBegin(outerLoop.getBody());
