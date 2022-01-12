@@ -10935,10 +10935,10 @@ struct XdlopsGemmV2RewritePattern
         KForOuterLoop = K;
       } else {
         KForOuterLoop = K / k_base;
-	if (KForOuterLoop == 0) {
-	  // KForOuterLoop is too small. Reject lowering.
-	  return failure();
-	}
+        if (KForOuterLoop == 0) {
+          // KForOuterLoop is too small. Reject lowering.
+          return failure();
+        }
       }
       auto outerLoop =
           b.create<AffineForOp>(loc, 0, KForOuterLoop, 1, op.vectorCs());
@@ -11162,8 +11162,8 @@ struct XdlopsGemmV2RewritePattern
       // Instead of increasing num_input_blks, increase k_base.
 
       if (loopKLoadIteration == 0) {
-	// K load iteration is too small. Reject lowering.
-	return failure();
+        // K load iteration is too small. Reject lowering.
+        return failure();
       }
       auto outerLoop = b.create<AffineForOp>(loc, 0, loopKLoadIteration, k_base,
                                              op.vectorCs());
