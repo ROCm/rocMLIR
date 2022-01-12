@@ -577,14 +577,16 @@ pipeline {
             }
             stages{
                 stage ('Build and Archive a Release Branch') {
-                    steps {
-                        showEnv()
-                        sh "git checkout ${params.releaseBranch}"
-                        env.branchName=bat(returnStdout:true, script:"""#!/bin/bash
+                    environment {
+                        env.branchName=sh(returnStdout:true, script:"""#!/bin/bash
                             temp=$params.releaseBranch
                             release=\${temp////-}
                             echo $release""").trim()
-                        echo "$env.branchName"
+                    }
+                    steps {
+                        showEnv()
+                        sh "git checkout ${params.releaseBranch}"
+                        sh "echo $env.branchName"
                         buildProject('', """
                           -DBUILD_FAT_LIBMLIRMIOPEN=ON
                           -DCMAKE_BUILD_TYPE=Release
