@@ -967,6 +967,10 @@ createCPUConvFunc(ModuleOp module,
   auto wConstantOp = b.create<arith::ConstantIntOp>(loc, 'w', charType);
   auto gConstantOp = b.create<arith::ConstantIntOp>(loc, 'g', charType);
 
+  // reduce precision if !xdlops
+  auto xdlopsConstantOp =
+      b.create<arith::ConstantIntOp>(loc, genConfig.xdlops, intType);
+
   std::unordered_map<char, arith::ConstantIntOp> layoutConstOps;
   layoutConstOps['g'] = gConstantOp;
   layoutConstOps['k'] = kConstantOp;
@@ -1039,7 +1043,7 @@ createCPUConvFunc(ModuleOp module,
                    {unrankedMemRefType, unrankedMemRefType, unrankedMemRefType,
                     unrankedLayoutMemRefType, unrankedLayoutMemRefType,
                     unrankedLayoutMemRefType, intType, intType, intType,
-                    intType, intType, intType, intType, intType});
+                    intType, intType, intType, intType, intType, intType});
 
   b.create<CallOp>(
       loc, mcpuConv2dFuncOp,
@@ -1049,7 +1053,7 @@ createCPUConvFunc(ModuleOp module,
                  strideWidthConstantOp, paddingHeightLeftConstantOp,
                  paddingHeightRightConstantOp, paddingWidthLeftConstantOp,
                  paddingWidthRightConstantOp, dilationHeightConstantOp,
-                 dilationWidthConstantOp});
+                 dilationWidthConstantOp, xdlopsConstantOp});
 
   // Emit return op
   b.create<ReturnOp>(loc, ValueRange{});
@@ -1385,7 +1389,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     mlir::Value maxPercentVal;
     if (elemType.getIntOrFloatBitWidth() < 32) {
       if (genConfig.xdlops) {
-        maxPercentVal = getFVal(0.02f); // 2%
+        maxPercentVal = getFVal(0.03f); // 2%
       } else {
         maxPercentVal = getFVal(0.15f); // 15%
       }

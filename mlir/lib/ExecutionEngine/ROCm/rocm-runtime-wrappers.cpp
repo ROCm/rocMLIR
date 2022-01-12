@@ -1045,14 +1045,13 @@ getSizesAndStrides(int64_t rank1, StridedMemRefType<float, 5> *filter,
 
 // A generic forward convolution function that supports random layouts,
 // dimensions, strides, paddings, and dilations.
-extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
-                           void *i_ptr, int64_t rank3, void *o_ptr,
-                           int64_t rank4, void *f_layout, int64_t rank5,
-                           void *i_layout, int64_t rank6, void *o_layout,
-                           int32_t stride_h, int32_t stride_w,
-                           int32_t padding_h_l, int32_t padding_h_r,
-                           int32_t padding_w_l, int32_t padding_w_r,
-                           int32_t dilation_h, int32_t dilation_w) {
+extern "C" void
+mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
+           int64_t rank3, void *o_ptr, int64_t rank4, void *f_layout,
+           int64_t rank5, void *i_layout, int64_t rank6, void *o_layout,
+           int32_t stride_h, int32_t stride_w, int32_t padding_h_l,
+           int32_t padding_h_r, int32_t padding_w_l, int32_t padding_w_r,
+           int32_t dilation_h, int32_t dilation_w, int32_t xdlops) {
   auto *filter = static_cast<StridedMemRefType<float, 5> *>(f_ptr);
   auto *filterAllocated = filter->data + filter->offset;
 
@@ -1104,7 +1103,7 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
                                                  c * filterStrides[2] +
                                                  fil_h * filterStrides[3] +
                                                  fil_w * filterStrides[4]]);
-                  if ((fil_w + fil_h + c) % 4 == 3)
+                  if (!xdlops) // || (fil_w + fil_h + c) % 4 == 3)
                     acc = (float)acc;
                 }
 
@@ -1116,12 +1115,14 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
 
 // A generic backward-weight convolution function that supports random layouts,
 // dimensions, strides, paddings, and dilations.
-extern "C" void mcpuConv2dBwdWeight(
-    int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr, int64_t rank3,
-    void *o_ptr, int64_t rank4, void *f_layout, int64_t rank5, void *i_layout,
-    int64_t rank6, void *o_layout, int32_t stride_h, int32_t stride_w,
-    int32_t padding_h_l, int32_t padding_h_r, int32_t padding_w_l,
-    int32_t padding_w_r, int32_t dilation_h, int32_t dilation_w) {
+extern "C" void
+mcpuConv2dBwdWeight(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
+                    int64_t rank3, void *o_ptr, int64_t rank4, void *f_layout,
+                    int64_t rank5, void *i_layout, int64_t rank6,
+                    void *o_layout, int32_t stride_h, int32_t stride_w,
+                    int32_t padding_h_l, int32_t padding_h_r,
+                    int32_t padding_w_l, int32_t padding_w_r,
+                    int32_t dilation_h, int32_t dilation_w, int32_t xdlops) {
 
   auto *filter = static_cast<StridedMemRefType<float, 5> *>(f_ptr);
   auto *filterAllocated = filter->data + filter->offset;
@@ -1167,7 +1168,7 @@ extern "C" void mcpuConv2dBwdWeight(
                                            k * outputStrides[2] +
                                            out_h * outputStrides[3] +
                                            out_w * outputStrides[4]]);
-                  if ((out_w + out_h + n) % 4 == 3)
+                  if (!xdlops) // || (out_w + out_h + n) % 4 == 3)
                     acc = (float)acc;
                 }
             filterAllocated[g * filterStrides[0] + k * filterStrides[1] +
@@ -1178,14 +1179,13 @@ extern "C" void mcpuConv2dBwdWeight(
 
 // A generic backward-data convolution function that supports random layouts,
 // dimensions, strides, paddings, and dilations.
-extern "C" void mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2,
-                                  void *i_ptr, int64_t rank3, void *o_ptr,
-                                  int64_t rank4, void *f_layout, int64_t rank5,
-                                  void *i_layout, int64_t rank6, void *o_layout,
-                                  int32_t stride_h, int32_t stride_w,
-                                  int32_t padding_h_l, int32_t padding_h_r,
-                                  int32_t padding_w_l, int32_t padding_w_r,
-                                  int32_t dilation_h, int32_t dilation_w) {
+extern "C" void
+mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
+                  int64_t rank3, void *o_ptr, int64_t rank4, void *f_layout,
+                  int64_t rank5, void *i_layout, int64_t rank6, void *o_layout,
+                  int32_t stride_h, int32_t stride_w, int32_t padding_h_l,
+                  int32_t padding_h_r, int32_t padding_w_l, int32_t padding_w_r,
+                  int32_t dilation_h, int32_t dilation_w, int32_t xdlops) {
 
   auto *filter = static_cast<StridedMemRefType<float, 5> *>(f_ptr);
   auto *filterAllocated = filter->data + filter->offset;
@@ -1232,7 +1232,7 @@ extern "C" void mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2,
                                            k * outputStrides[2] +
                                            out_h * outputStrides[3] +
                                            out_w * outputStrides[4]]);
-                  if ((x + y + k) % 4 == 3)
+                  if (!xdlops) // || (x + y + k) % 4 == 3)
                     acc = (float)acc;
                 }
             inputAllocated[g * inputStrides[0] + n * inputStrides[1] +
