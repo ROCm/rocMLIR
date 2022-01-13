@@ -586,7 +586,7 @@ pipeline {
                     steps {
                         showEnv()
                         sh "git checkout ${params.releaseBranch}"
-                        sh "tar czf mlir-source-${branch}.tar.gz ."
+                        sh "tar czf mlir-source-${branch}.tar.gz \$(ls)"
                         buildProject('', """
                           -DBUILD_FAT_LIBMLIRMIOPEN=ON
                           -DCMAKE_BUILD_TYPE=Release
