@@ -1257,6 +1257,7 @@ inline void computeBottomIndicesWithIndexDiffMap(
     const SmallVector<Value, 8> &bottomOrig = layeredIndicesOrig[0];
     assert(bottomOrig.size() == loopIVs.size() &&
            "One loop variable needed per upper index");
+    bottomIndices.clear();
     for (auto pair : llvm::zip(bottomOrig, topDiff)) {
       bottomIndices.push_back(
           b.create<AddIOp>(loc, std::get<0>(pair), std::get<1>(pair)));
