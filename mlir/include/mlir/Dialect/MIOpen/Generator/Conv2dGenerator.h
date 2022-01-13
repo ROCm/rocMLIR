@@ -97,7 +97,8 @@ public:
                               int64_t outputHeight, int64_t outputWidth,
                               int64_t filterHeight, int64_t filterWidth);
 
-  LogicalResult genConvModule(ModuleOp &module, int kernel_id = -1);
+  LogicalResult genConvModule(ModuleOp &module, int kernel_id = -1,
+                              bool ignoreTuning = false);
 
   template <typename Vector>
   std::string translateLayout(const Vector &src, const Vector &srcSpec,

@@ -491,8 +491,8 @@ void Conv2dGenerator::setDataType(std::string newType) {
 
 void Conv2dGenerator::flipXdlops() { config.xdlops = !config.xdlops; }
 
-LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
-                                             int kernel_id) {
+LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
+                                             bool ignoreTuning) {
   OpBuilder builder(module.getContext());
 
   if (kernel_id == -1) {
@@ -587,9 +587,16 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   };
 
   // xdlops v2.
-  if (config.xdlops)
+  if (config.xdlops) {
     attributes.push_back(
         builder.getNamedAttr("xdlopsV2", builder.getBoolAttr(true)));
+  }
+
+  // ignore tuning.
+  if (ignoreTuning) {
+    attributes.push_back(
+        builder.getNamedAttr("ignore_tuning", builder.getBoolAttr(true)));
+  }
 
   switch (config.operation) {
   case miopen::Conv2DOpType: {

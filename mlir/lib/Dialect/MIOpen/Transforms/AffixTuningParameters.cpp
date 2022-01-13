@@ -169,6 +169,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
   };
 
   auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
+  auto ignoreTuningAttr = op->template getAttrOfType<BoolAttr>("ignore_tuning");
+  bool ignoreTuning =
+      (ignoreTuningAttr && (ignoreTuningAttr.getValue() == true));
   if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
     PopulateParamsXDL populateParamsXDL;
     InitParamsXDL validParams;
@@ -179,9 +182,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     int64_t gridSize = 0;
 
     LogicalResult status = populateParamsXDL.paramsFromCtx(
-        convContext, blockSizeOverride, perfConfig, validParams,
-        gemmADerivedParam, gemmBDerivedParam, gemmCDerivedParam, blockSize,
-        gridSize);
+        convContext, blockSizeOverride, (ignoreTuning) ? "" : perfConfig,
+        validParams, gemmADerivedParam, gemmBDerivedParam, gemmCDerivedParam,
+        blockSize, gridSize);
 
     if (failed(status)) {
       signalPassFailure();
@@ -246,9 +249,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
     PopulateParams populateParams;
     LogicalResult status = populateParams.paramsFromCtx(
-        convContext, blockSizeOverride, perfConfig, validParams,
-        gemmADerivedParam, gemmBDerivedParam, blockGemmDerivedParam,
-        gemmCDerivedParam, gridSize);
+        convContext, blockSizeOverride, (ignoreTuning) ? "" : perfConfig,
+        validParams, gemmADerivedParam, gemmBDerivedParam,
+        blockGemmDerivedParam, gemmCDerivedParam, gridSize);
 
     if (failed(status)) {
       signalPassFailure();

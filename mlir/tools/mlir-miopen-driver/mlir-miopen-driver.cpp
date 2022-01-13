@@ -2705,7 +2705,8 @@ int main(int argc, char **argv) {
       for (int i = 0; i < kernelCount; ++i) {
         std::string kName = kernelBaseName + std::to_string(1000 + i);
         conv2dGenerator.setKernelName(kName);
-        if (failed(conv2dGenerator.genConvModule(module, i))) {
+        if (failed(conv2dGenerator.genConvModule(module, i,
+                                                 /*ignoreTuning=*/true))) {
           llvm::errs() << "Module population failed.\n";
           exit(1);
         }
@@ -2715,7 +2716,8 @@ int main(int argc, char **argv) {
       // generate a specific kernel (kernel_id >= 0)
       std::string kName = genConfig.kernelName + std::to_string(1000);
       conv2dGenerator.setKernelName(kName);
-      if (failed(conv2dGenerator.genConvModule(module))) {
+      if (failed(conv2dGenerator.genConvModule(module, /*kernel_id=*/-1,
+                                               /*ignoreTuning=*/true))) {
         llvm::errs() << "Module population failed.\n";
         exit(1);
       }
