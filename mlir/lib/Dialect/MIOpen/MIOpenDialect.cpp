@@ -293,7 +293,7 @@ TransformAttr getTransformAttrChecked(
 }
 
 //===---------------------------------------------------------
-// TransformsAttr
+// TransformMapAttr
 //===---------------------------------------------------------
 
 TransformMapAttr getTransformMapAttrChecked(

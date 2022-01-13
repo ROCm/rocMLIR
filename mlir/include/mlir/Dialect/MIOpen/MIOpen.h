@@ -173,6 +173,14 @@ private:
   bool frozen = false;
 };
 
+/// Builds a coordinate transformation from the top (upper) layer down.
+///
+/// This should be used in cases where the shape of the upper layer is already
+/// available and easier to work with. For example, when describing the
+/// transformation from xdlops-space indices into gemmM (M0, M1, M2)
+/// to the gemmM dimension, it's more straightforward to start with the
+/// upper shape and simply define an Embed without having to go through and
+/// write the sizes again as one would have to if working bottom up.
 class TopDownCTBuilder : public CoordTransformsBuilder {
 public:
   TopDownCTBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
@@ -215,6 +223,13 @@ protected:
   int64_t paddingSign() const override final;
 };
 
+/// Builds a coordinate transformation from the bottom (lower) layer up.
+///
+/// A bottom-up builder can be used when you know the shape of the untransformed
+/// and should be used when computing the result shape would require work
+/// equivalent to working through the transformation (multiplying sizes together
+/// etc.). For example, most transformations from the convolution arguments to
+/// GEMM arguments are described bottom-up.
 class BottomUpCTBuilder : public CoordTransformsBuilder {
 public:
   BottomUpCTBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
