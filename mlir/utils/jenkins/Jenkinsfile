@@ -579,9 +579,17 @@ pipeline {
             }
             stages{
                 stage ('Build and Archive a Release Branch') {
+                    environment {
+                        HOME="${WORKSPACE}"
+                        branch=sh(returnStdout:true, script:"""#!/bin/bash
+                            temp=$params.releaseBranch
+                            release=\${temp////-}
+                            echo \$release""").trim()
+                    }
                     steps {
                         showEnv()
                         sh "git checkout ${params.releaseBranch}"
+                        sh "tar czf mlir-source-${branch}.tar.gz \$(ls)"
                         buildProject('', """
                           -DBUILD_FAT_LIBMLIRMIOPEN=ON
                           -DCMAKE_BUILD_TYPE=Release
@@ -589,14 +597,13 @@ pipeline {
                         """)
                         cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/build/include",\
                                 installation: 'InSearchPath', workingDir: 'build'
-                        sh """#!/bin/bash
-                            temp=$params.releaseBranch
-                            release=\${temp////-}
-                            tar cvzf mlir-\$release.tar.gz ./build/bin ./build/lib ./build/include\
-                                                         ./build/external/llvm-project/llvm/bin\
-                                                         ./build/external/llvm-project/llvm/lib\
-                                                         ./build/external/llvm-project/llvm/include
-                            ls -l mlir-\$release.tar.gz
+                        sh "mv build mlir-${branch}"
+                        sh """
+                            tar cvzf mlir-binary-${branch}.tar.gz mlir-${branch}/bin mlir-${branch}/lib mlir-${branch}/include\
+                                                                  mlir-${branch}/external/llvm-project/llvm/bin\
+                                                                  mlir-${branch}/external/llvm-project/llvm/lib\
+                                                                  mlir-${branch}/external/llvm-project/llvm/include
+                            ls -l *.tar.gz
                         """
                         archiveArtifacts artifacts: '*.tar.gz', onlyIfSuccessful: true
                      }
