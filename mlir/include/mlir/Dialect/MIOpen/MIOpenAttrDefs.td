@@ -96,9 +96,44 @@ def MIOpen_TransformAttr : MIOpen_Attr<"Transform"> {
     let mnemonic = "transform";
 
     let description = [{
-        A coordinate transform.
+        A coordinate transformation, that is, a component of a transform_map.
 
-        TODO: Move the documentation into here.
+        A transform_map is a way to describe affine maps between coordinate spaces
+        that easily allows one to "take their derivative" when emitting hot unrolled
+         loops and that simplifies the process of describing these mappings.
+
+        Each transform produces some number of upper dimensions from some
+        number of lower dimensions. A collection of transformation that covers a set
+        of upper and lower dimensions can be packaged into a transform_map,
+        at which point they specify an affine map between coordinate spaces.
+
+        Each transform is specified as an attribute with the form
+        ```
+          #miopen.transform<Type{param1, param2} ["upper1", "upper2"] at [dim1, dim2] -> ["lower1", "lower2"] at [dim3, dim4]>
+        ```
+        where the params block may be omitted for transforms that don't take parameters.
+
+        The available transform types are
+        - PassThrough, which maps N lower dimensions to N upper dimensions
+            without changing the coordinates in those dimensions
+        - Pad{l1, r1, l2, r2, ..., lN, rN} Adds padding to N dimensions in the
+          transformed upper output. The parameters are the amount of padding to
+          add to the left and right of each dimension, concatenated
+        - Slice{b1, e1, b2, e2, ... bN, eN} Takes a slice of N dimensions
+          creating, for each upper dimension i, a dimension of size e_i - b_i where 0
+          in the upper layer maps to b_i in the lower layer
+        - Embed{c1, c2, ... cN} - Creates N upper dimensions from 1 lower dimension
+          with the map (d1, d2, ..., dN) -> (d1 * C1 + d2 * C2 + ... dN * cN)
+        - Unmerge{c1, c2, ..., cN} - Creates N upper dimensions as in Embed,
+          but uses the map (d1, d2, ..., dN) -> (dN + cN * (d_{N - 1} * (... d1)))
+        - Merge{c1, c2, ..., cN} - Combines N lower dimensions into 1 upper dimension
+          with the parameters holding the sizes of the lower dimensions.
+          This has the effect of concatentating the dimensions if they are consecutive
+        - Unfold{c1, ..., cN} - Has the semantics of merge, but asserts that the lower
+          dimensions are consecutive so that the derivative operation does not need
+          to explicitly handle overflow
+        - AddDim{size} - Adds one upper dimension of the given size that does not
+          correspond to any lower dimension.
     }];
 
     let parameters = (ins
