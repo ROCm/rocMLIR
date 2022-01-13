@@ -578,6 +578,7 @@ pipeline {
             stages{
                 stage ('Build and Archive a Release Branch') {
                     environment {
+                        HOME="${WORKSPACE}"
                         branch=sh(returnStdout:true, script:"""#!/bin/bash
                             temp=$params.releaseBranch
                             release=\${temp////-}
@@ -596,10 +597,10 @@ pipeline {
                                 installation: 'InSearchPath', workingDir: 'build'
                         sh "mv build mlir-${branch}"
                         sh """
-                            tar cvzf mlir-binary-${branch}tar.gz mlir-${branch}/bin mlir-${branch}/lib mlir-${branch}/include\
-                                                         mlir-${branch}/external/llvm-project/llvm/bin\
-                                                         mlir-${branch}/external/llvm-project/llvm/lib\
-                                                         mlir-${branch}/external/llvm-project/llvm/include
+                            tar cvzf mlir-binary-${branch}.tar.gz mlir-${branch}/bin mlir-${branch}/lib mlir-${branch}/include\
+                                                                  mlir-${branch}/external/llvm-project/llvm/bin\
+                                                                  mlir-${branch}/external/llvm-project/llvm/lib\
+                                                                  mlir-${branch}/external/llvm-project/llvm/include
                             ls -l *.tar.gz
                         """
                         archiveArtifacts artifacts: '*.tar.gz', onlyIfSuccessful: true
