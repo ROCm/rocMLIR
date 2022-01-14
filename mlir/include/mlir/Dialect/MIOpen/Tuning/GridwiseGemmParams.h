@@ -929,6 +929,9 @@ private:
     if ((param.gemmNPerBlock % param.gemmNPerWave) != 0)
       return failure();
 
+    if ((param.gemmKPerBlock % param.gemmKPack) != 0)
+      return failure();
+
     // Reject too wide KPACK values for fp32/fp16/bf16 types.
     auto dataType = ctx.getDataType();
     if (dataType.isF32() && param.gemmKPack >= 8) {
