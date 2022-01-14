@@ -2,6 +2,7 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
   AffixTuningParameters.cpp
   AlignTiling.cpp
   CopyOpt.cpp
+  ConvToGemmLowering.cpp
   LowerMIOpenOps.cpp
 
   ADDITIONAL_HEADER_DIRS
