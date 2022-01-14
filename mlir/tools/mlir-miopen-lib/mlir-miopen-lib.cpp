@@ -1,6 +1,5 @@
 #include "Miir.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
-#include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Pipeline.h"
 #include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 #include "mlir/IR/Builders.h"
@@ -21,6 +20,7 @@
 #include <sstream>
 #include <string>
 
+using namespace mlir;
 namespace {
 struct MiirHandle_s {
   MiirHandle_s() {

@@ -27,14 +27,16 @@
 #include "mlir/Conversion/SCFToStandard/SCFToStandard.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/GPU/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/XdlopsCodeSelection.h"
+#include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Vector/VectorOps.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Attributes.h"
@@ -63,12 +65,6 @@ namespace {
 struct LowerMIOpenOpsToGPUPass : public ConvertMIOpenToGPUBase<LowerMIOpenOpsToGPUPass> {
 public:
   LowerMIOpenOpsToGPUPass() = default;
-  void runOnOperation() override;
-};
-
-struct LowerMIOpenOpsWithinGPUModulePass
-    : public ConvertMIOpenWithinGPUModuleBase<
-          LowerMIOpenOpsWithinGPUModulePass> {
   void runOnOperation() override;
 };
 } // end anonymous namespace
@@ -269,44 +265,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
   }
 }
 
-void LowerMIOpenOpsWithinGPUModulePass::runOnOperation() {
-  auto *ctx = &getContext();
-  OwningRewritePatternList patterns(ctx);
-
-  // miopen-lowering
-  patterns.insert<Conv2DRewritePattern<miopen::Conv2DOp>>(ctx);
-  patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdDataOp>>(ctx);
-  patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>>(ctx);
-
-  // TBD: miopen-affine-transform
-  // TBD: miopen-affix-params
-
-  // miopen-lowering-step2
-  patterns.insert<GridwiseGemmRewritePattern>(ctx);
-
-  // miopen-lowering-step3
-  patterns.insert<FillRewritePattern>(ctx);
-  patterns.insert<TransformRewritePattern>(ctx);
-  patterns.insert<BlockwiseGemmRewritePattern>(ctx);
-
-  // miopen-lowering-step4
-  patterns.insert<ThreadwiseGemmRewritePattern>(ctx);
-  patterns.insert<ThreadwiseCopyRewritePattern>(ctx);
-
-  // miopen-lowering-step5
-  populateAffineToStdConversionPatterns(patterns);
-  populateLoopToStdConversionPatterns(patterns);
-
-  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
-    signalPassFailure();
-}
-
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
 mlir::createLowerMIOpenOpsToGPUPass() {
   return std::make_unique<LowerMIOpenOpsToGPUPass>();
-}
-
-std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
-mlir::createLowerMIOpenOpsWithinGPUModulePass() {
-  return std::make_unique<LowerMIOpenOpsWithinGPUModulePass>();
 }
