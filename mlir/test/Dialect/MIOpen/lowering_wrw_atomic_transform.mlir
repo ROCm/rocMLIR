@@ -1,19 +1,14 @@
-// RUN: miopen-opt -miopen-affix-params -miopen-lowering -miopen-affine-transform %s | FileCheck %s
+// RUN: miopen-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s
 module  {
   func @miopen_conv2d_bwd_weight_gkcyx_ngchw_ngkhw_0(%arg0: memref<1x32x32x3x3xf32>, %arg1: memref<32x1x32x7x7xf32>, %arg2: memref<32x1x32x9x9xf32>) attributes {kernel = 0 : i32} {
     miopen.conv2d_bwd_weight(%arg0, %arg1, %arg2) {arch = "gfx908", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], gemm_id = 0 : i32, input_layout = ["ni", "gi", "ci", "hi", "wi"], num_cu = 120 : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [2 : i32, 2 : i32, 2 : i32, 2 : i32], strides = [1 : i32, 1 : i32], xdlopsV2 = true} : memref<1x32x32x3x3xf32>, memref<32x1x32x7x7xf32>, memref<32x1x32x9x9xf32>
     return
   }
 }
-// CHECK: affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d2, d3, d4, d5)>
-// CHECK: affine_map<(d0, d1, d2, d3, d4, d5) -> (d1 * 16 + d2, d0, d3, d4 - 2, d5 - 2)>
-// CHECK: affine_map<(d0, d1, d2, d3, d4, d5) -> (d1 * 16 + d2, d0, d3, d4, d5)>
-// CHECK-LABEL: func @miopen_conv2d_bwd_weight_gkcyx_ngchw_ngkhw_0
-// CHECK-NEXT:  {{miopen.transform.*{.*transformation = "AddDim".*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.transform.*{.*transformation = "UnMerge".*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.transform.*{.*transformation = "UnMerge".*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.transform.*{.*}.*memref.*memref}}
-// CHECK-NEXT:  {{miopen.gridwise_gemm_v2.*{.*}.*memref.*memref.*memref}}
+// CHECK: #transform_map{{[0-9]+}} = #miopen.transform_map<affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d2, d3, d4, d5)> by[#miopen.transform<PassThrough ["g"] at [0] -> ["g"] at [0]>, #miopen.transform<AddDim{2} ["kBlock"] at [1] -> [] at []>, #miopen.transform<PassThrough ["k", "c", "y", "x"] at [2, 3, 4, 5] -> ["k", "c", "y", "x"] at [1, 2, 3, 4]>] bounds = [1, 2, 32, 32, 3, 3] -> [1, 32, 32, 3, 3]>
+// CHECK: #transform_map{{[0-9]+}} = #miopen.transform_map<affine_map<(d0, d1, d2) -> (d0 floordiv 2, d0 mod 2, d1, d2 floordiv 9, (d2 mod 9) floordiv 3, d2 mod 3)> by[#miopen.transform<Merge{1, 2} ["gemmG"] at [0] -> ["g", "kBlock"] at [0, 1]>, #miopen.transform<PassThrough ["gemmM"] at [1] -> ["k"] at [2]>, #miopen.transform<Merge{32, 3, 3} ["gemmN"] at [2] -> ["c", "y", "x"] at [3, 4, 5]>] bounds = [2, 32, 288] -> [1, 2, 32, 32, 3, 3]>
+// CHECK: #transform_map{{[0-9]+}} = #miopen.transform_map<affine_map<(d0, d1, d2, d3, d4, d5) -> (d1 * 16 + d2, d0, d3, d4 - 2, d5 - 2)> by[#miopen.transform<PassThrough ["gi"] at [0] -> ["gi"] at [1]>, #miopen.transform<Unmerge{2, 16} ["n0", "n1"] at [1, 2] -> ["ni"] at [0]>, #miopen.transform<PassThrough ["ci"] at [3] -> ["ci"] at [2]>, #miopen.transform<Pad{2, 2, 2, 2} ["hipad", "wipad"] at [4, 5] -> ["hi", "wi"] at [3, 4]>] bounds = [1, 2, 16, 32, 11, 11] -> [32, 1, 32, 7, 7]>
+// CHECK: #transform_map{{[0-9]+}} = #miopen.transform_map<affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d0, d1, d2, d3, d4 + d5, d6 + d7)> by[#miopen.transform<PassThrough ["gi"] at [0] -> ["gi"] at [0]>, #miopen.transform<PassThrough ["n0"] at [1] -> ["n0"] at [1]>, #miopen.transform<PassThrough ["n1"] at [2] -> ["n1"] at [2]>, #miopen.transform<PassThrough ["ci"] at [3] -> ["ci"] at [3]>, #miopen.transform<Embed{1, 1} ["y", "ho"] at [4, 5] -> ["hipad"] at [4]>, #miopen.transform<Embed{1, 1} ["x", "wo"] at [6, 7] -> ["wipad"] at [5]>] bounds = [1, 2, 16, 32, 3, 9, 3, 9] -> [1, 2, 16, 32, 11, 11]>
+// CHECK: #transform_map{{[0-9]+}} = #miopen.transform_map<affine_map<(d0, d1, d2) -> (d0 floordiv 2, d0 mod 2, d1 floordiv 81, d2 floordiv 9, (d2 mod 9) floordiv 3, (d1 mod 81) floordiv 9, d2 mod 3, d1 mod 9)> by[#miopen.transform<Merge{1, 2} ["gemmG"] at [0] -> ["gi", "n0"] at [0, 1]>, #miopen.transform<Merge{16, 9, 9} ["gemmK"] at [1] -> ["n1", "ho", "wo"] at [2, 5, 7]>, #miopen.transform<Merge{32, 3, 3} ["gemmN"] at [2] -> ["ci", "y", "x"] at [3, 4, 6]>] bounds = [2, 1296, 288] -> [1, 2, 16, 32, 3, 9, 3, 9]>
+// CHECK: #transform_map{{[0-9]+}} = #miopen.transform_map<affine_map<(d0, d1, d2, d3, d4, d5) -> (d1 * 16 + d2, d0, d3, d4, d5)> by[#miopen.transform<PassThrough ["go"] at [0] -> ["go"] at [1]>, #miopen.transform<Unmerge{2, 16} ["n0", "n1"] at [1, 2] -> ["no"] at [0]>, #miopen.transform<PassThrough ["ko", "ho", "wo"] at [3, 4, 5] -> ["ko", "ho", "wo"] at [2, 3, 4]>] bounds = [1, 2, 16, 32, 9, 9] -> [32, 1, 32, 9, 9]>
+// CHECK: #transform_map{{[0-9]+}} = #miopen.transform_map<affine_map<(d0, d1, d2) -> (d0 floordiv 2, d0 mod 2, d1 floordiv 81, d2, (d1 mod 81) floordiv 9, d1 mod 9)> by[#miopen.transform<Merge{1, 2} ["gemmG"] at [0] -> ["go", "n0"] at [0, 1]>, #miopen.transform<Merge{16, 9, 9} ["gemmK"] at [1] -> ["n1", "ho", "wo"] at [2, 4, 5]>, #miopen.transform<PassThrough ["gemmM"] at [2] -> ["ko"] at [3]>] bounds = [2, 1296, 32] -> [1, 2, 16, 32, 9, 9]>

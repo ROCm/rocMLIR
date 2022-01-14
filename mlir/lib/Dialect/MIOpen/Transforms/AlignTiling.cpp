@@ -24,7 +24,7 @@
 #include "PassDetail.h"
 
 #include "mlir/Dialect/Linalg/IR/LinalgOps.h"
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -123,9 +123,12 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     // 4. add bound attr with the register dims
     SmallVector<Attribute, 2> twCopyBoundsAttr;
     for (auto v : shape) {
-      twCopyBoundsAttr.push_back(b.getI32IntegerAttr(v));
+      twCopyBoundsAttr.push_back(b.getIndexAttr(v));
     }
-    nTWCopy->setAttr("bound", b.getArrayAttr(twCopyBoundsAttr));
+    nTWCopy->setAttr("bounds", b.getArrayAttr(twCopyBoundsAttr));
+
+    // 5. Adjust the copy to show the correct argument as global
+    nTWCopy->setAttr("globalArg", b.getIndexAttr(0));
 
     return nAlloc->getResult(0);
   }

@@ -13,7 +13,7 @@
 
 #include "mlir/Conversion/MIOpenPasses.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/Dialect.h"

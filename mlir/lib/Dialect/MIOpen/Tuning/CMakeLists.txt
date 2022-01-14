@@ -29,8 +29,8 @@ if (MLIR_MIOPEN_SQLITE_ENABLED)
   endif()
 endif()
 
-target_include_directories(MLIRMIOpenTuning 
-  PRIVATE 
+target_include_directories(MLIRMIOpenTuning
+  PRIVATE
   ${SQLITE3_INCLUDE_DIRS}
 )
 

@@ -16,6 +16,7 @@ add_mlir_dialect_library(MLIRMIOpenOps
 
   DEPENDS
   MLIRStandardOpsIncGen
+  MLIRMIOpenAttrDefsIncGen
   MLIRMIOpenOpsIncGen
   )
 target_link_libraries(MLIRMIOpenOps

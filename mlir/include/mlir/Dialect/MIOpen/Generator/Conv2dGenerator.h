@@ -13,7 +13,7 @@
 #ifndef MLIR_DIALECT_MIOPEN_CONV2DGENERATOR_H_
 #define MLIR_DIALECT_MIOPEN_CONV2DGENERATOR_H_
 
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
 
@@ -58,7 +58,7 @@ public:
                   const std::string &features = "",
                   const std::string &perfConfig = "", int num_cu = 0,
                   bool xdlops = false,
-                  const miopen::ConvOpType operation = miopen::Conv2DOpType,
+                  const miopen::ConvOpType operation = miopen::ConvOpType::Fwd,
                   const std::string &dataTypeStr = "f32",
                   int dilationHeight = 1, int dilationWidth = 1,
                   int strideHeight = 1, int strideWidth = 1,

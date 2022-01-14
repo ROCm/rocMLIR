@@ -14,6 +14,8 @@ include "mlir/IR/OpBase.td"
 def MIOpen_Dialect : Dialect {
   let name = "miopen";
   let cppNamespace = "::mlir::miopen";
+
+  let useDefaultAttributePrinterParser = 1;
 }
 
 #endif // MIOPEN_BASE
