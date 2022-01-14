@@ -48,11 +48,6 @@
 using namespace mlir;
 
 namespace {
-
-struct LowerMIOpenOpsStep2Pass : public MIOpenOpsStep2PassBase<LowerMIOpenOpsStep2Pass> {
-  void runOnOperation() override;
-};
-
 struct LowerMIOpenOpsStep3Pass : public MIOpenOpsStep3PassBase<LowerMIOpenOpsStep3Pass> {
   void runOnOperation() override;
 };
@@ -67,15 +62,6 @@ struct LowerMIOpenOpsStep5Pass
   void runOnOperation() override;
 };
 } // end anonymous namespace
-
-void LowerMIOpenOpsStep2Pass::runOnOperation() {
-  MLIRContext *ctx = &getContext();
-  OwningRewritePatternList patterns(ctx);
-  patterns.insert<GridwiseGemmRewritePattern>(ctx);
-  patterns.insert<GridwiseGemmV2RewritePattern>(ctx);
-  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
-    signalPassFailure();
-}
 
 void LowerMIOpenOpsStep3Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
@@ -111,10 +97,6 @@ void LowerMIOpenOpsStep5Pass::runOnOperation() {
   populateLoopToStdConversionPatterns(patterns);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
-}
-
-std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep2Pass() {
-  return std::make_unique<LowerMIOpenOpsStep2Pass>();
 }
 
 std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep3Pass() {

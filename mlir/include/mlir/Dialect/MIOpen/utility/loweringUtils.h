@@ -40,6 +40,76 @@ inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo) {
   //               << " ho: " << ho << " wo: " << wo << "\n";
   return gemmKBlocks;
 }
+
+//===----------------------------------------------------------------------===//
+// Utility function to emit constant float op. Returns a scalar.
+//===----------------------------------------------------------------------===//
+inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
+                                   float value) {
+  Value ret;
+  if (elementType == b.getF32Type()) {
+    ret = b.create<arith::ConstantFloatOp>(loc, APFloat(value), b.getF32Type());
+  } else if (elementType == b.getF16Type()) {
+    bool lossy = false;
+    APFloat constant(value);
+    constant.convert(APFloat::IEEEhalf(), llvm::RoundingMode::TowardZero,
+                     &lossy);
+    ret = b.create<arith::ConstantFloatOp>(loc, constant, b.getF16Type());
+  } else if (elementType == b.getIntegerType(16)) {
+    ret = b.create<arith::ConstantIntOp>(loc, static_cast<int>(value),
+                                         b.getIntegerType(16));
+  }
+  return ret;
+}
+
+//===----------------------------------------------------------------------===//
+// Utility function to emit constant zero op. Can return scalars or vectors.
+//===----------------------------------------------------------------------===//
+inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc, Type type) {
+  Type elementType = type;
+  if (type.isa<VectorType>())
+    elementType = type.template cast<VectorType>().getElementType();
+  auto semantics = static_cast<APFloat::Semantics>(-1);
+  if (elementType == b.getF32Type()) {
+    semantics = APFloat::S_IEEEsingle;
+  } else if (elementType == b.getF16Type()) {
+    semantics = APFloat::S_IEEEhalf;
+  } else if (elementType == b.getIntegerType(16)) {
+    semantics = APFloat::S_BFloat;
+  } else {
+    llvm_unreachable("Unexpected float semantics");
+  }
+
+  auto zero = APFloat::getZero(APFloat::EnumToSemantics(semantics));
+  Value retValue;
+
+  if (auto vecType = type.dyn_cast<VectorType>()) {
+    Attribute constValue;
+    if (auto intType = elementType.dyn_cast<IntegerType>()) {
+      auto intZero = zero.bitcastToAPInt();
+      assert(intType.getIntOrFloatBitWidth() == intZero.getBitWidth());
+      constValue = b.getIntegerAttr(elementType, intZero);
+    } else {
+      constValue = b.getFloatAttr(elementType, zero);
+    }
+    llvm::SmallVector<Attribute> constValues;
+    std::fill_n(std::back_inserter(constValues), vecType.getNumElements(),
+                constValue);
+    retValue = b.create<mlir::ConstantOp>(
+        loc, DenseElementsAttr::get(vecType, constValues), type);
+  } else {
+    if (auto intType = elementType.dyn_cast<IntegerType>()) {
+      auto intZero = zero.bitcastToAPInt();
+      assert(intType.getIntOrFloatBitWidth() == intZero.getBitWidth());
+      retValue = b.create<mlir::ConstantOp>(
+          loc, b.getIntegerAttr(intType, intZero), type);
+    } else {
+      retValue = b.create<mlir::ConstantOp>(
+          loc, b.getFloatAttr(elementType, zero), type);
+    }
+  }
+  return retValue;
+}
 } // end namespace miopen
 } // end namespace mlir
 #endif

@@ -3,6 +3,7 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
   AlignTiling.cpp
   CopyOpt.cpp
   ConvToGemmLowering.cpp
+  GridwiseGemmToBlockwise.cpp
   LowerMIOpenOps.cpp
 
   ADDITIONAL_HEADER_DIRS
