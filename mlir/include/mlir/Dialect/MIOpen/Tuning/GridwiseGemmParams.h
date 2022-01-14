@@ -940,6 +940,24 @@ private:
       return failure();
     }
 
+    // XXX FIXME: Ignore KReduction XDLOPS path for now.
+    // These M/NPerBlock combinations will result in lowering errors at tuning.
+    {
+      if ((param.gemmMPerBlock == 16 || param.gemmMPerBlock == 32 ||
+           param.gemmMPerBlock == 64) &&
+          (param.gemmNPerBlock == 16 || param.gemmNPerBlock == 32 ||
+           param.gemmNPerBlock == 64)) {
+        return failure();
+      }
+
+      if (param.gemmMPerBlock == 32 && param.gemmNPerBlock == 128) {
+        return failure();
+      }
+      if (param.gemmMPerBlock == 128 && param.gemmNPerBlock == 32) {
+        return failure();
+      }
+    }
+
     return success();
   }
 
