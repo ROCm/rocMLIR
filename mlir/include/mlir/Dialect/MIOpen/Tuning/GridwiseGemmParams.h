@@ -886,7 +886,8 @@ private:
     return success();
   }
 
-  LogicalResult isValidblockwisegemmxdlops(InitParamsXDL &param,
+  LogicalResult isValidBlockwiseGemmXDLOPS(InitParamsXDL &param,
+                                           ConvolutionContext &ctx,
                                            int64_t blockSize) {
     // TBD: support fp16/bf16
 
@@ -927,6 +928,14 @@ private:
 
     if ((param.gemmNPerBlock % param.gemmNPerWave) != 0)
       return failure();
+
+    // Reject too wide KPACK values for fp32/fp16/bf16 types.
+    auto dataType = ctx.getDataType();
+    if (dataType.isF32() && param.gemmKPack >= 8) {
+      return failure();
+    } else if ((dataType.isF16() || dataType.isBF16()) && param.gemmKPack > 8) {
+      return failure();
+    }
 
     return success();
   }
