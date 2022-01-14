@@ -28,12 +28,12 @@ using namespace mlir;
 Conv2dGenerator::Conv2dGenerator(
     const std::string &chip, const std::string &triple,
     const std::string &features, int num_cu, bool xdlops,
-    const Optional<miopen::ConvOpType> operation, const std::string &dataTypeStr,
-    int dilationHeight, int dilationWidth, int strideHeight, int strideWidth,
-    int paddingHeightLeft, int paddingHeightRight, int paddingWidthLeft,
-    int paddingWidthRight, const std::string &filterLayout,
-    const std::string &inputLayout, const std::string &outputLayout,
-    const std::string &kernelBaseName)
+    const Optional<miopen::ConvOpType> operation,
+    const std::string &dataTypeStr, int dilationHeight, int dilationWidth,
+    int strideHeight, int strideWidth, int paddingHeightLeft,
+    int paddingHeightRight, int paddingWidthLeft, int paddingWidthRight,
+    const std::string &filterLayout, const std::string &inputLayout,
+    const std::string &outputLayout, const std::string &kernelBaseName)
     : config{chip,
              triple,
              features,
@@ -479,9 +479,9 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
     assert(config.operation.hasValue());
     auto opType = config.operation.getValue();
     config.kernelBaseName = std::string("miopen_") +
-                            miopen::getNameForConvOpType(opType) +
-                            "_" + config.filterLayout + "_" +
-                            config.inputLayout + "_" + config.outputLayout;
+                            miopen::getNameForConvOpType(opType).str() + "_" +
+                            config.filterLayout + "_" + config.inputLayout +
+                            "_" + config.outputLayout;
   }
 
   return success();

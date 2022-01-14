@@ -1098,11 +1098,12 @@ mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
                                            in_h * inputStrides[3] +
                                            in_w * inputStrides[4]];
 
-                  acc += (double)(input * filterAllocated[g * filterStrides[0] +
-                                                 k * filterStrides[1] +
-                                                 c * filterStrides[2] +
-                                                 fil_h * filterStrides[3] +
-                                                 fil_w * filterStrides[4]]);
+                  acc += (double)(input *
+                                  filterAllocated[g * filterStrides[0] +
+                                                  k * filterStrides[1] +
+                                                  c * filterStrides[2] +
+                                                  fil_h * filterStrides[3] +
+                                                  fil_w * filterStrides[4]]);
                   if (!xdlops) // || (fil_w + fil_h + c) % 4 == 3)
                     acc = (float)acc;
                 }
@@ -1159,15 +1160,15 @@ mcpuConv2dBwdWeight(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
                   if (in_h >= 0 && in_h < inputSizes[3] && in_w >= 0 &&
                       in_w < inputSizes[4])
                     acc += (double)(inputAllocated[g * inputStrides[0] +
-                                          n * inputStrides[1] +
-                                          c * inputStrides[2] +
-                                          in_h * inputStrides[3] +
-                                          in_w * inputStrides[4]] *
-                           outputAllocated[g * outputStrides[0] +
-                                           n * outputStrides[1] +
-                                           k * outputStrides[2] +
-                                           out_h * outputStrides[3] +
-                                           out_w * outputStrides[4]]);
+                                                   n * inputStrides[1] +
+                                                   c * inputStrides[2] +
+                                                   in_h * inputStrides[3] +
+                                                   in_w * inputStrides[4]] *
+                                    outputAllocated[g * outputStrides[0] +
+                                                    n * outputStrides[1] +
+                                                    k * outputStrides[2] +
+                                                    out_h * outputStrides[3] +
+                                                    out_w * outputStrides[4]]);
                   if (!xdlops) // || (out_w + out_h + n) % 4 == 3)
                     acc = (float)acc;
                 }
@@ -1223,15 +1224,15 @@ mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
                       out_h >= 0 && out_h < outputSizes[3] && out_w >= 0 &&
                       out_w < outputSizes[4])
                     acc += (double)(filterAllocated[g * filterStrides[0] +
-                                           k * filterStrides[1] +
-                                           c * filterStrides[2] +
-                                           y * filterStrides[3] +
-                                           x * filterStrides[4]] *
-                           outputAllocated[g * outputStrides[0] +
-                                           n * outputStrides[1] +
-                                           k * outputStrides[2] +
-                                           out_h * outputStrides[3] +
-                                           out_w * outputStrides[4]]);
+                                                    k * filterStrides[1] +
+                                                    c * filterStrides[2] +
+                                                    y * filterStrides[3] +
+                                                    x * filterStrides[4]] *
+                                    outputAllocated[g * outputStrides[0] +
+                                                    n * outputStrides[1] +
+                                                    k * outputStrides[2] +
+                                                    out_h * outputStrides[3] +
+                                                    out_w * outputStrides[4]]);
                   if (!xdlops) // || (x + y + k) % 4 == 3)
                     acc = (float)acc;
                 }

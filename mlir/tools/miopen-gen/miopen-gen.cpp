@@ -14,7 +14,6 @@
 #include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/Pipeline.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
@@ -59,13 +58,13 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
 
 static cl::opt<mlir::miopen::ConvOpType> operation(
     "operation", cl::desc("Convolution operation,"),
-    cl::values(clEnumValN(miopen::Conv2DOpType, "conv2d",
+    cl::values(clEnumValN(miopen::ConvOpType::Fwd, "conv2d",
                           "Forward convolution"),
-               clEnumValN(miopen::Conv2DBwdDataOpType, "conv2d_bwd_data",
+               clEnumValN(miopen::ConvOpType::BwdData, "conv2d_bwd_data",
                           "Backpropogate convolution data"),
-               clEnumValN(miopen::Conv2DBwdWeightOpType, "conv2d_bwd_weight",
+               clEnumValN(miopen::ConvOpType::BwdWeight, "conv2d_bwd_weight",
                           "Backpropogate convolution weights")),
-    cl::value_desc("convolution type"), cl::init(miopen::Conv2DOpType));
+    cl::value_desc("convolution type"), cl::init(miopen::ConvOpType::Fwd));
 
 static cl::opt<std::string>
     arch("arch",
@@ -865,7 +864,8 @@ createCPUConvFunc(ModuleOp module,
                   const mlir::Conv2dGenerator::Config &genConfig) {
 
   assert(genConfig.operation.hasValue());
-  std::string funcName = miopen::getNameForConvOpType(genConfig.operation.getValue());
+  std::string funcName =
+      miopen::getNameForConvOpType(genConfig.operation.getValue()).str();
 
   funcName += "_cpu";
   FuncOp func = module.lookupSymbol<FuncOp>(funcName);
@@ -1026,13 +1026,13 @@ createCPUConvFunc(ModuleOp module,
   std::string mcpuFuncName;
 
   switch (genConfig.operation.getValue()) {
-  case mlir::miopen::Conv2DOpType:
+  case miopen::ConvOpType::Fwd:
     mcpuFuncName = "mcpuConv2d";
     break;
-  case miopen::Conv2DBwdDataOpType:
+  case miopen::ConvOpType::BwdData:
     mcpuFuncName = "mcpuConv2dBwdData";
     break;
-  case miopen::Conv2DBwdWeightOpType:
+  case miopen::ConvOpType::BwdWeight:
     mcpuFuncName = "mcpuConv2dBwdWeight";
     break;
   }
@@ -1246,13 +1246,13 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   assert(genConfig.operation.hasValue());
   SmallVector<int64_t, 5> dims;
   switch (genConfig.operation.getValue()) {
-  case miopen::Conv2DOpType:
+  case miopen::ConvOpType::Fwd:
     dims = genConfig.outputDimension;
     break;
-  case miopen::Conv2DBwdDataOpType:
+  case miopen::ConvOpType::BwdData:
     dims = genConfig.inputDimension;
     break;
-  case miopen::Conv2DBwdWeightOpType:
+  case miopen::ConvOpType::BwdWeight:
     dims = genConfig.filterDimension;
     break;
   }
@@ -1399,7 +1399,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 
     // <test> >= <max_percent>
     cmpVal = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT, absfOp,
-                                        maxPercentVal);
+                                         maxPercentVal);
     if (elemType.getIntOrFloatBitWidth() < 32) {
       // && <cpu> >= 0.001f
       auto cmp1Op = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT,
@@ -1412,7 +1412,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 
   } else {
     cmpVal = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
-                                        cpuLoadVal, gpuLoadVal);
+                                         cpuLoadVal, gpuLoadVal);
     percentDiffVal = loopB.create<arith::SubFOp>(loc, cpuLoadVal, gpuLoadVal);
   }
 
@@ -1426,7 +1426,8 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   auto printFunc = makeFuncDecl(module, "mcpuPrintF32", {floatType, floatType});
 
   if (elemType.getIntOrFloatBitWidth() < 32) {
-    percentDiffVal = thenBody.create<arith::ExtFOp>(loc, percentDiffVal, floatType);
+    percentDiffVal =
+        thenBody.create<arith::ExtFOp>(loc, percentDiffVal, floatType);
   }
   thenBody.create<CallOp>(loc, printFunc, ValueRange{percentDiffVal, cpuFPVal});
   thenBody.create<CallOp>(loc, printFunc, ValueRange{gpuFPVal, cpuFPVal});
@@ -1440,7 +1441,8 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 }
 
 static LogicalResult
-populateHostHarnessLogic(ModuleOp &module, const SmallVector<KernelIF, 8> &kernels,
+populateHostHarnessLogic(ModuleOp &module,
+                         const SmallVector<KernelIF, 8> &kernels,
                          const mlir::Conv2dGenerator::Config &genConfig) {
 
   auto context = module.getContext();
@@ -1458,13 +1460,13 @@ populateHostHarnessLogic(ModuleOp &module, const SmallVector<KernelIF, 8> &kerne
   int32_t outIdx = -1;
   if (genConfig.operation.hasValue()) {
     switch (genConfig.operation.getValue()) {
-    case miopen::Conv2DOpType:
+    case miopen::ConvOpType::Fwd:
       outIdx = 2;
       break;
-    case miopen::Conv2DBwdDataOpType:
+    case miopen::ConvOpType::BwdData:
       outIdx = 1;
       break;
-    case miopen::Conv2DBwdWeightOpType:
+    case miopen::ConvOpType::BwdWeight:
       outIdx = 0;
       break;
     }
