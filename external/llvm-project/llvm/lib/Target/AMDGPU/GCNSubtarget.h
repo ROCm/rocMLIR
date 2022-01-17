@@ -750,7 +750,10 @@ public:
   Align getStackAlignment() const { return Align(16); }
 
   bool enableMachineScheduler() const override {
-    return true;
+    // XXX(kdrewnia): Don't merge this initially, and don't merge without
+    // discussion of cleaner hammers. This will get past the MI-200 test
+    // failures on fp16 xdlops at the cost of performance everywhere
+    return false;
   }
 
   bool useAA() const override;
