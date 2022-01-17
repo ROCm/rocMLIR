@@ -44,10 +44,10 @@ struct LowerMIOpenOpsStep3Pass
 // Fill lowering.
 //===----------------------------------------------------------------------===//
 
-struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
-  using OpRewritePattern<miopen::FillOp>::OpRewritePattern;
+struct FillRewritePattern : public OpRewritePattern<FillOp> {
+  using OpRewritePattern<FillOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(miopen::FillOp op,
+  LogicalResult matchAndRewrite(FillOp op,
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
     auto inputType = op.input().getType().cast<MemRefType>();
@@ -83,10 +83,10 @@ struct FillRewritePattern : public OpRewritePattern<miopen::FillOp> {
 // of the transforms attribute of the user of that chain.
 //===----------------------------------------------------------------------===//
 
-struct TransformRewritePattern : public OpRewritePattern<miopen::TransformOp> {
-  using OpRewritePattern<miopen::TransformOp>::OpRewritePattern;
+struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
+  using OpRewritePattern<TransformOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(miopen::TransformOp op,
+  LogicalResult matchAndRewrite(TransformOp op,
                                 PatternRewriter &b) const override {
     // To cut down on the number of intermediate arrays we pull in,
     // we'll deal with entire chains of transform ops at once
@@ -210,8 +210,8 @@ void affixThreadwiseCopyAttributes(T &top, U &bop, OpBuilder &b,
 }
 
 // XXX: figure out a better way to get rid of isMatrixA parameter.
-void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
-                                   miopen::BlockwiseGemmOp bop, OpBuilder &b,
+void affixThreadwiseCopyAttributes(ThreadwiseCopyOp top,
+                                   BlockwiseGemmOp bop, OpBuilder &b,
                                    bool isMatrixA) {
   if (isMatrixA) {
     top->setAttr("n_slice_row", bop->getAttr("k_per_thread"));
@@ -232,10 +232,10 @@ void affixThreadwiseCopyAttributes(miopen::ThreadwiseCopyOp top,
 //===----------------------------------------------------------------------===//
 
 struct BlockwiseGemmRewritePattern
-    : public OpRewritePattern<miopen::BlockwiseGemmOp> {
-  using OpRewritePattern<miopen::BlockwiseGemmOp>::OpRewritePattern;
+    : public OpRewritePattern<BlockwiseGemmOp> {
+  using OpRewritePattern<BlockwiseGemmOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(miopen::BlockwiseGemmOp op,
+  LogicalResult matchAndRewrite(BlockwiseGemmOp op,
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
@@ -308,13 +308,13 @@ struct BlockwiseGemmRewritePattern
         MemRefType::get({1, KPerThread, MPerThread}, elementType, {},
                         gpu::GPUDialect::getPrivateAddressSpace());
     auto threadAAllocOp =
-        b.create<miopen::GpuAllocOp>(loc, threadARegisterMemRefType);
+        b.create<GpuAllocOp>(loc, threadARegisterMemRefType);
 
     auto threadBRegisterMemRefType =
         MemRefType::get({1, KPerThread, NPerThread}, elementType, {},
                         gpu::GPUDialect::getPrivateAddressSpace());
     auto threadBAllocOp =
-        b.create<miopen::GpuAllocOp>(loc, threadBRegisterMemRefType);
+        b.create<GpuAllocOp>(loc, threadBRegisterMemRefType);
 
     // Main loop.
     auto loopIteration = K / KPerThread;
@@ -348,7 +348,7 @@ struct BlockwiseGemmRewritePattern
         lab.create<MulIOp>(loc, iva, MPerThreadSubCConstantOp)};
 
     // Emit threadwise_copy.
-    auto threadwiseCopyAMatrixOp = lab.create<miopen::ThreadwiseCopyOp>(
+    auto threadwiseCopyAMatrixOp = lab.create<ThreadwiseCopyOp>(
         loc, op.matrixA(), threadAAllocOp,
         b.getArrayAttr({transformsA, emptyArr}), noPadding, noOobDims,
         noGlobals, matrixAThreadwiseCopySourceCoords,
@@ -379,7 +379,7 @@ struct BlockwiseGemmRewritePattern
         lbb.create<MulIOp>(loc, ivb, NPerThreadSubCConstantOp)};
 
     // Emit threadwise_copy.
-    auto threadwiseCopyBMatrixOp = lbb.create<miopen::ThreadwiseCopyOp>(
+    auto threadwiseCopyBMatrixOp = lbb.create<ThreadwiseCopyOp>(
         loc, op.matrixB(), threadBAllocOp,
         b.getArrayAttr({transformsB, emptyArr}), noPadding, noOobDims,
         noGlobals, matrixBThreadwiseCopySourceCoords,
@@ -387,7 +387,7 @@ struct BlockwiseGemmRewritePattern
     affixThreadwiseCopyAttributes(threadwiseCopyBMatrixOp, op, b,
                                   /*isMatrixA=*/false);
 
-    lb.create<miopen::ThreadwiseGemmOp>(loc, threadAAllocOp, threadBAllocOp,
+    lb.create<ThreadwiseGemmOp>(loc, threadAAllocOp, threadBAllocOp,
                                         op.matrixC());
 
     op.erase();
@@ -400,10 +400,10 @@ struct BlockwiseGemmRewritePattern
 //===----------------------------------------------------------------------===//
 
 struct BlockwiseGemmV2RewritePattern
-    : public OpRewritePattern<miopen::BlockwiseGemmV2Op> {
-  using OpRewritePattern<miopen::BlockwiseGemmV2Op>::OpRewritePattern;
+    : public OpRewritePattern<BlockwiseGemmV2Op> {
+  using OpRewritePattern<BlockwiseGemmV2Op>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(miopen::BlockwiseGemmV2Op op,
+  LogicalResult matchAndRewrite(BlockwiseGemmV2Op op,
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
@@ -430,7 +430,7 @@ struct BlockwiseGemmV2RewritePattern
         resultTypes.push_back(result.getType());
       }
 
-      auto xdlopsGemmV2Op = b.create<miopen::XdlopsGemmV2Op>(
+      auto xdlopsGemmV2Op = b.create<XdlopsGemmV2Op>(
           loc, resultTypes, op.matrixA(), op.matrixB(), op.transforms(),
           op.waveOffsetA(), op.waveOffsetB(), op.bufferA(), op.bufferB(),
           op.vectorCs());
@@ -453,7 +453,7 @@ struct BlockwiseGemmV2RewritePattern
       resultTypes0.push_back(op.vectorDs()[0].getType());
       resultTypes0.push_back(op.vectorDs()[1].getType());
 
-      auto xdlopsGemmV2Op0 = b.create<miopen::XdlopsGemmV2Op>(
+      auto xdlopsGemmV2Op0 = b.create<XdlopsGemmV2Op>(
           loc, resultTypes0, op.matrixA(), op.matrixB(), op.transforms(),
           op.waveOffsetA(), op.waveOffsetB(), op.bufferA(), op.bufferB(),
           ValueRange{op.vectorCs()[0], op.vectorCs()[1]});
@@ -471,7 +471,7 @@ struct BlockwiseGemmV2RewritePattern
       resultTypes1.push_back(op.vectorDs()[3].getType());
 
       auto MPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, MPerXdlops);
-      auto xdlopsGemmV2Op1 = b.create<miopen::XdlopsGemmV2Op>(
+      auto xdlopsGemmV2Op1 = b.create<XdlopsGemmV2Op>(
           loc, resultTypes1, op.matrixA(), op.matrixB(), op.transforms(),
           b.create<AddIOp>(loc, op.waveOffsetA(), MPerXdlopsConstantOp),
           op.waveOffsetB(), op.bufferA(), op.bufferB(),
@@ -499,7 +499,7 @@ struct BlockwiseGemmV2RewritePattern
       resultTypes0.push_back(op.vectorDs()[0].getType());
       resultTypes0.push_back(op.vectorDs()[1].getType());
 
-      auto xdlopsGemmV2Op0 = b.create<miopen::XdlopsGemmV2Op>(
+      auto xdlopsGemmV2Op0 = b.create<XdlopsGemmV2Op>(
           loc, resultTypes0, op.matrixA(), op.matrixB(), op.transforms(),
           op.waveOffsetA(), op.waveOffsetB(), op.bufferA(), op.bufferB(),
           ValueRange{op.vectorCs()[0], op.vectorCs()[1]});
@@ -517,7 +517,7 @@ struct BlockwiseGemmV2RewritePattern
       resultTypes1.push_back(op.vectorDs()[3].getType());
 
       auto NPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, NPerXdlops);
-      auto xdlopsGemmV2Op1 = b.create<miopen::XdlopsGemmV2Op>(
+      auto xdlopsGemmV2Op1 = b.create<XdlopsGemmV2Op>(
           loc, resultTypes1, op.matrixA(), op.matrixB(), op.transforms(),
           op.waveOffsetA(),
           b.create<AddIOp>(loc, op.waveOffsetB(), NPerXdlopsConstantOp),
@@ -547,10 +547,10 @@ struct BlockwiseGemmV2RewritePattern
 //===----------------------------------------------------------------------===//
 
 struct BlockwiseLoadRewritePattern
-    : public OpRewritePattern<miopen::BlockwiseLoadOp> {
-  using OpRewritePattern<miopen::BlockwiseLoadOp>::OpRewritePattern;
+    : public OpRewritePattern<BlockwiseLoadOp> {
+  using OpRewritePattern<BlockwiseLoadOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(miopen::BlockwiseLoadOp op,
+  LogicalResult matchAndRewrite(BlockwiseLoadOp op,
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
     TypeRange resultTypes = op.result().getTypes();
@@ -561,7 +561,7 @@ struct BlockwiseLoadRewritePattern
     // Threadwise copy from global (generic tensor) to register (naive
     // tensor).
 
-    auto threadwiseLoadOp = b.create<miopen::ThreadwiseLoadOp>(
+    auto threadwiseLoadOp = b.create<ThreadwiseLoadOp>(
         loc, resultTypes, op.source(), op.bounds(), op.transforms(),
         op.paddingInfo(), op.oobDims(), op.sourceCoord());
     affixThreadwiseCopyAttributes(threadwiseLoadOp, op, b,
@@ -578,17 +578,17 @@ struct BlockwiseLoadRewritePattern
 //===----------------------------------------------------------------------===//
 
 struct BlockwiseStoreRewritePattern
-    : public OpRewritePattern<miopen::BlockwiseStoreOp> {
-  using OpRewritePattern<miopen::BlockwiseStoreOp>::OpRewritePattern;
+    : public OpRewritePattern<BlockwiseStoreOp> {
+  using OpRewritePattern<BlockwiseStoreOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(miopen::BlockwiseStoreOp op,
+  LogicalResult matchAndRewrite(BlockwiseStoreOp op,
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
     // BlockwiseLoad only accepts the following data movement:
     // - 5 (register) -> 3 (LDS) : store
 
     // Threadwise copy from register (naive tensor) to LDS (naive tensor).
-    auto threadwiseStoreOp = b.create<miopen::ThreadwiseStoreOp>(
+    auto threadwiseStoreOp = b.create<ThreadwiseStoreOp>(
         loc, op.dest(), op.bounds(), op.transforms(), op.data(),
         op.destCoord());
     affixThreadwiseCopyAttributes(threadwiseStoreOp, op, b,
