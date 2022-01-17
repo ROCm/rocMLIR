@@ -44,7 +44,7 @@ struct LowerMIOpenOpsStep2Pass
 // Utility function to determine the type to be loaded
 //===----------------------------------------------------------------------===//
 template <typename T>
-inline std::tuple<Type, int, int, int>
+std::tuple<Type, int, int, int>
 computeLoadStoreTypeInfo(OpBuilder &b, T &gop, Type elementType,
                          SmallVectorImpl<Type> &variadicTypes, ArrayAttr dims,
                          bool isMatrixA) {
@@ -146,8 +146,8 @@ void affixBlockwiseCopyAttributes(T &bop, U &gop, OpBuilder &b, int vectorDim,
 
 /// Utility function for constructing a subview that slices a buffer as a
 /// TransformOp
-inline Value sliceBufferSubview(OpBuilder &b, Location loc, Value buffer,
-                                int64_t start, int64_t length) {
+Value sliceBufferSubview(OpBuilder &b, Location loc, Value buffer,
+                         int64_t start, int64_t length) {
   auto bufferType = buffer.getType().cast<MemRefType>();
   assert(bufferType.getRank() == 1 && "Can't slice multidimensional buffer");
   ArrayRef<int64_t> shape = bufferType.getShape();
@@ -163,8 +163,8 @@ inline Value sliceBufferSubview(OpBuilder &b, Location loc, Value buffer,
 }
 
 // Utility function for creating a N-D reshaped view of a subview
-inline Value reshapeBufferSubview(OpBuilder &b, Location loc, Value buffer,
-                                  ArrayRef<int64_t> shape) {
+Value reshapeBufferSubview(OpBuilder &b, Location loc, Value buffer,
+                           ArrayRef<int64_t> shape) {
   MemRefType bufferType = buffer.getType().cast<MemRefType>();
   ArrayRef<int64_t> outShape = bufferType.getShape();
   assert(outShape.size() == 1 && "Buffer being reshaped must start linear");
