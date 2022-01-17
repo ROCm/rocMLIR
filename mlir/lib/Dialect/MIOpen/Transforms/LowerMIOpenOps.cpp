@@ -48,9 +48,6 @@
 using namespace mlir;
 
 namespace {
-struct LowerMIOpenOpsStep3Pass : public MIOpenOpsStep3PassBase<LowerMIOpenOpsStep3Pass> {
-  void runOnOperation() override;
-};
 
 struct LowerMIOpenOpsStep4Pass
     : public MIOpenOpsStep4PassBase<LowerMIOpenOpsStep4Pass> {
@@ -62,19 +59,6 @@ struct LowerMIOpenOpsStep5Pass
   void runOnOperation() override;
 };
 } // end anonymous namespace
-
-void LowerMIOpenOpsStep3Pass::runOnOperation() {
-  MLIRContext *ctx = &getContext();
-  OwningRewritePatternList patterns(ctx);
-  patterns.insert<FillRewritePattern>(ctx);
-  patterns.insert<TransformRewritePattern>(ctx);
-  patterns.insert<BlockwiseGemmRewritePattern>(ctx);
-  patterns.insert<BlockwiseGemmV2RewritePattern>(ctx);
-  patterns.insert<BlockwiseLoadRewritePattern>(ctx);
-  patterns.insert<BlockwiseStoreRewritePattern>(ctx);
-  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
-    signalPassFailure();
-}
 
 void LowerMIOpenOpsStep4Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
@@ -99,9 +83,6 @@ void LowerMIOpenOpsStep5Pass::runOnOperation() {
     signalPassFailure();
 }
 
-std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep3Pass() {
-  return std::make_unique<LowerMIOpenOpsStep3Pass>();
-}
 
 std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep4Pass() {
   return std::make_unique<LowerMIOpenOpsStep4Pass>();

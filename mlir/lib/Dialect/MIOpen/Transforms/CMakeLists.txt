@@ -1,6 +1,7 @@
 add_mlir_dialect_library(MLIRMIOpenTransforms
   AffixTuningParameters.cpp
   AlignTiling.cpp
+  BlockwiseGemmToThreadwise.cpp
   CopyOpt.cpp
   ConvToGemmLowering.cpp
   GridwiseGemmToBlockwise.cpp
