@@ -57,7 +57,7 @@ struct LowerMIOpenOpsStep1Pass
   void runOnOperation() override;
 };
 
-inline LogicalResult
+LogicalResult
 isSupportedBackwardDataPaddingKernel(bool isXdlops, bool isStride2Pad1,
                                      int64_t gemmMExtra, int64_t gemmKExtra,
                                      int64_t gemmNExtra, Conv2DBwdDataOp &op) {

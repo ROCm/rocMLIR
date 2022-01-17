@@ -47,8 +47,7 @@ struct LowerMIOpenOpsStep3Pass
 struct FillRewritePattern : public OpRewritePattern<FillOp> {
   using OpRewritePattern<FillOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(FillOp op,
-                                PatternRewriter &b) const override {
+  LogicalResult matchAndRewrite(FillOp op, PatternRewriter &b) const override {
     auto loc = op.getLoc();
     auto inputType = op.input().getType().cast<MemRefType>();
     auto inputShape = inputType.getShape();
@@ -210,9 +209,8 @@ void affixThreadwiseCopyAttributes(T &top, U &bop, OpBuilder &b,
 }
 
 // XXX: figure out a better way to get rid of isMatrixA parameter.
-void affixThreadwiseCopyAttributes(ThreadwiseCopyOp top,
-                                   BlockwiseGemmOp bop, OpBuilder &b,
-                                   bool isMatrixA) {
+void affixThreadwiseCopyAttributes(ThreadwiseCopyOp top, BlockwiseGemmOp bop,
+                                   OpBuilder &b, bool isMatrixA) {
   if (isMatrixA) {
     top->setAttr("n_slice_row", bop->getAttr("k_per_thread"));
     top->setAttr("n_slice_col", bop->getAttr("m_per_thread"));
@@ -231,8 +229,7 @@ void affixThreadwiseCopyAttributes(ThreadwiseCopyOp top,
 // BlockwiseGemm lowering.
 //===----------------------------------------------------------------------===//
 
-struct BlockwiseGemmRewritePattern
-    : public OpRewritePattern<BlockwiseGemmOp> {
+struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
   using OpRewritePattern<BlockwiseGemmOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(BlockwiseGemmOp op,
@@ -307,14 +304,12 @@ struct BlockwiseGemmRewritePattern
     auto threadARegisterMemRefType =
         MemRefType::get({1, KPerThread, MPerThread}, elementType, {},
                         gpu::GPUDialect::getPrivateAddressSpace());
-    auto threadAAllocOp =
-        b.create<GpuAllocOp>(loc, threadARegisterMemRefType);
+    auto threadAAllocOp = b.create<GpuAllocOp>(loc, threadARegisterMemRefType);
 
     auto threadBRegisterMemRefType =
         MemRefType::get({1, KPerThread, NPerThread}, elementType, {},
                         gpu::GPUDialect::getPrivateAddressSpace());
-    auto threadBAllocOp =
-        b.create<GpuAllocOp>(loc, threadBRegisterMemRefType);
+    auto threadBAllocOp = b.create<GpuAllocOp>(loc, threadBRegisterMemRefType);
 
     // Main loop.
     auto loopIteration = K / KPerThread;
@@ -388,7 +383,7 @@ struct BlockwiseGemmRewritePattern
                                   /*isMatrixA=*/false);
 
     lb.create<ThreadwiseGemmOp>(loc, threadAAllocOp, threadBAllocOp,
-                                        op.matrixC());
+                                op.matrixC());
 
     op.erase();
     return success();
@@ -413,11 +408,14 @@ struct BlockwiseGemmV2RewritePattern
         op->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
 
     // Original C++ logic.
-    // static constexpr index_t MRepeats = (GemmMPerWave > 64) ? (GemmMPerWave /
-    // 64) : 1; static constexpr index_t NRepeats = (GemmNPerWave > 64) ?
-    // (GemmNPerWave / 64) : 1; static constexpr index_t MPerXdlops =
-    // (GemmMPerWave > 64) ? 64 : GemmMPerWave; static constexpr index_t
-    // NPerXdlops = (GemmNPerWave > 64) ? 64 : GemmNPerWave;
+    //  static constexpr index_t MRepeats =
+    //    (GemmMPerWave > 64) ? (GemmMPerWave / 64) : 1;
+    //  static constexpr index_t NRepeats = (GemmNPerWave > 64) ?
+    //    (GemmNPerWave / 64) : 1;
+    //  static constexpr index_t MPerXdlops =
+    //    (GemmMPerWave > 64) ? 64 : GemmMPerWave;
+    //  static constexpr index_t NPerXdlops =
+    //    (GemmNPerWave > 64) ? 64 : GemmNPerWave;
 
     int64_t MRepeats = (MPerWave > 64) ? (MPerWave / 64) : 1;
     int64_t NRepeats = (NPerWave > 64) ? (NPerWave / 64) : 1;
@@ -546,8 +544,7 @@ struct BlockwiseGemmV2RewritePattern
 // BlockwiseLoad lowering.
 //===----------------------------------------------------------------------===//
 
-struct BlockwiseLoadRewritePattern
-    : public OpRewritePattern<BlockwiseLoadOp> {
+struct BlockwiseLoadRewritePattern : public OpRewritePattern<BlockwiseLoadOp> {
   using OpRewritePattern<BlockwiseLoadOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(BlockwiseLoadOp op,
@@ -588,9 +585,9 @@ struct BlockwiseStoreRewritePattern
     // - 5 (register) -> 3 (LDS) : store
 
     // Threadwise copy from register (naive tensor) to LDS (naive tensor).
-    auto threadwiseStoreOp = b.create<ThreadwiseStoreOp>(
-        loc, op.dest(), op.bounds(), op.transforms(), op.data(),
-        op.destCoord());
+    auto threadwiseStoreOp =
+        b.create<ThreadwiseStoreOp>(loc, op.dest(), op.bounds(),
+                                    op.transforms(), op.data(), op.destCoord());
     affixThreadwiseCopyAttributes(threadwiseStoreOp, op, b,
                                   /*isThreadwiseLoad=*/false);
 

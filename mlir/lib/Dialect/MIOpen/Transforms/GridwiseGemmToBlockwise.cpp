@@ -87,8 +87,8 @@ computeLoadStoreTypeInfo(OpBuilder &b, T &gop, Type elementType,
 // Assigning attributes.
 //===----------------------------------------------------------------------===//
 
-void affixThreadwiseCopyAttributes(ThreadwiseCopyOp top,
-                                   GridwiseGemmOp gop, OpBuilder &b) {
+void affixThreadwiseCopyAttributes(ThreadwiseCopyOp top, GridwiseGemmOp gop,
+                                   OpBuilder &b) {
   top->setAttr("vector_read_write_dim",
                gop->getAttr("matrix_c_dest_vector_write_dim"));
   top->setAttr("source_data_per_read", gop->getAttr("matrix_c_data_per_copy"));
@@ -157,8 +157,8 @@ inline Value sliceBufferSubview(OpBuilder &b, Location loc, Value buffer,
   transform.slice({"slice"}, {"buffer"}, {start}, {end});
 
   TransformMapAttr transformAttr = transform.get();
-  Value subview = b.create<TransformOp>(
-      loc, buffer, transformAttr, bufferType.getMemorySpaceAsInt());
+  Value subview = b.create<TransformOp>(loc, buffer, transformAttr,
+                                        bufferType.getMemorySpaceAsInt());
   return subview;
 }
 
@@ -193,12 +193,11 @@ inline Value reshapeBufferSubview(OpBuilder &b, Location loc, Value buffer,
 
   TransformMapAttr transformAttr = transform.get();
   Value ret = b.create<TransformOp>(loc, buffer, transformAttr,
-                                            bufferType.getMemorySpaceAsInt());
+                                    bufferType.getMemorySpaceAsInt());
   return ret;
 }
 
-struct GridwiseGemmRewritePattern
-    : public OpRewritePattern<GridwiseGemmOp> {
+struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
   using OpRewritePattern<GridwiseGemmOp>::OpRewritePattern;
 
   void computeLDSBlockSizes(GridwiseGemmOp op, int64_t &a_block_space,
@@ -265,8 +264,7 @@ struct GridwiseGemmRewritePattern
     // llvm::errs() << "double_block_space: " << double_block_space << "\n\n";
   }
 
-  void affixBlockwiseGemmAttributes(BlockwiseGemmOp bop,
-                                    GridwiseGemmOp gop,
+  void affixBlockwiseGemmAttributes(BlockwiseGemmOp bop, GridwiseGemmOp gop,
                                     OpBuilder &b) const {
     bop->setAttr("block_size", gop->getAttr("block_size"));
     // Attributes used in non-xdlops lowering path.
@@ -895,8 +893,7 @@ struct GridwiseGemmRewritePattern
     cSplitTransform.embed("gemmN", 2, N1 * N0, {"N0", "N1"}, {N1, 1});
 
     TransformMapAttr cSplitTransformAttr = cSplitTransform.get();
-    auto cTransformed =
-        b.create<TransformOp>(loc, op.c(), cSplitTransformAttr);
+    auto cTransformed = b.create<TransformOp>(loc, op.c(), cSplitTransformAttr);
 
     // Build transformation that maps the in-regester results to
     // three dimensions for writing with
