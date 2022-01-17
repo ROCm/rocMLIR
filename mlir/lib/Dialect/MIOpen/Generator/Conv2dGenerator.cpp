@@ -487,6 +487,10 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
   return success();
 }
 
+void Conv2dGenerator::setKernelName(const std::string &newName) {
+  config.kernelBaseName = newName;
+}
+
 void Conv2dGenerator::setDataType(std::string newType) {
   config.dataTypeStr = newType;
 }
@@ -519,8 +523,6 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
       builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
 
   std::string kernelName = config.kernelBaseName;
-  kernelName += "_";
-  kernelName += std::to_string(kernel_id);
   if (is_verifier) {
     kernelName += "_ver";
   }

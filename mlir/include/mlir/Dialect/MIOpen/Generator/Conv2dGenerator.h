@@ -71,6 +71,7 @@ public:
   Conv2dGenerator(const Config &_config);
 
   const Config &getConfig() const { return config; }
+  void setKernelName(const std::string &newName);
 
   int getKernelCount() const;
 

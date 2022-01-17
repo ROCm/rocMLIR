@@ -1569,7 +1569,9 @@ populateHostHarnessLogic(ModuleOp &module,
         kernelCount = kernelStart + 1;
       }
       // generate all sub-kernels, and get corresponding gemmId
+      std::string kernelBaseName = genConfig.kernelBaseName;
       for (int i = kernelStart; i < kernelCount; ++i) {
+        conv2dGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
         if (failed(conv2dGenerator.genConvModule(module, i, true))) {
           llvm::errs() << "Module population failed.\n";
           exit(1);
@@ -1578,6 +1580,7 @@ populateHostHarnessLogic(ModuleOp &module,
         auto kernelWrapperFunc = createGPUWrapper(module, kernel);
         b.create<CallOp>(loc, kernelWrapperFunc, valVars);
       }
+      conv2dGenerator.setKernelName(kernelBaseName);
     } else { // if (validationType == "cpu")
       // Emit call to host_<conv>
       auto cpuConvFunc = createCPUConvFunc(module, genConfig);
@@ -1741,12 +1744,15 @@ int main(int argc, char **argv) {
         kernelCount = kernelStart + 1;
       }
       // generate all sub-kernels, and get corresponding gemmId
+      std::string kernelBaseName = genConfig.kernelBaseName;
       for (int i = kernelStart; i < kernelCount; ++i) {
+        conv2dGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
         if (failed(conv2dGenerator.genConvModule(module, i))) {
           llvm::errs() << "Module population failed.\n";
           exit(1);
         }
       }
+      conv2dGenerator.setKernelName(kernelBaseName);
     }
   }
 
