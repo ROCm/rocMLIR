@@ -9,50 +9,15 @@
 #ifndef MIOPEN_LOWERING_UTIL_H
 #define MIOPEN_LOWERING_UTIL_H
 
-#include "mlir/Dialect/MIOpen/utility/math.h"
-
 #include "mlir/Dialect/MIOpen/MIOpen.h"
-#include "mlir/IR/Attributes.h"
-#include "mlir/Support/LogicalResult.h"
 
-#include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/SmallVector.h"
+#include "mlir/Dialect/MIOpen/utility/math.h"
 
 using namespace mlir;
 using namespace mlir::miopen;
 
 namespace mlir {
 namespace miopen {
-inline LogicalResult isSupportedBackwardDataPaddingKernel(
-    bool isXdlops, bool isStride2Pad1, int64_t gemmMExtra, int64_t gemmKExtra,
-    int64_t gemmNExtra, mlir::miopen::Conv2DBwdDataOp &op) {
-  if (gemmNExtra && gemmKExtra) {
-    return op.emitOpError(
-        "can't support backward data padding kernel when both pad "
-        "gemmN and gemmK due to load issue\n");
-  }
-
-  if (isXdlops && (gemmMExtra || gemmNExtra)) {
-    if (isStride2Pad1) {
-      return op->emitOpError(
-          "can't support backward data padding kernel when xdlops stride 2 "
-          "pad_h,pad_w>0 and pad gemmM or gemmN due to store issue\n");
-    }
-  }
-  return success();
-}
-
-using OobCheckSet = llvm::SmallDenseSet<uint32_t, 4>;
-inline ArrayAttr getBoundsCheckAttr(Builder &b, OobCheckSet &set,
-                                    uint32_t max) {
-  llvm::SmallVector<bool, 8> ret;
-  ret.reserve(max);
-  for (uint32_t i = 0; i < max; ++i) {
-    ret.push_back(set.count(i) != 0);
-  }
-  return b.getBoolArrayAttr(ret);
-}
-
 inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo) {
   int64_t gemmK = n * ho * wo;
   int64_t gemmKBlocks = 1;
@@ -76,6 +41,75 @@ inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo) {
   return gemmKBlocks;
 }
 
+//===----------------------------------------------------------------------===//
+// Utility function to emit constant float op. Returns a scalar.
+//===----------------------------------------------------------------------===//
+inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
+                                   float value) {
+  Value ret;
+  if (elementType == b.getF32Type()) {
+    ret = b.create<arith::ConstantFloatOp>(loc, APFloat(value), b.getF32Type());
+  } else if (elementType == b.getF16Type()) {
+    bool lossy = false;
+    APFloat constant(value);
+    constant.convert(APFloat::IEEEhalf(), llvm::RoundingMode::TowardZero,
+                     &lossy);
+    ret = b.create<arith::ConstantFloatOp>(loc, constant, b.getF16Type());
+  } else if (elementType == b.getIntegerType(16)) {
+    ret = b.create<arith::ConstantIntOp>(loc, static_cast<int>(value),
+                                         b.getIntegerType(16));
+  }
+  return ret;
+}
+
+//===----------------------------------------------------------------------===//
+// Utility function to emit constant zero op. Can return scalars or vectors.
+//===----------------------------------------------------------------------===//
+inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc, Type type) {
+  Type elementType = type;
+  if (type.isa<VectorType>())
+    elementType = type.template cast<VectorType>().getElementType();
+  auto semantics = static_cast<APFloat::Semantics>(-1);
+  if (elementType == b.getF32Type()) {
+    semantics = APFloat::S_IEEEsingle;
+  } else if (elementType == b.getF16Type()) {
+    semantics = APFloat::S_IEEEhalf;
+  } else if (elementType == b.getIntegerType(16)) {
+    semantics = APFloat::S_BFloat;
+  } else {
+    llvm_unreachable("Unexpected float semantics");
+  }
+
+  auto zero = APFloat::getZero(APFloat::EnumToSemantics(semantics));
+  Value retValue;
+
+  if (auto vecType = type.dyn_cast<VectorType>()) {
+    Attribute constValue;
+    if (auto intType = elementType.dyn_cast<IntegerType>()) {
+      auto intZero = zero.bitcastToAPInt();
+      assert(intType.getIntOrFloatBitWidth() == intZero.getBitWidth());
+      constValue = b.getIntegerAttr(elementType, intZero);
+    } else {
+      constValue = b.getFloatAttr(elementType, zero);
+    }
+    llvm::SmallVector<Attribute> constValues;
+    std::fill_n(std::back_inserter(constValues), vecType.getNumElements(),
+                constValue);
+    retValue = b.create<mlir::ConstantOp>(
+        loc, DenseElementsAttr::get(vecType, constValues), type);
+  } else {
+    if (auto intType = elementType.dyn_cast<IntegerType>()) {
+      auto intZero = zero.bitcastToAPInt();
+      assert(intType.getIntOrFloatBitWidth() == intZero.getBitWidth());
+      retValue = b.create<mlir::ConstantOp>(
+          loc, b.getIntegerAttr(intType, intZero), type);
+    } else {
+      retValue = b.create<mlir::ConstantOp>(
+          loc, b.getFloatAttr(elementType, zero), type);
+    }
+  }
+  return retValue;
+}
 } // end namespace miopen
 } // end namespace mlir
 #endif
