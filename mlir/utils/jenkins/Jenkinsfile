@@ -583,6 +583,7 @@ pipeline {
                     steps {
                         showEnv()
                         sh "git checkout ${params.releaseBranch}"
+                        sh "ls ${WORKSPACE}/mlir/utils/jenkins"
                         buildProject('', """
                           -DBUILD_FAT_LIBMLIRMIOPEN=ON
                           -DCMAKE_BUILD_TYPE=Release
@@ -591,6 +592,7 @@ pipeline {
                         cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/build/include",\
                                 installation: 'InSearchPath', workingDir: 'build'
                         sh """
+                            ls ${WORKSPACE}/mlir/utils/jenkins
                             bash ${WORKSPACE}/mlir/utils/jenkins/make_mlir_release.sh -s -b -r ${params.releaseBranch} -d ${WORKSPACE}
                         """
                         archiveArtifacts artifacts: '*.tar.gz', onlyIfSuccessful: true
