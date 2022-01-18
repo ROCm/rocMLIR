@@ -380,6 +380,243 @@ template <typename T> static LogicalResult verifyConvOp(T op) {
   return success();
 }
 
+//===-----------------------------------------------------===//
+// TransformingForOp
+//===-----------------------------------------------------===//
+ParseResult parseTransformingForOp(OpAsmParser &parser,
+                                   OperationState &result) {
+  using OperandType = OpAsmParser::OperandType;
+  using Delimiter = OpAsmParser::Delimiter;
+
+  Builder &b = parser.getBuilder();
+  Type indexTy = b.getIndexType();
+
+  SmallVector<Attribute> transforms;
+  SmallVector<int32_t> lowerStarts;
+  SmallVector<OperandType> lowerArgs;
+  SmallVector<OperandType> upperInits;
+  llvm::SMLoc transformedLoc = parser.getCurrentLocation();
+
+  // Parse a single iteration domain
+  ParseResult loopItersParse = parser.parseCommaSeparatedList(
+      Delimiter::None,
+      [&]() -> ParseResult {
+        llvm::SMLoc loopIterLoc = parser.getCurrentLocation();
+        size_t oldNLower = lowerArgs.size();
+        size_t oldNUpper = upperInits.size();
+        lowerStarts.push_back(oldNLower);
+
+        if (parser.parseRegionArgumentList(lowerArgs, Delimiter::Paren) ||
+            parser.parseEqual()) {
+          return failure();
+        }
+        ArrayAttr theseTransforms;
+        if (parser.parseAttribute(theseTransforms)) {
+          return failure();
+        }
+        if (parser.parseOperandList(upperInits, Delimiter::Paren)) {
+          return failure();
+        }
+        if (theseTransforms.size() == 0) {
+          if (upperInits.size() - oldNUpper != lowerArgs.size() - oldNLower) {
+            return parser.emitError(loopIterLoc,
+                                    "Expected same number of lower and upper "
+                                    "arguments when transforms absent");
+          }
+        } else {
+          for (Attribute a : theseTransforms) {
+            if (!a.isa<TransformMapAttr>()) {
+              return parser.emitError(loopIterLoc,
+                                      "Expected transform map attributes");
+            }
+          }
+          size_t nInputs = theseTransforms[0]
+                               .cast<TransformMapAttr>()
+                               .getMap()
+                               .getAffineMap()
+                               .getNumInputs();
+          size_t nOutputs = theseTransforms[theseTransforms.size() - 1]
+                                .cast<TransformMapAttr>()
+                                .getMap()
+                                .getAffineMap()
+                                .getNumResults();
+          if (upperInits.size() - oldNUpper != nInputs) {
+            return parser.emitError(loopIterLoc,
+                                    "Transformation sequence expected ")
+                   << nInputs << " inputs";
+          }
+          if (lowerArgs.size() - oldNLower != nOutputs) {
+            return parser.emitError(loopIterLoc,
+                                    "Transformation sequence expected ")
+                   << nOutputs << " outputs";
+          }
+        }
+        transforms.push_back(theseTransforms);
+        return success();
+      },
+      "for a loop iteration argument (lower coordinates, transforms, initial "
+      "upper args)");
+  if (loopItersParse) {
+    return failure();
+  }
+
+  result.addAttribute(TransformingForOp::transformsAttrName(result.name),
+                      b.getArrayAttr(transforms));
+  result.addAttribute(TransformingForOp::lowerStartsAttrName(result.name),
+                      b.getI32VectorAttr(lowerStarts));
+
+  llvm::SMLoc iterArgsLoc = parser.getCurrentLocation();
+  llvm::SmallVector<OperandType> iterArgs;
+  llvm::SmallVector<OperandType> iterInits;
+  llvm::SmallVector<mlir::Type> iterTypes;
+  if (parser.parseOptionalKeyword("iter_args")) {
+    if (parser.parseAssignmentListWithTypes(iterArgs, iterInits, iterTypes)) {
+      return failure();
+    }
+  }
+
+  if (parser.parseKeyword("bounds")) {
+    return failure();
+  }
+
+  llvm::SmallVector<int64_t> bounds;
+  ParseResult boundsRes = parser.parseCommaSeparatedList(
+      Delimiter::Square,
+      [&]() -> ParseResult {
+        int64_t res;
+        if (parser.parseInteger(res)) {
+          return failure();
+        }
+        bounds.push_back(res);
+        return success();
+      },
+      "list of bounds");
+  if (boundsRes) {
+    return failure();
+  }
+  result.addAttribute(TransformingForOp::boundsAttrName(result.name),
+                      b.getIndexArrayAttr(bounds));
+
+  SmallVector<Type> regionArgTypes(lowerArgs.size(), indexTy);
+  regionArgTypes.append(iterTypes);
+  SmallVector<OperandType> regionArgs = std::move(lowerArgs);
+  regionArgs.append(iterArgs);
+
+  Region *body = result.addRegion();
+  if (parser.parseRegion(*body, regionArgs, regionArgTypes)) {
+    return failure();
+  }
+  TransformingForOp::ensureTerminator(*body, b, result.location);
+
+  if (parser.resolveOperands(upperInits, indexTy, transformedLoc,
+                             result.operands) ||
+      parser.resolveOperands(iterInits, iterTypes, iterArgsLoc,
+                             result.operands)) {
+    return failure();
+  }
+
+  result.addAttribute(
+      TransformingForOp::getOperandSegmentSizeAttr(),
+      b.getI32VectorAttr({static_cast<int32_t>(upperInits.size()),
+                          static_cast<int32_t>(iterInits.size())}));
+  return parser.parseOptionalAttrDict(result.attributes);
+}
+
+void print(OpAsmPrinter &p, TransformingForOp op) {
+  p << " ";
+  for (uint32_t i = 0, e = op.domains(); i < e; ++i) {
+    p << "(";
+    p.printOperands(op.getLowerCoords(i));
+    p << ") = ";
+    p.printAttributeWithoutType(op.getTransforms(i));
+    p << " (";
+    p.printOperands(op.getUpperInits(i));
+    p << ")";
+
+    if (op.iterInits().size() > 0) {
+      p << " iter_args (";
+      llvm::interleaveComma(
+          llvm::zip(op.getIterArgs(), op.iterInits()), p, [&](auto i) {
+            Value init = std::get<1>(i);
+            p << std::get<0>(i) << " = " << init << " : " << init.getType();
+          });
+      p << ")";
+    }
+    p << " bounds [";
+    llvm::interleaveComma(op.bounds().getAsValueRange<IntegerAttr>(), p,
+                          [&](llvm::APInt bound) { p << bound; });
+    p << "]";
+    p.printRegion(op.region(), /*printEntryBlockArgs=*/false);
+    p.printOptionalAttrDict(op->getAttrs(), /*elidedAttrs=*/{
+                                TransformingForOp::getOperandSegmentSizeAttr(),
+                                op.transformsAttrName(),
+                                op.lowerStartsAttrName(), op.boundsAttrName()});
+  }
+}
+
+LogicalResult verify(TransformingForOp op) {
+  if (op.getNumResults() != op.getIterArgs().size()) {
+    return op.emitOpError(
+        "Mismatch between number of yielded values and number of op results");
+  }
+
+  uint32_t lowerArgsCount = 0;
+  if (op.lowerStarts().size() != op.domains() + 1) {
+    return op.emitOpError(
+        "Lower starts attribute doesn't have one entry per domain plus 1");
+  }
+  if (op.lowerStart(0) != 0) {
+    return op.emitOpError("Region args don't start with lower coords");
+  }
+
+  for (uint32_t i = 0, e = op.domains(); i < e; ++i) {
+    ArrayAttr transforms = op.getTransforms(i);
+    auto lowerArgs = op.getLowerCoords(i);
+    auto upperInits = op.getUpperInits(i);
+    if (transforms.size() == 0) {
+      if (upperInits.size() != lowerArgs.size()) {
+        return op.emitOpError("Mismatch between number of lower and upper "
+                              "coordinates without a transform");
+      }
+    } else {
+      size_t nUpper = transforms[0]
+                          .cast<TransformMapAttr>()
+                          .getMap()
+                          .getValue()
+                          .getNumInputs();
+      size_t nLower = transforms[transforms.size() - 1]
+                          .cast<TransformMapAttr>()
+                          .getMap()
+                          .getValue()
+                          .getNumResults();
+      if (upperInits.size() != nUpper) {
+        return op.emitOpError("Mismatch between number of upper initial values "
+                              "and number of inputs to transform sequence");
+      }
+      if (lowerArgs.size() != nLower) {
+        return op.emitOpError("Mismatch between number of lower arguments and "
+                              "number of outputs of transform sequence");
+      }
+    }
+    lowerArgsCount += lowerArgs.size();
+    if (op.lowerStart(i + 1) != lowerArgsCount) {
+      return op.emitOpError("Lower starts attribute not accurate");
+    }
+  }
+  return success();
+}
+
+// Cribbed from AffineForOp
+Region &TransformingForOp::getLoopBody() { return region(); }
+bool TransformingForOp::isDefinedOutsideOfLoop(Value value) {
+  return !region().isAncestor(value.getParentRegion());
+}
+LogicalResult TransformingForOp::moveOutOfLoop(ArrayRef<Operation *> ops) {
+  for (auto *op : ops)
+    op->moveBefore(*this);
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // ThreadwiseCopyOp
 //===----------------------------------------------------------------------===//

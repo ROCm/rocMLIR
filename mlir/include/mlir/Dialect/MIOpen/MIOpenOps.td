@@ -14,6 +14,8 @@
 #define MIOPEN_OPS
 
 include "mlir/Dialect/MIOpen/MIOpenAttrDefs.td"
+include "mlir/Interfaces/ControlFlowInterfaces.td"
+include "mlir/Interfaces/LoopLikeInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/Interfaces/VectorInterfaces.td"
 include "mlir/Interfaces/ViewLikeInterface.td"
@@ -258,6 +260,149 @@ def MIOpen_WorkitemIdOp:
     The `miopen.workgroup_id` op gets the current workitem ID.
   }];
   let assemblyFormat = "attr-dict `:` type($id)";
+}
+
+// yield
+def MIOpen_YieldOp :
+    MIOpen_Op<"yield", [NoSideEffect, Terminator, ReturnLike]> {
+  let summary = "yield for MIOpen loops";
+
+  let description = [{
+    Op that terminates the MIOpen looping constructs (currently transforming for).
+
+    If the loops produce any values, then this op's arguments should match the types
+    of those values. Otherwise, this op is implicit and can be omitted.
+
+    Note that, in a transforming_for, you don't need to yield back the lower coordinates,
+    as these are managed implicitly.
+  }];
+
+  // Yoinked from affine.yield
+  let arguments = (ins Variadic<AnyType>:$operands);
+
+  let builders = [
+    OpBuilder<(ins), [{ build($_builder, $_state, llvm::None); }]>
+  ];
+
+  let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
+}
+
+// Transforming for
+def MIOpen_TransformingForOp :
+    MIOpen_Op<"transforming_for", [RecursiveSideEffects,
+      DeclareOpInterfaceMethods<LoopLikeOpInterface>,
+      AttrSizedOperandSegments,
+      SingleBlockImplicitTerminator<"::mlir::miopen::YieldOp">]>,
+    Arguments<(ins Variadic<Index>:$upperInits,
+      ArgTransformsAttr:$transforms,
+      Variadic<AnyType>:$iterInits,
+      IndexArrayAttr:$bounds,
+      I32ElementsAttr:$lowerStarts,
+      OptionalAttr<UnitAttr>:$useIndexDiffs,
+      OptionalAttr<UnitAttr>:$forceUnroll)>,
+    Results<(outs Variadic<AnyType>:$results)> {
+  let summary = "for loop with coordinate transforms";
+  let description = [{
+    Loops over a rectangular region, using each point as the offset in upper coordinate space(s)
+    before applying coordinate transforms.
+
+    The loop
+    ```mlir
+    %res = miopen.transforming_for (%a1, %a2, %a3) = [#transform_map1](%i0, %j0), (%i, %j) = [](%cst0, %cst0)
+      iter_args(%arg0 = %c0 : index) bounds [4, 8] {
+      %v = miopen.load_in_bounds {...} %place[%a1, %a2, %a3]
+      miopen.store_in_bounds {...} %v -> %buffer[%i, %j]
+      %cont = addi %arg0, %c1
+      miopen.yield %cont : index
+    } {useIndexDiffs}
+    ```
+    will lower to
+    ```mlir
+    %a0, %a1, %a2 = miopen.compute_transforms [#transform_map1](%x, %y)
+    %i, %j = miopen.compute_transforms [](%c0, %c0)
+    %a0_0_0, %a1_0_0 = miopen.index_diff #transform_map1[0, 0] (%x, %y) -> (%a0, %a1, %a2)
+    %i_0_0 = addi %i, %cst0
+    %j_0_0 = addi %j, %cst0
+    %v_0_0 miopen.load_in_bounds {...} %place[%a0_0_0, %a1_0_0, %a2_0_0]
+    miopen.store_in_bounds {...} %v -> %buffer[%i_0_0, %j_0_0]
+    %res_0_0 = addi %c0, %c1 : inedx
+    %a0_0_1, %a1_0_1, %a2_0_1 = miopen.index_diff #transform_map1[0, 1] (%x, %y) -> (%a0, %a1, %a2)
+    ...
+    %res_3_7 = addi %res_3_6, %c1 : index
+  ```
+  Or, if no unrolling or index diffs are called for
+  ```mlir
+  %res = affine for %d0 = 0 to 4 iter_args(%arg0 = %c0) {
+    %res0 = affine.for %d1 = 0 to 8 iter_args(%arg1 = %arg0) {
+      %upper_0_0 = addi %x, %d0
+      %upper_0_1 = addi %y, %d1
+      %i = addi %c0, %d0
+      %j = addi %c0, %d1
+      %a0, %a1, %a2 = affine.apply (#transform_map1.map) (%upper_0_0, %upper_0_1)
+      %v = miopen.load_in_bounds {...} %place[%a0, %a1, %a2]
+      miopen.store_in_bounds {...} %buffer[%i, %j]
+      %cont = addi %arg1, %c1 : index
+      affine.yield %cont : index
+    }
+    affine.yield %res0 : index
+  }
+  ```
+
+  The purpose of this looping construct is to remove redundancy and make the
+  application of coordinate transformations more explicit in the IR.
+  }];
+
+  let regions = (region SizedRegion<1>:$region);
+
+  DerivedAttr upperLen = DerivedAttr<"uint32_t", [{
+    return upperInits().size() / transforms().size();
+  }], [{ $_builder.getI32IntegerAttr($_self) }]>;
+
+  let skipDefaultBuilders = 1;
+  let builders = [OpBuilder<(ins "ValueRange":$inits,
+    "ArrayRef<TransformMapAttr>":$transforms,
+    "ArrayRef<int64_t>":$bounds, CArg<"ValueRange", "llvm::None">:$iterArgs)>,
+
+    OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
+    "ArrayRef<SmallVector<TransformMapAttr>>":$transforms,
+    "ArrayRef<int64_t>":$bounds, CArg<"ValueRange", "llvm::None">:$iterArgs)>];
+
+  let extraClassDeclaration = [{
+    uint32_t lowerStart(uint32_t n) {
+      return *(lowerStarts().getValues<uint32_t>().begin() + n);
+    }
+
+    Block::BlockArgListType getLowerCoords(uint32_t domain) {
+      uint32_t start = lowerStart(domain);
+      uint32_t end = lowerStart(domain + 1);
+      return getBody()->getArguments().slice(start, end - start);
+    }
+    Block::BlockArgListType getLowerCoords() {
+      assert(lowerStarts().size() == 2 && "Ambiguous call to getLowerCoords() with multple iteration domains");
+      return getBody()->getArguments().take_front(lowerStart(1));
+    }
+
+    Block::BlockArgListType getIterArgs() {
+      return getBody()->getArguments().drop_front(lowerStart(lowerStarts().size() - 1));
+    }
+
+    Operation::operand_range getUpperInits(uint32_t domain) {
+      uint32_t theUpperLen = upperLen();
+      return upperInits().slice(domain * theUpperLen, theUpperLen);
+    }
+
+    ArrayAttr getTransforms(uint32_t domain) {
+      return transforms()[domain].cast<ArrayAttr>();
+    }
+
+    uint32_t domains() {
+      return transforms().size();
+    }
+  }];
+
+  let parser = [{ return ::parse$cppClass(parser, result); }];
+  let printer = [{ return ::print(p, *this); }];
+  let verifier = [{ return ::verify(*this); }];
 }
 
 // blockwise_load
