@@ -103,7 +103,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   // Set convolution attributes
   // padding, stride, dilation, group, padding_mode
   MlirAttribute conv0PaddingAttr = mlirAttributeParseGet(
-      ctx, mlirStringRefCreateFromCString("[0:i64, 0:i64]"));
+      ctx, mlirStringRefCreateFromCString("[0:i64, 0:i64, 0:i64, 0:i64]"));
   MlirAttribute conv0StrideAttr = mlirAttributeParseGet(
       ctx, mlirStringRefCreateFromCString("[1:i64, 1:i64]"));
   MlirAttribute conv0DilationAttr = mlirAttributeParseGet(
@@ -142,29 +142,10 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirOperation conv0Op = mlirOperationCreate(&conv0OpState);
   mlirBlockAppendOwnedOperation(funcBody, conv0Op);
   MlirValue conv0Value = mlirOperationGetResult(conv0Op, 0);
-
-  //-------------- migraphx.add op
-
-  // Set add0 arguments
-  MlirValue funcArg2 = mlirBlockGetArgument(funcBody, 2);
-  MlirValue add0Operands[] = {conv0Value, funcArg2};
-
-  // Set add op
-  int64_t add0Dims[] = {1, 64, 56, 56};
-  MlirType add0Type = mlirRankedTensorTypeGet(4, add0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
-  MlirOperationState add0State = mlirOperationStateGet(
-      mlirStringRefCreateFromCString("migraphx.add"), location);
-  mlirOperationStateAddResults(&add0State, 1, &add0Type);
-  mlirOperationStateAddOperands(&add0State, 2, add0Operands);
-  
-  MlirOperation add0Op = mlirOperationCreate(&add0State);
-  mlirBlockAppendOwnedOperation(funcBody, add0Op);
-  MlirValue add0Value = mlirOperationGetResult(add0Op, 0);
-
+/*
   //-------------- migraphx.relu op
-
   // Set relu0 arguments
-  MlirValue relu0Operands[] = {add0Value};
+  MlirValue relu0Operands[] = {conv0Value};
 
   // Set relu op
   int64_t relu0Dims[] = {1, 64, 56, 56};
@@ -177,10 +158,10 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirOperation relu0Op = mlirOperationCreate(&relu0State);
   mlirBlockAppendOwnedOperation(funcBody, relu0Op);
   MlirValue relu0Value = mlirOperationGetResult(relu0Op, 0);
-
+*/
   //-------------- std.return op
 
-  MlirValue retOperands[] = {relu0Value};
+  MlirValue retOperands[] = {conv0Value};
   MlirOperationState retState = mlirOperationStateGet(
       mlirStringRefCreateFromCString("std.return"), location);
   mlirOperationStateAddOperands(&retState, 1, retOperands);
@@ -218,8 +199,12 @@ static bool constructAndTraverseIr(MlirContext ctx) {
                        mlir::PassManager::Nesting::Implicit);
 
   mlir::migraphx::addHighLevelPipeline(pm);
+  pm.run(module);
+  mlirOperationDump(moduleMO);
+
   mlir::miopen::addHighLevelPipeline(pm);
   pm.run(module);
+  mlirOperationDump(moduleMO);
 
   size_t argIdx = 0;
   module.walk([&](mlir::FuncOp f) {

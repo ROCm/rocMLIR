@@ -76,7 +76,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   // Set convolution attributes
   // padding, stride, dilation, group, padding_mode
   MlirAttribute conv0PaddingAttr = mlirAttributeParseGet(
-      ctx, mlirStringRefCreateFromCString("[0:i64, 0:i64]"));
+      ctx, mlirStringRefCreateFromCString("[0:i64, 0:i64, 0:i64, 0:i64]"));
   MlirAttribute conv0StrideAttr = mlirAttributeParseGet(
       ctx, mlirStringRefCreateFromCString("[1:i64, 1:i64]"));
   MlirAttribute conv0DilationAttr = mlirAttributeParseGet(
@@ -116,28 +116,10 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   mlirBlockAppendOwnedOperation(funcBody, conv0Op);
   MlirValue conv0Value = mlirOperationGetResult(conv0Op, 0);
 
-  //-------------- migraphx.add op
-
-  // Set add0 arguments
-  MlirValue funcArg2 = mlirBlockGetArgument(funcBody, 2);
-  MlirValue add0Operands[] = {conv0Value, funcArg2};
-
-  // Set add op
-  int64_t add0Dims[] = {1, 64, 56, 56};
-  MlirType add0Type = mlirRankedTensorTypeGet(4, add0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
-  MlirOperationState add0State = mlirOperationStateGet(
-      mlirStringRefCreateFromCString("migraphx.add"), location);
-  mlirOperationStateAddResults(&add0State, 1, &add0Type);
-  mlirOperationStateAddOperands(&add0State, 2, add0Operands);
-  
-  MlirOperation add0Op = mlirOperationCreate(&add0State);
-  mlirBlockAppendOwnedOperation(funcBody, add0Op);
-  MlirValue add0Value = mlirOperationGetResult(add0Op, 0);
-
   //-------------- migraphx.relu op
 
   // Set relu0 arguments
-  MlirValue relu0Operands[] = {add0Value};
+  MlirValue relu0Operands[] = {conv0Value};
 
   // Set relu op
   int64_t relu0Dims[] = {1, 64, 56, 56};
@@ -173,7 +155,9 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   // 1st pipeline to call
   mlirMIGraphXAddHighLevelPipeline(pm);
   mlirPassManagerRun(pm, module);
-  
+  MlirOperation moduleOp = mlirModuleGetOperation(module);
+  mlirOperationDump(moduleOp);
+
   // returns the required buffer size to hold information including
   // ranks, dimensions of each arguments and kernel name.
   int argSize = mlirGetKernelInfoSize(module);;
