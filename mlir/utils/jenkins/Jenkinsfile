@@ -599,7 +599,8 @@ pipeline {
                                 installation: 'InSearchPath', workingDir: 'build'
                         sh "mv build mlir-${branch}"
                         sh """
-                            tar cvzf mlir-binary-${branch}.tar.gz mlir-${branch}/bin mlir-${branch}/lib mlir-${branch}/include\
+                            echo "This directory contains MLIR binaries for the release branch ${params.releaseBranch}." > mlir-${branch}/README
+                            tar cvzf mlir-binary-${branch}.tar.gz mlir-${branch}/bin mlir-${branch}/lib mlir-${branch}/include mlir-${branch}/README\
                                                                   mlir-${branch}/external/llvm-project/llvm/bin\
                                                                   mlir-${branch}/external/llvm-project/llvm/lib\
                                                                   mlir-${branch}/external/llvm-project/llvm/include
