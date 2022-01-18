@@ -18,6 +18,7 @@
 #include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Dominance.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -375,6 +376,18 @@ public:
         if (!nofront) {
           Operation *op = convOp;
           while (true) {
+            // Special loop for constant operands.
+            for (const auto& opnd : op->getOperands()) {
+              Operation *usedOp = opnd.getDefiningOp();
+              if (usedOp) {
+                if (detail::isConstantLike(usedOp) && usedOp->hasOneUse()) {
+                  // Remove the operand from the function inputs, if present.
+                  inputNodes.remove(opnd);
+                  frontOps.push_back(usedOp);
+                }
+              }
+            }
+
             if (op->getNumOperands() < 1)
               break;
             Operation *usedOp = op->getOpOperand(0).get().getDefiningOp();
