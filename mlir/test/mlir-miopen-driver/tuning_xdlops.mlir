@@ -1,8 +1,8 @@
 // Check the naming of tuning parameters for xdlops and matrix c vectorization values
 
-// RUN: mlir-miopen-driver -p -x2 -miopen-affix-params -miopen-lowering -miopen-affine-transform | FileCheck %s --check-prefix=STEP1
-// RUN: mlir-miopen-driver -p -x2 -miopen-affix-params -miopen-lowering -miopen-affine-transform -miopen-lowering-step2 | FileCheck %s --check-prefix=STEP2
-// RUN: mlir-miopen-driver -p --fil_layout=kyxc --in_layout=nhwc --out_layout=nhwk -x2 -miopen-affix-params -miopen-lowering -miopen-affine-transform | FileCheck %s --check-prefix=NHWC
+// RUN: mlir-miopen-driver -p -x2 -miopen-affix-params -miopen-lowering | FileCheck %s --check-prefix=STEP1
+// RUN: mlir-miopen-driver -p -x2 -miopen-affix-params -miopen-lowering -miopen-lowering-step2 | FileCheck %s --check-prefix=STEP2
+// RUN: mlir-miopen-driver -p --fil_layout=kyxc --in_layout=nhwc --out_layout=nhwk -x2 -miopen-affix-params -miopen-lowering | FileCheck %s --check-prefix=NHWC
 
 // STEP1: m_per_wave
 // STEP1: matrix_c_data_per_copy = 4

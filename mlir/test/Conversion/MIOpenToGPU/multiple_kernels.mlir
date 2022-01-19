@@ -1,4 +1,4 @@
-// RUN: miopen-opt -miopen-affix-params -miopen-lowering -miopen-affine-transform -miopen-lowering-step2 -miopen-lowering-step3 -miopen-lowering-step4 -miopen-lowering-step5 -convert-miopen-to-gpu %s | miopen-opt
+// RUN: miopen-opt -miopen-affix-params -miopen-lowering -miopen-lowering-step2 -miopen-lowering-step3 -miopen-lowering-step4 -miopen-lowering-step5 -convert-miopen-to-gpu %s | miopen-opt
 
 // The last kernel be converted would appear as the first.
 

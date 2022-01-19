@@ -13,11 +13,10 @@
 #ifndef MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H
 #define MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H
 
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
-#include "mlir/Dialect/MIOpen/utility/BackwardDataPaddingKernel.h"
-#include "mlir/Dialect/MIOpen/utility/BackwardWeightV4R4Helper.h"
+#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/Dialect/MIOpen/utility/math.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/LogicalResult.h"
@@ -122,7 +121,7 @@ public:
       llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
       bool &input1GemmKVectorizable) {
     // Vectorizable flag is opposite between forwad and bwd_data
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (opType == mlir::miopen::ConvOpType::Fwd) {
       // When K is not the fastest changing dimension,
       // gemmK dimension is vectorizable, gemmM is not, and vice versa.
       // Vectorization width depending on which among C, Y, X be the fastest
@@ -132,10 +131,10 @@ public:
       } else {
         input1GemmKVectorizable = true;
       }
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdData) {
       // always load gemmM first
       input1GemmKVectorizable = false;
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdWeight) {
       // When K is the fastest changing dimension,
       // gemmM dimension is vectorizable, gemmK is not, and vice versa.
       // Vectorization width depending on which among N, and HoWo be the fastest
@@ -153,7 +152,7 @@ public:
       llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
       bool &input2GemmKVectorizable) {
     // Vectorizable flag is opposite between forwad and bwd_data
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (opType == mlir::miopen::ConvOpType::Fwd) {
       // For input tensor.
       // When C is the fastest changing dimension,
       // gemmK dimension is vectorizable, gemmN is not, and vice versa.
@@ -163,7 +162,7 @@ public:
       } else {
         input2GemmKVectorizable = false;
       }
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdData) {
       // For output tensor.
       // When K is the fastest changing dimension(3),
       // gemmK dimension is vectorizable, gemmN is not, and vice versa.
@@ -173,7 +172,7 @@ public:
       } else {
         input2GemmKVectorizable = false;
       }
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdWeight) {
       // For input tensor
       // When C is the fastest changing dimension,
       // gemmN dimension is vectorizable, gemmK is not, and vice versa.
@@ -300,33 +299,33 @@ public:
 
   static void obtainGemmAVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto opType = ctx.opType;
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (opType == mlir::miopen::ConvOpType::Fwd) {
       obtainFilterVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdData) {
       obtainBwdDataFilterVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdWeight) {
       obtainOutputVecLen(ctx, vecLen);
     }
   }
 
   static void obtainGemmBVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto opType = ctx.opType;
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (opType == mlir::miopen::ConvOpType::Fwd) {
       obtainInputVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdData) {
       obtainBwdDataOutputVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdWeight) {
       obtainInputVecLen(ctx, vecLen);
     }
   }
 
   static void obtainGemmCVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto opType = ctx.opType;
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (opType == mlir::miopen::ConvOpType::Fwd) {
       obtainOutputVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdData) {
       obtainInputVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdWeight) {
       obtainFilterVecLen(ctx, vecLen);
     }
   }
@@ -378,8 +377,8 @@ protected:
     // The logic for deciding vectorization size and dimension for
     // backward data and backward weight has to be reviewed.
     auto opType = ctx.opType;
-    if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType ||
-        opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    if (opType == mlir::miopen::ConvOpType::BwdData ||
+        opType == mlir::miopen::ConvOpType::BwdWeight) {
       vectorizationSize = 1;
     }
 
@@ -450,7 +449,7 @@ protected:
     int64_t vectorizationSize = 4;
     // No swizzling or vectorization for backward data
     // TODO(kdrewnia): Understand when it might be possible
-    if (ConvOpType::Conv2DBwdDataOpType == op) {
+    if (ConvOpType::BwdData == op) {
       vectorizationSize = 1;
     }
 
@@ -464,7 +463,7 @@ protected:
     auto &dimIndexVal = ctx.dimIndexVal;
     // Find dimensions in which the copy will take place
     switch (op) {
-    case mlir::miopen::Conv2DOpType:
+    case mlir::miopen::ConvOpType::Fwd:
       if (dimIndexVal["ko"].first == 4) {
         out.gemmVectorDim = gemmCDimM;
         out.destVectorDim = 4;
@@ -474,7 +473,7 @@ protected:
         out.destVectorDim = dimIndexVal["wo"].first;
       }
       break;
-    case mlir::miopen::Conv2DBwdWeightOpType:
+    case mlir::miopen::ConvOpType::BwdWeight:
       if (dimIndexVal["k"].first == 4) {
         out.gemmVectorDim = gemmCDimM;
         out.destVectorDim = 4;
@@ -485,7 +484,7 @@ protected:
         out.destVectorDim = 4;
       }
       break;
-    case mlir::miopen::Conv2DBwdDataOpType:
+    case mlir::miopen::ConvOpType::BwdData:
       out.gemmVectorDim = -1;
       out.destVectorDim = -1;
       break;
@@ -496,7 +495,7 @@ protected:
   static void obtainGemmSize(ConvolutionContext &ctx, GemmSize &gemmSize) {
     gemmSize.gemmG = ctx.dimIndexVal["g"].second;
 
-    if (ctx.opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (ctx.opType == mlir::miopen::ConvOpType::Fwd) {
       gemmSize.gemmM = ctx.dimIndexVal["k"].second;
       gemmSize.gemmN = ctx.dimIndexVal["no"].second *
                        ctx.dimIndexVal["ho"].second *
@@ -504,7 +503,7 @@ protected:
       gemmSize.gemmK = ctx.dimIndexVal["c"].second *
                        ctx.dimIndexVal["y"].second *
                        ctx.dimIndexVal["x"].second;
-    } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (ctx.opType == mlir::miopen::ConvOpType::BwdData) {
       int64_t y, x, ho, wo, hi, wi;
       y = x = ho = wo = hi = wi = 0;
       y = ctx.dimIndexVal["y"].second;
@@ -553,7 +552,7 @@ protected:
       gemmSize.gemmM = ctx.dimIndexVal["c"].second;
       gemmSize.gemmN = ctx.dimIndexVal["no"].second * hTildaSlice * wTildaSlice;
       gemmSize.gemmK = ctx.dimIndexVal["k"].second * yDotSlice * xDotSlice;
-    } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (ctx.opType == mlir::miopen::ConvOpType::BwdWeight) {
       gemmSize.gemmM = ctx.dimIndexVal["k"].second;
       gemmSize.gemmK = ctx.dimIndexVal["no"].second *
                        ctx.dimIndexVal["ho"].second *
@@ -942,7 +941,7 @@ private:
 
     // XXX FIXME: Ignore KReduction XDLOPS path for forward convolution now.
     // These M/NPerBlock combinations will result in lowering errors at tuning.
-    if (ctx.getOpType() == miopen::ConvOpType::Conv2DOpType) {
+    if (ctx.getOpType() == miopen::ConvOpType::Fwd) {
       if ((param.gemmMPerBlock == 16 || param.gemmMPerBlock == 32 ||
            param.gemmMPerBlock == 64) &&
           (param.gemmNPerBlock == 16 || param.gemmNPerBlock == 32 ||
@@ -1003,11 +1002,11 @@ public:
   llvm::SmallVector<InitParamsXDL, 4>
   getTuningParameters(ConvolutionContext &ctx) {
     switch (ctx.getOpType()) {
-    case miopen::ConvOpType::Conv2DOpType:
+    case miopen::ConvOpType::Fwd:
       return initParametersForward;
-    case miopen::ConvOpType::Conv2DBwdDataOpType:
+    case miopen::ConvOpType::BwdData:
       return initParametersBackward;
-    case miopen::ConvOpType::Conv2DBwdWeightOpType:
+    case miopen::ConvOpType::BwdWeight:
       return initParametersBackward;
     }
     return initParametersForward;

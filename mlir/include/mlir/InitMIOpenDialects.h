@@ -16,7 +16,7 @@
 #define MLIR_INITMIOPENDIALECTS_H_
 
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 
 #include "mlir/IR/Dialect.h"
 

@@ -1,6 +1,6 @@
 #include "PassDetail.h"
 
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -201,8 +201,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     }
 
     // Disable kpack in case we do backward convolution.
-    if (convContext.opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType ||
-        convContext.opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    if (convContext.opType == mlir::miopen::ConvOpType::BwdData ||
+        convContext.opType == mlir::miopen::ConvOpType::BwdWeight) {
       validParams.gemmKPack = 1;
     }
     op->setAttr("kpack", b.getI32IntegerAttr(validParams.gemmKPack));

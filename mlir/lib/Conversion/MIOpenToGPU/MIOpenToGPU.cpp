@@ -31,7 +31,7 @@
 #include "mlir/Dialect/GPU/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/XdlopsCodeSelection.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
@@ -286,10 +286,8 @@ void LowerMIOpenOpsWithinGPUModulePass::runOnOperation() {
 
   // miopen-lowering-step3
   patterns.insert<FillRewritePattern>(ctx);
-  patterns.insert<SubviewRewritePattern>(ctx);
   patterns.insert<TransformRewritePattern>(ctx);
   patterns.insert<BlockwiseGemmRewritePattern>(ctx);
-  patterns.insert<BlockwiseCopyRewritePattern>(ctx);
 
   // miopen-lowering-step4
   patterns.insert<ThreadwiseGemmRewritePattern>(ctx);
