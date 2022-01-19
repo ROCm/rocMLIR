@@ -28,6 +28,7 @@
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/GPU/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -232,11 +233,11 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
                                            .dyn_cast<FlatSymbolRefAttr>()) {
           if (symRef.getValue() == theFunc.getName()) {
             OpBuilder b(call);
-            auto gridVal = b.create<ConstantIndexOp>(loc, gridSize);
-            auto blockVal = b.create<ConstantIndexOp>(loc, blockSize);
-            auto cst1 = b.create<ConstantIndexOp>(loc, 1);
+            auto gridVal = b.create<arith::ConstantIndexOp>(loc, gridSize);
+            auto blockVal = b.create<arith::ConstantIndexOp>(loc, blockSize);
+            auto cst1 = b.create<arith::ConstantIndexOp>(loc, 1);
             auto dynamicSharedMemSize =
-                b.create<ConstantIntOp>(loc, 0, b.getI32Type());
+                b.create<arith::ConstantIntOp>(loc, 0, b.getI32Type());
             gpu::KernelDim3 gridDims{gridVal, cst1, cst1};
             gpu::KernelDim3 blockDims{blockVal, cst1, cst1};
             b.create<gpu::LaunchFuncOp>(loc, gpuFunc, gridDims, blockDims,
