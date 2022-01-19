@@ -130,6 +130,8 @@ public:
   void pad(ArrayRef<StringRef> outNames, ArrayRef<uint32_t> outDims,
            ArrayRef<StringRef> inNames, ArrayRef<int64_t> params);
 
+  CoordTransformsBuilder &operator=(const CoordTransformsBuilder &other);
+
 protected:
   CoordTransformsBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
                          ArrayRef<int64_t> startShape, mlir::Location loc);
