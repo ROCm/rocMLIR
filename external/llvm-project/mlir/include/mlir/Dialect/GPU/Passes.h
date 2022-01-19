@@ -88,12 +88,6 @@ protected:
       *this, "gpu-binary-annotation",
       llvm::cl::desc("Annotation attribute string for GPU binary"),
       llvm::cl::init(getDefaultGpuBinaryAnnotation())};
-  Option<bool> dumpAsm{
-      *this, "dump-asm",
-      llvm::cl::desc("Whether the final generated instructions or intermediate "
-                     "IR (if stopping early) for a kernel should be dumped to "
-                     "the debug stream"),
-      llvm::cl::init(false)};
 };
 } // namespace gpu
 
@@ -111,8 +105,7 @@ void registerGpuSerializeToHsacoPass();
 std::unique_ptr<Pass> createGpuSerializeToHsacoPass(StringRef triple,
                                                     StringRef arch,
                                                     StringRef features,
-                                                    int optLevel,
-                                                    bool dumpAsm = false);
+                                                    int optLevel);
 
 /// Generate the code for registering passes.
 #define GEN_PASS_REGISTRATION
