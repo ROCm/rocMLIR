@@ -51,7 +51,7 @@ public:
     FuncOp func = getOperation();
     populateWithGenerated(patterns);
     migraphx::populateMIGraphXToTosaConversionPatterns(func.getContext(),
-                                               &patterns);
+                                                       &patterns);
 
     if (failed(applyFullConversion(func, target, std::move(patterns)))) {
       signalPassFailure();

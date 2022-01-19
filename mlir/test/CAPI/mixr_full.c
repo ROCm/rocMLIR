@@ -24,17 +24,18 @@
 MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirModule moduleOp = mlirModuleCreateEmpty(location);
   MlirBlock moduleBody = mlirModuleGetBody(moduleOp);
- 
+
   // Set func arguments
   int64_t inDims[] = {1, 64, 56, 56};
   int64_t filter0Dims[] = {64, 64, 1, 1};
   int64_t bias0Dims[] = {64};
 
-  MlirType inType = mlirRankedTensorTypeGet(4, inDims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
-  MlirType filter0Type =
-      mlirRankedTensorTypeGet(4, filter0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
-  MlirType bias0Type =
-      mlirRankedTensorTypeGet(1, bias0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
+  MlirType inType = mlirRankedTensorTypeGet(4, inDims, mlirF32TypeGet(ctx),
+                                            mlirAttributeGetNull());
+  MlirType filter0Type = mlirRankedTensorTypeGet(
+      4, filter0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
+  MlirType bias0Type = mlirRankedTensorTypeGet(
+      1, bias0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
   MlirType funcBodyArgTypes[] = {inType, filter0Type, bias0Type};
   MlirRegion funcBodyRegion = mlirRegionCreate();
   MlirBlock funcBody = mlirBlockCreate(
@@ -45,11 +46,11 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 
   // Set func attributes
   MlirAttribute funcTypeAttr = mlirAttributeParseGet(
-      ctx, 
-      mlirStringRefCreateFromCString("(tensor<1x64x56x56xf32>, tensor<64x64x1x1xf32>, tensor<64xf32>) -> (tensor<1x64x56x56xf32>)"));
-  MlirAttribute funcNameAttr = mlirAttributeParseGet(
-      ctx,
-      mlirStringRefCreateFromCString("\"main\""));
+      ctx, mlirStringRefCreateFromCString(
+               "(tensor<1x64x56x56xf32>, tensor<64x64x1x1xf32>, "
+               "tensor<64xf32>) -> (tensor<1x64x56x56xf32>)"));
+  MlirAttribute funcNameAttr =
+      mlirAttributeParseGet(ctx, mlirStringRefCreateFromCString("\"main\""));
   MlirNamedAttribute funcAttrs[] = {
       mlirNamedAttributeGet(
           mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("type")),
@@ -59,8 +60,8 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
           funcNameAttr)};
 
   // Set func op
-  MlirOperationState funcState =
-      mlirOperationStateGet(mlirStringRefCreateFromCString("builtin.func"), location);
+  MlirOperationState funcState = mlirOperationStateGet(
+      mlirStringRefCreateFromCString("builtin.func"), location);
   mlirOperationStateAddAttributes(&funcState, 2, funcAttrs);
   mlirOperationStateAddOwnedRegions(&funcState, 1, &funcBodyRegion);
   MlirOperation func = mlirOperationCreate(&funcState);
@@ -81,10 +82,10 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
       ctx, mlirStringRefCreateFromCString("[1:i64, 1:i64]"));
   MlirAttribute conv0DilationAttr = mlirAttributeParseGet(
       ctx, mlirStringRefCreateFromCString("[1:i64, 1:i64]"));
-  MlirAttribute conv0GroupAttr = mlirAttributeParseGet(
-      ctx, mlirStringRefCreateFromCString("1:i64"));
-  MlirAttribute conv0PaddingModeAttr = mlirAttributeParseGet(
-      ctx, mlirStringRefCreateFromCString("0:i64"));
+  MlirAttribute conv0GroupAttr =
+      mlirAttributeParseGet(ctx, mlirStringRefCreateFromCString("1:i64"));
+  MlirAttribute conv0PaddingModeAttr =
+      mlirAttributeParseGet(ctx, mlirStringRefCreateFromCString("0:i64"));
   MlirNamedAttribute conv0Attrs[] = {
       mlirNamedAttributeGet(
           mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("padding")),
@@ -99,12 +100,14 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
           mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("group")),
           conv0GroupAttr),
       mlirNamedAttributeGet(
-          mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("padding_mode")),
+          mlirIdentifierGet(ctx,
+                            mlirStringRefCreateFromCString("padding_mode")),
           conv0PaddingModeAttr)};
 
   // Set output shape
   int64_t conv0Dims[] = {1, 64, 56, 56};
-  MlirType conv0Type = mlirRankedTensorTypeGet(4, conv0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
+  MlirType conv0Type = mlirRankedTensorTypeGet(
+      4, conv0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
 
   // Set convolution op
   MlirOperationState conv0OpState = mlirOperationStateGet(
@@ -123,7 +126,8 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 
   // Set relu op
   int64_t relu0Dims[] = {1, 64, 56, 56};
-  MlirType relu0Type = mlirRankedTensorTypeGet(4, relu0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
+  MlirType relu0Type = mlirRankedTensorTypeGet(
+      4, relu0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
   MlirOperationState relu0State = mlirOperationStateGet(
       mlirStringRefCreateFromCString("migraphx.relu"), location);
   mlirOperationStateAddResults(&relu0State, 1, &relu0Type);
@@ -160,26 +164,26 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 
   // returns the required buffer size to hold information including
   // ranks, dimensions of each arguments and kernel name.
-  int argSize = mlirGetKernelInfoSize(module);;
-  void* argInfo = malloc(argSize);
+  int argSize = mlirGetKernelInfoSize(module);
+  ;
+  void *argInfo = malloc(argSize);
   // get the data
-  mlirGetKernelInfo(module, (void*)argInfo);
-  int* argData = (int*)argInfo;
-  
+  mlirGetKernelInfo(module, (void *)argInfo);
+  int *argData = (int *)argInfo;
+
   int idx = 1;
-  for (int i=0; i<argData[0]; i++)
-  {
+  for (int i = 0; i < argData[0]; i++) {
     // iterate per each memref argument
     int rank = argData[idx++];
     printf("arg#%d (rank %d): ", i, rank);
-    for (int j=0; j<rank; j++){
+    for (int j = 0; j < rank; j++) {
       printf("<dim %d : %d> ", j, argData[idx++]);
     }
     printf("\n");
   }
 
   // The last part of the retrieved data contains the kernel name.
-  char* nameData = (char*)(argData + idx);
+  char *nameData = (char *)(argData + idx);
   printf("kernel name : %s\n", nameData);
 
   // 2nd pipeline to call
@@ -196,13 +200,13 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   int binSize = mlirGetBinarySize(module);
   printf("bin size : %d\n", binSize);
 
-  char* compiledBin = malloc(binSize);
+  char *compiledBin = malloc(binSize);
   // Initialize the memory to hold binary, just for verification, not necessary.
-  for (int i=0; i<binSize; i++)
+  for (int i = 0; i < binSize; i++)
     compiledBin[i] = '0';
 
   // get binary
-  if(mlirGetBinary(module, compiledBin)){
+  if (mlirGetBinary(module, compiledBin)) {
     printf("dump : %s \n", compiledBin);
     printf("PASSED!\n");
   }
@@ -217,7 +221,7 @@ int main() {
   MlirDialectHandle mixrHandle = mlirGetDialectHandle__migraphx__();
   mlirDialectHandleRegisterDialect(mixrHandle, ctx);
   mlirRegisterAllDialects(ctx);
-    
+
   if (!constructAndTraverseIr(ctx)) {
     printf("FAILED!\n");
     return 1;
