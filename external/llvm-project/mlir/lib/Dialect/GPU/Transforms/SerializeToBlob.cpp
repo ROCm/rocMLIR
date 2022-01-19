@@ -24,6 +24,8 @@
 #include "llvm/Target/TargetMachine.h"
 #include <string>
 
+#define DEBUG_TYPE "serialize-to-blob"
+
 using namespace mlir;
 
 std::string gpu::getDefaultGpuBinaryAnnotation() { return "gpu.binary"; }
@@ -78,6 +80,12 @@ void gpu::SerializeToBlobPass::runOnOperation() {
     return signalPassFailure();
 
   std::string targetISA = std::move(maybeTargetISA.getValue());
+
+  LLVM_DEBUG({
+    llvm::dbgs() << "ISA for module: " << getOperation().getNameAttr() << "\n";
+    llvm::dbgs() << targetISA << "\n";
+    llvm::dbgs().flush();
+  });
 
   // Serialize the target ISA.
   std::unique_ptr<std::vector<char>> blob = serializeISA(targetISA);
