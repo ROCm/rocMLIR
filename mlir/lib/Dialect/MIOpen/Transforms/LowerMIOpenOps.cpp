@@ -20,8 +20,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PassDetail.h"
 #include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
+#include "PassDetail.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Conversion/SCFToStandard/SCFToStandard.h"
@@ -48,15 +48,18 @@
 using namespace mlir;
 
 namespace {
-struct LowerMIOpenOpsStep1Pass : public MIOpenOpsStep1PassBase<LowerMIOpenOpsStep1Pass> {
+struct LowerMIOpenOpsStep1Pass
+    : public MIOpenOpsStep1PassBase<LowerMIOpenOpsStep1Pass> {
   void runOnOperation() override;
 };
 
-struct LowerMIOpenOpsStep2Pass : public MIOpenOpsStep2PassBase<LowerMIOpenOpsStep2Pass> {
+struct LowerMIOpenOpsStep2Pass
+    : public MIOpenOpsStep2PassBase<LowerMIOpenOpsStep2Pass> {
   void runOnOperation() override;
 };
 
-struct LowerMIOpenOpsStep3Pass : public MIOpenOpsStep3PassBase<LowerMIOpenOpsStep3Pass> {
+struct LowerMIOpenOpsStep3Pass
+    : public MIOpenOpsStep3PassBase<LowerMIOpenOpsStep3Pass> {
   void runOnOperation() override;
 };
 
