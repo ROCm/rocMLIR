@@ -1672,48 +1672,27 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // FIXME. consider backward convolution.
     if ((KPack > 1) && (convOpType == miopen::ConvOpType::Fwd)) {
-      if (!isFilterPad) {
-        BottomUpCTBuilder kpackGemmFilterTransform =
-            BottomUpCTBuilder::above(filterTransform, filterTransformAttr);
-        int64_t gemmKLength = filterTransform.endSize("gemmK");
-        kpackGemmFilterTransform.passThrough("gemmG");
-        kpackGemmFilterTransform.passThrough("gemmM");
-        kpackGemmFilterTransform.unmerge({"gemmK", "gemmKPack"}, {1, 3},
-                                         "gemmK", {gemmKLength / KPack, KPack});
-        TransformMapAttr kpackGemmFilterTransformAttr =
-            kpackGemmFilterTransform.get();
-        gemmFilterKPack = b.create<miopen::TransformOp>(
-            loc, gemmFilter, kpackGemmFilterTransformAttr);
-      } else {
-        // isFilterPad == true.
-        BottomUpCTBuilder kpackGemmFilterTransform = BottomUpCTBuilder::above(
-            padGemmFilterTransform, padGemmFilterTransformAttr);
-        int64_t gemmKLength = 0;
-        if (filterCheckPadGemmK) {
-          gemmKLength = padGemmFilterTransform.endSize("gemmKPad");
-        } else {
-          gemmKLength = padGemmFilterTransform.endSize("gemmK");
-        }
-        kpackGemmFilterTransform.passThrough("gemmG");
-        if (filterCheckPadGemmM) {
-          kpackGemmFilterTransform.passThrough("gemmMPad");
-        } else {
-          kpackGemmFilterTransform.passThrough("gemmM");
-        }
-        if (filterCheckPadGemmK) {
-          kpackGemmFilterTransform.unmerge({"gemmKPad", "gemmKPack"}, {1, 3},
-                                           "gemmKPad",
-                                           {gemmKLength / KPack, KPack});
-        } else {
-          kpackGemmFilterTransform.unmerge({"gemmK", "gemmKPack"}, {1, 3},
-                                           "gemmK",
-                                           {gemmKLength / KPack, KPack});
-        }
-        TransformMapAttr kpackGemmFilterTransformAttr =
-            kpackGemmFilterTransform.get();
-        gemmFilterKPack = b.create<miopen::TransformOp>(
-            loc, gemmFilterPad, kpackGemmFilterTransformAttr);
-      }
+      BottomUpCTBuilder sourceTransform =
+          (isFilterPad) ? padGemmFilterTransform : filterTransform;
+      TransformMapAttr sourceTransformAttr =
+          (isFilterPad) ? padGemmFilterTransformAttr : filterTransformAttr;
+      Value source = (isFilterPad) ? gemmFilterPad : gemmFilter;
+
+      BottomUpCTBuilder kpackGemmFilterTransform =
+          BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
+      // Passthrough gemmG (dim 0) and gemmM (dim 2).
+      kpackGemmFilterTransform.passThrough(sourceTransform.endName(0));
+      kpackGemmFilterTransform.passThrough(sourceTransform.endName(2));
+      // Use Unmerge to split gemmK (dim 1) into gemmK and gemmKPack, place
+      // gemmKPack at dim 3.
+      int64_t gemmKLength = sourceTransform.endSize(sourceTransform.endName(1));
+      kpackGemmFilterTransform.unmerge(
+          {sourceTransform.endName(1), "gemmKPack"}, {1, 3},
+          sourceTransform.endName(1), {gemmKLength / KPack, KPack});
+      TransformMapAttr kpackGemmFilterTransformAttr =
+          kpackGemmFilterTransform.get();
+      gemmFilterKPack = b.create<miopen::TransformOp>(
+          loc, source, kpackGemmFilterTransformAttr);
     }
 
     // Transform input tensor.
@@ -1899,48 +1878,27 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // FIXME. consider backward convolution.
     if ((KPack > 1) && (convOpType == miopen::ConvOpType::Fwd)) {
-      if (!isInputPad) {
-        BottomUpCTBuilder kpackGemmInputTransform = BottomUpCTBuilder::above(
-            gemmInputTransform, gemmInputTransformAttr);
-        int64_t gemmKLength = gemmInputTransform.endSize("gemmK");
-        kpackGemmInputTransform.passThrough("gemmG");
-        kpackGemmInputTransform.passThrough("gemmN");
-        kpackGemmInputTransform.unmerge({"gemmK", "gemmKPack"}, {1, 3}, "gemmK",
-                                        {gemmKLength / KPack, KPack});
-        TransformMapAttr kpackGemmInputTransformAttr =
-            kpackGemmInputTransform.get();
-        gemmInputKPack = b.create<miopen::TransformOp>(
-            loc, gemmInput, kpackGemmInputTransformAttr);
-      } else {
-        // isInputPad == true
-        BottomUpCTBuilder kpackGemmInputTransform = BottomUpCTBuilder::above(
-            padGemmInputTransform, padGemmInputTransformAttr);
-        int64_t gemmKLength = 0;
-        if (inputCheckPadGemmK) {
-          gemmKLength = padGemmInputTransform.endSize("gemmKPad");
-        } else {
-          gemmKLength = padGemmInputTransform.endSize("gemmK");
-        }
-        kpackGemmInputTransform.passThrough("gemmG");
-        if (inputCheckPadGemmN) {
-          kpackGemmInputTransform.passThrough("gemmNPad");
-        } else {
-          kpackGemmInputTransform.passThrough("gemmN");
-        }
-        if (inputCheckPadGemmK) {
-          kpackGemmInputTransform.unmerge({"gemmKPad", "gemmKPack"}, {1, 3},
-                                          "gemmKPad",
-                                          {gemmKLength / KPack, KPack});
-        } else {
-          kpackGemmInputTransform.unmerge({"gemmK", "gemmKPack"}, {1, 3},
-                                          "gemmK",
-                                          {gemmKLength / KPack, KPack});
-        }
-        TransformMapAttr kpackGemmInputTransformAttr =
-            kpackGemmInputTransform.get();
-        gemmInputKPack = b.create<miopen::TransformOp>(
-            loc, gemmInputPad, kpackGemmInputTransformAttr);
-      }
+      BottomUpCTBuilder sourceTransform =
+          (isInputPad) ? padGemmInputTransform : gemmInputTransform;
+      TransformMapAttr sourceTransformAttr =
+          (isInputPad) ? padGemmInputTransformAttr : gemmInputTransformAttr;
+      Value source = (isInputPad) ? gemmInputPad : gemmInput;
+
+      BottomUpCTBuilder kpackGemmInputTransform =
+          BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
+      // Passthrough gemmG (dim 0) and gemmN (dim 2).
+      kpackGemmInputTransform.passThrough(sourceTransform.endName(0));
+      kpackGemmInputTransform.passThrough(sourceTransform.endName(2));
+      // Use Unmerge to split gemmK (dim 1) into gemmK and gemmKPack, place
+      // gemmKPack at dim 3.
+      int64_t gemmKLength = sourceTransform.endSize(sourceTransform.endName(1));
+      kpackGemmInputTransform.unmerge({sourceTransform.endName(1), "gemmKPack"},
+                                      {1, 3}, sourceTransform.endName(1),
+                                      {gemmKLength / KPack, KPack});
+      TransformMapAttr kpackGemmInputTransformAttr =
+          kpackGemmInputTransform.get();
+      gemmInputKPack = b.create<miopen::TransformOp>(
+          loc, source, kpackGemmInputTransformAttr);
     }
 
     // Transform output tensor.
