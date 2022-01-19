@@ -1,4 +1,4 @@
-//===- ConvToGemm.cpp - MLIR MIOpen ops lowering passes ------------===//
+//===- LowerMIOpenOps.cpp - MLIR MIOpen ops lowering passes ---------------===//
 //
 // Copyright 2020 The MLIR Authors.
 //
@@ -13,31 +13,64 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-// ============================================================
+// =============================================================================
 //
 // This pass converts miopen.conv2d into miopen.transform and
 // miopen.gridwise_gemm.
 //
-//===-----------------------------------------------------===//
-#include "PassDetail.h"
+//===----------------------------------------------------------------------===//
 
+#include "PassDetail.h"
+#include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
+
+#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
+#include "mlir/Conversion/SCFToStandard/SCFToStandard.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
-#include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
-#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
-
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Attributes.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Types.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Pass/PassRegistry.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/Passes.h"
 
-#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 
 using namespace mlir;
-using namespace mlir::miopen;
-//===----------------------------------------------------------------------===//
-// Conv2D (forward, backward) lowering.
-//===----------------------------------------------------------------------===//
+
+namespace {
+struct LowerMIOpenOpsStep1Pass : public MIOpenOpsStep1PassBase<LowerMIOpenOpsStep1Pass> {
+  void runOnOperation() override;
+};
+
+struct LowerMIOpenOpsStep2Pass : public MIOpenOpsStep2PassBase<LowerMIOpenOpsStep2Pass> {
+  void runOnOperation() override;
+};
+
+struct LowerMIOpenOpsStep3Pass : public MIOpenOpsStep3PassBase<LowerMIOpenOpsStep3Pass> {
+  void runOnOperation() override;
+};
+
+struct LowerMIOpenOpsStep4Pass
+    : public MIOpenOpsStep4PassBase<LowerMIOpenOpsStep4Pass> {
+  void runOnOperation() override;
+};
+
+struct LowerMIOpenOpsStep5Pass
+    : public MIOpenOpsStep5PassBase<LowerMIOpenOpsStep5Pass> {
+  void runOnOperation() override;
+};
+} // end anonymous namespace
+
 // High level convolution operation always have
 // [filter, input, output]
 // as the convolution argument. The only difference between different
@@ -45,67 +78,41 @@ using namespace mlir::miopen;
 // simplicity, we always arrange the first two arguments to be input
 // and the last argument to be output
 
-namespace {
-// The ArgumentFields keep track of differences between conv operations
-struct ArgumentFields {
-  int gridwiseGemmArgumentPosition[3];
-  StringRef gemmTargetCharName[3];
+template <>
+const ArgumentFields Conv2DRewritePattern<miopen::Conv2DOp>::fields = {
+    {0, 1, 2},
+    {"KM", "KN", "MN"},
+};
+template <>
+const miopen::ConvOpType Conv2DRewritePattern<miopen::Conv2DOp>::convOpType =
+    miopen::ConvOpType::Fwd;
+
+template <>
+const ArgumentFields Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::fields = {
+    {0, 2, 1},
+    {"KM", "MN", "KN"},
 };
 
-struct LowerMIOpenOpsStep1Pass
-    : public MIOpenOpsStep1PassBase<LowerMIOpenOpsStep1Pass> {
-  void runOnOperation() override;
+template <>
+const miopen::ConvOpType
+    Conv2DRewritePattern<miopen::Conv2DBwdDataOp>::convOpType =
+        miopen::ConvOpType::BwdData;
+
+template <>
+const ArgumentFields Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>::fields = {
+    {2, 1, 0},
+    {"MN", "KN", "KM"},
 };
 
-LogicalResult
-isSupportedBackwardDataPaddingKernel(bool isXdlops, bool isStride2Pad1,
-                                     int64_t gemmMExtra, int64_t gemmKExtra,
-                                     int64_t gemmNExtra, Conv2DBwdDataOp &op) {
-  if (gemmNExtra && gemmKExtra) {
-    return op.emitOpError(
-        "can't support backward data padding kernel when both pad "
-        "gemmN and gemmK due to load issue\n");
-  }
+template <>
+const miopen::ConvOpType
+    Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>::convOpType =
+        miopen::ConvOpType::BwdWeight;
 
-  if (isXdlops && (gemmMExtra || gemmNExtra)) {
-    if (isStride2Pad1) {
-      return op->emitOpError(
-          "can't support backward data padding kernel when xdlops stride 2 "
-          "pad_h,pad_w>0 and pad gemmM or gemmN due to store issue\n");
-    }
-  }
-  return success();
-}
-
-using OobCheckSet = llvm::SmallDenseSet<uint32_t, 4>;
-inline ArrayAttr getBoundsCheckAttr(Builder &b, OobCheckSet &set,
-                                    uint32_t max) {
-  llvm::SmallVector<bool, 8> ret;
-  ret.reserve(max);
-  for (uint32_t i = 0; i < max; ++i) {
-    ret.push_back(set.count(i) != 0);
-  }
-  return b.getBoolArrayAttr(ret);
-}
-
-template <typename T>
-LogicalResult checkNames(ArrayRef<StringRef> actual,
-                         ArrayRef<StringRef> expected, StringRef argName,
-                         T op) {
-  if (actual.size() != expected.size()) {
-    return op.emitOpError("Layout mismatch in ")
-           << argName << " tensor: Expected " << expected.size()
-           << " dimensions but have " << actual.size();
-  }
-  for (StringRef name : expected) {
-    if (std::find(actual.begin(), actual.end(), name) == actual.end()) {
-      return op.emitOpError("Layout mismatch in ")
-             << argName << " tensor: Expected it to have a `" << name
-             << "` dimension";
-    }
-  }
-  return success();
-}
+// Explicitly instantiate the template to operation type
+template struct Conv2DRewritePattern<miopen::Conv2DOp>;
+template struct Conv2DRewritePattern<miopen::Conv2DBwdDataOp>;
+template struct Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>;
 
 void affixGridwiseGemmAttributes(Operation *convOp, Operation *gop,
                                  OpBuilder &b) {
@@ -148,7 +155,7 @@ void affixGridwiseGemmAttributes(Operation *convOp, Operation *gop,
 }
 
 /// Lowerings for particular convolution algorithms (TODO, new file?)
-LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
+LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
                                       PatternRewriter &b) {
   auto loc = op.getLoc();
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
@@ -263,7 +270,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
 
     TransformMapAttr addKBlockTransformAttr = addKBlockTransform.get();
     Value withKBlock =
-        b.create<TransformOp>(loc, op.filter(), addKBlockTransformAttr);
+        b.create<miopen::TransformOp>(loc, op.filter(), addKBlockTransformAttr);
 
     // Create GEMM filter tensor
     // Here, we merge the KBlock dimension into the G dimension
@@ -275,7 +282,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     gemmTransform.merge("gemmN", 2, {"c", "y", "x"});
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
-    gemmFilter = b.create<TransformOp>(loc, withKBlock, gemmTransformAttr);
+    gemmFilter =
+        b.create<miopen::TransformOp>(loc, withKBlock, gemmTransformAttr);
     // This kernel is only invoked when there's no need for gemm padding
   }
 
@@ -293,7 +301,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
 
     TransformMapAttr firstTransformAttr = firstTransform.get();
     Value firstTransformed =
-        b.create<TransformOp>(loc, op.input(), firstTransformAttr);
+        b.create<miopen::TransformOp>(loc, op.input(), firstTransformAttr);
 
     bool hasHPad = leftPadH != 0 || rightPadH != 0;
     bool hasWPad = leftPadW != 0 || rightPadW != 0;
@@ -318,8 +326,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
                          {dilationW, strideW});
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
-    Value embedded =
-        b.create<TransformOp>(loc, firstTransformed, embedTransformAttr);
+    Value embedded = b.create<miopen::TransformOp>(loc, firstTransformed,
+                                                   embedTransformAttr);
 
     // Merge N1HoWO to gemmK and CYX to gemmN
     auto gemmTransform =
@@ -329,7 +337,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     gemmTransform.merge("gemmN", 2, {"ci", "y", "x"});
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
-    gemmInput = b.create<TransformOp>(loc, embedded, gemmTransformAttr);
+    gemmInput = b.create<miopen::TransformOp>(loc, embedded, gemmTransformAttr);
   }
 
   // Transform output tensor
@@ -344,7 +352,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
 
     TransformMapAttr firstTransformAttr = firstTransform.get();
     Value transformed =
-        b.create<TransformOp>(loc, op.output(), firstTransformAttr);
+        b.create<miopen::TransformOp>(loc, op.output(), firstTransformAttr);
 
     // Map G and N0 to gemmG, N1HW to gemmK and K to gemmM
     auto gemmTransform =
@@ -354,7 +362,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     gemmTransform.passThrough({"gemmM"}, {2}, {"ko"});
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
-    gemmOutput = b.create<TransformOp>(loc, transformed, gemmTransformAttr);
+    gemmOutput =
+        b.create<miopen::TransformOp>(loc, transformed, gemmTransformAttr);
   }
 
   // Set attributes for gridwise_gemm op.
@@ -395,9 +404,9 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
       getBoundsCheckAttr(b, filterOobCheckDims, filterShape.size());
 
   if (isXdlops) {
-    auto gop = b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, oobA, oobB,
-                                          oobC, paddingInfo, dataOperation,
-                                          gridwiseGemmAttrs);
+    auto gop = b.create<miopen::GridwiseGemmV2Op>(
+        loc, gemmA, gemmB, gemmC, oobA, oobB, oobC, paddingInfo, dataOperation,
+        gridwiseGemmAttrs);
     affixGridwiseGemmAttributes(op, gop, b);
   } else {
     op->emitOpError("Backward weight atomic add kernel requires xdlops and "
@@ -410,7 +419,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   return success();
 }
 
-LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
+LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
   auto loc = op.getLoc();
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
   auto archAttr = op->template getAttrOfType<StringAttr>("arch");
@@ -659,7 +668,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
 
     TransformMapAttr firstTransformAttr = firstTransform.get();
     Value firstTransformedFilter =
-        b.create<TransformOp>(loc, op.filter(), firstTransformAttr);
+        b.create<miopen::TransformOp>(loc, op.filter(), firstTransformAttr);
 
     // Take slices in the ydot, ytilda, xdot, and xtilda dimensions
     // to reflect which kernel we're performing
@@ -672,8 +681,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
                          {iYTilda, iXTilda}, {iYTilda + 1, iXTilda + 1});
 
     TransformMapAttr sliceTransformAttr = sliceTransform.get();
-    Value slicedFilter =
-        b.create<TransformOp>(loc, firstTransformedFilter, sliceTransformAttr);
+    Value slicedFilter = b.create<miopen::TransformOp>(
+        loc, firstTransformedFilter, sliceTransformAttr);
 
     // Set up gemm by passing g -> gemmG, merging
     // [k, ydotslice, xdotslice] to gemmK, and [c, ytildaslice, xtildaslice]
@@ -685,7 +694,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     gemmTransform.merge("gemmM", 2, {"c", "ytildaslice", "xtildaslice"});
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
-    gemmFilter = b.create<TransformOp>(loc, slicedFilter, gemmTransformAttr);
+    gemmFilter =
+        b.create<miopen::TransformOp>(loc, slicedFilter, gemmTransformAttr);
 
     // Filter padding
     bool filterCheckPadGemmM = (gemmMExtra > 0);
@@ -719,7 +729,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
 
       TransformMapAttr padTransformAttr = padTransform.get();
       // Replace filter gemm with padded version
-      gemmFilter = b.create<TransformOp>(loc, gemmFilter, padTransformAttr);
+      gemmFilter =
+          b.create<miopen::TransformOp>(loc, gemmFilter, padTransformAttr);
     }
   }
 
@@ -735,8 +746,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
                                {leftPadH, rightPadH, leftPadW, rightPadW});
 
     TransformMapAttr toGNCHWPaddedTransformAttr = toGNCHWPaddedTransform.get();
-    Value gnchwPaddedInput =
-        b.create<TransformOp>(loc, op.input(), toGNCHWPaddedTransformAttr);
+    Value gnchwPaddedInput = b.create<miopen::TransformOp>(
+        loc, op.input(), toGNCHWPaddedTransformAttr);
 
     // FIXME:  wTildaSlice > wo will let stride2 backwaed data kernel
     // fail, so when (wTildaSlice > wo),  h and w dim check is must but if
@@ -764,8 +775,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
                               "wipad", {dilationW, strideW});
 
     TransformMapAttr tildaEmbedTransformAttr = tildaEmbedTransform.get();
-    Value tildaEmbedded =
-        b.create<TransformOp>(loc, gnchwPaddedInput, tildaEmbedTransformAttr);
+    Value tildaEmbedded = b.create<miopen::TransformOp>(
+        loc, gnchwPaddedInput, tildaEmbedTransformAttr);
 
     // Slice all the tilda dimensions: ytilda and xtilda get slices of length
     // 1 while htilda and wtilda have slice indices computed above
@@ -781,7 +792,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
 
     TransformMapAttr sliceTransformAttr = sliceTransform.get();
     Value sliced =
-        b.create<TransformOp>(loc, tildaEmbedded, sliceTransformAttr);
+        b.create<miopen::TransformOp>(loc, tildaEmbedded, sliceTransformAttr);
 
     // C plus the length 1 slices (yslice and xslice) become the gemmM
     // dimension G, N, and the h and w slices become gemmN
@@ -792,7 +803,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     gemmTransform.merge("gemmN", 2, {"ni", "hslice", "wslice"});
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
-    gemmInput = b.create<TransformOp>(loc, sliced, gemmTransformAttr);
+    gemmInput = b.create<miopen::TransformOp>(loc, sliced, gemmTransformAttr);
 
     bool inputCheckPadGemmM = (gemmMExtra > 0);
     bool inputCheckPadGemmN = (gemmNExtra > 0);
@@ -825,7 +836,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
 
       TransformMapAttr padTransformAttr = padTransform.get();
       // Replace input gemm with padded version
-      gemmInput = b.create<TransformOp>(loc, gemmInput, padTransformAttr);
+      gemmInput =
+          b.create<miopen::TransformOp>(loc, gemmInput, padTransformAttr);
     }
   }
 
@@ -843,7 +855,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embedded =
-        b.create<TransformOp>(loc, op.output(), embedTransformAttr);
+        b.create<miopen::TransformOp>(loc, op.output(), embedTransformAttr);
 
     if (y > 1) {
       if (!((leftPadH == rightPadH) && (y - leftPadH == 1))) {
@@ -869,7 +881,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
                          {iHTildaRight, iWTildaRight});
 
     TransformMapAttr sliceTransformAttr = sliceTransform.get();
-    Value sliced = b.create<TransformOp>(loc, embedded, sliceTransformAttr);
+    Value sliced =
+        b.create<miopen::TransformOp>(loc, embedded, sliceTransformAttr);
 
     // Merge k, yslice, and xslice to gemmK and n, hslice, and wslice to gemmN
     auto gemmTransform =
@@ -879,7 +892,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     gemmTransform.merge("gemmN", 2, {"no", "hslice", "wslice"});
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
-    gemmOutput = b.create<TransformOp>(loc, sliced, gemmTransformAttr);
+    gemmOutput = b.create<miopen::TransformOp>(loc, sliced, gemmTransformAttr);
 
     bool outputCheckPadGemmK = (gemmKExtra > 0);
     bool outputCheckPadGemmN = (gemmNExtra > 0);
@@ -912,7 +925,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
 
       TransformMapAttr padTransformAttr = padTransform.get();
       // Replace output gemm with padded version
-      gemmOutput = b.create<TransformOp>(loc, gemmOutput, padTransformAttr);
+      gemmOutput =
+          b.create<miopen::TransformOp>(loc, gemmOutput, padTransformAttr);
     }
   }
 
@@ -967,13 +981,14 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   // Emit miopen.gridwise_gemm op.
   // Emit miopen.gridwise_gemm_v2 if using xdlops
   if (isXdlops) {
-    auto gop = b.create<GridwiseGemmV2Op>(
+    auto gop = b.create<miopen::GridwiseGemmV2Op>(
         loc, gemmA, gemmB, gemmC, oobA, oobB, oobC, paddingInfo,
         InMemoryDataOperation::Set, gridwiseGemmAttrs);
     affixGridwiseGemmAttributes(op, gop, b);
   } else {
-    auto gop = b.create<GridwiseGemmOp>(loc, gemmA, gemmB, gemmC, oobA, oobB,
-                                        oobC, paddingInfo, gridwiseGemmAttrs);
+    auto gop =
+        b.create<miopen::GridwiseGemmOp>(loc, gemmA, gemmB, gemmC, oobA, oobB,
+                                         oobC, paddingInfo, gridwiseGemmAttrs);
     affixGridwiseGemmAttributes(op, gop, b);
   }
   // Finally, erase the original Conv2D op.
@@ -982,677 +997,77 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   return success();
 }
 
-template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
-  const static ArgumentFields fields;
-  const static ConvOpType convOpType;
-  using OpRewritePattern<T>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
-    bool isXdlops = false;
-    auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
-      isXdlops = true;
-    auto dataType =
-        op.input().getType().template cast<MemRefType>().getElementType();
-    if (ConvOpType::BwdData == convOpType) {
-      return backwardData(cast<Conv2DBwdDataOp>(op), b);
-    }
-    auto loc = op.getLoc();
-
-    auto archAttr = op->template getAttrOfType<StringAttr>("arch");
-    auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
-
-    auto filterLayoutAttr =
-        op->template getAttrOfType<ArrayAttr>("filter_layout");
-    auto inputLayoutAttr =
-        op->template getAttrOfType<ArrayAttr>("input_layout");
-    auto outputLayoutAttr =
-        op->template getAttrOfType<ArrayAttr>("output_layout");
-
-    auto dilationsAttr = op->template getAttrOfType<ArrayAttr>("dilations");
-    auto stridesAttr = op->template getAttrOfType<ArrayAttr>("strides");
-    auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
-
-    // Get shape of filter tensor.
-    auto filterType = op.filter().getType().template cast<MemRefType>();
-    auto filterShape = filterType.getShape();
-
-    // Get shape of input tensor.
-    auto inputType = op.input().getType().template cast<MemRefType>();
-    auto inputShape = inputType.getShape();
-
-    // Get shape of output tensor.
-    auto outputType = op.output().getType().template cast<MemRefType>();
-    auto outputShape = outputType.getShape();
-
-    // Obtain convolution parameters: padding / dialtion / stride.
-    int64_t leftPadH =
-        paddingAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-    int64_t leftPadW =
-        paddingAttr.getValue()[2].template cast<IntegerAttr>().getInt();
-    int64_t rightPadH =
-        paddingAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-    int64_t rightPadW =
-        paddingAttr.getValue()[3].template cast<IntegerAttr>().getInt();
-
-    int64_t dilationH =
-        dilationsAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-    int64_t dilationW =
-        dilationsAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-    int64_t strideH =
-        stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-    int64_t strideW =
-        stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-
-    // get y, x, ho, wo, hi, wi, k, c, n
-    int64_t y, x, ho, wo, hi, wi, k, c, n;
-    y = x = ho = wo = hi = wi = k = c = n = 0;
-    llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
-    for (uint32_t i = 0; i < filterLayoutAttr.size(); ++i) {
-      auto filterAttr =
-          filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-      auto inputAttr =
-          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-      auto outputAttr =
-          outputLayoutAttr.getValue()[i].template cast<StringAttr>();
-
-      filterNames.push_back(filterAttr.getValue());
-      inputNames.push_back(inputAttr.getValue());
-      outputNames.push_back(outputAttr.getValue());
-
-      if (filterAttr.getValue() == "y") {
-        y = filterShape[i];
-      } else if (filterAttr.getValue() == "x") {
-        x = filterShape[i];
-      } else if (filterAttr.getValue() == "k") {
-        k = filterShape[i];
-      } else if (filterAttr.getValue() == "c") {
-        c = filterShape[i];
-      }
-
-      if (inputAttr.getValue() == "hi") {
-        hi = inputShape[i];
-      } else if (inputAttr.getValue() == "wi") {
-        wi = inputShape[i];
-      } else if (inputAttr.getValue() == "ni") {
-        n = inputShape[i];
-      }
-
-      if (outputAttr.getValue() == "ho") {
-        ho = outputShape[i];
-      } else if (outputAttr.getValue() == "wo") {
-        wo = outputShape[i];
-      }
-    }
-
-    if (failed(
-            checkNames(filterNames, {"k", "g", "c", "y", "x"}, "filter", op)) ||
-        failed(checkNames(inputNames, {"ni", "gi", "ci", "hi", "wi"}, "input",
-                          op)) ||
-        failed(checkNames(outputNames, {"no", "go", "ko", "ho", "wo"}, "output",
-                          op))) {
-      return failure();
-    }
-
-    int64_t gemmMSize, gemmNSize, gemmKSize;
-    int64_t gemmMExtra, gemmNExtra, gemmKExtra;
-    gemmMSize = gemmNSize = gemmKSize = 0;
-    gemmMExtra = gemmNExtra = gemmKExtra = 0;
-    // compute we should use extra padding kernel or not
-    // c,k already / g ,so we can skip / g here
-    switch (convOpType) {
-    case ConvOpType::Fwd:
-      gemmMSize = k;
-      gemmKSize = c * y * x;
-      gemmNSize = n * ho * wo;
-      break;
-    case ConvOpType::BwdData:
-      gemmMSize = c;
-      gemmKSize = k * y * x;
-      gemmNSize = n * ho * wo;
-      break;
-    case ConvOpType::BwdWeight:
-      gemmMSize = k;
-      gemmKSize = n * ho * wo;
-      gemmNSize = c * y * x;
-      break;
-    }
-
-    bool needExtraPad = false;
-
-    auto calculatePaddingKernelSize = [&needExtraPad, gemmMSize, gemmNSize,
-                                       gemmKSize, &gemmMExtra, &gemmNExtra,
-                                       &gemmKExtra](auto populateParams) {
-      auto configParams = populateParams.getTuningParameters();
-      size_t numOfFailedConfigs = 0;
-      for (auto &params : configParams) {
-        if (gemmMSize % params.gemmMPerBlock == 0 &&
-            gemmKSize % params.gemmKPerBlock == 0 &&
-            gemmNSize % params.gemmNPerBlock == 0) {
-          break;
-        }
-        numOfFailedConfigs++;
-      }
-
-      auto extraParams = populateParams.getUniversalParameters();
-      if (numOfFailedConfigs == configParams.size()) {
-        needExtraPad = true;
-        int64_t gemmMRemain, gemmKRemain, gemmNRemain;
-
-        gemmMRemain = gemmMSize % extraParams.gemmMPerBlock;
-        if (gemmMRemain != 0)
-          gemmMExtra = extraParams.gemmMPerBlock - gemmMRemain;
-
-        gemmNRemain = gemmNSize % extraParams.gemmNPerBlock;
-        if (gemmNRemain != 0)
-          gemmNExtra = extraParams.gemmNPerBlock - gemmNRemain;
-
-        gemmKRemain = gemmKSize % extraParams.gemmKPerBlock;
-        if (gemmKRemain != 0)
-          gemmKExtra = extraParams.gemmKPerBlock - gemmKRemain;
-
-        // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
-        // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
-      }
-    };
-
-    if (!isXdlops) {
-      PopulateParams populateParams;
-      calculatePaddingKernelSize(populateParams);
-    } else { // xdlops
-      PopulateParamsXDL populateParamsXDL;
-      calculatePaddingKernelSize(populateParamsXDL);
-    }
-
-    if (ConvOpType::BwdWeight == convOpType && isXdlops &&
-        dataType == b.getF32Type() && needExtraPad == false) {
-      // current backward weight with atomic_add can only run under xdlops +
-      // fp32
-      return backwardWeightAtomicAdd(cast<Conv2DBwdWeightOp>(op), b);
-    }
-
-    // Transform filter tensor.
-
-    // filter dims need oob check
-    OobCheckSet filterOobCheckDims;
-    // set layout attribute.
-    // Weight tensor transformation for Conv2DOp
-    // - PassThrough G dimension to dimension 0, name it gemmG.
-    // - Merge non-K dimensions to dimension 1, name it as gemmK.
-    //   Optimization: If non-K dimensions are consequetive, apply unfold.
-    // - PassThrough K dimension to dimension 2, name it as gemmM.
-    //
-    // Weight tensor transformation for Conv2DBwdWeightOp
-    // - PassThrough G dimension to dimension 0, name it gemmG
-    // - PassThrough K dimension to dimension 1, name it as gemmM.
-    // - Merge non-K dimensions to dimension 2, name it as gemmN.
-    SmallVector<StringRef, 5> filterNonKDims;
-    for (StringRef name : filterNames)
-      if (name != "g" && name != "k")
-        filterNonKDims.push_back(name);
-
-    BottomUpCTBuilder filterTransform(b, filterNames, filterShape, loc);
-    filterTransform.passThrough({"gemmG"}, {0}, {"g"});
-    bool isUnfold = filterTransform.startIndex("g") == 0 &&
-                    (filterTransform.startIndex("k") == 1 ||
-                     filterTransform.startIndex("k") == 4);
-    switch (convOpType) {
-    case ConvOpType::Fwd:
-      filterTransform.merge("gemmK", 1, filterNonKDims, isUnfold);
-      filterTransform.passThrough({"gemmM"}, {2}, {"k"});
-      break;
-    case ConvOpType::BwdWeight:
-      filterTransform.passThrough({"gemmM"}, {1}, {"k"});
-      filterTransform.merge("gemmN", 2, filterNonKDims, isUnfold);
-      break;
-    case ConvOpType::BwdData:
-      llvm_unreachable("Backward data has been sent elsewhere");
-      break;
-    }
-
-    TransformMapAttr filterTransformAttr = filterTransform.get();
-    Value gemmFilter =
-        b.create<TransformOp>(loc, op.filter(), filterTransformAttr);
-
-    Value gemmFilterPad = gemmFilter;
-
-    // filter pad start
-    // K:output channel, C:input channel,Y:filter height,X:filter width
-    // filter dim : K & merge(C,Y,X) , if C*Y*X is under 64 or 32
-    // we pad CYX to 32 or 64, then mlir can do gemm
-    // we add more one transform to do pad
-    bool filterCheckPadGemmM = false;
-    bool filterCheckPadGemmK = false;
-    bool filterCheckPadGemmN = false;
-    filterCheckPadGemmM =
-        (convOpType == ConvOpType::Fwd && gemmMExtra > 0) ||
-        (convOpType == ConvOpType::BwdWeight && gemmMExtra > 0);
-    filterCheckPadGemmK = (convOpType == ConvOpType::Fwd && gemmKExtra > 0);
-    filterCheckPadGemmN =
-        (convOpType == ConvOpType::BwdWeight && gemmNExtra > 0);
-    if (filterCheckPadGemmM || filterCheckPadGemmK || filterCheckPadGemmN) {
-      auto padGemmFilterTransform =
-          BottomUpCTBuilder::above(filterTransform, filterTransformAttr);
-      padGemmFilterTransform.passThrough("gemmG");
-
-      // Note that, when padding a gemm dimension that came from the non-K
-      // tensor dimensions, only the leading dimension is added to the oob check
-      // set, as adding all the dimensions historically led to miscompilation
-      if (filterCheckPadGemmK) {
-        padGemmFilterTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
-        filterOobCheckDims.insert(
-            filterTransform.startIndex(filterNonKDims[0]));
-      } else if (convOpType != ConvOpType::BwdWeight) {
-        // Backward weight has no GemmK on its filter
-        padGemmFilterTransform.passThrough("gemmK");
-      }
-
-      if (filterCheckPadGemmM) {
-        padGemmFilterTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
-        filterOobCheckDims.insert(filterTransform.startIndex("k"));
-      } else {
-        padGemmFilterTransform.passThrough("gemmM");
-      }
-
-      if (filterCheckPadGemmN) {
-        padGemmFilterTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
-        filterOobCheckDims.insert(
-            filterTransform.startIndex(filterNonKDims[0]));
-      } else if (convOpType != ConvOpType::Fwd) {
-        padGemmFilterTransform.passThrough("gemmN");
-      }
-
-      TransformMapAttr padGemmFilterTransformAttr =
-          padGemmFilterTransform.get();
-      gemmFilterPad =
-          b.create<TransformOp>(loc, gemmFilter, padGemmFilterTransformAttr);
-      // filter pad end
-    }
-
-    // Transform input tensor.
-    // Input tensor step 1: padded input.
-
-    OobCheckSet inputOobCheckDims;
-    // set layout attribute.
-    // Padded input tensor transformation:
-    // - Pass through ni, gi, and ci, not renaming them
-    // - Padd hi and wi as specified in padding attributes, renaming them to
-    // hipad and wipad
-    BottomUpCTBuilder padInputTransform(b, inputNames, inputShape, loc);
-    padInputTransform.passThrough("ni");
-    padInputTransform.passThrough("gi");
-    padInputTransform.passThrough("ci");
-
-    llvm::SmallVector<int64_t, 4> padArgs = {leftPadH, rightPadH, leftPadW,
-                                             rightPadW};
-    llvm::SmallVector<uint32_t, 2> padOutDims = {
-        padInputTransform.startIndex("hi"), padInputTransform.startIndex("wi")};
-    padInputTransform.pad({"hipad", "wipad"}, padOutDims, {"hi", "wi"},
-                          padArgs);
-    if (leftPadH || rightPadH) {
-      inputOobCheckDims.insert(padInputTransform.startIndex("hi"));
-    }
-    if (leftPadW || rightPadW) {
-      inputOobCheckDims.insert(padInputTransform.startIndex("wi"));
-    }
-
-    TransformMapAttr padInputTransformAttr = padInputTransform.get();
-
-    Value paddedInput =
-        b.create<TransformOp>(loc, op.input(), padInputTransformAttr);
-
-    // Input tensor step 2 : embedded input.
-    // Embedded input tensor transformation:
-    // - PassThrough gi, ni, and ci
-    // - Embed hipad to y and ho with size filter y by output h and
-    //   coefficients dilationH and strideH
-    // - Embed wipad to x and wo with size filter x by output h and
-    //   coefficients dilationW and strideW
-
-    llvm::SmallVector<StringRef, 5> paddedInputNames;
-    padInputTransform.getEndNames(paddedInputNames);
-    llvm::StringMap<uint32_t> embeddedInputDims;
-    for (uint32_t i = 0, newDim = 0, e = paddedInputNames.size(); i < e; ++i) {
-      StringRef name = paddedInputNames[i];
-      if (name == "hipad") {
-        embeddedInputDims.insert({"y", newDim++});
-        embeddedInputDims.insert({"ho", newDim++});
-      } else if (name == "wipad") {
-        embeddedInputDims.insert({"x", newDim++});
-        embeddedInputDims.insert({"wo", newDim++});
-      } else {
-        embeddedInputDims.insert({name, newDim++});
-      }
-    }
-
-    BottomUpCTBuilder embedInputTransform(
-        b, paddedInputNames, padInputTransformAttr.getUpperBounds(), loc);
-    embedInputTransform.passThrough({"ni", "gi", "ci"},
-                                    {embeddedInputDims["ni"],
-                                     embeddedInputDims["gi"],
-                                     embeddedInputDims["ci"]},
-                                    {"ni", "gi", "ci"});
-    embedInputTransform.embed({"y", "ho"},
-                              {embeddedInputDims["y"], embeddedInputDims["ho"]},
-                              {y, ho}, "hipad", {dilationH, strideH});
-    embedInputTransform.embed({"x", "wo"},
-                              {embeddedInputDims["x"], embeddedInputDims["wo"]},
-                              {x, wo}, "wipad", {dilationW, strideW});
-
-    TransformMapAttr embedInputTransformAttr = embedInputTransform.get();
-    Value embeddedInput =
-        b.create<TransformOp>(loc, paddedInput, embedInputTransformAttr);
-
-    // Input tensor step 3: GEMM'd input
-    //
-    // - PassThrough gi to dimension 0 and name it gemmG, then
-    // For Conv2DOp:
-    // - Merge ci, y, x dimensions to dimension 1, name it as gemmK.
-    // - Merge ni, ho, wo dimensions to dimension 2, name it as gemmN.
-    //
-    // For Conv2DBwdWeightOp:
-    // - Part 1: Merge ni, ho, wo dimensions to dimension 1, name it as gemmK.
-    // - Part 2: Merge ci, y, x dimensions to dimension 2, name it as gemmN.
-
-    auto gemmInputTransform =
-        BottomUpCTBuilder::above(embedInputTransform, embedInputTransformAttr);
-    gemmInputTransform.passThrough({"gemmG"}, {0}, {"gi"});
-
-    llvm::SmallVector<StringRef, 3> nonNHWDims = {"ci", "y", "x"};
-    std::sort(nonNHWDims.begin(), nonNHWDims.end(),
-              [&gemmInputTransform](const StringRef &v1,
-                                    const StringRef &v2) -> bool {
-                return gemmInputTransform.startIndex(v1) <
-                       gemmInputTransform.startIndex(v2);
-              });
-
-    llvm::SmallVector<StringRef, 3> mergeToK, mergeToN;
-    switch (convOpType) {
-    case ConvOpType::Fwd:
-      mergeToK = std::move(nonNHWDims);
-      mergeToN = {"ni", "ho", "wo"};
-      break;
-    case ConvOpType::BwdWeight:
-      mergeToK = {"ni", "ho", "wo"};
-      mergeToN = std::move(nonNHWDims);
-      break;
-    case ConvOpType::BwdData:
-      llvm_unreachable("Backward data is in another function");
-    }
-    gemmInputTransform.merge("gemmK", 1, mergeToK);
-    gemmInputTransform.merge("gemmN", 2, mergeToN);
-
-    TransformMapAttr gemmInputTransformAttr = gemmInputTransform.get();
-    Value gemmInput =
-        b.create<TransformOp>(loc, embeddedInput, gemmInputTransformAttr);
-    Value gemmInputPad = gemmInput;
-
-    // input padding start
-    // input : NHW & CRS , if CRS is under 64 or 32
-    // we pad CRS to 32 or 64, then mlir can do gemm
-    // we add more one transform to do pad
-
-    // input forward : gemmK,gemmN
-    // backward weights: gemmK,gemmN
-    // so we don't need to pad gemmK
-    bool inputCheckPadGemmK = false;
-    bool inputCheckPadGemmN = false;
-    inputCheckPadGemmK =
-        (convOpType == ConvOpType::Fwd && gemmKExtra > 0) ||
-        (convOpType == ConvOpType::BwdWeight && gemmKExtra > 0);
-    inputCheckPadGemmN =
-        (convOpType == ConvOpType::Fwd && gemmNExtra > 0) ||
-        (convOpType == ConvOpType::BwdWeight && gemmNExtra > 0);
-    if (inputCheckPadGemmK || inputCheckPadGemmN) {
-      auto padGemmInputTransform =
-          BottomUpCTBuilder::above(gemmInputTransform, gemmInputTransformAttr);
-
-      padGemmInputTransform.passThrough("gemmG");
-      if (inputCheckPadGemmK) {
-        padGemmInputTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
-
-        // Forward convolution has a K made from c and parts of w and h
-        // while backward weights have n and parts of w and h
-        inputOobCheckDims.insert(padInputTransform.startIndex("hi"));
-        inputOobCheckDims.insert(padInputTransform.startIndex("wi"));
-
-        inputOobCheckDims.insert(padInputTransform.startIndex(
-            convOpType == ConvOpType::Fwd ? "ci" : "ni"));
-      } else {
-        padGemmInputTransform.passThrough("gemmK");
-      }
-
-      if (inputCheckPadGemmN) {
-        padGemmInputTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
-
-        // Forward convolution has a N made from n and parts of w and h
-        // while backward weights have c and parts of w and h
-        inputOobCheckDims.insert(padInputTransform.startIndex("hi"));
-        inputOobCheckDims.insert(padInputTransform.startIndex("wi"));
-
-        inputOobCheckDims.insert(padInputTransform.startIndex(
-            convOpType == ConvOpType::Fwd ? "ni" : "ci"));
-      } else {
-        padGemmInputTransform.passThrough("gemmN");
-      }
-
-      TransformMapAttr padGemmInputTransformAttr = padGemmInputTransform.get();
-      gemmInputPad =
-          b.create<TransformOp>(loc, gemmInput, padGemmInputTransformAttr);
-      // input padding end
-    }
-
-    // Transform output tensor.
-    OobCheckSet outputOobCheckDims;
-    // - PassThrough G to dimmension 0, name it gemmG, then
-    // Output tensor transformation for Conv2DOp:
-    // - PassThrough K dimension to dimension 1, named gemmM
-    // - Merge non-K dimensions to dimension2, named gemmN
-
-    // Output tensor transformation for backward weight:
-    // - Merge non-K dimensions to dimension 1, named gemmK
-    // - PassThrough K dimension to dimension 2, name it gemmM
-    SmallVector<StringRef, 5> outputNonKDims;
-    for (StringRef name : outputNames)
-      if (name != "go" && name != "ko")
-        outputNonKDims.push_back(name);
-
-    BottomUpCTBuilder outputTransform(b, outputNames, outputShape, loc);
-    outputTransform.passThrough({"gemmG"}, {0}, {"go"});
-    switch (convOpType) {
-    case ConvOpType::Fwd:
-      outputTransform.passThrough({"gemmM"}, {1}, {"ko"});
-      outputTransform.merge("gemmN", 2, outputNonKDims);
-      break;
-    case ConvOpType::BwdWeight:
-      outputTransform.merge("gemmK", 1, outputNonKDims);
-      outputTransform.passThrough({"gemmM"}, {2}, {"ko"});
-      break;
-    case ConvOpType::BwdData:
-      llvm_unreachable("Backward data has been sent elsewhere");
-      break;
-    }
-
-    TransformMapAttr outputTransformAttr = outputTransform.get();
-    Value gemmOutput =
-        b.create<TransformOp>(loc, op.output(), outputTransformAttr);
-    Value gemmOutputPad = gemmOutput;
-
-    // output padding start
-    // output matrix dim: K & NHW
-    // when backward weight , GEMMK = NHW
-    // N:batch size, H:output height ,W:output width
-    // If size of N*h*w is under 32 or 64 ,we pad it to 32 or 64
-    // then mlir can do gemm
-    // we just add more one transform to do it
-
-    bool outputCheckPadGemmK = false;
-    bool outputCheckPadGemmM = false;
-    bool outputCheckPadGemmN = false;
-    outputCheckPadGemmK =
-        (convOpType == ConvOpType::BwdWeight && gemmKExtra > 0);
-    outputCheckPadGemmM =
-        (convOpType == ConvOpType::BwdWeight && gemmMExtra > 0) ||
-        (convOpType == ConvOpType::Fwd && gemmMExtra > 0);
-    outputCheckPadGemmN = (convOpType == ConvOpType::Fwd && gemmNExtra > 0);
-    if (outputCheckPadGemmK || outputCheckPadGemmM || outputCheckPadGemmN) {
-      auto padGemmOutputTransform =
-          BottomUpCTBuilder::above(outputTransform, outputTransformAttr);
-      padGemmOutputTransform.passThrough("gemmG");
-
-      if (outputCheckPadGemmK) {
-        padGemmOutputTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
-        // Unlike in the filter case, add all the dimensions to the oob check
-        // since this is loading data during backward weights, not storing it
-        outputOobCheckDims.insert(outputTransform.startIndex("no"));
-        outputOobCheckDims.insert(outputTransform.startIndex("ho"));
-        outputOobCheckDims.insert(outputTransform.startIndex("wo"));
-      } else if (convOpType != ConvOpType::Fwd) {
-        padGemmOutputTransform.passThrough("gemmK");
-      }
-
-      if (outputCheckPadGemmM) {
-        padGemmOutputTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
-        // For the cases considered in this function, the m dimension of the
-        // gemm is always the k dimension of the output tensor
-        outputOobCheckDims.insert(outputTransform.startIndex("ko"));
-      } else {
-        padGemmOutputTransform.passThrough("gemmM");
-      }
-
-      if (outputCheckPadGemmN) {
-        padGemmOutputTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
-        // As in the filter case with backward weight, set only the outermost
-        // dimension of the output tensor for OOB checks or else extra 0s will
-        // appear in the output
-        outputOobCheckDims.insert(
-            outputTransform.startIndex(outputNonKDims[0]));
-      } else if (convOpType != ConvOpType::BwdWeight) {
-        padGemmOutputTransform.passThrough("gemmN");
-      }
-
-      TransformMapAttr padGemmOutputTransformAttr =
-          padGemmOutputTransform.get();
-      gemmOutputPad =
-          b.create<TransformOp>(loc, gemmOutput, padGemmOutputTransformAttr);
-      // output padding end
-    }
-
-    // Set attributes for gridwise_gemm op.
-    llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
-        b.getNamedAttr("arch", archAttr),
-        b.getNamedAttr("num_cu", numCuAttr),
-    };
-
-    // xdlopsV2.
-    if (isXdlops)
-      gridwiseGemmAttrs.push_back(
-          b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
-
-    if (convOpType == ConvOpType::BwdData) {
-      gridwiseGemmAttrs.push_back(b.getNamedAttr(
-          "kernel_algorithm", b.getStringAttr("backward_data_v1r1")));
-    } else if (convOpType == ConvOpType::Fwd) {
-      gridwiseGemmAttrs.push_back(
-          b.getNamedAttr("kernel_algorithm", b.getStringAttr("v4r4")));
-    } else if (convOpType == ConvOpType::BwdWeight) {
-      gridwiseGemmAttrs.push_back(b.getNamedAttr(
-          "kernel_algorithm", b.getStringAttr("backward_weight_v4r4")));
-    }
-
-    // Gather up OOB check attribute arrays
-    ArrayAttr filterOobAttr =
-        getBoundsCheckAttr(b, filterOobCheckDims, filterShape.size());
-    ArrayAttr inputOobAttr =
-        getBoundsCheckAttr(b, inputOobCheckDims, inputShape.size());
-    ArrayAttr outputOobAttr =
-        getBoundsCheckAttr(b, outputOobCheckDims, outputShape.size());
-
-    SmallVector<Value, 3> arguments = {gemmFilterPad, gemmInputPad,
-                                       gemmOutputPad};
-    SmallVector<ArrayAttr, 3> oobs = {filterOobAttr, inputOobAttr,
-                                      outputOobAttr};
-
-    Value gemmA, gemmB, gemmC;
-    ArrayAttr oobA, oobB, oobC;
-    gemmA = arguments[fields.gridwiseGemmArgumentPosition[0]];
-    oobA = oobs[fields.gridwiseGemmArgumentPosition[0]];
-    gemmB = arguments[fields.gridwiseGemmArgumentPosition[1]];
-    oobB = oobs[fields.gridwiseGemmArgumentPosition[1]];
-    gemmC = arguments[fields.gridwiseGemmArgumentPosition[2]];
-    oobC = oobs[fields.gridwiseGemmArgumentPosition[2]];
-
-    // Create padding info attr
-    PaddingInfoAttr paddingInfo =
-        PaddingInfoAttr::get(b.getContext(), gemmMExtra, gemmKExtra, gemmNExtra,
-                             BwdPaddingKernelInfo::NA);
-
-    auto dataOp = InMemoryDataOperation::Set;
-    // Emit miopen.gridwise_gemm op.
-    // Emit miopen.gridwise_gemm_v2 if xdlopsV2 attribute is true.
-
-    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
-      auto gop =
-          b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, oobA, oobB, oobC,
-                                     paddingInfo, dataOp, gridwiseGemmAttrs);
-      affixGridwiseGemmAttributes(op, gop, b);
-    } else {
-      auto gop = b.create<GridwiseGemmOp>(loc, gemmA, gemmB, gemmC, oobA, oobB,
-                                          oobC, paddingInfo, gridwiseGemmAttrs);
-      affixGridwiseGemmAttributes(op, gop, b);
-    }
-
-    // Finally, erase the original Conv2D op.
-    op.erase();
-
-    return success();
-  }
-};
-
-template <>
-const ArgumentFields Conv2DRewritePattern<Conv2DOp>::fields = {
-    {0, 1, 2},
-    {"KM", "KN", "MN"},
-};
-template <>
-const ConvOpType Conv2DRewritePattern<Conv2DOp>::convOpType = ConvOpType::Fwd;
-
-template <>
-const ArgumentFields Conv2DRewritePattern<Conv2DBwdDataOp>::fields = {
-    {0, 2, 1},
-    {"KM", "MN", "KN"},
-};
-
-template <>
-const ConvOpType Conv2DRewritePattern<Conv2DBwdDataOp>::convOpType =
-    ConvOpType::BwdData;
-
-template <>
-const ArgumentFields Conv2DRewritePattern<Conv2DBwdWeightOp>::fields = {
-    {2, 1, 0},
-    {"MN", "KN", "KM"},
-};
-
-template <>
-const ConvOpType Conv2DRewritePattern<Conv2DBwdWeightOp>::convOpType =
-    ConvOpType::BwdWeight;
-
-// Explicitly instantiate the template to operation type
-template struct Conv2DRewritePattern<Conv2DOp>;
-template struct Conv2DRewritePattern<Conv2DBwdDataOp>;
-template struct Conv2DRewritePattern<Conv2DBwdWeightOp>;
-
 void LowerMIOpenOpsStep1Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   OwningRewritePatternList patterns(ctx);
-  patterns.insert<Conv2DRewritePattern<Conv2DOp>>(ctx);
-  patterns.insert<Conv2DRewritePattern<Conv2DBwdDataOp>>(ctx);
-  patterns.insert<Conv2DRewritePattern<Conv2DBwdWeightOp>>(ctx);
+  patterns.insert<Conv2DRewritePattern<miopen::Conv2DOp>>(ctx);
+  patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdDataOp>>(ctx);
+  patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }
-} // end anonymous namespace
+
+void LowerMIOpenOpsStep2Pass::runOnOperation() {
+  MLIRContext *ctx = &getContext();
+  OwningRewritePatternList patterns(ctx);
+  patterns.insert<GridwiseGemmRewritePattern>(ctx);
+  patterns.insert<GridwiseGemmV2RewritePattern>(ctx);
+  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
+    signalPassFailure();
+}
+
+void LowerMIOpenOpsStep3Pass::runOnOperation() {
+  MLIRContext *ctx = &getContext();
+  OwningRewritePatternList patterns(ctx);
+  patterns.insert<FillRewritePattern>(ctx);
+  patterns.insert<TransformRewritePattern>(ctx);
+  patterns.insert<BlockwiseGemmRewritePattern>(ctx);
+  patterns.insert<BlockwiseGemmV2RewritePattern>(ctx);
+  patterns.insert<BlockwiseLoadRewritePattern>(ctx);
+  patterns.insert<BlockwiseStoreRewritePattern>(ctx);
+  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
+    signalPassFailure();
+}
+
+void LowerMIOpenOpsStep4Pass::runOnOperation() {
+  MLIRContext *ctx = &getContext();
+  OwningRewritePatternList patterns(ctx);
+  patterns.insert<InWarpTransposeRewritePattern>(ctx);
+  patterns.insert<ThreadwiseGemmRewritePattern>(ctx);
+  patterns.insert<ThreadwiseCopyRewritePattern>(ctx);
+  patterns.insert<ThreadwiseLoadRewritePattern>(ctx);
+  patterns.insert<ThreadwiseStoreRewritePattern>(ctx);
+  patterns.insert<ThreadwiseCopyV2RewritePattern>(ctx);
+  patterns.insert<XdlopsGemmV2RewritePattern>(ctx);
+  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
+    signalPassFailure();
+}
+
+void LowerMIOpenOpsStep5Pass::runOnOperation() {
+  MLIRContext *ctx = &getContext();
+  OwningRewritePatternList patterns(ctx);
+  populateAffineToStdConversionPatterns(patterns);
+  populateLoopToStdConversionPatterns(patterns);
+  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
+    signalPassFailure();
+}
 
 std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep1Pass() {
   return std::make_unique<LowerMIOpenOpsStep1Pass>();
+}
+
+std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep2Pass() {
+  return std::make_unique<LowerMIOpenOpsStep2Pass>();
+}
+
+std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep3Pass() {
+  return std::make_unique<LowerMIOpenOpsStep3Pass>();
+}
+
+std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep4Pass() {
+  return std::make_unique<LowerMIOpenOpsStep4Pass>();
+}
+
+std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep5Pass() {
+  return std::make_unique<LowerMIOpenOpsStep5Pass>();
 }

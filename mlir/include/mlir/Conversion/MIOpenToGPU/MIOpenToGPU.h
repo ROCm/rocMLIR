@@ -25,8 +25,17 @@ class Pass;
 template <typename T>
 class OperationPass;
 
+namespace gpu {
+class GPUModuleOp;
+} // namespace gpu
+
 /// Create a pass to convert MIOpen operations to std operations.
 std::unique_ptr<OperationPass<ModuleOp>> createLowerMIOpenOpsToGPUPass();
+
+/// Create a pass to convert MIOpen operations to std/gpu operations within a
+/// GPUModule.
+std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
+createLowerMIOpenOpsWithinGPUModulePass();
 
 } // namespace mlir
 
