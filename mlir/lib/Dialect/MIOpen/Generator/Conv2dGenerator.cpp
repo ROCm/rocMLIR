@@ -27,17 +27,17 @@ using namespace mlir;
 
 Conv2dGenerator::Conv2dGenerator(
     const std::string &chip, const std::string &triple,
-    const std::string &features, const std::string &perfConfig, int num_cu,
-    bool xdlops, const miopen::ConvOpType operation,
+    const std::string &features, int num_cu, bool xdlops,
+    const Optional<miopen::ConvOpType> operation,
     const std::string &dataTypeStr, int dilationHeight, int dilationWidth,
     int strideHeight, int strideWidth, int paddingHeightLeft,
     int paddingHeightRight, int paddingWidthLeft, int paddingWidthRight,
     const std::string &filterLayout, const std::string &inputLayout,
-    const std::string &outputLayout, const std::string &kernelName)
+    const std::string &outputLayout, const std::string &kernelBaseName)
     : config{chip,
              triple,
              features,
-             perfConfig,
+             "",
              num_cu,
              xdlops,
              operation,
@@ -53,13 +53,16 @@ Conv2dGenerator::Conv2dGenerator(
              filterLayout,
              inputLayout,
              outputLayout,
-             kernelName,
+             kernelBaseName,
              -1,
              {},
              {},
              {},
              -1,
              -1} {}
+
+Conv2dGenerator::Conv2dGenerator(const Conv2dGenerator::Config &_config)
+    : config(_config) {}
 
 namespace {
 
@@ -267,7 +270,8 @@ int Conv2dGenerator::getKernelCount() const {
   if (config.kernelId > 0) { // generate only 1 specified kernel
     return 1;
   }
-  switch (config.operation) {
+  assert(config.operation.hasValue());
+  switch (config.operation.getValue()) {
   case miopen::ConvOpType::BwdData:
     return getBwdDataKernelCount();
   case miopen::ConvOpType::Fwd:
@@ -394,7 +398,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   strToInt("padding_w", config.paddingWidthLeft);
   strToInt("padding_w", config.paddingWidthRight);
 
-  strToStr("kernel_name", config.kernelName);
+  strToStr("kernel_name", config.kernelBaseName);
 
   // MIOpen has NCHW as layout string for all three tensors
   config.inputLayout = translateLayout(
@@ -471,20 +475,20 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
   }
 
   // Determine kernel name, if there isn't one.
-  if (config.kernelName.empty()) {
-    int id = std::max(config.kernelId, 0);
-    config.kernelName = (llvm::Twine("miopen_") +
-                         miopen::getNameForConvOpType(config.operation) + "_" +
-                         config.filterLayout + "_" + config.inputLayout + "_" +
-                         config.outputLayout + "_" + std::to_string(id))
-                            .str();
+  if (config.kernelBaseName.empty()) {
+    assert(config.operation.hasValue());
+    auto opType = config.operation.getValue();
+    config.kernelBaseName = std::string("miopen_") +
+                            miopen::getNameForConvOpType(opType).str() + "_" +
+                            config.filterLayout + "_" + config.inputLayout +
+                            "_" + config.outputLayout;
   }
 
   return success();
 }
 
-void Conv2dGenerator::setKernelName(std::string newName) {
-  config.kernelName = newName;
+void Conv2dGenerator::setKernelName(const std::string &newName) {
+  config.kernelBaseName = newName;
 }
 
 void Conv2dGenerator::setDataType(std::string newType) {
@@ -493,13 +497,9 @@ void Conv2dGenerator::setDataType(std::string newType) {
 
 void Conv2dGenerator::flipXdlops() { config.xdlops = !config.xdlops; }
 
-LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
-                                             int kernel_id) {
+LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
+                                             bool is_verifier) {
   OpBuilder builder(module.getContext());
-
-  if (kernel_id == -1) {
-    kernel_id = std::max(config.kernelId, 0);
-  }
 
   Type dataType = getDataType(builder);
   if (!dataType) {
@@ -522,19 +522,30 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
   auto funcType =
       builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
 
-  std::string kernelName = config.kernelName;
+  std::string kernelName = config.kernelBaseName;
+  if (is_verifier) {
+    kernelName += "_ver";
+  }
+
+  FuncOp func = module.lookupSymbol<FuncOp>(kernelName);
+  if (func) {
+    assert(func.isDeclaration());
+    func.erase();
+  }
+
   // Annotate kernel attribute to the FuncOp.
   SmallVector<NamedAttribute, 1> kernelAttrs{
       builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernel_id)),
   };
 
   // Construct the FuncOp.
-  auto func = FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
-                             ArrayRef<NamedAttribute>(kernelAttrs));
+  func = FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
+                        ArrayRef<NamedAttribute>(kernelAttrs));
   module.push_back(func);
   if (func.getName() != kernelName) {
     return failure();
   }
+  kernelFunc = func;
 
   // Construct a new Block.
   Block *block = func.addEntryBlock();
@@ -593,7 +604,8 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
     attributes.push_back(
         builder.getNamedAttr("xdlopsV2", builder.getBoolAttr(true)));
 
-  switch (config.operation) {
+  assert(config.operation.hasValue());
+  switch (config.operation.getValue()) {
   case miopen::ConvOpType::Fwd: {
     auto convOp = builder.create<miopen::Conv2DOp>(
         builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
@@ -626,3 +638,5 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module,
 
   return success();
 }
+
+FuncOp Conv2dGenerator::getKernelFunc() const { return kernelFunc; }
