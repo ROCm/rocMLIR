@@ -59,12 +59,6 @@ static cl::opt<bool>
                cl::desc("input is in the MLIR LLVM/ROCDL dialect"),
                cl::init(false));
 
-static cl::opt<bool>
-    dumpAsm("dump-asm",
-            cl::desc("Whether to dump the assembly or intermediate "
-                     "IR during GPU kernel convolution"),
-            cl::init(false));
-
 namespace test {
 void registerTestDialect(DialectRegistry &);
 } // namespace test
@@ -95,8 +89,7 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
                                         /*runtime=*/gpu::amd::Runtime::HIP));
   }
   kernelPm.addPass(createGpuSerializeToHsacoPass(
-      utils.getTriple(), utils.getChip(), utils.getFeatures(), optLevel,
-      dumpAsm.getValue()));
+      utils.getTriple(), utils.getChip(), utils.getFeatures(), optLevel));
   auto &funcPm = pm.nest<FuncOp>();
   funcPm.addPass(createGpuAsyncRegionPass());
   funcPm.addPass(createConvertMathToLLVMPass());
