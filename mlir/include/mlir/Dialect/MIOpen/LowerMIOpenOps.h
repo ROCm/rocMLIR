@@ -2209,11 +2209,6 @@ template <typename T, typename U>
 void affixBlockwiseCopyAttributes(T &bop, U &gop, OpBuilder &b, int vectorDim,
                                   int blockwiseLoadLength,
                                   int blockwiseStoreLength) {
-  int64_t KPack =
-      gop->hasAttr("kpack")
-          ? gop->getAttr("kpack").template cast<IntegerAttr>().getInt()
-          : 1;
-
   bop->setAttr("block_size", gop->getAttr("block_size"));
 
   bop->setAttr("source_vector_read_dim", b.getI32IntegerAttr(vectorDim));

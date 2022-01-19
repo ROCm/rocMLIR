@@ -203,8 +203,8 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
   auto strideW =
       stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
   // get y, x, ho, wo, hi, wi
-  int64_t g, n, k, c, y, x, ho, wo, hi, wi;
-  g = n = k = c = y = x = ho = wo = hi = wi = 0;
+  int64_t n, k, c, y, x, ho, wo, hi, wi;
+  n = k = c = y = x = ho = wo = hi = wi = 0;
   llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
   for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
     auto filterAttr =
@@ -218,7 +218,6 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
     outputNames.push_back(outputAttr.getValue());
 
     if (filterAttr.getValue() == "g") {
-      g = filterShape[i];
     } else if (filterAttr.getValue() == "k") {
       k = filterShape[i];
     } else if (filterAttr.getValue() == "c") {
