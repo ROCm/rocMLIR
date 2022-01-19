@@ -56,7 +56,7 @@ public:
   }
 
   LogicalResult
-  matchAndRewrite(migraphx::ConvolutionOp op, migraphx::ConvolutionOp adaptor,
+  matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto operands = adaptor.getOperands();
     auto loc = op->getLoc();
