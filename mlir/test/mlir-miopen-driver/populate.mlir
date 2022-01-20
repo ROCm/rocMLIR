@@ -1,6 +1,6 @@
-// RUN: mlir-miopen-driver -p | FileCheck %s --check-prefix=F32
-// RUN: mlir-miopen-driver -p -t f16 | FileCheck %s --check-prefix=F16
-// RUN: mlir-miopen-driver -p -t bf16 | FileCheck %s --check-prefix=BF16
+// RUN: miopen-gen -p | FileCheck %s --check-prefix=F32
+// RUN: miopen-gen -p -t f16 | FileCheck %s --check-prefix=F16
+// RUN: miopen-gen -p -t bf16 | FileCheck %s --check-prefix=BF16
 
 // F32-LABEL: module
 // F32-NEXT: func @miopen_conv2d_gkcyx_ngchw_ngkhw_0({{.*}}: memref<1x128x8x3x3xf32>, {{.*}}: memref<128x1x8x32x32xf32>, {{.*}}: memref<128x1x128x30x30xf32>) attributes {kernel = 0 : i32}

@@ -248,11 +248,11 @@ inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc, Type type) {
     if (auto intType = elementType.dyn_cast<IntegerType>()) {
       auto intZero = zero.bitcastToAPInt();
       assert(intType.getIntOrFloatBitWidth() == intZero.getBitWidth());
-      retValue =
-          b.create<mlir::ConstantOp>(loc, b.getIntegerAttr(intType, intZero), type);
+      retValue = b.create<mlir::ConstantOp>(
+          loc, b.getIntegerAttr(intType, intZero), type);
     } else {
-      retValue =
-          b.create<mlir::ConstantOp>(loc, b.getFloatAttr(elementType, zero), type);
+      retValue = b.create<mlir::ConstantOp>(
+          loc, b.getFloatAttr(elementType, zero), type);
     }
   }
 
@@ -299,8 +299,9 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
           auto iterIndex = b.create<ConstantIndexOp>(loc, iter);
           srcLowerIndicesUpdated[dim] =
               b.create<AddIOp>(loc, srcLowerIndices[dim], iterIndex);
-          auto loadedElement = b.create<memref::LoadOp>(loc, elementType, source,
-                                                srcLowerIndicesUpdated);
+          auto loadedElement = b.create<memref::LoadOp>(
+              loc, elementType, source, srcLowerIndicesUpdated);
+
           loadedVector = b.create<vector::InsertElementOp>(
               loc, loadedVectorType, loadedElement, loadedVector, iterIndex);
         }
@@ -308,7 +309,8 @@ inline Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
       }
     } else {
       // Issue scalar load.
-      loadedValue = b.create<memref::LoadOp>(loc, loadedType, source, srcLowerIndices);
+      loadedValue =
+          b.create<memref::LoadOp>(loc, loadedType, source, srcLowerIndices);
     }
     return loadedValue;
   };
@@ -470,7 +472,8 @@ emitStoreLogic(BwdPaddingKernelInfo bwdPaddingInfo, OpBuilder &b, Location loc,
               b.create<AddIOp>(loc, destLowerIndices[0], iterOp);
           auto element = b.create<vector::ExtractElementOp>(loc, elementType,
                                                             value, iterOp);
-          b.create<memref::StoreOp>(loc, element, dest, destLowerIndicesUpdated);
+          b.create<memref::StoreOp>(loc, element, dest,
+                                    destLowerIndicesUpdated);
         }
       }
     } else {
@@ -789,8 +792,8 @@ inline void emitNaiveTensorCopyLogic(
 
       // Load from source.
       // Issue scalar load.
-      Value scalarValue =
-          b.create<memref::LoadOp>(loc, sourceElementType, source, srcLowerIndices);
+      Value scalarValue = b.create<memref::LoadOp>(loc, sourceElementType,
+                                                   source, srcLowerIndices);
       srcUpperIndices[sourceCoord.size() - 1] = b.create<AddIOp>(
           loc, srcUpperIndices[sourceCoord.size() - 1], oneConstantOp);
       // Convert from sourceElementType to destElementType if necessary.
@@ -809,7 +812,8 @@ inline void emitNaiveTensorCopyLogic(
 
       // Store to dest.
       // Issue scalar store.
-      b.create<memref::StoreOp>(loc, convertedScalarValue, dest, destLowerIndices);
+      b.create<memref::StoreOp>(loc, convertedScalarValue, dest,
+                                destLowerIndices);
       destUpperIndices[destCoord.size() - 1] = b.create<AddIOp>(
           loc, destUpperIndices[destCoord.size() - 1], oneConstantOp);
 
@@ -1814,6 +1818,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     BottomUpCTBuilder padGemmInputTransform = gemmInputTransform;
     TransformMapAttr padGemmInputTransformAttr = gemmInputTransformAttr;
+
     Value gemmInputPad = gemmInput;
 
     // input padding start
@@ -2248,7 +2253,8 @@ inline Value reshapeBufferSubview(OpBuilder &b, Location loc, Value buffer,
   return ret;
 }
 
-struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemmOp> {
+struct GridwiseGemmRewritePattern
+    : public OpRewritePattern<miopen::GridwiseGemmOp> {
   using OpRewritePattern<miopen::GridwiseGemmOp>::OpRewritePattern;
 
   void computeLDSBlockSizes(miopen::GridwiseGemmOp op, int64_t &a_block_space,
@@ -2269,8 +2275,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
 
     int64_t max_lds_align =
         math_util::lcm(ABlockCopyDstDataPerWrite_M, BBlockCopyDstDataPerWrite_N,
-                  ThreadGemmAThreadCopySrcDataPerRead_M,
-                  ThreadGemmBThreadCopySrcDataPerRead_N);
+                       ThreadGemmAThreadCopySrcDataPerRead_M,
+                       ThreadGemmBThreadCopySrcDataPerRead_N);
 
     int64_t KPerBlock =
         op->getAttr("k_per_block").template cast<IntegerAttr>().getInt();
@@ -2332,7 +2338,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<miopen::GridwiseGemm
       bop->setAttr("kpack", gop->getAttr("kpack"));
   }
 
-  LogicalResult matchAndRewrite(miopen::GridwiseGemmOp op, PatternRewriter &b) const override {
+  LogicalResult matchAndRewrite(miopen::GridwiseGemmOp op,
+                                PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
     // Determine the type used in the filter/input/output tensors.
@@ -3286,8 +3293,8 @@ struct GridwiseGemmV2RewritePattern
             .template cast<IntegerAttr>()
             .getInt();
 
-    int64_t max_lds_align =
-        math_util::lcm(ABlockCopyDstDataPerWrite_M, BBlockCopyDstDataPerWrite_N);
+    int64_t max_lds_align = math_util::lcm(ABlockCopyDstDataPerWrite_M,
+                                           BBlockCopyDstDataPerWrite_N);
 
     int64_t KPerBlock =
         op->getAttr("k_per_block").template cast<IntegerAttr>().getInt();
@@ -4206,8 +4213,8 @@ struct GridwiseGemmV2RewritePattern
         /*blockwiseLoadLength=*/blockwiseLoadBVectorLength,
         /*blockwiseStoreLength=*/blockwiseStoreBVectorLength);
 
-    // LDS barrier : guarantees LDS update completion before reading out to register.
-    // requires LDS fence + barrier.
+    // LDS barrier : guarantees LDS update completion before reading out to
+    // register. requires LDS fence + barrier.
     mfmalb.create<miopen::LDSBarrierOp>(loc);
 
     // Emit blockwise V2 GEMM.
@@ -4219,7 +4226,8 @@ struct GridwiseGemmV2RewritePattern
     affixBlockwiseGemmV2Attributes(blockwiseGemmV2Op, op, MPerBlock, KPerBlock,
                                    NPerBlock, b);
 
-    // LDS barrier.
+    // LDS barrier : defer the next LDS update until this round's GEMM
+    // calculation is done. requires barrier only.
     mfmalb.create<miopen::LDSBarrierOp>(loc);
 
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
@@ -6473,7 +6481,8 @@ struct XdlopsGemmV2RewritePattern
     // llvm::errs() << "MPerWave: " << MPerWave << "\n";
     // llvm::errs() << "NPerWave: " << NPerWave << "\n";
 
-    XdlopsCodeSelection xcs = XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
+    XdlopsCodeSelection xcs =
+        XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 
     // Extract values from XdlopsCodeSelection.
     StringRef mfmaInstr = xcs.mfmaInstr;
@@ -6794,7 +6803,8 @@ struct XdlopsGemmV2RewritePattern
       //     const index_t blk_id = laneId / mfma_type.num_threads_blk;
       //     const index_t blk_td = laneId % mfma_type.num_threads_blk;
 
-      auto NumThreadsBlkConstantOp = b.create<ConstantIndexOp>(loc, num_threads_blk);
+      auto NumThreadsBlkConstantOp =
+          b.create<ConstantIndexOp>(loc, num_threads_blk);
       auto blk_id = b.create<DivUIOp>(loc, laneId, NumThreadsBlkConstantOp);
       auto blk_td = b.create<RemUIOp>(loc, laneId, NumThreadsBlkConstantOp);
 
@@ -6811,7 +6821,8 @@ struct XdlopsGemmV2RewritePattern
       auto loopKLoadIteration = K / num_input_blks;
       auto loopKLoad = b.create<AffineForOp>(loc, 0, loopKLoadIteration);
 
-      auto NumInputBlksConstantOp = b.create<ConstantIndexOp>(loc, num_input_blks);
+      auto NumInputBlksConstantOp =
+          b.create<ConstantIndexOp>(loc, num_input_blks);
 
       auto lklb = OpBuilder::atBlockTerminator(loopKLoad.getBody());
       auto lkliv = loopKLoad.getInductionVar();
