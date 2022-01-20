@@ -39,6 +39,24 @@ def ConvertMIOpenToGPU : Pass<"convert-miopen-to-gpu", "ModuleOp"> {
 }
 
 //===----------------------------------------------------------------------===//
+// MIOpenToGPU within an existing GPUModule
+//===----------------------------------------------------------------------===//
+
+def ConvertMIOpenWithinGPUModule : Pass<"test-miopen-lowering-gpu-module", "gpu::GPUModuleOp"> {
+  let summary = "Lower the operations from the MIOpen dialect within an "
+                "existing GPU module";
+  let constructor = "mlir::createLowerMIOpenOpsWithinGPUModulePass()";
+  let dependentDialects = [
+    "miopen::MIOpenDialect",
+    "AffineDialect",
+    "scf::SCFDialect",
+    "StandardOpsDialect",
+    "vector::VectorDialect",
+    "gpu::GPUDialect"
+  ];
+}
+
+//===----------------------------------------------------------------------===//
 // TosaToMIOpen
 //===----------------------------------------------------------------------===//
 
