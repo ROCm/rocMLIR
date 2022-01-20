@@ -1364,6 +1364,37 @@ LogicalResult checkNames(ArrayRef<StringRef> actual,
   return success();
 }
 
+inline llvm::StringMap<uint32_t>
+expandNamesInPlace(ArrayRef<StringRef> original,
+                   const llvm::StringMap<SmallVector<StringRef, 2>> expansion) {
+  uint32_t offset = 0;
+  llvm::StringMap<uint32_t> ret;
+  for (auto pair : llvm::enumerate(original)) {
+    uint32_t origIndex = pair.index();
+    StringRef origName = pair.value();
+    if (expansion.count(origName) != 0) {
+      for (auto newName : (*expansion.find(origName)).getValue()) {
+        bool insertResult = ret.insert({newName, origIndex + offset}).second;
+        assert(insertResult && "Duplicate dimension in dimension expansion");
+        offset++;
+      }
+      offset--; // Handle extra count and dropping a dimension
+    } else {
+      bool insertResult = ret.insert({origName, origIndex + offset}).second;
+      assert(insertResult && "Dimsion already defined by expansion");
+    }
+  }
+  return ret;
+}
+
+inline llvm::StringMap<uint32_t>
+expandNamesInPlace(CoordTransformsBuilder &builder,
+                   const llvm::StringMap<SmallVector<StringRef, 2>> expansion) {
+  SmallVector<StringRef, 8> names;
+  builder.getEndNames(names);
+  return expandNamesInPlace(names, expansion);
+}
+
 template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
   const static ArgumentFields fields;
   const static miopen::ConvOpType convOpType;
@@ -1728,24 +1759,10 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // - Embed wipad to x and wo with size filter x by output h and
     //   coefficients dilationW and strideW
 
-    llvm::SmallVector<StringRef, 5> paddedInputNames;
-    padInputTransform.getEndNames(paddedInputNames);
-    llvm::StringMap<uint32_t> embeddedInputDims;
-    for (uint32_t i = 0, newDim = 0, e = paddedInputNames.size(); i < e; ++i) {
-      StringRef name = paddedInputNames[i];
-      if (name == "hipad") {
-        embeddedInputDims.insert({"y", newDim++});
-        embeddedInputDims.insert({"ho", newDim++});
-      } else if (name == "wipad") {
-        embeddedInputDims.insert({"x", newDim++});
-        embeddedInputDims.insert({"wo", newDim++});
-      } else {
-        embeddedInputDims.insert({name, newDim++});
-      }
-    }
-
-    BottomUpCTBuilder embedInputTransform(
-        b, paddedInputNames, padInputTransformAttr.getUpperBounds(), loc);
+    llvm::StringMap<uint32_t> embeddedInputDims = expandNamesInPlace(
+        padInputTransform, {{"hipad", {"y", "ho"}}, {"wipad", {"x", "wo"}}});
+    BottomUpCTBuilder embedInputTransform =
+        BottomUpCTBuilder::above(padInputTransform, padInputTransformAttr);
     embedInputTransform.passThrough({"ni", "gi", "ci"},
                                     {embeddedInputDims["ni"],
                                      embeddedInputDims["gi"],

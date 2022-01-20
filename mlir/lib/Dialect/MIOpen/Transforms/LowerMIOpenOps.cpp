@@ -254,21 +254,23 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
   OobCheckSet filterOobCheckDims, inputOobCheckDims, outputOobCheckDims;
   // Transform filter tensor.
   {
+    SmallVector<StringRef, 5> nonKDims;
+    for (StringRef name : filterNames)
+      if (name != "g" && name != "k")
+        nonKDims.push_back(name);
     // Add a dimension, that'll be ignored when writing the output, for KBlock
     // The existence of this dimension makes the mapping between the C matrix
     // and the filter tensor uninvertable, hence the need for atomic add
 
-    // TODO(kdrewnia): After the refactor goes through, it'll be much less noisy
-    // to keep the filter tensor (and other tensors) in their native layout
-    // (KCYX/KYXC) and just add the KBlock dimension instead of forcing the
-    // layout change. This sort of layout change, especially when done naievely
-    // here is something I suspect of causing performance problems. The catch
-    // then is that G and KBlock may not be consecutive ... but do we care?
+    llvm::StringMap<uint32_t> kBlockDims =
+        expandNamesInPlace(filterNames, {{{"k", {"kBlock", "k"}}}});
     BottomUpCTBuilder addKBlockTransform(b, filterNames, filterShape, loc);
-    addKBlockTransform.passThrough({"g"}, {0}, {"g"});
-    addKBlockTransform.addDim("kBlock", 1, gemmKBlocks);
-    addKBlockTransform.passThrough({"k", "c", "y", "x"}, {2, 3, 4, 5},
-                                   {"k", "c", "y", "x"});
+    addKBlockTransform.passThrough({"g"}, {kBlockDims["g"]}, {"g"});
+    addKBlockTransform.addDim("kBlock", kBlockDims["kBlock"], gemmKBlocks);
+    addKBlockTransform.passThrough(
+        {"k", "c", "y", "x"},
+        {kBlockDims["k"], kBlockDims["c"], kBlockDims["y"], kBlockDims["x"]},
+        {"k", "c", "y", "x"});
 
     TransformMapAttr addKBlockTransformAttr = addKBlockTransform.get();
     Value withKBlock =
@@ -276,12 +278,13 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
 
     // Create GEMM filter tensor
     // Here, we merge the KBlock dimension into the G dimension
+    // keeping the kBlock dimension as the minor index
     // and send K to the M dimension and CYX to the N dimension as usual
     auto gemmTransform =
         BottomUpCTBuilder::above(addKBlockTransform, addKBlockTransformAttr);
     gemmTransform.merge("gemmG", 0, {"g", "kBlock"});
     gemmTransform.passThrough({"gemmM"}, {1}, {"k"});
-    gemmTransform.merge("gemmN", 2, {"c", "y", "x"});
+    gemmTransform.merge("gemmN", 2, nonKDims);
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
     gemmFilter =
@@ -291,15 +294,22 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
 
   // Transform input tensor
   {
-    // Force the layout of the input tensor to GNCHW, pad H and W, and split n
-    // into n0 and n1 where n0 has size kBlocks and n1 is what's left
+    // Pad H and W and split N into  n0 and n1 where n0 has size kBlocks and n1
+    // is what's left
+    llvm::StringMap<uint32_t> firstTransformOutDims =
+        expandNamesInPlace(inputNames, {{"ni", {"n0", "n1"}}});
+
     BottomUpCTBuilder firstTransform(b, inputNames, inputShape, loc);
-    firstTransform.passThrough({"gi"}, {0}, {"gi"});
-    firstTransform.unmerge({"n0", "n1"}, {1, 2}, "ni",
-                           {gemmKBlocks, n / gemmKBlocks});
-    firstTransform.passThrough({"ci"}, {3}, {"ci"});
-    firstTransform.pad({"hipad", "wipad"}, {4, 5}, {"hi", "wi"},
-                       {leftPadH, rightPadH, leftPadW, rightPadW});
+    firstTransform.passThrough({"gi"}, {firstTransformOutDims["gi"]}, {"gi"});
+    firstTransform.unmerge(
+        {"n0", "n1"},
+        {firstTransformOutDims["n0"], firstTransformOutDims["n1"]}, "ni",
+        {gemmKBlocks, n / gemmKBlocks});
+    firstTransform.passThrough({"ci"}, {firstTransformOutDims["ci"]}, {"ci"});
+    firstTransform.pad(
+        {"hipad", "wipad"},
+        {firstTransformOutDims["hi"], firstTransformOutDims["wi"]},
+        {"hi", "wi"}, {leftPadH, rightPadH, leftPadW, rightPadW});
 
     TransformMapAttr firstTransformAttr = firstTransform.get();
     Value firstTransformed =
@@ -316,16 +326,18 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
 
     // The usual mapping of input space to dimensions such that filter elements
     // get multiplied by the right thing
+    llvm::StringMap<uint32_t> embedOutDims = expandNamesInPlace(
+        firstTransform, {{"hipad", {"y", "ho"}}, {"wipad", {"x", "wo"}}});
     auto embedTransform =
         BottomUpCTBuilder::above(firstTransform, firstTransformAttr);
-    embedTransform.passThrough("gi");
-    embedTransform.passThrough("n0");
-    embedTransform.passThrough("n1");
-    embedTransform.passThrough("ci");
-    embedTransform.embed({"y", "ho"}, {4, 5}, {y, ho}, "hipad",
-                         {dilationH, strideH});
-    embedTransform.embed({"x", "wo"}, {6, 7}, {x, wo}, "wipad",
-                         {dilationW, strideW});
+    embedTransform.passThrough({"gi", "n0", "n1", "ci"},
+                               {embedOutDims["gi"], embedOutDims["n0"],
+                                embedOutDims["n1"], embedOutDims["ci"]},
+                               {"gi", "n0", "n1", "ci"});
+    embedTransform.embed({"y", "ho"}, {embedOutDims["y"], embedOutDims["ho"]},
+                         {y, ho}, "hipad", {dilationH, strideH});
+    embedTransform.embed({"x", "wo"}, {embedOutDims["x"], embedOutDims["wo"]},
+                         {x, wo}, "wipad", {dilationW, strideW});
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embedded = b.create<miopen::TransformOp>(loc, firstTransformed,
@@ -334,9 +346,19 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
     // Merge N1HoWO to gemmK and CYX to gemmN
     auto gemmTransform =
         BottomUpCTBuilder::above(embedTransform, embedTransformAttr);
+
+    llvm::SmallVector<StringRef, 3> nonNHWDims = {"ci", "y", "x"};
+    std::sort(
+        nonNHWDims.begin(), nonNHWDims.end(),
+        [&gemmTransform](const StringRef &v1, const StringRef &v2) -> bool {
+          return gemmTransform.startIndex(v1) < gemmTransform.startIndex(v2);
+        });
+    // In the gemmG dimension, unlike with gemmN, we don't have the same
+    // traversal order concerns - a step in the G dimension always first visits
+    // kBlock/N0 and then moves on to the next G
     gemmTransform.merge("gemmG", 0, {"gi", "n0"});
     gemmTransform.merge("gemmK", 1, {"n1", "ho", "wo"});
-    gemmTransform.merge("gemmN", 2, {"ci", "y", "x"});
+    gemmTransform.merge("gemmN", 2, nonNHWDims);
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
     gemmInput = b.create<miopen::TransformOp>(loc, embedded, gemmTransformAttr);
@@ -344,12 +366,15 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
 
   // Transform output tensor
   {
-    // First, split the N dimension as in the input and force a relayout
+    // First, split the N dimension as in the input
+    llvm::StringMap<uint32_t> outDims =
+        expandNamesInPlace(outputNames, {{"no", {"n0", "n1"}}});
     BottomUpCTBuilder firstTransform(b, outputNames, outputShape, loc);
-    firstTransform.passThrough({"go"}, {0}, {"go"});
-    firstTransform.unmerge({"n0", "n1"}, {1, 2}, "no",
+    firstTransform.passThrough({"go"}, {outDims["go"]}, {"go"});
+    firstTransform.unmerge({"n0", "n1"}, {outDims["n0"], outDims["n1"]}, "no",
                            {gemmKBlocks, n / gemmKBlocks});
-    firstTransform.passThrough({"ko", "ho", "wo"}, {3, 4, 5},
+    firstTransform.passThrough({"ko", "ho", "wo"},
+                               {outDims["ko"], outDims["ho"], outDims["wo"]},
                                {"ko", "ho", "wo"});
 
     TransformMapAttr firstTransformAttr = firstTransform.get();
