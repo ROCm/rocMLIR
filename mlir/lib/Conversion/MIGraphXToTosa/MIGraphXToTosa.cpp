@@ -34,7 +34,7 @@ public:
     auto biasTy = RankedTensorType::get({1}, elemType);
     auto zeroAttr =
         DenseElementsAttr::get(biasTy, rewriter.getZeroAttr(elemType));
-    return rewriter.create<mlir::ConstantOp>(loc, zeroAttr);
+    return rewriter.create<arith::ConstantOp>(loc, zeroAttr);
   }
 
   Value getRank4TransposeOp(Location loc, Value input,

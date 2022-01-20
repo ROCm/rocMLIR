@@ -16,6 +16,7 @@
 #ifndef MLIR_CONVERSION_MIGRAPHXTOTOSA_H
 #define MLIR_CONVERSION_MIGRAPHXTOTOSA_H
 
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
@@ -28,8 +29,8 @@ std::unique_ptr<Pass> createMIGraphXToTosaPass();
 void addMIGraphXToTosaPasses(OpPassManager &pm);
 
 /// Populates conversion passes from MIGraphX dialect to TOSA dialect.
-void populateMIGraphXToTosaConversionPatterns(MLIRContext *context,
-                                            OwningRewritePatternList *patterns);
+void populateMIGraphXToTosaConversionPatterns(
+    MLIRContext *context, OwningRewritePatternList *patterns);
 
 } // namespace migraphx
 } // namespace mlir
