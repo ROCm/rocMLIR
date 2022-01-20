@@ -113,7 +113,6 @@ pipeline {
                      description: 'Run the static library stage')
         booleanParam(name: 'perfTest', defaultValue: true,
                      description: 'Run the performance testing stage')
-        string(name: 'releaseBranch', defaultValue: '', description: 'release branch name')
     }
     stages {
         stage("Set System Property") {
@@ -561,60 +560,6 @@ pipeline {
                     cleanWs()
                 }
              }
-        }
-        stage("Store a Release Build") {
-            when {
-                beforeAgent true;
-                equals expected: false, actual: params.weekly;
-                equals expected: false, actual: params.nightly;
-                not {equals expected: '', actual: params.releaseBranch}
-            }
-            agent {
-                docker {
-                    image dockerImage()
-                    args dockerArgs()
-                    label "${params.canXdlops ? 'gfx908' : 'rocm' }"
-                    alwaysPull true
-                }
-            }
-            stages{
-                stage ('Build and Archive a Release Branch') {
-                    environment {
-                        HOME="${WORKSPACE}"
-                        branch=sh(returnStdout:true, script:"""#!/bin/bash
-                            temp=$params.releaseBranch
-                            release=\${temp////-}
-                            echo \$release""").trim()
-                    }
-                    steps {
-                        showEnv()
-                        sh "git checkout ${params.releaseBranch}"
-                        sh "tar czf mlir-source-${branch}.tar.gz \$(ls)"
-                        buildProject('', """
-                          -DBUILD_FAT_LIBMLIRMIOPEN=ON
-                          -DCMAKE_BUILD_TYPE=Release
-                          -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-                        """)
-                        cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/build/include",\
-                                installation: 'InSearchPath', workingDir: 'build'
-                        sh "mv build mlir-${branch}"
-                        sh """
-                            echo "This directory contains MLIR binaries for the release branch ${params.releaseBranch}." > mlir-${branch}/README
-                            tar cvzf mlir-binary-${branch}.tar.gz mlir-${branch}/bin mlir-${branch}/lib mlir-${branch}/include mlir-${branch}/README\
-                                                                  mlir-${branch}/external/llvm-project/llvm/bin\
-                                                                  mlir-${branch}/external/llvm-project/llvm/lib\
-                                                                  mlir-${branch}/external/llvm-project/llvm/include
-                            ls -l *.tar.gz
-                        """
-                        archiveArtifacts artifacts: '*.tar.gz', onlyIfSuccessful: true
-                     }
-                }
-            }
-            post {
-                always {
-                    cleanWs()
-                }
-            }
         }
     }
 }
