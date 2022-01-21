@@ -280,11 +280,15 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
     // Here, we merge the KBlock dimension into the G dimension
     // keeping the kBlock dimension as the minor index
     // and send K to the M dimension and CYX to the N dimension as usual
+    bool isUnfold = (addKBlockTransform.endIndex("c") + 1 ==
+                     addKBlockTransform.endIndex("y")) &&
+                    (addKBlockTransform.endIndex("y") + 1 ==
+                     addKBlockTransform.endIndex("x"));
     auto gemmTransform =
         BottomUpCTBuilder::above(addKBlockTransform, addKBlockTransformAttr);
     gemmTransform.merge("gemmG", 0, {"g", "kBlock"});
     gemmTransform.passThrough({"gemmM"}, {1}, {"k"});
-    gemmTransform.merge("gemmN", 2, nonKDims);
+    gemmTransform.merge("gemmN", 2, nonKDims, isUnfold);
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
     gemmFilter =
