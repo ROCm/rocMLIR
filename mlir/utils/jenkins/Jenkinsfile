@@ -389,7 +389,7 @@ pipeline {
                         }
                         stage("Build MLIR") {
                             steps {
-                                buildProject('mlir-miopen-driver mlir-rocm-runner ci-performance-scripts', '')
+                                buildProject('miopen-gen mlir-miopen-driver mlir-rocm-runner ci-performance-scripts', '')
                             }
                         }
                         stage("Test MLIR vs MIOpen") {
