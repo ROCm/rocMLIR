@@ -65,7 +65,7 @@ pipeline {
                     steps {
                         showEnv()
                         sh "git checkout ${params.releaseBranch}"
-                        sh "tar czf mlir-source-${branch}.tar.gz \$(ls)"
+                        sh "tar --transform 's#^#mlir-source-${branch}/#' -czf mlir-source-${branch}.tar.gz *"
                         buildProject('', """
                           -DBUILD_FAT_LIBMLIRMIOPEN=ON
                           -DCMAKE_BUILD_TYPE=Release
@@ -73,13 +73,13 @@ pipeline {
                         """)
                         cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/build/include",\
                                 installation: 'InSearchPath', workingDir: 'build'
-                        sh "mv build mlir-${branch}"
                         sh """
-                            echo "This directory contains MLIR binaries for the release branch ${params.releaseBranch}." > mlir-${branch}/README
-                            tar cvzf mlir-binary-${branch}.tar.gz mlir-${branch}/bin mlir-${branch}/lib mlir-${branch}/include mlir-${branch}/README\
-                                                                  mlir-${branch}/external/llvm-project/llvm/bin\
-                                                                  mlir-${branch}/external/llvm-project/llvm/lib\
-                                                                  mlir-${branch}/external/llvm-project/llvm/include
+                            echo "This directory contains MLIR binaries for the release branch ${params.releaseBranch}." > build/README
+                            tar --transform 's#^#mlir-binary-${branch}/#' -czf mlir-binary-${branch}.tar.gz\
+                                         build/bin build/lib build/include build/README\
+                                         build/external/llvm-project/llvm/bin\
+                                         build/external/llvm-project/llvm/lib\
+                                         build/external/llvm-project/llvm/include
                             ls -l *.tar.gz
                         """
                         archiveArtifacts artifacts: '*.tar.gz', onlyIfSuccessful: true
