@@ -1612,7 +1612,8 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     Value gemmFilter =
         b.create<miopen::TransformOp>(loc, op.filter(), filterTransformAttr);
 
-    TransformMapAttr padGemmFilterTransformAttr;
+    BottomUpCTBuilder padGemmFilterTransform = filterTransform;
+    TransformMapAttr padGemmFilterTransformAttr = filterTransformAttr;
     Value gemmFilterPad = gemmFilter;
 
     // filter pad start
@@ -1633,8 +1634,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     bool isFilterPad = false;
     if (filterCheckPadGemmM || filterCheckPadGemmK || filterCheckPadGemmN) {
       isFilterPad = true;
-
-      auto padGemmFilterTransform =
+      padGemmFilterTransform =
           BottomUpCTBuilder::above(filterTransform, filterTransformAttr);
       padGemmFilterTransform.passThrough("gemmG");
 
@@ -1676,10 +1676,8 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // FIXME. consider backward convolution.
     if ((KPack > 1) && (convOpType == miopen::ConvOpType::Fwd)) {
-      // FIXME. consider padding cases.
-      BottomUpCTBuilder sourceTransform = filterTransform;
-      // BottomUpCTBuilder sourceTransform =
-      //    (isFilterPad) ? padGemmFilterTransform : filterTransform;
+      BottomUpCTBuilder sourceTransform =
+          (isFilterPad) ? padGemmFilterTransform : filterTransform;
       TransformMapAttr sourceTransformAttr =
           (isFilterPad) ? padGemmFilterTransformAttr : filterTransformAttr;
       Value source = (isFilterPad) ? gemmFilterPad : gemmFilter;
@@ -1818,6 +1816,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     Value gemmInput = b.create<miopen::TransformOp>(loc, embeddedInput,
                                                     gemmInputTransformAttr);
 
+    BottomUpCTBuilder padGemmInputTransform = gemmInputTransform;
     TransformMapAttr padGemmInputTransformAttr = gemmInputTransformAttr;
     Value gemmInputPad = gemmInput;
 
@@ -1840,9 +1839,8 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     bool isInputPad = false;
     if (inputCheckPadGemmK || inputCheckPadGemmN) {
       isInputPad = true;
-      auto padGemmInputTransform =
+      padGemmInputTransform =
           BottomUpCTBuilder::above(gemmInputTransform, gemmInputTransformAttr);
-
       padGemmInputTransform.passThrough("gemmG");
       if (inputCheckPadGemmK) {
         padGemmInputTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
@@ -1883,10 +1881,8 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // FIXME. consider backward convolution.
     if ((KPack > 1) && (convOpType == miopen::ConvOpType::Fwd)) {
-      // FIXME. consider padding cases.
-      BottomUpCTBuilder sourceTransform = gemmInputTransform;
-      // BottomUpCTBuilder sourceTransform =
-      //     (isInputPad) ? padGemmInputTransform : gemmInputTransform;
+      BottomUpCTBuilder sourceTransform =
+          (isInputPad) ? padGemmInputTransform : gemmInputTransform;
       TransformMapAttr sourceTransformAttr =
           (isInputPad) ? padGemmInputTransformAttr : gemmInputTransformAttr;
       Value source = (isInputPad) ? gemmInputPad : gemmInput;

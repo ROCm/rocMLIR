@@ -130,6 +130,7 @@ public:
   void pad(ArrayRef<StringRef> outNames, ArrayRef<uint32_t> outDims,
            ArrayRef<StringRef> inNames, ArrayRef<int64_t> params);
 
+  CoordTransformsBuilder(const CoordTransformsBuilder &other) = default;
   CoordTransformsBuilder &operator=(const CoordTransformsBuilder &other);
 
 protected:

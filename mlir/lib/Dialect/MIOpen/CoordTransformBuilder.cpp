@@ -314,13 +314,19 @@ void CoordTransformsBuilder::pad(ArrayRef<StringRef> outNames,
 
 CoordTransformsBuilder &CoordTransformsBuilder::
 operator=(const CoordTransformsBuilder &other) {
-  startIndices = other.startIndices;
-  startNames = other.startNames;
-  startShape = other.startShape;
-  endIndices = other.endIndices;
-  endNames = other.endNames;
-  endShape = other.endShape;
-  frozen = other.frozen;
+  if (this != &other) {
+    b = other.b;
+    result = other.result;
+    loc = other.loc;
+
+    startIndices = other.startIndices;
+    startNames = other.startNames;
+    startShape = other.startShape;
+    endIndices = other.endIndices;
+    endNames = other.endNames;
+    endShape = other.endShape;
+    frozen = other.frozen;
+  }
   return *this;
 }
 
