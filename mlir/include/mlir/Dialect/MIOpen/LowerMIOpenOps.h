@@ -1763,17 +1763,11 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
         padInputTransform, {{"hipad", {"y", "ho"}}, {"wipad", {"x", "wo"}}});
     BottomUpCTBuilder embedInputTransform =
         BottomUpCTBuilder::above(padInputTransform, padInputTransformAttr);
-    embedInputTransform.passThrough({"ni", "gi", "ci"},
-                                    {embeddedInputDims["ni"],
-                                     embeddedInputDims["gi"],
-                                     embeddedInputDims["ci"]},
-                                    {"ni", "gi", "ci"});
-    embedInputTransform.embed({"y", "ho"},
-                              {embeddedInputDims["y"], embeddedInputDims["ho"]},
-                              {y, ho}, "hipad", {dilationH, strideH});
-    embedInputTransform.embed({"x", "wo"},
-                              {embeddedInputDims["x"], embeddedInputDims["wo"]},
-                              {x, wo}, "wipad", {dilationW, strideW});
+    BottomUpCTTopDimsWrapper embedInputWrap(embedInputTransform,
+                                            std::move(embeddedInputDims));
+    embedInputWrap.passThrough({"ni", "gi", "ci"});
+    embedInputWrap.embed({"y", "ho"}, {y, ho}, "hipad", {dilationH, strideH});
+    embedInputWrap.embed({"x", "wo"}, {x, wo}, "wipad", {dilationW, strideW});
 
     TransformMapAttr embedInputTransformAttr = embedInputTransform.get();
     Value embeddedInput = b.create<miopen::TransformOp>(

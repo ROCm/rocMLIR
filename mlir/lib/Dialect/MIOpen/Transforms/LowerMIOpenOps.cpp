@@ -265,12 +265,11 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
     llvm::StringMap<uint32_t> kBlockDims =
         expandNamesInPlace(filterNames, {{{"k", {"kBlock", "k"}}}});
     BottomUpCTBuilder addKBlockTransform(b, filterNames, filterShape, loc);
-    addKBlockTransform.passThrough({"g"}, {kBlockDims["g"]}, {"g"});
-    addKBlockTransform.addDim("kBlock", kBlockDims["kBlock"], gemmKBlocks);
-    addKBlockTransform.passThrough(
-        {"k", "c", "y", "x"},
-        {kBlockDims["k"], kBlockDims["c"], kBlockDims["y"], kBlockDims["x"]},
-        {"k", "c", "y", "x"});
+    BottomUpCTTopDimsWrapper addKBlockWrap(addKBlockTransform,
+                                           std::move(kBlockDims));
+    addKBlockWrap.passThrough("g");
+    addKBlockWrap.addDim("kBlock", gemmKBlocks);
+    addKBlockWrap.passThrough({"k", "c", "y", "x"});
 
     TransformMapAttr addKBlockTransformAttr = addKBlockTransform.get();
     Value withKBlock =
@@ -300,20 +299,18 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
   {
     // Pad H and W and split N into  n0 and n1 where n0 has size kBlocks and n1
     // is what's left
-    llvm::StringMap<uint32_t> firstTransformOutDims =
-        expandNamesInPlace(inputNames, {{"ni", {"n0", "n1"}}});
+    llvm::StringMap<uint32_t> firstTransformOutDims = expandNamesInPlace(
+        inputNames,
+        {{"ni", {"n0", "n1"}}, {"hi", {"hipad"}}, {"wi", {"wipad"}}});
 
     BottomUpCTBuilder firstTransform(b, inputNames, inputShape, loc);
-    firstTransform.passThrough({"gi"}, {firstTransformOutDims["gi"]}, {"gi"});
-    firstTransform.unmerge(
-        {"n0", "n1"},
-        {firstTransformOutDims["n0"], firstTransformOutDims["n1"]}, "ni",
-        {gemmKBlocks, n / gemmKBlocks});
-    firstTransform.passThrough({"ci"}, {firstTransformOutDims["ci"]}, {"ci"});
-    firstTransform.pad(
-        {"hipad", "wipad"},
-        {firstTransformOutDims["hi"], firstTransformOutDims["wi"]},
-        {"hi", "wi"}, {leftPadH, rightPadH, leftPadW, rightPadW});
+    BottomUpCTTopDimsWrapper firstWrap(firstTransform,
+                                       std::move(firstTransformOutDims));
+    firstWrap.passThrough("gi");
+    firstWrap.unmerge({"n0", "n1"}, "ni", {gemmKBlocks, n / gemmKBlocks});
+    firstWrap.passThrough("ci");
+    firstWrap.pad({"hipad", "wipad"}, {"hi", "wi"},
+                  {leftPadH, rightPadH, leftPadW, rightPadW});
 
     TransformMapAttr firstTransformAttr = firstTransform.get();
     Value firstTransformed =
@@ -334,14 +331,10 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
         firstTransform, {{"hipad", {"y", "ho"}}, {"wipad", {"x", "wo"}}});
     auto embedTransform =
         BottomUpCTBuilder::above(firstTransform, firstTransformAttr);
-    embedTransform.passThrough({"gi", "n0", "n1", "ci"},
-                               {embedOutDims["gi"], embedOutDims["n0"],
-                                embedOutDims["n1"], embedOutDims["ci"]},
-                               {"gi", "n0", "n1", "ci"});
-    embedTransform.embed({"y", "ho"}, {embedOutDims["y"], embedOutDims["ho"]},
-                         {y, ho}, "hipad", {dilationH, strideH});
-    embedTransform.embed({"x", "wo"}, {embedOutDims["x"], embedOutDims["wo"]},
-                         {x, wo}, "wipad", {dilationW, strideW});
+    BottomUpCTTopDimsWrapper embedWrap(embedTransform, std::move(embedOutDims));
+    embedWrap.passThrough({"gi", "n0", "n1", "ci"});
+    embedWrap.embed({"y", "ho"}, {y, ho}, "hipad", {dilationH, strideH});
+    embedWrap.embed({"x", "wo"}, {x, wo}, "wipad", {dilationW, strideW});
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embedded = b.create<miopen::TransformOp>(loc, firstTransformed,
@@ -374,12 +367,10 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
     llvm::StringMap<uint32_t> outDims =
         expandNamesInPlace(outputNames, {{"no", {"n0", "n1"}}});
     BottomUpCTBuilder firstTransform(b, outputNames, outputShape, loc);
-    firstTransform.passThrough({"go"}, {outDims["go"]}, {"go"});
-    firstTransform.unmerge({"n0", "n1"}, {outDims["n0"], outDims["n1"]}, "no",
-                           {gemmKBlocks, n / gemmKBlocks});
-    firstTransform.passThrough({"ko", "ho", "wo"},
-                               {outDims["ko"], outDims["ho"], outDims["wo"]},
-                               {"ko", "ho", "wo"});
+    BottomUpCTTopDimsWrapper firstWrap(firstTransform, std::move(outDims));
+    firstWrap.passThrough("go");
+    firstWrap.unmerge({"n0", "n1"}, "no", {gemmKBlocks, n / gemmKBlocks});
+    firstWrap.passThrough({"ko", "ho", "wo"});
 
     TransformMapAttr firstTransformAttr = firstTransform.get();
     Value transformed =
@@ -689,34 +680,36 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
   OobCheckSet filterOobCheckDims, inputOobCheckDims, outputOobCheckDims;
   // Transform filter tensor.
   {
-    // Transform filter tensor, mapping to (g, k, c, ydot, ytilda, xdot,
-    // xtilda) forcing the dimensions into that order and embedding (Why the
+    // Embed y/x into {y/x}dot and {y/x}tilda (Why the
     // particular embed coefficients is in a presentation somewhere)
-    BottomUpCTBuilder firstTransform(b, filterNames, filterShape, loc);
+    llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
+        filterNames, {{"y", {"ydot", "ytilda"}}, {"x", {"xdot", "xtilda"}}});
+    BottomUpCTBuilder embedTransform(b, filterNames, filterShape, loc);
+    BottomUpCTTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
 
-    firstTransform.passThrough({"g", "k", "c"}, {0, 1, 2}, {"g", "k", "c"});
-    firstTransform.embed({"ydot", "ytilda"}, {3, 4}, {yDot, yTilda}, "y",
-                         {strideH / gcdStrideDilationH, 1});
-    firstTransform.embed({"xdot", "xtilda"}, {5, 6}, {xDot, xTilda}, "x",
-                         {strideW / gcdStrideDilationW, 1});
+    embedWrap.passThrough({"g", "k", "c"});
+    embedWrap.embed({"ydot", "ytilda"}, {yDot, yTilda}, "y",
+                    {strideH / gcdStrideDilationH, 1});
+    embedWrap.embed({"xdot", "xtilda"}, {xDot, xTilda}, "x",
+                    {strideW / gcdStrideDilationW, 1});
 
-    TransformMapAttr firstTransformAttr = firstTransform.get();
-    Value firstTransformedFilter =
-        b.create<miopen::TransformOp>(loc, op.filter(), firstTransformAttr);
+    TransformMapAttr embedTransformAttr = embedTransform.get();
+    Value embeddedFilter =
+        b.create<miopen::TransformOp>(loc, op.filter(), embedTransformAttr);
 
     // Take slices in the ydot, ytilda, xdot, and xtilda dimensions
     // to reflect which kernel we're performing
     auto sliceTransform =
-        BottomUpCTBuilder::above(firstTransform, firstTransformAttr);
-    sliceTransform.passThrough({"g", "k", "c"}, {0, 1, 2}, {"g", "k", "c"});
+        BottomUpCTBuilder::above(embedTransform, embedTransformAttr);
+    sliceTransform.passThrough({"g", "k", "c"});
     sliceTransform.slice({"ydotslice", "xdotslice"}, {"ydot", "xdot"}, {0, 0},
                          {yDotSlice, xDotSlice});
     sliceTransform.slice({"ytildaslice", "xtildaslice"}, {"ytilda", "xtilda"},
                          {iYTilda, iXTilda}, {iYTilda + 1, iXTilda + 1});
 
     TransformMapAttr sliceTransformAttr = sliceTransform.get();
-    Value slicedFilter = b.create<miopen::TransformOp>(
-        loc, firstTransformedFilter, sliceTransformAttr);
+    Value slicedFilter =
+        b.create<miopen::TransformOp>(loc, embeddedFilter, sliceTransformAttr);
 
     // Set up gemm by passing g -> gemmG, merging
     // [k, ydotslice, xdotslice] to gemmK, and [c, ytildaslice, xtildaslice]
@@ -745,7 +738,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
           padTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
         }
         // First dimension only due to the optimizer bug
-        filterOobCheckDims.insert(firstTransform.startIndex("k"));
+        filterOobCheckDims.insert(embedTransform.startIndex("k"));
       } else {
         padTransform.passThrough("gemmK");
       }
@@ -756,7 +749,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
         } else {
           padTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
         }
-        filterOobCheckDims.insert(firstTransform.startIndex("c"));
+        filterOobCheckDims.insert(embedTransform.startIndex("c"));
       } else {
         padTransform.passThrough("gemmM");
       }
@@ -770,18 +763,19 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
 
   // outside its usual scope so we can look up input tensor dim order
   // for the backwards padding kernel info
-  BottomUpCTBuilder toGNCHWPaddedTransform(b, inputNames, inputShape, loc);
+  BottomUpCTBuilder padInputTransform(b, inputNames, inputShape, loc);
   // Transform input tensor
   {
-    toGNCHWPaddedTransform.passThrough({"gi"}, {0}, {"gi"});
-    toGNCHWPaddedTransform.passThrough({"ni"}, {1}, {"ni"});
-    toGNCHWPaddedTransform.passThrough({"ci"}, {2}, {"ci"});
-    toGNCHWPaddedTransform.pad({"hipad", "wipad"}, {3, 4}, {"hi", "wi"},
-                               {leftPadH, rightPadH, leftPadW, rightPadW});
+    padInputTransform.passThrough({"gi", "ni", "ci"});
+    padInputTransform.pad({"hipad", "wipad"},
+                          {padInputTransform.startIndex("hi"),
+                           padInputTransform.startIndex("wi")},
+                          {"hi", "wi"},
+                          {leftPadH, rightPadH, leftPadW, rightPadW});
 
-    TransformMapAttr toGNCHWPaddedTransformAttr = toGNCHWPaddedTransform.get();
-    Value gnchwPaddedInput = b.create<miopen::TransformOp>(
-        loc, op.input(), toGNCHWPaddedTransformAttr);
+    TransformMapAttr padTransformAttr = padInputTransform.get();
+    Value paddedInput =
+        b.create<miopen::TransformOp>(loc, op.input(), padTransformAttr);
 
     // FIXME:  wTildaSlice > wo will let stride2 backwaed data kernel
     // fail, so when (wTildaSlice > wo),  h and w dim check is must but if
@@ -791,33 +785,36 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
     bool needOobChecks = (hasLongSlices || (!hasPadding && !isStride1));
     if (needOobChecks) {
       if (hasHPadding || hasLongSlicesH) {
-        inputOobCheckDims.insert(toGNCHWPaddedTransform.startIndex("hi"));
+        inputOobCheckDims.insert(padInputTransform.startIndex("hi"));
       }
       if (hasWPadding || hasLongSlicesW) {
-        inputOobCheckDims.insert(toGNCHWPaddedTransform.startIndex("wi"));
+        inputOobCheckDims.insert(padInputTransform.startIndex("wi"));
       }
     }
 
-    // Split hipad, wipad into g, n, c, ytilda, htilda, xtilda, wtilda
-    auto tildaEmbedTransform = BottomUpCTBuilder::above(
-        toGNCHWPaddedTransform, toGNCHWPaddedTransformAttr);
-    tildaEmbedTransform.passThrough({"gi", "ni", "ci"}, {0, 1, 2},
-                                    {"gi", "ni", "ci"});
-    tildaEmbedTransform.embed({"ytilda", "htilda"}, {3, 4}, {yTilda, hTilda},
-                              "hipad", {dilationH, strideH});
-    tildaEmbedTransform.embed({"xtilda", "wtilda"}, {5, 6}, {xTilda, wTilda},
-                              "wipad", {dilationW, strideW});
+    // Split hipad, wipad into ytilda, htilda, xtilda, wtilda
+    llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
+        padInputTransform,
+        {{"hipad", {"ytilda", "htilda"}}, {"wipad", {"xtilda", "wtilda"}}});
+    auto tildaEmbedTransform =
+        BottomUpCTBuilder::above(padInputTransform, padTransformAttr);
+    BottomUpCTTopDimsWrapper tildaEmbedWrap(tildaEmbedTransform,
+                                            std::move(embedDims));
+    tildaEmbedWrap.passThrough({"gi", "ni", "ci"});
+    tildaEmbedWrap.embed({"ytilda", "htilda"}, {yTilda, hTilda}, "hipad",
+                         {dilationH, strideH});
+    tildaEmbedWrap.embed({"xtilda", "wtilda"}, {xTilda, wTilda}, "wipad",
+                         {dilationW, strideW});
 
     TransformMapAttr tildaEmbedTransformAttr = tildaEmbedTransform.get();
     Value tildaEmbedded = b.create<miopen::TransformOp>(
-        loc, gnchwPaddedInput, tildaEmbedTransformAttr);
+        loc, paddedInput, tildaEmbedTransformAttr);
 
     // Slice all the tilda dimensions: ytilda and xtilda get slices of length
     // 1 while htilda and wtilda have slice indices computed above
     auto sliceTransform =
         BottomUpCTBuilder::above(tildaEmbedTransform, tildaEmbedTransformAttr);
-    sliceTransform.passThrough({"gi", "ni", "ci"}, {0, 1, 2},
-                               {"gi", "ni", "ci"});
+    sliceTransform.passThrough({"gi", "ni", "ci"});
     sliceTransform.slice({"yslice", "xslice"}, {"ytilda", "xtilda"},
                          {iYTilda, iXTilda}, {iYTilda + 1, iXTilda + 1});
     sliceTransform.slice({"hslice", "wslice"}, {"htilda", "wtilda"},
@@ -852,7 +849,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
           padTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
         }
         // gemmM is c
-        inputOobCheckDims.insert(toGNCHWPaddedTransform.startIndex("ci"));
+        inputOobCheckDims.insert(padInputTransform.startIndex("ci"));
       } else {
         padTransform.passThrough("gemmM");
       }
@@ -863,7 +860,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
         } else {
           padTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
         }
-        inputOobCheckDims.insert(toGNCHWPaddedTransform.startIndex("ni"));
+        inputOobCheckDims.insert(padInputTransform.startIndex("ni"));
       } else {
         padTransform.passThrough("gemmN");
       }
@@ -878,14 +875,15 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
   // Transform output tensor
   {
     // Embed ho to ydot and htilda and wo to xdot and ytilda
+    llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
+        outputNames, {{"ho", {"ydot", "htilda"}}, {"wo", {"xdot", "wtilda"}}});
     BottomUpCTBuilder embedTransform(b, outputNames, outputShape, loc);
-    embedTransform.passThrough({"go"}, {0}, {"go"});
-    embedTransform.passThrough({"no"}, {1}, {"no"});
-    embedTransform.passThrough({"ko"}, {2}, {"ko"});
-    embedTransform.embed({"ydot", "htilda"}, {3, 4}, {yDot, hTilda}, "ho",
-                         {(-dilationH) / gcdStrideDilationH, 1});
-    embedTransform.embed({"xdot", "wtilda"}, {5, 6}, {xDot, wTilda}, "wo",
-                         {(-dilationW) / gcdStrideDilationW, 1});
+    BottomUpCTTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
+    embedWrap.passThrough({"go", "no", "ko"});
+    embedWrap.embed({"ydot", "htilda"}, {yDot, hTilda}, "ho",
+                    {(-dilationH) / gcdStrideDilationH, 1});
+    embedWrap.embed({"xdot", "wtilda"}, {xDot, wTilda}, "wo",
+                    {(-dilationW) / gcdStrideDilationW, 1});
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embedded =
@@ -906,8 +904,7 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
     // the filter and input
     auto sliceTransform =
         BottomUpCTBuilder::above(embedTransform, embedTransformAttr);
-    sliceTransform.passThrough({"go", "no", "ko"}, {0, 1, 2},
-                               {"go", "no", "ko"});
+    sliceTransform.passThrough({"go", "no", "ko"});
     sliceTransform.slice({"yslice", "xslice"}, {"ydot", "xdot"}, {0, 0},
                          {yDotSlice, xDotSlice});
     sliceTransform.slice({"hslice", "wslice"}, {"htilda", "wtilda"},
@@ -980,10 +977,10 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
   if (strideH > 1 && strideW > 1 && hasPadding) {
     hacks = hacks | BwdPaddingKernelInfo::StrideTwo;
 
-    uint32_t inputN = toGNCHWPaddedTransform.startIndex("ni");
-    uint32_t inputC = toGNCHWPaddedTransform.startIndex("ci");
-    uint32_t inputH = toGNCHWPaddedTransform.startIndex("hi");
-    uint32_t inputW = toGNCHWPaddedTransform.startIndex("wi");
+    uint32_t inputN = padInputTransform.startIndex("ni");
+    uint32_t inputC = padInputTransform.startIndex("ci");
+    uint32_t inputH = padInputTransform.startIndex("hi");
+    uint32_t inputW = padInputTransform.startIndex("wi");
 
     if (inputN < inputC && inputC + 1 == inputH && inputH + 1 == inputW) {
       hacks = hacks | BwdPaddingKernelInfo::isNCHW;

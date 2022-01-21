@@ -119,6 +119,7 @@ public:
 
   void passThrough(StringRef name);
   void passThrough(StringRef outName, StringRef inName);
+  void passThrough(ArrayRef<StringRef> names);
   void passThrough(ArrayRef<StringRef> outNames, ArrayRef<uint32_t> outDims,
                    ArrayRef<StringRef> inNames);
 
@@ -276,6 +277,60 @@ protected:
   void extractBounds(SmallVectorImpl<int64_t> &upperDims,
                      SmallVectorImpl<int64_t> &lowerDims) override final;
   int64_t paddingSign() const override final;
+};
+
+/// A wrapper around a BottomUpCTBuilder that looks up end dimensions in a
+/// provided map, used for cases such as when embed()ing will create extra
+/// dimensions. This takes the builder by reference and does modefiations there
+/// and thus doesn't expose its own get() method. Everything is defined here
+/// to increase inlineability
+struct BottomUpCTTopDimsWrapper {
+  BottomUpCTBuilder &b;
+  llvm::StringMap<uint32_t> topDims;
+
+  BottomUpCTTopDimsWrapper(BottomUpCTBuilder &b,
+                           llvm::StringMap<uint32_t> topDims)
+      : b(b), topDims(topDims) {}
+  void passThrough(StringRef name) {
+    b.passThrough({name}, {topDims[name]}, {name});
+  }
+  void passThrough(ArrayRef<StringRef> names) {
+    b.passThrough(names, toTopDims(names), names);
+  }
+
+  void pad(ArrayRef<StringRef> outNames, ArrayRef<StringRef> inNames,
+           ArrayRef<int64_t> params) {
+    b.pad(outNames, toTopDims(outNames), inNames, params);
+  }
+
+  void addDim(StringRef name, int64_t size) {
+    b.addDim(name, topDims[name], size);
+  }
+
+  void embed(ArrayRef<StringRef> upperNames, ArrayRef<int64_t> upperSizes,
+             StringRef lowerName, ArrayRef<int64_t> coefficients) {
+    b.embed(upperNames, toTopDims(upperNames), upperSizes, lowerName,
+            coefficients);
+  }
+
+  void unmerge(ArrayRef<StringRef> upperNames, StringRef lowerName,
+               ArrayRef<int64_t> lengths) {
+    b.unmerge(upperNames, toTopDims(upperNames), lowerName, lengths);
+  }
+
+  void merge(StringRef upperName, ArrayRef<StringRef> lowerNames,
+             bool isUnfold = false) {
+    b.merge(upperName, topDims[upperName], lowerNames, isUnfold);
+  }
+
+  llvm::SmallVector<uint32_t> toTopDims(ArrayRef<StringRef> names) {
+    llvm::SmallVector<uint32_t> ret;
+    ret.reserve(names.size());
+    for (auto name : names) {
+      ret.push_back(topDims[name]);
+    }
+    return ret;
+  }
 };
 
 TransformAttr getTransformAttrChecked(

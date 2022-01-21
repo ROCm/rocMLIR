@@ -249,6 +249,22 @@ void CoordTransformsBuilder::passThrough(StringRef outName, StringRef inName) {
                {dim});
 }
 
+void CoordTransformsBuilder::passThrough(ArrayRef<StringRef> names) {
+  llvm::SmallVector<uint32_t> dims;
+  llvm::SmallVector<uint32_t> sizes;
+  dims.reserve(names.size());
+  sizes.reserve(names.size());
+  for (const auto name : names) {
+    uint32_t dim = startIndex(name);
+    dims.push_back(dim);
+    sizes.push_back(startSize(dim));
+  }
+  for (uint32_t i = 0, e = names.size(); i < e; ++i) {
+    defineDim(names[i], dims[i], sizes[i]);
+  }
+  addTransform(TransformType::PassThrough, {}, names, dims, names, dims);
+}
+
 void CoordTransformsBuilder::passThrough(ArrayRef<StringRef> outNames,
                                          ArrayRef<uint32_t> outDims,
                                          ArrayRef<StringRef> inNames) {
