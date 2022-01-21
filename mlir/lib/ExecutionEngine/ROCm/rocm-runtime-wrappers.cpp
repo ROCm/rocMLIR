@@ -683,15 +683,13 @@ extern "C" void mcpuMemset5DHalfRandInt(
   else
     std::srand(seed);
 
-  float minf = min;
-  float maxf = max;
-
+  float value;
   for (unsigned i = 0; i < size0; ++i)
     for (unsigned j = 0; j < size1; ++j)
       for (unsigned k = 0; k < size2; ++k)
         for (unsigned l = 0; l < size3; ++l)
           for (unsigned m = 0; m < size4; ++m) {
-            float value = randomFloatValue(minf, maxf);
+            value = (float)randomIntegerValue(min, max);
             aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
                     m * stride4] = float_to_fp16(value);
           }
