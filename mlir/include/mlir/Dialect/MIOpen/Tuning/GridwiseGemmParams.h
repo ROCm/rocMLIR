@@ -941,7 +941,7 @@ private:
 
     // XXX FIXME: Ignore KReduction XDLOPS path for forward convolution now.
     // These M/NPerBlock combinations will result in lowering errors at tuning.
-    if (ctx.getOpType() == miopen::ConvOpType::Fwd) {
+    if (param.gemmKPack > 1 && ctx.getOpType() == miopen::ConvOpType::Fwd) {
       if ((param.gemmMPerBlock == 16 || param.gemmMPerBlock == 32 ||
            param.gemmMPerBlock == 64) &&
           (param.gemmNPerBlock == 16 || param.gemmNPerBlock == 32 ||
