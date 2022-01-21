@@ -1,5 +1,5 @@
 #!/bin/bash
-
+#this is to test
 function usage() {
     echo "$0 [-s|-d] [-r|--release] RELEASE_BRANCH [-d|--directory] DIR"
     exit 1
