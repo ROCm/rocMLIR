@@ -74,12 +74,12 @@ pipeline {
                         cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/build/include",\
                                 installation: 'InSearchPath', workingDir: 'build'
                         sh """
-                            echo "This directory contains MLIR binaries for the release branch ${params.releaseBranch}." > mlir-${branch}/README
+                            echo "This directory contains MLIR binaries for the release branch ${params.releaseBranch}." > build/README
                             tar --transform 's#^#mlir-binary-${branch}/#' -czf mlir-binary-${branch}.tar.gz\
-                                         mlir-${branch}/bin mlir-${branch}/lib mlir-${branch}/include mlir-${branch}/README\
-                                         mlir-${branch}/external/llvm-project/llvm/bin\
-                                         mlir-${branch}/external/llvm-project/llvm/lib\
-                                         mlir-${branch}/external/llvm-project/llvm/include
+                                         build/bin build/lib build/include build/README\
+                                         build/external/llvm-project/llvm/bin\
+                                         build/external/llvm-project/llvm/lib\
+                                         build/external/llvm-project/llvm/include
                             ls -l *.tar.gz
                         """
                         archiveArtifacts artifacts: '*.tar.gz', onlyIfSuccessful: true
