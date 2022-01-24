@@ -410,14 +410,6 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
       b.getNamedAttr("gemm_id", gemmIdAttr), b.getNamedAttr("arch", archAttr),
       b.getNamedAttr("num_cu", numCuAttr)};
 
-  // TODO(kdrewnia) We can't use vector stores since this operation
-  // transforms KYXC outputs to KCYX ones. Until we stop doing the twist,
-  // we can't vectorize the writes
-  if (auto gemmVectorization =
-          op->template getAttrOfType<IntegerAttr>("matrix_c_data_per_copy")) {
-    op->setAttr("matrix_c_data_per_copy", b.getI32IntegerAttr(1));
-  }
-
   // xdlopsV2.
   auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
   bool isXdlops = (xdlopsV2Attr && xdlopsV2Attr.getValue() == true);
