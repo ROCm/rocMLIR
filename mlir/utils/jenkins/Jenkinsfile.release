@@ -1,0 +1,96 @@
+// ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
+void buildProject(String target, String cmakeOpts) {
+    cmakeBuild generator: 'Ninja',\
+        buildDir: 'build',\
+        buildType: 'RelWithDebInfo',\
+        installation: 'InSearchPath',\
+        steps: [[args: target]],\
+        cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
+}
+
+void showEnv() {
+    echo "$env.NODE_NAME"
+    sh 'cat /etc/os-release'
+    sh 'ulimit -a'
+    // Ignore rocm-smi failures in ixt-sjc2-05
+    sh '/opt/rocm/bin/rocm-smi || true'
+    sh '/opt/rocm/bin/rocm_agent_enumerator'
+    sh 'id'
+}
+
+String dockerArgs() {
+    return "--device=/dev/kfd --device=/dev/dri --group-add video -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
+}
+
+String dockerImage() {
+    return 'rocm/mlir:rocm4.3-latest'
+}
+
+pipeline {
+    agent none
+    parameters {
+        // Below should be set statically by Jenkins job
+        string(name: 'releaseBranch', defaultValue: '', description: 'release branch name')
+    }
+    stages {
+        stage("Set System Property") {
+            steps {
+                script {
+                     System.setProperty("org.jenkinsci.plugins.durabletask.BourneShellScript.HEARTBEAT_CHECK_INTERVAL", "86400");
+                }
+            }
+        }
+        stage("Store a Release Build") {
+            when {
+                beforeAgent true;
+                not {equals expected: '', actual: params.releaseBranch}
+            }
+            agent {
+                docker {
+                    image dockerImage()
+                    args dockerArgs()
+                    label "rocm"
+                    alwaysPull true
+                }
+            }
+            stages{
+                stage ('Build and Archive a Release Branch') {
+                    environment {
+                        HOME="${WORKSPACE}"
+                        branch=sh(returnStdout:true, script:"""#!/bin/bash
+                            temp=$params.releaseBranch
+                            release=\${temp////-}
+                            echo \$release""").trim()
+                    }
+                    steps {
+                        showEnv()
+                        sh "git checkout ${params.releaseBranch}"
+                        sh "tar --transform 's#^#mlir-source-${branch}/#' -czf mlir-source-${branch}.tar.gz *"
+                        buildProject('', """
+                          -DBUILD_FAT_LIBMLIRMIOPEN=ON
+                          -DCMAKE_BUILD_TYPE=Release
+                          -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+                        """)
+                        cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/build/include",\
+                                installation: 'InSearchPath', workingDir: 'build'
+                        sh """
+                            echo "This directory contains MLIR binaries for the release branch ${params.releaseBranch}." > build/README
+                            tar --transform 's#^#mlir-binary-${branch}/#' -czf mlir-binary-${branch}.tar.gz\
+                                         build/bin build/lib build/include build/README\
+                                         build/external/llvm-project/llvm/bin\
+                                         build/external/llvm-project/llvm/lib\
+                                         build/external/llvm-project/llvm/include
+                            ls -l *.tar.gz
+                        """
+                        archiveArtifacts artifacts: '*.tar.gz', onlyIfSuccessful: true
+                     }
+                }
+            }
+            post {
+                always {
+                    cleanWs()
+                }
+            }
+        }
+    }
+}

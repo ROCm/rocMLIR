@@ -106,7 +106,7 @@ pipeline {
                      description: 'Run weekly-only jobs')
 
         // Each below control whether to run a individual stage from parallel run
-        // They default to true but deverloper can toggle them for debugging purpose
+        // They default to true or empty but deverloper can toggle them for debugging purpose
         booleanParam(name: 'sharedLib', defaultValue: true,
                      description: 'Run the shared library stage')
         booleanParam(name: 'staticLib', defaultValue: true,
