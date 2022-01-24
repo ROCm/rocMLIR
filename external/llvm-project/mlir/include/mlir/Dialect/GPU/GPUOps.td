@@ -20,6 +20,7 @@ include "mlir/IR/SymbolInterfaces.td"
 include "mlir/Interfaces/DataLayoutInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Interfaces/VectorInterfaces.td"
 
 //===----------------------------------------------------------------------===//
 // GPU Dialect operations.
@@ -1246,9 +1247,11 @@ def GPU_MFMAOp:
 }
 
 def GPU_BFConvertOp :
-    GPU_Op<"bf_convert">,
-    Arguments<(ins F32:$in)>,
-    Results<(outs I16:$out)> {
+    GPU_Op<"bf_convert", [NoSideEffect,
+    DeclareOpInterfaceMethods<VectorUnrollOpInterface>] #
+    ElementwiseMappable.traits>,
+    Arguments<(ins TypesLike<F32, "f32-like">:$in)>,
+    Results<(outs TypesLike<I16, "i16-like">:$out)> {
   let summary = "from fp32 to bf16";
   let description = [{
     The 'gpu.bf_convert' op converts an fp32 value to bf16 value. Stored as i16 for usage compatibility.

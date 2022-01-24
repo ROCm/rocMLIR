@@ -25,11 +25,14 @@
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/GPU/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/VectorOps.h"
 #include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -890,36 +893,47 @@ struct BFOpLowering : ConvertToLLVMPattern {
     auto adaptor = gpu::BFConvertOpAdaptor(operands);
     auto loc = bfOp.getLoc();
 
-    Type castedI32Type = rewriter.getIntegerType(32);
-    Type castedI16Type = rewriter.getIntegerType(16);
-    Type llvmI32Type = typeConverter->convertType(castedI32Type);
-    Type llvmI16Type = typeConverter->convertType(castedI16Type);
+    Type srcType = adaptor.in().getType();
+    Type destType = bfOp.out().getType();
+    Type bitcastType = rewriter.getI32Type();
+    if (auto srcShaped = srcType.dyn_cast<ShapedType>())
+      bitcastType = srcShaped.clone(bitcastType);
+    Type llvmBitcastType = typeConverter->convertType(bitcastType);
+    Type llvmDestType = typeConverter->convertType(destType);
+
+    auto getI32ConstAttr = [&bitcastType,
+                            &rewriter](int32_t value) -> Attribute {
+      Attribute scalar = rewriter.getI32IntegerAttr(value);
+      if (LLVM::isCompatibleVectorType(bitcastType))
+        return SplatElementsAttr::get(bitcastType.cast<ShapedType>(), scalar);
+      return scalar;
+    };
     // a = bitcast f32 value to i32
     // b = (a + 32767) << 16
     // c = ((a << 16) & 1)
     // d = b + c
     // truncate (d << 16) to i16 and return this i16
-    auto bitcastop =
-        rewriter.create<LLVM::BitcastOp>(loc, llvmI32Type, adaptor.in());
-    auto constantSixteen = rewriter.create<LLVM::ConstantOp>(
-        loc, llvmI32Type, rewriter.getIntegerAttr(castedI32Type, 16));
-    auto ShiftValue = rewriter.create<LLVM::LShrOp>(loc, llvmI32Type, bitcastop,
-                                                    constantSixteen);
+    Value bitcastop =
+        rewriter.create<LLVM::BitcastOp>(loc, llvmBitcastType, adaptor.in());
+    Value constantSixteen = rewriter.create<LLVM::ConstantOp>(
+        loc, llvmBitcastType, getI32ConstAttr(16));
+    Value shiftValue = rewriter.create<LLVM::LShrOp>(
+        loc, llvmBitcastType, bitcastop, constantSixteen);
 
-    auto constantOne = rewriter.create<LLVM::ConstantOp>(
-        loc, llvmI32Type, rewriter.getIntegerAttr(castedI32Type, 1));
-    auto andValue = rewriter.create<LLVM::AndOp>(loc, ShiftValue, constantOne);
+    Value constantOne = rewriter.create<LLVM::ConstantOp>(loc, llvmBitcastType,
+                                                          getI32ConstAttr(1));
+    Value andValue = rewriter.create<LLVM::AndOp>(loc, shiftValue, constantOne);
 
-    auto constantBig = rewriter.create<LLVM::ConstantOp>(
-        loc, llvmI32Type, rewriter.getIntegerAttr(castedI32Type, 32767));
-    auto addBigValue =
+    Value constantBig = rewriter.create<LLVM::ConstantOp>(
+        loc, llvmBitcastType, getI32ConstAttr(32767));
+    Value addBigValue =
         rewriter.create<LLVM::AddOp>(loc, bitcastop, constantBig);
-    auto addValue = rewriter.create<LLVM::AddOp>(loc, andValue, addBigValue);
+    Value addValue = rewriter.create<LLVM::AddOp>(loc, andValue, addBigValue);
 
-    auto ShiftBeforeTruncValue = rewriter.create<LLVM::LShrOp>(
-        loc, llvmI32Type, addValue, constantSixteen);
-    auto truncValue =
-        rewriter.create<LLVM::TruncOp>(loc, llvmI16Type, ShiftBeforeTruncValue);
+    Value shiftBeforeTruncValue = rewriter.create<LLVM::LShrOp>(
+        loc, bitcastType, addValue, constantSixteen);
+    Value truncValue = rewriter.create<LLVM::TruncOp>(loc, llvmDestType,
+                                                      shiftBeforeTruncValue);
     rewriter.replaceOp(op, {truncValue});
     return success();
   }
