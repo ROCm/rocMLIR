@@ -734,20 +734,9 @@ inline Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
                destElemType == b.getF16Type()) {
       result = b.create<arith::TruncFOp>(loc, source, destType);
     } else if (destElemType == b.getIntegerType(16)) {
-      if (sourceElemType == sourceType) {
-        result = b.create<miopen::DataConvertOp>(loc, destType, source);
-      } else {
-        result = createZeroConstantFloatOp(b, loc, destType);
-        int64_t numElements = destType.cast<VectorType>().getNumElements();
-        for (int64_t i = 0; i < numElements; ++i) {
-          Value extracted = b.create<vector::ExtractElementOp>(
-              loc, source, b.create<ConstantIndexOp>(loc, i));
-          Value converted =
-              b.create<miopen::DataConvertOp>(loc, destElemType, extracted);
-          result = b.create<vector::InsertElementOp>(
-              loc, converted, result, b.create<ConstantIndexOp>(loc, i));
-        }
-      }
+      result = b.create<miopen::DataConvertOp>(loc, destType, source);
+    } else {
+      llvm_unreachable("Only fp32, fp16, or bf16 targets for data conversion");
     }
   }
   return result;
