@@ -1361,7 +1361,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     // <test> = <cpu> != <gpu>
 
     auto cmpfOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
-                                         cpuLoadVal, gpuLoadVal);
+                                              cpuLoadVal, gpuLoadVal);
     scf::IfOp ifOp = loopB.create<scf::IfOp>(loc, cmpfOp, false);
     testBody = ifOp.getThenBodyBuilder();
 
@@ -1384,8 +1384,8 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     auto subfOp = testBody.create<arith::SubFOp>(loc, cpuLoadVal, gpuLoadVal);
     auto divfOp = testBody.create<arith::DivFOp>(loc, subfOp, cpuLoadVal);
     // <test> = select (<cpu> != 0.0), <divf>, <subf>)
-    auto notZeroOp = testBody.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
-                                                 cpuLoadVal, getFVal(0.0f));
+    auto notZeroOp = testBody.create<arith::CmpFOp>(
+        loc, arith::CmpFPredicate::UNE, cpuLoadVal, getFVal(0.0f));
     auto testOp = testBody.create<SelectOp>(loc, notZeroOp, divfOp, subfOp);
     percentDiffVal = divfOp;
 
@@ -1402,12 +1402,12 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     }
 
     // <test> >= <max_percent>
-    cmpVal = testBody.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT, absfOp,
-                                         maxPercentVal);
+    cmpVal = testBody.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT,
+                                            absfOp, maxPercentVal);
     if (elemType.getIntOrFloatBitWidth() < 32) {
       // && <cpu> >= 0.001f
-      auto cmp1Op = testBody.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT,
-                                                absCpuVal, getFVal(0.001f));
+      auto cmp1Op = testBody.create<arith::CmpFOp>(
+          loc, arith::CmpFPredicate::UGT, absCpuVal, getFVal(0.001f));
 
       cmpVal = testBody.create<arith::AndIOp>(loc, cmpVal, cmp1Op);
 
