@@ -1329,6 +1329,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     idxs.push_back(loop.getInductionVar());
   }
 
+  OpBuilder testBody = loopB;
   // Inner loop body
   mlir::Value gpuLoadVal =
       loopB.create<memref::LoadOp>(loc, block->getArgument(0), idxs);
@@ -1357,6 +1358,13 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   if ((randomSeed.getValue() != "none" &&
        randomDataType.getValue() == "float") ||
       !elemType.isF32()) {
+    // <test> = <cpu> != <gpu>
+
+    auto cmpfOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
+                                         cpuLoadVal, gpuLoadVal);
+    scf::IfOp ifOp = loopB.create<scf::IfOp>(loc, cmpfOp, false);
+    testBody = ifOp.getThenBodyBuilder();
+
     // <test> = |(<cpu> - <gpu>) / <cpu>| > <max_percent>
 
     auto getFVal = [&](float val) -> mlir::Value {
@@ -1369,22 +1377,22 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
         apVal.convert(llvm::APFloat::BFloat(), APFloat::rmNearestTiesToEven,
                       &ignored);
       }
-      return loopB.create<arith::ConstantFloatOp>(loc, apVal, elemFType);
+      return testBody.create<arith::ConstantFloatOp>(loc, apVal, elemFType);
     };
 
     // <test> = <cpu> - <gpu>
-    auto subfOp = loopB.create<arith::SubFOp>(loc, cpuLoadVal, gpuLoadVal);
-    auto divfOp = loopB.create<arith::DivFOp>(loc, subfOp, cpuLoadVal);
+    auto subfOp = testBody.create<arith::SubFOp>(loc, cpuLoadVal, gpuLoadVal);
+    auto divfOp = testBody.create<arith::DivFOp>(loc, subfOp, cpuLoadVal);
     // <test> = select (<cpu> != 0.0), <divf>, <subf>)
-    auto notZeroOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
+    auto notZeroOp = testBody.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
                                                  cpuLoadVal, getFVal(0.0f));
-    auto testOp = loopB.create<SelectOp>(loc, notZeroOp, divfOp, subfOp);
+    auto testOp = testBody.create<SelectOp>(loc, notZeroOp, divfOp, subfOp);
     percentDiffVal = divfOp;
 
     // <test> = |<test>|
-    auto absfOp = loopB.create<math::AbsOp>(loc, testOp);
+    auto absfOp = testBody.create<math::AbsOp>(loc, testOp);
 
-    auto absCpuVal = loopB.create<math::AbsOp>(loc, cpuLoadVal);
+    auto absCpuVal = testBody.create<math::AbsOp>(loc, cpuLoadVal);
 
     mlir::Value maxPercentVal;
     if (elemType.getIntOrFloatBitWidth() < 32) {
@@ -1394,14 +1402,14 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     }
 
     // <test> >= <max_percent>
-    cmpVal = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT, absfOp,
+    cmpVal = testBody.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT, absfOp,
                                          maxPercentVal);
     if (elemType.getIntOrFloatBitWidth() < 32) {
       // && <cpu> >= 0.001f
-      auto cmp1Op = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT,
+      auto cmp1Op = testBody.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT,
                                                 absCpuVal, getFVal(0.001f));
 
-      cmpVal = loopB.create<arith::AndIOp>(loc, cmpVal, cmp1Op);
+      cmpVal = testBody.create<arith::AndIOp>(loc, cmpVal, cmp1Op);
 
       // TODO?: check for GPU inf
     }
@@ -1412,7 +1420,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     percentDiffVal = loopB.create<arith::SubFOp>(loc, cpuLoadVal, gpuLoadVal);
   }
 
-  scf::IfOp ifOp = loopB.create<scf::IfOp>(loc, cmpVal, false);
+  scf::IfOp ifOp = testBody.create<scf::IfOp>(loc, cmpVal, false);
   auto thenBody = ifOp.getThenBodyBuilder();
 
   thenBody.create<memref::StoreOp>(loc, c0ConstantInt32Op, cmpResultAllocOp,
