@@ -15,6 +15,7 @@
 
 include "mlir/Dialect/MIOpen/MIOpenAttrDefs.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Interfaces/VectorInterfaces.td"
 include "mlir/Interfaces/ViewLikeInterface.td"
 
 // Base class for MIOpen dialect ops.
@@ -518,9 +519,11 @@ def MIOpen_XdlopsGemmV2Op:
 }
 
 def MIOpen_DataConvertOp :
-    MIOpen_Op<"data_convert">,
-    Arguments<(ins F32:$in)>,
-    Results<(outs I16:$out)> {
+    MIOpen_Op<"data_convert", [NoSideEffect,
+    DeclareOpInterfaceMethods<VectorUnrollOpInterface>] #
+    ElementwiseMappable.traits>,
+    Arguments<(ins TypesLike<F32, "f32-like">:$in)>,
+    Results<(outs TypesLike<I16, "i16-like">:$out)> {
   let summary = "data type conversion";
   let description = [{
     The `miopen.data_convert` op will convert f32 to bf16, but we use i16 to replace bf16 here.

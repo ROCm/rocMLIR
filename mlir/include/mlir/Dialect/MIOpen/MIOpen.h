@@ -28,6 +28,7 @@
 #include "mlir/Support/TypeID.h"
 
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Interfaces/VectorInterfaces.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 
 #include "llvm/ADT/DenseMap.h"
