@@ -115,9 +115,9 @@ def MIOpen_TransformOp :
 
 def MIOpen_GridwiseGemmOp :
     MIOpen_Op<"gridwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$a,
-                   MemRefRankOf<[F32, F16, I16], [3]>:$b,
-                   MemRefRankOf<[F32, F16, I16], [3]>:$c,
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3, 4]>:$a,
+                   MemRefRankOf<[F32, F16, I16], [3, 4]>:$b,
+                   MemRefRankOf<[F32, F16, I16], [3, 4]>:$c,
                    BoolArrayAttr:$aOobDims,
                    BoolArrayAttr:$bOobDims,
                    BoolArrayAttr:$cOobDims,
@@ -151,9 +151,9 @@ def MIOpen_GridwiseGemmOp :
 // gridwise_gemm_v2
 def MIOpen_GridwiseGemmV2Op :
     MIOpen_Op<"gridwise_gemm_v2">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$a,
-                   MemRefRankOf<[F32, F16, I16], [3]>:$b,
-                   MemRefRankOf<[F32, F16, I16], [3]>:$c,
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3, 4]>:$a,
+                   MemRefRankOf<[F32, F16, I16], [3, 4]>:$b,
+                   MemRefRankOf<[F32, F16, I16], [3, 4]>:$c,
                    BoolArrayAttr:$aOobDims,
                    BoolArrayAttr:$bOobDims,
                    BoolArrayAttr:$cOobDims,
@@ -416,8 +416,8 @@ def MIOpen_ThreadwiseCopyV2Op:
 // blockwise_gemm
 def MIOpen_BlockwiseGemmOp:
     MIOpen_Op<"blockwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$matrixA,
-                   MemRefRankOf<[F32, F16, I16], [3]>:$matrixB,
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3, 4]>:$matrixA,
+                   MemRefRankOf<[F32, F16, I16], [3, 4]>:$matrixB,
                    AnyMemRef:$matrixC,
                    ArgTransforms<2>:$transforms,
                    Index:$threadOffsetA,
@@ -441,8 +441,8 @@ def MIOpen_BlockwiseGemmV2Op:
                    ArgTransforms<2>:$transforms,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
-                   MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferA,
-                   MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferB,
+                   MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferA,
+                   MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferB,
                    Variadic<VectorOfRankAndType<[1], [F32, F16]>>:$vectorCs)>,
     Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16]>>: $vectorDs)> {
   let summary = "Blockwise GEMM XDLOPS version";
@@ -462,9 +462,9 @@ def MIOpen_BlockwiseGemmV2Op:
 // threadwise_gemm
 def MIOpen_ThreadwiseGemmOp:
     MIOpen_Op<"threadwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3]>:$matrixA,
-                   MemRefRankOf<[F32, F16, I16], [3]>:$matrixB,
-                   MemRefRankOf<[F32, F16, I16], [3]>:$matrixC)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, I16], [3, 4]>:$matrixA,
+                   MemRefRankOf<[F32, F16, I16], [3, 4]>:$matrixB,
+                   MemRefRankOf<[F32, F16, I16], [3, 4]>:$matrixC)> {
   let summary = "Threadwise GEMM non-XDLOPS version";
   let description = [{
     The `miopen.threadwise_gemm` op does GEMM at thread level.
@@ -501,8 +501,8 @@ def MIOpen_XdlopsGemmV2Op:
                    ArgTransforms<2>:$transforms,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
-                   MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferA,
-                   MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferB,
+                   MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferA,
+                   MemRefOf<[F32, F16, I16, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$bufferB,
                    Variadic<VectorOfRankAndType<[1], [F32, F16]>>:$vectorCs)>,
     Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16]>>:$vectorDs)> {
   let summary = "XDLOPS GEMM V2";

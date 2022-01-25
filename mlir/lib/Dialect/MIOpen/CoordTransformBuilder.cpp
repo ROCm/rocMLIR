@@ -312,6 +312,24 @@ void CoordTransformsBuilder::pad(ArrayRef<StringRef> outNames,
   addTransform(TransformType::Pad, params, inNames, inDims, outNames, outDims);
 }
 
+CoordTransformsBuilder &CoordTransformsBuilder::
+operator=(const CoordTransformsBuilder &other) {
+  if (this != &other) {
+    b = other.b;
+    result = other.result;
+    loc = other.loc;
+
+    startIndices = other.startIndices;
+    startNames = other.startNames;
+    startShape = other.startShape;
+    endIndices = other.endIndices;
+    endNames = other.endNames;
+    endShape = other.endShape;
+    frozen = other.frozen;
+  }
+  return *this;
+}
+
 /// Building from a defined set of upper dimensions
 void TopDownCTBuilder::addTransform(TransformType type,
                                     ArrayRef<int64_t> params,

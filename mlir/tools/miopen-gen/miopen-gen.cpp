@@ -1572,7 +1572,8 @@ populateHostHarnessLogic(ModuleOp &module,
       std::string kernelBaseName = genConfig.kernelBaseName;
       for (int i = kernelStart; i < kernelCount; ++i) {
         conv2dGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
-        if (failed(conv2dGenerator.genConvModule(module, i, true))) {
+        if (failed(conv2dGenerator.genConvModule(module, i, true,
+                                                 /*ignoreTuning=*/true))) {
           llvm::errs() << "Module population failed.\n";
           exit(1);
         }

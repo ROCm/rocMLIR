@@ -786,7 +786,8 @@ public:
                 DerivedBlockGemmParams &blockGemmDerivedParam,
                 DerivedOutParams &gemmCDerivedParam, int64_t &gridSize);
 
-  llvm::SmallVector<InitParamsNonXDL, 8> getTuningParameters() {
+  llvm::SmallVector<InitParamsNonXDL, 8>
+  getTuningParameters(ConvolutionContext &ctx) {
     return initParameters;
   }
 
@@ -795,17 +796,32 @@ public:
 
 class PopulateParamsXDL : public PopulateParamsBase {
 private:
-  llvm::SmallVector<InitParamsXDL, 4> initParameters = {
+  // Initial tuning parameters for forward convolution.
+  llvm::SmallVector<InitParamsXDL, 4> initParametersForward = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-      // FIXME. Temporarily disable this config to restrict MRepeats/NRepeats
-      // to 1 to reduce potential AGPR spills.
-      //{256, 128, 16, 128, 64, 0, false, false},
-      {128, 128, 16, 64, 64, 0, false, false},
-      {8, 64, 8, 8, 64, 0, false, false},
-      {4, 64, 16, 4, 64, 0, false, false},
-      {32, 64, 4, 32, 64, 0, false, false},
-      {16, 16, 16, 16, 16, 0, false, false},
-      {16, 16, 4, 16, 16, 0, false, false},
+      {128, 128, 2, 64, 64, 2, false, false},
+      {128, 128, 4, 64, 64, 2, false, false},
+      {32, 64, 2, 32, 64, 2, false, false},
+
+      {128, 128, 8, 64, 64, 1, false, false},
+      {128, 128, 16, 64, 64, 1, false, false},
+      {8, 64, 8, 8, 64, 1, false, false},
+      {4, 64, 16, 4, 64, 1, false, false},
+      {32, 64, 4, 32, 64, 1, false, false},
+      {16, 16, 16, 16, 16, 1, false, false},
+      {16, 16, 4, 16, 16, 1, false, false},
+  };
+
+  // Initial tuning parameters for backward convolution.
+  llvm::SmallVector<InitParamsXDL, 4> initParametersBackward = {
+      // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
+      {128, 128, 8, 64, 64, 1, false, false},
+      {128, 128, 16, 64, 64, 1, false, false},
+      {8, 64, 8, 8, 64, 1, false, false},
+      {4, 64, 16, 4, 64, 1, false, false},
+      {32, 64, 4, 32, 64, 1, false, false},
+      {16, 16, 16, 16, 16, 1, false, false},
+      {16, 16, 4, 16, 16, 1, false, false},
   };
   const int64_t waveSize = 64;
 
@@ -869,7 +885,8 @@ private:
     return success();
   }
 
-  LogicalResult isValidblockwisegemmxdlops(InitParamsXDL &param,
+  LogicalResult isValidBlockwiseGemmXDLOPS(InitParamsXDL &param,
+                                           ConvolutionContext &ctx,
                                            int64_t blockSize) {
     // TBD: support fp16/bf16
 
@@ -910,6 +927,35 @@ private:
 
     if ((param.gemmNPerBlock % param.gemmNPerWave) != 0)
       return failure();
+
+    if ((param.gemmKPerBlock % param.gemmKPack) != 0)
+      return failure();
+
+    // Reject too wide KPACK values for fp32/fp16/bf16 types.
+    auto dataType = ctx.getDataType();
+    if (dataType.isF32() && param.gemmKPack >= 8) {
+      return failure();
+    } else if ((dataType.isF16() || dataType.isBF16()) && param.gemmKPack > 8) {
+      return failure();
+    }
+
+    // XXX FIXME: Ignore KReduction XDLOPS path for forward convolution now.
+    // These M/NPerBlock combinations will result in lowering errors at tuning.
+    if (param.gemmKPack > 1 && ctx.getOpType() == miopen::ConvOpType::Fwd) {
+      if ((param.gemmMPerBlock == 16 || param.gemmMPerBlock == 32 ||
+           param.gemmMPerBlock == 64) &&
+          (param.gemmNPerBlock == 16 || param.gemmNPerBlock == 32 ||
+           param.gemmNPerBlock == 64)) {
+        return failure();
+      }
+
+      if (param.gemmMPerBlock == 32 && param.gemmNPerBlock == 128) {
+        return failure();
+      }
+      if (param.gemmMPerBlock == 128 && param.gemmNPerBlock == 32) {
+        return failure();
+      }
+    }
 
     return success();
   }
@@ -953,8 +999,17 @@ public:
                               DerivedOutParams &gemmCDerivedParam,
                               int64_t &blockSize, int64_t &gridSize);
 
-  llvm::SmallVector<InitParamsXDL, 4> getTuningParameters() {
-    return initParameters;
+  llvm::SmallVector<InitParamsXDL, 4>
+  getTuningParameters(ConvolutionContext &ctx) {
+    switch (ctx.getOpType()) {
+    case miopen::ConvOpType::Fwd:
+      return initParametersForward;
+    case miopen::ConvOpType::BwdData:
+      return initParametersBackward;
+    case miopen::ConvOpType::BwdWeight:
+      return initParametersBackward;
+    }
+    return initParametersForward;
   }
 
   InitParams getUniversalParameters() { return universal_Parameters; }

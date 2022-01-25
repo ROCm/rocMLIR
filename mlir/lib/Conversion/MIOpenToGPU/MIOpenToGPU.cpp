@@ -268,7 +268,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
       std::string gfname = func.getName().str();
       gfname += "_module";
       auto gpuMod = makeGpuModule(gfname);
-      auto gpuFunc = processGpuKernelFunc(gpuMod, func);
+      processGpuKernelFunc(gpuMod, func);
 
       processedFuncs.push_back(func);
     }

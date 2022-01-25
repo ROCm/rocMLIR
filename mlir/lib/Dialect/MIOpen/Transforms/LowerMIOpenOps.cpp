@@ -206,8 +206,8 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
   auto strideW =
       stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
   // get y, x, ho, wo, hi, wi
-  int64_t g, n, k, c, y, x, ho, wo, hi, wi;
-  g = n = k = c = y = x = ho = wo = hi = wi = 0;
+  int64_t n, k, c, y, x, ho, wo, hi, wi;
+  n = k = c = y = x = ho = wo = hi = wi = 0;
   llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
   for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
     auto filterAttr =
@@ -221,7 +221,6 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
     outputNames.push_back(outputAttr.getValue());
 
     if (filterAttr.getValue() == "g") {
-      g = filterShape[i];
     } else if (filterAttr.getValue() == "k") {
       k = filterShape[i];
     } else if (filterAttr.getValue() == "c") {
@@ -423,6 +422,8 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
 }
 
 LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
+  ConvolutionContext convContext = populateConvContext(op);
+
   auto loc = op.getLoc();
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
   auto archAttr = op->template getAttrOfType<StringAttr>("arch");
@@ -601,44 +602,45 @@ LogicalResult backwardData(miopen::Conv2DBwdDataOp op, PatternRewriter &b) {
   // we use this lamda to compute extra padding size
   // for example, if gemmM size is 3 and gemmMPerBlock is 64
   // we gemmMExtra is 64 so (gemmM + gemmMExtra )%gemmMPerBlock =0
-  auto calculatePaddingKernelSize =
-      [&isOriginalKernelSupport, &needExtraPad, gemmMSize, gemmNSize, gemmKSize,
-       &gemmMExtra, &gemmNExtra, &gemmKExtra](auto &populateParams) {
-        auto configParams = populateParams.getTuningParameters();
-        unsigned numOfFailedConfigs = 0;
-        for (auto &params : configParams) {
-          if (gemmMSize % params.gemmMPerBlock == 0 &&
-              gemmKSize % params.gemmKPerBlock == 0 &&
-              gemmNSize % params.gemmNPerBlock == 0) {
-            isOriginalKernelSupport = true;
-            break;
-          }
-          isOriginalKernelSupport = false;
-          numOfFailedConfigs++;
-        }
+  auto calculatePaddingKernelSize = [&isOriginalKernelSupport, &needExtraPad,
+                                     gemmMSize, gemmNSize, gemmKSize,
+                                     &gemmMExtra, &gemmNExtra, &gemmKExtra,
+                                     &convContext](auto &populateParams) {
+    auto configParams = populateParams.getTuningParameters(convContext);
+    unsigned numOfFailedConfigs = 0;
+    for (auto &params : configParams) {
+      if (gemmMSize % params.gemmMPerBlock == 0 &&
+          gemmKSize % params.gemmKPerBlock == 0 &&
+          gemmNSize % params.gemmNPerBlock == 0) {
+        isOriginalKernelSupport = true;
+        break;
+      }
+      isOriginalKernelSupport = false;
+      numOfFailedConfigs++;
+    }
 
-        auto extraParams = populateParams.getUniversalParameters();
-        if (numOfFailedConfigs == configParams.size()) {
+    auto extraParams = populateParams.getUniversalParameters();
+    if (numOfFailedConfigs == configParams.size()) {
 
-          needExtraPad = true;
-          int gemmMRemain, gemmKRemain, gemmNRemain;
+      needExtraPad = true;
+      int gemmMRemain, gemmKRemain, gemmNRemain;
 
-          gemmMRemain = gemmMSize % extraParams.gemmMPerBlock;
-          if (gemmMRemain != 0)
-            gemmMExtra = extraParams.gemmMPerBlock - gemmMRemain;
+      gemmMRemain = gemmMSize % extraParams.gemmMPerBlock;
+      if (gemmMRemain != 0)
+        gemmMExtra = extraParams.gemmMPerBlock - gemmMRemain;
 
-          gemmNRemain = gemmNSize % extraParams.gemmNPerBlock;
-          if (gemmNRemain != 0)
-            gemmNExtra = extraParams.gemmNPerBlock - gemmNRemain;
+      gemmNRemain = gemmNSize % extraParams.gemmNPerBlock;
+      if (gemmNRemain != 0)
+        gemmNExtra = extraParams.gemmNPerBlock - gemmNRemain;
 
-          gemmKRemain = gemmKSize % extraParams.gemmKPerBlock;
-          if (gemmKRemain != 0)
-            gemmKExtra = extraParams.gemmKPerBlock - gemmKRemain;
+      gemmKRemain = gemmKSize % extraParams.gemmKPerBlock;
+      if (gemmKRemain != 0)
+        gemmKExtra = extraParams.gemmKPerBlock - gemmKRemain;
 
-          // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
-          // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
-        }
-      }; // calculatePaddingKernelSize end
+      // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
+      // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
+    }
+  }; // calculatePaddingKernelSize end
 
   if (!isXdlops) {
     PopulateParams populateParams;
