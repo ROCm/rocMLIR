@@ -1233,10 +1233,10 @@ def GPU_SubgroupMmaElementwiseOp : GPU_Op<"subgroup_mma_elementwise",
 def GPU_MFMAOp:
     GPU_Op<"mfma", [AllTypesMatch<["sourceA", "sourceB"]>,
                         AllTypesMatch<["destC", "destD"]>]>,
-    Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [I16]>, VectorOfLengthAndType<[4], [I16]>]>: $sourceA,
-                   AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [I16]>, VectorOfLengthAndType<[4], [I16]>]>: $sourceB,
-                   VectorOfRankAndType<[1], [F32, F16]>: $destC)>,
-    Results<(outs VectorOfRankAndType<[1], [F32, F16]>: $destD)> {
+    Arguments<(ins AnyTypeOf<[I32, F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [I16]>, VectorOfLengthAndType<[4], [I16]>]>: $sourceA,
+                   AnyTypeOf<[I32, F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [I16]>, VectorOfLengthAndType<[4], [I16]>]>: $sourceB,
+                   VectorOfRankAndType<[1], [I32, F32, F16]>: $destC)>,
+    Results<(outs VectorOfRankAndType<[1], [I32, F32, F16]>: $destD)> {
   let summary = "XDLOPS MFMA";
   let description = [{
     The `gpu.mfma` op is an abstraction of XDLOPS.
