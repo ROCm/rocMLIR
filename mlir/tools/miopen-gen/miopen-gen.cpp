@@ -12,16 +12,22 @@
 
 #include "mlir/Conversion/MIOpenPasses.h"
 #include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/Pipeline.h"
+#include "mlir/Dialect/MIOpen/utility/builderUtils.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Vector/VectorOps.h"
 #include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
+#include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
@@ -35,6 +41,7 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include "llvm/IR/Constants.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
@@ -322,9 +329,10 @@ static cl::opt<std::string> randomSeed(
     "rand",
     cl::desc(
         "A positive integer or zero indicates the seed of random data generator"
-        "for convolution inputs, e.g. -rand 1. If not specifed, or -rand none, "
-        "use all ones. If 0, use time(0) as the seed."),
-    cl::value_desc("seed"), cl::init("none"));
+        "for convolution inputs, e.g. -rand 1. If not specifed, or 'fixed', "
+        "use a fixed nonuniform test pattern. If 'none', use all 1s as the "
+        "values. If 0, use time(0) as the seed."),
+    cl::value_desc("seed"), cl::init("fixed"));
 
 static cl::opt<std::string>
     randomDataType("rand_type",
@@ -845,7 +853,7 @@ static std::tuple<short, short, int> getRandomTestData(int idx, bool isOut) {
     break;
   }
 
-  if (randomSeed.getValue() != "none") {
+  if (randomSeed.getValue() != "none" && randomSeed.getValue() != "fixed") {
     if ((idx_spec >= 0 && idx_spec != idx) || isOut) {
     } else if (randomDataType.getValue() == "int") {
       // generate random integer in [-5, 5)
@@ -1434,7 +1442,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 
   mlir::Value percentDiffVal;
   mlir::Value cmpVal;
-  if ((randomSeed.getValue() != "none" &&
+  if ((randomSeed.getValue() != "none" && randomSeed.getValue() != "fixed" &&
        randomDataType.getValue() == "float") ||
       elemType.isF16() || elemType.isBF16()) {
     // <test> = <cpu> != <gpu>
@@ -1628,16 +1636,53 @@ populateHostHarnessLogic(ModuleOp &module,
     auto mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
     auto lvar = b.create<memref::AllocOp>(loc, paramMRType);
     localVars.push_back(lvar);
+
     auto lv5D = makeNDMemRef(b, lvar, 5);
-    auto lvU5D = b.create<memref::CastOp>(loc, mr5DUnkType, lv5D);
+    if (randomSeed.getValue() == "fixed") {
+      auto lv5DType = lv5D.getType().template cast<mlir::MemRefType>();
+      llvm::SmallVector<float, 3> pattern = {0.5, -1, 0.75};
+      // TODO(kdrewnia) Refactor this to create the constant vector up front
+      mlir::Value constantsVec = mlir::miopen::createZeroConstantFloatOp(
+          b, loc, mlir::VectorType::get(pattern.size(), elemType));
+      for (auto v : llvm::enumerate(pattern)) {
+        mlir::Value vOp =
+            mlir::miopen::createConstantFloatOp(b, loc, elemType, v.value());
+        constantsVec = b.create<vector::InsertElementOp>(
+            loc, vOp, constantsVec,
+            b.create<arith::ConstantIndexOp>(loc, v.index()));
+      }
 
-    short min, max;
-    int seed = 1;
-    std::tie(min, max, seed) = getRandomTestData(idx, idx == zeroInitIdx);
+      SmallVector<int64_t, 5> lowerBounds(5, 0);
+      SmallVector<int64_t, 5> upperBounds;
+      llvm::copy(lv5DType.getShape(), std::back_inserter(upperBounds));
+      SmallVector<int64_t, 5> steps(5, 1);
+      AffineExpr rowMajor = b.getAffineConstantExpr(0);
+      for (uint32_t i = 0; i < 5; ++i) {
+        rowMajor = b.getAffineDimExpr(i) + lv5DType.getDimSize(i) * rowMajor;
+      }
+      rowMajor = rowMajor % b.getAffineConstantExpr(pattern.size());
+      AffineMap rowMajorMap = AffineMap::get(5, 0, {rowMajor}, b.getContext());
 
-    b.create<CallOp>(
-        loc, getMemsetFunc(module, elemType),
-        ValueRange{lvU5D, getI16Val(min), getI16Val(max), getI32Val(seed)});
+      mlir::buildAffineLoopNest(
+          b, loc, lowerBounds, upperBounds, steps,
+          [rowMajorMap, &constantsVec, lv5D](OpBuilder b, Location loc,
+                                             ValueRange ivs) {
+            auto selectorOp = b.create<AffineApplyOp>(loc, rowMajorMap, ivs);
+            mlir::Value toStore = b.create<vector::ExtractElementOp>(
+                loc, constantsVec, selectorOp->getResult(0));
+            b.create<memref::StoreOp>(loc, toStore, lv5D, ivs);
+          });
+    } else {
+      auto lvU5D = b.create<memref::CastOp>(loc, mr5DUnkType, lv5D);
+
+      short min, max;
+      int seed = 1;
+      std::tie(min, max, seed) = getRandomTestData(idx, idx == zeroInitIdx);
+
+      b.create<CallOp>(
+          loc, getMemsetFunc(module, elemType),
+          ValueRange{lvU5D, getI16Val(min), getI16Val(max), getI32Val(seed)});
+    }
 
     if (hasValidation ||
         (isCPUKernel && (elemType.isF16() || elemType.isBF16()))) {
@@ -1770,9 +1815,10 @@ int main(int argc, char **argv) {
   test::registerTestDialect(registry);
 #endif
   MLIRContext context(registry);
-  context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect,
-                      scf::SCFDialect, AffineDialect, memref::MemRefDialect,
-                      math::MathDialect, arith::ArithmeticDialect>();
+  context
+      .loadDialect<miopen::MIOpenDialect, StandardOpsDialect, scf::SCFDialect,
+                   AffineDialect, memref::MemRefDialect, math::MathDialect,
+                   arith::ArithmeticDialect, vector::VectorDialect>();
 
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv,

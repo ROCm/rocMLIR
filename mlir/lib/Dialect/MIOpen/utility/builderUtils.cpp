@@ -35,6 +35,7 @@ Value createConstantIntOp(OpBuilder &b, Location loc, Type type,
 
   return retValue;
 }
+} // anonymous namespace
 
 Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
                             Type elementType, float value) {
@@ -66,7 +67,6 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
 
   return retValue;
 }
-} // anonymous namespace
 
 Value createZeroConstantOp(OpBuilder &b, Location loc, Type type) {
   Type elementType = type;
