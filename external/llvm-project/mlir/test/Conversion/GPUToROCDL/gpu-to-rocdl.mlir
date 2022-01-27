@@ -277,7 +277,7 @@ gpu.module @test_module_gpu_log2 {
 
 // -----
 
-gpu.module @test_module_gpu_sqrt {
+gpu.module @test_module_gpu_rsqrt {
   // CHECK: llvm.func @__ocml_rsqrt_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_rsqrt_f64(f64) -> f64
   // CHECK-LABEL: func @gpu_rsqrt
@@ -297,7 +297,7 @@ gpu.module @test_module_gpu_sqrt {
 
 // -----
 
-gpu.module @test_module_gpu_sqrt2 {
+gpu.module @test_module_gpu_sqrt {
   // CHECK: llvm.func @__ocml_sqrt_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_sqrt_f64(f64) -> f64
   // CHECK-LABEL: func @gpu_sqrt
@@ -389,7 +389,7 @@ gpu.module @test_module_kernel {
 
 // -----
 
-gpu.module @test_module_gpu_mfma {
+gpu.module @test_module_gpu_mfma_i8 {
   // CHECK-LABEL: func @gpu_mfma_i8
   builtin.func @gpu_mfma_i8(%arg_i32 : i32, %arg_vi32x4 : vector<4xi32>, %arg_vi32x16 : vector<16xi32>){
     // CHECK: rocdl.mfma.i32.32x32x8i8 %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} :

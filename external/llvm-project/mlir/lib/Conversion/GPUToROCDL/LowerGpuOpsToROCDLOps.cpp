@@ -886,6 +886,9 @@ struct MFMAOpLowering : ConvertToLLVMPattern {
             op, adaptor.destC().getType(),
             ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
                        immValues[0], immValues[1], immValues[2]});
+      else {
+        return failure();
+      }
     }
 
     return success();
