@@ -220,8 +220,7 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
     inputNames.push_back(inputAttr.getValue());
     outputNames.push_back(outputAttr.getValue());
 
-    if (filterAttr.getValue() == "g") {
-    } else if (filterAttr.getValue() == "k") {
+    if (filterAttr.getValue() == "k") {
       k = filterShape[i];
     } else if (filterAttr.getValue() == "c") {
       c = filterShape[i];

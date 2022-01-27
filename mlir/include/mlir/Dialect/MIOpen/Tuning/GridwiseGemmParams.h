@@ -933,7 +933,7 @@ private:
 
     // Reject too wide KPACK values for fp32/fp16/bf16 types.
     auto dataType = ctx.getDataType();
-    if (dataType.isF32() && param.gemmKPack >= 8) {
+    if (dataType.isF32() && param.gemmKPack > 4) {
       return failure();
     } else if ((dataType.isF16() || dataType.isBF16()) && param.gemmKPack > 8) {
       return failure();
