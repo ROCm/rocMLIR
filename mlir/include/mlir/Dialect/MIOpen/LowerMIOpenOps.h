@@ -6586,15 +6586,10 @@ struct XdlopsGemmV2RewritePattern
 
       auto destOffsetA = ilmkb.create<AddIOp>(loc, ilmkiv, kOffsetA);
 
-      Value valueA;
-      if (KPack > 1) {
-        valueA = emitLoadLogic(
-            ilmkb, loc, op.matrixA().getType().template cast<MemRefType>(),
-            op.bufferA().getType().template cast<MemRefType>().getElementType(),
-            false, {}, op.matrixA(), sourceOffsetA);
-      } else {
-        valueA = ilmkb.create<memref::LoadOp>(loc, dataType, op.matrixA(), sourceOffsetA);
-      }
+      Value valueA = emitLoadLogic(
+          ilmkb, loc, op.matrixA().getType().template cast<MemRefType>(),
+          op.bufferA().getType().template cast<MemRefType>().getElementType(),
+          false, {}, op.matrixA(), sourceOffsetA);
       ilmkb.create<memref::StoreOp>(loc, valueA, op.bufferA(), ValueRange{destOffsetA});
 
       // store bufferB logic.
@@ -6643,15 +6638,10 @@ struct XdlopsGemmV2RewritePattern
 
       auto destOffsetB = ilnkb.create<AddIOp>(loc, ilnkiv, kOffsetB);
 
-      Value valueB;
-      if (KPack > 1) {
-        valueB = emitLoadLogic(
-            ilnkb, loc, op.matrixB().getType().template cast<MemRefType>(),
-            op.bufferB().getType().template cast<MemRefType>().getElementType(),
-            false, {}, op.matrixB(), sourceOffsetB);
-      } else {
-        valueB = ilnkb.create<memref::LoadOp>(loc, dataType, op.matrixB(), sourceOffsetB);
-      }
+      Value valueB = emitLoadLogic(
+          ilnkb, loc, op.matrixB().getType().template cast<MemRefType>(),
+          op.bufferB().getType().template cast<MemRefType>().getElementType(),
+          false, {}, op.matrixB(), sourceOffsetB);
       ilnkb.create<memref::StoreOp>(loc, valueB, op.bufferB(), ValueRange{destOffsetB});
 
       // Original C++ logic.
@@ -6861,14 +6851,9 @@ struct XdlopsGemmV2RewritePattern
       else
         sourceOffsetA.push_back(sourceOffsetBeforeTransformA);
 
-      Value valueA;
-      if (KPack > 1) {
-        valueA = emitLoadLogic(
-            lklb, loc, op.matrixA().getType().template cast<MemRefType>(),
-            argType, false, {}, op.matrixA(), sourceOffsetA);
-      } else {
-        valueA = lklb.create<memref::LoadOp>(loc, dataType, op.matrixA(), ValueRange{sourceOffsetA});
-      }
+      Value valueA = emitLoadLogic(
+          lklb, loc, op.matrixA().getType().template cast<MemRefType>(),
+          argType, false, {}, op.matrixA(), sourceOffsetA);
       lklb.create<memref::StoreOp>(loc, valueA, op.bufferA(), ValueRange{lkliv});
 
       // NOTICE: We times k_i by num_input_blks in MLIR path.
@@ -6896,14 +6881,9 @@ struct XdlopsGemmV2RewritePattern
       else
         sourceOffsetB.push_back(sourceOffsetBeforeTransformB);
 
-      Value valueB;
-      if (KPack > 1) {
-        valueB = emitLoadLogic(
-            lklb, loc, op.matrixB().getType().template cast<MemRefType>(),
-            argType, false, {}, op.matrixB(), sourceOffsetB);
-      } else {
-        valueB = lklb.create<memref::LoadOp>(loc, dataType, op.matrixB(), ValueRange{sourceOffsetB});
-      }
+      Value valueB = emitLoadLogic(
+          lklb, loc, op.matrixB().getType().template cast<MemRefType>(),
+          argType, false, {}, op.matrixB(), sourceOffsetB);
       lklb.create<memref::StoreOp>(loc, valueB, op.bufferB(), ValueRange{lkliv});
 
       // Original C++ logic.
