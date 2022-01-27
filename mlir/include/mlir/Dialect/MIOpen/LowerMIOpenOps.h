@@ -3307,27 +3307,19 @@ struct GridwiseGemmV2RewritePattern
     int64_t NPerBlock =
         op->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
 
-    int64_t AlignedNPerBlock =
-        max_lds_align *
-        math_util::integer_divide_ceil<int64_t>(NPerBlock, max_lds_align);
-
-    // A matrix in LDS memory, dst of blockwise copy
-    int64_t AlignedMPerBlock =
-        max_lds_align *
-        math_util::integer_divide_ceil<int64_t>(MPerBlock, max_lds_align);
-
     // llvm::errs() << "MPerBlock : " << MPerBlock << "\n";
     // llvm::errs() << "NPerBlock : " << NPerBlock << "\n";
     // llvm::errs() << "max_lds_align : " << max_lds_align << "\n";
-    // llvm::errs() << "AlignedMPerBlock : " << AlignedMPerBlock << "\n";
-    // llvm::errs() << "AlignedNPerBlock : " << AlignedNPerBlock << "\n";
 
-    a_block_space = math_util::integer_least_multiple(KPerBlock * AlignedMPerBlock,
-                                                 max_lds_align) * KPack;
+    // A matrix in LDS memory, dst of blockwise copy
+    a_block_space = math_util::integer_least_multiple(KPerBlock * MPerBlock,
+                                                      max_lds_align) *
+                    KPack;
 
     // B matrix in LDS memory, dst of blockwise copy
-    b_block_space = math_util::integer_least_multiple(KPerBlock * AlignedNPerBlock,
-                                                 max_lds_align) * KPack;
+    b_block_space = math_util::integer_least_multiple(KPerBlock * NPerBlock,
+                                                      max_lds_align) *
+                    KPack;
 
     total_block_space = a_block_space + b_block_space;
 
