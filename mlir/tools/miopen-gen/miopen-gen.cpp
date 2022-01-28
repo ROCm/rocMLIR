@@ -636,6 +636,8 @@ static mlir::Value makeNDMemRef(OpBuilder &b, mlir::Value var, uint32_t ndim) {
   return var;
 }
 
+static void emitMemcpy(OpBuilder &b, mlir::Value src, mlir::Value dst);
+
 static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
   auto context = module.getContext();
   OpBuilder b(context);
@@ -658,6 +660,14 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
   if (deviceNum.getNumOccurrences() > 0)
     b.create<gpu::SetDefaultDeviceOp>(
         loc, b.getI32IntegerAttr(deviceNum.getValue()));
+
+  // Decide if a workspace is needed.
+  // Preconditions:
+  // - data type: fp16
+  // - operation: backward weight conv2d.
+  // - use XDLOPS.
+  bool useWorkspace = ((operation == miopen::ConvOpType::BwdWeight) &&
+                       xdlopsV2 && (tensorDataType == "f16"));
 
   // Emit some constant values for HIP runtime API calls.
   auto oneConstantI32Op =
@@ -780,6 +790,12 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
     // Emit GPU dealloc
     b.create<CallOp>(loc, getGpuDeallocFunc(elemType), ValueRange{gpuMem[i]});
     i++;
+  }
+
+  // Initial version. Use CPU to convert fp32 to fp16.
+  if (useWorkspace) {
+    assert(block->getNumArguments() == 4);
+    emitMemcpy(b, block->getArgument(3), block->getArgument(0));
   }
 
   b.create<ReturnOp>(loc, ValueRange{});
