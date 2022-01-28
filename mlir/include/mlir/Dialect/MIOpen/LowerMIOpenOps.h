@@ -1709,10 +1709,10 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       kpackGemmFilterTransform.passThrough(sourceTransform.endName(2));
       // Use Unmerge to split gemmK (dim 1) into gemmK and gemmKPack, place
       // gemmKPack at dim 3.
-      int64_t gemmKLength = sourceTransform.endSize(sourceTransform.endName(1));
-      kpackGemmFilterTransform.unmerge(
-          {sourceTransform.endName(1), "gemmKPack"}, {1, 3},
-          sourceTransform.endName(1), {gemmKLength / KPack, KPack});
+      int64_t gemmKLength = sourceTransform.endSize(1);
+      auto gemmKName = sourceTransform.endName(1);
+      kpackGemmFilterTransform.unmerge({gemmKName, "gemmKPack"}, {1, 3},
+                                       gemmKName, {gemmKLength / KPack, KPack});
       TransformMapAttr kpackGemmFilterTransformAttr =
           kpackGemmFilterTransform.get();
       gemmFilterKPack = b.create<miopen::TransformOp>(
@@ -1894,10 +1894,10 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       kpackGemmInputTransform.passThrough(sourceTransform.endName(2));
       // Use Unmerge to split gemmK (dim 1) into gemmK and gemmKPack, place
       // gemmKPack at dim 3.
-      int64_t gemmKLength = sourceTransform.endSize(sourceTransform.endName(1));
-      kpackGemmInputTransform.unmerge({sourceTransform.endName(1), "gemmKPack"},
-                                      {1, 3}, sourceTransform.endName(1),
-                                      {gemmKLength / KPack, KPack});
+      int64_t gemmKLength = sourceTransform.endSize(1);
+      auto gemmKName = sourceTransform.endName(1);
+      kpackGemmInputTransform.unmerge({gemmKName, "gemmKPack"}, {1, 3},
+                                      gemmKName, {gemmKLength / KPack, KPack});
       TransformMapAttr kpackGemmInputTransformAttr =
           kpackGemmInputTransform.get();
       gemmInputKPack = b.create<miopen::TransformOp>(
