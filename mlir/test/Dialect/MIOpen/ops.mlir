@@ -173,14 +173,6 @@ func @miopen_gridwise_gemm_v2(%A : memref<?x?x?xf32>, %B : memref<?x?x?xf32>, %C
 // CHECK-LABEL: func @miopen_gridwise_gemm_v2
 // CHECK-NEXT: miopen.gridwise_gemm_v2
 
-func @miopen_data_convert() {
-    %0 = arith.constant 3.2 : f32
-    %1 = miopen.data_convert %0  : f32 to i16
-    return
-}
-// CHECK-LABEL: func @miopen_data_convert
-// CHECK: miopen.data_convert
-
 func @miopen_in_warp_transpose(%v : vector<8xf32>) -> vector<8xf32> {
   %cst4 = arith.constant 4 : index
   %l = miopen.workitem_id : index

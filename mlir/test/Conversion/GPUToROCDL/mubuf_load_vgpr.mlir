@@ -54,33 +54,33 @@ gpu.module @mubuf_load {
     gpu.return %result : vector<8xf16>
   }
 
-  // i16 (bf16) tests.
+  // bf16 -> i16 tests.
 
-  // CHECK-LABEL: func @buffer_load_from_rank_1_to_i16
-  gpu.func @buffer_load_from_rank_1_to_i16(%src : memref<128xi16, 5>, %offset0 : i32) -> i16 {
+  // CHECK-LABEL: func @buffer_load_from_rank_1_to_bf16
+  gpu.func @buffer_load_from_rank_1_to_bf16(%src : memref<128xbf16, 5>, %offset0 : i32) -> bf16 {
     // CHECK: llvm.load %{{.*}} : !llvm.ptr<i16, 5>
-    %result = gpu.buffer_load(%src, %offset0) : memref<128xi16, 5>, i16, i32
-    gpu.return %result : i16
+    %result = gpu.buffer_load(%src, %offset0) : memref<128xbf16, 5>, bf16, i32
+    gpu.return %result : bf16
   }
 
-  // CHECK-LABEL: func @buffer_load_from_rank_1_to_2xi16
-  gpu.func @buffer_load_from_rank_1_to_2xi16(%src : memref<128xi16, 5>, %offset0 : i32) -> vector<2xi16> {
+  // CHECK-LABEL: func @buffer_load_from_rank_1_to_2xbf16
+  gpu.func @buffer_load_from_rank_1_to_2xbf16(%src : memref<128xbf16, 5>, %offset0 : i32) -> vector<2xbf16> {
     // CHECK: llvm.load %{{.*}} : !llvm.ptr<vector<2xi16>, 5>
-    %result = gpu.buffer_load(%src, %offset0) : memref<128xi16, 5>, vector<2xi16>, i32
-    gpu.return %result : vector<2xi16>
+    %result = gpu.buffer_load(%src, %offset0) : memref<128xbf16, 5>, vector<2xbf16>, i32
+    gpu.return %result : vector<2xbf16>
   }
 
-  // CHECK-LABEL: func @buffer_load_from_rank_1_to_4xi16
-  gpu.func @buffer_load_from_rank_1_to_4xi16(%src : memref<128xi16, 5>, %offset0 : i32) -> vector<4xi16> {
+  // CHECK-LABEL: func @buffer_load_from_rank_1_to_4xbf16
+  gpu.func @buffer_load_from_rank_1_to_4xbf16(%src : memref<128xbf16, 5>, %offset0 : i32) -> vector<4xbf16> {
     // CHECK: llvm.load %{{.*}} : !llvm.ptr<vector<4xi16>, 5>
-    %result = gpu.buffer_load(%src, %offset0) : memref<128xi16, 5>, vector<4xi16>, i32
-    gpu.return %result : vector<4xi16>
+    %result = gpu.buffer_load(%src, %offset0) : memref<128xbf16, 5>, vector<4xbf16>, i32
+    gpu.return %result : vector<4xbf16>
   }
 
-  // CHECK-LABEL: func @buffer_load_from_rank_1_to_8xi16
-  gpu.func @buffer_load_from_rank_1_to_8xi16(%src : memref<128xi16, 5>, %offset0 : i32) -> vector<8xi16> {
+  // CHECK-LABEL: func @buffer_load_from_rank_1_to_8xbf16
+  gpu.func @buffer_load_from_rank_1_to_8xbf16(%src : memref<128xbf16, 5>, %offset0 : i32) -> vector<8xbf16> {
     // CHECK: llvm.load %{{.*}} : !llvm.ptr<vector<8xi16>, 5>
-    %result = gpu.buffer_load(%src, %offset0) : memref<128xi16, 5>, vector<8xi16>, i32
-    gpu.return %result : vector<8xi16>
+    %result = gpu.buffer_load(%src, %offset0) : memref<128xbf16, 5>, vector<8xbf16>, i32
+    gpu.return %result : vector<8xbf16>
   }
 }

@@ -105,20 +105,6 @@ struct MIGPUAllocRewritePattern : public OpRewritePattern<miopen::GpuAllocOp> {
   }
 };
 
-struct MIDataConvertRewritePattern
-    : public OpRewritePattern<miopen::DataConvertOp> {
-  using OpRewritePattern<miopen::DataConvertOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(miopen::DataConvertOp op,
-                                PatternRewriter &b) const override {
-    Value nop =
-        b.create<gpu::BFConvertOp>(op.getLoc(), op.out().getType(), op.in());
-    op.replaceAllUsesWith(nop);
-    op.erase();
-    return success();
-  }
-};
-
 template <typename Tmi, typename Tgpu>
 struct MIOpRewritePattern : public OpRewritePattern<Tmi> {
   using OpRewritePattern<Tmi>::OpRewritePattern;
@@ -288,7 +274,6 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
 
     // miopen-lowering
     patterns.insert<MIGPUAllocRewritePattern>(ctx);
-    patterns.insert<MIDataConvertRewritePattern>(ctx);
     patterns.insert<MIOpRewritePattern<miopen::WorkgroupBarrierOp, gpu::BarrierOp>>(ctx);
     patterns.insert<MIOpRewritePattern<miopen::LDSBarrierOp, gpu::LDSBarrierOp>>(ctx);
     patterns.insert<MIIdRewritePattern<miopen::WorkgroupIdOp, gpu::BlockIdOp>>(ctx);

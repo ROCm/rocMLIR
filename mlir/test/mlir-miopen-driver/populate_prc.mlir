@@ -2,7 +2,7 @@
 
 // F32: func @main()
 // F32:  [[RES:%.*]] = memref.cast {{.*}} : memref<{{.*}}> to memref<*xf32>
-// F32-NEXT:    call @print_memref_f32([[RES]]) : (memref<*xf32>) -> () 
+// F32-NEXT:    call @print_memref_f32([[RES]]) : (memref<*xf32>) -> ()
 
 // RUN: miopen-gen -p -prc -t f16 | FileCheck %s --check-prefix=F16
 
@@ -19,12 +19,12 @@
 
 // RUN: miopen-gen -p -prc -t bf16 | FileCheck %s --check-prefix=BF16
 
-// BF16:    %{{.*}} = memref.alloc() : memref<1x128x8x3x3xi16>
-// BF16:    call @_memcpy_i16_f32(%{{.*}}, %{{.*}}, %c{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>, index) -> ()
-// BF16:    %{{.*}} = memref.alloc() : memref<128x1x8x32x32xi16>
-// BF16:    call @_memcpy_i16_f32(%{{.*}}, %{{.*}}, %c{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>, index) -> ()
+// BF16:    %{{.*}} = memref.alloc() : memref<1x128x8x3x3xbf16>
+// BF16:    call @_memcpy_bf16_f32(%{{.*}}, %{{.*}}, %c{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>, index) -> ()
+// BF16:    %{{.*}} = memref.alloc() : memref<128x1x8x32x32xbf16>
+// BF16:    call @_memcpy_bf16_f32(%{{.*}}, %{{.*}}, %c{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>, index) -> ()
 // BF16:    %{{.*}} = memref.alloc() : memref<{{.*}}>
-// BF16:    call @_memcpy_i16_f32(%{{.*}}, %{{.*}}, %c{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>, index) -> ()
+// BF16:    call @_memcpy_bf16_f32(%{{.*}}, %{{.*}}, %c{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>, index) -> ()
 // BF16-NEXT:    call @conv2d_cpu(%{{.*}}, %{{.*}}, [[RES1:%.*]]) : (memref<1x128x8x3x3xf32>, memref<{{.*}}>, memref<{{.*}}>) -> ()
 // BF16:    [[RES2:%.*]] = memref.cast [[RES1]] : memref<{{.*}}> to memref<*xf32>
 // BF16:    call @print_memref_f32([[RES2]]) : (memref<*xf32>) -> ()

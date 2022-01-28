@@ -189,27 +189,6 @@ inline void computeSliceLengths(SmallVectorImpl<uint64_t> &sliceLengths,
 }
 
 //===----------------------------------------------------------------------===//
-// Utility function to emit constant float op. Returns a scalar.
-//===----------------------------------------------------------------------===//
-inline Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
-                                   float value) {
-  Value ret;
-  if (elementType == b.getF32Type()) {
-    ret = b.create<ConstantFloatOp>(loc, APFloat(value), b.getF32Type());
-  } else if (elementType == b.getF16Type()) {
-    bool lossy = false;
-    APFloat constant(value);
-    constant.convert(APFloat::IEEEhalf(), llvm::RoundingMode::TowardZero,
-                     &lossy);
-    ret = b.create<ConstantFloatOp>(loc, constant, b.getF16Type());
-  } else if (elementType == b.getIntegerType(16)) {
-    ret = b.create<ConstantIntOp>(loc, static_cast<int>(value),
-                                  b.getIntegerType(16));
-  }
-  return ret;
-}
-
-//===----------------------------------------------------------------------===//
 // Utility function to emit constant zero op. Can return scalars or vectors.
 //===----------------------------------------------------------------------===//
 inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc, Type type) {
@@ -221,7 +200,7 @@ inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc, Type type) {
     semantics = APFloat::S_IEEEsingle;
   } else if (elementType == b.getF16Type()) {
     semantics = APFloat::S_IEEEhalf;
-  } else if (elementType == b.getIntegerType(16)) {
+  } else if (elementType == b.getBF16Type()) {
     semantics = APFloat::S_BFloat;
   } else {
     llvm_unreachable("Unexpected float semantics");
@@ -231,29 +210,14 @@ inline Value createZeroConstantFloatOp(OpBuilder &b, Location loc, Type type) {
   Value retValue;
 
   if (auto vecType = type.dyn_cast<VectorType>()) {
-    Attribute constValue;
-    if (auto intType = elementType.dyn_cast<IntegerType>()) {
-      auto intZero = zero.bitcastToAPInt();
-      assert(intType.getIntOrFloatBitWidth() == intZero.getBitWidth());
-      constValue = b.getIntegerAttr(elementType, intZero);
-    } else {
-      constValue = b.getFloatAttr(elementType, zero);
-    }
-    llvm::SmallVector<Attribute> constValues;
-    std::fill_n(std::back_inserter(constValues), vecType.getNumElements(),
-                constValue);
+    Attribute constValue = b.getFloatAttr(elementType, zero);
+    llvm::SmallVector<Attribute> constValues(vecType.getNumElements(),
+                                             constValue);
     retValue = b.create<mlir::ConstantOp>(
         loc, DenseElementsAttr::get(vecType, constValues), type);
   } else {
-    if (auto intType = elementType.dyn_cast<IntegerType>()) {
-      auto intZero = zero.bitcastToAPInt();
-      assert(intType.getIntOrFloatBitWidth() == intZero.getBitWidth());
-      retValue = b.create<mlir::ConstantOp>(
-          loc, b.getIntegerAttr(intType, intZero), type);
-    } else {
-      retValue = b.create<mlir::ConstantOp>(
-          loc, b.getFloatAttr(elementType, zero), type);
-    }
+    retValue = b.create<mlir::ConstantOp>(
+        loc, b.getFloatAttr(elementType, zero), type);
   }
 
   return retValue;
@@ -729,18 +693,16 @@ inline Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
   }
   if (sourceElemType != destElemType) {
     // Possible cases:
-    // - fp16 -> fp32 : use fpext.
-    // - fp32 -> fp16 : use fptrunc.
+    // - fp16/bf16 -> fp32 : use fpext.
+    // - fp32 -> fp16/bf16 : use fptrunc.
     // - fp16/fp32 -> bf16(i16) : use miopen.data_convert.
     // All these ops act elementwise on vectors
-    // except the BFloat conversion
-    if (sourceElemType == b.getF16Type() && destElemType == b.getF32Type()) {
+    if (sourceElemType.getIntOrFloatBitWidth() == 16 &&
+        destElemType == b.getF32Type()) {
       result = b.create<arith::ExtFOp>(loc, source, destType);
     } else if (sourceElemType == b.getF32Type() &&
-               destElemType == b.getF16Type()) {
+               destElemType.getIntOrFloatBitWidth() == 16) {
       result = b.create<arith::TruncFOp>(loc, source, destType);
-    } else if (destElemType == b.getIntegerType(16)) {
-      result = b.create<miopen::DataConvertOp>(loc, destType, source);
     } else {
       llvm_unreachable("Only fp32, fp16, or bf16 targets for data conversion");
     }

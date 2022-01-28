@@ -12,6 +12,7 @@
 
 #include "mlir/Conversion/MIOpenPasses.h"
 #include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
@@ -670,7 +671,7 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
     if (elemType.isF32()) {
     } else if (elemType.isF16()) {
       allocFuncName = "mgpuMemAlloc5DHalf";
-    } else if (elemType.isInteger(16)) {
+    } else if (elemType.isBF16()) {
       allocFuncName = "mgpuMemAlloc5DBF16";
     }
     auto unk5DType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
@@ -682,7 +683,7 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
     if (elemType.isF32()) {
     } else if (elemType.isF16()) {
       deallocFuncName = "mgpuMemDealloc5DHalf";
-    } else if (elemType.isInteger(16)) {
+    } else if (elemType.isBF16()) {
       deallocFuncName = "mgpuMemDealloc5DBF16";
     }
     auto unk5DType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
@@ -694,7 +695,7 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
     if (elemType.isF32()) {
     } else if (elemType.isF16()) {
       allocFuncName = "mgpuMemCopy5DHalf";
-    } else if (elemType.isInteger(16)) {
+    } else if (elemType.isBF16()) {
       allocFuncName = "mgpuMemCopy5DBF16";
     }
     auto unk5DType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
@@ -834,7 +835,7 @@ static std::string getMemsetFuncName(mlir::Type dataType) {
     memsetFuncName = "mcpuMemset5DFloatRand";
   } else if (dataType.isF16()) {
     memsetFuncName = "mcpuMemset5DHalfRand";
-  } else if (dataType.isInteger(16)) {
+  } else if (dataType.isBF16()) {
     memsetFuncName = "mcpuMemset5DBF16Rand";
   }
   if (randomDataType == "float")
@@ -1066,6 +1067,8 @@ const char *getTypeStr(const mlir::Type &type) {
     return "f32";
   else if (type.isF16())
     return "f16";
+  else if (type.isBF16())
+    return "bf16";
   else if (type.isInteger(32))
     return "i32";
   else if (type.isInteger(16))
@@ -1128,22 +1131,21 @@ static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
     // insert conversion logic
     auto srcBitWidth = srcElemType.getIntOrFloatBitWidth();
     auto dstBitWidth = dstElemType.getIntOrFloatBitWidth();
-    if (srcElemType.isIntOrIndex()) {
+    if (srcElemType.isBF16()) {
+      // HACK for bf16 since BF16 isn't supported by x86 isel
+      // loadOp = bt0.create<arith::BitcastOp>(loc, loadOp,
+      // bt0.getBF16Type()); loadOp = bt0.create<arith::ExtFOp>(loc, loadOp,
+      // dstElemType); BF16 not supported by x86 isel
+      mlir::Type i16 = bt0.getIntegerType(16);
+      mlir::Type i32 = bt0.getI32Type();
+      loadOp = bt0.create<arith::BitcastOp>(loc, loadOp, i16);
+      loadOp = bt0.create<arith::ExtUIOp>(loc, loadOp, i32);
+      auto cst16Op = bt0.create<arith::ConstantIntOp>(loc, 16, i32);
+      loadOp = bt0.create<arith::ShLIOp>(loc, loadOp, cst16Op);
+      loadOp = bt0.create<arith::BitcastOp>(loc, loadOp, bt0.getF32Type());
+    } else if (srcElemType.isIntOrIndex()) {
       assert(!dstElemType.isIntOrIndex());
-      if (srcBitWidth == 16) {
-        // HACK for bf16
-        // loadOp = bt0.create<arith::BitcastOp>(loc, loadOp,
-        // bt0.getBF16Type()); loadOp = bt0.create<arith::ExtFOp>(loc, loadOp,
-        // dstElemType); BF16 not supported by x86 isel
-        loadOp =
-            bt0.create<arith::ExtUIOp>(loc, loadOp, bt0.getIntegerType(32));
-        auto cst16Op =
-            bt0.create<arith::ConstantIntOp>(loc, 16, b.getIntegerType(32));
-        loadOp = bt0.create<arith::ShLIOp>(loc, loadOp, cst16Op);
-        loadOp = bt0.create<arith::BitcastOp>(loc, loadOp, bt0.getF32Type());
-      } else {
-        loadOp = bt0.create<arith::SIToFPOp>(loc, loadOp, dstElemType);
-      }
+      loadOp = bt0.create<arith::SIToFPOp>(loc, loadOp, dstElemType);
     } else {
       assert(srcElemType.isa<FloatType>());
       if (dstElemType.isIntOrIndex()) {
@@ -1240,7 +1242,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   } else if (genConfig.dataTypeStr == "f16") {
     elemType = b.getF16Type();
   } else if (genConfig.dataTypeStr == "bf16") {
-    elemType = b.getIntegerType(16);
+    elemType = b.getBF16Type();
   }
 
   assert(genConfig.operation.hasValue());
@@ -1342,9 +1344,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   // Lower cpu values to gpu precision
   mlir::FloatType elemFType = floatType;
   if (!elemType.isF32()) {
-    if (elemType.isInteger(16)) {
-      gpuLoadVal =
-          loopB.create<arith::BitcastOp>(loc, gpuLoadVal, loopB.getBF16Type());
+    if (elemType.isBF16()) {
       elemFType = b.getBF16Type();
     } else {
       elemFType = b.getF16Type();
@@ -1513,7 +1513,7 @@ populateHostHarnessLogic(ModuleOp &module,
       if (tensorDataType == "f16")
         elemType = b.getF16Type();
       else
-        elemType = b.getIntegerType(16);
+        elemType = b.getBF16Type();
       paramMRType = MemRefType::get(paramMRType.getShape(), elemType);
     }
     auto mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);

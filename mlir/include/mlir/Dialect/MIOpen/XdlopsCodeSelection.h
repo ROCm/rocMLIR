@@ -316,7 +316,7 @@ struct XdlopsCodeSelection {
         llvm::errs() << "\n";
         llvm_unreachable("Can't meaningfully continue xdlop generation");
       }
-    } else if (dataType == b.getIntegerType(16)) {
+    } else if (dataType == b.getBF16Type()) {
       if (MPerWave == 128 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_32x32x2bf16";
         MPerXdlops = 64;
@@ -329,7 +329,7 @@ struct XdlopsCodeSelection {
         imms.push_back({1, 1, 0});
         imms.push_back({1, 0, 0});
         imms.push_back({1, 1, 0});
-        argType = VectorType::get({2}, b.getIntegerType(16));
+        argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 64 && NPerWave == 128) {
         mfmaInstr = "mfma_f32_32x32x2bf16";
         MPerXdlops = 64;
@@ -342,7 +342,7 @@ struct XdlopsCodeSelection {
         imms.push_back({1, 1, 0});
         imms.push_back({1, 0, 0});
         imms.push_back({1, 1, 0});
-        argType = VectorType::get({2}, b.getIntegerType(16));
+        argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 64 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_32x32x2bf16";
         MPerXdlops = 64;
@@ -353,7 +353,7 @@ struct XdlopsCodeSelection {
         vectorNumber = 2;
         imms.push_back({1, 0, 0});
         imms.push_back({1, 1, 0});
-        argType = VectorType::get({2}, b.getIntegerType(16));
+        argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 64 && NPerWave == 32) {
         mfmaInstr = "mfma_f32_32x32x2bf16";
         MPerXdlops = 64;
@@ -363,7 +363,7 @@ struct XdlopsCodeSelection {
         vectorType = VectorType::get({32}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({0, 0, 1});
-        argType = VectorType::get({2}, b.getIntegerType(16));
+        argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 32 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_32x32x2bf16";
         MPerXdlops = 32;
@@ -393,7 +393,7 @@ struct XdlopsCodeSelection {
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({2, 0, 0});
-        argType = VectorType::get({2}, b.getIntegerType(16));
+        argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 8 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_4x4x2bf16";
         MPerXdlops = 8;
@@ -404,7 +404,7 @@ struct XdlopsCodeSelection {
         vectorNumber = 2;
         imms.push_back({4, 0, 0});
         imms.push_back({4, 1, 0});
-        argType = VectorType::get({2}, b.getIntegerType(16));
+        argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 4 && NPerWave == 64) {
         mfmaInstr = "mfma_f32_4x4x2bf16";
         MPerXdlops = 4;
@@ -414,7 +414,7 @@ struct XdlopsCodeSelection {
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({4, 0, 0});
-        argType = VectorType::get({2}, b.getIntegerType(16));
+        argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 32 && NPerWave == 32) {
         mfmaInstr = "mfma_f32_32x32x4bf16";
         MPerXdlops = 32;
@@ -424,7 +424,7 @@ struct XdlopsCodeSelection {
         vectorType = VectorType::get({16}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({0, 0, 0});
-        argType = VectorType::get({2}, b.getIntegerType(16));
+        argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 16 && NPerWave == 16) {
         mfmaInstr = "mfma_f32_16x16x8bf16";
         MPerXdlops = 16;
@@ -434,7 +434,7 @@ struct XdlopsCodeSelection {
         vectorType = VectorType::get({4}, b.getF32Type());
         vectorNumber = 1;
         imms.push_back({0, 0, 0});
-        argType = VectorType::get({2}, b.getIntegerType(16));
+        argType = VectorType::get({2}, b.getBF16Type());
       } else {
         llvm::errs() << "Unsupported case:\n";
         // llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";

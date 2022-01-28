@@ -58,10 +58,10 @@
 // BF16-NEXT: call @mcpuMemset5DBF16RandInt({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x?x[[TYPE]]>, i16, i16, i32) -> ()
 // BF16-NEXT: memref.alloc() : memref<[[N]]x[[G:[0-9]+]]x[[K]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]x[[TYPE]]>
 // BF16-NEXT: memref.cast {{.*}} : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]> to memref<?x?x?x?x?x[[TYPE]]>
-// BF16-NEXT: arith.constant 0 : i16 
+// BF16-NEXT: arith.constant 0 : i16
 // BF16-NEXT: call @mcpuMemset5DBF16RandInt({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x?x[[TYPE]]>, i16, i16, i32) -> ()
 // BF16-NEXT: call @miopen_conv2d_gkcyx_ngchw_ngkhw_0_gpu({{.*}}, {{.*}}, {{.*}}) : (memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>, memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>, memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]>) -> ()
 // BF16: memref.alloc() : memref<[[N]]x[[G:[0-9]+]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE:[a-zA-Z0-9]+]]>
-// BF16: call @_memcpy_i16_f32({{.*}}, {{.*}}, {{.*}}) : (memref<?xi16>, memref<?xf32>, index) -> ()
+// BF16: call @_memcpy_bf16_f32({{.*}}, {{.*}}, {{.*}}) : (memref<?xbf16>, memref<?xf32>, index) -> ()
 // BF16-NEXT: memref.cast %{{.*}} : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[PRINT_TYPE]]> to memref<*x[[PRINT_TYPE]]>
 // BF16-NEXT: call @print_memref_f32(%{{.*}}) : (memref<*x[[PRINT_TYPE]]>) -> ()
