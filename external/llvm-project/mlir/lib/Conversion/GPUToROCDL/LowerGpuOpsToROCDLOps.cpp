@@ -22,6 +22,7 @@
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Conversion/VectorToROCDL/VectorToROCDL.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/GPU/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -33,9 +34,13 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/Support/FormatVariadic.h"
 #include <iterator>
 
@@ -66,6 +71,7 @@ struct LowerGpuOpsToROCDLOpsPass
 
   void runOnOperation() override {
     gpu::GPUModuleOp m = getOperation();
+    MLIRContext *ctx = m.getContext();
 
     /// Customize the bitwidth used for the device side index computations.
     LowerToLLVMOptions options(
@@ -74,10 +80,11 @@ struct LowerGpuOpsToROCDLOpsPass
     options.emitCWrappers = true;
     if (indexBitwidth != kDeriveIndexBitwidthFromDataLayout)
       options.overrideIndexBitwidth(indexBitwidth);
-    LLVMTypeConverter converter(m.getContext(), options);
 
-    RewritePatternSet patterns(m.getContext());
-    RewritePatternSet llvmPatterns(m.getContext());
+    LLVMTypeConverter converter(ctx, options);
+    RewritePatternSet patterns(ctx);
+    RewritePatternSet llvmPatterns(ctx);
+    RewritePatternSet bf16fixupPatterns(ctx);
 
     populateGpuRewritePatterns(patterns);
     (void)applyPatternsAndFoldGreedily(m, std::move(patterns));
@@ -91,9 +98,16 @@ struct LowerGpuOpsToROCDLOpsPass
     populateStdToLLVMConversionPatterns(converter, llvmPatterns);
     populateMemRefToLLVMConversionPatterns(converter, llvmPatterns);
     populateGpuToROCDLConversionPatterns(converter, llvmPatterns, runtime);
+    // Keep last to prioritize newly-added type conversions, just in case
+    // Note that since these patterns touch LLVM ops, they'll need to run after
+    // conversion
+    populateBF16ToROCDLConversionPatterns(converter, bf16fixupPatterns);
+
     LLVMConversionTarget target(getContext());
     configureGpuToROCDLConversionLegality(target);
     if (failed(applyPartialConversion(m, target, std::move(llvmPatterns))))
+      signalPassFailure();
+    if (failed(applyPatternsAndFoldGreedily(m, std::move(bf16fixupPatterns))))
       signalPassFailure();
   }
 };
@@ -565,11 +579,10 @@ struct RawbufStoreOpLowering : ConvertToLLVMPattern {
         rewriter.create<LLVM::AddOp>(loc, LLVMI32Type, voffset, adaptorShift);
 
     if (dstElementType.getIntOrFloatBitWidth() != 32) {
-      if (valueType.isa<VectorType>()) {
+      if (auto vectorResultType = valueType.dyn_cast<VectorType>()) {
         // for f16 and i16 (bf16) types, use f32 buffer_store and bitcast the
         // result.
         // deduce the interim type for f16 / i16 (bf16).
-        VectorType vectorResultType = valueType.template cast<VectorType>();
         auto vectorShape = vectorResultType.getShape();
 
         SmallVector<int64_t, 1> interimShape;
@@ -794,161 +807,108 @@ struct MFMAOpLowering : ConvertToLLVMPattern {
           loc, typeConverter->convertType(rewriter.getIntegerType(32)),
           immArrayAttr[iter]));
 
+    Value sourceA = adaptor.sourceA();
+    Value sourceB = adaptor.sourceB();
+    Value destC = adaptor.destC();
+    Type retType = typeConverter->convertType(destC.getType());
+
     if (mfmaInstr.endswith("f32")) {
       // F32.
       if (mfmaInstr == "mfma_f32_32x32x1f32")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x1f32>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
-                       immValues[0], immValues[1], immValues[2]});
+            op, retType,
+            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
+                       immValues[2]});
       else if (mfmaInstr == "mfma_f32_32x32x2f32")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x2f32>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
-                       immValues[0], immValues[1], immValues[2]});
+            op, retType,
+            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
+                       immValues[2]});
       else if (mfmaInstr == "mfma_f32_16x16x4f32")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x4f32>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
-                       immValues[0], immValues[1], immValues[2]});
+            op, retType,
+            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
+                       immValues[2]});
       else if (mfmaInstr == "mfma_f32_16x16x1f32")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x1f32>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
-                       immValues[0], immValues[1], immValues[2]});
+            op, retType,
+            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
+                       immValues[2]});
       else if (mfmaInstr == "mfma_f32_4x4x1f32")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_4x4x1f32>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
-                       immValues[0], immValues[1], immValues[2]});
+            op, retType,
+            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
+                       immValues[2]});
     } else if (mfmaInstr.endswith("f16") && !mfmaInstr.endswith("bf16")) {
       // F16.
       if (mfmaInstr == "mfma_f32_32x32x4f16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x4f16>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
-                       immValues[0], immValues[1], immValues[2]});
+            op, retType,
+            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
+                       immValues[2]});
       else if (mfmaInstr == "mfma_f32_32x32x8f16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x8f16>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
-                       immValues[0], immValues[1], immValues[2]});
+            op, retType,
+            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
+                       immValues[2]});
       else if (mfmaInstr == "mfma_f32_16x16x16f16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x16f16>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
-                       immValues[0], immValues[1], immValues[2]});
+            op, retType,
+            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
+                       immValues[2]});
       else if (mfmaInstr == "mfma_f32_16x16x4f16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x4f16>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
-                       immValues[0], immValues[1], immValues[2]});
+            op, retType,
+            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
+                       immValues[2]});
       else if (mfmaInstr == "mfma_f32_4x4x4f16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_4x4x4f16>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
-                       immValues[0], immValues[1], immValues[2]});
+            op, retType,
+            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
+                       immValues[2]});
     } else if (mfmaInstr.endswith("bf16")) {
       // BF16.
       if (mfmaInstr == "mfma_f32_32x32x2bf16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x2bf16>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
-                       immValues[0], immValues[1], immValues[2]});
+            op, retType,
+            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
+                       immValues[2]});
       else if (mfmaInstr == "mfma_f32_32x32x4bf16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x4bf16>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
-                       immValues[0], immValues[1], immValues[2]});
+            op, retType,
+            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
+                       immValues[2]});
       else if (mfmaInstr == "mfma_f32_16x16x8bf16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x8bf16>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
-                       immValues[0], immValues[1], immValues[2]});
+            op, retType,
+            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
+                       immValues[2]});
       else if (mfmaInstr == "mfma_f32_16x16x2bf16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x2bf16>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
-                       immValues[0], immValues[1], immValues[2]});
+            op, retType,
+            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
+                       immValues[2]});
       else if (mfmaInstr == "mfma_f32_4x4x2bf16")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_4x4x2bf16>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
-                       immValues[0], immValues[1], immValues[2]});
+            op, retType,
+            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
+                       immValues[2]});
     } else if (mfmaInstr.endswith("i8")) {
       if (mfmaInstr == "mfma_i32_32x32x8i8")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_i32_32x32x8i8>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
-                       immValues[0], immValues[1], immValues[2]});
+            op, retType,
+            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
+                       immValues[2]});
       else if (mfmaInstr == "mfma_i32_16x16x16i8")
         rewriter.replaceOpWithNewOp<ROCDL::mfma_i32_16x16x16i8>(
-            op, adaptor.destC().getType(),
-            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
-                       immValues[0], immValues[1], immValues[2]});
+            op, retType,
+            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
+                       immValues[2]});
       else {
         return failure();
       }
     }
 
-    return success();
-  }
-};
-
-struct BFOpLowering : ConvertToLLVMPattern {
-  explicit BFOpLowering(MLIRContext *context, LLVMTypeConverter &typeConverter)
-      : ConvertToLLVMPattern(gpu::BFConvertOp::getOperationName(), context,
-                             typeConverter) {}
-
-  LogicalResult
-  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto bfOp = cast<gpu::BFConvertOp>(op);
-    auto adaptor = gpu::BFConvertOpAdaptor(operands);
-    auto loc = bfOp.getLoc();
-
-    Type srcType = adaptor.in().getType();
-    Type destType = bfOp.out().getType();
-    Type bitcastType = rewriter.getI32Type();
-    if (auto srcShaped = srcType.dyn_cast<ShapedType>())
-      bitcastType = srcShaped.clone(bitcastType);
-    Type llvmBitcastType = typeConverter->convertType(bitcastType);
-    Type llvmDestType = typeConverter->convertType(destType);
-
-    auto getI32ConstAttr = [&bitcastType,
-                            &rewriter](int32_t value) -> Attribute {
-      Attribute scalar = rewriter.getI32IntegerAttr(value);
-      if (LLVM::isCompatibleVectorType(bitcastType))
-        return SplatElementsAttr::get(bitcastType.cast<ShapedType>(), scalar);
-      return scalar;
-    };
-    // a = bitcast f32 value to i32
-    // b = (a + 32767) << 16
-    // c = ((a << 16) & 1)
-    // d = b + c
-    // truncate (d << 16) to i16 and return this i16
-    Value bitcastop =
-        rewriter.create<LLVM::BitcastOp>(loc, llvmBitcastType, adaptor.in());
-    Value constantSixteen = rewriter.create<LLVM::ConstantOp>(
-        loc, llvmBitcastType, getI32ConstAttr(16));
-    Value shiftValue = rewriter.create<LLVM::LShrOp>(
-        loc, llvmBitcastType, bitcastop, constantSixteen);
-
-    Value constantOne = rewriter.create<LLVM::ConstantOp>(loc, llvmBitcastType,
-                                                          getI32ConstAttr(1));
-    Value andValue = rewriter.create<LLVM::AndOp>(loc, shiftValue, constantOne);
-
-    Value constantBig = rewriter.create<LLVM::ConstantOp>(
-        loc, llvmBitcastType, getI32ConstAttr(32767));
-    Value addBigValue =
-        rewriter.create<LLVM::AddOp>(loc, bitcastop, constantBig);
-    Value addValue = rewriter.create<LLVM::AddOp>(loc, andValue, addBigValue);
-
-    Value shiftBeforeTruncValue = rewriter.create<LLVM::LShrOp>(
-        loc, bitcastType, addValue, constantSixteen);
-    Value truncValue = rewriter.create<LLVM::TruncOp>(loc, llvmDestType,
-                                                      shiftBeforeTruncValue);
-    rewriter.replaceOp(op, {truncValue});
     return success();
   }
 };
@@ -992,6 +952,144 @@ struct WarpSwizzleOpLowering : ConvertToLLVMPattern {
         loc, llvmI32Type, adaptor.in(), dppCtrlConstImm, noMaskConstImm,
         noMaskConstImm, noBoundsControlConstImm);
     rewriter.replaceOp(op, {intrinsic});
+    return success();
+  }
+};
+
+/// Rewrites bf16 constants to their i16 equivalents
+/// This is relying on the fact that the vector, i16, and bf16 types used in the
+/// LLVM dialect are the standard ones and not weird custom wrappers
+struct BF16ConstCasting : OpRewritePattern<LLVM::ConstantOp> {
+  explicit BF16ConstCasting(MLIRContext *context) : OpRewritePattern(context) {}
+
+  llvm::APInt toInt(llvm::APFloat value) const {
+    assert(&value.getSemantics() == &llvm::APFloat::BFloat() &&
+           "Must cast bf16 only");
+    APInt ret = value.bitcastToAPInt();
+    assert(ret.getBitWidth() == 16 && "bf16 conversion should make i16");
+    return ret;
+  }
+
+  LogicalResult matchAndRewrite(LLVM::ConstantOp op,
+                                PatternRewriter &rewriter) const override {
+    Attribute val = op.value();
+    Operation *rawOp = op.getOperation();
+    Type bf16 = rewriter.getBF16Type();
+    Type retType = op.res().getType();
+    Type retElemType = retType;
+    if (auto retTypeShaped = retType.dyn_cast<ShapedType>())
+      retElemType = retTypeShaped.getElementType();
+    if (auto valFloat = val.dyn_cast<mlir::FloatAttr>()) {
+      if (valFloat.getType() != bf16)
+        return failure();
+      APInt newVal = toInt(valFloat.getValue());
+      rewriter.replaceOpWithNewOp<LLVM::ConstantOp>(
+          rawOp, retType, rewriter.getIntegerAttr(retType, newVal));
+      return success();
+    }
+
+    if (auto valDense = val.dyn_cast<mlir::DenseElementsAttr>()) {
+      if (valDense.getElementType() != bf16)
+        return failure();
+      DenseElementsAttr newVal = valDense.bitcast(retElemType);
+      rewriter.replaceOpWithNewOp<LLVM::ConstantOp>(rawOp, retType, newVal);
+      return success();
+    }
+
+    if (auto valSparse = val.dyn_cast<mlir::SparseElementsAttr>()) {
+      if (valSparse.getElementType() != bf16)
+        return failure();
+      DenseElementsAttr values = valSparse.getValues();
+      DenseElementsAttr newValues = values.bitcast(retElemType);
+      auto newVal = SparseElementsAttr::get(retType.cast<ShapedType>(),
+                                            valSparse.getIndices(), newValues);
+      rewriter.replaceOpWithNewOp<LLVM::ConstantOp>(rawOp, retType, newVal);
+      return success();
+    }
+    // No match otherwise
+    return failure();
+  }
+};
+
+template <typename From, typename To>
+struct FloatOpToIntOp : OpRewritePattern<From> {
+  explicit FloatOpToIntOp(MLIRContext *context)
+      : OpRewritePattern<From>(context) {}
+
+  LogicalResult matchAndRewrite(From op,
+                                PatternRewriter &rewriter) const override {
+    Type resType = op.getResult().getType();
+    if (resType != rewriter.getIntegerType(16))
+      return failure();
+    LLVM::FMulOp mop;
+    rewriter.replaceOpWithNewOp<To>(op.getOperation(), op->getResultTypes(),
+                                    op.getOperands(), op->getAttrs());
+    return success();
+  }
+};
+
+/// Rewrites truncation to bfloat as a series of integer operations.
+/// This is needed since the ROCDL target doesn't support the bfloat type,
+/// even though LLVM in general does
+struct SoftwareBF16Trunc : OpRewritePattern<LLVM::FPTruncOp> {
+  explicit SoftwareBF16Trunc(MLIRContext *context)
+      : OpRewritePattern(context) {}
+
+  LogicalResult matchAndRewrite(LLVM::FPTruncOp op,
+                                PatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+
+    Type srcType = op.arg().getType();
+    Type destType = op.res().getType();
+    Type srcElemType = srcType;
+    if (auto shaped = srcType.dyn_cast<ShapedType>())
+      srcElemType = shaped.getElementType();
+
+    Type f32 = rewriter.getF32Type();
+    if (srcElemType != f32 && srcElemType)
+      return failure();
+
+    Type bitcastType = rewriter.getI32Type();
+    if (auto srcShaped = srcType.dyn_cast<ShapedType>())
+      bitcastType = srcShaped.clone(bitcastType);
+
+    Type i16 = rewriter.getIntegerType(16);
+    if (auto destShaped = destType.dyn_cast<ShapedType>()) {
+      if (destShaped.getElementType() != i16)
+        return failure();
+    } else if (destType != i16)
+      return failure();
+
+    auto getI32Const = [bitcastType, &rewriter, loc](int32_t value) -> Value {
+      Attribute ret = rewriter.getI32IntegerAttr(value);
+      if (LLVM::isCompatibleVectorType(bitcastType))
+        ret = SplatElementsAttr::get(bitcastType.cast<ShapedType>(), ret);
+      return rewriter.create<LLVM::ConstantOp>(loc, bitcastType, ret);
+    };
+    // a = bitcast f32 value to i32
+    // b = (a + 32767) << 16
+    // c = ((a << 16) & 1)
+    // d = b + c
+    // truncate (d << 16) to i16 and return this i16
+    Value bitcastop =
+        rewriter.create<LLVM::BitcastOp>(loc, bitcastType, op.arg());
+    Value constantSixteen = getI32Const(16);
+    Value shiftValue = rewriter.create<LLVM::LShrOp>(
+        loc, bitcastType, bitcastop, constantSixteen);
+
+    Value constantOne = getI32Const(1);
+    Value andValue = rewriter.create<LLVM::AndOp>(loc, shiftValue, constantOne);
+
+    Value constantBig = getI32Const(32767);
+    Value addBigValue =
+        rewriter.create<LLVM::AddOp>(loc, bitcastop, constantBig);
+    Value addValue = rewriter.create<LLVM::AddOp>(loc, andValue, addBigValue);
+
+    Value shiftBeforeTruncValue = rewriter.create<LLVM::LShrOp>(
+        loc, bitcastType, addValue, constantSixteen);
+    Value truncValue =
+        rewriter.create<LLVM::TruncOp>(loc, destType, shiftBeforeTruncValue);
+    rewriter.replaceOp(op.getOperation(), {truncValue});
     return success();
   }
 };
@@ -1061,22 +1159,40 @@ void mlir::populateGpuToROCDLConversionPatterns(
   patterns.add<OpToFuncCallLowering<math::TanhOp>>(converter, "__ocml_tanh_f32",
                                                    "__ocml_tanh_f64");
 
-  patterns.insert<MFMAOpLowering>(converter.getDialect()->getContext(),
-                                  converter);
+  mlir::MLIRContext *ctx = converter.getDialect()->getContext();
+  patterns.insert<MFMAOpLowering>(ctx, converter);
+  // XXX: does this go under GPU rewrite patterns?
 
-  patterns.insert<BFOpLowering>(converter.getDialect()->getContext(),
-                                converter);
-  patterns.insert<WarpSwizzleOpLowering>(converter.getDialect()->getContext(),
-                                         converter);
+  patterns.insert<WarpSwizzleOpLowering>(ctx, converter);
 
-  patterns.insert<MubufLoadOpLowering>(converter.getDialect()->getContext(),
-                                       converter);
-  patterns.insert<MubufStoreOpLowering>(converter.getDialect()->getContext(),
-                                        converter);
-  patterns.insert<RawbufStoreOpLowering>(converter.getDialect()->getContext(),
-                                         converter);
-  patterns.insert<AtomicFAddOpLowering>(converter.getDialect()->getContext(),
-                                        converter);
+  patterns.insert<MubufLoadOpLowering>(ctx, converter);
+  patterns.insert<MubufStoreOpLowering>(ctx, converter);
+  patterns.insert<RawbufStoreOpLowering>(ctx, converter);
+  patterns.insert<AtomicFAddOpLowering>(ctx, converter);
+}
+
+void mlir::populateBF16ToROCDLConversionPatterns(LLVMTypeConverter &converter,
+                                                 RewritePatternSet &patterns) {
+  MLIRContext *ctx = converter.getDialect()->getContext();
+  // AMD GPUs don't have a backend that understands bfloat, even though LLVM's
+  // frontend does. Remove this if/when that changes. Note that adding
+  // conversions after the default constructor runs gives them priority
+  // over the defaults.
+  Type llvmI16 = converter.convertType(IntegerType::get(ctx, 16));
+  Type bf16 = mlir::BFloat16Type::get(ctx);
+  converter.addConversion(
+      [llvmI16](mlir::BFloat16Type type) -> Type { return llvmI16; });
+  // Override for vector types since they get caught by isCompatibleType(),
+  // which doesn't convert the element type
+  converter.addConversion(
+      [llvmI16, bf16](mlir::VectorType type) -> Optional<Type> {
+        if (type.getElementType() == bf16 && type.getRank() == 1)
+          return type.clone(llvmI16);
+        return llvm::None; // continue search
+      });
+  patterns.add<BF16ConstCasting, SoftwareBF16Trunc,
+               FloatOpToIntOp<LLVM::FAddOp, LLVM::AddOp>,
+               FloatOpToIntOp<LLVM::FMulOp, LLVM::MulOp>>(ctx);
 }
 
 std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
