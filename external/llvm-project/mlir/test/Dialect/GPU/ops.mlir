@@ -251,6 +251,26 @@ module attributes {gpu.container_module} {
 
       gpu.return
     }
+
+    // CHECK-LABEL: gpu.func @mfma_i8_4xi32
+    // CHECK:       gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : i32, vector<4xi32> 
+    // CHECK-NEXT:  gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : i32, vector<4xi32>
+    gpu.func @mfma_i8_4xi32(%a : i32, %b : i32, %c : vector<4xi32>) {
+      gpu.mfma(%a, %b, %c) : i32, vector<4xi32> 
+      %d = gpu.mfma(%a, %b, %c) : i32, vector<4xi32> 
+
+      gpu.return
+    }
+
+    // CHECK-LABEL: gpu.func @mfma_i8_16xi32
+    // CHECK:       gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : i32, vector<16xi32> 
+    // CHECK-NEXT:  gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : i32, vector<16xi32>
+    gpu.func @mfma_i8_16xi32(%a : i32, %b : i32, %c : vector<16xi32>) {
+      gpu.mfma(%a, %b, %c) : i32, vector<16xi32> 
+      %d = gpu.mfma(%a, %b, %c) : i32, vector<16xi32> 
+
+      gpu.return
+    }
   }
 
   gpu.module @mubuf_load {

@@ -875,6 +875,20 @@ struct MFMAOpLowering : ConvertToLLVMPattern {
             op, adaptor.destC().getType(),
             ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
                        immValues[0], immValues[1], immValues[2]});
+    } else if (mfmaInstr.endswith("i8")) {
+      if (mfmaInstr == "mfma_i32_32x32x8i8")
+        rewriter.replaceOpWithNewOp<ROCDL::mfma_i32_32x32x8i8>(
+            op, adaptor.destC().getType(),
+            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
+                       immValues[0], immValues[1], immValues[2]});
+      else if (mfmaInstr == "mfma_i32_16x16x16i8")
+        rewriter.replaceOpWithNewOp<ROCDL::mfma_i32_16x16x16i8>(
+            op, adaptor.destC().getType(),
+            ValueRange{adaptor.sourceA(), adaptor.sourceB(), adaptor.destC(),
+                       immValues[0], immValues[1], immValues[2]});
+      else {
+        return failure();
+      }
     }
 
     return success();
