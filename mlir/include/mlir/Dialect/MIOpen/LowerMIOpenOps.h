@@ -6122,7 +6122,7 @@ struct ThreadwiseCopyV2RewritePattern
 
     auto sourceType = op.source().getType().cast<VectorType>();
     auto destType = op.dest().getType().cast<MemRefType>();
-    InMemoryDataOperation dataOpration = op.dataOperation();
+    InMemoryDataOperation dataOperation = op.dataOperation();
     Value sourceOffsetOp =
         b.create<ConstantIndexOp>(loc, op.sourceOffset().getZExtValue());
 
@@ -6291,7 +6291,8 @@ struct ThreadwiseCopyV2RewritePattern
       // Store to dest.
       emitStoreLogic(op.paddingInfo().getBwdPaddingInfo(), b, loc, destType,
                      typeToStore, toEmitOOBStoreCheckLogic, oobStoreCheckDims,
-                     op.dest(), destLowerIndices, convertedValue, dataOpration);
+                     op.dest(), destLowerIndices, convertedValue,
+                     dataOperation);
       // increase IVs
       bool toIncreaseNextDigit = true;
       int iter = loopIVs.size() - 1;
