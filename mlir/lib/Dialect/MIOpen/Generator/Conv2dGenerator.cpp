@@ -507,6 +507,18 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
     return failure();
   }
 
+  // Decide if a workspace is needed.
+  // Preconditions:
+  // - data type: fp16
+  // - operation: backward weight conv2d.
+  // - use XDLOPS.
+  bool useWorkspace = false;
+  assert(config.operation.hasValue());
+  if ((config.operation.getValue() == miopen::ConvOpType::BwdWeight) &&
+      config.xdlops && (dataType == builder.getF16Type())) {
+    useWorkspace = true;
+  }
+
   // Construct a new FuncOp.
   auto filterArgType =
       MemRefType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
@@ -520,8 +532,22 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
       MemRefType::get(ArrayRef<int64_t>(config.outputDimension.begin(),
                                         config.outputDimension.end()),
                       dataType);
-  auto funcType =
-      builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
+
+  Type workspaceArgType;
+  if (useWorkspace) {
+    workspaceArgType =
+        MemRefType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
+                                          config.filterDimension.end()),
+                        builder.getF32Type());
+  }
+
+  SmallVector<Type, 3> funcArgTypes = {filterArgType, inputArgType,
+                                       outputArgType};
+  if (useWorkspace) {
+    funcArgTypes = {filterArgType, inputArgType, outputArgType,
+                    workspaceArgType};
+  }
+  auto funcType = builder.getFunctionType(funcArgTypes, {});
 
   std::string kernelName = config.kernelBaseName;
   if (is_verifier) {
@@ -612,30 +638,26 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
         builder.getNamedAttr("ignore_tuning", builder.getBoolAttr(true)));
   }
 
-  assert(config.operation.hasValue());
+  SmallVector<Value, 3> args = {func.getArgument(0), func.getArgument(1),
+                                func.getArgument(2)};
+  if (useWorkspace) {
+    args = {func.getArgument(0), func.getArgument(1), func.getArgument(2),
+            func.getArgument(3)};
+  }
   switch (config.operation.getValue()) {
   case miopen::ConvOpType::Fwd: {
     auto convOp = builder.create<miopen::Conv2DOp>(
-        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-        ValueRange{func.getArgument(0), func.getArgument(1),
-                   func.getArgument(2)},
-        attributes);
+        builder.getUnknownLoc(), ArrayRef<mlir::Type>{}, args, attributes);
     block->push_front(convOp);
   } break;
   case miopen::ConvOpType::BwdData: {
     auto convOp = builder.create<miopen::Conv2DBwdDataOp>(
-        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-        ValueRange{func.getArgument(0), func.getArgument(1),
-                   func.getArgument(2)},
-        attributes);
+        builder.getUnknownLoc(), ArrayRef<mlir::Type>{}, args, attributes);
     block->push_front(convOp);
   } break;
   case miopen::ConvOpType::BwdWeight: {
     auto convOp = builder.create<miopen::Conv2DBwdWeightOp>(
-        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-        ValueRange{func.getArgument(0), func.getArgument(1),
-                   func.getArgument(2)},
-        attributes);
+        builder.getUnknownLoc(), ArrayRef<mlir::Type>{}, args, attributes);
     block->push_back(convOp);
   } break;
   }
