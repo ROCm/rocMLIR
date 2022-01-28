@@ -52,7 +52,7 @@ public:
     return false;
   }
 
-  Value expandMemRef(tosa::Conv2DOp op, Value operand,
+  Value expandMemRef(tosa::Conv2DOp op, Value operand, int idx,
                      ConversionPatternRewriter &rewriter) const {
     auto loc = op->getLoc();
     auto context = rewriter.getContext();
@@ -63,19 +63,29 @@ public:
       return Value();
     }
     auto shape = oprType.getShape();
-    SmallVector<int64_t, 5> expShape(shape.begin(), shape.end());
-    expShape.push_back(1);
-    auto newType = MemRefType::get(expShape, oprType.getElementType());
-
-    SmallVector<ReassociationExprs, 5> reassociations;
-    uint32_t dim = 0;
-    for (; dim < shape.size() - 1; ++dim) {
-      reassociations.push_back({getAffineDimExpr(dim, context)});
+    SmallVector<int64_t, 5> expShape;
+    uint32_t i=0, j=0;
+    for (; i < shape.size() + 1; i++){
+      if (i == idx){
+        expShape.push_back(1);
+      } else {
+        expShape.push_back(shape[j++]);
+      }
     }
 
-    // last dimension + g dimension
-    reassociations.push_back(
-        {getAffineDimExpr(dim, context), getAffineDimExpr(dim + 1, context)});
+    auto newType = MemRefType::get(expShape, oprType.getElementType());
+    SmallVector<ReassociationExprs, 5> reassociations;
+    uint32_t dim = 0;
+    if (idx == shape.size())
+      idx--;
+    for (; dim < shape.size() + 1; ++dim) {
+      if (dim == idx) {
+        reassociations.push_back(
+          {getAffineDimExpr(dim, context), getAffineDimExpr(++dim, context)});
+      } else {
+        reassociations.push_back({getAffineDimExpr(dim, context)});
+      }
+    }
 
     auto oprExpand = rewriter.create<memref::ExpandShapeOp>(
         loc, newType, operand, reassociations);
@@ -100,14 +110,14 @@ public:
     auto resultType = op.getType();
 
     // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
-    auto inputExpanded = expandMemRef(op, input_t, rewriter);
-
-    auto filterExpanded = expandMemRef(op, filter_t, rewriter);
+    auto inputExpanded = expandMemRef(op, input_t, 1, rewriter);
+    auto filterExpanded = expandMemRef(op, filter_t, 0, rewriter);
 
     auto outputType =
         getTypeConverter()->convertType(resultType).cast<MemRefType>();
     Value output = rewriter.create<memref::AllocOp>(loc, outputType);
-    auto outputExpanded = expandMemRef(op, output, rewriter);
+
+    auto outputExpanded = expandMemRef(op, output, 1, rewriter);
 
     SmallVector<Value, 4> args({filterExpanded, inputExpanded, outputExpanded});
 
@@ -147,9 +157,9 @@ public:
     int32_t dilationWidth = op.dilation()[1].dyn_cast<IntegerAttr>().getInt();
 
     // specify layout attributes
-    const char *filterLayout = "kyxcg";
-    const char *inputLayout = "nhwcg";
-    const char *outputLayout = "nhwkg";
+    const char *filterLayout =  "gkcyx"; //"kyxcg";
+    const char *inputLayout = "ngchw"; //"nhwcg";
+    const char *outputLayout = "ngkhw"; //"nhwkg";
     SmallVector<StringAttr, 5> filterLayoutSpec;
     SmallVector<StringAttr, 5> inputLayoutSpec;
     SmallVector<StringAttr, 5> outputLayoutSpec;
@@ -229,10 +239,162 @@ public:
   }
 };
 
+class TransposeConverter final : public OpConversionPattern<tosa::TransposeOp> {
+public:
+  using OpConversionPattern<tosa::TransposeOp>::OpConversionPattern;
+
+  bool transposeEqualTo (SmallVector<int64_t> &given, SmallVector<int64_t> &perm) const{
+    for(uint32_t i = 0; i < 4; i++){
+      if (perm[i] != given[i])
+        return false;
+    }
+    // all matches.
+    return true;
+  }
+
+// Fold transpose ops and convert convolution into changed layout.
+// case #0 : fold TP(NCHW2NHWC)+tosa.conv.NHWC+TP(NHWC2NCHW) back to 
+//           miopen.conv.NCHW
+// Pattern match start from the output transpose
+  LogicalResult
+  matchAndRewrite(tosa::TransposeOp top, tosa::TransposeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto operands = adaptor.getOperands();
+    auto loc = top->getLoc();
+    auto context = top->getContext();
+
+    SmallVector<int64_t> NCHW2NHWC{0, 2, 3, 1};
+    SmallVector<int64_t> NHWC2NCHW{0, 3, 1, 2};
+
+    // Check if output has been transposed NHWC2NCHW
+    auto bottomOp = dyn_cast<ConstantOp>(operands[1].getDefiningOp());
+    if (!bottomOp) {
+      bottomOp = dyn_cast<ConstantOp>(operands[1].getDefiningOp()->getOperand(0).getDefiningOp());
+    }
+    auto bottomAttr = bottomOp->getAttr("value").cast<DenseElementsAttr>();
+    SmallVector<int64_t> bottomPerm;
+    for (auto i: bottomAttr.getValues<int64_t>()){
+      bottomPerm.push_back(i);
+    }
+    if (!transposeEqualTo(bottomPerm, NHWC2NCHW)) {
+      return rewriter.notifyMatchFailure(bottomOp, [&](::mlir::Diagnostic &diag) {
+          diag << "Bottom transpose not matching";
+        });
+    }
+    auto convOp = dyn_cast<tosa::Conv2DOp>(operands[0].getDefiningOp());
+    if (!(convOp)) {
+      return rewriter.notifyMatchFailure(convOp, [&](::mlir::Diagnostic &diag) {
+          diag << "Second is not tosa::conv2d";
+        });
+    }
+
+    // Check if the convolution has expected layout
+    auto fLayout = convOp->getAttr("expected_filter_layout").dyn_cast<StringAttr>();
+    auto iLayout = convOp->getAttr("expected_input_layout").dyn_cast<StringAttr>();
+    auto oLayout = convOp->getAttr("expected_output_layout").dyn_cast<StringAttr>();
+    if (!fLayout || !iLayout || !oLayout) {
+      return rewriter.notifyMatchFailure(convOp, [&](::mlir::Diagnostic &diag) {
+          diag << "Convolution doesn't expect layout change.";
+        });
+    }
+
+    // Test if all match
+    if (!(fLayout.getValue().equals("kcyx") 
+      && iLayout.getValue().equals("nchw") 
+      && oLayout.getValue().equals("nkhw"))) {
+      return rewriter.notifyMatchFailure(convOp, [&](::mlir::Diagnostic &diag) {
+          diag << "Convolution expect different layout.";
+        });
+    }
+
+    auto opr0 = *convOp.getODSOperands(0).begin();
+    auto opr1 = *convOp.getODSOperands(1).begin();
+    auto inputTpOp = dyn_cast<tosa::TransposeOp>(opr0.getDefiningOp());
+    auto filterTpOp = dyn_cast<tosa::TransposeOp>(opr1.getDefiningOp());
+    if (!(inputTpOp) || !(filterTpOp)) {
+      return rewriter.notifyMatchFailure(convOp, [&](::mlir::Diagnostic &diag) {
+          diag << "No transpose found for input/filter";
+        });
+    }
+    auto inputTpOpr1 = *inputTpOp.getODSOperands(1).begin();
+    auto filterTpOpr1 = *filterTpOp.getODSOperands(1).begin();
+
+    // Try to get transpose to input
+    auto inTpConstOp = dyn_cast<ConstantOp>(inputTpOpr1.getDefiningOp());
+    if (!inTpConstOp) {
+      inTpConstOp = dyn_cast<ConstantOp>(inputTpOpr1.getDefiningOp()->getOperand(0).getDefiningOp());
+    }
+    SmallVector<int64_t> inTpPerm;
+    auto inTpConstAttr = inTpConstOp->getAttr("value").cast<DenseElementsAttr>();
+    for (auto i: inTpConstAttr.getValues<int64_t>()){
+      inTpPerm.push_back(i);
+    }
+
+    // Try to get transpose to filter
+    auto filTpConstOp = dyn_cast<ConstantOp>(filterTpOpr1.getDefiningOp());
+    if (!filTpConstOp) {
+      filTpConstOp = dyn_cast<ConstantOp>(filterTpOpr1.getDefiningOp()->getOperand(0).getDefiningOp());
+    }
+    SmallVector<int64_t> filTpPerm;
+    auto filTpConstAttr = filTpConstOp->getAttr("value").cast<DenseElementsAttr>();
+    for (auto i: filTpConstAttr.getValues<int64_t>()){
+      filTpPerm.push_back(i);
+    }
+
+    // Reject if pattern doesn't match
+    if (!transposeEqualTo(inTpPerm, NCHW2NHWC)
+        || !transposeEqualTo(filTpPerm, NCHW2NHWC)) {
+      return rewriter.notifyMatchFailure(convOp, [&](::mlir::Diagnostic &diag) {
+          diag << "No expected input/filter transpose shapes";
+        });
+    }
+
+    auto input_t = inputTpOp->getOperand(0);
+    auto filter_t = filterTpOp->getOperand(0);
+
+    // fold input transpose
+    inputTpOp->replaceAllUsesWith(ValueRange(input_t));
+    rewriter.replaceOp(inputTpOp, {input_t});
+
+    // fold filter transpose
+    filterTpOp->replaceAllUsesWith(ValueRange(filter_t));
+    rewriter.replaceOp(filterTpOp, {filter_t});
+
+    // fold result transpose
+    auto op = dyn_cast<tosa::Conv2DOp>(operands[0].getDefiningOp());
+
+    // Reshape output dimensions
+    // Note - new conv op has NCHW layout so that input/output shapes 
+    // in the operators chain remains valid during this conversion.
+    auto results = op->getResults();
+    auto convTy = results[0].getType().cast<ShapedType>();
+    auto convElemTy = convTy.getElementType();
+    auto convShape = convTy.getShape();
+    // NHWC into NCHW
+    SmallVector<int64_t> newShape{convShape[0], convShape[3], convShape[1],
+                                  convShape[2]};
+    Type newOutTy = RankedTensorType::get(newShape, convElemTy);
+
+    // Construct a new Conv2DOp with a new layout
+    auto cop = rewriter.create<tosa::Conv2DOp>(loc, newOutTy,
+        ValueRange{op->getOperand(0), op->getOperand(1), op->getOperand(2)});
+    cop->setAttrs(op->getAttrs());
+
+    // Replace ((op)->(top)) with (cop)
+    op->replaceAllUsesWith(cop);
+    top->replaceAllUsesWith(cop);
+    rewriter.replaceOp(top, {cop});
+    op->erase();
+
+    return success();
+  }
+};
+
 } // namespace
 
 void tosa::populateTosaToMIOpenConversionPatterns(
     bufferization::BufferizeTypeConverter &typeConverter, MLIRContext *context,
     RewritePatternSet &patterns) {
+  patterns->insert<TransposeConverter>(context);
   patterns.insert<ConvConverter>(typeConverter, context);
 }

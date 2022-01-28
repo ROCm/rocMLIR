@@ -135,7 +135,6 @@ mlirMIGraphXAddBackendPipeline(MlirPassManager pm, const char* chip) {
 
   const char *triple = "amdgcn-amd-amdhsa";
   const char *features = "";
-  const char *perfConfig = "";
-  mlir::miopen::addPipeline(*passMan, perfConfig, false, true);
+  mlir::miopen::addPipeline(*passMan, false, true);
   mlir::miopen::addBackendPipeline(*passMan, triple, chip, features);
 }

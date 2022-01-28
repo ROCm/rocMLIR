@@ -20,20 +20,18 @@ def : Pat<(MIGraphX_ConstantOp ElementsAttr:$valueAttr, $shapeAttr, $typeAttr), 
 def Convert2DTo4DSymmPad : NativeCodeCall<
     "$_builder.getArrayAttr({($0.getValue()[0]), ($0.getValue()[0]), ($0.getValue()[1]), ($0.getValue()[1])})">;
 def GetNullAttr : NativeCodeCall<"Attribute()">;
-/*
+/* convolution is converted in the cpp file to handle more options.
 def : Pat<(MIGraphX_ConvolutionOp:$result $input1, $filter, $pad, $stride, $dilation,
       $group, $_ // ignore padding mode
       ),
     (Tosa_Conv2DOp $input1, $filter, (ConstantOp ConstantAttr<RankedF32ElementsAttr<[1]>, "{0.0f}">:$f32attr), (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr))>;
-
-
+*/
 def : Pat<(MIGraphX_AddOp
     (MIGraphX_ConvolutionOp $input1, $filter, $pad, $stride, $dilation,
       $group, $_ // ignore padding mode
       ), $bias),
       (Tosa_Conv2DOp $input1, $filter, $bias, (Convert2DTo4DSymmPad $pad), $stride, $dilation, (GetNullAttr))>;
-*/
-
+      
 def : Pat<(MIGraphX_RsqrtOp $input1), (Tosa_RsqrtOp $input1)>;
 // Clamp to Relu if it clamps to max/min number, otherwise convert to ceil + floor
 // {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} 

@@ -37,10 +37,9 @@ public:
     return rewriter.create<arith::ConstantOp>(loc, zeroAttr);
   }
 
-  Value getRank4TransposeOp(Location loc, Value input,
+  tosa::TransposeOp getRank4TransposeOp(Location loc, Value input,
                             ConversionPatternRewriter &rewriter,
-                            SmallVector<int64_t> &permutation) const {
-    // SmallVector<int64_t> permutation{0, 2, 3, 1};
+                            SmallVector<int64_t> &permutation, bool bRoot) const {
     auto permutationAttr = DenseIntElementsAttr::get(
         RankedTensorType::get({4}, rewriter.getI64Type()), permutation);
     Value permutationValue = rewriter.create<ConstantOp>(loc, permutationAttr);
@@ -51,8 +50,10 @@ public:
         inputShape[permutation[2]], inputShape[permutation[3]]};
     Type newTy = RankedTensorType::get(newShape, inputTy.getElementType());
 
-    return rewriter.create<tosa::TransposeOp>(loc, newTy, input,
+    auto newOp = rewriter.create<tosa::TransposeOp>(loc, newTy, input,
                                               permutationValue);
+    newOp->setAttr("changing_layout_root", rewriter.getBoolAttr(bRoot));
+    return newOp;
   }
 
   LogicalResult
@@ -71,9 +72,8 @@ public:
     SmallVector<int64_t> NHWC2NCHW{0, 3, 1, 2};
 
     // insert transpose to input and filter tensors
-    input_t = getRank4TransposeOp(loc, input_t, rewriter, NCHW2NHWC);
-    filter_t = getRank4TransposeOp(loc, filter_t, rewriter, NCHW2NHWC);
-
+    input_t = getRank4TransposeOp(loc, input_t, rewriter, NCHW2NHWC, false);
+    filter_t = getRank4TransposeOp(loc, filter_t, rewriter, NCHW2NHWC, false);
     auto outShape = outputTy.getShape();
 
     // original output shape was NCHW, change it into NHWC
@@ -99,32 +99,14 @@ public:
     int64_t dilationHeight = dilationAttr[0].dyn_cast<IntegerAttr>().getInt();
     int64_t dilationWidth = dilationAttr[1].dyn_cast<IntegerAttr>().getInt();
 
-    // specify layout attributes
-    const char *filterLayout = "gkcyx"; //"kyxcg";
-    const char *inputLayout = "ngchw";  //"nhwcg";
-    const char *outputLayout = "ngkhw"; //"nhwkg";
-    SmallVector<StringAttr, 5> filterLayoutSpec;
-    SmallVector<StringAttr, 5> inputLayoutSpec;
-    SmallVector<StringAttr, 5> outputLayoutSpec;
-    for (size_t i = 0; i < 5; ++i) {
-      filterLayoutSpec.push_back(
-          rewriter.getStringAttr(StringRef(&filterLayout[i], 1).str()));
-      inputLayoutSpec.push_back(
-          rewriter.getStringAttr((StringRef(&inputLayout[i], 1) + "i").str()));
-      outputLayoutSpec.push_back(
-          rewriter.getStringAttr((StringRef(&outputLayout[i], 1) + "o").str()));
-    }
-
+    // Record desired layout and set
     // convolution config attributes
-    cop->setAttr("filter_layout",
-                 rewriter.getArrayAttr(ArrayRef<Attribute>(
-                     filterLayoutSpec.begin(), filterLayoutSpec.end())));
-    cop->setAttr("input_layout",
-                 rewriter.getArrayAttr(ArrayRef<Attribute>(
-                     inputLayoutSpec.begin(), inputLayoutSpec.end())));
-    cop->setAttr("output_layout",
-                 rewriter.getArrayAttr(ArrayRef<Attribute>(
-                     outputLayoutSpec.begin(), outputLayoutSpec.end())));
+    cop->setAttr("expected_filter_layout",
+                 rewriter.getStringAttr("kcyx"));
+    cop->setAttr("expected_input_layout",
+                 rewriter.getStringAttr("nchw"));
+    cop->setAttr("expected_output_layout",
+                 rewriter.getStringAttr("nkhw"));
 
     cop->setAttr("dilation", rewriter.getArrayAttr({
                                  rewriter.getI64IntegerAttr(dilationHeight),
@@ -143,7 +125,7 @@ public:
 
     // transpose the output back to NCHW so that it can match following
     // operators.
-    auto top = getRank4TransposeOp(loc, cop, rewriter, NHWC2NCHW);
+    auto top = getRank4TransposeOp(loc, cop, rewriter, NHWC2NCHW, true);
     rewriter.replaceOp(op, {top});
     return success();
   }

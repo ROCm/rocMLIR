@@ -37,14 +37,32 @@ public:
 
   void runOnOperation() override {
     auto &ctx = getContext();
+    // Split patterns into two stages by bufferization
+    RewritePatternSet tensor_patterns(&ctx);
     RewritePatternSet patterns(&ctx);
+    ConversionTarget tensor_target(ctx);
     ConversionTarget target(ctx);
-    target.addLegalDialect <miopen::MIOpenDialect, linalg::LinalgDialect,
-        bufferization::BufferizationDialect, StandardOpsDialect>();
+    FuncOp func = getFunction();
+
+    tensor_target.addLegalDialect <miopen::MIOpenDialect, tosa::TosaDialect, memref::MemRefDialect,
+            StandardOpsDialect, BuiltinDialect, arith::ArithmeticDialect>();
+    tensor_target.addDynamicallyLegalOp<tosa::TransposeOp>([&](tosa::TransposeOp op) {
+      auto attrDeletable = op->getAttr("changing_layout_root");
+      if (attrDeletable)
+        // Only apply the pattern to the transpose at the bottom
+        return !attrDeletable.dyn_cast<BoolAttr>().getValue();
+      return true;
+    });
+    mlir::tosa::populateTosaToMIOpenConversionPatterns(func.getContext(),
+                                                       &tensor_patterns);
+    if (failed(applyFullConversion(func, tensor_target, std::move(tensor_patterns))))
+      signalPassFailure();
+
+    target.addLegalDialect <miopen::MIOpenDialect, linalg::LinalgDialect, memref::MemRefDialect,
+        tosa::TosaDialect, bufferization::BufferizationDialect, StandardOpsDialect>();
     target.addIllegalOp<tosa::Conv2DOp>();
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
-    auto func = getOperation();
     bufferization::BufferizeTypeConverter typeConverter;
     mlir::tosa::populateTosaToMIOpenConversionPatterns(
         typeConverter, func->getContext(), patterns);

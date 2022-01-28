@@ -65,6 +65,9 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   mlirOperationStateAddAttributes(&funcState, 2, funcAttrs);
   mlirOperationStateAddOwnedRegions(&funcState, 1, &funcBodyRegion);
   MlirOperation func = mlirOperationCreate(&funcState);
+  mlirOperationSetAttributeByName(func,
+                                mlirStringRefCreateFromCString("kernel"),
+                                mlirUnitAttrGet(ctx));
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
   //-------------- conv0 = migraphx.convolution
@@ -156,16 +159,14 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   MlirModule module = makeAndDumpMIXR(ctx, location1);
 
   MlirPassManager pm = mlirPassManagerCreate(ctx);
+  MlirPassManager pm1 = mlirPassManagerCreate(ctx);
   // 1st pipeline to call
   mlirMIGraphXAddHighLevelPipeline(pm);
   mlirPassManagerRun(pm, module);
-  MlirOperation moduleOp = mlirModuleGetOperation(module);
-  mlirOperationDump(moduleOp);
-
+  
   // returns the required buffer size to hold information including
   // ranks, dimensions of each arguments and kernel name.
   int argSize = mlirGetKernelInfoSize(module);
-  ;
   void *argInfo = malloc(argSize);
   // get the data
   mlirGetKernelInfo(module, (void *)argInfo);
@@ -188,8 +189,8 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 
   // 2nd pipeline to call
   const char *deviceName = "gfx908";
-  mlirMIGraphXAddBackendPipeline(pm, deviceName);
-  mlirPassManagerRun(pm, module);
+  mlirMIGraphXAddBackendPipeline(pm1, deviceName);
+  mlirPassManagerRun(pm1, module);
 
   int attrs[2];
   // returns block and grid sizes
@@ -212,6 +213,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   }
 
   mlirPassManagerDestroy(pm);
+  mlirPassManagerDestroy(pm1);
   mlirModuleDestroy(module);
   return true;
 }
