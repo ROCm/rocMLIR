@@ -175,9 +175,19 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
   auto stridesAttr = op->template getAttrOfType<ArrayAttr>("strides");
   auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
 
+  auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
+  bool isXdlops = (xdlopsV2Attr && xdlopsV2Attr.getValue() == true);
+
   // Get shape of filter tensor.
   auto filterType = op.filter().getType().template cast<MemRefType>();
   auto filterShape = filterType.getShape();
+
+  // Determine whether to use workspace.
+  bool useWorkspace =
+      (filterType.getElementType() == b.getF16Type() && isXdlops);
+  if (useWorkspace) {
+    assert(op.workspace().size());
+  }
 
   // Get shape of input tensor.
   auto inputType = op.input().getType().template cast<MemRefType>();
@@ -271,8 +281,9 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
     addKBlockWrap.passThrough({"k", "c", "y", "x"});
 
     TransformMapAttr addKBlockTransformAttr = addKBlockTransform.get();
-    Value withKBlock =
-        b.create<miopen::TransformOp>(loc, op.filter(), addKBlockTransformAttr);
+    Value filterTensorInUse = (useWorkspace) ? op.workspace()[0] : op.filter();
+    Value withKBlock = b.create<miopen::TransformOp>(loc, filterTensorInUse,
+                                                     addKBlockTransformAttr);
 
     // Create GEMM filter tensor
     // Here, we merge the KBlock dimension into the G dimension
@@ -401,8 +412,6 @@ LogicalResult backwardWeightAtomicAdd(miopen::Conv2DBwdWeightOp op,
   }
 
   // xdlopsV2.
-  auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-  bool isXdlops = (xdlopsV2Attr && xdlopsV2Attr.getValue() == true);
   if (isXdlops)
     gridwiseGemmAttrs.push_back(
         b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
