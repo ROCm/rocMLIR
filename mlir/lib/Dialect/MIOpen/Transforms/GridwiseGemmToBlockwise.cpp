@@ -24,7 +24,7 @@
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/XdlopsCodeSelection.h"
-#include "mlir/Dialect/MIOpen/utility/common.h"
+#include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"

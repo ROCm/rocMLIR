@@ -26,7 +26,7 @@
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/XdlopsCodeSelection.h"
-#include "mlir/Dialect/MIOpen/utility/common.h"
+#include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"

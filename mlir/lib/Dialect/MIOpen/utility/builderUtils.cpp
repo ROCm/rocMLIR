@@ -6,7 +6,7 @@
 //
 //===-----------------------------------------------------===//
 
-#include "mlir/Dialect/MIOpen/utility/common.h"
+#include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/IR/BuiltinAttributes.h"

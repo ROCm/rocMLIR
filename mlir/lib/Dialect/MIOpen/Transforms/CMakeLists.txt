@@ -23,6 +23,7 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
   MLIRAffineToStandard
   MLIRMIOpenOps
   MLIRMIOpenTuning
+  MLIRMIOpenUtility
   MLIRSCFToStandard
   MLIRSupport
   MLIRTransformUtils
