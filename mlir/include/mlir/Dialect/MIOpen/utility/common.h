@@ -1,12 +1,17 @@
-#ifndef COMMON_H
-#define COMMON_H
+#ifndef MLIR_DIALECT_MIOPEN_UTILITY_COMMON_H
+#define MLIR_DIALECT_MIOPEN_UTILITY_COMMON_H
 
-// The ArgumentFields keep track of differences between conv operations
-struct ArgumentFields {
-  int gridwiseGemmArgumentPosition[3];
-  StringRef gemmTargetCharName[3];
-};
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/Location.h"
+#include "mlir/IR/Types.h"
+#include "mlir/IR/Value.h"
 
-void affixGridwiseGemmAttributes(Operation *convOp, Operation *gop,
-                                 OpBuilder &b);
-#endif
+namespace mlir {
+namespace miopen {
+Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
+                            float value);
+Value createZeroConstantFloatOp(OpBuilder &b, Location loc, Type type);
+} // namespace miopen
+} // namespace mlir
+
+#endif // MLIR_DIALECT_MIOPEN_UTILITY_COMMON_H
