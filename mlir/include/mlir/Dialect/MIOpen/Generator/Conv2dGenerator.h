@@ -117,6 +117,9 @@ public:
   }
   LogicalResult isApplicable() const;
 
+  // Utility function to query if a config requires additional workspace.
+  bool useWorkspace(OpBuilder &builder) const;
+
 private:
   template <typename Vector>
   std::vector<int64_t> layoutPermutation(const Vector &src,

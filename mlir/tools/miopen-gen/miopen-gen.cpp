@@ -638,7 +638,8 @@ static mlir::Value makeNDMemRef(OpBuilder &b, mlir::Value var, uint32_t ndim) {
 
 static void emitMemcpy(OpBuilder &b, mlir::Value src, mlir::Value dst);
 
-static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
+static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel,
+                               const Conv2dGenerator::Config &genConfig) {
   auto context = module.getContext();
   OpBuilder b(context);
   auto loc = kernel.func->getLoc();
@@ -660,14 +661,6 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
   if (deviceNum.getNumOccurrences() > 0)
     b.create<gpu::SetDefaultDeviceOp>(
         loc, b.getI32IntegerAttr(deviceNum.getValue()));
-
-  // Decide if a workspace is needed.
-  // Preconditions:
-  // - data type: fp16
-  // - operation: backward weight conv2d.
-  // - use XDLOPS.
-  bool useWorkspace = ((operation == miopen::ConvOpType::BwdWeight) &&
-                       xdlopsV2 && (tensorDataType == "f16"));
 
   // Emit some constant values for HIP runtime API calls.
   auto oneConstantI32Op =
@@ -793,6 +786,8 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
   }
 
   // Initial version. Use CPU to convert fp32 to fp16.
+  Conv2dGenerator conv2dGenerator(genConfig);
+  bool useWorkspace = conv2dGenerator.useWorkspace(b);
   if (useWorkspace) {
     assert(block->getNumArguments() == 4);
     emitMemcpy(b, block->getArgument(3), block->getArgument(0));
@@ -900,22 +895,9 @@ createCPUConvFunc(ModuleOp module,
   auto inputType = MemRefType::get(inputDimension, floatType);
   auto outputType = MemRefType::get(outputDimension, floatType);
 
-  Conv2dGenerator conv2dGenerator(genConfig);
-  mlir::Type dataType = conv2dGenerator.getDataType(b);
-
-  // Decide if a workspace is needed.
-  // Preconditions:
-  // - data type: fp16
-  // - operation: backward weight conv2d.
-  // - use XDLOPS.
-  bool useWorkspace = false;
-  assert(genConfig.operation.hasValue());
-  if ((genConfig.operation.getValue() == miopen::ConvOpType::BwdWeight) &&
-      genConfig.xdlops && (dataType == b.getF16Type())) {
-    useWorkspace = true;
-  }
-
   // Create conv2d_host function
+  Conv2dGenerator conv2dGenerator(genConfig);
+  bool useWorkspace = conv2dGenerator.useWorkspace(b);
   mlir::Type workspaceArgType;
   if (useWorkspace) {
     workspaceArgType = MemRefType::get(
@@ -1590,7 +1572,7 @@ populateHostHarnessLogic(ModuleOp &module,
   for (auto &kernel : kernels) {
     // Emit call to kernel wrapper
     if (kernel.func->hasAttr("kernel")) {
-      auto kernelWrapperFunc = createGPUWrapper(module, kernel);
+      auto kernelWrapperFunc = createGPUWrapper(module, kernel, genConfig);
       b.create<CallOp>(loc, kernelWrapperFunc, localVars);
     } else {
       b.create<CallOp>(loc, kernel.func, valVars);
@@ -1626,7 +1608,14 @@ populateHostHarnessLogic(ModuleOp &module,
           exit(1);
         }
         KernelIF kernel(conv2dGenerator.getKernelFunc());
-        auto kernelWrapperFunc = createGPUWrapper(module, kernel);
+        Conv2dGenerator::Config newConfig = conv2dGenerator.getConfig();
+        auto kernelWrapperFunc = createGPUWrapper(module, kernel, newConfig);
+        Conv2dGenerator originalConv2dGenerator(genConfig);
+        bool originalUseWorkspace = originalConv2dGenerator.useWorkspace(b);
+        bool verifierUseWorkspace = conv2dGenerator.useWorkspace(b);
+        if (originalUseWorkspace && !verifierUseWorkspace) {
+          valVars.resize(valVars.size() - 1);
+        }
         b.create<CallOp>(loc, kernelWrapperFunc, valVars);
       }
       conv2dGenerator.setKernelName(kernelBaseName);

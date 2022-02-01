@@ -306,6 +306,7 @@ int Conv2dGenerator::getBwdDataKernelCount() const {
 
   return count;
 }
+
 Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
   mlir::Type dataType;
   if (config.dataTypeStr == "f32" || config.dataTypeStr == "fp32") {
@@ -316,6 +317,22 @@ Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
     dataType = builder.getIntegerType(16);
   }
   return dataType;
+}
+
+bool Conv2dGenerator::useWorkspace(OpBuilder &builder) const {
+  // Decide if a workspace is needed.
+  // Preconditions:
+  // - data type: fp16
+  // - operation: backward weight conv2d.
+  // - use XDLOPS.
+  bool result = false;
+  assert(config.operation.hasValue());
+  mlir::Type dataType = getDataType(builder);
+  if ((config.operation.getValue() == miopen::ConvOpType::BwdWeight) &&
+      config.xdlops && (dataType == builder.getF16Type())) {
+    result = true;
+  }
+  return result;
 }
 
 LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
@@ -507,18 +524,6 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
     return failure();
   }
 
-  // Decide if a workspace is needed.
-  // Preconditions:
-  // - data type: fp16
-  // - operation: backward weight conv2d.
-  // - use XDLOPS.
-  bool useWorkspace = false;
-  assert(config.operation.hasValue());
-  if ((config.operation.getValue() == miopen::ConvOpType::BwdWeight) &&
-      config.xdlops && (dataType == builder.getF16Type())) {
-    useWorkspace = true;
-  }
-
   // Construct a new FuncOp.
   auto filterArgType =
       MemRefType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
@@ -533,6 +538,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
                                         config.outputDimension.end()),
                       dataType);
 
+  bool useWorkspace = this->useWorkspace(builder);
   Type workspaceArgType;
   if (useWorkspace) {
     workspaceArgType =
