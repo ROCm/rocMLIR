@@ -319,7 +319,7 @@ Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
   return dataType;
 }
 
-bool Conv2dGenerator::useWorkspace(OpBuilder &builder) const {
+bool Conv2dGenerator::hasWorkspace(OpBuilder &builder) const {
   // Decide if a workspace is needed.
   // Preconditions:
   // - data type: fp16
@@ -538,9 +538,9 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
                                         config.outputDimension.end()),
                       dataType);
 
-  bool useWorkspace = this->useWorkspace(builder);
+  bool hasWorkspace = this->hasWorkspace(builder);
   Type workspaceArgType;
-  if (useWorkspace) {
+  if (hasWorkspace) {
     workspaceArgType =
         MemRefType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
                                           config.filterDimension.end()),
@@ -549,7 +549,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
 
   SmallVector<Type, 3> funcArgTypes = {filterArgType, inputArgType,
                                        outputArgType};
-  if (useWorkspace) {
+  if (hasWorkspace) {
     funcArgTypes = {filterArgType, inputArgType, outputArgType,
                     workspaceArgType};
   }
@@ -646,7 +646,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
 
   SmallVector<Value, 3> args = {func.getArgument(0), func.getArgument(1),
                                 func.getArgument(2)};
-  if (useWorkspace) {
+  if (hasWorkspace) {
     args = {func.getArgument(0), func.getArgument(1), func.getArgument(2),
             func.getArgument(3)};
   }

@@ -787,8 +787,8 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel,
 
   // Initial version. Use CPU to convert fp32 to fp16.
   Conv2dGenerator conv2dGenerator(genConfig);
-  bool useWorkspace = conv2dGenerator.useWorkspace(b);
-  if (useWorkspace) {
+  bool hasWorkspace = conv2dGenerator.hasWorkspace(b);
+  if (hasWorkspace) {
     assert(block->getNumArguments() == 4);
     emitMemcpy(b, block->getArgument(3), block->getArgument(0));
   }
@@ -897,16 +897,16 @@ createCPUConvFunc(ModuleOp module,
 
   // Create conv2d_host function
   Conv2dGenerator conv2dGenerator(genConfig);
-  bool useWorkspace = conv2dGenerator.useWorkspace(b);
+  bool hasWorkspace = conv2dGenerator.hasWorkspace(b);
   mlir::Type workspaceArgType;
-  if (useWorkspace) {
+  if (hasWorkspace) {
     workspaceArgType = MemRefType::get(
         ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
         b.getF32Type());
   }
 
   SmallVector<mlir::Type, 3> funcArgTypes = {filterType, inputType, outputType};
-  if (useWorkspace) {
+  if (hasWorkspace) {
     funcArgTypes = {filterType, inputType, outputType, workspaceArgType};
   }
   func = FuncOp::create(loc, funcName, b.getFunctionType(funcArgTypes, {}));
@@ -1610,12 +1610,16 @@ populateHostHarnessLogic(ModuleOp &module,
         KernelIF kernel(conv2dGenerator.getKernelFunc());
         Conv2dGenerator::Config newConfig = conv2dGenerator.getConfig();
         auto kernelWrapperFunc = createGPUWrapper(module, kernel, newConfig);
+
+        // Decide whether to trim the last workspace argument to the verifier
+        // GPU kernel.
         Conv2dGenerator originalConv2dGenerator(genConfig);
-        bool originalUseWorkspace = originalConv2dGenerator.useWorkspace(b);
-        bool verifierUseWorkspace = conv2dGenerator.useWorkspace(b);
-        if (originalUseWorkspace && !verifierUseWorkspace) {
+        bool originalHasWorkspace = originalConv2dGenerator.hasWorkspace(b);
+        bool verifierHasWorkspace = conv2dGenerator.hasWorkspace(b);
+        if (originalHasWorkspace && !verifierHasWorkspace) {
           valVars.resize(valVars.size() - 1);
         }
+
         b.create<CallOp>(loc, kernelWrapperFunc, valVars);
       }
       conv2dGenerator.setKernelName(kernelBaseName);

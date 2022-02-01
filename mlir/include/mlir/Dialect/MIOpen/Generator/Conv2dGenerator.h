@@ -118,7 +118,7 @@ public:
   LogicalResult isApplicable() const;
 
   // Utility function to query if a config requires additional workspace.
-  bool useWorkspace(OpBuilder &builder) const;
+  bool hasWorkspace(OpBuilder &builder) const;
 
 private:
   template <typename Vector>
