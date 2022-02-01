@@ -900,10 +900,34 @@ createCPUConvFunc(ModuleOp module,
   auto inputType = MemRefType::get(inputDimension, floatType);
   auto outputType = MemRefType::get(outputDimension, floatType);
 
+  Conv2dGenerator conv2dGenerator(genConfig);
+  mlir::Type dataType = conv2dGenerator.getDataType(b);
+
+  // Decide if a workspace is needed.
+  // Preconditions:
+  // - data type: fp16
+  // - operation: backward weight conv2d.
+  // - use XDLOPS.
+  bool useWorkspace = false;
+  assert(genConfig.operation.hasValue());
+  if ((genConfig.operation.getValue() == miopen::ConvOpType::BwdWeight) &&
+      genConfig.xdlops && (dataType == b.getF16Type())) {
+    useWorkspace = true;
+  }
+
   // Create conv2d_host function
-  func = FuncOp::create(
-      loc, funcName,
-      b.getFunctionType({filterType, inputType, outputType}, {}));
+  mlir::Type workspaceArgType;
+  if (useWorkspace) {
+    workspaceArgType = MemRefType::get(
+        ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
+        b.getF32Type());
+  }
+
+  SmallVector<mlir::Type, 3> funcArgTypes = {filterType, inputType, outputType};
+  if (useWorkspace) {
+    funcArgTypes = {filterType, inputType, outputType, workspaceArgType};
+  }
+  func = FuncOp::create(loc, funcName, b.getFunctionType(funcArgTypes, {}));
   module.push_back(func);
 
   // Construct a new Block.
