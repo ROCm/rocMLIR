@@ -607,15 +607,9 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
   }
 
   // perf_config
-  if (!config.perfConfig.empty()) {
+  if (!ignoreTuning && !config.perfConfig.empty()) {
     attributes.push_back(builder.getNamedAttr(
         "perf_config", builder.getStringAttr(config.perfConfig)));
-  }
-
-  // ignore tuning.
-  if (ignoreTuning) {
-    attributes.push_back(
-        builder.getNamedAttr("ignore_tuning", builder.getBoolAttr(true)));
   }
 
   assert(config.operation.hasValue());
