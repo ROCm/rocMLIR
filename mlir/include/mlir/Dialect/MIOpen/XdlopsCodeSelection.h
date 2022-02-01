@@ -48,6 +48,17 @@ struct XdlopsCodeSelection {
   int64_t cycles;
   int64_t k_base;
 
+  static void dumpUnsupported(const mlir::Type &dataType, int64_t MPerWave,
+                              int64_t NPerWave) {
+    llvm::errs() << "Unsupported case:\n";
+    llvm::errs() << "MPerWave: " << MPerWave << "\n";
+    llvm::errs() << "NPerWave: " << NPerWave << "\n";
+    llvm::errs() << "dataType: ";
+    dataType.dump();
+    llvm::errs() << "\n";
+    llvm_unreachable("Can't meaningfully continue xdlop generation");
+  }
+
   static XdlopsCodeSelection get(mlir::Type &dataType, int64_t MPerWave,
                                  int64_t NPerWave, OpBuilder &b) {
     // Determine which XDLOPS be used.
@@ -178,14 +189,7 @@ struct XdlopsCodeSelection {
         imms.push_back({0, 0, 0});
         argType = b.getF32Type();
       } else {
-        llvm::errs() << "Unsupported case:\n";
-        // llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
-        llvm::errs() << "MPerWave: " << MPerWave << "\n";
-        llvm::errs() << "NPerWave: " << NPerWave << "\n";
-        llvm::errs() << "dataType: ";
-        dataType.dump();
-        llvm::errs() << "\n";
-        llvm_unreachable("Can't meaningfully continue xdlop generation");
+        dumpUnsupported(dataType, MPerWave, NPerWave);
       }
     } else if (dataType == b.getF16Type()) {
       if (MPerWave == 128 && NPerWave == 64) {
@@ -307,14 +311,7 @@ struct XdlopsCodeSelection {
         imms.push_back({0, 0, 0});
         argType = VectorType::get({4}, b.getF16Type());
       } else {
-        llvm::errs() << "Unsupported case:\n";
-        // llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
-        llvm::errs() << "MPerWave: " << MPerWave << "\n";
-        llvm::errs() << "NPerWave: " << NPerWave << "\n";
-        llvm::errs() << "dataType: ";
-        dataType.dump();
-        llvm::errs() << "\n";
-        llvm_unreachable("Can't meaningfully continue xdlop generation");
+        dumpUnsupported(dataType, MPerWave, NPerWave);
       }
     } else if (dataType == b.getBF16Type()) {
       if (MPerWave == 128 && NPerWave == 64) {
@@ -436,14 +433,31 @@ struct XdlopsCodeSelection {
         imms.push_back({0, 0, 0});
         argType = VectorType::get({2}, b.getBF16Type());
       } else {
-        llvm::errs() << "Unsupported case:\n";
-        // llvm::errs() << "M, N, K:" << M << " " << N << " " << K << "\n";
-        llvm::errs() << "MPerWave: " << MPerWave << "\n";
-        llvm::errs() << "NPerWave: " << NPerWave << "\n";
-        llvm::errs() << "dataType: ";
-        dataType.dump();
-        llvm::errs() << "\n";
-        llvm_unreachable("Can't meaningfully continue xdlop generation");
+        dumpUnsupported(dataType, MPerWave, NPerWave);
+      }
+    } else if (dataType == b.getIntegerType(8)) {
+      if (MPerWave == 32 && NPerWave == 32) {
+        mfmaInstr = "mfma_i32_32x32x8i8";
+        MPerXdlops = 32;
+        NPerXdlops = 32;
+        MRepeats = 1;
+        NRepeats = 1;
+        vectorType = VectorType::get({16}, b.getI32Type());
+        vectorNumber = 1;
+        imms.push_back({0, 0, 0});
+        argType = b.getIntegerType(32);
+      } else if (MPerWave == 16 && NPerWave == 16) {
+        mfmaInstr = "mfma_i32_16x16x16i8";
+        MPerXdlops = 16;
+        NPerXdlops = 16;
+        MRepeats = 1;
+        NRepeats = 1;
+        vectorType = VectorType::get({4}, b.getI32Type());
+        vectorNumber = 1;
+        imms.push_back({0, 0, 0});
+        argType = b.getIntegerType(32);
+      } else {
+        dumpUnsupported(dataType, MPerWave, NPerWave);
       }
     } else {
       llvm_unreachable("XDLOPs for unsupported data types should be rejected");
@@ -663,6 +677,34 @@ struct XdlopsCodeSelection {
       k = 2;
       cycles = 8;
       k_base = 2;
+    } else if (mfmaInstr == "mfma_i32_32x32x8i8") {
+      group_size = 4;
+      num_groups_blk = 4;
+      num_regs_blk = group_size * num_groups_blk;
+      num_threads_blk = 32;
+      wave_size = 64;
+      num_input_blks = wave_size / num_threads_blk;
+      num_output_blks = 1;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m = 32;
+      n = 32;
+      k = 8;
+      cycles = 64;
+      k_base = 4;
+    } else if (mfmaInstr == "mfma_i32_16x16x16i8") {
+      group_size = 4;
+      num_groups_blk = 1;
+      num_regs_blk = group_size * num_groups_blk;
+      num_threads_blk = 16;
+      wave_size = 64;
+      num_input_blks = wave_size / num_threads_blk;
+      num_output_blks = 1;
+      num_regs_xdlops = num_regs_blk * num_output_blks;
+      m = 16;
+      n = 16;
+      k = 16;
+      cycles = 32;
+      k_base = 4;
     } else {
       llvm_unreachable("Unsupported case as mfmaInstr not selected!\n");
     }
