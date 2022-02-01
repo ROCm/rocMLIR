@@ -55,11 +55,6 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
                                            cl::value_desc("filename"),
                                            cl::init("-"));
 
-static cl::opt<std::string>
-    perfConfig("perf_config",
-               cl::desc("performance config data used for tuning"),
-               cl::value_desc("Serialized tuning parameters"), cl::init(""));
-
 static cl::opt<int> blockSize("block_size", cl::desc("Block size"),
                               cl::value_desc("Block size"), cl::init(0));
 
@@ -106,15 +101,13 @@ namespace test {
 void registerTestDialect(DialectRegistry &);
 } // namespace test
 
-static void populateTuningPipeline(PassManager &pm,
-                                   const std::string &perfConfig) {
-  pm.addPass(mlir::miopen::createAffixTuningParametersPass(blockSize, gridSize,
-                                                           perfConfig));
+static void populateTuningPipeline(PassManager &pm) {
+  pm.addPass(
+      mlir::miopen::createAffixTuningParametersPass(blockSize, gridSize));
 }
 
 static LogicalResult runMLIRPasses(ModuleOp &module,
-                                   mlir::PassPipelineCLParser &passPipeline,
-                                   const std::string &perfConfig) {
+                                   mlir::PassPipelineCLParser &passPipeline) {
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
   applyPassManagerCLOptions(pm);
 
@@ -130,13 +123,13 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     if (pipeline == "tuning") {
       // Set up the default lowering pipeline which goes down to affix tuning
       // parameters
-      populateTuningPipeline(pm, perfConfig);
+      populateTuningPipeline(pm);
     } else if (pipeline == "gpu") {
       // Set up the default lowering pipeline which goes down to GPU dialect.
-      miopen::addPipeline(pm, perfConfig);
+      miopen::addPipeline(pm);
     } else if (pipeline == "rocdl") {
       // Set up the lowering pipeline which goes down to ROCDL dialect.
-      miopen::addPipeline(pm, perfConfig);
+      miopen::addPipeline(pm);
       pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
     }
   } else {
@@ -199,7 +192,7 @@ int main(int argc, char **argv) {
   module = moduleRef.get();
 
   // Run MLIR passes with passed in tuning parameters
-  if (failed(runMLIRPasses(module, passPipeline, perfConfig.getValue()))) {
+  if (failed(runMLIRPasses(module, passPipeline))) {
     llvm::errs() << "Lowering failed.\n";
     exit(1);
   }

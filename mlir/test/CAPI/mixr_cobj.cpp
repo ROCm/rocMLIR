@@ -214,7 +214,6 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   const char *triple = "amdgcn-amd-amdhsa";
   const char *chip = "gfx908";
   const char *features = "";
-  const char *perfConfig = "";
 
   MlirOperation moduleMO = mlirModuleGetOperation(moduleOp1);
 
@@ -252,7 +251,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   // uses 11 params : ptr, ptr, 0 /*offset */, 1, 64, 56, 56, 1, 64, 56, 56
   // printf("Estimated #kernel params : %d\n", argIdx);
 
-  mlir::miopen::addPipeline(pm, perfConfig, false, true);
+  mlir::miopen::addPipeline(pm, false, true);
   mlir::miopen::addBackendPipeline(pm, triple, chip, features);
   auto status = pm.run(module);
 

@@ -15,10 +15,9 @@ using namespace mlir;
 namespace {
 struct AffixTuningParameters : public MIOpenOpsAffixTuningParametersPassBase<AffixTuningParameters> {
 public:
-  AffixTuningParameters(int64_t blockSizeOverride, int64_t gridSizeOverride,
-                        std::string perfConfig)
+  AffixTuningParameters(int64_t blockSizeOverride, int64_t gridSizeOverride)
       : blockSizeOverride(blockSizeOverride),
-        gridSizeOverride(gridSizeOverride), perfConfig(perfConfig) {}
+        gridSizeOverride(gridSizeOverride) {}
   void runOnFunction() override;
 
 private:
@@ -35,7 +34,6 @@ private:
   //   coherent tuning parameters with the pre-set block size.
   int64_t blockSizeOverride;
   int64_t gridSizeOverride;
-  std::string perfConfig;
 
   // Actual implementation.
   template <typename T> void affixTuningParametersImpl(T &op);
@@ -168,6 +166,11 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     }
   };
 
+  std::string perfConfig;
+  if (auto perfConfigAttr =
+          op->template getAttrOfType<StringAttr>("perf_config")) {
+    perfConfig = perfConfigAttr.getValue().str();
+  }
   auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
   auto ignoreTuningAttr = op->template getAttrOfType<BoolAttr>("ignore_tuning");
   bool ignoreTuning =
@@ -315,8 +318,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
 std::unique_ptr<Pass>
 mlir::miopen::createAffixTuningParametersPass(int64_t blockSizeOverride,
-                                              int64_t gridSizeOverride,
-                                              std::string perfConfig) {
+                                              int64_t gridSizeOverride) {
   return std::make_unique<AffixTuningParameters>(blockSizeOverride,
-                                                 gridSizeOverride, perfConfig);
+                                                 gridSizeOverride);
 }

@@ -50,10 +50,9 @@ void miopen::addHighLevelPipeline(PassManager &pm) {
   pm.addPass(miopen::createMIOpenCopyOptPass());
 }
 
-void miopen::addPipeline(PassManager &pm, const std::string &perfConfig,
-                         bool applicability, bool highLevel) {
+void miopen::addPipeline(PassManager &pm, bool applicability, bool highLevel) {
   // Passes for lowering MIOpen dialect.
-  pm.addPass(miopen::createAffixTuningParametersPass(0, 0, perfConfig));
+  pm.addPass(miopen::createAffixTuningParametersPass(0, 0));
   pm.addPass(miopen::createLowerMIOpenOpsStep1Pass());
   pm.addPass(miopen::createLowerMIOpenOpsStep2Pass());
 
