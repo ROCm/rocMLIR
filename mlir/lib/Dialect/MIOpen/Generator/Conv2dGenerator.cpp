@@ -326,11 +326,12 @@ bool Conv2dGenerator::hasWorkspace(OpBuilder &builder) const {
   // - operation: backward weight conv2d.
   // - use XDLOPS.
   bool result = false;
-  assert(config.operation.hasValue());
-  mlir::Type dataType = getDataType(builder);
-  if ((config.operation.getValue() == miopen::ConvOpType::BwdWeight) &&
-      config.xdlops && (dataType == builder.getF16Type())) {
-    result = true;
+  if (config.operation.hasValue()) {
+    mlir::Type dataType = getDataType(builder);
+    if ((config.operation.getValue() == miopen::ConvOpType::BwdWeight) &&
+        config.xdlops && (dataType == builder.getF16Type())) {
+      result = true;
+    }
   }
   return result;
 }
