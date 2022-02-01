@@ -279,8 +279,10 @@ LogicalResult PopulateParamsXDL::populateDerived(
 
   // parameters derivable from tunable parameters.
   int64_t nKBlocks = 1;
-  if (ctx.opType == miopen::ConvOpType::BwdWeight && ctx.getDataType().isF32())
+  if (ctx.opType == miopen::ConvOpType::BwdWeight &&
+      (ctx.getDataType().isF32() || ctx.getDataType().isF16())) {
     nKBlocks = getKBlocks(ctx);
+  }
   gridSize = obtainGridSize(gemmSize, &params) * nKBlocks;
 
   res =
