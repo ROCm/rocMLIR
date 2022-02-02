@@ -109,67 +109,67 @@ gpu.module @mubuf_load {
     gpu.return %result : vector<8xf16>
   }
 
-  // i16 (bf16) tests.
+  // bf16 -> i16 tests.
 
-  // CHECK-LABEL: func @buffer_load_from_rank_1_to_i16
-  gpu.func @buffer_load_from_rank_1_to_i16(%src : memref<128xi16>, %offset0 : i32) -> i16 {
+  // CHECK-LABEL: func @buffer_load_from_rank_1_to_bf16
+  gpu.func @buffer_load_from_rank_1_to_bf16(%src : memref<128xbf16>, %offset0 : i32) -> bf16 {
     // CHECK: llvm.load %{{.*}} : !llvm.ptr<i16>
-    %result = gpu.buffer_load(%src, %offset0) : memref<128xi16>, i16, i32
-    gpu.return %result : i16
+    %result = gpu.buffer_load(%src, %offset0) : memref<128xbf16>, bf16, i32
+    gpu.return %result : bf16
   }
 
-  // CHECK-LABEL: func @buffer_load_from_rank_4_to_i16
-  gpu.func @buffer_load_from_rank_4_to_i16(%src : memref<128x64x32x16xi16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> i16 {
+  // CHECK-LABEL: func @buffer_load_from_rank_4_to_bf16
+  gpu.func @buffer_load_from_rank_4_to_bf16(%src : memref<128x64x32x16xbf16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> bf16 {
     // CHECK: llvm.load %{{.*}} : !llvm.ptr<i16>
-    %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xi16>, i16, i32, i32, i32, i32
-    gpu.return %result : i16
+    %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xbf16>, bf16, i32, i32, i32, i32
+    gpu.return %result : bf16
   }
 
-  // CHECK-LABEL: func @buffer_load_from_rank_1_to_2xi16
-  gpu.func @buffer_load_from_rank_1_to_2xi16(%src : memref<128xi16>, %offset0 : i32) -> vector<2xi16> {
+  // CHECK-LABEL: func @buffer_load_from_rank_1_to_2xbf16
+  gpu.func @buffer_load_from_rank_1_to_2xbf16(%src : memref<128xbf16>, %offset0 : i32) -> vector<2xbf16> {
     // CHECK: [[LOAD:%[a-zA-Z_0-9]+]] = rocdl.buffer.load %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : f32
     // CHECK-NEXT: llvm.bitcast [[LOAD]] : f32 to vector<2xi16>
-    %result = gpu.buffer_load(%src, %offset0) : memref<128xi16>, vector<2xi16>, i32
-    gpu.return %result : vector<2xi16>
+    %result = gpu.buffer_load(%src, %offset0) : memref<128xbf16>, vector<2xbf16>, i32
+    gpu.return %result : vector<2xbf16>
   }
 
-  // CHECK-LABEL: func @buffer_load_from_rank_4_to_2xi16
-  gpu.func @buffer_load_from_rank_4_to_2xi16(%src : memref<128x64x32x16xi16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> vector<2xi16> {
+  // CHECK-LABEL: func @buffer_load_from_rank_4_to_2xbf16
+  gpu.func @buffer_load_from_rank_4_to_2xbf16(%src : memref<128x64x32x16xbf16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> vector<2xbf16> {
     // CHECK: [[LOAD:%[a-zA-Z_0-9]+]] = rocdl.buffer.load %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : f32
     // CHECK-NEXT: llvm.bitcast [[LOAD]] : f32 to vector<2xi16>
-    %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xi16>, vector<2xi16>, i32, i32, i32, i32
-    gpu.return %result : vector<2xi16>
+    %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xbf16>, vector<2xbf16>, i32, i32, i32, i32
+    gpu.return %result : vector<2xbf16>
   }
 
-  // CHECK-LABEL: func @buffer_load_from_rank_1_to_4xi16
-  gpu.func @buffer_load_from_rank_1_to_4xi16(%src : memref<128xi16>, %offset0 : i32) -> vector<4xi16> {
+  // CHECK-LABEL: func @buffer_load_from_rank_1_to_4xbf16
+  gpu.func @buffer_load_from_rank_1_to_4xbf16(%src : memref<128xbf16>, %offset0 : i32) -> vector<4xbf16> {
     // CHECK: [[LOAD:%[a-zA-Z_0-9]+]] = rocdl.buffer.load %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : vector<2xf32>
     // CHECK-NEXT: llvm.bitcast [[LOAD]] : vector<2xf32> to vector<4xi16>
-    %result = gpu.buffer_load(%src, %offset0) : memref<128xi16>, vector<4xi16>, i32
-    gpu.return %result : vector<4xi16>
+    %result = gpu.buffer_load(%src, %offset0) : memref<128xbf16>, vector<4xbf16>, i32
+    gpu.return %result : vector<4xbf16>
   }
 
-  // CHECK-LABEL: func @buffer_load_from_rank_4_to_4xi16
-  gpu.func @buffer_load_from_rank_4_to_4xi16(%src : memref<128x64x32x16xi16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> vector<4xi16> {
+  // CHECK-LABEL: func @buffer_load_from_rank_4_to_4xbf16
+  gpu.func @buffer_load_from_rank_4_to_4xbf16(%src : memref<128x64x32x16xbf16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> vector<4xbf16> {
     // CHECK: [[LOAD:%[a-zA-Z_0-9]+]] = rocdl.buffer.load %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : vector<2xf32>
     // CHECK-NEXT: llvm.bitcast [[LOAD]] : vector<2xf32> to vector<4xi16>
-    %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xi16>, vector<4xi16>, i32, i32, i32, i32
-    gpu.return %result : vector<4xi16>
+    %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xbf16>, vector<4xbf16>, i32, i32, i32, i32
+    gpu.return %result : vector<4xbf16>
   }
 
-  // CHECK-LABEL: func @buffer_load_from_rank_1_to_8xi16
-  gpu.func @buffer_load_from_rank_1_to_8xi16(%src : memref<128xi16>, %offset0 : i32) -> vector<8xi16> {
+  // CHECK-LABEL: func @buffer_load_from_rank_1_to_8xbf16
+  gpu.func @buffer_load_from_rank_1_to_8xbf16(%src : memref<128xbf16>, %offset0 : i32) -> vector<8xbf16> {
     // CHECK: [[LOAD:%[a-zA-Z_0-9]+]] = rocdl.buffer.load %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : vector<4xf32>
     // CHECK-NEXT: llvm.bitcast [[LOAD]] : vector<4xf32> to vector<8xi16>
-    %result = gpu.buffer_load(%src, %offset0) : memref<128xi16>, vector<8xi16>, i32
-    gpu.return %result : vector<8xi16>
+    %result = gpu.buffer_load(%src, %offset0) : memref<128xbf16>, vector<8xbf16>, i32
+    gpu.return %result : vector<8xbf16>
   }
 
-  // CHECK-LABEL: func @buffer_load_from_rank_4_to_8xi16
-  gpu.func @buffer_load_from_rank_4_to_8xi16(%src : memref<128x64x32x16xi16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> vector<8xi16> {
+  // CHECK-LABEL: func @buffer_load_from_rank_4_to_8xbf16
+  gpu.func @buffer_load_from_rank_4_to_8xbf16(%src : memref<128x64x32x16xbf16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> vector<8xbf16> {
     // CHECK: [[LOAD:%[a-zA-Z_0-9]+]] = rocdl.buffer.load %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : vector<4xf32>
     // CHECK-NEXT: llvm.bitcast [[LOAD]] : vector<4xf32> to vector<8xi16>
-    %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xi16>, vector<8xi16>, i32, i32, i32, i32
-    gpu.return %result : vector<8xi16>
+    %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xbf16>, vector<8xbf16>, i32, i32, i32, i32
+    gpu.return %result : vector<8xbf16>
   }
 }

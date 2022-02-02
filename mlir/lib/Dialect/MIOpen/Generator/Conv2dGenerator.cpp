@@ -313,7 +313,7 @@ Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
   } else if (config.dataTypeStr == "f16" || config.dataTypeStr == "fp16") {
     dataType = builder.getF16Type();
   } else if (config.dataTypeStr == "bf16") {
-    dataType = builder.getIntegerType(16);
+    dataType = builder.getBF16Type();
   }
   return dataType;
 }

@@ -20,7 +20,6 @@ include "mlir/IR/SymbolInterfaces.td"
 include "mlir/Interfaces/DataLayoutInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
-include "mlir/Interfaces/VectorInterfaces.td"
 
 //===----------------------------------------------------------------------===//
 // GPU Dialect operations.
@@ -1233,8 +1232,8 @@ def GPU_SubgroupMmaElementwiseOp : GPU_Op<"subgroup_mma_elementwise",
 def GPU_MFMAOp:
     GPU_Op<"mfma", [AllTypesMatch<["sourceA", "sourceB"]>,
                         AllTypesMatch<["destC", "destD"]>]>,
-    Arguments<(ins AnyTypeOf<[I32, F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [I16]>, VectorOfLengthAndType<[4], [I16]>]>: $sourceA,
-                   AnyTypeOf<[I32, F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [I16]>, VectorOfLengthAndType<[4], [I16]>]>: $sourceB,
+    Arguments<(ins AnyTypeOf<[I32, F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>, VectorOfLengthAndType<[4], [BF16]>]>: $sourceA,
+                   AnyTypeOf<[I32, F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>, VectorOfLengthAndType<[4], [BF16]>]>: $sourceB,
                    VectorOfRankAndType<[1], [I32, F32, F16]>: $destC)>,
     Results<(outs VectorOfRankAndType<[1], [I32, F32, F16]>: $destD)> {
   let summary = "XDLOPS MFMA";
@@ -1246,27 +1245,14 @@ def GPU_MFMAOp:
   }];
 }
 
-def GPU_BFConvertOp :
-    GPU_Op<"bf_convert", [NoSideEffect,
-    DeclareOpInterfaceMethods<VectorUnrollOpInterface>] #
-    ElementwiseMappable.traits>,
-    Arguments<(ins TypesLike<F32, "f32-like">:$in)>,
-    Results<(outs TypesLike<I16, "i16-like">:$out)> {
-  let summary = "from fp32 to bf16";
-  let description = [{
-    The 'gpu.bf_convert' op converts an fp32 value to bf16 value. Stored as i16 for usage compatibility.
-  }];
-  let assemblyFormat = "attr-dict $in `:` type($in) `to` type($out)";
-}
-
 // buffer load
 def GPU_MubufLoadOp :
     GPU_Op<"buffer_load">,
     Arguments<(ins AnyMemRef:$memref,
                    Variadic<I32>:$indices)>,
-    Results<(outs AnyTypeOf<[I16, F16, F32,
+    Results<(outs AnyTypeOf<[BF16, F16, F32,
                              VectorOfLengthAndType<[2, 4], [F32]>,
-                             VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$result)> {
+                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>]>:$result)> {
   let summary = "AMD GPU Buffer Load";
   let description = [{
     The `gpu.buffer_load` op is an abstraction of AMD GPU buffer load intrinsics.
@@ -1281,9 +1267,9 @@ def GPU_MubufLoadOp :
 // buffer store
 def GPU_MubufStoreOp :
     GPU_Op<"buffer_store">,
-    Arguments<(ins AnyTypeOf<[I16, F16, F32,
+    Arguments<(ins AnyTypeOf<[BF16, F16, F32,
                               VectorOfLengthAndType<[2, 4], [F32]>,
-                              VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$value,
+                              VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>]>:$value,
                    AnyMemRef:$memref,
                    I32:$shift,
                    Variadic<I32>:$indices)> {
@@ -1304,9 +1290,9 @@ def GPU_MubufStoreOp :
 // buffer store
 def GPU_RawbufStoreOp :
     GPU_Op<"raw_buffer_store">,
-    Arguments<(ins AnyTypeOf<[I16, F16, F32,
+    Arguments<(ins AnyTypeOf<[BF16, F16, F32,
                               VectorOfLengthAndType<[2, 4], [F32]>,
-                              VectorOfLengthAndType<[2, 4, 8], [F16, I16]>]>:$value,
+                              VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>]>:$value,
                    AnyMemRef:$memref,
                    I32:$shift,
                    Variadic<I32>:$indices)> {

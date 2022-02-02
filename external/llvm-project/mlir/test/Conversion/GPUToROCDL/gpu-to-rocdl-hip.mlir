@@ -16,7 +16,6 @@ gpu.module @test_module {
     // CHECK-NEXT: %[[FORMATSTART:.*]] = llvm.getelementptr %[[FORMATSTR]][%[[CST1]], %[[CST1]]] : (!llvm.ptr<array<14 x i8>>, i64, i64) -> !llvm.ptr<i8>
     // CHECK-NEXT: %[[FORMATLEN:.*]] = llvm.mlir.constant(14 : i64) : i64
     // CHECK-NEXT: %[[ISLAST:.*]] = llvm.mlir.constant(1 : i32) : i32
-    // CHECK-NEXT: %[[ISNTLAST:.*]] = llvm.mlir.constant(0 : i32) : i32
     // CHECK-NEXT: %{{.*}} = llvm.call @__ockl_printf_append_string_n(%[[DESC0]], %[[FORMATSTART]], %[[FORMATLEN]], %[[ISLAST]]) : (i64, !llvm.ptr<i8>, i64, i32) -> i64
     gpu.printf { format = "Hello, world\n" }
     gpu.return
