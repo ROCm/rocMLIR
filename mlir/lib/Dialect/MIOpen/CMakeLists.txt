@@ -7,9 +7,9 @@ if (NOT DEFINED ROCM_PATH)
   endif()
 endif()
 
-file(GLOB globbed *.c *.cpp)
 add_mlir_dialect_library(MLIRMIOpenOps
-  ${globbed}
+  CoordTransformBuilder.cpp
+  MIOpenDialect.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/MIOpen
@@ -40,3 +40,5 @@ add_subdirectory(Transforms)
 add_subdirectory(Tuning)
 add_subdirectory(Generator)
 add_subdirectory(Pipeline)
+add_subdirectory(utility)
+

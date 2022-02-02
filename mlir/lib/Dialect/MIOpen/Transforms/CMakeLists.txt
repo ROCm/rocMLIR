@@ -1,8 +1,11 @@
 add_mlir_dialect_library(MLIRMIOpenTransforms
   AffixTuningParameters.cpp
   AlignTiling.cpp
+  BlockwiseGemmToThreadwise.cpp
   CopyOpt.cpp
-  LowerMIOpenOps.cpp
+  ConvToGemmLowering.cpp
+  GridwiseGemmToBlockwise.cpp
+  ThreadwiseToStdlib.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/MIOpen
@@ -20,6 +23,7 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
   MLIRAffineToStandard
   MLIRMIOpenOps
   MLIRMIOpenTuning
+  MLIRMIOpenUtility
   MLIRSCFToStandard
   MLIRSupport
   MLIRTransformUtils
