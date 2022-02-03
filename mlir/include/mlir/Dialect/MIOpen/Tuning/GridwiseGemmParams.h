@@ -799,9 +799,8 @@ private:
   // Initial tuning parameters for forward convolution.
   llvm::SmallVector<InitParamsXDL, 4> initParametersForward = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-      {128, 128, 2, 64, 64, 2, false, false},
-      {128, 128, 4, 64, 64, 2, false, false},
-      {32, 64, 2, 32, 64, 2, false, false},
+      {128, 128, 4, 64, 64, 4, false, false},
+      {32, 64, 4, 32, 64, 4, false, false},
 
       {128, 128, 8, 64, 64, 1, false, false},
       {128, 128, 16, 64, 64, 1, false, false},
@@ -931,11 +930,18 @@ private:
     if ((param.gemmKPerBlock % param.gemmKPack) != 0)
       return failure();
 
-    // Reject too wide KPACK values for fp32/fp16/bf16 types.
+    // Reject invalid KPACK values.
     auto dataType = ctx.getDataType();
+    // For fp32: reject anything wider than 4.
+    // For fp16/bf16: reject anything narrower than 4, or greater than 8.
     if (dataType.isF32() && param.gemmKPack > 4) {
+      llvm::errs() << "Invalid KPACK tuning parameter: " << param.gemmKPack
+                   << "\n";
       return failure();
-    } else if ((dataType.isF16() || dataType.isBF16()) && param.gemmKPack > 8) {
+    } else if ((dataType.isF16() || dataType.isBF16()) &&
+               ((param.gemmKPack < 4) || (param.gemmKPack > 8))) {
+      llvm::errs() << "Invalid KPACK tuning parameter: " << param.gemmKPack
+                   << "\n";
       return failure();
     }
 
