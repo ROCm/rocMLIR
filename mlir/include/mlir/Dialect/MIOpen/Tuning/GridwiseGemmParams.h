@@ -930,14 +930,18 @@ private:
     if ((param.gemmKPerBlock % param.gemmKPack) != 0)
       return failure();
 
-    // Reject invalid KPACK values. for fp32/fp16/bf16 types.
+    // Reject invalid KPACK values.
     auto dataType = ctx.getDataType();
     // For fp32: reject anything wider than 4.
     // For fp16/bf16: reject anything narrower than 4, or greater than 8.
     if (dataType.isF32() && param.gemmKPack > 4) {
+      llvm::errs() << "Invalid KPACK tuning parameter: " << param.gemmKPack
+                   << "\n";
       return failure();
     } else if ((dataType.isF16() || dataType.isBF16()) &&
                ((param.gemmKPack < 4) || (param.gemmKPack > 8))) {
+      llvm::errs() << "Invalid KPACK tuning parameter: " << param.gemmKPack
+                   << "\n";
       return failure();
     }
 
