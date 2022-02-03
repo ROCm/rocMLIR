@@ -2764,10 +2764,10 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
       auto outerLoopb = OpBuilder::atBlockBegin(outerLoop.getBody());
       auto outerLoopiv = outerLoop.getInductionVar();
 
-      Type bufferAElementType =
-          op.bufferA().getType().template cast<MemRefType>().getElementType();
-      Type bufferBElementType =
-          op.bufferB().getType().template cast<MemRefType>().getElementType();
+      MemRefType bufferAType = op.bufferA().getType().cast<MemRefType>();
+      MemRefType bufferBType = op.bufferA().getType().cast<MemRefType>();
+      Type bufferAElementType = bufferAType.getElementType();
+      Type bufferBElementType = bufferBType.getElementType();
       Value bufferAElement = outerLoopb.create<memref::LoadOp>(
           loc, bufferAElementType, op.bufferA(), ValueRange{outerLoopiv});
       Value bufferBElement = outerLoopb.create<memref::LoadOp>(
@@ -2800,6 +2800,14 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
           // argA/B to be supplied to MFMA XDLOPS are also vectors.
           assert(bufferAElementType.isa<VectorType>());
           assert(bufferBElementType.isa<VectorType>());
+          assert(bufferAElementType.cast<VectorType>().getShape().size() == 1);
+          assert(bufferBElementType.cast<VectorType>().getShape().size() == 1);
+          assert(bufferAElementType.cast<VectorType>().getShape()[0] %
+                     argTypeVectorLength ==
+                 0);
+          assert(bufferBElementType.cast<VectorType>().getShape()[0] %
+                     argTypeVectorLength ==
+                 0);
 
           argA = innerLoopb.create<SplatOp>(loc, zeroOp, argType);
           argB = innerLoopb.create<SplatOp>(loc, zeroOp, argType);
@@ -2837,6 +2845,8 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
           // argA/B to be supplied to MFMA XDLOPS are scalars.
           assert(bufferAElementType.isa<VectorType>());
           assert(bufferBElementType.isa<VectorType>());
+          assert(bufferAElementType.cast<VectorType>().getShape().size() == 1);
+          assert(bufferBElementType.cast<VectorType>().getShape().size() == 1);
 
           Value innerLoopiv_i32 = innerLoopb.create<IndexCastOp>(
               loc, innerLoopiv, innerLoopb.getIntegerType(32));
