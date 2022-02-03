@@ -2805,21 +2805,17 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
           argB = innerLoopb.create<SplatOp>(loc, zeroOp, argType);
           for (int64_t i = 0; i < argTypeVectorLength; ++i) {
             Value iConstantOp = innerLoopb.create<ConstantIndexOp>(loc, i);
-            Value iConstantOp_i32 = innerLoopb.create<IndexCastOp>(
-                loc, iConstantOp, innerLoopb.getIntegerType(32));
             Value iPlusOffsetConstantOp =
                 innerLoopb.create<AddIOp>(loc, iConstantOp, offset);
-            Value iPlusOffsetConstantOp_i32 = innerLoopb.create<IndexCastOp>(
-                loc, iPlusOffsetConstantOp, innerLoopb.getIntegerType(32));
 
             Value elementA = innerLoopb.create<vector::ExtractElementOp>(
-                loc, dataType, bufferAElement, iPlusOffsetConstantOp_i32);
+                loc, dataType, bufferAElement, iPlusOffsetConstantOp);
             argA = innerLoopb.create<vector::InsertElementOp>(
-                loc, argType, elementA, argA, iConstantOp_i32);
+                loc, argType, elementA, argA, iConstantOp);
             Value elementB = innerLoopb.create<vector::ExtractElementOp>(
-                loc, dataType, bufferBElement, iPlusOffsetConstantOp_i32);
+                loc, dataType, bufferBElement, iPlusOffsetConstantOp);
             argB = innerLoopb.create<vector::InsertElementOp>(
-                loc, argType, elementB, argB, iConstantOp_i32);
+                loc, argType, elementB, argB, iConstantOp);
           }
         } else {
           // bufferA/BElement loaded on LDS are scalars.
@@ -2838,12 +2834,10 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
           assert(bufferAElementType.isa<VectorType>());
           assert(bufferBElementType.isa<VectorType>());
 
-          Value innerLoopiv_i32 = innerLoopb.create<IndexCastOp>(
-              loc, innerLoopiv, innerLoopb.getIntegerType(32));
           argA = innerLoopb.create<vector::ExtractElementOp>(
-              loc, dataType, bufferAElement, innerLoopiv_i32);
+              loc, dataType, bufferAElement, innerLoopiv);
           argB = innerLoopb.create<vector::ExtractElementOp>(
-              loc, dataType, bufferBElement, innerLoopiv_i32);
+              loc, dataType, bufferBElement, innerLoopiv);
         } else {
           // bufferA/BElement loaded on LDS are scalars.
           // argA/B to be supplied to MFMA XDLOPS are also scalars.
