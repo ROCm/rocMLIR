@@ -27,8 +27,8 @@ using namespace mlir;
 
 Conv2dGenerator::Conv2dGenerator(
     const std::string &chip, const std::string &triple,
-    const std::string &features, int num_cu, bool xdlops,
-    const Optional<miopen::ConvOpType> operation,
+    const std::string &features, const std::string &perfConfig, int num_cu,
+    bool xdlops, const Optional<miopen::ConvOpType> operation,
     const std::string &dataTypeStr, int dilationHeight, int dilationWidth,
     int strideHeight, int strideWidth, int paddingHeightLeft,
     int paddingHeightRight, int paddingWidthLeft, int paddingWidthRight,
@@ -37,7 +37,7 @@ Conv2dGenerator::Conv2dGenerator(
     : config{chip,
              triple,
              features,
-             "",
+             perfConfig,
              num_cu,
              xdlops,
              operation,
@@ -606,10 +606,10 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
         builder.getNamedAttr("xdlopsV2", builder.getBoolAttr(true)));
   }
 
-  // ignore tuning.
-  if (ignoreTuning) {
-    attributes.push_back(
-        builder.getNamedAttr("ignore_tuning", builder.getBoolAttr(true)));
+  // perf_config
+  if (!ignoreTuning && !config.perfConfig.empty()) {
+    attributes.push_back(builder.getNamedAttr(
+        "perf_config", builder.getStringAttr(config.perfConfig)));
   }
 
   assert(config.operation.hasValue());

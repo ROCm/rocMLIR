@@ -79,6 +79,11 @@ static cl::opt<int>
                     "gfx906(60/64), gfx908(120)"),
            cl::value_desc("compute unit value"), cl::init(64));
 
+static cl::opt<std::string>
+    perfConfig("perf_config",
+               cl::desc("performance config data used for tuning"),
+               cl::value_desc("Serialized tuning parameters"), cl::init(""));
+
 static cl::opt<std::string> filterLayout("fil_layout",
                                          cl::desc("Filter layout"),
                                          cl::value_desc("layout string"),
@@ -1712,8 +1717,8 @@ int main(int argc, char **argv) {
       }
 
       conv2dGenerator = Conv2dGenerator(
-          chip, triple, features, num_cu.getValue(), xdlopsV2.getValue(),
-          operation.getValue(), tensorDataType.getValue(),
+          chip, triple, features, perfConfig.getValue(), num_cu.getValue(),
+          xdlopsV2.getValue(), operation.getValue(), tensorDataType.getValue(),
           dilationHeight.getValue(), dilationWidth.getValue(),
           strideHeight.getValue(), strideWidth.getValue(),
           paddingHeightLeft.getValue(), paddingHeightRight.getValue(),

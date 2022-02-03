@@ -55,7 +55,8 @@ public:
   };
 
   Conv2dGenerator(const std::string &chip = "", const std::string &triple = "",
-                  const std::string &features = "", int num_cu = 0,
+                  const std::string &features = "",
+                  const std::string &perfConfig = "", int num_cu = 0,
                   bool xdlops = false,
                   const Optional<miopen::ConvOpType> operation = llvm::None,
                   const std::string &dataTypeStr = "f32",

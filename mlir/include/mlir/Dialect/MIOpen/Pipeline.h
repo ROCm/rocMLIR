@@ -25,8 +25,8 @@ namespace miopen {
 void addHighLevelPipeline(PassManager &pm);
 
 // Compilation pipeline from MIOpen to LLVM
-void addPipeline(PassManager &pm, const std::string &perfConfig = "",
-                 bool applicability = false, bool highLevel = true);
+void addPipeline(PassManager &pm, bool applicability = false,
+                 bool highLevel = true);
 
 // Compilation pipeline from LLVM to Binary
 void addBackendPipeline(PassManager &pm, const std::string &triple,

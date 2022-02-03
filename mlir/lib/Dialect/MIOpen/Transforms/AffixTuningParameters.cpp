@@ -15,10 +15,9 @@ using namespace mlir;
 namespace {
 struct AffixTuningParameters : public MIOpenOpsAffixTuningParametersPassBase<AffixTuningParameters> {
 public:
-  AffixTuningParameters(int64_t blockSizeOverride, int64_t gridSizeOverride,
-                        std::string perfConfig)
+  AffixTuningParameters(int64_t blockSizeOverride, int64_t gridSizeOverride)
       : blockSizeOverride(blockSizeOverride),
-        gridSizeOverride(gridSizeOverride), perfConfig(perfConfig) {}
+        gridSizeOverride(gridSizeOverride) {}
   void runOnFunction() override;
 
 private:
@@ -35,7 +34,6 @@ private:
   //   coherent tuning parameters with the pre-set block size.
   int64_t blockSizeOverride;
   int64_t gridSizeOverride;
-  std::string perfConfig;
 
   // Actual implementation.
   template <typename T> void affixTuningParametersImpl(T &op);
@@ -168,10 +166,12 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     }
   };
 
+  std::string perfConfig;
+  if (auto perfConfigAttr =
+          op->template getAttrOfType<StringAttr>("perf_config")) {
+    perfConfig = perfConfigAttr.getValue().str();
+  }
   auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-  auto ignoreTuningAttr = op->template getAttrOfType<BoolAttr>("ignore_tuning");
-  bool ignoreTuning =
-      (ignoreTuningAttr && (ignoreTuningAttr.getValue() == true));
   if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
     PopulateParamsXDL populateParamsXDL;
     InitParamsXDL validParams;
@@ -182,9 +182,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     int64_t gridSize = 0;
 
     LogicalResult status = populateParamsXDL.paramsFromCtx(
-        convContext, blockSizeOverride, (ignoreTuning) ? "" : perfConfig,
-        validParams, gemmADerivedParam, gemmBDerivedParam, gemmCDerivedParam,
-        blockSize, gridSize);
+        convContext, blockSizeOverride, perfConfig, validParams,
+        gemmADerivedParam, gemmBDerivedParam, gemmCDerivedParam, blockSize,
+        gridSize);
 
     if (failed(status)) {
       signalPassFailure();
@@ -249,9 +249,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
     PopulateParams populateParams;
     LogicalResult status = populateParams.paramsFromCtx(
-        convContext, blockSizeOverride, (ignoreTuning) ? "" : perfConfig,
-        validParams, gemmADerivedParam, gemmBDerivedParam,
-        blockGemmDerivedParam, gemmCDerivedParam, gridSize);
+        convContext, blockSizeOverride, perfConfig, validParams,
+        gemmADerivedParam, gemmBDerivedParam, blockGemmDerivedParam,
+        gemmCDerivedParam, gridSize);
 
     if (failed(status)) {
       signalPassFailure();
@@ -315,8 +315,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
 std::unique_ptr<Pass>
 mlir::miopen::createAffixTuningParametersPass(int64_t blockSizeOverride,
-                                              int64_t gridSizeOverride,
-                                              std::string perfConfig) {
+                                              int64_t gridSizeOverride) {
   return std::make_unique<AffixTuningParameters>(blockSizeOverride,
-                                                 gridSizeOverride, perfConfig);
+                                                 gridSizeOverride);
 }
