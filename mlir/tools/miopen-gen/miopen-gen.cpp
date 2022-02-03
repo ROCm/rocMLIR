@@ -1444,7 +1444,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   mlir::Value cmpVal;
   if ((randomSeed.getValue() != "none" && randomSeed.getValue() != "fixed" &&
        randomDataType.getValue() == "float") ||
-      elemType.isF16() || elemType.isBF16()) {
+      elemType.isF16() || elemType.isBF16() || genValidation.getValue() == "gpu") {
     // <test> = <cpu> != <gpu>
 
     auto cmpfOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
@@ -1642,11 +1642,32 @@ populateHostHarnessLogic(ModuleOp &module,
       auto lv5DType = lv5D.getType().template cast<mlir::MemRefType>();
       llvm::SmallVector<float, 3> pattern = {0.5, -1, 0.75};
       // TODO(kdrewnia) Refactor this to create the constant vector up front
-      mlir::Value constantsVec = mlir::miopen::createZeroConstantFloatOp(
-          b, loc, mlir::VectorType::get(pattern.size(), elemType));
+      // TODO(kdrewnia) Factor out the anti-bf16 pass from GPU lowering, apply
+      // it here
+      mlir::Type i16 = b.getIntegerType(16);
+      mlir::Value constantsVec;
+      if (elemType == b.getBF16Type()) {
+        uint16_t init = 0;
+        constantsVec = b.create<arith::ConstantOp>(
+            loc, mlir::SplatElementsAttr::get(
+                     mlir::VectorType::get(pattern.size(), i16), init));
+      } else {
+        constantsVec = mlir::miopen::createZeroConstantFloatOp(
+            b, loc, mlir::VectorType::get(pattern.size(), elemType));
+      }
       for (auto v : llvm::enumerate(pattern)) {
-        mlir::Value vOp =
-            mlir::miopen::createConstantFloatOp(b, loc, elemType, v.value());
+        mlir::Value vOp;
+        if (elemType == b.getBF16Type()) {
+          llvm::APFloat fl(v.value());
+          bool losesInfo = false;
+          fl.convert(llvm::APFloat::BFloat(),
+                     llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+          llvm::APInt val = fl.bitcastToAPInt();
+          vOp = b.create<arith::ConstantOp>(loc, b.getIntegerAttr(i16, val));
+        } else {
+          vOp =
+              mlir::miopen::createConstantFloatOp(b, loc, elemType, v.value());
+        }
         constantsVec = b.create<vector::InsertElementOp>(
             loc, vOp, constantsVec,
             b.create<arith::ConstantIndexOp>(loc, v.index()));
@@ -1665,11 +1686,14 @@ populateHostHarnessLogic(ModuleOp &module,
 
       mlir::buildAffineLoopNest(
           b, loc, lowerBounds, upperBounds, steps,
-          [rowMajorMap, &constantsVec, lv5D](OpBuilder b, Location loc,
-                                             ValueRange ivs) {
+          [rowMajorMap, &constantsVec, lv5D,
+           elemType](OpBuilder b, Location loc, ValueRange ivs) {
             auto selectorOp = b.create<AffineApplyOp>(loc, rowMajorMap, ivs);
             mlir::Value toStore = b.create<vector::ExtractElementOp>(
                 loc, constantsVec, selectorOp->getResult(0));
+            if (elemType == b.getBF16Type())
+              toStore =
+                  b.create<arith::BitcastOp>(loc, b.getBF16Type(), toStore);
             b.create<memref::StoreOp>(loc, toStore, lv5D, ivs);
           });
     } else {
