@@ -886,7 +886,8 @@ static LogicalResult verify(ConstantOp &op) {
     return success();
   }
 
-  if (type.isa<NoneType>() && value.isa<UnitAttr>())
+  if (type.isa<NoneType>() &&
+      (value.isa<UnitAttr>() || value.isa<StringAttr>()))
     return success();
 
   return op.emitOpError("unsupported 'value' attribute: ") << value;
