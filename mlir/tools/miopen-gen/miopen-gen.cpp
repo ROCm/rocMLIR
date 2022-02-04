@@ -57,6 +57,14 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
                                            cl::value_desc("filename"),
                                            cl::init("-"));
 
+static cl::opt<std::string> testFuncName("func-under-test",
+                                         cl::desc("Name of func to test"),
+                                         cl::init(""));
+static cl::alias aliasTestFuncName("fut", cl::aliasopt(testFuncName));
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+//// MIOpen Convolution spec
+
 static cl::opt<mlir::miopen::ConvOpType> operation(
     "operation", cl::desc("Convolution operation,"),
     cl::values(clEnumValN(miopen::ConvOpType::Fwd, "conv2d",
@@ -246,7 +254,7 @@ static cl::opt<bool> readHostHarness("host", cl::desc("To use host harness"),
                                      cl::value_desc("To use host harness"),
                                      cl::init(false));
 
-static cl::opt<bool> genHostHarness("host_harness",
+static cl::opt<bool> genHostHarness("host-harness",
                                     cl::desc("To use host harness"),
                                     cl::value_desc("To use host harness"),
                                     cl::init(false));
@@ -254,18 +262,18 @@ static cl::opt<bool> genHostHarness("host_harness",
 static cl::alias aliasGenHostHarness("ph", cl::aliasopt(genHostHarness));
 
 // print results
-static cl::opt<bool> printResults("print_results",
+static cl::opt<bool> printResults("print-results",
                                   cl::desc("To print result tensor"),
                                   cl::init(false));
 static cl::alias aliasPrintResults("pr", cl::aliasopt(printResults));
 
-static cl::opt<bool> printInputs("print_inputs",
+static cl::opt<bool> printInputs("print-inputs",
                                  cl::desc("To print input tensors"),
                                  cl::init(false));
 static cl::alias aliasPrintInputs("pi", cl::aliasopt(printInputs));
 
 static cl::opt<bool>
-    printValidationResults("print_validation_results",
+    printValidationResults("print-validation-results",
                            cl::desc("To print result tensor for validation"),
                            cl::init(false));
 static cl::alias
@@ -298,7 +306,7 @@ static cl::opt<bool> genGPUValidation("pv_with_gpu", cl::Hidden,
                                         }
                                       }));
 
-static cl::opt<bool> genCPUKernel("cpu_kernels",
+static cl::opt<bool> genCPUKernel("cpu-kernels",
                                   cl::desc("Generate CPU kernel for test"),
                                   cl::init(false), cl::Optional,
                                   cl::cb<void, bool>([](bool v) {
@@ -1506,6 +1514,7 @@ populateHostHarnessLogic(ModuleOp &module,
   // - assumes all kernels read the same memrefs
   auto kernel0 = kernels.front();
   bool isCPUKernel = !kernel0.func->hasAttr("kernel");
+  bool hasValidation = !validationType.empty();
   SmallVector<mlir::Value, 5> localVars;
   SmallVector<mlir::Value, 5> valVars;
   int32_t idx = 0;
@@ -1515,7 +1524,9 @@ populateHostHarnessLogic(ModuleOp &module,
     auto elemType = paramMRType.getElementType();
     if (isCPUKernel) {
       assert(elemType.isF32());
-      if (tensorDataType == "f16")
+      if (tensorDataType == "f32")
+        elemType = b.getF32Type();
+      else if (tensorDataType == "f16")
         elemType = b.getF16Type();
       else
         elemType = b.getBF16Type();
@@ -1535,7 +1546,7 @@ populateHostHarnessLogic(ModuleOp &module,
         loc, getMemsetFunc(module, elemType),
         ValueRange{lvU5D, getI16Val(min), getI16Val(max), getI32Val(seed)});
 
-    if (!validationType.empty() || isCPUKernel) {
+    if (hasValidation || isCPUKernel) {
       // Emit validation var
       auto valType = MemRefType::get(paramMRType.getShape(), floatType);
       auto vvar = b.create<memref::AllocOp>(loc, valType);
@@ -1563,7 +1574,7 @@ populateHostHarnessLogic(ModuleOp &module,
   }
 
   // Run validation
-  if (!validationType.empty()) {
+  if (hasValidation) {
     if (validationType == "gpu" &&
         (genConfig.xdlops || genConfig.dataTypeStr != "f32")) {
       // generate generic kernels
@@ -1660,7 +1671,8 @@ int main(int argc, char **argv) {
 
   SmallVector<KernelIF, 8> kernels;
 
-  bool hasUserKernel = false;
+  auto testFuncNameVal = testFuncName.getValue();
+  bool hasUserKernel = !testFuncNameVal.empty();
 
   std::string errorMessage;
   auto inputFilenameStr = inputFilename.getValue();
@@ -1770,12 +1782,28 @@ int main(int argc, char **argv) {
     }
   }
 
-  module.walk([&](FuncOp func) -> WalkResult {
-    if (func->hasAttr("kernel")) {
-      kernels.emplace_back(func);
+  ModuleOp mod = module;
+  llvm::StringRef modName = "__miopen";
+  auto miopenModule = module.lookupSymbol<ModuleOp>(modName);
+  if (miopenModule) {
+    mod = miopenModule;
+  }
+
+  if (testFuncNameVal.empty()) {
+    mod.walk([&](FuncOp func) -> WalkResult {
+      if (func->hasAttr("kernel")) {
+        kernels.emplace_back(func);
+      }
+      return WalkResult::advance();
+    });
+  } else {
+    auto func = mod.lookupSymbol<FuncOp>(testFuncName);
+    if (!func && mod != module) {
+      func = module.lookupSymbol<FuncOp>(testFuncName);
     }
-    return WalkResult::advance();
-  });
+    assert(func);
+    kernels.emplace_back(func);
+  }
 
   // populate host logic.
   if (genHostHarness.getValue()) {

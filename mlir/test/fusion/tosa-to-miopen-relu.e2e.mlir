@@ -1,4 +1,4 @@
-// RUN: mlir-miopen-driver -hlp %s | miopen-gen -ph -print_results -rand 1 -rand_type float - | mlir-miopen-driver -c  | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: mlir-miopen-driver -hlp %s | miopen-gen -ph -print-results -rand 1 -rand_type float - | mlir-miopen-driver -c  | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
 
 module {
 // CHECK: Unranked Memref base
