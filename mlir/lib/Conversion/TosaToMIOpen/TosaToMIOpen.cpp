@@ -63,6 +63,12 @@ public:
   LogicalResult
   matchAndRewrite(tosa::Conv2DOp op, tosa::Conv2DOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    // only convert ops in kernel func
+    auto func = op->getParentOfType<FuncOp>();
+    if (!func->hasAttr("kernel")) {
+      return failure();
+    }
+
     auto operands = adaptor.getOperands();
     auto loc = op->getLoc();
     auto context = op->getContext();
@@ -70,10 +76,6 @@ public:
     auto filter_t = operands[1];
     auto bias_mr = operands[2];
     auto results = op->getResults();
-
-    // attach kernel attr to parent function
-    auto func = op->getParentOfType<FuncOp>();
-    func->setAttr("kernel", rewriter.getUnitAttr());
 
     assert(results.size() == 1);
 

@@ -79,6 +79,14 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   }
   BackendUtils utils(tripleName, targetChip, features, systemOverride);
 
+  // Find MIOpen module and compile kernel funcs
+  ModuleOp kernelModule = m;
+  llvm::StringRef modName = "__miopen";
+  auto miopenModule = kernelModule.lookupSymbol<ModuleOp>(modName);
+  if (miopenModule) {
+    kernelModule = miopenModule;
+  }
+
   pm.addPass(createLowerToCFGPass());
   pm.addPass(createGpuKernelOutliningPass());
   auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
@@ -90,16 +98,23 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   }
   kernelPm.addPass(createGpuSerializeToHsacoPass(
       utils.getTriple(), utils.getChip(), utils.getFeatures(), optLevel));
-  auto &funcPm = pm.nest<FuncOp>();
+
+  if (failed(pm.run(kernelModule))) {
+    return failure();
+  }
+
+  // Host Compiler Pipeline
+  PassManager pmHost(m.getContext());
+  auto &funcPm = pmHost.nest<FuncOp>();
   funcPm.addPass(createGpuAsyncRegionPass());
   funcPm.addPass(createConvertMathToLLVMPass());
-  pm.addPass(createGpuToLLVMConversionPass());
-  pm.addPass(createAsyncToAsyncRuntimePass());
-  pm.addPass(createConvertAsyncToLLVMPass());
+  pmHost.addPass(createGpuToLLVMConversionPass());
+  pmHost.addPass(createAsyncToAsyncRuntimePass());
+  pmHost.addPass(createConvertAsyncToLLVMPass());
   mlir::LowerToLLVMOptions lower_to_llvm_opts(m.getContext());
-  pm.addPass(mlir::createLowerToLLVMPass(lower_to_llvm_opts));
+  pmHost.addPass(mlir::createLowerToLLVMPass(lower_to_llvm_opts));
 
-  return pm.run(m);
+  return pmHost.run(m);
 }
 
 int main(int argc, char **argv) {
