@@ -1444,7 +1444,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   mlir::Value cmpVal;
   if ((randomSeed.getValue() != "none" && randomSeed.getValue() != "fixed" &&
        randomDataType.getValue() == "float") ||
-      elemType.isF16() || elemType.isBF16() || genValidation.getValue() == "gpu") {
+      elemType.isF16() || elemType.isBF16()) {
     // <test> = <cpu> != <gpu>
 
     auto cmpfOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
@@ -1638,9 +1638,13 @@ populateHostHarnessLogic(ModuleOp &module,
     localVars.push_back(lvar);
 
     auto lv5D = makeNDMemRef(b, lvar, 5);
-    if (randomSeed.getValue() == "fixed") {
+    if (randomSeed.getValue() == "fixed" || idx == outIdx) {
       auto lv5DType = lv5D.getType().template cast<mlir::MemRefType>();
-      llvm::SmallVector<float, 3> pattern = {0.5, -1, 0.75};
+      llvm::SmallVector<float, 3> pattern;
+      if (idx == outIdx)
+        pattern = {0.0, 0.0}; // Hack around silly compiler weirdness
+      else
+        pattern = {1, 2, 3};
       // TODO(kdrewnia) Refactor this to create the constant vector up front
       // TODO(kdrewnia) Factor out the anti-bf16 pass from GPU lowering, apply
       // it here
