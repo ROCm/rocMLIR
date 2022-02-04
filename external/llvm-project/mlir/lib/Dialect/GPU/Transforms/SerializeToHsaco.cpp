@@ -200,6 +200,10 @@ SerializeToHsacoPass::loadLibraries(SmallVectorImpl<char> &path,
 
 std::unique_ptr<llvm::Module>
 SerializeToHsacoPass::translateToLLVMIR(llvm::LLVMContext &llvmContext) {
+  StringRef chipSet = this->chip.getValue();
+  getOperation()->setAttr("arch",
+                          mlir::StringAttr::get(chipSet, &getContext()));
+
   // MLIR -> LLVM translation
   std::unique_ptr<llvm::Module> ret =
       gpu::SerializeToBlobPass::translateToLLVMIR(llvmContext);
