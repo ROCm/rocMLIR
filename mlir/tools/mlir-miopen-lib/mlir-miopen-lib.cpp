@@ -35,6 +35,7 @@ struct MiirHandle_s {
   std::string perfConfig;
   std::string genTxt;
   int kernelCount = 0;
+  int workspace = 0;
 
 private:
   MLIRContext &getContext() {
@@ -123,6 +124,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   handle->kernelCount = conv2dGenerator.getKernelCount();
 
   ModuleOp module = handle->getModule();
+  handle->workspace = conv2dGenerator.getWorkspaceSize(module);
 
   if (failed(conv2dGenerator.genConvModule(module, config.kernelId))) {
     return nullptr;
@@ -136,6 +138,14 @@ extern "C" int miirGetKernelCount(MiirHandle mlirHandle) {
     return -1;
 
   return handle->kernelCount;
+}
+
+extern "C" int miirGetWorkspaceSize(MiirHandle mlirHandle) {
+  MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
+  if (handle == nullptr)
+    return 0;
+
+  return handle->workspace;
 }
 
 extern "C" MiirStatus miirDestroyHandle(MiirHandle mlirHandle) {

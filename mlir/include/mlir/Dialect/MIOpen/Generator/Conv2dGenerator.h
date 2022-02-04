@@ -120,6 +120,9 @@ public:
   // Utility function to query if a config requires additional workspace.
   bool hasWorkspace(OpBuilder &builder) const;
 
+  // Utility function to fetch the size of workspace.
+  int getWorkspaceSize(ModuleOp &module) const;
+
 private:
   template <typename Vector>
   std::vector<int64_t> layoutPermutation(const Vector &src,

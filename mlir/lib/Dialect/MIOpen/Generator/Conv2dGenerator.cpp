@@ -336,6 +336,23 @@ bool Conv2dGenerator::hasWorkspace(OpBuilder &builder) const {
   return result;
 }
 
+int Conv2dGenerator::getWorkspaceSize(ModuleOp &module) const {
+  // Currently onlt in the following condition would a workspace is needed.
+  // - data type: fp16
+  // - operation: backward weight conv2d.
+  // - use XDLOPS.
+  // Workspace size is the same as the filter dimension, with fp32 type.
+  int result = 0;
+  OpBuilder builder(module.getContext());
+  if (hasWorkspace(builder)) {
+    result = std::accumulate(config.filterDimension.begin(),
+                             config.filterDimension.end(), 1,
+                             std::multiplies<int>()) *
+             builder.getF32Type().getWidth() / 8;
+  }
+  return result;
+}
+
 LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   std::map<std::string, std::string> argMap;
   strToTokens(arguments, argMap);
