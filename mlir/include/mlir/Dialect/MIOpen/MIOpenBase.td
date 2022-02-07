@@ -16,6 +16,12 @@ def MIOpen_Dialect : Dialect {
   let cppNamespace = "::mlir::miopen";
 
   let useDefaultAttributePrinterParser = 1;
+
+  let extraClassDeclaration = [{
+    /// Global name for MIOpen Kernel Module
+    constexpr const static ::llvm::StringLiteral
+        kKernelModuleName = "__miopen";
+  }];
 }
 
 #endif // MIOPEN_BASE

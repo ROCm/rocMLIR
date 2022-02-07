@@ -37,7 +37,7 @@ struct MIOpenApplyImplPass
 
   void runOnOperation() override {
     ModuleOp mod = getOperation();
-    llvm::StringRef modName = "__miopen";
+    llvm::StringRef modName = miopen::MIOpenDialect::kKernelModuleName;
     if (mod.getName() == modName)
       return;
 
@@ -49,7 +49,6 @@ struct MIOpenApplyImplPass
 
       SmallVector<gpu::GPUModuleOp, 8> gpuMods;
       miopenMod->walk([&](gpu::GPUModuleOp gpuMod) {
-        // auto loc = gpuMod->getLoc();
         auto binaryAttr = gpuMod->getAttrOfType<StringAttr>(
             gpu::getDefaultGpuBinaryAnnotation());
         if (!binaryAttr) {
@@ -59,16 +58,21 @@ struct MIOpenApplyImplPass
 
         gpuMods.push_back(gpuMod);
 
+        // make global constant in TopModule
         SmallString<128> binaryCstName(
             SymbolTable::getSymbolName(gpuMod).getValue());
         binaryCstName.append("_gpubin_cst");
-        // make global constant in TopModule
+        // uniquify if necessary
+        while (symbolTable.lookup(binaryCstName)) {
+          binaryCstName += "0";
+        }
         auto binaryCst = b.create<ConstantOp>(loc, binaryAttr);
         binaryCst->setAttr(SymbolTable::getSymbolAttrName(),
                            b.getStringAttr(binaryCstName));
 
         symbolTable.insert(binaryCst);
 
+        // apply target spec to original func
         gpuMod.walk([&](LLVM::LLVMFuncOp func) {
           if (auto attr = func->getAttrOfType<SymbolRefAttr>("original_func")) {
             if (auto miopenFunc = mod.lookupSymbol<FuncOp>(attr)) {

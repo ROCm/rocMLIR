@@ -64,6 +64,10 @@ struct MIOpenOpAsmDialectInterface : public OpAsmDialectInterface {
 
 namespace mlir {
 namespace miopen {
+
+/// Constant Name for MIOpen Kernel Module
+constexpr const ::llvm::StringLiteral MIOpenDialect::kKernelModuleName;
+
 ArrayAttr noTransformsArray(Builder &b, size_t n) {
   llvm::SmallVector<Attribute, 4> ret;
   ret.reserve(n);
