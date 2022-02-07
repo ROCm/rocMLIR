@@ -939,6 +939,7 @@ private:
                    << "\n";
       return failure();
     } else if ((dataType.isF16() || dataType.isBF16()) &&
+               (param.gemmKPack != 1) &&
                ((param.gemmKPack < 4) || (param.gemmKPack > 8))) {
       llvm::errs() << "Invalid KPACK tuning parameter: " << param.gemmKPack
                    << "\n";
