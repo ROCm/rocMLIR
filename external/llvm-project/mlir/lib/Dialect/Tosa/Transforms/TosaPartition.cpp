@@ -377,7 +377,7 @@ public:
           Operation *op = convOp;
           while (true) {
             // Special loop for constant operands.
-            for (const auto& opnd : op->getOperands()) {
+            for (const auto &opnd : op->getOperands()) {
               Operation *usedOp = opnd.getDefiningOp();
               if (usedOp) {
                 if (detail::isConstantLike(usedOp) && usedOp->hasOneUse()) {
