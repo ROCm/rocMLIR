@@ -35,7 +35,7 @@ struct MIOpenCloneKernelsPass
     : public MIOpenCloneKernelsPassBase<MIOpenCloneKernelsPass> {
   void runOnOperation() override {
     ModuleOp mod = getOperation();
-    llvm::StringRef modName = "__miopen";
+    llvm::StringRef modName = miopen::MIOpenDialect::kKernelModuleName;
     if (mod.getName() == modName)
       return;
 

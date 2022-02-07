@@ -25,9 +25,8 @@ namespace mlir {
 
 class BackendUtils {
 public:
-  BackendUtils();
-  BackendUtils(const std::string &triple, const std::string &chip,
-               const std::string &feature, bool systemOverride = false);
+  BackendUtils(const std::string &triple = "", const std::string &chip = "",
+               const std::string &feature = "");
 
   std::string getChip() { return chip; }
   std::string getFeatures() { return features; }

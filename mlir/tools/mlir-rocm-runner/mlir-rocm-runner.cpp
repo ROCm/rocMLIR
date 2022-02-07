@@ -21,6 +21,7 @@
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/Async/Passes.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/TargetSelect.h"
@@ -67,23 +68,17 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   PassManager pm(m.getContext());
   applyPassManagerCLOptions(pm);
 
-  bool systemOverride = false;
-  if (tripleName.empty() && targetChip.empty() && features.empty()) {
-    systemOverride = true;
-  }
-
   int optLevel = gpuOpt.getValue();
   if (optLevel < 0 || optLevel > 3) {
     llvm::errs() << "Invalid GPU optimization level: " << optLevel << "\n";
     return failure();
   }
-  BackendUtils utils(tripleName, targetChip, features, systemOverride);
+  BackendUtils utils(tripleName, targetChip, features);
 
   // Find MIOpen module and compile kernel funcs
   ModuleOp kernelModule = m;
-  llvm::StringRef modName = "__miopen";
-  auto miopenModule = kernelModule.lookupSymbol<ModuleOp>(modName);
-  if (miopenModule) {
+  if (auto miopenModule = kernelModule.lookupSymbol<ModuleOp>(
+          miopen::MIOpenDialect::kKernelModuleName)) {
     kernelModule = miopenModule;
   }
 

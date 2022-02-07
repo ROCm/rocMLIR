@@ -1,4 +1,4 @@
-// RUN: mlir-miopen-driver -host-pipeline full -kernel-pipeline full %s | FileCheck %s
+// RUN: mlir-miopen-driver -host-pipeline full -kernel-pipeline full -target gfx908 %s | FileCheck %s
 
 module {
 // CHECK: func private @resnet50_outlined_part_0(%arg0: memref<1x32x32x64xf32>, %arg1: memref<64x3x3x64xf32>, %arg2: memref<1x32x32x64xf32>) attributes {kernel, targets = [{arch = "{{.*}}", binary = @resnet50_outlined_part_0_module_gpubin_cst, block_size = 64 : i32, grid_size = 16 : i32, type = "gpu"}]}

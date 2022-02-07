@@ -76,16 +76,15 @@ void getGpuGCNArchName(hipDevice_t device, std::string &gcnArchName) {
 
 BackendUtils::BackendUtils(const std::string &defaultTriple,
                            const std::string &defaultChip,
-                           const std::string &defaultFeatures,
-                           bool systemOverride)
+                           const std::string &defaultFeatures)
     : triple(defaultTriple), chip(defaultChip), features(defaultFeatures) {
-  if (systemOverride) {
+  if (triple.empty()) {
     triple = kTargetTriple;
+  }
+  if (chip.empty() && features.empty()) {
     configTarget(chip, features);
   }
 }
-
-BackendUtils::BackendUtils() : BackendUtils("", "", "", true) {}
 
 // TODO(kdrewnia): Assumes that GPU 0 has the same chipset as the GPU that
 // the kernel will be running on
