@@ -85,8 +85,6 @@ if( BUILD_FAT_LIBMLIRMIOPEN )
   # compile with MLIR_GPU_TO_HSACO_PASS_ENABLE=1, which is
   # enabled only when MLIR_ENABLE_ROCM_RUNNER turned on
   set(MLIR_ENABLE_ROCM_RUNNER 1 CACHE BOOL "")
-  # Skip linking with HIP so our library is runtime independent
-  set(USE_ROCM_4_4_OR_OLDER 0 CACHE BOOL "Make libMLIRMIOpen runtime independent")
   set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE STRING "")
 else()
   set(BUILD_SHARED_LIBS ON CACHE BOOL "")
@@ -94,7 +92,6 @@ else()
   set(LLVM_BUILD_EXAMPLES ON CACHE BOOL "")
   set(MLIR_ROCM_RUNNER_ENABLED 1 CACHE BOOL "")
   set(MLIR_ENABLE_ROCM_RUNNER 1 CACHE BOOL "")
-  set(USE_ROCM_4_4_OR_OLDER 1 CACHE BOOL "Use the rocm_4.4 or older release")
 endif()
 
 # Disable other runners

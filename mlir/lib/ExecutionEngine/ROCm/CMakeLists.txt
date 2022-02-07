@@ -20,8 +20,6 @@ include_directories(${CMAKE_SOURCE_DIR}/external/llvm-project/lld/include)
 # Set compile-time flags for ROCm path.
 add_definitions(-D__ROCM_PATH__="${ROCM_PATH}")
 
-add_definitions(-D__USE_ROCM_4_4_OR_OLDER__=${USE_ROCM_4_4_OR_OLDER})
-
 set(HIP_PATH "${ROCM_PATH}/hip" CACHE PATH " Path to which HIP has been installed")
 set(CMAKE_MODULE_PATH "${HIP_PATH}/cmake" ${CMAKE_MODULE_PATH})
 find_package(HIP)
@@ -88,7 +86,11 @@ add_llvm_library(LLVMROCmBackendUtils
   )
 
 llvm_update_compile_flags(LLVMROCmBackendUtils)
-if (USE_ROCM_4_4_OR_OLDER)
+if ( BUILD_FAT_LIBMLIRMIOPEN )
+  # Skip linking with HIP so our library is runtime independent
+  add_definitions(-D__INCLUDE_HIP__=0)
+else()
+  add_definitions(-D__INCLUDE_HIP__=1)
   target_include_directories(LLVMROCmBackendUtils
     PRIVATE
     "${HIP_PATH}/../include"
