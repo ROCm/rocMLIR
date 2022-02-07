@@ -638,16 +638,16 @@ func @miopen_mfma_v2_f16(%a : vector<4xf16>, %b : vector<4xf16>, %c : vector<32x
 // CHECK-LABEL: func @miopen_mfma_v2_f16
 //   CHECK: miopen.mfma_v2
 
-func @miopen_mfma_v2_i8_4xi32(%a : i32, %b : i32, %c : vector<4xi32>) -> vector<4xi32> {
-  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_i32_32x32x8i8", imm = [0, 0, 0] } : i32, vector<4xi32>
+func @miopen_mfma_v2_i8_4xi32(%a : vector<4xi8>, %b : vector<4xi8>, %c : vector<4xi32>) -> vector<4xi32> {
+  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_i32_32x32x8i8", imm = [0, 0, 0] } : vector<4xi8>, vector<4xi32>
   return %d : vector<4xi32>
 }
 
 // CHECK-LABEL: func @miopen_mfma_v2_i8_4xi32
 //   CHECK: miopen.mfma_v2
 
-func @miopen_mfma_v2_i8_16xi32(%a : i32, %b : i32, %c : vector<16xi32>) -> vector<16xi32> {
-  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_i32_16x16x16i8", imm = [0, 0, 0] } : i32, vector<16xi32>
+func @miopen_mfma_v2_i8_16xi32(%a : vector<4xi8>, %b : vector<4xi8>, %c : vector<16xi32>) -> vector<16xi32> {
+  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_i32_16x16x16i8", imm = [0, 0, 0] } : vector<4xi8>, vector<16xi32>
   return %d : vector<16xi32>
 }
 
