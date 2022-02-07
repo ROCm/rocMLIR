@@ -1,0 +1,12 @@
+// RUN: mlir-miopen-driver -hlp %s | miopen-gen -ph -pvr -fut test_fusion - | miopen-opt -convert-linalg-to-loops -lower-affine -convert-scf-to-std | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+
+module {
+
+  // CHECK:  [2,     2,     2,     2,     2,     2,     2,     2]
+  func @test_fusion(%arg0: tensor<1x32x32x8xf32>, %arg1: tensor<1x32x32x8xf32>) -> tensor<1x32x32x8xf32> {
+    %0 = "tosa.add"(%arg0, %arg1) : (tensor<1x32x32x8xf32>, tensor<1x32x32x8xf32>) -> tensor<1x32x32x8xf32>
+    return %0 : tensor<1x32x32x8xf32>
+  }
+
+}
+
