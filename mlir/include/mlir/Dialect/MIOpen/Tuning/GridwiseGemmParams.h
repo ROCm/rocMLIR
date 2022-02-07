@@ -567,15 +567,6 @@ protected:
     return (gemmSize.gemmM / param->gemmMPerBlock) *
            (gemmSize.gemmN / param->gemmNPerBlock) * gemmSize.gemmG;
   }
-
-  mlir::LogicalResult isValidGemm(InitParams *param, GemmSize &gemmSize) {
-    if (!(gemmSize.gemmM % param->gemmMPerBlock == 0 &&
-          gemmSize.gemmN % param->gemmNPerBlock == 0 &&
-          gemmSize.gemmK % param->gemmKPerBlock == 0)) {
-      return mlir::failure();
-    }
-    return mlir::success();
-  }
 };
 
 struct InitParamsNonXDL : InitParams, Serializable<InitParamsNonXDL> {
@@ -792,6 +783,15 @@ public:
   }
 
   InitParams getUniversalParameters() { return universal_Parameters; }
+
+  LogicalResult isValidGemm(InitParamsNonXDL *param, GemmSize &gemmSize) {
+    if (!(gemmSize.gemmM % param->gemmMPerBlock == 0 &&
+          gemmSize.gemmN % param->gemmNPerBlock == 0 &&
+          gemmSize.gemmK % param->gemmKPerBlock == 0)) {
+      return mlir::failure();
+    }
+    return mlir::success();
+  }
 };
 
 class PopulateParamsXDL : public PopulateParamsBase {
@@ -1020,6 +1020,15 @@ public:
   }
 
   InitParams getUniversalParameters() { return universal_Parameters; }
+
+  LogicalResult isValidGemm(InitParamsXDL *param, GemmSize &gemmSize) {
+    if (!(gemmSize.gemmM % param->gemmMPerBlock == 0 &&
+          gemmSize.gemmN % param->gemmNPerBlock == 0 &&
+          gemmSize.gemmK % (param->gemmKPerBlock * param->gemmKPack) == 0)) {
+      return mlir::failure();
+    }
+    return mlir::success();
+  }
 };
 
 #endif // MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H
