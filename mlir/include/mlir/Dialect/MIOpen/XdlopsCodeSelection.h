@@ -445,7 +445,7 @@ struct XdlopsCodeSelection {
         vectorType = VectorType::get({16}, b.getI32Type());
         vectorNumber = 1;
         imms.push_back({0, 0, 0});
-        argType = b.getIntegerType(8);
+        argType = VectorType::get({4}, b.getIntegerType(8));
       } else if (MPerWave == 16 && NPerWave == 16) {
         mfmaInstr = "mfma_i32_16x16x16i8";
         MPerXdlops = 16;
@@ -455,7 +455,7 @@ struct XdlopsCodeSelection {
         vectorType = VectorType::get({4}, b.getI32Type());
         vectorNumber = 1;
         imms.push_back({0, 0, 0});
-        argType = b.getIntegerType(8);
+        argType = VectorType::get({4}, b.getIntegerType(8));
       } else {
         dumpUnsupported(dataType, MPerWave, NPerWave);
       }
