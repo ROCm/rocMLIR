@@ -1,6 +1,6 @@
 #include "PassDetail.h"
 
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -15,10 +15,9 @@ using namespace mlir;
 namespace {
 struct AffixTuningParameters : public MIOpenOpsAffixTuningParametersPassBase<AffixTuningParameters> {
 public:
-  AffixTuningParameters(int64_t blockSizeOverride, int64_t gridSizeOverride,
-                        std::string perfConfig)
+  AffixTuningParameters(int64_t blockSizeOverride, int64_t gridSizeOverride)
       : blockSizeOverride(blockSizeOverride),
-        gridSizeOverride(gridSizeOverride), perfConfig(perfConfig) {}
+        gridSizeOverride(gridSizeOverride) {}
   void runOnFunction() override;
 
 private:
@@ -35,7 +34,6 @@ private:
   //   coherent tuning parameters with the pre-set block size.
   int64_t blockSizeOverride;
   int64_t gridSizeOverride;
-  std::string perfConfig;
 
   // Actual implementation.
   template <typename T> void affixTuningParametersImpl(T &op);
@@ -57,21 +55,136 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
   ConvolutionContext convContext = populateConvContext(op);
 
-  auto xdlopsAttr = op->template getAttrOfType<BoolAttr>("xdlops");
-  auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-  if ((xdlopsAttr && xdlopsAttr.getValue() == true) ||
-      (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)) {
+  auto filterLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("filter_layout");
+  auto inputLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("input_layout");
+  auto outputLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("output_layout");
 
+  // Get shape of filter tensor.
+  auto filterType = op.filter().getType().template cast<MemRefType>();
+  auto filterShape = filterType.getShape();
+
+  // Get shape of input tensor.
+  auto inputType = op.input().getType().template cast<MemRefType>();
+  auto inputShape = inputType.getShape();
+
+  // Get shape of output tensor.
+  auto outputType = op.output().getType().template cast<MemRefType>();
+  auto outputShape = outputType.getShape();
+
+  // get y, x, ho, wo, hi, wi, k, c, n
+  int64_t y, x, ho, wo, hi, wi, k, c, n;
+  y = x = ho = wo = hi = wi = k = c = n = 0;
+  llvm::DenseMap<StringRef, int> nameToDims;
+  for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
+    auto filterAttr =
+        filterLayoutAttr.getValue()[i].template cast<StringAttr>();
+    auto inputAttr =
+        inputLayoutAttr.getValue()[i].template cast<StringAttr>();
+    auto outputAttr =
+        outputLayoutAttr.getValue()[i].template cast<StringAttr>();
+
+    nameToDims[filterAttr.getValue()] = i;
+    nameToDims[inputAttr.getValue()] = i;
+    nameToDims[outputAttr.getValue()] = i;
+
+    if (filterAttr.getValue() == "y") {
+      y = filterShape[i];
+    } else if (filterAttr.getValue() == "x") {
+      x = filterShape[i];
+    } else if (filterAttr.getValue() == "k") {
+      k = filterShape[i];
+    } else if (filterAttr.getValue() == "c") {
+      c = filterShape[i];
+    }
+
+    if (inputAttr.getValue() == "hi") {
+      hi = inputShape[i];
+    } else if (inputAttr.getValue() == "wi") {
+      wi = inputShape[i];
+    } else if (inputAttr.getValue() == "ni") {
+      n = inputShape[i];
+    }
+
+    if (outputAttr.getValue() == "ho") {
+      ho = outputShape[i];
+    } else if (outputAttr.getValue() == "wo") {
+      wo = outputShape[i];
+    }
+  }
+
+  int64_t gemmM_size, gemmN_size, gemmK_size;
+  int64_t gemmMExtra, gemmNExtra, gemmKExtra;
+  gemmM_size = gemmN_size = gemmK_size = 0;
+  gemmMExtra = gemmNExtra = gemmKExtra = 0;
+  // FIXME : support forward convolution only right now.
+  // compute we should use extra padding kernel or not
+  // c,k already / g ,so we can skip / g here
+  gemmM_size = k;
+  gemmK_size = c * y * x;
+  gemmN_size = n * ho * wo;
+
+  bool needExtraPad = false;
+
+  auto calculatePaddingKernelSize = [&needExtraPad, gemmM_size, gemmN_size,
+                                     gemmK_size, &gemmMExtra, &gemmNExtra,
+                                     &gemmKExtra,
+                                     &convContext](auto populateParams) {
+    auto config_params = populateParams.getTuningParameters(convContext);
+    unsigned numOfFailedConfigs = 0;
+    for (auto &params : config_params) {
+      if (gemmM_size % params.gemmMPerBlock == 0 &&
+          gemmK_size % params.gemmKPerBlock == 0 &&
+          gemmN_size % params.gemmNPerBlock == 0) {
+        break;
+      } else {
+        numOfFailedConfigs++;
+      }
+    }
+
+    auto extraParams = populateParams.getUniversalParameters();
+    if (numOfFailedConfigs == config_params.size()) {
+      needExtraPad = true;
+      int gemmM_remain, gemmK_remain, gemmN_remain;
+
+      gemmM_remain = gemmM_size % extraParams.gemmMPerBlock;
+      if (gemmM_remain != 0)
+        gemmMExtra = extraParams.gemmMPerBlock - gemmM_remain;
+
+      gemmN_remain = gemmN_size % extraParams.gemmNPerBlock;
+      if (gemmN_remain != 0)
+        gemmNExtra = extraParams.gemmNPerBlock - gemmN_remain;
+
+      gemmK_remain = gemmK_size % extraParams.gemmKPerBlock;
+      if (gemmK_remain != 0)
+        gemmKExtra = extraParams.gemmKPerBlock - gemmK_remain;
+
+      // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
+      // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
+    }
+  };
+
+  std::string perfConfig;
+  if (auto perfConfigAttr =
+          op->template getAttrOfType<StringAttr>("perf_config")) {
+    perfConfig = perfConfigAttr.getValue().str();
+  }
+  auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
+  if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
     PopulateParamsXDL populateParamsXDL;
     InitParamsXDL validParams;
     DerivedParams gemmADerivedParam;
     DerivedParams gemmBDerivedParam;
+    DerivedOutParams gemmCDerivedParam;
     int64_t blockSize = 0;
     int64_t gridSize = 0;
 
     LogicalResult status = populateParamsXDL.paramsFromCtx(
         convContext, blockSizeOverride, perfConfig, validParams,
-        gemmADerivedParam, gemmBDerivedParam, blockSize, gridSize);
+        gemmADerivedParam, gemmBDerivedParam, gemmCDerivedParam, blockSize,
+        gridSize);
 
     if (failed(status)) {
       signalPassFailure();
@@ -80,6 +193,19 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("m_per_wave", b.getI32IntegerAttr(validParams.gemmMPerWave));
     op->setAttr("n_per_wave", b.getI32IntegerAttr(validParams.gemmNPerWave));
     op->setAttr("block_size", b.getI32IntegerAttr(blockSize));
+
+    // Disable kpack in case we need padding kernel.
+    calculatePaddingKernelSize(populateParamsXDL);
+    if (needExtraPad) {
+      validParams.gemmKPack = 1;
+    }
+
+    // Disable kpack in case we do backward convolution.
+    if (convContext.opType == mlir::miopen::ConvOpType::BwdData ||
+        convContext.opType == mlir::miopen::ConvOpType::BwdWeight) {
+      validParams.gemmKPack = 1;
+    }
+    op->setAttr("kpack", b.getI32IntegerAttr(validParams.gemmKPack));
 
     // Set attributes on the function.
     getFunction()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
@@ -107,19 +233,25 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("matrix_b_source_vector_read_dim",
                 b.getI32IntegerAttr(gemmBDerivedParam.srcVectorReadDim));
 
+    op->setAttr("matrix_c_data_per_copy",
+                b.getI32IntegerAttr(gemmCDerivedParam.dataPerCopy));
+    op->setAttr("matrix_c_source_vector_read_dim",
+                b.getI32IntegerAttr(gemmCDerivedParam.gemmVectorDim));
+    op->setAttr("matrix_c_dest_vector_write_dim",
+                b.getI32IntegerAttr(gemmCDerivedParam.destVectorDim));
   } else {
     InitParamsNonXDL validParams;
     DerivedParams gemmADerivedParam;
     DerivedParams gemmBDerivedParam;
     DerivedBlockGemmParams blockGemmDerivedParam;
-    int64_t gemmCDstPerWrite;
+    DerivedOutParams gemmCDerivedParam;
     int64_t gridSize;
 
     PopulateParams populateParams;
     LogicalResult status = populateParams.paramsFromCtx(
         convContext, blockSizeOverride, perfConfig, validParams,
         gemmADerivedParam, gemmBDerivedParam, blockGemmDerivedParam,
-        gemmCDstPerWrite, gridSize);
+        gemmCDerivedParam, gridSize);
 
     if (failed(status)) {
       signalPassFailure();
@@ -130,6 +262,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("n_per_thread",
                 b.getI32IntegerAttr(validParams.gemmNPerThread));
     op->setAttr("block_size", b.getI32IntegerAttr(validParams.blockSize));
+    // For non-XDLOPS path, do not use KPack for now.
+    op->setAttr("kpack", b.getI32IntegerAttr(1));
 
     // Set attributes on the function.
     getFunction()->setAttr("block_size",
@@ -169,22 +303,19 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
                 b.getI32IntegerAttr(blockGemmDerivedParam.gemmMLevel1Cluster));
     op->setAttr("n_level1_cluster",
                 b.getI32IntegerAttr(blockGemmDerivedParam.gemmNLevel1Cluster));
-  }
 
-  // Derived parameters for gemmC.
-  // TODO: Pending fix from
-  // https://github.com/whchung/llvm-project/pull/26/files#r444968168
-  // op->setAttr("matrix_c_dest_data_per_write",
-  //           b.getI32IntegerAttr(gemmCDstPerWrite));
-  op->setAttr("matrix_c_dest_data_per_write", b.getI32IntegerAttr(1));
-  op->setAttr("matrix_c_source_dest_vector_read_write_dim",
-              b.getI32IntegerAttr(4));
+    op->setAttr("matrix_c_data_per_copy",
+                b.getI32IntegerAttr(gemmCDerivedParam.dataPerCopy));
+    op->setAttr("matrix_c_source_vector_read_dim",
+                b.getI32IntegerAttr(gemmCDerivedParam.gemmVectorDim));
+    op->setAttr("matrix_c_dest_vector_write_dim",
+                b.getI32IntegerAttr(gemmCDerivedParam.destVectorDim));
+  }
 }
 
 std::unique_ptr<Pass>
 mlir::miopen::createAffixTuningParametersPass(int64_t blockSizeOverride,
-                                              int64_t gridSizeOverride,
-                                              std::string perfConfig) {
+                                              int64_t gridSizeOverride) {
   return std::make_unique<AffixTuningParameters>(blockSizeOverride,
-                                                 gridSizeOverride, perfConfig);
+                                                 gridSizeOverride);
 }

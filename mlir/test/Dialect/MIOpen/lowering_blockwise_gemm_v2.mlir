@@ -1,18 +1,24 @@
-// XFAIL: *
 // RUN: miopen-opt -miopen-lowering-step3 %s | FileCheck %s
 
-func @miopen_blockwise_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>) -> (vector<32xf32>, vector<32xf32>) {
-  %c0 = constant 0 : index
-  %c0f = constant 0.0 : f32
+#map = affine_map<(d0) -> (d0 + 512)>
+
+func @miopen_blockwise_gemm_v2_two_results(%matrixA : memref<512xf32, 3>, %matrixB : memref<512xf32, #map, 3>, %bufferA : memref<2xvector<2xf32>, 5>, %bufferB : memref<2xvector<2xf32>, 5>) -> (vector<32xf32>, vector<32xf32>) {
+  %c0 = arith.constant 0 : index
+  %c0f = arith.constant 0.0 : f32
   %vectorC0 = splat %c0f : vector<32xf32>
   %vectorC1 = splat %c0f : vector<32xf32>
-  %vectorD0, %vectorD1 = miopen.blockwise_gemm_v2(%matrixA, %matrixB, %c0, %c0, %vectorC0, %vectorC1) {
-    m = 256,
-    n = 256,
-    k = 16,
-    m_per_wave = 64,
-    n_per_wave = 64,
-    coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0) -> (d0 + 8192)>]}, {operand = 0 : i32, transforms = []}]
-  } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, vector<32xf32>, vector<32xf32> -> vector<32xf32>, vector<32xf32>
+  // CHECK:  miopen.xdlops_gemm_v2
+  %vectorD0, %vectorD1 = miopen.blockwise_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0, %vectorC1) {
+    block_size = 256 : i32,
+    k = 2 : i32,
+    kpack = 2 : i32,
+    m = 128 : i32,
+    m_per_wave = 64 : i32,
+    m_waves = 2 : i32,
+    n = 128 : i32,
+    n_per_wave = 64 : i32,
+    n_waves = 2 : i32,
+    transforms = [[], []]
+  } : memref<512xf32, 3>, memref<512xf32, #map, 3>, index, index, memref<2xvector<2xf32>, 5>, memref<2xvector<2xf32>, 5>, vector<32xf32>, vector<32xf32> -> vector<32xf32>, vector<32xf32>
   return %vectorD0, %vectorD1 : vector<32xf32>, vector<32xf32>
 }

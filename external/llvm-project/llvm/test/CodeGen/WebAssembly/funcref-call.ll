@@ -15,10 +15,10 @@ define void @call_funcref(%funcref %ref) {
 ; CHECK-NEXT: i32.const 0
 ; CHECK-NEXT: local.get 0
 ; CHECK-NEXT: table.set __funcref_call_table
-; CHECK-NEXT: local.get 0
+; CHECK-NEXT: i32.const 0
 ; CHECK-NEXT: call_indirect __funcref_call_table, () -> ()
 ; CHECK-NEXT: i32.const 0
-; CHECK-NEXT: ref.null func
+; CHECK-NEXT: ref.null_func
 ; CHECK-NEXT: table.set __funcref_call_table
 ; CHECK-NEXT: end_function
 

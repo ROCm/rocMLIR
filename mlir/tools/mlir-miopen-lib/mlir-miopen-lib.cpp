@@ -1,6 +1,5 @@
 #include "Miir.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
-#include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
 #include "mlir/Dialect/MIOpen/Pipeline.h"
 #include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 #include "mlir/IR/Builders.h"
@@ -21,6 +20,8 @@
 #include <sstream>
 #include <string>
 
+using namespace mlir;
+
 namespace {
 struct MiirHandle_s {
   MiirHandle_s() {
@@ -32,7 +33,6 @@ struct MiirHandle_s {
   std::string triple;
   std::string chip;
   std::string features;
-  std::string perfConfig;
   std::string genTxt;
   int kernelCount = 0;
 
@@ -119,12 +119,11 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   handle->triple = config.triple;
   handle->chip = config.chip;
   handle->features = config.features;
-  handle->perfConfig = config.perfConfig;
   handle->kernelCount = conv2dGenerator.getKernelCount();
 
   ModuleOp module = handle->getModule();
 
-  if (failed(conv2dGenerator.genConvModule(module))) {
+  if (failed(conv2dGenerator.genConvModule(module, config.kernelId))) {
     return nullptr;
   }
   return handle;
@@ -222,7 +221,7 @@ extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
 
-  miopen::addPipeline(pm, handle->perfConfig, true);
+  miopen::addPipeline(pm, true);
 
   auto status = pm.run(module);
 
@@ -241,7 +240,7 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
 
-  miopen::addPipeline(pm, handle->perfConfig);
+  miopen::addPipeline(pm);
 
   miopen::addBackendPipeline(pm, handle->triple, handle->chip,
                              handle->features);

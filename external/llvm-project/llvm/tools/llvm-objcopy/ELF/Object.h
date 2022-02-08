@@ -429,6 +429,7 @@ public:
   virtual void markSymbols();
   virtual void
   replaceSectionReferences(const DenseMap<SectionBase *, SectionBase *> &);
+  virtual bool hasContents() const { return false; }
   // Notify the section that it is subject to removal.
   virtual void onRemove();
 };
@@ -493,6 +494,9 @@ public:
       function_ref<bool(const SectionBase *)> ToRemove) override;
   Error initialize(SectionTableRef SecTable) override;
   void finalize() override;
+  bool hasContents() const override {
+    return Type != ELF::SHT_NOBITS && Type != ELF::SHT_NULL;
+  }
 };
 
 class OwnedDataSection : public SectionBase {
@@ -518,9 +522,15 @@ public:
     OriginalOffset = SecOff;
   }
 
+  OwnedDataSection(SectionBase &S, ArrayRef<uint8_t> Data)
+      : SectionBase(S), Data(std::begin(Data), std::end(Data)) {
+    Size = Data.size();
+  }
+
   void appendHexData(StringRef HexData);
   Error accept(SectionVisitor &Sec) const override;
   Error accept(MutableSectionVisitor &Visitor) override;
+  bool hasContents() const override { return true; }
 };
 
 class CompressedSection : public SectionBase {
@@ -744,6 +754,8 @@ protected:
 public:
   const SectionBase *getSection() const { return SecToApplyRel; }
   void setSection(SectionBase *Sec) { SecToApplyRel = Sec; }
+
+  StringRef getNamePrefix() const;
 
   static bool classof(const SectionBase *S) {
     return S->OriginalType == ELF::SHT_REL || S->OriginalType == ELF::SHT_RELA;
@@ -1016,6 +1028,7 @@ private:
   std::vector<SecPtr> Sections;
   std::vector<SegPtr> Segments;
   std::vector<SecPtr> RemovedSections;
+  DenseMap<SectionBase *, std::vector<uint8_t>> UpdatedSections;
 
   static bool sectionIsAlloc(const SectionBase &Sec) {
     return Sec.Flags & ELF::SHF_ALLOC;
@@ -1057,6 +1070,9 @@ public:
   allocSections() const {
     return make_filter_range(make_pointee_range(Sections), sectionIsAlloc);
   }
+
+  const auto &getUpdatedSections() const { return UpdatedSections; }
+  Error updateSection(StringRef Name, ArrayRef<uint8_t> Data);
 
   SectionBase *findSection(StringRef Name) {
     auto SecIt =

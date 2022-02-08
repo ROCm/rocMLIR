@@ -32,8 +32,17 @@ add_subdirectory(include/mlir)
 add_subdirectory(lib)
 # C API needs all dialects for registration, but should be built before tests.
 add_subdirectory(lib/CAPI)
-add_subdirectory(test)
 add_subdirectory(tools)
+
+if (MLIR_INCLUDE_TESTS)
+  add_custom_target(MLIRMIOpenUnitTests)
+  if (EXISTS ${LLVM_MAIN_SRC_DIR}/utils/unittest/googletest/include/gtest/gtest.h)
+    add_subdirectory(unittests)
+  else()
+    message(WARNING "gtest not found, unittests will not be available LLVM_MAIN_SRC_DIR=${LLVM_MAIN_SRC_DIR}")
+  endif()
+  add_subdirectory(test)
+endif()
 
 if ((NOT LLVM_INSTALL_TOOLCHAIN_ONLY) AND EXPORT_ALL_HEADERS)
   install(DIRECTORY include/mlir include/mlir-c

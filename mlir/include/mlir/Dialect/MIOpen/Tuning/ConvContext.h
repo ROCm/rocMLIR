@@ -13,7 +13,7 @@
 #ifndef MLIR_DIALECT_MIOPEN_CONVCONTEXT_H
 #define MLIR_DIALECT_MIOPEN_CONVCONTEXT_H
 
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallString.h"
@@ -93,13 +93,13 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
     }
 
     switch (self.getOpType()) {
-    case miopen::ConvOpType::Conv2DOpType:
+    case miopen::ConvOpType::Fwd:
       f("'F'", "direction");
       break;
-    case miopen::ConvOpType::Conv2DBwdDataOpType:
+    case miopen::ConvOpType::BwdData:
       f("'B'", "direction");
       break;
-    case miopen::ConvOpType::Conv2DBwdWeightOpType:
+    case miopen::ConvOpType::BwdWeight:
       f("'W'", "direction");
       break;
     }
@@ -111,13 +111,13 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
 // - miopen::Conv2DBwdDataOp
 // - miopen::Conv2DBwdWeightOp
 template <typename T> static miopen::ConvOpType ObtainConvDirection(T &op) {
-  miopen::ConvOpType opType = miopen::ConvOpType::Conv2DOpType;
+  miopen::ConvOpType opType = miopen::ConvOpType::Fwd;
   if (isa<miopen::Conv2DOp>(*op)) {
-    opType = miopen::ConvOpType::Conv2DOpType;
+    opType = miopen::ConvOpType::Fwd;
   } else if (isa<miopen::Conv2DBwdDataOp>(*op)) {
-    opType = miopen::ConvOpType::Conv2DBwdDataOpType;
+    opType = miopen::ConvOpType::BwdData;
   } else if (isa<miopen::Conv2DBwdWeightOp>(*op)) {
-    opType = miopen::ConvOpType::Conv2DBwdWeightOpType;
+    opType = miopen::ConvOpType::BwdWeight;
   }
   return opType;
 }

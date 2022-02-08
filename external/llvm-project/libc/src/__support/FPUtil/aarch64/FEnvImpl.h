@@ -9,6 +9,12 @@
 #ifndef LLVM_LIBC_SRC_SUPPORT_FPUTIL_AARCH64_FENVIMPL_H
 #define LLVM_LIBC_SRC_SUPPORT_FPUTIL_AARCH64_FENVIMPL_H
 
+#include "src/__support/architectures.h"
+
+#if !defined(LLVM_LIBC_ARCH_AARCH64)
+#error "Invalid include"
+#endif
+
 #include <arm_acle.h>
 #include <fenv.h>
 #include <stdint.h>
@@ -230,6 +236,13 @@ static inline int getEnv(fenv_t *envp) {
 }
 
 static inline int setEnv(const fenv_t *envp) {
+  if (envp == FE_DFL_ENV) {
+    // Default status and control words bits are all zeros so we just
+    // write zeros.
+    FEnv::writeStatusWord(0);
+    FEnv::writeControlWord(0);
+    return 0;
+  }
   const FEnv::FPState *state = reinterpret_cast<const FEnv::FPState *>(envp);
   FEnv::writeControlWord(state->ControlWord);
   FEnv::writeStatusWord(state->StatusWord);

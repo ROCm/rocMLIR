@@ -109,67 +109,67 @@ gpu.module @mubuf_store {
     gpu.return
   }
 
-  // i16 (bf16) tests.
+  // bf16 -> i16 tests.
 
-  // CHECK-LABEL: func @buffer_store_i16_to_rank_1
-  gpu.func @buffer_store_i16_to_rank_1(%value : i16, %dst : memref<128xi16>, %shift : i32, %offset0 : i32) {
+  // CHECK-LABEL: func @buffer_store_bf16_to_rank_1
+  gpu.func @buffer_store_bf16_to_rank_1(%value : bf16, %dst : memref<128xbf16>, %shift : i32, %offset0 : i32) {
     // CHECK: llvm.store %{{.*}}, %{{.*}} : !llvm.ptr<i16>
-    gpu.buffer_store(%value, %dst, %shift, %offset0) : i16, memref<128xi16>, i32, i32
+    gpu.buffer_store(%value, %dst, %shift, %offset0) : bf16, memref<128xbf16>, i32, i32
     gpu.return
   }
 
-  // CHECK-LABEL: func @buffer_store_i16_to_rank_4
-  gpu.func @buffer_store_i16_to_rank_4(%value : i16, %dst : memref<128x64x32x16xi16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
+  // CHECK-LABEL: func @buffer_store_bf16_to_rank_4
+  gpu.func @buffer_store_bf16_to_rank_4(%value : bf16, %dst : memref<128x64x32x16xbf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
     // CHECK: llvm.store %{{.*}}, %{{.*}} : !llvm.ptr<i16>
-    gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : i16, memref<128x64x32x16xi16>, i32, i32, i32, i32, i32
+    gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : bf16, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
     gpu.return
   }
 
-  // CHECK-LABEL: func @buffer_store_2xi16_to_rank_1
-  gpu.func @buffer_store_2xi16_to_rank_1(%value : vector<2xi16>, %dst : memref<128xi16>, %shift : i32, %offset0 : i32) {
+  // CHECK-LABEL: func @buffer_store_2xbf16_to_rank_1
+  gpu.func @buffer_store_2xbf16_to_rank_1(%value : vector<2xbf16>, %dst : memref<128xbf16>, %shift : i32, %offset0 : i32) {
     // CHECK: [[BITCAST:%[a-zA-Z_0-9]+]] = llvm.bitcast %{{.*}} : vector<2xi16> to f32
     // CHECK-NEXT: rocdl.buffer.store [[BITCAST]], %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : f32
-    gpu.buffer_store(%value, %dst, %shift, %offset0) : vector<2xi16>, memref<128xi16>, i32, i32
+    gpu.buffer_store(%value, %dst, %shift, %offset0) : vector<2xbf16>, memref<128xbf16>, i32, i32
     gpu.return
   }
 
-  // CHECK-LABEL: func @buffer_store_2xi16_to_rank_4
-  gpu.func @buffer_store_2xi16_to_rank_4(%value : vector<2xi16>, %dst : memref<128x64x32x16xi16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
+  // CHECK-LABEL: func @buffer_store_2xbf16_to_rank_4
+  gpu.func @buffer_store_2xbf16_to_rank_4(%value : vector<2xbf16>, %dst : memref<128x64x32x16xbf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
     // CHECK: [[BITCAST:%[a-zA-Z_0-9]+]] = llvm.bitcast %{{.*}} : vector<2xi16> to f32
     // CHECK-NEXT: rocdl.buffer.store [[BITCAST]], %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : f32
-    gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<2xi16>, memref<128x64x32x16xi16>, i32, i32, i32, i32, i32
+    gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<2xbf16>, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
     gpu.return
   }
 
-  // CHECK-LABEL: func @buffer_store_4xi16_to_rank_1
-  gpu.func @buffer_store_4xi16_to_rank_1(%value : vector<4xi16>, %dst : memref<128xi16>, %shift : i32, %offset0 : i32) {
+  // CHECK-LABEL: func @buffer_store_4xbf16_to_rank_1
+  gpu.func @buffer_store_4xbf16_to_rank_1(%value : vector<4xbf16>, %dst : memref<128xbf16>, %shift : i32, %offset0 : i32) {
     // CHECK: [[BITCAST:%[a-zA-Z_0-9]+]] = llvm.bitcast %{{.*}} : vector<4xi16> to vector<2xf32>
     // CHECK-NEXT: rocdl.buffer.store [[BITCAST]], %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : vector<2xf32>
-    gpu.buffer_store(%value, %dst, %shift, %offset0) : vector<4xi16>, memref<128xi16>, i32, i32
+    gpu.buffer_store(%value, %dst, %shift, %offset0) : vector<4xbf16>, memref<128xbf16>, i32, i32
     gpu.return
   }
 
-  // CHECK-LABEL: func @buffer_store_4xi16_to_rank_4
-  gpu.func @buffer_store_4xi16_to_rank_4(%value : vector<4xi16>, %dst : memref<128x64x32x16xi16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
+  // CHECK-LABEL: func @buffer_store_4xbf16_to_rank_4
+  gpu.func @buffer_store_4xbf16_to_rank_4(%value : vector<4xbf16>, %dst : memref<128x64x32x16xbf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
     // CHECK: [[BITCAST:%[a-zA-Z_0-9]+]] = llvm.bitcast %{{.*}} : vector<4xi16> to vector<2xf32>
     // CHECK-NEXT: rocdl.buffer.store [[BITCAST]], %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : vector<2xf32>
-    gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<4xi16>, memref<128x64x32x16xi16>, i32, i32, i32, i32, i32
+    gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<4xbf16>, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
     gpu.return
   }
 
-  // CHECK-LABEL: func @buffer_store_8xi16_to_rank_1
-  gpu.func @buffer_store_8xi16_to_rank_1(%value : vector<8xi16>, %dst : memref<128xi16>, %shift : i32, %offset0 : i32) {
+  // CHECK-LABEL: func @buffer_store_8xbf16_to_rank_1
+  gpu.func @buffer_store_8xbf16_to_rank_1(%value : vector<8xbf16>, %dst : memref<128xbf16>, %shift : i32, %offset0 : i32) {
     // CHECK: [[BITCAST:%[a-zA-Z_0-9]+]] = llvm.bitcast %{{.*}} : vector<8xi16> to vector<4xf32>
     // CHECK-NEXT: rocdl.buffer.store [[BITCAST]], %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : vector<4xf32>
-    gpu.buffer_store(%value, %dst, %shift, %offset0) : vector<8xi16>, memref<128xi16>, i32, i32
+    gpu.buffer_store(%value, %dst, %shift, %offset0) : vector<8xbf16>, memref<128xbf16>, i32, i32
     gpu.return
   }
 
-  // CHECK-LABEL: func @buffer_store_8xi16_to_rank_4
-  gpu.func @buffer_store_8xi16_to_rank_4(%value : vector<8xi16>, %dst : memref<128x64x32x16xi16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
+  // CHECK-LABEL: func @buffer_store_8xbf16_to_rank_4
+  gpu.func @buffer_store_8xbf16_to_rank_4(%value : vector<8xbf16>, %dst : memref<128x64x32x16xbf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
     // CHECK: [[BITCAST:%[a-zA-Z_0-9]+]] = llvm.bitcast %{{.*}} : vector<8xi16> to vector<4xf32>
     // CHECK-NEXT: rocdl.buffer.store [[BITCAST]], %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : vector<4xf32>
-    gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<8xi16>, memref<128x64x32x16xi16>, i32, i32, i32, i32, i32
+    gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<8xbf16>, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
     gpu.return
   }
 }

@@ -25,6 +25,12 @@ namespace gpu {
 class GPUModuleOp;
 } // namespace gpu
 
+/// Since AMD GPU targets don't natively support bfloat as a type, even though
+/// LLVM does, populate patterns and type conversions to convert uses of bf16 to
+/// i16. To be removed when/if the backend has been taught about bfloat
+void populateBF16ToROCDLConversionPatterns(LLVMTypeConverter &converter,
+                                           RewritePatternSet &patterns);
+
 /// Collect a set of patterns to convert from the GPU dialect to ROCDL.
 /// If `runtime` is Unknown, gpu.printf will not be lowered
 void populateGpuToROCDLConversionPatterns(LLVMTypeConverter &converter,

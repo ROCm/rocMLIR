@@ -15,6 +15,21 @@
 
 include "mlir/Pass/PassBase.td"
 
+def TosaDecomposeTransposeConv : FunctionPass<"tosa-decompose-transpose-conv"> {
+  let summary = "Deompose transpose convolutiions into standard convolutions.";
+  let description = [{
+    Pass that uses shape manipulation and convolution operations to transform
+    a transpose convolution into a regular convolution.
+  }];
+
+  let constructor = "createTosaDecomposeTransposeConvPass()";
+  let dependentDialects = [
+    "StandardOpsDialect",
+    "tensor::TensorDialect",
+    "tosa::TosaDialect",
+  ];
+}
+
 def TosaInferShapes : FunctionPass<"tosa-infer-shapes"> {
   let summary = "Propagate shapes across TOSA operations";
   let description = [{
@@ -43,7 +58,7 @@ def TosaMakeBroadcastable : FunctionPass<"tosa-make-broadcastable"> {
   let constructor = "createTosaMakeBroadcastablePass()";
 }
 
-def TosaPartition : FunctionPass<"tosa-partition"> {
+def TosaPartition : Pass<"tosa-partition", "ModuleOp"> {
   let summary = "Outline TOSA Conv2D ops and adjacent element-wise ops";
   let description = [{
     Outline kernels of tosa::Conv2D and surrounding elementwise ops.
@@ -56,16 +71,6 @@ def TosaPartition : FunctionPass<"tosa-partition"> {
            "Don't gather ops ahead of Conv2D">
   ];
   let dependentDialects = ["tosa::TosaDialect"];
-}
-
-def PostPartitionCollapse : Pass<"tosa-collapse", "ModuleOp"> {
-  let summary = "After --tosa-partition, merge identical functions";
-  let description = [{
-    Replace calls to identical functions with calls to the first one,
-    allowing the others to be dead-coded.
-  }];
-
-  let constructor = "createPostPartitionCollapsePass()";
 }
 
 #endif // MLIR_DIALECT_TOSA_TRANSFORMS_PASSES

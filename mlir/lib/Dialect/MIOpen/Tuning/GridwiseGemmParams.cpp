@@ -1,13 +1,15 @@
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/Tuning/SqliteDb.h"
 
+#include "llvm/Support//Debug.h"
+
 #define DEBUG_TYPE "miopen-tuning-parameter"
 
 LogicalResult PopulateParams::populateDerived(
     ConvolutionContext &ctx, InitParamsNonXDL &params, GemmSize &gemmSize,
     DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
-    DerivedBlockGemmParams &blockGemmDerivedParam, int64_t &gemmCDstPerWrite,
-    int64_t &gridSize) {
+    DerivedBlockGemmParams &blockGemmDerivedParam,
+    DerivedOutParams &gemmCDerivedParams, int64_t &gridSize) {
 
   LogicalResult res = failure();
   res = isValidGemm(&params, gemmSize);
@@ -20,7 +22,7 @@ LogicalResult PopulateParams::populateDerived(
     return failure();
   }
 
-  if (ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType &&
+  if (ctx.opType == miopen::ConvOpType::BwdData &&
       !(gemmSize.gemmM % 32 == 0 && gemmSize.gemmN % 32 == 0 &&
         gemmSize.gemmK % 4 == 0)) {
     LLVM_DEBUG(llvm::dbgs() << "Invalid gemm sizes for backward data.\n");
@@ -54,15 +56,19 @@ LogicalResult PopulateParams::populateDerived(
   }
 
   gridSize = obtainGridSize(gemmSize, &params);
-  gemmCDstPerWrite = calculateGemmCDestDataPerWrite(params, ctx);
+  res = calculateGemmCBlockwiseCopyParams(&params, ctx, gemmCDerivedParams);
+  if (failed(res)) {
+    LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmC tuning parametrs.\n");
+    return failure();
+  }
   return success();
 }
 
 LogicalResult PopulateParams::populatePaddingKernelDerived(
     ConvolutionContext &ctx, InitParamsNonXDL &param, GemmSize &gemmSize,
     DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
-    DerivedBlockGemmParams &blockGemmDerivedParam, int64_t &gemmCDstPerWrite,
-    int64_t &gridSize) {
+    DerivedBlockGemmParams &blockGemmDerivedParam,
+    DerivedOutParams &gemmCDerivedParam, int64_t &gridSize) {
 
   LogicalResult res = failure();
   InitParams paddingParam = getUniversalParameters();
@@ -113,7 +119,11 @@ LogicalResult PopulateParams::populatePaddingKernelDerived(
   }
 
   gridSize = obtainGridSize(gemmSize, &param);
-  gemmCDstPerWrite = calculateGemmCDestDataPerWrite(param, ctx);
+  res = calculateGemmCBlockwiseCopyParams(&param, ctx, gemmCDerivedParam);
+  if (failed(res)) {
+    LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmC tuning parametrs.\n");
+    return failure();
+  }
   return success();
 }
 
@@ -121,8 +131,8 @@ LogicalResult PopulateParams::paramsFromCtx(
     ConvolutionContext &ctx, int64_t blockSizeOverride,
     const std::string &perfConfig, InitParamsNonXDL &validParams,
     DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
-    DerivedBlockGemmParams &blockGemmDerivedParam, int64_t &gemmCDstPerWrite,
-    int64_t &gridSize) {
+    DerivedBlockGemmParams &blockGemmDerivedParam,
+    DerivedOutParams &gemmCDerivedParam, int64_t &gridSize) {
 
   GemmSize gemmSize;
   obtainGemmSize(ctx, gemmSize);
@@ -136,18 +146,17 @@ LogicalResult PopulateParams::paramsFromCtx(
       LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
       return populateDerived(ctx, validParams, gemmSize, gemmADerivedParam,
                              gemmBDerivedParam, blockGemmDerivedParam,
-                             gemmCDstPerWrite, gridSize);
-    } else {
-      // Signal the client if perfCofnig is passed in but is invalid
-      return failure();
+                             gemmCDerivedParam, gridSize);
     }
+    // Signal the client if perfCofnig is passed in but is invalid
+    return failure();
   }
 
 #if __MLIR_ENABLE_SQLITE__
   std::string solverId;
-  if (ctx.opType == miopen::ConvOpType::Conv2DOpType) {
+  if (ctx.opType == miopen::ConvOpType::Fwd) {
     solverId = "ConvHipImplicitGemmV4R4Fwd";
-  } else if (ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+  } else if (ctx.opType == miopen::ConvOpType::BwdData) {
     solverId = "ConvHipImplicitGemmBwdDataV1R1";
   } else {
     solverId = "ConvHipImplicitGemmV4R4WrW";
@@ -178,7 +187,7 @@ LogicalResult PopulateParams::paramsFromCtx(
 
     res = populateDerived(ctx, params, gemmSize, gemmADerivedParam,
                           gemmBDerivedParam, blockGemmDerivedParam,
-                          gemmCDstPerWrite, gridSize);
+                          gemmCDerivedParam, gridSize);
     if (failed(res)) {
       continue;
     }
@@ -197,7 +206,7 @@ LogicalResult PopulateParams::paramsFromCtx(
       for (auto &params : initParameters) {
         res = populatePaddingKernelDerived(
             ctx, params, gemmSize, gemmADerivedParam, gemmBDerivedParam,
-            blockGemmDerivedParam, gemmCDstPerWrite, gridSize);
+            blockGemmDerivedParam, gemmCDerivedParam, gridSize);
 
         if (failed(res)) {
           continue;
@@ -217,7 +226,8 @@ LogicalResult PopulateParams::paramsFromCtx(
 LogicalResult PopulateParamsXDL::populateDerived(
     ConvolutionContext &ctx, InitParamsXDL &params, GemmSize &gemmSize,
     DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
-    int64_t &blockSize, int64_t &gridSize) {
+    DerivedOutParams &gemmCDerivedParam, int64_t &blockSize,
+    int64_t &gridSize) {
   LogicalResult res = isValidGemm(&params, gemmSize);
   if (failed(res)) {
     LLVM_DEBUG(llvm::dbgs()
@@ -228,7 +238,7 @@ LogicalResult PopulateParamsXDL::populateDerived(
     return failure();
   }
 
-  if (ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType &&
+  if (ctx.opType == miopen::ConvOpType::BwdData &&
       failed(isValidGridGemmXdlops(gemmSize))) {
     LLVM_DEBUG(llvm::dbgs()
                << "Invalid XDLops gemm sizes for backward data.\n");
@@ -236,9 +246,9 @@ LogicalResult PopulateParamsXDL::populateDerived(
   }
   blockSize = obtainBlockSize(params, waveSize);
 
-  res = isValidblockwisegemmxdlops(params, blockSize);
+  res = isValidBlockwiseGemmXDLOPS(params, ctx, blockSize);
   if (failed(res)) {
-    LLVM_DEBUG(llvm::dbgs() << "Invalid XDLOps gemm.\n");
+    LLVM_DEBUG(llvm::dbgs() << "Invalid XDLOPS gemm.\n");
     return failure();
   }
 
@@ -269,16 +279,24 @@ LogicalResult PopulateParamsXDL::populateDerived(
 
   // parameters derivable from tunable parameters.
   int64_t nKBlocks = 1;
-  if (ctx.opType == miopen::Conv2DBwdWeightOpType && ctx.getDataType().isF32())
+  if (ctx.opType == miopen::ConvOpType::BwdWeight && ctx.getDataType().isF32())
     nKBlocks = getKBlocks(ctx);
   gridSize = obtainGridSize(gemmSize, &params) * nKBlocks;
+
+  res =
+      calculateOutputDerivedParams(&params, blockSize, ctx, gemmCDerivedParam);
+  if (failed(res)) {
+    LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmC tuning parameters\n");
+    return failure();
+  }
   return success();
 }
 
 LogicalResult PopulateParamsXDL::populatePaddingKernelDerived(
     ConvolutionContext &ctx, InitParamsXDL &param, GemmSize &gemmSize,
     DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
-    int64_t &blockSize, int64_t &gridSize) {
+    DerivedOutParams &gemmCDerivedParam, int64_t &blockSize,
+    int64_t &gridSize) {
 
   LogicalResult res = failure();
   InitParams paddingParam = getUniversalParameters();
@@ -331,6 +349,11 @@ LogicalResult PopulateParamsXDL::populatePaddingKernelDerived(
   }
 
   gridSize = obtainGridSize(gemmSize, &param);
+  res = calculateOutputDerivedParams(&param, blockSize, ctx, gemmCDerivedParam);
+  if (failed(res)) {
+    LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmC tuning parameters\n");
+    return failure();
+  }
   return success();
 }
 
@@ -338,7 +361,8 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
     ConvolutionContext &ctx, int64_t blockSizeOverride,
     const std::string &perfConfig, InitParamsXDL &validParams,
     DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
-    int64_t &blockSize, int64_t &gridSize) {
+    DerivedOutParams &gemmCDerivedParam, int64_t &blockSize,
+    int64_t &gridSize) {
 
   GemmSize gemmSize;
   obtainGemmSize(ctx, gemmSize);
@@ -351,18 +375,18 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
     if (isValidPerfConfig) {
       LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
       return populateDerived(ctx, validParams, gemmSize, gemmADerivedParam,
-                             gemmBDerivedParam, blockSize, gridSize);
-    } else {
-      // Signal the client if perfCofnig is passed in but is invalid
-      return failure();
+                             gemmBDerivedParam, gemmCDerivedParam, blockSize,
+                             gridSize);
     }
+    // Signal the client if perfCofnig is passed in but is invalid
+    return failure();
   }
 
 #if __MLIR_ENABLE_SQLITE__
   std::string solverId;
-  if (ctx.opType == miopen::ConvOpType::Conv2DOpType) {
+  if (ctx.opType == miopen::ConvOpType::Fwd) {
     solverId = "ConvHipImplicitGemmForwardV4R4Xdlops";
-  } else if (ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType) {
+  } else if (ctx.opType == miopen::ConvOpType::BwdData) {
     solverId = "ConvHipImplicitGemmBwdDataV4R1Xdlops";
   } else {
     solverId = "ConvHipImplicitGemmWrwV4R4Xdlops";
@@ -381,7 +405,7 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
 #endif // MLIR_ENABLE_SQLITE
 
   LogicalResult res = failure();
-  for (auto &params : initParameters) {
+  for (auto &params : getTuningParameters(ctx)) {
     blockSize = obtainBlockSize(params, waveSize);
     // We have an override on the blockSize, only loop through the
     // initParameters with the same blockSize
@@ -390,7 +414,8 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
     }
 
     res = populateDerived(ctx, params, gemmSize, gemmADerivedParam,
-                          gemmBDerivedParam, blockSize, gridSize);
+                          gemmBDerivedParam, gemmCDerivedParam, blockSize,
+                          gridSize);
     if (failed(res)) {
       continue;
     }
@@ -405,10 +430,10 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
                             << " PARAMETERS!\n");
 
       LLVM_DEBUG(llvm::dbgs() << "BUT PADDING KERNEL CAN EXECUTE IT\n");
-      for (auto &params : initParameters) {
-        res = populatePaddingKernelDerived(ctx, params, gemmSize,
-                                           gemmADerivedParam, gemmBDerivedParam,
-                                           blockSize, gridSize);
+      for (auto &params : getTuningParameters(ctx)) {
+        res = populatePaddingKernelDerived(
+            ctx, params, gemmSize, gemmADerivedParam, gemmBDerivedParam,
+            gemmCDerivedParam, blockSize, gridSize);
 
         if (failed(res)) {
           continue;

@@ -205,7 +205,7 @@ static Error compileAndExecute(Options &options, SharedLibsList &sharedLibs,
   auto engine = std::move(*expectedEngine);
   engine->registerSymbols(runtimeSymbolMap);
 
-  auto expectedFPtr = engine->lookup(entryPoint);
+  auto expectedFPtr = engine->lookupPacked(entryPoint);
   if (!expectedFPtr)
     return expectedFPtr.takeError();
 

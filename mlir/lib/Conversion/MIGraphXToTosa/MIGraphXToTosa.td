@@ -35,7 +35,7 @@ def : Pat<(MIGraphX_RsqrtOp $input1), (Tosa_RsqrtOp $input1)>;
 // Clamp to Relu if it clamps to max/min number, otherwise convert to ceil + floor
 // {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} 
 def : Pat<(MIGraphX_ReluOp $input1), 
-  (Tosa_ClampOp $input1, ConstantAttr<I32Attr, "0">:$mini, ConstantAttr<I32Attr, "2147483647">:$maxi,  
+  (Tosa_ClampOp $input1, ConstantAttr<I64Attr, "0">:$mini, ConstantAttr<I64Attr, "2147483647">:$maxi,  
     ConstantAttr<F32Attr, "0">:$minf, ConstantAttr<F32Attr, "3.40282347E+38">:$maxf)>;
 def : Pat<(MIGraphX_TransposeOp $input1, $permAttr), 
   (Tosa_TransposeOp $input1, (Tosa_ConstOp $permAttr))>;

@@ -67,15 +67,6 @@ set_source_files_properties(BackendUtils.cpp PROPERTIES
   COMPILE_OPTIONS "-Wno-gnu-anonymous-struct;-Wno-nested-anon-types")
 
 set(LIBS
-  lldCommon
-  lldDriver
-  lldELF
-  LLVMCore
-  LLVMLTO
-  LLVMMC
-  LLVMMCParser
-  LLVMOption
-  LLVMSupport
   MLIRROCDLToLLVMIRTranslation
   ${ROCM_RUNTIME_LIBRARY}
 )

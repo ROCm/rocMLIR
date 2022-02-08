@@ -1,5 +1,5 @@
 // This tests checks the following aspects of lowering component:
-// * Can pass arguments correctly 
+// * Can pass arguments correctly
 // * Can pass arguments in the right sequence
 // * Have the right number of transforms
 // * Have one gridwise_gemm
@@ -8,6 +8,12 @@
 
 func @miopen_gridwise_gemm(%matrix_a : memref<?x?x?xf32>, %matrix_b : memref<?x?x?xf32>, %matrix_c : memref<?x?x?xf32>) {
   miopen.gridwise_gemm(%matrix_a, %matrix_b, %matrix_c) {
+    aOobDims = [false, false, false],
+    bOobDims = [false, false, false],
+    cOobDims = [false, false, false],
+    transforms = [[], [], []],
+    paddingInfo = #miopen.padding_info<extraM = 0, extraN = 0, extraK = 0, bwdPaddingInfo = "NA">,
+
     block_size = 256,
 
     m_per_block = 128,
@@ -38,4 +44,4 @@ func @miopen_gridwise_gemm(%matrix_a : memref<?x?x?xf32>, %matrix_b : memref<?x?
 }
 
 // TBD: add lowering checks
-// CHECK-LABEL: func {{@miopen_gridwise_gemm.*%arg0.*%arg1.*%arg2}}
+// CHECK-LABEL: func @miopen_gridwise_gemm{{.*}}%arg0{{.*}}%arg1{{.*}}%arg2

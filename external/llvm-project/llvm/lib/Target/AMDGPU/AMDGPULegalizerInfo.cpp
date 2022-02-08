@@ -606,7 +606,7 @@ AMDGPULegalizerInfo::AMDGPULegalizerInfo(const GCNSubtarget &ST_,
 
   auto &Mulh = getActionDefinitionsBuilder({G_UMULH, G_SMULH})
                    .legalFor({S32})
-                   .maxScalarOrElt(0, S32);
+                   .maxScalar(0, S32);
 
   if (ST.hasVOP3PInsts()) {
     Mulh
@@ -2420,43 +2420,36 @@ bool AMDGPULegalizerInfo::legalizeGlobalValue(
     }
 
     // TODO: We could emit code to handle the initialization somewhere.
-    if (!AMDGPUTargetLowering::hasDefinedInitializer(GV)) {
-      const SITargetLowering *TLI = ST.getTargetLowering();
-      if (!TLI->shouldUseLDSConstAddress(GV)) {
-        MI.getOperand(1).setTargetFlags(SIInstrInfo::MO_ABS32_LO);
-        return true; // Leave in place;
-      }
-
-      if (AS == AMDGPUAS::LOCAL_ADDRESS && GV->hasExternalLinkage()) {
-        Type *Ty = GV->getValueType();
-        // HIP uses an unsized array `extern __shared__ T s[]` or similar
-        // zero-sized type in other languages to declare the dynamic shared
-        // memory which size is not known at the compile time. They will be
-        // allocated by the runtime and placed directly after the static
-        // allocated ones. They all share the same offset.
-        if (B.getDataLayout().getTypeAllocSize(Ty).isZero()) {
-          // Adjust alignment for that dynamic shared memory array.
-          MFI->setDynLDSAlign(B.getDataLayout(), *cast<GlobalVariable>(GV));
-          LLT S32 = LLT::scalar(32);
-          auto Sz =
-              B.buildIntrinsic(Intrinsic::amdgcn_groupstaticsize, {S32}, false);
-          B.buildIntToPtr(DstReg, Sz);
-          MI.eraseFromParent();
-          return true;
-        }
-      }
-
-      B.buildConstant(
-          DstReg,
-          MFI->allocateLDSGlobal(B.getDataLayout(), *cast<GlobalVariable>(GV)));
-      MI.eraseFromParent();
-      return true;
+    // We ignore the initializer for now and legalize it to allow selection.
+    // The initializer will anyway get errored out during assembly emission.
+    const SITargetLowering *TLI = ST.getTargetLowering();
+    if (!TLI->shouldUseLDSConstAddress(GV)) {
+      MI.getOperand(1).setTargetFlags(SIInstrInfo::MO_ABS32_LO);
+      return true; // Leave in place;
     }
 
-    const Function &Fn = MF.getFunction();
-    DiagnosticInfoUnsupported BadInit(
-      Fn, "unsupported initializer for address space", MI.getDebugLoc());
-    Fn.getContext().diagnose(BadInit);
+    if (AS == AMDGPUAS::LOCAL_ADDRESS && GV->hasExternalLinkage()) {
+      Type *Ty = GV->getValueType();
+      // HIP uses an unsized array `extern __shared__ T s[]` or similar
+      // zero-sized type in other languages to declare the dynamic shared
+      // memory which size is not known at the compile time. They will be
+      // allocated by the runtime and placed directly after the static
+      // allocated ones. They all share the same offset.
+      if (B.getDataLayout().getTypeAllocSize(Ty).isZero()) {
+        // Adjust alignment for that dynamic shared memory array.
+        MFI->setDynLDSAlign(B.getDataLayout(), *cast<GlobalVariable>(GV));
+        LLT S32 = LLT::scalar(32);
+        auto Sz =
+            B.buildIntrinsic(Intrinsic::amdgcn_groupstaticsize, {S32}, false);
+        B.buildIntToPtr(DstReg, Sz);
+        MI.eraseFromParent();
+        return true;
+      }
+    }
+
+    B.buildConstant(DstReg, MFI->allocateLDSGlobal(B.getDataLayout(),
+                                                   *cast<GlobalVariable>(GV)));
+    MI.eraseFromParent();
     return true;
   }
 
@@ -3058,7 +3051,6 @@ void AMDGPULegalizerInfo::legalizeUnsignedDIV_REM64Impl(MachineIRBuilder &B,
 
   auto Add1_Lo = B.buildUAddo(S32, S1, RcpLo, MulHi1_Lo);
   auto Add1_Hi = B.buildUAdde(S32, S1, RcpHi, MulHi1_Hi, Add1_Lo.getReg(1));
-  auto Add1_HiNc = B.buildAdd(S32, RcpHi, MulHi1_Hi);
   auto Add1 = B.buildMerge(S64, {Add1_Lo, Add1_Hi});
 
   auto MulLo2 = B.buildMul(S64, NegDenom, Add1);
@@ -3069,9 +3061,7 @@ void AMDGPULegalizerInfo::legalizeUnsignedDIV_REM64Impl(MachineIRBuilder &B,
 
   auto Zero32 = B.buildConstant(S32, 0);
   auto Add2_Lo = B.buildUAddo(S32, S1, Add1_Lo, MulHi2_Lo);
-  auto Add2_HiC =
-      B.buildUAdde(S32, S1, Add1_HiNc, MulHi2_Hi, Add1_Lo.getReg(1));
-  auto Add2_Hi = B.buildUAdde(S32, S1, Add2_HiC, Zero32, Add2_Lo.getReg(1));
+  auto Add2_Hi = B.buildUAdde(S32, S1, Add1_Hi, MulHi2_Hi, Add2_Lo.getReg(1));
   auto Add2 = B.buildMerge(S64, {Add2_Lo, Add2_Hi});
 
   auto UnmergeNumer = B.buildUnmerge(S32, Numer);
@@ -4415,8 +4405,8 @@ bool AMDGPULegalizerInfo::legalizeImageIntrinsic(
       if (ConstantLod->isZero() || ConstantLod->isNegative()) {
         // Set new opcode to _lz variant of _l, and change the intrinsic ID.
         const AMDGPU::ImageDimIntrinsicInfo *NewImageDimIntr =
-            AMDGPU::getImageDimInstrinsicByBaseOpcode(LZMappingInfo->LZ,
-                                                      Intr->Dim);
+            AMDGPU::getImageDimIntrinsicByBaseOpcode(LZMappingInfo->LZ,
+                                                     Intr->Dim);
 
         // The starting indexes should remain in the same place.
         --CorrectedNumVAddrs;
@@ -4879,8 +4869,8 @@ bool AMDGPULegalizerInfo::legalizeBVHIntrinsic(MachineInstr &MI,
   }
   Ops.push_back(RayExtent);
 
-  auto packLanes = [&Ops, &S32, &B] (Register Src) {
-    auto Unmerge = B.buildUnmerge({S32, S32, S32, S32}, Src);
+  auto packLanes = [&Ops, &S32, &B](Register Src) {
+    auto Unmerge = B.buildUnmerge({S32, S32, S32}, Src);
     Ops.push_back(Unmerge.getReg(0));
     Ops.push_back(Unmerge.getReg(1));
     Ops.push_back(Unmerge.getReg(2));
@@ -4888,8 +4878,8 @@ bool AMDGPULegalizerInfo::legalizeBVHIntrinsic(MachineInstr &MI,
 
   packLanes(RayOrigin);
   if (IsA16) {
-    auto UnmergeRayDir = B.buildUnmerge({S16, S16, S16, S16}, RayDir);
-    auto UnmergeRayInvDir = B.buildUnmerge({S16, S16, S16, S16}, RayInvDir);
+    auto UnmergeRayDir = B.buildUnmerge({S16, S16, S16}, RayDir);
+    auto UnmergeRayInvDir = B.buildUnmerge({S16, S16, S16}, RayInvDir);
     Register R1 = MRI.createGenericVirtualRegister(S32);
     Register R2 = MRI.createGenericVirtualRegister(S32);
     Register R3 = MRI.createGenericVirtualRegister(S32);

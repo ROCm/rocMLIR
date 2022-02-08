@@ -39,24 +39,6 @@ def ConvertMIOpenToGPU : Pass<"convert-miopen-to-gpu", "ModuleOp"> {
 }
 
 //===----------------------------------------------------------------------===//
-// MIOpenToGPU within an existing GPUModule
-//===----------------------------------------------------------------------===//
-
-def ConvertMIOpenWithinGPUModule : Pass<"test-miopen-lowering-gpu-module", "gpu::GPUModuleOp"> {
-  let summary = "Lower the operations from the MIOpen dialect within an "
-                "existing GPU module";
-  let constructor = "mlir::createLowerMIOpenOpsWithinGPUModulePass()";
-  let dependentDialects = [
-    "miopen::MIOpenDialect",
-    "AffineDialect",
-    "scf::SCFDialect",
-    "StandardOpsDialect",
-    "vector::VectorDialect",
-    "gpu::GPUDialect"
-  ];
-}
-
-//===----------------------------------------------------------------------===//
 // TosaToMIOpen
 //===----------------------------------------------------------------------===//
 
@@ -79,7 +61,25 @@ def MIGraphXToTosa : FunctionPass<"migraphx-to-tosa"> {
     Pass that converts MIGraphX operations to TOSA operations.
   }];
 
-  let constructor = "migraphx::createMIGraphXToTosa()";
+  let constructor = "migraphx::createMIGraphXToTosaPass()";
+}
+
+//===----------------------------------------------------------------------===//
+// GPUToMIGraphX
+//===----------------------------------------------------------------------===//
+
+def GPUToMIGraphX : FunctionPass<"gpu-to-migraphx"> {
+  let summary = "Lower fused gpu launch to MIGraphX code object";
+  let description = [{
+    Pass that converts func operations with gpu.launch to MIGraphX operation.
+  }];
+
+  let constructor = "migraphx::createGPUToMIGraphXPass()";
+  let dependentDialects = [
+    "migraphx::MIGraphXDialect",
+    "StandardOpsDialect",
+    "gpu::GPUDialect"
+  ];
 }
 
 #endif // MIOPEN_MLIR_CONVERSION_PASSES

@@ -22,26 +22,15 @@ gpu.module @kernel {
     // NVVM: %[[c1:.*]] = llvm.mlir.constant(1 : index) : i64
     // NVVM: %[[descr6:.*]] = llvm.insertvalue %[[c1]], %[[descr5]][4, 0]
 
-    // ROCDL: %[[descr1:.*]] = llvm.mlir.undef : !llvm.struct<(ptr<f32, 5>, ptr<f32, 5>, i64, array<1 x i64>, array<1 x i64>)>
-    // ROCDL: %[[descr2:.*]] = llvm.insertvalue %[[raw]], %[[descr1]][0]
-    // ROCDL: %[[descr3:.*]] = llvm.insertvalue %[[raw]], %[[descr2]][1]
-    // ROCDL: %[[c0:.*]] = llvm.mlir.constant(0 : index) : i64
-    // ROCDL: %[[descr4:.*]] = llvm.insertvalue %[[c0]], %[[descr3]][2]
-    // ROCDL: %[[c4:.*]] = llvm.mlir.constant(4 : index) : i64
-    // ROCDL: %[[descr5:.*]] = llvm.insertvalue %[[c4]], %[[descr4]][3, 0]
-    // ROCDL: %[[c1:.*]] = llvm.mlir.constant(1 : index) : i64
-    // ROCDL: %[[descr6:.*]] = llvm.insertvalue %[[c1]], %[[descr5]][4, 0]
-
     // "Store" lowering should work just as any other memref, only check that
     // we emit some core instructions.
     // NVVM: llvm.extractvalue %[[descr6:.*]]
     // NVVM: llvm.getelementptr
     // NVVM: llvm.store
 
-    // ROCDL: llvm.extractvalue %[[descr6:.*]]
-    // ROCDL: llvm.getelementptr
+    // ROCDL: llvm.getelementptr %[[raw]]
     // ROCDL: llvm.store
-    %c0 = constant 0 : index
+    %c0 = arith.constant 0 : index
     memref.store %arg0, %arg1[%c0] : memref<4xf32, 5>
 
     "terminator"() : () -> ()
@@ -88,26 +77,15 @@ gpu.module @kernel {
     // NVVM: %[[c1:.*]] = llvm.mlir.constant(1 : index) : i64
     // NVVM: %[[descr6:.*]] = llvm.insertvalue %[[c1]], %[[descr5]][4, 0]
 
-    // ROCDL: %[[descr1:.*]] = llvm.mlir.undef : !llvm.struct<(ptr<f32, 3>, ptr<f32, 3>, i64, array<1 x i64>, array<1 x i64>)>
-    // ROCDL: %[[descr2:.*]] = llvm.insertvalue %[[raw]], %[[descr1]][0]
-    // ROCDL: %[[descr3:.*]] = llvm.insertvalue %[[raw]], %[[descr2]][1]
-    // ROCDL: %[[c0:.*]] = llvm.mlir.constant(0 : index) : i64
-    // ROCDL: %[[descr4:.*]] = llvm.insertvalue %[[c0]], %[[descr3]][2]
-    // ROCDL: %[[c4:.*]] = llvm.mlir.constant(4 : index) : i64
-    // ROCDL: %[[descr5:.*]] = llvm.insertvalue %[[c4]], %[[descr4]][3, 0]
-    // ROCDL: %[[c1:.*]] = llvm.mlir.constant(1 : index) : i64
-    // ROCDL: %[[descr6:.*]] = llvm.insertvalue %[[c1]], %[[descr5]][4, 0]
-
     // "Store" lowering should work just as any other memref, only check that
     // we emit some core instructions.
     // NVVM: llvm.extractvalue %[[descr6:.*]]
     // NVVM: llvm.getelementptr
     // NVVM: llvm.store
 
-    // ROCDL: llvm.extractvalue %[[descr6:.*]]
-    // ROCDL: llvm.getelementptr
+    // ROCDL: llvm.getelementptr %[[raw]]
     // ROCDL: llvm.store
-    %c0 = constant 0 : index
+    %c0 = arith.constant 0 : index
     memref.store %arg0, %arg1[%c0] : memref<4xf32, 3>
 
     "terminator"() : () -> ()
@@ -159,25 +137,10 @@ gpu.module @kernel {
     // NVVM: %[[c1:.*]] = llvm.mlir.constant(1 : index) : i64
     // NVVM: %[[descr10:.*]] = llvm.insertvalue %[[c1]], %[[descr9]][4, 2]
 
-    // ROCDL: %[[descr1:.*]] = llvm.mlir.undef : !llvm.struct<(ptr<f32, 3>, ptr<f32, 3>, i64, array<3 x i64>, array<3 x i64>)>
-    // ROCDL: %[[descr2:.*]] = llvm.insertvalue %[[raw]], %[[descr1]][0]
-    // ROCDL: %[[descr3:.*]] = llvm.insertvalue %[[raw]], %[[descr2]][1]
-    // ROCDL: %[[c0:.*]] = llvm.mlir.constant(0 : index) : i64
-    // ROCDL: %[[descr4:.*]] = llvm.insertvalue %[[c0]], %[[descr3]][2]
-    // ROCDL: %[[c4:.*]] = llvm.mlir.constant(4 : index) : i64
-    // ROCDL: %[[descr5:.*]] = llvm.insertvalue %[[c4]], %[[descr4]][3, 0]
-    // ROCDL: %[[c12:.*]] = llvm.mlir.constant(12 : index) : i64
-    // ROCDL: %[[descr6:.*]] = llvm.insertvalue %[[c12]], %[[descr5]][4, 0]
-    // ROCDL: %[[c2:.*]] = llvm.mlir.constant(2 : index) : i64
-    // ROCDL: %[[descr7:.*]] = llvm.insertvalue %[[c2]], %[[descr6]][3, 1]
-    // ROCDL: %[[c6:.*]] = llvm.mlir.constant(6 : index) : i64
-    // ROCDL: %[[descr8:.*]] = llvm.insertvalue %[[c6]], %[[descr7]][4, 1]
-    // ROCDL: %[[c6:.*]] = llvm.mlir.constant(6 : index) : i64
-    // ROCDL: %[[descr9:.*]] = llvm.insertvalue %[[c6]], %[[descr8]][3, 2]
-    // ROCDL: %[[c1:.*]] = llvm.mlir.constant(1 : index) : i64
-    // ROCDL: %[[descr10:.*]] = llvm.insertvalue %[[c1]], %[[descr9]][4, 2]
+    // ROCDL: %[[offset:.*]] = llvm.getelementptr %[[raw]]
+    // ROCDL: llvm.store {{.*}} %[[offset]]
 
-    %c0 = constant 0 : index
+    %c0 = arith.constant 0 : index
     memref.store %arg0, %arg1[%c0,%c0,%c0] : memref<4x2x6xf32, 3>
     "terminator"() : () -> ()
   }
@@ -221,7 +184,7 @@ gpu.module @kernel {
     // ROCDL: %[[c4:.*]] = llvm.mlir.constant(4 : i64)
     // ROCDL: llvm.alloca %[[c4]] x f32 : (i64) -> !llvm.ptr<f32, 5>
 
-    %c0 = constant 0 : index
+    %c0 = arith.constant 0 : index
     memref.store %arg0, %arg1[%c0] : memref<1xf32, 3>
     memref.store %arg0, %arg2[%c0] : memref<2xf32, 3>
     memref.store %arg0, %arg3[%c0] : memref<3xf32, 5>

@@ -1,6 +1,8 @@
 #add_subdirectory(mlir-cuda-runner)
 #add_subdirectory(mlir-cpu-runner)
+add_subdirectory(miopen-lsp-server)
 add_subdirectory(miopen-opt)
+add_subdirectory(miopen-gen)
 #add_subdirectory(mlir-reduce)
 add_subdirectory(mlir-rocm-runner)
 #add_subdirectory(mlir-shlib)

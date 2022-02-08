@@ -13,17 +13,18 @@
 #ifndef MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H
 #define MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H
 
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
-#include "mlir/Dialect/MIOpen/utility/BackwardDataPaddingKernel.h"
-#include "mlir/Dialect/MIOpen/utility/BackwardWeightV4R4Helper.h"
+#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/Dialect/MIOpen/utility/math.h"
 #include "mlir/Support/FileUtilities.h"
+#include "mlir/Support/LogicalResult.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/YAMLTraits.h"
 
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 
@@ -35,6 +36,13 @@ LLVM_YAML_IS_STRING_MAP(int)
 // 1 : gemmK dimension.
 // 2 : gemmM or gemmN dimension.
 enum GemmDimensions { GemmG = 0, GemmK = 1, GemmMorN = 2 };
+
+constexpr int64_t gemmCDimG = 0;
+constexpr int64_t gemmCDimM = 1;
+constexpr int64_t gemmCDimN = 2;
+constexpr int64_t gemmCSplitDimM2 = 3;
+constexpr int64_t gemmCSplitDimN = 4;
+constexpr int64_t gemmCSplitDimN2 = 5;
 
 // greatest common divisor, aka highest common factor
 template <typename T> T gcd(T x, T y) {
@@ -99,6 +107,13 @@ struct DerivedParams {
         clusterLenGemmPos1(0), clusterLenGemmPos2(0) {}
 };
 
+struct DerivedOutParams {
+  int64_t gemmVectorDim;
+  int64_t destVectorDim;
+  int64_t dataPerCopy;
+  DerivedOutParams() : gemmVectorDim(-1), destVectorDim(-1), dataPerCopy(1) {}
+};
+
 class PopulateParamsBase {
 public:
   static void obtainGemmADimKVectorizable(
@@ -106,7 +121,7 @@ public:
       llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
       bool &input1GemmKVectorizable) {
     // Vectorizable flag is opposite between forwad and bwd_data
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (opType == mlir::miopen::ConvOpType::Fwd) {
       // When K is not the fastest changing dimension,
       // gemmK dimension is vectorizable, gemmM is not, and vice versa.
       // Vectorization width depending on which among C, Y, X be the fastest
@@ -116,10 +131,10 @@ public:
       } else {
         input1GemmKVectorizable = true;
       }
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdData) {
       // always load gemmM first
       input1GemmKVectorizable = false;
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdWeight) {
       // When K is the fastest changing dimension,
       // gemmM dimension is vectorizable, gemmK is not, and vice versa.
       // Vectorization width depending on which among N, and HoWo be the fastest
@@ -137,7 +152,7 @@ public:
       llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal,
       bool &input2GemmKVectorizable) {
     // Vectorizable flag is opposite between forwad and bwd_data
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (opType == mlir::miopen::ConvOpType::Fwd) {
       // For input tensor.
       // When C is the fastest changing dimension,
       // gemmK dimension is vectorizable, gemmN is not, and vice versa.
@@ -147,7 +162,7 @@ public:
       } else {
         input2GemmKVectorizable = false;
       }
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdData) {
       // For output tensor.
       // When K is the fastest changing dimension(3),
       // gemmK dimension is vectorizable, gemmN is not, and vice versa.
@@ -157,7 +172,7 @@ public:
       } else {
         input2GemmKVectorizable = false;
       }
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdWeight) {
       // For input tensor
       // When C is the fastest changing dimension,
       // gemmN dimension is vectorizable, gemmK is not, and vice versa.
@@ -284,33 +299,33 @@ public:
 
   static void obtainGemmAVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto opType = ctx.opType;
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (opType == mlir::miopen::ConvOpType::Fwd) {
       obtainFilterVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdData) {
       obtainBwdDataFilterVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdWeight) {
       obtainOutputVecLen(ctx, vecLen);
     }
   }
 
   static void obtainGemmBVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto opType = ctx.opType;
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (opType == mlir::miopen::ConvOpType::Fwd) {
       obtainInputVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdData) {
       obtainBwdDataOutputVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdWeight) {
       obtainInputVecLen(ctx, vecLen);
     }
   }
 
   static void obtainGemmCVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
     auto opType = ctx.opType;
-    if (opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (opType == mlir::miopen::ConvOpType::Fwd) {
       obtainOutputVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdData) {
       obtainInputVecLen(ctx, vecLen);
-    } else if (opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (opType == mlir::miopen::ConvOpType::BwdWeight) {
       obtainFilterVecLen(ctx, vecLen);
     }
   }
@@ -362,10 +377,11 @@ protected:
     // The logic for deciding vectorization size and dimension for
     // backward data and backward weight has to be reviewed.
     auto opType = ctx.opType;
-    if (opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType ||
-        opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    if (opType == mlir::miopen::ConvOpType::BwdData ||
+        opType == mlir::miopen::ConvOpType::BwdWeight) {
       vectorizationSize = 1;
     }
+
     // srcDataPerRead bounded by size of threadwise copy
     if ((vectorizableLength > 0) && (vectorizableLength % 4 == 0)) {
       derived.srcDataPerRead = gcd(vectorizationSize, dataPerThreadCopy);
@@ -415,10 +431,71 @@ protected:
     return mlir::success();
   }
 
+  mlir::LogicalResult calculateOutputDerivedParams(InitParams *params,
+                                                   int64_t blockSize,
+                                                   ConvolutionContext &ctx,
+                                                   DerivedOutParams &out) {
+    int64_t cVectorLength = 0;
+    ConvOpType op = ctx.getOpType();
+
+    obtainGemmCVecLen(ctx, cVectorLength);
+    int64_t dataPerThread =
+        (params->gemmMPerBlock * params->gemmNPerBlock) / blockSize;
+    if (!(dataPerThread > 0)) {
+      return failure();
+    }
+
+    // TODO: Allow vectorization group size of 2
+    int64_t vectorizationSize = 4;
+    // No swizzling or vectorization for backward data
+    // TODO(kdrewnia): Understand when it might be possible
+    if (ConvOpType::BwdData == op) {
+      vectorizationSize = 1;
+    }
+
+    if ((cVectorLength > 0) && (dataPerThread % vectorizationSize == 0) &&
+        (cVectorLength % vectorizationSize == 0)) {
+      out.dataPerCopy = gcd(dataPerThread, vectorizationSize);
+    } else {
+      out.dataPerCopy = 1;
+    }
+
+    auto &dimIndexVal = ctx.dimIndexVal;
+    // Find dimensions in which the copy will take place
+    switch (op) {
+    case mlir::miopen::ConvOpType::Fwd:
+      if (dimIndexVal["ko"].first == 4) {
+        out.gemmVectorDim = gemmCDimM;
+        out.destVectorDim = 4;
+      } else {
+        out.gemmVectorDim = gemmCDimN;
+        // This relies on assumptions about how we load our data for GEMM
+        out.destVectorDim = dimIndexVal["wo"].first;
+      }
+      break;
+    case mlir::miopen::ConvOpType::BwdWeight:
+      if (dimIndexVal["k"].first == 4) {
+        out.gemmVectorDim = gemmCDimM;
+        out.destVectorDim = 4;
+      } else {
+        out.gemmVectorDim = gemmCDimN;
+        // Backward weight computations fold the {c, y, x} dimensions
+        // into N using the native order
+        out.destVectorDim = 4;
+      }
+      break;
+    case mlir::miopen::ConvOpType::BwdData:
+      out.gemmVectorDim = -1;
+      out.destVectorDim = -1;
+      break;
+    }
+    return success();
+  }
+
   static void obtainGemmSize(ConvolutionContext &ctx, GemmSize &gemmSize) {
     gemmSize.gemmG = ctx.dimIndexVal["g"].second;
 
-    if (ctx.opType == mlir::miopen::ConvOpType::Conv2DOpType) {
+    if (ctx.opType == mlir::miopen::ConvOpType::Fwd) {
       gemmSize.gemmM = ctx.dimIndexVal["k"].second;
       gemmSize.gemmN = ctx.dimIndexVal["no"].second *
                        ctx.dimIndexVal["ho"].second *
@@ -426,7 +503,7 @@ protected:
       gemmSize.gemmK = ctx.dimIndexVal["c"].second *
                        ctx.dimIndexVal["y"].second *
                        ctx.dimIndexVal["x"].second;
-    } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdDataOpType) {
+    } else if (ctx.opType == mlir::miopen::ConvOpType::BwdData) {
       int64_t y, x, ho, wo, hi, wi;
       y = x = ho = wo = hi = wi = 0;
       y = ctx.dimIndexVal["y"].second;
@@ -475,7 +552,7 @@ protected:
       gemmSize.gemmM = ctx.dimIndexVal["c"].second;
       gemmSize.gemmN = ctx.dimIndexVal["no"].second * hTildaSlice * wTildaSlice;
       gemmSize.gemmK = ctx.dimIndexVal["k"].second * yDotSlice * xDotSlice;
-    } else if (ctx.opType == mlir::miopen::ConvOpType::Conv2DBwdWeightOpType) {
+    } else if (ctx.opType == mlir::miopen::ConvOpType::BwdWeight) {
       gemmSize.gemmM = ctx.dimIndexVal["k"].second;
       gemmSize.gemmK = ctx.dimIndexVal["no"].second *
                        ctx.dimIndexVal["ho"].second *
@@ -489,15 +566,6 @@ protected:
   int64_t obtainGridSize(GemmSize &gemmSize, InitParams *param) {
     return (gemmSize.gemmM / param->gemmMPerBlock) *
            (gemmSize.gemmN / param->gemmNPerBlock) * gemmSize.gemmG;
-  }
-
-  mlir::LogicalResult isValidGemm(InitParams *param, GemmSize &gemmSize) {
-    if (!(gemmSize.gemmM % param->gemmMPerBlock == 0 &&
-          gemmSize.gemmN % param->gemmNPerBlock == 0 &&
-          gemmSize.gemmK % param->gemmKPerBlock == 0)) {
-      return mlir::failure();
-    }
-    return mlir::success();
   }
 };
 
@@ -618,30 +686,10 @@ private:
                                        derived);
   }
 
-  int64_t calculateGemmCDestDataPerWrite(const InitParamsNonXDL &param,
-                                         ConvolutionContext &ctx) {
-    int64_t outputVecLen = 0;
-    if ((ctx.opType == miopen::ConvOpType::Conv2DOpType) &&
-        (ctx.dimIndexVal["ko"].first == 4)) {
-      // gemmM vectorizable. However, there is no parameters for vectorizing
-      // gemmM dimension for matrix C. Do nothing here.
-    } else if ((ctx.opType == miopen::ConvOpType::Conv2DBwdDataOpType) &&
-               (ctx.dimIndexVal["ci"].first == 4)) {
-      // gemmM vectorizable. However, there is no parameters for vectorizing
-      // gemmM dimension for matrix C. Do nothing here.
-    } else {
-      obtainGemmCVecLen(ctx, outputVecLen);
-    }
-
-    outputVecLen = gcd(outputVecLen, param.gemmNPerThread);
-
-    if ((outputVecLen > 0) && (outputVecLen % 4 == 0)) {
-      return 4;
-    } else if ((outputVecLen > 0) && (outputVecLen % 2 == 0)) {
-      return 2;
-    }
-
-    return 1;
+  LogicalResult calculateGemmCBlockwiseCopyParams(InitParamsNonXDL *params,
+                                                  ConvolutionContext &ctx,
+                                                  DerivedOutParams &out) {
+    return calculateOutputDerivedParams(params, params->blockSize, ctx, out);
   }
 
   LogicalResult
@@ -706,51 +754,73 @@ private:
     return success();
   }
 
-  LogicalResult populateDerived(ConvolutionContext &ctx,
-                                InitParamsNonXDL &validParams,
-                                GemmSize &gemmSize,
-                                DerivedParams &gemmADerivedParam,
-                                DerivedParams &gemmBDerivedParam,
-                                DerivedBlockGemmParams &blockGemmDerivedParam,
-                                int64_t &gemmCDstPerWrite, int64_t &gridSize);
+  LogicalResult
+  populateDerived(ConvolutionContext &ctx, InitParamsNonXDL &validParams,
+                  GemmSize &gemmSize, DerivedParams &gemmADerivedParam,
+                  DerivedParams &gemmBDerivedParam,
+                  DerivedBlockGemmParams &blockGemmDerivedParam,
+                  DerivedOutParams &gemmCDerivedParam, int64_t &gridSize);
 
   LogicalResult populatePaddingKernelDerived(
       ConvolutionContext &ctx, InitParamsNonXDL &validParams,
       GemmSize &gemmSize, DerivedParams &gemmADerivedParam,
       DerivedParams &gemmBDerivedParam,
-      DerivedBlockGemmParams &blockGemmDerivedParam, int64_t &gemmCDstPerWrite,
-      int64_t &gridSize);
+      DerivedBlockGemmParams &blockGemmDerivedParam,
+      DerivedOutParams &gemmCDerivedParam, int64_t &gridSize);
 
 public:
-  LogicalResult paramsFromCtx(ConvolutionContext &ctx,
-                              int64_t blockSizeOverride,
-                              const std::string &perfConfig,
-                              InitParamsNonXDL &validParams,
-                              DerivedParams &gemmADerivedParam,
-                              DerivedParams &gemmBDerivedParam,
-                              DerivedBlockGemmParams &blockGemmDerivedParam,
-                              int64_t &gemmCDstPerWrite, int64_t &gridSize);
+  LogicalResult
+  paramsFromCtx(ConvolutionContext &ctx, int64_t blockSizeOverride,
+                const std::string &perfConfig, InitParamsNonXDL &validParams,
+                DerivedParams &gemmADerivedParam,
+                DerivedParams &gemmBDerivedParam,
+                DerivedBlockGemmParams &blockGemmDerivedParam,
+                DerivedOutParams &gemmCDerivedParam, int64_t &gridSize);
 
-  llvm::SmallVector<InitParamsNonXDL, 8> getTuningParameters() {
+  llvm::SmallVector<InitParamsNonXDL, 8>
+  getTuningParameters(ConvolutionContext &ctx) {
     return initParameters;
   }
 
   InitParams getUniversalParameters() { return universal_Parameters; }
+
+  LogicalResult isValidGemm(InitParamsNonXDL *param, GemmSize &gemmSize) {
+    if (!(gemmSize.gemmM % param->gemmMPerBlock == 0 &&
+          gemmSize.gemmN % param->gemmNPerBlock == 0 &&
+          gemmSize.gemmK % param->gemmKPerBlock == 0)) {
+      return mlir::failure();
+    }
+    return mlir::success();
+  }
 };
 
 class PopulateParamsXDL : public PopulateParamsBase {
 private:
-  llvm::SmallVector<InitParamsXDL, 4> initParameters = {
+  // Initial tuning parameters for forward convolution.
+  llvm::SmallVector<InitParamsXDL, 4> initParametersForward = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-      // FIXME. Temporarily disable this config to restrict MRepeats/NRepeats
-      // to 1 to reduce potential AGPR spills.
-      //{256, 128, 16, 128, 64, 0, false, false},
-      {128, 128, 16, 64, 64, 0, false, false},
-      {8, 64, 8, 8, 64, 0, false, false},
-      {4, 64, 16, 4, 64, 0, false, false},
-      {32, 64, 4, 32, 64, 0, false, false},
-      {16, 16, 16, 16, 16, 0, false, false},
-      {16, 16, 4, 16, 16, 0, false, false},
+      {128, 128, 4, 64, 64, 4, false, false},
+      {32, 64, 4, 32, 64, 4, false, false},
+
+      {128, 128, 8, 64, 64, 1, false, false},
+      {128, 128, 16, 64, 64, 1, false, false},
+      {8, 64, 8, 8, 64, 1, false, false},
+      {4, 64, 16, 4, 64, 1, false, false},
+      {32, 64, 4, 32, 64, 1, false, false},
+      {16, 16, 16, 16, 16, 1, false, false},
+      {16, 16, 4, 16, 16, 1, false, false},
+  };
+
+  // Initial tuning parameters for backward convolution.
+  llvm::SmallVector<InitParamsXDL, 4> initParametersBackward = {
+      // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
+      {128, 128, 8, 64, 64, 1, false, false},
+      {128, 128, 16, 64, 64, 1, false, false},
+      {8, 64, 8, 8, 64, 1, false, false},
+      {4, 64, 16, 4, 64, 1, false, false},
+      {32, 64, 4, 32, 64, 1, false, false},
+      {16, 16, 16, 16, 16, 1, false, false},
+      {16, 16, 4, 16, 16, 1, false, false},
   };
   const int64_t waveSize = 64;
 
@@ -768,7 +838,7 @@ private:
     int64_t n = ctx.dimIndexVal["no"].second;
     int64_t ho = ctx.dimIndexVal["ho"].second;
     int64_t wo = ctx.dimIndexVal["wo"].second;
-    return miopen::calculateKBlockNum(n, ho, wo);
+    return mlir::miopen::calculateKBlockNum(n, ho, wo);
   }
 
   LogicalResult calculateGemmABlockCopyPerformanceParameters(
@@ -814,7 +884,8 @@ private:
     return success();
   }
 
-  LogicalResult isValidblockwisegemmxdlops(InitParamsXDL &param,
+  LogicalResult isValidBlockwiseGemmXDLOPS(InitParamsXDL &param,
+                                           ConvolutionContext &ctx,
                                            int64_t blockSize) {
     // TBD: support fp16/bf16
 
@@ -856,6 +927,43 @@ private:
     if ((param.gemmNPerBlock % param.gemmNPerWave) != 0)
       return failure();
 
+    if ((param.gemmKPerBlock % param.gemmKPack) != 0)
+      return failure();
+
+    // Reject invalid KPACK values.
+    auto dataType = ctx.getDataType();
+    // For fp32: reject anything wider than 4.
+    // For fp16/bf16: reject anything narrower than 4, or greater than 8.
+    if (dataType.isF32() && param.gemmKPack > 4) {
+      llvm::errs() << "Invalid KPACK tuning parameter: " << param.gemmKPack
+                   << "\n";
+      return failure();
+    } else if ((dataType.isF16() || dataType.isBF16()) &&
+               (param.gemmKPack != 1) &&
+               ((param.gemmKPack < 4) || (param.gemmKPack > 8))) {
+      llvm::errs() << "Invalid KPACK tuning parameter: " << param.gemmKPack
+                   << "\n";
+      return failure();
+    }
+
+    // XXX FIXME: Ignore KReduction XDLOPS path for forward convolution now.
+    // These M/NPerBlock combinations will result in lowering errors at tuning.
+    if (param.gemmKPack > 1 && ctx.getOpType() == miopen::ConvOpType::Fwd) {
+      if ((param.gemmMPerBlock == 16 || param.gemmMPerBlock == 32 ||
+           param.gemmMPerBlock == 64) &&
+          (param.gemmNPerBlock == 16 || param.gemmNPerBlock == 32 ||
+           param.gemmNPerBlock == 64)) {
+        return failure();
+      }
+
+      if (param.gemmMPerBlock == 32 && param.gemmNPerBlock == 128) {
+        return failure();
+      }
+      if (param.gemmMPerBlock == 128 && param.gemmNPerBlock == 32) {
+        return failure();
+      }
+    }
+
     return success();
   }
 
@@ -863,12 +971,14 @@ private:
                                 InitParamsXDL &validParams, GemmSize &gemmSize,
                                 DerivedParams &gemmADerivedParam,
                                 DerivedParams &gemmBDerivedParam,
+                                DerivedOutParams &gemmCDerivedParam,
                                 int64_t &blockSize, int64_t &gridSize);
 
   LogicalResult populatePaddingKernelDerived(
       ConvolutionContext &ctx, InitParamsXDL &validParams, GemmSize &gemmSize,
       DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
-      int64_t &blockSize, int64_t &gridSize);
+      DerivedOutParams &gemmCDerivedParam, int64_t &blockSize,
+      int64_t &gridSize);
 
   LogicalResult isValidGridGemmXdlops(GemmSize &gemmSize) {
     auto gemmM = gemmSize.gemmM;
@@ -893,13 +1003,32 @@ public:
                               InitParamsXDL &validParams,
                               DerivedParams &gemmADerivedParam,
                               DerivedParams &gemmBDerivedParam,
+                              DerivedOutParams &gemmCDerivedParam,
                               int64_t &blockSize, int64_t &gridSize);
 
-  llvm::SmallVector<InitParamsXDL, 4> getTuningParameters() {
-    return initParameters;
+  llvm::SmallVector<InitParamsXDL, 4>
+  getTuningParameters(ConvolutionContext &ctx) {
+    switch (ctx.getOpType()) {
+    case miopen::ConvOpType::Fwd:
+      return initParametersForward;
+    case miopen::ConvOpType::BwdData:
+      return initParametersBackward;
+    case miopen::ConvOpType::BwdWeight:
+      return initParametersBackward;
+    }
+    return initParametersForward;
   }
 
   InitParams getUniversalParameters() { return universal_Parameters; }
+
+  LogicalResult isValidGemm(InitParamsXDL *param, GemmSize &gemmSize) {
+    if (!(gemmSize.gemmM % param->gemmMPerBlock == 0 &&
+          gemmSize.gemmN % param->gemmNPerBlock == 0 &&
+          gemmSize.gemmK % (param->gemmKPerBlock * param->gemmKPack) == 0)) {
+      return mlir::failure();
+    }
+    return mlir::success();
+  }
 };
 
 #endif // MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H

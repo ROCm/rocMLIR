@@ -21,8 +21,8 @@ $0: [-d | --direction] DIR [-t | --dtype] [fp16 | fp32] [-l | --layout] LAYOUT
 [-x | --xdlops] [-X | --no-xdlops (default)] [--tuning | --no-tuning (default)]
 [--driver DRIVER (default bin/MIOpenDriver)] [--test-all]
 
-DIR is either 1 (forward (fwd)) 2 (backward data (bwd)), or 
-4 (backward weights (wrw)), other values are currently unsupported 
+DIR is either 1 (forward (fwd)) 2 (backward data (bwd)), or
+4 (backward weights (wrw)), other values are currently unsupported
 for testing.
 
 LAYOUT is a four-letter string containing the letters N, C, H, and W
@@ -77,14 +77,12 @@ function parse_options() {
     fi
 
     # Detect XDLOPS if not specified
-    local xdlops
     if [[ $XDLOPS == -1 ]]; then
-      xdlops=$(/opt/rocm/bin/rocm_agent_enumerator |grep gfx908)
-      if [[ ! -z "$xdlops" ]]; then
-        XDLOPS=1
-      else
-        XDLOPS=0
-      fi
+      case $(/opt/rocm/bin/rocm_agent_enumerator) in
+          *gfx908*)          XDLOPS=1 ;;
+          *gfx906*|*gfx900*) XDLOPS=0 ;;
+          *)                 echo "No useful GPU found." ; exit 2 ;;
+      esac
     fi
 }
 

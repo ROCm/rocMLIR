@@ -13,7 +13,7 @@
 #ifndef MLIR_DIALECT_MIOPEN_CONV2DGENERATOR_H_
 #define MLIR_DIALECT_MIOPEN_CONV2DGENERATOR_H_
 
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
 
@@ -32,7 +32,7 @@ public:
     std::string perfConfig;
     int num_cu;
     bool xdlops;
-    miopen::ConvOpType operation;
+    llvm::Optional<miopen::ConvOpType> operation;
     std::string dataTypeStr;
     int dilationHeight, dilationWidth;
     int strideHeight, strideWidth;
@@ -42,7 +42,7 @@ public:
     std::string inputLayout;
     std::string outputLayout;
 
-    std::string kernelName;
+    std::string kernelBaseName;
 
     int kernelId;
 
@@ -58,7 +58,7 @@ public:
                   const std::string &features = "",
                   const std::string &perfConfig = "", int num_cu = 0,
                   bool xdlops = false,
-                  const miopen::ConvOpType operation = miopen::Conv2DOpType,
+                  const Optional<miopen::ConvOpType> operation = llvm::None,
                   const std::string &dataTypeStr = "f32",
                   int dilationHeight = 1, int dilationWidth = 1,
                   int strideHeight = 1, int strideWidth = 1,
@@ -67,10 +67,12 @@ public:
                   const std::string &filterLayout = "kcyx",
                   const std::string &inputLayout = "nchw",
                   const std::string &outputLayout = "nkhw",
-                  const std::string &kernelName = "");
+                  const std::string &kernelBaseName = "");
+
+  Conv2dGenerator(const Config &_config);
 
   const Config &getConfig() const { return config; }
-  void setKernelName(std::string newName);
+  void setKernelName(const std::string &newName);
 
   int getKernelCount() const;
 
@@ -97,7 +99,11 @@ public:
                               int64_t outputHeight, int64_t outputWidth,
                               int64_t filterHeight, int64_t filterWidth);
 
-  LogicalResult genConvModule(ModuleOp &module, int kernel_id = -1);
+  LogicalResult genConvModule(ModuleOp &module, int kernel_id = -1,
+                              bool is_verifier = false,
+                              bool ignoreTuning = false);
+
+  FuncOp getKernelFunc() const;
 
   template <typename Vector>
   std::string translateLayout(const Vector &src, const Vector &srcSpec,
@@ -130,6 +136,9 @@ private:
 
   // Generator config
   Config config;
+
+  // Generated Kernel Func
+  FuncOp kernelFunc;
 };
 
 } // namespace mlir

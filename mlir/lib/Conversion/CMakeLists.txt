@@ -4,6 +4,7 @@
 #add_subdirectory(AVX512ToLLVM)
 #add_subdirectory(ComplexToLLVM)
 #add_subdirectory(GPUCommon)
+add_subdirectory(GPUToMIGraphX)
 #add_subdirectory(GPUToNVVM)
 #add_subdirectory(GPUToROCDL)
 #add_subdirectory(GPUToSPIRV)

@@ -9,6 +9,13 @@ llvm_canonicalize_cmake_booleans(
   MLIR_ROCM_RUNNER_ENABLED
   MLIR_SPIRV_CPU_RUNNER_ENABLED
   MLIR_VULKAN_RUNNER_ENABLED
+
+  MLIR_MIOPEN_DRIVER_ENABLED
+  MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED
+  MLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED
+  MLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED
+  MLIR_MIOPEN_DRIVER_TIMING_TEST_ENABLED
+  MLIR_MIOPEN_SQLITE_ENABLED
   )
 
 # Passed to lit.site.cfg.py.so that the out of tree Standalone dialect test
@@ -54,6 +61,13 @@ if(MLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION)
   set(MLIR_POPULATE_VALIDATION "-pv_with_gpu")
 endif()
 
+# Sets execution options for lit test
+set(LIT_EXE_OPTION "")
+# Enables time tracking of individual tests
+if(MLIR_MIOPEN_DRIVER_TIMING_TEST_ENABLED)
+  set(LIT_EXE_OPTION "--time-tests")
+endif()
+
 configure_lit_site_cfg(
   ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py.in
   ${CMAKE_CURRENT_BINARY_DIR}/lit.site.cfg.py
@@ -61,10 +75,18 @@ configure_lit_site_cfg(
   ${CMAKE_CURRENT_SOURCE_DIR}/lit.cfg.py
   )
 
-set(MLIR_TEST_DEPENDS
+configure_lit_site_cfg(
+  ${CMAKE_CURRENT_SOURCE_DIR}/Unit/lit.site.cfg.py.in
+  ${CMAKE_CURRENT_BINARY_DIR}/Unit/lit.site.cfg.py
+  MAIN_CONFIG
+  ${CMAKE_CURRENT_SOURCE_DIR}/Unit/lit.cfg.py
+  )
+
+set(MLIR_MIOPEN_TEST_DEPENDS
   FileCheck count not
   miopen-opt
   miopen-translate
+  miopen-lsp-server
   mlir-mixr-capi-test
   mlir-tosa-miir-test
   mlir-opt
@@ -75,18 +97,16 @@ set(MLIR_TEST_DEPENDS
   mlir_async_runtime
   )
 
-if(TARGET gtest)
-  list(APPEND MLIR_TEST_DEPENDS MLIRUnitTests)
-endif()
+list(APPEND MLIR_MIOPEN_TEST_DEPENDS MLIRMIOpenUnitTests)
 
 if(MLIR_ROCM_RUNNER_ENABLED)
-  list(APPEND MLIR_TEST_DEPENDS
+  list(APPEND MLIR_MIOPEN_TEST_DEPENDS
     mlir-rocm-runner
   )
 endif()
 
 if(MLIR_BINDINGS_PYTHON_ENABLED)
-  list(APPEND MLIR_TEST_DEPENDS
+  list(APPEND MLIR_MIOPEN_TEST_DEPENDS
     MLIRBindingsPythonExtension
     MLIRBindingsPythonTestOps
     MLIRTransformsBindingsPythonExtension
@@ -95,8 +115,9 @@ endif()
 
 # MIOpen dialect tools.
 if(MLIR_MIOPEN_DRIVER_ENABLED)
-  list(APPEND MLIR_TEST_DEPENDS
+  list(APPEND MLIR_MIOPEN_TEST_DEPENDS
     mlir-miopen-driver
+    miopen-gen
     mlir-miopen-lib-test
     mlir-translate
     opt
@@ -104,14 +125,18 @@ if(MLIR_MIOPEN_DRIVER_ENABLED)
     )
 endif()
 
+add_custom_target(check-mlir-miopen-build-only
+  DEPENDS ${MLIR_MIOPEN_TEST_DEPENDS})
+
 # check-mlir-miopen runs MLIR-MIOpen regression tests including E2E tests
 # when MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED is set
 add_lit_testsuite(check-mlir-miopen "Running the MLIR-MIOpen regression tests"
   ${CMAKE_CURRENT_BINARY_DIR}
-  DEPENDS ${MLIR_TEST_DEPENDS}
+  DEPENDS ${MLIR_MIOPEN_TEST_DEPENDS}
+  ARGS ${LIT_EXE_OPTION}
   )
 set_target_properties(check-mlir-miopen PROPERTIES FOLDER "Tests")
 
 add_lit_testsuites(MLIR-MIOPEN ${CMAKE_CURRENT_SOURCE_DIR}
-  DEPENDS ${MLIR_TEST_DEPENDS}
+  DEPENDS ${MLIR_MIOPEN_TEST_DEPENDS}
 )

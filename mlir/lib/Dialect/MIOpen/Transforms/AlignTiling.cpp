@@ -24,7 +24,7 @@
 #include "PassDetail.h"
 
 #include "mlir/Dialect/Linalg/IR/LinalgOps.h"
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -123,9 +123,12 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     // 4. add bound attr with the register dims
     SmallVector<Attribute, 2> twCopyBoundsAttr;
     for (auto v : shape) {
-      twCopyBoundsAttr.push_back(b.getI32IntegerAttr(v));
+      twCopyBoundsAttr.push_back(b.getIndexAttr(v));
     }
-    nTWCopy->setAttr("bound", b.getArrayAttr(twCopyBoundsAttr));
+    nTWCopy->setAttr("bounds", b.getArrayAttr(twCopyBoundsAttr));
+
+    // 5. Adjust the copy to show the correct argument as global
+    nTWCopy->setAttr("globalArg", b.getIndexAttr(0));
 
     return nAlloc->getResult(0);
   }
@@ -348,8 +351,8 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         // 2.3. Copy gemm result vectors into vgpr
         // > vector.store %58#0, %59[%c0, %c0] : memref<2x4xf32>, vector<4xf32>
         // > vector.store %58#1, %59[%c1, %c0] : memref<2x4xf32>, vector<4xf32>
-        Value c0 = b.create<ConstantIndexOp>(loc, 0);
-        Value c1 = b.create<ConstantIndexOp>(loc, 1);
+        Value c0 = b.create<arith::ConstantIndexOp>(loc, 0);
+        Value c1 = b.create<arith::ConstantIndexOp>(loc, 1);
         const SmallVector<Value, 2> coords0{c0, c0};
         const SmallVector<Value, 2> coords1{c1, c0};
         b.create<vector::StoreOp>(loc, twcopys.back()->getOperand(0), laInRegs,

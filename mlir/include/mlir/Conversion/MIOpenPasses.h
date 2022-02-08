@@ -9,6 +9,7 @@
 #ifndef MIOPEN_MLIR_CONVERSION_PASSES_H
 #define MIOPEN_MLIR_CONVERSION_PASSES_H
 
+#include "mlir/Conversion/GPUToMIGraphX/GPUToMIGraphX.h"
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
 #include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
 #include "mlir/Conversion/Passes.h"

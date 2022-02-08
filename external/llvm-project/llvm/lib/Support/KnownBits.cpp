@@ -404,7 +404,7 @@ KnownBits KnownBits::abs(bool IntMinIsPoison) const {
   // We only know that the absolute values's MSB will be zero if INT_MIN is
   // poison, or there is a set bit that isn't the sign bit (otherwise it could
   // be INT_MIN).
-  if (IntMinIsPoison || (!One.isNullValue() && !One.isMinSignedValue()))
+  if (IntMinIsPoison || (!One.isZero() && !One.isMinSignedValue()))
     KnownAbs.Zero.setSignBit();
 
   // FIXME: Handle known negative input?
@@ -421,11 +421,10 @@ KnownBits KnownBits::mul(const KnownBits &LHS, const KnownBits &RHS,
          "Self multiplication knownbits mismatch");
 
   // Compute a conservative estimate for high known-0 bits.
-  unsigned LeadZ =
-      std::max(LHS.countMinLeadingZeros() + RHS.countMinLeadingZeros(),
-               BitWidth) -
-      BitWidth;
-  LeadZ = std::min(LeadZ, BitWidth);
+  unsigned LHSLeadZ = LHS.countMinLeadingZeros();
+  unsigned RHSLeadZ = RHS.countMinLeadingZeros();
+  unsigned LeadZ = std::max(LHSLeadZ + RHSLeadZ, BitWidth) - BitWidth;
+  assert(LeadZ <= BitWidth && "More zeros than bits?");
 
   // The result of the bottom bits of an integer multiply can be
   // inferred by looking at the bottom bits of both operands and

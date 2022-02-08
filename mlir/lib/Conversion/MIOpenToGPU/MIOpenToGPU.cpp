@@ -27,14 +27,16 @@
 #include "mlir/Conversion/SCFToStandard/SCFToStandard.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/GPU/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/MIOpen/LowerMIOpenOps.h"
-#include "mlir/Dialect/MIOpen/MIOpenOps.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
-#include "mlir/Dialect/MIOpen/XdlopsCodeSelection.h"
+#include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Vector/VectorOps.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Attributes.h"
@@ -65,12 +67,6 @@ public:
   LowerMIOpenOpsToGPUPass() = default;
   void runOnOperation() override;
 };
-
-struct LowerMIOpenOpsWithinGPUModulePass
-    : public ConvertMIOpenWithinGPUModuleBase<
-          LowerMIOpenOpsWithinGPUModulePass> {
-  void runOnOperation() override;
-};
 } // end anonymous namespace
 
 namespace {
@@ -98,20 +94,6 @@ struct MIGPUAllocRewritePattern : public OpRewritePattern<miopen::GpuAllocOp> {
       // TBD: return failure.
       llvm::errs() << "unsupported addrspace!\n";
     }
-    op.erase();
-    return success();
-  }
-};
-
-struct MIDataConvertRewritePattern
-    : public OpRewritePattern<miopen::DataConvertOp> {
-  using OpRewritePattern<miopen::DataConvertOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(miopen::DataConvertOp op,
-                                PatternRewriter &b) const override {
-    Value nop =
-        b.create<gpu::BFConvertOp>(op.getLoc(), op.out().getType(), op.in());
-    op.replaceAllUsesWith(nop);
     op.erase();
     return success();
   }
@@ -178,19 +160,34 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     return gpuModule;
   };
 
-  auto processGpuKernelFunc = [&](FuncOp &theFunc,
-                                  OpBuilder &b) -> gpu::GPUFuncOp {
+  auto processGpuKernelFunc = [&](gpu::GPUModuleOp &gpuMod,
+                                  FuncOp &theFunc) -> gpu::GPUFuncOp {
+    // Set up the symbol table for the GPU ModuleOp.
+    SymbolTable gpuModuleSymbolTable(gpuMod);
+    // Reset builder insertion point to the beginning of the GPU module,
+    // as it would be modified inside the lambda.
+    OpBuilder b(gpuMod.getContext());
+
     // create a GPUFuncOp.
     FunctionType gpuFuncType = theFunc.getType();
     auto gpuFunc =
         b.create<gpu::GPUFuncOp>(loc, theFunc.getName(), gpuFuncType);
 
+    // insert the GPUFuncOp into GPUModuleOp.
+    gpuModuleSymbolTable.insert(gpuFunc);
+
     // Set kernel attribute.
+    int64_t gridSize = 0;
+    int64_t blockSize = 0;
     gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(), b.getUnitAttr());
-    if (auto attr = theFunc->getAttr("block_size"))
+    if (auto attr = theFunc->getAttr("block_size")) {
       gpuFunc->setAttr("block_size", attr);
-    if (auto attr = theFunc->getAttr("grid_size"))
+      blockSize = attr.template cast<IntegerAttr>().getInt();
+    }
+    if (auto attr = theFunc->getAttr("grid_size")) {
       gpuFunc->setAttr("grid_size", attr);
+      gridSize = attr.template cast<IntegerAttr>().getInt();
+    }
 
     // associate arguments for newly created GPUFuncOp.
     BlockAndValueMapping map;
@@ -213,6 +210,34 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     b.setInsertionPointToEnd(&gpuFuncEntry);
     b.create<BranchOp>(loc, clonedFuncEntry);
 
+    // convert all calls to gpu.launch_func
+    SmallVector<CallOp, 4> calls;
+    op.walk([&](CallOp call) {
+      if (auto callable = call.getCallableForCallee()) {
+        if (FlatSymbolRefAttr symRef = callable.dyn_cast<SymbolRefAttr>()
+                                           .dyn_cast<FlatSymbolRefAttr>()) {
+          if (symRef.getValue() == theFunc.getName()) {
+            OpBuilder b(call);
+            auto gridVal = b.create<arith::ConstantIndexOp>(loc, gridSize);
+            auto blockVal = b.create<arith::ConstantIndexOp>(loc, blockSize);
+            auto cst1 = b.create<arith::ConstantIndexOp>(loc, 1);
+            auto dynamicSharedMemSize =
+                b.create<arith::ConstantIntOp>(loc, 0, b.getI32Type());
+            gpu::KernelDim3 gridDims{gridVal, cst1, cst1};
+            gpu::KernelDim3 blockDims{blockVal, cst1, cst1};
+            b.create<gpu::LaunchFuncOp>(loc, gpuFunc, gridDims, blockDims,
+                                        dynamicSharedMemSize,
+                                        call.getArgOperands());
+            calls.push_back(call);
+          }
+        }
+      }
+    });
+
+    for (auto &call : calls) {
+      call.erase();
+    }
+
     return gpuFunc;
   };
 
@@ -223,15 +248,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
       std::string gfname = func.getName().str();
       gfname += "_module";
       auto gpuMod = makeGpuModule(gfname);
-      // Set up the symbol table for the GPU ModuleOp.
-      SymbolTable gpuModuleSymbolTable(gpuMod);
-      // Reset builder insertion point to the beginning of the GPU module,
-      // as it would be modified inside the lambda.
-      OpBuilder bmod(gpuMod.getContext());
-      auto gpuFunc = processGpuKernelFunc(func, bmod);
-
-      // insert the GPUFuncOp into GPUModuleOp.
-      gpuModuleSymbolTable.insert(gpuFunc);
+      processGpuKernelFunc(gpuMod, func);
 
       processedFuncs.push_back(func);
     }
@@ -251,7 +268,6 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
 
     // miopen-lowering
     patterns.insert<MIGPUAllocRewritePattern>(ctx);
-    patterns.insert<MIDataConvertRewritePattern>(ctx);
     patterns.insert<MIOpRewritePattern<miopen::WorkgroupBarrierOp, gpu::BarrierOp>>(ctx);
     patterns.insert<MIOpRewritePattern<miopen::LDSBarrierOp, gpu::LDSBarrierOp>>(ctx);
     patterns.insert<MIIdRewritePattern<miopen::WorkgroupIdOp, gpu::BlockIdOp>>(ctx);
@@ -269,47 +285,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
   }
 }
 
-void LowerMIOpenOpsWithinGPUModulePass::runOnOperation() {
-  auto *ctx = &getContext();
-  OwningRewritePatternList patterns(ctx);
-
-  // miopen-lowering
-  patterns.insert<Conv2DRewritePattern<miopen::Conv2DOp>>(ctx);
-  patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdDataOp>>(ctx);
-  patterns.insert<Conv2DRewritePattern<miopen::Conv2DBwdWeightOp>>(ctx);
-
-  // TBD: miopen-affine-transform
-  // TBD: miopen-affix-params
-
-  // miopen-lowering-step2
-  patterns.insert<GridwiseGemmRewritePattern>(ctx);
-
-  // miopen-lowering-step3
-  patterns.insert<FillRewritePattern>(ctx);
-  patterns.insert<MovePosV2RewritePattern>(ctx);
-  patterns.insert<SubviewRewritePattern>(ctx);
-  patterns.insert<TransformRewritePattern>(ctx);
-  patterns.insert<BlockwiseGemmRewritePattern>(ctx);
-  patterns.insert<BlockwiseCopyRewritePattern>(ctx);
-
-  // miopen-lowering-step4
-  patterns.insert<ThreadwiseGemmRewritePattern>(ctx);
-  patterns.insert<ThreadwiseCopyRewritePattern>(ctx);
-
-  // miopen-lowering-step5
-  populateAffineToStdConversionPatterns(patterns);
-  populateLoopToStdConversionPatterns(patterns);
-
-  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
-    signalPassFailure();
-}
-
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
 mlir::createLowerMIOpenOpsToGPUPass() {
   return std::make_unique<LowerMIOpenOpsToGPUPass>();
-}
-
-std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
-mlir::createLowerMIOpenOpsWithinGPUModulePass() {
-  return std::make_unique<LowerMIOpenOpsWithinGPUModulePass>();
 }

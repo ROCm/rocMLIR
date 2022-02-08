@@ -16,8 +16,8 @@ module attributes {gpu.container_module} {
     }
 
     func @main() {
-        %c2 = constant 2 : index
-        %c1 = constant 1 : index
+        %c2 = arith.constant 2 : index
+        %c1 = arith.constant 1 : index
         gpu.launch_func @kernels::@hello
             blocks in (%c1, %c1, %c1)
             threads in (%c2, %c1, %c1)        return

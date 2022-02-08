@@ -21,7 +21,7 @@
 #include "llvm/Support/LineIterator.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/SourceMgr.h"
-#include "llvm/Support/TargetRegistry.h"
+#include "llvm/MC/TargetRegistry.h"
 
 // MC headers.
 #include "llvm/MC/MCAsmBackend.h"

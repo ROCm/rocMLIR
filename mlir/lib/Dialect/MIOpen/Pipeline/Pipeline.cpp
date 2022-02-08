@@ -41,21 +41,19 @@ using namespace mlir;
 void miopen::addHighLevelPipeline(PassManager &pm) {
   // passes for TOSA and bufferization
   pm.addPass(tosa::createTosaToMIOpenPass());
-  pm.addPass(tosa::createTosaToLinalgOnTensors());
+  pm.addPass(tosa::createTosaToLinalg());
   pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(createLinalgBufferizePass());
   pm.addPass(createFuncBufferizePass());
   pm.addPass(createBufferResultsToOutParamsPass());
-  pm.addPass(createFinalizingBufferizePass());
+  pm.addPass(bufferization::createFinalizingBufferizePass());
   pm.addPass(miopen::createMIOpenCopyOptPass());
 }
 
-void miopen::addPipeline(PassManager &pm, const std::string &perfConfig,
-                         bool applicability, bool highLevel) {
+void miopen::addPipeline(PassManager &pm, bool applicability, bool highLevel) {
   // Passes for lowering MIOpen dialect.
-  pm.addPass(miopen::createAffixTuningParametersPass(0, 0, perfConfig));
+  pm.addPass(miopen::createAffixTuningParametersPass(0, 0));
   pm.addPass(miopen::createLowerMIOpenOpsStep1Pass());
-  pm.addPass(miopen::createAffineTransformPass());
   pm.addPass(miopen::createLowerMIOpenOpsStep2Pass());
 
   if (!applicability) {

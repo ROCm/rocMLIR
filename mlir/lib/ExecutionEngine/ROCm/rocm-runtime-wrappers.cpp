@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include <cassert>
+#include <mutex>
 #include <numeric>
 
 #include "mlir/ExecutionEngine/CRunnerUtils.h"
@@ -56,8 +57,8 @@ static unsigned short float_to_bfloat16(float src_val) {
 
 // Generate tables for float-to-fp16 conversion
 // ref. http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
-static void generateTables(unsigned short *basetable,
-                           unsigned char *shifttable) {
+static int generateTables(unsigned short *basetable,
+                          unsigned char *shifttable) {
   unsigned int i;
   int e;
   for (i = 0; i < 256; ++i) {
@@ -90,12 +91,16 @@ static void generateTables(unsigned short *basetable,
     }
   }
 
-  return;
+  return 1;
 }
 
-static unsigned short float_to_fp16(float src_val,
-                                    unsigned short const *basetable,
-                                    unsigned char const *shifttable) {
+static unsigned short float_to_fp16(float src_val) {
+  // Generate tables for converting float to fp16
+  static unsigned short basetable[512];
+  static unsigned char shifttable[512];
+  static std::once_flag flag;
+  std::call_once(flag, generateTables, basetable, shifttable);
+
   // ref. http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
   bf16_fp32_cvt_t target_val;
   target_val.f32 = src_val;
@@ -320,14 +325,9 @@ extern "C" void mcpuMem5DFloatConvertHalf(
   assert(size0 * size1 * size2 * size3 * size4 ==
          size5 * size6 * size7 * size8 * size9);
 
-  // Generate tables for converting float to fp16
-  unsigned short basetable[512];
-  unsigned char shifttable[512];
-  generateTables(basetable, shifttable);
-
   int64_t dataSize = size0 * size1 * size2 * size3 * size4;
   for (int64_t i = 0; i < dataSize; i++) {
-    destAligned[i] = float_to_fp16(sourceAligned[i], basetable, shifttable);
+    destAligned[i] = float_to_fp16(sourceAligned[i]);
   }
 }
 
@@ -375,6 +375,11 @@ extern "C" void mcpuPrintBF16(unsigned short *allocated,
     printf("%f\t", fvalue);
   }
 }
+
+extern "C" void mcpuPrintF32(float f1, float f2) {
+  printf("Values: %f, %f\n", f1, f2);
+}
+
 // 2D float memref utility routines.
 
 extern "C" void mcpuMemset2DFloat(float *allocated, float *aligned,
@@ -422,9 +427,9 @@ short randomIntegerValue(short min, short max) {
 }
 
 float randomFloatValue(short min, short max) {
-  float minAsF = static_cast<float>(min);
+  auto minAsF = static_cast<float>(min);
   if (min == max)
-    return minAsF;
+    return minAsF * 0.1f; // avoid inf
   return static_cast<float>((max - min) * static_cast<double>(std::rand()) /
                             static_cast<double>(RAND_MAX)) +
          minAsF;
@@ -673,11 +678,6 @@ extern "C" void mcpuMemset5DHalfRandInt(
     int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
     int64_t stride4, short min, short max, uint32_t seed) {
 
-  // Generate tables for converting float to fp16
-  unsigned short basetable[512];
-  unsigned char shifttable[512];
-  generateTables(basetable, shifttable);
-
   if (seed == 0)
     std::srand(time(0));
   else
@@ -689,9 +689,9 @@ extern "C" void mcpuMemset5DHalfRandInt(
       for (unsigned k = 0; k < size2; ++k)
         for (unsigned l = 0; l < size3; ++l)
           for (unsigned m = 0; m < size4; ++m) {
-            value = randomIntegerValue(min, max);
+            value = (float)randomIntegerValue(min, max);
             aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
-                    m * stride4] = float_to_fp16(value, basetable, shifttable);
+                    m * stride4] = float_to_fp16(value);
           }
 }
 
@@ -700,11 +700,6 @@ extern "C" void mcpuMemset5DHalfRandFloat(
     int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
     int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
     int64_t stride4, short min, short max, uint32_t seed) {
-
-  // Generate tables for converting float to fp16
-  unsigned short basetable[512];
-  unsigned char shifttable[512];
-  generateTables(basetable, shifttable);
 
   if (seed == 0)
     std::srand(time(0));
@@ -719,7 +714,7 @@ extern "C" void mcpuMemset5DHalfRandFloat(
           for (unsigned m = 0; m < size4; ++m) {
             value = randomFloatValue(min, max);
             aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
-                    m * stride4] = float_to_fp16(value, basetable, shifttable);
+                    m * stride4] = float_to_fp16(value);
           }
 }
 
@@ -1048,14 +1043,13 @@ getSizesAndStrides(int64_t rank1, StridedMemRefType<float, 5> *filter,
 
 // A generic forward convolution function that supports random layouts,
 // dimensions, strides, paddings, and dilations.
-extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
-                           void *i_ptr, int64_t rank3, void *o_ptr,
-                           int64_t rank4, void *f_layout, int64_t rank5,
-                           void *i_layout, int64_t rank6, void *o_layout,
-                           int32_t stride_h, int32_t stride_w,
-                           int32_t padding_h_l, int32_t padding_h_r,
-                           int32_t padding_w_l, int32_t padding_w_r,
-                           int32_t dilation_h, int32_t dilation_w) {
+extern "C" void
+mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
+           int64_t rank3, void *o_ptr, int64_t rank4, void *f_layout,
+           int64_t rank5, void *i_layout, int64_t rank6, void *o_layout,
+           int32_t stride_h, int32_t stride_w, int32_t padding_h_l,
+           int32_t padding_h_r, int32_t padding_w_l, int32_t padding_w_r,
+           int32_t dilation_h, int32_t dilation_w, int32_t xdlops) {
   auto *filter = static_cast<StridedMemRefType<float, 5> *>(f_ptr);
   auto *filterAllocated = filter->data + filter->offset;
 
@@ -1080,7 +1074,7 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
         for (int64_t out_h = 0; out_h < outputSizes[3]; out_h++)
           for (int64_t out_w = 0; out_w < outputSizes[4]; out_w++) {
 
-            float acc = 0.0;
+            double acc = 0.0;
             for (int64_t c = 0; c < inputSizes[2]; c++)
               for (int64_t fil_h = 0; fil_h < filterSizes[3]; fil_h++)
                 for (int64_t fil_w = 0; fil_w < filterSizes[4]; fil_w++) {
@@ -1102,27 +1096,32 @@ extern "C" void mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2,
                                            in_h * inputStrides[3] +
                                            in_w * inputStrides[4]];
 
-                  acc += input * filterAllocated[g * filterStrides[0] +
-                                                 k * filterStrides[1] +
-                                                 c * filterStrides[2] +
-                                                 fil_h * filterStrides[3] +
-                                                 fil_w * filterStrides[4]];
+                  acc += (double)(input *
+                                  filterAllocated[g * filterStrides[0] +
+                                                  k * filterStrides[1] +
+                                                  c * filterStrides[2] +
+                                                  fil_h * filterStrides[3] +
+                                                  fil_w * filterStrides[4]]);
+                  if (!xdlops) // || (fil_w + fil_h + c) % 4 == 3)
+                    acc = (float)acc;
                 }
 
             outputAllocated[g * outputStrides[0] + n * outputStrides[1] +
                             k * outputStrides[2] + out_h * outputStrides[3] +
-                            out_w * outputStrides[4]] = acc;
+                            out_w * outputStrides[4]] = (float)acc;
           }
 }
 
 // A generic backward-weight convolution function that supports random layouts,
 // dimensions, strides, paddings, and dilations.
-extern "C" void mcpuConv2dBwdWeight(
-    int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr, int64_t rank3,
-    void *o_ptr, int64_t rank4, void *f_layout, int64_t rank5, void *i_layout,
-    int64_t rank6, void *o_layout, int32_t stride_h, int32_t stride_w,
-    int32_t padding_h_l, int32_t padding_h_r, int32_t padding_w_l,
-    int32_t padding_w_r, int32_t dilation_h, int32_t dilation_w) {
+extern "C" void
+mcpuConv2dBwdWeight(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
+                    int64_t rank3, void *o_ptr, int64_t rank4, void *f_layout,
+                    int64_t rank5, void *i_layout, int64_t rank6,
+                    void *o_layout, int32_t stride_h, int32_t stride_w,
+                    int32_t padding_h_l, int32_t padding_h_r,
+                    int32_t padding_w_l, int32_t padding_w_r,
+                    int32_t dilation_h, int32_t dilation_w, int32_t xdlops) {
 
   auto *filter = static_cast<StridedMemRefType<float, 5> *>(f_ptr);
   auto *filterAllocated = filter->data + filter->offset;
@@ -1148,7 +1147,7 @@ extern "C" void mcpuConv2dBwdWeight(
         for (int64_t y = 0; y < filterSizes[3]; y++)
           for (int64_t x = 0; x < filterSizes[4]; x++) {
 
-            float acc = 0.0;
+            double acc = 0.0;
             for (int64_t n = 0; n < outputSizes[1]; n++)
               for (int64_t out_h = 0; out_h < outputSizes[3]; out_h++)
                 for (int64_t out_w = 0; out_w < outputSizes[4]; out_w++) {
@@ -1158,33 +1157,34 @@ extern "C" void mcpuConv2dBwdWeight(
                       out_w * stride_w + x * dilation_w - padding_w_l;
                   if (in_h >= 0 && in_h < inputSizes[3] && in_w >= 0 &&
                       in_w < inputSizes[4])
-                    acc += inputAllocated[g * inputStrides[0] +
-                                          n * inputStrides[1] +
-                                          c * inputStrides[2] +
-                                          in_h * inputStrides[3] +
-                                          in_w * inputStrides[4]] *
-                           outputAllocated[g * outputStrides[0] +
-                                           n * outputStrides[1] +
-                                           k * outputStrides[2] +
-                                           out_h * outputStrides[3] +
-                                           out_w * outputStrides[4]];
+                    acc += (double)(inputAllocated[g * inputStrides[0] +
+                                                   n * inputStrides[1] +
+                                                   c * inputStrides[2] +
+                                                   in_h * inputStrides[3] +
+                                                   in_w * inputStrides[4]] *
+                                    outputAllocated[g * outputStrides[0] +
+                                                    n * outputStrides[1] +
+                                                    k * outputStrides[2] +
+                                                    out_h * outputStrides[3] +
+                                                    out_w * outputStrides[4]]);
+                  if (!xdlops) // || (out_w + out_h + n) % 4 == 3)
+                    acc = (float)acc;
                 }
             filterAllocated[g * filterStrides[0] + k * filterStrides[1] +
                             c * filterStrides[2] + y * filterStrides[3] +
-                            x * filterStrides[4]] = acc;
+                            x * filterStrides[4]] = (float)acc;
           }
 }
 
 // A generic backward-data convolution function that supports random layouts,
 // dimensions, strides, paddings, and dilations.
-extern "C" void mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2,
-                                  void *i_ptr, int64_t rank3, void *o_ptr,
-                                  int64_t rank4, void *f_layout, int64_t rank5,
-                                  void *i_layout, int64_t rank6, void *o_layout,
-                                  int32_t stride_h, int32_t stride_w,
-                                  int32_t padding_h_l, int32_t padding_h_r,
-                                  int32_t padding_w_l, int32_t padding_w_r,
-                                  int32_t dilation_h, int32_t dilation_w) {
+extern "C" void
+mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
+                  int64_t rank3, void *o_ptr, int64_t rank4, void *f_layout,
+                  int64_t rank5, void *i_layout, int64_t rank6, void *o_layout,
+                  int32_t stride_h, int32_t stride_w, int32_t padding_h_l,
+                  int32_t padding_h_r, int32_t padding_w_l, int32_t padding_w_r,
+                  int32_t dilation_h, int32_t dilation_w, int32_t xdlops) {
 
   auto *filter = static_cast<StridedMemRefType<float, 5> *>(f_ptr);
   auto *filterAllocated = filter->data + filter->offset;
@@ -1210,7 +1210,7 @@ extern "C" void mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2,
         for (int64_t in_h = 0; in_h < inputSizes[3]; in_h++)
           for (int64_t in_w = 0; in_w < inputSizes[4]; in_w++) {
 
-            float acc = 0.0;
+            double acc = 0.0;
             for (int64_t k = 0; k < filterSizes[1]; k++)
               for (int64_t y = 0; y < filterSizes[3]; y++)
                 for (int64_t x = 0; x < filterSizes[4]; x++) {
@@ -1221,16 +1221,18 @@ extern "C" void mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2,
                   if (out_h_tmp % stride_h == 0 && out_w_tmp % stride_w == 0 &&
                       out_h >= 0 && out_h < outputSizes[3] && out_w >= 0 &&
                       out_w < outputSizes[4])
-                    acc += filterAllocated[g * filterStrides[0] +
-                                           k * filterStrides[1] +
-                                           c * filterStrides[2] +
-                                           y * filterStrides[3] +
-                                           x * filterStrides[4]] *
-                           outputAllocated[g * outputStrides[0] +
-                                           n * outputStrides[1] +
-                                           k * outputStrides[2] +
-                                           out_h * outputStrides[3] +
-                                           out_w * outputStrides[4]];
+                    acc += (double)(filterAllocated[g * filterStrides[0] +
+                                                    k * filterStrides[1] +
+                                                    c * filterStrides[2] +
+                                                    y * filterStrides[3] +
+                                                    x * filterStrides[4]] *
+                                    outputAllocated[g * outputStrides[0] +
+                                                    n * outputStrides[1] +
+                                                    k * outputStrides[2] +
+                                                    out_h * outputStrides[3] +
+                                                    out_w * outputStrides[4]]);
+                  if (!xdlops) // || (x + y + k) % 4 == 3)
+                    acc = (float)acc;
                 }
             inputAllocated[g * inputStrides[0] + n * inputStrides[1] +
                            c * inputStrides[2] + in_h * inputStrides[3] +
