@@ -339,31 +339,26 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
 // test/lib/Transforms/TestSCFUtils.cpp.
 class TosaPartitionPass : public TosaPartitionBase<TosaPartitionPass> {
 public:
-  bool isConstantZero(Operation *op) {
+  static bool isZeroAttribute(Attribute value) {
+    if (auto intValue = value.dyn_cast<IntegerAttr>())
+      return intValue.getValue().isNullValue();
+    if (auto fpValue = value.dyn_cast<FloatAttr>())
+      return fpValue.getValue().isZero();
+    if (auto splatValue = value.dyn_cast<SplatElementsAttr>())
+      return isZeroAttribute(splatValue.getSplatValue<Attribute>());
+    if (auto elementsValue = value.dyn_cast<ElementsAttr>())
+      return llvm::all_of(elementsValue.getValues<Attribute>(), isZeroAttribute);
+    if (auto arrayValue = value.dyn_cast<ArrayAttr>())
+      return llvm::all_of(arrayValue.getValue(), isZeroAttribute);
+    return false;
+  }
+
+  static bool isConstantZero(Operation *op) {
     // test for zero
-    bool is_zero = false;
     if (auto cst = dyn_cast<arith::ConstantOp>(op)) {
-      if (auto val = cst.getValue().dyn_cast<ElementsAttr>()) {
-        auto valType = val.getType().dyn_cast<ShapedType>();
-        auto valElemType = valType.getElementType();
-        if (valElemType.isa<FloatType>()) {
-          is_zero = true;
-          for (auto ii = val.value_begin<APFloat>();
-               is_zero && ii != val.value_end<APFloat>(); ++ii)
-            is_zero &= (*ii).isZero();
-        } else if (valElemType.isa<IntegerType>()) {
-          is_zero = true;
-          for (auto ii = val.value_begin<APInt>();
-               is_zero && ii != val.value_end<APInt>(); ++ii)
-            is_zero &= (*ii).isZero();
-        }
-      } else if (auto val = cst.getValue().dyn_cast<FloatAttr>()) {
-        return val.getValue().isZero();
-      } else if (auto val = cst.getValue().dyn_cast<IntegerAttr>()) {
-        return val.getValue().isZero();
-      }
+      return isZeroAttribute(cst.getValue());
     }
-    return is_zero;
+    return false;
   }
 
   void traceInputs(Operation *op, SmallVector<Operation *> &predecessors,
