@@ -110,29 +110,22 @@ void registerTestDialect(DialectRegistry &);
 static LogicalResult
 parsePipeline(StringRef pipeline, llvm::SmallDenseSet<StringRef> &pipelineSet,
               llvm::SmallDenseSet<StringRef> &pipelineOptions) {
-  size_t start = 0;
-  size_t pos = 0;
-  do {
-    pos = pipeline.find_first_of(",", start);
-    auto opt = pipeline.substr(start, pos).trim();
+  SmallVector<StringRef, 8> tokens;
+  pipeline.split(tokens, ',');
+  for (auto str : tokens) {
+    auto opt = str.trim();
     if (opt.empty()) {
     } else if (opt == "all" || opt == "full") {
       pipelineSet = pipelineOptions;
     } else if (pipelineOptions.contains(opt)) {
       pipelineSet.insert(opt);
     } else {
-      SmallString<256> opts;
-      for (auto pipeline : pipelineOptions) {
-        if (opts.size())
-          opts += ", ";
-        opts += pipeline;
-      }
+      auto opts = llvm::join(pipelineOptions, ",");
       llvm::errs() << "Invalid pipeline: " << opt << "\n"
                    << "   Valid options: " << opts << " or full\n";
       return failure();
     }
-    start = pos + 1;
-  } while (pos != StringRef::npos);
+  }
 
   return success();
 }
@@ -183,6 +176,21 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 
   // Set up lowering pipeline.
   if (kernelPipelineSet.size()) {
+    // test for target spec
+    if (kernelPipelineSet.contains("binary")) {
+      if (tripleName.empty() || targetChip.empty()) {
+        llvm::errs()
+            << "Target triple (-triple) and chip (-target) not specified for binary backend\n";
+        return failure();
+      }
+    } else {
+      if (!tripleName.empty() || !targetChip.empty() || !features.empty()) {
+        llvm::errs()
+            << "Target (-triple,-target,-features) should not be set except for kernel-pipeline=binary\n";
+        return failure();
+      }
+    }
+    
     if (kernelPipelineSet.size() == 1 && kernelPipelineSet.contains("tuning")) {
       // Set up the default lowering pipeline which goes down to affix tuning
       // parameters
@@ -197,11 +205,6 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
         if (optLevel < 0 || optLevel > 3) {
           llvm::errs() << "Invalid GPU optimization level: " << optLevel
                        << "\n";
-          return failure();
-        }
-        if (targetChip.empty()) {
-          llvm::errs()
-              << "Target chip (-target) not specified for binary backend\n";
           return failure();
         }
 

@@ -63,12 +63,14 @@ struct MIOpenApplyImplPass
             SymbolTable::getSymbolName(gpuMod).getValue());
         binaryCstName.append("_gpubin_cst");
         // uniquify if necessary
-        while (symbolTable.lookup(binaryCstName)) {
-          binaryCstName += "0";
+        auto binaryCstNameUnique = binaryCstName;
+        int32_t cnt = 0;
+        while (symbolTable.lookup(binaryCstNameUnique)) {
+          binaryCstNameUnique = (binaryCstName + llvm::toStringRef(cnt++)).str();
         }
         auto binaryCst = b.create<ConstantOp>(loc, binaryAttr);
         binaryCst->setAttr(SymbolTable::getSymbolAttrName(),
-                           b.getStringAttr(binaryCstName));
+                           b.getStringAttr(binaryCstNameUnique));
 
         symbolTable.insert(binaryCst);
 
