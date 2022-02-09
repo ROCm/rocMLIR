@@ -78,10 +78,8 @@ BackendUtils::BackendUtils(const std::string &defaultTriple,
                            const std::string &defaultChip,
                            const std::string &defaultFeatures)
     : triple(defaultTriple), chip(defaultChip), features(defaultFeatures) {
-  if (triple.empty()) {
+  if (triple.empty() && chip.empty() && features.empty()) {
     triple = kTargetTriple;
-  }
-  if (chip.empty() && features.empty()) {
     configTarget(chip, features);
   }
 }
