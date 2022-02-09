@@ -59,14 +59,14 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
 static cl::opt<std::string> kernelPipeline(
     "kernel-pipeline", cl::desc("mlir-miopen-driver kernel pipeline list"),
     cl::value_desc(
-        "comma separated list of miopen pipelines: tuning,gpu,rocdl,binary"),
+        "comma separated list of miopen pipelines: tuning,gpu,rocdl,binary or full"),
     cl::init(""));
 
 static cl::opt<std::string>
     hostPipeline("host-pipeline",
                  cl::desc("mlir-miopen-driver host pipeline list"),
                  cl::value_desc("comma separated list of miopen pipelines: "
-                                "partition,highlevel,execmodel"),
+                                "partition,highlevel,execmodel or full"),
                  cl::init(""));
 
 static cl::opt<bool> legacyMiopenPipeline("c", cl::Hidden, cl::init(false),
@@ -115,7 +115,7 @@ parsePipeline(StringRef pipeline, llvm::SmallDenseSet<StringRef> &pipelineSet,
   for (auto str : tokens) {
     auto opt = str.trim();
     if (opt.empty()) {
-    } else if (opt == "all" || opt == "full") {
+    } else if (opt == "full") {
       pipelineSet = pipelineOptions;
     } else if (pipelineOptions.contains(opt)) {
       pipelineSet.insert(opt);
