@@ -75,12 +75,6 @@ if( BUILD_FAT_LIBMLIRMIOPEN )
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
   set(LLVM_BUILD_LLVM_DYLIB OFF CACHE BOOL "")
   # TODO remove
-  # This is a temporary fix because it is required by AddMLIR.cmake
-  # Otherwise cmake complains that lld is not exported or installed
-  # In reality, the fat library already link with lld and should
-  # not need to export lld
-  set(LLVM_INSTALL_TOOLCHAIN_ONLY OFF CACHE BOOL "")
-  # TODO remove
   # This is a temporary fix because MLIRGPUTransforms has to
   # compile with MLIR_GPU_TO_HSACO_PASS_ENABLE=1, which is
   # enabled only when MLIR_ENABLE_ROCM_RUNNER turned on

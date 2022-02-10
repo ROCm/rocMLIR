@@ -9,14 +9,6 @@ if (NOT ("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD))
     "Building the mlir rocm runner requires the AMDGPU backend")
 endif()
 
-# Ensure lld is enabled.
-if (NOT "lld" IN_LIST LLVM_ENABLE_PROJECTS)
-  message(SEND_ERROR "lld is not enabled. Please revise LLVM_ENABLE_PROJECTS")
-endif()
-
-# lld header files.
-include_directories(${CMAKE_SOURCE_DIR}/external/llvm-project/lld/include)
-
 # Set compile-time flags for ROCm path.
 add_definitions(-D__ROCM_PATH__="${ROCM_PATH}")
 

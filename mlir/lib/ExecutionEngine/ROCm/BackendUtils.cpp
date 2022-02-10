@@ -39,9 +39,6 @@
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCTargetOptionsCommandFlags.h"
 
-// lld headers.
-#include "lld/Common/Driver.h"
-
 // If an old rocm_agent_enumerator that has no "-name" option is used, rely on
 // the hip runtime function to provide GPU GCN Arch names.
 #if __INCLUDE_HIP__

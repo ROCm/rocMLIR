@@ -10,7 +10,7 @@ set(MLIR_ROCM_RUNNER_ENABLED 1 CACHE BOOL "Enable building the mlir ROCm runner"
 set(MLIR_TABLEGEN_EXE mlir-tblgen)
 
 # LLVM settings
-set(LLVM_ENABLE_PROJECTS "mlir;lld" CACHE STRING "List of default llvm targets")
+set(LLVM_ENABLE_PROJECTS "mlir" CACHE STRING "List of default llvm targets")
 set(LLVM_BUILD_EXAMPLES ON CACHE BOOL "")
 set(LLVM_INSTALL_UTILS ON CACHE BOOL "")
 set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
