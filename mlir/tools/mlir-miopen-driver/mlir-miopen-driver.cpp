@@ -56,11 +56,12 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
                                            cl::value_desc("filename"),
                                            cl::init("-"));
 
-static cl::opt<std::string> kernelPipeline(
-    "kernel-pipeline", cl::desc("mlir-miopen-driver kernel pipeline list"),
-    cl::value_desc(
-        "comma separated list of miopen pipelines: tuning,gpu,rocdl,binary or full"),
-    cl::init(""));
+static cl::opt<std::string>
+    kernelPipeline("kernel-pipeline",
+                   cl::desc("mlir-miopen-driver kernel pipeline list"),
+                   cl::value_desc("comma separated list of miopen pipelines: "
+                                  "tuning,gpu,rocdl,binary or full"),
+                   cl::init(""));
 
 static cl::opt<std::string>
     hostPipeline("host-pipeline",
