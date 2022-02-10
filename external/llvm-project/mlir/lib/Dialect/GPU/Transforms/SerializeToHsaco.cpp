@@ -68,8 +68,6 @@
 
 #include "llvm/Transforms/IPO/Internalize.h"
 
-#include "lld/Common/Driver.h"
-
 #include <iterator>
 #include <memory>
 #include <mutex>
@@ -466,16 +464,15 @@ SerializeToHsacoPass::createHsaco(const SmallVectorImpl<char> &isaBinary) {
   }
   llvm::FileRemover cleanupHsaco(tempHsacoFilename);
 
-  {
-    static std::mutex mutex;
-    const std::lock_guard<std::mutex> lock(mutex);
-    // Invoke lld. Expect a true return value from lld.
-    if (!lld::elf::link({"ld.lld", "-shared", tempIsaBinaryFilename.c_str(),
-                         "-o", tempHsacoFilename.c_str()},
-                        /*canEarlyExit=*/false, llvm::outs(), llvm::errs())) {
-      emitError(loc, "lld invocation error");
-      return {};
-    }
+  std::string theRocmPath = getRocmPath();
+  llvm::SmallString<32> lldPath(std::move(theRocmPath));
+  llvm::sys::path::append(lldPath, "llvm", "bin", "ld.lld");
+  int lldResult = llvm::sys::ExecuteAndWait(
+      lldPath,
+      {"ld.lld", "-shared", tempIsaBinaryFilename, "-o", tempHsacoFilename});
+  if (lldResult != 0) {
+    emitError(loc, "lld invocation error");
+    return {};
   }
 
   // Load the HSA code object.
