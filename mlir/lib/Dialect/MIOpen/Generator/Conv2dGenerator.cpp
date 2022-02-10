@@ -156,7 +156,8 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
                                                   {"fp32", sizeof(float)},
                                                   {"fp16", 2},
                                                   {"f16", 2},
-                                                  {"bf16", sizeof(uint16_t)}};
+                                                  {"bf16", sizeof(uint16_t)},
+                                                  {"i8", 1}};
 
   auto checkDimSizes = [](const SmallVector<int64_t, 5> &dims) -> bool {
     return std::all_of(dims.begin(), dims.end(),
@@ -164,7 +165,7 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
   };
 
   if (typeWidths.count(config.dataTypeStr) == 0) {
-    llvm::errs() << config.dataTypeStr << " is not a known datatype";
+    llvm::errs() << config.dataTypeStr << " is not a known datatype\n";
   }
   size_t elementWidth = typeWidths.lookup(config.dataTypeStr);
 
@@ -314,6 +315,8 @@ Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
     dataType = builder.getF16Type();
   } else if (config.dataTypeStr == "bf16") {
     dataType = builder.getBF16Type();
+  } else if (config.dataTypeStr == "i8") {
+    dataType = builder.getI8Type();
   }
   return dataType;
 }
