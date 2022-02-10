@@ -1011,19 +1011,77 @@ struct BF16ConstCasting : OpRewritePattern<LLVM::ConstantOp> {
   }
 };
 
-template <typename From, typename To>
-struct FloatOpToIntOp : OpRewritePattern<From> {
-  explicit FloatOpToIntOp(MLIRContext *context)
-      : OpRewritePattern<From>(context) {}
+template <typename Op>
+struct BF16AsF32 : OpRewritePattern<Op> {
+  explicit BF16AsF32(MLIRContext *context) : OpRewritePattern<Op>(context) {}
 
-  LogicalResult matchAndRewrite(From op,
+  LogicalResult matchAndRewrite(Op op,
                                 PatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
     Type resType = op.getResult().getType();
-    if (resType != rewriter.getIntegerType(16))
+    Type extType = rewriter.getF32Type();
+    Type resElementType = resType;
+
+    if (auto resShaped = resType.dyn_cast<ShapedType>()) {
+      extType = resShaped.clone(extType);
+      resElementType = resShaped.getElementType();
+    }
+    Type i16 = rewriter.getIntegerType(16);
+    if (resElementType != i16)
       return failure();
-    LLVM::FMulOp mop;
-    rewriter.replaceOpWithNewOp<To>(op.getOperation(), op->getResultTypes(),
-                                    op.getOperands(), op->getAttrs());
+
+    llvm::SmallVector<Value, 2> extended;
+    for (Value v : op.getOperands()) {
+      extended.push_back(rewriter.create<LLVM::FPExtOp>(loc, extType, v));
+    }
+    Op operation = rewriter.create<Op>(loc, extType, extended, op->getAttrs());
+    rewriter.replaceOpWithNewOp<LLVM::FPTruncOp>(op, resType,
+                                                 operation.getResult());
+    return success();
+  }
+};
+
+Value getLlvmI32Const(Location loc, PatternRewriter &rewriter, Type type,
+                      int32_t value) {
+  Attribute ret = rewriter.getI32IntegerAttr(value);
+  if (LLVM::isCompatibleVectorType(type))
+    ret = SplatElementsAttr::get(type.cast<ShapedType>(), ret);
+  return rewriter.create<LLVM::ConstantOp>(loc, type, ret);
+};
+/// Rewrites extension of bfloat as a bitshift. This is needed since the ROCDL
+/// target doesn't support the bfloat type even though LLVM in general does.
+struct SoftwareBF16Ext : OpRewritePattern<LLVM::FPExtOp> {
+  explicit SoftwareBF16Ext(MLIRContext *context) : OpRewritePattern(context) {}
+
+  LogicalResult matchAndRewrite(LLVM::FPExtOp op,
+                                PatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+
+    Type srcType = op.arg().getType();
+    Type destType = op.res().getType();
+    Type srcElemType = srcType;
+    if (auto shaped = srcType.dyn_cast<ShapedType>())
+      srcElemType = shaped.getElementType();
+
+    Type i16 = rewriter.getIntegerType(16);
+    if (srcElemType != i16)
+      return failure();
+
+    Type extType = rewriter.getI32Type();
+    if (auto srcShaped = srcType.dyn_cast<ShapedType>())
+      extType = srcShaped.clone(extType);
+
+    Type f32 = rewriter.getF32Type();
+    if (auto destShaped = destType.dyn_cast<ShapedType>()) {
+      if (destShaped.getElementType() != f32)
+        return failure();
+    } else if (destType != f32)
+      return failure();
+
+    Value extended = rewriter.create<LLVM::ZExtOp>(loc, extType, op.arg());
+    Value shifted = rewriter.create<LLVM::ShlOp>(
+        loc, extended, getLlvmI32Const(loc, rewriter, extType, 16));
+    rewriter.replaceOpWithNewOp<LLVM::BitcastOp>(op, destType, shifted);
     return success();
   }
 };
@@ -1046,7 +1104,7 @@ struct SoftwareBF16Trunc : OpRewritePattern<LLVM::FPTruncOp> {
       srcElemType = shaped.getElementType();
 
     Type f32 = rewriter.getF32Type();
-    if (srcElemType != f32 && srcElemType)
+    if (srcElemType != f32)
       return failure();
 
     Type bitcastType = rewriter.getI32Type();
@@ -1060,12 +1118,6 @@ struct SoftwareBF16Trunc : OpRewritePattern<LLVM::FPTruncOp> {
     } else if (destType != i16)
       return failure();
 
-    auto getI32Const = [bitcastType, &rewriter, loc](int32_t value) -> Value {
-      Attribute ret = rewriter.getI32IntegerAttr(value);
-      if (LLVM::isCompatibleVectorType(bitcastType))
-        ret = SplatElementsAttr::get(bitcastType.cast<ShapedType>(), ret);
-      return rewriter.create<LLVM::ConstantOp>(loc, bitcastType, ret);
-    };
     // a = bitcast f32 value to i32
     // b = (a + 32767) << 16
     // c = ((a << 16) & 1)
@@ -1073,14 +1125,14 @@ struct SoftwareBF16Trunc : OpRewritePattern<LLVM::FPTruncOp> {
     // truncate (d << 16) to i16 and return this i16
     Value bitcastop =
         rewriter.create<LLVM::BitcastOp>(loc, bitcastType, op.arg());
-    Value constantSixteen = getI32Const(16);
+    Value constantSixteen = getLlvmI32Const(loc, rewriter, bitcastType, 16);
     Value shiftValue = rewriter.create<LLVM::LShrOp>(
         loc, bitcastType, bitcastop, constantSixteen);
 
-    Value constantOne = getI32Const(1);
+    Value constantOne = getLlvmI32Const(loc, rewriter, bitcastType, 1);
     Value andValue = rewriter.create<LLVM::AndOp>(loc, shiftValue, constantOne);
 
-    Value constantBig = getI32Const(32767);
+    Value constantBig = getLlvmI32Const(loc, rewriter, bitcastType, 32767);
     Value addBigValue =
         rewriter.create<LLVM::AddOp>(loc, bitcastop, constantBig);
     Value addValue = rewriter.create<LLVM::AddOp>(loc, andValue, addBigValue);
@@ -1190,9 +1242,9 @@ void mlir::populateBF16ToROCDLConversionPatterns(LLVMTypeConverter &converter,
           return type.clone(llvmI16);
         return llvm::None; // continue search
       });
-  patterns.add<BF16ConstCasting, SoftwareBF16Trunc,
-               FloatOpToIntOp<LLVM::FAddOp, LLVM::AddOp>,
-               FloatOpToIntOp<LLVM::FMulOp, LLVM::MulOp>>(ctx);
+  patterns.add<BF16ConstCasting, SoftwareBF16Trunc, SoftwareBF16Ext,
+               BF16AsF32<LLVM::FAddOp>, BF16AsF32<LLVM::FMulOp>,
+               BF16AsF32<LLVM::FMAOp>>(ctx);
 }
 
 std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
