@@ -128,14 +128,6 @@ module attributes {gpu.container_module} {
       gpu.return
     }
 
-    // CHECK-LABEL gpu.func @printf_test
-    // CHECK: (%[[ARG0:.*]]: i32)
-    // CHECK: gpu.printf {format = "Value: %d"} %[[ARG0]] : i32
-    gpu.func @printf_test(%arg0 : i32) {
-      gpu.printf {format = "Value: %d"} %arg0 : i32
-      gpu.return
-    }
-
     // CHECK-LABEL: @no_attribution_attrs
     // CHECK:       attributes
     // CHECK:       {

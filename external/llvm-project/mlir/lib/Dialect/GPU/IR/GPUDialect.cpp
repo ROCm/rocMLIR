@@ -1060,38 +1060,6 @@ static void printAsyncDependencies(OpAsmPrinter &printer, Operation *op,
 }
 
 //===----------------------------------------------------------------------===//
-// MubufLoadOp
-//===----------------------------------------------------------------------===//
-
-static ParseResult parseMubufLoadOp(OpAsmParser &parser,
-                                    OperationState &result) {
-  SmallVector<OpAsmParser::OperandType, 5> ops;
-  SmallVector<Type, 5> types;
-
-  auto ret = parser.parseOperandList(ops, OpAsmParser::Delimiter::Paren) ||
-             parser.parseOptionalAttrDict(result.attributes) ||
-             parser.parseColonTypeList(types) ||
-             parser.resolveOperand(ops[0], types[0], result.operands) ||
-             parser.addTypeToList(types[1], result.types);
-
-  // resolve source coorindates.
-  for (unsigned i = 1; i < ops.size(); ++i) {
-    ret &= succeeded(parser.resolveOperand(
-        ops[i], parser.getBuilder().getIntegerType(32), result.operands));
-  }
-
-  return failure(ret);
-}
-
-static void print(OpAsmPrinter &p, gpu::MubufLoadOp op) {
-  p << op.getOperationName() << "(" << op.getOperands() << ")";
-  p.printOptionalAttrDict(op->getAttrs());
-  p << " : " << op.memref().getType() << ", " << op.getResult().getType();
-}
-
-static LogicalResult verify(gpu::MubufLoadOp op) { return success(); }
-
-//===----------------------------------------------------------------------===//
 // GPU_SubgroupMmaLoadMatrixOp
 //===----------------------------------------------------------------------===//
 

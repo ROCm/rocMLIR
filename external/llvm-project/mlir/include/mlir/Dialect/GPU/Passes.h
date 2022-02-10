@@ -15,8 +15,6 @@
 
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Support/LogicalResult.h"
-#include "llvm/IR/LegacyPassManager.h"
 
 namespace llvm {
 class TargetMachine;
@@ -71,8 +69,8 @@ private:
   std::unique_ptr<llvm::TargetMachine> createTargetMachine();
 
   /// Translates the module to ISA
-  virtual Optional<std::string>
-  translateToISA(llvm::Module &llvmModule, llvm::TargetMachine &targetMachine);
+  Optional<std::string> translateToISA(llvm::Module &llvmModule,
+                                       llvm::TargetMachine &targetMachine);
 
   /// Serializes the target ISA to binary form.
   virtual std::unique_ptr<std::vector<char>>
@@ -103,10 +101,6 @@ void registerGpuSerializeToCubinPass();
 /// Register pass to serialize GPU kernel functions to a HSAco binary
 /// annotation.
 void registerGpuSerializeToHsacoPass();
-std::unique_ptr<Pass> createGpuSerializeToHsacoPass(StringRef triple,
-                                                    StringRef arch,
-                                                    StringRef features,
-                                                    int optLevel);
 
 /// Create an instance of the GPU kernel function to HSAco binary serialization
 /// pass.

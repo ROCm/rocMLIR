@@ -273,7 +273,7 @@ def GPU_GPUFuncOp : GPU_Op<"func", [
 
     /// Returns the type of this function.
     /// FIXME: We should drive this via the ODS `type` param.
-    FunctionType getType() { 
+    FunctionType getType() {
       return getTypeAttr().getValue().cast<FunctionType>();
     }
 
@@ -575,34 +575,6 @@ def GPU_PrintfOp : GPU_Op<"printf", [MemoryEffects<[MemWrite]>]>,
   }];
 }
 
-def GPU_SetDefaultDeviceOp : GPU_Op<"set_default_device",
-                                    [MemoryEffects<[MemWrite]>]>,
-    Arguments<(ins I32Attr:$devIndex)> {
-  let summary = "Set default GPU for operations after this by index";
-  let description = [{
-    Operation that sets the current default GPU, using a zero-based index
-    into the set of GPUs on the system. The default GPU setting may be
-    thread-local.
-  }];
-  let assemblyFormat = "attr-dict";
-}
-
-def GPU_PrintfOp : GPU_Op<"printf", [MemoryEffects<[MemWrite]>]>,
-  Arguments<(ins StrAttr:$format,
-                Variadic<AnyTypeOf<[AnyInteger, Index, AnyFloat]>>:$args)> {
-  let summary = "Device-side printf, as in CUDA or OpenCL, for debugging";
-  let description = [{
-    `gpu.printf` takes a literal format string `format` and an arbitrary number of
-    scalar arguments that should be printed.
-
-    The format string is a C-style printf string, subject to any restrictions
-    imposed by one's target platform.
-  }];
-  let assemblyFormat = [{
-    attr-dict ($args^ `:` type($args))?
-  }];
-}
-
 def GPU_ReturnOp : GPU_Op<"return", [HasParent<"GPUFuncOp">, NoSideEffect,
                                      Terminator]>,
     Arguments<(ins Variadic<AnyType>:$operands)>, Results<(outs)> {
@@ -617,6 +589,18 @@ def GPU_ReturnOp : GPU_Op<"return", [HasParent<"GPUFuncOp">, NoSideEffect,
 
   let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
   let hasVerifier = 1;
+}
+
+def GPU_SetDefaultDeviceOp : GPU_Op<"set_default_device",
+                                    [MemoryEffects<[MemWrite]>]>,
+    Arguments<(ins I32Attr:$devIndex)> {
+  let summary = "Set default GPU for operations after this by index";
+  let description = [{
+    Operation that sets the current default GPU, using a zero-based index
+    into the set of GPUs on the system. The default GPU setting may be
+    thread-local.
+  }];
+  let assemblyFormat = "attr-dict";
 }
 
 def GPU_TerminatorOp : GPU_Op<"terminator", [HasParent<"LaunchOp">,

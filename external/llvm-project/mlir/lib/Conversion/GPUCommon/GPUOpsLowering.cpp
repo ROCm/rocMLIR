@@ -10,14 +10,7 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/Support/LLVM.h"
-#include "mlir/Support/LogicalResult.h"
-#include "mlir/Transforms/DialectConversion.h"
-#include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/FormatVariadic.h"
-#include <limits>
-#include <string>
 
 using namespace mlir;
 
@@ -245,10 +238,18 @@ LogicalResult GPUPrintfOpToHIPLowering::matchAndRewrite(
   Value zeroI32 = rewriter.create<LLVM::ConstantOp>(
       loc, llvmI32, rewriter.getI32IntegerAttr(0));
 
+  auto appendFormatCall = rewriter.create<LLVM::CallOp>(
+      loc, ocklAppendStringN,
+      ValueRange{printfDesc, stringStart, stringLen,
+                 adaptor.args().empty() ? oneI32 : zeroI32});
+  printfDesc = appendFormatCall.getResult(0);
+
+  // __ockl_printf_append_args takes 7 values per append call
   constexpr size_t argsPerAppend = 7;
   size_t nArgs = adaptor.args().size();
   for (size_t group = 0; group < nArgs; group += argsPerAppend) {
     size_t bound = std::min(group + argsPerAppend, nArgs);
+    size_t numArgsThisCall = bound - group;
 
     SmallVector<mlir::Value, 2 + argsPerAppend + 1> arguments;
     arguments.push_back(printfDesc);
