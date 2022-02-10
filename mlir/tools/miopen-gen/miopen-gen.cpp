@@ -1528,8 +1528,14 @@ populateHostHarnessLogic(ModuleOp &module,
         elemType = b.getF32Type();
       else if (tensorDataType == "f16")
         elemType = b.getF16Type();
-      else
+      else if (tensorDataType == "bf16")
         elemType = b.getBF16Type();
+      else if (tensorDataType == "i8")
+        elemType = b.getI8Type();
+      else {
+        llvm::errs() << "Unknown tensor data type: " << tensorDataType << "\n";
+        exit(1);
+      }
       paramMRType = MemRefType::get(paramMRType.getShape(), elemType);
     }
     auto mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
