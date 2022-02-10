@@ -21,8 +21,10 @@
 #include "llvm/Debuginfod/HTTPClient.h"
 #include "llvm/Support/CachePruning.h"
 #include "llvm/Support/Caching.h"
+#include "llvm/Support/Errc.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/FileUtilities.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/xxhash.h"
 
 namespace llvm {
@@ -36,7 +38,7 @@ static std::string buildIDToString(BuildIDRef ID) {
 
 Expected<SmallVector<StringRef>> getDefaultDebuginfodUrls() {
   const char *DebuginfodUrlsEnv = std::getenv("DEBUGINFOD_URLS");
-  if (DebuginfodUrlsEnv == NULL)
+  if (DebuginfodUrlsEnv == nullptr)
     return SmallVector<StringRef>();
 
   SmallVector<StringRef> DebuginfodUrls;
@@ -52,6 +54,7 @@ Expected<std::string> getDefaultDebuginfodCacheDirectory() {
   if (!sys::path::cache_directory(CacheDirectory))
     return createStringError(
         errc::io_error, "Unable to determine appropriate cache directory.");
+  sys::path::append(CacheDirectory, "llvm-debuginfod", "client");
   return std::string(CacheDirectory);
 }
 
@@ -139,6 +142,13 @@ Expected<std::string> getCachedOrDownloadArtifact(
     return createStringError(errc::io_error,
                              "No working HTTP client is available.");
 
+  if (!HTTPClient::IsInitialized)
+    return createStringError(
+        errc::io_error,
+        "A working HTTP client is available, but it is not initialized. To "
+        "allow Debuginfod to make HTTP requests, call HTTPClient::initialize() "
+        "at the beginning of main.");
+
   HTTPClient Client;
   Client.setTimeout(Timeout);
   for (StringRef ServerUrl : DebuginfodUrls) {
@@ -157,7 +167,7 @@ Expected<std::string> getCachedOrDownloadArtifact(
     // file cache.
     Expected<std::unique_ptr<CachedFileStream>> FileStreamOrErr =
         CacheAddStream(Task);
-    if (FileStreamOrErr)
+    if (!FileStreamOrErr)
       return FileStreamOrErr.takeError();
     std::unique_ptr<CachedFileStream> &FileStream = *FileStreamOrErr;
     if (!Response.Body)

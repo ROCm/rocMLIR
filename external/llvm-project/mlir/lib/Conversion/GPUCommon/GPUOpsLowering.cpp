@@ -7,9 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "GPUOpsLowering.h"
-#include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -30,7 +28,7 @@ GPUFuncOpLowering::matchAndRewrite(gpu::GPUFuncOp gpuFuncOp, OpAdaptor adaptor,
 
   SmallVector<LLVM::GlobalOp, 3> workgroupBuffers;
   workgroupBuffers.reserve(gpuFuncOp.getNumWorkgroupAttributions());
-  for (auto en : llvm::enumerate(gpuFuncOp.getWorkgroupAttributions())) {
+  for (const auto &en : llvm::enumerate(gpuFuncOp.getWorkgroupAttributions())) {
     Value attribution = en.value();
 
     auto type = attribution.getType().dyn_cast<MemRefType>();
@@ -66,7 +64,7 @@ GPUFuncOpLowering::matchAndRewrite(gpu::GPUFuncOp gpuFuncOp, OpAdaptor adaptor,
   SmallVector<NamedAttribute, 4> attributes;
   for (const auto &attr : gpuFuncOp->getAttrs()) {
     if (attr.getName() == SymbolTable::getSymbolAttrName() ||
-        attr.getName() == function_like_impl::getTypeAttrName() ||
+        attr.getName() == FunctionOpInterface::getTypeAttrName() ||
         attr.getName() == gpu::GPUFuncOp::getNumWorkgroupAttributionsAttrName())
       continue;
     attributes.push_back(attr);
@@ -97,7 +95,7 @@ GPUFuncOpLowering::matchAndRewrite(gpu::GPUFuncOp gpuFuncOp, OpAdaptor adaptor,
     if (!workgroupBuffers.empty())
       zero = rewriter.create<LLVM::ConstantOp>(loc, i32Type,
                                                rewriter.getI32IntegerAttr(0));
-    for (auto en : llvm::enumerate(workgroupBuffers)) {
+    for (const auto &en : llvm::enumerate(workgroupBuffers)) {
       LLVM::GlobalOp global = en.value();
       Value address = rewriter.create<LLVM::AddressOfOp>(loc, global);
       auto elementType =
@@ -120,7 +118,7 @@ GPUFuncOpLowering::matchAndRewrite(gpu::GPUFuncOp gpuFuncOp, OpAdaptor adaptor,
     // Rewrite private memory attributions to alloca'ed buffers.
     unsigned numWorkgroupAttributions = gpuFuncOp.getNumWorkgroupAttributions();
     auto int64Ty = IntegerType::get(rewriter.getContext(), 64);
-    for (auto en : llvm::enumerate(gpuFuncOp.getPrivateAttributions())) {
+    for (const auto &en : llvm::enumerate(gpuFuncOp.getPrivateAttributions())) {
       Value attribution = en.value();
       auto type = attribution.getType().cast<MemRefType>();
       assert(type && type.hasStaticShape() && "unexpected type in attribution");
@@ -173,7 +171,7 @@ static LLVM::LLVMFuncOp getOrDefineFunction(T &moduleOp, const Location loc,
 }
 
 LogicalResult GPUPrintfOpToHIPLowering::matchAndRewrite(
-    gpu::PrintfOp gpuPrintfOp, OpAdaptor adaptor,
+    gpu::PrintfOp gpuPrintfOp, gpu::PrintfOpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = gpuPrintfOp->getLoc();
 
@@ -218,7 +216,7 @@ LogicalResult GPUPrintfOpToHIPLowering::matchAndRewrite(
     (formatStringPrefix + Twine(stringNumber++)).toStringRef(stringConstName);
   } while (moduleOp.lookupSymbol(stringConstName));
 
-  llvm::SmallString<20> formatString(adaptor.format().getValue());
+  llvm::SmallString<20> formatString(adaptor.format());
   formatString.push_back('\0'); // Null terminate for C
   size_t formatStringSize = formatString.size_in_bytes();
 
@@ -247,19 +245,10 @@ LogicalResult GPUPrintfOpToHIPLowering::matchAndRewrite(
   Value zeroI32 = rewriter.create<LLVM::ConstantOp>(
       loc, llvmI32, rewriter.getI32IntegerAttr(0));
 
-  mlir::ValueRange appendFormatArgs = {printfDesc, stringStart, stringLen,
-                                       adaptor.args().empty() ? oneI32
-                                                              : zeroI32};
-  auto appendFormatCall =
-      rewriter.create<LLVM::CallOp>(loc, ocklAppendStringN, appendFormatArgs);
-  printfDesc = appendFormatCall.getResult(0);
-
-  // __ockl_printf_append_args takes 7 values per append call
   constexpr size_t argsPerAppend = 7;
   size_t nArgs = adaptor.args().size();
   for (size_t group = 0; group < nArgs; group += argsPerAppend) {
     size_t bound = std::min(group + argsPerAppend, nArgs);
-    size_t numArgsThisCall = bound - group;
 
     SmallVector<mlir::Value, 2 + argsPerAppend + 1> arguments;
     arguments.push_back(printfDesc);
@@ -267,17 +256,15 @@ LogicalResult GPUPrintfOpToHIPLowering::matchAndRewrite(
         loc, llvmI32, rewriter.getI32IntegerAttr(numArgsThisCall)));
     for (size_t i = group; i < bound; ++i) {
       Value arg = adaptor.args()[i];
-      auto type = arg.getType();
-      if (type.isa<FloatType>()) {
-        arg = rewriter.create<LLVM::BitcastOp>(
-            loc,
-            typeConverter->convertType(
-                rewriter.getIntegerType(type.getIntOrFloatBitWidth())),
-            arg);
+      if (auto floatType = arg.getType().dyn_cast<FloatType>()) {
+        if (!floatType.isF64())
+          arg = rewriter.create<LLVM::FPExtOp>(
+              loc, typeConverter->convertType(rewriter.getF64Type()), arg);
+        arg = rewriter.create<LLVM::BitcastOp>(loc, llvmI64, arg);
       }
-      if (type.getIntOrFloatBitWidth() != 64) {
+      if (arg.getType().getIntOrFloatBitWidth() != 64)
         arg = rewriter.create<LLVM::ZExtOp>(loc, llvmI64, arg);
-      }
+
       arguments.push_back(arg);
     }
     // Pad out to 7 arguments since the hostcall always needs 7
@@ -295,7 +282,7 @@ LogicalResult GPUPrintfOpToHIPLowering::matchAndRewrite(
 }
 
 LogicalResult GPUPrintfOpToLLVMCallLowering::matchAndRewrite(
-    gpu::PrintfOp gpuPrintfOp, OpAdaptor adaptor,
+    gpu::PrintfOp gpuPrintfOp, gpu::PrintfOpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = gpuPrintfOp->getLoc();
 
@@ -321,7 +308,7 @@ LogicalResult GPUPrintfOpToLLVMCallLowering::matchAndRewrite(
     (formatStringPrefix + Twine(stringNumber++)).toStringRef(stringConstName);
   } while (moduleOp.lookupSymbol(stringConstName));
 
-  llvm::SmallString<20> formatString(adaptor.format().getValue());
+  llvm::SmallString<20> formatString(adaptor.format());
   formatString.push_back('\0'); // Null terminate for C
   auto globalType =
       LLVM::LLVMArrayType::get(llvmI8, formatString.size_in_bytes());

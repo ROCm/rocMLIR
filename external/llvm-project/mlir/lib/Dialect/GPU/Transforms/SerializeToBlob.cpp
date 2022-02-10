@@ -26,6 +26,10 @@
 
 #define DEBUG_TYPE "serialize-to-blob"
 
+#include <string>
+
+#define DEBUG_TYPE "serialize-to-blob"
+
 using namespace mlir;
 
 std::string gpu::getDefaultGpuBinaryAnnotation() { return "gpu.binary"; }

@@ -17,7 +17,7 @@ gpu.module @test_module {
     // CHECK-NEXT: %[[FORMATLEN:.*]] = llvm.mlir.constant(14 : i64) : i64
     // CHECK-NEXT: %[[ISLAST:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %{{.*}} = llvm.call @__ockl_printf_append_string_n(%[[DESC0]], %[[FORMATSTART]], %[[FORMATLEN]], %[[ISLAST]]) : (i64, !llvm.ptr<i8>, i64, i32) -> i64
-    gpu.printf { format = "Hello, world\n" }
+    gpu.printf "Hello, world\n"
     gpu.return
   }
 
@@ -37,7 +37,7 @@ gpu.module @test_module {
     // CHECK-NEXT: %[[NARGS1:.*]] = llvm.mlir.constant(1 : i32) : i32
     // CHECK-NEXT: %[[ARG0_64:.*]] = llvm.zext %[[ARG0]] : i32 to i64
     // CHECK-NEXT: %{{.*}} = llvm.call @__ockl_printf_append_args(%[[DESC1]], %[[NARGS1]], %[[ARG0_64]], %[[CST0]], %[[CST0]], %[[CST0]], %[[CST0]], %[[CST0]], %[[CST0]], %[[ISLAST]]) : (i64, i32, i64, i64, i64, i64, i64, i64, i64, i32) -> i64
-    gpu.printf { format = "Hello: %d\n" } %arg0 : i32
+    gpu.printf "Hello: %d\n" %arg0 : i32
     gpu.return
   }
 }

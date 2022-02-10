@@ -1,10 +1,13 @@
 # Link LibCURL if the user wants it
 if (LLVM_ENABLE_CURL)
-  set(imported_libs ${CURL_LIBRARIES})
+  set(imported_libs CURL::libcurl)
 endif()
 
-add_llvm_component_library(LLVMDebuginfod
+# Note: This isn't a component, since that could potentially add a libcurl
+# dependency to libLLVM.
+add_llvm_library(LLVMDebuginfod
   Debuginfod.cpp
+  DIFetcher.cpp
   HTTPClient.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -16,5 +19,3 @@ add_llvm_component_library(LLVMDebuginfod
   LINK_COMPONENTS
   Support
   )
-
-set(llvm_system_libs ${system_libs})

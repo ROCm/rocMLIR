@@ -19,12 +19,20 @@
 namespace mlir {
 namespace tosa {
 
-std::unique_ptr<Pass> createTosaDecomposeTransposeConvPass();
+// Expose Rewrite Functions that decompose TOSA Ops into further TOSA Ops.
+// The rewrites can be selectively added to a conversion pass.
+void populateTosaDecomposeConv2D(MLIRContext *ctx, RewritePatternSet &patterns);
+void populateTosaDecomposeTransposeConv(MLIRContext *ctx,
+                                        RewritePatternSet &patterns);
+void populateTosaDecomposeDepthwise(MLIRContext *ctx,
+                                    RewritePatternSet &patterns);
+
 std::unique_ptr<Pass> createTosaInferShapesPass();
 std::unique_ptr<Pass> createTosaMakeBroadcastablePass();
 std::unique_ptr<Pass> createTosaTestQuantUtilAPIPass();
 std::unique_ptr<Pass> createTosaPartitionPass();
 std::unique_ptr<Pass> createPostPartitionCollapsePass();
+std::unique_ptr<Pass> createTosaOptionalDecompositions();
 void registerTosaPartitionPipelinePass();
 
 #define GEN_PASS_REGISTRATION

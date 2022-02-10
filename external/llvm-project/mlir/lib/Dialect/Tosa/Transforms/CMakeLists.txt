@@ -1,7 +1,10 @@
 add_mlir_dialect_library(MLIRTosaTransforms
   TosaDecomposeTransposeConv.cpp
+  TosaDecomposeConv2D.cpp
+  TosaDecomposeDepthwise.cpp
   TosaInferShapes.cpp
   TosaMakeBroadcastable.cpp
+  TosaOptionalDecompositions.cpp
   TosaPartition.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -14,4 +17,6 @@ add_mlir_dialect_library(MLIRTosaTransforms
   MLIRTransforms
   MLIRPass
   MLIRTosa
+  MLIRStandard
+  MLIRTransformUtils
   )

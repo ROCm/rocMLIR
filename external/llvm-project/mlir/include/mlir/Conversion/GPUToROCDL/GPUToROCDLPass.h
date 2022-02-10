@@ -16,7 +16,6 @@ namespace mlir {
 class LLVMTypeConverter;
 class ConversionTarget;
 class RewritePatternSet;
-using OwningRewritePatternList = RewritePatternSet;
 
 template <typename OpT>
 class OperationPass;
@@ -33,6 +32,7 @@ void populateBF16ToROCDLConversionPatterns(LLVMTypeConverter &converter,
 
 /// Collect a set of patterns to convert from the GPU dialect to ROCDL.
 /// If `runtime` is Unknown, gpu.printf will not be lowered
+/// The resulting pattern set should be run over a gpu.module op
 void populateGpuToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                           RewritePatternSet &patterns,
                                           gpu::amd::Runtime runtime);

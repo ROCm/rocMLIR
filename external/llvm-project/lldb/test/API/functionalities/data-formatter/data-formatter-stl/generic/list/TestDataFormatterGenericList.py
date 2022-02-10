@@ -62,12 +62,14 @@ class GenericListDataFormatterTestCase(TestBase):
         self.expect("frame variable numbers_list --raw", matching=False,
                     substrs=['size=0',
                              '{}'])
-        self.expect(
-            "frame variable &numbers_list._M_impl._M_node --raw",
-            matching=False,
-            substrs=[
-                'size=0',
-                '{}'])
+
+        if stdlib_type == USE_LIBSTDCPP:
+            self.expect(
+                "frame variable &numbers_list._M_impl._M_node --raw",
+                matching=False,
+                substrs=[
+                    'size=0',
+                    '{}'])
 
         self.expect("frame variable numbers_list",
                     substrs=['size=0',
@@ -161,7 +163,9 @@ class GenericListDataFormatterTestCase(TestBase):
 
         self.runCmd("type format delete int")
 
-        self.runCmd("n")
+        lldbutil.run_break_set_by_file_and_line(self, "main.cpp",
+                self.optional_line)
+        self.runCmd("continue")
 
         self.expect("frame variable text_list",
                     substrs=['size=0',

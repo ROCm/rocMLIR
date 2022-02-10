@@ -46,6 +46,7 @@
 #include "llvm/MC/MCObjectFileInfo.h"
 #include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCParser/MCTargetAsmParser.h"
+#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/TargetRegistry.h"
@@ -57,7 +58,6 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/Path.h"
-#include "llvm/Support/Process.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetSelect.h"
@@ -68,8 +68,6 @@
 
 #include "llvm/Transforms/IPO/Internalize.h"
 
-#include <iterator>
-#include <memory>
 #include <mutex>
 #include <string>
 
@@ -123,7 +121,7 @@ private:
 
   std::string getRocmPath();
 };
-} // end namespace
+} // namespace
 
 SerializeToHsacoPass::SerializeToHsacoPass(const SerializeToHsacoPass &other)
     : PassWrapper<SerializeToHsacoPass, gpu::SerializeToBlobPass>(other) {}
@@ -180,7 +178,7 @@ SerializeToHsacoPass::loadLibraries(SmallVectorImpl<char> &path,
     llvm::StringRef pathRef(path.data(), path.size());
     std::unique_ptr<llvm::Module> library =
         llvm::getLazyIRFileModule(pathRef, error, context);
-    path.set_size(dirLength);
+    path.truncate(dirLength);
     if (!library) {
       getOperation().emitError() << "Failed to load library " << file
                                  << " from " << path << error.getMessage();
@@ -342,7 +340,6 @@ SerializeToHsacoPass::translateToLLVMIR(llvm::LLVMContext &llvmContext) {
   if (ret->getFunction("__ockl_hostcall_internal"))
     if (!ret->getModuleFlag("amdgpu_hostcall"))
       ret->addModuleFlag(llvm::Module::Override, "amdgpu_hostcall", 1);
-
   return ret;
 }
 
@@ -388,7 +385,7 @@ SerializeToHsacoPass::assembleIsa(const std::string &isa) {
 
   llvm::SourceMgr srcMgr;
   srcMgr.AddNewSourceBuffer(llvm::MemoryBuffer::getMemBuffer(isa),
-                            llvm::SMLoc());
+                            SMLoc());
 
   const llvm::MCTargetOptions mcOptions;
   std::unique_ptr<llvm::MCRegisterInfo> mri(
@@ -510,6 +507,8 @@ void mlir::registerGpuSerializeToHsacoPass() {
       });
 }
 
+/// Create an instance of the GPU kernel function to HSAco binary serialization
+/// pass.
 std::unique_ptr<Pass> mlir::createGpuSerializeToHsacoPass(StringRef triple,
                                                           StringRef arch,
                                                           StringRef features,

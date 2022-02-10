@@ -45,13 +45,13 @@ struct GPUPrintfOpToHIPLowering : public ConvertOpToLLVMPattern<gpu::PrintfOp> {
   using ConvertOpToLLVMPattern<gpu::PrintfOp>::ConvertOpToLLVMPattern;
 
   LogicalResult
-  matchAndRewrite(gpu::PrintfOp gpuPrintfOp, OpAdaptor adaptor,
+  matchAndRewrite(gpu::PrintfOp gpuPrintfOp, gpu::PrintfOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
 
 /// The lowering of gpu.printf to a call to an external printf() function
 ///
-/// This pass will add a decleration of printf() to the GPUModule if needed
+/// This pass will add a declaration of printf() to the GPUModule if needed
 /// and seperate out the format strings into global constants. For some
 /// runtimes, such as OpenCL on AMD, this is sufficient setup, as the compiler
 /// will lower printf calls to appropriate device-side code
@@ -63,7 +63,7 @@ struct GPUPrintfOpToLLVMCallLowering
         addressSpace(addressSpace) {}
 
   LogicalResult
-  matchAndRewrite(gpu::PrintfOp gpuPrintfOp, OpAdaptor adaptor,
+  matchAndRewrite(gpu::PrintfOp gpuPrintfOp, gpu::PrintfOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 
 private:
@@ -74,7 +74,7 @@ struct GPUReturnOpLowering : public ConvertOpToLLVMPattern<gpu::ReturnOp> {
   using ConvertOpToLLVMPattern<gpu::ReturnOp>::ConvertOpToLLVMPattern;
 
   LogicalResult
-  matchAndRewrite(gpu::ReturnOp op, OpAdaptor adaptor,
+  matchAndRewrite(gpu::ReturnOp op, LLVM::ReturnOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<LLVM::ReturnOp>(op, adaptor.getOperands());
     return success();

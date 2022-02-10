@@ -5,18 +5,19 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-//
-// This template implementation resides in a separate file so that it
-// does not get injected into every .cpp file that includes the
-// generic header.
-//
-// DO NOT INCLUDE THIS FILE WHEN MERELY USING CYCLEINFO.
-//
-// This file should only be included by files that implement a
-// specialization of the relevant templates. Currently these are:
-// - CycleAnalysis.cpp
-// - MachineCycleAnalysis.cpp
-//
+///
+/// \file
+/// This template implementation resides in a separate file so that it
+/// does not get injected into every .cpp file that includes the
+/// generic header.
+///
+/// DO NOT INCLUDE THIS FILE WHEN MERELY USING CYCLEINFO.
+///
+/// This file should only be included by files that implement a
+/// specialization of the relevant templates. Currently these are:
+/// - CycleAnalysis.cpp
+/// - MachineCycleAnalysis.cpp
+///
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_ADT_GENERICCYCLEIMPL_H
@@ -66,14 +67,18 @@ void GenericCycle<ContextT>::getExitBlocks(
 }
 
 /// \brief Helper class for computing cycle information.
-template <typename ContextT> class GenericCycleInfo<ContextT>::Compute {
-  GenericCycleInfo &Info;
+template <typename ContextT> class GenericCycleInfoCompute {
+  using BlockT = typename ContextT::BlockT;
+  using CycleInfoT = GenericCycleInfo<ContextT>;
+  using CycleT = typename CycleInfoT::CycleT;
+
+  CycleInfoT &Info;
 
   struct DFSInfo {
     unsigned Start = 0; // DFS start; positive if block is found
     unsigned End = 0;   // DFS end
 
-    DFSInfo() {}
+    DFSInfo() = default;
     explicit DFSInfo(unsigned Start) : Start(Start) {}
 
     /// Whether this node is an ancestor (or equal to) the node \p Other
@@ -86,13 +91,11 @@ template <typename ContextT> class GenericCycleInfo<ContextT>::Compute {
   DenseMap<BlockT *, DFSInfo> BlockDFSInfo;
   SmallVector<BlockT *, 8> BlockPreorder;
 
-  friend struct GraphTraits<ContractedDomSubTree>;
-
-  Compute(const Compute &) = delete;
-  Compute &operator=(const Compute &) = delete;
+  GenericCycleInfoCompute(const GenericCycleInfoCompute &) = delete;
+  GenericCycleInfoCompute &operator=(const GenericCycleInfoCompute &) = delete;
 
 public:
-  Compute(GenericCycleInfo &Info) : Info(Info) {}
+  GenericCycleInfoCompute(CycleInfoT &Info) : Info(Info) {}
 
   void run(BlockT *EntryBlock);
 
@@ -132,7 +135,7 @@ void GenericCycleInfo<ContextT>::moveToNewParent(CycleT *NewParent,
 
 /// \brief Main function of the cycle info computations.
 template <typename ContextT>
-void GenericCycleInfo<ContextT>::Compute::run(BlockT *EntryBlock) {
+void GenericCycleInfoCompute<ContextT>::run(BlockT *EntryBlock) {
   LLVM_DEBUG(errs() << "Entry block: " << Info.Context.print(EntryBlock)
                     << "\n");
   dfs(EntryBlock);
@@ -234,7 +237,7 @@ void GenericCycleInfo<ContextT>::Compute::run(BlockT *EntryBlock) {
 
 /// \brief Recompute depth values of \p SubTree and all descendants.
 template <typename ContextT>
-void GenericCycleInfo<ContextT>::Compute::updateDepth(CycleT *SubTree) {
+void GenericCycleInfoCompute<ContextT>::updateDepth(CycleT *SubTree) {
   for (CycleT *Cycle : depth_first(SubTree))
     Cycle->Depth = Cycle->ParentCycle ? Cycle->ParentCycle->Depth + 1 : 1;
 }
@@ -243,7 +246,7 @@ void GenericCycleInfo<ContextT>::Compute::updateDepth(CycleT *SubTree) {
 ///
 /// Fills BlockDFSInfo with start/end counters and BlockPreorder.
 template <typename ContextT>
-void GenericCycleInfo<ContextT>::Compute::dfs(BlockT *EntryBlock) {
+void GenericCycleInfoCompute<ContextT>::dfs(BlockT *EntryBlock) {
   SmallVector<unsigned, 8> DFSTreeStack;
   SmallVector<BlockT *, 8> TraverseStack;
   unsigned Counter = 0;
@@ -300,7 +303,7 @@ template <typename ContextT> void GenericCycleInfo<ContextT>::clear() {
 /// \brief Compute the cycle info for a function.
 template <typename ContextT>
 void GenericCycleInfo<ContextT>::compute(FunctionT &F) {
-  Compute Compute(*this);
+  GenericCycleInfoCompute<ContextT> Compute(*this);
   Context.setFunction(F);
 
   LLVM_DEBUG(errs() << "Computing cycles for function: " << F.getName()

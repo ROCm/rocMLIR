@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-//
+///
 /// \file
 /// \brief Find all cycles in a control-flow graph, including irreducible loops.
 ///
@@ -22,7 +22,7 @@
 ///   unique cycle C which is a superset of L.
 /// - In the absence of irreducible control flow, the cycles are
 ///   exactly the natural loops in the program.
-//
+///
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_ADT_GENERICCYCLEINFO_H
@@ -41,7 +41,8 @@
 
 namespace llvm {
 
-template <typename ContexT> class GenericCycleInfo;
+template <typename ContextT> class GenericCycleInfo;
+template <typename ContextT> class GenericCycleInfoCompute;
 
 /// A possibly irreducible generalization of a \ref Loop.
 template <typename ContextT> class GenericCycle {
@@ -49,6 +50,7 @@ public:
   using BlockT = typename ContextT::BlockT;
   using FunctionT = typename ContextT::FunctionT;
   template <typename> friend class GenericCycleInfo;
+  template <typename> friend class GenericCycleInfoCompute;
 
 private:
   /// The parent cycle. Is null for the root "cycle". Top-level cycles point
@@ -210,6 +212,7 @@ public:
   using CycleT = GenericCycle<ContextT>;
   using FunctionT = typename ContextT::FunctionT;
   template <typename> friend class GenericCycle;
+  template <typename> friend class GenericCycleInfoCompute;
 
 private:
   ContextT Context;
@@ -280,14 +283,6 @@ public:
                             const_toplevel_iterator{TopLevelCycles.end()});
   }
   //@}
-
-private:
-  // Helper classes used by the cycle info computation.
-  class ContractedDomSubTree;
-  class Compute;
-
-  friend struct GraphTraits<GenericCycleInfo::ContractedDomSubTree>;
-  friend struct DenseMapInfo<ContractedDomSubTree>;
 };
 
 /// \brief GraphTraits for iterating over a sub-tree of the CycleT tree.

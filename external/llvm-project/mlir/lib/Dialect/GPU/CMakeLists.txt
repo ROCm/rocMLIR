@@ -27,6 +27,7 @@ add_mlir_dialect_library(MLIRGPUOps
 
   DEPENDS
   MLIRGPUOpsIncGen
+  MLIRGPUOpsAttributesIncGen
   MLIRGPUOpsEnumsGen
   MLIRGPUOpInterfacesIncGen
 
@@ -37,7 +38,6 @@ add_mlir_dialect_library(MLIRGPUOps
   MLIRMemRef
   MLIRSideEffectInterfaces
   MLIRSupport
-  MLIRLLVMIR
   )
 
 add_mlir_dialect_library(MLIRGPUTransforms
@@ -66,6 +66,7 @@ add_mlir_dialect_library(MLIRGPUTransforms
   MLIRParallelLoopMapperEnumsGen
 
   LINK_LIBS PUBLIC
+  MLIRAffineUtils
   MLIRArithmetic
   MLIRAsync
   MLIRDataLayoutInterfaces
@@ -133,7 +134,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     MLIR_GPU_TO_HSACO_PASS_ENABLE=1
   )
 
-  target_link_libraries(MLIRGPUTransforms
+  target_link_libraries(MLIRGPUOps
     PRIVATE
     MLIRExecutionEngine
     MLIRROCDLToLLVMIRTranslation
