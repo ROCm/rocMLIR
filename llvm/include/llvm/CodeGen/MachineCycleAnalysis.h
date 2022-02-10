@@ -26,38 +26,6 @@ extern template class GenericCycle<MachineSSAContext>;
 using MachineCycleInfo = GenericCycleInfo<MachineSSAContext>;
 using MachineCycle = MachineCycleInfo::CycleT;
 
-/// Legacy analysis pass which computes a \ref MachineCycleInfo.
-class MachineCycleInfoWrapperPass : public MachineFunctionPass {
-  MachineFunction *F = nullptr;
-  MachineCycleInfo CI;
-
-public:
-  static char ID;
-
-  MachineCycleInfoWrapperPass();
-
-  MachineCycleInfo &getCycleInfo() { return CI; }
-  const MachineCycleInfo &getCycleInfo() const { return CI; }
-
-  bool runOnMachineFunction(MachineFunction &F) override;
-  void getAnalysisUsage(AnalysisUsage &AU) const override;
-  void releaseMemory() override;
-  void print(raw_ostream &OS, const Module *M = nullptr) const override;
-
-  // TODO: verify analysis
-};
-
-/// Legacy analysis pass which computes a \ref MachineCycleInfo.
-class MachineCycleInfoPrinterPass : public MachineFunctionPass {
-public:
-  static char ID;
-
-  MachineCycleInfoPrinterPass();
-
-  bool runOnMachineFunction(MachineFunction &F) override;
-  void getAnalysisUsage(AnalysisUsage &AU) const override;
-};
-
 } // end namespace llvm
 
 #endif // LLVM_CODEGEN_MACHINECYCLEANALYSIS_H

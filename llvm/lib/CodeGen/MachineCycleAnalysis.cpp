@@ -17,14 +17,40 @@ using namespace llvm;
 template class llvm::GenericCycleInfo<llvm::MachineSSAContext>;
 template class llvm::GenericCycle<llvm::MachineSSAContext>;
 
-//===----------------------------------------------------------------------===//
-// MachineCycleInfoWrapperPass Implementation
-//===----------------------------------------------------------------------===//
-//
-// The implementation details of the wrapper pass that holds a MachineCycleInfo
-// suitable for use with the legacy pass manager.
-//
-//===----------------------------------------------------------------------===//
+namespace {
+
+/// Legacy analysis pass which computes a \ref MachineCycleInfo.
+class MachineCycleInfoWrapperPass : public MachineFunctionPass {
+  MachineFunction *F = nullptr;
+  MachineCycleInfo CI;
+
+public:
+  static char ID;
+
+  MachineCycleInfoWrapperPass();
+
+  MachineCycleInfo &getCycleInfo() { return CI; }
+  const MachineCycleInfo &getCycleInfo() const { return CI; }
+
+  bool runOnMachineFunction(MachineFunction &F) override;
+  void getAnalysisUsage(AnalysisUsage &AU) const override;
+  void releaseMemory() override;
+  void print(raw_ostream &OS, const Module *M = nullptr) const override;
+
+  // TODO: verify analysis
+};
+
+class MachineCycleInfoPrinterPass : public MachineFunctionPass {
+public:
+  static char ID;
+
+  MachineCycleInfoPrinterPass();
+
+  bool runOnMachineFunction(MachineFunction &F) override;
+  void getAnalysisUsage(AnalysisUsage &AU) const override;
+};
+
+} // namespace
 
 char MachineCycleInfoWrapperPass::ID = 0;
 
