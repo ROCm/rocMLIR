@@ -150,7 +150,7 @@ struct MIMFMARewritePattern : public OpRewritePattern<miopen::MFMAV2Op> {
       Value extracted = b.create<vector::ExtractElementOp>(
           loc, b.getIntegerType(8), vec4i8, iterOp);
       Value i32A =
-          b.create<arith::ExtUIOp>(loc, extracted, b.getIntegerType(32));
+          b.create<arith::ExtUIOp>(loc, b.getIntegerType(32), extracted);
       Value shiftWidth =
           b.create<arith::ConstantIntOp>(loc, i * 8, b.getIntegerType(32));
       Value i32AShifted = b.create<arith::ShLIOp>(loc, i32A, shiftWidth);
