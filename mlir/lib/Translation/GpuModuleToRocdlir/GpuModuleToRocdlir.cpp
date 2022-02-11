@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Translation/GpuModuleToRocdir.h"
 
 #include "mlir/Dialect/GPU/GPUDialect.h"
@@ -54,6 +55,8 @@ void mlir::miopen::registerGpuModuleToROCDLIRTranslation() {
         return success();
       },
       [](DialectRegistry &registry) {
+        registry.insert<mlir::gpu::GPUDialect>();
         mlir::registerROCDLDialectTranslation(registry);
+        mlir::registerLLVMDialectTranslation(registry);
       });
 }

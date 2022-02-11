@@ -94,7 +94,7 @@ func @miopen_threadwise_copy_v2(%source : vector<32xf32>,
 // CHECK-LABEL: @miopen_threadwise_copy_v2_vectorized_nchw
 func @miopen_threadwise_copy_v2_vectorized_nchw(%source : vector<32xf32>,
                                 %dest5D : memref<128x1x1024x16x16xf32>) {
-  %c0 = constant 0 : index
+  %c0 = arith.constant 0 : index
 
   // A usecase of threadwise_copy_v2 that should be vectorized
   // This threadwise_copy takes the extra n dimension split used in swizzling
@@ -141,7 +141,7 @@ func @miopen_threadwise_copy_v2_vectorized_nchw(%source : vector<32xf32>,
 func @miopen_threadwise_copy_v2_vectorized_nhwc(%source_offset : i32,
                                 %source : vector<32xf32>,
                                 %dest5D : memref<128x1x16x16x1024xf32>) {
-  %c0 = constant 0 : index
+  %c0 = arith.constant 0 : index
 
   // A usecase of threadwise_copy_v2 that should be vectorized
   // This threadwise_copy takes the extra n dimension split used in swizzling

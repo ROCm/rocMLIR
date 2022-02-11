@@ -1,4 +1,4 @@
-// mlir-opt -convert-linalg-to-loops -lower-affine -convert-scf-to-std -convert-std-to-llvm conv2d.mlir
+// mlir-opt -convert-linalg-to-loops -lower-affine -convert-scf-to-cf -convert-std-to-llvm conv2d.mlir
 // filter: YXCK
 // input : NHWC
 // output: NHWK

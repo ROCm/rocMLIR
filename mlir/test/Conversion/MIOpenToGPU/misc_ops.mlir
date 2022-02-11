@@ -11,10 +11,10 @@ module {
     // CHECK: gpu.lds_barrier
     miopen.lds_barrier
 
-    // CHECK: %{{.*}} = "gpu.block_id"() {dimension = "x"} : () -> index
+    // CHECK: %{{.*}} = gpu.block_id x
     %bid = miopen.workgroup_id : index
 
-    // CHECK: %{{.*}} = "gpu.thread_id"() {dimension = "x"} : () -> index
+    // CHECK: %{{.*}} = gpu.thread_id x
     %tid = miopen.workitem_id : index
 
     %idx = arith.muli %bid, %tid : index

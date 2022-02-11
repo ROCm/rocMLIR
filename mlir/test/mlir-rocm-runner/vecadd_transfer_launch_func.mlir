@@ -3,7 +3,7 @@
 module attributes {gpu.container_module} {
   gpu.module @gpu_kernels {
     gpu.func @vecadd_kernel(%arg0 : memref<?xf32>, %arg1 : memref<?xf32>, %arg2 : memref<?xf32>) workgroup(%arg3 : memref<16xf32, 3>) private(%arg4 : memref<16xf32, 5>) kernel {
-      %tx = "gpu.thread_id"() {dimension = "x"} : () -> (index)
+      %tx = gpu.thread_id x
       %a = memref.load %arg0[%tx] : memref<?xf32>
       %b = memref.load %arg1[%tx] : memref<?xf32>
       %c = arith.addf %a, %b : f32

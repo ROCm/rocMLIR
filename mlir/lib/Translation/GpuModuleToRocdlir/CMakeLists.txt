@@ -8,6 +8,7 @@ add_mlir_translation_library(GpuModuleToRocdlirTranslation
 
   LINK_LIBS PUBLIC
   MLIRGPUOps
+  MLIRLLVMToLLVMIRTranslation
   MLIRROCDLToLLVMIRTranslation
 
   MLIRIR
