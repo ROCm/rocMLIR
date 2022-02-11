@@ -29,7 +29,7 @@ struct MiirHandle_s {
     module = ModuleOp::create(builder.getUnknownLoc());
   }
   mlir::ModuleOp getModule() { return module.get(); }
-  mlir::OwningModuleRef module;
+  mlir::OwningOpRef<mlir::ModuleOp> module;
   std::string triple;
   std::string chip;
   std::string features;

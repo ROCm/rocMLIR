@@ -17,7 +17,7 @@ def MIOpenOpsStep1Pass : Pass<"miopen-lowering", "ModuleOp"> {
   let dependentDialects = ["miopen::MIOpenDialect"];
 }
 
-def MIOpenOpsAffixTuningParametersPass : FunctionPass<"miopen-affix-params"> {
+def MIOpenOpsAffixTuningParametersPass : Pass<"miopen-affix-params", "::mlir::FuncOp"> {
   let summary = "populate tuning parameters for miopen.gridwise_gemm ops";
   let constructor = "mlir::miopen::createAffixTuningParametersPass()";
   let dependentDialects = ["miopen::MIOpenDialect"];

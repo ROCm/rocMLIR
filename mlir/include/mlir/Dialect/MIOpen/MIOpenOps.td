@@ -19,7 +19,7 @@ include "mlir/Interfaces/VectorInterfaces.td"
 include "mlir/Interfaces/ViewLikeInterface.td"
 
 // Base class for MIOpen dialect ops.
-class MIOpen_Op<string mnemonic, list<OpTrait> traits = []> :
+class MIOpen_Op<string mnemonic, list<Trait> traits = []> :
     Op<MIOpen_Dialect, mnemonic, traits> {
   let extraClassDeclaration = [{
   }];

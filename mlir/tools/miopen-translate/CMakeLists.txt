@@ -28,6 +28,7 @@ target_link_libraries(miopen-translate
   MLIRTranslation
   MLIRSupport
   MLIRROCDLToLLVMIRTranslation
+  GpuModuleToRocdlirTranslation
   )
 
 mlir_check_link_libraries(miopen-translate)

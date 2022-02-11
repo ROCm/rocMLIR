@@ -15,7 +15,7 @@ target_link_libraries(MLIRMIOpenToGPU
   MLIRLLVMIR
   MLIRIR
   MLIRPass
-  MLIRSCFToStandard
+  MLIRSCFToControlFlow
   MLIRStandardToLLVM
   MLIRSupport
   MLIRTransforms

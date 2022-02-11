@@ -15,7 +15,7 @@ add_mlir_dialect_library(MLIRMIOpenPipeline
   MLIRAffineToStandard
   MLIRMIOpenOps
   MLIRMIOpenTuning
-  MLIRSCFToStandard
+  MLIRSCFToControlFlow
   MLIRSupport
   MLIRTransformUtils
 )

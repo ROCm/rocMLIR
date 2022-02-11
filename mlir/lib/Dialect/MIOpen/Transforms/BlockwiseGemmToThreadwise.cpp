@@ -658,13 +658,10 @@ struct BlockwiseStoreRewritePattern
 
 void LowerMIOpenOpsStep3Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
-  OwningRewritePatternList patterns(ctx);
-  patterns.insert<FillRewritePattern>(ctx);
-  patterns.insert<TransformRewritePattern>(ctx);
-  patterns.insert<BlockwiseGemmRewritePattern>(ctx);
-  patterns.insert<BlockwiseGemmV2RewritePattern>(ctx);
-  patterns.insert<BlockwiseLoadRewritePattern>(ctx);
-  patterns.insert<BlockwiseStoreRewritePattern>(ctx);
+  RewritePatternSet patterns(ctx);
+  patterns.add<FillRewritePattern, TransformRewritePattern,
+               BlockwiseGemmRewritePattern, BlockwiseGemmV2RewritePattern,
+               BlockwiseLoadRewritePattern, BlockwiseStoreRewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }

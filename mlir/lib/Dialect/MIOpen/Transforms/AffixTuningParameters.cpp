@@ -18,7 +18,7 @@ public:
   AffixTuningParameters(int64_t blockSizeOverride, int64_t gridSizeOverride)
       : blockSizeOverride(blockSizeOverride),
         gridSizeOverride(gridSizeOverride) {}
-  void runOnFunction() override;
+  void runOnOperation() override;
 
 private:
   // Block size can be set in two ways:
@@ -40,8 +40,8 @@ private:
 };
 } // anonymous namespace
 
-void AffixTuningParameters::runOnFunction() {
-  FuncOp func = getFunction();
+void AffixTuningParameters::runOnOperation() {
+  FuncOp func = getOperation();
 
   func.walk([&](miopen::Conv2DOp op) { affixTuningParametersImpl(op); });
   func.walk([&](miopen::Conv2DBwdDataOp op) { affixTuningParametersImpl(op); });
@@ -208,8 +208,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("kpack", b.getI32IntegerAttr(validParams.gemmKPack));
 
     // Set attributes on the function.
-    getFunction()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
-    getFunction()->setAttr(
+    getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
+    getOperation()->setAttr(
         "grid_size",
         b.getI32IntegerAttr(gridSizeOverride ? gridSizeOverride : gridSize));
 
@@ -266,9 +266,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("kpack", b.getI32IntegerAttr(1));
 
     // Set attributes on the function.
-    getFunction()->setAttr("block_size",
-                           b.getI32IntegerAttr(validParams.blockSize));
-    getFunction()->setAttr(
+    getOperation()->setAttr("block_size",
+                            b.getI32IntegerAttr(validParams.blockSize));
+    getOperation()->setAttr(
         "grid_size",
         b.getI32IntegerAttr(gridSizeOverride ? gridSizeOverride : gridSize));
 

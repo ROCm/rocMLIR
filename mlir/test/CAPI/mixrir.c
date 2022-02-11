@@ -27,22 +27,24 @@
 MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirModule moduleOp = mlirModuleCreateEmpty(location);
   MlirBlock moduleBody = mlirModuleGetBody(moduleOp);
- 
+
   // Set func arguments
   int64_t inDims[] = {1, 64, 56, 56};
   MlirType inType = mlirRankedTensorTypeGet(4, inDims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
   MlirType funcBodyArgTypes[] = {inType};
+  MlirLocation funcBodyLocations[] = {location};
   MlirRegion funcBodyRegion = mlirRegionCreate();
-  MlirBlock funcBody = mlirBlockCreate(
-      sizeof(funcBodyArgTypes) / sizeof(MlirType), funcBodyArgTypes);
+  MlirBlock funcBody =
+      mlirBlockCreate(sizeof(funcBodyArgTypes) / sizeof(MlirType),
+                      funcBodyArgTypes, funcBodyLocations);
   mlirRegionAppendOwnedBlock(funcBodyRegion, funcBody);
 
   //-------------- func op
 
   // Set func attributes
   MlirAttribute funcTypeAttr = mlirAttributeParseGet(
-      ctx, 
-      mlirStringRefCreateFromCString("(tensor<1x64x56x56xf32>) -> (tensor<1x64x56x56xf32>)"));
+      ctx, mlirStringRefCreateFromCString(
+               "(tensor<1x64x56x56xf32>) -> (tensor<1x64x56x56xf32>)"));
   MlirAttribute funcNameAttr = mlirAttributeParseGet(
       ctx,
       mlirStringRefCreateFromCString("\"main\""));
@@ -178,7 +180,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
       mlirStringRefCreateFromCString("migraphx.add"), location);
   mlirOperationStateAddResults(&add0State, 1, &add0Type);
   mlirOperationStateAddOperands(&add0State, 2, add0Operands);
-  
+
   MlirOperation add0Op = mlirOperationCreate(&add0State);
   mlirBlockAppendOwnedOperation(funcBody, add0Op);
   MlirValue add0Value = mlirOperationGetResult(add0Op, 0);
@@ -246,7 +248,7 @@ int main() {
   mlirContextSetAllowUnregisteredDialects(ctx, true/*allow*/);
   if (constructAndTraverseIr(ctx))
     return 1;
-  
+
   mlirContextDestroy(ctx);
 
   return 0;

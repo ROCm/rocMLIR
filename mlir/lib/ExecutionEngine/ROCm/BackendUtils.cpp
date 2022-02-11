@@ -17,11 +17,12 @@
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 
 #include "llvm/IR/Module.h"
+#include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/LineIterator.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/SourceMgr.h"
-#include "llvm/MC/TargetRegistry.h"
+#include "llvm/Support/WithColor.h"
 
 // MC headers.
 #include "llvm/MC/MCAsmBackend.h"

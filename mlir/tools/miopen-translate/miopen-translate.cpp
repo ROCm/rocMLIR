@@ -25,7 +25,7 @@ using namespace mlir;
 
 int main(int argc, char **argv) {
   registerAllTranslations();
-  registerToROCDLIRTranslation();
+  miopen::registerMIOpenTranslations();
   registerMIOpenPasses();
   mlir::registerMIOpenConversionPasses();
   miopen::registerPasses();

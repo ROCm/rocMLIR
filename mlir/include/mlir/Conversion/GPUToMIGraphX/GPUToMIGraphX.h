@@ -31,7 +31,7 @@ void addGPUToMIGraphXPasses(OpPassManager &pm);
 
 /// Populates conversion passes GPU to MIGraphX.
 void populateFuncToCOBJPatterns(MLIRContext *context,
-                                OwningRewritePatternList *patterns);
+                                RewritePatternSet &patterns);
 
 } // namespace migraphx
 } // namespace mlir

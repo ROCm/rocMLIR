@@ -23,7 +23,7 @@
 
 #include "PassDetail.h"
 
-#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -390,8 +390,8 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
 //
 void MIOpenLinalgAlignPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
-  OwningRewritePatternList patterns(ctx);
-  patterns.insert<MILARewritePattern<linalg::GenericOp>>(ctx);
+  RewritePatternSet patterns(ctx);
+  patterns.add<MILARewritePattern<linalg::GenericOp>>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }

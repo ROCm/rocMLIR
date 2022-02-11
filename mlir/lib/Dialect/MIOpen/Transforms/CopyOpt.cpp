@@ -22,7 +22,7 @@
 
 #include "PassDetail.h"
 
-#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -120,8 +120,8 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
 //
 void MIOpenCopyOptPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
-  OwningRewritePatternList patterns(ctx);
-  patterns.insert<MICORewritePattern<memref::AllocOp>>(ctx);
+  RewritePatternSet patterns(ctx);
+  patterns.add<MICORewritePattern<memref::AllocOp>>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }

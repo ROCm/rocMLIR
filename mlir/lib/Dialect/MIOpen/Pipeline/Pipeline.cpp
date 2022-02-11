@@ -23,6 +23,7 @@
 #include "mlir/Dialect/MIOpen/Pipeline.h"
 
 #include "mlir/Conversion/MIOpenPasses.h"
+#include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -45,7 +46,7 @@ void miopen::addHighLevelPipeline(PassManager &pm) {
   pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(createLinalgBufferizePass());
   pm.addPass(createFuncBufferizePass());
-  pm.addPass(createBufferResultsToOutParamsPass());
+  pm.addPass(bufferization::createBufferResultsToOutParamsPass());
   pm.addPass(bufferization::createFinalizingBufferizePass());
   pm.addPass(miopen::createMIOpenCopyOptPass());
 }
@@ -69,7 +70,7 @@ void miopen::addPipeline(PassManager &pm, bool applicability, bool highLevel) {
     // Passes for lowering linalg dialect.
     pm.addPass(createConvertLinalgToAffineLoopsPass());
     pm.addPass(createLowerAffinePass());
-    pm.addPass(createLowerToCFGPass());
+    pm.addPass(createConvertSCFToCFPass());
   }
 }
 

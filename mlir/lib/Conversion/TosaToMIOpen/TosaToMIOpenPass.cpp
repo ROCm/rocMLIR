@@ -13,7 +13,7 @@
 #include "../PassDetail.h"
 #include "mlir/Conversion/TosaToMIOpen/TosaToMIOpen.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
-#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
@@ -35,18 +35,18 @@ public:
                     bufferization::BufferizationDialect, StandardOpsDialect>();
   }
 
-  void runOnFunction() override {
+  void runOnOperation() override {
     auto &ctx = getContext();
-    OwningRewritePatternList patterns(&ctx);
+    RewritePatternSet patterns(&ctx);
     ConversionTarget target(ctx);
     target.addLegalDialect <miopen::MIOpenDialect, linalg::LinalgDialect,
         bufferization::BufferizationDialect, StandardOpsDialect>();
     target.addIllegalOp<tosa::Conv2DOp>();
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
-    FuncOp func = getFunction();
+    FuncOp func = getOperation();
     mlir::tosa::populateTosaToMIOpenConversionPatterns(func.getContext(),
-                                                       &patterns);
+                                                       patterns);
     if (failed(applyFullConversion(func, target, std::move(patterns))))
       signalPassFailure();
   }

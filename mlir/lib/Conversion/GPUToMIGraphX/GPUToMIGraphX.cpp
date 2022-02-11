@@ -142,7 +142,7 @@ class FuncToCOBJPattern : public OpConversionPattern<CallOp> {
 
 } // namespace
 
-void mlir::migraphx::populateFuncToCOBJPatterns(
-    MLIRContext *context, OwningRewritePatternList *patterns) {
-  patterns->insert<FuncToCOBJPattern>(context);
+void mlir::migraphx::populateFuncToCOBJPatterns(MLIRContext *context,
+                                                RewritePatternSet &patterns) {
+  patterns.add<FuncToCOBJPattern>(context);
 }

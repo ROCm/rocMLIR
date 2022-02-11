@@ -732,8 +732,8 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
 
     // Emit memref.cast.
     mlir::Value arg = block->getArgument(i++);
-    mlir::Value castOp = b.create<memref::CastOp>(loc, makeNDMemRef(b, arg, 5),
-                                                  fiveDimUnknownSizeMemRefType);
+    mlir::Value castOp = b.create<memref::CastOp>(
+        loc, fiveDimUnknownSizeMemRefType, makeNDMemRef(b, arg, 5));
     cpuMem.push_back(castOp);
 
     // Emit GPU memory allocation function calls.
@@ -753,7 +753,7 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
         expShape.push_back(1);
       auto param5DType = MemRefType::get(expShape, elemType);
       // Emit memref.cast.
-      castOp = b.create<memref::CastOp>(loc, gpuAlloc, param5DType);
+      castOp = b.create<memref::CastOp>(loc, param5DType, gpuAlloc);
 
       // Emit memref.collapse_shape
       SmallVector<ReassociationExprs, 5> reassociations;
@@ -772,7 +772,7 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
                                                  reassociations);
     } else {
       // Emit memref.cast.
-      castOp = b.create<memref::CastOp>(loc, gpuAlloc, paramType);
+      castOp = b.create<memref::CastOp>(loc, paramType, gpuAlloc);
     }
 
     paramCasts.push_back(castOp);
@@ -916,11 +916,11 @@ createCPUConvFunc(ModuleOp module,
       UnrankedMemRefType::get(filterType.getElementType(), 0);
 
   auto filterMemRefCastOp =
-      b.create<memref::CastOp>(loc, block->getArgument(0), unrankedMemRefType);
+      b.create<memref::CastOp>(loc, unrankedMemRefType, block->getArgument(0));
   auto inputMemRefCastOp =
-      b.create<memref::CastOp>(loc, block->getArgument(1), unrankedMemRefType);
+      b.create<memref::CastOp>(loc, unrankedMemRefType, block->getArgument(1));
   auto outputMemRefCastOp =
-      b.create<memref::CastOp>(loc, block->getArgument(2), unrankedMemRefType);
+      b.create<memref::CastOp>(loc, unrankedMemRefType, block->getArgument(2));
 
   // Emit ConstantOps to be used for strides, paddings and dilations
   auto intType = b.getIntegerType(32);
@@ -1031,11 +1031,11 @@ createCPUConvFunc(ModuleOp module,
   // %8 = memref_cast %5 : memref<5xi8> to memref<*xi8>
   auto unrankedLayoutMemRefType = UnrankedMemRefType::get(charType, 0);
   auto filLayoutMemRefCastOp =
-      b.create<memref::CastOp>(loc, filLayoutAllocOp, unrankedLayoutMemRefType);
+      b.create<memref::CastOp>(loc, unrankedLayoutMemRefType, filLayoutAllocOp);
   auto inLayoutMemRefCastOp =
-      b.create<memref::CastOp>(loc, inLayoutAllocOp, unrankedLayoutMemRefType);
+      b.create<memref::CastOp>(loc, unrankedLayoutMemRefType, inLayoutAllocOp);
   auto outLayoutMemRefCastOp =
-      b.create<memref::CastOp>(loc, outLayoutAllocOp, unrankedLayoutMemRefType);
+      b.create<memref::CastOp>(loc, unrankedLayoutMemRefType, outLayoutAllocOp);
 
   std::string mcpuFuncName;
 
@@ -1151,23 +1151,23 @@ static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
       // dstElemType); BF16 not supported by x86 isel
       mlir::Type i16 = bt0.getIntegerType(16);
       mlir::Type i32 = bt0.getI32Type();
-      loadOp = bt0.create<arith::BitcastOp>(loc, loadOp, i16);
-      loadOp = bt0.create<arith::ExtUIOp>(loc, loadOp, i32);
+      loadOp = bt0.create<arith::BitcastOp>(loc, i16, loadOp);
+      loadOp = bt0.create<arith::ExtUIOp>(loc, i32, loadOp);
       auto cst16Op = bt0.create<arith::ConstantIntOp>(loc, 16, i32);
       loadOp = bt0.create<arith::ShLIOp>(loc, loadOp, cst16Op);
-      loadOp = bt0.create<arith::BitcastOp>(loc, loadOp, bt0.getF32Type());
+      loadOp = bt0.create<arith::BitcastOp>(loc, bt0.getF32Type(), loadOp);
     } else if (srcElemType.isIntOrIndex()) {
       assert(!dstElemType.isIntOrIndex());
-      loadOp = bt0.create<arith::SIToFPOp>(loc, loadOp, dstElemType);
+      loadOp = bt0.create<arith::SIToFPOp>(loc, dstElemType, loadOp);
     } else {
       assert(srcElemType.isa<FloatType>());
       if (dstElemType.isIntOrIndex()) {
-        loadOp = bt0.create<arith::FPToSIOp>(loc, loadOp, dstElemType);
+        loadOp = bt0.create<arith::FPToSIOp>(loc, dstElemType, loadOp);
       } else {
         if (srcBitWidth < dstBitWidth)
-          loadOp = bt0.create<arith::ExtFOp>(loc, loadOp, dstElemType);
+          loadOp = bt0.create<arith::ExtFOp>(loc, dstElemType, loadOp);
         else
-          loadOp = bt0.create<arith::TruncFOp>(loc, loadOp, dstElemType);
+          loadOp = bt0.create<arith::TruncFOp>(loc, dstElemType, loadOp);
       }
     }
   }
@@ -1194,10 +1194,10 @@ static void emitMemcpy(OpBuilder &b, mlir::Value src, mlir::Value dst) {
   // Emit call to memcopy
   auto srcFlatType = MemRefType::get({-1}, srcElemType);
   auto srcFlat =
-      b.create<memref::CastOp>(loc, makeNDMemRef(b, src, 1), srcFlatType);
+      b.create<memref::CastOp>(loc, srcFlatType, makeNDMemRef(b, src, 1));
   auto dstFlatType = MemRefType::get({-1}, dstElemType);
   auto dstFlat =
-      b.create<memref::CastOp>(loc, makeNDMemRef(b, dst, 1), dstFlatType);
+      b.create<memref::CastOp>(loc, dstFlatType, makeNDMemRef(b, dst, 1));
 
   auto cstSize =
       b.create<arith::ConstantIndexOp>(loc, srcType.getNumElements());
@@ -1225,7 +1225,7 @@ static void emitPrintTensor(OpBuilder &b, mlir::Value var, bool flag = true) {
     auto printFunc = makeFuncDecl(module, "print_memref_f32", {unrankedMRType});
 
     // Emit cast + call print
-    auto printCast = b.create<memref::CastOp>(loc, pvar, unrankedMRType);
+    auto printCast = b.create<memref::CastOp>(loc, unrankedMRType, pvar);
     b.create<CallOp>(loc, printFunc, ValueRange{printCast});
 
     if (pvar != var) {
@@ -1362,8 +1362,8 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     } else {
       elemFType = b.getF16Type();
     }
-    cpuLoadVal = loopB.create<arith::TruncFOp>(loc, cpuLoadVal, elemFType);
-    gpuFPVal = loopB.create<arith::ExtFOp>(loc, gpuLoadVal, floatType);
+    cpuLoadVal = loopB.create<arith::TruncFOp>(loc, elemFType, cpuLoadVal);
+    gpuFPVal = loopB.create<arith::ExtFOp>(loc, floatType, gpuLoadVal);
   }
 
   mlir::Value percentDiffVal;
@@ -1399,7 +1399,8 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     // <test> = select (<cpu> != 0.0), <divf>, <subf>)
     auto notZeroOp = testBody.create<arith::CmpFOp>(
         loc, arith::CmpFPredicate::UNE, cpuLoadVal, getFVal(0.0f));
-    auto testOp = testBody.create<SelectOp>(loc, notZeroOp, divfOp, subfOp);
+    auto testOp =
+        testBody.create<arith::SelectOp>(loc, notZeroOp, divfOp, subfOp);
     percentDiffVal = divfOp;
 
     // <test> = |<test>|
@@ -1444,7 +1445,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 
   if (elemType.getIntOrFloatBitWidth() < 32) {
     percentDiffVal =
-        thenBody.create<arith::ExtFOp>(loc, percentDiffVal, floatType);
+        thenBody.create<arith::ExtFOp>(loc, floatType, percentDiffVal);
   }
   thenBody.create<CallOp>(loc, printFunc, ValueRange{percentDiffVal, cpuFPVal});
   thenBody.create<CallOp>(loc, printFunc, ValueRange{gpuFPVal, cpuFPVal});
@@ -1536,7 +1537,7 @@ populateHostHarnessLogic(ModuleOp &module,
     auto lvar = b.create<memref::AllocOp>(loc, paramMRType);
     localVars.push_back(lvar);
     auto lv5D = makeNDMemRef(b, lvar, 5);
-    auto lvU5D = b.create<memref::CastOp>(loc, lv5D, mr5DUnkType);
+    auto lvU5D = b.create<memref::CastOp>(loc, mr5DUnkType, lv5D);
 
     short min, max;
     int seed = 1;
@@ -1687,7 +1688,7 @@ int main(int argc, char **argv) {
     // Parse the input file.
     SourceMgr sourceMgr;
     sourceMgr.AddNewSourceBuffer(std::move(file), SMLoc());
-    OwningModuleRef moduleRef = parseSourceFile(sourceMgr, &context);
+    OwningOpRef<ModuleOp> moduleRef = parseSourceFile(sourceMgr, &context);
     if (!moduleRef) {
       llvm::errs() << "Parse host harness " << inputFilename << " failed.\n";
       exit(1);

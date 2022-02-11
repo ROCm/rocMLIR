@@ -2651,9 +2651,8 @@ struct GridwiseGemmV2RewritePattern
 
 void LowerMIOpenOpsStep2Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
-  OwningRewritePatternList patterns(ctx);
-  patterns.insert<GridwiseGemmRewritePattern>(ctx);
-  patterns.insert<GridwiseGemmV2RewritePattern>(ctx);
+  RewritePatternSet patterns(ctx);
+  patterns.add<GridwiseGemmRewritePattern, GridwiseGemmV2RewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }

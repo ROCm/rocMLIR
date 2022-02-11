@@ -24,11 +24,11 @@
 #include "../PassDetail.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
-#include "mlir/Conversion/SCFToStandard/SCFToStandard.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/GPU/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -36,7 +36,7 @@
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
-#include "mlir/Dialect/Vector/VectorOps.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Attributes.h"
@@ -82,13 +82,14 @@ struct MIGPUAllocRewritePattern : public OpRewritePattern<miopen::GpuAllocOp> {
                                 PatternRewriter &b) const override {
     auto type = op.output().getType().cast<MemRefType>();
     auto func = op->getParentOfType<gpu::GPUFuncOp>();
+    Location loc = op->getLoc();
 
     if (type.getMemorySpaceAsInt() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
-      Value attribution = func.addWorkgroupAttribution(type);
+      Value attribution = func.addWorkgroupAttribution(type, loc);
       op.replaceAllUsesWith(attribution);
     } else if (type.getMemorySpaceAsInt() ==
                gpu::GPUDialect::getPrivateAddressSpace()) {
-      Value attribution = func.addPrivateAttribution(type);
+      Value attribution = func.addPrivateAttribution(type, loc);
       op.replaceAllUsesWith(attribution);
     } else {
       // TBD: return failure.
@@ -115,7 +116,8 @@ struct MIIdRewritePattern : public OpRewritePattern<Tmi> {
   using OpRewritePattern<Tmi>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(Tmi op, PatternRewriter &b) const override {
-    Value nop = b.create<Tgpu>(op.getLoc(), b.getIndexType(), "x");
+    Value nop =
+        b.create<Tgpu>(op.getLoc(), b.getIndexType(), gpu::Dimension::x);
     op.replaceAllUsesWith(nop);
     op.erase();
     return success();
@@ -208,7 +210,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     Block *clonedFuncEntry = map.lookup(&funcEntry);
     Block &gpuFuncEntry = gpuFuncBody.front();
     b.setInsertionPointToEnd(&gpuFuncEntry);
-    b.create<BranchOp>(loc, clonedFuncEntry);
+    b.create<cf::BranchOp>(loc, clonedFuncEntry);
 
     // convert all calls to gpu.launch_func
     SmallVector<CallOp, 4> calls;
@@ -264,17 +266,18 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
   op.walk([this, &gpuModCount](gpu::GPUModuleOp gpuMod) {
     gpuModCount++;
     auto *ctx = &getContext();
-    OwningRewritePatternList patterns(ctx);
+    RewritePatternSet patterns(ctx);
 
     // miopen-lowering
-    patterns.insert<MIGPUAllocRewritePattern>(ctx);
-    patterns.insert<MIOpRewritePattern<miopen::WorkgroupBarrierOp, gpu::BarrierOp>>(ctx);
-    patterns.insert<MIOpRewritePattern<miopen::LDSBarrierOp, gpu::LDSBarrierOp>>(ctx);
-    patterns.insert<MIIdRewritePattern<miopen::WorkgroupIdOp, gpu::BlockIdOp>>(ctx);
-    patterns.insert<MIIdRewritePattern<miopen::WorkitemIdOp, gpu::ThreadIdOp>>(ctx);
-    patterns.insert<MIOpRewritePattern<ReturnOp, gpu::ReturnOp>>(ctx);
+    patterns
+        .add<MIGPUAllocRewritePattern,
+             MIOpRewritePattern<miopen::WorkgroupBarrierOp, gpu::BarrierOp>,
+             MIOpRewritePattern<miopen::LDSBarrierOp, gpu::LDSBarrierOp>,
+             MIIdRewritePattern<miopen::WorkgroupIdOp, gpu::BlockIdOp>,
+             MIIdRewritePattern<miopen::WorkitemIdOp, gpu::ThreadIdOp>,
+             MIOpRewritePattern<ReturnOp, gpu::ReturnOp>, MIMFMARewritePattern>(
+            ctx);
 
-    patterns.insert<MIMFMARewritePattern>(ctx);
     if (failed(applyPatternsAndFoldGreedily(gpuMod, std::move(patterns))))
       signalPassFailure();
   });

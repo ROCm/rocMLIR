@@ -30,7 +30,8 @@
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
-#include "mlir/Conversion/SCFToStandard/SCFToStandard.h"
+#include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
+#include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -141,7 +142,7 @@ Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
         SmallVector<Value, 4> srcLowerIndicesI32;
         for (auto v : srcLowerIndices)
           srcLowerIndicesI32.push_back(
-              b.create<IndexCastOp>(loc, v, b.getIntegerType(32)));
+              b.create<IndexCastOp>(loc, b.getIntegerType(32), v));
         loadedValue = b.create<gpu::MubufLoadOp>(loc, loadedType, source,
                                                  srcLowerIndicesI32);
       } else {
@@ -262,7 +263,8 @@ Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
     // Issue scalar load.
     SmallVector<Value, 8> srcLowerIndicesUpdated;
     for (unsigned iter = 0; iter < 5; ++iter)
-      srcLowerIndicesUpdated.push_back(firstIfWithinBoundsOp.results()[iter]);
+      srcLowerIndicesUpdated.push_back(
+          firstIfWithinBoundsOp.getResults()[iter]);
     loadedValue = emitLoadInstruction(srcLowerIndicesUpdated, sourceType,
                                       loadedType, source);
 
@@ -276,7 +278,7 @@ Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
         secondIfWithinBoundsOp.getElseBodyBuilder();
     secondIfWithinBoundsElseBuilder.create<scf::YieldOp>(loc, zeroOp);
 
-    loadedValue = secondIfWithinBoundsOp.results()[0];
+    loadedValue = secondIfWithinBoundsOp.getResults()[0];
 
   } else {
     loadedValue =
@@ -310,11 +312,11 @@ void emitStoreLogic(
       // Issue vector store.
       if (destType.getMemorySpaceAsInt() == 0) {
         // use raw buffer store if the dest memref is on address space 0
-        Value oobI32 = b.create<IndexCastOp>(loc, oob, b.getIntegerType(32));
+        Value oobI32 = b.create<IndexCastOp>(loc, b.getIntegerType(32), oob);
         SmallVector<Value, 4> destLowerIndicesI32;
         for (auto v : destLowerIndices)
           destLowerIndicesI32.push_back(
-              b.create<IndexCastOp>(loc, v, b.getIntegerType(32)));
+              b.create<IndexCastOp>(loc, b.getIntegerType(32), v));
         b.create<gpu::RawbufStoreOp>(loc, value, dest, oobI32,
                                      destLowerIndicesI32);
       } else {
@@ -342,10 +344,10 @@ void emitStoreLogic(
       if (destType.getMemorySpaceAsInt() == 0) {
         // use raw buffer store if the dest memref is on address space 0
         SmallVector<Value, 4> destLowerIndicesI32;
-        Value oobI32 = b.create<IndexCastOp>(loc, oob, b.getIntegerType(32));
+        Value oobI32 = b.create<IndexCastOp>(loc, b.getIntegerType(32), oob);
         for (auto v : destLowerIndices)
           destLowerIndicesI32.push_back(
-              b.create<IndexCastOp>(loc, v, b.getIntegerType(32)));
+              b.create<IndexCastOp>(loc, b.getIntegerType(32), v));
         b.create<gpu::RawbufStoreOp>(loc, value, dest, oobI32,
                                      destLowerIndicesI32);
       } else {
@@ -480,8 +482,8 @@ void emitStoreLogic(
     if (memoryOp == InMemoryDataOperation::AtomicAdd) {
       SmallVector<Value, 8> destLowerStoreIndices;
       for (unsigned i = 0; i < destLowerIndices.size(); ++i) {
-        auto dstIndex = b.create<IndexCastOp>(loc, destLowerIndices[i],
-                                              b.getIntegerType(32));
+        auto dstIndex = b.create<IndexCastOp>(loc, b.getIntegerType(32),
+                                              destLowerIndices[i]);
         destLowerStoreIndices.push_back(dstIndex);
       }
       b.create<gpu::AtomicFAddOp>(loc, value, dest, destLowerStoreIndices);
@@ -597,10 +599,10 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
     // All these ops act elementwise on vectors
     if (sourceElemType.getIntOrFloatBitWidth() == 16 &&
         destElemType == b.getF32Type()) {
-      result = b.create<arith::ExtFOp>(loc, source, destType);
+      result = b.create<arith::ExtFOp>(loc, destType, source);
     } else if (sourceElemType == b.getF32Type() &&
                destElemType.getIntOrFloatBitWidth() == 16) {
-      result = b.create<arith::TruncFOp>(loc, source, destType);
+      result = b.create<arith::TruncFOp>(loc, destType, source);
     } else {
       llvm_unreachable("Only fp32, fp16, or bf16 targets for data conversion");
     }
@@ -682,7 +684,7 @@ void emitNaiveTensorCopyLogic(OpBuilder &b, Location loc, int64_t nSliceRow,
 Optional<int64_t> isConstantValue(Value v) {
   auto *op = v.getDefiningOp();
   while (auto cast = dyn_cast<IndexCastOp>(op)) {
-    op = cast.in().getDefiningOp();
+    op = cast.getIn().getDefiningOp();
   }
   if (auto intOp = dyn_cast<ConstantIntOp>(op)) {
     return intOp.value();
@@ -2809,8 +2811,8 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
                      argTypeVectorLength ==
                  0);
 
-          argA = innerLoopb.create<SplatOp>(loc, zeroOp, argType);
-          argB = innerLoopb.create<SplatOp>(loc, zeroOp, argType);
+          argA = innerLoopb.create<vector::SplatOp>(loc, zeroOp, argType);
+          argB = innerLoopb.create<vector::SplatOp>(loc, zeroOp, argType);
           for (int64_t i = 0; i < argTypeVectorLength; ++i) {
             Value iConstantOp = innerLoopb.create<ConstantIndexOp>(loc, i);
             Value iPlusOffsetConstantOp =
@@ -3061,23 +3063,20 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
 
 void LowerMIOpenOpsStep4Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
-  OwningRewritePatternList patterns(ctx);
-  patterns.insert<InWarpTransposeRewritePattern>(ctx);
-  patterns.insert<ThreadwiseGemmRewritePattern>(ctx);
-  patterns.insert<ThreadwiseCopyRewritePattern>(ctx);
-  patterns.insert<ThreadwiseLoadRewritePattern>(ctx);
-  patterns.insert<ThreadwiseStoreRewritePattern>(ctx);
-  patterns.insert<ThreadwiseCopyV2RewritePattern>(ctx);
-  patterns.insert<XdlopsGemmV2RewritePattern>(ctx);
+  RewritePatternSet patterns(ctx);
+  patterns.add<InWarpTransposeRewritePattern, ThreadwiseGemmRewritePattern,
+               ThreadwiseCopyRewritePattern, ThreadwiseLoadRewritePattern,
+               ThreadwiseStoreRewritePattern, ThreadwiseCopyV2RewritePattern,
+               XdlopsGemmV2RewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }
 
 void LowerMIOpenOpsStep5Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
-  OwningRewritePatternList patterns(ctx);
+  RewritePatternSet patterns(ctx);
   populateAffineToStdConversionPatterns(patterns);
-  populateLoopToStdConversionPatterns(patterns);
+  populateSCFToControlFlowConversionPatterns(patterns);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }

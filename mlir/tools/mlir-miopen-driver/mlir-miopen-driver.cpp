@@ -173,7 +173,7 @@ int main(int argc, char **argv) {
 
   std::string errorMessage;
   SourceMgr sourceMgr;
-  OwningModuleRef moduleRef;
+  OwningOpRef<ModuleOp> moduleRef;
 
   // Set up the input file.
   auto file = openInputFile(inputFilename, &errorMessage);
