@@ -442,8 +442,14 @@ def MIOpen_BlockwiseGemmV2Op:
                    ArgTransforms<2>:$transforms,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
-                   MemRefOf<[F32, F16, BF16, I8, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>, VectorOfLengthAndType<[4], [I8]>]>:$bufferA,
-                   MemRefOf<[F32, F16, BF16, I8, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>, VectorOfLengthAndType<[4], [I8]>]>:$bufferB,
+                   MemRefOf<[F32, F16, BF16, I8, 
+                             VectorOfLengthAndType<[2, 4], [F32]>, 
+                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>, 
+                             VectorOfLengthAndType<[4], [I8]>]>:$bufferA,
+                   MemRefOf<[F32, F16, BF16, I8, 
+                             VectorOfLengthAndType<[2, 4], [F32]>, 
+                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>, 
+                             VectorOfLengthAndType<[4], [I8]>]>:$bufferB,
                    Variadic<VectorOfRankAndType<[1], [F32, F16, I32]>>:$vectorCs)>,
     Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16, I32]>>: $vectorDs)> {
   let summary = "Blockwise GEMM XDLOPS version";
@@ -481,8 +487,14 @@ def MIOpen_ThreadwiseGemmOp:
 def MIOpen_MFMAV2Op:
     MIOpen_Op<"mfma_v2", [AllTypesMatch<["sourceA", "sourceB"]>,
       AllTypesMatch<["destC", "destD"]>]>,
-    Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>, VectorOfLengthAndType<[4], [I8]>]>: $sourceA,
-                   AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>, VectorOfLengthAndType<[4], [I8]>]>: $sourceB,
+    Arguments<(ins AnyTypeOf<[F32, 
+                              VectorOfLengthAndType<[4], [F16]>, 
+                              VectorOfLengthAndType<[2], [BF16]>, 
+                              VectorOfLengthAndType<[4], [I8]>]>: $sourceA,
+                   AnyTypeOf<[F32, 
+                              VectorOfLengthAndType<[4], [F16]>, 
+                              VectorOfLengthAndType<[2], [BF16]>, 
+                              VectorOfLengthAndType<[4], [I8]>]>: $sourceB,
                    VectorOfRankAndType<[1], [I32, F32, F16]>: $destC)>,
     Results<(outs VectorOfRankAndType<[1], [I32, F32, F16]>: $destD)> {
   let summary = "XDLOPS MFMA V2";
@@ -502,8 +514,14 @@ def MIOpen_XdlopsGemmV2Op:
                    ArgTransforms<2>:$transforms,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
-                   MemRefOf<[F32, F16, BF16, I8, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>, VectorOfLengthAndType<[4], [I8]>]>:$bufferA,
-                   MemRefOf<[F32, F16, BF16, I8, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>, VectorOfLengthAndType<[4], [I8]>]>:$bufferB,
+                   MemRefOf<[F32, F16, BF16, I8, 
+                             VectorOfLengthAndType<[2, 4], [F32]>, 
+                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>, 
+                             VectorOfLengthAndType<[4], [I8]>]>:$bufferA,
+                   MemRefOf<[F32, F16, BF16, I8, 
+                             VectorOfLengthAndType<[2, 4], [F32]>, 
+                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>, 
+                             VectorOfLengthAndType<[4], [I8]>]>:$bufferB,
                    Variadic<VectorOfRankAndType<[1], [F32, F16, I32]>>:$vectorCs)>,
     Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16, I32]>>:$vectorDs)> {
   let summary = "XDLOPS GEMM V2";
