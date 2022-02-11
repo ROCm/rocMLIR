@@ -1484,17 +1484,25 @@ populateHostHarnessLogic(ModuleOp &module,
   b.setInsertionPoint(block, block->begin());
 
   int32_t outIdx = -1;
+  int32_t zeroInitIdx = -1;
   if (genConfig.operation.hasValue()) {
     switch (genConfig.operation.getValue()) {
     case miopen::ConvOpType::Fwd:
       outIdx = 2;
+      zeroInitIdx = 2;
       break;
     case miopen::ConvOpType::BwdData:
       outIdx = 1;
+      zeroInitIdx = 1;
       break;
     case miopen::ConvOpType::BwdWeight:
       outIdx = 0;
+      zeroInitIdx = 0;
       break;
+    }
+    Conv2dGenerator generator(genConfig);
+    if (generator.hasWorkspace(b)) {
+      zeroInitIdx = 3;
     }
   }
 
@@ -1546,7 +1554,7 @@ populateHostHarnessLogic(ModuleOp &module,
 
     short min, max;
     int seed = 1;
-    std::tie(min, max, seed) = getRandomTestData(idx, idx == outIdx);
+    std::tie(min, max, seed) = getRandomTestData(idx, idx == zeroInitIdx);
 
     b.create<CallOp>(
         loc, getMemsetFunc(module, elemType),
