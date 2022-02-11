@@ -169,7 +169,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
 
   # Locate HIP runtime library.
   find_library(ROCM_RUNTIME_LIBRARY amdhip64
-               PATHS "${HIP_PATH}/lib")
+               PATHS "${HIP_ROOT_DIR}/lib")
   if (NOT ROCM_RUNTIME_LIBRARY)
     message(SEND_ERROR "Could not locate ROCm HIP runtime library")
   else()
