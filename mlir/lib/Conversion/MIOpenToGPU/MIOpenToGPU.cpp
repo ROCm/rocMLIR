@@ -127,12 +127,71 @@ struct MIIdRewritePattern : public OpRewritePattern<Tmi> {
 struct MIMFMARewritePattern : public OpRewritePattern<miopen::MFMAV2Op> {
   using OpRewritePattern<miopen::MFMAV2Op>::OpRewritePattern;
 
+  // The below implements the concatenation of vector<4xi8> to an i32:
+  // a[0] | (a[1] << 8) | (a[2] << 16) | (a[3] << 24)
+  LogicalResult vector4i8Toi32(const Value &vec4i8, Value &i32vals,
+                               PatternRewriter &b) const {
+    if (!vec4i8.getType().isa<VectorType>())
+      return failure();
+    auto vecType = vec4i8.getType().cast<VectorType>();
+
+    // Only supports 1d conversion
+    if (vecType.getRank() != 1)
+      return failure();
+
+    // The dimension must be exactly 4
+    auto dim = vecType.getShape().back();
+    if (dim != 4)
+      return failure();
+
+    auto loc = vec4i8.getLoc();
+    for (int i = 0; i < dim; ++i) {
+      Value iterOp = b.create<arith::ConstantIndexOp>(loc, i);
+      Value extracted = b.create<vector::ExtractElementOp>(
+          loc, b.getIntegerType(8), vec4i8, iterOp);
+      Value i32A =
+          b.create<arith::ExtUIOp>(loc, extracted, b.getIntegerType(32));
+      Value shiftWidth =
+          b.create<arith::ConstantIntOp>(loc, i * 8, b.getIntegerType(32));
+      Value i32AShifted = b.create<arith::ShLIOp>(loc, i32A, shiftWidth);
+      i32vals = b.create<arith::OrIOp>(loc, i32vals, i32AShifted);
+    }
+    return success();
+  }
+
   LogicalResult matchAndRewrite(miopen::MFMAV2Op op,
                                 PatternRewriter &b) const override {
-    auto gpuMfmaOp = b.create<gpu::MFMAOp>(
-        op.getLoc(), op.getType(), op.sourceA(), op.sourceB(), op.destC());
+    auto loc = op.getLoc();
+    bool isVeci8 = false;
+    if (op.sourceA().getType().isa<VectorType>()) {
+      auto vectorType = op.sourceA().getType().cast<VectorType>();
+      isVeci8 = vectorType.getElementType() == b.getIntegerType(8);
+    }
+
+    gpu::MFMAOp gpuMfmaOp;
+    Value sourceA = op.sourceA();
+    Value sourceB = op.sourceB();
+    // Note: For i8 type, gpu.mfma op requires both arguments to be i32 instead
+    // of vector<4xi8>, thus the explicit conversion below
+    if (isVeci8) {
+      sourceA = b.create<arith::ConstantIntOp>(loc, 0, b.getIntegerType(32));
+      sourceB = b.create<arith::ConstantIntOp>(loc, 0, b.getIntegerType(32));
+      LogicalResult res = vector4i8Toi32(op.sourceA(), sourceA, b);
+      if (res.failed()) {
+        return res;
+      }
+
+      res = vector4i8Toi32(op.sourceB(), sourceB, b);
+      if (res.failed()) {
+        return res;
+      }
+    }
+
+    gpuMfmaOp = b.create<gpu::MFMAOp>(op.getLoc(), op.getType(), sourceA,
+                                      sourceB, op.destC());
     gpuMfmaOp->setAttr("instr", op->getAttr("instr"));
     gpuMfmaOp->setAttr("imm", op->getAttr("imm"));
+
     op.replaceAllUsesWith(Value(gpuMfmaOp));
     op.erase();
     return success();
