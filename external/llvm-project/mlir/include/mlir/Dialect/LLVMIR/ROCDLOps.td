@@ -42,7 +42,7 @@ class ROCDL_Op<string mnemonic, list<Trait> traits = []> :
 }
 
 class ROCDL_IntrOp<string mnemonic, list<int> overloadedResults,
-  list<int> overloadedOperands, list<OpTrait> traits, int numResults> :
+  list<int> overloadedOperands, list<Trait> traits, int numResults> :
   LLVM_IntrOpBase<ROCDL_Dialect,  mnemonic,
   "amdgcn_" # !subst(".", "_", mnemonic), overloadedResults,
   overloadedOperands, traits, numResults>;
@@ -211,12 +211,7 @@ def ROCDL_RawbufLoadOp :
           llvm::Intrinsic::amdgcn_raw_buffer_load, {$rsrc, $offset, $soffset,
           $aux}, {$_resultType});
   }];
-  let parser = [{ return parseROCDLRawbufLoadOp(parser, result); }];
-  let printer = [{
-    Operation *op = this->getOperation();
-    p << " " << op->getOperands()
-      << " : " << op->getResultTypes();
-  }];
+  let hasCustomAssemblyFormat = 1;
 }
 
 def ROCDL_RawbufStoreOp :
@@ -232,12 +227,7 @@ def ROCDL_RawbufStoreOp :
           llvm::Intrinsic::amdgcn_raw_buffer_store, {$vdata, $rsrc, $offset,
           $soffset, $aux}, {vdataType});
   }];
-  let parser = [{ return parseROCDLRawbufStoreOp(parser, result); }];
-  let printer = [{
-    Operation *op = this->getOperation();
-    p << " " << op->getOperands()
-      << " : " << vdata().getType();
-  }];
+  let hasCustomAssemblyFormat = 1;
 }
 
 //===---------------------------------------------------------------------===//
@@ -256,12 +246,7 @@ def ROCDL_AtomicFAddOp :
           llvm::Intrinsic::amdgcn_buffer_atomic_fadd, {$vdata, $rsrc, $vindex, $offset,
             $slc}, {vdataType});
   }];
-  let parser = [{ return parseROCDLAtomicFAddOp(parser, result); }];
-  let printer = [{
-    Operation *op = this->getOperation();
-    p << " " << op->getOperands()
-      << " : " << vdata().getType();
-  }];
+  let hasCustomAssemblyFormat = 1;
 }
 
 //===---------------------------------------------------------------------===//

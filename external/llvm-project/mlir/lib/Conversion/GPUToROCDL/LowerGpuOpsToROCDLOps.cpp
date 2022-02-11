@@ -31,7 +31,7 @@
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/Vector/VectorOps.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -974,10 +974,10 @@ struct BF16ConstCasting : OpRewritePattern<LLVM::ConstantOp> {
 
   LogicalResult matchAndRewrite(LLVM::ConstantOp op,
                                 PatternRewriter &rewriter) const override {
-    Attribute val = op.value();
+    Attribute val = op.getValueAttr();
     Operation *rawOp = op.getOperation();
     Type bf16 = rewriter.getBF16Type();
-    Type retType = op.res().getType();
+    Type retType = op.getRes().getType();
     Type retElemType = retType;
     if (auto retTypeShaped = retType.dyn_cast<ShapedType>())
       retElemType = retTypeShaped.getElementType();
@@ -1059,8 +1059,8 @@ struct SoftwareBF16Ext : OpRewritePattern<LLVM::FPExtOp> {
                                 PatternRewriter &rewriter) const override {
     auto loc = op.getLoc();
 
-    Type srcType = op.arg().getType();
-    Type destType = op.res().getType();
+    Type srcType = op.getArg().getType();
+    Type destType = op.getRes().getType();
     Type srcElemType = srcType;
     if (auto shaped = srcType.dyn_cast<ShapedType>())
       srcElemType = shaped.getElementType();
@@ -1080,7 +1080,7 @@ struct SoftwareBF16Ext : OpRewritePattern<LLVM::FPExtOp> {
     } else if (destType != f32)
       return failure();
 
-    Value extended = rewriter.create<LLVM::ZExtOp>(loc, extType, op.arg());
+    Value extended = rewriter.create<LLVM::ZExtOp>(loc, extType, op.getArg());
     Value shifted = rewriter.create<LLVM::ShlOp>(
         loc, extended, getLlvmI32Const(loc, rewriter, extType, 16));
     rewriter.replaceOpWithNewOp<LLVM::BitcastOp>(op, destType, shifted);
@@ -1099,8 +1099,8 @@ struct SoftwareBF16Trunc : OpRewritePattern<LLVM::FPTruncOp> {
                                 PatternRewriter &rewriter) const override {
     auto loc = op.getLoc();
 
-    Type srcType = op.arg().getType();
-    Type destType = op.res().getType();
+    Type srcType = op.getArg().getType();
+    Type destType = op.getRes().getType();
     Type srcElemType = srcType;
     if (auto shaped = srcType.dyn_cast<ShapedType>())
       srcElemType = shaped.getElementType();
@@ -1126,7 +1126,7 @@ struct SoftwareBF16Trunc : OpRewritePattern<LLVM::FPTruncOp> {
     // d = b + c
     // truncate (d << 16) to i16 and return this i16
     Value bitcastop =
-        rewriter.create<LLVM::BitcastOp>(loc, bitcastType, op.arg());
+        rewriter.create<LLVM::BitcastOp>(loc, bitcastType, op.getArg());
     Value constantSixteen = getLlvmI32Const(loc, rewriter, bitcastType, 16);
     Value shiftValue = rewriter.create<LLVM::LShrOp>(
         loc, bitcastType, bitcastop, constantSixteen);

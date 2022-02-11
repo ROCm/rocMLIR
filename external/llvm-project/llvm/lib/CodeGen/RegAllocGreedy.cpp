@@ -311,7 +311,7 @@ void RAGreedy::enqueue(PQueue &CurQueue, const LiveInterval *LI) {
     bool ForceGlobal = !ReverseLocal &&
       (Size / SlotIndex::InstrDist) > (2 * RCI.getNumAllocatableRegs(&RC));
 
-    if (ExtraRegInfo[Reg].Stage == RS_Assign && !ForceGlobal && !LI->empty() &&
+    if (Stage == RS_Assign && !ForceGlobal && !LI->empty() &&
         (LIS->intervalIsInOneMBB(*LI) ||
          // HACK: Let AGPR always be allocated in linear instruction order.
          StringRef("AReg_1024") == TRI->getRegClassName(&RC))) {
