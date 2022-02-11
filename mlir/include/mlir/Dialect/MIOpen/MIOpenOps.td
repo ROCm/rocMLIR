@@ -437,15 +437,15 @@ def MIOpen_BlockwiseGemmOp:
 // blockwise_gemm_v2
 def MIOpen_BlockwiseGemmV2Op:
     MIOpen_Op<"blockwise_gemm_v2">,
-    Arguments<(ins MemRefOf<[F32, F16, BF16]>:$matrixA,
-                   MemRefOf<[F32, F16, BF16]>:$matrixB,
+    Arguments<(ins MemRefOf<[F32, F16, BF16, I8]>:$matrixA,
+                   MemRefOf<[F32, F16, BF16, I8]>:$matrixB,
                    ArgTransforms<2>:$transforms,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
-                   MemRefOf<[F32, F16, BF16, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>]>:$bufferA,
-                   MemRefOf<[F32, F16, BF16, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>]>:$bufferB,
-                   Variadic<VectorOfRankAndType<[1], [F32, F16]>>:$vectorCs)>,
-    Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16]>>: $vectorDs)> {
+                   MemRefOf<[F32, F16, BF16, I8, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>, VectorOfLengthAndType<[4], [I8]>]>:$bufferA,
+                   MemRefOf<[F32, F16, BF16, I8, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>, VectorOfLengthAndType<[4], [I8]>]>:$bufferB,
+                   Variadic<VectorOfRankAndType<[1], [F32, F16, I32]>>:$vectorCs)>,
+    Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16, I32]>>: $vectorDs)> {
   let summary = "Blockwise GEMM XDLOPS version";
   let description = [{
     The `miopen.block_gemm` op does GEMM at workgroup (block) level.
@@ -497,15 +497,15 @@ def MIOpen_MFMAV2Op:
 // xdlops_gemm_V2
 def MIOpen_XdlopsGemmV2Op:
     MIOpen_Op<"xdlops_gemm_v2">,
-    Arguments<(ins MemRefOf<[F32, F16, BF16]>:$matrixA,
-                   MemRefOf<[F32, F16, BF16]>:$matrixB,
+    Arguments<(ins MemRefOf<[F32, F16, BF16, I8]>:$matrixA,
+                   MemRefOf<[F32, F16, BF16, I8]>:$matrixB,
                    ArgTransforms<2>:$transforms,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
-                   MemRefOf<[F32, F16, BF16, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>]>:$bufferA,
-                   MemRefOf<[F32, F16, BF16, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>]>:$bufferB,
-                   Variadic<VectorOfRankAndType<[1], [F32, F16]>>:$vectorCs)>,
-    Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16]>>:$vectorDs)> {
+                   MemRefOf<[F32, F16, BF16, I8, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>, VectorOfLengthAndType<[4], [I8]>]>:$bufferA,
+                   MemRefOf<[F32, F16, BF16, I8, VectorOfLengthAndType<[2, 4], [F32]>, VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>, VectorOfLengthAndType<[4], [I8]>]>:$bufferB,
+                   Variadic<VectorOfRankAndType<[1], [F32, F16, I32]>>:$vectorCs)>,
+    Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16, I32]>>:$vectorDs)> {
   let summary = "XDLOPS GEMM V2";
   let description = [{
     The `miopen.xdlops_gemm_v2` op is an abstraction of doing GEMM based on XDLOPS.

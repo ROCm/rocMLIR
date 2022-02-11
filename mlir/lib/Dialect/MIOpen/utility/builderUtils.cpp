@@ -19,14 +19,22 @@ using mlir::arith::ConstantOp;
 
 namespace mlir {
 namespace miopen {
-//===----------------------------------------------------------------------===//
-// Utility function to emit constant float op. Returns a scalar.
-//===----------------------------------------------------------------------===//
+namespace {
+Value createConstantI8Op(OpBuilder &b, Location loc, Type type,
+                         Type elementType, int8_t value) {
+  Value retValue;
+  if (auto vecType = type.dyn_cast<VectorType>()) {
+    retValue =
+        b.create<ConstantOp>(loc, SplatElementsAttr::get(vecType, value));
+  } else {
+    retValue = b.create<ConstantOp>(loc, b.getI8IntegerAttr(value), type);
+  }
+
+  return retValue;
+}
+
 Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
-                            float value) {
-  Type elementType = type;
-  if (type.isa<VectorType>())
-    elementType = type.template cast<VectorType>().getElementType();
+                            Type elementType, float value) {
   auto semantics = static_cast<APFloat::Semantics>(-1);
   if (elementType == b.getF32Type()) {
     semantics = APFloat::S_IEEEsingle;
@@ -55,12 +63,19 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
 
   return retValue;
 }
+} // anonymous namespace
 
-//===----------------------------------------------------------------------===//
-// Utility function to emit constant zero op. Can return scalars or vectors.
-//===----------------------------------------------------------------------===//
-Value createZeroConstantFloatOp(OpBuilder &b, Location loc, Type type) {
-  return createConstantFloatOp(b, loc, type, 0.0);
+Value createZeroConstantOp(OpBuilder &b, Location loc, Type type) {
+  Type elementType = type;
+  if (type.isa<VectorType>())
+    elementType = type.template cast<VectorType>().getElementType();
+
+  if (elementType == b.getIntegerType(8)) {
+    return createConstantI8Op(b, loc, type, elementType, 0);
+  } else {
+    return createConstantFloatOp(b, loc, type, elementType, 0.0);
+  }
 }
+
 } // namespace miopen
 } // namespace mlir
