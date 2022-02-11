@@ -481,10 +481,10 @@ def MIOpen_ThreadwiseGemmOp:
 def MIOpen_MFMAV2Op:
     MIOpen_Op<"mfma_v2", [AllTypesMatch<["sourceA", "sourceB"]>,
       AllTypesMatch<["destC", "destD"]>]>,
-    Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceA,
-                   AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>]>: $sourceB,
-                   VectorOfRankAndType<[1], [F32, F16]>: $destC)>,
-    Results<(outs VectorOfRankAndType<[1], [F32, F16]>: $destD)> {
+    Arguments<(ins AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>, VectorOfLengthAndType<[4], [I8]>]>: $sourceA,
+                   AnyTypeOf<[F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>, VectorOfLengthAndType<[4], [I8]>]>: $sourceB,
+                   VectorOfRankAndType<[1], [I32, F32, F16]>: $destC)>,
+    Results<(outs VectorOfRankAndType<[1], [I32, F32, F16]>: $destD)> {
   let summary = "XDLOPS MFMA V2";
   let description = [{
     The `miopen.mfma_v2` op is an abstraction of XDLOPS.
