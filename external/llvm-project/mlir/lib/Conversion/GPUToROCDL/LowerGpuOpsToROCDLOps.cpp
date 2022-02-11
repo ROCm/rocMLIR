@@ -1049,7 +1049,8 @@ Value getLlvmI32Const(Location loc, PatternRewriter &rewriter, Type type,
   if (LLVM::isCompatibleVectorType(type))
     ret = SplatElementsAttr::get(type.cast<ShapedType>(), ret);
   return rewriter.create<LLVM::ConstantOp>(loc, type, ret);
-};
+}
+
 /// Rewrites extension of bfloat as a bitshift. This is needed since the ROCDL
 /// target doesn't support the bfloat type even though LLVM in general does.
 struct SoftwareBF16Ext : OpRewritePattern<LLVM::FPExtOp> {
