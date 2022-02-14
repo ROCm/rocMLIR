@@ -27,7 +27,7 @@ func @miopen_xdlops_gemm_v2_two_results(%matrixA : memref<512xf32, 3>, %matrixB 
 func @miopen_xdlops_gemm_v2_one_result(%matrixA : memref<1024xi8, 3>, %matrixB : memref<1024xi8, #map, 3>, %bufferA : memref<2xvector<4xi8>, 5>, %bufferB : memref<2xvector<4xi8>, 5>) -> vector<16xi32> {
   %c0 = arith.constant 0 : index
   %c0i = arith.constant 0 : i32
-  %vectorC0 = splat %c0i : vector<16xi32>
+  %vectorC0 = vector.splat %c0i : vector<16xi32>
   // CHECK: miopen.mfma_v2
   // CHECK-NOT: miopen.mfma_v2
   %vectorD0 = miopen.xdlops_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0) {
