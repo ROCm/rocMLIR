@@ -8,9 +8,9 @@
 
 namespace mlir {
 namespace miopen {
-Value createConstantFloatOp(OpBuilder &b, Location loc, Type elementType,
-                            float value);
-Value createZeroConstantFloatOp(OpBuilder &b, Location loc, Type type);
+// Utility function to emit constant zero op. Can return scalars or vectors.
+Value createZeroConstantOp(OpBuilder &b, Location loc, Type type);
+
 } // namespace miopen
 } // namespace mlir
 

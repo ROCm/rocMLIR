@@ -935,18 +935,14 @@ private:
     // For fp32: reject anything wider than 4.
     // For fp16/bf16: reject anything narrower than 4, or greater than 8.
     if (dataType.isF32() && param.gemmKPack > 4) {
-#ifdef DEBUG
       llvm::errs() << "Invalid KPACK tuning parameter: " << param.gemmKPack
                    << "\n";
-#endif
       return failure();
     } else if ((dataType.isF16() || dataType.isBF16()) &&
                (param.gemmKPack != 1) &&
                ((param.gemmKPack < 4) || (param.gemmKPack > 8))) {
-#ifdef DEBUG
       llvm::errs() << "Invalid KPACK tuning parameter: " << param.gemmKPack
                    << "\n";
-#endif
       return failure();
     }
 

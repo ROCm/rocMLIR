@@ -309,8 +309,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     }
 
     // Prepare some useful constants.
-    Value zeroConstantFloatOp =
-        createZeroConstantFloatOp(b, loc, accumulatorType);
+    Value zeroConstantFloatOp = createZeroConstantOp(b, loc, accumulatorType);
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
     ArrayRef<int64_t> aShape, bShape, cShape;
@@ -2112,7 +2111,7 @@ struct GridwiseGemmV2RewritePattern
     // Logic to allocate 0-initialized vectors for C.
     SmallVector<Value, 4> vectorCs;
     SmallVector<Type, 4> vectorCTypes;
-    auto vectorZeroConst = createZeroConstantFloatOp(b, loc, vectorType);
+    auto vectorZeroConst = createZeroConstantOp(b, loc, vectorType);
     std::fill_n(std::back_inserter(vectorCs), vectorNumber, vectorZeroConst);
     std::fill_n(std::back_inserter(vectorCTypes), vectorNumber, vectorType);
 
