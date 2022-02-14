@@ -22,7 +22,7 @@ namespace mlir {
 namespace miopen {
 
 // Compilation pipeline from MIXR/TOSA to MIOpen
-void addHighLevelPipeline(PassManager &pm);
+void addHighLevelPipeline(PassManager &pm, bool toMIOpen = true);
 
 // Compilation pipeline from MIOpen to LLVM
 void addPipeline(PassManager &pm, bool applicability = false,

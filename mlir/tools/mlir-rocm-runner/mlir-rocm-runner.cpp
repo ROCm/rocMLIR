@@ -21,6 +21,7 @@
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/Async/Passes.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/TargetSelect.h"
@@ -67,17 +68,19 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   PassManager pm(m.getContext());
   applyPassManagerCLOptions(pm);
 
-  bool systemOverride = false;
-  if (tripleName.empty() && targetChip.empty() && features.empty()) {
-    systemOverride = true;
-  }
-
   int optLevel = gpuOpt.getValue();
   if (optLevel < 0 || optLevel > 3) {
     llvm::errs() << "Invalid GPU optimization level: " << optLevel << "\n";
     return failure();
   }
-  BackendUtils utils(tripleName, targetChip, features, systemOverride);
+  BackendUtils utils(tripleName, targetChip, features);
+
+  // Find MIOpen module and compile kernel funcs
+  ModuleOp kernelModule = m;
+  if (auto miopenModule = kernelModule.lookupSymbol<ModuleOp>(
+          miopen::MIOpenDialect::kKernelModuleName)) {
+    kernelModule = miopenModule;
+  }
 
   pm.addPass(createLowerToCFGPass());
   pm.addPass(createGpuKernelOutliningPass());
@@ -90,16 +93,23 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   }
   kernelPm.addPass(createGpuSerializeToHsacoPass(
       utils.getTriple(), utils.getChip(), utils.getFeatures(), optLevel));
-  auto &funcPm = pm.nest<FuncOp>();
+
+  if (failed(pm.run(kernelModule))) {
+    return failure();
+  }
+
+  // Host Compiler Pipeline
+  PassManager pmHost(m.getContext());
+  auto &funcPm = pmHost.nest<FuncOp>();
   funcPm.addPass(createGpuAsyncRegionPass());
   funcPm.addPass(createConvertMathToLLVMPass());
-  pm.addPass(createGpuToLLVMConversionPass());
-  pm.addPass(createAsyncToAsyncRuntimePass());
-  pm.addPass(createConvertAsyncToLLVMPass());
+  pmHost.addPass(createGpuToLLVMConversionPass());
+  pmHost.addPass(createAsyncToAsyncRuntimePass());
+  pmHost.addPass(createConvertAsyncToLLVMPass());
   mlir::LowerToLLVMOptions lower_to_llvm_opts(m.getContext());
-  pm.addPass(mlir::createLowerToLLVMPass(lower_to_llvm_opts));
+  pmHost.addPass(mlir::createLowerToLLVMPass(lower_to_llvm_opts));
 
-  return pm.run(m);
+  return pmHost.run(m);
 }
 
 int main(int argc, char **argv) {

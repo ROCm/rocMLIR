@@ -11,6 +11,16 @@
 
 include "mlir/Pass/PassBase.td"
 
+def MIOpenCloneKernelsPass : Pass<"miopen-clone-kernels", "ModuleOp"> {
+  let summary = "clone all kernel funcs into miopen module";
+  let constructor = "mlir::miopen::createMIOpenCloneKernelsPass()";
+}
+
+def MIOpenApplyImplPass : Pass<"miopen-apply-impl", "ModuleOp"> {
+  let summary = "apply target implementation to host kernel funcs";
+  let constructor = "mlir::miopen::createMIOpenApplyImplPass()";
+}
+
 def MIOpenOpsStep1Pass : Pass<"miopen-lowering", "ModuleOp"> {
   let summary = "expand convolution into coordinate transformations and gridwise gemm";
   let constructor = "mlir::miopen::createLowerMIOpenOpsStep1Pass()";

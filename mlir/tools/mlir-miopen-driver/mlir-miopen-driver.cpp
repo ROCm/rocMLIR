@@ -18,6 +18,7 @@
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/Pipeline.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/ExecutionEngine/ROCm/BackendUitls.h"
 #include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
@@ -55,86 +56,170 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
                                            cl::value_desc("filename"),
                                            cl::init("-"));
 
-static cl::opt<int> blockSize("block_size", cl::desc("Block size"),
+static cl::opt<std::string>
+    kernelPipeline("kernel-pipeline",
+                   cl::desc("mlir-miopen-driver kernel pipeline list"),
+                   cl::value_desc("comma separated list of miopen pipelines: "
+                                  "tuning,gpu,rocdl,binary or full"),
+                   cl::init(""));
+
+static cl::opt<std::string>
+    hostPipeline("host-pipeline",
+                 cl::desc("mlir-miopen-driver host pipeline list"),
+                 cl::value_desc("comma separated list of miopen pipelines: "
+                                "partition,highlevel,execmodel or full"),
+                 cl::init(""));
+
+static cl::opt<bool> legacyMiopenPipeline("c", cl::Hidden, cl::init(false),
+                                          cl::Optional,
+                                          cl::cb<void, bool>([](bool v) {
+                                            if (v) {
+                                              kernelPipeline.setValue("gpu");
+                                            }
+                                          }));
+
+/////////////////////////////////////////////////////////////////////////////
+//// Backend target spec
+static cl::opt<int> gpuOpt("gO",
+                           cl::desc("Optimization level for GPU compilation"),
+                           cl::value_desc("Integer from 0 to 3"), cl::init(3));
+
+static cl::opt<std::string> tripleName("triple", cl::desc("target triple"),
+                                       cl::value_desc("triple string"),
+                                       cl::init(""));
+
+static cl::opt<std::string> targetChip("target", cl::desc("target chip"),
+                                       cl::value_desc("AMDGPU ISA version"),
+                                       cl::init(""));
+
+static cl::opt<std::string> features("feature", cl::desc("target features"),
+                                     cl::value_desc("AMDGPU target features"),
+                                     cl::init(""));
+
+static cl::opt<int> blockSize("block_size",
+                              cl::desc("Override block size for tuning"),
                               cl::value_desc("Block size"), cl::init(0));
 
-static cl::opt<int> gridSize("grid_size", cl::desc("Grid size"),
+static cl::opt<int> gridSize("grid_size",
+                             cl::desc("Override grid size for tuning"),
                              cl::value_desc("Grid size"), cl::init(0));
-
-// Set up lowering pipeline.
-// The default lowering pipeline compiles down to GPU dialect.
-// The output of the pipeline can be piped to mlir-rocm-runner for execution.
-//
-// When users specify "-c -target=rocdl", compiles down to LLVM dialect.
-// The output of the pipeline can be piped to mlir-translate for translation to
-// LLVM IR.
-static cl::opt<bool> miopenBuiltinPipeline(
-    "miopen_pipeline", cl::desc("Compile with the specified pipeline"),
-    cl::value_desc("By default, compiles down to GPU dialect. Set "
-                   "-target=rocdl compiles to ROCDL dialect."),
-    cl::init(false));
-
-static cl::alias
-    aliasMIOpenBuiltinPipeline("c", cl::aliasopt(miopenBuiltinPipeline));
-
-static cl::opt<bool>
-    highLevelPipeline("high_level_pipeline",
-                      cl::desc("Compile with the specified pipeline"),
-                      cl::init(false));
-
-static cl::alias aliasHighLevelPipeline("hlp", cl::aliasopt(highLevelPipeline));
-
-static cl::opt<std::string> loweringTargetDialect(
-    "target",
-    cl::desc("By default, compiles down to GPU dialect. Set "
-             "-target=rocdl compiles to ROCDL dialect."),
-    cl::value_desc("Target dialect"), cl::init("gpu"));
-
-static cl::opt<int> deviceNum(
-    "device",
-    cl::desc("Device index on which to run the kernel (only with host code)"),
-    cl::value_desc("Between 0 and number of GPUs on system. "
-                   "Omission leaves current device intact."));
-static cl::alias deviceShort("dev", cl::aliasopt(deviceNum));
 
 namespace test {
 void registerTestDialect(DialectRegistry &);
 } // namespace test
 
-static void populateTuningPipeline(PassManager &pm) {
-  pm.addPass(
-      mlir::miopen::createAffixTuningParametersPass(blockSize, gridSize));
+static LogicalResult
+parsePipeline(StringRef pipeline, llvm::SmallDenseSet<StringRef> &pipelineSet,
+              llvm::SmallDenseSet<StringRef> &pipelineOptions) {
+  SmallVector<StringRef, 8> tokens;
+  pipeline.split(tokens, ',');
+  for (auto str : tokens) {
+    auto opt = str.trim();
+    if (opt.empty()) {
+    } else if (opt == "full") {
+      pipelineSet = pipelineOptions;
+    } else if (pipelineOptions.contains(opt)) {
+      pipelineSet.insert(opt);
+    } else {
+      auto opts = llvm::join(pipelineOptions, ",");
+      llvm::errs() << "Invalid pipeline: " << opt << "\n"
+                   << "   Valid options: " << opts << " or full\n";
+      return failure();
+    }
+  }
+
+  return success();
 }
 
 static LogicalResult runMLIRPasses(ModuleOp &module,
                                    mlir::PassPipelineCLParser &passPipeline) {
-  PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
+  llvm::SmallDenseSet<StringRef> kernelPipelineOptions{"tuning", "gpu", "rocdl",
+                                                       "binary"};
+  llvm::SmallDenseSet<StringRef> kernelPipelineSet;
+  if (failed(parsePipeline(kernelPipeline.getValue(), kernelPipelineSet,
+                           kernelPipelineOptions))) {
+    return failure();
+  }
+
+  llvm::SmallDenseSet<StringRef> hostPipelineOptions{"partition", "highlevel",
+                                                     "xmodel"};
+  llvm::SmallDenseSet<StringRef> hostPipelineSet;
+  if (failed(parsePipeline(hostPipeline.getValue(), hostPipelineSet,
+                           hostPipelineOptions))) {
+    return failure();
+  }
+
+  // Run partitioning pipeline.
+  if (hostPipelineSet.contains("partition")) {
+    PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
+    pm.addPass(tosa::createTosaPartitionPass());
+    pm.addPass(miopen::createMIOpenCloneKernelsPass());
+
+    if (failed(pm.run(module))) {
+      return failure();
+    }
+  }
+
+  // Find kernel module, defaults to top module
+  auto kernelModule =
+      module.lookupSymbol<ModuleOp>(miopen::MIOpenDialect::kKernelModuleName);
+  if (!kernelModule) {
+    kernelModule = module;
+  }
+
+  PassManager pm(kernelModule.getContext(), PassManager::Nesting::Implicit);
   applyPassManagerCLOptions(pm);
 
-  // Set up high-level pipeline.
-  bool isHighLevel = highLevelPipeline.getValue();
+  bool isHighLevel = hostPipelineSet.contains("highlevel");
   if (isHighLevel) {
     miopen::addHighLevelPipeline(pm);
   }
 
   // Set up lowering pipeline.
-  if (miopenBuiltinPipeline.getValue()) {
-    StringRef pipeline = loweringTargetDialect.getValue();
-    if (pipeline == "tuning") {
+  if (kernelPipelineSet.size()) {
+    // test for target spec
+    if (kernelPipelineSet.contains("binary")) {
+      if (tripleName.empty() || targetChip.empty()) {
+        llvm::errs()
+            << "Target triple (-triple) and chip (-target) not specified for binary backend\n";
+        return failure();
+      }
+    } else {
+      if (!tripleName.empty() || !targetChip.empty() || !features.empty()) {
+        llvm::errs()
+            << "Target (-triple,-target,-features) should not be set except for kernel-pipeline=binary\n";
+        return failure();
+      }
+    }
+    
+    if (kernelPipelineSet.size() == 1 && kernelPipelineSet.contains("tuning")) {
       // Set up the default lowering pipeline which goes down to affix tuning
       // parameters
-      populateTuningPipeline(pm);
-    } else if (pipeline == "gpu") {
+      pm.addPass(
+          mlir::miopen::createAffixTuningParametersPass(blockSize, gridSize));
+    } else {
       // Set up the default lowering pipeline which goes down to GPU dialect.
       miopen::addPipeline(pm);
-    } else if (pipeline == "rocdl") {
-      // Set up the lowering pipeline which goes down to ROCDL dialect.
-      miopen::addPipeline(pm);
-      pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
+      if (kernelPipelineSet.contains("binary")) {
+        // Set up the lowering pipeline which goes down to ELF Binary
+        int optLevel = gpuOpt.getValue();
+        if (optLevel < 0 || optLevel > 3) {
+          llvm::errs() << "Invalid GPU optimization level: " << optLevel
+                       << "\n";
+          return failure();
+        }
+
+        BackendUtils utils(tripleName, targetChip, features);
+        miopen::addBackendPipeline(pm, utils.getTriple(), utils.getChip(),
+                                   utils.getFeatures(), optLevel);
+      } else if (kernelPipelineSet.contains("rocdl")) {
+        // Set up the lowering pipeline which goes down to ROCDL dialect.
+        pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
+      }
     }
   } else {
     auto errorHandler = [&](const Twine &msg) {
-      emitError(UnknownLoc::get(module.getContext())) << msg;
+      emitError(UnknownLoc::get(kernelModule.getContext())) << msg;
       return failure();
     };
 
@@ -143,7 +228,28 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
       return failure();
   }
 
-  return pm.run(module);
+  if (failed(pm.run(kernelModule))) {
+    return failure();
+  }
+
+  if (isHighLevel && kernelModule != module) {
+    PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
+    miopen::addHighLevelPipeline(pm, false);
+
+    if (failed(pm.run(module))) {
+      return failure();
+    }
+  }
+
+  if (hostPipelineSet.contains("xmodel")) {
+    PassManager pm(module.getContext());
+    pm.addPass(miopen::createMIOpenApplyImplPass());
+    if (failed(pm.run(module))) {
+      return failure();
+    }
+  }
+
+  return success();
 }
 
 int main(int argc, char **argv) {
@@ -153,9 +259,10 @@ int main(int argc, char **argv) {
   test::registerTestDialect(registry);
 #endif
   MLIRContext context(registry);
-  context.loadDialect < miopen::MIOpenDialect, StandardOpsDialect,
-      scf::SCFDialect, AffineDialect, memref::MemRefDialect,
-      math::MathDialect, arith::ArithmeticDialect>();
+  context
+      .loadDialect<miopen::MIOpenDialect, StandardOpsDialect, scf::SCFDialect,
+                   AffineDialect, memref::MemRefDialect, math::MathDialect,
+                   arith::ArithmeticDialect, gpu::GPUDialect>();
   mlir::registerAllPasses();
   mlir::registerMIOpenConversionPasses();
   miopen::registerPasses();

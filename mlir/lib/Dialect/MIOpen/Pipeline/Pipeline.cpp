@@ -38,12 +38,15 @@ using namespace mlir;
 
 //===- Consolidate the MIOpen Pipelines here ---------------------===//
 
-void miopen::addHighLevelPipeline(PassManager &pm) {
+void miopen::addHighLevelPipeline(PassManager &pm, bool toMIOpen) {
   // passes for TOSA and bufferization
-  pm.addPass(tosa::createTosaToMIOpenPass());
+  if (toMIOpen) {
+    pm.addPass(tosa::createTosaToMIOpenPass());
+  }
   pm.addPass(tosa::createTosaToLinalg());
   pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(createLinalgBufferizePass());
+  pm.addPass(createTensorConstantBufferizePass());
   pm.addPass(createFuncBufferizePass());
   pm.addPass(createBufferResultsToOutParamsPass());
   pm.addPass(bufferization::createFinalizingBufferizePass());
@@ -77,7 +80,6 @@ void miopen::addBackendPipeline(PassManager &pm, const std::string &triple,
                                 const std::string &chip,
                                 const std::string &features, int32_t optLevel) {
   // Passes for lowering ROCDL dialect
-  pm.addPass(createGpuKernelOutliningPass());
   pm.addPass(createStripDebugInfoPass());
   pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
   pm.addPass(createGpuSerializeToHsacoPass(triple, chip, features, optLevel));
