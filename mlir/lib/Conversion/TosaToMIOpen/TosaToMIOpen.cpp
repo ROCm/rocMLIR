@@ -30,6 +30,28 @@ class ConvConverter final : public OpConversionPattern<tosa::Conv2DOp> {
 public:
   using OpConversionPattern<tosa::Conv2DOp>::OpConversionPattern;
 
+  static bool isZeroAttribute(Attribute value) {
+    if (auto intValue = value.dyn_cast<IntegerAttr>())
+      return intValue.getValue().isNullValue();
+    if (auto fpValue = value.dyn_cast<FloatAttr>())
+      return fpValue.getValue().isZero();
+    if (auto splatValue = value.dyn_cast<SplatElementsAttr>())
+      return isZeroAttribute(splatValue.getSplatValue<Attribute>());
+    if (auto elementsValue = value.dyn_cast<ElementsAttr>())
+      return llvm::all_of(elementsValue.getValues<Attribute>(),
+                          isZeroAttribute);
+    if (auto arrayValue = value.dyn_cast<ArrayAttr>())
+      return llvm::all_of(arrayValue.getValue(), isZeroAttribute);
+    return false;
+  }
+
+  static bool isConstantZero(Value v) {
+    if (auto cst = v.getDefiningOp<arith::ConstantOp>()) {
+      return isZeroAttribute(cst.getValue());
+    }
+    return false;
+  }
+
   Value expandMemRef(tosa::Conv2DOp op, Value operand,
                      ConversionPatternRewriter &rewriter) const {
     auto loc = op->getLoc();
@@ -63,6 +85,12 @@ public:
   LogicalResult
   matchAndRewrite(tosa::Conv2DOp op, tosa::Conv2DOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    // only convert ops in kernel func
+    auto func = op->getParentOfType<FuncOp>();
+    if (!func->hasAttr("kernel")) {
+      return failure();
+    }
+
     auto operands = adaptor.getOperands();
     auto loc = op->getLoc();
     auto context = op->getContext();
@@ -70,10 +98,6 @@ public:
     auto filter_t = operands[1];
     auto bias_mr = operands[2];
     auto results = op->getResults();
-
-    // attach kernel attr to parent function
-    auto func = op->getParentOfType<FuncOp>();
-    func->setAttr("kernel", rewriter.getUnitAttr());
 
     assert(results.size() == 1);
 
@@ -175,24 +199,7 @@ public:
 
     // test for zero bias, and ignore
     auto bias_t = op.getOperand(2);
-    bool zero_bias = false;
-    if (auto cst = bias_t.getDefiningOp<arith::ConstantOp>()) {
-      auto val = cst.getValue().cast<ElementsAttr>();
-      auto valType = val.getType().dyn_cast<ShapedType>();
-      auto valElemType = valType.getElementType();
-      if (valElemType.isa<FloatType>()) {
-        zero_bias = true;
-        for (auto ii = val.value_begin<APFloat>();
-             zero_bias && ii != val.value_end<APFloat>(); ++ii)
-          zero_bias &= (*ii).isZero();
-      } else if (valElemType.isa<IntegerType>()) {
-        zero_bias = true;
-        for (auto ii = val.value_begin<APInt>();
-             zero_bias && ii != val.value_end<APInt>(); ++ii)
-          zero_bias &= (*ii).isZero();
-      }
-    }
-    if (!zero_bias) {
+    if (!isConstantZero(bias_t)) {
       // non-zero bias, replace with tosa.add w/ broadcast
       auto conv_output_t = rewriter.create<bufferization::ToTensorOp>(loc, output);
 

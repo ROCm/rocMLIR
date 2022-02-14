@@ -271,6 +271,12 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     b.setInsertionPointToEnd(&gpuFuncEntry);
     b.create<cf::BranchOp>(loc, clonedFuncEntry);
 
+    // copy original_func attribute
+    const char *attrName = "original_func";
+    if (auto attr = theFunc->getAttrOfType<SymbolRefAttr>(attrName)) {
+      gpuFunc->setAttr(attrName, attr);
+    }
+
     // convert all calls to gpu.launch_func
     SmallVector<CallOp, 4> calls;
     op.walk([&](CallOp call) {

@@ -207,6 +207,11 @@ SerializeToHsacoPass::translateToLLVMIR(llvm::LLVMContext &llvmContext) {
     getOperation().emitOpError("Module lowering failed");
     return ret;
   }
+
+  StringRef chipSet = this->chip.getValue();
+  getOperation()->setAttr("arch",
+                          mlir::StringAttr::get(&getContext(), chipSet));
+
   // Walk the LLVM module in order to determine if we need to link in device
   // libs
   bool needOpenCl = false;

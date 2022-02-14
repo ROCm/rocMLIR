@@ -18,6 +18,7 @@
 #include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Dominance.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -320,14 +321,16 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
 
   // Erase the ops we outlined, which should be safe now.
   for (auto &op : llvm::make_early_inc_range(llvm::reverse(secondOps))) {
-    assert(op->use_empty() && "expected 'op' to have no uses");
-    op->erase();
+    if (op->use_empty()) {
+      op->erase();
+    }
   }
   assert(convOp->use_empty() && "expected 'op' to have no uses");
   convOp->erase();
   for (auto &op : llvm::make_early_inc_range(frontOps)) {
-    assert(op->use_empty() && "expected 'op' to have no uses");
-    op->erase();
+    if (op->use_empty()) {
+      op->erase();
+    }
   }
 }
 
@@ -335,6 +338,45 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
 // test/lib/Transforms/TestSCFUtils.cpp.
 class TosaPartitionPass : public TosaPartitionBase<TosaPartitionPass> {
 public:
+  static bool isZeroAttribute(Attribute value) {
+    if (auto intValue = value.dyn_cast<IntegerAttr>())
+      return intValue.getValue().isNullValue();
+    if (auto fpValue = value.dyn_cast<FloatAttr>())
+      return fpValue.getValue().isZero();
+    if (auto splatValue = value.dyn_cast<SplatElementsAttr>())
+      return isZeroAttribute(splatValue.getSplatValue<Attribute>());
+    if (auto elementsValue = value.dyn_cast<ElementsAttr>())
+      return llvm::all_of(elementsValue.getValues<Attribute>(),
+                          isZeroAttribute);
+    if (auto arrayValue = value.dyn_cast<ArrayAttr>())
+      return llvm::all_of(arrayValue.getValue(), isZeroAttribute);
+    return false;
+  }
+
+  static bool isConstantZero(Operation *op) {
+    // test for zero
+    if (auto cst = dyn_cast<arith::ConstantOp>(op)) {
+      return isZeroAttribute(cst.getValue());
+    }
+    return false;
+  }
+
+  void traceInputs(Operation *op, SmallVector<Operation *> &predecessors,
+                   SetVector<Value> &inputNodes) {
+    for (const auto &opnd : op->getOperands()) {
+      Operation *usedOp = opnd.getDefiningOp();
+      if (usedOp && (isConstantZero(usedOp) || isElementwiseOp(usedOp))) {
+        predecessors.push_back(usedOp);
+        if (!detail::isConstantLike(usedOp)) {
+          // depth first
+          traceInputs(usedOp, predecessors, inputNodes);
+        }
+      } else {
+        inputNodes.insert(opnd);
+      }
+    }
+  }
+
   void runOnOperation() override {
     ModuleOp module = getOperation();
     auto funcOps = module.getOps<FuncOp>();
@@ -363,8 +405,7 @@ public:
         // These are SetVectors because we test with contains() a lot, but still
         // want to preserve order.
         SetVector<Operation *> secondOps;
-        SetVector<Value> inputNodes(convOp->getOperands().begin(),
-                                    convOp->getOperands().end());
+        SetVector<Value> inputNodes;
         SetVector<Value> resultNodes(convOp->getResults().begin(),
                                      convOp->getResults().end());
 
@@ -372,23 +413,10 @@ public:
         // Let's limit it to only first arguments, with single uses.
         SmallVector<Operation *> frontOps;
         if (!nofront) {
-          Operation *op = convOp;
-          while (true) {
-            if (op->getNumOperands() < 1)
-              break;
-            Operation *usedOp = op->getOpOperand(0).get().getDefiningOp();
-            if (!usedOp)
-              break;
-            if (!isElementwiseOp(usedOp) || !usedOp->hasOneUse())
-              break;
-            // Remove the first operand from the function inputs, if present.
-            // Add usedOp's operands to the function inputs.
-            inputNodes.remove(op->getOpOperand(0).get());
-            inputNodes.insert(usedOp->getOperands().begin(),
-                              usedOp->getOperands().end());
-            frontOps.push_back(usedOp);
-            op = usedOp;
-          }
+          traceInputs(convOp, frontOps, inputNodes);
+        } else {
+          inputNodes.insert(convOp->getOperands().begin(),
+                            convOp->getOperands().end());
         }
 
         DominanceInfo domInfo(func);

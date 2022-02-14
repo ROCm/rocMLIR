@@ -5,6 +5,8 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
   CopyOpt.cpp
   ConvToGemmLowering.cpp
   GridwiseGemmToBlockwise.cpp
+  ApplyImpl.cpp
+  CloneKernels.cpp
   ThreadwiseToStdlib.cpp
 
   ADDITIONAL_HEADER_DIRS

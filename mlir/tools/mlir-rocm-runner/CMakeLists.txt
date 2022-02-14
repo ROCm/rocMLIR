@@ -16,6 +16,7 @@ if(MLIR_ROCM_RUNNER_ENABLED)
     MLIRAnalysis
     MLIRExecutionEngine
     MLIRIR
+    MLIRMIOpenOps
     MLIRParser
     MLIRROCDLIR
     MLIRSupport
@@ -31,9 +32,7 @@ if(MLIR_ROCM_RUNNER_ENABLED)
     mlir-rocm-runner.cpp
 
     DEPENDS
-    LLVMROCmBackendUtils
     rocm-runtime-wrappers
-    ${LIBS}
     )
   llvm_update_compile_flags(mlir-rocm-runner)
   target_include_directories(mlir-rocm-runner

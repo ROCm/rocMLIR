@@ -6,8 +6,8 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include "mlir/Dialect/GPU/Passes.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
-#include "mlir/ExecutionEngine/ROCm/BackendUitls.h"
 #include "mlir/InitAllDialects.h"
 #include "llvm/Support/TargetSelect.h"
 

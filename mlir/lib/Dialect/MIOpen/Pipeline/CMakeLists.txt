@@ -6,6 +6,7 @@ add_mlir_dialect_library(MLIRMIOpenPipeline
   LLVMROCmBackendUtils
   MLIRTosaToMIOpen
   MLIRTosaToLinalg
+  MLIRTosaToStandard
   MLIRMIOpenToGPU
   MLIRGPUToROCDLTransforms
   MLIRIR
