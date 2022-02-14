@@ -35,9 +35,9 @@ class ArgTransforms<int n> : Confined<ArgTransformsAttr, [ArrayCount<n>]>;
 
 def MIOpen_Conv2DOp :
     MIOpen_Op<"conv2d">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [5]>:$filter,
-                   MemRefRankOf<[F32, F16, BF16], [5]>:$input,
-                   MemRefRankOf<[F32, F16, BF16], [5]>:$output)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [5]>:$filter,
+                   MemRefRankOf<[F32, F16, BF16, I8], [5]>:$input,
+                   MemRefRankOf<[F32, F16, BF16, I8], [5]>:$output)> {
   let summary = "2D convolution forward";
   let description = [{
     The `miopen.conv2d` op computes 2D convolution forward.
@@ -152,9 +152,9 @@ def MIOpen_GridwiseGemmOp :
 // gridwise_gemm_v2
 def MIOpen_GridwiseGemmV2Op :
     MIOpen_Op<"gridwise_gemm_v2">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [3, 4]>:$a,
-                   MemRefRankOf<[F32, F16, BF16], [3, 4]>:$b,
-                   MemRefRankOf<[F32, F16, BF16], [3, 4]>:$c,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$a,
+                   MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$b,
+                   MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$c,
                    BoolArrayAttr:$aOobDims,
                    BoolArrayAttr:$bOobDims,
                    BoolArrayAttr:$cOobDims,
@@ -268,10 +268,11 @@ def MIOpen_BlockwiseLoadOp:
                   MIOpen_PaddingInfoAttr:$paddingInfo,
                   BoolArrayAttr:$oobDims,
                   Variadic<Index>:$sourceCoord)>,
-    Results<(outs Variadic<AnyTypeOf<[F32, F16, BF16,
+    Results<(outs Variadic<AnyTypeOf<[F32, F16, BF16, I8,
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16]>,
-                             VectorOfLengthAndType<[2, 4, 8], [BF16]>]>>:$result)> {
+                             VectorOfLengthAndType<[2, 4, 8], [BF16]>,
+                             VectorOfLengthAndType<[4], [I8]>]>>:$result)> {
   let summary = "Blockwise GPU data load";
   let description = [{
     The `miopen.blockwise_load` op moves data on GPU. Following movements are
@@ -290,10 +291,11 @@ def MIOpen_BlockwiseStoreOp:
     Arguments<(ins AnyMemRef:$dest,
                   IndexArrayAttr:$bounds,
                   ArgTransforms<1>:$transforms,
-                  Variadic<AnyTypeOf<[F32, F16, BF16,
+                  Variadic<AnyTypeOf<[F32, F16, BF16, I8,
                               VectorOfLengthAndType<[2, 4], [F32]>,
                               VectorOfLengthAndType<[2, 4, 8], [F16]>,
-                              VectorOfLengthAndType<[2, 4, 8], [BF16]>]>>:$data,
+                              VectorOfLengthAndType<[2, 4, 8], [BF16]>,
+                              VectorOfLengthAndType<[4], [I8]>]>>:$data,
                    Variadic<Index>:$destCoord)> {
   let summary = "Blockwise GPU data store";
   let description = [{
@@ -344,10 +346,11 @@ def MIOpen_ThreadwiseLoadOp:
                    MIOpen_PaddingInfoAttr:$paddingInfo,
                    BoolArrayAttr:$oobDims,
                    Variadic<Index>:$sourceCoord)>,
-    Results<(outs Variadic<AnyTypeOf<[F32, F16, BF16,
+    Results<(outs Variadic<AnyTypeOf<[F32, F16, BF16, I8,
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16]>,
-                             VectorOfLengthAndType<[2, 4, 8], [BF16]>]>>:$result)> {
+                             VectorOfLengthAndType<[2, 4, 8], [BF16]>,
+                             VectorOfLengthAndType<[4], [I8]>]>>:$result)> {
   let summary = "Threadwise GPU data load";
   let description = [{
     The `miopen.threadwise_load` op moves data on GPU. Following movements are
@@ -367,10 +370,11 @@ def MIOpen_ThreadwiseStoreOp:
     Arguments<(ins AnyMemRef:$dest,
                    IndexArrayAttr:$bounds,
                    ArgTransforms<1>:$transforms,
-                   Variadic<AnyTypeOf<[F32, F16, BF16,
+                   Variadic<AnyTypeOf<[F32, F16, BF16, I8,
                               VectorOfLengthAndType<[2, 4], [F32]>,
                               VectorOfLengthAndType<[2, 4, 8], [F16]>,
-                              VectorOfLengthAndType<[2, 4, 8], [BF16]>]>>:$data,
+                              VectorOfLengthAndType<[2, 4, 8], [BF16]>,
+                              VectorOfLengthAndType<[4], [I8]>]>>:$data,
                    Variadic<Index>:$destCoord)> {
   let summary = "Threadwise GPU data store";
   let description = [{
@@ -387,7 +391,7 @@ def MIOpen_ThreadwiseStoreOp:
 // threadwise_copy_v2
 def MIOpen_ThreadwiseCopyV2Op:
     MIOpen_Op<"threadwise_copy_v2", [AttrSizedOperandSegments]>,
-    Arguments<(ins VectorOfRankAndType<[1], [F32, F16]>:$source,
+    Arguments<(ins VectorOfRankAndType<[1], [F32, F16, I32]>:$source,
                    AnyMemRef:$dest,
                    IndexArrayAttr:$bounds,
                    ArgTransforms<2>:$transforms,

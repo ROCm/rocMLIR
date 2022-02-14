@@ -33,6 +33,19 @@ Value createConstantI8Op(OpBuilder &b, Location loc, Type type,
   return retValue;
 }
 
+Value createConstantI32Op(OpBuilder &b, Location loc, Type type,
+                          Type elementType, int32_t value) {
+  Value retValue;
+  if (auto vecType = type.dyn_cast<VectorType>()) {
+    retValue =
+        b.create<ConstantOp>(loc, SplatElementsAttr::get(vecType, value));
+  } else {
+    retValue = b.create<ConstantOp>(loc, b.getI8IntegerAttr(value), type);
+  }
+
+  return retValue;
+}
+
 Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
                             Type elementType, float value) {
   auto semantics = static_cast<APFloat::Semantics>(-1);
@@ -72,6 +85,8 @@ Value createZeroConstantOp(OpBuilder &b, Location loc, Type type) {
 
   if (elementType == b.getIntegerType(8)) {
     return createConstantI8Op(b, loc, type, elementType, 0);
+  } else if (elementType == b.getIntegerType(32)) {
+    return createConstantI32Op(b, loc, type, elementType, 0);
   } else {
     return createConstantFloatOp(b, loc, type, elementType, 0.0);
   }
