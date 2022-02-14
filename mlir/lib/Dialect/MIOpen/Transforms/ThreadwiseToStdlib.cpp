@@ -150,8 +150,7 @@ Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
         Type elementType = loadedVectorType.getElementType();
         int64_t vectorLength = loadedVectorType.getShape()[0];
 
-        Value loadedVector =
-            createZeroConstantFloatOp(b, loc, loadedVectorType);
+        Value loadedVector = createZeroConstantOp(b, loc, loadedVectorType);
 
         SmallVector<Value, 8> srcLowerIndicesUpdated;
         srcLowerIndicesUpdated.append(srcLowerIndices.begin(),
@@ -188,7 +187,7 @@ Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
                                   srcLowerIndices.end());
 
     // Emit a useful constant 0f for later use.
-    Value zeroOp = createZeroConstantFloatOp(b, loc, loadedType);
+    Value zeroOp = createZeroConstantOp(b, loc, loadedType);
 
     // Walkthrough all lower level indices where the dimension has
     // padding, check if the result lies within boundaries.
@@ -1606,7 +1605,7 @@ struct ThreadwiseCopyV2RewritePattern
       // Load from source.
       Value loadedValue;
       if (dataPerCopy > 1) {
-        loadedValue = createZeroConstantFloatOp(b, loc, typeToLoad);
+        loadedValue = createZeroConstantOp(b, loc, typeToLoad);
         for (int64_t i = 0; i < dataPerCopy; ++i) {
           Value index = b.create<ConstantIndexOp>(loc, i);
           Value extracted = b.create<vector::ExtractElementOp>(
@@ -2010,7 +2009,7 @@ struct ThreadwiseStoreRewritePattern
       if (dstDataPerWrite > 1) {
         assert(typeToStore.isa<VectorType>());
 
-        valueToStore = createZeroConstantFloatOp(b, loc, typeToStore);
+        valueToStore = createZeroConstantOp(b, loc, typeToStore);
         for (int64_t iter = 0; iter < dstDataPerWrite; ++iter) {
           int64_t decomposedInputsIndex = inputsIndex + iter * vectorDimStride;
           // llvm::errs() << "decomposedInputsIndex: " << decomposedInputsIndex
@@ -2785,7 +2784,7 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
               ? argType.template cast<VectorType>().getShape()[0]
               : 1;
       if (argTypeVectorLength > 1) {
-        Value zeroOp = createZeroConstantFloatOp(innerLoopb, loc, dataType);
+        Value zeroOp = createZeroConstantOp(innerLoopb, loc, dataType);
 
         Value offset;
         if (KPack > 1) {
