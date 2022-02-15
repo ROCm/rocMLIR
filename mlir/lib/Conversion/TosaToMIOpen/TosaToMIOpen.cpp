@@ -97,18 +97,15 @@ public:
     auto input_t = operands[0];
     auto filter_t = operands[1];
     auto bias_mr = operands[2];
-    auto results = op->getResults();
-
-    assert(results.size() == 1);
+    auto resultType = op.getType();
 
     // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
     auto inputExpanded = expandMemRef(op, input_t, rewriter);
 
     auto filterExpanded = expandMemRef(op, filter_t, rewriter);
 
-    auto outputType = getTypeConverter<mlir::bufferization::BufferizeTypeConverter>()
-                          ->convertType(results[0].getType())
-                          .cast<MemRefType>();
+    auto outputType =
+        getTypeConverter()->convertType(resultType).cast<MemRefType>();
     Value output = rewriter.create<memref::AllocOp>(loc, outputType);
     auto outputExpanded = expandMemRef(op, output, rewriter);
 
@@ -234,8 +231,8 @@ public:
 
 } // namespace
 
-void tosa::populateTosaToMIOpenConversionPatterns(MLIRContext *context,
-                                                  RewritePatternSet &patterns) {
-  static mlir::bufferization::BufferizeTypeConverter bufferizer;
-  patterns.add<ConvConverter>(bufferizer, context);
+void tosa::populateTosaToMIOpenConversionPatterns(
+    bufferization::BufferizeTypeConverter &typeConverter, MLIRContext *context,
+    RewritePatternSet &patterns) {
+  patterns.insert<ConvConverter>(typeConverter, context);
 }
