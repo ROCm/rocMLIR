@@ -318,6 +318,83 @@ Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
   return dataType;
 }
 
+bool Conv2dGenerator::hasWorkspace(OpBuilder &builder) const {
+  // Decide if a workspace is needed.
+  // Preconditions:
+  // - data type: fp16
+  // - operation: backward weight conv2d.
+  // - use XDLOPS.
+  // - No need to pad along Gemm M/N/K dimension.
+  bool result = false;
+
+  if (config.operation.hasValue()) {
+    mlir::Type dataType = getDataType(builder);
+    if ((config.operation.getValue() == miopen::ConvOpType::BwdWeight) &&
+        config.xdlops && (dataType == builder.getF16Type())) {
+
+      // Logic to check if we need to pad along GemmM/N/K dimension for backward
+      // weight convolution.
+      // FIXME. Merge with logic used in the tuning process.
+      auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
+      auto filDim =
+          canonicalizeDims(config.filterDimension, config.filterLayout);
+      auto outDim =
+          canonicalizeDims(config.outputDimension, config.outputLayout);
+
+      int64_t gemmMSize, gemmNSize, gemmKSize;
+      gemmMSize = filDim["k"];
+      gemmKSize = outDim["n"] * outDim["h"] * outDim["w"];
+      gemmNSize = filDim["c"] * filDim["y"] * filDim["x"];
+
+      // Initial tuning parameters for backward convolution.
+      llvm::SmallVector<llvm::SmallVector<int64_t, 6>, 7>
+          initParametersBackward = {
+              // M/block N/block K/block M/wave N/wave kPack
+              {128, 128, 8, 64, 64, 1}, {128, 128, 16, 64, 64, 1},
+              {8, 64, 8, 8, 64, 1},     {4, 64, 16, 4, 64, 1},
+              {32, 64, 4, 32, 64, 1},   {16, 16, 16, 16, 16, 1},
+              {16, 16, 4, 16, 16, 1},
+          };
+
+      bool needExtraPad = false;
+      size_t numOfFailedConfigs = 0;
+      for (auto &params : initParametersBackward) {
+        if (gemmMSize % params[0] == 0 && gemmNSize % params[1] == 0 &&
+            gemmKSize % params[2] == 0) {
+          break;
+        }
+        numOfFailedConfigs++;
+      }
+
+      if (numOfFailedConfigs == initParametersBackward.size()) {
+        needExtraPad = true;
+      }
+
+      // In case we need extra padding, do not use workspace.
+      result = (needExtraPad == false);
+    }
+  }
+  return result;
+}
+
+int Conv2dGenerator::getWorkspaceSize(ModuleOp &module) const {
+  // Currently onlt in the following condition would a workspace is needed.
+  // - data type: fp16
+  // - operation: backward weight conv2d.
+  // - use XDLOPS.
+  // - No need to pad along Gemm M/N/K dimension.
+  // Workspace size is the same as the filter dimension, with fp32 type.
+  int result = 0;
+  OpBuilder builder(module.getContext());
+  if (hasWorkspace(builder)) {
+    result = std::accumulate(config.filterDimension.begin(),
+                             config.filterDimension.end(), 1,
+                             std::multiplies<int>()) *
+             builder.getF32Type().getWidth() / 8;
+  }
+  return result;
+}
+
 LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   std::map<std::string, std::string> argMap;
   strToTokens(arguments, argMap);
@@ -520,8 +597,23 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
       MemRefType::get(ArrayRef<int64_t>(config.outputDimension.begin(),
                                         config.outputDimension.end()),
                       dataType);
-  auto funcType =
-      builder.getFunctionType({filterArgType, inputArgType, outputArgType}, {});
+
+  bool hasWorkspace = this->hasWorkspace(builder);
+  Type workspaceArgType;
+  if (hasWorkspace) {
+    workspaceArgType =
+        MemRefType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
+                                          config.filterDimension.end()),
+                        builder.getF32Type());
+  }
+
+  SmallVector<Type, 3> funcArgTypes = {filterArgType, inputArgType,
+                                       outputArgType};
+  if (hasWorkspace) {
+    funcArgTypes = {filterArgType, inputArgType, outputArgType,
+                    workspaceArgType};
+  }
+  auto funcType = builder.getFunctionType(funcArgTypes, {});
 
   std::string kernelName = config.kernelBaseName;
   if (is_verifier) {
@@ -612,30 +704,26 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
         "perf_config", builder.getStringAttr(config.perfConfig)));
   }
 
-  assert(config.operation.hasValue());
+  SmallVector<Value, 3> args = {func.getArgument(0), func.getArgument(1),
+                                func.getArgument(2)};
+  if (hasWorkspace) {
+    args = {func.getArgument(0), func.getArgument(1), func.getArgument(2),
+            func.getArgument(3)};
+  }
   switch (config.operation.getValue()) {
   case miopen::ConvOpType::Fwd: {
     auto convOp = builder.create<miopen::Conv2DOp>(
-        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-        ValueRange{func.getArgument(0), func.getArgument(1),
-                   func.getArgument(2)},
-        attributes);
+        builder.getUnknownLoc(), ArrayRef<mlir::Type>{}, args, attributes);
     block->push_front(convOp);
   } break;
   case miopen::ConvOpType::BwdData: {
     auto convOp = builder.create<miopen::Conv2DBwdDataOp>(
-        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-        ValueRange{func.getArgument(0), func.getArgument(1),
-                   func.getArgument(2)},
-        attributes);
+        builder.getUnknownLoc(), ArrayRef<mlir::Type>{}, args, attributes);
     block->push_front(convOp);
   } break;
   case miopen::ConvOpType::BwdWeight: {
     auto convOp = builder.create<miopen::Conv2DBwdWeightOp>(
-        builder.getUnknownLoc(), ArrayRef<mlir::Type>{},
-        ValueRange{func.getArgument(0), func.getArgument(1),
-                   func.getArgument(2)},
-        attributes);
+        builder.getUnknownLoc(), ArrayRef<mlir::Type>{}, args, attributes);
     block->push_back(convOp);
   } break;
   }

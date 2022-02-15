@@ -292,12 +292,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
 
-    // Determine the type used in the filter/input/output tensors.
-    auto elementType = op.c()
-                           .getType()
-                           .cast<MemRefType>()
-                           .getElementType()
-                           .template cast<Type>();
+    // Obtain data type.
+    auto elementType = op.b().getType().cast<MemRefType>().getElementType();
 
     // Determine the type used on VGPR to act as accumulator.
     // f32: f32.
@@ -1394,8 +1390,6 @@ struct GridwiseGemmV2RewritePattern
         op->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
     // int64_t MWaves = MPerBlock / MPerWave;
     int64_t NWaves = NPerBlock / NPerWave;
-    auto dataType =
-        op.b().getType().template cast<MemRefType>().getElementType();
 
     auto MPerWaveConstantOp = b.create<ConstantIndexOp>(loc, MPerWave);
     auto NPerWaveConstantOp = b.create<ConstantIndexOp>(loc, NPerWave);
@@ -2035,12 +2029,12 @@ struct GridwiseGemmV2RewritePattern
 
     // Logic to do XDLOPS code selection.
     // llvm::errs() << "Invoke XDLOPS code selection logic:\n";
-    // llvm::errs() << "dataType: "; dataType.dump(); llvm::errs() << "\n";
-    // llvm::errs() << "MPerWave: " << MPerWave << "\n";
-    // llvm::errs() << "NPerWave: " << NPerWave << "\n";
+    // llvm::errs() << "elementType: "; elementType.dump(); llvm::errs() <<
+    // "\n"; llvm::errs() << "MPerWave: " << MPerWave << "\n"; llvm::errs() <<
+    // "NPerWave: " << NPerWave << "\n";
 
     XdlopsCodeSelection xcs =
-        XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
+        XdlopsCodeSelection::get(elementType, MPerWave, NPerWave, b);
 
     // Extract values from XdlopsCodeSelection.
     int64_t MPerXdlops = xcs.MPerXdlops;
@@ -2092,15 +2086,15 @@ struct GridwiseGemmV2RewritePattern
     Type arrayAType, arrayBType;
     if (KPack > 1) {
       arrayAType =
-          MemRefType::get({arrayASize}, VectorType::get({KPack}, dataType), {},
-                          gpu::GPUDialect::getPrivateAddressSpace());
+          MemRefType::get({arrayASize}, VectorType::get({KPack}, elementType),
+                          {}, gpu::GPUDialect::getPrivateAddressSpace());
       arrayBType =
-          MemRefType::get({arrayBSize}, VectorType::get({KPack}, dataType), {},
-                          gpu::GPUDialect::getPrivateAddressSpace());
+          MemRefType::get({arrayBSize}, VectorType::get({KPack}, elementType),
+                          {}, gpu::GPUDialect::getPrivateAddressSpace());
     } else {
-      arrayAType = MemRefType::get({arrayASize}, dataType, {},
+      arrayAType = MemRefType::get({arrayASize}, elementType, {},
                                    gpu::GPUDialect::getPrivateAddressSpace());
-      arrayBType = MemRefType::get({arrayBSize}, dataType, {},
+      arrayBType = MemRefType::get({arrayBSize}, elementType, {},
                                    gpu::GPUDialect::getPrivateAddressSpace());
     }
     auto arrayA = b.create<GpuAllocOp>(loc, arrayAType);

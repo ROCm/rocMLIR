@@ -195,9 +195,19 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   auto stridesAttr = op->template getAttrOfType<ArrayAttr>("strides");
   auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
 
+  auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
+  bool isXdlops = (xdlopsV2Attr && xdlopsV2Attr.getValue() == true);
+
   // Get shape of filter tensor.
   auto filterType = op.filter().getType().template cast<MemRefType>();
   auto filterShape = filterType.getShape();
+
+  // Determine whether to use workspace.
+  bool hasWorkspace =
+      (filterType.getElementType() == b.getF16Type() && isXdlops);
+  if (hasWorkspace) {
+    assert(op.workspace().size());
+  }
 
   // Get shape of input tensor.
   auto inputType = op.input().getType().template cast<MemRefType>();
@@ -291,8 +301,9 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     addKBlockWrap.passThrough({"k", "c", "y", "x"});
 
     TransformMapAttr addKBlockTransformAttr = addKBlockTransform.get();
-    Value withKBlock =
-        b.create<TransformOp>(loc, op.filter(), addKBlockTransformAttr);
+    Value filterTensorInUse = (hasWorkspace) ? op.workspace()[0] : op.filter();
+    Value withKBlock = b.create<miopen::TransformOp>(loc, filterTensorInUse,
+                                                     addKBlockTransformAttr);
 
     // Create GEMM filter tensor
     // Here, we merge the KBlock dimension into the G dimension
@@ -411,8 +422,6 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
       b.getNamedAttr("num_cu", numCuAttr)};
 
   // xdlopsV2.
-  auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-  bool isXdlops = (xdlopsV2Attr && xdlopsV2Attr.getValue() == true);
   if (isXdlops)
     gridwiseGemmAttrs.push_back(
         b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
@@ -1219,9 +1228,10 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     }
 
     if (ConvOpType::BwdWeight == convOpType && isXdlops &&
-        dataType == b.getF32Type() && needExtraPad == false) {
+        (dataType == b.getF32Type() || dataType == b.getF16Type()) &&
+        needExtraPad == false) {
       // current backward weight with atomic_add can only run under xdlops +
-      // fp32
+      // fp32 / fp16.
       return backwardWeightAtomicAdd(cast<Conv2DBwdWeightOp>(op), b);
     }
 
