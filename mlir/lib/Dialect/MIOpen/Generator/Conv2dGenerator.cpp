@@ -325,12 +325,54 @@ bool Conv2dGenerator::hasWorkspace(OpBuilder &builder) const {
   // - data type: fp16
   // - operation: backward weight conv2d.
   // - use XDLOPS.
+  // - No need to pad along Gemm M/N/K dimension.
   bool result = false;
+
   if (config.operation.hasValue()) {
     mlir::Type dataType = getDataType(builder);
     if ((config.operation.getValue() == miopen::ConvOpType::BwdWeight) &&
         config.xdlops && (dataType == builder.getF16Type())) {
-      result = true;
+
+      // Logic to check if we need to pad along GemmM/N/K dimension for backward
+      // weight convolution.
+      // FIXME. Merge with logic used in the tuning process.
+      auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
+      auto filDim =
+          canonicalizeDims(config.filterDimension, config.filterLayout);
+      auto outDim =
+          canonicalizeDims(config.outputDimension, config.outputLayout);
+
+      int64_t gemmMSize, gemmNSize, gemmKSize;
+      gemmMSize = filDim["k"];
+      gemmKSize = outDim["n"] * outDim["h"] * outDim["w"];
+      gemmNSize = filDim["c"] * filDim["y"] * filDim["x"];
+
+      // Initial tuning parameters for backward convolution.
+      llvm::SmallVector<llvm::SmallVector<int64_t, 6>, 7>
+          initParametersBackward = {
+              // M/block N/block K/block M/wave N/wave kPack
+              {128, 128, 8, 64, 64, 1}, {128, 128, 16, 64, 64, 1},
+              {8, 64, 8, 8, 64, 1},     {4, 64, 16, 4, 64, 1},
+              {32, 64, 4, 32, 64, 1},   {16, 16, 16, 16, 16, 1},
+              {16, 16, 4, 16, 16, 1},
+          };
+
+      bool needExtraPad = false;
+      size_t numOfFailedConfigs = 0;
+      for (auto &params : initParametersBackward) {
+        if (gemmMSize % params[0] == 0 && gemmNSize % params[1] == 0 &&
+            gemmKSize % params[2] == 0) {
+          break;
+        }
+        numOfFailedConfigs++;
+      }
+
+      if (numOfFailedConfigs == initParametersBackward.size()) {
+        needExtraPad = true;
+      }
+
+      // In case we need extra padding, do not use workspace.
+      result = (needExtraPad == false);
     }
   }
   return result;
@@ -341,6 +383,7 @@ int Conv2dGenerator::getWorkspaceSize(ModuleOp &module) const {
   // - data type: fp16
   // - operation: backward weight conv2d.
   // - use XDLOPS.
+  // - No need to pad along Gemm M/N/K dimension.
   // Workspace size is the same as the filter dimension, with fp32 type.
   int result = 0;
   OpBuilder builder(module.getContext());
