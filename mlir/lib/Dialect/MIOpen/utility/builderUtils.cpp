@@ -36,6 +36,8 @@ Value createConstantIntOp(OpBuilder &b, Location loc, Type type,
   return retValue;
 }
 
+} // anonymous namespace
+
 Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
                             Type elementType, float value) {
   auto semantics = static_cast<APFloat::Semantics>(-1);
@@ -65,15 +67,6 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
   }
 
   return retValue;
-}
-} // anonymous namespace
-
-Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
-                            float value) {
-  Type elementType = type;
-  if (auto shaped = type.dyn_cast<ShapedType>())
-    elementType = shaped.getElementType();
-  return createConstantFloatOp(b, loc, type, elementType, value);
 }
 
 Value createZeroConstantOp(OpBuilder &b, Location loc, Type type) {

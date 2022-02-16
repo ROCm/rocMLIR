@@ -1577,7 +1577,8 @@ static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
       llvm::APInt val = fl.bitcastToAPInt();
       vOp = b.create<arith::ConstantOp>(loc, b.getIntegerAttr(i16, val));
     } else {
-      vOp = mlir::miopen::createConstantFloatOp(b, loc, elemType, v.value());
+      vOp = mlir::miopen::createConstantFloatOp(b, loc, elemType, elemType,
+                                                v.value());
     }
     constantsVec = b.create<vector::InsertElementOp>(
                         loc, vOp, constantsVec,
