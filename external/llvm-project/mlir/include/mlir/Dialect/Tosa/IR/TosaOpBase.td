@@ -200,4 +200,9 @@ class Tosa_Op<string mnemonic, list<Trait> traits = []> :
     Op<Tosa_Dialect, mnemonic, !listconcat(traits, [TosaOpInterface])> {
 }
 
+//===----------------------------------------------------------------------===//
+// TOSA element-wise ops.  The Elementwise trait requires identical shapes.
+//===----------------------------------------------------------------------===//
+def AbstractElementwise : NativeOpTrait<"tosa::AbstractElementwise">;
+
 #endif // TOSA_OP_BASE
