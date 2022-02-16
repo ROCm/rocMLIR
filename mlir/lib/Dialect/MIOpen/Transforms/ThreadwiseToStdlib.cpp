@@ -485,6 +485,8 @@ void emitStoreLogic(
                                               destLowerIndices[i]);
         destLowerStoreIndices.push_back(dstIndex);
       }
+      Value zero = createZeroConstantOp(b, loc, typeToStore);
+      emitStoreInstruction(zero, destType, typeToStore, dest, destLowerIndices,/*oob=*/zeroConstantOp);
       b.create<gpu::AtomicFAddOp>(loc, value, dest, destLowerStoreIndices);
     } else {
       emitStoreInstruction(value, destType, typeToStore, dest, destLowerIndices,
