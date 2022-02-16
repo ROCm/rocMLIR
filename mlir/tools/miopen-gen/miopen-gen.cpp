@@ -21,7 +21,7 @@
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
-#include "mlir/Dialect/Vector/VectorOps.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/Attributes.h"
@@ -1543,6 +1543,74 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   return func;
 }
 
+static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
+                                             mlir::Location loc,
+                                             mlir::Type elemType,
+                                             mlir::Value lv5D, bool isOut) {
+  auto lv5DType = lv5D.getType().template cast<mlir::MemRefType>();
+  llvm::SmallVector<float, 3> pattern;
+  if (isOut)
+    pattern = {0.0, 0.0}; // Hack around silly compiler weirdness
+  else
+    pattern = {0.5, -1, 0.75};
+  // TODO(kdrewnia) Refactor this to create the constant vector up front
+  // TODO(kdrewnia) Factor out the anti-bf16 pass from GPU lowering, apply
+  // it here
+  mlir::Type i16 = b.getIntegerType(16);
+  mlir::Value constantsVec;
+  if (elemType == b.getBF16Type()) {
+    uint16_t init = 0;
+    constantsVec = b.create<arith::ConstantOp>(
+        loc, mlir::SplatElementsAttr::get(
+                 mlir::VectorType::get(pattern.size(), i16), init));
+  } else {
+    constantsVec = mlir::miopen::createZeroConstantOp(
+        b, loc, mlir::VectorType::get(pattern.size(), elemType));
+  }
+  for (auto v : llvm::enumerate(pattern)) {
+    mlir::Value vOp;
+    if (elemType == b.getBF16Type()) {
+      llvm::APFloat fl(v.value());
+      bool losesInfo = false;
+      fl.convert(llvm::APFloat::BFloat(), llvm::APFloat::rmNearestTiesToEven,
+                 &losesInfo);
+      llvm::APInt val = fl.bitcastToAPInt();
+      vOp = b.create<arith::ConstantOp>(loc, b.getIntegerAttr(i16, val));
+    } else {
+      vOp = mlir::miopen::createConstantFloatOp(b, loc, elemType, v.value());
+    }
+    constantsVec = b.create<vector::InsertElementOp>(
+                        loc, vOp, constantsVec,
+                        b.create<arith::ConstantIndexOp>(loc, v.index()))
+                       .result();
+  }
+
+  SmallVector<int64_t, 5> lowerBounds(5, 0);
+  SmallVector<int64_t, 5> upperBounds;
+  llvm::copy(lv5DType.getShape(), std::back_inserter(upperBounds));
+  SmallVector<int64_t, 5> steps(5, 1);
+  AffineExpr rowMajor = b.getAffineConstantExpr(0);
+  for (uint32_t i = 0; i < 5; ++i) {
+    rowMajor = b.getAffineDimExpr(i) + lv5DType.getDimSize(i) * rowMajor;
+  }
+  rowMajor = rowMajor % b.getAffineConstantExpr(pattern.size());
+  AffineMap rowMajorMap = AffineMap::get(5, 0, {rowMajor}, b.getContext());
+
+  mlir::buildAffineLoopNest(
+      b, loc, lowerBounds, upperBounds, steps,
+      [rowMajorMap, &constantsVec, lv5D, elemType](OpBuilder b, Location loc,
+                                                   ValueRange ivs) {
+        auto selectorOp = b.create<AffineApplyOp>(loc, rowMajorMap, ivs);
+        mlir::Value toStore = b.create<vector::ExtractElementOp>(
+                                   loc, constantsVec, selectorOp->getResult(0))
+                                  .result();
+        if (elemType == b.getBF16Type())
+          toStore = b.create<arith::BitcastOp>(loc, b.getBF16Type(), toStore);
+        b.create<memref::StoreOp>(loc, toStore, lv5D, ivs);
+      });
+  return success();
+}
+
 static LogicalResult
 populateHostHarnessLogic(ModuleOp &module,
                          const SmallVector<KernelIF, 8> &kernels,
@@ -1639,67 +1707,9 @@ populateHostHarnessLogic(ModuleOp &module,
 
     auto lv5D = makeNDMemRef(b, lvar, 5);
     if (randomSeed.getValue() == "fixed") {
-      auto lv5DType = lv5D.getType().template cast<mlir::MemRefType>();
-      llvm::SmallVector<float, 3> pattern;
-      if (idx == outIdx)
-        pattern = {0.0, 0.0}; // Hack around silly compiler weirdness
-      else
-        pattern = {0.5, -1, 0.75};
-      // TODO(kdrewnia) Refactor this to create the constant vector up front
-      // TODO(kdrewnia) Factor out the anti-bf16 pass from GPU lowering, apply
-      // it here
-      mlir::Type i16 = b.getIntegerType(16);
-      mlir::Value constantsVec;
-      if (elemType == b.getBF16Type()) {
-        uint16_t init = 0;
-        constantsVec = b.create<arith::ConstantOp>(
-            loc, mlir::SplatElementsAttr::get(
-                     mlir::VectorType::get(pattern.size(), i16), init));
-      } else {
-        constantsVec = mlir::miopen::createZeroConstantFloatOp(
-            b, loc, mlir::VectorType::get(pattern.size(), elemType));
-      }
-      for (auto v : llvm::enumerate(pattern)) {
-        mlir::Value vOp;
-        if (elemType == b.getBF16Type()) {
-          llvm::APFloat fl(v.value());
-          bool losesInfo = false;
-          fl.convert(llvm::APFloat::BFloat(),
-                     llvm::APFloat::rmNearestTiesToEven, &losesInfo);
-          llvm::APInt val = fl.bitcastToAPInt();
-          vOp = b.create<arith::ConstantOp>(loc, b.getIntegerAttr(i16, val));
-        } else {
-          vOp =
-              mlir::miopen::createConstantFloatOp(b, loc, elemType, v.value());
-        }
-        constantsVec = b.create<vector::InsertElementOp>(
-            loc, vOp, constantsVec,
-            b.create<arith::ConstantIndexOp>(loc, v.index()));
-      }
-
-      SmallVector<int64_t, 5> lowerBounds(5, 0);
-      SmallVector<int64_t, 5> upperBounds;
-      llvm::copy(lv5DType.getShape(), std::back_inserter(upperBounds));
-      SmallVector<int64_t, 5> steps(5, 1);
-      AffineExpr rowMajor = b.getAffineConstantExpr(0);
-      for (uint32_t i = 0; i < 5; ++i) {
-        rowMajor = b.getAffineDimExpr(i) + lv5DType.getDimSize(i) * rowMajor;
-      }
-      rowMajor = rowMajor % b.getAffineConstantExpr(pattern.size());
-      AffineMap rowMajorMap = AffineMap::get(5, 0, {rowMajor}, b.getContext());
-
-      mlir::buildAffineLoopNest(
-          b, loc, lowerBounds, upperBounds, steps,
-          [rowMajorMap, &constantsVec, lv5D,
-           elemType](OpBuilder b, Location loc, ValueRange ivs) {
-            auto selectorOp = b.create<AffineApplyOp>(loc, rowMajorMap, ivs);
-            mlir::Value toStore = b.create<vector::ExtractElementOp>(
-                loc, constantsVec, selectorOp->getResult(0));
-            if (elemType == b.getBF16Type())
-              toStore =
-                  b.create<arith::BitcastOp>(loc, b.getBF16Type(), toStore);
-            b.create<memref::StoreOp>(loc, toStore, lv5D, ivs);
-          });
+      if (failed(
+              populateTensorFillLogic(b, loc, elemType, lv5D, idx == outIdx)))
+        return failure();
     } else {
       auto lvU5D = b.create<memref::CastOp>(loc, mr5DUnkType, lv5D);
 

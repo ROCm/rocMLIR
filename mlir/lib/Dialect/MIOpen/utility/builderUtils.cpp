@@ -26,16 +26,15 @@ Value createConstantIntOp(OpBuilder &b, Location loc, Type type,
   Attribute constValue = b.getIntegerAttr(elementType, apValue);
 
   Value retValue;
-  if (auto vecType = type.dyn_cast<VectorType>()) {
+  if (auto shapedType = type.dyn_cast<ShapedType>()) {
     retValue =
-        b.create<ConstantOp>(loc, SplatElementsAttr::get(vecType, constValue));
+        b.create<ConstantOp>(loc, SplatElementsAttr::get(shapedType, value));
   } else {
     retValue = b.create<ConstantOp>(loc, constValue, type);
   }
 
   return retValue;
 }
-} // anonymous namespace
 
 Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
                             Type elementType, float value) {
@@ -56,10 +55,10 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
                   APFloat::rmNearestTiesToEven, &lostInfo);
   Value retValue;
 
-  if (auto vecType = type.dyn_cast<VectorType>()) {
+  if (auto shapedType = type.dyn_cast<ShapedType>()) {
     Attribute constValue = b.getFloatAttr(elementType, apValue);
-    retValue =
-        b.create<ConstantOp>(loc, SplatElementsAttr::get(vecType, constValue));
+    retValue = b.create<ConstantOp>(
+        loc, SplatElementsAttr::get(shapedType, constValue));
   } else {
     retValue =
         b.create<ConstantOp>(loc, b.getFloatAttr(elementType, value), type);
@@ -67,11 +66,20 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
 
   return retValue;
 }
+} // anonymous namespace
+
+Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
+                            float value) {
+  Type elementType = type;
+  if (auto shaped = type.dyn_cast<ShapedType>())
+    elementType = shaped.getElementType();
+  return createConstantFloatOp(b, loc, type, elementType, value);
+}
 
 Value createZeroConstantOp(OpBuilder &b, Location loc, Type type) {
   Type elementType = type;
-  if (type.isa<VectorType>())
-    elementType = type.template cast<VectorType>().getElementType();
+  if (auto shaped = type.dyn_cast<ShapedType>())
+    elementType = shaped.getElementType();
 
   if (elementType.isIntOrIndex()) {
     return createConstantIntOp(b, loc, type, elementType, 0);
