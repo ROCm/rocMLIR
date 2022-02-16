@@ -11,26 +11,20 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_INITALLTRANSLATIONS_H
-#define MLIR_INITALLTRANSLATIONS_H
+#ifndef MLIR_INITMIOPENTRANSLATIONS_H
+#define MLIR_INITMIOPENTRANSLATIONS_H
+
+#include "mlir/Translation/GpuModuleToRocdir.h"
 
 namespace mlir {
-
-void registerFromLLVMIRTranslation();
-void registerToLLVMIRTranslation();
-void registerToROCDLIRTranslation();
-void registerFromMIOpenToCPPTranslation();
-
 namespace miopen {
 // This function should be called before creating any MLIRContext if one
 // expects all the possible translations to be made available to the context
-// automatically.
-inline void registerAllTranslations() {
+// automatically. It should be called after the registerAllTranslations() from
+// MLIR
+inline void registerMIOpenTranslations() {
   static bool initOnce = []() {
-    registerFromLLVMIRTranslation();
-    registerToLLVMIRTranslation();
-    registerToROCDLIRTranslation();
-    registerFromMIOpenToCPPTranslation();
+    registerGpuModuleToROCDLIRTranslation();
     return true;
   }();
   (void)initOnce;
@@ -38,4 +32,4 @@ inline void registerAllTranslations() {
 } // namespace miopen
 } // namespace mlir
 
-#endif // MLIR_INITALLTRANSLATIONS_H
+#endif // MLIR_INITMIOPENTRANSLATIONS_H

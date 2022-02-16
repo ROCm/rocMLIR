@@ -46,7 +46,6 @@ namespace {
 // practice, broadcastable and same-type Tosa ops are also element-wise.
 bool isElementwiseOp(Operation *op) {
   return op->hasTrait<OpTrait::Elementwise>() ||
-         op->hasTrait<OpTrait::tosa::AbstractElementwise>() ||
          op->hasTrait<OpTrait::ResultsBroadcastableShape>() ||
          op->hasTrait<OpTrait::SameOperandsAndResultType>();
 }
@@ -347,7 +346,8 @@ public:
     if (auto splatValue = value.dyn_cast<SplatElementsAttr>())
       return isZeroAttribute(splatValue.getSplatValue<Attribute>());
     if (auto elementsValue = value.dyn_cast<ElementsAttr>())
-      return llvm::all_of(elementsValue.getValues<Attribute>(), isZeroAttribute);
+      return llvm::all_of(elementsValue.getValues<Attribute>(),
+                          isZeroAttribute);
     if (auto arrayValue = value.dyn_cast<ArrayAttr>())
       return llvm::all_of(arrayValue.getValue(), isZeroAttribute);
     return false;

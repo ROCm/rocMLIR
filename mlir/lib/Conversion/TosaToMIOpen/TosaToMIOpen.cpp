@@ -13,7 +13,7 @@
 #include "mlir/Conversion/TosaToMIOpen/TosaToMIOpen.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
-#include "mlir/Dialect/Linalg/IR/LinalgOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
@@ -38,7 +38,8 @@ public:
     if (auto splatValue = value.dyn_cast<SplatElementsAttr>())
       return isZeroAttribute(splatValue.getSplatValue<Attribute>());
     if (auto elementsValue = value.dyn_cast<ElementsAttr>())
-      return llvm::all_of(elementsValue.getValues<Attribute>(), isZeroAttribute);
+      return llvm::all_of(elementsValue.getValues<Attribute>(),
+                          isZeroAttribute);
     if (auto arrayValue = value.dyn_cast<ArrayAttr>())
       return llvm::all_of(arrayValue.getValue(), isZeroAttribute);
     return false;
@@ -233,8 +234,8 @@ public:
 
 } // namespace
 
-void tosa::populateTosaToMIOpenConversionPatterns(
-    MLIRContext *context, OwningRewritePatternList *patterns) {
+void tosa::populateTosaToMIOpenConversionPatterns(MLIRContext *context,
+                                                  RewritePatternSet &patterns) {
   static mlir::bufferization::BufferizeTypeConverter bufferizer;
-  patterns->insert<ConvConverter>(bufferizer, context);
+  patterns.add<ConvConverter>(bufferizer, context);
 }

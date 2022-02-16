@@ -72,6 +72,14 @@ Error BufferedHTTPResponseHandler::handleStatusCode(unsigned Code) {
   return Error::success();
 }
 
+bool HTTPClient::IsInitialized = false;
+
+class HTTPClientCleanup {
+public:
+  ~HTTPClientCleanup() { HTTPClient::cleanup(); }
+};
+static const HTTPClientCleanup Cleanup;
+
 Expected<HTTPResponseBuffer> HTTPClient::perform(const HTTPRequest &Request) {
   BufferedHTTPResponseHandler Handler;
   if (Error Err = perform(Request, Handler))
@@ -87,8 +95,6 @@ Expected<HTTPResponseBuffer> HTTPClient::get(StringRef Url) {
 #ifdef LLVM_ENABLE_CURL
 
 bool HTTPClient::isAvailable() { return true; }
-
-bool HTTPClient::IsInitialized = false;
 
 void HTTPClient::initialize() {
   if (!IsInitialized) {
@@ -150,7 +156,8 @@ HTTPClient::HTTPClient() {
          "Must call HTTPClient::initialize() at the beginning of main().");
   if (Curl)
     return;
-  assert((Curl = curl_easy_init()) && "Curl could not be initialized.");
+  Curl = curl_easy_init();
+  assert(Curl && "Curl could not be initialized");
   // Set the callback hooks.
   curl_easy_setopt(Curl, CURLOPT_WRITEFUNCTION, curlWriteFunction);
   curl_easy_setopt(Curl, CURLOPT_HEADERFUNCTION, curlHeaderFunction);

@@ -53,14 +53,16 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirType biasType = mlirRankedTensorTypeGet(4, biasDims, mlirF32TypeGet(ctx),
                                               mlirAttributeGetNull());
   MlirType funcBodyArgTypes[] = {inType, filtType, biasType};
+  MlirLocation funcBodyLocations[] = {location, location, location};
   MlirRegion funcBodyRegion = mlirRegionCreate();
   MlirType resultType = mlirRankedTensorTypeGet(4, inDims, mlirF32TypeGet(ctx),
                                                 mlirAttributeGetNull());
   MlirType funcResultTypes[] = {resultType};
   MlirType funcType =
       mlirFunctionTypeGet(ctx, 3, funcBodyArgTypes, 1, funcResultTypes);
-  MlirBlock funcBody = mlirBlockCreate(
-      sizeof(funcBodyArgTypes) / sizeof(MlirType), funcBodyArgTypes);
+  MlirBlock funcBody =
+      mlirBlockCreate(sizeof(funcBodyArgTypes) / sizeof(MlirType),
+                      funcBodyArgTypes, funcBodyLocations);
   mlirRegionAppendOwnedBlock(funcBodyRegion, funcBody);
 
   //-------------- func op

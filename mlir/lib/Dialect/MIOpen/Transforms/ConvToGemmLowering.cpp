@@ -1752,10 +1752,10 @@ template struct Conv2DRewritePattern<Conv2DBwdWeightOp>;
 
 void LowerMIOpenOpsStep1Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
-  OwningRewritePatternList patterns(ctx);
-  patterns.insert<Conv2DRewritePattern<Conv2DOp>>(ctx);
-  patterns.insert<Conv2DRewritePattern<Conv2DBwdDataOp>>(ctx);
-  patterns.insert<Conv2DRewritePattern<Conv2DBwdWeightOp>>(ctx);
+  RewritePatternSet patterns(ctx);
+  patterns.add<Conv2DRewritePattern<Conv2DOp>,
+               Conv2DRewritePattern<Conv2DBwdDataOp>,
+               Conv2DRewritePattern<Conv2DBwdWeightOp>>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }

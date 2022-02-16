@@ -24,7 +24,7 @@ def MIGraphX_Dialect : Dialect {
 }
 
 // Base class for MIGraphX dialect ops.
-class MIGraphX_Op<string mnemonic, list<OpTrait> traits = []> :
+class MIGraphX_Op<string mnemonic, list<Trait> traits = []> :
     Op<MIGraphX_Dialect, mnemonic, traits> {
   // For every standard op, there needs to be a:
   //   * void print(OpAsmPrinter &p, ${C++ class of Op} op)

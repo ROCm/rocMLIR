@@ -28,8 +28,7 @@ gpu.module @kernel {
     // NVVM: llvm.getelementptr
     // NVVM: llvm.store
 
-    // ROCDL: llvm.getelementptr %[[raw]]
-    // ROCDL: llvm.store
+    // ROCDL: llvm.store {{.*}}, %[[raw]]
     %c0 = arith.constant 0 : index
     memref.store %arg0, %arg1[%c0] : memref<4xf32, 5>
 
@@ -83,8 +82,7 @@ gpu.module @kernel {
     // NVVM: llvm.getelementptr
     // NVVM: llvm.store
 
-    // ROCDL: llvm.getelementptr %[[raw]]
-    // ROCDL: llvm.store
+    // ROCDL: llvm.store {{.*}}, %[[raw]]
     %c0 = arith.constant 0 : index
     memref.store %arg0, %arg1[%c0] : memref<4xf32, 3>
 

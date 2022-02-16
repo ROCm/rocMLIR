@@ -33,24 +33,24 @@ def gpuCode(spec: TestSpec) -> str:
 gpu.module @{spec.name} {{
 gpu.func @{spec.name}_kern(%arg0: memref<1024xi32>, %arg1: memref<1024xi32>) -> () kernel
 attributes {{block_size = 64 : i32, grid_size = 64 : i32}} {{
-  %cst0 = constant 0 : index
-  %cst0_i32 = constant 0 : i32
-  %cst1 = constant 1 : index
-  %cst16 = constant 16 : index
-  %cst64 = constant 64 : index
-  %cst64_i32 = constant 64 : i32
+  %cst0 = arith.constant 0 : index
+  %cst0_i32 = arith.constant 0 : i32
+  %cst1 = arith.constant 1 : index
+  %cst16 = arith.constant 16 : index
+  %cst64 = arith.constant 64 : index
+  %cst64_i32 = arith.constant 64 : i32
 
-  %workitem = "gpu.thread_id"() {{ dimension = "x" }} : () -> (index)
-  %tid = remi_unsigned %workitem, %cst64 : index
-  %vec_0 = constant dense<-1> : vector<16xi32>"""]
+  %workitem = gpu.thread_id x
+  %tid = arith.remui %workitem, %cst64 : index
+  %vec_0 = arith.constant dense<-1> : vector<16xi32>"""]
     for i in range(16):
         if i != 0:
-            ret.append(f"%cst{i}_i32 = constant {i} : i32")
+            ret.append(f"%cst{i}_i32 = arith.constant {i} : i32")
         load_idx = "%tid" if i == 0 else f"%load_idx_{i}"
         ret.append(f"""
 %v_{i} = memref.load %arg0[{load_idx}] : memref<1024xi32>
 %vec_{i+1} = vector.insertelement %v_{i}, %vec_{i}[ %cst{i}_i32 : i32 ] : vector<16xi32>
-%load_idx_{i+1} = addi {load_idx}, %cst64 : index""")
+%load_idx_{i+1} = arith.addi {load_idx}, %cst64 : index""")
     ret.append(f"""gpu.barrier
 %transposed = miopen.in_warp_transpose {{ size = {spec.size} : i32,
   inGroupPerm = [ {', '.join(str(i) + " : i32" for i in spec.perm)}] }} %vec_16, %tid
@@ -61,7 +61,7 @@ gpu.barrier""")
         ret.append(f"""
 %e_{i} = vector.extractelement %transposed[%cst{i}_i32 : i32] : vector<16xi32>
 memref.store %e_{i}, %arg1[{store_idx}] : memref<1024xi32>
-%store_idx_{i+1} = addi {store_idx}, %cst64 : index""")
+%store_idx_{i+1} = arith.addi {store_idx}, %cst64 : index""")
     ret.append("""
 gpu.return
 }
@@ -87,8 +87,8 @@ def hostCode(spec: TestSpec) -> str:
 
     ret = f"""
 func @host_{spec.name}_run(%arg0: memref<1024xi32>, %arg1: memref<1024xi32>) {{
-    %cst64 = constant 64 : index
-    %cst = constant 1 : index
+    %cst64 = arith.constant 64 : index
+    %cst = arith.constant 1 : index
     gpu.launch_func @{spec.name}::@{spec.name}_kern
         blocks in (%cst, %cst, %cst)
         threads in (%cst64, %cst, %cst)
@@ -97,19 +97,19 @@ func @host_{spec.name}_run(%arg0: memref<1024xi32>, %arg1: memref<1024xi32>) {{
 }}
 
 func @host_{spec.name}() -> i1 {{
-    %init = constant dense<{init}> : tensor<1024xi32>
-    %goal = constant dense<{goal}> :  tensor<1024xi32>
-    %cst1_i32 = constant 1 : i32
-    %cst2_i32 = constant 2 : i32
-    %cst_deadbeef_i32 = constant 0xdeadbeef : i32
+    %init = arith.constant dense<{init}> : tensor<1024xi32>
+    %goal = arith.constant dense<{goal}> :  tensor<1024xi32>
+    %cst1_i32 = arith.constant 1 : i32
+    %cst2_i32 = arith.constant 2 : i32
+    %cst_deadbeef_i32 = arith.constant 0xdeadbeef : i32
 
-    %init_mem = memref.buffer_cast %init : memref<1024xi32>
-    %goal_mem = memref.buffer_cast %goal : memref<1024xi32>
+    %init_mem = bufferization.to_memref %init : memref<1024xi32>
+    %goal_mem = bufferization.to_memref %goal : memref<1024xi32>
 
     %arg = memref.alloc() : memref<1024xi32>
     %res = memref.alloc() : memref<1024xi32>
 
-    linalg.copy(%init_mem, %arg) : memref<1024xi32>, memref<1024xi32>
+    memref.copy %init_mem, %arg : memref<1024xi32> to memref<1024xi32>
     %arg_dyn = memref.cast %arg : memref<1024xi32> to memref<?xi32>
     %arg_gpu_dyn = call @mgpuMemAllocInt32(%arg_dyn) : (memref<?xi32>) -> (memref<?xi32>)
     call @mgpuMemCopyInt32(%arg_dyn, %arg_gpu_dyn, %cst1_i32) : (memref<?xi32>, memref<?xi32>, i32) -> ()
@@ -124,12 +124,12 @@ func @host_{spec.name}() -> i1 {{
 
     call @mgpuMemCopyInt32(%res_gpu_dyn, %res_dyn, %cst2_i32) : (memref<?xi32>, memref<?xi32>, i32) -> ()
 
-    %true = constant 1 : i1
+    %true = arith.constant 1 : i1
     %ret = affine.for %i = 0 to 1024 iter_args(%state = %true) -> (i1) {{
         %goal_e = affine.load %goal_mem[%i] : memref<1024xi32>
         %arg_e = affine.load %res[%i] : memref<1024xi32>
-        %current = cmpi "eq", %goal_e, %arg_e : i32
-        %next = and %state, %current : i1
+        %current = arith.cmpi eq, %goal_e, %arg_e : i32
+        %next = arith.andi %state, %current : i1
         affine.yield %next : i1
     }}
     scf.if %ret {{
@@ -160,15 +160,15 @@ module attributes {{gpu.container_module}} {{
         ret.append(hostCode(spec))
     ret.append("""
 func @main() -> i32 {
-    %cst0_i32 = constant 0 : i32
-    %cst1_i32 = constant 1 : i32
+    %cst0_i32 = arith.constant 0 : i32
+    %cst1_i32 = arith.constant 1 : i32
 """)
     for spec in specs:
         ret.append(f"%{spec.name} = call @host_{spec.name}() : () -> i1")
-    ret.append("%0 = constant 1 : i1")
+    ret.append("%0 = arith.constant 1 : i1")
     for i, spec in enumerate(specs):
-        ret.append(f"%{i + 1} = and %{i}, %{spec.name} : i1")
-    ret.append(f"%ret = select %{len(specs)}, %cst0_i32, %cst1_i32 : i32")
+        ret.append(f"%{i + 1} = arith.andi %{i}, %{spec.name} : i1")
+    ret.append(f"%ret = arith.select %{len(specs)}, %cst0_i32, %cst1_i32 : i32")
     ret.append("""
     return %ret : i32
     }
@@ -188,11 +188,11 @@ def lowerTestCode(testCode: str) -> str:
 
     result = subprocess.run(
         [optimizer, "--convert-linalg-to-affine-loops", "--lower-affine",
-        "--tensor-constant-bufferize", "--finalizing-bufferize", "-o", "-", "-"],
+        "--arith-bufferize", "--finalizing-bufferize", "-o", "-", "-"],
         encoding="utf-8", input=testCode, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode != 0 or len(result.stderr) != 0:
         print("Couldn't lower successfully, miopen-opt returned:",
-            result.returnCode, file=sys.stderr)
+            result.returncode, file=sys.stderr)
         print(result.stderr, file=sys.stderr)
     return result.stdout
 

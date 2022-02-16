@@ -9,8 +9,8 @@
 module attributes {gpu.container_module} {
     gpu.module @kernels {
         gpu.func @hello() kernel {
-            %0 = "gpu.thread_id"() {dimension="x"} : () -> (index)
-            gpu.printf {format = "Hello from %d\n"} %0 : index
+            %0 = gpu.thread_id x
+            gpu.printf "Hello from %d\n" %0 : index
             gpu.return
         }
     }

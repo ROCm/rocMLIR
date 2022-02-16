@@ -37,12 +37,12 @@ def ROCDL_Dialect : Dialect {
 // ROCDL op definitions
 //===----------------------------------------------------------------------===//
 
-class ROCDL_Op<string mnemonic, list<OpTrait> traits = []> :
+class ROCDL_Op<string mnemonic, list<Trait> traits = []> :
   LLVM_OpBase<ROCDL_Dialect, mnemonic, traits> {
 }
 
 class ROCDL_IntrOp<string mnemonic, list<int> overloadedResults,
-  list<int> overloadedOperands, list<OpTrait> traits, int numResults> :
+  list<int> overloadedOperands, list<Trait> traits, int numResults> :
   LLVM_IntrOpBase<ROCDL_Dialect,  mnemonic,
   "amdgcn_" # !subst(".", "_", mnemonic), overloadedResults,
   overloadedOperands, traits, numResults>;
@@ -52,7 +52,7 @@ class ROCDL_IntrOp<string mnemonic, list<int> overloadedResults,
 //===----------------------------------------------------------------------===//
 
 class ROCDL_SpecialRegisterOp<string mnemonic,
-    list<OpTrait> traits = []> :
+    list<Trait> traits = []> :
   ROCDL_Op<mnemonic, !listconcat(traits, [NoSideEffect])>,
   Results<(outs LLVM_Type:$res)>, Arguments<(ins)> {
   string llvmBuilder = "$res = createIntrinsicCall(builder,"
@@ -61,7 +61,7 @@ class ROCDL_SpecialRegisterOp<string mnemonic,
 }
 
 class ROCDL_DeviceFunctionOp<string mnemonic, string device_function,
-                             int parameter, list<OpTrait> traits = []> :
+                             int parameter, list<Trait> traits = []> :
   ROCDL_Op<mnemonic, !listconcat(traits, [NoSideEffect])>,
   Results<(outs LLVM_Type:$res)>, Arguments<(ins)> {
   string llvmBuilder = "$res = createDeviceFunctionCall(builder, \""
@@ -130,7 +130,7 @@ def ROCDL_LDSBarrierOp : ROCDL_Op<"lds_barrier"> {
 //===---------------------------------------------------------------------===//
 // Xdlops intrinsics
 
-class ROCDL_Mfma_IntrOp<string mnemonic, list<OpTrait> traits = []> :
+class ROCDL_Mfma_IntrOp<string mnemonic, list<Trait> traits = []> :
   LLVM_IntrOpBase<ROCDL_Dialect, mnemonic,
                   "amdgcn_" # !subst(".","_", mnemonic),
                   [], [], traits, 1>,
@@ -176,12 +176,7 @@ def ROCDL_MubufLoadOp :
           llvm::Intrinsic::amdgcn_buffer_load, {$rsrc, $vindex, $offset, $glc,
           $slc}, {$_resultType});
   }];
-  let parser = [{ return parseROCDLMubufLoadOp(parser, result); }];
-  let printer = [{
-    Operation *op = this->getOperation();
-    p << " " << op->getOperands()
-      << " : " << op->getResultTypes();
-  }];
+  let hasCustomAssemblyFormat = 1;
 }
 
 def ROCDL_MubufStoreOp :
@@ -198,12 +193,7 @@ def ROCDL_MubufStoreOp :
           llvm::Intrinsic::amdgcn_buffer_store, {$vdata, $rsrc, $vindex,
           $offset, $glc, $slc}, {vdataType});
   }];
-  let parser = [{ return parseROCDLMubufStoreOp(parser, result); }];
-  let printer = [{
-    Operation *op = this->getOperation();
-    p << " " << op->getOperands()
-      << " : " << vdata().getType();
-  }];
+  let hasCustomAssemblyFormat = 1;
 }
 
 //===---------------------------------------------------------------------===//
@@ -221,12 +211,7 @@ def ROCDL_RawbufLoadOp :
           llvm::Intrinsic::amdgcn_raw_buffer_load, {$rsrc, $offset, $soffset,
           $aux}, {$_resultType});
   }];
-  let parser = [{ return parseROCDLRawbufLoadOp(parser, result); }];
-  let printer = [{
-    Operation *op = this->getOperation();
-    p << " " << op->getOperands()
-      << " : " << op->getResultTypes();
-  }];
+  let hasCustomAssemblyFormat = 1;
 }
 
 def ROCDL_RawbufStoreOp :
@@ -242,12 +227,7 @@ def ROCDL_RawbufStoreOp :
           llvm::Intrinsic::amdgcn_raw_buffer_store, {$vdata, $rsrc, $offset,
           $soffset, $aux}, {vdataType});
   }];
-  let parser = [{ return parseROCDLRawbufStoreOp(parser, result); }];
-  let printer = [{
-    Operation *op = this->getOperation();
-    p << " " << op->getOperands()
-      << " : " << vdata().getType();
-  }];
+  let hasCustomAssemblyFormat = 1;
 }
 
 //===---------------------------------------------------------------------===//
@@ -266,12 +246,7 @@ def ROCDL_AtomicFAddOp :
           llvm::Intrinsic::amdgcn_buffer_atomic_fadd, {$vdata, $rsrc, $vindex, $offset,
             $slc}, {vdataType});
   }];
-  let parser = [{ return parseROCDLAtomicFAddOp(parser, result); }];
-  let printer = [{
-    Operation *op = this->getOperation();
-    p << " " << op->getOperands()
-      << " : " << vdata().getType();
-  }];
+  let hasCustomAssemblyFormat = 1;
 }
 
 //===---------------------------------------------------------------------===//

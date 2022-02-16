@@ -38,7 +38,7 @@ func @miopen_xdlops_gemm_v2_one_result_f16(%matrixA : memref<12288xf16, 3>, %mat
                                        %bufferA : memref<32xf16, 5>, %bufferB : memref<16xf16, 5>) -> vector<32xf16> {
   %c0 = arith.constant 0 : index
   %c0f = arith.constant 0.0 : f16
-  %vectorC0 = splat %c0f : vector<32xf16>
+  %vectorC0 = vector.splat %c0f : vector<32xf16>
   %vectorD0 = miopen.xdlops_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0) {
     m = 256,
     n = 256,
@@ -59,8 +59,8 @@ func @miopen_xdlops_gemm_v2_two_results_f16(%matrixA : memref<12288xf16, 3>, %ma
                                         %bufferA : memref<32xf16, 5>, %bufferB: memref<16xf16, 5>) -> (vector<32xf16>, vector<32xf16>) {
   %c0 = arith.constant 0 : index
   %c0f = arith.constant 0.0 : f16
-  %vectorC0 = splat %c0f : vector<32xf16>
-  %vectorC1 = splat %c0f : vector<32xf16>
+  %vectorC0 = vector.splat %c0f : vector<32xf16>
+  %vectorC1 = vector.splat %c0f : vector<32xf16>
   %vectorD0, %vectorD1 = miopen.xdlops_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0, %vectorC1) {
     m = 256,
     n = 256,
@@ -81,7 +81,7 @@ func @miopen_blockwise_gemm_v2_one_result_f16(%matrixA : memref<12288xf16, 3>, %
                                           %bufferA : memref<32xf16, 5>, %bufferB : memref<16xf16, 5>) -> vector<32xf16> {
   %c0 = arith.constant 0 : index
   %c0f = arith.constant 0.0 : f16
-  %vectorC0 = splat %c0f : vector<32xf16>
+  %vectorC0 = vector.splat %c0f : vector<32xf16>
   %vectorD0 = miopen.blockwise_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0) {
     m = 256,
     n = 256,
@@ -102,8 +102,8 @@ func @miopen_blockwise_gemm_v2_two_results_f16(%matrixA : memref<12288xf16, 3>, 
                                            %bufferA : memref<32xf16, 5>, %bufferB : memref<16xf16, 5>) -> (vector<32xf16>, vector<32xf16>) {
   %c0 = arith.constant 0 : index
   %c0f = arith.constant 0.0 : f16
-  %vectorC0 = splat %c0f : vector<32xf16>
-  %vectorC1 = splat %c0f : vector<32xf16>
+  %vectorC0 = vector.splat %c0f : vector<32xf16>
+  %vectorC1 = vector.splat %c0f : vector<32xf16>
   %vectorD0, %vectorD1 = miopen.blockwise_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0, %vectorC1) {
     m = 256,
     n = 256,

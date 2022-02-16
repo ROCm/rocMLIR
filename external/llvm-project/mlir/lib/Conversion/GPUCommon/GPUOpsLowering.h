@@ -9,11 +9,8 @@
 #define MLIR_CONVERSION_GPUCOMMON_GPUOPSLOWERING_H_
 
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
-#include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Support/LogicalResult.h"
-#include "mlir/Transforms/DialectConversion.h"
 
 namespace mlir {
 
@@ -45,13 +42,13 @@ struct GPUPrintfOpToHIPLowering : public ConvertOpToLLVMPattern<gpu::PrintfOp> {
   using ConvertOpToLLVMPattern<gpu::PrintfOp>::ConvertOpToLLVMPattern;
 
   LogicalResult
-  matchAndRewrite(gpu::PrintfOp gpuPrintfOp, OpAdaptor adaptor,
+  matchAndRewrite(gpu::PrintfOp gpuPrintfOp, gpu::PrintfOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
 
 /// The lowering of gpu.printf to a call to an external printf() function
 ///
-/// This pass will add a decleration of printf() to the GPUModule if needed
+/// This pass will add a declaration of printf() to the GPUModule if needed
 /// and seperate out the format strings into global constants. For some
 /// runtimes, such as OpenCL on AMD, this is sufficient setup, as the compiler
 /// will lower printf calls to appropriate device-side code
@@ -63,7 +60,7 @@ struct GPUPrintfOpToLLVMCallLowering
         addressSpace(addressSpace) {}
 
   LogicalResult
-  matchAndRewrite(gpu::PrintfOp gpuPrintfOp, OpAdaptor adaptor,
+  matchAndRewrite(gpu::PrintfOp gpuPrintfOp, gpu::PrintfOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 
 private:
@@ -80,6 +77,7 @@ struct GPUReturnOpLowering : public ConvertOpToLLVMPattern<gpu::ReturnOp> {
     return success();
   }
 };
+
 } // namespace mlir
 
 #endif // MLIR_CONVERSION_GPUCOMMON_GPUOPSLOWERING_H_

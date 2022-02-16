@@ -15,7 +15,6 @@
 
 #include "mlir/Dialect/Quant/QuantOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/Dialect/Tosa/IR/TosaOpTraits.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/LoopLikeInterface.h"
@@ -32,8 +31,8 @@ namespace tosa {
 
 #include "mlir/Dialect/Tosa/IR/TosaInterfaces.h.inc"
 
-} // end namespace tosa
-} // end namespace mlir
+} // namespace tosa
+} // namespace mlir
 
 #define GET_OP_CLASSES
 #include "mlir/Dialect/Tosa/IR/TosaOps.h.inc"

@@ -58,22 +58,6 @@ struct MIOpenApplyImplPass
 
         gpuMods.push_back(gpuMod);
 
-        // make global constant in TopModule
-        SmallString<128> binaryCstName(
-            SymbolTable::getSymbolName(gpuMod).getValue());
-        binaryCstName.append("_gpubin_cst");
-        // uniquify if necessary
-        auto binaryCstNameUnique = binaryCstName;
-        int32_t cnt = 0;
-        while (symbolTable.lookup(binaryCstNameUnique)) {
-          binaryCstNameUnique = (binaryCstName + llvm::toStringRef(cnt++)).str();
-        }
-        auto binaryCst = b.create<ConstantOp>(loc, binaryAttr);
-        binaryCst->setAttr(SymbolTable::getSymbolAttrName(),
-                           b.getStringAttr(binaryCstNameUnique));
-
-        symbolTable.insert(binaryCst);
-
         // apply target spec to original func
         gpuMod.walk([&](LLVM::LLVMFuncOp func) {
           if (auto attr = func->getAttrOfType<SymbolRefAttr>("original_func")) {
@@ -83,7 +67,7 @@ struct MIOpenApplyImplPass
                   b.getNamedAttr("arch", gpuMod->getAttr("arch")),
                   b.getNamedAttr("grid_size", func->getAttr("grid_size")),
                   b.getNamedAttr("block_size", func->getAttr("block_size")),
-                  b.getNamedAttr("binary", SymbolRefAttr::get(binaryCst))};
+                  b.getNamedAttr("binary", binaryAttr)};
 
               miopenFunc->setAttr(
                   "targets", b.getArrayAttr({b.getDictionaryAttr(attributes)}));

@@ -35,9 +35,9 @@ public:
                     StandardOpsDialect>();
   }
 
-  void runOnFunction() override {
+  void runOnOperation() override {
     auto &ctx = getContext();
-    OwningRewritePatternList patterns(&ctx);
+    RewritePatternSet patterns(&ctx);
     ConversionTarget target(ctx);
     target.addLegalDialect<tosa::TosaDialect, migraphx::MIGraphXDialect,
                            StandardOpsDialect>();
@@ -48,7 +48,7 @@ public:
 
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
-    FuncOp func = getFunction();
+    FuncOp func = getOperation();
     populateWithGenerated(patterns);
 
     if (failed(applyFullConversion(func, target, std::move(patterns)))) {

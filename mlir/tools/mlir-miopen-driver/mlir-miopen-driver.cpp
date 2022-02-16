@@ -180,18 +180,18 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     // test for target spec
     if (kernelPipelineSet.contains("binary")) {
       if (tripleName.empty() || targetChip.empty()) {
-        llvm::errs()
-            << "Target triple (-triple) and chip (-target) not specified for binary backend\n";
+        llvm::errs() << "Target triple (-triple) and chip (-target) not "
+                        "specified for binary backend\n";
         return failure();
       }
     } else {
       if (!tripleName.empty() || !targetChip.empty() || !features.empty()) {
-        llvm::errs()
-            << "Target (-triple,-target,-features) should not be set except for kernel-pipeline=binary\n";
+        llvm::errs() << "Target (-triple,-target,-features) should not be set "
+                        "except for kernel-pipeline=binary\n";
         return failure();
       }
     }
-    
+
     if (kernelPipelineSet.size() == 1 && kernelPipelineSet.contains("tuning")) {
       // Set up the default lowering pipeline which goes down to affix tuning
       // parameters
@@ -280,7 +280,7 @@ int main(int argc, char **argv) {
 
   std::string errorMessage;
   SourceMgr sourceMgr;
-  OwningModuleRef moduleRef;
+  OwningOpRef<ModuleOp> moduleRef;
 
   // Set up the input file.
   auto file = openInputFile(inputFilename, &errorMessage);

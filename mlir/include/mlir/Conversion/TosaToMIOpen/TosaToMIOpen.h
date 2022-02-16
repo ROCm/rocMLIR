@@ -29,7 +29,7 @@ void addTosaToMIOpenPasses(OpPassManager &pm);
 
 /// Populates conversion passes from TOSA dialect to MIOpen dialect.
 void populateTosaToMIOpenConversionPatterns(MLIRContext *context,
-                                            OwningRewritePatternList *patterns);
+                                            RewritePatternSet &patterns);
 
 } // namespace tosa
 } // namespace mlir

@@ -32,6 +32,7 @@ add_mlir_conversion_library(MLIRGPUToGPURuntimeTransforms
   LINK_LIBS PUBLIC
   MLIRArithmeticToLLVM
   MLIRAsyncToLLVM
+  MLIRControlFlowToLLVM
   MLIRGPUTransforms
   MLIRIR
   MLIRLLVMCommonConversion

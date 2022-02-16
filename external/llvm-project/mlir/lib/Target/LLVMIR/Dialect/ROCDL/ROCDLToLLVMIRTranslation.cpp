@@ -12,16 +12,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
-#include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
-#include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Target/LLVMIR/ModuleTranslation.h"
-#include "mlir/Translation.h"
 
-#include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace mlir;
 using namespace mlir::LLVM;
@@ -32,17 +29,17 @@ using mlir::LLVM::detail::createIntrinsicCall;
 // take a single int32 argument. It is likely that the interface of this
 // function will change to make it more generic.
 static llvm::Value *createDeviceFunctionCall(llvm::IRBuilderBase &builder,
-                                             StringRef fn_name, int parameter) {
+                                             StringRef fnName, int parameter) {
   llvm::Module *module = builder.GetInsertBlock()->getModule();
-  llvm::FunctionType *function_type = llvm::FunctionType::get(
+  llvm::FunctionType *functionType = llvm::FunctionType::get(
       llvm::Type::getInt64Ty(module->getContext()), // return type.
       llvm::Type::getInt32Ty(module->getContext()), // parameter type.
       false);                                       // no variadic arguments.
   llvm::Function *fn = dyn_cast<llvm::Function>(
-      module->getOrInsertFunction(fn_name, function_type).getCallee());
-  llvm::Value *fn_op0 = llvm::ConstantInt::get(
+      module->getOrInsertFunction(fnName, functionType).getCallee());
+  llvm::Value *fnOp0 = llvm::ConstantInt::get(
       llvm::Type::getInt32Ty(module->getContext()), parameter);
-  return builder.CreateCall(fn, ArrayRef<llvm::Value *>(fn_op0));
+  return builder.CreateCall(fn, ArrayRef<llvm::Value *>(fnOp0));
 }
 
 namespace {
@@ -75,64 +72,47 @@ public:
 
       // For GPU kernels,
       // 1. Insert AMDGPU_KERNEL calling convention.
-      // 2. Insert amdgpu-flat-workgroup-size(1, 256) attribute.
+      // 2. Insert amdgpu-flat-work-group-size(1, 256) attribute unless the user
+      // has overriden this value - 256 is the default in clang
       // 3. Insert amdgpu-implicitarg-num-bytes=56 (which must be set on OpenCL
       // and HIP kernels per Clang)
       llvm::Function *llvmFunc =
           moduleTranslation.lookupFunction(func.getName());
       llvmFunc->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
-      llvmFunc->addFnAttr("amdgpu-flat-work-group-size", "1, 256");
+      if (!llvmFunc->hasFnAttribute("amdgpu-flat-work-group-size")) {
+        llvmFunc->addFnAttr("amdgpu-flat-work-group-size", "1, 256");
+      }
       llvmFunc->addFnAttr("amdgpu-implicitarg-num-bytes", "56");
+    }
+    // Override flat-work-group-size
+    if ("rocdl.max_flat_work_group_size" == attribute.getName()) {
+      auto func = dyn_cast<LLVM::LLVMFuncOp>(op);
+      if (!func)
+        return failure();
+      auto value = attribute.getValue().dyn_cast<IntegerAttr>();
+      if (!value)
+        return failure();
+
+      llvm::Function *llvmFunc =
+          moduleTranslation.lookupFunction(func.getName());
+      llvm::SmallString<8> llvmAttrValue;
+      llvm::raw_svector_ostream attrValueStream(llvmAttrValue);
+      attrValueStream << "1, " << value.getInt();
+      llvmFunc->addFnAttr("amdgpu-flat-work-group-size", llvmAttrValue);
     }
     return success();
   }
 };
-} // end namespace
+} // namespace
 
 void mlir::registerROCDLDialectTranslation(DialectRegistry &registry) {
   registry.insert<ROCDL::ROCDLDialect>();
-  registry.insert<gpu::GPUDialect>();
   registry.addDialectInterface<ROCDL::ROCDLDialect,
                                ROCDLDialectLLVMIRTranslationInterface>();
-  registerLLVMDialectTranslation(registry);
 }
 
 void mlir::registerROCDLDialectTranslation(MLIRContext &context) {
   DialectRegistry registry;
   registerROCDLDialectTranslation(registry);
   context.appendDialectRegistry(registry);
-}
-
-void mlir::registerToROCDLIRTranslation() {
-  TranslateFromMLIRRegistration registration(
-      "mlir-to-rocdlir",
-      [](ModuleOp module, raw_ostream &output) {
-        // Locate a GPU module within a Module. Use it if we find one.
-        Operation *m = nullptr;
-        auto *block = module.getBody();
-        for (auto op = block->begin(); op != block->end(); ++op)
-          if (auto gpuModule = dyn_cast<gpu::GPUModuleOp>(op)) {
-            m = gpuModule;
-            break;
-          }
-
-        llvm::LLVMContext llvmContext;
-        auto llvmModule = translateModuleToLLVMIR(m, llvmContext);
-        if (!llvmModule)
-          return failure();
-
-        StringRef amdgcnTriple = "amdgcn-amd-amdhsa";
-        StringRef amdgcnDataLayout =
-            "e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-i64:64-"
-            "v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:"
-            "1024-v2048:2048-n32:64-S32-A5-ni:7";
-        llvmModule->setTargetTriple(amdgcnTriple);
-        llvmModule->setDataLayout(amdgcnDataLayout);
-
-        llvmModule->print(output, nullptr);
-        return success();
-      },
-      [](DialectRegistry &registry) {
-        mlir::registerROCDLDialectTranslation(registry);
-      });
 }

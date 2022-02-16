@@ -9,10 +9,8 @@ add_mlir_translation_library(MLIRROCDLToLLVMIRTranslation
 
   LINK_LIBS PUBLIC
   MLIRIR
-  MLIRGPUOps
   MLIRLLVMIR
   MLIRROCDLIR
   MLIRSupport
   MLIRTargetLLVMIRExport
-  MLIRLLVMToLLVMIRTranslation
   )

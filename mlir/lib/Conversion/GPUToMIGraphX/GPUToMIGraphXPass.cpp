@@ -46,9 +46,9 @@ public:
                 memref::MemRefDialect, LLVM::LLVMDialect>();
   }
 
-  void runOnFunction() override {
+  void runOnOperation() override {
     auto &ctx = getContext();
-    OwningRewritePatternList patterns(&ctx);
+    RewritePatternSet patterns(&ctx);
     LLVMTypeConverter converter(&ctx);
 
     ConversionTarget target(ctx);
@@ -62,8 +62,8 @@ public:
       return (fusedFuncOp.getOperation()->getAttr("kernel") == nullptr);
     });
 
-    FuncOp func = getFunction();
-    mlir::migraphx::populateFuncToCOBJPatterns(func.getContext(), &patterns);
+    FuncOp func = getOperation();
+    mlir::migraphx::populateFuncToCOBJPatterns(func.getContext(), patterns);
 
     if (failed(applyPartialConversion(func, target, std::move(patterns)))) {
       signalPassFailure();

@@ -4,8 +4,10 @@
 // RUN: %clang_cc1 %s -triple spir -verify -pedantic -Wconversion -Werror -fsyntax-only -cl-std=CL1.2 -fdeclare-opencl-builtins -finclude-default-header
 // RUN: %clang_cc1 %s -triple spir -verify -pedantic -Wconversion -Werror -fsyntax-only -cl-std=CL2.0 -fdeclare-opencl-builtins -DNO_HEADER
 // RUN: %clang_cc1 %s -triple spir -verify -pedantic -Wconversion -Werror -fsyntax-only -cl-std=CL2.0 -fdeclare-opencl-builtins -finclude-default-header
+// RUN: %clang_cc1 %s -triple spir -verify -pedantic -Wconversion -Werror -fsyntax-only -cl-std=CL3.0 -fdeclare-opencl-builtins -finclude-default-header
 // RUN: %clang_cc1 %s -triple spir -verify -pedantic -Wconversion -Werror -fsyntax-only -cl-std=CLC++ -fdeclare-opencl-builtins -DNO_HEADER
 // RUN: %clang_cc1 %s -triple spir -verify -pedantic -Wconversion -Werror -fsyntax-only -cl-std=CLC++ -fdeclare-opencl-builtins -finclude-default-header
+// RUN: %clang_cc1 %s -triple spir -verify -pedantic -Wconversion -Werror -fsyntax-only -cl-std=CLC++2021 -fdeclare-opencl-builtins -finclude-default-header
 // RUN: %clang_cc1 %s -triple spir -verify -pedantic -Wconversion -Werror -fsyntax-only -cl-std=CL2.0 -fdeclare-opencl-builtins -finclude-default-header -cl-ext=-cl_khr_fp64 -DNO_FP64
 
 // Test the -fdeclare-opencl-builtins option.  This is not a completeness
@@ -46,12 +48,19 @@ typedef __UINTPTR_TYPE__ uintptr_t;
 typedef char char2 __attribute__((ext_vector_type(2)));
 typedef char char4 __attribute__((ext_vector_type(4)));
 typedef uchar uchar4 __attribute__((ext_vector_type(4)));
+typedef uchar uchar16 __attribute__((ext_vector_type(16)));
 typedef float float4 __attribute__((ext_vector_type(4)));
+typedef float float16 __attribute__((ext_vector_type(16)));
 typedef half half4 __attribute__((ext_vector_type(4)));
 typedef int int2 __attribute__((ext_vector_type(2)));
 typedef int int4 __attribute__((ext_vector_type(4)));
+typedef uint uint2 __attribute__((ext_vector_type(2)));
 typedef uint uint4 __attribute__((ext_vector_type(4)));
 typedef long long2 __attribute__((ext_vector_type(2)));
+typedef long long8 __attribute__((ext_vector_type(8)));
+typedef ulong ulong4 __attribute__((ext_vector_type(4)));
+typedef short short16 __attribute__((ext_vector_type(16)));
+typedef ushort ushort3 __attribute__((ext_vector_type(3)));
 
 typedef int clk_profiling_info;
 #define CLK_PROFILING_COMMAND_EXEC_TIME 0x1
@@ -63,11 +72,15 @@ typedef struct {int a;} ndrange_t;
 
 // Enable extensions that are enabled in opencl-c-base.h.
 #if (defined(__OPENCL_CPP_VERSION__) || __OPENCL_C_VERSION__ >= 200)
+#define __opencl_c_generic_address_space 1
 #define cl_khr_subgroup_extended_types 1
 #define cl_khr_subgroup_ballot 1
 #define cl_khr_subgroup_non_uniform_arithmetic 1
 #define cl_khr_subgroup_clustered_reduce 1
+#define __opencl_c_read_write_images 1
 #endif
+
+#define __opencl_c_named_address_space_builtins 1
 #endif
 
 kernel void test_pointers(volatile global void *global_p, global const int4 *a) {
@@ -284,18 +297,27 @@ kernel void basic_vector_data() {
   global void *global_p;
   private void *private_p;
   size_t s;
+  ulong4 ul4;
+  short16 s16;
+#if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
+  ushort3 us3;
+  uchar16 uc16;
+#endif
+  long8 l8;
+  uint2 ui2;
+  float16 f16;
 
-  vload4(s, (const __constant ulong *) constant_p);
-  vload16(s, (const __constant short *) constant_p);
+  ul4 = vload4(s, (const __constant ulong *) constant_p);
+  s16 = vload16(s, (const __constant short *) constant_p);
 
 #if __OPENCL_C_VERSION__ >= CL_VERSION_2_0
-  vload3(s, (const __generic ushort *) generic_p);
-  vload16(s, (const __generic uchar *) generic_p);
+  us3 = vload3(s, (const __generic ushort *) generic_p);
+  uc16 = vload16(s, (const __generic uchar *) generic_p);
 #endif
 
-  vload8(s, (const __global long *) global_p);
-  vload2(s, (const __local uint *) local_p);
-  vload16(s, (const __private float *) private_p);
+  l8 = vload8(s, (const __global long *) global_p);
+  ui2 = vload2(s, (const __local uint *) local_p);
+  f16 = vload16(s, (const __private float *) private_p);
 }
 
 kernel void basic_work_item() {
