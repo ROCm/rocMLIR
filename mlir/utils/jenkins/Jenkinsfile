@@ -22,7 +22,7 @@ void buildMIOpen(String cmakeOpts) {
 }
 
 void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
-    git branch: 'develop', poll: false,\
+    git branch: 'mlir-workspace', poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
     cmake arguments: "-P install_deps.cmake --minimum ${prefixOpt}",\
         installation: "InSearchPath"
@@ -266,7 +266,7 @@ pipeline {
                             }}
                             steps {
                                 dir('MIOpen') {
-                                git branch: 'develop', poll: false,\
+                                git branch: 'mlir-workspace', poll: false,\
                                     url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
                                 sh 'sed -i "/ROCmSoftwarePlatform\\/llvm-project-mlir/d" ./requirements.txt'
                                 cmake arguments: "-P install_deps.cmake --minimum --prefix ${WORKSPACE}/MIOpenDeps",\
