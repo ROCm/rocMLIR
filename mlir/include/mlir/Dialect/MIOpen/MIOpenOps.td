@@ -37,7 +37,7 @@ def MIOpen_Conv2DOp :
     MIOpen_Op<"conv2d">,
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [5]>:$filter,
                    MemRefRankOf<[F32, F16, BF16, I8], [5]>:$input,
-                   MemRefRankOf<[F32, F16, BF16, I8], [5]>:$output)> {
+                   MemRefRankOf<[F32, F16, BF16, I32], [5]>:$output)> {
   let summary = "2D convolution forward";
   let description = [{
     The `miopen.conv2d` op computes 2D convolution forward.
@@ -154,7 +154,7 @@ def MIOpen_GridwiseGemmV2Op :
     MIOpen_Op<"gridwise_gemm_v2">,
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$a,
                    MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$b,
-                   MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$c,
+                   MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$c,
                    BoolArrayAttr:$aOobDims,
                    BoolArrayAttr:$bOobDims,
                    BoolArrayAttr:$cOobDims,

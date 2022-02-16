@@ -91,7 +91,7 @@ func @miopen_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1
 // CHECK-NEXT:  %[[OUT:.*]] = miopen.transform %arg2 by [#[[$MAP_OUTPUT_FWD]]]
 // CHECK-NEXT:  miopen.gridwise_gemm(%[[FILTER]], %[[IN3]], %[[OUT]])
 
-func @miopen_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x1x8x32x32xi8>, %output : memref<128x1x128x30x30xi8>) {
+func @miopen_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x1x8x32x32xi8>, %output : memref<128x1x128x30x30xi32>) {
   miopen.conv2d(%filter, %input, %output) {
     arch = "gfx908",
     num_cu = 120,
@@ -102,7 +102,7 @@ func @miopen_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x1x8
     strides = [1, 1],
     padding = [0, 0, 0 ,0],
     xdlopsV2 = true
-  } : memref<1x128x8x3x3xi8>, memref<128x1x8x32x32xi8>, memref<128x1x128x30x30xi8>
+  } : memref<1x128x8x3x3xi8>, memref<128x1x8x32x32xi8>, memref<128x1x128x30x30xi32>
   return
 }
 // CHECK-LABEL: func {{@miopen_conv2d_i8.*%arg0.*%arg1.*%arg2}}

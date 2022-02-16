@@ -1318,7 +1318,7 @@ struct GridwiseGemmV2RewritePattern
     auto loc = op.getLoc();
 
     // Obtain data type.
-    auto elementType = op.c().getType().cast<MemRefType>().getElementType();
+    auto elementType = op.b().getType().cast<MemRefType>().getElementType();
 
     // Prepare some useful constants.
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
