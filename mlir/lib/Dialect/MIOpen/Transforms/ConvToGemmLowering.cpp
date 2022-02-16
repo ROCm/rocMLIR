@@ -206,7 +206,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   bool hasWorkspace =
       (filterType.getElementType() == b.getF16Type() && isXdlops);
   if (hasWorkspace) {
-    assert(op.workspace().size());
+    assert(op.workspace());
   }
 
   // Get shape of input tensor.
@@ -301,7 +301,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     addKBlockWrap.passThrough({"k", "c", "y", "x"});
 
     TransformMapAttr addKBlockTransformAttr = addKBlockTransform.get();
-    Value filterTensorInUse = (hasWorkspace) ? op.workspace()[0] : op.filter();
+    Value filterTensorInUse = (hasWorkspace) ? op.workspace() : op.filter();
     Value withKBlock = b.create<miopen::TransformOp>(loc, filterTensorInUse,
                                                      addKBlockTransformAttr);
 
