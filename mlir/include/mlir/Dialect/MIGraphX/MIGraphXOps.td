@@ -32,9 +32,6 @@ class MIGraphX_Op<string mnemonic, list<Trait> traits = []> :
   //   * ParseResult parse${C++ class of Op}(OpAsmParser &parser,
   //                                         OperationState &result)
   // functions.
-  let printer = [{ return ::print(p, *this); }];
-  let verifier = [{ return ::verify(*this); }];
-  let parser = [{ return ::parse$cppClass(parser, result); }];
 
   let extraClassDeclaration = [{
   }];
@@ -46,7 +43,7 @@ def MIGraphX_AddOp :
     MIGraphX_Op<"add">,
     Arguments<(ins AnyRankedTensor:$inA,
                    AnyRankedTensor:$inB)>,
-	  Results<(outs AnyRankedTensor:$output)> {	  
+	  Results<(outs AnyRankedTensor:$output)> {
   let summary = "Elementwise binary add";
   let description = [{
     Add two tensors elementwise
@@ -59,26 +56,24 @@ def MIGraphX_SubOp :
     MIGraphX_Op<"sub">,
     Arguments<(ins AnyRankedTensor:$inA,
                    AnyRankedTensor:$inB)>,
-	  Results<(outs AnyRankedTensor:$output)> {	  
+	  Results<(outs AnyRankedTensor:$output)> {
   let summary = "Elementwise binary sub";
   let description = [{
     Subtract two tensors elementwise
   }];
   let assemblyFormat = "`(`$inA `,` $inB`)` attr-dict `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
-  let verifier = [{ return success(); }];
 }
 
 def MIGraphX_MulOp :
     MIGraphX_Op<"mul">,
     Arguments<(ins AnyRankedTensor:$inA,
                    AnyRankedTensor:$inB)>,
-	  Results<(outs AnyRankedTensor:$output)> {	  
+	  Results<(outs AnyRankedTensor:$output)> {
   let summary = "Elementwise binary mul";
   let description = [{
     Multiply two tensors elementwise
   }];
   let assemblyFormat = "`(`$inA `,` $inB`)` attr-dict `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
-  let verifier = [{ return success(); }];
 }
 
 // Elementwise unary operations
@@ -86,37 +81,34 @@ def MIGraphX_MulOp :
 def MIGraphX_RsqrtOp :
     MIGraphX_Op<"rsqrt">,
     Arguments<(ins AnyRankedTensor:$inA)>,
-	  Results<(outs AnyRankedTensor:$output)> {	  
+	  Results<(outs AnyRankedTensor:$output)> {
   let summary = "Elementwise rsqrt";
   let description = [{
     Reciprocal square root elementwise
   }];
   let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
-  let verifier = [{ return success(); }];
 }
 
 def MIGraphX_CeilOp :
     MIGraphX_Op<"ceil">,
     Arguments<(ins AnyRankedTensor:$inA)>,
-	  Results<(outs AnyRankedTensor:$output)> {	  
+	  Results<(outs AnyRankedTensor:$output)> {
   let summary = "Elementwise ceil";
   let description = [{
     Ceil tensor elementwise
   }];
   let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
-  let verifier = [{ return success(); }];
 }
 
 def MIGraphX_FloorOp :
     MIGraphX_Op<"floor">,
     Arguments<(ins AnyRankedTensor:$inA)>,
-	  Results<(outs AnyRankedTensor:$output)> {	  
+	  Results<(outs AnyRankedTensor:$output)> {
   let summary = "Elementwise floor";
   let description = [{
     Floor tensor elementwise
   }];
   let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
-  let verifier = [{ return success(); }];
 }
 
 // Convolution operations
@@ -132,14 +124,14 @@ def MIGraphX_ConvolutionOp :
                    I64Attr:$group,
                    OptionalAttr<I64Attr>:$padding_mode
                    )>,
-	  Results<(outs AnyRankedTensor:$output)> {	  
+	  Results<(outs AnyRankedTensor:$output)> {
   let summary = "convolution forward";
   let description = [{
     The `migraphx.convolution` op computes convolution forward.
   }];
   let builders = [
     OpBuilder<(ins "::mlir::Value":$input, "::mlir::Value":$filter, "::mlir::ArrayAttr":$padding,
-      "::mlir::ArrayAttr":$stride, "::mlir::ArrayAttr":$dilation, "::mlir::IntegerAttr":$group, 
+      "::mlir::ArrayAttr":$stride, "::mlir::ArrayAttr":$dilation, "::mlir::IntegerAttr":$group,
       "::mlir::migraphx::padding_mode_tAttr":$padding_mode),
     [{
       auto inType = input.getType().cast<ShapedType>().getElementType();
@@ -147,16 +139,15 @@ def MIGraphX_ConvolutionOp :
       auto filterShape = filter.getType().cast<ShapedType>(); //kHWC
       // output shape = kHWN
       auto outputType = RankedTensorType::get(
-        {inShape.getDimSize(0), 
-        inShape.getDimSize(1), 
-        inShape.getDimSize(2), 
+        {inShape.getDimSize(0),
+        inShape.getDimSize(1),
+        inShape.getDimSize(2),
         filterShape.getDimSize(0)}, inType);
       return build($_builder, $_state, outputType, input, filter, padding, stride, dilation,
         group, padding_mode);
     }]>];
 
   let assemblyFormat = "`(`$input `,` $filter`)` attr-dict `:` `(`type($input) `,` type($filter) `)` `->` type($output)";
-  let verifier = [{ return success(); }];
 }
 
 def MIGraphX_BatchNormOp :
@@ -171,24 +162,25 @@ def MIGraphX_BatchNormOp :
                    F32Attr:$momentum,
                    I64Attr:$bn_mode
                    )>,
-	  Results<(outs AnyRankedTensor:$output)> {	  
+	  Results<(outs AnyRankedTensor:$output)> {
   let summary = "batch_norm_inference";
   let description = [{
     The `migraphx.batch_norm_inference` op computes batch_norm.
   }];
+
+  let assemblyFormat = "`(` operands `)` attr-dict `:` type(operands) `->` type(results)";
 }
 
 def MIGraphX_ReluOp :
     MIGraphX_Op<"relu">,
     Arguments<(ins AnyRankedTensor:$input
                    )>,
-	  Results<(outs AnyRankedTensor:$output)> {	  
+	  Results<(outs AnyRankedTensor:$output)> {
   let summary = "RELU activation";
   let description = [{
     The `migraphx.relu` op computes relu op.
   }];
   let assemblyFormat = "`(`$input`)` attr-dict `:` `(`type($input)`)` `->` type($output)";
-  let verifier = [{ return success(); }];  
 }
 
 def MIGraphX_PadOp :
@@ -199,13 +191,12 @@ def MIGraphX_PadOp :
                    F32Attr:$value,
                    PadOpModeAttr:$mode
                    )>,
-	Results<(outs AnyRankedTensor:$output)> {	  
+	Results<(outs AnyRankedTensor:$output)> {
   let summary = "Pad operation";
   let description = [{
     The `migraphx.pad` op adds padding to the tensor.
   }];
   let assemblyFormat = "`(`$input`)` attr-dict `:` `(`type($input)`)` `->` type($output)";
-  let verifier = [{ return success(); }];
 }
 
 def MIGraphX_PoolingOp :
@@ -218,11 +209,12 @@ def MIGraphX_PoolingOp :
                    I64ArrayAttr:$length,
                    I64Attr:$ceil_mode
                    )>,
-	Results<(outs AnyRankedTensor:$output)> {	  
+	Results<(outs AnyRankedTensor:$output)> {
   let summary = "Pooling operation";
   let description = [{
     The `migraphx.pooling` op computes average/max pooling op.
   }];
+  let assemblyFormat = "`(` operands `)` attr-dict `:` type(operands) `->` type(results)";
 }
 
 def MIGraphX_FlattenOp :
@@ -230,11 +222,12 @@ def MIGraphX_FlattenOp :
     Arguments<(ins AnyRankedTensor:$input,
                    I64Attr:$axis
                    )>,
-	Results<(outs AnyRankedTensor:$output)> {	  
+	Results<(outs AnyRankedTensor:$output)> {
   let summary = "Flatten tensor";
   let description = [{
     The `migraphx.flatten` op.
   }];
+  let assemblyFormat = "`(` operands `)` attr-dict `:` type(operands) `->` type(results)";
 }
 
 def MIGraphX_TransposeOp :
@@ -242,13 +235,12 @@ def MIGraphX_TransposeOp :
     Arguments<(ins AnyRankedTensor:$input,
                    I64ArrayAttr:$dims
                    )>,
-	Results<(outs AnyRankedTensor:$output)> {	  
+	Results<(outs AnyRankedTensor:$output)> {
   let summary = "transpose dimensions";
   let description = [{
     The `migraphx.transpose` op.
   }];
   let assemblyFormat = "`(`$input`)` attr-dict `:` `(`type($input)`)` `->` type($output)";
-  let verifier = [{ return success(); }];  
 }
 
 def MIGraphX_ReshapeOp :
@@ -256,13 +248,12 @@ def MIGraphX_ReshapeOp :
     Arguments<(ins AnyRankedTensor:$input,
                    I64ArrayAttr:$dims
                    )>,
-	Results<(outs AnyRankedTensor:$output)> {	  
+	Results<(outs AnyRankedTensor:$output)> {
   let summary = "reshape a tensor";
   let description = [{
     The `migraphx.reshape` op.
   }];
   let assemblyFormat = "`(`$input`)` attr-dict `:` `(`type($input)`)` `->` type($output)";
-  let verifier = [{ return success(); }];
 }
 
 def MIGraphX_MultiBroadcastOp :
@@ -270,11 +261,12 @@ def MIGraphX_MultiBroadcastOp :
     Arguments<(ins AnyRankedTensor:$input,
                    I64ArrayAttr:$ouput_lens
                    )>,
-	Results<(outs AnyRankedTensor:$output)> {	  
+	Results<(outs AnyRankedTensor:$output)> {
   let summary = "Broadcast tensor in multiple dimensions";
   let description = [{
     The `migraphx.multibroadcast` op.
   }];
+  let assemblyFormat = "`(` operands `)` attr-dict `:` type(operands) `->` type(results)";
 }
 
 def MIGraphX_DotOp :
@@ -285,11 +277,12 @@ def MIGraphX_DotOp :
                    I64Attr:$alpha,
                    I64Attr:$beta
                    )>,
-	Results<(outs AnyRankedTensor:$output)> {	  
+	Results<(outs AnyRankedTensor:$output)> {
   let summary = "Broadcast tensor in multiple dimensions";
   let description = [{
     The `migraphx.multibroadcast` op.
   }];
+  let assemblyFormat = "`(` operands `)` attr-dict `:` type(operands) `->` type(results)";
 }
 
 def MIGraphX_ConstantOp :
@@ -298,14 +291,13 @@ def MIGraphX_ConstantOp :
                    OptionalAttr<I64ArrayAttr>:$shape,
                    OptionalAttr<TypeAttr>:$type
                    )>,
-	Results<(outs AnyRankedTensor:$output)> {	  
+	Results<(outs AnyRankedTensor:$output)> {
   let summary = "constant tensor operation";
   let description = [{
     The `migraphx.constant` op. Should be able to represent everything from literals.
   }];
 
   let assemblyFormat = "attr-dict `:` `->` type($output)";
-  let verifier = [{ return success(); }];
 }
 
 //--------- Execution layer Ops
@@ -315,13 +307,12 @@ def MIGraphX_CodeObjOp :
       I64ArrayAttr:$globalSize,
       I64ArrayAttr:$localSize,
       Variadic<AnyType>:$kernelArgs)>,
-	Results<(outs Variadic<AnyType>:$outputs)> {	  
+	Results<(outs Variadic<AnyType>:$outputs)> {
   let summary = "OP representing a code object";
   let description = [{
     The `migraphx.code_object` op. Holds the compiled kernel binary and arguments.
   }];
   let assemblyFormat = "attr-dict `(`$kernelArgs`)` `:` `(`type($kernelArgs)`)` `->` type($outputs)";
-  let verifier = [{ return success(); }];
 }
 
 #endif // MIGRAPHX_OPS
