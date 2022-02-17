@@ -58,6 +58,20 @@ struct LowerMIOpenOpsStep5Pass
 constexpr int kTwoGB = 2147483647;
 
 //===----------------------------------------------------------------------===//
+// FIXME. XXX.
+// Force the use of affine maps over index maps in the presence of padding on
+// GEMM during threadwise load/store/copy when the gemm is padded due to bugs in
+// the index diff map implementation (or incompletenesses in it?)
+//===----------------------------------------------------------------------===//
+bool overrideLoadStoreHack(const PaddingInfoAttr paddingInfo, bool original) {
+  if (paddingInfo.getExtraM() > 0 || paddingInfo.getExtraK() > 0 ||
+      paddingInfo.getExtraN() > 0) {
+    return true;
+  }
+  return original;
+}
+
+//===----------------------------------------------------------------------===//
 // Utility function to compute sliceLengths for threadwise_copy and
 // threadwise_copy_v2 to determine the bounds of load/store loops.
 //===----------------------------------------------------------------------===//
@@ -1255,6 +1269,10 @@ struct ThreadwiseCopyRewritePattern
                             Twine(destCoordLength));
     }
 
+    // FIXME. XXX.
+    legacyLoad = overrideLoadStoreHack(op.paddingInfo(), legacyLoad);
+    legacyStore = overrideLoadStoreHack(op.paddingInfo(), legacyStore);
+
     // Determine if we need to emit codes for out-of-bound check, and which
     // dimensions need to dconduct such check.
     ArrayAttr boundCheckSourceAttr, boundCheckDestAttr;
@@ -1679,6 +1697,11 @@ struct ThreadwiseLoadRewritePattern
       llvm::errs() << "INCORRECT source coordinates assigned!";
       return failure();
     }
+
+    // FIXME. XXX.
+    // Workaround to obtain gemmKExtra attribute.
+    // And use it to override legacy load/store debug switch.
+    legacyLoad = overrideLoadStoreHack(op.paddingInfo(), legacyLoad);
 
     // Determine if we need to emit codes for out-of-bound check, and which
     // dimensions need to dconduct such check.
