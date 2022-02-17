@@ -686,6 +686,10 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
       allocFuncName = "mgpuMemAlloc5DHalf";
     } else if (elemType.isBF16()) {
       allocFuncName = "mgpuMemAlloc5DBF16";
+    } else if (elemType.isInteger(8)) {
+      allocFuncName = "mgpuMemAlloc5DInt8";
+    } else if (elemType.isInteger(32)) {
+      allocFuncName = "mgpuMemAlloc5DInt32";
     }
     auto unk5DType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
     return makeFuncDecl(module, allocFuncName, {unk5DType}, {unk5DType});
@@ -698,6 +702,10 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
       deallocFuncName = "mgpuMemDealloc5DHalf";
     } else if (elemType.isBF16()) {
       deallocFuncName = "mgpuMemDealloc5DBF16";
+    } else if (elemType.isInteger(8)) {
+      deallocFuncName = "mgpuMemDealloc5DInt8";
+    } else if (elemType.isInteger(32)) {
+      deallocFuncName = "mgpuMemDealloc5DInt32";
     }
     auto unk5DType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
     return makeFuncDecl(module, deallocFuncName, {unk5DType});
@@ -710,6 +718,10 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
       allocFuncName = "mgpuMemCopy5DHalf";
     } else if (elemType.isBF16()) {
       allocFuncName = "mgpuMemCopy5DBF16";
+    } else if (elemType.isInteger(8)) {
+      allocFuncName = "mgpuMemCopy5DInt8";
+    } else if (elemType.isInteger(32)) {
+      allocFuncName = "mgpuMemCopy5DInt32";
     }
     auto unk5DType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
     return makeFuncDecl(module, allocFuncName,
@@ -850,6 +862,10 @@ static std::string getMemsetFuncName(mlir::Type dataType) {
     memsetFuncName = "mcpuMemset5DHalfRand";
   } else if (dataType.isBF16()) {
     memsetFuncName = "mcpuMemset5DBF16Rand";
+  } else if (dataType.isInteger(8)) {
+    memsetFuncName = "mcpuMemset5DInt8Rand";
+  } else if (dataType.isInteger(32)) {
+    memsetFuncName = "mcpuMemset5DInt32Rand";
   }
   if (randomDataType == "float")
     memsetFuncName += "Float";
@@ -1086,6 +1102,8 @@ const char *getTypeStr(const mlir::Type &type) {
     return "i32";
   else if (type.isInteger(16))
     return "i16";
+  else if (type.isInteger(8))
+    return "i8";
   return "na";
 }
 
@@ -1250,15 +1268,21 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   auto floatType = b.getF32Type();
   auto intType = b.getIntegerType(32);
 
+  assert(genConfig.operation.hasValue());
+
   mlir::Type elemType = floatType; // @@@@
   if (genConfig.dataTypeStr == "f32") {
   } else if (genConfig.dataTypeStr == "f16") {
     elemType = b.getF16Type();
   } else if (genConfig.dataTypeStr == "bf16") {
     elemType = b.getBF16Type();
+  } else if (genConfig.dataTypeStr == "i8") {
+    elemType = b.getI8Type();
+    if (genConfig.operation.getValue() == miopen::ConvOpType::Fwd) {
+      elemType = intType;
+    }
   }
 
-  assert(genConfig.operation.hasValue());
   SmallVector<int64_t, 5> dims;
   switch (genConfig.operation.getValue()) {
   case miopen::ConvOpType::Fwd:
@@ -1356,10 +1380,13 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 
   // Lower cpu values to gpu precision
   mlir::FloatType elemFType = floatType;
-  if (!elemType.isF32()) {
+  if (elemType.isIntOrIndex()) { // i8, i32
+    cpuLoadVal = loopB.create<arith::FPToSIOp>(loc, elemType, cpuLoadVal);
+    gpuFPVal = loopB.create<arith::SIToFPOp>(loc, floatType, gpuLoadVal);
+  } else if (!elemType.isF32()) {
     if (elemType.isBF16()) {
       elemFType = b.getBF16Type();
-    } else {
+    } else if (elemType.isF16()) {
       elemFType = b.getF16Type();
     }
     cpuLoadVal = loopB.create<arith::TruncFOp>(loc, elemFType, cpuLoadVal);
@@ -1370,7 +1397,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   mlir::Value cmpVal;
   if ((randomSeed.getValue() != "none" &&
        randomDataType.getValue() == "float") ||
-      !elemType.isF32()) {
+      elemType.isF16() || elemType.isBF16()) {
     // <test> = <cpu> != <gpu>
 
     auto cmpfOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
@@ -1428,10 +1455,14 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
       // TODO?: check for GPU inf
     }
 
-  } else {
+  } else if (elemType.isF32()) {
     cmpVal = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
                                          cpuLoadVal, gpuLoadVal);
     percentDiffVal = loopB.create<arith::SubFOp>(loc, cpuLoadVal, gpuLoadVal);
+  } else {
+    cmpVal = loopB.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
+                                         cpuLoadVal, gpuLoadVal);
+    percentDiffVal = loopB.create<arith::SubIOp>(loc, cpuLoadVal, gpuLoadVal);
   }
 
   scf::IfOp ifOp = testBody.create<scf::IfOp>(loc, cmpVal, false);
@@ -1443,7 +1474,10 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   // call mcpuPrintF32(float f1, float f2)
   auto printFunc = makeFuncDecl(module, "mcpuPrintF32", {floatType, floatType});
 
-  if (elemType.getIntOrFloatBitWidth() < 32) {
+  if (elemType.isIntOrIndex()) { // i8, i32
+    percentDiffVal =
+        thenBody.create<arith::SIToFPOp>(loc, floatType, percentDiffVal);
+  } else if (elemType.getIntOrFloatBitWidth() < 32) { // f16, bf16
     percentDiffVal =
         thenBody.create<arith::ExtFOp>(loc, floatType, percentDiffVal);
   }
@@ -1529,8 +1563,14 @@ populateHostHarnessLogic(ModuleOp &module,
         elemType = b.getF32Type();
       else if (tensorDataType == "f16")
         elemType = b.getF16Type();
-      else
+      else if (tensorDataType == "bf16")
         elemType = b.getBF16Type();
+      else if (tensorDataType == "i8") {
+        elemType = b.getI8Type();
+        if (idx == 2) {
+          elemType = b.getIntegerType(32);
+        }
+      }
       paramMRType = MemRefType::get(paramMRType.getShape(), elemType);
     }
     auto mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
