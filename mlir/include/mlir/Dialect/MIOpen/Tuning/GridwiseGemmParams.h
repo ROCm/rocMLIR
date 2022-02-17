@@ -797,6 +797,7 @@ public:
 class PopulateParamsXDL : public PopulateParamsBase {
 private:
   // Initial tuning parameters for forward convolution.
+  // clang-format off
   llvm::SmallVector<InitParamsXDL, 4> initParametersForward = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
       {128, 128, 4, 64, 64, 4, false, false},
@@ -810,8 +811,26 @@ private:
       {16, 16, 16, 16, 16, 1, false, false},
       {16, 16, 4, 16, 16, 1, false, false},
   };
+  // clang-format on
+
+  // clang-format off
+  llvm::SmallVector<InitParamsXDL, 4> initParametersForwardI8 = {
+      // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
+      // TODO remove
+      {64, 64, 1, 32, 32, 1, false, false},
+
+      {64, 64, 1, 32, 32, 16, false, false},
+      {64, 64, 2, 32, 32, 16, false, false},
+      {64, 64, 4, 32, 32, 16, false, false},
+
+      // TODO Amend all kPack to be 16 for i8
+      {16, 16, 16, 16, 16, 1, false, false},
+      {16, 16, 4, 16, 16, 1, false, false},
+  };
+  // clang-format on
 
   // Initial tuning parameters for backward convolution.
+  // clang-format off
   llvm::SmallVector<InitParamsXDL, 4> initParametersBackward = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
       {128, 128, 8, 64, 64, 1, false, false},
@@ -822,6 +841,7 @@ private:
       {16, 16, 16, 16, 16, 1, false, false},
       {16, 16, 4, 16, 16, 1, false, false},
   };
+  // clang-format on
   const int64_t waveSize = 64;
 
   // if can't select config from above , use this config to do
@@ -889,21 +909,40 @@ private:
                                            int64_t blockSize) {
     // TBD: support fp16/bf16
 
-    std::vector<std::tuple<int, int, int>> validWaveGemmSize = {
+    auto dataType = ctx.getDataType();
+    std::vector<std::tuple<int, int, int>> validWaveGemmSize;
+
+    if (dataType.isInteger(8)) {
+      // Note: we only support two reduction xdlops in i8 therefore the
+      // limited selection below
+      // clang-format off
+      validWaveGemmSize = {
+        std::make_tuple(32, 32, 1),
+        std::make_tuple(16, 16, 1)};
+      // clang-format on
+    } else {
+      // clang-format off
+      validWaveGemmSize = {
         // std::make_tuple(128, 128, 1),
         std::make_tuple(128, 64, 1),
         // std::make_tuple(128, 32, 1),
         // std::make_tuple(128, 16, 1),
-        std::make_tuple(64, 128, 1), std::make_tuple(64, 64, 1),
-        std::make_tuple(64, 32, 1), std::make_tuple(64, 16, 1),
+        std::make_tuple(64, 128, 1), 
+        std::make_tuple(64, 64, 1),
+        std::make_tuple(64, 32, 1), 
+        std::make_tuple(64, 16, 1),
         // std::make_tuple(32, 128, 1),
-        std::make_tuple(32, 64, 1), std::make_tuple(32, 32, 2),
+        std::make_tuple(32, 64, 1), 
+        std::make_tuple(32, 32, 2),
         // std::make_tuple(16, 128, 1),
-        std::make_tuple(16, 64, 1), std::make_tuple(16, 16, 4),
+        std::make_tuple(16, 64, 1), 
+        std::make_tuple(16, 16, 4),
         // std::make_tuple(8, 128, 1),
         std::make_tuple(8, 64, 1),
         // std::make_tuple(4, 128, 1),
         std::make_tuple(4, 64, 1)};
+      // clang-format on
+    }
 
     if (!std::any_of(
             validWaveGemmSize.cbegin(),
@@ -931,7 +970,6 @@ private:
       return failure();
 
     // Reject invalid KPACK values.
-    auto dataType = ctx.getDataType();
     // For fp32: reject anything wider than 4.
     // For fp16/bf16: reject anything narrower than 4, or greater than 8.
     if (dataType.isF32() && param.gemmKPack > 4) {
@@ -1008,6 +1046,11 @@ public:
 
   llvm::SmallVector<InitParamsXDL, 4>
   getTuningParameters(ConvolutionContext &ctx) {
+    auto dataType = ctx.getDataType();
+    if (dataType.isInteger(8)) {
+      return initParametersForwardI8;
+    }
+
     switch (ctx.getOpType()) {
     case miopen::ConvOpType::Fwd:
       return initParametersForward;
