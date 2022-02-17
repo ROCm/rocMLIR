@@ -611,8 +611,6 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
   auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
 
-  bool needExtraPad = false;
-  bool isOriginalKernelSupport = true;
   int64_t gemmMSize, gemmNSize, gemmKSize;
   int64_t gemmMExtra, gemmNExtra, gemmKExtra;
   // backward data only, it's igemm v4r1 algo
@@ -637,55 +635,22 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   bool isStride1 = (strideH == 1 && strideW == 1);
   bool isStride2Pad1 = ((strideH > 1 || strideW > 1) && hasPadding);
 
-  // we use this lamda to compute extra padding size
-  // for example, if gemmM size is 3 and gemmMPerBlock is 64
-  // we gemmMExtra is 64 so (gemmM + gemmMExtra )%gemmMPerBlock =0
-  auto calculatePaddingKernelSize = [&isOriginalKernelSupport, &needExtraPad,
-                                     gemmMSize, gemmNSize, gemmKSize,
-                                     &gemmMExtra, &gemmNExtra, &gemmKExtra,
-                                     &convContext](auto &populateParams) {
-    auto configParams = populateParams.getTuningParameters(convContext);
-    unsigned numOfFailedConfigs = 0;
-    for (auto &params : configParams) {
-      if (gemmMSize % params.gemmMPerBlock == 0 &&
-          gemmKSize % params.gemmKPerBlock == 0 &&
-          gemmNSize % params.gemmNPerBlock == 0) {
-        isOriginalKernelSupport = true;
-        break;
-      }
-      isOriginalKernelSupport = false;
-      numOfFailedConfigs++;
-    }
-
-    auto extraParams = populateParams.getUniversalParameters();
-    if (numOfFailedConfigs == configParams.size()) {
-
-      needExtraPad = true;
-      int gemmMRemain, gemmKRemain, gemmNRemain;
-
-      gemmMRemain = gemmMSize % extraParams.gemmMPerBlock;
-      if (gemmMRemain != 0)
-        gemmMExtra = extraParams.gemmMPerBlock - gemmMRemain;
-
-      gemmNRemain = gemmNSize % extraParams.gemmNPerBlock;
-      if (gemmNRemain != 0)
-        gemmNExtra = extraParams.gemmNPerBlock - gemmNRemain;
-
-      gemmKRemain = gemmKSize % extraParams.gemmKPerBlock;
-      if (gemmKRemain != 0)
-        gemmKExtra = extraParams.gemmKPerBlock - gemmKRemain;
-
-      // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
-      // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
-    }
-  }; // calculatePaddingKernelSize end
+  // Both isOriginalKernelSupport and needExtraPad are used.
+  bool needExtraPad = false;
+  bool isOriginalKernelSupport = true;
 
   if (!isXdlops) {
     PopulateParams populateParams;
-    calculatePaddingKernelSize(populateParams);
+    std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
+             gemmKExtra) =
+        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, convContext,
+                                   populateParams);
   } else { // xdlops
     PopulateParamsXDL populateParamsXDL;
-    calculatePaddingKernelSize(populateParamsXDL);
+    std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
+             gemmKExtra) =
+        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, convContext,
+                                   populateParamsXDL);
   }
 
   LogicalResult supportedPaddingKernel = isSupportedBackwardDataPaddingKernel(
@@ -1181,50 +1146,23 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       break;
     }
 
+    // isOriginalKernelSupport is not used.
+    // Only needExtraPad is used.
+    bool isOriginalKernelSupport = true;
     bool needExtraPad = false;
-
-    auto calculatePaddingKernelSize =
-        [&needExtraPad, gemmMSize, gemmNSize, gemmKSize, &gemmMExtra,
-         &gemmNExtra, &gemmKExtra, &convContext](auto populateParams) {
-          auto configParams = populateParams.getTuningParameters(convContext);
-          size_t numOfFailedConfigs = 0;
-          for (auto &params : configParams) {
-            if (gemmMSize % params.gemmMPerBlock == 0 &&
-                gemmKSize % params.gemmKPerBlock == 0 &&
-                gemmNSize % params.gemmNPerBlock == 0) {
-              break;
-            }
-            numOfFailedConfigs++;
-          }
-
-          auto extraParams = populateParams.getUniversalParameters();
-          if (numOfFailedConfigs == configParams.size()) {
-            needExtraPad = true;
-            int64_t gemmMRemain, gemmKRemain, gemmNRemain;
-
-            gemmMRemain = gemmMSize % extraParams.gemmMPerBlock;
-            if (gemmMRemain != 0)
-              gemmMExtra = extraParams.gemmMPerBlock - gemmMRemain;
-
-            gemmNRemain = gemmNSize % extraParams.gemmNPerBlock;
-            if (gemmNRemain != 0)
-              gemmNExtra = extraParams.gemmNPerBlock - gemmNRemain;
-
-            gemmKRemain = gemmKSize % extraParams.gemmKPerBlock;
-            if (gemmKRemain != 0)
-              gemmKExtra = extraParams.gemmKPerBlock - gemmKRemain;
-
-            // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
-            // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
-          }
-        };
 
     if (!isXdlops) {
       PopulateParams populateParams;
-      calculatePaddingKernelSize(populateParams);
+      std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
+               gemmKExtra) =
+          calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
+                                     convContext, populateParams);
     } else { // xdlops
       PopulateParamsXDL populateParamsXDL;
-      calculatePaddingKernelSize(populateParamsXDL);
+      std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
+               gemmKExtra) =
+          calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
+                                     convContext, populateParamsXDL);
     }
 
     if (ConvOpType::BwdWeight == convOpType && isXdlops &&
