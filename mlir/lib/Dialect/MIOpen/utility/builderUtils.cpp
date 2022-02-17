@@ -20,27 +20,17 @@ using mlir::arith::ConstantOp;
 namespace mlir {
 namespace miopen {
 namespace {
-Value createConstantI8Op(OpBuilder &b, Location loc, Type type,
-                         Type elementType, int8_t value) {
-  Value retValue;
-  if (auto vecType = type.dyn_cast<VectorType>()) {
-    retValue =
-        b.create<ConstantOp>(loc, SplatElementsAttr::get(vecType, value));
-  } else {
-    retValue = b.create<ConstantOp>(loc, b.getI8IntegerAttr(value), type);
-  }
-
-  return retValue;
-}
-
-Value createConstantI32Op(OpBuilder &b, Location loc, Type type,
+Value createConstantIntOp(OpBuilder &b, Location loc, Type type,
                           Type elementType, int32_t value) {
+  APInt apValue(elementType.getIntOrFloatBitWidth(), value, true);
+  Attribute constValue = b.getIntegerAttr(elementType, apValue);
+
   Value retValue;
   if (auto vecType = type.dyn_cast<VectorType>()) {
     retValue =
-        b.create<ConstantOp>(loc, SplatElementsAttr::get(vecType, value));
+        b.create<ConstantOp>(loc, SplatElementsAttr::get(vecType, constValue));
   } else {
-    retValue = b.create<ConstantOp>(loc, b.getI8IntegerAttr(value), type);
+    retValue = b.create<ConstantOp>(loc, constValue, type);
   }
 
   return retValue;
@@ -83,10 +73,8 @@ Value createZeroConstantOp(OpBuilder &b, Location loc, Type type) {
   if (type.isa<VectorType>())
     elementType = type.template cast<VectorType>().getElementType();
 
-  if (elementType == b.getIntegerType(8)) {
-    return createConstantI8Op(b, loc, type, elementType, 0);
-  } else if (elementType == b.getIntegerType(32)) {
-    return createConstantI32Op(b, loc, type, elementType, 0);
+  if (elementType.isIntOrIndex()) {
+    return createConstantIntOp(b, loc, type, elementType, 0);
   } else {
     return createConstantFloatOp(b, loc, type, elementType, 0.0);
   }
