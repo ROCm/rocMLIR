@@ -46,6 +46,7 @@ namespace {
 // practice, broadcastable and same-type Tosa ops are also element-wise.
 bool isElementwiseOp(Operation *op) {
   return op->hasTrait<OpTrait::Elementwise>() ||
+         op->hasTrait<OpTrait::tosa::AbstractElementwise>() ||
          op->hasTrait<OpTrait::ResultsBroadcastableShape>() ||
          op->hasTrait<OpTrait::SameOperandsAndResultType>();
 }
