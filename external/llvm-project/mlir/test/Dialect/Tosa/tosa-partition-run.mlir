@@ -1,8 +1,6 @@
-// XFAIL: *
-// RUN: mlir-opt %s --tosa-to-linalg-named --tosa-to-linalg \
-// RUN:   --tosa-to-standard --linalg-detensorize \
-// RUN:   -arith-bufferize -linalg-bufferize -tensor-bufferize \
-// RUN:   -func-bufferize -finalizing-bufferize --convert-linalg-to-loops \
+// RUN: mlir-opt %s --tosa-to-linalg-named --tosa-to-linalg --tosa-to-standard \
+// RUN:   -arith-bufferize -linalg-bufferize \
+// RUN:   -tensor-bufferize -func-bufferize -finalizing-bufferize --convert-linalg-to-loops \
 // RUN:   --tosa-to-standard -lower-affine -convert-linalg-to-llvm --convert-scf-to-cf \
 // RUN:   --convert-math-to-llvm --convert-std-to-llvm --reconcile-unrealized-casts \
 // RUN: | mlir-cpu-runner -e main -entry-point-result=void \
@@ -19,7 +17,7 @@
 // CHECK-NEXT:     [0.0928252,     0.721703],
 //
 // RUN: mlir-opt %s --tosa-partition --tosa-to-linalg-named --tosa-to-linalg --tosa-to-standard \
-// RUN:   --linalg-detensorize -arith-bufferize -linalg-bufferize \
+// RUN:   -arith-bufferize -linalg-bufferize \
 // RUN:   -tensor-bufferize -func-bufferize -finalizing-bufferize --convert-linalg-to-loops \
 // RUN:   --tosa-to-standard -lower-affine -convert-linalg-to-llvm --convert-scf-to-cf \
 // RUN:   --convert-math-to-llvm --convert-std-to-llvm --reconcile-unrealized-casts \
