@@ -383,8 +383,8 @@ template <typename T> static LogicalResult verifyConvOp(T op) {
 //===-----------------------------------------------------===//
 // TransformingForOp
 //===-----------------------------------------------------===//
-ParseResult parseTransformingForOp(OpAsmParser &parser,
-                                   OperationState &result) {
+ParseResult TransformingForOp::parse(OpAsmParser &parser,
+                                     OperationState &result) {
   using OperandType = OpAsmParser::OperandType;
   using Delimiter = OpAsmParser::Delimiter;
 
@@ -522,61 +522,61 @@ ParseResult parseTransformingForOp(OpAsmParser &parser,
   return parser.parseOptionalAttrDict(result.attributes);
 }
 
-void print(OpAsmPrinter &p, TransformingForOp op) {
+void TransformingForOp::print(OpAsmPrinter &p) {
   p << " ";
-  for (uint32_t i = 0, e = op.domains(); i < e; ++i) {
+  for (uint32_t i = 0, e = domains(); i < e; ++i) {
     p << "(";
-    p.printOperands(op.getLowerCoords(i));
+    p.printOperands(getLowerCoords(i));
     p << ") = ";
-    p.printAttributeWithoutType(op.getTransforms(i));
+    p.printAttributeWithoutType(getTransforms(i));
     p << " (";
-    p.printOperands(op.getUpperInits(i));
+    p.printOperands(getUpperInits(i));
     p << ")";
 
-    if (op.iterInits().size() > 0) {
+    if (iterInits().size() > 0) {
       p << " iter_args (";
       llvm::interleaveComma(
-          llvm::zip(op.getIterArgs(), op.iterInits()), p, [&](auto i) {
+          llvm::zip(getIterArgs(), iterInits()), p, [&](auto i) {
             Value init = std::get<1>(i);
             p << std::get<0>(i) << " = " << init << " : " << init.getType();
           });
       p << ")";
     }
     p << " bounds [";
-    llvm::interleaveComma(op.bounds().getAsValueRange<IntegerAttr>(), p,
+    llvm::interleaveComma(bounds().getAsValueRange<IntegerAttr>(), p,
                           [&](llvm::APInt bound) { p << bound; });
     p << "]";
-    p.printRegion(op.region(), /*printEntryBlockArgs=*/false);
-    p.printOptionalAttrDict(op->getAttrs(), /*elidedAttrs=*/{
+    p.printRegion(region(), /*printEntryBlockArgs=*/false);
+    p.printOptionalAttrDict(getOperation()->getAttrs(), /*elidedAttrs=*/{
                                 TransformingForOp::getOperandSegmentSizeAttr(),
-                                op.transformsAttrName(),
-                                op.lowerStartsAttrName(), op.boundsAttrName()});
+                                transformsAttrName(), lowerStartsAttrName(),
+                                boundsAttrName()});
   }
 }
 
-LogicalResult verify(TransformingForOp op) {
-  if (op.getNumResults() != op.getIterArgs().size()) {
-    return op.emitOpError(
+LogicalResult TransformingForOp::verify() {
+  if (getNumResults() != getIterArgs().size()) {
+    return emitOpError(
         "Mismatch between number of yielded values and number of op results");
   }
 
   uint32_t lowerArgsCount = 0;
-  if (op.lowerStarts().size() != op.domains() + 1) {
-    return op.emitOpError(
+  if (lowerStarts().size() != domains() + 1) {
+    return emitOpError(
         "Lower starts attribute doesn't have one entry per domain plus 1");
   }
-  if (op.lowerStart(0) != 0) {
-    return op.emitOpError("Region args don't start with lower coords");
+  if (lowerStart(0) != 0) {
+    return emitOpError("Region args don't start with lower coords");
   }
 
-  for (uint32_t i = 0, e = op.domains(); i < e; ++i) {
-    ArrayAttr transforms = op.getTransforms(i);
-    auto lowerArgs = op.getLowerCoords(i);
-    auto upperInits = op.getUpperInits(i);
+  for (uint32_t i = 0, e = domains(); i < e; ++i) {
+    ArrayAttr transforms = getTransforms(i);
+    auto lowerArgs = getLowerCoords(i);
+    auto upperInits = getUpperInits(i);
     if (transforms.size() == 0) {
       if (upperInits.size() != lowerArgs.size()) {
-        return op.emitOpError("Mismatch between number of lower and upper "
-                              "coordinates without a transform");
+        return emitOpError("Mismatch between number of lower and upper "
+                           "coordinates without a transform");
       }
     } else {
       size_t nUpper = transforms[0]
@@ -590,17 +590,17 @@ LogicalResult verify(TransformingForOp op) {
                           .getValue()
                           .getNumResults();
       if (upperInits.size() != nUpper) {
-        return op.emitOpError("Mismatch between number of upper initial values "
-                              "and number of inputs to transform sequence");
+        return emitOpError("Mismatch between number of upper initial values "
+                           "and number of inputs to transform sequence");
       }
       if (lowerArgs.size() != nLower) {
-        return op.emitOpError("Mismatch between number of lower arguments and "
-                              "number of outputs of transform sequence");
+        return emitOpError("Mismatch between number of lower arguments and "
+                           "number of outputs of transform sequence");
       }
     }
     lowerArgsCount += lowerArgs.size();
-    if (op.lowerStart(i + 1) != lowerArgsCount) {
-      return op.emitOpError("Lower starts attribute not accurate");
+    if (lowerStart(i + 1) != lowerArgsCount) {
+      return emitOpError("Lower starts attribute not accurate");
     }
   }
   return success();

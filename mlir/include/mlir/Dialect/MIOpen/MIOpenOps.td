@@ -400,9 +400,8 @@ def MIOpen_TransformingForOp :
     }
   }];
 
-  let parser = [{ return ::parse$cppClass(parser, result); }];
-  let printer = [{ return ::print(p, *this); }];
-  let verifier = [{ return ::verify(*this); }];
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
 }
 
 // blockwise_load
