@@ -1,5 +1,6 @@
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
+#include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/utility/math.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
@@ -329,12 +330,12 @@ bool Conv2dGenerator::hasWorkspace(OpBuilder &builder) const {
 
   if (config.operation.hasValue()) {
     mlir::Type dataType = getDataType(builder);
-    if ((config.operation.getValue() == miopen::ConvOpType::BwdWeight) &&
-        config.xdlops && (dataType == builder.getF16Type())) {
+    miopen::ConvOpType dir = config.operation.getValue();
+    if ((dir == miopen::ConvOpType::BwdWeight) && config.xdlops &&
+        (dataType == builder.getF16Type())) {
 
       // Logic to check if we need to pad along GemmM/N/K dimension for backward
       // weight convolution.
-      // FIXME. Merge with logic used in the tuning process.
       auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
       auto filDim =
           canonicalizeDims(config.filterDimension, config.filterLayout);
@@ -346,29 +347,18 @@ bool Conv2dGenerator::hasWorkspace(OpBuilder &builder) const {
       gemmKSize = outDim["n"] * outDim["h"] * outDim["w"];
       gemmNSize = filDim["c"] * filDim["y"] * filDim["x"];
 
-      // Initial tuning parameters for backward convolution.
-      llvm::SmallVector<llvm::SmallVector<int64_t, 6>, 7>
-          initParametersBackward = {
-              // M/block N/block K/block M/wave N/wave kPack
-              {128, 128, 8, 64, 64, 1}, {128, 128, 16, 64, 64, 1},
-              {8, 64, 8, 8, 64, 1},     {4, 64, 16, 4, 64, 1},
-              {32, 64, 4, 32, 64, 1},   {16, 16, 16, 16, 16, 1},
-              {16, 16, 4, 16, 16, 1},
-          };
-
+      // isOriginalKernelSupport is not used.
+      // gemmM/N/KExtra is not used.
+      // populateParamsXDL is not used either.
+      // Only needExtraPad is used.
+      bool isOriginalKernelSupport = true;
       bool needExtraPad = false;
-      size_t numOfFailedConfigs = 0;
-      for (auto &params : initParametersBackward) {
-        if (gemmMSize % params[0] == 0 && gemmNSize % params[1] == 0 &&
-            gemmKSize % params[2] == 0) {
-          break;
-        }
-        numOfFailedConfigs++;
-      }
-
-      if (numOfFailedConfigs == initParametersBackward.size()) {
-        needExtraPad = true;
-      }
+      int64_t gemmMExtra, gemmNExtra, gemmKExtra;
+      PopulateParamsXDL populateParamsXDL;
+      std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
+               gemmKExtra) =
+          calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, dir,
+                                     dataType, populateParamsXDL);
 
       // In case we need extra padding, do not use workspace.
       result = (needExtraPad == false);
