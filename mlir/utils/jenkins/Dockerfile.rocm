@@ -87,11 +87,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   rocminfo \
   rocprofiler-dev \
   rocblas \
+  rocblas-dev \
   libelf1 \
   sudo \
   vim \
   kmod \
   file \
+  netcat-openbsd \
   cmake-data=3.15.1-0kitware1 \
   cmake=3.15.1-0kitware1 \
   libsqlite3-dev \
