@@ -643,14 +643,16 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     PopulateParams populateParams;
     std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
              gemmKExtra) =
-        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, convContext,
-                                   populateParams);
+        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
+                                   convContext.getOpType(),
+                                   convContext.getDataType(), populateParams);
   } else { // xdlops
     PopulateParamsXDL populateParamsXDL;
     std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
              gemmKExtra) =
-        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, convContext,
-                                   populateParamsXDL);
+        calculatePaddingKernelSize(
+            gemmMSize, gemmNSize, gemmKSize, convContext.getOpType(),
+            convContext.getDataType(), populateParamsXDL);
   }
 
   LogicalResult supportedPaddingKernel = isSupportedBackwardDataPaddingKernel(
@@ -1156,13 +1158,15 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
                gemmKExtra) =
           calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
-                                     convContext, populateParams);
+                                     convContext.getOpType(),
+                                     convContext.getDataType(), populateParams);
     } else { // xdlops
       PopulateParamsXDL populateParamsXDL;
       std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
                gemmKExtra) =
-          calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
-                                     convContext, populateParamsXDL);
+          calculatePaddingKernelSize(
+              gemmMSize, gemmNSize, gemmKSize, convContext.getOpType(),
+              convContext.getDataType(), populateParamsXDL);
     }
 
     if (ConvOpType::BwdWeight == convOpType && isXdlops &&

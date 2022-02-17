@@ -162,8 +162,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     // Disable kpack in case we need padding kernel.
     std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
              gemmKExtra) =
-        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, convContext,
-                                   populateParamsXDL);
+        calculatePaddingKernelSize(
+            gemmMSize, gemmNSize, gemmKSize, convContext.getOpType(),
+            convContext.getDataType(), populateParamsXDL);
     if (needExtraPad) {
       validParams.gemmKPack = 1;
     }

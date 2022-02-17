@@ -778,7 +778,7 @@ public:
                 DerivedOutParams &gemmCDerivedParam, int64_t &gridSize);
 
   llvm::SmallVector<InitParamsNonXDL, 8>
-  getTuningParameters(ConvolutionContext &ctx) {
+  getTuningParameters(miopen::ConvOpType dir, mlir::Type dataType) {
     return initParameters;
   }
 
@@ -1045,13 +1045,12 @@ public:
                               int64_t &blockSize, int64_t &gridSize);
 
   llvm::SmallVector<InitParamsXDL, 4>
-  getTuningParameters(ConvolutionContext &ctx) {
-    auto dataType = ctx.getDataType();
+  getTuningParameters(miopen::ConvOpType dir, mlir::Type dataType) {
     if (dataType.isInteger(8)) {
       return initParametersForwardI8;
     }
 
-    switch (ctx.getOpType()) {
+    switch (dir) {
     case miopen::ConvOpType::Fwd:
       return initParametersForward;
     case miopen::ConvOpType::BwdData:
@@ -1086,14 +1085,14 @@ public:
 template <typename T>
 std::tuple<bool, bool, int64_t, int64_t, int64_t>
 calculatePaddingKernelSize(int64_t gemmMSize, int64_t gemmNSize,
-                           int64_t gemmKSize, ConvolutionContext &convContext,
-                           T populateParams) {
+                           int64_t gemmKSize, miopen::ConvOpType dir,
+                           mlir::Type dataType, T populateParams) {
   bool isOriginalKernelSupport = true;
   bool needExtraPad = false;
   int64_t gemmMExtra, gemmNExtra, gemmKExtra;
   gemmMExtra = gemmNExtra = gemmKExtra = 0;
 
-  auto configParams = populateParams.getTuningParameters(convContext);
+  auto configParams = populateParams.getTuningParameters(dir, dataType);
   size_t numOfFailedConfigs = 0;
   for (auto &params : configParams) {
     if (gemmMSize % params.gemmMPerBlock == 0 &&
