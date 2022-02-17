@@ -44,9 +44,10 @@ public:
     target.addIllegalOp<tosa::Conv2DOp>();
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
-    FuncOp func = getOperation();
-    mlir::tosa::populateTosaToMIOpenConversionPatterns(func.getContext(),
-                                                       patterns);
+    auto func = getOperation();
+    bufferization::BufferizeTypeConverter typeConverter;
+    mlir::tosa::populateTosaToMIOpenConversionPatterns(
+        typeConverter, func->getContext(), patterns);
     if (failed(applyFullConversion(func, target, std::move(patterns))))
       signalPassFailure();
   }

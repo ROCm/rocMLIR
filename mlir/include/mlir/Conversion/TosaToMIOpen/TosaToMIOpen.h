@@ -14,6 +14,7 @@
 #ifndef MLIR_CONVERSION_TOSATOMIOPEN_TOSATOMIOPEN_H
 #define MLIR_CONVERSION_TOSATOMIOPEN_TOSATOMIOPEN_H
 
+#include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
@@ -28,8 +29,9 @@ std::unique_ptr<Pass> createTosaToMIOpenPass();
 void addTosaToMIOpenPasses(OpPassManager &pm);
 
 /// Populates conversion passes from TOSA dialect to MIOpen dialect.
-void populateTosaToMIOpenConversionPatterns(MLIRContext *context,
-                                            RewritePatternSet &patterns);
+void populateTosaToMIOpenConversionPatterns(
+    bufferization::BufferizeTypeConverter &typeConverter, MLIRContext *context,
+    RewritePatternSet &patterns);
 
 } // namespace tosa
 } // namespace mlir
