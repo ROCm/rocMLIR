@@ -111,6 +111,21 @@ static unsigned short float_to_fp16(float src_val) {
   return h;
 }
 
+short randomIntegerValue(short min, short max) {
+  if (min == max)
+    return min;
+  return (std::rand() % (max - min)) + min;
+}
+
+float randomFloatValue(short min, short max) {
+  auto minAsF = static_cast<float>(min);
+  if (min == max)
+    return minAsF * 0.1f; // avoid inf
+  return static_cast<float>((max - min) * static_cast<double>(std::rand()) /
+                            static_cast<double>(RAND_MAX)) +
+         minAsF;
+}
+
 extern "C" hipModule_t mgpuModuleLoad(void *data) {
   hipModule_t module = nullptr;
   (void)reportErrorIfAny(hipModuleLoadData(&module, data), "ModuleLoad");
@@ -314,6 +329,129 @@ extern "C" void mgpuMemCopyInt32(int32_t *sourceAllocated,
             static_cast<hipMemcpyKind>(copyDirection));
 }
 
+extern "C" StridedMemRefType<int8_t, 5>
+mgpuMemAlloc5DInt8(int8_t *allocated, int8_t *aligned, int64_t offset,
+                   int64_t size0, int64_t size1, int64_t size2, int64_t size3,
+                   int64_t size4, int64_t stride0, int64_t stride1,
+                   int64_t stride2, int64_t stride3, int64_t stride4) {
+  int8_t *gpuPtr;
+  hipMalloc((void **)&gpuPtr,
+            size0 * size1 * size2 * size3 * size4 * sizeof(int8_t));
+  return {gpuPtr,
+          gpuPtr,
+          offset,
+          {size0, size1, size2, size3, size4},
+          {stride0, stride1, stride2, stride3, stride4}};
+}
+
+extern "C" void
+mgpuMemDealloc5DInt8(int8_t *allocated, int8_t *aligned, int64_t offset,
+                     int64_t size0, int64_t size1, int64_t size2, int64_t size3,
+                     int64_t size4, int64_t stride0, int64_t stride1,
+                     int64_t stride2, int64_t stride3, int64_t stride4) {
+  hipFree(aligned);
+}
+
+extern "C" void mgpuMemCopy5DInt8(
+    int8_t *sourceAllocated, int8_t *sourceAligned, int64_t sourceOffset,
+    int64_t sourceSize0, int64_t sourceSize1, int64_t sourceSize2,
+    int64_t sourceSize3, int64_t sourceSize4, int64_t sourceStride0,
+    int64_t sourceStride1, int64_t sourceStride2, int64_t sourceStride3,
+    int64_t sourceStride4, float *destAllocated, float *destAligned,
+    int64_t destOffset, int64_t destSize0, int64_t destSize1, int64_t destSize2,
+    int64_t destSize3, int64_t destSize4, int64_t destStride0,
+    int64_t destStride1, int64_t destStride2, int64_t destStride3,
+    int64_t destStride4, unsigned copyDirection) {
+  hipMemcpy(destAligned, sourceAligned,
+            sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 *
+                sourceSize4 * sizeof(int8_t),
+            static_cast<hipMemcpyKind>(copyDirection));
+}
+
+extern "C" void
+mcpuMemset5DInt8RandInt(int8_t *allocated, int8_t *aligned, int64_t offset,
+                        int64_t size0, int64_t size1, int64_t size2,
+                        int64_t size3, int64_t size4, int64_t stride0,
+                        int64_t stride1, int64_t stride2, int64_t stride3,
+                        int64_t stride4, short min, short max, uint32_t seed) {
+  if (seed == 0)
+    std::srand(time(0));
+  else
+    std::srand(seed);
+
+  int8_t value;
+  for (unsigned i = 0; i < size0; ++i)
+    for (unsigned j = 0; j < size1; ++j)
+      for (unsigned k = 0; k < size2; ++k)
+        for (unsigned l = 0; l < size3; ++l)
+          for (unsigned m = 0; m < size4; ++m) {
+            value = (int8_t)randomIntegerValue(min, max);
+            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
+                    m * stride4] = value;
+          }
+}
+
+extern "C" StridedMemRefType<int32_t, 5>
+mgpuMemAlloc5DInt32(int32_t *allocated, int32_t *aligned, int64_t offset,
+                    int64_t size0, int64_t size1, int64_t size2, int64_t size3,
+                    int64_t size4, int64_t stride0, int64_t stride1,
+                    int64_t stride2, int64_t stride3, int64_t stride4) {
+  int32_t *gpuPtr;
+  hipMalloc((void **)&gpuPtr,
+            size0 * size1 * size2 * size3 * size4 * sizeof(int32_t));
+  return {gpuPtr,
+          gpuPtr,
+          offset,
+          {size0, size1, size2, size3, size4},
+          {stride0, stride1, stride2, stride3, stride4}};
+}
+
+extern "C" void mgpuMemDealloc5DInt32(
+    int32_t *allocated, int32_t *aligned, int64_t offset, int64_t size0,
+    int64_t size1, int64_t size2, int64_t size3, int64_t size4, int64_t stride0,
+    int64_t stride1, int64_t stride2, int64_t stride3, int64_t stride4) {
+  hipFree(aligned);
+}
+
+extern "C" void mgpuMemCopy5DInt32(
+    int32_t *sourceAllocated, int32_t *sourceAligned, int64_t sourceOffset,
+    int64_t sourceSize0, int64_t sourceSize1, int64_t sourceSize2,
+    int64_t sourceSize3, int64_t sourceSize4, int64_t sourceStride0,
+    int64_t sourceStride1, int64_t sourceStride2, int64_t sourceStride3,
+    int64_t sourceStride4, float *destAllocated, float *destAligned,
+    int64_t destOffset, int64_t destSize0, int64_t destSize1, int64_t destSize2,
+    int64_t destSize3, int64_t destSize4, int64_t destStride0,
+    int64_t destStride1, int64_t destStride2, int64_t destStride3,
+    int64_t destStride4, unsigned copyDirection) {
+  hipMemcpy(destAligned, sourceAligned,
+            sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 *
+                sourceSize4 * sizeof(int32_t),
+            static_cast<hipMemcpyKind>(copyDirection));
+}
+
+extern "C" void
+mcpuMemset5DInt32RandInt(int32_t *allocated, int32_t *aligned, int64_t offset,
+                         int64_t size0, int64_t size1, int64_t size2,
+                         int64_t size3, int64_t size4, int64_t stride0,
+                         int64_t stride1, int64_t stride2, int64_t stride3,
+                         int64_t stride4, short min, short max, uint32_t seed) {
+  if (seed == 0)
+    std::srand(time(0));
+  else
+    std::srand(seed);
+
+  int32_t value;
+  for (unsigned i = 0; i < size0; ++i)
+    for (unsigned j = 0; j < size1; ++j)
+      for (unsigned k = 0; k < size2; ++k)
+        for (unsigned l = 0; l < size3; ++l)
+          for (unsigned m = 0; m < size4; ++m) {
+            value = (int32_t)randomIntegerValue(min, max);
+            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
+                    m * stride4] = value;
+          }
+}
+
 extern "C" void mcpuMem5DFloatConvertHalf(
     float *sourceAllocated, float *sourceAligned, int64_t sourceOffset,
     int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
@@ -418,21 +556,6 @@ extern "C" void mgpuMemCopy2DFloat(float *sourceAllocated, float *sourceAligned,
   hipMemcpy(destAligned, sourceAligned,
             sourceSize0 * sourceSize1 * sizeof(float),
             static_cast<hipMemcpyKind>(copyDirection));
-}
-
-short randomIntegerValue(short min, short max) {
-  if (min == max)
-    return min;
-  return (std::rand() % (max - min)) + min;
-}
-
-float randomFloatValue(short min, short max) {
-  auto minAsF = static_cast<float>(min);
-  if (min == max)
-    return minAsF * 0.1f; // avoid inf
-  return static_cast<float>((max - min) * static_cast<double>(std::rand()) /
-                            static_cast<double>(RAND_MAX)) +
-         minAsF;
 }
 
 // 3D float memref utility routines.

@@ -157,7 +157,8 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
                                                   {"fp32", sizeof(float)},
                                                   {"fp16", 2},
                                                   {"f16", 2},
-                                                  {"bf16", sizeof(uint16_t)}};
+                                                  {"bf16", sizeof(uint16_t)},
+                                                  {"i8", 1}};
 
   auto checkDimSizes = [](const SmallVector<int64_t, 5> &dims) -> bool {
     return std::all_of(dims.begin(), dims.end(),
@@ -315,6 +316,8 @@ Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
     dataType = builder.getF16Type();
   } else if (config.dataTypeStr == "bf16") {
     dataType = builder.getBF16Type();
+  } else if (config.dataTypeStr == "i8") {
+    dataType = builder.getI8Type();
   }
   return dataType;
 }
@@ -574,6 +577,10 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
     return failure();
   }
 
+  Type outputDataType = dataType;
+  if (dataType.isInteger(8)) {
+    outputDataType = builder.getIntegerType(32);
+  }
   // Construct a new FuncOp.
   auto filterArgType =
       MemRefType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
