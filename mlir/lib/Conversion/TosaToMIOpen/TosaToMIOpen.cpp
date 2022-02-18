@@ -26,6 +26,24 @@ using namespace mlir;
 
 namespace {
 
+// Tell if the given tosa conv2d is supposed to have NCHW layout
+bool checkNCHW(tosa::Conv2DOp &convOp) {
+  // Check if the convolution has expected layout
+  auto fLayout = convOp->getAttr("expected_filter_layout");
+  auto iLayout = convOp->getAttr("expected_input_layout");
+  auto oLayout = convOp->getAttr("expected_output_layout");
+  if (!fLayout || !iLayout || !oLayout) {
+    return false;
+  }
+   // Test if all match
+  if (!(fLayout.dyn_cast<StringAttr>().getValue().equals("kcyx") 
+    && iLayout.dyn_cast<StringAttr>().getValue().equals("nchw") 
+    && oLayout.dyn_cast<StringAttr>().getValue().equals("nkhw"))) {
+    return false;
+  }
+  return true;
+}
+
 class ConvConverter final : public OpConversionPattern<tosa::Conv2DOp> {
 public:
   using OpConversionPattern<tosa::Conv2DOp>::OpConversionPattern;
@@ -109,15 +127,23 @@ public:
     auto bias_mr = operands[2];
     auto resultType = op.getType();
 
+    bool bNCHW = checkNCHW(op);
+    int iExpand = 4, fExpand = 4, oExpand = 4; // kyxc[g], nhwc[g], nhwk[g]
+    if (bNCHW) {
+      iExpand = 1; // k[g]yxc
+      fExpand = 0; // [g]nhwc
+      oExpand = 1; // n[g]hwk
+    }
+
     // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
-    auto inputExpanded = expandMemRef(op, input_t, 1, rewriter);
-    auto filterExpanded = expandMemRef(op, filter_t, 0, rewriter);
+    auto inputExpanded = expandMemRef(op, input_t, iExpand, rewriter);
+    auto filterExpanded = expandMemRef(op, filter_t, fExpand, rewriter);
 
     auto outputType =
         getTypeConverter()->convertType(resultType).cast<MemRefType>();
     Value output = rewriter.create<memref::AllocOp>(loc, outputType);
 
-    auto outputExpanded = expandMemRef(op, output, 1, rewriter);
+    auto outputExpanded = expandMemRef(op, output, oExpand, rewriter);
 
     SmallVector<Value, 4> args({filterExpanded, inputExpanded, outputExpanded});
 
@@ -157,9 +183,9 @@ public:
     int32_t dilationWidth = op.dilation()[1].dyn_cast<IntegerAttr>().getInt();
 
     // specify layout attributes
-    const char *filterLayout =  "gkcyx"; //"kyxcg";
-    const char *inputLayout = "ngchw"; //"nhwcg";
-    const char *outputLayout = "ngkhw"; //"nhwkg";
+    const char *filterLayout =  bNCHW?"gkcyx":"kyxcg";
+    const char *inputLayout = bNCHW?"ngchw":"nhwcg";
+    const char *outputLayout = bNCHW?"ngkhw":"nhwkg";
     SmallVector<StringAttr, 5> filterLayoutSpec;
     SmallVector<StringAttr, 5> inputLayoutSpec;
     SmallVector<StringAttr, 5> outputLayoutSpec;
@@ -267,9 +293,9 @@ public:
     SmallVector<int64_t> NHWC2NCHW{0, 3, 1, 2};
 
     // Check if output has been transposed NHWC2NCHW
-    auto bottomOp = dyn_cast<ConstantOp>(operands[1].getDefiningOp());
+    auto bottomOp = dyn_cast<arith::ConstantOp>(operands[1].getDefiningOp());
     if (!bottomOp) {
-      bottomOp = dyn_cast<ConstantOp>(operands[1].getDefiningOp()->getOperand(0).getDefiningOp());
+      bottomOp = dyn_cast<arith::ConstantOp>(operands[1].getDefiningOp()->getOperand(0).getDefiningOp());
     }
     auto bottomAttr = bottomOp->getAttr("value").cast<DenseElementsAttr>();
     SmallVector<int64_t> bottomPerm;
@@ -288,6 +314,13 @@ public:
         });
     }
 
+    if (!checkNCHW(convOp)) {
+      return rewriter.notifyMatchFailure(convOp, [&](::mlir::Diagnostic &diag) {
+          diag << "Convolution doesn't expect NHWC->NCHW conversion";
+        });
+    }
+
+    /*
     // Check if the convolution has expected layout
     auto fLayout = convOp->getAttr("expected_filter_layout").dyn_cast<StringAttr>();
     auto iLayout = convOp->getAttr("expected_input_layout").dyn_cast<StringAttr>();
@@ -306,7 +339,7 @@ public:
           diag << "Convolution expect different layout.";
         });
     }
-
+*/
     auto opr0 = *convOp.getODSOperands(0).begin();
     auto opr1 = *convOp.getODSOperands(1).begin();
     auto inputTpOp = dyn_cast<tosa::TransposeOp>(opr0.getDefiningOp());
@@ -320,9 +353,9 @@ public:
     auto filterTpOpr1 = *filterTpOp.getODSOperands(1).begin();
 
     // Try to get transpose to input
-    auto inTpConstOp = dyn_cast<ConstantOp>(inputTpOpr1.getDefiningOp());
+    auto inTpConstOp = dyn_cast<arith::ConstantOp>(inputTpOpr1.getDefiningOp());
     if (!inTpConstOp) {
-      inTpConstOp = dyn_cast<ConstantOp>(inputTpOpr1.getDefiningOp()->getOperand(0).getDefiningOp());
+      inTpConstOp = dyn_cast<arith::ConstantOp>(inputTpOpr1.getDefiningOp()->getOperand(0).getDefiningOp());
     }
     SmallVector<int64_t> inTpPerm;
     auto inTpConstAttr = inTpConstOp->getAttr("value").cast<DenseElementsAttr>();
@@ -331,9 +364,9 @@ public:
     }
 
     // Try to get transpose to filter
-    auto filTpConstOp = dyn_cast<ConstantOp>(filterTpOpr1.getDefiningOp());
+    auto filTpConstOp = dyn_cast<arith::ConstantOp>(filterTpOpr1.getDefiningOp());
     if (!filTpConstOp) {
-      filTpConstOp = dyn_cast<ConstantOp>(filterTpOpr1.getDefiningOp()->getOperand(0).getDefiningOp());
+      filTpConstOp = dyn_cast<arith::ConstantOp>(filterTpOpr1.getDefiningOp()->getOperand(0).getDefiningOp());
     }
     SmallVector<int64_t> filTpPerm;
     auto filTpConstAttr = filTpConstOp->getAttr("value").cast<DenseElementsAttr>();
@@ -395,6 +428,9 @@ public:
 void tosa::populateTosaToMIOpenConversionPatterns(
     bufferization::BufferizeTypeConverter &typeConverter, MLIRContext *context,
     RewritePatternSet &patterns) {
-  patterns->insert<TransposeConverter>(context);
   patterns.insert<ConvConverter>(typeConverter, context);
+}
+void tosa::populateTosaToMIOpenTensorConversionPatterns(MLIRContext *context,
+    RewritePatternSet &patterns) {
+  patterns.insert<TransposeConverter>(context);
 }

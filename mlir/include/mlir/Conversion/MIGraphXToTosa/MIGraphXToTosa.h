@@ -30,7 +30,7 @@ void addMIGraphXToTosaPasses(OpPassManager &pm);
 
 /// Populates conversion passes from MIGraphX dialect to TOSA dialect.
 void populateMIGraphXToTosaConversionPatterns(
-    MLIRContext *context, OwningRewritePatternList *patterns);
+    MLIRContext *context, RewritePatternSet &patterns);
 
 } // namespace migraphx
 } // namespace mlir

@@ -42,7 +42,7 @@ public:
     RewritePatternSet patterns(&ctx);
     ConversionTarget tensor_target(ctx);
     ConversionTarget target(ctx);
-    FuncOp func = getFunction();
+    auto func = getOperation();
 
     tensor_target.addLegalDialect <miopen::MIOpenDialect, tosa::TosaDialect, memref::MemRefDialect,
             StandardOpsDialect, BuiltinDialect, arith::ArithmeticDialect>();
@@ -53,8 +53,8 @@ public:
         return !attrDeletable.dyn_cast<BoolAttr>().getValue();
       return true;
     });
-    mlir::tosa::populateTosaToMIOpenConversionPatterns(func.getContext(),
-                                                       &tensor_patterns);
+    mlir::tosa::populateTosaToMIOpenTensorConversionPatterns(func.getContext(),
+                                                       tensor_patterns);
     if (failed(applyFullConversion(func, tensor_target, std::move(tensor_patterns))))
       signalPassFailure();
 

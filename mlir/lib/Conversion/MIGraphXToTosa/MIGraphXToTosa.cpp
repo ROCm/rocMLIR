@@ -42,7 +42,7 @@ public:
                             SmallVector<int64_t> &permutation, bool bRoot) const {
     auto permutationAttr = DenseIntElementsAttr::get(
         RankedTensorType::get({4}, rewriter.getI64Type()), permutation);
-    Value permutationValue = rewriter.create<ConstantOp>(loc, permutationAttr);
+    Value permutationValue = rewriter.create<arith::ConstantOp>(loc, permutationAttr);
     ShapedType inputTy = input.getType().cast<ShapedType>();
     auto inputShape = inputTy.getShape();
     SmallVector<int64_t> newShape{
@@ -134,6 +134,6 @@ public:
 } // namespace
 
 void migraphx::populateMIGraphXToTosaConversionPatterns(
-    MLIRContext *context, OwningRewritePatternList *patterns) {
-  patterns->insert<ConvConverter>(context);
+    MLIRContext *context, RewritePatternSet &patterns) {
+  patterns.insert<ConvConverter>(context);
 }

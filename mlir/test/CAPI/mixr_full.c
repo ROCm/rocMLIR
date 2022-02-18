@@ -22,8 +22,8 @@
 #include <string.h>
 
 MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
-  MlirModule moduleOp = mlirModuleCreateEmpty(location);
-  MlirBlock moduleBody = mlirModuleGetBody(moduleOp);
+  MlirModule module = mlirModuleCreateEmpty(location);
+  MlirBlock moduleBody = mlirModuleGetBody(module);
 
   // Set func arguments
   int64_t inDims[] = {1, 64, 56, 56};
@@ -37,9 +37,10 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirType bias0Type = mlirRankedTensorTypeGet(
       1, bias0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
   MlirType funcBodyArgTypes[] = {inType, filter0Type, bias0Type};
+  MlirLocation funcBodyArglocs[] = {location, location, location};
   MlirRegion funcBodyRegion = mlirRegionCreate();
   MlirBlock funcBody = mlirBlockCreate(
-      sizeof(funcBodyArgTypes) / sizeof(MlirType), funcBodyArgTypes);
+      sizeof(funcBodyArgTypes) / sizeof(MlirType), funcBodyArgTypes, funcBodyArglocs);
   mlirRegionAppendOwnedBlock(funcBodyRegion, funcBody);
 
   //-------------- func op
@@ -149,9 +150,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirOperation ret = mlirOperationCreate(&retState);
   mlirBlockAppendOwnedOperation(funcBody, ret);
 
-  MlirOperation module = mlirModuleGetOperation(moduleOp);
-
-  return moduleOp;
+  return module;
 }
 
 static bool constructAndTraverseIr(MlirContext ctx) {
@@ -163,7 +162,10 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   // 1st pipeline to call
   mlirMIGraphXAddHighLevelPipeline(pm);
   mlirPassManagerRun(pm, module);
-  
+  MlirOperation moduleOp = mlirModuleGetOperation(module);
+  mlirOperationDump(moduleOp);
+  // CHECK-LABEL: func @main
+
   // returns the required buffer size to hold information including
   // ranks, dimensions of each arguments and kernel name.
   int argSize = mlirGetKernelInfoSize(module);
@@ -208,7 +210,8 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 
   // get binary
   if (mlirGetBinary(module, compiledBin)) {
-    printf("dump : %s \n", compiledBin);
+    // printf("dump : %s \n", compiledBin);
+    // CHECK: PASSED!
     printf("PASSED!\n");
   }
 
