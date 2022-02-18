@@ -399,3 +399,18 @@ gpu.module @test_module_gpu_mfma_i8 {
     std.return
   }
 }
+
+// -----
+
+gpu.module @test_module_gpu_raw_buffer_store {
+  // CHECK-LABEL: func @gpu_raw_buffer_store_i32
+  builtin.func @gpu_raw_buffer_store_i32(%value : i32, %value2 : vector<2xi32>, %value4 : vector<4xi32>, %shift : i32, %offset : i32, %dst : memref<128xi32>){
+    // CHECK: rocdl.raw.buffer.store %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : i32
+      gpu.raw_buffer_store(%value, %dst, %shift, %offset) : i32, memref<128xi32>, i32, i32
+    // CHECK: rocdl.raw.buffer.store %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : vector<2xi32>
+      gpu.raw_buffer_store(%value2, %dst, %shift, %offset) : vector<2xi32>, memref<128xi32>, i32, i32
+    // CHECK: rocdl.raw.buffer.store %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : vector<4xi32>
+      gpu.raw_buffer_store(%value4, %dst, %shift, %offset) : vector<4xi32>, memref<128xi32>, i32, i32
+    std.return
+  }
+}
