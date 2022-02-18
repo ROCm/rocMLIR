@@ -617,6 +617,31 @@ LogicalResult TransformingForOp::moveOutOfLoop(ArrayRef<Operation *> ops) {
   return success();
 }
 
+//===-----------------------------------------------------===//
+// IndexDiffUpdateOp
+//===-----------------------------------------------------===//
+LogicalResult IndexDiffUpdateOp::verify() {
+  TransformMapAttr transform = map();
+  size_t nLowerIn = lowerOrig().size();
+  size_t nLowerOut = lowerIndices().size();
+
+  if (nLowerIn != nLowerOut)
+    return emitOpError("Got " + Twine(nLowerIn) + " lower inputs but " +
+                       Twine(nLowerOut) + " lower outputs");
+
+  size_t nUpper = upperDiffs().size();
+  size_t nMapIn = transform.getUpperBounds().size();
+  size_t nMapOut = transform.getLowerBounds().size();
+
+  if (nUpper != nMapIn)
+    return emitOpError("Expected " + Twine(nMapIn) + " upper diffs but got " +
+                       Twine(nUpper));
+  if (nMapOut != nLowerIn)
+    return emitOpError("Expected " + Twine(nMapOut) +
+                       " lower coordinates but got " + Twine(nLowerIn));
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // ThreadwiseCopyOp
 //===----------------------------------------------------------------------===//
