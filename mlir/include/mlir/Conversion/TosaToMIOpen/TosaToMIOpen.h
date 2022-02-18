@@ -34,7 +34,7 @@ void populateTosaToMIOpenConversionPatterns(
     RewritePatternSet &patterns);
 
 void populateTosaToMIOpenTensorConversionPatterns(MLIRContext *context,
-    RewritePatternSet &patterns);
+                                                  RewritePatternSet &patterns);
 
 } // namespace tosa
 

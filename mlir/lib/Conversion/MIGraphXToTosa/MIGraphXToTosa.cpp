@@ -38,11 +38,13 @@ public:
   }
 
   tosa::TransposeOp getRank4TransposeOp(Location loc, Value input,
-                            ConversionPatternRewriter &rewriter,
-                            SmallVector<int64_t> &permutation, bool bRoot) const {
+                                        ConversionPatternRewriter &rewriter,
+                                        SmallVector<int64_t> &permutation,
+                                        bool bRoot) const {
     auto permutationAttr = DenseIntElementsAttr::get(
         RankedTensorType::get({4}, rewriter.getI64Type()), permutation);
-    Value permutationValue = rewriter.create<arith::ConstantOp>(loc, permutationAttr);
+    Value permutationValue =
+        rewriter.create<arith::ConstantOp>(loc, permutationAttr);
     ShapedType inputTy = input.getType().cast<ShapedType>();
     auto inputShape = inputTy.getShape();
     SmallVector<int64_t> newShape{
@@ -50,8 +52,8 @@ public:
         inputShape[permutation[2]], inputShape[permutation[3]]};
     Type newTy = RankedTensorType::get(newShape, inputTy.getElementType());
 
-    auto newOp = rewriter.create<tosa::TransposeOp>(loc, newTy, input,
-                                              permutationValue);
+    auto newOp =
+        rewriter.create<tosa::TransposeOp>(loc, newTy, input, permutationValue);
     newOp->setAttr("changing_layout_root", rewriter.getBoolAttr(bRoot));
     return newOp;
   }
@@ -101,12 +103,9 @@ public:
 
     // Record desired layout and set
     // convolution config attributes
-    cop->setAttr("expected_filter_layout",
-                 rewriter.getStringAttr("kcyx"));
-    cop->setAttr("expected_input_layout",
-                 rewriter.getStringAttr("nchw"));
-    cop->setAttr("expected_output_layout",
-                 rewriter.getStringAttr("nkhw"));
+    cop->setAttr("expected_filter_layout", rewriter.getStringAttr("kcyx"));
+    cop->setAttr("expected_input_layout", rewriter.getStringAttr("nchw"));
+    cop->setAttr("expected_output_layout", rewriter.getStringAttr("nkhw"));
 
     cop->setAttr("dilation", rewriter.getArrayAttr({
                                  rewriter.getI64IntegerAttr(dilationHeight),

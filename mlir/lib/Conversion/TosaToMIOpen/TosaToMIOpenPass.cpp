@@ -44,22 +44,27 @@ public:
     ConversionTarget target(ctx);
     auto func = getOperation();
 
-    tensor_target.addLegalDialect <miopen::MIOpenDialect, tosa::TosaDialect, memref::MemRefDialect,
-            StandardOpsDialect, BuiltinDialect, arith::ArithmeticDialect>();
-    tensor_target.addDynamicallyLegalOp<tosa::TransposeOp>([&](tosa::TransposeOp op) {
-      auto attrDeletable = op->getAttr("changing_layout_root");
-      if (attrDeletable)
-        // Only apply the pattern to the transpose at the bottom
-        return !attrDeletable.dyn_cast<BoolAttr>().getValue();
-      return true;
-    });
+    tensor_target.addLegalDialect<miopen::MIOpenDialect, tosa::TosaDialect,
+                                  memref::MemRefDialect, StandardOpsDialect,
+                                  BuiltinDialect, arith::ArithmeticDialect>();
+    tensor_target.addDynamicallyLegalOp<tosa::TransposeOp>(
+        [&](tosa::TransposeOp op) {
+          auto attrDeletable = op->getAttr("changing_layout_root");
+          if (attrDeletable)
+            // Only apply the pattern to the transpose at the bottom
+            return !attrDeletable.dyn_cast<BoolAttr>().getValue();
+          return true;
+        });
     mlir::tosa::populateTosaToMIOpenTensorConversionPatterns(func.getContext(),
-                                                       tensor_patterns);
-    if (failed(applyFullConversion(func, tensor_target, std::move(tensor_patterns))))
+                                                             tensor_patterns);
+    if (failed(applyFullConversion(func, tensor_target,
+                                   std::move(tensor_patterns))))
       signalPassFailure();
 
-    target.addLegalDialect <miopen::MIOpenDialect, linalg::LinalgDialect, memref::MemRefDialect,
-        tosa::TosaDialect, bufferization::BufferizationDialect, StandardOpsDialect>();
+    target.addLegalDialect<miopen::MIOpenDialect, linalg::LinalgDialect,
+                           memref::MemRefDialect, tosa::TosaDialect,
+                           bufferization::BufferizationDialect,
+                           StandardOpsDialect>();
     target.addIllegalOp<tosa::Conv2DOp>();
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 

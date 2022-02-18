@@ -29,8 +29,8 @@ std::unique_ptr<Pass> createMIGraphXToTosaPass();
 void addMIGraphXToTosaPasses(OpPassManager &pm);
 
 /// Populates conversion passes from MIGraphX dialect to TOSA dialect.
-void populateMIGraphXToTosaConversionPatterns(
-    MLIRContext *context, RewritePatternSet &patterns);
+void populateMIGraphXToTosaConversionPatterns(MLIRContext *context,
+                                              RewritePatternSet &patterns);
 
 } // namespace migraphx
 } // namespace mlir

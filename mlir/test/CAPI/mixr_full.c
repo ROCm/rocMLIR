@@ -39,8 +39,9 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirType funcBodyArgTypes[] = {inType, filter0Type, bias0Type};
   MlirLocation funcBodyArglocs[] = {location, location, location};
   MlirRegion funcBodyRegion = mlirRegionCreate();
-  MlirBlock funcBody = mlirBlockCreate(
-      sizeof(funcBodyArgTypes) / sizeof(MlirType), funcBodyArgTypes, funcBodyArglocs);
+  MlirBlock funcBody =
+      mlirBlockCreate(sizeof(funcBodyArgTypes) / sizeof(MlirType),
+                      funcBodyArgTypes, funcBodyArglocs);
   mlirRegionAppendOwnedBlock(funcBodyRegion, funcBody);
 
   //-------------- func op
@@ -66,9 +67,8 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   mlirOperationStateAddAttributes(&funcState, 2, funcAttrs);
   mlirOperationStateAddOwnedRegions(&funcState, 1, &funcBodyRegion);
   MlirOperation func = mlirOperationCreate(&funcState);
-  mlirOperationSetAttributeByName(func,
-                                mlirStringRefCreateFromCString("kernel"),
-                                mlirUnitAttrGet(ctx));
+  mlirOperationSetAttributeByName(
+      func, mlirStringRefCreateFromCString("kernel"), mlirUnitAttrGet(ctx));
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
   //-------------- conv0 = migraphx.convolution
