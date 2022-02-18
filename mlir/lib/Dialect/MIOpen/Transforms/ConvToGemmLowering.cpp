@@ -206,7 +206,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   bool hasWorkspace =
       (filterType.getElementType() == b.getF16Type() && isXdlops);
   if (hasWorkspace) {
-    assert(op.workspace());
+    assert(op.workspace() && "Op has no workspace");
   }
 
   // Get shape of input tensor.
