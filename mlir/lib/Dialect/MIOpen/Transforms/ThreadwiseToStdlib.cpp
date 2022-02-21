@@ -48,11 +48,6 @@ struct LowerMIOpenOpsStep4Pass
   void runOnOperation() override;
 };
 
-struct LowerMIOpenOpsStep5Pass
-    : public MIOpenOpsStep5PassBase<LowerMIOpenOpsStep5Pass> {
-  void runOnOperation() override;
-};
-
 // 2G ,INT MAX Value = 2147483647, use 2147483648 as offset and buffer
 // store do nothing
 constexpr int kTwoGB = 2147483647;
@@ -3072,20 +3067,9 @@ void LowerMIOpenOpsStep4Pass::runOnOperation() {
     signalPassFailure();
 }
 
-void LowerMIOpenOpsStep5Pass::runOnOperation() {
-  MLIRContext *ctx = &getContext();
-  RewritePatternSet patterns(ctx);
-  populateAffineToStdConversionPatterns(patterns);
-  populateSCFToControlFlowConversionPatterns(patterns);
-  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
-    signalPassFailure();
-}
 } // end anonymous namespace
 
 std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep4Pass() {
   return std::make_unique<LowerMIOpenOpsStep4Pass>();
 }
 
-std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep5Pass() {
-  return std::make_unique<LowerMIOpenOpsStep5Pass>();
-}
