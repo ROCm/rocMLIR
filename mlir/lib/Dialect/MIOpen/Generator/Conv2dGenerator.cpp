@@ -158,7 +158,7 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
                                                   {"fp16", 2},
                                                   {"f16", 2},
                                                   {"bf16", sizeof(uint16_t)},
-                                                  {"i8", 1}};
+                                                  {"i8", sizeof(int8_t)}};
 
   auto checkDimSizes = [](const SmallVector<int64_t, 5> &dims) -> bool {
     return std::all_of(dims.begin(), dims.end(),
