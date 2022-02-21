@@ -312,7 +312,7 @@ static cl::opt<bool> genCPUKernel("cpu-kernels",
                                   cl::cb<void, bool>([](bool v) {
                                     if (v) {
                                       genHostHarness.setValue(true);
-                                      printValidationResults.setValue(true);
+                                      printResults.setValue(true);
                                     }
                                   }));
 static cl::alias aliasGenCPUKernel("prc", cl::aliasopt(genCPUKernel));
@@ -905,14 +905,20 @@ createCPUConvFunc(ModuleOp module,
   OpBuilder b(module.getContext());
   auto loc = b.getUnknownLoc();
 
+  mlir::Type elemType = b.getF32Type();
+  mlir::Type outputElemType = b.getF32Type();
+  if (genConfig.dataTypeStr == "i8") {
+    elemType = b.getI8Type();
+    outputElemType = b.getIntegerType(32);
+  }
+
   auto filterDimension = genConfig.filterDimension;
   auto inputDimension = genConfig.inputDimension;
   auto outputDimension = genConfig.outputDimension;
 
-  auto floatType = b.getF32Type();
-  auto filterType = MemRefType::get(filterDimension, floatType);
-  auto inputType = MemRefType::get(inputDimension, floatType);
-  auto outputType = MemRefType::get(outputDimension, floatType);
+  auto filterType = MemRefType::get(filterDimension, elemType);
+  auto inputType = MemRefType::get(inputDimension, elemType);
+  auto outputType = MemRefType::get(outputDimension, outputElemType);
 
   // Create conv2d_host function
   func = FuncOp::create(
@@ -931,12 +937,15 @@ createCPUConvFunc(ModuleOp module,
   auto unrankedMemRefType =
       UnrankedMemRefType::get(filterType.getElementType(), 0);
 
+  auto unrankedMemRefOutputType =
+      UnrankedMemRefType::get(outputType.getElementType(), 0);
+
   auto filterMemRefCastOp =
       b.create<memref::CastOp>(loc, unrankedMemRefType, block->getArgument(0));
   auto inputMemRefCastOp =
       b.create<memref::CastOp>(loc, unrankedMemRefType, block->getArgument(1));
-  auto outputMemRefCastOp =
-      b.create<memref::CastOp>(loc, unrankedMemRefType, block->getArgument(2));
+  auto outputMemRefCastOp = b.create<memref::CastOp>(
+      loc, unrankedMemRefOutputType, block->getArgument(2));
 
   // Emit ConstantOps to be used for strides, paddings and dilations
   auto intType = b.getIntegerType(32);
@@ -1067,13 +1076,19 @@ createCPUConvFunc(ModuleOp module,
     break;
   }
 
+  if (elemType.isF32()) {
+    mcpuFuncName += "Float";
+  } else if (elemType.isInteger(8)) {
+    mcpuFuncName += "Int8";
+  }
+
   // Emit cpu convolution function call op
-  auto mcpuConv2dFuncOp =
-      makeFuncDecl(module, mcpuFuncName,
-                   {unrankedMemRefType, unrankedMemRefType, unrankedMemRefType,
-                    unrankedLayoutMemRefType, unrankedLayoutMemRefType,
-                    unrankedLayoutMemRefType, intType, intType, intType,
-                    intType, intType, intType, intType, intType, intType});
+  auto mcpuConv2dFuncOp = makeFuncDecl(
+      module, mcpuFuncName,
+      {unrankedMemRefType, unrankedMemRefType, unrankedMemRefOutputType,
+       unrankedLayoutMemRefType, unrankedLayoutMemRefType,
+       unrankedLayoutMemRefType, intType, intType, intType, intType, intType,
+       intType, intType, intType, intType});
 
   b.create<CallOp>(
       loc, mcpuConv2dFuncOp,
@@ -1271,6 +1286,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   assert(genConfig.operation.hasValue());
 
   mlir::Type elemType = floatType; // @@@@
+  mlir::Type cpuElemType = floatType;
   if (genConfig.dataTypeStr == "f32") {
   } else if (genConfig.dataTypeStr == "f16") {
     elemType = b.getF16Type();
@@ -1278,8 +1294,10 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     elemType = b.getBF16Type();
   } else if (genConfig.dataTypeStr == "i8") {
     elemType = b.getI8Type();
+    cpuElemType = b.getI8Type();
     if (genConfig.operation.getValue() == miopen::ConvOpType::Fwd) {
       elemType = intType;
+      cpuElemType = intType;
     }
   }
 
@@ -1295,7 +1313,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     dims = genConfig.filterDimension;
     break;
   }
-  auto cpuType = MemRefType::get(dims, floatType);
+  auto cpuType = MemRefType::get(dims, cpuElemType);
   auto gpuType = MemRefType::get(dims, elemType);
 
   // Emit verify_results function call
@@ -1381,8 +1399,8 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   // Lower cpu values to gpu precision
   mlir::FloatType elemFType = floatType;
   if (elemType.isIntOrIndex()) { // i8, i32
-    cpuLoadVal = loopB.create<arith::FPToSIOp>(loc, elemType, cpuLoadVal);
     gpuFPVal = loopB.create<arith::SIToFPOp>(loc, floatType, gpuLoadVal);
+    cpuFPVal = loopB.create<arith::SIToFPOp>(loc, floatType, cpuLoadVal);
   } else if (!elemType.isF32()) {
     if (elemType.isBF16()) {
       elemFType = b.getBF16Type();
@@ -1462,7 +1480,8 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   } else {
     cmpVal = loopB.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
                                          cpuLoadVal, gpuLoadVal);
-    percentDiffVal = loopB.create<arith::SubIOp>(loc, cpuLoadVal, gpuLoadVal);
+    //    percentDiffVal = loopB.create<arith::SubIOp>(loc, cpuLoadVal,
+    //    gpuLoadVal);
   }
 
   scf::IfOp ifOp = testBody.create<scf::IfOp>(loc, cmpVal, false);
@@ -1474,14 +1493,14 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   // call mcpuPrintF32(float f1, float f2)
   auto printFunc = makeFuncDecl(module, "mcpuPrintF32", {floatType, floatType});
 
-  if (elemType.isIntOrIndex()) { // i8, i32
-    percentDiffVal =
-        thenBody.create<arith::SIToFPOp>(loc, floatType, percentDiffVal);
-  } else if (elemType.getIntOrFloatBitWidth() < 32) { // f16, bf16
-    percentDiffVal =
-        thenBody.create<arith::ExtFOp>(loc, floatType, percentDiffVal);
+  if (!elemType.isIntOrIndex()) {
+    if (elemType.getIntOrFloatBitWidth() < 32) { // f16, bf16
+      percentDiffVal =
+          thenBody.create<arith::ExtFOp>(loc, floatType, percentDiffVal);
+    }
+    thenBody.create<CallOp>(loc, printFunc,
+                            ValueRange{percentDiffVal, cpuFPVal});
   }
-  thenBody.create<CallOp>(loc, printFunc, ValueRange{percentDiffVal, cpuFPVal});
   thenBody.create<CallOp>(loc, printFunc, ValueRange{gpuFPVal, cpuFPVal});
 
   // Emit print function call
@@ -1558,7 +1577,8 @@ populateHostHarnessLogic(ModuleOp &module,
     assert(paramMRType && "currently only supports memref types");
     auto elemType = paramMRType.getElementType();
     if (isCPUKernel) {
-      assert(elemType.isF32());
+      assert(elemType.isF32() || elemType.isInteger(8) ||
+             elemType.isInteger(32));
       if (tensorDataType == "f32")
         elemType = b.getF32Type();
       else if (tensorDataType == "f16")
@@ -1587,9 +1607,14 @@ populateHostHarnessLogic(ModuleOp &module,
         loc, getMemsetFunc(module, elemType),
         ValueRange{lvU5D, getI16Val(min), getI16Val(max), getI32Val(seed)});
 
-    if (hasValidation || isCPUKernel) {
+    if (hasValidation ||
+        (isCPUKernel && (elemType.isF16() || elemType.isBF16()))) {
       // Emit validation var
-      auto valType = MemRefType::get(paramMRType.getShape(), floatType);
+      mlir::Type valElemType = floatType;
+      if (tensorDataType == "i8") {
+        valElemType = elemType;
+      }
+      auto valType = MemRefType::get(paramMRType.getShape(), valElemType);
       auto vvar = b.create<memref::AllocOp>(loc, valType);
       valVars.push_back(vvar);
 
@@ -1610,14 +1635,23 @@ populateHostHarnessLogic(ModuleOp &module,
       auto kernelWrapperFunc = createGPUWrapper(module, kernel);
       b.create<CallOp>(loc, kernelWrapperFunc, localVars);
     } else {
-      b.create<CallOp>(loc, kernel.func, valVars);
+      if (!valVars.empty()) {
+        b.create<CallOp>(loc, kernel.func, valVars);
+        printValidationResults.setValue(true);
+        printResults.setValue(false);
+      } else {
+        b.create<CallOp>(loc, kernel.func, localVars);
+        printValidationResults.setValue(false);
+        printResults.setValue(true);
+      }
     }
   }
 
   // Run validation
   if (hasValidation) {
     if (validationType == "gpu" &&
-        (genConfig.xdlops || genConfig.dataTypeStr != "f32")) {
+        (genConfig.xdlops || genConfig.dataTypeStr == "f16" ||
+         genConfig.dataTypeStr == "bf16")) {
       // generate generic kernels
       Conv2dGenerator conv2dGenerator(genConfig);
       // use non-xdlops kernels to verify xdlops kernels
