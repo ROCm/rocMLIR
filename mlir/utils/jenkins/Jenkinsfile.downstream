@@ -55,7 +55,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "gfx906"
+                            label "rocm"
                             alwaysPull true
                         }
                     }
