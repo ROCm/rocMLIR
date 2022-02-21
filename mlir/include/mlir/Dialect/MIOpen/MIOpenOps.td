@@ -262,6 +262,52 @@ def MIOpen_WorkitemIdOp:
   let assemblyFormat = "attr-dict `:` type($id)";
 }
 
+// extract_slice
+def MIOpen_ExtractSliceOp :
+    MIOpen_Op<"extract_slice", [NoSideEffect,
+      AllElementTypesMatch<["vector", "result"]>]>,
+    Arguments<(ins
+      VectorOfRank<[1]>:$vector,
+      Index:$coord)>,
+    Results<(outs AnyType:$result)> {
+  let summary = "Extract a slice from a vector";
+
+  let description = [{
+    Extracts `len(result)` contiguous elements starting at `coord`  in `vector`.
+    If `result` is a scalar type, the length is 1 and this is just `vector.extractelement`.
+    If this causes an out of bounds read, the result is undefined.
+  }];
+
+  let assemblyFormat = [{
+    attr-dict $vector `[` $coord `]` `:` type($vector) `->` type($result)
+  }];
+  let hasVerifier = 1;
+}
+
+// insert_slice
+def MIOpen_InsertSliceOp :
+    MIOpen_Op<"insert_slice", [NoSideEffect,
+      AllElementTypesMatch<["source", "dest"]>,
+      AllTypesMatch<["dest", "result"]>]>,
+    Arguments<(ins
+      AnyType:$source,
+      VectorOfRank<[1]>:$dest,
+      Index:$coord)>,
+    Results<(outs VectorOfRank<[1]>:$result)> {
+  let summary = "Insert a slice into a vector";
+
+  let description = [{
+    Inserts  `source` into contigious indices of `dest`, starting at `coord`.
+    If `source` is a scalar type, this is just `vector.insertelement`.
+    If the indices into `dest` go out of bounds, the result is undefined.
+  }];
+
+  let assemblyFormat = [{
+    attr-dict $source `->` $dest `[` $coord `]` `:` type($source) `->` type($dest)
+  }];
+  let hasVerifier = 1;
+}
+
 // yield
 def MIOpen_YieldOp :
     MIOpen_Op<"yield", [NoSideEffect, Terminator, ReturnLike]> {
@@ -404,6 +450,7 @@ def MIOpen_TransformingForOp :
   let hasVerifier = 1;
 }
 
+// index_diff_update
 def MIOpen_IndexDiffUpdateOp :
     MIOpen_Op<"index_diff_update", [NoSideEffect, AttrSizedOperandSegments,
       SameVariadicResultSize, AllTypesMatch<["lowerIndices", "lowerDiff"]>]>,
@@ -428,8 +475,78 @@ def MIOpen_IndexDiffUpdateOp :
   let hasVerifier = 1;
 }
 
+// buffer_load
+def MIOpen_BufferLoadOp :
+    MIOpen_Op<"buffer_load">,
+    Arguments<(ins Arg<MemRefOf<[F32, F16, BF16, I8, I32]>,
+        "buffer to load from", [MemRead]>:$source,
+      BoolArrayAttr:$oobDims,
+      Variadic<Index>:$coords)>,
+    Results<(outs Variadic<AnyTypeOf<[F32, F16, BF16, I8, I32,
+              VectorOfLengthAndType<[2, 4], [F32]>,
+              VectorOfLengthAndType<[2, 4, 8], [F16]>,
+              VectorOfLengthAndType<[2, 4, 8], [BF16]>,
+              VectorOfLengthAndType<[4], [I8]>]>>:$result)> {
+  let summary = "Load data from a global buffer";
+
+  let description = [{
+    miopen.buffer_load uses, if necessary, GPU buffer load intrinsics to
+    ensure that out of bounds loads return 0 instead of a garbage value.
+
+    The bounds on each coordinate are the size of the memref in that coordinate.
+
+    This op can perform vector reads.
+
+    The memref must be in global memory (memory space 0).
+
+    `oobDims` are the dimensions to be checked for out of bounds indices.
+  }];
+  let assemblyFormat = [{
+    attr-dict $source `[` $coords `]`
+    `:` type($source) `,` type($coords) `->` type($result)
+  }];
+  let hasVerifier = 1;
+}
+
+// buffer_store
+def MIOpen_BufferStoreOp :
+    MIOpen_Op<"buffer_store", [AttrSizedOperandSegments]>,
+    Arguments<(ins Arg<MemRefOf<[F32, F16, BF16, I8, I32]>,
+        "Buffer to store to", [MemWrite]>:$dest,
+      BoolArrayAttr:$oobDims,
+      OptionalAttr<MIOpen_PaddingInfoAttr>:$paddingInfo,
+      Variadic<AnyTypeOf<[F32, F16, BF16, I8,
+        VectorOfLengthAndType<[2, 4], [F32]>,
+        VectorOfLengthAndType<[2, 4, 8], [F16]>,
+        VectorOfLengthAndType<[2, 4, 8], [BF16]>,
+        VectorOfLengthAndType<[4], [I8]>,
+        VectorOfLengthAndType<[2, 4], [I32]>]>>:$data,
+      Variadic<Index>:$coords)> {
+  let summary = "Store data to a global buffer";
+
+  let description = [{
+    `miopen.buffer_store` stores data to a global buffer, ignoring out of bounds writes.
+
+    The bounds on a write are the dimensions of the memref, though only the
+    dimensions specified in `oobDims` are checked before the write is issued.
+
+    Writes that our out of bounds are ignored.
+
+    This op supports vector writes and uses buffer store intrinsics if needed.
+
+    `paddingInfo` is used to apply backwards data store hacks if they're needed.
+
+    The buffer must reside in global memory.
+  }];
+  let assemblyFormat = [{
+    attr-dict $data `->` $dest `[` $coords `]`
+    `:` type($data) `->` type($dest) `,` type($coords)
+  }];
+  let hasVerifier = 1;
+}
+
 // blockwise_load
-def MIOpen_BlockwiseLoadOp:
+def MIOpen_BlockwiseLoadOp :
     MIOpen_Op<"blockwise_load">,
     Arguments<(ins AnyMemRef:$source,
                   IndexArrayAttr:$bounds,
@@ -460,7 +577,7 @@ def MIOpen_BlockwiseStoreOp:
     Arguments<(ins AnyMemRef:$dest,
                   IndexArrayAttr:$bounds,
                   ArgTransforms<1>:$transforms,
-                  Variadic<AnyTypeOf<[F32, F16, BF16, I8,
+                  Variadic<AnyTypeOf<[F32, F16, BF16, I8, I32,
                               VectorOfLengthAndType<[2, 4], [F32]>,
                               VectorOfLengthAndType<[2, 4, 8], [F16]>,
                               VectorOfLengthAndType<[2, 4, 8], [BF16]>,

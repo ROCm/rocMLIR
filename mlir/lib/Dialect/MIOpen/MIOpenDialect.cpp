@@ -381,6 +381,36 @@ template <typename T> static LogicalResult verifyConvOp(T op) {
 }
 
 //===-----------------------------------------------------===//
+// ExtractSliceOp
+//===-----------------------------------------------------===//
+LogicalResult ExtractSliceOp::verify() {
+  if (auto destType = result().getType().dyn_cast<VectorType>()) {
+    size_t destSize = destType.getDimSize(0);
+    size_t sourceSize = vector().getType().cast<VectorType>().getDimSize(0);
+    if (destSize > sourceSize)
+      return emitOpError("Output size " + Twine(destSize) +
+                         " exceeds input size " + Twine(sourceSize));
+  }
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// InsertSliceOp
+//===-----------------------------------------------------===//
+LogicalResult InsertSliceOp::verify() {
+  if (auto sourceType = source().getType().dyn_cast<VectorType>()) {
+    size_t sourceSize = sourceType.getDimSize(0);
+    size_t destSize = dest().getType().cast<VectorType>().getDimSize(0);
+    if (sourceSize > destSize)
+      return emitOpError(
+          "Slice to store has length " + Twine(sourceSize) +
+          " which is longer than destinanation's vector length " +
+          Twine(destSize));
+  }
+  return success();
+}
+
+//===-----------------------------------------------------===//
 // TransformingForOp
 //===-----------------------------------------------------===//
 ParseResult TransformingForOp::parse(OpAsmParser &parser,
@@ -639,6 +669,48 @@ LogicalResult IndexDiffUpdateOp::verify() {
   if (nMapOut != nLowerIn)
     return emitOpError("Expected " + Twine(nMapOut) +
                        " lower coordinates but got " + Twine(nLowerIn));
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// BufferLoadOp
+//===-----------------------------------------------------===//
+LogicalResult BufferLoadOp::verify() {
+  auto sourceType = source().getType().cast<MemRefType>();
+  size_t nDims = sourceType.getRank();
+  if (oobDims().size() != nDims)
+    return emitOpError("Expected oobDims attribute to have " + Twine(nDims) +
+                       " elements");
+  if (coords().size() != nDims)
+    return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
+  if (sourceType.getMemorySpaceAsInt() != 0)
+    return emitOpError("Source memref must live in global memory");
+  if (result().empty())
+    return emitOpError("Expected at least one result");
+  if (mlir::getElementTypeOrSelf(result()[0]) != sourceType.getElementType())
+    return emitOpError(
+        "Result element type must match source memref's element type");
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// BufferStoreOp
+//===-----------------------------------------------------===//
+LogicalResult BufferStoreOp::verify() {
+  auto destType = dest().getType().cast<MemRefType>();
+  size_t nDims = destType.getRank();
+  if (oobDims().size() != nDims)
+    return emitOpError("Expected oobDims attribute to have " + Twine(nDims) +
+                       " elements");
+  if (coords().size() != nDims)
+    return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
+  if (destType.getMemorySpaceAsInt() != 0)
+    return emitOpError("Destination memref must live in global memory");
+  if (data().empty())
+    return emitOpError("Expected at least one data term to store");
+  if (mlir::getElementTypeOrSelf(data()[0]) != destType.getElementType())
+    return emitOpError(
+        "Element type of data must match element type of destination memref");
   return success();
 }
 
