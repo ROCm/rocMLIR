@@ -137,5 +137,5 @@ MLIR_CAPI_EXPORTED void mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   const char *triple = "amdgcn-amd-amdhsa";
   const char *features = "";
   mlir::miopen::addPipeline(*passMan, false, true);
-  mlir::miopen::addBackendPipeline(*passMan, triple, chip, features);
+  mlir::miopen::addBackendPipeline(*passMan, triple, chip, features, 3, 64);
 }

@@ -81,9 +81,10 @@ void miopen::addPipeline(PassManager &pm, bool applicability, bool highLevel) {
 
 void miopen::addBackendPipeline(PassManager &pm, const std::string &triple,
                                 const std::string &chip,
-                                const std::string &features, int32_t optLevel) {
+                                const std::string &features, int32_t optLevel,
+                                int32_t indexBitWidth) {
   // Passes for lowering ROCDL dialect
   pm.addPass(createStripDebugInfoPass());
-  pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
+  pm.addPass(createLowerGpuOpsToROCDLOpsPass(indexBitWidth));
   pm.addPass(createGpuSerializeToHsacoPass(triple, chip, features, optLevel));
 }
