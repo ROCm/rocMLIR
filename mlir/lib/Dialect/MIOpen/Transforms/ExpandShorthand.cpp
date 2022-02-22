@@ -55,6 +55,8 @@ struct MIOpenExpandShorthandPass
 // is
 Optional<int64_t> isConstantValue(Value v) {
   auto *op = v.getDefiningOp();
+  if (nullptr == op)
+    return llvm::None;
   while (auto cast = dyn_cast<IndexCastOp>(op)) {
     op = cast.getIn().getDefiningOp();
   }
@@ -406,7 +408,7 @@ struct IndexDiffUpdateRewritePattern
                 addToOriginal(lowerIndicesCarryChecked[lowerDim], overflowOp);
 
             // Don't generate overflow for the uppermost dimension,
-            // as this can lead to oob loads
+            // as this can lead to adresses wrapping back into bounds
             if (iter == 0) {
               lowerDiffsCarryChecked[lowerDim] = diff;
               lowerIndicesCarryChecked[lowerDim] = index;
@@ -485,17 +487,15 @@ struct IndexDiffUpdateRewritePattern
       }
     } // for (auto mapping : transforms.getOps())
 
+    // Populate results: indices, _then_ diffs
     SmallVector<Value, 10> results;
-    // Convert lowerIndicesDiffMap to lowerIndicesDiff.
-    assert(lowerIndicesDiffMap.size() == lowerLayerShape.size());
-    for (unsigned iter = 0; iter < lowerLayerShape.size(); ++iter)
-      results.push_back(lowerIndicesDiffMap[iter]);
-
-    // Convert lowerIndicesUpdatedMap to lowerIndicesUpdated.
     assert(lowerIndicesUpdatedMap.size() == lowerLayerShape.size());
     for (unsigned iter = 0; iter < lowerLayerShape.size(); ++iter)
       results.push_back(lowerIndicesUpdatedMap[iter]);
 
+    assert(lowerIndicesDiffMap.size() == lowerLayerShape.size());
+    for (unsigned iter = 0; iter < lowerLayerShape.size(); ++iter)
+      results.push_back(lowerIndicesDiffMap[iter]);
     b.replaceOp(op, results);
     return success();
   }

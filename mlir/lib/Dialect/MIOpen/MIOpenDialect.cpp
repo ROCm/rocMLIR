@@ -87,9 +87,10 @@ AsmPrinter &operator<<(AsmPrinter &printer, BwdPaddingKernelInfo v) {
 //===---------------------------------------------------------
 template <typename T>
 static ParseResult
-parseAndGather(mlir::AsmParser &parser, SmallVector<T> &ret,
+parseAndGather(mlir::AsmParser &parser, AsmParser::Delimiter delim,
+               SmallVectorImpl<T> &ret,
                llvm::function_ref<ParseResult(T &)> getElement) {
-  return parser.parseCommaSeparatedList([&]() -> ParseResult {
+  return parser.parseCommaSeparatedList(delim, [&]() -> ParseResult {
     T out;
     ParseResult res = getElement(out);
     if (res.succeeded()) {
@@ -123,7 +124,7 @@ mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
 
   llvm::SmallVector<int64_t> params;
   if (parser.parseOptionalLBrace().succeeded()) {
-    if (parseAndGather<int64_t>(parser, params,
+    if (parseAndGather<int64_t>(parser, AsmParser::Delimiter::None, params,
                                 [&](int64_t &out) -> ParseResult {
                                   return parser.parseInteger(out);
                                 }) ||
@@ -134,18 +135,16 @@ mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
 
   llvm::SmallVector<std::string> upperNamesStorage;
   llvm::SmallVector<unsigned> upperDims;
-  if (parser.parseLSquare() ||
-      parseAndGather<std::string>(parser, upperNamesStorage,
+  if (parseAndGather<std::string>(parser, AsmParser::Delimiter::Square,
+                                  upperNamesStorage,
                                   [&](std::string &out) -> ParseResult {
                                     return parser.parseKeywordOrString(&out);
                                   }) ||
-      parser.parseRSquare() || parser.parseKeyword("at") ||
-      parser.parseLSquare() ||
-      parseAndGather<unsigned>(parser, upperDims,
+      parser.parseKeyword("at") ||
+      parseAndGather<unsigned>(parser, AsmParser::Delimiter::Square, upperDims,
                                [&](unsigned &out) -> ParseResult {
                                  return parser.parseInteger(out);
-                               }) ||
-      parser.parseRSquare()) {
+                               })) {
     return {};
   }
 
@@ -155,18 +154,16 @@ mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
 
   llvm::SmallVector<std::string> lowerNamesStorage;
   llvm::SmallVector<unsigned> lowerDims;
-  if (parser.parseLSquare() ||
-      parseAndGather<std::string>(parser, lowerNamesStorage,
+  if (parseAndGather<std::string>(parser, AsmParser::Delimiter::Square,
+                                  lowerNamesStorage,
                                   [&](std::string &out) -> ParseResult {
                                     return parser.parseKeywordOrString(&out);
                                   }) ||
-      parser.parseRSquare() || parser.parseKeyword("at") ||
-      parser.parseLSquare() ||
-      parseAndGather<unsigned>(parser, lowerDims,
+      parser.parseKeyword("at") ||
+      parseAndGather<unsigned>(parser, AsmParser::Delimiter::Square, lowerDims,
                                [&](unsigned &out) -> ParseResult {
                                  return parser.parseInteger(out);
-                               }) ||
-      parser.parseRSquare()) {
+                               })) {
     return {};
   }
 
