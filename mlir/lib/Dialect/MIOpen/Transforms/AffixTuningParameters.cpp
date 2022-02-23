@@ -115,56 +115,21 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     }
   }
 
-  int64_t gemmM_size, gemmN_size, gemmK_size;
+  int64_t gemmMSize, gemmNSize, gemmKSize;
   int64_t gemmMExtra, gemmNExtra, gemmKExtra;
-  gemmM_size = gemmN_size = gemmK_size = 0;
+  gemmMSize = gemmNSize = gemmKSize = 0;
   gemmMExtra = gemmNExtra = gemmKExtra = 0;
   // FIXME : support forward convolution only right now.
   // compute we should use extra padding kernel or not
   // c,k already / g ,so we can skip / g here
-  gemmM_size = k;
-  gemmK_size = c * y * x;
-  gemmN_size = n * ho * wo;
+  gemmMSize = k;
+  gemmKSize = c * y * x;
+  gemmNSize = n * ho * wo;
 
+  // isOriginalKernelSupport is not used.
+  // Only needExtraPad is used.
+  bool isOriginalKernelSupport = true;
   bool needExtraPad = false;
-
-  auto calculatePaddingKernelSize = [&needExtraPad, gemmM_size, gemmN_size,
-                                     gemmK_size, &gemmMExtra, &gemmNExtra,
-                                     &gemmKExtra,
-                                     &convContext](auto populateParams) {
-    auto config_params = populateParams.getTuningParameters(convContext);
-    unsigned numOfFailedConfigs = 0;
-    for (auto &params : config_params) {
-      if (gemmM_size % params.gemmMPerBlock == 0 &&
-          gemmK_size % params.gemmKPerBlock == 0 &&
-          gemmN_size % params.gemmNPerBlock == 0) {
-        break;
-      } else {
-        numOfFailedConfigs++;
-      }
-    }
-
-    auto extraParams = populateParams.getUniversalParameters();
-    if (numOfFailedConfigs == config_params.size()) {
-      needExtraPad = true;
-      int gemmM_remain, gemmK_remain, gemmN_remain;
-
-      gemmM_remain = gemmM_size % extraParams.gemmMPerBlock;
-      if (gemmM_remain != 0)
-        gemmMExtra = extraParams.gemmMPerBlock - gemmM_remain;
-
-      gemmN_remain = gemmN_size % extraParams.gemmNPerBlock;
-      if (gemmN_remain != 0)
-        gemmNExtra = extraParams.gemmNPerBlock - gemmN_remain;
-
-      gemmK_remain = gemmK_size % extraParams.gemmKPerBlock;
-      if (gemmK_remain != 0)
-        gemmKExtra = extraParams.gemmKPerBlock - gemmK_remain;
-
-      // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
-      // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
-    }
-  };
 
   std::string perfConfig;
   if (auto perfConfigAttr =
@@ -195,7 +160,11 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("block_size", b.getI32IntegerAttr(blockSize));
 
     // Disable kpack in case we need padding kernel.
-    calculatePaddingKernelSize(populateParamsXDL);
+    std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
+             gemmKExtra) =
+        calculatePaddingKernelSize(
+            gemmMSize, gemmNSize, gemmKSize, convContext.getOpType(),
+            convContext.getDataType(), populateParamsXDL);
     if (needExtraPad) {
       validParams.gemmKPack = 1;
     }

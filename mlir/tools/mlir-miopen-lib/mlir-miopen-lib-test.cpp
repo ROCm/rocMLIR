@@ -43,6 +43,8 @@ int main(int argc, char **argv) {
     std::cout << "ExecutionDims - globalSize=" << globalSize
               << ", localSize=" << localSize << std::endl;
 
+  } else if (option.getValue() == "workspace") {
+    std::cout << "Workspace=" << miirGetWorkspaceSize(handle) << std::endl;
   } else if (option.getValue() == "bin") {
     int count = miirGetKernelCount(handle);
 

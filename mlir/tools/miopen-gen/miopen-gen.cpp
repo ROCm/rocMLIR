@@ -650,7 +650,10 @@ static mlir::Value makeNDMemRef(OpBuilder &b, mlir::Value var, uint32_t ndim) {
   return var;
 }
 
-static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
+static void emitMemcpy(OpBuilder &b, mlir::Value src, mlir::Value dst);
+
+static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel,
+                               const Conv2dGenerator::Config &genConfig) {
   auto context = module.getContext();
   OpBuilder b(context);
   auto loc = kernel.func->getLoc();
@@ -796,6 +799,14 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
     i++;
   }
 
+  // Initial version. Use CPU to convert fp32 to fp16.
+  Conv2dGenerator conv2dGenerator(genConfig);
+  bool hasWorkspace = conv2dGenerator.hasWorkspace(b);
+  if (hasWorkspace) {
+    assert(block->getNumArguments() == 4);
+    emitMemcpy(b, block->getArgument(3), block->getArgument(0));
+  }
+
   b.create<ReturnOp>(loc, ValueRange{});
 
   return gpuWrapperFunc;
@@ -899,9 +910,20 @@ createCPUConvFunc(ModuleOp module,
   auto outputType = MemRefType::get(outputDimension, floatType);
 
   // Create conv2d_host function
-  func = FuncOp::create(
-      loc, funcName,
-      b.getFunctionType({filterType, inputType, outputType}, {}));
+  Conv2dGenerator conv2dGenerator(genConfig);
+  bool hasWorkspace = conv2dGenerator.hasWorkspace(b);
+  mlir::Type workspaceArgType;
+  if (hasWorkspace) {
+    workspaceArgType = MemRefType::get(
+        ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
+        b.getF32Type());
+  }
+
+  SmallVector<mlir::Type, 3> funcArgTypes = {filterType, inputType, outputType};
+  if (hasWorkspace) {
+    funcArgTypes = {filterType, inputType, outputType, workspaceArgType};
+  }
+  func = FuncOp::create(loc, funcName, b.getFunctionType(funcArgTypes, {}));
   module.push_back(func);
 
   // Construct a new Block.
@@ -1476,17 +1498,25 @@ populateHostHarnessLogic(ModuleOp &module,
   b.setInsertionPoint(block, block->begin());
 
   int32_t outIdx = -1;
+  int32_t zeroInitIdx = -1;
   if (genConfig.operation.hasValue()) {
     switch (genConfig.operation.getValue()) {
     case miopen::ConvOpType::Fwd:
       outIdx = 2;
+      zeroInitIdx = 2;
       break;
     case miopen::ConvOpType::BwdData:
       outIdx = 1;
+      zeroInitIdx = 1;
       break;
     case miopen::ConvOpType::BwdWeight:
       outIdx = 0;
+      zeroInitIdx = 0;
       break;
+    }
+    Conv2dGenerator generator(genConfig);
+    if (generator.hasWorkspace(b)) {
+      zeroInitIdx = 3;
     }
   }
 
@@ -1541,7 +1571,7 @@ populateHostHarnessLogic(ModuleOp &module,
 
     short min, max;
     int seed = 1;
-    std::tie(min, max, seed) = getRandomTestData(idx, idx == outIdx);
+    std::tie(min, max, seed) = getRandomTestData(idx, idx == zeroInitIdx);
 
     b.create<CallOp>(
         loc, getMemsetFunc(module, elemType),
@@ -1567,7 +1597,7 @@ populateHostHarnessLogic(ModuleOp &module,
   for (auto &kernel : kernels) {
     // Emit call to kernel wrapper
     if (kernel.func->hasAttr("kernel")) {
-      auto kernelWrapperFunc = createGPUWrapper(module, kernel);
+      auto kernelWrapperFunc = createGPUWrapper(module, kernel, genConfig);
       b.create<CallOp>(loc, kernelWrapperFunc, localVars);
     } else {
       b.create<CallOp>(loc, kernel.func, valVars);
@@ -1603,7 +1633,18 @@ populateHostHarnessLogic(ModuleOp &module,
           exit(1);
         }
         KernelIF kernel(conv2dGenerator.getKernelFunc());
-        auto kernelWrapperFunc = createGPUWrapper(module, kernel);
+        Conv2dGenerator::Config newConfig = conv2dGenerator.getConfig();
+        auto kernelWrapperFunc = createGPUWrapper(module, kernel, newConfig);
+
+        // Decide whether to trim the last workspace argument to the verifier
+        // GPU kernel.
+        Conv2dGenerator originalConv2dGenerator(genConfig);
+        bool originalHasWorkspace = originalConv2dGenerator.hasWorkspace(b);
+        bool verifierHasWorkspace = conv2dGenerator.hasWorkspace(b);
+        if (originalHasWorkspace && !verifierHasWorkspace) {
+          valVars.resize(valVars.size() - 1);
+        }
+
         b.create<CallOp>(loc, kernelWrapperFunc, valVars);
       }
       conv2dGenerator.setKernelName(kernelBaseName);

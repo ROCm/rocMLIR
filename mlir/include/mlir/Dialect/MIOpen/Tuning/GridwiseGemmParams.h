@@ -778,7 +778,7 @@ public:
                 DerivedOutParams &gemmCDerivedParam, int64_t &gridSize);
 
   llvm::SmallVector<InitParamsNonXDL, 8>
-  getTuningParameters(ConvolutionContext &ctx) {
+  getTuningParameters(miopen::ConvOpType dir, mlir::Type dataType) {
     return initParameters;
   }
 
@@ -1045,13 +1045,12 @@ public:
                               int64_t &blockSize, int64_t &gridSize);
 
   llvm::SmallVector<InitParamsXDL, 4>
-  getTuningParameters(ConvolutionContext &ctx) {
-    auto dataType = ctx.getDataType();
+  getTuningParameters(miopen::ConvOpType dir, mlir::Type dataType) {
     if (dataType.isInteger(8)) {
       return initParametersForwardI8;
     }
 
-    switch (ctx.getOpType()) {
+    switch (dir) {
     case miopen::ConvOpType::Fwd:
       return initParametersForward;
     case miopen::ConvOpType::BwdData:
@@ -1073,5 +1072,62 @@ public:
     return mlir::success();
   }
 };
+
+// The function is used to compute extra padding sizes.
+// For example, if gemmM size is 3 and gemmMPerBlock is 64,
+// we set gemmMExtra be 64 so (gemmM+gemmMExtra)%gemmMPerBlock=0.
+//
+// Returns:
+// - isOriginalKernelSupport : a bool only used in backward data convolution.
+// - needExtraPad : a bool to indicate whether padding kernel is needed.
+// - gemmM/N/KExtra : additional padding required along Gemm M/N/K dimension.
+//                    They would be all be 0 in case needExtraPad is false.
+template <typename T>
+std::tuple<bool, bool, int64_t, int64_t, int64_t>
+calculatePaddingKernelSize(int64_t gemmMSize, int64_t gemmNSize,
+                           int64_t gemmKSize, miopen::ConvOpType dir,
+                           mlir::Type dataType, T populateParams) {
+  bool isOriginalKernelSupport = true;
+  bool needExtraPad = false;
+  int64_t gemmMExtra, gemmNExtra, gemmKExtra;
+  gemmMExtra = gemmNExtra = gemmKExtra = 0;
+
+  auto configParams = populateParams.getTuningParameters(dir, dataType);
+  size_t numOfFailedConfigs = 0;
+  for (auto &params : configParams) {
+    if (gemmMSize % params.gemmMPerBlock == 0 &&
+        gemmKSize % params.gemmKPerBlock == 0 &&
+        gemmNSize % params.gemmNPerBlock == 0) {
+      isOriginalKernelSupport = true;
+      break;
+    }
+    isOriginalKernelSupport = false;
+    numOfFailedConfigs++;
+  }
+
+  auto extraParams = populateParams.getUniversalParameters();
+  if (numOfFailedConfigs == configParams.size()) {
+    needExtraPad = true;
+    int64_t gemmMRemain, gemmKRemain, gemmNRemain;
+
+    gemmMRemain = gemmMSize % extraParams.gemmMPerBlock;
+    if (gemmMRemain != 0)
+      gemmMExtra = extraParams.gemmMPerBlock - gemmMRemain;
+
+    gemmNRemain = gemmNSize % extraParams.gemmNPerBlock;
+    if (gemmNRemain != 0)
+      gemmNExtra = extraParams.gemmNPerBlock - gemmNRemain;
+
+    gemmKRemain = gemmKSize % extraParams.gemmKPerBlock;
+    if (gemmKRemain != 0)
+      gemmKExtra = extraParams.gemmKPerBlock - gemmKRemain;
+
+    // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
+    // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
+  }
+
+  return std::make_tuple(isOriginalKernelSupport, needExtraPad, gemmMExtra,
+                         gemmNExtra, gemmKExtra);
+}
 
 #endif // MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H

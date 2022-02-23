@@ -279,8 +279,10 @@ LogicalResult PopulateParamsXDL::populateDerived(
 
   // parameters derivable from tunable parameters.
   int64_t nKBlocks = 1;
-  if (ctx.opType == miopen::ConvOpType::BwdWeight && ctx.getDataType().isF32())
+  if (ctx.opType == miopen::ConvOpType::BwdWeight &&
+      (ctx.getDataType().isF32() || ctx.getDataType().isF16())) {
     nKBlocks = getKBlocks(ctx);
+  }
   gridSize = obtainGridSize(gemmSize, &params) * nKBlocks;
 
   res =
@@ -405,7 +407,7 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
 #endif // MLIR_ENABLE_SQLITE
 
   LogicalResult res = failure();
-  for (auto &params : getTuningParameters(ctx)) {
+  for (auto &params : getTuningParameters(ctx.getOpType(), ctx.getDataType())) {
     blockSize = obtainBlockSize(params, waveSize);
     // We have an override on the blockSize, only loop through the
     // initParameters with the same blockSize
@@ -430,7 +432,8 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
                             << " PARAMETERS!\n");
 
       LLVM_DEBUG(llvm::dbgs() << "BUT PADDING KERNEL CAN EXECUTE IT\n");
-      for (auto &params : getTuningParameters(ctx)) {
+      for (auto &params :
+           getTuningParameters(ctx.getOpType(), ctx.getDataType())) {
         res = populatePaddingKernelDerived(
             ctx, params, gemmSize, gemmADerivedParam, gemmBDerivedParam,
             gemmCDerivedParam, blockSize, gridSize);
