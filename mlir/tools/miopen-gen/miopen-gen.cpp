@@ -921,6 +921,7 @@ createCPUConvFunc(ModuleOp module,
   if (genConfig.dataTypeStr == "i8") {
     elemType = b.getI8Type();
     outputElemType = b.getIntegerType(32);
+    assert(genConfig.operation.getValue() == miopen::ConvOpType::Fwd);
   }
 
   auto filterDimension = genConfig.filterDimension;
@@ -1502,8 +1503,6 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   } else {
     cmpVal = loopB.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
                                          cpuLoadVal, gpuLoadVal);
-    //    percentDiffVal = loopB.create<arith::SubIOp>(loc, cpuLoadVal,
-    //    gpuLoadVal);
   }
 
   scf::IfOp ifOp = testBody.create<scf::IfOp>(loc, cmpVal, false);
