@@ -1308,9 +1308,10 @@ def GPU_MubufStoreOp :
 // buffer store
 def GPU_RawbufStoreOp :
     GPU_Op<"raw_buffer_store">,
-    Arguments<(ins AnyTypeOf<[BF16, F16, F32,
+    Arguments<(ins AnyTypeOf<[BF16, F16, F32, I32,
                               VectorOfLengthAndType<[2, 4], [F32]>,
-                              VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>]>:$value,
+                              VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
+                              VectorOfLengthAndType<[2, 4], [I32]>]>:$value,
                    AnyMemRef:$memref,
                    I32:$shift,
                    Variadic<I32>:$indices)> {

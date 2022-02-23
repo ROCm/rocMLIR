@@ -20,15 +20,6 @@ void buildMIOpen(String cmakeOpts) {
     sh 'cd build; make -j $(nproc) MIOpenDriver'
 }
 
-void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
-    git branch: 'mlir-workspace', poll: false,\
-        url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
-    sh 'sed -i "/ROCmSoftwarePlatform\\/llvm-project-mlir/d" ./requirements.txt'
-    cmake arguments: "-P install_deps.cmake --minimum ${prefixOpt}",\
-        installation: "InSearchPath"
-    buildMIOpen(cmakeOpts)
-}
-
 void showEnv() {
     sh 'hostname'
     sh 'cat /etc/os-release'
@@ -46,10 +37,20 @@ String dockerImage() {
 
 pipeline {
     agent none
+    parameters {
+        booleanParam(name: 'sharedLib', defaultValue: true,
+            description: 'Run shared library tests')
+        booleanParam(name: 'staticLib', defaultValue: true,
+            description: 'Run static library and MIOpen integration tests')
+    }
     stages {
         stage('Build and Test') {
             parallel {
                 stage("Shared Library: fixed E2E tests") {
+                    when {
+                        beforeAgent true;
+                        equals expected: true, actual: params.sharedLib;
+                    }
                     agent {
                         docker {
                             image dockerImage()
@@ -62,7 +63,7 @@ pipeline {
                         PATH="$PATH:/opt/rocm/llvm/bin"
                     }
                     stages {
-                        stage("Shared library build and fixed tests") { 
+                        stage("Shared library build and fixed tests") {
                             steps {
                                 buildProject('check-mlir check-mlir-miopen', """
                                   -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=1
@@ -82,6 +83,10 @@ pipeline {
                     }
                 }
                 stage("Static Library") {
+                    when {
+                        beforeAgent true;
+                        equals expected: true, actual: params.staticLib;
+                    }
                     agent {
                         docker {
                             image dockerImage()
@@ -99,16 +104,21 @@ pipeline {
                                 checkout scm
                                 buildProject('libMLIRMIOpen',
                                              '-DBUILD_FAT_LIBMLIRMIOPEN=ON')
-                                cmake arguments: '--install . --component libMLIRMIOpen --prefix /opt/rocm',\
+                                cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/MIOpenDeps",\
                                 installation: 'InSearchPath', workingDir: 'build'
                             }
                         }
                         stage("Build MIOpen with libMLIRMIOpen") {
                             steps {
                                 dir('MIOpen') {
-                                getAndBuildMIOpen('--prefix ./MIOpenDeps', '''-DMIOPEN_USE_MLIR=On
+                                git branch: 'mlir-workspace', poll: false,\
+                                    url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+                                sh 'sed -i "/ROCmSoftwarePlatform\\/llvm-project-mlir/d" ./requirements.txt'
+                                cmake arguments: "-P install_deps.cmake --minimum --prefix ${WORKSPACE}/MIOpenDeps",\
+                                    installation: "InSearchPath"
+                                buildMIOpen('''-DMIOPEN_USE_MLIR=On
                                         -DMIOPEN_BACKEND=HIP
-                                        -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
+                                        -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpenDeps"
                                         -DMIOPEN_USER_DB_PATH=${WORKSPACE}/MIOpen/build/MIOpenUserDB
                                         -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
                                         ''')

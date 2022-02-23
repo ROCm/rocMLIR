@@ -185,5 +185,29 @@ llvm.func @rocdl.mubuf(%rsrc : vector<4xi32>, %vindex : i32,
   llvm.return
 }
 
+llvm.func @rocdl.rawbufi32(%rsrc : vector<4xi32>,
+                        %offset : i32, %soffset : i32,
+                        %vdata1 : vector<1xi32>,
+                        %vdata2 : vector<2xi32>, 
+                        %vdata4 : vector<4xi32>) {
+  // CHECK-LABEL: rocdl.rawbufi32
+  %aux = llvm.mlir.constant(0 : i32) : i32
+  // CHECK: call <1 x i32> @llvm.amdgcn.raw.buffer.load.v1i32(<4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 {{.*}})
+  %r1 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : vector<1xi32>
+  // CHECK: call <2 x i32> @llvm.amdgcn.raw.buffer.load.v2i32(<4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 {{.*}})
+  %r2 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : vector<2xi32>
+  // CHECK: call <4 x i32> @llvm.amdgcn.raw.buffer.load.v4i32(<4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 {{.*}})
+  %r4 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : vector<4xi32>
+
+  // CHECK: call void @llvm.amdgcn.raw.buffer.store.v1i32(<1 x i32> %{{.*}}, <4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 {{.*}})
+  rocdl.raw.buffer.store %vdata1, %rsrc, %offset, %soffset, %aux : vector<1xi32>
+  // CHECK: call void @llvm.amdgcn.raw.buffer.store.v2i32(<2 x i32> %{{.*}}, <4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 {{.*}})
+  rocdl.raw.buffer.store %vdata2, %rsrc, %offset, %soffset, %aux : vector<2xi32>
+  // CHECK: call void @llvm.amdgcn.raw.buffer.store.v4i32(<4 x i32> %{{.*}}, <4 x i32> %{{.*}}, i32 %{{.*}}, i32 %{{.*}}, i32 {{.*}})
+  rocdl.raw.buffer.store %vdata4, %rsrc, %offset, %soffset, %aux : vector<4xi32>
+
+  llvm.return
+}
+
 // CHECK-DAG: attributes #[[$KERNEL_ATTRS]] = { "amdgpu-flat-work-group-size"="1, 256" "amdgpu-implicitarg-num-bytes"="56" }
 // CHECK-DAG: attributes #[[$KERNEL_WORKGROUP_ATTRS]] = { "amdgpu-flat-work-group-size"="1, 1024"
