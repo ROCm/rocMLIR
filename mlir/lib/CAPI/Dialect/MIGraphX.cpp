@@ -32,34 +32,25 @@ void mlirGetKernelInfo(MlirModule module, int *size, void *data) {
   int argNum = 0;
   int argIdx = 0;
   llvm::StringRef kernelName;
+
+  assert (size != nullptr || data != nullptr); // either of ptrs should be provided.
+  std::vector<int> info;
+  mod.walk([&](mlir::FuncOp f) {
+    auto args = f.getArguments();
+    for (auto arg : args) {
+      argNum++;
+      auto sType = arg.getType().template cast<mlir::ShapedType>();
+      auto rank = sType.getRank();
+      info.push_back(rank);
+      for (int i = 0; i < rank; i++)
+        info.push_back(sType.getDimSize(i));
+      argIdx += rank;
+    }
+    kernelName = f.getName();
+  });
   if (data == nullptr && size != nullptr) {
-    mod.walk([&](mlir::FuncOp f) {
-      auto args = f.getArguments();
-      for (auto arg : args) {
-        argNum++;
-        auto sType = arg.getType().template cast<mlir::ShapedType>();
-        auto rank = sType.getRank();
-        argIdx += rank;
-        kernelName = f.getName();
-      }
-    });
     *size = (1 + argNum + argIdx) * sizeof(int) + kernelName.size();
-  }
-  else if (data != nullptr) {
-    std::vector<int> info;
-    mod.walk([&](mlir::FuncOp f) {
-      auto args = f.getArguments();
-      for (auto arg : args) {
-        argNum++;
-        auto sType = arg.getType().template cast<mlir::ShapedType>();
-        auto rank = sType.getRank();
-        info.push_back(rank);
-        for (int i = 0; i < rank; i++)
-          info.push_back(sType.getDimSize(i));
-        argIdx += rank;
-      }
-      kernelName = f.getName();
-    });
+  } else if (data != nullptr) {
     int argSize = argNum + argIdx;
     int *argData = (int *)data;
     argData[0] = argNum;
@@ -87,27 +78,21 @@ MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs) {
 MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, int *size, char *bin) {
   bool success = false;
   auto mod = unwrap(module);
-  if (bin == nullptr && size != nullptr) {
-    mod.walk([&](mlir::gpu::GPUModuleOp gpuModule) {
-      auto hsacoAttr = gpuModule->getAttrOfType<mlir::StringAttr>(
-          mlir::gpu::getDefaultGpuBinaryAnnotation());
-      if (hsacoAttr) {
-        *size = hsacoAttr.getValue().size();
-      }
-    });
-    success = true;
-  }
-  else if (bin != nullptr) {
-    mod.walk([&](mlir::gpu::GPUModuleOp gpuModule) {
-      auto hsacoAttr = gpuModule->getAttrOfType<mlir::StringAttr>(
-          mlir::gpu::getDefaultGpuBinaryAnnotation());
-      if (hsacoAttr) {
+  if(bin == nullptr && size == nullptr)
+    return success;
+  mod.walk([&](mlir::gpu::GPUModuleOp gpuModule) {
+    auto hsacoAttr = gpuModule->getAttrOfType<mlir::StringAttr>(
+        mlir::gpu::getDefaultGpuBinaryAnnotation());
+    if (hsacoAttr) {
+      if (bin != nullptr) { // return binary regardless the presence of *size
         std::string hsaco = hsacoAttr.getValue().str();
         std::copy(hsaco.begin(), hsaco.end(), bin);
         success = true;
+      } else {
+        *size = hsacoAttr.getValue().size();
       }
-    });
-  }
+    }
+  });
   return success;
 }
 
