@@ -39,8 +39,8 @@ MLIR_CAPI_EXPORTED void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm);
 
 MLIR_CAPI_EXPORTED void mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
                                                        const char *chip,
-                                                       const char *triple = "amdgcn-amd-amdhsa",
-                                                       const char *features = "")
+                                                       const char *triple,
+                                                       const char *features)
 #ifdef __cplusplus
 }
 #endif
