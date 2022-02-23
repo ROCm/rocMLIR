@@ -22,26 +22,25 @@ MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(MIGraphX, migraphx);
 
 // Phase 0 functions : Assuming the given module contains only one function
 
-// Returns the number of operands in the FuncOp and fill information in the
-// passed ptr.
-MLIR_CAPI_EXPORTED void mlirGetKernelInfo(MlirModule module, void *data);
-MLIR_CAPI_EXPORTED int mlirGetKernelInfoSize(MlirModule module);
+// Returns the required buffer size if called with null buffer
+// and fill information in the passed ptr when provided.
+MLIR_CAPI_EXPORTED void mlirGetKernelInfo(MlirModule module, int *size, void *data);
 
-// Returns block_size and grid_size as int[2]
-MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, int *attrs);
+// Returns block_size and grid_size as uint32_t[2]
+MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs);
 
-// Returns the size of compiled binary
-MLIR_CAPI_EXPORTED int mlirGetBinarySize(MlirModule module);
-
-// Returns the compiled binary
-MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, char *bin);
+// Returns the size of compiled binary if called with null ptr
+// and return the compiled binary when buffer is provided
+MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, int *size, char *bin);
 
 // pipelines
 
 MLIR_CAPI_EXPORTED void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm);
 
 MLIR_CAPI_EXPORTED void mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
-                                                       const char *chip);
+                                                       const char *chip,
+                                                       const char *triple = "amdgcn-amd-amdhsa",
+                                                       const char *features = "")
 #ifdef __cplusplus
 }
 #endif

@@ -168,10 +168,11 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 
   // returns the required buffer size to hold information including
   // ranks, dimensions of each arguments and kernel name.
-  int argSize = mlirGetKernelInfoSize(module);
+  int argSize = 0;
+  mlirGetKernelInfo(module, &argSize, NULL);
   void *argInfo = malloc(argSize);
   // get the data
-  mlirGetKernelInfo(module, (void *)argInfo);
+  mlirGetKernelInfo(module, NULL, (void *)argInfo);
   int *argData = (int *)argInfo;
 
   int idx = 1;
@@ -194,13 +195,14 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   mlirMIGraphXAddBackendPipeline(pm1, deviceName);
   mlirPassManagerRun(pm1, module);
 
-  int attrs[2];
+  uint32_t attrs[2];
   // returns block and grid sizes
   mlirGetKernelAttrs(module, attrs);
   printf("block size : %d, grid size : %d\n", attrs[0], attrs[1]);
 
   // returns binary size
-  int binSize = mlirGetBinarySize(module);
+  int binSize = 0;
+  mlirGetBinary(module, &binSize, NULL);
   printf("bin size : %d\n", binSize);
 
   char *compiledBin = malloc(binSize);
@@ -209,7 +211,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
     compiledBin[i] = '0';
 
   // get binary
-  if (mlirGetBinary(module, compiledBin)) {
+  if (mlirGetBinary(module, NULL, compiledBin)) {
     // printf("dump : %s \n", compiledBin);
     // CHECK: PASSED!
     printf("PASSED!\n");

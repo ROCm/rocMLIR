@@ -24,61 +24,56 @@
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(MIGraphX, migraphx,
                                       mlir::migraphx::MIGraphXDialect)
 
-// Returns the number of operands in the FuncOp and fill information in the
-// passed ptr.
+// Returns the required buffer size if called with null buffer
+// and fill information in the passed ptr when provided.
 MLIR_CAPI_EXPORTED
-void mlirGetKernelInfo(MlirModule module, void *data) {
+void mlirGetKernelInfo(MlirModule module, int *size, void *data) {
   auto mod = unwrap(module);
-  std::vector<int> info;
   int argNum = 0;
   int argIdx = 0;
   llvm::StringRef kernelName;
-  mod.walk([&](mlir::FuncOp f) {
-    auto args = f.getArguments();
-    for (auto arg : args) {
-      argNum++;
-      auto sType = arg.getType().template cast<mlir::ShapedType>();
-      auto rank = sType.getRank();
-      info.push_back(rank);
-      for (int i = 0; i < rank; i++)
-        info.push_back(sType.getDimSize(i));
-      argIdx += rank;
+  if (data == nullptr && size != nullptr) {
+    mod.walk([&](mlir::FuncOp f) {
+      auto args = f.getArguments();
+      for (auto arg : args) {
+        argNum++;
+        auto sType = arg.getType().template cast<mlir::ShapedType>();
+        auto rank = sType.getRank();
+        argIdx += rank;
+        kernelName = f.getName();
+      }
+    });
+    *size = (1 + argNum + argIdx) * sizeof(int) + kernelName.size();
+  }
+  else if (data != nullptr) {
+    std::vector<int> info;
+    mod.walk([&](mlir::FuncOp f) {
+      auto args = f.getArguments();
+      for (auto arg : args) {
+        argNum++;
+        auto sType = arg.getType().template cast<mlir::ShapedType>();
+        auto rank = sType.getRank();
+        info.push_back(rank);
+        for (int i = 0; i < rank; i++)
+          info.push_back(sType.getDimSize(i));
+        argIdx += rank;
+      }
+      kernelName = f.getName();
+    });
+    int argSize = argNum + argIdx;
+    int *argData = (int *)data;
+    argData[0] = argNum;
+    for (int i = 0; i < argSize; i++)
+      argData[i + 1] = info[i];
+    char *nameData = (char *)(argData + size + 1);
+    for (int i = 0; i < kernelName.size(); i++) {
+      nameData[i] = kernelName[i];
     }
-    kernelName = f.getName();
-  });
-  int size = argNum + argIdx;
-  int *argData = (int *)data;
-  argData[0] = argNum;
-  for (int i = 0; i < size; i++)
-    argData[i + 1] = info[i];
-  char *nameData = (char *)(argData + size + 1);
-  for (int i = 0; i < kernelName.size(); i++) {
-    nameData[i] = kernelName[i];
   }
 }
 
-MLIR_CAPI_EXPORTED
-int mlirGetKernelInfoSize(MlirModule module) {
-  auto mod = unwrap(module);
-  int argNum = 0;
-  int argIdx = 0;
-  llvm::StringRef kernelName;
-  mod.walk([&](mlir::FuncOp f) {
-    auto args = f.getArguments();
-    for (auto arg : args) {
-      argNum++;
-      auto sType = arg.getType().template cast<mlir::ShapedType>();
-      auto rank = sType.getRank();
-      argIdx += rank;
-      kernelName = f.getName();
-    }
-  });
-  int size = (1 + argNum + argIdx) * sizeof(int) + kernelName.size();
-  return size;
-}
-
-// Returns block_size and grid_size as int[2]
-MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, int *attrs) {
+// Returns block_size and grid_size as uint32_t[2]
+MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs) {
   auto mod = unwrap(module);
   mod.walk([&](mlir::LLVM::LLVMFuncOp llvmFunc) {
     attrs[0] =
@@ -87,33 +82,32 @@ MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, int *attrs) {
   });
 }
 
-// Returns the size of compiled binary
-MLIR_CAPI_EXPORTED int mlirGetBinarySize(MlirModule module) {
-  auto mod = unwrap(module);
-  size_t size;
-  mod.walk([&](mlir::gpu::GPUModuleOp gpuModule) {
-    auto hsacoAttr = gpuModule->getAttrOfType<mlir::StringAttr>(
-        mlir::gpu::getDefaultGpuBinaryAnnotation());
-    if (hsacoAttr) {
-      size = hsacoAttr.getValue().size();
-    }
-  });
-  return size;
-}
-
-// Returns the compiled binary
-MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, char *bin) {
+// Returns the size of compiled binary if called with null ptr
+// and return the compiled binary when buffer is provided
+MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, int *size, char *bin) {
   bool success = false;
   auto mod = unwrap(module);
-  mod.walk([&](mlir::gpu::GPUModuleOp gpuModule) {
-    auto hsacoAttr = gpuModule->getAttrOfType<mlir::StringAttr>(
-        mlir::gpu::getDefaultGpuBinaryAnnotation());
-    if (hsacoAttr) {
-      std::string hsaco = hsacoAttr.getValue().str();
-      std::copy(hsaco.begin(), hsaco.end(), bin);
-      success = true;
-    }
-  });
+  if (bin == nullptr && size != nullptr) {
+    mod.walk([&](mlir::gpu::GPUModuleOp gpuModule) {
+      auto hsacoAttr = gpuModule->getAttrOfType<mlir::StringAttr>(
+          mlir::gpu::getDefaultGpuBinaryAnnotation());
+      if (hsacoAttr) {
+        size = hsacoAttr.getValue().size();
+      }
+    });
+    success = true;
+  }
+  else if (bin != nullptr) {
+    mod.walk([&](mlir::gpu::GPUModuleOp gpuModule) {
+      auto hsacoAttr = gpuModule->getAttrOfType<mlir::StringAttr>(
+          mlir::gpu::getDefaultGpuBinaryAnnotation());
+      if (hsacoAttr) {
+        std::string hsaco = hsacoAttr.getValue().str();
+        std::copy(hsaco.begin(), hsaco.end(), bin);
+        success = true;
+      }
+    });
+  }
   return success;
 }
 
@@ -128,14 +122,12 @@ void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
 }
 
 MLIR_CAPI_EXPORTED void mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
-                                                       const char *chip) {
+                                                       const char *chip,
+                                                       const char *triple,
+                                                       const char *features) {
   mlir::registerGpuSerializeToHsacoPass();
-
   auto passMan = unwrap(pm);
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
-
-  const char *triple = "amdgcn-amd-amdhsa";
-  const char *features = "";
   mlir::miopen::addPipeline(*passMan, false, true);
   mlir::miopen::addBackendPipeline(*passMan, triple, chip, features, 3, 64);
 }
