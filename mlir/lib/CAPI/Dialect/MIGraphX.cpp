@@ -65,7 +65,7 @@ void mlirGetKernelInfo(MlirModule module, int *size, void *data) {
     argData[0] = argNum;
     for (int i = 0; i < argSize; i++)
       argData[i + 1] = info[i];
-    char *nameData = (char *)(argData + size + 1);
+    char *nameData = (char *)(argData + *size + 1);
     for (int i = 0; i < kernelName.size(); i++) {
       nameData[i] = kernelName[i];
     }
@@ -92,7 +92,7 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, int *size, char *bin) {
       auto hsacoAttr = gpuModule->getAttrOfType<mlir::StringAttr>(
           mlir::gpu::getDefaultGpuBinaryAnnotation());
       if (hsacoAttr) {
-        size = hsacoAttr.getValue().size();
+        *size = hsacoAttr.getValue().size();
       }
     });
     success = true;
