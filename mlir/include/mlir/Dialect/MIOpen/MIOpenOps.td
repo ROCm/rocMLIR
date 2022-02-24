@@ -432,6 +432,10 @@ def MIOpen_TransformingForOp :
       return getBody()->getArguments().drop_front(lowerStart(lowerStarts().size() - 1));
     }
 
+    ValueTypeRange<Block::BlockArgListType> getIterArgTypes() {
+      return ValueTypeRange<Block::BlockArgListType>(getIterArgs());
+    }
+
     Operation::operand_range getUpperInits(uint32_t domain) {
       uint32_t theUpperLen = upperLen();
       return upperInits().slice(domain * theUpperLen, theUpperLen);
@@ -467,6 +471,11 @@ def MIOpen_IndexDiffUpdateOp :
     The operation returns both `lowerIndices`, the new indices, and `lowerDiff`,
     the change in the lower indices compared to `lowerOrig'.
   }];
+
+  let builders = [
+    OpBuilder<(ins "TransformMapAttr":$transform, "ValueRange":$upperDiffs,
+      "ValueRange":$lowerOrig)>
+  ];
 
   let assemblyFormat = [{
     attr-dict $map `(` $upperDiffs `)` `+` `(` $lowerOrig `)` `:`

@@ -20,6 +20,7 @@
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/TypeRange.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
@@ -31,6 +32,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/SMLoc.h"
 #include <algorithm>
@@ -422,9 +424,11 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
   SmallVector<int32_t> lowerStarts;
   SmallVector<OperandType> lowerArgs;
   SmallVector<OperandType> upperInits;
-  llvm::SMLoc transformedLoc = parser.getCurrentLocation();
 
-  // Parse a single iteration domain
+  parser.parseOptionalAttrDict(result.attributes);
+
+  // Parse iteration domains
+  llvm::SMLoc transformedLoc = parser.getCurrentLocation();
   ParseResult loopItersParse = parser.parseCommaSeparatedList(
       Delimiter::None,
       [&]() -> ParseResult {
@@ -486,6 +490,7 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
   if (loopItersParse) {
     return failure();
   }
+  lowerStarts.push_back(lowerArgs.size());
 
   result.addAttribute(TransformingForOp::transformsAttrName(result.name),
                       b.getArrayAttr(transforms));
@@ -496,7 +501,7 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
   llvm::SmallVector<OperandType> iterArgs;
   llvm::SmallVector<OperandType> iterInits;
   llvm::SmallVector<mlir::Type> iterTypes;
-  if (parser.parseOptionalKeyword("iter_args")) {
+  if (parser.parseOptionalKeyword("iter_args").succeeded()) {
     if (parser.parseAssignmentListWithTypes(iterArgs, iterInits, iterTypes)) {
       return failure();
     }
@@ -528,6 +533,7 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
   regionArgTypes.append(iterTypes);
   SmallVector<OperandType> regionArgs = std::move(lowerArgs);
   regionArgs.append(iterArgs);
+  result.addTypes(iterTypes);
 
   Region *body = result.addRegion();
   if (parser.parseRegion(*body, regionArgs, regionArgTypes)) {
@@ -535,7 +541,8 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
   }
   TransformingForOp::ensureTerminator(*body, b, result.location);
 
-  if (parser.resolveOperands(upperInits, indexTy, transformedLoc,
+  SmallVector<Type> upperInitTypes(upperInits.size(), indexTy);
+  if (parser.resolveOperands(upperInits, upperInitTypes, transformedLoc,
                              result.operands) ||
       parser.resolveOperands(iterInits, iterTypes, iterArgsLoc,
                              result.operands)) {
@@ -546,42 +553,47 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
       TransformingForOp::getOperandSegmentSizeAttr(),
       b.getI32VectorAttr({static_cast<int32_t>(upperInits.size()),
                           static_cast<int32_t>(iterInits.size())}));
-  return parser.parseOptionalAttrDict(result.attributes);
+  return success();
 }
 
 void TransformingForOp::print(OpAsmPrinter &p) {
   p << " ";
+  p.printOptionalAttrDict(getOperation()->getAttrs(), /*elidedAttrs=*/{
+                              TransformingForOp::getOperandSegmentSizeAttr(),
+                              transformsAttrName(), lowerStartsAttrName(),
+                              boundsAttrName()});
   for (uint32_t i = 0, e = domains(); i < e; ++i) {
     p << "(";
     p.printOperands(getLowerCoords(i));
     p << ") = ";
     p.printAttributeWithoutType(getTransforms(i));
-    p << " (";
+    p << "(";
     p.printOperands(getUpperInits(i));
     p << ")";
-
-    if (iterInits().size() > 0) {
-      p << " iter_args (";
-      llvm::interleaveComma(
-          llvm::zip(getIterArgs(), iterInits()), p, [&](auto i) {
-            Value init = std::get<1>(i);
-            p << std::get<0>(i) << " = " << init << " : " << init.getType();
-          });
-      p << ")";
+    if (i != e - 1) {
+      p << ", ";
     }
-    p << " bounds [";
-    llvm::interleaveComma(bounds().getAsValueRange<IntegerAttr>(), p,
-                          [&](llvm::APInt bound) { p << bound; });
-    p << "]";
-    p.printRegion(region(), /*printEntryBlockArgs=*/false);
-    p.printOptionalAttrDict(getOperation()->getAttrs(), /*elidedAttrs=*/{
-                                TransformingForOp::getOperandSegmentSizeAttr(),
-                                transformsAttrName(), lowerStartsAttrName(),
-                                boundsAttrName()});
   }
+
+  if (iterInits().size() > 0) {
+    p << " iter_args (";
+    llvm::interleaveComma(
+        llvm::zip(getIterArgs(), iterInits()), p, [&](auto i) {
+          Value init = std::get<1>(i);
+          p << std::get<0>(i) << " = " << init << " : " << init.getType();
+        });
+    p << ")";
+  }
+  p << " bounds [";
+  llvm::interleaveComma(bounds().getAsValueRange<IntegerAttr>(), p,
+                        [&](llvm::APInt bound) { p << bound; });
+  p << "]";
+  p.printRegion(region(), /*printEntryBlockArgs=*/false);
 }
 
 LogicalResult TransformingForOp::verify() {
+  if (bounds().empty())
+    return emitOpError("Must have at least one iteration dimension");
   if (getNumResults() != getIterArgs().size()) {
     return emitOpError(
         "Mismatch between number of yielded values and number of op results");
@@ -647,6 +659,14 @@ LogicalResult TransformingForOp::moveOutOfLoop(ArrayRef<Operation *> ops) {
 //===-----------------------------------------------------===//
 // IndexDiffUpdateOp
 //===-----------------------------------------------------===//
+void IndexDiffUpdateOp::build(OpBuilder &b, OperationState &state,
+                              TransformMapAttr transform, ValueRange upperDiff,
+                              ValueRange lowerOrig) {
+  llvm::SmallVector<Type> resultTypes(lowerOrig.size(), b.getIndexType());
+  IndexDiffUpdateOp::build(b, state, resultTypes, resultTypes, transform,
+                           upperDiff, lowerOrig);
+}
+
 LogicalResult IndexDiffUpdateOp::verify() {
   TransformMapAttr transform = map();
   size_t nLowerIn = lowerOrig().size();

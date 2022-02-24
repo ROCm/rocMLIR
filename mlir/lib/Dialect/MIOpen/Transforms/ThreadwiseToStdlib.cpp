@@ -22,6 +22,10 @@
 
 #include "PassDetail.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Affine/LoopUtils.h"
+#include "mlir/Dialect/Affine/Passes.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/MIOpen/AffineMapHelper.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
@@ -32,9 +36,16 @@
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Dialect/Affine/Utils.h"
+#include "mlir/IR/BlockAndValueMapping.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Region.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/ADT/APInt.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include <numeric>
 
@@ -51,6 +62,166 @@ struct LowerMIOpenOpsStep4Pass
 // 2G ,INT MAX Value = 2147483647, use 2147483648 as offset and buffer
 // store do nothing
 constexpr int kTwoGB = 2147483647;
+
+//===----------------------------------------------------------------------===//
+// TransformingFor lowering.
+//===----------------------------------------------------------------------===//
+struct TransformingForRewritePattern
+    : public OpRewritePattern<TransformingForOp> {
+  using OpRewritePattern<TransformingForOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(TransformingForOp op,
+                                PatternRewriter &b) const override {
+    Location loc = op.getLoc();
+    SmallVector<int64_t> bounds;
+    for (llvm::APInt v : op.bounds().getAsValueRange<IntegerAttr>()) {
+      int64_t bound = v.getZExtValue();
+      bounds.push_back(bound);
+    }
+
+    bool useDiffs = op.useIndexDiffs().getValueOr(false);
+    bool unroll = op.forceUnroll().getValueOr(false);
+
+    uint32_t nDomains = op.domains();
+    // Compute the initial output values of the lower coordinates.
+    // In the case of an index diff map-based loop, compute all intermediate
+    // results. When there are no index diff maps, use the composed affine map
+    SmallVector<AffineMap, 2> composedMaps;
+    SmallVector<SmallVector<SmallVector<Value, 8>, 2>, 2> lowerInits;
+    for (uint32_t i = 0; i < nDomains; ++i) {
+      SmallVector<SmallVector<Value, 8>, 2> lowerInit;
+      ArrayAttr transforms = op.getTransforms(i);
+      if (transforms.empty()) {
+        SmallVector<Value, 8> init;
+        llvm::copy(op.getUpperInits(i), std::back_inserter(init));
+        lowerInit.push_back(std::move(init));
+        composedMaps.push_back({}); // don't throw off composed maps count
+      } else if (useDiffs) {
+        for (auto t : transforms.getAsRange<TransformMapAttr>()) {
+          AffineMap map = t.getMap().getAffineMap();
+          Optional<SmallVector<Value, 8>> init;
+          if (lowerInit.size() == 0)
+            init = expandAffineMap(b, loc, map, op.getUpperInits(i));
+          else
+            init =
+                expandAffineMap(b, loc, map, lowerInit[lowerInit.size() - 1]);
+          if (!init)
+            return failure();
+          lowerInit.push_back(std::move(*init));
+        }
+      } else {
+        SmallVector<AffineMap, 2> maps;
+        for (auto t : transforms.getAsRange<TransformMapAttr>()) {
+          maps.push_back(t.getMap().getAffineMap());
+        }
+        AffineMap composed = composeTransforms(maps);
+        composedMaps.push_back(composed);
+        Optional<SmallVector<Value, 8>> init =
+            expandAffineMap(b, loc, composed, op.getUpperInits(i));
+        if (!init.hasValue())
+          return failure();
+        lowerInit.push_back(std::move(*init));
+      }
+      lowerInits.push_back(lowerInit);
+    }
+
+    // Having done pre-computation, create an affine loop nest over the upper
+    // rectangle. This'll be unrolled as needed.
+    llvm::SmallVector<AffineForOp, 5> loops;
+    llvm::SmallVector<Value, 5> ivs;
+    OpBuilder ilb = b;
+    for (int64_t bound : bounds) {
+      llvm::SmallVector<Value, 3> iterInits;
+      if (loops.empty())
+        llvm::copy(op.iterInits(), std::back_inserter(iterInits));
+      else
+        llvm::copy(loops[loops.size() - 1].getRegionIterArgs(),
+                   std::back_inserter(iterInits));
+      auto loop = ilb.create<AffineForOp>(loc, 0, bound, 1, iterInits);
+      ivs.push_back(loop.getInductionVar());
+      if (iterInits
+              .empty()) // remove default affine.yield for cleaner code later
+        b.eraseOp(loop.getBody()->getTerminator());
+      ilb = OpBuilder::atBlockBegin(loop.getBody(), ilb.getListener());
+      loops.push_back(loop);
+    }
+
+    // Create code to actually transform the coordinates
+    BlockAndValueMapping cloneMap;
+    for (uint32_t i = 0; i < nDomains; ++i) {
+      Block::BlockArgListType lower = op.getLowerCoords(i);
+      ArrayAttr transforms = op.getTransforms(i);
+      if (!useDiffs || transforms.empty()) {
+        llvm::SmallVector<Value, 5> stepped;
+        for (auto p : llvm::zip(op.getUpperInits(i), ivs)) {
+          stepped.push_back(
+              ilb.create<AddIOp>(loc, std::get<0>(p), std::get<1>(p)));
+        }
+        if (!transforms.empty()) {
+          Optional<SmallVector<Value, 8>> transformed =
+              expandAffineMap(ilb, loc, composedMaps[i], stepped);
+          if (!transformed)
+            return failure();
+          stepped.clear();
+          stepped.assign(std::move(*transformed));
+        }
+        for (auto p : llvm::zip(lower, stepped)) {
+          cloneMap.map(std::get<0>(p), std::get<1>(p));
+        }
+      } else { // index diff maps
+        IndexDiffUpdateOp lastDiff;
+        for (auto p : llvm::zip(transforms.getAsRange<TransformMapAttr>(),
+                                lowerInits[i])) {
+          TransformMapAttr t = std::get<0>(p);
+          SmallVector<Value, 8> &lowerInit = std::get<1>(p);
+          if (!lastDiff)
+            lastDiff = ilb.create<IndexDiffUpdateOp>(loc, t, ivs, lowerInit);
+          else
+            lastDiff = ilb.create<IndexDiffUpdateOp>(
+                loc, t, lastDiff.lowerDiff(), lowerInit);
+        }
+        for (auto p : llvm::zip(lower, lastDiff.lowerIndices())) {
+          cloneMap.map(std::get<0>(p), std::get<1>(p));
+        }
+      }
+    }
+
+    // Map loop arguments, clone operations in body
+    AffineForOp il = loops[loops.size() - 1];
+    for (auto p : llvm::zip(op.getIterArgs(), il.getRegionIterArgs())) {
+      cloneMap.map(std::get<0>(p), std::get<1>(p));
+    }
+    for (Operation &bodyOp : op.getBody()->getOperations()) {
+      if (auto yield = dyn_cast<miopen::YieldOp>(bodyOp)) {
+        llvm::SmallVector<Value, 3> terminatorArgs;
+        for (Value v : op.getBody()->getTerminator()->getOperands()) {
+          terminatorArgs.push_back(cloneMap.lookupOrDefault(v));
+        }
+        ilb.create<AffineYieldOp>(loc, terminatorArgs);
+      } else {
+        ilb.clone(bodyOp, cloneMap);
+      }
+    }
+
+    if (loops.size() > 1) {
+      for (size_t i = 0, e = loops.size() - 1; i < e; ++i) {
+        AffineForOp inner = loops[i + 1];
+        OpBuilder lb =
+            OpBuilder::atBlockEnd(loops[i].getBody(), b.getListener());
+        lb.create<AffineYieldOp>(loc, inner.getResults());
+      }
+    }
+
+    b.replaceOp(op, loops[0].getResults());
+    // Note: the unrolling process doesn't play nice with pattern rewrites
+    // Therefore, we just mark loops for unrolling and deal with it in a
+    // separate pass
+    if (unroll)
+      for (AffineForOp loop : loops)
+        loop->setAttr("forceUnroll", b.getUnitAttr());
+
+    return success();
+  }
+};
 
 //===----------------------------------------------------------------------===//
 // FIXME. XXX.
@@ -2055,330 +2226,6 @@ struct ThreadwiseStoreRewritePattern
 };
 
 //===----------------------------------------------------------------------===//
-// InWarpTranspose lowering.
-//===----------------------------------------------------------------------===//
-constexpr size_t swizzleGroupSize = InWarpTransposeOp::swizzleGroupSize;
-struct InWarpTransposeRewritePattern
-    : public OpRewritePattern<InWarpTransposeOp> {
-  using OpRewritePattern<InWarpTransposeOp>::OpRewritePattern;
-
-  enum RotationDirection {
-    // left rotation by 1 is a b c d -> b c d a
-    // right rotation by 1 is a b c d -> d a b c
-    Left,
-    Right
-  };
-
-  // Emit the in-regester rotations needed for an in-register transpose
-  //
-  // This will rotate the values each line holds by `laneId % groupSize`
-  // The emitted code uses a barrel rotator to enable performing these
-  // `groupSize` different rotations in O(log(groupSize)) operations Arguments:
-  // - `vector`: The vector of values to be rotated
-  // - `laneId`: The current lane ID (thread ID % warpSize)
-  // - `rotationDir`: whether to rotate left or right
-  // - `groupSize` and `totalSize`: the size of the transpose
-  // and the total vector length, respectively
-
-  // - `lanePerm` : A mapping of physical lanes to logical lanes in each grou
-  // That is, lanePerm[i] tells you where the value in lane i would "normally"
-  // be, with all indices modulo the swizzle group size. If empty, the identity
-  // map is used. For example, with lanePerm = [0, 2, 1, 3], lanes 1 and 3 will
-  // rotate their values by 2 places, as opposed to lanes  2 and 3 Returns: The
-  // vector of rotated values
-  Value emitRotations(Location loc, PatternRewriter &b, Value vector,
-                      Value laneId, RotationDirection dir, uint32_t groupSize,
-                      uint32_t totalSize,
-                      Optional<ArrayRef<uint32_t>> lanePerm) const {
-    assert(totalSize % groupSize == 0 &&
-           "block size is divisible by group size");
-
-    uint32_t logGroupSize = llvm::Log2_32_Ceil(groupSize);
-
-    int32_t base = 0, offset = 0, target = 0;
-    switch (dir) {
-    case Left:
-      base = 0;
-      offset = 1;
-      target = logGroupSize;
-      break;
-    case Right:
-      base = logGroupSize - 1;
-      offset = -1;
-      target = -1;
-      break;
-    }
-
-    Value zeroConst = b.create<ConstantIndexOp>(loc, 0);
-
-    llvm::SmallVector<Value, swizzleGroupSize> indexConsts;
-    for (uint32_t i = 0; i < totalSize; ++i) {
-      indexConsts.push_back(b.create<ConstantIndexOp>(loc, i));
-    }
-
-    Value laneInSwizzleGroup;
-    if (lanePerm.hasValue()) {
-      Value groupSizeConst = b.create<ConstantIndexOp>(loc, swizzleGroupSize);
-      laneInSwizzleGroup = b.create<RemUIOp>(loc, laneId, groupSizeConst);
-    }
-
-    Value result = vector;
-
-    for (int32_t logRotation = base; logRotation != target;
-         logRotation += offset) {
-      uint32_t rotation = 1 << logRotation;
-      Value shouldParticipate;
-      if (lanePerm.hasValue()) {
-        // Non-standard arrangement of rows -> lanes, use longer test
-        ArrayRef<uint32_t> theLanePerm = lanePerm.getValue();
-        llvm::SmallVector<Value, swizzleGroupSize> comparisons;
-        for (uint32_t i = 0; i < theLanePerm.size(); ++i) {
-          if ((theLanePerm[i] & rotation) != 0) {
-            Value toTest = b.create<ConstantIndexOp>(loc, i);
-            comparisons.push_back(b.create<CmpIOp>(loc, CmpIPredicate::eq,
-                                                   laneInSwizzleGroup, toTest));
-          }
-        }
-        if (comparisons.empty()) {
-          llvm_unreachable("Permutation on [0, 2^k) didn't have any entries "
-                           "with some bit set");
-        }
-        shouldParticipate =
-            std::accumulate(comparisons.begin() + 1, comparisons.end(),
-                            comparisons[0], [&b, &loc](Value v1, Value v2) {
-                              return b.create<OrIOp>(loc, v1, v2);
-                            });
-      } else { // The usual case
-        Value maskConst = b.create<ConstantIndexOp>(loc, rotation);
-        Value shouldParticipateVal = b.create<AndIOp>(loc, laneId, maskConst);
-        shouldParticipate = b.create<CmpIOp>(loc, CmpIPredicate::ne,
-                                             shouldParticipateVal, zeroConst);
-      }
-
-// TODO(kdrewnia): xplicitly emit selects until SWDEV-302607 and SWDEV-302609
-// are fixed
-#if 0
-      scf::IfOp ifb = b.create<scf::IfOp>(
-          loc, vector.getType(), shouldParticipate, /*withElseRegion=*/true);
-      OpBuilder thenb = ifb.getThenBodyBuilder(b.getListener());
-
-      Value thenResult = result;
-      SmallVector<Value> extracted;
-      for (uint32_t i = 0; i < totalSize; ++i) {
-        extracted.push_back(thenb.create<vector::ExtractElementOp>(
-            loc, thenResult, indexConsts[i]));
-      }
-      for (uint32_t group = 0; group < totalSize; group += groupSize) {
-        for (uint32_t i = 0; i < groupSize; ++i) {
-          uint32_t dest = 0xdeadbeef;
-          switch (dir) {
-          case Left:
-            // We use groupSize - rotation to prevent underflow
-            dest = (i + (groupSize - rotation)) % groupSize;
-            break;
-          case Right:
-            dest = (i + rotation) % groupSize;
-            break;
-          }
-          Value toInsert = extracted[group + i];
-          thenResult = thenb.create<vector::InsertElementOp>(
-              loc, toInsert, thenResult, indexConsts[group + dest]);
-        }
-      }
-      thenb.create<scf::YieldOp>(loc, thenResult);
-
-      OpBuilder elseb = ifb.getElseBodyBuilder(b.getListener());
-      elseb.create<scf::YieldOp>(loc, result);
-
-      result = ifb.getResult(0);
-#endif
-
-      SmallVector<Value> extracted;
-      for (uint32_t i = 0; i < totalSize; ++i) {
-        extracted.push_back(
-            b.create<vector::ExtractElementOp>(loc, result, indexConsts[i]));
-      }
-      for (uint32_t group = 0; group < totalSize; group += groupSize) {
-        for (uint32_t i = 0; i < groupSize; ++i) {
-          uint32_t dest = 0xdeadbeef;
-          switch (dir) {
-          case Left:
-            // We use groupSize - rotation to prevent underflow
-            dest = (i + (groupSize - rotation)) % groupSize;
-            break;
-          case Right:
-            dest = (i + rotation) % groupSize;
-            break;
-          }
-          Value whenRotating = extracted[group + i];
-          Value stable = extracted[group + dest];
-          Value toInsert =
-              b.create<SelectOp>(loc, shouldParticipate, whenRotating, stable);
-          result = b.create<vector::InsertElementOp>(loc, toInsert, result,
-                                                     indexConsts[group + dest]);
-        }
-      }
-    }
-
-    return result;
-  }
-
-  // Before calling this function, we will have emitted rotations so that the
-  // group
-  //  r[]: 0   1   2   3
-  //  t0: 0,0 1,0 2,0 3,0
-  //  t1: 0,1 1,1 2,1 3,1
-  //  t2: 0,2 1,2 2,2 3,2
-  //  t3: 0,3 1,3 2,3 3,3
-  // will have become
-  //  0,0 1,0 2,0 3,0
-  //  3,1 0,1 1,1 2,1
-  //  2,2 3,2 0,2 1,2
-  //  1,3 2,3 3,3 0,3
-
-  // (plus-minus size changes for other operations).
-  // These rotations are the first step in the in-register transpose algorithm
-  // as they allow the inter-lane shuffles to be permutation.
-
-  // The goal of this function is to emit code that will lead to the result
-  // state
-  //  0,0 0,1 0,2 0,3
-  //  1,3 1,0 1,1 1,2
-  //  2,2 2,3 2,0 2,1
-  //  3,1 3,2 3,3 3,0
-
-  Value emitSwizzles(Location loc, PatternRewriter &b, Value vector,
-                     uint32_t groupSize, uint32_t totalSize,
-                     ArrayRef<uint32_t> inGroupPerm) const {
-
-    llvm::SmallVector<ArrayAttr, swizzleGroupSize> swizzlePerms;
-
-    llvm::SmallVector<int32_t, swizzleGroupSize> perm;
-    llvm::SmallVector<uint32_t, swizzleGroupSize> have;
-    llvm::SmallVector<uint32_t, swizzleGroupSize> want;
-    for (uint32_t r = 0; r < groupSize; ++r) {
-      perm.clear();
-      have.clear();
-      want.clear();
-
-      for (uint32_t t = 0; t < swizzleGroupSize; ++t) {
-        // Must correct for, say, 2x2 transpose being a 4 thread x 2 register
-        // swizzle
-        uint32_t smallGroupDup = groupSize * (t / groupSize);
-        uint32_t preSwizzleI =
-            (r + (groupSize - t)) % groupSize + smallGroupDup;
-        uint32_t preSwizzleJ = t;
-
-        uint32_t expectedThread = inGroupPerm[t];
-        uint32_t postSwizzleI = expectedThread;
-        uint32_t postSwizzleJ = (r + (groupSize - expectedThread)) % groupSize +
-                                groupSize * (expectedThread / groupSize);
-        uint32_t preSwizzleElem = preSwizzleJ + swizzleGroupSize * preSwizzleI;
-        uint32_t postSwizzleElem =
-            postSwizzleJ + swizzleGroupSize * postSwizzleI;
-        /*         llvm::dbgs() << "//r = " << r << " t = " << t << ": " <<
-           "have ("
-                  << preSwizzleI << ", " << preSwizzleJ << ") = " <<
-           preSwizzleElem
-                  << " want (" << postSwizzleI << ", " << postSwizzleJ << ") = "
-                  << postSwizzleElem << "\n"; */
-        have.push_back(preSwizzleElem);
-        want.push_back(postSwizzleElem);
-      }
-
-      for (uint32_t t = 0; t < swizzleGroupSize; ++t) {
-        auto *srcElemIter = std::find(have.begin(), have.end(), want[t]);
-        assert(srcElemIter != have.end() && "swizzle is not a permutation");
-        auto readIdx = srcElemIter - have.begin();
-        perm.push_back(readIdx);
-      }
-
-      if (perm[0] == 0 && perm[1] == 1 && perm[2] == 2 && perm[3] == 3) {
-        swizzlePerms.push_back(b.getI32ArrayAttr({}));
-      } else {
-        swizzlePerms.push_back(b.getI32ArrayAttr(perm));
-      }
-    }
-
-    Value result = b.create<vector::BitCastOp>(
-        loc,
-        VectorType::get(vector.getType().cast<VectorType>().getShape(),
-                        b.getI32Type()),
-        vector);
-    // TODO(kdrewnia): Make this operation variadic and not just vector-valued
-    SmallVector<Value> accessConsts;
-    SmallVector<Value> initialRegisters;
-    for (uint32_t i = 0; i < totalSize; ++i) {
-      Value accessConst = b.create<ConstantIndexOp>(loc, i);
-      initialRegisters.push_back(
-          b.create<vector::ExtractElementOp>(loc, result, accessConst));
-      accessConsts.push_back(accessConst);
-    }
-
-    SmallVector<Value> swizzledRegisters;
-    for (uint32_t i = 0; i < totalSize; ++i) {
-      ArrayAttr swizzleSelector = swizzlePerms[i % groupSize];
-      if (0 == swizzleSelector.size()) {
-        swizzledRegisters.push_back(initialRegisters[i]);
-        continue;
-      }
-      Value swizzled = b.create<gpu::WarpSwizzleOp>(
-          loc, b.getI32Type(), initialRegisters[i], swizzleSelector);
-      swizzledRegisters.push_back(swizzled);
-    }
-
-    for (uint32_t i = 0; i < totalSize; ++i) {
-      if (swizzledRegisters[i] != initialRegisters[i]) {
-        result = b.create<vector::InsertElementOp>(loc, swizzledRegisters[i],
-                                                   result, accessConsts[i]);
-      }
-    }
-
-    result = b.create<vector::BitCastOp>(loc, vector.getType(), result);
-    return result;
-  }
-
-  LogicalResult matchAndRewrite(InWarpTransposeOp op,
-                                PatternRewriter &b) const override {
-    Location loc = op.getLoc();
-
-    Value vector = op.vector();
-    uint32_t totalSize = vector.getType().cast<VectorType>().getNumElements();
-
-    Value laneId = op.laneId();
-    uint32_t groupSize = op.size();
-
-    ArrayAttr inGroupPermAttr = op.inGroupPerm();
-    llvm::SmallVector<uint32_t, swizzleGroupSize> inGroupPerm;
-    auto inGroupPermArr = inGroupPermAttr.getValue();
-    // ::verify() ensures this is a permutation
-    for (uint32_t i = 0; i < swizzleGroupSize; ++i) {
-      inGroupPerm.push_back(inGroupPermArr[i]
-                                .cast<mlir::IntegerAttr>()
-                                .getValue()
-                                .getZExtValue());
-    }
-
-    Optional<ArrayRef<uint32_t>> maybeInGroupPerm = llvm::None;
-    if (inGroupPermAttr != b.getI32ArrayAttr({0, 1, 2, 3})) {
-      maybeInGroupPerm = inGroupPerm;
-    }
-
-    Value rotatedRight = emitRotations(loc, b, vector, laneId, Right, groupSize,
-                                       totalSize, llvm::None);
-    Value swizzled =
-        emitSwizzles(loc, b, rotatedRight, groupSize, totalSize, inGroupPerm);
-    Value rotatedLeft = emitRotations(loc, b, swizzled, laneId, Left, groupSize,
-                                      totalSize, maybeInGroupPerm);
-
-    op.replaceAllUsesWith(rotatedLeft);
-    op.erase();
-
-    return success();
-  }
-};
-
-//===----------------------------------------------------------------------===//
 // ThreadwiseGemm lowering.
 //===----------------------------------------------------------------------===//
 struct ThreadwiseGemmRewritePattern
@@ -3057,13 +2904,37 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
 };
 
 void LowerMIOpenOpsStep4Pass::runOnOperation() {
+  ModuleOp op = getOperation();
   MLIRContext *ctx = &getContext();
+
+  RewritePatternSet preUnrollPatterns(ctx);
+  preUnrollPatterns.add<TransformingForRewritePattern>(ctx);
+  if (failed(applyPatternsAndFoldGreedily(op, std::move(preUnrollPatterns))))
+    return signalPassFailure();
+
+  WalkResult unrollResult =
+      op.walk<WalkOrder::PostOrder>([](AffineForOp loop) -> WalkResult {
+        Attribute forceUnrollAttr = loop->getAttr("forceUnroll");
+        if (!forceUnrollAttr)
+          return WalkResult::advance();
+        // Since this is a post-order walk through a perfect loop nest, the
+        // first loop we see is innermost and therefore unrollable
+        if (failed(mlir::loopUnrollFull(loop)))
+          return WalkResult::interrupt();
+        return WalkResult::advance();
+      });
+  if (unrollResult.wasInterrupted())
+    return signalPassFailure();
+
+  // Note: even if all these patterns are moved before unrolling, a call to
+  // applyPatternsAndFoldGreedily() is needed for the Fold part of that
+  // function. Specifically, affine loop unrolling generates affine.apply()
+  // calls that are then constant-folded away by this rewriter
   RewritePatternSet patterns(ctx);
-  patterns.add<InWarpTransposeRewritePattern, ThreadwiseGemmRewritePattern,
-               ThreadwiseCopyRewritePattern, ThreadwiseLoadRewritePattern,
-               ThreadwiseStoreRewritePattern, ThreadwiseCopyV2RewritePattern,
-               XdlopsGemmV2RewritePattern>(ctx);
-  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
+  patterns.add<ThreadwiseGemmRewritePattern, ThreadwiseCopyRewritePattern,
+               ThreadwiseLoadRewritePattern, ThreadwiseStoreRewritePattern,
+               ThreadwiseCopyV2RewritePattern, XdlopsGemmV2RewritePattern>(ctx);
+  if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
     signalPassFailure();
 }
 
