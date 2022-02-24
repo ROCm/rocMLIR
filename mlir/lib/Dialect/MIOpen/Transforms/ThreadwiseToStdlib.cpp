@@ -224,6 +224,312 @@ struct TransformingForRewritePattern
 };
 
 //===----------------------------------------------------------------------===//
+// BufferLoad lowering.
+//===----------------------------------------------------------------------===//
+// TODO(kdrewnia): use "OOB reads = 0" to remove second if statement
+struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
+  using OpRewritePattern<BufferLoadOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(BufferLoadOp op,
+                                PatternRewriter &b) const override {
+    Location loc = op.getLoc();
+    Value source = op.source();
+    auto sourceType = source.getType().cast<MemRefType>();
+    Operation::operand_range coords = op.coords();
+    Type loadedType = op.result().getType();
+
+    llvm::SmallVector<uint32_t> oobDims;
+    for (auto pair : llvm::enumerate(op.oobDims().getAsValueRange<BoolAttr>()))
+      if (pair.value())
+        oobDims.push_back(pair.index());
+    bool toEmitOobChecks = !oobDims.empty();
+
+    auto emitLoadInstruction = [&b, loc, loadedType,
+                                source](ValueRange loadCoords) -> Value {
+      Value loadedValue;
+      if (auto loadedVectorType = loadedType.dyn_cast<VectorType>()) {
+        // Issue vector load.
+        // use buffer load since the source memref is on address space 0
+        SmallVector<Value, 4> srcLowerIndicesI32;
+        for (auto v : loadCoords)
+          srcLowerIndicesI32.push_back(
+              b.create<IndexCastOp>(loc, b.getIntegerType(32), v));
+        loadedValue = b.create<gpu::MubufLoadOp>(loc, loadedType, source,
+                                                 srcLowerIndicesI32);
+      } else {
+        // Issue scalar load.
+        loadedValue =
+            b.create<memref::LoadOp>(loc, loadedType, source, loadCoords);
+      }
+      return loadedValue;
+    };
+
+    Value loadedValue;
+    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+
+    if (toEmitOobChecks) {
+      // Pre-populate oobCoords. They will be modified inside
+      // oob logic check basic block.
+      SmallVector<Value, 8> oobCoords;
+      oobCoords.append(coords.begin(), coords.end());
+
+      // Emit a useful constant 0f for later use.
+      Value zeroOp = createZeroConstantOp(b, loc, loadedType);
+
+      // Walkthrough all lower level indices where the dimension has
+      // padding, check if the result lies within boundaries.
+
+      // Logic in C++:
+      // bool withinBounds = true;
+      // for (auto dim : oobLoadCheckDims) {
+      //   withBounds &=
+      //     (srcLowerIndices[dim] >= 0 &&
+      //      srcLowerIndices[dim] < sourceType.getShape()[dim]) {
+      // }
+      Value withinBoundsOp =
+          b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
+      for (auto dim : oobDims) {
+        Value coord = coords[dim];
+        Value lowerBoundCheckOp =
+            b.create<CmpIOp>(loc, CmpIPredicate::sge, coord, zeroConstantOp);
+        Value upperBoundOp =
+            b.create<ConstantIndexOp>(loc, sourceType.getShape()[dim]);
+        Value upperBoundCheckOp =
+            b.create<CmpIOp>(loc, CmpIPredicate::slt, coord, upperBoundOp);
+        Value withinBoundInOneDimOp =
+            b.create<AndIOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
+
+        withinBoundsOp =
+            b.create<AndIOp>(loc, withinBoundsOp, withinBoundInOneDimOp);
+
+        // Prepare srcLowerLoadOOBIndices.
+        oobCoords[dim] = zeroConstantOp;
+      }
+
+      // Logic:
+      // if (withinBounds) {
+      //   // load address = lower indices from affine transform.
+      // } else {
+      //   // OOB. Prepare an address known NOT OOB.
+      //   // For example, in NGCHW case:
+      //   // load address = {N, G, C, 0, 0}
+      //   // In NGHWC case:
+      //   // load address = {N, G, 0, 0, C}
+      // }
+      // V = load(load address)
+      // if (withinBounds) {
+      //   return V
+      // } else {
+      //   return 0
+      // }
+
+      // Emit the first IfOp.
+      auto firstIfWithinBoundsOp = b.create<scf::IfOp>(
+          loc,
+          TypeRange{b.getIndexType(), b.getIndexType(), b.getIndexType(),
+                    b.getIndexType(), b.getIndexType()},
+          withinBoundsOp, /*withElseRegion=*/true);
+
+      // Then part.
+      auto firstIfWithinBoundsThenBuilder =
+          firstIfWithinBoundsOp.getThenBodyBuilder();
+      firstIfWithinBoundsThenBuilder.create<scf::YieldOp>(loc, coords);
+
+      // Else part.
+      auto firstIfWithinBoundsElseBuilder =
+          firstIfWithinBoundsOp.getElseBodyBuilder();
+      firstIfWithinBoundsElseBuilder.create<scf::YieldOp>(loc, oobCoords);
+
+      // Issue scalar load.
+      loadedValue = emitLoadInstruction(firstIfWithinBoundsOp.getResults());
+
+      // Emit the second IfOp.
+      auto secondIfWithinBoundsOp =
+          b.create<scf::IfOp>(loc, loadedType, withinBoundsOp, true);
+      auto secondIfWithinBoundsThenBuilder =
+          secondIfWithinBoundsOp.getThenBodyBuilder();
+      secondIfWithinBoundsThenBuilder.create<scf::YieldOp>(loc, loadedValue);
+      auto secondIfWithinBoundsElseBuilder =
+          secondIfWithinBoundsOp.getElseBodyBuilder();
+      secondIfWithinBoundsElseBuilder.create<scf::YieldOp>(loc, zeroOp);
+      loadedValue = secondIfWithinBoundsOp.getResults()[0];
+    } else {
+      loadedValue = emitLoadInstruction(coords);
+    }
+    b.replaceOp(op, loadedValue);
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// BufferStore lowering.
+//===----------------------------------------------------------------------===//
+struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
+  using OpRewritePattern<BufferStoreOp>::OpRewritePattern;
+  // Reduce noise of backward data padding info checks
+  static constexpr auto strideTwo = BwdPaddingKernelInfo::StrideTwo;
+  static constexpr auto isNCHW = BwdPaddingKernelInfo::isNCHW;
+  static constexpr auto xdlops = BwdPaddingKernelInfo::Xdlops;
+  static constexpr auto padM = BwdPaddingKernelInfo::PadM;
+  static constexpr auto padN = BwdPaddingKernelInfo::PadN;
+  LogicalResult matchAndRewrite(BufferStoreOp op,
+                                PatternRewriter &b) const override {
+    Location loc = op.getLoc();
+    BwdPaddingKernelInfo bwdPaddingInfo = BwdPaddingKernelInfo::NA;
+    if (PaddingInfoAttr pad = op.paddingInfo().getValueOr(nullptr))
+      bwdPaddingInfo = pad.getBwdPaddingInfo();
+
+    Value data = op.data();
+    Value dest = op.dest();
+    auto destType = dest.getType().cast<MemRefType>();
+    ValueRange coords = op.coords();
+
+    llvm::SmallVector<uint32_t> oobDims;
+    for (auto pair : llvm::enumerate(op.oobDims().getAsValueRange<BoolAttr>()))
+      if (pair.value())
+        oobDims.push_back(pair.index());
+    bool toEmitOobChecks = !oobDims.empty();
+
+    InMemoryDataOperation memoryOp =
+        op.dataOperation().getValueOr(InMemoryDataOperation::Set);
+    auto emitStoreInstruction = [&b, op, loc, data,
+                                 dest](ValueRange storeCoords, Value oob) {
+      // use raw buffer store since the dest memref is on address space 0
+      Value oobI32 = b.create<IndexCastOp>(loc, b.getIntegerType(32), oob);
+      SmallVector<Value, 5> storeCoordsI32;
+      for (auto v : storeCoords)
+        storeCoordsI32.push_back(
+            b.create<IndexCastOp>(loc, b.getIntegerType(32), v));
+      b.replaceOpWithNewOp<gpu::RawbufStoreOp>(op, data, dest, oobI32,
+                                               storeCoordsI32);
+    };
+
+    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+    auto oobAddrOp = b.create<ConstantIndexOp>(loc, kTwoGB);
+
+    if (toEmitOobChecks) {
+      SmallVector<Value, 8> storeOOBCoords;
+      storeOOBCoords.append(coords.begin(), coords.end());
+
+      // Logic in C++:
+      // bool withinBounds = true;
+      // for (auto dim : oobStoreCheckDims) {
+      //   withBounds &=
+      //     (destLowerIndices[dim] >= 0 &&
+      //      destLowerIndices[dim] < destType.getShape()[dim]) {
+      // }
+
+      Value withinStoreBoundsOp =
+          b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
+      for (auto dim : oobDims) {
+        Value coordStore = coords[dim];
+        Value lowerBoundCheckOp = b.create<CmpIOp>(loc, CmpIPredicate::sge,
+                                                   coordStore, zeroConstantOp);
+        Value upperBoundOp =
+            b.create<ConstantIndexOp>(loc, destType.getShape()[dim]);
+        Value upperBoundCheckOp =
+            b.create<CmpIOp>(loc, CmpIPredicate::slt, coordStore, upperBoundOp);
+        Value withinBoundInOneDimOp =
+            b.create<AndIOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
+
+        withinStoreBoundsOp =
+            b.create<AndIOp>(loc, withinStoreBoundsOp, withinBoundInOneDimOp);
+
+        storeOOBCoords[dim] = zeroConstantOp;
+      }
+
+      auto ifWithinBoundsOp = b.create<scf::IfOp>(
+          loc,
+          TypeRange{b.getIndexType(), b.getIndexType(), b.getIndexType(),
+                    b.getIndexType(), b.getIndexType(), b.getIndexType()},
+          withinStoreBoundsOp, true);
+
+      auto thenBuilder = ifWithinBoundsOp.getThenBodyBuilder();
+      thenBuilder.create<scf::YieldOp>(
+          loc, ValueRange{zeroConstantOp, coords[0], coords[1], coords[2],
+                          coords[3], coords[4]});
+
+      auto elseBuilder = ifWithinBoundsOp.getElseBodyBuilder();
+      // here is workaround of backward data padding kernel to avoid compiler
+      // issues.
+      // Note that the xdlops kernel doesn't need a workaround unless there's
+      // extra padding on the GEMM.
+      // FIXME: Work out how these if statements can be consolidated
+      if (bwdPaddingInfo == BwdPaddingKernelInfo::NA ||
+          bwdPaddingInfo == (strideTwo | isNCHW | xdlops) ||
+          bwdPaddingInfo == (strideTwo | xdlops)) {
+        elseBuilder.create<scf::YieldOp>(
+            loc, ValueRange{oobAddrOp, storeOOBCoords[0], storeOOBCoords[1],
+                            storeOOBCoords[2], storeOOBCoords[3],
+                            storeOOBCoords[4]});
+      } else if (bwdPaddingInfo == (strideTwo | isNCHW)) {
+        elseBuilder.create<scf::YieldOp>(
+            loc, ValueRange{oobAddrOp, coords[0], coords[1], coords[2],
+                            zeroConstantOp, zeroConstantOp});
+      } else if (bwdPaddingInfo == strideTwo) {
+        elseBuilder.create<scf::YieldOp>(
+            loc, ValueRange{oobAddrOp, coords[0], zeroConstantOp,
+                            zeroConstantOp, coords[3], coords[4]});
+      } else if (bwdPaddingInfo == (strideTwo | isNCHW | xdlops | padM)) {
+        // c!=64 pad=0 nchw
+        elseBuilder.create<scf::YieldOp>(
+            loc, ValueRange{oobAddrOp, coords[0], coords[1], zeroConstantOp,
+                            coords[3], coords[4]});
+      } else if (bwdPaddingInfo == (strideTwo | isNCHW | xdlops | padN)) {
+        // n!=64 pad=0 nchw
+        elseBuilder.create<scf::YieldOp>(
+            loc, ValueRange{oobAddrOp, zeroConstantOp, coords[1], coords[2],
+                            coords[3], coords[4]});
+      } else if (bwdPaddingInfo ==
+                 (strideTwo | isNCHW | xdlops | padM | padN)) {
+        // n!=64 c!=64 pad=0 nchw
+        elseBuilder.create<scf::YieldOp>(
+            loc, ValueRange{oobAddrOp, zeroConstantOp, coords[1],
+                            zeroConstantOp, coords[3], coords[4]});
+      } else if (bwdPaddingInfo == (strideTwo | isNCHW | xdlops | padN)) {
+        // gemmn%64!=0 padh=padw=0 nhwc
+        elseBuilder.create<scf::YieldOp>(
+            loc, ValueRange{oobAddrOp, zeroConstantOp, coords[1], coords[2],
+                            coords[3], coords[4]});
+      } else if (bwdPaddingInfo == (strideTwo | xdlops | padM)) {
+        // gemmm%64!=0 padh=padw=0 nhwc
+        elseBuilder.create<scf::YieldOp>(
+            loc, ValueRange{oobAddrOp, coords[0], coords[1], coords[2],
+                            coords[3], zeroConstantOp});
+      } else if (bwdPaddingInfo == (strideTwo | xdlops | padM | padN)) {
+        // gemmm%64!=0 gemmN%64!=0 padh=padw=0 nhwc
+        elseBuilder.create<scf::YieldOp>(
+            loc, ValueRange{oobAddrOp, zeroConstantOp, coords[1], coords[2],
+                            coords[3], zeroConstantOp});
+      } else {
+        return op.emitOpError("Unsupported backwards padding flags")
+               << getBitsForBwdPaddingKernelInfo(bwdPaddingInfo);
+      }
+
+      // ifWithinBoundsOp results:
+      // - 0 : oob address, 0 if inbound, 2GB if oob.
+      // - 1~5 : 5D naive tensor address.
+      ValueRange updatedCoords = ifWithinBoundsOp.getResults().drop_front(1);
+      emitStoreInstruction(updatedCoords,
+                           /*oob=*/ifWithinBoundsOp.getResults()[0]);
+
+    } else {
+      if (memoryOp == InMemoryDataOperation::AtomicAdd) {
+        SmallVector<Value, 8> storeCoordsI32;
+        for (unsigned i = 0; i < coords.size(); ++i) {
+          storeCoordsI32.push_back(
+              b.create<IndexCastOp>(loc, b.getIntegerType(32), coords[i]));
+        }
+        b.replaceOpWithNewOp<gpu::AtomicFAddOp>(op, data, dest, storeCoordsI32);
+      } else {
+        emitStoreInstruction(coords,
+                             /*oob=*/zeroConstantOp);
+      }
+    }
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // FIXME. XXX.
 // Force the use of affine maps over index maps in the presence of padding on
 // GEMM during threadwise load/store/copy when the gemm is padded due to bugs in
@@ -2933,7 +3239,8 @@ void LowerMIOpenOpsStep4Pass::runOnOperation() {
   RewritePatternSet patterns(ctx);
   patterns.add<ThreadwiseGemmRewritePattern, ThreadwiseCopyRewritePattern,
                ThreadwiseLoadRewritePattern, ThreadwiseStoreRewritePattern,
-               ThreadwiseCopyV2RewritePattern, XdlopsGemmV2RewritePattern>(ctx);
+               ThreadwiseCopyV2RewritePattern, XdlopsGemmV2RewritePattern,
+               BufferLoadRewritePattern, BufferStoreRewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
     signalPassFailure();
 }

@@ -702,9 +702,7 @@ LogicalResult BufferLoadOp::verify() {
     return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
   if (sourceType.getMemorySpaceAsInt() != 0)
     return emitOpError("Source memref must live in global memory");
-  if (result().empty())
-    return emitOpError("Expected at least one result");
-  if (mlir::getElementTypeOrSelf(result()[0]) != sourceType.getElementType())
+  if (mlir::getElementTypeOrSelf(result()) != sourceType.getElementType())
     return emitOpError(
         "Result element type must match source memref's element type");
   return success();
@@ -723,9 +721,7 @@ LogicalResult BufferStoreOp::verify() {
     return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
   if (destType.getMemorySpaceAsInt() != 0)
     return emitOpError("Destination memref must live in global memory");
-  if (data().empty())
-    return emitOpError("Expected at least one data term to store");
-  if (mlir::getElementTypeOrSelf(data()[0]) != destType.getElementType())
+  if (mlir::getElementTypeOrSelf(data()) != destType.getElementType())
     return emitOpError(
         "Element type of data must match element type of destination memref");
   return success();

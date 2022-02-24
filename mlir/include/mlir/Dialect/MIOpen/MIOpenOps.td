@@ -356,8 +356,8 @@ def MIOpen_TransformingForOp :
     ```mlir
     %res = miopen.transforming_for (%a1, %a2, %a3) = [#transform_map1](%i0, %j0), (%i, %j) = [](%cst0, %cst0)
       iter_args(%arg0 = %c0 : index) bounds [4, 8] {
-      %v = miopen.load_in_bounds {...} %place[%a1, %a2, %a3]
-      miopen.store_in_bounds {...} %v -> %buffer[%i, %j]
+      %v = miopen.buffer_load {...} %place[%a1, %a2, %a3]
+      miopen.buffer_store {...} %v -> %buffer[%i, %j]
       %cont = addi %arg0, %c1
       miopen.yield %cont : index
     } {useIndexDiffs}
@@ -369,8 +369,8 @@ def MIOpen_TransformingForOp :
     %a0_0_0, %a1_0_0 = miopen.index_diff #transform_map1[0, 0] (%x, %y) -> (%a0, %a1, %a2)
     %i_0_0 = addi %i, %cst0
     %j_0_0 = addi %j, %cst0
-    %v_0_0 miopen.load_in_bounds {...} %place[%a0_0_0, %a1_0_0, %a2_0_0]
-    miopen.store_in_bounds {...} %v -> %buffer[%i_0_0, %j_0_0]
+    %v_0_0 miopen.buffer_load {...} %place[%a0_0_0, %a1_0_0, %a2_0_0]
+    miopen.buffer_store {...} %v -> %buffer[%i_0_0, %j_0_0]
     %res_0_0 = addi %c0, %c1 : inedx
     %a0_0_1, %a1_0_1, %a2_0_1 = miopen.index_diff #transform_map1[0, 1] (%x, %y) -> (%a0, %a1, %a2)
     ...
@@ -385,8 +385,8 @@ def MIOpen_TransformingForOp :
       %i = addi %c0, %d0
       %j = addi %c0, %d1
       %a0, %a1, %a2 = affine.apply (#transform_map1.map) (%upper_0_0, %upper_0_1)
-      %v = miopen.load_in_bounds {...} %place[%a0, %a1, %a2]
-      miopen.store_in_bounds {...} %buffer[%i, %j]
+      %v = miopen.buffer_load {...} %place[%a0, %a1, %a2]
+      miopen.buffer_store {...} %buffer[%i, %j]
       %cont = addi %arg1, %c1 : index
       affine.yield %cont : index
     }
@@ -491,11 +491,11 @@ def MIOpen_BufferLoadOp :
         "buffer to load from", [MemRead]>:$source,
       BoolArrayAttr:$oobDims,
       Variadic<Index>:$coords)>,
-    Results<(outs Variadic<AnyTypeOf<[F32, F16, BF16, I8, I32,
+    Results<(outs AnyTypeOf<[F32, F16, BF16, I8, I32,
               VectorOfLengthAndType<[2, 4], [F32]>,
               VectorOfLengthAndType<[2, 4, 8], [F16]>,
               VectorOfLengthAndType<[2, 4, 8], [BF16]>,
-              VectorOfLengthAndType<[4], [I8]>]>>:$result)> {
+              VectorOfLengthAndType<[4], [I8]>]>:$result)> {
   let summary = "Load data from a global buffer";
 
   let description = [{
@@ -519,17 +519,18 @@ def MIOpen_BufferLoadOp :
 
 // buffer_store
 def MIOpen_BufferStoreOp :
-    MIOpen_Op<"buffer_store", [AttrSizedOperandSegments]>,
+    MIOpen_Op<"buffer_store", []>,
     Arguments<(ins Arg<MemRefOf<[F32, F16, BF16, I8, I32]>,
         "Buffer to store to", [MemWrite]>:$dest,
-      BoolArrayAttr:$oobDims,
-      OptionalAttr<MIOpen_PaddingInfoAttr>:$paddingInfo,
-      Variadic<AnyTypeOf<[F32, F16, BF16, I8,
+      AnyTypeOf<[F32, F16, BF16, I8,
         VectorOfLengthAndType<[2, 4], [F32]>,
         VectorOfLengthAndType<[2, 4, 8], [F16]>,
         VectorOfLengthAndType<[2, 4, 8], [BF16]>,
         VectorOfLengthAndType<[4], [I8]>,
-        VectorOfLengthAndType<[2, 4], [I32]>]>>:$data,
+        VectorOfLengthAndType<[2, 4], [I32]>]>:$data,
+      BoolArrayAttr:$oobDims,
+      OptionalAttr<MIOpen_PaddingInfoAttr>:$paddingInfo,
+      OptionalAttr<InMemoryDataOperation>:$dataOperation,
       Variadic<Index>:$coords)> {
   let summary = "Store data to a global buffer";
 

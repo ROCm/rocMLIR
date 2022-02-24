@@ -66,7 +66,7 @@ def MIOpenOpsStep4Pass : Pass<"miopen-lowering-step4", "ModuleOp"> {
 def MIOpenExpandShorthandPass : Pass<"miopen-expand-shorthand", "ModuleOp"> {
   let summary = "Expand shorthand, like index_diff_update and extract_slice, to other dialects";
   let constructor = "mlir::miopen::createMIOpenExpandShorthandPass()";
-  let dependentDialects = ["miopen::MIOpenDialect", "vector::VectorDialect", "arith::ArithmeticDialect"];
+  let dependentDialects = ["miopen::MIOpenDialect", "vector::VectorDialect", "arith::ArithmeticDialect", "gpu::GPUDialect"];
 }
 
 def MIOpenLoopsToCfPass : Pass<"miopen-loops-to-cf", "ModuleOp"> {
