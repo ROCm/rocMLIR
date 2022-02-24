@@ -93,6 +93,14 @@ public:
   }
 };
 
+
+// A trait for ops that are elementwise in the abstract, and thus can
+// be fused.  The existing Elementwise trait requires identical shapes
+// for any non-scalar operands and results, but this one doesn't.
+template <typename ConcreteType>
+struct AbstractElementwise
+    : public TraitBase<ConcreteType, AbstractElementwise> {};
+
 } // namespace OpTrait
 } // namespace mlir
 

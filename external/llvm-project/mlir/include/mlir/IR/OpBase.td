@@ -2155,6 +2155,9 @@ def AttrSizedResultSegments  : NativeOpTrait<"AttrSizedResultSegments">;
 // Op attached regions have no arguments
 def NoRegionArguments : NativeOpTrait<"NoRegionArguments">;
 
+// A trait for ops that are element-wise in the abstract.
+def AbstractElementwise : NativeOpTrait<"AbstractElementwise">;
+
 //===----------------------------------------------------------------------===//
 // OpInterface definitions
 //===----------------------------------------------------------------------===//
