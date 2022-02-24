@@ -1416,14 +1416,12 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   mlir::Value cpuLoadVal =
       loopB.create<memref::LoadOp>(loc, block->getArgument(1), idxs);
 
-  mlir::Value gpuFPVal = gpuLoadVal;
-  mlir::Value cpuFPVal = cpuLoadVal;
+  mlir::Value gpuPrintVal = gpuLoadVal;
+  mlir::Value cpuPrintVal = cpuLoadVal;
 
   // Lower cpu values to gpu precision
   mlir::FloatType elemFType = floatType;
   if (elemType.isIntOrIndex()) { // i8, i32
-    gpuFPVal = loopB.create<arith::SIToFPOp>(loc, floatType, gpuLoadVal);
-    cpuFPVal = loopB.create<arith::SIToFPOp>(loc, floatType, cpuLoadVal);
   } else if (!elemType.isF32()) {
     if (elemType.isBF16()) {
       elemFType = b.getBF16Type();
@@ -1431,7 +1429,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
       elemFType = b.getF16Type();
     }
     cpuLoadVal = loopB.create<arith::TruncFOp>(loc, elemFType, cpuLoadVal);
-    gpuFPVal = loopB.create<arith::ExtFOp>(loc, floatType, gpuLoadVal);
+    gpuPrintVal = loopB.create<arith::ExtFOp>(loc, floatType, gpuLoadVal);
   }
 
   mlir::Value percentDiffVal;
@@ -1512,7 +1510,12 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
                                    ValueRange{c0IndexOp});
 
   // call mcpuPrintF32(float f1, float f2)
-  auto printFunc = makeFuncDecl(module, "mcpuPrintF32", {floatType, floatType});
+  FuncOp printFunc;
+  if (elemType.isIntOrIndex()) {
+    printFunc = makeFuncDecl(module, "mcpuPrintInt32", {intType, intType});
+  } else {
+    printFunc = makeFuncDecl(module, "mcpuPrintF32", {floatType, floatType});
+  }
 
   if (!elemType.isIntOrIndex()) {
     if (elemType.getIntOrFloatBitWidth() < 32) { // f16, bf16
@@ -1520,9 +1523,9 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
           thenBody.create<arith::ExtFOp>(loc, floatType, percentDiffVal);
     }
     thenBody.create<CallOp>(loc, printFunc,
-                            ValueRange{percentDiffVal, cpuFPVal});
+                            ValueRange{percentDiffVal, cpuPrintVal});
   }
-  thenBody.create<CallOp>(loc, printFunc, ValueRange{gpuFPVal, cpuFPVal});
+  thenBody.create<CallOp>(loc, printFunc, ValueRange{gpuPrintVal, cpuPrintVal});
 
   // Emit print function call
   emitPrintTensor(b, cmpResultAllocOp);

@@ -518,6 +518,10 @@ extern "C" void mcpuPrintF32(float f1, float f2) {
   printf("Values: %f, %f\n", f1, f2);
 }
 
+extern "C" void mcpuPrintInt32(int32_t d1, int32_t d2) {
+  printf("Values: %d, %d\n", d1, d2);
+}
+
 // 2D float memref utility routines.
 
 extern "C" void mcpuMemset2DFloat(float *allocated, float *aligned,
