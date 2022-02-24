@@ -28,7 +28,7 @@ Value createConstantIntOp(OpBuilder &b, Location loc, Type type,
   Value retValue;
   if (auto shapedType = type.dyn_cast<ShapedType>()) {
     retValue =
-        b.create<ConstantOp>(loc, SplatElementsAttr::get(shapedType, value));
+        b.create<ConstantOp>(loc, SplatElementsAttr::get(shapedType, constValue));
   } else {
     retValue = b.create<ConstantOp>(loc, constValue, type);
   }
