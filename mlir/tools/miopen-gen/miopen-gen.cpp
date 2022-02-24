@@ -1709,7 +1709,7 @@ populateHostHarnessLogic(ModuleOp &module,
     auto lv5D = makeNDMemRef(b, lvar, 5);
     if (randomSeed.getValue() == "fixed") {
       if (failed(
-              populateTensorFillLogic(b, loc, elemType, lv5D, idx == outIdx)))
+              populateTensorFillLogic(b, loc, elemType, lv5D, idx == zeroInitIdx)))
         return failure();
     } else {
       auto lvU5D = b.create<memref::CastOp>(loc, mr5DUnkType, lv5D);
