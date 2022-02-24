@@ -135,6 +135,7 @@ Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
                                         const Value &source) -> Value {
     Value loadedValue;
     if (loadedType.isa<VectorType>()) {
+      llvm::errs() << "vector load A\n";
       // Issue vector load.
       if (sourceType.getMemorySpaceAsInt() == 0) {
         // Option 1: buffer load.
@@ -2546,10 +2547,10 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
     auto KConstantOp = b.create<ConstantIndexOp>(loc, K);
 
     // Logic to do XDLOPS code selection.
-    // llvm::errs() << "Invoke XDLOPS code selection logic:\n";
-    // llvm::errs() << "dataType: "; dataType.dump(); llvm::errs() << "\n";
-    // llvm::errs() << "MPerWave: " << MPerWave << "\n";
-    // llvm::errs() << "NPerWave: " << NPerWave << "\n";
+    llvm::errs() << "Invoke XDLOPS code selection logic:\n";
+    llvm::errs() << "dataType: "; dataType.dump(); llvm::errs() << "\n";
+    llvm::errs() << "MPerWave: " << MPerWave << "\n";
+    llvm::errs() << "NPerWave: " << NPerWave << "\n";
 
     XdlopsCodeSelection xcs =
         XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
@@ -2589,12 +2590,14 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
     int64_t KRepeats = KPack / k_base;
     if (KRepeats == 0)
       KRepeats = 1;
-    // llvm::errs() << "argVectorType: " << argType << "\n";
-    // llvm::errs() << "k_base: " << k_base << "\n";
-    // llvm::errs() << "KRepeats: " << KRepeats << "\n";
-    // llvm::errs() << "K: " << K << "\n";
-    // llvm::errs() << "bufferA type: " << op.bufferA().getType() << "\n";
-    // llvm::errs() << "bufferB type: " << op.bufferB().getType() << "\n";
+    // TODO: Use the actual buffer argument type, not xdlops selection arg
+    // type
+    llvm::errs() << "argVectorType: " << argType << "\n";
+    llvm::errs() << "k_base: " << k_base << "\n";
+    llvm::errs() << "KRepeats: " << KRepeats << "\n";
+    llvm::errs() << "K: " << K << "\n";
+    llvm::errs() << "bufferA type: " << op.bufferA().getType() << "\n";
+    llvm::errs() << "bufferB type: " << op.bufferB().getType() << "\n";
 
     auto MPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, MPerXdlops);
     auto NPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, NPerXdlops);
@@ -2936,9 +2939,11 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
 
       Value valueA;
       if (KPack > 1) {
+        llvm::errs() << "Emitting load A\n";
         valueA = emitLoadLogic(
             lklb, loc, op.matrixA().getType().template cast<MemRefType>(),
-            argType, false, {}, op.matrixA(), sourceOffsetA);
+            op.bufferA().getType().cast<MemRefType>().getElementType(), 
+            false, {}, op.matrixA(), sourceOffsetA);
       } else {
         valueA = lklb.create<memref::LoadOp>(loc, dataType, op.matrixA(),
                                              ValueRange{sourceOffsetA});
@@ -2975,7 +2980,8 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
       if (KPack > 1) {
         valueB = emitLoadLogic(
             lklb, loc, op.matrixB().getType().template cast<MemRefType>(),
-            argType, false, {}, op.matrixB(), sourceOffsetB);
+            op.bufferB().getType().cast<MemRefType>().getElementType(), 
+            false, {}, op.matrixB(), sourceOffsetB);
       } else {
         valueB = lklb.create<memref::LoadOp>(loc, dataType, op.matrixB(),
                                              ValueRange{sourceOffsetB});
@@ -3001,7 +3007,8 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
         // K load iteration is too small. Reject lowering.
         return failure();
       }
-      auto outerLoop = b.create<AffineForOp>(loc, 0, loopKLoadIteration, k_base,
+      // Should be 1 instead of k_base
+      auto outerLoop = b.create<AffineForOp>(loc, 0, loopKLoadIteration, 1,
                                              op.vectorCs());
       auto outerLoopb = OpBuilder::atBlockBegin(outerLoop.getBody());
       auto outerLoopiv = outerLoop.getInductionVar();
@@ -3021,13 +3028,26 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
           (argType.isa<VectorType>())
               ? argType.template cast<VectorType>().getShape()[0]
               : 1;
+      op.bufferA().getType().cast<MemRefType>().getElementType().dump();
+
       if (argTypeVectorLength > 1) {
-        argA = innerLoopb.create<vector::TransferReadOp>(
-            loc, argType.template cast<VectorType>(), op.bufferA(),
-            ValueRange{offset});
-        argB = innerLoopb.create<vector::TransferReadOp>(
-            loc, argType.template cast<VectorType>(), op.bufferB(),
-            ValueRange{offset});
+        argA = createZeroConstantOp(b, loc, argType);
+        Value argAWide = innerLoopb.create<vector::TransferReadOp>(
+            loc, op.bufferA().getType().cast<MemRefType>().getElementType().cast<VectorType>(), op.bufferA(), ValueRange{b.create<ConstantIndexOp>(loc, 0)});
+        // length of argAWide must be multiple of xdlops arg width
+        // extract and insert element
+        // construct argA
+
+        for (int64_t i = 0; i < argTypeVectorLength; ++i) {
+          Value iterOp = b.create<ConstantIndexOp>(loc, i);
+          auto element = b.create<vector::ExtractElementOp>(loc, op.bufferA().getType().cast<MemRefType>().getElementType().cast<VectorType>(), argAWide, iterOp);
+          argA = b.create<vector::InsertElementOp>(loc, element, argA, iterOp);
+        }
+
+        argB = createZeroConstantOp(b, loc, argType);
+        Value argBWide = innerLoopb.create<vector::TransferReadOp>(
+            loc, op.bufferB().getType().cast<MemRefType>().getElementType().cast<VectorType>(), op.bufferB(), ValueRange{offset});
+
       } else {
         argA = innerLoopb.create<memref::LoadOp>(loc, argType, op.bufferA(),
                                                  ValueRange{offset});

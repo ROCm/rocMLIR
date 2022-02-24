@@ -441,10 +441,11 @@ LogicalResult PopulateParamsXDL::paramsFromCtx(
         validParams = params;
         break;
       }
+    LLVM_DEBUG(llvm::dbgs() << "Picked tuning parameters for padding kernels: ");
   } else {
-    LLVM_DEBUG(llvm::dbgs() << "Successfully picked tuning params from backup"
-                            << " path.\n");
+    LLVM_DEBUG(llvm::dbgs() << "Picked tuning parameters for default kernels: ");
   }
+  LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams) << "\n");
 
   return res;
 }
