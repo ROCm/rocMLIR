@@ -103,7 +103,7 @@ pipeline {
                             steps {
                                 checkout scm
                                 buildProject('libMLIRMIOpen',
-                                             '-DBUILD_FAT_LIBMLIRMIOPEN=ON')
+                                             '-DBUILD_FAT_LIBMLIRMIOPEN=1 -DMLIR_ENABLE_ROCM_RUNNER=0')
                                 cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/MIOpenDeps",\
                                 installation: 'InSearchPath', workingDir: 'build'
                             }
