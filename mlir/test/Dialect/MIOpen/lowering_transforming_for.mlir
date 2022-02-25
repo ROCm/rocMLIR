@@ -36,10 +36,10 @@ func @no_transform_unrolled() {
 // CHECK-SAME:(%[[arg0:.*]]: index, %[[arg1:.*]]: index)
 func @one_transform(%arg0: index, %arg1: index) {
     // CHECK: affine.for %[[d0:.*]] = 0 to 2
-    // CHECK-NEXT: affine.for %[[d1:.*]] = 0 to 3
-    // CHECK-DAG: %[[u0:.*]] = arith.addi %[[arg0]], %[[d0]]
-    // CHECK-DAG: %[[u1:.*]] = arith.addi %[[arg1]], %[[d1]]
+    // CHECK: %[[u0:.*]] = arith.addi %[[arg0]], %[[d0]]
     // CHECK: %[[cmp0:.*]] = arith.muli %[[u0]]
+    // CHECK: affine.for %[[d1:.*]] = 0 to 3
+    // CHECK: %[[u1:.*]] = arith.addi %[[arg1]], %[[d1]]
     // CHECK-NEXT: %[[l0:.*]] = arith.addi %[[u1]], %[[cmp0]]
     // CHECK-NEXT: gpu.printf "%d" %[[l0]]
     miopen.transforming_for (%arg2) = [#transform_map0](%arg0, %arg1) bounds [2, 3] {
@@ -55,7 +55,9 @@ func @one_transform_index_diff(%arg0: index, %arg1: index) {
     // CHECK: %[[linit:.*]] = arith.addi %[[arg1]], %[[linit_cmp]]
     // CHECK: affine.for %[[d0:.*]] = 0 to 2
     // CHECK-NEXT: affine.for %[[d1:.*]] = 0 to 3
-    // CHECK-NEXT: %[[l0:.*]], %{{.*}} = miopen.index_diff_update{{.*}}(%[[d0]], %[[d1]]) + (%[[linit]])
+    // CHECK-NEXT: %[[c0:.*]] = arith.muli %[[d0]]
+    // CHECK-NEXT: %[[c1:.*]] = arith.addi %[[d1]], %[[c0]]
+    // CHECK-NEXT: %[[l0:.*]] = arith.addi %[[linit]], %[[c1]]
     // CHECK-NEXT: gpu.printf "%d" %[[l0]]
     miopen.transforming_for {useIndexDiffs} (%arg2) = [#transform_map0](%arg0, %arg1) bounds [2, 3] {
         gpu.printf "%d" %arg2 : index
@@ -66,7 +68,9 @@ func @one_transform_index_diff(%arg0: index, %arg1: index) {
 // CHECK-LABEL: func @one_transform_unroll
 func @one_transform_unroll(%arg0: index, %arg1: index) {
     // CHECK-NOT: affine.for
-    // CHECK-COUNT-6: arith.muli
+    // CHECK-COUNT-2: arith.muli
+    // Three printf after the second iteration of outer loop
+    // CHECK-COUNT-3: gpu.printf
     miopen.transforming_for {forceUnroll} (%arg2) = [#transform_map0](%arg0, %arg1) bounds [2, 3] {
         gpu.printf "%d" %arg2 : index
     }
@@ -77,9 +81,24 @@ func @one_transform_unroll(%arg0: index, %arg1: index) {
 // CHECK-SAME: (%[[arg0:.*]]: index, %[[arg1:.*]]: index)
 func @one_transform_index_diff_unroll(%arg0: index, %arg1: index) {
     // CHECK-NOT: affine.for
+    // CHECK-DAG: %[[c1:.*]] = arith.constant 1
+    // CHECK-DAG: %[[c2:.*]] = arith.constant 2
+    // CHECK-DAG: %[[c4:.*]] = arith.constant 4
+    // CHECK-DAG: %[[c5:.*]] = arith.constant 5
+    // CHECK-DAG: %[[c6:.*]] = arith.constant 6
     // CHECK: %[[l0_cmp:.*]] = arith.muli %[[arg0]]
     // CHECK: %[[l0:.*]] = arith.addi %[[arg1]], %[[l0_cmp]]
-    // CHECK-COUNT-6: miopen.index_diff_update{{.*}} + (%[[l0]])
+    // CHECK: gpu.printf "%d" %[[l0]]
+    // CHECK: %[[l1:.*]] = arith.addi %[[l0]], %[[c1]]
+    // CHECK-NEXT: gpu.printf "%d" %[[l1]]
+    // CHECK: %[[l2:.*]] = arith.addi %[[l0]], %[[c2]]
+    // CHECK-NEXT: gpu.printf "%d" %[[l2]]
+    // CHECK: %[[l3:.*]] = arith.addi %[[l0]], %[[c4]]
+    // CHECK-NEXT: gpu.printf "%d" %[[l3]]
+    // CHECK: %[[l4:.*]] = arith.addi %[[l0]], %[[c5]]
+    // CHECK-NEXT: gpu.printf "%d" %[[l4]]
+    // CHECK: %[[l5:.*]] = arith.addi %[[l0]], %[[c6]]
+    // CHECK-NEXT: gpu.printf "%d" %[[l5]]
     miopen.transforming_for {forceUnroll, useIndexDiffs} (%arg2) = [#transform_map0](%arg0, %arg1) bounds [2, 3] {
         gpu.printf "%d" %arg2 : index
     }
@@ -107,8 +126,9 @@ func @deep_transforms_index_diff(%arg0: index, %arg1: index) {
     // CHECK: affine.for %[[d0:.*]] = 0 to 2
     // CHECK-NEXT: affine.for %[[d1:.*]] = 0 to 3
     miopen.transforming_for {useIndexDiffs} (%arg2) = [#transform_map1, #transform_map0](%arg0, %arg1) bounds [2, 3] {
-        // CHECK-NEXT: %[[int:.*]]:2, %[[dint:.*]]:2 = miopen.index_diff_update {{.*}}(%[[d0]], %[[d1]]) + (%[[arg1]], %[[arg0]])
-        // CHECK-NEXT: %[[l0:.*]], %[[dl0:.*]] = miopen.index_diff_update{{.*}}(%[[dint]]#0, %[[dint]]#1) + (%[[init1]])
+        // CHECK-DAG: %[[c0:.*]] = arith.muli %[[d1]]
+        // CHECK-DAG: %[[c1:.*]] = arith.addi %[[d0]], %[[c0]]
+        // CHECK-DAG: %[[l0:.*]] = arith.addi %[[init1]], %[[c1]]
         // CHECK-NEXT: gpu.printf "%d" %[[l0]]
         gpu.printf "%d" %arg2 : index
     }

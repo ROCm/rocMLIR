@@ -1,4 +1,4 @@
-// RUN: miopen-opt -miopen-expand-shorthand %s | FileCheck %s
+// RUN: miopen-opt -miopen-lowering-step4 %s | FileCheck %s
 
 #transform_map0 = #miopen.transform_map<affine_map<(d0, d1) -> (d1, d0)>
     by [#miopen.transform<PassThrough ["x", "y"] at [0, 1] -> ["x", "y"] at [1, 0]>]
