@@ -24,7 +24,10 @@
 
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIOpen/utility/builderUtils.h"
+#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -248,8 +251,16 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
     // Obtain critical matrix dimensions.
     int64_t K = blockAType.getShape()[1];
 
+    Value matrixA = op.matrixA();
+    Value matrixB = op.matrixB();
     auto transformsA = op.transforms()[0].cast<ArrayAttr>();
     auto transformsB = op.transforms()[1].cast<ArrayAttr>();
+    // ThreadwiseGemm doesn't get transforms for A and B explicitly set, so this
+    // is a "did miopen.transform get lowered yet" check
+    if (transformsA.empty())
+      matrixA = untransform(b, matrixA, transformsA);
+    if (transformsB.empty())
+      matrixB = untransform(b, matrixB, transformsB);
 
     ArrayAttr emptyArr = b.getArrayAttr({});
     auto noPadding =
@@ -335,7 +346,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
     auto loopOp = b.create<AffineForOp>(loc, 0, loopIteration);
 
     // inside the main loop.
-    auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
+    auto lb = OpBuilder::atBlockTerminator(loopOp.getBody(), b.getListener());
 
     auto iv = loopOp.getInductionVar();
 
@@ -345,7 +356,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
         lb.create<AffineForOp>(loc, 0, loopReadMatrixAIteration);
 
     // inside read matrix A loop.
-    auto lab = OpBuilder::atBlockTerminator(loopReadMatrixAOp.getBody());
+    auto lab = OpBuilder::atBlockTerminator(loopReadMatrixAOp.getBody(),
+                                            lb.getListener());
 
     auto iva = loopReadMatrixAOp.getInductionVar();
 
@@ -378,14 +390,20 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
           lab.create<MulIOp>(loc, iva, MPerThreadSubCConstantOp)};
     }
 
-    // Emit threadwise_copy.
-    auto threadwiseCopyAMatrixOp = lab.create<ThreadwiseCopyOp>(
-        loc, op.matrixA(), threadAAllocOp,
-        b.getArrayAttr({transformsA, emptyArr}), noPadding, noOobDims,
-        noGlobals, matrixAThreadwiseCopySourceCoords,
-        matrixAThreadwiseCopyDestCoords);
-    affixThreadwiseCopyAttributes(threadwiseCopyAMatrixOp, op, b,
-                                  /*isMatrixA=*/true);
+    auto copyALoop = lab.create<TransformingForOp>(
+        loc,
+        ArrayRef<ValueRange>{matrixAThreadwiseCopySourceCoords,
+                             matrixAThreadwiseCopyDestCoords},
+        ArrayRef<Attribute>{transformsA, emptyArr},
+        ArrayRef<int64_t>{1, KPerThread, MPerThread},
+        /*forceUnroll=*/true, /*indexDiffs=*/false);
+    OpBuilder copyABuilder =
+        OpBuilder::atBlockTerminator(copyALoop.getBody(), lab.getListener());
+    Value aCopy = copyABuilder.create<memref::LoadOp>(
+        loc, matrixA, copyALoop.getLowerCoords(0));
+    Value aCast = createTypeConversionOp(copyABuilder, loc, aCopy, elementType);
+    copyABuilder.create<memref::StoreOp>(loc, aCast, threadAAllocOp,
+                                         copyALoop.getLowerCoords(1));
 
     // read matrix B loop.
     auto loopReadMatrixBIteration = NRepeat;
@@ -393,7 +411,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
         lb.create<AffineForOp>(loc, 0, loopReadMatrixBIteration);
 
     // inside read matrix B loop.
-    auto lbb = OpBuilder::atBlockTerminator(loopReadMatrixBOp.getBody());
+    auto lbb = OpBuilder::atBlockTerminator(loopReadMatrixBOp.getBody(),
+                                            lb.getListener());
 
     auto ivb = loopReadMatrixBOp.getInductionVar();
 
@@ -426,15 +445,22 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
           lbb.create<MulIOp>(loc, ivb, NPerThreadSubCConstantOp)};
     }
 
-    // Emit threadwise_copy.
-    auto threadwiseCopyBMatrixOp = lbb.create<ThreadwiseCopyOp>(
-        loc, op.matrixB(), threadBAllocOp,
-        b.getArrayAttr({transformsB, emptyArr}), noPadding, noOobDims,
-        noGlobals, matrixBThreadwiseCopySourceCoords,
-        matrixBThreadwiseCopyDestCoords);
-    affixThreadwiseCopyAttributes(threadwiseCopyBMatrixOp, op, b,
-                                  /*isMatrixA=*/false);
+    auto copyBLoop = lbb.create<TransformingForOp>(
+        loc,
+        ArrayRef<ValueRange>{matrixBThreadwiseCopySourceCoords,
+                             matrixBThreadwiseCopyDestCoords},
+        ArrayRef<Attribute>{transformsB, emptyArr},
+        ArrayRef<int64_t>{1, KPerThread, NPerThread},
+        /*forceUnroll=*/true, /*indexDiffs=*/false);
+    OpBuilder copyBBuilder =
+        OpBuilder::atBlockTerminator(copyBLoop.getBody(), lbb.getListener());
+    Value bCopy = copyBBuilder.create<memref::LoadOp>(
+        loc, matrixB, copyBLoop.getLowerCoords(0));
+    Value bCast = createTypeConversionOp(copyBBuilder, loc, bCopy, elementType);
+    copyBBuilder.create<memref::StoreOp>(loc, bCast, threadBAllocOp,
+                                         copyBLoop.getLowerCoords(1));
 
+    // Actually do the gemm
     lb.create<ThreadwiseGemmOp>(loc, threadAAllocOp, threadBAllocOp,
                                 op.matrixC());
 

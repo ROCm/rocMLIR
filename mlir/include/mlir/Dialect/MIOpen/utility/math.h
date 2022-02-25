@@ -1,6 +1,7 @@
 #ifndef MATH_HPP
 #define MATH_HPP
 
+#include <cassert>
 #include <cstdlib>
 
 namespace math_util {

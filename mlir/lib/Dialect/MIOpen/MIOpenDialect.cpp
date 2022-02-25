@@ -19,6 +19,7 @@
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeRange.h"
 #include "mlir/IR/TypeUtilities.h"
@@ -412,6 +413,78 @@ LogicalResult InsertSliceOp::verify() {
 //===-----------------------------------------------------===//
 // TransformingForOp
 //===-----------------------------------------------------===//
+void TransformingForOp::build(OpBuilder &b, OperationState &state,
+                              ValueRange inits, ArrayAttr transforms,
+                              ArrayRef<int64_t> bounds, bool forceUnroll,
+                              bool useIndexDiffs, ValueRange iterArgs) {
+  build(b, state, ArrayRef<ValueRange>(inits), b.getArrayAttr({transforms}),
+        bounds, forceUnroll, useIndexDiffs, iterArgs);
+}
+
+void TransformingForOp::build(OpBuilder &b, OperationState &state,
+                              ArrayRef<ValueRange> inits,
+                              ArrayRef<Attribute> transforms,
+                              ArrayRef<int64_t> bounds, bool forceUnroll,
+                              bool useIndexDiffs, ValueRange iterArgs) {
+  build(b, state, inits, b.getArrayAttr(transforms), bounds, forceUnroll,
+        useIndexDiffs, iterArgs);
+}
+
+void TransformingForOp::build(OpBuilder &b, OperationState &state,
+                              ArrayRef<ValueRange> inits, ArrayAttr transforms,
+                              ArrayRef<int64_t> bounds, bool forceUnroll,
+                              bool useIndexDiffs, ValueRange iterArgs) {
+  // Set up user-provided attributes
+  state.addAttribute(boundsAttrName(state.name), b.getIndexArrayAttr(bounds));
+  state.addAttribute(transformsAttrName(state.name), transforms);
+  if (forceUnroll)
+    state.addAttribute(forceUnrollAttrName(state.name), b.getUnitAttr());
+  if (useIndexDiffs)
+    state.addAttribute(useIndexDiffsAttrName(state.name), b.getUnitAttr());
+
+  int32_t upperLen = bounds.size();
+  for (ValueRange upper : inits)
+    state.addOperands(upper);
+  state.addOperands(iterArgs);
+  state.addTypes(iterArgs.getTypes());
+
+  state.addAttribute(
+      TransformingForOp::getOperandSegmentSizeAttr(),
+      b.getI32VectorAttr({upperLen * static_cast<int32_t>(inits.size()),
+                          static_cast<int32_t>(iterArgs.size())}));
+
+  // Set up region and block
+  Region *bodyRegion = state.addRegion();
+  Block &bodyBlock = bodyRegion->emplaceBlock();
+
+  SmallVector<int32_t> lowerStarts;
+  int32_t nLower = 0;
+  Type indexType = b.getIndexType();
+  for (auto domain : transforms.getAsRange<ArrayAttr>()) {
+    lowerStarts.push_back(nLower);
+    int32_t len = 0;
+    if (domain.empty()) // No transforms, copy upper coordinates
+      len = upperLen;
+    else
+      len = domain[domain.size() - 1]
+                .cast<TransformMapAttr>()
+                .getLowerBounds()
+                .size();
+    for (int32_t i = 0; i < len; ++i)
+      bodyBlock.addArgument(indexType, state.location);
+    nLower += len;
+  }
+  lowerStarts.push_back(nLower);
+  state.addAttribute(lowerStartsAttrName(state.name),
+                     b.getI32VectorAttr(lowerStarts));
+
+  for (Value v : iterArgs)
+    bodyBlock.addArgument(v.getType(), v.getLoc());
+
+  if (iterArgs.empty())
+    ensureTerminator(*bodyRegion, b, state.location);
+}
+
 ParseResult TransformingForOp::parse(OpAsmParser &parser,
                                      OperationState &result) {
   using OperandType = OpAsmParser::OperandType;

@@ -406,12 +406,19 @@ def MIOpen_TransformingForOp :
 
   let skipDefaultBuilders = 1;
   let builders = [OpBuilder<(ins "ValueRange":$inits,
-    "ArrayRef<TransformMapAttr>":$transforms,
-    "ArrayRef<int64_t>":$bounds, CArg<"ValueRange", "llvm::None">:$iterArgs)>,
+    "ArrayAttr":$transforms,
+    "ArrayRef<int64_t>":$bounds, "bool":$forceUnroll, "bool":$useIndexDiffs,
+    CArg<"ValueRange", "llvm::None">:$iterArgs)>,
 
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
-    "ArrayRef<SmallVector<TransformMapAttr>>":$transforms,
-    "ArrayRef<int64_t>":$bounds, CArg<"ValueRange", "llvm::None">:$iterArgs)>];
+    "ArrayRef<Attribute>":$transforms,
+    "ArrayRef<int64_t>":$bounds, "bool":$forceUnroll, "bool":$useIndexDiffs,
+    CArg<"ValueRange", "llvm::None">:$iterArgs)>,
+
+    OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
+    "ArrayAttr":$transforms,
+    "ArrayRef<int64_t>":$bounds, "bool":$forceUnroll, "bool":$useIndexDiffs,
+    CArg<"ValueRange", "llvm::None">:$iterArgs)>];
 
   let extraClassDeclaration = [{
     uint32_t lowerStart(uint32_t n) {
