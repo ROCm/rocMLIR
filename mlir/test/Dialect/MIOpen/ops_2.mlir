@@ -664,16 +664,6 @@ func @miopen_mfma_v2_bf16(%a : vector<2xbf16>, %b : vector<2xbf16>, %c : vector<
 
 // ----
 
-#transform_map4 = #miopen.transform_map<
-  affine_map<(d0) -> (d0)> by [
-    #miopen.transform<Slice{0, 4096} ["x"] at [0] -> ["x"] at [0]>
-  ] bounds = [4096] -> [12288]>
-#transform_map5 = #miopen.transform_map<
-  affine_map<(d0) -> (d0 + 8192)> by [
-    #miopen.transform<Slice{8192, 12288} ["x"] at [0] -> ["x"] at [0]>
-  ] bounds = [4096] -> [12288]>
-
-
 func @miopen_xdlops_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
                                        %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>) -> vector<32xf32> {
   %c0 = arith.constant 0 : index
@@ -685,7 +675,8 @@ func @miopen_xdlops_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matrixB
     k = 16,
     m_per_wave = 128,
     n_per_wave = 64,
-    transforms = [[#transform_map4], [#transform_map5]]
+    ldsBufferOffsetA = 0 : index,
+    ldsBufferOffsetB = 8192 : index
   } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32> -> vector<32xf32>
   return %vectorD0 : vector<32xf32>
 }
@@ -707,7 +698,8 @@ func @miopen_xdlops_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %matrix
     k = 16,
     m_per_wave = 128,
     n_per_wave = 64,
-    transforms = [[#transform_map4], [#transform_map5]]
+    ldsBufferOffsetA = 0 : index,
+    ldsBufferOffsetB = 8192 : index
   } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32>, vector<32xf32> -> vector<32xf32>, vector<32xf32>
   return %vectorD0, %vectorD1 : vector<32xf32>, vector<32xf32>
 }
@@ -728,7 +720,8 @@ func @miopen_blockwise_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matr
     k = 16,
     m_per_wave = 128,
     n_per_wave = 64,
-    transforms = [[#transform_map4], [#transform_map5]]
+    ldsBufferOffsetA = 0 : index,
+    ldsBufferOffsetB = 0 : index
   } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32> -> vector<32xf32>
   return %vectorD0 : vector<32xf32>
 }
@@ -750,7 +743,8 @@ func @miopen_blockwise_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %mat
     k = 16,
     m_per_wave = 128,
     n_per_wave = 64,
-    transforms = [[#transform_map4], [#transform_map5]]
+    ldsBufferOffsetA = 0 : index,
+    ldsBufferOffsetB = 8192 : index
   } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32>, vector<32xf32> -> vector<32xf32>, vector<32xf32>
   return %vectorD0, %vectorD1 : vector<32xf32>, vector<32xf32>
 }

@@ -3081,22 +3081,34 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
     int64_t NPerWave =
         op->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
 
-    // Obtain coordinate transforms for Matrix A and B.
-    ArrayAttr transformsA = op.transforms()[0].cast<ArrayAttr>();
-    ArrayAttr transformsB = op.transforms()[1].cast<ArrayAttr>();
-    Optional<AffineMap> transformMatrixA, transformMatrixB;
+    int64_t ldsOffsetA = op.ldsBufferOffsetA().getSExtValue();
+    int64_t ldsOffsetB = op.ldsBufferOffsetB().getSExtValue();
 
-    obtainGenericTensorTransformationInfo(op.matrixA().getType(), transformsA,
-                                          transformMatrixA);
-    obtainGenericTensorTransformationInfo(op.matrixB().getType(), transformsB,
-                                          transformMatrixB);
-
+    assert(ldsOffsetA % KPack == 0 &&
+           "LDS buffer segment for A is kpack-aligned");
+    assert(ldsOffsetB % KPack == 0 &&
+           "LDS buffer segment for B is kpack-aligned");
     auto dataType =
         op.matrixA().getType().template cast<MemRefType>().getElementType();
 
     auto MConstantOp = b.create<ConstantIndexOp>(loc, M);
     auto NConstantOp = b.create<ConstantIndexOp>(loc, N);
     auto KConstantOp = b.create<ConstantIndexOp>(loc, K);
+
+    // The address calculations into the LDS buffer assume that the buffer
+    // has type vector<KPack x T>. Then, we convert that into an address
+    // in a buffer of Ts through a final multiplicaiton by KPack.
+    // However, the LDS buffer offset, which was computed when the buffer was
+    // allocated, is an offset into a buffer of T. Therefore, to allow it to
+    // easily participate in adress calculations (instead of adding it on at the
+    // end) we must divide it by KPack here. Fortunately, this offset will be
+    // KPack-alligned and so this is safe
+    Value aBase =
+        b.create<AddIOp>(loc, op.waveOffsetA(),
+                         b.create<ConstantIndexOp>(loc, ldsOffsetA / KPack));
+    Value bBase =
+        b.create<AddIOp>(loc, op.waveOffsetB(),
+                         b.create<ConstantIndexOp>(loc, ldsOffsetB / KPack));
 
     // Logic to do XDLOPS code selection.
     // llvm::errs() << "Invoke XDLOPS code selection logic:\n";
@@ -3168,7 +3180,8 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
       auto outerLoopM = b.create<AffineForOp>(loc, 0, MRepeats);
       auto olmb = OpBuilder::atBlockTerminator(outerLoopM.getBody());
       auto olmiv = outerLoopM.getInductionVar();
-      auto mOffset = olmb.create<MulIOp>(loc, MPerXdlopsConstantOp, olmiv);
+      auto mOffset = olmb.create<AddIOp>(
+          loc, aBase, olmb.create<MulIOp>(loc, MPerXdlopsConstantOp, olmiv));
       auto kOffsetA = olmb.create<MulIOp>(loc, olmiv, KConstantOp);
 
       auto innerLoopMK = olmb.create<AffineForOp>(loc, 0, K);
@@ -3177,30 +3190,15 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
 
       //       a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops * m_i];
       // p_a_wave need to be offseted by waveOffsetA.
-      Value sourceOffsetBeforeTransformA = ilmkb.create<AddIOp>(
-          loc, op.waveOffsetA(),
+      Value sourceOffsetA = ilmkb.create<AddIOp>(
+          loc,
           ilmkb.create<AddIOp>(
-              loc,
-              ilmkb.create<AddIOp>(
-                  loc, ilmkb.create<MulIOp>(loc, ilmkiv, MConstantOp), laneId),
-              mOffset));
+              loc, ilmkb.create<MulIOp>(loc, ilmkiv, MConstantOp), laneId),
+          mOffset);
 
       if (KPack > 1)
-        sourceOffsetBeforeTransformA =
-            ilmkb.create<MulIOp>(loc, sourceOffsetBeforeTransformA,
-                                 ilmkb.create<ConstantIndexOp>(loc, KPack));
-
-      // FIXME: Move this to index diff maps?
-      // Apply coord_transform for matrix A if necessarily.
-      SmallVector<Value, 8> sourceOffsetA;
-      if (transformMatrixA.hasValue() &&
-          !transformMatrixA.getValue().isIdentity())
-        sourceOffsetA =
-            expandAffineMap(ilmkb, loc, transformMatrixA.getValue(),
-                            ValueRange{sourceOffsetBeforeTransformA})
-                .getValue();
-      else
-        sourceOffsetA.push_back(sourceOffsetBeforeTransformA);
+        sourceOffsetA = ilmkb.create<MulIOp>(
+            loc, sourceOffsetA, ilmkb.create<ConstantIndexOp>(loc, KPack));
 
       auto destOffsetA = ilmkb.create<AddIOp>(loc, ilmkiv, kOffsetA);
 
@@ -3228,7 +3226,8 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
       auto outerLoopN = b.create<AffineForOp>(loc, 0, NRepeats);
       auto olnb = OpBuilder::atBlockTerminator(outerLoopN.getBody());
       auto olniv = outerLoopN.getInductionVar();
-      auto nOffset = olnb.create<MulIOp>(loc, NPerXdlopsConstantOp, olniv);
+      auto nOffset = olnb.create<AddIOp>(
+          loc, bBase, olnb.create<MulIOp>(loc, NPerXdlopsConstantOp, olniv));
       auto kOffsetB = olnb.create<MulIOp>(loc, olniv, KConstantOp);
 
       auto innerLoopNK = olnb.create<AffineForOp>(loc, 0, K);
@@ -3237,29 +3236,15 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
 
       //       b[k_i + n_i * K] = p_b_wave[k_i * N + laneId + NPerXdlops * n_i];
       // p_b_wave need to be offseted by waveOffsetB.
-      Value sourceOffsetBeforeTransformB = ilnkb.create<AddIOp>(
-          loc, op.waveOffsetB(),
+      Value sourceOffsetB = ilnkb.create<AddIOp>(
+          loc,
           ilnkb.create<AddIOp>(
-              loc,
-              ilnkb.create<AddIOp>(
-                  loc, ilnkb.create<MulIOp>(loc, ilnkiv, NConstantOp), laneId),
-              nOffset));
+              loc, ilnkb.create<MulIOp>(loc, ilnkiv, NConstantOp), laneId),
+          nOffset);
 
       if (KPack > 1)
-        sourceOffsetBeforeTransformB =
-            ilnkb.create<MulIOp>(loc, sourceOffsetBeforeTransformB,
-                                 ilnkb.create<ConstantIndexOp>(loc, KPack));
-
-      // Apply coord_transform for matrix B if necessarily.
-      SmallVector<Value, 8> sourceOffsetB;
-      if (transformMatrixB.hasValue() &&
-          !transformMatrixB.getValue().isIdentity())
-        sourceOffsetB =
-            expandAffineMap(ilnkb, loc, transformMatrixB.getValue(),
-                            ValueRange{sourceOffsetBeforeTransformB})
-                .getValue();
-      else
-        sourceOffsetB.push_back(sourceOffsetBeforeTransformB);
+        sourceOffsetB = ilnkb.create<MulIOp>(
+            loc, sourceOffsetB, ilnkb.create<ConstantIndexOp>(loc, KPack));
 
       auto destOffsetB = ilnkb.create<AddIOp>(loc, ilnkiv, kOffsetB);
 
@@ -3438,6 +3423,9 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
       auto blk_id = b.create<DivUIOp>(loc, laneId, NumThreadsBlkConstantOp);
       auto blk_td = b.create<RemUIOp>(loc, laneId, NumThreadsBlkConstantOp);
 
+      Value kBaseA = b.create<AddIOp>(loc, aBase, blk_td);
+      Value kBaseB = b.create<AddIOp>(loc, bBase, blk_td);
+
       // Original C++ logic.
       //     // load into registers
       //     for(index_t k_i = 0; k_i < K; k_i += mfma_type.num_input_blks) {
@@ -3463,29 +3451,15 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
       // p_b_wave need to be offseted by waveOffsetB.
 
       // NOTICE: We times k_i by num_input_blks in MLIR path.
-      Value sourceOffsetBeforeTransformA = lklb.create<AddIOp>(
-          loc, op.waveOffsetA(),
-          lklb.create<AddIOp>(
+      Value sourceOffsetA = lklb.create<AddIOp>(
+          loc,
+          lklb.create<MulIOp>(
               loc,
-              lklb.create<MulIOp>(
-                  loc,
-                  lklb.create<AddIOp>(
-                      loc,
-                      lklb.create<MulIOp>(loc, lkliv, NumInputBlksConstantOp),
-                      blk_id),
-                  MConstantOp),
-              blk_td));
-
-      // Apply coord_transform for matrix A if necessarily.
-      SmallVector<Value, 8> sourceOffsetA;
-      if (transformMatrixA.hasValue() &&
-          !transformMatrixA.getValue().isIdentity())
-        sourceOffsetA =
-            expandAffineMap(lklb, loc, transformMatrixA.getValue(),
-                            ValueRange{sourceOffsetBeforeTransformA})
-                .getValue();
-      else
-        sourceOffsetA.push_back(sourceOffsetBeforeTransformA);
+              lklb.create<AddIOp>(
+                  loc, lklb.create<MulIOp>(loc, lkliv, NumInputBlksConstantOp),
+                  blk_id),
+              MConstantOp),
+          kBaseA);
 
       Value valueA;
       if (KPack > 1) {
@@ -3500,29 +3474,15 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
                                    ValueRange{lkliv});
 
       // NOTICE: We times k_i by num_input_blks in MLIR path.
-      Value sourceOffsetBeforeTransformB = lklb.create<AddIOp>(
-          loc, op.waveOffsetB(),
-          lklb.create<AddIOp>(
+      Value sourceOffsetB = lklb.create<AddIOp>(
+          loc,
+          lklb.create<MulIOp>(
               loc,
-              lklb.create<MulIOp>(
-                  loc,
-                  lklb.create<AddIOp>(
-                      loc,
-                      lklb.create<MulIOp>(loc, lkliv, NumInputBlksConstantOp),
-                      blk_id),
-                  NConstantOp),
-              blk_td));
-
-      // Apply coord_transform for matrix B if necessarily.
-      SmallVector<Value, 8> sourceOffsetB;
-      if (transformMatrixB.hasValue() &&
-          !transformMatrixB.getValue().isIdentity())
-        sourceOffsetB =
-            expandAffineMap(lklb, loc, transformMatrixB.getValue(),
-                            ValueRange{sourceOffsetBeforeTransformB})
-                .getValue();
-      else
-        sourceOffsetB.push_back(sourceOffsetBeforeTransformB);
+              lklb.create<AddIOp>(
+                  loc, lklb.create<MulIOp>(loc, lkliv, NumInputBlksConstantOp),
+                  blk_id),
+              NConstantOp),
+          kBaseB);
 
       Value valueB;
       if (KPack > 1) {

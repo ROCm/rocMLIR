@@ -1828,9 +1828,9 @@ struct GridwiseGemmV2RewritePattern
     auto ldsGpuAllocOp = b.create<GpuAllocOp>(loc, ldsMemRefType);
 
     // Subviews for Matrix A.
-    auto ldsBlockAOffset = 0;
+    int64_t ldsBlockAOffset = 0;
 
-    auto ldsBlockASubviewOp = sliceBufferSubview(
+    Value ldsBlockASubviewOp = sliceBufferSubview(
         b, loc, ldsGpuAllocOp, ldsBlockAOffset, ldsBlockASize);
 
     // Get matrix subviews.
@@ -1845,8 +1845,8 @@ struct GridwiseGemmV2RewritePattern
     }
 
     // Subviews for Matrix B.
-    auto ldsBlockBOffset = ldsBlockASize;
-    auto ldsBlockBSubviewOp = sliceBufferSubview(
+    int64_t ldsBlockBOffset = ldsBlockASize;
+    Value ldsBlockBSubviewOp = sliceBufferSubview(
         b, loc, ldsGpuAllocOp, ldsBlockBOffset, ldsBlockBSize);
 
     // Get matrix subviews.
@@ -2166,9 +2166,9 @@ struct GridwiseGemmV2RewritePattern
     // Emit blockwise V2 GEMM.
     // The xdlops gemms take a 1D buffer because reasons
     auto blockwiseGemmV2Op = mfmalb.create<BlockwiseGemmV2Op>(
-        loc, vectorCTypes, ldsBlockASubviewOp, ldsBlockBSubviewOp,
-        noTransformsArray(b, 2), mMyWaveOffsetA, mMyWaveOffsetB, arrayA, arrayB,
-        vectorCs);
+        loc, vectorCTypes, ldsGpuAllocOp, ldsGpuAllocOp,
+        b.getIndexAttr(ldsBlockAOffset), b.getIndexAttr(ldsBlockBOffset),
+        mMyWaveOffsetA, mMyWaveOffsetB, arrayA, arrayB, vectorCs);
     affixBlockwiseGemmV2Attributes(blockwiseGemmV2Op, op, MPerBlock, KPerBlock,
                                    NPerBlock, b);
 
@@ -2219,9 +2219,9 @@ struct GridwiseGemmV2RewritePattern
 
     // Emit blockwise GEMM for the loop tail.
     auto blockwiseGemmV2TailOp = b.create<BlockwiseGemmV2Op>(
-        loc, vectorCTypes, ldsBlockASubviewOp, ldsBlockBSubviewOp,
-        blockwiseGemmV2Op.transforms(), mMyWaveOffsetA, mMyWaveOffsetB, arrayA,
-        arrayB, vectorCs);
+        loc, vectorCTypes, ldsGpuAllocOp, ldsGpuAllocOp,
+        b.getIndexAttr(ldsBlockAOffset), b.getIndexAttr(ldsBlockBOffset),
+        mMyWaveOffsetA, mMyWaveOffsetB, arrayA, arrayB, vectorCs);
     affixBlockwiseGemmV2Attributes(blockwiseGemmV2TailOp, op, MPerBlock,
                                    KPerBlock, NPerBlock, b);
 
