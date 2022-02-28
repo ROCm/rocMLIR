@@ -531,20 +531,6 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// FIXME. XXX.
-// Force the use of affine maps over index maps in the presence of padding on
-// GEMM during threadwise load/store/copy when the gemm is padded due to bugs in
-// the index diff map implementation (or incompletenesses in it?)
-//===----------------------------------------------------------------------===//
-bool overrideLoadStoreHack(const PaddingInfoAttr paddingInfo, bool original) {
-  if (paddingInfo.getExtraM() > 0 || paddingInfo.getExtraK() > 0 ||
-      paddingInfo.getExtraN() > 0) {
-    return true;
-  }
-  return original;
-}
-
-//===----------------------------------------------------------------------===//
 // Utility function to compute sliceLengths for threadwise_copy and
 // threadwise_copy_v2 to determine the bounds of load/store loops.
 //===----------------------------------------------------------------------===//

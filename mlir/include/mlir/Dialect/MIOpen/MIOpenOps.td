@@ -125,7 +125,6 @@ def MIOpen_GridwiseGemmOp :
                    BoolArrayAttr:$aOobDims,
                    BoolArrayAttr:$bOobDims,
                    BoolArrayAttr:$cOobDims,
-                   ArgTransforms<3>:$transforms,
                    MIOpen_PaddingInfoAttr:$paddingInfo)> {
   let summary = "Gridwise GEMM";
   let description = [{
@@ -143,8 +142,6 @@ def MIOpen_GridwiseGemmOp :
       $_state.addAttribute(aOobDimsAttrName($_state.name), aOobDims);
       $_state.addAttribute(bOobDimsAttrName($_state.name), bOobDims);
       $_state.addAttribute(cOobDimsAttrName($_state.name), cOobDims);
-      $_state.addAttribute(transformsAttrName($_state.name),
-        noTransformsArray($_builder, 3));
       $_state.addAttribute(paddingInfoAttrName($_state.name), paddingInfo);
       $_state.addAttributes(extraAttrs);
       $_state.addTypes({});
@@ -161,7 +158,6 @@ def MIOpen_GridwiseGemmV2Op :
                    BoolArrayAttr:$aOobDims,
                    BoolArrayAttr:$bOobDims,
                    BoolArrayAttr:$cOobDims,
-                   ArgTransforms<3>:$transforms,
                    MIOpen_PaddingInfoAttr:$paddingInfo,
                    InMemoryDataOperation:$storeOperation)> {
   let summary = "Gridwise GEMM V2";
@@ -181,8 +177,6 @@ def MIOpen_GridwiseGemmV2Op :
       $_state.addAttribute(aOobDimsAttrName($_state.name), aOobDims);
       $_state.addAttribute(bOobDimsAttrName($_state.name), bOobDims);
       $_state.addAttribute(cOobDimsAttrName($_state.name), cOobDims);
-      $_state.addAttribute(transformsAttrName($_state.name),
-        noTransformsArray($_builder, 3));
       $_state.addAttribute(paddingInfoAttrName($_state.name), paddingInfo);
       $_state.addAttribute(storeOperationAttrName($_state.name),
         $_builder.getI32IntegerAttr(static_cast<uint32_t>(storeOperation)));
@@ -282,6 +276,7 @@ def MIOpen_ExtractSliceOp :
     attr-dict $vector `[` $coord `]` `:` type($vector) `->` type($result)
   }];
   let hasVerifier = 1;
+  let hasCanonicalizeMethod = 1;
 }
 
 // insert_slice
@@ -306,6 +301,7 @@ def MIOpen_InsertSliceOp :
     attr-dict $source `->` $dest `[` $coord `]` `:` type($source) `->` type($dest)
   }];
   let hasVerifier = 1;
+  let hasCanonicalizeMethod = 1;
 }
 
 // yield
@@ -354,13 +350,13 @@ def MIOpen_TransformingForOp :
 
     The loop
     ```mlir
-    %res = miopen.transforming_for (%a1, %a2, %a3) = [#transform_map1](%i0, %j0), (%i, %j) = [](%cst0, %cst0)
+    %res = miopen.transforming_for {forceUnroll, useIndexDiffs} (%a1, %a2, %a3) = [#transform_map1](%i0, %j0), (%i, %j) = [](%cst0, %cst0)
       iter_args(%arg0 = %c0 : index) bounds [4, 8] {
       %v = miopen.buffer_load {...} %place[%a1, %a2, %a3]
       miopen.buffer_store {...} %v -> %buffer[%i, %j]
       %cont = addi %arg0, %c1
       miopen.yield %cont : index
-    } {useIndexDiffs}
+    }
     ```
     will lower to
     ```mlir
@@ -405,19 +401,25 @@ def MIOpen_TransformingForOp :
   }], [{ $_builder.getI32IntegerAttr($_self) }]>;
 
   let skipDefaultBuilders = 1;
-  let builders = [OpBuilder<(ins "ValueRange":$inits,
-    "ArrayAttr":$transforms,
-    "ArrayRef<int64_t>":$bounds, "bool":$forceUnroll, "bool":$useIndexDiffs,
-    CArg<"ValueRange", "llvm::None">:$iterArgs)>,
-
+  let builders = [
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
     "ArrayRef<Attribute>":$transforms,
     "ArrayRef<int64_t>":$bounds, "bool":$forceUnroll, "bool":$useIndexDiffs,
     CArg<"ValueRange", "llvm::None">:$iterArgs)>,
 
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
+    "ArrayRef<Attribute>":$transforms,
+    "ArrayAttr":$bounds, "bool":$forceUnroll, "bool":$useIndexDiffs,
+    CArg<"ValueRange", "llvm::None">:$iterArgs)>,
+
+    OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
     "ArrayAttr":$transforms,
     "ArrayRef<int64_t>":$bounds, "bool":$forceUnroll, "bool":$useIndexDiffs,
+    CArg<"ValueRange", "llvm::None">:$iterArgs)>,
+
+    OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
+    "ArrayAttr":$transforms,
+    "ArrayAttr":$bounds, "bool":$forceUnroll, "bool":$useIndexDiffs,
     CArg<"ValueRange", "llvm::None">:$iterArgs)>];
 
   let extraClassDeclaration = [{
@@ -536,9 +538,9 @@ def MIOpen_BufferStoreOp :
         VectorOfLengthAndType<[4], [I8]>,
         VectorOfLengthAndType<[2, 4], [I32]>]>:$data,
       BoolArrayAttr:$oobDims,
+      Variadic<Index>:$coords,
       OptionalAttr<MIOpen_PaddingInfoAttr>:$paddingInfo,
-      OptionalAttr<InMemoryDataOperation>:$dataOperation,
-      Variadic<Index>:$coords)> {
+      OptionalAttr<InMemoryDataOperation>:$dataOperation)> {
   let summary = "Store data to a global buffer";
 
   let description = [{
@@ -562,74 +564,27 @@ def MIOpen_BufferStoreOp :
   let hasVerifier = 1;
 }
 
-// blockwise_load
-def MIOpen_BlockwiseLoadOp :
-    MIOpen_Op<"blockwise_load">,
-    Arguments<(ins AnyMemRef:$source,
-                  IndexArrayAttr:$bounds,
-                  ArgTransforms<1>:$transforms,
-                  MIOpen_PaddingInfoAttr:$paddingInfo,
-                  BoolArrayAttr:$oobDims,
-                  Variadic<Index>:$sourceCoord)>,
-    Results<(outs Variadic<AnyTypeOf<[F32, F16, BF16, I8,
-                             VectorOfLengthAndType<[2, 4], [F32]>,
-                             VectorOfLengthAndType<[2, 4, 8], [F16]>,
-                             VectorOfLengthAndType<[2, 4, 8], [BF16]>,
-                             VectorOfLengthAndType<[4], [I8]>]>>:$result)> {
-  let summary = "Blockwise GPU data load";
-  let description = [{
-    The `miopen.blockwise_load` op moves data on GPU. Following movements are
-    allowed:
-    - Global (generic tensor) to register (naive tensor).
-  }];
-  let assemblyFormat = [{
-    $source `[` $sourceCoord `]`
-      `with` $transforms attr-dict `:` type(operands)  `->` type(results)
-  }];
-}
-
-// blockwise_store
-def MIOpen_BlockwiseStoreOp:
-    MIOpen_Op<"blockwise_store", [AttrSizedOperandSegments]>,
-    Arguments<(ins AnyMemRef:$dest,
-                  IndexArrayAttr:$bounds,
-                  ArgTransforms<1>:$transforms,
-                  Variadic<AnyTypeOf<[F32, F16, BF16, I8, I32,
-                              VectorOfLengthAndType<[2, 4], [F32]>,
-                              VectorOfLengthAndType<[2, 4, 8], [F16]>,
-                              VectorOfLengthAndType<[2, 4, 8], [BF16]>,
-                              VectorOfLengthAndType<[4], [I8]>]>>:$data,
-                   Variadic<Index>:$destCoord)> {
-  let summary = "Blockwise GPU data store";
-  let description = [{
-    The `miopen.blockwise_store` op moves data on GPU. Following movements are
-    allowed:
-    - Register (naive tensor) to LDS (naive tensor).
-  }];
-  let assemblyFormat = [{
-    $data `->` $dest `[` $destCoord `]` `with` $transforms attr-dict
-    `:` type($data) `->` type($dest) `,` type($destCoord)
-  }];
-}
+// TODO(kdrewnia): Remove these - they're left in to ensure a smooth transition
+// of fusion passes to the transforming_for structure
 
 // threadwise_copy
 def MIOpen_ThreadwiseCopyOp:
     MIOpen_Op<"threadwise_copy", [SameVariadicOperandSize]>,
     Arguments<(ins AnyMemRef:$source,
                    AnyMemRef:$dest,
+                   IndexArrayAttr:$bounds,
                    ArgTransforms<2>:$transforms,
                    MIOpen_PaddingInfoAttr:$paddingInfo,
                    BoolArrayAttr:$oobDims,
-                   IndexAttr:$globalArg,
                    Variadic<Index>:$sourceCoord,
-                   Variadic<Index>:$destCoord)> {
+                   Variadic<Index>:$destCoord,
+                   OptionalAttr<BoolAttr>:$legacyLoad,
+                   OptionalAttr<BoolAttr>:$legacyStore)> {
   let summary = "Threadwise GPU data movement";
   let description = [{
     The `miopen.threadwise_copy` op moves data on GPU. Following movements are
     allowed:
     - Global (generic tensor) to register (naive tensor).
-    - Register (naive tensor) to LDS (naive tensor).
-    - LDS (naive tensor) to register (naive tensor).
     - Register (naive tensor) to global (generic tensor).
   }];
   let assemblyFormat = [{
@@ -638,57 +593,6 @@ def MIOpen_ThreadwiseCopyOp:
     `:` type($source) `,` type($sourceCoord) `->` type($dest) `,` type($destCoord)
   }];
   let verifier = [{ return ::verify(*this); }];
-}
-
-// threadwise_load
-def MIOpen_ThreadwiseLoadOp:
-    MIOpen_Op<"threadwise_load">,
-    Arguments<(ins AnyMemRef:$source,
-                   IndexArrayAttr:$bounds,
-                   ArgTransforms<1>:$transforms,
-                   MIOpen_PaddingInfoAttr:$paddingInfo,
-                   BoolArrayAttr:$oobDims,
-                   Variadic<Index>:$sourceCoord)>,
-    Results<(outs Variadic<AnyTypeOf<[F32, F16, BF16, I8,
-                             VectorOfLengthAndType<[2, 4], [F32]>,
-                             VectorOfLengthAndType<[2, 4, 8], [F16]>,
-                             VectorOfLengthAndType<[2, 4, 8], [BF16]>,
-                             VectorOfLengthAndType<[4], [I8]>]>>:$result)> {
-  let summary = "Threadwise GPU data load";
-  let description = [{
-    The `miopen.threadwise_load` op moves data on GPU. Following movements are
-    allowed:
-    - Global (generic tensor) to register (naive tensor).
-  }];
-  let assemblyFormat = [{
-    $source `[` $sourceCoord `]`
-    `with` $transforms
-    attr-dict `:` type($source) `,` type($sourceCoord) `->` type($result)
-  }];
-}
-
-// threadwise_store
-def MIOpen_ThreadwiseStoreOp:
-    MIOpen_Op<"threadwise_store", [AttrSizedOperandSegments]>,
-    Arguments<(ins AnyMemRef:$dest,
-                   IndexArrayAttr:$bounds,
-                   ArgTransforms<1>:$transforms,
-                   Variadic<AnyTypeOf<[F32, F16, BF16, I8,
-                              VectorOfLengthAndType<[2, 4], [F32]>,
-                              VectorOfLengthAndType<[2, 4, 8], [F16]>,
-                              VectorOfLengthAndType<[2, 4, 8], [BF16]>,
-                              VectorOfLengthAndType<[4], [I8]>]>>:$data,
-                   Variadic<Index>:$destCoord)> {
-  let summary = "Threadwise GPU data store";
-  let description = [{
-    The `miopen.threadwise_store` op moves data on GPU. Following movements are
-    allowed:
-    - Register (naive tensor) to LDS (naive tensor).
-  }];
-  let assemblyFormat = [{
-    $data `->` $dest `[` $destCoord `]` `with` $transforms attr-dict
-    `:` type($data) `->` type($dest) `,` type($destCoord)
-  }];
 }
 
 // threadwise_copy_v2
@@ -701,7 +605,6 @@ def MIOpen_ThreadwiseCopyV2Op:
                    MIOpen_PaddingInfoAttr:$paddingInfo,
                    InMemoryDataOperation:$dataOperation,
                    BoolArrayAttr:$destOobDims,
-                   IndexAttr:$sourceOffset,
                    Variadic<Index>:$sourceCoord,
                    Variadic<Index>:$destCoord)> {
   let summary = "Threadwise GPU data movement XDLOPS version";
@@ -727,7 +630,6 @@ def MIOpen_BlockwiseGemmOp:
     Arguments<(ins MemRefRankOf<[F32, F16, BF16], [3, 4]>:$matrixA,
                    MemRefRankOf<[F32, F16, BF16], [3, 4]>:$matrixB,
                    AnyMemRef:$matrixC,
-                   ArgTransforms<2>:$transforms,
                    Index:$threadOffsetA,
                    Index:$threadOffsetB)> {
   let summary = "Blockwise GEMM non-XDLOPS version";

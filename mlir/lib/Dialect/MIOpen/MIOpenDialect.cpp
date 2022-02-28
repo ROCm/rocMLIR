@@ -383,6 +383,17 @@ template <typename T> static LogicalResult verifyConvOp(T op) {
 //===-----------------------------------------------------===//
 // ExtractSliceOp
 //===-----------------------------------------------------===//
+LogicalResult ExtractSliceOp::canonicalize(ExtractSliceOp op,
+                                           PatternRewriter &b) {
+  // Extracting a vector of the same size as the source is a no-op, since it
+  // has to happen from index 0 to ensure legality
+  if (op.result().getType() == op.vector().getType()) {
+    b.replaceOp(op, op.vector());
+    return success();
+  }
+  return failure();
+}
+
 LogicalResult ExtractSliceOp::verify() {
   if (auto destType = result().getType().dyn_cast<VectorType>()) {
     size_t destSize = destType.getDimSize(0);
@@ -397,6 +408,16 @@ LogicalResult ExtractSliceOp::verify() {
 //===-----------------------------------------------------===//
 // InsertSliceOp
 //===-----------------------------------------------------===//
+LogicalResult InsertSliceOp::canonicalize(InsertSliceOp op,
+                                          PatternRewriter &b) {
+  // Per the in-bounds requirement, storing a slice of the same length as a
+  // vector is just replacing dest with src, so drop the intermedation
+  if (op.source().getType() == op.dest().getType()) {
+    b.replaceOp(op, op.source());
+    return success();
+  }
+  return failure();
+}
 LogicalResult InsertSliceOp::verify() {
   if (auto sourceType = source().getType().dyn_cast<VectorType>()) {
     size_t sourceSize = sourceType.getDimSize(0);
@@ -414,18 +435,19 @@ LogicalResult InsertSliceOp::verify() {
 // TransformingForOp
 //===-----------------------------------------------------===//
 void TransformingForOp::build(OpBuilder &b, OperationState &state,
-                              ValueRange inits, ArrayAttr transforms,
-                              ArrayRef<int64_t> bounds, bool forceUnroll,
-                              bool useIndexDiffs, ValueRange iterArgs) {
-  build(b, state, ArrayRef<ValueRange>(inits), b.getArrayAttr({transforms}),
-        bounds, forceUnroll, useIndexDiffs, iterArgs);
-}
-
-void TransformingForOp::build(OpBuilder &b, OperationState &state,
                               ArrayRef<ValueRange> inits,
                               ArrayRef<Attribute> transforms,
                               ArrayRef<int64_t> bounds, bool forceUnroll,
                               bool useIndexDiffs, ValueRange iterArgs) {
+  build(b, state, inits, b.getArrayAttr(transforms),
+        b.getIndexArrayAttr(bounds), forceUnroll, useIndexDiffs, iterArgs);
+}
+
+void TransformingForOp::build(OpBuilder &b, OperationState &state,
+                              ArrayRef<ValueRange> inits,
+                              ArrayRef<Attribute> transforms, ArrayAttr bounds,
+                              bool forceUnroll, bool useIndexDiffs,
+                              ValueRange iterArgs) {
   build(b, state, inits, b.getArrayAttr(transforms), bounds, forceUnroll,
         useIndexDiffs, iterArgs);
 }
@@ -434,8 +456,16 @@ void TransformingForOp::build(OpBuilder &b, OperationState &state,
                               ArrayRef<ValueRange> inits, ArrayAttr transforms,
                               ArrayRef<int64_t> bounds, bool forceUnroll,
                               bool useIndexDiffs, ValueRange iterArgs) {
+  build(b, state, inits, transforms, b.getIndexArrayAttr(bounds), forceUnroll,
+        useIndexDiffs, iterArgs);
+}
+
+void TransformingForOp::build(OpBuilder &b, OperationState &state,
+                              ArrayRef<ValueRange> inits, ArrayAttr transforms,
+                              ArrayAttr bounds, bool forceUnroll,
+                              bool useIndexDiffs, ValueRange iterArgs) {
   // Set up user-provided attributes
-  state.addAttribute(boundsAttrName(state.name), b.getIndexArrayAttr(bounds));
+  state.addAttribute(boundsAttrName(state.name), bounds);
   state.addAttribute(transformsAttrName(state.name), transforms);
   if (forceUnroll)
     state.addAttribute(forceUnrollAttrName(state.name), b.getUnitAttr());

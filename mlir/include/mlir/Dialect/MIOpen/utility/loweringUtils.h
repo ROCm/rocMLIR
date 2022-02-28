@@ -49,7 +49,8 @@ inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo) {
 
 /// Unwrap a value from the transforms surrounding it, gathering up the
 /// transforms
-Value untransform(OpBuilder &b, Value transformed, ArrayAttr &transforms);
+Value untransform(OpBuilder &b, Value transformed, ArrayAttr &transforms,
+                  ArrayAttr existing = nullptr);
 
 } // end namespace miopen
 } // end namespace mlir

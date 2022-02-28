@@ -10,8 +10,11 @@
 
 namespace mlir {
 namespace miopen {
-Value untransform(OpBuilder &b, Value transformed, ArrayAttr &transforms) {
+Value untransform(OpBuilder &b, Value transformed, ArrayAttr &transforms,
+                  ArrayAttr existing) {
   SmallVector<Attribute> transformList;
+  if (existing)
+    transformList.append(existing.begin(), existing.end());
   Value ret = transformed;
   while (auto transform = dyn_cast_or_null<TransformOp>(ret.getDefiningOp())) {
     llvm::copy(transform.transforms(), std::back_inserter(transformList));
