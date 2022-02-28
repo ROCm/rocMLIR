@@ -215,31 +215,15 @@ public:
     auto bias_mr = operands[2];
     auto resultType = op.getType();
 
-    bool bNCHW = checkNCHW(op);
-    int iExpand = 4, fExpand = 4, oExpand = 4; // kyxc[g], nhwc[g], nhwk[g]
-    if (bNCHW) {
-      iExpand = 1; // k[g]cyx
-      fExpand = 0; // [g]nchw
-      oExpand = 1; // n[g]khw
-    }
-
-    // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
-    auto inputExpanded = expandMemRef(op, input_t, iExpand, rw);
-    auto filterExpanded = expandMemRef(op, filter_t, fExpand, rw);
-
     auto outputType =
         getTypeConverter()->convertType(resultType).cast<MemRefType>();
     Value output = rw.create<memref::AllocOp>(loc, outputType);
 
-    auto outputExpanded = expandMemRef(op, output, oExpand, rw);
+    bool isNCHW = checkNCHW(op);
 
-    auto outputType =
-        getTypeConverter()->convertType(resultType).cast<MemRefType>();
-    Value output = rw.create<memref::AllocOp>(loc, outputType);
-
-    const char *filterLayout = "kgyxc";
-    const char *inputLayout = "gnhwc";
-    const char *outputLayout = "nghwk";
+    const char *filterLayout = isNCHW ? "kcyxg" : "kyxcg";
+    const char *inputLayout  = isNCHW ? "nchwg" : "nhwcg";
+    const char *outputLayout = isNCHW ? "nkhwg" : "nhwkg";
 
     if (failed(makeMIOpenConv2D(rw, op, input, inputLayout, filter,
                                 filterLayout, output, outputLayout, op.pad(),
