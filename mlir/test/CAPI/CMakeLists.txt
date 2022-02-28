@@ -2,6 +2,7 @@ set(LLVM_OPTIONAL_SOURCES
   mixrir.c
   tosa_miir.cpp
   mixr_cobj.cpp
+  mixr_full.c
 )
 
 set(LLVM_LINK_COMPONENTS)
@@ -51,3 +52,16 @@ target_link_libraries(mlir-mixr-full-test
   LLVMX86AsmParser
 )
 
+add_llvm_executable(mlir-mixr-fullc-test
+  mixr_full.c
+  )
+llvm_update_compile_flags(mlir-mixr-fullc-test)
+
+get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
+target_link_libraries(mlir-mixr-fullc-test
+  PRIVATE
+  MLIRCAPIIR
+  MLIRCAPIRegistration
+  MLIRCAPIMIGraphX
+  MLIRCAPIGPU
+)

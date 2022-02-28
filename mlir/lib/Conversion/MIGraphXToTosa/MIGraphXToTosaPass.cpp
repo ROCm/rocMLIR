@@ -32,7 +32,7 @@ struct MIGraphXToTosa : public MIGraphXToTosaBase<MIGraphXToTosa> {
 public:
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<tosa::TosaDialect, migraphx::MIGraphXDialect,
-                    StandardOpsDialect>();
+                    arith::ArithmeticDialect, StandardOpsDialect>();
   }
 
   void runOnOperation() override {
@@ -50,6 +50,8 @@ public:
 
     FuncOp func = getOperation();
     populateWithGenerated(patterns);
+    migraphx::populateMIGraphXToTosaConversionPatterns(func.getContext(),
+                                                       patterns);
 
     if (failed(applyFullConversion(func, target, std::move(patterns)))) {
       signalPassFailure();

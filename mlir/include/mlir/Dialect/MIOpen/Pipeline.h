@@ -31,7 +31,7 @@ void addPipeline(PassManager &pm, bool applicability = false,
 // Compilation pipeline from LLVM to Binary
 void addBackendPipeline(PassManager &pm, const std::string &triple,
                         const std::string &chip, const std::string &features,
-                        int32_t optLevel = 3);
+                        int32_t optLevel = 3, int32_t indexBitWidth = 32);
 
 } // namespace miopen
 } // namespace mlir
