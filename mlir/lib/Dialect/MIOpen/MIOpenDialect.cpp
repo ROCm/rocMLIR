@@ -660,11 +660,11 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
 }
 
 void TransformingForOp::print(OpAsmPrinter &p) {
-  p << " ";
   p.printOptionalAttrDict(getOperation()->getAttrs(), /*elidedAttrs=*/{
                               TransformingForOp::getOperandSegmentSizeAttr(),
                               transformsAttrName(), lowerStartsAttrName(),
                               boundsAttrName()});
+  p << " ";
   for (uint32_t i = 0, e = domains(); i < e; ++i) {
     p << "(";
     p.printOperands(getLowerCoords(i));
@@ -690,7 +690,7 @@ void TransformingForOp::print(OpAsmPrinter &p) {
   p << " bounds [";
   llvm::interleaveComma(bounds().getAsValueRange<IntegerAttr>(), p,
                         [&](llvm::APInt bound) { p << bound; });
-  p << "]";
+  p << "] ";
   p.printRegion(region(), /*printEntryBlockArgs=*/false);
 }
 

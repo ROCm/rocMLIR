@@ -164,8 +164,7 @@ void affixThreadwiseCopyV2Attributes(ThreadwiseCopyV2Op top,
   top->setAttr("upper_vector_read_dim", b.getI32IntegerAttr(vectorGemmDim));
   top->setAttr("vector_read_write_dim",
                gop->getAttr("matrix_c_dest_vector_write_dim"));
-  top->setAttr("source_data_per_read", dataPerCopy);
-  top->setAttr("dest_data_per_write", dataPerCopy);
+  top->setAttr("data_per_copy", dataPerCopy);
 }
 
 //===----------------------------------------------------------------------===//

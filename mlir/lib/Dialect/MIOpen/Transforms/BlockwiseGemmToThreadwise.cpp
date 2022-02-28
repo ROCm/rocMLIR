@@ -589,6 +589,7 @@ struct ThreadwiseCopyV2RewritePattern
     b.create<BufferStoreOp>(loc, cast, dest, op.destOobDims(),
                             loop.getLowerCoords(1), op.paddingInfo(),
                             op.dataOperationAttr());
+    b.eraseOp(op);
     return success();
   }
 };
