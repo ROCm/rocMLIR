@@ -117,7 +117,7 @@ mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
     parser.emitError(typeLoc, "expected a name of a known transform")
             .attachNote()
         << "The transforms are PassThrough, Pad, Slice, Embed, Unmerge, Merge, "
-           "Unfold";
+           "Unfold, AddDim";
     return {};
   }
 
@@ -155,19 +155,27 @@ mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
 
   llvm::SmallVector<std::string> lowerNamesStorage;
   llvm::SmallVector<unsigned> lowerDims;
-  if (parser.parseLSquare() ||
-      parseAndGather<std::string>(parser, lowerNamesStorage,
-                                  [&](std::string &out) -> ParseResult {
-                                    return parser.parseKeywordOrString(&out);
-                                  }) ||
-      parser.parseRSquare() || parser.parseKeyword("at") ||
-      parser.parseLSquare() ||
-      parseAndGather<unsigned>(parser, lowerDims,
-                               [&](unsigned &out) -> ParseResult {
-                                 return parser.parseInteger(out);
-                               }) ||
-      parser.parseRSquare()) {
-    return {};
+  if (*transformType != TransformType::AddDim) {
+    if (parser.parseLSquare() ||
+        parseAndGather<std::string>(parser, lowerNamesStorage,
+                                    [&](std::string &out) -> ParseResult {
+                                      return parser.parseKeywordOrString(&out);
+                                    }) ||
+        parser.parseRSquare() || parser.parseKeyword("at") ||
+        parser.parseLSquare() ||
+        parseAndGather<unsigned>(parser, lowerDims,
+                                 [&](unsigned &out) -> ParseResult {
+                                   return parser.parseInteger(out);
+                                 }) ||
+        parser.parseRSquare()) {
+      return {};
+    }
+  } else {
+    if (parser.parseLSquare() || parser.parseRSquare() ||
+        parser.parseKeyword("at") || parser.parseLSquare() ||
+        parser.parseRSquare()) {
+      return {};
+    }
   }
 
   if (parser.parseGreater()) {
