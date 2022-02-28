@@ -40,15 +40,6 @@ set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
 # LLVM settings that have an effect on the MLIR dialect
 set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
 
-# Build the ROCm conversions and run according tests if the AMDGPU backend
-# is available
-if ("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD)
-  set(MLIR_ROCM_CONVERSIONS_ENABLED 1)
-else()
-  set(MLIR_ROCM_CONVERSIONS_ENABLED 0)
-endif()
-add_definitions(-DMLIR_ROCM_CONVERSIONS_ENABLED=${MLIR_ROCM_CONVERSIONS_ENABLED})
-
 # Pointers to: 1) external LLVM bins/libs, and 2) MIOpen Dialect bins/libs
 set(LLVM_MAIN_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/llvm-project/llvm" CACHE PATH "Path to LLVM sources")
 set(LLVM_EXTERNAL_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/external/llvm-project/llvm/bin" CACHE PATH "")
@@ -74,17 +65,13 @@ endif()
 if( BUILD_FAT_LIBMLIRMIOPEN )
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
   set(LLVM_BUILD_LLVM_DYLIB OFF CACHE BOOL "")
-  # TODO remove
-  # This is a temporary fix because MLIRGPUTransforms has to
-  # compile with MLIR_GPU_TO_HSACO_PASS_ENABLE=1, which is
-  # enabled only when MLIR_ENABLE_ROCM_RUNNER turned on
-  set(MLIR_ENABLE_ROCM_RUNNER 1 CACHE BOOL "")
+  # rocm-runner is not supported with static libraries
+  set(MLIR_ENABLE_ROCM_RUNNER 0 CACHE BOOL "")
   set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE STRING "")
 else()
   set(BUILD_SHARED_LIBS ON CACHE BOOL "")
   set(LLVM_BUILD_LLVM_DYLIB ON CACHE BOOL "")
   set(LLVM_BUILD_EXAMPLES ON CACHE BOOL "")
-  set(MLIR_ROCM_RUNNER_ENABLED 1 CACHE BOOL "")
   set(MLIR_ENABLE_ROCM_RUNNER 1 CACHE BOOL "")
 endif()
 
