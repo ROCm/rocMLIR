@@ -31,6 +31,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BlockAndValueMapping.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -106,11 +107,11 @@ ArrayAttr makeLinearDomain(OpBuilder &b, Location loc,
   SmallVector<int64_t> strides;
   strides.reserve(nDims);
   int64_t stride = 1;
-  for (auto pair : llvm::reverse(llvm::enumerate(sliceLengths))) {
+  for (size_t e = sliceLengths.size(), i = e - 1; i < e; --i) {
     strides.push_back(stride);
-    stride *= pair.value();
+    stride *= sliceLengths[i];
     SmallString<4> dimName;
-    ("dim" + Twine(pair.index())).toVector(dimName);
+    ("dim" + Twine(i)).toVector(dimName);
     dimNames.push_back(std::move(dimName));
   }
   std::reverse(dimNames.begin(), dimNames.end());
@@ -187,16 +188,16 @@ TransformingForOp createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
   Value dest = createZeroConstantOp(b, loc, resultType);
   auto loop = b.create<TransformingForOp>(
       loc, ArrayRef<ValueRange>{globalStart, linearInit},
-      ArrayRef<Attribute>{globalTransforms, linearDomain}, /*forceUnroll=*/true,
-      useIndexDiffs, dest);
+      ArrayRef<Attribute>{globalTransforms, linearDomain}, bounds,
+      /*forceUnroll=*/true, useIndexDiffs, dest);
   OpBuilder::InsertionGuard guard(b);
   b.setInsertionPointToStart(loop.getBody());
-  Value loaded =
-      b.create<BufferLoadOp>(loc, global, oobDims, loop.getLowerCoords(0));
+  Value loaded = b.create<BufferLoadOp>(loc, loadType, global, oobDims,
+                                        loop.getLowerCoords(0));
   Value toYield = loaded;
   if (!fullyScalar) {
     Value loopArg = loop.getIterArgs()[0];
-    toYield = b.create<InsertSliceOp>(loc, loaded, loopArg,
+    toYield = b.create<InsertSliceOp>(loc, loopArg.getType(), loaded, loopArg,
                                       loop.getLowerCoords(1)[0]);
   }
   b.create<miopen::YieldOp>(loc, toYield);
@@ -219,8 +220,8 @@ TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
 
   auto loop = b.create<TransformingForOp>(
       loc, ArrayRef<ValueRange>{linearInit, bufferStart},
-      ArrayRef<Attribute>{linearDomain, bufferTransforms}, /*forceUnroll=*/true,
-      /*useIndexDiffs=*/true);
+      ArrayRef<Attribute>{linearDomain, bufferTransforms}, bounds,
+      /*forceUnroll=*/true, /*useIndexDiffs=*/true);
   OpBuilder::InsertionGuard guard(b);
   b.setInsertionPointToStart(loop.getBody());
   Value toStore = loaded;
@@ -1081,7 +1082,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       blockwiseLoadACoords = {GemmBlockCoord_G, GemmABlockCopySourceCoord_Y,
                               GemmABlockCopySourceCoord_X};
     }
-    // Emit blockwise_load for matrix A.
+    // Emit blockwise load for matrix A.
     TransformingForOp blockwiseLoadA = createGlobalLoadLoop(
         b, loc, op.a(), aLoadIntermediate, aLoadType, aLoadBounds,
         linearTransformA, op.aOobDims(), blockwiseLoadACoords, useIndexDiffs);
@@ -1094,7 +1095,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       blockwiseStoreACoords = {zeroConstantOp, GemmABlockCopyDestCoord_Y,
                                GemmABlockCopyDestCoord_X};
     }
-    // Emit blockwise_store for matrix A.
+    // Emit blockwise store for matrix A.
     TransformingForOp blockwiseStoreA = createLdsStoreLoop(
         b, loc, blockwiseLoadA.getResult(0), ldsMatrixASubviewOp, aStoreType,
         aStoreBounds, linearTransformA, blockwiseStoreACoords);
@@ -1108,10 +1109,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       blockwiseLoadBCoords = {GemmBlockCoord_G, GemmBBlockCopySourceCoord_Y,
                               GemmBBlockCopySourceCoord_X};
     }
-    // Emit blockwise_load for matrix B.
+    // Emit blockwise load for matrix B.
     TransformingForOp blockwiseLoadB = createGlobalLoadLoop(
         b, loc, op.b(), bLoadIntermediate, bLoadType, bLoadBounds,
         linearTransformB, op.bOobDims(), blockwiseLoadBCoords, useIndexDiffs);
+
     SmallVector<Value, 4> blockwiseStoreBCoords;
     if (KPack > 1) {
       blockwiseStoreBCoords = {zeroConstantOp, GemmBBlockCopyDestCoord_Z,
@@ -1121,7 +1123,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       blockwiseStoreBCoords = {zeroConstantOp, GemmBBlockCopyDestCoord_Y,
                                GemmBBlockCopyDestCoord_X};
     }
-    // Emit blockwise_store for matrix B.
+    // Emit blockwise store for matrix B.
     TransformingForOp blockwiseStoreB = createLdsStoreLoop(
         b, loc, blockwiseLoadB.getResult(0), ldsMatrixBSubviewOp, bStoreType,
         bStoreBounds, linearTransformB, blockwiseStoreBCoords);
@@ -1159,14 +1161,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Blockwise copy from global (generic tensor) to register (naive tensor).
     const auto &args = loopOp.getRegionIterArgs();
-    // Emit blockwise_load for matrix A.
+    // Emit blockwise load for matrix A.
     Value blockwiseCopyASrcUpdated =
         lb.create<AddIOp>(loc, args[0], KPerBlockConstantOp);
     BlockAndValueMapping loadAUpdates;
     loadAUpdates.map(blockwiseLoadACoords[1], blockwiseCopyASrcUpdated);
     lb.clone(*blockwiseLoadA.getOperation(), loadAUpdates);
 
-    // Emit blockwise_load for matrix B.
+    // Emit blockwise load for matrix B.
     BlockAndValueMapping loadBUpdates;
     Value blockwiseCopyBSrcUpdated =
         lb.create<AddIOp>(loc, args[1], KPerBlockConstantOp);
@@ -1174,7 +1176,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     lb.clone(*blockwiseLoadB.getOperation(), loadBUpdates);
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
 
-    // Emit blockwise_stores
+    // Emit blockwise stores
     BlockAndValueMapping storeAUpdates, storeBUpdates;
     lb.clone(*blockwiseStoreA.getOperation(), storeAUpdates);
     lb.clone(*blockwiseStoreB.getOperation(), storeBUpdates);
@@ -1251,9 +1253,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     auto threadwiseCopyCMatrixOp = b.create<ThreadwiseCopyOp>(
         loc, registerCTransformed, cTransformed,
         b.getIndexArrayAttr(copyBounds),
-        b.getArrayAttr({noTransforms, b.getArrayAttr({})}), op.paddingInfo(),
-        op.cOobDims(), b.getIndexAttr(1), matrixCThreadwiseCopySourceCoords,
-        matrixCThreadwiseCopyDestCoords);
+        b.getArrayAttr({noTransforms, noTransforms}), op.paddingInfo(),
+        op.cOobDims(), matrixCThreadwiseCopySourceCoords,
+        matrixCThreadwiseCopyDestCoords,
+        /*legacyLoad=*/nullptr, /*legacyStore=*/nullptr);
     affixThreadwiseCopyAttributes(threadwiseCopyCMatrixOp, op, b);
 
     op.erase();
@@ -1392,10 +1395,6 @@ struct GridwiseGemmV2RewritePattern
              << " B[2] = " << N << " C[2] = " << cShape[2];
     }
 
-    Attribute aTransforms = op.transforms()[0];
-    Attribute bTransforms = op.transforms()[1];
-    Attribute cTransforms = op.transforms()[2];
-
     // Obtain critical tuning parameters.
     int64_t KPack =
         op->hasAttr("kpack")
@@ -1426,6 +1425,14 @@ struct GridwiseGemmV2RewritePattern
         op->getAttr("matrix_b_source_vector_read_dim")
             .template cast<IntegerAttr>()
             .getInt());
+    int64_t matrix_a_dest_data_per_write_dim_m =
+        op->getAttr("matrix_a_dest_data_per_write_dim_m")
+            .template cast<IntegerAttr>()
+            .getInt();
+    int64_t matrix_b_dest_data_per_write_dim_n =
+        op->getAttr("matrix_b_dest_data_per_write_dim_n")
+            .template cast<IntegerAttr>()
+            .getInt();
 
     // Obtain XDLOPS-related attributes.
     int64_t MPerWave =
@@ -1441,6 +1448,15 @@ struct GridwiseGemmV2RewritePattern
 
     int64_t WaveSize = 64;
     auto waveSizeConstantOp = b.create<ConstantIndexOp>(loc, WaveSize);
+
+    PaddingInfoAttr paddingInfo = op.paddingInfo();
+    // TODO(whchung): Determine the conditions for legacy load/store more
+    // precisely.
+
+    // Due to a partially-resolved compiler issue, when we had to pad out the
+    // gemm so it'd evenly fit into the GPU's grid, the index diff map approach
+    // yields incorrect results.
+    bool useIndexDiffs = !paddingInfo.hasPadding();
 
     // Get current workgroup ID.
     auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());
@@ -1904,26 +1920,30 @@ struct GridwiseGemmV2RewritePattern
                                                  {1, KPerBlock, NPerBlock});
     }
 
-    ArrayAttr noTransforms1 = noTransformsArray(b, 1);
+    ArrayAttr noTransforms = b.getArrayAttr({});
     // -----
 
     // Determine vector / scalar load type for Matrix A / B.
-    ArrayAttr blockwiseCopyABounds;
+    SmallVector<int64_t, 4> blockwiseCopyABounds;
     if (KPack > 1) {
-      blockwiseCopyABounds =
-          b.getIndexArrayAttr({1, GemmABlockCopyThreadSliceLengths_GemmK,
-                               GemmABlockCopyThreadSliceLengths_GemmM,
-                               GemmABlockCopyThreadSliceLengths_GemmKPack});
+      blockwiseCopyABounds = {1, GemmABlockCopyThreadSliceLengths_GemmK,
+                              GemmABlockCopyThreadSliceLengths_GemmM,
+                              GemmABlockCopyThreadSliceLengths_GemmKPack};
     } else {
-      blockwiseCopyABounds =
-          b.getIndexArrayAttr({1, GemmABlockCopyThreadSliceLengths_GemmK,
-                               GemmABlockCopyThreadSliceLengths_GemmM});
+      blockwiseCopyABounds = {1, GemmABlockCopyThreadSliceLengths_GemmK,
+                              GemmABlockCopyThreadSliceLengths_GemmM};
     }
-    Type blockwiseLoadAType;
-    SmallVector<Type, 8> blockwiseLoadATypes;
-    int blockwiseAVectorDim;
-    int blockwiseLoadAVectorLength;
-    int blockwiseStoreAVectorLength;
+
+    int blockwiseVectorDimA = matrix_a_source_vector_read_dim;
+    int blockwiseLoadVectorLenA = matrix_a_source_data_per_read;
+    int blockwiseStoreVectorLenA = matrix_a_dest_data_per_write_dim_m;
+    Type aLoadIntermediate, aLoadType, aStoreType;
+    ArrayAttr aLoadBounds, aStoreBounds;
+    computeLoadStoreTypeInfo(
+        b, op, blockwiseCopyABounds, blockwiseLoadVectorLenA,
+        blockwiseStoreVectorLenA, blockwiseVectorDimA, KPack, elementType,
+        aLoadBounds, aLoadType, aLoadIntermediate, aStoreBounds, aStoreType);
+    ArrayAttr linearTransformA = makeLinearDomain(b, loc, blockwiseCopyABounds);
 
     // llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmK: "
     //              << GemmABlockCopyThreadSliceLengths_GemmK << "\n";
@@ -1936,33 +1956,20 @@ struct GridwiseGemmV2RewritePattern
     //   llvm::errs() << v << " ";
     // llvm::errs() << "\n";
 
-    std::tie(blockwiseLoadAType, blockwiseAVectorDim,
-             blockwiseLoadAVectorLength, blockwiseStoreAVectorLength) =
-        computeLoadStoreTypeInfo(b, op, elementType, blockwiseLoadATypes,
-                                 blockwiseCopyABounds, true, KPack);
-
     // llvm::errs() << "vector load dim: " << blockwiseAVectorDim << "\n";
     // llvm::errs() << "element type: " << blockwiseLoadAType << "\n";
     // llvm::errs() << "load size: " << blockwiseLoadAVectorLength << "\n";
     // llvm::errs() << "store size: " << blockwiseStoreAVectorLength << "\n";
 
-    ArrayAttr blockwiseCopyBBounds;
+    SmallVector<int64_t, 4> blockwiseCopyBBounds;
     if (KPack > 1) {
-      blockwiseCopyBBounds =
-          b.getIndexArrayAttr({1, GemmBBlockCopyThreadSliceLengths_GemmK,
-                               GemmBBlockCopyThreadSliceLengths_GemmN,
-                               GemmBBlockCopyThreadSliceLengths_GemmKPack});
+      blockwiseCopyBBounds = {1, GemmBBlockCopyThreadSliceLengths_GemmK,
+                              GemmBBlockCopyThreadSliceLengths_GemmN,
+                              GemmBBlockCopyThreadSliceLengths_GemmKPack};
     } else {
-      blockwiseCopyBBounds =
-          b.getIndexArrayAttr({1, GemmBBlockCopyThreadSliceLengths_GemmK,
-                               GemmBBlockCopyThreadSliceLengths_GemmN});
+      blockwiseCopyBBounds = {1, GemmBBlockCopyThreadSliceLengths_GemmK,
+                              GemmBBlockCopyThreadSliceLengths_GemmN};
     }
-    Type blockwiseLoadBType;
-    SmallVector<Type, 8> blockwiseLoadBTypes;
-    int blockwiseBVectorDim;
-    int blockwiseLoadBVectorLength;
-    int blockwiseStoreBVectorLength;
-
     // llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmK: "
     //              << GemmBBlockCopyThreadSliceLengths_GemmK << "\n";
     // llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmN: "
@@ -1974,10 +1981,16 @@ struct GridwiseGemmV2RewritePattern
     //   llvm::errs() << v << " ";
     // llvm::errs() << "\n";
 
-    std::tie(blockwiseLoadBType, blockwiseBVectorDim,
-             blockwiseLoadBVectorLength, blockwiseStoreBVectorLength) =
-        computeLoadStoreTypeInfo(b, op, elementType, blockwiseLoadBTypes,
-                                 blockwiseCopyBBounds, false, KPack);
+    int blockwiseVectorDimB = matrix_b_source_vector_read_dim;
+    int blockwiseLoadVectorLenB = matrix_b_source_data_per_read;
+    int blockwiseStoreVectorLenB = matrix_b_dest_data_per_write_dim_n;
+    Type bLoadIntermediate, bLoadType, bStoreType;
+    ArrayAttr bLoadBounds, bStoreBounds;
+    computeLoadStoreTypeInfo(
+        b, op, blockwiseCopyBBounds, blockwiseLoadVectorLenB,
+        blockwiseStoreVectorLenB, blockwiseVectorDimB, KPack, elementType,
+        bLoadBounds, bLoadType, bLoadIntermediate, bStoreBounds, bStoreType);
+    ArrayAttr linearTransformB = makeLinearDomain(b, loc, blockwiseCopyBBounds);
 
     // llvm::errs() << "vector load dim: " << blockwiseBVectorDim << "\n";
     // llvm::errs() << "element type: " << blockwiseLoadBType << "\n";
@@ -2004,16 +2017,10 @@ struct GridwiseGemmV2RewritePattern
       blockwiseLoadACoords = {GemmBlockCoord_G, GemmABlockCopySourceCoord_Y,
                               GemmABlockCopySourceCoord_X};
     }
-    // Emit blockwise_load for matrix A.
-    auto blockwiseLoadA = b.create<BlockwiseLoadOp>(
-        loc, blockwiseLoadATypes, op.a(), blockwiseCopyABounds,
-        b.getArrayAttr({aTransforms}), op.paddingInfo(), op.aOobDims(),
-        blockwiseLoadACoords);
-    affixBlockwiseCopyAttributes(
-        blockwiseLoadA, op, b, /*vectorDim=*/blockwiseAVectorDim,
-        /*blockwiseLoadLength=*/blockwiseLoadAVectorLength,
-        /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
-
+    // Emit blockwise load for matrix A.
+    TransformingForOp blockwiseLoadA = createGlobalLoadLoop(
+        b, loc, op.a(), aLoadIntermediate, aLoadType, aLoadBounds,
+        linearTransformA, op.aOobDims(), blockwiseLoadACoords, useIndexDiffs);
     SmallVector<Value, 4> blockwiseStoreACoords;
     if (KPack > 1) {
       blockwiseStoreACoords = {zeroConstantOp, GemmABlockCopyDestCoord_Z,
@@ -2023,14 +2030,10 @@ struct GridwiseGemmV2RewritePattern
       blockwiseStoreACoords = {zeroConstantOp, GemmABlockCopyDestCoord_Y,
                                GemmABlockCopyDestCoord_X};
     }
-    // Emit blockwise_store for matrix A.
-    auto blockwiseStoreA = b.create<BlockwiseStoreOp>(
-        loc, ldsMatrixASubviewOp, blockwiseCopyABounds, noTransforms1,
-        blockwiseLoadA.getResults(), blockwiseStoreACoords);
-    affixBlockwiseCopyAttributes(
-        blockwiseStoreA, op, b, /*vectorDim=*/blockwiseAVectorDim,
-        /*blockwiseLoadLength=*/blockwiseLoadAVectorLength,
-        /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
+    // Emit blockwise store for matrix A.
+    TransformingForOp blockwiseStoreA = createLdsStoreLoop(
+        b, loc, blockwiseLoadA.getResult(0), ldsMatrixASubviewOp, aStoreType,
+        aStoreBounds, linearTransformA, blockwiseStoreACoords);
 
     SmallVector<Value, 4> blockwiseLoadBCoords;
     if (KPack > 1) {
@@ -2041,15 +2044,11 @@ struct GridwiseGemmV2RewritePattern
       blockwiseLoadBCoords = {GemmBlockCoord_G, GemmBBlockCopySourceCoord_Y,
                               GemmBBlockCopySourceCoord_X};
     }
-    // Emit blockwise_load for matrix B.
-    auto blockwiseLoadB = b.create<BlockwiseLoadOp>(
-        loc, blockwiseLoadBTypes, op.b(), blockwiseCopyBBounds,
-        b.getArrayAttr({bTransforms}), op.paddingInfo(), op.bOobDims(),
-        blockwiseLoadBCoords);
-    affixBlockwiseCopyAttributes(
-        blockwiseLoadB, op, b, /*vectorDim=*/blockwiseBVectorDim,
-        /*blockwiseLoadLength=*/blockwiseLoadBVectorLength,
-        /*blockwiseStoreLength=*/blockwiseStoreBVectorLength);
+    // Emit blockwise_load for matrix B.        // Emit blockwise load for
+    // matrix B.
+    TransformingForOp blockwiseLoadB = createGlobalLoadLoop(
+        b, loc, op.b(), bLoadIntermediate, bLoadType, bLoadBounds,
+        linearTransformB, op.bOobDims(), blockwiseLoadBCoords, useIndexDiffs);
 
     SmallVector<Value, 4> blockwiseStoreBCoords;
     if (KPack > 1) {
@@ -2061,13 +2060,9 @@ struct GridwiseGemmV2RewritePattern
                                GemmBBlockCopyDestCoord_X};
     }
     // Emit blockwise_store for matrix B.
-    auto blockwiseStoreB = b.create<BlockwiseStoreOp>(
-        loc, ldsMatrixBSubviewOp, blockwiseCopyBBounds, noTransforms1,
-        blockwiseLoadB.getResults(), blockwiseStoreBCoords);
-    affixBlockwiseCopyAttributes(
-        blockwiseStoreB, op, b, /*vectorDim=*/blockwiseBVectorDim,
-        /*blockwiseLoadLength=*/blockwiseLoadBVectorLength,
-        /*blockwiseStoreLength=*/blockwiseStoreBVectorLength);
+    TransformingForOp blockwiseStoreB = createLdsStoreLoop(
+        b, loc, blockwiseLoadB.getResult(0), ldsMatrixBSubviewOp, bStoreType,
+        bStoreBounds, linearTransformB, blockwiseStoreBCoords);
 
     // -----
 
@@ -2163,8 +2158,8 @@ struct GridwiseGemmV2RewritePattern
     // 0: blockwise copy A src y coordinate.
     // 1: blockwise copy B src y coordinate.
     // 2-x : vectorCs.
-    SmallVector<Value, 6> iterArgs = {blockwiseLoadA.sourceCoord()[1],
-                                      blockwiseLoadB.sourceCoord()[1]};
+    SmallVector<Value, 6> iterArgs = {blockwiseLoadACoords[1],
+                                      blockwiseLoadBCoords[1]};
     iterArgs.append(vectorCs);
 
     auto mfmaLoopOp = b.create<AffineForOp>(loc, 0, loopIteration, 1, iterArgs);
@@ -2179,29 +2174,16 @@ struct GridwiseGemmV2RewritePattern
     // Blockwise copy from global (generic tensor) to register (naive tensor).
     Value blockwiseCopyASrcUpdated =
         mfmalb.create<AddIOp>(loc, mfmalArgs[0], KPerBlockConstantOp);
-    blockwiseLoadACoords[1] = blockwiseCopyASrcUpdated;
-    // Emit blockwise_load for matrix A.
-    auto blockwiseLoadATop = mfmalb.create<BlockwiseLoadOp>(
-        loc, blockwiseLoadATypes, op.a(), blockwiseLoadA.bounds(),
-        blockwiseLoadA.transforms(), blockwiseLoadA.paddingInfo(),
-        blockwiseLoadA.oobDims(), blockwiseLoadACoords);
-    affixBlockwiseCopyAttributes(
-        blockwiseLoadATop, op, b, /*vectorDim=*/blockwiseAVectorDim,
-        /*blockwiseLoadLength=*/blockwiseLoadAVectorLength,
-        /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
+    BlockAndValueMapping loadAUpdates;
+    loadAUpdates.map(blockwiseLoadACoords[1], blockwiseCopyASrcUpdated);
+    mfmalb.clone(*blockwiseLoadA.getOperation(), loadAUpdates);
 
+    // Emit blockwise load for matrix B.
+    BlockAndValueMapping loadBUpdates;
     Value blockwiseCopyBSrcUpdated =
         mfmalb.create<AddIOp>(loc, mfmalArgs[1], KPerBlockConstantOp);
-    blockwiseLoadBCoords[1] = blockwiseCopyBSrcUpdated;
-    // Emit blockwise_load for matrix B.
-    auto blockwiseLoadBTop = mfmalb.create<BlockwiseLoadOp>(
-        loc, blockwiseLoadBTypes, op.b(), blockwiseLoadB.bounds(),
-        blockwiseLoadB.transforms(), blockwiseLoadB.paddingInfo(),
-        blockwiseLoadB.oobDims(), blockwiseLoadBCoords);
-    affixBlockwiseCopyAttributes(
-        blockwiseLoadBTop, op, b, /*vectorDim=*/blockwiseBVectorDim,
-        /*blockwiseLoadLength=*/blockwiseLoadBVectorLength,
-        /*blockwiseStoreLength=*/blockwiseStoreBVectorLength);
+    loadBUpdates.map(blockwiseLoadBCoords[1], blockwiseCopyBSrcUpdated);
+    mfmalb.clone(*blockwiseLoadB.getOperation(), loadBUpdates);
 
     // LDS barrier : guarantees LDS update completion before reading out to
     // register. requires LDS fence + barrier.
@@ -2221,24 +2203,10 @@ struct GridwiseGemmV2RewritePattern
     mfmalb.create<LDSBarrierOp>(loc);
 
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
-    // Emit blockwise_store for matrix A.
-    auto blockwiseStoreABottom = mfmalb.create<BlockwiseStoreOp>(
-        loc, ldsMatrixASubviewOp, blockwiseStoreA.bounds(),
-        blockwiseStoreA.transforms(), blockwiseLoadATop.getResults(),
-        blockwiseStoreA.destCoord());
-    affixBlockwiseCopyAttributes(
-        blockwiseStoreABottom, op, b, /*vectorDim=*/blockwiseAVectorDim,
-        /*blockwiseLoadLength=*/blockwiseLoadAVectorLength,
-        /*blockwiseStoreLength=*/blockwiseStoreAVectorLength);
-    // Emit blockwise_store for matrix B.
-    auto blockwiseStoreBBottom = mfmalb.create<BlockwiseStoreOp>(
-        loc, ldsMatrixBSubviewOp, blockwiseStoreB.bounds(),
-        blockwiseStoreB.transforms(), blockwiseLoadBTop.getResults(),
-        blockwiseStoreB.destCoord());
-    affixBlockwiseCopyAttributes(
-        blockwiseStoreBBottom, op, b, /*vectorDim=*/blockwiseBVectorDim,
-        /*blockwiseLoadLength=*/blockwiseLoadBVectorLength,
-        /*blockwiseStoreLength=*/blockwiseStoreBVectorLength);
+    // Emit blockwise stores
+    BlockAndValueMapping storeAUpdates, storeBUpdates;
+    mfmalb.clone(*blockwiseStoreA.getOperation(), storeAUpdates);
+    mfmalb.clone(*blockwiseStoreB.getOperation(), storeBUpdates);
 
     // Update iter args.
     // blockwiseCopyASrcVector and blockwiseCopyBSrcVector are updated.
@@ -2295,6 +2263,8 @@ struct GridwiseGemmV2RewritePattern
 
     int64_t iterationsPerVectorC = NumBlks / vectorNumber;
     int64_t vectorCoffset = vectorType.getShape()[0] / iterationsPerVectorC;
+    VectorType vectorCSliceType =
+        VectorType::get({vectorCoffset}, vectorType.getElementType());
 
     // llvm::errs() << "MPerXlops: " << MPerXdlops << "\n";
     // llvm::errs() << "NPerXlops: " << NPerXdlops << "\n";
@@ -2361,10 +2331,23 @@ struct GridwiseGemmV2RewritePattern
          (NPerWave % swizzleGroup == 0));
     const auto &tailResults = blockwiseGemmV2TailOp->getResults();
 
+    // Slice up vectors here to make it clearer that each store loop
+    // deals with a distinct set of values.
     TransformMapAttr splitCTransformAttr, cVectorAccessTransformAttr;
     ArrayAttr copyBounds;
     llvm::SmallVector<Value, 4> vectors;
-    vectors.reserve(tailResults.size());
+    vectors.reserve(tailResults.size() * iterationsPerVectorC);
+
+    for (const Value &result : tailResults) {
+      for (int64_t i = 0; i < iterationsPerVectorC; ++i) {
+        Value sliceStart =
+            b.createOrFold<ConstantIndexOp>(loc, vectorCoffset * i);
+        Value slice =
+            b.create<ExtractSliceOp>(loc, vectorCSliceType, result, sliceStart);
+        vectors.push_back(slice);
+      }
+    }
+
     if (enableOutSwizzles) {
       // The swizzle operation doesn't fundamentally affect the mapping
       // of "expanded GEMM" (G x M0 X M1 X M2 X N) to GEMM (G X M X N)
@@ -2404,11 +2387,12 @@ struct GridwiseGemmV2RewritePattern
       copyBounds = b.getIndexArrayAttr({1, M3, 1, 1, 1, N1});
 
       // Actually perform the swizzles
-      for (const Value &result : tailResults) {
+      for (size_t i = 0, e = vectors.size(); i < e; ++i) {
+        Value result = vectors[i];
         auto swizzle = b.create<InWarpTransposeOp>(
             loc, result.getType(), result, laneId_xdlops_gemm,
             b.getI32IntegerAttr(group_size), b.getI32ArrayAttr({0, 1, 2, 3}));
-        vectors.push_back(swizzle);
+        vectors[i] = swizzle;
       }
     } else {
       // build affine expression: d0 = g
@@ -2432,17 +2416,13 @@ struct GridwiseGemmV2RewritePattern
       cVectorAccessTransformAttr = cVectorAccessTransform.get();
 
       copyBounds = b.getIndexArrayAttr({1, M3, 1, M2, 1});
-
-      // No swizzles means we keep the original results
-      std::copy(tailResults.begin(), tailResults.end(),
-                std::back_inserter(vectors));
     }
     Value cTransformed =
         b.create<TransformOp>(loc, op.c(), splitCTransformAttr);
     // The transform for the destination memref will be copied in
     // by TransformOp lowering
     llvm::SmallVector<Attribute, 2> threadwiseCopyV2Transforms = {
-        b.getArrayAttr({cVectorAccessTransformAttr}), cTransforms};
+        b.getArrayAttr({cVectorAccessTransformAttr}), noTransforms};
     ArrayAttr threadwiseCopyV2ArgTransform =
         b.getArrayAttr(threadwiseCopyV2Transforms);
 
@@ -2665,19 +2645,16 @@ struct GridwiseGemmV2RewritePattern
              // n_thread_data_on_global
              n_thread_data_on_global});
       }
-      // Select which vector C to use, and offset.
-      int64_t vectorCIndex = iter / iterationsPerVectorC;
-      int64_t vectorCOffset = vectorCoffset * (iter % iterationsPerVectorC);
-      auto vectorCOffsetConstantAttr = b.getIndexAttr(vectorCOffset);
-
       // Emit threadwise_copy_v2.
       auto threadwiseCopyV2CMatrixOp = b.create<ThreadwiseCopyV2Op>(
-          loc, vectors[vectorCIndex], cTransformed, copyBounds,
+          loc, vectors[iter], cTransformed, copyBounds,
           threadwiseCopyV2ArgTransform, op.paddingInfo(),
-          op.storeOperationAttr(), op.cOobDims(), vectorCOffsetConstantAttr,
+          op.storeOperationAttr(), op.cOobDims(),
           matrixCThreadwiseCopySourceCoords, matrixCThreadwiseCopyDestCoords);
+      bool canOob = llvm::any_of(op.cOobDims().getAsValueRange<BoolAttr>(),
+                                 [](const bool &v) -> bool { return v; });
       affixThreadwiseCopyV2Attributes(threadwiseCopyV2CMatrixOp, op, b,
-                                      enableOutSwizzles);
+                                      enableOutSwizzles, canOob);
     }
 
     op.erase();

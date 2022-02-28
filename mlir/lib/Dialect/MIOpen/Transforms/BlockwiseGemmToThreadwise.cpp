@@ -545,6 +545,20 @@ struct ThreadwiseCopyV2RewritePattern
     int64_t dataPerCopy =
         op->getAttrOfType<IntegerAttr>("data_per_copy").getInt();
 
+    // threadwise_copy_v2 provides its bounds without regard to vectorization
+    // fix this here
+    SmallVector<int64_t, 6> bounds;
+    llvm::transform(op.bounds().getAsRange<IntegerAttr>(),
+                    std::back_inserter(bounds),
+                    [](const IntegerAttr &v) -> int64_t { return v.getInt(); });
+    int64_t vecDim =
+        op->getAttrOfType<IntegerAttr>("upper_vector_read_dim").getInt();
+    if (vecDim >= 0) {
+      assert(bounds[vecDim] % dataPerCopy == 0 &&
+             "Uneven vectorization in threadwise_copy_v2");
+      bounds[vecDim] /= dataPerCopy;
+    }
+
     ArrayAttr srcTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
     ArrayAttr destTransformsOnOp = op.transforms()[1].cast<ArrayAttr>();
     ArrayAttr srcTransforms, destTransforms;
@@ -565,7 +579,7 @@ struct ThreadwiseCopyV2RewritePattern
 
     auto loop = b.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{op.sourceCoord(), op.destCoord()},
-        ArrayRef<Attribute>{srcTransforms, destTransforms}, op.bounds(),
+        ArrayRef<Attribute>{srcTransforms, destTransforms}, bounds,
         /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     PatternRewriter::InsertionGuard guard(b);
     b.setInsertionPointToStart(loop.getBody());
@@ -583,7 +597,8 @@ void LowerMIOpenOpsStep3Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   RewritePatternSet patterns(ctx);
   patterns.add<FillRewritePattern, BlockwiseGemmRewritePattern,
-               BlockwiseGemmV2RewritePattern>(ctx);
+               BlockwiseGemmV2RewritePattern, ThreadwiseCopyRewritePattern,
+               ThreadwiseCopyV2RewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }
