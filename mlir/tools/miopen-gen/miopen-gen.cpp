@@ -825,8 +825,8 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel,
 }
 
 // Determine the range and seed for the random data generator
-static std::tuple<short, short, int> getRandomTestData(int idx) {
-  short min, max = min = 1;
+static std::tuple<short, short, int> getRandomTestData(int idx, bool isOut) {
+  short min, max = min = (isOut ? 0 : 1);
   int seed = 1;
 
   int32_t idx_spec = -1;
@@ -846,7 +846,7 @@ static std::tuple<short, short, int> getRandomTestData(int idx) {
   }
 
   if (randomSeed.getValue() != "none") {
-    if ((idx_spec >= 0) && (idx_spec != idx)) {
+    if ((idx_spec >= 0 && idx_spec != idx) || isOut) {
     } else if (randomDataType.getValue() == "int") {
       // generate random integer in [-5, 5)
       min = -5;
@@ -1553,17 +1553,25 @@ populateHostHarnessLogic(ModuleOp &module,
   b.setInsertionPoint(block, block->begin());
 
   int32_t outIdx = -1;
+  int32_t zeroInitIdx = -1;
   if (genConfig.operation.hasValue()) {
     switch (genConfig.operation.getValue()) {
     case miopen::ConvOpType::Fwd:
       outIdx = 2;
+      zeroInitIdx = 2;
       break;
     case miopen::ConvOpType::BwdData:
       outIdx = 1;
+      zeroInitIdx = 1;
       break;
     case miopen::ConvOpType::BwdWeight:
       outIdx = 0;
+      zeroInitIdx = 0;
       break;
+    }
+    Conv2dGenerator generator(genConfig);
+    if (generator.hasWorkspace(b)) {
+      zeroInitIdx = 3;
     }
   }
 
@@ -1625,7 +1633,7 @@ populateHostHarnessLogic(ModuleOp &module,
 
     short min, max;
     int seed = 1;
-    std::tie(min, max, seed) = getRandomTestData(idx);
+    std::tie(min, max, seed) = getRandomTestData(idx, idx == zeroInitIdx);
 
     b.create<CallOp>(
         loc, getMemsetFunc(module, elemType),
