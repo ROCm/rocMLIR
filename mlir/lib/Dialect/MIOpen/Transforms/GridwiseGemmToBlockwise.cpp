@@ -2626,6 +2626,25 @@ struct GridwiseGemmV2RewritePattern
       int64_t vectorCOffset = vectorCoffset * (iter % iterationsPerVectorC);
       auto vectorCOffsetConstantAttr = b.getIndexAttr(vectorCOffset);
 
+      int64_t storeOperation =
+          op.storeOperationAttr().cast<IntegerAttr>().getInt();
+
+      // HACK. Zero-init output first for atomic adds.
+      if (storeOperation == 1) {
+        Value zeroOp = createZeroConstantOp(b, loc, vectorType);
+        llvm::errs() << zeroOp << "\n";
+        // Emit zero-init threadwise_copy_v2.
+        auto zeroInitCMatrixOp = b.create<ThreadwiseCopyV2Op>(
+            loc, zeroOp, cTransformed, copyBounds, threadwiseCopyV2ArgTransform,
+            op.paddingInfo(),
+            InMemoryDataOperationAttr::get(b.getContext(),
+                                           InMemoryDataOperation::Set),
+            op.cOobDims(), vectorCOffsetConstantAttr,
+            matrixCThreadwiseCopySourceCoords, matrixCThreadwiseCopyDestCoords);
+        affixThreadwiseCopyV2Attributes(zeroInitCMatrixOp, op, b,
+                                        enableOutSwizzles);
+      }
+
       // Emit threadwise_copy_v2.
       auto threadwiseCopyV2CMatrixOp = b.create<ThreadwiseCopyV2Op>(
           loc, vectors[vectorCIndex], cTransformed, copyBounds,
