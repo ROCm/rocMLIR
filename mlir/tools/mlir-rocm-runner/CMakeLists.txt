@@ -2,7 +2,7 @@ set(LLVM_OPTIONAL_SOURCES
   mlir-rocm-runner.cpp
   )
 
-if(MLIR_ROCM_RUNNER_ENABLED)
+if(MLIR_ENABLE_ROCM_RUNNER)
 
   get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
   get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
