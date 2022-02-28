@@ -26,6 +26,15 @@ func @extract_slice_vector(%vec: vector<8xf32>) -> vector<2xf32> {
     return %ret : vector<2xf32>
 }
 
+// CHECK-LABEL: func @extract_slice_noop
+// CHECK-SAME: (%[[v:.*]]: vector<8xf32>)
+func @extract_slice_noop(%v: vector<8xf32>) -> vector<8xf32> {
+    // CHECK: return %[[v]]
+    %c0 = arith.constant 0 : index
+    %w = miopen.extract_slice %v[%c0] : vector<8xf32> -> vector<8xf32>
+    return %w : vector<8xf32>
+}
+
 // CHECK-LABEL: func @insert_slice_scalar
 // CHECK-SAME: (%[[v:.*]]: f32, %[[vec:.*]]: vector<8xf32>)
 func @insert_slice_scalar(%v : f32, %vec : vector<8xf32>) -> vector<8xf32> {
@@ -51,4 +60,14 @@ func @insert_slice_vector(%v: vector<2xf32>, %vec: vector<8xf32>) -> vector<8xf3
     // CHECK: return %[[ret]] : vector<8xf32>
     return %ret : vector<8xf32>
 }
+
+// CHECK-LABEL: func @insert_slice_noop
+// CHECK-SAME: (%[[v:.*]]: vector<8xf32>, %[[w:.*]]: vector<8xf32>)
+func @extract_slice_noop(%v: vector<8xf32>) -> vector<8xf32> {
+    // CHECK: return %[[w]]
+    %c0 = arith.constant 0 : index
+    %r = miopen.insert_slice %w, %v[%c0] : vector<8xf32> -> vector<8xf32>
+    return %r : vector<8xf32>
+}
+
 }

@@ -62,6 +62,13 @@ struct ExtractSliceRewritePattern : public OpRewritePattern<ExtractSliceOp> {
     Location loc = op.getLoc();
     Value base = op.coord();
     if (auto destType = op.result().getType().dyn_cast<VectorType>()) {
+      if (destType == op.vector().getType().cast<VectorType>()) {
+        // Extracting something the same size as the vector is a noop since
+        // the index must be 0 for the op to be defined. This is here in case
+        // the canonicalizer didn't catch this or didn't run.
+        b.replaceOp(op, op.vector());
+        return success();
+      }
       int64_t size = destType.getNumElements();
       Value ret = createZeroConstantOp(b, loc, destType);
       for (int64_t i = 0; i < size; ++i) {
@@ -89,6 +96,13 @@ struct InsertSliceRewritePattern : public OpRewritePattern<InsertSliceOp> {
     Location loc = op.getLoc();
     Value base = op.coord();
     if (auto srcType = op.source().getType().dyn_cast<VectorType>()) {
+      if (srcType == op.dest().getType().cast<VectorType>()) {
+        // Inserting a slice of the same size as the destination is a noop
+        // since the index must be 0 for the op to be defined. This is here in
+        // case the canonicalizer didn't run or didn't catch the problem.
+        b.replaceOp(op, op.source());
+        return success();
+      }
       int64_t size = srcType.getNumElements();
       Value ret = op.dest();
       for (int64_t i = 0; i < size; ++i) {

@@ -42,8 +42,10 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Region.h"
 #include "mlir/Interfaces/LoopLikeInterface.h"
+#include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/Passes.h"
 
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/STLExtras.h"
@@ -1844,6 +1846,12 @@ void LowerMIOpenOpsStep4Pass::runOnOperation() {
   postUnrollPatterns.add<IndexDiffUpdateRewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(op, std::move(postUnrollPatterns))))
     signalPassFailure();
+
+  // Run canonicalizers and CSE to clean up the code created by loop unrolling
+  OpPassManager cleanupPipeline("builtin.module");
+  cleanupPipeline.addPass(createCanonicalizerPass());
+  cleanupPipeline.addPass(createCSEPass());
+  (void)runPipeline(cleanupPipeline, op);
 }
 
 } // end anonymous namespace
