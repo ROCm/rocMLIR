@@ -376,7 +376,7 @@ pipeline {
                            steps {
                                dir('MIOpen') {
                                    getAndBuildMIOpen("--prefix ${WORKSPACE}/MIOpen/MIOpenDeps",
-                                                     '''-DMIOPEN_BACKEND=HIP
+                                                     '''-DMIOPEN_BACKEND=HIP -DMIOPEN_USE_MLIR=Off
                                    -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
                                    -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/MIOpen/build/MIOpenInstallDir
                                    ''')

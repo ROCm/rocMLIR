@@ -7,29 +7,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-/* RUN: mlir-mixr-full-test 2>&1 | FileCheck %s
+/* RUN: mlir-mixr-fullc-test 2>&1 | FileCheck %s
  *  */
 #include "mlir-c/BuiltinAttributes.h"
 #include "mlir-c/BuiltinTypes.h"
-#include "mlir-c/Diagnostics.h"
-#include "mlir-c/Dialect/GPU.h"
 #include "mlir-c/Dialect/MIGraphX.h"
-#include "mlir-c/Dialect/Standard.h"
-#include "mlir-c/Dialect/Tosa.h"
 #include "mlir-c/IR.h"
-#include "mlir-c/IntegerSet.h"
 #include "mlir-c/Registration.h"
-
-#include "mlir/CAPI/IR.h"
-#include "mlir/Dialect/MIGraphX/Pipeline.h"
-#include "mlir/Dialect/MIOpen/Pipeline.h"
-#include "mlir/ExecutionEngine/OptUtils.h"
-#include "mlir/InitMIOpenDialects.h"
-#include "llvm/Support/TargetSelect.h"
-
-#include "mlir/Dialect/GPU/GPUDialect.h"
-#include "mlir/Dialect/GPU/Passes.h"
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 
 #include <assert.h>
 #include <math.h>
@@ -37,18 +21,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <iostream>
-#include <string>
-#include <vector>
-
-void printToString(MlirStringRef str, void *userData) {
-  std::string *strref = static_cast<std::string *>(userData);
-  strref->append(str.data, str.length);
-}
-
 MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
-  MlirModule moduleOp = mlirModuleCreateEmpty(location);
-  MlirBlock moduleBody = mlirModuleGetBody(moduleOp);
+  MlirModule module = mlirModuleCreateEmpty(location);
+  MlirBlock moduleBody = mlirModuleGetBody(module);
 
   // Set func arguments
   int64_t inDims[] = {1, 64, 56, 56};
@@ -62,11 +37,11 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirType bias0Type = mlirRankedTensorTypeGet(
       1, bias0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
   MlirType funcBodyArgTypes[] = {inType, filter0Type, bias0Type};
-  MlirLocation funcBodyLocations[] = {location, location, location};
+  MlirLocation funcBodyArglocs[] = {location, location, location};
   MlirRegion funcBodyRegion = mlirRegionCreate();
   MlirBlock funcBody =
       mlirBlockCreate(sizeof(funcBodyArgTypes) / sizeof(MlirType),
-                      funcBodyArgTypes, funcBodyLocations);
+                      funcBodyArgTypes, funcBodyArglocs);
   mlirRegionAppendOwnedBlock(funcBodyRegion, funcBody);
 
   //-------------- func op
@@ -92,6 +67,8 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   mlirOperationStateAddAttributes(&funcState, 2, funcAttrs);
   mlirOperationStateAddOwnedRegions(&funcState, 1, &funcBodyRegion);
   MlirOperation func = mlirOperationCreate(&funcState);
+  mlirOperationSetAttributeByName(
+      func, mlirStringRefCreateFromCString("kernel"), mlirUnitAttrGet(ctx));
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
   //-------------- conv0 = migraphx.convolution
@@ -145,147 +122,105 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirOperation conv0Op = mlirOperationCreate(&conv0OpState);
   mlirBlockAppendOwnedOperation(funcBody, conv0Op);
   MlirValue conv0Value = mlirOperationGetResult(conv0Op, 0);
-  /*
-    //-------------- migraphx.relu op
-    // Set relu0 arguments
-    MlirValue relu0Operands[] = {conv0Value};
 
-    // Set relu op
-    int64_t relu0Dims[] = {1, 64, 56, 56};
-    MlirType relu0Type = mlirRankedTensorTypeGet(4, relu0Dims,
-    mlirF32TypeGet(ctx), mlirAttributeGetNull()); MlirOperationState relu0State
-    = mlirOperationStateGet( mlirStringRefCreateFromCString("migraphx.relu"),
-    location); mlirOperationStateAddResults(&relu0State, 1, &relu0Type);
-    mlirOperationStateAddOperands(&relu0State, 1, relu0Operands);
+  //-------------- migraphx.relu op
 
-    MlirOperation relu0Op = mlirOperationCreate(&relu0State);
-    mlirBlockAppendOwnedOperation(funcBody, relu0Op);
-    MlirValue relu0Value = mlirOperationGetResult(relu0Op, 0);
-  */
+  // Set relu0 arguments
+  MlirValue relu0Operands[] = {conv0Value};
+
+  // Set relu op
+  int64_t relu0Dims[] = {1, 64, 56, 56};
+  MlirType relu0Type = mlirRankedTensorTypeGet(
+      4, relu0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
+  MlirOperationState relu0State = mlirOperationStateGet(
+      mlirStringRefCreateFromCString("migraphx.relu"), location);
+  mlirOperationStateAddResults(&relu0State, 1, &relu0Type);
+  mlirOperationStateAddOperands(&relu0State, 1, relu0Operands);
+
+  MlirOperation relu0Op = mlirOperationCreate(&relu0State);
+  mlirBlockAppendOwnedOperation(funcBody, relu0Op);
+  MlirValue relu0Value = mlirOperationGetResult(relu0Op, 0);
+
   //-------------- std.return op
 
-  MlirValue retOperands[] = {conv0Value};
+  MlirValue retOperands[] = {relu0Value};
   MlirOperationState retState = mlirOperationStateGet(
       mlirStringRefCreateFromCString("std.return"), location);
   mlirOperationStateAddOperands(&retState, 1, retOperands);
   MlirOperation ret = mlirOperationCreate(&retState);
   mlirBlockAppendOwnedOperation(funcBody, ret);
 
-  MlirOperation module = mlirModuleGetOperation(moduleOp);
-
-  return moduleOp;
+  return module;
 }
 
 static bool constructAndTraverseIr(MlirContext ctx) {
   MlirLocation location1 = mlirLocationUnknownGet(ctx);
-  MlirModule moduleOp1 = makeAndDumpMIXR(ctx, location1);
+  MlirModule module = makeAndDumpMIXR(ctx, location1);
 
-  auto module = unwrap(moduleOp1);
+  MlirPassManager pm = mlirPassManagerCreate(ctx);
+  MlirPassManager pm1 = mlirPassManagerCreate(ctx);
+  // 1st pipeline to call
+  mlirMIGraphXAddHighLevelPipeline(pm);
+  mlirPassManagerRun(pm, module);
+  MlirOperation moduleOp = mlirModuleGetOperation(module);
+  mlirOperationDump(moduleOp);
+  // CHECK-LABEL: func @main
 
-  llvm::InitializeAllAsmParsers();
-  llvm::InitializeAllAsmPrinters();
+  // returns the required buffer size to hold information including
+  // ranks, dimensions of each arguments and kernel name.
+  int argSize = 0;
+  mlirGetKernelInfo(module, &argSize, NULL);
+  void *argInfo = malloc(argSize);
+  // get the data
+  mlirGetKernelInfo(module, NULL, (void *)argInfo);
+  int *argData = (int *)argInfo;
 
-  // Initialize LLVM AMDGPU backend.
-  LLVMInitializeAMDGPUTarget();
-  LLVMInitializeAMDGPUTargetInfo();
-  LLVMInitializeAMDGPUTargetMC();
-  LLVMInitializeAMDGPUAsmPrinter();
-  mlir::initializeLLVMPasses();
-
-  const char *triple = "amdgcn-amd-amdhsa";
-  const char *chip = "gfx908";
-  const char *features = "";
-
-  MlirOperation moduleMO = mlirModuleGetOperation(moduleOp1);
-
-  mlir::PassManager pm(module.getContext(),
-                       mlir::PassManager::Nesting::Implicit);
-
-  mlir::migraphx::addHighLevelPipeline(pm);
-  pm.run(module);
-  mlirOperationDump(moduleMO);
-
-  mlir::miopen::addHighLevelPipeline(pm);
-  pm.run(module);
-  mlirOperationDump(moduleMO);
-
-  size_t argIdx = 0;
-  module.walk([&](mlir::FuncOp f) {
-    auto args = f.getArguments();
-    for (auto arg : args) {
-      argIdx += 3; // 3 per memref : allocated ptr, aligned ptr, offset
-      auto sType = arg.getType().template cast<mlir::ShapedType>();
-      auto rank = sType.getRank();
-      printf("rank:%d, dim:", rank);
-      int i;
-      for (i = 0; i < rank; i++)
-        printf("<%d>", sType.getDimSize(i));
-      printf("\n");
-      argIdx += i * 2; // 2 per each dimension : size, stride
+  int idx = 1;
+  for (int i = 0; i < argData[0]; i++) {
+    // iterate per each memref argument
+    int rank = argData[idx++];
+    printf("arg#%d (rank %d): ", i, rank);
+    for (int j = 0; j < rank; j++) {
+      printf("<dim %d : %d> ", j, argData[idx++]);
     }
-    printf("Kernel name : %s\n", f.getName());
-  });
-  // CHECK: rank:4, dim:<1><64><56><56>
-  // CHECK: rank:4, dim:<64><64><1><1>
-  // CHECK: rank:1, dim:<64>
-  // CHECK: rank:4, dim:<1><64><56><56>
-  // CHECK: Kernel name : main
+    printf("\n");
+  }
 
-  // 4 memref in this example : input, filter, bias and result
-  // example : memref<1x64x56x56xf32>
-  // uses 11 params : ptr, ptr, 0 /*offset */, 1, 64, 56, 56, 1, 64, 56, 56
-  // printf("Estimated #kernel params : %d\n", argIdx);
+  // The last part of the retrieved data contains the kernel name.
+  char *nameData = (char *)(argData + idx);
+  printf("kernel name : %s\n", nameData);
 
-  mlir::miopen::addPipeline(pm, false, true);
-  mlir::miopen::addBackendPipeline(pm, triple, chip, features);
-  auto status = pm.run(module);
+  // 2nd pipeline to call
+  const char *deviceName = "gfx908";
+  mlirMIGraphXAddBackendPipeline(pm1, deviceName, "amdgcn-amd-amdhsa", "");
+  mlirPassManagerRun(pm1, module);
 
-  module.walk([&](mlir::LLVM::LLVMFuncOp llvmFunc) {
-    size_t block_size =
-        llvmFunc->getAttrOfType<mlir::IntegerAttr>("block_size").getInt();
-    size_t grid_size =
-        llvmFunc->getAttrOfType<mlir::IntegerAttr>("grid_size").getInt();
-    auto funcType = llvmFunc.getType().dyn_cast<mlir::LLVM::LLVMFunctionType>();
-    int numOperands = funcType.getNumParams();
-    printf("kernel params : %d\n", numOperands);
-    printf("block_size : %d\n", block_size);
-    printf("grid_size : %d\n", grid_size);
-  });
-  // CHECK: kernel params : 38
-  // CHECK: block_size : 64
-  // CHECK: grid_size : 56
+  uint32_t attrs[2];
+  // returns block and grid sizes
+  mlirGetKernelAttrs(module, attrs);
+  printf("block size : %d, grid size : %d\n", attrs[0], attrs[1]);
 
-  size_t size;
-  module.walk([&](mlir::gpu::GPUModuleOp gpuModule) {
-    auto hsacoAttr = gpuModule->getAttrOfType<mlir::StringAttr>(
-        mlir::gpu::getDefaultGpuBinaryAnnotation());
-    if (hsacoAttr) {
-      size = hsacoAttr.getValue().size();
-      // printf("Binary size : %d\n", size);
-    }
-  });
+  // returns binary size
+  int binSize = 0;
+  mlirGetBinary(module, &binSize, NULL);
+  printf("bin size : %d\n", binSize);
 
-  std::vector<char> buffer(size);
-  module.walk([&](mlir::gpu::GPUModuleOp gpuModule) {
-    auto hsacoAttr = gpuModule->getAttrOfType<mlir::StringAttr>(
-        mlir::gpu::getDefaultGpuBinaryAnnotation());
-    if (hsacoAttr) {
-      std::string hsaco = hsacoAttr.getValue().str();
-      std::copy(hsaco.begin(), hsaco.end(), buffer.data());
-      /*std::cout << "hsaco = ";
-      for(auto o: buffer)
-        std::cout << o;
-      std::cout << std::endl;*/
-    }
-  });
+  char *compiledBin = malloc(binSize);
+  // Initialize the memory to hold binary, just for verification, not necessary.
+  for (int i = 0; i < binSize; i++)
+    compiledBin[i] = '0';
 
-  mlirModuleDestroy(moduleOp1);
-  if (status.succeeded()) {
+  // get binary
+  if (mlirGetBinary(module, NULL, compiledBin)) {
+    // printf("dump : %s \n", compiledBin);
     // CHECK: PASSED!
     printf("PASSED!\n");
-    return true;
   }
-  return false;
+
+  mlirPassManagerDestroy(pm);
+  mlirPassManagerDestroy(pm1);
+  mlirModuleDestroy(module);
+  return true;
 }
 
 int main() {
@@ -300,6 +235,5 @@ int main() {
   }
 
   mlirContextDestroy(ctx);
-
   return 0;
 }

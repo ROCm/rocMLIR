@@ -1,4 +1,4 @@
-// RUN: miopen-gen -p -prc -pr | FileCheck %s --check-prefix=F32
+// RUN: miopen-gen -p -prc | FileCheck %s --check-prefix=F32
 
 // F32: func @main()
 // F32:  [[RES:%.*]] = memref.cast {{.*}} : memref<{{.*}}> to memref<*xf32>
@@ -29,3 +29,9 @@
 // BF16:    [[RES2:%.*]] = memref.cast [[RES1]] : memref<{{.*}}> to memref<*xf32>
 // BF16:    call @print_memref_f32([[RES2]]) : (memref<*xf32>) -> ()
 
+// RUN: miopen-gen -p -prc -t i8 | FileCheck %s --check-prefix=INT8
+
+// INT8: func @main()
+// INT8:  call @_memcpy_i32_f32(%{{.*}}, %{{.*}}, %{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>, index) -> ()
+// INT8-NEXT:  [[RES:%.*]] = memref.cast {{.*}} : memref<{{.*}}> to memref<*xf32>
+// INT8-NEXT:    call @print_memref_f32([[RES]]) : (memref<*xf32>) -> ()

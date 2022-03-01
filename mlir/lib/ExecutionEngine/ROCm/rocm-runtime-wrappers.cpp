@@ -111,6 +111,21 @@ static unsigned short float_to_fp16(float src_val) {
   return h;
 }
 
+short randomIntegerValue(short min, short max) {
+  if (min == max)
+    return min;
+  return (std::rand() % (max - min)) + min;
+}
+
+float randomFloatValue(short min, short max) {
+  auto minAsF = static_cast<float>(min);
+  if (min == max)
+    return minAsF * 0.1f; // avoid inf
+  return static_cast<float>((max - min) * static_cast<double>(std::rand()) /
+                            static_cast<double>(RAND_MAX)) +
+         minAsF;
+}
+
 extern "C" hipModule_t mgpuModuleLoad(void *data) {
   hipModule_t module = nullptr;
   (void)reportErrorIfAny(hipModuleLoadData(&module, data), "ModuleLoad");
@@ -314,6 +329,129 @@ extern "C" void mgpuMemCopyInt32(int32_t *sourceAllocated,
             static_cast<hipMemcpyKind>(copyDirection));
 }
 
+extern "C" StridedMemRefType<int8_t, 5>
+mgpuMemAlloc5DInt8(int8_t *allocated, int8_t *aligned, int64_t offset,
+                   int64_t size0, int64_t size1, int64_t size2, int64_t size3,
+                   int64_t size4, int64_t stride0, int64_t stride1,
+                   int64_t stride2, int64_t stride3, int64_t stride4) {
+  int8_t *gpuPtr;
+  hipMalloc((void **)&gpuPtr,
+            size0 * size1 * size2 * size3 * size4 * sizeof(int8_t));
+  return {gpuPtr,
+          gpuPtr,
+          offset,
+          {size0, size1, size2, size3, size4},
+          {stride0, stride1, stride2, stride3, stride4}};
+}
+
+extern "C" void
+mgpuMemDealloc5DInt8(int8_t *allocated, int8_t *aligned, int64_t offset,
+                     int64_t size0, int64_t size1, int64_t size2, int64_t size3,
+                     int64_t size4, int64_t stride0, int64_t stride1,
+                     int64_t stride2, int64_t stride3, int64_t stride4) {
+  hipFree(aligned);
+}
+
+extern "C" void mgpuMemCopy5DInt8(
+    int8_t *sourceAllocated, int8_t *sourceAligned, int64_t sourceOffset,
+    int64_t sourceSize0, int64_t sourceSize1, int64_t sourceSize2,
+    int64_t sourceSize3, int64_t sourceSize4, int64_t sourceStride0,
+    int64_t sourceStride1, int64_t sourceStride2, int64_t sourceStride3,
+    int64_t sourceStride4, float *destAllocated, float *destAligned,
+    int64_t destOffset, int64_t destSize0, int64_t destSize1, int64_t destSize2,
+    int64_t destSize3, int64_t destSize4, int64_t destStride0,
+    int64_t destStride1, int64_t destStride2, int64_t destStride3,
+    int64_t destStride4, unsigned copyDirection) {
+  hipMemcpy(destAligned, sourceAligned,
+            sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 *
+                sourceSize4 * sizeof(int8_t),
+            static_cast<hipMemcpyKind>(copyDirection));
+}
+
+extern "C" void
+mcpuMemset5DInt8RandInt(int8_t *allocated, int8_t *aligned, int64_t offset,
+                        int64_t size0, int64_t size1, int64_t size2,
+                        int64_t size3, int64_t size4, int64_t stride0,
+                        int64_t stride1, int64_t stride2, int64_t stride3,
+                        int64_t stride4, short min, short max, uint32_t seed) {
+  if (seed == 0)
+    std::srand(time(0));
+  else
+    std::srand(seed);
+
+  int8_t value;
+  for (unsigned i = 0; i < size0; ++i)
+    for (unsigned j = 0; j < size1; ++j)
+      for (unsigned k = 0; k < size2; ++k)
+        for (unsigned l = 0; l < size3; ++l)
+          for (unsigned m = 0; m < size4; ++m) {
+            value = (int8_t)randomIntegerValue(min, max);
+            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
+                    m * stride4] = value;
+          }
+}
+
+extern "C" StridedMemRefType<int32_t, 5>
+mgpuMemAlloc5DInt32(int32_t *allocated, int32_t *aligned, int64_t offset,
+                    int64_t size0, int64_t size1, int64_t size2, int64_t size3,
+                    int64_t size4, int64_t stride0, int64_t stride1,
+                    int64_t stride2, int64_t stride3, int64_t stride4) {
+  int32_t *gpuPtr;
+  hipMalloc((void **)&gpuPtr,
+            size0 * size1 * size2 * size3 * size4 * sizeof(int32_t));
+  return {gpuPtr,
+          gpuPtr,
+          offset,
+          {size0, size1, size2, size3, size4},
+          {stride0, stride1, stride2, stride3, stride4}};
+}
+
+extern "C" void mgpuMemDealloc5DInt32(
+    int32_t *allocated, int32_t *aligned, int64_t offset, int64_t size0,
+    int64_t size1, int64_t size2, int64_t size3, int64_t size4, int64_t stride0,
+    int64_t stride1, int64_t stride2, int64_t stride3, int64_t stride4) {
+  hipFree(aligned);
+}
+
+extern "C" void mgpuMemCopy5DInt32(
+    int32_t *sourceAllocated, int32_t *sourceAligned, int64_t sourceOffset,
+    int64_t sourceSize0, int64_t sourceSize1, int64_t sourceSize2,
+    int64_t sourceSize3, int64_t sourceSize4, int64_t sourceStride0,
+    int64_t sourceStride1, int64_t sourceStride2, int64_t sourceStride3,
+    int64_t sourceStride4, float *destAllocated, float *destAligned,
+    int64_t destOffset, int64_t destSize0, int64_t destSize1, int64_t destSize2,
+    int64_t destSize3, int64_t destSize4, int64_t destStride0,
+    int64_t destStride1, int64_t destStride2, int64_t destStride3,
+    int64_t destStride4, unsigned copyDirection) {
+  hipMemcpy(destAligned, sourceAligned,
+            sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 *
+                sourceSize4 * sizeof(int32_t),
+            static_cast<hipMemcpyKind>(copyDirection));
+}
+
+extern "C" void
+mcpuMemset5DInt32RandInt(int32_t *allocated, int32_t *aligned, int64_t offset,
+                         int64_t size0, int64_t size1, int64_t size2,
+                         int64_t size3, int64_t size4, int64_t stride0,
+                         int64_t stride1, int64_t stride2, int64_t stride3,
+                         int64_t stride4, short min, short max, uint32_t seed) {
+  if (seed == 0)
+    std::srand(time(0));
+  else
+    std::srand(seed);
+
+  int32_t value;
+  for (unsigned i = 0; i < size0; ++i)
+    for (unsigned j = 0; j < size1; ++j)
+      for (unsigned k = 0; k < size2; ++k)
+        for (unsigned l = 0; l < size3; ++l)
+          for (unsigned m = 0; m < size4; ++m) {
+            value = (int32_t)randomIntegerValue(min, max);
+            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
+                    m * stride4] = value;
+          }
+}
+
 extern "C" void mcpuMem5DFloatConvertHalf(
     float *sourceAllocated, float *sourceAligned, int64_t sourceOffset,
     int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
@@ -380,6 +518,10 @@ extern "C" void mcpuPrintF32(float f1, float f2) {
   printf("Values: %f, %f\n", f1, f2);
 }
 
+extern "C" void mcpuPrintInt32(int32_t d1, int32_t d2) {
+  printf("Values: %d, %d\n", d1, d2);
+}
+
 // 2D float memref utility routines.
 
 extern "C" void mcpuMemset2DFloat(float *allocated, float *aligned,
@@ -418,21 +560,6 @@ extern "C" void mgpuMemCopy2DFloat(float *sourceAllocated, float *sourceAligned,
   hipMemcpy(destAligned, sourceAligned,
             sourceSize0 * sourceSize1 * sizeof(float),
             static_cast<hipMemcpyKind>(copyDirection));
-}
-
-short randomIntegerValue(short min, short max) {
-  if (min == max)
-    return min;
-  return (std::rand() % (max - min)) + min;
-}
-
-float randomFloatValue(short min, short max) {
-  auto minAsF = static_cast<float>(min);
-  if (min == max)
-    return minAsF * 0.1f; // avoid inf
-  return static_cast<float>((max - min) * static_cast<double>(std::rand()) /
-                            static_cast<double>(RAND_MAX)) +
-         minAsF;
 }
 
 // 3D float memref utility routines.
@@ -975,26 +1102,14 @@ extern "C" void mgpuMemCopy5DBF16(
 }
 
 // Extract proper tensor sizes and strides based on layouts
-static void
-getSizesAndStrides(int64_t rank1, StridedMemRefType<float, 5> *filter,
-                   int64_t rank2, StridedMemRefType<float, 5> *input,
-                   int64_t rank3, StridedMemRefType<float, 5> *output,
-                   void *f_layout, void *i_layout, void *o_layout,
-                   std::array<int64_t, 5> &fSizes,
-                   std::array<int64_t, 5> &fStrides,
-                   std::array<int64_t, 5> &iSizes,
-                   std::array<int64_t, 5> &iStrides,
-                   std::array<int64_t, 5> &oSizes,
-                   std::array<int64_t, 5> &oStrides) {
-  auto filterSizes = llvm::ArrayRef<int64_t>(filter->sizes, rank1);
-  auto filterStrides = llvm::ArrayRef<int64_t>(filter->strides, rank1);
-
-  auto inputSizes = llvm::ArrayRef<int64_t>(input->sizes, rank2);
-  auto inputStrides = llvm::ArrayRef<int64_t>(input->strides, rank2);
-
-  auto outputSizes = llvm::ArrayRef<int64_t>(output->sizes, rank3);
-  auto outputStrides = llvm::ArrayRef<int64_t>(output->strides, rank3);
-
+static void extractSizesAndStrides(
+    llvm::ArrayRef<int64_t> filterSizes, llvm::ArrayRef<int64_t> filterStrides,
+    llvm::ArrayRef<int64_t> inputSizes, llvm::ArrayRef<int64_t> inputStrides,
+    llvm::ArrayRef<int64_t> outputSizes, llvm::ArrayRef<int64_t> outputStrides,
+    void *f_layout, void *i_layout, void *o_layout,
+    std::array<int64_t, 5> &fSizes, std::array<int64_t, 5> &fStrides,
+    std::array<int64_t, 5> &iSizes, std::array<int64_t, 5> &iStrides,
+    std::array<int64_t, 5> &oSizes, std::array<int64_t, 5> &oStrides) {
   auto *layout1 = static_cast<StridedMemRefType<char, 1> *>(f_layout);
   auto *filterLayout = layout1->data + layout1->offset;
 
@@ -1041,32 +1156,42 @@ getSizesAndStrides(int64_t rank1, StridedMemRefType<float, 5> *filter,
   return;
 }
 
-// A generic forward convolution function that supports random layouts,
-// dimensions, strides, paddings, and dilations.
-extern "C" void
-mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
-           int64_t rank3, void *o_ptr, int64_t rank4, void *f_layout,
-           int64_t rank5, void *i_layout, int64_t rank6, void *o_layout,
-           int32_t stride_h, int32_t stride_w, int32_t padding_h_l,
-           int32_t padding_h_r, int32_t padding_w_l, int32_t padding_w_r,
-           int32_t dilation_h, int32_t dilation_w, int32_t xdlops) {
-  auto *filter = static_cast<StridedMemRefType<float, 5> *>(f_ptr);
-  auto *filterAllocated = filter->data + filter->offset;
+template <typename T1, typename T2>
+static void getSizesAndStrides(int64_t rank1, StridedMemRefType<T1, 5> *filter,
+                               int64_t rank2, StridedMemRefType<T1, 5> *input,
+                               int64_t rank3, StridedMemRefType<T2, 5> *output,
+                               void *f_layout, void *i_layout, void *o_layout,
+                               std::array<int64_t, 5> &fSizes,
+                               std::array<int64_t, 5> &fStrides,
+                               std::array<int64_t, 5> &iSizes,
+                               std::array<int64_t, 5> &iStrides,
+                               std::array<int64_t, 5> &oSizes,
+                               std::array<int64_t, 5> &oStrides) {
+  auto filterSizes = llvm::ArrayRef<int64_t>(filter->sizes, rank1);
+  auto filterStrides = llvm::ArrayRef<int64_t>(filter->strides, rank1);
 
-  auto *input = static_cast<StridedMemRefType<float, 5> *>(i_ptr);
-  auto *inputAllocated = input->data + input->offset;
+  auto inputSizes = llvm::ArrayRef<int64_t>(input->sizes, rank2);
+  auto inputStrides = llvm::ArrayRef<int64_t>(input->strides, rank2);
 
-  auto *output = static_cast<StridedMemRefType<float, 5> *>(o_ptr);
-  auto *outputAllocated = output->data + output->offset;
+  auto outputSizes = llvm::ArrayRef<int64_t>(output->sizes, rank3);
+  auto outputStrides = llvm::ArrayRef<int64_t>(output->strides, rank3);
 
-  // Extract proper tensor sizes and strides based on layouts
-  std::array<int64_t, 5> filterSizes, filterStrides;
-  std::array<int64_t, 5> inputSizes, inputStrides;
-  std::array<int64_t, 5> outputSizes, outputStrides;
+  extractSizesAndStrides(filterSizes, filterStrides, inputSizes, inputStrides,
+                         outputSizes, outputStrides, f_layout, i_layout,
+                         o_layout, fSizes, fStrides, iSizes, iStrides, oSizes,
+                         oStrides);
+}
 
-  getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
-                     i_layout, o_layout, filterSizes, filterStrides, inputSizes,
-                     inputStrides, outputSizes, outputStrides);
+template <typename TIn, typename TOut, typename TAcc>
+static void performConv2d(
+    TIn *filterAllocated, TIn *inputAllocated, TOut *outputAllocated,
+    llvm::ArrayRef<int64_t> filterSizes, llvm::ArrayRef<int64_t> filterStrides,
+    llvm::ArrayRef<int64_t> inputSizes, llvm::ArrayRef<int64_t> inputStrides,
+    llvm::ArrayRef<int64_t> outputSizes, llvm::ArrayRef<int64_t> outputStrides,
+    int32_t stride_h, int32_t stride_w, int32_t padding_h_l,
+    int32_t padding_h_r, int32_t padding_w_l, int32_t padding_w_r,
+    int32_t dilation_h, int32_t dilation_w, int32_t xdlops) {
+
   // Perform forward convolution
   for (int64_t g = 0; g < outputSizes[0]; g++)
     for (int64_t n = 0; n < outputSizes[1]; n++)
@@ -1074,12 +1199,12 @@ mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
         for (int64_t out_h = 0; out_h < outputSizes[3]; out_h++)
           for (int64_t out_w = 0; out_w < outputSizes[4]; out_w++) {
 
-            double acc = 0.0;
+            TAcc acc = 0.0;
             for (int64_t c = 0; c < inputSizes[2]; c++)
               for (int64_t fil_h = 0; fil_h < filterSizes[3]; fil_h++)
                 for (int64_t fil_w = 0; fil_w < filterSizes[4]; fil_w++) {
 
-                  float input;
+                  TIn input;
                   int64_t in_h =
                       out_h * stride_h + fil_h * dilation_h - padding_h_l;
                   int64_t in_w =
@@ -1087,7 +1212,7 @@ mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
 
                   if (in_h < 0 || in_h >= inputSizes[3] || in_w < 0 ||
                       in_w >= inputSizes[4])
-                    input = 0.0;
+                    input = (TIn)0;
                   else
 
                     input = inputAllocated[g * inputStrides[0] +
@@ -1096,32 +1221,65 @@ mcpuConv2d(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
                                            in_h * inputStrides[3] +
                                            in_w * inputStrides[4]];
 
-                  acc += (double)(input *
-                                  filterAllocated[g * filterStrides[0] +
-                                                  k * filterStrides[1] +
-                                                  c * filterStrides[2] +
-                                                  fil_h * filterStrides[3] +
-                                                  fil_w * filterStrides[4]]);
+                  acc +=
+                      (TAcc)(input * filterAllocated[g * filterStrides[0] +
+                                                     k * filterStrides[1] +
+                                                     c * filterStrides[2] +
+                                                     fil_h * filterStrides[3] +
+                                                     fil_w * filterStrides[4]]);
                   if (!xdlops) // || (fil_w + fil_h + c) % 4 == 3)
-                    acc = (float)acc;
+                    acc = (TOut)acc;
                 }
 
             outputAllocated[g * outputStrides[0] + n * outputStrides[1] +
                             k * outputStrides[2] + out_h * outputStrides[3] +
-                            out_w * outputStrides[4]] = (float)acc;
+                            out_w * outputStrides[4]] = (TOut)acc;
           }
+}
+
+// A generic forward convolution function that supports random layouts,
+// dimensions, strides, paddings, and dilations.
+extern "C" void
+mcpuConv2dFloat(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
+                int64_t rank3, void *o_ptr, int64_t rank4, void *f_layout,
+                int64_t rank5, void *i_layout, int64_t rank6, void *o_layout,
+                int32_t stride_h, int32_t stride_w, int32_t padding_h_l,
+                int32_t padding_h_r, int32_t padding_w_l, int32_t padding_w_r,
+                int32_t dilation_h, int32_t dilation_w, int32_t xdlops) {
+  auto *filter = static_cast<StridedMemRefType<float, 5> *>(f_ptr);
+  auto *filterAllocated = filter->data + filter->offset;
+
+  auto *input = static_cast<StridedMemRefType<float, 5> *>(i_ptr);
+  auto *inputAllocated = input->data + input->offset;
+
+  auto *output = static_cast<StridedMemRefType<float, 5> *>(o_ptr);
+  auto *outputAllocated = output->data + output->offset;
+
+  // Extract proper tensor sizes and strides based on layouts
+  std::array<int64_t, 5> filterSizes, filterStrides;
+  std::array<int64_t, 5> inputSizes, inputStrides;
+  std::array<int64_t, 5> outputSizes, outputStrides;
+
+  getSizesAndStrides<float, float>(rank1, filter, rank2, input, rank3, output,
+                                   f_layout, i_layout, o_layout, filterSizes,
+                                   filterStrides, inputSizes, inputStrides,
+                                   outputSizes, outputStrides);
+  performConv2d<float, float, double>(
+      filterAllocated, inputAllocated, outputAllocated, filterSizes,
+      filterStrides, inputSizes, inputStrides, outputSizes, outputStrides,
+      stride_h, stride_w, padding_h_l, padding_h_r, padding_w_l, padding_w_r,
+      dilation_h, dilation_w, xdlops);
 }
 
 // A generic backward-weight convolution function that supports random layouts,
 // dimensions, strides, paddings, and dilations.
-extern "C" void
-mcpuConv2dBwdWeight(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
-                    int64_t rank3, void *o_ptr, int64_t rank4, void *f_layout,
-                    int64_t rank5, void *i_layout, int64_t rank6,
-                    void *o_layout, int32_t stride_h, int32_t stride_w,
-                    int32_t padding_h_l, int32_t padding_h_r,
-                    int32_t padding_w_l, int32_t padding_w_r,
-                    int32_t dilation_h, int32_t dilation_w, int32_t xdlops) {
+extern "C" void mcpuConv2dBwdWeightFloat(
+    int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr, int64_t rank3,
+    void *o_ptr, int64_t rank4, void *f_layout, int64_t rank5, void *i_layout,
+    int64_t rank6, void *o_layout, int32_t stride_h, int32_t stride_w,
+    int32_t padding_h_l, int32_t padding_h_r, int32_t padding_w_l,
+    int32_t padding_w_r, int32_t dilation_h, int32_t dilation_w,
+    int32_t xdlops) {
 
   auto *filter = static_cast<StridedMemRefType<float, 5> *>(f_ptr);
   auto *filterAllocated = filter->data + filter->offset;
@@ -1136,9 +1294,10 @@ mcpuConv2dBwdWeight(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
   std::array<int64_t, 5> filterSizes, filterStrides;
   std::array<int64_t, 5> inputSizes, inputStrides;
   std::array<int64_t, 5> outputSizes, outputStrides;
-  getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
-                     i_layout, o_layout, filterSizes, filterStrides, inputSizes,
-                     inputStrides, outputSizes, outputStrides);
+  getSizesAndStrides<float, float>(rank1, filter, rank2, input, rank3, output,
+                                   f_layout, i_layout, o_layout, filterSizes,
+                                   filterStrides, inputSizes, inputStrides,
+                                   outputSizes, outputStrides);
 
   // Perform bwd_weight convolution
   for (int64_t g = 0; g < outputSizes[0]; g++)
@@ -1178,13 +1337,13 @@ mcpuConv2dBwdWeight(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
 
 // A generic backward-data convolution function that supports random layouts,
 // dimensions, strides, paddings, and dilations.
-extern "C" void
-mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
-                  int64_t rank3, void *o_ptr, int64_t rank4, void *f_layout,
-                  int64_t rank5, void *i_layout, int64_t rank6, void *o_layout,
-                  int32_t stride_h, int32_t stride_w, int32_t padding_h_l,
-                  int32_t padding_h_r, int32_t padding_w_l, int32_t padding_w_r,
-                  int32_t dilation_h, int32_t dilation_w, int32_t xdlops) {
+extern "C" void mcpuConv2dBwdDataFloat(
+    int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr, int64_t rank3,
+    void *o_ptr, int64_t rank4, void *f_layout, int64_t rank5, void *i_layout,
+    int64_t rank6, void *o_layout, int32_t stride_h, int32_t stride_w,
+    int32_t padding_h_l, int32_t padding_h_r, int32_t padding_w_l,
+    int32_t padding_w_r, int32_t dilation_h, int32_t dilation_w,
+    int32_t xdlops) {
 
   auto *filter = static_cast<StridedMemRefType<float, 5> *>(f_ptr);
   auto *filterAllocated = filter->data + filter->offset;
@@ -1199,9 +1358,10 @@ mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
   std::array<int64_t, 5> filterSizes, filterStrides;
   std::array<int64_t, 5> inputSizes, inputStrides;
   std::array<int64_t, 5> outputSizes, outputStrides;
-  getSizesAndStrides(rank1, filter, rank2, input, rank3, output, f_layout,
-                     i_layout, o_layout, filterSizes, filterStrides, inputSizes,
-                     inputStrides, outputSizes, outputStrides);
+  getSizesAndStrides<float, float>(rank1, filter, rank2, input, rank3, output,
+                                   f_layout, i_layout, o_layout, filterSizes,
+                                   filterStrides, inputSizes, inputStrides,
+                                   outputSizes, outputStrides);
 
   // Perform bwd_data convolution
   for (int64_t g = 0; g < outputSizes[0]; g++)
@@ -1238,6 +1398,39 @@ mcpuConv2dBwdData(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
                            c * inputStrides[2] + in_h * inputStrides[3] +
                            in_w * inputStrides[4]] = acc;
           }
+}
+
+extern "C" void
+mcpuConv2dInt8(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
+               int64_t rank3, void *o_ptr, int64_t rank4, void *f_layout,
+               int64_t rank5, void *i_layout, int64_t rank6, void *o_layout,
+               int32_t stride_h, int32_t stride_w, int32_t padding_h_l,
+               int32_t padding_h_r, int32_t padding_w_l, int32_t padding_w_r,
+               int32_t dilation_h, int32_t dilation_w, int32_t xdlops) {
+  auto *filter = static_cast<StridedMemRefType<int8_t, 5> *>(f_ptr);
+  auto *filterAllocated = filter->data + filter->offset;
+
+  auto *input = static_cast<StridedMemRefType<int8_t, 5> *>(i_ptr);
+  auto *inputAllocated = input->data + input->offset;
+
+  auto *output = static_cast<StridedMemRefType<int32_t, 5> *>(o_ptr);
+  auto *outputAllocated = output->data + output->offset;
+
+  // Extract proper tensor sizes and strides based on layouts
+  std::array<int64_t, 5> filterSizes, filterStrides;
+  std::array<int64_t, 5> inputSizes, inputStrides;
+  std::array<int64_t, 5> outputSizes, outputStrides;
+
+  getSizesAndStrides<int8_t, int32_t>(rank1, filter, rank2, input, rank3,
+                                      output, f_layout, i_layout, o_layout,
+                                      filterSizes, filterStrides, inputSizes,
+                                      inputStrides, outputSizes, outputStrides);
+
+  performConv2d<int8_t, int32_t, int32_t>(
+      filterAllocated, inputAllocated, outputAllocated, filterSizes,
+      filterStrides, inputSizes, inputStrides, outputSizes, outputStrides,
+      stride_h, stride_w, padding_h_l, padding_h_r, padding_w_l, padding_w_r,
+      dilation_h, dilation_w, xdlops);
 }
 
 extern "C" void mgpuSetDefaultDevice(int32_t device) {

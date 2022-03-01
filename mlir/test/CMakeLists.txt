@@ -88,6 +88,8 @@ set(MLIR_MIOPEN_TEST_DEPENDS
   miopen-translate
   miopen-lsp-server
   mlir-mixr-capi-test
+  mlir-mixr-full-test
+  mlir-mixr-fullc-test
   mlir-tosa-miir-test
   mlir-opt
   mlir-reduce

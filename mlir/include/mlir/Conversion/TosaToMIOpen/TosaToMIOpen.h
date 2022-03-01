@@ -33,7 +33,11 @@ void populateTosaToMIOpenConversionPatterns(
     bufferization::BufferizeTypeConverter &typeConverter, MLIRContext *context,
     RewritePatternSet &patterns);
 
+void populateTosaToMIOpenTensorConversionPatterns(MLIRContext *context,
+                                                  RewritePatternSet &patterns);
+
 } // namespace tosa
+
 } // namespace mlir
 
 #endif // MLIR_CONVERSION_TOSATOMIOPEN_TOSATOMIOPEN_H
