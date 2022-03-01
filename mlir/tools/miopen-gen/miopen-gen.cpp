@@ -1693,7 +1693,7 @@ populateHostHarnessLogic(ModuleOp &module,
       conv2dGenerator.setDataType("f32");
 
       int kernelStart = genConfig.kernelId;
-      int kernelCount = conv2dGenerator.getKernelCount();
+      int kernelCount = conv2dGenerator.getKernelCount(b);
       if (kernelStart < 0) {
         kernelStart = 0;
       } else {
@@ -1881,7 +1881,7 @@ int main(int argc, char **argv) {
     } else {
       // Populate the module.
       int kernelStart = genConfig.kernelId;
-      int kernelCount = conv2dGenerator.getKernelCount();
+      int kernelCount = conv2dGenerator.getKernelCount(builder);
       if (kernelStart < 0) {
         kernelStart = 0;
       } else {
