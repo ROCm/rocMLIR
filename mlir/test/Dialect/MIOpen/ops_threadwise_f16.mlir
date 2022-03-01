@@ -32,7 +32,7 @@ func @miopen_threadwise_copy_f16(%source_coord : memref<2xindex, 5>, %dest_coord
     %source[%source_coord_x, %source_coord_y] ->
     %dest[%dest_coord_x, %dest_coord_y]
     with [[], []]
-    {paddingInfo = #gemm_padding0, oobDims=[], globalArg = -1 : index}
+    {paddingInfo = #gemm_padding0, oobDims=[false, false], bounds = [1 : index, 1 : index]}
     : memref<?x?xf16, 5>, index, index -> memref<?x?xf16, 5>, index, index
 
   // -----
@@ -43,7 +43,7 @@ func @miopen_threadwise_copy_f16(%source_coord : memref<2xindex, 5>, %dest_coord
     %dest[%dest_coord_x, %dest_coord_y]
     with [[#transform_map0], []]
     { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
-      globalArg = 0 : index }
+      bounds = [1 : index, 1 : index] }
     : memref<?x?x?x?xf16>, index, index -> memref<?x?xf16, 5>, index, index
 
   // check source with multiple coordinate transforms.
@@ -52,7 +52,7 @@ func @miopen_threadwise_copy_f16(%source_coord : memref<2xindex, 5>, %dest_coord
     %dest[%dest_coord_x, %dest_coord_y]
     with [[#transform_map0, #transform_map1], []]
     { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
-      globalArg = 0 : index }
+      bounds = [1 : index, 1 : index] }
     : memref<?x?x?x?xf16>, index, index -> memref<?x?xf16, 5>, index, index
 
   // check destination with one coordinate transform.
@@ -61,7 +61,7 @@ func @miopen_threadwise_copy_f16(%source_coord : memref<2xindex, 5>, %dest_coord
     %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
     with [[], [#transform_map0]]
     { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
-      globalArg = 1 : index }
+      bounds = [1 : index, 1 : index] }
     : memref<?x?xf16, 5>, index, index -> memref<?x?x?x?xf16>, index, index
 
   // check destination with multiple coordinate transform.
@@ -70,7 +70,7 @@ func @miopen_threadwise_copy_f16(%source_coord : memref<2xindex, 5>, %dest_coord
     %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
     with [[], [#transform_map0, #transform_map1]]
     { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
-      globalArg = 1 : index }
+      bounds = [1 : index, 1 : index] }
     : memref<?x?xf16, 5>, index, index -> memref<?x?x?x?xf16>, index, index
 
   // -----
@@ -81,7 +81,7 @@ func @miopen_threadwise_copy_f16(%source_coord : memref<2xindex, 5>, %dest_coord
     %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
     with [[#transform_map0], [#transform_map0]]
     { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
-      globalArg = 0 : index }
+      bounds = [1 : index, 1 : index] }
     : memref<?x?x?x?xf16>, index, index -> memref<?x?x?x?xf16>, index, index
 
   // check source and destination with multiple coordinate transforms.
@@ -90,7 +90,7 @@ func @miopen_threadwise_copy_f16(%source_coord : memref<2xindex, 5>, %dest_coord
     %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
     with [[#transform_map0, #transform_map1], [#transform_map0, #transform_map1]]
     { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
-      globalArg = 0 : index }
+      bounds = [1 : index, 1 : index] }
     : memref<?x?x?x?xf16>, index, index -> memref<?x?x?x?xf16>, index, index
 
   return

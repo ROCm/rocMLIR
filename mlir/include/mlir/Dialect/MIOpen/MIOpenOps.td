@@ -520,7 +520,7 @@ def MIOpen_BufferLoadOp :
     `oobDims` are the dimensions to be checked for out of bounds indices.
   }];
   let assemblyFormat = [{
-    attr-dict $source `[` $coords `]`
+    $source `[` $coords `]` attr-dict
     `:` type($source) `,` type($coords) `->` type($result)
   }];
   let hasVerifier = 1;
@@ -558,7 +558,7 @@ def MIOpen_BufferStoreOp :
     The buffer must reside in global memory.
   }];
   let assemblyFormat = [{
-    attr-dict $data `->` $dest `[` $coords `]`
+    $data `->` $dest `[` $coords `]` attr-dict
     `:` type($data) `->` type($dest) `,` type($coords)
   }];
   let hasVerifier = 1;

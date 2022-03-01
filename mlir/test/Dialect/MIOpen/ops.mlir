@@ -190,7 +190,7 @@ func @miopen_insert_slice(%u: vector<4xf32>, %v: vector<32xf32>) -> vector<32xf3
 // CHECK: miopen.insert_slice
 
 func @miopen_buffer_load(%buffer: memref<128x128xf32>, %idx0: index, %idx1: index) -> vector<4xf32> {
-  %ret = miopen.buffer_load { oobDims = [false, true] } %buffer[%idx0, %idx1]
+  %ret = miopen.buffer_load %buffer[%idx0, %idx1] { oobDims = [false, true] }
     : memref<128x128xf32>, index, index -> vector<4xf32>
   return %ret : vector<4xf32>
 }
@@ -198,7 +198,7 @@ func @miopen_buffer_load(%buffer: memref<128x128xf32>, %idx0: index, %idx1: inde
 // CHECK-NEXT: miopen.buffer_load
 
 func @miopen_buffer_store(%buffer: memref<128x128xf32>, %data: vector<4xf32>, %idx0: index, %idx1: index) {
-  miopen.buffer_store { oobDims = [false, true] } %data -> %buffer[%idx0, %idx1]
+  miopen.buffer_store %data -> %buffer[%idx0, %idx1] { oobDims = [false, true] }
   : vector<4xf32> -> memref<128x128xf32>, index, index
   return
 }
