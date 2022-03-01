@@ -2416,23 +2416,11 @@ struct GridwiseGemmV2RewritePattern
          (NPerWave % swizzleGroup == 0));
     const auto &tailResults = blockwiseGemmV2TailOp->getResults();
 
-    // Slice up vectors here to make it clearer that each store loop
-    // deals with a distinct set of values.
     TransformMapAttr splitCTransformAttr, cVectorAccessTransformAttr;
     ArrayAttr copyBounds;
-    llvm::SmallVector<Value, 4> vectors;
-    vectors.reserve(tailResults.size() * iterationsPerVectorC);
 
-    for (const Value &result : tailResults) {
-      for (int64_t i = 0; i < iterationsPerVectorC; ++i) {
-        Value sliceStart =
-            b.createOrFold<ConstantIndexOp>(loc, vectorCoffset * i);
-        Value slice =
-            b.create<ExtractSliceOp>(loc, vectorCSliceType, result, sliceStart);
-        vectors.push_back(slice);
-      }
-    }
-
+    SmallVector<Value, 4> transformedTail;
+    transformedTail.reserve(tailResults.size());
     if (enableOutSwizzles) {
       // The swizzle operation doesn't fundamentally affect the mapping
       // of "expanded GEMM" (G x M0 X M1 X M2 X N) to GEMM (G X M X N)
@@ -2472,12 +2460,11 @@ struct GridwiseGemmV2RewritePattern
       copyBounds = b.getIndexArrayAttr({1, M3, 1, 1, 1, N1});
 
       // Actually perform the swizzles
-      for (size_t i = 0, e = vectors.size(); i < e; ++i) {
-        Value result = vectors[i];
+      for (Value result : tailResults) {
         auto swizzle = b.create<InWarpTransposeOp>(
             loc, result.getType(), result, laneId_xdlops_gemm,
             b.getI32IntegerAttr(group_size), b.getI32ArrayAttr({0, 1, 2, 3}));
-        vectors[i] = swizzle;
+        transformedTail.push_back(swizzle);
       }
     } else {
       // build affine expression: d0 = g
@@ -2501,7 +2488,23 @@ struct GridwiseGemmV2RewritePattern
       cVectorAccessTransformAttr = cVectorAccessTransform.get();
 
       copyBounds = b.getIndexArrayAttr({1, M3, 1, M2, 1});
+
+      llvm::copy(tailResults, std::back_inserter(transformedTail));
     }
+    // Slice up vectors here to make it clearer that each store loop
+    // deals with a distinct set of values.
+    llvm::SmallVector<Value, 4> vectors;
+    vectors.reserve(transformedTail.size() * iterationsPerVectorC);
+    for (Value result : transformedTail) {
+      for (int64_t i = 0; i < iterationsPerVectorC; ++i) {
+        Value sliceStart =
+            b.createOrFold<ConstantIndexOp>(loc, vectorCoffset * i);
+        Value slice =
+            b.create<ExtractSliceOp>(loc, vectorCSliceType, result, sliceStart);
+        vectors.push_back(slice);
+      }
+    }
+
     Value cTransformed =
         b.create<TransformOp>(loc, op.c(), splitCTransformAttr);
     // The transform for the destination memref will be copied in
