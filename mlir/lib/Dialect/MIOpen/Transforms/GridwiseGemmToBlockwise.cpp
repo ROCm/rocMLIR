@@ -240,7 +240,6 @@ TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
                                      uint32_t vectorDim) {
   Type loadedType = loaded.getType();
   bool fullyScalar = !loadedType.isa<ShapedType>();
-  bool scalarStore = !storingType.isa<ShapedType>();
 
   int64_t storeLength = 1;
   if (auto storingVectorType = storingType.dyn_cast<VectorType>())
@@ -266,14 +265,6 @@ TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
   if (complexVectorStore)
     loopTransforms[0] = noTransforms;
 
-  auto emitStore = [&b, loc, buffer, scalarStore](Value data,
-                                                  ValueRange coords) {
-    if (scalarStore)
-      b.create<memref::StoreOp>(loc, data, buffer, coords);
-    else
-      b.create<vector::TransferWriteOp>(loc, data, buffer, coords);
-  };
-
   auto loop = b.create<TransformingForOp>(
       loc, ArrayRef<ValueRange>{linearInit, bufferStart}, loopTransforms,
       loopBounds,
@@ -286,11 +277,11 @@ TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
   // Otherwise, we need to gather elements from the result vector in order to
   // store them
   if (fullyScalar)
-    emitStore(loaded, loop.getLowerCoords(1));
+    b.create<InBoundsStoreOp>(loc, loaded, buffer, loop.getLowerCoords(1));
   else if (!complexVectorStore) {
     Value toStore = b.create<ExtractSliceOp>(loc, storingType, loaded,
                                              loop.getLowerCoords(0)[0]);
-    emitStore(toStore, loop.getLowerCoords(1));
+    b.create<InBoundsStoreOp>(loc, toStore, buffer, loop.getLowerCoords(1));
   } else {
     SmallVector<int64_t, 4> vectorIdxBounds(nUpper, 1);
     vectorIdxBounds[vectorDim] = storeLength;
@@ -313,8 +304,7 @@ TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
       b.create<miopen::YieldOp>(loc, toYield);
     }
     Value gathered = gatherLoop.getResults()[0];
-    b.create<vector::TransferWriteOp>(loc, gathered, buffer,
-                                      loop.getLowerCoords(1));
+    b.create<InBoundsStoreOp>(loc, gathered, buffer, loop.getLowerCoords(1));
   }
 
   return loop;

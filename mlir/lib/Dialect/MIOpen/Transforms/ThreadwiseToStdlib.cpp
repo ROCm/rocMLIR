@@ -537,9 +537,7 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
 //===----------------------------------------------------------------------===//
 Value emitLoadLogic(OpBuilder &b, Location loc, Type loadedType,
                     const Value source, ValueRange coords) {
-  if (auto vecType = loadedType.dyn_cast<VectorType>())
-    return b.create<vector::TransferReadOp>(loc, vecType, source, coords);
-  return b.create<memref::LoadOp>(loc, source, coords);
+  return b.create<InBoundsLoadOp>(loc, loadedType, source, coords);
 }
 
 // Determine if the operation provided is a constant, and return its value if it
