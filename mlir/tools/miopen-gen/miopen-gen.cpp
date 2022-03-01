@@ -1142,6 +1142,34 @@ const char *getTypeStr(const mlir::Type &type) {
   return "na";
 }
 
+static mlir::Value convertBF16ToFloat(OpBuilder bt0, mlir::Value loadOp) {
+  // HACK for bf16 since BF16 isn't supported by x86 isel
+  auto loc = bt0.getUnknownLoc();
+  mlir::Type i16 = bt0.getIntegerType(16);
+  mlir::Type i32 = bt0.getI32Type();
+  loadOp = bt0.create<arith::BitcastOp>(loc, i16, loadOp);
+  loadOp = bt0.create<arith::ExtUIOp>(loc, i32, loadOp);
+  auto cst16Op = bt0.create<arith::ConstantIntOp>(loc, 16, i32);
+  loadOp = bt0.create<arith::ShLIOp>(loc, loadOp, cst16Op);
+  loadOp = bt0.create<arith::BitcastOp>(loc, bt0.getF32Type(), loadOp);
+
+  return loadOp;
+}
+
+static mlir::Value convertFloatToBF16ToFloat(OpBuilder bt0,
+                                             mlir::Value loadOp) {
+  auto loc = bt0.getUnknownLoc();
+  mlir::Type i16 = bt0.getIntegerType(16);
+  mlir::Type i32 = bt0.getI32Type();
+  loadOp = bt0.create<arith::BitcastOp>(loc, i32, loadOp);
+  // <loadOp> = <loadOp> & FFFF0000
+  auto cst16Op = bt0.create<arith::ConstantIntOp>(loc, -65536, i32);
+  loadOp = bt0.create<arith::AndIOp>(loc, loadOp, cst16Op);
+  loadOp = bt0.create<arith::BitcastOp>(loc, bt0.getF32Type(), loadOp);
+
+  return loadOp;
+}
+
 static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
                                 const mlir::Type &dstElemType) {
   OpBuilder b(module.getContext());
@@ -1202,13 +1230,14 @@ static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
       // loadOp = bt0.create<arith::BitcastOp>(loc, loadOp,
       // bt0.getBF16Type()); loadOp = bt0.create<arith::ExtFOp>(loc, loadOp,
       // dstElemType); BF16 not supported by x86 isel
-      mlir::Type i16 = bt0.getIntegerType(16);
-      mlir::Type i32 = bt0.getI32Type();
-      loadOp = bt0.create<arith::BitcastOp>(loc, i16, loadOp);
-      loadOp = bt0.create<arith::ExtUIOp>(loc, i32, loadOp);
-      auto cst16Op = bt0.create<arith::ConstantIntOp>(loc, 16, i32);
-      loadOp = bt0.create<arith::ShLIOp>(loc, loadOp, cst16Op);
-      loadOp = bt0.create<arith::BitcastOp>(loc, bt0.getF32Type(), loadOp);
+      // mlir::Type i16 = bt0.getIntegerType(16);
+      // mlir::Type i32 = bt0.getI32Type();
+      // loadOp = bt0.create<arith::BitcastOp>(loc, i16, loadOp);
+      // loadOp = bt0.create<arith::ExtUIOp>(loc, i32, loadOp);
+      // auto cst16Op = bt0.create<arith::ConstantIntOp>(loc, 16, i32);
+      // loadOp = bt0.create<arith::ShLIOp>(loc, loadOp, cst16Op);
+      // loadOp = bt0.create<arith::BitcastOp>(loc, bt0.getF32Type(), loadOp);
+      loadOp = convertBF16ToFloat(bt0, loadOp);
     } else if (srcElemType.isIntOrIndex()) {
       assert(!dstElemType.isIntOrIndex());
       loadOp = bt0.create<arith::SIToFPOp>(loc, dstElemType, loadOp);
@@ -1364,6 +1393,45 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   b.create<memref::StoreOp>(loc, c1ConstantInt32Op, cmpResultAllocOp,
                             ValueRange{c0IndexOp});
 
+  mlir::FloatType elemFType = floatType;
+  if (elemType.isIntOrIndex()) { // i8, i32
+  } else if (!elemType.isF32()) {
+    if (elemType.isBF16()) {
+      elemFType = b.getBF16Type();
+    } else if (elemType.isF16()) {
+      elemFType = b.getF16Type();
+    }
+  }
+
+  auto getFVal = [&](float val) -> mlir::Value {
+    llvm::APFloat apVal(val);
+    bool ignored;
+    if (elemFType.isF16()) {
+      apVal.convert(llvm::APFloat::IEEEhalf(), APFloat::rmNearestTiesToEven,
+                    &ignored);
+    } else if (elemFType.isBF16()) {
+      apVal.convert(llvm::APFloat::BFloat(), APFloat::rmNearestTiesToEven,
+                    &ignored);
+    }
+    return b.create<arith::ConstantFloatOp>(loc, apVal, elemFType);
+  };
+
+  mlir::Value fval00, fval015, fval000001, fval001;
+  // Create constants needed for verification
+  if ((randomSeed.getValue() != "none" &&
+       randomDataType.getValue() == "float") ||
+      elemType.isF16() || elemType.isBF16()) {
+    fval00 = getFVal(0.0f);
+    fval015 = getFVal(0.15f);
+    fval000001 = getFVal(0.000001f);
+    fval001 = getFVal(0.001f);
+    if (elemType.isBF16()) {
+      fval00 = convertBF16ToFloat(b, fval00);
+      fval015 = convertBF16ToFloat(b, fval015);
+      fval000001 = convertBF16ToFloat(b, fval000001);
+      fval001 = convertBF16ToFloat(b, fval001);
+    }
+  }
   // %%c1 = constant 1 : index
   auto c1IndexOp = b.create<arith::ConstantIndexOp>(loc, 1);
 
@@ -1416,16 +1484,13 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   mlir::Value cpuPrintVal = cpuLoadVal;
 
   // Lower cpu values to gpu precision
-  mlir::FloatType elemFType = floatType;
-  if (elemType.isIntOrIndex()) { // i8, i32
-  } else if (!elemType.isF32()) {
-    if (elemType.isBF16()) {
-      elemFType = b.getBF16Type();
-    } else if (elemType.isF16()) {
-      elemFType = b.getF16Type();
-    }
+  if (elemType.isF16()) {
     cpuLoadVal = loopB.create<arith::TruncFOp>(loc, elemFType, cpuLoadVal);
     gpuPrintVal = loopB.create<arith::ExtFOp>(loc, floatType, gpuLoadVal);
+  } else if (elemType.isBF16()) {
+    cpuLoadVal = convertFloatToBF16ToFloat(loopB, cpuLoadVal);
+    gpuLoadVal = convertBF16ToFloat(loopB, gpuLoadVal);
+    gpuPrintVal = gpuLoadVal;
   }
 
   mlir::Value percentDiffVal;
@@ -1442,25 +1507,12 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 
     // <test> = |(<cpu> - <gpu>) / <cpu>| > <max_percent>
 
-    auto getFVal = [&](float val) -> mlir::Value {
-      llvm::APFloat apVal(val);
-      bool ignored;
-      if (elemFType.isF16()) {
-        apVal.convert(llvm::APFloat::IEEEhalf(), APFloat::rmNearestTiesToEven,
-                      &ignored);
-      } else if (elemFType.isBF16()) {
-        apVal.convert(llvm::APFloat::BFloat(), APFloat::rmNearestTiesToEven,
-                      &ignored);
-      }
-      return testBody.create<arith::ConstantFloatOp>(loc, apVal, elemFType);
-    };
-
     // <test> = <cpu> - <gpu>
     auto subfOp = testBody.create<arith::SubFOp>(loc, cpuLoadVal, gpuLoadVal);
     auto divfOp = testBody.create<arith::DivFOp>(loc, subfOp, cpuLoadVal);
     // <test> = select (<cpu> != 0.0), <divf>, <subf>)
     auto notZeroOp = testBody.create<arith::CmpFOp>(
-        loc, arith::CmpFPredicate::UNE, cpuLoadVal, getFVal(0.0f));
+        loc, arith::CmpFPredicate::UNE, cpuLoadVal, fval00);
     auto testOp =
         testBody.create<arith::SelectOp>(loc, notZeroOp, divfOp, subfOp);
     percentDiffVal = divfOp;
@@ -1472,9 +1524,9 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 
     mlir::Value maxPercentVal;
     if (elemType.getIntOrFloatBitWidth() < 32) {
-      maxPercentVal = getFVal(0.15f); // 15%
+      maxPercentVal = fval015; // 15%
     } else {
-      maxPercentVal = getFVal(0.000001f); // 0.00001 %
+      maxPercentVal = fval000001; // 0.00001 %
     }
 
     // <test> >= <max_percent>
@@ -1483,7 +1535,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     if (elemType.getIntOrFloatBitWidth() < 32) {
       // && <cpu> >= 0.001f
       auto cmp1Op = testBody.create<arith::CmpFOp>(
-          loc, arith::CmpFPredicate::UGT, absCpuVal, getFVal(0.001f));
+          loc, arith::CmpFPredicate::UGT, absCpuVal, fval001);
 
       cmpVal = testBody.create<arith::AndIOp>(loc, cmpVal, cmp1Op);
 
@@ -1514,7 +1566,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   }
 
   if (!elemType.isIntOrIndex()) {
-    if (elemType.getIntOrFloatBitWidth() < 32) { // f16, bf16
+    if (elemType.isF16()) {
       percentDiffVal =
           thenBody.create<arith::ExtFOp>(loc, floatType, percentDiffVal);
     }
