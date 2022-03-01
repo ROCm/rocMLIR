@@ -37,6 +37,8 @@ private:
 
   // Actual implementation.
   template <typename T> void affixTuningParametersImpl(T &op);
+
+  void affixBackwardWeightUtilityKernels(miopen::Conv2DBwdWeightOp &op);
 };
 } // anonymous namespace
 
@@ -45,8 +47,122 @@ void AffixTuningParameters::runOnOperation() {
 
   func.walk([&](miopen::Conv2DOp op) { affixTuningParametersImpl(op); });
   func.walk([&](miopen::Conv2DBwdDataOp op) { affixTuningParametersImpl(op); });
-  func.walk(
-      [&](miopen::Conv2DBwdWeightOp op) { affixTuningParametersImpl(op); });
+  func.walk([&](miopen::Conv2DBwdWeightOp op) {
+    affixTuningParametersImpl(op);
+    affixBackwardWeightUtilityKernels(op);
+  });
+}
+
+void AffixTuningParameters::affixBackwardWeightUtilityKernels(
+    miopen::Conv2DBwdWeightOp &op) {
+  auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
+  assert(gemmIdAttr);
+  int64_t gemmId = gemmIdAttr.getInt();
+
+  auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
+  if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
+    OpBuilder b(op.getContext());
+
+    ConvolutionContext convContext = populateConvContext(op);
+
+    auto filterLayoutAttr =
+        op->template getAttrOfType<ArrayAttr>("filter_layout");
+    auto inputLayoutAttr =
+        op->template getAttrOfType<ArrayAttr>("input_layout");
+    auto outputLayoutAttr =
+        op->template getAttrOfType<ArrayAttr>("output_layout");
+
+    // Get shape of filter tensor.
+    auto filterType = op.filter().getType().template cast<MemRefType>();
+    auto filterShape = filterType.getShape();
+
+    // Get shape of input tensor.
+    auto inputType = op.input().getType().template cast<MemRefType>();
+    auto inputShape = inputType.getShape();
+
+    // Get shape of output tensor.
+    auto outputType = op.output().getType().template cast<MemRefType>();
+    auto outputShape = outputType.getShape();
+
+    // get y, x, ho, wo, hi, wi, k, c, n
+    int64_t y, x, ho, wo, hi, wi, k, c, n;
+    y = x = ho = wo = hi = wi = k = c = n = 0;
+    for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
+      auto filterAttr =
+          filterLayoutAttr.getValue()[i].template cast<StringAttr>();
+      auto inputAttr =
+          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
+      auto outputAttr =
+          outputLayoutAttr.getValue()[i].template cast<StringAttr>();
+
+      if (filterAttr.getValue() == "y") {
+        y = filterShape[i];
+      } else if (filterAttr.getValue() == "x") {
+        x = filterShape[i];
+      } else if (filterAttr.getValue() == "k") {
+        k = filterShape[i];
+      } else if (filterAttr.getValue() == "c") {
+        c = filterShape[i];
+      }
+
+      if (inputAttr.getValue() == "hi") {
+        hi = inputShape[i];
+      } else if (inputAttr.getValue() == "wi") {
+        wi = inputShape[i];
+      } else if (inputAttr.getValue() == "ni") {
+        n = inputShape[i];
+      }
+
+      if (outputAttr.getValue() == "ho") {
+        ho = outputShape[i];
+      } else if (outputAttr.getValue() == "wo") {
+        wo = outputShape[i];
+      }
+    }
+
+    int64_t gemmMSize, gemmNSize, gemmKSize;
+    int64_t gemmMExtra, gemmNExtra, gemmKExtra;
+    gemmMSize = gemmNSize = gemmKSize = 0;
+    gemmMExtra = gemmNExtra = gemmKExtra = 0;
+    gemmMSize = k;
+    gemmKSize = n * ho * wo;
+    gemmNSize = c * y * x;
+
+    // isOriginalKernelSupport is not used.
+    // Only needExtraPad is used.
+    bool isOriginalKernelSupport = true;
+    bool needExtraPad = false;
+    PopulateParamsXDL populateParamsXDL;
+    std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
+             gemmKExtra) =
+        calculatePaddingKernelSize(
+            gemmMSize, gemmNSize, gemmKSize, convContext.getOpType(),
+            convContext.getDataType(), populateParamsXDL);
+
+    // For padding cases, gemmId must be 0.
+    if (needExtraPad == true) {
+      assert(gemmId == 0);
+    } else {
+      assert((gemmId >= 0) && (gemmId < 3));
+      switch (gemmId) {
+      case 0:
+      case 2:
+        // Override grid_size and block_size be 1 for utility kernels.
+        // FIXME. Use better sizes for speedups.
+        op->setAttr("grid_size", b.getI32IntegerAttr(1));
+        op->setAttr("block_size", b.getI32IntegerAttr(1));
+        // Set attributes on the function.
+        getOperation()->setAttr("block_size", b.getI32IntegerAttr(1));
+        getOperation()->setAttr("grid_size", b.getI32IntegerAttr(1));
+        break;
+      case 1:
+        break;
+      }
+    }
+  } else {
+    // For non-XDLOPS path, gemmId must be 0.
+    assert(gemmId == 0);
+  }
 }
 
 template <typename T>
