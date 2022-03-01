@@ -123,7 +123,7 @@ makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   auto cop = rw.create<miopen::Conv2DOp>(loc, resultTypes, args);
 
   // TODO(sjw): get these from options
-  StringRef arch = "gfx906";
+  SmallString<16> arch("gfx906");
   uint32_t num_cu = 64;
   bool xdlopsV2 = false;
 
