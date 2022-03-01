@@ -6,7 +6,6 @@ set(MLIR_CMAKE_CONFIG_DIR
    "${CMAKE_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX}/cmake/mlir")
 
 # MLIR settings
-set(MLIR_ROCM_RUNNER_ENABLED 1 CACHE BOOL "Enable building the mlir ROCm runner")
 set(MLIR_TABLEGEN_EXE mlir-tblgen)
 
 # LLVM settings
