@@ -1249,18 +1249,24 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         lb.create<AddIOp>(loc, args[0], KPerBlockConstantOp);
     BlockAndValueMapping loadAUpdates;
     loadAUpdates.map(blockwiseLoadACoords[1], blockwiseCopyASrcUpdated);
-    lb.clone(*blockwiseLoadA.getOperation(), loadAUpdates);
+    auto blockwiseLoadAClone = cast<TransformingForOp>(
+        lb.clone(*blockwiseLoadA.getOperation(), loadAUpdates));
 
     // Emit blockwise load for matrix B.
     BlockAndValueMapping loadBUpdates;
     Value blockwiseCopyBSrcUpdated =
         lb.create<AddIOp>(loc, args[1], KPerBlockConstantOp);
     loadBUpdates.map(blockwiseLoadBCoords[1], blockwiseCopyBSrcUpdated);
-    lb.clone(*blockwiseLoadB.getOperation(), loadBUpdates);
+    auto blockwiseLoadBClone = cast<TransformingForOp>(
+        lb.clone(*blockwiseLoadB.getOperation(), loadBUpdates));
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
 
     // Emit blockwise stores
     BlockAndValueMapping storeAUpdates, storeBUpdates;
+    storeAUpdates.map(blockwiseLoadA.getResult(0),
+                      blockwiseLoadAClone.getResult(0));
+    storeBUpdates.map(blockwiseLoadB.getResult(0),
+                      blockwiseLoadBClone.getResult(0));
     lb.clone(*blockwiseStoreA.getOperation(), storeAUpdates);
     lb.clone(*blockwiseStoreB.getOperation(), storeBUpdates);
 
@@ -2259,14 +2265,16 @@ struct GridwiseGemmV2RewritePattern
         mfmalb.create<AddIOp>(loc, mfmalArgs[0], KPerBlockConstantOp);
     BlockAndValueMapping loadAUpdates;
     loadAUpdates.map(blockwiseLoadACoords[1], blockwiseCopyASrcUpdated);
-    mfmalb.clone(*blockwiseLoadA.getOperation(), loadAUpdates);
+    auto blockwiseLoadAClone = cast<TransformingForOp>(
+        mfmalb.clone(*blockwiseLoadA.getOperation(), loadAUpdates));
 
     // Emit blockwise load for matrix B.
     BlockAndValueMapping loadBUpdates;
     Value blockwiseCopyBSrcUpdated =
         mfmalb.create<AddIOp>(loc, mfmalArgs[1], KPerBlockConstantOp);
     loadBUpdates.map(blockwiseLoadBCoords[1], blockwiseCopyBSrcUpdated);
-    mfmalb.clone(*blockwiseLoadB.getOperation(), loadBUpdates);
+    auto blockwiseLoadBClone = cast<TransformingForOp>(
+        mfmalb.clone(*blockwiseLoadB.getOperation(), loadBUpdates));
 
     // LDS barrier : guarantees LDS update completion before reading out to
     // register. requires LDS fence + barrier.
@@ -2288,6 +2296,10 @@ struct GridwiseGemmV2RewritePattern
     // Blockwise copy from register (naive tensor) to LDS (naive tensor).
     // Emit blockwise stores
     BlockAndValueMapping storeAUpdates, storeBUpdates;
+    storeAUpdates.map(blockwiseLoadA.getResult(0),
+                      blockwiseLoadAClone.getResult(0));
+    storeBUpdates.map(blockwiseLoadB.getResult(0),
+                      blockwiseLoadBClone.getResult(0));
     mfmalb.clone(*blockwiseStoreA.getOperation(), storeAUpdates);
     mfmalb.clone(*blockwiseStoreB.getOperation(), storeBUpdates);
 
