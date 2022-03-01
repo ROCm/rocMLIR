@@ -177,6 +177,22 @@ void affixGridwiseGemmAttributes(Operation *convOp, Operation *gop,
   }
 }
 
+/// 0-initialize the output (filter tensor) for a backward weight convolution
+/// which uses atomic adds.
+LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
+  // TBD
+  op.erase();
+  return success();
+}
+
+/// Element-wise conversion from the workspace to the output (filter tensor)
+/// for a backward weight convolution which uses atomic adds.
+LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
+  // TBD
+  op.erase();
+  return success();
+}
+
 /// Lowerings for particular convolution algorithms (TODO, new file?)
 LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
                                       PatternRewriter &b) {
@@ -208,6 +224,25 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   if (hasWorkspace) {
     assert(op.workspace() && "Op has no workspace");
   }
+
+  // Emit utility kernels.
+  int64_t gemmId = gemmIdAttr.getInt();
+  assert((gemmId >= 0) && (gemmId < 3));
+  switch (gemmId) {
+  case 0:
+    // The 0th kernel will 0-init the output (filter tensor).
+    return zeroInit(op, b);
+  case 2:
+    // The 2nd kernel, if used, will conduct element-wise fp32->fp16 conversion
+    // from the workspace to the output (filter tensor).
+    assert(hasWorkspace);
+    return elementwiseConversion(op, b);
+  case 1:
+  default:
+    break;
+  }
+  // The 1st kernel will conduct the actual backward weight convolution using
+  // atomic adds.
 
   // Get shape of input tensor.
   auto inputType = op.input().getType().template cast<MemRefType>();
