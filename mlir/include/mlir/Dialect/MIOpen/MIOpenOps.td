@@ -504,7 +504,8 @@ def MIOpen_BufferLoadOp :
               VectorOfLengthAndType<[2, 4], [F32]>,
               VectorOfLengthAndType<[2, 4, 8], [F16]>,
               VectorOfLengthAndType<[2, 4, 8], [BF16]>,
-              VectorOfLengthAndType<[4], [I8]>]>:$result)> {
+              VectorOfLengthAndType<[4], [I8]>,
+              VectorOfLengthAndType<[2, 4], [I32]>]>:$result)> {
   let summary = "Load data from a global buffer";
 
   let description = [{
@@ -529,7 +530,7 @@ def MIOpen_BufferLoadOp :
 // buffer_store
 def MIOpen_BufferStoreOp :
     MIOpen_Op<"buffer_store", []>,
-    Arguments<(ins AnyTypeOf<[F32, F16, BF16, I8,
+    Arguments<(ins AnyTypeOf<[F32, F16, BF16, I8, I32,
         VectorOfLengthAndType<[2, 4], [F32]>,
         VectorOfLengthAndType<[2, 4, 8], [F16]>,
         VectorOfLengthAndType<[2, 4, 8], [BF16]>,
