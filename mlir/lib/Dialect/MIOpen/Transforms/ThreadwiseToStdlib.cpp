@@ -532,7 +532,6 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
   }
 };
 
-
 //===----------------------------------------------------------------------===//
 // Utility function to emit load instructions with potentially OOB checks.
 //===----------------------------------------------------------------------===//
