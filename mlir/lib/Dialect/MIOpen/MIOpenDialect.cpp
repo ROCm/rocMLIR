@@ -830,6 +830,36 @@ LogicalResult BufferStoreOp::verify() {
   return success();
 }
 
+//===-----------------------------------------------------===//
+// InBoundsLoadOp
+//===-----------------------------------------------------===//
+LogicalResult InBoundsLoadOp::verify() {
+  auto sourceType = source().getType().cast<MemRefType>();
+  size_t nDims = sourceType.getRank();
+  if (coords().size() != nDims)
+    return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
+  Type resultType = result().getType();
+  if (resultType.isa<ShapedType>() && !resultType.isa<VectorType>())
+    return emitOpError(
+        "Non-scalar loads must return vectors, not other shaped types");
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// InBoundsLoadOp
+//===-----------------------------------------------------===//
+LogicalResult InBoundsStoreOp::verify() {
+  auto destType = dest().getType().cast<MemRefType>();
+  size_t nDims = destType.getRank();
+  if (coords().size() != nDims)
+    return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
+  Type dataType = data().getType();
+  if (dataType.isa<ShapedType>() && !dataType.isa<VectorType>())
+    return emitOpError(
+        "Non-scalar data types must be vectors, not other shaped types");
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // ThreadwiseCopyOp
 //===----------------------------------------------------------------------===//

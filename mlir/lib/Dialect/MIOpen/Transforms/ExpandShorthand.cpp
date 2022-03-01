@@ -48,10 +48,6 @@ struct MIOpenExpandShorthandPass
 };
 
 //===----------------------------------------------------------------------===//
-// IndexDiffUpdate lowering.
-//===----------------------------------------------------------------------===//
-
-//===----------------------------------------------------------------------===//
 // ExtractSlice lowering.
 //===----------------------------------------------------------------------===//
 struct ExtractSliceRewritePattern : public OpRewritePattern<ExtractSliceOp> {
@@ -115,6 +111,68 @@ struct InsertSliceRewritePattern : public OpRewritePattern<InsertSliceOp> {
     } else {
       b.replaceOpWithNewOp<vector::InsertElementOp>(op, op.source(), op.dest(),
                                                     base);
+    }
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// InBoundsLoad lowering.
+//===----------------------------------------------------------------------===//
+struct InBoundsLoadRewritePattern : public OpRewritePattern<InBoundsLoadOp> {
+  using OpRewritePattern<InBoundsLoadOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(InBoundsLoadOp op,
+                                PatternRewriter &b) const override {
+    Location loc = op.getLoc();
+    if (auto destType = op.result().getType().dyn_cast<VectorType>()) {
+      SmallVector<Value> coords;
+      llvm::copy(op.coords(), std::back_inserter(coords));
+
+      int64_t loadSize = destType.getNumElements();
+      Value ret = createZeroConstantOp(b, loc, destType);
+      Value one = b.createOrFold<ConstantIndexOp>(loc, 1);
+      for (int64_t i = 0; i < loadSize; ++i) {
+        Value cDest = b.createOrFold<ConstantIndexOp>(loc, i);
+        Value v = b.create<memref::LoadOp>(loc, op.source(), coords);
+        ret = b.create<vector::InsertElementOp>(loc, v, ret, cDest);
+        coords[coords.size() - 1] =
+            b.createOrFold<AddIOp>(loc, coords[coords.size() - 1], one);
+      }
+      b.replaceOp(op, ret);
+    } else {
+      b.replaceOpWithNewOp<memref::LoadOp>(op, op.source(), op.coords());
+    }
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// InBoundsStore lowering.
+//===----------------------------------------------------------------------===//
+struct InBoundsStoreRewritePattern : public OpRewritePattern<InBoundsStoreOp> {
+  using OpRewritePattern<InBoundsStoreOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(InBoundsStoreOp op,
+                                PatternRewriter &b) const override {
+    Location loc = op.getLoc();
+    if (auto srcType = op.data().getType().dyn_cast<VectorType>()) {
+      SmallVector<Value> coords;
+      llvm::copy(op.coords(), std::back_inserter(coords));
+
+      int64_t storeSize = srcType.getNumElements();
+      Value one = b.createOrFold<ConstantIndexOp>(loc, 1);
+      for (int64_t i = 0; i < storeSize; ++i) {
+        Value cSrc = b.createOrFold<ConstantIndexOp>(loc, i);
+        Value v = b.create<vector::ExtractElementOp>(loc, op.data(), cSrc);
+        b.create<memref::StoreOp>(loc, v, op.dest(), coords);
+        coords[coords.size() - 1] =
+            b.createOrFold<AddIOp>(loc, coords[coords.size() - 1], one);
+      }
+      b.eraseOp(op);
+    } else {
+      b.replaceOpWithNewOp<memref::StoreOp>(op, op.data(), op.dest(),
+                                            op.coords());
     }
     return success();
   }
@@ -448,6 +506,7 @@ void MIOpenExpandShorthandPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   RewritePatternSet patterns(ctx);
   patterns.add<ExtractSliceRewritePattern, InsertSliceRewritePattern,
+               InBoundsLoadRewritePattern, InBoundsStoreRewritePattern,
                InWarpTransposeRewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();

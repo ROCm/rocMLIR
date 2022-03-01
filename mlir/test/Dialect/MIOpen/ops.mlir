@@ -205,6 +205,23 @@ func @miopen_buffer_store(%buffer: memref<128x128xf32>, %data: vector<4xf32>, %i
 // CHECK-LABEL: func @miopen_buffer_store
 // CHECK-NEXT: miopen.buffer_store
 
+func @miopen_in_bounds_load(%buffer: memref<128x128xf32, 3>, %idx0: index, %idx1: index) -> vector<4xf32> {
+  %ret = miopen.in_bounds_load %buffer[%idx0, %idx1]
+    : memref<128x128xf32, 3>, index, index -> vector<4xf32>
+  return %ret : vector<4xf32>
+}
+// CHECK-LABEL: func @miopen_in_bounds_load
+// CHECK-NEXT: miopen.in_bounds_load
+
+func @miopen_in_bounds_store(%buffer: memref<128x128xf32, 3>, %data: vector<4xf32>, %idx0: index, %idx1: index) {
+  miopen.in_bounds_store %data -> %buffer[%idx0, %idx1] { oobDims = [false, true] }
+  : vector<4xf32> -> memref<128x128xf32, 3>, index, index
+  return
+}
+// CHECK-LABEL: func @miopen_in_bounds_store
+// CHECK-NEXT: miopen.in_bounds_store
+
+
 func @miopen_in_warp_transpose(%v : vector<8xf32>) -> vector<8xf32> {
   %cst4 = arith.constant 4 : index
   %l = miopen.workitem_id : index

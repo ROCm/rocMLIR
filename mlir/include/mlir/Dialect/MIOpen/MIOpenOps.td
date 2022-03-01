@@ -565,6 +565,50 @@ def MIOpen_BufferStoreOp :
   let hasVerifier = 1;
 }
 
+// in_bounds_load
+def MIOpen_InBoundsLoadOp :
+    MIOpen_Op<"in_bounds_load", [AllElementTypesMatch<["source", "result"]>]>,
+    Arguments<(ins Arg<AnyMemRef,
+        "buffer to load from", [MemRead]>:$source,
+      Variadic<Index>:$coords)>,
+    Results<(outs AnyType:$result)> {
+  let summary = "Load one or more contiguous items from `source`";
+
+  let description = [{
+    miopen.in_bounds_loads reads either one scalar value or a vector of values
+    from a memref. The memref can be in any memory space. The read begins at
+    `coords`.
+  }];
+  let assemblyFormat = [{
+    $source `[` $coords `]` attr-dict
+    `:` type($source) `,` type($coords) `->` type($result)
+  }];
+  let hasVerifier = 1;
+}
+
+// in_bounds_store
+def MIOpen_InBoundsStoreOp :
+    MIOpen_Op<"in_bounds_store", [AllElementTypesMatch<["data", "dest"]>]>,
+    Arguments<(ins AnyType:$data,
+      Arg<AnyMemRef,
+        "Buffer to store to", [MemWrite]>:$dest,
+      Variadic<Index>:$coords)> {
+  let summary = "Store one or more items to contiguous indices in `dest`";
+
+  let description = [{
+    `miopen.in_bounds_store` stores the item or items in `data` (which can be
+    a scalar or a vector) to the buffer `dest`, starting at `coords`.
+    The memref can be in any memory space.
+    This op assumes that all indices will land in bounds.
+  }];
+  let assemblyFormat = [{
+    $data `->` $dest `[` $coords `]` attr-dict
+    `:` type($data) `->` type($dest) `,` type($coords)
+  }];
+  let hasVerifier = 1;
+}
+
+
 // TODO(kdrewnia): Remove these - they're left in to ensure a smooth transition
 // of fusion passes to the transforming_for structure
 
