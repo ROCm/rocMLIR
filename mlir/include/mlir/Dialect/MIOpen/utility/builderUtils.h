@@ -11,6 +11,9 @@ namespace miopen {
 // Utility function to emit constant zero op. Can return scalars or vectors.
 Value createZeroConstantOp(OpBuilder &b, Location loc, Type type);
 
+// Utility function to emit type conversion ops.
+Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
+                             Type sourceType, Type destType);
 } // namespace miopen
 } // namespace mlir
 
