@@ -533,166 +533,13 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// Utility function to emit load instructions with potentially OOB checks.
+// Utility function to emit load instructions for local buffers
 //===----------------------------------------------------------------------===//
-Value emitLoadLogic(OpBuilder &b, Location loc, MemRefType sourceType,
-                    Type loadedType, bool toEmitOOBLoadCheckLogic,
-                    const ArrayRef<uint32_t> oobLoadCheckDims,
-                    const Value source, const ArrayRef<Value> srcLowerIndices) {
-  auto emitLoadInstruction = [&b, &loc](const ArrayRef<Value> &srcLowerIndices,
-                                        MemRefType sourceType, Type loadedType,
-                                        const Value &source) -> Value {
-    Value loadedValue;
-    if (loadedType.isa<VectorType>()) {
-      // Issue vector load.
-      if (sourceType.getMemorySpaceAsInt() == 0) {
-        // Option 1: buffer load.
-        // use buffer load if the source memref is on address space 0
-        SmallVector<Value, 4> srcLowerIndicesI32;
-        for (auto v : srcLowerIndices)
-          srcLowerIndicesI32.push_back(
-              b.create<IndexCastOp>(loc, b.getIntegerType(32), v));
-        loadedValue = b.create<gpu::MubufLoadOp>(loc, loadedType, source,
-                                                 srcLowerIndicesI32);
-      } else {
-        // Option 2: scalar load + vector.insertelement
-        VectorType loadedVectorType = loadedType.template cast<VectorType>();
-        Type elementType = loadedVectorType.getElementType();
-        int64_t vectorLength = loadedVectorType.getShape()[0];
-
-        Value loadedVector = createZeroConstantOp(b, loc, loadedVectorType);
-
-        SmallVector<Value, 8> srcLowerIndicesUpdated;
-        srcLowerIndicesUpdated.append(srcLowerIndices.begin(),
-                                      srcLowerIndices.end());
-        int64_t dim = sourceType.getRank() - 1;
-        for (int64_t iter = 0; iter < vectorLength; ++iter) {
-          auto iterIndex = b.create<ConstantIndexOp>(loc, iter);
-          srcLowerIndicesUpdated[dim] =
-              b.create<AddIOp>(loc, srcLowerIndices[dim], iterIndex);
-          auto loadedElement = b.create<memref::LoadOp>(
-              loc, elementType, source, srcLowerIndicesUpdated);
-
-          loadedVector = b.create<vector::InsertElementOp>(
-              loc, loadedVectorType, loadedElement, loadedVector, iterIndex);
-        }
-        loadedValue = loadedVector;
-      }
-    } else {
-      // Issue scalar load.
-      loadedValue =
-          b.create<memref::LoadOp>(loc, loadedType, source, srcLowerIndices);
-    }
-    return loadedValue;
-  };
-
-  Value loadedValue;
-  auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-
-  if (toEmitOOBLoadCheckLogic) {
-    // Pre-populate srcLowerLoadOOBIndices. It will be modified inside
-    // toEmitOOBCheckLogic basic block.
-    SmallVector<Value, 8> srcLowerLoadOOBIndices;
-    srcLowerLoadOOBIndices.append(srcLowerIndices.begin(),
-                                  srcLowerIndices.end());
-
-    // Emit a useful constant 0f for later use.
-    Value zeroOp = createZeroConstantOp(b, loc, loadedType);
-
-    // Walkthrough all lower level indices where the dimension has
-    // padding, check if the result lies within boundaries.
-
-    // Logic in C++:
-    // bool withinBounds = true;
-    // for (auto dim : oobLoadCheckDims) {
-    //   withBounds &=
-    //     (srcLowerIndices[dim] >= 0 &&
-    //      srcLowerIndices[dim] < sourceType.getShape()[dim]) {
-    // }
-    Value withinBoundsOp = b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
-    for (auto dim : oobLoadCheckDims) {
-      Value coord = srcLowerIndices[dim];
-      Value lowerBoundCheckOp =
-          b.create<CmpIOp>(loc, CmpIPredicate::sge, coord, zeroConstantOp);
-      Value upperBoundOp =
-          b.create<ConstantIndexOp>(loc, sourceType.getShape()[dim]);
-      Value upperBoundCheckOp =
-          b.create<CmpIOp>(loc, CmpIPredicate::slt, coord, upperBoundOp);
-      Value withinBoundInOneDimOp =
-          b.create<AndIOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
-
-      withinBoundsOp =
-          b.create<AndIOp>(loc, withinBoundsOp, withinBoundInOneDimOp);
-
-      // Prepare srcLowerLoadOOBIndices.
-      srcLowerLoadOOBIndices[dim] = zeroConstantOp;
-    }
-
-    // Logic:
-    // if (withinBounds) {
-    //   // load address = lower indices from affine transform.
-    // } else {
-    //   // OOB. Prepare an address known NOT OOB.
-    //   // For example, in NGCHW case:
-    //   // load address = {N, G, C, 0, 0}
-    //   // In NGHWC case:
-    //   // load address = {N, G, 0, 0, C}
-    // }
-    // V = load(load address)
-    // if (withinBounds) {
-    //   return V
-    // } else {
-    //   return 0
-    // }
-
-    // Emit the first IfOp.
-    auto firstIfWithinBoundsOp = b.create<scf::IfOp>(
-        loc,
-        TypeRange{b.getIndexType(), b.getIndexType(), b.getIndexType(),
-                  b.getIndexType(), b.getIndexType()},
-        withinBoundsOp, /*withElseRegion=*/true);
-
-    // Then part.
-    auto firstIfWithinBoundsThenBuilder =
-        firstIfWithinBoundsOp.getThenBodyBuilder();
-    firstIfWithinBoundsThenBuilder.create<scf::YieldOp>(
-        loc,
-        ValueRange{srcLowerIndices[0], srcLowerIndices[1], srcLowerIndices[2],
-                   srcLowerIndices[3], srcLowerIndices[4]});
-
-    // Else part.
-    auto firstIfWithinBoundsElseBuilder =
-        firstIfWithinBoundsOp.getElseBodyBuilder();
-    firstIfWithinBoundsElseBuilder.create<scf::YieldOp>(
-        loc, ValueRange{srcLowerLoadOOBIndices[0], srcLowerLoadOOBIndices[1],
-                        srcLowerLoadOOBIndices[2], srcLowerLoadOOBIndices[3],
-                        srcLowerLoadOOBIndices[4]});
-
-    // Issue scalar load.
-    SmallVector<Value, 8> srcLowerIndicesUpdated;
-    for (unsigned iter = 0; iter < 5; ++iter)
-      srcLowerIndicesUpdated.push_back(
-          firstIfWithinBoundsOp.getResults()[iter]);
-    loadedValue = emitLoadInstruction(srcLowerIndicesUpdated, sourceType,
-                                      loadedType, source);
-
-    // Emit the second IfOp.
-    auto secondIfWithinBoundsOp =
-        b.create<scf::IfOp>(loc, loadedType, withinBoundsOp, true);
-    auto secondIfWithinBoundsThenBuilder =
-        secondIfWithinBoundsOp.getThenBodyBuilder();
-    secondIfWithinBoundsThenBuilder.create<scf::YieldOp>(loc, loadedValue);
-    auto secondIfWithinBoundsElseBuilder =
-        secondIfWithinBoundsOp.getElseBodyBuilder();
-    secondIfWithinBoundsElseBuilder.create<scf::YieldOp>(loc, zeroOp);
-
-    loadedValue = secondIfWithinBoundsOp.getResults()[0];
-
-  } else {
-    loadedValue =
-        emitLoadInstruction(srcLowerIndices, sourceType, loadedType, source);
-  }
-  return loadedValue;
+Value emitLoadLogic(OpBuilder &b, Location loc, Type loadedType,
+                    const Value source, ValueRange coords) {
+  if (auto vecType = loadedType.dyn_cast<VectorType>())
+    return b.create<vector::TransferReadOp>(loc, vecType, source, coords);
+  return b.create<memref::LoadOp>(loc, source, coords);
 }
 
 // Determine if the operation provided is a constant, and return its value if it
@@ -1424,9 +1271,9 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
       Value valueA;
       if (KPack > 1) {
         valueA = emitLoadLogic(
-            ilmkb, loc, op.matrixA().getType().template cast<MemRefType>(),
+            ilmkb, loc,
             op.bufferA().getType().template cast<MemRefType>().getElementType(),
-            false, {}, op.matrixA(), sourceOffsetA);
+            op.matrixA(), sourceOffsetA);
       } else {
         valueA = ilmkb.create<memref::LoadOp>(loc, dataType, op.matrixA(),
                                               sourceOffsetA);
@@ -1470,9 +1317,9 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
       Value valueB;
       if (KPack > 1) {
         valueB = emitLoadLogic(
-            ilnkb, loc, op.matrixB().getType().template cast<MemRefType>(),
+            ilnkb, loc,
             op.bufferB().getType().template cast<MemRefType>().getElementType(),
-            false, {}, op.matrixB(), sourceOffsetB);
+            op.matrixB(), sourceOffsetB);
       } else {
         valueB = ilnkb.create<memref::LoadOp>(loc, dataType, op.matrixB(),
                                               sourceOffsetB);
@@ -1682,9 +1529,7 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
 
       Value valueA;
       if (KPack > 1) {
-        valueA = emitLoadLogic(
-            lklb, loc, op.matrixA().getType().template cast<MemRefType>(),
-            argType, false, {}, op.matrixA(), sourceOffsetA);
+        valueA = emitLoadLogic(lklb, loc, argType, op.matrixA(), sourceOffsetA);
       } else {
         valueA = lklb.create<memref::LoadOp>(loc, dataType, op.matrixA(),
                                              ValueRange{sourceOffsetA});
@@ -1705,9 +1550,7 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
 
       Value valueB;
       if (KPack > 1) {
-        valueB = emitLoadLogic(
-            lklb, loc, op.matrixB().getType().template cast<MemRefType>(),
-            argType, false, {}, op.matrixB(), sourceOffsetB);
+        valueB = emitLoadLogic(lklb, loc, argType, op.matrixB(), sourceOffsetB);
       } else {
         valueB = lklb.create<memref::LoadOp>(loc, dataType, op.matrixB(),
                                              ValueRange{sourceOffsetB});
