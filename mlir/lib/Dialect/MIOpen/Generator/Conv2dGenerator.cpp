@@ -55,7 +55,7 @@ Conv2dGenerator::Conv2dGenerator(
              inputLayout,
              outputLayout,
              kernelBaseName,
-             -1,
+             0,
              {},
              {},
              {},
