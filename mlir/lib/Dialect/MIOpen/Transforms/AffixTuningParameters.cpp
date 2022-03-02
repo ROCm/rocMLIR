@@ -39,6 +39,11 @@ private:
   template <typename T> void affixTuningParametersImpl(T &op);
 
   void affixBackwardWeightUtilityKernels(miopen::Conv2DBwdWeightOp &op);
+
+  template <typename T>
+  std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
+             int64_t, int64_t>
+  fetchDimensions(T &op);
 };
 } // anonymous namespace
 
@@ -53,6 +58,67 @@ void AffixTuningParameters::runOnOperation() {
   });
 }
 
+template <typename T>
+std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
+           int64_t, int64_t>
+AffixTuningParameters::fetchDimensions(T &op) {
+  auto filterLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("filter_layout");
+  auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
+  auto outputLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("output_layout");
+
+  // Get shape of filter tensor.
+  auto filterType = op.filter().getType().template cast<MemRefType>();
+  auto filterShape = filterType.getShape();
+
+  // Get shape of input tensor.
+  auto inputType = op.input().getType().template cast<MemRefType>();
+  auto inputShape = inputType.getShape();
+
+  // Get shape of output tensor.
+  auto outputType = op.output().getType().template cast<MemRefType>();
+  auto outputShape = outputType.getShape();
+
+  // get y, x, ho, wo, hi, wi, k, c, n
+  int64_t y, x, ho, wo, hi, wi, k, c, n;
+  y = x = ho = wo = hi = wi = k = c = n = 0;
+
+  for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
+    auto filterAttr =
+        filterLayoutAttr.getValue()[i].template cast<StringAttr>();
+    auto inputAttr = inputLayoutAttr.getValue()[i].template cast<StringAttr>();
+    auto outputAttr =
+        outputLayoutAttr.getValue()[i].template cast<StringAttr>();
+
+    if (filterAttr.getValue() == "y") {
+      y = filterShape[i];
+    } else if (filterAttr.getValue() == "x") {
+      x = filterShape[i];
+    } else if (filterAttr.getValue() == "k") {
+      k = filterShape[i];
+    } else if (filterAttr.getValue() == "c") {
+      c = filterShape[i];
+    }
+
+    if (inputAttr.getValue() == "hi") {
+      hi = inputShape[i];
+    } else if (inputAttr.getValue() == "wi") {
+      wi = inputShape[i];
+    } else if (inputAttr.getValue() == "ni") {
+      n = inputShape[i];
+    }
+
+    if (outputAttr.getValue() == "ho") {
+      ho = outputShape[i];
+    } else if (outputAttr.getValue() == "wo") {
+      wo = outputShape[i];
+    }
+  }
+
+  return std::make_tuple(y, x, ho, wo, hi, wi, k, c, n);
+}
+
 void AffixTuningParameters::affixBackwardWeightUtilityKernels(
     miopen::Conv2DBwdWeightOp &op) {
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
@@ -65,68 +131,17 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
 
     ConvolutionContext convContext = populateConvContext(op);
 
-    auto filterLayoutAttr =
-        op->template getAttrOfType<ArrayAttr>("filter_layout");
-    auto inputLayoutAttr =
-        op->template getAttrOfType<ArrayAttr>("input_layout");
-    auto outputLayoutAttr =
-        op->template getAttrOfType<ArrayAttr>("output_layout");
-
-    // Get shape of filter tensor.
-    auto filterType = op.filter().getType().template cast<MemRefType>();
-    auto filterShape = filterType.getShape();
-
-    // Get shape of input tensor.
-    auto inputType = op.input().getType().template cast<MemRefType>();
-    auto inputShape = inputType.getShape();
-
-    // Get shape of output tensor.
-    auto outputType = op.output().getType().template cast<MemRefType>();
-    auto outputShape = outputType.getShape();
-
     // get y, x, ho, wo, hi, wi, k, c, n
     int64_t y, x, ho, wo, hi, wi, k, c, n;
-    y = x = ho = wo = hi = wi = k = c = n = 0;
-    for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
-      auto filterAttr =
-          filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-      auto inputAttr =
-          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-      auto outputAttr =
-          outputLayoutAttr.getValue()[i].template cast<StringAttr>();
-
-      if (filterAttr.getValue() == "y") {
-        y = filterShape[i];
-      } else if (filterAttr.getValue() == "x") {
-        x = filterShape[i];
-      } else if (filterAttr.getValue() == "k") {
-        k = filterShape[i];
-      } else if (filterAttr.getValue() == "c") {
-        c = filterShape[i];
-      }
-
-      if (inputAttr.getValue() == "hi") {
-        hi = inputShape[i];
-      } else if (inputAttr.getValue() == "wi") {
-        wi = inputShape[i];
-      } else if (inputAttr.getValue() == "ni") {
-        n = inputShape[i];
-      }
-
-      if (outputAttr.getValue() == "ho") {
-        ho = outputShape[i];
-      } else if (outputAttr.getValue() == "wo") {
-        wo = outputShape[i];
-      }
-    }
+    std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
 
     int64_t gemmMSize, gemmNSize, gemmKSize;
-    int64_t gemmMExtra, gemmNExtra, gemmKExtra;
-    gemmMSize = gemmNSize = gemmKSize = 0;
-    gemmMExtra = gemmNExtra = gemmKExtra = 0;
     gemmMSize = k;
     gemmKSize = n * ho * wo;
     gemmNSize = c * y * x;
+
+    int64_t gemmMExtra, gemmNExtra, gemmKExtra;
+    gemmMExtra = gemmNExtra = gemmKExtra = 0;
 
     // isOriginalKernelSupport is not used.
     // Only needExtraPad is used.
@@ -168,76 +183,20 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
   ConvolutionContext convContext = populateConvContext(op);
 
-  auto filterLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("filter_layout");
-  auto inputLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("input_layout");
-  auto outputLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("output_layout");
-
-  // Get shape of filter tensor.
-  auto filterType = op.filter().getType().template cast<MemRefType>();
-  auto filterShape = filterType.getShape();
-
-  // Get shape of input tensor.
-  auto inputType = op.input().getType().template cast<MemRefType>();
-  auto inputShape = inputType.getShape();
-
-  // Get shape of output tensor.
-  auto outputType = op.output().getType().template cast<MemRefType>();
-  auto outputShape = outputType.getShape();
-
   // get y, x, ho, wo, hi, wi, k, c, n
   int64_t y, x, ho, wo, hi, wi, k, c, n;
-  y = x = ho = wo = hi = wi = k = c = n = 0;
-  llvm::DenseMap<StringRef, int> nameToDims;
-  for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
-    auto filterAttr =
-        filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto inputAttr =
-        inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto outputAttr =
-        outputLayoutAttr.getValue()[i].template cast<StringAttr>();
-
-    nameToDims[filterAttr.getValue()] = i;
-    nameToDims[inputAttr.getValue()] = i;
-    nameToDims[outputAttr.getValue()] = i;
-
-    if (filterAttr.getValue() == "y") {
-      y = filterShape[i];
-    } else if (filterAttr.getValue() == "x") {
-      x = filterShape[i];
-    } else if (filterAttr.getValue() == "k") {
-      k = filterShape[i];
-    } else if (filterAttr.getValue() == "c") {
-      c = filterShape[i];
-    }
-
-    if (inputAttr.getValue() == "hi") {
-      hi = inputShape[i];
-    } else if (inputAttr.getValue() == "wi") {
-      wi = inputShape[i];
-    } else if (inputAttr.getValue() == "ni") {
-      n = inputShape[i];
-    }
-
-    if (outputAttr.getValue() == "ho") {
-      ho = outputShape[i];
-    } else if (outputAttr.getValue() == "wo") {
-      wo = outputShape[i];
-    }
-  }
+  std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
 
   int64_t gemmMSize, gemmNSize, gemmKSize;
-  int64_t gemmMExtra, gemmNExtra, gemmKExtra;
-  gemmMSize = gemmNSize = gemmKSize = 0;
-  gemmMExtra = gemmNExtra = gemmKExtra = 0;
   // FIXME : support forward convolution only right now.
   // compute we should use extra padding kernel or not
   // c,k already / g ,so we can skip / g here
   gemmMSize = k;
   gemmKSize = c * y * x;
   gemmNSize = n * ho * wo;
+
+  int64_t gemmMExtra, gemmNExtra, gemmKExtra;
+  gemmMExtra = gemmNExtra = gemmKExtra = 0;
 
   // isOriginalKernelSupport is not used.
   // Only needExtraPad is used.
