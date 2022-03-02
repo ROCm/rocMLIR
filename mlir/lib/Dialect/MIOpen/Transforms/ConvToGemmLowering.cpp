@@ -178,18 +178,30 @@ void affixGridwiseGemmAttributes(Operation *convOp, Operation *gop,
   }
 }
 
-/// 0-initialize the output (filter tensor) for a backward weight convolution
-/// which uses atomic adds.
+/// 0-initialize the output for a backward weight convolution which uses
+/// atomic adds.
+/// For f32 type, the output is the filter tensor.
+/// for f16 type, the output is the workspace.
 LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
   auto loc = op.getLoc();
-  auto filter = op.filter();
-  auto dataType = filter.getType().cast<MemRefType>().getElementType();
-  auto zeroOp = createZeroConstantOp(b, loc, dataType);
-  auto collapsedFilter = createCollapseShapeOp(b, loc, filter);
-  ArrayRef<int64_t> collapsedFilterShape =
-      collapsedFilter.getType().cast<MemRefType>().getShape();
+  auto filterDataType =
+      op.filter().getType().cast<MemRefType>().getElementType();
+  Value output;
+  if (filterDataType == b.getF32Type()) {
+    output = op.filter();
+  } else if (filterDataType == b.getF16Type()) {
+    assert(op.workspace() && "Op has no workspace");
+    output = op.workspace();
+  } else {
+    llvm_unreachable("Incorrect memref type supplied");
+  }
+  auto outputDataType = output.getType().cast<MemRefType>().getElementType();
+  auto zeroOp = createZeroConstantOp(b, loc, outputDataType);
+  auto collapsedOutput = createCollapseShapeOp(b, loc, output);
+  ArrayRef<int64_t> collapsedOutputShape =
+      collapsedOutput.getType().cast<MemRefType>().getShape();
   llvm::SmallVector<AffineForOp, 1> affineLoops;
-  for (auto bound : collapsedFilterShape) {
+  for (auto bound : collapsedOutputShape) {
     auto loop = b.create<AffineForOp>(loc, 0, bound);
     affineLoops.push_back(loop);
     auto body = loop.getBody();
@@ -197,7 +209,7 @@ LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
   }
   llvm::SmallVector<Value, 1> indices;
   extractForInductionVars(affineLoops, &indices);
-  b.create<AffineStoreOp>(loc, zeroOp, collapsedFilter, indices);
+  b.create<AffineStoreOp>(loc, zeroOp, collapsedOutput, indices);
 
   op.erase();
   return success();
