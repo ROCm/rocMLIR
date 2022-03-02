@@ -105,17 +105,74 @@
 
 // INT8-LABEL: func @main()
 // INT8-NEXT: memref.alloc() : memref<[[G:[0-9]+]]x[[K:[0-9]+]]x[[C:[0-9]+]]x[[Y:[0-9]+]]x[[X:[0-9]+]]x[[TYPE:i8]]>
-// INT8-NEXT: memref.cast {{.*}} : memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]> to memref<?x?x?x?x?x[[TYPE]]>
-// INT8-NEXT: constant {{.*}} : i16
-// INT8-NEXT: constant {{.*}} : i32
-// INT8-NEXT: call @mcpuMemset5DInt8RandInt({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x?x[[TYPE]]>, i16, i16, i32) -> ()
+// INT8-NEXT: arith.constant dense{{.*}} : vector<3x[[TYPE]]>
+// INT8-NEXT: arith.constant {{.*}} : [[TYPE]]
+// INT8-NEXT: arith.constant {{.*}} : index
+// INT8-NEXT: vector.insertelement {{.*}} : vector<3x[[TYPE]]>
+// INT8-NEXT: arith.constant {{.*}} : [[TYPE]]
+// INT8-NEXT: arith.constant {{.*}} : index
+// INT8-NEXT: vector.insertelement {{.*}} : vector<3x[[TYPE]]>
+// INT8-NEXT: arith.constant {{.*}} : [[TYPE]]
+// INT8-NEXT: arith.constant {{.*}} : index
+// INT8-NEXT: vector.insertelement {{.*}} : vector<3x[[TYPE]]>
+// INT8-NEXT: affine.for %[[g:.*]] = 0 to [[G]]
+// INT8-NEXT: affine.for %[[k:.*]] = 0 to [[K]]
+// INT8-NEXT: affine.for %[[c:.*]] = 0 to [[C]]
+// INT8-NEXT: affine.for %[[y:.*]] = 0 to [[Y]]
+// INT8-NEXT: affine.for %[[x:.*]] = 0 to [[X]]
+// INT8-NEXT: affine.apply {{.*}}(%[[g]], %[[k]], %[[c]], %[[y]], %[[x]])
+// INT8-NEXT: vector.extractelement
+// INT8-NEXT: memref.store {{.*}}[%[[g]], %[[k]], %[[c]], %[[y]], %[[x]]] : memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>
+// INT8-NEXT: }
+// INT8-NEXT: }
+// INT8-NEXT: }
+// INT8-NEXT: }
+// INT8-NEXT: }
 // INT8-NEXT: memref.alloc() : memref<[[N:[0-9]+]]x[[G:[0-9]+]]x[[C]]x[[HI:[0-9]+]]x[[WI:[0-9]+]]x[[TYPE]]>
-// INT8-NEXT: memref.cast {{.*}} : memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]> to memref<?x?x?x?x?x[[TYPE]]>
-// INT8-NEXT: call @mcpuMemset5DInt8RandInt({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x?x[[TYPE]]>, i16, i16, i32) -> ()
+// INT8-NEXT: arith.constant dense{{.*}} : vector<3x[[TYPE]]>
+// INT8-NEXT: arith.constant {{.*}} : [[TYPE]]
+// INT8-NEXT: arith.constant {{.*}} : index
+// INT8-NEXT: vector.insertelement {{.*}} : vector<3x[[TYPE]]>
+// INT8-NEXT: arith.constant {{.*}} : [[TYPE]]
+// INT8-NEXT: arith.constant {{.*}} : index
+// INT8-NEXT: vector.insertelement {{.*}} : vector<3x[[TYPE]]>
+// INT8-NEXT: arith.constant {{.*}} : [[TYPE]]
+// INT8-NEXT: arith.constant {{.*}} : index
+// INT8-NEXT: vector.insertelement {{.*}} : vector<3x[[TYPE]]>
+// INT8-NEXT: affine.for %[[n:.*]] = 0 to [[N]]
+// INT8-NEXT: affine.for %[[g:.*]] = 0 to [[G]]
+// INT8-NEXT: affine.for %[[c:.*]] = 0 to [[C]]
+// INT8-NEXT: affine.for %[[hi:.*]] = 0 to [[HI]]
+// INT8-NEXT: affine.for %[[wi:.*]] = 0 to [[WI]]
+// INT8-NEXT: affine.apply {{.*}}(%[[n]], %[[g]], %[[c]], %[[hi]], %[[wi]])
+// INT8-NEXT: vector.extractelement
+// INT8-NEXT: memref.store {{.*}}[%[[n]], %[[g]], %[[c]], %[[hi]], %[[wi]]] : memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>
+// INT8-NEXT: }
+// INT8-NEXT: }
+// INT8-NEXT: }
+// INT8-NEXT: }
+// INT8-NEXT: }
 // INT8-NEXT: memref.alloc() : memref<[[N]]x[[G:[0-9]+]]x[[K]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]x[[TYPEI32:i32]]>
-// INT8-NEXT: memref.cast {{.*}} : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPEI32]]> to memref<?x?x?x?x?x[[TYPEI32]]>
-// INT8-NEXT: constant 0 : i16
-// INT8-NEXT: call @mcpuMemset5DInt32RandInt({{.*}}, {{.*}}, {{.*}}, {{.*}}) : (memref<?x?x?x?x?x[[TYPEI32:i32]]>, i16, i16, i32) -> ()
+// INT8-NEXT: arith.constant dense{{.*}} : vector<2x[[TYPEI32]]>
+// INT8-NEXT: arith.constant 0 : [[TYPEI32]]
+// INT8-NEXT: arith.constant 0 : index
+// INT8-NEXT: vector.insertelement {{.*}} : vector<2x[[TYPEI32]]>
+// INT8-NEXT: arith.constant 0 : [[TYPEI32]]
+// INT8-NEXT: arith.constant 1 : index
+// INT8-NEXT: vector.insertelement {{.*}} : vector<2x[[TYPEI32]]>
+// INT8-NEXT: affine.for %[[n:.*]] = 0 to [[N]]
+// INT8-NEXT: affine.for %[[g:.*]] = 0 to [[G]]
+// INT8-NEXT: affine.for %[[k:.*]] = 0 to [[K]]
+// INT8-NEXT: affine.for %[[ho:.*]] = 0 to [[HO]]
+// INT8-NEXT: affine.for %[[wo:.*]] = 0 to [[WO]]
+// INT8-NEXT: affine.apply {{.*}}(%[[n]], %[[g]], %[[k]], %[[ho]], %[[wo]])
+// INT8-NEXT: vector.extractelement
+// INT8-NEXT: memref.store {{.*}}[%[[n]], %[[g]], %[[k]], %[[ho]], %[[wo]]] : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPEI32]]>
+// INT8-NEXT: }
+// INT8-NEXT: }
+// INT8-NEXT: }
+// INT8-NEXT: }
+// INT8-NEXT: }
 // INT8-NEXT: call @miopen_conv2d_gkcyx_ngchw_ngkhw_0_gpu({{.*}}, {{.*}}, {{.*}}) : (memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>, memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>, memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPEI32]]>) -> ()
 // INT8-NEXT: memref.dealloc {{.*}} : memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>
 // INT8-NEXT: memref.dealloc {{.*}} : memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>

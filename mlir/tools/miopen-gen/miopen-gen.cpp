@@ -1551,6 +1551,8 @@ static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
   llvm::SmallVector<float, 3> pattern;
   if (isOut)
     pattern = {0.0, 0.0}; // Hack around silly compiler weirdness
+  else if (elemType.isIntOrIndex())
+    pattern = {1.0, -1.0, 2.0};
   else
     pattern = {0.5, -1, 0.75};
   // TODO(kdrewnia) Refactor this to create the constant vector up front
@@ -1576,6 +1578,9 @@ static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
                  &losesInfo);
       llvm::APInt val = fl.bitcastToAPInt();
       vOp = b.create<arith::ConstantOp>(loc, b.getIntegerAttr(i16, val));
+    } else if (elemType.isIntOrIndex()) {
+      vOp = mlir::miopen::createConstantIntOp(b, loc, elemType, elemType,
+                                              static_cast<int64_t>(v.value()));
     } else {
       vOp = mlir::miopen::createConstantFloatOp(b, loc, elemType, elemType,
                                                 v.value());

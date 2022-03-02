@@ -12,6 +12,10 @@ namespace miopen {
 Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
                             Type elemType, float value);
 
+// Utility op to emit constant float op
+Value createConstantIntOp(OpBuilder &b, Location loc, Type type, Type elemType,
+                          int64_t value);
+
 // Utility function to emit constant zero op. Can return scalars or vectors.
 Value createZeroConstantOp(OpBuilder &b, Location loc, Type type);
 
