@@ -112,18 +112,17 @@ makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   auto func = op->getParentOfType<FuncOp>();
 
   // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
-  auto inputExpanded = expandMemRef(rw, op, input);
-  auto filterExpanded = expandMemRef(rw, op, filter);
-  auto outputExpanded = expandMemRef(rw, op, output);
-
-  ValueRange args{filterExpanded, inputExpanded, outputExpanded};
+  auto inputExp = expandMemRef(rw, op, input);
+  auto filterExp = expandMemRef(rw, op, filter);
+  auto outputExp = expandMemRef(rw, op, output);
 
   // Construct a new Conv2DOp.
   TypeRange resultTypes;
-  auto cop = rw.create<miopen::Conv2DOp>(loc, resultTypes, args);
+  auto cop = rw.create<miopen::Conv2DOp>(
+      loc, resultTypes, ValueRange{filterExp, inputExp, outputExp});
 
   // TODO(sjw): get these from options
-  SmallString<16> arch("gfx906");
+  StringRef arch = "gfx906";
   uint32_t num_cu = 64;
   bool xdlopsV2 = false;
 
@@ -222,7 +221,7 @@ public:
     bool isNCHW = checkNCHW(op);
 
     const char *filterLayout = isNCHW ? "kcyxg" : "kyxcg";
-    const char *inputLayout  = isNCHW ? "nchwg" : "nhwcg";
+    const char *inputLayout = isNCHW ? "nchwg" : "nhwcg";
     const char *outputLayout = isNCHW ? "nkhwg" : "nhwkg";
 
     if (failed(makeMIOpenConv2D(rw, op, input, inputLayout, filter,
