@@ -9,6 +9,7 @@
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 
@@ -116,6 +117,33 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
       llvm_unreachable("Only fp32, fp16, or bf16 targets for data conversion");
     }
   }
+  return result;
+}
+
+Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source) {
+  auto ctx = b.getContext();
+  auto sourceType = source.getType().cast<ShapedType>();
+  if (!sourceType.hasStaticShape()) {
+    llvm_unreachable("Only memrefs with static shapes are allowed");
+  }
+
+  auto shape = sourceType.getShape();
+  uint64_t collapsedDim = 1;
+  SmallVector<AffineExpr, 2> exprs;
+  for (uint32_t dim = 0; dim < shape.size(); ++dim) {
+    collapsedDim *= shape[dim];
+    exprs.push_back(getAffineDimExpr(dim, ctx));
+  }
+
+  SmallVector<int64_t, 1> collapsedShape;
+  SmallVector<ReassociationExprs, 1> reassocs;
+  collapsedShape.push_back(collapsedDim);
+  reassocs.push_back(exprs);
+
+  auto collapsedType =
+      MemRefType::get(collapsedShape, sourceType.getElementType());
+  Value result =
+      b.create<memref::CollapseShapeOp>(loc, collapsedType, source, reassocs);
   return result;
 }
 

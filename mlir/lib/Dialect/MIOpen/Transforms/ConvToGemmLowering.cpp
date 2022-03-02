@@ -184,19 +184,20 @@ LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
   auto loc = op.getLoc();
   auto filter = op.filter();
   auto dataType = filter.getType().cast<MemRefType>().getElementType();
-  Value zeroOp = createZeroConstantOp(b, loc, dataType);
-  ArrayRef<int64_t> filterShape =
-      filter.getType().cast<MemRefType>().getShape();
-  llvm::SmallVector<AffineForOp, 5> affineLoops;
-  for (auto bound : filterShape) {
+  auto zeroOp = createZeroConstantOp(b, loc, dataType);
+  auto collapsedFilter = createCollapseShapeOp(b, loc, filter);
+  ArrayRef<int64_t> collapsedFilterShape =
+      collapsedFilter.getType().cast<MemRefType>().getShape();
+  llvm::SmallVector<AffineForOp, 1> affineLoops;
+  for (auto bound : collapsedFilterShape) {
     auto loop = b.create<AffineForOp>(loc, 0, bound);
     affineLoops.push_back(loop);
     auto body = loop.getBody();
     b.setInsertionPointToStart(body);
   }
-  llvm::SmallVector<Value, 5> indices;
+  llvm::SmallVector<Value, 1> indices;
   extractForInductionVars(affineLoops, &indices);
-  b.create<AffineStoreOp>(loc, zeroOp, filter, indices);
+  b.create<AffineStoreOp>(loc, zeroOp, collapsedFilter, indices);
 
   op.erase();
   return success();
@@ -212,16 +213,16 @@ LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
   auto filterDataType = filter.getType().cast<MemRefType>().getElementType();
   auto workspaceDataType =
       workspace.getType().cast<MemRefType>().getElementType();
-  ArrayRef<int64_t> filterShape =
-      filter.getType().cast<MemRefType>().getShape();
-  ArrayRef<int64_t> workspaceShape =
-      workspace.getType().cast<MemRefType>().getShape();
-  assert((filterShape.size() == workspaceShape.size()) &&
-         "Filter tensor and workspace rank mismatch");
-  llvm::SmallVector<AffineForOp, 5> affineLoops;
-  for (unsigned iter = 0; iter < filterShape.size(); ++iter) {
-    auto boundFilter = filterShape[iter];
-    auto boundWorkspace = workspaceShape[iter];
+  auto collapsedFilter = createCollapseShapeOp(b, loc, filter);
+  auto collapsedWorkspace = createCollapseShapeOp(b, loc, workspace);
+  ArrayRef<int64_t> collapsedFilterShape =
+      collapsedFilter.getType().cast<MemRefType>().getShape();
+  ArrayRef<int64_t> collapsedWorkspaceShape =
+      collapsedWorkspace.getType().cast<MemRefType>().getShape();
+  llvm::SmallVector<AffineForOp, 1> affineLoops;
+  for (unsigned iter = 0; iter < collapsedFilterShape.size(); ++iter) {
+    auto boundFilter = collapsedFilterShape[iter];
+    auto boundWorkspace = collapsedWorkspaceShape[iter];
     assert((boundFilter == boundWorkspace) &&
            "Filter tensor and workspace size mismatch");
     auto loop = b.create<AffineForOp>(loc, 0, boundFilter);
@@ -231,10 +232,10 @@ LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
   }
   llvm::SmallVector<Value, 5> indices;
   extractForInductionVars(affineLoops, &indices);
-  auto loadedValue = b.create<AffineLoadOp>(loc, workspace, indices);
+  auto loadedValue = b.create<AffineLoadOp>(loc, collapsedWorkspace, indices);
   auto convertedValue = createTypeConversionOp(
       b, loc, loadedValue, workspaceDataType, filterDataType);
-  b.create<AffineStoreOp>(loc, convertedValue, filter, indices);
+  b.create<AffineStoreOp>(loc, convertedValue, collapsedFilter, indices);
 
   op.erase();
   return success();
