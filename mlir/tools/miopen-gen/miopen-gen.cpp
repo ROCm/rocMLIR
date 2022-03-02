@@ -650,10 +650,7 @@ static mlir::Value makeNDMemRef(OpBuilder &b, mlir::Value var, uint32_t ndim) {
   return var;
 }
 
-static void emitMemcpy(OpBuilder &b, mlir::Value src, mlir::Value dst);
-
-static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel,
-                               const Conv2dGenerator::Config &genConfig) {
+static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
   auto context = module.getContext();
   OpBuilder b(context);
   auto loc = kernel.func->getLoc();
@@ -809,14 +806,6 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel,
     // Emit GPU dealloc
     b.create<CallOp>(loc, getGpuDeallocFunc(elemType), ValueRange{gpuMem[i]});
     i++;
-  }
-
-  // Initial version. Use CPU to convert fp32 to fp16.
-  Conv2dGenerator conv2dGenerator(genConfig);
-  bool hasWorkspace = conv2dGenerator.hasWorkspace(b);
-  if (hasWorkspace) {
-    assert(block->getNumArguments() == 4);
-    emitMemcpy(b, block->getArgument(3), block->getArgument(0));
   }
 
   b.create<ReturnOp>(loc, ValueRange{});
@@ -1656,7 +1645,7 @@ populateHostHarnessLogic(ModuleOp &module,
   for (auto &kernel : kernels) {
     // Emit call to kernel wrapper
     if (kernel.func->hasAttr("kernel")) {
-      auto kernelWrapperFunc = createGPUWrapper(module, kernel, genConfig);
+      auto kernelWrapperFunc = createGPUWrapper(module, kernel);
       b.create<CallOp>(loc, kernelWrapperFunc, localVars);
     } else {
       if (!valVars.empty()) {
@@ -1702,7 +1691,7 @@ populateHostHarnessLogic(ModuleOp &module,
         }
         KernelIF kernel(conv2dGenerator.getKernelFunc());
         Conv2dGenerator::Config newConfig = conv2dGenerator.getConfig();
-        auto kernelWrapperFunc = createGPUWrapper(module, kernel, newConfig);
+        auto kernelWrapperFunc = createGPUWrapper(module, kernel);
 
         // Decide whether to trim the last workspace argument to the verifier
         // GPU kernel.
