@@ -159,9 +159,6 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
         break;
       }
     }
-  } else {
-    // For non-XDLOPS path, gemmId must be 0.
-    assert(gemmId == 0);
   }
 }
 
