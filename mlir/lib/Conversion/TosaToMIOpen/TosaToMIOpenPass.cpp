@@ -36,13 +36,16 @@ public:
   }
 
   void runOnOperation() override {
+    auto func = getOperation();
+    if (!func->hasAttr("kernel")) {
+      return;
+    }
     auto &ctx = getContext();
     // Split patterns into two stages by bufferization
     RewritePatternSet tensor_patterns(&ctx);
     RewritePatternSet patterns(&ctx);
     ConversionTarget tensor_target(ctx);
     ConversionTarget target(ctx);
-    auto func = getOperation();
 
     tensor_target.addLegalDialect<miopen::MIOpenDialect, tosa::TosaDialect,
                                   memref::MemRefDialect, StandardOpsDialect,
@@ -65,7 +68,7 @@ public:
                            memref::MemRefDialect, tosa::TosaDialect,
                            bufferization::BufferizationDialect,
                            StandardOpsDialect>();
-    target.addIllegalOp<tosa::Conv2DOp>();
+    target.addIllegalOp<tosa::Conv2DOp, tosa::MatMulOp>();
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
     bufferization::BufferizeTypeConverter typeConverter;

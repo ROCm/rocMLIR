@@ -84,9 +84,9 @@ static cl::opt<int> gpuOpt("gO",
                            cl::desc("Optimization level for GPU compilation"),
                            cl::value_desc("Integer from 0 to 3"), cl::init(3));
 
-static cl::opt<std::string> tripleName("triple", cl::desc("target triple"),
-                                       cl::value_desc("triple string"),
-                                       cl::init(""));
+static cl::opt<std::string>
+    tripleName("triple", cl::desc("target triple: amdgcn-amd-amdhsa"),
+               cl::value_desc("triple string"), cl::init(""));
 
 static cl::opt<std::string> targetChip("target", cl::desc("target chip"),
                                        cl::value_desc("AMDGPU ISA version"),

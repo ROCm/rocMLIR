@@ -27,7 +27,7 @@ using namespace mlir;
 namespace {
 
 // Tell if the given tosa conv2d is supposed to have NCHW layout
-bool checkNCHW(tosa::Conv2DOp &convOp) {
+static bool checkNCHW(tosa::Conv2DOp &convOp) {
   // Check if the convolution has expected layout
   auto fLayout = convOp->getAttr("expected_filter_layout");
   auto iLayout = convOp->getAttr("expected_input_layout");
@@ -44,198 +44,198 @@ bool checkNCHW(tosa::Conv2DOp &convOp) {
   return true;
 }
 
+static bool isZeroAttribute(Attribute value) {
+  if (auto intValue = value.dyn_cast<IntegerAttr>())
+    return intValue.getValue().isNullValue();
+  if (auto fpValue = value.dyn_cast<FloatAttr>())
+    return fpValue.getValue().isZero();
+  if (auto splatValue = value.dyn_cast<SplatElementsAttr>())
+    return isZeroAttribute(splatValue.getSplatValue<Attribute>());
+  if (auto elementsValue = value.dyn_cast<ElementsAttr>())
+    return llvm::all_of(elementsValue.getValues<Attribute>(), isZeroAttribute);
+  if (auto arrayValue = value.dyn_cast<ArrayAttr>())
+    return llvm::all_of(arrayValue.getValue(), isZeroAttribute);
+  return false;
+}
+
+static bool isConstantZero(Value v) {
+  if (auto cst = v.getDefiningOp<arith::ConstantOp>()) {
+    return isZeroAttribute(cst.getValue());
+  }
+  return false;
+}
+
+static Value expandMemRef(ConversionPatternRewriter &rw, Operation *op,
+                          Value operand, uint32_t idx = 4) {
+  auto context = rw.getContext();
+  auto oprType = operand.getType().template cast<ShapedType>();
+  if (!oprType.hasStaticShape()) {
+    (void)rw.notifyMatchFailure(
+        op, "tosa to miopen conversion expects statically shaped tensors");
+    return Value();
+  }
+  auto shape = oprType.getShape();
+
+  idx--;
+
+  // expShape = shape + 1 dim
+  //  ex:  <NxHxWxCxf32> -> <Nx1xHxWxCxf32>
+  SmallVector<int64_t, 5> expShape;
+  // reassocs = shape w/ 1 split
+  //  ex:  [0,1,[2,3],4]
+  uint32_t d0 = 0;
+  SmallVector<ReassociationExprs, 5> reassocs;
+  for (uint32_t dim = 0; dim < shape.size(); ++dim) {
+    expShape.push_back(shape[dim]);
+    if (dim == idx) {
+      expShape.push_back(1);
+      reassocs.push_back(
+          {getAffineDimExpr(d0++, context), getAffineDimExpr(d0++, context)});
+    } else {
+      reassocs.push_back({getAffineDimExpr(d0++, context)});
+    }
+  }
+
+  auto newType = MemRefType::get(expShape, oprType.getElementType());
+  auto oprExpand = rw.create<memref::ExpandShapeOp>(op->getLoc(), newType,
+                                                    operand, reassocs);
+  return oprExpand;
+}
+
+static LogicalResult
+makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
+                 const char *inputLayout, Value filter,
+                 const char *filterLayout, Value output,
+                 const char *outputLayout, const ArrayAttr &pad,
+                 const ArrayAttr &stride, const ArrayAttr &dilation) {
+  auto loc = op->getLoc();
+  auto func = op->getParentOfType<FuncOp>();
+
+  // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
+  auto inputExp = expandMemRef(rw, op, input);
+  auto filterExp = expandMemRef(rw, op, filter);
+  auto outputExp = expandMemRef(rw, op, output);
+
+  // Construct a new Conv2DOp.
+  TypeRange resultTypes;
+  auto cop = rw.create<miopen::Conv2DOp>(
+      loc, resultTypes, ValueRange{filterExp, inputExp, outputExp});
+
+  // TODO(sjw): get these from options
+  StringRef arch = "gfx906";
+  uint32_t num_cu = 64;
+  bool xdlopsV2 = false;
+
+  if (auto attr = op->getAttrOfType<StringAttr>("arch"))
+    arch = attr.getValue();
+  else if (auto attr = func->getAttrOfType<StringAttr>("arch"))
+    arch = attr.getValue();
+
+  if (auto attr = op->getAttrOfType<IntegerAttr>("num_cu"))
+    num_cu = attr.getValue().getZExtValue();
+  else if (auto attr = func->getAttrOfType<IntegerAttr>("num_cu"))
+    num_cu = attr.getValue().getZExtValue();
+
+  if (auto attr = op->getAttrOfType<BoolAttr>("xdlopsV2"))
+    xdlopsV2 = attr.getValue();
+  else if (auto attr = func->getAttrOfType<BoolAttr>("xdlopsV2"))
+    xdlopsV2 = attr.getValue();
+
+  // translate attributes
+  int32_t padTop = pad[0].dyn_cast<IntegerAttr>().getInt();
+  int32_t padBottom = pad[1].dyn_cast<IntegerAttr>().getInt();
+  int32_t padLeft = pad[2].dyn_cast<IntegerAttr>().getInt();
+  int32_t padRight = pad[3].dyn_cast<IntegerAttr>().getInt();
+  int32_t strideHeight = stride[0].dyn_cast<IntegerAttr>().getInt();
+  int32_t strideWidth = stride[1].dyn_cast<IntegerAttr>().getInt();
+  int32_t dilationHeight = dilation[0].dyn_cast<IntegerAttr>().getInt();
+  int32_t dilationWidth = dilation[1].dyn_cast<IntegerAttr>().getInt();
+
+  // specify layout attributes
+  SmallVector<StringAttr, 5> filterLayoutSpec;
+  SmallVector<StringAttr, 5> inputLayoutSpec;
+  SmallVector<StringAttr, 5> outputLayoutSpec;
+  for (size_t i = 0; i < 5; ++i) {
+    filterLayoutSpec.push_back(
+        rw.getStringAttr(StringRef(&filterLayout[i], 1).str()));
+    inputLayoutSpec.push_back(
+        rw.getStringAttr((StringRef(&inputLayout[i], 1) + "i").str()));
+    outputLayoutSpec.push_back(
+        rw.getStringAttr((StringRef(&outputLayout[i], 1) + "o").str()));
+  }
+
+  // arch-specific attributes
+  // TODO: remove these
+  cop->setAttr("arch", rw.getStringAttr(arch));
+  cop->setAttr("num_cu", rw.getI32IntegerAttr(num_cu));
+  cop->setAttr("xdlopsV2", rw.getBoolAttr(xdlopsV2));
+
+  // convolution config attributes
+  cop->setAttr("filter_layout",
+               rw.getArrayAttr(ArrayRef<Attribute>(filterLayoutSpec.begin(),
+                                                   filterLayoutSpec.end())));
+  cop->setAttr("input_layout",
+               rw.getArrayAttr(ArrayRef<Attribute>(inputLayoutSpec.begin(),
+                                                   inputLayoutSpec.end())));
+  cop->setAttr("output_layout",
+               rw.getArrayAttr(ArrayRef<Attribute>(outputLayoutSpec.begin(),
+                                                   outputLayoutSpec.end())));
+
+  cop->setAttr("dilations", rw.getArrayAttr({
+                                rw.getI32IntegerAttr(dilationHeight),
+                                rw.getI32IntegerAttr(dilationWidth),
+                            }));
+  cop->setAttr("strides", rw.getArrayAttr({
+                              rw.getI32IntegerAttr(strideHeight),
+                              rw.getI32IntegerAttr(strideWidth),
+                          }));
+  cop->setAttr("padding", rw.getArrayAttr({
+                              rw.getI32IntegerAttr(padTop),
+                              rw.getI32IntegerAttr(padBottom),
+                              rw.getI32IntegerAttr(padLeft),
+                              rw.getI32IntegerAttr(padRight),
+                          }));
+
+  return success();
+}
+
 class ConvConverter final : public OpConversionPattern<tosa::Conv2DOp> {
 public:
   using OpConversionPattern<tosa::Conv2DOp>::OpConversionPattern;
 
-  static bool isZeroAttribute(Attribute value) {
-    if (auto intValue = value.dyn_cast<IntegerAttr>())
-      return intValue.getValue().isNullValue();
-    if (auto fpValue = value.dyn_cast<FloatAttr>())
-      return fpValue.getValue().isZero();
-    if (auto splatValue = value.dyn_cast<SplatElementsAttr>())
-      return isZeroAttribute(splatValue.getSplatValue<Attribute>());
-    if (auto elementsValue = value.dyn_cast<ElementsAttr>())
-      return llvm::all_of(elementsValue.getValues<Attribute>(),
-                          isZeroAttribute);
-    if (auto arrayValue = value.dyn_cast<ArrayAttr>())
-      return llvm::all_of(arrayValue.getValue(), isZeroAttribute);
-    return false;
-  }
-
-  static bool isConstantZero(Value v) {
-    if (auto cst = v.getDefiningOp<arith::ConstantOp>()) {
-      return isZeroAttribute(cst.getValue());
-    }
-    return false;
-  }
-
-  Value expandMemRef(tosa::Conv2DOp op, Value operand, int idx,
-                     ConversionPatternRewriter &rewriter) const {
-    auto loc = op->getLoc();
-    auto context = rewriter.getContext();
-    auto oprType = operand.getType().template cast<ShapedType>();
-    if (!oprType.hasStaticShape()) {
-      (void)rewriter.notifyMatchFailure(
-          op, "tosa to miopen conversion expects statically shaped tensors");
-      return Value();
-    }
-    auto shape = oprType.getShape();
-    SmallVector<int64_t, 5> expShape;
-    uint32_t i = 0, j = 0;
-    for (; i < shape.size() + 1; i++) {
-      if (i == idx) {
-        expShape.push_back(1);
-      } else {
-        expShape.push_back(shape[j++]);
-      }
-    }
-
-    auto newType = MemRefType::get(expShape, oprType.getElementType());
-    SmallVector<ReassociationExprs, 5> reassociations;
-    uint32_t dim = 0;
-    if (idx == shape.size())
-      idx--;
-    for (; dim < shape.size() + 1; ++dim) {
-      if (dim == idx) {
-        reassociations.push_back(
-            {getAffineDimExpr(dim, context), getAffineDimExpr(++dim, context)});
-      } else {
-        reassociations.push_back({getAffineDimExpr(dim, context)});
-      }
-    }
-
-    auto oprExpand = rewriter.create<memref::ExpandShapeOp>(
-        loc, newType, operand, reassociations);
-    return oprExpand;
-  }
-
-  LogicalResult
-  matchAndRewrite(tosa::Conv2DOp op, tosa::Conv2DOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    // only convert ops in kernel func
-    auto func = op->getParentOfType<FuncOp>();
-    if (!func->hasAttr("kernel")) {
-      return failure();
-    }
-
+  LogicalResult matchAndRewrite(tosa::Conv2DOp op,
+                                tosa::Conv2DOp::Adaptor adaptor,
+                                ConversionPatternRewriter &rw) const final {
     auto operands = adaptor.getOperands();
     auto loc = op->getLoc();
     auto context = op->getContext();
-    auto input_t = operands[0];
-    auto filter_t = operands[1];
+    auto input = operands[0];
+    auto filter = operands[1];
     auto bias_mr = operands[2];
     auto resultType = op.getType();
 
-    bool bNCHW = checkNCHW(op);
-    int iExpand = 4, fExpand = 4, oExpand = 4; // kyxc[g], nhwc[g], nhwk[g]
-    if (bNCHW) {
-      iExpand = 1; // k[g]cyx
-      fExpand = 0; // [g]nchw
-      oExpand = 1; // n[g]khw
-    }
-
-    // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
-    auto inputExpanded = expandMemRef(op, input_t, iExpand, rewriter);
-    auto filterExpanded = expandMemRef(op, filter_t, fExpand, rewriter);
-
     auto outputType =
         getTypeConverter()->convertType(resultType).cast<MemRefType>();
-    Value output = rewriter.create<memref::AllocOp>(loc, outputType);
+    Value output = rw.create<memref::AllocOp>(loc, outputType);
 
-    auto outputExpanded = expandMemRef(op, output, oExpand, rewriter);
+    bool isNCHW = checkNCHW(op);
 
-    SmallVector<Value, 4> args({filterExpanded, inputExpanded, outputExpanded});
+    const char *filterLayout = isNCHW ? "kcyxg" : "kyxcg";
+    const char *inputLayout = isNCHW ? "nchwg" : "nhwcg";
+    const char *outputLayout = isNCHW ? "nkhwg" : "nhwkg";
 
-    // Construct a new Conv2DOp.
-    TypeRange resultTypes;
-    auto cop = rewriter.create<miopen::Conv2DOp>(
-        loc, resultTypes, ValueRange{args[0], args[1], args[2]});
-
-    // TODO(sjw): get these from options
-    StringRef arch = "gfx906";
-    uint32_t num_cu = 64;
-    bool xdlopsV2 = false;
-
-    if (auto attr = op->getAttrOfType<StringAttr>("arch"))
-      arch = attr.getValue();
-    else if (auto attr = func->getAttrOfType<StringAttr>("arch"))
-      arch = attr.getValue();
-
-    if (auto attr = op->getAttrOfType<IntegerAttr>("num_cu"))
-      num_cu = attr.getValue().getZExtValue();
-    else if (auto attr = func->getAttrOfType<IntegerAttr>("num_cu"))
-      num_cu = attr.getValue().getZExtValue();
-
-    if (auto attr = op->getAttrOfType<BoolAttr>("xdlopsV2"))
-      xdlopsV2 = attr.getValue();
-    else if (auto attr = func->getAttrOfType<BoolAttr>("xdlopsV2"))
-      xdlopsV2 = attr.getValue();
-
-    // translate attributes
-    int32_t padTop = op.pad()[0].dyn_cast<IntegerAttr>().getInt();
-    int32_t padBottom = op.pad()[1].dyn_cast<IntegerAttr>().getInt();
-    int32_t padLeft = op.pad()[2].dyn_cast<IntegerAttr>().getInt();
-    int32_t padRight = op.pad()[3].dyn_cast<IntegerAttr>().getInt();
-    int32_t strideHeight = op.stride()[0].dyn_cast<IntegerAttr>().getInt();
-    int32_t strideWidth = op.stride()[1].dyn_cast<IntegerAttr>().getInt();
-    int32_t dilationHeight = op.dilation()[0].dyn_cast<IntegerAttr>().getInt();
-    int32_t dilationWidth = op.dilation()[1].dyn_cast<IntegerAttr>().getInt();
-
-    // specify layout attributes
-    const char *filterLayout = bNCHW ? "gkcyx" : "kyxcg";
-    const char *inputLayout = bNCHW ? "ngchw" : "nhwcg";
-    const char *outputLayout = bNCHW ? "ngkhw" : "nhwkg";
-    SmallVector<StringAttr, 5> filterLayoutSpec;
-    SmallVector<StringAttr, 5> inputLayoutSpec;
-    SmallVector<StringAttr, 5> outputLayoutSpec;
-    for (size_t i = 0; i < 5; ++i) {
-      filterLayoutSpec.push_back(
-          rewriter.getStringAttr(StringRef(&filterLayout[i], 1).str()));
-      inputLayoutSpec.push_back(
-          rewriter.getStringAttr((StringRef(&inputLayout[i], 1) + "i").str()));
-      outputLayoutSpec.push_back(
-          rewriter.getStringAttr((StringRef(&outputLayout[i], 1) + "o").str()));
+    if (failed(makeMIOpenConv2D(rw, op, input, inputLayout, filter,
+                                filterLayout, output, outputLayout, op.pad(),
+                                op.stride(), op.dilation()))) {
+      return failure();
     }
 
-    // arch-specific attributes
-    // TODO: remove these
-    cop->setAttr("arch", rewriter.getStringAttr(arch));
-    cop->setAttr("num_cu", rewriter.getI32IntegerAttr(num_cu));
-    cop->setAttr("xdlopsV2", rewriter.getBoolAttr(xdlopsV2));
-
-    // convolution config attributes
-    cop->setAttr("filter_layout",
-                 rewriter.getArrayAttr(ArrayRef<Attribute>(
-                     filterLayoutSpec.begin(), filterLayoutSpec.end())));
-    cop->setAttr("input_layout",
-                 rewriter.getArrayAttr(ArrayRef<Attribute>(
-                     inputLayoutSpec.begin(), inputLayoutSpec.end())));
-    cop->setAttr("output_layout",
-                 rewriter.getArrayAttr(ArrayRef<Attribute>(
-                     outputLayoutSpec.begin(), outputLayoutSpec.end())));
-
-    cop->setAttr("dilations", rewriter.getArrayAttr({
-                                  rewriter.getI32IntegerAttr(dilationHeight),
-                                  rewriter.getI32IntegerAttr(dilationWidth),
-                              }));
-    cop->setAttr("strides", rewriter.getArrayAttr({
-                                rewriter.getI32IntegerAttr(strideHeight),
-                                rewriter.getI32IntegerAttr(strideWidth),
-                            }));
-    cop->setAttr("padding", rewriter.getArrayAttr({
-                                rewriter.getI32IntegerAttr(padTop),
-                                rewriter.getI32IntegerAttr(padBottom),
-                                rewriter.getI32IntegerAttr(padLeft),
-                                rewriter.getI32IntegerAttr(padRight),
-                            }));
+    rw.replaceOp(op, output);
 
     // test for zero bias, and ignore
-    auto bias_t = op.getOperand(2);
-    if (!isConstantZero(bias_t)) {
+    if (!isConstantZero(op.getOperand(2))) {
       // non-zero bias, replace with tosa.add w/ broadcast
-      auto conv_output_t =
-          rewriter.create<bufferization::ToTensorOp>(loc, output);
+      auto conv_output_t = rw.create<bufferization::ToTensorOp>(loc, output);
 
       auto biasType = bias_mr.getType().template cast<ShapedType>();
       if (!biasType.hasStaticShape())
@@ -252,16 +252,52 @@ public:
           {getAffineDimExpr(0, context), getAffineDimExpr(1, context),
            getAffineDimExpr(2, context), getAffineDimExpr(3, context)});
 
-      auto bias_expand_mr = rewriter.create<memref::ExpandShapeOp>(
+      auto bias_expand_mr = rw.create<memref::ExpandShapeOp>(
           loc, newType, bias_mr, reassociations);
 
-      auto bias_t =
-          rewriter.create<bufferization::ToTensorOp>(loc, bias_expand_mr);
-      output = rewriter.create<tosa::AddOp>(loc, op.getType(),
-                                            ValueRange{conv_output_t, bias_t});
+      auto bias_t = rw.create<bufferization::ToTensorOp>(loc, bias_expand_mr);
+      output = rw.create<tosa::AddOp>(loc, op.getType(),
+                                      ValueRange{conv_output_t, bias_t});
+    }
+    return success();
+  }
+};
+
+class MatMulConverter final : public OpConversionPattern<tosa::MatMulOp> {
+public:
+  using OpConversionPattern<tosa::MatMulOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(tosa::MatMulOp op,
+                                tosa::MatMulOp::Adaptor adaptor,
+                                ConversionPatternRewriter &rw) const final {
+    // BS must equal 1
+    auto operands = adaptor.getOperands();
+    auto loc = op->getLoc();
+    // A(BS,M,K) -> A(BS,1,M,K)
+    auto A = expandMemRef(rw, op, operands[0], 1);
+    const char *ALayout = "ghwcn";
+    // B(BS,K,N) -> B(BS,K,N,1)
+    auto B = expandMemRef(rw, op, operands[1], 3);
+    const char *BLayout = "gckyx";
+
+    // C(BS,M,N) -> C(BS,1,M,N)
+    auto outputType =
+        getTypeConverter()->convertType(op.getType()).cast<MemRefType>();
+    Value output = rw.create<memref::AllocOp>(loc, outputType);
+    auto C = expandMemRef(rw, op, output, 1);
+    const char *CLayout = "ghwkn";
+
+    auto zero = rw.getIndexAttr(0);
+    auto pad = rw.getArrayAttr({zero, zero, zero, zero});
+    auto one = rw.getIndexAttr(1);
+    auto ones = rw.getArrayAttr({one, one});
+
+    if (failed(makeMIOpenConv2D(rw, op, A, ALayout, B, BLayout, C, CLayout, pad,
+                                ones, ones))) {
+      return failure();
     }
 
-    rewriter.replaceOp(op, output);
+    rw.replaceOp(op, output);
 
     return success();
   }
@@ -420,6 +456,7 @@ void tosa::populateTosaToMIOpenConversionPatterns(
     bufferization::BufferizeTypeConverter &typeConverter, MLIRContext *context,
     RewritePatternSet &patterns) {
   patterns.insert<ConvConverter>(typeConverter, context);
+  patterns.insert<MatMulConverter>(typeConverter, context);
 }
 void tosa::populateTosaToMIOpenTensorConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
