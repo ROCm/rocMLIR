@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/TypeUtilities.h"
 
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
@@ -85,14 +86,12 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
   // Convert from sourceType to destType if necessary.
   Value result = source;
   Type sourceType = source.getType();
-  Type sourceElemType = sourceType;
-  Type destElemType = destType;
+  Type sourceElemType = getElementTypeOrSelf(sourceType);
+  Type destElemType = getElementTypeOrSelf(destType);
   if (auto sourceVec = sourceType.dyn_cast<VectorType>()) {
     if (auto destVec = destType.dyn_cast<VectorType>()) {
       assert(sourceVec.getNumElements() == destVec.getNumElements() &&
              "source and destinatioon have same length");
-      sourceElemType = sourceVec.getElementType();
-      destElemType = destVec.getElementType();
     } else {
       llvm_unreachable("Can't store vector sources to scalar destinations in "
                        "output writeback");
