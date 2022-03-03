@@ -19,16 +19,17 @@ using mlir::arith::ConstantOp;
 
 namespace mlir {
 namespace miopen {
-namespace {
+namespace {} // anonymous namespace
+
 Value createConstantIntOp(OpBuilder &b, Location loc, Type type,
-                          Type elementType, int32_t value) {
+                          Type elementType, int64_t value) {
   APInt apValue(elementType.getIntOrFloatBitWidth(), value, true);
   Attribute constValue = b.getIntegerAttr(elementType, apValue);
 
   Value retValue;
-  if (auto vecType = type.dyn_cast<VectorType>()) {
+  if (auto shapedType = type.dyn_cast<ShapedType>()) {
     retValue =
-        b.create<ConstantOp>(loc, SplatElementsAttr::get(vecType, constValue));
+        b.create<ConstantOp>(loc, SplatElementsAttr::get(shapedType, constValue));
   } else {
     retValue = b.create<ConstantOp>(loc, constValue, type);
   }
@@ -55,10 +56,10 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
                   APFloat::rmNearestTiesToEven, &lostInfo);
   Value retValue;
 
-  if (auto vecType = type.dyn_cast<VectorType>()) {
+  if (auto shapedType = type.dyn_cast<ShapedType>()) {
     Attribute constValue = b.getFloatAttr(elementType, apValue);
-    retValue =
-        b.create<ConstantOp>(loc, SplatElementsAttr::get(vecType, constValue));
+    retValue = b.create<ConstantOp>(
+        loc, SplatElementsAttr::get(shapedType, constValue));
   } else {
     retValue =
         b.create<ConstantOp>(loc, b.getFloatAttr(elementType, value), type);
@@ -66,12 +67,11 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
 
   return retValue;
 }
-} // anonymous namespace
 
 Value createZeroConstantOp(OpBuilder &b, Location loc, Type type) {
   Type elementType = type;
-  if (type.isa<VectorType>())
-    elementType = type.template cast<VectorType>().getElementType();
+  if (auto shaped = type.dyn_cast<ShapedType>())
+    elementType = shaped.getElementType();
 
   if (elementType.isIntOrIndex()) {
     return createConstantIntOp(b, loc, type, elementType, 0);
