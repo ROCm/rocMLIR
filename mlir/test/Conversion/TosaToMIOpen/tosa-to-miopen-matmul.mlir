@@ -1,0 +1,12 @@
+// RUN:  mlir-miopen-driver -host-pipeline highlevel %s | miopen-gen -ph -rand=none -print-results - | mlir-miopen-driver -kernel-pipeline gpu | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+
+// CHECK: Unranked Memref base@ = 0x{{.*}} rank = 3 offset = 0 sizes = [1, 128, 256] strides = [32768, 256, 1] data =
+// CHECK-NEXT: 64,    64,    64,    64,    64,    64,    64,    64,    64,    64,    64,    64,    64,    64,    64,
+
+func @test_fusion(%a: tensor<1x128x64xf32>, %b: tensor<1x64x256xf32>) -> tensor<1x128x256xf32> attributes {kernel} {
+  %0 = "tosa.matmul"(%a, %b) {} : (tensor<1x128x64xf32>, tensor<1x64x256xf32>) -> tensor<1x128x256xf32>
+
+  return %0 : tensor<1x128x256xf32>
+}
+
+// -----

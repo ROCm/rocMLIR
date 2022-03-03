@@ -1,4 +1,4 @@
-// RUN: miopen-gen -ph -p | FileCheck %s 
+// RUN: miopen-gen -ph -p -rand=none | FileCheck %s
 
 // CHECK:   [[MAX:%.*]] = arith.constant 1 : i16
 // CHECK-NEXT:   [[SEED:%.*]] = arith.constant 1 : i32
