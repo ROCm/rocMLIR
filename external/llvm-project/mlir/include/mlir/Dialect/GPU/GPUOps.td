@@ -771,7 +771,7 @@ def GPU_LDSBarrierOp : GPU_Op<"lds_barrier"> {
   let description = [{
     The "lds_barrier" op synchronizes all LDS activities of a workgroup.
   }];
-  let parser = [{ return success(); }];
+  let assemblyFormat = "attr-dict";
 }
 
 def GPU_GPUModuleOp : GPU_Op<"module", [
