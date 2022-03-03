@@ -390,7 +390,7 @@ pipeline {
                             }
                             // Save user database for nightly jobs
                             dir ('MIOpen/build/MIOpenUserDB') {
-                                stash: "MLIR-PerfDB-${ARCH}", includes: "**"
+                                stash name: "MLIR-PerfDB-${ARCH}", includes: "**"
                             }
                         }
                     }
