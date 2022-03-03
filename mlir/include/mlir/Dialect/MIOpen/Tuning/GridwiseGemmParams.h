@@ -366,12 +366,21 @@ protected:
     // in the algorithm.
     int64_t vectorizationSize = 1;
     auto dataType = ctx.getDataType();
-    if (dataType.isF32()) {
-      vectorizationSize = 4;
-    } else if (dataType.isF16() || dataType.isBF16()) {
-      // FIXME: figure out the best vectorization length for f16 and bf16.
-      vectorizationSize = 4;
-    }
+    unsigned dataWidth = dataType.getIntOrFloatBitWidth();
+    const auto highestPotentialVectorizationLen = 128;
+    vectorizationSize = highestPotentialVectorizationLen / dataWidth;
+
+    //if (dataType.isF32()) {
+    //  vectorizationSize = 4;
+    //} else if (dataType.isF16() || dataType.isBF16()) {
+    //  // FIXME: figure out the best vectorization length for f16 and bf16.
+    //  vectorizationSize = 4;
+    //  vectorizationSize = 8;
+    //}
+
+    /////XXX
+    //  vectorizationSize = 16;
+
     // FIXME: set vectorizationSize be 1 for backward data and backward
     // weight for now.
     // The logic for deciding vectorization size and dimension for
@@ -384,6 +393,8 @@ protected:
 
     // srcDataPerRead bounded by size of threadwise copy
     if ((vectorizableLength > 0) && (vectorizableLength % 4 == 0)) {
+      llvm::errs() << "vectorizationSize: "<< vectorizationSize << " " <<
+        "dataPerThreadCopy: " << dataPerThreadCopy << "\n";
       derived.srcDataPerRead = gcd(vectorizationSize, dataPerThreadCopy);
     }
 
@@ -621,7 +632,6 @@ struct InitParamsXDL : InitParams, Serializable<InitParamsXDL> {
 
 template <typename T> std::string genDebugForParams(T params) {
   std::ostringstream os;
-  os << "DB load succeed: ";
   params.visit(params, [&os](auto &arg) { os << arg << ","; });
   os << "\n";
   return os.str();
@@ -817,15 +827,36 @@ private:
   llvm::SmallVector<InitParamsXDL, 4> initParametersForwardI8 = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
       // TODO remove
-      {64, 64, 1, 32, 32, 1, false, false},
+      //{64, 64, 1, 32, 32, 1, false, false},
+      //{64, 64, 2, 32, 32, 1, false, false},
+      ////{64, 64, 4, 32, 32, 1, false, false},
+      //{64, 64, 16, 32, 32, 16, false, false},
 
-      {64, 64, 1, 32, 32, 16, false, false},
-      {64, 64, 2, 32, 32, 16, false, false},
-      {64, 64, 4, 32, 32, 16, false, false},
+      //{64, 64, 1, 32, 32, 16, false, false},
+      //{64, 64, 2, 32, 32, 16, false, false},
+      //{64, 64, 4, 32, 32, 16, false, false},
+      
+      // for 32x32 k must be divisible by 2
+      {64, 64, 16, 32, 32, 16, false, false}, // k must divisible by 8x16
+      {64, 64, 4, 32, 32, 16, false, false}, // k must divisible by 4x16
+      // K: 2/4/8 for convenience use 4/8
+      // M/N: 128 x 128: Too large block size, one block include too many waves
+      //      64 x 64
+      //      32 x 32: One block has only one wave, no way to hide latency
+      // Use repeat outside per wave, as loop
+      //
+      //
 
-      // TODO Amend all kPack to be 16 for i8
-      {16, 16, 16, 16, 16, 1, false, false},
-      {16, 16, 4, 16, 16, 1, false, false},
+      {32, 32, 8, 16, 16, 16, false, false},// for 16x16 k must be divisible by 4
+      {32, 32, 4, 16, 16, 16, false, false},
+
+      {16, 16, 8, 16, 16, 16, false, false},// for 16x16 k must be divisible by 4
+      {16, 16, 4, 16, 16, 16, false, false},
+
+      // backup
+      {16, 16, 16, 16, 16, 8, false, false},// kpack must be multiple of 4 
+      {16, 16, 16, 16, 16, 4, false, false},// kpack must be multiple of 4 
+      {16, 16, 4, 16, 16, 1, false, false},// kpack ?
   };
   // clang-format on
 
@@ -917,8 +948,8 @@ private:
       // limited selection below
       // clang-format off
       validWaveGemmSize = {
-        std::make_tuple(32, 32, 1),
-        std::make_tuple(16, 16, 1)};
+        std::make_tuple(32, 32, 2),
+        std::make_tuple(16, 16, 4)};
       // clang-format on
     } else {
       // clang-format off
@@ -966,8 +997,8 @@ private:
     if ((param.gemmNPerBlock % param.gemmNPerWave) != 0)
       return failure();
 
-    if ((param.gemmKPerBlock % param.gemmKPack) != 0)
-      return failure();
+    //if ((param.gemmKPerBlock % param.gemmKPack) != 0)
+    //  return failure();
 
     // Reject invalid KPACK values.
     // For fp32: reject anything wider than 4.
@@ -984,9 +1015,10 @@ private:
       return failure();
     }
 
+    // !!!!
     // XXX FIXME: Ignore KReduction XDLOPS path for forward convolution now.
     // These M/NPerBlock combinations will result in lowering errors at tuning.
-    if (param.gemmKPack > 1 && ctx.getOpType() == miopen::ConvOpType::Fwd) {
+    if (param.gemmKPack > 1 && ctx.getOpType() == miopen::ConvOpType::Fwd && !dataType.isInteger(8)) {
       if ((param.gemmMPerBlock == 16 || param.gemmMPerBlock == 32 ||
            param.gemmMPerBlock == 64) &&
           (param.gemmNPerBlock == 16 || param.gemmNPerBlock == 32 ||

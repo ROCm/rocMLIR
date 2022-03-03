@@ -2094,6 +2094,9 @@ struct GridwiseGemmV2RewritePattern
       arrayAType =
           MemRefType::get({arrayASize}, VectorType::get({KPack}, dataType), {},
                           gpu::GPUDialect::getPrivateAddressSpace());
+
+          //MemRefType::get({arrayASize}, VectorType::get({KBase}, dataType), {},
+
       arrayBType =
           MemRefType::get({arrayBSize}, VectorType::get({KPack}, dataType), {},
                           gpu::GPUDialect::getPrivateAddressSpace());
