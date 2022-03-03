@@ -123,9 +123,7 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
 Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source) {
   auto ctx = b.getContext();
   auto sourceType = source.getType().cast<ShapedType>();
-  if (!sourceType.hasStaticShape()) {
-    llvm_unreachable("Only memrefs with static shapes are allowed");
-  }
+  assert(sourceType.hasStaticShape() && "Only memrefs with static shapes are allowed");
 
   auto shape = sourceType.getShape();
   uint64_t collapsedDim = 1;
