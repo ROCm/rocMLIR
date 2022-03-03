@@ -200,16 +200,9 @@ LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
   auto collapsedOutput = createCollapseShapeOp(b, loc, output);
   ArrayRef<int64_t> collapsedOutputShape =
       collapsedOutput.getType().cast<MemRefType>().getShape();
-  llvm::SmallVector<AffineForOp, 1> affineLoops;
-  for (auto bound : collapsedOutputShape) {
-    auto loop = b.create<AffineForOp>(loc, 0, bound);
-    affineLoops.push_back(loop);
-    auto body = loop.getBody();
-    b.setInsertionPointToStart(body);
-  }
-  llvm::SmallVector<Value, 1> indices;
-  extractForInductionVars(affineLoops, &indices);
-  b.create<AffineStoreOp>(loc, zeroOp, collapsedOutput, indices);
+  auto loop = b.create<AffineForOp>(loc, 0, collapsedOutputShape[0]);
+  b.setInsertionPointToStart(loop.getBody());
+  b.create<AffineStoreOp>(loc, zeroOp, collapsedOutput, loop.getInductionVar());
 
   op.erase();
   return success();
@@ -229,23 +222,15 @@ LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
       collapsedFilter.getType().cast<MemRefType>().getShape();
   ArrayRef<int64_t> collapsedWorkspaceShape =
       collapsedWorkspace.getType().cast<MemRefType>().getShape();
-  llvm::SmallVector<AffineForOp, 1> affineLoops;
-  for (unsigned iter = 0; iter < collapsedFilterShape.size(); ++iter) {
-    auto boundFilter = collapsedFilterShape[iter];
-    auto boundWorkspace = collapsedWorkspaceShape[iter];
-    assert((boundFilter == boundWorkspace) &&
-           "Filter tensor and workspace size mismatch");
-    auto loop = b.create<AffineForOp>(loc, 0, boundFilter);
-    affineLoops.push_back(loop);
-    auto body = loop.getBody();
-    b.setInsertionPointToStart(body);
-  }
-  llvm::SmallVector<Value, 5> indices;
-  extractForInductionVars(affineLoops, &indices);
-  auto loadedValue = b.create<AffineLoadOp>(loc, collapsedWorkspace, indices);
+  assert((collapsedFilterShape[0] == collapsedWorkspaceShape[0]) &&
+         "Filter tensor and workspace size mismatch");
+  auto loop = b.create<AffineForOp>(loc, 0, collapsedWorkspaceShape[0]);
+  auto iv = loop.getInductionVar();
+  b.setInsertionPointToStart(loop.getBody());
+  auto loadedValue = b.create<AffineLoadOp>(loc, collapsedWorkspace, iv);
   auto convertedValue =
       createTypeConversionOp(b, loc, loadedValue, filterDataType);
-  b.create<AffineStoreOp>(loc, convertedValue, collapsedFilter, indices);
+  b.create<AffineStoreOp>(loc, convertedValue, collapsedFilter, iv);
 
   op.erase();
   return success();
