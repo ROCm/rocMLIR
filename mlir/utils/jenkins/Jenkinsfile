@@ -367,6 +367,7 @@ pipeline {
                 stages {
                     stage("Environment") {
                         steps {
+                            echo "ARCH = ${ARCH}"
                             showEnv()
                         }
                     }
@@ -376,7 +377,7 @@ pipeline {
                             buildMIOpenWithMLIR()
                         }
                     }
-                    stage("Tune MLIR kernels for ${ARCH}") {
+                    stage("Tune MLIR kernels") {
                         environment {
                             // Make libMIOpen.so accessible to the test driver
                             LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
@@ -520,7 +521,7 @@ pipeline {
                 docker {
                     image dockerImage()
                     args dockerArgs()
-                    label "${params.canXdlops ? 'gfx908 || gfx90a' : 'gfx906' }"
+                    label "${params.canXdlops ? 'gfx90a' : 'gfx906' }"
                     alwaysPull true
                 }
             }
@@ -551,14 +552,21 @@ pipeline {
                 }
                 stage("Test MLIR vs MIOpen") {
                     steps {
-                        dir('build') {
+                        dir('build') {`
                             sh 'date --utc +%Y-%m-%d > perf-run-date'
                             // Run MLIR perf benchmarks
                             sh 'python3 ./bin/MIOpenDriver.py'
                         }
                     }
                 }
-                stage("Copy MIOpen with MLIR kernels") {
+                stage("Build MLIR with libMLIRMIOpen") {
+                    steps {
+                        // Clean up build to allow static library
+                        sh 'rm -rf MIOpen build'
+                        buildMIOpenWithMLIR()
+                    }
+                }
+                stage("Copy tuning database") {
                     steps {
                         copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
                                                optional: true,\
