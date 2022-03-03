@@ -35,7 +35,7 @@ LAYOUTS = ['NCHW']
 # utility functions.
 def getConfigurations(fileName):
     xdlops = False;
-    r = subprocess.run(f'/opt/rocm/bin/rocm_agent_enumerator -t GPU|grep gfx908', shell=True)
+    r = subprocess.run("/opt/rocm/bin/rocm_agent_enumerator -t GPU | grep -E 'gfx908|gfx90a'", shell=True)
     if r.returncode == 0:
         xdlops = True
 
@@ -381,7 +381,7 @@ usage examples:
 
     xdlops = False
     configs = getConfigurations(CONFIGURATION_FILE_NAME);
-    r = subprocess.run(f'/opt/rocm/bin/rocm_agent_enumerator -t GPU|grep gfx908', shell=True)
+    r = subprocess.run("/opt/rocm/bin/rocm_agent_enumerator -t GPU | grep -E 'gfx908|gfx90a'", shell=True)
     if r.returncode == 0:
         xdlops = True
 
