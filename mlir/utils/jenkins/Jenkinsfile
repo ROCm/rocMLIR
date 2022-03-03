@@ -348,8 +348,8 @@ pipeline {
             matrix {
                 axes {
                     axis {
-                        name: 'ARCH'
-                        values: ['gfx908', 'gfx90a']
+                        name 'ARCH'
+                        values 'gfx908', 'gfx90a'
                     }
                 }
                 agent {
