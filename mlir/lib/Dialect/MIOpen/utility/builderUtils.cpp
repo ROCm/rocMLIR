@@ -85,12 +85,12 @@ Value createZeroConstantOp(OpBuilder &b, Location loc, Type type) {
 // Utility function to emit type conversion ops.
 //===----------------------------------------------------------------------===//
 Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
-                             Type sourceType, Type destType) {
+                             Type destType) {
   // Convert from sourceType to destType if necessary.
   Value result = source;
-  Type sourceElemType = sourceType;
+  Type sourceElemType = source.getType();
   Type destElemType = destType;
-  if (auto sourceVec = sourceType.dyn_cast<VectorType>()) {
+  if (auto sourceVec = sourceElemType.dyn_cast<VectorType>()) {
     if (auto destVec = destType.dyn_cast<VectorType>()) {
       assert(sourceVec.getNumElements() == destVec.getNumElements() &&
              "source and destinatioon have same length");

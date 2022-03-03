@@ -609,8 +609,8 @@ void emitNaiveTensorCopyLogic(OpBuilder &b, Location loc, int64_t nSliceRow,
       srcUpperIndices[sourceCoord.size() - 1] = b.create<AddIOp>(
           loc, srcUpperIndices[sourceCoord.size() - 1], oneConstantOp);
       // Convert from sourceElementType to destElementType if necessary.
-      Value convertedScalarValue = createTypeConversionOp(
-          b, loc, scalarValue, sourceElementType, destElementType);
+      Value convertedScalarValue =
+          createTypeConversionOp(b, loc, scalarValue, destElementType);
 
       // dst_index = (0, ivo_i32, ivi_i32) + destCoord
       // Apply affine transformations to compute the low-level coordinate.
@@ -1362,8 +1362,8 @@ struct ThreadwiseCopyRewritePattern
             oobLoadCheckDims, op.source(), srcLowerIndices);
 
         // Convert from sourceElementType to destElementType if necessary.
-        Value convertedScalarValue = createTypeConversionOp(
-            b, loc, scalarValue, sourceElementType, destElementType);
+        Value convertedScalarValue =
+            createTypeConversionOp(b, loc, scalarValue, destElementType);
 
         // Use the old logic in case "legacy_store" attribute is specified.
         if (legacyStore == true) {
@@ -1584,7 +1584,7 @@ struct ThreadwiseCopyV2RewritePattern
 
       // Convert from sourceElementType to destElementType if necessary.
       Value convertedValue =
-          createTypeConversionOp(b, loc, loadedValue, typeToLoad, typeToStore);
+          createTypeConversionOp(b, loc, loadedValue, typeToStore);
 
       // Store to dest memref.
 

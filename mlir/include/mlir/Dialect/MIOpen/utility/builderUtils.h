@@ -13,7 +13,7 @@ Value createZeroConstantOp(OpBuilder &b, Location loc, Type type);
 
 // Utility function to emit type conversion ops.
 Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
-                             Type sourceType, Type destType);
+                             Type destType);
 
 // Utility function to collapse an multi-dimensional memref to 1D.
 Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source);

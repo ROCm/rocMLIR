@@ -223,8 +223,6 @@ LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
   auto filter = op.filter();
   auto workspace = op.workspace();
   auto filterDataType = filter.getType().cast<MemRefType>().getElementType();
-  auto workspaceDataType =
-      workspace.getType().cast<MemRefType>().getElementType();
   auto collapsedFilter = createCollapseShapeOp(b, loc, filter);
   auto collapsedWorkspace = createCollapseShapeOp(b, loc, workspace);
   ArrayRef<int64_t> collapsedFilterShape =
@@ -245,8 +243,8 @@ LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
   llvm::SmallVector<Value, 5> indices;
   extractForInductionVars(affineLoops, &indices);
   auto loadedValue = b.create<AffineLoadOp>(loc, collapsedWorkspace, indices);
-  auto convertedValue = createTypeConversionOp(
-      b, loc, loadedValue, workspaceDataType, filterDataType);
+  auto convertedValue =
+      createTypeConversionOp(b, loc, loadedValue, filterDataType);
   b.create<AffineStoreOp>(loc, convertedValue, collapsedFilter, indices);
 
   op.erase();
