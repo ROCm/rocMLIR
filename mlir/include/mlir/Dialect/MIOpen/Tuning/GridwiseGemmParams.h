@@ -366,12 +366,12 @@ protected:
     // in the algorithm.
     int64_t vectorizationSize = 1;
     auto dataType = ctx.getDataType();
-    if (dataType.isF32()) {
-      vectorizationSize = 4;
-    } else if (dataType.isF16() || dataType.isBF16()) {
-      // FIXME: figure out the best vectorization length for f16 and bf16.
-      vectorizationSize = 4;
-    }
+    unsigned dataWidth = dataType.getIntOrFloatBitWidth();
+    // 128 is the upper limit we support in vectorized load/store, which could
+    // be 4 fp32, 8 fp16, or 16 int8
+    const auto highestPotentialVectorizationLen = 128;
+    vectorizationSize = highestPotentialVectorizationLen / dataWidth;
+
     // FIXME: set vectorizationSize be 1 for backward data and backward
     // weight for now.
     // The logic for deciding vectorization size and dimension for
@@ -621,7 +621,6 @@ struct InitParamsXDL : InitParams, Serializable<InitParamsXDL> {
 
 template <typename T> std::string genDebugForParams(T params) {
   std::ostringstream os;
-  os << "DB load succeed: ";
   params.visit(params, [&os](auto &arg) { os << arg << ","; });
   os << "\n";
   return os.str();
@@ -819,9 +818,9 @@ private:
       // TODO remove
       {64, 64, 1, 32, 32, 1, false, false},
 
-      {64, 64, 1, 32, 32, 16, false, false},
-      {64, 64, 2, 32, 32, 16, false, false},
-      {64, 64, 4, 32, 32, 16, false, false},
+      {64, 64, 2, 32, 32, 1, false, false},
+      {64, 64, 4, 32, 32, 1, false, false},
+      {64, 64, 16, 32, 32, 16, false, false},
 
       // TODO Amend all kPack to be 16 for i8
       {16, 16, 16, 16, 16, 1, false, false},
@@ -873,6 +872,26 @@ private:
     return calculateInputDerivedParams(param, blockSize, ctx, false, derived);
   }
 
+  LogicalResult isKpackValid(InitParamsXDL *param,
+                             const DerivedParams &gemmADerived,
+                             const DerivedParams &gemmBDerived) {
+    if (isKpackValid(param, gemmADerived).failed()) {
+      return failure();
+    }
+    if (isKpackValid(param, gemmBDerived).failed()) {
+      return failure();
+    }
+    return success();
+  }
+
+  LogicalResult isKpackValid(InitParamsXDL *param,
+                             const DerivedParams &derived) {
+    if (param->gemmKPack > derived.srcDataPerRead) {
+      return failure();
+    }
+    return success();
+  }
+
   LogicalResult calculateLdsNumberOfByte(InitParamsXDL &param,
                                          const ConvolutionContext &ctx,
                                          DerivedParams gemmADerived,
@@ -917,8 +936,8 @@ private:
       // limited selection below
       // clang-format off
       validWaveGemmSize = {
-        std::make_tuple(32, 32, 1),
-        std::make_tuple(16, 16, 1)};
+        std::make_tuple(32, 32, 2),
+        std::make_tuple(16, 16, 4)};
       // clang-format on
     } else {
       // clang-format off
@@ -966,8 +985,8 @@ private:
     if ((param.gemmNPerBlock % param.gemmNPerWave) != 0)
       return failure();
 
-    if ((param.gemmKPerBlock % param.gemmKPack) != 0)
-      return failure();
+    // Note KPerBlock and KPack are independent tuning parameters.
+    // There's no need to check if they are divide exactly
 
     // Reject invalid KPACK values.
     // For fp32: reject anything wider than 4.
