@@ -12,6 +12,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/TypeUtilities.h"
 
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
@@ -70,10 +71,7 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
 } // anonymous namespace
 
 Value createZeroConstantOp(OpBuilder &b, Location loc, Type type) {
-  Type elementType = type;
-  if (type.isa<VectorType>())
-    elementType = type.template cast<VectorType>().getElementType();
-
+  Type elementType = getElementTypeOrSelf(type);
   if (elementType.isIntOrIndex()) {
     return createConstantIntOp(b, loc, type, elementType, 0);
   } else {
@@ -88,19 +86,18 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
                              Type destType) {
   // Convert from sourceType to destType if necessary.
   Value result = source;
-  Type sourceElemType = source.getType();
-  Type destElemType = destType;
-  if (auto sourceVec = sourceElemType.dyn_cast<VectorType>()) {
+  Type sourceType = source.getType();
+  if (auto sourceVec = sourceType.dyn_cast<VectorType>()) {
     if (auto destVec = destType.dyn_cast<VectorType>()) {
       assert(sourceVec.getNumElements() == destVec.getNumElements() &&
              "source and destinatioon have same length");
-      sourceElemType = sourceVec.getElementType();
-      destElemType = destVec.getElementType();
     } else {
       llvm_unreachable("Can't store vector sources to scalar destinations in "
                        "output writeback");
     }
   }
+  Type sourceElemType = getElementTypeOrSelf(sourceType);
+  Type destElemType = getElementTypeOrSelf(destType);
   if (sourceElemType != destElemType) {
     // Possible cases:
     // - fp16/bf16 -> fp32 : use fpext.
