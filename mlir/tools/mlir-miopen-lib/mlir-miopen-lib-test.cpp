@@ -15,7 +15,8 @@ static cl::opt<std::string> args(
         R"(--conv_stride_w 1 --padding_h 0 --padding_w 0)"));
 
 static cl::opt<std::string>
-    option("option", cl::desc("Code gen options: source/header/cflags"),
+    option("option",
+           cl::desc("Code gen options: tuningparams/kernelcount/workspace/bin"),
            cl::value_desc("Igemm convolution option string"),
            cl::init("tuningparams"));
 
@@ -42,9 +43,10 @@ int main(int argc, char **argv) {
     }
     std::cout << "ExecutionDims - globalSize=" << globalSize
               << ", localSize=" << localSize << std::endl;
-
   } else if (option.getValue() == "workspace") {
     std::cout << "Workspace=" << miirGetWorkspaceSize(handle) << std::endl;
+  } else if (option.getValue() == "kernelcount") {
+    std::cout << "Kernel count=" << miirGetKernelCount(handle) << std::endl;
   } else if (option.getValue() == "bin") {
     int count = miirGetKernelCount(handle);
 
