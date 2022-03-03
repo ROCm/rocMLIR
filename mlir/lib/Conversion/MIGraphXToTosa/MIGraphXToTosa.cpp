@@ -62,8 +62,7 @@ public:
   matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     auto operands = adaptor.getOperands();
-    auto loc = op->getLoc();
-    auto context = op->getContext();
+    Location loc = op->getLoc();
     auto input_t = operands[0];
     auto filter_t = operands[1];
     auto results = op->getResults();

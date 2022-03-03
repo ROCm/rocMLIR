@@ -171,8 +171,6 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirOperation ret = mlirOperationCreate(&retState);
   mlirBlockAppendOwnedOperation(funcBody, ret);
 
-  MlirOperation module = mlirModuleGetOperation(moduleOp);
-
   return moduleOp;
 }
 
@@ -202,11 +200,11 @@ static bool constructAndTraverseIr(MlirContext ctx) {
                        mlir::PassManager::Nesting::Implicit);
 
   mlir::migraphx::addHighLevelPipeline(pm);
-  pm.run(module);
+  (void)pm.run(module);
   mlirOperationDump(moduleMO);
 
   mlir::miopen::addHighLevelPipeline(pm);
-  pm.run(module);
+  (void)pm.run(module);
   mlirOperationDump(moduleMO);
 
   size_t argIdx = 0;
@@ -215,15 +213,15 @@ static bool constructAndTraverseIr(MlirContext ctx) {
     for (auto arg : args) {
       argIdx += 3; // 3 per memref : allocated ptr, aligned ptr, offset
       auto sType = arg.getType().template cast<mlir::ShapedType>();
-      auto rank = sType.getRank();
-      printf("rank:%d, dim:", rank);
-      int i;
-      for (i = 0; i < rank; i++)
-        printf("<%d>", sType.getDimSize(i));
+      int64_t rank = sType.getRank();
+      printf("rank:%ld, dim:", rank);
+      for (int64_t i = 0; i < rank; ++i)
+        printf("<%ld>", sType.getDimSize(i));
       printf("\n");
-      argIdx += i * 2; // 2 per each dimension : size, stride
+      argIdx += rank * 2; // 2 per each dimension : size, stride
     }
-    printf("Kernel name : %s\n", f.getName());
+    std::string kernelName = f.getName().str();
+    printf("Kernel name : %s\n", kernelName.c_str());
   });
   // CHECK: rank:4, dim:<1><64><56><56>
   // CHECK: rank:4, dim:<64><64><1><1>
@@ -246,10 +244,10 @@ static bool constructAndTraverseIr(MlirContext ctx) {
     size_t grid_size =
         llvmFunc->getAttrOfType<mlir::IntegerAttr>("grid_size").getInt();
     auto funcType = llvmFunc.getType().dyn_cast<mlir::LLVM::LLVMFunctionType>();
-    int numOperands = funcType.getNumParams();
-    printf("kernel params : %d\n", numOperands);
-    printf("block_size : %d\n", block_size);
-    printf("grid_size : %d\n", grid_size);
+    uint32_t numOperands = funcType.getNumParams();
+    printf("kernel params : %u\n", numOperands);
+    printf("block_size : %zu\n", block_size);
+    printf("grid_size : %zu\n", grid_size);
   });
   // CHECK: kernel params : 38
   // CHECK: block_size : 64

@@ -59,7 +59,7 @@ void mlirGetKernelInfo(MlirModule module, int *size, void *data) {
     for (int i = 0; i < argSize; i++)
       argData[i + 1] = info[i];
     char *nameData = (char *)(argData + argSize + 1);
-    for (int i = 0; i < kernelName.size(); i++) {
+    for (size_t i = 0, e = kernelName.size(); i < e; ++i) {
       nameData[i] = kernelName[i];
     }
   }
