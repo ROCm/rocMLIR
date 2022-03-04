@@ -1760,7 +1760,7 @@ populateHostHarnessLogic(ModuleOp &module,
   // Run validation
   if (hasValidation) {
     if (validationType == "gpu" &&
-        (genConfig.xdlops && genConfig.dataTypeStr == "f32" ||
+        ((genConfig.xdlops && genConfig.dataTypeStr == "f32") ||
          genConfig.dataTypeStr == "f16" || genConfig.dataTypeStr == "bf16")) {
       // generate generic kernels
       Conv2dGenerator conv2dGenerator(genConfig);
