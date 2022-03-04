@@ -9,6 +9,7 @@ add_mlir_dialect_library(MLIRMIOpenUtility
   MLIRDialect
   MLIRMIOpenOps
   MLIRIR
+  MLIRMemRef
   MLIRStandard
   MLIRSupport
 )

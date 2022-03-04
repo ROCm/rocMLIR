@@ -74,7 +74,7 @@ public:
   const Config &getConfig() const { return config; }
   void setKernelName(const std::string &newName);
 
-  int getKernelCount() const;
+  int getKernelCount(OpBuilder &builder) const;
 
   Type getDataType(OpBuilder &builder) const;
 
@@ -137,6 +137,8 @@ private:
     return permutation;
   }
   int getBwdDataKernelCount() const;
+  int getBwdWeightKernelCount(OpBuilder &builder) const;
+  bool needExtraPad(OpBuilder &builder) const;
   LogicalResult hasValidDimension() const;
   LogicalResult hasValidChip() const;
 

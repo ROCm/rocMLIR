@@ -9,6 +9,7 @@
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeUtilities.h"
@@ -68,10 +69,7 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
 }
 
 Value createZeroConstantOp(OpBuilder &b, Location loc, Type type) {
-  Type elementType = type;
-  if (auto shaped = type.dyn_cast<ShapedType>())
-    elementType = shaped.getElementType();
-
+  Type elementType = getElementTypeOrSelf(type);
   if (elementType.isIntOrIndex()) {
     return createConstantIntOp(b, loc, type, elementType, 0);
   } else {
@@ -79,13 +77,14 @@ Value createZeroConstantOp(OpBuilder &b, Location loc, Type type) {
   }
 }
 
+//===----------------------------------------------------------------------===//
+// Utility function to emit type conversion ops.
+//===----------------------------------------------------------------------===//
 Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
                              Type destType) {
   // Convert from sourceType to destType if necessary.
   Value result = source;
   Type sourceType = source.getType();
-  Type sourceElemType = getElementTypeOrSelf(sourceType);
-  Type destElemType = getElementTypeOrSelf(destType);
   if (auto sourceVec = sourceType.dyn_cast<VectorType>()) {
     if (auto destVec = destType.dyn_cast<VectorType>()) {
       assert(sourceVec.getNumElements() == destVec.getNumElements() &&
@@ -95,6 +94,8 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
                        "output writeback");
     }
   }
+  Type sourceElemType = getElementTypeOrSelf(sourceType);
+  Type destElemType = getElementTypeOrSelf(destType);
   if (sourceElemType != destElemType) {
     // Possible cases:
     // - fp16/bf16 -> fp32 : use fpext.
@@ -111,6 +112,32 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
       llvm_unreachable("Only fp32, fp16, or bf16 targets for data conversion");
     }
   }
+  return result;
+}
+
+Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source) {
+  auto ctx = b.getContext();
+  auto sourceType = source.getType().cast<ShapedType>();
+  assert(sourceType.hasStaticShape() &&
+         "Only memrefs with static shapes are allowed");
+
+  auto shape = sourceType.getShape();
+  uint64_t collapsedDim = 1;
+  SmallVector<AffineExpr, 2> exprs;
+  for (uint32_t dim = 0; dim < shape.size(); ++dim) {
+    collapsedDim *= shape[dim];
+    exprs.push_back(getAffineDimExpr(dim, ctx));
+  }
+
+  SmallVector<int64_t, 1> collapsedShape;
+  SmallVector<ReassociationExprs, 1> reassocs;
+  collapsedShape.push_back(collapsedDim);
+  reassocs.push_back(exprs);
+
+  auto collapsedType =
+      MemRefType::get(collapsedShape, sourceType.getElementType());
+  Value result =
+      b.create<memref::CollapseShapeOp>(loc, collapsedType, source, reassocs);
   return result;
 }
 
