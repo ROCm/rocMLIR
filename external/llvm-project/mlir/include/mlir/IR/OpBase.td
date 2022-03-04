@@ -2086,7 +2086,9 @@ def Terminator : NativeOpTrait<"IsTerminator">;
 // non-identity maps.
 def MemRefsNormalizable : NativeOpTrait<"MemRefsNormalizable">;
 // Op is elementwise on tensor/vector operands and results.
-def Elementwise : NativeOpTrait<"Elementwise">;
+def AbstractElementwise : NativeOpTrait<"AbstractElementwise">;
+def CompatibleShapes : NativeOpTrait<"CompatibleShapes">;
+def Elementwise : TraitList<[AbstractElementwise, CompatibleShapes]>;
 // Elementwise op can be applied to scalars instead tensor/vector operands.
 def Scalarizable : NativeOpTrait<"Scalarizable">;
 // Elementwise op can be applied to all-vector operands.

@@ -1030,7 +1030,7 @@ LogicalResult OpTrait::impl::verifyNoRegionArguments(Operation *op) {
   return success();
 }
 
-LogicalResult OpTrait::impl::verifyElementwise(Operation *op) {
+LogicalResult OpTrait::impl::verifyCompatibleShapes(Operation *op) {
   auto isMappableType = [](Type type) {
     return type.isa<VectorType, TensorType>();
   };
@@ -1119,8 +1119,13 @@ LogicalResult OpTrait::impl::verifyIsIsolatedFromAbove(Operation *isolatedOp) {
   return success();
 }
 
+bool OpTrait::hasElementwiseTraits(Operation *op) {
+  return op->hasTrait<AbstractElementwise>() &&
+         op->hasTrait<CompatibleShapes>();
+}
+
 bool OpTrait::hasElementwiseMappableTraits(Operation *op) {
-  return op->hasTrait<Elementwise>() && op->hasTrait<Scalarizable>() &&
+  return OpTrait::hasElementwiseTraits(op) && op->hasTrait<Scalarizable>() &&
          op->hasTrait<Vectorizable>() && op->hasTrait<Tensorizable>();
 }
 

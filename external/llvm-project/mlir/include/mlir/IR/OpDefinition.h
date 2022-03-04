@@ -311,7 +311,7 @@ LogicalResult verifyValueSizeAttr(Operation *op, StringRef attrName,
 LogicalResult verifyOperandSizeAttr(Operation *op, StringRef sizeAttrName);
 LogicalResult verifyResultSizeAttr(Operation *op, StringRef sizeAttrName);
 LogicalResult verifyNoRegionArguments(Operation *op);
-LogicalResult verifyElementwise(Operation *op);
+LogicalResult verifyCompatibleShapes(Operation *op);
 LogicalResult verifyIsIsolatedFromAbove(Operation *op);
 } // namespace impl
 
@@ -1350,9 +1350,13 @@ struct MemRefsNormalizable
 ///   should reify any needed guards or error handling code before lowering to
 ///   an `Elementwise` op.
 template <typename ConcreteType>
-struct Elementwise : public TraitBase<ConcreteType, Elementwise> {
+struct AbstractElementwise : public TraitBase<ConcreteType, AbstractElementwise> {
+};
+
+template <typename ConcreteType>
+struct CompatibleShapes : public TraitBase<ConcreteType, CompatibleShapes> {
   static LogicalResult verifyTrait(Operation *op) {
-    return ::mlir::OpTrait::impl::verifyElementwise(op);
+    return ::mlir::OpTrait::impl::verifyCompatibleShapes(op);
   }
 };
 
@@ -1382,7 +1386,8 @@ template <typename ConcreteType>
 struct Scalarizable : public TraitBase<ConcreteType, Scalarizable> {
   static LogicalResult verifyTrait(Operation *op) {
     static_assert(
-        ConcreteType::template hasTrait<Elementwise>(),
+        ConcreteType::template hasTrait<AbstractElementwise>() &&
+        ConcreteType::template hasTrait<CompatibleShapes>(),
         "`Scalarizable` trait is only applicable to `Elementwise` ops.");
     return success();
   }
@@ -1402,7 +1407,8 @@ template <typename ConcreteType>
 struct Vectorizable : public TraitBase<ConcreteType, Vectorizable> {
   static LogicalResult verifyTrait(Operation *op) {
     static_assert(
-        ConcreteType::template hasTrait<Elementwise>(),
+        ConcreteType::template hasTrait<AbstractElementwise>() &&
+        ConcreteType::template hasTrait<CompatibleShapes>(),
         "`Vectorizable` trait is only applicable to `Elementwise` ops.");
     return success();
   }
@@ -1443,7 +1449,8 @@ template <typename ConcreteType>
 struct Tensorizable : public TraitBase<ConcreteType, Tensorizable> {
   static LogicalResult verifyTrait(Operation *op) {
     static_assert(
-        ConcreteType::template hasTrait<Elementwise>(),
+        ConcreteType::template hasTrait<AbstractElementwise>() &&
+        ConcreteType::template hasTrait<CompatibleShapes>(),
         "`Tensorizable` trait is only applicable to `Elementwise` ops.");
     return success();
   }
@@ -1452,6 +1459,7 @@ struct Tensorizable : public TraitBase<ConcreteType, Tensorizable> {
 /// Together, `Elementwise`, `Scalarizable`, `Vectorizable`, and `Tensorizable`
 /// provide an easy way for scalar operations to conveniently generalize their
 /// behavior to vectors/tensors, and systematize conversion between these forms.
+bool hasElementwiseTraits(Operation *op);
 bool hasElementwiseMappableTraits(Operation *op);
 
 } // namespace OpTrait
