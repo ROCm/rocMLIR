@@ -1767,9 +1767,10 @@ populateHostHarnessLogic(ModuleOp &module,
       // use non-xdlops kernels to verify xdlops kernels
       if (genConfig.xdlops)
         conv2dGenerator.flipXdlops();
-
-      // use f32 data type to verify non-f32 or xdlops f32 kernels
-      conv2dGenerator.setDataType("f32");
+      if (!genConfig.xdlops || genConfig.dataTypeStr != "i8")
+        // use f32 data type to verify non-f32 or xdlops f32 kernels
+        // except that i8 xdlops is verified with i8 non-xdlops
+        conv2dGenerator.setDataType("f32");
 
       int kernelStart = genConfig.kernelId;
       int kernelCount = conv2dGenerator.getKernelCount(b);
