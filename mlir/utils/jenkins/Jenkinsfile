@@ -273,7 +273,6 @@ pipeline {
                         }
                         stage("Build MIOpen with libMLIRMIOpen") {
                             steps {
-                                checkout scm
                                 buildMIOpenWithMLIR()
                             }
                         }
@@ -373,7 +372,6 @@ pipeline {
                     }
                     stage("Build MIOpen with libMLIRMIOpen") {
                         steps {
-                            checkout scm
                             buildMIOpenWithMLIR()
                         }
                     }
@@ -410,6 +408,9 @@ pipeline {
                 equals expected: true, actual: params.staticLib;
             }
             agent any
+            options {
+                skipDefaultCheckout()
+            }
             steps {
                 // Note: add additional architectures here
                 dir ('MIOpen/build/MIOpenUserDB') {
@@ -466,7 +467,6 @@ pipeline {
                                     HOME="${WORKSPACE}"
                                 }
                                 steps {
-                                    checkout scm
                                     buildMIOpenWithMLIR()
                                 }
                             }
