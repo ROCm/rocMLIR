@@ -33,7 +33,8 @@ void mlirGetKernelInfo(MlirModule module, int *size, void *data) {
   int argIdx = 0;
   llvm::StringRef kernelName;
 
-  assert (size != nullptr || data != nullptr); // either of ptrs should be provided.
+  assert(size != nullptr ||
+         data != nullptr); // either of ptrs should be provided.
   std::vector<int> info;
   mod.walk([&](mlir::FuncOp f) {
     auto args = f.getArguments();
@@ -78,7 +79,7 @@ MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs) {
 MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, int *size, char *bin) {
   bool success = false;
   auto mod = unwrap(module);
-  if(bin == nullptr && size == nullptr)
+  if (bin == nullptr && size == nullptr)
     return success;
   mod.walk([&](mlir::gpu::GPUModuleOp gpuModule) {
     auto hsacoAttr = gpuModule->getAttrOfType<mlir::StringAttr>(
