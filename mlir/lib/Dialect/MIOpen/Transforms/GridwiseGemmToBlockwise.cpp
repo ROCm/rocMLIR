@@ -299,9 +299,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // f32: f32.
     // f16: f32 to prevent overflow from happening.
     // i16(bf16) : i16.
+    // i8: i32, since we have an i32 output
     Type accumulatorType = elementType;
     if (elementType == b.getF16Type()) {
       accumulatorType = b.getF32Type();
+    } else if (elementType == b.getI8Type()) {
+      accumulatorType = b.getI32Type();
     }
 
     // Prepare some useful constants.
