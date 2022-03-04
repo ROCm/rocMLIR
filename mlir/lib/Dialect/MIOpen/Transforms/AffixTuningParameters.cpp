@@ -37,6 +37,13 @@ private:
 
   // Actual implementation.
   template <typename T> void affixTuningParametersImpl(T &op);
+
+  void affixBackwardWeightUtilityKernels(miopen::Conv2DBwdWeightOp &op);
+
+  template <typename T>
+  std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
+             int64_t, int64_t>
+  fetchDimensions(T &op);
 };
 } // anonymous namespace
 
@@ -45,20 +52,19 @@ void AffixTuningParameters::runOnOperation() {
 
   func.walk([&](miopen::Conv2DOp op) { affixTuningParametersImpl(op); });
   func.walk([&](miopen::Conv2DBwdDataOp op) { affixTuningParametersImpl(op); });
-  func.walk(
-      [&](miopen::Conv2DBwdWeightOp op) { affixTuningParametersImpl(op); });
+  func.walk([&](miopen::Conv2DBwdWeightOp op) {
+    affixTuningParametersImpl(op);
+    affixBackwardWeightUtilityKernels(op);
+  });
 }
 
 template <typename T>
-void AffixTuningParameters::affixTuningParametersImpl(T &op) {
-  OpBuilder b(op.getContext());
-
-  ConvolutionContext convContext = populateConvContext(op);
-
+std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
+           int64_t, int64_t>
+AffixTuningParameters::fetchDimensions(T &op) {
   auto filterLayoutAttr =
       op->template getAttrOfType<ArrayAttr>("filter_layout");
-  auto inputLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("input_layout");
+  auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
   auto outputLayoutAttr =
       op->template getAttrOfType<ArrayAttr>("output_layout");
 
@@ -77,18 +83,13 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
   // get y, x, ho, wo, hi, wi, k, c, n
   int64_t y, x, ho, wo, hi, wi, k, c, n;
   y = x = ho = wo = hi = wi = k = c = n = 0;
-  llvm::DenseMap<StringRef, int> nameToDims;
+
   for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
     auto filterAttr =
         filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto inputAttr =
-        inputLayoutAttr.getValue()[i].template cast<StringAttr>();
+    auto inputAttr = inputLayoutAttr.getValue()[i].template cast<StringAttr>();
     auto outputAttr =
         outputLayoutAttr.getValue()[i].template cast<StringAttr>();
-
-    nameToDims[filterAttr.getValue()] = i;
-    nameToDims[inputAttr.getValue()] = i;
-    nameToDims[outputAttr.getValue()] = i;
 
     if (filterAttr.getValue() == "y") {
       y = filterShape[i];
@@ -115,16 +116,87 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     }
   }
 
+  return std::make_tuple(y, x, ho, wo, hi, wi, k, c, n);
+}
+
+void AffixTuningParameters::affixBackwardWeightUtilityKernels(
+    miopen::Conv2DBwdWeightOp &op) {
+  auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
+  assert(gemmIdAttr);
+  int64_t gemmId = gemmIdAttr.getInt();
+
+  auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
+  if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
+    OpBuilder b(op.getContext());
+
+    ConvolutionContext convContext = populateConvContext(op);
+
+    // get y, x, ho, wo, hi, wi, k, c, n
+    int64_t y, x, ho, wo, hi, wi, k, c, n;
+    std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
+
+    int64_t gemmMSize, gemmNSize, gemmKSize;
+    gemmMSize = k;
+    gemmKSize = n * ho * wo;
+    gemmNSize = c * y * x;
+
+    int64_t gemmMExtra, gemmNExtra, gemmKExtra;
+    gemmMExtra = gemmNExtra = gemmKExtra = 0;
+
+    // isOriginalKernelSupport is not used.
+    // Only needExtraPad is used.
+    bool isOriginalKernelSupport = true;
+    bool needExtraPad = false;
+    PopulateParamsXDL populateParamsXDL;
+    std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
+             gemmKExtra) =
+        calculatePaddingKernelSize(
+            gemmMSize, gemmNSize, gemmKSize, convContext.getOpType(),
+            convContext.getDataType(), populateParamsXDL);
+
+    // For padding cases, gemmId must be 0.
+    if (needExtraPad == true) {
+      assert(gemmId == 0);
+    } else {
+      assert((gemmId >= 0) && (gemmId < 3));
+      switch (gemmId) {
+      case 0:
+      case 2:
+        // Override grid_size and block_size be 1 for utility kernels.
+        // FIXME. Use better sizes for speedups.
+        op->setAttr("grid_size", b.getI32IntegerAttr(1));
+        op->setAttr("block_size", b.getI32IntegerAttr(1));
+        // Set attributes on the function.
+        getOperation()->setAttr("block_size", b.getI32IntegerAttr(1));
+        getOperation()->setAttr("grid_size", b.getI32IntegerAttr(1));
+        break;
+      case 1:
+        break;
+      }
+    }
+  }
+}
+
+template <typename T>
+void AffixTuningParameters::affixTuningParametersImpl(T &op) {
+  OpBuilder b(op.getContext());
+
+  ConvolutionContext convContext = populateConvContext(op);
+
+  // get y, x, ho, wo, hi, wi, k, c, n
+  int64_t y, x, ho, wo, hi, wi, k, c, n;
+  std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
+
   int64_t gemmMSize, gemmNSize, gemmKSize;
-  int64_t gemmMExtra, gemmNExtra, gemmKExtra;
-  gemmMSize = gemmNSize = gemmKSize = 0;
-  gemmMExtra = gemmNExtra = gemmKExtra = 0;
   // FIXME : support forward convolution only right now.
   // compute we should use extra padding kernel or not
   // c,k already / g ,so we can skip / g here
   gemmMSize = k;
   gemmKSize = c * y * x;
   gemmNSize = n * ho * wo;
+
+  int64_t gemmMExtra, gemmNExtra, gemmKExtra;
+  gemmMExtra = gemmNExtra = gemmKExtra = 0;
 
   // isOriginalKernelSupport is not used.
   // Only needExtraPad is used.

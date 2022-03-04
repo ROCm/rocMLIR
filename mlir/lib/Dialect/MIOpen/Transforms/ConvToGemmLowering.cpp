@@ -24,6 +24,7 @@
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 
 #include "mlir/IR/Attributes.h"
@@ -177,6 +178,64 @@ void affixGridwiseGemmAttributes(Operation *convOp, Operation *gop,
   }
 }
 
+/// 0-initialize the output for a backward weight convolution which uses
+/// atomic adds.
+/// For f32 type, the output is the filter tensor.
+/// for f16 type, the output is the workspace.
+LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
+  auto loc = op.getLoc();
+  auto filterDataType =
+      op.filter().getType().cast<MemRefType>().getElementType();
+  Value output;
+  if (filterDataType == b.getF32Type()) {
+    output = op.filter();
+  } else if (filterDataType == b.getF16Type()) {
+    assert(op.workspace() && "Op has no workspace");
+    output = op.workspace();
+  } else {
+    llvm_unreachable("Incorrect memref type supplied");
+  }
+  auto outputDataType = output.getType().cast<MemRefType>().getElementType();
+  auto zeroOp = createZeroConstantOp(b, loc, outputDataType);
+  auto collapsedOutput = createCollapseShapeOp(b, loc, output);
+  ArrayRef<int64_t> collapsedOutputShape =
+      collapsedOutput.getType().cast<MemRefType>().getShape();
+  auto loop = b.create<AffineForOp>(loc, 0, collapsedOutputShape[0]);
+  b.setInsertionPointToStart(loop.getBody());
+  b.create<AffineStoreOp>(loc, zeroOp, collapsedOutput, loop.getInductionVar());
+
+  op.erase();
+  return success();
+}
+
+/// Element-wise conversion from the workspace to the output (filter tensor)
+/// for a backward weight convolution which uses atomic adds.
+LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
+  auto loc = op.getLoc();
+  assert(op.workspace() && "Op has no workspace");
+  auto filter = op.filter();
+  auto workspace = op.workspace();
+  auto filterDataType = filter.getType().cast<MemRefType>().getElementType();
+  auto collapsedFilter = createCollapseShapeOp(b, loc, filter);
+  auto collapsedWorkspace = createCollapseShapeOp(b, loc, workspace);
+  ArrayRef<int64_t> collapsedFilterShape =
+      collapsedFilter.getType().cast<MemRefType>().getShape();
+  ArrayRef<int64_t> collapsedWorkspaceShape =
+      collapsedWorkspace.getType().cast<MemRefType>().getShape();
+  assert((collapsedFilterShape[0] == collapsedWorkspaceShape[0]) &&
+         "Filter tensor and workspace size mismatch");
+  auto loop = b.create<AffineForOp>(loc, 0, collapsedWorkspaceShape[0]);
+  auto iv = loop.getInductionVar();
+  b.setInsertionPointToStart(loop.getBody());
+  auto loadedValue = b.create<AffineLoadOp>(loc, collapsedWorkspace, iv);
+  auto convertedValue =
+      createTypeConversionOp(b, loc, loadedValue, filterDataType);
+  b.create<AffineStoreOp>(loc, convertedValue, collapsedFilter, iv);
+
+  op.erase();
+  return success();
+}
+
 /// Lowerings for particular convolution algorithms (TODO, new file?)
 LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
                                       PatternRewriter &b) {
@@ -208,6 +267,25 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   if (hasWorkspace) {
     assert(op.workspace() && "Op has no workspace");
   }
+
+  // Emit utility kernels.
+  int64_t gemmId = gemmIdAttr.getInt();
+  assert((gemmId >= 0) && (gemmId < 3));
+  switch (gemmId) {
+  case 0:
+    // The 0th kernel will 0-init the output (filter tensor).
+    return zeroInit(op, b);
+  case 2:
+    // The 2nd kernel, if used, will conduct element-wise fp32->fp16 conversion
+    // from the workspace to the output (filter tensor).
+    assert(hasWorkspace);
+    return elementwiseConversion(op, b);
+  case 1:
+  default:
+    break;
+  }
+  // The 1st kernel will conduct the actual backward weight convolution using
+  // atomic adds.
 
   // Get shape of input tensor.
   auto inputType = op.input().getType().template cast<MemRefType>();

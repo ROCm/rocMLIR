@@ -247,7 +247,8 @@ func @miopen_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : memre
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0 ,0]
+    padding = [0, 0, 0 ,0],
+    gemm_id = 0
   } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }
@@ -271,7 +272,8 @@ func @miopen_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input : m
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0 ,0]
+    padding = [0, 0, 0 ,0],
+    gemm_id = 0
   } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
   return
 }
@@ -295,7 +297,8 @@ func @miopen_conv2d_bwd_weight_padALL(%filter : memref<1x20x8x3x3xf32>, %input :
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0 ,0]
+    padding = [0, 0, 0 ,0],
+    gemm_id = 0
   } : memref<1x20x8x3x3xf32>, memref<7x1x8x32x32xf32>, memref<7x1x20x30x30xf32>
   return
 }
@@ -320,7 +323,8 @@ func @miopen_conv2d_bwd_weight_padALL_f16(%filter : memref<1x20x8x3x3xf16>, %inp
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0 ,0]
+    padding = [0, 0, 0 ,0],
+    gemm_id = 0
   } : memref<1x20x8x3x3xf16>, memref<7x1x8x32x32xf16>, memref<7x1x20x30x30xf16>
   return
 }

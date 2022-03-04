@@ -266,7 +266,7 @@ LogicalResult Conv2dGenerator::hasValidChip() const {
   return success();
 }
 
-int Conv2dGenerator::getKernelCount() const {
+int Conv2dGenerator::getKernelCount(OpBuilder &builder) const {
   if (config.kernelId > 0) { // generate only 1 specified kernel
     return 1;
   }
@@ -275,10 +275,45 @@ int Conv2dGenerator::getKernelCount() const {
   case miopen::ConvOpType::BwdData:
     return getBwdDataKernelCount();
   case miopen::ConvOpType::Fwd:
-  case miopen::ConvOpType::BwdWeight:
     return 1;
+  case miopen::ConvOpType::BwdWeight:
+    return getBwdWeightKernelCount(builder);
   }
   llvm_unreachable("Invalid conv2d operation");
+}
+
+int Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder) const {
+  assert(config.operation.getValue() == miopen::ConvOpType::BwdWeight);
+
+  if (config.xdlops) {
+    mlir::Type dataType = getDataType(builder);
+    if (!needExtraPad(builder)) {
+      if (dataType == builder.getF32Type()) {
+        // For the following case, use 2 kernels:
+        // - backward weight
+        // - XDLOPS
+        // - fp32
+        // - No need extra pad along Gemm M/N/K
+        // The first kernel will 0-initialize the output (filter tensor).
+        // The second kernel will conduct the actual backward weight
+        // convolution, using atomic add instructions.
+        return 2;
+      } else if (dataType == builder.getF16Type()) {
+        // For the following case, use 3 kernels:
+        // - backward weight
+        // - XDLOPS
+        // - fp16
+        // - No need extra pad along Gemm M/N/K
+        // The first kernel will 0-initialize the workspace.
+        // The second kernel will conduct the actual backward weight
+        // convolution, using atomic add instructions. The third kernel will do
+        // elementwise conversion from fp32 in the workspace to fp16 in the
+        // actual output (filter tensor).
+        return 3;
+      }
+    }
+  }
+  return 1;
 }
 
 int Conv2dGenerator::getBwdDataKernelCount() const {
@@ -320,6 +355,45 @@ Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
   return dataType;
 }
 
+bool Conv2dGenerator::needExtraPad(OpBuilder &builder) const {
+  mlir::Type dataType = getDataType(builder);
+  miopen::ConvOpType dir = config.operation.getValue();
+
+  // Logic to check if we need to pad along GemmM/N/K dimension for backward
+  // weight convolution.
+  auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
+  auto filDim = canonicalizeDims(config.filterDimension, config.filterLayout);
+  auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
+
+  int64_t gemmMSize, gemmNSize, gemmKSize;
+  gemmMSize = filDim["k"];
+  gemmKSize = outDim["n"] * outDim["h"] * outDim["w"];
+  gemmNSize = filDim["c"] * filDim["y"] * filDim["x"];
+
+  // isOriginalKernelSupport is not used.
+  // gemmM/N/KExtra is not used.
+  // populateParamsXDL is not used either.
+  // Only needExtraPad is used.
+  bool isOriginalKernelSupport = true;
+  bool needExtraPad = false;
+  int64_t gemmMExtra, gemmNExtra, gemmKExtra;
+
+  if (!config.xdlops) {
+    PopulateParams populateParams;
+    std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
+             gemmKExtra) =
+        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, dir,
+                                   dataType, populateParams);
+  } else {
+    PopulateParamsXDL populateParamsXDL;
+    std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
+             gemmKExtra) =
+        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, dir,
+                                   dataType, populateParamsXDL);
+  }
+  return needExtraPad;
+}
+
 bool Conv2dGenerator::hasWorkspace(OpBuilder &builder) const {
   // Decide if a workspace is needed.
   // Preconditions:
@@ -334,35 +408,8 @@ bool Conv2dGenerator::hasWorkspace(OpBuilder &builder) const {
     miopen::ConvOpType dir = config.operation.getValue();
     if ((dir == miopen::ConvOpType::BwdWeight) && config.xdlops &&
         (dataType == builder.getF16Type())) {
-
-      // Logic to check if we need to pad along GemmM/N/K dimension for backward
-      // weight convolution.
-      auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
-      auto filDim =
-          canonicalizeDims(config.filterDimension, config.filterLayout);
-      auto outDim =
-          canonicalizeDims(config.outputDimension, config.outputLayout);
-
-      int64_t gemmMSize, gemmNSize, gemmKSize;
-      gemmMSize = filDim["k"];
-      gemmKSize = outDim["n"] * outDim["h"] * outDim["w"];
-      gemmNSize = filDim["c"] * filDim["y"] * filDim["x"];
-
-      // isOriginalKernelSupport is not used.
-      // gemmM/N/KExtra is not used.
-      // populateParamsXDL is not used either.
-      // Only needExtraPad is used.
-      bool isOriginalKernelSupport = true;
-      bool needExtraPad = false;
-      int64_t gemmMExtra, gemmNExtra, gemmKExtra;
-      PopulateParamsXDL populateParamsXDL;
-      std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
-               gemmKExtra) =
-          calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, dir,
-                                     dataType, populateParamsXDL);
-
       // In case we need extra padding, do not use workspace.
-      result = (needExtraPad == false);
+      result = (needExtraPad(builder) == false);
     }
   }
   return result;
