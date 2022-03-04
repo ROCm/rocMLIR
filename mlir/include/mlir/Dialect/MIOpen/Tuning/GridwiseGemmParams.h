@@ -369,7 +369,7 @@ protected:
     unsigned dataWidth = dataType.getIntOrFloatBitWidth();
     // 128 is the upper limit we support in vectorized load/store, which could
     // be 4 fp32, 8 fp16, or 16 int8
-    const auto highestPotentialVectorizationLen = 128;
+    const size_t highestPotentialVectorizationLen = 128;
     vectorizationSize = highestPotentialVectorizationLen / dataWidth;
 
     // FIXME: set vectorizationSize be 1 for backward data and backward
