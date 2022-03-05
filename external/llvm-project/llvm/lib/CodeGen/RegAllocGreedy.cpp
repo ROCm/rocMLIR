@@ -312,9 +312,7 @@ void RAGreedy::enqueue(PQueue &CurQueue, const LiveInterval *LI) {
       (Size / SlotIndex::InstrDist) > (2 * RCI.getNumAllocatableRegs(&RC));
 
     if (Stage == RS_Assign && !ForceGlobal && !LI->empty() &&
-        (LIS->intervalIsInOneMBB(*LI) ||
-         // HACK: Let AGPR always be allocated in linear instruction order.
-         StringRef("AReg_1024") == TRI->getRegClassName(&RC))) {
+        (LIS->intervalIsInOneMBB(*LI))) {
       // Allocate original local ranges in linear instruction order. Since they
       // are singly defined, this produces optimal coloring in the absence of
       // global interference and other constraints.
