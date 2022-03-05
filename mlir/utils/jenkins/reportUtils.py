@@ -41,7 +41,7 @@ def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedupCols: list):
         {'selector': 'tbody tr:nth-child(odd)', 'props': [('background-color', '#e0e0e0')]},
         {'selector': 'tbody tr:nth-child(even)', 'props': [('background-color', '#eeeeee')]},
         {'selector': 'table', 'props': [('background-color', '#dddddd'), ('border-collapse', 'collapse')]},
-        {'selector': 'th, td', 'props': [('padding', '0.5em'), ('text-align', 'center')]}])
+        {'selector': 'th, td', 'props': [('padding', '0.5em'), ('text-align', 'center'), ('max-width', '150px')]}])
     styler.set_precision(ROUND_DIGITS)
     styler.set_na_rep("FAILED")
     for col in speedupCols:

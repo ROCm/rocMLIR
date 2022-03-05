@@ -273,7 +273,7 @@ pipeline {
                                 sh 'sed -i "/ROCmSoftwarePlatform\\/llvm-project-mlir/d" ./requirements.txt'
                                 cmake arguments: "-P install_deps.cmake --minimum --prefix ${WORKSPACE}/MIOpenDeps",\
                                     installation: "InSearchPath"
-                                buildMIOpen('''-DMIOPEN_USE_MLIR=On
+                                buildMIOpen('''-DMIOPEN_USE_MLIR=ON
                                         -DMIOPEN_BACKEND=HIP
                                         -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpenDeps"
                                         -DMIOPEN_USER_DB_PATH=${WORKSPACE}/MIOpen/build/MIOpenUserDB
@@ -349,68 +349,7 @@ pipeline {
                         }
                     }
                 }
-                stage("Build for Performance Test") {
-                    when {
-                        beforeAgent true;
-                        allOf{
-                            equals expected: true, actual: params.perfTest;
-                            equals expected: true, actual: params.nightly;
-                    } }
-                    agent {
-                        docker {
-                            image dockerImage()
-                            args dockerArgs()
-                            label "${params.canXdlops ? 'gfx908' : 'rocm' }"
-                            alwaysPull true
-                        }
-                    }
-                    environment {
-                        PATH="/opt/rocm/llvm/bin:$PATH"
-                        HOME="${WORKSPACE}"
-                    }
-                    stages {
-                        stage("Environment") {
-                            steps {
-                                showEnv()
-                            }
-                        }
-                        stage("Build MIOpen with HIP") {
-                           steps {
-                               dir('MIOpen') {
-                                   getAndBuildMIOpen("--prefix ${WORKSPACE}/MIOpen/MIOpenDeps",
-                                                     '''-DMIOPEN_BACKEND=HIP -DMIOPEN_USE_MLIR=Off
-                                   -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
-                                   -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/MIOpen/build/MIOpenInstallDir
-                                   ''')
-                                   sh 'cd build; make -j $(nproc)'
-                                   sh 'cd build; make install'
-                               }
-                               stash name:"MIOpen-kernels",\
-                                   includes: "MIOpen/build/**"
-                           }
-                        }
-                        stage("Build MLIR") {
-                            steps {
-                                buildProject('miopen-gen mlir-miopen-driver mlir-rocm-runner ci-performance-scripts', '')
-                            }
-                        }
-                        stage("Test MLIR vs MIOpen") {
-                            steps {
-                                dir('build') {
-                                    sh 'date --utc +%Y-%m-%d > perf-run-date'
-                                    // Run MLIR perf benchmarks
-                                    sh 'python3 ./bin/MIOpenDriver.py'
-                                }
-                                stash name:"Perf-report", includes:"build/mlir_vs_miopen_perf.csv"
-                            }
-                        }
-                    }
-                    post {
-                        always {
-                            cleanWs()
-                        }
-                    }
-                }
+
             }
         }
         stage("MIOpen Resnet50 Config Test") {
@@ -510,6 +449,11 @@ pipeline {
                 HOME="${WORKSPACE}"
             }
             stages {
+                stage("Environment") {
+                    steps {
+                        showEnv()
+                    }
+                }
                 stage("Copy MIOpen with MLIR kernels") {
                     steps {
                         sh 'rm -rf MIOpen'
@@ -534,6 +478,34 @@ pipeline {
                         }
                     }
                 }
+                stage("Build MIOpen with HIP") {
+                    steps {
+                        sh 'rm -rf MIOpen'
+                        dir('MIOpen') {
+                            getAndBuildMIOpen("--prefix ${WORKSPACE}/MIOpen/MIOpenDeps",
+                                '''-DMIOPEN_BACKEND=HIP -DMIOPEN_USE_MLIR=OFF
+                                   -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
+                                   -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/MIOpen/build/MIOpenInstallDir
+                                   ''')
+                            sh 'cd build; make -j $(nproc)'
+                            sh 'cd build; make install'
+                        }
+                    }
+                }
+                stage("Build MLIR") {
+                    steps {
+                        buildProject('miopen-gen mlir-miopen-driver mlir-rocm-runner ci-performance-scripts', '')
+                    }
+                }
+                stage("Test MLIR vs MIOpen") {
+                    steps {
+                        dir('build') {
+                            sh 'date --utc +%Y-%m-%d > perf-run-date'
+                            // Run MLIR perf benchmarks
+                            sh 'python3 ./bin/MIOpenDriver.py'
+                        }
+                    }
+                }
                 stage("Copy earlier performance results") {
                     steps {
                         copyArtifacts filter: 'build/*.csv,build/perf-run-date',\
@@ -544,10 +516,8 @@ pipeline {
                                                target: 'build/oldData'
                     }
                 }
-
                 stage("Create performance reports") {
                     steps {
-                        unstash name: "Perf-report"
                         dir('build') {
                             sh 'ls -l'
                             sh 'python3 ./bin/createPerformanceReports.py'

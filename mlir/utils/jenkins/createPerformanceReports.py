@@ -14,7 +14,7 @@ def printAllPerformance():
     try:
         df = pd.read_csv(reportUtils.PERF_REPORT_FILE)
         perfReportFound = True
-        COLUMNS_TO_AVERAGE = ['MLIR TFlops', 'MIOpen TFlops', 'MLIR/MIOpen']
+        COLUMNS_TO_AVERAGE = ['MLIR TFlops', 'MIOpen TFlops (no MLIR Kernels)', 'MLIR/MIOpen']
     except FileNotFoundError:
         print('Perf report not found.')
         return
@@ -36,15 +36,16 @@ def printAllPerformance():
         df['MIOpen TFlops (Tuned MLIR Kernels)'] = tuned_df['TFlops']
         df['MIOpen TFlops (Untuned MLIR Kernels)'] = untuned_df['TFlops']
         df['Tuned/Untuned'] = df['MIOpen TFlops (Tuned MLIR Kernels)']/df['MIOpen TFlops (Untuned MLIR Kernels)']
+        df['Tuned/MIOpen'] = df['MIOpen TFlops (Tuned MLIR Kernels)']/df['MIOpen TFlops (no MLIR Kernels)'] 
         df.to_csv(reportUtils.PERF_REPORT_FILE, index=False)
-        COLUMNS_TO_AVERAGE = ['MLIR TFlops', 'MIOpen TFlops', 'MLIR/MIOpen',
-                              'MIOpen TFlops (Tuned MLIR Kernels)', 'MIOpen TFlops (Untuned MLIR Kernels)', 'Tuned/Untuned']
+        COLUMNS_TO_AVERAGE = ['MLIR TFlops', 'MIOpen TFlops (no MLIR Kernels)', 'MLIR/MIOpen',
+                              'MIOpen TFlops (Tuned MLIR Kernels)', 'MIOpen TFlops (Untuned MLIR Kernels)', 'Tuned/Untuned', 'Tuned/MIOpen']
 
     plotMean = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
     plotMean.name = "Geo. mean"
     plotMean = pd.DataFrame(plotMean).T
 
-    plotMean[['MLIR TFlops', 'MIOpen TFlops']]\
+    plotMean[['MLIR TFlops', 'MIOpen TFlops (no MLIR Kernels)']]\
         .to_csv(reportUtils.PERF_PLOT_REPORT_FILE, index=False)
 
     means = df.groupby(["Direction", "DataType"])[COLUMNS_TO_AVERAGE]\
@@ -53,7 +54,7 @@ def printAllPerformance():
     means.to_csv(reportUtils.PERF_STATS_REPORT_FILE)
 
     with open("MLIR_vs_MIOpen.html", 'w') as htmlOutput:
-        reportUtils.htmlReport(df, means, "MLIR vs. MIOpen performance", ["MLIR/MIOpen", "Tuned/Untuned"], htmlOutput)
+        reportUtils.htmlReport(df, means, "MLIR vs. MIOpen performance", ["MLIR/MIOpen", "Tuned/Untuned", "Tuned/MIOpen"], htmlOutput)
 
 # Main function.
 if __name__ == '__main__':
