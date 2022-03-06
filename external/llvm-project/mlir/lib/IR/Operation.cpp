@@ -1031,6 +1031,9 @@ LogicalResult OpTrait::impl::verifyNoRegionArguments(Operation *op) {
 }
 
 LogicalResult OpTrait::impl::verifyElementwise(Operation *op) {
+  if (op->getDialect()->getNamespace() == "tosa")
+    return success();
+
   auto isMappableType = [](Type type) {
     return type.isa<VectorType, TensorType>();
   };
