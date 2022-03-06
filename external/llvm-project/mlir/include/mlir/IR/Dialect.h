@@ -70,6 +70,8 @@ public:
   /// These are represented with OpaqueType.
   bool allowsUnknownTypes() const { return unknownTypesAllowed; }
 
+  virtual bool allowsBroadcasts () const { return false; }
+
   /// Register dialect-wide canonicalization patterns. This method should only
   /// be used to register canonicalization patterns that do not conceptually
   /// belong to any single operation in the dialect. (In that case, use the op's

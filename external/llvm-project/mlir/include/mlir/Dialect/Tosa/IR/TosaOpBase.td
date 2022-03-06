@@ -41,6 +41,11 @@ def Tosa_Dialect : Dialect {
 
   let cppNamespace = "mlir::tosa";
   let hasConstantMaterializer = 1;
+
+  let extraClassDeclaration = [{
+    virtual bool allowsBroadcasts () const override { return true; }
+  }];
+
 }
 
 //===----------------------------------------------------------------------===//

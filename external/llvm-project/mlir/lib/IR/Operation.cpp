@@ -1031,7 +1031,7 @@ LogicalResult OpTrait::impl::verifyNoRegionArguments(Operation *op) {
 }
 
 LogicalResult OpTrait::impl::verifyElementwise(Operation *op) {
-  if (op->getDialect()->getNamespace() == "tosa")
+  if (op->getDialect()->allowsBroadcasts())
     return success();
 
   auto isMappableType = [](Type type) {
