@@ -315,7 +315,7 @@ pipeline {
                 axes {
                     axis {
                         name 'ARCH'
-                        values 'gfx908', 'gfx90a'
+                        values 'gfx906', 'gfx908', 'gfx90a'
                     }
                 }
                 agent {
@@ -324,6 +324,22 @@ pipeline {
                         args dockerArgs()
                         label "${ARCH}"
                         alwaysPull true
+                    }
+                }
+                when {
+                    beforeAgent true
+                    anyOf {
+                        allOf {
+                            equals expected: "gfx906", actual: "${ARCH}";
+                            equals expected: false, actual: params.canXdlops;
+                        }
+                        allOf {
+                            anyOf {
+                                equals expected: "gfx908", actual: "${ARCH}";
+                                equals expected: "gfx90a", actual: "${ARCH}";
+                            }
+                            equals expected: true, actual: params.canXdlops;
+                        }
                     }
                 }
                 environment {
@@ -368,7 +384,7 @@ pipeline {
                 }
             }
         }
-        stage("Archive weekly tuning perfDB") {
+        stage("Archive weekly xdlops tuning perfDB") {
             when {
                 beforeAgent true;
                 equals expected: true, actual: params.weekly;
@@ -381,8 +397,9 @@ pipeline {
             steps {
                 // Note: add additional architectures here
                 dir ('MIOpen/build/MIOpenUserDB') {
-                    unstash name: "MLIR-PerfDB-gfx908"
-                    unstash name: "MLIR-PerfDB-gfx90a"
+                    unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx908' : 'gfx906'}"
+                    // This'll stop being a duplicate once Navi CI starts
+                    unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx90a' : 'gfx906'}"
                     sh 'date --utc +%Y-%m-%d >tuning-date'
                 }
                 archiveArtifacts artifacts: 'MIOpen/build/MIOpenUserDB/**',\
