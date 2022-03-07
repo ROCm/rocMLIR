@@ -277,10 +277,6 @@ pipeline {
                             }
                         }
                         stage("Test selected MIOpen configs") {
-                            when {
-                                    equals expected: false, actual: params.nightly;
-                                    equals expected: false, actual: params.weekly;
-                            }
                             environment {
                                 // Make libMIOpen.so accessible to the test driver
                                 LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
