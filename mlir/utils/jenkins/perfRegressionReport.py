@@ -10,8 +10,8 @@ import pandas as pd
 
 def loadMlirData(filename: str):
     df = pd.read_csv(filename, sep=',', header=0, index_col=False)
-    COLUMNS_DROPPED = ['MIOpen TFlops', 'MLIR/MIOpen', 'MIOpen TFlops (Tuned MLIR Kernels)', 
-                       'MIOpen TFlops (Untuned MLIR Kernels)', 'Tuned/Untuned']
+    COLUMNS_DROPPED = ['MIOpen TFlops (no MLIR Kernels)', 'MLIR/MIOpen', 'MIOpen TFlops (Tuned MLIR Kernels)',
+                       'MIOpen TFlops (Untuned MLIR Kernels)', 'Tuned/Untuned', 'Tuned/MIOpen']
     df.drop(columns=COLUMNS_DROPPED, inplace=True, errors='ignore')
     return df
 
@@ -31,6 +31,9 @@ def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, ne
             file=sys.stderr)
         return computePerfStats(newDf.copy(), newDf, "forced copy", newLabel)
 
+    if (oldLabel == newLabel):
+        oldLabel += "_old"
+        newLabel += "_new"
     oldLabel = f"MLIR TFlops ({oldLabel})"
     newLabel = f"MLIR TFlops ({newLabel})"
     data.rename(columns={'MLIR TFlops_old': oldLabel,

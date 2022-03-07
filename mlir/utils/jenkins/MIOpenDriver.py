@@ -312,9 +312,9 @@ def generatePerformanceResults(configs, xdlops):
 
     df = mlir_df.merge(miopen_df, on=ConvConfiguration.TABLE_COLUMNS[:-1],
                            suffixes=('', ' (MIOpen)'))
-    df.rename(columns={'TFlops': 'MLIR TFlops', 'TFlops (MIOpen)': 'MIOpen TFlops'}, inplace=True)
+    df.rename(columns={'TFlops': 'MLIR TFlops', 'TFlops (MIOpen)': 'MIOpen TFlops (no MLIR Kernels)'}, inplace=True)
 
-    df['MLIR/MIOpen'] = df['MLIR TFlops'] / df['MIOpen TFlops']
+    df['MLIR/MIOpen'] = df['MLIR TFlops'] / df['MIOpen TFlops (no MLIR Kernels)']
     df.to_csv(reportUtils.PERF_REPORT_FILE, index=False)
 
 def getSolverName(testVector, xdlops):
