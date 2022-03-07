@@ -326,7 +326,6 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     auto operands = adaptor.getOperands();
     auto loc = top->getLoc();
-    auto context = top->getContext();
 
     SmallVector<int64_t> NCHW2NHWC{0, 2, 3, 1};
     SmallVector<int64_t> NHWC2NCHW{0, 3, 1, 2};

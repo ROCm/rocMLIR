@@ -45,7 +45,6 @@ struct MIOpenApplyImplPass
       SymbolTable symbolTable(mod);
       auto *ctx = mod.getContext();
       OpBuilder b(ctx);
-      auto loc = mod.getLoc();
 
       SmallVector<gpu::GPUModuleOp, 8> gpuMods;
       miopenMod->walk([&](gpu::GPUModuleOp gpuMod) {

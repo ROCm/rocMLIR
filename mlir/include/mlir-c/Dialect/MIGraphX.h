@@ -24,7 +24,8 @@ MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(MIGraphX, migraphx);
 
 // Returns the required buffer size if called with null buffer
 // and fill information in the passed ptr when provided.
-MLIR_CAPI_EXPORTED void mlirGetKernelInfo(MlirModule module, int *size, void *data);
+MLIR_CAPI_EXPORTED void mlirGetKernelInfo(MlirModule module, int *size,
+                                          void *data);
 
 // Returns block_size and grid_size as uint32_t[2]
 MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs);
