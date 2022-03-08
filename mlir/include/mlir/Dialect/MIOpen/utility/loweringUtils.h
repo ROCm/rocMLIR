@@ -53,7 +53,7 @@ inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo) {
 ///   %v1 = miopen.transform [#transform1] %v0
 ///   %v = miopen.transform [#transform2] %v1
 /// this method will return %v0 and an ArrayAttr equal to [#transform2,
-/// #transform1]. If `existinng` is passed in, it must be an array of
+/// #transform1]. If `existing` is passed in, it must be an array of
 /// `TransformMapAttr`s which will be prepended to the returned `ArrayAttr`.
 
 std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,

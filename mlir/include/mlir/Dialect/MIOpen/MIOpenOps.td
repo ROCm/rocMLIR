@@ -574,7 +574,7 @@ def MIOpen_BufferStoreOp :
 
     `paddingInfo` is used to apply backwards data store hacks if they're needed.
 
-    `storeOperation` controls whether the data is written to memory, overwriting
+    `storeMethod` controls whether the data is written to memory, overwriting
     existing contents, or whether it is added to the existing memory atomically.
 
     The buffer must reside in global memory.
