@@ -2645,16 +2645,12 @@ struct GridwiseGemmV2RewritePattern
 void LowerMIOpenOpsStep2Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
-  target.addIllegalOp<miopen::GridwiseGemmOp>();
-  target.addIllegalOp<miopen::GridwiseGemmV2Op>();
-
-  target.addLegalDialect<arith::ArithmeticDialect>();
-  target.addLegalDialect<miopen::MIOpenDialect>();
-  target.addLegalDialect<AffineDialect>();
+  target.addIllegalOp<miopen::GridwiseGemmOp, miopen::GridwiseGemmV2Op>();
+  target.addLegalDialect<arith::ArithmeticDialect, miopen::MIOpenDialect,
+                         AffineDialect>();
 
   RewritePatternSet patterns(ctx);
-  patterns.add<GridwiseGemmRewritePattern>(ctx);
-  patterns.add<GridwiseGemmV2RewritePattern>(ctx);
+  patterns.add<GridwiseGemmRewritePattern, GridwiseGemmV2RewritePattern>(ctx);
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {
     signalPassFailure();

@@ -1784,22 +1784,18 @@ void LowerMIOpenOpsStep1Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
 
   ConversionTarget target(*ctx);
-  target.addIllegalOp<miopen::Conv2DOp>();
-  target.addIllegalOp<miopen::Conv2DBwdDataOp>();
-  target.addIllegalOp<miopen::Conv2DBwdWeightOp>();
-
-  target.addLegalOp<miopen::TransformOp>();
-  target.addLegalOp<miopen::GridwiseGemmOp>();
-  target.addLegalOp<miopen::GridwiseGemmV2Op>();
+  target.addIllegalOp<miopen::Conv2DOp, miopen::Conv2DBwdDataOp,
+                      miopen::Conv2DBwdWeightOp>();
+  target.addLegalOp<miopen::TransformOp, miopen::GridwiseGemmOp,
+                    miopen::GridwiseGemmV2Op>();
   // Below are required legalize for the lowering of Conv2DBwdWeightOp
-  target.addLegalDialect<arith::ArithmeticDialect>();
-  target.addLegalDialect<memref::MemRefDialect>();
-  target.addLegalDialect<AffineDialect>();
+  target.addLegalDialect<arith::ArithmeticDialect, memref::MemRefDialect,
+                         AffineDialect>();
 
   RewritePatternSet patterns(ctx);
-  patterns.add<Conv2DRewritePattern<Conv2DOp>>(ctx);
-  patterns.add<Conv2DRewritePattern<Conv2DBwdDataOp>>(ctx);
-  patterns.add<Conv2DRewritePattern<Conv2DBwdWeightOp>>(ctx);
+  patterns.add<Conv2DRewritePattern<Conv2DOp>,
+               Conv2DRewritePattern<Conv2DBwdDataOp>,
+               Conv2DRewritePattern<Conv2DBwdWeightOp>>(ctx);
 
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {
