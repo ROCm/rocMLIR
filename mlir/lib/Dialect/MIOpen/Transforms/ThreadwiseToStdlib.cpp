@@ -392,8 +392,7 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
         oobDims.push_back(pair.index());
     bool toEmitOobChecks = !oobDims.empty();
 
-    InMemoryDataOperation memoryOp =
-        op.dataOperation().getValueOr(InMemoryDataOperation::Set);
+    StoreMethod memoryOp = op.storeMethod().getValueOr(StoreMethod::Set);
     auto emitStoreInstruction = [&b, op, loc, data,
                                  dest](ValueRange storeCoords, Value oob) {
       // use raw buffer store since the dest memref is on address space 0
@@ -516,7 +515,7 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
                            /*oob=*/ifWithinBoundsOp.getResults()[0]);
 
     } else {
-      if (memoryOp == InMemoryDataOperation::AtomicAdd) {
+      if (memoryOp == StoreMethod::AtomicAdd) {
         SmallVector<Value, 8> storeCoordsI32;
         for (unsigned i = 0; i < coords.size(); ++i) {
           storeCoordsI32.push_back(

@@ -165,7 +165,7 @@ func @miopen_gridwise_gemm_v2(%A : memref<?x?x?xf32>, %B : memref<?x?x?xf32>, %C
     paddingInfo =
       #miopen.padding_info<extraK = 0, extraM = 0, extraN = 0, bwdPaddingInfo = "NA">,
     transforms = [[], [], []],
-    storeOperation = 0 : i32
+    storeMethod = 0 : i32
   } : memref<?x?x?xf32>, memref<?x?x?xf32>, memref<?x?x?xf32>
   return
 }

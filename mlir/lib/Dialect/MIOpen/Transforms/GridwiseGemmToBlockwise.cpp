@@ -172,7 +172,7 @@ TransformingForOp createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
   SmallVector<Value, 5> linearInit(nUpper, zero);
 
   ArrayAttr globalTransforms;
-  global = untransform(b, global, globalTransforms);
+  std::tie(global, globalTransforms) = untransform(b, global);
 
   ArrayAttr noTransforms = b.getArrayAttr({});
   ArrayAttr resultIdxMap = makeLinearDomain(b, loc, sliceLengths);
@@ -252,7 +252,7 @@ TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
   SmallVector<Value, 5> linearInit(nUpper, zero);
 
   ArrayAttr bufferTransforms;
-  buffer = untransform(b, buffer, bufferTransforms);
+  std::tie(buffer, bufferTransforms) = untransform(b, buffer);
   ArrayAttr noTransforms = b.getArrayAttr({});
   ArrayAttr resultIdxMap = makeLinearDomain(b, loc, sliceLengths);
 
@@ -272,13 +272,11 @@ TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
   OpBuilder::InsertionGuard guard(b);
   b.setInsertionPointToStart(loop.getBody());
 
-  // We can use vector.transfer_write if the vectorized dimension of the
-  // load-store loops is the fastest-moving dimension of the store loop.
-  // Otherwise, we need to gather elements from the result vector in order to
-  // store them
-  if (fullyScalar)
+  // If the tuning parameters call for a vector write, there's an implicit
+  // gather, otherwise we can use in_bounds_store directly.
+  if (fullyScalar) {
     b.create<InBoundsStoreOp>(loc, loaded, buffer, loop.getLowerCoords(1));
-  else if (!complexVectorStore) {
+  } else if (!complexVectorStore) {
     Value toStore = b.create<ExtractSliceOp>(loc, storingType, loaded,
                                              loop.getLowerCoords(0)[0]);
     b.create<InBoundsStoreOp>(loc, toStore, buffer, loop.getLowerCoords(1));
@@ -2736,9 +2734,9 @@ struct GridwiseGemmV2RewritePattern
       // Emit threadwise_copy_v2.
       auto threadwiseCopyV2CMatrixOp = b.create<ThreadwiseCopyV2Op>(
           loc, vectors[iter], cTransformed, copyBounds,
-          threadwiseCopyV2ArgTransform, op.paddingInfo(),
-          op.storeOperationAttr(), op.cOobDims(),
-          matrixCThreadwiseCopySourceCoords, matrixCThreadwiseCopyDestCoords);
+          threadwiseCopyV2ArgTransform, op.paddingInfo(), op.storeMethodAttr(),
+          op.cOobDims(), matrixCThreadwiseCopySourceCoords,
+          matrixCThreadwiseCopyDestCoords);
       bool canOob = llvm::any_of(op.cOobDims().getAsValueRange<BoolAttr>(),
                                  [](const bool &v) -> bool { return v; });
       affixThreadwiseCopyV2Attributes(threadwiseCopyV2CMatrixOp, op, b,

@@ -79,7 +79,7 @@ func @add_scalar_in_bounds(%val: f32, %mem: memref<1x2x3x4x8xf32>) {
     %c0 = arith.constant 0 : index
     // CHECK: gpu.atomic_fadd(%[[val]], %[[mem]]
     miopen.buffer_store %val -> %mem[%c0, %c0, %c0, %c0, %c0]
-        {oobDims = [false, false, false, false, false], dataOperation = 1 : i32}
+        {oobDims = [false, false, false, false, false], storeMethod = 1 : i32}
         : f32 -> memref<1x2x3x4x8xf32>, index, index, index, index, index
     return
 }

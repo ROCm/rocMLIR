@@ -92,9 +92,10 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
     // Obtain critical matrix dimensions.
     int64_t K = blockAType.getShape()[1];
 
+    Value matrixA, matrixB;
     ArrayAttr transformsA, transformsB;
-    Value matrixA = untransform(b, op.matrixA(), transformsA);
-    Value matrixB = untransform(b, op.matrixB(), transformsB);
+    std::tie(matrixA, transformsA) = untransform(b, op.matrixA());
+    std::tie(matrixB, transformsB) = untransform(b, op.matrixB());
 
     ArrayAttr emptyArr = b.getArrayAttr({});
     // Non-xdlops path.
@@ -490,10 +491,12 @@ struct ThreadwiseCopyRewritePattern
 
     ArrayAttr srcTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
     ArrayAttr destTransformsOnOp = op.transforms()[1].cast<ArrayAttr>();
+    Value source, dest;
     ArrayAttr srcTransforms, destTransforms;
-    Value source =
-        untransform(b, op.source(), srcTransforms, srcTransformsOnOp);
-    Value dest = untransform(b, op.dest(), destTransforms, destTransformsOnOp);
+    std::tie(source, srcTransforms) =
+        untransform(b, op.source(), srcTransformsOnOp);
+    std::tie(dest, destTransforms) =
+        untransform(b, op.dest(), destTransformsOnOp);
     MemRefType sourceType = source.getType().cast<MemRefType>();
     MemRefType destType = dest.getType().cast<MemRefType>();
 
@@ -561,10 +564,12 @@ struct ThreadwiseCopyV2RewritePattern
 
     ArrayAttr srcTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
     ArrayAttr destTransformsOnOp = op.transforms()[1].cast<ArrayAttr>();
+    Value source, dest;
     ArrayAttr srcTransforms, destTransforms;
-    Value source =
-        untransform(b, op.source(), srcTransforms, srcTransformsOnOp);
-    Value dest = untransform(b, op.dest(), destTransforms, destTransformsOnOp);
+    std::tie(source, srcTransforms) =
+        untransform(b, op.source(), srcTransformsOnOp);
+    std::tie(dest, destTransforms) =
+        untransform(b, op.dest(), destTransformsOnOp);
     VectorType sourceType = source.getType().cast<VectorType>();
     MemRefType destType = dest.getType().cast<MemRefType>();
 
@@ -588,7 +593,7 @@ struct ThreadwiseCopyV2RewritePattern
     Value cast = createTypeConversionOp(b, loc, loaded, typeToStore);
     b.create<BufferStoreOp>(loc, cast, dest, op.destOobDims(),
                             loop.getLowerCoords(1), op.paddingInfo(),
-                            op.dataOperationAttr());
+                            op.storeMethodAttr());
     b.eraseOp(op);
     return success();
   }

@@ -573,7 +573,7 @@ func @miopen_threadwise_copy_v2(%source : vector<32xf32>,
       paddingInfo = #gemm_padding0,
       destOobDims = [false, false, false, false, false],
       bounds = [1 : index, 4 : index, 1 : index, 4 : index, 1 : index],
-      dataOperation = 0 : i32
+      storeMethod = 0 : i32
     } : vector<32xf32>, index, index, index, index, index
     -> memref<?x?x?x?x?xf32>, index, index, index, index, index
 

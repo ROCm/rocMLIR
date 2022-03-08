@@ -159,7 +159,7 @@ def MIOpen_GridwiseGemmV2Op :
                    BoolArrayAttr:$bOobDims,
                    BoolArrayAttr:$cOobDims,
                    MIOpen_PaddingInfoAttr:$paddingInfo,
-                   InMemoryDataOperation:$storeOperation)> {
+                   StoreMethod:$storeMethod)> {
   let summary = "Gridwise GEMM V2";
   let description = [{
     The `miopen.gridwise_gemm` op computes gridwise GEMM with XDLOPS.
@@ -171,15 +171,15 @@ def MIOpen_GridwiseGemmV2Op :
     let builders = [
   OpBuilder<(ins "Value":$a, "Value":$b, "Value":$c,
     "ArrayAttr":$aOobDims, "ArrayAttr":$bOobDims, "ArrayAttr":$cOobDims,
-    "PaddingInfoAttr":$paddingInfo, "InMemoryDataOperation":$storeOperation,
+    "PaddingInfoAttr":$paddingInfo, "StoreMethod":$storeMethod,
     "ArrayRef<NamedAttribute>":$extraAttrs), [{
       $_state.addOperands({a, b, c});
       $_state.addAttribute(aOobDimsAttrName($_state.name), aOobDims);
       $_state.addAttribute(bOobDimsAttrName($_state.name), bOobDims);
       $_state.addAttribute(cOobDimsAttrName($_state.name), cOobDims);
       $_state.addAttribute(paddingInfoAttrName($_state.name), paddingInfo);
-      $_state.addAttribute(storeOperationAttrName($_state.name),
-        $_builder.getI32IntegerAttr(static_cast<uint32_t>(storeOperation)));
+      $_state.addAttribute(storeMethodAttrName($_state.name),
+        $_builder.getI32IntegerAttr(static_cast<uint32_t>(storeMethod)));
       $_state.addAttributes(extraAttrs);
       $_state.addTypes({});
     }]>
@@ -339,18 +339,38 @@ def MIOpen_TransformingForOp :
       ArgTransformsAttr:$transforms,
       Variadic<AnyType>:$iterInits,
       IndexArrayAttr:$bounds,
+      // This is a derived attribute that holds where in the block arguments
+      // the coordinates for each lower domain are stored. It contains
+      // one value for each iteration domain, and a final value for
+      // the start of the iteration arguments. That is, lowerStarts = [0, 2]
+      // means there is one iteration domain with two lower coordinates,
+      // while with lowerStarts = [0, 3, 4], there are two iteration domains -
+      // the first with three lower coordinates and the second with one
       I32ElementsAttr:$lowerStarts,
       OptionalAttr<UnitAttr>:$useIndexDiffs,
       OptionalAttr<UnitAttr>:$forceUnroll)>,
     Results<(outs Variadic<AnyType>:$results)> {
   let summary = "for loop with coordinate transforms";
   let description = [{
-    Loops over a rectangular region, using each point as the offset in upper coordinate space(s)
-    before applying coordinate transforms.
+    Loops over several a rectangular regeon of dimensions `bounds` in several
+    iteration domains, which are coordinate spaces that are the upper coordinates
+    for a sequence of coordinate transformations.
 
-    The loop
+    For each domain, when we have
+    `(%l0, %l1, ... %lL) = [#transform_map1](%u0, %u1, ... %uU)`
+    with bounds `[b0, b1, ... bU]`
+    the loop arguments %l0, ... %lL will take on the values
+    - (%l0, ... %lL) = #transform_map1(%u0, %u1, ... %uU)
+    - (%l0, ... %lL) = #transform_map1(%u0, %u1, ... %uU + 1)
+    - ...
+    - (%l0, ... %lL) = #transform_map1(%u0, %u1, ... %uU + bU - 1)
+    - (%l0, ... %lL) = #transform_map1(%u0, %u1, ... %u(U-1) + 1, %uU)
+    - ...
+    - (%l0, ... %lL) = #transform_map1(%u0 + b0 - 1, ... %uU + bU - 1)
+
+    That is, the loop
     ```mlir
-    %res = miopen.transforming_for {forceUnroll, useIndexDiffs} (%a1, %a2, %a3) = [#transform_map1](%i0, %j0), (%i, %j) = [](%cst0, %cst0)
+    %res = miopen.transforming_for (%a1, %a2, %a3) = [#transform_map1](%i0, %j0), (%i, %j) = [](%cst0, %cst0)
       iter_args(%arg0 = %c0 : index) bounds [4, 8] {
       %v = miopen.buffer_load {...} %place[%a1, %a2, %a3]
       miopen.buffer_store {...} %v -> %buffer[%i, %j]
@@ -360,38 +380,34 @@ def MIOpen_TransformingForOp :
     ```
     will lower to
     ```mlir
-    %a0, %a1, %a2 = miopen.compute_transforms [#transform_map1](%x, %y)
-    %i, %j = miopen.compute_transforms [](%c0, %c0)
-    %a0_0_0, %a1_0_0 = miopen.index_diff #transform_map1[0, 0] (%x, %y) -> (%a0, %a1, %a2)
-    %i_0_0 = addi %i, %cst0
-    %j_0_0 = addi %j, %cst0
-    %v_0_0 miopen.buffer_load {...} %place[%a0_0_0, %a1_0_0, %a2_0_0]
-    miopen.buffer_store {...} %v -> %buffer[%i_0_0, %j_0_0]
-    %res_0_0 = addi %c0, %c1 : inedx
-    %a0_0_1, %a1_0_1, %a2_0_1 = miopen.index_diff #transform_map1[0, 1] (%x, %y) -> (%a0, %a1, %a2)
-    ...
-    %res_3_7 = addi %res_3_6, %c1 : index
-  ```
-  Or, if no unrolling or index diffs are called for
-  ```mlir
-  %res = affine for %d0 = 0 to 4 iter_args(%arg0 = %c0) {
-    %res0 = affine.for %d1 = 0 to 8 iter_args(%arg1 = %arg0) {
-      %upper_0_0 = addi %x, %d0
-      %upper_0_1 = addi %y, %d1
-      %i = addi %c0, %d0
-      %j = addi %c0, %d1
-      %a0, %a1, %a2 = affine.apply (#transform_map1.map) (%upper_0_0, %upper_0_1)
-      %v = miopen.buffer_load {...} %place[%a0, %a1, %a2]
-      miopen.buffer_store {...} %buffer[%i, %j]
-      %cont = addi %arg1, %c1 : index
-      affine.yield %cont : index
+    %res = affine.for %d0 = 0 to 4 (%arg0 = %cst0 : index) {
+      %res1 = affine.for %d1 = 0 to 8 (%arg1 = %arg0 : index) {
+        %i0_shifted = arith.addi %i0, %d0
+        %j0_shifted = arith.addi %j0, %d1
+        %a1, %a2, %a3 = [expand affine map in #transform_map1 at %i0_shifted, %j0_shifted]
+        %v = miopen.buffer_load {...} %place[%a1, %a2, %a3]
+        miopen.buffer_store {...} %v -> %buffer[%d0, %d1]
+        %cont = arith.addi %arg1, %c1 : index
+        affine.yield %cont : index
+      }
+      affine.yield %res1
     }
-    affine.yield %res0 : index
-  }
-  ```
+    ```
 
-  The purpose of this looping construct is to remove redundancy and make the
-  application of coordinate transformations more explicit in the IR.
+    When multiple transform_maps are specified for an interatino domain,
+    they are composed, with the left one applying first (to the upper coordinates),
+    and a lack of transform_maps simply passes the upper cooridate values through.
+
+    If the `forceUnroll` attribute is specified, the loops above are unrolled
+    after being generated.
+
+    If `useIndexDiffs` is set, instead of computing the affine map within each
+    loop, the index diff mechanism is used to determine the change in the lower
+    coordinates based on the induction variables of the affine loops and
+    the values of the lower coordinates at the initial start values.
+
+    The purpose of this looping construct is to remove redundancy and make the
+    application of coordinate transformations more explicit in the IR.
   }];
 
   let regions = (region SizedRegion<1>:$region);
@@ -427,6 +443,8 @@ def MIOpen_TransformingForOp :
       return *(lowerStarts().getValues<uint32_t>().begin() + n);
     }
 
+    // Retreive the block arguments corresponding to the lower coordinates
+    // for a given iteration domain.
     Block::BlockArgListType getLowerCoords(uint32_t domain) {
       uint32_t start = lowerStart(domain);
       uint32_t end = lowerStart(domain + 1);
@@ -541,7 +559,7 @@ def MIOpen_BufferStoreOp :
       BoolArrayAttr:$oobDims,
       Variadic<Index>:$coords,
       OptionalAttr<MIOpen_PaddingInfoAttr>:$paddingInfo,
-      OptionalAttr<InMemoryDataOperation>:$dataOperation)> {
+      OptionalAttr<StoreMethod>:$storeMethod)> {
   let summary = "Store data to a global buffer";
 
   let description = [{
@@ -555,6 +573,9 @@ def MIOpen_BufferStoreOp :
     This op supports vector writes and uses buffer store intrinsics if needed.
 
     `paddingInfo` is used to apply backwards data store hacks if they're needed.
+
+    `storeOperation` controls whether the data is written to memory, overwriting
+    existing contents, or whether it is added to the existing memory atomically.
 
     The buffer must reside in global memory.
   }];
@@ -648,7 +669,7 @@ def MIOpen_ThreadwiseCopyV2Op:
                    IndexArrayAttr:$bounds,
                    ArgTransforms<2>:$transforms,
                    MIOpen_PaddingInfoAttr:$paddingInfo,
-                   InMemoryDataOperation:$dataOperation,
+                   StoreMethod:$storeMethod,
                    BoolArrayAttr:$destOobDims,
                    Variadic<Index>:$sourceCoord,
                    Variadic<Index>:$destCoord)> {

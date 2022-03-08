@@ -478,6 +478,7 @@ void TransformingForOp::build(OpBuilder &b, OperationState &state,
   state.addOperands(iterArgs);
   state.addTypes(iterArgs.getTypes());
 
+  // Track sizes of variadic arguments to enable them to be looped up
   state.addAttribute(
       TransformingForOp::getOperandSegmentSizeAttr(),
       b.getI32VectorAttr({upperLen * static_cast<int32_t>(inits.size()),
@@ -487,6 +488,9 @@ void TransformingForOp::build(OpBuilder &b, OperationState &state,
   Region *bodyRegion = state.addRegion();
   Block &bodyBlock = bodyRegion->emplaceBlock();
 
+  // Track starting position of each domain's lower coordinates in the block
+  // argument list so that we can give out references to appropriate slices
+  // of that list
   SmallVector<int32_t> lowerStarts;
   int32_t nLower = 0;
   Type indexType = b.getIndexType();
@@ -914,7 +918,7 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
     return op.emitError(
         "Number of coordinates supplied doesn't match the rank, or affine maps "
         "of source memref");
-  if (destCoord.size() != expectedSourceCoords)
+  if (destCoord.size() != expectedDestCoords)
     return op.emitError(
         "Number of coordinates supplied doesn't match the rank, or affine maps "
         "of destination memref");

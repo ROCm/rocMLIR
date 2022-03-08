@@ -10,8 +10,8 @@
 
 namespace mlir {
 namespace miopen {
-Value untransform(OpBuilder &b, Value transformed, ArrayAttr &transforms,
-                  ArrayAttr existing) {
+std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
+                                         ArrayAttr existing) {
   SmallVector<Attribute> transformList;
   if (existing)
     transformList.append(existing.begin(), existing.end());
@@ -20,8 +20,7 @@ Value untransform(OpBuilder &b, Value transformed, ArrayAttr &transforms,
     llvm::copy(transform.transforms(), std::back_inserter(transformList));
     ret = transform.input();
   }
-  transforms = b.getArrayAttr(transformList);
-  return ret;
+  return {ret, b.getArrayAttr(transformList)};
 }
 } // namespace miopen
 } // namespace mlir
