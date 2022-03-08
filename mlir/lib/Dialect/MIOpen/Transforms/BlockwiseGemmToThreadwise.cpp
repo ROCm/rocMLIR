@@ -231,10 +231,10 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
     OpBuilder copyABuilder =
         OpBuilder::atBlockTerminator(copyALoop.getBody(), lab.getListener());
     Value aCopy = copyABuilder.create<memref::LoadOp>(
-        loc, matrixA, copyALoop.getLowerCoords(0));
+        loc, matrixA, copyALoop.getLowerCoords(/*domain=*/0));
     Value aCast = createTypeConversionOp(copyABuilder, loc, aCopy, elementType);
-    copyABuilder.create<memref::StoreOp>(loc, aCast, threadAAllocOp,
-                                         copyALoop.getLowerCoords(1));
+    copyABuilder.create<memref::StoreOp>(
+        loc, aCast, threadAAllocOp, copyALoop.getLowerCoords(/*domain=*/1));
 
     // read matrix B loop.
     auto loopReadMatrixBIteration = NRepeat;
@@ -286,10 +286,10 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
     OpBuilder copyBBuilder =
         OpBuilder::atBlockTerminator(copyBLoop.getBody(), lbb.getListener());
     Value bCopy = copyBBuilder.create<memref::LoadOp>(
-        loc, matrixB, copyBLoop.getLowerCoords(0));
+        loc, matrixB, copyBLoop.getLowerCoords(/*domain=*/0));
     Value bCast = createTypeConversionOp(copyBBuilder, loc, bCopy, elementType);
-    copyBBuilder.create<memref::StoreOp>(loc, bCast, threadBAllocOp,
-                                         copyBLoop.getLowerCoords(1));
+    copyBBuilder.create<memref::StoreOp>(
+        loc, bCast, threadBAllocOp, copyBLoop.getLowerCoords(/*domain=*/1));
 
     // Actually do the gemm
     lb.create<ThreadwiseGemmOp>(loc, threadAAllocOp, threadBAllocOp,
@@ -518,17 +518,21 @@ struct ThreadwiseCopyRewritePattern
 
     Value loaded;
     if (loadGlobal)
-      loaded = b.create<BufferLoadOp>(loc, sourceType.getElementType(), source,
-                                      oobDims, loop.getLowerCoords(0));
+      loaded =
+          b.create<BufferLoadOp>(loc, sourceType.getElementType(), source,
+                                 oobDims, loop.getLowerCoords(/*domain=*/0));
     else
-      loaded = b.create<memref::LoadOp>(loc, source, loop.getLowerCoords(0));
+      loaded = b.create<memref::LoadOp>(loc, source,
+                                        loop.getLowerCoords(/*domain=*/0));
     Value cast =
         createTypeConversionOp(b, loc, loaded, destType.getElementType());
     if (storeGlobal)
-      b.create<BufferStoreOp>(loc, cast, dest, oobDims, loop.getLowerCoords(1),
-                              paddingInfo, /*dataOperation=*/nullptr);
+      b.create<BufferStoreOp>(loc, cast, dest, oobDims,
+                              loop.getLowerCoords(/*domain=*/1), paddingInfo,
+                              /*dataOperation=*/nullptr);
     else
-      b.create<memref::StoreOp>(loc, cast, dest, loop.getLowerCoords(1));
+      b.create<memref::StoreOp>(loc, cast, dest,
+                                loop.getLowerCoords(/*domain=*/1));
 
     b.eraseOp(op);
     return success();
@@ -588,11 +592,11 @@ struct ThreadwiseCopyV2RewritePattern
         /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     PatternRewriter::InsertionGuard guard(b);
     b.setInsertionPointToStart(loop.getBody());
-    Value loaded = b.create<ExtractSliceOp>(loc, typeToLoad, source,
-                                            loop.getLowerCoords(0)[0]);
+    Value loaded = b.create<ExtractSliceOp>(
+        loc, typeToLoad, source, loop.getLowerCoords(/*domain=*/0)[0]);
     Value cast = createTypeConversionOp(b, loc, loaded, typeToStore);
     b.create<BufferStoreOp>(loc, cast, dest, op.destOobDims(),
-                            loop.getLowerCoords(1), op.paddingInfo(),
+                            loop.getLowerCoords(/*domain=*/1), op.paddingInfo(),
                             op.storeMethodAttr());
     b.eraseOp(op);
     return success();

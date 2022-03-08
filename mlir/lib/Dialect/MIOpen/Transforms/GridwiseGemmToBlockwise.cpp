@@ -194,7 +194,7 @@ TransformingForOp createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
   OpBuilder::InsertionGuard guard(b);
   b.setInsertionPointToStart(loop.getBody());
   Value loaded = b.create<BufferLoadOp>(loc, loadType, global, oobDims,
-                                        loop.getLowerCoords(0));
+                                        loop.getLowerCoords(/*domain=*/0));
   Value toYield = loaded;
   if (!fullyScalar) {
     Value loopArg = loop.getIterArgs()[0];
@@ -209,7 +209,7 @@ TransformingForOp createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
       ArrayAttr loadedValIdxMap = makeLinearDomain(b, loc, vectorIdxBounds);
 
       TransformingForOp scatterLoop = b.create<TransformingForOp>(
-          loc, ArrayRef<ValueRange>{linearInit, loop.getLowerCoords(1)},
+          loc, ArrayRef<ValueRange>{linearInit, loop.getLowerCoords(/*domain=*/1)},
           ArrayRef<Attribute>{loadedValIdxMap, resultIdxMap}, vectorIdxBounds,
           /*forceUnroll=*/true, /*useIndexDiffs=*/true, loopArg);
 
@@ -217,16 +217,16 @@ TransformingForOp createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
         OpBuilder::InsertionGuard innerGuard(b);
         b.setInsertionPointToStart(scatterLoop.getBody());
         Value toScatter = b.create<vector::ExtractElementOp>(
-            loc, loaded, scatterLoop.getLowerCoords(0)[0]);
+            loc, loaded, scatterLoop.getLowerCoords(/*domain=*/0)[0]);
         Value toYieldInner = b.create<vector::InsertElementOp>(
             loc, toScatter, scatterLoop.getIterArgs()[0],
-            scatterLoop.getLowerCoords(1)[0]);
+            scatterLoop.getLowerCoords(/*domain=*/1)[0]);
         b.create<miopen::YieldOp>(loc, toYieldInner);
       }
       toYield = scatterLoop.getResults()[0];
     } else {
       toYield = b.create<InsertSliceOp>(loc, resultType, loaded, loopArg,
-                                        loop.getLowerCoords(1)[0]);
+                                        loop.getLowerCoords(/*domain=*/1)[0]);
     }
   }
   b.create<miopen::YieldOp>(loc, toYield);
@@ -275,11 +275,11 @@ TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
   // If the tuning parameters call for a vector write, there's an implicit
   // gather, otherwise we can use in_bounds_store directly.
   if (fullyScalar) {
-    b.create<InBoundsStoreOp>(loc, loaded, buffer, loop.getLowerCoords(1));
+    b.create<InBoundsStoreOp>(loc, loaded, buffer, loop.getLowerCoords(/*domain=*/1));
   } else if (!complexVectorStore) {
     Value toStore = b.create<ExtractSliceOp>(loc, storingType, loaded,
-                                             loop.getLowerCoords(0)[0]);
-    b.create<InBoundsStoreOp>(loc, toStore, buffer, loop.getLowerCoords(1));
+                                             loop.getLowerCoords(/*domain=*/0)[0]);
+    b.create<InBoundsStoreOp>(loc, toStore, buffer, loop.getLowerCoords(/*domain=*/1));
   } else {
     SmallVector<int64_t, 4> vectorIdxBounds(nUpper, 1);
     vectorIdxBounds[vectorDim] = storeLength;
@@ -287,7 +287,7 @@ TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
 
     Value gatherInit = createZeroConstantOp(b, loc, storingType);
     TransformingForOp gatherLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{loop.getLowerCoords(0), linearInit},
+        loc, ArrayRef<ValueRange>{loop.getLowerCoords(/*domain=*/0), linearInit},
         ArrayRef<Attribute>{resultIdxMap, loadedValIdxMap}, vectorIdxBounds,
         /*forceUnroll=*/true, /*useIndexDiffs=*/true, gatherInit);
     {
@@ -295,14 +295,14 @@ TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
       b.setInsertionPointToStart(gatherLoop.getBody());
 
       Value gatheredScalar = b.create<vector::ExtractElementOp>(
-          loc, loaded, gatherLoop.getLowerCoords(0)[0]);
+          loc, loaded, gatherLoop.getLowerCoords(/*domain=*/0)[0]);
       Value toYield = b.create<vector::InsertElementOp>(
           loc, gatheredScalar, gatherLoop.getIterArgs()[0],
-          gatherLoop.getLowerCoords(1)[0]);
+          gatherLoop.getLowerCoords(/*domain=*/1)[0]);
       b.create<miopen::YieldOp>(loc, toYield);
     }
     Value gathered = gatherLoop.getResults()[0];
-    b.create<InBoundsStoreOp>(loc, gathered, buffer, loop.getLowerCoords(1));
+    b.create<InBoundsStoreOp>(loc, gathered, buffer, loop.getLowerCoords(/*domain=*/1));
   }
 
   return loop;
