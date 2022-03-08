@@ -47,6 +47,10 @@ private:
     static MLIRContext context(getRegistry());
     static std::once_flag once;
     std::call_once(once, []() {
+      // FIXME: A conv op would ignore this context and instead use the
+      // context from the UnknownLoc
+      context.printOpOnDiagnostic(false);
+      context.printStackTraceOnDiagnostic(false);
       context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect>();
     });
     return context;

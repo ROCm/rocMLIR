@@ -29,7 +29,7 @@
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/Support/LogicalResult.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/DialectConversion.h"
 
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -204,7 +204,7 @@ LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
   b.setInsertionPointToStart(loop.getBody());
   b.create<AffineStoreOp>(loc, zeroOp, collapsedOutput, loop.getInductionVar());
 
-  op.erase();
+  b.eraseOp(op);
   return success();
 }
 
@@ -232,7 +232,7 @@ LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
       createTypeConversionOp(b, loc, loadedValue, filterDataType);
   b.create<AffineStoreOp>(loc, convertedValue, collapsedFilter, iv);
 
-  op.erase();
+  b.eraseOp(op);
   return success();
 }
 
@@ -532,7 +532,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   }
 
   // Finally, erase the original Conv2D op.
-  op.erase();
+  b.eraseOp(op);
 
   return success();
 }
@@ -1080,7 +1080,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     affixGridwiseGemmAttributes(op, gop, b);
   }
   // Finally, erase the original Conv2D op.
-  op.erase();
+  b.eraseOp(op);
 
   return success();
 }
@@ -1741,7 +1741,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     }
 
     // Finally, erase the original Conv2D op.
-    op.erase();
+    b.eraseOp(op);
 
     return success();
   }
@@ -1782,12 +1782,29 @@ template struct Conv2DRewritePattern<Conv2DBwdWeightOp>;
 
 void LowerMIOpenOpsStep1Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
+
+  ConversionTarget target(*ctx);
+  target.addIllegalOp<miopen::Conv2DOp>();
+  target.addIllegalOp<miopen::Conv2DBwdDataOp>();
+  target.addIllegalOp<miopen::Conv2DBwdWeightOp>();
+
+  target.addLegalOp<miopen::TransformOp>();
+  target.addLegalOp<miopen::GridwiseGemmOp>();
+  target.addLegalOp<miopen::GridwiseGemmV2Op>();
+  // Below are required legalize for the lowering of Conv2DBwdWeightOp
+  target.addLegalDialect<arith::ArithmeticDialect>();
+  target.addLegalDialect<memref::MemRefDialect>();
+  target.addLegalDialect<AffineDialect>();
+
   RewritePatternSet patterns(ctx);
-  patterns.add<Conv2DRewritePattern<Conv2DOp>,
-               Conv2DRewritePattern<Conv2DBwdDataOp>,
-               Conv2DRewritePattern<Conv2DBwdWeightOp>>(ctx);
-  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
+  patterns.add<Conv2DRewritePattern<Conv2DOp>>(ctx);
+  patterns.add<Conv2DRewritePattern<Conv2DBwdDataOp>>(ctx);
+  patterns.add<Conv2DRewritePattern<Conv2DBwdWeightOp>>(ctx);
+
+  if (failed(applyPartialConversion(getOperation(), target,
+                                    std::move(patterns)))) {
     signalPassFailure();
+  }
 }
 } // end anonymous namespace
 
