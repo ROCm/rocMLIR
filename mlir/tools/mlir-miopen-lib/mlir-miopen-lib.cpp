@@ -47,10 +47,13 @@ private:
     static MLIRContext context(getRegistry());
     static std::once_flag once;
     std::call_once(once, []() {
-      // FIXME: A conv op would ignore this context and instead use the
-      // context from the UnknownLoc
+      // Turn off all diagnotic printing on op and stacktrace
+      // Note: This is not necessary with below handler
       context.printOpOnDiagnostic(false);
       context.printStackTraceOnDiagnostic(false);
+      // Register a handler that swallows all diagnostic print
+      DiagnosticEngine &engine = context.getDiagEngine();
+      engine.registerHandler([](Diagnostic &diag) {});
       context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect>();
     });
     return context;
