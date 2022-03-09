@@ -70,8 +70,8 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
         }
         if (!writer)
           return fail;
-      } else if (auto mrop = dyn_cast<memref::ExpandShapeOp>(use.getOwner())) {
-        // 1.1 Input of memref.expand_shape
+      } else if (auto mrop = dyn_cast<miopen::TransformOp>(use.getOwner())) {
+        // 1.1 Input of miopen.transform
         if (writer)
           return fail;
         Value mrval = mrop;
