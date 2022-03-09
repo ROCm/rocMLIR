@@ -69,7 +69,8 @@ void miopen::addPipeline(PassManager &pm, bool applicability, bool highLevel) {
     }
     pm.addPass(miopen::createLowerMIOpenOpsStep3Pass());
     pm.addPass(miopen::createLowerMIOpenOpsStep4Pass());
-    pm.addPass(miopen::createLowerMIOpenOpsStep5Pass());
+    pm.addPass(miopen::createMIOpenExpandShorthandPass());
+    pm.addPass(miopen::createMIOpenLoopsToCfPass());
     pm.addPass(createLowerMIOpenOpsToGPUPass());
 
     // Passes for lowering linalg dialect.

@@ -63,9 +63,15 @@ def MIOpenOpsStep4Pass : Pass<"miopen-lowering-step4", "ModuleOp"> {
   let dependentDialects = ["gpu::GPUDialect", "miopen::MIOpenDialect", "scf::SCFDialect", "vector::VectorDialect", "AffineDialect", "memref::MemRefDialect", "LLVM::LLVMDialect"];
 }
 
-def MIOpenOpsStep5Pass : Pass<"miopen-lowering-step5", "ModuleOp"> {
-  let summary = "expand loop / affine dialects to std. Notice GPU dialect will explicitly NOT be used in this pass";
-  let constructor = "mlir::miopen::createLowerMIOpenOpsStep5Pass()";
+def MIOpenExpandShorthandPass : Pass<"miopen-expand-shorthand", "ModuleOp"> {
+  let summary = "Expand shorthand, like index_diff_update and extract_slice, to other dialects";
+  let constructor = "mlir::miopen::createMIOpenExpandShorthandPass()";
+  let dependentDialects = ["miopen::MIOpenDialect", "vector::VectorDialect", "arith::ArithmeticDialect", "memref::MemRefDialect", "gpu::GPUDialect"];
+}
+
+def MIOpenLoopsToCfPass : Pass<"miopen-loops-to-cf", "ModuleOp"> {
+  let summary = "expand loop / affine dialects to control flow. Notice GPU dialect will explicitly NOT be used in this pass";
+  let constructor = "mlir::miopen::createMIOpenLoopsToCfPass()";
   let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "AffineDialect", "StandardOpsDialect", "memref::MemRefDialect"];
 }
 

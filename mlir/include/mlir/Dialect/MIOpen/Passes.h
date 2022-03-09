@@ -48,8 +48,11 @@ std::unique_ptr<Pass> createLowerMIOpenOpsStep3Pass();
 /// Create a pass to convert MIOpen threadwise operations to other dialects.
 std::unique_ptr<Pass> createLowerMIOpenOpsStep4Pass();
 
-/// Create a pass to convert affine / loop to std dialect.
-std::unique_ptr<Pass> createLowerMIOpenOpsStep5Pass();
+/// Create a pass to expand MIOpen shorthand ops to other dialects
+std::unique_ptr<Pass> createMIOpenExpandShorthandPass();
+
+/// Create a pass to convert affine / loop to cf dialect.
+std::unique_ptr<Pass> createMIOpenLoopsToCfPass();
 
 /// Create a pass to affix tuning parameters to gridwise gemm ops.
 std::unique_ptr<Pass>

@@ -1,12 +1,14 @@
 add_mlir_dialect_library(MLIRMIOpenTransforms
   AffixTuningParameters.cpp
   AlignTiling.cpp
+  ApplyImpl.cpp
   BlockwiseGemmToThreadwise.cpp
+  CloneKernels.cpp
   CopyOpt.cpp
   ConvToGemmLowering.cpp
+  ExpandShorthand.cpp
   GridwiseGemmToBlockwise.cpp
-  ApplyImpl.cpp
-  CloneKernels.cpp
+  LoopsToCf.cpp
   ThreadwiseToStdlib.cpp
 
   ADDITIONAL_HEADER_DIRS

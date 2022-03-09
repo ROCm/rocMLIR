@@ -19,7 +19,9 @@
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/TypeRange.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
@@ -31,6 +33,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/SMLoc.h"
 #include <algorithm>
@@ -87,9 +90,10 @@ AsmPrinter &operator<<(AsmPrinter &printer, BwdPaddingKernelInfo v) {
 //===---------------------------------------------------------
 template <typename T>
 static ParseResult
-parseAndGather(mlir::AsmParser &parser, SmallVector<T> &ret,
+parseAndGather(mlir::AsmParser &parser, AsmParser::Delimiter delim,
+               SmallVectorImpl<T> &ret,
                llvm::function_ref<ParseResult(T &)> getElement) {
-  return parser.parseCommaSeparatedList([&]() -> ParseResult {
+  return parser.parseCommaSeparatedList(delim, [&]() -> ParseResult {
     T out;
     ParseResult res = getElement(out);
     if (res.succeeded()) {
@@ -123,7 +127,7 @@ mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
 
   llvm::SmallVector<int64_t> params;
   if (parser.parseOptionalLBrace().succeeded()) {
-    if (parseAndGather<int64_t>(parser, params,
+    if (parseAndGather<int64_t>(parser, AsmParser::Delimiter::None, params,
                                 [&](int64_t &out) -> ParseResult {
                                   return parser.parseInteger(out);
                                 }) ||
@@ -134,18 +138,16 @@ mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
 
   llvm::SmallVector<std::string> upperNamesStorage;
   llvm::SmallVector<unsigned> upperDims;
-  if (parser.parseLSquare() ||
-      parseAndGather<std::string>(parser, upperNamesStorage,
+  if (parseAndGather<std::string>(parser, AsmParser::Delimiter::Square,
+                                  upperNamesStorage,
                                   [&](std::string &out) -> ParseResult {
                                     return parser.parseKeywordOrString(&out);
                                   }) ||
-      parser.parseRSquare() || parser.parseKeyword("at") ||
-      parser.parseLSquare() ||
-      parseAndGather<unsigned>(parser, upperDims,
+      parser.parseKeyword("at") ||
+      parseAndGather<unsigned>(parser, AsmParser::Delimiter::Square, upperDims,
                                [&](unsigned &out) -> ParseResult {
                                  return parser.parseInteger(out);
-                               }) ||
-      parser.parseRSquare()) {
+                               })) {
     return {};
   }
 
@@ -155,18 +157,16 @@ mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
 
   llvm::SmallVector<std::string> lowerNamesStorage;
   llvm::SmallVector<unsigned> lowerDims;
-  if (parser.parseLSquare() ||
-      parseAndGather<std::string>(parser, lowerNamesStorage,
+  if (parseAndGather<std::string>(parser, AsmParser::Delimiter::Square,
+                                  lowerNamesStorage,
                                   [&](std::string &out) -> ParseResult {
                                     return parser.parseKeywordOrString(&out);
                                   }) ||
-      parser.parseRSquare() || parser.parseKeyword("at") ||
-      parser.parseLSquare() ||
-      parseAndGather<unsigned>(parser, lowerDims,
+      parser.parseKeyword("at") ||
+      parseAndGather<unsigned>(parser, AsmParser::Delimiter::Square, lowerDims,
                                [&](unsigned &out) -> ParseResult {
                                  return parser.parseInteger(out);
-                               }) ||
-      parser.parseRSquare()) {
+                               })) {
     return {};
   }
 
@@ -380,6 +380,490 @@ template <typename T> static LogicalResult verifyConvOp(T op) {
   return success();
 }
 
+//===-----------------------------------------------------===//
+// ExtractSliceOp
+//===-----------------------------------------------------===//
+LogicalResult ExtractSliceOp::canonicalize(ExtractSliceOp op,
+                                           PatternRewriter &b) {
+  // Extracting a vector of the same size as the source is a no-op, since it
+  // has to happen from index 0 to ensure legality
+  if (op.result().getType() == op.vector().getType()) {
+    b.replaceOp(op, op.vector());
+    return success();
+  }
+  return failure();
+}
+
+LogicalResult ExtractSliceOp::verify() {
+  if (auto destType = result().getType().dyn_cast<VectorType>()) {
+    size_t destSize = destType.getDimSize(0);
+    size_t sourceSize = vector().getType().cast<VectorType>().getDimSize(0);
+    if (destSize > sourceSize)
+      return emitOpError("Output size " + Twine(destSize) +
+                         " exceeds input size " + Twine(sourceSize));
+  }
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// InsertSliceOp
+//===-----------------------------------------------------===//
+LogicalResult InsertSliceOp::canonicalize(InsertSliceOp op,
+                                          PatternRewriter &b) {
+  // Per the in-bounds requirement, storing a slice of the same length as a
+  // vector is just replacing dest with src, so drop the intermedation
+  if (op.source().getType() == op.dest().getType()) {
+    b.replaceOp(op, op.source());
+    return success();
+  }
+  return failure();
+}
+LogicalResult InsertSliceOp::verify() {
+  if (auto sourceType = source().getType().dyn_cast<VectorType>()) {
+    size_t sourceSize = sourceType.getDimSize(0);
+    size_t destSize = dest().getType().cast<VectorType>().getDimSize(0);
+    if (sourceSize > destSize)
+      return emitOpError(
+          "Slice to store has length " + Twine(sourceSize) +
+          " which is longer than destinanation's vector length " +
+          Twine(destSize));
+  }
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// TransformingForOp
+//===-----------------------------------------------------===//
+void TransformingForOp::build(OpBuilder &b, OperationState &state,
+                              ArrayRef<ValueRange> inits,
+                              ArrayRef<Attribute> transforms,
+                              ArrayRef<int64_t> bounds, bool forceUnroll,
+                              bool useIndexDiffs, ValueRange iterArgs) {
+  build(b, state, inits, b.getArrayAttr(transforms),
+        b.getIndexArrayAttr(bounds), forceUnroll, useIndexDiffs, iterArgs);
+}
+
+void TransformingForOp::build(OpBuilder &b, OperationState &state,
+                              ArrayRef<ValueRange> inits,
+                              ArrayRef<Attribute> transforms, ArrayAttr bounds,
+                              bool forceUnroll, bool useIndexDiffs,
+                              ValueRange iterArgs) {
+  build(b, state, inits, b.getArrayAttr(transforms), bounds, forceUnroll,
+        useIndexDiffs, iterArgs);
+}
+
+void TransformingForOp::build(OpBuilder &b, OperationState &state,
+                              ArrayRef<ValueRange> inits, ArrayAttr transforms,
+                              ArrayRef<int64_t> bounds, bool forceUnroll,
+                              bool useIndexDiffs, ValueRange iterArgs) {
+  build(b, state, inits, transforms, b.getIndexArrayAttr(bounds), forceUnroll,
+        useIndexDiffs, iterArgs);
+}
+
+void TransformingForOp::build(OpBuilder &b, OperationState &state,
+                              ArrayRef<ValueRange> inits, ArrayAttr transforms,
+                              ArrayAttr bounds, bool forceUnroll,
+                              bool useIndexDiffs, ValueRange iterArgs) {
+  // Set up user-provided attributes
+  state.addAttribute(boundsAttrName(state.name), bounds);
+  state.addAttribute(transformsAttrName(state.name), transforms);
+  if (forceUnroll)
+    state.addAttribute(forceUnrollAttrName(state.name), b.getUnitAttr());
+  if (useIndexDiffs)
+    state.addAttribute(useIndexDiffsAttrName(state.name), b.getUnitAttr());
+
+  int32_t upperLen = bounds.size();
+  for (ValueRange upper : inits)
+    state.addOperands(upper);
+  state.addOperands(iterArgs);
+  state.addTypes(iterArgs.getTypes());
+
+  // Track sizes of variadic arguments to enable them to be looped up
+  state.addAttribute(
+      TransformingForOp::getOperandSegmentSizeAttr(),
+      b.getI32VectorAttr({upperLen * static_cast<int32_t>(inits.size()),
+                          static_cast<int32_t>(iterArgs.size())}));
+
+  // Set up region and block
+  Region *bodyRegion = state.addRegion();
+  Block &bodyBlock = bodyRegion->emplaceBlock();
+
+  // Track starting position of each domain's lower coordinates in the block
+  // argument list so that we can give out references to appropriate slices
+  // of that list
+  SmallVector<int32_t> lowerStarts;
+  int32_t nLower = 0;
+  Type indexType = b.getIndexType();
+  for (auto domain : transforms.getAsRange<ArrayAttr>()) {
+    lowerStarts.push_back(nLower);
+    int32_t len = 0;
+    if (domain.empty()) // No transforms, copy upper coordinates
+      len = upperLen;
+    else
+      len = domain[domain.size() - 1]
+                .cast<TransformMapAttr>()
+                .getLowerBounds()
+                .size();
+    for (int32_t i = 0; i < len; ++i)
+      bodyBlock.addArgument(indexType, state.location);
+    nLower += len;
+  }
+  lowerStarts.push_back(nLower);
+  state.addAttribute(lowerStartsAttrName(state.name),
+                     b.getI32VectorAttr(lowerStarts));
+
+  for (Value v : iterArgs)
+    bodyBlock.addArgument(v.getType(), v.getLoc());
+
+  if (iterArgs.empty())
+    ensureTerminator(*bodyRegion, b, state.location);
+}
+
+ParseResult TransformingForOp::parse(OpAsmParser &parser,
+                                     OperationState &result) {
+  using OperandType = OpAsmParser::OperandType;
+  using Delimiter = OpAsmParser::Delimiter;
+
+  Builder &b = parser.getBuilder();
+  Type indexTy = b.getIndexType();
+
+  SmallVector<Attribute> transforms;
+  SmallVector<int32_t> lowerStarts;
+  SmallVector<OperandType> lowerArgs;
+  SmallVector<OperandType> upperInits;
+
+  parser.parseOptionalAttrDict(result.attributes);
+
+  // Parse iteration domains
+  llvm::SMLoc transformedLoc = parser.getCurrentLocation();
+  ParseResult loopItersParse = parser.parseCommaSeparatedList(
+      Delimiter::None,
+      [&]() -> ParseResult {
+        llvm::SMLoc loopIterLoc = parser.getCurrentLocation();
+        size_t oldNLower = lowerArgs.size();
+        size_t oldNUpper = upperInits.size();
+        lowerStarts.push_back(oldNLower);
+
+        if (parser.parseRegionArgumentList(lowerArgs, Delimiter::Paren) ||
+            parser.parseEqual()) {
+          return failure();
+        }
+        ArrayAttr theseTransforms;
+        if (parser.parseAttribute(theseTransforms)) {
+          return failure();
+        }
+        if (parser.parseOperandList(upperInits, Delimiter::Paren)) {
+          return failure();
+        }
+        if (theseTransforms.size() == 0) {
+          if (upperInits.size() - oldNUpper != lowerArgs.size() - oldNLower) {
+            return parser.emitError(loopIterLoc,
+                                    "Expected same number of lower and upper "
+                                    "arguments when transforms absent");
+          }
+        } else {
+          for (Attribute a : theseTransforms) {
+            if (!a.isa<TransformMapAttr>()) {
+              return parser.emitError(loopIterLoc,
+                                      "Expected transform map attributes");
+            }
+          }
+          size_t nInputs = theseTransforms[0]
+                               .cast<TransformMapAttr>()
+                               .getMap()
+                               .getAffineMap()
+                               .getNumInputs();
+          size_t nOutputs = theseTransforms[theseTransforms.size() - 1]
+                                .cast<TransformMapAttr>()
+                                .getMap()
+                                .getAffineMap()
+                                .getNumResults();
+          if (upperInits.size() - oldNUpper != nInputs) {
+            return parser.emitError(loopIterLoc,
+                                    "Transformation sequence expected ")
+                   << nInputs << " inputs";
+          }
+          if (lowerArgs.size() - oldNLower != nOutputs) {
+            return parser.emitError(loopIterLoc,
+                                    "Transformation sequence expected ")
+                   << nOutputs << " outputs";
+          }
+        }
+        transforms.push_back(theseTransforms);
+        return success();
+      },
+      "for a loop iteration argument (lower coordinates, transforms, initial "
+      "upper args)");
+  if (loopItersParse) {
+    return failure();
+  }
+  lowerStarts.push_back(lowerArgs.size());
+
+  result.addAttribute(TransformingForOp::transformsAttrName(result.name),
+                      b.getArrayAttr(transforms));
+  result.addAttribute(TransformingForOp::lowerStartsAttrName(result.name),
+                      b.getI32VectorAttr(lowerStarts));
+
+  llvm::SMLoc iterArgsLoc = parser.getCurrentLocation();
+  llvm::SmallVector<OperandType> iterArgs;
+  llvm::SmallVector<OperandType> iterInits;
+  llvm::SmallVector<mlir::Type> iterTypes;
+  if (parser.parseOptionalKeyword("iter_args").succeeded()) {
+    if (parser.parseAssignmentListWithTypes(iterArgs, iterInits, iterTypes)) {
+      return failure();
+    }
+  }
+
+  if (parser.parseKeyword("bounds")) {
+    return failure();
+  }
+
+  llvm::SmallVector<int64_t> bounds;
+  ParseResult boundsRes = parser.parseCommaSeparatedList(
+      Delimiter::Square,
+      [&]() -> ParseResult {
+        int64_t res;
+        if (parser.parseInteger(res)) {
+          return failure();
+        }
+        bounds.push_back(res);
+        return success();
+      },
+      "list of bounds");
+  if (boundsRes) {
+    return failure();
+  }
+  result.addAttribute(TransformingForOp::boundsAttrName(result.name),
+                      b.getIndexArrayAttr(bounds));
+
+  SmallVector<Type> regionArgTypes(lowerArgs.size(), indexTy);
+  regionArgTypes.append(iterTypes);
+  SmallVector<OperandType> regionArgs = std::move(lowerArgs);
+  regionArgs.append(iterArgs);
+  result.addTypes(iterTypes);
+
+  Region *body = result.addRegion();
+  if (parser.parseRegion(*body, regionArgs, regionArgTypes)) {
+    return failure();
+  }
+  TransformingForOp::ensureTerminator(*body, b, result.location);
+
+  SmallVector<Type> upperInitTypes(upperInits.size(), indexTy);
+  if (parser.resolveOperands(upperInits, upperInitTypes, transformedLoc,
+                             result.operands) ||
+      parser.resolveOperands(iterInits, iterTypes, iterArgsLoc,
+                             result.operands)) {
+    return failure();
+  }
+
+  result.addAttribute(
+      TransformingForOp::getOperandSegmentSizeAttr(),
+      b.getI32VectorAttr({static_cast<int32_t>(upperInits.size()),
+                          static_cast<int32_t>(iterInits.size())}));
+  return success();
+}
+
+void TransformingForOp::print(OpAsmPrinter &p) {
+  p.printOptionalAttrDict(getOperation()->getAttrs(), /*elidedAttrs=*/{
+                              TransformingForOp::getOperandSegmentSizeAttr(),
+                              transformsAttrName(), lowerStartsAttrName(),
+                              boundsAttrName()});
+  p << " ";
+  for (uint32_t i = 0, e = domains(); i < e; ++i) {
+    p << "(";
+    p.printOperands(getLowerCoords(i));
+    p << ") = ";
+    p.printAttributeWithoutType(getTransforms(i));
+    p << "(";
+    p.printOperands(getUpperInits(i));
+    p << ")";
+    if (i != e - 1) {
+      p << ", ";
+    }
+  }
+
+  if (iterInits().size() > 0) {
+    p << " iter_args (";
+    llvm::interleaveComma(
+        llvm::zip(getIterArgs(), iterInits()), p, [&](auto i) {
+          Value init = std::get<1>(i);
+          p << std::get<0>(i) << " = " << init << " : " << init.getType();
+        });
+    p << ")";
+  }
+  p << " bounds [";
+  llvm::interleaveComma(bounds().getAsValueRange<IntegerAttr>(), p,
+                        [&](llvm::APInt bound) { p << bound; });
+  p << "] ";
+  p.printRegion(region(), /*printEntryBlockArgs=*/false);
+}
+
+LogicalResult TransformingForOp::verify() {
+  if (bounds().empty())
+    return emitOpError("Must have at least one iteration dimension");
+  if (getNumResults() != getIterArgs().size()) {
+    return emitOpError(
+        "Mismatch between number of yielded values and number of op results");
+  }
+
+  uint32_t lowerArgsCount = 0;
+  if (lowerStarts().size() != domains() + 1) {
+    return emitOpError(
+        "Lower starts attribute doesn't have one entry per domain plus 1");
+  }
+  if (lowerStart(0) != 0) {
+    return emitOpError("Region args don't start with lower coords");
+  }
+
+  for (uint32_t i = 0, e = domains(); i < e; ++i) {
+    ArrayAttr transforms = getTransforms(i);
+    auto lowerArgs = getLowerCoords(i);
+    auto upperInits = getUpperInits(i);
+    if (transforms.size() == 0) {
+      if (upperInits.size() != lowerArgs.size()) {
+        return emitOpError("Mismatch between number of lower and upper "
+                           "coordinates without a transform");
+      }
+    } else {
+      size_t nUpper = transforms[0]
+                          .cast<TransformMapAttr>()
+                          .getMap()
+                          .getValue()
+                          .getNumInputs();
+      size_t nLower = transforms[transforms.size() - 1]
+                          .cast<TransformMapAttr>()
+                          .getMap()
+                          .getValue()
+                          .getNumResults();
+      if (upperInits.size() != nUpper) {
+        return emitOpError("Mismatch between number of upper initial values "
+                           "and number of inputs to transform sequence");
+      }
+      if (lowerArgs.size() != nLower) {
+        return emitOpError("Mismatch between number of lower arguments and "
+                           "number of outputs of transform sequence");
+      }
+    }
+    lowerArgsCount += lowerArgs.size();
+    if (lowerStart(i + 1) != lowerArgsCount) {
+      return emitOpError("Lower starts attribute not accurate");
+    }
+  }
+  return success();
+}
+
+// Cribbed from AffineForOp
+Region &TransformingForOp::getLoopBody() { return region(); }
+bool TransformingForOp::isDefinedOutsideOfLoop(Value value) {
+  return !region().isAncestor(value.getParentRegion());
+}
+LogicalResult TransformingForOp::moveOutOfLoop(ArrayRef<Operation *> ops) {
+  for (auto *op : ops)
+    op->moveBefore(*this);
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// IndexDiffUpdateOp
+//===-----------------------------------------------------===//
+void IndexDiffUpdateOp::build(OpBuilder &b, OperationState &state,
+                              TransformMapAttr transform, ValueRange upperDiff,
+                              ValueRange lowerOrig) {
+  llvm::SmallVector<Type> resultTypes(lowerOrig.size(), b.getIndexType());
+  IndexDiffUpdateOp::build(b, state, resultTypes, resultTypes, transform,
+                           upperDiff, lowerOrig);
+}
+
+LogicalResult IndexDiffUpdateOp::verify() {
+  TransformMapAttr transform = map();
+  size_t nLowerIn = lowerOrig().size();
+  size_t nLowerOut = lowerIndices().size();
+
+  if (nLowerIn != nLowerOut)
+    return emitOpError("Got " + Twine(nLowerIn) + " lower inputs but " +
+                       Twine(nLowerOut) + " lower outputs");
+
+  size_t nUpper = upperDiffs().size();
+  size_t nMapIn = transform.getUpperBounds().size();
+  size_t nMapOut = transform.getLowerBounds().size();
+
+  if (nUpper != nMapIn)
+    return emitOpError("Expected " + Twine(nMapIn) + " upper diffs but got " +
+                       Twine(nUpper));
+  if (nMapOut != nLowerIn)
+    return emitOpError("Expected " + Twine(nMapOut) +
+                       " lower coordinates but got " + Twine(nLowerIn));
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// BufferLoadOp
+//===-----------------------------------------------------===//
+LogicalResult BufferLoadOp::verify() {
+  auto sourceType = source().getType().cast<MemRefType>();
+  size_t nDims = sourceType.getRank();
+  if (oobDims().size() != nDims)
+    return emitOpError("Expected oobDims attribute to have " + Twine(nDims) +
+                       " elements");
+  if (coords().size() != nDims)
+    return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
+  if (sourceType.getMemorySpaceAsInt() != 0)
+    return emitOpError("Source memref must live in global memory");
+  if (mlir::getElementTypeOrSelf(result()) != sourceType.getElementType())
+    return emitOpError(
+        "Result element type must match source memref's element type");
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// BufferStoreOp
+//===-----------------------------------------------------===//
+LogicalResult BufferStoreOp::verify() {
+  auto destType = dest().getType().cast<MemRefType>();
+  size_t nDims = destType.getRank();
+  if (oobDims().size() != nDims)
+    return emitOpError("Expected oobDims attribute to have " + Twine(nDims) +
+                       " elements");
+  if (coords().size() != nDims)
+    return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
+  if (destType.getMemorySpaceAsInt() != 0)
+    return emitOpError("Destination memref must live in global memory");
+  if (mlir::getElementTypeOrSelf(data()) != destType.getElementType())
+    return emitOpError(
+        "Element type of data must match element type of destination memref");
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// InBoundsLoadOp
+//===-----------------------------------------------------===//
+LogicalResult InBoundsLoadOp::verify() {
+  auto sourceType = source().getType().cast<MemRefType>();
+  size_t nDims = sourceType.getRank();
+  if (coords().size() != nDims)
+    return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
+  Type resultType = result().getType();
+  if (resultType.isa<ShapedType>() && !resultType.isa<VectorType>())
+    return emitOpError(
+        "Non-scalar loads must return vectors, not other shaped types");
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// InBoundsLoadOp
+//===-----------------------------------------------------===//
+LogicalResult InBoundsStoreOp::verify() {
+  auto destType = dest().getType().cast<MemRefType>();
+  size_t nDims = destType.getRank();
+  if (coords().size() != nDims)
+    return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
+  Type dataType = data().getType();
+  if (dataType.isa<ShapedType>() && !dataType.isa<VectorType>())
+    return emitOpError(
+        "Non-scalar data types must be vectors, not other shaped types");
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // ThreadwiseCopyOp
 //===----------------------------------------------------------------------===//
@@ -434,7 +918,7 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
     return op.emitError(
         "Number of coordinates supplied doesn't match the rank, or affine maps "
         "of source memref");
-  if (destCoord.size() != expectedSourceCoords)
+  if (destCoord.size() != expectedDestCoords)
     return op.emitError(
         "Number of coordinates supplied doesn't match the rank, or affine maps "
         "of destination memref");

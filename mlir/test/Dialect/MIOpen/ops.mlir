@@ -165,13 +165,62 @@ func @miopen_gridwise_gemm_v2(%A : memref<?x?x?xf32>, %B : memref<?x?x?xf32>, %C
     paddingInfo =
       #miopen.padding_info<extraK = 0, extraM = 0, extraN = 0, bwdPaddingInfo = "NA">,
     transforms = [[], [], []],
-    storeOperation = 0 : i32
+    storeMethod = 0 : i32
   } : memref<?x?x?xf32>, memref<?x?x?xf32>, memref<?x?x?xf32>
   return
 }
 
 // CHECK-LABEL: func @miopen_gridwise_gemm_v2
 // CHECK-NEXT: miopen.gridwise_gemm_v2
+
+func @miopen_extract_slice(%v : vector<32xf32>) -> vector<4xf32> {
+  %i = arith.constant 0 : index
+  %r = miopen.extract_slice %v[%i] : vector<32xf32> -> vector<4xf32>
+  return %r : vector<4xf32>
+}
+// CHECK-LABEL: func @miopen_extract_slice
+// CHECK: miopen.extract_slice
+
+func @miopen_insert_slice(%u: vector<4xf32>, %v: vector<32xf32>) -> vector<32xf32> {
+  %i = arith.constant 0 : index
+  %w = miopen.insert_slice %u -> %v[%i] : vector<4xf32> -> vector<32xf32>
+  return %w : vector<32xf32>
+}
+// CHECK-LABEL: func @miopen_insert_slice
+// CHECK: miopen.insert_slice
+
+func @miopen_buffer_load(%buffer: memref<128x128xf32>, %idx0: index, %idx1: index) -> vector<4xf32> {
+  %ret = miopen.buffer_load %buffer[%idx0, %idx1] { oobDims = [false, true] }
+    : memref<128x128xf32>, index, index -> vector<4xf32>
+  return %ret : vector<4xf32>
+}
+// CHECK-LABEL: func @miopen_buffer_load
+// CHECK-NEXT: miopen.buffer_load
+
+func @miopen_buffer_store(%buffer: memref<128x128xf32>, %data: vector<4xf32>, %idx0: index, %idx1: index) {
+  miopen.buffer_store %data -> %buffer[%idx0, %idx1] { oobDims = [false, true] }
+  : vector<4xf32> -> memref<128x128xf32>, index, index
+  return
+}
+// CHECK-LABEL: func @miopen_buffer_store
+// CHECK-NEXT: miopen.buffer_store
+
+func @miopen_in_bounds_load(%buffer: memref<128x128xf32, 3>, %idx0: index, %idx1: index) -> vector<4xf32> {
+  %ret = miopen.in_bounds_load %buffer[%idx0, %idx1]
+    : memref<128x128xf32, 3>, index, index -> vector<4xf32>
+  return %ret : vector<4xf32>
+}
+// CHECK-LABEL: func @miopen_in_bounds_load
+// CHECK-NEXT: miopen.in_bounds_load
+
+func @miopen_in_bounds_store(%buffer: memref<128x128xf32, 3>, %data: vector<4xf32>, %idx0: index, %idx1: index) {
+  miopen.in_bounds_store %data -> %buffer[%idx0, %idx1] { oobDims = [false, true] }
+  : vector<4xf32> -> memref<128x128xf32, 3>, index, index
+  return
+}
+// CHECK-LABEL: func @miopen_in_bounds_store
+// CHECK-NEXT: miopen.in_bounds_store
+
 
 func @miopen_in_warp_transpose(%v : vector<8xf32>) -> vector<8xf32> {
   %cst4 = arith.constant 4 : index

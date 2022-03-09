@@ -1,4 +1,4 @@
-//===- utilities.cpp - MIOpen utility functions ---------------------===//
+//===- builderUtils.cpp - MIOpen utility functions ---------------------===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -21,8 +21,6 @@ using mlir::arith::ConstantOp;
 
 namespace mlir {
 namespace miopen {
-namespace {} // anonymous namespace
-
 Value createConstantIntOp(OpBuilder &b, Location loc, Type type,
                           Type elementType, int64_t value) {
   APInt apValue(elementType.getIntOrFloatBitWidth(), value, true);

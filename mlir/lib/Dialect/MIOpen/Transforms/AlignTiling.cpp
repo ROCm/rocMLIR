@@ -127,9 +127,6 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     }
     nTWCopy->setAttr("bounds", b.getArrayAttr(twCopyBoundsAttr));
 
-    // 5. Adjust the copy to show the correct argument as global
-    nTWCopy->setAttr("globalArg", b.getIndexAttr(0));
-
     return nAlloc->getResult(0);
   }
 

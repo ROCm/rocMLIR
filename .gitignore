@@ -69,3 +69,6 @@ pythonenv*
 # automodapi puts generated documentation files here.
 /lldb/docs/python_api/
 .gdbinit
+/MIOpen
+.dir-locals.el
+/.ccls-cache

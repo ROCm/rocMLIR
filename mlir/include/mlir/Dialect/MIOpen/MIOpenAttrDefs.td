@@ -64,14 +64,14 @@ def TransformType : MIOpen_I32Enum<"TransformType",
     "The operation type for a coordinate transformation",
     [PassThrough, Pad, Slice, Embed, Unmerge, Merge, Unfold, AddDim]>;
 
-/// InMemoryDataOperation
+/// StoreMethod
 
-def DataOperation_Set : I32EnumAttrCase<"Set", 0>;
-def DataOperation_AtomicAdd : I32EnumAttrCase<"AtomicAdd", 1>;
+def StoreMethod_Set : I32EnumAttrCase<"Set", 0>;
+def StoreMethod_AtomicAdd : I32EnumAttrCase<"AtomicAdd", 1>;
 
-def InMemoryDataOperation : MIOpen_I32Enum<"InMemoryDataOperation",
+def StoreMethod : MIOpen_I32Enum<"StoreMethod",
     "What operation should be used to write data to memory",
-    [DataOperation_Set, DataOperation_AtomicAdd]>;
+    [StoreMethod_Set, StoreMethod_AtomicAdd]>;
 
 /// BwdPaddingKernelInfo
 def BwdPadding_NA : BitEnumAttrCase<"NA", 0x0000>;
