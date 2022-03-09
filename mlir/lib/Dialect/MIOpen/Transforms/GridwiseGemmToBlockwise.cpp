@@ -2757,7 +2757,7 @@ void LowerMIOpenOpsStep2Pass::runOnOperation() {
   ConversionTarget target(*ctx);
   target.addIllegalOp<miopen::GridwiseGemmOp, miopen::GridwiseGemmV2Op>();
   target.addLegalDialect<arith::ArithmeticDialect, miopen::MIOpenDialect,
-                         AffineDialect>();
+                         AffineDialect, vector::VectorDialect>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<GridwiseGemmRewritePattern, GridwiseGemmV2RewritePattern>(ctx);
