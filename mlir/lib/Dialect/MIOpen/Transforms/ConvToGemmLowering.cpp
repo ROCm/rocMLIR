@@ -215,7 +215,7 @@ LogicalResult zeroInit(Conv2DBwdDataOp op, PatternRewriter &b) {
   b.setInsertionPointToStart(loop.getBody());
   b.create<AffineStoreOp>(loc, zeroOp, collapsedOutput, loop.getInductionVar());
 
-  op.erase();
+  b.eraseOp(op);
   return success();
 }
 
