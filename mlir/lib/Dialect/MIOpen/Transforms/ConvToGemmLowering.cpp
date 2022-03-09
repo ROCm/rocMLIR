@@ -510,7 +510,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   // This kernel is not run when there is padding on the GEMM
   auto paddingInfo =
       PaddingInfoAttr::get(b.getContext(), 0, 0, 0, BwdPaddingKernelInfo::NA);
-  auto dataOperation = InMemoryDataOperation::AtomicAdd;
+  auto storeMethod = StoreMethod::AtomicAdd;
 
   Value gemmA = gemmOutput;
   ArrayAttr oobA =
@@ -522,9 +522,9 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
       getBoundsCheckAttr(b, filterOobCheckDims, filterShape.size());
 
   if (isXdlops) {
-    auto gop = b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, oobA, oobB,
-                                          oobC, paddingInfo, dataOperation,
-                                          gridwiseGemmAttrs);
+    auto gop =
+        b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, oobA, oobB, oobC,
+                                   paddingInfo, storeMethod, gridwiseGemmAttrs);
     affixGridwiseGemmAttributes(op, gop, b);
   } else {
     op->emitOpError("Backward weight atomic add kernel requires xdlops and "
@@ -1070,9 +1070,9 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   // Emit miopen.gridwise_gemm op.
   // Emit miopen.gridwise_gemm_v2 if using xdlops
   if (isXdlops) {
-    auto gop = b.create<GridwiseGemmV2Op>(
-        loc, gemmA, gemmB, gemmC, oobA, oobB, oobC, paddingInfo,
-        InMemoryDataOperation::Set, gridwiseGemmAttrs);
+    auto gop = b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, oobA, oobB,
+                                          oobC, paddingInfo, StoreMethod::Set,
+                                          gridwiseGemmAttrs);
     affixGridwiseGemmAttributes(op, gop, b);
   } else {
     auto gop = b.create<GridwiseGemmOp>(loc, gemmA, gemmB, gemmC, oobA, oobB,
@@ -1714,7 +1714,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
         PaddingInfoAttr::get(b.getContext(), gemmMExtra, gemmKExtra, gemmNExtra,
                              BwdPaddingKernelInfo::NA);
 
-    auto dataOp = InMemoryDataOperation::Set;
+    auto storeMethod = StoreMethod::Set;
     // Emit miopen.gridwise_gemm op.
     // Emit miopen.gridwise_gemm_v2 if xdlopsV2 attribute is true.
 
@@ -1730,9 +1730,9 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     }
 
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
-      auto gop =
-          b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, oobA, oobB, oobC,
-                                     paddingInfo, dataOp, gridwiseGemmAttrs);
+      auto gop = b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, oobA,
+                                            oobB, oobC, paddingInfo,
+                                            storeMethod, gridwiseGemmAttrs);
       affixGridwiseGemmAttributes(op, gop, b);
     } else {
       auto gop = b.create<GridwiseGemmOp>(loc, gemmA, gemmB, gemmC, oobA, oobB,

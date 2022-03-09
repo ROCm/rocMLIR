@@ -22,9 +22,14 @@
 //===-----------------------------------------------------===//
 #include "PassDetail.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIOpen/utility/builderUtils.h"
+#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -50,181 +55,20 @@ struct FillRewritePattern : public OpRewritePattern<FillOp> {
   LogicalResult matchAndRewrite(FillOp op, PatternRewriter &b) const override {
     auto loc = op.getLoc();
     auto inputType = op.input().getType().cast<MemRefType>();
-    auto inputShape = inputType.getShape();
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+    llvm::SmallVector<int64_t> lbs(inputShape.size(), 0);
+    llvm::SmallVector<int64_t> strides(inputShape.size(), 1);
 
-    AffineForOp currentLoop;
-    OpBuilder currentScope = b;
-    std::vector<mlir::Value> range;
-
-    for (unsigned i = 0; i < inputShape.size(); ++i) {
-      // Rank 1 loop.
-      currentLoop = currentScope.create<AffineForOp>(loc, 0, inputShape[i]);
-
-      // collect current loop induction var for store indexes
-      range.push_back(currentLoop.getInductionVar());
-
-      // inside loop.
-      currentScope = OpBuilder::atBlockTerminator(currentLoop.getBody());
-    }
-
-    // Store fill value
-    currentScope.create<memref::StoreOp>(loc, op.value(), op.input(), range);
+    buildAffineLoopNest(b, loc, lbs, inputShape, strides,
+                        [value = op.value(), input = op.input()](
+                            OpBuilder &b, Location loc, ValueRange ivs) {
+                          b.create<memref::StoreOp>(loc, value, input, ivs);
+                        });
 
     op.erase();
     return success();
   }
 };
-
-//===----------------------------------------------------------------------===//
-// Transform lowering.
-//
-// Gathers a chain of transformations and puts them into the appropriate index
-// of the transforms attribute of the user of that chain.
-//===----------------------------------------------------------------------===//
-
-struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
-  using OpRewritePattern<TransformOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(TransformOp op,
-                                PatternRewriter &b) const override {
-    // To cut down on the number of intermediate arrays we pull in,
-    // we'll deal with entire chains of transform ops at once
-
-    TransformOp lastTransform = op;
-    TransformOp firstTransform = op;
-
-    while (auto pred = dyn_cast_or_null<TransformOp>(
-               firstTransform.input().getDefiningOp())) {
-      firstTransform = pred;
-    }
-
-    bool userIsOneTransform = false;
-    do {
-      userIsOneTransform = false;
-      if (lastTransform.output().hasOneUse()) {
-        if (auto succ = dyn_cast<TransformOp>(
-                *(lastTransform.output().getUsers().begin()))) {
-          userIsOneTransform = true;
-          lastTransform = succ;
-        }
-      }
-    } while (userIsOneTransform);
-
-    // Each successive transform op creates an upper view from a lower view
-    // so the transforms must be composed with the last (uppermost) transform
-    // at the front.
-    SmallVector<Attribute, 5> transforms;
-    SmallVector<TransformOp, 5> transformOpStack;
-    {
-      Operation *beforeFirstTransform = firstTransform.input().getDefiningOp();
-      Operation *currentOp = lastTransform.getOperation();
-      while (currentOp != beforeFirstTransform) {
-        auto currentTransform = cast<TransformOp>(currentOp);
-        transformOpStack.push_back(currentTransform);
-        // verify() would've failed if we couldn't cast<> these
-        for (Attribute attr : currentTransform.transforms()) {
-          TransformMapAttr ta = attr.cast<TransformMapAttr>();
-          transforms.push_back(ta);
-        }
-        currentOp = currentTransform.input().getDefiningOp();
-      }
-    }
-
-    // Check module-level invariants before applying the rewrite
-    for (OpOperand &use : lastTransform.output().getUses()) {
-      uint32_t argNum = use.getOperandNumber();
-      Operation *useOp = use.getOwner();
-      if (auto useTransforms =
-              useOp->getAttr("transforms").dyn_cast_or_null<ArrayAttr>()) {
-        if (useTransforms.size() <= argNum && !isa<TransformOp>(useOp)) {
-          useOp->emitOpError("The transforms attribute does not have an entry "
-                             "for each transformed argument");
-        }
-      } else {
-        return useOp->emitOpError(
-            "Operation taking a miopen.transform()'ed argument does not have a "
-            "transforms attribute in which to place the transforms");
-      }
-    }
-
-    // And now actually do the amendments
-    for (OpOperand &use : lastTransform.output().getUses()) {
-      uint32_t argNum = use.getOperandNumber();
-      Operation *useOp = use.getOwner();
-      auto argTransforms = useOp->getAttrOfType<ArrayAttr>("transforms");
-
-      // Edge case: A transformed value is transformed in multiple ways
-      if (auto useTransform = dyn_cast<TransformOp>(useOp)) {
-        // The new set of transformations is the composition we're removing
-        // going below/after the transforms this operation defines
-        llvm::SmallVector<Attribute, 5> newTransforms;
-        std::copy(argTransforms.begin(), argTransforms.end(),
-                  std::back_inserter(newTransforms));
-        newTransforms.append(transforms);
-        useTransform->setAttr("transforms", b.getArrayAttr(newTransforms));
-      } else {
-        ArrayAttr thisArgTransforms = argTransforms[argNum].cast<ArrayAttr>();
-        ArrayAttr newTransformsAttr;
-        if (thisArgTransforms.size() == 0) {
-          newTransformsAttr = b.getArrayAttr(transforms);
-        } else {
-          // The set of transformations is those being applied to the output of
-          // the output transformation followed by those this chain of
-          // transformations is performing.
-          llvm::SmallVector<Attribute, 5> newTransforms;
-          std::copy(thisArgTransforms.begin(), thisArgTransforms.end(),
-                    std::back_inserter(newTransforms));
-          newTransforms.append(transforms);
-          newTransformsAttr = b.getArrayAttr(newTransforms);
-        }
-        useOp->setAttr("transforms", argTransforms.replaceImmediateSubAttribute(
-                                         {{argNum, newTransformsAttr}}));
-      }
-    }
-
-    Value replacement = firstTransform.input();
-    lastTransform.output().replaceAllUsesWith(replacement);
-    b.replaceOp(lastTransform, {replacement});
-
-    // The stack of transformations will now remove itself by canonicalization
-    return success();
-  }
-};
-
-// XXX: Figure out a way to do away with isThreadwiseLoad parameter.
-template <typename T, typename U>
-static void affixThreadwiseCopyAttributes(T &top, U &bop, OpBuilder &b,
-                                          bool isThreadwiseLoad) {
-  if (isThreadwiseLoad) {
-    top->setAttr("vector_read_write_dim",
-                 bop->getAttr("source_vector_read_dim"));
-    top->setAttr("source_data_per_read", bop->getAttr("source_data_per_read"));
-    top->setAttr("dest_data_per_write", bop->getAttr("dest_data_per_write"));
-  } else {
-    top->setAttr("vector_read_write_dim",
-                 bop->getAttr("dest_vector_write_dim"));
-    top->setAttr("source_data_per_read", bop->getAttr("source_data_per_read"));
-    top->setAttr("dest_data_per_write", bop->getAttr("dest_data_per_write"));
-  }
-}
-
-// XXX: figure out a better way to get rid of isMatrixA parameter.
-void affixThreadwiseCopyAttributes(ThreadwiseCopyOp top, BlockwiseGemmOp bop,
-                                   OpBuilder &b, bool isMatrixA) {
-  if (isMatrixA) {
-    top->setAttr("n_slice_row", bop->getAttr("k_per_thread"));
-    top->setAttr("n_slice_col", bop->getAttr("m_per_thread"));
-    // XXX: TBD review how vector load/store attributes are passed down.
-    // top->setAttr("data_per_access", bop->getAttr("m_per_thread"));
-    top->setAttr("data_per_access", b.getI32IntegerAttr(1));
-  } else {
-    top->setAttr("n_slice_row", bop->getAttr("k_per_thread"));
-    top->setAttr("n_slice_col", bop->getAttr("n_per_thread"));
-    // XXX: TBD review how vector load/store attributes are passed down.
-    // top->setAttr("data_per_access", bop->getAttr("n_per_thread"));
-    top->setAttr("data_per_access", b.getI32IntegerAttr(1));
-  }
-}
 
 //===----------------------------------------------------------------------===//
 // BlockwiseGemm lowering.
@@ -248,14 +92,12 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
     // Obtain critical matrix dimensions.
     int64_t K = blockAType.getShape()[1];
 
-    auto transformsA = op.transforms()[0].cast<ArrayAttr>();
-    auto transformsB = op.transforms()[1].cast<ArrayAttr>();
+    Value matrixA, matrixB;
+    ArrayAttr transformsA, transformsB;
+    std::tie(matrixA, transformsA) = untransform(b, op.matrixA());
+    std::tie(matrixB, transformsB) = untransform(b, op.matrixB());
 
     ArrayAttr emptyArr = b.getArrayAttr({});
-    auto noPadding =
-        PaddingInfoAttr::get(b.getContext(), 0, 0, 0, BwdPaddingKernelInfo::NA);
-    auto noOobDims = b.getArrayAttr({});
-    IntegerAttr noGlobals = b.getIndexAttr(-1);
     // Non-xdlops path.
 
     // Obtain critical attributes.
@@ -335,7 +177,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
     auto loopOp = b.create<AffineForOp>(loc, 0, loopIteration);
 
     // inside the main loop.
-    auto lb = OpBuilder::atBlockTerminator(loopOp.getBody());
+    auto lb = OpBuilder::atBlockTerminator(loopOp.getBody(), b.getListener());
 
     auto iv = loopOp.getInductionVar();
 
@@ -345,7 +187,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
         lb.create<AffineForOp>(loc, 0, loopReadMatrixAIteration);
 
     // inside read matrix A loop.
-    auto lab = OpBuilder::atBlockTerminator(loopReadMatrixAOp.getBody());
+    auto lab = OpBuilder::atBlockTerminator(loopReadMatrixAOp.getBody(),
+                                            lb.getListener());
 
     auto iva = loopReadMatrixAOp.getInductionVar();
 
@@ -378,14 +221,20 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
           lab.create<MulIOp>(loc, iva, MPerThreadSubCConstantOp)};
     }
 
-    // Emit threadwise_copy.
-    auto threadwiseCopyAMatrixOp = lab.create<ThreadwiseCopyOp>(
-        loc, op.matrixA(), threadAAllocOp,
-        b.getArrayAttr({transformsA, emptyArr}), noPadding, noOobDims,
-        noGlobals, matrixAThreadwiseCopySourceCoords,
-        matrixAThreadwiseCopyDestCoords);
-    affixThreadwiseCopyAttributes(threadwiseCopyAMatrixOp, op, b,
-                                  /*isMatrixA=*/true);
+    auto copyALoop = lab.create<TransformingForOp>(
+        loc,
+        ArrayRef<ValueRange>{matrixAThreadwiseCopySourceCoords,
+                             matrixAThreadwiseCopyDestCoords},
+        ArrayRef<Attribute>{transformsA, emptyArr},
+        ArrayRef<int64_t>{1, KPerThread, MPerThreadSubC},
+        /*forceUnroll=*/true, /*indexDiffs=*/false);
+    OpBuilder copyABuilder =
+        OpBuilder::atBlockTerminator(copyALoop.getBody(), lab.getListener());
+    Value aCopy = copyABuilder.create<memref::LoadOp>(
+        loc, matrixA, copyALoop.getLowerCoords(/*domain=*/0));
+    Value aCast = createTypeConversionOp(copyABuilder, loc, aCopy, elementType);
+    copyABuilder.create<memref::StoreOp>(
+        loc, aCast, threadAAllocOp, copyALoop.getLowerCoords(/*domain=*/1));
 
     // read matrix B loop.
     auto loopReadMatrixBIteration = NRepeat;
@@ -393,7 +242,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
         lb.create<AffineForOp>(loc, 0, loopReadMatrixBIteration);
 
     // inside read matrix B loop.
-    auto lbb = OpBuilder::atBlockTerminator(loopReadMatrixBOp.getBody());
+    auto lbb = OpBuilder::atBlockTerminator(loopReadMatrixBOp.getBody(),
+                                            lb.getListener());
 
     auto ivb = loopReadMatrixBOp.getInductionVar();
 
@@ -426,15 +276,22 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
           lbb.create<MulIOp>(loc, ivb, NPerThreadSubCConstantOp)};
     }
 
-    // Emit threadwise_copy.
-    auto threadwiseCopyBMatrixOp = lbb.create<ThreadwiseCopyOp>(
-        loc, op.matrixB(), threadBAllocOp,
-        b.getArrayAttr({transformsB, emptyArr}), noPadding, noOobDims,
-        noGlobals, matrixBThreadwiseCopySourceCoords,
-        matrixBThreadwiseCopyDestCoords);
-    affixThreadwiseCopyAttributes(threadwiseCopyBMatrixOp, op, b,
-                                  /*isMatrixA=*/false);
+    auto copyBLoop = lbb.create<TransformingForOp>(
+        loc,
+        ArrayRef<ValueRange>{matrixBThreadwiseCopySourceCoords,
+                             matrixBThreadwiseCopyDestCoords},
+        ArrayRef<Attribute>{transformsB, emptyArr},
+        ArrayRef<int64_t>{1, KPerThread, NPerThreadSubC},
+        /*forceUnroll=*/true, /*indexDiffs=*/false);
+    OpBuilder copyBBuilder =
+        OpBuilder::atBlockTerminator(copyBLoop.getBody(), lbb.getListener());
+    Value bCopy = copyBBuilder.create<memref::LoadOp>(
+        loc, matrixB, copyBLoop.getLowerCoords(/*domain=*/0));
+    Value bCast = createTypeConversionOp(copyBBuilder, loc, bCopy, elementType);
+    copyBBuilder.create<memref::StoreOp>(
+        loc, bCast, threadBAllocOp, copyBLoop.getLowerCoords(/*domain=*/1));
 
+    // Actually do the gemm
     lb.create<ThreadwiseGemmOp>(loc, threadAAllocOp, threadBAllocOp,
                                 op.matrixC());
 
@@ -479,9 +336,9 @@ struct BlockwiseGemmV2RewritePattern
       }
 
       auto xdlopsGemmV2Op = b.create<XdlopsGemmV2Op>(
-          loc, resultTypes, op.matrixA(), op.matrixB(), op.transforms(),
-          op.waveOffsetA(), op.waveOffsetB(), op.bufferA(), op.bufferB(),
-          op.vectorCs());
+          loc, resultTypes, op.matrixA(), op.matrixB(), op.ldsBufferOffsetA(),
+          op.ldsBufferOffsetB(), op.waveOffsetA(), op.waveOffsetB(),
+          op.bufferA(), op.bufferB(), op.vectorCs());
 
       xdlopsGemmV2Op->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op->setAttr("n", op->getAttr("n"));
@@ -504,8 +361,9 @@ struct BlockwiseGemmV2RewritePattern
       resultTypes0.push_back(op.vectorDs()[1].getType());
 
       auto xdlopsGemmV2Op0 = b.create<XdlopsGemmV2Op>(
-          loc, resultTypes0, op.matrixA(), op.matrixB(), op.transforms(),
-          op.waveOffsetA(), op.waveOffsetB(), op.bufferA(), op.bufferB(),
+          loc, resultTypes0, op.matrixA(), op.matrixB(), op.ldsBufferOffsetA(),
+          op.ldsBufferOffsetB(), op.waveOffsetA(), op.waveOffsetB(),
+          op.bufferA(), op.bufferB(),
           ValueRange{op.vectorCs()[0], op.vectorCs()[1]});
 
       xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
@@ -524,7 +382,8 @@ struct BlockwiseGemmV2RewritePattern
 
       auto MPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, MPerXdlops);
       auto xdlopsGemmV2Op1 = b.create<XdlopsGemmV2Op>(
-          loc, resultTypes1, op.matrixA(), op.matrixB(), op.transforms(),
+          loc, resultTypes1, op.matrixA(), op.matrixB(), op.ldsBufferOffsetA(),
+          op.ldsBufferOffsetB(),
           b.create<AddIOp>(loc, op.waveOffsetA(), MPerXdlopsConstantOp),
           op.waveOffsetB(), op.bufferA(), op.bufferB(),
           ValueRange{op.vectorCs()[2], op.vectorCs()[3]});
@@ -554,8 +413,9 @@ struct BlockwiseGemmV2RewritePattern
       resultTypes0.push_back(op.vectorDs()[1].getType());
 
       auto xdlopsGemmV2Op0 = b.create<XdlopsGemmV2Op>(
-          loc, resultTypes0, op.matrixA(), op.matrixB(), op.transforms(),
-          op.waveOffsetA(), op.waveOffsetB(), op.bufferA(), op.bufferB(),
+          loc, resultTypes0, op.matrixA(), op.matrixB(), op.ldsBufferOffsetA(),
+          op.ldsBufferOffsetB(), op.waveOffsetA(), op.waveOffsetB(),
+          op.bufferA(), op.bufferB(),
           ValueRange{op.vectorCs()[0], op.vectorCs()[1]});
 
       xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
@@ -574,8 +434,8 @@ struct BlockwiseGemmV2RewritePattern
 
       auto NPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, NPerXdlops);
       auto xdlopsGemmV2Op1 = b.create<XdlopsGemmV2Op>(
-          loc, resultTypes1, op.matrixA(), op.matrixB(), op.transforms(),
-          op.waveOffsetA(),
+          loc, resultTypes1, op.matrixA(), op.matrixB(), op.ldsBufferOffsetA(),
+          op.ldsBufferOffsetB(), op.waveOffsetA(),
           b.create<AddIOp>(loc, op.waveOffsetB(), NPerXdlopsConstantOp),
           op.bufferA(), op.bufferB(),
           ValueRange{op.vectorCs()[2], op.vectorCs()[3]});
@@ -601,57 +461,144 @@ struct BlockwiseGemmV2RewritePattern
 };
 
 //===----------------------------------------------------------------------===//
-// BlockwiseLoad lowering.
+// ThreadwiseCopy lowering.
 //===----------------------------------------------------------------------===//
+struct ThreadwiseCopyRewritePattern
+    : public OpRewritePattern<ThreadwiseCopyOp> {
+  using OpRewritePattern<ThreadwiseCopyOp>::OpRewritePattern;
 
-struct BlockwiseLoadRewritePattern : public OpRewritePattern<BlockwiseLoadOp> {
-  using OpRewritePattern<BlockwiseLoadOp>::OpRewritePattern;
+  //===----------------------------------------------------------------------===//
+  // FIXME. XXX.
+  // Force the use of affine maps over index maps in the presence of padding on
+  // GEMM during threadwise load/store/copy when the gemm is padded due to bugs
+  // in the index diff map implementation (or incompletenesses in it?)
+  //===----------------------------------------------------------------------===//
+  bool overrideLoadStoreHack(const PaddingInfoAttr paddingInfo,
+                             bool original) const {
+    if (paddingInfo.getExtraM() > 0 || paddingInfo.getExtraK() > 0 ||
+        paddingInfo.getExtraN() > 0) {
+      return true;
+    }
+    return original;
+  }
 
-  LogicalResult matchAndRewrite(BlockwiseLoadOp op,
+  LogicalResult matchAndRewrite(ThreadwiseCopyOp op,
                                 PatternRewriter &b) const override {
-    auto loc = op.getLoc();
-    TypeRange resultTypes = op.result().getTypes();
+    Location loc = op.getLoc();
 
-    // BlockwiseLoad only accepts the following data movement:
-    // - 0 (global) -> 5 (register) : load
+    ArrayAttr oobDims = op.oobDims();
+    PaddingInfoAttr paddingInfo = op.paddingInfo();
 
-    // Threadwise copy from global (generic tensor) to register (naive
-    // tensor).
+    ArrayAttr srcTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
+    ArrayAttr destTransformsOnOp = op.transforms()[1].cast<ArrayAttr>();
+    Value source, dest;
+    ArrayAttr srcTransforms, destTransforms;
+    std::tie(source, srcTransforms) =
+        untransform(b, op.source(), srcTransformsOnOp);
+    std::tie(dest, destTransforms) =
+        untransform(b, op.dest(), destTransformsOnOp);
+    MemRefType sourceType = source.getType().cast<MemRefType>();
+    MemRefType destType = dest.getType().cast<MemRefType>();
 
-    auto threadwiseLoadOp = b.create<ThreadwiseLoadOp>(
-        loc, resultTypes, op.source(), op.bounds(), op.transforms(),
-        op.paddingInfo(), op.oobDims(), op.sourceCoord());
-    affixThreadwiseCopyAttributes(threadwiseLoadOp, op, b,
-                                  /*isThreadwiseLoad=*/true);
+    bool legacyLoad = op.legacyLoad().getValueOr(false);
+    bool legacyStore = op.legacyStore().getValueOr(false);
+    legacyLoad = overrideLoadStoreHack(paddingInfo, legacyLoad);
+    legacyStore = overrideLoadStoreHack(paddingInfo, legacyStore);
+    bool useIndexDiffs = !(legacyLoad || legacyStore);
 
-    op.replaceAllUsesWith(threadwiseLoadOp.getResults());
-    op.erase();
+    TransformingForOp loop = b.create<TransformingForOp>(
+        loc, ArrayRef<ValueRange>{op.sourceCoord(), op.destCoord()},
+        ArrayRef<Attribute>{srcTransforms, destTransforms}, op.bounds(),
+        /*forceUnroll=*/true, useIndexDiffs);
+    PatternRewriter::InsertionGuard loopGuard(b);
+    b.setInsertionPointToStart(loop.getBody());
+
+    bool loadGlobal = sourceType.getMemorySpaceAsInt() == 0;
+    bool storeGlobal = destType.getMemorySpaceAsInt() == 0;
+
+    Value loaded;
+    if (loadGlobal)
+      loaded =
+          b.create<BufferLoadOp>(loc, sourceType.getElementType(), source,
+                                 oobDims, loop.getLowerCoords(/*domain=*/0));
+    else
+      loaded = b.create<memref::LoadOp>(loc, source,
+                                        loop.getLowerCoords(/*domain=*/0));
+    Value cast =
+        createTypeConversionOp(b, loc, loaded, destType.getElementType());
+    if (storeGlobal)
+      b.create<BufferStoreOp>(loc, cast, dest, oobDims,
+                              loop.getLowerCoords(/*domain=*/1), paddingInfo,
+                              /*dataOperation=*/nullptr);
+    else
+      b.create<memref::StoreOp>(loc, cast, dest,
+                                loop.getLowerCoords(/*domain=*/1));
+
+    b.eraseOp(op);
     return success();
   }
 };
 
 //===----------------------------------------------------------------------===//
-// BlockwiseStore lowering.
+// ThreadwiseCopyV2 lowering.
 //===----------------------------------------------------------------------===//
-
-struct BlockwiseStoreRewritePattern
-    : public OpRewritePattern<BlockwiseStoreOp> {
-  using OpRewritePattern<BlockwiseStoreOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(BlockwiseStoreOp op,
+struct ThreadwiseCopyV2RewritePattern
+    : public OpRewritePattern<ThreadwiseCopyV2Op> {
+  using OpRewritePattern<ThreadwiseCopyV2Op>::OpRewritePattern;
+  LogicalResult matchAndRewrite(ThreadwiseCopyV2Op op,
                                 PatternRewriter &b) const override {
-    auto loc = op.getLoc();
-    // BlockwiseLoad only accepts the following data movement:
-    // - 5 (register) -> 3 (LDS) : store
+    Location loc = op.getLoc();
 
-    // Threadwise copy from register (naive tensor) to LDS (naive tensor).
-    auto threadwiseStoreOp =
-        b.create<ThreadwiseStoreOp>(loc, op.dest(), op.bounds(),
-                                    op.transforms(), op.data(), op.destCoord());
-    affixThreadwiseCopyAttributes(threadwiseStoreOp, op, b,
-                                  /*isThreadwiseLoad=*/false);
+    int64_t dataPerCopy =
+        op->getAttrOfType<IntegerAttr>("data_per_copy").getInt();
 
-    op.erase();
+    // threadwise_copy_v2 provides its bounds without regard to vectorization
+    // fix this here
+    SmallVector<int64_t, 6> bounds;
+    llvm::transform(op.bounds().getAsRange<IntegerAttr>(),
+                    std::back_inserter(bounds),
+                    [](const IntegerAttr &v) -> int64_t { return v.getInt(); });
+    int64_t vecDim =
+        op->getAttrOfType<IntegerAttr>("upper_vector_read_dim").getInt();
+    if (vecDim >= 0) {
+      assert(bounds[vecDim] % dataPerCopy == 0 &&
+             "Uneven vectorization in threadwise_copy_v2");
+      bounds[vecDim] /= dataPerCopy;
+    }
+
+    ArrayAttr srcTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
+    ArrayAttr destTransformsOnOp = op.transforms()[1].cast<ArrayAttr>();
+    Value source, dest;
+    ArrayAttr srcTransforms, destTransforms;
+    std::tie(source, srcTransforms) =
+        untransform(b, op.source(), srcTransformsOnOp);
+    std::tie(dest, destTransforms) =
+        untransform(b, op.dest(), destTransformsOnOp);
+    VectorType sourceType = source.getType().cast<VectorType>();
+    MemRefType destType = dest.getType().cast<MemRefType>();
+
+    Type typeToLoad, typeToStore;
+    if (dataPerCopy == 1) {
+      typeToLoad = sourceType.getElementType();
+      typeToStore = destType.getElementType();
+    } else {
+      typeToLoad = sourceType.clone({dataPerCopy});
+      typeToStore = VectorType::get({dataPerCopy}, destType.getElementType());
+    }
+
+    auto loop = b.create<TransformingForOp>(
+        loc, ArrayRef<ValueRange>{op.sourceCoord(), op.destCoord()},
+        ArrayRef<Attribute>{srcTransforms, destTransforms}, bounds,
+        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+    PatternRewriter::InsertionGuard guard(b);
+    b.setInsertionPointToStart(loop.getBody());
+    Value loaded = b.create<ExtractSliceOp>(
+        loc, typeToLoad, source, loop.getLowerCoords(/*domain=*/0)[0]);
+    Value cast = createTypeConversionOp(b, loc, loaded, typeToStore);
+    b.create<BufferStoreOp>(loc, cast, dest, op.destOobDims(),
+                            loop.getLowerCoords(/*domain=*/1), op.paddingInfo(),
+                            op.storeMethodAttr());
+    b.eraseOp(op);
     return success();
   }
 };
@@ -659,9 +606,9 @@ struct BlockwiseStoreRewritePattern
 void LowerMIOpenOpsStep3Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   RewritePatternSet patterns(ctx);
-  patterns.add<FillRewritePattern, TransformRewritePattern,
-               BlockwiseGemmRewritePattern, BlockwiseGemmV2RewritePattern,
-               BlockwiseLoadRewritePattern, BlockwiseStoreRewritePattern>(ctx);
+  patterns.add<FillRewritePattern, BlockwiseGemmRewritePattern,
+               BlockwiseGemmV2RewritePattern, ThreadwiseCopyRewritePattern,
+               ThreadwiseCopyV2RewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }

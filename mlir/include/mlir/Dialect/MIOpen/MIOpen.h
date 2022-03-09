@@ -27,6 +27,9 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/TypeID.h"
 
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "mlir/Interfaces/DerivedAttributeOpInterface.h"
+#include "mlir/Interfaces/LoopLikeInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Interfaces/VectorInterfaces.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"

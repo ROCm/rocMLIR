@@ -87,264 +87,365 @@ func @miopen_blockwise_gemm(%A : memref<?x?x?xf32, 3>, %B : memref<?x?x?xf32, 3>
 }
 
 // --------------------------
-// blockwise_load tests.
+// buffer_load tests.
 
 // f32 tests.
 
-func @miopen_blockwise_load_f32(%source : memref<?x?x?xf32>, %sc0 : index, %sc1 : index, %sc2 : index) -> f32  {
-  %result = miopen.blockwise_load %source[%sc0, %sc1, %sc2] with [[]] {
-    paddingInfo = #gemm_padding0,
-    bounds = [1 : index, 1 : index, 1 : index],
-    oobDims = [false, false, false, false, false]
+func @miopen_buffer_load_f32(%source : memref<?x?x?xf32>, %sc0 : index, %sc1 : index, %sc2 : index) -> f32  {
+  %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
+    oobDims = [false, false, false]
   } : memref<?x?x?xf32>, index, index, index -> f32
   return %result : f32
 }
 
-// CHECK-LABEL: func @miopen_blockwise_load_f32
-//  CHECK: %{{.*}} = miopen.blockwise_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] {{.*}} : memref<?x?x?xf32>, index, index, index -> f32
+// CHECK-LABEL: func @miopen_buffer_load_f32
+// CHECK: %{{.*}} = miopen.buffer_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] {{.*}} : memref<?x?x?xf32>, index, index, index -> f32
 
-func @miopen_blockwise_load_2xf32(%source : memref<?x?x?xf32>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<2xf32>  {
-  %result = miopen.blockwise_load %source[%sc0, %sc1, %sc2] with [[]] {
-    paddingInfo = #gemm_padding0,
-    bounds = [1 : index, 1 : index, 1 : index],
-    oobDims = [false, false, false, false, false]
+func @miopen_buffer_load_2xf32(%source : memref<?x?x?xf32>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<2xf32>  {
+  %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
+    oobDims = [false, false, false]
   } : memref<?x?x?xf32>, index, index, index -> vector<2xf32>
   return %result : vector<2xf32>
 }
 
-// CHECK-LABEL: func @miopen_blockwise_load_2xf32
-//  CHECK: %{{.*}} = miopen.blockwise_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : memref<?x?x?xf32>, index, index, index -> vector<2xf32>
+// CHECK-LABEL: func @miopen_buffer_load_2xf32
+// CHECK: %{{.*}} = miopen.buffer_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] {{.*}} : memref<?x?x?xf32>, index, index, index -> vector<2xf32>
 
-func @miopen_blockwise_load_4xf32(%source : memref<?x?x?xf32>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<4xf32>  {
-  %result = miopen.blockwise_load %source[%sc0, %sc1, %sc2] with [[]] {
-    paddingInfo = #gemm_padding0,
-    bounds = [1 : index, 1 : index, 1 : index],
-    oobDims = [false, false, false, false, false]
+func @miopen_buffer_load_4xf32(%source : memref<?x?x?xf32>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<4xf32>  {
+  %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
+    oobDims = [false, false, false]
   } : memref<?x?x?xf32>, index, index, index -> vector<4xf32>
   return %result : vector<4xf32>
 }
 
-// CHECK-LABEL: func @miopen_blockwise_load_4xf32
-//  CHECK: %{{.*}} = miopen.blockwise_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : memref<?x?x?xf32>, index, index, index -> vector<4xf32>
+// CHECK-LABEL: func @miopen_buffer_load_4xf32
+// CHECK: %{{.*}} = miopen.buffer_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] {{.*}} : memref<?x?x?xf32>, index, index, index -> vector<4xf32>
 
 // f16 tests.
 
-func @miopen_blockwise_load_f16(%source : memref<?x?x?xf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> f16  {
-  %result = miopen.blockwise_load %source[%sc0, %sc1, %sc2] with [[]] {
-    paddingInfo = #gemm_padding0,
-    bounds = [1 : index, 1 : index, 1 : index],
-    oobDims = [false, false, false, false, false]
+func @miopen_buffer_load_f16(%source : memref<?x?x?xf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> f16  {
+  %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
+    oobDims = [false, false, false]
   } : memref<?x?x?xf16>, index, index, index -> f16
   return %result : f16
 }
 
-// CHECK-LABEL: func @miopen_blockwise_load_f16
-//  CHECK: %{{.*}} = miopen.blockwise_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : memref<?x?x?xf16>, index, index, index -> f16
+// CHECK-LABEL: func @miopen_buffer_load_f16
+// CHECK: %{{.*}} = miopen.buffer_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] {{.*}} : memref<?x?x?xf16>, index, index, index -> f16
 
-func @miopen_blockwise_load_2xf16(%source : memref<?x?x?xf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<2xf16>  {
-  %result = miopen.blockwise_load %source[%sc0, %sc1, %sc2] with [[]] {
-    paddingInfo = #gemm_padding0,
-    bounds = [1 : index, 1 : index, 1 : index],
-    oobDims = [false, false, false, false, false]
+func @miopen_buffer_load_2xf16(%source : memref<?x?x?xf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<2xf16>  {
+  %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
+    oobDims = [false, false, false]
   } : memref<?x?x?xf16>, index, index, index -> vector<2xf16>
   return %result : vector<2xf16>
 }
 
-// CHECK-LABEL: func @miopen_blockwise_load_2xf16
-//  CHECK: %{{.*}} = miopen.blockwise_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : memref<?x?x?xf16>, index, index, index -> vector<2xf16>
+// CHECK-LABEL: func @miopen_buffer_load_2xf16
+// CHECK: %{{.*}} = miopen.buffer_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] {{.*}} : memref<?x?x?xf16>, index, index, index -> vector<2xf16>
 
-func @miopen_blockwise_load_4xf16(%source : memref<?x?x?xf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<4xf16>  {
-  %result = miopen.blockwise_load %source[%sc0, %sc1, %sc2] with [[]] {
-    paddingInfo = #gemm_padding0,
-    bounds = [1 : index, 1 : index, 1 : index],
-    oobDims = [false, false, false, false, false]
+func @miopen_buffer_load_4xf16(%source : memref<?x?x?xf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<4xf16>  {
+  %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
+    oobDims = [false, false, false]
   } : memref<?x?x?xf16>, index, index, index -> vector<4xf16>
   return %result : vector<4xf16>
 }
 
-// CHECK-LABEL: func @miopen_blockwise_load_4xf16
-//  CHECK: %{{.*}} = miopen.blockwise_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : memref<?x?x?xf16>, index, index, index -> vector<4xf16>
+// CHECK-LABEL: func @miopen_buffer_load_4xf16
+// CHECK: %{{.*}} = miopen.buffer_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] {{.*}} : memref<?x?x?xf16>, index, index, index -> vector<4xf16>
 
-func @miopen_blockwise_load_8xf16(%source : memref<?x?x?xf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<8xf16>  {
-  %result = miopen.blockwise_load %source[%sc0, %sc1, %sc2] with [[]] {
-    paddingInfo = #gemm_padding0,
-    bounds = [1 : index, 1 : index, 1 : index],
-    oobDims = [false, false, false, false, false]
+func @miopen_buffer_load_8xf16(%source : memref<?x?x?xf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<8xf16>  {
+  %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
+    oobDims = [false, false, false]
   } : memref<?x?x?xf16>, index, index, index -> vector<8xf16>
   return %result : vector<8xf16>
 }
 
-// CHECK-LABEL: func @miopen_blockwise_load_8xf16
-//  CHECK: %{{.*}} = miopen.blockwise_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : memref<?x?x?xf16>, index, index, index -> vector<8xf16>
+// CHECK-LABEL: func @miopen_buffer_load_8xf16
+// CHECK: %{{.*}} = miopen.buffer_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] {{.*}} : memref<?x?x?xf16>, index, index, index -> vector<8xf16>
 
 // bf16 tests.
 
-func @miopen_blockwise_load_bf16(%source : memref<?x?x?xbf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> bf16  {
-  %result = miopen.blockwise_load %source[%sc0, %sc1, %sc2] with [[]] {
-    paddingInfo = #gemm_padding0,
-    bounds = [1 : index, 1 : index, 1 : index],
-    oobDims = [false, false, false, false, false]
+func @miopen_buffer_load_bf16(%source : memref<?x?x?xbf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> bf16  {
+  %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
+    oobDims = [false, false, false]
   } : memref<?x?x?xbf16>, index, index, index -> bf16
   return %result : bf16
 }
 
-// CHECK-LABEL: func @miopen_blockwise_load_bf16
-//  CHECK: %{{.*}} = miopen.blockwise_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : memref<?x?x?xbf16>, index, index, index -> bf16
+// CHECK-LABEL: func @miopen_buffer_load_bf16
+// CHECK: %{{.*}} = miopen.buffer_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] {{.*}} : memref<?x?x?xbf16>, index, index, index -> bf16
 
-func @miopen_blockwise_load_2xbf16(%source : memref<?x?x?xbf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<2xbf16>  {
-  %result = miopen.blockwise_load %source[%sc0, %sc1, %sc2] with [[]] {
-    paddingInfo = #gemm_padding0,
-    bounds = [1 : index, 1 : index, 1 : index],
-    oobDims = [false, false, false, false, false]
+func @miopen_buffer_load_2xbf16(%source : memref<?x?x?xbf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<2xbf16>  {
+  %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
+    oobDims = [false, false, false]
   } : memref<?x?x?xbf16>, index, index, index -> vector<2xbf16>
   return %result : vector<2xbf16>
 }
 
-// CHECK-LABEL: func @miopen_blockwise_load_2xbf16
-//  CHECK: %{{.*}} = miopen.blockwise_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : memref<?x?x?xbf16>, index, index, index -> vector<2xbf16>
+// CHECK-LABEL: func @miopen_buffer_load_2xbf16
+// CHECK: %{{.*}} = miopen.buffer_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] {{.*}} : memref<?x?x?xbf16>, index, index, index -> vector<2xbf16>
 
-func @miopen_blockwise_load_4xbf16(%source : memref<?x?x?xbf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<4xbf16>  {
-  %result = miopen.blockwise_load %source[%sc0, %sc1, %sc2] with [[]] {
-    paddingInfo = #gemm_padding0,
-    bounds = [1 : index, 1 : index, 1 : index],
-    oobDims = [false, false, false, false, false]
+func @miopen_buffer_load_4xbf16(%source : memref<?x?x?xbf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<4xbf16>  {
+  %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
+    oobDims = [false, false, false]
   } : memref<?x?x?xbf16>, index, index, index -> vector<4xbf16>
   return %result : vector<4xbf16>
 }
 
-// CHECK-LABEL: func @miopen_blockwise_load_4xbf16
-//  CHECK: %{{.*}} = miopen.blockwise_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : memref<?x?x?xbf16>, index, index, index -> vector<4xbf16>
+// CHECK-LABEL: func @miopen_buffer_load_4xbf16
+// CHECK: %{{.*}} = miopen.buffer_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] {{.*}} : memref<?x?x?xbf16>, index, index, index -> vector<4xbf16>
 
-func @miopen_blockwise_load_8xbf16(%source : memref<?x?x?xbf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<8xbf16>  {
-  %result = miopen.blockwise_load %source[%sc0, %sc1, %sc2] with [[]] {
-    paddingInfo = #gemm_padding0,
-    bounds = [1 : index, 1 : index, 1 : index],
-    oobDims = [false, false, false, false, false]
+func @miopen_buffer_load_8xbf16(%source : memref<?x?x?xbf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<8xbf16>  {
+  %result = miopen.buffer_load %source[%sc0, %sc1, %sc2]  {
+    oobDims = [false, false, false]
   } : memref<?x?x?xbf16>, index, index, index -> vector<8xbf16>
   return %result : vector<8xbf16>
 }
 
-// CHECK-LABEL: func @miopen_blockwise_load_8xbf16
-//  CHECK: %{{.*}} = miopen.blockwise_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : memref<?x?x?xbf16>, index, index, index -> vector<8xbf16>
+// CHECK-LABEL: func @miopen_buffer_load_8xbf16
+// CHECK: %{{.*}} = miopen.buffer_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] {{.*}} : memref<?x?x?xbf16>, index, index, index -> vector<8xbf16>
+
+// i8 tests.
+
+func @miopen_buffer_load_i8(%source : memref<?x?x?xi8>, %sc0 : index, %sc1 : index, %sc2 : index) -> i8  {
+  %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
+    oobDims = [false, false, false]
+  } : memref<?x?x?xi8>, index, index, index -> i8
+  return %result : i8
+}
+
+// CHECK-LABEL: func @miopen_buffer_load_i8
+// CHECK: %{{.*}} = miopen.buffer_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] {{.*}} : memref<?x?x?xi8>, index, index, index -> i8
+
+func @miopen_buffer_load_4xi8(%source : memref<?x?x?xi8>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<4xi8>  {
+  %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
+    oobDims = [false, false, false]
+  } : memref<?x?x?xi8>, index, index, index -> vector<4xi8>
+  return %result : vector<4xi8>
+}
+
+// CHECK-LABEL: func @miopen_buffer_load_4xi8
+// CHECK: %{{.*}} = miopen.buffer_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] {{.*}} : memref<?x?x?xi8>, index, index, index -> vector<4xi8>
+
+// i32 tests.
+
+func @miopen_buffer_load_i32(%source : memref<?x?x?xi32>, %sc0 : index, %sc1 : index, %sc2 : index) -> i32  {
+  %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
+    oobDims = [false, false, false]
+  } : memref<?x?x?xi32>, index, index, index -> i32
+  return %result : i32
+}
+
+// CHECK-LABEL: func @miopen_buffer_load_i32
+// CHECK: %{{.*}} = miopen.buffer_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] {{.*}} : memref<?x?x?xi32>, index, index, index -> i32
+
+func @miopen_buffer_load_2xi32(%source : memref<?x?x?xi32>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<2xi32>  {
+  %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
+    oobDims = [false, false, false]
+  } : memref<?x?x?xi32>, index, index, index -> vector<2xi32>
+  return %result : vector<2xi32>
+}
+
+// CHECK-LABEL: func @miopen_buffer_load_2xi32
+// CHECK: %{{.*}} = miopen.buffer_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] {{.*}} : memref<?x?x?xi32>, index, index, index -> vector<2xi32>
+
+func @miopen_buffer_load_4xi32(%source : memref<?x?x?xi32>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<4xi32>  {
+  %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
+    oobDims = [false, false, false]
+  } : memref<?x?x?xi32>, index, index, index -> vector<4xi32>
+  return %result : vector<4xi32>
+}
+
+// CHECK-LABEL: func @miopen_buffer_load_4xi32
+// CHECK: %{{.*}} = miopen.buffer_load %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] {{.*}} : memref<?x?x?xi32>, index, index, index -> vector<4xi32>
 
 // --------------------------
-// blockwise_store tests.
+// buffer_store tests
 
 // f32 tests.
 
-func @miopen_blockwise_store_f32(%data : f32, %dest : memref<?x?x?xf32, 3>, %dc0 : index, %dc1 : index, %dc2 : index) {
-  miopen.blockwise_store %data -> %dest[%dc0, %dc1, %dc2]
-  with [[]] { bounds = [1 : index, 1 : index, 1 : index ]}
-  : f32 -> memref<?x?x?xf32, 3>, index, index, index
+func @miopen_buffer_store_f32(%data: f32, %dest: memref<1x1x1x1x16xf32>, %idx: index) {
+  %c0 = arith.constant 0 : index
+  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+    {oobDims = [false, false, false, false, false]}
+    : f32 -> memref<1x1x1x1x16xf32>, index, index, index, index, index
   return
 }
 
-// CHECK-LABEL: func @miopen_blockwise_store_f32
-//  CHECK: miopen.blockwise_store %{{.*}} ->  %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : f32 -> memref<?x?x?xf32, 3>, index, index, index
+// CHECK-LABEL: func @miopen_buffer_store_f32
+// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
 
-func @miopen_blockwise_store_2xf32(%data : vector<2xf32>, %dest : memref<?x?x?xf32, 3>, %dc0 : index, %dc1 : index, %dc2 : index) {
-  miopen.blockwise_store %data -> %dest[%dc0, %dc1, %dc2]
-  with [[]] { bounds = [1 : index, 1 : index, 1 : index ]}
-  : vector<2xf32> -> memref<?x?x?xf32, 3>, index, index, index
+func @miopen_buffer_store_2xf32(%data: vector<2xf32>, %dest: memref<1x1x1x1x16xf32>, %idx: index) {
+  %c0 = arith.constant 0 : index
+  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+    {oobDims = [false, false, false, false, false]}
+    : vector<2xf32> -> memref<1x1x1x1x16xf32>, index, index, index, index, index
   return
 }
 
-// CHECK-LABEL: func @miopen_blockwise_store_2xf32
-//  CHECK: miopen.blockwise_store %{{.*}} ->  %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : vector<2xf32> -> memref<?x?x?xf32, 3>, index, index, index
+// CHECK-LABEL: func @miopen_buffer_store_2xf32
+// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
 
-func @miopen_blockwise_store_4xf32(%data : vector<4xf32>, %dest : memref<?x?x?xf32, 3>, %dc0 : index, %dc1 : index, %dc2 : index) {
-  miopen.blockwise_store %data -> %dest[%dc0, %dc1, %dc2]
-  with [[]] { bounds = [1 : index, 1 : index, 1 : index ]}
-  : vector<4xf32> -> memref<?x?x?xf32, 3>, index, index, index
+func @miopen_buffer_store_4xf32(%data: vector<4xf32>, %dest: memref<1x1x1x1x16xf32>, %idx: index) {
+  %c0 = arith.constant 0 : index
+  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+    {oobDims = [false, false, false, false, false]}
+    : vector<4xf32> -> memref<1x1x1x1x16xf32>, index, index, index, index, index
   return
 }
 
-// CHECK-LABEL: func @miopen_blockwise_store_4xf32
-//  CHECK: miopen.blockwise_store %{{.*}} ->  %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : vector<4xf32> -> memref<?x?x?xf32, 3>, index, index, index
+// CHECK-LABEL: func @miopen_buffer_store_4xf32
+// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
 
 // f16 tests.
 
-func @miopen_blockwise_store_f16(%data : f16, %dest : memref<?x?x?xf16, 3>, %dc0 : index, %dc1 : index, %dc2 : index) {
-  miopen.blockwise_store %data -> %dest[%dc0, %dc1, %dc2]
-  with [[]] { bounds = [1 : index, 1 : index, 1 : index ]}
-  : f16 -> memref<?x?x?xf16, 3>, index, index, index
+func @miopen_buffer_store_f16(%data: f16, %dest: memref<1x1x1x1x16xf16>, %idx: index) {
+  %c0 = arith.constant 0 : index
+  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+    {oobDims = [false, false, false, false, false]}
+    : f16 -> memref<1x1x1x1x16xf16>, index, index, index, index, index
   return
 }
 
-// CHECK-LABEL: func @miopen_blockwise_store_f16
-//  CHECK: miopen.blockwise_store %{{.*}} ->  %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : f16 -> memref<?x?x?xf16, 3>, index, index, index
+// CHECK-LABEL: func @miopen_buffer_store_f16
+// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
 
-func @miopen_blockwise_store_2xf16(%data : vector<2xf16>, %dest : memref<?x?x?xf16, 3>, %dc0 : index, %dc1 : index, %dc2 : index) {
-  miopen.blockwise_store %data -> %dest[%dc0, %dc1, %dc2]
-  with [[]] { bounds = [1 : index, 1 : index, 1 : index ]}
-  : vector<2xf16> -> memref<?x?x?xf16, 3>, index, index, index
+func @miopen_buffer_store_2xf16(%data: vector<2xf16>, %dest: memref<1x1x1x1x16xf16>, %idx: index) {
+  %c0 = arith.constant 0 : index
+  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+    {oobDims = [false, false, false, false, false]}
+    : vector<2xf16> -> memref<1x1x1x1x16xf16>, index, index, index, index, index
   return
 }
 
-// CHECK-LABEL: func @miopen_blockwise_store_2xf16
-//  CHECK: miopen.blockwise_store %{{.*}} ->  %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}}  : vector<2xf16> -> memref<?x?x?xf16, 3>, index, index, index
+// CHECK-LABEL: func @miopen_buffer_store_2xf16
+// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
 
-func @miopen_blockwise_store_4xf16(%data : vector<4xf16>, %dest : memref<?x?x?xf16, 3>, %dc0 : index, %dc1 : index, %dc2 : index) {
-  miopen.blockwise_store %data -> %dest[%dc0, %dc1, %dc2]
-  with [[]] { bounds = [1 : index, 1 : index, 1 : index ]}
-  : vector<4xf16> -> memref<?x?x?xf16, 3>, index, index, index
+func @miopen_buffer_store_4xf16(%data: vector<4xf16>, %dest: memref<1x1x1x1x16xf16>, %idx: index) {
+  %c0 = arith.constant 0 : index
+  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+    {oobDims = [false, false, false, false, false]}
+    : vector<4xf16> -> memref<1x1x1x1x16xf16>, index, index, index, index, index
   return
 }
 
-// CHECK-LABEL: func @miopen_blockwise_store_4xf16
-//  CHECK: miopen.blockwise_store %{{.*}} ->  %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : vector<4xf16> -> memref<?x?x?xf16, 3>, index, index, index
+// CHECK-LABEL: func @miopen_buffer_store_4xf16
+// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
 
-func @miopen_blockwise_store_8xf16(%data : vector<8xf16>, %dest : memref<?x?x?xf16, 3>, %dc0 : index, %dc1 : index, %dc2 : index) {
-  miopen.blockwise_store %data -> %dest[%dc0, %dc1, %dc2]
-  with [[]] { bounds = [1 : index, 1 : index, 1 : index ]}
-  : vector<8xf16> -> memref<?x?x?xf16, 3>, index, index, index
+func @miopen_buffer_store_8xf16(%data: vector<8xf16>, %dest: memref<1x1x1x1x16xf16>, %idx: index) {
+  %c0 = arith.constant 0 : index
+  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+    {oobDims = [false, false, false, false, false]}
+    : vector<8xf16> -> memref<1x1x1x1x16xf16>, index, index, index, index, index
   return
 }
 
-// CHECK-LABEL: func @miopen_blockwise_store_8xf16
-//  CHECK: miopen.blockwise_store %{{.*}} ->  %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : vector<8xf16> -> memref<?x?x?xf16, 3>, index, index, index
+// CHECK-LABEL: func @miopen_buffer_store_8xf16
+// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
 
 // bf16 tests.
 
-func @miopen_blockwise_store_bf16(%data : bf16, %dest : memref<?x?x?xbf16, 3>, %dc0 : index, %dc1 : index, %dc2 : index) {
-  miopen.blockwise_store %data -> %dest[%dc0, %dc1, %dc2]
-  with [[]] { bounds = [1 : index, 1 : index, 1 : index ]}
-  : bf16 -> memref<?x?x?xbf16, 3>, index, index, index
+func @miopen_buffer_store_bf16(%data: bf16, %dest: memref<1x1x1x1x16xbf16>, %idx: index) {
+  %c0 = arith.constant 0 : index
+  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+    {oobDims = [false, false, false, false, false]}
+    : bf16 -> memref<1x1x1x1x16xbf16>, index, index, index, index, index
   return
 }
 
-// CHECK-LABEL: func @miopen_blockwise_store_bf16
-//  CHECK: miopen.blockwise_store %{{.*}} ->  %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : bf16 -> memref<?x?x?xbf16, 3>, index, index, index
+// CHECK-LABEL: func @miopen_buffer_store_bf16
+// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
 
-func @miopen_blockwise_store_2xbf16(%data : vector<2xbf16>, %dest : memref<?x?x?xbf16, 3>, %dc0 : index, %dc1 : index, %dc2 : index) {
-  miopen.blockwise_store %data -> %dest[%dc0, %dc1, %dc2]
-  with [[]] { bounds = [1 : index, 1 : index, 1 : index ]}
-  : vector<2xbf16> -> memref<?x?x?xbf16, 3>, index, index, index
+func @miopen_buffer_store_2xbf16(%data: vector<2xbf16>, %dest: memref<1x1x1x1x16xbf16>, %idx: index) {
+  %c0 = arith.constant 0 : index
+  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+    {oobDims = [false, false, false, false, false]}
+    : vector<2xbf16> -> memref<1x1x1x1x16xbf16>, index, index, index, index, index
   return
 }
 
-// CHECK-LABEL: func @miopen_blockwise_store_2xbf16
-//  CHECK: miopen.blockwise_store %{{.*}} ->  %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : vector<2xbf16> -> memref<?x?x?xbf16, 3>, index, index, index
+// CHECK-LABEL: func @miopen_buffer_store_2xbf16
+// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
 
-func @miopen_blockwise_store_4xbf16(%data : vector<4xbf16>, %dest : memref<?x?x?xbf16, 3>, %dc0 : index, %dc1 : index, %dc2 : index) {
-  miopen.blockwise_store %data -> %dest[%dc0, %dc1, %dc2]
-  with [[]] { bounds = [1 : index, 1 : index, 1 : index ]}
-  : vector<4xbf16> -> memref<?x?x?xbf16, 3>, index, index, index
+func @miopen_buffer_store_4xbf16(%data: vector<4xbf16>, %dest: memref<1x1x1x1x16xbf16>, %idx: index) {
+  %c0 = arith.constant 0 : index
+  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+    {oobDims = [false, false, false, false, false]}
+    : vector<4xbf16> -> memref<1x1x1x1x16xbf16>, index, index, index, index, index
   return
 }
 
-// CHECK-LABEL: func @miopen_blockwise_store_4xbf16
-//  CHECK: miopen.blockwise_store %{{.*}} ->  %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : vector<4xbf16> -> memref<?x?x?xbf16, 3>, index, index, index
+// CHECK-LABEL: func @miopen_buffer_store_4xbf16
+// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
 
-func @miopen_blockwise_store_8xbf16(%data : vector<8xbf16>, %dest : memref<?x?x?xbf16, 3>, %dc0 : index, %dc1 : index, %dc2 : index) {
-  miopen.blockwise_store %data -> %dest[%dc0, %dc1, %dc2]
-  with [[]] { bounds = [1 : index, 1 : index, 1 : index ]}
-  : vector<8xbf16> -> memref<?x?x?xbf16, 3>, index, index, index
+func @miopen_buffer_store_8xbf16(%data: vector<8xbf16>, %dest: memref<1x1x1x1x16xbf16>, %idx: index) {
+  %c0 = arith.constant 0 : index
+  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+    {oobDims = [false, false, false, false, false]}
+    : vector<8xbf16> -> memref<1x1x1x1x16xbf16>, index, index, index, index, index
   return
 }
 
-// CHECK-LABEL: func @miopen_blockwise_store_8xbf16
-//  CHECK: miopen.blockwise_store %{{.*}} ->  %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] with {{.*}} : vector<8xbf16> -> memref<?x?x?xbf16, 3>, index, index, index
+// CHECK-LABEL: func @miopen_buffer_store_8xbf16
+// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+
+// i8 tests.
+
+func @miopen_buffer_store_i8(%data: i8, %dest: memref<1x1x1x1x16xi8>, %idx: index) {
+  %c0 = arith.constant 0 : index
+  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+    {oobDims = [false, false, false, false, false]}
+    : i8 -> memref<1x1x1x1x16xi8>, index, index, index, index, index
+          return
+}
+
+// CHECK-LABEL: func @miopen_buffer_store_i8
+// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+
+func @miopen_buffer_store_4xi8(%data: vector<4xi8>, %dest: memref<1x1x1x1x16xi8>, %idx: index) {
+  %c0 = arith.constant 0 : index
+  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+    {oobDims = [false, false, false, false, false]}
+    : vector<4xi8> -> memref<1x1x1x1x16xi8>, index, index, index, index, index
+  return
+}
+
+// CHECK-LABEL: func @miopen_buffer_store_4xi8
+// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+
+// i32 tests.
+func @miopen_buffer_store_i32(%data: i32, %dest: memref<1x1x1x1x16xi32>, %idx: index) {
+  %c0 = arith.constant 0 : index
+  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+    {oobDims = [false, false, false, false, false]}
+    : i32 -> memref<1x1x1x1x16xi32>, index, index, index, index, index
+  return
+}
+
+// CHECK-LABEL: func @miopen_buffer_store_i32
+// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+
+func @miopen_buffer_store_2xi32(%data: vector<2xi32>, %dest: memref<1x1x1x1x16xi32>, %idx: index) {
+  %c0 = arith.constant 0 : index
+  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+    {oobDims = [false, false, false, false, false]}
+    : vector<2xi32> -> memref<1x1x1x1x16xi32>, index, index, index, index, index
+  return
+}
+
+// CHECK-LABEL: func @miopen_buffer_store_2xi32
+// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+
+func @miopen_buffer_store_4xi32(%data: vector<4xi32>, %dest: memref<1x1x1x1x16xi32>, %idx: index) {
+  %c0 = arith.constant 0 : index
+  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+    {oobDims = [false, false, false, false, false]}
+    : vector<4xi32> -> memref<1x1x1x1x16xi32>, index, index, index, index, index
+  return
+}
+
+// CHECK-LABEL: func @miopen_buffer_store_4xi32
+// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
 
 // --------------------------
 // threadwise_copy tests.
@@ -377,7 +478,8 @@ func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : m
     %source[%source_coord_x, %source_coord_y] ->
     %dest[%dest_coord_x, %dest_coord_y]
     with [[], []]
-    {paddingInfo = #gemm_padding0, oobDims=[], globalArg = -1 : index}
+    { paddingInfo = #gemm_padding0, oobDims=[false, false],
+      bounds = [1 : index, 1 : index]}
     : memref<?x?xf32, 5>, index, index -> memref<?x?xf32, 5>, index, index
 
   // -----
@@ -385,10 +487,9 @@ func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : m
   // check source with one coordinate transform.
   miopen.threadwise_copy
     %source_with_transform_maps[%source_coord_x, %source_coord_y] ->
-    %dest[%dest_coord_x, %dest_coord_y]
-    with [[#transform_map0], []]
+    %dest[%dest_coord_x, %dest_coord_y] with [[#transform_map0], []]
     { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
-      globalArg = 0 : index }
+     bounds = [1 : index, 1 : index] }
     : memref<?x?x?x?xf32>, index, index -> memref<?x?xf32, 5>, index, index
 
   // check source with multiple coordinate transforms.
@@ -397,7 +498,7 @@ func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : m
     %dest[%dest_coord_x, %dest_coord_y]
     with [[#transform_map0, #transform_map1], []]
     { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
-      globalArg = 0 : index }
+      bounds = [1 : index, 1 : index] }
     : memref<?x?x?x?xf32>, index, index -> memref<?x?xf32, 5>, index, index
 
   // check destination with one coordinate transform.
@@ -406,7 +507,7 @@ func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : m
     %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
     with [[], [#transform_map0]]
     { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
-      globalArg = 1 : index }
+      bounds = [1 : index, 1 : index] }
     : memref<?x?xf32, 5>, index, index -> memref<?x?x?x?xf32>, index, index
 
   // check destination with multiple coordinate transform.
@@ -415,7 +516,7 @@ func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : m
     %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
     with [[], [#transform_map0, #transform_map1]]
     { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
-      globalArg = 1 : index }
+      bounds = [1 : index, 1 : index] }
     : memref<?x?xf32, 5>, index, index -> memref<?x?x?x?xf32>, index, index
 
   // -----
@@ -426,7 +527,7 @@ func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : m
     %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
     with [[#transform_map0], [#transform_map0]]
     { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
-      globalArg = 0 : index }
+      bounds = [1 : index, 1 : index] }
     : memref<?x?x?x?xf32>, index, index -> memref<?x?x?x?xf32>, index, index
 
   // check source and destination with multiple coordinate transforms.
@@ -435,144 +536,14 @@ func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : m
     %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
     with [[#transform_map0, #transform_map1], [#transform_map0, #transform_map1]]
     { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
-      globalArg = 0 : index }
+      bounds = [1 : index, 1 : index] }
     : memref<?x?x?x?xf32>, index, index -> memref<?x?x?x?xf32>, index, index
 
   return
 }
 
 // CHECK-LABEL: func @miopen_threadwise_copy
-//  CHECK: miopen.threadwise_copy
-
-// --------------------------
-// threadwise_load tests.
-
-// CHECK-LABEL: func @miopen_threadwise_load
-func @miopen_threadwise_load(%source_coord : memref<2xindex, 5>,
-                             %source : memref<?x?xf32>,
-                             %source_with_transform_maps : memref<?x?x?x?xf32>) {
-  %c0 = arith.constant 0 : index
-  %c1 = arith.constant 1 : index
-  %source_coord_y = memref.load %source_coord[%c0] : memref<2xindex, 5>
-  %source_coord_x = memref.load %source_coord[%c0] : memref<2xindex, 5>
-
-  // check source as vanilla memref, dest as scalar.
-  // CHECK: %{{.*}} = miopen.threadwise_load %{{.*}}[%{{.*}}, %{{.*}}] with {{.*}} : memref<?x?xf32>, index, index -> f32
-  %v0 = miopen.threadwise_load %source[%source_coord_x, %source_coord_y] with [[]] {
-    paddingInfo = #gemm_padding0,
-    bounds = [1 : index, 1 : index],
-    oobDims = [false, false, false, false, false]
-  } : memref<?x?xf32>, index, index -> f32
-
-  // check source as vanilla memref, dest as vector.
-  // CHECK: %{{.*}} = miopen.threadwise_load %{{.*}}[%{{.*}}, %{{.*}}] with {{.*}} : memref<?x?xf32>, index, index -> vector<4xf32>
-  %v1 = miopen.threadwise_load %source[%source_coord_x, %source_coord_y] with [[]] {
-    paddingInfo = #gemm_padding0,
-    bounds = [1 : index, 1 : index],
-    oobDims = [false, false, false, false, false]
-  } : memref<?x?xf32>, index, index -> vector<4xf32>
-
-  // -----
-
-  // check source with one coordinate transform, dest as scalar.
-  // CHECK: %{{.*}} = miopen.threadwise_load %{{.*}}[%{{.*}}, %{{.*}}]
-  %v2 = miopen.threadwise_load %source_with_transform_maps[%source_coord_x, %source_coord_y]
-  with [[#transform_map0]] {
-    paddingInfo = #gemm_padding0,
-    bounds = [1 : index, 1 : index],
-    oobDims = [false, false, false, false, false]
-  } : memref<?x?x?x?xf32>, index, index -> f32
-
-  // check source with one coordinate transform, dest as vector.
-  // CHECK: %{{.*}} = miopen.threadwise_load %{{.*}}[%{{.*}}, %{{.*}}]
-  %v3 = miopen.threadwise_load %source_with_transform_maps[%source_coord_x, %source_coord_y]
-  with [[#transform_map0]] {
-    paddingInfo = #gemm_padding0,
-    bounds = [1 : index, 1 : index],
-    oobDims = [false, false, false, false, false]
-  } : memref<?x?x?x?xf32>, index, index -> vector<4xf32>
-
-  // check source with multiple coordinate transforms, dest as scalar.
-  // CHECK: %{{.*}} = miopen.threadwise_load %{{.*}}[%{{.*}}, %{{.*}}]
-  %v4 = miopen.threadwise_load %source_with_transform_maps[%source_coord_x, %source_coord_y]
-  with [[#transform_map0, #transform_map1]] {
-    paddingInfo = #gemm_padding0,
-    bounds = [1 : index, 1 : index],
-    oobDims = [false, false, false, false, false]
-  } : memref<?x?x?x?xf32>, index, index -> f32
-
-  // check source with multiple coordinate transforms, dest as vector.
-  // CHECK: %{{.*}} = miopen.threadwise_load %{{.*}}[%{{.*}}, %{{.*}}]
-  %v5 = miopen.threadwise_load %source_with_transform_maps[%source_coord_x, %source_coord_y]
-  with [[#transform_map0, #transform_map1]] {
-    paddingInfo = #gemm_padding0,
-    bounds = [1 : index, 1 : index],
-    oobDims = [false, false, false, false, false]
-  }  : memref<?x?x?x?xf32>, index, index -> vector<4xf32>
-
-  return
-}
-
-// --------------------------
-// threadwise_store tests.
-
-// CHECK-LABEL: func @miopen_threadwise_store
-func @miopen_threadwise_store(%data_scalar : f32,
-                              %data_vector : vector<4xf32>,
-                              %dest_coord : memref<2xindex, 5>,
-                              %dest : memref<?x?xf32>,
-                              %dest_with_transform_maps : memref<?x?x?x?xf32>) {
-  %c0 = arith.constant 0 : index
-  %c1 = arith.constant 1 : index
-  %dest_coord_y = memref.load %dest_coord[%c0] : memref<2xindex, 5>
-  %dest_coord_x = memref.load %dest_coord[%c0] : memref<2xindex, 5>
-
-  // check dest as vanilla memrefs, data as scalar.
-  // CHECK: miopen.threadwise_store %{{.*}} -> %{{.*}}[%{{.*}}, %{{.*}}] with {{.*}} : f32 -> memref<?x?xf32>, index, index
-  miopen.threadwise_store %data_scalar -> %dest[%dest_coord_x, %dest_coord_y]
-  with [[]] {
-    bounds = [1 : index, 1 : index, 1 : index]
-  } : f32 -> memref<?x?xf32>, index, index
-
-  // check dest as vanilla memrefs, data as vector.
-  // CHECK: miopen.threadwise_store %{{.*}} -> %{{.*}}[%{{.*}}, %{{.*}}] with {{.*}} : vector<4xf32> -> memref<?x?xf32>, index, index
-  miopen.threadwise_store %data_vector -> %dest[%dest_coord_x, %dest_coord_y]
-  with [[]] {
-    bounds = [1 : index, 1 : index, 1 : index]
-  } : vector<4xf32> -> memref<?x?xf32>, index, index
-
-  // -----
-
-  // check destination with one coordinate transform, data as scalar.
-  // CHECK: miopen.threadwise_store %{{.*}} -> %{{.*}}[%{{.*}}, %{{.*}}]
-  miopen.threadwise_store %data_scalar -> %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
-  with [[#transform_map0]] {
-    bounds = [1 : index, 1 : index, 1 : index]
-  } : f32 -> memref<?x?x?x?xf32>, index, index
-
-  // check destination with one coordinate transform, data as vector.
-  // CHECK: miopen.threadwise_store %{{.*}} -> %{{.*}}[%{{.*}}, %{{.*}}] with {{.*}}
-  miopen.threadwise_store %data_vector -> %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
-  with [[#transform_map0]] {
-    bounds = [1 : index, 1 : index, 1 : index]
-  } : vector<4xf32> -> memref<?x?x?x?xf32>, index, index
-
-  // check destination with multiple coordinate transform, data as scalar.
-  // CHECK: miopen.threadwise_store %{{.*}} -> %{{.*}}[%{{.*}}, %{{.*}}] with {{.*}}
-  miopen.threadwise_store %data_scalar -> %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
-  with [[#transform_map0, #transform_map1]] {
-    bounds = [1 : index, 1 : index, 1 : index]
-  } : f32 -> memref<?x?x?x?xf32>, index, index
-
-  // check destination with multiple coordinate transform, data as vector.
-  // CHECK: miopen.threadwise_store %{{.*}} -> %{{.*}}[%{{.*}}, %{{.*}}] with {{.*}}
-  miopen.threadwise_store %data_vector -> %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
-  with [[#transform_map0, #transform_map1]] {
-    bounds = [1 : index, 1 : index, 1 : index]
-  } : vector<4xf32> -> memref<?x?x?x?xf32>, index, index
-
-  return
-}
+// CHECK: miopen.threadwise_copy
 
 // --------------------------
 // threadwise_copy_v2 tests.
@@ -602,7 +573,7 @@ func @miopen_threadwise_copy_v2(%source : vector<32xf32>,
       paddingInfo = #gemm_padding0,
       destOobDims = [false, false, false, false, false],
       bounds = [1 : index, 4 : index, 1 : index, 4 : index, 1 : index],
-      dataOperation = 0 : i32
+      storeMethod = 0 : i32
     } : vector<32xf32>, index, index, index, index, index
     -> memref<?x?x?x?x?xf32>, index, index, index, index, index
 
@@ -610,7 +581,7 @@ func @miopen_threadwise_copy_v2(%source : vector<32xf32>,
 }
 
 // CHECK-LABEL: func @miopen_threadwise_copy_v2
-//  CHECK: miopen.threadwise_copy_v2
+// CHECK: miopen.threadwise_copy_v2
 
 func @miopen_threadwise_gemm(%lhs : memref<1x4x8xf32>, %rhs : memref<1x4x8xf32>, %output : memref<1x8x8xf32>) {
   miopen.threadwise_gemm(%lhs, %rhs, %output) : memref<1x4x8xf32>, memref<1x4x8xf32>, memref<1x8x8xf32>
@@ -618,7 +589,7 @@ func @miopen_threadwise_gemm(%lhs : memref<1x4x8xf32>, %rhs : memref<1x4x8xf32>,
 }
 
 // CHECK-LABEL: func @miopen_threadwise_gemm
-//  CHECK: miopen.threadwise_gemm
+// CHECK: miopen.threadwise_gemm
 
 // ----
 
@@ -664,16 +635,6 @@ func @miopen_mfma_v2_bf16(%a : vector<2xbf16>, %b : vector<2xbf16>, %c : vector<
 
 // ----
 
-#transform_map4 = #miopen.transform_map<
-  affine_map<(d0) -> (d0)> by [
-    #miopen.transform<Slice{0, 4096} ["x"] at [0] -> ["x"] at [0]>
-  ] bounds = [4096] -> [12288]>
-#transform_map5 = #miopen.transform_map<
-  affine_map<(d0) -> (d0 + 8192)> by [
-    #miopen.transform<Slice{8192, 12288} ["x"] at [0] -> ["x"] at [0]>
-  ] bounds = [4096] -> [12288]>
-
-
 func @miopen_xdlops_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
                                        %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>) -> vector<32xf32> {
   %c0 = arith.constant 0 : index
@@ -685,13 +646,14 @@ func @miopen_xdlops_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matrixB
     k = 16,
     m_per_wave = 128,
     n_per_wave = 64,
-    transforms = [[#transform_map4], [#transform_map5]]
+    ldsBufferOffsetA = 0 : index,
+    ldsBufferOffsetB = 8192 : index
   } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32> -> vector<32xf32>
   return %vectorD0 : vector<32xf32>
 }
 
 // CHECK-LABEL: func @miopen_xdlops_gemm_v2_one_result
-//  CHECK: miopen.xdlops_gemm_v2
+// CHECK: miopen.xdlops_gemm_v2
 
 // ----
 
@@ -707,13 +669,14 @@ func @miopen_xdlops_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %matrix
     k = 16,
     m_per_wave = 128,
     n_per_wave = 64,
-    transforms = [[#transform_map4], [#transform_map5]]
+    ldsBufferOffsetA = 0 : index,
+    ldsBufferOffsetB = 8192 : index
   } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32>, vector<32xf32> -> vector<32xf32>, vector<32xf32>
   return %vectorD0, %vectorD1 : vector<32xf32>, vector<32xf32>
 }
 
 // CHECK-LABEL: func @miopen_xdlops_gemm_v2_two_results
-//  CHECK: miopen.xdlops_gemm_v2
+// CHECK: miopen.xdlops_gemm_v2
 
 // ----
 
@@ -728,13 +691,14 @@ func @miopen_blockwise_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matr
     k = 16,
     m_per_wave = 128,
     n_per_wave = 64,
-    transforms = [[#transform_map4], [#transform_map5]]
+    ldsBufferOffsetA = 0 : index,
+    ldsBufferOffsetB = 0 : index
   } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32> -> vector<32xf32>
   return %vectorD0 : vector<32xf32>
 }
 
 // CHECK-LABEL: func @miopen_blockwise_gemm_v2_one_result
-//  CHECK: miopen.blockwise_gemm_v2
+// CHECK: miopen.blockwise_gemm_v2
 
 // ----
 
@@ -750,10 +714,11 @@ func @miopen_blockwise_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %mat
     k = 16,
     m_per_wave = 128,
     n_per_wave = 64,
-    transforms = [[#transform_map4], [#transform_map5]]
+    ldsBufferOffsetA = 0 : index,
+    ldsBufferOffsetB = 8192 : index
   } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32>, vector<32xf32> -> vector<32xf32>, vector<32xf32>
   return %vectorD0, %vectorD1 : vector<32xf32>, vector<32xf32>
 }
 
 // CHECK-LABEL: func @miopen_blockwise_gemm_v2_two_results
-//  CHECK: miopen.blockwise_gemm_v2
+// CHECK: miopen.blockwise_gemm_v2

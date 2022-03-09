@@ -1,4 +1,4 @@
-// RUN: miopen-opt -miopen-lowering-step4 %s | FileCheck %s
+// RUN: miopen-opt -miopen-lowering-step3 %s | FileCheck %s
 #gemm_padding0 = #miopen.padding_info<extraM = 0, extraK = 0, extraN = 0, bwdPaddingInfo = "NA">
 
 #map0 = affine_map<(d0, d1, d2) -> (d0 * 32 + d1 * 4 + d2)>
@@ -35,17 +35,16 @@ func @miopen_threadwise_copy_v2(%source : vector<32xf32>,
   // Source vector has no offset.
   // Source vector has a bound.
   // Dest memref has a transformation.
-  // CHECK-NOT: scf.for
+  // CHECK: miopen.transforming_for
   miopen.threadwise_copy_v2 %source[%c0, %c0, %c0] ->
                             %dest1D[%c0, %c0, %c0]
   with [[#transform_map0], [#transform_map0]] {
     sourceOffset = 0 : index,
-    source_data_per_read = 1 : i32,
-    dest_data_per_write = 1 : i32,
+    data_per_copy = 1 : index,
     vector_read_write_dim = 0 : i32,
     upper_vector_read_dim = -1 : i32,
     bounds = [1 : index, 8 : index, 4 : index],
-    dataOperation = 0 : i32,
+    storeMethod = 0 : i32,
     paddingInfo = #gemm_padding0,
     destOobDims = [false]
   } : vector<32xf32>, index, index, index ->
@@ -55,19 +54,19 @@ func @miopen_threadwise_copy_v2(%source : vector<32xf32>,
   // Source vector has a transformation.
   // Source vector has offset and bound.
   // Dest memref has 2 transformations.
-  // CHECK-NOT: scf.for
+  // CHECK: miopen.transforming_for
   miopen.threadwise_copy_v2 %source[%c0, %c0, %c0, %c0, %c0] ->
     %dest5D[%c0, %c0, %c0, %c0, %c0]
     with [[#transform_map1], [#transform_map2, #transform_map3]] {
       sourceOffset = 16 : index,
       bounds = [1 : index, 4 : index, 1 : index, 4 : index, 1 : index],
-      dataOperation = 0 : i32,
+      storeMethod = 0 : i32,
       paddingInfo = #gemm_padding0,
       destOobDims = [false, false, false, false, false],
       upper_vector_read_dim = 0 : i32,
-      dest_data_per_write = 1 : i32,
+      data_per_copy = 1 : i32,
       dim_access_order = [0 : i32, 1 : i32, 2 : i32, 3 : i32, 4 : i32],
-      source_data_per_read = 1 : i32, vector_read_write_dim = 4 : i32}
+      vector_read_write_dim = 4 : i32}
       : vector<32xf32>, index, index, index, index, index ->
       memref<128x1x1024x14x14xf32>, index, index, index, index, index
   return
@@ -99,18 +98,19 @@ func @miopen_threadwise_copy_v2_vectorized_nchw(%source : vector<32xf32>,
   // A usecase of threadwise_copy_v2 that should be vectorized
   // This threadwise_copy takes the extra n dimension split used in swizzling
   // and has dimensions that are an even multiple of 4 to prevent OOB checks
-  // CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %c0_i32, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf32>,
+  // CHECK: %[[val:.*]] = miopen.extract_slice {{.*}} : vector<32xf32> -> vector<4xf32>
+  // CHECK: miopen.buffer_store %[[val]]
   miopen.threadwise_copy_v2 %source[%c0, %c0, %c0, %c0, %c0, %c0] ->
     %dest5D[%c0, %c0, %c0, %c0, %c0, %c0]
     with [[#transform_map4], [#transform_map5, #transform_map6]] {
       sourceOffset = 0 : index,
       bounds = [1 : index, 4 : index, 1 : index, 1 : index, 1 : index, 4 : index],
-      dataOperation = 0 : i32,
+      storeMethod = 0 : i32,
       paddingInfo = #gemm_padding0,
       destOobDims = [false, false, false, false, false],
-      dest_data_per_write = 4 : i32,
+      data_per_copy = 4 : i32,
       dim_access_order = [0 : i32, 1 : i32, 2 : i32, 3 : i32, 4 : i32, 5 : i32],
-      source_data_per_read = 4 : i32, vector_read_write_dim = 4 : i32,
+      vector_read_write_dim = 4 : i32,
       upper_vector_read_dim = 5 : i32}
       : vector<32xf32>, index, index, index, index, index, index ->
       memref<128x1x1024x16x16xf32>, index, index, index, index, index, index
@@ -146,18 +146,19 @@ func @miopen_threadwise_copy_v2_vectorized_nhwc(%source_offset : i32,
   // A usecase of threadwise_copy_v2 that should be vectorized
   // This threadwise_copy takes the extra n dimension split used in swizzling
   // and has dimensions that are an even multiple of 4 to prevent OOB checks
-  // CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %c0_i32, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf32>,
+  // CHECK: %[[val:.*]] = miopen.extract_slice {{.*}} : vector<32xf32> -> vector<4xf32>
+  // CHECK: miopen.buffer_store %[[val]]
   miopen.threadwise_copy_v2 %source[%c0, %c0, %c0, %c0, %c0] ->
     %dest5D[%c0, %c0, %c0, %c0, %c0]
     with [[#transform_map7], [#transform_map8, #transform_map9]] {
       sourceOffset = 0 : index,
       bounds = [1 : index, 4 : index, 1 : index, 4 : index, 1 : index],
-      dataOperation = 0 : i32,
+      storeMethod = 0 : i32,
       paddingInfo = #gemm_padding0,
       destOobDims = [false, false, false, false, false],
-      dest_data_per_write = 4 : i32,
+      data_per_copy = 4 : i32,
       dim_access_order = [0 : i32, 1 : i32, 2 : i32, 3 : i32, 4 : i32],
-      source_data_per_read = 4 : i32, vector_read_write_dim = 4 : i32,
+      vector_read_write_dim = 4 : i32,
       upper_vector_read_dim = 3 : i32}
       : vector<32xf32>, index, index, index, index, index ->
       memref<128x1x16x16x1024xf32>, index, index, index, index, index
