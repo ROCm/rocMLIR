@@ -458,7 +458,9 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
       return false;
     }
 
-    bool noMixedTypes = argMap["in_type"] == argMap["out_type"] && argMap["fil_type"] == argMap["out_type"];
+    bool noMixedTypes = argMap["in_type"] == argMap["fil_type"] &&
+                        (argMap["out_type"] == "i32" ||
+                         argMap["out_type"] == argMap["in_type"]);
     return noMixedTypes;
   };
 
@@ -500,9 +502,18 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   if (!op.hasValue()) {
     return failure();
   }
+
+  auto canonicalizeDataType = [](const std::string type) {
+    if (type == "fp32")
+      return std::string("f32");
+    else if (type == "fp16")
+      return std::string("f16");
+    else
+      return type;
+  };
   config.operation = op.getValue();
   strToInt("kernel_id", config.kernelId);
-  config.dataTypeStr = argMap["out_type"];
+  config.dataTypeStr = canonicalizeDataType(argMap["in_type"]);
   strToInt("dilation_h", config.dilationHeight);
   strToInt("dilation_w", config.dilationWidth);
   strToInt("conv_stride_h", config.strideHeight);

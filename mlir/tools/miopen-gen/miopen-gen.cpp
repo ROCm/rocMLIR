@@ -1760,15 +1760,17 @@ populateHostHarnessLogic(ModuleOp &module,
   // Run validation
   if (hasValidation) {
     if (validationType == "gpu" &&
-        (genConfig.xdlops || genConfig.dataTypeStr == "f16" ||
-         genConfig.dataTypeStr == "bf16")) {
+        ((genConfig.xdlops && genConfig.dataTypeStr == "f32") ||
+         genConfig.dataTypeStr == "f16" || genConfig.dataTypeStr == "bf16")) {
       // generate generic kernels
       Conv2dGenerator conv2dGenerator(genConfig);
       // use non-xdlops kernels to verify xdlops kernels
       if (genConfig.xdlops)
         conv2dGenerator.flipXdlops();
-      // use f32 data type to verify non-f32 or xdlops f32 kernels
-      conv2dGenerator.setDataType("f32");
+      if (!genConfig.xdlops || genConfig.dataTypeStr != "i8")
+        // use f32 data type to verify non-f32 or xdlops f32 kernels
+        // except that i8 xdlops is verified with i8 non-xdlops
+        conv2dGenerator.setDataType("f32");
 
       int kernelStart = genConfig.kernelId;
       int kernelCount = conv2dGenerator.getKernelCount(b);

@@ -27,7 +27,7 @@
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 
 #include "mlir/Support/LogicalResult.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/DialectConversion.h"
 
 #include "llvm/ADT/SmallVector.h"
 
@@ -299,9 +299,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // f32: f32.
     // f16: f32 to prevent overflow from happening.
     // i16(bf16) : i16.
+    // i8: i32, since we have an i32 output
     Type accumulatorType = elementType;
     if (elementType == b.getF16Type()) {
       accumulatorType = b.getF32Type();
+    } else if (elementType == b.getI8Type()) {
+      accumulatorType = b.getI32Type();
     }
 
     // Prepare some useful constants.
@@ -1212,7 +1215,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         matrixCThreadwiseCopyDestCoords);
     affixThreadwiseCopyAttributes(threadwiseCopyCMatrixOp, op, b);
 
-    op.erase();
+    b.eraseOp(op);
 
     return success();
   }
@@ -2636,7 +2639,7 @@ struct GridwiseGemmV2RewritePattern
                                       enableOutSwizzles);
     }
 
-    op.erase();
+    b.eraseOp(op);
 
     return success();
   }
@@ -2644,10 +2647,17 @@ struct GridwiseGemmV2RewritePattern
 
 void LowerMIOpenOpsStep2Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
+  ConversionTarget target(*ctx);
+  target.addIllegalOp<miopen::GridwiseGemmOp, miopen::GridwiseGemmV2Op>();
+  target.addLegalDialect<arith::ArithmeticDialect, miopen::MIOpenDialect,
+                         AffineDialect>();
+
   RewritePatternSet patterns(ctx);
   patterns.add<GridwiseGemmRewritePattern, GridwiseGemmV2RewritePattern>(ctx);
-  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
+  if (failed(applyPartialConversion(getOperation(), target,
+                                    std::move(patterns)))) {
     signalPassFailure();
+  }
 }
 } // end anonymous namespace
 

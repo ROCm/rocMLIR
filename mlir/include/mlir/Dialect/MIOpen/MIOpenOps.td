@@ -117,9 +117,9 @@ def MIOpen_TransformOp :
 
 def MIOpen_GridwiseGemmOp :
     MIOpen_Op<"gridwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [3, 4]>:$a,
-                   MemRefRankOf<[F32, F16, BF16], [3, 4]>:$b,
-                   MemRefRankOf<[F32, F16, BF16], [3, 4]>:$c,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$a,
+                   MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$b,
+                   MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$c,
                    BoolArrayAttr:$aOobDims,
                    BoolArrayAttr:$bOobDims,
                    BoolArrayAttr:$cOobDims,
@@ -422,8 +422,8 @@ def MIOpen_ThreadwiseCopyV2Op:
 // blockwise_gemm
 def MIOpen_BlockwiseGemmOp:
     MIOpen_Op<"blockwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [3, 4]>:$matrixA,
-                   MemRefRankOf<[F32, F16, BF16], [3, 4]>:$matrixB,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$matrixA,
+                   MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$matrixB,
                    AnyMemRef:$matrixC,
                    ArgTransforms<2>:$transforms,
                    Index:$threadOffsetA,
@@ -447,13 +447,13 @@ def MIOpen_BlockwiseGemmV2Op:
                    ArgTransforms<2>:$transforms,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
-                   MemRefOf<[F32, F16, BF16, I8, 
-                             VectorOfLengthAndType<[2, 4], [F32]>, 
-                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>, 
+                   MemRefOf<[F32, F16, BF16, I8,
+                             VectorOfLengthAndType<[2, 4], [F32]>,
+                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
                              VectorOfLengthAndType<[4], [I8]>]>:$bufferA,
-                   MemRefOf<[F32, F16, BF16, I8, 
-                             VectorOfLengthAndType<[2, 4], [F32]>, 
-                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>, 
+                   MemRefOf<[F32, F16, BF16, I8,
+                             VectorOfLengthAndType<[2, 4], [F32]>,
+                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
                              VectorOfLengthAndType<[4], [I8]>]>:$bufferB,
                    Variadic<VectorOfRankAndType<[1], [F32, F16, I32]>>:$vectorCs)>,
     Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16, I32]>>: $vectorDs)> {
@@ -474,9 +474,9 @@ def MIOpen_BlockwiseGemmV2Op:
 // threadwise_gemm
 def MIOpen_ThreadwiseGemmOp:
     MIOpen_Op<"threadwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [3, 4]>:$matrixA,
-                   MemRefRankOf<[F32, F16, BF16], [3, 4]>:$matrixB,
-                   MemRefRankOf<[F32, F16, BF16], [3, 4]>:$matrixC)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$matrixA,
+                   MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$matrixB,
+                   MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$matrixC)> {
   let summary = "Threadwise GEMM non-XDLOPS version";
   let description = [{
     The `miopen.threadwise_gemm` op does GEMM at thread level.
@@ -492,13 +492,13 @@ def MIOpen_ThreadwiseGemmOp:
 def MIOpen_MFMAV2Op:
     MIOpen_Op<"mfma_v2", [AllTypesMatch<["sourceA", "sourceB"]>,
       AllTypesMatch<["destC", "destD"]>]>,
-    Arguments<(ins AnyTypeOf<[F32, 
-                              VectorOfLengthAndType<[4], [F16]>, 
-                              VectorOfLengthAndType<[2], [BF16]>, 
+    Arguments<(ins AnyTypeOf<[F32,
+                              VectorOfLengthAndType<[4], [F16]>,
+                              VectorOfLengthAndType<[2], [BF16]>,
                               VectorOfLengthAndType<[4], [I8]>]>: $sourceA,
-                   AnyTypeOf<[F32, 
-                              VectorOfLengthAndType<[4], [F16]>, 
-                              VectorOfLengthAndType<[2], [BF16]>, 
+                   AnyTypeOf<[F32,
+                              VectorOfLengthAndType<[4], [F16]>,
+                              VectorOfLengthAndType<[2], [BF16]>,
                               VectorOfLengthAndType<[4], [I8]>]>: $sourceB,
                    VectorOfRankAndType<[1], [I32, F32, F16]>: $destC)>,
     Results<(outs VectorOfRankAndType<[1], [I32, F32, F16]>: $destD)> {
@@ -519,13 +519,13 @@ def MIOpen_XdlopsGemmV2Op:
                    ArgTransforms<2>:$transforms,
                    Index:$waveOffsetA,
                    Index:$waveOffsetB,
-                   MemRefOf<[F32, F16, BF16, I8, 
-                             VectorOfLengthAndType<[2, 4], [F32]>, 
-                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>, 
+                   MemRefOf<[F32, F16, BF16, I8,
+                             VectorOfLengthAndType<[2, 4], [F32]>,
+                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
                              VectorOfLengthAndType<[4], [I8]>]>:$bufferA,
-                   MemRefOf<[F32, F16, BF16, I8, 
-                             VectorOfLengthAndType<[2, 4], [F32]>, 
-                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>, 
+                   MemRefOf<[F32, F16, BF16, I8,
+                             VectorOfLengthAndType<[2, 4], [F32]>,
+                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
                              VectorOfLengthAndType<[4], [I8]>]>:$bufferB,
                    Variadic<VectorOfRankAndType<[1], [F32, F16, I32]>>:$vectorCs)>,
     Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16, I32]>>:$vectorDs)> {
