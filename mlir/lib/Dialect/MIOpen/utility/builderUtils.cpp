@@ -101,15 +101,25 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
     // - fp16/bf16 -> fp32 : use fpext.
     // - fp32 -> fp16/bf16 : use fptrunc.
     // - fp16/fp32 -> bf16(i16) : use miopen.data_convert.
+    // - Integers via signed extension/truncation
     // All these ops act elementwise on vectors
-    if (sourceElemType.getIntOrFloatBitWidth() == 16 &&
-        destElemType == b.getF32Type()) {
+    if (sourceElemType.isa<IntegerType>() && destElemType.isa<IntegerType>()) {
+      uint32_t sourceWidth = sourceElemType.getIntOrFloatBitWidth();
+      uint32_t destWidth = destElemType.getIntOrFloatBitWidth();
+      if (sourceWidth <= destWidth) {
+        result = b.create<arith::ExtSIOp>(loc, destType, source);
+      } else {
+        result = b.create<arith::TruncIOp>(loc, destType, source);
+      }
+    } else if (sourceElemType.getIntOrFloatBitWidth() == 16 &&
+               destElemType == b.getF32Type()) {
       result = b.create<arith::ExtFOp>(loc, destType, source);
     } else if (sourceElemType == b.getF32Type() &&
                destElemType.getIntOrFloatBitWidth() == 16) {
       result = b.create<arith::TruncFOp>(loc, destType, source);
     } else {
-      llvm_unreachable("Only fp32, fp16, or bf16 targets for data conversion");
+      llvm_unreachable("Only fp32, fp16, bf16, or integer-to-integer targets "
+                       "for data conversion");
     }
   }
   return result;
