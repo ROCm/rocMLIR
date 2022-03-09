@@ -822,8 +822,8 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
 }
 
 // Determine the range and seed for the random data generator
-static std::tuple<short, short, int> getRandomTestData(int idx, bool isOut) {
-  short min, max = min = (isOut ? 0 : 1);
+static std::tuple<short, short, int> getRandomTestData(int idx) {
+  short min, max = min = 1;
   int seed = 1;
 
   int32_t idx_spec = -1;
@@ -843,7 +843,7 @@ static std::tuple<short, short, int> getRandomTestData(int idx, bool isOut) {
   }
 
   if (randomSeed.getValue() != "none" && randomSeed.getValue() != "fixed") {
-    if ((idx_spec >= 0 && idx_spec != idx) || isOut) {
+    if ((idx_spec >= 0) && (idx_spec != idx)) {
     } else if (randomDataType.getValue() == "int") {
       // generate random integer in [-5, 5)
       min = -5;
@@ -1535,12 +1535,10 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
                                              mlir::Location loc,
                                              mlir::Type elemType,
-                                             mlir::Value lv5D, bool isOut) {
+                                             mlir::Value lv5D) {
   auto lv5DType = lv5D.getType().template cast<mlir::MemRefType>();
   llvm::SmallVector<float, 3> pattern;
-  if (isOut)
-    pattern = {0.0, 0.0}; // Hack around silly compiler weirdness
-  else if (elemType.isIntOrIndex())
+  if (elemType.isIntOrIndex())
     pattern = {1.0, -1.0, 2.0};
   else
     pattern = {0.5, -1, 0.75};
@@ -1624,25 +1622,17 @@ populateHostHarnessLogic(ModuleOp &module,
   b.setInsertionPoint(block, block->begin());
 
   int32_t outIdx = -1;
-  int32_t zeroInitIdx = -1;
   if (genConfig.operation.hasValue()) {
     switch (genConfig.operation.getValue()) {
     case miopen::ConvOpType::Fwd:
       outIdx = 2;
-      zeroInitIdx = 2;
       break;
     case miopen::ConvOpType::BwdData:
       outIdx = 1;
-      zeroInitIdx = 1;
       break;
     case miopen::ConvOpType::BwdWeight:
       outIdx = 0;
-      zeroInitIdx = 0;
       break;
-    }
-    Conv2dGenerator generator(genConfig);
-    if (generator.hasWorkspace(b)) {
-      zeroInitIdx = 3;
     }
   }
 
@@ -1702,15 +1692,14 @@ populateHostHarnessLogic(ModuleOp &module,
 
     auto lv5D = makeNDMemRef(b, lvar, 5);
     if (randomSeed.getValue() == "fixed") {
-      if (failed(populateTensorFillLogic(b, loc, elemType, lv5D,
-                                         idx == zeroInitIdx)))
+      if (failed(populateTensorFillLogic(b, loc, elemType, lv5D)))
         return failure();
     } else {
       auto lvU5D = b.create<memref::CastOp>(loc, mr5DUnkType, lv5D);
 
       short min, max;
       int seed = 1;
-      std::tie(min, max, seed) = getRandomTestData(idx, idx == zeroInitIdx);
+      std::tie(min, max, seed) = getRandomTestData(idx);
 
       b.create<CallOp>(
           loc, getMemsetFunc(module, elemType),
