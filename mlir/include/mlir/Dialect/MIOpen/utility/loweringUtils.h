@@ -113,10 +113,12 @@ populateBackwardDataGemmIds(int64_t strideHeight, int64_t strideWidth,
   return gemmIds;
 }
 
-inline int64_t getGemmId(int64_t strideHeight, int64_t strideWidth,
-                         int64_t dilationHeight, int64_t dilationWidth,
-                         int64_t filterHeight, int64_t filterWidth,
-                         int64_t kernelId) {
+inline int64_t reviseBackwardDataGemmId(int64_t strideHeight,
+                                        int64_t strideWidth,
+                                        int64_t dilationHeight,
+                                        int64_t dilationWidth,
+                                        int64_t filterHeight,
+                                        int64_t filterWidth, int64_t kernelId) {
   llvm::SmallVector<int64_t> gemmIds = populateBackwardDataGemmIds(
       strideHeight, strideWidth, dilationHeight, dilationWidth, filterHeight,
       filterWidth, /*countZeroInitKernel=*/true);

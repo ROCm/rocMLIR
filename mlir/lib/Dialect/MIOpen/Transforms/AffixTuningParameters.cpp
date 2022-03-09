@@ -146,8 +146,8 @@ void AffixTuningParameters::affixBackwardDataUtilityKernels(
 
   // Obtain the actual gemm ID from the gemm ID from the top-level
   // Conv2DBwdDataOp.
-  int64_t gemmId = getGemmId(strideH, strideW, dilationH, dilationW, y, x,
-                             gemmIdAttr.getInt());
+  int64_t gemmId = reviseBackwardDataGemmId(
+      strideH, strideW, dilationH, dilationW, y, x, gemmIdAttr.getInt());
   // In case the actual gemm ID is -1, override grid_size and block_size be 1
   // for utility kernels.
   if (gemmId < 0) {
