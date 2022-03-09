@@ -704,17 +704,14 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   int64_t hTildaSlice = iHTildaRight - iHTildaLeft;
   int64_t wTildaSlice = iWTildaRight - iWTildaLeft;
 
-  // Obtain the actual gemm ID from the gemm ID from the top-level
-  // Conv2DBwdDataOp.
-  int64_t revisedGemmId = reviseBackwardDataGemmId(
-      strideH, strideW, dilationH, dilationW, y, x, gemmIdAttr.getInt());
+  int64_t gemmId = gemmIdAttr.getInt();
   // In case the actual gemm ID is -1, emit the zero initialization kernel.
-  if (revisedGemmId < 0) {
+  if (gemmId < 0) {
     return zeroInit(op, b);
   }
 
-  int64_t iYTilda = revisedGemmId / xTilda;
-  int64_t iXTilda = revisedGemmId % xTilda;
+  int64_t iYTilda = gemmId / xTilda;
+  int64_t iXTilda = gemmId % xTilda;
   int64_t yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
   int64_t xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
 
@@ -1050,7 +1047,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
 
   // Set attributes for gridwise_gemm op.
   llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
-      b.getNamedAttr("gemm_id", b.getI32IntegerAttr(revisedGemmId)),
+      b.getNamedAttr("gemm_id", b.getI32IntegerAttr(gemmId)),
       b.getNamedAttr("arch", archAttr), b.getNamedAttr("num_cu", numCuAttr)};
   // xdlopsV2.
   if (isXdlops)

@@ -59,72 +59,19 @@ inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo) {
 std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
                                          ArrayAttr existing = nullptr);
 
-inline bool
-isEveryPixelWrittenInBackwardData(int64_t strideHeight, int64_t strideWidth,
-                                  int64_t dilationHeight, int64_t dilationWidth,
-                                  int64_t filterHeight, int64_t filterWidth) {
-  bool result = true;
-  for (int32_t dim = 0; dim < 2; ++dim) {
-    int64_t convStride = (dim == 0) ? strideHeight : strideWidth;
-    int64_t convDilation = (dim == 0) ? dilationHeight : dilationWidth;
-    int64_t filterSize = (dim == 0) ? filterHeight : filterWidth;
-
-    if (!(convDilation == 1 && convStride <= filterSize))
-      result = false;
-  }
-  return result;
-}
-
-inline SmallVector<int64_t>
+/// Populate a vector of gemm IDs to be used by a backward data convolution
+/// algorithm. In the current v4r1 algorithm, several kernels may be needed to
+/// realize a complete backward data convolution.
+///
+/// The values of gemm IDs would be 0, or a positive integer to denote the IDs
+/// of the actual implicit GEMM kernels to partipate the backward data
+/// convolution, or it could be -1 in case a zero initialization utility kernel
+/// is needed. The zero initialization kernel, if needed, would be placed in the
+/// front of the vector.
+SmallVector<int64_t>
 populateBackwardDataGemmIds(int64_t strideHeight, int64_t strideWidth,
                             int64_t dilationHeight, int64_t dilationWidth,
-                            int64_t filterHeight, int64_t filterWidth,
-                            bool countZeroInitKernel) {
-  int64_t gcdStrideDilationH = math_util::gcd(strideHeight, dilationHeight);
-  int64_t gcdStrideDilationW = math_util::gcd(strideWidth, dilationWidth);
-
-  int64_t yTilda = strideHeight / gcdStrideDilationH;
-  int64_t xTilda = strideWidth / gcdStrideDilationW;
-
-  int64_t y = filterHeight;
-  int64_t x = filterWidth;
-
-  llvm::SmallVector<int64_t> gemmIds;
-  bool needZeroInitKernel = false;
-  if (countZeroInitKernel) {
-    needZeroInitKernel = !isEveryPixelWrittenInBackwardData(
-        strideHeight, strideWidth, dilationHeight, dilationWidth, filterHeight,
-        filterWidth);
-    if (needZeroInitKernel)
-      gemmIds.push_back(-1);
-  }
-  for (int64_t gemmId = 0; gemmId < yTilda * xTilda; ++gemmId) {
-    // gemmK size is different for each GEMM
-    const int64_t iYTilda = gemmId / xTilda;
-    const int64_t iXTilda = gemmId % xTilda;
-
-    int64_t yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
-    int64_t xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
-    // gemmK must > 0, otherwise not need to run
-    if (yDotSlice * xDotSlice > 0) {
-      gemmIds.push_back(gemmId);
-    }
-  }
-  return gemmIds;
-}
-
-inline int64_t reviseBackwardDataGemmId(int64_t strideHeight,
-                                        int64_t strideWidth,
-                                        int64_t dilationHeight,
-                                        int64_t dilationWidth,
-                                        int64_t filterHeight,
-                                        int64_t filterWidth, int64_t kernelId) {
-  llvm::SmallVector<int64_t> gemmIds = populateBackwardDataGemmIds(
-      strideHeight, strideWidth, dilationHeight, dilationWidth, filterHeight,
-      filterWidth, /*countZeroInitKernel=*/true);
-  assert(gemmIds.size() > static_cast<size_t>(kernelId));
-  return gemmIds[kernelId];
-}
+                            int64_t filterHeight, int64_t filterWidth);
 
 } // end namespace miopen
 } // end namespace mlir

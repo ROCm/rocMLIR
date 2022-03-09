@@ -127,30 +127,10 @@ AffixTuningParameters::fetchDimensions(T &op) {
 void AffixTuningParameters::affixBackwardDataUtilityKernels(
     miopen::Conv2DBwdDataOp &op) {
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
-  auto dilationsAttr = op->template getAttrOfType<ArrayAttr>("dilations");
-  auto stridesAttr = op->template getAttrOfType<ArrayAttr>("strides");
 
-  int64_t dilationH =
-      dilationsAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-  int64_t dilationW =
-      dilationsAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-  int64_t strideH =
-      stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
-  int64_t strideW =
-      stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-
-  // get y, x
-  int64_t y, x;
-  std::tie(y, x, std::ignore, std::ignore, std::ignore, std::ignore,
-           std::ignore, std::ignore, std::ignore) = fetchDimensions(op);
-
-  // Obtain the actual gemm ID from the gemm ID from the top-level
-  // Conv2DBwdDataOp.
-  int64_t gemmId = reviseBackwardDataGemmId(
-      strideH, strideW, dilationH, dilationW, y, x, gemmIdAttr.getInt());
-  // In case the actual gemm ID is -1, override grid_size and block_size be 1
-  // for utility kernels.
-  if (gemmId < 0) {
+  // In case the gemm ID is -1, override grid_size and block_size be 1
+  // for the utility kernel.
+  if (gemmIdAttr.getInt() < 0) {
     OpBuilder b(op.getContext());
 
     // FIXME. Use better sizes for speedups.

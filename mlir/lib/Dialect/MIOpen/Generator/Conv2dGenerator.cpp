@@ -319,8 +319,7 @@ int Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder) const {
 int Conv2dGenerator::getBwdDataKernelCount() const {
   llvm::SmallVector<int64_t> gemmIds = populateBackwardDataGemmIds(
       config.strideHeight, config.strideWidth, config.dilationHeight,
-      config.dilationWidth, config.filterHeight, config.filterWidth,
-      /*countZeroInitKernel=*/true);
+      config.dilationWidth, config.filterHeight, config.filterWidth);
   return static_cast<int>(gemmIds.size());
 }
 
@@ -692,8 +691,15 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
         (StringRef(&config.outputLayout[i], 1) + "o").str()));
   }
 
+  // Obtain gemm ID.
+  llvm::SmallVector<int64_t> gemmIds = populateBackwardDataGemmIds(
+      config.strideHeight, config.strideWidth, config.dilationHeight,
+      config.dilationWidth, config.filterHeight, config.filterWidth);
+  assert(gemmIds.size() > static_cast<size_t>(kernel_id));
+
   std::vector<NamedAttribute> attributes{
-      builder.getNamedAttr("gemm_id", builder.getI32IntegerAttr(kernel_id)),
+      builder.getNamedAttr("gemm_id",
+                           builder.getI32IntegerAttr(gemmIds[kernel_id])),
       builder.getNamedAttr("arch", builder.getStringAttr(config.chip)),
       builder.getNamedAttr("num_cu", builder.getI32IntegerAttr(config.num_cu)),
 
