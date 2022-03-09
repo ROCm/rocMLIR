@@ -201,6 +201,24 @@ void createElementwiseLoop(OpBuilder &b, Location loc, int64_t bound,
   emitBodyFunc(loop.getInductionVar());
 }
 
+/// 0-initialize the output for a backward data convolution.
+/// The output is the input tensor.
+LogicalResult zeroInit(Conv2DBwdDataOp op, PatternRewriter &b) {
+  auto loc = op.getLoc();
+  Value output = op.input();
+  auto outputDataType = output.getType().cast<MemRefType>().getElementType();
+  auto zeroOp = createZeroConstantOp(b, loc, outputDataType);
+  auto collapsedOutput = createCollapseShapeOp(b, loc, output);
+  ArrayRef<int64_t> collapsedOutputShape =
+      collapsedOutput.getType().cast<MemRefType>().getShape();
+  auto loop = b.create<AffineForOp>(loc, 0, collapsedOutputShape[0]);
+  b.setInsertionPointToStart(loop.getBody());
+  b.create<AffineStoreOp>(loc, zeroOp, collapsedOutput, loop.getInductionVar());
+
+  op.erase();
+  return success();
+}
+
 /// 0-initialize the output for a backward weight convolution which uses
 /// atomic adds.
 /// For f32 type, the output is the filter tensor.
@@ -686,32 +704,19 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   int64_t hTildaSlice = iHTildaRight - iHTildaLeft;
   int64_t wTildaSlice = iWTildaRight - iWTildaLeft;
 
-  auto getGemmId = [&](int kernelId) {
-    // kernelId 0 must be gemmId 0
-    if (kernelId <= 0)
-      return 0;
+  // Obtain the actual gemm ID from the gemm ID from the top-level
+  // Conv2DBwdDataOp.
+  int64_t gemmId = getGemmId(strideH, strideW, dilationH, dilationW, y, x,
+                             gemmIdAttr.getInt());
+  // In case the actual gemm ID is -1, emit the zero initialization kernel.
+  if (gemmId < 0) {
+    return zeroInit(op, b);
+  }
 
-    llvm::SmallVector<int> gemmIds;
-    for (int gemmId = 0; gemmId < yTilda * xTilda; gemmId++) {
-      // gemm_k size is different for each GEMM
-      const auto iYTilda = gemmId / xTilda;
-      const auto iXTilda = gemmId % xTilda;
-
-      auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
-      auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
-      // gemmK must > 0, otherwise not need to run
-      if (yDotSlice * xDotSlice > 0) {
-        gemmIds.push_back(gemmId);
-      }
-    }
-    assert(gemmIds.size() > static_cast<size_t>(kernelId));
-    return gemmIds[kernelId];
-  };
-  auto gemmId = getGemmId(gemmIdAttr.getInt());
-  auto iYTilda = gemmId / xTilda;
-  auto iXTilda = gemmId % xTilda;
-  auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
-  auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
+  int64_t iYTilda = gemmId / xTilda;
+  int64_t iXTilda = gemmId % xTilda;
+  int64_t yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
+  int64_t xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
 
   int64_t gemmMSize, gemmNSize, gemmKSize;
   int64_t gemmMExtra, gemmNExtra, gemmKExtra;

@@ -317,30 +317,13 @@ int Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder) const {
 }
 
 int Conv2dGenerator::getBwdDataKernelCount() const {
-  auto gcdStrideDilationH =
-      math_util::gcd(config.strideHeight, config.dilationHeight);
-  auto gcdStrideDilationW = math_util::gcd(config.strideWidth, config.dilationWidth);
-
-  auto yTilda = config.strideHeight / gcdStrideDilationH;
-  auto xTilda = config.strideWidth / gcdStrideDilationW;
-
-  auto y = config.filterHeight;
-  auto x = config.filterWidth;
-  int count = 0;
-  for (int gemmId = 0; gemmId < yTilda * xTilda; gemmId++) {
-    // gemm_k size is different for each GEMM
-    const auto iYTilda = gemmId / xTilda;
-    const auto iXTilda = gemmId % xTilda;
-
-    auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
-    auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
-    // gemmK must > 0, otherwise not need to run
-    if (yDotSlice * xDotSlice > 0)
-      count++;
-  }
-
-  return count;
+  llvm::SmallVector<int64_t> gemmIds = populateBackwardDataGemmIds(
+      config.strideHeight, config.strideWidth, config.dilationHeight,
+      config.dilationWidth, config.filterHeight, config.filterWidth,
+      /*countZeroInitKernel=*/true);
+  return static_cast<int>(gemmIds.size());
 }
+
 Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
   mlir::Type dataType;
   if (config.dataTypeStr == "f32" || config.dataTypeStr == "fp32") {
