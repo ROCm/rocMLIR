@@ -40,6 +40,7 @@ private:
   template <typename T> void affixTuningParametersImpl(T &op);
 
   void affixBackwardWeightUtilityKernels(miopen::Conv2DBwdWeightOp &op);
+  void affixBackwardDataUtilityKernels(miopen::Conv2DBwdDataOp &op);
 
   template <typename T>
   std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
@@ -52,7 +53,10 @@ void AffixTuningParameters::runOnOperation() {
   FuncOp func = getOperation();
 
   func.walk([&](miopen::Conv2DOp op) { affixTuningParametersImpl(op); });
-  func.walk([&](miopen::Conv2DBwdDataOp op) { affixTuningParametersImpl(op); });
+  func.walk([&](miopen::Conv2DBwdDataOp op) {
+    affixTuningParametersImpl(op);
+    affixBackwardDataUtilityKernels(op);
+  });
   func.walk([&](miopen::Conv2DBwdWeightOp op) {
     affixTuningParametersImpl(op);
     affixBackwardWeightUtilityKernels(op);
@@ -118,6 +122,44 @@ AffixTuningParameters::fetchDimensions(T &op) {
   }
 
   return std::make_tuple(y, x, ho, wo, hi, wi, k, c, n);
+}
+
+void AffixTuningParameters::affixBackwardDataUtilityKernels(
+    miopen::Conv2DBwdDataOp &op) {
+  auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
+  auto dilationsAttr = op->template getAttrOfType<ArrayAttr>("dilations");
+  auto stridesAttr = op->template getAttrOfType<ArrayAttr>("strides");
+
+  int64_t dilationH =
+      dilationsAttr.getValue()[0].template cast<IntegerAttr>().getInt();
+  int64_t dilationW =
+      dilationsAttr.getValue()[1].template cast<IntegerAttr>().getInt();
+  int64_t strideH =
+      stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
+  int64_t strideW =
+      stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
+
+  // get y, x
+  int64_t y, x;
+  std::tie(y, x, std::ignore, std::ignore, std::ignore, std::ignore,
+           std::ignore, std::ignore, std::ignore) = fetchDimensions(op);
+
+  // Obtain the actual gemm ID from the gemm ID from the top-level
+  // Conv2DBwdDataOp.
+  int64_t gemmId = getGemmId(strideH, strideW, dilationH, dilationW, y, x,
+                             gemmIdAttr.getInt());
+  // In case the actual gemm ID is -1, override grid_size and block_size be 1
+  // for utility kernels.
+  if (gemmId < 0) {
+    OpBuilder b(op.getContext());
+
+    // FIXME. Use better sizes for speedups.
+    op->setAttr("grid_size", b.getI32IntegerAttr(1));
+    op->setAttr("block_size", b.getI32IntegerAttr(1));
+    // Set attributes on the function.
+    getOperation()->setAttr("block_size", b.getI32IntegerAttr(1));
+    getOperation()->setAttr("grid_size", b.getI32IntegerAttr(1));
+  }
 }
 
 void AffixTuningParameters::affixBackwardWeightUtilityKernels(
