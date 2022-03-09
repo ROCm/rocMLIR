@@ -1047,8 +1047,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
 
   // Set attributes for gridwise_gemm op.
   llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
-      b.getNamedAttr("gemm_id", b.getI32IntegerAttr(gemmId)),
-      b.getNamedAttr("arch", archAttr), b.getNamedAttr("num_cu", numCuAttr)};
+      b.getNamedAttr("gemm_id", gemmIdAttr), b.getNamedAttr("arch", archAttr),
+      b.getNamedAttr("num_cu", numCuAttr)};
   // xdlopsV2.
   if (isXdlops)
     gridwiseGemmAttrs.push_back(
