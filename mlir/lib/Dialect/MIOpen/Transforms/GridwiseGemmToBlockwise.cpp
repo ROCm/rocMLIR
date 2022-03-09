@@ -209,7 +209,8 @@ TransformingForOp createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
       ArrayAttr loadedValIdxMap = makeLinearDomain(b, loc, vectorIdxBounds);
 
       TransformingForOp scatterLoop = b.create<TransformingForOp>(
-          loc, ArrayRef<ValueRange>{linearInit, loop.getLowerCoords(/*domain=*/1)},
+          loc,
+          ArrayRef<ValueRange>{linearInit, loop.getLowerCoords(/*domain=*/1)},
           ArrayRef<Attribute>{loadedValIdxMap, resultIdxMap}, vectorIdxBounds,
           /*forceUnroll=*/true, /*useIndexDiffs=*/true, loopArg);
 
@@ -275,11 +276,13 @@ TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
   // If the tuning parameters call for a vector write, there's an implicit
   // gather, otherwise we can use in_bounds_store directly.
   if (fullyScalar) {
-    b.create<InBoundsStoreOp>(loc, loaded, buffer, loop.getLowerCoords(/*domain=*/1));
+    b.create<InBoundsStoreOp>(loc, loaded, buffer,
+                              loop.getLowerCoords(/*domain=*/1));
   } else if (!complexVectorStore) {
-    Value toStore = b.create<ExtractSliceOp>(loc, storingType, loaded,
-                                             loop.getLowerCoords(/*domain=*/0)[0]);
-    b.create<InBoundsStoreOp>(loc, toStore, buffer, loop.getLowerCoords(/*domain=*/1));
+    Value toStore = b.create<ExtractSliceOp>(
+        loc, storingType, loaded, loop.getLowerCoords(/*domain=*/0)[0]);
+    b.create<InBoundsStoreOp>(loc, toStore, buffer,
+                              loop.getLowerCoords(/*domain=*/1));
   } else {
     SmallVector<int64_t, 4> vectorIdxBounds(nUpper, 1);
     vectorIdxBounds[vectorDim] = storeLength;
@@ -287,7 +290,8 @@ TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
 
     Value gatherInit = createZeroConstantOp(b, loc, storingType);
     TransformingForOp gatherLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{loop.getLowerCoords(/*domain=*/0), linearInit},
+        loc,
+        ArrayRef<ValueRange>{loop.getLowerCoords(/*domain=*/0), linearInit},
         ArrayRef<Attribute>{resultIdxMap, loadedValIdxMap}, vectorIdxBounds,
         /*forceUnroll=*/true, /*useIndexDiffs=*/true, gatherInit);
     {
@@ -302,7 +306,8 @@ TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
       b.create<miopen::YieldOp>(loc, toYield);
     }
     Value gathered = gatherLoop.getResults()[0];
-    b.create<InBoundsStoreOp>(loc, gathered, buffer, loop.getLowerCoords(/*domain=*/1));
+    b.create<InBoundsStoreOp>(loc, gathered, buffer,
+                              loop.getLowerCoords(/*domain=*/1));
   }
 
   return loop;
