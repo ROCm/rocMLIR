@@ -66,41 +66,23 @@ static bool isConstantZero(Value v) {
 }
 
 static Value expandMemRef(ConversionPatternRewriter &rw, Operation *op,
-                          Value operand, uint32_t idx = 4) {
-  auto context = rw.getContext();
-  auto oprType = operand.getType().template cast<ShapedType>();
-  if (!oprType.hasStaticShape()) {
-    (void)rw.notifyMatchFailure(
-        op, "tosa to miopen conversion expects statically shaped tensors");
-    return Value();
-  }
-  auto shape = oprType.getShape();
-
-  idx--;
-
-  // expShape = shape + 1 dim
-  //  ex:  <NxHxWxCxf32> -> <Nx1xHxWxCxf32>
-  SmallVector<int64_t, 5> expShape;
-  // reassocs = shape w/ 1 split
-  //  ex:  [0,1,[2,3],4]
-  uint32_t d0 = 0;
-  SmallVector<ReassociationExprs, 5> reassocs;
-  for (uint32_t dim = 0; dim < shape.size(); ++dim) {
-    expShape.push_back(shape[dim]);
-    if (dim == idx) {
-      expShape.push_back(1);
-      reassocs.push_back(
-          {getAffineDimExpr(d0++, context), getAffineDimExpr(d0++, context)});
-    } else {
-      reassocs.push_back({getAffineDimExpr(d0++, context)});
+                          Value operand, int idx = 4) {
+    auto loc = op->getLoc();
+    auto oprType = operand.getType().template cast<ShapedType>();
+    if (!oprType.hasStaticShape()) {
+      (void)rw.notifyMatchFailure(
+          op, "tosa to miopen conversion expects statically shaped tensors");
+      return Value();
     }
-  }
+    auto shape = oprType.getShape();
 
-  auto newType = MemRefType::get(expShape, oprType.getElementType());
-  auto oprExpand = rw.create<memref::ExpandShapeOp>(op->getLoc(), newType,
-                                                    operand, reassocs);
-  return oprExpand;
-}
+    SmallVector<StringRef, 8> names { "a", "b", "c", "d", "e", "f", "h", "i"};
+    names.resize(shape.size());
+    miopen::BottomUpCTBuilder transform(rw, names, shape);
+    transform.expand("g", idx, 1);
+
+    return rw.create<miopen::TransformOp>(loc, operand, transform.get());
+} 
 
 static LogicalResult
 makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
@@ -230,8 +212,6 @@ public:
       return failure();
     }
 
-    rw.replaceOp(op, output);
-
     // test for zero bias, and ignore
     if (!isConstantZero(op.getOperand(2))) {
       // non-zero bias, replace with tosa.add w/ broadcast
@@ -259,6 +239,9 @@ public:
       output = rw.create<tosa::AddOp>(loc, op.getType(),
                                       ValueRange{conv_output_t, bias_t});
     }
+
+    rw.replaceOp(op, output);
+
     return success();
   }
 };
