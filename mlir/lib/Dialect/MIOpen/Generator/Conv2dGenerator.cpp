@@ -697,15 +697,21 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
         (StringRef(&config.outputLayout[i], 1) + "o").str()));
   }
 
-  // Obtain gemm ID from kernel_id.
-  llvm::SmallVector<int64_t> gemmIds = populateBackwardDataGemmIds(
-      config.strideHeight, config.strideWidth, config.dilationHeight,
-      config.dilationWidth, config.filterHeight, config.filterWidth);
-  assert(gemmIds.size() > static_cast<size_t>(kernel_id));
+  // Set gemm ID be the same as kernel ID.
+  // For backward data convolution, additional processing is needed below.
+  int64_t gemmId = kernel_id;
+
+  // Obtain gemm ID from kernel_id for backward data convolution.
+  if (config.operation.getValue() == miopen::ConvOpType::BwdData) {
+    llvm::SmallVector<int64_t> gemmIds = populateBackwardDataGemmIds(
+        config.strideHeight, config.strideWidth, config.dilationHeight,
+        config.dilationWidth, config.filterHeight, config.filterWidth);
+    assert(gemmIds.size() > static_cast<size_t>(kernel_id));
+    gemmId = gemmIds[kernel_id];
+  }
 
   std::vector<NamedAttribute> attributes{
-      builder.getNamedAttr("gemm_id",
-                           builder.getI32IntegerAttr(gemmIds[kernel_id])),
+      builder.getNamedAttr("gemm_id", builder.getI32IntegerAttr(gemmId)),
       builder.getNamedAttr("arch", builder.getStringAttr(config.chip)),
       builder.getNamedAttr("num_cu", builder.getI32IntegerAttr(config.num_cu)),
 
