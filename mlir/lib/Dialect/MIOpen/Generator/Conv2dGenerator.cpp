@@ -661,6 +661,12 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
     func.erase();
   }
 
+  // Fix kernel_id in case it is less than 0.
+  // The only case this could happen is to query the number of kernels needed
+  // from MIIR API, where the kernel_id is not yet unknown.
+  if (kernel_id < 0)
+    kernel_id = 0;
+
   // Annotate kernel attribute to the FuncOp.
   SmallVector<NamedAttribute, 1> kernelAttrs{
       builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernel_id)),
@@ -691,7 +697,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
         (StringRef(&config.outputLayout[i], 1) + "o").str()));
   }
 
-  // Obtain gemm ID.
+  // Obtain gemm ID from kernel_id.
   llvm::SmallVector<int64_t> gemmIds = populateBackwardDataGemmIds(
       config.strideHeight, config.strideWidth, config.dilationHeight,
       config.dilationWidth, config.filterHeight, config.filterWidth);
