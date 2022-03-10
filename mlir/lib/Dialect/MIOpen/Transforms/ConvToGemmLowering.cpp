@@ -1250,9 +1250,24 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     if (ConvOpType::BwdWeight == convOpType && isXdlops &&
         (dataType == b.getF32Type() || dataType == b.getF16Type()) &&
         needExtraPad == false) {
+      // FIXME: enable this later on.
       // current backward weight with atomic_add can only run under xdlops +
       // fp32 / fp16.
-      return backwardWeightAtomicAdd(cast<Conv2DBwdWeightOp>(op), b);
+      // return backwardWeightAtomicAdd(cast<Conv2DBwdWeightOp>(op), b);
+
+      // Emit utility kernels.
+      auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
+      int64_t gemmId = gemmIdAttr.getInt();
+      assert((gemmId >= 0) && (gemmId < 3));
+      switch (gemmId) {
+      case 0:
+      case 2:
+        b.eraseOp(op);
+        return success();
+      case 1:
+      default:
+        break;
+      }
     }
 
     // Transform filter tensor.
@@ -1359,7 +1374,6 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // KPack for filter tensor.
     Value gemmFilterKPack = gemmFilterPad;
 
-    // FIXME. consider backward convolution.
     if ((KPack > 1) && (convOpType == ConvOpType::Fwd)) {
       BottomUpCTBuilder sourceTransform =
           (isFilterPad) ? padGemmFilterTransform : filterTransform;
@@ -1544,8 +1558,8 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // KPack for input tensor.
     Value gemmInputKPack = gemmInputPad;
 
-    // FIXME. consider backward convolution.
-    if ((KPack > 1) && (convOpType == ConvOpType::Fwd)) {
+    if ((KPack > 1) && ((convOpType == ConvOpType::Fwd) ||
+                        (convOpType == ConvOpType::BwdWeight))) {
       BottomUpCTBuilder sourceTransform =
           (isInputPad) ? padGemmInputTransform : gemmInputTransform;
       TransformMapAttr sourceTransformAttr =
@@ -1603,6 +1617,9 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     TransformMapAttr outputTransformAttr = outputTransform.get();
     Value gemmOutput =
         b.create<TransformOp>(loc, op.output(), outputTransformAttr);
+
+    BottomUpCTBuilder padGemmOutputTransform = outputTransform;
+    TransformMapAttr padGemmOutputTransformAttr = outputTransformAttr;
     Value gemmOutputPad = gemmOutput;
 
     // output padding start
@@ -1622,8 +1639,10 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
         (convOpType == ConvOpType::BwdWeight && gemmMExtra > 0) ||
         (convOpType == ConvOpType::Fwd && gemmMExtra > 0);
     outputCheckPadGemmN = (convOpType == ConvOpType::Fwd && gemmNExtra > 0);
+    bool isOutputPad = false;
     if (outputCheckPadGemmK || outputCheckPadGemmM || outputCheckPadGemmN) {
-      auto padGemmOutputTransform =
+      isOutputPad = true;
+      padGemmOutputTransform =
           BottomUpCTBuilder::above(outputTransform, outputTransformAttr);
       padGemmOutputTransform.passThrough("gemmG");
 
@@ -1658,11 +1677,37 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
         padGemmOutputTransform.passThrough("gemmN");
       }
 
-      TransformMapAttr padGemmOutputTransformAttr =
-          padGemmOutputTransform.get();
+      padGemmOutputTransformAttr = padGemmOutputTransform.get();
       gemmOutputPad =
           b.create<TransformOp>(loc, gemmOutput, padGemmOutputTransformAttr);
       // output padding end
+    }
+
+    // KPack for output tensor.
+    Value gemmOutputKPack = gemmOutputPad;
+
+    if ((KPack > 1) && (convOpType == ConvOpType::BwdWeight)) {
+      BottomUpCTBuilder sourceTransform =
+          (isOutputPad) ? padGemmOutputTransform : outputTransform;
+      TransformMapAttr sourceTransformAttr =
+          (isOutputPad) ? padGemmOutputTransformAttr : outputTransformAttr;
+      Value source = (isOutputPad) ? gemmOutputPad : gemmOutput;
+
+      BottomUpCTBuilder kpackGemmOutputTransform =
+          BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
+      // Passthrough gemmG (dim 0) and gemmM (dim 2).
+      kpackGemmOutputTransform.passThrough(sourceTransform.endName(0));
+      kpackGemmOutputTransform.passThrough(sourceTransform.endName(2));
+      // Use Unmerge to split gemmK (dim 1) into gemmK and gemmKPack, place
+      // gemmKPack at dim 3.
+      int64_t gemmKLength = sourceTransform.endSize(1);
+      auto gemmKName = sourceTransform.endName(1);
+      kpackGemmOutputTransform.unmerge({gemmKName, "gemmKPack"}, {1, 3},
+                                       gemmKName, {gemmKLength / KPack, KPack});
+      TransformMapAttr kpackGemmOutputTransformAttr =
+          kpackGemmOutputTransform.get();
+      gemmOutputKPack =
+          b.create<TransformOp>(loc, source, kpackGemmOutputTransformAttr);
     }
 
     // Set attributes for gridwise_gemm op.
@@ -1696,7 +1741,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
         getBoundsCheckAttr(b, outputOobCheckDims, outputShape.size());
 
     SmallVector<Value, 3> arguments = {gemmFilterKPack, gemmInputKPack,
-                                       gemmOutputPad};
+                                       gemmOutputKPack};
     SmallVector<ArrayAttr, 3> oobs = {filterOobAttr, inputOobAttr,
                                       outputOobAttr};
 
@@ -1719,12 +1764,12 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // Emit miopen.gridwise_gemm_v2 if xdlopsV2 attribute is true.
 
     // Supply KPack information into gridwiseGemmAttrs.
-    // FIXME. consider backward convolution.
-    if ((KPack > 1) && (convOpType == ConvOpType::Fwd)) {
+    if ((KPack > 1) && ((convOpType == ConvOpType::Fwd) ||
+                        (convOpType == ConvOpType::BwdWeight))) {
       gridwiseGemmAttrs.push_back(
           b.getNamedAttr("kpack", b.getI32IntegerAttr(KPack)));
     } else {
-      // FIXME. Skip KPACK for backward passes for now.
+      // FIXME. Skip KPACK for backward data convolution for now.
       gridwiseGemmAttrs.push_back(
           b.getNamedAttr("kpack", b.getI32IntegerAttr(1)));
     }
