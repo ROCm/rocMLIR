@@ -343,6 +343,16 @@ pipeline {
                     HOME="${WORKSPACE}"
                 }
                 stages {
+                    stage("Set System Property on Lockhart nodes") {
+                        when {
+                            equals expected: "gfx90a", actual: "${ARCH}"
+                        }
+                        steps {
+                            script {
+                               System.setProperty("org.jenkinsci.plugins.durabletask.BourneShellScript.HEARTBEAT_CHECK_INTERVAL", "86400");
+                            }
+                        }
+                    }
                     stage("Environment") {
                         steps {
                             echo "ARCH = ${ARCH}"
