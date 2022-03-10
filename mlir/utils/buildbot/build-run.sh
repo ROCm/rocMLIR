@@ -56,9 +56,17 @@ fi
 # Proxy needed on lockhart hosts.
 # Define it here rather than master.cfg to keep it internal.
 case `hostname` in
-    x[10]*) proxy='-e https_proxy=http://172.23.0.2:3128' ;;
+    x[10]*) proxy='http://172.23.0.2:3128' ;;
     *)      proxy='' ;;
 esac
 
-docker build -t "${IMAGE_NAME}:latest" .
-docker run -it --net=host --device=/dev/kfd --device=/dev/dri --group-add video --name buildbot --restart always ${proxy} ${VOLUMES} ${ARGS} "${IMAGE_NAME}:latest" ${CMD}
+if [ -n "$proxy" ]; then
+    buildproxy="--build-arg http_proxy=${proxy} --build-arg https_proxy=${proxy}"
+    runproxy="-e http_proxy=${proxy} -e https_proxy=${proxy}"
+else
+    buildproxy=''
+    runproxy=''
+fi
+
+docker build ${buildproxy} -t "${IMAGE_NAME}:latest" .
+docker run -it --net=host --device=/dev/kfd --device=/dev/dri --group-add video --name buildbot --restart always ${runproxy} ${VOLUMES} ${ARGS} "${IMAGE_NAME}:latest" ${CMD}
