@@ -39,7 +39,7 @@ populateBackwardDataGemmIds(int64_t strideHeight, int64_t strideWidth,
   // Heuristic to determine if every pixel in the output would be written by the
   // backward data convolution algorithm.
   auto isEveryPixelWritten = [&]() -> bool {
-    bool result = false;
+    bool result = true;
     for (int32_t dim = 0; dim < 2; ++dim) {
       int64_t convStride = (dim == 0) ? strideHeight : strideWidth;
       int64_t convDilation = (dim == 0) ? dilationHeight : dilationWidth;
