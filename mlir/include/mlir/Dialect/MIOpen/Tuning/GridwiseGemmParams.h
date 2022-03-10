@@ -436,7 +436,7 @@ protected:
                                                    ConvolutionContext &ctx,
                                                    DerivedOutParams &out) {
     int64_t cVectorLength = 0;
-    ConvOpType op = ctx.getOpType();
+    mlir::miopen::ConvOpType op = ctx.getOpType();
 
     obtainGemmCVecLen(ctx, cVectorLength);
     int64_t dataPerThread =
@@ -449,7 +449,7 @@ protected:
     int64_t vectorizationSize = 4;
     // No swizzling or vectorization for backward data
     // TODO(kdrewnia): Understand when it might be possible
-    if (ConvOpType::BwdData == op) {
+    if (mlir::miopen::ConvOpType::BwdData == op) {
       vectorizationSize = 1;
     }
 
@@ -929,15 +929,15 @@ private:
         std::make_tuple(128, 64, 1),
         // std::make_tuple(128, 32, 1),
         // std::make_tuple(128, 16, 1),
-        std::make_tuple(64, 128, 1), 
+        std::make_tuple(64, 128, 1),
         std::make_tuple(64, 64, 1),
-        std::make_tuple(64, 32, 1), 
+        std::make_tuple(64, 32, 1),
         std::make_tuple(64, 16, 1),
         // std::make_tuple(32, 128, 1),
-        std::make_tuple(32, 64, 1), 
+        std::make_tuple(32, 64, 1),
         std::make_tuple(32, 32, 2),
         // std::make_tuple(16, 128, 1),
-        std::make_tuple(16, 64, 1), 
+        std::make_tuple(16, 64, 1),
         std::make_tuple(16, 16, 4),
         // std::make_tuple(8, 128, 1),
         std::make_tuple(8, 64, 1),

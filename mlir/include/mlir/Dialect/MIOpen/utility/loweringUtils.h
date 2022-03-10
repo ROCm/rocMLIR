@@ -13,13 +13,11 @@
 
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
-
-using namespace mlir;
-using namespace mlir::miopen;
 
 namespace mlir {
 namespace miopen {
@@ -59,6 +57,13 @@ inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo) {
 std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
                                          ArrayAttr existing = nullptr);
 
+/// Given an array of transform_maps `transforms` (to be composed left to
+/// right), returns the array of dimensions in the lowest space of these
+/// transforms that need to be checked for out of bounds stores on the left
+/// (checking for indices less than 0) and on the right (indices greater than
+/// the dimension on the memref)
+std::tuple<DenseIntElementsAttr, DenseIntElementsAttr>
+computeOobFromTransforms(Builder &b, ArrayAttr transforms);
 } // end namespace miopen
 } // end namespace mlir
 #endif
