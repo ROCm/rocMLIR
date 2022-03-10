@@ -178,24 +178,24 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
       }
       cnt++;
     }
-    if (cnt > 2)
-      return null;
-
-    while (nextVal) {
-      // 2. get reader (miopen.transform), return result
-      if (auto transform = backtrace<miopen::TransformOp>(nextVal)) {
-        nextVal = transform;
-        transforms.push_back(nextVal);
-      } else {
-        // 3. get readers (miopen.threadwise_copy)
-        for (auto &use : nextVal.getUses()) {
-          if (!dyn_cast<Ttwcopy>(use.getOwner())) {
-            return null;
+    if (cnt == 2) {
+      while (nextVal) {
+        // 2. get reader (miopen.transform), return result
+        if (auto transform = backtrace<miopen::TransformOp>(nextVal)) {
+          nextVal = transform;
+          transforms.push_back(nextVal);
+        } else {
+          // 3. get readers (miopen.threadwise_copy)
+          bool allTWCopy = true;
+          for (auto &use : nextVal.getUses()) {
+            allTWCopy &= isa<Ttwcopy>(use.getOwner());
           }
+          if (allTWCopy)
+            return inp;
         }
-        return inp;
       }
     }
+    transforms.clear();
     return null;
   }
 
@@ -269,22 +269,16 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         return fail;
       }
       // first trace to back to regs, then forward to twcopy
-      SmallVector<Value, 5> transforms_l;
       if (auto twinp_t = traceToThreadwiseCopy<miopen::ThreadwiseCopyOp>(
-              inp, transforms_l)) {
+              inp, transforms)) {
         // 1.2. Only one input should trace to twcopy
         assert(!twinpV1);
         twinpV1 = twinp_t;
-        transforms = transforms_l;
-      } else {
-        transforms_l.clear();
-        if (auto twinp_t =
-            traceToThreadwiseCopy<miopen::ThreadwiseCopyV2Op>(
-                inp, transforms)) {
-          assert(!twinpV2);
-          twinpV2 = twinp_t;
-          transforms = transforms_l;
-        }
+      } else if (auto twinp_t =
+                 traceToThreadwiseCopy<miopen::ThreadwiseCopyV2Op>(
+                     inp, transforms)) {
+        assert(!twinpV2);
+        twinpV2 = twinp_t;
       }
     }
 
