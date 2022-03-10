@@ -226,7 +226,9 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
         ArrayRef<ValueRange>{matrixAThreadwiseCopySourceCoords,
                              matrixAThreadwiseCopyDestCoords},
         ArrayRef<Attribute>{transformsA, emptyArr},
-        ArrayRef<int64_t>{1, KPerThread, MPerThreadSubC},
+        // XXX
+        //ArrayRef<int64_t>{1, KPerThread, MPerThreadSubC},
+        ArrayRef<int64_t>{1, KPerThread, MPerThreadSubC, KPack},
         /*forceUnroll=*/true, /*indexDiffs=*/false);
     OpBuilder copyABuilder =
         OpBuilder::atBlockTerminator(copyALoop.getBody(), lab.getListener());
@@ -281,7 +283,9 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
         ArrayRef<ValueRange>{matrixBThreadwiseCopySourceCoords,
                              matrixBThreadwiseCopyDestCoords},
         ArrayRef<Attribute>{transformsB, emptyArr},
-        ArrayRef<int64_t>{1, KPerThread, NPerThreadSubC},
+        // XXX
+        //ArrayRef<int64_t>{1, KPerThread, NPerThreadSubC},
+        ArrayRef<int64_t>{1, KPerThread, NPerThreadSubC, KPack},
         /*forceUnroll=*/true, /*indexDiffs=*/false);
     OpBuilder copyBBuilder =
         OpBuilder::atBlockTerminator(copyBLoop.getBody(), lbb.getListener());

@@ -304,7 +304,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
                 b.getI32IntegerAttr(validParams.gemmNPerThread));
     op->setAttr("block_size", b.getI32IntegerAttr(validParams.blockSize));
     // For non-XDLOPS path, do not use KPack for now.
-    op->setAttr("kpack", b.getI32IntegerAttr(1));
+    // XXX
+    op->setAttr("kpack", b.getI32IntegerAttr(4));
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size",
