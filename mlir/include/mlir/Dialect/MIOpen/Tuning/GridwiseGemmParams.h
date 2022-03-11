@@ -815,15 +815,18 @@ private:
   // clang-format off
   llvm::SmallVector<InitParamsXDL, 4> initParametersForwardI8 = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-      // TODO remove
-      {64, 64, 1, 32, 32, 1, false, false},
-
-      {64, 64, 2, 32, 32, 1, false, false},
+      // TODO enable kpack
+      // The 32 x 32 xdlops k/block must be divisible by 2
+      {64, 64, 8, 32, 32, 1, false, false},
       {64, 64, 4, 32, 32, 1, false, false},
-      {64, 64, 16, 32, 32, 16, false, false},
-
-      // TODO Amend all kPack to be 16 for i8
-      {16, 16, 16, 16, 16, 1, false, false},
+      {64, 64, 2, 32, 32, 1, false, false},
+      {32, 32, 8, 32, 32, 1, false, false},
+      {32, 32, 4, 32, 32, 1, false, false},
+      {32, 32, 2, 32, 32, 1, false, false},
+      // The 16 x 16 xdlops k/block must be divisible by 4
+      {32, 32, 8, 16, 16, 1, false, false},
+      {32, 32, 4, 16, 16, 1, false, false},
+      {16, 16, 8, 16, 16, 1, false, false},
       {16, 16, 4, 16, 16, 1, false, false},
   };
   // clang-format on
@@ -870,26 +873,6 @@ private:
       InitParamsXDL *param, ConvolutionContext &ctx, DerivedParams &derived) {
     int64_t blockSize = obtainBlockSize(*param, waveSize);
     return calculateInputDerivedParams(param, blockSize, ctx, false, derived);
-  }
-
-  LogicalResult isKpackValid(InitParamsXDL *param,
-                             const DerivedParams &gemmADerived,
-                             const DerivedParams &gemmBDerived) {
-    if (isKpackValid(param, gemmADerived).failed()) {
-      return failure();
-    }
-    if (isKpackValid(param, gemmBDerived).failed()) {
-      return failure();
-    }
-    return success();
-  }
-
-  LogicalResult isKpackValid(InitParamsXDL *param,
-                             const DerivedParams &derived) {
-    if (param->gemmKPack > derived.srcDataPerRead) {
-      return failure();
-    }
-    return success();
   }
 
   LogicalResult calculateLdsNumberOfByte(InitParamsXDL &param,

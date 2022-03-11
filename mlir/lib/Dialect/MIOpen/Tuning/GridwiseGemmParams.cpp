@@ -268,12 +268,6 @@ LogicalResult PopulateParamsXDL::populateDerived(
     return failure();
   }
 
-  res = isKpackValid(&params, gemmADerivedParam, gemmBDerivedParam);
-  if (failed(res)) {
-    LLVM_DEBUG(llvm::dbgs() << "Incoherent kpack tuning parameter.\n");
-    return failure();
-  }
-
   std::size_t ldsSize = 0;
   res = calculateLdsNumberOfByte(params, ctx, gemmADerivedParam,
                                  gemmBDerivedParam, ldsSize);
