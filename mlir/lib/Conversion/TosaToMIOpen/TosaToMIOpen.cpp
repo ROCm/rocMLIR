@@ -157,7 +157,7 @@ makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   // TODO: remove these
   cop->setAttr("arch", rw.getStringAttr(arch));
   cop->setAttr("num_cu", rw.getI32IntegerAttr(num_cu));
-  cop->setAttr("xdlopsV2", rw.getBoolAttr(xdlopsV2));
+  cop->setAttr("xdlopsV2", rw.getBoolAttr(true));
 
   // convolution config attributes
   cop->setAttr("filter_layout",
