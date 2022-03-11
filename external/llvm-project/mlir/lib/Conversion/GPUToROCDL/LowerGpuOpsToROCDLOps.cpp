@@ -178,7 +178,7 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
     Type LLVMResultType = typeConverter->convertType(resultType);
 
     // use standard load for:
-    // 1) loading scalar f16 and i16 (bf16) from global (addrspace 0).
+    // 1) loading scalar from global (addrspace 0).
     if ((srcElementType.getIntOrFloatBitWidth() != 32) &&
         (srcMemRefType.getMemorySpaceAsInt() == 0 &&
          !resultType.isa<VectorType>())) {
@@ -190,8 +190,8 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
     }
 
     // use standard load for:
-    // 2) loading scalar and vector f16 and i16 (bf16) from LDS (addrspace 3).
-    // 3) loading scalar and vector f16 and i16 (bf16) from VGPR (addrspace 5).
+    // 2) loading scalar and vector from LDS (addrspace 3).
+    // 3) loading scalar and vector from VGPR (addrspace 5).
     if (srcMemRefType.getMemorySpaceAsInt() == 3 ||
         srcMemRefType.getMemorySpaceAsInt() == 5) {
       Value dataPtr =
@@ -295,18 +295,23 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
         loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
 
     if (srcElementType.getIntOrFloatBitWidth() != 32) {
-      // for f16 and i16 (bf16) types, use f32 buffer_load and bitcast the
-      // result.
+      // For non-f32 types, use f32 buffer_load and bitcast the result.
       assert(resultType.isa<VectorType>());
-      // deduce the interim type for f16 / i16 (bf16).
       VectorType vectorResultType = resultType.template cast<VectorType>();
       auto vectorShape = vectorResultType.getShape();
+
+      // For int8, each 32 bits will fit 4;
+      // For f16 and i16, each 32 bits will fit 2
+      int64_t numFit32 = 32 / vectorResultType.getElementTypeBitWidth();
+      int64_t lastDimShape = vectorShape.back() / numFit32;
 
       SmallVector<int64_t, 1> interimShape;
       for (unsigned iter = 0; iter < vectorShape.size() - 1; ++iter)
         interimShape.push_back(vectorShape[iter]);
-      interimShape.push_back(vectorShape[vectorShape.size() - 1] >> 1);
-      bool useScalarF32 = (vectorShape.size() == 1) && (vectorShape[0] == 2);
+      interimShape.push_back(lastDimShape);
+      bool useScalarF32 =
+          (vectorShape.size() == 1) && (vectorShape[0] == numFit32);
+
       Type interimResultType;
       if (useScalarF32)
         interimResultType = rewriter.getF32Type();
@@ -315,6 +320,7 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
             VectorType::get(interimShape, rewriter.getF32Type());
       Type interimLLVMResultType =
           typeConverter->convertType(interimResultType);
+      interimResultType.dump();
 
       Value interimLoad = rewriter.create<ROCDL::MubufLoadOp>(
           loc, interimLLVMResultType, rsrc, vindex, voffset, slc, glc);
@@ -352,7 +358,7 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
     auto adaptorShift = adaptor.shift();
     Type valueType = mubufStoreOp.value().getType();
 
-    // use standard store for storing scalar f16 and i16 (bf16).
+    // use standard store for storing scalar
     if ((dstElementType.getIntOrFloatBitWidth() != 32) &&
         !valueType.isa<VectorType>()) {
       Value dataPtr =
@@ -450,18 +456,23 @@ struct MubufStoreOpLowering : ConvertToLLVMPattern {
         loc, LLVMI1Type, rewriter.getIntegerAttr(I1Type, 0));
 
     if (dstElementType.getIntOrFloatBitWidth() != 32) {
-      // for f16 and i16 (bf16) types, use f32 buffer_store and bitcast the
-      // result.
+      // for non-f32 types, use f32 buffer_store and bitcast the result.
       assert(valueType.isa<VectorType>());
-      // deduce the interim type for f16 / i16 (bf16).
       VectorType vectorResultType = valueType.template cast<VectorType>();
       auto vectorShape = vectorResultType.getShape();
+
+      // For int8, each 32 bits will fit 4;
+      // For f16 and i16, each 32 bits will fit 2
+      int64_t numFit32 = 32 / vectorResultType.getElementTypeBitWidth();
+      int64_t lastDimShape = vectorShape.back() / numFit32;
 
       SmallVector<int64_t, 1> interimShape;
       for (unsigned iter = 0; iter < vectorShape.size() - 1; ++iter)
         interimShape.push_back(vectorShape[iter]);
-      interimShape.push_back(vectorShape[vectorShape.size() - 1] >> 1);
-      bool useScalarF32 = (vectorShape.size() == 1) && (vectorShape[0] == 2);
+      interimShape.push_back(lastDimShape);
+      bool useScalarF32 =
+          (vectorShape.size() == 1) && (vectorShape[0] == numFit32);
+
       Type interimValueType;
       if (useScalarF32)
         interimValueType = rewriter.getF32Type();
@@ -582,16 +593,21 @@ struct RawbufStoreOpLowering : ConvertToLLVMPattern {
 
     if (dstElementType.getIntOrFloatBitWidth() != 32) {
       if (auto vectorResultType = valueType.dyn_cast<VectorType>()) {
-        // for f16 and i16 (bf16) types, use f32 buffer_store and bitcast the
-        // result.
-        // deduce the interim type for f16 / i16 (bf16).
+        // For non-f32 types, use f32 buffer_store and bitcast the result.
         auto vectorShape = vectorResultType.getShape();
+
+        // For int8, each 32 bits will fit 4;
+        // For f16 and i16, each 32 bits will fit 2
+        int64_t numFit32 = 32 / vectorResultType.getElementTypeBitWidth();
+        int64_t lastDimShape = vectorShape.back() / numFit32;
 
         SmallVector<int64_t, 1> interimShape;
         for (unsigned iter = 0; iter < vectorShape.size() - 1; ++iter)
           interimShape.push_back(vectorShape[iter]);
-        interimShape.push_back(vectorShape[vectorShape.size() - 1] >> 1);
-        bool useScalarF32 = (vectorShape.size() == 1) && (vectorShape[0] == 2);
+        interimShape.push_back(lastDimShape);
+        bool useScalarF32 =
+            (vectorShape.size() == 1) && (vectorShape[0] == numFit32);
+
         Type interimValueType;
         if (useScalarF32)
           interimValueType = rewriter.getF32Type();
@@ -605,8 +621,8 @@ struct RawbufStoreOpLowering : ConvertToLLVMPattern {
             loc, interimLLVMValueType, adaptorValue);
         rewriter.replaceOpWithNewOp<ROCDL::RawbufStoreOp>(
             op, bitcastedValue, rsrc, voffset_shift, vindex, zeroglcslc);
-      } else { // f16 and i16 (bf16) types scalar value
-               // FIXME:there is a problem with bf16 when in_h and in_w is odd
+      } else {
+        // FIXME:there is a problem with bf16 when in_h and in_w is odd
         rewriter.replaceOpWithNewOp<ROCDL::RawbufStoreOp>(
             op, adaptorValue, rsrc, voffset_shift, vindex, zeroglcslc);
       }
