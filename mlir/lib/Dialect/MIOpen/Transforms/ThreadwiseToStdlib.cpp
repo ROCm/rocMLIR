@@ -249,7 +249,19 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
     auto emitLoadInstruction = [&b, loc, loadedType,
                                 source](ValueRange loadCoords) -> Value {
       Value loadedValue;
-      if (auto loadedVectorType = loadedType.dyn_cast<VectorType>()) {
+
+      Type elementType = loadedType;
+      int64_t vectorLength = 1;
+
+      if (loadedType.isa<VectorType>()) {
+        VectorType loadedVectorType = loadedType.template cast<VectorType>();
+        elementType = loadedVectorType.getElementType();
+        vectorLength = loadedVectorType.getShape()[0];
+      }
+
+      if (auto loadedVectorType =
+              loadedType.dyn_cast<VectorType>() &&
+              !(elementType == b.getIntegerType(8) && vectorLength < 4)) {
         // Issue vector load.
         // use buffer load since the source memref is on address space 0
         SmallVector<Value, 4> srcLowerIndicesI32;
