@@ -1250,24 +1250,9 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     if (ConvOpType::BwdWeight == convOpType && isXdlops &&
         (dataType == b.getF32Type() || dataType == b.getF16Type()) &&
         needExtraPad == false) {
-      // FIXME: enable this later on.
       // current backward weight with atomic_add can only run under xdlops +
       // fp32 / fp16.
-      // return backwardWeightAtomicAdd(cast<Conv2DBwdWeightOp>(op), b);
-
-      // Emit utility kernels.
-      auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
-      int64_t gemmId = gemmIdAttr.getInt();
-      assert((gemmId >= 0) && (gemmId < 3));
-      switch (gemmId) {
-      case 0:
-      case 2:
-        b.eraseOp(op);
-        return success();
-      case 1:
-      default:
-        break;
-      }
+      return backwardWeightAtomicAdd(cast<Conv2DBwdWeightOp>(op), b);
     }
 
     // Transform filter tensor.
