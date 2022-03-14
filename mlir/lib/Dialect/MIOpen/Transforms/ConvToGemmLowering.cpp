@@ -179,9 +179,8 @@ void affixGridwiseGemmAttributes(Operation *convOp, Operation *gop,
   }
 }
 
-template <typename T>
 void createElementwiseLoop(OpBuilder &b, Location loc, int64_t bound,
-                           T emitBodyFunc) {
+                           function_ref<void(Value)> emitBodyFunc) {
   // Pseudo code:
   // size_t offset = (hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
   // size_t stride = hipBlockDim_x * hipGridDim_x;
