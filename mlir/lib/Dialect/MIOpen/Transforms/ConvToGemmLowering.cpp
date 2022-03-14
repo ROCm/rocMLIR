@@ -211,9 +211,11 @@ LogicalResult zeroInit(Conv2DBwdDataOp op, PatternRewriter &b) {
   auto collapsedOutput = createCollapseShapeOp(b, loc, output);
   ArrayRef<int64_t> collapsedOutputShape =
       collapsedOutput.getType().cast<MemRefType>().getShape();
-  auto loop = b.create<AffineForOp>(loc, 0, collapsedOutputShape[0]);
-  b.setInsertionPointToStart(loop.getBody());
-  b.create<AffineStoreOp>(loc, zeroOp, collapsedOutput, loop.getInductionVar());
+
+  createElementwiseLoop(b, loc, collapsedOutputShape[0], [&](Value iv) {
+    auto zeroOp = createZeroConstantOp(b, loc, outputDataType);
+    b.create<memref::StoreOp>(loc, zeroOp, collapsedOutput, iv);
+  });
 
   b.eraseOp(op);
   return success();
