@@ -246,7 +246,7 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
         oobDims.push_back(pair.index());
     bool toEmitOobChecks = !oobDims.empty();
 
-    auto emitLoadInstruction = [&b, loc, loadedType,
+    auto emitLoadInstruction = [&b, loc, loadedType, sourceType,
                                 source](ValueRange loadCoords) -> Value {
       Value loadedValue;
 
@@ -254,22 +254,43 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
       int64_t vectorLength = 1;
 
       if (loadedType.isa<VectorType>()) {
-        VectorType loadedVectorType = loadedType.template cast<VectorType>();
+        VectorType loadedVectorType = loadedType.cast<VectorType>();
         elementType = loadedVectorType.getElementType();
         vectorLength = loadedVectorType.getShape()[0];
-      }
 
-      if (auto loadedVectorType =
-              loadedType.dyn_cast<VectorType>() &&
-              !(elementType == b.getIntegerType(8) && vectorLength < 4)) {
-        // Issue vector load.
-        // use buffer load since the source memref is on address space 0
-        SmallVector<Value, 4> srcLowerIndicesI32;
-        for (auto v : loadCoords)
-          srcLowerIndicesI32.push_back(
-              b.create<IndexCastOp>(loc, b.getIntegerType(32), v));
-        loadedValue = b.create<gpu::MubufLoadOp>(loc, loadedType, source,
-                                                 srcLowerIndicesI32);
+        auto loadWidth = vectorLength * elementType.getIntOrFloatBitWidth();
+        bool isTooNarrow = loadWidth < 32;
+        bool isTooWide = loadWidth > 4 * 32;
+
+        // Use scalar load when load width is too narrow or too wide
+        // for a mubuf instruction
+        if (isTooNarrow || isTooWide) {
+          Value loadedVector = createZeroConstantOp(b, loc, loadedVectorType);
+
+          SmallVector<Value, 8> srcLowerIndicesUpdated;
+          srcLowerIndicesUpdated.append(loadCoords.begin(), loadCoords.end());
+
+          int64_t dim = sourceType.getRank() - 1;
+          for (int64_t iter = 0; iter < vectorLength; ++iter) {
+            auto iterIndex = b.create<ConstantIndexOp>(loc, iter);
+            srcLowerIndicesUpdated[dim] =
+                b.create<AddIOp>(loc, loadCoords[dim], iterIndex);
+            auto loadedElement = b.create<memref::LoadOp>(
+                loc, elementType, source, srcLowerIndicesUpdated);
+            loadedVector = b.create<vector::InsertElementOp>(
+                loc, loadedVectorType, loadedElement, loadedVector, iterIndex);
+          }
+          loadedValue = loadedVector;
+        } else {
+          // Issue vector load.
+          // use buffer load since the source memref is on address space 0
+          SmallVector<Value, 4> srcLowerIndicesI32;
+          for (auto v : loadCoords)
+            srcLowerIndicesI32.push_back(
+                b.create<IndexCastOp>(loc, b.getIntegerType(32), v));
+          loadedValue = b.create<gpu::MubufLoadOp>(loc, loadedType, source,
+                                                   srcLowerIndicesI32);
+        }
       } else {
         // Issue scalar load.
         loadedValue =
@@ -1710,4 +1731,3 @@ void LowerMIOpenOpsStep4Pass::runOnOperation() {
 std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep4Pass() {
   return std::make_unique<LowerMIOpenOpsStep4Pass>();
 }
-
