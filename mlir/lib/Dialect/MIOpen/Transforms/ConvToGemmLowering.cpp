@@ -26,7 +26,6 @@
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/Tuning/UtilityParams.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
-#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/Support/LogicalResult.h"
@@ -180,6 +179,29 @@ void affixGridwiseGemmAttributes(Operation *convOp, Operation *gop,
   }
 }
 
+template <typename T>
+void createElementwiseLoop(OpBuilder &b, Location loc, int64_t bound,
+                           T emitBodyFunc) {
+  // Pseudo code:
+  // size_t offset = (hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
+  // size_t stride = hipBlockDim_x * hipGridDim_x;
+  // for (size_t i = offset; i < sizeof(collapsedOutput); i+= stride)
+  //     collapsedOutput[i] = 0;
+
+  auto workgroupId = b.create<WorkgroupIdOp>(loc, b.getIndexType());
+  auto workgroupDim = b.create<ConstantIndexOp>(loc, kUtilityKernelBlockSize);
+  auto workitemId = b.create<WorkitemIdOp>(loc, b.getIndexType());
+  auto offset = b.create<AddIOp>(
+      loc, b.create<MulIOp>(loc, workgroupId, workgroupDim), workitemId);
+  auto gridDim = b.create<ConstantIndexOp>(loc, kUtilityKernelGridSize);
+  auto stride = b.create<MulIOp>(loc, workgroupDim, gridDim);
+
+  auto loop = b.create<scf::ForOp>(
+      loc, offset, b.create<ConstantIndexOp>(loc, bound), stride);
+  b.setInsertionPointToStart(loop.getBody());
+  emitBodyFunc(loop.getInductionVar());
+}
+
 /// 0-initialize the output for a backward weight convolution which uses
 /// atomic adds.
 /// For f32 type, the output is the filter tensor.
@@ -198,31 +220,14 @@ LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
     llvm_unreachable("Incorrect memref type supplied");
   }
   auto outputDataType = output.getType().cast<MemRefType>().getElementType();
-  auto zeroOp = createZeroConstantOp(b, loc, outputDataType);
   auto collapsedOutput = createCollapseShapeOp(b, loc, output);
   ArrayRef<int64_t> collapsedOutputShape =
       collapsedOutput.getType().cast<MemRefType>().getShape();
 
-  // Pseudo code:
-  // size_t offset = (hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
-  // size_t stride = hipBlockDim_x * hipGridDim_x;
-  // for (size_t i = offset; i < sizeof(collapsedOutput); i+= stride)
-  //     collapsedOutput[i] = 0;
-
-  auto workgroupId = b.create<WorkgroupIdOp>(loc, b.getIndexType());
-  auto workgroupDim = b.create<ConstantIndexOp>(loc, kUtilityKernelBlockSize);
-  auto workitemId = b.create<WorkitemIdOp>(loc, b.getIndexType());
-  auto offset = b.create<AddIOp>(
-      loc, b.create<MulIOp>(loc, workgroupId, workgroupDim), workitemId);
-  auto gridDim = b.create<ConstantIndexOp>(loc, kUtilityKernelGridSize);
-  auto stride = b.create<MulIOp>(loc, workgroupDim, gridDim);
-
-  auto loop = b.create<scf::ForOp>(
-      loc, offset, b.create<ConstantIndexOp>(loc, collapsedOutputShape[0]),
-      stride);
-  b.setInsertionPointToStart(loop.getBody());
-  b.create<memref::StoreOp>(loc, zeroOp, collapsedOutput,
-                            loop.getInductionVar());
+  createElementwiseLoop(b, loc, collapsedOutputShape[0], [&](Value iv) {
+    auto zeroOp = createZeroConstantOp(b, loc, outputDataType);
+    b.create<memref::StoreOp>(loc, zeroOp, collapsedOutput, iv);
+  });
 
   b.eraseOp(op);
   return success();
@@ -245,29 +250,12 @@ LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
   assert((collapsedFilterShape[0] == collapsedWorkspaceShape[0]) &&
          "Filter tensor and workspace size mismatch");
 
-  // Pseudo code:
-  // size_t offset = (hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
-  // size_t stride = hipBlockDim_x * hipGridDim_x;
-  // for (size_t i = offset; i < sizeof(collapsedOutput); i+= stride)
-  //     collapsedFilter[i] = convert(collapsedWorkspace[i]);
-
-  auto workgroupId = b.create<WorkgroupIdOp>(loc, b.getIndexType());
-  auto workgroupDim = b.create<ConstantIndexOp>(loc, kUtilityKernelBlockSize);
-  auto workitemId = b.create<WorkitemIdOp>(loc, b.getIndexType());
-  auto offset = b.create<AddIOp>(
-      loc, b.create<MulIOp>(loc, workgroupId, workgroupDim), workitemId);
-  auto gridDim = b.create<ConstantIndexOp>(loc, kUtilityKernelGridSize);
-  auto stride = b.create<MulIOp>(loc, workgroupDim, gridDim);
-
-  auto loop = b.create<scf::ForOp>(
-      loc, offset, b.create<ConstantIndexOp>(loc, collapsedWorkspaceShape[0]),
-      stride);
-  b.setInsertionPointToStart(loop.getBody());
-  auto iv = loop.getInductionVar();
-  auto loadedValue = b.create<memref::LoadOp>(loc, collapsedWorkspace, iv);
-  auto convertedValue =
-      createTypeConversionOp(b, loc, loadedValue, filterDataType);
-  b.create<memref::StoreOp>(loc, convertedValue, collapsedFilter, iv);
+  createElementwiseLoop(b, loc, collapsedWorkspaceShape[0], [&](Value iv) {
+    auto loadedValue = b.create<memref::LoadOp>(loc, collapsedWorkspace, iv);
+    auto convertedValue =
+        createTypeConversionOp(b, loc, loadedValue, filterDataType);
+    b.create<memref::StoreOp>(loc, convertedValue, collapsedFilter, iv);
+  });
 
   b.eraseOp(op);
   return success();
