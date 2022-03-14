@@ -162,13 +162,12 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
       switch (gemmId) {
       case 0:
       case 2:
-        // Override grid_size and block_size be 1 for utility kernels.
-        // FIXME. Use better sizes for speedups.
-        op->setAttr("grid_size", b.getI32IntegerAttr(1));
-        op->setAttr("block_size", b.getI32IntegerAttr(1));
+        // Set grid_size and block_size for utility kernels.
+        op->setAttr("grid_size", b.getI32IntegerAttr(512));
+        op->setAttr("block_size", b.getI32IntegerAttr(64));
         // Set attributes on the function.
-        getOperation()->setAttr("block_size", b.getI32IntegerAttr(1));
-        getOperation()->setAttr("grid_size", b.getI32IntegerAttr(1));
+        getOperation()->setAttr("grid_size", b.getI32IntegerAttr(512));
+        getOperation()->setAttr("block_size", b.getI32IntegerAttr(64));
         break;
       case 1:
         break;
