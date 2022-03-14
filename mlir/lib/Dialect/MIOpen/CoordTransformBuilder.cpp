@@ -547,7 +547,7 @@ void BottomUpCTBuilder::expand(ArrayRef<StringRef> names,
     ptDims.push_back(dim++);
   }
   passThrough(ptNames, ptDims, ptNames);
-  for (auto tuple : llvm::zip(names, dims, sizes)) { 
+  for (auto tuple : llvm::zip(names, dims, sizes)) {
     addDim(std::get<0>(tuple), std::get<1>(tuple), std::get<2>(tuple));
   }
 }

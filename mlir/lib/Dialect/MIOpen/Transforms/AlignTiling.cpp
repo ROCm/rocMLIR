@@ -80,7 +80,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
 
   typedef SmallVector<miopen::TransformOp, 4> TransformList;
 
-  Value bwTraceTo(Value inp, TransformList *transforms=nullptr) const {
+  Value bwTraceTo(Value inp, TransformList *transforms = nullptr) const {
     if (auto bt = inp.getDefiningOp<miopen::TransformOp>()) {
       if (transforms)
         transforms->push_back(bt);
@@ -275,8 +275,8 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         assert(!twinpV1);
         twinpV1 = twinp_t;
       } else if (auto twinp_t =
-                 traceToThreadwiseCopy<miopen::ThreadwiseCopyV2Op>(
-                     inp, transforms)) {
+                     traceToThreadwiseCopy<miopen::ThreadwiseCopyV2Op>(
+                         inp, transforms)) {
         assert(!twinpV2);
         twinpV2 = twinp_t;
       }

@@ -260,10 +260,9 @@ public:
   void addDim(StringRef name, uint32_t dim, int64_t size);
 
   void expand(StringRef name, uint32_t dim, int64_t size);
-  void expand(ArrayRef<StringRef> names,
-              ArrayRef<uint32_t> dims,
+  void expand(ArrayRef<StringRef> names, ArrayRef<uint32_t> dims,
               ArrayRef<int64_t> sizes);
-  
+
   void slice(ArrayRef<StringRef> upperNames, ArrayRef<StringRef> lowerNames,
              ArrayRef<int64_t> begins, ArrayRef<int64_t> ends);
 
