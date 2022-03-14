@@ -24,6 +24,7 @@
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/MIOpen/Tuning/UtilityParams.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 
@@ -209,11 +210,11 @@ LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
   //     collapsedOutput[i] = 0;
 
   auto workgroupId = b.create<WorkgroupIdOp>(loc, b.getIndexType());
-  auto workgroupDim = b.create<ConstantIndexOp>(loc, 64);
+  auto workgroupDim = b.create<ConstantIndexOp>(loc, kUtilityKernelBlockSize);
   auto workitemId = b.create<WorkitemIdOp>(loc, b.getIndexType());
   auto offset = b.create<AddIOp>(
       loc, b.create<MulIOp>(loc, workgroupId, workgroupDim), workitemId);
-  auto gridDim = b.create<ConstantIndexOp>(loc, 512);
+  auto gridDim = b.create<ConstantIndexOp>(loc, kUtilityKernelGridSize);
   auto stride = b.create<MulIOp>(loc, workgroupDim, gridDim);
 
   auto loop = b.create<scf::ForOp>(
@@ -251,11 +252,11 @@ LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
   //     collapsedFilter[i] = convert(collapsedWorkspace[i]);
 
   auto workgroupId = b.create<WorkgroupIdOp>(loc, b.getIndexType());
-  auto workgroupDim = b.create<ConstantIndexOp>(loc, 64);
+  auto workgroupDim = b.create<ConstantIndexOp>(loc, kUtilityKernelBlockSize);
   auto workitemId = b.create<WorkitemIdOp>(loc, b.getIndexType());
   auto offset = b.create<AddIOp>(
       loc, b.create<MulIOp>(loc, workgroupId, workgroupDim), workitemId);
-  auto gridDim = b.create<ConstantIndexOp>(loc, 512);
+  auto gridDim = b.create<ConstantIndexOp>(loc, kUtilityKernelGridSize);
   auto stride = b.create<MulIOp>(loc, workgroupDim, gridDim);
 
   auto loop = b.create<scf::ForOp>(
