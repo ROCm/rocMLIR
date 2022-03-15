@@ -968,8 +968,10 @@ private:
     if ((param.gemmNPerBlock % param.gemmNPerWave) != 0)
       return failure();
 
-    // Note KPerBlock and KPack are independent tuning parameters.
+    // TODO Remove. Note KPerBlock and KPack are independent tuning parameters.
     // There's no need to check if they are divide exactly
+    if ((param.gemmKPerBlock % param.gemmKPack) != 0)
+      return failure();
 
     // Reject invalid KPACK values.
     // For fp32: reject anything wider than 4.
