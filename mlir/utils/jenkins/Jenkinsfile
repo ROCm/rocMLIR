@@ -37,6 +37,8 @@ void showEnv() {
     sh '/opt/rocm/bin/rocm-smi || true'
     sh '/opt/rocm/bin/rocm_agent_enumerator'
     sh 'id'
+    echo "$env.JOB_NAME"
+    echo "$env.WORKSPACE"
 }
 
 String dockerArgs() {
