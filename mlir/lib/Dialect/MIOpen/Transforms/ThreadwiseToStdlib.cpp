@@ -254,7 +254,7 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
         oobDims.push_back(pair.index());
     bool toEmitOobChecks = !oobDims.empty();
 
-    auto emitLoadInstruction = [&b, loc, loadedType, sourceType,
+    auto emitLoadInstruction = [&b, loc, loadedType,
                                 source](ValueRange loadCoords) -> Value {
       Value loadedValue;
 
