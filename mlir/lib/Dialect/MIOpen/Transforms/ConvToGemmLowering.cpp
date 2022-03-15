@@ -244,6 +244,9 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   auto archAttr = op->template getAttrOfType<StringAttr>("arch");
   auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
 
+  auto KPackAttr = op->template getAttrOfType<IntegerAttr>("kpack");
+  int64_t KPack = KPackAttr.getInt();
+
   auto filterLayoutAttr =
       op->template getAttrOfType<ArrayAttr>("filter_layout");
   auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
@@ -358,6 +361,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   int64_t gemmKBlocks = calculateKBlockNum(n, ho, wo);
 
   Value gemmFilter, gemmInput, gemmOutput;
+  Value gemmInputKPack, gemmOutputKPack;
   OobCheckSet filterOobCheckDims, inputOobCheckDims, outputOobCheckDims;
   // Transform filter tensor.
   {
@@ -448,24 +452,49 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
         b.create<TransformOp>(loc, firstTransformed, embedTransformAttr);
 
     // Merge N1HoWO to gemmK and CYX to gemmN
-    auto gemmTransform =
+    auto gemmInputTransform =
         BottomUpCTBuilder::above(embedTransform, embedTransformAttr);
 
     llvm::SmallVector<StringRef, 3> nonNHWDims = {"ci", "y", "x"};
-    std::sort(
-        nonNHWDims.begin(), nonNHWDims.end(),
-        [&gemmTransform](const StringRef &v1, const StringRef &v2) -> bool {
-          return gemmTransform.startIndex(v1) < gemmTransform.startIndex(v2);
-        });
+    std::sort(nonNHWDims.begin(), nonNHWDims.end(),
+              [&gemmInputTransform](const StringRef &v1,
+                                    const StringRef &v2) -> bool {
+                return gemmInputTransform.startIndex(v1) <
+                       gemmInputTransform.startIndex(v2);
+              });
     // In the gemmG dimension, unlike with gemmN, we don't have the same
     // traversal order concerns - a step in the G dimension always first visits
     // kBlock/N0 and then moves on to the next G
-    gemmTransform.merge("gemmG", 0, {"gi", "n0"});
-    gemmTransform.merge("gemmK", 1, {"n1", "ho", "wo"});
-    gemmTransform.merge("gemmN", 2, nonNHWDims);
+    gemmInputTransform.merge("gemmG", 0, {"gi", "n0"});
+    gemmInputTransform.merge("gemmK", 1, {"n1", "ho", "wo"});
+    gemmInputTransform.merge("gemmN", 2, nonNHWDims);
 
-    TransformMapAttr gemmTransformAttr = gemmTransform.get();
-    gemmInput = b.create<TransformOp>(loc, embedded, gemmTransformAttr);
+    TransformMapAttr gemmInputTransformAttr = gemmInputTransform.get();
+    gemmInput = b.create<TransformOp>(loc, embedded, gemmInputTransformAttr);
+
+    // KPack for input tensor.
+    gemmInputKPack = gemmInput;
+    if (KPack > 1) {
+      BottomUpCTBuilder sourceTransform = gemmInputTransform;
+      TransformMapAttr sourceTransformAttr = gemmInputTransformAttr;
+      Value source = gemmInput;
+
+      BottomUpCTBuilder kpackGemmInputTransform =
+          BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
+      // Passthrough gemmG (dim 0) and gemmN (dim 2).
+      kpackGemmInputTransform.passThrough(sourceTransform.endName(0));
+      kpackGemmInputTransform.passThrough(sourceTransform.endName(2));
+      // Use Unmerge to split gemmK (dim 1) into gemmK and gemmKPack, place
+      // gemmKPack at dim 3.
+      int64_t gemmKLength = sourceTransform.endSize(1);
+      auto gemmKName = sourceTransform.endName(1);
+      kpackGemmInputTransform.unmerge({gemmKName, "gemmKPack"}, {1, 3},
+                                      gemmKName, {gemmKLength / KPack, KPack});
+      TransformMapAttr kpackGemmInputTransformAttr =
+          kpackGemmInputTransform.get();
+      gemmInputKPack =
+          b.create<TransformOp>(loc, source, kpackGemmInputTransformAttr);
+    }
   }
 
   // Transform output tensor
@@ -484,20 +513,51 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
         b.create<TransformOp>(loc, op.output(), firstTransformAttr);
 
     // Map G and N0 to gemmG, N1HW to gemmK and K to gemmM
-    auto gemmTransform =
+    auto gemmOutputTransform =
         BottomUpCTBuilder::above(firstTransform, firstTransformAttr);
-    gemmTransform.merge("gemmG", 0, {"go", "n0"});
-    gemmTransform.merge("gemmK", 1, {"n1", "ho", "wo"});
-    gemmTransform.passThrough({"gemmM"}, {2}, {"ko"});
+    gemmOutputTransform.merge("gemmG", 0, {"go", "n0"});
+    gemmOutputTransform.merge("gemmK", 1, {"n1", "ho", "wo"});
+    gemmOutputTransform.passThrough({"gemmM"}, {2}, {"ko"});
 
-    TransformMapAttr gemmTransformAttr = gemmTransform.get();
-    gemmOutput = b.create<TransformOp>(loc, transformed, gemmTransformAttr);
+    TransformMapAttr gemmOutputTransformAttr = gemmOutputTransform.get();
+    gemmOutput =
+        b.create<TransformOp>(loc, transformed, gemmOutputTransformAttr);
+
+    // KPack for output tensor.
+    gemmOutputKPack = gemmOutput;
+    if (KPack > 1) {
+      BottomUpCTBuilder sourceTransform = gemmOutputTransform;
+      TransformMapAttr sourceTransformAttr = gemmOutputTransformAttr;
+      Value source = gemmOutput;
+
+      BottomUpCTBuilder kpackGemmOutputTransform =
+          BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
+      // Passthrough gemmG (dim 0) and gemmM (dim 2).
+      kpackGemmOutputTransform.passThrough(sourceTransform.endName(0));
+      kpackGemmOutputTransform.passThrough(sourceTransform.endName(2));
+      // Use Unmerge to split gemmK (dim 1) into gemmK and gemmKPack, place
+      // gemmKPack at dim 3.
+      int64_t gemmKLength = sourceTransform.endSize(1);
+      auto gemmKName = sourceTransform.endName(1);
+      kpackGemmOutputTransform.unmerge({gemmKName, "gemmKPack"}, {1, 3},
+                                       gemmKName, {gemmKLength / KPack, KPack});
+      TransformMapAttr kpackGemmOutputTransformAttr =
+          kpackGemmOutputTransform.get();
+      gemmOutputKPack =
+          b.create<TransformOp>(loc, source, kpackGemmOutputTransformAttr);
+    }
   }
 
   // Set attributes for gridwise_gemm op.
   llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
       b.getNamedAttr("gemm_id", gemmIdAttr), b.getNamedAttr("arch", archAttr),
       b.getNamedAttr("num_cu", numCuAttr)};
+
+  // Supply KPack information into gridwiseGemmAttrs.
+  if (KPack > 1) {
+    gridwiseGemmAttrs.push_back(
+        b.getNamedAttr("kpack", b.getI32IntegerAttr(KPack)));
+  }
 
   // xdlopsV2.
   if (isXdlops)
@@ -512,10 +572,10 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
       PaddingInfoAttr::get(b.getContext(), 0, 0, 0, BwdPaddingKernelInfo::NA);
   auto storeMethod = StoreMethod::AtomicAdd;
 
-  Value gemmA = gemmOutput;
+  Value gemmA = gemmOutputKPack;
   ArrayAttr oobA =
       getBoundsCheckAttr(b, outputOobCheckDims, outputShape.size());
-  Value gemmB = gemmInput;
+  Value gemmB = gemmInputKPack;
   ArrayAttr oobB = getBoundsCheckAttr(b, inputOobCheckDims, inputShape.size());
   Value gemmC = gemmFilter;
   ArrayAttr oobC =
