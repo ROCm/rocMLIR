@@ -251,6 +251,18 @@ pipeline {
                                 showEnv()
                             }
                         }
+                        stage("Copy MIOpen test environment") {
+                                steps {
+                                    copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
+                                               optional: true,\
+                                               flatten: true,\
+                                               projectName: "/MLIR/mlir-weekly",\
+                                               selector: lastSuccessful(),\
+                                               target: 'MIOpen/build/MIOpenUserDB'
+                                    sh 'ls MIOpen/build/MIOpenUserDB'
+                                    sh 'cat MIOpen/build/MIOpenUserDB/tuning-date'
+                                }
+                        }
                         stage("Igemm build") {
                             steps {
                                 checkout scm
@@ -396,7 +408,7 @@ pipeline {
                                     copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
                                                optional: true,\
                                                flatten: true,\
-                                               projectName: "mlir-weekly",\
+                                               projectName: "/MLIR/mlir-weekly",\
                                                selector: lastSuccessful(),\
                                                target: 'MIOpen/build/MIOpenUserDB'
                                     sh 'ls MIOpen/build/MIOpenUserDB'
