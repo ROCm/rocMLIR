@@ -320,7 +320,6 @@ struct MubufLoadOpLowering : ConvertToLLVMPattern {
             VectorType::get(interimShape, rewriter.getF32Type());
       Type interimLLVMResultType =
           typeConverter->convertType(interimResultType);
-      interimResultType.dump();
 
       Value interimLoad = rewriter.create<ROCDL::MubufLoadOp>(
           loc, interimLLVMResultType, rsrc, vindex, voffset, slc, glc);
