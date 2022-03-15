@@ -372,13 +372,11 @@ protected:
       // FIXME: figure out the best vectorization length for f16 and bf16.
       vectorizationSize = 4;
     }
-    // FIXME: set vectorizationSize be 1 for backward data and backward
-    // weight for now.
+    // FIXME: set vectorizationSize be 1 for backward data for now.
     // The logic for deciding vectorization size and dimension for
-    // backward data and backward weight has to be reviewed.
+    // backward data has to be reviewed.
     auto opType = ctx.opType;
-    if (opType == mlir::miopen::ConvOpType::BwdData ||
-        opType == mlir::miopen::ConvOpType::BwdWeight) {
+    if (opType == mlir::miopen::ConvOpType::BwdData) {
       vectorizationSize = 1;
     }
 
