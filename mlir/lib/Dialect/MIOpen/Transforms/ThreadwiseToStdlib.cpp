@@ -67,6 +67,14 @@ struct LowerMIOpenOpsStep4Pass
 constexpr int kTwoGB = 2147483647;
 
 //===----------------------------------------------------------------------===//
+// Utility function to emit load instructions for local buffers
+//===----------------------------------------------------------------------===//
+Value emitLoadLogic(OpBuilder &b, Location loc, Type loadedType,
+                    const Value source, ValueRange coords) {
+  return b.create<InBoundsLoadOp>(loc, loadedType, source, coords);
+}
+
+//===----------------------------------------------------------------------===//
 // TransformingFor lowering.
 //===----------------------------------------------------------------------===//
 struct TransformingForRewritePattern
@@ -250,13 +258,10 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
                                 source](ValueRange loadCoords) -> Value {
       Value loadedValue;
 
-      Type elementType = loadedType;
-      int64_t vectorLength = 1;
-
       if (loadedType.isa<VectorType>()) {
         VectorType loadedVectorType = loadedType.cast<VectorType>();
-        elementType = loadedVectorType.getElementType();
-        vectorLength = loadedVectorType.getShape()[0];
+        Type elementType = loadedVectorType.getElementType();
+        int64_t vectorLength = loadedVectorType.getShape()[0];
 
         auto loadWidth = vectorLength * elementType.getIntOrFloatBitWidth();
         bool isTooNarrow = loadWidth < 32;
@@ -265,22 +270,8 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
         // Use scalar load when load width is too narrow or too wide
         // for a mubuf instruction
         if (isTooNarrow || isTooWide) {
-          Value loadedVector = createZeroConstantOp(b, loc, loadedVectorType);
-
-          SmallVector<Value, 8> srcLowerIndicesUpdated;
-          srcLowerIndicesUpdated.append(loadCoords.begin(), loadCoords.end());
-
-          int64_t dim = sourceType.getRank() - 1;
-          for (int64_t iter = 0; iter < vectorLength; ++iter) {
-            auto iterIndex = b.create<ConstantIndexOp>(loc, iter);
-            srcLowerIndicesUpdated[dim] =
-                b.create<AddIOp>(loc, loadCoords[dim], iterIndex);
-            auto loadedElement = b.create<memref::LoadOp>(
-                loc, elementType, source, srcLowerIndicesUpdated);
-            loadedVector = b.create<vector::InsertElementOp>(
-                loc, loadedVectorType, loadedElement, loadedVector, iterIndex);
-          }
-          loadedValue = loadedVector;
+          loadedValue =
+              emitLoadLogic(b, loc, loadedVectorType, source, loadCoords);
         } else {
           // Issue vector load.
           // use buffer load since the source memref is on address space 0
@@ -563,14 +554,6 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
     return success();
   }
 };
-
-//===----------------------------------------------------------------------===//
-// Utility function to emit load instructions for local buffers
-//===----------------------------------------------------------------------===//
-Value emitLoadLogic(OpBuilder &b, Location loc, Type loadedType,
-                    const Value source, ValueRange coords) {
-  return b.create<InBoundsLoadOp>(loc, loadedType, source, coords);
-}
 
 // Determine if the operation provided is a constant, and return its value if it
 // is
