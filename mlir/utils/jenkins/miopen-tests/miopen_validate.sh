@@ -79,7 +79,7 @@ function parse_options() {
     # Detect XDLOPS if not specified
     if [[ $XDLOPS == -1 ]]; then
       case $(/opt/rocm/bin/rocm_agent_enumerator) in
-          *gfx908*)          XDLOPS=1 ;;
+          *gfx908*|*gfx90a*) XDLOPS=1 ;;
           *gfx906*|*gfx900*) XDLOPS=0 ;;
           *)                 echo "No useful GPU found." ; exit 2 ;;
       esac
