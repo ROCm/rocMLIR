@@ -46,6 +46,7 @@
 //===----------------------------------------------------------------------===//
 //  MIOpen Dialect
 //===----------------------------------------------------------------------===//
+#include "mlir/Dialect/MIOpen/MIOpenOpTraits.h"
 #include "mlir/Dialect/MIOpen/MIOpenOpsDialect.h.inc"
 #include "mlir/Dialect/MIOpen/MIOpenTypes.h.inc"
 

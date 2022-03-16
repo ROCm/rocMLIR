@@ -27,6 +27,8 @@ class MIOpen_Op<string mnemonic, list<Trait> traits = []> :
   }];
 }
 
+def ConvolutionOp : NativeOpTrait<"miopen::ConvolutionOp">;
+
 def TransformMapArrayAttr : TypedArrayAttrBase<MIOpen_TransformMapAttr,
   "Coordinate transforms array attribute, giving the sequence of transform maps applicable to a value, uppermost to lowermost"> {}
 
@@ -36,7 +38,7 @@ def ArgTransformsAttr : TypedArrayAttrBase<TransformMapArrayAttr,
 class ArgTransforms<int n> : Confined<ArgTransformsAttr, [ArrayCount<n>]>;
 
 def MIOpen_Conv2DOp :
-    MIOpen_Op<"conv2d">,
+    MIOpen_Op<"conv2d", [ConvolutionOp]>,
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [5]>:$filter,
                    MemRefRankOf<[F32, F16, BF16, I8], [5]>:$input,
                    MemRefRankOf<[F32, F16, BF16, I32], [5]>:$output)> {
@@ -51,7 +53,7 @@ def MIOpen_Conv2DOp :
 }
 
 def MIOpen_Conv2DBwdDataOp :
-    MIOpen_Op<"conv2d_bwd_data">,
+    MIOpen_Op<"conv2d_bwd_data", [ConvolutionOp]>,
     Arguments<(ins MemRefRankOf<[F32, F16, BF16], [5]>:$filter,
                    MemRefRankOf<[F32, F16, BF16], [5]>:$input,
                    MemRefRankOf<[F32, F16, BF16], [5]>:$output)> {
@@ -66,7 +68,7 @@ def MIOpen_Conv2DBwdDataOp :
 }
 
 def MIOpen_Conv2DBwdWeightOp :
-    MIOpen_Op<"conv2d_bwd_weight">,
+    MIOpen_Op<"conv2d_bwd_weight", [ConvolutionOp]>,
     Arguments<(ins MemRefRankOf<[F32, F16, BF16], [5]>:$filter,
                    MemRefRankOf<[F32, F16, BF16], [5]>:$input,
                    MemRefRankOf<[F32, F16, BF16], [5]>:$output,

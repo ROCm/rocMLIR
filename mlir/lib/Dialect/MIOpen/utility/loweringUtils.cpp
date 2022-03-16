@@ -7,6 +7,7 @@
 //===-----------------------------------------------------===//
 
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
+#include "mlir/Dialect/MIOpen/MIOpenOpTraits.h"
 
 namespace mlir {
 namespace miopen {
@@ -26,6 +27,8 @@ std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
 std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
            int64_t, int64_t>
 fetchDimensions(Operation *op) {
+  assert(op->hasTrait<OpTrait::miopen::ConvolutionOp>());
+
   auto filterLayoutAttr =
       op->template getAttrOfType<ArrayAttr>("filter_layout");
   auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
