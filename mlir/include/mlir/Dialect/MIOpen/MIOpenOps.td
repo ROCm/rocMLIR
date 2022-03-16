@@ -522,7 +522,7 @@ def MIOpen_BufferLoadOp :
               VectorOfLengthAndType<[2, 4], [F32]>,
               VectorOfLengthAndType<[2, 4, 8], [F16]>,
               VectorOfLengthAndType<[2, 4, 8], [BF16]>,
-              VectorOfLengthAndType<[4], [I8]>,
+              VectorOfLengthAndType<[2, 4, 8, 16], [I8]>,
               VectorOfLengthAndType<[2, 4], [I32]>]>:$result)> {
   let summary = "Load data from a global buffer";
 

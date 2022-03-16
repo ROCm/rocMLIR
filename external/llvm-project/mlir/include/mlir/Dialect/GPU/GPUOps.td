@@ -1268,9 +1268,10 @@ def GPU_MubufLoadOp :
     GPU_Op<"buffer_load">,
     Arguments<(ins AnyMemRef:$memref,
                    Variadic<I32>:$indices)>,
-    Results<(outs AnyTypeOf<[BF16, F16, F32,
+    Results<(outs AnyTypeOf<[BF16, F16, F32, I8,
                              VectorOfLengthAndType<[2, 4], [F32]>,
-                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>]>:$result)> {
+                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
+                             VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$result)> {
   let summary = "AMD GPU Buffer Load";
   let description = [{
     The `gpu.buffer_load` op is an abstraction of AMD GPU buffer load intrinsics.
@@ -1285,9 +1286,10 @@ def GPU_MubufLoadOp :
 // buffer store
 def GPU_MubufStoreOp :
     GPU_Op<"buffer_store">,
-    Arguments<(ins AnyTypeOf<[BF16, F16, F32,
+    Arguments<(ins AnyTypeOf<[BF16, F16, F32, I32,
                               VectorOfLengthAndType<[2, 4], [F32]>,
-                              VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>]>:$value,
+                              VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
+                              VectorOfLengthAndType<[2, 4], [I32]>]>:$value,
                    AnyMemRef:$memref,
                    I32:$shift,
                    Variadic<I32>:$indices)> {
