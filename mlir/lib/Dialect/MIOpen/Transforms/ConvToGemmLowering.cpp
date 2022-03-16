@@ -337,11 +337,13 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
       stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
   auto strideW =
       stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-  // get y, x, ho, wo, hi, wi
-  int64_t n, k, c, y, x, ho, wo, hi, wi;
-  n = k = c = y = x = ho = wo = hi = wi = 0;
+
+  // get y, x, ho, wo, hi, wi, k, c, n
+  int64_t y, x, ho, wo, hi, wi, k, c, n;
+  std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
+
   llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
-  for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
+  for (size_t i = 0; i < filterLayoutAttr.size(); ++i) {
     auto filterAttr =
         filterLayoutAttr.getValue()[i].template cast<StringAttr>();
     auto inputAttr = inputLayoutAttr.getValue()[i].template cast<StringAttr>();
@@ -351,33 +353,9 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     filterNames.push_back(filterAttr.getValue());
     inputNames.push_back(inputAttr.getValue());
     outputNames.push_back(outputAttr.getValue());
-
-    if (filterAttr.getValue() == "k") {
-      k = filterShape[i];
-    } else if (filterAttr.getValue() == "c") {
-      c = filterShape[i];
-    } else if (filterAttr.getValue() == "y") {
-      y = filterShape[i];
-    } else if (filterAttr.getValue() == "x") {
-      x = filterShape[i];
-    }
-
-    if (inputAttr.getValue() == "ni") {
-      n = inputShape[i];
-    } else if (inputAttr.getValue() == "hi") {
-      hi = inputShape[i];
-    } else if (inputAttr.getValue() == "wi") {
-      wi = inputShape[i];
-    }
-
-    if (outputAttr.getValue() == "ho") {
-      ho = outputShape[i];
-    } else if (outputAttr.getValue() == "wo") {
-      wo = outputShape[i];
-    }
   }
-  // calculate gemmKBlocks
 
+  // calculate gemmKBlocks
   // static const int64_t MaxSubBlockNum = 2048 / standardBockNum;
   int64_t gemmKBlocks = calculateKBlockNum(n, ho, wo);
 
@@ -612,9 +590,10 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
 
   // get y, x, ho, wo, hi, wi, k, c, n
   int64_t y, x, ho, wo, hi, wi, k, c, n;
-  y = x = ho = wo = hi = wi = k = c = n = 0;
+  std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
+
   llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
-  for (uint32_t i = 0; i < filterLayoutAttr.size(); ++i) {
+  for (size_t i = 0; i < filterLayoutAttr.size(); ++i) {
     auto filterAttr =
         filterLayoutAttr.getValue()[i].template cast<StringAttr>();
     auto inputAttr = inputLayoutAttr.getValue()[i].template cast<StringAttr>();
@@ -624,30 +603,6 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     filterNames.push_back(filterAttr.getValue());
     inputNames.push_back(inputAttr.getValue());
     outputNames.push_back(outputAttr.getValue());
-
-    if (filterAttr.getValue() == "y") {
-      y = filterShape[i];
-    } else if (filterAttr.getValue() == "x") {
-      x = filterShape[i];
-    } else if (filterAttr.getValue() == "k") {
-      k = filterShape[i];
-    } else if (filterAttr.getValue() == "c") {
-      c = filterShape[i];
-    }
-
-    if (inputAttr.getValue() == "hi") {
-      hi = inputShape[i];
-    } else if (inputAttr.getValue() == "wi") {
-      wi = inputShape[i];
-    } else if (inputAttr.getValue() == "ni") {
-      n = inputShape[i];
-    }
-
-    if (outputAttr.getValue() == "ho") {
-      ho = outputShape[i];
-    } else if (outputAttr.getValue() == "wo") {
-      wo = outputShape[i];
-    }
   }
 
   if (failed(
@@ -1178,43 +1133,19 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // get y, x, ho, wo, hi, wi, k, c, n
     int64_t y, x, ho, wo, hi, wi, k, c, n;
-    y = x = ho = wo = hi = wi = k = c = n = 0;
+    std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
+
     llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
-    for (uint32_t i = 0; i < filterLayoutAttr.size(); ++i) {
+    for (size_t i = 0; i < filterLayoutAttr.size(); ++i) {
       auto filterAttr =
           filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-      auto inputAttr =
-          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
+      auto inputAttr = inputLayoutAttr.getValue()[i].template cast<StringAttr>();
       auto outputAttr =
           outputLayoutAttr.getValue()[i].template cast<StringAttr>();
 
       filterNames.push_back(filterAttr.getValue());
       inputNames.push_back(inputAttr.getValue());
       outputNames.push_back(outputAttr.getValue());
-
-      if (filterAttr.getValue() == "y") {
-        y = filterShape[i];
-      } else if (filterAttr.getValue() == "x") {
-        x = filterShape[i];
-      } else if (filterAttr.getValue() == "k") {
-        k = filterShape[i];
-      } else if (filterAttr.getValue() == "c") {
-        c = filterShape[i];
-      }
-
-      if (inputAttr.getValue() == "hi") {
-        hi = inputShape[i];
-      } else if (inputAttr.getValue() == "wi") {
-        wi = inputShape[i];
-      } else if (inputAttr.getValue() == "ni") {
-        n = inputShape[i];
-      }
-
-      if (outputAttr.getValue() == "ho") {
-        ho = outputShape[i];
-      } else if (outputAttr.getValue() == "wo") {
-        wo = outputShape[i];
-      }
     }
 
     if (failed(
