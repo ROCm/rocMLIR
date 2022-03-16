@@ -89,10 +89,37 @@ ArrayAttr getBoundsCheckAttr(Builder &b, OobCheckSet &set, uint32_t max) {
   return b.getBoolArrayAttr(ret);
 }
 
+SmallVector<StringRef, 5> fetchNames(ArrayAttr array) {
+  llvm::SmallVector<StringRef, 5> names;
+  for (size_t i = 0; i < array.size(); ++i) {
+    auto attr = array.getValue()[i].cast<StringAttr>();
+    names.push_back(attr.getValue());
+  }
+  return names;
+}
+
+template <typename T>
+std::tuple<llvm::SmallVector<StringRef, 5>, llvm::SmallVector<StringRef, 5>,
+           llvm::SmallVector<StringRef, 5>>
+fetchDimensionNames(T &op) {
+  auto filterLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("filter_layout");
+  auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
+  auto outputLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("output_layout");
+
+  llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
+  filterNames = fetchNames(filterLayoutAttr);
+  inputNames = fetchNames(inputLayoutAttr);
+  outputNames = fetchNames(outputLayoutAttr);
+
+  return std::make_tuple(filterNames, inputNames, outputNames);
+}
+
 template <typename T>
 LogicalResult checkNames(ArrayRef<StringRef> actual,
                          ArrayRef<StringRef> expected, StringRef argName,
-                         T op) {
+                         T &op) {
   if (actual.size() != expected.size()) {
     return op.emitOpError("Layout mismatch in ")
            << argName << " tensor: Expected " << expected.size()
