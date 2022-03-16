@@ -128,17 +128,19 @@ void AffixTuningParameters::affixBackwardDataUtilityKernels(
     miopen::Conv2DBwdDataOp &op) {
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
 
-  // In case the gemm ID is -1, override grid_size and block_size be 1
-  // for the utility kernel.
+  // In case the gemm ID is -1, override grid_size and block_size for the
+  // utility kernel.
   if (gemmIdAttr.getInt() < 0) {
     OpBuilder b(op.getContext());
 
-    // FIXME. Use better sizes for speedups.
-    op->setAttr("grid_size", b.getI32IntegerAttr(1));
-    op->setAttr("block_size", b.getI32IntegerAttr(1));
+    // Set grid_size and block_size for utility kernels.
+    op->setAttr("grid_size", b.getI32IntegerAttr(kUtilityKernelGridSize));
+    op->setAttr("block_size", b.getI32IntegerAttr(kUtilityKernelBlockSize));
     // Set attributes on the function.
-    getOperation()->setAttr("block_size", b.getI32IntegerAttr(1));
-    getOperation()->setAttr("grid_size", b.getI32IntegerAttr(1));
+    getOperation()->setAttr("grid_size",
+                            b.getI32IntegerAttr(kUtilityKernelGridSize));
+    getOperation()->setAttr("block_size",
+                            b.getI32IntegerAttr(kUtilityKernelBlockSize));
   }
 }
 
