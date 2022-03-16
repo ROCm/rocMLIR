@@ -1486,6 +1486,7 @@ struct GridwiseGemmV2RewritePattern
     switch (matrix_a_source_vector_read_dim) {
     case GemmK:
       if (KPack > 1) {
+        llvm::errs() << "gemm k kpack\n";
         GemmABlockCopyThreadSliceLengths_GemmKPack =
             matrix_a_source_data_per_read;
         GemmABlockCopyThreadSliceLengths_GemmK =
@@ -1502,6 +1503,7 @@ struct GridwiseGemmV2RewritePattern
     case GemmMorN:
       // TBD: FIXME. Review logic here.
       if (KPack > 1) {
+        llvm::errs() << "gemm m/n kpack\n";
         GemmABlockCopyThreadSliceLengths_GemmM = matrix_a_source_data_per_read;
         GemmABlockCopyThreadSliceLengths_GemmK =
             GemmABlockCopyNumberDataPerThread /
@@ -1887,16 +1889,16 @@ struct GridwiseGemmV2RewritePattern
     int blockwiseLoadAVectorLength;
     int blockwiseStoreAVectorLength;
 
-    // llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmK: "
-    //              << GemmABlockCopyThreadSliceLengths_GemmK << "\n";
-    // llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmM: "
-    //              << GemmABlockCopyThreadSliceLengths_GemmM << "\n";
-    // llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmKPack: "
-    //              << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
-    // llvm::errs() << "blockwise copy A bounds: ";
-    // for (auto v : blockwiseCopyABounds)
-    //   llvm::errs() << v << " ";
-    // llvm::errs() << "\n";
+    llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmK: "
+                 << GemmABlockCopyThreadSliceLengths_GemmK << "\n";
+    llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmM: "
+                 << GemmABlockCopyThreadSliceLengths_GemmM << "\n";
+    llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmKPack: "
+                 << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
+    llvm::errs() << "blockwise copy A bounds: ";
+    for (auto v : blockwiseCopyABounds)
+      llvm::errs() << v << " ";
+    llvm::errs() << "\n";
 
     std::tie(blockwiseLoadAType, blockwiseAVectorDim,
              blockwiseLoadAVectorLength, blockwiseStoreAVectorLength) =
@@ -1925,16 +1927,16 @@ struct GridwiseGemmV2RewritePattern
     int blockwiseLoadBVectorLength;
     int blockwiseStoreBVectorLength;
 
-    // llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmK: "
-    //              << GemmBBlockCopyThreadSliceLengths_GemmK << "\n";
-    // llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmN: "
-    //              << GemmBBlockCopyThreadSliceLengths_GemmN << "\n";
-    // llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmKPack: "
-    //              << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
-    // llvm::errs() << "blockwise copy B bounds: ";
-    // for (auto v : blockwiseCopyBBounds)
-    //   llvm::errs() << v << " ";
-    // llvm::errs() << "\n";
+    llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmK: "
+                 << GemmBBlockCopyThreadSliceLengths_GemmK << "\n";
+    llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmN: "
+                 << GemmBBlockCopyThreadSliceLengths_GemmN << "\n";
+    llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmKPack: "
+                 << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
+    llvm::errs() << "blockwise copy B bounds: ";
+    for (auto v : blockwiseCopyBBounds)
+      llvm::errs() << v << " ";
+    llvm::errs() << "\n";
 
     std::tie(blockwiseLoadBType, blockwiseBVectorDim,
              blockwiseLoadBVectorLength, blockwiseStoreBVectorLength) =
@@ -1989,6 +1991,7 @@ struct GridwiseGemmV2RewritePattern
     auto blockwiseStoreA = b.create<BlockwiseStoreOp>(
         loc, ldsMatrixASubviewOp, blockwiseCopyABounds, noTransforms1,
         blockwiseLoadA.getResults(), blockwiseStoreACoords);
+    blockwiseStoreA.dump();
     affixBlockwiseCopyAttributes(
         blockwiseStoreA, op, b, /*vectorDim=*/blockwiseAVectorDim,
         /*blockwiseLoadLength=*/blockwiseLoadAVectorLength,

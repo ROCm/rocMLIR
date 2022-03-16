@@ -838,7 +838,11 @@ private:
       
       // for 32x32 k must be divisible by 2
       {64, 64, 16, 32, 32, 16, false, false}, // k must divisible by 8x16
-      {64, 64, 4, 32, 32, 16, false, false}, // k must divisible by 4x16
+
+      // block size = num of thread
+      //{64, 64, 4, 32, 32, 16, false, false}, // k must divisible by 4x16
+      {64, 64, 4, 32, 32, 4, false, false}, // k must divisible by 4x16
+
       // K: 2/4/8 for convenience use 4/8
       // M/N: 128 x 128: Too large block size, one block include too many waves
       //      64 x 64

@@ -356,6 +356,7 @@ void emitStoreLogic(
         for (auto v : destLowerIndices){
           llvm::errs() << v;
         }
+        llvm::errs() << "\n";
         b.create<memref::StoreOp>(loc, value, dest, destLowerIndices);
       }
     }
@@ -849,6 +850,7 @@ void computeIndexDiffMap(OpBuilder &b, Location loc,
     ArrayRef<int64_t> e = mapping.getParams();
 
     if (transformation == TransformType::Embed) {
+      llvm::errs() << "Embed\n";
       assert(e.size() == p.size());
       assert(q.size() == 1);
       Value lowerDiff = zeroConstantOp;
@@ -874,6 +876,7 @@ void computeIndexDiffMap(OpBuilder &b, Location loc,
       lowerIndicesUpdatedMap[lowerDim] =
           addToOriginal(lowerIndicesOriginal[lowerDim], lowerDiff);
     } else if (transformation == TransformType::Unmerge) {
+      llvm::errs() << "Unmerge\n";
       assert(e.size() == p.size());
       assert(q.size() == 1);
       uint32_t upperDim = p[0];
@@ -901,6 +904,7 @@ void computeIndexDiffMap(OpBuilder &b, Location loc,
     } else if ((transformation == TransformType::PassThrough) ||
                (transformation == TransformType::Pad) ||
                (transformation == TransformType::Slice)) {
+      llvm::errs() << "passthrough/pad/slice\n";
       assert(p.size() == q.size());
       for (unsigned iter = 0; iter < q.size(); ++iter) {
         uint32_t upperDim = p[iter];
@@ -913,6 +917,7 @@ void computeIndexDiffMap(OpBuilder &b, Location loc,
       }
     } else if ((transformation == TransformType::Merge) ||
                (transformation == TransformType::Unfold)) {
+      llvm::errs() << "merge/unfold\n";
       assert(p.size() == 1);
       uint32_t upperDim = p[0];
 
@@ -1686,8 +1691,8 @@ struct ThreadwiseLoadRewritePattern
                                 PatternRewriter &b) const override {
     auto loc = op.getLoc();
     // XXX: debug code
-    SmallVector<Value, 16> res_values;
-    for (int64_t iter = 0; iter < 16; ++iter) {
+    SmallVector<Value, 4> res_values;
+    for (int64_t iter = 0; iter < 4; ++iter) {
       Value val = b.create<ConstantIntOp>(loc, 0, b.getIntegerType(8));
       res_values.push_back(val);
     }
@@ -1935,6 +1940,15 @@ struct ThreadwiseStoreRewritePattern
     Optional<AffineMap> composedDestTransform;
     uint32_t destCoordLength = obtainGenericTensorTransformationInfo(
         destType, transforms, composedDestTransform, op.bounds());
+  
+    llvm::errs() << "transforms ";
+    transforms.dump();
+    llvm::errs() << "\n";
+    if (composedDestTransform) {
+      llvm::errs() << "composed transforms ";
+      (*composedDestTransform).dump();
+      llvm::errs() << "\n";
+    }
 
     auto destCoord = op.destCoord();
     if (destCoordLength != destCoord.size()) {
