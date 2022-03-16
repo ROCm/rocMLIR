@@ -37,7 +37,8 @@ static llvm::StringMap<int64_t> canonicalizeDims(ArrayRef<int64_t> dims,
 std::tuple<llvm::StringMap<int64_t>, llvm::StringMap<int64_t>,
            llvm::StringMap<int64_t>>
 fetchDimensions(Operation *op) {
-  assert(op->hasTrait<OpTrait::miopen::ConvolutionOp>());
+  assert(op->hasTrait<OpTrait::miopen::ConvolutionOp>() &&
+         "Op is not a convolution.");
 
   auto filterLayoutAttr =
       op->template getAttrOfType<ArrayAttr>("filter_layout");

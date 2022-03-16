@@ -98,10 +98,12 @@ SmallVector<StringRef, 5> fetchNames(ArrayAttr array) {
   return names;
 }
 
-template <typename T>
 std::tuple<llvm::SmallVector<StringRef, 5>, llvm::SmallVector<StringRef, 5>,
            llvm::SmallVector<StringRef, 5>>
-fetchDimensionNames(T &op) {
+fetchDimensionNames(Operation *op) {
+  assert(op->hasTrait<OpTrait::miopen::ConvolutionOp>() &&
+         "Op is not a convolution.");
+
   auto filterLayoutAttr =
       op->template getAttrOfType<ArrayAttr>("filter_layout");
   auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
@@ -116,18 +118,17 @@ fetchDimensionNames(T &op) {
   return std::make_tuple(filterNames, inputNames, outputNames);
 }
 
-template <typename T>
 LogicalResult checkNames(ArrayRef<StringRef> actual,
                          ArrayRef<StringRef> expected, StringRef argName,
-                         T &op) {
+                         Operation *op) {
   if (actual.size() != expected.size()) {
-    return op.emitOpError("Layout mismatch in ")
+    return op->emitOpError("Layout mismatch in ")
            << argName << " tensor: Expected " << expected.size()
            << " dimensions but have " << actual.size();
   }
   for (StringRef name : expected) {
     if (std::find(actual.begin(), actual.end(), name) == actual.end()) {
-      return op.emitOpError("Layout mismatch in ")
+      return op->emitOpError("Layout mismatch in ")
              << argName << " tensor: Expected it to have a `" << name
              << "` dimension";
     }
