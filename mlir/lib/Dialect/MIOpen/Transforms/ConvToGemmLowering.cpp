@@ -268,12 +268,6 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   auto archAttr = op->template getAttrOfType<StringAttr>("arch");
   auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
 
-  auto filterLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("filter_layout");
-  auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
-  auto outputLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("output_layout");
-
   auto dilationsAttr = op->template getAttrOfType<ArrayAttr>("dilations");
   auto stridesAttr = op->template getAttrOfType<ArrayAttr>("strides");
   auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
@@ -343,17 +337,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
 
   llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
-  for (size_t i = 0; i < filterLayoutAttr.size(); ++i) {
-    auto filterAttr =
-        filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto inputAttr = inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto outputAttr =
-        outputLayoutAttr.getValue()[i].template cast<StringAttr>();
-
-    filterNames.push_back(filterAttr.getValue());
-    inputNames.push_back(inputAttr.getValue());
-    outputNames.push_back(outputAttr.getValue());
-  }
+  std::tie(filterNames, inputNames, outputNames) = fetchDimensionNames(op);
 
   // calculate gemmKBlocks
   // static const int64_t MaxSubBlockNum = 2048 / standardBockNum;
@@ -547,12 +531,6 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   auto archAttr = op->template getAttrOfType<StringAttr>("arch");
   auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
 
-  auto filterLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("filter_layout");
-  auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
-  auto outputLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("output_layout");
-
   auto dilationsAttr = op->template getAttrOfType<ArrayAttr>("dilations");
   auto stridesAttr = op->template getAttrOfType<ArrayAttr>("strides");
   auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
@@ -593,17 +571,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
 
   llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
-  for (size_t i = 0; i < filterLayoutAttr.size(); ++i) {
-    auto filterAttr =
-        filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto inputAttr = inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto outputAttr =
-        outputLayoutAttr.getValue()[i].template cast<StringAttr>();
-
-    filterNames.push_back(filterAttr.getValue());
-    inputNames.push_back(inputAttr.getValue());
-    outputNames.push_back(outputAttr.getValue());
-  }
+  std::tie(filterNames, inputNames, outputNames) = fetchDimensionNames(op);
 
   if (failed(
           checkNames(filterNames, {"k", "g", "c", "y", "x"}, "filter", op)) ||
@@ -1089,13 +1057,6 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto KPackAttr = op->template getAttrOfType<IntegerAttr>("kpack");
     int64_t KPack = KPackAttr.getInt();
 
-    auto filterLayoutAttr =
-        op->template getAttrOfType<ArrayAttr>("filter_layout");
-    auto inputLayoutAttr =
-        op->template getAttrOfType<ArrayAttr>("input_layout");
-    auto outputLayoutAttr =
-        op->template getAttrOfType<ArrayAttr>("output_layout");
-
     auto dilationsAttr = op->template getAttrOfType<ArrayAttr>("dilations");
     auto stridesAttr = op->template getAttrOfType<ArrayAttr>("strides");
     auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
@@ -1136,17 +1097,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
 
     llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
-    for (size_t i = 0; i < filterLayoutAttr.size(); ++i) {
-      auto filterAttr =
-          filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-      auto inputAttr = inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-      auto outputAttr =
-          outputLayoutAttr.getValue()[i].template cast<StringAttr>();
-
-      filterNames.push_back(filterAttr.getValue());
-      inputNames.push_back(inputAttr.getValue());
-      outputNames.push_back(outputAttr.getValue());
-    }
+    std::tie(filterNames, inputNames, outputNames) = fetchDimensionNames(op);
 
     if (failed(
             checkNames(filterNames, {"k", "g", "c", "y", "x"}, "filter", op)) ||

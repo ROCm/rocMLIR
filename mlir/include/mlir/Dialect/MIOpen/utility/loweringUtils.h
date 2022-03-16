@@ -60,6 +60,32 @@ std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
                                          ArrayAttr existing = nullptr);
 
 template <typename T>
+inline std::tuple<llvm::SmallVector<StringRef, 5>,
+                  llvm::SmallVector<StringRef, 5>,
+                  llvm::SmallVector<StringRef, 5>>
+fetchDimensionNames(T &op) {
+  auto filterLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("filter_layout");
+  auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
+  auto outputLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("output_layout");
+
+  llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
+  for (size_t i = 0; i < filterLayoutAttr.size(); ++i) {
+    auto filterAttr =
+        filterLayoutAttr.getValue()[i].template cast<StringAttr>();
+    auto inputAttr = inputLayoutAttr.getValue()[i].template cast<StringAttr>();
+    auto outputAttr =
+        outputLayoutAttr.getValue()[i].template cast<StringAttr>();
+
+    filterNames.push_back(filterAttr.getValue());
+    inputNames.push_back(inputAttr.getValue());
+    outputNames.push_back(outputAttr.getValue());
+  }
+  return std::make_tuple(filterNames, inputNames, outputNames);
+}
+
+template <typename T>
 inline std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
                   int64_t, int64_t>
 fetchDimensions(T &op) {
