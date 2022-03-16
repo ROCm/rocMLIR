@@ -4,6 +4,7 @@
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/Tuning/UtilityParams.h"
+#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Types.h"
@@ -40,11 +41,6 @@ private:
   template <typename T> void affixTuningParametersImpl(T &op);
 
   void affixBackwardWeightUtilityKernels(miopen::Conv2DBwdWeightOp &op);
-
-  template <typename T>
-  std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
-             int64_t, int64_t>
-  fetchDimensions(T &op);
 };
 } // anonymous namespace
 
@@ -57,67 +53,6 @@ void AffixTuningParameters::runOnOperation() {
     affixTuningParametersImpl(op);
     affixBackwardWeightUtilityKernels(op);
   });
-}
-
-template <typename T>
-std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
-           int64_t, int64_t>
-AffixTuningParameters::fetchDimensions(T &op) {
-  auto filterLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("filter_layout");
-  auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
-  auto outputLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("output_layout");
-
-  // Get shape of filter tensor.
-  auto filterType = op.filter().getType().template cast<MemRefType>();
-  auto filterShape = filterType.getShape();
-
-  // Get shape of input tensor.
-  auto inputType = op.input().getType().template cast<MemRefType>();
-  auto inputShape = inputType.getShape();
-
-  // Get shape of output tensor.
-  auto outputType = op.output().getType().template cast<MemRefType>();
-  auto outputShape = outputType.getShape();
-
-  // get y, x, ho, wo, hi, wi, k, c, n
-  int64_t y, x, ho, wo, hi, wi, k, c, n;
-  y = x = ho = wo = hi = wi = k = c = n = 0;
-
-  for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
-    auto filterAttr =
-        filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto inputAttr = inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto outputAttr =
-        outputLayoutAttr.getValue()[i].template cast<StringAttr>();
-
-    if (filterAttr.getValue() == "y") {
-      y = filterShape[i];
-    } else if (filterAttr.getValue() == "x") {
-      x = filterShape[i];
-    } else if (filterAttr.getValue() == "k") {
-      k = filterShape[i];
-    } else if (filterAttr.getValue() == "c") {
-      c = filterShape[i];
-    }
-
-    if (inputAttr.getValue() == "hi") {
-      hi = inputShape[i];
-    } else if (inputAttr.getValue() == "wi") {
-      wi = inputShape[i];
-    } else if (inputAttr.getValue() == "ni") {
-      n = inputShape[i];
-    }
-
-    if (outputAttr.getValue() == "ho") {
-      ho = outputShape[i];
-    } else if (outputAttr.getValue() == "wo") {
-      wo = outputShape[i];
-    }
-  }
-
-  return std::make_tuple(y, x, ho, wo, hi, wi, k, c, n);
 }
 
 void AffixTuningParameters::affixBackwardWeightUtilityKernels(
