@@ -59,8 +59,15 @@ inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo) {
 std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
                                          ArrayAttr existing = nullptr);
 
-std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
-           int64_t, int64_t>
+/// Given a convolution `op`, obtain the maps which contains the mapping between
+/// dimension names and dimension sizes for filter, input, and output memrefs.
+/// `op` shall possess ConvolutionOp trait.
+/// The return value would be a tuple which contains 3 maps.
+/// The first one is the map for filter memref.
+/// The second one is the map for input memref.
+/// The third one is the map for the output memref.
+std::tuple<llvm::StringMap<int64_t>, llvm::StringMap<int64_t>,
+           llvm::StringMap<int64_t>>
 fetchDimensions(Operation *op);
 
 } // end namespace miopen

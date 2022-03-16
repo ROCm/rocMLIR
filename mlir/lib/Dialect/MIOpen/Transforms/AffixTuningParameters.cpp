@@ -67,14 +67,14 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
 
     ConvolutionContext convContext = populateConvContext(op);
 
-    // get y, x, ho, wo, hi, wi, k, c, n
-    int64_t y, x, ho, wo, hi, wi, k, c, n;
-    std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
+    // Fetch convolution dimensions.
+    llvm::StringMap<int64_t> filterDim, inputDim, outputDim;
+    std::tie(filterDim, inputDim, outputDim) = fetchDimensions(op);
 
     int64_t gemmMSize, gemmNSize, gemmKSize;
-    gemmMSize = k;
-    gemmKSize = n * ho * wo;
-    gemmNSize = c * y * x;
+    gemmMSize = filterDim["k"];
+    gemmKSize = outputDim["n"] * outputDim["ho"] * outputDim["wo"];
+    gemmNSize = filterDim["c"] * filterDim["y"] * filterDim["x"];
 
     int64_t gemmMExtra, gemmNExtra, gemmKExtra;
     gemmMExtra = gemmNExtra = gemmKExtra = 0;
@@ -120,17 +120,17 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
   ConvolutionContext convContext = populateConvContext(op);
 
-  // get y, x, ho, wo, hi, wi, k, c, n
-  int64_t y, x, ho, wo, hi, wi, k, c, n;
-  std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
+  // Fetch convolution dimensions.
+  llvm::StringMap<int64_t> filterDim, inputDim, outputDim;
+  std::tie(filterDim, inputDim, outputDim) = fetchDimensions(op);
 
   int64_t gemmMSize, gemmNSize, gemmKSize;
   // FIXME : support forward convolution only right now.
   // compute we should use extra padding kernel or not
   // c,k already / g ,so we can skip / g here
-  gemmMSize = k;
-  gemmKSize = c * y * x;
-  gemmNSize = n * ho * wo;
+  gemmMSize = filterDim["k"];
+  gemmKSize = filterDim["c"] * filterDim["y"] * filterDim["x"];
+  gemmNSize = outputDim["n"] * outputDim["ho"] * outputDim["wo"];
 
   int64_t gemmMExtra, gemmNExtra, gemmKExtra;
   gemmMExtra = gemmNExtra = gemmKExtra = 0;

@@ -24,8 +24,18 @@ std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
   return {ret, b.getArrayAttr(transformList)};
 }
 
-std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
-           int64_t, int64_t>
+static llvm::StringMap<int64_t> canonicalizeDims(ArrayRef<int64_t> dims,
+                                                 ArrayAttr layout) {
+  llvm::StringMap<int64_t> result;
+  for (auto tuple : llvm::zip(layout.getValue(), dims)) {
+    StringRef key = std::get<0>(tuple).cast<StringAttr>().getValue();
+    result[key] = std::get<1>(tuple);
+  }
+  return result;
+}
+
+std::tuple<llvm::StringMap<int64_t>, llvm::StringMap<int64_t>,
+           llvm::StringMap<int64_t>>
 fetchDimensions(Operation *op) {
   assert(op->hasTrait<OpTrait::miopen::ConvolutionOp>());
 
@@ -47,43 +57,11 @@ fetchDimensions(Operation *op) {
   auto outputType = op->getOperand(2).getType().template cast<MemRefType>();
   auto outputShape = outputType.getShape();
 
-  // get y, x, ho, wo, hi, wi, k, c, n
-  int64_t y, x, ho, wo, hi, wi, k, c, n;
-  y = x = ho = wo = hi = wi = k = c = n = 0;
+  auto filterDim = canonicalizeDims(filterShape, filterLayoutAttr);
+  auto inputDim = canonicalizeDims(inputShape, inputLayoutAttr);
+  auto outputDim = canonicalizeDims(outputShape, outputLayoutAttr);
 
-  for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
-    auto filterAttr =
-        filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto inputAttr = inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto outputAttr =
-        outputLayoutAttr.getValue()[i].template cast<StringAttr>();
-
-    if (filterAttr.getValue() == "y") {
-      y = filterShape[i];
-    } else if (filterAttr.getValue() == "x") {
-      x = filterShape[i];
-    } else if (filterAttr.getValue() == "k") {
-      k = filterShape[i];
-    } else if (filterAttr.getValue() == "c") {
-      c = filterShape[i];
-    }
-
-    if (inputAttr.getValue() == "hi") {
-      hi = inputShape[i];
-    } else if (inputAttr.getValue() == "wi") {
-      wi = inputShape[i];
-    } else if (inputAttr.getValue() == "ni") {
-      n = inputShape[i];
-    }
-
-    if (outputAttr.getValue() == "ho") {
-      ho = outputShape[i];
-    } else if (outputAttr.getValue() == "wo") {
-      wo = outputShape[i];
-    }
-  }
-
-  return std::make_tuple(y, x, ho, wo, hi, wi, k, c, n);
+  return std::make_tuple(filterDim, inputDim, outputDim);
 }
 } // namespace miopen
 } // namespace mlir
