@@ -13,6 +13,8 @@
 #ifndef MLIR_DIALECT_MIOPEN_UTILITY_PARAMS_H
 #define MLIR_DIALECT_MIOPEN_UTILITY_PARAMS_H
 
+#include <cstdint>
+
 namespace mlir {
 namespace miopen {
 
