@@ -16,15 +16,16 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
 Value createConstantIntOp(OpBuilder &b, Location loc, Type type, Type elemType,
                           int64_t value);
 
-// Utility function to emit constant zero op. Can return scalars or vectors.
+/// Utility function to emit constant zero op. Can return scalars or vectors.
 Value createZeroConstantOp(OpBuilder &b, Location loc, Type type);
 
-// Utility function to emit type conversion ops.
+/// Utility function to emit type conversion ops.
 Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
                              Type destType);
 
-// Utility function to collapse an multi-dimensional memref to 1D.
+/// Utility function to collapse an multi-dimensional memref to 1D.
 Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source);
+
 } // namespace miopen
 } // namespace mlir
 

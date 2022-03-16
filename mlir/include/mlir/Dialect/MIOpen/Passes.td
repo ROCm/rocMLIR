@@ -24,7 +24,7 @@ def MIOpenApplyImplPass : Pass<"miopen-apply-impl", "ModuleOp"> {
 def MIOpenOpsStep1Pass : Pass<"miopen-lowering", "ModuleOp"> {
   let summary = "expand convolution into coordinate transformations and gridwise gemm";
   let constructor = "mlir::miopen::createLowerMIOpenOpsStep1Pass()";
-  let dependentDialects = ["miopen::MIOpenDialect", "memref::MemRefDialect", "AffineDialect"];
+  let dependentDialects = ["miopen::MIOpenDialect", "memref::MemRefDialect", "AffineDialect", "scf::SCFDialect"];
 }
 
 def MIOpenOpsAffixTuningParametersPass : Pass<"miopen-affix-params", "::mlir::FuncOp"> {
