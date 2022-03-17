@@ -257,7 +257,9 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
 
     Value loadedValue;
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-    Value isOob = b.createOrFold<ConstantIntOp>(loc, 0, b.getI1Type());
+    Value falseOp = b.createOrFold<ConstantIntOp>(loc, 0, b.getI1Type());
+    // Each dimension gets its own oob test to allow LICM to do its thing
+    SmallVector<Value, 5> oobTests(coords.size(), falseOp);
 
     // Perform tests for out of bounds reads
     // If a coordinate is out of bounds, set it to zero to ensure
@@ -271,7 +273,8 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
       // Curiosity: what if this was just max()
       coords[leftOobDim] =
           b.create<SelectOp>(loc, test, zeroConstantOp, coords[leftOobDim]);
-      isOob = b.createOrFold<OrIOp>(loc, test, isOob);
+      oobTests[leftOobDim] =
+          b.createOrFold<OrIOp>(loc, test, oobTests[leftOobDim]);
     }
     for (llvm::APInt rightOobDimVal :
          op.rightOobDims().getAsValueRange<IntegerAttr>()) {
@@ -283,8 +286,16 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
           b.create<ConstantIndexOp>(loc, sourceShape[rightOobDim]));
       coords[rightOobDim] =
           b.create<SelectOp>(loc, test, zeroConstantOp, coords[rightOobDim]);
-      isOob = b.createOrFold<OrIOp>(loc, test, isOob);
+      oobTests[rightOobDim] =
+          b.createOrFold<OrIOp>(loc, test, oobTests[rightOobDim]);
     }
+
+    // Combine oob tests
+    Value isOob = falseOp;
+    // Wishlist: Gather a hint on which dimensions change fastest
+    // so we can emit the ors in the best order
+    for (Value maybeTest : oobTests)
+      isOob = b.createOrFold<OrIOp>(loc, isOob, maybeTest);
 
     // Emit load instruction
     if (loadedType.isa<VectorType>()) {
@@ -512,7 +523,8 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
     coords.reserve(op.coords().size());
     llvm::copy(op.coords(), std::back_inserter(coords));
 
-    Value isOob = b.createOrFold<ConstantIntOp>(loc, 0, b.getI1Type());
+    Value falseOp = b.createOrFold<ConstantIntOp>(loc, 0, b.getI1Type());
+    SmallVector<Value, 5> oobTests(coords.size(), falseOp);
     Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
 
     for (llvm::APInt leftOobDimVal :
@@ -522,7 +534,8 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
                                     b.createOrFold<ConstantIndexOp>(loc, 0));
       coords[leftOobDim] =
           b.create<SelectOp>(loc, test, zeroConstantOp, coords[leftOobDim]);
-      isOob = b.createOrFold<OrIOp>(loc, test, isOob);
+      oobTests[leftOobDim] =
+          b.createOrFold<OrIOp>(loc, test, oobTests[leftOobDim]);
     }
     for (llvm::APInt rightOobDimVal :
          op.rightOobDims().getAsValueRange<IntegerAttr>()) {
@@ -532,8 +545,15 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
       Value test = b.create<CmpIOp>(
           loc, CmpIPredicate::sge, coords[rightOobDim],
           b.createOrFold<ConstantIndexOp>(loc, destShape[rightOobDim]));
-      isOob = b.createOrFold<OrIOp>(loc, test, isOob);
+      oobTests[rightOobDim] =
+          b.createOrFold<OrIOp>(loc, test, oobTests[rightOobDim]);
     }
+
+    // Combine OOB tests
+    Value isOob = falseOp;
+    for (Value maybeTest : oobTests)
+      isOob = b.create<OrIOp>(loc, isOob, maybeTest);
+
     StoreMethod memoryOp = op.storeMethod().getValueOr(StoreMethod::Set);
 
     SmallVector<Value, 5> coordsI32;
