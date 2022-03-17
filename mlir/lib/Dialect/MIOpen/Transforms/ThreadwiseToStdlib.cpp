@@ -67,6 +67,14 @@ struct LowerMIOpenOpsStep4Pass
 constexpr int kTwoGB = 2147483647;
 
 //===----------------------------------------------------------------------===//
+// Utility function to emit load instructions for local buffers
+//===----------------------------------------------------------------------===//
+Value emitLoadLogic(OpBuilder &b, Location loc, Type loadedType,
+                    const Value source, ValueRange coords) {
+  return b.create<InBoundsLoadOp>(loc, loadedType, source, coords);
+}
+
+//===----------------------------------------------------------------------===//
 // TransformingFor lowering.
 //===----------------------------------------------------------------------===//
 struct TransformingForRewritePattern
@@ -249,15 +257,31 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
     auto emitLoadInstruction = [&b, loc, loadedType,
                                 source](ValueRange loadCoords) -> Value {
       Value loadedValue;
-      if (auto loadedVectorType = loadedType.dyn_cast<VectorType>()) {
-        // Issue vector load.
-        // use buffer load since the source memref is on address space 0
-        SmallVector<Value, 4> srcLowerIndicesI32;
-        for (auto v : loadCoords)
-          srcLowerIndicesI32.push_back(
-              b.create<IndexCastOp>(loc, b.getIntegerType(32), v));
-        loadedValue = b.create<gpu::MubufLoadOp>(loc, loadedType, source,
-                                                 srcLowerIndicesI32);
+
+      if (loadedType.isa<VectorType>()) {
+        VectorType loadedVectorType = loadedType.cast<VectorType>();
+        Type elementType = loadedVectorType.getElementType();
+        int64_t vectorLength = loadedVectorType.getShape()[0];
+
+        auto loadWidth = vectorLength * elementType.getIntOrFloatBitWidth();
+        bool isTooNarrow = loadWidth < 32;
+        bool isTooWide = loadWidth > 4 * 32;
+
+        // Use scalar load when load width is too narrow or too wide
+        // for a mubuf instruction
+        if (isTooNarrow || isTooWide) {
+          loadedValue =
+              emitLoadLogic(b, loc, loadedVectorType, source, loadCoords);
+        } else {
+          // Issue vector load.
+          // use buffer load since the source memref is on address space 0
+          SmallVector<Value, 4> srcLowerIndicesI32;
+          for (auto v : loadCoords)
+            srcLowerIndicesI32.push_back(
+                b.create<IndexCastOp>(loc, b.getIntegerType(32), v));
+          loadedValue = b.create<gpu::MubufLoadOp>(loc, loadedType, source,
+                                                   srcLowerIndicesI32);
+        }
       } else {
         // Issue scalar load.
         loadedValue =
@@ -530,14 +554,6 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
     return success();
   }
 };
-
-//===----------------------------------------------------------------------===//
-// Utility function to emit load instructions for local buffers
-//===----------------------------------------------------------------------===//
-Value emitLoadLogic(OpBuilder &b, Location loc, Type loadedType,
-                    const Value source, ValueRange coords) {
-  return b.create<InBoundsLoadOp>(loc, loadedType, source, coords);
-}
 
 // Determine if the operation provided is a constant, and return its value if it
 // is
@@ -1698,4 +1714,3 @@ void LowerMIOpenOpsStep4Pass::runOnOperation() {
 std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep4Pass() {
   return std::make_unique<LowerMIOpenOpsStep4Pass>();
 }
-

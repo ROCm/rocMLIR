@@ -24,8 +24,8 @@
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/MIOpen/Tuning/UtilityParams.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
-#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/Support/LogicalResult.h"
@@ -35,6 +35,7 @@
 #include "llvm/ADT/SmallVector.h"
 
 using namespace mlir;
+using namespace mlir::arith;
 using namespace mlir::miopen;
 //===----------------------------------------------------------------------===//
 // Conv2D (forward, backward) lowering.
@@ -178,6 +179,28 @@ void affixGridwiseGemmAttributes(Operation *convOp, Operation *gop,
   }
 }
 
+void createElementwiseLoop(OpBuilder &b, Location loc, int64_t bound,
+                           function_ref<void(Value)> emitBodyFunc) {
+  // Pseudo code:
+  // size_t offset = (hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
+  // size_t stride = hipBlockDim_x * hipGridDim_x;
+  // for (size_t i = offset; i < sizeof(collapsedOutput); i+= stride)
+  //     collapsedOutput[i] = 0;
+
+  auto workgroupId = b.create<WorkgroupIdOp>(loc, b.getIndexType());
+  auto workgroupDim = b.create<ConstantIndexOp>(loc, kUtilityKernelBlockSize);
+  auto workitemId = b.create<WorkitemIdOp>(loc, b.getIndexType());
+  auto offset = b.create<AddIOp>(
+      loc, b.create<MulIOp>(loc, workgroupId, workgroupDim), workitemId);
+  auto gridDim = b.create<ConstantIndexOp>(loc, kUtilityKernelGridSize);
+  auto stride = b.create<MulIOp>(loc, workgroupDim, gridDim);
+
+  auto loop = b.create<scf::ForOp>(
+      loc, offset, b.create<ConstantIndexOp>(loc, bound), stride);
+  b.setInsertionPointToStart(loop.getBody());
+  emitBodyFunc(loop.getInductionVar());
+}
+
 /// 0-initialize the output for a backward weight convolution which uses
 /// atomic adds.
 /// For f32 type, the output is the filter tensor.
@@ -196,13 +219,14 @@ LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
     llvm_unreachable("Incorrect memref type supplied");
   }
   auto outputDataType = output.getType().cast<MemRefType>().getElementType();
-  auto zeroOp = createZeroConstantOp(b, loc, outputDataType);
   auto collapsedOutput = createCollapseShapeOp(b, loc, output);
   ArrayRef<int64_t> collapsedOutputShape =
       collapsedOutput.getType().cast<MemRefType>().getShape();
-  auto loop = b.create<AffineForOp>(loc, 0, collapsedOutputShape[0]);
-  b.setInsertionPointToStart(loop.getBody());
-  b.create<AffineStoreOp>(loc, zeroOp, collapsedOutput, loop.getInductionVar());
+
+  createElementwiseLoop(b, loc, collapsedOutputShape[0], [&](Value iv) {
+    auto zeroOp = createZeroConstantOp(b, loc, outputDataType);
+    b.create<memref::StoreOp>(loc, zeroOp, collapsedOutput, iv);
+  });
 
   b.eraseOp(op);
   return success();
@@ -224,13 +248,13 @@ LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
       collapsedWorkspace.getType().cast<MemRefType>().getShape();
   assert((collapsedFilterShape[0] == collapsedWorkspaceShape[0]) &&
          "Filter tensor and workspace size mismatch");
-  auto loop = b.create<AffineForOp>(loc, 0, collapsedWorkspaceShape[0]);
-  auto iv = loop.getInductionVar();
-  b.setInsertionPointToStart(loop.getBody());
-  auto loadedValue = b.create<AffineLoadOp>(loc, collapsedWorkspace, iv);
-  auto convertedValue =
-      createTypeConversionOp(b, loc, loadedValue, filterDataType);
-  b.create<AffineStoreOp>(loc, convertedValue, collapsedFilter, iv);
+
+  createElementwiseLoop(b, loc, collapsedWorkspaceShape[0], [&](Value iv) {
+    auto loadedValue = b.create<memref::LoadOp>(loc, collapsedWorkspace, iv);
+    auto convertedValue =
+        createTypeConversionOp(b, loc, loadedValue, filterDataType);
+    b.create<memref::StoreOp>(loc, convertedValue, collapsedFilter, iv);
+  });
 
   b.eraseOp(op);
   return success();
@@ -1877,10 +1901,11 @@ void LowerMIOpenOpsStep1Pass::runOnOperation() {
   target.addIllegalOp<miopen::Conv2DOp, miopen::Conv2DBwdDataOp,
                       miopen::Conv2DBwdWeightOp>();
   target.addLegalOp<miopen::TransformOp, miopen::GridwiseGemmOp,
-                    miopen::GridwiseGemmV2Op>();
+                    miopen::GridwiseGemmV2Op, miopen::WorkgroupIdOp,
+                    miopen::WorkitemIdOp>();
   // Below are required legalize for the lowering of Conv2DBwdWeightOp
   target.addLegalDialect<arith::ArithmeticDialect, memref::MemRefDialect,
-                         AffineDialect>();
+                         AffineDialect, scf::SCFDialect>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<Conv2DRewritePattern<Conv2DOp>,

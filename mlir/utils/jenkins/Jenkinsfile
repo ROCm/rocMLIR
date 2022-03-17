@@ -29,6 +29,27 @@ void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
     buildMIOpen(cmakeOpts)
 }
 
+void buildMIOpenWithMLIR() {
+    buildProject('libMLIRMIOpen',
+                    '-DBUILD_FAT_LIBMLIRMIOPEN=ON')
+    cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/MIOpenDeps",\
+        installation: 'InSearchPath', workingDir: 'build'
+
+    dir('MIOpen') {
+        git branch: 'mlir-wrw-no-set-zero-no-cast-tensor', poll: false,\
+            url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+        sh 'sed -i "/ROCmSoftwarePlatform\\/llvm-project-mlir/d" ./requirements.txt'
+        cmake arguments: "-P install_deps.cmake --minimum --prefix ${WORKSPACE}/MIOpenDeps",\
+                installation: "InSearchPath"
+        buildMIOpen('''-DMIOPEN_USE_MLIR=On
+                        -DMIOPEN_BACKEND=HIP
+                        -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpenDeps"
+                        -DMIOPEN_USER_DB_PATH=${WORKSPACE}/MIOpen/build/MIOpenUserDB
+                        -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
+                        ''')
+    }
+}
+
 void showEnv() {
     echo "$env.NODE_NAME"
     sh 'cat /etc/os-release'
@@ -134,7 +155,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "${params.canXdlops ? 'gfx908' : 'rocm' }"
+                            label "${params.canXdlops ? 'gfx908 || gfx90a' : 'rocm' }"
                             alwaysPull true
                         }
                     }
@@ -189,7 +210,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "${params.canXdlops ? 'gfx908' : 'rocm' }"
+                            label "${params.canXdlops ? 'gfx908 || gfx90a' : 'rocm' }"
                             alwaysPull true
                         }
                     }
@@ -223,19 +244,20 @@ pipeline {
                         }
                     }
                 }
-                stage("Static Library") {
+                stage("Static Library PR tests") {
                     when {
                         beforeAgent true;
-                        anyOf {
+                        allOf {
                             equals expected: true, actual: params.staticLib;
-                            equals expected: true, actual: params.perfTest;
+                            equals expected: false, actual: params.nightly;
+                            equals expected: false, actual: params.weekly;
                         }
                     }
                     agent {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "${params.canXdlops ? 'gfx908' : 'gfx906' }"
+                            label "${params.canXdlops ? 'gfx908 || gfx90a' : 'gfx906' }"
                             alwaysPull true
                         }
                     }
@@ -249,89 +271,17 @@ pipeline {
                                 showEnv()
                             }
                         }
-                        stage("Igemm build") {
-                            steps {
-                                checkout scm
-                                buildProject('libMLIRMIOpen',
-                                             '-DBUILD_FAT_LIBMLIRMIOPEN=ON')
-                                cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/MIOpenDeps",\
-                                installation: 'InSearchPath', workingDir: 'build'
-                            }
-                        }
                         stage("Build MIOpen with libMLIRMIOpen") {
-                            when { anyOf {
-                                    equals expected: false, actual: params.weekly;
-                                    allOf {
-                                        equals expected: true, actual: params.weekly;
-                                        equals expected: true, actual: params.staticLib;
-                                    }
-                            }}
                             steps {
-                                dir('MIOpen') {
-                                git branch: 'develop', poll: false,\
-                                    url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
-                                sh 'sed -i "/ROCmSoftwarePlatform\\/llvm-project-mlir/d" ./requirements.txt'
-                                cmake arguments: "-P install_deps.cmake --minimum --prefix ${WORKSPACE}/MIOpenDeps",\
-                                    installation: "InSearchPath"
-                                buildMIOpen('''-DMIOPEN_USE_MLIR=ON
-                                        -DMIOPEN_BACKEND=HIP
-                                        -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpenDeps"
-                                        -DMIOPEN_USER_DB_PATH=${WORKSPACE}/MIOpen/build/MIOpenUserDB
-                                        -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
-                                        ''')
-                                }
-                            }
-                        }
-                        stage("Stash MIOpen with libMLIRMIOpen") {
-                            when { anyOf {
-                                    equals expected: true, actual: params.nightly;
-                                    allOf {
-                                        equals expected: true, actual: params.weekly;
-                                        equals expected: true, actual: params.staticLib;
-                                    }
-                            }}
-                            steps {
-                                stash name:"MIOpen-MLIR-kernels",\
-                                      includes: """
-                                          MIOpen/build/**,\
-                                          mlir/utils/jenkins/miopen-tests/**\
-                                      """
-                            }
-                        }
-                        stage("Tune MLIR kernels") {
-                            when {
-                                    equals expected: true, actual: params.weekly;
-                                    equals expected: true, actual: params.staticLib;
-                            }
-                            environment {
-                                // Make libMIOpen.so accessible to the test driver
-                                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
-                            }
-                            steps {
-                                dir('MIOpen/build/') {
-                                    sh """
-                                    bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
-                                       < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
-                                    sh 'date --utc +%Y-%m-%d > MIOpenUserDB/tuning-date'
-                                    sh 'ls -l MIOpenUserDB'
-                                }
-                                // Save user database for nightly jobs
-                                archiveArtifacts artifacts: 'MIOpen/build/MIOpenUserDB/**, MIOpen/build/tuning-date',\
-                                                 onlyIfSuccessful: true
+                                buildMIOpenWithMLIR()
                             }
                         }
                         stage("Test selected MIOpen configs") {
-                            when {
-                                    equals expected: false, actual: params.nightly;
-                                    equals expected: false, actual: params.weekly;
-                                    equals expected: true, actual: params.staticLib;
-                            }
                             environment {
                                 // Make libMIOpen.so accessible to the test driver
                                 LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
                             }
                             steps {
-                                showEnv()
                                 dir('MIOpen/build/') {
                                     sh """
                                     bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --no-tuning\
@@ -349,18 +299,131 @@ pipeline {
                         }
                     }
                 }
-
             }
         }
+        stage ("Tune MLIR kernels") {
+            when {
+                beforeAgent true;
+                equals expected: true, actual: params.weekly;
+                equals expected: true, actual: params.staticLib;
+            }
+            matrix {
+                axes {
+                    axis {
+                        name 'ARCH'
+                        values 'gfx906', 'gfx908', 'gfx90a'
+                    }
+                }
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs()
+                        label "${ARCH}"
+                        alwaysPull true
+                    }
+                }
+                when {
+                    beforeAgent true
+                    anyOf {
+                        allOf {
+                            equals expected: "gfx906", actual: "${ARCH}";
+                            equals expected: false, actual: params.canXdlops;
+                        }
+                        allOf {
+                            anyOf {
+                                equals expected: "gfx908", actual: "${ARCH}";
+                                equals expected: "gfx90a", actual: "${ARCH}";
+                            }
+                            equals expected: true, actual: params.canXdlops;
+                        }
+                    }
+                }
+                environment {
+                    PATH="/opt/rocm/llvm/bin:$PATH"
+                    HOME="${WORKSPACE}"
+                }
+                stages {
+                    stage("Set System Property on Lockhart nodes") {
+                        when {
+                            equals expected: "gfx90a", actual: "${ARCH}"
+                        }
+                        steps {
+                            script {
+                               System.setProperty("org.jenkinsci.plugins.durabletask.BourneShellScript.HEARTBEAT_CHECK_INTERVAL", "86400");
+                            }
+                        }
+                    }
+                    stage("Environment") {
+                        steps {
+                            echo "ARCH = ${ARCH}"
+                            showEnv()
+                        }
+                    }
+                    stage("Build MIOpen with libMLIRMIOpen") {
+                        steps {
+                            buildMIOpenWithMLIR()
+                        }
+                    }
+                    stage("Tune MLIR kernels") {
+                        environment {
+                            // Make libMIOpen.so accessible to the test driver
+                            LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                        }
+                        steps {
+                            dir('MIOpen/build/') {
+                                sh """
+                                bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
+                                    < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+                                sh 'ls -l MIOpenUserDB'
+                            }
+                            // Save user database for nightly jobs
+                            dir ('MIOpen/build/MIOpenUserDB') {
+                                stash name: "MLIR-PerfDB-${ARCH}", includes: "**"
+                            }
+                        }
+                    }
+                }
+                post {
+                    always {
+                        cleanWs()
+                    }
+                }
+            }
+        }
+        stage("Archive weekly xdlops tuning perfDB") {
+            when {
+                beforeAgent true;
+                equals expected: true, actual: params.weekly;
+                equals expected: true, actual: params.staticLib;
+            }
+            agent any
+            options {
+                skipDefaultCheckout()
+            }
+            steps {
+                // Note: add additional architectures here
+                dir ('MIOpen/build/MIOpenUserDB') {
+                    unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx908' : 'gfx906'}"
+                    // This'll stop being a duplicate once Navi CI starts
+                    unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx90a' : 'gfx906'}"
+                    sh 'date --utc +%Y-%m-%d >tuning-date'
+                }
+                archiveArtifacts artifacts: 'MIOpen/build/MIOpenUserDB/**',\
+                    onlyIfSuccessful: true
+            }
+            post {
+                always {
+                    cleanWs()
+                }
+            }
+        }
+
         stage("MIOpen Resnet50 Config Test") {
             when { allOf {
                     equals expected: true, actual: params.nightly;
                     equals expected: true, actual: params.staticLib;
             }}
             matrix {
-                options {
-                    skipDefaultCheckout()
-                }
                 axes {
                     axis {
                         name 'DTYPE'
@@ -372,12 +435,12 @@ pipeline {
                     }
                 }
                 stages {
-                    stage('Test MIOpen') {
+                    stage('Test MIOpen integration') {
                         agent {
                             docker {
                                 image dockerImage()
                                 args dockerArgs()
-                                label "${params.canXdlops ? 'gfx908' : 'gfx906'}"
+                                label "${params.canXdlops ? 'gfx908 || gfx90a' : 'gfx906'}"
                                 alwaysPull true
                             }
                         }
@@ -388,13 +451,21 @@ pipeline {
                                     showEnv()
                                 }
                             }
-                            stage("Copy MIOpen test environment") {
+                            stage("Build MIOpen with libMLIRMIOpen") {
+                                environment {
+                                    PATH="/opt/rocm/llvm/bin:$PATH"
+                                    HOME="${WORKSPACE}"
+                                }
                                 steps {
-                                    unstash name: "MIOpen-MLIR-kernels"
+                                    buildMIOpenWithMLIR()
+                                }
+                            }
+                            stage("Copy perfdb") {
+                                steps {
                                     copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
                                                optional: true,\
                                                flatten: true,\
-                                               projectName: "mlir-weekly",\
+                                               projectName: "/MLIR/mlir-weekly",\
                                                selector: lastSuccessful(),\
                                                target: 'MIOpen/build/MIOpenUserDB'
                                     sh 'ls MIOpen/build/MIOpenUserDB'
@@ -429,6 +500,7 @@ pipeline {
                 }
             }
         }
+        // FIXME: run perf tests on both gfx90a and gfx908
         stage("Benchmark and Report Performance") {
             when {
                 beforeAgent true;
@@ -439,12 +511,13 @@ pipeline {
                 docker {
                     image dockerImage()
                     args dockerArgs()
-                    label "${params.canXdlops ? 'gfx908' : 'gfx906' }"
+                    label "${params.canXdlops ? 'gfx90a' : 'gfx906' }"
                     alwaysPull true
                 }
             }
             environment {
                 // Make libMIOpen.so accessible to the test driver
+                PATH="/opt/rocm/llvm/bin:$PATH"
                 LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
                 HOME="${WORKSPACE}"
             }
@@ -454,14 +527,17 @@ pipeline {
                         showEnv()
                     }
                 }
-                stage("Copy MIOpen with MLIR kernels") {
+                stage("Build MLIR with libMLIRMIOpen") {
                     steps {
-                        sh 'rm -rf MIOpen'
-                        unstash name: "MIOpen-MLIR-kernels"
+                        buildMIOpenWithMLIR()
+                    }
+                }
+                stage("Copy tuning database") {
+                    steps {
                         copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
                                                optional: true,\
                                                flatten: true,\
-                                               projectName: "mlir-weekly",\
+                                               projectName: "/MLIR/mlir-weekly",\
                                                selector: lastSuccessful(),\
                                                target: 'MIOpen/build/MIOpenUserDB'
                         sh 'ls MIOpen/build/MIOpenUserDB'
@@ -494,6 +570,9 @@ pipeline {
                 }
                 stage("Build MLIR") {
                     steps {
+                        // Clean up build settings to disable static library and allow
+                        // mlir-rocm-runner
+                        sh 'rm build/CMakeCache.txt'
                         buildProject('miopen-gen mlir-miopen-driver mlir-rocm-runner ci-performance-scripts', '')
                     }
                 }

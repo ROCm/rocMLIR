@@ -65,6 +65,9 @@ RUN ln -s /usr/bin/clang-10 /usr/bin/clang;\
 
 # --------------------- Section 2: MIOpen dialect setups -----------------
 
+# Need "render" group because some CI hosts have /dev/kfd under it.
+RUN groupadd -g 109 render
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
   apt-utils \
   apt-transport-https \
