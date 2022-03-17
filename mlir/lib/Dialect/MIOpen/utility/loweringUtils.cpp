@@ -54,8 +54,9 @@ void propagateTransformOob(TransformMapAttr transformMap,
     case TransformType::Embed: {
       bool shallLeft = false;
       bool shallRight = false;
-      bool checkInsufficientNegative = false;
+      ArrayRef<int64_t> upperBounds = transformMap.getUpperBounds();
       uint32_t lower = lowerDims[0];
+      int64_t lowerBound = transformMap.getLowerBounds()[lower];
       for (auto pair : llvm::zip(upperDims, params)) {
         uint32_t upper = std::get<0>(pair);
         int64_t coeff = std::get<1>(pair);
@@ -72,23 +73,15 @@ void propagateTransformOob(TransformMapAttr transformMap,
           // itself
           if (isLeft)
             shallRight = true;
-          checkInsufficientNegative = true;
         } else {
           shallLeft |= isLeft;
           shallRight |= isRight;
         }
-      }
 
-      // If we're embedding with a negative coefficient, add a check
-      // to see if a coordinate not being negative enough can cause
-      // OOB on the right by comparing to the lower dimension's size
-      if (checkInsufficientNegative) {
-        int64_t lowerSize = transformMap.getLowerBounds()[lower];
-        for (uint32_t upper : upperDims) {
-          int64_t upperSize = transformMap.getUpperBounds()[upper];
-          if (upperSize > lowerSize)
-            shallRight = true;
-        }
+        // If the max of a dimension times its coefficient can overshoot
+        // the maximum size of the output, check bounds on the right
+        if (coeff * upperBounds[upper] > lowerBound)
+          shallRight = true;
       }
 
       if (shallLeft)
