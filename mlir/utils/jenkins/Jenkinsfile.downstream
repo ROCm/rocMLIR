@@ -112,7 +112,7 @@ pipeline {
                         stage("Build MIOpen with libMLIRMIOpen") {
                             steps {
                                 dir('MIOpen') {
-                                git branch: 'mlir-wrw-no-set-zero-no-cast-tensor', poll: false,\
+                                git branch: 'develop', poll: false,\
                                     url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
                                 sh 'sed -i "/ROCmSoftwarePlatform\\/llvm-project-mlir/d" ./requirements.txt'
                                 cmake arguments: "-P install_deps.cmake --minimum --prefix ${WORKSPACE}/MIOpenDeps",\
