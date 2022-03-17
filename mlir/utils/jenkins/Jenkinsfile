@@ -465,7 +465,7 @@ pipeline {
                                     copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
                                                optional: true,\
                                                flatten: true,\
-                                               projectName: "mlir-weekly",\
+                                               projectName: "/MLIR/mlir-weekly",\
                                                selector: lastSuccessful(),\
                                                target: 'MIOpen/build/MIOpenUserDB'
                                     sh 'ls MIOpen/build/MIOpenUserDB'
@@ -537,7 +537,7 @@ pipeline {
                         copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
                                                optional: true,\
                                                flatten: true,\
-                                               projectName: "mlir-weekly",\
+                                               projectName: "/MLIR/mlir-weekly",\
                                                selector: lastSuccessful(),\
                                                target: 'MIOpen/build/MIOpenUserDB'
                         sh 'ls MIOpen/build/MIOpenUserDB'
