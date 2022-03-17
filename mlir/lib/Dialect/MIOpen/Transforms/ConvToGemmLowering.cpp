@@ -546,9 +546,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
       getBoundsCheckAttr(b, filterOobCheckDims, filterShape.size());
 
   if (isXdlops) {
-    auto gop =
-        b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, oobA, oobB, oobC,
-                                   paddingInfo, storeMethod, gridwiseGemmAttrs);
+    auto gop = b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, paddingInfo,
+                                          storeMethod, gridwiseGemmAttrs);
     affixGridwiseGemmAttributes(op, gop, b);
   } else {
     op->emitOpError("Backward weight atomic add kernel requires xdlops and "
@@ -1094,13 +1093,12 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   // Emit miopen.gridwise_gemm op.
   // Emit miopen.gridwise_gemm_v2 if using xdlops
   if (isXdlops) {
-    auto gop = b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, oobA, oobB,
-                                          oobC, paddingInfo, StoreMethod::Set,
-                                          gridwiseGemmAttrs);
+    auto gop = b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, paddingInfo,
+                                          StoreMethod::Set, gridwiseGemmAttrs);
     affixGridwiseGemmAttributes(op, gop, b);
   } else {
-    auto gop = b.create<GridwiseGemmOp>(loc, gemmA, gemmB, gemmC, oobA, oobB,
-                                        oobC, paddingInfo, gridwiseGemmAttrs);
+    auto gop = b.create<GridwiseGemmOp>(loc, gemmA, gemmB, gemmC, paddingInfo,
+                                        gridwiseGemmAttrs);
     affixGridwiseGemmAttributes(op, gop, b);
   }
   // Finally, erase the original Conv2D op.
@@ -1754,13 +1752,13 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     }
 
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
-      auto gop = b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, oobA,
-                                            oobB, oobC, paddingInfo,
-                                            storeMethod, gridwiseGemmAttrs);
+      auto gop =
+          b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, paddingInfo,
+                                     storeMethod, gridwiseGemmAttrs);
       affixGridwiseGemmAttributes(op, gop, b);
     } else {
-      auto gop = b.create<GridwiseGemmOp>(loc, gemmA, gemmB, gemmC, oobA, oobB,
-                                          oobC, paddingInfo, gridwiseGemmAttrs);
+      auto gop = b.create<GridwiseGemmOp>(loc, gemmA, gemmB, gemmC, paddingInfo,
+                                          gridwiseGemmAttrs);
       affixGridwiseGemmAttributes(op, gop, b);
     }
 

@@ -36,6 +36,7 @@
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Dialect/Affine/Utils.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -50,6 +51,7 @@
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include <iterator>
 #include <numeric>
 
 using namespace mlir;
@@ -237,7 +239,8 @@ struct TransformingForRewritePattern
 //===----------------------------------------------------------------------===//
 // BufferLoad lowering.
 //===----------------------------------------------------------------------===//
-// TODO(kdrewnia): use "OOB reads = 0" to remove second if statement
+// TODO(kdrewnia): use "OOB reads = 0" from hardware to remove
+// hardcoded zero value
 struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
   using OpRewritePattern<BufferLoadOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(BufferLoadOp op,
@@ -245,144 +248,76 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
     Location loc = op.getLoc();
     Value source = op.source();
     auto sourceType = source.getType().cast<MemRefType>();
-    Operation::operand_range coords = op.coords();
+    ArrayRef<int64_t> sourceShape = sourceType.getShape();
     Type loadedType = op.result().getType();
 
-    llvm::SmallVector<uint32_t> oobDims;
-    for (auto pair : llvm::enumerate(op.oobDims().getAsValueRange<BoolAttr>()))
-      if (pair.value())
-        oobDims.push_back(pair.index());
-    bool toEmitOobChecks = !oobDims.empty();
-
-    auto emitLoadInstruction = [&b, loc, loadedType,
-                                source](ValueRange loadCoords) -> Value {
-      Value loadedValue;
-
-      if (loadedType.isa<VectorType>()) {
-        VectorType loadedVectorType = loadedType.cast<VectorType>();
-        Type elementType = loadedVectorType.getElementType();
-        int64_t vectorLength = loadedVectorType.getShape()[0];
-
-        auto loadWidth = vectorLength * elementType.getIntOrFloatBitWidth();
-        bool isTooNarrow = loadWidth < 32;
-        bool isTooWide = loadWidth > 4 * 32;
-
-        // Use scalar load when load width is too narrow or too wide
-        // for a mubuf instruction
-        if (isTooNarrow || isTooWide) {
-          loadedValue =
-              emitLoadLogic(b, loc, loadedVectorType, source, loadCoords);
-        } else {
-          // Issue vector load.
-          // use buffer load since the source memref is on address space 0
-          SmallVector<Value, 4> srcLowerIndicesI32;
-          for (auto v : loadCoords)
-            srcLowerIndicesI32.push_back(
-                b.create<IndexCastOp>(loc, b.getIntegerType(32), v));
-          loadedValue = b.create<gpu::MubufLoadOp>(loc, loadedType, source,
-                                                   srcLowerIndicesI32);
-        }
-      } else {
-        // Issue scalar load.
-        loadedValue =
-            b.create<memref::LoadOp>(loc, loadedType, source, loadCoords);
-      }
-      return loadedValue;
-    };
+    SmallVector<Value, 5> coords;
+    coords.reserve(op.coords().size());
+    llvm::copy(op.coords(), std::back_inserter(coords));
 
     Value loadedValue;
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+    Value isOob = b.createOrFold<ConstantIntOp>(loc, 0, b.getI1Type());
 
-    if (toEmitOobChecks) {
-      // Pre-populate oobCoords. They will be modified inside
-      // oob logic check basic block.
-      SmallVector<Value, 8> oobCoords;
-      oobCoords.append(coords.begin(), coords.end());
-
-      // Emit a useful constant 0f for later use.
-      Value zeroOp = createZeroConstantOp(b, loc, loadedType);
-
-      // Walkthrough all lower level indices where the dimension has
-      // padding, check if the result lies within boundaries.
-
-      // Logic in C++:
-      // bool withinBounds = true;
-      // for (auto dim : oobLoadCheckDims) {
-      //   withBounds &=
-      //     (srcLowerIndices[dim] >= 0 &&
-      //      srcLowerIndices[dim] < sourceType.getShape()[dim]) {
-      // }
-      Value withinBoundsOp =
-          b.create<ConstantIntOp>(loc, 1, b.getIntegerType(1));
-      for (auto dim : oobDims) {
-        Value coord = coords[dim];
-        Value lowerBoundCheckOp =
-            b.create<CmpIOp>(loc, CmpIPredicate::sge, coord, zeroConstantOp);
-        Value upperBoundOp =
-            b.create<ConstantIndexOp>(loc, sourceType.getShape()[dim]);
-        Value upperBoundCheckOp =
-            b.create<CmpIOp>(loc, CmpIPredicate::slt, coord, upperBoundOp);
-        Value withinBoundInOneDimOp =
-            b.create<AndIOp>(loc, lowerBoundCheckOp, upperBoundCheckOp);
-
-        withinBoundsOp =
-            b.create<AndIOp>(loc, withinBoundsOp, withinBoundInOneDimOp);
-
-        // Prepare srcLowerLoadOOBIndices.
-        oobCoords[dim] = zeroConstantOp;
-      }
-
-      // Logic:
-      // if (withinBounds) {
-      //   // load address = lower indices from affine transform.
-      // } else {
-      //   // OOB. Prepare an address known NOT OOB.
-      //   // For example, in NGCHW case:
-      //   // load address = {N, G, C, 0, 0}
-      //   // In NGHWC case:
-      //   // load address = {N, G, 0, 0, C}
-      // }
-      // V = load(load address)
-      // if (withinBounds) {
-      //   return V
-      // } else {
-      //   return 0
-      // }
-
-      // Emit the first IfOp.
-      auto firstIfWithinBoundsOp = b.create<scf::IfOp>(
-          loc,
-          TypeRange{b.getIndexType(), b.getIndexType(), b.getIndexType(),
-                    b.getIndexType(), b.getIndexType()},
-          withinBoundsOp, /*withElseRegion=*/true);
-
-      // Then part.
-      auto firstIfWithinBoundsThenBuilder =
-          firstIfWithinBoundsOp.getThenBodyBuilder();
-      firstIfWithinBoundsThenBuilder.create<scf::YieldOp>(loc, coords);
-
-      // Else part.
-      auto firstIfWithinBoundsElseBuilder =
-          firstIfWithinBoundsOp.getElseBodyBuilder();
-      firstIfWithinBoundsElseBuilder.create<scf::YieldOp>(loc, oobCoords);
-
-      // Issue scalar load.
-      loadedValue = emitLoadInstruction(firstIfWithinBoundsOp.getResults());
-
-      // Emit the second IfOp.
-      auto secondIfWithinBoundsOp =
-          b.create<scf::IfOp>(loc, loadedType, withinBoundsOp, true);
-      auto secondIfWithinBoundsThenBuilder =
-          secondIfWithinBoundsOp.getThenBodyBuilder();
-      secondIfWithinBoundsThenBuilder.create<scf::YieldOp>(loc, loadedValue);
-      auto secondIfWithinBoundsElseBuilder =
-          secondIfWithinBoundsOp.getElseBodyBuilder();
-      secondIfWithinBoundsElseBuilder.create<scf::YieldOp>(loc, zeroOp);
-      loadedValue = secondIfWithinBoundsOp.getResults()[0];
-    } else {
-      loadedValue = emitLoadInstruction(coords);
+    // Perform tests for out of bounds reads
+    // If a coordinate is out of bounds, set it to zero to ensure
+    // that we don't cause a page fault. Also, collect the result of whether
+    // a read actually went through to determine whether to use its result
+    // or to return zero.
+    for (auto leftOobDimVal : op.leftOobDims().getAsValueRange<IntegerAttr>()) {
+      uint32_t leftOobDim = leftOobDimVal.getZExtValue();
+      Value test = b.create<CmpIOp>(loc, CmpIPredicate::slt, coords[leftOobDim],
+                                    zeroConstantOp);
+      // Curiosity: what if this was just max()
+      coords[leftOobDim] =
+          b.create<SelectOp>(loc, test, zeroConstantOp, coords[leftOobDim]);
+      isOob = b.createOrFold<OrIOp>(loc, test, isOob);
     }
-    b.replaceOp(op, loadedValue);
+    for (llvm::APInt rightOobDimVal :
+         op.rightOobDims().getAsValueRange<IntegerAttr>()) {
+      uint32_t rightOobDim = rightOobDimVal.getZExtValue();
+      // TODO(kdrewnia): Move the raw buffer load so we can handle this just
+      // like the store case
+      Value test = b.create<CmpIOp>(
+          loc, CmpIPredicate::sge, coords[rightOobDim],
+          b.create<ConstantIndexOp>(loc, sourceShape[rightOobDim]));
+      coords[rightOobDim] =
+          b.create<SelectOp>(loc, test, zeroConstantOp, coords[rightOobDim]);
+      isOob = b.createOrFold<OrIOp>(loc, test, isOob);
+    }
+
+    // Emit load instruction
+    if (loadedType.isa<VectorType>()) {
+      VectorType loadedVectorType = loadedType.cast<VectorType>();
+      Type elementType = loadedVectorType.getElementType();
+      int64_t vectorLength = loadedVectorType.getShape()[0];
+
+      int64_t loadWidth = vectorLength * elementType.getIntOrFloatBitWidth();
+      bool isTooNarrow = loadWidth < 32;
+      bool isTooWide = loadWidth > 4 * 32;
+
+      // Use scalar load when load width is too narrow or too wide
+      // for a mubuf instruction
+      if (isTooNarrow || isTooWide) {
+        loadedValue = emitLoadLogic(b, loc, loadedVectorType, source, coords);
+      } else {
+        // Issue vector load.
+        // use buffer load since the source memref is on address space 0
+        SmallVector<Value, 4> srcLowerIndicesI32;
+        for (auto v : coords)
+          srcLowerIndicesI32.push_back(
+              b.create<IndexCastOp>(loc, b.getIntegerType(32), v));
+        loadedValue = b.create<gpu::MubufLoadOp>(loc, loadedType, source,
+                                                 srcLowerIndicesI32);
+      }
+    } else {
+      // Issue scalar load.
+      loadedValue = b.create<memref::LoadOp>(loc, loadedType, source, coords);
+    }
+
+    Value result = b.createOrFold<SelectOp>(
+        loc, isOob, createZeroConstantOp(b, loc, loadedType), loadedValue);
+    b.replaceOp(op, result);
     return success();
   }
 };
@@ -398,8 +333,13 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
   static constexpr auto xdlops = BwdPaddingKernelInfo::Xdlops;
   static constexpr auto padM = BwdPaddingKernelInfo::PadM;
   static constexpr auto padN = BwdPaddingKernelInfo::PadN;
-  LogicalResult matchAndRewrite(BufferStoreOp op,
-                                PatternRewriter &b) const override {
+
+  // TODO(kdrewnia): Remove this after testing the new lowering.
+  // This is a preservation of the old buffer_store lowering so that the
+  // move to the new definition that unblocks swaters doesn't require
+  // determining whether these hacks can be removed
+  LogicalResult legacyBwdPaddingHackRewrite(BufferStoreOp op,
+                                            PatternRewriter &b) const {
     Location loc = op.getLoc();
     BwdPaddingKernelInfo bwdPaddingInfo = BwdPaddingKernelInfo::NA;
     if (PaddingInfoAttr pad = op.paddingInfo().getValueOr(nullptr))
@@ -411,9 +351,10 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
     ValueRange coords = op.coords();
 
     llvm::SmallVector<uint32_t> oobDims;
-    for (auto pair : llvm::enumerate(op.oobDims().getAsValueRange<BoolAttr>()))
-      if (pair.value())
-        oobDims.push_back(pair.index());
+    for (llvm::APInt d : op.leftOobDims().getAsValueRange<IntegerAttr>())
+      oobDims.push_back(d.getZExtValue());
+    for (llvm::APInt d : op.rightOobDims().getAsValueRange<IntegerAttr>())
+      oobDims.push_back(d.getZExtValue());
     bool toEmitOobChecks = !oobDims.empty();
 
     StoreMethod memoryOp = op.storeMethod().getValueOr(StoreMethod::Set);
@@ -550,6 +491,68 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
         emitStoreInstruction(coords,
                              /*oob=*/zeroConstantOp);
       }
+    }
+    return success();
+  }
+
+  LogicalResult matchAndRewrite(BufferStoreOp op,
+                                PatternRewriter &b) const override {
+    Location loc = op.getLoc();
+    BwdPaddingKernelInfo bwdPaddingInfo = BwdPaddingKernelInfo::NA;
+    if (PaddingInfoAttr pad = op.paddingInfo().getValueOr(nullptr))
+      bwdPaddingInfo = pad.getBwdPaddingInfo();
+    if (bwdPaddingInfo != BwdPaddingKernelInfo::NA)
+      return legacyBwdPaddingHackRewrite(op, b);
+
+    Value data = op.data();
+    Value dest = op.dest();
+    auto destType = dest.getType().cast<MemRefType>();
+    ArrayRef<int64_t> destShape = destType.getShape();
+    SmallVector<Value, 5> coords;
+    coords.reserve(op.coords().size());
+    llvm::copy(op.coords(), std::back_inserter(coords));
+
+    Value isOob = b.createOrFold<ConstantIntOp>(loc, 0, b.getI1Type());
+    Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
+
+    for (llvm::APInt leftOobDimVal :
+         op.leftOobDims().getAsValueRange<IntegerAttr>()) {
+      uint32_t leftOobDim = leftOobDimVal.getZExtValue();
+      Value test = b.create<CmpIOp>(loc, CmpIPredicate::slt, coords[leftOobDim],
+                                    b.createOrFold<ConstantIndexOp>(loc, 0));
+      coords[leftOobDim] =
+          b.create<SelectOp>(loc, test, zeroConstantOp, coords[leftOobDim]);
+      isOob = b.createOrFold<OrIOp>(loc, test, isOob);
+    }
+    for (llvm::APInt rightOobDimVal :
+         op.rightOobDims().getAsValueRange<IntegerAttr>()) {
+      uint32_t rightOobDim = rightOobDimVal.getZExtValue();
+      // We don't need to update the coordinate since the oob offset will
+      // make the write ignored
+      Value test = b.create<CmpIOp>(
+          loc, CmpIPredicate::sge, coords[rightOobDim],
+          b.createOrFold<ConstantIndexOp>(loc, destShape[rightOobDim]));
+      isOob = b.createOrFold<OrIOp>(loc, test, isOob);
+    }
+    StoreMethod memoryOp = op.storeMethod().getValueOr(StoreMethod::Set);
+
+    SmallVector<Value, 5> coordsI32;
+    for (Value v : coords)
+      coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
+
+    if (memoryOp == StoreMethod::AtomicAdd) {
+      // TODO: use buffer atomic add to enable padding in atomic add kernels
+      b.replaceOpWithNewOp<gpu::AtomicFAddOp>(op, data, dest, coordsI32);
+    } else {
+      // TODO: use actual buffer size when GPU buffer intransics are made
+      // into less of a hack
+      Value oobAddrOp =
+          b.createOrFold<ConstantIntOp>(loc, kTwoGB, b.getI32Type());
+      Value oobShift = b.createOrFold<SelectOp>(
+          loc, isOob, oobAddrOp,
+          b.createOrFold<ConstantIntOp>(loc, 0, b.getI32Type()));
+      b.replaceOpWithNewOp<gpu::RawbufStoreOp>(op, data, dest, oobShift,
+                                               coordsI32);
     }
     return success();
   }

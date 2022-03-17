@@ -62,8 +62,8 @@ std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
 /// transforms that need to be checked for out of bounds stores on the left
 /// (checking for indices less than 0) and on the right (indices greater than
 /// the dimension on the memref)
-std::tuple<DenseIntElementsAttr, DenseIntElementsAttr>
-computeOobFromTransforms(Builder &b, ArrayAttr transforms);
+std::tuple<ArrayAttr, ArrayAttr> computeOobFromTransforms(Builder &b,
+                                                          ArrayAttr transforms);
 } // end namespace miopen
 } // end namespace mlir
 #endif

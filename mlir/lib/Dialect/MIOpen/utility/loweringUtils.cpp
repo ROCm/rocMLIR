@@ -54,6 +54,7 @@ void propagateTransformOob(TransformMapAttr transformMap,
     case TransformType::Embed: {
       bool shallLeft = false;
       bool shallRight = false;
+      bool checkInsufficientNegative = false;
       uint32_t lower = lowerDims[0];
       for (auto pair : llvm::zip(upperDims, params)) {
         uint32_t upper = std::get<0>(pair);
@@ -61,14 +62,35 @@ void propagateTransformOob(TransformMapAttr transformMap,
         if (coeff == 0)
           continue;
         bool negative = coeff < 0;
-        bool positive = coeff > 0;
         bool isLeft = upperLeft.contains(upper);
         bool isRight = upperRight.contains(upper);
-        if ((isLeft && positive) || (isRight && negative))
+        if (negative) {
+          // Pessimistically, substraction always risks underflow
           shallLeft = true;
-        if ((isRight && positive) || (isLeft && negative))
-          shallRight = true;
+          // However, the risk of overflow from the subtraction itself occurs
+          // only if the negative-coefficient argument could have been negative
+          // itself
+          if (isLeft)
+            shallRight = true;
+          checkInsufficientNegative = true;
+        } else {
+          shallLeft |= isLeft;
+          shallRight |= isRight;
+        }
       }
+
+      // If we're embedding with a negative coefficient, add a check
+      // to see if a coordinate not being negative enough can cause
+      // OOB on the right by comparing to the lower dimension's size
+      if (checkInsufficientNegative) {
+        int64_t lowerSize = transformMap.getLowerBounds()[lower];
+        for (uint32_t upper : upperDims) {
+          int64_t upperSize = transformMap.getUpperBounds()[upper];
+          if (upperSize > lowerSize)
+            shallRight = true;
+        }
+      }
+
       if (shallLeft)
         lowerLeft.insert(lower);
       if (shallRight)
@@ -132,7 +154,7 @@ std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
   return {ret, b.getArrayAttr(transformList)};
 }
 
-std::tuple<DenseIntElementsAttr, DenseIntElementsAttr>
+std::tuple<ArrayAttr, ArrayAttr>
 computeOobFromTransforms(Builder &b, ArrayAttr transforms) {
   IntSet upperOobLeft, upperOobRight, lowerOobLeft, lowerOobRight;
   for (auto transformMap : transforms.getAsRange<TransformMapAttr>()) {
@@ -154,7 +176,7 @@ computeOobFromTransforms(Builder &b, ArrayAttr transforms) {
   std::sort(leftValues.begin(), leftValues.end());
   std::sort(rightValues.begin(), rightValues.end());
 
-  return {b.getI32VectorAttr(leftValues), b.getI32VectorAttr(rightValues)};
+  return {b.getI32ArrayAttr(leftValues), b.getI32ArrayAttr(rightValues)};
 }
 } // namespace miopen
 } // namespace mlir

@@ -122,6 +122,7 @@ AffixTuningParameters::fetchDimensions(T &op) {
 
 void AffixTuningParameters::affixBackwardWeightUtilityKernels(
     miopen::Conv2DBwdWeightOp &op) {
+  using namespace mlir::miopen;
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
   assert(gemmIdAttr);
   int64_t gemmId = gemmIdAttr.getInt();

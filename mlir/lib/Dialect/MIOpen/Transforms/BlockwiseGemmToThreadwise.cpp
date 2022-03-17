@@ -29,6 +29,7 @@
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -486,7 +487,6 @@ struct ThreadwiseCopyRewritePattern
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
 
-    ArrayAttr oobDims = op.oobDims();
     PaddingInfoAttr paddingInfo = op.paddingInfo();
 
     ArrayAttr srcTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
@@ -506,6 +506,12 @@ struct ThreadwiseCopyRewritePattern
     legacyStore = overrideLoadStoreHack(paddingInfo, legacyStore);
     bool useIndexDiffs = !(legacyLoad || legacyStore);
 
+    ArrayAttr srcLeftOob, srcRightOob, destLeftOob, destRightOob;
+    std::tie(srcLeftOob, srcRightOob) =
+        computeOobFromTransforms(b, srcTransforms);
+    std::tie(destLeftOob, destRightOob) =
+        computeOobFromTransforms(b, destTransforms);
+
     TransformingForOp loop = b.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{op.sourceCoord(), op.destCoord()},
         ArrayRef<Attribute>{srcTransforms, destTransforms}, op.bounds(),
@@ -518,16 +524,16 @@ struct ThreadwiseCopyRewritePattern
 
     Value loaded;
     if (loadGlobal)
-      loaded =
-          b.create<BufferLoadOp>(loc, sourceType.getElementType(), source,
-                                 oobDims, loop.getLowerCoords(/*domain=*/0));
+      loaded = b.create<BufferLoadOp>(loc, sourceType.getElementType(), source,
+                                      srcLeftOob, srcRightOob,
+                                      loop.getLowerCoords(/*domain=*/0));
     else
       loaded = b.create<memref::LoadOp>(loc, source,
                                         loop.getLowerCoords(/*domain=*/0));
     Value cast =
         createTypeConversionOp(b, loc, loaded, destType.getElementType());
     if (storeGlobal)
-      b.create<BufferStoreOp>(loc, cast, dest, oobDims,
+      b.create<BufferStoreOp>(loc, cast, dest, destLeftOob, destRightOob,
                               loop.getLowerCoords(/*domain=*/1), paddingInfo,
                               /*dataOperation=*/nullptr);
     else
@@ -586,6 +592,7 @@ struct ThreadwiseCopyV2RewritePattern
       typeToStore = VectorType::get({dataPerCopy}, destType.getElementType());
     }
 
+    auto oobDims = computeOobFromTransforms(b, destTransforms);
     auto loop = b.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{op.sourceCoord(), op.destCoord()},
         ArrayRef<Attribute>{srcTransforms, destTransforms}, bounds,
@@ -595,7 +602,8 @@ struct ThreadwiseCopyV2RewritePattern
     Value loaded = b.create<ExtractSliceOp>(
         loc, typeToLoad, source, loop.getLowerCoords(/*domain=*/0)[0]);
     Value cast = createTypeConversionOp(b, loc, loaded, typeToStore);
-    b.create<BufferStoreOp>(loc, cast, dest, op.destOobDims(),
+    b.create<BufferStoreOp>(loc, cast, dest, std::get<0>(oobDims),
+                            std::get<1>(oobDims),
                             loop.getLowerCoords(/*domain=*/1), op.paddingInfo(),
                             op.storeMethodAttr());
     b.eraseOp(op);
