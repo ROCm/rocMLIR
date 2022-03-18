@@ -36,7 +36,10 @@ miopen::ConvOpType obtainConvDirection(Operation *op) {
 }
 
 mlir::Type obtainConvDataType(Operation *op) {
-  return op->getOperand(1).getType().template cast<MemRefType>().getElementType();
+  return op->getOperand(1)
+      .getType()
+      .template cast<MemRefType>()
+      .getElementType();
 }
 
 } // namespace miopen

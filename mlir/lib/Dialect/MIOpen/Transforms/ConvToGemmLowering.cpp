@@ -751,9 +751,9 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     PopulateParamsXDL populateParamsXDL;
     std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
              gemmKExtra) =
-        calculatePaddingKernelSize(
-            gemmMSize, gemmNSize, gemmKSize, obtainConvDirection(op),
-            obtainConvDataType(op), populateParamsXDL);
+        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
+                                   obtainConvDirection(op),
+                                   obtainConvDataType(op), populateParamsXDL);
   }
 
   LogicalResult supportedPaddingKernel = isSupportedBackwardDataPaddingKernel(
@@ -1263,9 +1263,9 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       PopulateParamsXDL populateParamsXDL;
       std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
                gemmKExtra) =
-          calculatePaddingKernelSize(
-              gemmMSize, gemmNSize, gemmKSize, obtainConvDirection(op),
-              obtainConvDataType(op), populateParamsXDL);
+          calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
+                                     obtainConvDirection(op),
+                                     obtainConvDataType(op), populateParamsXDL);
     }
 
     if (ConvOpType::BwdWeight == convOpType && isXdlops &&

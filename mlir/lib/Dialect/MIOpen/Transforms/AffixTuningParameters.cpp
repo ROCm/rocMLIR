@@ -149,9 +149,9 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
     PopulateParamsXDL populateParamsXDL;
     std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
              gemmKExtra) =
-        calculatePaddingKernelSize(
-            gemmMSize, gemmNSize, gemmKSize, obtainConvDirection(op),
-            obtainConvDataType(op), populateParamsXDL);
+        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
+                                   obtainConvDirection(op),
+                                   obtainConvDataType(op), populateParamsXDL);
 
     // For padding cases, gemmId must be 0.
     if (needExtraPad == true) {
@@ -217,9 +217,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     int64_t gridSize = 0;
 
     LogicalResult status = populateParamsXDL.paramsFromCtx(
-        op, blockSizeOverride, perfConfig, validParams,
-        gemmADerivedParam, gemmBDerivedParam, gemmCDerivedParam, blockSize,
-        gridSize);
+        op, blockSizeOverride, perfConfig, validParams, gemmADerivedParam,
+        gemmBDerivedParam, gemmCDerivedParam, blockSize, gridSize);
 
     if (failed(status)) {
       signalPassFailure();
@@ -232,9 +231,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     // Disable kpack in case we need padding kernel.
     std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
              gemmKExtra) =
-        calculatePaddingKernelSize(
-            gemmMSize, gemmNSize, gemmKSize, obtainConvDirection(op),
-            obtainConvDataType(op), populateParamsXDL);
+        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
+                                   obtainConvDirection(op),
+                                   obtainConvDataType(op), populateParamsXDL);
     if (needExtraPad) {
       validParams.gemmKPack = 1;
     }
@@ -289,9 +288,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
     PopulateParams populateParams;
     LogicalResult status = populateParams.paramsFromCtx(
-        op, blockSizeOverride, perfConfig, validParams,
-        gemmADerivedParam, gemmBDerivedParam, blockGemmDerivedParam,
-        gemmCDerivedParam, gridSize);
+        op, blockSizeOverride, perfConfig, validParams, gemmADerivedParam,
+        gemmBDerivedParam, blockGemmDerivedParam, gemmCDerivedParam, gridSize);
 
     if (failed(status)) {
       signalPassFailure();

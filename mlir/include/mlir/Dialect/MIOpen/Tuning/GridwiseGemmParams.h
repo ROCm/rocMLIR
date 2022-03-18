@@ -768,13 +768,14 @@ private:
       DerivedOutParams &gemmCDerivedParam, int64_t &gridSize);
 
 public:
-  LogicalResult
-  paramsFromCtx(Operation *op, int64_t blockSizeOverride,
-                const std::string &perfConfig, InitParamsNonXDL &validParams,
-                DerivedParams &gemmADerivedParam,
-                DerivedParams &gemmBDerivedParam,
-                DerivedBlockGemmParams &blockGemmDerivedParam,
-                DerivedOutParams &gemmCDerivedParam, int64_t &gridSize);
+  LogicalResult paramsFromCtx(Operation *op, int64_t blockSizeOverride,
+                              const std::string &perfConfig,
+                              InitParamsNonXDL &validParams,
+                              DerivedParams &gemmADerivedParam,
+                              DerivedParams &gemmBDerivedParam,
+                              DerivedBlockGemmParams &blockGemmDerivedParam,
+                              DerivedOutParams &gemmCDerivedParam,
+                              int64_t &gridSize);
 
   llvm::SmallVector<InitParamsNonXDL, 8>
   getTuningParameters(miopen::ConvOpType dir, mlir::Type dataType) {
@@ -1039,8 +1040,7 @@ private:
   }
 
 public:
-  LogicalResult paramsFromCtx(Operation *op,
-                              int64_t blockSizeOverride,
+  LogicalResult paramsFromCtx(Operation *op, int64_t blockSizeOverride,
                               const std::string &perfConfig,
                               InitParamsXDL &validParams,
                               DerivedParams &gemmADerivedParam,

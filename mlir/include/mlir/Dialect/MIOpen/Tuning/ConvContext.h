@@ -262,15 +262,18 @@ ConvolutionContext populateConvContext(Operation *op) {
     populateDimVal(inputLayoutAttr, inputDimensionAttr, dimIndexVal);
     populateDimVal(outputLayoutAttr, outputDimensionAttr, dimIndexVal);
   } else {
-    populateDimVal(filterLayoutAttr,
-                   op->getOperand(0).getType().template cast<MemRefType>().getShape(),
-                   dimIndexVal);
-    populateDimVal(inputLayoutAttr,
-                   op->getOperand(1).getType().template cast<MemRefType>().getShape(),
-                   dimIndexVal);
-    populateDimVal(outputLayoutAttr,
-                   op->getOperand(2).getType().template cast<MemRefType>().getShape(),
-                   dimIndexVal);
+    populateDimVal(
+        filterLayoutAttr,
+        op->getOperand(0).getType().template cast<MemRefType>().getShape(),
+        dimIndexVal);
+    populateDimVal(
+        inputLayoutAttr,
+        op->getOperand(1).getType().template cast<MemRefType>().getShape(),
+        dimIndexVal);
+    populateDimVal(
+        outputLayoutAttr,
+        op->getOperand(2).getType().template cast<MemRefType>().getShape(),
+        dimIndexVal);
   }
 
   auto dataType = obtainConvDataType(op);
