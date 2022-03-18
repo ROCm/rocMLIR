@@ -1,4 +1,5 @@
 add_mlir_dialect_library(MLIRMIOpenTuning
+  ConvContext.cpp
   SqliteDb.cpp
   GridwiseGemmParams.cpp
 
@@ -36,6 +37,7 @@ target_include_directories(MLIRMIOpenTuning
 
 target_link_libraries(MLIRMIOpenTuning
   PRIVATE
+  MLIRMIOpenUtility
   MLIRIR
   ${SQLITE3_LIBRARIES}
   ${CMAKE_DL_LIBS}
