@@ -130,8 +130,6 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
   if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
     OpBuilder b(op.getContext());
 
-    ConvolutionContext convContext = populateConvContext(op);
-
     // get y, x, ho, wo, hi, wi, k, c, n
     int64_t y, x, ho, wo, hi, wi, k, c, n;
     std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
@@ -152,8 +150,8 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
     std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
              gemmKExtra) =
         calculatePaddingKernelSize(
-            gemmMSize, gemmNSize, gemmKSize, convContext.getOpType(),
-            convContext.getDataType(), populateParamsXDL);
+            gemmMSize, gemmNSize, gemmKSize, obtainConvDirection(op),
+            obtainConvDataType(op), populateParamsXDL);
 
     // For padding cases, gemmId must be 0.
     if (needExtraPad == true) {
@@ -237,15 +235,16 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
              gemmKExtra) =
         calculatePaddingKernelSize(
-            gemmMSize, gemmNSize, gemmKSize, convContext.getOpType(),
-            convContext.getDataType(), populateParamsXDL);
+            gemmMSize, gemmNSize, gemmKSize, obtainConvDirection(op),
+            obtainConvDataType(op), populateParamsXDL);
     if (needExtraPad) {
       validParams.gemmKPack = 1;
     }
 
     // Disable kpack in case we do backward convolution.
-    if (convContext.opType == mlir::miopen::ConvOpType::BwdData ||
-        convContext.opType == mlir::miopen::ConvOpType::BwdWeight) {
+    miopen::ConvOpType dir = obtainConvDirection(op);
+    if (dir == mlir::miopen::ConvOpType::BwdData ||
+        dir == mlir::miopen::ConvOpType::BwdWeight) {
       validParams.gemmKPack = 1;
     }
     op->setAttr("kpack", b.getI32IntegerAttr(validParams.gemmKPack));

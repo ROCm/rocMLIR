@@ -26,6 +26,7 @@
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/Tuning/UtilityParams.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
+#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/Support/LogicalResult.h"
@@ -562,8 +563,6 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
 }
 
 LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
-  ConvolutionContext convContext = populateConvContext(op);
-
   auto loc = op.getLoc();
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
   auto archAttr = op->template getAttrOfType<StringAttr>("arch");
@@ -746,15 +745,15 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
              gemmKExtra) =
         calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
-                                   convContext.getOpType(),
-                                   convContext.getDataType(), populateParams);
+                                   obtainConvDirection(op),
+                                   obtainConvDataType(op), populateParams);
   } else { // xdlops
     PopulateParamsXDL populateParamsXDL;
     std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
              gemmKExtra) =
         calculatePaddingKernelSize(
-            gemmMSize, gemmNSize, gemmKSize, convContext.getOpType(),
-            convContext.getDataType(), populateParamsXDL);
+            gemmMSize, gemmNSize, gemmKSize, obtainConvDirection(op),
+            obtainConvDataType(op), populateParamsXDL);
   }
 
   LogicalResult supportedPaddingKernel = isSupportedBackwardDataPaddingKernel(
@@ -1115,8 +1114,6 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
   using OpRewritePattern<T>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
-    ConvolutionContext convContext = populateConvContext(op);
-
     bool isXdlops = false;
     auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
@@ -1260,15 +1257,15 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
                gemmKExtra) =
           calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
-                                     convContext.getOpType(),
-                                     convContext.getDataType(), populateParams);
+                                     obtainConvDirection(op),
+                                     obtainConvDataType(op), populateParams);
     } else { // xdlops
       PopulateParamsXDL populateParamsXDL;
       std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
                gemmKExtra) =
           calculatePaddingKernelSize(
-              gemmMSize, gemmNSize, gemmKSize, convContext.getOpType(),
-              convContext.getDataType(), populateParamsXDL);
+              gemmMSize, gemmNSize, gemmKSize, obtainConvDirection(op),
+              obtainConvDataType(op), populateParamsXDL);
     }
 
     if (ConvOpType::BwdWeight == convOpType && isXdlops &&

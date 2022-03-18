@@ -25,14 +25,7 @@ namespace mlir {
 #if 0
 struct ConvolutionConfig {
   // Users of ConvolutionContext:
-  // - ConvToGemmLowering.cpp :
-  //   - obtain op dir -> switch to ObtainConvDirection.
-  //   - obtain op type -> switch to obtainDataType.
-  //   - determine whether padding kernel is used.
   // - AffixTuningParameters.cpp : 
-  //   - obtain op dir -> switch to ObtainConvDirection.
-  //   - obtain op type -> switch to obtainDataType.
-  //   - determine whether padding kernel is used.
   //   - invoke tuning logic.
   // - GridwiseGemmParams.h :
   //   - tuning logic.
@@ -228,7 +221,7 @@ static inline void populateSeqVal(const ArrayAttr &seqAttr,
 }
 
 static ConvolutionContext populateConvContext(Operation *op) {
-  miopen::ConvOpType opType = ObtainConvDirection(op);
+  miopen::ConvOpType opType = obtainConvDirection(op);
 
   auto archVal = op->template getAttrOfType<StringAttr>("arch").getValue();
   int numCuVal = op->template getAttrOfType<IntegerAttr>("num_cu").getInt();
@@ -280,7 +273,7 @@ static ConvolutionContext populateConvContext(Operation *op) {
                    dimIndexVal);
   }
 
-  auto dataType = obtainDataType(op);
+  auto dataType = obtainConvDataType(op);
 
   return {archVal,     numCuVal,   opType, dimIndexVal, strideVal,
           dilationVal, paddingVal, gemmId, dataType};

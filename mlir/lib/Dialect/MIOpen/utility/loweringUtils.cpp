@@ -23,7 +23,7 @@ std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
   return {ret, b.getArrayAttr(transformList)};
 }
 
-miopen::ConvOpType ObtainConvDirection(Operation *op) {
+miopen::ConvOpType obtainConvDirection(Operation *op) {
   miopen::ConvOpType opType = miopen::ConvOpType::Fwd;
   if (isa<miopen::Conv2DOp>(*op)) {
     opType = miopen::ConvOpType::Fwd;
@@ -35,7 +35,7 @@ miopen::ConvOpType ObtainConvDirection(Operation *op) {
   return opType;
 }
 
-mlir::Type obtainDataType(Operation *op) {
+mlir::Type obtainConvDataType(Operation *op) {
   return op->getOperand(1).getType().template cast<MemRefType>().getElementType();
 }
 
