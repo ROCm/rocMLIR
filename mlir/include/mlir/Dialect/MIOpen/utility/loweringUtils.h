@@ -59,6 +59,10 @@ inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo) {
 std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
                                          ArrayAttr existing = nullptr);
 
+miopen::ConvOpType ObtainConvDirection(Operation *op);
+
+mlir::Type obtainDataType(Operation *op);
+
 } // end namespace miopen
 } // end namespace mlir
 #endif

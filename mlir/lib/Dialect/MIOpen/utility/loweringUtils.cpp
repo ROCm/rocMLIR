@@ -22,5 +22,22 @@ std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
   }
   return {ret, b.getArrayAttr(transformList)};
 }
+
+miopen::ConvOpType ObtainConvDirection(Operation *op) {
+  miopen::ConvOpType opType = miopen::ConvOpType::Fwd;
+  if (isa<miopen::Conv2DOp>(*op)) {
+    opType = miopen::ConvOpType::Fwd;
+  } else if (isa<miopen::Conv2DBwdDataOp>(*op)) {
+    opType = miopen::ConvOpType::BwdData;
+  } else if (isa<miopen::Conv2DBwdWeightOp>(*op)) {
+    opType = miopen::ConvOpType::BwdWeight;
+  }
+  return opType;
+}
+
+mlir::Type obtainDataType(Operation *op) {
+  return op->getOperand(1).getType().template cast<MemRefType>().getElementType();
+}
+
 } // namespace miopen
 } // namespace mlir

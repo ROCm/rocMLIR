@@ -15,6 +15,7 @@
 
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
+#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
@@ -179,22 +180,6 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
     }
   }
 };
-
-static miopen::ConvOpType ObtainConvDirection(Operation *op) {
-  miopen::ConvOpType opType = miopen::ConvOpType::Fwd;
-  if (isa<miopen::Conv2DOp>(*op)) {
-    opType = miopen::ConvOpType::Fwd;
-  } else if (isa<miopen::Conv2DBwdDataOp>(*op)) {
-    opType = miopen::ConvOpType::BwdData;
-  } else if (isa<miopen::Conv2DBwdWeightOp>(*op)) {
-    opType = miopen::ConvOpType::BwdWeight;
-  }
-  return opType;
-}
-
-static mlir::Type obtainDataType(Operation *op) {
-  return op->getOperand(1).getType().template cast<MemRefType>().getElementType();
-}
 
 // TBD: Remove this function along with C++ code emitter.
 static inline void
