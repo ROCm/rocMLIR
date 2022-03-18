@@ -2,6 +2,52 @@
 
 namespace mlir {
 
+namespace {
+
+void populateDimVal(const ArrayAttr &layoutAttr, const ArrayAttr &dimAttr,
+                    llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal) {
+  assert(layoutAttr.size() == dimAttr.size());
+  size_t dimValSize = layoutAttr.size();
+  for (size_t i = 0; i < dimValSize; ++i) {
+    auto key = layoutAttr.getValue()[i].cast<StringAttr>().getValue();
+    auto value = dimAttr.getValue()[i].cast<IntegerAttr>().getInt();
+    dimIndexVal[key] = std::make_pair(i, value);
+  }
+}
+
+void populateDimVal(const ArrayAttr &layoutAttr, const ArrayRef<int64_t> &dim,
+                    llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal) {
+  assert(layoutAttr.size() == dim.size());
+  size_t dimValSize = layoutAttr.size();
+  for (size_t i = 0; i < dimValSize; ++i) {
+    auto key = layoutAttr.getValue()[i].cast<StringAttr>().getValue();
+    auto value = dim[i];
+    dimIndexVal[key] = std::make_pair(i, value);
+  }
+}
+
+void populateSeqVal(const ArrayAttr &seqAttr,
+                    llvm::SmallVector<int64_t, 0> &seqVal) {
+  size_t seqValSize = seqAttr.size();
+  for (size_t i = 0; i < seqValSize; ++i) {
+    // Not nested array, push back the value and be done
+    if (seqAttr.getValue()[i].dyn_cast<ArrayAttr>() == nullptr) {
+      seqVal.push_back(seqAttr.getValue()[i].cast<IntegerAttr>().getInt());
+      continue;
+    }
+    // There is nested values, continue to populate those
+    for (size_t j = 0; j < seqAttr.getValue()[i].cast<ArrayAttr>().size();
+         ++j) {
+      seqVal.push_back(seqAttr.getValue()[i]
+                           .cast<ArrayAttr>()
+                           .getValue()[j]
+                           .cast<IntegerAttr>()
+                           .getInt());
+    }
+  }
+}
+} // namespace
+
 ConvolutionContext populateConvContext(Operation *op) {
   miopen::ConvOpType opType = obtainConvDirection(op);
 
