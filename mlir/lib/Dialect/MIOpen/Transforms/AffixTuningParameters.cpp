@@ -216,7 +216,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     int64_t blockSize = 0;
     int64_t gridSize = 0;
 
-    LogicalResult status = populateParamsXDL.paramsFromCtx(
+    LogicalResult status = populateParamsXDL.obtainTuningParameters(
         op, blockSizeOverride, perfConfig, validParams, gemmADerivedParam,
         gemmBDerivedParam, gemmCDerivedParam, blockSize, gridSize);
 
@@ -228,18 +228,19 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("n_per_wave", b.getI32IntegerAttr(validParams.gemmNPerWave));
     op->setAttr("block_size", b.getI32IntegerAttr(blockSize));
 
+    miopen::ConvOpType dir = obtainConvDirection(op);
+    mlir::Type dataType = obtainConvDataType(op);
+
     // Disable kpack in case we need padding kernel.
     std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
              gemmKExtra) =
-        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
-                                   obtainConvDirection(op),
-                                   obtainConvDataType(op), populateParamsXDL);
+        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, dir,
+                                   dataType, populateParamsXDL);
     if (needExtraPad) {
       validParams.gemmKPack = 1;
     }
 
     // Disable kpack in case we do backward convolution.
-    miopen::ConvOpType dir = obtainConvDirection(op);
     if (dir == mlir::miopen::ConvOpType::BwdData ||
         dir == mlir::miopen::ConvOpType::BwdWeight) {
       validParams.gemmKPack = 1;
@@ -287,7 +288,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     int64_t gridSize;
 
     PopulateParams populateParams;
-    LogicalResult status = populateParams.paramsFromCtx(
+    LogicalResult status = populateParams.obtainTuningParameters(
         op, blockSizeOverride, perfConfig, validParams, gemmADerivedParam,
         gemmBDerivedParam, blockGemmDerivedParam, gemmCDerivedParam, gridSize);
 

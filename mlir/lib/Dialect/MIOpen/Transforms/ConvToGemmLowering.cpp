@@ -1257,15 +1257,13 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
                gemmKExtra) =
           calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
-                                     obtainConvDirection(op),
-                                     obtainConvDataType(op), populateParams);
+                                     convOpType, dataType, populateParams);
     } else { // xdlops
       PopulateParamsXDL populateParamsXDL;
       std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
                gemmKExtra) =
           calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
-                                     obtainConvDirection(op),
-                                     obtainConvDataType(op), populateParamsXDL);
+                                     convOpType, dataType, populateParamsXDL);
     }
 
     if (ConvOpType::BwdWeight == convOpType && isXdlops &&

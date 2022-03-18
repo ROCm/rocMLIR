@@ -59,8 +59,12 @@ inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo) {
 std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
                                          ArrayAttr existing = nullptr);
 
+/// Obtain convolution direction given a Convolution Op.
+/// TODO(whchung): apply ConvolutionOp OpTrait check after supporting PR is in.
 miopen::ConvOpType obtainConvDirection(Operation *op);
 
+/// Obtain convolution input data type given a Convolution Op.
+/// TODO(whchung): apply ConvolutionOp OpTrait check after supporting PR is in.
 mlir::Type obtainConvDataType(Operation *op);
 
 } // end namespace miopen

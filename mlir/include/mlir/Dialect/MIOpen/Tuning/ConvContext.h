@@ -107,6 +107,8 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   }
 };
 
+// Populate ConvContext from a given Convolution Op.
+// TODO(whchung): adopt ConvolutionOp OpTrait check after supporting PR is in.
 ConvolutionContext populateConvContext(Operation *op);
 
 } // namespace mlir

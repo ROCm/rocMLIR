@@ -128,7 +128,7 @@ LogicalResult PopulateParams::populatePaddingKernelDerived(
   return success();
 }
 
-LogicalResult PopulateParams::paramsFromCtx(
+LogicalResult PopulateParams::obtainTuningParameters(
     Operation *op, int64_t blockSizeOverride, const std::string &perfConfig,
     InitParamsNonXDL &validParams, DerivedParams &gemmADerivedParam,
     DerivedParams &gemmBDerivedParam,
@@ -362,7 +362,7 @@ LogicalResult PopulateParamsXDL::populatePaddingKernelDerived(
   return success();
 }
 
-LogicalResult PopulateParamsXDL::paramsFromCtx(
+LogicalResult PopulateParamsXDL::obtainTuningParameters(
     Operation *op, int64_t blockSizeOverride, const std::string &perfConfig,
     InitParamsXDL &validParams, DerivedParams &gemmADerivedParam,
     DerivedParams &gemmBDerivedParam, DerivedOutParams &gemmCDerivedParam,
