@@ -21,6 +21,80 @@
 
 namespace mlir {
 
+#if 0
+struct ConvolutionConfig {
+  // Users of ConvolutionContext:
+  // - ConvToGemmLowering.cpp :
+  //   - obtain op dir -> switch to ObtainConvDirection.
+  //   - obtain op type -> switch to obtainDataType.
+  //   - determine whether padding kernel is used.
+  // - AffixTuningParameters.cpp : 
+  //   - obtain op dir -> switch to ObtainConvDirection.
+  //   - obtain op type -> switch to obtainDataType.
+  //   - determine whether padding kernel is used.
+  //   - invoke tuning logic.
+  // - GridwiseGemmParams.h :
+  //   - tuning logic.
+
+  // Fields from ConvolutionContext.
+  llvm::SmallString<8> arch;
+
+  int num_cu;
+
+  miopen::ConvOpType opType;
+
+  llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
+  llvm::SmallVector<int64_t, 0> strideVal;
+  llvm::SmallVector<int64_t, 0> dilationVal;
+  llvm::SmallVector<int64_t, 0> paddingVal;
+
+  int gemmId;
+
+  mlir::Type dataType;
+
+  // Fields from Conv2dGenerator::Config.
+  std::string chip;                             // arch
+  std::string triple;                           // arch
+  std::string features;                         // arch
+
+  std::string perfConfig;                       // NOT found in ConvolutionContext
+                                                // in op attributes
+
+  int num_cu;                                   // num_cu
+
+  bool xdlops;                                  // NOT found in ConvolutionContext
+                                                // in op attributes
+
+  llvm::Optional<miopen::ConvOpType> operation; // opType
+
+  std::string dataTypeStr;                      // dataType
+
+  int dilationHeight, dilationWidth;            // dilationVal
+  int strideHeight, strideWidth;                // strideVal
+  int paddingHeightLeft, paddingHeightRight;    // paddingVal
+  int paddingWidthLeft, paddingWidthRight;      // paddingVal
+
+  std::string filterLayout;                     // NOT found in ConvolutionContext
+  std::string inputLayout;                      // NOT found in ConvolutionContext
+  std::string outputLayout;                     // NOT found in ConvolutionContext
+                                                // in op atttributes
+
+  std::string kernelBaseName;                   // NOT found in ConvolutionContext
+                                                // in FuncOp name
+
+  int kernelId;                                 // gemmId
+
+  SmallVector<int64_t, 5> filterDimension;      // NOT found in ConvolutionContext
+  SmallVector<int64_t, 5> inputDimension;       // NOT found in ConvolutionContext
+  SmallVector<int64_t, 5> outputDimension;      // NOT found in ConvolutionContext
+                                                // in op operands
+
+  int filterHeight;                             // NOT found in ConvolutionContext
+  int filterWidth;                              // NOT found in ConvolutionContext
+                                                // in op operands
+};
+#endif
+
 struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   llvm::SmallString<8> arch;
   int num_cu;
@@ -106,11 +180,7 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   }
 };
 
-// T would be one of the following:
-// - miopen::Conv2DOp
-// - miopen::Conv2DBwdDataOp
-// - miopen::Conv2DBwdWeightOp
-template <typename T> static miopen::ConvOpType ObtainConvDirection(T &op) {
+static miopen::ConvOpType ObtainConvDirection(Operation *op) {
   miopen::ConvOpType opType = miopen::ConvOpType::Fwd;
   if (isa<miopen::Conv2DOp>(*op)) {
     opType = miopen::ConvOpType::Fwd;
@@ -122,8 +192,8 @@ template <typename T> static miopen::ConvOpType ObtainConvDirection(T &op) {
   return opType;
 }
 
-template <typename T> static mlir::Type obtainDataType(T &op) {
-  return op.input().getType().template cast<MemRefType>().getElementType();
+static mlir::Type obtainDataType(Operation *op) {
+  return op->getOperand(1).getType().template cast<MemRefType>().getElementType();
 }
 
 // TBD: Remove this function along with C++ code emitter.
@@ -172,16 +242,7 @@ static inline void populateSeqVal(const ArrayAttr &seqAttr,
   }
 }
 
-// T would be one of the following:
-// - miopen::Conv2DOp
-// - miopen::Conv2DBwdDataOp
-// - miopen::Conv2DBwdWeightOp
-//
-// TBD. Obsolete. Only used in C++ emitter path.
-// Remove along with C++ emitter path.
-// - miopen::GridwiseGemmOp
-// - miopen::GridwiseGemmV2Op
-template <typename T> static ConvolutionContext populateConvContext(T &op) {
+static ConvolutionContext populateConvContext(Operation *op) {
   miopen::ConvOpType opType = ObtainConvDirection(op);
 
   auto archVal = op->template getAttrOfType<StringAttr>("arch").getValue();
@@ -224,13 +285,13 @@ template <typename T> static ConvolutionContext populateConvContext(T &op) {
     populateDimVal(outputLayoutAttr, outputDimensionAttr, dimIndexVal);
   } else {
     populateDimVal(filterLayoutAttr,
-                   op.filter().getType().template cast<MemRefType>().getShape(),
+                   op->getOperand(0).getType().template cast<MemRefType>().getShape(),
                    dimIndexVal);
     populateDimVal(inputLayoutAttr,
-                   op.input().getType().template cast<MemRefType>().getShape(),
+                   op->getOperand(1).getType().template cast<MemRefType>().getShape(),
                    dimIndexVal);
     populateDimVal(outputLayoutAttr,
-                   op.output().getType().template cast<MemRefType>().getShape(),
+                   op->getOperand(2).getType().template cast<MemRefType>().getShape(),
                    dimIndexVal);
   }
 
