@@ -177,11 +177,11 @@ void CoordTransformsBuilder::getEndNames(SmallVectorImpl<StringRef> &names) {
   }
 }
 
-StringRef CoordTransformsBuilder::startName(uint32_t dim) {
+SmallString<8> CoordTransformsBuilder::startName(uint32_t dim) {
   return startNames[dim];
 }
 
-StringRef CoordTransformsBuilder::endName(uint32_t dim) {
+SmallString<8> CoordTransformsBuilder::endName(uint32_t dim) {
   assert(endNames.count(dim) == 1 &&
          "Dimension not defined in ending dimension space");
   return endNames[dim];
@@ -521,35 +521,6 @@ int64_t BottomUpCTBuilder::paddingSign() const {
 void BottomUpCTBuilder::addDim(StringRef name, uint32_t dim, int64_t size) {
   defineDim(name, dim, size);
   addTransform(TransformType::AddDim, {size}, {}, {}, {name}, {dim});
-}
-
-void BottomUpCTBuilder::expand(StringRef name, uint32_t dim, int64_t size) {
-  SmallVector<StringRef, 8> names;
-  SmallVector<uint32_t, 8> dims;
-  for (uint32_t i = 0; i < nStartDims(); ++i) {
-    names.push_back(startName(i));
-    dims.push_back(i + (i >= dim ? 1 : 0));
-  }
-  passThrough(names, dims, names);
-  addDim(name, dim, size);
-}
-
-void BottomUpCTBuilder::expand(ArrayRef<StringRef> names,
-                               ArrayRef<uint32_t> dims,
-                               ArrayRef<int64_t> sizes) {
-  SmallVector<StringRef, 8> ptNames;
-  SmallVector<uint32_t, 8> ptDims;
-  uint32_t dim = 0;
-  for (uint32_t i = 0; i < nStartDims(); ++i) {
-    ptNames.push_back(startName(i));
-    while (std::find(dims.begin(), dims.end(), dim) != dims.end())
-      dim++;
-    ptDims.push_back(dim++);
-  }
-  passThrough(ptNames, ptDims, ptNames);
-  for (auto tuple : llvm::zip(names, dims, sizes)) {
-    addDim(std::get<0>(tuple), std::get<1>(tuple), std::get<2>(tuple));
-  }
 }
 
 void BottomUpCTBuilder::slice(ArrayRef<StringRef> upperNames,

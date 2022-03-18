@@ -241,5 +241,35 @@ mlir::Type obtainConvDataType(Operation *op) {
       .getElementType();
 }
 
+llvm::StringMap<uint32_t>
+expandNamesInPlace(ArrayRef<StringRef> original,
+                   const llvm::StringMap<SmallVector<StringRef, 2>> expansion) {
+  uint32_t offset = 0;
+  llvm::StringMap<uint32_t> ret;
+  for (auto pair : llvm::enumerate(original)) {
+    uint32_t origIndex = pair.index();
+    StringRef origName = pair.value();
+    if (expansion.count(origName) != 0) {
+      for (auto newName : (*expansion.find(origName)).getValue()) {
+        bool insertResult = ret.insert({newName, origIndex + offset}).second;
+        assert(insertResult && "Duplicate dimension in dimension expansion");
+        offset++;
+      }
+      offset--; // Handle extra count and dropping a dimension
+    } else {
+      bool insertResult = ret.insert({origName, origIndex + offset}).second;
+      assert(insertResult && "Dimsion already defined by expansion");
+    }
+  }
+  return ret;
+}
+
+llvm::StringMap<uint32_t>
+expandNamesInPlace(CoordTransformsBuilder &builder,
+                   const llvm::StringMap<SmallVector<StringRef, 2>> expansion) {
+  SmallVector<StringRef, 8> names;
+  builder.getEndNames(names);
+  return expandNamesInPlace(names, expansion);
+}
 } // namespace miopen
 } // namespace mlir

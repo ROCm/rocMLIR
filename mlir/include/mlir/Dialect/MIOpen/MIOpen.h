@@ -111,8 +111,8 @@ public:
   // The names live as long as the CoordTransformBuilder
   void getEndNames(SmallVectorImpl<StringRef> &names);
 
-  StringRef startName(uint32_t dim);
-  StringRef endName(uint32_t dim);
+  SmallString<8> startName(uint32_t dim);
+  SmallString<8> endName(uint32_t dim);
   uint32_t startIndex(StringRef name);
   uint32_t endIndex(StringRef name);
 
@@ -258,10 +258,6 @@ public:
 
   // Defines a dimension that is not mapped to any coordinates in the output
   void addDim(StringRef name, uint32_t dim, int64_t size);
-
-  void expand(StringRef name, uint32_t dim, int64_t size);
-  void expand(ArrayRef<StringRef> names, ArrayRef<uint32_t> dims,
-              ArrayRef<int64_t> sizes);
 
   void slice(ArrayRef<StringRef> upperNames, ArrayRef<StringRef> lowerNames,
              ArrayRef<int64_t> begins, ArrayRef<int64_t> ends);

@@ -15,6 +15,8 @@
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
+#include "mlir/Dialect/MIOpen/utility/builderUtils.h"
+#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
@@ -74,13 +76,34 @@ static Value expandMemRef(ConversionPatternRewriter &rw, Operation *op,
         op, "tosa to miopen conversion expects statically shaped tensors");
     return Value();
   }
-  auto shape = oprType.getShape();
+  ArrayRef<int64_t> shape = oprType.getShape();
 
-  SmallVector<StringRef, 8> names{"a", "b", "c", "d", "e", "f", "h", "i"};
-  names.resize(shape.size());
-  miopen::BottomUpCTBuilder transform(rw, names, shape);
-  transform.expand("g", idx, 1);
+  SmallVector<SmallString<8>> dimNames;
+  SmallVector<StringRef> dimNameRefs;
+  dimNames.reserve(shape.size());
+  dimNameRefs.reserve(shape.size());
+  for (size_t i = 0, e = shape.size(); i < e; ++i) {
+    SmallString<8> dimName;
+    ("dim" + Twine(i)).toVector(dimName);
+    dimNames.emplace_back(std::move(dimName));
+    dimNameRefs.push_back(StringRef(dimNames[i]));
+  }
 
+  miopen::BottomUpCTBuilder transform(rw, dimNameRefs, shape, loc);
+  llvm::StringMap<uint32_t> upperNames;
+  if (idx == 0) {
+    StringRef expandedDim = dimNameRefs[0];
+    upperNames = miopen::expandNamesInPlace(
+        dimNameRefs, {{expandedDim, {"g", expandedDim}}});
+  } else {
+    StringRef expandedDim = dimNameRefs[idx - 1];
+    upperNames = miopen::expandNamesInPlace(
+        dimNameRefs, {{expandedDim, {expandedDim, "g"}}});
+  }
+
+  miopen::BottomUpCTTopDimsWrapper wrapper(transform, upperNames);
+  wrapper.passThrough(dimNameRefs);
+  wrapper.addDim("g", 1);
   return rw.create<miopen::TransformOp>(loc, operand, transform.get());
 }
 
