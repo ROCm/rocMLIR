@@ -4,17 +4,6 @@ namespace mlir {
 
 namespace {
 
-void populateDimVal(const ArrayAttr &layoutAttr, const ArrayAttr &dimAttr,
-                    llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal) {
-  assert(layoutAttr.size() == dimAttr.size());
-  size_t dimValSize = layoutAttr.size();
-  for (size_t i = 0; i < dimValSize; ++i) {
-    auto key = layoutAttr.getValue()[i].cast<StringAttr>().getValue();
-    auto value = dimAttr.getValue()[i].cast<IntegerAttr>().getInt();
-    dimIndexVal[key] = std::make_pair(i, value);
-  }
-}
-
 void populateDimVal(const ArrayAttr &layoutAttr, const ArrayRef<int64_t> &dim,
                     llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal) {
   assert(layoutAttr.size() == dim.size());
@@ -79,30 +68,18 @@ ConvolutionContext populateConvContext(Operation *op) {
   llvm::SmallVector<int64_t, 0> paddingVal;
   populateSeqVal(paddingAttr, paddingVal);
 
-  if (isa<miopen::GridwiseGemmOp>(*op) || isa<miopen::GridwiseGemmV2Op>(*op)) {
-    auto filterDimensionAttr =
-        op->template getAttrOfType<ArrayAttr>("filter_dimension");
-    auto inputDimensionAttr =
-        op->template getAttrOfType<ArrayAttr>("input_dimension");
-    auto outputDimensionAttr =
-        op->template getAttrOfType<ArrayAttr>("output_dimension");
-    populateDimVal(filterLayoutAttr, filterDimensionAttr, dimIndexVal);
-    populateDimVal(inputLayoutAttr, inputDimensionAttr, dimIndexVal);
-    populateDimVal(outputLayoutAttr, outputDimensionAttr, dimIndexVal);
-  } else {
-    populateDimVal(
-        filterLayoutAttr,
-        op->getOperand(0).getType().template cast<MemRefType>().getShape(),
-        dimIndexVal);
-    populateDimVal(
-        inputLayoutAttr,
-        op->getOperand(1).getType().template cast<MemRefType>().getShape(),
-        dimIndexVal);
-    populateDimVal(
-        outputLayoutAttr,
-        op->getOperand(2).getType().template cast<MemRefType>().getShape(),
-        dimIndexVal);
-  }
+  populateDimVal(
+      filterLayoutAttr,
+      op->getOperand(0).getType().template cast<MemRefType>().getShape(),
+      dimIndexVal);
+  populateDimVal(
+      inputLayoutAttr,
+      op->getOperand(1).getType().template cast<MemRefType>().getShape(),
+      dimIndexVal);
+  populateDimVal(
+      outputLayoutAttr,
+      op->getOperand(2).getType().template cast<MemRefType>().getShape(),
+      dimIndexVal);
 
   auto dataType = obtainConvDataType(op);
 
