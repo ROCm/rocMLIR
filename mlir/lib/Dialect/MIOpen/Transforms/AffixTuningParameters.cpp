@@ -181,8 +181,6 @@ template <typename T>
 void AffixTuningParameters::affixTuningParametersImpl(T &op) {
   OpBuilder b(op.getContext());
 
-  ConvolutionContext convContext = populateConvContext(op);
-
   // get y, x, ho, wo, hi, wi, k, c, n
   int64_t y, x, ho, wo, hi, wi, k, c, n;
   std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
@@ -219,7 +217,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     int64_t gridSize = 0;
 
     LogicalResult status = populateParamsXDL.paramsFromCtx(
-        convContext, blockSizeOverride, perfConfig, validParams,
+        op, blockSizeOverride, perfConfig, validParams,
         gemmADerivedParam, gemmBDerivedParam, gemmCDerivedParam, blockSize,
         gridSize);
 
@@ -291,7 +289,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
     PopulateParams populateParams;
     LogicalResult status = populateParams.paramsFromCtx(
-        convContext, blockSizeOverride, perfConfig, validParams,
+        op, blockSizeOverride, perfConfig, validParams,
         gemmADerivedParam, gemmBDerivedParam, blockGemmDerivedParam,
         gemmCDerivedParam, gridSize);
 

@@ -220,7 +220,7 @@ static inline void populateSeqVal(const ArrayAttr &seqAttr,
   }
 }
 
-static ConvolutionContext populateConvContext(Operation *op) {
+ConvolutionContext populateConvContext(Operation *op) {
   miopen::ConvOpType opType = obtainConvDirection(op);
 
   auto archVal = op->template getAttrOfType<StringAttr>("arch").getValue();

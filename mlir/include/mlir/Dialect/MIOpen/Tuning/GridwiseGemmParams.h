@@ -769,7 +769,7 @@ private:
 
 public:
   LogicalResult
-  paramsFromCtx(ConvolutionContext &ctx, int64_t blockSizeOverride,
+  paramsFromCtx(Operation *op, int64_t blockSizeOverride,
                 const std::string &perfConfig, InitParamsNonXDL &validParams,
                 DerivedParams &gemmADerivedParam,
                 DerivedParams &gemmBDerivedParam,
@@ -1039,7 +1039,7 @@ private:
   }
 
 public:
-  LogicalResult paramsFromCtx(ConvolutionContext &ctx,
+  LogicalResult paramsFromCtx(Operation *op,
                               int64_t blockSizeOverride,
                               const std::string &perfConfig,
                               InitParamsXDL &validParams,
