@@ -85,3 +85,10 @@ config = "-batchsize=64 -groupsize=1 -in_channels=64 -in_h=56 -in_w=56 -out_chan
 
 [[suite.test]]
 config = "-batchsize=64 -groupsize=1 -in_channels=64 -in_h=56 -in_w=56 -out_channels=256 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=1 --conv_stride_w=1 --padding_h=0 --padding_w=0"
+
+[[suite.test]]
+config = "-batchsize=256 -groupsize=1 -in_channels=3 -in_h=224 -in_w=224 -out_channels=64 -fil_h=7 -fil_w=7 --dilation_h=1 --dilation_w=1 --conv_stride_h=2 --conv_stride_w=2 --padding_h=3 --padding_w=3"
+[[suite.test.exclude]]
+name = "operation"
+values = ["conv2d_bwd_data"]
+
