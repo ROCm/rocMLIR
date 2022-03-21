@@ -202,6 +202,32 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     return inp;
   }
 
+  Value createCollapseShapeOp(PatternRewriter &b, Location loc, Value source) const {
+    auto ctx = b.getContext();
+    auto sourceType = source.getType().cast<ShapedType>();
+    assert(sourceType.hasStaticShape() &&
+           "Only memrefs with static shapes are allowed");
+
+    auto shape = sourceType.getShape();
+    uint64_t collapsedDim = 1;
+    SmallVector<AffineExpr, 2> exprs;
+    for (uint32_t dim = 0; dim < shape.size(); ++dim) {
+      collapsedDim *= shape[dim];
+      exprs.push_back(getAffineDimExpr(dim, ctx));
+    }
+
+    SmallVector<int64_t, 1> collapsedShape;
+    SmallVector<ReassociationExprs, 1> reassocs;
+    collapsedShape.push_back(collapsedDim);
+    reassocs.push_back(exprs);
+
+    auto collapsedType =
+        MemRefType::get(collapsedShape, sourceType.getElementType(), {}, 5);
+    Value result =
+        b.create<memref::CollapseShapeOp>(loc, collapsedType, source, reassocs);
+    return result;
+  }
+
   Value makeTransformingCopy(PatternRewriter &b, Operation *miTWCopy,
                            Value inp) const {
 
@@ -212,20 +238,22 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     // 1. clone vector into reg alloc
     BlockAndValueMapping cloningMap;
     auto nVecSlice = b.clone(*miVecSlice, cloningMap);
-
+    auto loc = nVecSlice->getLoc();
     auto regVecType = miVecSlice.getType().template cast<VectorType>();
-    // FIXME get rank from inp
-    SmallVector<int64_t, 2> regShape{1, 1, 1, 1, 1, regVecType.getNumElements()};
+    auto shape = inp.getType().cast<ShapedType>().getShape();
+    SmallVector<int64_t, 6> regShape;
+    SmallVector<Value, 6> indexVector;
+    Value c0 = b.create<arith::ConstantIndexOp>(loc, 0);
+    for (uint i = 0; i < shape.size(); ++i) {
+      regShape.push_back(1);
+      indexVector.push_back(c0);
+    }
+    regShape[shape.size() - 1] = regVecType.getNumElements();
     auto elemType = regVecType.getElementType();
     auto regType = MemRefType::get(regShape, elemType, {}, 5);
-    auto loc = nVecSlice->getLoc();
     auto clonedVec = b.create<miopen::GpuAllocOp>(loc, regType);
-
-    Value c0 = b.create<arith::ConstantIndexOp>(loc, 0);
-    //FIXME
-    auto indices = ValueRange({c0, c0, c0, c0, c0, c0});
-    b.create<vector::StoreOp>(loc, nVecSlice->getResult(0), clonedVec,
-                                  indices);
+    auto indices = ValueRange(indexVector);
+    b.create<vector::StoreOp>(loc, nVecSlice->getResult(0), clonedVec, indices);
 
     // 2. clone twcopy for <addend> -> regs
     cloningMap.map(miTWCopy->getOperand(0), inp);
@@ -234,8 +262,6 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     auto nTWCopy = b.clone(*miTWCopy, cloningMap);
 
     // 3. swap input coords with output coords
-    auto shape = inp.getType().cast<ShapedType>().getShape();
-
     for (uint i = 0; i < shape.size(); ++i) {
       uint inIdx = 2 + i;
       uint outIdx = 2 + shape.size() + i;
@@ -244,11 +270,13 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
       nTWCopy->setOperand(outIdx, inCoord);
       nTWCopy->setOperand(inIdx, outCoord);
     }
-    // 4. keep bound attr
+    // 4. keep bound and transforms, source/dest will be swapped in later stage.
     // 5. Adjust the copy to show the correct argument as global
     nTWCopy->setAttr("globalArg", b.getIndexAttr(0));
 
-    return clonedVec->getResult(0);
+    // 6. shrink the dim back to original so it can match the linalg dimensions
+    auto cvCollapsed = createCollapseShapeOp(b, loc, clonedVec->getResult(0));
+    return cvCollapsed;
   }
 
   Value applyTransforms(PatternRewriter &b, Operation *miTWCopy, Value inp,
@@ -290,8 +318,11 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     // 2. also create threadwise_copy from global to regs
     //    TODO(sjw): make sure output buffer writes (means these inputs will be
     //    buffer reads)
-    //return makeThreadwiseCopy(b, miTWCopy, ret);
-    return makeTransformingCopy(b, miTWCopy, ret);
+    if (auto copyType = dyn_cast<miopen::ThreadwiseCopyOp>(miTWCopy)) {
+      return makeThreadwiseCopy(b, miTWCopy, ret);
+    } else {
+      return makeTransformingCopy(b, miTWCopy, ret);
+    }
   }
 
   template <typename Ttwcopy>
@@ -503,10 +534,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
           return success();
         }
       }
-      /* FIXME NOW - why 2???
-      if (twcopys.size() != 2)
-        return fail;
-*/
+
       auto twcopy = dyn_cast<miopen::ThreadwiseCopyV2Op>(twcopys.back());
 
       Value regBWGemmV2 = twcopy.getOperand(0);
@@ -532,7 +560,6 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         // > vector.store %58#0, %59[%c0, %c0] : memref<2x4xf32>, vector<4xf32>
         // > vector.store %58#1, %59[%c1, %c0] : memref<2x4xf32>, vector<4xf32>
         Value c0 = b.create<arith::ConstantIndexOp>(loc, 0);
-
         Value c1 = b.create<arith::ConstantIndexOp>(loc, 1);
         const SmallVector<Value, 2> coords0{c0, c0};
         const SmallVector<Value, 2> coords1{c1, c0};
@@ -582,10 +609,10 @@ struct ThreadwiseCopyV2RewritePattern
       return failure();
 
     Attribute noTransforms = b.getArrayAttr({});
-    //auto reverseTransforms = b.getArrayAttr({noTransforms, op.transforms()[0].cast<ArrayAttr>()});
 
-    ArrayAttr sourceTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
-    ArrayAttr destTransformsOnOp = op.transforms()[1].cast<ArrayAttr>();
+    // source and dest transforms are swapped here because it's first touched here.
+    ArrayAttr sourceTransformsOnOp = op.transforms()[1].cast<ArrayAttr>();
+    ArrayAttr destTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
     ArrayAttr sourceTransforms, destTransforms;
     Value source, dest;
     std::tie(source, sourceTransforms) =
@@ -601,25 +628,28 @@ struct ThreadwiseCopyV2RewritePattern
         op->getAttrOfType<IntegerAttr>("data_per_copy").getInt();
     auto toLoad = op.dest();
     auto loadType = toLoad.getType().dyn_cast<MemRefType>();
-    // FIXME
+    auto shape = loadType.cast<ShapedType>().getShape();
     auto vecType = VectorType::get(dataPerCopy, loadType.getElementType());
-    // FIXME
-    bounds[5] /= dataPerCopy;
+    bounds[shape.size() - 1] /= dataPerCopy;
 
     Value c0 = b.create<arith::ConstantIndexOp>(loc, 0);
+    ArrayAttr srcLeftOob, srcRightOob;
+    std::tie(srcLeftOob, srcRightOob) =
+        miopen::computeOobFromTransforms(b, sourceTransforms);
 
     miopen::TransformingForOp copyLoop = b.create<miopen::TransformingForOp>(
-        loc, ArrayRef<ValueRange>{op.sourceCoord(), op.destCoord()}, ArrayRef<Attribute>{sourceTransforms, noTransforms}, bounds,
+        loc, ArrayRef<ValueRange>{op.sourceCoord(), op.destCoord()}, ArrayRef<Attribute>{sourceTransforms, destTransforms}, bounds,
         /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(copyLoop.getBody());
-
-    Value loaded = b.create<miopen::BufferLoadOp>(loc, vecType, source, op.destOobDims(),
-                                        copyLoop.getLowerCoords(/*domain=*/1));
-//    loadVec = b.create<vector::InsertStridedSliceOp>(loc, loaded, loadVec, copyLoop.getLowerCoords(0)[0], loadType.getNumElements());
-//    loadVec = b.create<miopen::InsertSliceOp>(loc, loadType, loaded, loadVec, copyLoop.getLowerCoords(0)[0]);
-
-    b.create<vector::StoreOp>(loc, loaded, dest, copyLoop.getLowerCoords(/*domain=*/0));
+    Value loaded = b.create<miopen::BufferLoadOp>(loc, vecType, source, srcLeftOob, srcRightOob,
+                                        copyLoop.getLowerCoords(/*domain=*/0));
+    SmallVector<Value, 6> indicies;
+    for (uint i = 0; i < shape.size() - 1; ++i) {
+      indicies.push_back(c0);
+    }
+    indicies.push_back(copyLoop.getLowerCoords(/*domain=*/1)[0]);
+    b.create<vector::StoreOp>(loc, loaded, dest, indicies);
 
     op.erase();
     return success();
