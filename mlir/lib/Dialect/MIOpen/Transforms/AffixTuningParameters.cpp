@@ -40,6 +40,7 @@ private:
   template <typename T> void affixTuningParametersImpl(T &op);
 
   void affixBackwardWeightUtilityKernels(miopen::Conv2DBwdWeightOp &op);
+  void affixBackwardDataUtilityKernels(miopen::Conv2DBwdDataOp &op);
 
   template <typename T>
   std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
@@ -52,7 +53,10 @@ void AffixTuningParameters::runOnOperation() {
   FuncOp func = getOperation();
 
   func.walk([&](miopen::Conv2DOp op) { affixTuningParametersImpl(op); });
-  func.walk([&](miopen::Conv2DBwdDataOp op) { affixTuningParametersImpl(op); });
+  func.walk([&](miopen::Conv2DBwdDataOp op) {
+    affixTuningParametersImpl(op);
+    affixBackwardDataUtilityKernels(op);
+  });
   func.walk([&](miopen::Conv2DBwdWeightOp op) {
     affixTuningParametersImpl(op);
     affixBackwardWeightUtilityKernels(op);
@@ -118,6 +122,26 @@ AffixTuningParameters::fetchDimensions(T &op) {
   }
 
   return std::make_tuple(y, x, ho, wo, hi, wi, k, c, n);
+}
+
+void AffixTuningParameters::affixBackwardDataUtilityKernels(
+    miopen::Conv2DBwdDataOp &op) {
+  auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
+
+  // In case the gemm ID is -1, override grid_size and block_size for the
+  // utility kernel.
+  if (gemmIdAttr.getInt() < 0) {
+    OpBuilder b(op.getContext());
+
+    // Set grid_size and block_size for utility kernels.
+    op->setAttr("grid_size", b.getI32IntegerAttr(kUtilityKernelGridSize));
+    op->setAttr("block_size", b.getI32IntegerAttr(kUtilityKernelBlockSize));
+    // Set attributes on the function.
+    getOperation()->setAttr("grid_size",
+                            b.getI32IntegerAttr(kUtilityKernelGridSize));
+    getOperation()->setAttr("block_size",
+                            b.getI32IntegerAttr(kUtilityKernelBlockSize));
+  }
 }
 
 void AffixTuningParameters::affixBackwardWeightUtilityKernels(

@@ -316,30 +316,12 @@ int Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder) const {
 }
 
 int Conv2dGenerator::getBwdDataKernelCount() const {
-  auto gcdStrideDilationH =
-      math_util::gcd(config.strideHeight, config.dilationHeight);
-  auto gcdStrideDilationW = math_util::gcd(config.strideWidth, config.dilationWidth);
-
-  auto yTilda = config.strideHeight / gcdStrideDilationH;
-  auto xTilda = config.strideWidth / gcdStrideDilationW;
-
-  auto y = config.filterHeight;
-  auto x = config.filterWidth;
-  int count = 0;
-  for (int gemmId = 0; gemmId < yTilda * xTilda; gemmId++) {
-    // gemm_k size is different for each GEMM
-    const auto iYTilda = gemmId / xTilda;
-    const auto iXTilda = gemmId % xTilda;
-
-    auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
-    auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
-    // gemmK must > 0, otherwise not need to run
-    if (yDotSlice * xDotSlice > 0)
-      count++;
-  }
-
-  return count;
+  llvm::SmallVector<int64_t> gemmIds = populateBackwardDataGemmIds(
+      config.strideHeight, config.strideWidth, config.dilationHeight,
+      config.dilationWidth, config.filterHeight, config.filterWidth);
+  return static_cast<int>(gemmIds.size());
 }
+
 Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
   mlir::Type dataType;
   if (config.dataTypeStr == "f32" || config.dataTypeStr == "fp32") {
@@ -678,6 +660,12 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
     func.erase();
   }
 
+  // Fix kernel_id in case it is less than 0.
+  // The only case this could happen is to query the number of kernels needed
+  // from MIIR API, where the kernel_id is not yet unknown.
+  if (kernel_id < 0)
+    kernel_id = 0;
+
   // Annotate kernel attribute to the FuncOp.
   SmallVector<NamedAttribute, 1> kernelAttrs{
       builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernel_id)),
@@ -708,8 +696,21 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
         (StringRef(&config.outputLayout[i], 1) + "o").str()));
   }
 
+  // Set gemm ID be the same as kernel ID.
+  // For backward data convolution, additional processing is needed below.
+  int64_t gemmId = kernel_id;
+
+  // Obtain gemm ID from kernel_id for backward data convolution.
+  if (config.operation.getValue() == miopen::ConvOpType::BwdData) {
+    llvm::SmallVector<int64_t> gemmIds = populateBackwardDataGemmIds(
+        config.strideHeight, config.strideWidth, config.dilationHeight,
+        config.dilationWidth, config.filterHeight, config.filterWidth);
+    assert(gemmIds.size() > static_cast<size_t>(kernel_id));
+    gemmId = gemmIds[kernel_id];
+  }
+
   std::vector<NamedAttribute> attributes{
-      builder.getNamedAttr("gemm_id", builder.getI32IntegerAttr(kernel_id)),
+      builder.getNamedAttr("gemm_id", builder.getI32IntegerAttr(gemmId)),
       builder.getNamedAttr("arch", builder.getStringAttr(config.chip)),
       builder.getNamedAttr("num_cu", builder.getI32IntegerAttr(config.num_cu)),
 
