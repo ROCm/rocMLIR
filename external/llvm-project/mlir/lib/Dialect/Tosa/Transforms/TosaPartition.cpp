@@ -41,14 +41,51 @@ namespace {
 
 // Tosa ops can broadcast values along axes, which allows for
 // element-wise operations without fully-matching dimensions.  The
-// Elementwise trait is strict about matching dimensions, but the
-// AbstractElementwise trait is specific to applicable Tosa ops.  In
-// practice, broadcastable and same-type Tosa ops are also element-wise.
+// Elementwise trait is strict about matching dimensions, but
+// broadcastable ops are also element-wise, and we know that an
+// additional set of ops are also element-wise.
 bool isElementwiseOp(Operation *op) {
   return op->hasTrait<OpTrait::Elementwise>() ||
-         op->hasTrait<OpTrait::tosa::AbstractElementwise>() ||
          op->hasTrait<OpTrait::ResultsBroadcastableShape>() ||
-         op->hasTrait<OpTrait::SameOperandsAndResultType>();
+    // clang-format off
+    isa<tosa::ClampOp,
+        tosa::ReluNOp,
+        tosa::SigmoidOp,
+        tosa::TanhOp,
+// ResultsBroadcastableShape
+//         tosa::AddOp,
+//         tosa::ArithmeticRightShiftOp,
+//         tosa::BitwiseAndOp,
+//         tosa::BitwiseOrOp,
+//         tosa::BitwiseXorOp,
+//         tosa::DivOp,
+//         tosa::LogicalAndOp,
+//         tosa::LogicalLeftShiftOp,
+//         tosa::LogicalRightShiftOp,
+//         tosa::LogicalOrOp,
+//         tosa::LogicalXorOp,
+//         tosa::MaximumOp,
+//         tosa::MinimumOp,
+//         tosa::MulOp,
+//         tosa::PowOp,
+//         tosa::SubOp,
+        tosa::AbsOp,
+//         tosa::BitwiseNotOp,
+        tosa::CeilOp,
+        tosa::ClzOp,
+        tosa::ExpOp,
+        tosa::FloorOp,
+        tosa::LogOp,
+        tosa::LogicalNotOp,
+        tosa::NegateOp,
+        tosa::ReciprocalOp,
+        tosa::RsqrtOp,
+        tosa::SelectOp
+//         tosa::EqualOp,
+//         tosa::GreaterOp,
+//         tosa::GreaterEqualOp
+       >(op);
+  // clang-format on
 }
 
 ////////////////////////////////////////////////////////////////////////////////
