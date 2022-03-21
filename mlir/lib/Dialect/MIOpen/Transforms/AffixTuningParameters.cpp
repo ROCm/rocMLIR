@@ -4,6 +4,7 @@
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/Tuning/UtilityParams.h"
+#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Types.h"
@@ -40,11 +41,6 @@ private:
   template <typename T> void affixTuningParametersImpl(T &op);
 
   void affixBackwardWeightUtilityKernels(miopen::Conv2DBwdWeightOp &op);
-
-  template <typename T>
-  std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
-             int64_t, int64_t>
-  fetchDimensions(T &op);
 };
 } // anonymous namespace
 
@@ -59,67 +55,6 @@ void AffixTuningParameters::runOnOperation() {
   });
 }
 
-template <typename T>
-std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
-           int64_t, int64_t>
-AffixTuningParameters::fetchDimensions(T &op) {
-  auto filterLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("filter_layout");
-  auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
-  auto outputLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("output_layout");
-
-  // Get shape of filter tensor.
-  auto filterType = op.filter().getType().template cast<MemRefType>();
-  auto filterShape = filterType.getShape();
-
-  // Get shape of input tensor.
-  auto inputType = op.input().getType().template cast<MemRefType>();
-  auto inputShape = inputType.getShape();
-
-  // Get shape of output tensor.
-  auto outputType = op.output().getType().template cast<MemRefType>();
-  auto outputShape = outputType.getShape();
-
-  // get y, x, ho, wo, hi, wi, k, c, n
-  int64_t y, x, ho, wo, hi, wi, k, c, n;
-  y = x = ho = wo = hi = wi = k = c = n = 0;
-
-  for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
-    auto filterAttr =
-        filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto inputAttr = inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto outputAttr =
-        outputLayoutAttr.getValue()[i].template cast<StringAttr>();
-
-    if (filterAttr.getValue() == "y") {
-      y = filterShape[i];
-    } else if (filterAttr.getValue() == "x") {
-      x = filterShape[i];
-    } else if (filterAttr.getValue() == "k") {
-      k = filterShape[i];
-    } else if (filterAttr.getValue() == "c") {
-      c = filterShape[i];
-    }
-
-    if (inputAttr.getValue() == "hi") {
-      hi = inputShape[i];
-    } else if (inputAttr.getValue() == "wi") {
-      wi = inputShape[i];
-    } else if (inputAttr.getValue() == "ni") {
-      n = inputShape[i];
-    }
-
-    if (outputAttr.getValue() == "ho") {
-      ho = outputShape[i];
-    } else if (outputAttr.getValue() == "wo") {
-      wo = outputShape[i];
-    }
-  }
-
-  return std::make_tuple(y, x, ho, wo, hi, wi, k, c, n);
-}
-
 void AffixTuningParameters::affixBackwardWeightUtilityKernels(
     miopen::Conv2DBwdWeightOp &op) {
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
@@ -132,14 +67,14 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
 
     ConvolutionContext convContext = populateConvContext(op);
 
-    // get y, x, ho, wo, hi, wi, k, c, n
-    int64_t y, x, ho, wo, hi, wi, k, c, n;
-    std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
+    // Fetch convolution dimensions.
+    llvm::StringMap<int64_t> filterDim, inputDim, outputDim;
+    std::tie(filterDim, inputDim, outputDim) = fetchDimensions(op);
 
     int64_t gemmMSize, gemmNSize, gemmKSize;
-    gemmMSize = k;
-    gemmKSize = n * ho * wo;
-    gemmNSize = c * y * x;
+    gemmMSize = filterDim["k"];
+    gemmKSize = outputDim["n"] * outputDim["ho"] * outputDim["wo"];
+    gemmNSize = filterDim["c"] * filterDim["y"] * filterDim["x"];
 
     int64_t gemmMExtra, gemmNExtra, gemmKExtra;
     gemmMExtra = gemmNExtra = gemmKExtra = 0;
@@ -185,17 +120,17 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
   ConvolutionContext convContext = populateConvContext(op);
 
-  // get y, x, ho, wo, hi, wi, k, c, n
-  int64_t y, x, ho, wo, hi, wi, k, c, n;
-  std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
+  // Fetch convolution dimensions.
+  llvm::StringMap<int64_t> filterDim, inputDim, outputDim;
+  std::tie(filterDim, inputDim, outputDim) = fetchDimensions(op);
 
   int64_t gemmMSize, gemmNSize, gemmKSize;
   // FIXME : support forward convolution only right now.
   // compute we should use extra padding kernel or not
   // c,k already / g ,so we can skip / g here
-  gemmMSize = k;
-  gemmKSize = c * y * x;
-  gemmNSize = n * ho * wo;
+  gemmMSize = filterDim["k"];
+  gemmKSize = filterDim["c"] * filterDim["y"] * filterDim["x"];
+  gemmNSize = outputDim["n"] * outputDim["ho"] * outputDim["wo"];
 
   int64_t gemmMExtra, gemmNExtra, gemmKExtra;
   gemmMExtra = gemmNExtra = gemmKExtra = 0;

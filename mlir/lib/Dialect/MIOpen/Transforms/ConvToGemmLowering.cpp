@@ -89,18 +89,46 @@ ArrayAttr getBoundsCheckAttr(Builder &b, OobCheckSet &set, uint32_t max) {
   return b.getBoolArrayAttr(ret);
 }
 
-template <typename T>
+SmallVector<StringRef, 5> fetchNames(ArrayAttr array) {
+  llvm::SmallVector<StringRef, 5> names;
+  for (size_t i = 0; i < array.size(); ++i) {
+    auto attr = array.getValue()[i].cast<StringAttr>();
+    names.push_back(attr.getValue());
+  }
+  return names;
+}
+
+std::tuple<llvm::SmallVector<StringRef, 5>, llvm::SmallVector<StringRef, 5>,
+           llvm::SmallVector<StringRef, 5>>
+fetchDimensionNames(Operation *op) {
+  assert(op->hasTrait<OpTrait::miopen::ConvolutionOp>() &&
+         "Op is not a convolution.");
+
+  auto filterLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("filter_layout");
+  auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
+  auto outputLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("output_layout");
+
+  llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
+  filterNames = fetchNames(filterLayoutAttr);
+  inputNames = fetchNames(inputLayoutAttr);
+  outputNames = fetchNames(outputLayoutAttr);
+
+  return std::make_tuple(filterNames, inputNames, outputNames);
+}
+
 LogicalResult checkNames(ArrayRef<StringRef> actual,
                          ArrayRef<StringRef> expected, StringRef argName,
-                         T op) {
+                         Operation *op) {
   if (actual.size() != expected.size()) {
-    return op.emitOpError("Layout mismatch in ")
+    return op->emitOpError("Layout mismatch in ")
            << argName << " tensor: Expected " << expected.size()
            << " dimensions but have " << actual.size();
   }
   for (StringRef name : expected) {
     if (std::find(actual.begin(), actual.end(), name) == actual.end()) {
-      return op.emitOpError("Layout mismatch in ")
+      return op->emitOpError("Layout mismatch in ")
              << argName << " tensor: Expected it to have a `" << name
              << "` dimension";
     }
@@ -268,12 +296,6 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   auto archAttr = op->template getAttrOfType<StringAttr>("arch");
   auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
 
-  auto filterLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("filter_layout");
-  auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
-  auto outputLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("output_layout");
-
   auto dilationsAttr = op->template getAttrOfType<ArrayAttr>("dilations");
   auto stridesAttr = op->template getAttrOfType<ArrayAttr>("strides");
   auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
@@ -337,49 +359,18 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
       stridesAttr.getValue()[0].template cast<IntegerAttr>().getInt();
   auto strideW =
       stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
-  // get y, x, ho, wo, hi, wi
-  int64_t n, k, c, y, x, ho, wo, hi, wi;
-  n = k = c = y = x = ho = wo = hi = wi = 0;
+
+  // Fetch convolution dimensions.
+  llvm::StringMap<int64_t> filterDim, inputDim, outputDim;
+  std::tie(filterDim, inputDim, outputDim) = fetchDimensions(op);
+
   llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
-  for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
-    auto filterAttr =
-        filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto inputAttr = inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto outputAttr =
-        outputLayoutAttr.getValue()[i].template cast<StringAttr>();
+  std::tie(filterNames, inputNames, outputNames) = fetchDimensionNames(op);
 
-    filterNames.push_back(filterAttr.getValue());
-    inputNames.push_back(inputAttr.getValue());
-    outputNames.push_back(outputAttr.getValue());
-
-    if (filterAttr.getValue() == "k") {
-      k = filterShape[i];
-    } else if (filterAttr.getValue() == "c") {
-      c = filterShape[i];
-    } else if (filterAttr.getValue() == "y") {
-      y = filterShape[i];
-    } else if (filterAttr.getValue() == "x") {
-      x = filterShape[i];
-    }
-
-    if (inputAttr.getValue() == "ni") {
-      n = inputShape[i];
-    } else if (inputAttr.getValue() == "hi") {
-      hi = inputShape[i];
-    } else if (inputAttr.getValue() == "wi") {
-      wi = inputShape[i];
-    }
-
-    if (outputAttr.getValue() == "ho") {
-      ho = outputShape[i];
-    } else if (outputAttr.getValue() == "wo") {
-      wo = outputShape[i];
-    }
-  }
   // calculate gemmKBlocks
-
   // static const int64_t MaxSubBlockNum = 2048 / standardBockNum;
-  int64_t gemmKBlocks = calculateKBlockNum(n, ho, wo);
+  int64_t gemmKBlocks =
+      calculateKBlockNum(outputDim["n"], outputDim["ho"], outputDim["wo"]);
 
   Value gemmFilter, gemmInput, gemmOutput;
   OobCheckSet filterOobCheckDims, inputOobCheckDims, outputOobCheckDims;
@@ -438,7 +429,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     BottomUpCTTopDimsWrapper firstWrap(firstTransform,
                                        std::move(firstTransformOutDims));
     firstWrap.passThrough("gi");
-    firstWrap.unmerge({"n0", "n1"}, "ni", {gemmKBlocks, n / gemmKBlocks});
+    firstWrap.unmerge({"n0", "n1"}, "ni",
+                      {gemmKBlocks, outputDim["n"] / gemmKBlocks});
     firstWrap.passThrough("ci");
     firstWrap.pad({"hipad", "wipad"}, {"hi", "wi"},
                   {leftPadH, rightPadH, leftPadW, rightPadW});
@@ -464,8 +456,10 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
         BottomUpCTBuilder::above(firstTransform, firstTransformAttr);
     BottomUpCTTopDimsWrapper embedWrap(embedTransform, std::move(embedOutDims));
     embedWrap.passThrough({"gi", "n0", "n1", "ci"});
-    embedWrap.embed({"y", "ho"}, {y, ho}, "hipad", {dilationH, strideH});
-    embedWrap.embed({"x", "wo"}, {x, wo}, "wipad", {dilationW, strideW});
+    embedWrap.embed({"y", "ho"}, {filterDim["y"], outputDim["ho"]}, "hipad",
+                    {dilationH, strideH});
+    embedWrap.embed({"x", "wo"}, {filterDim["x"], outputDim["wo"]}, "wipad",
+                    {dilationW, strideW});
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embedded =
@@ -500,7 +494,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     BottomUpCTBuilder firstTransform(b, outputNames, outputShape, loc);
     BottomUpCTTopDimsWrapper firstWrap(firstTransform, std::move(outDims));
     firstWrap.passThrough("go");
-    firstWrap.unmerge({"n0", "n1"}, "no", {gemmKBlocks, n / gemmKBlocks});
+    firstWrap.unmerge({"n0", "n1"}, "no",
+                      {gemmKBlocks, outputDim["n"] / gemmKBlocks});
     firstWrap.passThrough({"ko", "ho", "wo"});
 
     TransformMapAttr firstTransformAttr = firstTransform.get();
@@ -569,12 +564,6 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   auto archAttr = op->template getAttrOfType<StringAttr>("arch");
   auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
 
-  auto filterLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("filter_layout");
-  auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
-  auto outputLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("output_layout");
-
   auto dilationsAttr = op->template getAttrOfType<ArrayAttr>("dilations");
   auto stridesAttr = op->template getAttrOfType<ArrayAttr>("strides");
   auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
@@ -610,45 +599,12 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   int64_t strideW =
       stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
 
-  // get y, x, ho, wo, hi, wi, k, c, n
-  int64_t y, x, ho, wo, hi, wi, k, c, n;
-  y = x = ho = wo = hi = wi = k = c = n = 0;
+  // Fetch convolution dimensions.
+  llvm::StringMap<int64_t> filterDim, inputDim, outputDim;
+  std::tie(filterDim, inputDim, outputDim) = fetchDimensions(op);
+
   llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
-  for (uint32_t i = 0; i < filterLayoutAttr.size(); ++i) {
-    auto filterAttr =
-        filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto inputAttr = inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto outputAttr =
-        outputLayoutAttr.getValue()[i].template cast<StringAttr>();
-
-    filterNames.push_back(filterAttr.getValue());
-    inputNames.push_back(inputAttr.getValue());
-    outputNames.push_back(outputAttr.getValue());
-
-    if (filterAttr.getValue() == "y") {
-      y = filterShape[i];
-    } else if (filterAttr.getValue() == "x") {
-      x = filterShape[i];
-    } else if (filterAttr.getValue() == "k") {
-      k = filterShape[i];
-    } else if (filterAttr.getValue() == "c") {
-      c = filterShape[i];
-    }
-
-    if (inputAttr.getValue() == "hi") {
-      hi = inputShape[i];
-    } else if (inputAttr.getValue() == "wi") {
-      wi = inputShape[i];
-    } else if (inputAttr.getValue() == "ni") {
-      n = inputShape[i];
-    }
-
-    if (outputAttr.getValue() == "ho") {
-      ho = outputShape[i];
-    } else if (outputAttr.getValue() == "wo") {
-      wo = outputShape[i];
-    }
-  }
+  std::tie(filterNames, inputNames, outputNames) = fetchDimensionNames(op);
 
   if (failed(
           checkNames(filterNames, {"k", "g", "c", "y", "x"}, "filter", op)) ||
@@ -665,13 +621,15 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   int64_t yTilda = strideH / gcdStrideDilationH;
   int64_t xTilda = strideW / gcdStrideDilationW;
 
-  int64_t yDot = math_util::integer_divide_ceil(y, yTilda);
-  int64_t xDot = math_util::integer_divide_ceil(x, xTilda);
+  int64_t yDot = math_util::integer_divide_ceil(filterDim["y"], yTilda);
+  int64_t xDot = math_util::integer_divide_ceil(filterDim["x"], xTilda);
 
   int64_t hTilda =
-      ho + math_util::integer_divide_ceil(dilationH * (y - 1), strideH);
+      outputDim["ho"] +
+      math_util::integer_divide_ceil(dilationH * (filterDim["y"] - 1), strideH);
   int64_t wTilda =
-      wo + math_util::integer_divide_ceil(dilationW * (x - 1), strideW);
+      outputDim["wo"] +
+      math_util::integer_divide_ceil(dilationW * (filterDim["x"] - 1), strideW);
 
   int64_t iHTildaLeft = math_util::integer_divide_floor(
       std::max(0l, leftPadH - dilationH * (yTilda - 1)), strideH);
@@ -679,9 +637,13 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
       std::max(0l, leftPadW - dilationW * (xTilda - 1)), strideW);
 
   int64_t iHTildaRight = std::min(
-      hTilda, math_util::integer_divide_ceil(leftPadH + hi - 1, strideH) + 1);
+      hTilda,
+      math_util::integer_divide_ceil(leftPadH + inputDim["hi"] - 1, strideH) +
+          1);
   int64_t iWTildaRight = std::min(
-      wTilda, math_util::integer_divide_ceil(leftPadW + wi - 1, strideW) + 1);
+      wTilda,
+      math_util::integer_divide_ceil(leftPadW + inputDim["wi"] - 1, strideW) +
+          1);
 
   int64_t hTildaSlice = iHTildaRight - iHTildaLeft;
   int64_t wTildaSlice = iWTildaRight - iWTildaLeft;
@@ -697,8 +659,10 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
       const auto iYTilda = gemmId / xTilda;
       const auto iXTilda = gemmId % xTilda;
 
-      auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
-      auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
+      auto yDotSlice =
+          math_util::integer_divide_ceil(filterDim["y"] - iYTilda, yTilda);
+      auto xDotSlice =
+          math_util::integer_divide_ceil(filterDim["x"] - iXTilda, xTilda);
       // gemmK must > 0, otherwise not need to run
       if (yDotSlice * xDotSlice > 0) {
         gemmIds.push_back(gemmId);
@@ -710,8 +674,10 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   auto gemmId = getGemmId(gemmIdAttr.getInt());
   auto iYTilda = gemmId / xTilda;
   auto iXTilda = gemmId % xTilda;
-  auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
-  auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
+  auto yDotSlice =
+      math_util::integer_divide_ceil(filterDim["y"] - iYTilda, yTilda);
+  auto xDotSlice =
+      math_util::integer_divide_ceil(filterDim["x"] - iXTilda, xTilda);
 
   int64_t gemmMSize, gemmNSize, gemmKSize;
   int64_t gemmMExtra, gemmNExtra, gemmKExtra;
@@ -719,17 +685,17 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   // c is input chaneels , k is output channels
   // n is batch , yDotSlice,xDotSlice computed in above
   gemmMExtra = gemmNExtra = gemmKExtra = 0;
-  gemmMSize = c;
-  gemmKSize = k * yDotSlice * xDotSlice;
-  gemmNSize = n * hTildaSlice * wTildaSlice;
+  gemmMSize = filterDim["c"];
+  gemmKSize = filterDim["k"] * yDotSlice * xDotSlice;
+  gemmNSize = inputDim["n"] * hTildaSlice * wTildaSlice;
 
   bool isXdlops = false;
   auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
   if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
     isXdlops = true;
 
-  bool hasLongSlicesH = (hTildaSlice > ho && strideH > 1);
-  bool hasLongSlicesW = (wTildaSlice > wo && strideW > 1);
+  bool hasLongSlicesH = (hTildaSlice > outputDim["ho"] && strideH > 1);
+  bool hasLongSlicesW = (wTildaSlice > outputDim["wo"] && strideW > 1);
   bool hasLongSlices = hasLongSlicesH || hasLongSlicesW;
   bool hasHPadding = (leftPadH != 0 || rightPadH != 0);
   bool hasWPadding = (leftPadW != 0 || rightPadW != 0);
@@ -973,13 +939,13 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     Value embedded =
         b.create<TransformOp>(loc, op.output(), embedTransformAttr);
 
-    if (y > 1) {
-      if (!((leftPadH == rightPadH) && (y - leftPadH == 1))) {
+    if (filterDim["y"] > 1) {
+      if (!((leftPadH == rightPadH) && (filterDim["y"] - leftPadH == 1))) {
         outputOobCheckDims.insert(embedTransform.startIndex("ho"));
       }
     }
-    if (x > 1) {
-      if (!((leftPadW == rightPadW) && (x - leftPadW == 1))) {
+    if (filterDim["x"] > 1) {
+      if (!((leftPadW == rightPadW) && (filterDim["x"] - leftPadW == 1))) {
         outputOobCheckDims.insert(embedTransform.startIndex("wo"));
       }
     }
@@ -1134,13 +1100,6 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     auto KPackAttr = op->template getAttrOfType<IntegerAttr>("kpack");
     int64_t KPack = KPackAttr.getInt();
 
-    auto filterLayoutAttr =
-        op->template getAttrOfType<ArrayAttr>("filter_layout");
-    auto inputLayoutAttr =
-        op->template getAttrOfType<ArrayAttr>("input_layout");
-    auto outputLayoutAttr =
-        op->template getAttrOfType<ArrayAttr>("output_layout");
-
     auto dilationsAttr = op->template getAttrOfType<ArrayAttr>("dilations");
     auto stridesAttr = op->template getAttrOfType<ArrayAttr>("strides");
     auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
@@ -1176,46 +1135,12 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     int64_t strideW =
         stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
 
-    // get y, x, ho, wo, hi, wi, k, c, n
-    int64_t y, x, ho, wo, hi, wi, k, c, n;
-    y = x = ho = wo = hi = wi = k = c = n = 0;
+    // Fetch convolution dimensions.
+    llvm::StringMap<int64_t> filterDim, inputDim, outputDim;
+    std::tie(filterDim, inputDim, outputDim) = fetchDimensions(op);
+
     llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
-    for (uint32_t i = 0; i < filterLayoutAttr.size(); ++i) {
-      auto filterAttr =
-          filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-      auto inputAttr =
-          inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-      auto outputAttr =
-          outputLayoutAttr.getValue()[i].template cast<StringAttr>();
-
-      filterNames.push_back(filterAttr.getValue());
-      inputNames.push_back(inputAttr.getValue());
-      outputNames.push_back(outputAttr.getValue());
-
-      if (filterAttr.getValue() == "y") {
-        y = filterShape[i];
-      } else if (filterAttr.getValue() == "x") {
-        x = filterShape[i];
-      } else if (filterAttr.getValue() == "k") {
-        k = filterShape[i];
-      } else if (filterAttr.getValue() == "c") {
-        c = filterShape[i];
-      }
-
-      if (inputAttr.getValue() == "hi") {
-        hi = inputShape[i];
-      } else if (inputAttr.getValue() == "wi") {
-        wi = inputShape[i];
-      } else if (inputAttr.getValue() == "ni") {
-        n = inputShape[i];
-      }
-
-      if (outputAttr.getValue() == "ho") {
-        ho = outputShape[i];
-      } else if (outputAttr.getValue() == "wo") {
-        wo = outputShape[i];
-      }
-    }
+    std::tie(filterNames, inputNames, outputNames) = fetchDimensionNames(op);
 
     if (failed(
             checkNames(filterNames, {"k", "g", "c", "y", "x"}, "filter", op)) ||
@@ -1234,19 +1159,19 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // c,k already / g ,so we can skip / g here
     switch (convOpType) {
     case ConvOpType::Fwd:
-      gemmMSize = k;
-      gemmKSize = c * y * x;
-      gemmNSize = n * ho * wo;
+      gemmMSize = filterDim["k"];
+      gemmKSize = filterDim["c"] * filterDim["y"] * filterDim["x"];
+      gemmNSize = outputDim["n"] * outputDim["ho"] * outputDim["wo"];
       break;
     case ConvOpType::BwdData:
-      gemmMSize = c;
-      gemmKSize = k * y * x;
-      gemmNSize = n * ho * wo;
+      gemmMSize = filterDim["c"];
+      gemmKSize = filterDim["k"] * filterDim["y"] * filterDim["x"];
+      gemmNSize = outputDim["n"] * outputDim["ho"] * outputDim["wo"];
       break;
     case ConvOpType::BwdWeight:
-      gemmMSize = k;
-      gemmKSize = n * ho * wo;
-      gemmNSize = c * y * x;
+      gemmMSize = filterDim["k"];
+      gemmKSize = outputDim["n"] * outputDim["ho"] * outputDim["wo"];
+      gemmNSize = filterDim["c"] * filterDim["y"] * filterDim["x"];
       break;
     }
 
@@ -1455,8 +1380,10 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     BottomUpCTTopDimsWrapper embedInputWrap(embedInputTransform,
                                             std::move(embeddedInputDims));
     embedInputWrap.passThrough({"ni", "gi", "ci"});
-    embedInputWrap.embed({"y", "ho"}, {y, ho}, "hipad", {dilationH, strideH});
-    embedInputWrap.embed({"x", "wo"}, {x, wo}, "wipad", {dilationW, strideW});
+    embedInputWrap.embed({"y", "ho"}, {filterDim["y"], outputDim["ho"]},
+                         "hipad", {dilationH, strideH});
+    embedInputWrap.embed({"x", "wo"}, {filterDim["x"], outputDim["wo"]},
+                         "wipad", {dilationW, strideW});
 
     TransformMapAttr embedInputTransformAttr = embedInputTransform.get();
     Value embeddedInput =
