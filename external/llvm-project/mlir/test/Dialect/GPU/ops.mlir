@@ -273,323 +273,6 @@ module attributes {gpu.container_module} {
     }
   }
 
-  gpu.module @mubuf_load {
-    // f32 tests.
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_1_to_f32
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}) : memref<128xf32>, f32, i32
-    gpu.func @buffer_load_from_rank_1_to_f32(%src : memref<128xf32>, %offset0 : i32) -> f32 {
-      %result = gpu.buffer_load(%src, %offset0) : memref<128xf32>, f32, i32
-      gpu.return %result : f32
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_4_to_f32
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : memref<128x64x32x16xf32>, f32, i32, i32, i32, i32
-    gpu.func @buffer_load_from_rank_4_to_f32(%src : memref<128x64x32x16xf32>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> f32 {
-      %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xf32>, f32, i32, i32, i32, i32
-      gpu.return %result : f32
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_1_to_2xf32
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}) : memref<128xf32>, vector<2xf32>, i32
-    gpu.func @buffer_load_from_rank_1_to_2xf32(%src : memref<128xf32>, %offset0 : i32) -> vector<2xf32> {
-      %result = gpu.buffer_load(%src, %offset0) : memref<128xf32>, vector<2xf32>, i32
-      gpu.return %result : vector<2xf32>
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_4_to_2xf32
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : memref<128x64x32x16xf32>, vector<2xf32>, i32, i32, i32, i32
-    gpu.func @buffer_load_from_rank_4_to_2xf32(%src : memref<128x64x32x16xf32>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> vector<2xf32> {
-      %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xf32>, vector<2xf32>, i32, i32, i32, i32
-      gpu.return %result : vector<2xf32>
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_1_to_4xf32
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}) : memref<128xf32>, vector<4xf32>, i32
-    gpu.func @buffer_load_from_rank_1_to_4xf32(%src : memref<128xf32>, %offset0 : i32) -> vector<4xf32> {
-      %result = gpu.buffer_load(%src, %offset0) : memref<128xf32>, vector<4xf32>, i32
-      gpu.return %result : vector<4xf32>
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_4_to_4xf32
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : memref<128x64x32x16xf32>, vector<4xf32>, i32, i32, i32, i32
-    gpu.func @buffer_load_from_rank_4_to_4xf32(%src : memref<128x64x32x16xf32>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> vector<4xf32> {
-      %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xf32>, vector<4xf32>, i32, i32, i32, i32
-      gpu.return %result : vector<4xf32>
-    }
-
-    // f16 tests.
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_1_to_f16
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}) : memref<128xf16>, f16, i32
-    gpu.func @buffer_load_from_rank_1_to_f16(%src : memref<128xf16>, %offset0 : i32) -> f16 {
-      %result = gpu.buffer_load(%src, %offset0) : memref<128xf16>, f16, i32
-      gpu.return %result : f16
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_4_to_f16
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : memref<128x64x32x16xf16>, f16, i32, i32, i32, i32
-    gpu.func @buffer_load_from_rank_4_to_f16(%src : memref<128x64x32x16xf16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> f16 {
-      %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xf16>, f16, i32, i32, i32, i32
-      gpu.return %result : f16
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_1_to_2xf16
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}) : memref<128xf16>, vector<2xf16>, i32
-    gpu.func @buffer_load_from_rank_1_to_2xf16(%src : memref<128xf16>, %offset0 : i32) -> vector<2xf16> {
-      %result = gpu.buffer_load(%src, %offset0) : memref<128xf16>, vector<2xf16>, i32
-      gpu.return %result : vector<2xf16>
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_4_to_2xf16
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : memref<128x64x32x16xf16>, vector<2xf16>, i32, i32, i32, i32
-    gpu.func @buffer_load_from_rank_4_to_2xf16(%src : memref<128x64x32x16xf16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> vector<2xf16> {
-      %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xf16>, vector<2xf16>, i32, i32, i32, i32
-      gpu.return %result : vector<2xf16>
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_1_to_4xf16
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}) : memref<128xf16>, vector<4xf16>, i32
-    gpu.func @buffer_load_from_rank_1_to_4xf16(%src : memref<128xf16>, %offset0 : i32) -> vector<4xf16> {
-      %result = gpu.buffer_load(%src, %offset0) : memref<128xf16>, vector<4xf16>, i32
-      gpu.return %result : vector<4xf16>
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_4_to_4xf16
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : memref<128x64x32x16xf16>, vector<4xf16>, i32, i32, i32, i32
-    gpu.func @buffer_load_from_rank_4_to_4xf16(%src : memref<128x64x32x16xf16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> vector<4xf16> {
-      %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xf16>, vector<4xf16>, i32, i32, i32, i32
-      gpu.return %result : vector<4xf16>
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_1_to_8xf16
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}) : memref<128xf16>, vector<8xf16>, i32
-    gpu.func @buffer_load_from_rank_1_to_8xf16(%src : memref<128xf16>, %offset0 : i32) -> vector<8xf16> {
-      %result = gpu.buffer_load(%src, %offset0) : memref<128xf16>, vector<8xf16>, i32
-      gpu.return %result : vector<8xf16>
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_4_to_8xf16
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : memref<128x64x32x16xf16>, vector<8xf16>, i32, i32, i32, i32
-    gpu.func @buffer_load_from_rank_4_to_8xf16(%src : memref<128x64x32x16xf16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> vector<8xf16> {
-      %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xf16>, vector<8xf16>, i32, i32, i32, i32
-      gpu.return %result : vector<8xf16>
-    }
-
-    // bf16 tests.
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_1_to_bf16
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}) : memref<128xbf16>, bf16, i32
-    gpu.func @buffer_load_from_rank_1_to_bf16(%src : memref<128xbf16>, %offset0 : i32) -> bf16 {
-      %result = gpu.buffer_load(%src, %offset0) : memref<128xbf16>, bf16, i32
-      gpu.return %result : bf16
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_4_to_bf16
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : memref<128x64x32x16xbf16>, bf16, i32, i32, i32, i32
-    gpu.func @buffer_load_from_rank_4_to_bf16(%src : memref<128x64x32x16xbf16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> bf16 {
-      %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xbf16>, bf16, i32, i32, i32, i32
-      gpu.return %result : bf16
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_1_to_2xbf16
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}) : memref<128xbf16>, vector<2xbf16>, i32
-    gpu.func @buffer_load_from_rank_1_to_2xbf16(%src : memref<128xbf16>, %offset0 : i32) -> vector<2xbf16> {
-      %result = gpu.buffer_load(%src, %offset0) : memref<128xbf16>, vector<2xbf16>, i32
-      gpu.return %result : vector<2xbf16>
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_4_to_2xbf16
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : memref<128x64x32x16xbf16>, vector<2xbf16>, i32, i32, i32, i32
-    gpu.func @buffer_load_from_rank_4_to_2xbf16(%src : memref<128x64x32x16xbf16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> vector<2xbf16> {
-      %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xbf16>, vector<2xbf16>, i32, i32, i32, i32
-      gpu.return %result : vector<2xbf16>
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_1_to_4xbf16
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}) : memref<128xbf16>, vector<4xbf16>, i32
-    gpu.func @buffer_load_from_rank_1_to_4xbf16(%src : memref<128xbf16>, %offset0 : i32) -> vector<4xbf16> {
-      %result = gpu.buffer_load(%src, %offset0) : memref<128xbf16>, vector<4xbf16>, i32
-      gpu.return %result : vector<4xbf16>
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_4_to_4xbf16
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : memref<128x64x32x16xbf16>, vector<4xbf16>, i32, i32, i32, i32
-    gpu.func @buffer_load_from_rank_4_to_4xbf16(%src : memref<128x64x32x16xbf16>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) -> vector<4xbf16> {
-      %result = gpu.buffer_load(%src, %offset0, %offset1, %offset2, %offset3) : memref<128x64x32x16xbf16>, vector<4xbf16>, i32, i32, i32, i32
-      gpu.return %result : vector<4xbf16>
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_load_from_rank_1_to_8xbf16
-    //   CHECK: gpu.buffer_load(%{{.*}}, %{{.*}}) : memref<128xbf16>, vector<8xbf16>, i32
-    gpu.func @buffer_load_from_rank_1_to_8xbf16(%src : memref<128xbf16>, %offset0 : i32) -> vector<8xbf16> {
-      %result = gpu.buffer_load(%src, %offset0) : memref<128xbf16>, vector<8xbf16>, i32
-      gpu.return %result : vector<8xbf16>
-    }
-  }
-
-  gpu.module @mubuf_store {
-    // f32 tests.
-
-    // CHECK-LABEL: gpu.func @buffer_store_f32_to_rank_1
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : f32, memref<128xf32>, i32, i32
-    gpu.func @buffer_store_f32_to_rank_1(%value : f32, %dst : memref<128xf32>, %shift : i32, %offset0 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0) : f32, memref<128xf32>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_f32_to_rank_4
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : f32, memref<128x64x32x16xf32>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_f32_to_rank_4(%value : f32, %dst : memref<128x64x32x16xf32>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : f32, memref<128x64x32x16xf32>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_2xf32_to_rank_1
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf32>, memref<128xf32>, i32, i32
-    gpu.func @buffer_store_2xf32_to_rank_1(%value : vector<2xf32>, %dst : memref<128xf32>, %shift : i32, %offset0 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0) : vector<2xf32>, memref<128xf32>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_2xf32_to_rank_4
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf32>, memref<128x64x32x16xf32>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_2xf32_to_rank_4(%value : vector<2xf32>, %dst : memref<128x64x32x16xf32>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<2xf32>, memref<128x64x32x16xf32>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_4xf32_to_rank_1
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf32>, memref<128xf32>, i32, i32
-    gpu.func @buffer_store_4xf32_to_rank_1(%value : vector<4xf32>, %dst : memref<128xf32>, %shift : i32, %offset0 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0) : vector<4xf32>, memref<128xf32>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_4xf32_to_rank_4
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf32>, memref<128x64x32x16xf32>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_4xf32_to_rank_4(%value : vector<4xf32>, %dst : memref<128x64x32x16xf32>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<4xf32>, memref<128x64x32x16xf32>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // f16 tests.
-
-    // CHECK-LABEL: gpu.func @buffer_store_f16_to_rank_1
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : f16, memref<128xf16>, i32, i32
-    gpu.func @buffer_store_f16_to_rank_1(%value : f16, %dst : memref<128xf16>, %shift : i32, %offset0 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0) : f16, memref<128xf16>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_f16_to_rank_4
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : f16, memref<128x64x32x16xf16>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_f16_to_rank_4(%value : f16, %dst : memref<128x64x32x16xf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : f16, memref<128x64x32x16xf16>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_2xf16_to_rank_1
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf16>, memref<128xf16>, i32, i32
-    gpu.func @buffer_store_2xf16_to_rank_1(%value : vector<2xf16>, %dst : memref<128xf16>, %shift : i32, %offset0 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0) : vector<2xf16>, memref<128xf16>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_2xf16_to_rank_4
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf16>, memref<128x64x32x16xf16>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_2xf16_to_rank_4(%value : vector<2xf16>, %dst : memref<128x64x32x16xf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<2xf16>, memref<128x64x32x16xf16>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_4xf16_to_rank_1
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf16>, memref<128xf16>, i32, i32
-    gpu.func @buffer_store_4xf16_to_rank_1(%value : vector<4xf16>, %dst : memref<128xf16>, %shift : i32, %offset0 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0) : vector<4xf16>, memref<128xf16>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_4xf16_to_rank_4
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf16>, memref<128x64x32x16xf16>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_4xf16_to_rank_4(%value : vector<4xf16>, %dst : memref<128x64x32x16xf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<4xf16>, memref<128x64x32x16xf16>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_8xf16_to_rank_1
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<8xf16>, memref<128xf16>, i32, i32
-    gpu.func @buffer_store_8xf16_to_rank_1(%value : vector<8xf16>, %dst : memref<128xf16>, %shift : i32, %offset0 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0) : vector<8xf16>, memref<128xf16>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_8xf16_to_rank_4
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<8xf16>, memref<128x64x32x16xf16>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_8xf16_to_rank_4(%value : vector<8xf16>, %dst : memref<128x64x32x16xf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<8xf16>, memref<128x64x32x16xf16>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // bf16 tests.
-
-    // CHECK-LABEL: gpu.func @buffer_store_bf16_to_rank_1
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : bf16, memref<128xbf16>, i32, i32
-    gpu.func @buffer_store_bf16_to_rank_1(%value : bf16, %dst : memref<128xbf16>, %shift : i32, %offset0 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0) : bf16, memref<128xbf16>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_bf16_to_rank_4
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : bf16, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_bf16_to_rank_4(%value : bf16, %dst : memref<128x64x32x16xbf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : bf16, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_2xbf16_to_rank_1
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xbf16>, memref<128xbf16>, i32, i32
-    gpu.func @buffer_store_2xbf16_to_rank_1(%value : vector<2xbf16>, %dst : memref<128xbf16>, %shift : i32, %offset0 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0) : vector<2xbf16>, memref<128xbf16>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_2xbf16_to_rank_4
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<2xbf16>, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_2xbf16_to_rank_4(%value : vector<2xbf16>, %dst : memref<128x64x32x16xbf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<2xbf16>, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_4xbf16_to_rank_1
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xbf16>, memref<128xbf16>, i32, i32
-    gpu.func @buffer_store_4xbf16_to_rank_1(%value : vector<4xbf16>, %dst : memref<128xbf16>, %shift : i32, %offset0 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0) : vector<4xbf16>, memref<128xbf16>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_4xbf16_to_rank_4
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<4xbf16>, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_4xbf16_to_rank_4(%value : vector<4xbf16>, %dst : memref<128x64x32x16xbf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<4xbf16>, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_8xbf16_to_rank_1
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<8xbf16>, memref<128xbf16>, i32, i32
-    gpu.func @buffer_store_8xbf16_to_rank_1(%value : vector<8xbf16>, %dst : memref<128xbf16>, %shift : i32, %offset0 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0) : vector<8xbf16>, memref<128xbf16>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_8xbf16_to_rank_4
-    //   CHECK: gpu.buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<8xbf16>, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_8xbf16_to_rank_4(%value : vector<8xbf16>, %dst : memref<128x64x32x16xbf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<8xbf16>, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-  }
-
   func @mmamatrix_valid_element_type(){
     // CHECK-LABEL: func @mmamatrix_valid_element_type
     %wg = memref.alloca() {alignment = 32} : memref<32x32xf16, 3>
@@ -608,254 +291,65 @@ module attributes {gpu.container_module} {
     return
   }
 
-  gpu.module @rawbuf_store {
-    // f32 tests.
+  gpu.module @raw_buffer_load {
+    // CHECK-LABEL: gpu.func @buffer_load_f32_from_rank_1
+    //   CHECK: gpu.gcn_raw_buffer_load {boundsCheck = true, indexOffset = 1 : i32, targetIsRDNA = false} %{{.*}}[{{.*}}] sgprOffset %{{.*}} : memref<128xf32>, i32 -> f32
+    gpu.func @buffer_load_f32_from_rank_1(%src : memref<128xf32>, %offset : i32, %idx0 : i32) -> f32 {
+      %0 = gpu.gcn_raw_buffer_load {boundsCheck = true, indexOffset = 1 : i32, targetIsRDNA = false} %src[%idx0] sgprOffset %offset : memref<128xf32>, i32 -> f32
+      gpu.return %0 : f32
+    }
 
+    // CHECK-LABEL: gpu.func @buffer_load_f32_from_rank_4
+    //   CHECK: gpu.gcn_raw_buffer_load {boundsCheck = true, indexOffset = 1 : i32, targetIsRDNA = false} %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] sgprOffset %{{.*}} : memref<128x64x32x16xf32>, i32, i32, i32, i32 -> f32
+    gpu.func @buffer_load_f32_from_rank_4(%src : memref<128x64x32x16xf32>, %offset : i32, %idx0 : i32, %idx1 : i32, %idx2 : i32, %idx3 : i32) -> f32 {
+      %0 = gpu.gcn_raw_buffer_load {boundsCheck = true, indexOffset = 1 : i32, targetIsRDNA = false} %src[%idx0, %idx1, %idx2, %idx3] sgprOffset %offset : memref<128x64x32x16xf32>, i32, i32, i32, i32 -> f32
+      gpu.return %0 : f32
+    }
+
+    // CHECK-LABEL: gpu.func @buffer_load_4xf32_from_rank_4
+    //   CHECK: gpu.gcn_raw_buffer_load {boundsCheck = true, indexOffset = 1 : i32, targetIsRDNA = false} %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] sgprOffset %{{.*}} : memref<128x64x32x16xf32>, i32, i32, i32, i32 -> vector<4xf32>
+    gpu.func @buffer_load_4xf32_from_rank_4(%src : memref<128x64x32x16xf32>, %offset : i32, %idx0 : i32, %idx1 : i32, %idx2 : i32, %idx3 : i32) -> vector<4xf32> {
+      %0 = gpu.gcn_raw_buffer_load {boundsCheck = true, indexOffset = 1 : i32, targetIsRDNA = false} %src[%idx0, %idx1, %idx2, %idx3] sgprOffset %offset : memref<128x64x32x16xf32>, i32, i32, i32, i32 -> vector<4xf32>
+      gpu.return %0 : vector<4xf32>
+    }
+  }
+
+
+  gpu.module @raw_buffer_store {
     // CHECK-LABEL: gpu.func @buffer_store_f32_to_rank_1
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : f32, memref<128xf32>, i32, i32
-    gpu.func @buffer_store_f32_to_rank_1(%value : f32, %dst : memref<128xf32>, %shift : i32, %offset0 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0) : f32, memref<128xf32>, i32, i32
+    //   CHECK: gpu.gcn_raw_buffer_store {boundsCheck = true, indexOffset = 1 : i32, targetIsRDNA = false} %{{.*}} -> %{{.*}}[{{.*}}] sgprOffset %{{.*}} : f32 -> memref<128xf32>, i32
+    gpu.func @buffer_store_f32_to_rank_1(%value : f32, %dst : memref<128xf32>, %offset : i32, %idx0 : i32) {
+      gpu.gcn_raw_buffer_store {boundsCheck = true, indexOffset = 1 : i32, targetIsRDNA = false} %value -> %dst[%idx0] sgprOffset %offset : f32 -> memref<128xf32>, i32
       gpu.return
     }
 
     // CHECK-LABEL: gpu.func @buffer_store_f32_to_rank_4
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : f32, memref<128x64x32x16xf32>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_f32_to_rank_4(%value : f32, %dst : memref<128x64x32x16xf32>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : f32, memref<128x64x32x16xf32>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_2xf32_to_rank_1
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf32>, memref<128xf32>, i32, i32
-    gpu.func @buffer_store_2xf32_to_rank_1(%value : vector<2xf32>, %dst : memref<128xf32>, %shift : i32, %offset0 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0) : vector<2xf32>, memref<128xf32>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_2xf32_to_rank_4
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf32>, memref<128x64x32x16xf32>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_2xf32_to_rank_4(%value : vector<2xf32>, %dst : memref<128x64x32x16xf32>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<2xf32>, memref<128x64x32x16xf32>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_4xf32_to_rank_1
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf32>, memref<128xf32>, i32, i32
-    gpu.func @buffer_store_4xf32_to_rank_1(%value : vector<4xf32>, %dst : memref<128xf32>, %shift : i32, %offset0 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0) : vector<4xf32>, memref<128xf32>, i32, i32
+    //   CHECK: gpu.gcn_raw_buffer_store {boundsCheck = true, indexOffset = 1 : i32, targetIsRDNA = false} %{{.*}} -> %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] sgprOffset %{{.*}} : f32 -> memref<128x64x32x16xf32>, i32, i32, i32, i32
+    gpu.func @buffer_store_f32_to_rank_4(%value : f32, %dst : memref<128x64x32x16xf32>, %offset : i32, %idx0 : i32, %idx1 : i32, %idx2 : i32, %idx3 : i32) {
+      gpu.gcn_raw_buffer_store {boundsCheck = true, indexOffset = 1 : i32, targetIsRDNA = false} %value -> %dst[%idx0, %idx1, %idx2, %idx3] sgprOffset %offset : f32 -> memref<128x64x32x16xf32>, i32, i32, i32, i32
       gpu.return
     }
 
     // CHECK-LABEL: gpu.func @buffer_store_4xf32_to_rank_4
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf32>, memref<128x64x32x16xf32>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_4xf32_to_rank_4(%value : vector<4xf32>, %dst : memref<128x64x32x16xf32>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<4xf32>, memref<128x64x32x16xf32>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // f16 tests.
-
-    // CHECK-LABEL: gpu.func @buffer_store_f16_to_rank_1
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : f16, memref<128xf16>, i32, i32
-    gpu.func @buffer_store_f16_to_rank_1(%value : f16, %dst : memref<128xf16>, %shift : i32, %offset0 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0) : f16, memref<128xf16>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_f16_to_rank_4
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : f16, memref<128x64x32x16xf16>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_f16_to_rank_4(%value : f16, %dst : memref<128x64x32x16xf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : f16, memref<128x64x32x16xf16>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_2xf16_to_rank_1
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf16>, memref<128xf16>, i32, i32
-    gpu.func @buffer_store_2xf16_to_rank_1(%value : vector<2xf16>, %dst : memref<128xf16>, %shift : i32, %offset0 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0) : vector<2xf16>, memref<128xf16>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_2xf16_to_rank_4
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf16>, memref<128x64x32x16xf16>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_2xf16_to_rank_4(%value : vector<2xf16>, %dst : memref<128x64x32x16xf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<2xf16>, memref<128x64x32x16xf16>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_4xf16_to_rank_1
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf16>, memref<128xf16>, i32, i32
-    gpu.func @buffer_store_4xf16_to_rank_1(%value : vector<4xf16>, %dst : memref<128xf16>, %shift : i32, %offset0 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0) : vector<4xf16>, memref<128xf16>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_4xf16_to_rank_4
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf16>, memref<128x64x32x16xf16>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_4xf16_to_rank_4(%value : vector<4xf16>, %dst : memref<128x64x32x16xf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<4xf16>, memref<128x64x32x16xf16>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_8xf16_to_rank_1
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<8xf16>, memref<128xf16>, i32, i32
-    gpu.func @buffer_store_8xf16_to_rank_1(%value : vector<8xf16>, %dst : memref<128xf16>, %shift : i32, %offset0 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0) : vector<8xf16>, memref<128xf16>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_8xf16_to_rank_4
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<8xf16>, memref<128x64x32x16xf16>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_8xf16_to_rank_4(%value : vector<8xf16>, %dst : memref<128x64x32x16xf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<8xf16>, memref<128x64x32x16xf16>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // bf16 tests.
-
-    // CHECK-LABEL: gpu.func @buffer_store_bf16_to_rank_1
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : bf16, memref<128xbf16>, i32, i32
-    gpu.func @buffer_store_bf16_to_rank_1(%value : bf16, %dst : memref<128xbf16>, %shift : i32, %offset0 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0) : bf16, memref<128xbf16>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_bf16_to_rank_4
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : bf16, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_bf16_to_rank_4(%value : bf16, %dst : memref<128x64x32x16xbf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : bf16, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_2xbf16_to_rank_1
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xbf16>, memref<128xbf16>, i32, i32
-    gpu.func @buffer_store_2xbf16_to_rank_1(%value : vector<2xbf16>, %dst : memref<128xbf16>, %shift : i32, %offset0 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0) : vector<2xbf16>, memref<128xbf16>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_2xbf16_to_rank_4
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<2xbf16>, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_2xbf16_to_rank_4(%value : vector<2xbf16>, %dst : memref<128x64x32x16xbf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<2xbf16>, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_4xbf16_to_rank_1
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xbf16>, memref<128xbf16>, i32, i32
-    gpu.func @buffer_store_4xbf16_to_rank_1(%value : vector<4xbf16>, %dst : memref<128xbf16>, %shift : i32, %offset0 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0) : vector<4xbf16>, memref<128xbf16>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_4xbf16_to_rank_4
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<4xbf16>, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_4xbf16_to_rank_4(%value : vector<4xbf16>, %dst : memref<128x64x32x16xbf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<4xbf16>, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_8xbf16_to_rank_1
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<8xbf16>, memref<128xbf16>, i32, i32
-    gpu.func @buffer_store_8xbf16_to_rank_1(%value : vector<8xbf16>, %dst : memref<128xbf16>, %shift : i32, %offset0 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0) : vector<8xbf16>, memref<128xbf16>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_8xbf16_to_rank_4
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<8xbf16>, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_8xbf16_to_rank_4(%value : vector<8xbf16>, %dst : memref<128x64x32x16xbf16>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<8xbf16>, memref<128x64x32x16xbf16>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // i32 tests.
-
-    // CHECK-LABEL: gpu.func @buffer_store_i32_to_rank_1
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : i32, memref<128xi32>, i32, i32
-    gpu.func @buffer_store_i32_to_rank_1(%value : i32, %dst : memref<128xi32>, %shift : i32, %offset0 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0) : i32, memref<128xi32>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_i32_to_rank_4
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : i32, memref<128x64x32x16xi32>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_i32_to_rank_4(%value : i32, %dst : memref<128x64x32x16xi32>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : i32, memref<128x64x32x16xi32>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_2xi32_to_rank_1
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xi32>, memref<128xi32>, i32, i32
-    gpu.func @buffer_store_2xi32_to_rank_1(%value : vector<2xi32>, %dst : memref<128xi32>, %shift : i32, %offset0 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0) : vector<2xi32>, memref<128xi32>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_2xi32_to_rank_4
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<2xi32>, memref<128x64x32x16xi32>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_2xi32_to_rank_4(%value : vector<2xi32>, %dst : memref<128x64x32x16xi32>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<2xi32>, memref<128x64x32x16xi32>, i32, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_4xi32_to_rank_1
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xi32>, memref<128xi32>, i32, i32
-    gpu.func @buffer_store_4xi32_to_rank_1(%value : vector<4xi32>, %dst : memref<128xi32>, %shift : i32, %offset0 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0) : vector<4xi32>, memref<128xi32>, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @buffer_store_4xi32_to_rank_4
-    //   CHECK: gpu.raw_buffer_store(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<4xi32>, memref<128x64x32x16xi32>, i32, i32, i32, i32, i32
-    gpu.func @buffer_store_4xi32_to_rank_4(%value : vector<4xi32>, %dst : memref<128x64x32x16xi32>, %shift : i32, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.raw_buffer_store(%value, %dst, %shift, %offset0, %offset1, %offset2, %offset3) : vector<4xi32>, memref<128x64x32x16xi32>, i32, i32, i32, i32, i32
+    //   CHECK: gpu.gcn_raw_buffer_store {boundsCheck = true, indexOffset = 1 : i32, targetIsRDNA = false} %{{.*}} -> %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] sgprOffset %{{.*}} : vector<4xf32> -> memref<128x64x32x16xf32>, i32, i32, i32, i32
+    gpu.func @buffer_store_4xf32_to_rank_4(%value : vector<4xf32>, %dst : memref<128x64x32x16xf32>, %offset : i32, %idx0 : i32, %idx1 : i32, %idx2 : i32, %idx3 : i32) {
+      gpu.gcn_raw_buffer_store {boundsCheck = true, indexOffset = 1 : i32, targetIsRDNA = false} %value -> %dst[%idx0, %idx1, %idx2, %idx3] sgprOffset %offset : vector<4xf32> -> memref<128x64x32x16xf32>, i32, i32, i32, i32
       gpu.return
     }
   }
 
   gpu.module @atomic_fadd {
-    // f32 tests.
-
-    // CHECK-LABEL: gpu.func @atomic_fadd_f32_to_rank_1
-    //   CHECK: gpu.atomic_fadd(%{{.*}}, %{{.*}}, %{{.*}}) : f32, memref<128xf32>, i32
-    gpu.func @atomic_fadd_f32_to_rank_1(%value : f32, %dst : memref<128xf32>, %offset0 : i32) {
-      gpu.atomic_fadd(%value, %dst, %offset0) : f32, memref<128xf32>, i32
+    // CHECK-LABEL: gpu.func @buffer_atomic_fadd_f32_to_rank_1
+    //   CHECK: gpu.gcn_raw_buffer_atomic_fadd {boundsCheck = true, indexOffset = 1 : i32, targetIsRDNA = false} %{{.*}} -> %{{.*}}[{{.*}}] sgprOffset %{{.*}} : f32 -> memref<128xf32>, i32
+    gpu.func @buffer_atomic_fadd_f32_to_rank_1(%value : f32, %dst : memref<128xf32>, %offset : i32, %idx0 : i32) {
+      gpu.gcn_raw_buffer_atomic_fadd {boundsCheck = true, indexOffset = 1 : i32, targetIsRDNA = false} %value -> %dst[%idx0] sgprOffset %offset : f32 -> memref<128xf32>, i32
       gpu.return
     }
 
-    // CHECK-LABEL: gpu.func @atomic_fadd_f32_to_rank_4
-    //   CHECK: gpu.atomic_fadd(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : f32, memref<128x64x32x16xf32>, i32, i32, i32, i32
-    gpu.func @atomic_fadd_f32_to_rank_4(%value : f32, %dst : memref<128x64x32x16xf32>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.atomic_fadd(%value, %dst, %offset0, %offset1, %offset2, %offset3) : f32, memref<128x64x32x16xf32>, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @atomic_fadd_2xf32_to_rank_1
-    //   CHECK: gpu.atomic_fadd(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf32>, memref<128xf32>, i32
-    gpu.func @atomic_fadd_2xf32_to_rank_1(%value : vector<2xf32>, %dst : memref<128xf32>, %offset0 : i32) {
-      gpu.atomic_fadd(%value, %dst, %offset0) : vector<2xf32>, memref<128xf32>, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @atomic_fadd_2xf32_to_rank_4
-    //   CHECK: gpu.atomic_fadd(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<2xf32>, memref<128x64x32x16xf32>, i32, i32, i32, i32
-    gpu.func @atomic_fadd_2xf32_to_rank_4(%value : vector<2xf32>, %dst : memref<128x64x32x16xf32>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.atomic_fadd(%value, %dst, %offset0, %offset1, %offset2, %offset3) : vector<2xf32>, memref<128x64x32x16xf32>, i32, i32, i32, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @atomic_fadd_4xf32_to_rank_1
-    //   CHECK: gpu.atomic_fadd(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf32>, memref<128xf32>, i32
-    gpu.func @atomic_fadd_4xf32_to_rank_1(%value : vector<4xf32>, %dst : memref<128xf32>, %offset0 : i32) {
-      gpu.atomic_fadd(%value, %dst, %offset0) : vector<4xf32>, memref<128xf32>, i32
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @atomic_fadd_4xf32_to_rank_4
-    //   CHECK: gpu.atomic_fadd(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf32>, memref<128x64x32x16xf32>, i32, i32, i32, i32
-    gpu.func @atomic_fadd_4xf32_to_rank_4(%value : vector<4xf32>, %dst : memref<128x64x32x16xf32>, %offset0 : i32, %offset1 : i32, %offset2 : i32, %offset3 : i32) {
-      gpu.atomic_fadd(%value, %dst, %offset0, %offset1, %offset2, %offset3) : vector<4xf32>, memref<128x64x32x16xf32>, i32, i32, i32, i32
+    // CHECK-LABEL: gpu.func @buffer_atomic_fadd_f32_to_rank_4
+    //   CHECK: gpu.gcn_raw_buffer_atomic_fadd {boundsCheck = true, indexOffset = 1 : i32, targetIsRDNA = false} %{{.*}} -> %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}] sgprOffset %{{.*}} : f32 -> memref<128x64x32x16xf32>, i32, i32, i32, i32
+    gpu.func @buffer_atomic_fadd_f32_to_rank_4(%value : f32, %dst : memref<128x64x32x16xf32>, %offset : i32, %idx0 : i32, %idx1 : i32, %idx2 : i32, %idx3 : i32) {
+      gpu.gcn_raw_buffer_atomic_fadd {boundsCheck = true, indexOffset = 1 : i32, targetIsRDNA = false} %value -> %dst[%idx0, %idx1, %idx2, %idx3] sgprOffset %offset : f32 -> memref<128x64x32x16xf32>, i32, i32, i32, i32
       gpu.return
     }
   }

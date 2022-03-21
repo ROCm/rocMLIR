@@ -16,6 +16,7 @@
 
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 
+#include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -85,9 +86,10 @@ void MubufStoreOp::print(OpAsmPrinter &p) {
 }
 
 // <operation> ::=
-//     `llvm.amdgcn.raw.buffer.load.* %rsrc, %offset, %soffset, %aux :
-//     result_type`
-ParseResult RawbufLoadOp::parse(OpAsmParser &parser, OperationState &result) {
+//     `llvm.amdgcn.raw.buffer.load.* %rsrc, %offset, %soffset, %aux
+//     : result_type`
+ParseResult RawBufferLoadOp::parse(OpAsmParser &parser,
+                                   OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 8> ops;
   Type type;
   if (parser.parseOperandList(ops, 4) || parser.parseColonType(type) ||
@@ -101,14 +103,15 @@ ParseResult RawbufLoadOp::parse(OpAsmParser &parser, OperationState &result) {
                                 parser.getNameLoc(), result.operands);
 }
 
-void RawbufLoadOp::print(OpAsmPrinter &p) {
+void RawBufferLoadOp::print(OpAsmPrinter &p) {
   p << " " << getOperands() << " : " << res().getType();
 }
 
 // <operation> ::=
-//     `llvm.amdgcn.raw.buffer.store.* %vdata, %rsrc, %offset, %soffset, %aux :
-//     result_type`
-ParseResult RawbufStoreOp::parse(OpAsmParser &parser, OperationState &result) {
+//     `llvm.amdgcn.raw.buffer.store.* %vdata, %rsrc,  %offset,
+//     %soffset, %aux : result_type`
+ParseResult RawBufferStoreOp::parse(OpAsmParser &parser,
+                                    OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 8> ops;
   Type type;
   if (parser.parseOperandList(ops, 5) || parser.parseColonType(type))
@@ -124,14 +127,15 @@ ParseResult RawbufStoreOp::parse(OpAsmParser &parser, OperationState &result) {
   return success();
 }
 
-void RawbufStoreOp::print(OpAsmPrinter &p) {
+void RawBufferStoreOp::print(OpAsmPrinter &p) {
   p << " " << getOperands() << " : " << vdata().getType();
 }
 
 // <operation> ::=
-//     `llvm.amdgcn.buffer.atomic.fadd.* %vdata, %rsrc, %vindex, %offset, %slc :
-//     result_type`
-ParseResult AtomicFAddOp::parse(OpAsmParser &parser, OperationState &result) {
+//     `llvm.amdgcn.raw.buffer.atomic.fadd.* %vdata, %rsrc,  %offset,
+//     %soffset, %aux : result_type`
+ParseResult RawBufferAtomicFAddOp::parse(OpAsmParser &parser,
+                                         OperationState &result) {
   SmallVector<OpAsmParser::OperandType, 5> ops;
   Type type;
   if (parser.parseOperandList(ops, 5) || parser.parseColonType(type))
@@ -139,16 +143,15 @@ ParseResult AtomicFAddOp::parse(OpAsmParser &parser, OperationState &result) {
 
   auto bldr = parser.getBuilder();
   auto int32Ty = bldr.getI32Type();
-  auto int1Ty = bldr.getI1Type();
   auto i32x4Ty = VectorType::get({4}, int32Ty);
 
-  if (parser.resolveOperands(ops, {type, i32x4Ty, int32Ty, int32Ty, int1Ty},
+  if (parser.resolveOperands(ops, {type, i32x4Ty, int32Ty, int32Ty, int32Ty},
                              parser.getNameLoc(), result.operands))
     return failure();
   return success();
 }
 
-void AtomicFAddOp::print(mlir::OpAsmPrinter &p) {
+void RawBufferAtomicFAddOp::print(mlir::OpAsmPrinter &p) {
   p << " " << getOperands() << " : " << vdata().getType();
 }
 
