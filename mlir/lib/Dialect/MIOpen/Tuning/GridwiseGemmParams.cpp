@@ -1,7 +1,8 @@
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/SqliteDb.h"
 
-#include "llvm/Support//Debug.h"
+#include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "miopen-tuning-parameter"
 
@@ -127,12 +128,14 @@ LogicalResult PopulateParams::populatePaddingKernelDerived(
   return success();
 }
 
-LogicalResult PopulateParams::paramsFromCtx(
-    ConvolutionContext &ctx, int64_t blockSizeOverride,
-    const std::string &perfConfig, InitParamsNonXDL &validParams,
-    DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
+LogicalResult PopulateParams::obtainTuningParameters(
+    Operation *op, int64_t blockSizeOverride, const std::string &perfConfig,
+    InitParamsNonXDL &validParams, DerivedParams &gemmADerivedParam,
+    DerivedParams &gemmBDerivedParam,
     DerivedBlockGemmParams &blockGemmDerivedParam,
     DerivedOutParams &gemmCDerivedParam, int64_t &gridSize) {
+
+  ConvolutionContext ctx = populateConvContext(op);
 
   GemmSize gemmSize;
   obtainGemmSize(ctx, gemmSize);
@@ -359,12 +362,13 @@ LogicalResult PopulateParamsXDL::populatePaddingKernelDerived(
   return success();
 }
 
-LogicalResult PopulateParamsXDL::paramsFromCtx(
-    ConvolutionContext &ctx, int64_t blockSizeOverride,
-    const std::string &perfConfig, InitParamsXDL &validParams,
-    DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
-    DerivedOutParams &gemmCDerivedParam, int64_t &blockSize,
-    int64_t &gridSize) {
+LogicalResult PopulateParamsXDL::obtainTuningParameters(
+    Operation *op, int64_t blockSizeOverride, const std::string &perfConfig,
+    InitParamsXDL &validParams, DerivedParams &gemmADerivedParam,
+    DerivedParams &gemmBDerivedParam, DerivedOutParams &gemmCDerivedParam,
+    int64_t &blockSize, int64_t &gridSize) {
+
+  ConvolutionContext ctx = populateConvContext(op);
 
   GemmSize gemmSize;
   obtainGemmSize(ctx, gemmSize);

@@ -51,13 +51,16 @@
 // CHECK-NEXT: }
 // CHECK-NEXT: }
 // CHECK-NEXT: memref.alloc() : memref<[[N]]x[[G:[0-9]+]]x[[K]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]x[[TYPE]]>
-// CHECK-NEXT: arith.constant dense{{.*}} : vector<2x[[TYPE]]>
-// CHECK-NEXT: arith.constant 0.000000e+00 : [[TYPE]]
-// CHECK-NEXT: arith.constant 0 : index
-// CHECK-NEXT: vector.insertelement {{.*}} : vector<2x[[TYPE]]>
-// CHECK-NEXT: arith.constant 0.000000e+00 : [[TYPE]]
-// CHECK-NEXT: arith.constant 1 : index
-// CHECK-NEXT: vector.insertelement {{.*}} : vector<2x[[TYPE]]>
+// CHECK-NEXT: arith.constant dense{{.*}} : vector<3x[[TYPE]]>
+// CHECK-NEXT: arith.constant {{.*}} : [[TYPE]]
+// CHECK-NEXT: arith.constant {{.*}} : index
+// CHECK-NEXT: vector.insertelement {{.*}} : vector<3x[[TYPE]]>
+// CHECK-NEXT: arith.constant {{.*}} : [[TYPE]]
+// CHECK-NEXT: arith.constant {{.*}} : index
+// CHECK-NEXT: vector.insertelement {{.*}} : vector<3x[[TYPE]]>
+// CHECK-NEXT: arith.constant {{.*}} : [[TYPE]]
+// CHECK-NEXT: arith.constant {{.*}} : index
+// CHECK-NEXT: vector.insertelement {{.*}} : vector<3x[[TYPE]]>
 // CHECK-NEXT: affine.for %[[n:.*]] = 0 to [[N]]
 // CHECK-NEXT: affine.for %[[g:.*]] = 0 to [[G]]
 // CHECK-NEXT: affine.for %[[k:.*]] = 0 to [[K]]
@@ -153,13 +156,16 @@
 // INT8-NEXT: }
 // INT8-NEXT: }
 // INT8-NEXT: memref.alloc() : memref<[[N]]x[[G:[0-9]+]]x[[K]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]x[[TYPEI32:i32]]>
-// INT8-NEXT: arith.constant dense{{.*}} : vector<2x[[TYPEI32]]>
-// INT8-NEXT: arith.constant 0 : [[TYPEI32]]
-// INT8-NEXT: arith.constant 0 : index
-// INT8-NEXT: vector.insertelement {{.*}} : vector<2x[[TYPEI32]]>
-// INT8-NEXT: arith.constant 0 : [[TYPEI32]]
-// INT8-NEXT: arith.constant 1 : index
-// INT8-NEXT: vector.insertelement {{.*}} : vector<2x[[TYPEI32]]>
+// INT8-NEXT: arith.constant dense{{.*}} : vector<3x[[TYPEI32]]>
+// INT8-NEXT: arith.constant {{.*}} : [[TYPEI32]]
+// INT8-NEXT: arith.constant {{.*}} : index
+// INT8-NEXT: vector.insertelement {{.*}} : vector<3x[[TYPEI32]]>
+// INT8-NEXT: arith.constant {{.*}} : [[TYPEI32]]
+// INT8-NEXT: arith.constant {{.*}} : index
+// INT8-NEXT: vector.insertelement {{.*}} : vector<3x[[TYPEI32]]>
+// INT8-NEXT: arith.constant {{.*}} : [[TYPEI32]]
+// INT8-NEXT: arith.constant {{.*}} : index
+// INT8-NEXT: vector.insertelement {{.*}} : vector<3x[[TYPEI32]]>
 // INT8-NEXT: affine.for %[[n:.*]] = 0 to [[N]]
 // INT8-NEXT: affine.for %[[g:.*]] = 0 to [[G]]
 // INT8-NEXT: affine.for %[[k:.*]] = 0 to [[K]]

@@ -45,40 +45,36 @@
 // BWD_DATA_FILTER-NEXT:  [[MAX:%.*]] = arith.constant 5 : i16
 // BWD_DATA_FILTER-NEXT:  [[SEED:%.*]] = arith.constant 1 : i32
 // BWD_DATA_FILTER:   call @mcpuMemset5DFloatRandInt({{.*}}, [[MIN]], [[MAX]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
-// BWD_DATA_FILTER:  [[ZERO:%.*]] = arith.constant 0 : i16
-// BWD_DATA_FILTER:   call @mcpuMemset5DFloatRandInt({{.*}}, [[ZERO]], [[ZERO]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
 // BWD_DATA_FILTER:  [[ONE:%.*]] = arith.constant 1 : i16
+// BWD_DATA_FILTER:   call @mcpuMemset5DFloatRandInt({{.*}}, [[ONE]], [[ONE]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
 // BWD_DATA_FILTER:   call @mcpuMemset5DFloatRandInt({{.*}}, [[ONE]], [[ONE]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
 
 // RUN: miopen-gen -ph -p -rand 1 -rand_side output  -operation conv2d_bwd_data | FileCheck %s --check-prefix=BWD_DATA_OUTPUT
 
 // BWD_DATA_OUTPUT:  [[ONE:%.*]] = arith.constant 1 : i16
 // BWD_DATA_OUTPUT-NEXT:  [[SEED:%.*]] = arith.constant 1 : i32
+// BWD_DATA_OUTPUT-NEXT:   call @mcpuMemset5DFloatRandInt({{.*}}, [[ONE]], [[ONE]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
 // BWD_DATA_OUTPUT:   call @mcpuMemset5DFloatRandInt({{.*}}, [[ONE]], [[ONE]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
-// BWD_DATA_OUTPUT:  [[ZERO:%.*]] = arith.constant 0 : i16
-// BWD_DATA_OUTPUT:   call @mcpuMemset5DFloatRandInt({{.*}}, [[ZERO]], [[ZERO]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
 // BWD_DATA_OUTPUT:  [[MIN:%.*]] = arith.constant -5 : i16
 // BWD_DATA_OUTPUT-NEXT:  [[MAX:%.*]] = arith.constant 5 : i16
-// BWD_DATA_OUTPUT:   call @mcpuMemset5DFloatRandInt({{.*}}, [[MIN]], [[MAX]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
+// BWD_DATA_OUTPUT-NEXT:   call @mcpuMemset5DFloatRandInt({{.*}}, [[MIN]], [[MAX]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
 
 // RUN: miopen-gen -ph -p -rand 1 -rand_side input -operation conv2d_bwd_weight | FileCheck %s --check-prefix=BWD_WEIGHT_INPUT
 
-// BWD_WEIGHT_INPUT:  [[ZERO:%.*]] = arith.constant 0 : i16
+// BWD_WEIGHT_INPUT:  [[ONE:%.*]] = arith.constant 1 : i16
 // BWD_WEIGHT_INPUT-NEXT:  [[SEED:%.*]] = arith.constant 1 : i32
-// BWD_WEIGHT_INPUT-NEXT:   call @mcpuMemset5DFloatRandInt({{.*}}, [[ZERO]], [[ZERO]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
+// BWD_WEIGHT_INPUT-NEXT:   call @mcpuMemset5DFloatRandInt({{.*}}, [[ONE]], [[ONE]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
 // BWD_WEIGHT_INPUT:  [[MIN:%.*]] = arith.constant -5 : i16
 // BWD_WEIGHT_INPUT-NEXT:  [[MAX:%.*]] = arith.constant 5 : i16
 // BWD_WEIGHT_INPUT-NEXT:   call @mcpuMemset5DFloatRandInt({{.*}}, [[MIN]], [[MAX]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
-// BWD_WEIGHT_INPUT:  [[ONE:%.*]] = arith.constant 1 : i16
-// BWD_WEIGHT_INPUT-NEXT:   call @mcpuMemset5DFloatRandInt({{.*}}, [[ONE]], [[ONE]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
+// BWD_WEIGHT_INPUT:   call @mcpuMemset5DFloatRandInt({{.*}}, [[ONE]], [[ONE]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
 
 // RUN: miopen-gen -ph -p -rand 1 -rand_side output  -operation conv2d_bwd_weight | FileCheck %s --check-prefix=BWD_WEIGHT_OUTPUT
 
-// BWD_WEIGHT_OUTPUT:  [[ZERO:%.*]] = arith.constant 0 : i16
-// BWD_WEIGHT_OUTPUT-NEXT:  [[SEED:%.*]] = arith.constant 1 : i32
-// BWD_WEIGHT_OUTPUT-NEXT:   call @mcpuMemset5DFloatRandInt({{.*}}, [[ZERO]], [[ZERO]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
 // BWD_WEIGHT_OUTPUT:  [[ONE:%.*]] = arith.constant 1 : i16
+// BWD_WEIGHT_OUTPUT-NEXT:  [[SEED:%.*]] = arith.constant 1 : i32
 // BWD_WEIGHT_OUTPUT-NEXT:   call @mcpuMemset5DFloatRandInt({{.*}}, [[ONE]], [[ONE]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
+// BWD_WEIGHT_OUTPUT:   call @mcpuMemset5DFloatRandInt({{.*}}, [[ONE]], [[ONE]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
 // BWD_WEIGHT_OUTPUT:  [[MIN:%.*]] = arith.constant -5 : i16
 // BWD_WEIGHT_OUTPUT-NEXT:  [[MAX:%.*]] = arith.constant 5 : i16
 // BWD_WEIGHT_OUTPUT-NEXT:   call @mcpuMemset5DFloatRandInt({{.*}}, [[MIN]], [[MAX]], [[SEED]]) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()

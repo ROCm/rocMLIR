@@ -52,13 +52,16 @@
 // F32-NEXT: }
 // F32-NEXT: }
 // F32-NEXT: memref.alloc() : memref<[[N]]x[[G:[0-9]+]]x[[K]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]x[[TYPE]]>
-// F32-NEXT: arith.constant dense{{.*}} : vector<2xf32>
-// F32-NEXT: arith.constant 0.000000e+00 : f32
-// F32-NEXT: arith.constant 0 : index
-// F32-NEXT: vector.insertelement {{.*}} : vector<2xf32>
-// F32-NEXT: arith.constant 0.000000e+00 : f32
-// F32-NEXT: arith.constant 1 : index
-// F32-NEXT: vector.insertelement {{.*}} : vector<2xf32>
+// F32-NEXT: arith.constant dense{{.*}} : vector<3xf32>
+// F32-NEXT: arith.constant {{.*}} : f32
+// F32-NEXT: arith.constant {{.*}} : index
+// F32-NEXT: vector.insertelement {{.*}} : vector<3xf32>
+// F32-NEXT: arith.constant {{.*}} : f32
+// F32-NEXT: arith.constant {{.*}} : index
+// F32-NEXT: vector.insertelement {{.*}} : vector<3xf32>
+// F32-NEXT: arith.constant {{.*}} : f32
+// F32-NEXT: arith.constant {{.*}} : index
+// F32-NEXT: vector.insertelement {{.*}} : vector<3xf32>
 // F32-NEXT: affine.for %[[n:.*]] = 0 to [[N]]
 // F32-NEXT: affine.for %[[g:.*]] = 0 to [[G]]
 // F32-NEXT: affine.for %[[k:.*]] = 0 to [[K]]
@@ -130,13 +133,16 @@
 // F16-NEXT: }
 // F16-NEXT: }
 // F16-NEXT: memref.alloc() : memref<[[N]]x[[G:[0-9]+]]x[[K]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]x[[TYPE]]>
-// F16-NEXT: arith.constant dense{{.*}} : vector<2xf16>
-// F16-NEXT: arith.constant 0.000000e+00 : f16
-// F16-NEXT: arith.constant 0 : index
-// F16-NEXT: vector.insertelement {{.*}} : vector<2xf16>
-// F16-NEXT: arith.constant 0.000000e+00 : f16
-// F16-NEXT: arith.constant 1 : index
-// F16-NEXT: vector.insertelement {{.*}} : vector<2xf16>
+// F16-NEXT: arith.constant dense{{.*}} : vector<3xf16>
+// F16-NEXT: arith.constant {{.*}} : f16
+// F16-NEXT: arith.constant {{.*}} : index
+// F16-NEXT: vector.insertelement {{.*}} : vector<3xf16>
+// F16-NEXT: arith.constant {{.*}} : f16
+// F16-NEXT: arith.constant {{.*}} : index
+// F16-NEXT: vector.insertelement {{.*}} : vector<3xf16>
+// F16-NEXT: arith.constant {{.*}} : f16
+// F16-NEXT: arith.constant {{.*}} : index
+// F16-NEXT: vector.insertelement {{.*}} : vector<3xf16>
 // F16-NEXT: affine.for %[[n:.*]] = 0 to [[N]]
 // F16-NEXT: affine.for %[[g:.*]] = 0 to [[G]]
 // F16-NEXT: affine.for %[[k:.*]] = 0 to [[K]]
@@ -213,13 +219,16 @@
 // BF16-NEXT: }
 // BF16-NEXT: }
 // BF16-NEXT: memref.alloc() : memref<[[N]]x[[G:[0-9]+]]x[[K]]x[[HO:[0-9]+]]x[[WO:[0-9]+]]x[[TYPE]]>
-// BF16-NEXT: arith.constant dense{{.*}} : vector<2xi16>
-// BF16-NEXT: arith.constant 0 : i16
-// BF16-NEXT: arith.constant 0 : index
-// BF16-NEXT: vector.insertelement {{.*}} : vector<2xi16>
-// BF16-NEXT: arith.constant 0 : i16
-// BF16-NEXT: arith.constant 1 : index
-// BF16-NEXT: vector.insertelement {{.*}} : vector<2xi16>
+// BF16-NEXT: arith.constant dense{{.*}} : vector<3xi16>
+// BF16-NEXT: arith.constant {{.*}} : i16
+// BF16-NEXT: arith.constant {{.*}} : index
+// BF16-NEXT: vector.insertelement {{.*}} : vector<3xi16>
+// BF16-NEXT: arith.constant {{.*}} : i16
+// BF16-NEXT: arith.constant {{.*}} : index
+// BF16-NEXT: vector.insertelement {{.*}} : vector<3xi16>
+// BF16-NEXT: arith.constant {{.*}} : i16
+// BF16-NEXT: arith.constant {{.*}} : index
+// BF16-NEXT: vector.insertelement {{.*}} : vector<3xi16>
 // BF16-NEXT: affine.for %[[n:.*]] = 0 to [[N]]
 // BF16-NEXT: affine.for %[[g:.*]] = 0 to [[G]]
 // BF16-NEXT: affine.for %[[k:.*]] = 0 to [[K]]

@@ -26,6 +26,7 @@
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/Tuning/UtilityParams.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
+#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/Support/LogicalResult.h"
@@ -189,6 +190,25 @@ void createElementwiseLoop(OpBuilder &b, Location loc, int64_t bound,
       loc, offset, b.create<ConstantIndexOp>(loc, bound), stride);
   b.setInsertionPointToStart(loop.getBody());
   emitBodyFunc(loop.getInductionVar());
+}
+
+/// 0-initialize the output for a backward data convolution.
+/// The output is the input tensor.
+LogicalResult zeroInit(Conv2DBwdDataOp op, PatternRewriter &b) {
+  auto loc = op.getLoc();
+  Value output = op.input();
+  auto outputDataType = output.getType().cast<MemRefType>().getElementType();
+  auto collapsedOutput = createCollapseShapeOp(b, loc, output);
+  ArrayRef<int64_t> collapsedOutputShape =
+      collapsedOutput.getType().cast<MemRefType>().getShape();
+
+  createElementwiseLoop(b, loc, collapsedOutputShape[0], [&](Value iv) {
+    auto zeroOp = createZeroConstantOp(b, loc, outputDataType);
+    b.create<memref::StoreOp>(loc, zeroOp, collapsedOutput, iv);
+  });
+
+  b.eraseOp(op);
+  return success();
 }
 
 /// 0-initialize the output for a backward weight convolution which uses
@@ -508,9 +528,6 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     gridwiseGemmAttrs.push_back(
         b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
 
-  gridwiseGemmAttrs.push_back(b.getNamedAttr(
-      "kernel_algorithm", b.getStringAttr("backward_weight_v4r4")));
-
   // This kernel is not run when there is padding on the GEMM
   auto paddingInfo =
       PaddingInfoAttr::get(b.getContext(), 0, 0, 0, BwdPaddingKernelInfo::NA);
@@ -535,8 +552,6 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
 }
 
 LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
-  ConvolutionContext convContext = populateConvContext(op);
-
   auto loc = op.getLoc();
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
   auto archAttr = op->template getAttrOfType<StringAttr>("arch");
@@ -659,32 +674,16 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   int64_t hTildaSlice = iHTildaRight - iHTildaLeft;
   int64_t wTildaSlice = iWTildaRight - iWTildaLeft;
 
-  auto getGemmId = [&](int kernelId) {
-    // kernelId 0 must be gemmId 0
-    if (kernelId <= 0)
-      return 0;
+  int64_t gemmId = gemmIdAttr.getInt();
+  // In case the actual gemm ID is -1, emit the zero initialization kernel.
+  if (gemmId < 0) {
+    return zeroInit(op, b);
+  }
 
-    llvm::SmallVector<int> gemmIds;
-    for (int gemmId = 0; gemmId < yTilda * xTilda; gemmId++) {
-      // gemm_k size is different for each GEMM
-      const auto iYTilda = gemmId / xTilda;
-      const auto iXTilda = gemmId % xTilda;
-
-      auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
-      auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
-      // gemmK must > 0, otherwise not need to run
-      if (yDotSlice * xDotSlice > 0) {
-        gemmIds.push_back(gemmId);
-      }
-    }
-    assert(gemmIds.size() > static_cast<size_t>(kernelId));
-    return gemmIds[kernelId];
-  };
-  auto gemmId = getGemmId(gemmIdAttr.getInt());
-  auto iYTilda = gemmId / xTilda;
-  auto iXTilda = gemmId % xTilda;
-  auto yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
-  auto xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
+  int64_t iYTilda = gemmId / xTilda;
+  int64_t iXTilda = gemmId % xTilda;
+  int64_t yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
+  int64_t xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
 
   int64_t gemmMSize, gemmNSize, gemmKSize;
   int64_t gemmMExtra, gemmNExtra, gemmKExtra;
@@ -715,15 +714,15 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
              gemmKExtra) =
         calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
-                                   convContext.getOpType(),
-                                   convContext.getDataType(), populateParams);
+                                   obtainConvDirection(op),
+                                   obtainConvDataType(op), populateParams);
   } else { // xdlops
     PopulateParamsXDL populateParamsXDL;
     std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
              gemmKExtra) =
-        calculatePaddingKernelSize(
-            gemmMSize, gemmNSize, gemmKSize, convContext.getOpType(),
-            convContext.getDataType(), populateParamsXDL);
+        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
+                                   obtainConvDirection(op),
+                                   obtainConvDataType(op), populateParamsXDL);
   }
 
   LogicalResult supportedPaddingKernel = isSupportedBackwardDataPaddingKernel(
@@ -984,8 +983,6 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   if (isXdlops)
     gridwiseGemmAttrs.push_back(
         b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
-  gridwiseGemmAttrs.push_back(b.getNamedAttr(
-      "kernel_algorithm", b.getStringAttr("backward_data_v4r1")));
 
   // Set up which backward data padding kernel hacks we need
   BwdPaddingKernelInfo hacks = BwdPaddingKernelInfo::NA;
@@ -1042,8 +1039,6 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
   using OpRewritePattern<T>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
-    ConvolutionContext convContext = populateConvContext(op);
-
     bool isXdlops = false;
     auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
@@ -1187,15 +1182,13 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
                gemmKExtra) =
           calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
-                                     convContext.getOpType(),
-                                     convContext.getDataType(), populateParams);
+                                     convOpType, dataType, populateParams);
     } else { // xdlops
       PopulateParamsXDL populateParamsXDL;
       std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
                gemmKExtra) =
-          calculatePaddingKernelSize(
-              gemmMSize, gemmNSize, gemmKSize, convContext.getOpType(),
-              convContext.getDataType(), populateParamsXDL);
+          calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
+                                     convOpType, dataType, populateParamsXDL);
     }
 
     if (ConvOpType::BwdWeight == convOpType && isXdlops &&
@@ -1582,17 +1575,6 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     if (isXdlops)
       gridwiseGemmAttrs.push_back(
           b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
-
-    if (convOpType == ConvOpType::BwdData) {
-      gridwiseGemmAttrs.push_back(b.getNamedAttr(
-          "kernel_algorithm", b.getStringAttr("backward_data_v1r1")));
-    } else if (convOpType == ConvOpType::Fwd) {
-      gridwiseGemmAttrs.push_back(
-          b.getNamedAttr("kernel_algorithm", b.getStringAttr("v4r4")));
-    } else if (convOpType == ConvOpType::BwdWeight) {
-      gridwiseGemmAttrs.push_back(b.getNamedAttr(
-          "kernel_algorithm", b.getStringAttr("backward_weight_v4r4")));
-    }
 
     SmallVector<Value, 3> arguments = {gemmFilterKPack, gemmInputKPack,
                                        gemmOutputPad};
