@@ -316,7 +316,7 @@ int Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder) const {
 }
 
 int Conv2dGenerator::getBwdDataKernelCount() const {
-  llvm::SmallVector<int64_t> gemmIds = populateBackwardDataGemmIds(
+  llvm::SmallVector<int64_t> gemmIds = miopen::populateBackwardDataGemmIds(
       config.strideHeight, config.strideWidth, config.dilationHeight,
       config.dilationWidth, config.filterHeight, config.filterWidth);
   return static_cast<int>(gemmIds.size());
@@ -702,7 +702,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
 
   // Obtain gemm ID from kernel_id for backward data convolution.
   if (config.operation.getValue() == miopen::ConvOpType::BwdData) {
-    llvm::SmallVector<int64_t> gemmIds = populateBackwardDataGemmIds(
+    llvm::SmallVector<int64_t> gemmIds = miopen::populateBackwardDataGemmIds(
         config.strideHeight, config.strideWidth, config.dilationHeight,
         config.dilationWidth, config.filterHeight, config.filterWidth);
     assert(gemmIds.size() > static_cast<size_t>(kernel_id));

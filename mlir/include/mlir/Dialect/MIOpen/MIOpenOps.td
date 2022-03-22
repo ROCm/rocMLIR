@@ -122,9 +122,6 @@ def MIOpen_GridwiseGemmOp :
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$a,
                    MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$b,
                    MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$c,
-                   BoolArrayAttr:$aOobDims,
-                   BoolArrayAttr:$bOobDims,
-                   BoolArrayAttr:$cOobDims,
                    MIOpen_PaddingInfoAttr:$paddingInfo)> {
   let summary = "Gridwise GEMM";
   let description = [{
@@ -136,12 +133,8 @@ def MIOpen_GridwiseGemmOp :
 
   let builders = [
   OpBuilder<(ins "Value":$a, "Value":$b, "Value":$c,
-    "ArrayAttr":$aOobDims, "ArrayAttr":$bOobDims, "ArrayAttr":$cOobDims,
     "PaddingInfoAttr":$paddingInfo, "ArrayRef<NamedAttribute>":$extraAttrs), [{
       $_state.addOperands({a, b, c});
-      $_state.addAttribute(aOobDimsAttrName($_state.name), aOobDims);
-      $_state.addAttribute(bOobDimsAttrName($_state.name), bOobDims);
-      $_state.addAttribute(cOobDimsAttrName($_state.name), cOobDims);
       $_state.addAttribute(paddingInfoAttrName($_state.name), paddingInfo);
       $_state.addAttributes(extraAttrs);
       $_state.addTypes({});
@@ -155,9 +148,6 @@ def MIOpen_GridwiseGemmV2Op :
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$a,
                    MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$b,
                    MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$c,
-                   BoolArrayAttr:$aOobDims,
-                   BoolArrayAttr:$bOobDims,
-                   BoolArrayAttr:$cOobDims,
                    MIOpen_PaddingInfoAttr:$paddingInfo,
                    StoreMethod:$storeMethod)> {
   let summary = "Gridwise GEMM V2";
@@ -170,13 +160,9 @@ def MIOpen_GridwiseGemmV2Op :
 
     let builders = [
   OpBuilder<(ins "Value":$a, "Value":$b, "Value":$c,
-    "ArrayAttr":$aOobDims, "ArrayAttr":$bOobDims, "ArrayAttr":$cOobDims,
     "PaddingInfoAttr":$paddingInfo, "StoreMethod":$storeMethod,
     "ArrayRef<NamedAttribute>":$extraAttrs), [{
       $_state.addOperands({a, b, c});
-      $_state.addAttribute(aOobDimsAttrName($_state.name), aOobDims);
-      $_state.addAttribute(bOobDimsAttrName($_state.name), bOobDims);
-      $_state.addAttribute(cOobDimsAttrName($_state.name), cOobDims);
       $_state.addAttribute(paddingInfoAttrName($_state.name), paddingInfo);
       $_state.addAttribute(storeMethodAttrName($_state.name),
         $_builder.getI32IntegerAttr(static_cast<uint32_t>(storeMethod)));
@@ -516,7 +502,8 @@ def MIOpen_BufferLoadOp :
     MIOpen_Op<"buffer_load">,
     Arguments<(ins Arg<MemRefOf<[F32, F16, BF16, I8, I32]>,
         "buffer to load from", [MemRead]>:$source,
-      BoolArrayAttr:$oobDims,
+      I32ArrayAttr:$leftOobDims,
+      I32ArrayAttr:$rightOobDims,
       Variadic<Index>:$coords)>,
     Results<(outs AnyTypeOf<[F32, F16, BF16, I8, I32,
               VectorOfLengthAndType<[2, 4], [F32]>,
@@ -530,13 +517,15 @@ def MIOpen_BufferLoadOp :
     miopen.buffer_load uses, if necessary, GPU buffer load intrinsics to
     ensure that out of bounds loads return 0 instead of a garbage value.
 
-    The bounds on each coordinate are the size of the memref in that coordinate.
+    The bounds on each coordinate are zero on the left and
+    the size of the memref in that coordinate on the right.
+    Only dimensions present in `leftOobDims` or `rightOobDims` have their
+    bounds checked on the left or right, respectively.
+    If a load is determined to be out of bounds, its value is 0.
 
     This op can perform vector reads.
 
     The memref must be in global memory (memory space 0).
-
-    `oobDims` are the dimensions to be checked for out of bounds indices.
   }];
   let assemblyFormat = [{
     $source `[` $coords `]` attr-dict
@@ -556,7 +545,8 @@ def MIOpen_BufferStoreOp :
         VectorOfLengthAndType<[2, 4], [I32]>]>:$data,
       Arg<MemRefOf<[F32, F16, BF16, I8, I32]>,
         "Buffer to store to", [MemWrite]>:$dest,
-      BoolArrayAttr:$oobDims,
+      I32ArrayAttr:$leftOobDims,
+      I32ArrayAttr:$rightOobDims,
       Variadic<Index>:$coords,
       OptionalAttr<MIOpen_PaddingInfoAttr>:$paddingInfo,
       OptionalAttr<StoreMethod>:$storeMethod)> {
@@ -565,10 +555,16 @@ def MIOpen_BufferStoreOp :
   let description = [{
     `miopen.buffer_store` stores data to a global buffer, ignoring out of bounds writes.
 
-    The bounds on a write are the dimensions of the memref, though only the
-    dimensions specified in `oobDims` are checked before the write is issued.
+    A write is out of bounds on the left if a coordinate's value is less than zero,
+    and out of bounds on the right if the coordinate is greater than the size of
+    the memref in that coordinate.
 
-    Writes that our out of bounds are ignored.
+    Only coordinates listed in `leftOobDims` or `rightOobDims` are checked for
+    out of bounds accesses on the left or right, respectively. Coordinates that
+    aren't checked may still be out of bounds but the write will still be permitted
+    to occur.
+
+    Writes that are detected to be out of bounds are ignored.
 
     This op supports vector writes and uses buffer store intrinsics if needed.
 
@@ -641,7 +637,6 @@ def MIOpen_ThreadwiseCopyOp:
                    IndexArrayAttr:$bounds,
                    ArgTransforms<2>:$transforms,
                    MIOpen_PaddingInfoAttr:$paddingInfo,
-                   BoolArrayAttr:$oobDims,
                    Variadic<Index>:$sourceCoord,
                    Variadic<Index>:$destCoord,
                    OptionalAttr<BoolAttr>:$legacyLoad,
@@ -670,7 +665,6 @@ def MIOpen_ThreadwiseCopyV2Op:
                    ArgTransforms<2>:$transforms,
                    MIOpen_PaddingInfoAttr:$paddingInfo,
                    StoreMethod:$storeMethod,
-                   BoolArrayAttr:$destOobDims,
                    Variadic<Index>:$sourceCoord,
                    Variadic<Index>:$destCoord)> {
   let summary = "Threadwise GPU data movement XDLOPS version";

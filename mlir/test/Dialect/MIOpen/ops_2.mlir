@@ -93,7 +93,7 @@ func @miopen_blockwise_gemm(%A : memref<?x?x?xf32, 3>, %B : memref<?x?x?xf32, 3>
 
 func @miopen_buffer_load_f32(%source : memref<?x?x?xf32>, %sc0 : index, %sc1 : index, %sc2 : index) -> f32  {
   %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
-    oobDims = [false, false, false]
+    leftOobDims = [], rightOobDims = []
   } : memref<?x?x?xf32>, index, index, index -> f32
   return %result : f32
 }
@@ -103,7 +103,7 @@ func @miopen_buffer_load_f32(%source : memref<?x?x?xf32>, %sc0 : index, %sc1 : i
 
 func @miopen_buffer_load_2xf32(%source : memref<?x?x?xf32>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<2xf32>  {
   %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
-    oobDims = [false, false, false]
+    leftOobDims = [], rightOobDims = []
   } : memref<?x?x?xf32>, index, index, index -> vector<2xf32>
   return %result : vector<2xf32>
 }
@@ -113,7 +113,7 @@ func @miopen_buffer_load_2xf32(%source : memref<?x?x?xf32>, %sc0 : index, %sc1 :
 
 func @miopen_buffer_load_4xf32(%source : memref<?x?x?xf32>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<4xf32>  {
   %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
-    oobDims = [false, false, false]
+    leftOobDims = [], rightOobDims = []
   } : memref<?x?x?xf32>, index, index, index -> vector<4xf32>
   return %result : vector<4xf32>
 }
@@ -125,7 +125,7 @@ func @miopen_buffer_load_4xf32(%source : memref<?x?x?xf32>, %sc0 : index, %sc1 :
 
 func @miopen_buffer_load_f16(%source : memref<?x?x?xf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> f16  {
   %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
-    oobDims = [false, false, false]
+    leftOobDims = [], rightOobDims = []
   } : memref<?x?x?xf16>, index, index, index -> f16
   return %result : f16
 }
@@ -135,7 +135,7 @@ func @miopen_buffer_load_f16(%source : memref<?x?x?xf16>, %sc0 : index, %sc1 : i
 
 func @miopen_buffer_load_2xf16(%source : memref<?x?x?xf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<2xf16>  {
   %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
-    oobDims = [false, false, false]
+    leftOobDims = [], rightOobDims = []
   } : memref<?x?x?xf16>, index, index, index -> vector<2xf16>
   return %result : vector<2xf16>
 }
@@ -145,7 +145,7 @@ func @miopen_buffer_load_2xf16(%source : memref<?x?x?xf16>, %sc0 : index, %sc1 :
 
 func @miopen_buffer_load_4xf16(%source : memref<?x?x?xf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<4xf16>  {
   %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
-    oobDims = [false, false, false]
+    leftOobDims = [], rightOobDims = []
   } : memref<?x?x?xf16>, index, index, index -> vector<4xf16>
   return %result : vector<4xf16>
 }
@@ -155,7 +155,7 @@ func @miopen_buffer_load_4xf16(%source : memref<?x?x?xf16>, %sc0 : index, %sc1 :
 
 func @miopen_buffer_load_8xf16(%source : memref<?x?x?xf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<8xf16>  {
   %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
-    oobDims = [false, false, false]
+    leftOobDims = [], rightOobDims = []
   } : memref<?x?x?xf16>, index, index, index -> vector<8xf16>
   return %result : vector<8xf16>
 }
@@ -167,7 +167,7 @@ func @miopen_buffer_load_8xf16(%source : memref<?x?x?xf16>, %sc0 : index, %sc1 :
 
 func @miopen_buffer_load_bf16(%source : memref<?x?x?xbf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> bf16  {
   %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
-    oobDims = [false, false, false]
+    leftOobDims = [], rightOobDims = []
   } : memref<?x?x?xbf16>, index, index, index -> bf16
   return %result : bf16
 }
@@ -177,7 +177,7 @@ func @miopen_buffer_load_bf16(%source : memref<?x?x?xbf16>, %sc0 : index, %sc1 :
 
 func @miopen_buffer_load_2xbf16(%source : memref<?x?x?xbf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<2xbf16>  {
   %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
-    oobDims = [false, false, false]
+    leftOobDims = [], rightOobDims = []
   } : memref<?x?x?xbf16>, index, index, index -> vector<2xbf16>
   return %result : vector<2xbf16>
 }
@@ -187,7 +187,7 @@ func @miopen_buffer_load_2xbf16(%source : memref<?x?x?xbf16>, %sc0 : index, %sc1
 
 func @miopen_buffer_load_4xbf16(%source : memref<?x?x?xbf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<4xbf16>  {
   %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
-    oobDims = [false, false, false]
+    leftOobDims = [], rightOobDims = []
   } : memref<?x?x?xbf16>, index, index, index -> vector<4xbf16>
   return %result : vector<4xbf16>
 }
@@ -197,7 +197,7 @@ func @miopen_buffer_load_4xbf16(%source : memref<?x?x?xbf16>, %sc0 : index, %sc1
 
 func @miopen_buffer_load_8xbf16(%source : memref<?x?x?xbf16>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<8xbf16>  {
   %result = miopen.buffer_load %source[%sc0, %sc1, %sc2]  {
-    oobDims = [false, false, false]
+    leftOobDims = [], rightOobDims = []
   } : memref<?x?x?xbf16>, index, index, index -> vector<8xbf16>
   return %result : vector<8xbf16>
 }
@@ -209,7 +209,7 @@ func @miopen_buffer_load_8xbf16(%source : memref<?x?x?xbf16>, %sc0 : index, %sc1
 
 func @miopen_buffer_load_i8(%source : memref<?x?x?xi8>, %sc0 : index, %sc1 : index, %sc2 : index) -> i8  {
   %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
-    oobDims = [false, false, false]
+    leftOobDims = [], rightOobDims = []
   } : memref<?x?x?xi8>, index, index, index -> i8
   return %result : i8
 }
@@ -219,7 +219,7 @@ func @miopen_buffer_load_i8(%source : memref<?x?x?xi8>, %sc0 : index, %sc1 : ind
 
 func @miopen_buffer_load_4xi8(%source : memref<?x?x?xi8>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<4xi8>  {
   %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
-    oobDims = [false, false, false]
+    leftOobDims = [], rightOobDims = []
   } : memref<?x?x?xi8>, index, index, index -> vector<4xi8>
   return %result : vector<4xi8>
 }
@@ -231,7 +231,7 @@ func @miopen_buffer_load_4xi8(%source : memref<?x?x?xi8>, %sc0 : index, %sc1 : i
 
 func @miopen_buffer_load_i32(%source : memref<?x?x?xi32>, %sc0 : index, %sc1 : index, %sc2 : index) -> i32  {
   %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
-    oobDims = [false, false, false]
+    leftOobDims = [], rightOobDims = []
   } : memref<?x?x?xi32>, index, index, index -> i32
   return %result : i32
 }
@@ -241,7 +241,7 @@ func @miopen_buffer_load_i32(%source : memref<?x?x?xi32>, %sc0 : index, %sc1 : i
 
 func @miopen_buffer_load_2xi32(%source : memref<?x?x?xi32>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<2xi32>  {
   %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
-    oobDims = [false, false, false]
+    leftOobDims = [], rightOobDims = []
   } : memref<?x?x?xi32>, index, index, index -> vector<2xi32>
   return %result : vector<2xi32>
 }
@@ -251,7 +251,7 @@ func @miopen_buffer_load_2xi32(%source : memref<?x?x?xi32>, %sc0 : index, %sc1 :
 
 func @miopen_buffer_load_4xi32(%source : memref<?x?x?xi32>, %sc0 : index, %sc1 : index, %sc2 : index) -> vector<4xi32>  {
   %result = miopen.buffer_load %source[%sc0, %sc1, %sc2] {
-    oobDims = [false, false, false]
+    leftOobDims = [], rightOobDims = []
   } : memref<?x?x?xi32>, index, index, index -> vector<4xi32>
   return %result : vector<4xi32>
 }
@@ -267,7 +267,7 @@ func @miopen_buffer_load_4xi32(%source : memref<?x?x?xi32>, %sc0 : index, %sc1 :
 func @miopen_buffer_store_f32(%data: f32, %dest: memref<1x1x1x1x16xf32>, %idx: index) {
   %c0 = arith.constant 0 : index
   miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    {oobDims = [false, false, false, false, false]}
+    {leftOobDims = [], rightOobDims = []}
     : f32 -> memref<1x1x1x1x16xf32>, index, index, index, index, index
   return
 }
@@ -278,7 +278,7 @@ func @miopen_buffer_store_f32(%data: f32, %dest: memref<1x1x1x1x16xf32>, %idx: i
 func @miopen_buffer_store_2xf32(%data: vector<2xf32>, %dest: memref<1x1x1x1x16xf32>, %idx: index) {
   %c0 = arith.constant 0 : index
   miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    {oobDims = [false, false, false, false, false]}
+    {leftOobDims = [], rightOobDims = []}
     : vector<2xf32> -> memref<1x1x1x1x16xf32>, index, index, index, index, index
   return
 }
@@ -289,7 +289,7 @@ func @miopen_buffer_store_2xf32(%data: vector<2xf32>, %dest: memref<1x1x1x1x16xf
 func @miopen_buffer_store_4xf32(%data: vector<4xf32>, %dest: memref<1x1x1x1x16xf32>, %idx: index) {
   %c0 = arith.constant 0 : index
   miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    {oobDims = [false, false, false, false, false]}
+    {leftOobDims = [], rightOobDims = []}
     : vector<4xf32> -> memref<1x1x1x1x16xf32>, index, index, index, index, index
   return
 }
@@ -302,7 +302,7 @@ func @miopen_buffer_store_4xf32(%data: vector<4xf32>, %dest: memref<1x1x1x1x16xf
 func @miopen_buffer_store_f16(%data: f16, %dest: memref<1x1x1x1x16xf16>, %idx: index) {
   %c0 = arith.constant 0 : index
   miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    {oobDims = [false, false, false, false, false]}
+    {leftOobDims = [], rightOobDims = []}
     : f16 -> memref<1x1x1x1x16xf16>, index, index, index, index, index
   return
 }
@@ -313,7 +313,7 @@ func @miopen_buffer_store_f16(%data: f16, %dest: memref<1x1x1x1x16xf16>, %idx: i
 func @miopen_buffer_store_2xf16(%data: vector<2xf16>, %dest: memref<1x1x1x1x16xf16>, %idx: index) {
   %c0 = arith.constant 0 : index
   miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    {oobDims = [false, false, false, false, false]}
+    {leftOobDims = [], rightOobDims = []}
     : vector<2xf16> -> memref<1x1x1x1x16xf16>, index, index, index, index, index
   return
 }
@@ -324,7 +324,7 @@ func @miopen_buffer_store_2xf16(%data: vector<2xf16>, %dest: memref<1x1x1x1x16xf
 func @miopen_buffer_store_4xf16(%data: vector<4xf16>, %dest: memref<1x1x1x1x16xf16>, %idx: index) {
   %c0 = arith.constant 0 : index
   miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    {oobDims = [false, false, false, false, false]}
+    {leftOobDims = [], rightOobDims = []}
     : vector<4xf16> -> memref<1x1x1x1x16xf16>, index, index, index, index, index
   return
 }
@@ -335,7 +335,7 @@ func @miopen_buffer_store_4xf16(%data: vector<4xf16>, %dest: memref<1x1x1x1x16xf
 func @miopen_buffer_store_8xf16(%data: vector<8xf16>, %dest: memref<1x1x1x1x16xf16>, %idx: index) {
   %c0 = arith.constant 0 : index
   miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    {oobDims = [false, false, false, false, false]}
+    {leftOobDims = [], rightOobDims = []}
     : vector<8xf16> -> memref<1x1x1x1x16xf16>, index, index, index, index, index
   return
 }
@@ -348,7 +348,7 @@ func @miopen_buffer_store_8xf16(%data: vector<8xf16>, %dest: memref<1x1x1x1x16xf
 func @miopen_buffer_store_bf16(%data: bf16, %dest: memref<1x1x1x1x16xbf16>, %idx: index) {
   %c0 = arith.constant 0 : index
   miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    {oobDims = [false, false, false, false, false]}
+    {leftOobDims = [], rightOobDims = []}
     : bf16 -> memref<1x1x1x1x16xbf16>, index, index, index, index, index
   return
 }
@@ -359,7 +359,7 @@ func @miopen_buffer_store_bf16(%data: bf16, %dest: memref<1x1x1x1x16xbf16>, %idx
 func @miopen_buffer_store_2xbf16(%data: vector<2xbf16>, %dest: memref<1x1x1x1x16xbf16>, %idx: index) {
   %c0 = arith.constant 0 : index
   miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    {oobDims = [false, false, false, false, false]}
+    {leftOobDims = [], rightOobDims = []}
     : vector<2xbf16> -> memref<1x1x1x1x16xbf16>, index, index, index, index, index
   return
 }
@@ -370,7 +370,7 @@ func @miopen_buffer_store_2xbf16(%data: vector<2xbf16>, %dest: memref<1x1x1x1x16
 func @miopen_buffer_store_4xbf16(%data: vector<4xbf16>, %dest: memref<1x1x1x1x16xbf16>, %idx: index) {
   %c0 = arith.constant 0 : index
   miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    {oobDims = [false, false, false, false, false]}
+    {leftOobDims = [], rightOobDims = []}
     : vector<4xbf16> -> memref<1x1x1x1x16xbf16>, index, index, index, index, index
   return
 }
@@ -381,7 +381,7 @@ func @miopen_buffer_store_4xbf16(%data: vector<4xbf16>, %dest: memref<1x1x1x1x16
 func @miopen_buffer_store_8xbf16(%data: vector<8xbf16>, %dest: memref<1x1x1x1x16xbf16>, %idx: index) {
   %c0 = arith.constant 0 : index
   miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    {oobDims = [false, false, false, false, false]}
+    {leftOobDims = [], rightOobDims = []}
     : vector<8xbf16> -> memref<1x1x1x1x16xbf16>, index, index, index, index, index
   return
 }
@@ -394,7 +394,7 @@ func @miopen_buffer_store_8xbf16(%data: vector<8xbf16>, %dest: memref<1x1x1x1x16
 func @miopen_buffer_store_i8(%data: i8, %dest: memref<1x1x1x1x16xi8>, %idx: index) {
   %c0 = arith.constant 0 : index
   miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    {oobDims = [false, false, false, false, false]}
+    {leftOobDims = [], rightOobDims = []}
     : i8 -> memref<1x1x1x1x16xi8>, index, index, index, index, index
           return
 }
@@ -405,7 +405,7 @@ func @miopen_buffer_store_i8(%data: i8, %dest: memref<1x1x1x1x16xi8>, %idx: inde
 func @miopen_buffer_store_4xi8(%data: vector<4xi8>, %dest: memref<1x1x1x1x16xi8>, %idx: index) {
   %c0 = arith.constant 0 : index
   miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    {oobDims = [false, false, false, false, false]}
+    {leftOobDims = [], rightOobDims = []}
     : vector<4xi8> -> memref<1x1x1x1x16xi8>, index, index, index, index, index
   return
 }
@@ -417,7 +417,7 @@ func @miopen_buffer_store_4xi8(%data: vector<4xi8>, %dest: memref<1x1x1x1x16xi8>
 func @miopen_buffer_store_i32(%data: i32, %dest: memref<1x1x1x1x16xi32>, %idx: index) {
   %c0 = arith.constant 0 : index
   miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    {oobDims = [false, false, false, false, false]}
+    {leftOobDims = [], rightOobDims = []}
     : i32 -> memref<1x1x1x1x16xi32>, index, index, index, index, index
   return
 }
@@ -428,7 +428,7 @@ func @miopen_buffer_store_i32(%data: i32, %dest: memref<1x1x1x1x16xi32>, %idx: i
 func @miopen_buffer_store_2xi32(%data: vector<2xi32>, %dest: memref<1x1x1x1x16xi32>, %idx: index) {
   %c0 = arith.constant 0 : index
   miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    {oobDims = [false, false, false, false, false]}
+    {leftOobDims = [], rightOobDims = []}
     : vector<2xi32> -> memref<1x1x1x1x16xi32>, index, index, index, index, index
   return
 }
@@ -439,7 +439,7 @@ func @miopen_buffer_store_2xi32(%data: vector<2xi32>, %dest: memref<1x1x1x1x16xi
 func @miopen_buffer_store_4xi32(%data: vector<4xi32>, %dest: memref<1x1x1x1x16xi32>, %idx: index) {
   %c0 = arith.constant 0 : index
   miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
-    {oobDims = [false, false, false, false, false]}
+    {leftOobDims = [], rightOobDims = []}
     : vector<4xi32> -> memref<1x1x1x1x16xi32>, index, index, index, index, index
   return
 }
@@ -478,7 +478,7 @@ func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : m
     %source[%source_coord_x, %source_coord_y] ->
     %dest[%dest_coord_x, %dest_coord_y]
     with [[], []]
-    { paddingInfo = #gemm_padding0, oobDims=[false, false],
+    { paddingInfo = #gemm_padding0,
       bounds = [1 : index, 1 : index]}
     : memref<?x?xf32, 5>, index, index -> memref<?x?xf32, 5>, index, index
 
@@ -488,7 +488,7 @@ func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : m
   miopen.threadwise_copy
     %source_with_transform_maps[%source_coord_x, %source_coord_y] ->
     %dest[%dest_coord_x, %dest_coord_y] with [[#transform_map0], []]
-    { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
+    { paddingInfo = #gemm_padding0,
      bounds = [1 : index, 1 : index] }
     : memref<?x?x?x?xf32>, index, index -> memref<?x?xf32, 5>, index, index
 
@@ -497,7 +497,7 @@ func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : m
     %source_with_transform_maps[%source_coord_x, %source_coord_y] ->
     %dest[%dest_coord_x, %dest_coord_y]
     with [[#transform_map0, #transform_map1], []]
-    { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
+    { paddingInfo = #gemm_padding0,
       bounds = [1 : index, 1 : index] }
     : memref<?x?x?x?xf32>, index, index -> memref<?x?xf32, 5>, index, index
 
@@ -506,7 +506,7 @@ func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : m
     %source[%source_coord_x, %source_coord_y] ->
     %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
     with [[], [#transform_map0]]
-    { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
+    { paddingInfo = #gemm_padding0,
       bounds = [1 : index, 1 : index] }
     : memref<?x?xf32, 5>, index, index -> memref<?x?x?x?xf32>, index, index
 
@@ -515,7 +515,7 @@ func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : m
     %source[%source_coord_x, %source_coord_y] ->
     %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
     with [[], [#transform_map0, #transform_map1]]
-    { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
+    { paddingInfo = #gemm_padding0,
       bounds = [1 : index, 1 : index] }
     : memref<?x?xf32, 5>, index, index -> memref<?x?x?x?xf32>, index, index
 
@@ -526,7 +526,7 @@ func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : m
     %source_with_transform_maps[%source_coord_x, %source_coord_y] ->
     %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
     with [[#transform_map0], [#transform_map0]]
-    { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
+    { paddingInfo = #gemm_padding0,
       bounds = [1 : index, 1 : index] }
     : memref<?x?x?x?xf32>, index, index -> memref<?x?x?x?xf32>, index, index
 
@@ -535,7 +535,7 @@ func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : m
     %source_with_transform_maps[%source_coord_x, %source_coord_y] ->
     %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
     with [[#transform_map0, #transform_map1], [#transform_map0, #transform_map1]]
-    { paddingInfo = #gemm_padding0, oobDims=[false, false, false, false],
+    { paddingInfo = #gemm_padding0,
       bounds = [1 : index, 1 : index] }
     : memref<?x?x?x?xf32>, index, index -> memref<?x?x?x?xf32>, index, index
 
@@ -571,7 +571,6 @@ func @miopen_threadwise_copy_v2(%source : vector<32xf32>,
     {
       sourceOffset = 0 : index,
       paddingInfo = #gemm_padding0,
-      destOobDims = [false, false, false, false, false],
       bounds = [1 : index, 4 : index, 1 : index, 4 : index, 1 : index],
       storeMethod = 0 : i32
     } : vector<32xf32>, index, index, index, index, index

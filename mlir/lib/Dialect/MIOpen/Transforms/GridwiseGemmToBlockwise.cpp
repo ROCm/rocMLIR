@@ -158,8 +158,7 @@ TransformingForOp createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
                                        ValueRange globalStart, Type resultType,
                                        Type loadType,
                                        ArrayRef<int64_t> sliceLengths,
-                                       uint32_t vectorDim, ArrayAttr oobDims,
-                                       bool useIndexDiffs) {
+                                       uint32_t vectorDim, bool useIndexDiffs) {
   bool fullyScalar = !resultType.isa<ShapedType>();
   int64_t loadLength = 1;
   if (auto loadVectorType = loadType.dyn_cast<VectorType>())
@@ -173,6 +172,10 @@ TransformingForOp createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
 
   ArrayAttr globalTransforms;
   std::tie(global, globalTransforms) = untransform(b, global);
+
+  ArrayAttr leftOobDims, rightOobDims;
+  std::tie(leftOobDims, rightOobDims) =
+      computeOobFromTransforms(b, globalTransforms);
 
   ArrayAttr noTransforms = b.getArrayAttr({});
   ArrayAttr resultIdxMap = makeLinearDomain(b, loc, sliceLengths);
@@ -193,8 +196,9 @@ TransformingForOp createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
       /*forceUnroll=*/true, useIndexDiffs, dest);
   OpBuilder::InsertionGuard guard(b);
   b.setInsertionPointToStart(loop.getBody());
-  Value loaded = b.create<BufferLoadOp>(loc, loadType, global, oobDims,
-                                        loop.getLowerCoords(/*domain=*/0));
+  Value loaded =
+      b.create<BufferLoadOp>(loc, loadType, global, leftOobDims, rightOobDims,
+                             loop.getLowerCoords(/*domain=*/0));
   Value toYield = loaded;
   if (!fullyScalar) {
     Value loopArg = loop.getIterArgs()[0];
@@ -1158,10 +1162,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                               GemmABlockCopySourceCoord_X};
     }
     // Emit blockwise load for matrix A.
-    TransformingForOp blockwiseLoadA =
-        createGlobalLoadLoop(b, loc, op.a(), blockwiseLoadACoords,
-                             aLoadIntermediate, aLoadType, blockwiseCopyABounds,
-                             blockwiseVectorDimA, op.aOobDims(), useIndexDiffs);
+    TransformingForOp blockwiseLoadA = createGlobalLoadLoop(
+        b, loc, op.a(), blockwiseLoadACoords, aLoadIntermediate, aLoadType,
+        blockwiseCopyABounds, blockwiseVectorDimA, useIndexDiffs);
     SmallVector<Value, 4> blockwiseStoreACoords;
     if (KPack > 1) {
       blockwiseStoreACoords = {zeroConstantOp, GemmABlockCopyDestCoord_Z,
@@ -1187,10 +1190,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                               GemmBBlockCopySourceCoord_X};
     }
     // Emit blockwise load for matrix B.
-    TransformingForOp blockwiseLoadB =
-        createGlobalLoadLoop(b, loc, op.b(), blockwiseLoadBCoords,
-                             bLoadIntermediate, bLoadType, blockwiseCopyBBounds,
-                             blockwiseVectorDimB, op.bOobDims(), useIndexDiffs);
+    TransformingForOp blockwiseLoadB = createGlobalLoadLoop(
+        b, loc, op.b(), blockwiseLoadBCoords, bLoadIntermediate, bLoadType,
+        blockwiseCopyBBounds, blockwiseVectorDimB, useIndexDiffs);
 
     SmallVector<Value, 4> blockwiseStoreBCoords;
     if (KPack > 1) {
@@ -1339,8 +1341,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         loc, registerCTransformed, cTransformed,
         b.getIndexArrayAttr(copyBounds),
         b.getArrayAttr({noTransforms, noTransforms}), op.paddingInfo(),
-        op.cOobDims(), matrixCThreadwiseCopySourceCoords,
-        matrixCThreadwiseCopyDestCoords,
+        matrixCThreadwiseCopySourceCoords, matrixCThreadwiseCopyDestCoords,
         /*legacyLoad=*/nullptr, /*legacyStore=*/nullptr);
     affixThreadwiseCopyAttributes(threadwiseCopyCMatrixOp, op, b);
 
@@ -2099,10 +2100,9 @@ struct GridwiseGemmV2RewritePattern
                               GemmABlockCopySourceCoord_X};
     }
     // Emit blockwise load for matrix A.
-    TransformingForOp blockwiseLoadA =
-        createGlobalLoadLoop(b, loc, op.a(), blockwiseLoadACoords,
-                             aLoadIntermediate, aLoadType, blockwiseCopyABounds,
-                             blockwiseVectorDimA, op.aOobDims(), useIndexDiffs);
+    TransformingForOp blockwiseLoadA = createGlobalLoadLoop(
+        b, loc, op.a(), blockwiseLoadACoords, aLoadIntermediate, aLoadType,
+        blockwiseCopyABounds, blockwiseVectorDimA, useIndexDiffs);
 
     SmallVector<Value, 4> blockwiseStoreACoords;
     if (KPack > 1) {
@@ -2129,10 +2129,9 @@ struct GridwiseGemmV2RewritePattern
                               GemmBBlockCopySourceCoord_X};
     }
     // Emit blockwise load for matrix B.
-    TransformingForOp blockwiseLoadB =
-        createGlobalLoadLoop(b, loc, op.b(), blockwiseLoadBCoords,
-                             bLoadIntermediate, bLoadType, blockwiseCopyBBounds,
-                             blockwiseVectorDimB, op.bOobDims(), useIndexDiffs);
+    TransformingForOp blockwiseLoadB = createGlobalLoadLoop(
+        b, loc, op.b(), blockwiseLoadBCoords, bLoadIntermediate, bLoadType,
+        blockwiseCopyBBounds, blockwiseVectorDimB, useIndexDiffs);
 
     SmallVector<Value, 4> blockwiseStoreBCoords;
     if (KPack > 1) {
@@ -2743,10 +2742,14 @@ struct GridwiseGemmV2RewritePattern
       auto threadwiseCopyV2CMatrixOp = b.create<ThreadwiseCopyV2Op>(
           loc, vectors[iter], cTransformed, copyBounds,
           threadwiseCopyV2ArgTransform, op.paddingInfo(), op.storeMethodAttr(),
-          op.cOobDims(), matrixCThreadwiseCopySourceCoords,
-          matrixCThreadwiseCopyDestCoords);
-      bool canOob = llvm::any_of(op.cOobDims().getAsValueRange<BoolAttr>(),
-                                 [](const bool &v) -> bool { return v; });
+          matrixCThreadwiseCopySourceCoords, matrixCThreadwiseCopyDestCoords);
+
+      // Remove these when threadwise_copy goes away
+      ArrayAttr cLeftOobCheck, cRightOobCheck;
+      ArrayAttr cTransforms = std::get<1>(untransform(b, cTransformed));
+      std::tie(cLeftOobCheck, cRightOobCheck) =
+          computeOobFromTransforms(b, cTransforms);
+      bool canOob = cLeftOobCheck.size() > 0 || cRightOobCheck.size() > 0;
       affixThreadwiseCopyV2Attributes(threadwiseCopyV2CMatrixOp, op, b,
                                       enableOutSwizzles, canOob);
     }
