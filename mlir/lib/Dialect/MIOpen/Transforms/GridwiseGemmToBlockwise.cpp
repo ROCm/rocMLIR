@@ -670,6 +670,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmM << " ";
     // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
 
+    // Each thread should not read exceed the length of the corresponding tile
+    if (GemmABlockCopyThreadSliceLengths_GemmK > KPerBlock ||
+        GemmABlockCopyThreadSliceLengths_GemmM > MPerBlock) {
+      return failure();
+    }
+
     if (GemmABlockCopyThreadSliceLengths_GemmK == 0 ||
         GemmABlockCopyThreadSliceLengths_GemmM == 0 ||
         GemmABlockCopyThreadSliceLengths_GemmKPack == 0) {
@@ -740,6 +746,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmK << " ";
     // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmN << " ";
     // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
+
+    // Each thread should not read exceed the length of the corresponding tile
+    if (GemmBBlockCopyThreadSliceLengths_GemmK > KPerBlock ||
+        GemmBBlockCopyThreadSliceLengths_GemmN > NPerBlock) {
+      return failure();
+    }
 
     if (GemmBBlockCopyThreadSliceLengths_GemmK == 0 ||
         GemmBBlockCopyThreadSliceLengths_GemmN == 0 ||
