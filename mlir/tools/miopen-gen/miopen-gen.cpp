@@ -1291,7 +1291,6 @@ static void emitPrintTensor(OpBuilder &b, mlir::Value var, bool flag = true) {
 static FuncOp
 createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
                    const mlir::Conv2dGenerator::Config &genConfig) {
-
   auto kfunc = kernel.func;
   std::string funcName = kfunc.getName().str() + "_verify";
   FuncOp func = module.lookupSymbol<FuncOp>(funcName);
@@ -1672,13 +1671,13 @@ populateHostHarnessLogic(ModuleOp &module,
     if (isCPUKernel) {
       assert(elemType.isF32() || elemType.isInteger(8) ||
              elemType.isInteger(32));
-      if (tensorDataType == "f32")
+      if (genConfig.dataTypeStr == "f32")
         elemType = b.getF32Type();
-      else if (tensorDataType == "f16")
+      else if (genConfig.dataTypeStr == "f16")
         elemType = b.getF16Type();
-      else if (tensorDataType == "bf16")
+      else if (genConfig.dataTypeStr == "bf16")
         elemType = b.getBF16Type();
-      else if (tensorDataType == "i8") {
+      else if (genConfig.dataTypeStr == "i8") {
         elemType = b.getI8Type();
         if (idx == 2) {
           elemType = b.getIntegerType(32);
@@ -1710,7 +1709,7 @@ populateHostHarnessLogic(ModuleOp &module,
         (isCPUKernel && (elemType.isF16() || elemType.isBF16()))) {
       // Emit validation var
       mlir::Type valElemType = floatType;
-      if (tensorDataType == "i8") {
+      if (genConfig.dataTypeStr == "i8") {
         valElemType = elemType;
       }
       auto valType = MemRefType::get(paramMRType.getShape(), valElemType);
