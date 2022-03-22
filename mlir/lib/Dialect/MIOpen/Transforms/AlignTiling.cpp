@@ -258,6 +258,12 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
       return fail;
     }
 
+    // 0.2. Sanity check, skip already fused.
+    for (auto inp : laGeneric.inputs()) {
+      if (auto fused = inp.template getDefiningOp<miopen::GpuAllocOp>())
+        return fail;
+    }
+
     Value twinpV1;
     Value twinpV2;
     SmallVector<Value, 5> transforms;
@@ -274,11 +280,13 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         // 1.2. Only one input should trace to twcopy
         assert(!twinpV1);
         twinpV1 = twinp_t;
+        break;
       } else if (auto twinp_t =
                      traceToThreadwiseCopy<miopen::ThreadwiseCopyV2Op>(
                          inp, transforms)) {
         assert(!twinpV2);
         twinpV2 = twinp_t;
+        break;
       }
     }
 
