@@ -73,6 +73,14 @@ populateBackwardDataGemmIds(int64_t strideHeight, int64_t strideWidth,
                             int64_t dilationHeight, int64_t dilationWidth,
                             int64_t filterHeight, int64_t filterWidth);
 
+/// Obtain convolution direction given a Convolution Op.
+/// TODO(whchung): apply ConvolutionOp OpTrait check after supporting PR is in.
+miopen::ConvOpType obtainConvDirection(Operation *op);
+
+/// Obtain convolution input data type given a Convolution Op.
+/// TODO(whchung): apply ConvolutionOp OpTrait check after supporting PR is in.
+mlir::Type obtainConvDataType(Operation *op);
+
 } // end namespace miopen
 } // end namespace mlir
 #endif
