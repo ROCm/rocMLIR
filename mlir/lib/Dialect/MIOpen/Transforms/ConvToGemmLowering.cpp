@@ -549,9 +549,6 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     gridwiseGemmAttrs.push_back(
         b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
 
-  gridwiseGemmAttrs.push_back(b.getNamedAttr(
-      "kernel_algorithm", b.getStringAttr("backward_weight_v4r4")));
-
   // This kernel is not run when there is padding on the GEMM
   auto paddingInfo =
       PaddingInfoAttr::get(b.getContext(), 0, 0, 0, BwdPaddingKernelInfo::NA);
@@ -1054,8 +1051,6 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   if (isXdlops)
     gridwiseGemmAttrs.push_back(
         b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
-  gridwiseGemmAttrs.push_back(b.getNamedAttr(
-      "kernel_algorithm", b.getStringAttr("backward_data_v4r1")));
 
   // Set up which backward data padding kernel hacks we need
   BwdPaddingKernelInfo hacks = BwdPaddingKernelInfo::NA;
@@ -1698,17 +1693,6 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     if (isXdlops)
       gridwiseGemmAttrs.push_back(
           b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
-
-    if (convOpType == ConvOpType::BwdData) {
-      gridwiseGemmAttrs.push_back(b.getNamedAttr(
-          "kernel_algorithm", b.getStringAttr("backward_data_v1r1")));
-    } else if (convOpType == ConvOpType::Fwd) {
-      gridwiseGemmAttrs.push_back(
-          b.getNamedAttr("kernel_algorithm", b.getStringAttr("v4r4")));
-    } else if (convOpType == ConvOpType::BwdWeight) {
-      gridwiseGemmAttrs.push_back(b.getNamedAttr(
-          "kernel_algorithm", b.getStringAttr("backward_weight_v4r4")));
-    }
 
     // Gather up OOB check attribute arrays
     ArrayAttr filterOobAttr =
