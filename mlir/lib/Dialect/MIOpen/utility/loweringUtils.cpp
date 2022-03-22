@@ -22,5 +22,75 @@ std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
   }
   return {ret, b.getArrayAttr(transformList)};
 }
+
+SmallVector<int64_t>
+populateBackwardDataGemmIds(int64_t strideHeight, int64_t strideWidth,
+                            int64_t dilationHeight, int64_t dilationWidth,
+                            int64_t filterHeight, int64_t filterWidth) {
+  int64_t gcdStrideDilationH = math_util::gcd(strideHeight, dilationHeight);
+  int64_t gcdStrideDilationW = math_util::gcd(strideWidth, dilationWidth);
+
+  int64_t yTilda = strideHeight / gcdStrideDilationH;
+  int64_t xTilda = strideWidth / gcdStrideDilationW;
+
+  int64_t y = filterHeight;
+  int64_t x = filterWidth;
+
+  // Heuristic to determine if every pixel in the output would be written by the
+  // backward data convolution algorithm.
+  auto isEveryPixelWritten = [&]() -> bool {
+    bool result = true;
+    for (int32_t dim = 0; dim < 2; ++dim) {
+      int64_t convStride = (dim == 0) ? strideHeight : strideWidth;
+      int64_t convDilation = (dim == 0) ? dilationHeight : dilationWidth;
+      int64_t filterSize = (dim == 0) ? filterHeight : filterWidth;
+
+      if (!(convDilation == 1 && convStride <= filterSize))
+        result = false;
+    }
+    return result;
+  };
+  bool needZeroInitKernel = !isEveryPixelWritten();
+
+  llvm::SmallVector<int64_t> gemmIds;
+  if (needZeroInitKernel)
+    gemmIds.push_back(-1);
+
+  // Populate the gemm IDs according to the current backward data convolution
+  // algorithm implementation.
+  for (int64_t gemmId = 0; gemmId < yTilda * xTilda; ++gemmId) {
+    // gemmK size is different for each GEMM
+    const int64_t iYTilda = gemmId / xTilda;
+    const int64_t iXTilda = gemmId % xTilda;
+
+    int64_t yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
+    int64_t xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
+    // gemmK must > 0, otherwise not need to run
+    if (yDotSlice * xDotSlice > 0) {
+      gemmIds.push_back(gemmId);
+    }
+  }
+  return gemmIds;
+}
+
+miopen::ConvOpType obtainConvDirection(Operation *op) {
+  miopen::ConvOpType opType = miopen::ConvOpType::Fwd;
+  if (isa<miopen::Conv2DOp>(*op)) {
+    opType = miopen::ConvOpType::Fwd;
+  } else if (isa<miopen::Conv2DBwdDataOp>(*op)) {
+    opType = miopen::ConvOpType::BwdData;
+  } else if (isa<miopen::Conv2DBwdWeightOp>(*op)) {
+    opType = miopen::ConvOpType::BwdWeight;
+  }
+  return opType;
+}
+
+mlir::Type obtainConvDataType(Operation *op) {
+  return op->getOperand(1)
+      .getType()
+      .template cast<MemRefType>()
+      .getElementType();
+}
+
 } // namespace miopen
 } // namespace mlir

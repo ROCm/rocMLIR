@@ -40,6 +40,7 @@ private:
   template <typename T> void affixTuningParametersImpl(T &op);
 
   void affixBackwardWeightUtilityKernels(miopen::Conv2DBwdWeightOp &op);
+  void affixBackwardDataUtilityKernels(miopen::Conv2DBwdDataOp &op);
 
   template <typename T>
   std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
@@ -52,7 +53,10 @@ void AffixTuningParameters::runOnOperation() {
   FuncOp func = getOperation();
 
   func.walk([&](miopen::Conv2DOp op) { affixTuningParametersImpl(op); });
-  func.walk([&](miopen::Conv2DBwdDataOp op) { affixTuningParametersImpl(op); });
+  func.walk([&](miopen::Conv2DBwdDataOp op) {
+    affixTuningParametersImpl(op);
+    affixBackwardDataUtilityKernels(op);
+  });
   func.walk([&](miopen::Conv2DBwdWeightOp op) {
     affixTuningParametersImpl(op);
     affixBackwardWeightUtilityKernels(op);
@@ -120,6 +124,26 @@ AffixTuningParameters::fetchDimensions(T &op) {
   return std::make_tuple(y, x, ho, wo, hi, wi, k, c, n);
 }
 
+void AffixTuningParameters::affixBackwardDataUtilityKernels(
+    miopen::Conv2DBwdDataOp &op) {
+  auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
+
+  // In case the gemm ID is -1, override grid_size and block_size for the
+  // utility kernel.
+  if (gemmIdAttr.getInt() < 0) {
+    OpBuilder b(op.getContext());
+
+    // Set grid_size and block_size for utility kernels.
+    op->setAttr("grid_size", b.getI32IntegerAttr(kUtilityKernelGridSize));
+    op->setAttr("block_size", b.getI32IntegerAttr(kUtilityKernelBlockSize));
+    // Set attributes on the function.
+    getOperation()->setAttr("grid_size",
+                            b.getI32IntegerAttr(kUtilityKernelGridSize));
+    getOperation()->setAttr("block_size",
+                            b.getI32IntegerAttr(kUtilityKernelBlockSize));
+  }
+}
+
 void AffixTuningParameters::affixBackwardWeightUtilityKernels(
     miopen::Conv2DBwdWeightOp &op) {
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
@@ -129,8 +153,6 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
   auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
   if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
     OpBuilder b(op.getContext());
-
-    ConvolutionContext convContext = populateConvContext(op);
 
     // get y, x, ho, wo, hi, wi, k, c, n
     int64_t y, x, ho, wo, hi, wi, k, c, n;
@@ -151,9 +173,9 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
     PopulateParamsXDL populateParamsXDL;
     std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
              gemmKExtra) =
-        calculatePaddingKernelSize(
-            gemmMSize, gemmNSize, gemmKSize, convContext.getOpType(),
-            convContext.getDataType(), populateParamsXDL);
+        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
+                                   obtainConvDirection(op),
+                                   obtainConvDataType(op), populateParamsXDL);
 
     // For padding cases, gemmId must be 0.
     if (needExtraPad == true) {
@@ -182,8 +204,6 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
 template <typename T>
 void AffixTuningParameters::affixTuningParametersImpl(T &op) {
   OpBuilder b(op.getContext());
-
-  ConvolutionContext convContext = populateConvContext(op);
 
   // get y, x, ho, wo, hi, wi, k, c, n
   int64_t y, x, ho, wo, hi, wi, k, c, n;
@@ -220,10 +240,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     int64_t blockSize = 0;
     int64_t gridSize = 0;
 
-    LogicalResult status = populateParamsXDL.paramsFromCtx(
-        convContext, blockSizeOverride, perfConfig, validParams,
-        gemmADerivedParam, gemmBDerivedParam, gemmCDerivedParam, blockSize,
-        gridSize);
+    LogicalResult status = populateParamsXDL.obtainTuningParameters(
+        op, blockSizeOverride, perfConfig, validParams, gemmADerivedParam,
+        gemmBDerivedParam, gemmCDerivedParam, blockSize, gridSize);
 
     if (failed(status)) {
       signalPassFailure();
@@ -233,18 +252,20 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("n_per_wave", b.getI32IntegerAttr(validParams.gemmNPerWave));
     op->setAttr("block_size", b.getI32IntegerAttr(blockSize));
 
+    miopen::ConvOpType dir = obtainConvDirection(op);
+    mlir::Type dataType = obtainConvDataType(op);
+
     // Disable kpack in case we need padding kernel.
     std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
              gemmKExtra) =
-        calculatePaddingKernelSize(
-            gemmMSize, gemmNSize, gemmKSize, convContext.getOpType(),
-            convContext.getDataType(), populateParamsXDL);
+        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, dir,
+                                   dataType, populateParamsXDL);
     if (needExtraPad) {
       validParams.gemmKPack = 1;
     }
 
     // Disable kpack in case we do backward data convolution.
-    if (convContext.opType == mlir::miopen::ConvOpType::BwdData) {
+    if (dir == mlir::miopen::ConvOpType::BwdData) {
       validParams.gemmKPack = 1;
     }
     op->setAttr("kpack", b.getI32IntegerAttr(validParams.gemmKPack));
@@ -290,10 +311,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     int64_t gridSize;
 
     PopulateParams populateParams;
-    LogicalResult status = populateParams.paramsFromCtx(
-        convContext, blockSizeOverride, perfConfig, validParams,
-        gemmADerivedParam, gemmBDerivedParam, blockGemmDerivedParam,
-        gemmCDerivedParam, gridSize);
+    LogicalResult status = populateParams.obtainTuningParameters(
+        op, blockSizeOverride, perfConfig, validParams, gemmADerivedParam,
+        gemmBDerivedParam, blockGemmDerivedParam, gemmCDerivedParam, gridSize);
 
     if (failed(status)) {
       signalPassFailure();
