@@ -22,11 +22,16 @@
 
 namespace mlir {
 
+struct DimIndexAndSize {
+  size_t index;
+  int64_t size;
+};
+
 struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   llvm::SmallString<8> arch;
   int num_cu;
   miopen::ConvOpType opType;
-  llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
+  llvm::StringMap<DimIndexAndSize> dimIndexAndSize;
   llvm::SmallVector<int64_t, 0> strideVal;
   llvm::SmallVector<int64_t, 0> dilationVal;
   llvm::SmallVector<int64_t, 0> paddingVal;
@@ -35,17 +40,17 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
 
   ConvolutionContext(const llvm::SmallString<8> &architecture, int numCu,
                      miopen::ConvOpType op,
-                     llvm::StringMap<std::pair<size_t, int64_t>> dim,
+                     llvm::StringMap<DimIndexAndSize> dim,
                      llvm::SmallVector<int64_t, 0> stride,
                      llvm::SmallVector<int64_t, 0> dilation,
                      llvm::SmallVector<int64_t, 0> padding, int gemmid,
                      mlir::Type type)
-      : arch(architecture), num_cu(numCu), opType(op), dimIndexVal(dim),
+      : arch(architecture), num_cu(numCu), opType(op), dimIndexAndSize(dim),
         strideVal(stride), dilationVal(dilation), paddingVal(padding),
         gemmId(gemmid), dataType(type) {}
 
-  llvm::StringMap<std::pair<size_t, int64_t>> getDimIndexVal() const {
-    return dimIndexVal;
+  llvm::StringMap<DimIndexAndSize> getDimIndexAndSize() const {
+    return dimIndexAndSize;
   }
   llvm::SmallVector<int64_t, 0> getPaddingVal() const { return paddingVal; }
   llvm::SmallVector<int64_t, 0> getStrideVal() const { return strideVal; }
@@ -58,15 +63,15 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   // Note: Keep it in sync with miopen/conv/problem_description
   template <class Self, class F> static void visit(Self &&self, F f) {
     // Input tensor dimensions
-    f(std::to_string(self.getDimIndexVal()["ni"].second), "batchsize");
-    f(std::to_string(self.getDimIndexVal()["ci"].second), "in_channels");
-    f(std::to_string(self.getDimIndexVal()["hi"].second), "in_h");
-    f(std::to_string(self.getDimIndexVal()["wi"].second), "in_w");
+    f(std::to_string(self.getDimIndexAndSize()["ni"].size), "batchsize");
+    f(std::to_string(self.getDimIndexAndSize()["ci"].size), "in_channels");
+    f(std::to_string(self.getDimIndexAndSize()["hi"].size), "in_h");
+    f(std::to_string(self.getDimIndexAndSize()["wi"].size), "in_w");
     // Filter tensor dimensions
-    f(std::to_string(self.getDimIndexVal()["y"].second), "fil_h");
-    f(std::to_string(self.getDimIndexVal()["x"].second), "fil_w");
+    f(std::to_string(self.getDimIndexAndSize()["y"].size), "fil_h");
+    f(std::to_string(self.getDimIndexAndSize()["x"].size), "fil_w");
     // Output tensor dimensions
-    f(std::to_string(self.getDimIndexVal()["ko"].second), "out_channels");
+    f(std::to_string(self.getDimIndexAndSize()["ko"].size), "out_channels");
     // Padding
     f(std::to_string(self.getPaddingVal()[0]), "pad_h_l");
     f(std::to_string(self.getPaddingVal()[1]), "pad_h_r");
@@ -81,7 +86,7 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
     f(std::to_string(0), "dilation_d");
     f(std::to_string(0), "bias");
     f(std::to_string(1), "group_count");
-    // TODO use dimIndexVal to generate layout
+    // TODO use dimIndexAndSize to generate layout
     f("'" + std::string("NCHW") + "'", "layout");
 
     mlir::Type dataType = self.getDataType();

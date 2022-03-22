@@ -4,14 +4,15 @@ namespace mlir {
 
 namespace {
 
-void populateDimVal(const ArrayAttr &layoutAttr, const ArrayRef<int64_t> &dim,
-                    llvm::StringMap<std::pair<size_t, int64_t>> &dimIndexVal) {
+void populateDimIndexAndSize(
+    const ArrayAttr &layoutAttr, const ArrayRef<int64_t> &dim,
+    llvm::StringMap<DimIndexAndSize> &dimIndexAndSize) {
   assert(layoutAttr.size() == dim.size());
   size_t dimValSize = layoutAttr.size();
   for (size_t i = 0; i < dimValSize; ++i) {
     auto key = layoutAttr.getValue()[i].cast<StringAttr>().getValue();
     auto value = dim[i];
-    dimIndexVal[key] = std::make_pair(i, value);
+    dimIndexAndSize[key] = {i, value};
   }
 }
 
@@ -48,7 +49,7 @@ ConvolutionContext populateConvContext(Operation *op) {
     gemmId = gemmIdAttr.getInt();
   }
 
-  llvm::StringMap<std::pair<size_t, int64_t>> dimIndexVal;
+  llvm::StringMap<DimIndexAndSize> dimIndexAndSize;
 
   auto filterLayoutAttr =
       op->template getAttrOfType<ArrayAttr>("filter_layout");
@@ -68,22 +69,22 @@ ConvolutionContext populateConvContext(Operation *op) {
   llvm::SmallVector<int64_t, 0> paddingVal;
   populateSeqVal(paddingAttr, paddingVal);
 
-  populateDimVal(
+  populateDimIndexAndSize(
       filterLayoutAttr,
       op->getOperand(0).getType().template cast<MemRefType>().getShape(),
-      dimIndexVal);
-  populateDimVal(
+      dimIndexAndSize);
+  populateDimIndexAndSize(
       inputLayoutAttr,
       op->getOperand(1).getType().template cast<MemRefType>().getShape(),
-      dimIndexVal);
-  populateDimVal(
+      dimIndexAndSize);
+  populateDimIndexAndSize(
       outputLayoutAttr,
       op->getOperand(2).getType().template cast<MemRefType>().getShape(),
-      dimIndexVal);
+      dimIndexAndSize);
 
   auto dataType = obtainConvDataType(op);
 
-  return {archVal,     numCuVal,   opType, dimIndexVal, strideVal,
+  return {archVal,     numCuVal,   opType, dimIndexAndSize, strideVal,
           dilationVal, paddingVal, gemmId, dataType};
 }
 
