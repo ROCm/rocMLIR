@@ -990,9 +990,12 @@ private:
       return failure();
     }
 
-    // XXX FIXME: Ignore KReduction XDLOPS path for forward convolution now.
-    // These M/NPerBlock combinations will result in lowering errors at tuning.
-    if (param.gemmKPack > 1 && ctx.getOpType() == miopen::ConvOpType::Fwd) {
+    // XXX FIXME: Ignore KReduction XDLOPS path for forward and backward weight
+    // convolution now. These M/NPerBlock combinations will result in lowering
+    // errors at tuning.
+    if (param.gemmKPack > 1 &&
+        ((ctx.getOpType() == miopen::ConvOpType::Fwd) ||
+         (ctx.getOpType() == miopen::ConvOpType::BwdWeight))) {
       if ((param.gemmMPerBlock == 16 || param.gemmMPerBlock == 32 ||
            param.gemmMPerBlock == 64) &&
           (param.gemmNPerBlock == 16 || param.gemmNPerBlock == 32 ||
