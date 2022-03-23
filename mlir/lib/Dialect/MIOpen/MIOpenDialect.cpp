@@ -27,6 +27,7 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/MathExtras.h"
 
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -802,9 +803,27 @@ LogicalResult IndexDiffUpdateOp::verify() {
 LogicalResult BufferLoadOp::verify() {
   auto sourceType = source().getType().cast<MemRefType>();
   size_t nDims = sourceType.getRank();
-  if (oobDims().size() != nDims)
-    return emitOpError("Expected oobDims attribute to have " + Twine(nDims) +
-                       " elements");
+  for (llvm::APInt dimVal : leftOobDims().getAsValueRange<IntegerAttr>()) {
+    int32_t dim = dimVal.getSExtValue();
+    if (dim < 0)
+      return emitOpError("Left OOB dimensions must be non-negative, got " +
+                         Twine(dim));
+    if (static_cast<uint32_t>(dim) >= nDims)
+      return emitOpError(
+          "Left OOB dims must refer to one of the " + Twine(nDims) +
+          " dimensions of the memref but got dimension " + Twine(dim));
+  }
+  for (llvm::APInt dimVal : rightOobDims().getAsValueRange<IntegerAttr>()) {
+    int32_t dim = dimVal.getSExtValue();
+    if (dim < 0)
+      return emitOpError("Right OOB dimensions must be non-negative, got " +
+                         Twine(dim));
+    if (static_cast<uint32_t>(dim) >= nDims)
+      return emitOpError(
+          "Right OOB dims must refer to one of the " + Twine(nDims) +
+          " dimensions of the memref but got dimension " + Twine(dim));
+  }
+
   if (coords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
   if (sourceType.getMemorySpaceAsInt() != 0)
@@ -821,9 +840,26 @@ LogicalResult BufferLoadOp::verify() {
 LogicalResult BufferStoreOp::verify() {
   auto destType = dest().getType().cast<MemRefType>();
   size_t nDims = destType.getRank();
-  if (oobDims().size() != nDims)
-    return emitOpError("Expected oobDims attribute to have " + Twine(nDims) +
-                       " elements");
+  for (llvm::APInt dimVal : leftOobDims().getAsValueRange<IntegerAttr>()) {
+    int32_t dim = dimVal.getSExtValue();
+    if (dim < 0)
+      return emitOpError("Left OOB dimensions must be non-negative, got " +
+                         Twine(dim));
+    if (static_cast<uint32_t>(dim) >= nDims)
+      return emitOpError(
+          "Left OOB dims must refer to one of the " + Twine(nDims) +
+          " dimensions of the memref but got dimension " + Twine(dim));
+  }
+  for (llvm::APInt dimVal : rightOobDims().getAsValueRange<IntegerAttr>()) {
+    int32_t dim = dimVal.getSExtValue();
+    if (dim < 0)
+      return emitOpError("Right OOB dimensions must be non-negative, got " +
+                         Twine(dim));
+    if (static_cast<uint32_t>(dim) >= nDims)
+      return emitOpError(
+          "Right OOB dims must refer to one of the " + Twine(nDims) +
+          " dimensions of the memref but got dimension " + Twine(dim));
+  }
   if (coords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
   if (destType.getMemorySpaceAsInt() != 0)

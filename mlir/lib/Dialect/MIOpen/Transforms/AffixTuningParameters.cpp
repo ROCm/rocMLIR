@@ -126,6 +126,8 @@ AffixTuningParameters::fetchDimensions(T &op) {
 
 void AffixTuningParameters::affixBackwardDataUtilityKernels(
     miopen::Conv2DBwdDataOp &op) {
+  using mlir::miopen::kUtilityKernelBlockSize;
+  using mlir::miopen::kUtilityKernelGridSize;
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
 
   // In case the gemm ID is -1, override grid_size and block_size for the
@@ -146,6 +148,7 @@ void AffixTuningParameters::affixBackwardDataUtilityKernels(
 
 void AffixTuningParameters::affixBackwardWeightUtilityKernels(
     miopen::Conv2DBwdWeightOp &op) {
+  using namespace mlir::miopen;
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
   assert(gemmIdAttr);
   int64_t gemmId = gemmIdAttr.getInt();

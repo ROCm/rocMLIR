@@ -8,9 +8,6 @@
 
 func @miopen_gridwise_gemm(%matrix_a : memref<?x?x?xf32>, %matrix_b : memref<?x?x?xf32>, %matrix_c : memref<?x?x?xf32>) {
   miopen.gridwise_gemm(%matrix_a, %matrix_b, %matrix_c) {
-    aOobDims = [false, false, false],
-    bOobDims = [false, false, false],
-    cOobDims = [false, false, false],
     transforms = [[], [], []],
     paddingInfo = #miopen.padding_info<extraM = 0, extraN = 0, extraK = 0, bwdPaddingInfo = "NA">,
 

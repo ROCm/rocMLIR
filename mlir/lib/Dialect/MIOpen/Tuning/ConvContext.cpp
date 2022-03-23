@@ -39,7 +39,7 @@ void populateSeqVal(const ArrayAttr &seqAttr,
 } // namespace
 
 ConvolutionContext populateConvContext(Operation *op) {
-  miopen::ConvOpType opType = obtainConvDirection(op);
+  miopen::ConvOpType opType = miopen::obtainConvDirection(op);
 
   auto archVal = op->template getAttrOfType<StringAttr>("arch").getValue();
   int numCuVal = op->template getAttrOfType<IntegerAttr>("num_cu").getInt();
@@ -82,7 +82,7 @@ ConvolutionContext populateConvContext(Operation *op) {
       op->getOperand(2).getType().template cast<MemRefType>().getShape(),
       dimIndexAndSize);
 
-  auto dataType = obtainConvDataType(op);
+  auto dataType = miopen::obtainConvDataType(op);
 
   return {archVal,     numCuVal,   opType, dimIndexAndSize, strideVal,
           dilationVal, paddingVal, gemmId, dataType};
