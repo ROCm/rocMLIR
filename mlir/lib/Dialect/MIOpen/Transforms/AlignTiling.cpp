@@ -642,14 +642,25 @@ struct ThreadwiseCopyV2RewritePattern
         /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(copyLoop.getBody());
-    Value loaded = b.create<miopen::BufferLoadOp>(loc, vecType, source, srcLeftOob, srcRightOob,
-                                        copyLoop.getLowerCoords(/*domain=*/0));
-    SmallVector<Value, 6> indicies;
-    for (uint i = 0; i < shape.size() - 1; ++i) {
-      indicies.push_back(c0);
+    if (dataPerCopy > 1) {
+      Value loaded = b.create<miopen::BufferLoadOp>(loc, vecType, source, srcLeftOob, srcRightOob,
+                                      copyLoop.getLowerCoords(/*domain=*/0));
+      SmallVector<Value, 6> indicies;
+      for (uint i = 0; i < shape.size() - 1; ++i) {
+        indicies.push_back(c0);
+      }
+      indicies.push_back(copyLoop.getLowerCoords(/*domain=*/1)[0]);
+      b.create<vector::StoreOp>(loc, loaded, dest, indicies);
+    } else {
+      Value loaded = b.create<miopen::BufferLoadOp>(loc, loadType.getElementType(), source, srcLeftOob, srcRightOob,
+                                      copyLoop.getLowerCoords(/*domain=*/0));
+      SmallVector<Value, 6> indicies;
+      for (uint i = 0; i < shape.size() - 1; ++i) {
+        indicies.push_back(c0);
+      }
+      indicies.push_back(copyLoop.getLowerCoords(/*domain=*/1)[0]);
+      b.create<memref::StoreOp>(loc, loaded, dest, indicies);
     }
-    indicies.push_back(copyLoop.getLowerCoords(/*domain=*/1)[0]);
-    b.create<vector::StoreOp>(loc, loaded, dest, indicies);
 
     op.erase();
     return success();
