@@ -367,11 +367,22 @@ protected:
     // in the algorithm.
     int64_t vectorizationSize = 1;
     auto dataType = ctx.getDataType();
-    unsigned dataWidth = dataType.getIntOrFloatBitWidth();
-    // 128 is the upper limit we support in vectorized load/store, which could
-    // be 4 fp32, 8 fp16, or 16 int8
-    const size_t highestPotentialVectorizationLen = 128;
-    vectorizationSize = highestPotentialVectorizationLen / dataWidth;
+
+    // TODO: Revert the vectorizationSize decision with below commented code:
+    // unsigned dataWidth = dataType.getIntOrFloatBitWidth();
+    // const size_t highestPotentialVectorizationLen = 128;
+    // vectorizationSize = highestPotentialVectorizationLen / dataWidth;
+    if (dataType.isF32()) {
+      vectorizationSize = 4;
+    } else if (dataType.isF16() || dataType.isBF16()) {
+      // Nonxdlops on fp16 resnet50 fail for vectorization size > 4
+      // Xdlops is okay on 4, 8
+      vectorizationSize = 4;
+    } else if (dataType.isInteger(8)) {
+      // Nonxdlops on in8 resnet50 fail for vectorization size > 4
+      // Xdlops is okay on 4, 8, 16
+      vectorizationSize = 4;
+    }
 
     // FIXME: set vectorizationSize be 1 for backward data and backward
     // weight for now.
