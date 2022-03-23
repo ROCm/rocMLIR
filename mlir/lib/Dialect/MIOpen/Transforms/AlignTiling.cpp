@@ -78,14 +78,17 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     return Value();
   }
 
-  Value backtraceToAlloc(Value inp) const {
-    if (auto bt = inp.getDefiningOp<miopen::TransformOp>())
-      return backtraceToAlloc(bt->getOperand(0));
-    if (auto bt = inp.getDefiningOp<memref::ExpandShapeOp>())
-      return backtraceToAlloc(bt->getOperand(0));
-    if (auto bt = inp.getDefiningOp<memref::AllocOp>())
-      return inp;
+  typedef SmallVector<miopen::TransformOp, 4> TransformList;
+
+  Value bwTraceTo(Value inp, TransformList *transforms = nullptr) const {
+    if (auto bt = inp.getDefiningOp<miopen::TransformOp>()) {
+      if (transforms)
+        transforms->push_back(bt);
+      return bwTraceTo(bt->getOperand(0), transforms);
+    }
     if (auto bt = inp.getDefiningOp<miopen::GpuAllocOp>())
+      return inp;
+    if (auto bt = inp.getDefiningOp<memref::AllocOp>())
       return inp;
     return Value();
   }
@@ -93,16 +96,21 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
   Value makeThreadwiseCopy(PatternRewriter &b, Operation *miTWCopy,
                            Value inp) const {
     // 0. capture reg alloc for miTWCopy output regs
+    TransformList transforms;
     auto twinp = miTWCopy->getOperand(0);
-    auto miTransform = twinp.getDefiningOp<miopen::TransformOp>();
-    auto miTransformInp = miTransform->getOperand(0);
-    auto miAlloc = miTransformInp.getDefiningOp<miopen::GpuAllocOp>();
+    // auto miTransform = twinp.getDefiningOp<miopen::TransformOp>();
+    // auto miTransformInp = miTransform->getOperand(0);
+    // auto miAlloc = miTransformInp.getDefiningOp<miopen::GpuAllocOp>();
+    auto miAlloc = bwTraceTo(twinp, &transforms);
 
     // 1. clone reg alloc + transform
     BlockAndValueMapping cloningMap;
-    auto nAlloc = b.clone(*miAlloc, cloningMap);
-    cloningMap.map(miTransform->getOperand(0), nAlloc->getResult(0));
-    auto nTransform = b.clone(*miTransform, cloningMap);
+    auto nAlloc = b.clone(*miAlloc.getDefiningOp(), cloningMap);
+    Operation *nTransform = nAlloc;
+    for (auto transform : llvm::reverse(transforms)) {
+      cloningMap.map(transform->getOperand(0), nTransform->getResult(0));
+      nTransform = b.clone(*transform, cloningMap);
+    }
 
     // 2. clone twcopy for <addend> -> regs
     cloningMap.map(miTWCopy->getOperand(0), inp);
@@ -142,10 +150,6 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
       if (auto miTransform = transform.getDefiningOp<miopen::TransformOp>()) {
         cloningMap.map(miTransform->getOperand(0), ret);
         tcopy = b.clone(*miTransform, cloningMap);
-      } else if (auto laReshape =
-                     transform.getDefiningOp<memref::ExpandShapeOp>()) {
-        cloningMap.map(laReshape->getOperand(0), ret);
-        tcopy = b.clone(*laReshape, cloningMap);
       } else {
         assert(0);
       }
@@ -169,29 +173,29 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
       if (auto op = dyn_cast<linalg::GenericOp>(use.getOwner())) {
         // reader
       } else if (!nextVal) {
-        nextVal = getOpResult<memref::ExpandShapeOp>(use);
+        nextVal = getOpResult<miopen::TransformOp>(use);
         transforms.push_back(nextVal);
       }
       cnt++;
     }
-    if (cnt > 2)
-      return null;
-
-    while (nextVal) {
-      // 2. get reader (miopen.transform), return result
-      if (auto transform = backtrace<miopen::TransformOp>(nextVal)) {
-        nextVal = transform;
-        transforms.push_back(nextVal);
-      } else {
-        // 3. get readers (miopen.threadwise_copy)
-        for (auto &use : nextVal.getUses()) {
-          if (!dyn_cast<Ttwcopy>(use.getOwner())) {
-            return null;
+    if (cnt == 2) {
+      while (nextVal) {
+        // 2. get reader (miopen.transform), return result
+        if (auto transform = backtrace<miopen::TransformOp>(nextVal)) {
+          nextVal = transform;
+          transforms.push_back(nextVal);
+        } else {
+          // 3. get readers (miopen.threadwise_copy)
+          bool allTWCopy = true;
+          for (auto &use : nextVal.getUses()) {
+            allTWCopy &= isa<Ttwcopy>(use.getOwner());
           }
+          if (allTWCopy)
+            return inp;
         }
-        return inp;
       }
     }
+    transforms.clear();
     return null;
   }
 
@@ -200,7 +204,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
                              Operation *twcopy) const {
     auto ctx = laGeneric.getContext();
     auto loc = laGeneric.getLoc();
-    Value twout = backtraceToAlloc(twcopy->getOperand(1));
+    Value twout = bwTraceTo(twcopy->getOperand(1));
     auto regType = laIn.getType().template cast<MemRefType>();
     auto laOut = b.create<miopen::GpuAllocOp>(loc, regType);
 
@@ -254,6 +258,12 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
       return fail;
     }
 
+    // 0.2. Sanity check, skip already fused.
+    for (auto inp : laGeneric.inputs()) {
+      if (auto fused = inp.template getDefiningOp<miopen::GpuAllocOp>())
+        return fail;
+    }
+
     Value twinpV1;
     Value twinpV2;
     SmallVector<Value, 5> transforms;
@@ -270,11 +280,13 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         // 1.2. Only one input should trace to twcopy
         assert(!twinpV1);
         twinpV1 = twinp_t;
+        break;
       } else if (auto twinp_t =
                      traceToThreadwiseCopy<miopen::ThreadwiseCopyV2Op>(
                          inp, transforms)) {
         assert(!twinpV2);
         twinpV2 = twinp_t;
+        break;
       }
     }
 
@@ -305,7 +317,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
 
         // 2.6. Reset output on threadwise_copy
         auto mrReshape =
-            transforms.front().getDefiningOp<memref::ExpandShapeOp>();
+            transforms.front().getDefiningOp<miopen::TransformOp>();
         mrReshape->setOperand(0, out);
 
         return success();
@@ -373,7 +385,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
 
         // 2.6. Reset twcopy output to point to old laGeneric output
         auto mrReshape =
-            transforms.front().getDefiningOp<memref::ExpandShapeOp>();
+            transforms.front().getDefiningOp<miopen::TransformOp>();
         mrReshape->setOperand(0, out);
       }
     }
