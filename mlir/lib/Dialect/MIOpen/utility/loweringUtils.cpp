@@ -104,25 +104,21 @@ void propagateTransformOob(TransformMapAttr transformMap,
         lowerRight.insert(lower);
       break;
     }
-    case TransformType::Merge: {
-      uint32_t upper = upperDims[0];
-      // Overflow goes to the biggest dimension
-      if (upperRight.contains(upper))
-        lowerRight.insert(lowerDims[0]);
-      if (upperLeft.contains(upper))
-        for (uint32_t lower : lowerDims)
-          lowerLeft.insert(lower);
-      break;
-    }
+    case TransformType::Merge:
     case TransformType::Unfold: {
       uint32_t upper = upperDims[0];
-      // Unfold can overflow anywhere due to the lack of wraparound
-      bool oobRight = upperRight.contains(upper);
-      bool oobLeft = upperLeft.contains(upper);
-      for (uint32_t lower : lowerDims) {
-        if (oobRight)
-          lowerRight.insert(lower);
-        if (oobLeft)
+      // Overflow goes to the biggest dimension. Unfold doesn't to carry checks,
+      // but the incoming index diffs (if applicable) are spread out to their
+      // respective coordinates before being added, so something that causes
+      // oob on the right will be assigned to lowerDims[0], since the point
+      // just to the right of the in-bounds region has 0 in the coordinates
+      // that aren't first.
+      if (upperRight.contains(upper))
+        lowerRight.insert(lowerDims[0]);
+      if (upperLeft.contains(upper)) {
+        assert(transform.getType() != TransformType::Unfold &&
+               "Can't corently bounds-check unfold from the left");
+        for (uint32_t lower : lowerDims)
           lowerLeft.insert(lower);
       }
       break;

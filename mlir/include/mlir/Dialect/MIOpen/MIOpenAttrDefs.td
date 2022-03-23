@@ -131,7 +131,7 @@ def MIOpen_TransformAttr : MIOpen_Attr<"Transform"> {
           This has the effect of concatentating the dimensions if they are consecutive
         - Unfold{c1, ..., cN} - Has the semantics of merge, but asserts that the lower
           dimensions are consecutive so that the derivative operation does not need
-          to explicitly handle overflow
+          to perform carry checks on indices.
         - AddDim{size} - Adds one upper dimension of the given size that does not
           correspond to any lower dimension.
     }];
