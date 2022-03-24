@@ -42,6 +42,7 @@
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Region.h"
 #include "mlir/Interfaces/LoopLikeInterface.h"
@@ -51,6 +52,7 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include <iterator>
@@ -247,39 +249,52 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
     Value source = op.source();
     auto sourceType = source.getType().cast<MemRefType>();
     ArrayRef<int64_t> sourceShape = sourceType.getShape();
-    Type loadedType = op.result().getType();
+    int64_t sourceNumElems = sourceType.getNumElements();
+    SmallVector<int64_t, 5> sourceStrides;
+    int64_t sourceOffset;
+    if (failed(getStridesAndOffset(sourceType, sourceStrides, sourceOffset))) {
+      return op.emitOpError("Somehow we don't have static strides\n");
+    }
 
+    Type loadedType = op.result().getType();
     SmallVector<Value, 5> coords;
     coords.reserve(op.coords().size());
     llvm::copy(op.coords(), std::back_inserter(coords));
 
     Value zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
-    Value numElemsOp =
-        b.create<ConstantIndexOp>(loc, sourceType.getNumElements());
+    Value falseOp = b.createOrFold<ConstantIntOp>(loc, 0, b.getI1Type());
 
-    // Perform tests for out of bounds reads
+    llvm::SmallDenseSet<uint32_t> leftOob, rightOob;
+    for (llvm::APInt leftOobDim :
+         op.leftOobDims().getAsValueRange<IntegerAttr>())
+      leftOob.insert(leftOobDim.getZExtValue());
+    for (llvm::APInt rightOobDim :
+         op.rightOobDims().getAsValueRange<IntegerAttr>())
+      rightOob.insert(rightOobDim.getZExtValue());
 
-    // If a coordinate is out of bounds, set it to the number of elements in the
-    // memref to ensure we hit the out of bounds check
-    for (auto leftOobDimVal : op.leftOobDims().getAsValueRange<IntegerAttr>()) {
-      uint32_t leftOobDim = leftOobDimVal.getZExtValue();
-      Value test = b.create<CmpIOp>(loc, CmpIPredicate::slt, coords[leftOobDim],
-                                    zeroConstantOp);
-      coords[leftOobDim] =
-          b.create<SelectOp>(loc, test, numElemsOp, coords[leftOobDim]);
-    }
-    for (llvm::APInt rightOobDimVal :
-         op.rightOobDims().getAsValueRange<IntegerAttr>()) {
-      uint32_t rightOobDim = rightOobDimVal.getZExtValue();
-      // The buffer op itself will throw out the oob in the outermost dimension
-      // since indices will overflow
-      if (rightOobDim != 0) {
+    // If a coordinate is out of bounds, set that coordinate to the number of
+    // elements in the buffer over the stride in that dimension, ensuring
+    // we get an out of bounds store
+    for (uint32_t i = 0, e = coords.size(); i < e; ++i) {
+      // oob checks on the right for dimension 0 are already handled by the
+      // buffer intrinsic
+      Value isOob = falseOp;
+      if (rightOob.contains(i) && i != 0) {
         Value test = b.create<CmpIOp>(
-            loc, CmpIPredicate::sge, coords[rightOobDim],
-            b.create<ConstantIndexOp>(loc, sourceShape[rightOobDim]));
-        coords[rightOobDim] =
-            b.create<SelectOp>(loc, test, numElemsOp, coords[rightOobDim]);
+            loc, CmpIPredicate::sge, coords[i],
+            b.createOrFold<ConstantIndexOp>(loc, sourceShape[i]));
+        isOob = b.createOrFold<OrIOp>(loc, test, isOob);
+      }
+      if (leftOob.contains(i)) {
+        Value test = b.create<CmpIOp>(loc, CmpIPredicate::slt, coords[i],
+                                      zeroConstantOp);
+        isOob = b.createOrFold<OrIOp>(loc, test, isOob);
+      }
+      if (isOob != falseOp) {
+        Value oobConst =
+            b.create<ConstantIndexOp>(loc, sourceNumElems / sourceStrides[i]);
+        coords[i] = b.create<SelectOp>(loc, isOob, oobConst, coords[i]);
       }
     }
 
@@ -310,37 +325,50 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
     Value dest = op.dest();
     auto destType = dest.getType().cast<MemRefType>();
     ArrayRef<int64_t> destShape = destType.getShape();
+    int64_t destNumElems = destType.getNumElements();
+    SmallVector<int64_t, 5> destStrides;
+    int64_t destOffset;
+    if (failed(getStridesAndOffset(destType, destStrides, destOffset))) {
+      return op.emitOpError("Somehow we don't have static strides\n");
+    }
+
     SmallVector<Value, 5> coords;
     coords.reserve(op.coords().size());
     llvm::copy(op.coords(), std::back_inserter(coords));
 
     Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
+    Value falseOp = b.createOrFold<ConstantIntOp>(loc, 0, b.getI1Type());
 
-    Value numElemsOp =
-        b.create<ConstantIndexOp>(loc, destType.getNumElements());
+    llvm::SmallDenseSet<uint32_t> leftOob, rightOob;
+    for (llvm::APInt leftOobDim :
+         op.leftOobDims().getAsValueRange<IntegerAttr>())
+      leftOob.insert(leftOobDim.getZExtValue());
+    for (llvm::APInt rightOobDim :
+         op.rightOobDims().getAsValueRange<IntegerAttr>())
+      rightOob.insert(rightOobDim.getZExtValue());
 
     // If a coordinate is out of bounds, set that coordinate to the number of
-    // elements in the buffer, ensuring we get an out of bounds store
-    for (llvm::APInt leftOobDimVal :
-         op.leftOobDims().getAsValueRange<IntegerAttr>()) {
-      uint32_t leftOobDim = leftOobDimVal.getZExtValue();
-      Value test = b.create<CmpIOp>(loc, CmpIPredicate::slt, coords[leftOobDim],
-                                    zeroConstantOp);
-      coords[leftOobDim] =
-          b.create<SelectOp>(loc, test, numElemsOp, coords[leftOobDim]);
-    }
-    for (llvm::APInt rightOobDimVal :
-         op.rightOobDims().getAsValueRange<IntegerAttr>()) {
-      uint32_t rightOobDim = rightOobDimVal.getZExtValue();
-      // Set the coordinate to the number of elements in the buffer to ensure
-      // oob Dimension 0 doesn't need an explicit test because the buffer
-      // structure will drop the write implicitly
-      if (rightOobDim != 0) {
+    // elements in the buffer over the stride in that dimension, ensuring
+    // we get an out of bounds store
+    for (uint32_t i = 0, e = coords.size(); i < e; ++i) {
+      // oob checks on the right for dimension 0 are already handled by the
+      // buffer intrinsic
+      Value isOob = falseOp;
+      if (rightOob.contains(i) && i != 0) {
         Value test = b.create<CmpIOp>(
-            loc, CmpIPredicate::sge, coords[rightOobDim],
-            b.createOrFold<ConstantIndexOp>(loc, destShape[rightOobDim]));
-        coords[rightOobDim] =
-            b.create<SelectOp>(loc, test, numElemsOp, coords[rightOobDim]);
+            loc, CmpIPredicate::sge, coords[i],
+            b.createOrFold<ConstantIndexOp>(loc, destShape[i]));
+        isOob = b.createOrFold<OrIOp>(loc, test, isOob);
+      }
+      if (leftOob.contains(i)) {
+        Value test = b.create<CmpIOp>(loc, CmpIPredicate::slt, coords[i],
+                                      zeroConstantOp);
+        isOob = b.createOrFold<OrIOp>(loc, test, isOob);
+      }
+      if (isOob != falseOp) {
+        Value oobConst =
+            b.create<ConstantIndexOp>(loc, destNumElems / destStrides[i]);
+        coords[i] = b.create<SelectOp>(loc, isOob, oobConst, coords[i]);
       }
     }
 
