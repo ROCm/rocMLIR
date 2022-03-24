@@ -23,6 +23,46 @@ namespace mlir {
 namespace miopen {
 
 inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo) {
+#if 1
+  int64_t gemm_kpack = 4;
+  int64_t g = 1;
+  int64_t k = 1024;
+  int64_t c = 1024;
+  int64_t y = 1;
+  int64_t x = 1;
+  int64_t m_per_block = 128;
+  int64_t n_per_block = 128;
+  int64_t k_per_block = 4;
+  int64_t k_per_group = k / g;
+  int64_t c_per_group = c / g;
+  int64_t gemm_m = k_per_group;
+  int64_t gemm_n = c_per_group * y * x;
+  int64_t gemm_k_block_times_gemm_k_total = n * ho * wo;
+  int64_t grid_size_without_split_gemm_k = g * (gemm_m / m_per_block) * (gemm_n / n_per_block);
+  int64_t max_grid_size = 20 * 120;
+
+  int64_t gemm_k_block = std::max(max_grid_size / grid_size_without_split_gemm_k, static_cast<int64_t>(1));
+  gemm_k_block = std::min(gemm_k_block, n);
+  int64_t gemm_k = 0;
+
+  for(; gemm_k_block > 1; gemm_k_block--) {
+    if (n % gemm_k_block != 0)
+      continue;
+
+    if (gemm_k_block_times_gemm_k_total % (gemm_k_block * gemm_kpack) != 0)
+      continue;
+
+    gemm_k = gemm_k_block_times_gemm_k_total / (gemm_k_block * gemm_kpack);
+
+    if (!(gemm_k % k_per_block == 0))
+      continue;
+
+    break;
+  }
+
+  llvm::errs() << "\n gemmKBlocks: " << gemm_k_block << " gemmK: " << gemm_k << " ho: " << ho << " wo: " << wo << "\n";
+  return gemm_k_block;
+#else
   int64_t gemmK = n * ho * wo;
   int64_t gemmKBlocks = 1;
   if (gemmK % 16 == 0) {
@@ -40,9 +80,10 @@ inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo) {
   // not less than 1
   gemmKBlocks = std::max((__int64_t)1, gemmKBlocks);
 
-  // llvm::errs() << "\n gemmKBlocks: " << gemmKBlocks << " gemmK: " << gemmK
-  //               << " ho: " << ho << " wo: " << wo << "\n";
+  llvm::errs() << "\n gemmKBlocks: " << gemmKBlocks << " gemmK: " << gemmK
+                << " ho: " << ho << " wo: " << wo << "\n";
   return gemmKBlocks;
+#endif
 }
 
 /// Unwrap a value from the transforms surrounding it, gathering up the
