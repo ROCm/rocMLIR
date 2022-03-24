@@ -1159,7 +1159,6 @@ static mlir::Value convertBF16ToFloat(OpBuilder bt0, mlir::Value loadOp) {
 static mlir::Value convertFloatToBF16ToFloat(OpBuilder bt0,
                                              mlir::Value loadOp) {
   auto loc = bt0.getUnknownLoc();
-  mlir::Type i16 = bt0.getIntegerType(16);
   mlir::Type i32 = bt0.getI32Type();
   loadOp = bt0.create<arith::BitcastOp>(loc, i32, loadOp);
   // <loadOp> = <loadOp> & FFFF0000
@@ -1412,6 +1411,9 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     } else if (elemFType.isBF16()) {
       apVal.convert(llvm::APFloat::BFloat(), APFloat::rmNearestTiesToEven,
                     &ignored);
+      // HACK for bf16 since BF16 isn't supported by x86 isel
+      llvm::APFloat floatVal(apVal.convertToFloat());
+      return b.create<arith::ConstantFloatOp>(loc, floatVal, floatType);
     }
     return b.create<arith::ConstantFloatOp>(loc, apVal, elemFType);
   };
@@ -1425,12 +1427,6 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     fval015 = getFVal(0.15f);
     fval000001 = getFVal(0.000001f);
     fval001 = getFVal(0.001f);
-    if (elemType.isBF16()) {
-      fval00 = convertBF16ToFloat(b, fval00);
-      fval015 = convertBF16ToFloat(b, fval015);
-      fval000001 = convertBF16ToFloat(b, fval000001);
-      fval001 = convertBF16ToFloat(b, fval001);
-    }
   }
   // %%c1 = constant 1 : index
   auto c1IndexOp = b.create<arith::ConstantIndexOp>(loc, 1);
