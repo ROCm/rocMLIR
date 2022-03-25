@@ -68,7 +68,7 @@ static bool isConstantZero(Value v) {
 }
 
 static Value expandMemRef(ConversionPatternRewriter &rw, Operation *op,
-                          Value operand, int idx = 4) {
+                          Value operand, uint32_t idx = 4) {
   auto loc = op->getLoc();
   auto oprType = operand.getType().template cast<ShapedType>();
   if (!oprType.hasStaticShape()) {
@@ -78,32 +78,9 @@ static Value expandMemRef(ConversionPatternRewriter &rw, Operation *op,
   }
   ArrayRef<int64_t> shape = oprType.getShape();
 
-  SmallVector<SmallString<8>> dimNames;
-  SmallVector<StringRef> dimNameRefs;
-  dimNames.reserve(shape.size());
-  dimNameRefs.reserve(shape.size());
-  for (size_t i = 0, e = shape.size(); i < e; ++i) {
-    SmallString<8> dimName;
-    ("dim" + Twine(i)).toVector(dimName);
-    dimNames.emplace_back(std::move(dimName));
-    dimNameRefs.push_back(StringRef(dimNames[i]));
-  }
+  miopen::BottomUpCTBuilder transform(rw, shape, loc);
+  transform.expand({idx}, {1});
 
-  miopen::BottomUpCTBuilder transform(rw, dimNameRefs, shape, loc);
-  llvm::StringMap<uint32_t> upperNames;
-  if (idx == 0) {
-    StringRef expandedDim = dimNameRefs[0];
-    upperNames = miopen::expandNamesInPlace(
-        dimNameRefs, {{expandedDim, {"g", expandedDim}}});
-  } else {
-    StringRef expandedDim = dimNameRefs[idx - 1];
-    upperNames = miopen::expandNamesInPlace(
-        dimNameRefs, {{expandedDim, {expandedDim, "g"}}});
-  }
-
-  miopen::BottomUpCTTopDimsWrapper wrapper(transform, upperNames);
-  wrapper.passThrough(dimNameRefs);
-  wrapper.addDim("g", 1);
   return rw.create<miopen::TransformOp>(loc, operand, transform.get());
 }
 

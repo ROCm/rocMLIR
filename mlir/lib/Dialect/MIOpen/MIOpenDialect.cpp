@@ -284,6 +284,11 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
       return emitError() << "The added dimension cannot be mapped anywhere";
     }
     break;
+  case TransformType::Broadcast:
+    if (upperDims.size() != lowerDims.size()) {
+      return emitError() << "Broadcast must have same rank";
+    }
+    break;
   }
   return success();
 }

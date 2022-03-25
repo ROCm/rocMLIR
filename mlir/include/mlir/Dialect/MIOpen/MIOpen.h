@@ -142,6 +142,8 @@ public:
 protected:
   CoordTransformsBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
                          ArrayRef<int64_t> startShape, mlir::Location loc);
+  CoordTransformsBuilder(mlir::Builder &builder, ArrayRef<int64_t> startShape,
+                         mlir::Location loc);
 
   template <class T, typename = typename std::enable_if<std::is_base_of<
                          CoordTransformsBuilder, T>::value>::type>
@@ -160,6 +162,8 @@ protected:
                              SmallVectorImpl<int64_t> &lowerBounds) = 0;
 
   virtual int64_t paddingSign() const = 0;
+
+  llvm::SmallVector<SmallString<8>, 8> &nStartNames() { return startNames; }
 
   uint32_t nStartDims();
   uint32_t nEndDims();
@@ -250,6 +254,10 @@ public:
                     ArrayRef<int64_t> startShape, mlir::Location loc)
       : CoordTransformsBuilder(builder, startNames, startShape, loc) {}
 
+  BottomUpCTBuilder(mlir::Builder &builder, ArrayRef<int64_t> startShape,
+                    mlir::Location loc)
+      : CoordTransformsBuilder(builder, startShape, loc) {}
+
   static BottomUpCTBuilder above(BottomUpCTBuilder &previous,
                                  TransformMapAttr &result) {
     return CoordTransformsBuilder::nextTransforms(previous,
@@ -258,6 +266,10 @@ public:
 
   // Defines a dimension that is not mapped to any coordinates in the output
   void addDim(StringRef name, uint32_t dim, int64_t size);
+
+  void expand(ArrayRef<uint32_t> dims, ArrayRef<int64_t> sizes);
+
+  void broadcast(ArrayRef<uint32_t> bcastDims, ArrayRef<int64_t> endDims);
 
   void slice(ArrayRef<StringRef> upperNames, ArrayRef<StringRef> lowerNames,
              ArrayRef<int64_t> begins, ArrayRef<int64_t> ends);

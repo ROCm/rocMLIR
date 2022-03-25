@@ -12,8 +12,10 @@ module {
     }
      : (tensor<128x32x32x8xf32>, tensor<128x3x3x8xf32>, tensor<128xf32>) -> tensor<128x30x30x128xf32>
 
-    %1 = "tosa.reluN"(%0) {
+    %1 = "tosa.clamp"(%0) {
+      min_fp = 0.0 : f32,
       max_fp = 6.0 : f32,
+      min_int = 0 : i64,
       max_int = 6 : i64
     }
      : (tensor<128x30x30x128xf32>) -> tensor<128x30x30x128xf32>

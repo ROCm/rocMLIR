@@ -112,6 +112,17 @@ AffineMapAttr assembleMapFor(Builder &b, ArrayRef<TransformAttr> transforms,
       assert(upperDims.size() == 1 && lowerDims.size() == 0 &&
              "Invalid AddDim");
       // dimension is ignored, do nothing
+    } else if (type == TransformType::Broadcast) {
+      // Compute lower dimension strides.
+      for (auto pair : llvm::enumerate(lowerBounds)) {
+        uint32_t dim = pair.index();
+        int64_t value = pair.value();
+        AffineExpr expr = b.getAffineDimExpr(dim);
+        if (value != upperBounds[dim]) {
+          expr = expr % b.getAffineConstantExpr(value);
+        }
+        affExprsMap.insert({dim, expr});
+      }
     } else {
       llvm_unreachable("Handled all the cases in affine map building");
     }
@@ -149,6 +160,25 @@ CoordTransformsBuilder::CoordTransformsBuilder(
     startNames.push_back(value);
     startIndices.insert_or_assign(value, index);
     startShape.push_back(startShapeArg[index]);
+  }
+}
+
+CoordTransformsBuilder::CoordTransformsBuilder(mlir::Builder &builder,
+                                               ArrayRef<int64_t> startShapeArg,
+                                               mlir::Location loc)
+    : b(builder), result(), loc(loc), startIndices(), startNames(),
+      startShape(), endIndices(), endNames(), endShape() {
+  for (auto pair : llvm::enumerate(startShapeArg)) {
+    uint32_t index = pair.index();
+    int64_t value = pair.value();
+
+    SmallString<8> name;
+    ("dim" + Twine(index)).toVector(name);
+
+    startNames.push_back(name);
+    startIndices.insert_or_assign(name, index);
+
+    startShape.push_back(value);
   }
 }
 
@@ -521,6 +551,55 @@ int64_t BottomUpCTBuilder::paddingSign() const {
 void BottomUpCTBuilder::addDim(StringRef name, uint32_t dim, int64_t size) {
   defineDim(name, dim, size);
   addTransform(TransformType::AddDim, {size}, {}, {}, {name}, {dim});
+}
+
+void BottomUpCTBuilder::expand(ArrayRef<uint32_t> dims, ArrayRef<int64_t> sizes) {
+  SmallVector<StringRef, 8> ptNames;
+  SmallVector<uint32_t, 8> ptDims;
+  uint32_t dim = 0;
+  for (uint32_t i = 0; i < nStartDims(); ++i) {
+    ptNames.push_back(nStartNames()[i]);
+    while (std::find(dims.begin(), dims.end(), dim) != dims.end())
+      dim++;
+    ptDims.push_back(dim++);
+  }
+  passThrough(ptNames, ptDims, ptNames);
+
+  for (auto tuple : llvm::zip(dims, sizes)) {
+    auto dim = std::get<0>(tuple);
+    auto size = std::get<1>(tuple);
+    SmallString<8> name;
+    ("exp" + Twine(dim)).toVector(name);
+
+    addDim(name, dim, size);
+  }
+}
+
+void BottomUpCTBuilder::broadcast(ArrayRef<uint32_t> bcastDims,
+                                  ArrayRef<int64_t> endDims) {
+  SmallVector<int64_t, 8> params;
+  SmallVector<StringRef, 8> lowerNames;
+  SmallVector<uint32_t, 8> lowerDims;
+  SmallVector<StringRef, 8> upperNames;
+  SmallVector<uint32_t, 8> upperDims;
+  for (auto dim : bcastDims) {
+    params.push_back(dim);
+  }
+  for (auto pair : llvm::enumerate(endDims)) {
+    uint32_t dim = pair.index();
+    uint64_t size = pair.value();
+    uint64_t lsize = size;
+    if (std::find(bcastDims.begin(), bcastDims.end(), dim) != bcastDims.end())
+      lsize = 1;
+    auto &name = nStartNames()[dim];
+    lowerNames.push_back(name);
+    lowerDims.push_back(lsize);
+    upperNames.push_back(name);
+    upperDims.push_back(size);
+    defineDim(upperNames[dim], dim, size);
+  }
+  addTransform(TransformType::Broadcast, params, upperNames, upperDims,
+               lowerNames, lowerDims);
 }
 
 void BottomUpCTBuilder::slice(ArrayRef<StringRef> upperNames,

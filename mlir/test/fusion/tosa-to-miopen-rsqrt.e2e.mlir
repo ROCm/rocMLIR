@@ -12,10 +12,7 @@ module {
     }
      : (tensor<128x32x32x8xf32>, tensor<128x3x3x8xf32>, tensor<128xf32>) -> tensor<128x30x30x128xf32>
 
-    %1 = "tosa.reluN"(%0) {
-      max_fp = 6.0 : f32,
-      max_int = 6 : i64
-    }
+    %1 = "tosa.rsqrt"(%0)
      : (tensor<128x30x30x128xf32>) -> tensor<128x30x30x128xf32>
  
     return %1 : tensor<128x30x30x128xf32>
