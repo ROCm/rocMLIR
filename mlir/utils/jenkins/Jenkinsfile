@@ -22,7 +22,7 @@ void buildMIOpen(String cmakeOpts) {
 }
 
 void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
-    git branch: 'mlir-bwd-no-set-zero', poll: false,\
+    git branch: 'develop', poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
     cmake arguments: "-P install_deps.cmake --minimum ${prefixOpt}",\
         installation: "InSearchPath"
@@ -36,7 +36,7 @@ void buildMIOpenWithMLIR() {
         installation: 'InSearchPath', workingDir: 'build'
 
     dir('MIOpen') {
-        git branch: 'mlir-bwd-no-set-zero', poll: false,\
+        git branch: 'develop', poll: false,\
             url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
         sh 'sed -i "/ROCmSoftwarePlatform\\/llvm-project-mlir/d" ./requirements.txt'
         cmake arguments: "-P install_deps.cmake --minimum --prefix ${WORKSPACE}/MIOpenDeps",\
