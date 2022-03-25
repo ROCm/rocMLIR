@@ -1020,6 +1020,9 @@ struct IndexDiffUpdateRewritePattern
         }
       } else if (transformation == TransformType::AddDim) {
         // Do nothing - the dimension will be dropped by the code below
+      } else if (transformation == TransformType::Broadcast) {
+        // lower broadcast dims, uses map
+        assert(0);
       }
     } // for (auto mapping : transforms.getOps())
 

@@ -27,6 +27,7 @@ void propagateTransformOob(TransformMapAttr transformMap,
 
     switch (transform.getType()) {
     case TransformType::PassThrough:
+    case TransformType::Broadcast: // is this right??
     case TransformType::Slice:
     case TransformType::AddDim: {
       // Zip ends at end of shortes array, allowing addDim here

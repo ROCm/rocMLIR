@@ -47,12 +47,12 @@ void miopen::addHighLevelPipeline(PassManager &pm, bool toMIOpen) {
   }
   pm.addPass(tosa::createTosaToLinalgNamed());
   pm.addPass(tosa::createTosaToLinalg());
-  pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(createLinalgBufferizePass());
   pm.addPass(arith::createArithmeticBufferizePass());
   pm.addPass(createFuncBufferizePass());
   pm.addPass(bufferization::createBufferResultsToOutParamsPass());
   pm.addPass(bufferization::createFinalizingBufferizePass());
+  pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(miopen::createMIOpenCopyOptPass());
 }
 

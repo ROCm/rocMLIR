@@ -59,10 +59,11 @@ def Unmerge : I32EnumAttrCase<"Unmerge", 4>;
 def Merge : I32EnumAttrCase<"Merge", 5>;
 def Unfold : I32EnumAttrCase<"Unfold", 6>;
 def AddDim : I32EnumAttrCase<"AddDim", 7>;
+def Broadcast : I32EnumAttrCase<"Broadcast", 8>;
 
 def TransformType : MIOpen_I32Enum<"TransformType",
     "The operation type for a coordinate transformation",
-    [PassThrough, Pad, Slice, Embed, Unmerge, Merge, Unfold, AddDim]>;
+    [PassThrough, Pad, Slice, Embed, Unmerge, Merge, Unfold, AddDim, Broadcast]>;
 
 /// StoreMethod
 
@@ -134,6 +135,8 @@ def MIOpen_TransformAttr : MIOpen_Attr<"Transform"> {
           to perform carry checks on indices.
         - AddDim{size} - Adds one upper dimension of the given size that does not
           correspond to any lower dimension.
+        - Broadcast{c1, c2, ..., cN} - Broadcast lower dimensions of size 1 to
+          upper dimensions.
     }];
 
     let parameters = (ins
