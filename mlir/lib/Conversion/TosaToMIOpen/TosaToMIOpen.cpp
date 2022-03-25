@@ -15,6 +15,8 @@
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
+#include "mlir/Dialect/MIOpen/utility/builderUtils.h"
+#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
@@ -66,40 +68,43 @@ static bool isConstantZero(Value v) {
 }
 
 static Value expandMemRef(ConversionPatternRewriter &rw, Operation *op,
-                          Value operand, uint32_t idx = 4) {
-  auto context = rw.getContext();
+                          Value operand, int idx = 4) {
+  auto loc = op->getLoc();
   auto oprType = operand.getType().template cast<ShapedType>();
   if (!oprType.hasStaticShape()) {
     (void)rw.notifyMatchFailure(
         op, "tosa to miopen conversion expects statically shaped tensors");
     return Value();
   }
-  auto shape = oprType.getShape();
+  ArrayRef<int64_t> shape = oprType.getShape();
 
-  idx--;
-
-  // expShape = shape + 1 dim
-  //  ex:  <NxHxWxCxf32> -> <Nx1xHxWxCxf32>
-  SmallVector<int64_t, 5> expShape;
-  // reassocs = shape w/ 1 split
-  //  ex:  [0,1,[2,3],4]
-  uint32_t d0 = 0;
-  SmallVector<ReassociationExprs, 5> reassocs;
-  for (uint32_t dim = 0; dim < shape.size(); ++dim) {
-    expShape.push_back(shape[dim]);
-    if (dim == idx) {
-      expShape.push_back(1);
-      reassocs.push_back(
-          {getAffineDimExpr(d0++, context), getAffineDimExpr(d0++, context)});
-    } else {
-      reassocs.push_back({getAffineDimExpr(d0++, context)});
-    }
+  SmallVector<SmallString<8>> dimNames;
+  SmallVector<StringRef> dimNameRefs;
+  dimNames.reserve(shape.size());
+  dimNameRefs.reserve(shape.size());
+  for (size_t i = 0, e = shape.size(); i < e; ++i) {
+    SmallString<8> dimName;
+    ("dim" + Twine(i)).toVector(dimName);
+    dimNames.emplace_back(std::move(dimName));
+    dimNameRefs.push_back(StringRef(dimNames[i]));
   }
 
-  auto newType = MemRefType::get(expShape, oprType.getElementType());
-  auto oprExpand = rw.create<memref::ExpandShapeOp>(op->getLoc(), newType,
-                                                    operand, reassocs);
-  return oprExpand;
+  miopen::BottomUpCTBuilder transform(rw, dimNameRefs, shape, loc);
+  llvm::StringMap<uint32_t> upperNames;
+  if (idx == 0) {
+    StringRef expandedDim = dimNameRefs[0];
+    upperNames = miopen::expandNamesInPlace(
+        dimNameRefs, {{expandedDim, {"g", expandedDim}}});
+  } else {
+    StringRef expandedDim = dimNameRefs[idx - 1];
+    upperNames = miopen::expandNamesInPlace(
+        dimNameRefs, {{expandedDim, {expandedDim, "g"}}});
+  }
+
+  miopen::BottomUpCTTopDimsWrapper wrapper(transform, upperNames);
+  wrapper.passThrough(dimNameRefs);
+  wrapper.addDim("g", 1);
+  return rw.create<miopen::TransformOp>(loc, operand, transform.get());
 }
 
 static LogicalResult
@@ -230,8 +235,6 @@ public:
       return failure();
     }
 
-    rw.replaceOp(op, output);
-
     // test for zero bias, and ignore
     if (!isConstantZero(op.getOperand(2))) {
       // non-zero bias, replace with tosa.add w/ broadcast
@@ -259,6 +262,9 @@ public:
       output = rw.create<tosa::AddOp>(loc, op.getType(),
                                       ValueRange{conv_output_t, bias_t});
     }
+
+    rw.replaceOp(op, output);
+
     return success();
   }
 };
