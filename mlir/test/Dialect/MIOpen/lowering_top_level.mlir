@@ -22,6 +22,8 @@
 // CHECK-DAG: #[[$MAP_BWD_DATA_FIL1_NO_PAD:transform_map[0-9]+]] = {{.*}}by[#miopen.transform<PassThrough ["g", "k", "c"] at [0, 1, 2] -> ["g", "k", "c"] at [0, 1, 2]>, #miopen.transform<Embed{1, 1} ["ydot", "ytilda"] at [3, 4] -> ["y"] at [3]>, #miopen.transform<Embed{1, 1} ["xdot", "xtilda"] at [5, 6] -> ["x"] at [4]>]
 // CHECK-DAG: #[[$MAP_BWD_DATA_FIL2_NO_PAD:transform_map[0-9]+]] = {{.*}}by[#miopen.transform<PassThrough ["g", "k", "c"] at [0, 1, 2] -> ["g", "k", "c"] at [0, 1, 2]>, #miopen.transform<Slice{0, 1, 0, 1} ["ydotslice", "xdotslice"] at [3, 5] -> ["ydot", "xdot"] at [3, 5]>, #miopen.transform<Slice{0, 1, 0, 1} ["ytildaslice", "xtildaslice"] at [4, 6] -> ["ytilda", "xtilda"] at [4, 6]>]
 // CHECK-DAG: #[[$MAP_BWD_DATA_FIL3_NO_PAD:transform_map[0-9]+]] = {{.*}}by[#miopen.transform<PassThrough ["gemmG"] at [0] -> ["g"] at [0]>, #miopen.transform<Merge{1024, 1, 1} ["gemmK"] at [1] -> ["k", "ydotslice", "xdotslice"] at [1, 3, 5]>, #miopen.transform<Merge{1024, 1, 1} ["gemmM"] at [2] -> ["c", "ytildaslice", "xtildaslice"] at [2, 4, 6]>]
+// CHECK-DAG: #[[$MAP_BWD_DATA_FIL4_NO_PAD:transform_map[0-9]+]] = {{.*}}by[#miopen.transform<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, #miopen.transform<PassThrough ["gemmM"] at [2] -> ["gemmM"] at [2]>, #miopen.transform<Unmerge{256, 4} ["gemmK", "gemmKPack"] at [1, 3] -> ["gemmK"] at [1]>]
+
 // CHECK-DAG: #[[$MAP_BWD_DATA_IN1_NO_PAD:transform_map[0-9]+]] = {{.*}}by[#miopen.transform<PassThrough ["gi", "ni", "ci"] at [1, 0, 2] -> ["gi", "ni", "ci"] at [1, 0, 2]>, #miopen.transform<Pad{0, 0, 0, 0} ["hipad", "wipad"] at [3, 4] -> ["hi", "wi"] at [3, 4]>
 // CHECK-DAG: #[[$MAP_BWD_DATA_IN2_NO_PAD:transform_map[0-9]+]] = {{.*}}by[#miopen.transform<PassThrough ["gi", "ni", "ci"] at [1, 0, 2] -> ["gi", "ni", "ci"] at [1, 0, 2]>, #miopen.transform<Embed{1, 1} ["ytilda", "htilda"] at [3, 4] -> ["hipad"] at [3]>, #miopen.transform<Embed{1, 1} ["xtilda", "wtilda"] at [5, 6] -> ["wipad"] at [4]>]
 // CHECK-DAG: #[[$MAP_BWD_DATA_IN3_NO_PAD:transform_map[0-9]+]] = {{.*}}by[#miopen.transform<PassThrough ["gi", "ni", "ci"] at [1, 0, 2] -> ["gi", "ni", "ci"] at [1, 0, 2]>, #miopen.transform<Slice{0, 1, 0, 1} ["yslice", "xslice"] at [3, 5] -> ["ytilda", "xtilda"] at [3, 5]>, #miopen.transform<Slice{0, 14, 0, 14} ["hslice", "wslice"] at [4, 6] -> ["htilda", "wtilda"] at [4, 6]>]
@@ -29,6 +31,7 @@
 // CHECK-DAG: #[[$MAP_BWD_DATA_OUT1_NO_PAD:transform_map[0-9]+]] = {{.*}}by[#miopen.transform<PassThrough ["go", "no", "ko"] at [1, 0, 2] -> ["go", "no", "ko"] at [1, 0, 2]>, #miopen.transform<Embed{-1, 1} ["ydot", "htilda"] at [3, 4] -> ["ho"] at [3]>, #miopen.transform<Embed{-1, 1} ["xdot", "wtilda"] at [5, 6] -> ["wo"] at [4]>]
 // CHECK-DAG: #[[$MAP_BWD_DATA_OUT2_NO_PAD:transform_map[0-9]+]] = {{.*}}by[#miopen.transform<PassThrough ["go", "no", "ko"] at [1, 0, 2] -> ["go", "no", "ko"] at [1, 0, 2]>, #miopen.transform<Slice{0, 1, 0, 1} ["yslice", "xslice"] at [3, 5] -> ["ydot", "xdot"] at [3, 5]>, #miopen.transform<Slice{0, 14, 0, 14} ["hslice", "wslice"] at [4, 6] -> ["htilda", "wtilda"] at [4, 6]>]
 // CHECK-DAG: #[[$MAP_BWD_DATA_OUT3_NO_PAD:transform_map[0-9]+]] = {{.*}}by[#miopen.transform<PassThrough ["gemmG"] at [0] -> ["go"] at [1]>, #miopen.transform<Merge{1024, 1, 1} ["gemmK"] at [1] -> ["ko", "yslice", "xslice"] at [2, 3, 5]>, #miopen.transform<Merge{128, 14, 14} ["gemmN"] at [2] -> ["no", "hslice", "wslice"] at [0, 4, 6]>]
+// CHECK-DAG: #[[$MAP_BWD_DATA_OUT4_NO_PAD:transform_map[0-9]+]] = {{.*}}by[#miopen.transform<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, #miopen.transform<PassThrough ["gemmN"] at [2] -> ["gemmN"] at [2]>, #miopen.transform<Unmerge{256, 4} ["gemmK", "gemmKPack"] at [1, 3] -> ["gemmK"] at [1]>]
 
 // CHECK-DAG: #[[$MAP_BWD_DATA_FIL_PAD_MN:transform_map[0-9]+]] = {{.*}}by[#miopen.transform<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, #miopen.transform<PassThrough ["gemmK"] at [1] -> ["gemmK"] at [1]>, #miopen.transform<Pad{0, 61} ["gemmMPad"] at [2] -> ["gemmM"] at [2]>]
 // CHECK-DAG: #[[$MAP_BWD_DATA_IN_PAD_MN:transform_map[0-9]+]] = {{.*}}by[#miopen.transform<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, #miopen.transform<Pad{0, 61} ["gemmMPad"] at [1] -> ["gemmM"] at [1]>, #miopen.transform<Pad{0, 21} ["gemmNPad"] at [2] -> ["gemmN"] at [2]>]
@@ -136,6 +139,7 @@ miopen.conv2d_bwd_data(%filter, %input, %output) {
 // CHECK-NEXT:  %[[FIL1:.*]] = miopen.transform %arg0 by [#[[$MAP_BWD_DATA_FIL1_NO_PAD]]]
 // CHECK-NEXT:  %[[FIL2:.*]] = miopen.transform %[[FIL1]] by [#[[$MAP_BWD_DATA_FIL2_NO_PAD]]]
 // CHECK-NEXT:  %[[FIL3:.*]] = miopen.transform %[[FIL2]] by [#[[$MAP_BWD_DATA_FIL3_NO_PAD]]]
+// CHECK-NEXT:  %[[FIL4:.*]] = miopen.transform %[[FIL3]] by [#[[$MAP_BWD_DATA_FIL4_NO_PAD]]]
 // CHECK-NEXT:  %[[IN1:.*]] = miopen.transform %arg1 by [#[[$MAP_BWD_DATA_IN1_NO_PAD]]]
 // CHECK-NEXT:  %[[IN2:.*]] = miopen.transform %[[IN1]] by [#[[$MAP_BWD_DATA_IN2_NO_PAD]]]
 // CHECK-NEXT:  %[[IN3:.*]] = miopen.transform %[[IN2]] by [#[[$MAP_BWD_DATA_IN3_NO_PAD]]]
@@ -143,7 +147,8 @@ miopen.conv2d_bwd_data(%filter, %input, %output) {
 // CHECK-NEXT:  %[[OUT1:.*]] = miopen.transform %arg2 by [#[[$MAP_BWD_DATA_OUT1_NO_PAD]]]
 // CHECK-NEXT:  %[[OUT2:.*]] = miopen.transform %[[OUT1]] by [#[[$MAP_BWD_DATA_OUT2_NO_PAD]]]
 // CHECK-NEXT:  %[[OUT3:.*]] = miopen.transform %[[OUT2]] by [#[[$MAP_BWD_DATA_OUT3_NO_PAD]]]
-// CHECK-NEXT:  miopen.gridwise_gemm_v2(%[[FIL3]], %[[OUT3]], %[[IN4]]){{.*}}paddingInfo = #[[$PADDING_NONE]]
+// CHECK-NEXT:  %[[OUT4:.*]] = miopen.transform %[[OUT3]] by [#[[$MAP_BWD_DATA_OUT4_NO_PAD]]]
+// CHECK-NEXT:  miopen.gridwise_gemm_v2(%[[FIL4]], %[[OUT4]], %[[IN4]]){{.*}}paddingInfo = #[[$PADDING_NONE]]
 
 func @miopen_conv2d_bwd_data_f16(%filter: memref<1x1024x1024x1x1xf16>, %input: memref<128x1x1024x14x14xf16>, %output: memref<128x1x1024x14x14xf16>) attributes {kernel = 0 : i32} {
 miopen.conv2d_bwd_data(%filter, %input, %output) {
@@ -165,6 +170,7 @@ miopen.conv2d_bwd_data(%filter, %input, %output) {
 // CHECK-NEXT:  %[[FIL1:.*]] = miopen.transform %arg0 by [#[[$MAP_BWD_DATA_FIL1_NO_PAD]]]
 // CHECK-NEXT:  %[[FIL2:.*]] = miopen.transform %[[FIL1]] by [#[[$MAP_BWD_DATA_FIL2_NO_PAD]]]
 // CHECK-NEXT:  %[[FIL3:.*]] = miopen.transform %[[FIL2]] by [#[[$MAP_BWD_DATA_FIL3_NO_PAD]]]
+// CHECK-NEXT:  %[[FIL4:.*]] = miopen.transform %[[FIL3]] by [#[[$MAP_BWD_DATA_FIL4_NO_PAD]]]
 // CHECK-NEXT:  %[[IN1:.*]] = miopen.transform %arg1 by [#[[$MAP_BWD_DATA_IN1_NO_PAD]]]
 // CHECK-NEXT:  %[[IN2:.*]] = miopen.transform %[[IN1]] by [#[[$MAP_BWD_DATA_IN2_NO_PAD]]]
 // CHECK-NEXT:  %[[IN3:.*]] = miopen.transform %[[IN2]] by [#[[$MAP_BWD_DATA_IN3_NO_PAD]]]
@@ -172,7 +178,8 @@ miopen.conv2d_bwd_data(%filter, %input, %output) {
 // CHECK-NEXT:  %[[OUT1:.*]] = miopen.transform %arg2 by [#[[$MAP_BWD_DATA_OUT1_NO_PAD]]]
 // CHECK-NEXT:  %[[OUT2:.*]] = miopen.transform %[[OUT1]] by [#[[$MAP_BWD_DATA_OUT2_NO_PAD]]]
 // CHECK-NEXT:  %[[OUT3:.*]] = miopen.transform %[[OUT2]] by [#[[$MAP_BWD_DATA_OUT3_NO_PAD]]]
-// CHECK-NEXT:  miopen.gridwise_gemm_v2(%[[FIL3]], %[[OUT3]], %[[IN4]]){{.*}}paddingInfo = #[[$PADDING_NONE]]
+// CHECK-NEXT:  %[[OUT4:.*]] = miopen.transform %[[OUT3]] by [#[[$MAP_BWD_DATA_OUT4_NO_PAD]]]
+// CHECK-NEXT:  miopen.gridwise_gemm_v2(%[[FIL4]], %[[OUT4]], %[[IN4]]){{.*}}paddingInfo = #[[$PADDING_NONE]]
 
 func @miopen_conv2d_bwd_data_padMN(%filter : memref<1x64x3x1x1xf32>, %input : memref<11x1x3x15x15xf32>, %output : memref<11x1x64x15x15xf32>) {
   miopen.conv2d_bwd_data(%filter, %input, %output) {
