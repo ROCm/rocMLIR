@@ -2522,8 +2522,9 @@ struct GridwiseGemmV2RewritePattern
     VectorType mergedType = VectorType::get({static_cast<long>(vectorLen * transformedTail.size())}, vectorType.getElementType());
     Value resultMerged = b.create<arith::ConstantOp>(loc, mergedType, b.getZeroAttr(mergedType));
     int j = 0;
+
     for (Value result : transformedTail) {
-      resultMerged = b.create<vector::InsertStridedSliceOp>(loc, result, resultMerged, j, 1);
+      resultMerged = b.create<miopen::InsertSliceOp>(loc, mergedType, result, resultMerged, b.create<arith::ConstantIndexOp>(loc, j*vectorLen));
       j++;
     }
 
@@ -2539,13 +2540,13 @@ struct GridwiseGemmV2RewritePattern
     Value c_thread_mtx_index_row, c_thread_mtx_index_col;
     Value m_thread_data_on_global, n_thread_data_on_global;
 
-    // emit unrolled loop.
-    //    for (int64_t iter = 0; iter < NumBlks; ++iter) {
-
     Value c0 = b.create<arith::ConstantIndexOp>(loc, 0);
     Value cNumBlks = b.create<arith::ConstantIndexOp>(loc, NumBlks);
     SmallVector<int64_t, 6> bounds;
     bounds.push_back(NumBlks);
+
+    // emit unrolled loop.
+    //    for (int64_t iter = 0; iter < NumBlks; ++iter) {
     TransformingForOp outLoop = b.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{c0}, ArrayRef<Attribute>{b.getArrayAttr({})}, bounds,
         /*forceUnroll=*/true, /*useIndexDiffs=*/true);
