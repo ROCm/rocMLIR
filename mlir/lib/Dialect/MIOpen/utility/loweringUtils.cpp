@@ -26,8 +26,17 @@ void propagateTransformOob(TransformMapAttr transformMap,
     ArrayRef<int64_t> params = transform.getParams();
 
     switch (transform.getType()) {
+    case TransformType::Broadcast: {
+      // Broadcast makes non-negative indices in-bounds, only check left bounds
+      for (auto pair : llvm::zip(upperDims, lowerDims)) {
+        uint32_t upper = std::get<0>(pair);
+        uint32_t lower = std::get<1>(pair);
+        if (upperLeft.contains(upper))
+          lowerLeft.insert(lower);
+      }
+      break;
+    }
     case TransformType::PassThrough:
-    case TransformType::Broadcast: // is this right??
     case TransformType::Slice:
     case TransformType::AddDim: {
       // Zip ends at end of shortes array, allowing addDim here

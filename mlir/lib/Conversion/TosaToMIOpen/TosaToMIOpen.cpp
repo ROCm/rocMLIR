@@ -78,8 +78,15 @@ static Value expandMemRef(ConversionPatternRewriter &rw, Operation *op,
   }
   ArrayRef<int64_t> shape = oprType.getShape();
 
+  SmallVector<uint32_t, 8> endDims;
+  SmallVector<uint32_t, 8> startDims;
+  for (uint32_t i = 0, e = shape.size(); i < e; ++i) {
+    startDims.push_back(i);
+    endDims.push_back(i < idx ? i : i + 1);
+  }
   miopen::BottomUpCTBuilder transform(rw, shape, loc);
-  transform.expand({idx}, {1});
+  transform.passThrough(endDims, startDims);
+  transform.addDim("g", idx, 1);
 
   return rw.create<miopen::TransformOp>(loc, operand, transform.get());
 }
