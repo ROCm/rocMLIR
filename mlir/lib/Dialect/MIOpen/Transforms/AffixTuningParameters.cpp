@@ -267,10 +267,6 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
       validParams.gemmKPack = 1;
     }
 
-    // Disable kpack in case we do backward data convolution.
-    if (dir == mlir::miopen::ConvOpType::BwdData) {
-      validParams.gemmKPack = 1;
-    }
     op->setAttr("kpack", b.getI32IntegerAttr(validParams.gemmKPack));
 
     // Set attributes on the function.
