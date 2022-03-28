@@ -2,7 +2,7 @@
 // RUN: miopen-opt %s | miopen-opt | FileCheck %s
 // Run: miopen-opt -mlir-print-op-generic %s | miopen-opt | FileCheck %s
 
-#gemm_padding0 = #miopen.padding_info<extraM = 0, extraK = 0, extraN = 0, bwdPaddingInfo = "NA">
+#gemm_padding0 = #miopen.padding_info<extraM = 0, extraK = 0, extraN = 0>
 
 #transform_map0 = #miopen.transform_map<
   affine_map<(d0, d1) -> (d1, d0 floordiv 9, (d0 mod 9) floordiv 3, (d0 mod 9) mod 3)> by

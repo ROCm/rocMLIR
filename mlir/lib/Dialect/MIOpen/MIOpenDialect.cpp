@@ -81,11 +81,6 @@ ArrayAttr noTransformsArray(Builder &b, size_t n) {
   return b.getArrayAttr(ret);
 }
 
-AsmPrinter &operator<<(AsmPrinter &printer, BwdPaddingKernelInfo v) {
-  std::string toPrint = getBitsForBwdPaddingKernelInfo(v);
-  return printer << "\"" << toPrint << "\"";
-}
-
 //===---------------------------------------------------------
 // TransformAttr
 //===---------------------------------------------------------

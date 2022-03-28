@@ -1535,14 +1535,13 @@ struct GridwiseGemmV2RewritePattern
     int64_t WaveSize = 64;
     auto waveSizeConstantOp = b.create<ConstantIndexOp>(loc, WaveSize);
 
-    PaddingInfoAttr paddingInfo = op.paddingInfo();
     // TODO(whchung): Determine the conditions for legacy load/store more
     // precisely.
 
     // Due to a partially-resolved compiler issue, when we had to pad out the
     // gemm so it'd evenly fit into the GPU's grid, the index diff map approach
     // yields incorrect results.
-    bool useIndexDiffs = !paddingInfo.hasPadding();
+    bool useIndexDiffs = !op.paddingInfo().hasPadding();
 
     // Get current workgroup ID.
     auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());
@@ -2741,7 +2740,7 @@ struct GridwiseGemmV2RewritePattern
       // Emit threadwise_copy_v2.
       auto threadwiseCopyV2CMatrixOp = b.create<ThreadwiseCopyV2Op>(
           loc, vectors[iter], cTransformed, copyBounds,
-          threadwiseCopyV2ArgTransform, op.paddingInfo(), op.storeMethodAttr(),
+          threadwiseCopyV2ArgTransform, op.storeMethodAttr(),
           matrixCThreadwiseCopySourceCoords, matrixCThreadwiseCopyDestCoords);
 
       // Remove these when threadwise_copy goes away

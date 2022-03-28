@@ -548,7 +548,6 @@ def MIOpen_BufferStoreOp :
       I32ArrayAttr:$leftOobDims,
       I32ArrayAttr:$rightOobDims,
       Variadic<Index>:$coords,
-      OptionalAttr<MIOpen_PaddingInfoAttr>:$paddingInfo,
       OptionalAttr<StoreMethod>:$storeMethod)> {
   let summary = "Store data to a global buffer";
 
@@ -567,8 +566,6 @@ def MIOpen_BufferStoreOp :
     Writes that are detected to be out of bounds are ignored.
 
     This op supports vector writes and uses buffer store intrinsics if needed.
-
-    `paddingInfo` is used to apply backwards data store hacks if they're needed.
 
     `storeMethod` controls whether the data is written to memory, overwriting
     existing contents, or whether it is added to the existing memory atomically.
@@ -663,7 +660,6 @@ def MIOpen_ThreadwiseCopyV2Op:
                    AnyMemRef:$dest,
                    IndexArrayAttr:$bounds,
                    ArgTransforms<2>:$transforms,
-                   MIOpen_PaddingInfoAttr:$paddingInfo,
                    StoreMethod:$storeMethod,
                    Variadic<Index>:$sourceCoord,
                    Variadic<Index>:$destCoord)> {

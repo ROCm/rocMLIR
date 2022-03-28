@@ -7,11 +7,11 @@
 
 // RUN: miopen-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s
 
-// CHECK-DAG: #[[$PADDING_NONE:gemm_padding[0-9]+]] = #miopen.padding_info<extraM = 0, extraK = 0, extraN = 0, bwdPaddingInfo = "NA">
-// CHECK-DAG: #[[$PADDING_MN:gemm_padding[0-9]+]] = #miopen.padding_info<extraM = 61, extraK = 0, extraN = 21, bwdPaddingInfo = "NA">
-// CHECK-DAG: #[[$PADDING_MK:gemm_padding[0-9]+]] = #miopen.padding_info<extraM = 61, extraK = 5, extraN = 0, bwdPaddingInfo = "NA">
-// CHECK-DAG: #[[$PADDING_N:gemm_padding[0-9]+]] = #miopen.padding_info<extraM = 0, extraK = 0, extraN = 56, bwdPaddingInfo = "NA">
-// CHECK-DAG: #[[$PADDING_MNK:gemm_padding[0-9]+]] = #miopen.padding_info<extraM = 44, extraK = 4, extraN = 56, bwdPaddingInfo = "NA">
+// CHECK-DAG: #[[$PADDING_NONE:gemm_padding[0-9]+]] = #miopen.padding_info<extraM = 0, extraK = 0, extraN = 0>
+// CHECK-DAG: #[[$PADDING_MN:gemm_padding[0-9]+]] = #miopen.padding_info<extraM = 61, extraK = 0, extraN = 21>
+// CHECK-DAG: #[[$PADDING_MK:gemm_padding[0-9]+]] = #miopen.padding_info<extraM = 61, extraK = 5, extraN = 0>
+// CHECK-DAG: #[[$PADDING_N:gemm_padding[0-9]+]] = #miopen.padding_info<extraM = 0, extraK = 0, extraN = 56>
+// CHECK-DAG: #[[$PADDING_MNK:gemm_padding[0-9]+]] = #miopen.padding_info<extraM = 44, extraK = 4, extraN = 56>
 
 // CHECK-DAG: #[[$MAP_FILTER_FWD:transform_map[0-9]+]] = #miopen.transform_map<{{.*}} bounds = [1, 72, 128] -> [1, 128, 8, 3, 3]>
 // CHECK-DAG: #[[$MAP_INPUT1_FWD:transform_map[0-9]+]] = #miopen.transform_map<{{.*}} bounds = [128, 1, 8, 32, 32] -> [128, 1, 8, 32, 32]>
