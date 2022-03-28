@@ -152,29 +152,47 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
       auto outShape = outType.getShape();
 
       uint32_t diff = outShape.size() - inpShape.size();
-      SmallVector<uint32_t> broadcastedDims;
+      SmallVector<uint32_t> bcastDims;
       if (diff) {
-        // expand dims (size = 1) in front
-        SmallVector<uint32_t, 8> expDims(diff);
-        std::iota(expDims.begin(), expDims.end(), 0);
-        SmallVector<int64_t, 8> expSizes(diff, 1);
-
+        // 0.1 expand dims (size = 1) in front
+        SmallVector<uint32_t, 8> endDims;
+        SmallVector<uint32_t, 8> startDims;
+        for (uint32_t i = 0, e = inpShape.size(); i < e; ++i) {
+          startDims.push_back(i);
+          endDims.push_back(i + diff);
+        }
         miopen::BottomUpCTBuilder transform(b, inpShape, loc);
-        transform.expand(expDims, expSizes);
+        transform.passThrough(endDims, startDims);
+        for (uint32_t i = 0; i < diff; ++i) {
+          SmallString<8> name;
+          ("exp" + Twine(i)).toVector(name);
+          transform.addDim(name, i, 1);
+          bcastDims.push_back(i);
+        }
 
         inp = b.create<miopen::TransformOp>(loc, inp, transform.get(),
                                             inpType.getMemorySpaceAsInt());
 
         inpType = inp.getType().template cast<MemRefType>();
         inpShape = inpType.getShape();
-        broadcastedDims = {expDims.begin(), expDims.end()};
       } else {
-        inpIdxMap.isMinorIdentityWithBroadcasting(&broadcastedDims);
+        inpIdxMap.isMinorIdentityWithBroadcasting(&bcastDims);
       }
 
-      // 0. insert a broadcast miopen.transform
+      // 1. insert a broadcast miopen.transform
+      SmallVector<uint32_t, 8> ptDims;
+      SmallVector<int64_t, 8> bcastSizes;
+      for (uint32_t dim = 0; dim < inpShape.size(); ++dim) {
+        if (std::find(bcastDims.begin(), bcastDims.end(), dim) !=
+            bcastDims.end()) {
+          bcastSizes.push_back(outShape[dim]);
+        } else {
+          ptDims.push_back(dim);
+        }
+      }
       miopen::BottomUpCTBuilder transform(b, inpShape, loc);
-      transform.broadcast(broadcastedDims, outType.getShape());
+      transform.passThrough(ptDims, ptDims);
+      transform.broadcast(bcastDims, bcastSizes);
 
       inp = b.create<miopen::TransformOp>(loc, inp, transform.get(),
                                           inpType.getMemorySpaceAsInt());

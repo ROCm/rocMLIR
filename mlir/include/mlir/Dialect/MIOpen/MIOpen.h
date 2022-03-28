@@ -126,6 +126,8 @@ public:
   void passThrough(ArrayRef<StringRef> names);
   void passThrough(ArrayRef<StringRef> outNames, ArrayRef<uint32_t> outDims,
                    ArrayRef<StringRef> inNames);
+  void passThrough(ArrayRef<uint32_t> endIndices,
+                   ArrayRef<uint32_t> startIndices);
 
   // Parameters is the pre and post padding for each dimension in the order they
   // appear as arguments. For example, padding x with 2 on the left and 1 on the
@@ -266,8 +268,6 @@ public:
 
   // Defines a dimension that is not mapped to any coordinates in the output
   void addDim(StringRef name, uint32_t dim, int64_t size);
-
-  void expand(ArrayRef<uint32_t> dims, ArrayRef<int64_t> sizes);
 
   void broadcast(ArrayRef<uint32_t> bcastDims, ArrayRef<int64_t> endDims);
 
