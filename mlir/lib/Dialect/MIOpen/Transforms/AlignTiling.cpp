@@ -26,10 +26,10 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 
 #include "llvm/ADT/SmallVector.h"
 
@@ -202,7 +202,8 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     return inp;
   }
 
-  Value createCollapseShapeOp(PatternRewriter &b, Location loc, Value source) const {
+  Value createCollapseShapeOp(PatternRewriter &b, Location loc,
+                              Value source) const {
     auto ctx = b.getContext();
     auto sourceType = source.getType().cast<ShapedType>();
     assert(sourceType.hasStaticShape() &&
@@ -229,8 +230,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
   }
 
   Value makeTransformingCopy(PatternRewriter &b, Operation *miTWCopy,
-                           Value inp) const {
-
+                             Value inp) const {
     // 0. capture the slice of vector for miTWCopy output regs
     auto twinp = miTWCopy->getOperand(0);
     auto miVecSlice = twinp.getDefiningOp<miopen::ExtractSliceOp>();
@@ -258,7 +258,6 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     // 2. clone twcopy for <addend> -> regs
     cloningMap.map(miTWCopy->getOperand(0), inp);
     cloningMap.map(miTWCopy->getOperand(1), clonedVec->getResult(0));
-
     auto nTWCopy = b.clone(*miTWCopy, cloningMap);
 
     // 3. swap input coords with output coords
@@ -538,8 +537,8 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
       auto twcopy = dyn_cast<miopen::ThreadwiseCopyV2Op>(twcopys.back());
 
       Value regBWGemmV2 = twcopy.getOperand(0);
-      //FIXME NOW - find way to check this is the right sequence
-      //if (auto miBWGemmV2 = dyn_cast<miopen::InWarpTransposeOp>(regBWGemmV2.getDefiningOp())) {
+      if (auto miSliceV2 =
+              dyn_cast<miopen::ExtractSliceOp>(regBWGemmV2.getDefiningOp())) {
         // 2.0. Reset insertion point to just before threadwise_copy
         b.setInsertionPoint(twcopy);
 
@@ -573,8 +572,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         laGeneric->moveBefore(twcopy);
 
         // 2.5. Replace twcopy inputs with vector from la result vgpr
-        auto vload0 =
-            b.create<vector::LoadOp>(loc, regVecType, laOutRegs, c0);
+        auto vload0 = b.create<vector::LoadOp>(loc, regVecType, laOutRegs, c0);
 
         twcopys.back()->setOperand(0, vload0);
 
@@ -584,107 +582,111 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         mrReshape->setOperand(0, out);
 
         return success();
-      //}
-    }
-
-    return fail;
-  }
-};
-
-
-//===----------------------------------------------------------------------===//
-// ThreadwiseCopyV2 Conversion in Fusion.
-//===----------------------------------------------------------------------===//
-
-struct ThreadwiseCopyV2RewritePattern
-    : public OpRewritePattern<miopen::ThreadwiseCopyV2Op> {
-  using OpRewritePattern<miopen::ThreadwiseCopyV2Op>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(miopen::ThreadwiseCopyV2Op op,
-                                PatternRewriter &b) const override {
-    auto loc = op.getLoc();
-    auto ctx = op.getContext();
-    if ((op.dest().getType().dyn_cast<VectorType>() != nullptr)
-        || (op.source().getType().dyn_cast<VectorType>() != nullptr))
-      return failure();
-
-    Attribute noTransforms = b.getArrayAttr({});
-
-    // source and dest transforms are swapped here because it's first touched here.
-    ArrayAttr sourceTransformsOnOp = op.transforms()[1].cast<ArrayAttr>();
-    ArrayAttr destTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
-    ArrayAttr sourceTransforms, destTransforms;
-    Value source, dest;
-    std::tie(source, sourceTransforms) =
-        miopen::untransform(b, op.source(), sourceTransformsOnOp);
-    std::tie(dest, destTransforms) =
-        miopen::untransform(b, op.dest(), destTransformsOnOp);
-    SmallVector<int64_t, 6> bounds;
-    llvm::transform(op.bounds().getAsRange<IntegerAttr>(),
-                    std::back_inserter(bounds),
-                    [](const IntegerAttr &v) -> int64_t { return v.getInt(); });
-
-    int64_t dataPerCopy =
-        op->getAttrOfType<IntegerAttr>("data_per_copy").getInt();
-    auto toLoad = op.dest();
-    auto loadType = toLoad.getType().dyn_cast<MemRefType>();
-    auto shape = loadType.cast<ShapedType>().getShape();
-    auto vecType = VectorType::get(dataPerCopy, loadType.getElementType());
-    bounds[shape.size() - 1] /= dataPerCopy;
-
-    Value c0 = b.create<arith::ConstantIndexOp>(loc, 0);
-    ArrayAttr srcLeftOob, srcRightOob;
-    std::tie(srcLeftOob, srcRightOob) =
-        miopen::computeOobFromTransforms(b, sourceTransforms);
-
-    miopen::TransformingForOp copyLoop = b.create<miopen::TransformingForOp>(
-        loc, ArrayRef<ValueRange>{op.sourceCoord(), op.destCoord()}, ArrayRef<Attribute>{sourceTransforms, destTransforms}, bounds,
-        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-    OpBuilder::InsertionGuard guard(b);
-    b.setInsertionPointToStart(copyLoop.getBody());
-    if (dataPerCopy > 1) {
-      Value loaded = b.create<miopen::BufferLoadOp>(loc, vecType, source, srcLeftOob, srcRightOob,
-                                      copyLoop.getLowerCoords(/*domain=*/0));
-      SmallVector<Value, 6> indicies;
-      for (uint i = 0; i < shape.size() - 1; ++i) {
-        indicies.push_back(c0);
+        //}
       }
-      indicies.push_back(copyLoop.getLowerCoords(/*domain=*/1)[0]);
-      b.create<vector::StoreOp>(loc, loaded, dest, indicies);
-    } else {
-      Value loaded = b.create<miopen::BufferLoadOp>(loc, loadType.getElementType(), source, srcLeftOob, srcRightOob,
-                                      copyLoop.getLowerCoords(/*domain=*/0));
-      SmallVector<Value, 6> indicies;
-      for (uint i = 0; i < shape.size() - 1; ++i) {
-        indicies.push_back(c0);
-      }
-      indicies.push_back(copyLoop.getLowerCoords(/*domain=*/1)[0]);
-      b.create<memref::StoreOp>(loc, loaded, dest, indicies);
+
+      return fail;
     }
+  };
 
-    op.erase();
-    return success();
+  //===----------------------------------------------------------------------===//
+  // ThreadwiseCopyV2 Conversion in Fusion.
+  //===----------------------------------------------------------------------===//
+
+  struct ThreadwiseCopyV2RewritePattern
+      : public OpRewritePattern<miopen::ThreadwiseCopyV2Op> {
+    using OpRewritePattern<miopen::ThreadwiseCopyV2Op>::OpRewritePattern;
+
+    LogicalResult matchAndRewrite(miopen::ThreadwiseCopyV2Op op,
+                                  PatternRewriter &b) const override {
+      auto loc = op.getLoc();
+      auto ctx = op.getContext();
+      if ((op.dest().getType().dyn_cast<VectorType>() != nullptr) ||
+          (op.source().getType().dyn_cast<VectorType>() != nullptr))
+        return failure();
+
+      Attribute noTransforms = b.getArrayAttr({});
+
+      // Clonned source and dest transforms are finally swapped correctly here.
+      ArrayAttr sourceTransformsOnOp = op.transforms()[1].cast<ArrayAttr>();
+      ArrayAttr destTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
+      ArrayAttr sourceTransforms, destTransforms;
+      Value source, dest;
+      std::tie(source, sourceTransforms) =
+          miopen::untransform(b, op.source(), sourceTransformsOnOp);
+      std::tie(dest, destTransforms) =
+          miopen::untransform(b, op.dest(), destTransformsOnOp);
+      SmallVector<int64_t, 6> bounds;
+      llvm::transform(
+          op.bounds().getAsRange<IntegerAttr>(), std::back_inserter(bounds),
+          [](const IntegerAttr &v) -> int64_t { return v.getInt(); });
+
+      int64_t dataPerCopy =
+          op->getAttrOfType<IntegerAttr>("data_per_copy").getInt();
+      auto toLoad = op.dest();
+      auto loadType = toLoad.getType().dyn_cast<MemRefType>();
+      auto shape = loadType.cast<ShapedType>().getShape();
+      auto vecType = VectorType::get(dataPerCopy, loadType.getElementType());
+      bounds[shape.size() - 1] /= dataPerCopy;
+
+      Value c0 = b.create<arith::ConstantIndexOp>(loc, 0);
+      ArrayAttr srcLeftOob, srcRightOob;
+      std::tie(srcLeftOob, srcRightOob) =
+          miopen::computeOobFromTransforms(b, sourceTransforms);
+
+      miopen::TransformingForOp copyLoop = b.create<miopen::TransformingForOp>(
+          loc, ArrayRef<ValueRange>{op.sourceCoord(), op.destCoord()},
+          ArrayRef<Attribute>{sourceTransforms, destTransforms}, bounds,
+          /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+      OpBuilder::InsertionGuard guard(b);
+      b.setInsertionPointToStart(copyLoop.getBody());
+      if (dataPerCopy > 1) {
+        Value loaded = b.create<miopen::BufferLoadOp>(
+            loc, vecType, source, srcLeftOob, srcRightOob,
+            copyLoop.getLowerCoords(/*domain=*/0));
+        SmallVector<Value, 6> indicies;
+        for (uint i = 0; i < shape.size() - 1; ++i) {
+          indicies.push_back(c0);
+        }
+        indicies.push_back(copyLoop.getLowerCoords(/*domain=*/1)[0]);
+        b.create<vector::StoreOp>(loc, loaded, dest, indicies);
+      } else {
+        Value loaded = b.create<miopen::BufferLoadOp>(
+            loc, loadType.getElementType(), source, srcLeftOob, srcRightOob,
+            copyLoop.getLowerCoords(/*domain=*/0));
+        SmallVector<Value, 6> indicies;
+        for (uint i = 0; i < shape.size() - 1; ++i) {
+          indicies.push_back(c0);
+        }
+        indicies.push_back(copyLoop.getLowerCoords(/*domain=*/1)[0]);
+        b.create<memref::StoreOp>(loc, loaded, dest, indicies);
+      }
+
+      op.erase();
+      return success();
+    }
+  };
+
+  //===- Passes
+  //-------------------------------------------------------------===//
+  //===- MIOpenLinalgAlignPass - Align Tiling of Linalg Ops
+  //-----------------===//
+  //
+  void MIOpenLinalgAlignPass::runOnOperation() {
+    MLIRContext *ctx = &getContext();
+    RewritePatternSet patterns(ctx);
+    patterns.add<MILARewritePattern<linalg::GenericOp>>(ctx);
+    if (failed(
+            applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
+      signalPassFailure();
+
+    RewritePatternSet patterns2(ctx);
+    patterns2.add<ThreadwiseCopyV2RewritePattern>(ctx);
+    if (failed(
+            applyPatternsAndFoldGreedily(getOperation(), std::move(patterns2))))
+      signalPassFailure();
   }
-};
 
-
-//===- Passes -------------------------------------------------------------===//
-//===- MIOpenLinalgAlignPass - Align Tiling of Linalg Ops -----------------===//
-//
-void MIOpenLinalgAlignPass::runOnOperation() {
-  MLIRContext *ctx = &getContext();
-  RewritePatternSet patterns(ctx);
-  patterns.add<MILARewritePattern<linalg::GenericOp>>(ctx);
-  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
-    signalPassFailure();
-
-  RewritePatternSet patterns2(ctx);
-  patterns2.add<ThreadwiseCopyV2RewritePattern>(ctx);
-  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns2))))
-    signalPassFailure();
-    
-}
-
-std::unique_ptr<Pass> mlir::miopen::createMIOpenLinalgAlignPass() {
-  return std::make_unique<MIOpenLinalgAlignPass>();
-}
+  std::unique_ptr<Pass> mlir::miopen::createMIOpenLinalgAlignPass() {
+    return std::make_unique<MIOpenLinalgAlignPass>();
+  }

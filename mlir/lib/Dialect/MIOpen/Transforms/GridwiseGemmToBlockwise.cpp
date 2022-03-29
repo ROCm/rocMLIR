@@ -2496,35 +2496,20 @@ struct GridwiseGemmV2RewritePattern
       llvm::copy(tailResults, std::back_inserter(transformedTail));
     }
 
-/*
-    // Slice up vectors here to make it clearer that each store loop
-    // deals with a distinct set of values.
-    llvm::SmallVector<Value, 4> vectors;
-    vectors.reserve(transformedTail.size() * iterationsPerVectorC);
-    for (Value result : transformedTail) {
-      for (int64_t i = 0; i < iterationsPerVectorC; ++i) {
-        Value sliceStart =
-            b.createOrFold<ConstantIndexOp>(loc, vectorCoffset * i);
-        Value slice =
-            b.create<ExtractSliceOp>(loc, vectorCSliceType, result, sliceStart);
-        vectors.push_back(slice);
-      }
-    }
-
-
-    int64_t iterationsPerVectorC = NumBlks / vectorNumber;
-    int64_t vectorCoffset = vectorType.getShape()[0] / iterationsPerVectorC;
-    VectorType vectorCSliceType =
-        VectorType::get({vectorCoffset}, vectorType.getElementType());
-       
-*/
+    // Merge the vectors using miopen.insertslice and store loop to use
+    // miopen.extractslice so offset parsing can be deferred after loop
+    // unrolling.
     int64_t vectorLen = vectorType.getShape()[0];
-    VectorType mergedType = VectorType::get({static_cast<long>(vectorLen * transformedTail.size())}, vectorType.getElementType());
-    Value resultMerged = b.create<arith::ConstantOp>(loc, mergedType, b.getZeroAttr(mergedType));
+    VectorType mergedType =
+        VectorType::get({static_cast<long>(vectorLen * transformedTail.size())},
+                        vectorType.getElementType());
+    Value resultMerged =
+        b.create<arith::ConstantOp>(loc, mergedType, b.getZeroAttr(mergedType));
     int j = 0;
-
     for (Value result : transformedTail) {
-      resultMerged = b.create<miopen::InsertSliceOp>(loc, mergedType, result, resultMerged, b.create<arith::ConstantIndexOp>(loc, j*vectorLen));
+      resultMerged = b.create<miopen::InsertSliceOp>(
+          loc, mergedType, result, resultMerged,
+          b.create<arith::ConstantIndexOp>(loc, j * vectorLen));
       j++;
     }
 
@@ -2545,10 +2530,10 @@ struct GridwiseGemmV2RewritePattern
     SmallVector<int64_t, 6> bounds;
     bounds.push_back(NumBlks);
 
-    // emit unrolled loop.
-    //    for (int64_t iter = 0; iter < NumBlks; ++iter) {
+    // Result writing loop, to be unrolled.
     TransformingForOp outLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{c0}, ArrayRef<Attribute>{b.getArrayAttr({})}, bounds,
+        loc, ArrayRef<ValueRange>{c0}, ArrayRef<Attribute>{b.getArrayAttr({})},
+        bounds,
         /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(outLoop.getBody());
@@ -2656,9 +2641,8 @@ struct GridwiseGemmV2RewritePattern
       }
 
       auto n_ConstantOp = b.create<arith::ConstantIndexOp>(loc, n);
-      auto NPerXdlops_ConstantOp = b.create<arith::ConstantIndexOp>(loc, NPerXdlops);
-      // int64_t thread_mtx_on_blk_col_const = col_blk_xdlops_gemm * n +
-      // n_i_xdlops_gemm * NPerXdlops;
+      auto NPerXdlops_ConstantOp =
+          b.create<arith::ConstantIndexOp>(loc, NPerXdlops);
       auto TMOBC1 = b.create<MulIOp>(loc, col_blk_xdlops_gemm, n_ConstantOp);
       auto TMOBC2 =
           b.create<MulIOp>(loc, n_i_xdlops_gemm, NPerXdlops_ConstantOp);
@@ -2684,8 +2668,6 @@ struct GridwiseGemmV2RewritePattern
       auto m_ConstantOp = b.create<arith::ConstantIndexOp>(loc, m);
       auto MPerXdlops_ConstantOp =
           b.create<arith::ConstantIndexOp>(loc, MPerXdlops);
-      // int64_t thread_mtx_on_blk_row_const = row_blk_xdlops_gemm * m +
-      // m_i_xdlops_gemm * MPerXdlops;
       auto TMOBR1 = b.create<MulIOp>(loc, row_blk_xdlops_gemm, m_ConstantOp);
       auto TMOBR2 =
           b.create<MulIOp>(loc, m_i_xdlops_gemm, MPerXdlops_ConstantOp);
@@ -2717,11 +2699,6 @@ struct GridwiseGemmV2RewritePattern
       //         thread_mtx_on_blk.row;
       //     return MatrixIndex{row, col};
       // }
-      /*
-            int64_t xdlops_i_blockwise_gemm = iter / NumBlks;
-            int64_t m_blockwise_gemm = xdlops_i_blockwise_gemm / NRepeats;
-            int64_t n_blockwise_gemm = xdlops_i_blockwise_gemm % NRepeats;
-      */
       // Original C++ logic.
       // const index_t col = (waveId % GemmNWaves) * GemmNPerWave + n *
       // NPerXdlops + thread_mtx_on_blk.col;
@@ -2796,10 +2773,10 @@ struct GridwiseGemmV2RewritePattern
              n_thread_data_on_global});
       }
 
-      Value sliceStart =
-          b.create<MulIOp>(loc, iter, b.createOrFold<ConstantIndexOp>(loc, vectorCoffset));
-      Value slice =
-          b.create<ExtractSliceOp>(loc, vectorCSliceType, resultMerged, sliceStart);
+      Value sliceStart = b.create<MulIOp>(
+          loc, iter, b.createOrFold<ConstantIndexOp>(loc, vectorCoffset));
+      Value slice = b.create<ExtractSliceOp>(loc, vectorCSliceType,
+                                             resultMerged, sliceStart);
 
       // Emit threadwise_copy_v2.
       auto threadwiseCopyV2CMatrixOp = b.create<ThreadwiseCopyV2Op>(
