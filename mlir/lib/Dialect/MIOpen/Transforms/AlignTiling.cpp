@@ -582,7 +582,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         mrReshape->setOperand(0, out);
 
         return success();
-        //}
+        }
       }
 
       return fail;
