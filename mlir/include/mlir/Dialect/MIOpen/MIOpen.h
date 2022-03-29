@@ -165,7 +165,7 @@ protected:
 
   virtual int64_t paddingSign() const = 0;
 
-  llvm::SmallVector<SmallString<8>, 8> &nStartNames() { return startNames; }
+  llvm::SmallVector<SmallString<8>, 8> &getStartNames() { return startNames; }
 
   uint32_t nStartDims();
   uint32_t nEndDims();
@@ -269,7 +269,7 @@ public:
   // Defines a dimension that is not mapped to any coordinates in the output
   void addDim(StringRef name, uint32_t dim, int64_t size);
 
-  void broadcast(ArrayRef<uint32_t> bcastDims, ArrayRef<int64_t> endDims);
+  void broadcast(ArrayRef<uint32_t> endDims, ArrayRef<int64_t> endSizes);
 
   void slice(ArrayRef<StringRef> upperNames, ArrayRef<StringRef> lowerNames,
              ArrayRef<int64_t> begins, ArrayRef<int64_t> ends);

@@ -139,4 +139,21 @@ module {
         memref.store %v, %mem[%i0] : memref<64xf32>
         return
     }
+
+    // CHECK-LABEL: func @index_diff_broadcast
+    // CHECK-SAME: ({{.*}}, %[[int0:.*]]: index, %[[int1:.*]]: index, %[[l0:.*]]: index)
+    func @index_diff_broadcast(%mem: memref<1x64xf32>, %v: f32, %int0: index, %int1: index, %l0: index) {
+        %c0 = arith.constant 0 : index
+        %c1 = arith.constant 1 : index
+        %c2 = arith.constant 2 : index
+        %c3 = arith.constant 3 : index
+        %int0_upd, %int1_upd, %dint0, %dint1 = miopen.index_diff_update <affine_map<(d0, d1) -> (0, d1)> by [
+          #miopen.transform<PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, #miopen.transform<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>
+        ] bounds = [1, 64] -> [1, 64]> (%c0, %c2) + (%c1, %c3) : index, index
+        // CHECK-DAG: %[[c0:.*]] = arith.constant 0
+        // CHECK-DAG: %[[c5:.*]] = arith.constant 5
+        // CHECK: memref.store {{.*}}, {{.*}}[%[[c0]], %[[c5]]]
+        memref.store %v, %mem[%int0_upd, %int1_upd] : memref<1x64xf32>
+        return
+    }
 }
