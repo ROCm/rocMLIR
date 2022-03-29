@@ -807,10 +807,9 @@ public:
 
 class PopulateParamsXDL : public PopulateParamsBase {
 private:
-  // Initial tuning parameters for forward convolution and backward weight
-  // convolution.
+  // Initial tuning parameters for forward convolution.
   // clang-format off
-  llvm::SmallVector<InitParamsXDL, 4> initParametersFwdAndBwdWeight = {
+  llvm::SmallVector<InitParamsXDL, 4> initParametersForward = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
       {128, 128, 4, 64, 64, 4, false, false},
       {32, 64, 4, 32, 64, 4, false, false},
@@ -844,9 +843,9 @@ private:
   };
   // clang-format on
 
-  // Initial tuning parameters for backward data convolution.
+  // Initial tuning parameters for backward convolution.
   // clang-format off
-  llvm::SmallVector<InitParamsXDL, 4> initParametersBwdData = {
+  llvm::SmallVector<InitParamsXDL, 4> initParametersBackward = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
       {128, 128, 8, 64, 64, 1, false, false},
       {128, 128, 16, 64, 64, 1, false, false},
@@ -1001,12 +1000,9 @@ private:
       return failure();
     }
 
-    // XXX FIXME: Ignore KReduction XDLOPS path for forward and backward weight
-    // convolution now. These M/NPerBlock combinations will result in lowering
-    // errors at tuning.
-    if (param.gemmKPack > 1 &&
-        ((ctx.getOpType() == miopen::ConvOpType::Fwd) ||
-         (ctx.getOpType() == miopen::ConvOpType::BwdWeight))) {
+    // XXX FIXME: Ignore KReduction XDLOPS path for forward convolution now.
+    // These M/NPerBlock combinations will result in lowering errors at tuning.
+    if (param.gemmKPack > 1 && ctx.getOpType() == miopen::ConvOpType::Fwd) {
       if ((param.gemmMPerBlock == 16 || param.gemmMPerBlock == 32 ||
            param.gemmMPerBlock == 64) &&
           (param.gemmNPerBlock == 16 || param.gemmNPerBlock == 32 ||
@@ -1071,12 +1067,13 @@ public:
 
     switch (dir) {
     case miopen::ConvOpType::Fwd:
-    case miopen::ConvOpType::BwdWeight:
-      return initParametersFwdAndBwdWeight;
+      return initParametersForward;
     case miopen::ConvOpType::BwdData:
-      return initParametersBwdData;
+      return initParametersBackward;
+    case miopen::ConvOpType::BwdWeight:
+      return initParametersBackward;
     }
-    return initParametersFwdAndBwdWeight;
+    return initParametersForward;
   }
 
   InitParams getUniversalParameters() { return universal_Parameters; }
