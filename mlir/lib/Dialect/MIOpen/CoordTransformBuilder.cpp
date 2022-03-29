@@ -568,22 +568,22 @@ void BottomUpCTBuilder::addDim(StringRef name, uint32_t dim, int64_t size) {
   addTransform(TransformType::AddDim, {size}, {}, {}, {name}, {dim});
 }
 
-void BottomUpCTBuilder::broadcast(ArrayRef<uint32_t> bcastDims,
+void BottomUpCTBuilder::broadcast(ArrayRef<uint32_t> endDims,
                                   ArrayRef<int64_t> endSizes) {
   SmallVector<int64_t, 8> params;
   SmallVector<StringRef, 8> lowerNames;
   SmallVector<StringRef, 8> upperNames;
-  for (auto tuple : llvm::zip(bcastDims, endSizes)) {
+  for (auto tuple : llvm::zip(endDims, endSizes)) {
     uint32_t dim = std::get<0>(tuple);
     int64_t size = std::get<1>(tuple);
-    auto &name = nStartNames()[dim];
+    auto &name = getStartNames()[dim];
     params.push_back(startSize(dim));
     lowerNames.push_back(name);
     upperNames.push_back(name);
     defineDim(upperNames[dim], dim, size);
   }
-  addTransform(TransformType::Broadcast, params, upperNames, bcastDims,
-               lowerNames, bcastDims);
+  addTransform(TransformType::Broadcast, params, upperNames, endDims,
+               lowerNames, endDims);
 }
 
 void BottomUpCTBuilder::slice(ArrayRef<StringRef> upperNames,
