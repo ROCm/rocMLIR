@@ -194,6 +194,18 @@ TEST_F(CTBuilderTest, AddDim) {
   EXPECT_EQ(resUp, resDown);
 }
 
+TEST_F(CTBuilderTest, Broadcast) {
+  auto buildUp = makeBottomUp({"a", "b"}, {1, 3});
+
+  buildUp.passThrough({1}, {1});
+  buildUp.broadcast({0}, {1});
+
+  TransformMapAttr resUp = buildUp.get();
+
+  EXPECT_EQ(resUp.getMap().getAffineMap(),
+            AffineMap::get(2, 0, {affC(0), affD(1)}, &context));
+}
+
 TEST_F(CTBuilderTest, GemmOut) {
   auto buildDown =
       makeTopDown({"gemmG", "gemmM", "gemmN"}, {1, 64, 32 * 14 * 14});
