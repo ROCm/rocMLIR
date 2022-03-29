@@ -371,8 +371,9 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         return fail;
     }
 
-    auto idxMaps = laGeneric->template getAttrOfType<ArrayAttr>("indexing_maps");
-    auto outIdxMap = idxMaps[idxMaps.size()-1].template cast<AffineMapAttr>();
+    auto idxMaps =
+        laGeneric->template getAttrOfType<ArrayAttr>("indexing_maps");
+    auto outIdxMap = idxMaps[idxMaps.size() - 1].template cast<AffineMapAttr>();
 
     if (!outIdxMap.isIdentity()) {
       return fail;

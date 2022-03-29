@@ -1023,21 +1023,25 @@ struct IndexDiffUpdateRewritePattern
       } else if (transformation == TransformType::Broadcast) {
         // lower broadcast dims, uses map
         for (uint32_t i = 0; i < e.size(); ++i) {
-            int64_t lowerLen = e[i];
-            Value lowerLenOp = b.create<ConstantIndexOp>(loc, lowerLen);
-            auto mbUpperDiff = isConstantValue(upperIndicesDiff[p[i]]);
-            Value wrappedDiff;
-            if (mbUpperDiff.hasValue()) {
-              wrappedDiff = b.create<ConstantIndexOp>(loc, *mbUpperDiff % lowerLen);
-            } else {
-              wrappedDiff = b.create<RemUIOp>(loc, upperIndicesDiff[p[i]], lowerLenOp);
-            }
-            Value newLower = addToOriginal(lowerIndicesOriginal[q[i]], wrappedDiff);
-            newLower = b.create<RemUIOp>(loc, newLower, lowerLenOp);
-            Value lowerDiff = b.create<SubIOp>(loc, newLower, lowerIndicesOriginal[q[i]]);
-            lowerIndicesDiffMap[q[i]] = lowerDiff;
-            lowerIndicesUpdatedMap[q[i]] = newLower;
+          int64_t lowerLen = e[i];
+          Value lowerLenOp = b.create<ConstantIndexOp>(loc, lowerLen);
+          auto mbUpperDiff = isConstantValue(upperIndicesDiff[p[i]]);
+          Value wrappedDiff;
+          if (mbUpperDiff.hasValue()) {
+            wrappedDiff =
+                b.create<ConstantIndexOp>(loc, *mbUpperDiff % lowerLen);
+          } else {
+            wrappedDiff =
+                b.create<RemUIOp>(loc, upperIndicesDiff[p[i]], lowerLenOp);
           }
+          Value newLower =
+              addToOriginal(lowerIndicesOriginal[q[i]], wrappedDiff);
+          newLower = b.create<RemUIOp>(loc, newLower, lowerLenOp);
+          Value lowerDiff =
+              b.create<SubIOp>(loc, newLower, lowerIndicesOriginal[q[i]]);
+          lowerIndicesDiffMap[q[i]] = lowerDiff;
+          lowerIndicesUpdatedMap[q[i]] = newLower;
+        }
       }
     } // for (auto mapping : transforms.getOps())
 
