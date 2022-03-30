@@ -270,10 +270,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
       nTWCopy->setOperand(inIdx, outCoord);
     }
     // 4. keep bound and transforms, source/dest will be swapped in later stage.
-    // 5. Adjust the copy to show the correct argument as global
-    nTWCopy->setAttr("globalArg", b.getIndexAttr(0));
-
-    // 6. shrink the dim back to original so it can match the linalg dimensions
+    // 5. shrink the dim back to original so it can match the linalg dimensions
     auto cvCollapsed = createCollapseShapeOp(b, loc, clonedVec->getResult(0));
     return cvCollapsed;
   }
@@ -640,28 +637,40 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
           /*forceUnroll=*/true, /*useIndexDiffs=*/true);
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(copyLoop.getBody());
+
+      Value loaded = b.create<miopen::BufferLoadOp>(
+          loc, vecType, source, srcLeftOob, srcRightOob,
+          copyLoop.getLowerCoords(/*domain=*/0));
+      SmallVector<Value, 6> indicies;
+      for (uint i = 0; i < shape.size() - 1; ++i) {
+        indicies.push_back(c0);
+      }
+      indicies.push_back(copyLoop.getLowerCoords(/*domain=*/1)[0]);
+      b.create<InBoundsStoreOp>(loc, loaded, buffer,
+                    loop.getLowerCoords(/*domain=*/1));
+/*
       if (dataPerCopy > 1) {
         Value loaded = b.create<miopen::BufferLoadOp>(
             loc, vecType, source, srcLeftOob, srcRightOob,
-            copyLoop.getLowerCoords(/*domain=*/0));
+            copyLoop.getLowerCoords(0));
         SmallVector<Value, 6> indicies;
         for (uint i = 0; i < shape.size() - 1; ++i) {
           indicies.push_back(c0);
         }
-        indicies.push_back(copyLoop.getLowerCoords(/*domain=*/1)[0]);
+        indicies.push_back(copyLoop.getLowerCoords(1)[0]);
         b.create<vector::StoreOp>(loc, loaded, dest, indicies);
       } else {
         Value loaded = b.create<miopen::BufferLoadOp>(
             loc, loadType.getElementType(), source, srcLeftOob, srcRightOob,
-            copyLoop.getLowerCoords(/*domain=*/0));
+            copyLoop.getLowerCoords(0));
         SmallVector<Value, 6> indicies;
         for (uint i = 0; i < shape.size() - 1; ++i) {
           indicies.push_back(c0);
         }
-        indicies.push_back(copyLoop.getLowerCoords(/*domain=*/1)[0]);
+        indicies.push_back(copyLoop.getLowerCoords(1)[0]);
         b.create<memref::StoreOp>(loc, loaded, dest, indicies);
       }
-
+*/
       op.erase();
       return success();
     }
