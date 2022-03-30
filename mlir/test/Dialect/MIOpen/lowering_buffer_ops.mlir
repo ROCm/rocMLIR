@@ -5,7 +5,7 @@ module {
 // CHECK-SAME: (%[[mem:.*]]: memref<1x2x3x4x8xf32>)
 func @load_scalar_in_bounds(%mem: memref<1x2x3x4x8xf32>) -> f32 {
     %c0 = arith.constant 0 : index
-    // CHECK: %[[ret:.*]] = memref.load %[[mem]]
+    // CHECK: %[[ret:.*]] = gpu.gcn_raw_buffer_load {boundsCheck = true, targetIsRDNA = false} %[[mem]]
     %ret = miopen.buffer_load %mem[%c0, %c0, %c0, %c0, %c0]
         {leftOobDims = [], rightOobDims = []}
         : memref<1x2x3x4x8xf32>, index, index, index, index, index -> f32
@@ -17,7 +17,7 @@ func @load_scalar_in_bounds(%mem: memref<1x2x3x4x8xf32>) -> f32 {
 // CHECK-SAME: (%[[mem:.*]]: memref<1x2x3x4x8xf32>)
 func @load_vector_in_bounds(%mem: memref<1x2x3x4x8xf32>) -> vector<4xf32> {
     %c0 = arith.constant 0 : index
-    // CHECK: %[[ret:.*]] = gpu.buffer_load(%[[mem]]
+    // CHECK: %[[ret:.*]] = gpu.gcn_raw_buffer_load {boundsCheck = true, targetIsRDNA = false} %[[mem]]
     %ret = miopen.buffer_load %mem[%c0, %c0, %c0, %c0, %c0]
         {leftOobDims = [], rightOobDims = []}
         : memref<1x2x3x4x8xf32>, index, index, index, index, index -> vector<4xf32>
@@ -41,7 +41,7 @@ func @load_vector_oob(%mem: memref<1x2x3x4x8xf32>, %idx: index) -> vector<4xf32>
 // CHECK-SAME: (%[[val:.*]]: f32, %[[mem:.*]]: memref<1x2x3x4x8xf32>)
 func @store_scalar_in_bounds(%val: f32, %mem: memref<1x2x3x4x8xf32>) {
     %c0 = arith.constant 0 : index
-    // CHECK: gpu.raw_buffer_store(%[[val]], %[[mem]]
+    // CHECK: gpu.gcn_raw_buffer_store {boundsCheck = true, targetIsRDNA = false} %[[val]] -> %[[mem]]
     miopen.buffer_store %val -> %mem[%c0, %c0, %c0, %c0, %c0]
         {leftOobDims = [], rightOobDims = []}
         : f32 -> memref<1x2x3x4x8xf32>, index, index, index, index, index
@@ -52,7 +52,7 @@ func @store_scalar_in_bounds(%val: f32, %mem: memref<1x2x3x4x8xf32>) {
 // CHECK-SAME: (%[[val:.*]]: vector<4xf32>, %[[mem:.*]]: memref<1x2x3x4x8xf32>)
 func @store_vector_in_bounds(%val: vector<4xf32>, %mem: memref<1x2x3x4x8xf32>) {
     %c0 = arith.constant 0 : index
-    // CHECK: gpu.raw_buffer_store(%[[val]], %[[mem]]
+    // CHECK: gpu.gcn_raw_buffer_store {boundsCheck = true, targetIsRDNA = false} %[[val]] -> %[[mem]]
     miopen.buffer_store %val -> %mem[%c0, %c0, %c0, %c0, %c0]
         {leftOobDims = [], rightOobDims = []}
         : vector<4xf32> -> memref<1x2x3x4x8xf32>, index, index, index, index, index
@@ -63,10 +63,9 @@ func @store_vector_in_bounds(%val: vector<4xf32>, %mem: memref<1x2x3x4x8xf32>) {
 // CHECK-SAME: (%[[val:.*]]: vector<4xf32>, %[[mem:.*]]: memref<1x2x3x4x8xf32>, %[[idx:.*]]: index)
 func @store_vector_oob(%val: vector<4xf32>, %mem: memref<1x2x3x4x8xf32>, %idx: index) {
     %c0 = arith.constant 0 : index
-    // CHECK-DAG: %[[coob:.*]] = arith.constant 2147483647
     // CHECK-DAG: %[[c8:.*]] = arith.constant 8
     // CHECK: arith.cmpi sge, %[[idx]], %[[c8]]
-    // CHECK: gpu.raw_buffer_store(%[[val]], %[[mem]],
+    // CHECK: gpu.gcn_raw_buffer_store {boundsCheck = true, targetIsRDNA = false} %[[val]] -> %[[mem]]
     miopen.buffer_store %val -> %mem[%c0, %c0, %c0, %c0, %idx]
         {leftOobDims = [], rightOobDims = [4 : i32]}
         : vector<4xf32> -> memref<1x2x3x4x8xf32>, index, index, index, index, index
@@ -77,10 +76,20 @@ func @store_vector_oob(%val: vector<4xf32>, %mem: memref<1x2x3x4x8xf32>, %idx: i
 // CHECK-SAME: (%[[val:.*]]: f32, %[[mem:.*]]: memref<1x2x3x4x8xf32>)
 func @add_scalar_in_bounds(%val: f32, %mem: memref<1x2x3x4x8xf32>) {
     %c0 = arith.constant 0 : index
-    // CHECK: gpu.atomic_fadd(%[[val]], %[[mem]]
+    // CHECK: gpu.gcn_raw_buffer_atomic_fadd {boundsCheck = true, targetIsRDNA = false} %[[val]] -> %[[mem]]
     miopen.buffer_store %val -> %mem[%c0, %c0, %c0, %c0, %c0]
         {leftOobDims = [], rightOobDims = [], storeMethod = 1 : i32}
         : f32 -> memref<1x2x3x4x8xf32>, index, index, index, index, index
+    return
+}
+
+// CHECK-LABEL: func @add_vector_in_bounds
+func @add_vector_in_bounds(%val: vector<4xf32>, %mem: memref<1x2x3x4x8xf32>) {
+    %c0 = arith.constant 0 : index
+    // CHECK-4: gpu.gcn_raw_buffer_atomic_fadd
+    miopen.buffer_store %val -> %mem[%c0, %c0, %c0, %c0, %c0]
+        {leftOobDims = [], rightOobDims = [], storeMethod = 1 : i32}
+        : vector<4xf32> -> memref<1x2x3x4x8xf32>, index, index, index, index, index
     return
 }
 }

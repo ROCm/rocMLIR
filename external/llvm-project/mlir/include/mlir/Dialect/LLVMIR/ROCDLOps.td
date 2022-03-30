@@ -197,24 +197,24 @@ def ROCDL_MubufStoreOp :
 }
 
 //===---------------------------------------------------------------------===//
-// Vector Raw buffer load/store intrinsics
+// Raw buffer load/store intrinsics
 
-def ROCDL_RawbufLoadOp :
+def ROCDL_RawBufferLoadOp :
   ROCDL_Op<"raw.buffer.load">,
   Results<(outs LLVM_Type:$res)>,
   Arguments<(ins LLVM_Type:$rsrc,
                  LLVM_Type:$offset,
                  LLVM_Type:$soffset,
-                 LLVM_Type:$aux)>{
+                 LLVM_Type:$aux)> {
   string llvmBuilder = [{
       $res = createIntrinsicCall(builder,
-          llvm::Intrinsic::amdgcn_raw_buffer_load, {$rsrc, $offset, $soffset,
-          $aux}, {$_resultType});
+          llvm::Intrinsic::amdgcn_raw_buffer_load, {$rsrc, $offset,
+          $soffset, $aux}, {$_resultType});
   }];
   let hasCustomAssemblyFormat = 1;
 }
 
-def ROCDL_RawbufStoreOp :
+def ROCDL_RawBufferStoreOp :
   ROCDL_Op<"raw.buffer.store">,
   Arguments<(ins LLVM_Type:$vdata,
                  LLVM_Type:$rsrc,
@@ -224,27 +224,27 @@ def ROCDL_RawbufStoreOp :
   string llvmBuilder = [{
     auto vdataType = moduleTranslation.convertType(op.vdata().getType());
     createIntrinsicCall(builder,
-          llvm::Intrinsic::amdgcn_raw_buffer_store, {$vdata, $rsrc, $offset,
-          $soffset, $aux}, {vdataType});
+          llvm::Intrinsic::amdgcn_raw_buffer_store, {$vdata, $rsrc,
+          $offset, $soffset, $aux}, {vdataType});
   }];
   let hasCustomAssemblyFormat = 1;
 }
 
 //===---------------------------------------------------------------------===//
-// Float atomic add intrinsic
+// MI-100 and MI-200 buffer atomic floating point add intrinsic
 
-def ROCDL_AtomicFAddOp :
-  ROCDL_Op<"atomic.fadd">,
+def ROCDL_RawBufferAtomicFAddOp :
+  ROCDL_Op<"raw.buffer.atomic.fadd">,
   Arguments<(ins LLVM_Type:$vdata,
                  LLVM_Type:$rsrc,
-                 LLVM_Type:$vindex,
                  LLVM_Type:$offset,
-                 LLVM_Type:$slc)>{
+                 LLVM_Type:$soffset,
+                 LLVM_Type:$aux)>{
   string llvmBuilder = [{
       auto vdataType = moduleTranslation.convertType(op.vdata().getType());
       createIntrinsicCall(builder,
-          llvm::Intrinsic::amdgcn_buffer_atomic_fadd, {$vdata, $rsrc, $vindex, $offset,
-            $slc}, {vdataType});
+          llvm::Intrinsic::amdgcn_raw_buffer_atomic_fadd, {$vdata, $rsrc,
+            $offset, $soffset, $aux}, {vdataType});
   }];
   let hasCustomAssemblyFormat = 1;
 }
