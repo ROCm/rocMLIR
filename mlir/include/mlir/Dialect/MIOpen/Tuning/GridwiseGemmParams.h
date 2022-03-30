@@ -857,6 +857,23 @@ private:
       {16, 16, 4, 16, 16, 1, false, false},
   };
   // clang-format on
+
+  // XXX FIXME: Initial tuning parameters for fp32 backward weight convolution.
+  // Deliberately avoid KPACK=4 for fp32 backward weight convolution. It has
+  // been verified some configs would cause intermittent failures.
+  // TODO(whchung): Get to the bottom of this.
+  // clang-format off
+  llvm::SmallVector<InitParamsXDL, 4> initParametersBwdWeightF32 = {
+      // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
+      {128, 128, 8, 64, 64, 1, false, false},
+      {128, 128, 16, 64, 64, 1, false, false},
+      {8, 64, 8, 8, 64, 1, false, false},
+      {4, 64, 16, 4, 64, 1, false, false},
+      {32, 64, 4, 32, 64, 1, false, false},
+      {16, 16, 16, 16, 16, 1, false, false},
+      {16, 16, 4, 16, 16, 1, false, false} ,
+  };
+  // clang-format on
   const int64_t waveSize = 64;
 
   // if can't select config from above , use this config to do
@@ -1001,6 +1018,18 @@ private:
       return failure();
     }
 
+    // XXX FIXME: Temporarily reject KPACK=4 for fp32 backward weight
+    // convolution. It has been verified some configs would cause intermittent
+    // failures.
+    // TODO(whchung): Get to the bottom of this.
+    if ((param.gemmKPack == 4) &&
+        (ctx.getOpType() == miopen::ConvOpType::BwdWeight) &&
+        dataType.isF32()) {
+      llvm::errs() << "Invalid config: fp32 XDLOPS backward weight convolution "
+                      "with KPACK=4\n";
+      return failure();
+    }
+
     // XXX FIXME: Ignore KReduction XDLOPS path for forward and backward weight
     // convolution now. These M/NPerBlock combinations will result in lowering
     // errors at tuning.
@@ -1071,7 +1100,15 @@ public:
 
     switch (dir) {
     case miopen::ConvOpType::Fwd:
+      return initParametersFwdAndBwdWeight;
     case miopen::ConvOpType::BwdWeight:
+      // XXX FIXME: Temporarily use another vector of heuristic tuning
+      // parameters to get around the issue that when KPACK=4, fp32 backward
+      // weight kernels would fail intermittently.
+      // TODO(whchung): Get to the bottom of this.
+      if (dataType.isF32()) {
+        return initParametersBwdWeightF32;
+      }
       return initParametersFwdAndBwdWeight;
     case miopen::ConvOpType::BwdData:
       return initParametersBwdData;
