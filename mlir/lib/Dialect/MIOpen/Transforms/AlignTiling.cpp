@@ -646,8 +646,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         indicies.push_back(c0);
       }
       indicies.push_back(copyLoop.getLowerCoords(/*domain=*/1)[0]);
-      b.create<InBoundsStoreOp>(loc, loaded, buffer,
-                    loop.getLowerCoords(/*domain=*/1));
+      b.create<miopen::InBoundsStoreOp>(loc, loaded, dest, indicies);
 /*
       if (dataPerCopy > 1) {
         Value loaded = b.create<miopen::BufferLoadOp>(
