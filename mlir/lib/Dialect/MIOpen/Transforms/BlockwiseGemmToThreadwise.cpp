@@ -534,7 +534,7 @@ struct ThreadwiseCopyRewritePattern
         createTypeConversionOp(b, loc, loaded, destType.getElementType());
     if (storeGlobal)
       b.create<BufferStoreOp>(loc, cast, dest, destLeftOob, destRightOob,
-                              loop.getLowerCoords(/*domain=*/1), paddingInfo,
+                              loop.getLowerCoords(/*domain=*/1),
                               /*dataOperation=*/nullptr);
     else
       b.create<memref::StoreOp>(loc, cast, dest,
@@ -602,10 +602,9 @@ struct ThreadwiseCopyV2RewritePattern
     Value loaded = b.create<ExtractSliceOp>(
         loc, typeToLoad, source, loop.getLowerCoords(/*domain=*/0)[0]);
     Value cast = createTypeConversionOp(b, loc, loaded, typeToStore);
-    b.create<BufferStoreOp>(loc, cast, dest, std::get<0>(oobDims),
-                            std::get<1>(oobDims),
-                            loop.getLowerCoords(/*domain=*/1), op.paddingInfo(),
-                            op.storeMethodAttr());
+    b.create<BufferStoreOp>(
+        loc, cast, dest, std::get<0>(oobDims), std::get<1>(oobDims),
+        loop.getLowerCoords(/*domain=*/1), op.storeMethodAttr());
     b.eraseOp(op);
     return success();
   }

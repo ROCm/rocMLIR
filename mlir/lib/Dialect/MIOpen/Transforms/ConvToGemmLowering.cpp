@@ -558,8 +558,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
         b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
 
   // This kernel is not run when there is padding on the GEMM
-  auto paddingInfo =
-      PaddingInfoAttr::get(b.getContext(), 0, 0, 0, BwdPaddingKernelInfo::NA);
+  auto paddingInfo = PaddingInfoAttr::get(b.getContext(), 0, 0, 0);
   auto storeMethod = StoreMethod::AtomicAdd;
 
   Value gemmA = gemmOutputKPack;
@@ -1013,34 +1012,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     gridwiseGemmAttrs.push_back(
         b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
 
-  // Set up which backward data padding kernel hacks we need
-  BwdPaddingKernelInfo hacks = BwdPaddingKernelInfo::NA;
-  if (strideH > 1 && strideW > 1 && hasPadding) {
-    hacks = hacks | BwdPaddingKernelInfo::StrideTwo;
-
-    uint32_t inputN = padInputTransform.startIndex("ni");
-    uint32_t inputC = padInputTransform.startIndex("ci");
-    uint32_t inputH = padInputTransform.startIndex("hi");
-    uint32_t inputW = padInputTransform.startIndex("wi");
-
-    if (inputN < inputC && inputC + 1 == inputH && inputH + 1 == inputW) {
-      hacks = hacks | BwdPaddingKernelInfo::isNCHW;
-    }
-    // We don't collect padding info in the nonxdlops case because that
-    // isn't needed yet
-    if (isXdlops) {
-      hacks = hacks | BwdPaddingKernelInfo::Xdlops;
-      if (gemmMExtra > 0) {
-        hacks = hacks | BwdPaddingKernelInfo::PadM;
-      }
-      if (gemmNExtra > 0) {
-        hacks = hacks | BwdPaddingKernelInfo::PadN;
-      }
-    }
-  }
-
-  auto paddingInfo = PaddingInfoAttr::get(b.getContext(), gemmMExtra,
-                                          gemmKExtra, gemmNExtra, hacks);
+  auto paddingInfo =
+      PaddingInfoAttr::get(b.getContext(), gemmMExtra, gemmKExtra, gemmNExtra);
 
   Value gemmA = gemmFilter;
   Value gemmB = gemmOutput;
@@ -1644,9 +1617,8 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     gemmC = arguments[fields.gridwiseGemmArgumentPosition[2]];
 
     // Create padding info attr
-    PaddingInfoAttr paddingInfo =
-        PaddingInfoAttr::get(b.getContext(), gemmMExtra, gemmKExtra, gemmNExtra,
-                             BwdPaddingKernelInfo::NA);
+    auto paddingInfo = PaddingInfoAttr::get(b.getContext(), gemmMExtra,
+                                            gemmKExtra, gemmNExtra);
 
     auto storeMethod = StoreMethod::Set;
     // Emit miopen.gridwise_gemm op.

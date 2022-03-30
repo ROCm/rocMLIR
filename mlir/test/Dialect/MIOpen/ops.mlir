@@ -145,7 +145,7 @@ func @miopen_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
 func @miopen_gridwise_gemm(%A : memref<?x?x?xf32>, %B : memref<?x?x?xf32>, %C : memref<?x?x?xf32>) {
   miopen.gridwise_gemm(%A, %B, %C) {
     paddingInfo =
-      #miopen.padding_info<extraK = 0, extraM = 0, extraN = 0, bwdPaddingInfo = "NA">,
+      #miopen.padding_info<extraK = 0, extraM = 0, extraN = 0>,
     transforms = [[], [], []]
   } : memref<?x?x?xf32>, memref<?x?x?xf32>, memref<?x?x?xf32>
   return
@@ -157,7 +157,7 @@ func @miopen_gridwise_gemm(%A : memref<?x?x?xf32>, %B : memref<?x?x?xf32>, %C : 
 func @miopen_gridwise_gemm_v2(%A : memref<?x?x?xf32>, %B : memref<?x?x?xf32>, %C : memref<?x?x?xf32>) {
   miopen.gridwise_gemm_v2(%A, %B, %C) {
     paddingInfo =
-      #miopen.padding_info<extraK = 0, extraM = 0, extraN = 0, bwdPaddingInfo = "NA">,
+      #miopen.padding_info<extraK = 0, extraM = 0, extraN = 0>,
     transforms = [[], [], []],
     storeMethod = 0 : i32
   } : memref<?x?x?xf32>, memref<?x?x?xf32>, memref<?x?x?xf32>

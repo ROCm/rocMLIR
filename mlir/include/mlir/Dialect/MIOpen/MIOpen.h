@@ -49,26 +49,8 @@
 #include "mlir/Dialect/MIOpen/MIOpenOpsDialect.h.inc"
 #include "mlir/Dialect/MIOpen/MIOpenTypes.h.inc"
 
-template <> struct mlir::FieldParser<mlir::miopen::BwdPaddingKernelInfo> {
-  static FailureOr<mlir::miopen::BwdPaddingKernelInfo>
-  parse(mlir::AsmParser &parser) {
-    std::string bits;
-    llvm::SMLoc startLoc = parser.getCurrentLocation();
-    if (parser.parseString(&bits)) {
-      return failure();
-    }
-    auto ret = mlir::miopen::getBwdPaddingKernelInfoForBits(bits);
-    if (!ret.hasValue()) {
-      parser.emitError(startLoc, "Expected a | seperated list of status bits");
-      return failure();
-    }
-    return ret.getValue();
-  }
-};
-
 namespace mlir {
 namespace miopen {
-AsmPrinter &operator<<(AsmPrinter &printer, BwdPaddingKernelInfo v);
 //===----------------------------------------------------------------------===//
 // Utility method for creating an array attribute of n empty array attributes.
 // We use this structure so transforms can be uniformly copied onto the final

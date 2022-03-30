@@ -60,7 +60,7 @@ func @miopen_indexing() {
   return
 }
 
-#gemm_padding0 = #miopen.padding_info<extraM = 0, extraK = 0, extraN = 0, bwdPaddingInfo = "NA">
+#gemm_padding0 = #miopen.padding_info<extraM = 0, extraK = 0, extraN = 0>
 
 // CHECK-LABEL: func @miopen_indexing
 //   CHECK-NEXT: miopen.workgroup_id

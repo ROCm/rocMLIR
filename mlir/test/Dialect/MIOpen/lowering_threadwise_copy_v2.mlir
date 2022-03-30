@@ -1,5 +1,5 @@
 // RUN: miopen-opt -miopen-lowering-step3 %s | FileCheck %s
-#gemm_padding0 = #miopen.padding_info<extraM = 0, extraK = 0, extraN = 0, bwdPaddingInfo = "NA">
+#gemm_padding0 = #miopen.padding_info<extraM = 0, extraK = 0, extraN = 0>
 
 #map0 = affine_map<(d0, d1, d2) -> (d0 * 32 + d1 * 4 + d2)>
 #transform_map0 = #miopen.transform_map<#map0 by [
