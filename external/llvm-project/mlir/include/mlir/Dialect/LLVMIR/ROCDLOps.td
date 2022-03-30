@@ -116,17 +116,6 @@ def ROCDL_BarrierOp : ROCDL_Op<"barrier"> {
   let assemblyFormat = "attr-dict";
 }
 
-def ROCDL_LDSBarrierOp : ROCDL_Op<"lds_barrier"> {
-  // Guarantees LDS update until this point are all completed.
-  string llvmBuilder = [{
-    llvm::LLVMContext &llvmContext = builder.getContext();
-    builder.CreateFence(llvm::AtomicOrdering::Release,
-                       llvmContext.getOrInsertSyncScopeID("workgroup"));
-    createIntrinsicCall(builder, llvm::Intrinsic::amdgcn_s_barrier);
-  }];
-  let assemblyFormat = "attr-dict";
-}
-
 //===---------------------------------------------------------------------===//
 // Xdlops intrinsics
 

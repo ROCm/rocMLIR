@@ -721,6 +721,31 @@ struct SoftwareBF16Trunc : OpRewritePattern<LLVM::FPTruncOp> {
     return success();
   }
 };
+
+struct LDSBarrierOpLowering : ConvertToLLVMPattern {
+  explicit LDSBarrierOpLowering(MLIRContext *context,
+                                LLVMTypeConverter &typeConverter)
+      : ConvertToLLVMPattern(gpu::LDSBarrierOp::getOperationName(), context,
+                             typeConverter) {}
+
+  LogicalResult
+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto asmDialectAttr = LLVM::AsmDialectAttr::get(rewriter.getContext(),
+                                                    LLVM::AsmDialect::AD_ATT);
+    const auto *asmStr = "s_waitcnt lgkmcnt(0) \n s_barrier";
+    const auto *asmCstr = "";
+    SmallVector<Value> asmVals{};
+    SmallVector<Type> types{};
+    rewriter.replaceOpWithNewOp<LLVM::InlineAsmOp>(
+        op,
+        /*resultTypes=*/types, /*operands=*/asmVals, /*asm_string=*/asmStr,
+        /*constraints=*/asmCstr, /*has_side_effects=*/true,
+        /*is_align_stack=*/false, /*asm_dialect=*/asmDialectAttr,
+        /*operand_attrs=*/ArrayAttr());
+    return success();
+  }
+};
 } // namespace mlir
 
 void mlir::populateGpuToROCDLConversionPatterns(
@@ -798,6 +823,7 @@ void mlir::populateGpuToROCDLConversionPatterns(
       GCNRawBufferOpLowering<gpu::GCNRawBufferStoreOp, ROCDL::RawBufferStoreOp>,
       GCNRawBufferOpLowering<gpu::GCNRawBufferAtomicFaddOp,
                              ROCDL::RawBufferAtomicFAddOp>>(converter);
+  patterns.insert<LDSBarrierOpLowering>(ctx, converter);
 }
 
 void mlir::populateBF16ToROCDLConversionPatterns(LLVMTypeConverter &converter,
