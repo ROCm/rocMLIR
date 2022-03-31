@@ -17,7 +17,7 @@ def loadMlirData(filename: str):
 
 def summarizeStat(grouped, func, data):
     ret = grouped.agg(func)
-    ret.loc[("All", "All"),:] = data.agg(func)
+    ret.loc[("All", "All", "All"),:] = data.agg(func)
     return ret
 
 def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, newLabel: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -37,13 +37,15 @@ def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, ne
     oldLabel = f"MLIR TFlops ({oldLabel})"
     newLabel = f"MLIR TFlops ({newLabel})"
     data.rename(columns={'MLIR TFlops_old': oldLabel,
-                         'MLIR TFlops_new': newLabel}, inplace=True)
+                         'MLIR TFlops_new': newLabel,
+                         'TFlops_old': oldLabel,
+                         'TFlops_new': newLabel}, inplace=True)
     data['Current/Previous'] = data[newLabel] / data[oldLabel]
 
     columnsToAverage = [oldLabel, newLabel, 'Current/Previous']
     STATISTICS = [("Geo. mean", reportUtils.geoMean),
         ("Arith. mean", "mean")]
-    grouped = data.groupby(["Direction", "DataType"])[columnsToAverage]
+    grouped = data.groupby(["Direction", "DataType", "InputLayout"])[columnsToAverage]
     stats = pd.concat({name: summarizeStat(grouped, func, data[columnsToAverage])
             for name, func in STATISTICS}, axis=0).unstack(level=0)
 

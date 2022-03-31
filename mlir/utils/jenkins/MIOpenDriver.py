@@ -287,21 +287,18 @@ def benchmarkMLIR(commandLine, xdlops):
     nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
     return config.tableEntry(nanoSeconds)
 
-def benchmarkMIOpen(commandLine, xdlops, envs=dict(), skip=False):
+def benchmarkMIOpen(commandLine, xdlops, envs=dict()):
     config = ConvConfiguration.fromCommandLine(commandLine, xdlops)
-    if not skip:
-        runConfigWithMIOpenDriver(commandLine, envs)
-        # get nanoseconds from rocprof output.
-        nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
-    else:
-        nanoSeconds = np.nan
+    runConfigWithMIOpenDriver(commandLine, envs)
+    # get nanoseconds from rocprof output.
+    nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
     return config.tableEntry(nanoSeconds)
 
 #Generate MLIR vs. MIOpen performance results
-def generatePerformanceResults(configs, xdlops, skipMIOpen=False):
+def generatePerformanceResults(configs, xdlops):
     mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), xdlops)
         for testVector in configs)
-    miopen_df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), xdlops, skip=skipMIOpen)
+    miopen_df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), xdlops)
         for testVector in configs)
 
     df = mlir_df.merge(miopen_df, on=ConvConfiguration.TABLE_COLUMNS[:-1],
@@ -365,7 +362,6 @@ if __name__ == '__main__':
     """
 usage examples:
   python3 MIOpenDriver.py
-  python3 MIOpenDriver.py -bmlir_only
   python3 MIOpenDriver.py -b
   python3 MIOpenDriver.py -bmiopen
   python3 MIOpenDriver.py conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
@@ -383,8 +379,6 @@ usage examples:
     if len(sys.argv) == 1:
         # batch benchmark with MLIR and MIOpen.
         generatePerformanceResults(configs, xdlops)
-    elif sys.argv[1] == '-bmlir_only':
-        generatePerformanceResults(configs, xdlops, skipMIOpen=True)
     elif sys.argv[1] == '-bmiopen_use_tuned_mlir':
         benchmarkMIOpenWithMLIRKernels(configs, xdlops, reportUtils.MIOPEN_TUNED_REPORT_FILE)
     elif sys.argv[1] == '-bmiopen_use_untuned_mlir':
