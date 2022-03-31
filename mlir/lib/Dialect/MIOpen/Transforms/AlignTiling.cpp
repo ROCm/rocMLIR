@@ -485,6 +485,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         assert(!twinp);
         twinp = twinp_t;
         transforms = transforms_l;
+        break;
       } else {
         // 2.1. Test aligned input with output type
         auto inpIdxMap = idxMaps[idx].template cast<AffineMapAttr>();
