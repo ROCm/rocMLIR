@@ -229,6 +229,69 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     return result;
   }
 
+  miopen::TransformingForOp makeLoadToVector(PatternRewriter &b, Location loc, miopen::ThreadwiseCopyV2Op &op, ShapedType &shape, Value srcOp, Value dstOp) {
+    SmallVector<Value, 6> inCoords, outCoords;
+    for (uint i = 0; i < shape.size(); ++i) {
+      uint inIdx = 2 + i;
+      uint outIdx = 2 + shape.size() + i;
+      auto inCoord = op->getOperand(inIdx);
+      auto outCoord = op->getOperand(outIdx);
+      inCoords.push_back(outCoord);
+      outCoords.push_back(inCoord);
+    }
+
+    ArrayAttr sourceTransformsOnOp = op.transforms()[1].cast<ArrayAttr>();
+    ArrayAttr destTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
+    ArrayAttr sourceTransforms, destTransforms;
+
+    std::tie(source, sourceTransforms) =
+        miopen::untransform(b, srcOp, sourceTransformsOnOp);
+    std::tie(dest, destTransforms) =
+        miopen::untransform(b, dstOp, destTransformsOnOp);
+    SmallVector<int64_t, 6> bounds;
+    llvm::transform(op.bounds().getAsRange<IntegerAttr>(),
+                    std::back_inserter(bounds),
+                    [](const IntegerAttr &v) -> int64_t { return v.getInt(); });
+
+    int64_t dataPerCopy =
+        op->getAttrOfType<IntegerAttr>("data_per_copy").getInt();
+
+    auto loadType = dstOp.getType().dyn_cast<MemRefType>();
+    auto shape = loadType.cast<ShapedType>().getShape();
+    auto vecType = VectorType::get(dataPerCopy, loadType.getElementType());
+    bounds[shape.size() - 1] /= dataPerCopy;
+
+    Value c0 = b.create<arith::ConstantIndexOp>(loc, 0);
+    ArrayAttr srcLeftOob, srcRightOob;
+    std::tie(srcLeftOob, srcRightOob) =
+        miopen::computeOobFromTransforms(b, sourceTransforms);
+
+    miopen::TransformingForOp copyLoop = b.create<miopen::TransformingForOp>(
+        loc, ArrayRef<ValueRange>{inCoords, outCoords},
+        ArrayRef<Attribute>{sourceTransforms, destTransforms}, bounds,
+        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointToStart(copyLoop.getBody());
+
+    Value loaded;
+    if (dataPerCopy > 1) {
+      loaded = b.create<miopen::BufferLoadOp>(
+        loc, vecType, source, srcLeftOob, srcRightOob,
+        copyLoop.getLowerCoords(/*domain=*/0));
+    } else {
+      loaded = b.create<miopen::BufferLoadOp>(
+        loc, loadType.getElementType(), source, srcLeftOob, srcRightOob,
+        copyLoop.getLowerCoords(/*domain=*/0));
+    }
+    SmallVector<Value, 6> indicies;
+    for (uint i = 0; i < shape.size() - 1; ++i) {
+      indicies.push_back(c0);
+    }
+    indicies.push_back(copyLoop.getLowerCoords(/*domain=*/1)[0]);
+    b.create<miopen::InBoundsStoreOp>(loc, loaded, dest, indicies);
+    return copyLoop;
+  }
+
   Value makeTransformingCopy(PatternRewriter &b, Operation *miTWCopy,
                              Value inp) const {
     // 0. capture the slice of vector for miTWCopy output regs
@@ -256,8 +319,11 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     b.create<vector::StoreOp>(loc, nVecSlice->getResult(0), clonedVec, indices);
 
     // 2. clone twcopy for <addend> -> regs
-    cloningMap.map(miTWCopy->getOperand(0), inp);
-    cloningMap.map(miTWCopy->getOperand(1), clonedVec->getResult(0));
+//    cloningMap.map(miTWCopy->getOperand(0), inp);
+//    cloningMap.map(miTWCopy->getOperand(1), clonedVec->getResult(0));
+
+    auto nTWCopy = makeLoadToVector(b, loc, miTWCopy, shape, inp, clonedVec->getResult(0));
+/*
     auto nTWCopy = b.clone(*miTWCopy, cloningMap);
 
     // 3. swap input coords with output coords
@@ -269,6 +335,8 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
       nTWCopy->setOperand(outIdx, inCoord);
       nTWCopy->setOperand(inIdx, outCoord);
     }
+*/
+
     // 4. keep bound and transforms, source/dest will be swapped in later stage.
     // 5. shrink the dim back to original so it can match the linalg dimensions
     auto cvCollapsed = createCollapseShapeOp(b, loc, clonedVec->getResult(0));

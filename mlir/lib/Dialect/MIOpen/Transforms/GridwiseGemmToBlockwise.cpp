@@ -2643,12 +2643,14 @@ struct GridwiseGemmV2RewritePattern
       auto n_ConstantOp = b.create<arith::ConstantIndexOp>(loc, n);
       auto NPerXdlops_ConstantOp =
           b.create<arith::ConstantIndexOp>(loc, NPerXdlops);
-      auto TMOBC1 = b.create<MulIOp>(loc, col_blk_xdlops_gemm, n_ConstantOp);
-      auto TMOBC2 =
+      // thread_mtx_on_blk_col = threadMtxColInBlock +
+      //                         (col_blk_xdlops_gemm * n_ConstantOp) +
+      //                         (n_i_xdlops_gemm * NPerXdlops_ConstantOp)
+      auto threadMtxCol1 = b.create<MulIOp>(loc, col_blk_xdlops_gemm, n_ConstantOp);
+      auto threadMtxCol2 =
           b.create<MulIOp>(loc, n_i_xdlops_gemm, NPerXdlops_ConstantOp);
-
       Value thread_mtx_on_blk_col = b.create<AddIOp>(
-          loc, threadMtxColInBlock, b.create<AddIOp>(loc, TMOBC1, TMOBC2));
+          loc, threadMtxColInBlock, b.create<AddIOp>(loc, threadMtxCol1, threadMtxCol2));
 
       // Original C++ logic.
       //     index_t row = row_blk * mfma_type.m + blk_id * mfma_type.group_size
@@ -2668,12 +2670,14 @@ struct GridwiseGemmV2RewritePattern
       auto m_ConstantOp = b.create<arith::ConstantIndexOp>(loc, m);
       auto MPerXdlops_ConstantOp =
           b.create<arith::ConstantIndexOp>(loc, MPerXdlops);
-      auto TMOBR1 = b.create<MulIOp>(loc, row_blk_xdlops_gemm, m_ConstantOp);
-      auto TMOBR2 =
+      // thread_mtx_on_blk_row = threadMtxRowInBlock +
+      //                         (row_blk_xdlops_gemm * m) +
+      //                         (m_i_xdlops_gemm * MPerXdlops_ConstantOp)
+      auto threadMtxRow1 = b.create<MulIOp>(loc, row_blk_xdlops_gemm, m_ConstantOp);
+      auto threadMtxRow2 =
           b.create<MulIOp>(loc, m_i_xdlops_gemm, MPerXdlops_ConstantOp);
-
       auto thread_mtx_on_blk_row = b.create<AddIOp>(
-          loc, threadMtxRowInBlock, b.create<AddIOp>(loc, TMOBR1, TMOBR2));
+          loc, threadMtxRowInBlock, b.create<AddIOp>(loc, threadMtxRow1, threadMtxRow2));
 
       // compute c_thread_mtx_index_row, c_thread_mtx_index_col.
       // compute c_thread_mtx_index_row_i32, c_thread_mtx_index_col_i32.
