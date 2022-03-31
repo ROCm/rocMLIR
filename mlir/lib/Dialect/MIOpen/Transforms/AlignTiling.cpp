@@ -541,9 +541,6 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
             return fail;
           }
         }
-        if (twcopys.size() != 2)
-          return fail;
-
         auto twcopy = dyn_cast<miopen::ThreadwiseCopyV2Op>(twcopys.back());
 
         Value regBWGemmV2 = twcopy.getOperand(0);
