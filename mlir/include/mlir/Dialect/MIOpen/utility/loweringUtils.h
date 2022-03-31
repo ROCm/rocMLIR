@@ -22,8 +22,8 @@
 namespace mlir {
 namespace miopen {
 
-inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo) {
-  int64_t gemmK = n * ho * wo;
+inline int64_t calculateKBlockNum(int64_t gemmK, int64_t ho, int64_t wo) {
+  int64_t n = math_util::integer_divide_ceil(gemmK, ho * wo);
   int64_t gemmKBlocks = 1;
   if (gemmK % 16 == 0) {
     auto lcm = math_util::lcm(ho * wo, (int64_t)16);

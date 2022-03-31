@@ -180,26 +180,21 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
                                    obtainConvDirection(op),
                                    obtainConvDataType(op), populateParamsXDL);
 
-    // For padding cases, gemmId must be 0.
-    if (needExtraPad == true) {
-      assert(gemmId == 0);
-    } else {
-      assert((gemmId >= 0) && (gemmId < 3));
-      switch (gemmId) {
-      case 0:
-      case 2:
-        // Set grid_size and block_size for utility kernels.
-        op->setAttr("grid_size", b.getI32IntegerAttr(kUtilityKernelGridSize));
-        op->setAttr("block_size", b.getI32IntegerAttr(kUtilityKernelBlockSize));
-        // Set attributes on the function.
-        getOperation()->setAttr("grid_size",
-                                b.getI32IntegerAttr(kUtilityKernelGridSize));
-        getOperation()->setAttr("block_size",
-                                b.getI32IntegerAttr(kUtilityKernelBlockSize));
-        break;
-      case 1:
-        break;
-      }
+    assert((gemmId >= 0) && (gemmId < 3));
+    switch (gemmId) {
+    case 0:
+    case 2:
+      // Set grid_size and block_size for utility kernels.
+      op->setAttr("grid_size", b.getI32IntegerAttr(kUtilityKernelGridSize));
+      op->setAttr("block_size", b.getI32IntegerAttr(kUtilityKernelBlockSize));
+      // Set attributes on the function.
+      getOperation()->setAttr("grid_size",
+                              b.getI32IntegerAttr(kUtilityKernelGridSize));
+      getOperation()->setAttr("block_size",
+                              b.getI32IntegerAttr(kUtilityKernelBlockSize));
+      break;
+    case 1:
+      break;
     }
   }
 }

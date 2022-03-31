@@ -358,12 +358,30 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
       wo = outputShape[i];
     }
   }
+
+  int64_t gemmKSize = n * ho * wo;
+  int64_t gemmMSize = k;
+  int64_t gemmNSize = c * y * x;
+
+  bool isOriginalKernelSupport = false; // unsused
+  bool needExtraPad;
+
+  int64_t gemmMExtra, gemmKExtra, gemmNExtra;
+  // We go directly to the xdlops case since atomic add is only supported with
+  // xdlops
+  PopulateParamsXDL populateParamsXDL;
+  std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
+           gemmKExtra) =
+      calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
+                                 obtainConvDirection(op),
+                                 obtainConvDataType(op), populateParamsXDL);
   // calculate gemmKBlocks
 
   // static const int64_t MaxSubBlockNum = 2048 / standardBockNum;
-  int64_t gemmKBlocks = calculateKBlockNum(n, ho, wo);
+  int64_t gemmKBlocks = calculateKBlockNum(gemmKSize + gemmKExtra, ho, wo);
 
   Value gemmFilter, gemmInput, gemmOutput;
+  Value gemmFilterPad, gemmInputPad, gemmOutputPad;
   Value gemmInputKPack, gemmOutputKPack;
   // Transform filter tensor.
   {
@@ -405,7 +423,28 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
     gemmFilter = b.create<TransformOp>(loc, withKBlock, gemmTransformAttr);
-    // This kernel is only invoked when there's no need for gemm padding
+
+    gemmFilterPad = gemmFilter;
+
+    if (gemmMExtra > 0 || gemmNExtra > 0) {
+      auto padTransform =
+          BottomUpCTBuilder::above(gemmTransform, gemmTransformAttr);
+      padTransform.passThrough("gemmG");
+      if (gemmMExtra > 0) {
+        padTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
+      } else {
+        padTransform.passThrough("gemmM");
+      }
+      if (gemmNExtra > 0) {
+        padTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
+      } else {
+        padTransform.passThrough("gemmN");
+      }
+
+      TransformMapAttr padTransformAttr = padTransform.get();
+      gemmFilterPad =
+          b.create<miopen::TransformOp>(loc, gemmFilter, padTransformAttr);
+    }
   }
 
   // Transform input tensor
@@ -465,12 +504,41 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     TransformMapAttr gemmInputTransformAttr = gemmInputTransform.get();
     gemmInput = b.create<TransformOp>(loc, embedded, gemmInputTransformAttr);
 
+    BottomUpCTBuilder padGemmInputTransform = gemmInputTransform;
+    TransformMapAttr padGemmInputTransformAttr = gemmInputTransformAttr;
+    gemmInputPad = gemmInput;
+
+    bool isInputPad = false;
+    if (gemmKExtra > 0 || gemmNExtra > 0) {
+      isInputPad = true;
+      padGemmInputTransform =
+          BottomUpCTBuilder::above(gemmInputTransform, gemmInputTransformAttr);
+      padGemmInputTransform.passThrough("gemmG");
+      if (gemmKExtra > 0) {
+        padGemmInputTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
+      } else {
+        padGemmInputTransform.passThrough("gemmK");
+      }
+
+      if (gemmNExtra > 0) {
+        padGemmInputTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
+      } else {
+        padGemmInputTransform.passThrough("gemmN");
+      }
+
+      padGemmInputTransformAttr = padGemmInputTransform.get();
+      gemmInputPad =
+          b.create<TransformOp>(loc, gemmInput, padGemmInputTransformAttr);
+    }
+
     // KPack for input tensor.
-    gemmInputKPack = gemmInput;
+    gemmInputKPack = gemmInputPad;
     if (KPack > 1) {
-      BottomUpCTBuilder sourceTransform = gemmInputTransform;
-      TransformMapAttr sourceTransformAttr = gemmInputTransformAttr;
-      Value source = gemmInput;
+      BottomUpCTBuilder sourceTransform =
+          (isInputPad) ? padGemmInputTransform : gemmInputTransform;
+      TransformMapAttr sourceTransformAttr =
+          (isInputPad) ? padGemmInputTransformAttr : gemmInputTransformAttr;
+      Value source = (isInputPad) ? gemmInputPad : gemmInput;
 
       BottomUpCTBuilder kpackGemmInputTransform =
           BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
@@ -516,12 +584,41 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     gemmOutput =
         b.create<TransformOp>(loc, transformed, gemmOutputTransformAttr);
 
+    BottomUpCTBuilder padGemmOutputTransform = gemmOutputTransform;
+    TransformMapAttr padGemmOutputTransformAttr = gemmOutputTransformAttr;
+    gemmOutputPad = gemmOutput;
+
+    bool isOutputPad = false;
+    if (gemmKExtra > 0 || gemmMExtra > 0) {
+      isOutputPad = true;
+      padGemmOutputTransform = BottomUpCTBuilder::above(
+          gemmOutputTransform, gemmOutputTransformAttr);
+      padGemmOutputTransform.passThrough("gemmG");
+      if (gemmKExtra > 0) {
+        padGemmOutputTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
+      } else {
+        padGemmOutputTransform.passThrough("gemmK");
+      }
+
+      if (gemmMExtra > 0) {
+        padGemmOutputTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
+      } else {
+        padGemmOutputTransform.passThrough("gemmM");
+      }
+
+      padGemmOutputTransformAttr = padGemmOutputTransform.get();
+      gemmOutputPad =
+          b.create<TransformOp>(loc, gemmInput, padGemmOutputTransformAttr);
+    }
+
     // KPack for output tensor.
     gemmOutputKPack = gemmOutput;
     if (KPack > 1) {
-      BottomUpCTBuilder sourceTransform = gemmOutputTransform;
-      TransformMapAttr sourceTransformAttr = gemmOutputTransformAttr;
-      Value source = gemmOutput;
+      BottomUpCTBuilder sourceTransform =
+          (isOutputPad) ? padGemmOutputTransform : gemmOutputTransform;
+      TransformMapAttr sourceTransformAttr =
+          (isOutputPad) ? padGemmOutputTransformAttr : gemmOutputTransformAttr;
+      Value source = (isOutputPad) ? gemmOutputPad : gemmOutput;
 
       BottomUpCTBuilder kpackGemmOutputTransform =
           BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
@@ -563,7 +660,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
 
   Value gemmA = gemmOutputKPack;
   Value gemmB = gemmInputKPack;
-  Value gemmC = gemmFilter;
+  Value gemmC = gemmFilterPad;
   if (isXdlops) {
     auto gop = b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, paddingInfo,
                                           storeMethod, gridwiseGemmAttrs);
@@ -1047,9 +1144,17 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       isXdlops = true;
     auto dataType =
         op.input().getType().template cast<MemRefType>().getElementType();
+
     if (ConvOpType::BwdData == convOpType) {
       return backwardData(cast<Conv2DBwdDataOp>(op), b);
     }
+    if (ConvOpType::BwdWeight == convOpType && isXdlops &&
+        (dataType == b.getF32Type() || dataType == b.getF16Type())) {
+      // current backward weight with atomic_add can only run under xdlops +
+      // fp32 / fp16.
+      return backwardWeightAtomicAdd(cast<Conv2DBwdWeightOp>(op), b);
+    }
+
     auto loc = op.getLoc();
 
     auto archAttr = op->template getAttrOfType<StringAttr>("arch");
@@ -1191,14 +1296,6 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
                gemmKExtra) =
           calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
                                      convOpType, dataType, populateParamsXDL);
-    }
-
-    if (ConvOpType::BwdWeight == convOpType && isXdlops &&
-        (dataType == b.getF32Type() || dataType == b.getF16Type()) &&
-        needExtraPad == false) {
-      // current backward weight with atomic_add can only run under xdlops +
-      // fp32 / fp16.
-      return backwardWeightAtomicAdd(cast<Conv2DBwdWeightOp>(op), b);
     }
 
     // Transform filter tensor.
