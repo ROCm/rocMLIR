@@ -651,9 +651,16 @@ struct ThreadwiseCopyV2RewritePattern
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(copyLoop.getBody());
 
-    Value loaded = b.create<miopen::BufferLoadOp>(
+    Value loaded;
+    if (dataPerCopy > 1) {
+      loaded = b.create<miopen::BufferLoadOp>(
         loc, vecType, source, srcLeftOob, srcRightOob,
         copyLoop.getLowerCoords(/*domain=*/0));
+    } else {
+      loaded = b.create<miopen::BufferLoadOp>(
+        loc, loadType.getElementType(), source, srcLeftOob, srcRightOob,
+        copyLoop.getLowerCoords(/*domain=*/0));
+    }
     SmallVector<Value, 6> indicies;
     for (uint i = 0; i < shape.size() - 1; ++i) {
       indicies.push_back(c0);
