@@ -571,14 +571,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
             .template cast<IntegerAttr>()
             .getInt();
 
-    PaddingInfoAttr paddingInfo = op.paddingInfo();
-    // TODO(whchung): Determine the conditions for legacy load/store more
-    // precisely.
-
-    // Due to a partially-resolved compiler issue, when we had to pad out the
-    // gemm so it'd evenly fit into the GPU's grid, the index diff map approach
-    // yields incorrect results.
-    bool useIndexDiffs = !paddingInfo.hasPadding();
+    bool useIndexDiffs = true;
     // Get current workgroup ID.
     auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());
 
@@ -1535,13 +1528,7 @@ struct GridwiseGemmV2RewritePattern
     int64_t WaveSize = 64;
     auto waveSizeConstantOp = b.create<ConstantIndexOp>(loc, WaveSize);
 
-    // TODO(whchung): Determine the conditions for legacy load/store more
-    // precisely.
-
-    // Due to a partially-resolved compiler issue, when we had to pad out the
-    // gemm so it'd evenly fit into the GPU's grid, the index diff map approach
-    // yields incorrect results.
-    bool useIndexDiffs = !op.paddingInfo().hasPadding();
+    bool useIndexDiffs = true;
 
     // Get current workgroup ID.
     auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());

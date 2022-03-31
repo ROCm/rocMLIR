@@ -1219,11 +1219,15 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       if (name != "g" && name != "k")
         filterNonKDims.push_back(name);
 
+    bool noNonKPad = (convOpType == ConvOpType::BwdWeight && gemmNExtra == 0) ||
+                     (convOpType == ConvOpType::Fwd && gemmKExtra == 0);
+
     BottomUpCTBuilder filterTransform(b, filterNames, filterShape, loc);
     filterTransform.passThrough({"gemmG"}, {0}, {"g"});
     bool isUnfold = filterTransform.startIndex("g") == 0 &&
                     (filterTransform.startIndex("k") == 1 ||
-                     filterTransform.startIndex("k") == 4);
+                     filterTransform.startIndex("k") == 4) &&
+                    noNonKPad;
     switch (convOpType) {
     case ConvOpType::Fwd:
       filterTransform.merge("gemmK", 1, filterNonKDims, isUnfold);
