@@ -29,16 +29,10 @@ CONFIGURATION_FILE_NAME ='../mlir/utils/jenkins/miopen-tests/resnet50-miopen-con
 
 DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 DATA_TYPES = ['conv', 'convfp16']
-LAYOUTS = ['NCHW']
-#LAYOUTS = ['NHWC', 'NCHW']
+LAYOUTS = ['NHWC', 'NCHW']
 
 # utility functions.
 def getConfigurations(fileName):
-    xdlops = False;
-    r = subprocess.run("/opt/rocm/bin/rocm_agent_enumerator -t GPU | grep -E 'gfx908|gfx90a'", shell=True)
-    if r.returncode == 0:
-        xdlops = True
-
     configFile = open(fileName, 'r')
     lines = configFile.readlines()
     configs = [];
@@ -104,8 +98,8 @@ class ConvConfiguration:
                            '--in_h', str(self.hi),
                            '--in_w', str(self.wi),
                            '--out_channels', str(self.k),
-                           '--fil_w', str(self.y),
-                           '--fil_h', str(self.x),
+                           '--fil_h', str(self.y),
+                           '--fil_w', str(self.x),
                            '--dilation_h', str(self.dilationH),
                            '--dilation_w', str(self.dilationW),
                            '--conv_stride_h', str(self.convStrideH),
@@ -116,7 +110,7 @@ class ConvConfiguration:
         return result
 
     MLIR_FILTER_LAYOUTS = {"NCHW": "kcyx", "NHWC": "kyxc"}
-    MLIR_OUTPUT_LAYOUTS = {"NCHW": "nkhw", "NHWC": "nkhw"}
+    MLIR_OUTPUT_LAYOUTS = {"NCHW": "nkhw", "NHWC": "nhwk"}
 
     @classmethod
     def fromCommandLine(cls, argv, xdlops):
@@ -293,22 +287,22 @@ def benchmarkMLIR(commandLine, xdlops):
     nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
     return config.tableEntry(nanoSeconds)
 
-def benchmarkMIOpen(commandLine, xdlops, envs=dict()):
+def benchmarkMIOpen(commandLine, xdlops, envs=dict(), skip=False):
     config = ConvConfiguration.fromCommandLine(commandLine, xdlops)
-    if config.inputLayout == 'nchw':
+    if not skip:
         runConfigWithMIOpenDriver(commandLine, envs)
         # get nanoseconds from rocprof output.
         nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
     else:
-        # skip the test for non-supported layouts.
-        # MIOpenDriver currently only support NCHW.
         nanoSeconds = np.nan
     return config.tableEntry(nanoSeconds)
 
 #Generate MLIR vs. MIOpen performance results
-def generatePerformanceResults(configs, xdlops):
-    mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), xdlops) for testVector in configs)
-    miopen_df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), xdlops) for testVector in configs)
+def generatePerformanceResults(configs, xdlops, skipMIOpen=False):
+    mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), xdlops)
+        for testVector in configs)
+    miopen_df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), xdlops, skip=skipMIOpen)
+        for testVector in configs)
 
     df = mlir_df.merge(miopen_df, on=ConvConfiguration.TABLE_COLUMNS[:-1],
                            suffixes=('', ' (MIOpen)'))
@@ -371,6 +365,7 @@ if __name__ == '__main__':
     """
 usage examples:
   python3 MIOpenDriver.py
+  python3 MIOpenDriver.py -bmlir_only
   python3 MIOpenDriver.py -b
   python3 MIOpenDriver.py -bmiopen
   python3 MIOpenDriver.py conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
@@ -388,6 +383,8 @@ usage examples:
     if len(sys.argv) == 1:
         # batch benchmark with MLIR and MIOpen.
         generatePerformanceResults(configs, xdlops)
+    elif sys.argv[1] == '-bmlir_only':
+        generatePerformanceResults(configs, xdlops, skipMIOpen=True)
     elif sys.argv[1] == '-bmiopen_use_tuned_mlir':
         benchmarkMIOpenWithMLIRKernels(configs, xdlops, reportUtils.MIOPEN_TUNED_REPORT_FILE)
     elif sys.argv[1] == '-bmiopen_use_untuned_mlir':
