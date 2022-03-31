@@ -229,10 +229,12 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     return result;
   }
 
-  miopen::TransformingForOp makeLoadToVector(PatternRewriter &b, Location loc, Operation* miTWCopy, Value srcOp, Value dstOp) const{
+  miopen::TransformingForOp makeLoadToVector(PatternRewriter &b, Location loc,
+                                             Operation *miTWCopy, Value srcOp,
+                                             Value dstOp) const {
     auto op = dyn_cast<miopen::ThreadwiseCopyV2Op>(miTWCopy);
     auto inShape = srcOp.getType().cast<ShapedType>().getShape();
-     SmallVector<Value, 6> inCoords, outCoords;
+    SmallVector<Value, 6> inCoords, outCoords;
     for (uint i = 0; i < inShape.size(); ++i) {
       uint inIdx = 2 + i;
       uint outIdx = 2 + inShape.size() + i;
@@ -279,12 +281,12 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     Value loaded;
     if (dataPerCopy > 1) {
       loaded = b.create<miopen::BufferLoadOp>(
-        loc, vecType, source, srcLeftOob, srcRightOob,
-        copyLoop.getLowerCoords(/*domain=*/0));
+          loc, vecType, source, srcLeftOob, srcRightOob,
+          copyLoop.getLowerCoords(/*domain=*/0));
     } else {
       loaded = b.create<miopen::BufferLoadOp>(
-        loc, loadType.getElementType(), source, srcLeftOob, srcRightOob,
-        copyLoop.getLowerCoords(/*domain=*/0));
+          loc, loadType.getElementType(), source, srcLeftOob, srcRightOob,
+          copyLoop.getLowerCoords(/*domain=*/0));
     }
     SmallVector<Value, 6> indicies;
     for (uint i = 0; i < shape.size() - 1; ++i) {
@@ -322,7 +324,8 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     b.create<vector::StoreOp>(loc, nVecSlice->getResult(0), clonedVec, indices);
 
     // 2. clone twcopy for <addend> -> regs as transforming_for
-    auto nTWCopy = makeLoadToVector(b, loc, miTWCopy, inp, clonedVec->getResult(0));
+    auto nTWCopy =
+        makeLoadToVector(b, loc, miTWCopy, inp, clonedVec->getResult(0));
 
     // 3. shrink the dim back to original so it can match the linalg dimensions
     auto cvCollapsed = createCollapseShapeOp(b, loc, clonedVec->getResult(0));
@@ -663,12 +666,6 @@ void MIOpenLinalgAlignPass::runOnOperation() {
   RewritePatternSet patterns(ctx);
   patterns.add<MILARewritePattern<linalg::GenericOp>>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
-    signalPassFailure();
-
-  RewritePatternSet patterns2(ctx);
-  patterns2.add<ThreadwiseCopyV2RewritePattern>(ctx);
-  if (failed(
-          applyPatternsAndFoldGreedily(getOperation(), std::move(patterns2))))
     signalPassFailure();
 }
 
