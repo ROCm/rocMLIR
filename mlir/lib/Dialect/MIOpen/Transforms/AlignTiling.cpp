@@ -229,7 +229,8 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     return result;
   }
 
-  miopen::TransformingForOp makeLoadToVector(PatternRewriter &b, Location loc, miopen::ThreadwiseCopyV2Op &op, ShapedType &shape, Value srcOp, Value dstOp) {
+  miopen::TransformingForOp makeLoadToVector(PatternRewriter &b, Location loc, miopen::ThreadwiseCopyV2Op &op, ShapedType &sType, Value srcOp, Value dstOp) const{
+    auto shape = sType.getShape()
     SmallVector<Value, 6> inCoords, outCoords;
     for (uint i = 0; i < shape.size(); ++i) {
       uint inIdx = 2 + i;
@@ -244,6 +245,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     ArrayAttr destTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
     ArrayAttr sourceTransforms, destTransforms;
 
+    Value source, dest;
     std::tie(source, sourceTransforms) =
         miopen::untransform(b, srcOp, sourceTransformsOnOp);
     std::tie(dest, destTransforms) =
@@ -322,7 +324,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
 //    cloningMap.map(miTWCopy->getOperand(0), inp);
 //    cloningMap.map(miTWCopy->getOperand(1), clonedVec->getResult(0));
 
-    auto nTWCopy = makeLoadToVector(b, loc, miTWCopy, shape, inp, clonedVec->getResult(0));
+    auto nTWCopy = makeLoadToVector(b, loc, miTWCopy, inp.getType().cast<ShapedType>(), inp, clonedVec->getResult(0));
 /*
     auto nTWCopy = b.clone(*miTWCopy, cloningMap);
 
