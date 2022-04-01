@@ -2575,11 +2575,6 @@ struct GridwiseGemmV2RewritePattern
       //     index_t row = row_blk * mfma_type.m + blk_id * mfma_type.group_size
       //     + m_i * MPerXdlops; return MatrixIndex{row, col};
       // }
-      //
-      // int64_t xdlops_i_xdlops_gemm = iter / NumBlksPerXdlops;
-      // int64_t j_xdlops_gemm = iter % NumBlksPerXdlops;
-      // int64_t m_i_xdlops_gemm = xdlops_i_xdlops_gemm / NRepeats;
-      // int64_t n_i_xdlops_gemm = xdlops_i_xdlops_gemm % NRepeats;
 
       auto NumBlksPerXdlops_ConstantOp =
           b.create<arith::ConstantIndexOp>(loc, NumBlksPerXdlops);
@@ -2643,9 +2638,6 @@ struct GridwiseGemmV2RewritePattern
       auto n_ConstantOp = b.create<arith::ConstantIndexOp>(loc, n);
       auto NPerXdlops_ConstantOp =
           b.create<arith::ConstantIndexOp>(loc, NPerXdlops);
-      // thread_mtx_on_blk_col = threadMtxColInBlock +
-      //                         (col_blk_xdlops_gemm * n_ConstantOp) +
-      //                         (n_i_xdlops_gemm * NPerXdlops_ConstantOp)
       auto threadMtxCol1 = b.create<MulIOp>(loc, col_blk_xdlops_gemm, n_ConstantOp);
       auto threadMtxCol2 =
           b.create<MulIOp>(loc, n_i_xdlops_gemm, NPerXdlops_ConstantOp);
@@ -2670,9 +2662,6 @@ struct GridwiseGemmV2RewritePattern
       auto m_ConstantOp = b.create<arith::ConstantIndexOp>(loc, m);
       auto MPerXdlops_ConstantOp =
           b.create<arith::ConstantIndexOp>(loc, MPerXdlops);
-      // thread_mtx_on_blk_row = threadMtxRowInBlock +
-      //                         (row_blk_xdlops_gemm * m) +
-      //                         (m_i_xdlops_gemm * MPerXdlops_ConstantOp)
       auto threadMtxRow1 = b.create<MulIOp>(loc, row_blk_xdlops_gemm, m_ConstantOp);
       auto threadMtxRow2 =
           b.create<MulIOp>(loc, m_i_xdlops_gemm, MPerXdlops_ConstantOp);
