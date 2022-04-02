@@ -52,9 +52,9 @@ target_link_libraries(rocm-runtime-wrappers
 # suppressions regard a GNU extension, the third an incomplete-type warning
 # that apparently works out okay.
 set_source_files_properties(rocm-runtime-wrappers.cpp PROPERTIES
-  COMPILE_OPTIONS "-Wno-gnu-anonymous-struct;-Wno-nested-anon-types;-Wno-return-type-c-linkage")
+  COMPILE_OPTIONS "-Wno-gnu-anonymous-struct;-Wno-nested-anon-types;-Wno-return-type-c-linkage;-Wno-c++98-compat-extra-semi")
 set_source_files_properties(BackendUtils.cpp PROPERTIES
-  COMPILE_OPTIONS "-Wno-gnu-anonymous-struct;-Wno-nested-anon-types")
+  COMPILE_OPTIONS "-Wno-gnu-anonymous-struct;-Wno-nested-anon-types;-Wno-c++98-compat-extra-semi")
 
 set(LIBS
   MLIRROCDLToLLVMIRTranslation
