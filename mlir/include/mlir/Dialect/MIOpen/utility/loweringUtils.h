@@ -19,29 +19,53 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <mutex>
+
 namespace mlir {
 namespace miopen {
 
-inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo) {
-  int64_t gemmK = n * ho * wo;
+inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo, int64_t g,
+                                  int64_t k, int64_t c, int64_t y, int64_t x,
+                                  int64_t MPerBlock, int64_t NPerBlock,
+                                  int64_t KPerBlock, int64_t KPack,
+                                  int64_t num_cu) {
+  const int64_t KPerGroup = k / g;
+  const int64_t CPerGroup = c / g;
+  const int64_t gemmM = KPerGroup;
+  const int64_t gemmN = CPerGroup * y * x;
+
+  const int64_t gemmK = n * ho * wo;
   int64_t gemmKBlocks = 1;
-  if (gemmK % 16 == 0) {
-    auto lcm = math_util::lcm(ho * wo, (int64_t)16);
-    gemmKBlocks = std::min(gemmK / lcm, n);
-  } else if (gemmK % 8 == 0) {
-    auto comm = math_util::lcm(ho * wo, (int64_t)8);
-    gemmKBlocks = std::min(gemmK / comm, n);
-  } else if (gemmK % 4 == 0) {
-    auto comm = math_util::lcm(ho * wo, (int64_t)4);
-    gemmKBlocks = std::min(gemmK / comm, n);
+
+  assert(gemmM % MPerBlock == 0);
+  assert(gemmN % NPerBlock == 0);
+  assert(gemmK % (KPerBlock * KPack) == 0);
+
+  const int64_t grid_size_without_split_gemmk =
+      g * (gemmM / MPerBlock) * (gemmN / NPerBlock);
+  const int64_t max_grid_size = 20 * num_cu;
+
+  gemmKBlocks = std::max(max_grid_size / grid_size_without_split_gemmk,
+                         static_cast<int64_t>(1));
+  gemmKBlocks = std::min(gemmKBlocks, n);
+
+  for (; gemmKBlocks > 1; --gemmKBlocks) {
+    if (n % gemmKBlocks != 0)
+      continue;
+
+    if (gemmK % (gemmKBlocks * KPerBlock * KPack) != 0)
+      continue;
+
+    break;
   }
+
   // not more than n
   gemmKBlocks = std::min(n, gemmKBlocks);
   // not less than 1
   gemmKBlocks = std::max((__int64_t)1, gemmKBlocks);
 
   // llvm::errs() << "\n gemmKBlocks: " << gemmKBlocks << " gemmK: " << gemmK
-  //               << " ho: " << ho << " wo: " << wo << "\n";
+  //              << " ho: " << ho << " wo: " << wo << "\n";
   return gemmKBlocks;
 }
 
