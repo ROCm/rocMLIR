@@ -828,19 +828,22 @@ private:
   // clang-format off
   llvm::SmallVector<InitParamsXDL, 4> initParametersForwardI8 = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-      // TODO enable kpack
-      // The 32 x 32 xdlops k/block must be divisible by 2
+      // kpack for int8 must be larger than kbase, which means
+      // kpack must be at least 4, once enabled.
+      {64, 64, 8, 32, 32, 8, false, false},
+      {64, 64, 8, 32, 32, 4, false, false},
+      {32, 32, 8, 16, 16, 8, false, false},
+      {32, 32, 8, 16, 16, 4, false, false},
+      // The 32 x 32 xdlops k/block must be at least 8
+      {64, 64, 16, 32, 32, 1, false, false},
       {64, 64, 8, 32, 32, 1, false, false},
-      {64, 64, 4, 32, 32, 1, false, false},
-      {64, 64, 2, 32, 32, 1, false, false},
+      {32, 32, 16, 32, 32, 1, false, false},
       {32, 32, 8, 32, 32, 1, false, false},
-      {32, 32, 4, 32, 32, 1, false, false},
-      {32, 32, 2, 32, 32, 1, false, false},
-      // The 16 x 16 xdlops k/block must be divisible by 4
-      {32, 32, 8, 16, 16, 1, false, false},
-      {32, 32, 4, 16, 16, 1, false, false},
-      {16, 16, 8, 16, 16, 1, false, false},
-      {16, 16, 4, 16, 16, 1, false, false},
+      // The 16 x 16 xdlops k/block must be at least 16
+      {32, 32, 32, 16, 16, 1, false, false},
+      {32, 32, 16, 16, 16, 1, false, false},
+      {16, 16, 32, 16, 16, 1, false, false},
+      {16, 16, 16, 16, 16, 1, false, false},
   };
   // clang-format on
 
@@ -1028,6 +1031,29 @@ private:
       llvm::errs() << "Invalid config: fp32 XDLOPS backward weight convolution "
                       "with KPACK=4\n";
       return failure();
+    }
+
+    if (dataType.isInteger(8)) {
+      // kpack for int8 must be larger than kbase of 4, which means
+      // kpack must be at least 4, once enabled.
+      if (param.gemmKPack == 2) {
+        return failure();
+      }
+
+      // When kpack is tunred off, K tile size must be larger than or
+      // equal to num_input_blks * k_base to qualify for a xdlops gemm
+      if (param.gemmKPack == 1) {
+        if ((param.gemmMPerBlock == 32) && (param.gemmNPerBlock == 32)) {
+          if (param.gemmKPerBlock < 8) {
+            return failure();
+          }
+        }
+        if ((param.gemmMPerBlock == 16) && (param.gemmNPerBlock == 16)) {
+          if (param.gemmKPerBlock < 16) {
+            return failure();
+          }
+        }
+      }
     }
 
     // XXX FIXME: Ignore KReduction XDLOPS path for forward and backward weight

@@ -1415,6 +1415,10 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
               MConstantOp),
           kBaseA);
 
+      if (KPack > 1)
+        sourceOffsetA = lklb.create<MulIOp>(
+            loc, sourceOffsetA, lklb.create<ConstantIndexOp>(loc, KPack));
+
       Value valueA;
       if (KPack > 1) {
         valueA = emitLoadLogic(lklb, loc, bufferAElementType, op.matrixA(),
@@ -1436,6 +1440,10 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
                   blk_id),
               NConstantOp),
           kBaseB);
+
+      if (KPack > 1)
+        sourceOffsetB = lklb.create<MulIOp>(
+            loc, sourceOffsetB, lklb.create<ConstantIndexOp>(loc, KPack));
 
       Value valueB;
       if (KPack > 1) {
@@ -1465,16 +1473,21 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
       } else {
         KForOuterLoop = K / num_input_blks / k_base;
         if (KForOuterLoop == 0) {
-          // KForOuterLoop is too small. Reject lowering.
+          llvm_unreachable(
+              "K tile size is too small to lower for reduction xdlops");
           return failure();
         }
       }
 
+      // When kpack > 1 handle the number of kpack at a time
+      // When kpack == 1 handle the number of kbase at a time
       auto outerLoop =
           b.create<AffineForOp>(loc, 0, KForOuterLoop, 1, op.vectorCs());
       auto outerLoopb = OpBuilder::atBlockBegin(outerLoop.getBody());
       auto outerLoopiv = outerLoop.getInductionVar();
 
+      // When kpack > 1, element type is kpack, handle one kpack at a time
+      // When kpack == 1, element type is 1, handle one k_base at a time
       auto innerLoop = outerLoopb.create<AffineForOp>(
           loc, 0, KRepeats * k_base, k_base, outerLoop.getRegionIterArgs());
       auto innerLoopb = OpBuilder::atBlockBegin(innerLoop.getBody());
@@ -1486,6 +1499,7 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
           (argType.isa<VectorType>())
               ? argType.template cast<VectorType>().getShape()[0]
               : 1;
+      assert(argTypeVectorLength == k_base);
 
       if (KPack == 1) {
         // When KPack == 1, we are dealing with memref<T>.
@@ -1495,12 +1509,13 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
             loc, innerLoopb.create<MulIOp>(loc, outerLoopiv, KBaseConstantOp),
             innerLoopb.create<MulIOp>(loc, innerLoopiv, KBaseConstantOp));
 
-        if (argTypeVectorLength == 1) {
+        if (k_base == 1) {
           argA = innerLoopb.create<memref::LoadOp>(loc, argType, op.bufferA(),
                                                    ValueRange{offset});
           argB = innerLoopb.create<memref::LoadOp>(loc, argType, op.bufferB(),
                                                    ValueRange{offset});
-        } else if (argTypeVectorLength > 1) {
+        } else {
+          // k_base > 1, use transferRead to build the
           argA = innerLoopb.create<vector::TransferReadOp>(
               loc, argType.cast<VectorType>(), op.bufferA(),
               ValueRange{offset});
@@ -1512,7 +1527,7 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
         auto constructArg = [&outerLoopb, &innerLoopb, &loc,
                              &b](Value &buffer, Value &arg, Value &outerLoopiv,
                                  Value &innerLoopiv, Type &argType,
-                                 int64_t argTypeVectorLength) {
+                                 int64_t k_base) {
           arg = createZeroConstantOp(innerLoopb, loc, argType);
 
           Value argAWide = innerLoopb.create<memref::LoadOp>(
@@ -1523,7 +1538,7 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
                   .cast<VectorType>(),
               buffer, ValueRange{outerLoopiv});
 
-          for (int64_t i = 0; i < argTypeVectorLength; ++i) {
+          for (int64_t i = 0; i < k_base; ++i) {
             Value iterOp = innerLoopb.create<ConstantIndexOp>(loc, i);
             Value newOffset =
                 innerLoopb.create<AddIOp>(loc, innerLoopiv, iterOp);
@@ -1539,21 +1554,18 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
             bufferAElementType.cast<VectorType>().getShape()[0];
         auto bufferBVectorLen =
             bufferBElementType.cast<VectorType>().getShape()[0];
-        if ((bufferAVectorLen < argTypeVectorLength) ||
-            (bufferAVectorLen % argTypeVectorLength != 0)) {
+        if ((bufferAVectorLen < k_base) || (bufferAVectorLen % k_base != 0)) {
           llvm_unreachable(
               "bufferA Vector length must be divisible by xdlops argument "
               "length");
         }
-        if ((bufferBVectorLen < argTypeVectorLength) ||
-            (bufferBVectorLen % argTypeVectorLength != 0)) {
+        if ((bufferBVectorLen < k_base) || (bufferBVectorLen % k_base != 0)) {
           llvm_unreachable(
               "bufferB Vector length must be divisible by xdlops argument "
               "length");
         }
 
-        if (argTypeVectorLength == bufferAVectorLen &&
-            argTypeVectorLength == bufferBVectorLen) {
+        if (k_base == bufferAVectorLen && k_base == bufferBVectorLen) {
           // If xdlops argument vector size happen to be similar to the vgpr
           // vector length. Use memref load directly
           argA = innerLoopb.create<memref::LoadOp>(
@@ -1567,9 +1579,9 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
           // length, we have to temporarily construct smaller vgpr vector
           // for xdlops to consume
           constructArg(bufferA, argA, outerLoopiv, innerLoopiv, argType,
-                       argTypeVectorLength);
+                       k_base);
           constructArg(bufferB, argB, outerLoopiv, innerLoopiv, argType,
-                       argTypeVectorLength);
+                       k_base);
         }
       }
 
