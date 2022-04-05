@@ -2174,6 +2174,7 @@ struct GridwiseGemmV2RewritePattern
     int64_t num_output_blks = xcs.num_output_blks;
     int64_t m = xcs.m;
     int64_t n = xcs.n;
+    int64_t k_base = xcs.k_base;
 
     // -----
 
@@ -2206,6 +2207,17 @@ struct GridwiseGemmV2RewritePattern
                              : (KPerBlock / num_input_blks * NRepeats);
     Type arrayAType, arrayBType;
     if (KPack > 1) {
+      // Should pack at least k_base elements and avoid waste xdlopsgemm
+      // cycles
+      if (KPack < k_base) {
+        return failure();
+      }
+
+      // When reduction, KPerBlock must be at least num_input_blks
+      if (IsKReduction && KPerBlock < num_input_blks) {
+        return failure();
+      }
+
       arrayAType =
           MemRefType::get({arrayASize}, VectorType::get({KPack}, elementType),
                           {}, gpu::GPUDialect::getPrivateAddressSpace());
@@ -2213,6 +2225,16 @@ struct GridwiseGemmV2RewritePattern
           MemRefType::get({arrayBSize}, VectorType::get({KPack}, elementType),
                           {}, gpu::GPUDialect::getPrivateAddressSpace());
     } else {
+      // When non-reduction, KPerBlock must be at least k_base
+      if (!IsKReduction && KPerBlock < k_base) {
+        return failure();
+      }
+
+      // When reduction, KPerBlock must be at least k_base * num_input_blks
+      if (IsKReduction && KPerBlock < k_base * num_input_blks) {
+        return failure();
+      }
+
       arrayAType = MemRefType::get({arrayASize}, elementType, {},
                                    gpu::GPUDialect::getPrivateAddressSpace());
       arrayBType = MemRefType::get({arrayBSize}, elementType, {},

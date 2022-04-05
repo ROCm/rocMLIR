@@ -1033,29 +1033,6 @@ private:
       return failure();
     }
 
-    if (dataType.isInteger(8)) {
-      // kpack for int8 must be larger than kbase of 4, which means
-      // kpack must be at least 4, once enabled.
-      if (param.gemmKPack == 2) {
-        return failure();
-      }
-
-      // When kpack is tunred off, K tile size must be larger than or
-      // equal to num_input_blks * k_base to qualify for a xdlops gemm
-      if (param.gemmKPack == 1) {
-        if ((param.gemmMPerBlock == 32) && (param.gemmNPerBlock == 32)) {
-          if (param.gemmKPerBlock < 8) {
-            return failure();
-          }
-        }
-        if ((param.gemmMPerBlock == 16) && (param.gemmNPerBlock == 16)) {
-          if (param.gemmKPerBlock < 16) {
-            return failure();
-          }
-        }
-      }
-    }
-
     // XXX FIXME: Ignore KReduction XDLOPS path for forward and backward weight
     // convolution now. These M/NPerBlock combinations will result in lowering
     // errors at tuning.
