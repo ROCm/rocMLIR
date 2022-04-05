@@ -782,21 +782,13 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
           BottomUpCTBuilder::above(gemmTransform, gemmTransformAttr);
       padTransform.passThrough("gemmG");
       if (filterCheckPadGemmK) {
-        if (isXdlops) {
-          padTransform.pad("gemmKPad", "gemmK", gemmKExtra, 0);
-        } else {
-          padTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
-        }
+        padTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
       } else {
         padTransform.passThrough("gemmK");
       }
 
       if (filterCheckPadGemmM) {
-        if (isXdlops) {
-          padTransform.pad("gemmMPad", "gemmM", gemmMExtra, 0);
-        } else {
-          padTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
-        }
+        padTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
       } else {
         padTransform.passThrough("gemmM");
       }
@@ -874,21 +866,13 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
           BottomUpCTBuilder::above(gemmTransform, gemmTransformAttr);
       padTransform.passThrough("gemmG");
       if (inputCheckPadGemmM) {
-        if (isXdlops) {
-          padTransform.pad("gemmMPad", "gemmM", gemmMExtra, 0);
-        } else {
-          padTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
-        }
+        padTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
       } else {
         padTransform.passThrough("gemmM");
       }
 
       if (inputCheckPadGemmN) {
-        if (isXdlops) {
-          padTransform.pad("gemmNPad", "gemmN", gemmNExtra, 0);
-        } else {
-          padTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
-        }
+        padTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
       } else {
         padTransform.passThrough("gemmN");
       }
@@ -947,21 +931,13 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
           BottomUpCTBuilder::above(gemmTransform, gemmTransformAttr);
       padTransform.passThrough("gemmG");
       if (outputCheckPadGemmK) {
-        if (isXdlops) {
-          padTransform.pad("gemmKPad", "gemmK", gemmKExtra, 0);
-        } else {
-          padTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
-        }
+        padTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
       } else {
         padTransform.passThrough("gemmK");
       }
 
       if (outputCheckPadGemmN) {
-        if (isXdlops) {
-          padTransform.pad("gemmNPad", "gemmN", gemmNExtra, 0);
-        } else {
-          padTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
-        }
+        padTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
       } else {
         padTransform.passThrough("gemmN");
       }
