@@ -232,6 +232,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
   if (auto perfConfigAttr =
           op->template getAttrOfType<StringAttr>("perf_config")) {
     perfConfig = perfConfigAttr.getValue().str();
+    llvm::errs() << "Dump perfConfig: " << perfConfig <"\n";
   }
   auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
   if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
