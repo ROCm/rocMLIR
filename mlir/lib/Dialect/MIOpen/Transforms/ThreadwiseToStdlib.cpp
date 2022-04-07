@@ -1531,10 +1531,10 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
         // kpack guarateed to be a multiple of the size of the xdlops
         // argument. Then it construct the xdlops argument by extracting
         // elements from the kpack vector.
-        auto constructXdlopsArg = [&outerLoopb, &innerLoopb, &loc,
-                                   &b](Value &buffer, Value &outerLoopiv,
-                                       Value &innerLoopiv, Type &argType,
-                                       int64_t k_base) {
+        auto constructXdlopsArg = [&outerLoopb, &innerLoopb,
+                                   &loc](Value &buffer, Value &outerLoopiv,
+                                         Value &innerLoopiv, Type &argType,
+                                         int64_t k_base) -> Value {
           Value arg = createZeroConstantOp(innerLoopb, loc, argType);
 
           Value argAWide = innerLoopb.create<memref::LoadOp>(
