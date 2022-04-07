@@ -1510,12 +1510,14 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
             innerLoopb.create<MulIOp>(loc, innerLoopiv, KBaseConstantOp));
 
         if (k_base == 1) {
+          // xdlops needs only 1 element, load directly from buffer.
           argA = innerLoopb.create<memref::LoadOp>(loc, argType, op.bufferA(),
                                                    ValueRange{offset});
           argB = innerLoopb.create<memref::LoadOp>(loc, argType, op.bufferB(),
                                                    ValueRange{offset});
         } else {
-          // k_base > 1, use transferRead to build the
+          // k_base > 1, use transferRead to load a vector length equivalent
+          // with a xdlops argument.
           argA = innerLoopb.create<vector::TransferReadOp>(
               loc, argType.cast<VectorType>(), op.bufferA(),
               ValueRange{offset});
@@ -1524,11 +1526,16 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
               ValueRange{offset});
         }
       } else {
-        auto constructArg = [&outerLoopb, &innerLoopb, &loc,
-                             &b](Value &buffer, Value &arg, Value &outerLoopiv,
-                                 Value &innerLoopiv, Type &argType,
-                                 int64_t k_base) {
-          arg = createZeroConstantOp(innerLoopb, loc, argType);
+        // This lambda create an xdlops argument from the vgpr buffer.
+        // Each time in the nested loop, it first loads a vector of size
+        // kpack guarateed to be a multiple of the size of the xdlops
+        // argument. Then it construct the xdlops argument by extracting
+        // elements from the kpack vector.
+        auto constructXdlopsArg = [&outerLoopb, &innerLoopb, &loc,
+                                   &b](Value &buffer, Value &outerLoopiv,
+                                       Value &innerLoopiv, Type &argType,
+                                       int64_t k_base) {
+          Value arg = createZeroConstantOp(innerLoopb, loc, argType);
 
           Value argAWide = innerLoopb.create<memref::LoadOp>(
               loc,
@@ -1548,6 +1555,7 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
             arg = innerLoopb.create<vector::InsertElementOp>(loc, element, arg,
                                                              iterOp);
           }
+          return arg;
         };
 
         auto bufferAVectorLen =
@@ -1578,10 +1586,10 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
           // If xdlops argument vector size is smaller than the vgpr vector
           // length, we have to temporarily construct smaller vgpr vector
           // for xdlops to consume
-          constructArg(bufferA, argA, outerLoopiv, innerLoopiv, argType,
-                       k_base);
-          constructArg(bufferB, argB, outerLoopiv, innerLoopiv, argType,
-                       k_base);
+          argA = constructXdlopsArg(bufferA, outerLoopiv, innerLoopiv, argType,
+                                    k_base);
+          argB = constructXdlopsArg(bufferB, outerLoopiv, innerLoopiv, argType,
+                                    k_base);
         }
       }
 

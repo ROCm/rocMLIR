@@ -1033,9 +1033,10 @@ private:
       return failure();
     }
 
-    // XXX FIXME: Ignore KReduction XDLOPS path for forward and backward weight
-    // convolution now. These M/NPerBlock combinations will result in lowering
-    // errors at tuning.
+    // TODO remove : Ignore KReduction XDLOPS path for forward and backward
+    // weight convolution now (unless int8). These M/NPerBlock combinations used
+    // to result in lowering errors at tuning. Once non-int8 types are tested,
+    // we should get rid of this limitation.
     if (param.gemmKPack > 1 && !dataType.isInteger(8) &&
         ((ctx.getOpType() == miopen::ConvOpType::Fwd) ||
          (ctx.getOpType() == miopen::ConvOpType::BwdWeight))) {
