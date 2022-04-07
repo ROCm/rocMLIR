@@ -239,30 +239,39 @@ struct TransformingForRewritePattern
 //===----------------------------------------------------------------------===//
 // BufferLoad lowering.
 //===----------------------------------------------------------------------===//
-// TODO(kdrewnia): use "OOB reads = 0" from hardware to remove
-// hardcoded zero value
 struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
   using OpRewritePattern<BufferLoadOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(BufferLoadOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
     Value source = op.source();
+    ValueRange coords = op.coords();
     auto sourceType = source.getType().cast<MemRefType>();
     ArrayRef<int64_t> sourceShape = sourceType.getShape();
-    int64_t sourceNumElems = sourceType.getNumElements();
-    SmallVector<int64_t, 5> sourceStrides;
-    int64_t sourceOffset;
-    if (failed(getStridesAndOffset(sourceType, sourceStrides, sourceOffset))) {
-      return op.emitOpError("Somehow we don't have static strides\n");
-    }
 
     Type loadedType = op.result().getType();
-    SmallVector<Value, 5> coords;
-    coords.reserve(op.coords().size());
-    llvm::copy(op.coords(), std::back_inserter(coords));
+    // Emit load instruction
+    // use buffer load since the source memref is on address space 0
+    // If the index here is outside the range of the underlying buffer,
+    // the load will return 0. If indexing produces a final index inside the
+    // buffer but some of the coordinates are out of bounds (ex, loading from an
+    // h or w coordinate that corresponded to implicit padding), correct afther
+    // the fact with a zero
+
+    // This approach allows us to move bounds checks on loads to after each load
+    // which improves performance by reducing memory stalls. It also simplifies
+    // the adress computation logic on loads, enabling potential compiler
+    // optimizations.
+    SmallVector<Value, 5> coordsI32;
+    coordsI32.reserve(coords.size());
+    for (auto v : coords)
+      coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
+    Value rawLoad = b.create<gpu::GCNRawBufferLoadOp>(
+        loc, loadedType, source,
+        /*targetIsRDNA=*/false, coordsI32, /*boundsCheck=*/true,
+        /*indexOffset=*/nullptr, /*sgprOffset=*/nullptr);
 
     Value zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
-
     Value falseOp = b.createOrFold<ConstantIntOp>(loc, 0, b.getI1Type());
 
     llvm::SmallDenseSet<uint32_t> leftOob, rightOob;
@@ -273,13 +282,10 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
          op.rightOobDims().getAsValueRange<IntegerAttr>())
       rightOob.insert(rightOobDim.getZExtValue());
 
-    // If a coordinate is out of bounds, set that coordinate to the number of
-    // elements in the buffer over the stride in that dimension, ensuring
-    // we get an out of bounds store
+    Value isOob = falseOp;
     for (uint32_t i = 0, e = coords.size(); i < e; ++i) {
       // oob checks on the right for dimension 0 are already handled by the
       // buffer intrinsic
-      Value isOob = falseOp;
       if (rightOob.contains(i) && i != 0) {
         Value test = b.create<CmpIOp>(
             loc, CmpIPredicate::sge, coords[i],
@@ -291,22 +297,13 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
                                       zeroConstantOp);
         isOob = b.createOrFold<OrIOp>(loc, test, isOob);
       }
-      if (isOob != falseOp) {
-        Value oobConst =
-            b.create<ConstantIndexOp>(loc, sourceNumElems / sourceStrides[i]);
-        coords[i] = b.create<SelectOp>(loc, isOob, oobConst, coords[i]);
-      }
     }
-
-    // Emit load instruction
-    // use buffer load since the source memref is on address space 0
-    SmallVector<Value, 5> coordsI32;
-    for (auto v : coords)
-      coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
-    b.replaceOpWithNewOp<gpu::GCNRawBufferLoadOp>(
-        op, loadedType, source,
-        /*targetIsRDNA=*/false, coordsI32, /*boundsCheck=*/true,
-        /*indexOffset=*/nullptr, /*sgprOffset=*/nullptr);
+    if (isOob == falseOp) {
+      b.replaceOp(op, rawLoad);
+    } else {
+      Value zeroResult = createZeroConstantOp(b, loc, loadedType);
+      b.replaceOpWithNewOp<SelectOp>(op, isOob, zeroResult, rawLoad);
+    }
     return success();
   }
 };

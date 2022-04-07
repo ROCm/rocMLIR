@@ -523,7 +523,9 @@ def MIOpen_BufferLoadOp :
     bounds checked on the left or right, respectively.
     If a load is determined to be out of bounds, its value is 0.
 
-    This op can perform vector reads.
+    This op can perform vector reads. Bounds checks on vector loads are all or nothing:
+    if the index at which the vector begins is in bounds, the whole read occurs,
+    and vice-versa.
 
     The memref must be in global memory (memory space 0).
   }];
