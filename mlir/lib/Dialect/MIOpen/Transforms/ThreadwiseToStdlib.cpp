@@ -1531,31 +1531,18 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
         // kpack guarateed to be a multiple of the size of the xdlops
         // argument. Then it construct the xdlops argument by extracting
         // elements from the kpack vector.
-        auto constructXdlopsArg = [&outerLoopb, &innerLoopb,
-                                   &loc](Value &buffer, Value &outerLoopiv,
-                                         Value &innerLoopiv, Type &argType,
-                                         int64_t k_base) -> Value {
-          Value arg = createZeroConstantOp(innerLoopb, loc, argType);
-
-          Value argAWide = innerLoopb.create<memref::LoadOp>(
+        auto constructXdlopsArg =
+            [&innerLoopb, &loc](Value &buffer, Value &outerLoopiv,
+                                Value &innerLoopiv, Type &argType) -> Value {
+          Value argWide = innerLoopb.create<memref::LoadOp>(
               loc,
               buffer.getType()
                   .cast<MemRefType>()
                   .getElementType()
                   .cast<VectorType>(),
               buffer, ValueRange{outerLoopiv});
-
-          for (int64_t i = 0; i < k_base; ++i) {
-            Value iterOp = innerLoopb.create<ConstantIndexOp>(loc, i);
-            Value newOffset =
-                innerLoopb.create<AddIOp>(loc, innerLoopiv, iterOp);
-            auto element = innerLoopb.create<vector::ExtractElementOp>(
-                loc, argType.cast<VectorType>().getElementType(), argAWide,
-                newOffset);
-            arg = innerLoopb.create<vector::InsertElementOp>(loc, element, arg,
-                                                             iterOp);
-          }
-          return arg;
+          return innerLoopb.create<ExtractSliceOp>(
+              loc, argType.cast<VectorType>(), argWide, innerLoopiv);
         };
 
         auto bufferAVectorLen =
@@ -1586,10 +1573,8 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
           // If xdlops argument vector size is smaller than the vgpr vector
           // length, we have to temporarily construct smaller vgpr vector
           // for xdlops to consume
-          argA = constructXdlopsArg(bufferA, outerLoopiv, innerLoopiv, argType,
-                                    k_base);
-          argB = constructXdlopsArg(bufferB, outerLoopiv, innerLoopiv, argType,
-                                    k_base);
+          argA = constructXdlopsArg(bufferA, outerLoopiv, innerLoopiv, argType);
+          argB = constructXdlopsArg(bufferB, outerLoopiv, innerLoopiv, argType);
         }
       }
 
