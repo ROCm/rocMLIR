@@ -36,19 +36,8 @@ class ScopedContext {
 public:
   ScopedContext() {
     // Static reference to HIP primary context for device ordinal 0.
-    static hipCtx_t context = [] {
-      HIP_REPORT_IF_ERROR(hipInit(/*flags=*/0));
-      hipDevice_t device;
-      HIP_REPORT_IF_ERROR(hipDeviceGet(&device, /*ordinal=*/0));
-      hipCtx_t ctx;
-      HIP_REPORT_IF_ERROR(hipDevicePrimaryCtxRetain(&ctx, device));
-      return ctx;
-    }();
-
-    HIP_REPORT_IF_ERROR(hipCtxPushCurrent(context));
+    hipInit(0);
   }
-
-  ~ScopedContext() { HIP_REPORT_IF_ERROR(hipCtxPopCurrent(nullptr)); }
 };
 
 extern "C" hipModule_t mgpuModuleLoad(void *data) {
