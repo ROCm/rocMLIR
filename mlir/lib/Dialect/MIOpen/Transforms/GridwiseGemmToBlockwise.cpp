@@ -2513,7 +2513,7 @@ struct GridwiseGemmV2RewritePattern
     Value m_thread_data_on_global, n_thread_data_on_global;
 
     Value c0 = b.create<arith::ConstantIndexOp>(loc, 0);
-    Value cNumBlks = b.create<arith::ConstantIndexOp>(loc, NumBlks);
+    /* Value cNumBlks = */ b.create<arith::ConstantIndexOp>(loc, NumBlks);
     SmallVector<int64_t, 6> bounds;
     bounds.push_back(NumBlks);
 
