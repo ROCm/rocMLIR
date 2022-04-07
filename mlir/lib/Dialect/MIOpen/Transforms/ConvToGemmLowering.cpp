@@ -60,26 +60,6 @@ struct LowerMIOpenOpsStep1Pass
   void runOnOperation() override;
 };
 
-LogicalResult
-isSupportedBackwardDataPaddingKernel(bool isXdlops, bool isStride2Pad1,
-                                     int64_t gemmMExtra, int64_t gemmKExtra,
-                                     int64_t gemmNExtra, Conv2DBwdDataOp &op) {
-  if (gemmNExtra && gemmKExtra) {
-    return op.emitOpError(
-        "can't support backward data padding kernel when both pad "
-        "gemmN and gemmK due to load issue\n");
-  }
-
-  if (isXdlops && (gemmMExtra || gemmNExtra)) {
-    if (isStride2Pad1) {
-      return op->emitOpError(
-          "can't support backward data padding kernel when xdlops stride 2 "
-          "pad_h,pad_w>0 and pad gemmM or gemmN due to store issue\n");
-    }
-  }
-  return success();
-}
-
 template <typename T>
 LogicalResult checkNames(ArrayRef<StringRef> actual,
                          ArrayRef<StringRef> expected, StringRef argName,
@@ -728,11 +708,6 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
     isXdlops = true;
 
-  bool hasHPadding = (leftPadH != 0 || rightPadH != 0);
-  bool hasWPadding = (leftPadW != 0 || rightPadW != 0);
-  bool hasPadding = hasHPadding || hasWPadding;
-  bool isStride2Pad1 = ((strideH > 1 || strideW > 1) && hasPadding);
-
   // Both isOriginalKernelSupport and needExtraPad are used.
   bool needExtraPad = false;
   bool isOriginalKernelSupport = true;
@@ -752,12 +727,6 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
                                    obtainConvDirection(op),
                                    obtainConvDataType(op), populateParamsXDL);
   }
-
-  LogicalResult supportedPaddingKernel = isSupportedBackwardDataPaddingKernel(
-      isXdlops, isStride2Pad1, gemmMExtra, gemmKExtra, gemmNExtra, op);
-  // don't do backward data padding kernel if isSupportPaddingKernel=false
-  if (failed(supportedPaddingKernel) && !isOriginalKernelSupport)
-    return failure();
 
   Value gemmFilter, gemmInput, gemmOutput;
   // Transform filter tensor.
@@ -813,21 +782,13 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
           BottomUpCTBuilder::above(gemmTransform, gemmTransformAttr);
       padTransform.passThrough("gemmG");
       if (filterCheckPadGemmK) {
-        if (isXdlops) {
-          padTransform.pad("gemmKPad", "gemmK", gemmKExtra, 0);
-        } else {
-          padTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
-        }
+        padTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
       } else {
         padTransform.passThrough("gemmK");
       }
 
       if (filterCheckPadGemmM) {
-        if (isXdlops) {
-          padTransform.pad("gemmMPad", "gemmM", gemmMExtra, 0);
-        } else {
-          padTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
-        }
+        padTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
       } else {
         padTransform.passThrough("gemmM");
       }
@@ -905,21 +866,13 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
           BottomUpCTBuilder::above(gemmTransform, gemmTransformAttr);
       padTransform.passThrough("gemmG");
       if (inputCheckPadGemmM) {
-        if (isXdlops) {
-          padTransform.pad("gemmMPad", "gemmM", gemmMExtra, 0);
-        } else {
-          padTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
-        }
+        padTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
       } else {
         padTransform.passThrough("gemmM");
       }
 
       if (inputCheckPadGemmN) {
-        if (isXdlops) {
-          padTransform.pad("gemmNPad", "gemmN", gemmNExtra, 0);
-        } else {
-          padTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
-        }
+        padTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
       } else {
         padTransform.passThrough("gemmN");
       }
@@ -978,21 +931,13 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
           BottomUpCTBuilder::above(gemmTransform, gemmTransformAttr);
       padTransform.passThrough("gemmG");
       if (outputCheckPadGemmK) {
-        if (isXdlops) {
-          padTransform.pad("gemmKPad", "gemmK", gemmKExtra, 0);
-        } else {
-          padTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
-        }
+        padTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
       } else {
         padTransform.passThrough("gemmK");
       }
 
       if (outputCheckPadGemmN) {
-        if (isXdlops) {
-          padTransform.pad("gemmNPad", "gemmN", gemmNExtra, 0);
-        } else {
-          padTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
-        }
+        padTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
       } else {
         padTransform.passThrough("gemmN");
       }
