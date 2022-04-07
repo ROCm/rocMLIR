@@ -161,6 +161,29 @@ void createElementwiseLoop(OpBuilder &b, Location loc, int64_t bound,
   emitBodyFunc(loop.getInductionVar());
 }
 
+Value createKPackLogic(OpBuilder &b, Location loc, Value source,
+                       BottomUpCTBuilder &sourceTransform,
+                       TransformMapAttr &sourceTransformAttr, int64_t KPack) {
+  Value result = source;
+  if (KPack > 1) {
+    BottomUpCTBuilder kpackGemmTransform =
+        BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
+
+    // Passthrough gemmG (dim 0) and gemmN (dim 2).
+    kpackGemmTransform.passThrough(sourceTransform.endName(0));
+    kpackGemmTransform.passThrough(sourceTransform.endName(2));
+    // Use Unmerge to split gemmK (dim 1) into gemmK and gemmKPack, place
+    // gemmKPack at dim 3.
+    int64_t gemmKLength = sourceTransform.endSize(1);
+    auto gemmKName = sourceTransform.endName(1);
+    kpackGemmTransform.unmerge({gemmKName, "gemmKPack"}, {1, 3}, gemmKName,
+                               {gemmKLength / KPack, KPack});
+    TransformMapAttr kpackGemmTransformAttr = kpackGemmTransform.get();
+    result = b.create<TransformOp>(loc, source, kpackGemmTransformAttr);
+  }
+  return result;
+}
+
 /// 0-initialize the output for a backward data convolution.
 /// The output is the input tensor.
 LogicalResult zeroInit(Conv2DBwdDataOp op, PatternRewriter &b) {
@@ -466,28 +489,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     gemmInput = b.create<TransformOp>(loc, embedded, gemmInputTransformAttr);
 
     // KPack for input tensor.
-    gemmInputKPack = gemmInput;
-    if (KPack > 1) {
-      BottomUpCTBuilder sourceTransform = gemmInputTransform;
-      TransformMapAttr sourceTransformAttr = gemmInputTransformAttr;
-      Value source = gemmInput;
-
-      BottomUpCTBuilder kpackGemmInputTransform =
-          BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
-      // Passthrough gemmG (dim 0) and gemmN (dim 2).
-      kpackGemmInputTransform.passThrough(sourceTransform.endName(0));
-      kpackGemmInputTransform.passThrough(sourceTransform.endName(2));
-      // Use Unmerge to split gemmK (dim 1) into gemmK and gemmKPack, place
-      // gemmKPack at dim 3.
-      int64_t gemmKLength = sourceTransform.endSize(1);
-      auto gemmKName = sourceTransform.endName(1);
-      kpackGemmInputTransform.unmerge({gemmKName, "gemmKPack"}, {1, 3},
-                                      gemmKName, {gemmKLength / KPack, KPack});
-      TransformMapAttr kpackGemmInputTransformAttr =
-          kpackGemmInputTransform.get();
-      gemmInputKPack =
-          b.create<TransformOp>(loc, source, kpackGemmInputTransformAttr);
-    }
+    gemmInputKPack = createKPackLogic(b, loc, gemmInput, gemmInputTransform,
+                                      gemmInputTransformAttr, KPack);
   }
 
   // Transform output tensor
@@ -517,28 +520,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
         b.create<TransformOp>(loc, transformed, gemmOutputTransformAttr);
 
     // KPack for output tensor.
-    gemmOutputKPack = gemmOutput;
-    if (KPack > 1) {
-      BottomUpCTBuilder sourceTransform = gemmOutputTransform;
-      TransformMapAttr sourceTransformAttr = gemmOutputTransformAttr;
-      Value source = gemmOutput;
-
-      BottomUpCTBuilder kpackGemmOutputTransform =
-          BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
-      // Passthrough gemmG (dim 0) and gemmM (dim 2).
-      kpackGemmOutputTransform.passThrough(sourceTransform.endName(0));
-      kpackGemmOutputTransform.passThrough(sourceTransform.endName(2));
-      // Use Unmerge to split gemmK (dim 1) into gemmK and gemmKPack, place
-      // gemmKPack at dim 3.
-      int64_t gemmKLength = sourceTransform.endSize(1);
-      auto gemmKName = sourceTransform.endName(1);
-      kpackGemmOutputTransform.unmerge({gemmKName, "gemmKPack"}, {1, 3},
-                                       gemmKName, {gemmKLength / KPack, KPack});
-      TransformMapAttr kpackGemmOutputTransformAttr =
-          kpackGemmOutputTransform.get();
-      gemmOutputKPack =
-          b.create<TransformOp>(loc, source, kpackGemmOutputTransformAttr);
-    }
+    gemmOutputKPack = createKPackLogic(b, loc, gemmOutput, gemmOutputTransform,
+                                       gemmOutputTransformAttr, KPack);
   }
 
   // Set attributes for gridwise_gemm op.
@@ -843,30 +826,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     }
 
     // KPack for filter tensor.
-    gemmFilterKPack = gemmFilter;
-    if (KPack > 1) {
-      assert(!filterCheckPadGemmM && !filterCheckPadGemmK);
-      BottomUpCTBuilder sourceTransform = gemmFilterTransform;
-      TransformMapAttr sourceTransformAttr = gemmFilterTransformAttr;
-
-      Value source = gemmFilter;
-
-      BottomUpCTBuilder kpackGemmFilterTransform =
-          BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
-      // Passthrough gemmG (dim 0) and gemmM (dim 2).
-      kpackGemmFilterTransform.passThrough(sourceTransform.endName(0));
-      kpackGemmFilterTransform.passThrough(sourceTransform.endName(2));
-      // Use Unmerge to split gemmK (dim 1) into gemmK and gemmKPack, place
-      // gemmKPack at dim 3.
-      int64_t gemmKLength = sourceTransform.endSize(1);
-      auto gemmKName = sourceTransform.endName(1);
-      kpackGemmFilterTransform.unmerge({gemmKName, "gemmKPack"}, {1, 3},
-                                       gemmKName, {gemmKLength / KPack, KPack});
-      TransformMapAttr kpackGemmFilterTransformAttr =
-          kpackGemmFilterTransform.get();
-      gemmFilterKPack =
-          b.create<TransformOp>(loc, source, kpackGemmFilterTransformAttr);
-    }
+    gemmFilterKPack = createKPackLogic(b, loc, gemmFilter, gemmFilterTransform,
+                                       gemmFilterTransformAttr, KPack);
   }
 
   // outside its usual scope so we can look up input tensor dim order
@@ -1034,29 +995,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     }
 
     // KPack for output tensor.
-    gemmOutputKPack = gemmOutput;
-    if (KPack > 1) {
-      assert(!outputCheckPadGemmK && !outputCheckPadGemmN);
-      BottomUpCTBuilder sourceTransform = gemmOutputTransform;
-      TransformMapAttr sourceTransformAttr = gemmOutputTransformAttr;
-      Value source = gemmOutput;
-
-      BottomUpCTBuilder kpackGemmOutputTransform =
-          BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
-      // Passthrough gemmG (dim 0) and gemmM (dim 2).
-      kpackGemmOutputTransform.passThrough(sourceTransform.endName(0));
-      kpackGemmOutputTransform.passThrough(sourceTransform.endName(2));
-      // Use Unmerge to split gemmK (dim 1) into gemmK and gemmKPack, place
-      // gemmKPack at dim 3.
-      int64_t gemmKLength = sourceTransform.endSize(1);
-      auto gemmKName = sourceTransform.endName(1);
-      kpackGemmOutputTransform.unmerge({gemmKName, "gemmKPack"}, {1, 3},
-                                       gemmKName, {gemmKLength / KPack, KPack});
-      TransformMapAttr kpackGemmOutputTransformAttr =
-          kpackGemmOutputTransform.get();
-      gemmOutputKPack =
-          b.create<TransformOp>(loc, source, kpackGemmOutputTransformAttr);
-    }
+    gemmOutputKPack = createKPackLogic(b, loc, gemmOutput, gemmOutputTransform,
+                                       gemmOutputTransformAttr, KPack);
   }
 
   // Set attributes for gridwise_gemm op.
