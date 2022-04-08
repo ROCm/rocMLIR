@@ -12,6 +12,7 @@
 
 #include "mlir/Conversion/MIOpenPasses.h"
 #include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
@@ -259,10 +260,10 @@ int main(int argc, char **argv) {
   test::registerTestDialect(registry);
 #endif
   MLIRContext context(registry);
-  context
-      .loadDialect<miopen::MIOpenDialect, StandardOpsDialect, scf::SCFDialect,
-                   AffineDialect, memref::MemRefDialect, math::MathDialect,
-                   arith::ArithmeticDialect, gpu::GPUDialect>();
+  context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect,
+                      scf::SCFDialect, AffineDialect, memref::MemRefDialect,
+                      math::MathDialect, arith::ArithmeticDialect,
+                      gpu::GPUDialect, bufferization::BufferizationDialect>();
   mlir::registerAllPasses();
   mlir::registerMIOpenConversionPasses();
   miopen::registerPasses();

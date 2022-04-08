@@ -18,25 +18,25 @@ def printAllPerformance():
     except FileNotFoundError:
         print('Perf report not found.')
         return
-    
+
     try:
         tuned_df = pd.read_csv(reportUtils.MIOPEN_TUNED_REPORT_FILE)
         tunedReportFound = True
     except FileNotFoundError:
         print('MIOpen with turned MLIR report not found.')
-    
+
     try:
         untuned_df = pd.read_csv(reportUtils.MIOPEN_UNTUNED_REPORT_FILE)
         untunedReportFound = True
     except FileNotFoundError:
         print('MIOpen with untuned MLIR report not found.')
 
-    # Add tuned and untuned performance to the existing performance table 
+    # Add tuned and untuned performance to the existing performance table
     if tunedReportFound == True and untunedReportFound == True :
         df['MIOpen TFlops (Tuned MLIR Kernels)'] = tuned_df['TFlops']
         df['MIOpen TFlops (Untuned MLIR Kernels)'] = untuned_df['TFlops']
         df['Tuned/Untuned'] = df['MIOpen TFlops (Tuned MLIR Kernels)']/df['MIOpen TFlops (Untuned MLIR Kernels)']
-        df['Tuned/MIOpen'] = df['MIOpen TFlops (Tuned MLIR Kernels)']/df['MIOpen TFlops (no MLIR Kernels)'] 
+        df['Tuned/MIOpen'] = df['MIOpen TFlops (Tuned MLIR Kernels)']/df['MIOpen TFlops (no MLIR Kernels)']
         df.to_csv(reportUtils.PERF_REPORT_FILE, index=False)
         COLUMNS_TO_AVERAGE = ['MLIR TFlops', 'MIOpen TFlops (no MLIR Kernels)', 'MLIR/MIOpen',
                               'MIOpen TFlops (Tuned MLIR Kernels)', 'MIOpen TFlops (Untuned MLIR Kernels)', 'Tuned/Untuned', 'Tuned/MIOpen']
@@ -48,9 +48,9 @@ def printAllPerformance():
     plotMean[['MLIR TFlops', 'MIOpen TFlops (no MLIR Kernels)']]\
         .to_csv(reportUtils.PERF_PLOT_REPORT_FILE, index=False)
 
-    means = df.groupby(["Direction", "DataType"])[COLUMNS_TO_AVERAGE]\
+    means = df.groupby(["Direction", "DataType", "InputLayout"])[COLUMNS_TO_AVERAGE]\
         .agg(reportUtils.geoMean)
-    means.loc[("All", "All"),:] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
+    means.loc[("All", "All", "All"),:] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
     means.to_csv(reportUtils.PERF_STATS_REPORT_FILE)
 
     with open("MLIR_vs_MIOpen.html", 'w') as htmlOutput:
