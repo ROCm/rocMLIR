@@ -84,6 +84,17 @@ gpu.module @test_module_gpu_sync {
 
 // -----
 
+gpu.module @test_module_gpu_sync_lds {
+  // CHECK-LABEL: func @gpu_sync_lds()
+  func.func @gpu_sync_lds() {
+    // CHECK: llvm.inline_asm has_side_effects asm_dialect = att "s_waitcnt lgkmcnt(0) \0A s_barrier"
+    gpu.lds_barrier
+    func.return
+  }
+}
+
+// -----
+
 gpu.module @test_module_gpu_fabs {
   // CHECK: llvm.func @__ocml_fabs_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_fabs_f64(f64) -> f64
