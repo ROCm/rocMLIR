@@ -45,13 +45,6 @@ llvm.func @rocdl.barrier() {
   llvm.return
 }
 
-llvm.func @rocdl.lds_barrier() {
-  // CHECK:      fence syncscope("workgroup") release
-  // CHECK-NEXT: call void @llvm.amdgcn.s.barrier()
-  rocdl.lds_barrier
-  llvm.return
-}
-
 llvm.func @rocdl.xdlops(%arg0 : f32, %arg1 : f32,
                    %arg2 : vector<32 x f32>, %arg30 : i32,
                    %arg4 : vector<16 x f32>, %arg5 : vector<4xf32>,
