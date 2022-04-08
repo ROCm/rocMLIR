@@ -807,10 +807,10 @@ public:
 
 class PopulateParamsXDL : public PopulateParamsBase {
 private:
-  // Initial tuning parameters for forward convolution and backward weight
+  // Initial tuning parameters for forward convolution and backward
   // convolution.
   // clang-format off
-  llvm::SmallVector<InitParamsXDL, 4> initParametersFwdAndBwdWeight = {
+  llvm::SmallVector<InitParamsXDL, 4> initParameters = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
       {128, 128, 4, 64, 64, 4, false, false},
       {32, 64, 4, 32, 64, 4, false, false},
@@ -840,20 +840,6 @@ private:
       {32, 32, 8, 16, 16, 1, false, false},
       {32, 32, 4, 16, 16, 1, false, false},
       {16, 16, 8, 16, 16, 1, false, false},
-      {16, 16, 4, 16, 16, 1, false, false},
-  };
-  // clang-format on
-
-  // Initial tuning parameters for backward data convolution.
-  // clang-format off
-  llvm::SmallVector<InitParamsXDL, 4> initParametersBwdData = {
-      // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-      {128, 128, 8, 64, 64, 1, false, false},
-      {128, 128, 16, 64, 64, 1, false, false},
-      {8, 64, 8, 8, 64, 1, false, false},
-      {4, 64, 16, 4, 64, 1, false, false},
-      {32, 64, 4, 32, 64, 1, false, false},
-      {16, 16, 16, 16, 16, 1, false, false},
       {16, 16, 4, 16, 16, 1, false, false},
   };
   // clang-format on
@@ -1030,12 +1016,10 @@ private:
       return failure();
     }
 
-    // XXX FIXME: Ignore KReduction XDLOPS path for forward and backward weight
+    // XXX FIXME: Ignore KReduction XDLOPS path for forward and backward
     // convolution now. These M/NPerBlock combinations will result in lowering
     // errors at tuning.
-    if (param.gemmKPack > 1 &&
-        ((ctx.getOpType() == miopen::ConvOpType::Fwd) ||
-         (ctx.getOpType() == miopen::ConvOpType::BwdWeight))) {
+    if (param.gemmKPack > 1) {
       if ((param.gemmMPerBlock == 16 || param.gemmMPerBlock == 32 ||
            param.gemmMPerBlock == 64) &&
           (param.gemmNPerBlock == 16 || param.gemmNPerBlock == 32 ||
@@ -1098,22 +1082,15 @@ public:
       return initParametersForwardI8;
     }
 
-    switch (dir) {
-    case miopen::ConvOpType::Fwd:
-      return initParametersFwdAndBwdWeight;
-    case miopen::ConvOpType::BwdWeight:
-      // XXX FIXME: Temporarily use another vector of heuristic tuning
-      // parameters to get around the issue that when KPACK=4, fp32 backward
-      // weight kernels would fail intermittently.
-      // TODO(whchung): Get to the bottom of this.
-      if (dataType.isF32()) {
-        return initParametersBwdWeightF32;
-      }
-      return initParametersFwdAndBwdWeight;
-    case miopen::ConvOpType::BwdData:
-      return initParametersBwdData;
+    // XXX FIXME: Temporarily use another vector of heuristic tuning
+    // parameters to get around the issue that when KPACK=4, fp32 backward
+    // weight kernels would fail intermittently.
+    // TODO(whchung): Get to the bottom of this.
+    if ((dir == miopen::ConvOpType::BwdWeight) && dataType.isF32()) {
+      return initParametersBwdWeightF32;
     }
-    return initParametersFwdAndBwdWeight;
+
+    return initParameters;
   }
 
   InitParams getUniversalParameters() { return universal_Parameters; }
