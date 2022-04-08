@@ -29,16 +29,10 @@ CONFIGURATION_FILE_NAME ='../mlir/utils/jenkins/miopen-tests/resnet50-miopen-con
 
 DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 DATA_TYPES = ['conv', 'convfp16']
-LAYOUTS = ['NCHW']
-#LAYOUTS = ['NHWC', 'NCHW']
+LAYOUTS = ['NHWC', 'NCHW']
 
 # utility functions.
 def getConfigurations(fileName):
-    xdlops = False;
-    r = subprocess.run("/opt/rocm/bin/rocm_agent_enumerator -t GPU | grep -E 'gfx908|gfx90a'", shell=True)
-    if r.returncode == 0:
-        xdlops = True
-
     configFile = open(fileName, 'r')
     lines = configFile.readlines()
     configs = [];
@@ -104,8 +98,8 @@ class ConvConfiguration:
                            '--in_h', str(self.hi),
                            '--in_w', str(self.wi),
                            '--out_channels', str(self.k),
-                           '--fil_w', str(self.y),
-                           '--fil_h', str(self.x),
+                           '--fil_h', str(self.y),
+                           '--fil_w', str(self.x),
                            '--dilation_h', str(self.dilationH),
                            '--dilation_w', str(self.dilationW),
                            '--conv_stride_h', str(self.convStrideH),
@@ -116,7 +110,7 @@ class ConvConfiguration:
         return result
 
     MLIR_FILTER_LAYOUTS = {"NCHW": "kcyx", "NHWC": "kyxc"}
-    MLIR_OUTPUT_LAYOUTS = {"NCHW": "nkhw", "NHWC": "nkhw"}
+    MLIR_OUTPUT_LAYOUTS = {"NCHW": "nkhw", "NHWC": "nhwk"}
 
     @classmethod
     def fromCommandLine(cls, argv, xdlops):
@@ -295,20 +289,17 @@ def benchmarkMLIR(commandLine, xdlops):
 
 def benchmarkMIOpen(commandLine, xdlops, envs=dict()):
     config = ConvConfiguration.fromCommandLine(commandLine, xdlops)
-    if config.inputLayout == 'nchw':
-        runConfigWithMIOpenDriver(commandLine, envs)
-        # get nanoseconds from rocprof output.
-        nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
-    else:
-        # skip the test for non-supported layouts.
-        # MIOpenDriver currently only support NCHW.
-        nanoSeconds = np.nan
+    runConfigWithMIOpenDriver(commandLine, envs)
+    # get nanoseconds from rocprof output.
+    nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
     return config.tableEntry(nanoSeconds)
 
 #Generate MLIR vs. MIOpen performance results
 def generatePerformanceResults(configs, xdlops):
-    mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), xdlops) for testVector in configs)
-    miopen_df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), xdlops) for testVector in configs)
+    mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), xdlops)
+        for testVector in configs)
+    miopen_df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), xdlops)
+        for testVector in configs)
 
     df = mlir_df.merge(miopen_df, on=ConvConfiguration.TABLE_COLUMNS[:-1],
                            suffixes=('', ' (MIOpen)'))

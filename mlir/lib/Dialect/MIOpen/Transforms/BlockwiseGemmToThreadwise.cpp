@@ -468,26 +468,9 @@ struct ThreadwiseCopyRewritePattern
     : public OpRewritePattern<ThreadwiseCopyOp> {
   using OpRewritePattern<ThreadwiseCopyOp>::OpRewritePattern;
 
-  //===----------------------------------------------------------------------===//
-  // FIXME. XXX.
-  // Force the use of affine maps over index maps in the presence of padding on
-  // GEMM during threadwise load/store/copy when the gemm is padded due to bugs
-  // in the index diff map implementation (or incompletenesses in it?)
-  //===----------------------------------------------------------------------===//
-  bool overrideLoadStoreHack(const PaddingInfoAttr paddingInfo,
-                             bool original) const {
-    if (paddingInfo.getExtraM() > 0 || paddingInfo.getExtraK() > 0 ||
-        paddingInfo.getExtraN() > 0) {
-      return true;
-    }
-    return original;
-  }
-
   LogicalResult matchAndRewrite(ThreadwiseCopyOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
-
-    PaddingInfoAttr paddingInfo = op.paddingInfo();
 
     ArrayAttr srcTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
     ArrayAttr destTransformsOnOp = op.transforms()[1].cast<ArrayAttr>();
@@ -502,8 +485,6 @@ struct ThreadwiseCopyRewritePattern
 
     bool legacyLoad = op.legacyLoad().getValueOr(false);
     bool legacyStore = op.legacyStore().getValueOr(false);
-    legacyLoad = overrideLoadStoreHack(paddingInfo, legacyLoad);
-    legacyStore = overrideLoadStoreHack(paddingInfo, legacyStore);
     bool useIndexDiffs = !(legacyLoad || legacyStore);
 
     ArrayAttr srcLeftOob, srcRightOob, destLeftOob, destRightOob;

@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Analysis/CallGraph.h"
 #include "mlir/Conversion/MIOpenPasses.h"
 #include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -41,6 +42,7 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include "llvm/ADT/SetVector.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
@@ -799,7 +801,8 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
   }
 
   // Emit kernel function call.
-  b.create<CallOp>(loc, kernel.func, paramCasts);
+  auto wrappedCall = b.create<CallOp>(loc, kernel.func, paramCasts);
+  wrappedCall->setAttr("wrapped_call", b.getUnitAttr());
 
   i = 0;
   for (auto &param : paramCasts) {
@@ -1285,34 +1288,32 @@ static void emitMemcpy(OpBuilder &b, mlir::Value src, mlir::Value dst) {
   b.create<CallOp>(loc, memcpyFunc, ValueRange{srcFlat, dstFlat, cstSize});
 }
 
-static void emitPrintTensor(OpBuilder &b, mlir::Value var, bool flag = true) {
-  if (flag) {
-    auto loc = b.getUnknownLoc();
-    auto varType = var.getType().template dyn_cast<MemRefType>();
-    auto elemType = varType.getElementType();
-    auto floatType = b.getF32Type();
+static void emitPrintTensor(OpBuilder &b, mlir::Value var) {
+  auto loc = b.getUnknownLoc();
+  auto varType = var.getType().template dyn_cast<MemRefType>();
+  auto elemType = varType.getElementType();
+  auto floatType = b.getF32Type();
 
-    // get print func
-    mlir::Value pvar = var;
-    if (elemType != floatType) {
-      // make copy
-      auto pvarType = MemRefType::get(varType.getShape(), floatType);
-      pvar = b.create<memref::AllocOp>(loc, pvarType);
-      emitMemcpy(b, var, pvar);
-    }
+  // get print func
+  mlir::Value pvar = var;
+  if (elemType != floatType) {
+    // make copy
+    auto pvarType = MemRefType::get(varType.getShape(), floatType);
+    pvar = b.create<memref::AllocOp>(loc, pvarType);
+    emitMemcpy(b, var, pvar);
+  }
 
-    auto module = b.getBlock()->getParentOp()->getParentOfType<ModuleOp>();
-    auto unrankedMRType = UnrankedMemRefType::get(b.getF32Type(), 0);
-    auto printFunc = makeFuncDecl(module, "print_memref_f32", {unrankedMRType});
+  auto module = b.getBlock()->getParentOp()->getParentOfType<ModuleOp>();
+  auto unrankedMRType = UnrankedMemRefType::get(b.getF32Type(), 0);
+  auto printFunc = makeFuncDecl(module, "print_memref_f32", {unrankedMRType});
 
-    // Emit cast + call print
-    auto printCast = b.create<memref::CastOp>(loc, unrankedMRType, pvar);
-    b.create<CallOp>(loc, printFunc, ValueRange{printCast});
+  // Emit cast + call print
+  auto printCast = b.create<memref::CastOp>(loc, unrankedMRType, pvar);
+  b.create<CallOp>(loc, printFunc, ValueRange{printCast});
 
-    if (pvar != var) {
-      // dealloc pvar
-      b.create<memref::DeallocOp>(loc, pvar);
-    }
+  if (pvar != var) {
+    // dealloc pvar
+    b.create<memref::DeallocOp>(loc, pvar);
   }
 }
 
@@ -1654,6 +1655,7 @@ static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
 static LogicalResult
 populateHostHarnessLogic(ModuleOp &module,
                          const SmallVector<KernelIF, 8> &kernels,
+                         const SmallVector<KernelIF, 8> &roots,
                          const mlir::Conv2dGenerator::Config &genConfig) {
 
   auto context = module.getContext();
@@ -1706,13 +1708,16 @@ populateHostHarnessLogic(ModuleOp &module,
 
   // Create all local variables for each kernel param
   // - assumes all kernels read the same memrefs
-  auto kernel0 = kernels.front();
-  bool isCPUKernel = !kernel0.func->hasAttr("kernel");
+  if (roots.size() > 1) {
+    // TODO: verify that all parameter lists match
+  }
+  auto root0 = *roots.begin();
+  bool isCPUKernel = !root0.func->hasAttr("kernel");
   bool hasValidation = !validationType.empty();
   SmallVector<mlir::Value, 5> localVars;
   SmallVector<mlir::Value, 5> valVars;
   int32_t idx = 0;
-  for (auto &paramType : kernel0.params) {
+  for (auto &paramType : root0.params) {
     auto paramMRType = paramType.template dyn_cast<MemRefType>();
     assert(paramMRType && "currently only supports memref types");
     auto elemType = paramMRType.getElementType();
@@ -1774,24 +1779,54 @@ populateHostHarnessLogic(ModuleOp &module,
     outIdx = localVars.size() - 1;
   }
 
-  // Run kernels
-  for (auto &kernel : kernels) {
-    // Emit call to kernel wrapper
-    if (kernel.func->hasAttr("kernel")) {
-      auto kernelWrapperFunc = createGPUWrapper(module, kernel);
-      b.create<CallOp>(loc, kernelWrapperFunc, localVars);
-    } else {
-      if (!valVars.empty()) {
-        b.create<CallOp>(loc, kernel.func, valVars);
+  // Call the roots.
+  for (auto &root : roots) {
+    // Is the root also a kernel?
+    bool rootKernel =
+        std::find_if(kernels.begin(), kernels.end(), [&](const KernelIF &k) {
+          return k.func == root.func;
+        }) != kernels.end();
+    if (rootKernel) {
+      b.create<CallOp>(loc, root.func, localVars);
+    } else if (!valVars.empty()) {
+      b.create<CallOp>(loc, root.func, valVars);
+      if (!root.func->hasAttr("kernel")) {
         printValidationResults.setValue(true);
         printResults.setValue(false);
-      } else {
-        b.create<CallOp>(loc, kernel.func, localVars);
+      }
+    } else {
+      b.create<CallOp>(loc, root.func, localVars);
+      if (!root.func->hasAttr("kernel")) {
         printValidationResults.setValue(false);
         printResults.setValue(true);
       }
     }
   }
+
+  // Wrap the kernels and gather them to substitute in calls.
+  llvm::SmallDenseMap<FuncOp, FuncOp> wrappedFuncs;
+  for (auto &kernel : kernels)
+    wrappedFuncs[kernel.func] = createGPUWrapper(module, kernel);
+
+  // Redirect calls to kernel functions to point at wrapped functions.
+  module.walk([&](CallOp call) -> WalkResult {
+    // Don't substitute the call inside the wrapper.
+    if (call->hasAttr("wrapped_call")) {
+      call->removeAttr("wrapped_call");
+      return WalkResult::advance();
+    }
+
+    // If the callee matches a wrapped function, update the call.
+    Operation *op = call;
+    CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
+    Operation *callableFromInt = callInt.resolveCallable();
+    FuncOp fop = dyn_cast<FuncOp>(*callableFromInt);
+    if (wrappedFuncs.find(fop) != wrappedFuncs.end()) {
+      call->setAttr("callee", FlatSymbolRefAttr::get(
+                                  context, wrappedFuncs[fop].sym_name()));
+    }
+    return WalkResult::advance();
+  });
 
   // Run validation
   if (hasValidation) {
@@ -1850,16 +1885,15 @@ populateHostHarnessLogic(ModuleOp &module,
     mlir::Value testResult = localVars[outIdx];
     mlir::Value valResult = valVars[outIdx];
 
-    auto verifierFunc = createVerifierFunc(module, kernel0, genConfig);
+    auto verifierFunc = createVerifierFunc(module, root0, genConfig);
     b.create<CallOp>(loc, verifierFunc, ValueRange{testResult, valResult});
   }
 
   // Print and cleanup validation vars
   for (auto &vvar : valVars) {
     // print vvar
-    emitPrintTensor(
-        b, vvar,
-        (vvar == valVars[outIdx]) ? printValidationResults.getValue() : false);
+    if ((vvar == valVars[outIdx]) && printValidationResults.getValue())
+      emitPrintTensor(b, vvar);
     // dealloc vvar
     b.create<memref::DeallocOp>(loc, vvar);
   }
@@ -1867,9 +1901,11 @@ populateHostHarnessLogic(ModuleOp &module,
   // Print and cleanup
   for (auto &lvar : localVars) {
     // print lvar
-    emitPrintTensor(b, lvar,
-                    (lvar == localVars[outIdx]) ? printResults.getValue()
-                                                : printInputs.getValue());
+    bool printp = printInputs.getValue();
+    if (lvar == localVars[outIdx])
+      printp = printResults.getValue();
+    if (printp)
+      emitPrintTensor(b, lvar);
     // dealloc lvar
     b.create<memref::DeallocOp>(loc, lvar);
   }
@@ -1935,7 +1971,6 @@ int main(int argc, char **argv) {
       }
       return WalkResult::advance();
     });
-
   } else {
     // Construct a new ModuleOp.
     module = ModuleOp::create(builder.getUnknownLoc());
@@ -1993,8 +2028,7 @@ int main(int argc, char **argv) {
 
   if (!hasUserKernel) {
     if (genCPUKernel.getValue()) {
-      auto func = createCPUConvFunc(module, genConfig);
-      kernels.emplace_back(func);
+      (void)createCPUConvFunc(module, genConfig);
     } else {
       // Populate the module.
       int kernelStart = genConfig.kernelId;
@@ -2024,6 +2058,25 @@ int main(int argc, char **argv) {
     mod = miopenModule;
   }
 
+  assert(mod == module);
+
+  // Compute set of call-graph root nodes;  they're the ones we need to
+  // call from main().  Start with all nodes, then erase the ones that
+  // have edges to them.  Use SetVector because we want to preserve the
+  // order to match an older implementation.
+  CallGraph cg(mod);
+  mlir::SetVector<CallGraphNode *> roots(cg.begin(), cg.end());
+  for (auto &node : roots)
+    for (auto &edge : *node)
+      roots.remove(edge.getTarget());
+
+  // Make KernelIFs for the roots, to pass to populateHostHarnessLogic().
+  SmallVector<KernelIF, 8> rootIFs;
+  for (auto node : roots) {
+    FuncOp func = dyn_cast<FuncOp>(node->getCallableRegion()->getParentOp());
+    rootIFs.emplace_back(func);
+  }
+
   if (testFuncNameVal.empty()) {
     mod.walk([&](FuncOp func) -> WalkResult {
       if (func->hasAttr("kernel")) {
@@ -2031,18 +2084,19 @@ int main(int argc, char **argv) {
       }
       return WalkResult::advance();
     });
-  } else {
-    auto func = mod.lookupSymbol<FuncOp>(testFuncName);
-    if (!func && mod != module) {
-      func = module.lookupSymbol<FuncOp>(testFuncName);
-    }
-    assert(func);
-    kernels.emplace_back(func);
   }
+  //     else {
+  //     auto func = mod.lookupSymbol<FuncOp>(testFuncName);
+  //     if (!func && mod != module) {
+  //       func = module.lookupSymbol<FuncOp>(testFuncName);
+  //     }
+  //     assert(func);
+  //     kernels.emplace_back(func);
+  //   }
 
   // populate host logic.
   if (genHostHarness.getValue()) {
-    if (failed(populateHostHarnessLogic(module, kernels, genConfig))) {
+    if (failed(populateHostHarnessLogic(module, kernels, rootIFs, genConfig))) {
       llvm::errs() << "Host logic populated failed.\n";
       exit(1);
     }

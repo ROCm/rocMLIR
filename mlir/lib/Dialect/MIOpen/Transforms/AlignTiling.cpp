@@ -26,7 +26,9 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -200,6 +202,136 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     return inp;
   }
 
+  Value createCollapseShapeOp(PatternRewriter &b, Location loc,
+                              Value source) const {
+    auto ctx = b.getContext();
+    auto sourceType = source.getType().cast<ShapedType>();
+    assert(sourceType.hasStaticShape() &&
+           "Only memrefs with static shapes are allowed");
+
+    auto shape = sourceType.getShape();
+    uint64_t collapsedDim = 1;
+    SmallVector<AffineExpr, 2> exprs;
+    for (uint32_t dim = 0; dim < shape.size(); ++dim) {
+      collapsedDim *= shape[dim];
+      exprs.push_back(getAffineDimExpr(dim, ctx));
+    }
+
+    SmallVector<int64_t, 1> collapsedShape;
+    SmallVector<ReassociationExprs, 1> reassocs;
+    collapsedShape.push_back(collapsedDim);
+    reassocs.push_back(exprs);
+
+    auto collapsedType =
+        MemRefType::get(collapsedShape, sourceType.getElementType(), {}, 5);
+    Value result =
+        b.create<memref::CollapseShapeOp>(loc, collapsedType, source, reassocs);
+    return result;
+  }
+
+  miopen::TransformingForOp makeLoadToVector(PatternRewriter &b, Location loc,
+                                             Operation *miTWCopy, Value srcOp,
+                                             Value dstOp) const {
+    auto op = dyn_cast<miopen::ThreadwiseCopyV2Op>(miTWCopy);
+    auto inShape = srcOp.getType().cast<ShapedType>().getShape();
+    SmallVector<Value, 6> inCoords, outCoords;
+    for (uint i = 0; i < inShape.size(); ++i) {
+      uint inIdx = 2 + i;
+      uint outIdx = 2 + inShape.size() + i;
+      auto inCoord = op->getOperand(inIdx);
+      auto outCoord = op->getOperand(outIdx);
+      inCoords.push_back(outCoord);
+      outCoords.push_back(inCoord);
+    }
+
+    ArrayAttr sourceTransformsOnOp = op.transforms()[1].cast<ArrayAttr>();
+    ArrayAttr destTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
+    ArrayAttr sourceTransforms, destTransforms;
+
+    Value source, dest;
+    std::tie(source, sourceTransforms) =
+        miopen::untransform(b, srcOp, sourceTransformsOnOp);
+    std::tie(dest, destTransforms) =
+        miopen::untransform(b, dstOp, destTransformsOnOp);
+    SmallVector<int64_t, 6> bounds;
+    llvm::transform(op.bounds().getAsRange<IntegerAttr>(),
+                    std::back_inserter(bounds),
+                    [](const IntegerAttr &v) -> int64_t { return v.getInt(); });
+
+    int64_t dataPerCopy =
+        op->getAttrOfType<IntegerAttr>("data_per_copy").getInt();
+
+    auto loadType = dstOp.getType().dyn_cast<MemRefType>();
+    auto shape = loadType.cast<ShapedType>().getShape();
+    auto vecType = VectorType::get(dataPerCopy, loadType.getElementType());
+    bounds[shape.size() - 1] /= dataPerCopy;
+
+    Value c0 = b.create<arith::ConstantIndexOp>(loc, 0);
+    ArrayAttr srcLeftOob, srcRightOob;
+    std::tie(srcLeftOob, srcRightOob) =
+        miopen::computeOobFromTransforms(b, sourceTransforms);
+
+    miopen::TransformingForOp copyLoop = b.create<miopen::TransformingForOp>(
+        loc, ArrayRef<ValueRange>{inCoords, outCoords},
+        ArrayRef<Attribute>{sourceTransforms, destTransforms}, bounds,
+        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointToStart(copyLoop.getBody());
+
+    Value loaded;
+    if (dataPerCopy > 1) {
+      loaded = b.create<miopen::BufferLoadOp>(
+          loc, vecType, source, srcLeftOob, srcRightOob,
+          copyLoop.getLowerCoords(/*domain=*/0));
+    } else {
+      loaded = b.create<miopen::BufferLoadOp>(
+          loc, loadType.getElementType(), source, srcLeftOob, srcRightOob,
+          copyLoop.getLowerCoords(/*domain=*/0));
+    }
+    SmallVector<Value, 6> indicies;
+    for (uint i = 0; i < shape.size() - 1; ++i) {
+      indicies.push_back(c0);
+    }
+    indicies.push_back(copyLoop.getLowerCoords(/*domain=*/1)[0]);
+    b.create<miopen::InBoundsStoreOp>(loc, loaded, dest, indicies);
+    return copyLoop;
+  }
+
+  Value makeTransformingCopy(PatternRewriter &b, Operation *miTWCopy,
+                             Value inp) const {
+    // 0. capture the slice of vector for miTWCopy output regs
+    auto twinp = miTWCopy->getOperand(0);
+    auto miVecSlice = twinp.getDefiningOp<miopen::ExtractSliceOp>();
+
+    // 1. clone vector into reg alloc
+    BlockAndValueMapping cloningMap;
+    auto nVecSlice = b.clone(*miVecSlice, cloningMap);
+    auto loc = nVecSlice->getLoc();
+    auto regVecType = miVecSlice.getType().template cast<VectorType>();
+    auto shape = inp.getType().cast<ShapedType>().getShape();
+    SmallVector<int64_t, 6> regShape;
+    SmallVector<Value, 6> indexVector;
+    Value c0 = b.create<arith::ConstantIndexOp>(loc, 0);
+    for (uint i = 0; i < shape.size(); ++i) {
+      regShape.push_back(1);
+      indexVector.push_back(c0);
+    }
+    regShape[shape.size() - 1] = regVecType.getNumElements();
+    auto elemType = regVecType.getElementType();
+    auto regType = MemRefType::get(regShape, elemType, {}, 5);
+    auto clonedVec = b.create<miopen::GpuAllocOp>(loc, regType);
+    auto indices = ValueRange(indexVector);
+    b.create<vector::StoreOp>(loc, nVecSlice->getResult(0), clonedVec, indices);
+
+    // 2. clone twcopy for <addend> -> regs as transforming_for
+    auto nTWCopy =
+        makeLoadToVector(b, loc, miTWCopy, inp, clonedVec->getResult(0));
+
+    // 3. shrink the dim back to original so it can match the linalg dimensions
+    auto cvCollapsed = createCollapseShapeOp(b, loc, clonedVec->getResult(0));
+    return cvCollapsed;
+  }
+
   Value applyTransforms(PatternRewriter &b, Operation *miTWCopy, Value inp,
                         const AffineMapAttr &inpMap,
                         SmallVector<Value, 5> &transforms) const {
@@ -236,8 +368,14 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
       ret = tcopy->getResult(0);
     }
 
-    // 3. also create threadwise_copy from global to regs
-    return makeThreadwiseCopy(b, miTWCopy, ret);
+    // 2. also create threadwise_copy from global to regs
+    //    TODO(sjw): make sure output buffer writes (means these inputs will be
+    //    buffer reads)
+    if (auto copyType = dyn_cast<miopen::ThreadwiseCopyOp>(miTWCopy)) {
+      return makeThreadwiseCopy(b, miTWCopy, ret);
+    } else {
+      return makeTransformingCopy(b, miTWCopy, ret);
+    }
   }
 
   template <typename Ttwcopy>
@@ -404,6 +542,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         assert(!twinp);
         twinp = twinp_t;
         transforms = transforms_l;
+        break;
       } else {
         // 2.1. Test aligned input with output type
         auto inpIdxMap = idxMaps[idx].template cast<AffineMapAttr>();
@@ -459,14 +598,11 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
             return fail;
           }
         }
-        if (twcopys.size() != 2)
-          return fail;
-
         auto twcopy = dyn_cast<miopen::ThreadwiseCopyV2Op>(twcopys.back());
 
         Value regBWGemmV2 = twcopy.getOperand(0);
-        if (auto miBWGemmV2 =
-                regBWGemmV2.getDefiningOp<miopen::BlockwiseGemmV2Op>()) {
+        if (auto miSliceV2 =
+                dyn_cast<miopen::ExtractSliceOp>(regBWGemmV2.getDefiningOp())) {
           // 2.0. Reset insertion point to just before threadwise_copy
           b.setInsertionPoint(twcopy);
 
@@ -475,7 +611,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
           assert(regVecType.hasStaticShape());
           assert(regVecType.getRank() == 1);
 
-          SmallVector<int64_t, 2> shape{2, regVecType.getNumElements()};
+          SmallVector<int64_t, 2> shape{regVecType.getNumElements()};
           auto elemType = regVecType.getElementType();
 
           // 2.2. Make vgpr alloc to fit gemm return
@@ -492,9 +628,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
           const SmallVector<Value, 2> coords0{c0, c0};
           const SmallVector<Value, 2> coords1{c1, c0};
           b.create<vector::StoreOp>(loc, twcopys.back()->getOperand(0),
-                                    laInRegs, coords0);
-          b.create<vector::StoreOp>(loc, twcopys.front()->getOperand(0),
-                                    laInRegs, coords1);
+                                    laInRegs, c0);
 
           // 2.4. Tile linalg.generic with vgpr as input, return output vgprs
           auto laOutRegs =
@@ -504,16 +638,16 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
 
           // 2.5. Replace twcopy inputs with vector from la result vgpr
           auto vload0 =
-              b.create<vector::LoadOp>(loc, regVecType, laOutRegs, coords0);
-          auto vload1 =
-              b.create<vector::LoadOp>(loc, regVecType, laOutRegs, coords1);
+              b.create<vector::LoadOp>(loc, regVecType, laOutRegs, c0);
+
           twcopys.back()->setOperand(0, vload0);
-          twcopys.front()->setOperand(0, vload1);
 
           // 2.6. Reset twcopy output to point to old laGeneric output
           auto mrReshape =
               transforms.front().getDefiningOp<miopen::TransformOp>();
           mrReshape->setOperand(0, out);
+
+          return success();
         }
       }
     }
@@ -522,8 +656,10 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
   }
 };
 
-//===- Passes -------------------------------------------------------------===//
-//===- MIOpenLinalgAlignPass - Align Tiling of Linalg Ops -----------------===//
+//===- Passes
+//-------------------------------------------------------------===//
+//===- MIOpenLinalgAlignPass - Align Tiling of Linalg Ops
+//-----------------===//
 //
 void MIOpenLinalgAlignPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
