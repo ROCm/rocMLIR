@@ -722,14 +722,11 @@ struct SoftwareBF16Trunc : OpRewritePattern<LLVM::FPTruncOp> {
   }
 };
 
-struct LDSBarrierOpLowering : ConvertToLLVMPattern {
-  explicit LDSBarrierOpLowering(MLIRContext *context,
-                                LLVMTypeConverter &typeConverter)
-      : ConvertToLLVMPattern(gpu::LDSBarrierOp::getOperationName(), context,
-                             typeConverter) {}
+struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<gpu::LDSBarrierOp> {
+  using ConvertOpToLLVMPattern<gpu::LDSBarrierOp>::ConvertOpToLLVMPattern;
 
   LogicalResult
-  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+  matchAndRewrite(gpu::LDSBarrierOp op, gpu::LDSBarrierOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto asmDialectAttr = LLVM::AsmDialectAttr::get(rewriter.getContext(),
                                                     LLVM::AsmDialect::AD_ATT);
@@ -822,8 +819,8 @@ void mlir::populateGpuToROCDLConversionPatterns(
       GCNRawBufferOpLowering<gpu::GCNRawBufferLoadOp, ROCDL::RawBufferLoadOp>,
       GCNRawBufferOpLowering<gpu::GCNRawBufferStoreOp, ROCDL::RawBufferStoreOp>,
       GCNRawBufferOpLowering<gpu::GCNRawBufferAtomicFaddOp,
-                             ROCDL::RawBufferAtomicFAddOp>>(converter);
-  patterns.insert<LDSBarrierOpLowering>(ctx, converter);
+                             ROCDL::RawBufferAtomicFAddOp>,
+      LDSBarrierOpLowering>(converter);
 }
 
 void mlir::populateBF16ToROCDLConversionPatterns(LLVMTypeConverter &converter,
