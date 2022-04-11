@@ -844,19 +844,6 @@ private:
   };
   // clang-format on
 
-  // Initial tuning parameters for backward data convolution.
-  // clang-format off
-  llvm::SmallVector<InitParamsXDL, 4> initParametersBwdData = {
-      // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-      {128, 128, 8, 64, 64, 1, false, false},
-      {128, 128, 16, 64, 64, 1, false, false},
-      {8, 64, 8, 8, 64, 1, false, false},
-      {4, 64, 16, 4, 64, 1, false, false},
-      {32, 64, 4, 32, 64, 1, false, false},
-      {16, 16, 16, 16, 16, 1, false, false},
-      {16, 16, 4, 16, 16, 1, false, false},
-  };
-  // clang-format on
   const int64_t waveSize = 64;
 
   // if can't select config from above , use this config to do
@@ -1073,14 +1060,6 @@ public:
   getTuningParameters(miopen::ConvOpType dir, mlir::Type dataType) {
     if (dataType.isInteger(8)) {
       return initParametersForwardI8;
-    }
-
-    switch (dir) {
-    case miopen::ConvOpType::Fwd:
-    case miopen::ConvOpType::BwdWeight:
-      return initParametersFwdAndBwdWeight;
-    case miopen::ConvOpType::BwdData:
-      return initParametersBwdData;
     }
 
     return initParameters;
