@@ -60,6 +60,26 @@ struct LowerMIOpenOpsStep1Pass
   void runOnOperation() override;
 };
 
+LogicalResult
+isSupportedBackwardDataPaddingKernel(bool isXdlops, bool isStride2Pad1,
+                                     int64_t gemmMExtra, int64_t gemmKExtra,
+                                     int64_t gemmNExtra, Conv2DBwdDataOp &op) {
+  if (gemmNExtra && gemmKExtra) {
+    return op.emitOpError(
+        "can't support backward data padding kernel when both pad "
+        "gemmN and gemmK due to load issue\n");
+  }
+
+  if (isXdlops && (gemmMExtra || gemmNExtra)) {
+    if (isStride2Pad1) {
+      return op->emitOpError(
+          "can't support backward data padding kernel when xdlops stride 2 "
+          "pad_h,pad_w>0 and pad gemmM or gemmN due to store issue\n");
+    }
+  }
+  return success();
+}
+
 template <typename T>
 LogicalResult checkNames(ArrayRef<StringRef> actual,
                          ArrayRef<StringRef> expected, StringRef argName,
@@ -139,6 +159,29 @@ void createElementwiseLoop(OpBuilder &b, Location loc, int64_t bound,
       loc, offset, b.create<ConstantIndexOp>(loc, bound), stride);
   b.setInsertionPointToStart(loop.getBody());
   emitBodyFunc(loop.getInductionVar());
+}
+
+Value createKPackLogic(OpBuilder &b, Location loc, Value source,
+                       BottomUpCTBuilder &sourceTransform,
+                       TransformMapAttr &sourceTransformAttr, int64_t KPack) {
+  Value result = source;
+  if (KPack > 1) {
+    BottomUpCTBuilder kpackGemmTransform =
+        BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
+
+    // Passthrough gemmG (dim 0) and gemmN (dim 2).
+    kpackGemmTransform.passThrough(sourceTransform.endName(0));
+    kpackGemmTransform.passThrough(sourceTransform.endName(2));
+    // Use Unmerge to split gemmK (dim 1) into gemmK and gemmKPack, place
+    // gemmKPack at dim 3.
+    int64_t gemmKLength = sourceTransform.endSize(1);
+    auto gemmKName = sourceTransform.endName(1);
+    kpackGemmTransform.unmerge({gemmKName, "gemmKPack"}, {1, 3}, gemmKName,
+                               {gemmKLength / KPack, KPack});
+    TransformMapAttr kpackGemmTransformAttr = kpackGemmTransform.get();
+    result = b.create<TransformOp>(loc, source, kpackGemmTransformAttr);
+  }
+  return result;
 }
 
 /// 0-initialize the output for a backward data convolution.
@@ -456,28 +499,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     gemmInput = b.create<TransformOp>(loc, embedded, gemmInputTransformAttr);
 
     // KPack for input tensor.
-    gemmInputKPack = gemmInput;
-    if (KPack > 1) {
-      BottomUpCTBuilder sourceTransform = gemmInputTransform;
-      TransformMapAttr sourceTransformAttr = gemmInputTransformAttr;
-      Value source = gemmInput;
-
-      BottomUpCTBuilder kpackGemmInputTransform =
-          BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
-      // Passthrough gemmG (dim 0) and gemmN (dim 2).
-      kpackGemmInputTransform.passThrough(sourceTransform.endName(0));
-      kpackGemmInputTransform.passThrough(sourceTransform.endName(2));
-      // Use Unmerge to split gemmK (dim 1) into gemmK and gemmKPack, place
-      // gemmKPack at dim 3.
-      int64_t gemmKLength = sourceTransform.endSize(1);
-      auto gemmKName = sourceTransform.endName(1);
-      kpackGemmInputTransform.unmerge({gemmKName, "gemmKPack"}, {1, 3},
-                                      gemmKName, {gemmKLength / KPack, KPack});
-      TransformMapAttr kpackGemmInputTransformAttr =
-          kpackGemmInputTransform.get();
-      gemmInputKPack =
-          b.create<TransformOp>(loc, source, kpackGemmInputTransformAttr);
-    }
+    gemmInputKPack = createKPackLogic(b, loc, gemmInput, gemmInputTransform,
+                                      gemmInputTransformAttr, KPack);
   }
 
   // Transform output tensor
@@ -507,28 +530,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
         b.create<TransformOp>(loc, transformed, gemmOutputTransformAttr);
 
     // KPack for output tensor.
-    gemmOutputKPack = gemmOutput;
-    if (KPack > 1) {
-      BottomUpCTBuilder sourceTransform = gemmOutputTransform;
-      TransformMapAttr sourceTransformAttr = gemmOutputTransformAttr;
-      Value source = gemmOutput;
-
-      BottomUpCTBuilder kpackGemmOutputTransform =
-          BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
-      // Passthrough gemmG (dim 0) and gemmM (dim 2).
-      kpackGemmOutputTransform.passThrough(sourceTransform.endName(0));
-      kpackGemmOutputTransform.passThrough(sourceTransform.endName(2));
-      // Use Unmerge to split gemmK (dim 1) into gemmK and gemmKPack, place
-      // gemmKPack at dim 3.
-      int64_t gemmKLength = sourceTransform.endSize(1);
-      auto gemmKName = sourceTransform.endName(1);
-      kpackGemmOutputTransform.unmerge({gemmKName, "gemmKPack"}, {1, 3},
-                                       gemmKName, {gemmKLength / KPack, KPack});
-      TransformMapAttr kpackGemmOutputTransformAttr =
-          kpackGemmOutputTransform.get();
-      gemmOutputKPack =
-          b.create<TransformOp>(loc, source, kpackGemmOutputTransformAttr);
-    }
+    gemmOutputKPack = createKPackLogic(b, loc, gemmOutput, gemmOutputTransform,
+                                       gemmOutputTransformAttr, KPack);
   }
 
   // Set attributes for gridwise_gemm op.
@@ -574,6 +577,9 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
   auto archAttr = op->template getAttrOfType<StringAttr>("arch");
   auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
+
+  auto KPackAttr = op->template getAttrOfType<IntegerAttr>("kpack");
+  int64_t KPack = KPackAttr.getInt();
 
   auto filterLayoutAttr =
       op->template getAttrOfType<ArrayAttr>("filter_layout");
@@ -718,6 +724,11 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
     isXdlops = true;
 
+  bool hasHPadding = (leftPadH != 0 || rightPadH != 0);
+  bool hasWPadding = (leftPadW != 0 || rightPadW != 0);
+  bool hasPadding = hasHPadding || hasWPadding;
+  bool isStride2Pad1 = ((strideH > 1 || strideW > 1) && hasPadding);
+
   // Both isOriginalKernelSupport and needExtraPad are used.
   bool needExtraPad = false;
   bool isOriginalKernelSupport = true;
@@ -738,7 +749,14 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
                                    obtainConvDataType(op), populateParamsXDL);
   }
 
+  LogicalResult supportedPaddingKernel = isSupportedBackwardDataPaddingKernel(
+      isXdlops, isStride2Pad1, gemmMExtra, gemmKExtra, gemmNExtra, op);
+  // don't do backward data padding kernel if isSupportPaddingKernel=false
+  if (failed(supportedPaddingKernel) && !isOriginalKernelSupport)
+    return failure();
+
   Value gemmFilter, gemmInput, gemmOutput;
+  Value gemmFilterKPack, gemmOutputKPack;
   // Transform filter tensor.
   {
     // Embed y/x into {y/x}dot and {y/x}tilda (Why the
@@ -775,21 +793,22 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     // Set up gemm by passing g -> gemmG, merging
     // [k, ydotslice, xdotslice] to gemmK, and [c, ytildaslice, xtildaslice]
     // to gemmM
-    auto gemmTransform =
+    auto gemmFilterTransform =
         BottomUpCTBuilder::above(sliceTransform, sliceTransformAttr);
-    gemmTransform.passThrough({"gemmG"}, {0}, {"g"});
-    gemmTransform.merge("gemmK", 1, {"k", "ydotslice", "xdotslice"});
-    gemmTransform.merge("gemmM", 2, {"c", "ytildaslice", "xtildaslice"});
+    gemmFilterTransform.passThrough({"gemmG"}, {0}, {"g"});
+    gemmFilterTransform.merge("gemmK", 1, {"k", "ydotslice", "xdotslice"});
+    gemmFilterTransform.merge("gemmM", 2, {"c", "ytildaslice", "xtildaslice"});
 
-    TransformMapAttr gemmTransformAttr = gemmTransform.get();
-    gemmFilter = b.create<TransformOp>(loc, slicedFilter, gemmTransformAttr);
+    TransformMapAttr gemmFilterTransformAttr = gemmFilterTransform.get();
+    gemmFilter =
+        b.create<TransformOp>(loc, slicedFilter, gemmFilterTransformAttr);
 
     // Filter padding
     bool filterCheckPadGemmM = (gemmMExtra > 0);
     bool filterCheckPadGemmK = (gemmKExtra > 0);
     if (filterCheckPadGemmM || filterCheckPadGemmK) {
-      auto padTransform =
-          BottomUpCTBuilder::above(gemmTransform, gemmTransformAttr);
+      auto padTransform = BottomUpCTBuilder::above(gemmFilterTransform,
+                                                   gemmFilterTransformAttr);
       padTransform.passThrough("gemmG");
       if (filterCheckPadGemmK) {
         padTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
@@ -807,6 +826,10 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
       // Replace filter gemm with padded version
       gemmFilter = b.create<TransformOp>(loc, gemmFilter, padTransformAttr);
     }
+
+    // KPack for filter tensor.
+    gemmFilterKPack = createKPackLogic(b, loc, gemmFilter, gemmFilterTransform,
+                                       gemmFilterTransformAttr, KPack);
   }
 
   // outside its usual scope so we can look up input tensor dim order
@@ -925,20 +948,20 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     Value sliced = b.create<TransformOp>(loc, embedded, sliceTransformAttr);
 
     // Merge k, yslice, and xslice to gemmK and n, hslice, and wslice to gemmN
-    auto gemmTransform =
+    auto gemmOutputTransform =
         BottomUpCTBuilder::above(sliceTransform, sliceTransformAttr);
-    gemmTransform.passThrough({"gemmG"}, {0}, {"go"});
-    gemmTransform.merge("gemmK", 1, {"ko", "yslice", "xslice"});
-    gemmTransform.merge("gemmN", 2, {"no", "hslice", "wslice"});
+    gemmOutputTransform.passThrough({"gemmG"}, {0}, {"go"});
+    gemmOutputTransform.merge("gemmK", 1, {"ko", "yslice", "xslice"});
+    gemmOutputTransform.merge("gemmN", 2, {"no", "hslice", "wslice"});
 
-    TransformMapAttr gemmTransformAttr = gemmTransform.get();
-    gemmOutput = b.create<TransformOp>(loc, sliced, gemmTransformAttr);
+    TransformMapAttr gemmOutputTransformAttr = gemmOutputTransform.get();
+    gemmOutput = b.create<TransformOp>(loc, sliced, gemmOutputTransformAttr);
 
     bool outputCheckPadGemmK = (gemmKExtra > 0);
     bool outputCheckPadGemmN = (gemmNExtra > 0);
     if (outputCheckPadGemmK || outputCheckPadGemmN) {
-      auto padTransform =
-          BottomUpCTBuilder::above(gemmTransform, gemmTransformAttr);
+      auto padTransform = BottomUpCTBuilder::above(gemmOutputTransform,
+                                                   gemmOutputTransformAttr);
       padTransform.passThrough("gemmG");
       if (outputCheckPadGemmK) {
         padTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
@@ -956,6 +979,10 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
       // Replace output gemm with padded version
       gemmOutput = b.create<TransformOp>(loc, gemmOutput, padTransformAttr);
     }
+
+    // KPack for output tensor.
+    gemmOutputKPack = createKPackLogic(b, loc, gemmOutput, gemmOutputTransform,
+                                       gemmOutputTransformAttr, KPack);
   }
 
   // Set attributes for gridwise_gemm op.
@@ -970,8 +997,14 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   auto paddingInfo =
       PaddingInfoAttr::get(b.getContext(), gemmMExtra, gemmKExtra, gemmNExtra);
 
-  Value gemmA = gemmFilter;
-  Value gemmB = gemmOutput;
+  // Supply KPack information into gridwiseGemmAttrs.
+  if (KPack > 1) {
+    gridwiseGemmAttrs.push_back(
+        b.getNamedAttr("kpack", b.getI32IntegerAttr(KPack)));
+  }
+
+  Value gemmA = gemmFilterKPack;
+  Value gemmB = gemmOutputKPack;
   Value gemmC = gemmInput;
   // Emit miopen.gridwise_gemm op.
   // Emit miopen.gridwise_gemm_v2 if using xdlops
@@ -1589,7 +1622,6 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       gridwiseGemmAttrs.push_back(
           b.getNamedAttr("kpack", b.getI32IntegerAttr(KPack)));
     } else {
-      // FIXME. Skip KPACK for backward data convolution for now.
       gridwiseGemmAttrs.push_back(
           b.getNamedAttr("kpack", b.getI32IntegerAttr(1)));
     }

@@ -47,7 +47,7 @@ namespace {
 bool isElementwiseOp(Operation *op) {
   return op->hasTrait<OpTrait::Elementwise>() ||
          op->hasTrait<OpTrait::ResultsBroadcastableShape>() ||
-    // clang-format off
+         // clang-format off
     isa<tosa::ClampOp,
         tosa::ReluNOp,
         tosa::SigmoidOp,

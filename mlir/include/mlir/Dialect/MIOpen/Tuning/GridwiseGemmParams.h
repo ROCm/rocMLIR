@@ -807,10 +807,10 @@ public:
 
 class PopulateParamsXDL : public PopulateParamsBase {
 private:
-  // Initial tuning parameters for forward convolution and backward weight
+  // Initial tuning parameters for forward convolution and backward
   // convolution.
   // clang-format off
-  llvm::SmallVector<InitParamsXDL, 4> initParametersFwdAndBwdWeight = {
+  llvm::SmallVector<InitParamsXDL, 4> initParameters = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
       {128, 128, 4, 64, 64, 4, false, false},
       {32, 64, 4, 32, 64, 4, false, false},
@@ -1012,9 +1012,7 @@ private:
     // XXX FIXME: Ignore KReduction XDLOPS path for forward and backward weight
     // convolution now. These M/NPerBlock combinations will result in lowering
     // errors at tuning.
-    if (param.gemmKPack > 1 &&
-        ((ctx.getOpType() == miopen::ConvOpType::Fwd) ||
-         (ctx.getOpType() == miopen::ConvOpType::BwdWeight))) {
+    if (param.gemmKPack > 1) {
       if ((param.gemmMPerBlock == 16 || param.gemmMPerBlock == 32 ||
            param.gemmMPerBlock == 64) &&
           (param.gemmNPerBlock == 16 || param.gemmNPerBlock == 32 ||
@@ -1084,7 +1082,8 @@ public:
     case miopen::ConvOpType::BwdData:
       return initParametersBwdData;
     }
-    return initParametersFwdAndBwdWeight;
+
+    return initParameters;
   }
 
   InitParams getUniversalParameters() { return universal_Parameters; }
