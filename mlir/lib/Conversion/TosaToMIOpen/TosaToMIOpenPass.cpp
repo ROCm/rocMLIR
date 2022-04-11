@@ -49,7 +49,8 @@ public:
 
     tensor_target.addLegalDialect<miopen::MIOpenDialect, tosa::TosaDialect,
                                   memref::MemRefDialect, StandardOpsDialect,
-                                  BuiltinDialect, arith::ArithmeticDialect>();
+                                  BuiltinDialect, arith::ArithmeticDialect,
+                                  bufferization::BufferizationDialect>();
     tensor_target.addDynamicallyLegalOp<tosa::TransposeOp>(
         [&](tosa::TransposeOp op) {
           auto attrDeletable = op->getAttr("changing_layout_root");

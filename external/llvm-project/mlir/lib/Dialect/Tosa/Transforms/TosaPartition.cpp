@@ -47,7 +47,7 @@ namespace {
 bool isElementwiseOp(Operation *op) {
   return op->hasTrait<OpTrait::Elementwise>() ||
          op->hasTrait<OpTrait::ResultsBroadcastableShape>() ||
-    // clang-format off
+         // clang-format off
     isa<tosa::ClampOp,
         tosa::ReluNOp,
         tosa::SigmoidOp,
@@ -419,6 +419,10 @@ public:
     ModuleOp module = getOperation();
     auto funcOps = module.getOps<FuncOp>();
     for (auto func : llvm::make_early_inc_range(funcOps)) {
+      // Don't partition a kernel;  it may be already partitioned.
+      if (func->hasAttr("kernel"))
+        continue;
+
       int count = 0;
       // (Problems with node mismatches and unexpected uses if we have the
       // candidates list at module level.)
