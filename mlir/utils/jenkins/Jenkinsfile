@@ -121,7 +121,7 @@ void postProcessPerfRes() {
 
 //makes sure multiple builds are not triggered for branch indexing
 def resetBuild() {
-    if (currentBuild.getPreviousBuild().getBuildCauses().toString().contains('BranchIndexingCause')) {
+    if (currentBuild.getPreviousBuild() == null || currentBuild.getPreviousBuild().getBuildCauses().toString().contains('BranchIndexingCause')) {
         def buildNumber = BUILD_NUMBER as int; if (buildNumber > 1) milestone(buildNumber - 1); milestone(buildNumber)
     }
 }
