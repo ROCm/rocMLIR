@@ -739,8 +739,8 @@ canonicalizeImmediatelyDeclaredConstraint(const ASTContext &C, Expr *IDC,
     // template<typename... T> concept C = true;
     // template<C<int> T> struct S; -> constraint is C<{T, int}>
     NewConverted.push_back(ConstrainedType);
-    for (auto &Arg : OldConverted.front().pack_elements().drop_front(1))
-      NewConverted.push_back(Arg);
+    llvm::append_range(NewConverted,
+                       OldConverted.front().pack_elements().drop_front(1));
     TemplateArgument NewPack(NewConverted);
 
     NewConverted.clear();
@@ -752,8 +752,7 @@ canonicalizeImmediatelyDeclaredConstraint(const ASTContext &C, Expr *IDC,
            "Unexpected first argument kind for immediately-declared "
            "constraint");
     NewConverted.push_back(ConstrainedType);
-    for (auto &Arg : OldConverted.drop_front(1))
-      NewConverted.push_back(Arg);
+    llvm::append_range(NewConverted, OldConverted.drop_front(1));
   }
   Expr *NewIDC = ConceptSpecializationExpr::Create(
       C, CSE->getNamedConcept(), NewConverted, nullptr,
@@ -1982,8 +1981,11 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
   case Type::Vector: {
     const auto *VT = cast<VectorType>(T);
     TypeInfo EltInfo = getTypeInfo(VT->getElementType());
-    Width = EltInfo.Width * VT->getNumElements();
-    Align = Width;
+    Width = VT->isExtVectorBoolType() ? VT->getNumElements()
+                                      : EltInfo.Width * VT->getNumElements();
+    // Enforce at least byte alignment.
+    Align = std::max<unsigned>(8, Width);
+
     // If the alignment is not a power of 2, round up to the next power of 2.
     // This happens for non-power-of-2 length vectors.
     if (Align & (Align-1)) {
@@ -2377,6 +2379,10 @@ TypeInfo ASTContext::getTypeInfoImpl(const Type *T) const {
     return getTypeInfo(
                   cast<AttributedType>(T)->getEquivalentType().getTypePtr());
 
+  case Type::BTFTagAttributed:
+    return getTypeInfo(
+        cast<BTFTagAttributedType>(T)->getWrappedType().getTypePtr());
+
   case Type::Atomic: {
     // Start with the base type information.
     TypeInfo Info = getTypeInfo(cast<AtomicType>(T)->getValueType());
@@ -2594,8 +2600,7 @@ void ASTContext::DeepCollectObjCIvars(const ObjCInterfaceDecl *OI,
   if (const ObjCInterfaceDecl *SuperClass = OI->getSuperClass())
     DeepCollectObjCIvars(SuperClass, false, Ivars);
   if (!leafClass) {
-    for (const auto *I : OI->ivars())
-      Ivars.push_back(I);
+    llvm::append_range(Ivars, OI->ivars());
   } else {
     auto *IDecl = const_cast<ObjCInterfaceDecl *>(OI);
     for (const ObjCIvarDecl *Iv = IDecl->all_declared_ivar_begin(); Iv;
@@ -4681,6 +4686,26 @@ QualType ASTContext::getAttributedType(attr::Kind attrKind,
   AttributedTypes.InsertNode(type, insertPos);
 
   return QualType(type, 0);
+}
+
+QualType ASTContext::getBTFTagAttributedType(const BTFTypeTagAttr *BTFAttr,
+                                             QualType Wrapped) {
+  llvm::FoldingSetNodeID ID;
+  BTFTagAttributedType::Profile(ID, Wrapped, BTFAttr);
+
+  void *InsertPos = nullptr;
+  BTFTagAttributedType *Ty =
+      BTFTagAttributedTypes.FindNodeOrInsertPos(ID, InsertPos);
+  if (Ty)
+    return QualType(Ty, 0);
+
+  QualType Canon = getCanonicalType(Wrapped);
+  Ty = new (*this, TypeAlignment) BTFTagAttributedType(Canon, Wrapped, BTFAttr);
+
+  Types.push_back(Ty);
+  BTFTagAttributedTypes.InsertNode(Ty, InsertPos);
+
+  return QualType(Ty, 0);
 }
 
 /// Retrieve a substitution-result type.
@@ -6798,41 +6823,6 @@ static FloatingRank getFloatingRank(QualType T) {
   }
 }
 
-/// getFloatingTypeOfSizeWithinDomain - Returns a real floating
-/// point or a complex type (based on typeDomain/typeSize).
-/// 'typeDomain' is a real floating point or complex type.
-/// 'typeSize' is a real floating point or complex type.
-QualType ASTContext::getFloatingTypeOfSizeWithinDomain(QualType Size,
-                                                       QualType Domain) const {
-  FloatingRank EltRank = getFloatingRank(Size);
-  if (Domain->isComplexType()) {
-    switch (EltRank) {
-    case BFloat16Rank: llvm_unreachable("Complex bfloat16 is not supported");
-    case Float16Rank:
-    case HalfRank: llvm_unreachable("Complex half is not supported");
-    case Ibm128Rank:     return getComplexType(Ibm128Ty);
-    case FloatRank:      return getComplexType(FloatTy);
-    case DoubleRank:     return getComplexType(DoubleTy);
-    case LongDoubleRank: return getComplexType(LongDoubleTy);
-    case Float128Rank:   return getComplexType(Float128Ty);
-    }
-  }
-
-  assert(Domain->isRealFloatingType() && "Unknown domain!");
-  switch (EltRank) {
-  case Float16Rank:    return HalfTy;
-  case BFloat16Rank:   return BFloat16Ty;
-  case HalfRank:       return HalfTy;
-  case FloatRank:      return FloatTy;
-  case DoubleRank:     return DoubleTy;
-  case LongDoubleRank: return LongDoubleTy;
-  case Float128Rank:   return Float128Ty;
-  case Ibm128Rank:
-    return Ibm128Ty;
-  }
-  llvm_unreachable("getFloatingRank(): illegal value for rank");
-}
-
 /// getFloatingTypeOrder - Compare the rank of the two specified floating
 /// point types, ignoring the domain of the type (i.e. 'double' ==
 /// '_Complex double').  If LHS > RHS, return 1.  If LHS == RHS, return 0. If
@@ -8548,21 +8538,18 @@ static TypedefDecl *CreateVoidPtrBuiltinVaListDecl(const ASTContext *Context) {
 
 static TypedefDecl *
 CreateAArch64ABIBuiltinVaListDecl(const ASTContext *Context) {
+  // struct __va_list
   RecordDecl *VaListTagDecl = Context->buildImplicitRecord("__va_list");
-  // namespace std { struct __va_list {
-  // Note that we create the namespace even in C. This is intentional so that
-  // the type is consistent between C and C++, which is important in cases where
-  // the types need to match between translation units (e.g. with
-  // -fsanitize=cfi-icall). Ideally we wouldn't have created this namespace at
-  // all, but it's now part of the ABI (e.g. in mangled names), so we can't
-  // change it.
-  auto *NS = NamespaceDecl::Create(
-      const_cast<ASTContext &>(*Context), Context->getTranslationUnitDecl(),
-      /*Inline*/ false, SourceLocation(), SourceLocation(),
-      &Context->Idents.get("std"),
-      /*PrevDecl*/ nullptr);
-  NS->setImplicit();
-  VaListTagDecl->setDeclContext(NS);
+  if (Context->getLangOpts().CPlusPlus) {
+    // namespace std { struct __va_list {
+    auto *NS = NamespaceDecl::Create(
+        const_cast<ASTContext &>(*Context), Context->getTranslationUnitDecl(),
+        /*Inline*/ false, SourceLocation(), SourceLocation(),
+        &Context->Idents.get("std"),
+        /*PrevDecl*/ nullptr);
+    NS->setImplicit();
+    VaListTagDecl->setDeclContext(NS);
+  }
 
   VaListTagDecl->startDefinition();
 
@@ -10298,7 +10285,16 @@ QualType ASTContext::mergeTypes(QualType LHS, QualType RHS,
       if (RHS->isObjCIdType() && LHS->isBlockPointerType())
         return RHS;
     }
-
+    // Allow __auto_type to match anything; it merges to the type with more
+    // information.
+    if (const auto *AT = LHS->getAs<AutoType>()) {
+      if (AT->isGNUAutoType())
+        return RHS;
+    }
+    if (const auto *AT = RHS->getAs<AutoType>()) {
+      if (AT->isGNUAutoType())
+        return LHS;
+    }
     return {};
   }
 
@@ -11332,7 +11328,7 @@ static GVALinkage adjustGVALinkageForAttributes(const ASTContext &Context,
     // name between the host and device compilation which is the same for the
     // same compilation unit whereas different among different compilation
     // units.
-    if (Context.shouldExternalizeStaticVar(D))
+    if (Context.shouldExternalize(D))
       return GVA_StrongExternal;
   }
   return L;
@@ -11879,6 +11875,23 @@ ASTContext::getMSGuidDecl(MSGuidDecl::Parts Parts) const {
   return New;
 }
 
+UnnamedGlobalConstantDecl *
+ASTContext::getUnnamedGlobalConstantDecl(QualType Ty,
+                                         const APValue &APVal) const {
+  llvm::FoldingSetNodeID ID;
+  UnnamedGlobalConstantDecl::Profile(ID, Ty, APVal);
+
+  void *InsertPos;
+  if (UnnamedGlobalConstantDecl *Existing =
+          UnnamedGlobalConstantDecls.FindNodeOrInsertPos(ID, InsertPos))
+    return Existing;
+
+  UnnamedGlobalConstantDecl *New =
+      UnnamedGlobalConstantDecl::Create(*this, Ty, APVal);
+  UnnamedGlobalConstantDecls.InsertNode(New, InsertPos);
+  return New;
+}
+
 TemplateParamObjectDecl *
 ASTContext::getTemplateParamObjectDecl(QualType T, const APValue &V) const {
   assert(T->isRecordType() && "template param object of unexpected type");
@@ -12264,7 +12277,7 @@ operator<<(const StreamingDiagnostic &DB,
   return DB << "a prior #pragma section";
 }
 
-bool ASTContext::mayExternalizeStaticVar(const Decl *D) const {
+bool ASTContext::mayExternalize(const Decl *D) const {
   bool IsStaticVar =
       isa<VarDecl>(D) && cast<VarDecl>(D)->getStorageClass() == SC_Static;
   bool IsExplicitDeviceVar = (D->hasAttr<CUDADeviceAttr>() &&
@@ -12272,14 +12285,16 @@ bool ASTContext::mayExternalizeStaticVar(const Decl *D) const {
                              (D->hasAttr<CUDAConstantAttr>() &&
                               !D->getAttr<CUDAConstantAttr>()->isImplicit());
   // CUDA/HIP: static managed variables need to be externalized since it is
-  // a declaration in IR, therefore cannot have internal linkage.
-  return IsStaticVar &&
-         (D->hasAttr<HIPManagedAttr>() || IsExplicitDeviceVar);
+  // a declaration in IR, therefore cannot have internal linkage. Kernels in
+  // anonymous name space needs to be externalized to avoid duplicate symbols.
+  return (IsStaticVar &&
+          (D->hasAttr<HIPManagedAttr>() || IsExplicitDeviceVar)) ||
+         (D->hasAttr<CUDAGlobalAttr>() && D->isInAnonymousNamespace());
 }
 
-bool ASTContext::shouldExternalizeStaticVar(const Decl *D) const {
-  return mayExternalizeStaticVar(D) &&
-         (D->hasAttr<HIPManagedAttr>() ||
+bool ASTContext::shouldExternalize(const Decl *D) const {
+  return mayExternalize(D) &&
+         (D->hasAttr<HIPManagedAttr>() || D->hasAttr<CUDAGlobalAttr>() ||
           CUDADeviceVarODRUsedByHost.count(cast<VarDecl>(D)));
 }
 

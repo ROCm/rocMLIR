@@ -43,7 +43,8 @@ thread_local static int32_t defaultDevice = 0;
 class ScopedContext {
 public:
   ScopedContext() {
-    // Static reference to CUDA primary context for device ordinal 0.
+    // Static reference to CUDA primary context for device ordinal
+    // defaultDevice.
     static CUcontext context = [] {
       CUDA_REPORT_IF_ERROR(cuInit(/*flags=*/0));
       CUdevice device;

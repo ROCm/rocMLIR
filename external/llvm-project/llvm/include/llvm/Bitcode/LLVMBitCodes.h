@@ -17,7 +17,10 @@
 #ifndef LLVM_BITCODE_LLVMBITCODES_H
 #define LLVM_BITCODE_LLVMBITCODES_H
 
-#include "llvm/Bitstream/BitCodes.h"
+// This is the only file included, and it, in turn, is a leaf header.
+// This allows external tools to dump the AST of this file and analyze it for
+// changes without needing to fully or partially build LLVM itself.
+#include "llvm/Bitstream/BitCodeEnums.h"
 
 namespace llvm {
 namespace bitc {
@@ -677,6 +680,8 @@ enum AttributeKindCodes {
   ATTR_KIND_NO_SANITIZE_COVERAGE = 76,
   ATTR_KIND_ELEMENTTYPE = 77,
   ATTR_KIND_DISABLE_SANITIZER_INSTRUMENTATION = 78,
+  ATTR_KIND_NO_SANITIZE_BOUNDS = 79,
+  ATTR_KIND_ALLOC_ALIGN = 80,
 };
 
 enum ComdatSelectionKindCodes {

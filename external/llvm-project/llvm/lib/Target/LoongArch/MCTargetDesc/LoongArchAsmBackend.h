@@ -17,18 +17,17 @@
 #include "MCTargetDesc/LoongArchMCTargetDesc.h"
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCFixupKindInfo.h"
+#include "llvm/MC/MCSubtargetInfo.h"
 
 namespace llvm {
 
 class LoongArchAsmBackend : public MCAsmBackend {
-  const MCSubtargetInfo &STI;
   uint8_t OSABI;
   bool Is64Bit;
 
 public:
   LoongArchAsmBackend(const MCSubtargetInfo &STI, uint8_t OSABI, bool Is64Bit)
-      : MCAsmBackend(support::little), STI(STI), OSABI(OSABI),
-        Is64Bit(Is64Bit) {}
+      : MCAsmBackend(support::little), OSABI(OSABI), Is64Bit(Is64Bit) {}
   ~LoongArchAsmBackend() override {}
 
   void applyFixup(const MCAssembler &Asm, const MCFixup &Fixup,

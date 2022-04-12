@@ -29,6 +29,7 @@ do_debug="no"
 do_asserts="no"
 do_compare="yes"
 do_rt="yes"
+do_clang_tools="yes"
 do_libs="yes"
 do_libcxxabi="yes"
 do_libunwind="yes"
@@ -39,6 +40,7 @@ do_lldb="yes"
 do_polly="yes"
 do_mlir="yes"
 do_flang="yes"
+do_silent_log="no"
 BuildDir="`pwd`"
 ExtraConfigureFlags=""
 ExportBranch=""
@@ -62,6 +64,7 @@ function usage() {
     echo " -configure-flags FLAGS  Extra flags to pass to the configure step."
     echo " -git-ref sha         Use the specified git ref for testing instead of a release."
     echo " -no-rt               Disable check-out & build Compiler-RT"
+    echo " -no-clang-tools      Disable check-out & build clang-tools-extra"
     echo " -no-libs             Disable check-out & build libcxx/libcxxabi/libunwind"
     echo " -no-libcxxabi        Disable check-out & build libcxxabi"
     echo " -no-libunwind        Disable check-out & build libunwind"
@@ -73,6 +76,7 @@ function usage() {
     echo " -no-polly            Disable check-out & build Polly"
     echo " -no-mlir             Disable check-out & build MLIR"
     echo " -no-flang            Disable check-out & build Flang"
+    echo " -silent-log          Don't output build logs to stdout"
 }
 
 while [ $# -gt 0 ]; do
@@ -144,6 +148,9 @@ while [ $# -gt 0 ]; do
         -no-libs )
             do_libs="no"
             ;;
+        -no-clang-tools )
+            do_clang_tools="no"
+            ;;
         -no-libcxxabi )
             do_libcxxabi="no"
             ;;
@@ -173,6 +180,9 @@ while [ $# -gt 0 ]; do
             ;;
         -no-flang )
             do_flang="no"
+            ;;
+        -silent-log )
+            do_silent_log="yes"
             ;;
         -help | --help | -h | --h | -\? )
             usage
@@ -235,7 +245,10 @@ if [ -z "$NumJobs" ]; then
 fi
 
 # Projects list
-projects="llvm clang clang-tools-extra"
+projects="llvm clang"
+if [ $do_clang_tools = "yes" ]; then
+  projects="$projects clang-tools-extra"
+fi
 runtimes=""
 if [ $do_rt = "yes" ]; then
   runtimes="$runtimes compiler-rt"
@@ -413,16 +426,22 @@ function build_llvmCore() {
       Verbose="-v"
     fi
 
+    redir="/dev/stdout"
+    if [ $do_silent_log == "yes" ]; then
+      echo "# Silencing build logs because of -silent-log flag..."
+      redir="/dev/null"
+    fi
+
     cd $ObjDir
     echo "# Compiling llvm $Release-$RC $Flavor"
     echo "# ${MAKE} -j $NumJobs $Verbose"
     ${MAKE} -j $NumJobs $Verbose \
-        2>&1 | tee $LogDir/llvm.make-Phase$Phase-$Flavor.log
+        2>&1 | tee $LogDir/llvm.make-Phase$Phase-$Flavor.log > $redir
 
     echo "# Installing llvm $Release-$RC $Flavor"
     echo "# ${MAKE} install"
     DESTDIR="${DestDir}" ${MAKE} install \
-        2>&1 | tee $LogDir/llvm.install-Phase$Phase-$Flavor.log
+        2>&1 | tee $LogDir/llvm.install-Phase$Phase-$Flavor.log > $redir
     cd $BuildDir
 }
 

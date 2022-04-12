@@ -112,6 +112,21 @@ def GPU_SubgroupIdOp : GPU_Op<"subgroup_id", [NoSideEffect]>,
   let assemblyFormat = "attr-dict `:` type($result)";
 }
 
+def GPU_GlobalIdOp : GPU_IndexOp<"global_id"> {
+  let description = [{
+    Returns the unique global workitem/thread id, i.e., the unique index of the
+    current workitem/thread within all workgroups / grid along the x, y, or z
+    `dimension`.
+
+    Example:
+
+    ```mlir
+    %gidX = gpu.global_id x
+    ```
+  }];
+}
+
+
 def GPU_NumSubgroupsOp : GPU_Op<"num_subgroups", [NoSideEffect]>,
     Arguments<(ins)>, Results<(outs Index:$result)> {
   let description = [{
@@ -206,6 +221,7 @@ def GPU_GPUFuncOp : GPU_Op<"func", [
     attribution.
   }];
 
+  let arguments = (ins TypeAttrOf<FunctionType>:$function_type);
   let regions = (region AnyRegion:$body);
 
   let skipDefaultBuilders = 1;
@@ -235,7 +251,7 @@ def GPU_GPUFuncOp : GPU_Op<"func", [
     /// the workgroup memory
     ArrayRef<BlockArgument> getWorkgroupAttributions() {
       auto begin =
-          std::next(getBody().args_begin(), getType().getNumInputs());
+          std::next(getBody().args_begin(), getFunctionType().getNumInputs());
       auto end = std::next(begin, getNumWorkgroupAttributions());
       return {begin, end};
     }
@@ -246,7 +262,7 @@ def GPU_GPUFuncOp : GPU_Op<"func", [
 
     /// Returns the number of buffers located in the private memory.
     unsigned getNumPrivateAttributions() {
-      return getBody().getNumArguments() - getType().getNumInputs() -
+      return getBody().getNumArguments() - getFunctionType().getNumInputs() -
           getNumWorkgroupAttributions();
     }
 
@@ -257,7 +273,7 @@ def GPU_GPUFuncOp : GPU_Op<"func", [
       // memory.
       auto begin =
           std::next(getBody().args_begin(),
-                    getType().getNumInputs() + getNumWorkgroupAttributions());
+                    getFunctionType().getNumInputs() + getNumWorkgroupAttributions());
       return {begin, getBody().args_end()};
     }
 
@@ -272,16 +288,14 @@ def GPU_GPUFuncOp : GPU_Op<"func", [
     }
 
     /// Returns the type of this function.
-    /// FIXME: We should drive this via the ODS `type` param.
-    FunctionType getType() {
-      return getTypeAttr().getValue().cast<FunctionType>();
-    }
+    /// FIXME: Remove when GPU uses prefixed accessors.
+    FunctionType getFunctionType() { return function_type(); }
 
     /// Returns the argument types of this function.
-    ArrayRef<Type> getArgumentTypes() { return getType().getInputs(); }
+    ArrayRef<Type> getArgumentTypes() { return getFunctionType().getInputs(); }
 
     /// Returns the result types of this function.
-    ArrayRef<Type> getResultTypes() { return getType().getResults(); }
+    ArrayRef<Type> getResultTypes() { return getFunctionType().getResults(); }
 
     /// Returns the keywords used in the custom syntax for this Op.
     static StringRef getWorkgroupKeyword() { return "workgroup"; }
@@ -439,7 +453,7 @@ def GPU_LaunchFuncOp : GPU_Op<"launch_func",
   let hasVerifier = 1;
 }
 
-def GPU_LaunchOp : GPU_Op<"launch">,
+def GPU_LaunchOp : GPU_Op<"launch", [AutomaticAllocationScope]>,
     Arguments<(ins Index:$gridSizeX, Index:$gridSizeY, Index:$gridSizeZ,
                Index:$blockSizeX, Index:$blockSizeY, Index:$blockSizeZ,
                Optional<I32>:$dynamicSharedMemorySize)>,
@@ -556,7 +570,7 @@ def GPU_LaunchOp : GPU_Op<"launch">,
 
   let hasCanonicalizer = 1;
   let hasCustomAssemblyFormat = 1;
-  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
 }
 
 def GPU_PrintfOp : GPU_Op<"printf", [MemoryEffects<[MemWrite]>]>,
@@ -689,7 +703,7 @@ def GPU_AllReduceOp : GPU_Op<"all_reduce",
   let regions = (region AnyRegion:$body);
   let assemblyFormat = [{ custom<AllReduceOperation>($op) $value $body attr-dict
                           `:` functional-type(operands, results) }];
-  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
 }
 
 def GPU_ShuffleOpXor  : I32EnumAttrCase<"XOR",  0, "xor">;
@@ -921,6 +935,7 @@ def GPU_AllocOp : GPU_Op<"alloc", [
     `(` $dynamicSizes `)` (`` `[` $symbolOperands^ `]`)? attr-dict `:` type($memref)
   }];
 
+  let hasVerifier = 1;
   let hasCanonicalizer = 1;
 }
 
@@ -1023,6 +1038,18 @@ def GPU_MemsetOp : GPU_Op<"memset",
     $dst`,` $value `:` type($dst)`,` type($value) attr-dict
   }];
   let hasFolder = 1;
+}
+
+def GPU_SetDefaultDeviceOp : GPU_Op<"set_default_device",
+                                    [MemoryEffects<[MemWrite]>]>,
+    Arguments<(ins I32:$devIndex)> {
+  let summary = "Set default GPU for operations after this by index";
+  let description = [{
+    Operation that sets the current default GPU, using a zero-based index
+    into the set of GPUs on the system. The default GPU setting may be
+    thread-local.
+  }];
+  let assemblyFormat = "attr-dict $devIndex";
 }
 
 def GPU_SubgroupMmaLoadMatrixOp : GPU_Op<"subgroup_mma_load_matrix",
@@ -1419,6 +1446,107 @@ def GPU_WarpSwizzleOp :
       }
     }
     return success();
+  }];
+}
+
+def GPU_DeviceAsyncCopyOp : GPU_Op<"device_async_copy",
+  [AttrSizedOperandSegments]> {
+  let summary = "device-side asynchronous copy";
+  let description = [{
+    The `gpu.device_async_copy` op initiates an asynchronous copy operation of
+    `$size` elements from source to the destination without blocking the thread.
+    The destination has to be in shared memory.
+
+    This is memory access will be pending to be added to a group.
+
+    This op is meant to be used with `gpu.device_async_create_group` and
+    `gpu.device_async_wait` to synchronize copies as explained in those ops
+    descriptions.
+
+    In order to do a copy and wait for the result we need the following
+    combination:
+    ```
+    // copy 1.
+    %cp1 = gpu.device_async_copy %A[%c0], %B[%c0], 4 :memref<16xf32> to memref<16xf32, 3>
+    // copy 2.
+    %cp2 = gpu.device_async_copy %C[%c0], %D[%c0], 4 : memref<16xf32> to memref<16xf32, 3>
+    // group 1 contains copy 1 and copy 2.
+    %token1 = gpu.device_async_create_group %cp1, %cp2
+    // copy 3.
+    %cp3 = gpu.device_async_copy %E[%c0], %F[%c0], 4 : memref<16xf32> to memref<16xf32, 3>
+    // group 2 contains copy 3.
+    %token2 = gpu.device_async_create_group %cp3
+    // after the wait copy 1 and copy 2 are complete.
+    gpu.device_async_wait %token1
+    // after the wait copy 3 is complete.
+    gpu.device_async_wait %token2
+    ```
+
+    Example:
+
+    ```mlir
+    %0 = gpu.device_async_copy %src[%c0, %c0], %dst[%c0, %c0, %c0], 4 :
+      memref<4x5xf32> to memref<2x7x5xf32, 3>
+    ```
+  }];
+  let results = (outs GPU_DeviceAsyncToken:$asyncToken);
+  let arguments = (ins Arg<AnyMemRef, "", [MemWrite]>:$dst,
+                       Variadic<Index>:$dstIndices,
+                       Arg<AnyMemRef, "", [MemRead]>:$src,
+                       Variadic<Index>:$srcIndices,
+                       IndexAttr:$numElements);
+  let assemblyFormat = [{
+    $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` `,` $numElements
+      attr-dict `:` type($src) `to` type($dst)
+  }];
+  let hasVerifier = 1;
+}
+
+def GPU_DeviceAsyncCreateGroupOp : GPU_Op<"device_async_create_group", []> {
+  let summary = "device side asynchronous create group operation";
+  let description = [{
+  The `gpu.device_async_create_group` op creates a group of memory accesses
+  containing all the pending `device_async_copy` operations associated with
+  argument tokens. Each token can only be part of one group.
+
+  It returns a token that can be use to wait until the group fully completes.
+
+  This is meant to be used with `gpu.device_async_wait` to synchronize copies
+  as explained in those ops descriptions.
+
+  Groups are executed in the order they are created.
+
+  Example:
+
+  ```mlir
+  %0 = gpu.device_async_create_group
+  ```
+  }];
+  let results = (outs GPU_DeviceAsyncToken:$asyncToken);
+  let arguments = (ins Variadic<GPU_DeviceAsyncToken>:$inputTokens);
+  let assemblyFormat = [{
+    $inputTokens attr-dict
+  }];
+}
+
+def GPU_DeviceAsyncWaitOp : GPU_Op<"device_async_wait", []> {
+  let summary = "Wait for async gpu ops to complete.";
+  let description = [{
+  The `gpu.device_async_wait` op will block the execution thread until the group
+  associated with the source token is fully completed.
+
+    The optional `$numGroup` attribute gives a lower bound of the number of
+    groups uncompleted when the wait can unblock the thread.
+  Example:
+
+  ```mlir
+  gpu.device_async_wait %0
+  ```
+  }];
+  let arguments = (ins GPU_DeviceAsyncToken:$asyncDependencies,
+                       OptionalAttr<I32Attr>:$numGroups);
+  let assemblyFormat = [{
+    $asyncDependencies attr-dict
   }];
 }
 #endif // GPU_OPS

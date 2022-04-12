@@ -19,6 +19,7 @@
 #include "GCNSubtarget.h"
 #include "SIMachineFunctionInfo.h"
 #include "llvm/CodeGen/Analysis.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/Support/CommandLine.h"
@@ -590,26 +591,16 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(const TargetMachine &TM,
   if (AMDGPUBypassSlowDiv)
     addBypassSlowDiv(64, 32);
 
-  setTargetDAGCombine(ISD::BITCAST);
-  setTargetDAGCombine(ISD::SHL);
-  setTargetDAGCombine(ISD::SRA);
-  setTargetDAGCombine(ISD::SRL);
-  setTargetDAGCombine(ISD::TRUNCATE);
-  setTargetDAGCombine(ISD::MUL);
-  setTargetDAGCombine(ISD::SMUL_LOHI);
-  setTargetDAGCombine(ISD::UMUL_LOHI);
-  setTargetDAGCombine(ISD::MULHU);
-  setTargetDAGCombine(ISD::MULHS);
-  setTargetDAGCombine(ISD::SELECT);
-  setTargetDAGCombine(ISD::SELECT_CC);
-  setTargetDAGCombine(ISD::STORE);
-  setTargetDAGCombine(ISD::FADD);
-  setTargetDAGCombine(ISD::FSUB);
-  setTargetDAGCombine(ISD::FNEG);
-  setTargetDAGCombine(ISD::FABS);
-  setTargetDAGCombine(ISD::AssertZext);
-  setTargetDAGCombine(ISD::AssertSext);
-  setTargetDAGCombine(ISD::INTRINSIC_WO_CHAIN);
+  setTargetDAGCombine({ISD::BITCAST,    ISD::SHL,
+                       ISD::SRA,        ISD::SRL,
+                       ISD::TRUNCATE,   ISD::MUL,
+                       ISD::SMUL_LOHI,  ISD::UMUL_LOHI,
+                       ISD::MULHU,      ISD::MULHS,
+                       ISD::SELECT,     ISD::SELECT_CC,
+                       ISD::STORE,      ISD::FADD,
+                       ISD::FSUB,       ISD::FNEG,
+                       ISD::FABS,       ISD::AssertZext,
+                       ISD::AssertSext, ISD::INTRINSIC_WO_CHAIN});
 }
 
 bool AMDGPUTargetLowering::mayIgnoreSignedZero(SDValue Op) const {
@@ -3003,12 +2994,11 @@ SDValue AMDGPUTargetLowering::performLoadCombine(SDNode *N,
     // the bytes again are not eliminated in the case of an unaligned copy.
     if (!allowsMisalignedMemoryAccesses(
             VT, AS, Alignment, LN->getMemOperand()->getFlags(), &IsFast)) {
-      SDValue Ops[2];
-
       if (VT.isVector())
-        std::tie(Ops[0], Ops[1]) = scalarizeVectorLoad(LN, DAG);
-      else
-        std::tie(Ops[0], Ops[1]) = expandUnalignedLoad(LN, DAG);
+        return SplitVectorLoad(SDValue(LN, 0), DAG);
+
+      SDValue Ops[2];
+      std::tie(Ops[0], Ops[1]) = expandUnalignedLoad(LN, DAG);
 
       return DAG.getMergeValues(Ops, SDLoc(N));
     }
@@ -3059,7 +3049,7 @@ SDValue AMDGPUTargetLowering::performStoreCombine(SDNode *N,
     if (!allowsMisalignedMemoryAccesses(
             VT, AS, Alignment, SN->getMemOperand()->getFlags(), &IsFast)) {
       if (VT.isVector())
-        return scalarizeVectorStore(SN, DAG);
+        return SplitVectorStore(SDValue(SN, 0), DAG);
 
       return expandUnalignedStore(SN, DAG);
     }
@@ -4381,10 +4371,14 @@ uint32_t AMDGPUTargetLowering::getImplicitParameterOffset(
   uint64_t ArgOffset = alignTo(MFI->getExplicitKernArgSize(), Alignment) +
                        ExplicitArgOffset;
   switch (Param) {
-  case GRID_DIM:
+  case FIRST_IMPLICIT:
     return ArgOffset;
-  case GRID_OFFSET:
-    return ArgOffset + 4;
+  case PRIVATE_BASE:
+    return ArgOffset + AMDGPU::ImplicitArg::PRIVATE_BASE_OFFSET;
+  case SHARED_BASE:
+    return ArgOffset + AMDGPU::ImplicitArg::SHARED_BASE_OFFSET;
+  case QUEUE_PTR:
+    return ArgOffset + AMDGPU::ImplicitArg::QUEUE_PTR_OFFSET;
   }
   llvm_unreachable("unexpected implicit parameter type");
 }
@@ -4406,7 +4400,6 @@ const char* AMDGPUTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(TC_RETURN)
   NODE_NAME_CASE(TRAP)
   NODE_NAME_CASE(RET_FLAG)
-  NODE_NAME_CASE(RET_GFX_FLAG)
   NODE_NAME_CASE(RETURN_TO_EPILOG)
   NODE_NAME_CASE(ENDPGM)
   NODE_NAME_CASE(DWORDADDR)
@@ -4486,6 +4479,8 @@ const char* AMDGPUTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(CONST_DATA_PTR)
   NODE_NAME_CASE(PC_ADD_REL_OFFSET)
   NODE_NAME_CASE(LDS)
+  NODE_NAME_CASE(FPTRUNC_ROUND_UPWARD)
+  NODE_NAME_CASE(FPTRUNC_ROUND_DOWNWARD)
   NODE_NAME_CASE(DUMMY_CHAIN)
   case AMDGPUISD::FIRST_MEM_OPCODE_NUMBER: break;
   NODE_NAME_CASE(LOAD_D16_HI)

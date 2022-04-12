@@ -41,6 +41,7 @@ def color_diagnostics_eq: Joined<["--"], "color-diagnostics=">,
     MetaVarName<"[auto,always,never]">;
 def defaultlib : P<"defaultlib", "Add the library to the list of input files">;
 def delayload : P<"delayload", "Delay loaded DLL name">;
+def diasdkdir : P<"diasdkdir", "Set the location of the DIA SDK">;
 def entry   : P<"entry", "Name of entry point symbol">;
 def errorlimit : P<"errorlimit",
     "Maximum number of errors to emit before stopping (0 = no limit)">;
@@ -89,9 +90,16 @@ def stack   : P<"stack", "Size of the stack">;
 def stub    : P<"stub", "Specify DOS stub file">;
 def subsystem : P<"subsystem", "Specify subsystem">;
 def timestamp : P<"timestamp", "Specify the PE header timestamp">;
+def vctoolsdir : P<"vctoolsdir", "Set the location of the VC tools">;
+def vctoolsversion : P<"vctoolsversion",
+    "Specify which VC tools version to use">;
 def version : P<"version", "Specify a version number in the PE header">;
 def wholearchive_file : P<"wholearchive",
     "Include all object files from this library">;
+def winsdkdir : P<"winsdkdir", "Set the location of the Windows SDK">;
+def winsdkversion : P<"winsdkversion", "Specify which SDK version to use">;
+def winsysroot : P<"winsysroot",
+    "Adds several subdirectories to the library search paths">;
 
 def disallowlib : Joined<["/", "-", "/?", "-?"], "disallowlib:">,
     Alias<nodefaultlib>;
@@ -158,7 +166,8 @@ def force_multiple : F<"force:multiple">,
     HelpText<"Allow multiply defined symbols when creating executables">;
 def force_multipleres : F<"force:multipleres">,
     HelpText<"Allow multiply defined resources when creating executables">;
-defm WX : B<"WX", "Treat warnings as errors", "Don't treat warnings as errors">;
+defm WX : B<"WX", "Treat warnings as errors",
+                  "Don't treat warnings as errors (default)">;
 
 defm allowbind : B<"allowbind", "Enable DLL binding (default)",
                    "Disable DLL binding">;

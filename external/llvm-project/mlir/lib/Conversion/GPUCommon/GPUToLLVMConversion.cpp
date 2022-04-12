@@ -19,11 +19,11 @@
 #include "mlir/Conversion/ArithmeticToLLVM/ArithmeticToLLVM.h"
 #include "mlir/Conversion/AsyncToLLVM/AsyncToLLVM.h"
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
@@ -347,8 +347,8 @@ private:
                   ConversionPatternRewriter &rewriter) const override;
 };
 
-/// A rewrite pattern to convert gpu.memset operations into a GPU runtime
-/// call. Currently it supports CUDA and ROCm (HIP).
+/// A rewrite pattern to convert gpu.set_default_device to a GPU runtime call.
+/// Currently supports CUDA and ROCm (HIP)
 class ConvertSetDefaultDeviceOpToGpuRuntimeCallPattern
     : public ConvertOpToGpuRuntimeCallPattern<gpu::SetDefaultDeviceOp> {
 public:
@@ -374,7 +374,7 @@ void GpuToLLVMConversionPass::runOnOperation() {
   mlir::cf::populateControlFlowToLLVMConversionPatterns(converter, patterns);
   populateVectorToLLVMConversionPatterns(converter, patterns);
   populateMemRefToLLVMConversionPatterns(converter, patterns);
-  populateStdToLLVMConversionPatterns(converter, patterns);
+  populateFuncToLLVMConversionPatterns(converter, patterns);
   populateAsyncStructuralTypeConversionsAndLegality(converter, patterns,
                                                     target);
   populateGpuToLLVMConversionPatterns(converter, patterns, gpuBinaryAnnotation);
@@ -867,9 +867,7 @@ LogicalResult ConvertSetDefaultDeviceOpToGpuRuntimeCallPattern::matchAndRewrite(
     gpu::SetDefaultDeviceOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
-  mlir::Value argument = rewriter.create<LLVM::ConstantOp>(
-      loc, llvmInt32Type, adaptor.devIndexAttr());
-  setDefaultDeviceCallBuilder.create(loc, rewriter, {argument});
+  setDefaultDeviceCallBuilder.create(loc, rewriter, {adaptor.devIndex()});
   rewriter.replaceOp(op, {});
   return success();
 }

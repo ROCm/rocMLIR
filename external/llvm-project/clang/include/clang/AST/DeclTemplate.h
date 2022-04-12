@@ -1109,7 +1109,7 @@ public:
   bool isAbbreviated() const {
     // Since the invented template parameters generated from 'auto' parameters
     // are either appended to the end of the explicit template parameter list or
-    // form a new template paramter list, we can simply observe the last
+    // form a new template parameter list, we can simply observe the last
     // parameter to determine if such a thing happened.
     const TemplateParameterList *TPL = getTemplateParameters();
     return TPL->getParam(TPL->size() - 1)->isImplicit();
@@ -2461,10 +2461,10 @@ private:
   SourceLocation FriendLoc;
 
   FriendTemplateDecl(DeclContext *DC, SourceLocation Loc,
-                     MutableArrayRef<TemplateParameterList *> Params,
+                     TemplateParameterList **Params, unsigned NumParams,
                      FriendUnion Friend, SourceLocation FriendLoc)
-      : Decl(Decl::FriendTemplate, DC, Loc), NumParams(Params.size()),
-        Params(Params.data()), Friend(Friend), FriendLoc(FriendLoc) {}
+      : Decl(Decl::FriendTemplate, DC, Loc), NumParams(NumParams),
+        Params(Params), Friend(Friend), FriendLoc(FriendLoc) {}
 
   FriendTemplateDecl(EmptyShell Empty) : Decl(Decl::FriendTemplate, Empty) {}
 
@@ -3313,10 +3313,12 @@ public:
 
   /// Print this object as an equivalent expression.
   void printAsExpr(llvm::raw_ostream &OS) const;
+  void printAsExpr(llvm::raw_ostream &OS, const PrintingPolicy &Policy) const;
 
   /// Print this object as an initializer suitable for a variable of the
   /// object's type.
   void printAsInit(llvm::raw_ostream &OS) const;
+  void printAsInit(llvm::raw_ostream &OS, const PrintingPolicy &Policy) const;
 
   const APValue &getValue() const { return Value; }
 

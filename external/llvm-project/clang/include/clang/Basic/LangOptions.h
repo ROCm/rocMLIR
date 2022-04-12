@@ -53,6 +53,26 @@ protected:
 /// members used to implement virtual inheritance.
 enum class MSVtorDispMode { Never, ForVBaseOverride, ForVFTable };
 
+/// Shader programs run in specific pipeline stages.
+enum class ShaderStage {
+  Pixel = 0,
+  Vertex,
+  Geometry,
+  Hull,
+  Domain,
+  Compute,
+  Library,
+  RayGeneration,
+  Intersection,
+  AnyHit,
+  ClosestHit,
+  Miss,
+  Callable,
+  Mesh,
+  Amplification,
+  Invalid,
+};
+
 /// Keeps track of the various options that can be
 /// enabled, which controls the dialect of C or C++ that is accepted.
 class LangOptions : public LangOptionsBase {
@@ -89,6 +109,9 @@ public:
 
     /// Compiling a module from a list of header files.
     CMK_HeaderModule,
+
+    /// Compiling a module header unit.
+    CMK_HeaderUnit,
 
     /// Compiling a C++ modules TS module interface unit.
     CMK_ModuleInterface,
@@ -135,6 +158,16 @@ public:
     // The "default" SYCL version to be used when none is specified on the
     // frontend command line.
     SYCL_Default = SYCL_2020
+  };
+
+  enum HLSLLangStd {
+    HLSL_Unset = 0,
+    HLSL_2015 = 2015,
+    HLSL_2016 = 2016,
+    HLSL_2017 = 2017,
+    HLSL_2018 = 2018,
+    HLSL_2021 = 2021,
+    HLSL_202x = 2029,
   };
 
   /// Clang versions with different platform ABI conformance.
@@ -235,6 +268,24 @@ public:
     FPE_Strict
   };
 
+  /// Possible float expression evaluation method choices.
+  enum FPEvalMethodKind {
+    /// The evaluation method cannot be determined or is inconsistent for this
+    /// target.
+    FEM_Indeterminable = -1,
+    /// Use the declared type for fp arithmetic.
+    FEM_Source = 0,
+    /// Use the type double for fp arithmetic.
+    FEM_Double = 1,
+    /// Use extended type for fp arithmetic.
+    FEM_Extended = 2,
+    /// Used only for FE option processing; this is only used to indicate that
+    /// the user did not specify an explicit evaluation method on the command
+    /// line and so the target should be queried for its default evaluation
+    /// method instead.
+    FEM_UnsetOnCommandLine = 3
+  };
+
   /// Possible exception handling behavior.
   enum class ExceptionHandlingKind { None, SjLj, WinEH, DwarfCFI, Wasm };
 
@@ -289,6 +340,13 @@ public:
     /// during default argument promotions.
     ExtendTo32,
     ExtendTo64
+  };
+
+  enum class GPUDefaultStreamKind {
+    /// Legacy default stream
+    Legacy,
+    /// Per-thread default stream
+    PerThread,
   };
 
 public:
@@ -383,6 +441,12 @@ public:
   /// Indicates whether the front-end is explicitly told that the
   /// input is a header file (i.e. -x c-header).
   bool IsHeaderFile = false;
+
+  /// The default stream kind used for HIP kernel launching.
+  GPUDefaultStreamKind GPUDefaultStream;
+
+  /// The seed used by the randomize structure layout feature.
+  std::string RandstructSeed;
 
   LangOptions();
 
