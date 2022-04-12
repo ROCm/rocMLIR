@@ -1,11 +1,13 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 void buildProject(String target, String cmakeOpts) {
-    cmakeBuild generator: 'Ninja',\
-        buildDir: 'build',\
-        buildType: 'RelWithDebInfo',\
-        installation: 'InSearchPath',\
-        steps: [[args: target]],\
-        cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
+    timeout(time: 30, activity: true, unit: 'MINUTES') {
+        cmakeBuild generator: 'Ninja',\
+            buildDir: 'build',\
+            buildType: 'RelWithDebInfo',\
+            installation: 'InSearchPath',\
+            steps: [[args: target]],\
+            cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
+    }
 }
 
 void buildMIOpen(String cmakeOpts) {
@@ -83,14 +85,16 @@ void preMergeCheck() {
 
 void testMIOpenDriver(String dtype, String layout, String direction, String tuning) {
     echo "Config is (${dtype}, ${layout}, dir=${direction}, tuning=${tuning})"
-    dir('MIOpen/build/') {
-        sh """
-        bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh \
-        --layout ${layout} \
-        --direction ${direction} \
-        --dtype ${dtype} \
-        ${tuning == '1' ? '--tuning' : '--no-tuning'} \
-        < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+    timeout(time: 30, activity: true, unit: 'MINUTES') {
+        dir('MIOpen/build/') {
+            sh """
+            bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh \
+            --layout ${layout} \
+            --direction ${direction} \
+            --dtype ${dtype} \
+            ${tuning == '1' ? '--tuning' : '--no-tuning'} \
+            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+        }
     }
 }
 
@@ -113,6 +117,17 @@ void postProcessPerfRes() {
 
     // Save results for future comparison
     archiveArtifacts artifacts: 'build/mlir_*.csv,build/perf-run-date', onlyIfSuccessful: true
+}
+
+//makes sure multiple builds are not triggered for branch indexing
+def resetBuild() {
+    if (currentBuild.getPreviousBuild().getBuildCauses().toString().contains('BranchIndexingCause')) {
+        def buildNumber = BUILD_NUMBER as int; if (buildNumber > 1) milestone(buildNumber - 1); milestone(buildNumber)
+    }
+}
+
+def rebootNode() {
+    build job: 'reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
 }
 
 pipeline {
@@ -143,6 +158,15 @@ pipeline {
                 }
             }
         }
+        stage("Kill old PR builds") {
+            when {
+                equals expected: false, actual: params.weekly;
+                equals expected: false, actual: params.nightly;
+            }
+            steps {
+                resetBuild()
+            }
+        }
         stage("Build and Test") {
             parallel {
                 stage("Shared Library: fixed E2E tests") {
@@ -155,7 +179,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "${params.canXdlops ? 'gfx908 || gfx90a' : 'rocm' }"
+                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
                             alwaysPull true
                         }
                     }
@@ -193,6 +217,9 @@ pipeline {
                         }
                      }
                      post {
+                        unsuccessful {
+                            rebootNode()
+                        }
                         always {
                             cleanWs()
                         }
@@ -210,7 +237,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "${params.canXdlops ? 'gfx908 || gfx90a' : 'rocm' }"
+                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
                             alwaysPull true
                         }
                     }
@@ -239,6 +266,9 @@ pipeline {
                         }
                     }
                     post {
+                        unsuccessful {
+                            rebootNode()
+                        }
                         always {
                             cleanWs()
                         }
@@ -257,7 +287,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "${params.canXdlops ? 'gfx908 || gfx90a' : 'gfx906' }"
+                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'gfx906' }"
                             alwaysPull true
                         }
                     }
@@ -282,18 +312,23 @@ pipeline {
                                 LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
                             }
                             steps {
-                                dir('MIOpen/build/') {
-                                    sh """
-                                    bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --no-tuning\
-                                       < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
-                                    sh """
-                                    bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
-                                       < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
+                                timeout(time: 30, activity: true, unit: 'MINUTES') {
+                                    dir('MIOpen/build/') {
+                                        sh """
+                                        bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --no-tuning\
+                                           < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
+                                        sh """
+                                        bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
+                                           < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
+                                    }
                                 }
                             }
                         }
                     }
                     post {
+                        unsuccessful {
+                            rebootNode()
+                        }
                         always {
                             cleanWs()
                         }
@@ -318,7 +353,7 @@ pipeline {
                     docker {
                         image dockerImage()
                         args dockerArgs()
-                        label "${ARCH}"
+                        label "mlir && ${ARCH}"
                         alwaysPull true
                     }
                 }
@@ -440,7 +475,7 @@ pipeline {
                             docker {
                                 image dockerImage()
                                 args dockerArgs()
-                                label "${params.canXdlops ? 'gfx908 || gfx90a' : 'gfx906'}"
+                                label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'gfx906'}"
                                 alwaysPull true
                             }
                         }
@@ -492,6 +527,9 @@ pipeline {
                             }
                         }
                         post {
+                            unsuccessful {
+                                rebootNode()
+                            }
                             always {
                                 cleanWs()
                             }
@@ -511,7 +549,7 @@ pipeline {
                 docker {
                     image dockerImage()
                     args dockerArgs()
-                    label "${params.canXdlops ? 'gfx90a' : 'gfx906' }"
+                    label "mlir && ${params.canXdlops ? 'gfx90a' : 'gfx906' }"
                     alwaysPull true
                 }
             }
@@ -607,6 +645,9 @@ pipeline {
                 }
             }
             post {
+                unsuccessful {
+                    rebootNode()
+                }
                 always {
                     cleanWs()
                 }
