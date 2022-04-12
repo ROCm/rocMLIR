@@ -2012,6 +2012,14 @@ Error ASTNodeImporter::ImportDefinition(
   }
 
   To->startDefinition();
+  // Set the definition to complete even if it is really not complete during
+  // import. Some AST constructs (expressions) require the record layout
+  // to be calculated (see 'clang::computeDependence') at the time they are
+  // constructed. Import of such AST node is possible during import of the
+  // same record, there is no way to have a completely defined record (all
+  // fields imported) at that time without multiple AST import passes.
+  if (!Importer.isMinimalImport())
+    To->setCompleteDefinition(true);
   // Complete the definition even if error is returned.
   // The RecordDecl may be already part of the AST so it is better to
   // have it in complete state even if something is wrong with it.
@@ -2076,9 +2084,10 @@ Error ASTNodeImporter::ImportDefinition(
       ToCXX->setBases(Bases.data(), Bases.size());
   }
 
-  if (shouldForceImportDeclContext(Kind))
+  if (shouldForceImportDeclContext(Kind)) {
     if (Error Err = ImportDeclContext(From, /*ForceImport=*/true))
       return Err;
+  }
 
   return Error::success();
 }
@@ -2865,7 +2874,7 @@ ExpectedDecl ASTNodeImporter::VisitRecordDecl(RecordDecl *D) {
         return TInfoOrErr.takeError();
       if (GetImportedOrCreateSpecialDecl(
               D2CXX, CXXRecordDecl::CreateLambda, D, Importer.getToContext(),
-              DC, *TInfoOrErr, Loc, DCXX->isDependentLambda(),
+              DC, *TInfoOrErr, Loc, DCXX->getLambdaDependencyKind(),
               DCXX->isGenericLambda(), DCXX->getLambdaCaptureDefault()))
         return D2CXX;
       ExpectedDecl CDeclOrErr = import(DCXX->getLambdaContextDecl());
@@ -3637,19 +3646,19 @@ ExpectedDecl ASTNodeImporter::VisitFieldDecl(FieldDecl *D) {
         // initializer of a FieldDecl might not had been instantiated in the
         // "To" context.  However, the "From" context might instantiated that,
         // thus we have to merge that.
+        // Note: `hasInClassInitializer()` is not the same as non-null
+        // `getInClassInitializer()` value.
         if (Expr *FromInitializer = D->getInClassInitializer()) {
-          // We don't have yet the initializer set.
-          if (FoundField->hasInClassInitializer() &&
-              !FoundField->getInClassInitializer()) {
-            if (ExpectedExpr ToInitializerOrErr = import(FromInitializer))
+          if (ExpectedExpr ToInitializerOrErr = import(FromInitializer)) {
+            // Import of the FromInitializer may result in the setting of
+            // InClassInitializer. If not, set it here.
+            assert(FoundField->hasInClassInitializer() &&
+                   "Field should have an in-class initializer if it has an "
+                   "expression for it.");
+            if (!FoundField->getInClassInitializer())
               FoundField->setInClassInitializer(*ToInitializerOrErr);
-            else {
-              // We can't return error here,
-              // since we already mapped D as imported.
-              // FIXME: warning message?
-              consumeError(ToInitializerOrErr.takeError());
-              return FoundField;
-            }
+          } else {
+              return ToInitializerOrErr.takeError();
           }
         }
         return FoundField;
@@ -6656,6 +6665,7 @@ ExpectedStmt ASTNodeImporter::VisitExpr(Expr *E) {
 
 ExpectedStmt ASTNodeImporter::VisitSourceLocExpr(SourceLocExpr *E) {
   Error Err = Error::success();
+  auto ToType = importChecked(Err, E->getType());
   auto BLoc = importChecked(Err, E->getBeginLoc());
   auto RParenLoc = importChecked(Err, E->getEndLoc());
   if (Err)
@@ -6665,8 +6675,8 @@ ExpectedStmt ASTNodeImporter::VisitSourceLocExpr(SourceLocExpr *E) {
     return ParentContextOrErr.takeError();
 
   return new (Importer.getToContext())
-      SourceLocExpr(Importer.getToContext(), E->getIdentKind(), BLoc, RParenLoc,
-                    *ParentContextOrErr);
+      SourceLocExpr(Importer.getToContext(), E->getIdentKind(), ToType, BLoc,
+                    RParenLoc, *ParentContextOrErr);
 }
 
 ExpectedStmt ASTNodeImporter::VisitVAArgExpr(VAArgExpr *E) {
@@ -8118,8 +8128,23 @@ ExpectedStmt ASTNodeImporter::VisitCXXDefaultInitExpr(CXXDefaultInitExpr *E) {
   if (!UsedContextOrErr)
     return UsedContextOrErr.takeError();
 
-  return CXXDefaultInitExpr::Create(
-      Importer.getToContext(), *ToBeginLocOrErr, *ToFieldOrErr, *UsedContextOrErr);
+  FieldDecl *ToField = *ToFieldOrErr;
+  assert(ToField->hasInClassInitializer() &&
+         "Field should have in-class initializer if there is a default init "
+         "expression that uses it.");
+  if (!ToField->getInClassInitializer()) {
+    // The in-class initializer may be not yet set in "To" AST even if the
+    // field is already there. This must be set here to make construction of
+    // CXXDefaultInitExpr work.
+    auto ToInClassInitializerOrErr =
+        import(E->getField()->getInClassInitializer());
+    if (!ToInClassInitializerOrErr)
+      return ToInClassInitializerOrErr.takeError();
+    ToField->setInClassInitializer(*ToInClassInitializerOrErr);
+  }
+
+  return CXXDefaultInitExpr::Create(Importer.getToContext(), *ToBeginLocOrErr,
+                                    ToField, *UsedContextOrErr);
 }
 
 ExpectedStmt ASTNodeImporter::VisitCXXNamedCastExpr(CXXNamedCastExpr *E) {

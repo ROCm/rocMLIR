@@ -17,9 +17,6 @@ set(TARGET_LIBC_ENTRYPOINTS
     libc.src.ctype.tolower
     libc.src.ctype.toupper
 
-    # errno.h entrypoints
-    libc.src.errno.__errno_location
-
     # fcntl.h entrypoints
     libc.src.fcntl.creat
     libc.src.fcntl.open
@@ -55,6 +52,10 @@ set(TARGET_LIBC_ENTRYPOINTS
     libc.src.string.strtok
     libc.src.string.strtok_r
 
+    # string.h entrypoints that depend on malloc
+    libc.src.string.strdup
+    libc.src.string.strndup
+
     # inttypes.h entrypoints
     libc.src.inttypes.imaxdiv
     libc.src.inttypes.strtoimax
@@ -81,6 +82,13 @@ set(TARGET_LIBC_ENTRYPOINTS
     libc.src.stdlib.strtoul
     libc.src.stdlib.strtoull
 
+    # stdlib.h external entrypoints
+    libc.src.stdlib.malloc
+    libc.src.stdlib.calloc
+    libc.src.stdlib.realloc
+    libc.src.stdlib.aligned_alloc
+    libc.src.stdlib.free
+
     # sys/mman.h entrypoints
     libc.src.sys.mman.mmap
     libc.src.sys.mman.munmap
@@ -92,6 +100,7 @@ set(TARGET_LIBC_ENTRYPOINTS
     # unistd.h entrypoints
     libc.src.unistd.close
     libc.src.unistd.fsync
+    libc.src.unistd.lseek
     libc.src.unistd.read
     libc.src.unistd.rmdir
     libc.src.unistd.unlink
@@ -213,9 +222,40 @@ if(LLVM_LIBC_FULL_BUILD)
     # assert.h entrypoints
     # libc.src.assert.__assert_fail
 
+    # pthread.h entrypoints
+    libc.src.pthread.pthread_attr_destroy
+    libc.src.pthread.pthread_attr_init
+    libc.src.pthread.pthread_attr_getdetachstate
+    libc.src.pthread.pthread_attr_getguardsize
+    libc.src.pthread.pthread_attr_getstack
+    libc.src.pthread.pthread_attr_getstacksize
+    libc.src.pthread.pthread_attr_setdetachstate
+    libc.src.pthread.pthread_attr_setguardsize
+    libc.src.pthread.pthread_attr_setstack
+    libc.src.pthread.pthread_attr_setstacksize
+    libc.src.pthread.pthread_attr_init
+    libc.src.pthread.pthread_mutexattr_destroy
+    libc.src.pthread.pthread_mutexattr_init
+    libc.src.pthread.pthread_mutexattr_getpshared
+    libc.src.pthread.pthread_mutexattr_getrobust
+    libc.src.pthread.pthread_mutexattr_gettype
+    libc.src.pthread.pthread_mutexattr_setpshared
+    libc.src.pthread.pthread_mutexattr_setrobust
+    libc.src.pthread.pthread_mutexattr_settype
+
     # stdlib.h entrypoints
     libc.src.stdlib._Exit
     # libc.src.stdlib.abort
+    libc.src.stdlib.atexit
+    libc.src.stdlib.exit
+    libc.src.stdlib.getenv
+
+    # stdio.h entrypoints
+    libc.src.stdio.fclose
+    libc.src.stdio.fopen
+    libc.src.stdio.fread
+    libc.src.stdio.fseek
+    libc.src.stdio.fwrite
 
     # signal.h entrypoints
     # TODO: Enable signal.h entrypoints after fixing signal.h
@@ -248,25 +288,6 @@ if(LLVM_LIBC_FULL_BUILD)
     libc.src.time.gmtime
     libc.src.time.gmtime_r
     libc.src.time.mktime
-  )
-endif()
-
-if(LLVM_LIBC_INCLUDE_SCUDO)
-  list(APPEND TARGET_LIBC_ENTRYPOINTS
-
-    # stdlib.h external entrypoints
-    libc.src.stdlib.malloc
-    libc.src.stdlib.calloc
-    libc.src.stdlib.realloc
-    libc.src.stdlib.free
-  )
-endif()
-
-if(LLVM_LIBC_INCLUDE_SCUDO OR NOT LLVM_LIBC_FULL_BUILD)
-  list(APPEND TARGET_LIBC_ENTRYPOINTS
-    # string.h entrypoints that depend on malloc
-    libc.src.string.strdup
-    libc.src.string.strndup
   )
 endif()
 

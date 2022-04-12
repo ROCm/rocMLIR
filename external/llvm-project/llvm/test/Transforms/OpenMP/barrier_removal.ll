@@ -66,8 +66,9 @@ define void @pos_empty_6() {
   call i32 @llvm.nvvm.barrier0.popc(i32 0)
   ret void
 }
-define void @pos_empty_7() {
-; CHECK-LABEL: define {{[^@]+}}@pos_empty_7() {
+define void @neg_empty_7() {
+; CHECK-LABEL: define {{[^@]+}}@neg_empty_7() {
+; CHECK-NEXT:    call void @llvm.amdgcn.s.barrier()
 ; CHECK-NEXT:    ret void
 ;
   call void @llvm.amdgcn.s.barrier()
@@ -165,7 +166,8 @@ define void @pos_priv_mem() {
 ; CHECK-NEXT:    call void @aligned_barrier()
 ; CHECK-NEXT:    [[ARGC:%.*]] = addrspacecast i32 addrspace(5)* [[ARG]] to i32*
 ; CHECK-NEXT:    store i32 [[B]], i32* [[ARGC]], align 4
-; CHECK-NEXT:    store i32 [[A]], i32* @PG1, align 4
+; CHECK-NEXT:    [[V:%.*]] = load i32, i32* [[LOC]], align 4
+; CHECK-NEXT:    store i32 [[V]], i32* @PG1, align 4
 ; CHECK-NEXT:    ret void
 ;
   %arg = load i32 addrspace(5)*, i32 addrspace(5)** @GPtr5
@@ -211,6 +213,7 @@ define void @neg_mem() {
 
 define void @pos_multiple() {
 ; CHECK-LABEL: define {{[^@]+}}@pos_multiple() {
+; CHECK-NEXT:    call void @llvm.amdgcn.s.barrier()
 ; CHECK-NEXT:    ret void
 ;
   call void @llvm.nvvm.barrier0()
@@ -233,7 +236,7 @@ define void @pos_multiple() {
 !3 = !{void ()* @pos_empty_4, !"kernel", i32 1}
 !4 = !{void ()* @pos_empty_5, !"kernel", i32 1}
 !5 = !{void ()* @pos_empty_6, !"kernel", i32 1}
-!6 = !{void ()* @pos_empty_7, !"kernel", i32 1}
+!6 = !{void ()* @neg_empty_7, !"kernel", i32 1}
 !7 = !{void ()* @pos_constant_loads, !"kernel", i32 1}
 !8 = !{void ()* @neg_loads, !"kernel", i32 1}
 !9 = !{void ()* @pos_priv_mem, !"kernel", i32 1}
@@ -254,7 +257,7 @@ define void @pos_multiple() {
 ; CHECK: [[META5:![0-9]+]] = !{void ()* @pos_empty_4, !"kernel", i32 1}
 ; CHECK: [[META6:![0-9]+]] = !{void ()* @pos_empty_5, !"kernel", i32 1}
 ; CHECK: [[META7:![0-9]+]] = !{void ()* @pos_empty_6, !"kernel", i32 1}
-; CHECK: [[META8:![0-9]+]] = !{void ()* @pos_empty_7, !"kernel", i32 1}
+; CHECK: [[META8:![0-9]+]] = !{void ()* @neg_empty_7, !"kernel", i32 1}
 ; CHECK: [[META9:![0-9]+]] = !{void ()* @pos_constant_loads, !"kernel", i32 1}
 ; CHECK: [[META10:![0-9]+]] = !{void ()* @neg_loads, !"kernel", i32 1}
 ; CHECK: [[META11:![0-9]+]] = !{void ()* @pos_priv_mem, !"kernel", i32 1}

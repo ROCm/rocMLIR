@@ -519,7 +519,7 @@ void OmpStructureChecker::CheckTargetNest(const parser::OpenMPConstruct &c) {
   if (!eligibleTarget) {
     context_.Say(parser::FindSourceLocation(c),
         "If %s directive is nested inside TARGET region, the behaviour "
-        "is unspecified"_en_US,
+        "is unspecified"_port_en_US,
         parser::ToUpperCaseLetters(
             getDirectiveName(ineligibleTargetDir).str()));
   }
@@ -801,8 +801,9 @@ void OmpStructureChecker::Enter(const parser::OpenMPSectionsConstruct &x) {
 
   PushContextAndClauseSets(beginDir.source, beginDir.v);
   const auto &sectionBlocks{std::get<parser::OmpSectionBlocks>(x.t)};
-  for (const auto &block : sectionBlocks.v) {
-    CheckNoBranching(block, beginDir.v, beginDir.source);
+  for (const parser::OpenMPConstruct &block : sectionBlocks.v) {
+    CheckNoBranching(std::get<parser::OpenMPSectionConstruct>(block.u).v,
+        beginDir.v, beginDir.source);
   }
   HasInvalidWorksharingNesting(
       beginDir.source, llvm::omp::nestedWorkshareErrSet);
@@ -874,7 +875,7 @@ void OmpStructureChecker::CheckThreadprivateOrDeclareTargetVar(
                       llvm::omp::Directive::OMPD_declare_target)
                     context_.Say(name->source,
                         "The entity with PARAMETER attribute is used in a %s "
-                        "directive"_en_US,
+                        "directive"_warn_en_US,
                         ContextDirectiveAsFortran());
                 } else if (FindCommonBlockContaining(*name->symbol)) {
                   context_.Say(name->source,
@@ -1344,7 +1345,8 @@ bool OmpStructureChecker::IsOperatorValid(const T &node, const D &variable) {
     if ((exprLeft.value().source.ToString() != variableName) &&
         (exprRight.value().source.ToString() != variableName)) {
       context_.Say(variable.GetSource(),
-          "Atomic update variable '%s' not found in the RHS of the assignment statement in an ATOMIC (UPDATE) construct"_err_en_US,
+          "Atomic update variable '%s' not found in the RHS of the "
+          "assignment statement in an ATOMIC (UPDATE) construct"_err_en_US,
           variableName);
     }
     return common::HasMember<T, AllowedBinaryOperators>;
@@ -1368,7 +1370,8 @@ void OmpStructureChecker::CheckAtomicUpdateAssignmentStmt(
                     name->source == "iand" || name->source == "ior" ||
                     name->source == "ieor")) {
               context_.Say(expr.source,
-                  "Invalid intrinsic procedure name in OpenMP ATOMIC (UPDATE) statement"_err_en_US);
+                  "Invalid intrinsic procedure name in "
+                  "OpenMP ATOMIC (UPDATE) statement"_err_en_US);
             } else if (name) {
               bool foundMatch{false};
               if (auto varDesignatorIndirection =
@@ -1394,7 +1397,8 @@ void OmpStructureChecker::CheckAtomicUpdateAssignmentStmt(
               }
               if (!foundMatch) {
                 context_.Say(expr.source,
-                    "Atomic update variable '%s' not found in the argument list of intrinsic procedure"_err_en_US,
+                    "Atomic update variable '%s' not found in the "
+                    "argument list of intrinsic procedure"_err_en_US,
                     var.GetSource().ToString());
               }
             }
@@ -1417,7 +1421,8 @@ void OmpStructureChecker::CheckAtomicMemoryOrderClause(
       numMemoryOrderClause++;
       if (numMemoryOrderClause > 1) {
         context_.Say(clause.source,
-            "More than one memory order clause not allowed on OpenMP Atomic construct"_err_en_US);
+            "More than one memory order clause not allowed on OpenMP "
+            "Atomic construct"_err_en_US);
         return;
       }
     }
@@ -1433,7 +1438,8 @@ void OmpStructureChecker::CheckAtomicMemoryOrderClause(
       numMemoryOrderClause++;
       if (numMemoryOrderClause > 1) {
         context_.Say(clause.source,
-            "More than one memory order clause not allowed on OpenMP Atomic construct"_err_en_US);
+            "More than one memory order clause not allowed on "
+            "OpenMP Atomic construct"_err_en_US);
         return;
       }
     }
@@ -1443,7 +1449,8 @@ void OmpStructureChecker::CheckAtomicMemoryOrderClause(
       numMemoryOrderClause++;
       if (numMemoryOrderClause > 1) {
         context_.Say(clause.source,
-            "More than one memory order clause not allowed on OpenMP Atomic construct"_err_en_US);
+            "More than one memory order clause not "
+            "allowed on OpenMP Atomic construct"_err_en_US);
         return;
       }
     }
@@ -1656,7 +1663,6 @@ CHECK_SIMPLE_CLAUSE(Default, OMPC_default)
 CHECK_SIMPLE_CLAUSE(Depobj, OMPC_depobj)
 CHECK_SIMPLE_CLAUSE(Destroy, OMPC_destroy)
 CHECK_SIMPLE_CLAUSE(Detach, OMPC_detach)
-CHECK_SIMPLE_CLAUSE(Device, OMPC_device)
 CHECK_SIMPLE_CLAUSE(DeviceType, OMPC_device_type)
 CHECK_SIMPLE_CLAUSE(DistSchedule, OMPC_dist_schedule)
 CHECK_SIMPLE_CLAUSE(DynamicAllocators, OMPC_dynamic_allocators)
@@ -1677,6 +1683,7 @@ CHECK_SIMPLE_CLAUSE(Threadprivate, OMPC_threadprivate)
 CHECK_SIMPLE_CLAUSE(Threads, OMPC_threads)
 CHECK_SIMPLE_CLAUSE(Inbranch, OMPC_inbranch)
 CHECK_SIMPLE_CLAUSE(IsDevicePtr, OMPC_is_device_ptr)
+CHECK_SIMPLE_CLAUSE(HasDeviceAddr, OMPC_has_device_addr)
 CHECK_SIMPLE_CLAUSE(Link, OMPC_link)
 CHECK_SIMPLE_CLAUSE(Indirect, OMPC_indirect)
 CHECK_SIMPLE_CLAUSE(Mergeable, OMPC_mergeable)
@@ -1721,6 +1728,7 @@ CHECK_REQ_SCALAR_INT_CLAUSE(NumTeams, OMPC_num_teams)
 CHECK_REQ_SCALAR_INT_CLAUSE(NumThreads, OMPC_num_threads)
 CHECK_REQ_SCALAR_INT_CLAUSE(Priority, OMPC_priority)
 CHECK_REQ_SCALAR_INT_CLAUSE(ThreadLimit, OMPC_thread_limit)
+CHECK_REQ_SCALAR_INT_CLAUSE(Device, OMPC_device)
 
 CHECK_REQ_CONSTANT_SCALAR_INT_CLAUSE(Collapse, OMPC_collapse)
 CHECK_REQ_CONSTANT_SCALAR_INT_CLAUSE(Safelen, OMPC_safelen)

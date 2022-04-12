@@ -35,6 +35,7 @@
 #include "lldb/API/SBTypeSynthetic.h"
 
 #include "lldb/Core/Debugger.h"
+#include "lldb/Core/DebuggerEvents.h"
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Core/Progress.h"
 #include "lldb/Core/StreamFile.h"
@@ -56,6 +57,8 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/DynamicLibrary.h"
 #include "llvm/Support/ManagedStatic.h"
+#include "llvm/Support/PrettyStackTrace.h"
+#include "llvm/Support/Signals.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -151,10 +154,9 @@ const char *SBDebugger::GetProgressFromEvent(const lldb::SBEvent &event,
                                              uint64_t &completed,
                                              uint64_t &total,
                                              bool &is_debugger_specific) {
-  LLDB_INSTRUMENT_VA(event, progress_id, completed, total,
-                     is_debugger_specific);
-  const Debugger::ProgressEventData *progress_data =
-      Debugger::ProgressEventData::GetEventDataFromEvent(event.get());
+  LLDB_INSTRUMENT_VA(event);
+  const ProgressEventData *progress_data =
+      ProgressEventData::GetEventDataFromEvent(event.get());
   if (progress_data == nullptr)
     return nullptr;
   progress_id = progress_data->GetID();
@@ -162,6 +164,26 @@ const char *SBDebugger::GetProgressFromEvent(const lldb::SBEvent &event,
   total = progress_data->GetTotal();
   is_debugger_specific = progress_data->IsDebuggerSpecific();
   return progress_data->GetMessage().c_str();
+}
+
+lldb::SBStructuredData
+SBDebugger::GetDiagnosticFromEvent(const lldb::SBEvent &event) {
+  LLDB_INSTRUMENT_VA(event);
+
+  const DiagnosticEventData *diagnostic_data =
+      DiagnosticEventData::GetEventDataFromEvent(event.get());
+  if (!diagnostic_data)
+    return {};
+
+  auto dictionary = std::make_unique<StructuredData::Dictionary>();
+  dictionary->AddStringItem("message", diagnostic_data->GetMessage());
+  dictionary->AddStringItem("type", diagnostic_data->GetPrefix());
+  dictionary->AddBooleanItem("debugger_specific",
+                             diagnostic_data->IsDebuggerSpecific());
+
+  SBStructuredData data;
+  data.m_impl_up->SetObjectSP(std::move(dictionary));
+  return data;
 }
 
 SBBroadcaster SBDebugger::GetBroadcaster() {
@@ -184,6 +206,15 @@ lldb::SBError SBDebugger::InitializeWithErrorHandling() {
     error.SetError(Status(std::move(e)));
   }
   return error;
+}
+
+void SBDebugger::PrintStackTraceOnError() {
+  LLDB_INSTRUMENT();
+
+  llvm::EnablePrettyStackTrace();
+  static std::string executable =
+      llvm::sys::fs::getMainExecutable(nullptr, nullptr);
+  llvm::sys::PrintStackTraceOnErrorSignal(executable);
 }
 
 void SBDebugger::Terminate() {
@@ -236,6 +267,7 @@ SBDebugger SBDebugger::Create(bool source_init_files,
     interp.get()->SkipLLDBInitFiles(false);
     interp.get()->SkipAppInitFiles(false);
     SBCommandReturnObject result;
+    interp.SourceInitFileInGlobalDirectory(result);
     interp.SourceInitFileInHomeDirectory(result, false);
   } else {
     interp.get()->SkipLLDBInitFiles(true);

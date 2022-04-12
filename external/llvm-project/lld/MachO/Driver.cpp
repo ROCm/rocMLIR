@@ -460,20 +460,6 @@ static void addFileList(StringRef path, bool isLazy) {
     addFile(rerootPath(path), ForceLoad::Default, isLazy);
 }
 
-// An order file has one entry per line, in the following format:
-//
-//   <cpu>:<object file>:<symbol name>
-//
-// <cpu> and <object file> are optional. If not specified, then that entry
-// matches any symbol of that name. Parsing this format is not quite
-// straightforward because the symbol name itself can contain colons, so when
-// encountering a colon, we consider the preceding characters to decide if it
-// can be a valid CPU type or file path.
-//
-// If a symbol is matched by multiple entries, then it takes the lowest-ordered
-// entry (the one nearest to the front of the list.)
-//
-// The file can also have line comments that start with '#'.
 // We expect sub-library names of the form "libfoo", which will match a dylib
 // with a path of .*/libfoo.{dylib, tbd}.
 // XXX ld64 seems to ignore the extension entirely when matching sub-libraries;
@@ -505,14 +491,6 @@ static void initLLVM() {
 }
 
 static void compileBitcodeFiles() {
-  // FIXME: Remove this once LTO.cpp honors config->exportDynamic.
-  if (config->exportDynamic)
-    for (InputFile *file : inputFiles)
-      if (isa<BitcodeFile>(file)) {
-        warn("the effect of -export_dynamic on LTO is not yet implemented");
-        break;
-      }
-
   TimeTraceScope timeScope("LTO");
   auto *lto = make<BitcodeCompiler>();
   for (InputFile *file : inputFiles)
@@ -1008,14 +986,11 @@ static void gatherInputSections() {
   int inputOrder = 0;
   for (const InputFile *file : inputFiles) {
     for (const Section *section : file->sections) {
-      const Subsections &subsections = section->subsections;
-      if (subsections.empty())
-        continue;
-      if (subsections[0].isec->getName() == section_names::compactUnwind)
+      if (section->name == section_names::compactUnwind)
         // Compact unwind entries require special handling elsewhere.
         continue;
       ConcatOutputSection *osec = nullptr;
-      for (const Subsection &subsection : subsections) {
+      for (const Subsection &subsection : section->subsections) {
         if (auto *isec = dyn_cast<ConcatInputSection>(subsection.isec)) {
           if (isec->isCoalescedWeak())
             continue;
@@ -1244,9 +1219,6 @@ bool macho::link(ArrayRef<const char *> argsArr, llvm::raw_ostream &stdoutOS,
     config->umbrella = arg->getValue();
   }
   config->ltoObjPath = args.getLastArgValue(OPT_object_path_lto);
-  config->ltoNewPassManager =
-      args.hasFlag(OPT_no_lto_legacy_pass_manager, OPT_lto_legacy_pass_manager,
-                   LLVM_ENABLE_NEW_PASS_MANAGER);
   config->ltoo = args::getInteger(args, OPT_lto_O, 2);
   if (config->ltoo > 3)
     error("--lto-O: invalid optimization level: " + Twine(config->ltoo));
@@ -1392,6 +1364,11 @@ bool macho::link(ArrayRef<const char *> argsArr, llvm::raw_ostream &stdoutOS,
     symtab->addUndefined(cachedName.val(), /*file=*/nullptr,
                          /*isWeakRef=*/false);
 
+  for (const Arg *arg : args.filtered(OPT_why_live))
+    config->whyLive.insert(arg->getValue());
+  if (!config->whyLive.empty() && !config->deadStrip)
+    warn("-why_live has no effect without -dead_strip, ignoring");
+
   config->saveTemps = args.hasArg(OPT_save_temps);
 
   config->adhocCodesign = args.hasFlag(
@@ -1469,10 +1446,8 @@ bool macho::link(ArrayRef<const char *> argsArr, llvm::raw_ostream &stdoutOS,
     replaceCommonSymbols();
 
     StringRef orderFile = args.getLastArgValue(OPT_order_file);
-    if (!orderFile.empty()) {
-      parseOrderFile(orderFile);
-      config->callGraphProfileSort = false;
-    }
+    if (!orderFile.empty())
+      priorityBuilder.parseOrderFile(orderFile);
 
     referenceStubBinder();
 
@@ -1529,7 +1504,7 @@ bool macho::link(ArrayRef<const char *> argsArr, llvm::raw_ostream &stdoutOS,
 
     gatherInputSections();
     if (config->callGraphProfileSort)
-      extractCallGraphProfile();
+      priorityBuilder.extractCallGraphProfile();
 
     if (config->deadStrip)
       markLive();

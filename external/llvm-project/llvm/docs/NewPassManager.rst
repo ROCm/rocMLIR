@@ -28,10 +28,6 @@ Just Tell Me How To Run The Default Optimization Pipeline With The New Pass Mana
   // options.
   PassBuilder PB;
 
-  // Make sure to use the default alias analysis pipeline, otherwise we'll end
-  // up only using a subset of the available analyses.
-  FAM.registerPass([&] { return PB.buildDefaultAAPipeline(); });
-
   // Register all the basic analyses with the managers.
   PB.registerModuleAnalyses(MAM);
   PB.registerCGSCCAnalyses(CGAM);
@@ -485,9 +481,8 @@ the new PM, whereas the backend target-dependent code generation only works
 with the legacy PM.
 
 For the optimization pipeline, the new PM is the default PM. The legacy PM is
-available for the optimization pipeline either by setting the CMake flag
-``-DLLVM_ENABLE_NEW_PASS_MANAGER=OFF`` when building LLVM, or by
-various compiler/linker flags, e.g. ``-flegacy-pass-manager`` for ``clang``.
+available for the optimization pipeline by setting various compiler/linker
+flags, e.g. ``-flegacy-pass-manager`` for ``clang``.
 
 There will be efforts to deprecate and remove the legacy PM for the
 optimization pipeline in the future.

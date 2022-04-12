@@ -1694,6 +1694,7 @@ MacroInfo *ASTReader::ReadMacroRecord(ModuleFile &F, uint64_t Offset) {
   RecordData Record;
   SmallVector<IdentifierInfo*, 16> MacroParams;
   MacroInfo *Macro = nullptr;
+  llvm::MutableArrayRef<Token> MacroTokens;
 
   while (true) {
     // Advance to the next record, but if we get to the end of the block, don't
@@ -1748,7 +1749,8 @@ MacroInfo *ASTReader::ReadMacroRecord(ModuleFile &F, uint64_t Offset) {
       MI->setDefinitionEndLoc(ReadSourceLocation(F, Record, NextIndex));
       MI->setIsUsed(Record[NextIndex++]);
       MI->setUsedForHeaderGuard(Record[NextIndex++]);
-
+      MacroTokens = MI->allocateTokens(Record[NextIndex++],
+                                       PP.getPreprocessorAllocator());
       if (RecType == PP_MACRO_FUNCTION_LIKE) {
         // Decode function-like macro info.
         bool isC99VarArgs = Record[NextIndex++];
@@ -1793,10 +1795,14 @@ MacroInfo *ASTReader::ReadMacroRecord(ModuleFile &F, uint64_t Offset) {
       // If we see a TOKEN before a PP_MACRO_*, then the file is
       // erroneous, just pretend we didn't see this.
       if (!Macro) break;
+      if (MacroTokens.empty()) {
+        Error("unexpected number of macro tokens for a macro in AST file");
+        return Macro;
+      }
 
       unsigned Idx = 0;
-      Token Tok = ReadToken(F, Record, Idx);
-      Macro->AddTokenToBody(Tok);
+      MacroTokens[0] = ReadToken(F, Record, Idx);
+      MacroTokens = MacroTokens.drop_front();
       break;
     }
     }
@@ -3103,6 +3109,7 @@ llvm::Error ASTReader::ReadASTBlock(ModuleFile &F,
       case IDENTIFIER_OFFSET:
       case INTERESTING_IDENTIFIERS:
       case STATISTICS:
+      case PP_ASSUME_NONNULL_LOC:
       case PP_CONDITIONAL_STACK:
       case PP_COUNTER_VALUE:
       case SOURCE_LOCATION_OFFSETS:
@@ -3301,7 +3308,7 @@ llvm::Error ASTReader::ReadASTBlock(ModuleFile &F,
       break;
 
     case WEAK_UNDECLARED_IDENTIFIERS:
-      if (Record.size() % 4 != 0)
+      if (Record.size() % 3 != 0)
         return llvm::createStringError(std::errc::illegal_byte_sequence,
                                        "invalid weak identifiers record");
 
@@ -3316,8 +3323,7 @@ llvm::Error ASTReader::ReadASTBlock(ModuleFile &F,
         WeakUndeclaredIdentifiers.push_back(
           getGlobalIdentifierID(F, Record[I++]));
         WeakUndeclaredIdentifiers.push_back(
-          ReadSourceLocation(F, Record, I).getRawEncoding());
-        WeakUndeclaredIdentifiers.push_back(Record[I++]);
+            ReadSourceLocation(F, Record, I).getRawEncoding());
       }
       break;
 
@@ -3364,6 +3370,14 @@ llvm::Error ASTReader::ReadASTBlock(ModuleFile &F,
         }
       }
       break;
+
+    case PP_ASSUME_NONNULL_LOC: {
+      unsigned Idx = 0;
+      if (!Record.empty())
+        PP.setPreambleRecordedPragmaAssumeNonNullLoc(
+            ReadSourceLocation(F, Record, Idx));
+      break;
+    }
 
     case PP_CONDITIONAL_STACK:
       if (!Record.empty()) {
@@ -6689,6 +6703,10 @@ void TypeLocReader::VisitAttributedTypeLoc(AttributedTypeLoc TL) {
   TL.setAttr(ReadAttr());
 }
 
+void TypeLocReader::VisitBTFTagAttributedTypeLoc(BTFTagAttributedTypeLoc TL) {
+  // Nothing to do.
+}
+
 void TypeLocReader::VisitTemplateTypeParmTypeLoc(TemplateTypeParmTypeLoc TL) {
   TL.setNameLoc(readSourceLocation());
 }
@@ -8386,11 +8404,9 @@ void ASTReader::ReadWeakUndeclaredIdentifiers(
       = DecodeIdentifierInfo(WeakUndeclaredIdentifiers[I++]);
     IdentifierInfo *AliasId
       = DecodeIdentifierInfo(WeakUndeclaredIdentifiers[I++]);
-    SourceLocation Loc
-      = SourceLocation::getFromRawEncoding(WeakUndeclaredIdentifiers[I++]);
-    bool Used = WeakUndeclaredIdentifiers[I++];
+    SourceLocation Loc =
+        SourceLocation::getFromRawEncoding(WeakUndeclaredIdentifiers[I++]);
     WeakInfo WI(AliasId, Loc);
-    WI.setUsed(Used);
     WeakIDs.push_back(std::make_pair(WeakId, WI));
   }
   WeakUndeclaredIdentifiers.clear();
@@ -10602,9 +10618,8 @@ void ASTReader::diagnoseOdrViolations() {
                     ExpandedList.push_back(&TA);
                     continue;
                   }
-                  for (const TemplateArgument &PackTA : TA.getPackAsArray()) {
-                    ExpandedList.push_back(&PackTA);
-                  }
+                  llvm::append_range(ExpandedList, llvm::make_pointer_range(
+                                                       TA.getPackAsArray()));
                 }
                 return ExpandedList;
               };
@@ -11852,6 +11867,15 @@ OMPClause *OMPClauseReader::readClause() {
     C = OMPIsDevicePtrClause::CreateEmpty(Context, Sizes);
     break;
   }
+  case llvm::omp::OMPC_has_device_addr: {
+    OMPMappableExprListSizeTy Sizes;
+    Sizes.NumVars = Record.readInt();
+    Sizes.NumUniqueDeclarations = Record.readInt();
+    Sizes.NumComponentLists = Record.readInt();
+    Sizes.NumComponents = Record.readInt();
+    C = OMPHasDeviceAddrClause::CreateEmpty(Context, Sizes);
+    break;
+  }
   case llvm::omp::OMPC_allocate:
     C = OMPAllocateClause::CreateEmpty(Context, Record.readInt());
     break;
@@ -12804,6 +12828,49 @@ void OMPClauseReader::VisitOMPIsDevicePtrClause(OMPIsDevicePtrClause *C) {
   SmallVector<OMPClauseMappableExprCommon::MappableComponent, 32> Components;
   Components.reserve(TotalComponents);
   for (unsigned i = 0; i < TotalComponents; ++i) {
+    Expr *AssociatedExpr = Record.readSubExpr();
+    auto *AssociatedDecl = Record.readDeclAs<ValueDecl>();
+    Components.emplace_back(AssociatedExpr, AssociatedDecl,
+                            /*IsNonContiguous=*/false);
+  }
+  C->setComponents(Components, ListSizes);
+}
+
+void OMPClauseReader::VisitOMPHasDeviceAddrClause(OMPHasDeviceAddrClause *C) {
+  C->setLParenLoc(Record.readSourceLocation());
+  auto NumVars = C->varlist_size();
+  auto UniqueDecls = C->getUniqueDeclarationsNum();
+  auto TotalLists = C->getTotalComponentListNum();
+  auto TotalComponents = C->getTotalComponentsNum();
+
+  SmallVector<Expr *, 16> Vars;
+  Vars.reserve(NumVars);
+  for (unsigned I = 0; I != NumVars; ++I)
+    Vars.push_back(Record.readSubExpr());
+  C->setVarRefs(Vars);
+  Vars.clear();
+
+  SmallVector<ValueDecl *, 16> Decls;
+  Decls.reserve(UniqueDecls);
+  for (unsigned I = 0; I < UniqueDecls; ++I)
+    Decls.push_back(Record.readDeclAs<ValueDecl>());
+  C->setUniqueDecls(Decls);
+
+  SmallVector<unsigned, 16> ListsPerDecl;
+  ListsPerDecl.reserve(UniqueDecls);
+  for (unsigned I = 0; I < UniqueDecls; ++I)
+    ListsPerDecl.push_back(Record.readInt());
+  C->setDeclNumLists(ListsPerDecl);
+
+  SmallVector<unsigned, 32> ListSizes;
+  ListSizes.reserve(TotalLists);
+  for (unsigned i = 0; i < TotalLists; ++i)
+    ListSizes.push_back(Record.readInt());
+  C->setComponentListSizes(ListSizes);
+
+  SmallVector<OMPClauseMappableExprCommon::MappableComponent, 32> Components;
+  Components.reserve(TotalComponents);
+  for (unsigned I = 0; I < TotalComponents; ++I) {
     Expr *AssociatedExpr = Record.readSubExpr();
     auto *AssociatedDecl = Record.readDeclAs<ValueDecl>();
     Components.emplace_back(AssociatedExpr, AssociatedDecl,

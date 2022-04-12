@@ -10,6 +10,7 @@
 #include <unordered_set>
 
 #include "llvm/DebugInfo/DIContext.h"
+#include "llvm/DebugInfo/DWARF/DWARFCompileUnit.h"
 #include "llvm/DebugInfo/DWARF/DWARFContext.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ThreadPool.h"
@@ -448,7 +449,7 @@ Error DwarfTransformer::convert(uint32_t NumThreads) {
     // Parse all DWARF data from this thread, use the same string/file table
     // for everything
     for (const auto &CU : DICtx.compile_units()) {
-      DWARFDie Die = getDie(*CU.get());
+      DWARFDie Die = getDie(*CU);
       CUInfo CUI(DICtx, dyn_cast<DWARFCompileUnit>(CU.get()));
       handleDie(Log, CUI, Die);
     }
@@ -473,7 +474,7 @@ Error DwarfTransformer::convert(uint32_t NumThreads) {
     // Now convert all DWARF to GSYM in a thread pool.
     std::mutex LogMutex;
     for (const auto &CU : DICtx.compile_units()) {
-      DWARFDie Die = getDie(*CU.get());
+      DWARFDie Die = getDie(*CU);
       if (Die) {
         CUInfo CUI(DICtx, dyn_cast<DWARFCompileUnit>(CU.get()));
         pool.async([this, CUI, &LogMutex, Die]() mutable {

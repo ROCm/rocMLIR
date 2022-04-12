@@ -16,7 +16,6 @@
 #define SANITIZER_COMMON_H
 
 #include "sanitizer_flags.h"
-#include "sanitizer_interface_internal.h"
 #include "sanitizer_internal_defs.h"
 #include "sanitizer_libc.h"
 #include "sanitizer_list.h"
@@ -286,7 +285,7 @@ void SetStackSizeLimitInBytes(uptr limit);
 bool AddressSpaceIsUnlimited();
 void SetAddressSpaceUnlimited();
 void AdjustStackSize(void *attr);
-void PlatformPrepareForSandboxing(__sanitizer_sandbox_arguments *args);
+void PlatformPrepareForSandboxing(void *args);
 void SetSandboxingCallback(void (*f)());
 
 void InitializeCoverage(bool enabled, const char *coverage_dir);
@@ -783,7 +782,7 @@ class LoadedModule {
   LoadedModule()
       : full_name_(nullptr),
         base_address_(0),
-        max_executable_address_(0),
+        max_address_(0),
         arch_(kModuleArchUnknown),
         uuid_size_(0),
         instrumented_(false) {
@@ -801,7 +800,7 @@ class LoadedModule {
 
   const char *full_name() const { return full_name_; }
   uptr base_address() const { return base_address_; }
-  uptr max_executable_address() const { return max_executable_address_; }
+  uptr max_address() const { return max_address_; }
   ModuleArch arch() const { return arch_; }
   const u8 *uuid() const { return uuid_; }
   uptr uuid_size() const { return uuid_size_; }
@@ -831,7 +830,7 @@ class LoadedModule {
  private:
   char *full_name_;  // Owned.
   uptr base_address_;
-  uptr max_executable_address_;
+  uptr max_address_;
   ModuleArch arch_;
   uptr uuid_size_;
   u8 uuid_[kModuleUUIDSize];

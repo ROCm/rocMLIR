@@ -400,17 +400,15 @@ void MetadataStreamerV2::emitHiddenKernelArgs(const Function &Func,
   auto Int8PtrTy = Type::getInt8PtrTy(Func.getContext(),
                                       AMDGPUAS::GLOBAL_ADDRESS);
 
-  // Emit "printf buffer" argument if printf is used, otherwise emit dummy
-  // "none" argument.
   if (HiddenArgNumBytes >= 32) {
+    // We forbid the use of features requiring hostcall when compiling OpenCL
+    // before code object V5, which makes the mutual exclusion between the
+    // "printf buffer" and "hostcall buffer" here sound.
     if (Func.getParent()->getNamedMetadata("llvm.printf.fmts"))
       emitKernelArg(DL, Int8PtrTy, Align(8), ValueKind::HiddenPrintfBuffer);
-    else if (Func.getParent()->getFunction("__ockl_hostcall_internal")) {
-      // The printf runtime binding pass should have ensured that hostcall and
-      // printf are not used in the same module.
-      assert(!Func.getParent()->getNamedMetadata("llvm.printf.fmts"));
+    else if (!Func.hasFnAttribute("amdgpu-no-hostcall-ptr"))
       emitKernelArg(DL, Int8PtrTy, Align(8), ValueKind::HiddenHostcallBuffer);
-    } else
+    else
       emitKernelArg(DL, Int8PtrTy, Align(8), ValueKind::HiddenNone);
   }
 
@@ -816,19 +814,17 @@ void MetadataStreamerV3::emitHiddenKernelArgs(const MachineFunction &MF,
   auto Int8PtrTy =
       Type::getInt8PtrTy(Func.getContext(), AMDGPUAS::GLOBAL_ADDRESS);
 
-  // Emit "printf buffer" argument if printf is used, emit "hostcall buffer"
-  // if "hostcall" module flag is set, otherwise emit dummy "none" argument.
   if (HiddenArgNumBytes >= 32) {
+    // We forbid the use of features requiring hostcall when compiling OpenCL
+    // before code object V5, which makes the mutual exclusion between the
+    // "printf buffer" and "hostcall buffer" here sound.
     if (M->getNamedMetadata("llvm.printf.fmts"))
       emitKernelArg(DL, Int8PtrTy, Align(8), "hidden_printf_buffer", Offset,
                     Args);
-    else if (M->getModuleFlag("amdgpu_hostcall")) {
-      // The printf runtime binding pass should have ensured that hostcall and
-      // printf are not used in the same module.
-      assert(!M->getNamedMetadata("llvm.printf.fmts"));
+    else if (!Func.hasFnAttribute("amdgpu-no-hostcall-ptr"))
       emitKernelArg(DL, Int8PtrTy, Align(8), "hidden_hostcall_buffer", Offset,
                     Args);
-    } else
+    else
       emitKernelArg(DL, Int8PtrTy, Align(8), "hidden_none", Offset, Args);
   }
 
@@ -876,6 +872,12 @@ MetadataStreamerV3::getHSAKernelProps(const MachineFunction &MF,
       Kern.getDocument()->getNode(STM.getWavefrontSize());
   Kern[".sgpr_count"] = Kern.getDocument()->getNode(ProgramInfo.NumSGPR);
   Kern[".vgpr_count"] = Kern.getDocument()->getNode(ProgramInfo.NumVGPR);
+
+  // Only add AGPR count to metadata for supported devices
+  if (STM.hasMAIInsts()) {
+    Kern[".agpr_count"] = Kern.getDocument()->getNode(ProgramInfo.NumAccVGPR);
+  }
+
   Kern[".max_flat_workgroup_size"] =
       Kern.getDocument()->getNode(MFI.getMaxFlatWorkGroupSize());
   Kern[".sgpr_spill_count"] =
@@ -973,6 +975,7 @@ void MetadataStreamerV5::emitHiddenKernelArgs(const MachineFunction &MF,
   const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();
   const Module *M = Func.getParent();
   auto &DL = M->getDataLayout();
+  const SIMachineFunctionInfo &MFI = *MF.getInfo<SIMachineFunctionInfo>();
 
   auto Int64Ty = Type::getInt64Ty(Func.getContext());
   auto Int32Ty = Type::getInt32Ty(Func.getContext());
@@ -1011,7 +1014,7 @@ void MetadataStreamerV5::emitHiddenKernelArgs(const MachineFunction &MF,
   } else
     Offset += 8; // Skipped.
 
-  if (M->getModuleFlag("amdgpu_hostcall")) {
+  if (!Func.hasFnAttribute("amdgpu-no-hostcall-ptr")) {
     emitKernelArg(DL, Int8PtrTy, Align(8), "hidden_hostcall_buffer", Offset,
                   Args);
   } else
@@ -1020,9 +1023,10 @@ void MetadataStreamerV5::emitHiddenKernelArgs(const MachineFunction &MF,
   emitKernelArg(DL, Int8PtrTy, Align(8), "hidden_multigrid_sync_arg", Offset,
                 Args);
 
-  // Ignore temporarily until it is implemented.
-  // emitKernelArg(DL, Int8PtrTy, Align(8), "hidden_heap_v1", Offset, Args);
-  Offset += 8;
+  if (!Func.hasFnAttribute("amdgpu-no-heap-ptr"))
+    emitKernelArg(DL, Int8PtrTy, Align(8), "hidden_heap_v1", Offset, Args);
+  else
+    Offset += 8; // Skipped.
 
   if (Func.hasFnAttribute("calls-enqueue-kernel")) {
     emitKernelArg(DL, Int8PtrTy, Align(8), "hidden_default_queue", Offset,
@@ -1034,14 +1038,14 @@ void MetadataStreamerV5::emitHiddenKernelArgs(const MachineFunction &MF,
 
   Offset += 72; // Reserved.
 
-  // hidden_private_base and hidden_shared_base are only used by GFX8.
-  if (ST.getGeneration() == AMDGPUSubtarget::VOLCANIC_ISLANDS) {
+  // hidden_private_base and hidden_shared_base are only when the subtarget has
+  // ApertureRegs.
+  if (!ST.hasApertureRegs()) {
     emitKernelArg(DL, Int32Ty, Align(4), "hidden_private_base", Offset, Args);
     emitKernelArg(DL, Int32Ty, Align(4), "hidden_shared_base", Offset, Args);
   } else
     Offset += 8; // Skipped.
 
-  const SIMachineFunctionInfo &MFI = *MF.getInfo<SIMachineFunctionInfo>();
   if (MFI.hasQueuePtr())
     emitKernelArg(DL, Int8PtrTy, Align(8), "hidden_queue_ptr", Offset, Args);
 }
