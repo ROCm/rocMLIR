@@ -828,19 +828,22 @@ private:
   // clang-format off
   llvm::SmallVector<InitParamsXDL, 4> initParametersForwardI8 = {
       // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-      // TODO enable kpack
-      // The 32 x 32 xdlops k/block must be divisible by 2
+      // kpack for int8 must be larger than kbase, which means
+      // kpack must be at least 4, once enabled.
+      {64, 64, 8, 32, 32, 8, false, false},
+      {64, 64, 8, 32, 32, 4, false, false},
+      {32, 32, 8, 16, 16, 8, false, false},
+      {32, 32, 8, 16, 16, 4, false, false},
+      // The 32 x 32 xdlops k/block must be at least 8
+      {64, 64, 16, 32, 32, 1, false, false},
       {64, 64, 8, 32, 32, 1, false, false},
-      {64, 64, 4, 32, 32, 1, false, false},
-      {64, 64, 2, 32, 32, 1, false, false},
+      {32, 32, 16, 32, 32, 1, false, false},
       {32, 32, 8, 32, 32, 1, false, false},
-      {32, 32, 4, 32, 32, 1, false, false},
-      {32, 32, 2, 32, 32, 1, false, false},
-      // The 16 x 16 xdlops k/block must be divisible by 4
-      {32, 32, 8, 16, 16, 1, false, false},
-      {32, 32, 4, 16, 16, 1, false, false},
-      {16, 16, 8, 16, 16, 1, false, false},
-      {16, 16, 4, 16, 16, 1, false, false},
+      // The 16 x 16 xdlops k/block must be at least 16
+      {32, 32, 32, 16, 16, 1, false, false},
+      {32, 32, 16, 16, 16, 1, false, false},
+      {16, 16, 32, 16, 16, 1, false, false},
+      {16, 16, 16, 16, 16, 1, false, false},
   };
   // clang-format on
 
@@ -996,10 +999,11 @@ private:
       return failure();
     }
 
-    // XXX FIXME: Ignore KReduction XDLOPS path for forward and backward weight
-    // convolution now. These M/NPerBlock combinations will result in lowering
-    // errors at tuning.
-    if (param.gemmKPack > 1) {
+    // TODO remove : Ignore KReduction XDLOPS path for forward and backward
+    // weight convolution now (unless int8). These M/NPerBlock combinations used
+    // to result in lowering errors at tuning. Once non-int8 types are tested,
+    // we should get rid of this limitation.
+    if (param.gemmKPack > 1 && !dataType.isInteger(8)) {
       if ((param.gemmMPerBlock == 16 || param.gemmMPerBlock == 32 ||
            param.gemmMPerBlock == 64) &&
           (param.gemmNPerBlock == 16 || param.gemmNPerBlock == 32 ||

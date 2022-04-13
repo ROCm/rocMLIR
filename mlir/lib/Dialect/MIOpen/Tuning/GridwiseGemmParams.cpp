@@ -452,6 +452,7 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
     LLVM_DEBUG(llvm::dbgs() << "Successfully picked tuning params from backup"
                             << " path.\n");
   }
+  LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams) << "\n");
 
   return res;
 }
