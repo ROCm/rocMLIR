@@ -269,7 +269,6 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
                         ArrayRef<Value> returnVals, StringRef partFnName,
                         std::vector<OutliningCandidate> &candidates) {
   ValueRange values(params);
-  Operation *lastOp = secondOps[secondOps.size() - 1];
   OpBuilder b(convOp);
   Location loc = convOp->getLoc();
   FuncOp outlinedFunc;
@@ -349,7 +348,10 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
   // ------------------------------------------------------------
   // Replacement part.
 
-  // Replace convOp and secondOps with CallOp to new function.
+  // Replace convOp, secondOps, and frontOps with CallOp to new function.
+  Operation *lastOp = convOp;
+  if (!secondOps.empty())
+    lastOp = secondOps[secondOps.size() - 1];
   b.setInsertionPointAfter(lastOp);
   CallOp callOp = b.create<CallOp>(loc, outlinedFunc, values);
 
@@ -515,17 +517,13 @@ public:
           }
         }
 
-        if (!secondOps.empty() || !frontOps.empty()) {
-          // Make the outlined function from the ops we've gathered.
-          outlineConvPartOps(
-              convOp, secondOps.getArrayRef(), frontOps,
-              inputNodes.getArrayRef(), resultNodes.getArrayRef(),
-              std::string(func.sym_name()) + strCount, candidates);
-          // Outlining will erase nodes and thus perturb the walk, so
-          // signal interrupted to exit it and restart.
-          return WalkResult::interrupt();
-        }
-        return WalkResult::advance();
+        // Make the outlined function from the ops we've gathered.
+        outlineConvPartOps(convOp, secondOps.getArrayRef(), frontOps,
+                           inputNodes.getArrayRef(), resultNodes.getArrayRef(),
+                           std::string(func.sym_name()) + strCount, candidates);
+        // Outlining will erase nodes and thus perturb the walk, so
+        // signal interrupted to exit it and restart.
+        return WalkResult::interrupt();
       };
 
       // Walk until we've outlined all the Conv2D ops we can.
