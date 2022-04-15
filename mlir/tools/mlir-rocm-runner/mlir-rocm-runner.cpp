@@ -26,6 +26,7 @@
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/TargetSelect.h"
 
+#include "mlir/Dialect/LLVMIR/Transforms/SoftwareBF16.h"
 #include "mlir/ExecutionEngine/JitRunner.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -108,6 +109,7 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   pmHost.addPass(createConvertAsyncToLLVMPass());
   mlir::LowerToLLVMOptions lower_to_llvm_opts(m.getContext());
   pmHost.addPass(mlir::createConvertFuncToLLVMPass(lower_to_llvm_opts));
+  pmHost.addPass(LLVM::createSoftwareBF16Pass());
 
   return pmHost.run(m);
 }

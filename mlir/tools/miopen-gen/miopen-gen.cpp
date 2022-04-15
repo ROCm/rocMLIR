@@ -1154,33 +1154,6 @@ const char *getTypeStr(const mlir::Type &type) {
   return "na";
 }
 
-static mlir::Value convertBF16ToFloat(OpBuilder bt0, mlir::Value loadOp) {
-  // HACK for bf16 since BF16 isn't supported by x86 isel
-  auto loc = bt0.getUnknownLoc();
-  mlir::Type i16 = bt0.getIntegerType(16);
-  mlir::Type i32 = bt0.getI32Type();
-  loadOp = bt0.create<arith::BitcastOp>(loc, i16, loadOp);
-  loadOp = bt0.create<arith::ExtUIOp>(loc, i32, loadOp);
-  auto cst16Op = bt0.create<arith::ConstantIntOp>(loc, 16, i32);
-  loadOp = bt0.create<arith::ShLIOp>(loc, loadOp, cst16Op);
-  loadOp = bt0.create<arith::BitcastOp>(loc, bt0.getF32Type(), loadOp);
-
-  return loadOp;
-}
-
-static mlir::Value convertFloatToBF16ToFloat(OpBuilder bt0,
-                                             mlir::Value loadOp) {
-  auto loc = bt0.getUnknownLoc();
-  mlir::Type i32 = bt0.getI32Type();
-  loadOp = bt0.create<arith::BitcastOp>(loc, i32, loadOp);
-  // <loadOp> = <loadOp> & FFFF0000
-  auto cst16Op = bt0.create<arith::ConstantIntOp>(loc, -65536, i32);
-  loadOp = bt0.create<arith::AndIOp>(loc, loadOp, cst16Op);
-  loadOp = bt0.create<arith::BitcastOp>(loc, bt0.getF32Type(), loadOp);
-
-  return loadOp;
-}
-
 static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
                                 const mlir::Type &dstElemType) {
   OpBuilder b(module.getContext());
@@ -1236,20 +1209,7 @@ static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
     // insert conversion logic
     auto srcBitWidth = srcElemType.getIntOrFloatBitWidth();
     auto dstBitWidth = dstElemType.getIntOrFloatBitWidth();
-    if (srcElemType.isBF16()) {
-      // HACK for bf16 since BF16 isn't supported by x86 isel
-      // loadOp = bt0.create<arith::BitcastOp>(loc, loadOp,
-      // bt0.getBF16Type()); loadOp = bt0.create<arith::ExtFOp>(loc, loadOp,
-      // dstElemType); BF16 not supported by x86 isel
-      // mlir::Type i16 = bt0.getIntegerType(16);
-      // mlir::Type i32 = bt0.getI32Type();
-      // loadOp = bt0.create<arith::BitcastOp>(loc, i16, loadOp);
-      // loadOp = bt0.create<arith::ExtUIOp>(loc, i32, loadOp);
-      // auto cst16Op = bt0.create<arith::ConstantIntOp>(loc, 16, i32);
-      // loadOp = bt0.create<arith::ShLIOp>(loc, loadOp, cst16Op);
-      // loadOp = bt0.create<arith::BitcastOp>(loc, bt0.getF32Type(), loadOp);
-      loadOp = convertBF16ToFloat(bt0, loadOp);
-    } else if (srcElemType.isIntOrIndex()) {
+    if (srcElemType.isIntOrIndex()) {
       assert(!dstElemType.isIntOrIndex());
       loadOp = bt0.create<arith::SIToFPOp>(loc, dstElemType, loadOp);
     } else {
@@ -1422,9 +1382,6 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     } else if (elemFType.isBF16()) {
       apVal.convert(llvm::APFloat::BFloat(), APFloat::rmNearestTiesToEven,
                     &ignored);
-      // HACK for bf16 since BF16 isn't supported by x86 isel
-      llvm::APFloat floatVal(apVal.convertToFloat());
-      return b.create<arith::ConstantFloatOp>(loc, floatVal, floatType);
     }
     return b.create<arith::ConstantFloatOp>(loc, apVal, elemFType);
   };
@@ -1491,13 +1448,9 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   mlir::Value cpuPrintVal = cpuLoadVal;
 
   // Lower cpu values to gpu precision
-  if (elemType.isF16()) {
+  if (elemType.isF16() || elemType.isBF16()) {
     cpuLoadVal = loopB.create<arith::TruncFOp>(loc, elemFType, cpuLoadVal);
     gpuPrintVal = loopB.create<arith::ExtFOp>(loc, floatType, gpuLoadVal);
-  } else if (elemType.isBF16()) {
-    cpuLoadVal = convertFloatToBF16ToFloat(loopB, cpuLoadVal);
-    gpuLoadVal = convertBF16ToFloat(loopB, gpuLoadVal);
-    gpuPrintVal = gpuLoadVal;
   }
 
   mlir::Value percentDiffVal;
@@ -1573,7 +1526,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   }
 
   if (!elemType.isIntOrIndex()) {
-    if (elemType.isF16()) {
+    if (elemType.getIntOrFloatBitWidth() < 32) { // f16, bf16
       percentDiffVal =
           thenBody.create<arith::ExtFOp>(loc, floatType, percentDiffVal);
     }

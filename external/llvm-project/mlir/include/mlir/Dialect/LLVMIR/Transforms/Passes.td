@@ -16,4 +16,9 @@ def LLVMLegalizeForExport : Pass<"llvm-legalize-for-export"> {
   let constructor = "mlir::LLVM::createLegalizeForExportPass()";
 }
 
+def SoftwareBF16 : Pass<"llvm-software-bf16"> {
+  let summary = "Convert BF16 to I16 in LLVM IR";
+  let constructor = "mlir::LLVM::createSoftwareBF16Pass()";
+}
+
 #endif // MLIR_DIALECT_LLVMIR_TRANSFORMS_PASSES
