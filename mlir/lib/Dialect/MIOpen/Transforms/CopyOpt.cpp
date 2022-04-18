@@ -87,6 +87,11 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
         if (cnt != 1)
           return fail;
         writer = mrop;
+      } else if (auto callop = dyn_cast<CallOpInterface>(use.getOwner())) {
+        // 1.3 Assume call is the writer (fails for multiple calls)
+        if (writer)
+          return fail;
+        writer = callop;
       } else if (auto mrop = dyn_cast<memref::CopyOp>(use.getOwner())) {
         // 1.2 Only one final memref.copy into interface memref
         if (reader)
