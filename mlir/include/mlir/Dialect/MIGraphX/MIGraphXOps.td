@@ -121,7 +121,9 @@ def MIGraphX_ConvolutionOp :
                    I64ArrayAttr:$stride,
                    I64ArrayAttr:$dilation,
                    I64Attr:$group,
-                   OptionalAttr<I64Attr>:$padding_mode
+                   OptionalAttr<I64Attr>:$padding_mode,
+                   OptionalAttr<BoolAttr>:$xdlopsV2,
+                   OptionalAttr<StrAttr>:$perf_config
                    )>,
 	  Results<(outs AnyRankedTensor:$output)> {
   let summary = "convolution forward";
@@ -131,7 +133,8 @@ def MIGraphX_ConvolutionOp :
   let builders = [
     OpBuilder<(ins "::mlir::Value":$input, "::mlir::Value":$filter, "::mlir::ArrayAttr":$padding,
       "::mlir::ArrayAttr":$stride, "::mlir::ArrayAttr":$dilation, "::mlir::IntegerAttr":$group,
-      "::mlir::migraphx::padding_mode_tAttr":$padding_mode),
+      "::mlir::migraphx::padding_mode_tAttr":$padding_mode,
+      "::mlir::BoolAttr":$xdlopsV2, "::mlir::StringAttr":$perf_config),
     [{
       auto inType = input.getType().cast<ShapedType>().getElementType();
       auto inShape = input.getType().cast<ShapedType>(); //NHWC
@@ -143,7 +146,7 @@ def MIGraphX_ConvolutionOp :
         inShape.getDimSize(2),
         filterShape.getDimSize(0)}, inType);
       return build($_builder, $_state, outputType, input, filter, padding, stride, dilation,
-        group, padding_mode);
+        group, padding_mode, xdlopsV2, perf_config);
     }]>];
 
   let assemblyFormat = "`(`$input `,` $filter`)` attr-dict `:` `(`type($input) `,` type($filter) `)` `->` type($output)";

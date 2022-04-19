@@ -121,6 +121,12 @@ public:
                             rewriter.getI64IntegerAttr(padRight),
                         }));
 
+    // Convert optional attributes
+    if (auto attr =  op->getAttrOfType<BoolAttr>("xdlopsV2"))
+      cop->setAttr("xdlopsV2", attr);
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      cop->setAttr("perf_config", attr);
+
     // transpose the output back to NCHW so that it can match following
     // operators.
     auto top = getRank4TransposeOp(loc, cop, rewriter, NHWC2NCHW, true);
