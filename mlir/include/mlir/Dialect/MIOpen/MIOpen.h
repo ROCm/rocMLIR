@@ -83,14 +83,14 @@ namespace miopen {
 /// shape down or the lower shape up, such as passThrough() or pad(), "start" is
 /// the coordinate space you began building from and end is the coordinate space
 /// you're building towards (whether that's the upper or lower coordinates)
-class CoordTransformsBuilder {
+class TransformMapBuilder {
 public:
-  virtual ~CoordTransformsBuilder() = default;
+  virtual ~TransformMapBuilder() = default;
 
   // Get the TransformsAttr that's being built up by the builder
   TransformMapAttr get();
   // Only valid after the transformation has been built.
-  // The names live as long as the CoordTransformBuilder
+  // The names live as long as the TransformMapBuilder
   void getEndNames(SmallVectorImpl<StringRef> &names);
 
   SmallString<8> startName(uint32_t dim);
@@ -120,17 +120,17 @@ public:
   void pad(ArrayRef<StringRef> outNames, ArrayRef<uint32_t> outDims,
            ArrayRef<StringRef> inNames, ArrayRef<int64_t> params);
 
-  CoordTransformsBuilder(const CoordTransformsBuilder &other) = default;
-  CoordTransformsBuilder &operator=(const CoordTransformsBuilder &other);
+  TransformMapBuilder(const TransformMapBuilder &other) = default;
+  TransformMapBuilder &operator=(const TransformMapBuilder &other);
 
 protected:
-  CoordTransformsBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
-                         ArrayRef<int64_t> startShape, mlir::Location loc);
-  CoordTransformsBuilder(mlir::Builder &builder, ArrayRef<int64_t> startShape,
-                         mlir::Location loc);
+  TransformMapBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
+                      ArrayRef<int64_t> startShape, mlir::Location loc);
+  TransformMapBuilder(mlir::Builder &builder, ArrayRef<int64_t> startShape,
+                      mlir::Location loc);
 
-  template <class T, typename = typename std::enable_if<std::is_base_of<
-                         CoordTransformsBuilder, T>::value>::type>
+  template <class T, typename = typename std::enable_if<
+                         std::is_base_of<TransformMapBuilder, T>::value>::type>
   static T nextTransforms(T &previous, ArrayRef<int64_t> startShape) {
     llvm::SmallVector<StringRef, 8> previousNames;
     previous.getEndNames(previousNames);
@@ -178,21 +178,21 @@ private:
 /// to the gemmM dimension, it's more straightforward to start with the
 /// upper shape and simply define an Embed without having to go through and
 /// write the sizes again as one would have to if working bottom up.
-class TopDownCTBuilder : public CoordTransformsBuilder {
+class TopDownTMBuilder : public TransformMapBuilder {
 public:
-  TopDownCTBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
+  TopDownTMBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
                    ArrayRef<int64_t> startShape)
-      : TopDownCTBuilder(builder, startNames, startShape,
+      : TopDownTMBuilder(builder, startNames, startShape,
                          builder.getUnknownLoc()) {}
 
-  TopDownCTBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
+  TopDownTMBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
                    ArrayRef<int64_t> startShape, mlir::Location loc)
-      : CoordTransformsBuilder(builder, startNames, startShape, loc) {}
+      : TransformMapBuilder(builder, startNames, startShape, loc) {}
 
-  static TopDownCTBuilder below(TopDownCTBuilder &previous,
+  static TopDownTMBuilder below(TopDownTMBuilder &previous,
                                 TransformMapAttr &result) {
-    return CoordTransformsBuilder::nextTransforms(previous,
-                                                  result.getLowerBounds());
+    return TransformMapBuilder::nextTransforms(previous,
+                                               result.getLowerBounds());
   }
 
   // NOTE: There is no  builder for slice() as it isn't used in this context
@@ -227,25 +227,25 @@ protected:
 /// equivalent to working through the transformation (multiplying sizes together
 /// etc.). For example, most transformations from the convolution arguments to
 /// GEMM arguments are described bottom-up.
-class BottomUpCTBuilder : public CoordTransformsBuilder {
+class BottomUpTMBuilder : public TransformMapBuilder {
 public:
-  BottomUpCTBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
+  BottomUpTMBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
                     ArrayRef<int64_t> startShape)
-      : BottomUpCTBuilder(builder, startNames, startShape,
+      : BottomUpTMBuilder(builder, startNames, startShape,
                           builder.getUnknownLoc()) {}
 
-  BottomUpCTBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
+  BottomUpTMBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
                     ArrayRef<int64_t> startShape, mlir::Location loc)
-      : CoordTransformsBuilder(builder, startNames, startShape, loc) {}
+      : TransformMapBuilder(builder, startNames, startShape, loc) {}
 
-  BottomUpCTBuilder(mlir::Builder &builder, ArrayRef<int64_t> startShape,
+  BottomUpTMBuilder(mlir::Builder &builder, ArrayRef<int64_t> startShape,
                     mlir::Location loc)
-      : CoordTransformsBuilder(builder, startShape, loc) {}
+      : TransformMapBuilder(builder, startShape, loc) {}
 
-  static BottomUpCTBuilder above(BottomUpCTBuilder &previous,
+  static BottomUpTMBuilder above(BottomUpTMBuilder &previous,
                                  TransformMapAttr &result) {
-    return CoordTransformsBuilder::nextTransforms(previous,
-                                                  result.getUpperBounds());
+    return TransformMapBuilder::nextTransforms(previous,
+                                               result.getUpperBounds());
   }
 
   // Defines a dimension that is not mapped to any coordinates in the output
@@ -277,16 +277,16 @@ protected:
   int64_t paddingSign() const override final;
 };
 
-/// A wrapper around a BottomUpCTBuilder that looks up end dimensions in a
+/// A wrapper around a BottomUpTMBuilder that looks up end dimensions in a
 /// provided map, used for cases such as when embed()ing will create extra
 /// dimensions. This takes the builder by reference and does modefiations there
 /// and thus doesn't expose its own get() method. Everything is defined here
 /// to increase inlineability
 struct BottomUpCTTopDimsWrapper {
-  BottomUpCTBuilder &b;
+  BottomUpTMBuilder &b;
   llvm::StringMap<uint32_t> topDims;
 
-  BottomUpCTTopDimsWrapper(BottomUpCTBuilder &b,
+  BottomUpCTTopDimsWrapper(BottomUpTMBuilder &b,
                            llvm::StringMap<uint32_t> topDims)
       : b(b), topDims(topDims) {}
   void passThrough(StringRef name) {

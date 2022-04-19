@@ -96,7 +96,7 @@ llvm::StringMap<uint32_t>
 expandNamesInPlace(ArrayRef<StringRef> original,
                    const llvm::StringMap<SmallVector<StringRef, 2>> expansion);
 llvm::StringMap<uint32_t>
-expandNamesInPlace(CoordTransformsBuilder &builder,
+expandNamesInPlace(TransformMapBuilder &builder,
                    const llvm::StringMap<SmallVector<StringRef, 2>> expansion);
 
 } // end namespace miopen

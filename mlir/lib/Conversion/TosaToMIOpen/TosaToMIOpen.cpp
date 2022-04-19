@@ -84,7 +84,7 @@ static Value expandMemRef(ConversionPatternRewriter &rw, Operation *op,
     startDims.push_back(i);
     endDims.push_back(i < idx ? i : i + 1);
   }
-  miopen::BottomUpCTBuilder transform(rw, shape, loc);
+  miopen::BottomUpTMBuilder transform(rw, shape, loc);
   transform.passThrough(endDims, startDims);
   transform.addDim("g", idx, 1);
 

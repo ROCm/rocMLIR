@@ -1,8 +1,8 @@
-add_mlir_miopen_unittest(MLIRMIOpenCoordTransformBuilderTests
-  CoordTransformBuilderTests.cpp
+add_mlir_miopen_unittest(MLIRMIOpenTransformMapBuilderTests
+  TransformMapBuilderTests.cpp
 )
 
-target_link_libraries(MLIRMIOpenCoordTransformBuilderTests
+target_link_libraries(MLIRMIOpenTransformMapBuilderTests
   PRIVATE
   MLIRMIOpenOps
 )

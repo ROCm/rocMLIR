@@ -271,7 +271,7 @@ expandNamesInPlace(ArrayRef<StringRef> original,
 }
 
 llvm::StringMap<uint32_t>
-expandNamesInPlace(CoordTransformsBuilder &builder,
+expandNamesInPlace(TransformMapBuilder &builder,
                    const llvm::StringMap<SmallVector<StringRef, 2>> expansion) {
   SmallVector<StringRef, 8> names;
   builder.getEndNames(names);

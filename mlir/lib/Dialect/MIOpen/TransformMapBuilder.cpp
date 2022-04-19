@@ -1,4 +1,4 @@
-//===- CoordTransformBuilder.cpp - MIOpen MLIR Operations
+//===- TransformMapBuilder.cpp - MIOpen MLIR Operations
 //-----------------------------===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -145,9 +145,10 @@ namespace miopen {
 
 /// Accessors and common infrastructure
 
-CoordTransformsBuilder::CoordTransformsBuilder(
-    mlir::Builder &builder, ArrayRef<StringRef> startNamesArg,
-    ArrayRef<int64_t> startShapeArg, mlir::Location loc)
+TransformMapBuilder::TransformMapBuilder(mlir::Builder &builder,
+                                         ArrayRef<StringRef> startNamesArg,
+                                         ArrayRef<int64_t> startShapeArg,
+                                         mlir::Location loc)
     : b(builder), result(), loc(loc), startIndices(), startNames(),
       startShape(), endIndices(), endNames(), endShape() {
   assert(startNamesArg.size() == startShapeArg.size() &&
@@ -162,9 +163,9 @@ CoordTransformsBuilder::CoordTransformsBuilder(
   }
 }
 
-CoordTransformsBuilder::CoordTransformsBuilder(mlir::Builder &builder,
-                                               ArrayRef<int64_t> startShapeArg,
-                                               mlir::Location loc)
+TransformMapBuilder::TransformMapBuilder(mlir::Builder &builder,
+                                         ArrayRef<int64_t> startShapeArg,
+                                         mlir::Location loc)
     : b(builder), result(), loc(loc), startIndices(), startNames(),
       startShape(), endIndices(), endNames(), endShape() {
   for (auto pair : llvm::enumerate(startShapeArg)) {
@@ -181,13 +182,13 @@ CoordTransformsBuilder::CoordTransformsBuilder(mlir::Builder &builder,
   }
 }
 
-TransformMapAttr CoordTransformsBuilder::get() {
+TransformMapAttr TransformMapBuilder::get() {
   SmallVector<int64_t, 8> upperBounds, lowerBounds;
   extractBounds(upperBounds, lowerBounds);
   AffineMapAttr map = assembleMapFor(b, result, upperBounds, lowerBounds);
   auto errorEmitter = [&]() -> InFlightDiagnostic {
     InFlightDiagnostic err =
-        mlir::emitError(loc, "Error assembling coordinate transforms: ");
+        mlir::emitError(loc, "Error assembling transform map: ");
     if (b.getContext()->shouldPrintOpOnDiagnostic()) {
       err.attachNote(loc).append("The transforms were").appendRange(result);
     }
@@ -198,7 +199,7 @@ TransformMapAttr CoordTransformsBuilder::get() {
                                     upperBounds, lowerBounds);
 }
 
-void CoordTransformsBuilder::getEndNames(SmallVectorImpl<StringRef> &names) {
+void TransformMapBuilder::getEndNames(SmallVectorImpl<StringRef> &names) {
   uint32_t e = nEndDims();
   names.reserve(e);
   for (uint32_t i = 0; i < e; ++i) {
@@ -206,47 +207,45 @@ void CoordTransformsBuilder::getEndNames(SmallVectorImpl<StringRef> &names) {
   }
 }
 
-SmallString<8> CoordTransformsBuilder::startName(uint32_t dim) {
+SmallString<8> TransformMapBuilder::startName(uint32_t dim) {
   return startNames[dim];
 }
 
-SmallString<8> CoordTransformsBuilder::endName(uint32_t dim) {
+SmallString<8> TransformMapBuilder::endName(uint32_t dim) {
   assert(endNames.count(dim) == 1 &&
          "Dimension not defined in ending dimension space");
   return endNames[dim];
 }
 
-uint32_t CoordTransformsBuilder::startIndex(StringRef name) {
+uint32_t TransformMapBuilder::startIndex(StringRef name) {
   assert(startIndices.count(name) == 1 && "Key not in starting set of names");
   return startIndices[name];
 }
 
-uint32_t CoordTransformsBuilder::endIndex(StringRef name) {
+uint32_t TransformMapBuilder::endIndex(StringRef name) {
   assert(endIndices.count(name) == 1 &&
          "Key has not yet been defined in the ending set of names");
   return endIndices[name];
 }
 
-int64_t CoordTransformsBuilder::startSize(StringRef name) {
+int64_t TransformMapBuilder::startSize(StringRef name) {
   return startShape[startIndices[name]];
 }
 
-int64_t CoordTransformsBuilder::startSize(uint32_t dim) {
-  return startShape[dim];
-}
+int64_t TransformMapBuilder::startSize(uint32_t dim) { return startShape[dim]; }
 
-int64_t CoordTransformsBuilder::endSize(StringRef name) {
+int64_t TransformMapBuilder::endSize(StringRef name) {
   return endShape[endIndices[name]];
 }
 
-uint32_t CoordTransformsBuilder::nStartDims() { return startShape.size(); }
+uint32_t TransformMapBuilder::nStartDims() { return startShape.size(); }
 
-uint32_t CoordTransformsBuilder::nEndDims() { return endShape.size(); }
+uint32_t TransformMapBuilder::nEndDims() { return endShape.size(); }
 
-int64_t CoordTransformsBuilder::endSize(uint32_t dim) { return endShape[dim]; }
+int64_t TransformMapBuilder::endSize(uint32_t dim) { return endShape[dim]; }
 
-void CoordTransformsBuilder::defineDim(StringRef name, uint32_t dim,
-                                       int64_t size) {
+void TransformMapBuilder::defineDim(StringRef name, uint32_t dim,
+                                    int64_t size) {
   assert(!frozen && "It's a bug to add to a coordinate transform after "
                     "fetching the attribute");
   bool nameInsertResult = endIndices.insert({name, dim}).second;
@@ -263,14 +262,14 @@ void CoordTransformsBuilder::defineDim(StringRef name, uint32_t dim,
 }
 
 /// Transformations that work basically the same in either direction
-void CoordTransformsBuilder::passThrough(StringRef name) {
+void TransformMapBuilder::passThrough(StringRef name) {
   uint32_t dim = startIndex(name);
   int64_t size = startSize(dim);
   defineDim(name, dim, size);
   addTransform(TransformType::PassThrough, {}, {name}, {dim}, {name}, {dim});
 }
 
-void CoordTransformsBuilder::passThrough(StringRef outName, StringRef inName) {
+void TransformMapBuilder::passThrough(StringRef outName, StringRef inName) {
   uint32_t dim = startIndex(inName);
   int64_t size = startSize(dim);
   defineDim(outName, dim, size);
@@ -278,7 +277,7 @@ void CoordTransformsBuilder::passThrough(StringRef outName, StringRef inName) {
                {dim});
 }
 
-void CoordTransformsBuilder::passThrough(ArrayRef<StringRef> names) {
+void TransformMapBuilder::passThrough(ArrayRef<StringRef> names) {
   llvm::SmallVector<uint32_t> dims;
   llvm::SmallVector<uint32_t> sizes;
   dims.reserve(names.size());
@@ -294,9 +293,9 @@ void CoordTransformsBuilder::passThrough(ArrayRef<StringRef> names) {
   addTransform(TransformType::PassThrough, {}, names, dims, names, dims);
 }
 
-void CoordTransformsBuilder::passThrough(ArrayRef<StringRef> outNames,
-                                         ArrayRef<uint32_t> outDims,
-                                         ArrayRef<StringRef> inNames) {
+void TransformMapBuilder::passThrough(ArrayRef<StringRef> outNames,
+                                      ArrayRef<uint32_t> outDims,
+                                      ArrayRef<StringRef> inNames) {
   assert(outNames.size() == inNames.size() && "One output per input");
   assert(outNames.size() == outDims.size() && "One location per output");
 
@@ -316,8 +315,8 @@ void CoordTransformsBuilder::passThrough(ArrayRef<StringRef> outNames,
                outDims);
 }
 
-void CoordTransformsBuilder::passThrough(ArrayRef<uint32_t> endIndices,
-                                         ArrayRef<uint32_t> startIndices) {
+void TransformMapBuilder::passThrough(ArrayRef<uint32_t> endIndices,
+                                      ArrayRef<uint32_t> startIndices) {
   assert(endIndices.size() == startIndices.size() && "One output per input");
 
   llvm::SmallVector<StringRef> names;
@@ -332,8 +331,8 @@ void CoordTransformsBuilder::passThrough(ArrayRef<uint32_t> endIndices,
                endIndices);
 }
 
-void CoordTransformsBuilder::pad(ArrayRef<StringRef> names,
-                                 ArrayRef<int64_t> params) {
+void TransformMapBuilder::pad(ArrayRef<StringRef> names,
+                              ArrayRef<int64_t> params) {
   llvm::SmallVector<uint32_t, 8> dims;
   dims.reserve(names.size());
   std::transform(names.begin(), names.end(), std::back_inserter(dims),
@@ -341,17 +340,17 @@ void CoordTransformsBuilder::pad(ArrayRef<StringRef> names,
   pad(names, dims, names, params);
 }
 
-void CoordTransformsBuilder::pad(StringRef outName, StringRef inName,
-                                 int64_t left, int64_t right) {
+void TransformMapBuilder::pad(StringRef outName, StringRef inName, int64_t left,
+                              int64_t right) {
   uint32_t dim = startIndex(inName);
   SmallVector<int64_t, 2> params = {left, right};
   pad({outName}, {dim}, {inName}, params);
 }
 
-void CoordTransformsBuilder::pad(ArrayRef<StringRef> outNames,
-                                 ArrayRef<uint32_t> outDims,
-                                 ArrayRef<StringRef> inNames,
-                                 ArrayRef<int64_t> params) {
+void TransformMapBuilder::pad(ArrayRef<StringRef> outNames,
+                              ArrayRef<uint32_t> outDims,
+                              ArrayRef<StringRef> inNames,
+                              ArrayRef<int64_t> params) {
   assert(outNames.size() == outDims.size() &&
          "One name needed per dimension in padding");
   assert(outNames.size() == inNames.size() &&
@@ -373,8 +372,8 @@ void CoordTransformsBuilder::pad(ArrayRef<StringRef> outNames,
   addTransform(TransformType::Pad, params, inNames, inDims, outNames, outDims);
 }
 
-CoordTransformsBuilder &CoordTransformsBuilder::
-operator=(const CoordTransformsBuilder &other) {
+TransformMapBuilder &
+TransformMapBuilder::operator=(const TransformMapBuilder &other) {
   if (this != &other) {
     b = other.b;
     result = other.result;
@@ -392,7 +391,7 @@ operator=(const CoordTransformsBuilder &other) {
 }
 
 /// Building from a defined set of upper dimensions
-void TopDownCTBuilder::addTransform(TransformType type,
+void TopDownTMBuilder::addTransform(TransformType type,
                                     ArrayRef<int64_t> params,
                                     ArrayRef<StringRef> startNames,
                                     ArrayRef<uint32_t> startDims,
@@ -425,7 +424,7 @@ void TopDownCTBuilder::addTransform(TransformType type,
   result.push_back(attr);
 }
 
-void TopDownCTBuilder::extractBounds(SmallVectorImpl<int64_t> &upperBounds,
+void TopDownTMBuilder::extractBounds(SmallVectorImpl<int64_t> &upperBounds,
                                      SmallVectorImpl<int64_t> &lowerBounds) {
   uint32_t nStart = nStartDims(), nEnd = nEndDims();
   upperBounds.reserve(nStart);
@@ -438,19 +437,19 @@ void TopDownCTBuilder::extractBounds(SmallVectorImpl<int64_t> &upperBounds,
   }
 }
 
-int64_t TopDownCTBuilder::paddingSign() const {
+int64_t TopDownTMBuilder::paddingSign() const {
   // When building top-down, the output size (lower dimension) is the input size
   // (upper dimension) minus padding
   return -1;
 }
 
-void TopDownCTBuilder::ignore(StringRef name) {
+void TopDownTMBuilder::ignore(StringRef name) {
   uint32_t dim = startIndex(name);
   int64_t size = startSize(dim);
   addTransform(TransformType::AddDim, {size}, {name}, {dim}, {}, {});
 }
 
-void TopDownCTBuilder::embed(StringRef lowerName, uint32_t lowerDim,
+void TopDownTMBuilder::embed(StringRef lowerName, uint32_t lowerDim,
                              int64_t lowerSize, ArrayRef<StringRef> upperNames,
                              ArrayRef<int64_t> coefficients) {
   assert(upperNames.size() == coefficients.size() &&
@@ -466,7 +465,7 @@ void TopDownCTBuilder::embed(StringRef lowerName, uint32_t lowerDim,
                {lowerName}, {lowerDim});
 }
 
-void TopDownCTBuilder::unmerge(StringRef lowerName, uint32_t lowerDim,
+void TopDownTMBuilder::unmerge(StringRef lowerName, uint32_t lowerDim,
                                ArrayRef<StringRef> upperNames,
                                ArrayRef<int64_t> lengths) {
   assert(upperNames.size() == lengths.size() &&
@@ -485,7 +484,7 @@ void TopDownCTBuilder::unmerge(StringRef lowerName, uint32_t lowerDim,
                {lowerName}, {lowerDim});
 }
 
-void TopDownCTBuilder::merge(ArrayRef<StringRef> lowerNames,
+void TopDownTMBuilder::merge(ArrayRef<StringRef> lowerNames,
                              ArrayRef<uint32_t> lowerDims, StringRef upperName,
                              ArrayRef<int64_t> sizes, bool isUnfold) {
   assert(lowerNames.size() == lowerDims.size() &&
@@ -511,7 +510,7 @@ void TopDownCTBuilder::merge(ArrayRef<StringRef> lowerNames,
 }
 
 /// Building from a defined set of lower dimensions
-void BottomUpCTBuilder::addTransform(TransformType type,
+void BottomUpTMBuilder::addTransform(TransformType type,
                                      ArrayRef<int64_t> params,
                                      ArrayRef<StringRef> startNames,
                                      ArrayRef<uint32_t> startDims,
@@ -544,7 +543,7 @@ void BottomUpCTBuilder::addTransform(TransformType type,
   result.push_back(attr);
 }
 
-void BottomUpCTBuilder::extractBounds(SmallVectorImpl<int64_t> &upperBounds,
+void BottomUpTMBuilder::extractBounds(SmallVectorImpl<int64_t> &upperBounds,
                                       SmallVectorImpl<int64_t> &lowerBounds) {
   uint32_t nStart = nStartDims(), nEnd = nEndDims();
   upperBounds.reserve(nEnd);
@@ -557,18 +556,18 @@ void BottomUpCTBuilder::extractBounds(SmallVectorImpl<int64_t> &upperBounds,
   }
 }
 
-int64_t BottomUpCTBuilder::paddingSign() const {
+int64_t BottomUpTMBuilder::paddingSign() const {
   // When building bottom-up, the output size (upper dimension) is the input
   // size (bottom dimension) plus padding
   return 1;
 }
 
-void BottomUpCTBuilder::addDim(StringRef name, uint32_t dim, int64_t size) {
+void BottomUpTMBuilder::addDim(StringRef name, uint32_t dim, int64_t size) {
   defineDim(name, dim, size);
   addTransform(TransformType::AddDim, {size}, {}, {}, {name}, {dim});
 }
 
-void BottomUpCTBuilder::broadcast(ArrayRef<uint32_t> endDims,
+void BottomUpTMBuilder::broadcast(ArrayRef<uint32_t> endDims,
                                   ArrayRef<int64_t> endSizes) {
   SmallVector<int64_t, 8> params;
   SmallVector<StringRef, 8> lowerNames;
@@ -586,7 +585,7 @@ void BottomUpCTBuilder::broadcast(ArrayRef<uint32_t> endDims,
                lowerNames, endDims);
 }
 
-void BottomUpCTBuilder::slice(ArrayRef<StringRef> upperNames,
+void BottomUpTMBuilder::slice(ArrayRef<StringRef> upperNames,
                               ArrayRef<StringRef> lowerNames,
                               ArrayRef<int64_t> begins,
                               ArrayRef<int64_t> ends) {
@@ -617,7 +616,7 @@ void BottomUpCTBuilder::slice(ArrayRef<StringRef> upperNames,
                dims);
 }
 
-void BottomUpCTBuilder::embed(ArrayRef<StringRef> upperNames,
+void BottomUpTMBuilder::embed(ArrayRef<StringRef> upperNames,
                               ArrayRef<uint32_t> upperDims,
                               ArrayRef<int64_t> upperSizes, StringRef lowerName,
                               ArrayRef<int64_t> coefficients) {
@@ -636,7 +635,7 @@ void BottomUpCTBuilder::embed(ArrayRef<StringRef> upperNames,
                upperNames, upperDims);
 }
 
-void BottomUpCTBuilder::unmerge(ArrayRef<StringRef> upperNames,
+void BottomUpTMBuilder::unmerge(ArrayRef<StringRef> upperNames,
                                 ArrayRef<uint32_t> upperDims,
                                 StringRef lowerName,
                                 ArrayRef<int64_t> lengths) {
@@ -662,7 +661,7 @@ void BottomUpCTBuilder::unmerge(ArrayRef<StringRef> upperNames,
                upperNames, upperDims);
 }
 
-void BottomUpCTBuilder::merge(StringRef upperName, uint32_t upperDim,
+void BottomUpTMBuilder::merge(StringRef upperName, uint32_t upperDim,
                               ArrayRef<StringRef> lowerNames, bool isUnfold) {
   uint32_t n = lowerNames.size();
   llvm::SmallVector<uint32_t, 4> lowerDims;
