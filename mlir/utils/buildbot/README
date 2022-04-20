@@ -1,0 +1,7 @@
+To start up the buildbot:
+
+  git clone https://github.com/ROCmSoftwarePlatform/llvm-project-mlir.git
+  cd ./llvm-project-mlir/mlir/utils/buildbot
+  export BUILDBOT_PORT=9994
+  export BUILDBOT_MASTER=lab.llvm.org
+  ./build-run.sh mlir-rocm-mi200 `pwd`/mlir-rocm-mi200
