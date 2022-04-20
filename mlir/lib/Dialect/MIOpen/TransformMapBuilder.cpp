@@ -7,6 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 
 #include "mlir/IR/AffineExpr.h"
@@ -680,6 +681,86 @@ void BottomUpTMBuilder::merge(StringRef upperName, uint32_t upperDim,
   defineDim(upperName, upperDim, upperSize);
   addTransform(isUnfold ? TransformType::Unfold : TransformType::Merge,
                lowerSizes, lowerNames, lowerDims, {upperName}, {upperDim});
+}
+
+void BottomUpTMTopDimsWrapper::passThrough(StringRef name) {
+  b.passThrough({name}, {topDims[name]}, {name});
+}
+void BottomUpTMTopDimsWrapper::passThrough(ArrayRef<StringRef> names) {
+  b.passThrough(names, toTopDims(names), names);
+}
+
+void BottomUpTMTopDimsWrapper::pad(ArrayRef<StringRef> outNames,
+                                   ArrayRef<StringRef> inNames,
+                                   ArrayRef<int64_t> params) {
+  b.pad(outNames, toTopDims(outNames), inNames, params);
+}
+
+void BottomUpTMTopDimsWrapper::addDim(StringRef name, int64_t size) {
+  b.addDim(name, topDims[name], size);
+}
+
+void BottomUpTMTopDimsWrapper::embed(ArrayRef<StringRef> upperNames,
+                                     ArrayRef<int64_t> upperSizes,
+                                     StringRef lowerName,
+                                     ArrayRef<int64_t> coefficients) {
+  b.embed(upperNames, toTopDims(upperNames), upperSizes, lowerName,
+          coefficients);
+}
+
+void BottomUpTMTopDimsWrapper::unmerge(ArrayRef<StringRef> upperNames,
+                                       StringRef lowerName,
+                                       ArrayRef<int64_t> lengths) {
+  b.unmerge(upperNames, toTopDims(upperNames), lowerName, lengths);
+}
+
+void BottomUpTMTopDimsWrapper::merge(StringRef upperName,
+                                     ArrayRef<StringRef> lowerNames,
+                                     bool isUnfold) {
+  b.merge(upperName, topDims[upperName], lowerNames, isUnfold);
+}
+
+llvm::SmallVector<uint32_t>
+BottomUpTMTopDimsWrapper::toTopDims(ArrayRef<StringRef> names) {
+  llvm::SmallVector<uint32_t> ret;
+  ret.reserve(names.size());
+  for (auto name : names) {
+    ret.push_back(topDims[name]);
+  }
+  return ret;
+}
+
+/// Utility methods
+
+llvm::StringMap<uint32_t>
+expandNamesInPlace(ArrayRef<StringRef> original,
+                   const llvm::StringMap<SmallVector<StringRef, 2>> expansion) {
+  uint32_t offset = 0;
+  llvm::StringMap<uint32_t> ret;
+  for (auto pair : llvm::enumerate(original)) {
+    uint32_t origIndex = pair.index();
+    StringRef origName = pair.value();
+    if (expansion.count(origName) != 0) {
+      for (auto newName : (*expansion.find(origName)).getValue()) {
+        bool insertResult = ret.insert({newName, origIndex + offset}).second;
+        assert(insertResult && "Duplicate dimension in dimension expansion");
+        offset++;
+      }
+      offset--; // Handle extra count and dropping a dimension
+    } else {
+      bool insertResult = ret.insert({origName, origIndex + offset}).second;
+      assert(insertResult && "Dimsion already defined by expansion");
+    }
+  }
+  return ret;
+}
+
+llvm::StringMap<uint32_t>
+expandNamesInPlace(TransformMapBuilder &builder,
+                   const llvm::StringMap<SmallVector<StringRef, 2>> expansion) {
+  SmallVector<StringRef, 8> names;
+  builder.getEndNames(names);
+  return expandNamesInPlace(names, expansion);
 }
 } // namespace miopen
 } // namespace mlir

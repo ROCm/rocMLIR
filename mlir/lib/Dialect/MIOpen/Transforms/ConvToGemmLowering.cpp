@@ -23,6 +23,7 @@
 
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/Tuning/UtilityParams.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
@@ -401,7 +402,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     llvm::StringMap<uint32_t> kBlockDims =
         expandNamesInPlace(filterNames, {{{"k", {"kBlock", "k"}}}});
     BottomUpTMBuilder addKBlockTransform(b, filterNames, filterShape, loc);
-    BottomUpCTTopDimsWrapper addKBlockWrap(addKBlockTransform,
+    BottomUpTMTopDimsWrapper addKBlockWrap(addKBlockTransform,
                                            std::move(kBlockDims));
     addKBlockWrap.passThrough("g");
     addKBlockWrap.addDim("kBlock", gemmKBlocks);
@@ -440,7 +441,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
         {{"ni", {"n0", "n1"}}, {"hi", {"hipad"}}, {"wi", {"wipad"}}});
 
     BottomUpTMBuilder firstTransform(b, inputNames, inputShape, loc);
-    BottomUpCTTopDimsWrapper firstWrap(firstTransform,
+    BottomUpTMTopDimsWrapper firstWrap(firstTransform,
                                        std::move(firstTransformOutDims));
     firstWrap.passThrough("gi");
     firstWrap.unmerge({"n0", "n1"}, "ni", {gemmKBlocks, n / gemmKBlocks});
@@ -458,7 +459,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
         firstTransform, {{"hipad", {"y", "ho"}}, {"wipad", {"x", "wo"}}});
     auto embedTransform =
         BottomUpTMBuilder::above(firstTransform, firstTransformAttr);
-    BottomUpCTTopDimsWrapper embedWrap(embedTransform, std::move(embedOutDims));
+    BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedOutDims));
     embedWrap.passThrough({"gi", "n0", "n1", "ci"});
     embedWrap.embed({"y", "ho"}, {y, ho}, "hipad", {dilationH, strideH});
     embedWrap.embed({"x", "wo"}, {x, wo}, "wipad", {dilationW, strideW});
@@ -499,7 +500,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     llvm::StringMap<uint32_t> outDims =
         expandNamesInPlace(outputNames, {{"no", {"n0", "n1"}}});
     BottomUpTMBuilder firstTransform(b, outputNames, outputShape, loc);
-    BottomUpCTTopDimsWrapper firstWrap(firstTransform, std::move(outDims));
+    BottomUpTMTopDimsWrapper firstWrap(firstTransform, std::move(outDims));
     firstWrap.passThrough("go");
     firstWrap.unmerge({"n0", "n1"}, "no", {gemmKBlocks, n / gemmKBlocks});
     firstWrap.passThrough({"ko", "ho", "wo"});
@@ -754,7 +755,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
         filterNames, {{"y", {"ydot", "ytilda"}}, {"x", {"xdot", "xtilda"}}});
     BottomUpTMBuilder embedTransform(b, filterNames, filterShape, loc);
-    BottomUpCTTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
+    BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
 
     embedWrap.passThrough({"g", "k", "c"});
     embedWrap.embed({"ydot", "ytilda"}, {yDot, yTilda}, "y",
@@ -844,7 +845,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
         {{"hipad", {"ytilda", "htilda"}}, {"wipad", {"xtilda", "wtilda"}}});
     auto tildaEmbedTransform =
         BottomUpTMBuilder::above(padInputTransform, padTransformAttr);
-    BottomUpCTTopDimsWrapper tildaEmbedWrap(tildaEmbedTransform,
+    BottomUpTMTopDimsWrapper tildaEmbedWrap(tildaEmbedTransform,
                                             std::move(embedDims));
     tildaEmbedWrap.passThrough({"gi", "ni", "ci"});
     tildaEmbedWrap.embed({"ytilda", "htilda"}, {yTilda, hTilda}, "hipad",
@@ -912,7 +913,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
         outputNames, {{"ho", {"ydot", "htilda"}}, {"wo", {"xdot", "wtilda"}}});
     BottomUpTMBuilder embedTransform(b, outputNames, outputShape, loc);
-    BottomUpCTTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
+    BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
     embedWrap.passThrough({"go", "no", "ko"});
     embedWrap.embed({"ydot", "htilda"}, {yDot, hTilda}, "ho",
                     {(-dilationH) / gcdStrideDilationH, 1});
@@ -1341,7 +1342,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
         padInputTransform, {{"hipad", {"y", "ho"}}, {"wipad", {"x", "wo"}}});
     BottomUpTMBuilder embedInputTransform =
         BottomUpTMBuilder::above(padInputTransform, padInputTransformAttr);
-    BottomUpCTTopDimsWrapper embedInputWrap(embedInputTransform,
+    BottomUpTMTopDimsWrapper embedInputWrap(embedInputTransform,
                                             std::move(embeddedInputDims));
     embedInputWrap.passThrough({"ni", "gi", "ci"});
     embedInputWrap.embed({"y", "ho"}, {y, ho}, "hipad", {dilationH, strideH});
