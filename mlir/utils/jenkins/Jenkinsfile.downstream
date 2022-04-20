@@ -1,5 +1,5 @@
 void buildProject(String target, String cmakeOpts) {
-    timeout(time: 30, activity: true, unit: 'MINUTES') {
+    timeout(time: 60, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Ninja',\
             buildDir: 'build',\
             buildType: 'RelWithDebInfo',\
@@ -11,7 +11,7 @@ void buildProject(String target, String cmakeOpts) {
 
 void buildMIOpen(String cmakeOpts) {
     sh '[ ! -d build ] || rm -rf build'
-    timeout(time: 30, activity: true, unit: 'MINUTES') {
+    timeout(time: 60, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Unix Makefiles',\
             buildDir: 'build',\
             buildType: 'Release',\
