@@ -80,10 +80,12 @@ bool isElementwiseOp(Operation *op) {
         tosa::NegateOp,
         tosa::ReciprocalOp,
         tosa::RsqrtOp,
-        tosa::SelectOp
+        tosa::SelectOp,
 //         tosa::EqualOp,
 //         tosa::GreaterOp,
 //         tosa::GreaterEqualOp
+        tosa::TransposeOp,
+        tosa::ReshapeOp
        >(op);
   // clang-format on
 }
@@ -267,6 +269,7 @@ findOutliningCandidate(OutliningCandidate &newCandidate,
 void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
                         ArrayRef<Operation *> frontOps, ArrayRef<Value> params,
                         ArrayRef<Value> returnVals, StringRef partFnName,
+                        StringRef attrName,
                         std::vector<OutliningCandidate> &candidates) {
   ValueRange values(params);
   OpBuilder b(convOp);
@@ -297,7 +300,7 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
     FunctionType type =
         FunctionType::get(ctx, values.getTypes(), results.getTypes());
     SmallVector<NamedAttribute, 1> kernelAttrs{
-        b.getNamedAttr("kernel", b.getUnitAttr()),
+        b.getNamedAttr(attrName, b.getUnitAttr()),
     };
     outlinedFunc = b.create<func::FuncOp>(
         loc, partFnName, type, ArrayRef<NamedAttribute>(kernelAttrs));
@@ -374,10 +377,22 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
   }
 }
 
+bool isConv2D(Operation *op) { return isa<tosa::Conv2DOp>(op); }
+
 // Inspired by / adapted from TestSCFIfUtilsPass in
 // test/lib/Transforms/TestSCFUtils.cpp.
 class TosaPartitionPass : public TosaPartitionBase<TosaPartitionPass> {
+  std::function<bool(Operation *)> isPrimaryOp;
+
 public:
+  TosaPartitionPass() = default;
+  TosaPartitionPass(std::function<bool(Operation *)> pred,
+                    const std::string &attrName, bool nofront)
+      : isPrimaryOp(std::move(pred)) {
+    attributeName = attrName;
+    noFront = nofront;
+  }
+
   static bool isZeroAttribute(Attribute value) {
     if (auto intValue = value.dyn_cast<IntegerAttr>())
       return intValue.getValue().isNullValue();
@@ -418,18 +433,33 @@ public:
   }
 
   void runOnOperation() override {
+    // No supplied predicate.  If no --primary-ops, use default, isConv2D().
+    // Otherwise, use the generic list-search predicate.
+    if (!isPrimaryOp) {
+      if (primaryOps.empty())
+        isPrimaryOp = isConv2D;
+      else
+        isPrimaryOp = [&](Operation *op) {
+          return llvm::is_contained(primaryOps,
+                                    op->getName().getIdentifier().str());
+        };
+    }
+
     ModuleOp module = getOperation();
     auto funcOps = module.getOps<FuncOp>();
     for (auto func : llvm::make_early_inc_range(funcOps)) {
       // Don't partition a kernel;  it may be already partitioned.
-      if (func->hasAttr("kernel"))
+      if (func->hasAttr(attributeName))
         continue;
 
       int count = 0;
       // (Problems with node mismatches and unexpected uses if we have the
       // candidates list at module level.)
       std::vector<OutliningCandidate> candidates;
-      auto callback = [&](tosa::Conv2DOp convOp) {
+      auto callback = [&](Operation *op) {
+        if (!isPrimaryOp(op))
+          return WalkResult::advance();
+        Operation *convOp = op;
         auto strCount =
             std::string("_outlined_part_") + std::to_string(count++);
 
@@ -456,7 +486,7 @@ public:
         // Grab a useful set of leading ops, like we do for trailing.
         // Let's limit it to only first arguments, with single uses.
         SmallVector<Operation *> frontOps;
-        if (!nofront) {
+        if (!noFront) {
           traceInputs(convOp, frontOps, inputNodes);
         } else {
           inputNodes.insert(convOp->getOperands().begin(),
@@ -521,7 +551,7 @@ public:
         outlineConvPartOps(convOp, secondOps.getArrayRef(), frontOps,
                            inputNodes.getArrayRef(), resultNodes.getArrayRef(),
                            std::string(func.getSymName()) + strCount,
-                           candidates);
+                           attributeName, candidates);
         // Outlining will erase nodes and thus perturb the walk, so
         // signal interrupted to exit it and restart.
         return WalkResult::interrupt();
@@ -539,3 +569,77 @@ public:
 std::unique_ptr<Pass> mlir::tosa::createTosaPartitionPass() {
   return std::make_unique<TosaPartitionPass>();
 }
+
+std::unique_ptr<Pass>
+mlir::tosa::createTosaPartitionPass(llvm::function_ref<bool(Operation *)> &pred,
+                                    std::string attrName, bool noFront) {
+  return std::make_unique<TosaPartitionPass>(pred, attrName, noFront);
+}
+
+namespace {
+
+class TestTosaPartitionOptionsPass
+    : public PassWrapper<TestTosaPartitionOptionsPass,
+                         OperationPass<ModuleOp>> {
+public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestTosaPartitionOptionsPass)
+
+  StringRef getArgument() const final { return "test-tosa-partition-options"; }
+  StringRef getDescription() const final {
+    return "Tests the programmatic interface to --tosa-partition options.";
+  }
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<tosa::TosaDialect>();
+  }
+
+  TestTosaPartitionOptionsPass() = default;
+  TestTosaPartitionOptionsPass(const TestTosaPartitionOptionsPass &) {}
+
+  void runOnOperation() override {
+    ModuleOp module = getOperation();
+    PassManager pm(module.getContext(), mlir::PassManager::Nesting::Implicit);
+    if (defaultCase) {
+      pm.addPass(tosa::createTosaPartitionPass());
+    } else if (depthwiseOnly) {
+      llvm::function_ref<bool(Operation *)> pred = [](Operation *op) {
+        return isa<tosa::DepthwiseConv2DOp>(op);
+      };
+      pm.addPass(tosa::createTosaPartitionPass(pred));
+    } else if (both) {
+      llvm::function_ref<bool(Operation *)> pred = [](Operation *op) {
+        return isa<tosa::DepthwiseConv2DOp, tosa::Conv2DOp>(op);
+      };
+      pm.addPass(tosa::createTosaPartitionPass(pred));
+    } else if (attrOne) {
+      llvm::function_ref<bool(Operation *)> pred = isConv2D;
+      pm.addPass(tosa::createTosaPartitionPass(pred, "one"));
+    } else if (nofrontArg) {
+      llvm::function_ref<bool(Operation *)> pred = [](Operation *op) {
+        return isa<tosa::DepthwiseConv2DOp>(op);
+      };
+      pm.addPass(tosa::createTosaPartitionPass(pred, "kernel", true));
+    }
+
+    if (failed(pm.run(module)))
+      signalPassFailure();
+  }
+
+  Option<bool> defaultCase{*this, "default", llvm::cl::desc("Default.")};
+  Option<bool> depthwiseOnly{*this, "depthwise-only",
+                             llvm::cl::desc("Depthwise only.")};
+  Option<bool> both{*this, "both-conv-ops",
+                    llvm::cl::desc("Both depthwise-conv2d and conv2d.")};
+  Option<bool> attrOne{*this, "attr-one",
+                       llvm::cl::desc("Attribute-name 'one'.")};
+  Option<bool> nofrontArg{*this, "nofront-arg",
+                          llvm::cl::desc("Nofront as arg.")};
+};
+} // namespace
+
+namespace mlir {
+namespace test {
+void registerTestTosaPartitionOptionsPass() {
+  PassRegistration<TestTosaPartitionOptionsPass>();
+}
+} // namespace test
+} // namespace mlir
