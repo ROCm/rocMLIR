@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Analysis/SliceAnalysis.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
@@ -88,26 +89,53 @@ bool isElementwiseOp(Operation *op) {
   // clang-format on
 }
 
+bool isFusibleOp(Operation *op) {
+  return isElementwiseOp(op) || isa<tosa::TransposeOp, tosa::ReshapeOp>(op);
+}
+
+bool isZeroAttribute(Attribute value) {
+  if (auto intValue = value.dyn_cast<IntegerAttr>())
+    return intValue.getValue().isNullValue();
+  if (auto fpValue = value.dyn_cast<FloatAttr>())
+    return fpValue.getValue().isZero();
+  if (auto splatValue = value.dyn_cast<SplatElementsAttr>())
+    return isZeroAttribute(splatValue.getSplatValue<Attribute>());
+  if (auto elementsValue = value.dyn_cast<ElementsAttr>())
+    return llvm::all_of(elementsValue.getValues<Attribute>(), isZeroAttribute);
+  if (auto arrayValue = value.dyn_cast<ArrayAttr>())
+    return llvm::all_of(arrayValue.getValue(), isZeroAttribute);
+  return false;
+}
+
+bool isConstantZero(Operation *op) {
+  // test for zero
+  if (auto cst = dyn_cast<arith::ConstantOp>(op)) {
+    return isZeroAttribute(cst.getValue());
+  }
+  return false;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 // Inspired by / adapted from outlineIfOp() in SCF/Transforms/Utils.cpp
 // and mergeIdenticalBlocks() in Utils/RegionUtils.cpp.
 
 struct OutliningCandidate {
-  OutliningCandidate(Operation *_convOp, ArrayRef<Operation *> &_secondOps,
-                     ArrayRef<Operation *> &_frontOps, ArrayRef<Value> &_params,
-                     ArrayRef<Value> &_returnVals, StringRef _partFnName);
+  OutliningCandidate(Operation *anchorOp_, ArrayRef<Operation *> &trailingOps_,
+                     ArrayRef<Operation *> &leadingOps_,
+                     ArrayRef<Value> &params_, ArrayRef<Value> &returnVals_,
+                     StringRef partFnName_);
 
   unsigned addOp(Operation *op, unsigned orderIt);
 
-  Operation *convOp;
-  SmallVector<Operation *> secondOps;
-  SmallVector<Operation *> frontOps;
+  Operation *anchorOp;
+  SmallVector<Operation *> trailingOps;
+  SmallVector<Operation *> leadingOps;
   SmallVector<Value> params;
   SmallVector<Value> returnVals;
   std::string partFnName;
   llvm::hash_code hash;
-  FuncOp function;
+  func::FuncOp function;
 
   /// Return the order index for the given value that is within the block of
   /// this data.
@@ -134,19 +162,19 @@ unsigned OutliningCandidate::addOp(Operation *op, unsigned orderIt) {
   return orderIt;
 }
 
-OutliningCandidate::OutliningCandidate(Operation *convOp_,
-                                       ArrayRef<Operation *> &secondOps_,
-                                       ArrayRef<Operation *> &frontOps_,
+OutliningCandidate::OutliningCandidate(Operation *anchorOp_,
+                                       ArrayRef<Operation *> &trailingOps_,
+                                       ArrayRef<Operation *> &leadingOps_,
                                        ArrayRef<Value> &params_,
                                        ArrayRef<Value> &returnVals_,
                                        StringRef partFnName_)
-    : convOp(convOp_), partFnName(partFnName_), hash(0), function(nullptr) {
+    : anchorOp(anchorOp_), partFnName(partFnName_), hash(0), function(nullptr) {
   // We'll need to grab the cloned ops to avoid use-after-free.
-  for (auto *op : secondOps_) {
-    secondOps.push_back(op);
+  for (auto *op : trailingOps_) {
+    trailingOps.push_back(op);
   }
-  for (auto *op : frontOps_) {
-    frontOps.push_back(op);
+  for (auto *op : leadingOps_) {
+    leadingOps.push_back(op);
   }
   for (auto val : params_) {
     params.push_back(val);
@@ -156,11 +184,11 @@ OutliningCandidate::OutliningCandidate(Operation *convOp_,
   }
 
   unsigned orderIt = params.size();
-  for (auto *op : frontOps) {
+  for (auto *op : leadingOps) {
     orderIt = addOp(op, orderIt);
   }
-  orderIt = addOp(convOp, orderIt);
-  for (auto *op : secondOps) {
+  orderIt = addOp(anchorOp, orderIt);
+  for (auto *op : trailingOps) {
     orderIt = addOp(op, orderIt);
   }
 }
@@ -235,15 +263,15 @@ bool outliningCandidatesEquivalent(OutliningCandidate &one,
     }
   }
 
-  for (auto ops : llvm::zip(one.frontOps, two.frontOps)) {
+  for (auto ops : llvm::zip(one.leadingOps, two.leadingOps)) {
     if (!opsMatch(std::get<0>(ops), std::get<1>(ops), one, two)) {
       return false;
     }
   }
-  if (!opsMatch(one.convOp, two.convOp, one, two)) {
+  if (!opsMatch(one.anchorOp, two.anchorOp, one, two)) {
     return false;
   }
-  for (auto ops : llvm::zip(one.secondOps, two.secondOps)) {
+  for (auto ops : llvm::zip(one.trailingOps, two.trailingOps)) {
     if (!opsMatch(std::get<0>(ops), std::get<1>(ops), one, two)) {
       return false;
     }
@@ -264,19 +292,20 @@ findOutliningCandidate(OutliningCandidate &newCandidate,
 
 // Given a convolution op and its fuse-able trailing (second) and leading
 // (front) ops, remove them into a separate function.
-void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
-                        ArrayRef<Operation *> frontOps, ArrayRef<Value> params,
-                        ArrayRef<Value> returnVals, StringRef partFnName,
+void outlineConvPartOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
+                        ArrayRef<Operation *> leadingOps,
+                        ArrayRef<Value> params, ArrayRef<Value> returnVals,
+                        StringRef partFnName, StringRef attrName,
                         std::vector<OutliningCandidate> &candidates) {
   ValueRange values(params);
-  OpBuilder b(convOp);
-  Location loc = convOp->getLoc();
-  FuncOp outlinedFunc;
+  OpBuilder b(anchorOp);
+  Location loc = anchorOp->getLoc();
+  func::FuncOp outlinedFunc;
 
   // ------------------------------------------------------------
   // Merging part.
 
-  OutliningCandidate newCandidate(convOp, secondOps, frontOps, params,
+  OutliningCandidate newCandidate(anchorOp, trailingOps, leadingOps, params,
                                   returnVals, partFnName);
 
   if (OutliningCandidate *found =
@@ -289,51 +318,53 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
 
     // Insert outlined function before current function.
     OpBuilder::InsertionGuard g(b);
-    b.setInsertionPoint(convOp->getParentOfType<FuncOp>());
+    b.setInsertionPoint(anchorOp->getParentOfType<func::FuncOp>());
 
-    // Make FuncOp from convOp's operand types and secondOp's result type.
-    MLIRContext *ctx = convOp->getContext();
+    // Make FuncOp from anchorOp's operand types and trailingOp's result type.
+    MLIRContext *ctx = anchorOp->getContext();
     ValueRange results(returnVals);
     FunctionType type =
         FunctionType::get(ctx, values.getTypes(), results.getTypes());
     SmallVector<NamedAttribute, 1> kernelAttrs{
-        b.getNamedAttr("kernel", b.getUnitAttr()),
+        b.getNamedAttr(attrName, b.getUnitAttr()),
     };
     outlinedFunc = b.create<func::FuncOp>(
         loc, partFnName, type, ArrayRef<NamedAttribute>(kernelAttrs));
     outlinedFunc->setAttr("sym_visibility", StringAttr::get(ctx, "private"));
     newCandidate.function = outlinedFunc;
 
-    // Clone frontOps, convOp, and secondOps into the body of the new function,
-    // while also updating the comparison details for future candidates.
+    // Clone leadingOps, anchorOp, and trailingOps into the body of the new
+    // function, while also updating the comparison details for future
+    // candidates.
     b.setInsertionPointToStart(outlinedFunc.addEntryBlock());
     BlockAndValueMapping bvm;
     for (auto it : llvm::zip(values, outlinedFunc.getArguments()))
       bvm.map(std::get<0>(it), std::get<1>(it));
 
-    newCandidate.frontOps.clear();
-    for (auto *op : llvm::reverse(frontOps)) {
-      newCandidate.frontOps.push_back(b.clone(*op, bvm));
-      newCandidate.opOrderIndex[newCandidate.frontOps.back()] =
+    newCandidate.leadingOps.clear();
+    for (auto *op : llvm::reverse(leadingOps)) {
+      newCandidate.leadingOps.push_back(b.clone(*op, bvm));
+      newCandidate.opOrderIndex[newCandidate.leadingOps.back()] =
           newCandidate.opOrderIndex[op];
     }
-    std::reverse(newCandidate.frontOps.begin(), newCandidate.frontOps.end());
+    std::reverse(newCandidate.leadingOps.begin(),
+                 newCandidate.leadingOps.end());
 
-    newCandidate.convOp = b.clone(*convOp, bvm);
-    newCandidate.opOrderIndex[newCandidate.convOp] =
-        newCandidate.opOrderIndex[convOp];
+    newCandidate.anchorOp = b.clone(*anchorOp, bvm);
+    newCandidate.opOrderIndex[newCandidate.anchorOp] =
+        newCandidate.opOrderIndex[anchorOp];
 
-    newCandidate.secondOps.clear();
-    for (auto *op : secondOps) {
+    newCandidate.trailingOps.clear();
+    for (auto *op : trailingOps) {
       // All operands should already be in bvm.
       assert(llvm::all_of(op->getOperands(),
                           [&](Value v) { return bvm.lookupOrNull(v); }));
-      newCandidate.secondOps.push_back(b.clone(*op, bvm));
-      newCandidate.opOrderIndex[newCandidate.secondOps.back()] =
+      newCandidate.trailingOps.push_back(b.clone(*op, bvm));
+      newCandidate.opOrderIndex[newCandidate.trailingOps.back()] =
           newCandidate.opOrderIndex[op];
     }
 
-    // Make ReturnOp from secondOps' results.
+    // Make ReturnOp from trailingOps' results.
     SmallVector<Value> returnOperands;
     for (auto op : returnVals) {
       returnOperands.push_back(bvm.lookup(op));
@@ -348,10 +379,10 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
   // ------------------------------------------------------------
   // Replacement part.
 
-  // Replace convOp, secondOps, and frontOps with CallOp to new function.
-  Operation *lastOp = convOp;
-  if (!secondOps.empty())
-    lastOp = secondOps[secondOps.size() - 1];
+  // Replace anchorOp, trailingOps, and leadingOps with CallOp to new function.
+  Operation *lastOp = anchorOp;
+  if (!trailingOps.empty())
+    lastOp = trailingOps[trailingOps.size() - 1];
   b.setInsertionPointAfter(lastOp);
   func::CallOp callOp = b.create<func::CallOp>(loc, outlinedFunc, values);
 
@@ -360,53 +391,95 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
   }
 
   // Erase the ops we outlined, which should be safe now.
-  for (auto &op : llvm::make_early_inc_range(llvm::reverse(secondOps))) {
+  for (auto &op : llvm::make_early_inc_range(llvm::reverse(trailingOps))) {
     if (op->use_empty()) {
       op->erase();
     }
   }
-  assert(convOp->use_empty() && "expected 'op' to have no uses");
-  convOp->erase();
-  for (auto &op : llvm::make_early_inc_range(frontOps)) {
+  assert(anchorOp->use_empty() && "expected 'op' to have no uses");
+  anchorOp->erase();
+  for (auto &op : llvm::make_early_inc_range(leadingOps)) {
     if (op->use_empty()) {
       op->erase();
     }
   }
 }
 
+} // namespace
+
+namespace mlir {
+namespace tosa {
+
+class PartitionConfig {
+public:
+  virtual bool isAnchorOp(Operation *) = 0;
+  virtual bool isLeadingOp(Operation *) = 0;
+  virtual bool isTrailingOp(Operation *) = 0;
+  virtual std::string attributeName() = 0;
+  virtual ~PartitionConfig() = default;
+};
+
+class SimpleDefaultPartitionConfig : public PartitionConfig {
+public:
+  bool isAnchorOp(Operation *op) override { return isa<tosa::Conv2DOp>(op); }
+  bool isLeadingOp(Operation *op) override {
+    return isConstantZero(op) || isFusibleOp(op);
+  }
+  bool isTrailingOp(Operation *op) override { return isFusibleOp(op); }
+  std::string attributeName() override { return "kernel"; }
+};
+
+class PartitionConfigFromOptions : public PartitionConfig {
+  ArrayRef<std::string> anchorOps;
+  std::string attrName;
+  bool trailingOnly;
+
+public:
+  PartitionConfigFromOptions(ArrayRef<std::string> anchorOps,
+                             std::string attrName, bool trailingOnly)
+      : anchorOps(anchorOps), attrName(std::move(attrName)),
+        trailingOnly(trailingOnly) {}
+  bool isAnchorOp(Operation *op) override {
+    return llvm::is_contained(anchorOps, op->getName().getIdentifier().str());
+  }
+  bool isLeadingOp(Operation *op) override {
+    return !trailingOnly && (isConstantZero(op) || isFusibleOp(op));
+  }
+  bool isTrailingOp(Operation *op) override { return isFusibleOp(op); }
+  std::string attributeName() override { return attrName; }
+};
+
+} // namespace tosa
+} // namespace mlir
+
+namespace {
+
 // Inspired by / adapted from TestSCFIfUtilsPass in
 // test/lib/Transforms/TestSCFUtils.cpp.
 class TosaPartitionPass : public TosaPartitionBase<TosaPartitionPass> {
+  mlir::tosa::PartitionConfig *config = nullptr;
+
+  // Special case:  TransposeOp's second operand must be a
+  // constant, which means we must include it too if we include
+  // the TransposeOp.  "ops" here may be either leadingOps or trailingOps.
+  void specialCaseForTranspose(Operation *op, SetVector<Operation *> &ops) {
+    auto *operand = op->getOpOperand(1).get().getDefiningOp();
+    ops.insert(operand);
+  }
+
 public:
-  static bool isZeroAttribute(Attribute value) {
-    if (auto intValue = value.dyn_cast<IntegerAttr>())
-      return intValue.getValue().isNullValue();
-    if (auto fpValue = value.dyn_cast<FloatAttr>())
-      return fpValue.getValue().isZero();
-    if (auto splatValue = value.dyn_cast<SplatElementsAttr>())
-      return isZeroAttribute(splatValue.getSplatValue<Attribute>());
-    if (auto elementsValue = value.dyn_cast<ElementsAttr>())
-      return llvm::all_of(elementsValue.getValues<Attribute>(),
-                          isZeroAttribute);
-    if (auto arrayValue = value.dyn_cast<ArrayAttr>())
-      return llvm::all_of(arrayValue.getValue(), isZeroAttribute);
-    return false;
-  }
+  TosaPartitionPass() = default;
+  TosaPartitionPass(mlir::tosa::PartitionConfig *config) : config(config) {}
+  ~TosaPartitionPass() override { delete config; }
 
-  static bool isConstantZero(Operation *op) {
-    // test for zero
-    if (auto cst = dyn_cast<arith::ConstantOp>(op)) {
-      return isZeroAttribute(cst.getValue());
-    }
-    return false;
-  }
-
-  void traceInputs(Operation *op, SmallVector<Operation *> &predecessors,
+  void traceInputs(Operation *op, SetVector<Operation *> &predecessors,
                    SetVector<Value> &inputNodes) {
     for (const auto &opnd : op->getOperands()) {
+      if (isa<tosa::TransposeOp>(op))
+        specialCaseForTranspose(op, predecessors);
       Operation *usedOp = opnd.getDefiningOp();
-      if (usedOp && (isConstantZero(usedOp) || isElementwiseOp(usedOp))) {
-        predecessors.push_back(usedOp);
+      if (usedOp && config->isLeadingOp(usedOp)) {
+        predecessors.insert(usedOp);
         if (!detail::isConstantLike(usedOp)) {
           // depth first
           traceInputs(usedOp, predecessors, inputNodes);
@@ -418,18 +491,35 @@ public:
   }
 
   void runOnOperation() override {
+    // Must set config here, because at pass-construction time the options
+    // haven't been parsed yet.
+    if (!config) {
+      if (anchorOps.hasValue() || attributeName.hasValue() ||
+          trailingOnly.hasValue()) {
+        if (anchorOps.empty()) // ListOption doesn't have a default value.
+          anchorOps = {"tosa.conv2d"};
+        config = new mlir::tosa::PartitionConfigFromOptions(
+            anchorOps, attributeName, trailingOnly);
+      } else {
+        config = new mlir::tosa::SimpleDefaultPartitionConfig();
+      }
+    }
+
     ModuleOp module = getOperation();
-    auto funcOps = module.getOps<FuncOp>();
+    auto funcOps = module.getOps<func::FuncOp>();
     for (auto func : llvm::make_early_inc_range(funcOps)) {
       // Don't partition a kernel;  it may be already partitioned.
-      if (func->hasAttr("kernel"))
+      if (func->hasAttr(config->attributeName()))
         continue;
 
       int count = 0;
       // (Problems with node mismatches and unexpected uses if we have the
       // candidates list at module level.)
       std::vector<OutliningCandidate> candidates;
-      auto callback = [&](tosa::Conv2DOp convOp) {
+      auto callback = [&](Operation *op) {
+        if (!config->isAnchorOp(op))
+          return WalkResult::advance();
+        Operation *anchorOp = op;
         auto strCount =
             std::string("_outlined_part_") + std::to_string(count++);
 
@@ -443,35 +533,29 @@ public:
         // function.
         // resultNodes will become the results of the outlined function.  It
         // starts with Conv2D's result(s) and gains the results of each new
-        // secondOp.  When all a resultNode's users can be determined to lie
+        // trailingOp.  When all a resultNode's users can be determined to lie
         // within the outlined function, it's removed from the set.
         //
         // These are SetVectors because we test with contains() a lot, but still
         // want to preserve order.
-        SetVector<Operation *> secondOps;
+        SetVector<Operation *> trailingOps;
         SetVector<Value> inputNodes;
-        SetVector<Value> resultNodes(convOp->getResults().begin(),
-                                     convOp->getResults().end());
+        SetVector<Value> resultNodes(anchorOp->getResults().begin(),
+                                     anchorOp->getResults().end());
 
         // Grab a useful set of leading ops, like we do for trailing.
-        // Let's limit it to only first arguments, with single uses.
-        SmallVector<Operation *> frontOps;
-        if (!nofront) {
-          traceInputs(convOp, frontOps, inputNodes);
-        } else {
-          inputNodes.insert(convOp->getOperands().begin(),
-                            convOp->getOperands().end());
-        }
+        SetVector<Operation *> leadingOps;
+        traceInputs(anchorOp, leadingOps, inputNodes);
 
         DominanceInfo domInfo(func);
         std::deque<Operation *> worklist; // cuz I want to pull from the front.
 
-        worklist.push_back(convOp);
+        worklist.push_back(anchorOp);
         while (!worklist.empty()) {
           Operation *op = worklist.front();
           worklist.pop_front();
           for (auto *userOp : op->getUsers()) {
-            if (isElementwiseOp(userOp)) {
+            if (config->isTrailingOp(userOp)) {
               bool skip = false;
               // First criterion is that the op is element-wise.  Second
               // criterion is that the op dominates all the users of the
@@ -488,40 +572,40 @@ public:
                 }
               }
 
-              // userOp is acceptable.  Keep it as a secondOp, put it on the
+              // userOp is acceptable.  Keep it as a trailingOp, put it on the
               // worklist.  Add its operands to inputNodes unless they come
-              // from other secondOps (indicated by being in resultNodes).
-              // If all the users of any resultNode are in secondOps, there's
+              // from other trailingOps (indicated by being in resultNodes).
+              // If all the users of any resultNode are in trailingOps, there's
               // no need to return it so remove from resultNodes.  Finally,
               // add all userOp's results to resultNodes.
               if (!skip) {
-                secondOps.insert(userOp);
+                if (isa<tosa::TransposeOp>(userOp)) {
+                  specialCaseForTranspose(userOp, trailingOps);
+                }
+                // General case.
+                trailingOps.insert(userOp);
                 worklist.push_back(userOp);
-                for (Value opnd : userOp->getOperands()) {
-                  if (!resultNodes.contains(opnd)) {
+                for (Value opnd : userOp->getOperands())
+                  if (!resultNodes.contains(opnd))
                     inputNodes.insert(opnd);
-                  }
-                }
-                for (const Value &val : resultNodes) {
+                for (const Value &val : resultNodes)
                   if (llvm::all_of(val.getUsers(), [&](Operation *u) {
-                        return secondOps.contains(u);
-                      })) {
+                        return trailingOps.contains(u);
+                      }))
                     resultNodes.remove(val);
-                  }
-                }
-                for (auto res : userOp->getResults()) {
+                for (auto res : userOp->getResults())
                   resultNodes.insert(res);
-                }
               }
             }
           }
         }
 
         // Make the outlined function from the ops we've gathered.
-        outlineConvPartOps(convOp, secondOps.getArrayRef(), frontOps,
-                           inputNodes.getArrayRef(), resultNodes.getArrayRef(),
+        outlineConvPartOps(anchorOp, trailingOps.getArrayRef(),
+                           leadingOps.getArrayRef(), inputNodes.getArrayRef(),
+                           resultNodes.getArrayRef(),
                            std::string(func.getSymName()) + strCount,
-                           candidates);
+                           config->attributeName(), candidates);
         // Outlining will erase nodes and thus perturb the walk, so
         // signal interrupted to exit it and restart.
         return WalkResult::interrupt();
@@ -539,3 +623,92 @@ public:
 std::unique_ptr<Pass> mlir::tosa::createTosaPartitionPass() {
   return std::make_unique<TosaPartitionPass>();
 }
+
+std::unique_ptr<Pass>
+mlir::tosa::createTosaPartitionPass(mlir::tosa::PartitionConfig *config) {
+  return std::make_unique<TosaPartitionPass>(config);
+}
+
+namespace {
+
+class TestTosaPartitionOptionsPass
+    : public PassWrapper<TestTosaPartitionOptionsPass,
+                         OperationPass<ModuleOp>> {
+public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestTosaPartitionOptionsPass)
+
+  StringRef getArgument() const final { return "test-tosa-partition-options"; }
+  StringRef getDescription() const final {
+    return "Tests the programmatic interface to --tosa-partition options.";
+  }
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<tosa::TosaDialect>();
+  }
+
+  TestTosaPartitionOptionsPass() = default;
+  TestTosaPartitionOptionsPass(const TestTosaPartitionOptionsPass &) {}
+
+  void runOnOperation() override {
+    ModuleOp module = getOperation();
+    PassManager pm(module.getContext(), mlir::PassManager::Nesting::Implicit);
+    if (defaultCase) {
+      pm.addPass(tosa::createTosaPartitionPass());
+    } else if (depthwiseOnly) {
+      class DepthwiseOnlyPartitionConfig
+          : public mlir::tosa::SimpleDefaultPartitionConfig {
+      public:
+        bool isAnchorOp(Operation *op) override {
+          return isa<tosa::DepthwiseConv2DOp>(op);
+        }
+      };
+      pm.addPass(
+          tosa::createTosaPartitionPass(new DepthwiseOnlyPartitionConfig()));
+    } else if (both) {
+      class DepthwiseAlsoPartitionConfig
+          : public mlir::tosa::SimpleDefaultPartitionConfig {
+      public:
+        bool isAnchorOp(Operation *op) override {
+          return isa<tosa::Conv2DOp, tosa::DepthwiseConv2DOp>(op);
+        }
+      };
+      pm.addPass(
+          tosa::createTosaPartitionPass(new DepthwiseAlsoPartitionConfig()));
+    } else if (attrOne) {
+      class AttributeOnePartitionConfig
+          : public mlir::tosa::SimpleDefaultPartitionConfig {
+      public:
+        std::string attributeName() override { return "one"; }
+      };
+      pm.addPass(
+          tosa::createTosaPartitionPass(new AttributeOnePartitionConfig()));
+    } else if (nofrontArg) {
+      // Another way is to pass the values to PartitionConfigFromOptions.
+      mlir::tosa::PartitionConfig *config =
+          new mlir::tosa::PartitionConfigFromOptions({"tosa.depthwise_conv2d"},
+                                                     "kernel", true);
+      pm.addPass(tosa::createTosaPartitionPass(config));
+    }
+
+    if (failed(pm.run(module)))
+      signalPassFailure();
+  }
+
+  Option<bool> defaultCase{*this, "default", llvm::cl::desc("Default.")};
+  Option<bool> depthwiseOnly{*this, "depthwise-only",
+                             llvm::cl::desc("Depthwise only.")};
+  Option<bool> both{*this, "both-conv-ops",
+                    llvm::cl::desc("Both depthwise-conv2d and conv2d.")};
+  Option<bool> attrOne{*this, "attr-one",
+                       llvm::cl::desc("Attribute-name 'one'.")};
+  Option<bool> nofrontArg{*this, "nofront-arg",
+                          llvm::cl::desc("Nofront as arg.")};
+};
+} // namespace
+
+namespace mlir {
+namespace test {
+void registerTestTosaPartitionOptionsPass() {
+  PassRegistration<TestTosaPartitionOptionsPass>();
+}
+} // namespace test
+} // namespace mlir
