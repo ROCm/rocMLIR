@@ -1,6 +1,6 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 void buildProject(String target, String cmakeOpts) {
-    timeout(time: 30, activity: true, unit: 'MINUTES') {
+    timeout(time: 60, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Ninja',\
             buildDir: 'build',\
             buildType: 'RelWithDebInfo',\
@@ -85,7 +85,7 @@ void preMergeCheck() {
 
 void testMIOpenDriver(String dtype, String layout, String direction, String tuning) {
     echo "Config is (${dtype}, ${layout}, dir=${direction}, tuning=${tuning})"
-    timeout(time: 30, activity: true, unit: 'MINUTES') {
+    timeout(time: 60, activity: true, unit: 'MINUTES') {
         dir('MIOpen/build/') {
             sh """
             bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh \
@@ -312,7 +312,7 @@ pipeline {
                                 LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
                             }
                             steps {
-                                timeout(time: 30, activity: true, unit: 'MINUTES') {
+                                timeout(time: 60, activity: true, unit: 'MINUTES') {
                                     dir('MIOpen/build/') {
                                         sh """
                                         bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --no-tuning\
