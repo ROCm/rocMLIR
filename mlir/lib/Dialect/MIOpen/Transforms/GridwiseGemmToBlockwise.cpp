@@ -1170,20 +1170,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     TransformingForOp blockwiseLoadA = createGlobalLoadLoop(
         b, loc, op.a(), blockwiseLoadACoords, aLoadIntermediate, aLoadType,
         blockwiseCopyABounds, blockwiseVectorDimA, useIndexDiffs);
-    SmallVector<Value, 4> blockwiseStoreACoords;
-    if (KPack > 1) {
-      blockwiseStoreACoords = {zeroConstantOp, GemmABlockCopyDestCoord_Z,
-                               GemmABlockCopyDestCoord_Y,
-                               GemmABlockCopyDestCoord_X};
-    } else {
-      blockwiseStoreACoords = {zeroConstantOp, GemmABlockCopyDestCoord_Y,
-                               GemmABlockCopyDestCoord_X};
-    }
-    // Emit blockwise store for matrix A.
-    TransformingForOp blockwiseStoreA = createLdsStoreLoop(
-        b, loc, blockwiseLoadA.getResult(0), ldsMatrixASubviewOp,
-        blockwiseStoreACoords, aStoreType, blockwiseCopyABounds,
-        blockwiseVectorDimA);
 
     SmallVector<Value, 4> blockwiseLoadBCoords;
     if (KPack > 1) {
@@ -1198,6 +1184,21 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     TransformingForOp blockwiseLoadB = createGlobalLoadLoop(
         b, loc, op.b(), blockwiseLoadBCoords, bLoadIntermediate, bLoadType,
         blockwiseCopyBBounds, blockwiseVectorDimB, useIndexDiffs);
+
+    SmallVector<Value, 4> blockwiseStoreACoords;
+    if (KPack > 1) {
+      blockwiseStoreACoords = {zeroConstantOp, GemmABlockCopyDestCoord_Z,
+                               GemmABlockCopyDestCoord_Y,
+                               GemmABlockCopyDestCoord_X};
+    } else {
+      blockwiseStoreACoords = {zeroConstantOp, GemmABlockCopyDestCoord_Y,
+                               GemmABlockCopyDestCoord_X};
+    }
+    // Emit blockwise store for matrix A.
+    TransformingForOp blockwiseStoreA = createLdsStoreLoop(
+        b, loc, blockwiseLoadA.getResult(0), ldsMatrixASubviewOp,
+        blockwiseStoreACoords, aStoreType, blockwiseCopyABounds,
+        blockwiseVectorDimA);
 
     SmallVector<Value, 4> blockwiseStoreBCoords;
     if (KPack > 1) {
@@ -2102,6 +2103,20 @@ struct GridwiseGemmV2RewritePattern
         b, loc, op.a(), blockwiseLoadACoords, aLoadIntermediate, aLoadType,
         blockwiseCopyABounds, blockwiseVectorDimA, useIndexDiffs);
 
+    SmallVector<Value, 4> blockwiseLoadBCoords;
+    if (KPack > 1) {
+      blockwiseLoadBCoords = {GemmBlockCoord_G, GemmBBlockCopySourceCoord_Z,
+                              GemmBBlockCopySourceCoord_Y,
+                              GemmBBlockCopySourceCoord_X};
+    } else {
+      blockwiseLoadBCoords = {GemmBlockCoord_G, GemmBBlockCopySourceCoord_Y,
+                              GemmBBlockCopySourceCoord_X};
+    }
+    // Emit blockwise load for matrix B.
+    TransformingForOp blockwiseLoadB = createGlobalLoadLoop(
+        b, loc, op.b(), blockwiseLoadBCoords, bLoadIntermediate, bLoadType,
+        blockwiseCopyBBounds, blockwiseVectorDimB, useIndexDiffs);
+
     SmallVector<Value, 4> blockwiseStoreACoords;
     if (KPack > 1) {
       blockwiseStoreACoords = {zeroConstantOp, GemmABlockCopyDestCoord_Z,
@@ -2116,20 +2131,6 @@ struct GridwiseGemmV2RewritePattern
         b, loc, blockwiseLoadA.getResult(0), ldsMatrixASubviewOp,
         blockwiseStoreACoords, aStoreType, blockwiseCopyABounds,
         blockwiseVectorDimA);
-
-    SmallVector<Value, 4> blockwiseLoadBCoords;
-    if (KPack > 1) {
-      blockwiseLoadBCoords = {GemmBlockCoord_G, GemmBBlockCopySourceCoord_Z,
-                              GemmBBlockCopySourceCoord_Y,
-                              GemmBBlockCopySourceCoord_X};
-    } else {
-      blockwiseLoadBCoords = {GemmBlockCoord_G, GemmBBlockCopySourceCoord_Y,
-                              GemmBBlockCopySourceCoord_X};
-    }
-    // Emit blockwise load for matrix B.
-    TransformingForOp blockwiseLoadB = createGlobalLoadLoop(
-        b, loc, op.b(), blockwiseLoadBCoords, bLoadIntermediate, bLoadType,
-        blockwiseCopyBBounds, blockwiseVectorDimB, useIndexDiffs);
 
     SmallVector<Value, 4> blockwiseStoreBCoords;
     if (KPack > 1) {
