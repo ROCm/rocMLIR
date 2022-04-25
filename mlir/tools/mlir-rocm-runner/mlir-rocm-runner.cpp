@@ -15,11 +15,11 @@
 #include "mlir/ExecutionEngine/ROCm/BackendUitls.h"
 
 #include "mlir/Conversion/AsyncToLLVM/AsyncToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/Async/Passes.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "llvm/Support/CommandLine.h"
@@ -107,7 +107,7 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   pmHost.addPass(createAsyncToAsyncRuntimePass());
   pmHost.addPass(createConvertAsyncToLLVMPass());
   mlir::LowerToLLVMOptions lower_to_llvm_opts(m.getContext());
-  pmHost.addPass(mlir::createLowerToLLVMPass(lower_to_llvm_opts));
+  pmHost.addPass(mlir::createConvertFuncToLLVMPass(lower_to_llvm_opts));
 
   return pmHost.run(m);
 }

@@ -15,7 +15,6 @@ add_mlir_dialect_library(MLIRMIOpenOps
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/MIOpen
 
   DEPENDS
-  MLIRStandardOpsIncGen
   MLIRMIOpenAttrDefsIncGen
   MLIRMIOpenOpsIncGen
   )

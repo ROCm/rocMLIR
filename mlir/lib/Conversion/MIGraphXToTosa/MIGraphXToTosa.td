@@ -8,8 +8,9 @@
 
 #ifndef MLIR_CONVERSION_MIGRAPHX_TO_TOSA
 #define MLIR_CONVERSION_MIGRAPHX_TO_TOSA
+include "mlir/IR/PatternBase.td"
 include "mlir/Dialect/Tosa/IR/TosaOps.td"
-include "mlir/Dialect/StandardOps/IR/Ops.td"
+include "mlir/Dialect/Func/IR/FuncOps.td"
 include "mlir/Dialect/MIGraphX/MIGraphXOps.td"
 include "mlir/Dialect/Arithmetic/IR/ArithmeticOps.td"
 

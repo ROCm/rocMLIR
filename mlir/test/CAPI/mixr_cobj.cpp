@@ -12,9 +12,9 @@
 #include "mlir-c/BuiltinAttributes.h"
 #include "mlir-c/BuiltinTypes.h"
 #include "mlir-c/Diagnostics.h"
+#include "mlir-c/Dialect/Func.h"
 #include "mlir-c/Dialect/GPU.h"
 #include "mlir-c/Dialect/MIGraphX.h"
-#include "mlir-c/Dialect/Standard.h"
 #include "mlir-c/Dialect/Tosa.h"
 #include "mlir-c/IR.h"
 #include "mlir-c/IntegerSet.h"
@@ -243,7 +243,8 @@ static bool constructAndTraverseIr(MlirContext ctx) {
         llvmFunc->getAttrOfType<mlir::IntegerAttr>("block_size").getInt();
     size_t grid_size =
         llvmFunc->getAttrOfType<mlir::IntegerAttr>("grid_size").getInt();
-    auto funcType = llvmFunc.getType().dyn_cast<mlir::LLVM::LLVMFunctionType>();
+    auto funcType =
+        llvmFunc.getFunctionType().dyn_cast<mlir::LLVM::LLVMFunctionType>();
     uint32_t numOperands = funcType.getNumParams();
     printf("kernel params : %u\n", numOperands);
     printf("block_size : %zu\n", block_size);

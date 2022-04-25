@@ -15,14 +15,14 @@
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
 
 #include "mlir/Conversion/AsyncToLLVM/AsyncToLLVM.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Dialect/Async/IR/Async.h"
 
@@ -41,7 +41,7 @@ struct GPUToMIGraphX : public GPUToMIGraphXBase<GPUToMIGraphX> {
 public:
   void getDependentDialects(DialectRegistry &registry) const override {
     registry
-        .insert<migraphx::MIGraphXDialect, StandardOpsDialect, gpu::GPUDialect,
+        .insert<migraphx::MIGraphXDialect, func::FuncDialect, gpu::GPUDialect,
                 memref::MemRefDialect, LLVM::LLVMDialect>();
   }
 
@@ -51,10 +51,10 @@ public:
     LLVMTypeConverter converter(&ctx);
 
     ConversionTarget target(ctx);
-    target.addLegalDialect<migraphx::MIGraphXDialect, StandardOpsDialect,
+    target.addLegalDialect<migraphx::MIGraphXDialect, func::FuncDialect,
                            gpu::GPUDialect, memref::MemRefDialect,
                            LLVM::LLVMDialect>();
-    target.addDynamicallyLegalOp<CallOp>([&](Operation *op) {
+    target.addDynamicallyLegalOp<func::CallOp>([&](Operation *op) {
       auto fnAttr = op->getAttrOfType<FlatSymbolRefAttr>("callee");
       auto fusedFuncOp = op->getParentOfType<ModuleOp>().lookupSymbol<FuncOp>(
           fnAttr.getValue());

@@ -32,7 +32,7 @@ def ConvertMIOpenToGPU : Pass<"convert-miopen-to-gpu", "ModuleOp"> {
     "miopen::MIOpenDialect",
     "AffineDialect",
     "scf::SCFDialect",
-    "StandardOpsDialect",
+    "func::FuncDialect",
     "vector::VectorDialect",
     "gpu::GPUDialect"
   ];
@@ -77,7 +77,7 @@ def GPUToMIGraphX : Pass<"gpu-to-migraphx", "::mlir::FuncOp"> {
   let constructor = "migraphx::createGPUToMIGraphXPass()";
   let dependentDialects = [
     "migraphx::MIGraphXDialect",
-    "StandardOpsDialect",
+    "func::FuncDialect",
     "gpu::GPUDialect"
   ];
 }
