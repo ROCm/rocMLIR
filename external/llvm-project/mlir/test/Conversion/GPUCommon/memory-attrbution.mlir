@@ -164,6 +164,9 @@ gpu.module @kernel {
       workgroup(%arg1: memref<1xf32, 3>, %arg2: memref<2xf32, 3>)
       private(%arg3: memref<3xf32, 5>, %arg4: memref<4xf32, 5>) {
 
+    // ROCDL: %[[c4:.*]] = llvm.mlir.constant(4 : i64)
+    // ROCDL: %[[c3:.*]] = llvm.mlir.constant(3 : i64)
+
     // Workgroup buffers.
     // NVVM: llvm.mlir.addressof @[[$buffer1]]
     // NVVM: llvm.mlir.addressof @[[$buffer2]]
@@ -177,9 +180,7 @@ gpu.module @kernel {
     // NVVM: %[[c4:.*]] = llvm.mlir.constant(4 : i64)
     // NVVM: llvm.alloca %[[c4]] x f32 : (i64) -> !llvm.ptr<f32>
 
-    // ROCDL: %[[c3:.*]] = llvm.mlir.constant(3 : i64)
     // ROCDL: llvm.alloca %[[c3]] x f32 : (i64) -> !llvm.ptr<f32, 5>
-    // ROCDL: %[[c4:.*]] = llvm.mlir.constant(4 : i64)
     // ROCDL: llvm.alloca %[[c4]] x f32 : (i64) -> !llvm.ptr<f32, 5>
 
     %c0 = arith.constant 0 : index

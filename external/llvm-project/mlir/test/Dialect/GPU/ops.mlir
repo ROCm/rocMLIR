@@ -379,13 +379,6 @@ module attributes {gpu.container_module} {
       }
    }
 
-   // CHECK-LABEL: func @set_default_device
-   func @set_default_device() {
-     // CHECK-NEXT: gpu.set_default_device {devIndex = 0 : i32}
-     gpu.set_default_device {devIndex = 0 : i32}
-     return
-   }
-
   func @async_cp(%dst : memref<2x7x5xf32, 3>, %src : memref<4x5xf32>){
     // CHECK-LABEL: func @async_cp
     %c0 = arith.constant 0 : index
