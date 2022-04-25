@@ -44,7 +44,7 @@ public:
     target.addIllegalOp<migraphx::AddOp, migraphx::ConstantOp,
                         migraphx::ConvolutionOp, migraphx::RsqrtOp,
                         migraphx::ReluOp, migraphx::TransposeOp,
-                        migraphx::ReshapeOp>();
+                        migraphx::BroadcastOp, migraphx::ReshapeOp>();
 
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 

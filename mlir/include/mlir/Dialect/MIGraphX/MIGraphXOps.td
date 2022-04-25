@@ -258,6 +258,20 @@ def MIGraphX_ReshapeOp :
   let assemblyFormat = "`(`$input`)` attr-dict `:` `(`type($input)`)` `->` type($output)";
 }
 
+def MIGraphX_BroadcastOp :
+    MIGraphX_Op<"broadcast">,
+    Arguments<(ins AnyRankedTensor:$input,
+                   I64Attr:$axis,
+                   I64ArrayAttr:$broadcast_lens
+                   )>,
+	Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Broadcast tensor";
+  let description = [{
+    The `migraphx.broadcast` op.
+  }];
+  let assemblyFormat = "`(`$input`)` attr-dict `:` `(`type($input)`)` `->` type($output)";
+}
+
 def MIGraphX_MultiBroadcastOp :
     MIGraphX_Op<"multibroadcast">,
     Arguments<(ins AnyRankedTensor:$input,
@@ -268,7 +282,7 @@ def MIGraphX_MultiBroadcastOp :
   let description = [{
     The `migraphx.multibroadcast` op.
   }];
-  let assemblyFormat = "`(` operands `)` attr-dict `:` type(operands) `->` type(results)";
+  let assemblyFormat = "`(`$input`)` attr-dict `:` `(`type($input)`)` `->` type($output)";
 }
 
 def MIGraphX_DotOp :

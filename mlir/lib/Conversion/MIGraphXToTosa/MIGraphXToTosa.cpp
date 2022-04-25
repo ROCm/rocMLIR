@@ -135,9 +135,71 @@ public:
   }
 };
 
+class BroadcastConverter final
+    : public OpConversionPattern<migraphx::BroadcastOp> {
+public:
+  using OpConversionPattern<migraphx::BroadcastOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::BroadcastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto operands = adaptor.getOperands();
+    Location loc = op->getLoc();
+    auto input_t = operands[0];
+    auto results = op->getResults();
+
+    auto axis = op->getAttr("axis").cast<IntegerAttr>().getInt();
+
+    for (auto &use : op->getResult(0).getUses()) {
+      auto expandedOp = use.getOwner();
+      // isa binary operation,
+      if (isa<migraphx::AddOp>(expandedOp) || isa<migraphx::SubOp>(expandedOp) || isa<migraphx::MulOp>(expandedOp)) {
+        // get shape of the use
+        auto outShape = expandedOp->getResultTypes()[0].cast<ShapedType>().getShape();
+        auto outElemType = expandedOp->getResultTypes()[0].cast<ShapedType>().getElementType();
+        uint32_t outRank = outShape.size();
+        auto inShape = input_t.getType().cast<ShapedType>().getShape();
+        SmallVector<int64_t, 5> newShape;
+        SmallVector<Attribute, 5> newShapeAttr;
+
+        // align the dimensions - by the given axis
+        for (int i = 0; i < outRank; i++){
+          newShapeAttr.push_back(rewriter.getI64IntegerAttr(1));
+          newShape.push_back(1);
+        }
+        newShapeAttr[axis] = rewriter.getI64IntegerAttr(inShape[0]);
+        newShape[axis] = inShape[0];
+
+        // reshape
+        auto outType = RankedTensorType::get(newShape, outElemType);
+        auto reshapeOp = rewriter.create<tosa::ReshapeOp>(loc, outType, input_t, rewriter.getArrayAttr(newShapeAttr));
+
+        // replace the uses
+        for (auto &operand : expandedOp->getOpOperands()){
+          if (operand.get() == op) {
+            operand.set(reshapeOp);
+            break;
+          }
+        }
+//        rewriter.replaceOp(op, {reshapeOp});
+        //return success();
+
+      } else {
+        return failure();
+      }
+    }
+    // erase broadcast
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+
 } // namespace
 
 void migraphx::populateMIGraphXToTosaConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
-  patterns.insert<ConvConverter>(context);
+  //patterns.insert<ConvConverter>(context);
+  //patterns.insert<BroadcastConverter>(context);
+  patterns.add<ConvConverter, BroadcastConverter>(context);
 }
