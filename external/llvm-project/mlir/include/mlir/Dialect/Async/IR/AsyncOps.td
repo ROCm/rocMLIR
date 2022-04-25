@@ -43,14 +43,15 @@ def Async_LaunchOp :
     executable format. Fully sequential execution ("compute0" completes before
     "compute1" starts) is a completely legal execution.
 
-    Because concurrent execution is not guaranteed, it is illegal to create an
-    implicit dependency from "compute1" to "compute0" (e.g. via shared global
-    state). All dependencies must be made explicit with async launch arguments
-    (i.e. `async.token`).
+    Because concurrent execution is not guaranteed, it is undefined behavior
+    to create an implicit dependency from "compute1" to "compute0" (e.g. via
+    shared global state). All dependencies must be made explicit with async
+    launch arguments (i.e. `async.token`).
 
    `async.launch` operation takes `async.token` dependencies and operands
     separately, and starts execution of the kernel function only when all
-    tokens become ready.
+    tokens become ready. In contrast to `async.execute` this operation does
+    not depend on operand values as `async.value` requires.
 
     Example:
 
