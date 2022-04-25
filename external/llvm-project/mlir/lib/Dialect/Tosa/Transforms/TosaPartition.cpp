@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Analysis/SliceAnalysis.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
@@ -299,8 +299,8 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
     SmallVector<NamedAttribute, 1> kernelAttrs{
         b.getNamedAttr("kernel", b.getUnitAttr()),
     };
-    outlinedFunc = b.create<FuncOp>(loc, partFnName, type,
-                                    ArrayRef<NamedAttribute>(kernelAttrs));
+    outlinedFunc = b.create<func::FuncOp>(
+        loc, partFnName, type, ArrayRef<NamedAttribute>(kernelAttrs));
     outlinedFunc->setAttr("sym_visibility", StringAttr::get(ctx, "private"));
     newCandidate.function = outlinedFunc;
 
@@ -340,7 +340,7 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
     }
     // Can't also supply return types, because it'll see a mismatch
     // in numbers where there isn't one.
-    b.create<ReturnOp>(loc, returnOperands);
+    b.create<func::ReturnOp>(loc, returnOperands);
 
     candidates.push_back(newCandidate);
   }
@@ -353,7 +353,7 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
   if (!secondOps.empty())
     lastOp = secondOps[secondOps.size() - 1];
   b.setInsertionPointAfter(lastOp);
-  CallOp callOp = b.create<CallOp>(loc, outlinedFunc, values);
+  func::CallOp callOp = b.create<func::CallOp>(loc, outlinedFunc, values);
 
   for (auto it : llvm::zip(returnVals, callOp->getResults())) {
     std::get<0>(it).replaceAllUsesWith(std::get<1>(it));
@@ -520,7 +520,8 @@ public:
         // Make the outlined function from the ops we've gathered.
         outlineConvPartOps(convOp, secondOps.getArrayRef(), frontOps,
                            inputNodes.getArrayRef(), resultNodes.getArrayRef(),
-                           std::string(func.sym_name()) + strCount, candidates);
+                           std::string(func.getSymName()) + strCount,
+                           candidates);
         // Outlining will erase nodes and thus perturb the walk, so
         // signal interrupted to exit it and restart.
         return WalkResult::interrupt();
