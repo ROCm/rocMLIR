@@ -33,9 +33,11 @@ def Async_LaunchOp :
                       AttrSizedOperandSegments]> {
   let summary = "Asynchronous launch operation";
   let description = [{
-    The `async.launch` operation encapsulates a call to a 'kernel' func that
-    may run asynchronously from the caller. A 'async.token' is returned to
-    maintain ordered dependent execution.
+    The `async.launch` operation encapsulates a call to a `kernel` func that
+    may run asynchronously from the caller. An `async.token` is returned to
+    maintain ordered dependent execution. Subsequent instructions that depend
+    on results from the `async.launch` must either be dependent on the token
+    or be preceded by an `async.await` of that token.
 
     The actual concurrency semantics depends on the dialect lowering to the
     executable format. Fully sequential execution ("compute0" completes before
@@ -63,7 +65,7 @@ def Async_LaunchOp :
     ```
 
     In the example above asynchronous execution starts only after dependency
-    token and value argument become ready. 
+    token becomes ready. 
   }];
 
   let arguments = (ins FlatSymbolRefAttr:$callee,

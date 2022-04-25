@@ -429,97 +429,93 @@ public:
       // (Problems with node mismatches and unexpected uses if we have the
       // candidates list at module level.)
       std::vector<OutliningCandidate> candidates;
-      auto callback = [&](Operation *convOp) {
-        if (isa<tosa::Conv2DOp>(convOp) ||
-            isa<tosa::DepthwiseConv2DOp>(convOp) ||
-            isa<tosa::MatMulOp>(convOp)) {
-          auto strCount =
-              std::string("_outlined_part_") + std::to_string(count++);
+      auto callback = [&](tosa::Conv2DOp convOp) {
+        auto strCount =
+            std::string("_outlined_part_") + std::to_string(count++);
 
-          // Given a Conv2DOp, gather all the element-wise ops that are
-          // reachable from its results, contiguously.
-          //
-          // The ops after the Conv2D are "second" ops.
-          // inputNodes gathers what will become the parameters of the outlined
-          // function;  initially it's the Conv2D's arguments, and it
-          // accumulates arguments to other ops that don't come from inside the
-          // outlined function. resultNodes will become the results of the
-          // outlined function.  It starts with Conv2D's result(s) and gains the
-          // results of each new secondOp.  When all a resultNode's users can be
-          // determined to lie within the outlined function, it's removed from
-          // the set.
-          //
-          // These are SetVectors because we test with contains() a lot, but
-          // still want to preserve order.
-          SetVector<Operation *> secondOps;
-          SetVector<Value> inputNodes;
-          SetVector<Value> resultNodes(convOp->getResults().begin(),
-                                       convOp->getResults().end());
+        // Given a Conv2DOp, gather all the element-wise ops that are reachable
+        // from its results, contiguously.
+        //
+        // The ops after the Conv2D are "second" ops.
+        // inputNodes gathers what will become the parameters of the outlined
+        // function;  initially it's the Conv2D's arguments, and it accumulates
+        // arguments to other ops that don't come from inside the outlined
+        // function.
+        // resultNodes will become the results of the outlined function.  It
+        // starts with Conv2D's result(s) and gains the results of each new
+        // secondOp.  When all a resultNode's users can be determined to lie
+        // within the outlined function, it's removed from the set.
+        //
+        // These are SetVectors because we test with contains() a lot, but still
+        // want to preserve order.
+        SetVector<Operation *> secondOps;
+        SetVector<Value> inputNodes;
+        SetVector<Value> resultNodes(convOp->getResults().begin(),
+                                     convOp->getResults().end());
 
-          // Grab a useful set of leading ops, like we do for trailing.
-          // Let's limit it to only first arguments, with single uses.
-          SmallVector<Operation *> frontOps;
-          if (!nofront) {
-            traceInputs(convOp, frontOps, inputNodes);
-          } else {
-            inputNodes.insert(convOp->getOperands().begin(),
-                              convOp->getOperands().end());
-          }
+        // Grab a useful set of leading ops, like we do for trailing.
+        // Let's limit it to only first arguments, with single uses.
+        SmallVector<Operation *> frontOps;
+        if (!nofront) {
+          traceInputs(convOp, frontOps, inputNodes);
+        } else {
+          inputNodes.insert(convOp->getOperands().begin(),
+                            convOp->getOperands().end());
+        }
 
-          DominanceInfo domInfo(func);
-          std::deque<Operation *>
-              worklist; // cuz I want to pull from the front.
+        DominanceInfo domInfo(func);
+        std::deque<Operation *> worklist; // cuz I want to pull from the front.
 
-          worklist.push_back(convOp);
-          while (!worklist.empty()) {
-            Operation *op = worklist.front();
-            worklist.pop_front();
-            for (auto *userOp : op->getUsers()) {
-              if (isElementwiseOp(userOp)) {
-                bool skip = false;
-                // First criterion is that the op is element-wise.  Second
-                // criterion is that the op dominates all the users of the
-                // accumulated results of the outlined function.  In other
-                // words, we can't take an op that comes "after" a user of the
-                // result from the eventual call, because the call needs to
-                // dominate all its users.
-                for (const Value &val : resultNodes) {
-                  for (auto *user : val.getDefiningOp()->getUsers()) {
-                    if (user != userOp &&
-                        !domInfo.properlyDominates(userOp, user)) {
-                      skip = true;
-                    }
+        worklist.push_back(convOp);
+        while (!worklist.empty()) {
+          Operation *op = worklist.front();
+          worklist.pop_front();
+          for (auto *userOp : op->getUsers()) {
+            if (isElementwiseOp(userOp)) {
+              bool skip = false;
+              // First criterion is that the op is element-wise.  Second
+              // criterion is that the op dominates all the users of the
+              // accumulated results of the outlined function.  In other words,
+              // we can't take an op that comes "after" a user of the result
+              // from the eventual call, because the call needs to dominate all
+              // its users.
+              for (const Value &val : resultNodes) {
+                for (auto *user : val.getDefiningOp()->getUsers()) {
+                  if (user != userOp &&
+                      !domInfo.properlyDominates(userOp, user)) {
+                    skip = true;
                   }
                 }
+              }
 
-                // userOp is acceptable.  Keep it as a secondOp, put it on the
-                // worklist.  Add its operands to inputNodes unless they come
-                // from other secondOps (indicated by being in resultNodes).
-                // If all the users of any resultNode are in secondOps, there's
-                // no need to return it so remove from resultNodes.  Finally,
-                // add all userOp's results to resultNodes.
-                if (!skip) {
-                  secondOps.insert(userOp);
-                  worklist.push_back(userOp);
-                  for (Value opnd : userOp->getOperands()) {
-                    if (!resultNodes.contains(opnd)) {
-                      inputNodes.insert(opnd);
-                    }
+              // userOp is acceptable.  Keep it as a secondOp, put it on the
+              // worklist.  Add its operands to inputNodes unless they come
+              // from other secondOps (indicated by being in resultNodes).
+              // If all the users of any resultNode are in secondOps, there's
+              // no need to return it so remove from resultNodes.  Finally,
+              // add all userOp's results to resultNodes.
+              if (!skip) {
+                secondOps.insert(userOp);
+                worklist.push_back(userOp);
+                for (Value opnd : userOp->getOperands()) {
+                  if (!resultNodes.contains(opnd)) {
+                    inputNodes.insert(opnd);
                   }
-                  for (const Value &val : resultNodes) {
-                    if (llvm::all_of(val.getUsers(), [&](Operation *u) {
-                          return secondOps.contains(u);
-                        })) {
-                      resultNodes.remove(val);
-                    }
+                }
+                for (const Value &val : resultNodes) {
+                  if (llvm::all_of(val.getUsers(), [&](Operation *u) {
+                        return secondOps.contains(u);
+                      })) {
+                    resultNodes.remove(val);
                   }
-                  for (auto res : userOp->getResults()) {
-                    resultNodes.insert(res);
-                  }
+                }
+                for (auto res : userOp->getResults()) {
+                  resultNodes.insert(res);
                 }
               }
             }
           }
+        }
 
         // Make the outlined function from the ops we've gathered.
         outlineConvPartOps(convOp, secondOps.getArrayRef(), frontOps,

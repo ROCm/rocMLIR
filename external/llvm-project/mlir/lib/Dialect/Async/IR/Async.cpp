@@ -57,13 +57,10 @@ YieldOp::getMutableSuccessorOperands(Optional<unsigned> index) {
 /// LaunchOp
 //===----------------------------------------------------------------------===//
 
-constexpr char kCallee[] = "callee";
-constexpr char kOperandSegmentSizesAttr[] = "operand_segment_sizes";
-
 void LaunchOp::build(OpBuilder &builder, OperationState &result, FuncOp func,
                      ValueRange dependencies, ValueRange operands) {
   // set callee
-  result.addAttribute(kCallee, SymbolRefAttr::get(func));
+  result.addAttribute(calleeAttrName(result.name), SymbolRefAttr::get(func));
 
   result.addOperands(dependencies);
   result.addOperands(operands);
@@ -74,7 +71,8 @@ void LaunchOp::build(OpBuilder &builder, OperationState &result, FuncOp func,
   auto operandSegmentSizes = DenseIntElementsAttr::get(
       VectorType::get({2}, builder.getIntegerType(32)),
       {numDependencies, numOperands});
-  result.addAttribute(kOperandSegmentSizesAttr, operandSegmentSizes);
+  result.addAttribute(operand_segment_sizesAttrName(result.name),
+                      operandSegmentSizes);
 
   // First result is always a token, and then `resultTypes` wrapped into
   // `async.value`.
@@ -84,14 +82,14 @@ void LaunchOp::build(OpBuilder &builder, OperationState &result, FuncOp func,
 }
 
 CallInterfaceCallable LaunchOp::getCallableForCallee() {
-  return (*this)->getAttrOfType<SymbolRefAttr>(kCallee);
+  return (*this)->getAttrOfType<SymbolRefAttr>(calleeAttrName());
 }
 
 Operation::operand_range LaunchOp::getArgOperands() { return operands(); }
 
 void LaunchOp::print(OpAsmPrinter &p) {
   // func ref
-  p << " " << (*this)->getAttr(kCallee);
+  p << " " << (*this)->getAttr(calleeAttrName());
 
   // [%tokens,...]
   if (!dependencies().empty())
@@ -100,8 +98,8 @@ void LaunchOp::print(OpAsmPrinter &p) {
   // (%value, ...)
   p << " (" << operands() << ")";
 
-  p.printOptionalAttrDictWithKeyword((*this)->getAttrs(),
-                                     {kOperandSegmentSizesAttr, kCallee});
+  p.printOptionalAttrDictWithKeyword(
+      (*this)->getAttrs(), {operand_segment_sizesAttrName(), calleeAttrName()});
 
   // : (%value.type, ...)
   p << " : (";
@@ -124,8 +122,8 @@ ParseResult LaunchOp::parse(OpAsmParser &parser, OperationState &result) {
   SmallVector<Type, 4> allResultTypes(1, tokenTy);
 
   if (parser.parseCustomAttributeWithFallback(
-          calleeAttr, parser.getBuilder().getType<::mlir::NoneType>(), "callee",
-          result.attributes)) {
+          calleeAttr, parser.getBuilder().getType<::mlir::NoneType>(),
+          calleeAttrName(result.name), result.attributes)) {
     return ::mlir::failure();
   }
 
@@ -170,7 +168,8 @@ ParseResult LaunchOp::parse(OpAsmParser &parser, OperationState &result) {
   auto operandSegmentSizes =
       DenseIntElementsAttr::get(VectorType::get({2}, IntegerType::get(ctx, 32)),
                                 {numDependencies, numOperands});
-  result.addAttribute(kOperandSegmentSizesAttr, operandSegmentSizes);
+  result.addAttribute(operand_segment_sizesAttrName(result.name),
+                      operandSegmentSizes);
 
   return success();
 }
@@ -224,6 +223,8 @@ LogicalResult LaunchOp::verify() {
 //===----------------------------------------------------------------------===//
 /// ExecuteOp
 //===----------------------------------------------------------------------===//
+
+constexpr char kOperandSegmentSizesAttr[] = "operand_segment_sizes";
 
 OperandRange ExecuteOp::getSuccessorEntryOperands(unsigned index) {
   assert(index == 0 && "invalid region index");
