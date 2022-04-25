@@ -12,12 +12,15 @@ add_mlir_conversion_library(MLIRMIGraphXToTosa
 
   DEPENDS
   MLIRConversionPassIncGen
+  MLIRMIOpenConversionPassIncGen
+  MLIRMIGraphXToTosaConversionIncGen
 
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRPass
   MLIRTosa
   MLIRTosaTransforms
+  MLIRMIOpenTransforms
   MLIRTransforms
   MLIRSupport
   MLIRMIGraphX

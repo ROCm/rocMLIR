@@ -8,7 +8,7 @@
 
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -381,6 +381,12 @@ template <typename T> static LogicalResult verifyConvOp(T op) {
   return success();
 }
 
+LogicalResult Conv2DOp::verify() { return verifyConvOp(*this); }
+
+LogicalResult Conv2DBwdDataOp::verify() { return verifyConvOp(*this); }
+
+LogicalResult Conv2DBwdWeightOp::verify() { return verifyConvOp(*this); }
+
 //===-----------------------------------------------------===//
 // ExtractSliceOp
 //===-----------------------------------------------------===//
@@ -522,7 +528,7 @@ void TransformingForOp::build(OpBuilder &b, OperationState &state,
 
 ParseResult TransformingForOp::parse(OpAsmParser &parser,
                                      OperationState &result) {
-  using OperandType = OpAsmParser::OperandType;
+  using OperandType = OpAsmParser::UnresolvedOperand;
   using Delimiter = OpAsmParser::Delimiter;
 
   Builder &b = parser.getBuilder();
@@ -758,10 +764,9 @@ Region &TransformingForOp::getLoopBody() { return region(); }
 bool TransformingForOp::isDefinedOutsideOfLoop(Value value) {
   return !region().isAncestor(value.getParentRegion());
 }
-LogicalResult TransformingForOp::moveOutOfLoop(ArrayRef<Operation *> ops) {
+void TransformingForOp::moveOutOfLoop(ArrayRef<Operation *> ops) {
   for (auto *op : ops)
     op->moveBefore(*this);
-  return success();
 }
 
 //===-----------------------------------------------------===//
@@ -904,7 +909,8 @@ LogicalResult InBoundsStoreOp::verify() {
 // ThreadwiseCopyOp
 //===----------------------------------------------------------------------===//
 
-static LogicalResult verify(ThreadwiseCopyOp op) {
+LogicalResult ThreadwiseCopyOp::verify() {
+  ThreadwiseCopyOp &op = *this;
   auto sourceCoord = op.sourceCoord();
   auto destCoord = op.destCoord();
   auto sourceType = op.source().getType().cast<MemRefType>();
@@ -966,7 +972,8 @@ static LogicalResult verify(ThreadwiseCopyOp op) {
 // InWarpTransposeOp
 //===----------------------------------------------------------------------===//
 
-static LogicalResult verify(InWarpTransposeOp op) {
+LogicalResult InWarpTransposeOp::verify() {
+  InWarpTransposeOp &op = *this;
   constexpr size_t swizzleGroupSize = InWarpTransposeOp::swizzleGroupSize;
   if (!llvm::isPowerOf2_32(op.size())) {
     return op.emitOpError("transpose size " + Twine(op.size()) +

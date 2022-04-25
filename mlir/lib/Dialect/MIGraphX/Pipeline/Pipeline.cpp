@@ -28,9 +28,9 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitAllPasses.h"
 
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/InitAllDialects.h"
 #include "llvm/Support/TargetSelect.h"
 

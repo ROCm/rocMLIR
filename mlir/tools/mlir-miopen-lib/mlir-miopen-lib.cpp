@@ -54,7 +54,7 @@ private:
       // Register a handler that swallows all diagnostic print
       DiagnosticEngine &engine = context.getDiagEngine();
       engine.registerHandler([](Diagnostic &diag) {});
-      context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect>();
+      context.loadDialect<miopen::MIOpenDialect, func::FuncDialect>();
     });
     return context;
   }

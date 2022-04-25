@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-//#include "mlir/Dialect/StandardOps/IR/Ops.h"
+//#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"

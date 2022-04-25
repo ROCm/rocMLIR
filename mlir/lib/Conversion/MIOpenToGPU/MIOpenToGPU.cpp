@@ -24,18 +24,18 @@
 #include "../PassDetail.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/GPU/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/SCF/SCF.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
@@ -230,7 +230,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     OpBuilder b(gpuMod.getContext());
 
     // create a GPUFuncOp.
-    FunctionType gpuFuncType = theFunc.getType();
+    FunctionType gpuFuncType = theFunc.getFunctionType();
     auto gpuFunc =
         b.create<gpu::GPUFuncOp>(loc, theFunc.getName(), gpuFuncType);
 
@@ -278,8 +278,8 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     }
 
     // convert all calls to gpu.launch_func
-    SmallVector<CallOp, 4> calls;
-    op.walk([&](CallOp call) {
+    SmallVector<func::CallOp, 4> calls;
+    op.walk([&](func::CallOp call) {
       if (auto callable = call.getCallableForCallee()) {
         if (FlatSymbolRefAttr symRef = callable.dyn_cast<SymbolRefAttr>()
                                            .dyn_cast<FlatSymbolRefAttr>()) {
@@ -334,14 +334,13 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     RewritePatternSet patterns(ctx);
 
     // miopen-lowering
-    patterns
-        .add<MIGPUAllocRewritePattern,
-             MIOpRewritePattern<miopen::WorkgroupBarrierOp, gpu::BarrierOp>,
-             MIOpRewritePattern<miopen::LDSBarrierOp, gpu::LDSBarrierOp>,
-             MIIdRewritePattern<miopen::WorkgroupIdOp, gpu::BlockIdOp>,
-             MIIdRewritePattern<miopen::WorkitemIdOp, gpu::ThreadIdOp>,
-             MIOpRewritePattern<ReturnOp, gpu::ReturnOp>, MIMFMARewritePattern>(
-            ctx);
+    patterns.add<MIGPUAllocRewritePattern,
+                 MIOpRewritePattern<miopen::WorkgroupBarrierOp, gpu::BarrierOp>,
+                 MIOpRewritePattern<miopen::LDSBarrierOp, gpu::LDSBarrierOp>,
+                 MIIdRewritePattern<miopen::WorkgroupIdOp, gpu::BlockIdOp>,
+                 MIIdRewritePattern<miopen::WorkitemIdOp, gpu::ThreadIdOp>,
+                 MIOpRewritePattern<func::ReturnOp, gpu::ReturnOp>,
+                 MIMFMARewritePattern>(ctx);
 
     if (failed(applyPatternsAndFoldGreedily(gpuMod, std::move(patterns))))
       signalPassFailure();

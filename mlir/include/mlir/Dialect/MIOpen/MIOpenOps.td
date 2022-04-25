@@ -44,7 +44,7 @@ def MIOpen_Conv2DOp :
   let description = [{
     The `miopen.conv2d` op computes 2D convolution forward.
   }];
-  let verifier = "{ return ::verifyConvOp(*this); }";
+  let hasVerifier = 1;
   let assemblyFormat = [{
     `(` operands `)` attr-dict `:` type(operands)
   }];
@@ -59,7 +59,7 @@ def MIOpen_Conv2DBwdDataOp :
   let description = [{
     The `miopen.conv2d_bwd_data` op computes 2D convolution backward data.
   }];
-  let verifier = "{ return ::verifyConvOp(*this); }";
+  let hasVerifier = 1;
   let assemblyFormat = [{
     `(` operands `)` attr-dict `:` type(operands)
   }];
@@ -75,7 +75,7 @@ def MIOpen_Conv2DBwdWeightOp :
   let description = [{
     The `miopen.conv2d_bwd_weight` op computes 2D convolution backward weight.
   }];
-  let verifier = "{ return ::verifyConvOp(*this); }";
+  let hasVerifier = 1;
   let assemblyFormat = [{
     `(` operands `)` attr-dict `:` type(operands)
   }];
@@ -318,7 +318,7 @@ def MIOpen_YieldOp :
 // Transforming for
 def MIOpen_TransformingForOp :
     MIOpen_Op<"transforming_for", [RecursiveSideEffects,
-      DeclareOpInterfaceMethods<LoopLikeOpInterface>,
+      DeclareOpInterfaceMethods<LoopLikeOpInterface, ["isDefinedOutsideOfLoop"]>,
       AttrSizedOperandSegments,
       SingleBlockImplicitTerminator<"::mlir::miopen::YieldOp">]>,
     Arguments<(ins Variadic<Index>:$upperInits,
@@ -425,6 +425,8 @@ def MIOpen_TransformingForOp :
     CArg<"ValueRange", "llvm::None">:$iterArgs)>];
 
   let extraClassDeclaration = [{
+    void moveOutOfLoop(ArrayRef<Operation *> ops);
+
     uint32_t lowerStart(uint32_t n) {
       return *(lowerStarts().getValues<uint32_t>().begin() + n);
     }
@@ -650,7 +652,7 @@ def MIOpen_ThreadwiseCopyOp:
     `with` $transforms attr-dict
     `:` type($source) `,` type($sourceCoord) `->` type($dest) `,` type($destCoord)
   }];
-  let verifier = [{ return ::verify(*this); }];
+  let hasVerifier = 1;
 }
 
 // threadwise_copy_v2
@@ -846,7 +848,7 @@ def MIOpen_InWarpTransposeOp :
     lane with the wave, and thus is an integer in [0, waveSize).
   }];
 
-  let verifier = [{ return ::verify(*this); }];
+  let hasVerifier = 1;
   let assemblyFormat = [{
     attr-dict $vector `,` $laneId `:` type($vector) `,` type($laneId)
   }];

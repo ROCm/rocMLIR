@@ -3,16 +3,16 @@ add_mlir_dialect_library(MLIRMIOpenPipeline
 
   LINK_LIBS PUBLIC
   MLIRDialect
+  MLIRFunc
   LLVMROCmBackendUtils
   MLIRTosaToMIOpen
   MLIRTosaToLinalg
-  MLIRTosaToStandard
+  MLIRTosaToArith
   MLIRMIOpenToGPU
   MLIRGPUToROCDLTransforms
   MLIRIR
   MLIRPass
   MLIRLLVMIR
-  MLIRStandard
   MLIRAffineToStandard
   MLIRMIOpenOps
   MLIRMIOpenTuning

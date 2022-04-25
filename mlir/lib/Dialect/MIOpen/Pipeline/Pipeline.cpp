@@ -30,9 +30,9 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitAllPasses.h"
 
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/InitAllDialects.h"
 #include "llvm/Support/TargetSelect.h"
 
@@ -45,12 +45,12 @@ void miopen::addHighLevelPipeline(PassManager &pm, bool toMIOpen) {
   if (toMIOpen) {
     pm.addPass(tosa::createTosaToMIOpenPass());
   }
-  pm.addPass(tosa::createTosaToLinalgNamed());
-  pm.addPass(tosa::createTosaToLinalg());
+  mlir::tosa::addTosaToLinalgPasses(pm);
   pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(createLinalgBufferizePass());
+  pm.addNestedPass<mlir::FuncOp>(createTensorBufferizePass());
   pm.addPass(arith::createArithmeticBufferizePass());
-  pm.addPass(createFuncBufferizePass());
+  pm.addPass(func::createFuncBufferizePass());
   pm.addPass(bufferization::createBufferResultsToOutParamsPass());
   pm.addPass(bufferization::createFinalizingBufferizePass());
   pm.addPass(miopen::createMIOpenCopyOptPass());
