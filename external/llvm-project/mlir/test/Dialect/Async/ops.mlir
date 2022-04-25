@@ -164,48 +164,48 @@ func @kernel_func2(%arg0: tensor<8x8xf32>, %arg1: tensor<8x8xf32>) -> tensor<8x8
 // CHECK-LABEL: @single_async_launch
 func @single_async_launch(%arg0: tensor<8x8xf32>, %arg1: tensor<1x8xf32>) -> tensor<8x8xf32> {
   // CHECK: async.launch
-  %token,%0 = async.launch @kernel_func1(%arg0, %arg1) : (tensor<8x8xf32>, tensor<1x8xf32>) -> tensor<8x8xf32>
+  %token,%results = async.launch @kernel_func1(%arg0, %arg1) : (tensor<8x8xf32>, tensor<1x8xf32>) -> tensor<8x8xf32>
   // CHECK: async.await
   async.await %token : !async.token
-  // CHECK: return %0 : tensor<8x8xf32>
-  return %0 : tensor<8x8xf32>
+  // CHECK: return %results : tensor<8x8xf32>
+  return %results : tensor<8x8xf32>
 }
 
 // CHECK-LABEL: @chain_async_launch
 func @chain_async_launch(%arg0: tensor<8x8xf32>, %arg1: tensor<1x8xf32>, %arg2: tensor<1x8xf32>) -> tensor<8x8xf32> {
   // CHECK: async.launch
-  %token,%0 = async.launch @kernel_func1(%arg0, %arg1) : (tensor<8x8xf32>, tensor<1x8xf32>) -> tensor<8x8xf32>
+  %token,%results = async.launch @kernel_func1(%arg0, %arg1) : (tensor<8x8xf32>, tensor<1x8xf32>) -> tensor<8x8xf32>
   // CHECK: async.launch
-  %token1,%1 = async.launch @kernel_func1 [%token] (%0, %arg2) : (tensor<8x8xf32>, tensor<1x8xf32>) -> tensor<8x8xf32>
+  %token1,%results_1 = async.launch @kernel_func1 [%token] (%results, %arg2) : (tensor<8x8xf32>, tensor<1x8xf32>) -> tensor<8x8xf32>
   // CHECK: async.await
   async.await %token1 : !async.token
-  // CHECK: return %0 : tensor<8x8xf32>
-  return %1 : tensor<8x8xf32>
+  // CHECK: return %results_1 : tensor<8x8xf32>
+  return %results_1 : tensor<8x8xf32>
 }
 
 // CHECK-LABEL: @independent_async_launch
 func @independent_async_launch(%arg0: tensor<8x8xf32>, %arg1: tensor<1x8xf32>, %arg2: tensor<8x8xf32>, %arg3: tensor<1x8xf32>) -> tensor<8x8xf32> {
   // CHECK: async.launch
-  %token,%0 = async.launch @kernel_func1(%arg0, %arg1) : (tensor<8x8xf32>, tensor<1x8xf32>) -> tensor<8x8xf32>
+  %token,%results = async.launch @kernel_func1(%arg0, %arg1) : (tensor<8x8xf32>, tensor<1x8xf32>) -> tensor<8x8xf32>
   // CHECK: async.launch
-  %token1,%1 = async.launch @kernel_func1(%arg2, %arg3) : (tensor<8x8xf32>, tensor<1x8xf32>) -> tensor<8x8xf32>
+  %token1,%results_1 = async.launch @kernel_func1(%arg2, %arg3) : (tensor<8x8xf32>, tensor<1x8xf32>) -> tensor<8x8xf32>
   // CHECK: async.await
   async.await %token : !async.token
   async.await %token1 : !async.token
-  // CHECK: return %0 : tensor<8x8xf32>
-  return %1 : tensor<8x8xf32>
+  // CHECK: return %results_1 : tensor<8x8xf32>
+  return %results_1 : tensor<8x8xf32>
 }
 
 // CHECK-LABEL: @v_async_launch
 func @v_async_launch(%arg0: tensor<8x8xf32>, %arg1: tensor<1x8xf32>, %arg2: tensor<8x8xf32>, %arg3: tensor<1x8xf32>) -> tensor<8x8xf32> {
   // CHECK: async.launch
-  %token,%0 = async.launch @kernel_func1(%arg0, %arg1) : (tensor<8x8xf32>, tensor<1x8xf32>) -> tensor<8x8xf32>
+  %token,%results = async.launch @kernel_func1(%arg0, %arg1) : (tensor<8x8xf32>, tensor<1x8xf32>) -> tensor<8x8xf32>
   // CHECK: async.launch
-  %token1,%1 = async.launch @kernel_func1(%arg2, %arg3) : (tensor<8x8xf32>, tensor<1x8xf32>) -> tensor<8x8xf32>
+  %token1,%results_1 = async.launch @kernel_func1(%arg2, %arg3) : (tensor<8x8xf32>, tensor<1x8xf32>) -> tensor<8x8xf32>
   // CHECK: async.launch
-  %token2,%2 = async.launch @kernel_func2 [%token, %token1] (%0, %1) : (tensor<8x8xf32>, tensor<8x8xf32>) -> tensor<8x8xf32>
+  %token2,%results_3 = async.launch @kernel_func2 [%token, %token1] (%results, %results_1) : (tensor<8x8xf32>, tensor<8x8xf32>) -> tensor<8x8xf32>
   // CHECK: async.await
   async.await %token2 : !async.token
-  // CHECK: return %0 : tensor<8x8xf32>
-  return %2 : tensor<8x8xf32>
+  // CHECK: return %results_3 : tensor<8x8xf32>
+  return %results_3 : tensor<8x8xf32>
 }
