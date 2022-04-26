@@ -65,17 +65,25 @@ void miopen::addHighLevelPipeline(PassManager &pm, bool toMIOpen) {
      */
     pm.addNestedPass<FuncOp>(tosa::createTosaToMIOpenPass());
   }
+  // use tosa conversion pipeline
   mlir::tosa::addTosaToLinalgPasses(pm);
+
+  // linalg tensor opts
+  /* miopen-opt --linalg-fuse-elementwise-ops
+   */
+  pm.addNestedPass<FuncOp>(createLinalgElementwiseOpFusionPass());
 
   // make async kernel launch's
   /* miopen-opt --miopen-async-launch
    */
   pm.addNestedPass<FuncOp>(createMIOpenAsyncLaunchPass());
 
-  // linalg tensor opts
-  /* miopen-opt --linalg-fuse-elementwise-ops
+
+  // make async kernel launch's
+  /* miopen-opt --tosa-to-scf --tosa-to-arith
    */
-  pm.addNestedPass<FuncOp>(createLinalgElementwiseOpFusionPass());
+  pm.addNestedPass<FuncOp>(tosa::createTosaToSCF());
+  pm.addNestedPass<FuncOp>(tosa::createTosaToArith());
 
   // bufferization
   /* miopen-opt --arith-bufferize --linalg-bufferize --tensor-bufferize
@@ -84,7 +92,7 @@ void miopen::addHighLevelPipeline(PassManager &pm, bool toMIOpen) {
   pm.addPass(arith::createArithmeticBufferizePass());
   pm.addNestedPass<FuncOp>(createLinalgBufferizePass());
   pm.addNestedPass<FuncOp>(createTensorBufferizePass());
-  pm.addPass(createFuncBufferizePass());
+  pm.addPass(func::createFuncBufferizePass());
   pm.addNestedPass<FuncOp>(bufferization::createFinalizingBufferizePass());
   pm.addPass(bufferization::createBufferResultsToOutParamsPass());
 

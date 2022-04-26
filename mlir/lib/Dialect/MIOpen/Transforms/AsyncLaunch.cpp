@@ -47,7 +47,7 @@ class MIOpenAsyncLaunchPass
   // used inside of its block and GPU execution will always synchronize with
   // the host at block boundaries.
   LogicalResult visit(Operation *op) {
-    if (auto call = dyn_cast<CallOp>(op)) {
+    if (auto call = dyn_cast<func::CallOp>(op)) {
       CallOpInterface callIf(call);
       if (auto *callable = callIf.resolveCallable()) {
         FuncOp func = dyn_cast<FuncOp>(callable);
@@ -76,7 +76,7 @@ class MIOpenAsyncLaunchPass
   }
 
   // Replaces asyncOp with a clone that returns a token.
-  LogicalResult rewriteCallOp(CallOp op, FuncOp func) {
+  LogicalResult rewriteCallOp(func::CallOp op, FuncOp func) {
     OpBuilder builder(op);
     // builder.setInsertionPoint(op);
     // Find tokens related to inputs
