@@ -47,7 +47,7 @@ def CallOpInterface : OpInterface<"CallOpInterface"> {
         OperationState state(
           loc, ConcreteOp::getOperationName(), operands, resultTypes,
           $_op->getAttrs());
-        return b.createOperation(state);
+        return b.create(state);
       }]
     >,
     InterfaceMethod<[{

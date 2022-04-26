@@ -77,7 +77,7 @@ def Async_LaunchOp :
                       Variadic<AnyType>:$results);
 
   let builders = [
-    OpBuilder<(ins "FuncOp":$kernelFunc, "ValueRange":$dependencies,
+    OpBuilder<(ins "func::FuncOp":$kernelFunc, "ValueRange":$dependencies,
                    "ValueRange":$kernelOperands)>,
     OpBuilder<(ins "FlatSymbolRefAttr":$callee, "TypeRange":$results,
       CArg<"ValueRange", "{}">:$operands), [{

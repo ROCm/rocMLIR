@@ -9,6 +9,7 @@
 #include "mlir/Dialect/Async/IR/Async.h"
 
 #include "mlir/IR/DialectImplementation.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
@@ -57,7 +58,7 @@ YieldOp::getMutableSuccessorOperands(Optional<unsigned> index) {
 /// LaunchOp
 //===----------------------------------------------------------------------===//
 
-void LaunchOp::build(OpBuilder &builder, OperationState &result, FuncOp func,
+void LaunchOp::build(OpBuilder &builder, OperationState &result, func::FuncOp func,
                      ValueRange dependencies, ValueRange operands) {
   // set callee
   result.addAttribute(calleeAttrName(result.name), SymbolRefAttr::get(func));
@@ -116,7 +117,7 @@ ParseResult LaunchOp::parse(OpAsmParser &parser, OperationState &result) {
   auto tokenTy = TokenType::get(ctx);
 
   FlatSymbolRefAttr calleeAttr;
-  SmallVector<OpAsmParser::OperandType, 4> operandsOperands;
+  SmallVector<OpAsmParser::UnresolvedOperand, 4> operandsOperands;
   SMLoc operandsOperandsLoc;
   ArrayRef<Type> operandsTypes;
   SmallVector<Type, 4> allResultTypes(1, tokenTy);
@@ -130,7 +131,7 @@ ParseResult LaunchOp::parse(OpAsmParser &parser, OperationState &result) {
   // Parse dependency tokens.
   int32_t numDependencies = 0;
   if (succeeded(parser.parseOptionalLSquare())) {
-    SmallVector<OpAsmParser::OperandType, 4> tokenArgs;
+    SmallVector<OpAsmParser::UnresolvedOperand, 4> tokenArgs;
     if (parser.parseOperandList(tokenArgs) ||
         parser.resolveOperands(tokenArgs, tokenTy, result.operands) ||
         parser.parseRSquare())
@@ -188,16 +189,16 @@ LogicalResult LaunchOp::verify() {
   if (!func || !func->hasAttr("kernel"))
     return emitOpError("requires a 'kernel' func reference");
 
-  auto funcType = func.getType();
+  auto funcResultTypes = func.getResultTypes();
   // The result types should be a leading async.token and matching return types
   // of the kernel func.
   auto resultTypes = getResultTypes();
-  if (resultTypes.size() != (funcType.getResults().size() + 1))
+  if (resultTypes.size() != (funcResultTypes.size() + 1))
     return emitOpError(
         "requires matching result types with a leading async.token");
 
   auto resultItr = ++resultTypes.begin();
-  for (auto resType : funcType.getResults()) {
+  for (auto resType : funcResultTypes) {
     if (*resultItr++ != resType)
       return emitOpError("requires matching result types with func");
   }
@@ -209,10 +210,11 @@ LogicalResult LaunchOp::verify() {
   }
 
   // Match operand types
-  if (funcType.getNumInputs() != operands().size())
+  auto funcArgumentTypes = func.getArgumentTypes();
+  if (funcArgumentTypes.size() != operands().size())
     return emitOpError("incorrect number of operands for callee");
 
-  for (auto tuple : llvm::zip(operands(), funcType.getInputs())) {
+  for (auto tuple : llvm::zip(operands(), funcArgumentTypes)) {
     if (std::get<0>(tuple).getType() != std::get<1>(tuple))
       return emitOpError("requires matching operand types");
   }
