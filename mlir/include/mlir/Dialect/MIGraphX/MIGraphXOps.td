@@ -275,7 +275,7 @@ def MIGraphX_BroadcastOp :
 def MIGraphX_MultiBroadcastOp :
     MIGraphX_Op<"multibroadcast">,
     Arguments<(ins AnyRankedTensor:$input,
-                   I64ArrayAttr:$ouput_lens
+                   I64ArrayAttr:$output_lens
                    )>,
 	Results<(outs AnyRankedTensor:$output)> {
   let summary = "Broadcast tensor in multiple dimensions";
