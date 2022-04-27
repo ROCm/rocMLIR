@@ -1,7 +1,7 @@
 // RUN: mlir-opt %s -pass-pipeline="func.func(tosa-to-linalg-named)" \
 // RUN: -pass-pipeline="func.func(tosa-to-linalg)" --tosa-to-tensor \
 // RUN: -tosa-to-arith -arith-bufferize \
-// RUN: -test-linalg-transform-patterns=test-generalize-pad-tensor \
+// RUN: -linalg-comprehensive-module-bufferize="allow-return-allocs" \
 // RUN: -linalg-bufferize -vector-bufferize -tensor-bufferize \
 // RUN: -func-bufferize -finalizing-bufferize --convert-linalg-to-loops \
 // RUN: -lower-affine -convert-linalg-to-llvm --convert-scf-to-cf \
@@ -22,7 +22,7 @@
 // RUN: mlir-opt %s --tosa-partition --pass-pipeline="func.func(tosa-to-linalg-named)" \ 
 // RUN: -pass-pipeline="func.func(tosa-to-linalg)" --tosa-to-tensor \
 // RUN: -tosa-to-arith -arith-bufferize \
-// RUN: -test-linalg-transform-patterns=test-generalize-pad-tensor \
+// RUN: -linalg-comprehensive-module-bufferize="allow-return-allocs" \
 // RUN: -linalg-bufferize -vector-bufferize -tensor-bufferize \
 // RUN: -func-bufferize -finalizing-bufferize --convert-linalg-to-loops \
 // RUN: -lower-affine -convert-linalg-to-llvm --convert-scf-to-cf \
