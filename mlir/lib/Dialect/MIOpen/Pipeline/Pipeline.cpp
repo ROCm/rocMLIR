@@ -46,6 +46,10 @@ void miopen::addHighLevelPipeline(PassManager &pm, bool toMIOpen) {
     pm.addPass(tosa::createTosaToMIOpenPass());
   }
   mlir::tosa::addTosaToLinalgPasses(pm);
+  bufferization::OneShotBufferizationOptions options;
+  options.allowReturnAllocs = true;
+  options.testAnalysisOnly = true;
+  pm.addPass(createLinalgComprehensiveModuleBufferizePass(options));
   pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(createLinalgBufferizePass());
   pm.addNestedPass<mlir::FuncOp>(createTensorBufferizePass());
