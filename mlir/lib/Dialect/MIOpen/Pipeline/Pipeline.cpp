@@ -78,7 +78,6 @@ void miopen::addHighLevelPipeline(PassManager &pm, bool toMIOpen) {
    */
   pm.addNestedPass<FuncOp>(createMIOpenAsyncLaunchPass());
 
-
   // make async kernel launch's
   /* miopen-opt --tosa-to-scf --tosa-to-arith
    */
