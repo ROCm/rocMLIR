@@ -580,7 +580,7 @@ void BottomUpTMBuilder::broadcast(ArrayRef<uint32_t> endDims,
     params.push_back(startSize(dim));
     lowerNames.push_back(name);
     upperNames.push_back(name);
-    defineDim(upperNames[dim], dim, size);
+    defineDim(name, dim, size);
   }
   addTransform(TransformType::Broadcast, params, upperNames, endDims,
                lowerNames, endDims);
