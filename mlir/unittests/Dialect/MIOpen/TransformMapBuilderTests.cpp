@@ -1,5 +1,5 @@
-//===- CoordTransformBuilderTests.cpp - Tests for the MIOpen Coordinate
-// Transform Builder -----===//
+//===- TransformMapBuilderTests.cpp - Tests for the MIOpen Transform
+// Map Builder -----===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/MIOpen/MIOpen.h"
+#include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
 #include "mlir/IR/MLIRContext.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -21,18 +22,18 @@ using namespace mlir::miopen;
 // Test Fixture
 //===----------------------------------------------------------------------===//
 
-class CTBuilderTest : public ::testing::Test {
+class TMBuilderTest : public ::testing::Test {
 protected:
-  CTBuilderTest() : b(&context) { context.getOrLoadDialect<MIOpenDialect>(); }
+  TMBuilderTest() : b(&context) { context.getOrLoadDialect<MIOpenDialect>(); }
 
-  TopDownCTBuilder makeTopDown(ArrayRef<StringRef> upperNames,
+  TopDownTMBuilder makeTopDown(ArrayRef<StringRef> upperNames,
                                ArrayRef<int64_t> upperShape) {
-    return TopDownCTBuilder(b, upperNames, upperShape, b.getUnknownLoc());
+    return TopDownTMBuilder(b, upperNames, upperShape, b.getUnknownLoc());
   }
 
-  BottomUpCTBuilder makeBottomUp(ArrayRef<StringRef> lowerNames,
+  BottomUpTMBuilder makeBottomUp(ArrayRef<StringRef> lowerNames,
                                  ArrayRef<int64_t> lowerShape) {
-    return BottomUpCTBuilder(b, lowerNames, lowerShape, b.getUnknownLoc());
+    return BottomUpTMBuilder(b, lowerNames, lowerShape, b.getUnknownLoc());
   }
 
   AffineExpr affD(uint32_t d) { return b.getAffineDimExpr(d); }
@@ -57,7 +58,7 @@ protected:
     }                                                                          \
   } while (0)
 
-TEST_F(CTBuilderTest, PassThroughDoesNothingTD) {
+TEST_F(TMBuilderTest, PassThroughDoesNothingTD) {
   auto buildDown = makeTopDown({"x"}, {4});
   buildDown.passThrough("x");
   TransformMapAttr res = buildDown.get();
@@ -72,7 +73,7 @@ TEST_F(CTBuilderTest, PassThroughDoesNothingTD) {
                                        {"x"}, {0}, {"x"}, {0}));
 }
 
-TEST_F(CTBuilderTest, PassThroughWorksBothWays) {
+TEST_F(TMBuilderTest, PassThroughWorksBothWays) {
   auto buildUp = makeBottomUp({"b"}, {4});
   auto buildDown = makeTopDown({"a"}, {4});
 
@@ -84,7 +85,7 @@ TEST_F(CTBuilderTest, PassThroughWorksBothWays) {
   ASSERT_EQ(resUp, resDown);
 }
 
-TEST_F(CTBuilderTest, PassThroughExchange) {
+TEST_F(TMBuilderTest, PassThroughExchange) {
   auto buildUp = makeBottomUp({"x", "y"}, {1, 2});
 
   buildUp.passThrough({"y"}, {0}, {"y"});
@@ -105,7 +106,7 @@ TEST_F(CTBuilderTest, PassThroughExchange) {
   EXPECT_ARRAY_EQ(int64_t, resDown.getUpperBounds(), resUp.getUpperBounds());
 }
 
-TEST_F(CTBuilderTest, Padding) {
+TEST_F(TMBuilderTest, Padding) {
   llvm::SmallVector<int64_t> upperBounds = {7, 5};
   llvm::SmallVector<int64_t> lowerBounds = {4, 4};
 
@@ -124,7 +125,7 @@ TEST_F(CTBuilderTest, Padding) {
   EXPECT_EQ(resUp, resDown);
 }
 
-TEST_F(CTBuilderTest, Embed) {
+TEST_F(TMBuilderTest, Embed) {
   auto buildDown = makeTopDown({"a", "b", "c"}, {2, 3, 4});
   auto buildUp = makeBottomUp({"a"}, {24});
 
@@ -140,7 +141,7 @@ TEST_F(CTBuilderTest, Embed) {
   EXPECT_EQ(resDown, resUp);
 }
 
-TEST_F(CTBuilderTest, Unmerge) {
+TEST_F(TMBuilderTest, Unmerge) {
   auto buildDown = makeTopDown({"a", "b", "c"}, {2, 3, 4});
   auto buildUp = makeBottomUp({"a"}, {24});
 
@@ -157,7 +158,7 @@ TEST_F(CTBuilderTest, Unmerge) {
   EXPECT_EQ(resDown, resUp);
 }
 
-TEST_F(CTBuilderTest, Merge) {
+TEST_F(TMBuilderTest, Merge) {
   auto buildDown = makeTopDown({"top"}, {30});
   auto buildUp = makeBottomUp({"x", "y", "z"}, {2, 3, 5});
 
@@ -176,7 +177,7 @@ TEST_F(CTBuilderTest, Merge) {
   EXPECT_EQ(resDown, resUp);
 }
 
-TEST_F(CTBuilderTest, AddDim) {
+TEST_F(TMBuilderTest, AddDim) {
   auto buildUp = makeBottomUp({"a", "c"}, {1, 3});
   auto buildDown = makeTopDown({"a", "b", "c"}, {1, 2, 3});
 
@@ -194,7 +195,7 @@ TEST_F(CTBuilderTest, AddDim) {
   EXPECT_EQ(resUp, resDown);
 }
 
-TEST_F(CTBuilderTest, Broadcast) {
+TEST_F(TMBuilderTest, Broadcast) {
   auto buildUp = makeBottomUp({"a", "b"}, {1, 3});
 
   buildUp.passThrough({1}, {1});
@@ -206,7 +207,7 @@ TEST_F(CTBuilderTest, Broadcast) {
             AffineMap::get(2, 0, {affC(0), affD(1)}, &context));
 }
 
-TEST_F(CTBuilderTest, GemmOut) {
+TEST_F(TMBuilderTest, GemmOut) {
   auto buildDown =
       makeTopDown({"gemmG", "gemmM", "gemmN"}, {1, 64, 32 * 14 * 14});
   auto buildUp = makeBottomUp({"n", "g", "k", "h", "w"}, {32, 1, 64, 14, 14});

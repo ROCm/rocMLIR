@@ -86,19 +86,6 @@ miopen::ConvOpType obtainConvDirection(Operation *op);
 /// Obtain convolution input data type given a Convolution Op.
 /// TODO(whchung): apply ConvolutionOp OpTrait check after supporting PR is in.
 mlir::Type obtainConvDataType(Operation *op);
-
-/// Create a map of dimension names to indices in a destination coordinate space
-/// using the expansion map [original name] -> [expanded names] to
-/// replace one dimension with multiple ones.
-/// For example, expandNamesInPlace(["a", "b", "c"], {"b": ["x", "y"]})
-/// will return the mapping {"a": 0, "x": 1, "y": 2, "c": 3}
-llvm::StringMap<uint32_t>
-expandNamesInPlace(ArrayRef<StringRef> original,
-                   const llvm::StringMap<SmallVector<StringRef, 2>> expansion);
-llvm::StringMap<uint32_t>
-expandNamesInPlace(CoordTransformsBuilder &builder,
-                   const llvm::StringMap<SmallVector<StringRef, 2>> expansion);
-
 } // end namespace miopen
 } // end namespace mlir
 #endif

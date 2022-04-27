@@ -23,6 +23,7 @@
 
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/Tuning/UtilityParams.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
@@ -162,12 +163,12 @@ void createElementwiseLoop(OpBuilder &b, Location loc, int64_t bound,
 }
 
 Value createKPackLogic(OpBuilder &b, Location loc, Value source,
-                       BottomUpCTBuilder &sourceTransform,
+                       BottomUpTMBuilder &sourceTransform,
                        TransformMapAttr &sourceTransformAttr, int64_t KPack) {
   Value result = source;
   if (KPack > 1) {
-    BottomUpCTBuilder kpackGemmTransform =
-        BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
+    BottomUpTMBuilder kpackGemmTransform =
+        BottomUpTMBuilder::above(sourceTransform, sourceTransformAttr);
 
     // Passthrough gemmG (dim 0) and gemmN (dim 2).
     kpackGemmTransform.passThrough(sourceTransform.endName(0));
@@ -400,8 +401,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
 
     llvm::StringMap<uint32_t> kBlockDims =
         expandNamesInPlace(filterNames, {{{"k", {"kBlock", "k"}}}});
-    BottomUpCTBuilder addKBlockTransform(b, filterNames, filterShape, loc);
-    BottomUpCTTopDimsWrapper addKBlockWrap(addKBlockTransform,
+    BottomUpTMBuilder addKBlockTransform(b, filterNames, filterShape, loc);
+    BottomUpTMTopDimsWrapper addKBlockWrap(addKBlockTransform,
                                            std::move(kBlockDims));
     addKBlockWrap.passThrough("g");
     addKBlockWrap.addDim("kBlock", gemmKBlocks);
@@ -421,7 +422,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
                     (addKBlockTransform.endIndex("y") + 1 ==
                      addKBlockTransform.endIndex("x"));
     auto gemmTransform =
-        BottomUpCTBuilder::above(addKBlockTransform, addKBlockTransformAttr);
+        BottomUpTMBuilder::above(addKBlockTransform, addKBlockTransformAttr);
     gemmTransform.merge("gemmG", 0, {"g", "kBlock"});
     gemmTransform.passThrough({"gemmM"}, {1}, {"k"});
     gemmTransform.merge("gemmN", 2, nonKDims, isUnfold);
@@ -439,8 +440,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
         inputNames,
         {{"ni", {"n0", "n1"}}, {"hi", {"hipad"}}, {"wi", {"wipad"}}});
 
-    BottomUpCTBuilder firstTransform(b, inputNames, inputShape, loc);
-    BottomUpCTTopDimsWrapper firstWrap(firstTransform,
+    BottomUpTMBuilder firstTransform(b, inputNames, inputShape, loc);
+    BottomUpTMTopDimsWrapper firstWrap(firstTransform,
                                        std::move(firstTransformOutDims));
     firstWrap.passThrough("gi");
     firstWrap.unmerge({"n0", "n1"}, "ni", {gemmKBlocks, n / gemmKBlocks});
@@ -457,8 +458,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     llvm::StringMap<uint32_t> embedOutDims = expandNamesInPlace(
         firstTransform, {{"hipad", {"y", "ho"}}, {"wipad", {"x", "wo"}}});
     auto embedTransform =
-        BottomUpCTBuilder::above(firstTransform, firstTransformAttr);
-    BottomUpCTTopDimsWrapper embedWrap(embedTransform, std::move(embedOutDims));
+        BottomUpTMBuilder::above(firstTransform, firstTransformAttr);
+    BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedOutDims));
     embedWrap.passThrough({"gi", "n0", "n1", "ci"});
     embedWrap.embed({"y", "ho"}, {y, ho}, "hipad", {dilationH, strideH});
     embedWrap.embed({"x", "wo"}, {x, wo}, "wipad", {dilationW, strideW});
@@ -469,7 +470,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
 
     // Merge N1HoWO to gemmK and CYX to gemmN
     auto gemmInputTransform =
-        BottomUpCTBuilder::above(embedTransform, embedTransformAttr);
+        BottomUpTMBuilder::above(embedTransform, embedTransformAttr);
 
     llvm::SmallVector<StringRef, 3> nonNHWDims = {"ci", "y", "x"};
     std::sort(nonNHWDims.begin(), nonNHWDims.end(),
@@ -498,8 +499,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     // First, split the N dimension as in the input
     llvm::StringMap<uint32_t> outDims =
         expandNamesInPlace(outputNames, {{"no", {"n0", "n1"}}});
-    BottomUpCTBuilder firstTransform(b, outputNames, outputShape, loc);
-    BottomUpCTTopDimsWrapper firstWrap(firstTransform, std::move(outDims));
+    BottomUpTMBuilder firstTransform(b, outputNames, outputShape, loc);
+    BottomUpTMTopDimsWrapper firstWrap(firstTransform, std::move(outDims));
     firstWrap.passThrough("go");
     firstWrap.unmerge({"n0", "n1"}, "no", {gemmKBlocks, n / gemmKBlocks});
     firstWrap.passThrough({"ko", "ho", "wo"});
@@ -510,7 +511,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
 
     // Map G and N0 to gemmG, N1HW to gemmK and K to gemmM
     auto gemmOutputTransform =
-        BottomUpCTBuilder::above(firstTransform, firstTransformAttr);
+        BottomUpTMBuilder::above(firstTransform, firstTransformAttr);
     gemmOutputTransform.merge("gemmG", 0, {"go", "n0"});
     gemmOutputTransform.merge("gemmK", 1, {"n1", "ho", "wo"});
     gemmOutputTransform.passThrough({"gemmM"}, {2}, {"ko"});
@@ -753,8 +754,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     // particular embed coefficients is in a presentation somewhere)
     llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
         filterNames, {{"y", {"ydot", "ytilda"}}, {"x", {"xdot", "xtilda"}}});
-    BottomUpCTBuilder embedTransform(b, filterNames, filterShape, loc);
-    BottomUpCTTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
+    BottomUpTMBuilder embedTransform(b, filterNames, filterShape, loc);
+    BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
 
     embedWrap.passThrough({"g", "k", "c"});
     embedWrap.embed({"ydot", "ytilda"}, {yDot, yTilda}, "y",
@@ -769,7 +770,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     // Take slices in the ydot, ytilda, xdot, and xtilda dimensions
     // to reflect which kernel we're performing
     auto sliceTransform =
-        BottomUpCTBuilder::above(embedTransform, embedTransformAttr);
+        BottomUpTMBuilder::above(embedTransform, embedTransformAttr);
     sliceTransform.passThrough({"g", "k", "c"});
     sliceTransform.slice({"ydotslice", "xdotslice"}, {"ydot", "xdot"}, {0, 0},
                          {yDotSlice, xDotSlice});
@@ -784,7 +785,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     // [k, ydotslice, xdotslice] to gemmK, and [c, ytildaslice, xtildaslice]
     // to gemmM
     auto gemmFilterTransform =
-        BottomUpCTBuilder::above(sliceTransform, sliceTransformAttr);
+        BottomUpTMBuilder::above(sliceTransform, sliceTransformAttr);
     gemmFilterTransform.passThrough({"gemmG"}, {0}, {"g"});
     gemmFilterTransform.merge("gemmK", 1, {"k", "ydotslice", "xdotslice"});
     gemmFilterTransform.merge("gemmM", 2, {"c", "ytildaslice", "xtildaslice"});
@@ -797,7 +798,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     bool filterCheckPadGemmM = (gemmMExtra > 0);
     bool filterCheckPadGemmK = (gemmKExtra > 0);
     if (filterCheckPadGemmM || filterCheckPadGemmK) {
-      auto padTransform = BottomUpCTBuilder::above(gemmFilterTransform,
+      auto padTransform = BottomUpTMBuilder::above(gemmFilterTransform,
                                                    gemmFilterTransformAttr);
       padTransform.passThrough("gemmG");
       if (filterCheckPadGemmK) {
@@ -824,7 +825,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
 
   // outside its usual scope so we can look up input tensor dim order
   // for the backwards padding kernel info
-  BottomUpCTBuilder padInputTransform(b, inputNames, inputShape, loc);
+  BottomUpTMBuilder padInputTransform(b, inputNames, inputShape, loc);
   // Transform input tensor
   {
     padInputTransform.passThrough({"gi", "ni", "ci"});
@@ -843,8 +844,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
         padInputTransform,
         {{"hipad", {"ytilda", "htilda"}}, {"wipad", {"xtilda", "wtilda"}}});
     auto tildaEmbedTransform =
-        BottomUpCTBuilder::above(padInputTransform, padTransformAttr);
-    BottomUpCTTopDimsWrapper tildaEmbedWrap(tildaEmbedTransform,
+        BottomUpTMBuilder::above(padInputTransform, padTransformAttr);
+    BottomUpTMTopDimsWrapper tildaEmbedWrap(tildaEmbedTransform,
                                             std::move(embedDims));
     tildaEmbedWrap.passThrough({"gi", "ni", "ci"});
     tildaEmbedWrap.embed({"ytilda", "htilda"}, {yTilda, hTilda}, "hipad",
@@ -859,7 +860,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     // Slice all the tilda dimensions: ytilda and xtilda get slices of length
     // 1 while htilda and wtilda have slice indices computed above
     auto sliceTransform =
-        BottomUpCTBuilder::above(tildaEmbedTransform, tildaEmbedTransformAttr);
+        BottomUpTMBuilder::above(tildaEmbedTransform, tildaEmbedTransformAttr);
     sliceTransform.passThrough({"gi", "ni", "ci"});
     sliceTransform.slice({"yslice", "xslice"}, {"ytilda", "xtilda"},
                          {iYTilda, iXTilda}, {iYTilda + 1, iXTilda + 1});
@@ -874,7 +875,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     // C plus the length 1 slices (yslice and xslice) become the gemmM
     // dimension G, N, and the h and w slices become gemmN
     auto gemmTransform =
-        BottomUpCTBuilder::above(sliceTransform, sliceTransformAttr);
+        BottomUpTMBuilder::above(sliceTransform, sliceTransformAttr);
     gemmTransform.passThrough({"gemmG"}, {0}, {"gi"});
     gemmTransform.merge("gemmM", 1, {"ci", "yslice", "xslice"});
     gemmTransform.merge("gemmN", 2, {"ni", "hslice", "wslice"});
@@ -886,7 +887,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     bool inputCheckPadGemmN = (gemmNExtra > 0);
     if (inputCheckPadGemmM || inputCheckPadGemmN) {
       auto padTransform =
-          BottomUpCTBuilder::above(gemmTransform, gemmTransformAttr);
+          BottomUpTMBuilder::above(gemmTransform, gemmTransformAttr);
       padTransform.passThrough("gemmG");
       if (inputCheckPadGemmM) {
         padTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
@@ -911,8 +912,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     // Embed ho to ydot and htilda and wo to xdot and ytilda
     llvm::StringMap<uint32_t> embedDims = expandNamesInPlace(
         outputNames, {{"ho", {"ydot", "htilda"}}, {"wo", {"xdot", "wtilda"}}});
-    BottomUpCTBuilder embedTransform(b, outputNames, outputShape, loc);
-    BottomUpCTTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
+    BottomUpTMBuilder embedTransform(b, outputNames, outputShape, loc);
+    BottomUpTMTopDimsWrapper embedWrap(embedTransform, std::move(embedDims));
     embedWrap.passThrough({"go", "no", "ko"});
     embedWrap.embed({"ydot", "htilda"}, {yDot, hTilda}, "ho",
                     {(-dilationH) / gcdStrideDilationH, 1});
@@ -926,7 +927,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     // Take the same slices in ydot, xdot, htilda, and wtilda as were taken in
     // the filter and input
     auto sliceTransform =
-        BottomUpCTBuilder::above(embedTransform, embedTransformAttr);
+        BottomUpTMBuilder::above(embedTransform, embedTransformAttr);
     sliceTransform.passThrough({"go", "no", "ko"});
     sliceTransform.slice({"yslice", "xslice"}, {"ydot", "xdot"}, {0, 0},
                          {yDotSlice, xDotSlice});
@@ -939,7 +940,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
 
     // Merge k, yslice, and xslice to gemmK and n, hslice, and wslice to gemmN
     auto gemmOutputTransform =
-        BottomUpCTBuilder::above(sliceTransform, sliceTransformAttr);
+        BottomUpTMBuilder::above(sliceTransform, sliceTransformAttr);
     gemmOutputTransform.passThrough({"gemmG"}, {0}, {"go"});
     gemmOutputTransform.merge("gemmK", 1, {"ko", "yslice", "xslice"});
     gemmOutputTransform.merge("gemmN", 2, {"no", "hslice", "wslice"});
@@ -950,7 +951,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     bool outputCheckPadGemmK = (gemmKExtra > 0);
     bool outputCheckPadGemmN = (gemmNExtra > 0);
     if (outputCheckPadGemmK || outputCheckPadGemmN) {
-      auto padTransform = BottomUpCTBuilder::above(gemmOutputTransform,
+      auto padTransform = BottomUpTMBuilder::above(gemmOutputTransform,
                                                    gemmOutputTransformAttr);
       padTransform.passThrough("gemmG");
       if (outputCheckPadGemmK) {
@@ -1200,7 +1201,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     bool noNonKPad = (convOpType == ConvOpType::BwdWeight && gemmNExtra == 0) ||
                      (convOpType == ConvOpType::Fwd && gemmKExtra == 0);
 
-    BottomUpCTBuilder filterTransform(b, filterNames, filterShape, loc);
+    BottomUpTMBuilder filterTransform(b, filterNames, filterShape, loc);
     filterTransform.passThrough({"gemmG"}, {0}, {"g"});
     bool isUnfold = filterTransform.startIndex("g") == 0 &&
                     (filterTransform.startIndex("k") == 1 ||
@@ -1224,7 +1225,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     Value gemmFilter =
         b.create<TransformOp>(loc, op.filter(), filterTransformAttr);
 
-    BottomUpCTBuilder padGemmFilterTransform = filterTransform;
+    BottomUpTMBuilder padGemmFilterTransform = filterTransform;
     TransformMapAttr padGemmFilterTransformAttr = filterTransformAttr;
     Value gemmFilterPad = gemmFilter;
 
@@ -1246,7 +1247,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     if (filterCheckPadGemmM || filterCheckPadGemmK || filterCheckPadGemmN) {
       isFilterPad = true;
       padGemmFilterTransform =
-          BottomUpCTBuilder::above(filterTransform, filterTransformAttr);
+          BottomUpTMBuilder::above(filterTransform, filterTransformAttr);
       padGemmFilterTransform.passThrough("gemmG");
 
       // Note that, when padding a gemm dimension that came from the non-K
@@ -1281,14 +1282,14 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     Value gemmFilterKPack = gemmFilterPad;
 
     if ((KPack > 1) && (convOpType == ConvOpType::Fwd)) {
-      BottomUpCTBuilder sourceTransform =
+      BottomUpTMBuilder sourceTransform =
           (isFilterPad) ? padGemmFilterTransform : filterTransform;
       TransformMapAttr sourceTransformAttr =
           (isFilterPad) ? padGemmFilterTransformAttr : filterTransformAttr;
       Value source = (isFilterPad) ? gemmFilterPad : gemmFilter;
 
-      BottomUpCTBuilder kpackGemmFilterTransform =
-          BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
+      BottomUpTMBuilder kpackGemmFilterTransform =
+          BottomUpTMBuilder::above(sourceTransform, sourceTransformAttr);
       // Passthrough gemmG (dim 0) and gemmM (dim 2).
       kpackGemmFilterTransform.passThrough(sourceTransform.endName(0));
       kpackGemmFilterTransform.passThrough(sourceTransform.endName(2));
@@ -1312,7 +1313,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // - Pass through ni, gi, and ci, not renaming them
     // - Padd hi and wi as specified in padding attributes, renaming them to
     // hipad and wipad
-    BottomUpCTBuilder padInputTransform(b, inputNames, inputShape, loc);
+    BottomUpTMBuilder padInputTransform(b, inputNames, inputShape, loc);
     padInputTransform.passThrough("ni");
     padInputTransform.passThrough("gi");
     padInputTransform.passThrough("ci");
@@ -1339,9 +1340,9 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     llvm::StringMap<uint32_t> embeddedInputDims = expandNamesInPlace(
         padInputTransform, {{"hipad", {"y", "ho"}}, {"wipad", {"x", "wo"}}});
-    BottomUpCTBuilder embedInputTransform =
-        BottomUpCTBuilder::above(padInputTransform, padInputTransformAttr);
-    BottomUpCTTopDimsWrapper embedInputWrap(embedInputTransform,
+    BottomUpTMBuilder embedInputTransform =
+        BottomUpTMBuilder::above(padInputTransform, padInputTransformAttr);
+    BottomUpTMTopDimsWrapper embedInputWrap(embedInputTransform,
                                             std::move(embeddedInputDims));
     embedInputWrap.passThrough({"ni", "gi", "ci"});
     embedInputWrap.embed({"y", "ho"}, {y, ho}, "hipad", {dilationH, strideH});
@@ -1363,7 +1364,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // - Part 2: Merge ci, y, x dimensions to dimension 2, name it as gemmN.
 
     auto gemmInputTransform =
-        BottomUpCTBuilder::above(embedInputTransform, embedInputTransformAttr);
+        BottomUpTMBuilder::above(embedInputTransform, embedInputTransformAttr);
     gemmInputTransform.passThrough({"gemmG"}, {0}, {"gi"});
 
     llvm::SmallVector<StringRef, 3> nonNHWDims = {"ci", "y", "x"};
@@ -1394,7 +1395,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     Value gemmInput =
         b.create<TransformOp>(loc, embeddedInput, gemmInputTransformAttr);
 
-    BottomUpCTBuilder padGemmInputTransform = gemmInputTransform;
+    BottomUpTMBuilder padGemmInputTransform = gemmInputTransform;
     TransformMapAttr padGemmInputTransformAttr = gemmInputTransformAttr;
     Value gemmInputPad = gemmInput;
 
@@ -1418,7 +1419,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     if (inputCheckPadGemmK || inputCheckPadGemmN) {
       isInputPad = true;
       padGemmInputTransform =
-          BottomUpCTBuilder::above(gemmInputTransform, gemmInputTransformAttr);
+          BottomUpTMBuilder::above(gemmInputTransform, gemmInputTransformAttr);
       padGemmInputTransform.passThrough("gemmG");
       if (inputCheckPadGemmK) {
         padGemmInputTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
@@ -1443,14 +1444,14 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     if ((KPack > 1) && ((convOpType == ConvOpType::Fwd) ||
                         (convOpType == ConvOpType::BwdWeight))) {
-      BottomUpCTBuilder sourceTransform =
+      BottomUpTMBuilder sourceTransform =
           (isInputPad) ? padGemmInputTransform : gemmInputTransform;
       TransformMapAttr sourceTransformAttr =
           (isInputPad) ? padGemmInputTransformAttr : gemmInputTransformAttr;
       Value source = (isInputPad) ? gemmInputPad : gemmInput;
 
-      BottomUpCTBuilder kpackGemmInputTransform =
-          BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
+      BottomUpTMBuilder kpackGemmInputTransform =
+          BottomUpTMBuilder::above(sourceTransform, sourceTransformAttr);
       // Passthrough gemmG (dim 0) and gemmN (dim 2).
       kpackGemmInputTransform.passThrough(sourceTransform.endName(0));
       kpackGemmInputTransform.passThrough(sourceTransform.endName(2));
@@ -1480,7 +1481,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       if (name != "go" && name != "ko")
         outputNonKDims.push_back(name);
 
-    BottomUpCTBuilder outputTransform(b, outputNames, outputShape, loc);
+    BottomUpTMBuilder outputTransform(b, outputNames, outputShape, loc);
     outputTransform.passThrough({"gemmG"}, {0}, {"go"});
     switch (convOpType) {
     case ConvOpType::Fwd:
@@ -1500,7 +1501,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     Value gemmOutput =
         b.create<TransformOp>(loc, op.output(), outputTransformAttr);
 
-    BottomUpCTBuilder padGemmOutputTransform = outputTransform;
+    BottomUpTMBuilder padGemmOutputTransform = outputTransform;
     TransformMapAttr padGemmOutputTransformAttr = outputTransformAttr;
     Value gemmOutputPad = gemmOutput;
 
@@ -1525,7 +1526,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     if (outputCheckPadGemmK || outputCheckPadGemmM || outputCheckPadGemmN) {
       isOutputPad = true;
       padGemmOutputTransform =
-          BottomUpCTBuilder::above(outputTransform, outputTransformAttr);
+          BottomUpTMBuilder::above(outputTransform, outputTransformAttr);
       padGemmOutputTransform.passThrough("gemmG");
 
       if (outputCheckPadGemmK) {
@@ -1556,14 +1557,14 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     Value gemmOutputKPack = gemmOutputPad;
 
     if ((KPack > 1) && (convOpType == ConvOpType::BwdWeight)) {
-      BottomUpCTBuilder sourceTransform =
+      BottomUpTMBuilder sourceTransform =
           (isOutputPad) ? padGemmOutputTransform : outputTransform;
       TransformMapAttr sourceTransformAttr =
           (isOutputPad) ? padGemmOutputTransformAttr : outputTransformAttr;
       Value source = (isOutputPad) ? gemmOutputPad : gemmOutput;
 
-      BottomUpCTBuilder kpackGemmOutputTransform =
-          BottomUpCTBuilder::above(sourceTransform, sourceTransformAttr);
+      BottomUpTMBuilder kpackGemmOutputTransform =
+          BottomUpTMBuilder::above(sourceTransform, sourceTransformAttr);
       // Passthrough gemmG (dim 0) and gemmM (dim 2).
       kpackGemmOutputTransform.passThrough(sourceTransform.endName(0));
       kpackGemmOutputTransform.passThrough(sourceTransform.endName(2));

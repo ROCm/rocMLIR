@@ -23,6 +23,7 @@
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/XdlopsCodeSelection.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
@@ -104,7 +105,7 @@ ArrayAttr makeLinearDomain(OpBuilder &b, Location loc,
   SmallVector<StringRef, 5> dimNameRefs;
   dimNameRefs.reserve(nDims);
   llvm::copy(dimNames, std::back_inserter(dimNameRefs));
-  TopDownCTBuilder builder(b, dimNameRefs, sliceLengths, loc);
+  TopDownTMBuilder builder(b, dimNameRefs, sliceLengths, loc);
   builder.embed("iter", 0, stride, dimNameRefs, strides);
   TransformMapAttr ret = builder.get();
   return b.getArrayAttr(ret);
@@ -330,7 +331,7 @@ Value sliceBufferSubview(OpBuilder &b, Location loc, Value buffer,
   ArrayRef<int64_t> shape = bufferType.getShape();
 
   int64_t end = start + length;
-  BottomUpCTBuilder transform(b, {"buffer"}, shape, loc);
+  BottomUpTMBuilder transform(b, {"buffer"}, shape, loc);
   transform.slice({"slice"}, {"buffer"}, {start}, {end});
 
   TransformMapAttr transformAttr = transform.get();
@@ -365,7 +366,7 @@ Value reshapeBufferSubview(OpBuilder &b, Location loc, Value buffer,
     nameRefs.push_back(StringRef(names[i]));
   }
 
-  TopDownCTBuilder transform(b, nameRefs, shape, loc);
+  TopDownTMBuilder transform(b, nameRefs, shape, loc);
   transform.embed("slice", 0, outShape[0], nameRefs, strides);
 
   TransformMapAttr transformAttr = transform.get();
@@ -1303,7 +1304,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Build transformation that unsplits the output matrix for writing
     // by (g, m0, m1, n0, n1) -> (g, m0 * M1 + m1, n0 * N1, n1)
-    TopDownCTBuilder cSplitTransform(b, {"G", "M0", "M1", "N0", "N1"},
+    TopDownTMBuilder cSplitTransform(b, {"G", "M0", "M1", "N0", "N1"},
                                      {G, M0, M1, N0, N1}, loc);
     cSplitTransform.passThrough({"gemmG"}, {0}, {"G"});
     cSplitTransform.embed("gemmM", 1, M1 * M0, {"M0", "M1"}, {M1, 1});
@@ -1317,7 +1318,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     //  (g, m0, m1, n0, n1) -> (g, m0 * MPerThread + m1, n0 * NPerThread + n1)
     SmallVector<int64_t, 5> copyBounds = {1, GemmMRepeat, MPerThread,
                                           GemmNRepeat, NPerThread};
-    TopDownCTBuilder registerCTransform(
+    TopDownTMBuilder registerCTransform(
         b, {"g", "gemmMRepeat", "mPerThread", "gemmNRepeat", "nPerThread"},
         copyBounds, loc);
     registerCTransform.passThrough({"gemmG"}, {0}, {"g"});
@@ -2460,7 +2461,7 @@ struct GridwiseGemmV2RewritePattern
       // unchanged and becomes
       //  (d0, d1, d2, d3, d4, d5) ->
       //  (d0, d1 * M1 * M2 + d2 * M2 + d3, d4 * N1 + d5)
-      TopDownCTBuilder splitCTransform(b, {"G", "M0", "M1", "M2", "N0", "N1"},
+      TopDownTMBuilder splitCTransform(b, {"G", "M0", "M1", "M2", "N0", "N1"},
                                        {G, M0, M1, M2, N0, N1}, loc);
       splitCTransform.passThrough({"gemmG"}, {0}, {"G"});
       splitCTransform.embed("gemmM", 1, M, {"M0", "M1", "M2"},
@@ -2476,7 +2477,7 @@ struct GridwiseGemmV2RewritePattern
       // to 4 successive M values.
       // The source vector reading map is therefore
       //  (g, m0, m1, m2, n0, n1) -> (m0 * N1 + n1)
-      TopDownCTBuilder cVectorAccessTransform(
+      TopDownTMBuilder cVectorAccessTransform(
           b, {"G", "M0", "M1", "M2", "N0", "N1"}, {G, M0, M1, M2, N0, N1}, loc);
       cVectorAccessTransform.embed("raw", 0, M3 * N1,
                                    {"G", "M0", "M1", "M2", "N0", "N1"},
@@ -2495,7 +2496,7 @@ struct GridwiseGemmV2RewritePattern
     } else {
       // build affine expression: d0 = g
       // (d0, d1, d2, d3, d4) -> (d0, d1 * M1 * M2 + d2 * M2 + d3, d4)
-      TopDownCTBuilder splitCTransform(b, {"G", "M0", "M1", "M2", "N"},
+      TopDownTMBuilder splitCTransform(b, {"G", "M0", "M1", "M2", "N"},
                                        {G, M0, M1, M2, N}, loc);
       splitCTransform.passThrough({"gemmG"}, {0}, {"G"});
       splitCTransform.embed("gemmM", 1, M, {"M0", "M1", "M2"},
@@ -2506,7 +2507,7 @@ struct GridwiseGemmV2RewritePattern
 
       // The source vector reading map is
       //  (g, m0, m1, m2, n) -> (m0 * M2 + m2)
-      TopDownCTBuilder cVectorAccessTransform(b, {"G", "M0", "M1", "M2", "N"},
+      TopDownTMBuilder cVectorAccessTransform(b, {"G", "M0", "M1", "M2", "N"},
                                               {G, M0, M1, M2, N}, loc);
       cVectorAccessTransform.embed("raw", 0, M3 * M2,
                                    {"G", "M0", "M1", "M2", "N"},
