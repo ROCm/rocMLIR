@@ -55,8 +55,12 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Debug.h"
+
 #include <iterator>
 #include <numeric>
+
+#define DEBUG_TYPE "miopen-threadwise-to-stdlib"
 
 using namespace mlir;
 using namespace mlir::arith;
@@ -556,13 +560,6 @@ struct IndexDiffUpdateRewritePattern
     //       lower_indices_updated = lower_indices_carrychecked
     //
 
-    // llvm::errs() << "Transform metadata:\n";
-    // llvm::errs() << transformMetadata << "\n";
-    // llvm::errs() << "Upper indices diff size: "
-    //              << upperIndicesDiff.size() << "\n";
-    // llvm::errs() << "Lower indices original size: "
-    //              << lowerIndicesOriginal.size() << "\n\n";
-
     // Look into layout attribute inside transform metadata.
 
     // lower level diff map
@@ -591,9 +588,11 @@ struct IndexDiffUpdateRewritePattern
       return b.create<AddIOp>(loc, original, diff);
     };
 
+    LLVM_DEBUG(llvm::dbgs()
+               << "Applying index diffs to " << transformMap << "\n");
     // Iterate through all transformations specified in g.
     for (auto mapping : transformMap.getOps()) {
-      // llvm::errs() << "f: " << f << "\n";
+      LLVM_DEBUG(llvm::dbgs() << "transform: " << mapping << "\n");
 
       // Obtain transformation information from f.
       TransformType transformation = mapping.getType();
@@ -1064,16 +1063,17 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
                          b.create<ConstantIndexOp>(loc, ldsOffsetB / KPack));
 
     // Logic to do XDLOPS code selection.
-    // llvm::errs() << "Invoke XDLOPS code selection logic:\n";
-    // llvm::errs() << "dataType: "; dataType.dump(); llvm::errs() << "\n";
-    // llvm::errs() << "MPerWave: " << MPerWave << "\n";
-    // llvm::errs() << "NPerWave: " << NPerWave << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "Invoke XDLOPS code selection logic:\n"
+                            << "dataType: " << dataType << "\n"
+                            << "MPerWave: " << MPerWave << "\n"
+                            << "NPerWave: " << NPerWave << "\n");
 
     XdlopsCodeSelection xcs =
         XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 
     // Extract values from XdlopsCodeSelection.
     StringRef mfmaInstr = xcs.mfmaInstr;
+    LLVM_DEBUG(llvm::dbgs() << "Selected xdlop: " << mfmaInstr << "\n");
     int64_t MPerXdlops = xcs.MPerXdlops;
     int64_t NPerXdlops = xcs.NPerXdlops;
     int64_t MRepeats = xcs.MRepeats;
@@ -1107,12 +1107,13 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
     int64_t KRepeats = KPack / k_base;
     if (KRepeats == 0)
       KRepeats = 1;
-    // llvm::errs() << "argVectorType: " << argType << "\n";
-    // llvm::errs() << "k_base: " << k_base << "\n";
-    // llvm::errs() << "KRepeats: " << KRepeats << "\n";
-    // llvm::errs() << "K: " << K << "\n";
-    // llvm::errs() << "bufferA type: " << op.bufferA().getType() << "\n";
-    // llvm::errs() << "bufferB type: " << op.bufferB().getType() << "\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "argVectorType: " << argType << "\n"
+               << "k_base: " << k_base << "\n"
+               << "KRepeats: " << KRepeats << "\n"
+               << "K: " << K << "\n"
+               << "bufferA type: " << op.bufferA().getType() << "\n"
+               << "bufferB type: " << op.bufferB().getType() << "\n");
 
     auto MPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, MPerXdlops);
     auto NPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, NPerXdlops);

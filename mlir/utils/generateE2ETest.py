@@ -80,7 +80,7 @@ if __name__ == '__main__':
             sys.exit(2)
 
     # Load the configuration file
-    with open(config_file, encoding="utf-8") as f:
+    with open(config_file, 'rb') as f:
         try:
             toml_dict = tomli.load(f)
         except tomli.TOMLDecodeError:

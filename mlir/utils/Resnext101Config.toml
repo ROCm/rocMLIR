@@ -44,11 +44,13 @@ config = "-batchsize=64 -groupsize=32 -in_channels=512 -in_h=28 -in_w=28 -out_ch
 [[suite.test]]
 config = "-batchsize=64 -groupsize=1 -in_channels=1024 -in_h=14 -in_w=14 -out_channels=1024 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=1 --conv_stride_w=1 --padding_h=0 --padding_w=0"
 
-[[suite.test]]
-config = "-batchsize=64 -groupsize=1 -in_channels=1024 -in_h=14 -in_w=14 -out_channels=2048 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=2 --conv_stride_w=2 --padding_h=0 --padding_w=0"
+# Resnext101 #9: Exact duplicate of Resnet50 #1
+# [[suite.test]]
+# config = "-batchsize=64 -groupsize=1 -in_channels=1024 -in_h=14 -in_w=14 -out_channels=2048 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=2 --conv_stride_w=2 --padding_h=0 --padding_w=0"
 
-[[suite.test]]
-config = "-batchsize=64 -groupsize=1 -in_channels=1024 -in_h=14 -in_w=14 -out_channels=512 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=1 --conv_stride_w=1 --padding_h=0 --padding_w=0"
+# Resnext101 #10: Exact duplicate of Resnet50 #3
+# [[suite.test]]
+# config = "-batchsize=64 -groupsize=1 -in_channels=1024 -in_h=14 -in_w=14 -out_channels=512 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=1 --conv_stride_w=1 --padding_h=0 --padding_w=0"
 
 [[suite.test]]
 config = "-batchsize=64 -groupsize=1 -in_channels=1024 -in_h=7 -in_w=7 -out_channels=2048 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=1 --conv_stride_w=1 --padding_h=0 --padding_w=0"
@@ -62,29 +64,34 @@ config = "-batchsize=64 -groupsize=1 -in_channels=2048 -in_h=7 -in_w=7 -out_chan
 [[suite.test]]
 config = "-batchsize=64 -groupsize=1 -in_channels=256 -in_h=28 -in_w=28 -out_channels=512 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=1 --conv_stride_w=1 --padding_h=0 --padding_w=0"
 
-[[suite.test]]
-config = "-batchsize=64 -groupsize=1 -in_channels=256 -in_h=56 -in_w=56 -out_channels=128 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=1 --conv_stride_w=1 --padding_h=0 --padding_w=0"
+# Resnext101 #15: Exact duplicate of Resnet50 #11
+# [[suite.test]]
+# config = "-batchsize=64 -groupsize=1 -in_channels=256 -in_h=56 -in_w=56 -out_channels=128 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=1 --conv_stride_w=1 --padding_h=0 --padding_w=0"
 
 [[suite.test]]
 config = "-batchsize=64 -groupsize=1 -in_channels=256 -in_h=56 -in_w=56 -out_channels=256 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=1 --conv_stride_w=1 --padding_h=0 --padding_w=0"
 
-[[suite.test]]
-config = "-batchsize=64 -groupsize=1 -in_channels=256 -in_h=56 -in_w=56 -out_channels=512 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=2 --conv_stride_w=2 --padding_h=0 --padding_w=0"
+# Resnext101 #17: Exact duplicate of Resnet50 #12
+# [[suite.test]]
+# config = "-batchsize=64 -groupsize=1 -in_channels=256 -in_h=56 -in_w=56 -out_channels=512 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=2 --conv_stride_w=2 --padding_h=0 --padding_w=0"
 
 [[suite.test]]
 config = "-batchsize=64 -groupsize=1 -in_channels=512 -in_h=14 -in_w=14 -out_channels=1024 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=1 --conv_stride_w=1 --padding_h=0 --padding_w=0"
 
-[[suite.test]]
-config = "-batchsize=64 -groupsize=1 -in_channels=512 -in_h=28 -in_w=28 -out_channels=1024 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=2 --conv_stride_w=2 --padding_h=0 --padding_w=0"
+# Resnext101 #19: Exact duplicate of Resnet50 #15
+# [[suite.test]]
+# config = "-batchsize=64 -groupsize=1 -in_channels=512 -in_h=28 -in_w=28 -out_channels=1024 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=2 --conv_stride_w=2 --padding_h=0 --padding_w=0"
 
-[[suite.test]]
-config = "-batchsize=64 -groupsize=1 -in_channels=512 -in_h=28 -in_w=28 -out_channels=256 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=1 --conv_stride_w=1 --padding_h=0 --padding_w=0"
+# Resnext101 #20: Exact duplicate of Resnet50 #17
+# [[suite.test]]
+# config = "-batchsize=64 -groupsize=1 -in_channels=512 -in_h=28 -in_w=28 -out_channels=256 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=1 --conv_stride_w=1 --padding_h=0 --padding_w=0"
 
 [[suite.test]]
 config = "-batchsize=64 -groupsize=1 -in_channels=64 -in_h=56 -in_w=56 -out_channels=128 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=1 --conv_stride_w=1 --padding_h=0 --padding_w=0"
 
-[[suite.test]]
-config = "-batchsize=64 -groupsize=1 -in_channels=64 -in_h=56 -in_w=56 -out_channels=256 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=1 --conv_stride_w=1 --padding_h=0 --padding_w=0"
+# Resnext101 #22: Exact duplicate of Resnet50 config #20
+# [[suite.test]]
+# config = "-batchsize=64 -groupsize=1 -in_channels=64 -in_h=56 -in_w=56 -out_channels=256 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=1 --conv_stride_w=1 --padding_h=0 --padding_w=0"
 
 [[suite.test]]
 config = "-batchsize=256 -groupsize=1 -in_channels=3 -in_h=224 -in_w=224 -out_channels=64 -fil_h=7 -fil_w=7 --dilation_h=1 --dilation_w=1 --conv_stride_h=2 --conv_stride_w=2 --padding_h=3 --padding_w=3"
