@@ -25,7 +25,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     MLIRToLLVMIRTranslationRegistration
     MLIRTestDialect
     MLIRTransforms
-    MLIRTranslation
+    MLIRTranslateLib
   )
 
   add_llvm_tool(mlir-rocm-runner

@@ -1,8 +1,11 @@
-// RUN: mlir-opt %s --tosa-to-linalg-named --tosa-to-linalg --tosa-to-standard \
-// RUN:   -arith-bufferize -linalg-bufferize \
-// RUN:   -tensor-bufferize -func-bufferize -finalizing-bufferize --convert-linalg-to-loops \
-// RUN:   --tosa-to-standard -lower-affine -convert-linalg-to-llvm --convert-scf-to-cf \
-// RUN:   --convert-math-to-llvm --convert-std-to-llvm --reconcile-unrealized-casts \
+// RUN: mlir-opt %s -pass-pipeline="func.func(tosa-to-linalg-named)" \
+// RUN: -pass-pipeline="func.func(tosa-to-linalg)" --tosa-to-tensor \
+// RUN: -tosa-to-arith -arith-bufferize \
+// RUN: -linalg-comprehensive-module-bufferize="allow-return-allocs" \
+// RUN: -linalg-bufferize -vector-bufferize -tensor-bufferize \
+// RUN: -func-bufferize -finalizing-bufferize --convert-linalg-to-loops \
+// RUN: -lower-affine -convert-linalg-to-llvm --convert-scf-to-cf \
+// RUN: -convert-math-to-llvm --convert-func-to-llvm --reconcile-unrealized-casts \
 // RUN: | mlir-cpu-runner -e main -entry-point-result=void \
 // RUN:   -shared-libs=%mlir_runner_utils_dir/libmlir_runner_utils%shlibext \
 // RUN:   -shared-libs=%mlir_runner_utils_dir/libmlir_c_runner_utils%shlibext \
@@ -16,11 +19,14 @@
 // CHECK-NEXT:     [0.214844,     0.595831],
 // CHECK-NEXT:     [0.0928252,     0.721703],
 //
-// RUN: mlir-opt %s --tosa-partition --tosa-to-linalg-named --tosa-to-linalg --tosa-to-standard \
-// RUN:   -arith-bufferize -linalg-bufferize \
-// RUN:   -tensor-bufferize -func-bufferize -finalizing-bufferize --convert-linalg-to-loops \
-// RUN:   --tosa-to-standard -lower-affine -convert-linalg-to-llvm --convert-scf-to-cf \
-// RUN:   --convert-math-to-llvm --convert-std-to-llvm --reconcile-unrealized-casts \
+// RUN: mlir-opt %s --tosa-partition --pass-pipeline="func.func(tosa-to-linalg-named)" \ 
+// RUN: -pass-pipeline="func.func(tosa-to-linalg)" --tosa-to-tensor \
+// RUN: -tosa-to-arith -arith-bufferize \
+// RUN: -linalg-comprehensive-module-bufferize="allow-return-allocs" \
+// RUN: -linalg-bufferize -vector-bufferize -tensor-bufferize \
+// RUN: -func-bufferize -finalizing-bufferize --convert-linalg-to-loops \
+// RUN: -lower-affine -convert-linalg-to-llvm --convert-scf-to-cf \
+// RUN: --convert-math-to-llvm --convert-func-to-llvm --reconcile-unrealized-casts \
 // RUN: | mlir-cpu-runner -e main -entry-point-result=void \
 // RUN:   -shared-libs=%mlir_runner_utils_dir/libmlir_runner_utils%shlibext \
 // RUN:   -shared-libs=%mlir_runner_utils_dir/libmlir_c_runner_utils%shlibext \

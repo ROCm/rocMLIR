@@ -25,7 +25,7 @@ target_link_libraries(miopen-translate
   MLIRPass
   MLIRSPIRV
   MLIRTosaToMIOpen
-  MLIRTranslation
+  MLIRTranslateLib
   MLIRSupport
   MLIRROCDLToLLVMIRTranslation
   GpuModuleToRocdlirTranslation

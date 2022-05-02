@@ -82,6 +82,11 @@ LLVMContext::LLVMContext() : pImpl(new LLVMContextImpl(*this)) {
          "clang.arc.attachedcall operand bundle id drifted!");
   (void)ClangAttachedCall;
 
+  auto *PtrauthEntry = pImpl->getOrInsertBundleTag("ptrauth");
+  assert(PtrauthEntry->second == LLVMContext::OB_ptrauth &&
+         "ptrauth operand bundle id drifted!");
+  (void)PtrauthEntry;
+
   SyncScope::ID SingleThreadSSID =
       pImpl->getOrInsertSyncScopeID("singlethread");
   assert(SingleThreadSSID == SyncScope::SingleThread &&
@@ -346,10 +351,12 @@ std::unique_ptr<DiagnosticHandler> LLVMContext::getDiagnosticHandler() {
   return std::move(pImpl->DiagHandler);
 }
 
-void LLVMContext::enableOpaquePointers() const {
-  assert(pImpl->PointerTypes.empty() && pImpl->ASPointerTypes.empty() &&
-         "Must be called before creating any pointer types");
-  pImpl->setOpaquePointers(true);
+bool LLVMContext::hasSetOpaquePointersValue() const {
+  return pImpl->hasOpaquePointersValue();
+}
+
+void LLVMContext::setOpaquePointers(bool Enable) const {
+  pImpl->setOpaquePointers(Enable);
 }
 
 bool LLVMContext::supportsTypedPointers() const {

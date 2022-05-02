@@ -38,6 +38,10 @@ void RISCVTargetStreamer::emitTextAttribute(unsigned Attribute,
 void RISCVTargetStreamer::emitIntTextAttribute(unsigned Attribute,
                                                unsigned IntValue,
                                                StringRef StringValue) {}
+void RISCVTargetStreamer::setTargetABI(RISCVABI::ABI ABI) {
+  assert(ABI != RISCVABI::ABI_Unknown && "Improperly initialized target ABI");
+  TargetABI = ABI;
+}
 
 void RISCVTargetStreamer::emitTargetAttributes(const MCSubtargetInfo &STI) {
   if (STI.hasFeature(RISCV::FeatureRV32E))
@@ -48,9 +52,7 @@ void RISCVTargetStreamer::emitTargetAttributes(const MCSubtargetInfo &STI) {
   auto ParseResult = RISCVFeatures::parseFeatureBits(
       STI.hasFeature(RISCV::Feature64Bit), STI.getFeatureBits());
   if (!ParseResult) {
-    /* Assume any error about features should handled earlier.  */
-    consumeError(ParseResult.takeError());
-    llvm_unreachable("Parsing feature error when emitTargetAttributes?");
+    report_fatal_error(ParseResult.takeError());
   } else {
     auto &ISAInfo = *ParseResult;
     emitTextAttribute(RISCVAttrs::ARCH, ISAInfo->toString());

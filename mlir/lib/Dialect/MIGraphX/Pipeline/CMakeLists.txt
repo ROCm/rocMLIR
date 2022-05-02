@@ -3,6 +3,7 @@ add_mlir_dialect_library(MLIRMIGraphXPipeline
 
   LINK_LIBS PUBLIC
   MLIRDialect
+  MLIRFunc
   LLVMROCmBackendUtils
   MLIRGPUToROCDLTransforms
   MLIRMIGraphXToTosa
@@ -10,7 +11,6 @@ add_mlir_dialect_library(MLIRMIGraphXPipeline
   MLIRIR
   MLIRPass
   MLIRLLVMIR
-  MLIRStandard
   MLIRAffineToStandard
   MLIRMIOpenOps
   MLIRMIOpenTuning

@@ -13,6 +13,7 @@ define i32 @foo(i32 %a, i32 %b) {
 ; ENABLE-NEXT:    b.ge LBB0_2
 ; ENABLE-NEXT:  ; %bb.1: ; %true
 ; ENABLE-NEXT:    sub sp, sp, #32
+; ENABLE-NEXT:    .cfi_def_cfa_offset 32
 ; ENABLE-NEXT:    stp x29, x30, [sp, #16] ; 16-byte Folded Spill
 ; ENABLE-NEXT:    add x29, sp, #16
 ; ENABLE-NEXT:    .cfi_def_cfa w29, 16
@@ -25,11 +26,15 @@ define i32 @foo(i32 %a, i32 %b) {
 ; ENABLE-NEXT:    ldp x29, x30, [sp, #16] ; 16-byte Folded Reload
 ; ENABLE-NEXT:    add sp, sp, #32
 ; ENABLE-NEXT:  LBB0_2: ; %false
+; ENABLE-NEXT:    .cfi_def_cfa wsp, 0
+; ENABLE-NEXT:    .cfi_same_value w30
+; ENABLE-NEXT:    .cfi_same_value w29
 ; ENABLE-NEXT:    ret
 ;
 ; DISABLE-LABEL: foo:
 ; DISABLE:       ; %bb.0:
 ; DISABLE-NEXT:    sub sp, sp, #32
+; DISABLE-NEXT:    .cfi_def_cfa_offset 32
 ; DISABLE-NEXT:    stp x29, x30, [sp, #16] ; 16-byte Folded Spill
 ; DISABLE-NEXT:    add x29, sp, #16
 ; DISABLE-NEXT:    .cfi_def_cfa w29, 16
@@ -72,6 +77,7 @@ define i32 @freqSaveAndRestoreOutsideLoop(i32 %cond, i32 %N) {
 ; ENABLE-NEXT:    cbz w0, LBB1_4
 ; ENABLE-NEXT:  ; %bb.1: ; %for.body.preheader
 ; ENABLE-NEXT:    stp x20, x19, [sp, #-32]! ; 16-byte Folded Spill
+; ENABLE-NEXT:    .cfi_def_cfa_offset 32
 ; ENABLE-NEXT:    stp x29, x30, [sp, #16] ; 16-byte Folded Spill
 ; ENABLE-NEXT:    add x29, sp, #16
 ; ENABLE-NEXT:    .cfi_def_cfa w29, 16
@@ -93,12 +99,18 @@ define i32 @freqSaveAndRestoreOutsideLoop(i32 %cond, i32 %N) {
 ; ENABLE-NEXT:    ldp x20, x19, [sp], #32 ; 16-byte Folded Reload
 ; ENABLE-NEXT:    ret
 ; ENABLE-NEXT:  LBB1_4: ; %if.else
+; ENABLE-NEXT:    .cfi_def_cfa wsp, 0
+; ENABLE-NEXT:    .cfi_same_value w30
+; ENABLE-NEXT:    .cfi_same_value w29
+; ENABLE-NEXT:    .cfi_same_value w19
+; ENABLE-NEXT:    .cfi_same_value w20
 ; ENABLE-NEXT:    lsl w0, w1, #1
 ; ENABLE-NEXT:    ret
 ;
 ; DISABLE-LABEL: freqSaveAndRestoreOutsideLoop:
 ; DISABLE:       ; %bb.0: ; %entry
 ; DISABLE-NEXT:    stp x20, x19, [sp, #-32]! ; 16-byte Folded Spill
+; DISABLE-NEXT:    .cfi_def_cfa_offset 32
 ; DISABLE-NEXT:    stp x29, x30, [sp, #16] ; 16-byte Folded Spill
 ; DISABLE-NEXT:    add x29, sp, #16
 ; DISABLE-NEXT:    .cfi_def_cfa w29, 16
@@ -159,6 +171,7 @@ define i32 @freqSaveAndRestoreOutsideLoop2(i32 %cond) {
 ; ENABLE-LABEL: freqSaveAndRestoreOutsideLoop2:
 ; ENABLE:       ; %bb.0: ; %entry
 ; ENABLE-NEXT:    stp x20, x19, [sp, #-32]! ; 16-byte Folded Spill
+; ENABLE-NEXT:    .cfi_def_cfa_offset 32
 ; ENABLE-NEXT:    stp x29, x30, [sp, #16] ; 16-byte Folded Spill
 ; ENABLE-NEXT:    add x29, sp, #16
 ; ENABLE-NEXT:    .cfi_def_cfa w29, 16
@@ -183,6 +196,7 @@ define i32 @freqSaveAndRestoreOutsideLoop2(i32 %cond) {
 ; DISABLE-LABEL: freqSaveAndRestoreOutsideLoop2:
 ; DISABLE:       ; %bb.0: ; %entry
 ; DISABLE-NEXT:    stp x20, x19, [sp, #-32]! ; 16-byte Folded Spill
+; DISABLE-NEXT:    .cfi_def_cfa_offset 32
 ; DISABLE-NEXT:    stp x29, x30, [sp, #16] ; 16-byte Folded Spill
 ; DISABLE-NEXT:    add x29, sp, #16
 ; DISABLE-NEXT:    .cfi_def_cfa w29, 16
@@ -227,6 +241,7 @@ define i32 @loopInfoSaveOutsideLoop(i32 %cond, i32 %N) {
 ; ENABLE-NEXT:    cbz w0, LBB3_4
 ; ENABLE-NEXT:  ; %bb.1: ; %for.body.preheader
 ; ENABLE-NEXT:    stp x20, x19, [sp, #-32]! ; 16-byte Folded Spill
+; ENABLE-NEXT:    .cfi_def_cfa_offset 32
 ; ENABLE-NEXT:    stp x29, x30, [sp, #16] ; 16-byte Folded Spill
 ; ENABLE-NEXT:    add x29, sp, #16
 ; ENABLE-NEXT:    .cfi_def_cfa w29, 16
@@ -249,12 +264,18 @@ define i32 @loopInfoSaveOutsideLoop(i32 %cond, i32 %N) {
 ; ENABLE-NEXT:    ldp x20, x19, [sp], #32 ; 16-byte Folded Reload
 ; ENABLE-NEXT:    ret
 ; ENABLE-NEXT:  LBB3_4: ; %if.else
+; ENABLE-NEXT:    .cfi_def_cfa wsp, 0
+; ENABLE-NEXT:    .cfi_same_value w30
+; ENABLE-NEXT:    .cfi_same_value w29
+; ENABLE-NEXT:    .cfi_same_value w19
+; ENABLE-NEXT:    .cfi_same_value w20
 ; ENABLE-NEXT:    lsl w0, w1, #1
 ; ENABLE-NEXT:    ret
 ;
 ; DISABLE-LABEL: loopInfoSaveOutsideLoop:
 ; DISABLE:       ; %bb.0: ; %entry
 ; DISABLE-NEXT:    stp x20, x19, [sp, #-32]! ; 16-byte Folded Spill
+; DISABLE-NEXT:    .cfi_def_cfa_offset 32
 ; DISABLE-NEXT:    stp x29, x30, [sp, #16] ; 16-byte Folded Spill
 ; DISABLE-NEXT:    add x29, sp, #16
 ; DISABLE-NEXT:    .cfi_def_cfa w29, 16
@@ -313,14 +334,20 @@ declare void @somethingElse(...)
 
 ; Check with a more complex case that we do not have restore within the loop and
 ; save outside.
-define i32 @loopInfoRestoreOutsideLoop(i32 %cond, i32 %N) nounwind {
+define i32 @loopInfoRestoreOutsideLoop(i32 %cond, i32 %N) nounwind uwtable {
 ; ENABLE-LABEL: loopInfoRestoreOutsideLoop:
 ; ENABLE:       ; %bb.0: ; %entry
 ; ENABLE-NEXT:    cbz w0, LBB4_4
 ; ENABLE-NEXT:  ; %bb.1: ; %if.then
 ; ENABLE-NEXT:    stp x20, x19, [sp, #-32]! ; 16-byte Folded Spill
+; ENABLE-NEXT:    .cfi_def_cfa_offset 32
 ; ENABLE-NEXT:    stp x29, x30, [sp, #16] ; 16-byte Folded Spill
 ; ENABLE-NEXT:    add x29, sp, #16
+; ENABLE-NEXT:    .cfi_def_cfa w29, 16
+; ENABLE-NEXT:    .cfi_offset w30, -8
+; ENABLE-NEXT:    .cfi_offset w29, -16
+; ENABLE-NEXT:    .cfi_offset w19, -24
+; ENABLE-NEXT:    .cfi_offset w20, -32
 ; ENABLE-NEXT:    bl _somethingElse
 ; ENABLE-NEXT:    mov w19, wzr
 ; ENABLE-NEXT:    mov w20, #10
@@ -336,14 +363,25 @@ define i32 @loopInfoRestoreOutsideLoop(i32 %cond, i32 %N) nounwind {
 ; ENABLE-NEXT:    ldp x20, x19, [sp], #32 ; 16-byte Folded Reload
 ; ENABLE-NEXT:    ret
 ; ENABLE-NEXT:  LBB4_4: ; %if.else
+; ENABLE-NEXT:    .cfi_def_cfa wsp, 0
+; ENABLE-NEXT:    .cfi_same_value w30
+; ENABLE-NEXT:    .cfi_same_value w29
+; ENABLE-NEXT:    .cfi_same_value w19
+; ENABLE-NEXT:    .cfi_same_value w20
 ; ENABLE-NEXT:    lsl w0, w1, #1
 ; ENABLE-NEXT:    ret
 ;
 ; DISABLE-LABEL: loopInfoRestoreOutsideLoop:
 ; DISABLE:       ; %bb.0: ; %entry
 ; DISABLE-NEXT:    stp x20, x19, [sp, #-32]! ; 16-byte Folded Spill
+; DISABLE-NEXT:    .cfi_def_cfa_offset 32
 ; DISABLE-NEXT:    stp x29, x30, [sp, #16] ; 16-byte Folded Spill
 ; DISABLE-NEXT:    add x29, sp, #16
+; DISABLE-NEXT:    .cfi_def_cfa w29, 16
+; DISABLE-NEXT:    .cfi_offset w30, -8
+; DISABLE-NEXT:    .cfi_offset w29, -16
+; DISABLE-NEXT:    .cfi_offset w19, -24
+; DISABLE-NEXT:    .cfi_offset w20, -32
 ; DISABLE-NEXT:    cbz w0, LBB4_4
 ; DISABLE-NEXT:  ; %bb.1: ; %if.then
 ; DISABLE-NEXT:    bl _somethingElse
@@ -410,12 +448,13 @@ entry:
 }
 
 ; Check that we handle variadic function correctly.
-define i32 @variadicFunc(i32 %cond, i32 %count, ...) nounwind {
+define i32 @variadicFunc(i32 %cond, i32 %count, ...) nounwind uwtable {
 ; ENABLE-LABEL: variadicFunc:
 ; ENABLE:       ; %bb.0: ; %entry
 ; ENABLE-NEXT:    cbz w0, LBB6_4
 ; ENABLE-NEXT:  ; %bb.1: ; %if.then
 ; ENABLE-NEXT:    sub sp, sp, #16
+; ENABLE-NEXT:    .cfi_def_cfa_offset 16
 ; ENABLE-NEXT:    add x8, sp, #16
 ; ENABLE-NEXT:    cmp w1, #1
 ; ENABLE-NEXT:    str x8, [sp, #8]
@@ -434,12 +473,14 @@ define i32 @variadicFunc(i32 %cond, i32 %count, ...) nounwind {
 ; ENABLE-NEXT:    add sp, sp, #16
 ; ENABLE-NEXT:    ret
 ; ENABLE-NEXT:  LBB6_4: ; %if.else
+; ENABLE-NEXT:    .cfi_def_cfa wsp, 0
 ; ENABLE-NEXT:    lsl w0, w1, #1
 ; ENABLE-NEXT:    ret
 ;
 ; DISABLE-LABEL: variadicFunc:
 ; DISABLE:       ; %bb.0: ; %entry
 ; DISABLE-NEXT:    sub sp, sp, #16
+; DISABLE-NEXT:    .cfi_def_cfa_offset 16
 ; DISABLE-NEXT:    cbz w0, LBB6_4
 ; DISABLE-NEXT:  ; %bb.1: ; %if.then
 ; DISABLE-NEXT:    add x8, sp, #16
@@ -524,6 +565,9 @@ define i32 @inlineAsm(i32 %cond, i32 %N) {
 ; ENABLE-NEXT:    ldp x20, x19, [sp], #16 ; 16-byte Folded Reload
 ; ENABLE-NEXT:    ret
 ; ENABLE-NEXT:  LBB7_4: ; %if.else
+; ENABLE-NEXT:    .cfi_def_cfa wsp, 0
+; ENABLE-NEXT:    .cfi_same_value w19
+; ENABLE-NEXT:    .cfi_same_value w20
 ; ENABLE-NEXT:    lsl w0, w1, #1
 ; ENABLE-NEXT:    ret
 ;
@@ -579,6 +623,7 @@ define i32 @callVariadicFunc(i32 %cond, i32 %N) {
 ; ENABLE-NEXT:    cbz w0, LBB8_2
 ; ENABLE-NEXT:  ; %bb.1: ; %if.then
 ; ENABLE-NEXT:    sub sp, sp, #64
+; ENABLE-NEXT:    .cfi_def_cfa_offset 64
 ; ENABLE-NEXT:    stp x29, x30, [sp, #48] ; 16-byte Folded Spill
 ; ENABLE-NEXT:    add x29, sp, #48
 ; ENABLE-NEXT:    .cfi_def_cfa w29, 16
@@ -594,12 +639,16 @@ define i32 @callVariadicFunc(i32 %cond, i32 %N) {
 ; ENABLE-NEXT:    add sp, sp, #64
 ; ENABLE-NEXT:    ret
 ; ENABLE-NEXT:  LBB8_2: ; %if.else
+; ENABLE-NEXT:    .cfi_def_cfa wsp, 0
+; ENABLE-NEXT:    .cfi_same_value w30
+; ENABLE-NEXT:    .cfi_same_value w29
 ; ENABLE-NEXT:    lsl w0, w1, #1
 ; ENABLE-NEXT:    ret
 ;
 ; DISABLE-LABEL: callVariadicFunc:
 ; DISABLE:       ; %bb.0: ; %entry
 ; DISABLE-NEXT:    sub sp, sp, #64
+; DISABLE-NEXT:    .cfi_def_cfa_offset 64
 ; DISABLE-NEXT:    stp x29, x30, [sp, #48] ; 16-byte Folded Spill
 ; DISABLE-NEXT:    add x29, sp, #48
 ; DISABLE-NEXT:    .cfi_def_cfa w29, 16
@@ -654,6 +703,7 @@ define i32 @noreturn(i8 signext %bad_thing) {
 ; ENABLE-NEXT:    ret
 ; ENABLE-NEXT:  LBB9_2: ; %if.abort
 ; ENABLE-NEXT:    stp x29, x30, [sp, #-16]! ; 16-byte Folded Spill
+; ENABLE-NEXT:    .cfi_def_cfa_offset 16
 ; ENABLE-NEXT:    mov x29, sp
 ; ENABLE-NEXT:    .cfi_def_cfa w29, 16
 ; ENABLE-NEXT:    .cfi_offset w30, -8
@@ -663,6 +713,7 @@ define i32 @noreturn(i8 signext %bad_thing) {
 ; DISABLE-LABEL: noreturn:
 ; DISABLE:       ; %bb.0: ; %entry
 ; DISABLE-NEXT:    stp x29, x30, [sp, #-16]! ; 16-byte Folded Spill
+; DISABLE-NEXT:    .cfi_def_cfa_offset 16
 ; DISABLE-NEXT:    mov x29, sp
 ; DISABLE-NEXT:    .cfi_def_cfa w29, 16
 ; DISABLE-NEXT:    .cfi_offset w30, -8
@@ -702,6 +753,7 @@ define void @infiniteloop() {
 ; ENABLE-LABEL: infiniteloop:
 ; ENABLE:       ; %bb.0: ; %entry
 ; ENABLE-NEXT:    stp x20, x19, [sp, #-32]! ; 16-byte Folded Spill
+; ENABLE-NEXT:    .cfi_def_cfa_offset 32
 ; ENABLE-NEXT:    stp x29, x30, [sp, #16] ; 16-byte Folded Spill
 ; ENABLE-NEXT:    add x29, sp, #16
 ; ENABLE-NEXT:    .cfi_def_cfa w29, 16
@@ -729,6 +781,7 @@ define void @infiniteloop() {
 ; DISABLE-LABEL: infiniteloop:
 ; DISABLE:       ; %bb.0: ; %entry
 ; DISABLE-NEXT:    stp x20, x19, [sp, #-32]! ; 16-byte Folded Spill
+; DISABLE-NEXT:    .cfi_def_cfa_offset 32
 ; DISABLE-NEXT:    stp x29, x30, [sp, #16] ; 16-byte Folded Spill
 ; DISABLE-NEXT:    add x29, sp, #16
 ; DISABLE-NEXT:    .cfi_def_cfa w29, 16
@@ -775,6 +828,7 @@ define void @infiniteloop2() {
 ; ENABLE-LABEL: infiniteloop2:
 ; ENABLE:       ; %bb.0: ; %entry
 ; ENABLE-NEXT:    stp x20, x19, [sp, #-32]! ; 16-byte Folded Spill
+; ENABLE-NEXT:    .cfi_def_cfa_offset 32
 ; ENABLE-NEXT:    stp x29, x30, [sp, #16] ; 16-byte Folded Spill
 ; ENABLE-NEXT:    add x29, sp, #16
 ; ENABLE-NEXT:    .cfi_def_cfa w29, 16
@@ -808,6 +862,7 @@ define void @infiniteloop2() {
 ; DISABLE-LABEL: infiniteloop2:
 ; DISABLE:       ; %bb.0: ; %entry
 ; DISABLE-NEXT:    stp x20, x19, [sp, #-32]! ; 16-byte Folded Spill
+; DISABLE-NEXT:    .cfi_def_cfa_offset 32
 ; DISABLE-NEXT:    stp x29, x30, [sp, #16] ; 16-byte Folded Spill
 ; DISABLE-NEXT:    add x29, sp, #16
 ; DISABLE-NEXT:    .cfi_def_cfa w29, 16
@@ -946,12 +1001,13 @@ define i32 @stack_realign(i32 %a, i32 %b, i32* %ptr1, i32* %ptr2) {
 ; ENABLE-LABEL: stack_realign:
 ; ENABLE:       ; %bb.0:
 ; ENABLE-NEXT:    stp x29, x30, [sp, #-16]! ; 16-byte Folded Spill
+; ENABLE-NEXT:    .cfi_def_cfa_offset 16
 ; ENABLE-NEXT:    mov x29, sp
-; ENABLE-NEXT:    sub x9, sp, #16
-; ENABLE-NEXT:    and sp, x9, #0xffffffffffffffe0
 ; ENABLE-NEXT:    .cfi_def_cfa w29, 16
 ; ENABLE-NEXT:    .cfi_offset w30, -8
 ; ENABLE-NEXT:    .cfi_offset w29, -16
+; ENABLE-NEXT:    sub x9, sp, #16
+; ENABLE-NEXT:    and sp, x9, #0xffffffffffffffe0
 ; ENABLE-NEXT:    lsl w8, w0, w1
 ; ENABLE-NEXT:    lsl w9, w1, w0
 ; ENABLE-NEXT:    cmp w0, w1
@@ -968,12 +1024,13 @@ define i32 @stack_realign(i32 %a, i32 %b, i32* %ptr1, i32* %ptr2) {
 ; DISABLE-LABEL: stack_realign:
 ; DISABLE:       ; %bb.0:
 ; DISABLE-NEXT:    stp x29, x30, [sp, #-16]! ; 16-byte Folded Spill
+; DISABLE-NEXT:    .cfi_def_cfa_offset 16
 ; DISABLE-NEXT:    mov x29, sp
-; DISABLE-NEXT:    sub x9, sp, #16
-; DISABLE-NEXT:    and sp, x9, #0xffffffffffffffe0
 ; DISABLE-NEXT:    .cfi_def_cfa w29, 16
 ; DISABLE-NEXT:    .cfi_offset w30, -8
 ; DISABLE-NEXT:    .cfi_offset w29, -16
+; DISABLE-NEXT:    sub x9, sp, #16
+; DISABLE-NEXT:    and sp, x9, #0xffffffffffffffe0
 ; DISABLE-NEXT:    lsl w8, w0, w1
 ; DISABLE-NEXT:    lsl w9, w1, w0
 ; DISABLE-NEXT:    cmp w0, w1
@@ -1013,14 +1070,13 @@ define void @stack_realign2(i32 %a, i32 %b, i32* %ptr1, i32* %ptr2, i32* %ptr3, 
 ; ENABLE-LABEL: stack_realign2:
 ; ENABLE:       ; %bb.0:
 ; ENABLE-NEXT:    stp x28, x27, [sp, #-96]! ; 16-byte Folded Spill
+; ENABLE-NEXT:    .cfi_def_cfa_offset 96
 ; ENABLE-NEXT:    stp x26, x25, [sp, #16] ; 16-byte Folded Spill
 ; ENABLE-NEXT:    stp x24, x23, [sp, #32] ; 16-byte Folded Spill
 ; ENABLE-NEXT:    stp x22, x21, [sp, #48] ; 16-byte Folded Spill
 ; ENABLE-NEXT:    stp x20, x19, [sp, #64] ; 16-byte Folded Spill
 ; ENABLE-NEXT:    stp x29, x30, [sp, #80] ; 16-byte Folded Spill
 ; ENABLE-NEXT:    add x29, sp, #80
-; ENABLE-NEXT:    sub x9, sp, #32
-; ENABLE-NEXT:    and sp, x9, #0xffffffffffffffe0
 ; ENABLE-NEXT:    .cfi_def_cfa w29, 16
 ; ENABLE-NEXT:    .cfi_offset w30, -8
 ; ENABLE-NEXT:    .cfi_offset w29, -16
@@ -1034,6 +1090,8 @@ define void @stack_realign2(i32 %a, i32 %b, i32* %ptr1, i32* %ptr2, i32* %ptr3, 
 ; ENABLE-NEXT:    .cfi_offset w26, -80
 ; ENABLE-NEXT:    .cfi_offset w27, -88
 ; ENABLE-NEXT:    .cfi_offset w28, -96
+; ENABLE-NEXT:    sub x9, sp, #32
+; ENABLE-NEXT:    and sp, x9, #0xffffffffffffffe0
 ; ENABLE-NEXT:    add w8, w1, w0
 ; ENABLE-NEXT:    lsl w9, w0, w1
 ; ENABLE-NEXT:    lsl w10, w1, w0
@@ -1072,14 +1130,13 @@ define void @stack_realign2(i32 %a, i32 %b, i32* %ptr1, i32* %ptr2, i32* %ptr3, 
 ; DISABLE-LABEL: stack_realign2:
 ; DISABLE:       ; %bb.0:
 ; DISABLE-NEXT:    stp x28, x27, [sp, #-96]! ; 16-byte Folded Spill
+; DISABLE-NEXT:    .cfi_def_cfa_offset 96
 ; DISABLE-NEXT:    stp x26, x25, [sp, #16] ; 16-byte Folded Spill
 ; DISABLE-NEXT:    stp x24, x23, [sp, #32] ; 16-byte Folded Spill
 ; DISABLE-NEXT:    stp x22, x21, [sp, #48] ; 16-byte Folded Spill
 ; DISABLE-NEXT:    stp x20, x19, [sp, #64] ; 16-byte Folded Spill
 ; DISABLE-NEXT:    stp x29, x30, [sp, #80] ; 16-byte Folded Spill
 ; DISABLE-NEXT:    add x29, sp, #80
-; DISABLE-NEXT:    sub x9, sp, #32
-; DISABLE-NEXT:    and sp, x9, #0xffffffffffffffe0
 ; DISABLE-NEXT:    .cfi_def_cfa w29, 16
 ; DISABLE-NEXT:    .cfi_offset w30, -8
 ; DISABLE-NEXT:    .cfi_offset w29, -16
@@ -1093,6 +1150,8 @@ define void @stack_realign2(i32 %a, i32 %b, i32* %ptr1, i32* %ptr2, i32* %ptr3, 
 ; DISABLE-NEXT:    .cfi_offset w26, -80
 ; DISABLE-NEXT:    .cfi_offset w27, -88
 ; DISABLE-NEXT:    .cfi_offset w28, -96
+; DISABLE-NEXT:    sub x9, sp, #32
+; DISABLE-NEXT:    and sp, x9, #0xffffffffffffffe0
 ; DISABLE-NEXT:    add w8, w1, w0
 ; DISABLE-NEXT:    lsl w9, w0, w1
 ; DISABLE-NEXT:    lsl w10, w1, w0

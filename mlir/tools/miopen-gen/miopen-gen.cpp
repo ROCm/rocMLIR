@@ -15,13 +15,13 @@
 #include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/Pipeline.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 #include "mlir/IR/AffineExpr.h"
@@ -36,7 +36,7 @@
 #include "mlir/IR/Types.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
-#include "mlir/Parser.h"
+#include "mlir/Parser/Parser.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"
@@ -369,7 +369,7 @@ struct KernelIF {
   // CTOR w/ FuncOp
   KernelIF(FuncOp _f) : func(_f) {
     assert(func.getNumResults() == 0);
-    for (auto &paramType : func.getType().getInputs())
+    for (auto &paramType : func.getFunctionType().getInputs())
       params.push_back(paramType);
   }
 };
@@ -591,7 +591,7 @@ static FuncOp makeFuncDecl(ModuleOp module, StringRef funcName,
     OpBuilder builder(module.getContext());
     func = FuncOp::create(builder.getUnknownLoc(), funcName,
                           builder.getFunctionType(inputs, results));
-    func.sym_visibilityAttr(builder.getStringAttr("private"));
+    func.setSymVisibilityAttr(builder.getStringAttr("private"));
     module.push_back(func);
   }
 
@@ -681,7 +681,8 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
   // Emit device selection
   if (deviceNum.getNumOccurrences() > 0)
     b.create<gpu::SetDefaultDeviceOp>(
-        loc, b.getI32IntegerAttr(deviceNum.getValue()));
+        loc, b.create<arith::ConstantIntOp>(loc, deviceNum.getValue(),
+                                            b.getIntegerType(32)));
 
   // Emit some constant values for HIP runtime API calls.
   auto oneConstantI32Op =
@@ -759,14 +760,14 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
     cpuMem.push_back(castOp);
 
     // Emit GPU memory allocation function calls.
-    auto gpuAllocOp =
-        b.create<CallOp>(loc, getGpuAllocFunc(elemType), ValueRange{castOp});
+    auto gpuAllocOp = b.create<func::CallOp>(loc, getGpuAllocFunc(elemType),
+                                             ValueRange{castOp});
     mlir::Value gpuAlloc = gpuAllocOp.getResult(0);
     gpuMem.push_back(gpuAlloc);
 
     // Emit CPU->GPU memcpy function calls.
-    b.create<CallOp>(loc, getGpuCopyFunc(elemType),
-                     ValueRange{castOp, gpuAlloc, oneConstantI32Op});
+    b.create<func::CallOp>(loc, getGpuCopyFunc(elemType),
+                           ValueRange{castOp, gpuAlloc, oneConstantI32Op});
 
     auto shape = shapedType.getShape();
     if (shape.size() < 5) {
@@ -801,7 +802,7 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
   }
 
   // Emit kernel function call.
-  auto wrappedCall = b.create<CallOp>(loc, kernel.func, paramCasts);
+  auto wrappedCall = b.create<func::CallOp>(loc, kernel.func, paramCasts);
   wrappedCall->setAttr("wrapped_call", b.getUnitAttr());
 
   i = 0;
@@ -811,15 +812,16 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
       elemType = shapedType.getElementType();
 
     // Emit memref.expand_shape (if needed)
-    b.create<CallOp>(loc, getGpuCopyFunc(elemType),
-                     ValueRange{gpuMem[i], cpuMem[i], twoConstantI32Op});
+    b.create<func::CallOp>(loc, getGpuCopyFunc(elemType),
+                           ValueRange{gpuMem[i], cpuMem[i], twoConstantI32Op});
 
     // Emit GPU dealloc
-    b.create<CallOp>(loc, getGpuDeallocFunc(elemType), ValueRange{gpuMem[i]});
+    b.create<func::CallOp>(loc, getGpuDeallocFunc(elemType),
+                           ValueRange{gpuMem[i]});
     i++;
   }
 
-  b.create<ReturnOp>(loc, ValueRange{});
+  b.create<func::ReturnOp>(loc, ValueRange{});
 
   return gpuWrapperFunc;
 }
@@ -1113,7 +1115,7 @@ createCPUConvFunc(ModuleOp module,
        unrankedLayoutMemRefType, intType, intType, intType, intType, intType,
        intType, intType, intType, intType});
 
-  b.create<CallOp>(
+  b.create<func::CallOp>(
       loc, mcpuConv2dFuncOp,
       ValueRange{filterMemRefCastOp, inputMemRefCastOp, outputMemRefCastOp,
                  filLayoutMemRefCastOp, inLayoutMemRefCastOp,
@@ -1124,7 +1126,7 @@ createCPUConvFunc(ModuleOp module,
                  dilationWidthConstantOp, xdlopsConstantOp});
 
   // Emit return op
-  b.create<ReturnOp>(loc, ValueRange{});
+  b.create<func::ReturnOp>(loc, ValueRange{});
 
   return func;
 }
@@ -1258,7 +1260,7 @@ static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
 
   bt0.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{iv0});
 
-  b.create<ReturnOp>(loc, ValueRange{});
+  b.create<func::ReturnOp>(loc, ValueRange{});
 
   return func;
 }
@@ -1285,7 +1287,8 @@ static void emitMemcpy(OpBuilder &b, mlir::Value src, mlir::Value dst) {
 
   auto cstSize =
       b.create<arith::ConstantIndexOp>(loc, srcType.getNumElements());
-  b.create<CallOp>(loc, memcpyFunc, ValueRange{srcFlat, dstFlat, cstSize});
+  b.create<func::CallOp>(loc, memcpyFunc,
+                         ValueRange{srcFlat, dstFlat, cstSize});
 }
 
 static void emitPrintTensor(OpBuilder &b, mlir::Value var) {
@@ -1309,7 +1312,7 @@ static void emitPrintTensor(OpBuilder &b, mlir::Value var) {
 
   // Emit cast + call print
   auto printCast = b.create<memref::CastOp>(loc, unrankedMRType, pvar);
-  b.create<CallOp>(loc, printFunc, ValueRange{printCast});
+  b.create<func::CallOp>(loc, printFunc, ValueRange{printCast});
 
   if (pvar != var) {
     // dealloc pvar
@@ -1567,15 +1570,16 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
       percentDiffVal =
           thenBody.create<arith::ExtFOp>(loc, floatType, percentDiffVal);
     }
-    thenBody.create<CallOp>(loc, printFunc,
-                            ValueRange{percentDiffVal, cpuPrintVal});
+    thenBody.create<func::CallOp>(loc, printFunc,
+                                  ValueRange{percentDiffVal, cpuPrintVal});
   }
-  thenBody.create<CallOp>(loc, printFunc, ValueRange{gpuPrintVal, cpuPrintVal});
+  thenBody.create<func::CallOp>(loc, printFunc,
+                                ValueRange{gpuPrintVal, cpuPrintVal});
 
   // Emit print function call
   emitPrintTensor(b, cmpResultAllocOp);
 
-  b.create<ReturnOp>(loc, ValueRange{});
+  b.create<func::ReturnOp>(loc, ValueRange{});
 
   return func;
 }
@@ -1623,7 +1627,7 @@ static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
     constantsVec = b.create<vector::InsertElementOp>(
                         loc, vOp, constantsVec,
                         b.create<arith::ConstantIndexOp>(loc, v.index()))
-                       .result();
+                       .getResult();
   }
 
   SmallVector<int64_t, 5> lowerBounds(5, 0);
@@ -1644,7 +1648,7 @@ static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
         auto selectorOp = b.create<AffineApplyOp>(loc, rowMajorMap, ivs);
         mlir::Value toStore = b.create<vector::ExtractElementOp>(
                                    loc, constantsVec, selectorOp->getResult(0))
-                                  .result();
+                                  .getResult();
         if (elemType == b.getBF16Type())
           toStore = b.create<arith::BitcastOp>(loc, b.getBF16Type(), toStore);
         b.create<memref::StoreOp>(loc, toStore, lv5D, ivs);
@@ -1753,7 +1757,7 @@ populateHostHarnessLogic(ModuleOp &module,
       int seed = 1;
       std::tie(min, max, seed) = getRandomTestData(idx);
 
-      b.create<CallOp>(
+      b.create<func::CallOp>(
           loc, getMemsetFunc(module, elemType),
           ValueRange{lvU5D, getI16Val(min), getI16Val(max), getI32Val(seed)});
     }
@@ -1787,15 +1791,15 @@ populateHostHarnessLogic(ModuleOp &module,
           return k.func == root.func;
         }) != kernels.end();
     if (rootKernel) {
-      b.create<CallOp>(loc, root.func, localVars);
+      b.create<func::CallOp>(loc, root.func, localVars);
     } else if (!valVars.empty()) {
-      b.create<CallOp>(loc, root.func, valVars);
+      b.create<func::CallOp>(loc, root.func, valVars);
       if (!root.func->hasAttr("kernel")) {
         printValidationResults.setValue(true);
         printResults.setValue(false);
       }
     } else {
-      b.create<CallOp>(loc, root.func, localVars);
+      b.create<func::CallOp>(loc, root.func, localVars);
       if (!root.func->hasAttr("kernel")) {
         printValidationResults.setValue(false);
         printResults.setValue(true);
@@ -1809,7 +1813,7 @@ populateHostHarnessLogic(ModuleOp &module,
     wrappedFuncs[kernel.func] = createGPUWrapper(module, kernel);
 
   // Redirect calls to kernel functions to point at wrapped functions.
-  module.walk([&](CallOp call) -> WalkResult {
+  module.walk([&](func::CallOp call) -> WalkResult {
     // Don't substitute the call inside the wrapper.
     if (call->hasAttr("wrapped_call")) {
       call->removeAttr("wrapped_call");
@@ -1823,7 +1827,7 @@ populateHostHarnessLogic(ModuleOp &module,
     FuncOp fop = dyn_cast<FuncOp>(*callableFromInt);
     if (wrappedFuncs.find(fop) != wrappedFuncs.end()) {
       call->setAttr("callee", FlatSymbolRefAttr::get(
-                                  context, wrappedFuncs[fop].sym_name()));
+                                  context, wrappedFuncs[fop].getSymName()));
     }
     return WalkResult::advance();
   });
@@ -1872,13 +1876,13 @@ populateHostHarnessLogic(ModuleOp &module,
           valVars.resize(valVars.size() - 1);
         }
 
-        b.create<CallOp>(loc, kernelWrapperFunc, valVars);
+        b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
       }
       conv2dGenerator.setKernelName(kernelBaseName);
     } else { // if (validationType == "cpu")
       // Emit call to host_<conv>
       auto cpuConvFunc = createCPUConvFunc(module, genConfig);
-      b.create<CallOp>(loc, cpuConvFunc, valVars);
+      b.create<func::CallOp>(loc, cpuConvFunc, valVars);
     }
 
     // Emit call to verifier
@@ -1886,7 +1890,8 @@ populateHostHarnessLogic(ModuleOp &module,
     mlir::Value valResult = valVars[outIdx];
 
     auto verifierFunc = createVerifierFunc(module, root0, genConfig);
-    b.create<CallOp>(loc, verifierFunc, ValueRange{testResult, valResult});
+    b.create<func::CallOp>(loc, verifierFunc,
+                           ValueRange{testResult, valResult});
   }
 
   // Print and cleanup validation vars
@@ -1910,7 +1915,7 @@ populateHostHarnessLogic(ModuleOp &module,
     b.create<memref::DeallocOp>(loc, lvar);
   }
 
-  b.create<ReturnOp>(loc, ValueRange{});
+  b.create<func::ReturnOp>(loc, ValueRange{});
 
   return success();
 }
@@ -1922,10 +1927,9 @@ int main(int argc, char **argv) {
   test::registerTestDialect(registry);
 #endif
   MLIRContext context(registry);
-  context
-      .loadDialect<miopen::MIOpenDialect, StandardOpsDialect, scf::SCFDialect,
-                   AffineDialect, memref::MemRefDialect, math::MathDialect,
-                   arith::ArithmeticDialect, vector::VectorDialect>();
+  context.loadDialect<miopen::MIOpenDialect, func::FuncDialect, scf::SCFDialect,
+                      AffineDialect, memref::MemRefDialect, math::MathDialect,
+                      arith::ArithmeticDialect, vector::VectorDialect>();
 
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv,
@@ -1958,7 +1962,8 @@ int main(int argc, char **argv) {
     // Parse the input file.
     SourceMgr sourceMgr;
     sourceMgr.AddNewSourceBuffer(std::move(file), SMLoc());
-    OwningOpRef<ModuleOp> moduleRef = parseSourceFile(sourceMgr, &context);
+    OwningOpRef<ModuleOp> moduleRef =
+        parseSourceFile<ModuleOp>(sourceMgr, &context);
     if (!moduleRef) {
       llvm::errs() << "Parse host harness " << inputFilename << " failed.\n";
       exit(1);

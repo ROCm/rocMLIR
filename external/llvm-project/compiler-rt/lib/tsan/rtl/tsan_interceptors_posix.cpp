@@ -1554,16 +1554,16 @@ TSAN_INTERCEPTOR(int, __fxstat, int version, int fd, void *buf) {
 #endif
 
 TSAN_INTERCEPTOR(int, fstat, int fd, void *buf) {
-#if SANITIZER_FREEBSD || SANITIZER_MAC || SANITIZER_ANDROID || SANITIZER_NETBSD
-  SCOPED_TSAN_INTERCEPTOR(fstat, fd, buf);
-  if (fd > 0)
-    FdAccess(thr, pc, fd);
-  return REAL(fstat)(fd, buf);
-#else
+#if SANITIZER_GLIBC
   SCOPED_TSAN_INTERCEPTOR(__fxstat, 0, fd, buf);
   if (fd > 0)
     FdAccess(thr, pc, fd);
   return REAL(__fxstat)(0, fd, buf);
+#else
+  SCOPED_TSAN_INTERCEPTOR(fstat, fd, buf);
+  if (fd > 0)
+    FdAccess(thr, pc, fd);
+  return REAL(fstat)(fd, buf);
 #endif
 }
 
@@ -1964,13 +1964,14 @@ TSAN_INTERCEPTOR(int, pthread_sigmask, int how, const __sanitizer_sigset_t *set,
 
 namespace __tsan {
 
-static void ReportErrnoSpoiling(ThreadState *thr, uptr pc) {
+static void ReportErrnoSpoiling(ThreadState *thr, uptr pc, int sig) {
   VarSizeStackTrace stack;
   // StackTrace::GetNestInstructionPc(pc) is used because return address is
   // expected, OutputReport() will undo this.
   ObtainCurrentStack(thr, StackTrace::GetNextInstructionPc(pc), &stack);
   ThreadRegistryLock l(&ctx->thread_registry);
   ScopedReport rep(ReportTypeErrnoInSignal);
+  rep.SetSigNum(sig);
   if (!IsFiredSuppression(ctx, ReportTypeErrnoInSignal, stack)) {
     rep.AddStack(stack, true);
     OutputReport(thr, rep);
@@ -2037,7 +2038,7 @@ static void CallUserSignalHandler(ThreadState *thr, bool sync, bool acquire,
   // signal; and it looks too fragile to intercept all ways to reraise a signal.
   if (ShouldReport(thr, ReportTypeErrnoInSignal) && !sync && sig != SIGTERM &&
       errno != 99)
-    ReportErrnoSpoiling(thr, pc);
+    ReportErrnoSpoiling(thr, pc, sig);
   errno = saved_errno;
 }
 

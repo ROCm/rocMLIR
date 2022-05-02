@@ -13,12 +13,12 @@
 #include "mlir/Conversion/MIOpenPasses.h"
 #include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/Pipeline.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/ExecutionEngine/ROCm/BackendUitls.h"
 #include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 #include "mlir/IR/Attributes.h"
@@ -31,7 +31,7 @@
 #include "mlir/IR/Types.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
-#include "mlir/Parser.h"
+#include "mlir/Parser/Parser.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"
@@ -260,10 +260,10 @@ int main(int argc, char **argv) {
   test::registerTestDialect(registry);
 #endif
   MLIRContext context(registry);
-  context.loadDialect<miopen::MIOpenDialect, StandardOpsDialect,
-                      scf::SCFDialect, AffineDialect, memref::MemRefDialect,
-                      math::MathDialect, arith::ArithmeticDialect,
-                      gpu::GPUDialect, bufferization::BufferizationDialect>();
+  context.loadDialect<miopen::MIOpenDialect, func::FuncDialect, scf::SCFDialect,
+                      AffineDialect, memref::MemRefDialect, math::MathDialect,
+                      arith::ArithmeticDialect, gpu::GPUDialect,
+                      bufferization::BufferizationDialect>();
   mlir::registerAllPasses();
   mlir::registerMIOpenConversionPasses();
   miopen::registerPasses();
@@ -292,7 +292,7 @@ int main(int argc, char **argv) {
 
   // Parse the input file.
   sourceMgr.AddNewSourceBuffer(std::move(file), SMLoc());
-  moduleRef = parseSourceFile(sourceMgr, &context);
+  moduleRef = parseSourceFile<mlir::ModuleOp>(sourceMgr, &context);
   if (!moduleRef) {
     llvm::errs() << "Parse host harness " << inputFilename << " failed.\n";
     exit(1);

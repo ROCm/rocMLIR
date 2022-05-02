@@ -21,16 +21,16 @@ include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
-def FMFnnan     : BitEnumAttrCaseBit<"nnan", 0>;
-def FMFninf     : BitEnumAttrCaseBit<"ninf", 1>;
-def FMFnsz      : BitEnumAttrCaseBit<"nsz", 2>;
-def FMFarcp     : BitEnumAttrCaseBit<"arcp", 3>;
-def FMFcontract : BitEnumAttrCaseBit<"contract", 4>;
-def FMFafn      : BitEnumAttrCaseBit<"afn", 5>;
-def FMFreassoc  : BitEnumAttrCaseBit<"reassoc", 6>;
-def FMFfast     : BitEnumAttrCaseBit<"fast", 7>;
+def FMFnnan     : I32BitEnumAttrCaseBit<"nnan", 0>;
+def FMFninf     : I32BitEnumAttrCaseBit<"ninf", 1>;
+def FMFnsz      : I32BitEnumAttrCaseBit<"nsz", 2>;
+def FMFarcp     : I32BitEnumAttrCaseBit<"arcp", 3>;
+def FMFcontract : I32BitEnumAttrCaseBit<"contract", 4>;
+def FMFafn      : I32BitEnumAttrCaseBit<"afn", 5>;
+def FMFreassoc  : I32BitEnumAttrCaseBit<"reassoc", 6>;
+def FMFfast     : I32BitEnumAttrCaseBit<"fast", 7>;
 
-def FastmathFlags_DoNotUse : BitEnumAttr<
+def FastmathFlags : I32BitEnumAttr<
     "FastmathFlags",
     "LLVM fastmath flags",
     [FMFnnan, FMFninf, FMFnsz, FMFarcp, FMFcontract, FMFafn, FMFreassoc, FMFfast
@@ -537,7 +537,7 @@ def LLVM_CallOp : LLVM_Op<"call",
   let builders = [
     OpBuilder<(ins "LLVMFuncOp":$func, "ValueRange":$operands,
       CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes), [{
-      Type resultType = func.getType().getReturnType();
+      Type resultType = func.getFunctionType().getReturnType();
       if (!resultType.isa<LLVM::LLVMVoidType>())
         $_state.addTypes(resultType);
       $_state.addAttribute("callee", SymbolRefAttr::get(func));
@@ -874,7 +874,7 @@ def LLVM_AddressOfOp : LLVM_Op<"mlir.addressof", [NoSideEffect]> {
       CArg<"ArrayRef<NamedAttribute>", "{}">:$attrs),
     [{
       build($_builder, $_state,
-            LLVM::LLVMPointerType::get(func.getType()), func.getName());
+            LLVM::LLVMPointerType::get(func.getFunctionType()), func.getName());
       $_state.addAttributes(attrs);
     }]>
   ];
@@ -1140,6 +1140,7 @@ def LLVM_GlobalOp : LLVM_Op<"mlir.global",
 
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
+  let hasRegionVerifier = 1;
 }
 
 def LLVM_GlobalCtorsOp : LLVM_Op<"mlir.global_ctors", [
@@ -1235,10 +1236,14 @@ def LLVM_LLVMFuncOp : LLVM_Op<"func", [
     ```
   }];
 
-  let arguments = (ins DefaultValuedAttr<Linkage, "Linkage::External">:$linkage,
-                   UnitAttr:$dso_local,
-                   OptionalAttr<FlatSymbolRefAttr>:$personality,
-                   OptionalAttr<ArrayAttr>:$passthrough);
+  let arguments = (ins
+    TypeAttrOf<LLVM_FunctionType>:$function_type,
+    DefaultValuedAttr<Linkage, "Linkage::External">:$linkage,
+    UnitAttr:$dso_local,
+    OptionalAttr<FlatSymbolRefAttr>:$personality,
+    OptionalAttr<StrAttr>:$garbageCollector,
+    OptionalAttr<ArrayAttr>:$passthrough
+  );
 
   let regions = (region AnyRegion:$body);
 
@@ -1257,25 +1262,18 @@ def LLVM_LLVMFuncOp : LLVM_Op<"func", [
     // to match the signature of the function.
     Block *addEntryBlock();
 
-    LLVMFunctionType getType() {
-      return getTypeAttr().getValue().cast<LLVMFunctionType>();
-    }
-    bool isVarArg() { return getType().isVarArg(); }
+    bool isVarArg() { return getFunctionType().isVarArg(); }
 
     /// Returns the argument types of this function.
-    ArrayRef<Type> getArgumentTypes() { return getType().getParams(); }
+    ArrayRef<Type> getArgumentTypes() { return getFunctionType().getParams(); }
 
     /// Returns the result types of this function.
-    ArrayRef<Type> getResultTypes() { return getType().getReturnTypes(); }
-
-    /// Hook for FunctionOpInterface, called after verifying that the 'type'
-    /// attribute is present.  This can check for preconditions of the
-    /// getNumArguments hook not failing.
-    LogicalResult verifyType();
+    ArrayRef<Type> getResultTypes() { return getFunctionType().getReturnTypes(); }
   }];
 
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
+  let hasRegionVerifier = 1;
 }
 
 def LLVM_NullOp
@@ -1438,20 +1436,20 @@ def LLVM_UMaxOp : LLVM_BinarySameArgsIntrinsicOp<"umax">;
 def LLVM_UMinOp : LLVM_BinarySameArgsIntrinsicOp<"umin">;
 
 def LLVM_MemcpyOp : LLVM_ZeroResultIntrOp<"memcpy", [0, 1, 2]> {
-  let arguments = (ins LLVM_Type:$dst, LLVM_Type:$src, LLVM_Type:$len,
+  let arguments = (ins Arg<LLVM_Type,"",[MemWrite]>:$dst, Arg<LLVM_Type,"",[MemRead]>:$src, LLVM_Type:$len,
                    LLVM_Type:$isVolatile);
 }
 def LLVM_MemcpyInlineOp : LLVM_ZeroResultIntrOp<"memcpy.inline", [0, 1, 2]> {
-  let arguments = (ins LLVM_Type:$dst, LLVM_Type:$src, LLVM_Type:$len,
+  let arguments = (ins Arg<LLVM_Type,"",[MemWrite]>:$dst, Arg<LLVM_Type,"",[MemRead]>:$src, LLVM_Type:$len,
                    LLVM_Type:$isVolatile);
 }
 def LLVM_MemmoveOp : LLVM_ZeroResultIntrOp<"memmove", [0, 1, 2]> {
-  let arguments = (ins LLVM_Type:$dst, LLVM_Type:$src, LLVM_Type:$len,
+  let arguments = (ins Arg<LLVM_Type,"",[MemWrite]>:$dst, Arg<LLVM_Type,"",[MemRead]>:$src, LLVM_Type:$len,
                    LLVM_Type:$isVolatile);
 }
 
 def LLVM_MemsetOp : LLVM_ZeroResultIntrOp<"memset", [0, 2]> {
-  let arguments = (ins LLVM_Type:$dst, LLVM_Type:$val, LLVM_Type:$len,
+  let arguments = (ins Arg<LLVM_Type,"",[MemWrite]>:$dst, LLVM_Type:$val, LLVM_Type:$len,
                    LLVM_Type:$isVolatile);
 }
 
@@ -1754,6 +1752,14 @@ def LLVM_masked_compressstore
 /// Create a call to vscale intrinsic.
 def LLVM_vscale : LLVM_IntrOp<"vscale", [0], [], [], 1>;
 
+/// Create a call to stepvector intrinsic.
+def LLVM_StepVectorOp
+    : LLVM_IntrOp<"experimental.stepvector", [0], [], [NoSideEffect], 1> {
+  let arguments = (ins);
+  let results = (outs LLVM_Type:$res);
+  let assemblyFormat = "attr-dict `:` type($res)";
+}
+
 // Atomic operations.
 //
 
@@ -1915,4 +1921,55 @@ def LLVM_InlineAsmOp : LLVM_Op<"inline_asm", []> {
     }
   }];
 }
+
+//
+// LLVM Vector Predication operations.
+//
+
+// Integer Binary
+def LLVM_VPAddOp  : LLVM_VPBinaryI<"add">;
+def LLVM_VPSubOp  : LLVM_VPBinaryI<"sub">;
+def LLVM_VPMulOp  : LLVM_VPBinaryI<"mul">;
+def LLVM_VPSDivOp : LLVM_VPBinaryI<"sdiv">;
+def LLVM_VPUDivOp : LLVM_VPBinaryI<"udiv">;
+def LLVM_VPSRemOp : LLVM_VPBinaryI<"srem">;
+def LLVM_VPURemOp : LLVM_VPBinaryI<"urem">;
+def LLVM_VPAShrOp : LLVM_VPBinaryI<"ashr">;
+def LLVM_VPLShrOp : LLVM_VPBinaryI<"lshr">;
+def LLVM_VPShlOp  : LLVM_VPBinaryI<"shl">;
+def LLVM_VPOrOp   : LLVM_VPBinaryI<"or">;
+def LLVM_VPAndOp  : LLVM_VPBinaryI<"and">;
+def LLVM_VPXorOp  : LLVM_VPBinaryI<"xor">;
+
+// Float Binary
+def LLVM_VPFAddOp : LLVM_VPBinaryF<"fadd">;
+def LLVM_VPFSubOp : LLVM_VPBinaryF<"fsub">;
+def LLVM_VPFMulOp : LLVM_VPBinaryF<"fmul">;
+def LLVM_VPFDivOp : LLVM_VPBinaryF<"fdiv">;
+def LLVM_VPFRemOp : LLVM_VPBinaryF<"frem">;
+
+// Float Unary
+def LLVM_VPFNegOp : LLVM_VPUnaryF<"fneg">;
+
+// Float Ternary
+def LLVM_VPFmaOp  : LLVM_VPTernaryF<"fma">;
+
+// Integer Reduction
+def LLVM_VPReduceAddOp  : LLVM_VPReductionI<"add">;
+def LLVM_VPReduceMulOp  : LLVM_VPReductionI<"mul">;
+def LLVM_VPReduceAndOp  : LLVM_VPReductionI<"and">;
+def LLVM_VPReduceOrOp   : LLVM_VPReductionI<"or">;
+def LLVM_VPReduceXorOp  : LLVM_VPReductionI<"xor">;
+def LLVM_VPReduceSMaxOp : LLVM_VPReductionI<"smax">;
+def LLVM_VPReduceSMinOp : LLVM_VPReductionI<"smin">;
+def LLVM_VPReduceUMaxOp : LLVM_VPReductionI<"umax">;
+def LLVM_VPReduceUMinOp : LLVM_VPReductionI<"umin">;
+
+// Float Reduction
+def LLVM_VPReduceFAddOp : LLVM_VPReductionF<"fadd">;
+def LLVM_VPReduceFMulOp : LLVM_VPReductionF<"fmul">;
+def LLVM_VPReduceFMaxOp : LLVM_VPReductionF<"fmax">;
+def LLVM_VPReduceFMinOp : LLVM_VPReductionF<"fmin">;
+
+
 #endif // LLVMIR_OPS

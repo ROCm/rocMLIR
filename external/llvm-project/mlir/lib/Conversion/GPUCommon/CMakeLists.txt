@@ -33,6 +33,7 @@ add_mlir_conversion_library(MLIRGPUToGPURuntimeTransforms
   MLIRArithmeticToLLVM
   MLIRAsyncToLLVM
   MLIRControlFlowToLLVM
+  MLIRFuncToLLVM
   MLIRGPUTransforms
   MLIRIR
   MLIRLLVMCommonConversion
@@ -40,6 +41,5 @@ add_mlir_conversion_library(MLIRGPUToGPURuntimeTransforms
   MLIRMemRefToLLVM
   MLIRPass
   MLIRSupport
-  MLIRStandardToLLVM
   MLIRVectorToLLVM
 )

@@ -26,6 +26,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -163,7 +164,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
           startDims.push_back(i);
           endDims.push_back(i + diff);
         }
-        miopen::BottomUpCTBuilder transform(b, inpShape, loc);
+        miopen::BottomUpTMBuilder transform(b, inpShape, loc);
         transform.passThrough(endDims, startDims);
         for (uint32_t i = 0; i < diff; ++i) {
           SmallString<8> name;
@@ -192,7 +193,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
           ptDims.push_back(dim);
         }
       }
-      miopen::BottomUpCTBuilder transform(b, inpShape, loc);
+      miopen::BottomUpTMBuilder transform(b, inpShape, loc);
       transform.passThrough(ptDims, ptDims);
       transform.broadcast(bcastDims, bcastSizes);
 

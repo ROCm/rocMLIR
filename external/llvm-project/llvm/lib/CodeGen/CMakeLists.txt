@@ -38,6 +38,7 @@ add_llvm_component_library(LLVMCodeGen
   CalcSpillWeights.cpp
   CallingConvLower.cpp
   CFGuardLongjmp.cpp
+  CFIFixup.cpp
   CFIInstrInserter.cpp
   CodeGen.cpp
   CodeGenCommonISel.cpp
@@ -188,6 +189,8 @@ add_llvm_component_library(LLVMCodeGen
   RegUsageInfoPropagate.cpp
   ReplaceWithVeclib.cpp
   ResetMachineFunctionPass.cpp
+  RegisterBank.cpp
+  RegisterBankInfo.cpp
   SafeStack.cpp
   SafeStackLayout.cpp
   ScheduleDAG.cpp

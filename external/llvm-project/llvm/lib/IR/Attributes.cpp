@@ -28,7 +28,6 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Support/Compiler.h"
-#include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
@@ -205,6 +204,11 @@ Attribute Attribute::getWithInAllocaType(LLVMContext &Context, Type *Ty) {
   return get(Context, InAlloca, Ty);
 }
 
+Attribute Attribute::getWithUWTableKind(LLVMContext &Context,
+                                        UWTableKind Kind) {
+  return get(Context, UWTable, uint64_t(Kind));
+}
+
 Attribute
 Attribute::getWithAllocSizeArgs(LLVMContext &Context, unsigned ElemSizeArg,
                                 const Optional<unsigned> &NumElemsArg) {
@@ -366,6 +370,12 @@ Optional<unsigned> Attribute::getVScaleRangeMax() const {
   return unpackVScaleRangeArgs(pImpl->getValueAsInt()).second;
 }
 
+UWTableKind Attribute::getUWTableKind() const {
+  assert(hasAttribute(Attribute::UWTable) &&
+         "Trying to get unwind table kind from non-uwtable attribute");
+  return UWTableKind(pImpl->getValueAsInt());
+}
+
 std::string Attribute::getAsString(bool InAttrGrp) const {
   if (!pImpl) return {};
 
@@ -424,6 +434,17 @@ std::string Attribute::getAsString(bool InAttrGrp) const {
     return ("vscale_range(" + Twine(MinValue) + "," +
             Twine(MaxValue.getValueOr(0)) + ")")
         .str();
+  }
+
+  if (hasAttribute(Attribute::UWTable)) {
+    UWTableKind Kind = getUWTableKind();
+    if (Kind != UWTableKind::None) {
+      return Kind == UWTableKind::Default
+                 ? "uwtable"
+                 : ("uwtable(" +
+                    Twine(Kind == UWTableKind::Sync ? "sync" : "async") + ")")
+                       .str();
+    }
   }
 
   // Convert target-dependent attributes to strings of the form:
@@ -710,6 +731,10 @@ Optional<unsigned> AttributeSet::getVScaleRangeMax() const {
   return SetNode ? SetNode->getVScaleRangeMax() : None;
 }
 
+UWTableKind AttributeSet::getUWTableKind() const {
+  return SetNode ? SetNode->getUWTableKind() : UWTableKind::None;
+}
+
 std::string AttributeSet::getAsString(bool InAttrGrp) const {
   return SetNode ? SetNode->getAsString(InAttrGrp) : "";
 }
@@ -874,6 +899,12 @@ Optional<unsigned> AttributeSetNode::getVScaleRangeMax() const {
   if (auto A = findEnumAttribute(Attribute::VScaleRange))
     return A->getVScaleRangeMax();
   return None;
+}
+
+UWTableKind AttributeSetNode::getUWTableKind() const {
+  if (auto A = findEnumAttribute(Attribute::UWTable))
+    return A->getUWTableKind();
+  return UWTableKind::None;
 }
 
 std::string AttributeSetNode::getAsString(bool InAttrGrp) const {
@@ -1428,6 +1459,10 @@ AttributeList::getParamDereferenceableOrNullBytes(unsigned Index) const {
   return getParamAttrs(Index).getDereferenceableOrNullBytes();
 }
 
+UWTableKind AttributeList::getUWTableKind() const {
+  return getFnAttrs().getUWTableKind();
+}
+
 std::string AttributeList::getAsString(unsigned Index, bool InAttrGrp) const {
   return getAttributes(Index).getAsString(InAttrGrp);
 }
@@ -1649,6 +1684,12 @@ AttrBuilder &AttrBuilder::addVScaleRangeAttrFromRawRepr(uint64_t RawArgs) {
   return addRawIntAttr(Attribute::VScaleRange, RawArgs);
 }
 
+AttrBuilder &AttrBuilder::addUWTableAttr(UWTableKind Kind) {
+  if (Kind == UWTableKind::None)
+    return *this;
+  return addRawIntAttr(Attribute::UWTable, uint64_t(Kind));
+}
+
 Type *AttrBuilder::getTypeAttr(Attribute::AttrKind Kind) const {
   assert(Attribute::isTypeAttrKind(Kind) && "Not a type attribute");
   Attribute A = getAttribute(Kind);
@@ -1732,39 +1773,50 @@ bool AttrBuilder::operator==(const AttrBuilder &B) const {
 //===----------------------------------------------------------------------===//
 
 /// Which attributes cannot be applied to a type.
-AttributeMask AttributeFuncs::typeIncompatible(Type *Ty) {
+AttributeMask AttributeFuncs::typeIncompatible(Type *Ty,
+                                               AttributeSafetyKind ASK) {
   AttributeMask Incompatible;
 
-  if (!Ty->isIntegerTy())
+  if (!Ty->isIntegerTy()) {
     // Attributes that only apply to integers.
-    Incompatible.addAttribute(Attribute::SExt)
-      .addAttribute(Attribute::ZExt);
+    if (ASK & ASK_SAFE_TO_DROP)
+      Incompatible.addAttribute(Attribute::AllocAlign);
+    if (ASK & ASK_UNSAFE_TO_DROP)
+      Incompatible.addAttribute(Attribute::SExt).addAttribute(Attribute::ZExt);
+  }
 
-  if (!Ty->isPointerTy())
+  if (!Ty->isPointerTy()) {
     // Attributes that only apply to pointers.
-    Incompatible.addAttribute(Attribute::Nest)
-        .addAttribute(Attribute::NoAlias)
-        .addAttribute(Attribute::NoCapture)
-        .addAttribute(Attribute::NonNull)
-        .addAttribute(Attribute::ReadNone)
-        .addAttribute(Attribute::ReadOnly)
-        .addAttribute(Attribute::SwiftError)
-        .addAttribute(Attribute::Dereferenceable)
-        .addAttribute(Attribute::DereferenceableOrNull)
-        .addAttribute(Attribute::Preallocated)
-        .addAttribute(Attribute::InAlloca)
-        .addAttribute(Attribute::ByVal)
-        .addAttribute(Attribute::StructRet)
-        .addAttribute(Attribute::ByRef)
-        .addAttribute(Attribute::ElementType);
+    if (ASK & ASK_SAFE_TO_DROP)
+      Incompatible.addAttribute(Attribute::NoAlias)
+          .addAttribute(Attribute::NoCapture)
+          .addAttribute(Attribute::NonNull)
+          .addAttribute(Attribute::ReadNone)
+          .addAttribute(Attribute::ReadOnly)
+          .addAttribute(Attribute::Dereferenceable)
+          .addAttribute(Attribute::DereferenceableOrNull);
+    if (ASK & ASK_UNSAFE_TO_DROP)
+      Incompatible.addAttribute(Attribute::Nest)
+          .addAttribute(Attribute::SwiftError)
+          .addAttribute(Attribute::Preallocated)
+          .addAttribute(Attribute::InAlloca)
+          .addAttribute(Attribute::ByVal)
+          .addAttribute(Attribute::StructRet)
+          .addAttribute(Attribute::ByRef)
+          .addAttribute(Attribute::ElementType);
+  }
 
-  if (!Ty->isPtrOrPtrVectorTy())
     // Attributes that only apply to pointers or vectors of pointers.
-    Incompatible.addAttribute(Attribute::Alignment);
+  if (!Ty->isPtrOrPtrVectorTy()) {
+    if (ASK & ASK_SAFE_TO_DROP)
+      Incompatible.addAttribute(Attribute::Alignment);
+  }
 
   // Some attributes can apply to all "values" but there are no `void` values.
-  if (Ty->isVoidTy())
-    Incompatible.addAttribute(Attribute::NoUndef);
+  if (Ty->isVoidTy()) {
+    if (ASK & ASK_SAFE_TO_DROP)
+      Incompatible.addAttribute(Attribute::NoUndef);
+  }
 
   return Incompatible;
 }

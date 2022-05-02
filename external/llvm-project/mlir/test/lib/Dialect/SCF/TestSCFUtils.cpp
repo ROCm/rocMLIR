@@ -11,24 +11,24 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/SCF/Transforms.h"
 #include "mlir/Dialect/SCF/Utils/Utils.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "mlir/Transforms/Passes.h"
 
 #include "llvm/ADT/SetVector.h"
 
 using namespace mlir;
 
 namespace {
-class TestSCFForUtilsPass
+struct TestSCFForUtilsPass
     : public PassWrapper<TestSCFForUtilsPass, OperationPass<FuncOp>> {
-public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestSCFForUtilsPass)
+
   StringRef getArgument() const final { return "test-scf-for-utils"; }
   StringRef getDescription() const final { return "test scf.for utils"; }
   explicit TestSCFForUtilsPass() = default;
@@ -45,7 +45,7 @@ public:
       auto loop = fakeRead->getParentOfType<scf::ForOp>();
 
       OpBuilder b(loop);
-      (void)loop.moveOutOfLoop({fakeRead});
+      loop.moveOutOfLoop(fakeRead);
       fakeWrite->moveAfter(loop);
       auto newLoop = cloneWithNewYields(b, loop, fakeRead->getResult(0),
                                         fakeCompute->getResult(0));
@@ -58,9 +58,10 @@ public:
   }
 };
 
-class TestSCFIfUtilsPass
+struct TestSCFIfUtilsPass
     : public PassWrapper<TestSCFIfUtilsPass, OperationPass<ModuleOp>> {
-public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestSCFIfUtilsPass)
+
   StringRef getArgument() const final { return "test-scf-if-utils"; }
   StringRef getDescription() const final { return "test scf.if utils"; }
   explicit TestSCFIfUtilsPass() = default;
@@ -91,12 +92,24 @@ static const StringLiteral kTestPipeliningStageMarker =
 static const StringLiteral kTestPipeliningOpOrderMarker =
     "__test_pipelining_op_order__";
 
-class TestSCFPipeliningPass
+static const StringLiteral kTestPipeliningAnnotationPart =
+    "__test_pipelining_part";
+static const StringLiteral kTestPipeliningAnnotationIteration =
+    "__test_pipelining_iteration";
+
+struct TestSCFPipeliningPass
     : public PassWrapper<TestSCFPipeliningPass, OperationPass<FuncOp>> {
-public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestSCFPipeliningPass)
+
+  TestSCFPipeliningPass() = default;
+  TestSCFPipeliningPass(const TestSCFPipeliningPass &) {}
   StringRef getArgument() const final { return "test-scf-pipelining"; }
   StringRef getDescription() const final { return "test scf.forOp pipelining"; }
-  explicit TestSCFPipeliningPass() = default;
+
+  Option<bool> annotatePipeline{
+      *this, "annotate",
+      llvm::cl::desc("Annote operations during loop pipelining transformation"),
+      llvm::cl::init(false)};
 
   static void
   getSchedule(scf::ForOp forOp,
@@ -116,15 +129,35 @@ public:
     });
   }
 
+  static void annotate(Operation *op,
+                       mlir::scf::PipeliningOption::PipelinerPart part,
+                       unsigned iteration) {
+    OpBuilder b(op);
+    switch (part) {
+    case mlir::scf::PipeliningOption::PipelinerPart::Prologue:
+      op->setAttr(kTestPipeliningAnnotationPart, b.getStringAttr("prologue"));
+      break;
+    case mlir::scf::PipeliningOption::PipelinerPart::Kernel:
+      op->setAttr(kTestPipeliningAnnotationPart, b.getStringAttr("kernel"));
+      break;
+    case mlir::scf::PipeliningOption::PipelinerPart::Epilogue:
+      op->setAttr(kTestPipeliningAnnotationPart, b.getStringAttr("epilogue"));
+      break;
+    }
+    op->setAttr(kTestPipeliningAnnotationIteration,
+                b.getI32IntegerAttr(iteration));
+  }
+
   void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<arith::ArithmeticDialect, StandardOpsDialect>();
+    registry.insert<arith::ArithmeticDialect>();
   }
 
   void runOnOperation() override {
     RewritePatternSet patterns(&getContext());
     mlir::scf::PipeliningOption options;
     options.getScheduleFn = getSchedule;
-
+    if (annotatePipeline)
+      options.annotateFn = annotate;
     scf::populateSCFLoopPipeliningPatterns(patterns, options);
     (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
     getOperation().walk([](Operation *op) {

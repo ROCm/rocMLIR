@@ -77,7 +77,6 @@ add_mlir_dialect_library(MLIRGPUTransforms
   MLIRMemRef
   MLIRPass
   MLIRSCF
-  MLIRStandard
   MLIRSupport
   MLIRTransformUtils
   )

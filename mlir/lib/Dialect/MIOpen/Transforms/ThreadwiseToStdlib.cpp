@@ -1617,8 +1617,7 @@ void LowerMIOpenOpsStep4Pass::runOnOperation() {
   // Apply loop invariant code motion to all loops before unrolling
   WalkResult licmResult =
       op.walk<WalkOrder::PostOrder>([](LoopLikeOpInterface loop) -> WalkResult {
-        if (failed(moveLoopInvariantCode(loop)))
-          return WalkResult::interrupt();
+        moveLoopInvariantCode(loop);
         return WalkResult::advance();
       });
   if (licmResult.wasInterrupted())

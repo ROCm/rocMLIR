@@ -1,8 +1,8 @@
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/utility/math.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
@@ -782,7 +782,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
   }
 
   auto returnOp =
-      builder.create<ReturnOp>(builder.getUnknownLoc(), ValueRange{});
+      builder.create<func::ReturnOp>(builder.getUnknownLoc(), ValueRange{});
   block->push_back(returnOp);
 
   return success();

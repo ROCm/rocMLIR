@@ -45,7 +45,7 @@ void foo(int i) {
   }
 
   __attribute__((fastcall)) goto there; // expected-error {{'fastcall' attribute cannot be applied to a statement}}
-  __attribute__((noinline)) there :     // expected-warning {{'noinline' attribute only applies to functions}}
+  __attribute__((noinline)) there :     // expected-warning {{'noinline' attribute only applies to functions and statements}}
 
                                     __attribute__((weakref)) return; // expected-error {{'weakref' attribute only applies to variables and functions}}
 
@@ -80,7 +80,7 @@ void foobar(void) {
   __attribute__((nomerge, unused)) bar(); // expected-error {{expected identifier or '('}}
   __attribute__((nomerge(1, 2))) bar();   // expected-error {{'nomerge' attribute takes no arguments}}
   int x;
-  __attribute__((nomerge)) x = 10; // expected-warning {{nomerge attribute is ignored because there exists no call expression inside the statement}}
+  __attribute__((nomerge)) x = 10; // expected-warning {{'nomerge' attribute is ignored because there exists no call expression inside the statement}}
 
   __attribute__((nomerge)) label : bar(); // expected-error {{'nomerge' attribute only applies to functions and statements}}
 }

@@ -13,9 +13,9 @@
 #include "../PassDetail.h"
 #include "mlir/Conversion/TosaToMIOpen/TosaToMIOpen.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
@@ -32,7 +32,7 @@ struct TosaToMIOpen : public TosaToMIOpenBase<TosaToMIOpen> {
 public:
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<miopen::MIOpenDialect, linalg::LinalgDialect,
-                    bufferization::BufferizationDialect, StandardOpsDialect>();
+                    bufferization::BufferizationDialect, func::FuncDialect>();
   }
 
   void runOnOperation() override {
@@ -47,10 +47,10 @@ public:
     ConversionTarget tensor_target(ctx);
     ConversionTarget target(ctx);
 
-    tensor_target.addLegalDialect<miopen::MIOpenDialect, tosa::TosaDialect,
-                                  memref::MemRefDialect, StandardOpsDialect,
-                                  BuiltinDialect, arith::ArithmeticDialect,
-                                  bufferization::BufferizationDialect>();
+    tensor_target.addLegalDialect<
+        miopen::MIOpenDialect, tosa::TosaDialect, memref::MemRefDialect,
+        mlir::func::FuncDialect, BuiltinDialect, arith::ArithmeticDialect,
+        bufferization::BufferizationDialect>();
     tensor_target.addDynamicallyLegalOp<tosa::TransposeOp>(
         [&](tosa::TransposeOp op) {
           auto attrDeletable = op->getAttr("changing_layout_root");
@@ -68,7 +68,7 @@ public:
     target.addLegalDialect<miopen::MIOpenDialect, linalg::LinalgDialect,
                            memref::MemRefDialect, tosa::TosaDialect,
                            bufferization::BufferizationDialect,
-                           StandardOpsDialect>();
+                           mlir::func::FuncDialect>();
     target.addIllegalOp<tosa::Conv2DOp, tosa::MatMulOp>();
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 

@@ -26,6 +26,7 @@ def LLVM_Dialect : Dialect {
   let cppNamespace = "::mlir::LLVM";
 
   let hasRegionArgAttrVerify = 1;
+  let hasRegionResultAttrVerify = 1;
   let hasOperationAttrVerify = 1;
   let extraClassDeclaration = [{
     /// Name of the data layout attributes.
@@ -38,6 +39,11 @@ def LLVM_Dialect : Dialect {
     static StringRef getParallelAccessAttrName() { return "parallel_access"; }
     static StringRef getLoopOptionsAttrName() { return "options"; }
     static StringRef getAccessGroupsAttrName() { return "access_groups"; }
+    static StringRef getStructAttrsAttrName() { return "llvm.struct_attrs"; }
+
+    /// Verifies if the attribute is a well-formed value for "llvm.struct_attrs"
+    static LogicalResult verifyStructAttr(
+        Operation *op, Attribute attr, Type annotatedType);
 
     /// Verifies if the given string is a well-formed data layout descriptor.
     /// Uses `reportError` to report errors.
@@ -73,6 +79,10 @@ def LLVM_PrimitiveType : Type<
        CPred<"!$_self.isa<::mlir::LLVM::LLVMVoidType, "
                          "::mlir::LLVM::LLVMFunctionType>()">]>,
   "primitive LLVM type">;
+
+// Type constraint accepting any LLVM function type.
+def LLVM_FunctionType : Type<CPred<"$_self.isa<::mlir::LLVM::LLVMFunctionType>()">,
+                         "LLVM function type", "::mlir::LLVM::LLVMFunctionType">;
 
 // Type constraint accepting any LLVM floating point type.
 def LLVM_AnyFloat : Type<
@@ -354,5 +364,39 @@ class LLVM_VectorReductionAcc<string mnem>
     builder.setFastMathFlags(origFM);  // restore fastmath flag
   }];
 }
+
+// LLVM vector predication intrinsics.
+class LLVM_VPBinaryBase<string mnem, Type element>
+    : LLVM_OneResultIntrOp<"vp." # mnem, [0], [], [NoSideEffect]>,
+      Arguments<(ins LLVM_VectorOf<element>:$lhs, LLVM_VectorOf<element>:$rhs,
+                     LLVM_VectorOf<I1>:$mask, I32:$evl)>;
+
+class LLVM_VPBinaryI<string mnem> : LLVM_VPBinaryBase<mnem, AnyInteger>;
+
+class LLVM_VPBinaryF<string mnem> : LLVM_VPBinaryBase<mnem, AnyFloat>;
+
+class LLVM_VPUnaryBase<string mnem, Type element>
+    : LLVM_OneResultIntrOp<"vp." # mnem, [0], [], [NoSideEffect]>,
+      Arguments<(ins LLVM_VectorOf<element>:$op,
+                     LLVM_VectorOf<I1>:$mask, I32:$evl)>;
+
+class LLVM_VPUnaryF<string mnem> : LLVM_VPUnaryBase<mnem, AnyFloat>;
+
+class LLVM_VPTernaryBase<string mnem, Type element>
+    : LLVM_OneResultIntrOp<"vp." # mnem, [0], [], [NoSideEffect]>,
+      Arguments<(ins LLVM_VectorOf<element>:$op1, LLVM_VectorOf<element>:$op2,
+                     LLVM_VectorOf<element>:$op3, LLVM_VectorOf<I1>:$mask,
+                     I32:$evl)>;
+
+class LLVM_VPTernaryF<string mnem> : LLVM_VPTernaryBase<mnem, AnyFloat>;
+
+class LLVM_VPReductionBase<string mnem, Type element>
+    : LLVM_OneResultIntrOp<"vp.reduce." # mnem, [], [1], [NoSideEffect]>,
+      Arguments<(ins element:$satrt_value, LLVM_VectorOf<element>:$val,
+                     LLVM_VectorOf<I1>:$mask, I32:$evl)>;
+
+class LLVM_VPReductionI<string mnem> : LLVM_VPReductionBase<mnem, AnyInteger>;
+
+class LLVM_VPReductionF<string mnem> : LLVM_VPReductionBase<mnem, AnyFloat>;
 
 #endif  // LLVMIR_OP_BASE

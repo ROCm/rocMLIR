@@ -245,7 +245,18 @@ set(PPC_LINUX_DEFAULT_IEEELONGDOUBLE OFF CACHE BOOL
 set(CLANG_SPAWN_CC1 OFF CACHE BOOL
     "Whether clang should use a new process for the CC1 invocation")
 
-option(CLANG_DEFAULT_PIE_ON_LINUX "Default to -fPIE and -pie on Linux" OFF)
+option(CLANG_DEFAULT_PIE_ON_LINUX "Default to -fPIE and -pie on linux-gnu" ON)
+
+# Manually handle default so we can change the meaning of a cached default.
+set(CLANG_ENABLE_OPAQUE_POINTERS "DEFAULT" CACHE STRING
+    "Enable opaque pointers by default")
+if(CLANG_ENABLE_OPAQUE_POINTERS STREQUAL "DEFAULT")
+  set(CLANG_ENABLE_OPAQUE_POINTERS_INTERNAL ON)
+elseif(CLANG_ENABLE_OPAQUE_POINTERS)
+  set(CLANG_ENABLE_OPAQUE_POINTERS_INTERNAL ON)
+else()
+  set(CLANG_ENABLE_OPAQUE_POINTERS_INTERNAL OFF)
+endif()
 
 # TODO: verify the values against LangStandards.def?
 set(CLANG_DEFAULT_STD_C "" CACHE STRING
@@ -403,7 +414,7 @@ endif ()
 
 # Determine HOST_LINK_VERSION on Darwin.
 set(HOST_LINK_VERSION)
-if (APPLE)
+if (APPLE AND NOT CMAKE_LINKER MATCHES ".*lld.*")
   set(LD_V_OUTPUT)
   execute_process(
     COMMAND sh -c "${CMAKE_LINKER} -v 2>&1 | head -1"
@@ -476,9 +487,14 @@ add_definitions( -D_GNU_SOURCE )
 option(CLANG_BUILD_TOOLS
   "Build the Clang tools. If OFF, just generate build targets." ON)
 
+if(LLVM_ENABLE_PLUGINS OR LLVM_EXPORT_SYMBOLS_FOR_PLUGINS)
+  set(HAVE_CLANG_PLUGIN_SUPPORT ON)
+else()
+  set(HAVE_CLANG_PLUGIN_SUPPORT OFF)
+endif()
 CMAKE_DEPENDENT_OPTION(CLANG_PLUGIN_SUPPORT
   "Build clang with plugin support" ON
-  "LLVM_ENABLE_PLUGINS OR LLVM_EXPORT_SYMBOLS_FOR_PLUGINS" OFF)
+  "HAVE_CLANG_PLUGIN_SUPPORT" OFF)
 
 option(CLANG_ENABLE_ARCMT "Build ARCMT." ON)
 option(CLANG_ENABLE_STATIC_ANALYZER

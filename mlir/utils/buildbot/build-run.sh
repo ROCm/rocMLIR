@@ -69,4 +69,6 @@ else
 fi
 
 docker build ${BUILDPROXY} -t "${IMAGE_NAME}:latest" .
-docker run -it --net=host --device=/dev/kfd --device=/dev/dri --group-add video --name buildbot --restart always ${RUNPROXY} ${VOLUMES} ${ARGS} "${IMAGE_NAME}:latest" ${CMD}
+# Use "--group-add root" to work around container putting /dev/kfd and /dev/dri
+# in root instead of the proper video or render.
+docker run -d --net=host --device=/dev/kfd --device=/dev/dri --group-add video --group-add root --name buildbot --restart always ${RUNPROXY} ${VOLUMES} ${ARGS} "${IMAGE_NAME}:latest" ${CMD}

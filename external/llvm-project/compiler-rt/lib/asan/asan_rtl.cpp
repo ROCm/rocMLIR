@@ -27,6 +27,7 @@
 #include "lsan/lsan_common.h"
 #include "sanitizer_common/sanitizer_atomic.h"
 #include "sanitizer_common/sanitizer_flags.h"
+#include "sanitizer_common/sanitizer_interface_internal.h"
 #include "sanitizer_common/sanitizer_libc.h"
 #include "sanitizer_common/sanitizer_symbolizer.h"
 #include "ubsan/ubsan_init.h"
@@ -44,7 +45,9 @@ static void AsanDie() {
   static atomic_uint32_t num_calls;
   if (atomic_fetch_add(&num_calls, 1, memory_order_relaxed) != 0) {
     // Don't die twice - run a busy loop.
-    while (1) { }
+    while (1) {
+      internal_sched_yield();
+    }
   }
   if (common_flags()->print_module_map >= 1)
     DumpProcessMap();
@@ -474,12 +477,7 @@ static void AsanInitInternal() {
 
   if (CAN_SANITIZE_LEAKS) {
     __lsan::InitCommonLsan();
-    if (common_flags()->detect_leaks && common_flags()->leak_check_at_exit) {
-      if (flags()->halt_on_error)
-        Atexit(__lsan::DoLeakCheck);
-      else
-        Atexit(__lsan::DoRecoverableLeakCheckVoid);
-    }
+    InstallAtExitCheckLeaks();
   }
 
 #if CAN_SANITIZE_UB

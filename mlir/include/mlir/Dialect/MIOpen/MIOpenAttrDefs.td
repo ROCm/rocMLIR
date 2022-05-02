@@ -10,6 +10,7 @@
 #define MIOPEN_ATTRS
 
 include "mlir/Dialect/MIOpen/MIOpenBase.td"
+include "mlir/IR/AttrTypeBase.td"
 
 //TODO: submit this to upstream
 class ArrayRefOfStringRefParameter<string desc = ""> :
@@ -137,6 +138,7 @@ def MIOpen_TransformAttr : MIOpen_Attr<"Transform"> {
     );
 
     let genVerifyDecl = 1;
+    let hasCustomAssemblyFormat = 1;
 }
 
 /// TransformsAttr

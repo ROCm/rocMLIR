@@ -13,10 +13,10 @@
 #include "mlir/Conversion/GPUToMIGraphX/GPUToMIGraphX.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -25,11 +25,11 @@ using namespace mlir;
 
 namespace {
 
-class FuncToCOBJPattern : public OpConversionPattern<CallOp> {
-  using OpConversionPattern<CallOp>::OpConversionPattern;
+class FuncToCOBJPattern : public OpConversionPattern<func::CallOp> {
+  using OpConversionPattern<func::CallOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(CallOp op, OpAdaptor adaptor,
+  matchAndRewrite(func::CallOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = op->getLoc();
     auto results = op->getResults();

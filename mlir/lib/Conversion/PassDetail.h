@@ -9,11 +9,12 @@
 #ifndef MIOPEN_CONVERSION_PASSDETAIL_H_
 #define MIOPEN_CONVERSION_PASSDETAIL_H_
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
 class AffineDialect;
-class StandardOpsDialect;
 
 // Forward declaration from Dialect.h
 template <typename ConcreteDialect>

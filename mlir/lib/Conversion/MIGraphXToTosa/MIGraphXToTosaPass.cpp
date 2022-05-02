@@ -13,7 +13,7 @@
 
 #include "../PassDetail.h"
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
@@ -32,7 +32,7 @@ struct MIGraphXToTosa : public MIGraphXToTosaBase<MIGraphXToTosa> {
 public:
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<tosa::TosaDialect, migraphx::MIGraphXDialect,
-                    arith::ArithmeticDialect, StandardOpsDialect>();
+                    arith::ArithmeticDialect, func::FuncDialect>();
   }
 
   void runOnOperation() override {
@@ -40,7 +40,7 @@ public:
     RewritePatternSet patterns(&ctx);
     ConversionTarget target(ctx);
     target.addLegalDialect<tosa::TosaDialect, migraphx::MIGraphXDialect,
-                           StandardOpsDialect>();
+                           func::FuncDialect>();
     target.addIllegalOp<migraphx::AddOp, migraphx::ConstantOp,
                         migraphx::ConvolutionOp, migraphx::RsqrtOp,
                         migraphx::ReluOp, migraphx::TransposeOp,
@@ -57,7 +57,7 @@ public:
       signalPassFailure();
     }
 
-    OpPassManager cleanPM("builtin.func");
+    OpPassManager cleanPM("func.func");
     cleanPM.addPass(createCSEPass());
     cleanPM.addPass(createCSEPass());
     (void)runPipeline(cleanPM, func);

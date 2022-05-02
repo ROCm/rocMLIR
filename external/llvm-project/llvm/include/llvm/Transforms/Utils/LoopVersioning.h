@@ -15,7 +15,6 @@
 #ifndef LLVM_TRANSFORMS_UTILS_LOOPVERSIONING_H
 #define LLVM_TRANSFORMS_UTILS_LOOPVERSIONING_H
 
-#include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
@@ -23,6 +22,8 @@
 namespace llvm {
 
 class Loop;
+class SCEVPredicate;
+class ScalarEvolution;
 class LoopAccessInfo;
 class LoopInfo;
 struct RuntimeCheckingPtrGroup;
@@ -123,7 +124,7 @@ private:
   SmallVector<RuntimePointerCheck, 4> AliasChecks;
 
   /// The set of SCEV checks that we are versioning for.
-  const SCEVUnionPredicate &Preds;
+  const SCEVPredicate &Preds;
 
   /// Maps a pointer to the pointer checking group that the pointer
   /// belongs to.

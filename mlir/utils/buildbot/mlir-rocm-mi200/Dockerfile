@@ -21,14 +21,19 @@ RUN apt-get update; \
     update-alternatives --install /usr/bin/lld lld /usr/bin/lld-10 100
 
 # LTS releases often bundle obsolete pip versions that cannot access newest
-# Linux binary wheels. This pinned version is not special: it was just current
-# at the time this was added. Refer to compatibility table:
-# https://github.com/pypa/manylinux
+# Linux binary wheels.
 RUN python3 -m pip install --upgrade pip
+
+RUN apt-add-repository ppa:deadsnakes/ppa && apt-get update \
+     && apt-get install -y --no-install-recommends \
+            python3.8 python3.8-dev python3.8-venv \
+     && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 10 \
+     && python3 -m pip install --upgrade pip \
+     && python3 -m pip install --ignore-installed PyYAML
 
 # Refer to mlir/lib/Bindings/Python/requirements.txt. Listed explicitly here
 # and version pinned for consistency as this is a bot.
-RUN python3 -m pip install numpy pybind11 PyYAML
+RUN python3 -m pip install numpy pybind11>=2.8.0 PyYAML>5 dataclasses
 
 # Install build bot (server was at 2.8.5-dev at time of writing).
 RUN pip3 install buildbot-worker
@@ -49,7 +54,7 @@ ENV CCACHE_DIR=/vol/ccache
 VOLUME /vol/worker
 
 # Create user account, some tests fail if run as root.
-RUN useradd buildbot --create-home
+RUN useradd buildbot --create-home -u 2000
 WORKDIR /vol/worker
 
 # copy startup script
@@ -57,7 +62,7 @@ COPY run.sh /home/buildbot/
 RUN chmod a+rx /home/buildbot/run.sh
 
 USER buildbot
-ENV WORKER_NAME="mlir-rocm-mi200"
+ENV WORKER_NAME="mi200-buildbot"
 
 # Allow the server port of this agent to be configurable during deployment.
 # This way we can connect the same image to production and integration.

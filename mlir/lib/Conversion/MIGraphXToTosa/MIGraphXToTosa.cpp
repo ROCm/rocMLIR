@@ -12,9 +12,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -120,6 +120,12 @@ public:
                             rewriter.getI64IntegerAttr(padLeft),
                             rewriter.getI64IntegerAttr(padRight),
                         }));
+
+    // Convert optional attributes
+    if (auto attr =  op->getAttrOfType<BoolAttr>("xdlopsV2"))
+      cop->setAttr("xdlopsV2", attr);
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      cop->setAttr("perf_config", attr);
 
     // transpose the output back to NCHW so that it can match following
     // operators.

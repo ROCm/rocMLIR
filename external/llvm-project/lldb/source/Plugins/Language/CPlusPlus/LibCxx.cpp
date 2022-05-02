@@ -79,7 +79,7 @@ bool lldb_private::formatters::LibcxxFunctionSummaryProvider(
 
   switch (callable_info.callable_case) {
   case CPPLanguageRuntime::LibCppStdFunctionCallableCase::Invalid:
-    stream.Printf(" __f_ = %" PRIu64, callable_info.member__f_pointer_value);
+    stream.Printf(" __f_ = %" PRIu64, callable_info.member_f_pointer_value);
     return false;
     break;
   case CPPLanguageRuntime::LibCppStdFunctionCallableCase::Lambda:
@@ -228,7 +228,7 @@ bool lldb_private::formatters::LibCxxMapIteratorSyntheticFrontEnd::Update() {
   if (!valobj_sp)
     return false;
 
-  static ConstString g___i_("__i_");
+  static ConstString g_i_("__i_");
 
   // this must be a ValueObject* because it is a child of the ValueObject we
   // are producing children for it if were a ValueObjectSP, we would end up
@@ -258,7 +258,7 @@ bool lldb_private::formatters::LibCxxMapIteratorSyntheticFrontEnd::Update() {
                          nullptr)
                      .get();
     if (m_pair_ptr) {
-      auto __i_(valobj_sp->GetChildMemberWithName(g___i_, true));
+      auto __i_(valobj_sp->GetChildMemberWithName(g_i_, true));
       if (!__i_) {
         m_pair_ptr = nullptr;
         return false;
@@ -296,7 +296,7 @@ bool lldb_private::formatters::LibCxxMapIteratorSyntheticFrontEnd::Update() {
         llvm::Optional<uint64_t> size = tree_node_type.GetByteSize(nullptr);
         if (!size)
           return false;
-        DataBufferSP buffer_sp(new DataBufferHeap(*size, 0));
+        WritableDataBufferSP buffer_sp(new DataBufferHeap(*size, 0));
         ProcessSP process_sp(target_sp->GetProcessSP());
         Status error;
         process_sp->ReadMemory(addr, buffer_sp->GetBytes(),

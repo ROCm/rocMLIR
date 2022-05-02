@@ -13,12 +13,13 @@
 #include "mlir/Conversion/TosaToMIOpen/TosaToMIOpen.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
+#include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -84,7 +85,7 @@ static Value expandMemRef(ConversionPatternRewriter &rw, Operation *op,
     startDims.push_back(i);
     endDims.push_back(i < idx ? i : i + 1);
   }
-  miopen::BottomUpCTBuilder transform(rw, shape, loc);
+  miopen::BottomUpTMBuilder transform(rw, shape, loc);
   transform.passThrough(endDims, startDims);
   transform.addDim("g", idx, 1);
 
@@ -158,6 +159,8 @@ makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   cop->setAttr("arch", rw.getStringAttr(arch));
   cop->setAttr("num_cu", rw.getI32IntegerAttr(num_cu));
   cop->setAttr("xdlopsV2", rw.getBoolAttr(xdlopsV2));
+  if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+    cop->setAttr("perf_config", attr);
 
   // convolution config attributes
   cop->setAttr("filter_layout",
