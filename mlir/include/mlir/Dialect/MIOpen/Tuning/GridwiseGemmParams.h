@@ -847,22 +847,6 @@ private:
   };
   // clang-format on
 
-  // XXX FIXME: Initial tuning parameters for fp32 backward weight convolution.
-  // Deliberately avoid KPACK=4 for fp32 backward weight convolution. It has
-  // been verified some configs would cause intermittent failures.
-  // TODO(whchung): Get to the bottom of this.
-  // clang-format off
-  llvm::SmallVector<InitParamsXDL, 4> initParametersBwdWeightF32 = {
-      // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-      {128, 128, 8, 64, 64, 1, false, false},
-      {128, 128, 16, 64, 64, 1, false, false},
-      {8, 64, 8, 8, 64, 1, false, false},
-      {4, 64, 16, 4, 64, 1, false, false},
-      {32, 64, 4, 32, 64, 1, false, false},
-      {16, 16, 16, 16, 16, 1, false, false},
-      {16, 16, 4, 16, 16, 1, false, false} ,
-  };
-  // clang-format on
   const int64_t waveSize = 64;
 
   // if can't select config from above , use this config to do
@@ -875,11 +859,19 @@ private:
            (params.gemmMPerWave * params.gemmNPerWave);
   }
 
-  int64_t getKBlocks(ConvolutionContext &ctx) {
+  int64_t getKBlocks(ConvolutionContext &ctx, InitParamsXDL &params) {
     int64_t n = ctx.dimIndexAndSize["no"].size;
     int64_t ho = ctx.dimIndexAndSize["ho"].size;
     int64_t wo = ctx.dimIndexAndSize["wo"].size;
-    return mlir::miopen::calculateKBlockNum(n, ho, wo);
+    int64_t g = ctx.dimIndexAndSize["g"].size;
+    int64_t k = ctx.dimIndexAndSize["k"].size;
+    int64_t c = ctx.dimIndexAndSize["c"].size;
+    int64_t y = ctx.dimIndexAndSize["y"].size;
+    int64_t x = ctx.dimIndexAndSize["x"].size;
+
+    return mlir::miopen::calculateKBlockNum(
+        n, ho, wo, g, k, c, y, x, params.gemmMPerBlock, params.gemmNPerBlock,
+        params.gemmKPerBlock, params.gemmKPack, ctx.num_cu);
   }
 
   LogicalResult calculateGemmABlockCopyPerformanceParameters(
@@ -1007,18 +999,6 @@ private:
       return failure();
     }
 
-    // XXX FIXME: Temporarily reject KPACK=4 for fp32 backward weight
-    // convolution. It has been verified some configs would cause intermittent
-    // failures.
-    // TODO(whchung): Get to the bottom of this.
-    if ((param.gemmKPack == 4) &&
-        (ctx.getOpType() == miopen::ConvOpType::BwdWeight) &&
-        dataType.isF32()) {
-      llvm::errs() << "Invalid config: fp32 XDLOPS backward weight convolution "
-                      "with KPACK=4\n";
-      return failure();
-    }
-
     // TODO remove : Ignore KReduction XDLOPS path for forward and backward
     // weight convolution now (unless int8). These M/NPerBlock combinations used
     // to result in lowering errors at tuning. Once non-int8 types are tested,
@@ -1084,14 +1064,6 @@ public:
   getTuningParameters(miopen::ConvOpType dir, mlir::Type dataType) {
     if (dataType.isInteger(8)) {
       return initParametersForwardI8;
-    }
-
-    // XXX FIXME: Temporarily use another vector of heuristic tuning
-    // parameters to get around the issue that when KPACK=4, fp32 backward
-    // weight kernels would fail intermittently.
-    // TODO(whchung): Get to the bottom of this.
-    if ((dir == miopen::ConvOpType::BwdWeight) && dataType.isF32()) {
-      return initParametersBwdWeightF32;
     }
 
     return initParameters;
