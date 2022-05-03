@@ -35,6 +35,9 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Debug.h"
+
+#define DEBUG_TYPE "miopen-blockwise-to-threadwise"
 
 using namespace mlir;
 using namespace mlir::arith;
@@ -117,10 +120,10 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
     int64_t NPerThreadSubC =
         op->getAttr("n_per_thread").template cast<IntegerAttr>().getInt();
 
-    // llvm::errs() << "MPerThread: " << MPerThread << "\n";
-    // llvm::errs() << "MPerThreadSubC: " << MPerThreadSubC << "\n";
-    // llvm::errs() << "NPerThread: " << NPerThread << "\n";
-    // llvm::errs() << "NPerThreadSubC: " << NPerThreadSubC << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "MPerThread: " << MPerThread << "\n"
+                            << "MPerThreadSubC: " << MPerThreadSubC << "\n"
+                            << "NPerThread: " << NPerThread << "\n"
+                            << "NPerThreadSubC: " << NPerThreadSubC << "\n");
 
     auto MPerThreadSubCConstantOp =
         b.create<ConstantIndexOp>(loc, MPerThreadSubC);
@@ -553,6 +556,9 @@ struct ThreadwiseCopyV2RewritePattern
       bounds[vecDim] /= dataPerCopy;
     }
 
+    LLVM_DEBUG(llvm::dbgs()
+               << "Threadwise copy vector dimension: " << vecDim << "\n"
+               << "Data per copy: " << dataPerCopy << "\n");
     ArrayAttr srcTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
     ArrayAttr destTransformsOnOp = op.transforms()[1].cast<ArrayAttr>();
     Value source, dest;

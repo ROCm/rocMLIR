@@ -1,0 +1,1 @@
+Inapplicable config '-t f16    --rand_type float -fil_layout=yxck -in_layout=nhwc -out_layout=nhwk -in_channels=8 -batchsize=8 -out_channels=128 -in_h=32 -in_w=32 -fil_h=3 -fil_w=3 -p=false' xdlops=True

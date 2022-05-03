@@ -38,6 +38,9 @@
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Debug.h"
+
+#define DEBUG_TYPE "miopen-gridwise-to-blockwise"
 
 using namespace mlir;
 using namespace mlir::arith;
@@ -439,9 +442,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     block_space = a_block_space + b_block_space;
 
-    // llvm::errs() << "a_block_space: " << a_block_space << "\n";
-    // llvm::errs() << "b_block_space: " << b_block_space << "\n";
-    // llvm::errs() << "double_block_space: " << double_block_space << "\n\n";
+    LLVM_DEBUG(llvm::dbgs() << "a_block_space: " << a_block_space << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "b_block_space: " << b_block_space << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "double_block_space: " << block_space << "\n\n");
   }
 
   void affixBlockwiseGemmAttributes(BlockwiseGemmOp bop, GridwiseGemmOp gop,
@@ -580,22 +583,27 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     int64_t NBlockWork = N / NPerBlock;
     int64_t GStride = MBlockWork * NBlockWork;
 
-    // llvm::errs() << "\ngridwise_gemm op:\n";
-    // op.dump();
-    // llvm::errs() << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "\ngridwise_gemm op:\n");
+    LLVM_DEBUG(op.print(llvm::dbgs()));
+    LLVM_DEBUG(llvm::dbgs() << "\n");
 
-    // llvm::errs() << "M: " << M << "\n";
-    // llvm::errs() << "N: " << N << "\n";
-    // llvm::errs() << "K: " << K << "\n";
-    // llvm::errs() << "BlockSize: " << BlockSize << "\n";
-    // llvm::errs() << "MPerBlock: " << MPerBlock << "\n";
-    // llvm::errs() << "NPerBlock: " << NPerBlock << "\n";
-    // llvm::errs() << "KPerBlock: " << KPerBlock << "\n";
-    // llvm::errs() << "KPack: " << KPack << "\n";
-    // llvm::errs() << "MPerThread: " << MPerThread << "\n";
-    // llvm::errs() << "NPerThread: " << NPerThread << "\n";
-    // llvm::errs() << "MBlockWork = M / MPerBlock: " << MBlockWork << "\n";
-    // llvm::errs() << "NBlockWork = N / NPerBlock: " << NBlockWork << "\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "M: " << M << "\n"
+               << "N: " << N << "\n"
+               << "K: " << K << "\n"
+               << "BlockSize: " << BlockSize << "\n"
+               << "MPerBlock: " << MPerBlock << "\n"
+               << "NPerBlock: " << NPerBlock << "\n"
+               << "KPerBlock: " << KPerBlock << "\n"
+               << "KPack: " << KPack << "\n"
+               << "MPerThread: " << MPerThread << "\n"
+               << "NPerThread: " << NPerThread << "\n"
+               << "MBlockWork = M / MPerBlock: " << MBlockWork << "\n"
+               << "NBlockWork = N / NPerBlock: " << NBlockWork << "\n"
+               << "MLevel0Cluster: " << MLevel0Cluster << "\n"
+               << "MLevel1Cluster: " << MLevel1Cluster << "\n"
+               << "NLevel0Cluster: " << NLevel0Cluster << "\n"
+               << "NLevel1Cluster: " << NLevel1Cluster << "\n");
 
     auto NBlockWorkConstantOp = b.create<ConstantIndexOp>(loc, NBlockWork);
     auto GStridOp = b.create<ConstantIndexOp>(loc, GStride);
@@ -613,14 +621,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     auto n_block_data_on_global =
         b.create<MulIOp>(loc, block_work_id_n, NPerBlockConstantOp);
 
-    // llvm::errs() << "KPerBlock: " << KPerBlock << "\n";
-    // llvm::errs() << "MPerBlock: " << MPerBlock << "\n";
-    // llvm::errs() << "NPerBlock: " << NPerBlock << "\n";
-    // llvm::errs() << "KPack: " << KPack << "\n";
-    // llvm::errs() << "matrix_a_source_data_per_read: "
-    //              << matrix_a_source_data_per_read << "\n";
-    // llvm::errs() << "matrix_b_source_data_per_read: "
-    //              << matrix_b_source_data_per_read << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "matrix_a_source_data_per_read: "
+                            << matrix_a_source_data_per_read << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "matrix_b_source_data_per_read: "
+                            << matrix_b_source_data_per_read << "\n");
 
     // Compute ThreadSliceLengths for Matrix A.
     int64_t GemmABlockCopyNumberDataPerThread =
@@ -666,10 +670,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       return failure();
     }
 
-    // llvm::errs() << "thread slice lengths for Matrix A\n";
-    // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmK << " ";
-    // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmM << " ";
-    // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "thread slice lengths for Matrix A: "
+               << GemmABlockCopyThreadSliceLengths_GemmK << " "
+               << GemmABlockCopyThreadSliceLengths_GemmM << " "
+               << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n");
 
     // Each thread should not read exceed the length of the corresponding tile
     if (GemmABlockCopyThreadSliceLengths_GemmK > KPerBlock ||
@@ -693,10 +698,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // int64_t GemmABlockCopyClusterLengths_GemmM =
     //    MPerBlock / GemmABlockCopyThreadSliceLengths_GemmM;
 
-    // llvm::errs() << "thread cluster lengths for Matrix A\n";
-    // llvm::errs() << GemmABlockCopyClusterLengths_GemmK << " ";
-    // llvm::errs() << GemmABlockCopyClusterLengths_GemmM << " ";
-    // llvm::errs() << GemmABlockCopyClusterLengths_GemmKPack << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "thread cluster lengths for Matrix A: "
+                            << GemmABlockCopyClusterLengths_GemmK << " "
+                            << GemmABlockCopyClusterLengths_GemmKPack << "\n");
 
     // Compute ThreadSliceLengths for Matrix B.
     int64_t GemmBBlockCopyNumberDataPerThread =
@@ -743,11 +747,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       return failure();
     }
 
-    // llvm::errs() << "thread slice lengths for Matrix B\n";
-    // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmK << " ";
-    // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmN << " ";
-    // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
-
+    LLVM_DEBUG(llvm::dbgs()
+               << "thread slice lengths for Matrix B: "
+               << GemmBBlockCopyThreadSliceLengths_GemmK << " "
+               << GemmBBlockCopyThreadSliceLengths_GemmN << " "
+               << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n");
     // Each thread should not read exceed the length of the corresponding tile
     if (GemmBBlockCopyThreadSliceLengths_GemmK > KPerBlock ||
         GemmBBlockCopyThreadSliceLengths_GemmN > NPerBlock) {
@@ -770,10 +774,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     uint64_t GemmBBlockCopyClusterLengths_GemmN =
         NPerBlock / GemmBBlockCopyThreadSliceLengths_GemmN;
 
-    // llvm::errs() << "thread cluster lengths for Matrix B\n";
-    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmK << " ";
-    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmN << " ";
-    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmKPack << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "thread cluster lengths for Matrix B: "
+                            << GemmBBlockCopyClusterLengths_GemmK << " "
+                            << GemmBBlockCopyClusterLengths_GemmN << " "
+                            << GemmBBlockCopyClusterLengths_GemmKPack << "\n");
 
     // Get current workitem ID.
 
@@ -979,9 +983,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
     computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize, KPack);
 
-    // llvm::errs() << "LDS block size:" << ldsBlockASize << " " <<
-    // ldsBlockBSize
-    //             << " " << ldsBlockSize << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "LDS block size:" << ldsBlockASize << " "
+                            << ldsBlockBSize << " " << ldsBlockSize << "\n");
 
     // Allocate LDS.
     auto ldsMemRefType =
@@ -1025,14 +1028,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // Compute register size from attributes.
     int64_t GemmMRepeat = 0, GemmNRepeat = 0;
 
-    // llvm::errs() << "MPerThread: " << MPerThread << "\n";
-    // llvm::errs() << "NPerThread: " << NPerThread << "\n";
-
     GemmMRepeat = MPerBlock / (MPerThread * MLevel0Cluster * MLevel1Cluster);
     GemmNRepeat = NPerBlock / (NPerThread * NLevel0Cluster * NLevel1Cluster);
 
-    // llvm::errs() << "GemmMRepeat: " << GemmMRepeat << "\n";
-    // llvm::errs() << "GemmNRepeat: " << GemmNRepeat << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "GemmMRepeat: " << GemmMRepeat << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "GemmNRepeat: " << GemmNRepeat << "\n");
 
     auto threadCRegisterMemRefType = MemRefType::get(
         {1, GemmMRepeat * MPerThread, GemmNRepeat * NPerThread},
@@ -1059,17 +1059,17 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                              blockwiseStoreVectorLenA, blockwiseVectorDimA,
                              KPack, elementType, aLoadType, aLoadIntermediate,
                              aStoreType);
+    LLVM_DEBUG(llvm::dbgs()
+               << "Corrected blockwise vector dim A: " << blockwiseVectorDimA
+               << "\n"
+               << "Load type A: " << aLoadType << "\n"
+               << "Intermediate type A: " << aLoadIntermediate << "\n"
+               << "Store type A: " << aStoreType << "\n");
 
-    // llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmK: "
-    //              << GemmABlockCopyThreadSliceLengths_GemmK << "\n";
-    // llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmM: "
-    //              << GemmABlockCopyThreadSliceLengths_GemmM << "\n";
-    // llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmKPack: "
-    //              << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
-    // llvm::errs() << "blockwise copy A bounds: ";
-    // for (auto v : blockwiseCopyABounds)
-    //   llvm::errs() << v << " ";
-    // llvm::errs() << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "blockwise copy A bounds: ");
+    for (auto v : blockwiseCopyABounds)
+      LLVM_DEBUG(llvm::dbgs() << v << " ");
+    LLVM_DEBUG(llvm::dbgs() << "\n");
 
     SmallVector<int64_t, 4> blockwiseCopyBBounds;
     if (KPack > 1) {
@@ -1088,17 +1088,17 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                              blockwiseStoreVectorLenB, blockwiseVectorDimB,
                              KPack, elementType, bLoadType, bLoadIntermediate,
                              bStoreType);
+    LLVM_DEBUG(llvm::dbgs()
+               << "Corrected blockwise vector dim B: " << blockwiseVectorDimB
+               << "\n"
+               << "Load type B: " << bLoadType << "\n"
+               << "Intermediate type B: " << bLoadIntermediate << "\n"
+               << "Store type B: " << bStoreType << "\n");
 
-    // llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmK: "
-    //              << GemmBBlockCopyThreadSliceLengths_GemmK << "\n";
-    // llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmN: "
-    //              << GemmBBlockCopyThreadSliceLengths_GemmN << "\n";
-    // llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmKPack: "
-    //              << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
-    // llvm::errs() << "blockwise copy B bounds: ";
-    // for (auto v : blockwiseCopyBBounds)
-    //   llvm::errs() << v << " ";
-    // llvm::errs() << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "blockwise copy B bounds: ");
+    for (auto v : blockwiseCopyBBounds)
+      LLVM_DEBUG(llvm::dbgs() << v << " ");
+    LLVM_DEBUG(llvm::dbgs() << "\n");
 
     // Zero init Matrix C on registers.
     b.create<FillOp>(loc, registerMatrixCAllocOp, zeroConstantFloatOp);
@@ -1397,11 +1397,13 @@ struct GridwiseGemmV2RewritePattern
         max_lds_align *
         math_util::integer_divide_ceil<int64_t>(MPerBlock, max_lds_align);
 
-    // llvm::errs() << "MPerBlock : " << MPerBlock << "\n";
-    // llvm::errs() << "NPerBlock : " << NPerBlock << "\n";
-    // llvm::errs() << "max_lds_align : " << max_lds_align << "\n";
-    // llvm::errs() << "AlignedMPerBlock : " << AlignedMPerBlock << "\n";
-    // llvm::errs() << "AlignedNPerBlock : " << AlignedNPerBlock << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "MPerBlock : " << MPerBlock << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "NPerBlock : " << NPerBlock << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "max_lds_align : " << max_lds_align << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "AlignedMPerBlock : " << AlignedMPerBlock << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "AlignedNPerBlock : " << AlignedNPerBlock << "\n");
 
     a_block_space = math_util::integer_least_multiple(
                         KPerBlock * AlignedMPerBlock, max_lds_align) *
@@ -1414,9 +1416,10 @@ struct GridwiseGemmV2RewritePattern
 
     total_block_space = a_block_space + b_block_space;
 
-    // llvm::errs() << "a_block_space: " << a_block_space << "\n";
-    // llvm::errs() << "b_block_space: " << b_block_space << "\n";
-    // llvm::errs() << "total_block_space: " << total_block_space << "\n\n";
+    LLVM_DEBUG(llvm::dbgs() << "a_block_space: " << a_block_space << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "b_block_space: " << b_block_space << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "total_block_space: " << total_block_space << "\n\n");
   }
 
   void affixBlockwiseGemmV2Attributes(BlockwiseGemmV2Op bop,
@@ -1554,28 +1557,26 @@ struct GridwiseGemmV2RewritePattern
     int64_t NBlockWork = N / NPerBlock;
     int64_t GStride = MBlockWork * NBlockWork;
 
-    // llvm::errs() << "M: " << M << "\n";
-    // llvm::errs() << "N: " << N << "\n";
-    // llvm::errs() << "K: " << K << "\n";
-    // llvm::errs() << "MPerBlock: " << MPerBlock << "\n";
-    // llvm::errs() << "NPerBlock: " << NPerBlock << "\n";
-    // llvm::errs() << "KPerBlock: " << KPerBlock << "\n";
-    // llvm::errs() << "KPack: " << KPack << "\n";
-    // llvm::errs() << "MBlockWork = M / MPerBlock: " << MBlockWork << "\n";
-    // llvm::errs() << "NBlockWork = N / NPerBlock: " << NBlockWork << "\n";
-    // llvm::errs() << "MPerWave: " << MPerWave << "\n";
-    // llvm::errs() << "NPerWave: " << NPerWave << "\n";
-    // llvm::errs() << "MWaves = MPerBlock / MPerWave: " << MWaves << "\n";
-    // llvm::errs() << "NWaves = NPerBlock / NPerWave: " << NWaves << "\n";
-
-    // llvm::errs() << "matrix_a_source_data_per_read: "
-    //              << matrix_a_source_data_per_read << "\n";
-    // llvm::errs() << "matrix_b_source_data_per_read: "
-    //              << matrix_b_source_data_per_read << "\n";
-    // llvm::errs() << "matrix_a_source_vector_read_dim: "
-    //              << matrix_a_source_vector_read_dim << "\n";
-    // llvm::errs() << "matrix_b_source_vector_read_dim: "
-    //              << matrix_b_source_vector_read_dim << "\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "M: " << M << "\n"
+               << "N: " << N << "\n"
+               << "K: " << K << "\n"
+               << "MPerBlock: " << MPerBlock << "\n"
+               << "NPerBlock: " << NPerBlock << "\n"
+               << "KPerBlock: " << KPerBlock << "\n"
+               << "KPack: " << KPack << "\n"
+               << "MBlockWork = M / MPerBlock: " << MBlockWork << "\n"
+               << "NBlockWork = N / NPerBlock: " << NBlockWork << "\n"
+               << "MPerWave: " << MPerWave << "\n"
+               << "NPerWave: " << NPerWave << "\n"
+               << "matrix_a_source_data_per_read: "
+               << matrix_a_source_data_per_read << "\n"
+               << "matrix_b_source_data_per_read: "
+               << matrix_b_source_data_per_read << "\n"
+               << "matrix_a_source_vector_read_dim: "
+               << matrix_a_source_vector_read_dim << "\n"
+               << "matrix_b_source_vector_read_dim: "
+               << matrix_b_source_vector_read_dim << "\n");
 
     auto MPerBlockConstantOp = b.create<ConstantIndexOp>(loc, MPerBlock);
     auto NPerBlockConstantOp = b.create<ConstantIndexOp>(loc, NPerBlock);
@@ -1617,8 +1618,8 @@ struct GridwiseGemmV2RewritePattern
     int64_t GemmABlockCopyNumberDataPerThread =
         MPerBlock * KPerBlock * KPack / BlockSize;
 
-    // llvm::errs() << "GemmABlockCopyNumberDataPerThread: "
-    //              << GemmABlockCopyNumberDataPerThread << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "GemmABlockCopyNumberDataPerThread: "
+                            << GemmABlockCopyNumberDataPerThread << "\n");
 
     int64_t GemmABlockCopyThreadSliceLengths_GemmK;
     int64_t GemmABlockCopyThreadSliceLengths_GemmM;
@@ -1660,10 +1661,11 @@ struct GridwiseGemmV2RewritePattern
       return failure();
     }
 
-    // llvm::errs() << "thread slice lengths for Matrix A\n";
-    // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmK << " ";
-    // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmM << " ";
-    // llvm::errs() << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "thread slice lengths for Matrix A: "
+               << GemmABlockCopyThreadSliceLengths_GemmK << " "
+               << GemmABlockCopyThreadSliceLengths_GemmM << " "
+               << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n");
 
     if (GemmABlockCopyThreadSliceLengths_GemmK == 0 ||
         GemmABlockCopyThreadSliceLengths_GemmM == 0 ||
@@ -1681,17 +1683,16 @@ struct GridwiseGemmV2RewritePattern
     // int64_t GemmABlockCopyClusterLengths_GemmM =
     //    MPerBlock / GemmABlockCopyThreadSliceLengths_GemmM;
 
-    // llvm::errs() << "thread cluster lengths for Matrix A\n";
-    // llvm::errs() << GemmABlockCopyClusterLengths_GemmK << " ";
-    // llvm::errs() << GemmABlockCopyClusterLengths_GemmM << " ";
-    // llvm::errs() << GemmABlockCopyClusterLengths_GemmKPack << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "thread cluster lengths for Matrix A: "
+                            << GemmABlockCopyClusterLengths_GemmK << " "
+                            << GemmABlockCopyClusterLengths_GemmKPack << "\n");
 
     // Compute ThreadSliceLengths for Matrix B.
     int64_t GemmBBlockCopyNumberDataPerThread =
         NPerBlock * KPerBlock * KPack / BlockSize;
 
-    // llvm::errs() << "GemmBBlockCopyNumberDataPerThread: "
-    //              << GemmBBlockCopyNumberDataPerThread << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "GemmBBlockCopyNumberDataPerThread: "
+                            << GemmBBlockCopyNumberDataPerThread << "\n");
 
     int64_t GemmBBlockCopyThreadSliceLengths_GemmK;
     int64_t GemmBBlockCopyThreadSliceLengths_GemmN;
@@ -1733,10 +1734,11 @@ struct GridwiseGemmV2RewritePattern
       return failure();
     }
 
-    // llvm::errs() << "thread slice lengths for Matrix B\n";
-    // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmK << " ";
-    // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmN << " ";
-    // llvm::errs() << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "thread slice lengths for Matrix B: "
+               << GemmBBlockCopyThreadSliceLengths_GemmK << " "
+               << GemmBBlockCopyThreadSliceLengths_GemmN << " "
+               << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n");
 
     if (GemmBBlockCopyThreadSliceLengths_GemmK == 0 ||
         GemmBBlockCopyThreadSliceLengths_GemmN == 0 ||
@@ -1757,10 +1759,10 @@ struct GridwiseGemmV2RewritePattern
     uint64_t GemmBBlockCopyClusterLengths_GemmN =
         NPerBlock / GemmBBlockCopyThreadSliceLengths_GemmN;
 
-    // llvm::errs() << "thread cluster lengths for Matrix B\n";
-    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmK << " ";
-    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmN << " ";
-    // llvm::errs() << GemmBBlockCopyClusterLengths_GemmKPack << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "thread cluster lengths for Matrix B: "
+                            << GemmBBlockCopyClusterLengths_GemmK << " "
+                            << GemmBBlockCopyClusterLengths_GemmN << " "
+                            << GemmBBlockCopyClusterLengths_GemmKPack << "\n");
 
     // Compute thread_data_id_begin for Matrix A.
     // ClusterArrangeOrder for Matrix A is <1, 0>.
@@ -1962,10 +1964,8 @@ struct GridwiseGemmV2RewritePattern
     int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
     computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize, KPack);
 
-    // llvm::errs() << "KPack: " << KPack << "\n";
-    // llvm::errs() << "LDS block size:" << ldsBlockASize << " " <<
-    // ldsBlockBSize
-    //              << " " << ldsBlockSize << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "LDS block size:" << ldsBlockASize << " "
+                            << ldsBlockBSize << " " << ldsBlockSize << "\n");
 
     // Allocate LDS.
     auto ldsMemRefType =
@@ -2029,21 +2029,17 @@ struct GridwiseGemmV2RewritePattern
                              KPack, elementType, aLoadType, aLoadIntermediate,
                              aStoreType);
 
-    // llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmK: "
-    //              << GemmABlockCopyThreadSliceLengths_GemmK << "\n";
-    // llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmM: "
-    //              << GemmABlockCopyThreadSliceLengths_GemmM << "\n";
-    // llvm::errs() << "GemmABlockCopyThreadSliceLengths_GemmKPack: "
-    //              << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n";
-    // llvm::errs() << "blockwise copy A bounds: ";
-    // for (auto v : blockwiseCopyABounds)
-    //   llvm::errs() << v << " ";
-    // llvm::errs() << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "blockwise copy A bounds: ");
+    for (auto v : blockwiseCopyABounds)
+      LLVM_DEBUG(llvm::dbgs() << v << " ");
+    LLVM_DEBUG(llvm::dbgs() << "\n");
 
-    // llvm::errs() << "vector load dim: " << blockwiseAVectorDim << "\n";
-    // llvm::errs() << "element type: " << blockwiseLoadAType << "\n";
-    // llvm::errs() << "load size: " << blockwiseLoadAVectorLength << "\n";
-    // llvm::errs() << "store size: " << blockwiseStoreAVectorLength << "\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Corrected blockwise vector dim A: " << blockwiseVectorDimA
+               << "\n"
+               << "Load type A: " << aLoadType << "\n"
+               << "Intermediate type A: " << aLoadIntermediate << "\n"
+               << "Store type A: " << aStoreType << "\n");
 
     SmallVector<int64_t, 4> blockwiseCopyBBounds;
     if (KPack > 1) {
@@ -2054,16 +2050,10 @@ struct GridwiseGemmV2RewritePattern
       blockwiseCopyBBounds = {1, GemmBBlockCopyThreadSliceLengths_GemmK,
                               GemmBBlockCopyThreadSliceLengths_GemmN};
     }
-    // llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmK: "
-    //              << GemmBBlockCopyThreadSliceLengths_GemmK << "\n";
-    // llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmN: "
-    //              << GemmBBlockCopyThreadSliceLengths_GemmN << "\n";
-    // llvm::errs() << "GemmBBlockCopyThreadSliceLengths_GemmKPack: "
-    //              << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n";
-    // llvm::errs() << "blockwise copy B bounds: ";
-    // for (auto v : blockwiseCopyBBounds)
-    //   llvm::errs() << v << " ";
-    // llvm::errs() << "\n";
+    LLVM_DEBUG(llvm::dbgs() << "blockwise copy B bounds: ");
+    for (auto v : blockwiseCopyBBounds)
+      LLVM_DEBUG(llvm::dbgs() << v << " ");
+    LLVM_DEBUG(llvm::dbgs() << "\n");
 
     uint32_t blockwiseVectorDimB = matrix_b_source_vector_read_dim;
     int64_t blockwiseLoadVectorLenB = matrix_b_source_data_per_read;
@@ -2073,11 +2063,12 @@ struct GridwiseGemmV2RewritePattern
                              blockwiseStoreVectorLenB, blockwiseVectorDimB,
                              KPack, elementType, bLoadType, bLoadIntermediate,
                              bStoreType);
-
-    // llvm::errs() << "vector load dim: " << blockwiseBVectorDim << "\n";
-    // llvm::errs() << "element type: " << blockwiseLoadBType << "\n";
-    // llvm::errs() << "load size: " << blockwiseLoadBVectorLength << "\n";
-    // llvm::errs() << "store size: " << blockwiseStoreBVectorLength << "\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Corrected blockwise vector dim B: " << blockwiseVectorDimB
+               << "\n"
+               << "Load type B: " << bLoadType << "\n"
+               << "Intermediate type B: " << bLoadIntermediate << "\n"
+               << "Store type B: " << bStoreType << "\n");
 
     // -----
 
@@ -2151,11 +2142,6 @@ struct GridwiseGemmV2RewritePattern
     // -----
 
     // Logic to do XDLOPS code selection.
-    // llvm::errs() << "Invoke XDLOPS code selection logic:\n";
-    // llvm::errs() << "elementType: "; elementType.dump(); llvm::errs() <<
-    // "\n"; llvm::errs() << "MPerWave: " << MPerWave << "\n"; llvm::errs() <<
-    // "NPerWave: " << NPerWave << "\n";
-
     XdlopsCodeSelection xcs =
         XdlopsCodeSelection::get(elementType, MPerWave, NPerWave, b);
 
@@ -2378,19 +2364,18 @@ struct GridwiseGemmV2RewritePattern
     VectorType vectorCSliceType =
         VectorType::get({vectorCoffset}, vectorType.getElementType());
 
-    // llvm::errs() << "MPerXlops: " << MPerXdlops << "\n";
-    // llvm::errs() << "NPerXlops: " << NPerXdlops << "\n";
-    // llvm::errs() << "m: " << m << "\n";
-    // llvm::errs() << "n: " << n << "\n";
-    // llvm::errs() << "MRepeat: " << MRepeats << "\n";
-    // llvm::errs() << "NRepeat: " << NRepeats << "\n\n";
+    LLVM_DEBUG(llvm::dbgs() << "MPerXlops: " << MPerXdlops << "\n"
+                            << "NPerXlops: " << NPerXdlops << "\n"
+                            << "m: " << m << "\n"
+                            << "n: " << n << "\n"
+                            << "MRepeat: " << MRepeats << "\n"
+                            << "NRepeat: " << NRepeats << "\n\n");
 
-    // llvm::errs() << "BlkSize: " << BlkSize << "\n";
-    // llvm::errs() << "NumBlksPerXdlops: " << NumBlksPerXdlops << "\n";
-    // llvm::errs() << "NumBlks: " << NumBlks << "\n\n";
-
-    // llvm::errs() << "iterationsPerVectorC: " << iterationsPerVectorC << "\n";
-    // llvm::errs() << "vectorCoffset: " << vectorCoffset << "\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "NumBlksPerXdlops: " << NumBlksPerXdlops << "\n"
+               << "NumBlks: " << NumBlks << "\n\n"
+               << "iterationsPerVectorC: " << iterationsPerVectorC << "\n"
+               << "vectorCoffset: " << vectorCoffset << "\n");
 
     auto group_size_ConstantOp = b.create<ConstantIndexOp>(loc, group_size);
     auto wave_size_ConstantOp = b.create<ConstantIndexOp>(loc, wave_size);
@@ -2405,10 +2390,10 @@ struct GridwiseGemmV2RewritePattern
     int64_t M0 = M / (M1 * M2);
     int64_t N1 = group_size;
     int64_t N0 = N / N1;
-    // llvm::errs() << "M0: " << M0 << "\n";
-    // llvm::errs() << "M1: num_input_blks: " << M1 << "\n";
-    // llvm::errs() << "M2: group_size: " << M2 << "\n";
-    // llvm::errs() << "M3: num_groups_blk: " << M3 << "\n\n";
+    LLVM_DEBUG(llvm::dbgs() << "M0: " << M0 << "\n"
+                            << "M1: num_input_blks: " << M1 << "\n"
+                            << "M2: group_size: " << M2 << "\n"
+                            << "M3: num_groups_blk: " << M3 << "\n\n");
 
     auto M2ConstantOp = b.create<ConstantIndexOp>(loc, M2);
     auto M2TimesM1Op = b.create<ConstantIndexOp>(loc, M2 * M1);
