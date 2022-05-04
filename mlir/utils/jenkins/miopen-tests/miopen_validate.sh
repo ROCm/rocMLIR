@@ -5,7 +5,7 @@ declare -g TMPFILE
 declare -ig XDLOPS=-1
 declare -ig TUNING=0
 declare -ig TESTALL=0
-declare -ig TESTINF=0
+declare -ig TESTFWD=0
 declare -g DTYPE=""
 declare -g DIRECTION=""
 declare -g LAYOUT=""
@@ -42,7 +42,7 @@ function parse_options() {
 
     local parsed_args
     parsed_args=$(getopt -n "$0" -o d:t:l:xXh \
-                         --long direction:,dtype:,layout:,xdlops,no-xdlops,driver:,driver:,tuning,no-tuning,test-all,test-inf,help -- "$@")
+                         --long direction:,dtype:,layout:,xdlops,no-xdlops,driver:,driver:,tuning,no-tuning,test-all,test-fwd,help -- "$@")
     local -i valid_args=$?
     if [[ $valid_args -ne 0 ]]; then
         usage
@@ -57,7 +57,7 @@ function parse_options() {
             --tuning ) TUNING=1; shift; ;;
             --no-tuning ) TUNING=0; shift; ;;
             --test-all ) TESTALL=1; shift; ;;
-            --test-inf ) TESTINF=1; shift; ;;
+            --test-fwd) TESTFWD=1; shift; ;;
             -d | --direction ) got_direction=1; DIRECTION="$2"; shift 2 ;;
             -l | --layout ) got_layout=1; LAYOUT="$2"; shift 2 ;;
             -t | --dtype ) got_dtype=1; DTYPE="$2"; shift 2 ;;
@@ -69,7 +69,7 @@ function parse_options() {
 
     # Check required args
     [[ $got_layout == 1 && $got_direction == 1 && $got_dtype == 1 ]] || [[ $TESTALL == 1 ]] || \
-        [[ $got_dtype == 1 && $TESTINF == 1 ]] || usage
+        [[ $got_dtype == 1 && $TESTFWD == 1 ]] || usage
 
     # Validate options
     if [[ $got_dtype == 1 ]]; then
@@ -220,7 +220,7 @@ function main() {
     get_configs
     if [[ $TESTALL == 1 ]]; then
         run_tests_for_all_configs
-    elif [[ $TESTINF == 1 ]]; then
+    elif [[ $TESTFWD == 1 ]]; then
         run_tests_for_inference
     else
         run_tests_for_a_config
