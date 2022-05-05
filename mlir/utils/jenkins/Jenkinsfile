@@ -345,6 +345,59 @@ pipeline {
                 }
             }
         }
+        stage ("Parameter sweeps") {
+            when {
+                beforeAgent true;
+                equals expected: true, actual: params.weekly;
+                equals expected: true, actual: params.sharedLib;
+            }
+            matrix {
+                axes {
+                    axis {
+                        name 'CONFIG'
+                        values 'conv_structure', 'perf_config'
+                    }
+                }
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs()
+                        label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
+                        alwaysPull true
+                    }
+                }
+                environment {
+                    HOME="${WORKSPACE}"
+                }
+                stages {
+                    stage('Environment') {
+                        steps {
+                            showEnv()
+                        }
+                    }
+                    stage("Sweep parameters") {
+                        steps {
+                            buildProject(
+                                'check-mlir-miopen-build-only ci-performance-scripts',
+                                '')
+                            timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                sh """python3 ./bin/parameterSweeps.py \
+                                    ${params.canXdlops '--xdlops' : '--no-xdlops'} \
+                                    ${CONFIG}"""
+                            }
+                        }
+                    }
+                }
+                post {
+                    unsuccessful {
+                        rebootNode()
+                    }
+                    always {
+                        cleanWs()
+                    }
+                }
+            }
+        }
         stage ("Tune MLIR kernels") {
             when {
                 beforeAgent true;
