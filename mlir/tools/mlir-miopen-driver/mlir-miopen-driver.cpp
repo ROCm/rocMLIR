@@ -57,12 +57,11 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
                                            cl::value_desc("filename"),
                                            cl::init("-"));
 
-static cl::opt<std::string>
-    kernelPipeline("kernel-pipeline",
-                   cl::desc("mlir-miopen-driver kernel pipeline list"),
-                   cl::value_desc("comma separated list of miopen pipelines: "
-                                  "tuning,gpu,rocdl,binary or full"),
-                   cl::init(""));
+static cl::opt<std::string> kernelPipeline(
+    "kernel-pipeline", cl::desc("mlir-miopen-driver kernel pipeline list"),
+    cl::value_desc("comma separated list of miopen pipelines: "
+                   "tuning,applicability,gpu,rocdl,binary or full"),
+    cl::init(""));
 
 static cl::opt<std::string>
     hostPipeline("host-pipeline",
@@ -134,8 +133,8 @@ parsePipeline(StringRef pipeline, llvm::SmallDenseSet<StringRef> &pipelineSet,
 
 static LogicalResult runMLIRPasses(ModuleOp &module,
                                    mlir::PassPipelineCLParser &passPipeline) {
-  llvm::SmallDenseSet<StringRef> kernelPipelineOptions{"tuning", "gpu", "rocdl",
-                                                       "binary"};
+  llvm::SmallDenseSet<StringRef> kernelPipelineOptions{
+      "tuning", "applicability", "gpu", "rocdl", "binary"};
   llvm::SmallDenseSet<StringRef> kernelPipelineSet;
   if (failed(parsePipeline(kernelPipeline.getValue(), kernelPipelineSet,
                            kernelPipelineOptions))) {
@@ -200,7 +199,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
           mlir::miopen::createAffixTuningParametersPass(blockSize, gridSize));
     } else {
       // Set up the default lowering pipeline which goes down to GPU dialect.
-      miopen::addPipeline(pm);
+      // If applicability is in the set, only go through gridwise GEMM.
+      miopen::addPipeline(pm, kernelPipelineSet.contains("applicability"));
       if (kernelPipelineSet.contains("binary")) {
         // Set up the lowering pipeline which goes down to ELF Binary
         int optLevel = gpuOpt.getValue();
