@@ -67,15 +67,14 @@ inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo, int64_t g,
 
     break;
   }
-
   // not more than n
-  gemmKBlock = std::min(n, gemmKBlock);
+  gemmKBlocks = std::min(n, gemmKBlocks);
   // not less than 1
-  gemmKBlock = std::max(static_cast<int64_t>(1), gemmKBlock);
+  gemmKBlocks = std::max((__int64_t)1, gemmKBlocks);
 
-  // llvm::errs() << "\n gemmKBlock: " << gemmKBlock << " gemmK: " << gemmK
+  // llvm::errs() << "\n gemmKBlocks: " << gemmKBlocks << " gemmK: " << gemmK
   //               << " ho: " << ho << " wo: " << wo << "\n";
-  return gemmKBlock;
+  return gemmKBlocks;
 }
 
 /// Unwrap a value from the transforms surrounding it, gathering up the
