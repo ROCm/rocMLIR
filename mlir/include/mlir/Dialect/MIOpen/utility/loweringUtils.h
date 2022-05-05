@@ -69,9 +69,9 @@ inline LogicalResult calculateKBlockNum(int64_t n, int64_t ho, int64_t wo,
     break;
   }
   // not more than n
-  gemmKBlocks = std::min(n, gemmKBlocks);
+  gemmKBlock = std::min(n, gemmKBlock);
   // not less than 1
-  gemmKBlocks = std::max((__int64_t)1, gemmKBlocks);
+  gemmKBlock = std::max((__int64_t)1, gemmKBlock);
 
   *nKBlock = gemmKBlock;
   return success();
