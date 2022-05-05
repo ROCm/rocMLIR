@@ -14,8 +14,8 @@ using namespace mlir;
 using namespace mlir::func;
 
 namespace {
-/// Converts the operand and result types of the Standard's CallOp, used
-/// together with the FuncOpSignatureConversion.
+/// Converts the operand and result types of the CallOp, used together with the
+/// FuncOpSignatureConversion.
 struct CallOpSignatureConversion
     : public OpInterfaceConversionPattern<CallOpInterface> {
   using OpInterfaceConversionPattern<

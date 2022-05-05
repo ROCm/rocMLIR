@@ -176,8 +176,8 @@ LogicalResult CallIndirectOp::canonicalize(CallIndirectOp indirectCall,
 
   // Replace with a direct call.
   rewriter.replaceOpWithNewOp<CallOp>(indirectCall, calledFn,
-                                      indirectCall.getResultTypes(),
-                                      indirectCall.getArgOperands());
+                                      indirectCall.getCallResultTypes(),
+                                      indirectCall.getCallOperands());
   return success();
 }
 

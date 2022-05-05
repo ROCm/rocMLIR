@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "PassDetail.h"
-#include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -113,23 +112,9 @@ static LogicalResult updateCalls(ModuleOp module) {
     newOperands.append(outParams.begin(), outParams.end());
     auto newResultTypes = llvm::to_vector<6>(llvm::map_range(
         replaceWithNewCallResults, [](Value v) { return v.getType(); }));
-    auto *newOp = op.clone(builder, op.getLoc(), newResultTypes, newOperands);
+    auto *newCallOp = op.clone(builder, op.getLoc(), newResultTypes, newOperands);
 
-    // update segment sizes (add to last group)
-    const char *kOperandSegmentSizes = "operand_segment_sizes";
-    if (auto attr = newOp->getAttr(kOperandSegmentSizes)) {
-      auto attrElems = attr.cast<DenseIntElementsAttr>();
-      assert(attrElems.size());
-      auto newCount = std::count_if(outParams.begin(), outParams.end(),
-                                    [](auto) { return true; });
-      SmallVector<int32_t, 4> vals;
-      for (auto v : attrElems.getValues<APInt>())
-        vals.push_back(v.getZExtValue());
-      vals[vals.size() - 1] += newCount;
-      newOp->setAttr(kOperandSegmentSizes, builder.getI32VectorAttr(vals));
-    }
-
-    for (auto t : llvm::zip(replaceWithNewCallResults, newOp->getResults()))
+    for (auto t : llvm::zip(replaceWithNewCallResults, newCallOp->getResults()))
       std::get<0>(t).replaceAllUsesWith(std::get<1>(t));
     op.erase();
   });

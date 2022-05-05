@@ -8,8 +8,8 @@
 
 #include "mlir/Dialect/Async/IR/Async.h"
 
-#include "mlir/IR/DialectImplementation.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
@@ -58,8 +58,9 @@ YieldOp::getMutableSuccessorOperands(Optional<unsigned> index) {
 /// LaunchOp
 //===----------------------------------------------------------------------===//
 
-void LaunchOp::build(OpBuilder &builder, OperationState &result, func::FuncOp func,
-                     ValueRange dependencies, ValueRange operands) {
+void LaunchOp::build(OpBuilder &builder, OperationState &result,
+                     func::FuncOp func, ValueRange dependencies,
+                     ValueRange operands) {
   // set callee
   result.addAttribute(calleeAttrName(result.name), SymbolRefAttr::get(func));
 
@@ -82,11 +83,44 @@ void LaunchOp::build(OpBuilder &builder, OperationState &result, func::FuncOp fu
     result.addTypes(type);
 }
 
+/// Return the callee of this operation.
 CallInterfaceCallable LaunchOp::getCallableForCallee() {
   return (*this)->getAttrOfType<SymbolRefAttr>(calleeAttrName());
 }
 
-Operation::operand_range LaunchOp::getArgOperands() { return operands(); }
+/// Return the operands passed to the callee.
+Operation::operand_range LaunchOp::getCallOperands() { return operands(); }
+
+/// Return the callee results.
+Operation::result_range LaunchOp::getCallResults() {
+  return {++result_begin(), result_end()};
+}
+
+/// Return the callee result types.
+Operation::result_type_range LaunchOp::getCallResultTypes() {
+  return results();
+}
+
+/// Recompute the operand_segment_sizes attribute.
+void LaunchOp::updateSegmentSizes(MLIRContext *ctx) {
+  auto tokenTy = TokenType::get(ctx);
+  int32_t numDependencies = 0;
+  int32_t numOperands = 0;
+  for (const auto &oper : getOperands()) {
+    if (oper.getType() == tokenTy) {
+      numDependencies++;
+      assert(numOperands == 0);
+    } else
+      numOperands++;
+  }
+
+  auto operandSegmentSizes =
+      DenseIntElementsAttr::get(VectorType::get({2}, IntegerType::get(ctx, 32)),
+                                {numDependencies, numOperands});
+  (*this)->setAttr(operand_segment_sizesAttrName(), operandSegmentSizes);
+
+  assert(!(*this)->hasAttr("result_segment_sizes"));
+}
 
 void LaunchOp::print(OpAsmPrinter &p) {
   // func ref

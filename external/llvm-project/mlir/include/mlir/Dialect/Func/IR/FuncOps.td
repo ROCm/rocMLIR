@@ -34,7 +34,7 @@ class Func_Op<string mnemonic, list<Trait> traits = []> :
 //===----------------------------------------------------------------------===//
 
 def CallOp : Func_Op<"call",
-    [CallOpInterface, MemRefsNormalizable,
+    [DeclareOpInterfaceMethods<CallOpInterface>, MemRefsNormalizable,
      DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "call operation";
   let description = [{
@@ -78,17 +78,9 @@ def CallOp : Func_Op<"call",
   let extraClassDeclaration = [{
     FunctionType getCalleeType();
 
-    /// Get the argument operands to the called function.
-    operand_range getArgOperands() {
-      return {arg_operand_begin(), arg_operand_end()};
-    }
-
-    operand_iterator arg_operand_begin() { return operand_begin(); }
-    operand_iterator arg_operand_end() { return operand_end(); }
-
     /// Return the callee of this operation.
     CallInterfaceCallable getCallableForCallee() {
-      return (*this)->getAttrOfType<SymbolRefAttr>("callee");
+      return getCalleeAttr();
     }
   }];
 
@@ -102,7 +94,7 @@ def CallOp : Func_Op<"call",
 //===----------------------------------------------------------------------===//
 
 def CallIndirectOp : Func_Op<"call_indirect", [
-      CallOpInterface,
+      DeclareOpInterfaceMethods<CallOpInterface>,
       TypesMatchWith<"callee input types match argument types",
                      "callee", "callee_operands",
                      "$_self.cast<FunctionType>().getInputs()">,
@@ -143,12 +135,9 @@ def CallIndirectOp : Func_Op<"call_indirect", [
     ValueRange operands() { return getCalleeOperands(); }
 
     /// Get the argument operands to the called function.
-    operand_range getArgOperands() {
-      return {arg_operand_begin(), arg_operand_end()};
+    operand_range getCallOperands() {
+      return {++operand_begin(), operand_end()};
     }
-
-    operand_iterator arg_operand_begin() { return ++operand_begin(); }
-    operand_iterator arg_operand_end() { return operand_end(); }
 
     /// Return the callee of this operation.
     CallInterfaceCallable getCallableForCallee() { return getCallee(); }

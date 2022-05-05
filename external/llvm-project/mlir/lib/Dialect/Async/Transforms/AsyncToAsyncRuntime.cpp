@@ -636,7 +636,7 @@ static void rewriteCallsiteForCoroutine(func::CallOp oldCall, FuncOp func) {
   auto loc = func.getLoc();
   ImplicitLocOpBuilder callBuilder(loc, oldCall);
   auto newCall = callBuilder.create<func::CallOp>(
-      func.getName(), func.getCallableResults(), oldCall.getArgOperands());
+      func.getName(), func.getCallableResults(), oldCall.getCallOperands());
 
   // Await on the async token and all the value results and unwrap the latter.
   callBuilder.create<AwaitOp>(loc, newCall.getResults().front());

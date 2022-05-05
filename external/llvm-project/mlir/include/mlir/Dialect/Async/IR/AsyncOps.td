@@ -66,7 +66,7 @@ def Async_LaunchOp :
     ```
 
     In the example above asynchronous execution starts only after dependency
-    token becomes ready. 
+    token becomes ready.
   }];
 
   let arguments = (ins FlatSymbolRefAttr:$callee,
@@ -86,6 +86,14 @@ def Async_LaunchOp :
       $_state.addTypes(results);
     }]>,
   ];
+
+  let extraClassDeclaration = [{
+    operand_range getCallOperands();
+    result_range getCallResults();
+    result_type_range getCallResultTypes();
+    void updateSegmentSizes(MLIRContext *);
+    CallInterfaceCallable getCallableForCallee();
+  }];
 
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;

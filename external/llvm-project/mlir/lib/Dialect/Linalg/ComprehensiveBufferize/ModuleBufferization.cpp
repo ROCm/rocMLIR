@@ -72,6 +72,7 @@
 
 #include "mlir/Dialect/Linalg/ComprehensiveBufferize/ModuleBufferization.h"
 
+#include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
@@ -357,6 +358,20 @@ static void removeBufferizationFuncArguments(BlockArgument bbArg) {
                        BufferizableOpInterface::kInplaceableAttrName);
 }
 
+/// Return the actual call operand index corresponding to the func operand.
+static unsigned getCallOperandIdx(CallOpInterface callOp, unsigned funcIdx) {
+  auto operands = callOp.getCallOperands();
+  if (operands.size() != callOp->getOperands().size()) {
+    // Search for the value
+    for (const auto &it : llvm::enumerate(callOp->getOperands())) {
+      if (it.value() == operands[funcIdx])
+        return it.index();
+    }
+    assert(0 && "not found!?");
+  }
+  return funcIdx;
+}
+
 /// Return the FuncOp called by `callOp`.
 static FuncOp getCalledFunction(CallOpInterface callOp) {
   SymbolRefAttr sym = callOp.getCallableForCallee().dyn_cast<SymbolRefAttr>();
@@ -395,7 +410,7 @@ getBufferizedFunctionType(MLIRContext *ctx, TypeRange argumentTypes,
 static void equivalenceAnalysis(FuncOp funcOp,
                                 BufferizationAliasInfo &aliasInfo,
                                 FuncAnalysisState &funcState) {
-  funcOp->walk([&](func::CallOp callOp) {
+  funcOp->walk([&](CallOpInterface callOp) {
     FuncOp calledFunction = getCalledFunction(callOp);
     assert(calledFunction && "could not retrieved called FuncOp");
 
@@ -406,8 +421,8 @@ static void equivalenceAnalysis(FuncOp funcOp,
     for (auto it : funcState.equivalentFuncArgs[calledFunction]) {
       int64_t returnIdx = it.first;
       int64_t bbargIdx = it.second;
-      Value returnVal = callOp.getResult(returnIdx);
-      Value argVal = callOp->getOperand(bbargIdx);
+      Value returnVal = callOp.getCallResults()[returnIdx];
+      Value argVal = callOp.getCallOperands()[bbargIdx];
       aliasInfo.unionEquivalenceClasses(returnVal, argVal);
     }
 
@@ -584,8 +599,8 @@ getFuncOpsOrderedByCalls(ModuleOp moduleOp,
 
     numberCallOpsContainedInFuncOp[funcOp] = 0;
     return funcOp.walk([&](CallOpInterface callOp) -> WalkResult {
-      // Only support CallOp for now.
-      if (!isa<func::CallOp>(callOp.getOperation()))
+      // No support for CallIndirectOp for now.
+      if (isa<func::CallIndirectOp>(callOp.getOperation()))
         return callOp->emitError() << "expected a CallOp";
       FuncOp calledFunction = getCalledFunction(callOp);
       assert(calledFunction && "could not retrieved called FuncOp");
@@ -638,7 +653,8 @@ static void layoutPostProcessing(ModuleOp moduleOp) {
   for (FuncOp funcOp : orderedFuncOps) {
     DenseMap<Operation *, SmallVector<Value>> operandsPerCaller;
     foreachCaller(callerMap, funcOp, [&](Operation *caller) {
-      operandsPerCaller.try_emplace(caller, SmallVector<Value>());
+      CallOpInterface callOp(caller);
+      operandsPerCaller.try_emplace(caller, callOp->getOperands());
     });
 
     SmallVector<Type> argumentTypes;
@@ -657,10 +673,6 @@ static void layoutPostProcessing(ModuleOp moduleOp) {
           memrefType ? getStridedLinearLayoutMap(memrefType) : AffineMap();
       if (!memrefType || !layoutAttr || desiredLayoutMap == currentLayoutMap) {
         argumentTypes.push_back(inputType);
-        foreachCaller(callerMap, funcOp, [&](Operation *caller) {
-          operandsPerCaller.find(caller)->getSecond().push_back(
-              caller->getOperand(argNumber));
-        });
         continue;
       }
 
@@ -689,14 +701,15 @@ static void layoutPostProcessing(ModuleOp moduleOp) {
       // change the layout. For now let the memref::CastOp fail to verify in
       // such cases.
       auto castArg = [&](Operation *caller) {
+        auto operand = caller->getOperand(getCallOperandIdx(caller, argNumber));
         OpBuilder b(caller);
-        assert(
-            memref::CastOp::areCastCompatible(
-                caller->getOperand(argNumber).getType(), desiredMemrefType) &&
-            "layoutPostProcessing.2: cast incompatible");
-        Value newOperand = b.create<memref::CastOp>(
-            funcOp.getLoc(), desiredMemrefType, caller->getOperand(argNumber));
-        operandsPerCaller.find(caller)->getSecond().push_back(newOperand);
+        assert(memref::CastOp::areCastCompatible(operand.getType(),
+                                                 desiredMemrefType) &&
+               "layoutPostProcessing.2: cast incompatible");
+        Value newOperand = b.create<memref::CastOp>(funcOp.getLoc(),
+                                                    desiredMemrefType, operand);
+        auto &operands = operandsPerCaller.find(caller)->getSecond();
+        operands[argNumber] = newOperand;
       };
       foreachCaller(callerMap, funcOp, castArg);
     }
@@ -738,10 +751,10 @@ static Optional<int64_t> getEquivalentFuncArgIdx(FuncOp funcOp,
 
 struct CallOpInterface
     : public BufferizableOpInterface::ExternalModel<CallOpInterface,
-                                                    func::CallOp> {
+                                                    mlir::CallOpInterface> {
   bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
                               const AnalysisState &state) const {
-    func::CallOp callOp = cast<func::CallOp>(op);
+    mlir::CallOpInterface callOp(op);
     FuncOp funcOp = getCalledFunction(callOp);
     assert(funcOp && "expected CallOp to a FuncOp");
 
@@ -756,7 +769,7 @@ struct CallOpInterface
 
   bool bufferizesToMemoryWrite(Operation *op, OpOperand &opOperand,
                                const AnalysisState &state) const {
-    func::CallOp callOp = cast<func::CallOp>(op);
+    mlir::CallOpInterface callOp(op);
     FuncOp funcOp = getCalledFunction(callOp);
     assert(funcOp && "expected CallOp to a FuncOp");
 
@@ -771,7 +784,7 @@ struct CallOpInterface
 
   SmallVector<OpResult> getAliasingOpResult(Operation *op, OpOperand &opOperand,
                                             const AnalysisState &state) const {
-    func::CallOp callOp = cast<func::CallOp>(op);
+    mlir::CallOpInterface callOp(op);
     FuncOp funcOp = getCalledFunction(callOp);
     assert(funcOp && "expected CallOp to a FuncOp");
     const FuncAnalysisState &funcState = getFuncAnalysisState(state);
@@ -791,14 +804,15 @@ struct CallOpInterface
             opOperand.getOperandNumber());
     SmallVector<OpResult> result;
     for (int64_t resultIdx : aliasingReturnVals)
-      result.push_back(callOp->getOpResult(resultIdx));
+      result.push_back(
+          callOp->getOpResult(getCallOperandIdx(callOp, resultIdx)));
     return result;
   }
 
   SmallVector<OpOperand *>
   getAliasingOpOperand(Operation *op, OpResult opResult,
                        const AnalysisState &state) const {
-    func::CallOp callOp = cast<func::CallOp>(op);
+    mlir::CallOpInterface callOp(op);
     FuncOp funcOp = getCalledFunction(callOp);
     assert(funcOp && "expected CallOp to a FuncOp");
     const FuncAnalysisState &funcState = getFuncAnalysisState(state);
@@ -817,7 +831,8 @@ struct CallOpInterface
         opResult.getResultNumber());
     SmallVector<OpOperand *> result;
     for (int64_t bbArgIdx : aliasingFuncArgs)
-      result.push_back(&callOp->getOpOperand(bbArgIdx));
+      result.push_back(
+          &callOp->getOpOperand(getCallOperandIdx(callOp, bbArgIdx)));
     return result;
   }
 
@@ -831,11 +846,15 @@ struct CallOpInterface
   /// bufferization to allow FuncOp that are inplaceable to write inPlace.
   LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
                           BufferizationState &state) const {
-    func::CallOp callOp = cast<func::CallOp>(op);
-    unsigned numResults = callOp.getNumResults();
+    mlir::CallOpInterface callOp(op);
+    auto callOperands = callOp.getCallOperands();
+    auto callResultTypes = callOp.getCallResultTypes();
     unsigned numOperands = callOp->getNumOperands();
+    unsigned numResults = callOp->getNumResults();
     FuncOp funcOp = getCalledFunction(callOp);
     assert(funcOp && "expected CallOp to a FuncOp");
+    auto funcType = funcOp.getFunctionType();
+
     const FuncAnalysisState &funcState =
         getFuncAnalysisState(state.getAnalysisState());
     const OneShotBufferizationOptions &options =
@@ -868,49 +887,50 @@ struct CallOpInterface
 
     // 1. Compute the result types of the new CallOp. Tensor results that are
     // equivalent to a FuncOp bbArg are no longer returned.
-    for (const auto &it : llvm::enumerate(callOp.getResultTypes())) {
+
+    unsigned funcResultIdx = 0;
+    for (const auto &it : llvm::enumerate(callOp->getResultTypes())) {
       unsigned returnValIdx = it.index();
       Type returnType = it.value();
+
       if (!isaTensor(returnType)) {
         // Non-tensor values are returned.
         retValMapping[returnValIdx] = resultTypes.size();
         resultTypes.push_back(returnType);
+        if (returnType == callResultTypes[funcResultIdx])
+          funcResultIdx++;
         continue;
       }
 
+      assert(returnType == callResultTypes[funcResultIdx]);
+
       if (Optional<int64_t> bbArgIdx =
-              getEquivalentFuncArgIdx(funcOp, funcState, returnValIdx)) {
+              getEquivalentFuncArgIdx(funcOp, funcState, funcResultIdx)) {
         // Return operands that are equivalent to some bbArg, are not
         // returned.
-        FailureOr<Value> bufferOrFailure =
-            state.getBuffer(rewriter, callOp->getOpOperand(*bbArgIdx));
+        FailureOr<Value> bufferOrFailure = state.getBuffer(
+            rewriter,
+            callOp->getOpOperand(getCallOperandIdx(callOp, *bbArgIdx)));
         if (failed(bufferOrFailure))
           return failure();
         replacementValues[returnValIdx] = *bufferOrFailure;
-        newOperands[*bbArgIdx] = *bufferOrFailure;
-        continue;
+        newOperands[getCallOperandIdx(callOp, *bbArgIdx)] = *bufferOrFailure;
+      } else {
+        if (!options.allowReturnAllocs)
+          return callOp->emitError("call to FuncOp that returns non-equivalent "
+                                   "tensors not supported");
+
+        // Returning a memref. This memref is not equivalent to any bbArg. It is
+        // likely a newly allocated buffer. We may want to hoist such
+        // allocations to the call site in the future.
+        retValMapping[returnValIdx] = resultTypes.size();
+        resultTypes.push_back(funcType.getResult(funcResultIdx));
       }
-
-      if (!options.allowReturnAllocs)
-        return callOp->emitError(
-            "call to FuncOp that returns non-equivalent tensors not supported");
-
-      // Returning a memref. This memref is not equivalent to any bbArg. It is
-      // likely a newly allocated buffer. We may want to hoist such allocations
-      // to the call site in the future.
-      retValMapping[returnValIdx] = resultTypes.size();
-      resultTypes.push_back(
-          funcOp.getFunctionType().getResult(resultTypes.size()));
+      funcResultIdx++;
     }
 
-    // 2. Compute bufferized FunctionType.
-    SmallVector<Type> argumentTypes{callOp->getOperandTypes()};
-    // Get the bufferized FunctionType for funcOp or construct it if not yet
-    // available.
-    FunctionType bufferizedFuncType = getBufferizedFunctionType(
-        funcOp.getContext(), argumentTypes, resultTypes, options);
-
     // 3. Rewrite tensor operands as memrefs based on `bufferizedFuncType`.
+    unsigned funcOperandIdx = 0;
     for (OpOperand &opOperand : callOp->getOpOperands()) {
       unsigned idx = opOperand.getOperandNumber();
       Value tensorOperand = opOperand.get();
@@ -918,8 +938,12 @@ struct CallOpInterface
       // Non-tensor operands are just copied.
       if (!tensorOperand.getType().isa<TensorType>()) {
         newOperands[idx] = tensorOperand;
+        if (tensorOperand == callOperands[funcOperandIdx])
+          funcOperandIdx++;
         continue;
       }
+
+      assert(tensorOperand == callOperands[funcOperandIdx]);
 
       // Retrieve buffers for tensor operands. Tensor operand buffers, who's
       // corresponding FuncOp bbArgs are equivalent to a returned tensor, were
@@ -933,7 +957,7 @@ struct CallOpInterface
       }
 
       // Caller / callee type mismatch is handled with a CastOp.
-      auto memRefType = bufferizedFuncType.getInput(idx);
+      auto memRefType = funcType.getInput(funcOperandIdx);
       // Since we don't yet have a clear layout story, to_memref may
       // conservatively turn tensors into more dynamic memref than necessary.
       // If the memref type of the callee fails, introduce an extra memref.cast
@@ -948,12 +972,13 @@ struct CallOpInterface
         buffer = castBuffer;
       }
       newOperands[idx] = buffer;
+      funcOperandIdx++;
     }
 
     // 4. Create the new CallOp.
-    Operation *newCallOp = rewriter.create<func::CallOp>(
-        callOp.getLoc(), funcOp.getSymName(), resultTypes, newOperands);
-    newCallOp->setAttrs(callOp->getAttrs());
+    Operation *newCallOp =
+        callOp.clone(rewriter, callOp.getLoc(), resultTypes, newOperands);
+
     // Get replacement values for non-tensor / non-equivalent results.
     for (unsigned i = 0; i < replacementValues.size(); ++i) {
       if (replacementValues[i])
@@ -1036,6 +1061,9 @@ void mlir::linalg::comprehensive_bufferize::std_ext::
     func::CallOp::attachInterface<std_ext::CallOpInterface>(*ctx);
     func::ReturnOp::attachInterface<std_ext::ReturnOpInterface>(*ctx);
     func::FuncOp::attachInterface<std_ext::FuncOpInterface>(*ctx);
+  });
+  registry.addExtension(+[](MLIRContext *ctx, async::AsyncDialect *dialect) {
+    async::LaunchOp::attachInterface<std_ext::CallOpInterface>(*ctx);
   });
 }
 
