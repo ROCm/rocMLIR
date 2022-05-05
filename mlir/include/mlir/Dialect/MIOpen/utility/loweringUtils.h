@@ -42,10 +42,8 @@ inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo, int64_t g,
                                   int64_t MPerBlock, int64_t NPerBlock,
                                   int64_t KPerBlock, int64_t KPack,
                                   int64_t num_cu) {
-  const int64_t KPerGroup = k / g;
-  const int64_t CPerGroup = c / g;
-  const int64_t gemmM = KPerGroup;
-  const int64_t gemmN = CPerGroup * y * x;
+  const int64_t gemmM = k;
+  const int64_t gemmN = c * y * x;
 
   const int64_t gemmK = n * ho * wo;
   int64_t gemmKBlock = 1;
