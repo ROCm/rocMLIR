@@ -5,6 +5,7 @@ declare -g TMPFILE
 declare -ig XDLOPS=-1
 declare -ig TUNING=0
 declare -ig TESTALL=0
+declare -ig TESTFWD=0
 declare -g DTYPE=""
 declare -g DIRECTION=""
 declare -g LAYOUT=""
@@ -17,7 +18,7 @@ declare -a ALL_CONFIGS=()
 
 function usage() {
     cat <<END
-$0: [-d | --direction] DIR [-t | --dtype] [fp16 | fp32] [-l | --layout] LAYOUT
+$0: [-d | --direction] DIR [-t | --dtype] [int8 | fp16 | fp32] [-l | --layout] LAYOUT
 [-x | --xdlops] [-X | --no-xdlops (default)] [--tuning | --no-tuning (default)]
 [--driver DRIVER (default bin/MIOpenDriver)] [--test-all]
 
@@ -41,7 +42,7 @@ function parse_options() {
 
     local parsed_args
     parsed_args=$(getopt -n "$0" -o d:t:l:xXh \
-                         --long direction:,dtype:,layout:,xdlops,no-xdlops,driver:,driver:,tuning,no-tuning,test-all,help -- "$@")
+                         --long direction:,dtype:,layout:,xdlops,no-xdlops,driver:,driver:,tuning,no-tuning,test-all,test-fwd,help -- "$@")
     local -i valid_args=$?
     if [[ $valid_args -ne 0 ]]; then
         usage
@@ -56,6 +57,7 @@ function parse_options() {
             --tuning ) TUNING=1; shift; ;;
             --no-tuning ) TUNING=0; shift; ;;
             --test-all ) TESTALL=1; shift; ;;
+            --test-fwd) TESTFWD=1; shift; ;;
             -d | --direction ) got_direction=1; DIRECTION="$2"; shift 2 ;;
             -l | --layout ) got_layout=1; LAYOUT="$2"; shift 2 ;;
             -t | --dtype ) got_dtype=1; DTYPE="$2"; shift 2 ;;
@@ -66,12 +68,13 @@ function parse_options() {
     done
 
     # Check required args
-    [[ $got_layout == 1 && $got_direction == 1 && $got_dtype == 1 ]] || [[ $TESTALL == 1 ]] || usage
+    [[ $got_layout == 1 && $got_direction == 1 && $got_dtype == 1 ]] || [[ $TESTALL == 1 ]] || \
+        [[ $got_dtype == 1 && $TESTFWD == 1 ]] || usage
 
     # Validate options
     if [[ $got_dtype == 1 ]]; then
         case "$DTYPE" in
-            fp16 | fp32 ) ;;
+            int8 | fp16 | fp32 ) ;;
             * ) echo "$0: Invalid dtype $DTYPE"; usage ;;
         esac
     fi
@@ -108,6 +111,7 @@ function construct_fixed_args() {
     case "$DTYPE" in
         fp16 ) FIXED_CONFIG_ARGS=("convfp16") ;;
         fp32 ) FIXED_CONFIG_ARGS=("conv") ;;
+        int8 ) FIXED_CONFIG_ARGS=("convint8") ;;
         * ) echo "Can't happen"; exit 3 ;;
     esac
 
@@ -202,12 +206,22 @@ function run_tests_for_all_configs() {
     done
 }
 
+function run_tests_for_inference() {
+   for l in ${ALL_LAYOUTS[@]}; do
+       DIRECTION=1
+       LAYOUT=$l
+       run_tests_for_a_config
+   done
+}
+
 function main() {
     clean_miopen_caches
     parse_options "$@"
     get_configs
     if [[ $TESTALL == 1 ]]; then
         run_tests_for_all_configs
+    elif [[ $TESTFWD == 1 ]]; then
+        run_tests_for_inference
     else
         run_tests_for_a_config
     fi
