@@ -859,7 +859,8 @@ private:
            (params.gemmMPerWave * params.gemmNPerWave);
   }
 
-  int64_t getKBlocks(ConvolutionContext &ctx, InitParamsXDL &params) {
+  LogicalResult getKBlocks(ConvolutionContext &ctx, InitParamsXDL &params,
+                           int64_t *nKBlocks) {
     int64_t n = ctx.dimIndexAndSize["no"].size;
     int64_t ho = ctx.dimIndexAndSize["ho"].size;
     int64_t wo = ctx.dimIndexAndSize["wo"].size;
@@ -871,7 +872,7 @@ private:
 
     return mlir::miopen::calculateKBlockNum(
         n, ho, wo, g, k, c, y, x, params.gemmMPerBlock, params.gemmNPerBlock,
-        params.gemmKPerBlock, params.gemmKPack, ctx.num_cu);
+        params.gemmKPerBlock, params.gemmKPack, ctx.num_cu, nKBlocks);
   }
 
   LogicalResult calculateGemmABlockCopyPerformanceParameters(

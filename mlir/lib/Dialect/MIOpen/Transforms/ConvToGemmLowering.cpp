@@ -394,8 +394,12 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   }
   // calculate gemmKBlocks
 
-  int64_t gemmKBlocks = calculateKBlockNum(n, ho, wo, g, k, c, y, x, MPerBlock,
-                                           NPerBlock, KPerBlock, KPack, numCu);
+  int64_t gemmKBlocks = 1;
+  if (failed(calculateKBlockNum(n, ho, wo, g, k, c, y, x, MPerBlock, NPerBlock,
+                                KPerBlock, KPack, numCu, &gemmKBlocks))) {
+    op->emitOpError("Invalid tuning parameters to compute KBlock.");
+    return failure();
+  }
 
   Value gemmFilter, gemmInput, gemmOutput;
   Value gemmInputKPack, gemmOutputKPack;
