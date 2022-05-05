@@ -284,7 +284,7 @@ LogicalResult PopulateParamsXDL::populateDerived(
   int64_t nKBlocks = 1;
   if (ctx.opType == miopen::ConvOpType::BwdWeight &&
       (ctx.getDataType().isF32() || ctx.getDataType().isF16())) {
-    nKBlocks = getKBlocks(ctx);
+    nKBlocks = getKBlocks(ctx, params);
   }
   gridSize = obtainGridSize(gemmSize, &params) * nKBlocks;
 
