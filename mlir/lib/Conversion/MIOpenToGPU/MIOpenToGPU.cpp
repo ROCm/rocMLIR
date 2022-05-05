@@ -294,7 +294,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
             gpu::KernelDim3 blockDims{blockVal, cst1, cst1};
             b.create<gpu::LaunchFuncOp>(loc, gpuFunc, gridDims, blockDims,
                                         dynamicSharedMemSize,
-                                        call.getArgOperands());
+                                        call.getCallOperands());
             calls.push_back(call);
           }
         }
