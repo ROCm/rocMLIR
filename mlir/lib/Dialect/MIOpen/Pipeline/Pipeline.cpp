@@ -87,7 +87,8 @@ void miopen::addHighLevelPipeline(PassManager &pm, bool toMIOpen) {
 
   // bufferization
   /* miopen-opt --canonicalize --cse
-        --linalg-comprehensive-module-bufferize="allow-return-allocs=1 create-deallocs=0 fully-dynamic-layout-maps=0"
+        --linalg-comprehensive-module-bufferize="allow-return-allocs=1
+     create-deallocs=0 fully-dynamic-layout-maps=0"
         --buffer-results-to-out-params
    */
   pm.addNestedPass<FuncOp>(createCanonicalizerPass());
@@ -100,7 +101,7 @@ void miopen::addHighLevelPipeline(PassManager &pm, bool toMIOpen) {
   pm.addPass(createLinalgComprehensiveModuleBufferizePass(bufOpts));
 
   pm.addPass(bufferization::createBufferResultsToOutParamsPass());
-  
+
   // copy opt (cleanup from high-level transforms)
   /* miopen-opt --miopen-copy-opt
    */
