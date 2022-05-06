@@ -595,7 +595,6 @@ struct InitParamsNonXDL : InitParams, Serializable<InitParamsNonXDL> {
   InitParamsNonXDL() : InitParamsNonXDL(0LL, 0LL, 0LL, 0LL, 0LL, 0LL) {}
 
   template <class Self, class F> static void visit(Self &&self, F f) {
-    f(self.gemmKBlocks);
     f(self.blockSize);
     f(self.gemmMPerBlock);
     f(self.gemmNPerBlock);
@@ -632,7 +631,6 @@ struct InitParamsXDL : InitParams, Serializable<InitParamsXDL> {
     f(self.gemmKPack);
     f(self.gemmAThreadCopyMoreGemmK);
     f(self.gemmBThreadCopyMoreGemmKPack);
-    f(self.gemmKBlocks);
   }
 };
 
