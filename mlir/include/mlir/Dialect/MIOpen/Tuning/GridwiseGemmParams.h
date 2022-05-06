@@ -586,14 +586,16 @@ struct InitParamsNonXDL : InitParams, Serializable<InitParamsNonXDL> {
   InitParamsNonXDL(int64_t bSize, int64_t mPerBlock, int64_t nPerBlock,
                    int64_t kPerBlock, int64_t mPerThread, int64_t nPerThread)
       : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerThread(mPerThread),
-        gemmNPerThread(nPerThread), blockSize(bSize) {}
+        gemmNPerThread(nPerThread), blockSize(bSize), gemmKBlocks(1LL) {}
   int64_t gemmMPerThread;
   int64_t gemmNPerThread;
   int64_t blockSize;
+  int64_t gemmKBlocks;
 
   InitParamsNonXDL() : InitParamsNonXDL(0LL, 0LL, 0LL, 0LL, 0LL, 0LL) {}
 
   template <class Self, class F> static void visit(Self &&self, F f) {
+    f(self.gemmKBlocks);
     f(self.blockSize);
     f(self.gemmMPerBlock);
     f(self.gemmNPerBlock);
@@ -610,7 +612,7 @@ struct InitParamsXDL : InitParams, Serializable<InitParamsXDL> {
       : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerWave(mPerWave),
         gemmNPerWave(nPerWave), gemmKPack(kPack),
         gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
-        gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack) {}
+        gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack), gemmKBlocks(1LL) {}
 
   InitParamsXDL() : InitParamsXDL(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, false, false) {}
 
@@ -619,6 +621,7 @@ struct InitParamsXDL : InitParams, Serializable<InitParamsXDL> {
   int64_t gemmKPack;
   bool gemmAThreadCopyMoreGemmK;
   bool gemmBThreadCopyMoreGemmKPack;
+  int64_t gemmKBlocks;
 
   template <class Self, class F> static void visit(Self &&self, F f) {
     f(self.gemmMPerBlock);
@@ -629,6 +632,7 @@ struct InitParamsXDL : InitParams, Serializable<InitParamsXDL> {
     f(self.gemmKPack);
     f(self.gemmAThreadCopyMoreGemmK);
     f(self.gemmBThreadCopyMoreGemmKPack);
+    f(self.gemmKBlocks);
   }
 };
 
@@ -875,8 +879,7 @@ private:
            (params.gemmMPerWave * params.gemmNPerWave);
   }
 
-  LogicalResult getKBlocks(ConvolutionContext &ctx, InitParamsXDL &params,
-                           int64_t *nKBlocks) {
+  LogicalResult getKBlocks(ConvolutionContext &ctx, InitParamsXDL &params) {
     int64_t n = ctx.dimIndexAndSize["no"].size;
     int64_t ho = ctx.dimIndexAndSize["ho"].size;
     int64_t wo = ctx.dimIndexAndSize["wo"].size;
@@ -888,7 +891,7 @@ private:
 
     return mlir::miopen::calculateKBlockNum(
         n, ho, wo, g, k, c, y, x, params.gemmMPerBlock, params.gemmNPerBlock,
-        params.gemmKPerBlock, params.gemmKPack, ctx.num_cu, nKBlocks);
+        params.gemmKPerBlock, params.gemmKPack, ctx.num_cu, &params.gemmKBlocks);
   }
 
   LogicalResult calculateGemmABlockCopyPerformanceParameters(

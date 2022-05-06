@@ -281,17 +281,16 @@ LogicalResult PopulateParamsXDL::populateDerived(
   }
 
   // parameters derivable from tunable parameters.
-  int64_t nKBlocks = 1;
   if (ctx.opType == miopen::ConvOpType::BwdWeight &&
       (ctx.getDataType().isF32() || ctx.getDataType().isF16())) {
-    res = getKBlocks(ctx, params, &nKBlocks);
+    res = getKBlocks(ctx, params);
     if (failed(res)) {
       LLVM_DEBUG(llvm::dbgs()
                  << "Invalid tuning parameters for computing KBlocks.\n");
       return failure();
     }
   }
-  gridSize = obtainGridSize(gemmSize, &params) * nKBlocks;
+  gridSize = obtainGridSize(gemmSize, &params) * params.gemmKBlocks;
 
   res =
       calculateOutputDerivedParams(&params, blockSize, ctx, gemmCDerivedParam);
