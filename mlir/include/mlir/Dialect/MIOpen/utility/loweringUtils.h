@@ -22,27 +22,59 @@
 namespace mlir {
 namespace miopen {
 
-inline int64_t calculateKBlockNum(int64_t n, int64_t ho, int64_t wo) {
-  int64_t gemmK = n * ho * wo;
-  int64_t gemmKBlocks = 1;
-  if (gemmK % 16 == 0) {
-    auto lcm = math_util::lcm(ho * wo, (int64_t)16);
-    gemmKBlocks = std::min(gemmK / lcm, n);
-  } else if (gemmK % 8 == 0) {
-    auto comm = math_util::lcm(ho * wo, (int64_t)8);
-    gemmKBlocks = std::min(gemmK / comm, n);
-  } else if (gemmK % 4 == 0) {
-    auto comm = math_util::lcm(ho * wo, (int64_t)4);
-    gemmKBlocks = std::min(gemmK / comm, n);
+// Heuristic logic to compute KBlock for backward weight atomic add kernel.
+// The logic is adopted from MIOpen.
+//
+// The logic searches within the range of [1, 20 * number of CUs / gridSize],
+// where gridSize is the original number of workgroups required for the
+// convolution, and find the largest KBlock number which preserves the 2
+// contraints:
+// - GemmK (before splitting) = KBlock * KPerBlock * KPack * GemmK (after
+// splitting).
+// - n (batch size) is divisible by KBlock.
+//
+// 20 is a magic number obtained in MIOpen after empirical testing. It offers a
+// reasonable reduction of GemmK after splitting, without incurring too much
+// overheads on atomic adds. One potential future work is to make this value be
+// tunable.
+inline LogicalResult calculateKBlockNum(int64_t n, int64_t ho, int64_t wo,
+                                        int64_t g, int64_t k, int64_t c,
+                                        int64_t y, int64_t x, int64_t MPerBlock,
+                                        int64_t NPerBlock, int64_t KPerBlock,
+                                        int64_t KPack, int64_t num_cu,
+                                        int64_t *nKBlock) {
+  const int64_t gemmM = k;
+  const int64_t gemmN = c * y * x;
+  const int64_t gemmK = n * ho * wo;
+
+  int64_t gemmKBlock = 1;
+
+  if ((gemmM % MPerBlock != 0) || (gemmN % NPerBlock != 0) ||
+      (gemmK % (KPerBlock * KPack) != 0))
+    return failure();
+
+  const int64_t gridSize = g * (gemmM / MPerBlock) * (gemmN / NPerBlock);
+  const int64_t maxGridSize = 20 * num_cu;
+
+  gemmKBlock = std::max(maxGridSize / gridSize, static_cast<int64_t>(1));
+  gemmKBlock = std::min(gemmKBlock, n);
+
+  for (; gemmKBlock > 1; --gemmKBlock) {
+    if (n % gemmKBlock != 0)
+      continue;
+
+    if (gemmK % (gemmKBlock * KPerBlock * KPack) != 0)
+      continue;
+
+    break;
   }
   // not more than n
-  gemmKBlocks = std::min(n, gemmKBlocks);
+  gemmKBlock = std::min(n, gemmKBlock);
   // not less than 1
-  gemmKBlocks = std::max((__int64_t)1, gemmKBlocks);
+  gemmKBlock = std::max((__int64_t)1, gemmKBlock);
 
-  // llvm::errs() << "\n gemmKBlocks: " << gemmKBlocks << " gemmK: " << gemmK
-  //               << " ho: " << ho << " wo: " << wo << "\n";
-  return gemmKBlocks;
+  *nKBlock = gemmKBlock;
+  return success();
 }
 
 /// Unwrap a value from the transforms surrounding it, gathering up the

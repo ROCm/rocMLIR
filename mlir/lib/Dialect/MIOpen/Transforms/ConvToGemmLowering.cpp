@@ -270,9 +270,17 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
   auto archAttr = op->template getAttrOfType<StringAttr>("arch");
   auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
+  int64_t numCu = numCuAttr.getInt();
 
   auto KPackAttr = op->template getAttrOfType<IntegerAttr>("kpack");
   int64_t KPack = KPackAttr.getInt();
+
+  auto MPerBlockAttr = op->template getAttrOfType<IntegerAttr>("m_per_block");
+  auto NPerBlockAttr = op->template getAttrOfType<IntegerAttr>("n_per_block");
+  auto KPerBlockAttr = op->template getAttrOfType<IntegerAttr>("k_per_block");
+  int64_t MPerBlock = MPerBlockAttr.getInt();
+  int64_t NPerBlock = NPerBlockAttr.getInt();
+  int64_t KPerBlock = KPerBlockAttr.getInt();
 
   auto filterLayoutAttr =
       op->template getAttrOfType<ArrayAttr>("filter_layout");
@@ -344,8 +352,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   auto strideW =
       stridesAttr.getValue()[1].template cast<IntegerAttr>().getInt();
   // get y, x, ho, wo, hi, wi
-  int64_t n, k, c, y, x, ho, wo, hi, wi;
-  n = k = c = y = x = ho = wo = hi = wi = 0;
+  int64_t g, n, k, c, y, x, ho, wo, hi, wi;
+  g = n = k = c = y = x = ho = wo = hi = wi = 0;
   llvm::SmallVector<StringRef, 5> filterNames, inputNames, outputNames;
   for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
     auto filterAttr =
@@ -366,6 +374,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
       y = filterShape[i];
     } else if (filterAttr.getValue() == "x") {
       x = filterShape[i];
+    } else if (filterAttr.getValue() == "g") {
+      g = filterShape[i];
     }
 
     if (inputAttr.getValue() == "ni") {
@@ -384,8 +394,12 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   }
   // calculate gemmKBlocks
 
-  // static const int64_t MaxSubBlockNum = 2048 / standardBockNum;
-  int64_t gemmKBlocks = calculateKBlockNum(n, ho, wo);
+  int64_t gemmKBlocks = 1;
+  if (failed(calculateKBlockNum(n, ho, wo, g, k, c, y, x, MPerBlock, NPerBlock,
+                                KPerBlock, KPack, numCu, &gemmKBlocks))) {
+    op->emitOpError("Invalid tuning parameters to compute KBlock.");
+    return failure();
+  }
 
   Value gemmFilter, gemmInput, gemmOutput;
   Value gemmInputKPack, gemmOutputKPack;
