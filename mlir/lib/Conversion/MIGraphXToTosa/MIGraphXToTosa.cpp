@@ -24,6 +24,15 @@ using namespace mlir;
 
 namespace {
 
+static bool isBroadcastable(Operation *op, Operation *operand) {
+  // tosa only broadcast implicitly on the second input of the binary operators.
+  if (op->getNumOperands() != 2)
+    return false;
+  if (op->getOperand(1) != operand->getResult(0))
+    return false;
+  return true;
+}
+
 class ConvConverter final
     : public OpConversionPattern<migraphx::ConvolutionOp> {
 public:
@@ -134,15 +143,6 @@ public:
     return success();
   }
 };
-
-bool isBroadcastable(operation op, operation operand) {
-  // tosa only broadcast implicitly on the second input of the binary operators.
-  if (op.getNumOperands() != 2)
-    return false;
-  if (op.getOperand(1) != operand)
-    return false;
-  return true;
-}
 
 class BroadcastConverter final
     : public OpConversionPattern<migraphx::BroadcastOp> {
