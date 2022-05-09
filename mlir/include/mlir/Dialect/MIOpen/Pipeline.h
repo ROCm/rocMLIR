@@ -21,6 +21,9 @@
 namespace mlir {
 namespace miopen {
 
+// Compilation pipeline for TOSA/MIOpen partitioning
+void addPartitionPipeline(PassManager &pm, bool toMIOpen = true);
+
 // Compilation pipeline from MIXR/TOSA to MIOpen
 void addHighLevelPipeline(PassManager &pm, bool toMIOpen = true);
 

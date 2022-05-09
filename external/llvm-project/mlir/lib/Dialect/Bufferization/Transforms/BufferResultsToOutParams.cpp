@@ -84,10 +84,10 @@ static void updateReturnOps(FuncOp func,
 // temporary buffers for newly introduced out params.
 static LogicalResult updateCalls(ModuleOp module) {
   bool didFail = false;
-  module.walk([&](func::CallOp op) {
+  module.walk([&](CallOpInterface op) {
     SmallVector<Value, 6> replaceWithNewCallResults;
     SmallVector<Value, 6> replaceWithOutParams;
-    for (OpResult result : op.getResults()) {
+    for (OpResult result : op->getResults()) {
       if (result.getType().isa<BaseMemRefType>())
         replaceWithOutParams.push_back(result);
       else
@@ -108,13 +108,13 @@ static LogicalResult updateCalls(ModuleOp module) {
       outParams.push_back(outParam);
     }
 
-    auto newOperands = llvm::to_vector<6>(op.getOperands());
+    auto newOperands = llvm::to_vector<6>(op->getOperands());
     newOperands.append(outParams.begin(), outParams.end());
     auto newResultTypes = llvm::to_vector<6>(llvm::map_range(
         replaceWithNewCallResults, [](Value v) { return v.getType(); }));
-    auto newCall = builder.create<func::CallOp>(op.getLoc(), op.getCalleeAttr(),
-                                                newResultTypes, newOperands);
-    for (auto t : llvm::zip(replaceWithNewCallResults, newCall.getResults()))
+    auto *newCallOp = op.clone(builder, op.getLoc(), newResultTypes, newOperands);
+
+    for (auto t : llvm::zip(replaceWithNewCallResults, newCallOp->getResults()))
       std::get<0>(t).replaceAllUsesWith(std::get<1>(t));
     op.erase();
   });

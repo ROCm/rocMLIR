@@ -349,12 +349,14 @@ void GenericCallOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
 /// Return the callee of the generic call operation, this is required by the
 /// call interface.
 CallInterfaceCallable GenericCallOp::getCallableForCallee() {
-  return (*this)->getAttrOfType<SymbolRefAttr>("callee");
+  return getCalleeAttr();
 }
 
 /// Get the argument operands to the called function, this is required by the
 /// call interface.
-Operation::operand_range GenericCallOp::getArgOperands() { return getInputs(); }
+Operation::operand_range GenericCallOp::getCallOperands() {
+  return getInputs();
+}
 
 //===----------------------------------------------------------------------===//
 // MulOp

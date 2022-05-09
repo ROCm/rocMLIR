@@ -421,7 +421,7 @@ void ForwardDataFlowSolver::visitCallOperation(CallOpInterface op) {
   if (callableLatticeIt == callableLatticeState.end())
     return markAllPessimisticFixpoint(op, callResults);
 
-  OperandRange callOperands = op.getArgOperands();
+  OperandRange callOperands = op.getCallOperands();
   auto callableArgs = callableLatticeIt->second.getCallableArguments();
   for (auto it : llvm::zip(callOperands, callableArgs)) {
     BlockArgument callableArg = std::get<1>(it);

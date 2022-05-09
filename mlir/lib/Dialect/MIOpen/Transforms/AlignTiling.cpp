@@ -325,8 +325,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     b.create<vector::StoreOp>(loc, nVecSlice->getResult(0), clonedVec, indices);
 
     // 2. clone twcopy for <addend> -> regs as transforming_for
-    auto nTWCopy =
-        makeLoadToVector(b, loc, miTWCopy, inp, clonedVec->getResult(0));
+    makeLoadToVector(b, loc, miTWCopy, inp, clonedVec->getResult(0));
 
     // 3. shrink the dim back to original so it can match the linalg dimensions
     auto cvCollapsed = createCollapseShapeOp(b, loc, clonedVec->getResult(0));

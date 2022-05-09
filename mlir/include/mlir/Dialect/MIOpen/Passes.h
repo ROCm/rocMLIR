@@ -26,6 +26,9 @@ std::unique_ptr<Pass> createMIOpenCloneKernelsPass();
 /// Create a pass to apply target implementation to host kernel funcs
 std::unique_ptr<Pass> createMIOpenApplyImplPass();
 
+/// Create a pass to
+std::unique_ptr<Pass> createMIOpenAsyncLaunchPass();
+
 /// Create a pass to convert MIOpen conv2d operations to transform and
 /// gridwise_gemm operations.
 std::unique_ptr<Pass> createLowerMIOpenOpsStep1Pass();
