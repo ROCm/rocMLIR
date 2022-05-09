@@ -135,6 +135,15 @@ public:
   }
 };
 
+bool isBroadcastable(operation op, operation operand) {
+  // tosa only broadcast implicitly on the second input of the binary operators.
+  if (op.getNumOperands() != 2)
+    return false;
+  if (op.getOperand(1) != operand)
+    return false;
+  return true;
+}
+
 class BroadcastConverter final
     : public OpConversionPattern<migraphx::BroadcastOp> {
 public:
@@ -151,9 +160,7 @@ public:
     for (auto &use : op->getResult(0).getUses()) {
       auto expandedOp = use.getOwner();
       // isa binary operation,
-      if (isa<migraphx::AddOp>(expandedOp) ||
-          isa<migraphx::SubOp>(expandedOp) ||
-          isa<migraphx::MulOp>(expandedOp)) {
+      if (isBroadcastable(expandedOp, op)) {
         // get shape of the use
         auto outShape =
             expandedOp->getResultTypes()[0].cast<ShapedType>().getShape();
@@ -211,9 +218,7 @@ public:
     for (auto &use : op->getResult(0).getUses()) {
       auto expandedOp = use.getOwner();
       // isa binary operation,
-      if (isa<migraphx::AddOp>(expandedOp) ||
-          isa<migraphx::SubOp>(expandedOp) ||
-          isa<migraphx::MulOp>(expandedOp)) {
+      if (isBroadcastable(expandedOp, op)) {
         // get shape of the use
         auto outShape =
             expandedOp->getResultTypes()[0].cast<ShapedType>().getShape();
