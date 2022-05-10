@@ -9,6 +9,7 @@
 #ifndef DIALECT_MIOPEN_TRANSFORMS_PASSDETAIL_H_
 #define DIALECT_MIOPEN_TRANSFORMS_PASSDETAIL_H_
 
+#include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
