@@ -30,8 +30,8 @@ static bool isBroadcastable(Operation *op, Operation *operand) {
     return false;
   if (op->getOperand(1) != operand->getResult(0)) {
     // swap, if possible
-    op->setOperand(0) = op->getOperand(1);
-    op->setOperand(1) = operand->getResult(0);
+    op->setOperand(0, op->getOperand(1));
+    op->setOperand(1, operand->getResult(0));
   }
   return true;
 }
