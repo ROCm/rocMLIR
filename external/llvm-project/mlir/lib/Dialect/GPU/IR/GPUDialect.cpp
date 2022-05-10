@@ -1159,38 +1159,6 @@ LogicalResult SubgroupMmaComputeOp::verify() {
   return success();
 }
 
-//===----------------------------------------------------------------------===//
-// GPU_GCNRawBuffer*Op
-//===----------------------------------------------------------------------===//
-namespace {
-template <typename T>
-LogicalResult verifyGCNRawBufferOp(T &op) {
-  MemRefType bufferType = op.memref().getType().template cast<MemRefType>();
-  if (bufferType.getMemorySpaceAsInt() != 0)
-    return op.emitOpError(
-        "Buffer ops must operate on a memref in global memory");
-  if (!bufferType.hasRank())
-    return op.emitOpError(
-        "Cannot meaningfully buffer_store to an unranked memref");
-  if (static_cast<int64_t>(op.indices().size()) != bufferType.getRank())
-    return op.emitOpError("Expected " + Twine(bufferType.getRank()) +
-                          " indices to memref");
-  return success();
-}
-} // end anonymous namespace
-
-LogicalResult GCNRawBufferLoadOp::verify() {
-  return verifyGCNRawBufferOp(*this);
-}
-
-LogicalResult GCNRawBufferStoreOp::verify() {
-  return verifyGCNRawBufferOp(*this);
-}
-
-LogicalResult GCNRawBufferAtomicFaddOp::verify() {
-  return verifyGCNRawBufferOp(*this);
-}
-
 /// This is a common class used for patterns of the form
 /// "someop(memrefcast) -> someop".  It folds the source of any memref.cast
 /// into the root operation directly.

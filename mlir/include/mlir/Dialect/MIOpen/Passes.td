@@ -66,7 +66,7 @@ def MIOpenOpsStep3Pass : Pass<"miopen-lowering-step3", "ModuleOp"> {
 def MIOpenOpsStep4Pass : Pass<"miopen-lowering-step4", "ModuleOp"> {
   let summary = "expand threadwise copy and threadwise gemm to all other dialects.";
   let constructor = "mlir::miopen::createLowerMIOpenOpsStep4Pass()";
-  let dependentDialects = ["gpu::GPUDialect", "miopen::MIOpenDialect", "scf::SCFDialect", "vector::VectorDialect", "AffineDialect", "memref::MemRefDialect", "LLVM::LLVMDialect"];
+  let dependentDialects = ["gpu::GPUDialect", "miopen::MIOpenDialect", "amdgpu::AMDGPUDialect", "scf::SCFDialect", "vector::VectorDialect", "AffineDialect", "memref::MemRefDialect", "LLVM::LLVMDialect"];
 }
 
 def MIOpenExpandShorthandPass : Pass<"miopen-expand-shorthand", "ModuleOp"> {

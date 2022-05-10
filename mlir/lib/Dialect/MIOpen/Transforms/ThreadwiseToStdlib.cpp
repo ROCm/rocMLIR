@@ -22,6 +22,7 @@
 
 #include "PassDetail.h"
 
+#include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/Dialect/Affine/Passes.h"
@@ -307,7 +308,7 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
     SmallVector<Value, 5> coordsI32;
     for (auto v : coords)
       coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
-    b.replaceOpWithNewOp<gpu::GCNRawBufferLoadOp>(
+    b.replaceOpWithNewOp<amdgpu::RawBufferLoadOp>(
         op, loadedType, source,
         /*targetIsRDNA=*/false, coordsI32, /*boundsCheck=*/true,
         /*indexOffset=*/nullptr, /*sgprOffset=*/nullptr);
@@ -389,20 +390,20 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
         for (int32_t i = 0; i < nAtomics; ++i) {
           Value item = b.create<vector::ExtractElementOp>(
               loc, data, b.create<ConstantIndexOp>(loc, i));
-          b.create<gpu::GCNRawBufferAtomicFaddOp>(
+          b.create<amdgpu::RawBufferAtomicFaddOp>(
               loc, item, dest,
               /*targetIsRDNA=*/false, coordsI32, /*boundsCheck=*/true,
               /*indexOffset=*/b.getI32IntegerAttr(i), /*sgprOffset=*/nullptr);
         }
         b.eraseOp(op);
       } else {
-        b.replaceOpWithNewOp<gpu::GCNRawBufferAtomicFaddOp>(
+        b.replaceOpWithNewOp<amdgpu::RawBufferAtomicFaddOp>(
             op, data, dest,
             /*targetIsRDNA=*/false, coordsI32, /*boundsCheck=*/true,
             /*indexOffset=*/nullptr, /*sgprOffset=*/nullptr);
       }
     } else {
-      b.replaceOpWithNewOp<gpu::GCNRawBufferStoreOp>(
+      b.replaceOpWithNewOp<amdgpu::RawBufferStoreOp>(
           op, data, dest,
           /*targetIsRDNA=*/false, coordsI32, /*boundsCheck=*/true,
           /*indexOffset=*/nullptr, /*sgprOffset=*/nullptr);
