@@ -36,11 +36,19 @@ def getConfigurations(fileName):
     configFile = open(fileName, 'r')
     lines = configFile.readlines()
     configs = [];
+    # All combinations of conv direction, type and layouts
     for direction, datatype, layout, line in itertools.product(DIRECTIONS, DATA_TYPES, LAYOUTS, lines):
         line = line.strip()
         if len(line) > 0 and line[0] != '#':
             oneConfig = f"{datatype} {direction} -f {layout } -I {layout} -O {layout} {line}"
             configs.append(oneConfig)
+    # int8 convolution for fwd direction
+    for layout, line in itertools.product(LAYOUTS, lines):
+        line = line.strip()
+        if len(line) > 0 and line[0] != '#':
+            oneConfig = f"convint8 -F 1 -f {layout} -I {layout} -O {layout} {line}"
+            configs.append(oneConfig)
+
     return configs
 
 def getNanoSeconds(fileName):
@@ -121,6 +129,8 @@ class ConvConfiguration:
             dataType = 'f16'
         elif argv[0] == 'convbfp16':
             dataType = 'bf16'
+        elif argv[0] == 'convint8':
+            dataType = 'i8'
 
         layout = None
         try:
@@ -200,7 +210,7 @@ class ConvConfiguration:
                     n: int, c: int, hi: int, wi: int, k: int, y: int, x: int,
                     convStrideH: int, convStrideW: int, paddingH: int, paddingW: int, dilationH: int, dilationW: int,
                     group: int, xdlops: bool):
-        if dtype not in {"f16", "f32", "bf16"}:
+        if dtype not in {"f16", "f32", "bf16", "i8"}:
             raise ValueError(f"Invalid datatype: {dtype}")
         if direction not in {"fwd", "bwd", "wrw"}:
             raise ValueError(f"Invalid direction: {direction}")
