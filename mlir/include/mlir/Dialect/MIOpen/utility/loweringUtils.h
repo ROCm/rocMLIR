@@ -42,7 +42,7 @@ inline LogicalResult calculateKBlockNum(int64_t n, int64_t ho, int64_t wo,
                                         int64_t y, int64_t x, int64_t MPerBlock,
                                         int64_t NPerBlock, int64_t KPerBlock,
                                         int64_t KPack, int64_t num_cu,
-                                        int64_t *nKBlock) {
+                                        int64_t &nKBlock) {
   const int64_t gemmM = k;
   const int64_t gemmN = c * y * x;
   const int64_t gemmK = n * ho * wo;
@@ -73,7 +73,7 @@ inline LogicalResult calculateKBlockNum(int64_t n, int64_t ho, int64_t wo,
   // not less than 1
   gemmKBlock = std::max((__int64_t)1, gemmKBlock);
 
-  *nKBlock = gemmKBlock;
+  nKBlock = gemmKBlock;
   return success();
 }
 

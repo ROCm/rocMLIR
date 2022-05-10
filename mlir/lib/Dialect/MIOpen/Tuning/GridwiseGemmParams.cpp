@@ -229,8 +229,8 @@ LogicalResult PopulateParams::obtainTuningParameters(
 LogicalResult PopulateParamsXDL::populateDerived(
     ConvolutionContext &ctx, InitParamsXDL &params, GemmSize &gemmSize,
     DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
-    DerivedOutParams &gemmCDerivedParam, int64_t &blockSize,
-    int64_t &gridSize) {
+    DerivedOutParams &gemmCDerivedParam, int64_t &blockSize, int64_t &gridSize,
+    int64_t &gemmKBlocks) {
   LogicalResult res = isValidGemm(&params, gemmSize);
   if (failed(res)) {
     LLVM_DEBUG(llvm::dbgs()
@@ -281,16 +281,17 @@ LogicalResult PopulateParamsXDL::populateDerived(
   }
 
   // parameters derivable from tunable parameters.
+  gemmKBlocks = 1;
   if (ctx.opType == miopen::ConvOpType::BwdWeight &&
       (ctx.getDataType().isF32() || ctx.getDataType().isF16())) {
-    res = getKBlocks(ctx, params);
+    res = getKBlocks(ctx, params, gemmKBlocks);
     if (failed(res)) {
       LLVM_DEBUG(llvm::dbgs()
                  << "Invalid tuning parameters for computing KBlocks.\n");
       return failure();
     }
   }
-  gridSize = obtainGridSize(gemmSize, &params) * params.gemmKBlocks;
+  gridSize = obtainGridSize(gemmSize, &params) * gemmKBlocks;
 
   res =
       calculateOutputDerivedParams(&params, blockSize, ctx, gemmCDerivedParam);
@@ -370,7 +371,7 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
     Operation *op, int64_t blockSizeOverride, const std::string &perfConfig,
     InitParamsXDL &validParams, DerivedParams &gemmADerivedParam,
     DerivedParams &gemmBDerivedParam, DerivedOutParams &gemmCDerivedParam,
-    int64_t &blockSize, int64_t &gridSize) {
+    int64_t &blockSize, int64_t &gridSize, int64_t &gemmKBlocks) {
 
   ConvolutionContext ctx = populateConvContext(op);
 
@@ -386,7 +387,7 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
       LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
       return populateDerived(ctx, validParams, gemmSize, gemmADerivedParam,
                              gemmBDerivedParam, gemmCDerivedParam, blockSize,
-                             gridSize);
+                             gridSize, gemmKBlocks);
     }
     // Signal the client if perfCofnig is passed in but is invalid
     return failure();
@@ -425,7 +426,7 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
 
     res = populateDerived(ctx, params, gemmSize, gemmADerivedParam,
                           gemmBDerivedParam, gemmCDerivedParam, blockSize,
-                          gridSize);
+                          gridSize, gemmKBlocks);
     if (failed(res)) {
       continue;
     }
