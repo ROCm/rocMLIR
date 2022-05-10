@@ -242,10 +242,11 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     DerivedOutParams gemmCDerivedParam;
     int64_t blockSize = 0;
     int64_t gridSize = 0;
+    int64_t gemmKBlocks = 1;
 
     LogicalResult status = populateParamsXDL.obtainTuningParameters(
         op, blockSizeOverride, perfConfig, validParams, gemmADerivedParam,
-        gemmBDerivedParam, gemmCDerivedParam, blockSize, gridSize);
+        gemmBDerivedParam, gemmCDerivedParam, blockSize, gridSize, gemmKBlocks);
 
     if (failed(status)) {
       signalPassFailure();
@@ -270,7 +271,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("kpack", b.getI32IntegerAttr(validParams.gemmKPack));
     // Set kblocks attribute only for backward weight convolutions.
     if (dir == miopen::ConvOpType::BwdWeight) {
-      op->setAttr("kblocks", b.getI32IntegerAttr(validParams.gemmKBlocks));
+      op->setAttr("kblocks", b.getI32IntegerAttr(gemmKBlocks));
     }
 
     // Set attributes on the function.

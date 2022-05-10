@@ -610,7 +610,7 @@ struct InitParamsXDL : InitParams, Serializable<InitParamsXDL> {
       : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerWave(mPerWave),
         gemmNPerWave(nPerWave), gemmKPack(kPack),
         gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
-        gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack), gemmKBlocks(1LL) {}
+        gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack) {}
 
   InitParamsXDL() : InitParamsXDL(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, false, false) {}
 
@@ -619,7 +619,6 @@ struct InitParamsXDL : InitParams, Serializable<InitParamsXDL> {
   int64_t gemmKPack;
   bool gemmAThreadCopyMoreGemmK;
   bool gemmBThreadCopyMoreGemmKPack;
-  int64_t gemmKBlocks;
 
   template <class Self, class F> static void visit(Self &&self, F f) {
     f(self.gemmMPerBlock);
@@ -876,7 +875,8 @@ private:
            (params.gemmMPerWave * params.gemmNPerWave);
   }
 
-  LogicalResult getKBlocks(ConvolutionContext &ctx, InitParamsXDL &params) {
+  LogicalResult getKBlocks(ConvolutionContext &ctx, InitParamsXDL &params,
+                           int64_t &gemmKBlocks) {
     int64_t n = ctx.dimIndexAndSize["no"].size;
     int64_t ho = ctx.dimIndexAndSize["ho"].size;
     int64_t wo = ctx.dimIndexAndSize["wo"].size;
@@ -888,7 +888,7 @@ private:
 
     return mlir::miopen::calculateKBlockNum(
         n, ho, wo, g, k, c, y, x, params.gemmMPerBlock, params.gemmNPerBlock,
-        params.gemmKPerBlock, params.gemmKPack, ctx.num_cu, &params.gemmKBlocks);
+        params.gemmKPerBlock, params.gemmKPack, ctx.num_cu, gemmKBlocks);
   }
 
   LogicalResult calculateGemmABlockCopyPerformanceParameters(
@@ -1056,7 +1056,8 @@ private:
                                 DerivedParams &gemmADerivedParam,
                                 DerivedParams &gemmBDerivedParam,
                                 DerivedOutParams &gemmCDerivedParam,
-                                int64_t &blockSize, int64_t &gridSize);
+                                int64_t &blockSize, int64_t &gridSize,
+                                int64_t &gemmKBlocks);
 
   LogicalResult populatePaddingKernelDerived(
       ConvolutionContext &ctx, InitParamsXDL &validParams, GemmSize &gemmSize,
@@ -1081,13 +1082,11 @@ private:
   }
 
 public:
-  LogicalResult obtainTuningParameters(Operation *op, int64_t blockSizeOverride,
-                                       const std::string &perfConfig,
-                                       InitParamsXDL &validParams,
-                                       DerivedParams &gemmADerivedParam,
-                                       DerivedParams &gemmBDerivedParam,
-                                       DerivedOutParams &gemmCDerivedParam,
-                                       int64_t &blockSize, int64_t &gridSize);
+  LogicalResult obtainTuningParameters(
+      Operation *op, int64_t blockSizeOverride, const std::string &perfConfig,
+      InitParamsXDL &validParams, DerivedParams &gemmADerivedParam,
+      DerivedParams &gemmBDerivedParam, DerivedOutParams &gemmCDerivedParam,
+      int64_t &blockSize, int64_t &gridSize, int64_t &gemmKBlocks);
 
   llvm::SmallVector<InitParamsXDL, 4>
   getTuningParameters(miopen::ConvOpType dir, mlir::Type dataType) {
