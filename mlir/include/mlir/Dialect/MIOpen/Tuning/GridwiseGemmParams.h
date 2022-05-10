@@ -586,11 +586,10 @@ struct InitParamsNonXDL : InitParams, Serializable<InitParamsNonXDL> {
   InitParamsNonXDL(int64_t bSize, int64_t mPerBlock, int64_t nPerBlock,
                    int64_t kPerBlock, int64_t mPerThread, int64_t nPerThread)
       : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerThread(mPerThread),
-        gemmNPerThread(nPerThread), blockSize(bSize), gemmKBlocks(1LL) {}
+        gemmNPerThread(nPerThread), blockSize(bSize) {}
   int64_t gemmMPerThread;
   int64_t gemmNPerThread;
   int64_t blockSize;
-  int64_t gemmKBlocks;
 
   InitParamsNonXDL() : InitParamsNonXDL(0LL, 0LL, 0LL, 0LL, 0LL, 0LL) {}
 
