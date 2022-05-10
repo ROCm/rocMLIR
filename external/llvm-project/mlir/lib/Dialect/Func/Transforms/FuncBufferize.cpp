@@ -39,15 +39,14 @@ struct FuncBufferizePass : public FuncBufferizeBase<FuncBufferizePass> {
              typeConverter.isLegal(&op.getBody());
     });
     populateCallOpTypeConversionPattern(patterns, typeConverter);
-    target.addDynamicallyLegalOp<CallOp>(
-        [&](CallOp op) { return typeConverter.isLegal(op); });
-
     populateBranchOpInterfaceTypeConversionPattern(patterns, typeConverter);
     populateReturnOpTypeConversionPattern(patterns, typeConverter);
     target.addLegalOp<ModuleOp, bufferization::ToTensorOp,
                       bufferization::ToMemrefOp>();
 
     target.markUnknownOpDynamicallyLegal([&](Operation *op) {
+      if (isa<CallOpInterface>(op))
+        return typeConverter.isLegal(op);
       return isNotBranchOpInterfaceOrReturnLikeOp(op) ||
              isLegalForBranchOpInterfaceTypeConversionPattern(op,
                                                               typeConverter) ||

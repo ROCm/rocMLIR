@@ -40,7 +40,6 @@ static constexpr const char kSourceMemoryAccessAttrName[] =
 static constexpr const char kAlignmentAttrName[] = "alignment";
 static constexpr const char kSourceAlignmentAttrName[] = "source_alignment";
 static constexpr const char kBranchWeightAttrName[] = "branch_weights";
-static constexpr const char kCallee[] = "callee";
 static constexpr const char kClusterSize[] = "cluster_size";
 static constexpr const char kControl[] = "control";
 static constexpr const char kDefaultValueAttrName[] = "default_value";
@@ -2375,14 +2374,6 @@ LogicalResult spirv::FunctionCallOp::verify() {
   }
 
   return success();
-}
-
-CallInterfaceCallable spirv::FunctionCallOp::getCallableForCallee() {
-  return (*this)->getAttrOfType<SymbolRefAttr>(kCallee);
-}
-
-Operation::operand_range spirv::FunctionCallOp::getArgOperands() {
-  return arguments();
 }
 
 //===----------------------------------------------------------------------===//

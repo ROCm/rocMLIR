@@ -2,6 +2,7 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
   AffixTuningParameters.cpp
   AlignTiling.cpp
   ApplyImpl.cpp
+  AsyncLaunch.cpp
   BlockwiseGemmToThreadwise.cpp
   CloneKernels.cpp
   CopyOpt.cpp

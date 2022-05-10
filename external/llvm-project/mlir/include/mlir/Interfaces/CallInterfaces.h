@@ -14,10 +14,16 @@
 #ifndef MLIR_INTERFACES_CALLINTERFACES_H
 #define MLIR_INTERFACES_CALLINTERFACES_H
 
+#include "mlir/IR/BlockAndValueMapping.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/PointerUnion.h"
 
 namespace mlir {
+
+namespace func {
+class FuncOp;
+}
 /// A callable is either a symbol, or an SSA value, that is referenced by a
 /// call-like operation. This represents the destination of the call.
 struct CallInterfaceCallable : public PointerUnion<SymbolRefAttr, Value> {

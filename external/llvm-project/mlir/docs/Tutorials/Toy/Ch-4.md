@@ -179,7 +179,7 @@ CallInterfaceCallable GenericCallOp::getCallableForCallee() {
 
 /// Get the argument operands to the called function, this is required by the
 /// call interface.
-Operation::operand_range GenericCallOp::getArgOperands() { return inputs(); }
+Operation::operand_range GenericCallOp::getCallOperands() { return inputs(); }
 ```
 
 Now that the inliner has been informed about the Toy dialect, we can add the

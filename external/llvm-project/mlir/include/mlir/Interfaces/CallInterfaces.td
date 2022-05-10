@@ -32,19 +32,91 @@ def CallOpInterface : OpInterface<"CallOpInterface"> {
   let cppNamespace = "::mlir";
 
   let methods = [
-    InterfaceMethod<[{
+    InterfaceMethod<
+      /*desc=*/[{
+        Clone the current call-like operation with the given attributes but
+        re-assign operands and result-types. Used in bufferization for result
+        buffers.
+      }],
+      /*retTy=*/"Operation *",
+      /*methodName=*/"clone",
+      /*args=*/(ins "OpBuilder &":$b, "Location":$loc, "TypeRange":$resultTypes,
+                    "ValueRange":$operands),
+      /*methodBody=*/[{
+        BlockAndValueMapping bvm;
+        OperationState state(
+          loc, ConcreteOp::getOperationName(), operands, resultTypes,
+          $_op->getAttrs());
+        auto op = b.create(state);
+        CallOpInterface callIF(op);
+        callIF.updateSegmentSizes(b.getContext());
+        return op;
+      }]
+    >,
+    InterfaceMethod<
+      /*desc*/[{
         Returns the callee of this call-like operation. A `callee` is either a
         reference to a symbol, via SymbolRefAttr, or a reference to a defined
         SSA value. If the reference is an SSA value, the SSA value corresponds
         to a region of a lambda-like operation.
       }],
-      "::mlir::CallInterfaceCallable", "getCallableForCallee"
+      /*retTy=*/"::mlir::CallInterfaceCallable",
+      /*methodName=*/"getCallableForCallee",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return nullptr;
+      }]
     >,
-    InterfaceMethod<[{
+    InterfaceMethod<
+      /*desc=*/[{
         Returns the operands within this call that are used as arguments to the
         callee.
       }],
-      "::mlir::Operation::operand_range", "getArgOperands"
+      /*retTy=*/"::mlir::Operation::operand_range",
+      /*methodName=*/"getCallOperands",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return $_op->getOperands();
+      }]
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns the results for this call that are returned by the callee.
+      }],
+      /*retTy=*/"::mlir::Operation::result_range",
+      /*methodName=*/"getCallResults",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return $_op->getResults();
+      }]
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Returns the result types for this call that are returned by the callee.
+      }],
+      /*retTy=*/"::mlir::Operation::result_type_range",
+      /*methodName=*/"getCallResultTypes",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return $_op->getResultTypes();
+      }]
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Update the operand_segment_sizes attribute for changes to operands.
+      }],
+      /*retTy=*/"void",
+      /*methodName=*/"updateSegmentSizes",
+      /*args=*/(ins "::mlir::MLIRContext *":$context),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        assert(!$_op->hasAttr("operand_segment_sizes") &&
+               !$_op->hasAttr("result_segment_sizes"));
+      }]
     >,
   ];
 

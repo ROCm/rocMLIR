@@ -8,6 +8,7 @@
 
 #include "mlir/Dialect/Async/IR/Async.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -51,6 +52,208 @@ LogicalResult YieldOp::verify() {
 MutableOperandRange
 YieldOp::getMutableSuccessorOperands(Optional<unsigned> index) {
   return operandsMutable();
+}
+
+//===----------------------------------------------------------------------===//
+/// LaunchOp
+//===----------------------------------------------------------------------===//
+
+void LaunchOp::build(OpBuilder &builder, OperationState &result,
+                     func::FuncOp func, ValueRange dependencies,
+                     ValueRange operands) {
+  // set callee
+  result.addAttribute(calleeAttrName(result.name), SymbolRefAttr::get(func));
+
+  result.addOperands(dependencies);
+  result.addOperands(operands);
+
+  // Add derived `operand_segment_sizes` attribute based on parsed operands.
+  int32_t numDependencies = dependencies.size();
+  int32_t numOperands = operands.size();
+  auto operandSegmentSizes = DenseIntElementsAttr::get(
+      VectorType::get({2}, builder.getIntegerType(32)),
+      {numDependencies, numOperands});
+  result.addAttribute(operand_segment_sizesAttrName(result.name),
+                      operandSegmentSizes);
+
+  // First result is always a token, and then `resultTypes` wrapped into
+  // `async.value`.
+  result.addTypes({TokenType::get(result.getContext())});
+  for (Type type : func.getResultTypes())
+    result.addTypes(type);
+}
+
+/// Return the callee of this operation.
+CallInterfaceCallable LaunchOp::getCallableForCallee() {
+  return (*this)->getAttrOfType<SymbolRefAttr>(calleeAttrName());
+}
+
+/// Return the operands passed to the callee.
+Operation::operand_range LaunchOp::getCallOperands() { return operands(); }
+
+/// Return the callee results.
+Operation::result_range LaunchOp::getCallResults() {
+  return {++result_begin(), result_end()};
+}
+
+/// Return the callee result types.
+Operation::result_type_range LaunchOp::getCallResultTypes() {
+  return results();
+}
+
+/// Recompute the operand_segment_sizes attribute.
+void LaunchOp::updateSegmentSizes(MLIRContext *ctx) {
+  auto tokenTy = TokenType::get(ctx);
+  int32_t numDependencies = 0;
+  int32_t numOperands = 0;
+  for (const auto &oper : getOperands()) {
+    if (oper.getType() == tokenTy) {
+      numDependencies++;
+      assert(numOperands == 0);
+    } else
+      numOperands++;
+  }
+
+  auto operandSegmentSizes =
+      DenseIntElementsAttr::get(VectorType::get({2}, IntegerType::get(ctx, 32)),
+                                {numDependencies, numOperands});
+  (*this)->setAttr(operand_segment_sizesAttrName(), operandSegmentSizes);
+
+  assert(!(*this)->hasAttr("result_segment_sizes"));
+}
+
+void LaunchOp::print(OpAsmPrinter &p) {
+  // func ref
+  p << " " << (*this)->getAttr(calleeAttrName());
+
+  // [%tokens,...]
+  if (!dependencies().empty())
+    p << " [" << dependencies() << "]";
+
+  // (%value, ...)
+  p << " (" << operands() << ")";
+
+  p.printOptionalAttrDictWithKeyword(
+      (*this)->getAttrs(), {operand_segment_sizesAttrName(), calleeAttrName()});
+
+  // : (%value.type, ...)
+  p << " : (";
+  llvm::interleaveComma(operands(), p,
+                        [&](Value operand) mutable { p << operand.getType(); });
+  p << ")";
+
+  // -> (return.type, ...)
+  p.printOptionalArrowTypeList(llvm::drop_begin(getResultTypes()));
+}
+
+ParseResult LaunchOp::parse(OpAsmParser &parser, OperationState &result) {
+  MLIRContext *ctx = result.getContext();
+  auto tokenTy = TokenType::get(ctx);
+
+  FlatSymbolRefAttr calleeAttr;
+  SmallVector<OpAsmParser::UnresolvedOperand, 4> operandsOperands;
+  SMLoc operandsOperandsLoc;
+  ArrayRef<Type> operandsTypes;
+  SmallVector<Type, 4> allResultTypes(1, tokenTy);
+
+  if (parser.parseCustomAttributeWithFallback(
+          calleeAttr, parser.getBuilder().getType<::mlir::NoneType>(),
+          calleeAttrName(result.name), result.attributes)) {
+    return ::mlir::failure();
+  }
+
+  // Parse dependency tokens.
+  int32_t numDependencies = 0;
+  if (succeeded(parser.parseOptionalLSquare())) {
+    SmallVector<OpAsmParser::UnresolvedOperand, 4> tokenArgs;
+    if (parser.parseOperandList(tokenArgs) ||
+        parser.resolveOperands(tokenArgs, tokenTy, result.operands) ||
+        parser.parseRSquare())
+      return failure();
+
+    numDependencies = tokenArgs.size();
+  }
+
+  if (parser.parseLParen())
+    return failure();
+  operandsOperandsLoc = parser.getCurrentLocation();
+  if (parser.parseOperandList(operandsOperands))
+    return failure();
+  if (parser.parseRParen())
+    return failure();
+
+  if (parser.parseOptionalAttrDict(result.attributes))
+    return failure();
+  if (parser.parseColon())
+    return failure();
+
+  FunctionType operands__allResult_functionType;
+  if (parser.parseType(operands__allResult_functionType))
+    return failure();
+  operandsTypes = operands__allResult_functionType.getInputs();
+  auto resultTypes = operands__allResult_functionType.getResults();
+  allResultTypes.append(resultTypes.begin(), resultTypes.end());
+  result.addTypes(allResultTypes);
+  if (parser.resolveOperands(operandsOperands, operandsTypes,
+                             operandsOperandsLoc, result.operands))
+    return failure();
+
+  // Add derived `operand_segment_sizes` attribute based on parsed operands.
+  int32_t numOperands = result.operands.size() - numDependencies;
+  auto operandSegmentSizes =
+      DenseIntElementsAttr::get(VectorType::get({2}, IntegerType::get(ctx, 32)),
+                                {numDependencies, numOperands});
+  result.addAttribute(operand_segment_sizesAttrName(result.name),
+                      operandSegmentSizes);
+
+  return success();
+}
+
+LogicalResult LaunchOp::verify() {
+  MLIRContext *ctx = getContext();
+  auto tokenTy = TokenType::get(ctx);
+
+  // The 'callable' must be a kernel and resolved.
+  CallOpInterface callIf(*this);
+  auto *callable = callIf.resolveCallable();
+  if (!callable)
+    return emitOpError("requires a resolved callable");
+  FuncOp func = dyn_cast<FuncOp>(callable);
+
+  if (!func || !func->hasAttr("kernel"))
+    return emitOpError("requires a 'kernel' func reference");
+
+  auto funcResultTypes = func.getResultTypes();
+  // The result types should be a leading async.token and matching return types
+  // of the kernel func.
+  auto resultTypes = getResultTypes();
+  if (resultTypes.size() != (funcResultTypes.size() + 1))
+    return emitOpError(
+        "requires matching result types with a leading async.token");
+
+  auto resultItr = ++resultTypes.begin();
+  for (auto resType : funcResultTypes) {
+    if (*resultItr++ != resType)
+      return emitOpError("requires matching result types with func");
+  }
+
+  // The dependencies must be async.tokens
+  for (auto dep : dependencies()) {
+    if (dep.getType() != tokenTy)
+      return emitOpError("requires all dependencies to be async.token");
+  }
+
+  // Match operand types
+  auto funcArgumentTypes = func.getArgumentTypes();
+  if (funcArgumentTypes.size() != operands().size())
+    return emitOpError("incorrect number of operands for callee");
+
+  for (auto tuple : llvm::zip(operands(), funcArgumentTypes)) {
+    if (std::get<0>(tuple).getType() != std::get<1>(tuple))
+      return emitOpError("requires matching operand types");
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//

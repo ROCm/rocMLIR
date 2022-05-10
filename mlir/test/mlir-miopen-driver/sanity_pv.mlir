@@ -4,3 +4,4 @@
 // RUN: miopen-gen -p -pv | mlir-miopen-driver -c | miopen-opt
 // RUN: miopen-gen -p -pv -t f16 | mlir-miopen-driver -c | miopen-opt
 // RUN: miopen-gen -p -pv -t bf16 | mlir-miopen-driver -c | miopen-opt
+// RUN: miopen-gen -p -pv -t i8 | mlir-miopen-driver -c | miopen-opt

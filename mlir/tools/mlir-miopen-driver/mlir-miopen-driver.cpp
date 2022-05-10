@@ -153,8 +153,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   // Run partitioning pipeline.
   if (hostPipelineSet.contains("partition")) {
     PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
-    pm.addPass(tosa::createTosaPartitionPass());
-    pm.addPass(miopen::createMIOpenCloneKernelsPass());
+
+    miopen::addPartitionPipeline(pm);
 
     if (failed(pm.run(module))) {
       return failure();
@@ -260,10 +260,11 @@ int main(int argc, char **argv) {
   test::registerTestDialect(registry);
 #endif
   MLIRContext context(registry);
-  context.loadDialect<miopen::MIOpenDialect, func::FuncDialect, scf::SCFDialect,
-                      AffineDialect, memref::MemRefDialect, math::MathDialect,
-                      arith::ArithmeticDialect, gpu::GPUDialect,
-                      bufferization::BufferizationDialect>();
+  context
+      .loadDialect<miopen::MIOpenDialect, func::FuncDialect, scf::SCFDialect,
+                   AffineDialect, memref::MemRefDialect, math::MathDialect,
+                   arith::ArithmeticDialect, gpu::GPUDialect,
+                   bufferization::BufferizationDialect, async::AsyncDialect>();
   mlir::registerAllPasses();
   mlir::registerMIOpenConversionPasses();
   miopen::registerPasses();

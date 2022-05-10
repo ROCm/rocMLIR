@@ -440,9 +440,11 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
       return false;
     }
 
-    bool noMixedTypes = argMap["in_type"] == argMap["fil_type"] &&
-                        (argMap["out_type"] == "i32" ||
-                         argMap["out_type"] == argMap["in_type"]);
+    bool noMixedTypes =
+        (argMap["in_type"] == argMap["fil_type"] &&
+         argMap["out_type"] == argMap["in_type"]) ||
+        (argMap["in_type"] == "i8" && argMap["fil_type"] == "i8" &&
+         argMap["out_type"] == "i32");
     return noMixedTypes;
   };
 
@@ -506,6 +508,12 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   strToInt("padding_w", config.paddingWidthRight);
 
   strToStr("kernel_name", config.kernelBaseName);
+
+  // Allow only fwd direction for int8. Reject other directions.
+  if (config.operation.getValue() != miopen::ConvOpType::Fwd &&
+      config.dataTypeStr == "i8") {
+    return failure();
+  }
 
   // MIOpen has NCHW as layout string for all three tensors
   config.inputLayout = translateLayout(

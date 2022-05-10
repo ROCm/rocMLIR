@@ -400,17 +400,13 @@ def TestCallOp : TEST_Op<"call", [DeclareOpInterfaceMethods<SymbolUserOpInterfac
 }
 
 def ConversionCallOp : TEST_Op<"conversion_call_op",
-    [CallOpInterface]> {
+    [DeclareOpInterfaceMethods<CallOpInterface>]> {
   let arguments = (ins Variadic<AnyType>:$arg_operands, SymbolRefAttr:$callee);
   let results = (outs Variadic<AnyType>);
 
   let extraClassDeclaration = [{
-    /// Return the callee of this operation.
-    ::mlir::CallInterfaceCallable getCallableForCallee();
-  }];
-  let extraClassDefinition = [{
-    ::mlir::CallInterfaceCallable $cppClass::getCallableForCallee() {
-      return (*this)->getAttrOfType<::mlir::SymbolRefAttr>("callee");
+    ::mlir::CallInterfaceCallable getCallableForCallee() {
+      return getCallee();
     }
   }];
 }
