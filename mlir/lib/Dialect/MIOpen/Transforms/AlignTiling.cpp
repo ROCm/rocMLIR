@@ -167,7 +167,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         miopen::BottomUpTMBuilder transform(b, inpShape, loc);
         transform.passThrough(endDims, startDims);
         for (uint32_t i = 0; i < outShape.size(); ++i) {
-          auto it = llvm::find (endDims, i);
+          auto it = llvm::find(endDims, i);
           if (it != endDims.end())
             continue;
           SmallString<8> name;

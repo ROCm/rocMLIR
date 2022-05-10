@@ -134,7 +134,7 @@ public:
                         }));
 
     // Convert optional attributes
-    if (auto attr =  op->getAttrOfType<BoolAttr>("xdlopsV2"))
+    if (auto attr = op->getAttrOfType<BoolAttr>("xdlopsV2"))
       cop->setAttr("xdlopsV2", attr);
     if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
       cop->setAttr("perf_config", attr);
@@ -161,8 +161,7 @@ public:
     auto axis = op->getAttr("axis").cast<IntegerAttr>().getInt();
 
     // get shape of the use
-    auto outShape =
-        op->getResultTypes()[0].cast<ShapedType>().getShape();
+    auto outShape = op->getResultTypes()[0].cast<ShapedType>().getShape();
     auto outElemType =
         op->getResultTypes()[0].cast<ShapedType>().getElementType();
     uint32_t outRank = outShape.size();
