@@ -112,7 +112,8 @@ static LogicalResult updateCalls(ModuleOp module) {
     newOperands.append(outParams.begin(), outParams.end());
     auto newResultTypes = llvm::to_vector<6>(llvm::map_range(
         replaceWithNewCallResults, [](Value v) { return v.getType(); }));
-    auto *newCallOp = op.clone(builder, op.getLoc(), newResultTypes, newOperands);
+    auto *newCallOp =
+        op.clone(builder, op.getLoc(), newResultTypes, newOperands);
 
     for (auto t : llvm::zip(replaceWithNewCallResults, newCallOp->getResults()))
       std::get<0>(t).replaceAllUsesWith(std::get<1>(t));

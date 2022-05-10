@@ -65,12 +65,6 @@ LogicalResult
 isSupportedBackwardDataPaddingKernel(bool isXdlops, bool isStride2Pad1,
                                      int64_t gemmMExtra, int64_t gemmKExtra,
                                      int64_t gemmNExtra, Conv2DBwdDataOp &op) {
-  if (gemmNExtra && gemmKExtra) {
-    return op.emitOpError(
-        "can't support backward data padding kernel when both pad "
-        "gemmN and gemmK due to load issue\n");
-  }
-
   if (isXdlops && (gemmMExtra || gemmNExtra)) {
     if (isStride2Pad1) {
       return op->emitOpError(
