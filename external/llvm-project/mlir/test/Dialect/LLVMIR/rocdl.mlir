@@ -173,20 +173,23 @@ llvm.func @rocdl.raw.buffer(%rsrc : vector<4xi32>,
                        %vdata2 : vector<2xf32>, %vdata4 : vector<4xf32>) {
   // CHECK-LABEL: rocdl.raw.buffer
   // CHECK: %{{.*}} = rocdl.raw.buffer.load %{{.*}} %{{.*}} %{{.*}} %{{.*}} : f32
-  %r1 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : f32
   // CHECK: %{{.*}} = rocdl.raw.buffer.load %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<2xf32>
-  %r2 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : vector<2xf32>
   // CHECK: %{{.*}} = rocdl.raw.buffer.load %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<4xf32>
-  %r4 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : vector<4xf32>
 
   // CHECK: rocdl.raw.buffer.store %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : f32
-  rocdl.raw.buffer.store %vdata1, %rsrc, %offset, %soffset, %aux : f32
   // CHECK: rocdl.raw.buffer.store %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<2xf32>
-  rocdl.raw.buffer.store %vdata2, %rsrc, %offset, %soffset, %aux : vector<2xf32>
   // CHECK: rocdl.raw.buffer.store %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : vector<4xf32>
-  rocdl.raw.buffer.store %vdata4, %rsrc, %offset, %offset, %aux : vector<4xf32>
 
   // CHECK: rocdl.raw.buffer.atomic.fadd %{{.*}} %{{.*}} %{{.*}} %{{.*}} %{{.*}} : f32
+
+  %r1 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : f32
+  %r2 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : vector<2xf32>
+  %r4 = rocdl.raw.buffer.load %rsrc, %offset, %soffset, %aux : vector<4xf32>
+
+  rocdl.raw.buffer.store %vdata1, %rsrc, %offset, %soffset, %aux : f32
+  rocdl.raw.buffer.store %vdata2, %rsrc, %offset, %soffset, %aux : vector<2xf32>
+  rocdl.raw.buffer.store %vdata4, %rsrc, %offset, %offset, %aux : vector<4xf32>
+
   rocdl.raw.buffer.atomic.fadd %vdata1, %rsrc, %offset, %soffset, %aux : f32
 
   llvm.return

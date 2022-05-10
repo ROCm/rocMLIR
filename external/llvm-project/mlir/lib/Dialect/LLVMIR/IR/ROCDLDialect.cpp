@@ -90,7 +90,7 @@ void MubufStoreOp::print(OpAsmPrinter &p) {
 //     : result_type`
 ParseResult RawBufferLoadOp::parse(OpAsmParser &parser,
                                    OperationState &result) {
-  SmallVector<OpAsmParser::UnresolvedOperand, 8> ops;
+  SmallVector<OpAsmParser::UnresolvedOperand, 4> ops;
   Type type;
   if (parser.parseOperandList(ops, 4) || parser.parseColonType(type) ||
       parser.addTypeToList(type, result.types))
@@ -112,7 +112,7 @@ void RawBufferLoadOp::print(OpAsmPrinter &p) {
 //     %soffset, %aux : result_type`
 ParseResult RawBufferStoreOp::parse(OpAsmParser &parser,
                                     OperationState &result) {
-  SmallVector<OpAsmParser::UnresolvedOperand, 8> ops;
+  SmallVector<OpAsmParser::UnresolvedOperand, 5> ops;
   Type type;
   if (parser.parseOperandList(ops, 5) || parser.parseColonType(type))
     return failure();
