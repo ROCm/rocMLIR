@@ -14,6 +14,7 @@
 #define MLIR_DIALECT_MIOPEN_TRANSFORMMAPBUILDER_H
 
 #include "mlir/Dialect/MIOpen/MIOpen.h"
+#include "llvm/ADT/MapVector.h"
 
 namespace mlir {
 namespace miopen {

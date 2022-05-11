@@ -565,13 +565,13 @@ static void populateDefaults() {
   }
 
   if (outputHeight.getNumOccurrences() == 0) {
-    outputHeight.setValue(Conv2dGenerator::outputDim(
+    outputHeight.setValue(miopen::Conv2dGenerator::outputDim(
         inputHeight.getValue(), filterHeight.getValue(),
         paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
         strideHeight.getValue(), dilationHeight.getValue()));
   }
   if (outputWidth.getNumOccurrences() == 0) {
-    outputWidth.setValue(Conv2dGenerator::outputDim(
+    outputWidth.setValue(miopen::Conv2dGenerator::outputDim(
         inputWidth.getValue(), filterWidth.getValue(),
         paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
         strideWidth.getValue(), dilationWidth.getValue()));
@@ -911,7 +911,7 @@ static FuncOp getMemsetFunc(ModuleOp module, mlir::Type elemType) {
 
 static FuncOp
 createCPUConvFunc(ModuleOp module,
-                  const mlir::Conv2dGenerator::Config &genConfig) {
+                  const miopen::Conv2dGenerator::Config &genConfig) {
 
   assert(genConfig.operation.hasValue());
   std::string funcName =
@@ -942,7 +942,7 @@ createCPUConvFunc(ModuleOp module,
   auto outputType = MemRefType::get(outputDimension, outputElemType);
 
   // Create conv2d_host function
-  Conv2dGenerator conv2dGenerator(genConfig);
+  miopen::Conv2dGenerator conv2dGenerator(genConfig);
   bool hasWorkspace = conv2dGenerator.hasWorkspace(b);
   mlir::Type workspaceArgType;
   if (hasWorkspace) {
@@ -1329,7 +1329,7 @@ static void emitPrintTensor(OpBuilder &b, mlir::Value var) {
 
 static FuncOp
 createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
-                   const mlir::Conv2dGenerator::Config &genConfig) {
+                   const miopen::Conv2dGenerator::Config &genConfig) {
   auto kfunc = kernel.func;
   std::string funcName = kfunc.getName().str() + "_verify";
   FuncOp func = module.lookupSymbol<FuncOp>(funcName);
@@ -1667,7 +1667,7 @@ static LogicalResult
 populateHostHarnessLogic(ModuleOp &module,
                          const SmallVector<KernelIF, 8> &kernels,
                          const SmallVector<KernelIF, 8> &roots,
-                         const mlir::Conv2dGenerator::Config &genConfig) {
+                         const miopen::Conv2dGenerator::Config &genConfig) {
 
   auto context = module.getContext();
   OpBuilder b(context);
@@ -1845,7 +1845,7 @@ populateHostHarnessLogic(ModuleOp &module,
         (genConfig.xdlops || genConfig.dataTypeStr == "f16" ||
          genConfig.dataTypeStr == "bf16")) {
       // generate generic kernels
-      Conv2dGenerator conv2dGenerator(genConfig);
+      miopen::Conv2dGenerator conv2dGenerator(genConfig);
       // use non-xdlops kernels to verify xdlops kernels
       if (genConfig.xdlops)
         conv2dGenerator.flipXdlops();
@@ -1871,12 +1871,12 @@ populateHostHarnessLogic(ModuleOp &module,
           exit(1);
         }
         KernelIF kernel(conv2dGenerator.getKernelFunc());
-        Conv2dGenerator::Config newConfig = conv2dGenerator.getConfig();
+        miopen::Conv2dGenerator::Config newConfig = conv2dGenerator.getConfig();
         auto kernelWrapperFunc = createGPUWrapper(module, kernel);
 
         // Decide whether to trim the last workspace argument to the verifier
         // GPU kernel.
-        Conv2dGenerator originalConv2dGenerator(genConfig);
+        miopen::Conv2dGenerator originalConv2dGenerator(genConfig);
         bool originalHasWorkspace = originalConv2dGenerator.hasWorkspace(b);
         bool verifierHasWorkspace = conv2dGenerator.hasWorkspace(b);
         if (originalHasWorkspace && !verifierHasWorkspace) {
@@ -1949,7 +1949,7 @@ int main(int argc, char **argv) {
   correctParameters();
   populateDefaults();
 
-  Conv2dGenerator conv2dGenerator;
+  miopen::Conv2dGenerator conv2dGenerator;
 
   SmallVector<KernelIF, 8> kernels;
 
@@ -2010,7 +2010,7 @@ int main(int argc, char **argv) {
         exit(1);
       }
 
-      conv2dGenerator = Conv2dGenerator(
+      conv2dGenerator = miopen::Conv2dGenerator(
           chip, triple, features, perfConfig.getValue(), num_cu.getValue(),
           xdlopsV2.getValue(), operation.getValue(), tensorDataType.getValue(),
           dilationHeight.getValue(), dilationWidth.getValue(),

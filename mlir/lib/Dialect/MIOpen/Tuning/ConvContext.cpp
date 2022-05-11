@@ -1,12 +1,12 @@
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 
-namespace mlir {
+using namespace mlir;
+using namespace mlir::miopen;
 
-namespace {
-
-void populateDimIndexAndSize(
-    const ArrayAttr &layoutAttr, const ArrayRef<int64_t> &dim,
-    llvm::StringMap<DimIndexAndSize> &dimIndexAndSize) {
+static void
+populateDimIndexAndSize(const ArrayAttr &layoutAttr,
+                        const ArrayRef<int64_t> &dim,
+                        llvm::StringMap<DimIndexAndSize> &dimIndexAndSize) {
   assert(layoutAttr.size() == dim.size());
   size_t dimValSize = layoutAttr.size();
   for (size_t i = 0; i < dimValSize; ++i) {
@@ -16,8 +16,8 @@ void populateDimIndexAndSize(
   }
 }
 
-void populateSeqVal(const ArrayAttr &seqAttr,
-                    llvm::SmallVector<int64_t, 0> &seqVal) {
+static void populateSeqVal(const ArrayAttr &seqAttr,
+                           llvm::SmallVector<int64_t, 0> &seqVal) {
   size_t seqValSize = seqAttr.size();
   for (size_t i = 0; i < seqValSize; ++i) {
     // Not nested array, push back the value and be done
@@ -36,10 +36,9 @@ void populateSeqVal(const ArrayAttr &seqAttr,
     }
   }
 }
-} // namespace
 
-ConvolutionContext populateConvContext(Operation *op) {
-  miopen::ConvOpType opType = miopen::obtainConvDirection(op);
+ConvolutionContext mlir::miopen::populateConvContext(Operation *op) {
+  ConvOpType opType = obtainConvDirection(op);
 
   auto archVal = op->template getAttrOfType<StringAttr>("arch").getValue();
   int numCuVal = op->template getAttrOfType<IntegerAttr>("num_cu").getInt();
@@ -82,10 +81,8 @@ ConvolutionContext populateConvContext(Operation *op) {
       op->getOperand(2).getType().template cast<MemRefType>().getShape(),
       dimIndexAndSize);
 
-  auto dataType = miopen::obtainConvDataType(op);
+  auto dataType = obtainConvDataType(op);
 
   return {archVal,     numCuVal,   opType, dimIndexAndSize, strideVal,
           dilationVal, paddingVal, gemmId, dataType};
 }
-
-} // namespace mlir
