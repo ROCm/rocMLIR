@@ -162,11 +162,14 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         SmallVector<uint32_t, 8> startDims;
         for (uint32_t i = 0, e = inpShape.size(); i < e; ++i) {
           startDims.push_back(i);
-          endDims.push_back(i + diff);
+          endDims.push_back(inpIdxMap.getDimPosition(i));
         }
         miopen::BottomUpTMBuilder transform(b, inpShape, loc);
         transform.passThrough(endDims, startDims);
-        for (uint32_t i = 0; i < diff; ++i) {
+        for (uint32_t i = 0; i < outShape.size(); ++i) {
+          auto it = llvm::find(endDims, i);
+          if (it != endDims.end())
+            continue;
           SmallString<8> name;
           ("exp" + Twine(i)).toVector(name);
           transform.addDim(name, i, 1);

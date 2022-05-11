@@ -24,6 +24,18 @@ using namespace mlir;
 
 namespace {
 
+static bool isBroadcastable(Operation *op, Operation *operand) {
+  // tosa only broadcast implicitly on the second input of the binary operators.
+  if (op->getNumOperands() != 2)
+    return false;
+  if (op->getOperand(1) != operand->getResult(0)) {
+    // swap, if possible
+    op->setOperand(0, op->getOperand(1));
+    op->setOperand(1, operand->getResult(0));
+  }
+  return true;
+}
+
 class ConvConverter final
     : public OpConversionPattern<migraphx::ConvolutionOp> {
 public:
@@ -122,7 +134,7 @@ public:
                         }));
 
     // Convert optional attributes
-    if (auto attr =  op->getAttrOfType<BoolAttr>("xdlopsV2"))
+    if (auto attr = op->getAttrOfType<BoolAttr>("xdlopsV2"))
       cop->setAttr("xdlopsV2", attr);
     if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
       cop->setAttr("perf_config", attr);
@@ -135,9 +147,134 @@ public:
   }
 };
 
+class BroadcastConverter final
+    : public OpConversionPattern<migraphx::BroadcastOp> {
+public:
+  using OpConversionPattern<migraphx::BroadcastOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::BroadcastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto operands = adaptor.getOperands();
+    Location loc = op->getLoc();
+    auto input_t = operands[0];
+    auto axis = op->getAttr("axis").cast<IntegerAttr>().getInt();
+
+    // get shape of the use
+    auto outShape = op->getResultTypes()[0].cast<ShapedType>().getShape();
+    auto outElemType =
+        op->getResultTypes()[0].cast<ShapedType>().getElementType();
+    uint32_t outRank = outShape.size();
+    auto inShape = input_t.getType().cast<ShapedType>().getShape();
+
+    Value newOperand = input_t;
+    if (outRank != inShape.size()) {
+      SmallVector<int64_t, 5> newShape;
+      SmallVector<Attribute, 5> newShapeAttr;
+
+      // align the dimensions - by the given axis
+      for (int i = 0; i < outRank; i++) {
+        newShapeAttr.push_back(rewriter.getI64IntegerAttr(1));
+        newShape.push_back(1);
+      }
+      newShapeAttr[axis] = rewriter.getI64IntegerAttr(inShape[0]);
+      newShape[axis] = inShape[0];
+
+      // reshape
+      auto outType = RankedTensorType::get(newShape, outElemType);
+      newOperand = rewriter.create<tosa::ReshapeOp>(
+          loc, outType, input_t, rewriter.getArrayAttr(newShapeAttr));
+    }
+
+    for (auto &use : op->getResult(0).getUses()) {
+      auto expandedOp = use.getOwner();
+      // isa binary operation,
+      if (isBroadcastable(expandedOp, op)) {
+        // replace the uses
+        for (auto &operand : expandedOp->getOpOperands()) {
+          if (operand.get() == op) {
+            operand.set(newOperand);
+            break;
+          }
+        }
+      } else {
+        return failure();
+      }
+    }
+    // erase broadcast
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class MultiBroadcastConverter final
+    : public OpConversionPattern<migraphx::MultiBroadcastOp> {
+public:
+  using OpConversionPattern<migraphx::MultiBroadcastOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::MultiBroadcastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto operands = adaptor.getOperands();
+    Location loc = op->getLoc();
+    auto input_t = operands[0];
+    auto inShape = input_t.getType().cast<ShapedType>().getShape();
+    uint32_t inRank = inShape.size();
+
+    for (auto &use : op->getResult(0).getUses()) {
+      auto expandedOp = use.getOwner();
+      // isa binary operation,
+      if (isBroadcastable(expandedOp, op)) {
+        // get shape of the use
+        auto outShape =
+            expandedOp->getResultTypes()[0].cast<ShapedType>().getShape();
+        auto outElemType =
+            expandedOp->getResultTypes()[0].cast<ShapedType>().getElementType();
+        uint32_t outRank = outShape.size();
+
+        Value newOperand = input_t;
+        if (outRank != inShape.size()) {
+          SmallVector<int64_t, 5> newShape;
+          SmallVector<Attribute, 5> newShapeAttr;
+
+          // align the dimensions - by the given in/out shape
+          int i = 0;
+          for (; i < outRank - inRank; i++) {
+            newShapeAttr.push_back(rewriter.getI64IntegerAttr(1));
+            newShape.push_back(1);
+          }
+          for (; i < outRank; i++) {
+            newShapeAttr.push_back(rewriter.getI64IntegerAttr(outShape[i]));
+            newShape.push_back(outShape[i]);
+          }
+
+          // reshape
+          auto outType = RankedTensorType::get(newShape, outElemType);
+          newOperand = rewriter.create<tosa::ReshapeOp>(
+              loc, outType, input_t, rewriter.getArrayAttr(newShapeAttr));
+        }
+
+        // replace the uses
+        for (auto &operand : expandedOp->getOpOperands()) {
+          if (operand.get() == op) {
+            operand.set(newOperand);
+            break;
+          }
+        }
+      } else {
+        return failure();
+      }
+    }
+    // erase broadcast
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 } // namespace
 
 void migraphx::populateMIGraphXToTosaConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
-  patterns.insert<ConvConverter>(context);
+  patterns.add<ConvConverter, BroadcastConverter, MultiBroadcastConverter>(
+      context);
 }
