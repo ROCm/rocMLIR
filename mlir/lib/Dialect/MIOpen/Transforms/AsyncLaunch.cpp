@@ -62,10 +62,11 @@ class MIOpenAsyncLaunchPass
     for (auto operand : op->getOperands()) {
       if (auto itoken = res2tokens.lookup(operand)) {
         createWaitOp(op, itoken);
+        currentTokens.erase(itoken);
       }
     }
     // Insert host synchronization before terminator or op with side effects.
-    if ((isTerminator(op) || hasSideEffects(op)) && currentTokens.size()) {
+    if (isTerminator(op) || hasSideEffects(op)) {
       for (auto token : currentTokens) {
         createWaitOp(op, token);
       }
@@ -82,6 +83,10 @@ class MIOpenAsyncLaunchPass
     // Find tokens related to inputs
     SmallVector<Value, 4> tokens;
     for (auto operand : op.getOperands()) {
+      // Disallow memrefs to avoid aliasing
+      if (operand.getType().isa<MemRefType>())
+        return op.emitOpError("unsupported MemRefTypes");
+
       if (auto itoken = res2tokens.lookup(operand)) {
         tokens.push_back(itoken);
 

@@ -109,11 +109,13 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
     if (reader && writer) {
       auto realMem = reader.getTarget();
 
-      mem.replaceAllUsesWith(realMem);
+      if (mem.getType() == realMem.getType()) {
+        mem.replaceAllUsesWith(realMem);
 
-      reader->erase();
+        reader->erase();
 
-      return success();
+        return success();
+      }
     }
 
     return fail;
