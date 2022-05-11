@@ -457,32 +457,39 @@ static void correctParameters() {
   int hi = inputHeight.getValue();
   int y = filterHeight.getValue();
   int in_left_pad_h = paddingHeightLeft.getValue();
+  int in_right_pad_h = paddingHeightRight.getValue();
   int conv_stride_h = strideHeight.getValue();
   int conv_dilation_h = dilationHeight.getValue();
-  int ho = getOutputDim(hi, y, in_left_pad_h, paddingHeightRight.getValue(),
-                        conv_stride_h, conv_dilation_h);
-  int hi_padded = 1 + (y - 1) * conv_dilation_h + (ho - 1) * conv_stride_h;
-  // we got correct output size via getOutputDim, before adjusting size
-  // we have original output size from user , but we need to check the padding
-  // size so we use output size to calculate original input size add pad size,
-  // hi_padded if hi_padded is equal to hi + in_left_pad_h , no adjusting but if
-  // not equal, need extra padding hi_padded - (hi + in_left_pad_h)
-  int in_right_pad_h =
-      hi_padded > (hi + in_left_pad_h) ? hi_padded - (hi + in_left_pad_h) : 0;
-  paddingHeightRight.setValue(in_right_pad_h);
+  int ho = getOutputDim(hi, y, in_left_pad_h, in_right_pad_h, conv_stride_h,
+                        conv_dilation_h);
+  int hi_minimum = 1 + (y - 1) * conv_dilation_h + (ho - 1) * conv_stride_h;
+  int hi_specified = hi + in_left_pad_h + in_right_pad_h;
+  // hi_minimum is the miminum number of input elements needed to correctly
+  // apply the filter in the h direction, which is a function of the stride and
+  // dilation parameters. If the specified input height is less than this value,
+  // add extra padding on the right to allow the convolution to execute
+  // successfully.
+  if (hi_minimum > hi_specified)
+    paddingHeightRight.setValue(in_right_pad_h + (hi_minimum - hi_specified));
 
   int wi = inputWidth.getValue();
   int x = filterWidth.getValue();
   int in_left_pad_w = paddingWidthLeft.getValue();
+  int in_right_pad_w = paddingWidthRight.getValue();
   int conv_stride_w = strideWidth.getValue();
   int conv_dilation_w = dilationWidth.getValue();
-  int wo = getOutputDim(wi, x, in_left_pad_w, paddingWidthRight.getValue(),
-                        conv_stride_w, conv_dilation_w);
+  int wo = getOutputDim(wi, x, in_left_pad_w, in_right_pad_w, conv_stride_w,
+                        conv_dilation_w);
 
-  int wi_padded = 1 + (x - 1) * conv_dilation_w + (wo - 1) * conv_stride_w;
-  int in_right_pad_w =
-      wi_padded > (wi + in_left_pad_w) ? wi_padded - (wi + in_left_pad_w) : 0;
-  paddingWidthRight.setValue(in_right_pad_w);
+  int wi_minimum = 1 + (x - 1) * conv_dilation_w + (wo - 1) * conv_stride_w;
+  int wi_specified = wi + in_left_pad_w + in_right_pad_w;
+  // wi_minimum is the miminum number of input elements needed to correctly
+  // apply the filter in the w direction, which is a function of the stride and
+  // dilation parameters. If the specified input height is less than this value,
+  // add extra padding on the right to allow the convolution to execute
+  // successfully.
+  if (wi_minimum > wi_specified)
+    paddingWidthRight.setValue(in_right_pad_w + (wi_minimum - wi_specified));
 }
 
 static void verifyLayout() {
