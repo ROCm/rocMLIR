@@ -4,6 +4,7 @@
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/Tuning/UtilityParams.h"
+#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Types.h"
@@ -12,6 +13,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 using namespace mlir;
+using namespace mlir::miopen;
 
 namespace {
 struct AffixTuningParameters : public MIOpenOpsAffixTuningParametersPassBase<AffixTuningParameters> {
@@ -39,8 +41,8 @@ private:
   // Actual implementation.
   template <typename T> void affixTuningParametersImpl(T &op);
 
-  void affixBackwardWeightUtilityKernels(miopen::Conv2DBwdWeightOp &op);
-  void affixBackwardDataUtilityKernels(miopen::Conv2DBwdDataOp &op);
+  void affixBackwardWeightUtilityKernels(Conv2DBwdWeightOp &op);
+  void affixBackwardDataUtilityKernels(Conv2DBwdDataOp &op);
 
   template <typename T>
   std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
@@ -52,12 +54,12 @@ private:
 void AffixTuningParameters::runOnOperation() {
   FuncOp func = getOperation();
 
-  func.walk([&](miopen::Conv2DOp op) { affixTuningParametersImpl(op); });
-  func.walk([&](miopen::Conv2DBwdDataOp op) {
+  func.walk([&](Conv2DOp op) { affixTuningParametersImpl(op); });
+  func.walk([&](Conv2DBwdDataOp op) {
     affixTuningParametersImpl(op);
     affixBackwardDataUtilityKernels(op);
   });
-  func.walk([&](miopen::Conv2DBwdWeightOp op) {
+  func.walk([&](Conv2DBwdWeightOp op) {
     affixTuningParametersImpl(op);
     affixBackwardWeightUtilityKernels(op);
   });
@@ -125,9 +127,7 @@ AffixTuningParameters::fetchDimensions(T &op) {
 }
 
 void AffixTuningParameters::affixBackwardDataUtilityKernels(
-    miopen::Conv2DBwdDataOp &op) {
-  using mlir::miopen::kUtilityKernelBlockSize;
-  using mlir::miopen::kUtilityKernelGridSize;
+    Conv2DBwdDataOp &op) {
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
 
   // In case the gemm ID is -1, override grid_size and block_size for the
@@ -147,8 +147,7 @@ void AffixTuningParameters::affixBackwardDataUtilityKernels(
 }
 
 void AffixTuningParameters::affixBackwardWeightUtilityKernels(
-    miopen::Conv2DBwdWeightOp &op) {
-  using namespace mlir::miopen;
+    Conv2DBwdWeightOp &op) {
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
   assert(gemmIdAttr);
   int64_t gemmId = gemmIdAttr.getInt();
@@ -256,8 +255,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("n_per_wave", b.getI32IntegerAttr(validParams.gemmNPerWave));
     op->setAttr("block_size", b.getI32IntegerAttr(blockSize));
 
-    miopen::ConvOpType dir = obtainConvDirection(op);
-    mlir::Type dataType = obtainConvDataType(op);
+    ConvOpType dir = obtainConvDirection(op);
+    Type dataType = obtainConvDataType(op);
 
     // Disable kpack in case we need padding kernel.
     std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
@@ -270,7 +269,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
     op->setAttr("kpack", b.getI32IntegerAttr(validParams.gemmKPack));
     // Set kblocks attribute only for backward weight convolutions.
-    if (dir == miopen::ConvOpType::BwdWeight) {
+    if (dir == ConvOpType::BwdWeight) {
       op->setAttr("kblocks", b.getI32IntegerAttr(gemmKBlocks));
     }
 

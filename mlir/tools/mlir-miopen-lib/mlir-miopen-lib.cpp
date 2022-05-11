@@ -85,7 +85,7 @@ void miirLazyInit() {
   });
 }
 
-LogicalResult MIOpenEnabled(const Conv2dGenerator::Config& conf) {
+LogicalResult MIOpenEnabled(const mlir::miopen::Conv2dGenerator::Config &conf) {
   const std::string& inLayout = conf.inputLayout;
   const std::string& filLayout = conf.filterLayout;
   const std::string& outLayout = conf.outputLayout;
@@ -108,7 +108,7 @@ static std::mutex mutex;
 extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   const std::lock_guard<std::mutex> lock(mutex);
 
-  Conv2dGenerator conv2dGenerator;
+  mlir::miopen::Conv2dGenerator conv2dGenerator;
   if (failed(conv2dGenerator.parseConvConfig(arguments))) {
     return nullptr;
   }

@@ -21,7 +21,7 @@
 #include "llvm/ADT/StringMap.h"
 
 namespace mlir {
-
+namespace miopen {
 struct DimIndexAndSize {
   size_t index;
   int64_t size;
@@ -30,21 +30,20 @@ struct DimIndexAndSize {
 struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   llvm::SmallString<8> arch;
   int num_cu;
-  miopen::ConvOpType opType;
+  ConvOpType opType;
   llvm::StringMap<DimIndexAndSize> dimIndexAndSize;
   llvm::SmallVector<int64_t, 0> strideVal;
   llvm::SmallVector<int64_t, 0> dilationVal;
   llvm::SmallVector<int64_t, 0> paddingVal;
   int gemmId;
-  mlir::Type dataType;
+  Type dataType;
 
   ConvolutionContext(const llvm::SmallString<8> &architecture, int numCu,
-                     miopen::ConvOpType op,
-                     llvm::StringMap<DimIndexAndSize> dim,
+                     ConvOpType op, llvm::StringMap<DimIndexAndSize> dim,
                      llvm::SmallVector<int64_t, 0> stride,
                      llvm::SmallVector<int64_t, 0> dilation,
                      llvm::SmallVector<int64_t, 0> padding, int gemmid,
-                     mlir::Type type)
+                     Type type)
       : arch(architecture), num_cu(numCu), opType(op), dimIndexAndSize(dim),
         strideVal(stride), dilationVal(dilation), paddingVal(padding),
         gemmId(gemmid), dataType(type) {}
@@ -55,8 +54,8 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   llvm::SmallVector<int64_t, 0> getPaddingVal() const { return paddingVal; }
   llvm::SmallVector<int64_t, 0> getStrideVal() const { return strideVal; }
   llvm::SmallVector<int64_t, 0> getDilationVal() const { return dilationVal; }
-  miopen::ConvOpType getOpType() const { return opType; }
-  mlir::Type getDataType() const { return dataType; }
+  ConvOpType getOpType() const { return opType; }
+  Type getDataType() const { return dataType; }
 
   static std::string tableName() { return "config"; }
 
@@ -89,7 +88,7 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
     // TODO use dimIndexAndSize to generate layout
     f("'" + std::string("NCHW") + "'", "layout");
 
-    mlir::Type dataType = self.getDataType();
+    Type dataType = self.getDataType();
     if (dataType.isF32()) {
       f("'" + std::string("FP32") + "'", "data_type");
     } else if (dataType.isF16()) {
@@ -99,13 +98,13 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
     }
 
     switch (self.getOpType()) {
-    case miopen::ConvOpType::Fwd:
+    case ConvOpType::Fwd:
       f("'F'", "direction");
       break;
-    case miopen::ConvOpType::BwdData:
+    case ConvOpType::BwdData:
       f("'B'", "direction");
       break;
-    case miopen::ConvOpType::BwdWeight:
+    case ConvOpType::BwdWeight:
       f("'W'", "direction");
       break;
     }
@@ -116,5 +115,6 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
 // TODO(whchung): adopt ConvolutionOp OpTrait check after supporting PR is in.
 ConvolutionContext populateConvContext(Operation *op);
 
+} // namespace miopen
 } // namespace mlir
 #endif // MLIR_DIALECT_MIOPEN_CONVCONTEXT_H

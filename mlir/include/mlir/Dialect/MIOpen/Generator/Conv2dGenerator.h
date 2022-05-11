@@ -22,6 +22,7 @@
 #include "llvm/ADT/StringRef.h"
 
 namespace mlir {
+namespace miopen {
 
 class Conv2dGenerator {
 public:
@@ -149,5 +150,6 @@ private:
   FuncOp kernelFunc;
 };
 
+} // namespace miopen
 } // namespace mlir
 #endif // MLIR_DIALECT_MIOPEN_CONV2DGENERATOR_H_

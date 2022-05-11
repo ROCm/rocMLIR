@@ -2,6 +2,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/Dialect/MIOpen/utility/math.h"
 #include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 #include "mlir/IR/Attributes.h"
@@ -25,11 +26,12 @@
 #include <numeric>
 
 using namespace mlir;
+using namespace mlir::miopen;
 
 Conv2dGenerator::Conv2dGenerator(
     const std::string &chip, const std::string &triple,
     const std::string &features, const std::string &perfConfig, int num_cu,
-    bool xdlops, const Optional<miopen::ConvOpType> operation,
+    bool xdlops, const Optional<ConvOpType> operation,
     const std::string &dataTypeStr, int dilationHeight, int dilationWidth,
     int strideHeight, int strideWidth, int paddingHeightLeft,
     int paddingHeightRight, int paddingWidthLeft, int paddingWidthRight,
@@ -65,10 +67,8 @@ Conv2dGenerator::Conv2dGenerator(
 Conv2dGenerator::Conv2dGenerator(const Conv2dGenerator::Config &_config)
     : config(_config) {}
 
-namespace {
-
-void strToTokens(const std::string &arguments,
-                 std::map<std::string, std::string> &argMap) {
+static void strToTokens(const std::string &arguments,
+                        std::map<std::string, std::string> &argMap) {
   std::istringstream iss(arguments);
   std::string token;
   std::string argKey;
@@ -85,8 +85,8 @@ void strToTokens(const std::string &arguments,
   }
 }
 
-llvm::StringMap<int64_t> canonicalizeDims(const ArrayRef<int64_t> dims,
-                                          const StringRef layout) {
+static llvm::StringMap<int64_t> canonicalizeDims(const ArrayRef<int64_t> dims,
+                                                 const StringRef layout) {
   llvm::StringMap<int64_t> ret;
   for (const auto &tuple : llvm::zip(layout, dims)) {
     StringRef key(&std::get<0>(tuple), 1);
@@ -95,9 +95,9 @@ llvm::StringMap<int64_t> canonicalizeDims(const ArrayRef<int64_t> dims,
   return ret;
 }
 
-LogicalResult hasDimensions(const llvm::StringMap<int64_t> &map,
-                            const StringRef wantedLayout,
-                            const StringRef operation) {
+static LogicalResult hasDimensions(const llvm::StringMap<int64_t> &map,
+                                   const StringRef wantedLayout,
+                                   const StringRef operation) {
   for (size_t i = 0; i < wantedLayout.size(); ++i) {
     auto key = wantedLayout.slice(i, i + 1);
     if (map.count(key) == 0) {
@@ -109,8 +109,8 @@ LogicalResult hasDimensions(const llvm::StringMap<int64_t> &map,
   return success();
 }
 
-LogicalResult smallEnough(const ArrayRef<int64_t> dims, size_t elemWidth,
-                          StringRef name) {
+static LogicalResult smallEnough(const ArrayRef<int64_t> dims, size_t elemWidth,
+                                 StringRef name) {
   int64_t size = std::accumulate(dims.begin(), dims.end(), 1LL,
                                  std::multiplies<int64_t>()) *
                  elemWidth;
@@ -120,7 +120,6 @@ LogicalResult smallEnough(const ArrayRef<int64_t> dims, size_t elemWidth,
   }
   return success();
 }
-} // namespace
 
 LogicalResult Conv2dGenerator::isApplicable() const {
   if (failed(hasValidDimension())) {
@@ -271,21 +270,21 @@ int Conv2dGenerator::getKernelCount(OpBuilder &builder) const {
   }
   assert(config.operation.hasValue());
   switch (config.operation.getValue()) {
-  case miopen::ConvOpType::BwdData:
+  case ConvOpType::BwdData:
     return getBwdDataKernelCount();
-  case miopen::ConvOpType::Fwd:
+  case ConvOpType::Fwd:
     return 1;
-  case miopen::ConvOpType::BwdWeight:
+  case ConvOpType::BwdWeight:
     return getBwdWeightKernelCount(builder);
   }
   llvm_unreachable("Invalid conv2d operation");
 }
 
 int Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder) const {
-  assert(config.operation.getValue() == miopen::ConvOpType::BwdWeight);
+  assert(config.operation.getValue() == ConvOpType::BwdWeight);
 
   if (config.xdlops) {
-    mlir::Type dataType = getDataType(builder);
+    Type dataType = getDataType(builder);
     if (!needExtraPad(builder)) {
       if (dataType == builder.getF32Type()) {
         // For the following case, use 2 kernels:
@@ -316,14 +315,14 @@ int Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder) const {
 }
 
 int Conv2dGenerator::getBwdDataKernelCount() const {
-  llvm::SmallVector<int64_t> gemmIds = miopen::populateBackwardDataGemmIds(
+  llvm::SmallVector<int64_t> gemmIds = populateBackwardDataGemmIds(
       config.strideHeight, config.strideWidth, config.dilationHeight,
       config.dilationWidth, config.filterHeight, config.filterWidth);
   return static_cast<int>(gemmIds.size());
 }
 
 Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
-  mlir::Type dataType;
+  Type dataType;
   if (config.dataTypeStr == "f32" || config.dataTypeStr == "fp32") {
     dataType = builder.getF32Type();
   } else if (config.dataTypeStr == "f16" || config.dataTypeStr == "fp16") {
@@ -337,8 +336,8 @@ Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
 }
 
 bool Conv2dGenerator::needExtraPad(OpBuilder &builder) const {
-  mlir::Type dataType = getDataType(builder);
-  miopen::ConvOpType dir = config.operation.getValue();
+  Type dataType = getDataType(builder);
+  ConvOpType dir = config.operation.getValue();
 
   // Logic to check if we need to pad along GemmM/N/K dimension for backward
   // weight convolution.
@@ -385,9 +384,9 @@ bool Conv2dGenerator::hasWorkspace(OpBuilder &builder) const {
   bool result = false;
 
   if (config.operation.hasValue()) {
-    mlir::Type dataType = getDataType(builder);
-    miopen::ConvOpType dir = config.operation.getValue();
-    if ((dir == miopen::ConvOpType::BwdWeight) && config.xdlops &&
+    Type dataType = getDataType(builder);
+    ConvOpType dir = config.operation.getValue();
+    if ((dir == ConvOpType::BwdWeight) && config.xdlops &&
         (dataType == builder.getF16Type())) {
       // In case we need extra padding, do not use workspace.
       result = (needExtraPad(builder) == false);
@@ -482,7 +481,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   strToInt("x2", config.xdlops);
 
   // conv settings
-  auto const op = miopen::getConvOpTypeForName(argMap["operation"]);
+  auto const op = getConvOpTypeForName(argMap["operation"]);
   if (!op.hasValue()) {
     return failure();
   }
@@ -510,7 +509,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   strToStr("kernel_name", config.kernelBaseName);
 
   // Allow only fwd direction for int8. Reject other directions.
-  if (config.operation.getValue() != miopen::ConvOpType::Fwd &&
+  if (config.operation.getValue() != ConvOpType::Fwd &&
       config.dataTypeStr == "i8") {
     return failure();
   }
@@ -594,7 +593,7 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
     assert(config.operation.hasValue());
     auto opType = config.operation.getValue();
     config.kernelBaseName = std::string("miopen_") +
-                            miopen::getNameForConvOpType(opType).str() + "_" +
+                            getNameForConvOpType(opType).str() + "_" +
                             config.filterLayout + "_" + config.inputLayout +
                             "_" + config.outputLayout;
   }
@@ -709,8 +708,8 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
   int64_t gemmId = kernel_id;
 
   // Obtain gemm ID from kernel_id for backward data convolution.
-  if (config.operation.getValue() == miopen::ConvOpType::BwdData) {
-    llvm::SmallVector<int64_t> gemmIds = miopen::populateBackwardDataGemmIds(
+  if (config.operation.getValue() == ConvOpType::BwdData) {
+    llvm::SmallVector<int64_t> gemmIds = populateBackwardDataGemmIds(
         config.strideHeight, config.strideWidth, config.dilationHeight,
         config.dilationWidth, config.filterHeight, config.filterWidth);
     assert(gemmIds.size() > static_cast<size_t>(kernel_id));
@@ -724,15 +723,15 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
 
       builder.getNamedAttr(
           "filter_layout",
-          builder.getArrayAttr(ArrayRef<mlir::Attribute>(
-              filterLayoutSpec.begin(), filterLayoutSpec.end()))),
+          builder.getArrayAttr(ArrayRef<Attribute>(filterLayoutSpec.begin(),
+                                                   filterLayoutSpec.end()))),
       builder.getNamedAttr(
-          "input_layout", builder.getArrayAttr(ArrayRef<mlir::Attribute>(
+          "input_layout", builder.getArrayAttr(ArrayRef<Attribute>(
                               inputLayoutSpec.begin(), inputLayoutSpec.end()))),
       builder.getNamedAttr(
           "output_layout",
-          builder.getArrayAttr(ArrayRef<mlir::Attribute>(
-              outputLayoutSpec.begin(), outputLayoutSpec.end()))),
+          builder.getArrayAttr(ArrayRef<Attribute>(outputLayoutSpec.begin(),
+                                                   outputLayoutSpec.end()))),
 
       builder.getNamedAttr("dilations",
                            builder.getArrayAttr({
@@ -772,19 +771,19 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
             func.getArgument(3)};
   }
   switch (config.operation.getValue()) {
-  case miopen::ConvOpType::Fwd: {
-    auto convOp = builder.create<miopen::Conv2DOp>(
-        builder.getUnknownLoc(), ArrayRef<mlir::Type>{}, args, attributes);
+  case ConvOpType::Fwd: {
+    auto convOp = builder.create<Conv2DOp>(builder.getUnknownLoc(),
+                                           ArrayRef<Type>{}, args, attributes);
     block->push_front(convOp);
   } break;
-  case miopen::ConvOpType::BwdData: {
-    auto convOp = builder.create<miopen::Conv2DBwdDataOp>(
-        builder.getUnknownLoc(), ArrayRef<mlir::Type>{}, args, attributes);
+  case ConvOpType::BwdData: {
+    auto convOp = builder.create<Conv2DBwdDataOp>(
+        builder.getUnknownLoc(), ArrayRef<Type>{}, args, attributes);
     block->push_front(convOp);
   } break;
-  case miopen::ConvOpType::BwdWeight: {
-    auto convOp = builder.create<miopen::Conv2DBwdWeightOp>(
-        builder.getUnknownLoc(), ArrayRef<mlir::Type>{}, args, attributes);
+  case ConvOpType::BwdWeight: {
+    auto convOp = builder.create<Conv2DBwdWeightOp>(
+        builder.getUnknownLoc(), ArrayRef<Type>{}, args, attributes);
     block->push_back(convOp);
   } break;
   }
