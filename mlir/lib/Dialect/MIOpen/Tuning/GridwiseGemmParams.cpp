@@ -856,19 +856,6 @@ PopulateParamsXDL::initParametersForwardI8[
   {16, 16, 32, 16, 16, 1, false, false},
   {16, 16, 16, 16, 16, 1, false, false},
 };
-
-const InitParamsXDL
-PopulateParamsXDL::initParametersBwdWeightF32[
-    PopulateParamsXDL::nInitParametersBwdWeightF32] = {
-  // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-  {128, 128, 8, 64, 64, 1, false, false},
-  {128, 128, 16, 64, 64, 1, false, false},
-  {8, 64, 8, 8, 64, 1, false, false},
-  {4, 64, 16, 4, 64, 1, false, false},
-  {32, 64, 4, 32, 64, 1, false, false},
-  {16, 16, 16, 16, 16, 1, false, false},
-  {16, 16, 4, 16, 16, 1, false, false} ,
-};
 // clang-format on
 
 const InitParams PopulateParamsXDL::universalParameters = {32, 64, 4};
@@ -1309,14 +1296,6 @@ ArrayRef<InitParamsXDL>
 PopulateParamsXDL::getTuningParameters(ConvOpType dir, Type dataType) const {
   if (dataType.isInteger(8)) {
     return {initParametersForwardI8, nInitParametersForwardI8};
-  }
-
-  // XXX FIXME: Temporarily use another vector of heuristic tuning
-  // parameters to get around the issue that when KPACK=4, fp32 backward
-  // weight kernels would fail intermittently.
-  // TODO(whchung): Get to the bottom of this.
-  if ((dir == miopen::ConvOpType::BwdWeight) && dataType.isF32()) {
-    return {initParametersBwdWeightF32, nInitParametersBwdWeightF32};
   }
 
   return {initParameters, nInitParameters};
