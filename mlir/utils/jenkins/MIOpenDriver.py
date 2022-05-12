@@ -28,7 +28,7 @@ BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
 CONFIGURATION_FILE_NAME ='../mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs'
 
 DIRECTIONS = ['-F 1', '-F 2', '-F 4']
-DATA_TYPES = ['conv', 'convfp16']
+DATA_TYPES = ['conv', 'convfp16', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 
 # utility functions.
@@ -39,16 +39,16 @@ def getConfigurations(fileName):
     # All combinations of conv direction, type and layouts
     for direction, datatype, layout, line in itertools.product(DIRECTIONS, DATA_TYPES, LAYOUTS, lines):
         line = line.strip()
-        if len(line) > 0 and line[0] != '#':
-            oneConfig = f"{datatype} {direction} -f {layout } -I {layout} -O {layout} {line}"
-            configs.append(oneConfig)
-    # int8 convolution for fwd direction
-    for layout, line in itertools.product(LAYOUTS, lines):
-        line = line.strip()
-        if len(line) > 0 and line[0] != '#':
-            oneConfig = f"convint8 -F 1 -f {layout} -I {layout} -O {layout} {line}"
-            configs.append(oneConfig)
 
+        # Skip empty lines
+        if len(line) == 0 or line[0] == '#':
+            continue
+        # Skip int8 non-fwd convolutions
+        if datatype == 'convint8' and direction != '-F 1':
+            continue
+
+        oneConfig = f"{datatype} {direction} -f {layout} -I {layout} -O {layout} {line}"
+        configs.append(oneConfig)
     return configs
 
 def getNanoSeconds(fileName):
