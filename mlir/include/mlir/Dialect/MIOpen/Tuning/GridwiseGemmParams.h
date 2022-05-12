@@ -202,8 +202,6 @@ private:
   // Tuning parameters for i8 convolutions.
   static const InitParamsXDL initParametersForwardI8[nInitParametersForwardI8];
 
-  static constexpr size_t nInitParametersBwdWeightF32 = 7;
-
   static constexpr int64_t waveSize = 64;
 
   // if can't select config from above , use this config to do
