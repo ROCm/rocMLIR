@@ -5,9 +5,16 @@ set(LLVM_LINK_COMPONENTS
 get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 
+if(MLIR_INCLUDE_TESTS)
+  set(test_libs
+    MLIRTestDialect
+    )
+endif()
+
 set(LIBS
   ${dialect_libs}
   ${conversion_libs}
+  ${test_libs}
   LLVMAMDGPUAsmParser
   LLVMX86AsmParser
   LLVMROCmBackendUtils
@@ -22,7 +29,6 @@ set(LIBS
   MLIRTransforms
   MLIRSupport
   MLIRIR
-  MLIRTestDialect
   MLIRMIOpenThin
   )
 
@@ -43,7 +49,7 @@ mlir_check_link_libraries(mlir-miopen-driver)
 # Performance test scripts
 # Defined here since mlir/utils/ isn't in Jenkins
 file(GLOB PERFORMANCE_SCRIPTS
-  "${CMAKE_CURRENT_SOURCE_DIR}/../../utils/jenkins/*.py" 
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../utils/jenkins/*.py"
 )
 
 add_custom_target(ci-performance-scripts
