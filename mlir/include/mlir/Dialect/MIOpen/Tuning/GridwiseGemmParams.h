@@ -202,14 +202,6 @@ private:
   // Tuning parameters for i8 convolutions.
   static const InitParamsXDL initParametersForwardI8[nInitParametersForwardI8];
 
-  static constexpr size_t nInitParametersBwdWeightF32 = 7;
-  // XXX FIXME: Initial tuning parameters for fp32 backward weight convolution.
-  // Deliberately avoid KPACK=4 for fp32 backward weight convolution. It has
-  // been verified some configs would cause intermittent failures.
-  // TODO(whchung): Get to the bottom of this.
-  static const InitParamsXDL
-      initParametersBwdWeightF32[nInitParametersBwdWeightF32];
-
   static constexpr int64_t waveSize = 64;
 
   // if can't select config from above , use this config to do
