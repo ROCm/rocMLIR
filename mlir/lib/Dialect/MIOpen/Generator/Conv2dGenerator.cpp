@@ -353,10 +353,8 @@ bool Conv2dGenerator::needExtraPad(OpBuilder &builder) const {
   // gemmM/N/KExtra is not used.
   // populateParamsXDL is not used either.
   // Only needExtraPad is used.
-  bool isOriginalKernelSupport = true;
   bool needExtraPad = false;
   int64_t gemmMExtra, gemmNExtra, gemmKExtra;
-
   if (!config.xdlops) {
     PopulateParams populateParams;
     std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
