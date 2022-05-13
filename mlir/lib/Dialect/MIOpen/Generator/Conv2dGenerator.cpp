@@ -350,7 +350,6 @@ bool Conv2dGenerator::needExtraPad(OpBuilder &builder) const {
   gemmKSize = outDim["n"] * outDim["h"] * outDim["w"];
   gemmNSize = filDim["c"] * filDim["y"] * filDim["x"];
 
-  // isOriginalKernelSupport is not used.
   // gemmM/N/KExtra is not used.
   // populateParamsXDL is not used either.
   // Only needExtraPad is used.
@@ -360,14 +359,12 @@ bool Conv2dGenerator::needExtraPad(OpBuilder &builder) const {
 
   if (!config.xdlops) {
     PopulateParams populateParams;
-    std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
-             gemmKExtra) =
+    std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
         calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, dir,
                                    dataType, populateParams);
   } else {
     PopulateParamsXDL populateParamsXDL;
-    std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
-             gemmKExtra) =
+    std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
         calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, dir,
                                    dataType, populateParamsXDL);
   }

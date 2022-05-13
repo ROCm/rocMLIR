@@ -168,13 +168,9 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
     int64_t gemmMExtra, gemmNExtra, gemmKExtra;
     gemmMExtra = gemmNExtra = gemmKExtra = 0;
 
-    // isOriginalKernelSupport is not used.
-    // Only needExtraPad is used.
-    bool isOriginalKernelSupport = true;
     bool needExtraPad = false;
     PopulateParamsXDL populateParamsXDL;
-    std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
-             gemmKExtra) =
+    std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
         calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
                                    obtainConvDirection(op),
                                    obtainConvDataType(op), populateParamsXDL);
@@ -222,9 +218,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
   int64_t gemmMExtra, gemmNExtra, gemmKExtra;
   gemmMExtra = gemmNExtra = gemmKExtra = 0;
 
-  // isOriginalKernelSupport is not used.
   // Only needExtraPad is used.
-  bool isOriginalKernelSupport = true;
   bool needExtraPad = false;
 
   std::string perfConfig;
@@ -259,8 +253,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     Type dataType = obtainConvDataType(op);
 
     // Disable kpack in case we need padding kernel.
-    std::tie(isOriginalKernelSupport, needExtraPad, gemmMExtra, gemmNExtra,
-             gemmKExtra) =
+    std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
         calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, dir,
                                    dataType, populateParamsXDL);
     if (needExtraPad) {
