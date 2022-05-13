@@ -932,6 +932,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
 
       TransformMapAttr padTransformAttr = padTransform.get();
       // Replace output gemm with padded version
+      gemmOutputTransformAttr = padTransformAttr;
       gemmOutput = b.create<TransformOp>(loc, gemmOutput, padTransformAttr);
     }
 
