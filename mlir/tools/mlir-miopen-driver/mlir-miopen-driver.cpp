@@ -57,11 +57,12 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
                                            cl::value_desc("filename"),
                                            cl::init("-"));
 
-static cl::opt<std::string> kernelPipeline(
-    "kernel-pipeline", cl::desc("mlir-miopen-driver kernel pipeline list"),
-    cl::value_desc("comma separated list of miopen pipelines: "
-                   "tuning,applicability,gpu,rocdl,binary or full"),
-    cl::init(""));
+static cl::opt<std::string>
+    kernelPipeline("kernel-pipeline",
+                   cl::desc("mlir-miopen-driver kernel pipeline list"),
+                   cl::value_desc("comma separated list of miopen pipelines: "
+                                  "applicability,gpu,rocdl,binary or full"),
+                   cl::init(""));
 
 static cl::opt<std::string>
     hostPipeline("host-pipeline",
@@ -134,8 +135,8 @@ parsePipeline(StringRef pipeline, llvm::SmallDenseSet<StringRef> &pipelineSet,
 
 static LogicalResult runMLIRPasses(ModuleOp &module,
                                    mlir::PassPipelineCLParser &passPipeline) {
-  llvm::SmallDenseSet<StringRef> kernelPipelineOptions{
-      "tuning", "applicability", "gpu", "rocdl", "binary"};
+  llvm::SmallDenseSet<StringRef> kernelPipelineOptions{"applicability", "gpu",
+                                                       "rocdl", "binary"};
   llvm::SmallDenseSet<StringRef> kernelFullPipeline{"gpu", "binary"};
   llvm::SmallDenseSet<StringRef> kernelPipelineSet;
   if (failed(parsePipeline(kernelPipeline.getValue(), kernelPipelineSet,
@@ -193,20 +194,13 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
         return failure();
       }
     }
-    if ((kernelPipelineSet.contains("tuning") ||
-         kernelPipelineSet.contains("applicability")) &&
+    if (kernelPipelineSet.contains("applicability") &&
         kernelPipelineSet.size() != 1) {
-      llvm::errs() << "The `tuning` and `applicability` pipelines cannot be "
-                      "combined with any other pipeline options.\n";
+      llvm::errs() << "The `applicability` pipeline cannot be combined with "
+                      "any other pipeline options.\n";
       return failure();
     }
 
-    if (kernelPipelineSet.contains("tuning")) {
-      // Set up the default lowering pipeline which goes down to affix tuning
-      // parameters
-      pm.addPass(
-          mlir::miopen::createAffixTuningParametersPass(blockSize, gridSize));
-    }
     if (kernelPipelineSet.contains("applicability")) {
       miopen::addPipeline(pm, /*applicability=*/true);
     }
