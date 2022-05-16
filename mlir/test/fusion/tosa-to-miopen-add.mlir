@@ -1,4 +1,4 @@
-// RUN: mlir-miopen-driver -host-pipeline highlevel -kernel-pipeline rocdl %s -o -| FileCheck %s
+// RUN: mlir-miopen-driver -host-pipeline highlevel -kernel-pipeline=gpu,rocdl %s -o -| FileCheck %s
 
 // CHECK-LABEL: test_fusion
 

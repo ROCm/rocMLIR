@@ -1,4 +1,4 @@
-// RUN: mlir-miopen-driver -host-pipeline highlevel -kernel-pipeline rocdl %s | FileCheck %s
+// RUN: mlir-miopen-driver -host-pipeline highlevel -kernel-pipeline=gpu,rocdl %s | FileCheck %s
 
 module {
 // CHECK: llvm.func @test_fusion
