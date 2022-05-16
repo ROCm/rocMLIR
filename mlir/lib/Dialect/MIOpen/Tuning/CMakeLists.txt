@@ -1,5 +1,6 @@
 add_mlir_dialect_library(MLIRMIOpenTuning
   ConvContext.cpp
+  GemmContext.cpp
   SqliteDb.cpp
   GridwiseGemmParams.cpp
 

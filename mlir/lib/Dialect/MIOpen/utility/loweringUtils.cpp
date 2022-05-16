@@ -7,19 +7,21 @@
 //===-----------------------------------------------------===//
 
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
+
 #include "mlir/Dialect/MIOpen/MIOpen.h"
+#include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/DenseSet.h"
 
 using namespace mlir;
 using namespace mlir::miopen;
 
-namespace {
 using IntSet = llvm::SmallDenseSet<uint32_t>;
 
-void propagateTransformOob(TransformMapAttr transformMap,
-                           const IntSet &upperLeft, const IntSet &upperRight,
-                           IntSet &lowerLeft, IntSet &lowerRight) {
+static void propagateTransformOob(TransformMapAttr transformMap,
+                                  const IntSet &upperLeft,
+                                  const IntSet &upperRight, IntSet &lowerLeft,
+                                  IntSet &lowerRight) {
   for (TransformAttr transform : transformMap.getOps()) {
     ArrayRef<uint32_t> upperDims = transform.getUpperDims();
     ArrayRef<uint32_t> lowerDims = transform.getLowerDims();
@@ -136,10 +138,48 @@ void propagateTransformOob(TransformMapAttr transformMap,
     }
   }
 }
-} // end anonymous namespace
 
 namespace mlir {
 namespace miopen {
+LogicalResult calculateKBlockNum(ConvolutionDims convDims, int64_t MPerBlock,
+                                 int64_t NPerBlock, int64_t KPerBlock,
+                                 int64_t KPack, int64_t num_cu,
+                                 int64_t &nKBlock) {
+  const int64_t gemmM = convDims.k;
+  const int64_t gemmN = convDims.c * convDims.y * convDims.x;
+  const int64_t gemmK = convDims.n * convDims.ho * convDims.wo;
+
+  int64_t gemmKBlock = 1;
+
+  if ((gemmM % MPerBlock != 0) || (gemmN % NPerBlock != 0) ||
+      (gemmK % (KPerBlock * KPack) != 0))
+    return failure();
+
+  const int64_t gridSize =
+      convDims.g * (gemmM / MPerBlock) * (gemmN / NPerBlock);
+  const int64_t maxGridSize = 20 * num_cu;
+
+  gemmKBlock = std::max(maxGridSize / gridSize, static_cast<int64_t>(1));
+  gemmKBlock = std::min(gemmKBlock, convDims.n);
+
+  for (; gemmKBlock > 1; --gemmKBlock) {
+    if (convDims.n % gemmKBlock != 0)
+      continue;
+
+    if (gemmK % (gemmKBlock * KPerBlock * KPack) != 0)
+      continue;
+
+    break;
+  }
+  // not more than n
+  gemmKBlock = std::min(convDims.n, gemmKBlock);
+  // not less than 1
+  gemmKBlock = std::max((__int64_t)1, gemmKBlock);
+
+  nKBlock = gemmKBlock;
+  return success();
+}
+
 std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
                                          ArrayAttr existing) {
   SmallVector<Attribute> transformList;

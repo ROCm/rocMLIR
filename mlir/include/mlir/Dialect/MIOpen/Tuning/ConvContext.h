@@ -19,6 +19,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
+#include <iterator>
 
 namespace mlir {
 namespace miopen {
@@ -27,33 +28,57 @@ struct DimIndexAndSize {
   int64_t size;
 };
 
+struct ConvolutionDims {
+  int64_t y;
+  int64_t x;
+  int64_t ho;
+  int64_t wo;
+  int64_t hi;
+  int64_t wi;
+  int64_t k;
+  int64_t c;
+  int64_t n;
+  int64_t g;
+
+  ConvolutionDims(int64_t y, int64_t x, int64_t ho, int64_t wo, int64_t hi,
+                  int64_t wi, int64_t k, int64_t c, int64_t n, int64_t g)
+      : y(y), x(x), ho(ho), wo(wo), hi(hi), wi(wi), k(k), c(c), n(n), g(g) {}
+};
+
 struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   llvm::SmallString<8> arch;
   int num_cu;
   ConvOpType opType;
   llvm::StringMap<DimIndexAndSize> dimIndexAndSize;
-  llvm::SmallVector<int64_t, 0> strideVal;
-  llvm::SmallVector<int64_t, 0> dilationVal;
-  llvm::SmallVector<int64_t, 0> paddingVal;
+  llvm::SmallVector<int64_t, 2> strideVal;
+  llvm::SmallVector<int64_t, 2> dilationVal;
+  llvm::SmallVector<int64_t, 4> paddingVal;
   int gemmId;
   Type dataType;
 
   ConvolutionContext(const llvm::SmallString<8> &architecture, int numCu,
                      ConvOpType op, llvm::StringMap<DimIndexAndSize> dim,
-                     llvm::SmallVector<int64_t, 0> stride,
-                     llvm::SmallVector<int64_t, 0> dilation,
-                     llvm::SmallVector<int64_t, 0> padding, int gemmid,
-                     Type type)
+                     ArrayRef<int64_t> stride, ArrayRef<int64_t> dilation,
+                     ArrayRef<int64_t> padding, int gemmid, Type type)
       : arch(architecture), num_cu(numCu), opType(op), dimIndexAndSize(dim),
-        strideVal(stride), dilationVal(dilation), paddingVal(padding),
-        gemmId(gemmid), dataType(type) {}
+        strideVal(), dilationVal(), paddingVal(), gemmId(gemmid),
+        dataType(type) {
+    strideVal.reserve(stride.size());
+    llvm::copy(stride, std::back_inserter(strideVal));
+    dilationVal.reserve(dilation.size());
+    llvm::copy(dilation, std::back_inserter(dilationVal));
+    paddingVal.reserve(padding.size());
+    llvm::copy(padding, std::back_inserter(paddingVal));
+  }
 
   llvm::StringMap<DimIndexAndSize> getDimIndexAndSize() const {
     return dimIndexAndSize;
   }
-  llvm::SmallVector<int64_t, 0> getPaddingVal() const { return paddingVal; }
-  llvm::SmallVector<int64_t, 0> getStrideVal() const { return strideVal; }
-  llvm::SmallVector<int64_t, 0> getDilationVal() const { return dilationVal; }
+  ConvolutionDims getConvDims();
+
+  ArrayRef<int64_t> getPaddingVal() const { return paddingVal; }
+  ArrayRef<int64_t> getStrideVal() const { return strideVal; }
+  ArrayRef<int64_t> getDilationVal() const { return dilationVal; }
   ConvOpType getOpType() const { return opType; }
   Type getDataType() const { return dataType; }
 
