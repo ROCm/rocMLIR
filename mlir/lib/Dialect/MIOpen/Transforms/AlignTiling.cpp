@@ -183,6 +183,9 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         inpShape = inpType.getShape();
       } else {
         inpIdxMap.isMinorIdentityWithBroadcasting(&bcastDims);
+        // Check if it's transposed.
+        if(bcastDims.size() == 0)
+          return inp;
       }
 
       // 1. insert a broadcast miopen.transform
