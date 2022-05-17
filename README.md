@@ -13,7 +13,6 @@ take a look at the
 The MIOpen Dialect will move to a complementary project with LLVM 
 as a sub-module.
 
-
 ## Getting Started with the LLVM System
 
 Taken from https://llvm.org/docs/GettingStarted.html.
