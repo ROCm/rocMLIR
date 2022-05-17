@@ -61,7 +61,7 @@ static cl::opt<std::string>
     kernelPipeline("kernel-pipeline",
                    cl::desc("mlir-miopen-driver kernel pipeline list"),
                    cl::value_desc("comma separated list of miopen pipelines: "
-                                  "tuning,gpu,rocdl,binary or full"),
+                                  "applicability,gpu,rocdl,binary or full"),
                    cl::init(""));
 
 static cl::opt<std::string>
@@ -111,14 +111,15 @@ void registerTestDialect(DialectRegistry &);
 
 static LogicalResult
 parsePipeline(StringRef pipeline, llvm::SmallDenseSet<StringRef> &pipelineSet,
-              llvm::SmallDenseSet<StringRef> &pipelineOptions) {
+              llvm::SmallDenseSet<StringRef> &pipelineOptions,
+              llvm::SmallDenseSet<StringRef> &fullOptions) {
   SmallVector<StringRef, 8> tokens;
   pipeline.split(tokens, ',');
   for (auto str : tokens) {
     auto opt = str.trim();
     if (opt.empty()) {
     } else if (opt == "full") {
-      pipelineSet = pipelineOptions;
+      pipelineSet = fullOptions;
     } else if (pipelineOptions.contains(opt)) {
       pipelineSet.insert(opt);
     } else {
@@ -134,11 +135,12 @@ parsePipeline(StringRef pipeline, llvm::SmallDenseSet<StringRef> &pipelineSet,
 
 static LogicalResult runMLIRPasses(ModuleOp &module,
                                    mlir::PassPipelineCLParser &passPipeline) {
-  llvm::SmallDenseSet<StringRef> kernelPipelineOptions{"tuning", "gpu", "rocdl",
-                                                       "binary"};
+  llvm::SmallDenseSet<StringRef> kernelPipelineOptions{"applicability", "gpu",
+                                                       "rocdl", "binary"};
+  llvm::SmallDenseSet<StringRef> kernelFullPipeline{"gpu", "binary"};
   llvm::SmallDenseSet<StringRef> kernelPipelineSet;
   if (failed(parsePipeline(kernelPipeline.getValue(), kernelPipelineSet,
-                           kernelPipelineOptions))) {
+                           kernelPipelineOptions, kernelFullPipeline))) {
     return failure();
   }
 
@@ -146,7 +148,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
                                                      "xmodel"};
   llvm::SmallDenseSet<StringRef> hostPipelineSet;
   if (failed(parsePipeline(hostPipeline.getValue(), hostPipelineSet,
-                           hostPipelineOptions))) {
+                           hostPipelineOptions, hostPipelineOptions))) {
     return failure();
   }
 
@@ -192,31 +194,35 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
         return failure();
       }
     }
+    if (kernelPipelineSet.contains("applicability") &&
+        kernelPipelineSet.size() != 1) {
+      llvm::errs() << "The `applicability` pipeline cannot be combined with "
+                      "any other pipeline options.\n";
+      return failure();
+    }
 
-    if (kernelPipelineSet.size() == 1 && kernelPipelineSet.contains("tuning")) {
-      // Set up the default lowering pipeline which goes down to affix tuning
-      // parameters
-      pm.addPass(
-          mlir::miopen::createAffixTuningParametersPass(blockSize, gridSize));
-    } else {
+    if (kernelPipelineSet.contains("applicability")) {
+      miopen::addPipeline(pm, /*applicability=*/true);
+    }
+    if (kernelPipelineSet.contains("gpu")) {
       // Set up the default lowering pipeline which goes down to GPU dialect.
       miopen::addPipeline(pm);
-      if (kernelPipelineSet.contains("binary")) {
-        // Set up the lowering pipeline which goes down to ELF Binary
-        int optLevel = gpuOpt.getValue();
-        if (optLevel < 0 || optLevel > 3) {
-          llvm::errs() << "Invalid GPU optimization level: " << optLevel
-                       << "\n";
-          return failure();
-        }
-
-        BackendUtils utils(tripleName, targetChip, features);
-        miopen::addBackendPipeline(pm, utils.getTriple(), utils.getChip(),
-                                   utils.getFeatures(), optLevel);
-      } else if (kernelPipelineSet.contains("rocdl")) {
-        // Set up the lowering pipeline which goes down to ROCDL dialect.
-        pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
+    }
+    if (kernelPipelineSet.contains("rocdl")) {
+      // Set up the lowering pipeline which goes down to ROCDL dialect.
+      pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
+    }
+    if (kernelPipelineSet.contains("binary")) {
+      // Set up the lowering pipeline which goes down to ELF Binary
+      int optLevel = gpuOpt.getValue();
+      if (optLevel < 0 || optLevel > 3) {
+        llvm::errs() << "Invalid GPU optimization level: " << optLevel << "\n";
+        return failure();
       }
+
+      BackendUtils utils(tripleName, targetChip, features);
+      miopen::addBackendPipeline(pm, utils.getTriple(), utils.getChip(),
+                                 utils.getFeatures(), optLevel);
     }
   } else {
     auto errorHandler = [&](const Twine &msg) {
