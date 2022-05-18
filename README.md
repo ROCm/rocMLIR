@@ -10,7 +10,6 @@ For more information on how to contribute to the LLVM project, please
 take a look at the
 [Contributing to LLVM](https://llvm.org/docs/Contributing.html) guide.
 
-
 The MIOpen Dialect will move to a complementary project with LLVM 
 as a sub-module.
 
