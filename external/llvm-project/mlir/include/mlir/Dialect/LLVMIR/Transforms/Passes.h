@@ -10,12 +10,14 @@
 #define MLIR_DIALECT_LLVMIR_TRANSFORMS_PASSES_H
 
 #include "mlir/Dialect/LLVMIR/Transforms/LegalizeForExport.h"
-#include "mlir/Dialect/LLVMIR/Transforms/SoftwareBF16.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
 
 namespace LLVM {
+
+/// Create a pass to remove BF16 types from LLVM IR.
+std::unique_ptr<Pass> createSoftwareBF16Pass();
 
 /// Generate the code for registering conversion passes.
 #define GEN_PASS_REGISTRATION

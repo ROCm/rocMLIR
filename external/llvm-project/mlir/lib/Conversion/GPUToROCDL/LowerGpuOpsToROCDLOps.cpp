@@ -41,6 +41,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -53,7 +54,7 @@
 #include "../GPUCommon/OpToFuncCallLowering.h"
 #include "../PassDetail.h"
 
-#include "mlir/Dialect/LLVMIR/Transforms/SoftwareBF16.h"
+#include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 
 using namespace mlir;
 
@@ -106,17 +107,15 @@ struct LowerGpuOpsToROCDLOpsPass
     populateFuncToLLVMConversionPatterns(converter, llvmPatterns);
     populateMemRefToLLVMConversionPatterns(converter, llvmPatterns);
     populateGpuToROCDLConversionPatterns(converter, llvmPatterns, runtime);
-    // Keep last to prioritize newly-added type conversions, just in case
-    // Note that since these patterns touch LLVM ops, they'll need to run after
-    // conversion
-    mlir::LLVM::populateBF16ToLLVMConversionPatterns(converter,
-                                                     bf16fixupPatterns);
 
     LLVMConversionTarget target(getContext());
     configureGpuToROCDLConversionLegality(target);
     if (failed(applyPartialConversion(m, target, std::move(llvmPatterns))))
       signalPassFailure();
-    if (failed(applyPatternsAndFoldGreedily(m, std::move(bf16fixupPatterns))))
+
+    OpPassManager pm("gpu.module");
+    pm.addPass(LLVM::createSoftwareBF16Pass());
+    if (failed(runPipeline(pm, getOperation())))
       signalPassFailure();
   }
 };
