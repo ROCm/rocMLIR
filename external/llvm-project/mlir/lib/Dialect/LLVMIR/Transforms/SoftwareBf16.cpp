@@ -17,9 +17,8 @@
 
 using namespace mlir;
 
-static llvm::APInt castBF16toInt(llvm::APFloat value) {
-  assert(&value.getSemantics() == &llvm::APFloat::BFloat() &&
-         "Must cast bf16 only");
+static APInt castBF16toInt(APFloat value) {
+  assert(&value.getSemantics() == &APFloat::BFloat() && "Must cast bf16 only");
   APInt ret = value.bitcastToAPInt();
   assert(ret.getBitWidth() == 16 && "bf16 conversion should make i16");
   return ret;
@@ -127,9 +126,7 @@ struct BF16AsF32 : OpRewritePattern<Op> {
       rewriter.replaceOpWithNewOp<LLVM::FPTruncOp>(op, resType,
                                                    operation.getResult());
     } else { // FCmp
-      Op operation =
-          rewriter.create<Op>(loc, resType, extended, op->getAttrs());
-      rewriter.replaceOp(op.getOperation(), {operation});
+      rewriter.replaceOpWithNewOp<Op>(op, resType, extended, op->getAttrs());
     }
 
     return success();
@@ -205,12 +202,13 @@ struct SoftwareBF16Trunc : OpRewritePattern<LLVM::FPTruncOp> {
       return failure();
 
     // a = bitcast f32 value to i32
-    // b = (a + 32767) << 16
-    // c = ((a << 16) & 1)
+    // b = (a + 32767) >> 16
+    // c = ((a >> 16) & 1)
     // d = b + c
     // truncate (d << 16) to i16 and return this i16
     Value bitcastop =
         rewriter.create<LLVM::BitcastOp>(loc, bitcastType, op.getArg());
+
     Value constantSixteen = getLlvmI32Const(loc, rewriter, bitcastType, 16);
     Value shiftValue = rewriter.create<LLVM::LShrOp>(
         loc, bitcastType, bitcastop, constantSixteen);
@@ -221,7 +219,10 @@ struct SoftwareBF16Trunc : OpRewritePattern<LLVM::FPTruncOp> {
     Value constantBig = getLlvmI32Const(loc, rewriter, bitcastType, 32767);
     Value addBigValue =
         rewriter.create<LLVM::AddOp>(loc, bitcastop, constantBig);
-    Value addValue = rewriter.create<LLVM::AddOp>(loc, andValue, addBigValue);
+    Value shiftBigValue = rewriter.create<LLVM::LShrOp>(
+        loc, bitcastType, addBigValue, constantSixteen);
+
+    Value addValue = rewriter.create<LLVM::AddOp>(loc, andValue, shiftBigValue);
 
     Value shiftBeforeTruncValue = rewriter.create<LLVM::LShrOp>(
         loc, bitcastType, addValue, constantSixteen);
@@ -235,8 +236,7 @@ struct SoftwareBF16Trunc : OpRewritePattern<LLVM::FPTruncOp> {
 
 } // namespace
 
-static void replaceBF16WithI16(Operation *op, const TypeConverter &cvt) {
-  auto converter = const_cast<TypeConverter &>(cvt);
+static void replaceBF16WithI16(Operation *op, TypeConverter &converter) {
   if (auto func = dyn_cast<LLVM::LLVMFuncOp>(op)) {
     auto funcType = func.getFunctionType();
     func.setType(converter.convertType(funcType));
@@ -275,7 +275,7 @@ static void populateSoftwareBF16Patterns(LLVMTypeConverter &converter,
   // isCompatibleType(), which doesn't convert the element type
   converter.addConversion(
       [llvmI16, bf16](mlir::VectorType type) -> Optional<Type> {
-        if (type.getElementType() == bf16 && type.getRank() == 1)
+        if (type.getElementType() == bf16)
           return type.clone(llvmI16);
         return llvm::None; // continue search
       });
@@ -290,6 +290,7 @@ static void populateSoftwareBF16Patterns(LLVMTypeConverter &converter,
           SmallVector<Type, 1> element;
           if (failed(converter.convertType(t, element)))
             return llvm::None;
+          assert(element.size() == 1);
           convertedElemTypes.push_back(element[0]);
           if (t != element[0])
             converted = true;
@@ -350,7 +351,7 @@ struct SoftwareBF16Pass : public SoftwareBF16Base<SoftwareBF16Pass> {
 
     populateSoftwareBF16Patterns(converter, bf16fixupPatterns);
     // Replace BF16 types in an operation with I16 types
-    m->walk([converter](Operation *op) { replaceBF16WithI16(op, converter); });
+    m->walk([&converter](Operation *op) { replaceBF16WithI16(op, converter); });
 
     if (failed(applyPatternsAndFoldGreedily(m, std::move(bf16fixupPatterns))))
       signalPassFailure();
