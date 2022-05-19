@@ -18,7 +18,6 @@ Taken from https://llvm.org/docs/GettingStarted.html.
 
 ### Overview
 
-
 Welcome to the LLVM project!
 
 The LLVM project has multiple components. The core of the project is
