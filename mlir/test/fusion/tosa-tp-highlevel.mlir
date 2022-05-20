@@ -1,8 +1,12 @@
+// RUN: mlir-miopen-driver --host-pipeline highlevel %s | FileCheck %s
+// CHECK-COUNT-5: linalg.generic
+// CHECK-NOT: linalg.generic
+// This is only to detect any changes in tosa transpose optimization, nothing wrong it differs
+// Just test needs to be amended once any change is detected.
+
 module {
   func @layout_opt(%arg0: tensor<256x128x28x28xf32>, %arg1: tensor<64x128x28x28xf32>, %arg2: tensor<256x64x28x28xf32>
-    , %arg3: tensor<64x64x28x28xf32>
-
-    ) -> tensor<256x64x28x28xf32> attributes {kernel} {
+    , %arg3: tensor<64x64x28x28xf32>) -> tensor<256x64x28x28xf32> {
     %cst = arith.constant dense<[0, 2, 3, 1]> : tensor<4xi64>
     %cst_0 = arith.constant dense<0.000000e+00> : tensor<1xf32>
     %cst_1 = arith.constant dense<[0, 3, 1, 2]> : tensor<4xi64>
