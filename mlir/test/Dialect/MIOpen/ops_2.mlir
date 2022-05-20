@@ -576,48 +576,6 @@ func @miopen_threadwise_gemm(%lhs : memref<1x4x8xf32>, %rhs : memref<1x4x8xf32>,
 
 // ----
 
-func @miopen_mfma_v2_f32(%a : f32, %b : f32, %c : vector<32xf32>) -> vector<32xf32> {
-  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_f32_32x32x1f32", imm = [1, 0, 0] } : f32, vector<32xf32>
-  return %d : vector<32xf32>
-}
-
-// CHECK-LABEL: func @miopen_mfma_v2_f32
-//   CHECK: miopen.mfma_v2
-
-func @miopen_mfma_v2_f16(%a : vector<4xf16>, %b : vector<4xf16>, %c : vector<32xf32>) -> vector<32xf32> {
-  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_f32_32x32x4f16", imm = [1, 0, 0] } : vector<4xf16>, vector<32xf32>
-  return %d : vector<32xf32>
-}
-
-// CHECK-LABEL: func @miopen_mfma_v2_f16
-//   CHECK: miopen.mfma_v2
-
-func @miopen_mfma_v2_i8_4xi32(%a : vector<4xi8>, %b : vector<4xi8>, %c : vector<4xi32>) -> vector<4xi32> {
-  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_i32_32x32x8i8", imm = [0, 0, 0] } : vector<4xi8>, vector<4xi32>
-  return %d : vector<4xi32>
-}
-
-// CHECK-LABEL: func @miopen_mfma_v2_i8_4xi32
-//   CHECK: miopen.mfma_v2
-
-func @miopen_mfma_v2_i8_16xi32(%a : vector<4xi8>, %b : vector<4xi8>, %c : vector<16xi32>) -> vector<16xi32> {
-  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_i32_16x16x16i8", imm = [0, 0, 0] } : vector<4xi8>, vector<16xi32>
-  return %d : vector<16xi32>
-}
-
-// CHECK-LABEL: func @miopen_mfma_v2_i8_16xi32
-//   CHECK: miopen.mfma_v2
-
-func @miopen_mfma_v2_bf16(%a : vector<2xbf16>, %b : vector<2xbf16>, %c : vector<32xf32>) -> vector<32xf32> {
-  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_f32_32x32x2bf16", imm = [1, 0, 0] } : vector<2xbf16>, vector<32xf32>
-  return %d : vector<32xf32>
-}
-
-// CHECK-LABEL: func @miopen_mfma_v2_bf16
-//   CHECK: miopen.mfma_v2
-
-// ----
-
 func @miopen_xdlops_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
                                        %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>) -> vector<32xf32> {
   %c0 = arith.constant 0 : index
