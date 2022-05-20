@@ -7,9 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "PassDetail.h"
-#include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
-#include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/IR/PatternMatch.h"
@@ -138,7 +136,7 @@ struct SoftwareBF16Ext : OpRewritePattern<LLVM::FPExtOp> {
 
   LogicalResult matchAndRewrite(LLVM::FPExtOp op,
                                 PatternRewriter &rewriter) const override {
-    auto loc = op.getLoc();
+    Location loc = op.getLoc();
 
     Type srcType = op.getArg().getType();
     Type destType = op.getResult().getType();
@@ -178,7 +176,7 @@ struct SoftwareBF16Trunc : OpRewritePattern<LLVM::FPTruncOp> {
   LogicalResult matchAndRewrite(LLVM::FPTruncOp op,
                                 PatternRewriter &rewriter) const override {
 
-    auto loc = op.getLoc();
+    Location loc = op.getLoc();
 
     Type srcType = op.getArg().getType();
     Type destType = op.getRes().getType();
@@ -240,12 +238,12 @@ static void replaceBF16WithI16(Operation *op, TypeConverter &converter) {
   if (auto func = dyn_cast<LLVM::LLVMFuncOp>(op)) {
     auto funcType = func.getFunctionType();
     func.setType(converter.convertType(funcType));
-    for (auto arg : func.getArguments())
+    for (Value arg : func.getArguments())
       arg.setType(converter.convertType(arg.getType()));
   } else if (auto globalOp = dyn_cast<LLVM::GlobalOp>(op)) {
-    auto globalType = globalOp.getType();
+    Type globalType = globalOp.getType();
     globalOp.setGlobalTypeAttr(
-        mlir::TypeAttr::get(converter.convertType(globalType)));
+        TypeAttr::get(converter.convertType(globalType)));
   } else {
     for (unsigned idx = 0; idx < op->getNumOperands(); idx++) {
       auto type = converter.convertType(op->getOperand(idx).getType());
@@ -259,25 +257,31 @@ static void replaceBF16WithI16(Operation *op, TypeConverter &converter) {
   return;
 }
 
-static void populateSoftwareBF16Patterns(LLVMTypeConverter &converter,
+static void populateSoftwareBF16Patterns(MLIRContext *ctx,
+                                         TypeConverter &converter,
                                          RewritePatternSet &patterns) {
-  MLIRContext *ctx = converter.getDialect()->getContext();
   // AMD GPUs don't have a backend that understands bfloat, even though LLVM's
   // frontend does. Remove this if/when that changes. Note that adding
   // conversions after the default constructor runs gives them priority
   // over the defaults.
   Type llvmI16 = IntegerType::get(ctx, 16);
-  Type bf16 = BFloat16Type::get(ctx);
-  converter.addConversion(
-      [llvmI16](mlir::BFloat16Type type) -> Type { return llvmI16; });
 
-  // Override for vector/struct types since they get caught by
-  // isCompatibleType(), which doesn't convert the element type
+  converter.addConversion([](Type type) { return type; });
+
   converter.addConversion(
-      [llvmI16, bf16](mlir::VectorType type) -> Optional<Type> {
-        if (type.getElementType() == bf16)
-          return type.clone(llvmI16);
-        return llvm::None; // continue search
+      [llvmI16](BFloat16Type type) -> Type { return llvmI16; });
+
+  converter.addConversion([&](VectorType type) -> Optional<Type> {
+    if (auto element = converter.convertType(type.getElementType()))
+      return type.clone(element);
+    return llvm::None;
+  });
+
+  converter.addConversion(
+      [&](LLVM::LLVMPointerType type) -> llvm::Optional<Type> {
+        if (auto pointee = converter.convertType(type.getElementType()))
+          return LLVM::LLVMPointerType::get(pointee, type.getAddressSpace());
+        return llvm::None;
       });
 
   converter.addConversion(
@@ -328,6 +332,27 @@ static void populateSoftwareBF16Patterns(LLVMTypeConverter &converter,
         return success();
       });
 
+  converter.addConversion(
+      [&](LLVM::LLVMArrayType type) -> llvm::Optional<Type> {
+        if (auto element = converter.convertType(type.getElementType()))
+          return LLVM::LLVMArrayType::get(element, type.getNumElements());
+        return llvm::None;
+      });
+
+  converter.addConversion(
+      [&](LLVM::LLVMFunctionType type) -> llvm::Optional<Type> {
+        Type convertedResType = converter.convertType(type.getReturnType());
+        if (!convertedResType)
+          return llvm::None;
+
+        SmallVector<Type> convertedArgTypes;
+        convertedArgTypes.reserve(type.getNumParams());
+        if (failed(converter.convertTypes(type.getParams(), convertedArgTypes)))
+          return llvm::None;
+        return LLVM::LLVMFunctionType::get(convertedResType, convertedArgTypes,
+                                           type.isVarArg());
+      });
+
   patterns.add<BF16ConstCasting, SoftwareBF16Trunc, SoftwareBF16Ext>(ctx);
 
   patterns.add<BF16AsF32<LLVM::FAddOp>, BF16AsF32<LLVM::FCmpOp>,
@@ -345,11 +370,10 @@ struct SoftwareBF16Pass : public SoftwareBF16Base<SoftwareBF16Pass> {
   void runOnOperation() override {
     auto m = getOperation();
     MLIRContext *ctx = m->getContext();
-    LowerToLLVMOptions options(ctx);
-    LLVMTypeConverter converter(ctx, options);
+    TypeConverter converter;
     RewritePatternSet bf16fixupPatterns(ctx);
 
-    populateSoftwareBF16Patterns(converter, bf16fixupPatterns);
+    populateSoftwareBF16Patterns(ctx, converter, bf16fixupPatterns);
     // Replace BF16 types in an operation with I16 types
     m->walk([&converter](Operation *op) { replaceBF16WithI16(op, converter); });
 
