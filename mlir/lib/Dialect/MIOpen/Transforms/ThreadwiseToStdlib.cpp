@@ -1083,8 +1083,9 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
         XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 
     // Extract values from XdlopsCodeSelection.
-    StringRef mfmaInstr = xcs.mfmaInstr;
-    LLVM_DEBUG(llvm::dbgs() << "Selected xdlop: " << mfmaInstr << "\n");
+    amdgpu::MFMAInstr mfmaInstr = xcs.instr;
+    LLVM_DEBUG(llvm::dbgs() << "Selected xdlop: "
+                            << amdgpu::stringifyMFMAInstr(mfmaInstr) << "\n");
     int64_t MPerXdlops = xcs.MPerXdlops;
     int64_t NPerXdlops = xcs.NPerXdlops;
     int64_t MRepeats = xcs.MRepeats;
@@ -1364,14 +1365,9 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
         auto vectorC = innerLoop.getRegionIterArgs()[i];
-        auto mfma =
-            innerLoopb.create<MFMAV2Op>(loc, vectorType, argA, argB, vectorC);
-
-        mfma->setAttr("instr", innerLoopb.getStringAttr(mfmaInstr));
-        mfma->setAttr("imm", innerLoopb.getArrayAttr(
-                                 {innerLoopb.getI32IntegerAttr(imms[i][0]),
-                                  innerLoopb.getI32IntegerAttr(imms[i][1]),
-                                  innerLoopb.getI32IntegerAttr(imms[i][2])}));
+        auto mfma = innerLoopb.create<amdgpu::MFMAOp>(
+            loc, vectorType, mfmaInstr, argA, argB, vectorC,
+            /*cbsz=*/imms[i][0], /*abid=*/imms[i][1], /*blgp=*/imms[i][2]);
         mfmas.push_back(mfma);
       }
       innerLoopb.create<AffineYieldOp>(loc, mfmas);
@@ -1593,14 +1589,9 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
       SmallVector<Value, 4> mfmas;
       for (int64_t i = 0; i < vectorNumber; ++i) {
         auto vectorC = innerLoop.getRegionIterArgs()[i];
-        auto mfma =
-            innerLoopb.create<MFMAV2Op>(loc, vectorType, argA, argB, vectorC);
-
-        mfma->setAttr("instr", innerLoopb.getStringAttr(mfmaInstr));
-        mfma->setAttr("imm", innerLoopb.getArrayAttr(
-                                 {innerLoopb.getI32IntegerAttr(imms[i][0]),
-                                  innerLoopb.getI32IntegerAttr(imms[i][1]),
-                                  innerLoopb.getI32IntegerAttr(imms[i][2])}));
+        auto mfma = innerLoopb.create<amdgpu::MFMAOp>(
+            loc, vectorType, mfmaInstr, argA, argB, vectorC,
+            /*cbsz=*/imms[i][0], /*abid=*/imms[i][1], /*blgp=*/imms[i][2]);
         mfmas.push_back(mfma);
       }
       innerLoopb.create<AffineYieldOp>(loc, mfmas);
