@@ -41,6 +41,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -52,6 +53,8 @@
 #include "../GPUCommon/IndexIntrinsicsOpLowering.h"
 #include "../GPUCommon/OpToFuncCallLowering.h"
 #include "../PassDetail.h"
+
+#include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 
 using namespace mlir;
 
@@ -104,16 +107,15 @@ struct LowerGpuOpsToROCDLOpsPass
     populateFuncToLLVMConversionPatterns(converter, llvmPatterns);
     populateMemRefToLLVMConversionPatterns(converter, llvmPatterns);
     populateGpuToROCDLConversionPatterns(converter, llvmPatterns, runtime);
-    // Keep last to prioritize newly-added type conversions, just in case
-    // Note that since these patterns touch LLVM ops, they'll need to run after
-    // conversion
-    populateBF16ToROCDLConversionPatterns(converter, bf16fixupPatterns);
 
     LLVMConversionTarget target(getContext());
     configureGpuToROCDLConversionLegality(target);
     if (failed(applyPartialConversion(m, target, std::move(llvmPatterns))))
       signalPassFailure();
-    if (failed(applyPatternsAndFoldGreedily(m, std::move(bf16fixupPatterns))))
+
+    OpPassManager pm("gpu.module");
+    pm.addPass(LLVM::createSoftwareBF16Pass());
+    if (failed(runPipeline(pm, getOperation())))
       signalPassFailure();
   }
 };
@@ -305,197 +307,6 @@ struct WarpSwizzleOpLowering : ConvertOpToLLVMPattern<gpu::WarpSwizzleOp> {
   }
 };
 
-/// Rewrites bf16 constants to their i16 equivalents
-/// This is relying on the fact that the vector, i16, and bf16 types used in the
-/// LLVM dialect are the standard ones and not weird custom wrappers
-struct BF16ConstCasting : OpRewritePattern<LLVM::ConstantOp> {
-  explicit BF16ConstCasting(MLIRContext *context) : OpRewritePattern(context) {}
-
-  llvm::APInt toInt(llvm::APFloat value) const {
-    assert(&value.getSemantics() == &llvm::APFloat::BFloat() &&
-           "Must cast bf16 only");
-    APInt ret = value.bitcastToAPInt();
-    assert(ret.getBitWidth() == 16 && "bf16 conversion should make i16");
-    return ret;
-  }
-
-  LogicalResult matchAndRewrite(LLVM::ConstantOp op,
-                                PatternRewriter &rewriter) const override {
-    Attribute val = op.getValueAttr();
-    Operation *rawOp = op.getOperation();
-    Type bf16 = rewriter.getBF16Type();
-    Type retType = op.getRes().getType();
-    Type retElemType = retType;
-    if (auto retTypeShaped = retType.dyn_cast<ShapedType>())
-      retElemType = retTypeShaped.getElementType();
-    if (auto valFloat = val.dyn_cast<mlir::FloatAttr>()) {
-      if (valFloat.getType() != bf16)
-        return failure();
-      APInt newVal = toInt(valFloat.getValue());
-      rewriter.replaceOpWithNewOp<LLVM::ConstantOp>(
-          rawOp, retType, rewriter.getIntegerAttr(retType, newVal));
-      return success();
-    }
-
-    if (auto valDense = val.dyn_cast<mlir::DenseElementsAttr>()) {
-      if (valDense.getElementType() != bf16)
-        return failure();
-      DenseElementsAttr newVal = valDense.bitcast(retElemType);
-      rewriter.replaceOpWithNewOp<LLVM::ConstantOp>(rawOp, retType, newVal);
-      return success();
-    }
-
-    if (auto valSparse = val.dyn_cast<mlir::SparseElementsAttr>()) {
-      if (valSparse.getElementType() != bf16)
-        return failure();
-      DenseElementsAttr values = valSparse.getValues();
-      DenseElementsAttr newValues = values.bitcast(retElemType);
-      auto newVal = SparseElementsAttr::get(retType.cast<ShapedType>(),
-                                            valSparse.getIndices(), newValues);
-      rewriter.replaceOpWithNewOp<LLVM::ConstantOp>(rawOp, retType, newVal);
-      return success();
-    }
-    // No match otherwise
-    return failure();
-  }
-};
-
-template <typename Op>
-struct BF16AsF32 : OpRewritePattern<Op> {
-  explicit BF16AsF32(MLIRContext *context) : OpRewritePattern<Op>(context) {}
-
-  LogicalResult matchAndRewrite(Op op,
-                                PatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    Type resType = op.getResult().getType();
-    Type extType = rewriter.getF32Type();
-    Type resElementType = resType;
-
-    if (auto resShaped = resType.dyn_cast<ShapedType>()) {
-      extType = resShaped.clone(extType);
-      resElementType = resShaped.getElementType();
-    }
-    Type i16 = rewriter.getIntegerType(16);
-    if (resElementType != i16)
-      return failure();
-
-    llvm::SmallVector<Value, 2> extended;
-    for (Value v : op.getOperands()) {
-      extended.push_back(rewriter.create<LLVM::FPExtOp>(loc, extType, v));
-    }
-    Op operation = rewriter.create<Op>(loc, extType, extended, op->getAttrs());
-    rewriter.replaceOpWithNewOp<LLVM::FPTruncOp>(op, resType,
-                                                 operation.getResult());
-    return success();
-  }
-};
-
-Value getLlvmI32Const(Location loc, PatternRewriter &rewriter, Type type,
-                      int32_t value) {
-  Attribute ret = rewriter.getI32IntegerAttr(value);
-  if (LLVM::isCompatibleVectorType(type))
-    ret = SplatElementsAttr::get(type.cast<ShapedType>(), ret);
-  return rewriter.create<LLVM::ConstantOp>(loc, type, ret);
-}
-
-/// Rewrites extension of bfloat as a bitshift. This is needed since the ROCDL
-/// target doesn't support the bfloat type even though LLVM in general does.
-struct SoftwareBF16Ext : OpRewritePattern<LLVM::FPExtOp> {
-  explicit SoftwareBF16Ext(MLIRContext *context) : OpRewritePattern(context) {}
-
-  LogicalResult matchAndRewrite(LLVM::FPExtOp op,
-                                PatternRewriter &rewriter) const override {
-    auto loc = op.getLoc();
-
-    Type srcType = op.getArg().getType();
-    Type destType = op.getRes().getType();
-    Type srcElemType = srcType;
-    if (auto shaped = srcType.dyn_cast<ShapedType>())
-      srcElemType = shaped.getElementType();
-
-    Type i16 = rewriter.getIntegerType(16);
-    if (srcElemType != i16)
-      return failure();
-
-    Type extType = rewriter.getI32Type();
-    if (auto srcShaped = srcType.dyn_cast<ShapedType>())
-      extType = srcShaped.clone(extType);
-
-    Type f32 = rewriter.getF32Type();
-    if (auto destShaped = destType.dyn_cast<ShapedType>()) {
-      if (destShaped.getElementType() != f32)
-        return failure();
-    } else if (destType != f32)
-      return failure();
-
-    Value extended = rewriter.create<LLVM::ZExtOp>(loc, extType, op.getArg());
-    Value shifted = rewriter.create<LLVM::ShlOp>(
-        loc, extended, getLlvmI32Const(loc, rewriter, extType, 16));
-    rewriter.replaceOpWithNewOp<LLVM::BitcastOp>(op, destType, shifted);
-    return success();
-  }
-};
-
-/// Rewrites truncation to bfloat as a series of integer operations.
-/// This is needed since the ROCDL target doesn't support the bfloat type,
-/// even though LLVM in general does
-struct SoftwareBF16Trunc : OpRewritePattern<LLVM::FPTruncOp> {
-  explicit SoftwareBF16Trunc(MLIRContext *context)
-      : OpRewritePattern(context) {}
-
-  LogicalResult matchAndRewrite(LLVM::FPTruncOp op,
-                                PatternRewriter &rewriter) const override {
-    auto loc = op.getLoc();
-
-    Type srcType = op.getArg().getType();
-    Type destType = op.getRes().getType();
-    Type srcElemType = srcType;
-    if (auto shaped = srcType.dyn_cast<ShapedType>())
-      srcElemType = shaped.getElementType();
-
-    Type f32 = rewriter.getF32Type();
-    if (srcElemType != f32)
-      return failure();
-
-    Type bitcastType = rewriter.getI32Type();
-    if (auto srcShaped = srcType.dyn_cast<ShapedType>())
-      bitcastType = srcShaped.clone(bitcastType);
-
-    Type i16 = rewriter.getIntegerType(16);
-    if (auto destShaped = destType.dyn_cast<ShapedType>()) {
-      if (destShaped.getElementType() != i16)
-        return failure();
-    } else if (destType != i16)
-      return failure();
-
-    // a = bitcast f32 value to i32
-    // b = (a + 32767) << 16
-    // c = ((a << 16) & 1)
-    // d = b + c
-    // truncate (d << 16) to i16 and return this i16
-    Value bitcastop =
-        rewriter.create<LLVM::BitcastOp>(loc, bitcastType, op.getArg());
-    Value constantSixteen = getLlvmI32Const(loc, rewriter, bitcastType, 16);
-    Value shiftValue = rewriter.create<LLVM::LShrOp>(
-        loc, bitcastType, bitcastop, constantSixteen);
-
-    Value constantOne = getLlvmI32Const(loc, rewriter, bitcastType, 1);
-    Value andValue = rewriter.create<LLVM::AndOp>(loc, shiftValue, constantOne);
-
-    Value constantBig = getLlvmI32Const(loc, rewriter, bitcastType, 32767);
-    Value addBigValue =
-        rewriter.create<LLVM::AddOp>(loc, bitcastop, constantBig);
-    Value addValue = rewriter.create<LLVM::AddOp>(loc, andValue, addBigValue);
-
-    Value shiftBeforeTruncValue = rewriter.create<LLVM::LShrOp>(
-        loc, bitcastType, addValue, constantSixteen);
-    Value truncValue =
-        rewriter.create<LLVM::TruncOp>(loc, destType, shiftBeforeTruncValue);
-    rewriter.replaceOp(op.getOperation(), {truncValue});
-    return success();
-  }
-};
-
 struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<gpu::LDSBarrierOp> {
   using ConvertOpToLLVMPattern<gpu::LDSBarrierOp>::ConvertOpToLLVMPattern;
 
@@ -585,30 +396,6 @@ void mlir::populateGpuToROCDLConversionPatterns(
 
   patterns.add<MFMAOpLowering, WarpSwizzleOpLowering, LDSBarrierOpLowering>(
       converter);
-}
-
-void mlir::populateBF16ToROCDLConversionPatterns(LLVMTypeConverter &converter,
-                                                 RewritePatternSet &patterns) {
-  MLIRContext *ctx = converter.getDialect()->getContext();
-  // AMD GPUs don't have a backend that understands bfloat, even though LLVM's
-  // frontend does. Remove this if/when that changes. Note that adding
-  // conversions after the default constructor runs gives them priority
-  // over the defaults.
-  Type llvmI16 = converter.convertType(IntegerType::get(ctx, 16));
-  Type bf16 = mlir::BFloat16Type::get(ctx);
-  converter.addConversion(
-      [llvmI16](mlir::BFloat16Type type) -> Type { return llvmI16; });
-  // Override for vector types since they get caught by isCompatibleType(),
-  // which doesn't convert the element type
-  converter.addConversion(
-      [llvmI16, bf16](mlir::VectorType type) -> Optional<Type> {
-        if (type.getElementType() == bf16 && type.getRank() == 1)
-          return type.clone(llvmI16);
-        return llvm::None; // continue search
-      });
-  patterns.add<BF16ConstCasting, SoftwareBF16Trunc, SoftwareBF16Ext,
-               BF16AsF32<LLVM::FAddOp>, BF16AsF32<LLVM::FMulOp>,
-               BF16AsF32<LLVM::FMAOp>>(ctx);
 }
 
 std::unique_ptr<OperationPass<gpu::GPUModuleOp>>

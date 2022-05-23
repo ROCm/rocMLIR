@@ -1,5 +1,6 @@
 add_mlir_dialect_library(MLIRLLVMIRTransforms
   LegalizeForExport.cpp
+  SoftwareBf16.cpp
 
   DEPENDS
   MLIRLLVMPassIncGen
@@ -8,4 +9,5 @@ add_mlir_dialect_library(MLIRLLVMIRTransforms
   MLIRIR
   MLIRLLVMIR
   MLIRPass
+  MLIRLLVMCommonConversion
   )
