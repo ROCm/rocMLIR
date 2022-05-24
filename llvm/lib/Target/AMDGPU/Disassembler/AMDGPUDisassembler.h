@@ -17,6 +17,7 @@
 
 #include "llvm/MC/MCDisassembler/MCDisassembler.h"
 #include "llvm/MC/MCInstrInfo.h"
+#include "llvm/MC/MCInst.h"
 #include "llvm/Support/DataExtractor.h"
 #include <memory>
 
@@ -57,8 +58,21 @@ public:
 
   MCOperand errOperand(unsigned V, const Twine& ErrMsg) const;
 
-  DecodeStatus tryDecodeInst(const uint8_t* Table, MCInst &MI, uint64_t Inst,
-                             uint64_t Address) const;
+  template <typename InsnType>
+  DecodeStatus tryDecodeInst(const uint8_t *Table, MCInst &MI, InsnType Inst,
+                             uint64_t Address) const {
+    assert(MI.getOpcode() == 0);
+    assert(MI.getNumOperands() == 0);
+    MCInst TmpInst;
+    HasLiteral = false;
+    const auto SavedBytes = Bytes;
+    if (decodeInstruction(Table, TmpInst, Inst, Address, this, STI)) {
+      MI = TmpInst;
+      return MCDisassembler::Success;
+    }
+    Bytes = SavedBytes;
+    return MCDisassembler::Fail;
+  }
 
   Optional<DecodeStatus> onSymbolStart(SymbolInfoTy &Symbol, uint64_t &Size,
                                        ArrayRef<uint8_t> Bytes,
@@ -127,6 +141,9 @@ public:
   MCOperand decodeOperand_AReg_1024(unsigned Val) const;
   MCOperand decodeOperand_AV_32(unsigned Val) const;
   MCOperand decodeOperand_AV_64(unsigned Val) const;
+  MCOperand decodeOperand_AV_128(unsigned Val) const;
+  MCOperand decodeOperand_AVDst_128(unsigned Val) const;
+  MCOperand decodeOperand_AVDst_512(unsigned Val) const;
 
   enum OpWidthTy {
     OPW32,
@@ -177,6 +194,8 @@ public:
   bool isGFX9Plus() const;
   bool isGFX10() const;
   bool isGFX10Plus() const;
+  bool isGFX11() const;
+  bool isGFX11Plus() const;
 
   bool hasArchitectedFlatScratch() const;
 };

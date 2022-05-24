@@ -111,6 +111,22 @@ Cookie IONAME(BeginInternalFormattedInput)(const char *internal,
     void **scratchArea = nullptr, std::size_t scratchBytes = 0,
     const char *sourceFile = nullptr, int sourceLine = 0);
 
+// External unit numbers must fit in default integers. When the integer
+// provided as UNIT is of a wider type than the default integer, it could
+// overflow when converted to a default integer.
+// CheckUnitNumberInRange should be called to verify that a unit number of a
+// wide integer type can fit in a default integer. Since it should be called
+// before the BeginXXX(unit, ...) call, it has its own error handling interface.
+// If handleError is false, and the unit number is out of range, the program
+// will be terminated. Otherwise, if unit is out of range, a nonzero Iostat
+// code is returned and ioMsg is set if it is not a nullptr.
+enum Iostat IONAME(CheckUnitNumberInRange64)(std::int64_t unit,
+    bool handleError, char *ioMsg = nullptr, std::size_t ioMsgLength = 0,
+    const char *sourceFile = nullptr, int sourceLine = 0);
+enum Iostat IONAME(CheckUnitNumberInRange128)(common::int128_t unit,
+    bool handleError, char *ioMsg = nullptr, std::size_t ioMsgLength = 0,
+    const char *sourceFile = nullptr, int sourceLine = 0);
+
 // External synchronous I/O initiation
 Cookie IONAME(BeginExternalListOutput)(ExternalUnit = DefaultUnit,
     const char *sourceFile = nullptr, int sourceLine = 0);
@@ -230,9 +246,7 @@ bool IONAME(OutputInteger8)(Cookie, std::int8_t);
 bool IONAME(OutputInteger16)(Cookie, std::int16_t);
 bool IONAME(OutputInteger32)(Cookie, std::int32_t);
 bool IONAME(OutputInteger64)(Cookie, std::int64_t);
-#ifdef __SIZEOF_INT128__
 bool IONAME(OutputInteger128)(Cookie, common::int128_t);
-#endif
 bool IONAME(InputInteger)(Cookie, std::int64_t &, int kind = 8);
 bool IONAME(OutputReal32)(Cookie, float);
 bool IONAME(InputReal32)(Cookie, float &);

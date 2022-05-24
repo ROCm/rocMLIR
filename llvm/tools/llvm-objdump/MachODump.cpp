@@ -81,6 +81,7 @@ bool objdump::DataInCode;
 bool objdump::FunctionStarts;
 bool objdump::LinkOptHints;
 bool objdump::InfoPlist;
+bool objdump::DyldInfo;
 bool objdump::DylibsUsed;
 bool objdump::DylibId;
 bool objdump::Verbose;
@@ -111,6 +112,7 @@ void objdump::parseMachOOptions(const llvm::opt::InputArgList &InputArgs) {
   FunctionStarts = InputArgs.hasArg(OBJDUMP_function_starts);
   LinkOptHints = InputArgs.hasArg(OBJDUMP_link_opt_hints);
   InfoPlist = InputArgs.hasArg(OBJDUMP_info_plist);
+  DyldInfo = InputArgs.hasArg(OBJDUMP_dyld_info);
   DylibsUsed = InputArgs.hasArg(OBJDUMP_dylibs_used);
   DylibId = InputArgs.hasArg(OBJDUMP_dylib_id);
   Verbose = !InputArgs.hasArg(OBJDUMP_non_verbose);
@@ -1182,6 +1184,20 @@ static void PrintLinkOptHints(MachOObjectFile *O) {
   }
 }
 
+static void printMachOChainedFixups(object::MachOObjectFile *Obj) {
+  Error Err = Error::success();
+  for (const object::MachOChainedFixupEntry &Entry : Obj->fixupTable(Err)) {
+    (void)Entry;
+  }
+  if (Err)
+    reportError(std::move(Err), Obj->getFileName());
+}
+
+static void PrintDyldInfo(MachOObjectFile *O) {
+  outs() << "dyld information:" << '\n';
+  printMachOChainedFixups(O);
+}
+
 static void PrintDylibs(MachOObjectFile *O, bool JustId) {
   unsigned Index = 0;
   for (const auto &Load : O->load_commands()) {
@@ -1900,8 +1916,8 @@ static void ProcessMachO(StringRef Name, MachOObjectFile *MachOOF,
   // UniversalHeaders or ArchiveHeaders.
   if (Disassemble || Relocations || PrivateHeaders || ExportsTrie || Rebase ||
       Bind || SymbolTable || LazyBind || WeakBind || IndirectSymbols ||
-      DataInCode || FunctionStarts || LinkOptHints || DylibsUsed || DylibId ||
-      Rpaths || ObjcMetaData || (!FilterSections.empty())) {
+      DataInCode || FunctionStarts || LinkOptHints || DyldInfo || DylibsUsed ||
+      DylibId || Rpaths || ObjcMetaData || (!FilterSections.empty())) {
     if (LeadingHeaders) {
       outs() << Name;
       if (!ArchiveMemberName.empty())
@@ -1970,6 +1986,8 @@ static void ProcessMachO(StringRef Name, MachOObjectFile *MachOOF,
     DumpSectionContents(FileName, MachOOF, Verbose);
   if (InfoPlist)
     DumpInfoPlistSectionContents(FileName, MachOOF);
+  if (DyldInfo)
+    PrintDyldInfo(MachOOF);
   if (DylibsUsed)
     PrintDylibs(MachOOF, false);
   if (DylibId)
@@ -9145,14 +9163,20 @@ static void PrintNoteLoadCommand(MachO::note_command Nt) {
   outs() << "      size " << Nt.size << "\n";
 }
 
-static void PrintBuildToolVersion(MachO::build_tool_version bv) {
-  outs() << "      tool " << MachOObjectFile::getBuildTool(bv.tool) << "\n";
+static void PrintBuildToolVersion(MachO::build_tool_version bv, bool verbose) {
+  outs() << "      tool ";
+  if (verbose)
+    outs() << MachOObjectFile::getBuildTool(bv.tool);
+  else
+    outs() << bv.tool;
+  outs() << "\n";
   outs() << "   version " << MachOObjectFile::getVersionString(bv.version)
          << "\n";
 }
 
 static void PrintBuildVersionLoadCommand(const MachOObjectFile *obj,
-                                         MachO::build_version_command bd) {
+                                         MachO::build_version_command bd,
+                                         bool verbose) {
   outs() << "       cmd LC_BUILD_VERSION\n";
   outs() << "   cmdsize " << bd.cmdsize;
   if (bd.cmdsize !=
@@ -9161,8 +9185,12 @@ static void PrintBuildVersionLoadCommand(const MachOObjectFile *obj,
     outs() << " Incorrect size\n";
   else
     outs() << "\n";
-  outs() << "  platform " << MachOObjectFile::getBuildPlatform(bd.platform)
-         << "\n";
+  outs() << "  platform ";
+  if (verbose)
+    outs() << MachOObjectFile::getBuildPlatform(bd.platform);
+  else
+    outs() << bd.platform;
+  outs() << "\n";
   if (bd.sdk)
     outs() << "       sdk " << MachOObjectFile::getVersionString(bd.sdk)
            << "\n";
@@ -9173,7 +9201,7 @@ static void PrintBuildVersionLoadCommand(const MachOObjectFile *obj,
   outs() << "    ntools " << bd.ntools << "\n";
   for (unsigned i = 0; i < bd.ntools; ++i) {
     MachO::build_tool_version bv = obj->getBuildToolVersion(i);
-    PrintBuildToolVersion(bv);
+    PrintBuildToolVersion(bv, verbose);
   }
 }
 
@@ -10150,7 +10178,7 @@ static void PrintLoadCommands(const MachOObjectFile *Obj, uint32_t filetype,
     } else if (Command.C.cmd == MachO::LC_BUILD_VERSION) {
       MachO::build_version_command Bv =
           Obj->getBuildVersionLoadCommand(Command);
-      PrintBuildVersionLoadCommand(Obj, Bv);
+      PrintBuildVersionLoadCommand(Obj, Bv, verbose);
     } else if (Command.C.cmd == MachO::LC_SOURCE_VERSION) {
       MachO::source_version_command Sd = Obj->getSourceVersionCommand(Command);
       PrintSourceVersionCommand(Sd);

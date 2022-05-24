@@ -58,15 +58,24 @@ Type mlir::sparse_tensor::getOverheadType(Builder &builder, OverheadType ot) {
   llvm_unreachable("Unknown OverheadType");
 }
 
+OverheadType mlir::sparse_tensor::pointerOverheadTypeEncoding(
+    const SparseTensorEncodingAttr &enc) {
+  return overheadTypeEncoding(enc.getPointerBitWidth());
+}
+
+OverheadType mlir::sparse_tensor::indexOverheadTypeEncoding(
+    const SparseTensorEncodingAttr &enc) {
+  return overheadTypeEncoding(enc.getIndexBitWidth());
+}
+
 Type mlir::sparse_tensor::getPointerOverheadType(
     Builder &builder, const SparseTensorEncodingAttr &enc) {
-  return getOverheadType(builder,
-                         overheadTypeEncoding(enc.getPointerBitWidth()));
+  return getOverheadType(builder, pointerOverheadTypeEncoding(enc));
 }
 
 Type mlir::sparse_tensor::getIndexOverheadType(
     Builder &builder, const SparseTensorEncodingAttr &enc) {
-  return getOverheadType(builder, overheadTypeEncoding(enc.getIndexBitWidth()));
+  return getOverheadType(builder, indexOverheadTypeEncoding(enc));
 }
 
 StringRef mlir::sparse_tensor::overheadTypeFunctionSuffix(OverheadType ot) {
@@ -102,6 +111,13 @@ PrimaryType mlir::sparse_tensor::primaryTypeEncoding(Type elemTp) {
     return PrimaryType::kI16;
   if (elemTp.isInteger(8))
     return PrimaryType::kI8;
+  if (auto complexTp = elemTp.dyn_cast<ComplexType>()) {
+    auto complexEltTp = complexTp.getElementType();
+    if (complexEltTp.isF64())
+      return PrimaryType::kC64;
+    if (complexEltTp.isF32())
+      return PrimaryType::kC32;
+  }
   llvm_unreachable("Unknown primary type");
 }
 
@@ -119,6 +135,10 @@ StringRef mlir::sparse_tensor::primaryTypeFunctionSuffix(PrimaryType pt) {
     return "I16";
   case PrimaryType::kI8:
     return "I8";
+  case PrimaryType::kC64:
+    return "C64";
+  case PrimaryType::kC32:
+    return "C32";
   }
   llvm_unreachable("Unknown PrimaryType");
 }
@@ -169,5 +189,7 @@ Value mlir::sparse_tensor::genIsNonzero(OpBuilder &builder, mlir::Location loc,
   if (tp.isIntOrIndex())
     return builder.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne, v,
                                          zero);
+  if (tp.dyn_cast<ComplexType>())
+    return builder.create<complex::NotEqualOp>(loc, v, zero);
   llvm_unreachable("Non-numeric type");
 }

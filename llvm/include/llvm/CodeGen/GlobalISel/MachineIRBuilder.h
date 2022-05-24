@@ -13,19 +13,26 @@
 #ifndef LLVM_CODEGEN_GLOBALISEL_MACHINEIRBUILDER_H
 #define LLVM_CODEGEN_GLOBALISEL_MACHINEIRBUILDER_H
 
-#include "llvm/CodeGen/GlobalISel/CSEInfo.h"
-#include "llvm/CodeGen/LowLevelType.h"
+#include "llvm/CodeGen/GlobalISel/GISelChangeObserver.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/TargetOpcodes.h"
-#include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Module.h"
 
 namespace llvm {
 
 // Forward declarations.
+class APInt;
+class BlockAddress;
+class Constant;
+class ConstantFP;
+class ConstantInt;
+class DataLayout;
+class GISelCSEInfo;
+class GlobalValue;
+class TargetRegisterClass;
 class MachineFunction;
 class MachineInstr;
 class TargetInstrInfo;
@@ -1001,6 +1008,11 @@ public:
   MachineInstrBuilder buildBuildVector(const DstOp &Res,
                                        ArrayRef<Register> Ops);
 
+  /// Build and insert \p Res = G_BUILD_VECTOR \p Op0, ... where each OpN is
+  /// built with G_CONSTANT.
+  MachineInstrBuilder buildBuildVectorConstant(const DstOp &Res,
+                                               ArrayRef<APInt> Ops);
+
   /// Build and insert \p Res = G_BUILD_VECTOR with \p Src replicated to fill
   /// the number of elements
   MachineInstrBuilder buildSplatVector(const DstOp &Res,
@@ -1442,8 +1454,8 @@ public:
 
   /// Build and insert \p Res = G_SUB \p Op0, \p Op1
   ///
-  /// G_SUB sets \p Res to the sum of integer parameters \p Op0 and \p Op1,
-  /// truncated to their width.
+  /// G_SUB sets \p Res to the difference of integer parameters \p Op0 and
+  /// \p Op1, truncated to their width.
   ///
   /// \pre setBasicBlock or setMI must have been called.
   /// \pre \p Res, \p Op0 and \p Op1 must be generic virtual registers
@@ -1459,7 +1471,7 @@ public:
 
   /// Build and insert \p Res = G_MUL \p Op0, \p Op1
   ///
-  /// G_MUL sets \p Res to the sum of integer parameters \p Op0 and \p Op1,
+  /// G_MUL sets \p Res to the product of integer parameters \p Op0 and \p Op1,
   /// truncated to their width.
   ///
   /// \pre setBasicBlock or setMI must have been called.

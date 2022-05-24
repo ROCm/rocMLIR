@@ -2600,7 +2600,23 @@ enum CXCursorKind {
    */
   CXCursor_OMPGenericLoopDirective = 295,
 
-  CXCursor_LastStmt = CXCursor_OMPGenericLoopDirective,
+  /** OpenMP teams loop directive.
+   */
+  CXCursor_OMPTeamsGenericLoopDirective = 296,
+
+  /** OpenMP target teams loop directive.
+   */
+  CXCursor_OMPTargetTeamsGenericLoopDirective = 297,
+
+  /** OpenMP parallel loop directive.
+   */
+  CXCursor_OMPParallelGenericLoopDirective = 298,
+
+  /** OpenMP target parallel loop directive.
+   */
+  CXCursor_OMPTargetParallelGenericLoopDirective = 299,
+
+  CXCursor_LastStmt = CXCursor_OMPTargetParallelGenericLoopDirective,
 
   /**
    * Cursor that represents the translation unit itself.
@@ -3401,7 +3417,8 @@ enum CXTypeKind {
   CXType_OCLIntelSubgroupAVCImeDualRefStreamin = 175,
 
   CXType_ExtVector = 176,
-  CXType_Atomic = 177
+  CXType_Atomic = 177,
+  CXType_BTFTagAttributed = 178
 };
 
 /**
@@ -3428,6 +3445,7 @@ enum CXCallingConv {
   CXCallingConv_PreserveAll = 15,
   CXCallingConv_AArch64VectorCall = 16,
   CXCallingConv_SwiftAsync = 17,
+  CXCallingConv_AArch64SVEPCS = 18,
 
   CXCallingConv_Invalid = 100,
   CXCallingConv_Unexposed = 200

@@ -24,6 +24,7 @@
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstBuilder.h"
+#include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCObjectFileInfo.h"
 #include "llvm/MC/MCParser/MCAsmLexer.h"
 #include "llvm/MC/MCParser/MCParsedAsmOperand.h"
@@ -161,7 +162,7 @@ class RISCVAsmParser : public MCTargetAsmParser {
   OperandMatchResultTy parseRegister(OperandVector &Operands,
                                      bool AllowParens = false);
   OperandMatchResultTy parseMemOpBaseReg(OperandVector &Operands);
-  OperandMatchResultTy parseAtomicMemOp(OperandVector &Operands);
+  OperandMatchResultTy parseZeroOffsetMemOp(OperandVector &Operands);
   OperandMatchResultTy parseOperandWithModifier(OperandVector &Operands);
   OperandMatchResultTy parseBareSymbol(OperandVector &Operands);
   OperandMatchResultTy parseCallSymbol(OperandVector &Operands);
@@ -170,6 +171,7 @@ class RISCVAsmParser : public MCTargetAsmParser {
   OperandMatchResultTy parseVTypeI(OperandVector &Operands);
   OperandMatchResultTy parseMaskReg(OperandVector &Operands);
   OperandMatchResultTy parseInsnDirectiveOpcode(OperandVector &Operands);
+  OperandMatchResultTy parseGPRAsFPR(OperandVector &Operands);
 
   bool parseOperand(OperandVector &Operands, StringRef Mnemonic);
 
@@ -254,6 +256,11 @@ public:
                 "target-abi)\n";
     }
 
+    // Use computeTargetABI to check if ABIName is valid. If invalid, output
+    // error message.
+    RISCVABI::computeTargetABI(STI.getTargetTriple(), STI.getFeatureBits(),
+                               ABIName);
+
     const MCObjectFileInfo *MOFI = Parser.getContext().getObjectFileInfo();
     ParserOptions.IsPicEnabled = MOFI->isPositionIndependent();
   }
@@ -272,6 +279,8 @@ struct RISCVOperand : public MCParsedAsmOperand {
   } Kind;
 
   bool IsRV64;
+
+  bool IsGPRAsFPR;
 
   struct RegOp {
     MCRegister RegNum;
@@ -341,6 +350,14 @@ public:
   bool isGPR() const {
     return Kind == KindTy::Register &&
            RISCVMCRegisterClasses[RISCV::GPRRegClassID].contains(Reg.RegNum);
+  }
+
+  bool isGPRAsFPR() const { return isGPR() && IsGPRAsFPR; }
+
+  bool isGPRF64AsFPR() const { return isGPR() && IsGPRAsFPR && IsRV64; }
+
+  bool isGPRPF64AsFPR() const {
+    return isGPR() && IsGPRAsFPR && !IsRV64 && !((Reg.RegNum - RISCV::X0) & 1);
   }
 
   static bool evaluateConstantImm(const MCExpr *Expr, int64_t &Imm,
@@ -839,12 +856,14 @@ public:
   }
 
   static std::unique_ptr<RISCVOperand> createReg(unsigned RegNo, SMLoc S,
-                                                 SMLoc E, bool IsRV64) {
+                                                 SMLoc E, bool IsRV64,
+                                                 bool IsGPRAsFPR = false) {
     auto Op = std::make_unique<RISCVOperand>(KindTy::Register);
     Op->Reg.RegNum = RegNo;
     Op->StartLoc = S;
     Op->EndLoc = E;
     Op->IsRV64 = IsRV64;
+    Op->IsGPRAsFPR = IsGPRAsFPR;
     return Op;
   }
 
@@ -1612,9 +1631,11 @@ OperandMatchResultTy RISCVAsmParser::parseBareSymbol(OperandVector &Operands) {
     return MatchOperand_Success;
   case AsmToken::Plus:
     Opcode = MCBinaryExpr::Add;
+    getLexer().Lex();
     break;
   case AsmToken::Minus:
     Opcode = MCBinaryExpr::Sub;
+    getLexer().Lex();
     break;
   }
 
@@ -1755,9 +1776,7 @@ OperandMatchResultTy RISCVAsmParser::parseVTypeI(OperandVector &Operands) {
     else
       goto MatchFail;
 
-    unsigned LmulLog2 = Log2_32(Lmul);
-    RISCVII::VLMUL VLMUL =
-        static_cast<RISCVII::VLMUL>(Fractional ? 8 - LmulLog2 : LmulLog2);
+    RISCVII::VLMUL VLMUL = RISCVVType::encodeLMUL(Lmul, Fractional);
 
     unsigned VTypeI =
         RISCVVType::encodeVTYPE(VLMUL, Sew, TailAgnostic, MaskAgnostic);
@@ -1798,6 +1817,26 @@ OperandMatchResultTy RISCVAsmParser::parseMaskReg(OperandVector &Operands) {
   return MatchOperand_Success;
 }
 
+OperandMatchResultTy RISCVAsmParser::parseGPRAsFPR(OperandVector &Operands) {
+  switch (getLexer().getKind()) {
+  default:
+    return MatchOperand_NoMatch;
+  case AsmToken::Identifier:
+    StringRef Name = getLexer().getTok().getIdentifier();
+    MCRegister RegNo;
+    matchRegisterNameHelper(isRV32E(), RegNo, Name);
+
+    if (RegNo == RISCV::NoRegister)
+      return MatchOperand_NoMatch;
+    SMLoc S = getLoc();
+    SMLoc E = SMLoc::getFromPointer(S.getPointer() - 1);
+    getLexer().Lex();
+    Operands.push_back(RISCVOperand::createReg(
+        RegNo, S, E, isRV64(), !getSTI().hasFeature(RISCV::FeatureStdExtF)));
+  }
+  return MatchOperand_Success;
+}
+
 OperandMatchResultTy
 RISCVAsmParser::parseMemOpBaseReg(OperandVector &Operands) {
   if (getLexer().isNot(AsmToken::LParen)) {
@@ -1824,7 +1863,8 @@ RISCVAsmParser::parseMemOpBaseReg(OperandVector &Operands) {
   return MatchOperand_Success;
 }
 
-OperandMatchResultTy RISCVAsmParser::parseAtomicMemOp(OperandVector &Operands) {
+OperandMatchResultTy
+RISCVAsmParser::parseZeroOffsetMemOp(OperandVector &Operands) {
   // Atomic operations such as lr.w, sc.w, and amo*.w accept a "memory operand"
   // as one of their register operands, such as `(a0)`. This just denotes that
   // the register (in this case `a0`) contains a memory address.
@@ -1840,9 +1880,9 @@ OperandMatchResultTy RISCVAsmParser::parseAtomicMemOp(OperandVector &Operands) {
   // offset if it is zero; require (and discard) parentheses; and add only the
   // parsed register operand to `Operands`.
   //
-  // These operands are printed with RISCVInstPrinter::printAtomicMemOp, which
-  // will only print the register surrounded by parentheses (which GNU as also
-  // uses as its canonical representation for these operands).
+  // These operands are printed with RISCVInstPrinter::printZeroOffsetMemOp,
+  // which will only print the register surrounded by parentheses (which GNU as
+  // also uses as its canonical representation for these operands).
   std::unique_ptr<RISCVOperand> OptionalImmOp;
 
   if (getLexer().isNot(AsmToken::LParen)) {
@@ -1953,7 +1993,6 @@ bool RISCVAsmParser::ParseInstruction(ParseInstructionInfo &Info,
     return true;
 
   // Parse until end of statement, consuming commas between operands
-  unsigned OperandIdx = 1;
   while (getLexer().is(AsmToken::Comma)) {
     // Consume comma token
     getLexer().Lex();
@@ -1961,8 +2000,6 @@ bool RISCVAsmParser::ParseInstruction(ParseInstructionInfo &Info,
     // Parse next operand
     if (parseOperand(Operands, Name))
       return true;
-
-    ++OperandIdx;
   }
 
   if (getLexer().isNot(AsmToken::EndOfStatement)) {
@@ -2559,8 +2596,7 @@ bool RISCVAsmParser::validateInstruction(MCInst &Inst,
   }
 
   const MCInstrDesc &MCID = MII.get(Inst.getOpcode());
-  RISCVII::VConstraintType Constraints =
-      RISCVII::getConstraint(MCID.TSFlags);
+  RISCVII::VConstraintType Constraints = RISCVII::getConstraint(MCID.TSFlags);
   if (Constraints == RISCVII::NoConstraint)
     return false;
 

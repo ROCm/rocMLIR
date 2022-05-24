@@ -66,6 +66,15 @@ declare_mlir_dialect_python_bindings(
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT MLIRPythonSources.Dialects
   ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mlir"
+  TD_FILE dialects/BufferizationOps.td
+  SOURCES
+    dialects/bufferization.py
+    dialects/_bufferization_ops_ext.py
+  DIALECT_NAME bufferization)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT MLIRPythonSources.Dialects
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mlir"
   TD_FILE dialects/BuiltinOps.td
   SOURCES
     dialects/builtin.py
@@ -79,6 +88,15 @@ declare_mlir_dialect_python_bindings(
   SOURCES
     dialects/cf.py
   DIALECT_NAME cf)
+
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT MLIRPythonSources.Dialects
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mlir"
+  TD_FILE dialects/FuncOps.td
+  SOURCES
+    dialects/func.py
+    dialects/_func_ops_ext.py
+  DIALECT_NAME func)
 
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT MLIRPythonSources.Dialects
@@ -123,6 +141,15 @@ declare_mlir_dialect_python_bindings(
     dialects/_memref_ops_ext.py
   DIALECT_NAME memref)
 
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT MLIRPythonSources.Dialects
+  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mlir"
+  TD_FILE dialects/MLProgramOps.td
+  SOURCES
+    dialects/ml_program.py
+    dialects/_ml_program_ops_ext.py
+  DIALECT_NAME ml_program)
+
 declare_mlir_python_sources(
   MLIRPythonSources.Dialects.quant
   ADD_TO_PARENT MLIRPythonSources.Dialects
@@ -163,15 +190,6 @@ declare_mlir_dialect_python_bindings(
   TD_FILE dialects/SparseTensorOps.td
   SOURCES dialects/sparse_tensor.py
   DIALECT_NAME sparse_tensor)
-
-declare_mlir_dialect_python_bindings(
-  ADD_TO_PARENT MLIRPythonSources.Dialects
-  ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mlir"
-  TD_FILE dialects/StandardOps.td
-  SOURCES
-    dialects/std.py
-    dialects/_std_ops_ext.py
-  DIALECT_NAME std)
 
 declare_mlir_dialect_python_bindings(
   ADD_TO_PARENT MLIRPythonSources.Dialects
@@ -232,7 +250,7 @@ declare_mlir_python_extension(MLIRPythonExtension.Core
     MLIRCAPIRegistration  # TODO: See about dis-aggregating
 
     # Dialects
-    MLIRCAPIStandard
+    MLIRCAPIFunc
 )
 
 declare_mlir_python_extension(MLIRPythonExtension.Dialects.Linalg.Pybind

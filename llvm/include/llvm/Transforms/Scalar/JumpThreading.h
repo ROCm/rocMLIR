@@ -16,14 +16,11 @@
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/BlockFrequencyInfo.h"
 #include "llvm/Analysis/BranchProbabilityInfo.h"
-#include "llvm/Analysis/DomTreeUpdater.h"
 #include "llvm/IR/ValueHandle.h"
-#include <memory>
 #include <utility>
 
 namespace llvm {
@@ -98,7 +95,7 @@ class JumpThreadingPass : public PassInfoMixin<JumpThreadingPass> {
   bool InsertFreezeWhenUnfoldingSelect;
 
 public:
-  JumpThreadingPass(bool InsertFreezeWhenUnfoldingSelect = false, int T = -1);
+  JumpThreadingPass(bool InsertFreezeWhenUnfoldingSelect = true, int T = -1);
 
   // Glue for old PM.
   bool runImpl(Function &F, TargetLibraryInfo *TLI, TargetTransformInfo *TTI,

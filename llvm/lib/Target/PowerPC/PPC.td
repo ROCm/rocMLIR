@@ -376,7 +376,8 @@ def ProcessorFeatures {
      FeaturePartwordAtomic,
      FeatureQuadwordAtomic,
      FeaturePredictableSelectIsExpensive,
-     FeatureISA2_07
+     FeatureISA2_07,
+     FeatureCRBits
     ];
 
   list<SubtargetFeature> P8SpecificFeatures = [FeatureAddiLoadFusion,
@@ -591,7 +592,8 @@ def : ProcessorModel<"a2", PPCA2Model,
                    FeatureSTFIWX, FeatureLFIWAX,
                    FeatureFPRND, FeatureFPCVT, FeatureISEL,
                    FeatureSlowPOPCNTD, FeatureCMPB, FeatureLDBRX,
-                   Feature64Bit /*, Feature64BitRegs */, FeatureMFTB]>;
+                   Feature64Bit /*, Feature64BitRegs */, FeatureMFTB,
+                   FeatureISA2_06]>;
 def : ProcessorModel<"pwr3", G5Model,
                   [DirectivePwr3, FeatureAltivec,
                    FeatureFRES, FeatureFRSQRTE, FeatureMFOCRF,

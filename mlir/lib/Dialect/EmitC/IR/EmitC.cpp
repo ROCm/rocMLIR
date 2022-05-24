@@ -63,6 +63,19 @@ LogicalResult ApplyOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// CastOp
+//===----------------------------------------------------------------------===//
+
+bool CastOp::areCastCompatible(TypeRange inputs, TypeRange outputs) {
+  Type input = inputs.front(), output = outputs.front();
+
+  return ((input.isa<IntegerType, FloatType, IndexType, emitc::OpaqueType,
+                     emitc::PointerType>()) &&
+          (output.isa<IntegerType, FloatType, IndexType, emitc::OpaqueType,
+                      emitc::PointerType>()));
+}
+
+//===----------------------------------------------------------------------===//
 // CallOp
 //===----------------------------------------------------------------------===//
 
@@ -153,6 +166,20 @@ ParseResult IncludeOp::parse(OpAsmParser &parser, OperationState &result) {
 }
 
 //===----------------------------------------------------------------------===//
+// VariableOp
+//===----------------------------------------------------------------------===//
+
+/// The variable op requires that the attribute's type matches the return type.
+LogicalResult emitc::VariableOp::verify() {
+  Attribute value = valueAttr();
+  Type type = getType();
+  if (!value.getType().isa<NoneType>() && type != value.getType())
+    return emitOpError() << "requires attribute's type (" << value.getType()
+                         << ") to match op's return type (" << type << ")";
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
 
@@ -193,13 +220,22 @@ void emitc::OpaqueAttr::print(AsmPrinter &printer) const {
 #define GET_TYPEDEF_CLASSES
 #include "mlir/Dialect/EmitC/IR/EmitCTypes.cpp.inc"
 
+//===----------------------------------------------------------------------===//
+// OpaqueType
+//===----------------------------------------------------------------------===//
+
 Type emitc::OpaqueType::parse(AsmParser &parser) {
   if (parser.parseLess())
     return Type();
   std::string value;
   SMLoc loc = parser.getCurrentLocation();
   if (parser.parseOptionalString(&value) || value.empty()) {
-    parser.emitError(loc) << "expected non empty string";
+    parser.emitError(loc) << "expected non empty string in !emitc.opaque type";
+    return Type();
+  }
+  if (value.back() == '*') {
+    parser.emitError(loc) << "pointer not allowed as outer type with "
+                             "!emitc.opaque, use !emitc.ptr instead";
     return Type();
   }
   if (parser.parseGreater())

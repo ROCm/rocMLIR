@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 #include "llvm/Analysis/MLInlineAdvisor.h"
 #include "llvm/ADT/SCCIterator.h"
+#include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/FunctionPropertiesAnalysis.h"
 #include "llvm/Analysis/InlineCost.h"
@@ -20,23 +21,15 @@
 #include "llvm/Analysis/LazyCallGraph.h"
 #include "llvm/Analysis/MLModelRunner.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
-#include "llvm/Analysis/ReleaseModeModelRunner.h"
-#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
-#include "llvm/Config/config.h"
 #include "llvm/IR/InstIterator.h"
-#include "llvm/IR/Instructions.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Path.h"
-
-#include <limits>
-#include <unordered_map>
-#include <unordered_set>
 
 using namespace llvm;
 
 #if defined(LLVM_HAVE_TF_AOT_INLINERSIZEMODEL)
+#include "llvm/Analysis/ReleaseModeModelRunner.h"
 // codegen-ed file
 #include "InlinerSizeModel.h" // NOLINT
 
@@ -44,7 +37,7 @@ std::unique_ptr<InlineAdvisor>
 llvm::getReleaseModeAdvisor(Module &M, ModuleAnalysisManager &MAM) {
   auto AOTRunner =
       std::make_unique<ReleaseModeModelRunner<llvm::InlinerSizeModel>>(
-          M.getContext(), FeatureNameMap, DecisionName);
+          M.getContext(), FeatureMap, DecisionName);
   return std::make_unique<MLInlineAdvisor>(M, MAM, std::move(AOTRunner));
 }
 #endif
@@ -58,14 +51,14 @@ static cl::opt<float> SizeIncreaseThreshold(
     cl::init(2.0));
 
 // clang-format off
-const std::array<std::string, NumberOfFeatures> llvm::FeatureNameMap{
+const std::array<TensorSpec, NumberOfFeatures> llvm::FeatureMap{
+#define POPULATE_NAMES(_, NAME) TensorSpec::createSpec<int64_t>(NAME, {1} ),
 // InlineCost features - these must come first
-#define POPULATE_NAMES(INDEX_NAME, NAME) NAME,
   INLINE_COST_FEATURE_ITERATOR(POPULATE_NAMES)
 #undef POPULATE_NAMES
 
 // Non-cost features
-#define POPULATE_NAMES(INDEX_NAME, NAME, COMMENT) NAME,
+#define POPULATE_NAMES(_, NAME, __) TensorSpec::createSpec<int64_t>(NAME, {1} ),
   INLINE_FEATURE_ITERATOR(POPULATE_NAMES)
 #undef POPULATE_NAMES
 };
@@ -371,7 +364,7 @@ void MLInlineAdvice::reportContextForRemark(
   using namespace ore;
   OR << NV("Callee", Callee->getName());
   for (size_t I = 0; I < NumberOfFeatures; ++I)
-    OR << NV(FeatureNameMap[I],
+    OR << NV(FeatureMap[I].name(),
              *getAdvisor()->getModelRunner().getTensor<int64_t>(I));
   OR << NV("ShouldInline", isInliningRecommended());
 }

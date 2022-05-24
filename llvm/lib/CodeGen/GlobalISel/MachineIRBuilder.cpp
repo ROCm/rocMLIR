@@ -9,8 +9,6 @@
 /// This file implements the MachineIRBuidler class.
 //===----------------------------------------------------------------------===//
 #include "llvm/CodeGen/GlobalISel/MachineIRBuilder.h"
-#include "llvm/Analysis/MemoryLocation.h"
-#include "llvm/CodeGen/GlobalISel/GISelChangeObserver.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -19,7 +17,7 @@
 #include "llvm/CodeGen/TargetLowering.h"
 #include "llvm/CodeGen/TargetOpcodes.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
-#include "llvm/IR/DebugInfo.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 
 using namespace llvm;
 
@@ -663,6 +661,17 @@ MachineInstrBuilder MachineIRBuilder::buildBuildVector(const DstOp &Res,
   // we need some temporary storage for the DstOp objects. Here we use a
   // sufficiently large SmallVector to not go through the heap.
   SmallVector<SrcOp, 8> TmpVec(Ops.begin(), Ops.end());
+  return buildInstr(TargetOpcode::G_BUILD_VECTOR, Res, TmpVec);
+}
+
+MachineInstrBuilder
+MachineIRBuilder::buildBuildVectorConstant(const DstOp &Res,
+                                           ArrayRef<APInt> Ops) {
+  SmallVector<SrcOp> TmpVec;
+  TmpVec.reserve(Ops.size());
+  LLT EltTy = Res.getLLTTy(*getMRI()).getElementType();
+  for (auto &Op : Ops)
+    TmpVec.push_back(buildConstant(EltTy, Op));
   return buildInstr(TargetOpcode::G_BUILD_VECTOR, Res, TmpVec);
 }
 

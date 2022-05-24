@@ -47,12 +47,10 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
 #include "llvm/Transforms/Utils/SSAUpdater.h"
 #include <algorithm>
 #include <cassert>
-#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -211,6 +209,18 @@ public:
       Value *Addr = cast<StoreInst>(Store)->getPointerOperand();
       Type *Ty = LiveInValue->getType();
       IRBuilder<> Builder(InsertPos);
+      if (auto *AddrInst = dyn_cast_or_null<IntToPtrInst>(Addr)) {
+        // If isRuntimeCounterRelocationEnabled() is true then the address of
+        // the store instruction is computed with two instructions in
+        // InstrProfiling::getCounterAddress(). We need to copy those
+        // instructions to this block to compute Addr correctly.
+        // %BiasAdd = add i64 ptrtoint <__profc_>, <__llvm_profile_counter_bias>
+        // %Addr = inttoptr i64 %BiasAdd to i64*
+        auto *OrigBiasInst = dyn_cast<BinaryOperator>(AddrInst->getOperand(0));
+        assert(OrigBiasInst->getOpcode() == Instruction::BinaryOps::Add);
+        Value *BiasInst = Builder.Insert(OrigBiasInst->clone());
+        Addr = Builder.CreateIntToPtr(BiasInst, Ty->getPointerTo());
+      }
       if (AtomicCounterUpdatePromoted)
         // automic update currently can only be promoted across the current
         // loop, not the whole loop nest.
@@ -705,10 +715,9 @@ Value *InstrProfiling::getCounterAddress(InstrProfInstBase *I) {
 
   Type *Int64Ty = Type::getInt64Ty(M->getContext());
   Function *Fn = I->getParent()->getParent();
-  Instruction &EntryI = Fn->getEntryBlock().front();
-  LoadInst *LI = dyn_cast<LoadInst>(&EntryI);
-  if (!LI) {
-    IRBuilder<> EntryBuilder(&EntryI);
+  LoadInst *&BiasLI = FunctionToProfileBiasMap[Fn];
+  if (!BiasLI) {
+    IRBuilder<> EntryBuilder(&Fn->getEntryBlock().front());
     auto *Bias = M->getGlobalVariable(getInstrProfCounterBiasVarName());
     if (!Bias) {
       // Compiler must define this variable when runtime counter relocation
@@ -725,9 +734,9 @@ Value *InstrProfiling::getCounterAddress(InstrProfInstBase *I) {
       if (TT.supportsCOMDAT())
         Bias->setComdat(M->getOrInsertComdat(Bias->getName()));
     }
-    LI = EntryBuilder.CreateLoad(Int64Ty, Bias);
+    BiasLI = EntryBuilder.CreateLoad(Int64Ty, Bias);
   }
-  auto *Add = Builder.CreateAdd(Builder.CreatePtrToInt(Addr, Int64Ty), LI);
+  auto *Add = Builder.CreateAdd(Builder.CreatePtrToInt(Addr, Int64Ty), BiasLI);
   return Builder.CreateIntToPtr(Add, Addr->getType());
 }
 
@@ -769,7 +778,8 @@ void InstrProfiling::lowerCoverageData(GlobalVariable *CoverageNamesVar) {
 
     Name->setLinkage(GlobalValue::PrivateLinkage);
     ReferencedNames.push_back(Name);
-    NC->dropAllReferences();
+    if (isa<ConstantExpr>(NC))
+      NC->dropAllReferences();
   }
   CoverageNamesVar->eraseFromParent();
 }
@@ -856,8 +866,8 @@ static bool needsRuntimeRegistrationOfSectionRange(const Triple &TT) {
   if (TT.isOSDarwin())
     return false;
   // Use linker script magic to get data/cnts/name start/end.
-  if (TT.isOSLinux() || TT.isOSFreeBSD() || TT.isOSNetBSD() ||
-      TT.isOSSolaris() || TT.isOSFuchsia() || TT.isPS4CPU() || TT.isOSWindows())
+  if (TT.isOSAIX() || TT.isOSLinux() || TT.isOSFreeBSD() || TT.isOSNetBSD() ||
+      TT.isOSSolaris() || TT.isOSFuchsia() || TT.isPS4() || TT.isOSWindows())
     return false;
 
   return true;

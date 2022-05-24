@@ -11,7 +11,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "CodeViewDebug.h"
-#include "DwarfExpression.h"
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/Optional.h"
@@ -29,7 +28,6 @@
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
-#include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/TargetFrameLowering.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
@@ -41,7 +39,6 @@
 #include "llvm/DebugInfo/CodeView/EnumTables.h"
 #include "llvm/DebugInfo/CodeView/Line.h"
 #include "llvm/DebugInfo/CodeView/SymbolRecord.h"
-#include "llvm/DebugInfo/CodeView/TypeDumpVisitor.h"
 #include "llvm/DebugInfo/CodeView/TypeRecord.h"
 #include "llvm/DebugInfo/CodeView/TypeTableCollection.h"
 #include "llvm/DebugInfo/CodeView/TypeVisitorCallbackPipeline.h"
@@ -58,11 +55,8 @@
 #include "llvm/MC/MCSectionCOFF.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSymbol.h"
-#include "llvm/Support/BinaryByteStream.h"
-#include "llvm/Support/BinaryStreamReader.h"
 #include "llvm/Support/BinaryStreamWriter.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -515,7 +509,7 @@ void CodeViewDebug::maybeRecordLocation(const DebugLoc &DL,
   if (!DL || DL == PrevInstLoc)
     return;
 
-  const DIScope *Scope = DL.get()->getScope();
+  const DIScope *Scope = DL->getScope();
   if (!Scope)
     return;
 
@@ -614,18 +608,16 @@ static SourceLanguage MapDWLangToCVLang(unsigned DWLang) {
 void CodeViewDebug::beginModule(Module *M) {
   // If module doesn't have named metadata anchors or COFF debug section
   // is not available, skip any debug info related stuff.
-  NamedMDNode *CUs = M->getNamedMetadata("llvm.dbg.cu");
-  if (!CUs || !Asm->getObjFileLowering().getCOFFDebugSymbolsSection()) {
+  if (!MMI->hasDebugInfo() ||
+      !Asm->getObjFileLowering().getCOFFDebugSymbolsSection()) {
     Asm = nullptr;
     return;
   }
-  // Tell MMI that we have and need debug info.
-  MMI->setDebugInfoAvailability(true);
 
   TheCPU = mapArchToCVCPUType(Triple(M->getTargetTriple()).getArch());
 
   // Get the current source language.
-  const MDNode *Node = *CUs->operands().begin();
+  const MDNode *Node = *M->debug_compile_units_begin();
   const auto *CU = cast<DICompileUnit>(Node);
 
   CurrentSourceLanguage = MapDWLangToCVLang(CU->getSourceLanguage());
@@ -1250,9 +1242,9 @@ void CodeViewDebug::emitDebugInfoForFunction(const Function *GV,
   OS.emitCVLinetableDirective(FI.FuncId, Fn, FI.End);
 }
 
-CodeViewDebug::LocalVarDefRange
+CodeViewDebug::LocalVarDef
 CodeViewDebug::createDefRangeMem(uint16_t CVRegister, int Offset) {
-  LocalVarDefRange DR;
+  LocalVarDef DR;
   DR.InMemory = -1;
   DR.DataOffset = Offset;
   assert(DR.DataOffset == Offset && "truncation");
@@ -1304,19 +1296,19 @@ void CodeViewDebug::collectVariableInfoFromMFTable(
            "Frame offsets with a scalable component are not supported");
 
     // Calculate the label ranges.
-    LocalVarDefRange DefRange =
+    LocalVarDef DefRange =
         createDefRangeMem(CVReg, FrameOffset.getFixed() + ExprOffset);
+
+    LocalVariable Var;
+    Var.DIVar = VI.Var;
 
     for (const InsnRange &Range : Scope->getRanges()) {
       const MCSymbol *Begin = getLabelBeforeInsn(Range.first);
       const MCSymbol *End = getLabelAfterInsn(Range.second);
       End = End ? End : Asm->getFunctionEnd();
-      DefRange.Ranges.emplace_back(Begin, End);
+      Var.DefRanges[DefRange].emplace_back(Begin, End);
     }
 
-    LocalVariable Var;
-    Var.DIVar = VI.Var;
-    Var.DefRanges.emplace_back(std::move(DefRange));
     if (Deref)
       Var.UseReferenceType = true;
 
@@ -1375,24 +1367,18 @@ void CodeViewDebug::calculateRanges(
     // We can only handle a register or an offseted load of a register.
     if (Location->Register == 0 || Location->LoadChain.size() > 1)
       continue;
-    {
-      LocalVarDefRange DR;
-      DR.CVRegister = TRI->getCodeViewRegNum(Location->Register);
-      DR.InMemory = !Location->LoadChain.empty();
-      DR.DataOffset =
-          !Location->LoadChain.empty() ? Location->LoadChain.back() : 0;
-      if (Location->FragmentInfo) {
-        DR.IsSubfield = true;
-        DR.StructOffset = Location->FragmentInfo->OffsetInBits / 8;
-      } else {
-        DR.IsSubfield = false;
-        DR.StructOffset = 0;
-      }
 
-      if (Var.DefRanges.empty() ||
-          Var.DefRanges.back().isDifferentLocation(DR)) {
-        Var.DefRanges.emplace_back(std::move(DR));
-      }
+    LocalVarDef DR;
+    DR.CVRegister = TRI->getCodeViewRegNum(Location->Register);
+    DR.InMemory = !Location->LoadChain.empty();
+    DR.DataOffset =
+        !Location->LoadChain.empty() ? Location->LoadChain.back() : 0;
+    if (Location->FragmentInfo) {
+      DR.IsSubfield = true;
+      DR.StructOffset = Location->FragmentInfo->OffsetInBits / 8;
+    } else {
+      DR.IsSubfield = false;
+      DR.StructOffset = 0;
     }
 
     // Compute the label range.
@@ -1409,7 +1395,7 @@ void CodeViewDebug::calculateRanges(
     // If the last range end is our begin, just extend the last range.
     // Otherwise make a new range.
     SmallVectorImpl<std::pair<const MCSymbol *, const MCSymbol *>> &R =
-        Var.DefRanges.back().Ranges;
+        Var.DefRanges[DR];
     if (!R.empty() && R.back().second == Begin)
       R.back().second = End;
     else
@@ -1826,6 +1812,7 @@ TypeIndex CodeViewDebug::lowerTypeBasic(const DIBasicType *Ty) {
     break;
   case dwarf::DW_ATE_UTF:
     switch (ByteSize) {
+    case 1: STK = SimpleTypeKind::Character8; break;
     case 2: STK = SimpleTypeKind::Character16; break;
     case 4: STK = SimpleTypeKind::Character32; break;
     }
@@ -2821,7 +2808,9 @@ void CodeViewDebug::emitLocalVariable(const FunctionInfo &FI,
   // records and on disk formats are described in SymbolRecords.h. BytePrefix
   // should be big enough to hold all forms without memory allocation.
   SmallString<20> BytePrefix;
-  for (const LocalVarDefRange &DefRange : Var.DefRanges) {
+  for (const auto &Pair : Var.DefRanges) {
+    LocalVarDef DefRange = Pair.first;
+    const auto &Ranges = Pair.second;
     BytePrefix.clear();
     if (DefRange.InMemory) {
       int Offset = DefRange.DataOffset;
@@ -2845,7 +2834,7 @@ void CodeViewDebug::emitLocalVariable(const FunctionInfo &FI,
                : (EncFP == FI.EncodedLocalFramePtrReg))) {
         DefRangeFramePointerRelHeader DRHdr;
         DRHdr.Offset = Offset;
-        OS.emitCVDefRangeDirective(DefRange.Ranges, DRHdr);
+        OS.emitCVDefRangeDirective(Ranges, DRHdr);
       } else {
         uint16_t RegRelFlags = 0;
         if (DefRange.IsSubfield) {
@@ -2857,7 +2846,7 @@ void CodeViewDebug::emitLocalVariable(const FunctionInfo &FI,
         DRHdr.Register = Reg;
         DRHdr.Flags = RegRelFlags;
         DRHdr.BasePointerOffset = Offset;
-        OS.emitCVDefRangeDirective(DefRange.Ranges, DRHdr);
+        OS.emitCVDefRangeDirective(Ranges, DRHdr);
       }
     } else {
       assert(DefRange.DataOffset == 0 && "unexpected offset into register");
@@ -2866,12 +2855,12 @@ void CodeViewDebug::emitLocalVariable(const FunctionInfo &FI,
         DRHdr.Register = DefRange.CVRegister;
         DRHdr.MayHaveNoName = 0;
         DRHdr.OffsetInParent = DefRange.StructOffset;
-        OS.emitCVDefRangeDirective(DefRange.Ranges, DRHdr);
+        OS.emitCVDefRangeDirective(Ranges, DRHdr);
       } else {
         DefRangeRegisterHeader DRHdr;
         DRHdr.Register = DefRange.CVRegister;
         DRHdr.MayHaveNoName = 0;
-        OS.emitCVDefRangeDirective(DefRange.Ranges, DRHdr);
+        OS.emitCVDefRangeDirective(Ranges, DRHdr);
       }
     }
   }
@@ -3182,6 +3171,11 @@ void CodeViewDebug::collectGlobalVariableInfo() {
     for (const auto *GVE : CU->getGlobalVariables()) {
       const DIGlobalVariable *DIGV = GVE->getVariable();
       const DIExpression *DIE = GVE->getExpression();
+      // Don't emit string literals in CodeView, as the only useful parts are
+      // generally the filename and line number, which isn't possible to output
+      // in CodeView. String literals should be the only unnamed GlobalVariable
+      // with debug info.
+      if (DIGV->getName().empty()) continue;
 
       if ((DIE->getNumElements() == 2) &&
           (DIE->getElement(0) == dwarf::DW_OP_plus_uconst))

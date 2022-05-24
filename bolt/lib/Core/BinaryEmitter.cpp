@@ -17,6 +17,7 @@
 #include "bolt/Core/DebugData.h"
 #include "bolt/Utils/CommandLineOpts.h"
 #include "bolt/Utils/Utils.h"
+#include "llvm/DebugInfo/DWARF/DWARFCompileUnit.h"
 #include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/Support/CommandLine.h"
@@ -276,7 +277,7 @@ void BinaryEmitter::emitFunctions() {
 }
 
 bool BinaryEmitter::emitFunction(BinaryFunction &Function, bool EmitColdPart) {
-  if (Function.size() == 0)
+  if (Function.size() == 0 && !Function.hasIslandsInfo())
     return false;
 
   if (Function.getState() == BinaryFunction::State::Empty)
@@ -290,6 +291,12 @@ bool BinaryEmitter::emitFunction(BinaryFunction &Function, bool EmitColdPart) {
   BC.Ctx->addGenDwarfSection(Section);
 
   if (BC.HasRelocations) {
+    // Set section alignment to at least maximum possible object alignment.
+    // We need this to support LongJmp and other passes that calculates
+    // tentative layout.
+    if (Section->getAlignment() < opts::AlignFunctions)
+      Section->setAlignment(Align(opts::AlignFunctions));
+
     Streamer.emitCodeAlignment(BinaryFunction::MinAlign, &*BC.STI);
     uint16_t MaxAlignBytes = EmitColdPart ? Function.getMaxColdAlignmentBytes()
                                           : Function.getMaxAlignmentBytes();
@@ -492,6 +499,13 @@ void BinaryEmitter::emitConstantIslands(BinaryFunction &BF, bool EmitColdPart,
   BinaryFunction::IslandInfo &Islands = BF.getIslandInfo();
   if (Islands.DataOffsets.empty() && Islands.Dependency.empty())
     return;
+
+  // AArch64 requires CI to be aligned to 8 bytes due to access instructions
+  // restrictions. E.g. the ldr with imm, where imm must be aligned to 8 bytes.
+  const uint16_t Alignment = OnBehalfOf
+                                 ? OnBehalfOf->getConstantIslandAlignment()
+                                 : BF.getConstantIslandAlignment();
+  Streamer.emitCodeAlignment(Alignment, &*BC.STI);
 
   if (!OnBehalfOf) {
     if (!EmitColdPart)

@@ -56,7 +56,8 @@ void RISCVDAGToDAGISel::PreprocessISelDAG() {
           VT.isInteger() ? RISCVISD::VMV_V_X_VL : RISCVISD::VFMV_V_F_VL;
       SDLoc DL(N);
       SDValue VL = CurDAG->getRegister(RISCV::X0, Subtarget->getXLenVT());
-      SDValue Result = CurDAG->getNode(Opc, DL, VT, N->getOperand(0), VL);
+      SDValue Result = CurDAG->getNode(Opc, DL, VT, CurDAG->getUNDEF(VT),
+                                       N->getOperand(0), VL);
 
       --I;
       CurDAG->ReplaceAllUsesOfValueWith(SDValue(N, 0), Result);
@@ -71,11 +72,12 @@ void RISCVDAGToDAGISel::PreprocessISelDAG() {
     if (N->getOpcode() != RISCVISD::SPLAT_VECTOR_SPLIT_I64_VL)
       continue;
 
-    assert(N->getNumOperands() == 3 && "Unexpected number of operands");
+    assert(N->getNumOperands() == 4 && "Unexpected number of operands");
     MVT VT = N->getSimpleValueType(0);
-    SDValue Lo = N->getOperand(0);
-    SDValue Hi = N->getOperand(1);
-    SDValue VL = N->getOperand(2);
+    SDValue Passthru = N->getOperand(0);
+    SDValue Lo = N->getOperand(1);
+    SDValue Hi = N->getOperand(2);
+    SDValue VL = N->getOperand(3);
     assert(VT.getVectorElementType() == MVT::i64 && VT.isScalableVector() &&
            Lo.getValueType() == MVT::i32 && Hi.getValueType() == MVT::i32 &&
            "Unexpected VTs!");
@@ -106,7 +108,7 @@ void RISCVDAGToDAGISel::PreprocessISelDAG() {
         CurDAG->getTargetConstant(Intrinsic::riscv_vlse, DL, MVT::i64);
     SDValue Ops[] = {Chain,
                      IntID,
-                     CurDAG->getUNDEF(VT),
+                     Passthru,
                      StackSlot,
                      CurDAG->getRegister(RISCV::X0, MVT::i64),
                      VL};
@@ -130,6 +132,7 @@ void RISCVDAGToDAGISel::PreprocessISelDAG() {
 }
 
 void RISCVDAGToDAGISel::PostprocessISelDAG() {
+  HandleSDNode Dummy(CurDAG->getRoot());
   SelectionDAG::allnodes_iterator Position = CurDAG->allnodes_end();
 
   bool MadeChange = false;
@@ -143,6 +146,8 @@ void RISCVDAGToDAGISel::PostprocessISelDAG() {
     MadeChange |= doPeepholeLoadStoreADDI(N);
     MadeChange |= doPeepholeMaskedRVV(N);
   }
+
+  CurDAG->setRoot(Dummy.getValue());
 
   if (MadeChange)
     CurDAG->RemoveDeadNodes();
@@ -306,6 +311,10 @@ void RISCVDAGToDAGISel::addVectorLoadStoreOperands(
     Operands.push_back(Glue);
 }
 
+static bool isAllUndef(ArrayRef<SDValue> Values) {
+  return llvm::all_of(Values, [](SDValue V) { return V->isUndef(); });
+}
+
 void RISCVDAGToDAGISel::selectVLSEG(SDNode *Node, bool IsMasked,
                                     bool IsStrided) {
   SDLoc DL(Node);
@@ -316,19 +325,21 @@ void RISCVDAGToDAGISel::selectVLSEG(SDNode *Node, bool IsMasked,
 
   unsigned CurOp = 2;
   SmallVector<SDValue, 8> Operands;
-  if (IsMasked) {
-    SmallVector<SDValue, 8> Regs(Node->op_begin() + CurOp,
-                                 Node->op_begin() + CurOp + NF);
-    SDValue MaskedOff = createTuple(*CurDAG, Regs, NF, LMUL);
-    Operands.push_back(MaskedOff);
-    CurOp += NF;
+
+  SmallVector<SDValue, 8> Regs(Node->op_begin() + CurOp,
+                               Node->op_begin() + CurOp + NF);
+  bool IsTU = IsMasked || !isAllUndef(Regs);
+  if (IsTU) {
+    SDValue Merge = createTuple(*CurDAG, Regs, NF, LMUL);
+    Operands.push_back(Merge);
   }
+  CurOp += NF;
 
   addVectorLoadStoreOperands(Node, Log2SEW, DL, CurOp, IsMasked, IsStrided,
                              Operands, /*IsLoad=*/true);
 
   const RISCV::VLSEGPseudo *P =
-      RISCV::getVLSEGPseudo(NF, IsMasked, IsStrided, /*FF*/ false, Log2SEW,
+      RISCV::getVLSEGPseudo(NF, IsMasked, IsTU, IsStrided, /*FF*/ false, Log2SEW,
                             static_cast<unsigned>(LMUL));
   MachineSDNode *Load =
       CurDAG->getMachineNode(P->Pseudo, DL, MVT::Untyped, MVT::Other, Operands);
@@ -352,30 +363,43 @@ void RISCVDAGToDAGISel::selectVLSEGFF(SDNode *Node, bool IsMasked) {
   unsigned NF = Node->getNumValues() - 2; // Do not count VL and Chain.
   MVT VT = Node->getSimpleValueType(0);
   MVT XLenVT = Subtarget->getXLenVT();
-  unsigned Log2SEW = Log2_32(VT.getScalarSizeInBits());
+  unsigned SEW = VT.getScalarSizeInBits();
+  unsigned Log2SEW = Log2_32(SEW);
   RISCVII::VLMUL LMUL = RISCVTargetLowering::getLMUL(VT);
 
   unsigned CurOp = 2;
   SmallVector<SDValue, 7> Operands;
-  if (IsMasked) {
-    SmallVector<SDValue, 8> Regs(Node->op_begin() + CurOp,
-                                 Node->op_begin() + CurOp + NF);
+
+  SmallVector<SDValue, 8> Regs(Node->op_begin() + CurOp,
+                               Node->op_begin() + CurOp + NF);
+  bool IsTU = IsMasked || !isAllUndef(Regs);
+  if (IsTU) {
     SDValue MaskedOff = createTuple(*CurDAG, Regs, NF, LMUL);
     Operands.push_back(MaskedOff);
-    CurOp += NF;
   }
+  CurOp += NF;
 
   addVectorLoadStoreOperands(Node, Log2SEW, DL, CurOp, IsMasked,
                              /*IsStridedOrIndexed*/ false, Operands,
                              /*IsLoad=*/true);
 
   const RISCV::VLSEGPseudo *P =
-      RISCV::getVLSEGPseudo(NF, IsMasked, /*Strided*/ false, /*FF*/ true,
+      RISCV::getVLSEGPseudo(NF, IsMasked, IsTU, /*Strided*/ false, /*FF*/ true,
                             Log2SEW, static_cast<unsigned>(LMUL));
   MachineSDNode *Load = CurDAG->getMachineNode(P->Pseudo, DL, MVT::Untyped,
                                                MVT::Other, MVT::Glue, Operands);
+  bool TailAgnostic = true;
+  bool MaskAgnostic = false;
+  if (IsMasked) {
+    uint64_t Policy = Node->getConstantOperandVal(Node->getNumOperands() - 1);
+    TailAgnostic = Policy & RISCVII::TAIL_AGNOSTIC;
+    MaskAgnostic = Policy & RISCVII::MASK_AGNOSTIC;
+  }
+  unsigned VType =
+      RISCVVType::encodeVTYPE(LMUL, SEW, TailAgnostic, MaskAgnostic);
+  SDValue VTypeOp = CurDAG->getTargetConstant(VType, DL, XLenVT);
   SDNode *ReadVL = CurDAG->getMachineNode(RISCV::PseudoReadVL, DL, XLenVT,
-                                          /*Glue*/ SDValue(Load, 2));
+                                          VTypeOp, /*Glue*/ SDValue(Load, 2));
 
   if (auto *MemOp = dyn_cast<MemSDNode>(Node))
     CurDAG->setNodeMemRefs(Load, {MemOp->getMemOperand()});
@@ -402,13 +426,15 @@ void RISCVDAGToDAGISel::selectVLXSEG(SDNode *Node, bool IsMasked,
 
   unsigned CurOp = 2;
   SmallVector<SDValue, 8> Operands;
-  if (IsMasked) {
-    SmallVector<SDValue, 8> Regs(Node->op_begin() + CurOp,
-                                 Node->op_begin() + CurOp + NF);
+
+  SmallVector<SDValue, 8> Regs(Node->op_begin() + CurOp,
+                               Node->op_begin() + CurOp + NF);
+  bool IsTU = IsMasked || !isAllUndef(Regs);
+  if (IsTU) {
     SDValue MaskedOff = createTuple(*CurDAG, Regs, NF, LMUL);
     Operands.push_back(MaskedOff);
-    CurOp += NF;
   }
+  CurOp += NF;
 
   MVT IndexVT;
   addVectorLoadStoreOperands(Node, Log2SEW, DL, CurOp, IsMasked,
@@ -425,7 +451,7 @@ void RISCVDAGToDAGISel::selectVLXSEG(SDNode *Node, bool IsMasked,
                        "values when XLEN=32");
   }
   const RISCV::VLXSEGPseudo *P = RISCV::getVLXSEGPseudo(
-      NF, IsMasked, IsOrdered, IndexLog2EEW, static_cast<unsigned>(LMUL),
+      NF, IsMasked, IsTU, IsOrdered, IndexLog2EEW, static_cast<unsigned>(LMUL),
       static_cast<unsigned>(IndexLMUL));
   MachineSDNode *Load =
       CurDAG->getMachineNode(P->Pseudo, DL, MVT::Untyped, MVT::Other, Operands);
@@ -719,8 +745,12 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
 
     uint64_t C1 = N1C->getZExtValue();
 
-    // Keep track of whether this is an andi.
-    bool IsANDI = isInt<12>(N1C->getSExtValue());
+    // Keep track of whether this is a c.andi. If we can't use c.andi, the
+    // shift pair might offer more compression opportunities.
+    // TODO: We could check for C extension here, but we don't have many lit
+    // tests with the C extension enabled so not checking gets better coverage.
+    // TODO: What if ANDI faster than shift?
+    bool IsCANDI = isInt<6>(N1C->getSExtValue());
 
     // Clear irrelevant bits in the mask.
     if (LeftShift)
@@ -767,7 +797,13 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
         }
 
         // (srli (slli x, c3-c2), c3).
-        if (OneUseOrZExtW && !IsANDI) {
+        // Skip if we could use (zext.w (sraiw X, C2)).
+        bool Skip = Subtarget->hasStdExtZba() && C3 == 32 &&
+                    X.getOpcode() == ISD::SIGN_EXTEND_INREG &&
+                    cast<VTSDNode>(X.getOperand(1))->getVT() == MVT::i32;
+        // Also Skip if we can use bexti.
+        Skip |= Subtarget->hasStdExtZbs() && C3 == XLen - 1;
+        if (OneUseOrZExtW && !Skip) {
           SDNode *SLLI = CurDAG->getMachineNode(
               RISCV::SLLI, DL, XLenVT, X,
               CurDAG->getTargetConstant(C3 - C2, DL, XLenVT));
@@ -797,7 +833,7 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
         }
 
         // (srli (slli c2+c3), c3)
-        if (OneUseOrZExtW && !IsANDI) {
+        if (OneUseOrZExtW && !IsCANDI) {
           SDNode *SLLI = CurDAG->getMachineNode(
               RISCV::SLLI, DL, XLenVT, X,
               CurDAG->getTargetConstant(C2 + C3, DL, XLenVT));
@@ -815,9 +851,16 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
     if (!LeftShift && isShiftedMask_64(C1)) {
       uint64_t Leading = XLen - (64 - countLeadingZeros(C1));
       uint64_t C3 = countTrailingZeros(C1);
-      if (Leading == C2 && C2 + C3 < XLen && OneUseOrZExtW && !IsANDI) {
+      if (Leading == C2 && C2 + C3 < XLen && OneUseOrZExtW && !IsCANDI) {
+        unsigned SrliOpc = RISCV::SRLI;
+        // If the input is zexti32 we should use SRLIW.
+        if (X.getOpcode() == ISD::AND && isa<ConstantSDNode>(X.getOperand(1)) &&
+            X.getConstantOperandVal(1) == UINT64_C(0xFFFFFFFF)) {
+          SrliOpc = RISCV::SRLIW;
+          X = X.getOperand(0);
+        }
         SDNode *SRLI = CurDAG->getMachineNode(
-            RISCV::SRLI, DL, XLenVT, X,
+            SrliOpc, DL, XLenVT, X,
             CurDAG->getTargetConstant(C2 + C3, DL, XLenVT));
         SDNode *SLLI =
             CurDAG->getMachineNode(RISCV::SLLI, DL, XLenVT, SDValue(SRLI, 0),
@@ -827,7 +870,7 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
       }
       // If the leading zero count is C2+32, we can use SRLIW instead of SRLI.
       if (Leading > 32 && (Leading - 32) == C2 && C2 + C3 < 32 &&
-          OneUseOrZExtW && !IsANDI) {
+          OneUseOrZExtW && !IsCANDI) {
         SDNode *SRLIW = CurDAG->getMachineNode(
             RISCV::SRLIW, DL, XLenVT, X,
             CurDAG->getTargetConstant(C2 + C3, DL, XLenVT));
@@ -844,7 +887,7 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
     if (LeftShift && isShiftedMask_64(C1)) {
       uint64_t Leading = XLen - (64 - countLeadingZeros(C1));
       uint64_t C3 = countTrailingZeros(C1);
-      if (Leading == 0 && C2 < C3 && OneUseOrZExtW && !IsANDI) {
+      if (Leading == 0 && C2 < C3 && OneUseOrZExtW && !IsCANDI) {
         SDNode *SRLI = CurDAG->getMachineNode(
             RISCV::SRLI, DL, XLenVT, X,
             CurDAG->getTargetConstant(C3 - C2, DL, XLenVT));
@@ -855,7 +898,7 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
         return;
       }
       // If we have (32-C2) leading zeros, we can use SRLIW instead of SRLI.
-      if (C2 < C3 && Leading + C2 == 32 && OneUseOrZExtW && !IsANDI) {
+      if (C2 < C3 && Leading + C2 == 32 && OneUseOrZExtW && !IsCANDI) {
         SDNode *SRLIW = CurDAG->getMachineNode(
             RISCV::SRLIW, DL, XLenVT, X,
             CurDAG->getTargetConstant(C3 - C2, DL, XLenVT));
@@ -1019,45 +1062,44 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
       }
       MVT Src1VT = Src1.getSimpleValueType();
       unsigned VMSLTOpcode, VMSLTMaskOpcode, VMXOROpcode, VMANDNOpcode,
-          VMSetOpcode, VMANDOpcode;
+          VMOROpcode;
       switch (RISCVTargetLowering::getLMUL(Src1VT)) {
       default:
         llvm_unreachable("Unexpected LMUL!");
-#define CASE_VMSLT_VMSET_OPCODES(lmulenum, suffix, suffix_b)                   \
+#define CASE_VMSLT_OPCODES(lmulenum, suffix, suffix_b)                         \
   case RISCVII::VLMUL::lmulenum:                                               \
     VMSLTOpcode = IsUnsigned ? RISCV::PseudoVMSLTU_VX_##suffix                 \
                              : RISCV::PseudoVMSLT_VX_##suffix;                 \
     VMSLTMaskOpcode = IsUnsigned ? RISCV::PseudoVMSLTU_VX_##suffix##_MASK      \
                                  : RISCV::PseudoVMSLT_VX_##suffix##_MASK;      \
-    VMSetOpcode = RISCV::PseudoVMSET_M_##suffix_b;                             \
     break;
-        CASE_VMSLT_VMSET_OPCODES(LMUL_F8, MF8, B1)
-        CASE_VMSLT_VMSET_OPCODES(LMUL_F4, MF4, B2)
-        CASE_VMSLT_VMSET_OPCODES(LMUL_F2, MF2, B4)
-        CASE_VMSLT_VMSET_OPCODES(LMUL_1, M1, B8)
-        CASE_VMSLT_VMSET_OPCODES(LMUL_2, M2, B16)
-        CASE_VMSLT_VMSET_OPCODES(LMUL_4, M4, B32)
-        CASE_VMSLT_VMSET_OPCODES(LMUL_8, M8, B64)
-#undef CASE_VMSLT_VMSET_OPCODES
+        CASE_VMSLT_OPCODES(LMUL_F8, MF8, B1)
+        CASE_VMSLT_OPCODES(LMUL_F4, MF4, B2)
+        CASE_VMSLT_OPCODES(LMUL_F2, MF2, B4)
+        CASE_VMSLT_OPCODES(LMUL_1, M1, B8)
+        CASE_VMSLT_OPCODES(LMUL_2, M2, B16)
+        CASE_VMSLT_OPCODES(LMUL_4, M4, B32)
+        CASE_VMSLT_OPCODES(LMUL_8, M8, B64)
+#undef CASE_VMSLT_OPCODES
       }
       // Mask operations use the LMUL from the mask type.
       switch (RISCVTargetLowering::getLMUL(VT)) {
       default:
         llvm_unreachable("Unexpected LMUL!");
-#define CASE_VMXOR_VMANDN_VMAND_OPCODES(lmulenum, suffix)                       \
+#define CASE_VMXOR_VMANDN_VMOR_OPCODES(lmulenum, suffix)                       \
   case RISCVII::VLMUL::lmulenum:                                               \
     VMXOROpcode = RISCV::PseudoVMXOR_MM_##suffix;                              \
     VMANDNOpcode = RISCV::PseudoVMANDN_MM_##suffix;                            \
-    VMANDOpcode = RISCV::PseudoVMAND_MM_##suffix;                              \
+    VMOROpcode = RISCV::PseudoVMOR_MM_##suffix;                                \
     break;
-        CASE_VMXOR_VMANDN_VMAND_OPCODES(LMUL_F8, MF8)
-        CASE_VMXOR_VMANDN_VMAND_OPCODES(LMUL_F4, MF4)
-        CASE_VMXOR_VMANDN_VMAND_OPCODES(LMUL_F2, MF2)
-        CASE_VMXOR_VMANDN_VMAND_OPCODES(LMUL_1, M1)
-        CASE_VMXOR_VMANDN_VMAND_OPCODES(LMUL_2, M2)
-        CASE_VMXOR_VMANDN_VMAND_OPCODES(LMUL_4, M4)
-        CASE_VMXOR_VMANDN_VMAND_OPCODES(LMUL_8, M8)
-#undef CASE_VMXOR_VMANDN_VMAND_OPCODES
+        CASE_VMXOR_VMANDN_VMOR_OPCODES(LMUL_F8, MF8)
+        CASE_VMXOR_VMANDN_VMOR_OPCODES(LMUL_F4, MF4)
+        CASE_VMXOR_VMANDN_VMOR_OPCODES(LMUL_F2, MF2)
+        CASE_VMXOR_VMANDN_VMOR_OPCODES(LMUL_1, M1)
+        CASE_VMXOR_VMANDN_VMOR_OPCODES(LMUL_2, M2)
+        CASE_VMXOR_VMANDN_VMOR_OPCODES(LMUL_4, M4)
+        CASE_VMXOR_VMANDN_VMOR_OPCODES(LMUL_8, M8)
+#undef CASE_VMXOR_VMANDN_VMOR_OPCODES
       }
       SDValue SEW = CurDAG->getTargetConstant(
           Log2_32(Src1VT.getScalarSizeInBits()), DL, XLenVT);
@@ -1067,12 +1109,17 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
       SDValue MaskedOff = Node->getOperand(1);
       SDValue Mask = Node->getOperand(4);
 
-      // If vmsgeu_mask with 0 immediate, expand it to {vmset, vmand}.
+      // If vmsgeu_mask with 0 immediate, expand it to vmor mask, maskedoff.
       if (IsCmpUnsignedZero) {
-        SDValue VMSet =
-            SDValue(CurDAG->getMachineNode(VMSetOpcode, DL, VT, VL, SEW), 0);
-        ReplaceNode(Node, CurDAG->getMachineNode(VMANDOpcode, DL, VT,
-                                                 {Mask, VMSet, VL, MaskSEW}));
+        // We don't need vmor if the MaskedOff and the Mask are the same
+        // value.
+        if (Mask == MaskedOff) {
+          ReplaceUses(Node, Mask.getNode());
+          return;
+        }
+        ReplaceNode(Node,
+                    CurDAG->getMachineNode(VMOROpcode, DL, VT,
+                                           {Mask, MaskedOff, VL, MaskSEW}));
         return;
       }
 
@@ -1096,10 +1143,14 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
 
       // Otherwise use
       // vmslt{u}.vx vd, va, x, v0.t; vmxor.mm vd, vd, v0
+      // The result is mask undisturbed.
+      // We use the same instructions to emulate mask agnostic behavior, because
+      // the agnostic result can be either undisturbed or all 1.
       SDValue Cmp = SDValue(
           CurDAG->getMachineNode(VMSLTMaskOpcode, DL, VT,
                                  {MaskedOff, Src1, Src2, V0, VL, SEW, Glue}),
           0);
+      // vmxor.mm vd, vd, v0 is used to update active value.
       ReplaceNode(Node, CurDAG->getMachineNode(VMXOROpcode, DL, VT,
                                                {Cmp, Mask, VL, MaskSEW}));
       return;
@@ -1312,7 +1363,8 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
       bool IsMasked = IntNo == Intrinsic::riscv_vleff_mask;
 
       MVT VT = Node->getSimpleValueType(0);
-      unsigned Log2SEW = Log2_32(VT.getScalarSizeInBits());
+      unsigned SEW = VT.getScalarSizeInBits();
+      unsigned Log2SEW = Log2_32(SEW);
 
       unsigned CurOp = 2;
       // Masked intrinsic only have TU version pseduo instructions.
@@ -1335,8 +1387,20 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
       MachineSDNode *Load =
           CurDAG->getMachineNode(P->Pseudo, DL, Node->getValueType(0),
                                  MVT::Other, MVT::Glue, Operands);
-      SDNode *ReadVL = CurDAG->getMachineNode(RISCV::PseudoReadVL, DL, XLenVT,
-                                              /*Glue*/ SDValue(Load, 2));
+      bool TailAgnostic = !IsTU;
+      bool MaskAgnostic = false;
+      if (IsMasked) {
+        uint64_t Policy =
+            Node->getConstantOperandVal(Node->getNumOperands() - 1);
+        TailAgnostic = Policy & RISCVII::TAIL_AGNOSTIC;
+        MaskAgnostic = Policy & RISCVII::MASK_AGNOSTIC;
+      }
+      unsigned VType =
+          RISCVVType::encodeVTYPE(LMUL, SEW, TailAgnostic, MaskAgnostic);
+      SDValue VTypeOp = CurDAG->getTargetConstant(VType, DL, XLenVT);
+      SDNode *ReadVL =
+          CurDAG->getMachineNode(RISCV::PseudoReadVL, DL, XLenVT, VTypeOp,
+                                 /*Glue*/ SDValue(Load, 2));
 
       if (auto *MemOp = dyn_cast<MemSDNode>(Node))
         CurDAG->setNodeMemRefs(Load, {MemOp->getMemOperand()});
@@ -1624,9 +1688,10 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
     // Try to match splat of a scalar load to a strided load with stride of x0.
     bool IsScalarMove = Node->getOpcode() == RISCVISD::VMV_S_X_VL ||
                         Node->getOpcode() == RISCVISD::VFMV_S_F_VL;
-    if (IsScalarMove && !Node->getOperand(0).isUndef())
+    bool HasPassthruOperand = Node->getOpcode() != ISD::SPLAT_VECTOR;
+    if (HasPassthruOperand && !Node->getOperand(0).isUndef())
       break;
-    SDValue Src = IsScalarMove ? Node->getOperand(1) : Node->getOperand(0);
+    SDValue Src = HasPassthruOperand ? Node->getOperand(1) : Node->getOperand(0);
     auto *Ld = dyn_cast<LoadSDNode>(Src);
     if (!Ld)
       break;
@@ -1648,7 +1713,7 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
         break;
       selectVLOp(Node->getOperand(2), VL);
     } else
-      selectVLOp(Node->getOperand(1), VL);
+      selectVLOp(Node->getOperand(2), VL);
 
     unsigned Log2SEW = Log2_32(VT.getScalarSizeInBits());
     SDValue SEW = CurDAG->getTargetConstant(Log2SEW, DL, XLenVT);
@@ -1664,8 +1729,7 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
     MachineSDNode *Load =
         CurDAG->getMachineNode(P->Pseudo, DL, Node->getVTList(), Operands);
 
-    if (auto *MemOp = dyn_cast<MemSDNode>(Node))
-      CurDAG->setNodeMemRefs(Load, {MemOp->getMemOperand()});
+    CurDAG->setNodeMemRefs(Load, {Ld->getMemOperand()});
 
     ReplaceNode(Node, Load);
     return;
@@ -1808,6 +1872,8 @@ bool RISCVDAGToDAGISel::hasAllNBitUsers(SDNode *Node, unsigned Bits) const {
           Node->getOpcode() == ISD::MUL || Node->getOpcode() == ISD::SHL ||
           Node->getOpcode() == ISD::SRL ||
           Node->getOpcode() == ISD::SIGN_EXTEND_INREG ||
+          Node->getOpcode() == RISCVISD::GREV ||
+          Node->getOpcode() == RISCVISD::GORC ||
           isa<ConstantSDNode>(Node)) &&
          "Unexpected opcode");
 
@@ -1842,6 +1908,7 @@ bool RISCVDAGToDAGISel::hasAllNBitUsers(SDNode *Node, unsigned Bits) const {
     case RISCV::CTZW:
     case RISCV::CPOPW:
     case RISCV::SLLI_UW:
+    case RISCV::FMV_W_X:
     case RISCV::FCVT_H_W:
     case RISCV::FCVT_H_WU:
     case RISCV::FCVT_S_W:
@@ -1865,6 +1932,7 @@ bool RISCVDAGToDAGISel::hasAllNBitUsers(SDNode *Node, unsigned Bits) const {
         return false;
       break;
     case RISCV::SEXT_H:
+    case RISCV::FMV_H_X:
     case RISCV::ZEXT_H_RV32:
     case RISCV::ZEXT_H_RV64:
       if (Bits < 16)
@@ -1924,9 +1992,9 @@ bool RISCVDAGToDAGISel::selectVLOp(SDValue N, SDValue &VL) {
 }
 
 bool RISCVDAGToDAGISel::selectVSplat(SDValue N, SDValue &SplatVal) {
-  if (N.getOpcode() != RISCVISD::VMV_V_X_VL)
+  if (N.getOpcode() != RISCVISD::VMV_V_X_VL || !N.getOperand(0).isUndef())
     return false;
-  SplatVal = N.getOperand(0);
+  SplatVal = N.getOperand(1);
   return true;
 }
 
@@ -1936,11 +2004,12 @@ static bool selectVSplatSimmHelper(SDValue N, SDValue &SplatVal,
                                    SelectionDAG &DAG,
                                    const RISCVSubtarget &Subtarget,
                                    ValidateFn ValidateImm) {
-  if (N.getOpcode() != RISCVISD::VMV_V_X_VL ||
-      !isa<ConstantSDNode>(N.getOperand(0)))
+  if (N.getOpcode() != RISCVISD::VMV_V_X_VL || !N.getOperand(0).isUndef() ||
+      !isa<ConstantSDNode>(N.getOperand(1)))
     return false;
 
-  int64_t SplatImm = cast<ConstantSDNode>(N.getOperand(0))->getSExtValue();
+  int64_t SplatImm =
+      cast<ConstantSDNode>(N.getOperand(1))->getSExtValue();
 
   // The semantics of RISCVISD::VMV_V_X_VL is that when the operand
   // type is wider than the resulting vector element type: an implicit
@@ -1950,7 +2019,7 @@ static bool selectVSplatSimmHelper(SDValue N, SDValue &SplatVal,
   // For example, we wish to match (i8 -1) -> (XLenVT 255) as a simm5 by first
   // sign-extending to (XLenVT -1).
   MVT XLenVT = Subtarget.getXLenVT();
-  assert(XLenVT == N.getOperand(0).getSimpleValueType() &&
+  assert(XLenVT == N.getOperand(1).getSimpleValueType() &&
          "Unexpected splat operand type");
   MVT EltVT = N.getSimpleValueType().getVectorElementType();
   if (EltVT.bitsLT(XLenVT))
@@ -1983,11 +2052,12 @@ bool RISCVDAGToDAGISel::selectVSplatSimm5Plus1NonZero(SDValue N,
 }
 
 bool RISCVDAGToDAGISel::selectVSplatUimm5(SDValue N, SDValue &SplatVal) {
-  if (N.getOpcode() != RISCVISD::VMV_V_X_VL ||
-      !isa<ConstantSDNode>(N.getOperand(0)))
+  if (N.getOpcode() != RISCVISD::VMV_V_X_VL || !N.getOperand(0).isUndef() ||
+      !isa<ConstantSDNode>(N.getOperand(1)))
     return false;
 
-  int64_t SplatImm = cast<ConstantSDNode>(N.getOperand(0))->getSExtValue();
+  int64_t SplatImm =
+      cast<ConstantSDNode>(N.getOperand(1))->getSExtValue();
 
   if (!isUInt<5>(SplatImm))
     return false;
@@ -2016,6 +2086,10 @@ bool RISCVDAGToDAGISel::selectRVVSimm5(SDValue N, unsigned Width,
 // Merge an ADDI into the offset of a load/store instruction where possible.
 // (load (addi base, off1), off2) -> (load base, off1+off2)
 // (store val, (addi base, off1), off2) -> (store val, base, off1+off2)
+// (load (add base, (addi src, off1)), off2)
+//    -> (load (add base, src), off1+off2)
+// (store val, (add base, (addi src, off1)), off2)
+//    -> (store val, (add base, src), off1+off2)
 // This is possible when off1+off2 fits a 12-bit immediate.
 bool RISCVDAGToDAGISel::doPeepholeLoadStoreADDI(SDNode *N) {
   int OffsetOpIdx;
@@ -2055,8 +2129,57 @@ bool RISCVDAGToDAGISel::doPeepholeLoadStoreADDI(SDNode *N) {
 
   SDValue Base = N->getOperand(BaseOpIdx);
 
-  // If the base is an ADDI, we can merge it in to the load/store.
-  if (!Base.isMachineOpcode() || Base.getMachineOpcode() != RISCV::ADDI)
+  if (!Base.isMachineOpcode())
+    return false;
+
+  // There is a ADD between ADDI and load/store. We can only fold ADDI that
+  // do not have a FrameIndex operand.
+  SDValue Add;
+  unsigned AddBaseIdx;
+  if (Base.getMachineOpcode() == RISCV::ADD && Base.hasOneUse()) {
+    Add = Base;
+    SDValue Op0 = Base.getOperand(0);
+    SDValue Op1 = Base.getOperand(1);
+    if (Op0.isMachineOpcode() && Op0.getMachineOpcode() == RISCV::ADDI &&
+        !isa<FrameIndexSDNode>(Op0.getOperand(0)) &&
+        isa<ConstantSDNode>(Op0.getOperand(1))) {
+      AddBaseIdx = 1;
+      Base = Op0;
+    } else if (Op1.isMachineOpcode() && Op1.getMachineOpcode() == RISCV::ADDI &&
+               !isa<FrameIndexSDNode>(Op1.getOperand(0)) &&
+               isa<ConstantSDNode>(Op1.getOperand(1))) {
+      AddBaseIdx = 0;
+      Base = Op1;
+    } else if (Op1.isMachineOpcode() &&
+               Op1.getMachineOpcode() == RISCV::ADDIW &&
+               isa<ConstantSDNode>(Op1.getOperand(1)) &&
+               Op1.getOperand(0).isMachineOpcode() &&
+               Op1.getOperand(0).getMachineOpcode() == RISCV::LUI) {
+      // We found an LUI+ADDIW constant materialization. We might be able to
+      // fold the ADDIW offset if it could be treated as ADDI.
+      // Emulate the constant materialization to see if the result would be
+      // a simm32 if ADDI was used instead of ADDIW.
+
+      // First the LUI.
+      uint64_t Imm = Op1.getOperand(0).getConstantOperandVal(0);
+      Imm <<= 12;
+      Imm = SignExtend64(Imm, 32);
+
+      // Then the ADDI.
+      uint64_t LoImm = cast<ConstantSDNode>(Op1.getOperand(1))->getSExtValue();
+      Imm += LoImm;
+
+      // If the result isn't a simm32, we can't do the optimization.
+      if (!isInt<32>(Imm))
+        return false;
+
+      AddBaseIdx = 0;
+      Base = Op1;
+    } else
+      return false;
+  } else if (Base.getMachineOpcode() == RISCV::ADDI) {
+    // If the base is an ADDI, we can merge it in to the load/store.
+  } else
     return false;
 
   SDValue ImmOperand = Base.getOperand(1);
@@ -2103,13 +2226,27 @@ bool RISCVDAGToDAGISel::doPeepholeLoadStoreADDI(SDNode *N) {
   LLVM_DEBUG(N->dump(CurDAG));
   LLVM_DEBUG(dbgs() << "\n");
 
+  if (Add)
+    Add = SDValue(CurDAG->UpdateNodeOperands(Add.getNode(),
+                                             Add.getOperand(AddBaseIdx),
+                                             Base.getOperand(0)),
+                  0);
+
   // Modify the offset operand of the load/store.
-  if (BaseOpIdx == 0) // Load
-    CurDAG->UpdateNodeOperands(N, Base.getOperand(0), ImmOperand,
-                               N->getOperand(2));
-  else // Store
-    CurDAG->UpdateNodeOperands(N, N->getOperand(0), Base.getOperand(0),
-                               ImmOperand, N->getOperand(3));
+  if (BaseOpIdx == 0) { // Load
+    if (Add)
+      N = CurDAG->UpdateNodeOperands(N, Add, ImmOperand, N->getOperand(2));
+    else
+      N = CurDAG->UpdateNodeOperands(N, Base.getOperand(0), ImmOperand,
+                                     N->getOperand(2));
+  } else { // Store
+    if (Add)
+      N = CurDAG->UpdateNodeOperands(N, N->getOperand(0), Add, ImmOperand,
+                                     N->getOperand(3));
+    else
+      N = CurDAG->UpdateNodeOperands(N, N->getOperand(0), Base.getOperand(0),
+                                     ImmOperand, N->getOperand(3));
+  }
 
   return true;
 }
@@ -2166,6 +2303,8 @@ bool RISCVDAGToDAGISel::doPeepholeSExtW(SDNode *N) {
   case RISCV::SUBW:
   case RISCV::MULW:
   case RISCV::SLLIW:
+  case RISCV::GREVIW:
+  case RISCV::GORCIW:
     // Result is already sign extended just remove the sext.w.
     // NOTE: We only handle the nodes that are selected with hasAllWUsers.
     ReplaceUses(N, N0.getNode());
@@ -2226,32 +2365,52 @@ bool RISCVDAGToDAGISel::doPeepholeMaskedRVV(SDNode *N) {
 
   const MCInstrDesc &MaskedMCID = TII->get(N->getMachineOpcode());
 
+  bool IsTA = true;
   if (RISCVII::hasVecPolicyOp(MaskedMCID.TSFlags)) {
-    // The last operand of the pseudo is the policy op, but we're expecting a
-    // Glue operand last. We may also have a chain.
+    // The last operand of the pseudo is the policy op, but we might have a
+    // Glue operand last. We might also have a chain.
     TailPolicyOpIdx = N->getNumOperands() - 1;
     if (N->getOperand(*TailPolicyOpIdx).getValueType() == MVT::Glue)
       (*TailPolicyOpIdx)--;
     if (N->getOperand(*TailPolicyOpIdx).getValueType() == MVT::Other)
       (*TailPolicyOpIdx)--;
 
-    // If the policy isn't TAIL_AGNOSTIC we can't perform this optimization.
-    if (N->getConstantOperandVal(*TailPolicyOpIdx) != RISCVII::TAIL_AGNOSTIC)
-      return false;
+    if (!(N->getConstantOperandVal(*TailPolicyOpIdx) &
+          RISCVII::TAIL_AGNOSTIC)) {
+      // Keep the true-masked instruction when there is no unmasked TU
+      // instruction
+      if (I->UnmaskedTUPseudo == I->MaskedPseudo && !N->getOperand(0).isUndef())
+        return false;
+      // We can't use TA if the tie-operand is not IMPLICIT_DEF
+      if (!N->getOperand(0).isUndef())
+        IsTA = false;
+    }
   }
 
-  const MCInstrDesc &UnmaskedMCID = TII->get(I->UnmaskedPseudo);
+  if (IsTA) {
+    uint64_t TSFlags = TII->get(I->UnmaskedPseudo).TSFlags;
 
-  // Check that we're dropping the merge operand, the mask operand, and any
-  // policy operand when we transform to this unmasked pseudo.
-  assert(!RISCVII::hasMergeOp(UnmaskedMCID.TSFlags) &&
-         RISCVII::hasDummyMaskOp(UnmaskedMCID.TSFlags) &&
-         !RISCVII::hasVecPolicyOp(UnmaskedMCID.TSFlags) &&
-         "Unexpected pseudo to transform to");
+    // Check that we're dropping the merge operand, the mask operand, and any
+    // policy operand when we transform to this unmasked pseudo.
+    assert(!RISCVII::hasMergeOp(TSFlags) && RISCVII::hasDummyMaskOp(TSFlags) &&
+           !RISCVII::hasVecPolicyOp(TSFlags) &&
+           "Unexpected pseudo to transform to");
+    (void)TSFlags;
+  } else {
+    uint64_t TSFlags = TII->get(I->UnmaskedTUPseudo).TSFlags;
 
+    // Check that we're dropping the mask operand, and any policy operand
+    // when we transform to this unmasked tu pseudo.
+    assert(RISCVII::hasMergeOp(TSFlags) && RISCVII::hasDummyMaskOp(TSFlags) &&
+           !RISCVII::hasVecPolicyOp(TSFlags) &&
+           "Unexpected pseudo to transform to");
+    (void)TSFlags;
+  }
+
+  unsigned Opc = IsTA ? I->UnmaskedPseudo : I->UnmaskedTUPseudo;
   SmallVector<SDValue, 8> Ops;
-  // Skip the merge operand at index 0.
-  for (unsigned I = 1, E = N->getNumOperands(); I != E; I++) {
+  // Skip the merge operand at index 0 if IsTA
+  for (unsigned I = IsTA, E = N->getNumOperands(); I != E; I++) {
     // Skip the mask, the policy, and the Glue.
     SDValue Op = N->getOperand(I);
     if (I == MaskOpIdx || I == TailPolicyOpIdx ||
@@ -2264,8 +2423,7 @@ bool RISCVDAGToDAGISel::doPeepholeMaskedRVV(SDNode *N) {
   if (auto *TGlued = Glued->getGluedNode())
     Ops.push_back(SDValue(TGlued, TGlued->getNumValues() - 1));
 
-  SDNode *Result =
-      CurDAG->getMachineNode(I->UnmaskedPseudo, SDLoc(N), N->getVTList(), Ops);
+  SDNode *Result = CurDAG->getMachineNode(Opc, SDLoc(N), N->getVTList(), Ops);
   ReplaceUses(N, Result);
 
   return true;

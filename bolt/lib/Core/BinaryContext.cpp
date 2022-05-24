@@ -17,6 +17,7 @@
 #include "bolt/Utils/NameResolver.h"
 #include "bolt/Utils/Utils.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/DebugInfo/DWARF/DWARFCompileUnit.h"
 #include "llvm/DebugInfo/DWARF/DWARFFormValue.h"
 #include "llvm/DebugInfo/DWARF/DWARFUnit.h"
 #include "llvm/MC/MCAsmLayout.h"
@@ -32,6 +33,7 @@
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Error.h"
 #include "llvm/Support/Regex.h"
 #include <algorithm>
 #include <functional>
@@ -99,6 +101,7 @@ BinaryContext::BinaryContext(std::unique_ptr<MCContext> Ctx,
       InstPrinter(std::move(InstPrinter)), MIA(std::move(MIA)),
       MIB(std::move(MIB)), MRI(std::move(MRI)), DisAsm(std::move(DisAsm)) {
   Relocation::Arch = this->TheTriple->getArch();
+  RegularPageSize = isAArch64() ? RegularPageSizeAArch64 : RegularPageSizeX86;
   PageAlign = opts::NoHugePages ? RegularPageSize : HugePageSize;
 }
 
@@ -114,7 +117,7 @@ BinaryContext::~BinaryContext() {
 
 /// Create BinaryContext for a given architecture \p ArchName and
 /// triple \p TripleName.
-std::unique_ptr<BinaryContext>
+Expected<std::unique_ptr<BinaryContext>>
 BinaryContext::createBinaryContext(const ObjectFile *File, bool IsPIC,
                                    std::unique_ptr<DWARFContext> DwCtx) {
   StringRef ArchName = "";
@@ -130,8 +133,8 @@ BinaryContext::createBinaryContext(const ObjectFile *File, bool IsPIC,
                   "+fullfp16,+spe,+fuse-aes,+rcpc";
     break;
   default:
-    errs() << "BOLT-ERROR: Unrecognized machine in ELF file.\n";
-    return nullptr;
+    return createStringError(std::errc::not_supported,
+                             "BOLT-ERROR: Unrecognized machine in ELF file");
   }
 
   auto TheTriple = std::make_unique<Triple>(File->makeTriple());
@@ -140,39 +143,42 @@ BinaryContext::createBinaryContext(const ObjectFile *File, bool IsPIC,
   std::string Error;
   const Target *TheTarget =
       TargetRegistry::lookupTarget(std::string(ArchName), *TheTriple, Error);
-  if (!TheTarget) {
-    errs() << "BOLT-ERROR: " << Error;
-    return nullptr;
-  }
+  if (!TheTarget)
+    return createStringError(make_error_code(std::errc::not_supported),
+                             Twine("BOLT-ERROR: ", Error));
 
   std::unique_ptr<const MCRegisterInfo> MRI(
       TheTarget->createMCRegInfo(TripleName));
-  if (!MRI) {
-    errs() << "BOLT-ERROR: no register info for target " << TripleName << "\n";
-    return nullptr;
-  }
+  if (!MRI)
+    return createStringError(
+        make_error_code(std::errc::not_supported),
+        Twine("BOLT-ERROR: no register info for target ", TripleName));
 
   // Set up disassembler.
-  std::unique_ptr<const MCAsmInfo> AsmInfo(
+  std::unique_ptr<MCAsmInfo> AsmInfo(
       TheTarget->createMCAsmInfo(*MRI, TripleName, MCTargetOptions()));
-  if (!AsmInfo) {
-    errs() << "BOLT-ERROR: no assembly info for target " << TripleName << "\n";
-    return nullptr;
-  }
+  if (!AsmInfo)
+    return createStringError(
+        make_error_code(std::errc::not_supported),
+        Twine("BOLT-ERROR: no assembly info for target ", TripleName));
+  // BOLT creates "func@PLT" symbols for PLT entries. In function assembly dump
+  // we want to emit such names as using @PLT without double quotes to convey
+  // variant kind to the assembler. BOLT doesn't rely on the linker so we can
+  // override the default AsmInfo behavior to emit names the way we want.
+  AsmInfo->setAllowAtInName(true);
 
   std::unique_ptr<const MCSubtargetInfo> STI(
       TheTarget->createMCSubtargetInfo(TripleName, "", FeaturesStr));
-  if (!STI) {
-    errs() << "BOLT-ERROR: no subtarget info for target " << TripleName << "\n";
-    return nullptr;
-  }
+  if (!STI)
+    return createStringError(
+        make_error_code(std::errc::not_supported),
+        Twine("BOLT-ERROR: no subtarget info for target ", TripleName));
 
   std::unique_ptr<const MCInstrInfo> MII(TheTarget->createMCInstrInfo());
-  if (!MII) {
-    errs() << "BOLT-ERROR: no instruction info for target " << TripleName
-           << "\n";
-    return nullptr;
-  }
+  if (!MII)
+    return createStringError(
+        make_error_code(std::errc::not_supported),
+        Twine("BOLT-ERROR: no instruction info for target ", TripleName));
 
   std::unique_ptr<MCContext> Ctx(
       new MCContext(*TheTriple, AsmInfo.get(), MRI.get(), STI.get()));
@@ -197,32 +203,31 @@ BinaryContext::createBinaryContext(const ObjectFile *File, bool IsPIC,
   std::unique_ptr<MCDisassembler> DisAsm(
       TheTarget->createMCDisassembler(*STI, *Ctx));
 
-  if (!DisAsm) {
-    errs() << "BOLT-ERROR: no disassembler for target " << TripleName << "\n";
-    return nullptr;
-  }
+  if (!DisAsm)
+    return createStringError(
+        make_error_code(std::errc::not_supported),
+        Twine("BOLT-ERROR: no disassembler info for target ", TripleName));
 
   std::unique_ptr<const MCInstrAnalysis> MIA(
       TheTarget->createMCInstrAnalysis(MII.get()));
-  if (!MIA) {
-    errs() << "BOLT-ERROR: failed to create instruction analysis for target"
-           << TripleName << "\n";
-    return nullptr;
-  }
+  if (!MIA)
+    return createStringError(
+        make_error_code(std::errc::not_supported),
+        Twine("BOLT-ERROR: failed to create instruction analysis for target ",
+              TripleName));
 
   int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
   std::unique_ptr<MCInstPrinter> InstructionPrinter(
       TheTarget->createMCInstPrinter(*TheTriple, AsmPrinterVariant, *AsmInfo,
                                      *MII, *MRI));
-  if (!InstructionPrinter) {
-    errs() << "BOLT-ERROR: no instruction printer for target " << TripleName
-           << '\n';
-    return nullptr;
-  }
+  if (!InstructionPrinter)
+    return createStringError(
+        make_error_code(std::errc::not_supported),
+        Twine("BOLT-ERROR: no instruction printer for target ", TripleName));
   InstructionPrinter->setPrintImmHex(true);
 
   std::unique_ptr<MCCodeEmitter> MCE(
-      TheTarget->createMCCodeEmitter(*MII, *MRI, *Ctx));
+      TheTarget->createMCCodeEmitter(*MII, *Ctx));
 
   // Make sure we don't miss any output on core dumps.
   outs().SetUnbuffered();
@@ -246,7 +251,7 @@ BinaryContext::createBinaryContext(const ObjectFile *File, bool IsPIC,
 
   BC->HasFixedLoadAddress = !IsPIC;
 
-  return BC;
+  return std::move(BC);
 }
 
 bool BinaryContext::forceSymbolRelocations(StringRef SymbolName) const {
@@ -712,8 +717,10 @@ void BinaryContext::skipMarkedFragments() {
     std::for_each(BF->ParentFragments.begin(), BF->ParentFragments.end(),
                   addToWorklist);
   }
-  errs() << "BOLT-WARNING: Ignored " << FragmentsToSkip.size() << " functions "
-         << "due to cold fragments.\n";
+  if (!FragmentsToSkip.empty())
+    errs() << "BOLT-WARNING: ignored " << FragmentsToSkip.size() << " function"
+           << (FragmentsToSkip.size() == 1 ? "" : "s")
+           << " due to cold fragments\n";
   FragmentsToSkip.clear();
 }
 
@@ -802,6 +809,7 @@ BinaryContext::duplicateJumpTable(BinaryFunction &Function, JumpTable *JT,
     break;
   }
   assert(Found && "Label not found");
+  (void)Found;
   MCSymbol *NewLabel = Ctx->createNamedTempSymbol("duplicatedJT");
   JumpTable *NewJT =
       new JumpTable(*NewLabel, JT->getAddress(), JT->EntrySize, JT->Type,
@@ -1165,6 +1173,7 @@ void BinaryContext::postProcessSymbolTable() {
     }
   }
   assert(Valid);
+  (void)Valid;
   generateSymbolHashes();
 }
 
@@ -1318,14 +1327,13 @@ void BinaryContext::printGlobalSymbols(raw_ostream &OS) const {
   }
 }
 
-Expected<unsigned>
-BinaryContext::getDwarfFile(StringRef Directory, StringRef FileName,
-                            unsigned FileNumber,
-                            Optional<MD5::MD5Result> Checksum,
-                            Optional<StringRef> Source, unsigned CUID) {
+Expected<unsigned> BinaryContext::getDwarfFile(
+    StringRef Directory, StringRef FileName, unsigned FileNumber,
+    Optional<MD5::MD5Result> Checksum, Optional<StringRef> Source,
+    unsigned CUID, unsigned DWARFVersion) {
   DwarfLineTable &Table = DwarfLineTablesCUMap[CUID];
-  return Table.tryGetFile(Directory, FileName, Checksum, Source,
-                          Ctx->getDwarfVersion(), FileNumber);
+  return Table.tryGetFile(Directory, FileName, Checksum, Source, DWARFVersion,
+                          FileNumber);
 }
 
 unsigned BinaryContext::addDebugFilenameToUnit(const uint32_t DestCUID,
@@ -1353,7 +1361,9 @@ unsigned BinaryContext::addDebugFilenameToUnit(const uint32_t DestCUID,
           dwarf::toString(FileNames[FileIndex - 1].Name))
     FileName = *FName;
   assert(FileName != "");
-  return cantFail(getDwarfFile(Dir, FileName, 0, None, None, DestCUID));
+  DWARFCompileUnit *DstUnit = DwCtx->getCompileUnitForOffset(DestCUID);
+  return cantFail(getDwarfFile(Dir, FileName, 0, None, None, DestCUID,
+                               DstUnit->getVersion()));
 }
 
 std::vector<BinaryFunction *> BinaryContext::getSortedFunctions() {
@@ -1451,7 +1461,14 @@ void BinaryContext::preprocessDebugInfo() {
       if (containsAddress(Range.LowPC))
         AllRanges.emplace_back(CURange{Range.LowPC, Range.HighPC, CU.get()});
     }
+
+    ContainsDwarf5 |= CU->getVersion() >= 5;
+    ContainsDwarfLegacy |= CU->getVersion() < 5;
   }
+
+  if (ContainsDwarf5 && ContainsDwarfLegacy)
+    llvm::errs() << "BOLT-WARNING: BOLT does not support mix mode binary with "
+                    "DWARF5 and DWARF{2,3,4}.\n";
 
   std::sort(AllRanges.begin(), AllRanges.end());
   for (auto &KV : BinaryFunctions) {
@@ -1485,11 +1502,14 @@ void BinaryContext::preprocessDebugInfo() {
            << DwCtx->getNumCompileUnits() << " CUs will be updated\n";
   }
 
+  preprocessDWODebugInfo();
+
   // Populate MCContext with DWARF files from all units.
   StringRef GlobalPrefix = AsmInfo->getPrivateGlobalPrefix();
   for (const std::unique_ptr<DWARFUnit> &CU : DwCtx->compile_units()) {
     const uint64_t CUID = CU->getOffset();
-    getDwarfLineTable(CUID).setLabel(Ctx->getOrCreateSymbol(
+    DwarfLineTable &BinaryLineTable = getDwarfLineTable(CUID);
+    BinaryLineTable.setLabel(Ctx->getOrCreateSymbol(
         GlobalPrefix + "line_table_start" + Twine(CUID)));
 
     if (!ProcessedCUs.count(CU.get()))
@@ -1500,33 +1520,59 @@ void BinaryContext::preprocessDebugInfo() {
     const std::vector<DWARFDebugLine::FileNameEntry> &FileNames =
         LineTable->Prologue.FileNames;
 
+    uint16_t DwarfVersion = LineTable->Prologue.getVersion();
+    if (DwarfVersion >= 5) {
+      Optional<MD5::MD5Result> Checksum = None;
+      if (LineTable->Prologue.ContentTypes.HasMD5)
+        Checksum = LineTable->Prologue.FileNames[0].Checksum;
+      Optional<const char *> Name =
+          dwarf::toString(CU->getUnitDIE().find(dwarf::DW_AT_name), nullptr);
+      if (Optional<uint64_t> DWOID = CU->getDWOId()) {
+        auto Iter = DWOCUs.find(*DWOID);
+        assert(Iter != DWOCUs.end() && "DWO CU was not found.");
+        Name = dwarf::toString(
+            Iter->second->getUnitDIE().find(dwarf::DW_AT_name), nullptr);
+      }
+      BinaryLineTable.setRootFile(CU->getCompilationDir(), *Name, Checksum,
+                                  None);
+    }
+
+    BinaryLineTable.setDwarfVersion(DwarfVersion);
+
     // Assign a unique label to every line table, one per CU.
     // Make sure empty debug line tables are registered too.
     if (FileNames.empty()) {
-      cantFail(getDwarfFile("", "<unknown>", 0, None, None, CUID));
+      cantFail(
+          getDwarfFile("", "<unknown>", 0, None, None, CUID, DwarfVersion));
       continue;
     }
+    const uint32_t Offset = DwarfVersion < 5 ? 1 : 0;
     for (size_t I = 0, Size = FileNames.size(); I != Size; ++I) {
       // Dir indexes start at 1, as DWARF file numbers, and a dir index 0
       // means empty dir.
       StringRef Dir = "";
-      if (FileNames[I].DirIdx != 0)
+      if (FileNames[I].DirIdx != 0 || DwarfVersion >= 5)
         if (Optional<const char *> DirName = dwarf::toString(
                 LineTable->Prologue
-                    .IncludeDirectories[FileNames[I].DirIdx - 1]))
+                    .IncludeDirectories[FileNames[I].DirIdx - Offset]))
           Dir = *DirName;
       StringRef FileName = "";
       if (Optional<const char *> FName = dwarf::toString(FileNames[I].Name))
         FileName = *FName;
       assert(FileName != "");
-      cantFail(getDwarfFile(Dir, FileName, 0, None, None, CUID));
+      Optional<MD5::MD5Result> Checksum = None;
+      if (DwarfVersion >= 5 && LineTable->Prologue.ContentTypes.HasMD5)
+        Checksum = LineTable->Prologue.FileNames[I].Checksum;
+      cantFail(
+          getDwarfFile(Dir, FileName, 0, Checksum, None, CUID, DwarfVersion));
     }
   }
-
-  preprocessDWODebugInfo();
 }
 
 bool BinaryContext::shouldEmit(const BinaryFunction &Function) const {
+  if (Function.isPseudo())
+    return false;
+
   if (opts::processAllFunctions())
     return true;
 
@@ -1678,6 +1724,22 @@ void BinaryContext::printInstruction(raw_ostream &OS, const MCInst &Instruction,
     Instruction.dump_pretty(OS, InstPrinter.get());
     OS << "\n";
   }
+}
+
+Optional<uint64_t>
+BinaryContext::getBaseAddressForMapping(uint64_t MMapAddress,
+                                        uint64_t FileOffset) const {
+  // Find a segment with a matching file offset.
+  for (auto &KV : SegmentMapInfo) {
+    const SegmentInfo &SegInfo = KV.second;
+    if (alignDown(SegInfo.FileOffset, SegInfo.Alignment) == FileOffset) {
+      // Use segment's aligned memory offset to calculate the base address.
+      const uint64_t MemOffset = alignDown(SegInfo.Address, SegInfo.Alignment);
+      return MMapAddress - MemOffset;
+    }
+  }
+
+  return NoneType();
 }
 
 ErrorOr<BinarySection &> BinaryContext::getSectionForAddress(uint64_t Address) {

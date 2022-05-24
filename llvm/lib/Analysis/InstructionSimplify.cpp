@@ -20,7 +20,6 @@
 
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
-#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/AssumptionCache.h"
@@ -36,13 +35,10 @@
 #include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Dominators.h"
-#include "llvm/IR/GetElementPtrTypeIterator.h"
-#include "llvm/IR/GlobalAlias.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/IR/PatternMatch.h"
-#include "llvm/IR/ValueHandle.h"
 #include "llvm/Support/KnownBits.h"
 #include <algorithm>
 using namespace llvm;
@@ -692,37 +688,29 @@ Value *llvm::SimplifyAddInst(Value *Op0, Value *Op1, bool IsNSW, bool IsNUW,
 /// Compute the base pointer and cumulative constant offsets for V.
 ///
 /// This strips all constant offsets off of V, leaving it the base pointer, and
-/// accumulates the total constant offset applied in the returned constant. It
-/// returns 0 if V is not a pointer, and returns the constant '0' if there are
-/// no constant offsets applied.
+/// accumulates the total constant offset applied in the returned constant.
+/// It returns zero if there are no constant offsets applied.
 ///
-/// This is very similar to GetPointerBaseWithConstantOffset except it doesn't
-/// follow non-inbounds geps. This allows it to remain usable for icmp ult/etc.
-/// folding.
-static Constant *stripAndComputeConstantOffsets(const DataLayout &DL, Value *&V,
-                                                bool AllowNonInbounds = false) {
+/// This is very similar to stripAndAccumulateConstantOffsets(), except it
+/// normalizes the offset bitwidth to the stripped pointer type, not the
+/// original pointer type.
+static APInt stripAndComputeConstantOffsets(const DataLayout &DL, Value *&V,
+                                            bool AllowNonInbounds = false) {
   assert(V->getType()->isPtrOrPtrVectorTy());
 
   APInt Offset = APInt::getZero(DL.getIndexTypeSizeInBits(V->getType()));
-
   V = V->stripAndAccumulateConstantOffsets(DL, Offset, AllowNonInbounds);
   // As that strip may trace through `addrspacecast`, need to sext or trunc
   // the offset calculated.
-  Type *IntIdxTy = DL.getIndexType(V->getType())->getScalarType();
-  Offset = Offset.sextOrTrunc(IntIdxTy->getIntegerBitWidth());
-
-  Constant *OffsetIntPtr = ConstantInt::get(IntIdxTy, Offset);
-  if (VectorType *VecTy = dyn_cast<VectorType>(V->getType()))
-    return ConstantVector::getSplat(VecTy->getElementCount(), OffsetIntPtr);
-  return OffsetIntPtr;
+  return Offset.sextOrTrunc(DL.getIndexTypeSizeInBits(V->getType()));
 }
 
 /// Compute the constant difference between two pointer values.
 /// If the difference is not a constant, returns zero.
 static Constant *computePointerDifference(const DataLayout &DL, Value *LHS,
                                           Value *RHS) {
-  Constant *LHSOffset = stripAndComputeConstantOffsets(DL, LHS);
-  Constant *RHSOffset = stripAndComputeConstantOffsets(DL, RHS);
+  APInt LHSOffset = stripAndComputeConstantOffsets(DL, LHS);
+  APInt RHSOffset = stripAndComputeConstantOffsets(DL, RHS);
 
   // If LHS and RHS are not related via constant offsets to the same base
   // value, there is nothing we can do here.
@@ -733,7 +721,10 @@ static Constant *computePointerDifference(const DataLayout &DL, Value *LHS,
   //    LHS - RHS
   //  = (LHSOffset + Base) - (RHSOffset + Base)
   //  = LHSOffset - RHSOffset
-  return ConstantExpr::getSub(LHSOffset, RHSOffset);
+  Constant *Res = ConstantInt::get(LHS->getContext(), LHSOffset - RHSOffset);
+  if (auto *VecTy = dyn_cast<VectorType>(LHS->getType()))
+    Res = ConstantVector::getSplat(VecTy->getElementCount(), Res);
+  return Res;
 }
 
 /// Given operands for a Sub, see if we can fold the result.
@@ -1812,6 +1803,27 @@ static Value *simplifyAndOrOfICmpsWithLimitConst(ICmpInst *Cmp0, ICmpInst *Cmp1,
   return nullptr;
 }
 
+/// Try to simplify and/or of icmp with ctpop intrinsic.
+static Value *simplifyAndOrOfICmpsWithCtpop(ICmpInst *Cmp0, ICmpInst *Cmp1,
+                                            bool IsAnd) {
+  ICmpInst::Predicate Pred0, Pred1;
+  Value *X;
+  const APInt *C;
+  if (!match(Cmp0, m_ICmp(Pred0, m_Intrinsic<Intrinsic::ctpop>(m_Value(X)),
+                          m_APInt(C))) ||
+      !match(Cmp1, m_ICmp(Pred1, m_Specific(X), m_ZeroInt())) || C->isZero())
+    return nullptr;
+
+  // (ctpop(X) == C) || (X != 0) --> X != 0 where C > 0
+  if (!IsAnd && Pred0 == ICmpInst::ICMP_EQ && Pred1 == ICmpInst::ICMP_NE)
+    return Cmp1;
+  // (ctpop(X) != C) && (X == 0) --> X == 0 where C > 0
+  if (IsAnd && Pred0 == ICmpInst::ICMP_NE && Pred1 == ICmpInst::ICMP_EQ)
+    return Cmp1;
+
+  return nullptr;
+}
+
 static Value *simplifyAndOfICmps(ICmpInst *Op0, ICmpInst *Op1,
                                  const SimplifyQuery &Q) {
   if (Value *X = simplifyUnsignedRangeCheck(Op0, Op1, /*IsAnd=*/true, Q))
@@ -1831,6 +1843,11 @@ static Value *simplifyAndOfICmps(ICmpInst *Op0, ICmpInst *Op1,
     return X;
 
   if (Value *X = simplifyAndOrOfICmpsWithZero(Op0, Op1, true))
+    return X;
+
+  if (Value *X = simplifyAndOrOfICmpsWithCtpop(Op0, Op1, true))
+    return X;
+  if (Value *X = simplifyAndOrOfICmpsWithCtpop(Op1, Op0, true))
     return X;
 
   if (Value *X = simplifyAndOfICmpsWithAdd(Op0, Op1, Q.IIQ))
@@ -1907,6 +1924,11 @@ static Value *simplifyOrOfICmps(ICmpInst *Op0, ICmpInst *Op1,
     return X;
 
   if (Value *X = simplifyAndOrOfICmpsWithZero(Op0, Op1, false))
+    return X;
+
+  if (Value *X = simplifyAndOrOfICmpsWithCtpop(Op0, Op1, false))
+    return X;
+  if (Value *X = simplifyAndOrOfICmpsWithCtpop(Op1, Op0, false))
     return X;
 
   if (Value *X = simplifyOrOfICmpsWithAdd(Op0, Op1, Q.IIQ))
@@ -2197,6 +2219,15 @@ static Value *SimplifyAndInst(Value *Op0, Value *Op1, const SimplifyQuery &Q,
       match(Op1, m_c_Xor(m_Specific(Or), m_Specific(Y))))
     return Constant::getNullValue(Op0->getType());
 
+  if (Op0->getType()->isIntOrIntVectorTy(1)) {
+    // Op0&Op1 -> Op0 where Op0 implies Op1
+    if (isImpliedCondition(Op0, Op1, Q.DL).getValueOr(false))
+      return Op0;
+    // Op0&Op1 -> Op1 where Op1 implies Op0
+    if (isImpliedCondition(Op1, Op0, Q.DL).getValueOr(false))
+      return Op1;
+  }
+
   return nullptr;
 }
 
@@ -2334,6 +2365,31 @@ static Value *SimplifyOrInst(Value *Op0, Value *Op1, const SimplifyQuery &Q,
     }
   }
 
+  // A funnel shift (rotate) can be decomposed into simpler shifts. See if we
+  // are mixing in another shift that is redundant with the funnel shift.
+
+  // (fshl X, ?, Y) | (shl X, Y) --> fshl X, ?, Y
+  // (shl X, Y) | (fshl X, ?, Y) --> fshl X, ?, Y
+  if (match(Op0,
+            m_Intrinsic<Intrinsic::fshl>(m_Value(X), m_Value(), m_Value(Y))) &&
+      match(Op1, m_Shl(m_Specific(X), m_Specific(Y))))
+    return Op0;
+  if (match(Op1,
+            m_Intrinsic<Intrinsic::fshl>(m_Value(X), m_Value(), m_Value(Y))) &&
+      match(Op0, m_Shl(m_Specific(X), m_Specific(Y))))
+    return Op1;
+
+  // (fshr ?, X, Y) | (lshr X, Y) --> fshr ?, X, Y
+  // (lshr X, Y) | (fshr ?, X, Y) --> fshr ?, X, Y
+  if (match(Op0,
+            m_Intrinsic<Intrinsic::fshr>(m_Value(), m_Value(X), m_Value(Y))) &&
+      match(Op1, m_LShr(m_Specific(X), m_Specific(Y))))
+    return Op0;
+  if (match(Op1,
+            m_Intrinsic<Intrinsic::fshr>(m_Value(), m_Value(X), m_Value(Y))) &&
+      match(Op0, m_LShr(m_Specific(X), m_Specific(Y))))
+    return Op1;
+
   if (Value *V = simplifyAndOrOfCmps(Q, Op0, Op1, false))
     return V;
 
@@ -2403,6 +2459,15 @@ static Value *SimplifyOrInst(Value *Op0, Value *Op1, const SimplifyQuery &Q,
   if (isa<PHINode>(Op0) || isa<PHINode>(Op1))
     if (Value *V = ThreadBinOpOverPHI(Instruction::Or, Op0, Op1, Q, MaxRecurse))
       return V;
+
+  if (Op0->getType()->isIntOrIntVectorTy(1)) {
+    // Op0|Op1 -> Op1 where Op0 implies Op1
+    if (isImpliedCondition(Op0, Op1, Q.DL).getValueOr(false))
+      return Op1;
+    // Op0|Op1 -> Op0 where Op1 implies Op0
+    if (isImpliedCondition(Op1, Op0, Q.DL).getValueOr(false))
+      return Op0;
+  }
 
   return nullptr;
 }
@@ -2512,6 +2577,70 @@ static Value *ExtractEquivalentCondition(Value *V, CmpInst::Predicate Pred,
   return nullptr;
 }
 
+/// Return true if the underlying object (storage) must be disjoint from
+/// storage returned by any noalias return call.
+static bool IsAllocDisjoint(const Value *V) {
+  // For allocas, we consider only static ones (dynamic
+  // allocas might be transformed into calls to malloc not simultaneously
+  // live with the compared-to allocation). For globals, we exclude symbols
+  // that might be resolve lazily to symbols in another dynamically-loaded
+  // library (and, thus, could be malloc'ed by the implementation).
+  if (const AllocaInst *AI = dyn_cast<AllocaInst>(V))
+    return AI->getParent() && AI->getFunction() && AI->isStaticAlloca();
+  if (const GlobalValue *GV = dyn_cast<GlobalValue>(V))
+    return (GV->hasLocalLinkage() || GV->hasHiddenVisibility() ||
+            GV->hasProtectedVisibility() || GV->hasGlobalUnnamedAddr()) &&
+      !GV->isThreadLocal();
+  if (const Argument *A = dyn_cast<Argument>(V))
+    return A->hasByValAttr();
+  return false;
+}
+
+/// Return true if V1 and V2 are each the base of some distict storage region
+/// [V, object_size(V)] which do not overlap.  Note that zero sized regions
+/// *are* possible, and that zero sized regions do not overlap with any other.
+static bool HaveNonOverlappingStorage(const Value *V1, const Value *V2) {
+  // Global variables always exist, so they always exist during the lifetime
+  // of each other and all allocas.  Global variables themselves usually have
+  // non-overlapping storage, but since their addresses are constants, the
+  // case involving two globals does not reach here and is instead handled in
+  // constant folding.
+  //
+  // Two different allocas usually have different addresses...
+  //
+  // However, if there's an @llvm.stackrestore dynamically in between two
+  // allocas, they may have the same address. It's tempting to reduce the
+  // scope of the problem by only looking at *static* allocas here. That would
+  // cover the majority of allocas while significantly reducing the likelihood
+  // of having an @llvm.stackrestore pop up in the middle. However, it's not
+  // actually impossible for an @llvm.stackrestore to pop up in the middle of
+  // an entry block. Also, if we have a block that's not attached to a
+  // function, we can't tell if it's "static" under the current definition.
+  // Theoretically, this problem could be fixed by creating a new kind of
+  // instruction kind specifically for static allocas. Such a new instruction
+  // could be required to be at the top of the entry block, thus preventing it
+  // from being subject to a @llvm.stackrestore. Instcombine could even
+  // convert regular allocas into these special allocas. It'd be nifty.
+  // However, until then, this problem remains open.
+  //
+  // So, we'll assume that two non-empty allocas have different addresses
+  // for now.
+  auto isByValArg = [](const Value *V) {
+    const Argument *A = dyn_cast<Argument>(V);
+    return A && A->hasByValAttr();
+  };
+
+  // Byval args are backed by store which does not overlap with each other,
+  // allocas, or globals.
+  if (isByValArg(V1))
+    return isa<AllocaInst>(V2) || isa<GlobalVariable>(V2) || isByValArg(V2);
+  if (isByValArg(V2))
+    return isa<AllocaInst>(V1) || isa<GlobalVariable>(V1) || isByValArg(V1);
+
+ return isa<AllocaInst>(V1) &&
+    (isa<AllocaInst>(V2) || isa<GlobalVariable>(V2));
+}
+
 // A significant optimization not implemented here is assuming that alloca
 // addresses are not equal to incoming argument values. They don't *alias*,
 // as we say, but that doesn't mean they aren't equal, so we take a
@@ -2588,87 +2717,46 @@ computePointerICmp(CmpInst::Predicate Pred, Value *LHS, Value *RHS,
   // numerous hazards. AliasAnalysis and its utilities rely on special rules
   // governing loads and stores which don't apply to icmps. Also, AliasAnalysis
   // doesn't need to guarantee pointer inequality when it says NoAlias.
-  Constant *LHSOffset = stripAndComputeConstantOffsets(DL, LHS);
-  Constant *RHSOffset = stripAndComputeConstantOffsets(DL, RHS);
+
+  // Even if an non-inbounds GEP occurs along the path we can still optimize
+  // equality comparisons concerning the result.
+  bool AllowNonInbounds = ICmpInst::isEquality(Pred);
+  APInt LHSOffset = stripAndComputeConstantOffsets(DL, LHS, AllowNonInbounds);
+  APInt RHSOffset = stripAndComputeConstantOffsets(DL, RHS, AllowNonInbounds);
 
   // If LHS and RHS are related via constant offsets to the same base
   // value, we can replace it with an icmp which just compares the offsets.
   if (LHS == RHS)
-    return ConstantExpr::getICmp(Pred, LHSOffset, RHSOffset);
+    return ConstantInt::get(
+        GetCompareTy(LHS), ICmpInst::compare(LHSOffset, RHSOffset, Pred));
 
   // Various optimizations for (in)equality comparisons.
   if (Pred == CmpInst::ICMP_EQ || Pred == CmpInst::ICMP_NE) {
     // Different non-empty allocations that exist at the same time have
-    // different addresses (if the program can tell). Global variables always
-    // exist, so they always exist during the lifetime of each other and all
-    // allocas. Two different allocas usually have different addresses...
-    //
-    // However, if there's an @llvm.stackrestore dynamically in between two
-    // allocas, they may have the same address. It's tempting to reduce the
-    // scope of the problem by only looking at *static* allocas here. That would
-    // cover the majority of allocas while significantly reducing the likelihood
-    // of having an @llvm.stackrestore pop up in the middle. However, it's not
-    // actually impossible for an @llvm.stackrestore to pop up in the middle of
-    // an entry block. Also, if we have a block that's not attached to a
-    // function, we can't tell if it's "static" under the current definition.
-    // Theoretically, this problem could be fixed by creating a new kind of
-    // instruction kind specifically for static allocas. Such a new instruction
-    // could be required to be at the top of the entry block, thus preventing it
-    // from being subject to a @llvm.stackrestore. Instcombine could even
-    // convert regular allocas into these special allocas. It'd be nifty.
-    // However, until then, this problem remains open.
-    //
-    // So, we'll assume that two non-empty allocas have different addresses
-    // for now.
-    //
-    // With all that, if the offsets are within the bounds of their allocations
-    // (and not one-past-the-end! so we can't use inbounds!), and their
-    // allocations aren't the same, the pointers are not equal.
-    //
-    // Note that it's not necessary to check for LHS being a global variable
-    // address, due to canonicalization and constant folding.
-    if (isa<AllocaInst>(LHS) &&
-        (isa<AllocaInst>(RHS) || isa<GlobalVariable>(RHS))) {
-      ConstantInt *LHSOffsetCI = dyn_cast<ConstantInt>(LHSOffset);
-      ConstantInt *RHSOffsetCI = dyn_cast<ConstantInt>(RHSOffset);
+    // different addresses (if the program can tell). If the offsets are
+    // within the bounds of their allocations (and not one-past-the-end!
+    // so we can't use inbounds!), and their allocations aren't the same,
+    // the pointers are not equal.
+    if (HaveNonOverlappingStorage(LHS, RHS)) {
       uint64_t LHSSize, RHSSize;
       ObjectSizeOpts Opts;
-      Opts.NullIsUnknownSize =
-          NullPointerIsDefined(cast<AllocaInst>(LHS)->getFunction());
-      if (LHSOffsetCI && RHSOffsetCI &&
-          getObjectSize(LHS, LHSSize, DL, TLI, Opts) &&
-          getObjectSize(RHS, RHSSize, DL, TLI, Opts)) {
-        const APInt &LHSOffsetValue = LHSOffsetCI->getValue();
-        const APInt &RHSOffsetValue = RHSOffsetCI->getValue();
-        if (!LHSOffsetValue.isNegative() &&
-            !RHSOffsetValue.isNegative() &&
-            LHSOffsetValue.ult(LHSSize) &&
-            RHSOffsetValue.ult(RHSSize)) {
-          return ConstantInt::get(GetCompareTy(LHS),
-                                  !CmpInst::isTrueWhenEqual(Pred));
-        }
-      }
-
-      // Repeat the above check but this time without depending on DataLayout
-      // or being able to compute a precise size.
-      if (!cast<PointerType>(LHS->getType())->isEmptyTy() &&
-          !cast<PointerType>(RHS->getType())->isEmptyTy() &&
-          LHSOffset->isNullValue() &&
-          RHSOffset->isNullValue())
+      Opts.EvalMode = ObjectSizeOpts::Mode::Min;
+      auto *F = [](Value *V) -> Function * {
+        if (auto *I = dyn_cast<Instruction>(V))
+          return I->getFunction();
+        if (auto *A = dyn_cast<Argument>(V))
+          return A->getParent();
+        return nullptr;
+      }(LHS);
+      Opts.NullIsUnknownSize = F ? NullPointerIsDefined(F) : true;
+      if (getObjectSize(LHS, LHSSize, DL, TLI, Opts) &&
+          getObjectSize(RHS, RHSSize, DL, TLI, Opts) &&
+          !LHSOffset.isNegative() && !RHSOffset.isNegative() &&
+          LHSOffset.ult(LHSSize) && RHSOffset.ult(RHSSize)) {
         return ConstantInt::get(GetCompareTy(LHS),
                                 !CmpInst::isTrueWhenEqual(Pred));
+      }
     }
-
-    // Even if an non-inbounds GEP occurs along the path we can still optimize
-    // equality comparisons concerning the result. We avoid walking the whole
-    // chain again by starting where the last calls to
-    // stripAndComputeConstantOffsets left off and accumulate the offsets.
-    Constant *LHSNoBound = stripAndComputeConstantOffsets(DL, LHS, true);
-    Constant *RHSNoBound = stripAndComputeConstantOffsets(DL, RHS, true);
-    if (LHS == RHS)
-      return ConstantExpr::getICmp(Pred,
-                                   ConstantExpr::getAdd(LHSOffset, LHSNoBound),
-                                   ConstantExpr::getAdd(RHSOffset, RHSNoBound));
 
     // If one side of the equality comparison must come from a noalias call
     // (meaning a system memory allocation function), and the other side must
@@ -2685,23 +2773,10 @@ computePointerICmp(CmpInst::Predicate Pred, Value *LHS, Value *RHS,
     };
 
     // Is the set of underlying objects all things which must be disjoint from
-    // noalias calls. For allocas, we consider only static ones (dynamic
-    // allocas might be transformed into calls to malloc not simultaneously
-    // live with the compared-to allocation). For globals, we exclude symbols
-    // that might be resolve lazily to symbols in another dynamically-loaded
-    // library (and, thus, could be malloc'ed by the implementation).
+    // noalias calls.  We assume that indexing from such disjoint storage
+    // into the heap is undefined, and thus offsets can be safely ignored.
     auto IsAllocDisjoint = [](ArrayRef<const Value *> Objects) {
-      return all_of(Objects, [](const Value *V) {
-        if (const AllocaInst *AI = dyn_cast<AllocaInst>(V))
-          return AI->getParent() && AI->getFunction() && AI->isStaticAlloca();
-        if (const GlobalValue *GV = dyn_cast<GlobalValue>(V))
-          return (GV->hasLocalLinkage() || GV->hasHiddenVisibility() ||
-                  GV->hasProtectedVisibility() || GV->hasGlobalUnnamedAddr()) &&
-                 !GV->isThreadLocal();
-        if (const Argument *A = dyn_cast<Argument>(V))
-          return A->hasByValAttr();
-        return false;
-      });
+      return all_of(Objects, ::IsAllocDisjoint);
     };
 
     if ((IsNAC(LHSUObjs) && IsAllocDisjoint(RHSUObjs)) ||
@@ -4475,7 +4550,8 @@ static Value *SimplifyGEPInst(Type *SrcTy, Value *Ptr,
 
   // For opaque pointers an all-zero GEP is a no-op. For typed pointers,
   // it may be equivalent to a bitcast.
-  if (Ptr->getType()->isOpaquePointerTy() &&
+  if (Ptr->getType()->getScalarType()->isOpaquePointerTy() &&
+      Ptr->getType() == GEPTy &&
       all_of(Indices, [](const auto *V) { return match(V, m_Zero()); }))
     return Ptr;
 
@@ -4761,11 +4837,18 @@ static Value *SimplifyPHINode(PHINode *PN, ArrayRef<Value *> IncomingValues,
   if (!CommonValue)
     return UndefValue::get(PN->getType());
 
-  // If we have a PHI node like phi(X, undef, X), where X is defined by some
-  // instruction, we cannot return X as the result of the PHI node unless it
-  // dominates the PHI block.
-  if (HasUndefInput)
+  if (HasUndefInput) {
+    // We cannot start executing a trapping constant expression on more control
+    // flow paths.
+    auto *CE = dyn_cast<ConstantExpr>(CommonValue);
+    if (CE && CE->canTrap())
+      return nullptr;
+
+    // If we have a PHI node like phi(X, undef, X), where X is defined by some
+    // instruction, we cannot return X as the result of the PHI node unless it
+    // dominates the PHI block.
     return valueDominatesPHI(CommonValue, PN, Q.DT) ? CommonValue : nullptr;
+  }
 
   return CommonValue;
 }
@@ -5055,11 +5138,6 @@ static Constant *simplifyFPOp(ArrayRef<Value *> Ops, FastMathFlags FMF,
   return nullptr;
 }
 
-// TODO: Move this out to a header file:
-static inline bool canIgnoreSNaN(fp::ExceptionBehavior EB, FastMathFlags FMF) {
-  return (EB == fp::ebIgnore || FMF.noNaNs());
-}
-
 /// Given operands for an FAdd, see if we can fold the result.  If not, this
 /// returns null.
 static Value *
@@ -5136,24 +5214,29 @@ SimplifyFSubInst(Value *Op0, Value *Op1, FastMathFlags FMF,
   if (Constant *C = simplifyFPOp({Op0, Op1}, FMF, Q, ExBehavior, Rounding))
     return C;
 
-  if (!isDefaultFPEnvironment(ExBehavior, Rounding))
-    return nullptr;
-
   // fsub X, +0 ==> X
-  if (match(Op1, m_PosZeroFP()))
-    return Op0;
+  if (canIgnoreSNaN(ExBehavior, FMF) &&
+      (!canRoundingModeBe(Rounding, RoundingMode::TowardNegative) ||
+       FMF.noSignedZeros()))
+    if (match(Op1, m_PosZeroFP()))
+      return Op0;
 
   // fsub X, -0 ==> X, when we know X is not -0
-  if (match(Op1, m_NegZeroFP()) &&
-      (FMF.noSignedZeros() || CannotBeNegativeZero(Op0, Q.TLI)))
-    return Op0;
+  if (canIgnoreSNaN(ExBehavior, FMF))
+    if (match(Op1, m_NegZeroFP()) &&
+        (FMF.noSignedZeros() || CannotBeNegativeZero(Op0, Q.TLI)))
+      return Op0;
 
   // fsub -0.0, (fsub -0.0, X) ==> X
   // fsub -0.0, (fneg X) ==> X
   Value *X;
-  if (match(Op0, m_NegZeroFP()) &&
-      match(Op1, m_FNeg(m_Value(X))))
-    return X;
+  if (canIgnoreSNaN(ExBehavior, FMF))
+    if (match(Op0, m_NegZeroFP()) &&
+        match(Op1, m_FNeg(m_Value(X))))
+      return X;
+
+  if (!isDefaultFPEnvironment(ExBehavior, Rounding))
+    return nullptr;
 
   // fsub 0.0, (fsub 0.0, X) ==> X if signed zeros are ignored.
   // fsub 0.0, (fneg X) ==> X if signed zeros are ignored.
@@ -5207,8 +5290,8 @@ static Value *SimplifyFMAFMul(Value *Op0, Value *Op1, FastMathFlags FMF,
   // 2. Ignore non-zero negative numbers because sqrt would produce NAN.
   // 3. Ignore -0.0 because sqrt(-0.0) == -0.0, but -0.0 * -0.0 == 0.0.
   Value *X;
-  if (Op0 == Op1 && match(Op0, m_Intrinsic<Intrinsic::sqrt>(m_Value(X))) &&
-      FMF.allowReassoc() && FMF.noNaNs() && FMF.noSignedZeros())
+  if (Op0 == Op1 && match(Op0, m_Sqrt(m_Value(X))) && FMF.allowReassoc() &&
+      FMF.noNaNs() && FMF.noSignedZeros())
     return X;
 
   return nullptr;
@@ -6084,7 +6167,6 @@ static Value *simplifyIntrinsic(CallBase *Call, const SimplifyQuery &Q) {
                             FPI->getFastMathFlags(), Q,
                             FPI->getExceptionBehavior().getValue(),
                             FPI->getRoundingMode().getValue());
-    break;
   }
   case Intrinsic::experimental_constrained_fsub: {
     auto *FPI = cast<ConstrainedFPIntrinsic>(Call);
@@ -6092,7 +6174,6 @@ static Value *simplifyIntrinsic(CallBase *Call, const SimplifyQuery &Q) {
                             FPI->getFastMathFlags(), Q,
                             FPI->getExceptionBehavior().getValue(),
                             FPI->getRoundingMode().getValue());
-    break;
   }
   case Intrinsic::experimental_constrained_fmul: {
     auto *FPI = cast<ConstrainedFPIntrinsic>(Call);
@@ -6100,7 +6181,6 @@ static Value *simplifyIntrinsic(CallBase *Call, const SimplifyQuery &Q) {
                             FPI->getFastMathFlags(), Q,
                             FPI->getExceptionBehavior().getValue(),
                             FPI->getRoundingMode().getValue());
-    break;
   }
   case Intrinsic::experimental_constrained_fdiv: {
     auto *FPI = cast<ConstrainedFPIntrinsic>(Call);
@@ -6108,7 +6188,6 @@ static Value *simplifyIntrinsic(CallBase *Call, const SimplifyQuery &Q) {
                             FPI->getFastMathFlags(), Q,
                             FPI->getExceptionBehavior().getValue(),
                             FPI->getRoundingMode().getValue());
-    break;
   }
   case Intrinsic::experimental_constrained_frem: {
     auto *FPI = cast<ConstrainedFPIntrinsic>(Call);
@@ -6116,7 +6195,6 @@ static Value *simplifyIntrinsic(CallBase *Call, const SimplifyQuery &Q) {
                             FPI->getFastMathFlags(), Q,
                             FPI->getExceptionBehavior().getValue(),
                             FPI->getRoundingMode().getValue());
-    break;
   }
   default:
     return nullptr;
@@ -6164,6 +6242,15 @@ Value *llvm::SimplifyCall(CallBase *Call, const SimplifyQuery &Q) {
     if (Value *Ret = simplifyIntrinsic(Call, Q))
       return Ret;
 
+  return nullptr;
+}
+
+Value *llvm::SimplifyConstrainedFPCall(CallBase *Call, const SimplifyQuery &Q) {
+  assert(isa<ConstrainedFPIntrinsic>(Call));
+  if (Value *V = tryConstantFoldCall(Call, Q))
+    return V;
+  if (Value *Ret = simplifyIntrinsic(Call, Q))
+    return Ret;
   return nullptr;
 }
 

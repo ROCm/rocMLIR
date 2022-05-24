@@ -157,7 +157,7 @@ bool VPlanVerifier::verifyPlanIsValid(const VPlan &Plan) {
     }
   }
 
-  const VPRegionBlock *TopRegion = cast<VPRegionBlock>(Plan.getEntry());
+  const VPRegionBlock *TopRegion = Plan.getVectorLoopRegion();
   const VPBasicBlock *Entry = dyn_cast<VPBasicBlock>(TopRegion->getEntry());
   if (!Entry) {
     errs() << "VPlan entry block is not a VPBasicBlock\n";
@@ -202,5 +202,12 @@ bool VPlanVerifier::verifyPlanIsValid(const VPlan &Plan) {
       return false;
     }
   }
+
+  for (auto &KV : Plan.getLiveOuts())
+    if (KV.second->getNumOperands() != 1) {
+      errs() << "live outs must have a single operand\n";
+      return false;
+    }
+
   return true;
 }

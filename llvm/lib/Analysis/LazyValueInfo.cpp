@@ -38,7 +38,6 @@
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Support/KnownBits.h"
 #include "llvm/Support/raw_ostream.h"
-#include <map>
 using namespace llvm;
 using namespace PatternMatch;
 
@@ -956,13 +955,6 @@ Optional<ValueLatticeElement> LazyValueInfoImpl::solveBlockValueBinaryOp(
     BinaryOperator *BO, BasicBlock *BB) {
   assert(BO->getOperand(0)->getType()->isSized() &&
          "all operands to binary operators are sized");
-  if (BO->getOpcode() == Instruction::Xor) {
-    // Xor is the only operation not supported by ConstantRange::binaryOp().
-    LLVM_DEBUG(dbgs() << " compute BB '" << BB->getName()
-                      << "' - overdefined (unknown binary operator).\n");
-    return ValueLatticeElement::getOverdefined();
-  }
-
   if (auto *OBO = dyn_cast<OverflowingBinaryOperator>(BO)) {
     unsigned NoWrapKind = 0;
     if (OBO->hasNoUnsignedWrap())
@@ -1141,7 +1133,7 @@ static ValueLatticeElement getValueFromICmpCondition(Value *Val, ICmpInst *ICI,
     ConstantRange CR = ConstantRange::makeExactICmpRegion(EdgePred, *C);
     if (!CR.isEmptySet())
       return ValueLatticeElement::getRange(ConstantRange::getNonEmpty(
-          CR.getUnsignedMin().zextOrSelf(BitWidth), APInt(BitWidth, 0)));
+          CR.getUnsignedMin().zext(BitWidth), APInt(BitWidth, 0)));
   }
 
   return ValueLatticeElement::getOverdefined();
@@ -1886,6 +1878,11 @@ void LazyValueInfo::eraseBlock(BasicBlock *BB) {
   }
 }
 
+void LazyValueInfo::clear(const Module *M) {
+  if (PImpl) {
+    getImpl(PImpl, AC, M).clear();
+  }
+}
 
 void LazyValueInfo::printLVI(Function &F, DominatorTree &DTree, raw_ostream &OS) {
   if (PImpl) {

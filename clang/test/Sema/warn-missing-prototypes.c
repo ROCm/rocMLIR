@@ -1,5 +1,5 @@
-// RUN: %clang_cc1 -fsyntax-only -Wdocumentation -Wmissing-prototypes -verify %s
-// RUN: %clang_cc1 -fsyntax-only -Wdocumentation -Wmissing-prototypes -fdiagnostics-parseable-fixits %s 2>&1 | FileCheck %s
+// RUN: %clang_cc1 -fsyntax-only -Wdocumentation -Wmissing-prototypes -Wno-deprecated-non-prototype -verify %s
+// RUN: %clang_cc1 -fsyntax-only -Wdocumentation -Wmissing-prototypes -Wno-deprecated-non-prototype -fdiagnostics-parseable-fixits %s 2>&1 | FileCheck %s
 
 int f(); // expected-note{{this declaration is not a prototype; add parameter declarations to make it one}}
 // CHECK-NOT: fix-it:"{{.*}}":{[[@LINE-1]]:{{.*}}-[[@LINE-1]]:{{.*}}}:"{{.*}}"
@@ -58,9 +58,14 @@ const int *get_const() { // expected-warning{{no previous prototype for function
 
 struct MyStruct {};
 
+// FIXME: because qualifiers are ignored in the return type when forming the
+// type from the declarator, we get the position incorrect for the fix-it hint.
+// It suggests 'const static struct' instead of 'static const struct'. However,
+// thanks to the awful rules of parsing in C, the effect is the same and the
+// code is valid, if a bit funny looking.
 const struct MyStruct get_struct() { // expected-warning{{no previous prototype for function 'get_struct'}}
   // expected-note@-1{{declare 'static' if the function is not intended to be used outside of this translation unit}}
-  // CHECK: fix-it:"{{.*}}":{[[@LINE-2]]:1-[[@LINE-2]]:1}:"static "
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-2]]:7-[[@LINE-2]]:7}:"static "
   struct MyStruct ret;
   return ret;
 }
@@ -70,7 +75,7 @@ const struct MyStruct get_struct() { // expected-warning{{no previous prototype 
 // Two spaces between cost and struct
 const  struct MyStruct get_struct_2() {  // expected-warning{{no previous prototype for function 'get_struct_2'}}
   // expected-note@-1{{declare 'static' if the function is not intended to be used outside of this translation unit}}
-  // CHECK: fix-it:"{{.*}}":{[[@LINE-2]]:1-[[@LINE-2]]:1}:"static "
+  // CHECK: fix-it:"{{.*}}":{[[@LINE-2]]:8-[[@LINE-2]]:8}:"static "
   struct MyStruct ret;
   return ret;
 }

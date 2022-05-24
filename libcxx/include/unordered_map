@@ -514,6 +514,8 @@ template <class Key, class T, class Hash, class Pred, class Alloc>
 
 */
 
+#include <__algorithm/is_permutation.h>
+#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__debug>
 #include <__functional/is_transparent.h>
@@ -523,7 +525,6 @@ template <class Key, class T, class Hash, class Pred, class Alloc>
 #include <__node_handle>
 #include <__utility/forward.h>
 #include <compare>
-#include <functional>
 #include <iterator> // __libcpp_erase_if_container
 #include <stdexcept>
 #include <tuple>
@@ -1012,9 +1013,9 @@ public:
     // types
     typedef _Key                                           key_type;
     typedef _Tp                                            mapped_type;
-    typedef __identity_t<_Hash>                            hasher;
-    typedef __identity_t<_Pred>                            key_equal;
-    typedef __identity_t<_Alloc>                           allocator_type;
+    typedef __type_identity_t<_Hash>                       hasher;
+    typedef __type_identity_t<_Pred>                       key_equal;
+    typedef __type_identity_t<_Alloc>                      allocator_type;
     typedef pair<const key_type, mapped_type>              value_type;
     typedef value_type&                                    reference;
     typedef const value_type&                              const_reference;
@@ -1692,9 +1693,7 @@ unordered_map<_Key, _Tp, _Hash, _Pred, _Alloc>::unordered_map(
     : __table_(_VSTD::move(__u.__table_))
 {
     _VSTD::__debug_db_insert_c(this);
-#if _LIBCPP_DEBUG_LEVEL == 2
-    __get_db()->swap(this, _VSTD::addressof(__u));
-#endif
+    std::__debug_db_swap(this, std::addressof(__u));
 }
 
 template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>
@@ -1711,10 +1710,8 @@ unordered_map<_Key, _Tp, _Hash, _Pred, _Alloc>::unordered_map(
                 __u.__table_.remove((__i++).__i_)->__value_.__move());
         }
     }
-#if _LIBCPP_DEBUG_LEVEL == 2
     else
-        __get_db()->swap(this, _VSTD::addressof(__u));
-#endif
+        std::__debug_db_swap(this, std::addressof(__u));
 }
 
 template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>
@@ -1906,9 +1903,9 @@ public:
     // types
     typedef _Key                                           key_type;
     typedef _Tp                                            mapped_type;
-    typedef __identity_t<_Hash>                            hasher;
-    typedef __identity_t<_Pred>                            key_equal;
-    typedef __identity_t<_Alloc>                           allocator_type;
+    typedef __type_identity_t<_Hash>                       hasher;
+    typedef __type_identity_t<_Pred>                       key_equal;
+    typedef __type_identity_t<_Alloc>                      allocator_type;
     typedef pair<const key_type, mapped_type>              value_type;
     typedef value_type&                                    reference;
     typedef const value_type&                              const_reference;
@@ -2468,9 +2465,7 @@ unordered_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>::unordered_multimap(
     : __table_(_VSTD::move(__u.__table_))
 {
     _VSTD::__debug_db_insert_c(this);
-#if _LIBCPP_DEBUG_LEVEL == 2
-    __get_db()->swap(this, _VSTD::addressof(__u));
-#endif
+    std::__debug_db_swap(this, std::addressof(__u));
 }
 
 template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>
@@ -2488,10 +2483,8 @@ unordered_multimap<_Key, _Tp, _Hash, _Pred, _Alloc>::unordered_multimap(
                 __u.__table_.remove((__i++).__i_)->__value_.__move());
         }
     }
-#if _LIBCPP_DEBUG_LEVEL == 2
     else
-        __get_db()->swap(this, _VSTD::addressof(__u));
-#endif
+        std::__debug_db_swap(this, std::addressof(__u));
 }
 
 template <class _Key, class _Tp, class _Hash, class _Pred, class _Alloc>

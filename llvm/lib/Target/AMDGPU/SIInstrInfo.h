@@ -337,6 +337,8 @@ public:
 
   static bool isFoldableCopy(const MachineInstr &MI);
 
+  void removeModOperands(MachineInstr &MI) const;
+
   bool FoldImmediate(MachineInstr &UseMI, MachineInstr &DefMI, Register Reg,
                      MachineRegisterInfo *MRI) const final;
 
@@ -662,6 +664,14 @@ public:
 
   bool isDOT(uint16_t Opcode) const {
     return get(Opcode).TSFlags & SIInstrFlags::IsDOT;
+  }
+
+  static bool isLDSDIR(const MachineInstr &MI) {
+    return MI.getDesc().TSFlags & SIInstrFlags::LDSDIR;
+  }
+
+  bool isLDSDIR(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::LDSDIR;
   }
 
   static bool isScalarUnit(const MachineInstr &MI) {
@@ -1218,9 +1228,6 @@ namespace AMDGPU {
   int getIfAddr64Inst(uint16_t Opcode);
 
   LLVM_READONLY
-  int getMUBUFNoLdsInst(uint16_t Opcode);
-
-  LLVM_READONLY
   int getAtomicNoRetOp(uint16_t Opcode);
 
   LLVM_READONLY
@@ -1244,6 +1251,11 @@ namespace AMDGPU {
   LLVM_READONLY
   int getFlatScratchInstSTfromSS(uint16_t Opcode);
 
+  /// \returns SV (VADDR) form of a FLAT Scratch instruction given an \p Opcode
+  /// of an SVS (SADDR + VADDR) form.
+  LLVM_READONLY
+  int getFlatScratchInstSVfromSVS(uint16_t Opcode);
+
   /// \returns SS (SADDR) form of a FLAT Scratch instruction given an \p Opcode
   /// of an SV (VADDR) form.
   LLVM_READONLY
@@ -1257,6 +1269,10 @@ namespace AMDGPU {
   /// \returns earlyclobber version of a MAC MFMA is exists.
   LLVM_READONLY
   int getMFMAEarlyClobberOp(uint16_t Opcode);
+
+  /// \returns v_cmpx version of a v_cmp instruction.
+  LLVM_READONLY
+  int getVCMPXOpFromVCMP(uint16_t Opcode);
 
   const uint64_t RSRC_DATA_FORMAT = 0xf00000000000LL;
   const uint64_t RSRC_ELEMENT_SIZE_SHIFT = (32 + 19);

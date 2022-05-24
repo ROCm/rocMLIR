@@ -1,5 +1,6 @@
 include "config/public_api.td"
 
+include "spec/bsd_ext.td"
 include "spec/gnu_ext.td"
 include "spec/linux.td"
 include "spec/llvm_libc_ext.td"
@@ -44,11 +45,8 @@ def NullMacro : MacroDef<"NULL"> {
 
 def ErrnoMacro : MacroDef<"errno"> {
   let Defn = [{
-    #ifdef __cplusplus
-    extern "C"
-    #endif
-    int *__errno_location();
-    #define errno (*__errno_location())
+    extern _Thread_local int __llvmlibc_errno;
+    #define errno __llvmlibc_errno
   }];
 }
 
@@ -149,7 +147,7 @@ def StringAPI : PublicAPI<"string.h"> {
 }
 
 def StdIOAPI : PublicAPI<"stdio.h"> {
-  let Types = ["size_t", "FILE"];
+  let Types = ["size_t", "FILE", "cookie_io_functions_t"];
 }
 
 def StdlibAPI : PublicAPI<"stdlib.h"> {
@@ -159,7 +157,8 @@ def StdlibAPI : PublicAPI<"stdlib.h"> {
     "lldiv_t",
     "size_t",
     "__bsearchcompare_t",
-    "__qsortcompare_t"
+    "__qsortcompare_t",
+    "__atexithandler_t",
   ];
 }
 
@@ -215,7 +214,7 @@ def SignalAPI : PublicAPI<"signal.h"> {
 
 def ThreadsAPI : PublicAPI<"threads.h"> {
   let Macros = [
-    SimpleMacroDef<"ONCE_FLAG_INIT", "0">,
+    SimpleMacroDef<"ONCE_FLAG_INIT", "{0}">,
   ];
 
   let Types = [
@@ -239,8 +238,15 @@ def ThreadsAPI : PublicAPI<"threads.h"> {
   ];
 }
 
+def PThreadAPI : PublicAPI<"pthread.h"> {
+  let Types = [
+      "pthread_attr_t",
+      "pthread_mutexattr_t"
+  ];
+}
+
 def UniStdAPI : PublicAPI<"unistd.h"> {
-  let Types = ["size_t", "ssize_t"];
+  let Types = ["off_t", "size_t", "ssize_t"];
 }
 
 def SysStatAPI : PublicAPI<"sys/stat.h"> {

@@ -92,11 +92,18 @@ private:
   void reset();
   void parseFile();
   bool precededByCommentOrPPDirective() const;
-  bool parseLevel(bool HasOpeningBrace, IfStmtKind *IfKind = nullptr);
+  bool parseLevel(const FormatToken *OpeningBrace, bool CanContainBracedList,
+                  IfStmtKind *IfKind = nullptr,
+                  TokenType NextLBracesType = TT_Unknown);
+  bool mightFitOnOneLine(UnwrappedLine &Line,
+                         const FormatToken *OpeningBrace = nullptr) const;
   IfStmtKind parseBlock(bool MustBeDeclaration = false, unsigned AddLevels = 1u,
-                        bool MunchSemi = true,
-                        bool UnindentWhitesmithsBraces = false);
-  void parseChildBlock();
+                        bool MunchSemi = true, bool KeepBraces = true,
+                        bool UnindentWhitesmithsBraces = false,
+                        bool CanContainBracedList = true,
+                        TokenType NextLBracesType = TT_Unknown);
+  void parseChildBlock(bool CanContainBracedList = true,
+                       TokenType NextLBracesType = TT_Unknown);
   void parsePPDirective();
   void parsePPDefine();
   void parsePPIf(bool IfDef);
@@ -106,15 +113,21 @@ private:
   void parsePPUnknown();
   void readTokenWithJavaScriptASI();
   void parseStructuralElement(IfStmtKind *IfKind = nullptr,
-                              bool IsTopLevel = false);
+                              bool IsTopLevel = false,
+                              TokenType NextLBracesType = TT_Unknown,
+                              bool *HasLabel = nullptr);
   bool tryToParseBracedList();
   bool parseBracedList(bool ContinueOnSemicolons = false, bool IsEnum = false,
                        tok::TokenKind ClosingBraceKind = tok::r_brace);
-  void parseParens();
+  void parseParens(TokenType AmpAmpTokenType = TT_Unknown);
   void parseSquare(bool LambdaIntroducer = false);
   void keepAncestorBraces();
+  void parseUnbracedBody(bool CheckEOF = false);
+  void handleAttributes();
+  bool handleCppAttributes();
   FormatToken *parseIfThenElse(IfStmtKind *IfKind, bool KeepBraces = false);
   void parseTryCatch();
+  void parseLoopBody(bool KeepBraces, bool WrapRightBrace);
   void parseForOrWhileLoop();
   void parseDoWhile();
   void parseLabel(bool LeftAlignLabel = false);
@@ -127,9 +140,10 @@ private:
   bool parseEnum();
   bool parseStructLike();
   void parseConcept();
-  void parseRequires();
-  void parseRequiresExpression(unsigned int OriginalLevel);
-  void parseConstraintExpression(unsigned int OriginalLevel);
+  bool parseRequires();
+  void parseRequiresClause(FormatToken *RequiresToken);
+  void parseRequiresExpression(FormatToken *RequiresToken);
+  void parseConstraintExpression();
   void parseJavaEnumBody();
   // Parses a record (aka class) as a top level element. If ParseAsExpr is true,
   // parses the record as a child block, i.e. if the class declaration is an
