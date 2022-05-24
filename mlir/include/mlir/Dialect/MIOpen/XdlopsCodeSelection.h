@@ -38,7 +38,6 @@ struct XdlopsCodeSelection {
   int64_t num_groups_blk;
   int64_t num_regs_blk;
   int64_t num_threads_blk;
-  int64_t wave_size;
   int64_t num_input_blks;
   int64_t num_output_blks;
   int64_t num_regs_xdlops;
@@ -465,15 +464,12 @@ struct XdlopsCodeSelection {
 
     // Obtain properties of MFMA instructions.
     int64_t group_size, num_groups_blk, num_regs_blk, num_threads_blk,
-        wave_size, num_input_blks, num_output_blks, num_regs_xdlops, m, n, k,
-        cycles, k_base;
+        num_output_blks, num_regs_xdlops, m, n, k, cycles, k_base;
     if (mfmaInstr == "mfma_f32_32x32x1f32") {
       group_size = 4;
       num_groups_blk = 4;
       num_regs_blk = group_size * num_groups_blk;
       num_threads_blk = 32;
-      wave_size = 64;
-      num_input_blks = wave_size / num_threads_blk;
       num_output_blks = 2;
       num_regs_xdlops = num_regs_blk * num_output_blks;
       m = 32;
@@ -486,8 +482,6 @@ struct XdlopsCodeSelection {
       num_groups_blk = 4;
       num_regs_blk = group_size * num_groups_blk;
       num_threads_blk = 32;
-      wave_size = 64;
-      num_input_blks = wave_size / num_threads_blk;
       num_output_blks = 1;
       num_regs_xdlops = num_regs_blk * num_output_blks;
       m = 32;
@@ -500,8 +494,6 @@ struct XdlopsCodeSelection {
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
       num_threads_blk = 16;
-      wave_size = 64;
-      num_input_blks = wave_size / num_threads_blk;
       num_output_blks = 1;
       num_regs_xdlops = num_regs_blk * num_output_blks;
       m = 16;
@@ -514,8 +506,6 @@ struct XdlopsCodeSelection {
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
       num_threads_blk = 16;
-      wave_size = 64;
-      num_input_blks = wave_size / num_threads_blk;
       num_output_blks = 4;
       num_regs_xdlops = num_regs_blk * num_output_blks;
       m = 16;
@@ -528,8 +518,6 @@ struct XdlopsCodeSelection {
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
       num_threads_blk = 64;
-      wave_size = 64;
-      num_input_blks = 1;
       num_output_blks = 1;
       num_regs_xdlops = 4;
       m = 4;
@@ -542,8 +530,6 @@ struct XdlopsCodeSelection {
       num_groups_blk = 4;
       num_regs_blk = group_size * num_groups_blk;
       num_threads_blk = 32;
-      wave_size = 64;
-      num_input_blks = wave_size / num_threads_blk;
       num_output_blks = 2;
       num_regs_xdlops = num_regs_blk * num_output_blks;
       m = 32;
@@ -556,8 +542,6 @@ struct XdlopsCodeSelection {
       num_groups_blk = 4;
       num_regs_blk = group_size * num_groups_blk;
       num_threads_blk = 32;
-      wave_size = 64;
-      num_input_blks = wave_size / num_threads_blk;
       num_output_blks = 1;
       num_regs_xdlops = num_regs_blk * num_output_blks;
       m = 32;
@@ -570,8 +554,6 @@ struct XdlopsCodeSelection {
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
       num_threads_blk = 16;
-      wave_size = 64;
-      num_input_blks = wave_size / num_threads_blk;
       num_output_blks = 1;
       num_regs_xdlops = num_regs_blk * num_output_blks;
       m = 16;
@@ -584,8 +566,6 @@ struct XdlopsCodeSelection {
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
       num_threads_blk = 16;
-      wave_size = 64;
-      num_input_blks = wave_size / num_threads_blk;
       num_output_blks = 4;
       num_regs_xdlops = num_regs_blk * num_output_blks;
       m = 16;
@@ -598,8 +578,6 @@ struct XdlopsCodeSelection {
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
       num_threads_blk = 64;
-      wave_size = 64;
-      num_input_blks = 1;
       num_output_blks = 1;
       num_regs_xdlops = 4;
       m = 4;
@@ -612,8 +590,6 @@ struct XdlopsCodeSelection {
       num_groups_blk = 4;
       num_regs_blk = group_size * num_groups_blk;
       num_threads_blk = 32;
-      wave_size = 64;
-      num_input_blks = wave_size / num_threads_blk;
       num_output_blks = 2;
       num_regs_xdlops = num_regs_blk * num_output_blks;
       m = 32;
@@ -626,8 +602,6 @@ struct XdlopsCodeSelection {
       num_groups_blk = 4;
       num_regs_blk = group_size * num_groups_blk;
       num_threads_blk = 32;
-      wave_size = 64;
-      num_input_blks = wave_size / num_threads_blk;
       num_output_blks = 1;
       num_regs_xdlops = num_regs_blk * num_output_blks;
       m = 32;
@@ -640,8 +614,6 @@ struct XdlopsCodeSelection {
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
       num_threads_blk = 16;
-      wave_size = 64;
-      num_input_blks = wave_size / num_threads_blk;
       num_output_blks = 1;
       num_regs_xdlops = num_regs_blk * num_output_blks;
       m = 16;
@@ -654,8 +626,6 @@ struct XdlopsCodeSelection {
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
       num_threads_blk = 16;
-      wave_size = 64;
-      num_input_blks = wave_size / num_threads_blk;
       num_output_blks = 4;
       num_regs_xdlops = num_regs_blk * num_output_blks;
       m = 16;
@@ -668,8 +638,6 @@ struct XdlopsCodeSelection {
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
       num_threads_blk = 64;
-      wave_size = 64;
-      num_input_blks = 1;
       num_output_blks = 1;
       num_regs_xdlops = 4;
       m = 4;
@@ -682,8 +650,6 @@ struct XdlopsCodeSelection {
       num_groups_blk = 4;
       num_regs_blk = group_size * num_groups_blk;
       num_threads_blk = 32;
-      wave_size = 64;
-      num_input_blks = wave_size / num_threads_blk;
       num_output_blks = 1;
       num_regs_xdlops = num_regs_blk * num_output_blks;
       m = 32;
@@ -696,8 +662,6 @@ struct XdlopsCodeSelection {
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
       num_threads_blk = 16;
-      wave_size = 64;
-      num_input_blks = wave_size / num_threads_blk;
       num_output_blks = 1;
       num_regs_xdlops = num_regs_blk * num_output_blks;
       m = 16;
@@ -709,6 +673,7 @@ struct XdlopsCodeSelection {
       llvm_unreachable("Unsupported case as mfmaInstr not selected!\n");
     }
 
+    constexpr int64_t wave_size = 64;
     // Populate result.
     XdlopsCodeSelection result;
     result.mfmaInstr = mfmaInstr;
@@ -725,8 +690,7 @@ struct XdlopsCodeSelection {
     result.num_groups_blk = num_groups_blk;
     result.num_regs_blk = num_regs_blk;
     result.num_threads_blk = num_threads_blk;
-    result.wave_size = wave_size;
-    result.num_input_blks = num_input_blks;
+    result.num_input_blks = wave_size / num_threads_blk;
     result.num_output_blks = num_output_blks;
     result.num_regs_xdlops = num_regs_xdlops;
     result.m = m;
@@ -753,7 +717,6 @@ struct XdlopsCodeSelection {
     // llvm::errs() << "num_groups_blk: " << num_groups_blk << "\n";
     // llvm::errs() << "num_regs_blk: " << num_regs_blk << "\n";
     // llvm::errs() << "num_threads_blk: " << num_threads_blk << "\n";
-    // llvm::errs() << "wave_size: " << wave_size << "\n";
     // llvm::errs() << "num_input_blks: " << num_input_blks << "\n";
     // llvm::errs() << "num_output_blks: " << num_output_blks << "\n";
     // llvm::errs() << "num_regs_xdlops: " << num_regs_xdlops << "\n";
