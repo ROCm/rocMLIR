@@ -231,7 +231,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
                              matrixAThreadwiseCopyDestCoords},
         ArrayRef<Attribute>{transformsA, emptyArr},
         ArrayRef<int64_t>{1, KPerThread, MPerThreadSubC},
-        /*forceUnroll=*/true, /*indexDiffs=*/false);
+        /*strides=*/llvm::None, /*forceUnroll=*/true, /*indexDiffs=*/false);
     OpBuilder copyABuilder =
         OpBuilder::atBlockTerminator(copyALoop.getBody(), lab.getListener());
     Value aCopy = copyABuilder.create<memref::LoadOp>(
@@ -286,7 +286,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
                              matrixBThreadwiseCopyDestCoords},
         ArrayRef<Attribute>{transformsB, emptyArr},
         ArrayRef<int64_t>{1, KPerThread, NPerThreadSubC},
-        /*forceUnroll=*/true, /*indexDiffs=*/false);
+        /*strides=*/llvm::None, /*forceUnroll=*/true, /*indexDiffs=*/false);
     OpBuilder copyBBuilder =
         OpBuilder::atBlockTerminator(copyBLoop.getBody(), lbb.getListener());
     Value bCopy = copyBBuilder.create<memref::LoadOp>(
@@ -499,7 +499,7 @@ struct ThreadwiseCopyRewritePattern
     TransformingForOp loop = b.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{op.sourceCoord(), op.destCoord()},
         ArrayRef<Attribute>{srcTransforms, destTransforms}, op.bounds(),
-        /*forceUnroll=*/true, useIndexDiffs);
+        /*strides=*/ArrayAttr{}, /*forceUnroll=*/true, useIndexDiffs);
     PatternRewriter::InsertionGuard loopGuard(b);
     b.setInsertionPointToStart(loop.getBody());
 
@@ -583,7 +583,7 @@ struct ThreadwiseCopyV2RewritePattern
     auto loop = b.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{op.sourceCoord(), op.destCoord()},
         ArrayRef<Attribute>{srcTransforms, destTransforms}, bounds,
-        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+        /*strides=*/llvm::None, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     PatternRewriter::InsertionGuard guard(b);
     b.setInsertionPointToStart(loop.getBody());
     Value loaded = b.create<ExtractSliceOp>(

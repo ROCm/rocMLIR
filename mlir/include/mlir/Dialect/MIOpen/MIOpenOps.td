@@ -325,6 +325,7 @@ def MIOpen_TransformingForOp :
       ArgTransformsAttr:$transforms,
       Variadic<AnyType>:$iterInits,
       IndexArrayAttr:$bounds,
+      IndexArrayAttr:$strides,
       // This is a derived attribute that holds where in the block arguments
       // the coordinates for each lower domain are stored. It contains
       // one value for each iteration domain, and a final value for
@@ -344,7 +345,7 @@ def MIOpen_TransformingForOp :
 
     For each domain, when we have
     `(%l0, %l1, ... %lL) = [#transform_map1](%u0, %u1, ... %uU)`
-    with bounds `[b0, b1, ... bU]`
+    with bounds `[b0, b1, ... bU]` and strides `[1, 1, ..., 1]`
     the loop arguments %l0, ... %lL will take on the values
     - (%l0, ... %lL) = #transform_map1(%u0, %u1, ... %uU)
     - (%l0, ... %lL) = #transform_map1(%u0, %u1, ... %uU + 1)
@@ -366,8 +367,8 @@ def MIOpen_TransformingForOp :
     ```
     will lower to
     ```mlir
-    %res = affine.for %d0 = 0 to 4 (%arg0 = %cst0 : index) {
-      %res1 = affine.for %d1 = 0 to 8 (%arg1 = %arg0 : index) {
+    %res = affine.for %d0 = 0 to 4 step 1 (%arg0 = %cst0 : index) {
+      %res1 = affine.for %d1 = 0 to 8 step 1 (%arg1 = %arg0 : index) {
         %i0_shifted = arith.addi %i0, %d0
         %j0_shifted = arith.addi %j0, %d1
         %a1, %a2, %a3 = [expand affine map in #transform_map1 at %i0_shifted, %j0_shifted]
@@ -383,6 +384,8 @@ def MIOpen_TransformingForOp :
     When multiple transform_maps are specified for an interatino domain,
     they are composed, with the left one applying first (to the upper coordinates),
     and a lack of transform_maps simply passes the upper cooridate values through.
+
+    If `strides` is not specified during building, it will default to all 1s.
 
     If the `forceUnroll` attribute is specified, the loops above are unrolled
     after being generated.
@@ -406,22 +409,26 @@ def MIOpen_TransformingForOp :
   let builders = [
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
     "ArrayRef<Attribute>":$transforms,
-    "ArrayRef<int64_t>":$bounds, "bool":$forceUnroll, "bool":$useIndexDiffs,
+    "ArrayRef<int64_t>":$bounds, "Optional<ArrayRef<int64_t>>":$strides,
+    "bool":$forceUnroll, "bool":$useIndexDiffs,
     CArg<"ValueRange", "llvm::None">:$iterArgs)>,
 
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
     "ArrayRef<Attribute>":$transforms,
-    "ArrayAttr":$bounds, "bool":$forceUnroll, "bool":$useIndexDiffs,
+    "ArrayAttr":$bounds, "ArrayAttr":$strides,
+    "bool":$forceUnroll, "bool":$useIndexDiffs,
     CArg<"ValueRange", "llvm::None">:$iterArgs)>,
 
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
     "ArrayAttr":$transforms,
-    "ArrayRef<int64_t>":$bounds, "bool":$forceUnroll, "bool":$useIndexDiffs,
+    "ArrayRef<int64_t>":$bounds, "Optional<ArrayRef<int64_t>>":$strides,
+    "bool":$forceUnroll, "bool":$useIndexDiffs,
     CArg<"ValueRange", "llvm::None">:$iterArgs)>,
 
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
     "ArrayAttr":$transforms,
-    "ArrayAttr":$bounds, "bool":$forceUnroll, "bool":$useIndexDiffs,
+    "ArrayAttr":$bounds, "ArrayAttr":$strides,
+    "bool":$forceUnroll, "bool":$useIndexDiffs,
     CArg<"ValueRange", "llvm::None">:$iterArgs)>];
 
   let extraClassDeclaration = [{

@@ -278,9 +278,12 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     std::tie(srcLeftOob, srcRightOob) =
         miopen::computeOobFromTransforms(b, sourceTransforms);
 
+    SmallVector<int64_t> strides(bounds.size(), 1LL);
+
     miopen::TransformingForOp copyLoop = b.create<miopen::TransformingForOp>(
         loc, ArrayRef<ValueRange>{inCoords, outCoords},
         ArrayRef<Attribute>{sourceTransforms, destTransforms}, bounds,
+        ArrayRef<int64_t>(strides),
         /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(copyLoop.getBody());
