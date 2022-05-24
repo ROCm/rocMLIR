@@ -32,6 +32,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     mlir-rocm-runner.cpp
 
     DEPENDS
+    mlir_rocm_runtime
     rocm-runtime-wrappers
     )
   llvm_update_compile_flags(mlir-rocm-runner)
