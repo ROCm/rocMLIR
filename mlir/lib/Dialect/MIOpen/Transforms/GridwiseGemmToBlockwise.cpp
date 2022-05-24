@@ -126,36 +126,6 @@ void affixThreadwiseCopyAttributes(ThreadwiseCopyOp top, GridwiseGemmOp gop,
   top->setAttr("dest_data_per_write", gop->getAttr("matrix_c_data_per_copy"));
 }
 
-void affixThreadwiseCopyV2Attributes(ThreadwiseCopyV2Op top,
-                                     GridwiseGemmV2Op gop, OpBuilder &b,
-                                     bool isSwizzled, bool canOob) {
-  // Account for split m/n dimension
-  bool vectorStoreOverride = canOob;
-  int64_t vectorGemmDim =
-      gop->getAttrOfType<IntegerAttr>("matrix_c_source_vector_read_dim")
-          .getInt();
-  // Remap vectorized gemm dimensions to account for
-  if (vectorGemmDim == gemmCDimM) {
-    vectorGemmDim = gemmCSplitDimM2;
-  } else if (vectorGemmDim == gemmCDimN) {
-    if (isSwizzled) {
-      vectorGemmDim = gemmCSplitDimN2;
-    } else {
-      vectorGemmDim = gemmCSplitDimN;
-      // Need swizzles for this to be vector motion but swizzles are off
-      vectorStoreOverride = true;
-    }
-  }
-  Attribute dataPerCopy = gop->getAttr("matrix_c_data_per_copy");
-  if (vectorStoreOverride) {
-    dataPerCopy = b.getI32IntegerAttr(1);
-  }
-  top->setAttr("upper_vector_read_dim", b.getI32IntegerAttr(vectorGemmDim));
-  top->setAttr("vector_read_write_dim",
-               gop->getAttr("matrix_c_dest_vector_write_dim"));
-  top->setAttr("data_per_copy", dataPerCopy);
-}
-
 //===----------------------------------------------------------------------===//
 // Building load/store loops
 //===----------------------------------------------------------------------===//
@@ -2015,7 +1985,6 @@ struct GridwiseGemmV2RewritePattern
                                                  {1, KPerBlock, NPerBlock});
     }
 
-    ArrayAttr noTransforms = b.getArrayAttr({});
     // -----
 
     // Determine vector / scalar load type for Matrix A / B.
@@ -2391,8 +2360,6 @@ struct GridwiseGemmV2RewritePattern
     int64_t wavesInKernelBlock = kernelBlockSize / waveSize;
     int64_t resultCVectorLen = vectorType.getNumElements();
     int64_t numElements = resultCVectorLen * tailResults.size();
-    int64_t iterationsPerVectorC = numBlks / vectorNumber;
-    int64_t blockLen = resultCVectorLen / iterationsPerVectorC;
 
     TopDownTMBuilder splitMemoryCoords(
         b, {"bid", "tid", "item"},
@@ -2538,14 +2505,11 @@ struct GridwiseGemmV2RewritePattern
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(outLoop.getBody());
-      Value slice =
-          b.create<ExtractSliceOp>(loc, writeSliceType, resultMerged,
-                                   outLoop.getLowerCoords(/*domain=*/0)[0]);
-      Value cast = createTypeConversionOp(b, loc, slice, destWriteType);
-      b.create<BufferStoreOp>(loc, cast, tensorC, std::get<0>(writeOobDims),
-                              std::get<1>(writeOobDims),
-                              outLoop.getLowerCoords(/*domain=*/1),
-                              op.storeMethodAttr());
+      b.create<ThreadwiseCopyV2Op>(
+          loc, resultMerged, tensorC, b.getIndexAttr(matrixCDataPerCopy),
+          op.storeMethodAttr(), std::get<0>(writeOobDims),
+          std::get<1>(writeOobDims), outLoop.getLowerCoords(/*domain=*/0)[0],
+          outLoop.getLowerCoords(/*domain=*/1));
     }
 
     b.eraseOp(op);

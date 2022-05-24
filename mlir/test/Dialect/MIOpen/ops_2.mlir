@@ -548,32 +548,16 @@ func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : m
 // --------------------------
 // threadwise_copy_v2 tests.
 
-#transform_map2 = #miopen.transform_map<
-  affine_map<(d0, d1, d2, d3, d4) -> (d1 * 4 + d3)> by [
-    #miopen.transform<Embed{0, 4, 0, 1, 0} ["g", "m0", "m1", "m2", "n"] at [0, 1, 2, 3, 4]
-    -> ["raw"] at [1]>
-  ] bounds = [1, 4, 1, 4, 1] -> [16]>
-#transform_map3 = #miopen.transform_map<
-  affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3, d4)> by [
-    #miopen.transform<PassThrough ["g", "m0", "m1", "m2", "n"] at [0, 1, 2, 3, 4] ->
-      ["g", "n", "c", "h", "w"] at [0, 1, 2, 3, 4]>
-  ] bounds = [1, 4, 1, 4, 1] -> [1, 4, 1, 4, 1]>
-
 func @miopen_threadwise_copy_v2(%source : vector<32xf32>,
                                 %dest : memref<?x?x?x?x?xf32>) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
   // check source and destination with coordinate transforms.
   miopen.threadwise_copy_v2
-    %source[%c0, %c0, %c0, %c0, %c0] ->
+    {length = 1 : index, leftOobDims = [], rightOobDims = [], storeMethod = 0 : i32}
+    %source[%c0] ->
     %dest[%c1, %c1, %c1, %c1, %c1]
-    with [[#transform_map2], [#transform_map3]]
-    {
-      sourceOffset = 0 : index,
-      paddingInfo = #gemm_padding0,
-      bounds = [1 : index, 4 : index, 1 : index, 4 : index, 1 : index],
-      storeMethod = 0 : i32
-    } : vector<32xf32>, index, index, index, index, index
+    : vector<32xf32>
     -> memref<?x?x?x?x?xf32>, index, index, index, index, index
 
   return

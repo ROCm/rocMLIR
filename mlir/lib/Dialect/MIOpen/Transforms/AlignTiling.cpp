@@ -237,108 +237,87 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
   }
 
   miopen::TransformingForOp makeLoadToVector(PatternRewriter &b, Location loc,
-                                             Operation *miTWCopy, Value srcOp,
-                                             Value dstOp) const {
-    auto op = dyn_cast<miopen::ThreadwiseCopyV2Op>(miTWCopy);
-    auto inShape = srcOp.getType().cast<ShapedType>().getShape();
-    SmallVector<Value, 6> inCoords, outCoords;
-    for (uint i = 0; i < inShape.size(); ++i) {
-      uint inIdx = 2 + i;
-      uint outIdx = 2 + inShape.size() + i;
-      auto inCoord = op->getOperand(inIdx);
-      auto outCoord = op->getOperand(outIdx);
-      inCoords.push_back(outCoord);
-      outCoords.push_back(inCoord);
-    }
+                                             miopen::ThreadwiseCopyV2Op op,
+                                             Value srcOp, Value dest) const {
+    assert(srcOp.getType().cast<ShapedType>().getShape() ==
+               op.dest().getType().cast<ShapedType>().getShape() &&
+           "shape of extra fusion arguments matches shape of C tensor");
+    assert(op.source().getType().cast<ShapedType>().getShape() ==
+               dest.getType().cast<ShapedType>().getShape() &&
+           "shape of xdlops results vector matches shape of destination "
+           "registers");
 
-    ArrayAttr sourceTransformsOnOp = op.transforms()[1].cast<ArrayAttr>();
-    ArrayAttr destTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
-    ArrayAttr sourceTransforms, destTransforms;
+    auto writeCLoop = op->getParentOfType<miopen::TransformingForOp>();
+    assert(writeCLoop && "threadwise_copy_v2 must be in a transforming_for");
+    // The transforms on the fusion memref begin with those on the global
+    // output tensor from the write loop.
+    ArrayAttr sourceTransformsFromLoop = writeCLoop.getTransforms(/*domain=*/1);
 
-    Value source, dest;
-    std::tie(source, sourceTransforms) =
-        miopen::untransform(b, srcOp, sourceTransformsOnOp);
-    std::tie(dest, destTransforms) =
-        miopen::untransform(b, dstOp, destTransformsOnOp);
-    SmallVector<int64_t, 6> bounds;
-    llvm::transform(op.bounds().getAsRange<IntegerAttr>(),
-                    std::back_inserter(bounds),
-                    [](const IntegerAttr &v) -> int64_t { return v.getInt(); });
+    // Handle broadcasts introduced during fusion.
+    ArrayAttr sourceTransformsFromOp;
+    Value source;
+    std::tie(source, sourceTransformsFromOp) = miopen::untransform(b, srcOp);
+    SmallVector<Attribute, 4> sourceTransformsVec;
+    llvm::copy(sourceTransformsFromLoop,
+               std::back_inserter(sourceTransformsVec));
+    llvm::copy(sourceTransformsFromOp, std::back_inserter(sourceTransformsVec));
+    Attribute sourceTransforms = b.getArrayAttr(sourceTransformsVec);
 
-    int64_t dataPerCopy =
-        op->getAttrOfType<IntegerAttr>("data_per_copy").getInt();
+    // Note, we don't need to do this dance for the destination, since it's a
+    // freshly-allocated vector.
+    Attribute destTransforms = writeCLoop.getTransforms(/*domain=*/0);
 
-    auto loadType = dstOp.getType().dyn_cast<MemRefType>();
-    auto shape = loadType.cast<ShapedType>().getShape();
-    auto vecType = VectorType::get(dataPerCopy, loadType.getElementType());
-    bounds[shape.size() - 1] /= dataPerCopy;
+    int64_t copyLength = op.length().getSExtValue();
+    Type typeToLoad = dest.getType().cast<MemRefType>().getElementType();
+    if (copyLength > 1)
+      typeToLoad = VectorType::get({copyLength}, typeToLoad);
 
-    Value c0 = b.create<arith::ConstantIndexOp>(loc, 0);
-    ArrayAttr srcLeftOob, srcRightOob;
-    std::tie(srcLeftOob, srcRightOob) =
-        miopen::computeOobFromTransforms(b, sourceTransforms);
+    ValueRange sourceInits = writeCLoop.getUpperInits(/*domain=*/1);
+    ValueRange destInits = writeCLoop.getUpperInits(/*domain=*/0);
+    ArrayAttr bounds = writeCLoop.bounds();
+    ArrayAttr strides = writeCLoop.strides();
 
-    SmallVector<int64_t> strides(bounds.size(), 1LL);
+    ArrayAttr sourceLeftOob = op.leftOobDims();
+    ArrayAttr sourceRightOob = op.rightOobDims();
 
     miopen::TransformingForOp copyLoop = b.create<miopen::TransformingForOp>(
-        loc, ArrayRef<ValueRange>{inCoords, outCoords},
-        ArrayRef<Attribute>{sourceTransforms, destTransforms}, bounds,
-        ArrayRef<int64_t>(strides),
+        loc, ArrayRef<ValueRange>{sourceInits, destInits},
+        ArrayRef<Attribute>{sourceTransforms, destTransforms}, bounds, strides,
         /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-    OpBuilder::InsertionGuard guard(b);
-    b.setInsertionPointToStart(copyLoop.getBody());
+    {
+      OpBuilder::InsertionGuard guard(b);
+      b.setInsertionPointToStart(copyLoop.getBody());
 
-    Value loaded;
-    if (dataPerCopy > 1) {
-      loaded = b.create<miopen::BufferLoadOp>(
-          loc, vecType, source, srcLeftOob, srcRightOob,
+      Value loaded = b.create<miopen::BufferLoadOp>(
+          loc, typeToLoad, source, sourceLeftOob, sourceRightOob,
           copyLoop.getLowerCoords(/*domain=*/0));
-    } else {
-      loaded = b.create<miopen::BufferLoadOp>(
-          loc, loadType.getElementType(), source, srcLeftOob, srcRightOob,
-          copyLoop.getLowerCoords(/*domain=*/0));
+      b.create<miopen::InBoundsStoreOp>(loc, loaded, dest,
+                                        copyLoop.getLowerCoords(/*domain=*/1));
     }
-    SmallVector<Value, 6> indicies;
-    for (uint i = 0; i < shape.size() - 1; ++i) {
-      indicies.push_back(c0);
-    }
-    indicies.push_back(copyLoop.getLowerCoords(/*domain=*/1)[0]);
-    b.create<miopen::InBoundsStoreOp>(loc, loaded, dest, indicies);
     return copyLoop;
   }
 
-  Value makeTransformingCopy(PatternRewriter &b, Operation *miTWCopy,
-                             Value inp) const {
-    // 0. capture the slice of vector for miTWCopy output regs
-    auto twinp = miTWCopy->getOperand(0);
-    auto miVecSlice = twinp.getDefiningOp<miopen::ExtractSliceOp>();
+  Value makeTransformingCopyLoop(PatternRewriter &b,
+                                 miopen::ThreadwiseCopyV2Op miTwCopy,
+                                 Value inp) const {
+    // 0. capture the vector containing the outputs being written
+    Location loc = miTwCopy.getLoc();
+    Value regVec = miTwCopy.source();
+    VectorType regVecType = regVec.getType().cast<VectorType>();
 
     // 1. clone vector into reg alloc
-    BlockAndValueMapping cloningMap;
-    auto nVecSlice = b.clone(*miVecSlice, cloningMap);
-    auto loc = nVecSlice->getLoc();
-    auto regVecType = miVecSlice.getType().template cast<VectorType>();
-    auto shape = inp.getType().cast<ShapedType>().getShape();
-    SmallVector<int64_t, 6> regShape;
-    SmallVector<Value, 6> indexVector;
-    Value c0 = b.create<arith::ConstantIndexOp>(loc, 0);
-    for (uint i = 0; i < shape.size(); ++i) {
-      regShape.push_back(1);
-      indexVector.push_back(c0);
-    }
-    regShape[shape.size() - 1] = regVecType.getNumElements();
-    auto elemType = regVecType.getElementType();
-    auto regType = MemRefType::get(regShape, elemType, {}, 5);
-    auto clonedVec = b.create<miopen::GpuAllocOp>(loc, regType);
-    auto indices = ValueRange(indexVector);
-    b.create<vector::StoreOp>(loc, nVecSlice->getResult(0), clonedVec, indices);
-
+    // Note: the element type should be the type of the desnitation memref
+    // not the type of the vector, which may be subject to typecasting before
+    // storage.
+    Type elementType =
+        miTwCopy.dest().getType().cast<MemRefType>().getElementType();
+    ArrayRef<int64_t> regVecShape = regVecType.getShape();
+    MemRefType allocType = MemRefType::get(regVecShape, elementType, /*map=*/{},
+                                           /*memorySpace=*/5);
+    Value alloc = b.create<miopen::GpuAllocOp>(loc, allocType);
     // 2. clone twcopy for <addend> -> regs as transforming_for
-    makeLoadToVector(b, loc, miTWCopy, inp, clonedVec->getResult(0));
-
-    // 3. shrink the dim back to original so it can match the linalg dimensions
-    auto cvCollapsed = createCollapseShapeOp(b, loc, clonedVec->getResult(0));
-    return cvCollapsed;
+    makeLoadToVector(b, loc, miTwCopy, inp, alloc);
+    return alloc;
   }
 
   Value applyTransforms(PatternRewriter &b, Operation *miTWCopy, Value inp,
@@ -357,11 +336,15 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     }
 
     // 1. insert broadcast op if necessary
-    assert(transforms.size());
-    auto miTransform0 = transforms[0].getDefiningOp<miopen::TransformOp>();
-    assert(miTransform0);
-    auto outType =
-        miTransform0.getOperand().getType().template cast<MemRefType>();
+    MemRefType outType;
+    if (transforms.size() != 0) {
+      auto miTransform0 = transforms[0].getDefiningOp<miopen::TransformOp>();
+      assert(miTransform0);
+      outType = miTransform0.getOperand().getType().cast<MemRefType>();
+    } else {
+      // A raw tensor argument
+      outType = ret.getType().cast<MemRefType>();
+    }
     ret = makeBroadcast(b, outType, ret, inpMap);
 
     BlockAndValueMapping cloningMap;
@@ -382,9 +365,11 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     //    buffer reads)
     if (auto copyType = dyn_cast<miopen::ThreadwiseCopyOp>(miTWCopy)) {
       return makeThreadwiseCopy(b, miTWCopy, ret);
-    } else {
-      return makeTransformingCopy(b, miTWCopy, ret);
     }
+    if (auto xdlopsCopy = dyn_cast<miopen::ThreadwiseCopyV2Op>(miTWCopy)) {
+      return makeTransformingCopyLoop(b, xdlopsCopy, ret);
+    }
+    llvm_unreachable("Expected threadwise copy or threadwise copy v2");
   }
 
   template <typename Ttwcopy>
