@@ -548,7 +548,7 @@ func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : m
 // --------------------------
 // threadwise_copy_v2 tests.
 
-func @miopen_threadwise_copy_v2(%source : vector<32xf32>,
+func @miopen_threadwise_copy_v2(%source : memref<32xf32, 5>,
                                 %dest : memref<?x?x?x?x?xf32>) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
@@ -557,7 +557,7 @@ func @miopen_threadwise_copy_v2(%source : vector<32xf32>,
     {length = 1 : index, leftOobDims = [], rightOobDims = [], storeMethod = 0 : i32}
     %source[%c0] ->
     %dest[%c1, %c1, %c1, %c1, %c1]
-    : vector<32xf32>
+    : memref<32xf32, 5>
     -> memref<?x?x?x?x?xf32>, index, index, index, index, index
 
   return

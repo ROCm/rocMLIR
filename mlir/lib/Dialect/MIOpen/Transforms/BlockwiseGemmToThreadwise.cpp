@@ -540,7 +540,7 @@ struct ThreadwiseCopyV2RewritePattern
     Location loc = op.getLoc();
 
     Value source = op.source();
-    auto sourceType = source.getType().cast<VectorType>();
+    auto sourceType = source.getType().cast<MemRefType>();
     Value sourceCoord = op.sourceCoord();
 
     int64_t copyLength = op.length().getSExtValue();
@@ -552,9 +552,8 @@ struct ThreadwiseCopyV2RewritePattern
       typeToStore = VectorType::get({copyLength}, typeToStore);
 
     Value loaded =
-        b.create<ExtractSliceOp>(loc, typeToLoad, source, sourceCoord);
-    Value cast = createTypeConversionOp(b, loc, loaded, typeToStore);
-    b.create<BufferStoreOp>(loc, cast, op.dest(), op.leftOobDims(),
+        b.create<InBoundsLoadOp>(loc, typeToLoad, source, sourceCoord);
+    b.create<BufferStoreOp>(loc, loaded, op.dest(), op.leftOobDims(),
                             op.rightOobDims(), op.destCoord(),
                             op.storeMethodAttr());
     b.eraseOp(op);

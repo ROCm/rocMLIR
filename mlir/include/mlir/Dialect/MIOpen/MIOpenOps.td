@@ -663,9 +663,9 @@ def MIOpen_ThreadwiseCopyOp:
 }
 
 // threadwise_copy_v2
-def MIOpen_ThreadwiseCopyV2Op:
-    MIOpen_Op<"threadwise_copy_v2">,
-    Arguments<(ins VectorOfRankAndType<[1], [F32, F16, BF16, I32]>:$source,
+def MIOpen_ThreadwiseCopyV2Op :
+    MIOpen_Op<"threadwise_copy_v2", [AllElementTypesMatch<["source", "dest"]>]>,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [1]>:$source,
                    AnyMemRef:$dest,
                    IndexAttr:$length,
                    StoreMethod:$storeMethod,

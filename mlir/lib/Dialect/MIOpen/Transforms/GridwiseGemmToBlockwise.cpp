@@ -2465,17 +2465,20 @@ struct GridwiseGemmV2RewritePattern
       llvm::copy(tailResults, std::back_inserter(transformedTail));
     }
 
-    // Merge the vectors using miopen.insertslice and store loop to use
-    // miopen.extractslice so we can run the write loop over a unified vector.
-    VectorType mergedType =
-        VectorType::get(numElements, vectorType.getElementType());
-    Value resultMerged = b.createOrFold<arith::ConstantOp>(
-        loc, mergedType, b.getZeroAttr(mergedType));
+    // Convert GEMM results to the expected output type (so we can fuse in)
+    // operations expecting that type before writeback and store
+    // the result vectors into a allocation of registers to maintain uniformity
+    // with the non-xdlops gemm. (These "stores" will be optimized out)
+    Type destType = op.c().getType().cast<MemRefType>().getElementType();
+    MemRefType mergedType =
+        MemRefType::get(numElements, destType, {}, /*memorySpace=*/5);
+    VectorType castVectorType = vectorType.clone(destType);
+    Value resultMerged = b.create<miopen::GpuAllocOp>(loc, mergedType);
     for (const auto &pair : llvm::enumerate(transformedTail)) {
-      resultMerged = b.create<miopen::InsertSliceOp>(
-          loc, mergedType, pair.value(), resultMerged,
-          b.create<arith::ConstantIndexOp>(loc,
-                                           pair.index() * resultCVectorLen));
+      Value cast = createTypeConversionOp(b, loc, pair.value(), castVectorType);
+      Value offset = b.createOrFold<arith::ConstantIndexOp>(
+          loc, pair.index() * resultCVectorLen);
+      b.create<miopen::InBoundsStoreOp>(loc, cast, resultMerged, offset);
     }
 
     ArrayAttr idToMatrixCMaps = b.getArrayAttr(
@@ -2487,13 +2490,6 @@ struct GridwiseGemmV2RewritePattern
     auto writeOobDims = computeOobFromTransforms(b, idToTensorCMaps);
 
     SmallVector<Value, 3> writeStartCoords = {bid, tid, zeroConstantOp};
-
-    Type writeSliceType = vectorType.getElementType();
-    if (matrixCDataPerCopy > 1)
-      writeSliceType = VectorType::get({matrixCDataPerCopy}, writeSliceType);
-    Type destWriteType = tensorC.getType().cast<MemRefType>().getElementType();
-    if (matrixCDataPerCopy > 1)
-      destWriteType = VectorType::get({matrixCDataPerCopy}, destWriteType);
 
     auto outLoop = b.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{writeStartCoords, writeStartCoords},

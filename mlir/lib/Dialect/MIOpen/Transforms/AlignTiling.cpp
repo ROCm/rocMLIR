@@ -302,21 +302,14 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
   Value makeTransformingCopyLoop(PatternRewriter &b,
                                  miopen::ThreadwiseCopyV2Op miTwCopy,
                                  Value inp) const {
-    // 0. capture the vector containing the outputs being written
+    // 0. capture the memref containing the outputs being written
     Location loc = miTwCopy.getLoc();
     Value regVec = miTwCopy.source();
-    VectorType regVecType = regVec.getType().cast<VectorType>();
+    auto regVecType = regVec.getType().cast<MemRefType>();
 
-    // 1. clone vector into reg alloc
-    // Note: the element type should be the type of the desnitation memref
-    // not the type of the vector, which may be subject to typecasting before
-    // storage.
-    Type elementType =
-        miTwCopy.dest().getType().cast<MemRefType>().getElementType();
-    ArrayRef<int64_t> regVecShape = regVecType.getShape();
-    MemRefType allocType = MemRefType::get(regVecShape, elementType, /*map=*/{},
-                                           /*memorySpace=*/5);
-    Value alloc = b.create<miopen::GpuAllocOp>(loc, allocType);
+    // 1. create a second allocation of the same type to hold loaded elements
+    Value alloc = b.create<miopen::GpuAllocOp>(loc, regVecType);
+
     // 2. clone twcopy for <addend> -> regs as transforming_for
     makeLoadToVector(b, loc, miTwCopy, inp, alloc);
     return alloc;
@@ -611,41 +604,20 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
           Operation *copyLoop = twcopy->getParentOp();
           b.setInsertionPoint(copyLoop);
 
-          // 2.1. Capture type of gemm result vector
-          auto regVecType = regBWGemmV2.getType().cast<VectorType>();
-          assert(regVecType.hasStaticShape());
-          assert(regVecType.getRank() == 1);
-
-          Type elemType = regVecType.getElementType();
-
-          // 2.2. Make vgpr alloc to fit gemm return
-          auto regType =
-              MemRefType::get(regVecType.getShape(), elemType, {}, 5);
-          auto laInRegs = b.create<miopen::GpuAllocOp>(loc, regType);
-
-          // 2.3. Copy gemm result vectors into vgpr
-          // > vector.store %merged -> %inRegs[%c0]
-          Value c0 = b.create<arith::ConstantIndexOp>(loc, 0);
-          b.create<miopen::InBoundsStoreOp>(loc, regBWGemmV2, laInRegs, c0);
-
-          // 2.4. Tile linalg.generic with vgpr as input, return output vgprs
-          Value laOutRegs =
-              reconfigureLAGeneric(laGeneric, b, transforms, laInRegs, twcopy);
-          // 2.4.0. Move the generic before the write-back. This'll put all
+          // 2.1. Tile linalg.generic with vgpr as input, return output vgprs
+          Value laOutRegs = reconfigureLAGeneric(laGeneric, b, transforms,
+                                                 regBWGemmV2, twcopy);
+          // 2.1.0. Move the generic before the write-back. This'll put all
           // the copy loops for other inputs before the generic due to insertion
           // order.
           laGeneric->moveBefore(copyLoop);
 
-          // 2.5. Replace twcopy inputs with vector from la result vgpr
-          // Make sure the load goes between the generic and the writeback.
-          b.setInsertionPointAfter(laGeneric);
-          Value vload0 =
-              b.create<miopen::InBoundsLoadOp>(loc, regVecType, laOutRegs, c0);
+          // 2.2. Replace twcopy inputs with la.generic result vgprs
 
           // Since the threadwise copy arg has gone through untransform()
           // its expected output type is the same as the output type of the
           // linalg.generic.
-          twcopy.sourceMutable().assign(vload0);
+          twcopy.sourceMutable().assign(laOutRegs);
           twcopy.destMutable().assign(out);
 
           return success();
