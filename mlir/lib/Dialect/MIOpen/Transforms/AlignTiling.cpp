@@ -30,11 +30,15 @@
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Debug.h"
 
 #include <numeric>
+
+#define DEBUG_TYPE "miopen-linalg-align"
 
 using namespace mlir;
 
@@ -53,18 +57,16 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
 
   mutable llvm::SmallDenseSet<Operation *> processSet;
 
-  template <typename Top> Value getOpResult(OpOperand &use) const {
-    Value v;
-    auto *ownr = use.getOwner();
-    if (auto op = dyn_cast<Top>(ownr)) {
-      v = op->getResult(0);
+  template <typename Top> Value getOpResult(Operation *use) const {
+    if (isa<Top>(use)) {
+      return use->getResult(0);
     }
-    return v;
+    return Value();
   }
 
   template <typename Top> Value backtrace(Value inv) const {
     if (inv.hasOneUse()) {
-      return getOpResult<Top>(*inv.use_begin());
+      return getOpResult<Top>(*inv.getUsers().begin());
     }
     return Value();
   }
@@ -375,46 +377,55 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
   template <typename Ttwcopy>
   Value traceToThreadwiseCopy(Value inp,
                               SmallVector<Value, 5> &transforms) const {
-    Value null;
     Value nextVal;
-    // 1. get reader (memref.expand_shape), return result
-    int cnt = 0;
-    for (auto &use : inp.getUses()) {
-      if (auto op = dyn_cast<linalg::GenericOp>(use.getOwner())) {
+    bool hadRawCopyArg = false;
+    // 1. Validate that the only uses of the linalg.generic input are the one
+    // generic and a copy operation or transform.
+    int inpUses = 0;
+    for (Operation *use : inp.getUsers()) {
+      if (isa<linalg::GenericOp>(use)) {
         // reader
+      } else if (isa<Ttwcopy>(use)) {
+        // Threadwise copy that is already unttransformed (new style)
+        nextVal = inp;
+        hadRawCopyArg = true;
       } else if (!nextVal) {
         nextVal = getOpResult<miopen::TransformOp>(use);
         transforms.push_back(nextVal);
       }
-      cnt++;
+      inpUses++;
     }
-    if (cnt == 2) {
+    LLVM_DEBUG(llvm::dbgs() << "Found " << inpUses << " uses\n");
+    if (inpUses == 2) {
       while (nextVal) {
-        // 2. get reader (miopen.transform), return result
+        // 2. Collect the sequence of transforms needed to get to the copy arg
         if (auto transform = backtrace<miopen::TransformOp>(nextVal)) {
           nextVal = transform;
           transforms.push_back(nextVal);
         } else {
-          // 3. get readers (miopen.threadwise_copy)
-          bool allTWCopy = true;
-          for (auto &use : nextVal.getUses()) {
-            allTWCopy &= isa<Ttwcopy>(use.getOwner());
+          // 3. We're at the copy, verify that the argument to that copy
+          // is only used by copies or is the input itself.
+          bool allValidUses = true;
+          for (Operation *use : nextVal.getUsers()) {
+            bool validUse = isa<Ttwcopy>(use) ||
+                            (hadRawCopyArg && isa<linalg::GenericOp>(use));
+            allValidUses &= validUse;
           }
-          if (allTWCopy)
+          if (allValidUses)
             return inp;
           break;
         }
       }
     }
     transforms.clear();
-    return null;
+    return Value();
   }
 
   Value reconfigureLAGeneric(T &laGeneric, PatternRewriter &b,
                              SmallVector<Value, 5> &transforms, Value laIn,
                              Operation *twcopy) const {
-    auto ctx = laGeneric.getContext();
-    auto loc = laGeneric.getLoc();
+    MLIRContext *ctx = laGeneric.getContext();
+    Location loc = laGeneric.getLoc();
     Value twout = bwTraceTo(twcopy->getOperand(1));
     auto regType = laIn.getType().template cast<MemRefType>();
     auto laOut = b.create<miopen::GpuAllocOp>(loc, regType);
@@ -476,7 +487,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
   LogicalResult matchAndRewrite(T laGeneric,
                                 PatternRewriter &b) const override {
     LogicalResult fail = failure();
-    auto loc = laGeneric.getLoc();
+    Location loc = laGeneric.getLoc();
 
     if (processSet.find(laGeneric) != processSet.end()) {
       return fail;
@@ -519,12 +530,13 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     SmallVector<Value, 5> transforms;
     for (auto pair : llvm::enumerate(laGeneric.inputs())) {
       int32_t idx = pair.index();
-      auto inp = pair.value();
+      Value inp = pair.value();
       // 1.1. first trace to back to regs, then forward to twcopy
       SmallVector<Value, 5> transforms_l;
-      auto twinp_t =
+      Value twinp_t =
           traceToThreadwiseCopy<miopen::ThreadwiseCopyV2Op>(inp, transforms_l);
       if (!twinp_t) {
+        LLVM_DEBUG(llvm::dbgs() << "Didn't find threadwise copy v2\n");
         transforms_l.clear();
         twinp_t =
             traceToThreadwiseCopy<miopen::ThreadwiseCopyOp>(inp, transforms_l);
@@ -582,64 +594,59 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
           return success();
         }
       } else {
-        auto lastTransform = transforms.back();
-        SmallVector<Operation *, 2> twcopys;
-        for (auto &use : lastTransform.getUses()) {
-          if (auto twcopy =
-                  dyn_cast<miopen::ThreadwiseCopyV2Op>(use.getOwner())) {
-            twcopys.push_back(twcopy);
-          } else {
-            return fail;
-          }
-        }
-        auto twcopy = dyn_cast<miopen::ThreadwiseCopyV2Op>(twcopys.back());
+        // TODO(kdrewnia): Temporary assert - remove when non-xdlops is also
+        // migrated to the newer form of copy loop.
+        assert(transforms.empty() &&
+               "No transforms will be found with new-style copy");
+        miopen::ThreadwiseCopyV2Op twcopy;
+        for (Operation *use : twinp.getUsers())
+          if (auto copyOp = dyn_cast<miopen::ThreadwiseCopyV2Op>(use))
+            twcopy = copyOp;
 
-        Value regBWGemmV2 = twcopy.getOperand(0);
-        if (auto miSliceV2 =
-                dyn_cast<miopen::ExtractSliceOp>(regBWGemmV2.getDefiningOp())) {
-          // 2.0. Reset insertion point to just before threadwise_copy
-          b.setInsertionPoint(twcopy);
+        Value regBWGemmV2 = twcopy.source();
+        {
+          PatternRewriter::InsertionGuard guard(b);
+          // 2.0. Reset insertion point to before the loop containing the
+          // threadwise copy.
+          Operation *copyLoop = twcopy->getParentOp();
+          b.setInsertionPoint(copyLoop);
 
-          // 2.1. Capture gemm return shape
-          auto regVecType = regBWGemmV2.getType().template cast<VectorType>();
+          // 2.1. Capture type of gemm result vector
+          auto regVecType = regBWGemmV2.getType().cast<VectorType>();
           assert(regVecType.hasStaticShape());
           assert(regVecType.getRank() == 1);
 
-          SmallVector<int64_t, 2> shape{regVecType.getNumElements()};
-          auto elemType = regVecType.getElementType();
+          Type elemType = regVecType.getElementType();
 
           // 2.2. Make vgpr alloc to fit gemm return
-          // --- alternatively make 2 linalg.generics (1 for each vector)
-          auto regType = MemRefType::get(shape, elemType, {}, 5);
+          auto regType =
+              MemRefType::get(regVecType.getShape(), elemType, {}, 5);
           auto laInRegs = b.create<miopen::GpuAllocOp>(loc, regType);
 
           // 2.3. Copy gemm result vectors into vgpr
-          // > vector.store %58#0, %59[%c0, %c0] : memref<2x4xf32>,
-          // vector<4xf32> > vector.store %58#1, %59[%c1, %c0] :
-          // memref<2x4xf32>, vector<4xf32>
+          // > vector.store %merged -> %inRegs[%c0]
           Value c0 = b.create<arith::ConstantIndexOp>(loc, 0);
-          Value c1 = b.create<arith::ConstantIndexOp>(loc, 1);
-          const SmallVector<Value, 2> coords0{c0, c0};
-          const SmallVector<Value, 2> coords1{c1, c0};
-          b.create<vector::StoreOp>(loc, twcopys.back()->getOperand(0),
-                                    laInRegs, c0);
+          b.create<miopen::InBoundsStoreOp>(loc, regBWGemmV2, laInRegs, c0);
 
           // 2.4. Tile linalg.generic with vgpr as input, return output vgprs
-          auto laOutRegs =
+          Value laOutRegs =
               reconfigureLAGeneric(laGeneric, b, transforms, laInRegs, twcopy);
-          // 2.4.0. and insert before twcopys
-          laGeneric->moveBefore(twcopy);
+          // 2.4.0. Move the generic before the write-back. This'll put all
+          // the copy loops for other inputs before the generic due to insertion
+          // order.
+          laGeneric->moveBefore(copyLoop);
 
           // 2.5. Replace twcopy inputs with vector from la result vgpr
-          auto vload0 =
-              b.create<vector::LoadOp>(loc, regVecType, laOutRegs, c0);
+          // Make sure the load goes between the generic and the writeback.
+          b.setInsertionPointAfter(laGeneric);
+          Value vload0 =
+              b.create<miopen::InBoundsLoadOp>(loc, regVecType, laOutRegs, c0);
 
-          twcopys.back()->setOperand(0, vload0);
-
-          // 2.6. Reset twcopy output to point to old laGeneric output
-          auto mrReshape =
-              transforms.front().getDefiningOp<miopen::TransformOp>();
-          mrReshape->setOperand(0, out);
+          // Since the threadwise copy arg has gone through untransform()
+          // its expected output type is the same as the output type of the
+          // linalg.generic.
+          twcopy.sourceMutable().assign(vload0);
+          twcopy.destMutable().assign(out);
 
           return success();
         }

@@ -36,6 +36,7 @@
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
 #include "mlir/InitAllDialects.h"
+#include "mlir/Transforms/Passes.h"
 #include "llvm/Support/TargetSelect.h"
 
 using namespace mlir;
@@ -119,8 +120,11 @@ void miopen::addPipeline(PassManager &pm, bool applicability, bool highLevel) {
   if (!applicability) {
     if (highLevel) {
       // align linalg tiling
-      /* miopen-opt --miopen-linalg-align --convert-linalg-to-affine-loops
+      /* miopen-opt --canonicalize --miopen-linalg-align
+       * --convert-linalg-to-affine-loops
        */
+      // We need a canonicalize in order to eliminate dead code
+      pm.addPass(createCanonicalizerPass());
       pm.addPass(miopen::createMIOpenLinalgAlignPass());
       pm.addPass(createConvertLinalgToAffineLoopsPass());
     }

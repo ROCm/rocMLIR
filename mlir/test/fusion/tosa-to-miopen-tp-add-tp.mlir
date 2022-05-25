@@ -1,4 +1,4 @@
-// RUN: mlir-miopen-driver --host-pipeline highlevel %s | miopen-opt --miopen-affix-params --miopen-lowering --miopen-lowering-step2 --miopen-linalg-align | FileCheck %s
+// RUN: mlir-miopen-driver --host-pipeline highlevel %s | miopen-opt --miopen-affix-params --miopen-lowering --miopen-lowering-step2 --canonicalize --miopen-linalg-align | FileCheck %s
 // CHECK: miopen.transform %arg3
 // CHECK-SAME: memref<256x64x28x28xf32> to memref<256x28x28x64x1xf32
 // CHECK: miopen.transform %arg2
