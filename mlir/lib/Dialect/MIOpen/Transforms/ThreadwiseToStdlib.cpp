@@ -387,8 +387,7 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
       }
     }
 
-    StoreMethod memoryOp = op.storeMethod().getValueOr(StoreMethod::Set);
-
+    StoreMethod memoryOp = op.storeMethod();
     SmallVector<Value, 5> coordsI32;
     for (Value v : coords)
       coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
