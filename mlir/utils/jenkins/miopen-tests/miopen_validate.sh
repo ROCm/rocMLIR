@@ -139,7 +139,14 @@ function clean_miopen_caches() {
 
 function setup_environment() {
     export MIOPEN_FIND_MODE=1
-    export MIOPEN_DRIVER_USE_GPU_REFERENCE=1
+
+    # Note below is the hot fix because MIOpen reference kernel is broken
+    # in nonxdlops context
+    if [[ $XDLOPS == 1 ]]; then
+        export MIOPEN_DRIVER_USE_GPU_REFERENCE=1
+    else
+        export MIOPEN_DRIVER_USE_GPU_REFERENCE=0
+    fi
 
     if [[ $TUNING == 1 ]]; then
         export MIOPEN_FIND_ENFORCE=4
