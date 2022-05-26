@@ -1604,8 +1604,8 @@ struct MITPRewritePattern : public OpRewritePattern<linalg::GenericOp> {
       auto inMapped = inpIdxMap.getDimPosition(i);
       endDims.push_back(outpIdxMap.getDimPosition(inMapped));
     }
-    miopen::TopDownTMBuilder transform(b, inpShape, loc);
-    transform.passThrough(startDims, endDims);
+    miopen::BottomUpTMBuilder transform(b, inpShape, loc);
+    transform.passThrough(endDims, startDims);
     auto tfOp = b.create<miopen::TransformOp>(loc, inp, transform.get(),
                                               inpType.getMemorySpaceAsInt());
     return tfOp;
