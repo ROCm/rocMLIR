@@ -1585,14 +1585,14 @@ template struct Conv2DRewritePattern<Conv2DBwdWeightOp>;
 
 //===- MITPRewritePattern -------------------------------------------------===//
 //===-  ------------------------------------------------===//
-template <typename T> struct MITPRewritePattern : public OpRewritePattern<T> {
-  using OpRewritePattern<T>::OpRewritePattern;
+struct MITPRewritePattern : public OpRewritePattern<linalg::GenericOp> {
+  using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
 
   miopen::TransformOp makeTranspose(PatternRewriter &b, Value inp,
                                     const AffineMapAttr &inMap,
                                     const AffineMapAttr &outMap) const {
-    auto inpIdxMap = inMap.getAffineMap();
-    auto outpIdxMap = outMap.getAffineMap();
+    AffineMap inpIdxMap = inMap.getAffineMap();
+    AffineMap outpIdxMap = outMap.getAffineMap();
     auto loc = inp.getLoc();
     auto inpType = inp.getType().template cast<MemRefType>();
     auto inpShape = inpType.getShape();
@@ -1604,8 +1604,8 @@ template <typename T> struct MITPRewritePattern : public OpRewritePattern<T> {
       auto inMapped = inpIdxMap.getDimPosition(i);
       endDims.push_back(outpIdxMap.getDimPosition(inMapped));
     }
-    miopen::BottomUpTMBuilder transform(b, inpShape, loc);
-    transform.passThrough(endDims, startDims);
+    miopen::TopDownTMBuilder transform(b, inpShape, loc);
+    transform.passThrough(startDims, endDims);
     auto tfOp = b.create<miopen::TransformOp>(loc, inp, transform.get(),
                                               inpType.getMemorySpaceAsInt());
     return tfOp;
@@ -1613,39 +1613,43 @@ template <typename T> struct MITPRewritePattern : public OpRewritePattern<T> {
 
   LogicalResult matchAndRewrite(T laGeneric,
                                 PatternRewriter &b) const override {
-    LogicalResult fail = failure();
     auto loc = laGeneric.getLoc();
 
     // 0. Test compatibility
     // 0.0. Only fully parallel for now
-    for (auto itr : laGeneric.iterator_types()) {
-      if (itr.template cast<StringAttr>().getValue() != "parallel") {
-        return fail;
+    for (StringRef itr : laGeneric.getAsValueRange<StringAttr>()) {
+      if (itr != "parallel") {
+        return failure();
       }
     }
 
     bool bPassing = false;
     laGeneric.getRegion().walk([&](linalg::YieldOp yieldOp) {
-      auto laReturn = yieldOp->getOperand(0);
+      Value laReturn = yieldOp->getOperand(0);
       bPassing = (laReturn == laGeneric.getRegion().getArgument(0));
     });
 
-    // 0.1. Test if 1 to 1 pass through
+    // 0.1. Test it only passes through 1:1 and no other calculation
     if (laGeneric.inputs().size() != 1 || laGeneric.outputs().size() != 1 ||
         !bPassing) {
-      return fail;
+      return failure();
     }
 
-    // 0.2. Test it only passes through and no other calculation
+    // 0.2. linalg.generic lowered from tosa.transpose should have memref.alloc
+    Value out = *laGeneric.outputs().begin();
+    auto allocToDel = out.getDefiningOp<memref::AllocOp>();
+    if (!allocToDel) {
+      return failure();
+    }
+
+    // get maps to construct a transforming map for the transpose
     auto idxMaps =
         laGeneric->template getAttrOfType<ArrayAttr>("indexing_maps");
     auto inIdxMap = idxMaps[0].template cast<AffineMapAttr>();
     auto outIdxMap = idxMaps[1].template cast<AffineMapAttr>();
-
     auto tpTransform =
         makeTranspose(b, laGeneric->getOperand(0), inIdxMap, outIdxMap);
-    Value out = *laGeneric.outputs().begin();
-    auto allocToDel = out.getDefiningOp<memref::AllocOp>();
+
     b.replaceOp(allocToDel, {tpTransform});
     b.eraseOp(laGeneric);
     return success();
@@ -1657,7 +1661,7 @@ void LowerMIOpenOpsStep1Pass::runOnOperation() {
   ConversionTarget target(*ctx);
 
   RewritePatternSet patternsTP(ctx);
-  patternsTP.add<MITPRewritePattern<linalg::GenericOp>>(ctx);
+  patternsTP.add<MITPRewritePattern>(ctx);
   if (failed(
           applyPatternsAndFoldGreedily(getOperation(), std::move(patternsTP))))
     signalPassFailure();
