@@ -2354,8 +2354,6 @@ struct GridwiseGemmV2RewritePattern
     }
 
     int64_t numBlksPerXdlops = (MPerXdlops * NPerXdlops) / (m * n);
-    int64_t numBlks = numBlksPerXdlops * MRepeats * NRepeats;
-
     const auto &tailResults = blockwiseGemmV2TailOp->getResults();
     int64_t wavesInKernelBlock = kernelBlockSize / waveSize;
     int64_t resultCVectorLen = vectorType.getNumElements();
@@ -2373,8 +2371,8 @@ struct GridwiseGemmV2RewritePattern
                              num_threads_blk / group_size, group_size});
     splitMemoryCoords.merge(
         {"i", "j", "vec_group", "vec_item"}, {7, 8, 9, 10}, "item",
-        {numElements / (numBlks * num_groups_blk * group_size), numBlks,
-         num_groups_blk, group_size});
+        {numElements / (numBlksPerXdlops * num_groups_blk * group_size),
+         numBlksPerXdlops, num_groups_blk, group_size});
     TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
 
     // "blkMajor" and "blkMinor" are placeholder names because we don't know if
