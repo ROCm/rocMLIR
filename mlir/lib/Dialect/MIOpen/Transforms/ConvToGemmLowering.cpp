@@ -1611,13 +1611,13 @@ struct MITPRewritePattern : public OpRewritePattern<linalg::GenericOp> {
     return tfOp;
   }
 
-  LogicalResult matchAndRewrite(T laGeneric,
+  LogicalResult matchAndRewrite(linalg::GenericOp laGeneric,
                                 PatternRewriter &b) const override {
     auto loc = laGeneric.getLoc();
 
     // 0. Test compatibility
     // 0.0. Only fully parallel for now
-    for (StringRef itr : laGeneric.getAsValueRange<StringAttr>()) {
+    for (StringRef itr : laGeneric.iterator_types().getAsValueRange<StringAttr>()) {
       if (itr != "parallel") {
         return failure();
       }
@@ -1645,8 +1645,8 @@ struct MITPRewritePattern : public OpRewritePattern<linalg::GenericOp> {
     // get maps to construct a transforming map for the transpose
     auto idxMaps =
         laGeneric->template getAttrOfType<ArrayAttr>("indexing_maps");
-    auto inIdxMap = idxMaps[0].template cast<AffineMapAttr>();
-    auto outIdxMap = idxMaps[1].template cast<AffineMapAttr>();
+    auto inIdxMap = idxMaps[0].cast<AffineMapAttr>();
+    auto outIdxMap = idxMaps[1].cast<AffineMapAttr>();
     auto tpTransform =
         makeTranspose(b, laGeneric->getOperand(0), inIdxMap, outIdxMap);
 
