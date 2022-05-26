@@ -7,6 +7,7 @@
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/Tuning/UtilityParams.h"
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
+#include "mlir/Dialect/MIOpen/utility/math.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Types.h"
@@ -122,6 +123,20 @@ void AffixTuningParameters::runOnOperation() {
   });
 }
 
+static void setUtilityKernelSizes(OpBuilder &b, Value arg, Operation *convOp,
+                                  Operation *funcOp) {
+  int64_t numElements = arg.getType().cast<MemRefType>().getNumElements();
+  int64_t blockSize = kUtilityKernelBlockSize;
+  int64_t elemsPerThread = kUtilityKernelElemsPerThread;
+  int64_t gridSize =
+      math_util::integer_divide_ceil(numElements, blockSize * elemsPerThread);
+  for (Operation *op : ArrayRef<Operation *>{convOp, funcOp}) {
+    op->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
+    op->setAttr("block_size", b.getI32IntegerAttr(blockSize));
+    op->setAttr("elems_per_thread", b.getI32IntegerAttr(elemsPerThread));
+  }
+}
+
 void AffixTuningParameters::affixBackwardDataUtilityKernels(
     Conv2DBwdDataOp &op) {
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
@@ -130,15 +145,7 @@ void AffixTuningParameters::affixBackwardDataUtilityKernels(
   // utility kernel.
   if (gemmIdAttr.getInt() < 0) {
     OpBuilder b(op.getContext());
-
-    // Set grid_size and block_size for utility kernels.
-    op->setAttr("grid_size", b.getI32IntegerAttr(kUtilityKernelGridSize));
-    op->setAttr("block_size", b.getI32IntegerAttr(kUtilityKernelBlockSize));
-    // Set attributes on the function.
-    getOperation()->setAttr("grid_size",
-                            b.getI32IntegerAttr(kUtilityKernelGridSize));
-    getOperation()->setAttr("block_size",
-                            b.getI32IntegerAttr(kUtilityKernelBlockSize));
+    setUtilityKernelSizes(b, op.input(), op, getOperation());
   }
 }
 
@@ -169,14 +176,7 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
       switch (gemmId) {
       case 0:
       case 2:
-        // Set grid_size and block_size for utility kernels.
-        op->setAttr("grid_size", b.getI32IntegerAttr(kUtilityKernelGridSize));
-        op->setAttr("block_size", b.getI32IntegerAttr(kUtilityKernelBlockSize));
-        // Set attributes on the function.
-        getOperation()->setAttr("grid_size",
-                                b.getI32IntegerAttr(kUtilityKernelGridSize));
-        getOperation()->setAttr("block_size",
-                                b.getI32IntegerAttr(kUtilityKernelBlockSize));
+        setUtilityKernelSizes(b, op.filter(), op, getOperation());
         break;
       case 1:
         break;

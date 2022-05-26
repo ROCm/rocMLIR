@@ -18,10 +18,10 @@
 namespace mlir {
 namespace miopen {
 
-/// Default grid size and block size for utility kernels used in the lowering
-/// process.
-constexpr int64_t kUtilityKernelGridSize = 512;
+/// Default block size for utility kernels.
 constexpr int64_t kUtilityKernelBlockSize = 64;
+/// Default number of elements each utility kernel workitem should handle.
+constexpr int64_t kUtilityKernelElemsPerThread = 512;
 
 } // end namespace miopen
 } // end namespace mlir
