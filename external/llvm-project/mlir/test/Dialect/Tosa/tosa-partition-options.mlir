@@ -1,8 +1,8 @@
 // RUN: mlir-opt --tosa-partition %s | FileCheck %s
 // RUN: mlir-opt --tosa-partition=attribute-name=one %s | FileCheck %s --check-prefix=ONE
-// RUN: mlir-opt --tosa-partition='primary-ops=tosa.depthwise_conv2d attribute-name=two' %s | FileCheck %s --check-prefix=TWO
-// RUN: mlir-opt --tosa-partition='primary-ops=tosa.depthwise_conv2d trailing-only attribute-name=three' %s | FileCheck %s --check-prefix=THREE
-// RUN: mlir-opt --tosa-partition='primary-ops=tosa.conv2d,tosa.depthwise_conv2d attribute-name=four' %s | FileCheck %s --check-prefix=FOUR
+// RUN: mlir-opt --tosa-partition='anchor-ops=tosa.depthwise_conv2d attribute-name=two' %s | FileCheck %s --check-prefix=TWO
+// RUN: mlir-opt --tosa-partition='anchor-ops=tosa.depthwise_conv2d trailing-only attribute-name=three' %s | FileCheck %s --check-prefix=THREE
+// RUN: mlir-opt --tosa-partition='anchor-ops=tosa.conv2d,tosa.depthwise_conv2d attribute-name=four' %s | FileCheck %s --check-prefix=FOUR
 
 // RUN: mlir-opt --test-tosa-partition-options=default %s | FileCheck %s --check-prefix=CHECK
 // RUN: mlir-opt --test-tosa-partition-options=depthwise-only %s | FileCheck %s --check-prefix=TWO

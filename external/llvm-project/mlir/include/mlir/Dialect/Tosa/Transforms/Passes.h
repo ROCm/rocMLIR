@@ -31,10 +31,8 @@ std::unique_ptr<Pass> createTosaInferShapesPass();
 std::unique_ptr<Pass> createTosaMakeBroadcastablePass();
 std::unique_ptr<Pass> createTosaTestQuantUtilAPIPass();
 std::unique_ptr<Pass> createTosaPartitionPass();
-std::unique_ptr<Pass>
-createTosaPartitionPass(llvm::function_ref<bool(Operation *)> &pred,
-                        std::string attributeName = "kernel",
-                        bool nofront = false);
+class PartitionConfig;
+std::unique_ptr<Pass> createTosaPartitionPass(PartitionConfig *config);
 std::unique_ptr<Pass> createTosaOptionalDecompositions();
 
 #define GEN_PASS_REGISTRATION

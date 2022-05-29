@@ -50,17 +50,6 @@ def TosaPartition : Pass<"tosa-partition", "ModuleOp"> {
   }];
 
   let constructor = "createTosaPartitionPass()";
-
-  let options = [
-    ListOption<"primaryOps", "primary-ops", "std::string",
-               "One or more operations to be used as focus of partitioned "
-               "kernels",
-               "llvm::cl::ZeroOrMore">,
-    Option<"attributeName", "attribute-name", "std::string",
-           /*default=*/"\"kernel\"", "Attribute for outlined functions">,
-    Option<"noFront", "trailing-only", "bool", /*default=*/"false",
-           "Don't gather ops ahead of Conv2D">
-  ];
   let dependentDialects = ["tosa::TosaDialect"];
 }
 
