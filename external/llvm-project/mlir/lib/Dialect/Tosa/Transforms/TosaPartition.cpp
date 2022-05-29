@@ -90,7 +90,7 @@ bool isElementwiseOp(Operation *op) {
 }
 
 bool isFusibleOp(Operation *op) {
-  return isElementwiseOp(op) || isa<tosa::TransposeOp,tosa::ReshapeOp>(op);
+  return isElementwiseOp(op) || isa<tosa::TransposeOp, tosa::ReshapeOp>(op);
 }
 
 bool isZeroAttribute(Attribute value) {
@@ -101,8 +101,7 @@ bool isZeroAttribute(Attribute value) {
   if (auto splatValue = value.dyn_cast<SplatElementsAttr>())
     return isZeroAttribute(splatValue.getSplatValue<Attribute>());
   if (auto elementsValue = value.dyn_cast<ElementsAttr>())
-    return llvm::all_of(elementsValue.getValues<Attribute>(),
-                        isZeroAttribute);
+    return llvm::all_of(elementsValue.getValues<Attribute>(), isZeroAttribute);
   if (auto arrayValue = value.dyn_cast<ArrayAttr>())
     return llvm::all_of(arrayValue.getValue(), isZeroAttribute);
   return false;
@@ -418,7 +417,8 @@ namespace tosa {
 
 class PartitionConfig {
 public:
-  PartitionConfig() {     /*llvm::errs() << "new partition config\n";*/ }
+  PartitionConfig() { /*llvm::errs() << "new partition config\n";*/
+  }
   virtual bool isAnchorOp(Operation *) = 0;
   virtual bool isLeadingOp(Operation *) = 0;
   virtual bool isTrailingOp(Operation *) = 0;
@@ -428,9 +428,7 @@ public:
 
 class SimpleDefaultPartitionConfig : public PartitionConfig {
 public:
-  bool isAnchorOp(Operation *op) override {
-    return isa<tosa::Conv2DOp>(op);
-  }
+  bool isAnchorOp(Operation *op) override { return isa<tosa::Conv2DOp>(op); }
   bool isLeadingOp(Operation *op) override {
     return isConstantZero(op) || isFusibleOp(op);
   }
@@ -438,47 +436,53 @@ public:
   std::string attributeName() override { return "kernel"; }
 };
 
-
 class PartitionConfigWithOptions : public PartitionConfig {
   Pass::ListOption<std::string> anchorOps;
   Pass::Option<std::string> attributeNameOpt;
   Pass::Option<bool> nofront;
+
 public:
   PartitionConfigWithOptions(Pass *pass)
-    : anchorOps{*pass, "anchor-ops", llvm::cl::desc("One or more operations to be used as focus of partitioned kernels"), llvm::cl::ZeroOrMore},
-      attributeNameOpt{*pass, "attribute-name", ::llvm::cl::desc("Attribute for outlined functions"), ::llvm::cl::init("kernel")},
-      nofront{*pass, "trailing-only", ::llvm::cl::desc("Don't gather ops ahead of Conv2D"), ::llvm::cl::init(false)}
-  {
-//     if (!anchorOps.hasValue()) {
-//       llvm::errs() << "overriding empty anchor ops\n";
-//       anchorOps = {"tosa.conv2d"};
-//     } else {
-//       llvm::errs() << "anchor ops is '" << anchorOps.getArgStr() << "'\n";
-//     }
-//     for (auto *thing : llvm::cl::getRegisteredSubcommands())
-//       llvm::errs() << thing << "\n";
-//     llvm::errs() << "config with options:\n";
-//     llvm::errs() << "  anchorOps =\n    ";
-//     for (auto &anchor : anchorOps) llvm::errs() << anchor << " ";
-//     llvm::errs() << "\n";
-//     llvm::errs() << "  attrName = " << attributeNameOpt << "\n";
-//     llvm::errs() << "  nofront = " << nofront << "\n";
+      : anchorOps{*pass, "anchor-ops",
+                  llvm::cl::desc("One or more operations to be used as focus "
+                                 "of partitioned kernels"),
+                  llvm::cl::ZeroOrMore},
+        attributeNameOpt{*pass, "attribute-name",
+                         ::llvm::cl::desc("Attribute for outlined functions"),
+                         ::llvm::cl::init("kernel")},
+        nofront{*pass, "trailing-only",
+                ::llvm::cl::desc("Don't gather ops ahead of Conv2D"),
+                ::llvm::cl::init(false)} {
+    //     if (!anchorOps.hasValue()) {
+    //       llvm::errs() << "overriding empty anchor ops\n";
+    //       anchorOps = {"tosa.conv2d"};
+    //     } else {
+    //       llvm::errs() << "anchor ops is '" << anchorOps.getArgStr() <<
+    //       "'\n";
+    //     }
+    //     for (auto *thing : llvm::cl::getRegisteredSubcommands())
+    //       llvm::errs() << thing << "\n";
+    //     llvm::errs() << "config with options:\n";
+    //     llvm::errs() << "  anchorOps =\n    ";
+    //     for (auto &anchor : anchorOps) llvm::errs() << anchor << " ";
+    //     llvm::errs() << "\n";
+    //     llvm::errs() << "  attrName = " << attributeNameOpt << "\n";
+    //     llvm::errs() << "  nofront = " << nofront << "\n";
   }
   bool isAnchorOp(Operation *op) override {
-//     llvm::errs() << "given anchorOps =\n    ";
-//     for (auto &anchor : anchorOps) llvm::errs() << anchor << " ";
-//     llvm::errs() << "\n";
-//     llvm::errs() << "  is '" << op->getName().getIdentifier().str() << "' an anchor?  ";
-//     if (llvm::is_contained(anchorOps,
-//                            op->getName().getIdentifier().str()))
-//       llvm::errs() << "yes\n";
-//     else
-//       llvm::errs() << "no\n";
+    //     llvm::errs() << "given anchorOps =\n    ";
+    //     for (auto &anchor : anchorOps) llvm::errs() << anchor << " ";
+    //     llvm::errs() << "\n";
+    //     llvm::errs() << "  is '" << op->getName().getIdentifier().str() << "'
+    //     an anchor?  "; if (llvm::is_contained(anchorOps,
+    //                            op->getName().getIdentifier().str()))
+    //       llvm::errs() << "yes\n";
+    //     else
+    //       llvm::errs() << "no\n";
 
     if (anchorOps.empty())
       anchorOps = {"tosa.conv2d"};
-    return llvm::is_contained(anchorOps,
-                              op->getName().getIdentifier().str());
+    return llvm::is_contained(anchorOps, op->getName().getIdentifier().str());
   }
   bool isLeadingOp(Operation *op) override {
     return !nofront && (isConstantZero(op) || isFusibleOp(op));
@@ -499,19 +503,23 @@ class TosaPartitionPass : public TosaPartitionBase<TosaPartitionPass> {
 
 public:
   TosaPartitionPass() {
-//    llvm::errs() << "new pass 1\n";
+    //    llvm::errs() << "new pass 1\n";
     config = new mlir::tosa::PartitionConfigWithOptions(this);
   }
   TosaPartitionPass(mlir::tosa::PartitionConfig *config_)
-    : config(config_) {    /*llvm::errs() << "new pass 2\n";*/}
-  ~TosaPartitionPass() override {     /*llvm::errs() << "pass deleted\n"; delete config;*/ }
+      : config(config_) { /*llvm::errs() << "new pass 2\n";*/
+  }
+  ~TosaPartitionPass()
+      override { /*llvm::errs() << "pass deleted\n"; delete config;*/
+  }
 
   void traceInputs(Operation *op, SmallVector<Operation *> &predecessors,
                    SetVector<Value> &inputNodes) {
     for (const auto &opnd : op->getOperands()) {
       Operation *usedOp = opnd.getDefiningOp();
-      if (usedOp && (config->isLeadingOp(usedOp)
-                     || (isa<tosa::TransposeOp>(op) && isSmallishConstant(usedOp)))) {
+      if (usedOp &&
+          (config->isLeadingOp(usedOp) ||
+           (isa<tosa::TransposeOp>(op) && isSmallishConstant(usedOp)))) {
         predecessors.push_back(usedOp);
         if (!detail::isConstantLike(usedOp)) {
           // depth first
@@ -653,7 +661,8 @@ std::unique_ptr<Pass> mlir::tosa::createTosaPartitionPass() {
   return std::make_unique<TosaPartitionPass>();
 }
 
-std::unique_ptr<Pass> mlir::tosa::createTosaPartitionPass(mlir::tosa::PartitionConfig *config) {
+std::unique_ptr<Pass>
+mlir::tosa::createTosaPartitionPass(mlir::tosa::PartitionConfig *config) {
   return std::make_unique<TosaPartitionPass>(config);
 }
 
@@ -682,36 +691,41 @@ public:
     if (defaultCase) {
       pm.addPass(tosa::createTosaPartitionPass());
     } else if (depthwiseOnly) {
-      class DepthwiseOnlyPartitionConfig : public mlir::tosa::SimpleDefaultPartitionConfig {
+      class DepthwiseOnlyPartitionConfig
+          : public mlir::tosa::SimpleDefaultPartitionConfig {
       public:
         bool isAnchorOp(Operation *op) override {
           return isa<tosa::DepthwiseConv2DOp>(op);
         }
       };
-      pm.addPass(tosa::createTosaPartitionPass(new DepthwiseOnlyPartitionConfig()));
+      pm.addPass(
+          tosa::createTosaPartitionPass(new DepthwiseOnlyPartitionConfig()));
     } else if (both) {
-      class DepthwiseAlsoPartitionConfig : public mlir::tosa::SimpleDefaultPartitionConfig {
+      class DepthwiseAlsoPartitionConfig
+          : public mlir::tosa::SimpleDefaultPartitionConfig {
       public:
         bool isAnchorOp(Operation *op) override {
-          return isa<tosa::Conv2DOp,tosa::DepthwiseConv2DOp>(op);
+          return isa<tosa::Conv2DOp, tosa::DepthwiseConv2DOp>(op);
         }
       };
-      pm.addPass(tosa::createTosaPartitionPass(new DepthwiseAlsoPartitionConfig()));
+      pm.addPass(
+          tosa::createTosaPartitionPass(new DepthwiseAlsoPartitionConfig()));
     } else if (attrOne) {
-      class AttributeOnePartitionConfig : public mlir::tosa::SimpleDefaultPartitionConfig {
+      class AttributeOnePartitionConfig
+          : public mlir::tosa::SimpleDefaultPartitionConfig {
       public:
         std::string attributeName() override { return "one"; }
       };
-      pm.addPass(tosa::createTosaPartitionPass(new AttributeOnePartitionConfig()));
+      pm.addPass(
+          tosa::createTosaPartitionPass(new AttributeOnePartitionConfig()));
     } else if (nofrontArg) {
-      class NoFrontPartitionConfig : public mlir::tosa::SimpleDefaultPartitionConfig {
+      class NoFrontPartitionConfig
+          : public mlir::tosa::SimpleDefaultPartitionConfig {
       public:
         bool isAnchorOp(Operation *op) override {
           return isa<tosa::DepthwiseConv2DOp>(op);
         }
-        bool isLeadingOp(Operation *op) override {
-          return false;
-        }
+        bool isLeadingOp(Operation *op) override { return false; }
       };
       pm.addPass(tosa::createTosaPartitionPass(new NoFrontPartitionConfig()));
     }
