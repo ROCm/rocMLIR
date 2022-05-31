@@ -268,14 +268,16 @@ public:
 // we set gemmMExtra be 64 so (gemmM+gemmMExtra)%gemmMPerBlock=0.
 //
 // Returns:
+// - isOriginalKernelSupport : a bool only used in backward data convolution.
 // - needExtraPad : a bool to indicate whether padding kernel is needed.
 // - gemmM/N/KExtra : additional padding required along Gemm M/N/K dimension.
 //                    They would be all be 0 in case needExtraPad is false.
 template <typename T>
-std::tuple<bool, int64_t, int64_t, int64_t>
+std::tuple<bool, bool, int64_t, int64_t, int64_t>
 calculatePaddingKernelSize(int64_t gemmMSize, int64_t gemmNSize,
                            int64_t gemmKSize, ConvOpType dir, Type dataType,
                            T populateParams) {
+  bool isOriginalKernelSupport = true;
   bool needExtraPad = false;
   int64_t gemmMExtra, gemmNExtra, gemmKExtra;
   gemmMExtra = gemmNExtra = gemmKExtra = 0;
@@ -286,8 +288,10 @@ calculatePaddingKernelSize(int64_t gemmMSize, int64_t gemmNSize,
     if (gemmMSize % params.gemmMPerBlock == 0 &&
         gemmKSize % params.gemmKPerBlock == 0 &&
         gemmNSize % params.gemmNPerBlock == 0) {
+      isOriginalKernelSupport = true;
       break;
     }
+    isOriginalKernelSupport = false;
     numOfFailedConfigs++;
   }
 
@@ -312,7 +316,8 @@ calculatePaddingKernelSize(int64_t gemmMSize, int64_t gemmNSize,
     // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
   }
 
-  return std::make_tuple(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra);
+  return std::make_tuple(isOriginalKernelSupport, needExtraPad, gemmMExtra,
+                         gemmNExtra, gemmKExtra);
 }
 
 } // namespace miopen
