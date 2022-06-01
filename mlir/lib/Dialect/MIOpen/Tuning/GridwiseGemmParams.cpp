@@ -417,7 +417,7 @@ static void obtainGemmSize(ConvolutionContext &ctx, GemmSize &gemmSize) {
     auto dilationH = ctx.dilationVal[0];
     auto dilationW = ctx.dilationVal[1];
     auto leftPadH = ctx.paddingVal[0];
-    auto leftPadW = ctx.paddingVal[2];
+    auto leftPadW = ctx.paddingVal[1];
 
     auto gcdStrideDilationH = math_util::gcd(strideH, dilationH);
     auto gcdStrideDilationW = math_util::gcd(strideW, dilationW);
