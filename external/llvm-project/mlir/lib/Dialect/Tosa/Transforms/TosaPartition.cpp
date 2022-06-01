@@ -304,6 +304,31 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
     outlinedFunc->setAttr("sym_visibility", StringAttr::get(ctx, "private"));
     newCandidate.function = outlinedFunc;
 
+    // Add access modes for parameters: read-only, write-only, read-write
+    // All MemRef params are marked as 'read-write'
+    // Non-MemRef inputs are added as 'read-only'
+    auto numInputs = values.size();
+    auto readAccessAttr =
+        func::AccessModeAttr::get(ctx, func::AccessMode::ReadOnly);
+    auto readWriteAccessAttr =
+        func::AccessModeAttr::get(ctx, func::AccessMode::ReadWrite);
+    SmallVector<Attribute, 8> accessVec(numInputs + results.size(),
+                                        readAccessAttr);
+    for (auto pair : llvm::enumerate(values)) {
+      if (pair.value().getType().isa<MemRefType>())
+        accessVec[pair.index()] = readWriteAccessAttr;
+    }
+    // Non-MemRef results are added as 'write-only'
+    auto writeAccessAttr =
+        func::AccessModeAttr::get(ctx, func::AccessMode::WriteOnly);
+    for (auto pair : llvm::enumerate(results)) {
+      if (pair.value().getType().isa<MemRefType>())
+        accessVec[numInputs + pair.index()] = readWriteAccessAttr;
+      else
+        accessVec[numInputs + pair.index()] = writeAccessAttr;
+    }
+    outlinedFunc->setAttr("access_map", ArrayAttr::get(ctx, accessVec));
+
     // Clone frontOps, convOp, and secondOps into the body of the new function,
     // while also updating the comparison details for future candidates.
     b.setInsertionPointToStart(outlinedFunc.addEntryBlock());
