@@ -54,8 +54,6 @@
 
 using namespace mlir;
 
-static constexpr const char kRunnerProgram[] = "mlir-rocm-runner";
-static constexpr const char kRocmAgentEnumerator[] = "rocm_agent_enumerator";
 static constexpr const char kTargetTriple[] = "amdgcn-amd-amdhsa";
 
 #if __INCLUDE_HIP__
@@ -91,67 +89,9 @@ BackendUtils::BackendUtils(const std::string &defaultTriple,
 void BackendUtils::configTarget(std::string &targetChip,
                                 std::string &features) {
 #if __INCLUDE_HIP__
-  // Locate rocm_agent_enumerator.
-  llvm::ErrorOr<std::string> rocmAgentEnumerator = llvm::sys::findProgramByName(
-      kRocmAgentEnumerator, {__ROCM_PATH__ "/bin"});
-  std::error_code ec = rocmAgentEnumerator.getError();
-  if (ec) {
-    llvm::WithColor::warning(llvm::errs(), kRunnerProgram)
-        << kRocmAgentEnumerator << " couldn't be located under "
-        << __ROCM_PATH__ << ", set target as " << chip << "\n";
-    return;
-  }
-
-  // Prepare temp file to hold the outputs.
-  int tempFd = -1;
-  SmallString<128> tempFilename;
-  ec = llvm::sys::fs::createTemporaryFile("rocm_agent", "txt", tempFd,
-                                          tempFilename);
-  if (ec) {
-    llvm::WithColor::warning(llvm::errs(), kRunnerProgram)
-        << "temporary file for " << kRocmAgentEnumerator
-        << " creation error, set target as " << chip << "\n";
-    return;
-  }
-  llvm::FileRemover cleanup(tempFilename);
-
-  // Invoke rocm_agent_enumerator.
-  std::string errorMessage;
-
-  SmallVector<StringRef, 1> args{rocmAgentEnumerator.get()};
-
-  Optional<StringRef> redirects[3] = {{""}, tempFilename.str(), {""}};
-  int result =
-      llvm::sys::ExecuteAndWait(rocmAgentEnumerator.get(), args, llvm::None,
-                                redirects, 0, 0, &errorMessage);
-  if (result) {
-    llvm::WithColor::warning(llvm::errs(), kRunnerProgram)
-        << kRocmAgentEnumerator << " invocation error: " << errorMessage
-        << ", set target as " << chip << "\n";
-    return;
-  }
-
-  // Load and parse the result.
-  auto gfxArchList = mlir::openInputFile(tempFilename);
-  if (!gfxArchList) {
-    llvm::WithColor::error(llvm::errs(), kRunnerProgram)
-        << "read ROCm agent list temp file error, set features as " << chip
-        << "\n";
-    return;
-  }
-
-  for (llvm::line_iterator lines(*gfxArchList); !lines.is_at_end(); ++lines) {
-    // Skip the line with content "gfx000".
-    if (*lines == "gfx000")
-      continue;
-    // Use the first ISA version found.
-    targetChip = lines->str();
-    break;
-  }
   std::string gcnArchName;
   getGpuGCNArchName(0, gcnArchName);
-  std::string chip;
-  auto status = IsaNameParser::parseArchName(gcnArchName, chip, features);
+  auto status = IsaNameParser::parseArchName(gcnArchName, targetChip, features);
   if (status.failed()) {
     llvm_unreachable("HIP ArchName parsing should never fail.");
   }
