@@ -79,6 +79,9 @@ static cl::opt<bool> legacyMiopenPipeline("c", cl::Hidden, cl::init(false),
 
 /////////////////////////////////////////////////////////////////////////////
 //// Backend target spec
+static cl::opt<bool> cpuOnly("cpu-only", cl::Hidden, cl::init(false),
+                             cl::Optional);
+
 static cl::opt<int> gpuOpt("gO",
                            cl::desc("Optimization level for GPU compilation"),
                            cl::value_desc("Integer from 0 to 3"), cl::init(3));
@@ -154,7 +157,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   if (hostPipelineSet.contains("partition")) {
     PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
 
-    miopen::addPartitionPipeline(pm);
+    miopen::addPartitionPipeline(pm, !cpuOnly);
 
     if (failed(pm.run(module))) {
       return failure();
@@ -173,7 +176,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 
   bool isHighLevel = hostPipelineSet.contains("highlevel");
   if (isHighLevel) {
-    miopen::addHighLevelPipeline(pm);
+    miopen::addHighLevelPipeline(pm, !cpuOnly);
   }
 
   // Set up lowering pipeline.
