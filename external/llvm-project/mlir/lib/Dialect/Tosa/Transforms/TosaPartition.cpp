@@ -410,6 +410,8 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
   }
 }
 
+class TosaPartitionPass;
+
 } // namespace
 
 namespace mlir {
@@ -437,22 +439,23 @@ public:
 };
 
 class PartitionConfigWithOptions : public PartitionConfig {
-  Pass::ListOption<std::string> anchorOps;
-  Pass::Option<std::string> attributeNameOpt;
-  Pass::Option<bool> nofront;
-
+//   Pass::ListOption<std::string> anchorOps;
+//   Pass::Option<std::string> attributeNameOpt;
+//   Pass::Option<bool> nofront;
+  TosaPartitionPass *pass;
 public:
-  PartitionConfigWithOptions(Pass *pass)
-      : anchorOps{*pass, "anchor-ops",
-                  llvm::cl::desc("One or more operations to be used as focus "
-                                 "of partitioned kernels"),
-                  llvm::cl::ZeroOrMore},
-        attributeNameOpt{*pass, "attribute-name",
-                         ::llvm::cl::desc("Attribute for outlined functions"),
-                         ::llvm::cl::init("kernel")},
-        nofront{*pass, "trailing-only",
-                ::llvm::cl::desc("Don't gather ops ahead of Conv2D"),
-                ::llvm::cl::init(false)} {
+  PartitionConfigWithOptions(TosaPartitionPass *pass_) : pass(pass_)
+//       : anchorOps{*pass, "anchor-ops",
+//                   llvm::cl::desc("One or more operations to be used as focus "
+//                                  "of partitioned kernels"),
+//                   llvm::cl::ZeroOrMore},
+//         attributeNameOpt{*pass, "attribute-name",
+//                          ::llvm::cl::desc("Attribute for outlined functions"),
+//                          ::llvm::cl::init("kernel")},
+//         nofront{*pass, "trailing-only",
+//                 ::llvm::cl::desc("Don't gather ops ahead of Conv2D"),
+//                 ::llvm::cl::init(false)}
+                                         {
     //     if (!anchorOps.hasValue()) {
     //       llvm::errs() << "overriding empty anchor ops\n";
     //       anchorOps = {"tosa.conv2d"};
@@ -469,26 +472,10 @@ public:
     //     llvm::errs() << "  attrName = " << attributeNameOpt << "\n";
     //     llvm::errs() << "  nofront = " << nofront << "\n";
   }
-  bool isAnchorOp(Operation *op) override {
-    //     llvm::errs() << "given anchorOps =\n    ";
-    //     for (auto &anchor : anchorOps) llvm::errs() << anchor << " ";
-    //     llvm::errs() << "\n";
-    //     llvm::errs() << "  is '" << op->getName().getIdentifier().str() << "'
-    //     an anchor?  "; if (llvm::is_contained(anchorOps,
-    //                            op->getName().getIdentifier().str()))
-    //       llvm::errs() << "yes\n";
-    //     else
-    //       llvm::errs() << "no\n";
-
-    if (anchorOps.empty())
-      anchorOps = {"tosa.conv2d"};
-    return llvm::is_contained(anchorOps, op->getName().getIdentifier().str());
-  }
-  bool isLeadingOp(Operation *op) override {
-    return !nofront && (isConstantZero(op) || isFusibleOp(op));
-  }
-  bool isTrailingOp(Operation *op) override { return isFusibleOp(op); }
-  std::string attributeName() override { return attributeNameOpt; }
+  bool isAnchorOp(Operation *op) override;
+  bool isLeadingOp(Operation *op) override;
+  bool isTrailingOp(Operation *op) override;
+  std::string attributeName() override;
 };
 
 } // namespace tosa
@@ -499,19 +486,38 @@ namespace {
 // Inspired by / adapted from TestSCFIfUtilsPass in
 // test/lib/Transforms/TestSCFUtils.cpp.
 class TosaPartitionPass : public TosaPartitionBase<TosaPartitionPass> {
-  mlir::tosa::PartitionConfig *config;
+  mlir::tosa::PartitionConfig *config = new mlir::tosa::PartitionConfigWithOptions(this);
 
 public:
-  TosaPartitionPass() {
+  Pass::ListOption<std::string> anchorOps{*this, "anchor-ops",
+                llvm::cl::desc("One or more operations to be used as focus "
+                               "of partitioned kernels"),
+                llvm::cl::ZeroOrMore};
+  Pass::Option<std::string> attributeNameOpt{*this, "attribute-name",
+                       ::llvm::cl::desc("Attribute for outlined functions"),
+                       ::llvm::cl::init("kernel")};
+  Pass::Option<bool> nofront{*this, "trailing-only",
+              ::llvm::cl::desc("Don't gather ops ahead of Conv2D"),
+              ::llvm::cl::init(false)};
+  TosaPartitionPass()
+  {
     //    llvm::errs() << "new pass 1\n";
-    config = new mlir::tosa::PartitionConfigWithOptions(this);
+//     config = new mlir::tosa::PartitionConfigWithOptions(this);
   }
   TosaPartitionPass(mlir::tosa::PartitionConfig *config_)
       : config(config_) { /*llvm::errs() << "new pass 2\n";*/
   }
   ~TosaPartitionPass()
-      override { /*llvm::errs() << "pass deleted\n"; delete config;*/
+    override { /*llvm::errs() << "pass deleted\n";*/ delete config;
   }
+
+  TosaPartitionPass(const TosaPartitionPass&) {}
+
+
+//   ArrayRef<std::string> getAnchorOps() { return anchorOps; }
+//   void setAnchorOps(ArrayRef<std::string> ops) { anchorOps = ops; }
+//   bool getNoFront() { return noFront; }
+//   std::string getAttributeName() { return attributeName; }
 
   void traceInputs(Operation *op, SmallVector<Operation *> &predecessors,
                    SetVector<Value> &inputNodes) {
@@ -656,6 +662,31 @@ public:
 };
 
 } // namespace
+
+bool mlir::tosa::PartitionConfigWithOptions::isAnchorOp(Operation *op) {
+    //     llvm::errs() << "given anchorOps =\n    ";
+    //     for (auto &anchor : anchorOps) llvm::errs() << anchor << " ";
+    //     llvm::errs() << "\n";
+    //     llvm::errs() << "  is '" << op->getName().getIdentifier().str() << "'
+    //     an anchor?  "; if (llvm::is_contained(anchorOps,
+    //                            op->getName().getIdentifier().str()))
+    //       llvm::errs() << "yes\n";
+    //     else
+    //       llvm::errs() << "no\n";
+
+  if (pass->anchorOps.empty())
+    pass->anchorOps = {"tosa.conv2d"};
+  return llvm::is_contained(pass->anchorOps, op->getName().getIdentifier().str());
+}
+bool mlir::tosa::PartitionConfigWithOptions::isLeadingOp(Operation *op) {
+  return !pass->nofront && (isConstantZero(op) || isFusibleOp(op));
+}
+bool mlir::tosa::PartitionConfigWithOptions::isTrailingOp(Operation *op) { return isFusibleOp(op); }
+std::string mlir::tosa::PartitionConfigWithOptions::attributeName() { return pass->attributeNameOpt; }
+
+
+
+
 
 std::unique_ptr<Pass> mlir::tosa::createTosaPartitionPass() {
   return std::make_unique<TosaPartitionPass>();
