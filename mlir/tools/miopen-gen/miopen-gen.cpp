@@ -1769,8 +1769,13 @@ populateHostHarnessLogic(ModuleOp &module,
 
   // Wrap the kernels and gather them to substitute in calls.
   llvm::SmallDenseMap<FuncOp, FuncOp> wrappedFuncs;
-  for (auto &kernel : kernels)
-    wrappedFuncs[kernel.func] = createGPUWrapper(module, kernel);
+  for (auto &kernel : kernels) {
+    if (kernel.func->hasAttr("kernel")) {
+      wrappedFuncs[kernel.func] = createGPUWrapper(module, kernel);
+    } else {
+      wrappedFuncs[kernel.func] = kernel.func;
+    }
+  }
 
   // Redirect calls to kernel functions to point at wrapped functions.
   module.walk([&](func::CallOp call) -> WalkResult {
@@ -2016,20 +2021,11 @@ int main(int argc, char **argv) {
     }
   }
 
-  ModuleOp mod = module;
-  llvm::StringRef modName = "__miopen";
-  auto miopenModule = module.lookupSymbol<ModuleOp>(modName);
-  if (miopenModule) {
-    mod = miopenModule;
-  }
-
-  assert(mod == module);
-
   // Compute set of call-graph root nodes;  they're the ones we need to
   // call from main().  Start with all nodes, then erase the ones that
   // have edges to them.  Use SetVector because we want to preserve the
   // order to match an older implementation.
-  CallGraph cg(mod);
+  CallGraph cg(module);
   mlir::SetVector<CallGraphNode *> roots(cg.begin(), cg.end());
   for (auto &node : roots)
     for (auto &edge : *node)
@@ -2043,21 +2039,19 @@ int main(int argc, char **argv) {
   }
 
   if (testFuncNameVal.empty()) {
-    mod.walk([&](FuncOp func) -> WalkResult {
+    module.walk([&](FuncOp func) -> WalkResult {
       if (func->hasAttr("kernel")) {
         kernels.emplace_back(func);
       }
       return WalkResult::advance();
     });
+  } else {
+    auto func = module.lookupSymbol<FuncOp>(testFuncName);
+    assert(func);
+    rootIFs.clear();
+    kernels.emplace_back(func);
+    rootIFs.emplace_back(func);
   }
-  //     else {
-  //     auto func = mod.lookupSymbol<FuncOp>(testFuncName);
-  //     if (!func && mod != module) {
-  //       func = module.lookupSymbol<FuncOp>(testFuncName);
-  //     }
-  //     assert(func);
-  //     kernels.emplace_back(func);
-  //   }
 
   // populate host logic.
   if (genHostHarness.getValue()) {

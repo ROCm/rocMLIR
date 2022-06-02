@@ -104,6 +104,7 @@ list(APPEND MLIR_MIOPEN_TEST_DEPENDS MLIRMIOpenUnitTests)
 if(MLIR_ENABLE_ROCM_RUNNER)
   list(APPEND MLIR_MIOPEN_TEST_DEPENDS
     mlir-rocm-runner
+    xmir-runner
   )
 endif()
 
