@@ -407,7 +407,10 @@ def GPU_LaunchFuncOp : GPU_Op<"launch_func",
   let builders = [
     OpBuilder<(ins "GPUFuncOp":$kernelFunc, "KernelDim3":$gridSize,
       "KernelDim3":$blockSize, "Value":$dynamicSharedMemorySize,
-      "ValueRange":$kernelOperands)>
+      "ValueRange":$kernelOperands)>,
+    OpBuilder<(ins "ValueRange":$dependencies, "GPUFuncOp":$kernelFunc,
+      "KernelDim3":$gridSize, "KernelDim3":$blockSize,
+      "Value":$dynamicSharedMemorySize, "ValueRange":$kernelOperands)>
   ];
 
   let extraClassDeclaration = [{
