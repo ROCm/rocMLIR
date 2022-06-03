@@ -9,26 +9,22 @@
 #include "mlir/Conversion/AsyncToGPU/AsyncToGPU.h"
 
 #include "../PassDetail.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/IR/ImplicitLocOpBuilder.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "llvm/ADT/TypeSwitch.h"
 
-#define DEBUG_TYPE "convert-async-to-llvm"
+#define DEBUG_TYPE "convert-async-to-gpu"
 
 using namespace mlir;
 using namespace mlir::async;
 
 //===----------------------------------------------------------------------===//
-// Convert Async dialect types to LLVM types.
+// Convert Async dialect types to GPU types.
 //===----------------------------------------------------------------------===//
 
 namespace {
@@ -56,52 +52,55 @@ public:
 //===----------------------------------------------------------------------===//
 
 namespace {
+// Helper to pull out the called func
+Optional<FuncOp> getCalledFunc(async::LaunchOp op) {
+  CallOpInterface callIf(op);
+  if (auto *callable = callIf.resolveCallable()) {
+    if (auto func = dyn_cast<FuncOp>(callable))
+      return func;
+  }
+
+  return llvm::None;
+}
+
+// Get target{gpu} attribute from called func
+Optional<DictionaryAttr> getGPUTarget(async::LaunchOp op) {
+  auto func = getCalledFunc(op);
+  if (!func.hasValue() || func->getNumResults() != 0)
+    return llvm::None;
+
+  auto attr = (*func)->template getAttrOfType<ArrayAttr>("targets");
+  if (!attr)
+    return llvm::None;
+
+  for (auto targetAttr : attr.getValue()) {
+    auto dictAttr = targetAttr.cast<DictionaryAttr>();
+    auto type = dictAttr.get("type");
+    if (type && type.template cast<StringAttr>() == "gpu")
+      return dictAttr;
+  }
+  return llvm::None;
+}
+
 class LaunchOpConversion : public OpConversionPattern<async::LaunchOp> {
 public:
   using OpConversionPattern::OpConversionPattern;
 
-  static Optional<FuncOp> getCalledFunc(async::LaunchOp op) {
-    CallOpInterface callIf(op);
-    auto *callable = callIf.resolveCallable();
-    if (!callable)
-      return llvm::None;
-    return dyn_cast<FuncOp>(callable);
-  }
-
-  // Get target{gpu} attribute from called func
-  static Optional<DictionaryAttr> getGPUTarget(async::LaunchOp op) {
-    auto func = getCalledFunc(op);
-    if (!func.hasValue() || func->getNumResults() != 0)
-      return llvm::None;
-
-    auto attr = (*func)->template getAttrOfType<ArrayAttr>("targets");
-    if (!attr)
-      return llvm::None;
-
-    for (auto targetAttr : attr.getValue()) {
-      auto dictAttr = targetAttr.cast<DictionaryAttr>();
-      auto type = dictAttr.get("type");
-      if (type && type.template cast<StringAttr>() == "gpu")
-        return dictAttr;
-    }
-    return llvm::None;
-  }
-
-  static Value makeWait(OpBuilder b, Location loc, ArrayRef<Value> deps={}) {
+  Value makeWait(OpBuilder b, Location loc, ArrayRef<Value> deps = {}) const {
     auto tokenType = b.getType<gpu::AsyncTokenType>();
     return b.create<gpu::WaitOp>(loc, tokenType, deps).asyncToken();
   }
 
   Value moveMemory(OpBuilder b, Value opr, uint32_t fidx,
                    func::AccessMode accessMode,
-                   llvm::SmallVector<Value, 8> &copyBackOprs,
+                   llvm::SmallVector<Value> &copyBackOprs,
                    llvm::SmallVector<Value, 8> &asyncDeps) const {
     auto loc = opr.getLoc();
     auto tokenType = b.getType<gpu::AsyncTokenType>();
     auto oprAllocOp = opr.getDefiningOp<memref::AllocOp>();
     if (oprAllocOp)
       b.setInsertionPoint(oprAllocOp);
-    /// hack: add one global wait for gpu.allocs
+
     auto allocWait = makeWait(b, loc);
     auto gpuMemType = opr.getType();
     auto dst = b.create<gpu::AllocOp>(loc, gpuMemType, tokenType,
@@ -146,32 +145,29 @@ public:
 
     auto arch = gpuAttr->get("arch");
     auto binary = gpuAttr->get("binary");
-    auto blockSize = gpuAttr->get("block_size").template cast<IntegerAttr>();
-    auto gridSize = gpuAttr->get("grid_size").template cast<IntegerAttr>();
+    auto blockSize = gpuAttr->get("block_size").cast<IntegerAttr>();
+    auto gridSize = gpuAttr->get("grid_size").cast<IntegerAttr>();
 
     auto func = *getCalledFunc(op);
     auto floc = func.getLoc();
 
     // Also capture the accessMap for the params, default all to read-write
-    SmallVector<func::AccessMode, 8> accessVec(func.getNumArguments(),
-                                               func::AccessMode::ReadWrite);
-    if (auto accessMap =
-            func->template getAttrOfType<ArrayAttr>("access_map")) {
-      std::transform(
-          accessMap.begin(), accessMap.end(), accessVec.begin(),
-          [](Attribute a) {
-            return a.template cast<func::AccessModeAttr>().getValue();
-          });
+    SmallVector<func::AccessMode> accessVec(func.getNumArguments(),
+                                            func::AccessMode::ReadWrite);
+    if (auto accessMap = func->getAttrOfType<ArrayAttr>("access_map")) {
+      accessVec =
+          llvm::to_vector<4>(llvm::map_range(accessMap, [](Attribute a) {
+            return a.cast<func::AccessModeAttr>().getValue();
+          }));
     }
 
-    // 2. create dummy gpu.module
+    // 2. create dummy gpu.module for reference from gpu.launch_func
     //    - with gpu.binary, arch attributes
-    //    - and llvm.func (may not be necessary
+    //    - and gpu.func (referenced by gpu.launch_func
     //    gpu.module @<func_name>_module attributes {arch = "gfx908", gpu.binary
-    //    = "\7FELF\..."} {
-    //      llvm.func @<func_name> (...) attributes {block_size = 256 : i32,
-    //      gpu.kernel, grid_size = 900 : i32, rocdl.kernel}
-    //        // does any of that matter?
+    //        = "\7FELF\..."} {
+    //      gpu.func @<func_name> (...) attributes {block_size = 256 : i32,
+    //          grid_size = 900 : i32, gpu.kernel}
 
     FunctionOpInterface funcIF(func);
     auto funcName = funcIF.getName();
@@ -201,7 +197,7 @@ public:
       SymbolTable symbolTable(gpuModule);
       symbolTable.insert(gpuFunc);
 
-      // Emit gpu convolution logic.
+      // Must have a return
       auto block = &gpuFunc.front();
       b.setInsertionPoint(block, block->begin());
       b.create<gpu::ReturnOp>(floc, ValueRange{});
@@ -236,7 +232,7 @@ public:
     } else
       assert(diff == 0);
 
-    SmallVector<Value, 8> copyBackOprs(func.getNumArguments(), Value());
+    SmallVector<Value> copyBackOprs(func.getNumArguments(), Value());
     for (; i < operands.size(); ++i) {
       auto fidx = i - diff;
       Value opr = operands[i];
@@ -331,25 +327,20 @@ void ConvertAsyncToGPUPass::runOnOperation() {
   AsyncGPUTypeConverter converter;
   RewritePatternSet patterns(ctx);
 
-  // Convert return operations inside async.execute regions.
-  patterns.add<LaunchOpConversion>(converter, ctx);
-
-  // Convert async.await operations
-  patterns.add<AwaitOpConversion>(converter, ctx);
+  patterns.add<LaunchOpConversion, AwaitOpConversion>(converter, ctx);
 
   ConversionTarget target(*ctx);
   target.addLegalOp<arith::ConstantOp, func::ConstantOp,
                     UnrealizedConversionCastOp>();
-  target.addLegalDialect<gpu::GPUDialect, LLVM::LLVMDialect>();
+  target.addLegalDialect<gpu::GPUDialect>();
 
-  // All operations from Async dialect must be lowered to the runtime API and
-  // LLVM intrinsics calls.
+  // All operations from Async dialect must be lowered to the GPU dialect.
   target.addIllegalDialect<async::AsyncDialect>();
 
-  // Add dynamic legality constraints to apply conversions defined above.
-  // target.addDynamicallyLegalOp<async::LaunchOp>([&](async::LaunchOp op) {
-  //     return !LaunchOpConversion::getGPUTarget(op).hasValue();
-  // });
+  // Except when async.launch has no GPU target.
+  target.addDynamicallyLegalOp<async::LaunchOp>(
+      [&](async::LaunchOp op) { return !getGPUTarget(op).hasValue(); });
+  // TODO(sjw): Make async.token universal
   // target.addDynamicallyLegalOp<async::AwaitOp>([&](async::AwaitOp op) {
   //     return true;
   // });
@@ -358,6 +349,6 @@ void ConvertAsyncToGPUPass::runOnOperation() {
     signalPassFailure();
 }
 
-std::unique_ptr<OperationPass<ModuleOp>> mlir::createConvertAsyncToGPUPass() {
+std::unique_ptr<Pass> mlir::createConvertAsyncToGPUPass() {
   return std::make_unique<ConvertAsyncToGPUPass>();
 }

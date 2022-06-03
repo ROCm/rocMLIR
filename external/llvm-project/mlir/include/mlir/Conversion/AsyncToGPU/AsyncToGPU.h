@@ -13,12 +13,10 @@
 
 namespace mlir {
 
-class ModuleOp;
-template <typename T>
-class OperationPass;
+class Pass;
 
 /// Create a pass to convert Async operations to the GPU dialect.
-std::unique_ptr<OperationPass<ModuleOp>> createConvertAsyncToGPUPass();
+std::unique_ptr<Pass> createConvertAsyncToGPUPass();
 
 } // namespace mlir
 
