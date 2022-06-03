@@ -33,7 +33,6 @@
 
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
-#include "mlir/ExecutionEngine/ROCm/BackendUitls.h"
 
 using namespace mlir;
 
