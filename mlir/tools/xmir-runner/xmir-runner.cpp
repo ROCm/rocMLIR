@@ -1,4 +1,4 @@
-//===- xmir-runner.cpp - MLIR ROCM Execution Driver-------------------===//
+//===- xmir-runner.cpp - MLIR Execution Model Runner ----------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This is a command line utility that executes an MLIR file on the GPU by
-// translating MLIR to ROCDL/LLVM IR before JIT-compiling and executing the
-// latter.
+// This is a command line utility that executes an MLIR file on the CPU/GPU/etc
+// by translating MLIR to LLVM IR with launch capabilities before JIT-compiling
+// and executing the latter.
 //
 //===----------------------------------------------------------------------===//
 
@@ -44,7 +44,7 @@
 using namespace mlir;
 using namespace llvm;
 
-// CLI variables for -On options.
+// CLI switch for cpu-only support
 static cl::opt<bool> cpuOnly("cpu-only", cl::desc("Target CPU only"),
                              cl::init(false));
 
@@ -53,7 +53,7 @@ void registerTestDialect(DialectRegistry &);
 } // namespace test
 
 static LogicalResult runMLIRPasses(ModuleOp m) {
-  // Host Compiler Pipeline
+  // Host Compiler/Scheduler Pipeline
   PassManager pm(m.getContext());
   applyPassManagerCLOptions(pm);
   pm.addPass(createLowerAffinePass());
