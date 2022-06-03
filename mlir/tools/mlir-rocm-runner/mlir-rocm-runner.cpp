@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/ExecutionEngine/ROCm/BackendUitls.h"
 
 #include "mlir/Conversion/AsyncToLLVM/AsyncToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
@@ -33,8 +32,24 @@
 #include "mlir/InitAllDialects.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
+#include "mlir/Dialect/GPU/GPUDialect.h"
+#include "mlir/Dialect/GPU/Passes.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Support/FileUtilities.h"
+#include "mlir/Transforms/Passes.h"
+#include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
+
 #include <cstdlib>
 #include <mutex>
+
+#if __INCLUDE_HIP__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#include "hip/hip_runtime.h"
+#pragma GCC diagnostic pop
+#endif
 
 using namespace mlir;
 using namespace llvm;
@@ -61,6 +76,25 @@ static cl::opt<bool>
                cl::desc("input is in the MLIR LLVM/ROCDL dialect"),
                cl::init(false));
 
+static constexpr const char kTargetTriple[] = "amdgcn-amd-amdhsa";
+
+#if __INCLUDE_HIP__
+namespace {
+    void getGpuGCNArchName(hipDevice_t device, std::string &gcnArchName) {
+        hipDeviceProp_t props;
+        hipError_t result = hipGetDeviceProperties(&props, device);
+        if (result != hipSuccess) {
+            gcnArchName = "";
+            llvm_unreachable("hipGetDeviceProperties() should never fail");
+            return;
+        }
+
+        const char *pArchName = props.gcnArchName;
+        gcnArchName.assign(pArchName);
+    }
+} // namespace
+#endif
+
 namespace test {
 void registerTestDialect(DialectRegistry &);
 } // namespace test
@@ -74,7 +108,22 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
     llvm::errs() << "Invalid GPU optimization level: " << optLevel << "\n";
     return failure();
   }
-  BackendUtils utils(tripleName, targetChip, features);
+
+  {
+  if (tripleName.empty() && targetChip.empty() && features.empty()){
+      tripleName = kTargetTriple;
+#if __INCLUDE_HIP__
+      std::string gcnArchName;
+      getGpuGCNArchName(0, gcnArchName);
+      auto status = IsaNameParser::parseArchName(gcnArchName, targetChip, features);
+      if (status.failed()) {
+          llvm_unreachable("HIP ArchName parsing should never fail.");
+      }
+#else
+      llvm_unreachable("mlir-rocm-ruinner.cpp does not include HIP.");
+#endif
+  }
+  } //
 
   // Find MIOpen module and compile kernel funcs
   ModuleOp kernelModule = m;
@@ -93,7 +142,7 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
                                         /*runtime=*/gpu::amd::Runtime::HIP));
   }
   kernelPm.addPass(createGpuSerializeToHsacoPass(
-      utils.getTriple(), utils.getChip(), utils.getFeatures(), optLevel));
+      tripleName, targetChip, features, optLevel));
 
   if (failed(pm.run(kernelModule))) {
     return failure();
