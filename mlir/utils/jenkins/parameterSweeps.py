@@ -193,7 +193,7 @@ Return code = {lowering.returncode}""")
 Output = {runnerOut}
 Errors = {runnerErrs.decode('utf-8')}
 Return code = {runner.returncode}""", file=sys.stderr)
-        return False
+        return TestResult.FAIL
 
     if not CORRECT_RESULT_RE.search(runnerOut):
         print(f"""Convolution returned intorrect result
