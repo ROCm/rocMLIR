@@ -45,7 +45,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     ${conversion_libs}
     LLVMX86AsmParser
     LLVMAMDGPUAsmParser
-    LLVMROCmBackendUtils
+    LLVMIsaNameParser
     MLIRJitRunner
     MLIRAnalysis
     MLIRExecutionEngine

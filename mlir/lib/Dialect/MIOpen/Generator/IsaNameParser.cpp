@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Support/Error.h"
-#include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
+#include "mlir/Dialect/MIOpen/Generator/IsaNameParser.h"
 
 #include <cstring>
 #include <numeric>

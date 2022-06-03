@@ -1,3 +1,7 @@
+set(LLVM_OPTIONAL_SOURCES
+  Conv2dGenerator.cpp
+  IsaNameParser.cpp
+)
 set(LLVM_LINK_COMPONENTS
   Support
   )
@@ -8,7 +12,7 @@ get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 set(LIBS
   ${dialect_libs}
   ${conversion_libs}
-  LLVMROCmBackendUtils
+  LLVMIsaNameParser
   MLIRAnalysis
   MLIRDialect
   MLIRMIOpenOps
@@ -36,4 +40,8 @@ target_link_libraries(MLIRMIOpenConv2dGenerator
   MLIRIR
   MLIRMIOpenOps
   ${LIBS}
+)
+
+add_llvm_library(LLVMIsaNameParser
+  IsaNameParser.cpp
 )
