@@ -68,7 +68,6 @@ if(MLIR_ENABLE_ROCM_RUNNER)
 
     DEPENDS
     mlir_rocm_runtime
-    rocm-runtime-wrappers
     )
   llvm_update_compile_flags(mlir-rocm-runner)
   target_include_directories(mlir-rocm-runner
