@@ -23,6 +23,7 @@
 
 #include "PassDetail.h"
 
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
@@ -30,6 +31,7 @@
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -213,7 +215,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
 
   Value createCollapseShapeOp(PatternRewriter &b, Location loc,
                               Value source) const {
-    auto ctx = b.getContext();
+    MLIRContext *ctx = b.getContext();
     auto sourceType = source.getType().cast<ShapedType>();
     assert(sourceType.hasStaticShape() &&
            "Only memrefs with static shapes are allowed");
@@ -238,65 +240,63 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     return result;
   }
 
-  miopen::TransformingForOp makeLoadToVector(PatternRewriter &b, Location loc,
-                                             miopen::ThreadwiseCopyV2Op op,
-                                             Value srcOp, Value dest) const {
+  void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
+                              miopen::ThreadwiseCopyV2Op op, Value srcOp,
+                              Value dest) const {
     assert(srcOp.getType().cast<ShapedType>().getShape() ==
                op.dest().getType().cast<ShapedType>().getShape() &&
            "shape of extra fusion arguments matches shape of C tensor");
-    assert(op.source().getType().cast<ShapedType>().getShape() ==
-               dest.getType().cast<ShapedType>().getShape() &&
-           "shape of xdlops results vector matches shape of destination "
-           "registers");
 
     auto writeCLoop = op->getParentOfType<miopen::TransformingForOp>();
     assert(writeCLoop && "threadwise_copy_v2 must be in a transforming_for");
-    // The transforms on the fusion memref begin with those on the global
-    // output tensor from the write loop.
-    ArrayAttr sourceTransformsFromLoop = writeCLoop.getTransforms(/*domain=*/1);
 
     // Handle broadcasts introduced during fusion.
     ArrayAttr sourceTransformsFromOp;
     Value source;
     std::tie(source, sourceTransformsFromOp) = miopen::untransform(b, srcOp);
-    SmallVector<Attribute, 4> sourceTransformsVec;
-    llvm::copy(sourceTransformsFromLoop,
-               std::back_inserter(sourceTransformsVec));
-    llvm::copy(sourceTransformsFromOp, std::back_inserter(sourceTransformsVec));
-    Attribute sourceTransforms = b.getArrayAttr(sourceTransformsVec);
-
-    // Note, we don't need to do this dance for the destination, since it's a
-    // freshly-allocated vector.
-    Attribute destTransforms = writeCLoop.getTransforms(/*domain=*/0);
 
     int64_t copyLength = op.length().getSExtValue();
     Type typeToLoad = dest.getType().cast<MemRefType>().getElementType();
     if (copyLength > 1)
       typeToLoad = VectorType::get({copyLength}, typeToLoad);
 
-    ValueRange sourceInits = writeCLoop.getUpperInits(/*domain=*/1);
-    ValueRange destInits = writeCLoop.getUpperInits(/*domain=*/0);
-    ArrayAttr bounds = writeCLoop.bounds();
-    ArrayAttr strides = writeCLoop.strides();
-
     ArrayAttr sourceLeftOob = op.leftOobDims();
     ArrayAttr sourceRightOob = op.rightOobDims();
+    Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
 
-    miopen::TransformingForOp copyLoop = b.create<miopen::TransformingForOp>(
-        loc, ArrayRef<ValueRange>{sourceInits, destInits},
-        ArrayRef<Attribute>{sourceTransforms, destTransforms}, bounds, strides,
-        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-    {
-      OpBuilder::InsertionGuard guard(b);
-      b.setInsertionPointToStart(copyLoop.getBody());
+    // In general, note that keeping the vectorization of the writeback is safe
+    // on account of the fact that vectorization means that the maps for the
+    // gemm output (and thus the extra argument) are contiguous in the
+    // underlying memory.
 
-      Value loaded = b.create<miopen::BufferLoadOp>(
-          loc, typeToLoad, source, sourceLeftOob, sourceRightOob,
-          copyLoop.getLowerCoords(/*domain=*/0));
-      b.create<miopen::InBoundsStoreOp>(loc, loaded, dest,
-                                        copyLoop.getLowerCoords(/*domain=*/1));
+    // If there are no broadcasts, re-use the coordianes for the writeback
+    if (sourceTransformsFromOp.empty()) {
+      Value loaded =
+          b.create<miopen::BufferLoadOp>(loc, typeToLoad, source, sourceLeftOob,
+                                         sourceRightOob, op.destCoord());
+      b.create<miopen::InBoundsStoreOp>(loc, loaded, dest, zero);
+    } else {
+      // Note: this is a hack around the fact that we don't have a good way
+      // to add a domain to the enclosing loop currently.
+      size_t extraMapInSize = op.destCoord().size();
+      SmallVector<int64_t> consts(extraMapInSize, 1LL);
+      std::tie(sourceLeftOob, sourceRightOob) =
+          miopen::computeOobFromTransforms(b, sourceTransformsFromOp,
+                                           {{sourceLeftOob, sourceRightOob}});
+
+      auto copyLoop = b.create<miopen::TransformingForOp>(
+          loc, op.destCoord(), sourceTransformsFromOp, /*bounds=*/consts,
+          /*strides=*/ArrayRef<int64_t>(consts), /*forceUnroll=*/true,
+          /*useIndexDiffs=*/false);
+      {
+        OpBuilder::InsertionGuard guard(b);
+        b.setInsertionPointToStart(copyLoop.getBody());
+        Value loaded = b.create<miopen::BufferLoadOp>(
+            loc, typeToLoad, source, sourceLeftOob, sourceRightOob,
+            copyLoop.getLowerCoords(/*domain=*/0));
+        b.create<miopen::InBoundsStoreOp>(loc, loaded, dest, zero);
+      }
     }
-    return copyLoop;
   }
 
   Value makeTransformingCopyLoop(PatternRewriter &b,
@@ -304,14 +304,16 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
                                  Value inp) const {
     // 0. capture the memref containing the outputs being written
     Location loc = miTwCopy.getLoc();
-    Value regVec = miTwCopy.source();
-    auto regVecType = regVec.getType().cast<MemRefType>();
+    Value gemmOuts = miTwCopy.source();
+    auto gemmOutsType = gemmOuts.getType().cast<MemRefType>();
+    int64_t sliceLength = miTwCopy.length().getSExtValue();
+    auto sliceLengthType = gemmOutsType.clone(sliceLength).cast<MemRefType>();
 
     // 1. create a second allocation of the same type to hold loaded elements
-    Value alloc = b.create<miopen::GpuAllocOp>(loc, regVecType);
+    Value alloc = b.create<miopen::GpuAllocOp>(loc, sliceLengthType);
 
     // 2. clone twcopy for <addend> -> regs as transforming_for
-    makeLoadToVector(b, loc, miTwCopy, inp, alloc);
+    insertCopyFromOtherArg(b, loc, miTwCopy, inp, alloc);
     return alloc;
   }
 
@@ -596,28 +598,45 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
           if (auto copyOp = dyn_cast<miopen::ThreadwiseCopyV2Op>(use))
             twcopy = copyOp;
 
-        Value regBWGemmV2 = twcopy.source();
+        Value gemmV2Outs = twcopy.source();
+        auto gemmV2OutsType = gemmV2Outs.getType().cast<MemRefType>();
         {
           PatternRewriter::InsertionGuard guard(b);
-          // 2.0. Reset insertion point to before the loop containing the
-          // threadwise copy.
-          Operation *copyLoop = twcopy->getParentOp();
-          b.setInsertionPoint(copyLoop);
+          // 2.0. Reset insertion point to before the copy.
+          b.setInsertionPoint(twcopy);
+          Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
 
-          // 2.1. Tile linalg.generic with vgpr as input, return output vgprs
+          // 2.1. Take out a slice of the result vector to create a vector-sized
+          // slice to enable creating the fusion section.
+          int64_t sliceLength = twcopy.length().getSExtValue();
+          MemRefType sliceType =
+              gemmV2OutsType.clone(sliceLength).cast<MemRefType>();
+          Value fusionSlice = b.create<miopen::GpuAllocOp>(loc, sliceType);
+          Type typeToCopy = sliceType.getElementType();
+          if (sliceType.getNumElements() > 1)
+            typeToCopy = VectorType::get(sliceType.getShape(),
+                                         sliceType.getElementType());
+          Value sliceVals = b.create<miopen::InBoundsLoadOp>(
+              loc, typeToCopy, gemmV2Outs, twcopy.sourceCoord());
+          b.create<miopen::InBoundsStoreOp>(loc, sliceVals, fusionSlice, zero);
+
+          // 2.2. Tile linalg.generic with vgpr as input, return output vgprs
           Value laOutRegs = reconfigureLAGeneric(laGeneric, b, transforms,
-                                                 regBWGemmV2, twcopy);
-          // 2.1.0. Move the generic before the write-back. This'll put all
+                                                 fusionSlice, twcopy);
+          // 2.2.0. Move the generic before the write-back. This'll put all
           // the copy loops for other inputs before the generic due to insertion
           // order.
-          laGeneric->moveBefore(copyLoop);
+          laGeneric->moveBefore(twcopy);
 
-          // 2.2. Replace twcopy inputs with la.generic result vgprs
+          // 2.3. Replace twcopy inputs with la.generic result vgprs
 
           // Since the threadwise copy arg has gone through untransform()
           // its expected output type is the same as the output type of the
           // linalg.generic.
           twcopy.sourceMutable().assign(laOutRegs);
+          // The indexing has been moved into slice creation, reset source
+          // coord.
+          twcopy.sourceCoordMutable().assign(zero);
           twcopy.destMutable().assign(out);
 
           return success();

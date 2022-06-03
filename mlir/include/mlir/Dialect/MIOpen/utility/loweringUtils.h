@@ -93,9 +93,12 @@ std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
 /// right), returns the array of dimensions in the lowest space of these
 /// transforms that need to be checked for out of bounds stores on the left
 /// (checking for indices less than 0) and on the right (indices greater than
-/// the dimension on the memref)
-std::tuple<ArrayAttr, ArrayAttr> computeOobFromTransforms(Builder &b,
-                                                          ArrayAttr transforms);
+/// the dimension on the memref). If initialOob is specified, it is a tuple
+/// of out of bounds judgements applicable to the inputs to this transform
+/// sequence.
+std::tuple<ArrayAttr, ArrayAttr> computeOobFromTransforms(
+    Builder &b, ArrayAttr transforms,
+    Optional<std::tuple<ArrayAttr, ArrayAttr>> initialOob = llvm::None);
 
 /// Populate a vector of gemm IDs to be used by a backward data convolution
 /// algorithm. In the current v4r1 algorithm, several kernels may be needed to
