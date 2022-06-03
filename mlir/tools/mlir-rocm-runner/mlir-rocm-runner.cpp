@@ -39,7 +39,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Transforms/Passes.h"
-#include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
+#include "mlir/Dialect/MIOpen/Generator/IsaNameParser.h"
 
 #include <cstdlib>
 #include <mutex>
