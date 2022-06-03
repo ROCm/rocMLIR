@@ -1,0 +1,77 @@
+set(LLVM_OPTIONAL_SOURCES
+  IsaNameParser.cpp
+  rocm-runtime-wrappers.cpp
+  )
+
+if (NOT ("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD))
+  message(SEND_ERROR
+    "Building the mlir rocm runner requires the AMDGPU backend")
+endif()
+
+# Set compile-time flags for ROCm path.
+add_definitions(-D__ROCM_PATH__="${ROCM_PATH}")
+
+set(HIP_PATH "${ROCM_PATH}/hip" CACHE PATH " Path to which HIP has been installed")
+set(CMAKE_MODULE_PATH "${HIP_PATH}/cmake" ${CMAKE_MODULE_PATH})
+find_package(HIP)
+if (NOT HIP_FOUND)
+  message(SEND_ERROR "Build the mlir rocm runner requires a working ROCm and HIP install")
+else()
+  message(STATUS "ROCm HIP version: ${HIP_VERSION}")
+endif()
+
+# Locate HIP runtime library.
+find_library(ROCM_RUNTIME_LIBRARY amdhip64
+             PATHS "${HIP_ROOT_DIR}/lib")
+if (NOT ROCM_RUNTIME_LIBRARY)
+  message(SEND_ERROR "Could not locate ROCm HIP runtime library")
+else()
+  message(STATUS "ROCm HIP runtime lib: ${ROCM_RUNTIME_LIBRARY}")
+endif()
+
+# Set HIP compile-time flags.
+add_definitions(-D__HIP_PLATFORM_HCC__)
+
+add_llvm_library(rocm-runtime-wrappers SHARED
+  rocm-runtime-wrappers.cpp
+)
+
+target_include_directories(rocm-runtime-wrappers
+  PRIVATE
+  "${HIP_PATH}/../include"
+  "${HIP_PATH}/include"
+  LLVMSupport
+)
+target_link_libraries(rocm-runtime-wrappers
+  PUBLIC
+  LLVMSupport
+  ${ROCM_RUNTIME_LIBRARY}
+)
+# Suppress some compiler warnings when building with clang.  The first two
+# suppressions regard a GNU extension, the third an incomplete-type warning
+# that apparently works out okay.
+set_source_files_properties(rocm-runtime-wrappers.cpp PROPERTIES
+  COMPILE_OPTIONS "-Wno-gnu-anonymous-struct;-Wno-nested-anon-types;-Wno-return-type-c-linkage;-Wno-c++98-compat-extra-semi")
+
+set(LIBS
+  MLIRROCDLToLLVMIRTranslation
+  ${ROCM_RUNTIME_LIBRARY}
+)
+
+# Manually expand the target library, since our MLIR libraries
+# aren't plugged into the LLVM dependency tracking. If we don't
+# do this then we can't insert the CodeGen library after ourselves
+llvm_expand_pseudo_components(TARGET_LIBS AllTargetsCodeGens AllTargetsAsmParsers)
+# Prepend LLVM in front of every target, this is how the library
+# are named with CMake
+SET(targets_to_link)
+FOREACH(t ${TARGET_LIBS})
+  LIST(APPEND targets_to_link "LLVM${t}")
+ENDFOREACH(t)
+
+if ( BUILD_FAT_LIBMLIRMIOPEN )
+  # Skip linking with HIP so our library is runtime independent
+  add_definitions(-D__INCLUDE_HIP__=0)
+else()
+  add_definitions(-D__INCLUDE_HIP__=1)
+endif()
