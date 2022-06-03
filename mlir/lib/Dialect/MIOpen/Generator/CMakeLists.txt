@@ -12,7 +12,7 @@ get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 set(LIBS
   ${dialect_libs}
   ${conversion_libs}
-  LLVMIsaNameParser
+  MLIRRocmBackendUtils
   MLIRAnalysis
   MLIRDialect
   MLIRMIOpenOps
@@ -42,6 +42,6 @@ target_link_libraries(MLIRMIOpenConv2dGenerator
   ${LIBS}
 )
 
-add_llvm_library(LLVMIsaNameParser
+add_llvm_library(MLIRRocmBackendUtils
   IsaNameParser.cpp
 )
