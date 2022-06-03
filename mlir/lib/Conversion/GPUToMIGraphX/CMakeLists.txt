@@ -19,5 +19,4 @@ target_link_libraries(MLIRGPUToMIGraphX
   MLIRMIGraphX
   MLIRGPUToGPURuntimeTransforms
   MLIRGPUToROCDLTransforms
-  LLVMROCmBackendUtils
 )

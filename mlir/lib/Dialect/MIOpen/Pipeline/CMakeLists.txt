@@ -4,7 +4,6 @@ add_mlir_dialect_library(MLIRMIOpenPipeline
   LINK_LIBS PUBLIC
   MLIRDialect
   MLIRFunc
-  LLVMROCmBackendUtils
   MLIRTosaToMIOpen
   MLIRTosaToLinalg
   MLIRTosaToSCF
