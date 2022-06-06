@@ -1,4 +1,4 @@
-//===- IsaNameParser.h - MLIR to C++ option parsing ---------------===//
+//===- IsaNameSplitter.h - MLIR to C++ option parsing ---------------===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,21 +6,21 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file declares isa name string parser
+// This file declares isa name string splitter
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_EXECUTIONENGINE_ROCM_ISANAMEPARSER_H_
-#define MLIR_EXECUTIONENGINE_ROCM_ISANAMEPARSER_H_
+#ifndef MLIR_EXECUTIONENGINE_ROCM_ISANAMESPLITTER_H_
+#define MLIR_EXECUTIONENGINE_ROCM_ISANAMESPLITTER_H_
 
 #include "mlir/Support/LogicalResult.h"
 
 #include <string>
 
 namespace mlir {
-class IsaNameParser {
+class IsaNameSplitter {
 public:
-  IsaNameParser(const std::string &isaName);
+  IsaNameSplitter(const std::string &isaName);
   LogicalResult parseIsaName(std::string &chip, std::string &triple,
                              std::string &features);
   static LogicalResult parseArchName(const std::string &archName,
@@ -31,4 +31,4 @@ private:
 };
 } // namespace mlir
 
-#endif // MLIR_EXECUTIONENGINE_ROCM_ISANAMEPARSER_H_
+#endif // MLIR_EXECUTIONENGINE_ROCM_ISANAMESPLITTER_H_

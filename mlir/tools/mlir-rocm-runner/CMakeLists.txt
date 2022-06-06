@@ -32,8 +32,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
   endif()
 
   # Set HIP compile-time flags.
-  add_definitions(-D__HIP_PLATFORM_HCC__)
-  add_definitions(-D__INCLUDE_HIP__=1)
+  add_definitions(-D__HIP_PLATFORM_AMD__)
 
   set_source_files_properties(mlir-rocm-runner.cpp PROPERTIES
     COMPILE_OPTIONS "-Wno-gnu-anonymous-struct;-Wno-nested-anon-types;-Wno-c++98-compat-extra-semi")
@@ -45,12 +44,12 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     ${conversion_libs}
     LLVMX86AsmParser
     LLVMAMDGPUAsmParser
-    MLIRRocmBackendUtils
     MLIRJitRunner
     MLIRAnalysis
     MLIRExecutionEngine
     MLIRIR
     MLIRMIOpenOps
+    MLIRMIOpenUtility
     MLIRParser
     MLIRROCDLIR
     MLIRSupport
