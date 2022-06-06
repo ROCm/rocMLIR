@@ -33,9 +33,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
-#include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/GPU/Passes.h"
-#include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Transforms/Passes.h"
@@ -79,20 +77,23 @@ static cl::opt<bool>
 static constexpr const char kTargetTriple[] = "amdgcn-amd-amdhsa";
 
 #if __INCLUDE_HIP__
-namespace {
-    void getGpuGCNArchName(hipDevice_t device, std::string &gcnArchName) {
-        hipDeviceProp_t props;
-        hipError_t result = hipGetDeviceProperties(&props, device);
-        if (result != hipSuccess) {
-            gcnArchName = "";
-            llvm_unreachable("hipGetDeviceProperties() should never fail");
-            return;
-        }
-
-        const char *pArchName = props.gcnArchName;
-        gcnArchName.assign(pArchName);
+// As per the coding standard of LLVM, anonymous namespace should only be used
+// for class declarations.
+// https://llvm.org/docs/CodingStandards.html#anonymous-namespaces
+// FIXME: avoid calling hipGetDeviceProperties in mlir-rocm-runner to prevent
+// the out-of-handle problem when running multiple rocm instances concurrently.
+static void getGpuGCNArchName(hipDevice_t device, std::string &gcnArchName) {
+    hipDeviceProp_t props;
+    hipError_t result = hipGetDeviceProperties(&props, device);
+    if (result != hipSuccess) {
+        gcnArchName = "";
+        llvm_unreachable("hipGetDeviceProperties() should never fail");
+        return;
     }
-} // namespace
+
+    const char *pArchName = props.gcnArchName;
+    gcnArchName.assign(pArchName);
+}
 #endif
 
 namespace test {
