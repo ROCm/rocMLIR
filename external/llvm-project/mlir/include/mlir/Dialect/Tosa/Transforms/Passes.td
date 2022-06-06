@@ -59,7 +59,7 @@ def TosaPartition : Pass<"tosa-partition", "ModuleOp"> {
     Option<"attributeName", "attribute-name", "std::string",
            /*default=*/"\"kernel\"", "Attribute for outlined functions">,
     Option<"trailingOnly", "trailing-only", "bool", /*default=*/"false",
-           "Don't gather ops ahead of Conv2D">
+           "Don't gather ops ahead of anchor op">
   ];
   let dependentDialects = ["tosa::TosaDialect"];
 }

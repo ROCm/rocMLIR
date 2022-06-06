@@ -6,7 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Replace conv2d followed by elementwise with call to function containing them.
+// Replace conv2d followed by elementwise op with call to function containing
+// them.  Generalised, outline any anchor op, all its trailing elementwise ops,
+// and all its leading elementwise ops.  (Where "elementwise" itself is
+// generalised to include transpose and reshape ops.)
 //
 //===----------------------------------------------------------------------===//
 
@@ -89,7 +92,7 @@ bool isElementwiseOp(Operation *op) {
   // clang-format on
 }
 
-bool isFusibleOp(Operation *op) {
+bool isFuseableOp(Operation *op) {
   return isElementwiseOp(op) || isa<tosa::TransposeOp, tosa::ReshapeOp>(op);
 }
 
@@ -421,11 +424,13 @@ public:
 
 class SimpleDefaultPartitionConfig : public PartitionConfig {
 public:
-  bool isAnchorOp(Operation *op) override { return isa<tosa::Conv2DOp>(op); }
-  bool isLeadingOp(Operation *op) override {
-    return isConstantZero(op) || isFusibleOp(op);
+  bool isAnchorOp(Operation *op) override {
+    return isa<Conv2DOp,MatMulOp,DepthwiseConv2DOp>(op);
   }
-  bool isTrailingOp(Operation *op) override { return isFusibleOp(op); }
+  bool isLeadingOp(Operation *op) override {
+    return isConstantZero(op) || isFuseableOp(op);
+  }
+  bool isTrailingOp(Operation *op) override { return isFuseableOp(op); }
   std::string attributeName() override { return "kernel"; }
 };
 
@@ -443,9 +448,9 @@ public:
     return llvm::is_contained(anchorOps, op->getName().getIdentifier().str());
   }
   bool isLeadingOp(Operation *op) override {
-    return !trailingOnly && (isConstantZero(op) || isFusibleOp(op));
+    return !trailingOnly && (isConstantZero(op) || isFuseableOp(op));
   }
-  bool isTrailingOp(Operation *op) override { return isFusibleOp(op); }
+  bool isTrailingOp(Operation *op) override { return isFuseableOp(op); }
   std::string attributeName() override { return attrName; }
 };
 
@@ -497,7 +502,7 @@ public:
       if (anchorOps.hasValue() || attributeName.hasValue() ||
           trailingOnly.hasValue()) {
         if (anchorOps.empty()) // ListOption doesn't have a default value.
-          anchorOps = {"tosa.conv2d"};
+          anchorOps = {"tosa.conv2d","tosa.matmul","tosa.depthwise_conv2d"};
         config = new mlir::tosa::PartitionConfigFromOptions(
             anchorOps, attributeName, trailingOnly);
       } else {
@@ -523,21 +528,25 @@ public:
         auto strCount =
             std::string("_outlined_part_") + std::to_string(count++);
 
-        // Given a Conv2DOp, gather all the element-wise ops that are reachable
-        // from its results, contiguously.
+        // Given a Conv2DOp (or other anchor op), gather all the
+        // element-wise ops that are reachable from its results,
+        // contiguously.
         //
-        // The ops after the Conv2D are "second" ops.
-        // inputNodes gathers what will become the parameters of the outlined
-        // function;  initially it's the Conv2D's arguments, and it accumulates
-        // arguments to other ops that don't come from inside the outlined
-        // function.
-        // resultNodes will become the results of the outlined function.  It
-        // starts with Conv2D's result(s) and gains the results of each new
-        // trailingOp.  When all a resultNode's users can be determined to lie
-        // within the outlined function, it's removed from the set.
+        // The ops after the anchor are "trailing" ops.
         //
-        // These are SetVectors because we test with contains() a lot, but still
-        // want to preserve order.
+        // inputNodes gathers what will become the parameters of the
+        // outlined function;  initially it's the anchor's arguments,
+        // and it accumulates arguments to other ops that don't come
+        // from inside the outlined function.
+        //
+        // resultNodes will become the results of the outlined function.
+        // It starts with the anchor's result(s) and gains the results
+        // of each new trailingOp.  When all a resultNode's users can be
+        // determined to lie within the outlined function, it's removed
+        // from the set.
+        //
+        // These are SetVectors because we test with contains() a lot,
+        // but still want to preserve order.
         SetVector<Operation *> trailingOps;
         SetVector<Value> inputNodes;
         SetVector<Value> resultNodes(anchorOp->getResults().begin(),
@@ -611,7 +620,7 @@ public:
         return WalkResult::interrupt();
       };
 
-      // Walk until we've outlined all the Conv2D ops we can.
+      // Walk until we've outlined all the anchor ops we can.
       while (func.walk(callback).wasInterrupted()) {
       }
     }
