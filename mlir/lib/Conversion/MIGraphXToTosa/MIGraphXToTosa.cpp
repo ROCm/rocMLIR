@@ -173,7 +173,7 @@ public:
       SmallVector<Attribute, 5> newShapeAttr;
 
       // align the dimensions - by the given axis
-      for (uint i = 0; i < outRank; i++) {
+      for (uint32_t i = 0; i < outRank; i++) {
         newShapeAttr.push_back(rewriter.getI64IntegerAttr(1));
         newShape.push_back(1);
       }
@@ -238,7 +238,7 @@ public:
           SmallVector<Attribute, 5> newShapeAttr;
 
           // align the dimensions - by the given in/out shape
-          uint i = 0;
+          uint32_t i = 0;
           for (; i < outRank - inRank; i++) {
             newShapeAttr.push_back(rewriter.getI64IntegerAttr(1));
             newShape.push_back(1);
