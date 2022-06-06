@@ -18,9 +18,9 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
-#include "mlir/Dialect/MIOpen/Generator/IsaNameParser.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/Pipeline.h"
+#include "mlir/Dialect/MIOpen/utility/IsaNameSplitter.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -1957,8 +1957,8 @@ int main(int argc, char **argv) {
       // Scenario 2: We use cl::opt to initialize everything
     } else {
       std::string chip, triple, features;
-      IsaNameParser parser(arch.getValue());
-      auto status = parser.parseIsaName(chip, triple, features);
+      IsaNameSplitter splitter(arch.getValue());
+      auto status = splitter.parseIsaName(chip, triple, features);
       if (status.failed()) {
         exit(1);
       }

@@ -1,4 +1,4 @@
-//===- IsaNameParser.cpp - MLIR to C++ option parsing ---------------===//
+//===- IsaNameSplitter.cpp - MLIR to C++ option parsing ---------------===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,12 +6,12 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements isa name string parser
+// This file implements isa name string splitter
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/MIOpen/utility/IsaNameSplitter.h"
 #include "llvm/Support/Error.h"
-#include "mlir/Dialect/MIOpen/Generator/IsaNameParser.h"
 
 #include <cstring>
 #include <numeric>
@@ -20,9 +20,8 @@ using namespace mlir;
 
 static constexpr const char kGcnArchDelimiter[] = ":";
 
-namespace {
-LogicalResult getTripleFromIsaName(const std::string &isaName,
-                                   std::string &triple) {
+static LogicalResult getTripleFromIsaName(const std::string &isaName,
+                                          std::string &triple) {
   std::size_t firstSeperatorLoc = isaName.find(kGcnArchDelimiter);
   if (firstSeperatorLoc == std::string::npos) {
     return failure();
@@ -31,7 +30,7 @@ LogicalResult getTripleFromIsaName(const std::string &isaName,
   return success();
 }
 
-std::string getChipFromArchName(const std::string &gcnArchName) {
+static std::string getChipFromArchName(const std::string &gcnArchName) {
   std::size_t firstSeperatorLoc = gcnArchName.find(kGcnArchDelimiter);
   if (firstSeperatorLoc == std::string::npos) {
     return gcnArchName;
@@ -42,7 +41,7 @@ std::string getChipFromArchName(const std::string &gcnArchName) {
 
 // This function converts the arch name to target features:
 // sramecc+:xnack- to +sramecc,-xnack
-LogicalResult parseTargetFeatures(std::string &gcnArchFeatures) {
+static LogicalResult parseTargetFeatures(std::string &gcnArchFeatures) {
   // First step: put each feature name to the vector
   std::string token;
   SmallVector<std::string, 2> featureTokens;
@@ -93,13 +92,11 @@ LogicalResult parseTargetFeatures(std::string &gcnArchFeatures) {
   return success();
 }
 
-} // namespace
+IsaNameSplitter::IsaNameSplitter(const std::string &isa) : isaName(isa) {}
 
-IsaNameParser::IsaNameParser(const std::string &isa) : isaName(isa) {}
-
-LogicalResult IsaNameParser::parseIsaName(std::string &chip,
-                                          std::string &triple,
-                                          std::string &features) {
+LogicalResult IsaNameSplitter::parseIsaName(std::string &chip,
+                                            std::string &triple,
+                                            std::string &features) {
   size_t len = strlen(kGcnArchDelimiter);
   auto status = getTripleFromIsaName(isaName, triple);
   if (status.failed()) {
@@ -109,9 +106,9 @@ LogicalResult IsaNameParser::parseIsaName(std::string &chip,
   return parseArchName(archName, chip, features);
 }
 
-LogicalResult IsaNameParser::parseArchName(const std::string &archName,
-                                           std::string &chip,
-                                           std::string &features) {
+LogicalResult IsaNameSplitter::parseArchName(const std::string &archName,
+                                             std::string &chip,
+                                             std::string &features) {
   size_t len = strlen(kGcnArchDelimiter);
   chip = getChipFromArchName(archName);
 

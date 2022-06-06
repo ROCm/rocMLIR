@@ -1,8 +1,8 @@
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
-#include "mlir/Dialect/MIOpen/Generator/IsaNameParser.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/MIOpen/utility/IsaNameSplitter.h"
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/Dialect/MIOpen/utility/math.h"
 #include "mlir/IR/Attributes.h"
@@ -465,9 +465,9 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
 
   std::string arch;
   strToStr("arch", arch);
-  IsaNameParser parser(arch);
+  IsaNameSplitter splitter(arch);
   if (failed(
-          parser.parseIsaName(config.chip, config.triple, config.features))) {
+          splitter.parseIsaName(config.chip, config.triple, config.features))) {
     return failure();
   }
 

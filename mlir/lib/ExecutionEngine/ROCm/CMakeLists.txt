@@ -1,5 +1,4 @@
 set(LLVM_OPTIONAL_SOURCES
-  IsaNameParser.cpp
   rocm-runtime-wrappers.cpp
   )
 

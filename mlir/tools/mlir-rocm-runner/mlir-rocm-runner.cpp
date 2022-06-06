@@ -34,20 +34,18 @@
 
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
 #include "mlir/Dialect/GPU/Passes.h"
+#include "mlir/Dialect/MIOpen/utility/IsaNameSplitter.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Transforms/Passes.h"
-#include "mlir/Dialect/MIOpen/Generator/IsaNameParser.h"
 
 #include <cstdlib>
 #include <mutex>
 
-#if __INCLUDE_HIP__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 #include "hip/hip_runtime.h"
 #pragma GCC diagnostic pop
-#endif
 
 using namespace mlir;
 using namespace llvm;
@@ -76,7 +74,6 @@ static cl::opt<bool>
 
 static constexpr const char kTargetTriple[] = "amdgcn-amd-amdhsa";
 
-#if __INCLUDE_HIP__
 // As per the coding standard of LLVM, anonymous namespace should only be used
 // for class declarations.
 // https://llvm.org/docs/CodingStandards.html#anonymous-namespaces
@@ -94,7 +91,6 @@ static void getGpuGCNArchName(hipDevice_t device, std::string &gcnArchName) {
     const char *pArchName = props.gcnArchName;
     gcnArchName.assign(pArchName);
 }
-#endif
 
 namespace test {
 void registerTestDialect(DialectRegistry &);
@@ -110,21 +106,16 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
     return failure();
   }
 
-  {
   if (tripleName.empty() && targetChip.empty() && features.empty()){
       tripleName = kTargetTriple;
-#if __INCLUDE_HIP__
       std::string gcnArchName;
       getGpuGCNArchName(0, gcnArchName);
-      auto status = IsaNameParser::parseArchName(gcnArchName, targetChip, features);
+      auto status =
+          IsaNameSplitter::parseArchName(gcnArchName, targetChip, features);
       if (status.failed()) {
           llvm_unreachable("HIP ArchName parsing should never fail.");
       }
-#else
-      llvm_unreachable("mlir-rocm-ruinner.cpp does not include HIP.");
-#endif
   }
-  } //
 
   // Find MIOpen module and compile kernel funcs
   ModuleOp kernelModule = m;
