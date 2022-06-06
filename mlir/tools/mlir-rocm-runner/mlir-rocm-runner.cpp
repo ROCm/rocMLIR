@@ -80,16 +80,16 @@ static constexpr const char kTargetTriple[] = "amdgcn-amd-amdhsa";
 // FIXME: avoid calling hipGetDeviceProperties in mlir-rocm-runner to prevent
 // the out-of-handle problem when running multiple rocm instances concurrently.
 static void getGpuGCNArchName(hipDevice_t device, std::string &gcnArchName) {
-    hipDeviceProp_t props;
-    hipError_t result = hipGetDeviceProperties(&props, device);
-    if (result != hipSuccess) {
-        gcnArchName = "";
-        llvm_unreachable("hipGetDeviceProperties() should never fail");
-        return;
-    }
+  hipDeviceProp_t props;
+  hipError_t result = hipGetDeviceProperties(&props, device);
+  if (result != hipSuccess) {
+    gcnArchName = "";
+    llvm_unreachable("hipGetDeviceProperties() should never fail");
+    return;
+  }
 
-    const char *pArchName = props.gcnArchName;
-    gcnArchName.assign(pArchName);
+  const char *pArchName = props.gcnArchName;
+  gcnArchName.assign(pArchName);
 }
 
 namespace test {
@@ -106,15 +106,15 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
     return failure();
   }
 
-  if (tripleName.empty() && targetChip.empty() && features.empty()){
-      tripleName = kTargetTriple;
-      std::string gcnArchName;
-      getGpuGCNArchName(0, gcnArchName);
-      auto status =
-          IsaNameSplitter::parseArchName(gcnArchName, targetChip, features);
-      if (status.failed()) {
-          llvm_unreachable("HIP ArchName parsing should never fail.");
-      }
+  if (tripleName.empty() && targetChip.empty() && features.empty()) {
+    tripleName = kTargetTriple;
+    std::string gcnArchName;
+    getGpuGCNArchName(0, gcnArchName);
+    auto status =
+        IsaNameSplitter::parseArchName(gcnArchName, targetChip, features);
+    if (status.failed()) {
+      llvm_unreachable("HIP ArchName parsing should never fail.");
+    }
   }
 
   // Find MIOpen module and compile kernel funcs
@@ -133,8 +133,8 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
         createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32,
                                         /*runtime=*/gpu::amd::Runtime::HIP));
   }
-  kernelPm.addPass(createGpuSerializeToHsacoPass(
-      tripleName, targetChip, features, optLevel));
+  kernelPm.addPass(createGpuSerializeToHsacoPass(tripleName, targetChip,
+                                                 features, optLevel));
 
   if (failed(pm.run(kernelModule))) {
     return failure();
