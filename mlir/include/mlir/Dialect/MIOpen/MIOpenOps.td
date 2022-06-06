@@ -663,28 +663,27 @@ def MIOpen_ThreadwiseCopyOp:
 }
 
 // threadwise_copy_v2
-def MIOpen_ThreadwiseCopyV2Op:
-    MIOpen_Op<"threadwise_copy_v2", [AttrSizedOperandSegments]>,
-    Arguments<(ins VectorOfRankAndType<[1], [F32, F16, I32]>:$source,
+def MIOpen_ThreadwiseCopyV2Op :
+    MIOpen_Op<"threadwise_copy_v2", [AllElementTypesMatch<["source", "dest"]>]>,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [1]>:$source,
                    AnyMemRef:$dest,
-                   IndexArrayAttr:$bounds,
-                   ArgTransforms<2>:$transforms,
+                   IndexAttr:$length,
                    StoreMethod:$storeMethod,
-                   Variadic<Index>:$sourceCoord,
+                   I32ArrayAttr:$leftOobDims,
+                   I32ArrayAttr:$rightOobDims,
+                   Index:$sourceCoord,
                    Variadic<Index>:$destCoord)> {
   let summary = "Threadwise GPU data movement XDLOPS version";
   let description = [{
-    The `miopen.threadwise_v2` op moves data on GPU. Following movements are
-    allowed:
-    - Register (naive tensor) as vector type to global (generic tensor).
-
-    The op is used to store C matrices, stored as vectors, back to global VMEM.
+    The `threadwise_copy_v2` op is a wrapper around storing to a global buffer
+    that hides type casts. This is used in order to make it easier for operator
+    fusion to identify the write out to global memory produced within an xdlops
+    gemm.
   }];
   let assemblyFormat = [{
-    $source `[` $sourceCoord `]`
+    attr-dict $source `[` $sourceCoord `]`
     `->` $dest `[` $destCoord `]`
-    `with` $transforms attr-dict
-    `:` type($source) `,` type($sourceCoord) `->`
+    `:` type($source) `->`
     type($dest) `,` type($destCoord)
   }];
 }

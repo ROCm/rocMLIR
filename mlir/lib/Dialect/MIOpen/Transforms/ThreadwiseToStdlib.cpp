@@ -1095,7 +1095,6 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
     Type argType = xcs.argType;
 
     int64_t num_threads_blk = xcs.num_threads_blk;
-    int64_t wave_size = xcs.wave_size;
     int64_t num_input_blks = xcs.num_input_blks;
     int64_t num_output_blks = xcs.num_output_blks;
     int64_t k_base = xcs.k_base;
@@ -1112,8 +1111,9 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
     // K * KRepeats; constexpr index_t BStride = K * KRepeats;
 
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
+    constexpr int64_t waveSize = 64;
     auto laneId =
-        b.create<RemUIOp>(loc, tid, b.create<ConstantIndexOp>(loc, wave_size));
+        b.create<RemUIOp>(loc, tid, b.create<ConstantIndexOp>(loc, waveSize));
 
     int64_t KRepeats = KPack / k_base;
     if (KRepeats == 0)
