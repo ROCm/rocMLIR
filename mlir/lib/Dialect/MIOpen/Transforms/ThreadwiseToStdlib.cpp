@@ -91,9 +91,17 @@ struct TransformingForRewritePattern
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
     SmallVector<int64_t> bounds;
+    bounds.reserve(op.bounds().size());
     for (llvm::APInt v : op.bounds().getAsValueRange<IntegerAttr>()) {
       int64_t bound = v.getZExtValue();
       bounds.push_back(bound);
+    }
+
+    SmallVector<int64_t> strides;
+    strides.reserve(op.strides().size());
+    for (llvm::APInt v : op.strides().getAsValueRange<IntegerAttr>()) {
+      int64_t stride = v.getZExtValue();
+      strides.push_back(stride);
     }
 
     bool useDiffs = op.useIndexDiffs().getValueOr(false);
@@ -147,14 +155,16 @@ struct TransformingForRewritePattern
     llvm::SmallVector<AffineForOp, 5> loops;
     llvm::SmallVector<Value, 5> ivs;
     OpBuilder ilb = b;
-    for (int64_t bound : bounds) {
+    for (const auto &pair : llvm::zip(bounds, strides)) {
+      int64_t bound, stride;
+      std::tie(bound, stride) = pair;
       llvm::SmallVector<Value, 3> iterInits;
       if (loops.empty())
         llvm::copy(op.iterInits(), std::back_inserter(iterInits));
       else
         llvm::copy(loops[loops.size() - 1].getRegionIterArgs(),
                    std::back_inserter(iterInits));
-      auto loop = ilb.create<AffineForOp>(loc, 0, bound, 1, iterInits);
+      auto loop = ilb.create<AffineForOp>(loc, 0, bound, stride, iterInits);
       ivs.push_back(loop.getInductionVar());
       if (iterInits
               .empty()) // remove default affine.yield for cleaner code later

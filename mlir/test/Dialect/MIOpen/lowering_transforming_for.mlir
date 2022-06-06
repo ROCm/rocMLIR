@@ -15,22 +15,47 @@ func @no_transform_to_affine() {
     // CHECK: affine.for %[[arg0:.*]] = {{.*}}to 2
     // CHECK: affine.for %[[arg1:.*]] = {{.*}}to 3
     // CHECK: gpu.printf "%d, %d" %[[arg0]], %[[arg1]]
-    miopen.transforming_for (%arg0, %arg1) = [](%c0, %c0) bounds [2, 3] {
+    miopen.transforming_for (%arg0, %arg1) = [](%c0, %c0) bounds [2, 3] strides [1, 1] {
         gpu.printf "%d, %d" %arg0, %arg1 : index, index
     }
     return
 }
+
+// CHECK-LABEL: func @no_transform_to_affine_strided
+func @no_transform_to_affine_strided() {
+    %c0 = arith.constant 0 : index
+    // CHECK: affine.for %[[arg0:.*]] = {{.*}}to 2 step 2
+    // CHECK: affine.for %[[arg1:.*]] = {{.*}}to 3
+    // CHECK: gpu.printf "%d, %d" %[[arg0]], %[[arg1]]
+    miopen.transforming_for (%arg0, %arg1) = [](%c0, %c0) bounds [2, 3] strides [2, 1] {
+        gpu.printf "%d, %d" %arg0, %arg1 : index, index
+    }
+    return
+}
+
 
 // CHECK-LABEL: func @no_transform_unrolled
 func @no_transform_unrolled() {
     %c0 = arith.constant 0 : index
     // CHECK-NOT: affine.for
     // CHECK-COUNT-6: gpu.printf
-    miopen.transforming_for {forceUnroll} (%arg0, %arg1) = [](%c0, %c0) bounds [2, 3] {
+    miopen.transforming_for {forceUnroll} (%arg0, %arg1) = [](%c0, %c0) bounds [2, 3] strides [1, 1] {
         gpu.printf "%d, %d" %arg0, %arg1 : index, index
     }
     return
 }
+
+// CHECK-LABEL: func @no_transform_unrolled_strided
+func @no_transform_unrolled_strided() {
+    %c0 = arith.constant 0 : index
+    // CHECK-NOT: affine.for
+    // CHECK-COUNT-3: gpu.printf
+    miopen.transforming_for {forceUnroll} (%arg0, %arg1) = [](%c0, %c0) bounds [2, 3] strides [2, 1] {
+        gpu.printf "%d, %d" %arg0, %arg1 : index, index
+    }
+    return
+}
+
 
 // CHECK-LABEL: func @one_transform
 // CHECK-SAME:(%[[arg0:.*]]: index, %[[arg1:.*]]: index)
@@ -42,7 +67,7 @@ func @one_transform(%arg0: index, %arg1: index) {
     // CHECK: %[[u1:.*]] = arith.addi %[[arg1]], %[[d1]]
     // CHECK-NEXT: %[[l0:.*]] = arith.addi %[[u1]], %[[cmp0]]
     // CHECK-NEXT: gpu.printf "%d" %[[l0]]
-    miopen.transforming_for (%arg2) = [#transform_map0](%arg0, %arg1) bounds [2, 3] {
+    miopen.transforming_for (%arg2) = [#transform_map0](%arg0, %arg1) bounds [2, 3] strides [1, 1] {
         gpu.printf "%d" %arg2 : index
     }
     return
@@ -59,7 +84,7 @@ func @one_transform_index_diff(%arg0: index, %arg1: index) {
     // CHECK-NEXT: %[[c1:.*]] = arith.addi %[[d1]], %[[c0]]
     // CHECK-NEXT: %[[l0:.*]] = arith.addi %[[linit]], %[[c1]]
     // CHECK-NEXT: gpu.printf "%d" %[[l0]]
-    miopen.transforming_for {useIndexDiffs} (%arg2) = [#transform_map0](%arg0, %arg1) bounds [2, 3] {
+    miopen.transforming_for {useIndexDiffs} (%arg2) = [#transform_map0](%arg0, %arg1) bounds [2, 3] strides [1, 1] {
         gpu.printf "%d" %arg2 : index
     }
     return
@@ -71,7 +96,7 @@ func @one_transform_unroll(%arg0: index, %arg1: index) {
     // CHECK-COUNT-2: arith.muli
     // Three printf after the second iteration of outer loop
     // CHECK-COUNT-3: gpu.printf
-    miopen.transforming_for {forceUnroll} (%arg2) = [#transform_map0](%arg0, %arg1) bounds [2, 3] {
+    miopen.transforming_for {forceUnroll} (%arg2) = [#transform_map0](%arg0, %arg1) bounds [2, 3] strides [1, 1] {
         gpu.printf "%d" %arg2 : index
     }
     return
@@ -99,7 +124,7 @@ func @one_transform_index_diff_unroll(%arg0: index, %arg1: index) {
     // CHECK-NEXT: gpu.printf "%d" %[[l4]]
     // CHECK: %[[l5:.*]] = arith.addi %[[l0]], %[[c6]]
     // CHECK-NEXT: gpu.printf "%d" %[[l5]]
-    miopen.transforming_for {forceUnroll, useIndexDiffs} (%arg2) = [#transform_map0](%arg0, %arg1) bounds [2, 3] {
+    miopen.transforming_for {forceUnroll, useIndexDiffs} (%arg2) = [#transform_map0](%arg0, %arg1) bounds [2, 3] strides [1, 1] {
         gpu.printf "%d" %arg2 : index
     }
     return
@@ -108,7 +133,7 @@ func @one_transform_index_diff_unroll(%arg0: index, %arg1: index) {
 // CHECK-LABEL: func @deep_transforms
 // CHECK-SAME: (%[[arg0:.*]]: index, %[[arg1:.*]]: index)
 func @deep_transforms(%arg0: index, %arg1: index) {
-    miopen.transforming_for (%arg2) = [#transform_map1, #transform_map0](%arg0, %arg1) bounds [2, 3] {
+    miopen.transforming_for (%arg2) = [#transform_map1, #transform_map0](%arg0, %arg1) bounds [2, 3] strides [1, 1] {
         // CHECK: %[[shft2:.*]] = arith.addi %[[arg1]]
         // CHECK: %[[l0_int:.*]] = arith.muli %[[shft2]]
         // CHECK-NEXT: %[[l0:.*]] = arith.addi {{.*}}, %[[l0_int]]
@@ -125,7 +150,7 @@ func @deep_transforms_index_diff(%arg0: index, %arg1: index) {
     // CHECK: %[[init1:.*]] = arith.addi %[[arg0]], %[[init0]]
     // CHECK: affine.for %[[d0:.*]] = 0 to 2
     // CHECK-NEXT: affine.for %[[d1:.*]] = 0 to 3
-    miopen.transforming_for {useIndexDiffs} (%arg2) = [#transform_map1, #transform_map0](%arg0, %arg1) bounds [2, 3] {
+    miopen.transforming_for {useIndexDiffs} (%arg2) = [#transform_map1, #transform_map0](%arg0, %arg1) bounds [2, 3] strides [1, 1] {
         // CHECK-DAG: %[[c0:.*]] = arith.muli %[[d1]]
         // CHECK-DAG: %[[c1:.*]] = arith.addi %[[d0]], %[[c0]]
         // CHECK-DAG: %[[l0:.*]] = arith.addi %[[init1]], %[[c1]]
@@ -139,7 +164,7 @@ func @deep_transforms_index_diff(%arg0: index, %arg1: index) {
 func @multi_iteration() {
     %c0 = arith.constant 0 : index
     // CHECK-COUNT-6: gpu.printf
-    miopen.transforming_for {forceUnroll} (%arg0, %arg1) = [#transform_map1](%c0, %c0), (%arg2) = [#transform_map0](%c0, %c0) bounds [2, 3] {
+    miopen.transforming_for {forceUnroll} (%arg0, %arg1) = [#transform_map1](%c0, %c0), (%arg2) = [#transform_map0](%c0, %c0) bounds [2, 3] strides [1, 1] {
         gpu.printf "%d, %d, %d" %arg0, %arg1, %arg2 : index, index, index
     }
     return
@@ -152,7 +177,7 @@ func @loop_result(%arg0: index, %arg1: index) -> index {
     // CHECK: %[[ret:.*]] = affine.for {{.*}} iter_args(%[[oarg:.*]] = %[[c0]]
     // CHECK: %[[inner:.*]] = affine.for {{.*}} iter_args(%[[iarg:.*]] = %[[oarg]]
     %ret = miopen.transforming_for (%arg2) = [#transform_map0](%arg0, %arg1)
-            iter_args(%arg3 = %c0 : index) bounds [2, 3] {
+            iter_args(%arg3 = %c0 : index) bounds [2, 3] strides [1, 1] {
         // CHECK: %[[iret:.*]] = arith.addi %[[iarg]]
         %i = arith.addi %arg3, %arg2 : index
         // CHECK: affine.yield %[[iret]]

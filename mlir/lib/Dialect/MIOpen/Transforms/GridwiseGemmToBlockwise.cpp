@@ -196,7 +196,7 @@ TransformingForOp createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
   Value dest = createZeroConstantOp(b, loc, resultType);
   auto loop = b.create<TransformingForOp>(
       loc, ArrayRef<ValueRange>{globalStart, linearInit}, loopTransforms,
-      loopBounds,
+      loopBounds, /*strides=*/llvm::None,
       /*forceUnroll=*/true, useIndexDiffs, dest);
   OpBuilder::InsertionGuard guard(b);
   b.setInsertionPointToStart(loop.getBody());
@@ -220,7 +220,8 @@ TransformingForOp createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
           loc,
           ArrayRef<ValueRange>{linearInit, loop.getLowerCoords(/*domain=*/1)},
           ArrayRef<Attribute>{loadedValIdxMap, resultIdxMap}, vectorIdxBounds,
-          /*forceUnroll=*/true, /*useIndexDiffs=*/true, loopArg);
+          /*strides=*/llvm::None, /*forceUnroll=*/true, /*useIndexDiffs=*/true,
+          loopArg);
 
       {
         OpBuilder::InsertionGuard innerGuard(b);
@@ -277,7 +278,7 @@ TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
   auto loop = b.create<TransformingForOp>(
       loc, ArrayRef<ValueRange>{linearInit, bufferStart}, loopTransforms,
       loopBounds,
-      /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+      /*strides=*/llvm::None, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
   OpBuilder::InsertionGuard guard(b);
   b.setInsertionPointToStart(loop.getBody());
 
@@ -301,7 +302,8 @@ TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
         loc,
         ArrayRef<ValueRange>{loop.getLowerCoords(/*domain=*/0), linearInit},
         ArrayRef<Attribute>{resultIdxMap, loadedValIdxMap}, vectorIdxBounds,
-        /*forceUnroll=*/true, /*useIndexDiffs=*/true, gatherInit);
+        /*strides=*/llvm::None, /*forceUnroll=*/true, /*useIndexDiffs=*/true,
+        gatherInit);
     {
       OpBuilder::InsertionGuard innerGuard(b);
       b.setInsertionPointToStart(gatherLoop.getBody());
@@ -2541,7 +2543,7 @@ struct GridwiseGemmV2RewritePattern
     TransformingForOp outLoop = b.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{c0}, ArrayRef<Attribute>{b.getArrayAttr({})},
         bounds,
-        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+        /*strides=*/llvm::None, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(outLoop.getBody());
     {
