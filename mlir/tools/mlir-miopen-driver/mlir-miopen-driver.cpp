@@ -218,8 +218,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
         return failure();
       }
 
-      miopen::addBackendPipeline(pm, tripleName, targetChip,
-                                 features, optLevel);
+      miopen::addBackendPipeline(pm, tripleName, targetChip, features,
+                                 optLevel);
     }
   } else {
     auto errorHandler = [&](const Twine &msg) {
