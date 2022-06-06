@@ -10,8 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_EXECUTIONENGINE_ROCM_ISANAMESPLITTER_H_
-#define MLIR_EXECUTIONENGINE_ROCM_ISANAMESPLITTER_H_
+#ifndef MLIR_DIALECT_MIOPEN_UTILITY_ISANAMESPLITTER_H_
+#define MLIR_DIALECT_MIOPEN_UTILITY_ISANAMESPLITTER_H_
 
 #include "mlir/Support/LogicalResult.h"
 
@@ -31,4 +31,4 @@ private:
 };
 } // namespace mlir
 
-#endif // MLIR_EXECUTIONENGINE_ROCM_ISANAMESPLITTER_H_
+#endif // MLIR_DIALECT_MIOPEN_UTILITY_ISANAMESPLITTER_H_
