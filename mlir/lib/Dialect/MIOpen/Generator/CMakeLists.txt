@@ -42,6 +42,6 @@ target_link_libraries(MLIRMIOpenConv2dGenerator
   ${LIBS}
 )
 
-add_llvm_library(MLIRRocmBackendUtils
+add_mlir_library(MLIRRocmBackendUtils
   IsaNameParser.cpp
 )
