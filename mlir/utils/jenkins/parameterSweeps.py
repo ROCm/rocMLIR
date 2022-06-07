@@ -375,7 +375,7 @@ def main() -> bool:
     parser.add_argument('--no-xdlops', '-X', dest='xdlops', action='store_false',
         help='Explicitly disable xdlops usage')
     parser.add_argument('--jobs', '-j', type=int,
-        default=(2 * len(os.sched_getaffinity(0))),
+        default=(len(os.sched_getaffinity(0)) // 2),
         help="Number of jobs to run in parallel (default %(default)s)")
     args = parser.parse_args()
     options = Options(debug=args.debug, quiet=args.quiet, xdlops=args.xdlops,
