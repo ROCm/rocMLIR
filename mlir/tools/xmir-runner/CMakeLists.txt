@@ -10,15 +10,12 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     ${dialect_libs}
     ${conversion_libs}
     LLVMX86AsmParser
-    LLVMAMDGPUAsmParser
-    LLVMROCmBackendUtils
     MLIRJitRunner
     MLIRAnalysis
     MLIRExecutionEngine
     MLIRIR
     MLIRMIOpenOps
     MLIRParser
-    MLIRROCDLIR
     MLIRSupport
     MLIRGPUTransforms
     MLIRTargetLLVMIRExport
