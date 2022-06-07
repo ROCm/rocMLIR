@@ -90,7 +90,7 @@ public:
                    func::AccessMode accessMode,
                    llvm::SmallVector<Value> &copyBackOprs,
                    llvm::SmallVector<Value, 8> &asyncDeps) const {
-    auto loc = opr.getLoc();
+    Location loc = opr.getLoc();
     auto tokenType = b.getType<gpu::AsyncTokenType>();
     auto oprAllocOp = opr.getDefiningOp<memref::AllocOp>();
     if (oprAllocOp)
@@ -127,7 +127,7 @@ public:
                                 ConversionPatternRewriter &rw) const override {
     Location loc = op.getLoc();
     auto module = op->getParentOfType<ModuleOp>();
-    auto ctx = module.getContext();
+    auto *ctx = module.getContext();
 
     assert(op->getNumResults() == 1); // only 1 async.token
 
@@ -143,7 +143,7 @@ public:
     auto gridSize = gpuAttr->get("grid_size").cast<IntegerAttr>();
 
     auto func = *getCalledFunc(op);
-    auto floc = func.getLoc();
+    Location floc = func.getLoc();
 
     // Also capture the accessMap for the params, default all to read-write
     SmallVector<func::AccessMode> accessVec(func.getNumArguments(),
