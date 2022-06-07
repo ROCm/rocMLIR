@@ -388,7 +388,7 @@ The following builders are generated:
 ```c++
 // All result-types/operands/attributes have one aggregate parameter.
 static void build(OpBuilder &odsBuilder, OperationState &odsState,
-                  ArrayRef<Type> resultTypes,
+                  TypeRange resultTypes,
                   ValueRange operands,
                   ArrayRef<NamedAttribute> attributes);
 
@@ -410,7 +410,7 @@ static void build(OpBuilder &odsBuilder, OperationState &odsState,
 
 // Each operand/attribute has a separate parameter but result type is aggregate.
 static void build(OpBuilder &odsBuilder, OperationState &odsState,
-                  ArrayRef<Type> resultTypes,
+                  TypeRange resultTypes,
                   Value i32_operand, Value f32_operand, ...,
                   IntegerAttr i32_attr, FloatAttr f32_attr, ...);
 
@@ -1283,10 +1283,8 @@ optionality, default values, etc.:
 
 Some attributes can only take values from a predefined enum, e.g., the
 comparison kind of a comparison op. To define such attributes, ODS provides
-several mechanisms: `StrEnumAttr`, `IntEnumAttr`, and `BitEnumAttr`.
+several mechanisms: `IntEnumAttr`, and `BitEnumAttr`.
 
-*   `StrEnumAttr`: each enum case is a string, the attribute is stored as a
-    [`StringAttr`][StringAttr] in the op.
 *   `IntEnumAttr`: each enum case is an integer, the attribute is stored as a
     [`IntegerAttr`][IntegerAttr] in the op.
 *   `BitEnumAttr`: each enum case is a either the empty case, a single bit,
@@ -1532,7 +1530,7 @@ mlir-tblgen --gen-op-interface-doc -I /path/to/mlir/include /path/to/input/td/fi
 Classes/defs can be marked as deprecated by using the `Deprecate` helper class,
 e.g.,
 
-```td
+```tablegen
 def OpTraitA : NativeOpTrait<"OpTraitA">, Deprecated<"use `bar` instead">;
 ```
 

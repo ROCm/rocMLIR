@@ -980,8 +980,7 @@ struct ProcessPDLValue<std::string>
     static_assert(always_false<T>,
                   "`std::string` arguments require a string copy, use "
                   "`StringRef` for string-like arguments instead");
-    // Dummy return to supress warnings
-    return "";
+    return {};
   }
   static void processAsResult(PatternRewriter &rewriter, PDLResultList &results,
                               StringRef value) {

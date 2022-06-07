@@ -2786,25 +2786,23 @@ ARMTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
                                   RegsToPass[i].second.getValueType()));
 
   // Add a register mask operand representing the call-preserved registers.
-  if (!isTailCall) {
-    const uint32_t *Mask;
-    const ARMBaseRegisterInfo *ARI = Subtarget->getRegisterInfo();
-    if (isThisReturn) {
-      // For 'this' returns, use the R0-preserving mask if applicable
-      Mask = ARI->getThisReturnPreservedMask(MF, CallConv);
-      if (!Mask) {
-        // Set isThisReturn to false if the calling convention is not one that
-        // allows 'returned' to be modeled in this way, so LowerCallResult does
-        // not try to pass 'this' straight through
-        isThisReturn = false;
-        Mask = ARI->getCallPreservedMask(MF, CallConv);
-      }
-    } else
+  const uint32_t *Mask;
+  const ARMBaseRegisterInfo *ARI = Subtarget->getRegisterInfo();
+  if (isThisReturn) {
+    // For 'this' returns, use the R0-preserving mask if applicable
+    Mask = ARI->getThisReturnPreservedMask(MF, CallConv);
+    if (!Mask) {
+      // Set isThisReturn to false if the calling convention is not one that
+      // allows 'returned' to be modeled in this way, so LowerCallResult does
+      // not try to pass 'this' straight through
+      isThisReturn = false;
       Mask = ARI->getCallPreservedMask(MF, CallConv);
+    }
+  } else
+    Mask = ARI->getCallPreservedMask(MF, CallConv);
 
-    assert(Mask && "Missing call preserved mask for calling convention");
-    Ops.push_back(DAG.getRegisterMask(Mask));
-  }
+  assert(Mask && "Missing call preserved mask for calling convention");
+  Ops.push_back(DAG.getRegisterMask(Mask));
 
   if (InFlag.getNode())
     Ops.push_back(InFlag);
@@ -17394,7 +17392,7 @@ static SDValue PerformShiftCombine(SDNode *N,
   const TargetLowering &TLI = DAG.getTargetLoweringInfo();
   if (!VT.isVector() || !TLI.isTypeLegal(VT))
     return SDValue();
-  if (ST->hasMVEIntegerOps() && VT == MVT::v2i64)
+  if (ST->hasMVEIntegerOps())
     return SDValue();
 
   int64_t Cnt;

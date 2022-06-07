@@ -2219,6 +2219,15 @@ static Value *SimplifyAndInst(Value *Op0, Value *Op1, const SimplifyQuery &Q,
       match(Op1, m_c_Xor(m_Specific(Or), m_Specific(Y))))
     return Constant::getNullValue(Op0->getType());
 
+  if (Op0->getType()->isIntOrIntVectorTy(1)) {
+    // Op0&Op1 -> Op0 where Op0 implies Op1
+    if (isImpliedCondition(Op0, Op1, Q.DL).getValueOr(false))
+      return Op0;
+    // Op0&Op1 -> Op1 where Op1 implies Op0
+    if (isImpliedCondition(Op1, Op0, Q.DL).getValueOr(false))
+      return Op1;
+  }
+
   return nullptr;
 }
 
@@ -2450,6 +2459,15 @@ static Value *SimplifyOrInst(Value *Op0, Value *Op1, const SimplifyQuery &Q,
   if (isa<PHINode>(Op0) || isa<PHINode>(Op1))
     if (Value *V = ThreadBinOpOverPHI(Instruction::Or, Op0, Op1, Q, MaxRecurse))
       return V;
+
+  if (Op0->getType()->isIntOrIntVectorTy(1)) {
+    // Op0|Op1 -> Op1 where Op0 implies Op1
+    if (isImpliedCondition(Op0, Op1, Q.DL).getValueOr(false))
+      return Op1;
+    // Op0|Op1 -> Op0 where Op1 implies Op0
+    if (isImpliedCondition(Op1, Op0, Q.DL).getValueOr(false))
+      return Op0;
+  }
 
   return nullptr;
 }
@@ -2723,12 +2741,14 @@ computePointerICmp(CmpInst::Predicate Pred, Value *LHS, Value *RHS,
       uint64_t LHSSize, RHSSize;
       ObjectSizeOpts Opts;
       Opts.EvalMode = ObjectSizeOpts::Mode::Min;
-      auto *F = [](Value *V) {
+      auto *F = [](Value *V) -> Function * {
         if (auto *I = dyn_cast<Instruction>(V))
           return I->getFunction();
-        return cast<Argument>(V)->getParent();
+        if (auto *A = dyn_cast<Argument>(V))
+          return A->getParent();
+        return nullptr;
       }(LHS);
-      Opts.NullIsUnknownSize = NullPointerIsDefined(F);
+      Opts.NullIsUnknownSize = F ? NullPointerIsDefined(F) : true;
       if (getObjectSize(LHS, LHSSize, DL, TLI, Opts) &&
           getObjectSize(RHS, RHSSize, DL, TLI, Opts) &&
           !LHSOffset.isNegative() && !RHSOffset.isNegative() &&
@@ -4817,11 +4837,18 @@ static Value *SimplifyPHINode(PHINode *PN, ArrayRef<Value *> IncomingValues,
   if (!CommonValue)
     return UndefValue::get(PN->getType());
 
-  // If we have a PHI node like phi(X, undef, X), where X is defined by some
-  // instruction, we cannot return X as the result of the PHI node unless it
-  // dominates the PHI block.
-  if (HasUndefInput)
+  if (HasUndefInput) {
+    // We cannot start executing a trapping constant expression on more control
+    // flow paths.
+    auto *CE = dyn_cast<ConstantExpr>(CommonValue);
+    if (CE && CE->canTrap())
+      return nullptr;
+
+    // If we have a PHI node like phi(X, undef, X), where X is defined by some
+    // instruction, we cannot return X as the result of the PHI node unless it
+    // dominates the PHI block.
     return valueDominatesPHI(CommonValue, PN, Q.DT) ? CommonValue : nullptr;
+  }
 
   return CommonValue;
 }
@@ -5200,15 +5227,16 @@ SimplifyFSubInst(Value *Op0, Value *Op1, FastMathFlags FMF,
         (FMF.noSignedZeros() || CannotBeNegativeZero(Op0, Q.TLI)))
       return Op0;
 
-  if (!isDefaultFPEnvironment(ExBehavior, Rounding))
-    return nullptr;
-
   // fsub -0.0, (fsub -0.0, X) ==> X
   // fsub -0.0, (fneg X) ==> X
   Value *X;
-  if (match(Op0, m_NegZeroFP()) &&
-      match(Op1, m_FNeg(m_Value(X))))
-    return X;
+  if (canIgnoreSNaN(ExBehavior, FMF))
+    if (match(Op0, m_NegZeroFP()) &&
+        match(Op1, m_FNeg(m_Value(X))))
+      return X;
+
+  if (!isDefaultFPEnvironment(ExBehavior, Rounding))
+    return nullptr;
 
   // fsub 0.0, (fsub 0.0, X) ==> X if signed zeros are ignored.
   // fsub 0.0, (fneg X) ==> X if signed zeros are ignored.
@@ -5262,8 +5290,8 @@ static Value *SimplifyFMAFMul(Value *Op0, Value *Op1, FastMathFlags FMF,
   // 2. Ignore non-zero negative numbers because sqrt would produce NAN.
   // 3. Ignore -0.0 because sqrt(-0.0) == -0.0, but -0.0 * -0.0 == 0.0.
   Value *X;
-  if (Op0 == Op1 && match(Op0, m_Intrinsic<Intrinsic::sqrt>(m_Value(X))) &&
-      FMF.allowReassoc() && FMF.noNaNs() && FMF.noSignedZeros())
+  if (Op0 == Op1 && match(Op0, m_Sqrt(m_Value(X))) && FMF.allowReassoc() &&
+      FMF.noNaNs() && FMF.noSignedZeros())
     return X;
 
   return nullptr;
@@ -6139,7 +6167,6 @@ static Value *simplifyIntrinsic(CallBase *Call, const SimplifyQuery &Q) {
                             FPI->getFastMathFlags(), Q,
                             FPI->getExceptionBehavior().getValue(),
                             FPI->getRoundingMode().getValue());
-    break;
   }
   case Intrinsic::experimental_constrained_fsub: {
     auto *FPI = cast<ConstrainedFPIntrinsic>(Call);
@@ -6147,7 +6174,6 @@ static Value *simplifyIntrinsic(CallBase *Call, const SimplifyQuery &Q) {
                             FPI->getFastMathFlags(), Q,
                             FPI->getExceptionBehavior().getValue(),
                             FPI->getRoundingMode().getValue());
-    break;
   }
   case Intrinsic::experimental_constrained_fmul: {
     auto *FPI = cast<ConstrainedFPIntrinsic>(Call);
@@ -6155,7 +6181,6 @@ static Value *simplifyIntrinsic(CallBase *Call, const SimplifyQuery &Q) {
                             FPI->getFastMathFlags(), Q,
                             FPI->getExceptionBehavior().getValue(),
                             FPI->getRoundingMode().getValue());
-    break;
   }
   case Intrinsic::experimental_constrained_fdiv: {
     auto *FPI = cast<ConstrainedFPIntrinsic>(Call);
@@ -6163,7 +6188,6 @@ static Value *simplifyIntrinsic(CallBase *Call, const SimplifyQuery &Q) {
                             FPI->getFastMathFlags(), Q,
                             FPI->getExceptionBehavior().getValue(),
                             FPI->getRoundingMode().getValue());
-    break;
   }
   case Intrinsic::experimental_constrained_frem: {
     auto *FPI = cast<ConstrainedFPIntrinsic>(Call);
@@ -6171,7 +6195,6 @@ static Value *simplifyIntrinsic(CallBase *Call, const SimplifyQuery &Q) {
                             FPI->getFastMathFlags(), Q,
                             FPI->getExceptionBehavior().getValue(),
                             FPI->getRoundingMode().getValue());
-    break;
   }
   default:
     return nullptr;
@@ -6219,6 +6242,15 @@ Value *llvm::SimplifyCall(CallBase *Call, const SimplifyQuery &Q) {
     if (Value *Ret = simplifyIntrinsic(Call, Q))
       return Ret;
 
+  return nullptr;
+}
+
+Value *llvm::SimplifyConstrainedFPCall(CallBase *Call, const SimplifyQuery &Q) {
+  assert(isa<ConstrainedFPIntrinsic>(Call));
+  if (Value *V = tryConstantFoldCall(Call, Q))
+    return V;
+  if (Value *Ret = simplifyIntrinsic(Call, Q))
+    return Ret;
   return nullptr;
 }
 

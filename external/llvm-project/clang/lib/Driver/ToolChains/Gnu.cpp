@@ -558,6 +558,9 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   bool NeedsXRayDeps = addXRayRuntime(ToolChain, Args, CmdArgs);
   addLinkerCompressDebugSectionsOption(ToolChain, Args, CmdArgs);
   AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs, JA);
+
+  addHIPRuntimeLibArgs(ToolChain, Args, CmdArgs);
+
   // The profile runtime also needs access to system libraries.
   getToolChain().addProfileRTLibs(Args, CmdArgs);
 
@@ -585,6 +588,20 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   // Silence warnings when linking C code with a C++ '-stdlib' argument.
   Args.ClaimAllArgs(options::OPT_stdlib_EQ);
+
+  // Additional linker set-up and flags for Fortran. This is required in order
+  // to generate executables. As Fortran runtime depends on the C runtime,
+  // these dependencies need to be listed before the C runtime below (i.e.
+  // AddRuntTimeLibs).
+  //
+  // NOTE: Generating executables by Flang is considered an "experimental"
+  // feature and hence this is guarded with a command line option.
+  // TODO: Make this work unconditionally once Flang is mature enough.
+  if (D.IsFlangMode() && Args.hasArg(options::OPT_flang_experimental_exec)) {
+    addFortranRuntimeLibraryPath(ToolChain, Args, CmdArgs);
+    addFortranRuntimeLibs(CmdArgs);
+    CmdArgs.push_back("-lm");
+  }
 
   if (!Args.hasArg(options::OPT_nostdlib, options::OPT_r)) {
     if (!Args.hasArg(options::OPT_nodefaultlibs)) {
@@ -764,6 +781,8 @@ void tools::gnutools::Assembler::ConstructJob(Compilation &C,
     StringRef MArchName = riscv::getRISCVArch(Args, getToolChain().getTriple());
     CmdArgs.push_back("-march");
     CmdArgs.push_back(MArchName.data());
+    if (!Args.hasFlag(options::OPT_mrelax, options::OPT_mno_relax, true))
+      Args.addOptOutFlag(CmdArgs, options::OPT_mrelax, options::OPT_mno_relax);
     break;
   }
   case llvm::Triple::sparc:
@@ -2107,10 +2126,13 @@ void Generic_GCC::GCCInstallationDetector::AddDefaultGCCPrefixes(
     return;
   }
 
-  // Non-Solaris is much simpler - most systems just go with "/usr".
-  if (SysRoot.empty() && TargetTriple.getOS() == llvm::Triple::Linux) {
-    // Yet, still look for RHEL/CentOS devtoolsets and gcc-toolsets.
+  // For Linux, if --sysroot is not specified, look for RHEL/CentOS devtoolsets
+  // and gcc-toolsets.
+  if (SysRoot.empty() && TargetTriple.getOS() == llvm::Triple::Linux &&
+      D.getVFS().exists("/opt/rh")) {
+    Prefixes.push_back("/opt/rh/gcc-toolset-11/root/usr");
     Prefixes.push_back("/opt/rh/gcc-toolset-10/root/usr");
+    Prefixes.push_back("/opt/rh/devtoolset-11/root/usr");
     Prefixes.push_back("/opt/rh/devtoolset-10/root/usr");
     Prefixes.push_back("/opt/rh/devtoolset-9/root/usr");
     Prefixes.push_back("/opt/rh/devtoolset-8/root/usr");
@@ -2120,6 +2142,8 @@ void Generic_GCC::GCCInstallationDetector::AddDefaultGCCPrefixes(
     Prefixes.push_back("/opt/rh/devtoolset-3/root/usr");
     Prefixes.push_back("/opt/rh/devtoolset-2/root/usr");
   }
+
+  // Fall back to /usr which is used by most non-Solaris systems.
   Prefixes.push_back(SysRoot.str() + "/usr");
 }
 
@@ -2804,8 +2828,6 @@ bool Generic_GCC::isPICDefaultForced() const {
 
 bool Generic_GCC::IsIntegratedAssemblerDefault() const {
   switch (getTriple().getArch()) {
-  case llvm::Triple::x86:
-  case llvm::Triple::x86_64:
   case llvm::Triple::aarch64:
   case llvm::Triple::aarch64_be:
   case llvm::Triple::arm:
@@ -2814,8 +2836,14 @@ bool Generic_GCC::IsIntegratedAssemblerDefault() const {
   case llvm::Triple::bpfel:
   case llvm::Triple::bpfeb:
   case llvm::Triple::csky:
-  case llvm::Triple::thumb:
-  case llvm::Triple::thumbeb:
+  case llvm::Triple::hexagon:
+  case llvm::Triple::lanai:
+  case llvm::Triple::m68k:
+  case llvm::Triple::mips:
+  case llvm::Triple::mipsel:
+  case llvm::Triple::mips64:
+  case llvm::Triple::mips64el:
+  case llvm::Triple::msp430:
   case llvm::Triple::ppc:
   case llvm::Triple::ppcle:
   case llvm::Triple::ppc64:
@@ -2826,12 +2854,11 @@ bool Generic_GCC::IsIntegratedAssemblerDefault() const {
   case llvm::Triple::sparcel:
   case llvm::Triple::sparcv9:
   case llvm::Triple::systemz:
-  case llvm::Triple::mips:
-  case llvm::Triple::mipsel:
-  case llvm::Triple::mips64:
-  case llvm::Triple::mips64el:
-  case llvm::Triple::msp430:
-  case llvm::Triple::m68k:
+  case llvm::Triple::thumb:
+  case llvm::Triple::thumbeb:
+  case llvm::Triple::ve:
+  case llvm::Triple::x86:
+  case llvm::Triple::x86_64:
     return true;
   default:
     return false;

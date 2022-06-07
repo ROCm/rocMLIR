@@ -664,6 +664,32 @@ public:
 #endif
 };
 
+/// A value that is used outside the VPlan. The operand of the user needs to be
+/// added to the associated LCSSA phi node.
+class VPLiveOut : public VPUser {
+  PHINode *Phi;
+
+public:
+  VPLiveOut(PHINode *Phi, VPValue *Op)
+      : VPUser({Op}, VPUser::VPUserID::LiveOut), Phi(Phi) {}
+
+  /// Fixup the wrapped LCSSA phi node in the unique exit block.  This simply
+  /// means we need to add the appropriate incoming value from the middle
+  /// block as exiting edges from the scalar epilogue loop (if present) are
+  /// already in place, and we exit the vector loop exclusively to the middle
+  /// block.
+  void fixPhi(VPlan &Plan, VPTransformState &State);
+
+  /// Returns true if the VPLiveOut uses scalars of operand \p Op.
+  bool usesScalars(const VPValue *Op) const override {
+    assert(is_contained(operands(), Op) &&
+           "Op must be an operand of the recipe");
+    return true;
+  }
+
+  PHINode *getPhi() const { return Phi; }
+};
+
 /// VPRecipeBase is a base class modeling a sequence of one or more output IR
 /// instructions. VPRecipeBase owns the the VPValues it defines through VPDef
 /// and is responsible for deleting its defined values. Single-value
@@ -760,22 +786,6 @@ public:
   /// Returns true if the recipe may read from or write to memory.
   bool mayReadOrWriteMemory() const {
     return mayReadFromMemory() || mayWriteToMemory();
-  }
-
-  /// Returns true if the recipe only uses the first lane of operand \p Op.
-  /// Conservatively returns false.
-  virtual bool onlyFirstLaneUsed(const VPValue *Op) const {
-    assert(is_contained(operands(), Op) &&
-           "Op must be an operand of the recipe");
-    return false;
-  }
-
-  /// Returns true if the recipe uses scalars of operand \p Op. Conservatively
-  /// returns if only first (scalar) lane is used, as default.
-  virtual bool usesScalars(const VPValue *Op) const {
-    assert(is_contained(operands(), Op) &&
-           "Op must be an operand of the recipe");
-    return onlyFirstLaneUsed(Op);
   }
 };
 
@@ -1066,27 +1076,21 @@ class VPWidenIntOrFpInductionRecipe : public VPRecipeBase, public VPValue {
   bool NeedsScalarIV;
   bool NeedsVectorIV;
 
-  /// SCEV used to expand step.
-  /// FIXME: move expansion of step to the pre-header, once it is modeled
-  /// explicitly.
-  ScalarEvolution &SE;
-
 public:
-  VPWidenIntOrFpInductionRecipe(PHINode *IV, VPValue *Start,
+  VPWidenIntOrFpInductionRecipe(PHINode *IV, VPValue *Start, VPValue *Step,
                                 const InductionDescriptor &IndDesc,
-                                bool NeedsScalarIV, bool NeedsVectorIV,
-                                ScalarEvolution &SE)
-      : VPRecipeBase(VPWidenIntOrFpInductionSC, {Start}), VPValue(IV, this),
-        IV(IV), IndDesc(IndDesc), NeedsScalarIV(NeedsScalarIV),
-        NeedsVectorIV(NeedsVectorIV), SE(SE) {}
+                                bool NeedsScalarIV, bool NeedsVectorIV)
+      : VPRecipeBase(VPWidenIntOrFpInductionSC, {Start, Step}),
+        VPValue(IV, this), IV(IV), IndDesc(IndDesc),
+        NeedsScalarIV(NeedsScalarIV), NeedsVectorIV(NeedsVectorIV) {}
 
-  VPWidenIntOrFpInductionRecipe(PHINode *IV, VPValue *Start,
+  VPWidenIntOrFpInductionRecipe(PHINode *IV, VPValue *Start, VPValue *Step,
                                 const InductionDescriptor &IndDesc,
                                 TruncInst *Trunc, bool NeedsScalarIV,
-                                bool NeedsVectorIV, ScalarEvolution &SE)
-      : VPRecipeBase(VPWidenIntOrFpInductionSC, {Start}), VPValue(Trunc, this),
-        IV(IV), IndDesc(IndDesc), NeedsScalarIV(NeedsScalarIV),
-        NeedsVectorIV(NeedsVectorIV), SE(SE) {}
+                                bool NeedsVectorIV)
+      : VPRecipeBase(VPWidenIntOrFpInductionSC, {Start, Step}),
+        VPValue(Trunc, this), IV(IV), IndDesc(IndDesc),
+        NeedsScalarIV(NeedsScalarIV), NeedsVectorIV(NeedsVectorIV) {}
 
   ~VPWidenIntOrFpInductionRecipe() override = default;
 
@@ -1108,6 +1112,10 @@ public:
   /// Returns the start value of the induction.
   VPValue *getStartValue() { return getOperand(0); }
   const VPValue *getStartValue() const { return getOperand(0); }
+
+  /// Returns the step value of the induction.
+  VPValue *getStepValue() { return getOperand(1); }
+  const VPValue *getStepValue() const { return getOperand(1); }
 
   /// Returns the first defined value as TruncInst, if it is one or nullptr
   /// otherwise.
@@ -1236,6 +1244,9 @@ public:
 
   /// Generate vector values for the pointer induction.
   void execute(VPTransformState &State) override;
+
+  /// Returns true if only scalar values will be generated.
+  bool onlyScalarsGenerated(ElementCount VF);
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
   /// Print the recipe.
@@ -1427,9 +1438,8 @@ public:
            "Op must be an operand of the recipe");
     // Recursing through Blend recipes only, must terminate at header phi's the
     // latest.
-    return all_of(users(), [this](VPUser *U) {
-      return cast<VPRecipeBase>(U)->onlyFirstLaneUsed(this);
-    });
+    return all_of(users(),
+                  [this](VPUser *U) { return U->onlyFirstLaneUsed(this); });
   }
 };
 
@@ -1509,7 +1519,9 @@ public:
   bool onlyFirstLaneUsed(const VPValue *Op) const override {
     assert(is_contained(operands(), Op) &&
            "Op must be an operand of the recipe");
-    return Op == getAddr();
+    return Op == getAddr() && all_of(getStoredValues(), [Op](VPValue *StoredV) {
+             return Op != StoredV;
+           });
   }
 };
 
@@ -1712,7 +1724,7 @@ public:
 /// - For store: Address, stored value, optional mask
 /// TODO: We currently execute only per-part unless a specific instance is
 /// provided.
-class VPWidenMemoryInstructionRecipe : public VPRecipeBase, public VPValue {
+class VPWidenMemoryInstructionRecipe : public VPRecipeBase {
   Instruction &Ingredient;
 
   // Whether the loaded-from / stored-to addresses are consecutive.
@@ -1734,10 +1746,10 @@ class VPWidenMemoryInstructionRecipe : public VPRecipeBase, public VPValue {
 public:
   VPWidenMemoryInstructionRecipe(LoadInst &Load, VPValue *Addr, VPValue *Mask,
                                  bool Consecutive, bool Reverse)
-      : VPRecipeBase(VPWidenMemoryInstructionSC, {Addr}),
-        VPValue(VPValue::VPVMemoryInstructionSC, &Load, this), Ingredient(Load),
+      : VPRecipeBase(VPWidenMemoryInstructionSC, {Addr}), Ingredient(Load),
         Consecutive(Consecutive), Reverse(Reverse) {
     assert((Consecutive || !Reverse) && "Reverse implies consecutive");
+    new VPValue(VPValue::VPVMemoryInstructionSC, &Load, this);
     setMask(Mask);
   }
 
@@ -1745,7 +1757,6 @@ public:
                                  VPValue *StoredValue, VPValue *Mask,
                                  bool Consecutive, bool Reverse)
       : VPRecipeBase(VPWidenMemoryInstructionSC, {Addr, StoredValue}),
-        VPValue(VPValue::VPVMemoryInstructionSC, &Store, this),
         Ingredient(Store), Consecutive(Consecutive), Reverse(Reverse) {
     assert((Consecutive || !Reverse) && "Reverse implies consecutive");
     setMask(Mask);
@@ -1799,9 +1810,13 @@ public:
            "Op must be an operand of the recipe");
 
     // Widened, consecutive memory operations only demand the first lane of
-    // their address.
-    return Op == getAddr() && isConsecutive();
+    // their address, unless the same operand is also stored. That latter can
+    // happen with opaque pointers.
+    return Op == getAddr() && isConsecutive() &&
+           (!isStore() || Op != getStoredValue());
   }
+
+  Instruction &getIngredient() const { return Ingredient; }
 };
 
 /// Recipe to expand a SCEV expression.
@@ -1829,6 +1844,8 @@ public:
   void print(raw_ostream &O, const Twine &Indent,
              VPSlotTracker &SlotTracker) const override;
 #endif
+
+  const SCEV *getSCEV() const { return Expr; }
 };
 
 /// Canonical scalar induction phi of the vector loop. Starting at the specified
@@ -2465,12 +2482,9 @@ class VPlan {
   /// Holds the name of the VPlan, for printing.
   std::string Name;
 
-  /// Holds all the external definitions created for this VPlan.
-  // TODO: Introduce a specific representation for external definitions in
-  // VPlan. External definitions must be immutable and hold a pointer to its
-  // underlying IR that will be used to implement its structural comparison
-  // (operators '==' and '<').
-  SetVector<VPValue *> VPExternalDefs;
+  /// Holds all the external definitions created for this VPlan. External
+  /// definitions must be immutable and hold a pointer to their underlying IR.
+  DenseMap<Value *, VPValue *> VPExternalDefs;
 
   /// Represents the trip count of the original loop, for folding
   /// the tail.
@@ -2498,6 +2512,9 @@ class VPlan {
   /// mapping cannot be used any longer, because it is stale.
   bool Value2VPValueEnabled = true;
 
+  /// Values used outside the plan.
+  DenseMap<PHINode *, VPLiveOut *> LiveOuts;
+
 public:
   VPlan(VPBlockBase *Entry = nullptr) : Entry(Entry) {
     if (Entry)
@@ -2505,6 +2522,8 @@ public:
   }
 
   ~VPlan() {
+    clearLiveOuts();
+
     if (Entry) {
       VPValue DummyValue;
       for (VPBlockBase *Block : depth_first(Entry))
@@ -2518,8 +2537,8 @@ public:
       delete TripCount;
     if (BackedgeTakenCount)
       delete BackedgeTakenCount;
-    for (VPValue *Def : VPExternalDefs)
-      delete Def;
+    for (auto &P : VPExternalDefs)
+      delete P.second;
   }
 
   /// Prepare the plan for execution, setting up the required live-in values.
@@ -2567,9 +2586,13 @@ public:
 
   void setName(const Twine &newName) { Name = newName.str(); }
 
-  /// Add \p VPVal to the pool of external definitions if it's not already
-  /// in the pool.
-  void addExternalDef(VPValue *VPVal) { VPExternalDefs.insert(VPVal); }
+  /// Get the existing or add a new external definition for \p V.
+  VPValue *getOrAddExternalDef(Value *V) {
+    auto I = VPExternalDefs.insert({V, nullptr});
+    if (I.second)
+      I.first->second = new VPValue(V);
+    return I.first->second;
+  }
 
   void addVPValue(Value *V) {
     assert(Value2VPValueEnabled &&
@@ -2667,6 +2690,23 @@ public:
       EntryVPBB = cast<VPBasicBlock>(EntryVPBB->getSingleSuccessor());
     }
     return cast<VPCanonicalIVPHIRecipe>(&*EntryVPBB->begin());
+  }
+
+  void addLiveOut(PHINode *PN, VPValue *V);
+
+  void clearLiveOuts() {
+    for (auto &KV : LiveOuts)
+      delete KV.second;
+    LiveOuts.clear();
+  }
+
+  void removeLiveOut(PHINode *PN) {
+    delete LiveOuts[PN];
+    LiveOuts.erase(PN);
+  }
+
+  const DenseMap<PHINode *, VPLiveOut *> &getLiveOuts() const {
+    return LiveOuts;
   }
 
 private:
@@ -3035,6 +3075,14 @@ namespace vputils {
 
 /// Returns true if only the first lane of \p Def is used.
 bool onlyFirstLaneUsed(VPValue *Def);
+
+/// Get or create a VPValue that corresponds to the expansion of \p Expr. If \p
+/// Expr is a SCEVConstant or SCEVUnknown, return a VPValue wrapping the live-in
+/// value. Otherwise return a VPExpandSCEVRecipe to expand \p Expr. If \p Plan's
+/// pre-header already contains a recipe expanding \p Expr, return it. If not,
+/// create a new one.
+VPValue *getOrCreateVPValueForSCEVExpr(VPlan &Plan, const SCEV *Expr,
+                                       ScalarEvolution &SE);
 
 } // end namespace vputils
 

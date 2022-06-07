@@ -752,7 +752,7 @@ private:
   /// Read a universal character name.
   ///
   /// \param StartPtr The position in the source buffer after the initial '\'.
-  ///                 If the UCN is syntactically well-formed (but not 
+  ///                 If the UCN is syntactically well-formed (but not
   ///                 necessarily valid), this parameter will be updated to
   ///                 point to the character after the UCN.
   /// \param SlashLoc The position in the source buffer of the '\'.

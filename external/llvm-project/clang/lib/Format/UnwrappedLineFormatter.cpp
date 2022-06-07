@@ -306,20 +306,26 @@ private:
 
           // TODO: Use IndentTracker to avoid loop?
           // Find the last line with lower level.
-          auto J = I - 1;
-          for (; J != AnnotatedLines.begin(); --J)
-            if ((*J)->Level < TheLine->Level)
+          const AnnotatedLine *Line = nullptr;
+          for (auto J = I - 1; J >= AnnotatedLines.begin(); --J) {
+            assert(*J);
+            if (!(*J)->InPPDirective && !(*J)->isComment() &&
+                (*J)->Level < TheLine->Level) {
+              Line = *J;
               break;
-          if ((*J)->Level >= TheLine->Level)
+            }
+          }
+
+          if (!Line)
             return false;
 
           // Check if the found line starts a record.
-          const FormatToken *LastNonComment = (*J)->Last;
+          const FormatToken *LastNonComment = Line->Last;
           assert(LastNonComment);
           if (LastNonComment->is(tok::comment)) {
             LastNonComment = LastNonComment->getPreviousNonComment();
             // There must be another token (usually `{`), because we chose a
-            // line that has a smaller level.
+            // non-PPDirective and non-comment line that has a smaller level.
             assert(LastNonComment);
           }
           return isRecordLBrace(*LastNonComment);
@@ -398,8 +404,9 @@ private:
         // If possible, merge the next line's wrapped left brace with the
         // current line. Otherwise, leave it on the next line, as this is a
         // multi-line control statement.
-        return (Style.ColumnLimit == 0 ||
-                TheLine->Last->TotalLength <= Style.ColumnLimit)
+        return (Style.ColumnLimit == 0 || TheLine->Level * Style.IndentWidth +
+                                                  TheLine->Last->TotalLength <=
+                                              Style.ColumnLimit)
                    ? 1
                    : 0;
       }

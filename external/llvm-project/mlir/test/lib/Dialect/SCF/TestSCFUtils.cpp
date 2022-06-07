@@ -26,35 +26,46 @@ using namespace mlir;
 
 namespace {
 struct TestSCFForUtilsPass
-    : public PassWrapper<TestSCFForUtilsPass, OperationPass<FuncOp>> {
+    : public PassWrapper<TestSCFForUtilsPass, OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestSCFForUtilsPass)
 
   StringRef getArgument() const final { return "test-scf-for-utils"; }
   StringRef getDescription() const final { return "test scf.for utils"; }
   explicit TestSCFForUtilsPass() = default;
+  TestSCFForUtilsPass(const TestSCFForUtilsPass &pass) : PassWrapper(pass) {}
+
+  Option<bool> testReplaceWithNewYields{
+      *this, "test-replace-with-new-yields",
+      llvm::cl::desc("Test replacing a loop with a new loop that returns new "
+                     "additional yeild values"),
+      llvm::cl::init(false)};
 
   void runOnOperation() override {
-    FuncOp func = getOperation();
+    func::FuncOp func = getOperation();
     SmallVector<scf::ForOp, 4> toErase;
 
-    func.walk([&](Operation *fakeRead) {
-      if (fakeRead->getName().getStringRef() != "fake_read")
-        return;
-      auto *fakeCompute = fakeRead->getResult(0).use_begin()->getOwner();
-      auto *fakeWrite = fakeCompute->getResult(0).use_begin()->getOwner();
-      auto loop = fakeRead->getParentOfType<scf::ForOp>();
-
-      OpBuilder b(loop);
-      loop.moveOutOfLoop(fakeRead);
-      fakeWrite->moveAfter(loop);
-      auto newLoop = cloneWithNewYields(b, loop, fakeRead->getResult(0),
-                                        fakeCompute->getResult(0));
-      fakeCompute->getResult(0).replaceAllUsesWith(
-          newLoop.getResults().take_back()[0]);
-      toErase.push_back(loop);
-    });
-    for (auto loop : llvm::reverse(toErase))
-      loop.erase();
+    if (testReplaceWithNewYields) {
+      func.walk([&](scf::ForOp forOp) {
+        if (forOp.getNumResults() == 0)
+          return;
+        auto newInitValues = forOp.getInitArgs();
+        if (newInitValues.empty())
+          return;
+        NewYieldValueFn fn = [&](OpBuilder &b, Location loc,
+                                 ArrayRef<BlockArgument> newBBArgs) {
+          Block *block = newBBArgs.front().getOwner();
+          SmallVector<Value> newYieldValues;
+          for (auto yieldVal :
+               cast<scf::YieldOp>(block->getTerminator()).getResults()) {
+            newYieldValues.push_back(
+                b.create<arith::AddFOp>(loc, yieldVal, yieldVal));
+          }
+          return newYieldValues;
+        };
+        OpBuilder b(forOp);
+        replaceLoopWithNewYields(b, forOp, newInitValues, fn);
+      });
+    }
   }
 };
 
@@ -70,7 +81,7 @@ struct TestSCFIfUtilsPass
     int count = 0;
     getOperation().walk([&](scf::IfOp ifOp) {
       auto strCount = std::to_string(count++);
-      FuncOp thenFn, elseFn;
+      func::FuncOp thenFn, elseFn;
       OpBuilder b(ifOp);
       IRRewriter rewriter(b);
       if (failed(outlineIfOp(rewriter, ifOp, &thenFn,
@@ -88,7 +99,8 @@ static const StringLiteral kTestPipeliningLoopMarker =
     "__test_pipelining_loop__";
 static const StringLiteral kTestPipeliningStageMarker =
     "__test_pipelining_stage__";
-/// Marker to express the order in which operations should be after pipelining.
+/// Marker to express the order in which operations should be after
+/// pipelining.
 static const StringLiteral kTestPipeliningOpOrderMarker =
     "__test_pipelining_op_order__";
 
@@ -98,7 +110,7 @@ static const StringLiteral kTestPipeliningAnnotationIteration =
     "__test_pipelining_iteration";
 
 struct TestSCFPipeliningPass
-    : public PassWrapper<TestSCFPipeliningPass, OperationPass<FuncOp>> {
+    : public PassWrapper<TestSCFPipeliningPass, OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestSCFPipeliningPass)
 
   TestSCFPipeliningPass() = default;

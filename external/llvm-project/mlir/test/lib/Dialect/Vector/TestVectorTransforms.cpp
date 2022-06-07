@@ -11,12 +11,14 @@
 #include "mlir/Analysis/SliceAnalysis.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/SCF.h"
+#include "mlir/Dialect/Vector/Transforms/VectorDistribution.h"
 #include "mlir/Dialect/Vector/Transforms/VectorTransforms.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -29,7 +31,8 @@ using namespace mlir::vector;
 namespace {
 
 struct TestVectorToVectorLowering
-    : public PassWrapper<TestVectorToVectorLowering, OperationPass<FuncOp>> {
+    : public PassWrapper<TestVectorToVectorLowering,
+                         OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestVectorToVectorLowering)
 
   TestVectorToVectorLowering() = default;
@@ -104,7 +107,8 @@ private:
 };
 
 struct TestVectorContractionLowering
-    : public PassWrapper<TestVectorContractionLowering, OperationPass<FuncOp>> {
+    : public PassWrapper<TestVectorContractionLowering,
+                         OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestVectorContractionLowering)
 
   StringRef getArgument() const final {
@@ -179,7 +183,8 @@ struct TestVectorContractionLowering
 };
 
 struct TestVectorTransposeLowering
-    : public PassWrapper<TestVectorTransposeLowering, OperationPass<FuncOp>> {
+    : public PassWrapper<TestVectorTransposeLowering,
+                         OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestVectorTransposeLowering)
 
   StringRef getArgument() const final {
@@ -253,7 +258,8 @@ struct TestVectorTransposeLowering
 };
 
 struct TestVectorUnrollingPatterns
-    : public PassWrapper<TestVectorUnrollingPatterns, OperationPass<FuncOp>> {
+    : public PassWrapper<TestVectorUnrollingPatterns,
+                         OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestVectorUnrollingPatterns)
 
   StringRef getArgument() const final {
@@ -281,6 +287,12 @@ struct TestVectorUnrollingPatterns
                       .setNativeShape(ArrayRef<int64_t>{2})
                       .setFilterConstraint([](Operation *op) {
                         return success(isa<vector::ReductionOp>(op));
+                      }));
+    populateVectorUnrollPatterns(
+        patterns, UnrollVectorOptions()
+                      .setNativeShape(ArrayRef<int64_t>{1, 3, 4, 2})
+                      .setFilterConstraint([](Operation *op) {
+                        return success(isa<vector::TransposeOp>(op));
                       }));
 
     if (unrollBasedOnType) {
@@ -322,7 +334,8 @@ struct TestVectorUnrollingPatterns
 };
 
 struct TestVectorDistributePatterns
-    : public PassWrapper<TestVectorDistributePatterns, OperationPass<FuncOp>> {
+    : public PassWrapper<TestVectorDistributePatterns,
+                         OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestVectorDistributePatterns)
 
   StringRef getArgument() const final {
@@ -346,7 +359,7 @@ struct TestVectorDistributePatterns
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    FuncOp func = getOperation();
+    func::FuncOp func = getOperation();
     func.walk([&](arith::AddFOp op) {
       OpBuilder builder(op);
       if (auto vecType = op.getType().dyn_cast<VectorType>()) {
@@ -381,7 +394,8 @@ struct TestVectorDistributePatterns
 };
 
 struct TestVectorToLoopPatterns
-    : public PassWrapper<TestVectorToLoopPatterns, OperationPass<FuncOp>> {
+    : public PassWrapper<TestVectorToLoopPatterns,
+                         OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestVectorToLoopPatterns)
 
   StringRef getArgument() const final { return "test-vector-to-forloop"; }
@@ -402,7 +416,7 @@ struct TestVectorToLoopPatterns
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    FuncOp func = getOperation();
+    func::FuncOp func = getOperation();
     func.walk([&](arith::AddFOp op) {
       // Check that the operation type can be broken down into a loop.
       VectorType type = op.getType().dyn_cast<VectorType>();
@@ -441,7 +455,7 @@ struct TestVectorToLoopPatterns
 
 struct TestVectorTransferUnrollingPatterns
     : public PassWrapper<TestVectorTransferUnrollingPatterns,
-                         OperationPass<FuncOp>> {
+                         OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(
       TestVectorTransferUnrollingPatterns)
 
@@ -473,7 +487,7 @@ struct TestVectorTransferUnrollingPatterns
 
 struct TestVectorTransferFullPartialSplitPatterns
     : public PassWrapper<TestVectorTransferFullPartialSplitPatterns,
-                         OperationPass<FuncOp>> {
+                         OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(
       TestVectorTransferFullPartialSplitPatterns)
 
@@ -513,7 +527,7 @@ struct TestVectorTransferFullPartialSplitPatterns
 };
 
 struct TestVectorTransferOpt
-    : public PassWrapper<TestVectorTransferOpt, OperationPass<FuncOp>> {
+    : public PassWrapper<TestVectorTransferOpt, OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestVectorTransferOpt)
 
   StringRef getArgument() const final { return "test-vector-transferop-opt"; }
@@ -525,7 +539,7 @@ struct TestVectorTransferOpt
 
 struct TestVectorTransferLoweringPatterns
     : public PassWrapper<TestVectorTransferLoweringPatterns,
-                         OperationPass<FuncOp>> {
+                         OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(
       TestVectorTransferLoweringPatterns)
 
@@ -548,7 +562,7 @@ struct TestVectorTransferLoweringPatterns
 
 struct TestVectorMultiReductionLoweringPatterns
     : public PassWrapper<TestVectorMultiReductionLoweringPatterns,
-                         OperationPass<FuncOp>> {
+                         OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(
       TestVectorMultiReductionLoweringPatterns)
 
@@ -582,7 +596,7 @@ struct TestVectorMultiReductionLoweringPatterns
 
 struct TestVectorTransferCollapseInnerMostContiguousDims
     : public PassWrapper<TestVectorTransferCollapseInnerMostContiguousDims,
-                         OperationPass<FuncOp>> {
+                         OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(
       TestVectorTransferCollapseInnerMostContiguousDims)
 
@@ -612,7 +626,7 @@ struct TestVectorTransferCollapseInnerMostContiguousDims
 
 struct TestVectorReduceToContractPatternsPatterns
     : public PassWrapper<TestVectorReduceToContractPatternsPatterns,
-                         OperationPass<FuncOp>> {
+                         OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(
       TestVectorReduceToContractPatternsPatterns)
 
@@ -632,7 +646,7 @@ struct TestVectorReduceToContractPatternsPatterns
 
 struct TestVectorTransferDropUnitDimsPatterns
     : public PassWrapper<TestVectorTransferDropUnitDimsPatterns,
-                         OperationPass<FuncOp>> {
+                         OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(
       TestVectorTransferDropUnitDimsPatterns)
 
@@ -651,7 +665,7 @@ struct TestVectorTransferDropUnitDimsPatterns
 
 struct TestFlattenVectorTransferPatterns
     : public PassWrapper<TestFlattenVectorTransferPatterns,
-                         OperationPass<FuncOp>> {
+                         OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(
       TestFlattenVectorTransferPatterns)
 
@@ -673,7 +687,7 @@ struct TestFlattenVectorTransferPatterns
 };
 
 struct TestVectorScanLowering
-    : public PassWrapper<TestVectorScanLowering, OperationPass<FuncOp>> {
+    : public PassWrapper<TestVectorScanLowering, OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestVectorScanLowering)
 
   StringRef getArgument() const final { return "test-vector-scan-lowering"; }
@@ -685,6 +699,90 @@ struct TestVectorScanLowering
     RewritePatternSet patterns(&getContext());
     populateVectorScanLoweringPatterns(patterns);
     (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+  }
+};
+
+/// Allocate shared memory for a single warp to test lowering of
+/// WarpExecuteOnLane0Op.
+static Value allocateGlobalSharedMemory(Location loc, OpBuilder &builder,
+                                        WarpExecuteOnLane0Op warpOp,
+                                        Type type) {
+  static constexpr int64_t kSharedMemorySpace = 3;
+  // Compute type of shared memory buffer.
+  MemRefType memrefType;
+  if (auto vectorType = type.dyn_cast<VectorType>()) {
+    memrefType =
+        MemRefType::get(vectorType.getShape(), vectorType.getElementType(), {},
+                        kSharedMemorySpace);
+  } else {
+    memrefType = MemRefType::get({1}, type, {}, kSharedMemorySpace);
+  }
+
+  // Get symbol table holding all shared memory globals.
+  ModuleOp moduleOp = warpOp->getParentOfType<ModuleOp>();
+  SymbolTable symbolTable(moduleOp);
+
+  // Create a pretty name.
+  SmallString<64> buf;
+  llvm::raw_svector_ostream os(buf);
+  interleave(memrefType.getShape(), os, "x");
+  os << "x" << memrefType.getElementType();
+  std::string symbolName = (Twine("__shared_") + os.str()).str();
+
+  auto ip = builder.saveInsertionPoint();
+  builder.setInsertionPoint(moduleOp);
+  auto global = builder.create<memref::GlobalOp>(
+      loc,
+      /*sym_name=*/symbolName,
+      /*sym_visibility=*/builder.getStringAttr("private"),
+      /*type=*/memrefType,
+      /*initial_value=*/Attribute(),
+      /*constant=*/false,
+      /*alignment=*/IntegerAttr());
+  symbolTable.insert(global);
+  // The symbol table inserts at the end of the module, but globals are a bit
+  // nicer if they are at the beginning.
+  global->moveBefore(&moduleOp.front());
+
+  builder.restoreInsertionPoint(ip);
+  return builder.create<memref::GetGlobalOp>(loc, memrefType, symbolName);
+}
+
+struct TestVectorDistribution
+    : public PassWrapper<TestVectorDistribution, OperationPass<func::FuncOp>> {
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestVectorDistribution)
+
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<scf::SCFDialect, memref::MemRefDialect, gpu::GPUDialect>();
+  }
+
+  StringRef getArgument() const final { return "test-vector-warp-distribute"; }
+  StringRef getDescription() const final {
+    return "Test vector warp distribute transformation and lowering patterns";
+  }
+  TestVectorDistribution() = default;
+  TestVectorDistribution(const TestVectorDistribution &pass)
+      : PassWrapper(pass) {}
+
+  Option<bool> warpOpToSCF{
+      *this, "rewrite-warp-ops-to-scf-if",
+      llvm::cl::desc("Lower vector.warp_execute_on_lane0 to scf.if op"),
+      llvm::cl::init(false)};
+
+  void runOnOperation() override {
+    RewritePatternSet patterns(&getContext());
+    WarpExecuteOnLane0LoweringOptions options;
+    options.warpAllocationFn = allocateGlobalSharedMemory;
+    options.warpSyncronizationFn = [](Location loc, OpBuilder &builder,
+                                      WarpExecuteOnLane0Op warpOp) {
+      builder.create<gpu::BarrierOp>(loc);
+    };
+    // Test on one pattern in isolation.
+    if (warpOpToSCF) {
+      populateWarpExecuteOnLane0OpToScfForPattern(patterns, options);
+      (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
+      return;
+    }
   }
 };
 
@@ -724,6 +822,8 @@ void registerTestVectorLowerings() {
   PassRegistration<TestFlattenVectorTransferPatterns>();
 
   PassRegistration<TestVectorScanLowering>();
+
+  PassRegistration<TestVectorDistribution>();
 }
 } // namespace test
 } // namespace mlir

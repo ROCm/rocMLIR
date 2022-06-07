@@ -151,6 +151,7 @@ private:
   mutable std::unique_ptr<Tool> IfsMerge;
   mutable std::unique_ptr<Tool> OffloadBundler;
   mutable std::unique_ptr<Tool> OffloadWrapper;
+  mutable std::unique_ptr<Tool> OffloadPackager;
   mutable std::unique_ptr<Tool> LinkerWrapper;
 
   Tool *getClang() const;
@@ -162,6 +163,7 @@ private:
   Tool *getClangAs() const;
   Tool *getOffloadBundler() const;
   Tool *getOffloadWrapper() const;
+  Tool *getOffloadPackager() const;
   Tool *getLinkerWrapper() const;
 
   mutable bool SanitizerArgsChecked = false;
@@ -696,6 +698,11 @@ public:
   virtual llvm::SmallVector<BitCodeLibraryInfo, 12>
   getHIPDeviceLibs(const llvm::opt::ArgList &Args) const;
 
+  /// Add the system specific linker arguments to use
+  /// for the given HIP runtime library type.
+  virtual void AddHIPRuntimeLibArgs(const llvm::opt::ArgList &Args,
+                                    llvm::opt::ArgStringList &CmdArgs) const {}
+
   /// Return sanitizers which are available in this toolchain.
   virtual SanitizerMask getSupportedSanitizers() const;
 
@@ -715,6 +722,10 @@ public:
       const llvm::opt::ArgList &DriverArgs, const JobAction &JA,
       const llvm::fltSemantics *FPType = nullptr) const {
     return llvm::DenormalMode::getIEEE();
+  }
+
+  virtual Optional<llvm::Triple> getTargetVariantTriple() const {
+    return llvm::None;
   }
 
   // We want to expand the shortened versions of the triples passed in to

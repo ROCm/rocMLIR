@@ -149,6 +149,8 @@ public:
     bytesDropped -= num;
   }
 
+  mutable ArrayRef<uint8_t> rawData;
+
   void trim() {
     if (bytesDropped) {
       rawData = rawData.drop_back(bytesDropped);

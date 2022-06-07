@@ -21,7 +21,6 @@
 #include "SplitKit.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/BitVector.h"
-#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/IndexedMap.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -128,6 +127,13 @@ static cl::opt<unsigned long> GrowRegionComplexityBudget(
     cl::desc("growRegion() does not scale with the number of BB edges, so "
              "limit its budget and bail out once we reach the limit."),
     cl::init(10000), cl::Hidden);
+
+static cl::opt<bool> GreedyRegClassPriorityTrumpsGlobalness(
+    "greedy-regclass-priority-trumps-globalness",
+    cl::desc("Change the greedy register allocator's live range priority "
+             "calculation to make the AllocationPriority of the register class "
+             "more important then whether the range is global"),
+    cl::Hidden);
 
 static RegisterRegAlloc greedyRegAlloc("greedy", "greedy register allocator",
                                        createGreedyRegisterAllocator);
@@ -304,11 +310,13 @@ void RAGreedy::enqueue(PQueue &CurQueue, const LiveInterval *LI) {
     // prevents excessive spilling in pathological cases.
     bool ReverseLocal = TRI->reverseLocalAssignment();
     const TargetRegisterClass &RC = *MRI->getRegClass(Reg);
-    bool ForceGlobal = !ReverseLocal &&
-      (Size / SlotIndex::InstrDist) > (2 * RCI.getNumAllocatableRegs(&RC));
+    bool ForceGlobal =
+        !ReverseLocal && (Size / SlotIndex::InstrDist) >
+                             (2 * RegClassInfo.getNumAllocatableRegs(&RC));
+    unsigned GlobalBit = 0;
 
     if (Stage == RS_Assign && !ForceGlobal && !LI->empty() &&
-        (LIS->intervalIsInOneMBB(*LI))) {
+        LIS->intervalIsInOneMBB(*LI)) {
       // Allocate original local ranges in linear instruction order. Since they
       // are singly defined, this produces optimal coloring in the absence of
       // global interference and other constraints.
@@ -320,15 +328,18 @@ void RAGreedy::enqueue(PQueue &CurQueue, const LiveInterval *LI) {
         // large blocks on targets with many physical registers.
         Prio = Indexes->getZeroIndex().getInstrDistance(LI->endIndex());
       }
-      Prio |= RC.AllocationPriority << 24;
     } else {
       // Allocate global and split ranges in long->short order. Long ranges that
       // don't fit should be spilled (or split) ASAP so they don't create
       // interference.  Mark a bit to prioritize global above local ranges.
-      Prio = (1u << 29) + Size;
-
-      Prio |= RC.AllocationPriority << 24;
+      Prio = Size;
+      GlobalBit = 1;
     }
+    if (RegClassPriorityTrumpsGlobalness)
+      Prio |= RC.AllocationPriority << 25 | GlobalBit << 24;
+    else
+      Prio |= GlobalBit << 29 | RC.AllocationPriority << 24;
+
     // Mark a higher bit to prioritize global and local above RS_Split.
     Prio |= (1u << 31);
 
@@ -461,9 +472,6 @@ bool RAGreedy::canEvictInterferenceInRange(const LiveInterval &VirtReg,
       if (!Intf->overlaps(Start, End))
         continue;
 
-      // Cannot evict non virtual reg interference.
-      if (!Register::isVirtualRegister(Intf->reg()))
-        return false;
       // Never evict spill products. They cannot split or spill.
       if (ExtraInfo->getStage(*Intf) == RS_Done)
         return false;
@@ -1437,7 +1445,8 @@ unsigned RAGreedy::tryInstructionSplit(const LiveInterval &VirtReg,
 
   const TargetRegisterClass *SuperRC =
       TRI->getLargestLegalSuperClass(CurRC, *MF);
-  unsigned SuperRCNumAllocatableRegs = RCI.getNumAllocatableRegs(SuperRC);
+  unsigned SuperRCNumAllocatableRegs =
+      RegClassInfo.getNumAllocatableRegs(SuperRC);
   // Split around every non-copy instruction if this split will relax
   // the constraints on the virtual register.
   // Otherwise, splitting just inserts uncoalescable copies that do not help
@@ -1447,7 +1456,7 @@ unsigned RAGreedy::tryInstructionSplit(const LiveInterval &VirtReg,
       if (MI->isFullCopy() ||
           SuperRCNumAllocatableRegs ==
               getNumAllocatableRegsForConstraints(MI, VirtReg.reg(), SuperRC,
-                                                  TII, TRI, RCI)) {
+                                                  TII, TRI, RegClassInfo)) {
         LLVM_DEBUG(dbgs() << "    skip:\t" << Use << '\t' << *MI);
         continue;
       }
@@ -1837,6 +1846,18 @@ static bool hasTiedDef(MachineRegisterInfo *MRI, unsigned reg) {
   return false;
 }
 
+/// Return true if the existing assignment of \p Intf overlaps, but is not the
+/// same, as \p PhysReg.
+static bool assignedRegPartiallyOverlaps(const TargetRegisterInfo &TRI,
+                                         const VirtRegMap &VRM,
+                                         MCRegister PhysReg,
+                                         const LiveInterval &Intf) {
+  MCRegister AssignedReg = VRM.getPhys(Intf.reg());
+  if (PhysReg == AssignedReg)
+    return false;
+  return TRI.regsOverlap(PhysReg, AssignedReg);
+}
+
 /// mayRecolorAllInterferences - Check if the virtual registers that
 /// interfere with \p VirtReg on \p PhysReg (or one of its aliases) may be
 /// recolored to free \p PhysReg.
@@ -1862,12 +1883,20 @@ bool RAGreedy::mayRecolorAllInterferences(
       return false;
     }
     for (const LiveInterval *Intf : reverse(Q.interferingVRegs())) {
-      // If Intf is done and sit on the same register class as VirtReg,
-      // it would not be recolorable as it is in the same state as VirtReg.
-      // However, if VirtReg has tied defs and Intf doesn't, then
+      // If Intf is done and sits on the same register class as VirtReg, it
+      // would not be recolorable as it is in the same state as
+      // VirtReg. However there are at least two exceptions.
+      //
+      // If VirtReg has tied defs and Intf doesn't, then
       // there is still a point in examining if it can be recolorable.
+      //
+      // Additionally, if the register class has overlapping tuple members, it
+      // may still be recolorable using a different tuple. This is more likely
+      // if the existing assignment aliases with the candidate.
+      //
       if (((ExtraInfo->getStage(*Intf) == RS_Done &&
-            MRI->getRegClass(Intf->reg()) == CurRC) &&
+            MRI->getRegClass(Intf->reg()) == CurRC &&
+            !assignedRegPartiallyOverlaps(*TRI, *VRM, PhysReg, *Intf)) &&
            !(hasTiedDef(MRI, VirtReg.reg()) &&
              !hasTiedDef(MRI, Intf->reg()))) ||
           FixedRegisters.count(Intf->reg())) {
@@ -1917,6 +1946,10 @@ bool RAGreedy::mayRecolorAllInterferences(
 /// (split, spill) during the process and that must be assigned.
 /// \p FixedRegisters contains all the virtual registers that cannot be
 /// recolored.
+///
+/// \p RecolorStack tracks the original assignments of successfully recolored
+/// registers.
+///
 /// \p Depth gives the current depth of the last chance recoloring.
 /// \return a physical register that can be used for VirtReg or ~0u if none
 /// exists.
@@ -1924,11 +1957,15 @@ unsigned RAGreedy::tryLastChanceRecoloring(const LiveInterval &VirtReg,
                                            AllocationOrder &Order,
                                            SmallVectorImpl<Register> &NewVRegs,
                                            SmallVirtRegSet &FixedRegisters,
+                                           RecoloringStack &RecolorStack,
                                            unsigned Depth) {
   if (!TRI->shouldUseLastChanceRecoloringForVirtReg(*MF, VirtReg))
     return ~0u;
 
   LLVM_DEBUG(dbgs() << "Try last chance recoloring for " << VirtReg << '\n');
+
+  const ssize_t EntryStackSize = RecolorStack.size();
+
   // Ranges must be Done.
   assert((ExtraInfo->getStage(VirtReg) >= RS_Done || !VirtReg.isSpillable()) &&
          "Last chance recoloring should really be last chance");
@@ -1944,9 +1981,7 @@ unsigned RAGreedy::tryLastChanceRecoloring(const LiveInterval &VirtReg,
 
   // Set of Live intervals that will need to be recolored.
   SmallLISet RecoloringCandidates;
-  // Record the original mapping virtual register to physical register in case
-  // the recoloring fails.
-  DenseMap<Register, MCRegister> VirtRegToPhysReg;
+
   // Mark VirtReg as fixed, i.e., it will not be recolored pass this point in
   // this recoloring "session".
   assert(!FixedRegisters.count(VirtReg.reg()));
@@ -1958,7 +1993,6 @@ unsigned RAGreedy::tryLastChanceRecoloring(const LiveInterval &VirtReg,
     LLVM_DEBUG(dbgs() << "Try to assign: " << VirtReg << " to "
                       << printReg(PhysReg, TRI) << '\n');
     RecoloringCandidates.clear();
-    VirtRegToPhysReg.clear();
     CurrentNewVRegs.clear();
 
     // It is only possible to recolor virtual register interference.
@@ -1989,7 +2023,8 @@ unsigned RAGreedy::tryLastChanceRecoloring(const LiveInterval &VirtReg,
              "Interferences are supposed to be with allocated variables");
 
       // Record the current allocation.
-      VirtRegToPhysReg[ItVirtReg] = VRM->getPhys(ItVirtReg);
+      RecolorStack.push_back(std::make_pair(RC, VRM->getPhys(ItVirtReg)));
+
       // unset the related struct.
       Matrix->unassign(*RC);
     }
@@ -2004,7 +2039,7 @@ unsigned RAGreedy::tryLastChanceRecoloring(const LiveInterval &VirtReg,
     // at this point for the next physical register.
     SmallVirtRegSet SaveFixedRegisters(FixedRegisters);
     if (tryRecoloringCandidates(RecoloringQueue, CurrentNewVRegs,
-                                FixedRegisters, Depth)) {
+                                FixedRegisters, RecolorStack, Depth)) {
       // Push the queued vregs into the main queue.
       for (Register NewVReg : CurrentNewVRegs)
         NewVRegs.push_back(NewVReg);
@@ -2031,13 +2066,30 @@ unsigned RAGreedy::tryLastChanceRecoloring(const LiveInterval &VirtReg,
       NewVRegs.push_back(R);
     }
 
-    for (const LiveInterval *RC : RecoloringCandidates) {
-      Register ItVirtReg = RC->reg();
-      if (VRM->hasPhys(ItVirtReg))
-        Matrix->unassign(*RC);
-      MCRegister ItPhysReg = VirtRegToPhysReg[ItVirtReg];
-      Matrix->assign(*RC, ItPhysReg);
+    // Roll back our unsuccessful recoloring. Also roll back any successful
+    // recolorings in any recursive recoloring attempts, since it's possible
+    // they would have introduced conflicts with assignments we will be
+    // restoring further up the stack. Perform all unassignments prior to
+    // reassigning, since sub-recolorings may have conflicted with the registers
+    // we are going to restore to their original assignments.
+    for (ssize_t I = RecolorStack.size() - 1; I >= EntryStackSize; --I) {
+      const LiveInterval *LI;
+      MCRegister PhysReg;
+      std::tie(LI, PhysReg) = RecolorStack[I];
+
+      if (VRM->hasPhys(LI->reg()))
+        Matrix->unassign(*LI);
     }
+
+    for (size_t I = EntryStackSize; I != RecolorStack.size(); ++I) {
+      const LiveInterval *LI;
+      MCRegister PhysReg;
+      std::tie(LI, PhysReg) = RecolorStack[I];
+      Matrix->assign(*LI, PhysReg);
+    }
+
+    // Pop the stack of recoloring attempts.
+    RecolorStack.resize(EntryStackSize);
   }
 
   // Last chance recoloring did not worked either, give up.
@@ -2055,12 +2107,13 @@ unsigned RAGreedy::tryLastChanceRecoloring(const LiveInterval &VirtReg,
 bool RAGreedy::tryRecoloringCandidates(PQueue &RecoloringQueue,
                                        SmallVectorImpl<Register> &NewVRegs,
                                        SmallVirtRegSet &FixedRegisters,
+                                       RecoloringStack &RecolorStack,
                                        unsigned Depth) {
   while (!RecoloringQueue.empty()) {
     const LiveInterval *LI = dequeue(RecoloringQueue);
     LLVM_DEBUG(dbgs() << "Try to recolor: " << *LI << '\n');
-    MCRegister PhysReg =
-        selectOrSplitImpl(*LI, NewVRegs, FixedRegisters, Depth + 1);
+    MCRegister PhysReg = selectOrSplitImpl(*LI, NewVRegs, FixedRegisters,
+                                           RecolorStack, Depth + 1);
     // When splitting happens, the live-range may actually be empty.
     // In that case, this is okay to continue the recoloring even
     // if we did not find an alternative color for it. Indeed,
@@ -2092,7 +2145,9 @@ MCRegister RAGreedy::selectOrSplit(const LiveInterval &VirtReg,
   CutOffInfo = CO_None;
   LLVMContext &Ctx = MF->getFunction().getContext();
   SmallVirtRegSet FixedRegisters;
-  MCRegister Reg = selectOrSplitImpl(VirtReg, NewVRegs, FixedRegisters);
+  RecoloringStack RecolorStack;
+  MCRegister Reg =
+      selectOrSplitImpl(VirtReg, NewVRegs, FixedRegisters, RecolorStack);
   if (Reg == ~0U && (CutOffInfo != CO_None)) {
     uint8_t CutOffEncountered = CutOffInfo & (CO_Depth | CO_Interf);
     if (CutOffEncountered == CO_Depth)
@@ -2353,6 +2408,7 @@ void RAGreedy::tryHintsRecoloring() {
 MCRegister RAGreedy::selectOrSplitImpl(const LiveInterval &VirtReg,
                                        SmallVectorImpl<Register> &NewVRegs,
                                        SmallVirtRegSet &FixedRegisters,
+                                       RecoloringStack &RecolorStack,
                                        unsigned Depth) {
   uint8_t CostPerUseLimit = uint8_t(~0u);
   // First try assigning a free register.
@@ -2427,9 +2483,10 @@ MCRegister RAGreedy::selectOrSplitImpl(const LiveInterval &VirtReg,
 
   // If we couldn't allocate a register from spilling, there is probably some
   // invalid inline assembly. The base class will report it.
-  if (Stage >= RS_Done || !VirtReg.isSpillable())
+  if (Stage >= RS_Done || !VirtReg.isSpillable()) {
     return tryLastChanceRecoloring(VirtReg, Order, NewVRegs, FixedRegisters,
-                                   Depth);
+                                   RecolorStack, Depth);
+  }
 
   // Finally spill VirtReg itself.
   if ((EnableDeferredSpilling ||
@@ -2626,9 +2683,7 @@ bool RAGreedy::runOnMachineFunction(MachineFunction &mf) {
                     << "********** Function: " << mf.getName() << '\n');
 
   MF = &mf;
-  TRI = MF->getSubtarget().getRegisterInfo();
   TII = MF->getSubtarget().getInstrInfo();
-  RCI.runOnMachineFunction(mf);
 
   if (VerifyEnabled)
     MF->verify(this, "Before greedy register allocator");
@@ -2649,6 +2704,10 @@ bool RAGreedy::runOnMachineFunction(MachineFunction &mf) {
   initializeCSRCost();
 
   RegCosts = TRI->getRegisterCosts(*MF);
+  RegClassPriorityTrumpsGlobalness =
+      GreedyRegClassPriorityTrumpsGlobalness.getNumOccurrences()
+          ? GreedyRegClassPriorityTrumpsGlobalness
+          : TRI->regClassPriorityTrumpsGlobalness(*MF);
 
   ExtraInfo.emplace();
   EvictAdvisor =

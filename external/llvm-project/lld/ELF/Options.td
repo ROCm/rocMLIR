@@ -646,6 +646,8 @@ def: J<"plugin-opt=opt-remarks-hotness-threshold=">,
 def: J<"plugin-opt=sample-profile=">,
   Alias<lto_sample_profile>, HelpText<"Alias for --lto-sample-profile">;
 def: F<"plugin-opt=save-temps">, Alias<save_temps>, HelpText<"Alias for --save-temps">;
+def plugin_opt_stats_file: J<"plugin-opt=stats-file=">,
+  HelpText<"Filename to write LTO statistics to">;
 def: F<"plugin-opt=thinlto-emit-imports-files">,
   Alias<thinlto_emit_imports_files>,
   HelpText<"Alias for --thinlto-emit-imports-files">;

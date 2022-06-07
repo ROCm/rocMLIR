@@ -2464,6 +2464,24 @@ void format_tests(TestFunction check, ExceptionTest check_exception) {
   check.template operator()<"hello {0:} {1:}">(SV("hello false true"), false, true);
   check.template operator()<"hello {1:} {0:}">(SV("hello true false"), false, true);
 
+  // *** Test many arguments ***
+
+  // [format.args]/1
+  // An instance of basic_format_args provides access to formatting arguments.
+  // Implementations should optimize the representation of basic_format_args
+  // for a small number of formatting arguments.
+  //
+  // These's no guidances what "a small number of formatting arguments" is.
+  // - fmtlib uses a 15 elements
+  // - libc++ uses 12 elements
+  // - MSVC STL uses a different approach regardless of the number of arguments
+  // - libstdc++ has no implementation yet
+  // fmtlib and libc++ use a similar approach, this approach can support 16
+  // elements (based on design choices both support less elements). This test
+  // makes sure "the large number of formatting arguments" code path is tested.
+  check.template operator()<"{}{}{}{}{}{}{}{}{}{}\t{}{}{}{}{}{}{}{}{}{}">(SV("1234567890\t1234567890"), 1, 2, 3, 4, 5,
+                                                                          6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0);
+
   // ** Test invalid format strings ***
   check_exception("The format string terminates at a '{'", SV("{"));
   check_exception("The replacement field misses a terminating '}'", SV("{:"), 42);
@@ -2526,10 +2544,10 @@ void format_tests(TestFunction check, ExceptionTest check_exception) {
     // Note 128-bit support is only partly implemented test the range
     // conditions here.
     static constexpr auto fmt = string_literal("{}");
-    std::basic_string<CharT> min = std::format(fmt.sv<CharT>(), std::numeric_limits<long long>::min());
+    std::basic_string<CharT> min = std::format(fmt.template sv<CharT>(), std::numeric_limits<long long>::min());
     check.template operator()<"{}">(std::basic_string_view<CharT>(min),
                                     static_cast<__int128_t>(std::numeric_limits<long long>::min()));
-    std::basic_string<CharT> max = std::format(fmt.sv<CharT>(), std::numeric_limits<long long>::max());
+    std::basic_string<CharT> max = std::format(fmt.template sv<CharT>(), std::numeric_limits<long long>::max());
     check.template operator()<"{}">(std::basic_string_view<CharT>(max),
                                     static_cast<__int128_t>(std::numeric_limits<long long>::max()));
     check_exception("128-bit value is outside of implemented range", SV("{}"),
@@ -2552,7 +2570,7 @@ void format_tests(TestFunction check, ExceptionTest check_exception) {
     // Note 128-bit support is only partly implemented test the range
     // conditions here.
     static constexpr auto fmt = string_literal("{}");
-    std::basic_string<CharT> max = std::format(fmt.sv<CharT>(), std::numeric_limits<unsigned long long>::max());
+    std::basic_string<CharT> max = std::format(fmt.template sv<CharT>(), std::numeric_limits<unsigned long long>::max());
     check.template operator()<"{}">(std::basic_string_view<CharT>(max),
                                     static_cast<__uint128_t>(std::numeric_limits<unsigned long long>::max()));
     check_exception("128-bit value is outside of implemented range", SV("{}"),

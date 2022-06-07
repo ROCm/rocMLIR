@@ -36,6 +36,8 @@ bool PPCTargetInfo::handleTargetFeatures(std::vector<std::string> &Features,
       HasAltivec = true;
     } else if (Feature == "+vsx") {
       HasVSX = true;
+    } else if (Feature == "+crbits") {
+      UseCRBits = true;
     } else if (Feature == "+bpermd") {
       HasBPERMD = true;
     } else if (Feature == "+extdiv") {
@@ -208,6 +210,7 @@ static void defineXLCompatMacros(MacroBuilder &Builder) {
   Builder.defineMacro("__dcbf", "__builtin_dcbf");
   Builder.defineMacro("__fmadd", "__builtin_fma");
   Builder.defineMacro("__fmadds", "__builtin_fmaf");
+  Builder.defineMacro("__abs", "__builtin_abs");
   Builder.defineMacro("__labs", "__builtin_labs");
   Builder.defineMacro("__llabs", "__builtin_llabs");
   Builder.defineMacro("__popcnt4", "__builtin_popcount");
@@ -249,6 +252,8 @@ static void defineXLCompatMacros(MacroBuilder &Builder) {
   Builder.defineMacro("__test_data_class", "__builtin_ppc_test_data_class");
   Builder.defineMacro("__swdiv", "__builtin_ppc_swdiv");
   Builder.defineMacro("__swdivs", "__builtin_ppc_swdivs");
+  Builder.defineMacro("__fnabs", "__builtin_ppc_fnabs");
+  Builder.defineMacro("__fnabss", "__builtin_ppc_fnabss");
   Builder.defineMacro("__builtin_maxfe", "__builtin_ppc_maxfe");
   Builder.defineMacro("__builtin_maxfl", "__builtin_ppc_maxfl");
   Builder.defineMacro("__builtin_maxfs", "__builtin_ppc_maxfs");
@@ -514,6 +519,11 @@ bool PPCTargetInfo::initFeatureMap(
                                 .Case("pwr9", true)
                                 .Case("pwr8", true)
                                 .Default(false);
+  Features["crbits"] = llvm::StringSwitch<bool>(CPU)
+                                .Case("ppc64le", true)
+                                .Case("pwr9", true)
+                                .Case("pwr8", true)
+                                .Default(false);
   Features["vsx"] = llvm::StringSwitch<bool>(CPU)
                         .Case("ppc64le", true)
                         .Case("pwr9", true)
@@ -541,6 +551,7 @@ bool PPCTargetInfo::initFeatureMap(
                                           .Case("pwr9", true)
                                           .Case("pwr8", true)
                                           .Case("pwr7", true)
+                                          .Case("a2", true)
                                           .Default(false);
 
   Features["isa-v207-instructions"] = llvm::StringSwitch<bool>(CPU)
@@ -648,6 +659,7 @@ bool PPCTargetInfo::hasFeature(StringRef Feature) const {
       .Case("powerpc", true)
       .Case("altivec", HasAltivec)
       .Case("vsx", HasVSX)
+      .Case("crbits", UseCRBits)
       .Case("power8-vector", HasP8Vector)
       .Case("crypto", HasP8Crypto)
       .Case("direct-move", HasDirectMove)

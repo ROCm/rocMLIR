@@ -1,7 +1,7 @@
 # Defining Dialect Attributes and Types
 
 This document describes how to define dialect
-[attributes](../LangRef.md/#attributes) and [types](../LangRef.md/#type-system).
+[attributes](LangRef.md/#attributes) and [types](LangRef.md/#type-system).
 
 [TOC]
 
@@ -280,7 +280,7 @@ MLIR includes several specialized classes for common situations:
 Similarly to operations, Attribute and Type classes may attach `Traits` that
 provide additional mixin methods and other data. `Trait`s may be attached via
 the trailing template argument, i.e. the `traits` list parameter in the example
-above. See the main [`Trait`](../Traits.md) documentation for more information
+above. See the main [`Trait`](Traits.md) documentation for more information
 on defining and using traits.
 
 ### Interfaces
@@ -288,7 +288,7 @@ on defining and using traits.
 Attribute and Type classes may attach `Interfaces` to provide an virtual
 interface into the Attribute or Type. `Interfaces` are added in the same way as
 [Traits](#Traits), by using the `traits` list template parameter of the
-`AttrDef` or `TypeDef`. See the main [`Interface`](../Interfaces.md)
+`AttrDef` or `TypeDef`. See the main [`Interface`](Interfaces.md)
 documentation for more information on defining and using interfaces.
 
 ### Builders
@@ -584,7 +584,7 @@ template <> struct FieldParser<MyParameter> {
 
 Example of using ODS parameter classes:
 
-```
+```tablegen
 def MyParameter : TypeParameter<"std::pair<int, int>", "pair of ints"> {
   let printer = [{ $_printer << $_self.first << " * " << $_self.second }];
   let parser = [{ [&] -> FailureOr<std::pair<int, int>> {
@@ -655,7 +655,7 @@ the equality operator is used.
 
 For example:
 
-```
+```tablegen
 let parameters = (ins DefaultValuedParameter<"Optional<int>", "5">:$a)
 let mnemonic = "default_valued";
 let assemblyFormat = "(`<` $a^ `>`)?";
@@ -663,7 +663,7 @@ let assemblyFormat = "(`<` $a^ `>`)?";
 
 Which will look like:
 
-```
+```mlir
 !test.default_valued     // a = 5
 !test.default_valued<10> // a = 10
 ```
@@ -671,7 +671,7 @@ Which will look like:
 For optional `Attribute` or `Type` parameters, the current MLIR context is
 available through `$_ctx`. E.g.
 
-```
+```tablegen
 DefaultValuedParameter<"IntegerType", "IntegerType::get($_ctx, 32)">
 ```
 

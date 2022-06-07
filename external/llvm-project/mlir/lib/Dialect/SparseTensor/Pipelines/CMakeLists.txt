@@ -8,8 +8,11 @@ add_mlir_dialect_library(MLIRSparseTensorPipelines
   MLIRArithmeticTransforms
   MLIRAffineToStandard
   MLIRBufferizationTransforms
+  MLIRComplexToLLVM
+  MLIRComplexToStandard
   MLIRFuncTransforms
   MLIRLinalgTransforms
+  MLIRMathToLibm
   MLIRMathToLLVM
   MLIRMemRefToLLVM
   MLIRPass

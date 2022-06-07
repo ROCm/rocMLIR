@@ -282,8 +282,8 @@ void RISCVFrameLowering::adjustReg(MachineBasicBlock &MBB,
         .setMIFlag(Flag);
   } else {
     unsigned Opc = RISCV::ADD;
-    bool isSub = Val < 0;
-    if (isSub) {
+    bool IsSub = Val < 0;
+    if (IsSub) {
       Val = -Val;
       Opc = RISCV::SUB;
     }
@@ -561,15 +561,11 @@ void RISCVFrameLowering::emitEpilogue(MachineFunction &MF,
   MachineBasicBlock::iterator MBBI = MBB.end();
   DebugLoc DL;
   if (!MBB.empty()) {
-    MBBI = MBB.getFirstTerminator();
-    if (MBBI == MBB.end())
-      MBBI = MBB.getLastNonDebugInstr();
-    DL = MBBI->getDebugLoc();
+    MBBI = MBB.getLastNonDebugInstr();
+    if (MBBI != MBB.end())
+      DL = MBBI->getDebugLoc();
 
-    // If this is not a terminator, the actual insert location should be after the
-    // last instruction.
-    if (!MBBI->isTerminator())
-      MBBI = std::next(MBBI);
+    MBBI = MBB.getFirstTerminator();
 
     // If callee-saved registers are saved via libcall, place stack adjustment
     // before this call.
@@ -858,7 +854,6 @@ void RISCVFrameLowering::determineCalleeSaves(MachineFunction &MF,
 
 int64_t
 RISCVFrameLowering::assignRVVStackObjectOffsets(MachineFrameInfo &MFI) const {
-  int64_t Offset = 0;
   // Create a buffer of RVV objects to allocate.
   SmallVector<int, 8> ObjectsToAllocate;
   for (int I = 0, E = MFI.getObjectIndexEnd(); I != E; ++I) {
@@ -872,6 +867,7 @@ RISCVFrameLowering::assignRVVStackObjectOffsets(MachineFrameInfo &MFI) const {
   }
 
   // Allocate all RVV locals and spills
+  int64_t Offset = 0;
   for (int FI : ObjectsToAllocate) {
     // ObjectSize in bytes.
     int64_t ObjectSize = MFI.getObjectSize(FI);
@@ -946,9 +942,11 @@ void RISCVFrameLowering::processFunctionBeforeFrameFinalized(
   }
   RVFI->setCalleeSavedStackSize(Size);
 
-  // Padding required to keep the RVV stack aligned to 8 bytes
-  // within the main stack. We only need this when not using FP.
-  if (RVVStackSize && !hasFP(MF) && Size % 8 != 0) {
+  // Padding required to keep the RVV stack aligned to 8 bytes within the main
+  // stack. We only need this when using SP or BP to access stack objects.
+  const TargetRegisterInfo *TRI = STI.getRegisterInfo();
+  if (RVVStackSize && (!hasFP(MF) || TRI->hasStackRealignment(MF)) &&
+      Size % 8 != 0) {
     // Because we add the padding to the size of the stack, adding
     // getStackAlign() will keep it aligned.
     RVFI->setRVVPadding(getStackAlign().value());
@@ -1029,21 +1027,21 @@ RISCVFrameLowering::getFirstSPAdjustAmount(const MachineFunction &MF) const {
   const std::vector<CalleeSavedInfo> &CSI = MFI.getCalleeSavedInfo();
   uint64_t StackSize = MFI.getStackSize();
 
-  // Disable SplitSPAdjust if save-restore libcall used. The callee saved
+  // Disable SplitSPAdjust if save-restore libcall is used. The callee-saved
   // registers will be pushed by the save-restore libcalls, so we don't have to
   // split the SP adjustment in this case.
   if (RVFI->getLibCallStackSize())
     return 0;
 
-  // Return the FirstSPAdjustAmount if the StackSize can not fit in signed
-  // 12-bit and there exists a callee saved register need to be pushed.
+  // Return the FirstSPAdjustAmount if the StackSize can not fit in a signed
+  // 12-bit and there exists a callee-saved register needing to be pushed.
   if (!isInt<12>(StackSize) && (CSI.size() > 0)) {
-    // FirstSPAdjustAmount is choosed as (2048 - StackAlign)
-    // because 2048 will cause sp = sp + 2048 in epilogue split into
-    // multi-instructions. The offset smaller than 2048 can fit in signle
-    // load/store instruction and we have to stick with the stack alignment.
-    // 2048 is 16-byte alignment. The stack alignment for RV32 and RV64 is 16,
-    // for RV32E is 4. So (2048 - StackAlign) will satisfy the stack alignment.
+    // FirstSPAdjustAmount is chosen as (2048 - StackAlign) because 2048 will
+    // cause sp = sp + 2048 in the epilogue to be split into multiple
+    // instructions. Offsets smaller than 2048 can fit in a single load/store
+    // instruction, and we have to stick with the stack alignment. 2048 has
+    // 16-byte alignment. The stack alignment for RV32 and RV64 is 16 and for
+    // RV32E it is 4. So (2048 - StackAlign) will satisfy the stack alignment.
     return 2048 - getStackAlign().value();
   }
   return 0;

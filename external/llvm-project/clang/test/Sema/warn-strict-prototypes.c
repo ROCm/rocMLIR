@@ -1,5 +1,5 @@
-// RUN: %clang_cc1 -triple i386-pc-unknown -fsyntax-only -Wstrict-prototypes -Wno-implicit-function-declaration -verify %s
-// RUN: %clang_cc1 -triple i386-pc-unknown -fsyntax-only -Wstrict-prototypes -fdiagnostics-parseable-fixits %s 2>&1 | FileCheck %s
+// RUN: %clang_cc1 -triple i386-pc-unknown -fsyntax-only -Wstrict-prototypes -Wno-implicit-function-declaration -Wno-error=implicit-int -verify %s
+// RUN: %clang_cc1 -triple i386-pc-unknown -fsyntax-only -Wstrict-prototypes -Wno-implicit-function-declaration -Wno-error=implicit-int -fdiagnostics-parseable-fixits %s 2>&1 | FileCheck %s
 
 // function definition with 0 params, no prototype, no preceding declaration.
 void foo0() {} // expected-warning {{a function declaration without a prototype is deprecated in all versions of C}}
@@ -59,7 +59,8 @@ void foo10(); // expected-warning {{a function declaration without a prototype i
                  expected-note {{a function declaration without a prototype is not supported in C2x}}
               // CHECK: fix-it:"{{.*}}":{[[@LINE-2]]:12-[[@LINE-2]]:12}:"void"
 // K&R function definition with incomplete param list declared
-void foo10(p, p2) void *p; {} // expected-warning {{a function declaration without a prototype is deprecated in all versions of C and is not supported in C2x}}
+void foo10(p, p2) void *p; {} // expected-warning {{a function declaration without a prototype is deprecated in all versions of C and is not supported in C2x}} \
+                                 expected-warning {{parameter 'p2' was not declared, defaults to 'int'; ISO C99 and later do not support implicit int}}
 
 void foo11(int p, int p2);
 void foo11(p, p2) int p; int p2; {} // expected-warning {{a function declaration without a prototype is deprecated in all versions of C and is not supported in C2x}}
@@ -80,3 +81,13 @@ void foo13(...) __attribute__((overloadable)) {}
 void foo14(void) {
   foo14_call(); // no-warning
 }
+
+// Ensure that redeclarations involving a typedef type work properly, even if
+// there are function attributes involved in the declaration.
+typedef void foo_t(unsigned val);
+__attribute__((noreturn)) foo_t foo15;
+foo_t foo15; // OK
+void foo15(unsigned val); // OK
+
+foo_t foo16;
+void foo16(unsigned val); // OK

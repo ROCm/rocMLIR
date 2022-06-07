@@ -9,6 +9,8 @@
 #ifndef LLVM_LIBC_SRC_SUPPORT_CPP_TYPETRAITS_H
 #define LLVM_LIBC_SRC_SUPPORT_CPP_TYPETRAITS_H
 
+#include "UInt.h"
+
 namespace __llvm_libc {
 namespace cpp {
 
@@ -50,7 +52,11 @@ template <typename Type> struct IsIntegral {
       IsSameV<unsigned int, TypeNoCV> || IsSameV<long, TypeNoCV> ||
       IsSameV<unsigned long, TypeNoCV> || IsSameV<long long, TypeNoCV> ||
       IsSameV<unsigned long long, TypeNoCV> || IsSameV<bool, TypeNoCV> ||
-      IsSameV<__uint128_t, TypeNoCV> || IsSameV<__int128_t, TypeNoCV>;
+      IsSameV<UInt<128>, TypeNoCV>
+#ifdef __SIZEOF_INT128__
+      || IsSameV<__uint128_t, TypeNoCV> || IsSameV<__int128_t, TypeNoCV>
+#endif
+      ;
 };
 
 template <typename T> struct IsPointerTypeNoCV : public FalseValue {};

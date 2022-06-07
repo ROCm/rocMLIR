@@ -282,6 +282,20 @@ bool llvm::haveNoCommonBitsSet(const Value *LHS, const Value *RHS,
         match(LHS, m_c_And(m_Specific(M), m_Value())))
       return true;
   }
+
+  // X op (Y & ~X)
+  if (match(RHS, m_c_And(m_Not(m_Specific(LHS)), m_Value())) ||
+      match(LHS, m_c_And(m_Not(m_Specific(RHS)), m_Value())))
+    return true;
+
+  // X op ((X & Y) ^ Y) -- this is the canonical form of the previous pattern
+  // for constant Y.
+  Value *Y;
+  if (match(RHS,
+            m_c_Xor(m_c_And(m_Specific(LHS), m_Value(Y)), m_Deferred(Y))) ||
+      match(LHS, m_c_Xor(m_c_And(m_Specific(RHS), m_Value(Y)), m_Deferred(Y))))
+    return true;
+
   // Look for: (A & B) op ~(A | B)
   {
     Value *A, *B;
@@ -4827,6 +4841,15 @@ OverflowResult llvm::computeOverflowForUnsignedSub(const Value *LHS,
                                                    AssumptionCache *AC,
                                                    const Instruction *CxtI,
                                                    const DominatorTree *DT) {
+  // X - (X % ?)
+  // The remainder of a value can't have greater magnitude than itself,
+  // so the subtraction can't overflow.
+  // TODO: There are other patterns like this.
+  //       See simplifyICmpWithBinOpOnLHS() for candidates.
+  if (match(RHS, m_URem(m_Specific(LHS), m_Value())) &&
+      isGuaranteedNotToBeUndefOrPoison(LHS, AC, CxtI, DT))
+    return OverflowResult::NeverOverflows;
+
   // Checking for conditions implied by dominating conditions may be expensive.
   // Limit it to usub_with_overflow calls for now.
   if (match(CxtI,
@@ -4850,6 +4873,13 @@ OverflowResult llvm::computeOverflowForSignedSub(const Value *LHS,
                                                  AssumptionCache *AC,
                                                  const Instruction *CxtI,
                                                  const DominatorTree *DT) {
+  // X - (X % ?)
+  // The remainder of a value can't have greater magnitude than itself,
+  // so the subtraction can't overflow.
+  if (match(RHS, m_SRem(m_Specific(LHS), m_Value())) &&
+      isGuaranteedNotToBeUndefOrPoison(LHS, AC, CxtI, DT))
+    return OverflowResult::NeverOverflows;
+
   // If LHS and RHS each have at least two sign bits, the subtraction
   // cannot overflow.
   if (ComputeNumSignBits(LHS, DL, 0, AC, CxtI, DT) > 1 &&
@@ -6623,11 +6653,38 @@ Optional<bool> llvm::isImpliedCondition(const Value *LHS, const Value *RHS,
   if (LHS == RHS)
     return LHSIsTrue;
 
-  const ICmpInst *RHSCmp = dyn_cast<ICmpInst>(RHS);
-  if (RHSCmp)
+  if (const ICmpInst *RHSCmp = dyn_cast<ICmpInst>(RHS))
     return isImpliedCondition(LHS, RHSCmp->getPredicate(),
                               RHSCmp->getOperand(0), RHSCmp->getOperand(1), DL,
                               LHSIsTrue, Depth);
+
+  if (Depth == MaxAnalysisRecursionDepth)
+    return None;
+
+  // LHS ==> (RHS1 || RHS2) if LHS ==> RHS1 or LHS ==> RHS2
+  // LHS ==> !(RHS1 && RHS2) if LHS ==> !RHS1 or LHS ==> !RHS2
+  const Value *RHS1, *RHS2;
+  if (match(RHS, m_LogicalOr(m_Value(RHS1), m_Value(RHS2)))) {
+    if (Optional<bool> Imp =
+            isImpliedCondition(LHS, RHS1, DL, LHSIsTrue, Depth + 1))
+      if (*Imp == true)
+        return true;
+    if (Optional<bool> Imp =
+            isImpliedCondition(LHS, RHS2, DL, LHSIsTrue, Depth + 1))
+      if (*Imp == true)
+        return true;
+  }
+  if (match(RHS, m_LogicalAnd(m_Value(RHS1), m_Value(RHS2)))) {
+    if (Optional<bool> Imp =
+            isImpliedCondition(LHS, RHS1, DL, LHSIsTrue, Depth + 1))
+      if (*Imp == false)
+        return false;
+    if (Optional<bool> Imp =
+            isImpliedCondition(LHS, RHS2, DL, LHSIsTrue, Depth + 1))
+      if (*Imp == false)
+        return false;
+  }
+
   return None;
 }
 

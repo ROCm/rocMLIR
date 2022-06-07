@@ -266,6 +266,51 @@ static bool warnByDefaultOnWrongCase(StringRef Include) {
     .Default(false);
 }
 
+/// Find a similar string in `Candidates`.
+///
+/// \param LHS a string for a similar string in `Candidates`
+///
+/// \param Candidates the candidates to find a similar string.
+///
+/// \returns a similar string if exists. If no similar string exists,
+/// returns None.
+static Optional<StringRef> findSimilarStr(
+    StringRef LHS, const std::vector<StringRef> &Candidates) {
+  // We need to check if `Candidates` has the exact case-insensitive string
+  // because the Levenshtein distance match does not care about it.
+  for (StringRef C : Candidates) {
+    if (LHS.equals_insensitive(C)) {
+      return C;
+    }
+  }
+
+  // Keep going with the Levenshtein distance match.
+  // If the LHS size is less than 3, use the LHS size minus 1 and if not,
+  // use the LHS size divided by 3.
+  size_t Length = LHS.size();
+  size_t MaxDist = Length < 3 ? Length - 1 : Length / 3;
+
+  Optional<std::pair<StringRef, size_t>> SimilarStr = None;
+  for (StringRef C : Candidates) {
+    size_t CurDist = LHS.edit_distance(C, true);
+    if (CurDist <= MaxDist) {
+      if (!SimilarStr.hasValue()) {
+        // The first similar string found.
+        SimilarStr = {C, CurDist};
+      } else if (CurDist < SimilarStr->second) {
+        // More similar string found.
+        SimilarStr = {C, CurDist};
+      }
+    }
+  }
+
+  if (SimilarStr.hasValue()) {
+    return SimilarStr->first;
+  } else {
+    return None;
+  }
+}
+
 bool Preprocessor::CheckMacroName(Token &MacroNameTok, MacroUse isDefineUndef,
                                   bool *ShadowFlag) {
   // Missing macro name?
@@ -433,6 +478,29 @@ Optional<unsigned> Preprocessor::getSkippedRangeForExcludedConditionalBlock(
   return BytesToSkip - LengthDiff;
 }
 
+void Preprocessor::SuggestTypoedDirective(const Token &Tok,
+                                          StringRef Directive,
+                                          const SourceLocation &EndLoc) const {
+  // If this is a `.S` file, treat unknown # directives as non-preprocessor
+  // directives.
+  if (getLangOpts().AsmPreprocessor) return;
+
+  std::vector<StringRef> Candidates = {
+      "if", "ifdef", "ifndef", "elif", "else", "endif"
+  };
+  if (LangOpts.C2x || LangOpts.CPlusPlus2b)
+    Candidates.insert(Candidates.end(), {"elifdef", "elifndef"});
+
+  if (Optional<StringRef> Sugg = findSimilarStr(Directive, Candidates)) {
+    CharSourceRange DirectiveRange =
+        CharSourceRange::getCharRange(Tok.getLocation(), EndLoc);
+    std::string SuggValue = Sugg.getValue().str();
+
+    auto Hint = FixItHint::CreateReplacement(DirectiveRange, "#" + SuggValue);
+    Diag(Tok, diag::warn_pp_invalid_directive) << 1 << SuggValue << Hint;
+  }
+}
+
 /// SkipExcludedConditionalBlock - We just read a \#if or related directive and
 /// decided that the subsequent tokens are in the \#if'd out portion of the
 /// file.  Lex the rest of the file, until we see an \#endif.  If
@@ -556,6 +624,8 @@ void Preprocessor::SkipExcludedConditionalBlock(SourceLocation HashTokenLoc,
         CurPPLexer->pushConditionalLevel(Tok.getLocation(), /*wasskipping*/true,
                                        /*foundnonskip*/false,
                                        /*foundelse*/false);
+      } else {
+        SuggestTypoedDirective(Tok, Directive, endLoc);
       }
     } else if (Directive[0] == 'e') {
       StringRef Sub = Directive.substr(1);
@@ -652,6 +722,17 @@ void Preprocessor::SkipExcludedConditionalBlock(SourceLocation HashTokenLoc,
         PPConditionalInfo &CondInfo = CurPPLexer->peekConditionalLevel();
         Token DirectiveToken = Tok;
 
+        // Warn if using `#elifdef` & `#elifndef` in not C2x & C++2b mode even
+        // if this branch is in a skipping block.
+        unsigned DiagID;
+        if (LangOpts.CPlusPlus)
+          DiagID = LangOpts.CPlusPlus2b ? diag::warn_cxx2b_compat_pp_directive
+                                        : diag::ext_cxx2b_pp_directive;
+        else
+          DiagID = LangOpts.C2x ? diag::warn_c2x_compat_pp_directive
+                                : diag::ext_c2x_pp_directive;
+        Diag(Tok, DiagID) << (IsElifDef ? PED_Elifdef : PED_Elifndef);
+
         // If this is a #elif with a #else before it, report the error.
         if (CondInfo.FoundElse)
           Diag(Tok, diag::pp_err_elif_after_else)
@@ -705,7 +786,11 @@ void Preprocessor::SkipExcludedConditionalBlock(SourceLocation HashTokenLoc,
             break;
           }
         }
+      } else {
+        SuggestTypoedDirective(Tok, Directive, endLoc);
       }
+    } else {
+      SuggestTypoedDirective(Tok, Directive, endLoc);
     }
 
     CurPPLexer->ParsingPreprocessorDirective = false;
@@ -905,7 +990,7 @@ Optional<FileEntryRef> Preprocessor::LookupFile(
     if (SuggestedModule && !LangOpts.AsmPreprocessor)
       HeaderInfo.getModuleMap().diagnoseHeaderInclusion(
           RequestingModule, RequestingModuleIsModuleInterface, FilenameLoc,
-          Filename, &FE->getFileEntry());
+          Filename, *FE);
     return FE;
   }
 
@@ -921,7 +1006,7 @@ Optional<FileEntryRef> Preprocessor::LookupFile(
         if (SuggestedModule && !LangOpts.AsmPreprocessor)
           HeaderInfo.getModuleMap().diagnoseHeaderInclusion(
               RequestingModule, RequestingModuleIsModuleInterface, FilenameLoc,
-              Filename, &FE->getFileEntry());
+              Filename, *FE);
         return FE;
       }
     }
@@ -936,7 +1021,7 @@ Optional<FileEntryRef> Preprocessor::LookupFile(
           if (SuggestedModule && !LangOpts.AsmPreprocessor)
             HeaderInfo.getModuleMap().diagnoseHeaderInclusion(
                 RequestingModule, RequestingModuleIsModuleInterface,
-                FilenameLoc, Filename, &FE->getFileEntry());
+                FilenameLoc, Filename, *FE);
           return FE;
         }
       }
@@ -1182,7 +1267,8 @@ void Preprocessor::HandleDirective(Token &Result) {
   }
 
   // If we reached here, the preprocessing token is not valid!
-  Diag(Result, diag::err_pp_invalid_directive);
+  // Start suggesting if a similar directive found.
+  Diag(Result, diag::err_pp_invalid_directive) << 0;
 
   // Read the rest of the PP line.
   DiscardUntilEndOfDirective();
@@ -1431,6 +1517,7 @@ void Preprocessor::HandleDigitDirective(Token &DigitTok) {
   // If the StrTok is "eod", then it wasn't present.  Otherwise, it must be a
   // string followed by eod.
   if (StrTok.is(tok::eod)) {
+    Diag(StrTok, diag::ext_pp_gnu_line_directive);
     // Treat this like "#line NN", which doesn't change file characteristics.
     FileKind = SourceMgr.getFileCharacteristic(DigitTok.getLocation());
   } else if (StrTok.isNot(tok::string_literal)) {
@@ -1458,6 +1545,9 @@ void Preprocessor::HandleDigitDirective(Token &DigitTok) {
     // If a filename was present, read any flags that are present.
     if (ReadLineMarkerFlags(IsFileEntry, IsFileExit, FileKind, *this))
       return;
+    if (!SourceMgr.isWrittenInBuiltinFile(DigitTok.getLocation()) &&
+        !SourceMgr.isWrittenInCommandLineFile(DigitTok.getLocation()))
+      Diag(StrTok, diag::ext_pp_gnu_line_directive);
 
     // Exiting to an empty string means pop to the including file, so leave
     // FilenameID as -1 in that case.
@@ -2048,10 +2138,6 @@ Preprocessor::ImportAction Preprocessor::HandleHeaderIncludeOrImport(
       IsFrameworkFound, IsImportDecl, IsMapped, LookupFrom, LookupFromFile,
       LookupFilename, RelativePath, SearchPath, SuggestedModule, isAngled);
 
-  // Record the header's filename for later use.
-  if (File)
-    CurLexer->addInclude(OriginalFilename, File->getFileEntry(), FilenameLoc);
-
   if (usingPCHWithThroughHeader() && SkippingUntilPCHThroughHeader) {
     if (File && isPCHThroughHeader(&File->getFileEntry()))
       SkippingUntilPCHThroughHeader = false;
@@ -2192,11 +2278,11 @@ Preprocessor::ImportAction Preprocessor::HandleHeaderIncludeOrImport(
   if (Callbacks && !IsImportDecl) {
     // Notify the callback object that we've seen an inclusion directive.
     // FIXME: Use a different callback for a pp-import?
-    Callbacks->InclusionDirective(
-        HashLoc, IncludeTok, LookupFilename, isAngled, FilenameRange,
-        File ? &File->getFileEntry() : nullptr, SearchPath, RelativePath,
-        Action == Import ? SuggestedModule.getModule() : nullptr,
-        FileCharacter);
+    Callbacks->InclusionDirective(HashLoc, IncludeTok, LookupFilename, isAngled,
+                                  FilenameRange, File, SearchPath, RelativePath,
+                                  Action == Import ? SuggestedModule.getModule()
+                                                   : nullptr,
+                                  FileCharacter);
     if (Action == Skip && File)
       Callbacks->FileSkipped(*File, FilenameTok, FileCharacter);
   }
@@ -3258,6 +3344,23 @@ void Preprocessor::HandleElifFamilyDirective(Token &ElifToken,
                        : Kind == tok::pp_elifdef ? PED_Elifdef
                                                  : PED_Elifndef;
   ++NumElse;
+
+  // Warn if using `#elifdef` & `#elifndef` in not C2x & C++2b mode.
+  switch (DirKind) {
+  case PED_Elifdef:
+  case PED_Elifndef:
+    unsigned DiagID;
+    if (LangOpts.CPlusPlus)
+      DiagID = LangOpts.CPlusPlus2b ? diag::warn_cxx2b_compat_pp_directive
+                                    : diag::ext_cxx2b_pp_directive;
+    else
+      DiagID = LangOpts.C2x ? diag::warn_c2x_compat_pp_directive
+                            : diag::ext_c2x_pp_directive;
+    Diag(ElifToken, DiagID) << DirKind;
+    break;
+  default:
+    break;
+  }
 
   // #elif directive in a non-skipping conditional... start skipping.
   // We don't care what the condition is, because we will always skip it (since

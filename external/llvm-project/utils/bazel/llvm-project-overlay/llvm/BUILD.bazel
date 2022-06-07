@@ -1381,10 +1381,7 @@ cc_library(
         "lib/Transforms/Coroutines/*.cpp",
         "lib/Transforms/Coroutines/*.h",
     ]),
-    hdrs = [
-        "include/llvm-c/Transforms/Coroutines.h",
-        "include/llvm/Transforms/Coroutines.h",
-    ] + glob(["include/llvm/Transforms/Coroutines/*.h"]),
+    hdrs = glob(["include/llvm/Transforms/Coroutines/*.h"]),
     copts = llvm_copts,
     deps = [
         ":Analysis",
@@ -1625,6 +1622,7 @@ llvm_target_lib_list = [lib for lib in [
             ("-gen-exegesis", "lib/Target/Mips/MipsGenExegesis.inc"),
             ("-gen-fast-isel", "lib/Target/Mips/MipsGenFastISel.inc"),
             ("-gen-global-isel", "lib/Target/Mips/MipsGenGlobalISel.inc"),
+            ("-gen-global-isel-combiner -combiners=MipsPostLegalizerCombinerHelper", "lib/Target/Mips/MipsGenPostLegalizeGICombiner.inc"),
             ("-gen-instr-info", "lib/Target/Mips/MipsGenInstrInfo.inc"),
             ("-gen-pseudo-lowering", "lib/Target/Mips/MipsGenMCPseudoLowering.inc"),
             ("-gen-register-bank", "lib/Target/Mips/MipsGenRegisterBank.inc"),
@@ -2959,6 +2957,18 @@ cc_binary(
     ],
 )
 
+gentbl(
+    name = "IfsOptionsTableGen",
+    strip_include_prefix = "tools/llvm-ifs",
+    tbl_outs = [(
+        "-gen-opt-parser-defs",
+        "tools/llvm-ifs/Opts.inc",
+    )],
+    tblgen = ":llvm-tblgen",
+    td_file = "tools/llvm-ifs/Opts.td",
+    td_srcs = ["include/llvm/Option/OptParser.td"],
+)
+
 cc_binary(
     name = "llvm-ifs",
     srcs = glob([
@@ -2968,8 +2978,10 @@ cc_binary(
     copts = llvm_copts,
     stamp = 0,
     deps = [
+        ":IfsOptionsTableGen",
         ":InterfaceStub",
         ":ObjectYAML",
+        ":Option",
         ":Support",
         ":TextAPI",
     ],

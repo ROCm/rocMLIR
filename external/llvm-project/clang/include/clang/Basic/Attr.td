@@ -300,6 +300,9 @@ class Clang<string name, bit allowInC = 1> : Spelling<name, "Clang"> {
   bit AllowInC = allowInC;
 }
 
+// HLSL Semantic spellings
+class HLSLSemantic<string name> : Spelling<name, "HLSLSemantic">;
+
 class Accessor<string name, list<Spelling> spellings> {
   string Name = name;
   list<Spelling> Spellings = spellings;
@@ -867,6 +870,7 @@ def Availability : InheritableAttr {
              .Case("macos", "macOS")
              .Case("tvos", "tvOS")
              .Case("watchos", "watchOS")
+             .Case("driverkit", "DriverKit")
              .Case("ios_app_extension", "iOS (App Extension)")
              .Case("macos_app_extension", "macOS (App Extension)")
              .Case("tvos_app_extension", "tvOS (App Extension)")
@@ -1772,8 +1776,9 @@ def Convergent : InheritableAttr {
 }
 
 def NoInline : DeclOrStmtAttr {
-  let Spellings = [GCC<"noinline">, CXX11<"clang", "noinline">,
-                   C2x<"clang", "noinline">, Declspec<"noinline">];
+  let Spellings = [Keyword<"__noinline__">, GCC<"noinline">,
+                   CXX11<"clang", "noinline">, C2x<"clang", "noinline">,
+                   Declspec<"noinline">];
   let Accessors = [Accessor<"isClangNoInline", [CXX11<"clang", "noinline">,
                                                 C2x<"clang", "noinline">]>];
   let Documentation = [NoInlineDocs];
@@ -1850,6 +1855,11 @@ def AMDGPUNumVGPR : InheritableAttr {
   let Args = [UnsignedArgument<"NumVGPR">];
   let Documentation = [AMDGPUNumSGPRNumVGPRDocs];
   let Subjects = SubjectList<[Function], ErrorDiag, "kernel functions">;
+}
+
+def AMDGPUKernelCall : DeclOrTypeAttr {
+  let Spellings = [Clang<"amdgpu_kernel">];
+  let Documentation = [Undocumented];
 }
 
 def BPFPreserveAccessIndex : InheritableAttr,
@@ -2307,6 +2317,11 @@ def Pcs : DeclOrTypeAttr {
 def AArch64VectorPcs: DeclOrTypeAttr {
   let Spellings = [Clang<"aarch64_vector_pcs">];
   let Documentation = [AArch64VectorPcsDocs];
+}
+
+def AArch64SVEPcs: DeclOrTypeAttr {
+  let Spellings = [Clang<"aarch64_sve_pcs">];
+  let Documentation = [AArch64SVEPcsDocs];
 }
 
 def Pure : InheritableAttr {
@@ -3956,6 +3971,30 @@ def HLSLNumThreads: InheritableAttr {
   let Subjects = SubjectList<[HLSLEntry]>;
   let LangOpts = [HLSL];
   let Documentation = [NumThreadsDocs];
+}
+
+def HLSLSV_GroupIndex: InheritableAttr {
+  let Spellings = [HLSLSemantic<"SV_GroupIndex">];
+  let Subjects = SubjectList<[ParmVar, GlobalVar]>;
+  let LangOpts = [HLSL];
+  let Documentation = [HLSLSV_GroupIndexDocs];
+}
+
+def HLSLShader : InheritableAttr {
+  let Spellings = [Microsoft<"shader">];
+  let Subjects = SubjectList<[HLSLEntry]>;
+  let LangOpts = [HLSL];
+  let Args = [EnumArgument<"Type", "ShaderType",
+                           ["pixel", "vertex", "geometry", "hull", "domain",
+                            "compute", "raygeneration", "intersection",
+                            "anyhit", "closesthit", "miss", "callable", "mesh",
+                            "amplification"],
+                           ["Pixel", "Vertex", "Geometry", "Hull", "Domain",
+                            "Compute", "RayGeneration", "Intersection",
+                            "AnyHit", "ClosestHit", "Miss", "Callable", "Mesh",
+                            "Amplification"]
+                           >];
+  let Documentation = [HLSLSV_ShaderTypeAttrDocs];
 }
 
 def RandomizeLayout : InheritableAttr {

@@ -292,10 +292,12 @@ Instruction *InstCombinerImpl::visitMul(BinaryOperator &I) {
 
       auto RemOpc = Div->getOpcode() == Instruction::UDiv ? Instruction::URem
                                                           : Instruction::SRem;
-      Value *Rem = Builder.CreateBinOp(RemOpc, X, DivOp1);
+      // X must be frozen because we are increasing its number of uses.
+      Value *XFreeze = Builder.CreateFreeze(X, X->getName() + ".fr");
+      Value *Rem = Builder.CreateBinOp(RemOpc, XFreeze, DivOp1);
       if (DivOp1 == Y)
-        return BinaryOperator::CreateSub(X, Rem);
-      return BinaryOperator::CreateSub(Rem, X);
+        return BinaryOperator::CreateSub(XFreeze, Rem);
+      return BinaryOperator::CreateSub(Rem, XFreeze);
     }
   }
 
@@ -527,9 +529,8 @@ Instruction *InstCombinerImpl::visitFMul(BinaryOperator &I) {
     // sqrt(X) * sqrt(Y) -> sqrt(X * Y)
     // nnan disallows the possibility of returning a number if both operands are
     // negative (in that case, we should return NaN).
-    if (I.hasNoNaNs() &&
-        match(Op0, m_OneUse(m_Intrinsic<Intrinsic::sqrt>(m_Value(X)))) &&
-        match(Op1, m_OneUse(m_Intrinsic<Intrinsic::sqrt>(m_Value(Y))))) {
+    if (I.hasNoNaNs() && match(Op0, m_OneUse(m_Sqrt(m_Value(X)))) &&
+        match(Op1, m_OneUse(m_Sqrt(m_Value(Y))))) {
       Value *XY = Builder.CreateFMulFMF(X, Y, &I);
       Value *Sqrt = Builder.CreateUnaryIntrinsic(Intrinsic::sqrt, XY, &I);
       return replaceInstUsesWith(I, Sqrt);
@@ -543,11 +544,11 @@ Instruction *InstCombinerImpl::visitFMul(BinaryOperator &I) {
     // has the necessary (reassoc) fast-math-flags.
     if (I.hasNoSignedZeros() &&
         match(Op0, (m_FDiv(m_SpecificFP(1.0), m_Value(Y)))) &&
-        match(Y, m_Intrinsic<Intrinsic::sqrt>(m_Value(X))) && Op1 == X)
+        match(Y, m_Sqrt(m_Value(X))) && Op1 == X)
       return BinaryOperator::CreateFDivFMF(X, Y, &I);
     if (I.hasNoSignedZeros() &&
         match(Op1, (m_FDiv(m_SpecificFP(1.0), m_Value(Y)))) &&
-        match(Y, m_Intrinsic<Intrinsic::sqrt>(m_Value(X))) && Op0 == X)
+        match(Y, m_Sqrt(m_Value(X))) && Op0 == X)
       return BinaryOperator::CreateFDivFMF(X, Y, &I);
 
     // Like the similar transform in instsimplify, this requires 'nsz' because
@@ -556,14 +557,12 @@ Instruction *InstCombinerImpl::visitFMul(BinaryOperator &I) {
         Op0->hasNUses(2)) {
       // Peek through fdiv to find squaring of square root:
       // (X / sqrt(Y)) * (X / sqrt(Y)) --> (X * X) / Y
-      if (match(Op0, m_FDiv(m_Value(X),
-                            m_Intrinsic<Intrinsic::sqrt>(m_Value(Y))))) {
+      if (match(Op0, m_FDiv(m_Value(X), m_Sqrt(m_Value(Y))))) {
         Value *XX = Builder.CreateFMulFMF(X, X, &I);
         return BinaryOperator::CreateFDivFMF(XX, Y, &I);
       }
       // (sqrt(Y) / X) * (sqrt(Y) / X) --> Y / (X * X)
-      if (match(Op0, m_FDiv(m_Intrinsic<Intrinsic::sqrt>(m_Value(Y)),
-                            m_Value(X)))) {
+      if (match(Op0, m_FDiv(m_Sqrt(m_Value(Y)), m_Value(X)))) {
         Value *XX = Builder.CreateFMulFMF(X, X, &I);
         return BinaryOperator::CreateFDivFMF(Y, XX, &I);
       }
@@ -849,12 +848,13 @@ Instruction *InstCombinerImpl::commonIDivTransforms(BinaryOperator &I) {
   if (match(Op0, m_One())) {
     assert(!Ty->isIntOrIntVectorTy(1) && "i1 divide not removed?");
     if (IsSigned) {
-      // If Op1 is 0 then it's undefined behaviour, if Op1 is 1 then the
-      // result is one, if Op1 is -1 then the result is minus one, otherwise
-      // it's zero.
-      Value *Inc = Builder.CreateAdd(Op1, Op0);
+      // 1 / 0 --> undef ; 1 / 1 --> 1 ; 1 / -1 --> -1 ; 1 / anything else --> 0
+      // (Op1 + 1) u< 3 ? Op1 : 0
+      // Op1 must be frozen because we are increasing its number of uses.
+      Value *F1 = Builder.CreateFreeze(Op1, Op1->getName() + ".fr");
+      Value *Inc = Builder.CreateAdd(F1, Op0);
       Value *Cmp = Builder.CreateICmpULT(Inc, ConstantInt::get(Ty, 3));
-      return SelectInst::Create(Cmp, Op1, ConstantInt::get(Ty, 0));
+      return SelectInst::Create(Cmp, F1, ConstantInt::get(Ty, 0));
     } else {
       // If Op1 is 0 then it's undefined behaviour. If Op1 is 1 then the
       // result is one, otherwise it's zero.
@@ -1151,9 +1151,9 @@ Instruction *InstCombinerImpl::visitSDiv(BinaryOperator &I) {
   if (match(&I, m_c_BinOp(
                     m_OneUse(m_Intrinsic<Intrinsic::abs>(m_Value(X), m_One())),
                     m_Deferred(X)))) {
-    Constant *NegOne = ConstantInt::getAllOnesValue(Ty);
-    Value *Cond = Builder.CreateICmpSGT(X, NegOne);
-    return SelectInst::Create(Cond, ConstantInt::get(Ty, 1), NegOne);
+    Value *Cond = Builder.CreateIsNotNeg(X);
+    return SelectInst::Create(Cond, ConstantInt::get(Ty, 1),
+                              ConstantInt::getAllOnesValue(Ty));
   }
 
   // If the sign bits of both operands are zero (i.e. we can prove they are
@@ -1298,6 +1298,8 @@ static Instruction *foldFDivPowDivisor(BinaryOperator &I,
 }
 
 Instruction *InstCombinerImpl::visitFDiv(BinaryOperator &I) {
+  Module *M = I.getModule();
+
   if (Value *V = SimplifyFDivInst(I.getOperand(0), I.getOperand(1),
                                   I.getFastMathFlags(),
                                   SQ.getWithInstruction(&I)))
@@ -1363,8 +1365,8 @@ Instruction *InstCombinerImpl::visitFDiv(BinaryOperator &I) {
         !IsTan && match(Op0, m_Intrinsic<Intrinsic::cos>(m_Value(X))) &&
                   match(Op1, m_Intrinsic<Intrinsic::sin>(m_Specific(X)));
 
-    if ((IsTan || IsCot) &&
-        hasFloatFn(&TLI, I.getType(), LibFunc_tan, LibFunc_tanf, LibFunc_tanl)) {
+    if ((IsTan || IsCot) && hasFloatFn(M, &TLI, I.getType(), LibFunc_tan,
+                                       LibFunc_tanf, LibFunc_tanl)) {
       IRBuilder<> B(&I);
       IRBuilder<>::FastMathFlagGuard FMFGuard(B);
       B.setFastMathFlags(I.getFastMathFlags());
@@ -1428,7 +1430,8 @@ Instruction *InstCombinerImpl::commonIRemTransforms(BinaryOperator &I) {
   // TODO: Adapt simplifyDivRemOfSelectWithZeroOp to allow this and other folds.
   if (match(Op0, m_ImmConstant()) &&
       match(Op1, m_Select(m_Value(), m_ImmConstant(), m_ImmConstant()))) {
-    if (Instruction *R = FoldOpIntoSelect(I, cast<SelectInst>(Op1)))
+    if (Instruction *R = FoldOpIntoSelect(I, cast<SelectInst>(Op1),
+                                          /*FoldWithMultiUse*/ true))
       return R;
   }
 
@@ -1490,11 +1493,13 @@ Instruction *InstCombinerImpl::visitURem(BinaryOperator &I) {
     return CastInst::CreateZExtOrBitCast(Cmp, Ty);
   }
 
-  // X urem C -> X < C ? X : X - C, where C >= signbit.
+  // Op0 urem C -> Op0 < C ? Op0 : Op0 - C, where C >= signbit.
+  // Op0 must be frozen because we are increasing its number of uses.
   if (match(Op1, m_Negative())) {
-    Value *Cmp = Builder.CreateICmpULT(Op0, Op1);
-    Value *Sub = Builder.CreateSub(Op0, Op1);
-    return SelectInst::Create(Cmp, Op0, Sub);
+    Value *F0 = Builder.CreateFreeze(Op0, Op0->getName() + ".fr");
+    Value *Cmp = Builder.CreateICmpULT(F0, Op1);
+    Value *Sub = Builder.CreateSub(F0, Op1);
+    return SelectInst::Create(Cmp, F0, Sub);
   }
 
   // If the divisor is a sext of a boolean, then the divisor must be max

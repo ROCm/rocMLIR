@@ -251,7 +251,7 @@ BinaryContext::createBinaryContext(const ObjectFile *File, bool IsPIC,
 
   BC->HasFixedLoadAddress = !IsPIC;
 
-  return BC;
+  return std::move(BC);
 }
 
 bool BinaryContext::forceSymbolRelocations(StringRef SymbolName) const {
@@ -809,6 +809,7 @@ BinaryContext::duplicateJumpTable(BinaryFunction &Function, JumpTable *JT,
     break;
   }
   assert(Found && "Label not found");
+  (void)Found;
   MCSymbol *NewLabel = Ctx->createNamedTempSymbol("duplicatedJT");
   JumpTable *NewJT =
       new JumpTable(*NewLabel, JT->getAddress(), JT->EntrySize, JT->Type,
@@ -1172,6 +1173,7 @@ void BinaryContext::postProcessSymbolTable() {
     }
   }
   assert(Valid);
+  (void)Valid;
   generateSymbolHashes();
 }
 
@@ -1325,14 +1327,13 @@ void BinaryContext::printGlobalSymbols(raw_ostream &OS) const {
   }
 }
 
-Expected<unsigned>
-BinaryContext::getDwarfFile(StringRef Directory, StringRef FileName,
-                            unsigned FileNumber,
-                            Optional<MD5::MD5Result> Checksum,
-                            Optional<StringRef> Source, unsigned CUID) {
+Expected<unsigned> BinaryContext::getDwarfFile(
+    StringRef Directory, StringRef FileName, unsigned FileNumber,
+    Optional<MD5::MD5Result> Checksum, Optional<StringRef> Source,
+    unsigned CUID, unsigned DWARFVersion) {
   DwarfLineTable &Table = DwarfLineTablesCUMap[CUID];
-  return Table.tryGetFile(Directory, FileName, Checksum, Source,
-                          Ctx->getDwarfVersion(), FileNumber);
+  return Table.tryGetFile(Directory, FileName, Checksum, Source, DWARFVersion,
+                          FileNumber);
 }
 
 unsigned BinaryContext::addDebugFilenameToUnit(const uint32_t DestCUID,
@@ -1360,7 +1361,9 @@ unsigned BinaryContext::addDebugFilenameToUnit(const uint32_t DestCUID,
           dwarf::toString(FileNames[FileIndex - 1].Name))
     FileName = *FName;
   assert(FileName != "");
-  return cantFail(getDwarfFile(Dir, FileName, 0, None, None, DestCUID));
+  DWARFCompileUnit *DstUnit = DwCtx->getCompileUnitForOffset(DestCUID);
+  return cantFail(getDwarfFile(Dir, FileName, 0, None, None, DestCUID,
+                               DstUnit->getVersion()));
 }
 
 std::vector<BinaryFunction *> BinaryContext::getSortedFunctions() {
@@ -1458,7 +1461,14 @@ void BinaryContext::preprocessDebugInfo() {
       if (containsAddress(Range.LowPC))
         AllRanges.emplace_back(CURange{Range.LowPC, Range.HighPC, CU.get()});
     }
+
+    ContainsDwarf5 |= CU->getVersion() >= 5;
+    ContainsDwarfLegacy |= CU->getVersion() < 5;
   }
+
+  if (ContainsDwarf5 && ContainsDwarfLegacy)
+    llvm::errs() << "BOLT-WARNING: BOLT does not support mix mode binary with "
+                    "DWARF5 and DWARF{2,3,4}.\n";
 
   std::sort(AllRanges.begin(), AllRanges.end());
   for (auto &KV : BinaryFunctions) {
@@ -1492,11 +1502,14 @@ void BinaryContext::preprocessDebugInfo() {
            << DwCtx->getNumCompileUnits() << " CUs will be updated\n";
   }
 
+  preprocessDWODebugInfo();
+
   // Populate MCContext with DWARF files from all units.
   StringRef GlobalPrefix = AsmInfo->getPrivateGlobalPrefix();
   for (const std::unique_ptr<DWARFUnit> &CU : DwCtx->compile_units()) {
     const uint64_t CUID = CU->getOffset();
-    getDwarfLineTable(CUID).setLabel(Ctx->getOrCreateSymbol(
+    DwarfLineTable &BinaryLineTable = getDwarfLineTable(CUID);
+    BinaryLineTable.setLabel(Ctx->getOrCreateSymbol(
         GlobalPrefix + "line_table_start" + Twine(CUID)));
 
     if (!ProcessedCUs.count(CU.get()))
@@ -1507,30 +1520,53 @@ void BinaryContext::preprocessDebugInfo() {
     const std::vector<DWARFDebugLine::FileNameEntry> &FileNames =
         LineTable->Prologue.FileNames;
 
+    uint16_t DwarfVersion = LineTable->Prologue.getVersion();
+    if (DwarfVersion >= 5) {
+      Optional<MD5::MD5Result> Checksum = None;
+      if (LineTable->Prologue.ContentTypes.HasMD5)
+        Checksum = LineTable->Prologue.FileNames[0].Checksum;
+      Optional<const char *> Name =
+          dwarf::toString(CU->getUnitDIE().find(dwarf::DW_AT_name), nullptr);
+      if (Optional<uint64_t> DWOID = CU->getDWOId()) {
+        auto Iter = DWOCUs.find(*DWOID);
+        assert(Iter != DWOCUs.end() && "DWO CU was not found.");
+        Name = dwarf::toString(
+            Iter->second->getUnitDIE().find(dwarf::DW_AT_name), nullptr);
+      }
+      BinaryLineTable.setRootFile(CU->getCompilationDir(), *Name, Checksum,
+                                  None);
+    }
+
+    BinaryLineTable.setDwarfVersion(DwarfVersion);
+
     // Assign a unique label to every line table, one per CU.
     // Make sure empty debug line tables are registered too.
     if (FileNames.empty()) {
-      cantFail(getDwarfFile("", "<unknown>", 0, None, None, CUID));
+      cantFail(
+          getDwarfFile("", "<unknown>", 0, None, None, CUID, DwarfVersion));
       continue;
     }
+    const uint32_t Offset = DwarfVersion < 5 ? 1 : 0;
     for (size_t I = 0, Size = FileNames.size(); I != Size; ++I) {
       // Dir indexes start at 1, as DWARF file numbers, and a dir index 0
       // means empty dir.
       StringRef Dir = "";
-      if (FileNames[I].DirIdx != 0)
+      if (FileNames[I].DirIdx != 0 || DwarfVersion >= 5)
         if (Optional<const char *> DirName = dwarf::toString(
                 LineTable->Prologue
-                    .IncludeDirectories[FileNames[I].DirIdx - 1]))
+                    .IncludeDirectories[FileNames[I].DirIdx - Offset]))
           Dir = *DirName;
       StringRef FileName = "";
       if (Optional<const char *> FName = dwarf::toString(FileNames[I].Name))
         FileName = *FName;
       assert(FileName != "");
-      cantFail(getDwarfFile(Dir, FileName, 0, None, None, CUID));
+      Optional<MD5::MD5Result> Checksum = None;
+      if (DwarfVersion >= 5 && LineTable->Prologue.ContentTypes.HasMD5)
+        Checksum = LineTable->Prologue.FileNames[I].Checksum;
+      cantFail(
+          getDwarfFile(Dir, FileName, 0, Checksum, None, CUID, DwarfVersion));
     }
   }
-
-  preprocessDWODebugInfo();
 }
 
 bool BinaryContext::shouldEmit(const BinaryFunction &Function) const {
@@ -1688,6 +1724,22 @@ void BinaryContext::printInstruction(raw_ostream &OS, const MCInst &Instruction,
     Instruction.dump_pretty(OS, InstPrinter.get());
     OS << "\n";
   }
+}
+
+Optional<uint64_t>
+BinaryContext::getBaseAddressForMapping(uint64_t MMapAddress,
+                                        uint64_t FileOffset) const {
+  // Find a segment with a matching file offset.
+  for (auto &KV : SegmentMapInfo) {
+    const SegmentInfo &SegInfo = KV.second;
+    if (alignDown(SegInfo.FileOffset, SegInfo.Alignment) == FileOffset) {
+      // Use segment's aligned memory offset to calculate the base address.
+      const uint64_t MemOffset = alignDown(SegInfo.Address, SegInfo.Alignment);
+      return MMapAddress - MemOffset;
+    }
+  }
+
+  return NoneType();
 }
 
 ErrorOr<BinarySection &> BinaryContext::getSectionForAddress(uint64_t Address) {

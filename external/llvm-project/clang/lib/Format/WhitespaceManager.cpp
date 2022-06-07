@@ -369,6 +369,11 @@ AlignTokenSequence(const FormatStyle &Style, unsigned Start, unsigned End,
           if (Changes[i].Tok->MatchingParen &&
               Changes[i].Tok->MatchingParen->is(TT_LambdaLBrace))
             return false;
+          if (Changes[ScopeStart].NewlinesBefore > 0)
+            return false;
+          if (Changes[i].Tok->is(tok::l_brace) &&
+              Changes[i].Tok->is(BK_BracedInit))
+            return true;
           return Style.BinPackArguments;
         }
 
@@ -385,6 +390,14 @@ AlignTokenSequence(const FormatStyle &Style, unsigned Start, unsigned End,
             Changes[i].Tok->Previous->is(TT_ConditionalExpr))
           return true;
 
+        // Continued direct-list-initialization using braced list.
+        if (ScopeStart > Start + 1 &&
+            Changes[ScopeStart - 2].Tok->is(tok::identifier) &&
+            Changes[ScopeStart - 1].Tok->is(tok::l_brace) &&
+            Changes[i].Tok->is(tok::l_brace) &&
+            Changes[i].Tok->is(BK_BracedInit))
+          return true;
+
         // Continued braced list.
         if (ScopeStart > Start + 1 &&
             Changes[ScopeStart - 2].Tok->isNot(tok::identifier) &&
@@ -396,6 +409,8 @@ AlignTokenSequence(const FormatStyle &Style, unsigned Start, unsigned End,
                 Changes[OuterScopeStart - 1].Tok->is(TT_LambdaLBrace))
               return false;
           }
+          if (Changes[ScopeStart].NewlinesBefore > 0)
+            return false;
           return true;
         }
 
@@ -428,6 +443,7 @@ AlignTokenSequence(const FormatStyle &Style, unsigned Start, unsigned End,
            --Previous) {
         Changes[Previous + 1].Spaces -= Shift;
         Changes[Previous].Spaces += Shift;
+        Changes[Previous].StartOfTokenColumn += Shift;
       }
     }
   }

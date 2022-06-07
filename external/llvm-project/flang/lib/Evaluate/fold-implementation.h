@@ -58,6 +58,7 @@ public:
   std::optional<Constant<T>> GetConstantComponent(
       Component &, const std::vector<Constant<SubscriptInteger>> * = nullptr);
   std::optional<Constant<T>> Folding(ArrayRef &);
+  std::optional<Constant<T>> Folding(DataRef &);
   Expr<T> Folding(Designator<T> &&);
   Constant<T> *Folding(std::optional<ActualArgument> &);
 
@@ -118,27 +119,12 @@ CoarrayRef FoldOperation(FoldingContext &, CoarrayRef &&);
 DataRef FoldOperation(FoldingContext &, DataRef &&);
 Substring FoldOperation(FoldingContext &, Substring &&);
 ComplexPart FoldOperation(FoldingContext &, ComplexPart &&);
-
 template <typename T>
-Expr<T> FoldOperation(FoldingContext &context, FunctionRef<T> &&);
-template <int KIND>
-Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
-    FoldingContext &context, FunctionRef<Type<TypeCategory::Integer, KIND>> &&);
-template <int KIND>
-Expr<Type<TypeCategory::Real, KIND>> FoldIntrinsicFunction(
-    FoldingContext &context, FunctionRef<Type<TypeCategory::Real, KIND>> &&);
-template <int KIND>
-Expr<Type<TypeCategory::Complex, KIND>> FoldIntrinsicFunction(
-    FoldingContext &context, FunctionRef<Type<TypeCategory::Complex, KIND>> &&);
-template <int KIND>
-Expr<Type<TypeCategory::Logical, KIND>> FoldIntrinsicFunction(
-    FoldingContext &context, FunctionRef<Type<TypeCategory::Logical, KIND>> &&);
-
+Expr<T> FoldOperation(FoldingContext &, FunctionRef<T> &&);
 template <typename T>
 Expr<T> FoldOperation(FoldingContext &context, Designator<T> &&designator) {
   return Folder<T>{context}.Folding(std::move(designator));
 }
-
 Expr<TypeParamInquiry::Result> FoldOperation(
     FoldingContext &, TypeParamInquiry &&);
 Expr<ImpliedDoIndex::Result> FoldOperation(
@@ -182,6 +168,25 @@ std::optional<Constant<T>> Folder<T>::Folding(ArrayRef &aRef) {
   }
 }
 
+template <typename T>
+std::optional<Constant<T>> Folder<T>::Folding(DataRef &ref) {
+  return common::visit(
+      common::visitors{
+          [this](SymbolRef &sym) { return GetNamedConstant(*sym); },
+          [this](Component &comp) {
+            comp = FoldOperation(context_, std::move(comp));
+            return GetConstantComponent(comp);
+          },
+          [this](ArrayRef &aRef) {
+            aRef = FoldOperation(context_, std::move(aRef));
+            return Folding(aRef);
+          },
+          [](CoarrayRef &) { return std::optional<Constant<T>>{}; },
+      },
+      ref.u);
+}
+
+// TODO: This would be more natural as a member function of Constant<T>.
 template <typename T>
 std::optional<Constant<T>> Folder<T>::ApplySubscripts(const Constant<T> &array,
     const std::vector<Constant<SubscriptInteger>> &subscripts) {
@@ -303,7 +308,7 @@ std::optional<Constant<T>> Folder<T>::ApplyComponent(
 template <typename T>
 std::optional<Constant<T>> Folder<T>::GetConstantComponent(Component &component,
     const std::vector<Constant<SubscriptInteger>> *subscripts) {
-  if (std::optional<Constant<SomeDerived>> structures{std::visit(
+  if (std::optional<Constant<SomeDerived>> structures{common::visit(
           common::visitors{
               [&](const Symbol &symbol) {
                 return Folder<SomeDerived>{context_}.GetNamedConstant(symbol);
@@ -341,8 +346,21 @@ template <typename T> Expr<T> Folder<T>::Folding(Designator<T> &&designator) {
         }
       }
     }
+  } else if constexpr (T::category == TypeCategory::Real) {
+    if (auto *zPart{std::get_if<ComplexPart>(&designator.u)}) {
+      *zPart = FoldOperation(context_, std::move(*zPart));
+      using ComplexT = Type<TypeCategory::Complex, T::kind>;
+      if (auto zConst{Folder<ComplexT>{context_}.Folding(zPart->complex())}) {
+        return Fold(context_,
+            Expr<T>{ComplexComponent<T::kind>{
+                zPart->part() == ComplexPart::Part::IM,
+                Expr<ComplexT>{std::move(*zConst)}}});
+      } else {
+        return Expr<T>{Designator<T>{std::move(*zPart)}};
+      }
+    }
   }
-  return std::visit(
+  return common::visit(
       common::visitors{
           [&](SymbolRef &&symbol) {
             if (auto constant{GetNamedConstant(*symbol)}) {
@@ -523,7 +541,7 @@ template <typename A, typename B>
 std::optional<std::vector<A>> GetIntegerVector(const B &x) {
   static_assert(std::is_integral_v<A>);
   if (const auto *someInteger{UnwrapExpr<Expr<SomeInteger>>(x)}) {
-    return std::visit(
+    return common::visit(
         [](const auto &typedExpr) -> std::optional<std::vector<A>> {
           using T = ResultType<decltype(typedExpr)>;
           if (const auto *constant{UnwrapConstantValue<T>(typedExpr)}) {
@@ -890,9 +908,9 @@ template <typename T> Expr<T> Folder<T>::SPREAD(FunctionRef<T> &&funcRef) {
     Constant<T> spread{source->Reshape(std::move(shape))};
     std::vector<int> dimOrder;
     for (int j{0}; j < sourceRank; ++j) {
-      dimOrder.push_back(j);
+      dimOrder.push_back(j < *dim - 1 ? j : j + 1);
     }
-    dimOrder.insert(dimOrder.begin() + *dim - 1, sourceRank);
+    dimOrder.push_back(*dim - 1);
     ConstantSubscripts at{spread.lbounds()}; // all 1
     spread.CopyFrom(*source, TotalElementCount(spread.shape()), at, &dimOrder);
     return Expr<T>{std::move(spread)};
@@ -1039,11 +1057,25 @@ Expr<T> RewriteSpecificMINorMAX(
     return Fold(context, ConvertToType<T>(AsCategoryExpr(std::move(maxRef))));
   }};
   if (auto *sx{UnwrapExpr<Expr<SomeReal>>(*resultTypeArg)}) {
-    return std::visit(insertConversion, sx->u);
+    return common::visit(insertConversion, sx->u);
   }
   auto &sx{DEREF(UnwrapExpr<Expr<SomeInteger>>(*resultTypeArg))};
-  return std::visit(insertConversion, sx.u);
+  return common::visit(insertConversion, sx.u);
 }
+
+// FoldIntrinsicFunction()
+template <int KIND>
+Expr<Type<TypeCategory::Integer, KIND>> FoldIntrinsicFunction(
+    FoldingContext &context, FunctionRef<Type<TypeCategory::Integer, KIND>> &&);
+template <int KIND>
+Expr<Type<TypeCategory::Real, KIND>> FoldIntrinsicFunction(
+    FoldingContext &context, FunctionRef<Type<TypeCategory::Real, KIND>> &&);
+template <int KIND>
+Expr<Type<TypeCategory::Complex, KIND>> FoldIntrinsicFunction(
+    FoldingContext &context, FunctionRef<Type<TypeCategory::Complex, KIND>> &&);
+template <int KIND>
+Expr<Type<TypeCategory::Logical, KIND>> FoldIntrinsicFunction(
+    FoldingContext &context, FunctionRef<Type<TypeCategory::Logical, KIND>> &&);
 
 template <typename T>
 Expr<T> FoldOperation(FoldingContext &context, FunctionRef<T> &&funcRef) {
@@ -1164,7 +1196,7 @@ private:
     }
   }
   bool FoldArray(const ArrayConstructorValue<T> &x) {
-    return std::visit([&](const auto &y) { return FoldArray(y); }, x.u);
+    return common::visit([&](const auto &y) { return FoldArray(y); }, x.u);
   }
   bool FoldArray(const ArrayConstructorValues<T> &xs) {
     for (const auto &x : xs) {
@@ -1227,7 +1259,7 @@ template <TypeCategory CAT>
 std::enable_if_t<CAT != TypeCategory::Derived,
     std::optional<Expr<SomeKind<CAT>>>>
 AsFlatArrayConstructor(const Expr<SomeKind<CAT>> &expr) {
-  return std::visit(
+  return common::visit(
       [&](const auto &kindExpr) -> std::optional<Expr<SomeKind<CAT>>> {
         if (auto flattened{AsFlatArrayConstructor(kindExpr)}) {
           return Expr<SomeKind<CAT>>{std::move(*flattened)};
@@ -1268,7 +1300,7 @@ Expr<RESULT> MapOperation(FoldingContext &context,
     Expr<OPERAND> &&values) {
   ArrayConstructor<RESULT> result{values};
   if constexpr (common::HasMember<OPERAND, AllIntrinsicCategoryTypes>) {
-    std::visit(
+    common::visit(
         [&](auto &&kindExpr) {
           using kindType = ResultType<decltype(kindExpr)>;
           auto &aConst{std::get<ArrayConstructor<kindType>>(kindExpr.u)};
@@ -1309,7 +1341,7 @@ Expr<RESULT> MapOperation(FoldingContext &context,
   auto result{ArrayConstructorFromMold<RESULT>(leftValues, std::move(length))};
   auto &leftArrConst{std::get<ArrayConstructor<LEFT>>(leftValues.u)};
   if constexpr (common::HasMember<RIGHT, AllIntrinsicCategoryTypes>) {
-    std::visit(
+    common::visit(
         [&](auto &&kindExpr) {
           using kindType = ResultType<decltype(kindExpr)>;
 
@@ -1366,7 +1398,7 @@ Expr<RESULT> MapOperation(FoldingContext &context,
     const Expr<LEFT> &leftScalar, Expr<RIGHT> &&rightValues) {
   auto result{ArrayConstructorFromMold<RESULT>(leftScalar, std::move(length))};
   if constexpr (common::HasMember<RIGHT, AllIntrinsicCategoryTypes>) {
-    std::visit(
+    common::visit(
         [&](auto &&kindExpr) {
           using kindType = ResultType<decltype(kindExpr)>;
           auto &rightArrConst{std::get<ArrayConstructor<kindType>>(kindExpr.u)};
@@ -1518,7 +1550,7 @@ Expr<TO> FoldOperation(
     FoldingContext &context;
     Convert<TO, FROMCAT> &convert;
   } msvcWorkaround{context, convert};
-  return std::visit(
+  return common::visit(
       [&msvcWorkaround](auto &kindExpr) -> Expr<TO> {
         using Operand = ResultType<decltype(kindExpr)>;
         // This variable is a workaround for msvc which emits an error when
@@ -1839,7 +1871,7 @@ Expr<T> FoldOperation(FoldingContext &context, RealToIntPower<T> &&x) {
   if (auto array{ApplyElementwise(context, x)}) {
     return *array;
   }
-  return std::visit(
+  return common::visit(
       [&](auto &y) -> Expr<T> {
         if (auto folded{OperandsAreConstants(x.left(), y)}) {
           auto power{evaluate::IntPower(folded->first, folded->second)};
@@ -1897,7 +1929,7 @@ Expr<Type<TypeCategory::Real, KIND>> ToReal(
     FoldingContext &context, Expr<SomeType> &&expr) {
   using Result = Type<TypeCategory::Real, KIND>;
   std::optional<Expr<Result>> result;
-  std::visit(
+  common::visit(
       [&](auto &&x) {
         using From = std::decay_t<decltype(x)>;
         if constexpr (std::is_same_v<From, BOZLiteralConstant>) {
@@ -1922,9 +1954,34 @@ Expr<Type<TypeCategory::Real, KIND>> ToReal(
   return result.value();
 }
 
+// REAL(z) and AIMAG(z)
+template <int KIND>
+Expr<Type<TypeCategory::Real, KIND>> FoldOperation(
+    FoldingContext &context, ComplexComponent<KIND> &&x) {
+  using Operand = Type<TypeCategory::Complex, KIND>;
+  using Result = Type<TypeCategory::Real, KIND>;
+  if (auto array{ApplyElementwise(context, x,
+          std::function<Expr<Result>(Expr<Operand> &&)>{
+              [=](Expr<Operand> &&operand) {
+                return Expr<Result>{ComplexComponent<KIND>{
+                    x.isImaginaryPart, std::move(operand)}};
+              }})}) {
+    return *array;
+  }
+  auto &operand{x.left()};
+  if (auto value{GetScalarConstantValue<Operand>(operand)}) {
+    if (x.isImaginaryPart) {
+      return Expr<Result>{Constant<Result>{value->AIMAG()}};
+    } else {
+      return Expr<Result>{Constant<Result>{value->REAL()}};
+    }
+  }
+  return Expr<Result>{std::move(x)};
+}
+
 template <typename T>
 Expr<T> ExpressionBase<T>::Rewrite(FoldingContext &context, Expr<T> &&expr) {
-  return std::visit(
+  return common::visit(
       [&](auto &&x) -> Expr<T> {
         if constexpr (IsSpecificIntrinsicType<T>) {
           return FoldOperation(context, std::move(x));
@@ -1941,6 +1998,5 @@ Expr<T> ExpressionBase<T>::Rewrite(FoldingContext &context, Expr<T> &&expr) {
 }
 
 FOR_EACH_TYPE_AND_KIND(extern template class ExpressionBase, )
-
 } // namespace Fortran::evaluate
 #endif // FORTRAN_EVALUATE_FOLD_IMPLEMENTATION_H_

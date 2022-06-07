@@ -206,23 +206,47 @@ static Error verifyOptions(const DsymutilOptions &Options) {
   return Error::success();
 }
 
-static Expected<AccelTableKind> getAccelTableKind(opt::InputArgList &Args) {
+static Expected<DwarfLinkerAccelTableKind>
+getAccelTableKind(opt::InputArgList &Args) {
   if (opt::Arg *Accelerator = Args.getLastArg(OPT_accelerator)) {
     StringRef S = Accelerator->getValue();
     if (S == "Apple")
-      return AccelTableKind::Apple;
+      return DwarfLinkerAccelTableKind::Apple;
     if (S == "Dwarf")
-      return AccelTableKind::Dwarf;
+      return DwarfLinkerAccelTableKind::Dwarf;
     if (S == "Pub")
-      return AccelTableKind::Pub;
+      return DwarfLinkerAccelTableKind::Pub;
     if (S == "Default")
-      return AccelTableKind::Default;
+      return DwarfLinkerAccelTableKind::Default;
+    if (S == "None")
+      return DwarfLinkerAccelTableKind::None;
+    return make_error<StringError>("invalid accelerator type specified: '" + S +
+                                       "'. Supported values are 'Apple', "
+                                       "'Dwarf', 'Pub', 'Default' and 'None'.",
+                                   inconvertibleErrorCode());
+  }
+  return DwarfLinkerAccelTableKind::Default;
+}
+
+static Expected<DWARFVerify> getVerifyKind(opt::InputArgList &Args) {
+  if (Args.hasArg(OPT_verify))
+    return DWARFVerify::Output;
+  if (opt::Arg *Verify = Args.getLastArg(OPT_verify_dwarf)) {
+    StringRef S = Verify->getValue();
+    if (S == "input")
+      return DWARFVerify::Input;
+    if (S == "output")
+      return DWARFVerify::Output;
+    if (S == "all")
+      return DWARFVerify::All;
+    if (S == "none")
+      return DWARFVerify::None;
     return make_error<StringError>(
-        "invalid accelerator type specified: '" + S +
-            "'. Support values are 'Apple', 'Dwarf', 'Pub' and 'Default'.",
+        "invalid verify type specified: '" + S +
+            "'. Supported values are 'input', 'output', 'all' and 'none'.",
         inconvertibleErrorCode());
   }
-  return AccelTableKind::Default;
+  return DWARFVerify::None;
 }
 
 static Expected<DWARFVerify> getVerifyKind(opt::InputArgList &Args) {
@@ -282,7 +306,7 @@ static Expected<DsymutilOptions> getOptions(opt::InputArgList &Args) {
   if (Args.hasArg(OPT_gen_reproducer))
     Options.ReproMode = ReproducerMode::Generate;
 
-  if (Expected<AccelTableKind> AccelKind = getAccelTableKind(Args)) {
+  if (Expected<DwarfLinkerAccelTableKind> AccelKind = getAccelTableKind(Args)) {
     Options.LinkOpts.TheAccelTableKind = *AccelKind;
   } else {
     return AccelKind.takeError();

@@ -1,8 +1,5 @@
 def StdC : StandardSpec<"stdc"> {
 
-  NamedType FILE = NamedType<"FILE">;
-  PtrType FILEPtr = PtrType<FILE>;
-  RestrictedPtrType FILERestrictedPtr = RestrictedPtrType<FILE>;
   NamedType StructTmType = NamedType<"struct tm">;
   PtrType StructTmPtr = PtrType<StructTmType>;
   PtrType TimeTTypePtr = PtrType<TimeTType>;
@@ -482,7 +479,27 @@ def StdC : StandardSpec<"stdc"> {
       [], // Enumerations
       [
           FunctionSpec<
+              "clearerr",
+              RetValSpec<VoidType>,
+              [ArgSpec<FILEPtr>]
+          >,
+          FunctionSpec<
               "fclose",
+              RetValSpec<IntType>,
+              [ArgSpec<FILEPtr>]
+          >,
+          FunctionSpec<
+              "feof",
+              RetValSpec<IntType>,
+              [ArgSpec<FILEPtr>]
+          >,
+          FunctionSpec<
+              "ferror",
+              RetValSpec<IntType>,
+              [ArgSpec<FILEPtr>]
+          >,
+          FunctionSpec<
+              "fflush",
               RetValSpec<IntType>,
               [ArgSpec<FILEPtr>]
           >,
@@ -514,6 +531,34 @@ def StdC : StandardSpec<"stdc"> {
                ArgSpec<SizeTType>,
                ArgSpec<SizeTType>,
                ArgSpec<FILERestrictedPtr>]
+          >,
+          FunctionSpec<
+              "sprintf",
+              RetValSpec<IntType>,
+              [ArgSpec<CharRestrictedPtr>,
+               ArgSpec<ConstCharRestrictedPtr>,
+               ArgSpec<VarArgType>]
+          >,
+          FunctionSpec<
+              "snprintf",
+              RetValSpec<IntType>,
+              [ArgSpec<CharRestrictedPtr>,
+               ArgSpec<SizeTType>,
+               ArgSpec<ConstCharRestrictedPtr>,
+               ArgSpec<VarArgType>]
+          >,
+          FunctionSpec<
+              "printf",
+              RetValSpec<IntType>,
+              [ArgSpec<ConstCharRestrictedPtr>,
+               ArgSpec<VarArgType>]
+          >,
+          FunctionSpec<
+              "fprintf",
+              RetValSpec<IntType>,
+              [ArgSpec<FILERestrictedPtr>,
+               ArgSpec<ConstCharRestrictedPtr>,
+               ArgSpec<VarArgType>]
           >,
       ]
   >;

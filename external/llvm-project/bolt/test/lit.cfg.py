@@ -66,8 +66,8 @@ ld_lld = llvm_config.use_llvm_tool('ld.lld', required=True, search_env='LD_LLD')
 llvm_config.config.available_features.add('ld.lld')
 llvm_config.add_tool_substitutions([ToolSubst(r'ld\.lld', command=ld_lld)])
 
-config.substitutions.append(('%cflags', '-no-pie -gdwarf-4'))
-config.substitutions.append(('%cxxflags', '-no-pie -gdwarf-4'))
+config.substitutions.append(('%cflags', ''))
+config.substitutions.append(('%cxxflags', ''))
 
 link_fdata_cmd = os.path.join(config.test_source_root, 'link_fdata.py')
 
@@ -90,6 +90,7 @@ tools = [
     ToolSubst('llvm-readelf', unresolved='fatal'),
     ToolSubst('link_fdata', command=link_fdata_cmd, unresolved='fatal'),
     ToolSubst('merge-fdata', unresolved='fatal'),
+    ToolSubst('llvm-readobj', unresolved='fatal'),
 ]
 llvm_config.add_tool_substitutions(tools, tool_dirs)
 

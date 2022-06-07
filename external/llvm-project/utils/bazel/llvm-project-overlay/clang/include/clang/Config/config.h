@@ -30,9 +30,21 @@
 
 /* Default C/ObjC standard to use. */
 /* #undef CLANG_DEFAULT_STD_C */
+/* Always #define something so that missing the config.h #include at use sites
+ * becomes a compile error.
+ */
+#ifndef CLANG_DEFAULT_STD_C
+#define CLANG_DEFAULT_STD_C LangStandard::lang_unspecified
+#endif
 
 /* Default C++/ObjC++ standard to use. */
 /* #undef CLANG_DEFAULT_STD_CXX */
+/* Always #define something so that missing the config.h #include at use sites
+ * becomes a compile error.
+ */
+#ifndef CLANG_DEFAULT_STD_CXX
+#define CLANG_DEFAULT_STD_CXX LangStandard::lang_unspecified
+#endif
 
 /* Default C++ stdlib to use. */
 #define CLANG_DEFAULT_CXX_STDLIB ""
@@ -107,7 +119,7 @@
 #define CLANG_SPAWN_CC1 0
 
 /* Whether to enable opaque pointers by default */
-#define CLANG_ENABLE_OPAQUE_POINTERS_INTERNAL 0
+#define CLANG_ENABLE_OPAQUE_POINTERS_INTERNAL 1
 
 /* Directly provide definitions here behind platform preprocessor definitions.
  * The preprocessor conditions are sufficient to handle all of the configuration

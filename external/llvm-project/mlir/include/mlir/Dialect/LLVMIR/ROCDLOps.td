@@ -238,16 +238,4 @@ def ROCDL_RawBufferAtomicFAddOp :
   let hasCustomAssemblyFormat = 1;
 }
 
-//===---------------------------------------------------------------------===//
-// DPP Move intrinsic
-def ROCDL_DPPMovOp : ROCDL_IntrOp<"mov.dpp", [], [0],
-    [AllTypesMatch<["res", "src"]>], 1>,
-  Arguments<(ins LLVM_Type:$src, I32:$dppCtrl, I32:$rowMask,
-      I32:$bankMask, I1:$boundCtrl)> {
-  let results = (outs LLVM_Type:$res);
-  let assemblyFormat = [{
-    attr-dict $src `with` $dppCtrl `,` $rowMask `,` $bankMask `,` $boundCtrl `:` type($src)
-  }];
-}
-
 #endif // ROCDLIR_OPS

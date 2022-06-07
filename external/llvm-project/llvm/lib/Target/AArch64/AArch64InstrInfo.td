@@ -2432,7 +2432,8 @@ def : Pat<(AArch64call texternalsym:$func), (BL texternalsym:$func)>;
 // Exception generation instructions.
 //===----------------------------------------------------------------------===//
 let isTrap = 1 in {
-def BRK   : ExceptionGeneration<0b001, 0b00, "brk">;
+def BRK   : ExceptionGeneration<0b001, 0b00, "brk",
+                                [(int_aarch64_break timm32_0_65535:$imm)]>;
 }
 def DCPS1 : ExceptionGeneration<0b101, 0b01, "dcps1">;
 def DCPS2 : ExceptionGeneration<0b101, 0b10, "dcps2">;
@@ -3972,9 +3973,9 @@ defm FCVT : FPConversion<"fcvt">;
 // Floating point single operand instructions.
 //===----------------------------------------------------------------------===//
 
-defm FABS   : SingleOperandFPData<0b0001, "fabs", fabs>;
-defm FMOV   : SingleOperandFPData<0b0000, "fmov">;
-defm FNEG   : SingleOperandFPData<0b0010, "fneg", fneg>;
+defm FABS   : SingleOperandFPDataNoException<0b0001, "fabs", fabs>;
+defm FMOV   : SingleOperandFPDataNoException<0b0000, "fmov">;
+defm FNEG   : SingleOperandFPDataNoException<0b0010, "fneg", fneg>;
 defm FRINTA : SingleOperandFPData<0b1100, "frinta", any_fround>;
 defm FRINTI : SingleOperandFPData<0b1111, "frinti", any_fnearbyint>;
 defm FRINTM : SingleOperandFPData<0b1010, "frintm", any_ffloor>;
@@ -4216,7 +4217,7 @@ defm CMGT   : SIMDCmpTwoVector<0, 0b01000, "cmgt", AArch64cmgtz>;
 defm CMLE   : SIMDCmpTwoVector<1, 0b01001, "cmle", AArch64cmlez>;
 defm CMLT   : SIMDCmpTwoVector<0, 0b01010, "cmlt", AArch64cmltz>;
 defm CNT    : SIMDTwoVectorB<0, 0b00, 0b00101, "cnt", ctpop>;
-defm FABS   : SIMDTwoVectorFP<0, 1, 0b01111, "fabs", fabs>;
+defm FABS   : SIMDTwoVectorFPNoException<0, 1, 0b01111, "fabs", fabs>;
 
 def : Pat<(v8i8 (AArch64vashr (v8i8 V64:$Rn), (i32 7))),
           (CMLTv8i8rz V64:$Rn)>;
@@ -4299,7 +4300,7 @@ def : Pat<(v2i32 (int_aarch64_neon_fcvtzu v2f32:$Rn)), (FCVTZUv2f32 $Rn)>;
 def : Pat<(v4i32 (int_aarch64_neon_fcvtzu v4f32:$Rn)), (FCVTZUv4f32 $Rn)>;
 def : Pat<(v2i64 (int_aarch64_neon_fcvtzu v2f64:$Rn)), (FCVTZUv2f64 $Rn)>;
 
-defm FNEG   : SIMDTwoVectorFP<1, 1, 0b01111, "fneg", fneg>;
+defm FNEG   : SIMDTwoVectorFPNoException<1, 1, 0b01111, "fneg", fneg>;
 defm FRECPE : SIMDTwoVectorFP<0, 1, 0b11101, "frecpe", int_aarch64_neon_frecpe>;
 defm FRINTA : SIMDTwoVectorFP<1, 0, 0b11000, "frinta", any_fround>;
 defm FRINTI : SIMDTwoVectorFP<1, 1, 0b11001, "frinti", any_fnearbyint>;
@@ -4780,11 +4781,13 @@ defm CMTST    : SIMDThreeScalarD<0, 0b10001, "cmtst", AArch64cmtst>;
 defm FABD     : SIMDFPThreeScalar<1, 1, 0b010, "fabd", int_aarch64_sisd_fabd>;
 def : Pat<(v1f64 (int_aarch64_neon_fabd (v1f64 FPR64:$Rn), (v1f64 FPR64:$Rm))),
           (FABD64 FPR64:$Rn, FPR64:$Rm)>;
-let Predicates = [HasFullFP16] in {
+let Predicates = [HasNEON, HasFullFP16] in {
 def : Pat<(fabs (fsub f16:$Rn, f16:$Rm)), (FABD16 f16:$Rn, f16:$Rm)>;
 }
+let Predicates = [HasNEON] in {
 def : Pat<(fabs (fsub f32:$Rn, f32:$Rm)), (FABD32 f32:$Rn, f32:$Rm)>;
 def : Pat<(fabs (fsub f64:$Rn, f64:$Rm)), (FABD64 f64:$Rn, f64:$Rm)>;
+}
 defm FACGE    : SIMDThreeScalarFPCmp<1, 0, 0b101, "facge",
                                      int_aarch64_neon_facge>;
 defm FACGT    : SIMDThreeScalarFPCmp<1, 1, 0b101, "facgt",
@@ -5022,8 +5025,6 @@ def : Pat<(f16 (any_sint_to_fp (i32 (any_fp_to_sint f16:$Rn)))),
 def : Pat<(f16 (any_uint_to_fp (i32 (any_fp_to_uint f16:$Rn)))),
           (UCVTFv1i16 (f16 (FCVTZUv1f16 f16:$Rn)))>;
 }
-}
-
 // If an integer is about to be converted to a floating point value,
 // just load it on the floating point unit.
 // Here are the patterns for 8 and 16-bits to float.
@@ -5110,6 +5111,7 @@ def : Pat <(f64 (uint_to_fp (i32
                           (LDURSi GPR64sp:$Rn, simm9:$offset), ssub))>;
 // 64-bits -> double are handled in target specific dag combine:
 // performIntToFpCombine.
+} // let Predicates = [HasNEON]
 
 //===----------------------------------------------------------------------===//
 // Advanced SIMD three different-sized vector instructions.
@@ -6461,7 +6463,7 @@ def : Pat<(v1f64 (int_aarch64_neon_vcvtfxu2fp (v1i64 FPR64:$Rn),
 def : Pat<(int_aarch64_neon_vcvtfxs2fp FPR32:$Rn, vecshiftR32:$imm),
           (SCVTFs FPR32:$Rn, vecshiftR32:$imm)>;
 
-// Patterns for FP16 Instrinsics - requires reg copy to/from as i16s not supported.
+// Patterns for FP16 Intrinsics - requires reg copy to/from as i16s not supported.
 
 def : Pat<(f16 (int_aarch64_neon_vcvtfxs2fp (i32 (sext_inreg FPR32:$Rn, i16)), vecshiftR16:$imm)),
           (SCVTFh (EXTRACT_SUBREG FPR32:$Rn, hsub), vecshiftR16:$imm)>;
@@ -6768,7 +6770,7 @@ class SExtLoadi8CVTf32Pat<dag addrmode, dag INST>
                                   dsub)),
                                0),
                              ssub)))>,
-    Requires<[NotForCodeSize, UseAlternateSExtLoadCVTF32]>;
+    Requires<[NotForCodeSize, UseAlternateSExtLoadCVTF32, HasNEON]>;
 
 def : SExtLoadi8CVTf32Pat<(ro8.Wpat GPR64sp:$Rn, GPR32:$Rm, ro8.Wext:$ext),
                           (LDRBroW  GPR64sp:$Rn, GPR32:$Rm, ro8.Wext:$ext)>;
@@ -6788,7 +6790,8 @@ class SExtLoadi16CVTf32Pat<dag addrmode, dag INST>
                                   INST,
                                   hsub),
                                 0),
-                            ssub)))>, Requires<[NotForCodeSize]>;
+                            ssub)))>,
+    Requires<[NotForCodeSize, UseAlternateSExtLoadCVTF32, HasNEON]>;
 
 def : SExtLoadi16CVTf32Pat<(ro16.Wpat GPR64sp:$Rn, GPR32:$Rm, ro16.Wext:$ext),
                            (LDRHroW   GPR64sp:$Rn, GPR32:$Rm, ro16.Wext:$ext)>;
@@ -6822,7 +6825,7 @@ class SExtLoadi16CVTf64Pat<dag addrmode, dag INST>
                                    dsub)),
                                0),
                              dsub)))>,
-    Requires<[NotForCodeSize, UseAlternateSExtLoadCVTF32]>;
+    Requires<[NotForCodeSize, UseAlternateSExtLoadCVTF32, HasNEON]>;
 
 def : SExtLoadi16CVTf64Pat<(ro16.Wpat GPR64sp:$Rn, GPR32:$Rm, ro16.Wext:$ext),
                            (LDRHroW GPR64sp:$Rn, GPR32:$Rm, ro16.Wext:$ext)>;
@@ -6841,7 +6844,8 @@ class SExtLoadi32CVTf64Pat<dag addrmode, dag INST>
                                   INST,
                                   ssub),
                                0),
-                             dsub)))>, Requires<[NotForCodeSize]>;
+                             dsub)))>,
+    Requires<[NotForCodeSize, UseAlternateSExtLoadCVTF32, HasNEON]>;
 
 def : SExtLoadi32CVTf64Pat<(ro32.Wpat GPR64sp:$Rn, GPR32:$Rm, ro32.Wext:$ext),
                            (LDRSroW GPR64sp:$Rn, GPR32:$Rm, ro32.Wext:$ext)>;
@@ -7368,111 +7372,16 @@ def : Pat<(v4i32 (mulhu V128:$Rn, V128:$Rm)),
 //
 
 // Natural vector casts (64 bit)
-def : Pat<(v8i8 (AArch64NvCast (v2i32 FPR64:$src))), (v8i8 FPR64:$src)>;
-def : Pat<(v4i16 (AArch64NvCast (v2i32 FPR64:$src))), (v4i16 FPR64:$src)>;
-def : Pat<(v4f16 (AArch64NvCast (v2i32 FPR64:$src))), (v4f16 FPR64:$src)>;
-def : Pat<(v4bf16 (AArch64NvCast (v2i32 FPR64:$src))), (v4bf16 FPR64:$src)>;
-def : Pat<(v2i32 (AArch64NvCast (v2i32 FPR64:$src))), (v2i32 FPR64:$src)>;
-def : Pat<(v2f32 (AArch64NvCast (v2i32 FPR64:$src))), (v2f32 FPR64:$src)>;
-def : Pat<(v1i64 (AArch64NvCast (v2i32 FPR64:$src))), (v1i64 FPR64:$src)>;
-def : Pat<(v1f64 (AArch64NvCast (v2i32 FPR64:$src))), (v1f64 FPR64:$src)>;
-
-def : Pat<(v8i8 (AArch64NvCast (v4i16 FPR64:$src))), (v8i8 FPR64:$src)>;
-def : Pat<(v4i16 (AArch64NvCast (v4i16 FPR64:$src))), (v4i16 FPR64:$src)>;
-def : Pat<(v4f16 (AArch64NvCast (v4i16 FPR64:$src))), (v4f16 FPR64:$src)>;
-def : Pat<(v4bf16 (AArch64NvCast (v4i16 FPR64:$src))), (v4bf16 FPR64:$src)>;
-def : Pat<(v2i32 (AArch64NvCast (v4i16 FPR64:$src))), (v2i32 FPR64:$src)>;
-def : Pat<(v1i64 (AArch64NvCast (v4i16 FPR64:$src))), (v1i64 FPR64:$src)>;
-def : Pat<(v1f64 (AArch64NvCast (v4i16 FPR64:$src))), (v1f64 FPR64:$src)>;
-
-def : Pat<(v8i8 (AArch64NvCast (v8i8 FPR64:$src))), (v8i8 FPR64:$src)>;
-def : Pat<(v4i16 (AArch64NvCast (v8i8 FPR64:$src))), (v4i16 FPR64:$src)>;
-def : Pat<(v4f16 (AArch64NvCast (v8i8 FPR64:$src))), (v4f16 FPR64:$src)>;
-def : Pat<(v4bf16 (AArch64NvCast (v8i8 FPR64:$src))), (v4bf16 FPR64:$src)>;
-def : Pat<(v2i32 (AArch64NvCast (v8i8 FPR64:$src))), (v2i32 FPR64:$src)>;
-def : Pat<(v2f32 (AArch64NvCast (v8i8 FPR64:$src))), (v2f32 FPR64:$src)>;
-def : Pat<(v1i64 (AArch64NvCast (v8i8 FPR64:$src))), (v1i64 FPR64:$src)>;
-def : Pat<(v1f64 (AArch64NvCast (v4i16 FPR64:$src))), (v1f64 FPR64:$src)>;
-
-def : Pat<(v8i8 (AArch64NvCast (f64 FPR64:$src))), (v8i8 FPR64:$src)>;
-def : Pat<(v4i16 (AArch64NvCast (f64 FPR64:$src))), (v4i16 FPR64:$src)>;
-def : Pat<(v4f16 (AArch64NvCast (f64 FPR64:$src))), (v4f16 FPR64:$src)>;
-def : Pat<(v4bf16 (AArch64NvCast (f64 FPR64:$src))), (v4bf16 FPR64:$src)>;
-def : Pat<(v2i32 (AArch64NvCast (f64 FPR64:$src))), (v2i32 FPR64:$src)>;
-def : Pat<(v2f32 (AArch64NvCast (f64 FPR64:$src))), (v2f32 FPR64:$src)>;
-def : Pat<(v1i64 (AArch64NvCast (f64 FPR64:$src))), (v1i64 FPR64:$src)>;
-def : Pat<(v1f64 (AArch64NvCast (f64 FPR64:$src))), (v1f64 FPR64:$src)>;
-
-def : Pat<(v8i8 (AArch64NvCast (v1f64 FPR64:$src))), (v8i8 FPR64:$src)>;
-def : Pat<(v4i16 (AArch64NvCast (v1f64 FPR64:$src))), (v4i16 FPR64:$src)>;
-def : Pat<(v4f16 (AArch64NvCast (v1f64 FPR64:$src))), (v4f16 FPR64:$src)>;
-def : Pat<(v4bf16 (AArch64NvCast (v1f64 FPR64:$src))), (v4bf16 FPR64:$src)>;
-def : Pat<(v2i32 (AArch64NvCast (v1f64 FPR64:$src))), (v2i32 FPR64:$src)>;
-def : Pat<(v2f32 (AArch64NvCast (v1f64 FPR64:$src))), (v2f32 FPR64:$src)>;
-def : Pat<(v1i64 (AArch64NvCast (v1f64 FPR64:$src))), (v1i64 FPR64:$src)>;
-def : Pat<(f64 (AArch64NvCast (v1f64 FPR64:$src))), (f64 FPR64:$src)>;
-
-def : Pat<(v8i8 (AArch64NvCast (v2f32 FPR64:$src))), (v8i8 FPR64:$src)>;
-def : Pat<(v4i16 (AArch64NvCast (v2f32 FPR64:$src))), (v4i16 FPR64:$src)>;
-def : Pat<(v2i32 (AArch64NvCast (v2f32 FPR64:$src))), (v2i32 FPR64:$src)>;
-def : Pat<(v2f32 (AArch64NvCast (v2f32 FPR64:$src))), (v2f32 FPR64:$src)>;
-def : Pat<(v1i64 (AArch64NvCast (v2f32 FPR64:$src))), (v1i64 FPR64:$src)>;
-def : Pat<(v1f64 (AArch64NvCast (v2f32 FPR64:$src))), (v1f64 FPR64:$src)>;
+foreach VT = [ v8i8, v4i16, v4f16, v4bf16, v2i32, v2f32, v1i64, v1f64, f64 ] in
+  foreach VT2 = [ v8i8, v4i16, v4f16, v4bf16, v2i32, v2f32, v1i64, v1f64, f64 ] in
+    def : Pat<(VT (AArch64NvCast (VT2 FPR64:$src))),
+              (VT FPR64:$src)>;
 
 // Natural vector casts (128 bit)
-def : Pat<(v16i8 (AArch64NvCast (v4i32 FPR128:$src))), (v16i8 FPR128:$src)>;
-def : Pat<(v8i16 (AArch64NvCast (v4i32 FPR128:$src))), (v8i16 FPR128:$src)>;
-def : Pat<(v8f16 (AArch64NvCast (v4i32 FPR128:$src))), (v8f16 FPR128:$src)>;
-def : Pat<(v8bf16 (AArch64NvCast (v4i32 FPR128:$src))), (v8bf16 FPR128:$src)>;
-def : Pat<(v4i32 (AArch64NvCast (v4i32 FPR128:$src))), (v4i32 FPR128:$src)>;
-def : Pat<(v4f32 (AArch64NvCast (v4i32 FPR128:$src))), (v4f32 FPR128:$src)>;
-def : Pat<(v2i64 (AArch64NvCast (v4i32 FPR128:$src))), (v2i64 FPR128:$src)>;
-def : Pat<(v2f64 (AArch64NvCast (v4i32 FPR128:$src))), (v2f64 FPR128:$src)>;
-
-def : Pat<(v16i8 (AArch64NvCast (v8i16 FPR128:$src))), (v16i8 FPR128:$src)>;
-def : Pat<(v8i16 (AArch64NvCast (v8i16 FPR128:$src))), (v8i16 FPR128:$src)>;
-def : Pat<(v8f16 (AArch64NvCast (v8i16 FPR128:$src))), (v8f16 FPR128:$src)>;
-def : Pat<(v8bf16 (AArch64NvCast (v8i16 FPR128:$src))), (v8bf16 FPR128:$src)>;
-def : Pat<(v4i32 (AArch64NvCast (v8i16 FPR128:$src))), (v4i32 FPR128:$src)>;
-def : Pat<(v2i64 (AArch64NvCast (v8i16 FPR128:$src))), (v2i64 FPR128:$src)>;
-def : Pat<(v4f32 (AArch64NvCast (v8i16 FPR128:$src))), (v4f32 FPR128:$src)>;
-def : Pat<(v2f64 (AArch64NvCast (v8i16 FPR128:$src))), (v2f64 FPR128:$src)>;
-
-def : Pat<(v16i8 (AArch64NvCast (v16i8 FPR128:$src))), (v16i8 FPR128:$src)>;
-def : Pat<(v8i16 (AArch64NvCast (v16i8 FPR128:$src))), (v8i16 FPR128:$src)>;
-def : Pat<(v8f16 (AArch64NvCast (v16i8 FPR128:$src))), (v8f16 FPR128:$src)>;
-def : Pat<(v8bf16 (AArch64NvCast (v16i8 FPR128:$src))), (v8bf16 FPR128:$src)>;
-def : Pat<(v4i32 (AArch64NvCast (v16i8 FPR128:$src))), (v4i32 FPR128:$src)>;
-def : Pat<(v2i64 (AArch64NvCast (v16i8 FPR128:$src))), (v2i64 FPR128:$src)>;
-def : Pat<(v4f32 (AArch64NvCast (v16i8 FPR128:$src))), (v4f32 FPR128:$src)>;
-def : Pat<(v2f64 (AArch64NvCast (v16i8 FPR128:$src))), (v2f64 FPR128:$src)>;
-
-def : Pat<(v16i8 (AArch64NvCast (v2i64 FPR128:$src))), (v16i8 FPR128:$src)>;
-def : Pat<(v8i16 (AArch64NvCast (v2i64 FPR128:$src))), (v8i16 FPR128:$src)>;
-def : Pat<(v8f16 (AArch64NvCast (v2i64 FPR128:$src))), (v8f16 FPR128:$src)>;
-def : Pat<(v8bf16 (AArch64NvCast (v2i64 FPR128:$src))), (v8bf16 FPR128:$src)>;
-def : Pat<(v4i32 (AArch64NvCast (v2i64 FPR128:$src))), (v4i32 FPR128:$src)>;
-def : Pat<(v2i64 (AArch64NvCast (v2i64 FPR128:$src))), (v2i64 FPR128:$src)>;
-def : Pat<(v4f32 (AArch64NvCast (v2i64 FPR128:$src))), (v4f32 FPR128:$src)>;
-def : Pat<(v2f64 (AArch64NvCast (v2i64 FPR128:$src))), (v2f64 FPR128:$src)>;
-
-def : Pat<(v16i8 (AArch64NvCast (v4f32 FPR128:$src))), (v16i8 FPR128:$src)>;
-def : Pat<(v8i16 (AArch64NvCast (v4f32 FPR128:$src))), (v8i16 FPR128:$src)>;
-def : Pat<(v4i32 (AArch64NvCast (v4f32 FPR128:$src))), (v4i32 FPR128:$src)>;
-def : Pat<(v4f32 (AArch64NvCast (v4f32 FPR128:$src))), (v4f32 FPR128:$src)>;
-def : Pat<(v2i64 (AArch64NvCast (v4f32 FPR128:$src))), (v2i64 FPR128:$src)>;
-def : Pat<(v8f16 (AArch64NvCast (v4f32 FPR128:$src))), (v8f16 FPR128:$src)>;
-def : Pat<(v8bf16 (AArch64NvCast (v4f32 FPR128:$src))), (v8bf16 FPR128:$src)>;
-def : Pat<(v2f64 (AArch64NvCast (v4f32 FPR128:$src))), (v2f64 FPR128:$src)>;
-
-def : Pat<(v16i8 (AArch64NvCast (v2f64 FPR128:$src))), (v16i8 FPR128:$src)>;
-def : Pat<(v8i16 (AArch64NvCast (v2f64 FPR128:$src))), (v8i16 FPR128:$src)>;
-def : Pat<(v4i32 (AArch64NvCast (v2f64 FPR128:$src))), (v4i32 FPR128:$src)>;
-def : Pat<(v2i64 (AArch64NvCast (v2f64 FPR128:$src))), (v2i64 FPR128:$src)>;
-def : Pat<(v2f64 (AArch64NvCast (v2f64 FPR128:$src))), (v2f64 FPR128:$src)>;
-def : Pat<(v8f16 (AArch64NvCast (v2f64 FPR128:$src))), (v8f16 FPR128:$src)>;
-def : Pat<(v8bf16 (AArch64NvCast (v2f64 FPR128:$src))), (v8bf16 FPR128:$src)>;
-def : Pat<(v4f32 (AArch64NvCast (v2f64 FPR128:$src))), (v4f32 FPR128:$src)>;
+foreach VT = [ v16i8, v8i16, v8f16, v8bf16, v4i32, v4f32, v2i64, v2f64 ] in
+  foreach VT2 = [ v16i8, v8i16, v8f16, v8bf16, v4i32, v4f32, v2i64, v2f64 ] in
+    def : Pat<(VT (AArch64NvCast (VT2 FPR128:$src))),
+              (VT FPR128:$src)>;
 
 let Predicates = [IsLE] in {
 def : Pat<(v8i8  (bitconvert GPR64:$Xn)), (COPY_TO_REGCLASS GPR64:$Xn, FPR64)>;

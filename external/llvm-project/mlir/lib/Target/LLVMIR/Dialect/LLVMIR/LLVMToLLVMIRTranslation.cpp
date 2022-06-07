@@ -157,7 +157,6 @@ static llvm::FastMathFlags getFastmathFlags(FastmathFlagsInterface &op) {
       {FastmathFlags::contract, &llvmFMF::setAllowContract},
       {FastmathFlags::afn,      &llvmFMF::setApproxFunc},
       {FastmathFlags::reassoc,  &llvmFMF::setAllowReassoc},
-      {FastmathFlags::fast,     &llvmFMF::setFast},
       // clang-format on
   };
   llvm::FastMathFlags ret;
@@ -268,6 +267,7 @@ convertOperationImpl(Operation &opInst, llvm::IRBuilderBase &builder,
     builder.setFastMathFlags(getFastmathFlags(fmf));
 
 #include "mlir/Dialect/LLVMIR/LLVMConversions.inc"
+#include "mlir/Dialect/LLVMIR/LLVMIntrinsicConversions.inc"
 
   // Emit function calls.  If the "callee" attribute is present, this is a
   // direct function call and we also need to look up the remapped function

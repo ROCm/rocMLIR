@@ -82,3 +82,6 @@ Other Interesting Documentation
     mechanics_of_public_api
     redirectors
     source_layout
+    strings
+    runtimes_build
+    stdio

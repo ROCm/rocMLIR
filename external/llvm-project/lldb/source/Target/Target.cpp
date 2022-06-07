@@ -1485,9 +1485,9 @@ bool Target::SetArchitecture(const ArchSpec &arch_spec, bool set_platform) {
       if (!platform_sp ||
           !platform_sp->IsCompatibleArchitecture(other, {}, false, nullptr)) {
         ArchSpec platform_arch;
-        auto arch_platform_sp =
-            Platform::GetPlatformForArchitecture(other, {}, &platform_arch);
-        if (arch_platform_sp) {
+        if (PlatformSP arch_platform_sp =
+                GetDebugger().GetPlatformList().GetOrCreate(other, {},
+                                                            &platform_arch)) {
           SetPlatform(arch_platform_sp);
           if (platform_arch.IsValid())
             other = platform_arch;
@@ -1732,6 +1732,12 @@ size_t Target::ReadMemory(const Address &addr, void *dst, size_t dst_len,
                           lldb::addr_t *load_addr_ptr) {
   error.Clear();
 
+  Address fixed_addr = addr;
+  if (ProcessIsValid())
+    if (const ABISP &abi = m_process_sp->GetABI())
+      fixed_addr.SetLoadAddress(abi->FixAnyAddress(addr.GetLoadAddress(this)),
+                                this);
+
   // if we end up reading this from process memory, we will fill this with the
   // actual load address
   if (load_addr_ptr)
@@ -1742,26 +1748,28 @@ size_t Target::ReadMemory(const Address &addr, void *dst, size_t dst_len,
   addr_t load_addr = LLDB_INVALID_ADDRESS;
   addr_t file_addr = LLDB_INVALID_ADDRESS;
   Address resolved_addr;
-  if (!addr.IsSectionOffset()) {
+  if (!fixed_addr.IsSectionOffset()) {
     SectionLoadList &section_load_list = GetSectionLoadList();
     if (section_load_list.IsEmpty()) {
       // No sections are loaded, so we must assume we are not running yet and
       // anything we are given is a file address.
-      file_addr = addr.GetOffset(); // "addr" doesn't have a section, so its
-                                    // offset is the file address
+      file_addr =
+          fixed_addr.GetOffset(); // "fixed_addr" doesn't have a section, so
+                                  // its offset is the file address
       m_images.ResolveFileAddress(file_addr, resolved_addr);
     } else {
       // We have at least one section loaded. This can be because we have
       // manually loaded some sections with "target modules load ..." or
       // because we have have a live process that has sections loaded through
       // the dynamic loader
-      load_addr = addr.GetOffset(); // "addr" doesn't have a section, so its
-                                    // offset is the load address
+      load_addr =
+          fixed_addr.GetOffset(); // "fixed_addr" doesn't have a section, so
+                                  // its offset is the load address
       section_load_list.ResolveLoadAddress(load_addr, resolved_addr);
     }
   }
   if (!resolved_addr.IsValid())
-    resolved_addr = addr;
+    resolved_addr = fixed_addr;
 
   // If we read from the file cache but can't get as many bytes as requested,
   // we keep the result around in this buffer, in case this result is the
@@ -4234,6 +4242,15 @@ uint32_t TargetProperties::GetMaximumNumberOfChildrenToDisplay() const {
   const uint32_t idx = ePropertyMaxChildrenCount;
   return m_collection_sp->GetPropertyAtIndexAsSInt64(
       nullptr, idx, g_target_properties[idx].default_uint_value);
+}
+
+std::pair<uint32_t, bool>
+TargetProperties::GetMaximumDepthOfChildrenToDisplay() const {
+  const uint32_t idx = ePropertyMaxChildrenDepth;
+  auto *option_value =
+      m_collection_sp->GetPropertyAtIndexAsOptionValueUInt64(nullptr, idx);
+  bool is_default = !option_value->OptionWasSet();
+  return {option_value->GetCurrentValue(), is_default};
 }
 
 uint32_t TargetProperties::GetMaximumSizeOfStringSummary() const {

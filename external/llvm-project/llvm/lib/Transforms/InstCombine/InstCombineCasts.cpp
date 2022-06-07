@@ -983,24 +983,24 @@ Instruction *InstCombinerImpl::transformZExtICmp(ICmpInst *Cmp, ZExtInst &Zext) 
   // If we are just checking for a icmp eq of a single bit and zext'ing it
   // to an integer, then shift the bit to the appropriate place and then
   // cast to integer to avoid the comparison.
+
+  // FIXME: This set of transforms does not check for extra uses and/or creates
+  //        an extra instruction (an optional final cast is not included
+  //        in the transform comments). We may also want to favor icmp over
+  //        shifts in cases of equal instructions because icmp has better
+  //        analysis in general (invert the transform).
+
   const APInt *Op1CV;
   if (match(Cmp->getOperand(1), m_APInt(Op1CV))) {
 
     // zext (x <s  0) to i32 --> x>>u31      true if signbit set.
-    // zext (x >s -1) to i32 --> (x>>u31)^1  true if signbit clear.
-    if ((Cmp->getPredicate() == ICmpInst::ICMP_SLT && Op1CV->isZero()) ||
-        (Cmp->getPredicate() == ICmpInst::ICMP_SGT && Op1CV->isAllOnes())) {
+    if (Cmp->getPredicate() == ICmpInst::ICMP_SLT && Op1CV->isZero()) {
       Value *In = Cmp->getOperand(0);
       Value *Sh = ConstantInt::get(In->getType(),
                                    In->getType()->getScalarSizeInBits() - 1);
       In = Builder.CreateLShr(In, Sh, In->getName() + ".lobit");
       if (In->getType() != Zext.getType())
         In = Builder.CreateIntCast(In, Zext.getType(), false /*ZExt*/);
-
-      if (Cmp->getPredicate() == ICmpInst::ICMP_SGT) {
-        Constant *One = ConstantInt::get(In->getType(), 1);
-        In = Builder.CreateXor(In, One, In->getName() + ".not");
-      }
 
       return replaceInstUsesWith(Zext, In);
     }
@@ -1077,7 +1077,7 @@ Instruction *InstCombinerImpl::transformZExtICmp(ICmpInst *Cmp, ZExtInst &Zext) 
       KnownBits KnownLHS = computeKnownBits(LHS, 0, &Zext);
       KnownBits KnownRHS = computeKnownBits(RHS, 0, &Zext);
 
-      if (KnownLHS.Zero == KnownRHS.Zero && KnownLHS.One == KnownRHS.One) {
+      if (KnownLHS == KnownRHS) {
         APInt KnownBits = KnownLHS.Zero | KnownLHS.One;
         APInt UnknownBit = ~KnownBits;
         if (UnknownBit.countPopulation() == 1) {
@@ -1503,10 +1503,8 @@ Instruction *InstCombinerImpl::visitSExt(SExtInst &CI) {
   unsigned SrcBitSize = SrcTy->getScalarSizeInBits();
   unsigned DestBitSize = DestTy->getScalarSizeInBits();
 
-  // If we know that the value being extended is positive, we can use a zext
-  // instead.
-  KnownBits Known = computeKnownBits(Src, 0, &CI);
-  if (Known.isNonNegative())
+  // If the value being extended is zero or positive, use a zext instead.
+  if (isKnownNonNegative(Src, DL, 0, &AC, &CI, &DT))
     return CastInst::Create(Instruction::ZExt, Src, DestTy);
 
   // Try to extend the entire expression tree to the wide destination type.
@@ -1594,14 +1592,20 @@ Instruction *InstCombinerImpl::visitSExt(SExtInst &CI) {
 
   // Splatting a bit of constant-index across a value:
   // sext (ashr (trunc iN X to iM), M-1) to iN --> ashr (shl X, N-M), N-1
-  // TODO: If the dest type is different, use a cast (adjust use check).
+  // If the dest type is different, use a cast (adjust use check).
   if (match(Src, m_OneUse(m_AShr(m_Trunc(m_Value(X)),
-                                 m_SpecificInt(SrcBitSize - 1)))) &&
-      X->getType() == DestTy) {
-    Constant *ShlAmtC = ConstantInt::get(DestTy, DestBitSize - SrcBitSize);
-    Constant *AshrAmtC = ConstantInt::get(DestTy, DestBitSize - 1);
-    Value *Shl = Builder.CreateShl(X, ShlAmtC);
-    return BinaryOperator::CreateAShr(Shl, AshrAmtC);
+                                 m_SpecificInt(SrcBitSize - 1))))) {
+    Type *XTy = X->getType();
+    unsigned XBitSize = XTy->getScalarSizeInBits();
+    Constant *ShlAmtC = ConstantInt::get(XTy, XBitSize - SrcBitSize);
+    Constant *AshrAmtC = ConstantInt::get(XTy, XBitSize - 1);
+    if (XTy == DestTy)
+      return BinaryOperator::CreateAShr(Builder.CreateShl(X, ShlAmtC),
+                                        AshrAmtC);
+    if (cast<BinaryOperator>(Src)->getOperand(0)->hasOneUse()) {
+      Value *Ashr = Builder.CreateAShr(Builder.CreateShl(X, ShlAmtC), AshrAmtC);
+      return CastInst::CreateIntegerCast(Ashr, DestTy, /* isSigned */ true);
+    }
   }
 
   if (match(Src, m_VScale(DL))) {
@@ -1973,7 +1977,7 @@ Instruction *InstCombinerImpl::foldItoFPtoI(CastInst &FI) {
     // If the destination type is narrow, that means the intermediate FP value
     // must be large enough to hold the source value exactly.
     // For example, (uint8_t)((float)(uint32_t 16777217) is undefined behavior.
-    int OutputSize = (int)DestType->getScalarSizeInBits() - IsOutputSigned;
+    int OutputSize = (int)DestType->getScalarSizeInBits();
     if (OutputSize > OpI->getType()->getFPMantissaWidth())
       return nullptr;
   }
@@ -2271,6 +2275,8 @@ static bool collectInsertionElements(Value *V, unsigned Shift,
   switch (I->getOpcode()) {
   default: return false; // Unhandled case.
   case Instruction::BitCast:
+    if (I->getOperand(0)->getType()->isVectorTy())
+      return false;
     return collectInsertionElements(I->getOperand(0), Shift, Elements, VecEltTy,
                                     isBigEndian);
   case Instruction::ZExt:
@@ -2344,9 +2350,9 @@ static Value *optimizeIntegerToVectorInsertions(BitCastInst &CI,
 /// usually not type-specific like scalar integer or scalar floating-point.
 static Instruction *canonicalizeBitCastExtElt(BitCastInst &BitCast,
                                               InstCombinerImpl &IC) {
-  // TODO: Create and use a pattern matcher for ExtractElementInst.
-  auto *ExtElt = dyn_cast<ExtractElementInst>(BitCast.getOperand(0));
-  if (!ExtElt || !ExtElt->hasOneUse())
+  Value *VecOp, *Index;
+  if (!match(BitCast.getOperand(0),
+             m_OneUse(m_ExtractElt(m_Value(VecOp), m_Value(Index)))))
     return nullptr;
 
   // The bitcast must be to a vectorizable type, otherwise we can't make a new
@@ -2355,10 +2361,10 @@ static Instruction *canonicalizeBitCastExtElt(BitCastInst &BitCast,
   if (!VectorType::isValidElementType(DestType))
     return nullptr;
 
-  auto *NewVecType = VectorType::get(DestType, ExtElt->getVectorOperandType());
-  auto *NewBC = IC.Builder.CreateBitCast(ExtElt->getVectorOperand(),
-                                         NewVecType, "bc");
-  return ExtractElementInst::Create(NewBC, ExtElt->getIndexOperand());
+  auto *NewVecType =
+      VectorType::get(DestType, cast<VectorType>(VecOp->getType()));
+  auto *NewBC = IC.Builder.CreateBitCast(VecOp, NewVecType, "bc");
+  return ExtractElementInst::Create(NewBC, Index);
 }
 
 /// Change the type of a bitwise logic operation if we can eliminate a bitcast.

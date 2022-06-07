@@ -42,7 +42,7 @@ constexpr bool test(CPO& o, Args&&...) {
 }
 
 int a[10];
-//int arrays[10][10];
+int arrays[10][10];
 //std::pair<int, int> pairs[10];
 
 // [concept.swappable]
@@ -80,19 +80,20 @@ static_assert(test(std::ranges::ssize, a));
 static_assert(test(std::views::iota, 1));
 static_assert(test(std::views::iota, 1, 10));
 //static_assert(test(std::views::istream<int>, 1);
-//static_assert(test(std::views::single, 4));
+static_assert(test(std::views::single, 4));
 
 // [range.adaptors]
 static_assert(test(std::views::all, a));
 static_assert(test(std::views::common, a));
 static_assert(test(std::views::counted, a, 10));
-//static_assert(test(std::views::drop, a, 10));
+static_assert(test(std::views::drop, a, 10));
 //static_assert(test(std::views::drop_while, a, [](int x){ return x < 10; }));
 //static_assert(test(std::views::elements<0>, pairs));
-//static_assert(test(std::views::filter, a, [](int x){ return x < 10; }));
-//static_assert(test(std::views::join, arrays));
-static_assert(test(std::views::reverse, a));
+static_assert(test(std::views::filter, a, [](int x){ return x < 10; }));
+static_assert(test(std::views::join, arrays));
 //static_assert(test(std::views::split, a, 4));
-//static_assert(test(std::views::take, a, 10));
+static_assert(test(std::views::lazy_split, a, 4));
+static_assert(test(std::views::reverse, a));
+static_assert(test(std::views::take, a, 10));
 //static_assert(test(std::views::take_while, a, [](int x){ return x < 10; }));
 static_assert(test(std::views::transform, a, [](int x){ return x + 1; }));

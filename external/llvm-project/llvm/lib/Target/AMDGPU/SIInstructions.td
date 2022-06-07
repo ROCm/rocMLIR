@@ -30,6 +30,7 @@ include "SMInstructions.td"
 include "FLATInstructions.td"
 include "BUFInstructions.td"
 include "EXPInstructions.td"
+include "LDSDIRInstructions.td"
 
 //===----------------------------------------------------------------------===//
 // VINTRP Instructions
@@ -303,6 +304,18 @@ def S_AND_B32_term : WrapTerminatorInst<S_AND_B32>;
 
 def WAVE_BARRIER : SPseudoInstSI<(outs), (ins),
   [(int_amdgcn_wave_barrier)]> {
+  let SchedRW = [];
+  let hasNoSchedulingInfo = 1;
+  let hasSideEffects = 1;
+  let mayLoad = 0;
+  let mayStore = 0;
+  let isConvergent = 1;
+  let FixedSize = 1;
+  let Size = 0;
+}
+
+def SCHED_BARRIER : SPseudoInstSI<(outs), (ins i32imm:$mask),
+  [(int_amdgcn_sched_barrier (i32 timm:$mask))]> {
   let SchedRW = [];
   let hasNoSchedulingInfo = 1;
   let hasSideEffects = 1;

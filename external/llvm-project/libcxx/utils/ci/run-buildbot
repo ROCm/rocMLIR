@@ -86,7 +86,7 @@ function generate-cmake-base() {
           -DLIBCXX_ENABLE_WERROR=YES \
           -DLIBCXXABI_ENABLE_WERROR=YES \
           -DLIBUNWIND_ENABLE_WERROR=YES \
-          -DLLVM_LIT_ARGS="-sv --show-unsupported --xunit-xml-output test-results.xml" \
+          -DLLVM_LIT_ARGS="-sv --show-unsupported --xunit-xml-output test-results.xml --timeout=1200" \
           "${@}"
 }
 
@@ -265,6 +265,14 @@ generic-static)
     clean
     generate-cmake -C "${MONOREPO_ROOT}/libcxx/cmake/caches/Generic-static.cmake" \
                    -DLIBUNWIND_TEST_CONFIG="llvm-libunwind-static.cfg.in"
+    check-runtimes
+;;
+generic-merged)
+    clean
+    generate-cmake -C "${MONOREPO_ROOT}/libcxx/cmake/caches/Generic-merged.cmake" \
+                   -DLIBCXX_TEST_CONFIG="llvm-libc++-shared.cfg.in" \
+                   -DLIBCXXABI_TEST_CONFIG="llvm-libc++abi-merged.cfg.in" \
+                   -DLIBUNWIND_TEST_CONFIG="llvm-libunwind-merged.cfg.in"
     check-runtimes
 ;;
 generic-clang-13)
@@ -492,7 +500,7 @@ legacy-project-build)
           -GNinja -DCMAKE_MAKE_PROGRAM="${NINJA}" \
           -DCMAKE_BUILD_TYPE=RelWithDebInfo \
           -DCMAKE_INSTALL_PREFIX="${INSTALL_DIR}" \
-          -DLLVM_LIT_ARGS="-sv --show-unsupported --xunit-xml-output test-results.xml" \
+          -DLLVM_LIT_ARGS="-sv --show-unsupported --xunit-xml-output test-results.xml --timeout=1200" \
           -DLIBCXX_CXX_ABI=libcxxabi
     check-runtimes
 ;;
@@ -576,6 +584,15 @@ mingw-static)
           -C "${MONOREPO_ROOT}/libcxx/cmake/caches/MinGW.cmake" \
           -DLIBCXX_ENABLE_SHARED=OFF \
           -DLIBUNWIND_ENABLE_SHARED=OFF
+    echo "+++ Running the libc++ tests"
+    ${NINJA} -vC "${BUILD_DIR}" check-cxx
+;;
+mingw-dll-i686)
+    clean
+    generate-cmake \
+          -DCMAKE_C_COMPILER=i686-w64-mingw32-clang \
+          -DCMAKE_CXX_COMPILER=i686-w64-mingw32-clang++ \
+          -C "${MONOREPO_ROOT}/libcxx/cmake/caches/MinGW.cmake"
     echo "+++ Running the libc++ tests"
     ${NINJA} -vC "${BUILD_DIR}" check-cxx
 ;;

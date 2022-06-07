@@ -591,8 +591,10 @@ Status ProcessGDBRemote::DoConnectRemote(llvm::StringRef remote_url) {
 
           if (!module_sp) {
             // Force a an external lookup, if that tool is available.
-            if (!module_spec.GetSymbolFileSpec())
-              Symbols::DownloadObjectAndSymbolFile(module_spec, true);
+            if (!module_spec.GetSymbolFileSpec()) {
+              Status error;
+              Symbols::DownloadObjectAndSymbolFile(module_spec, error, true);
+            }
 
             if (FileSystem::Instance().Exists(module_spec.GetFileSpec())) {
               module_sp = std::make_shared<Module>(module_spec);
@@ -952,12 +954,23 @@ Status ProcessGDBRemote::ConnectToDebugserver(llvm::StringRef connect_url) {
   m_gdb_comm.GetVAttachOrWaitSupported();
   m_gdb_comm.EnableErrorStringInPacket();
 
-  size_t num_cmds = GetExtraStartupCommands().GetArgumentCount();
-  for (size_t idx = 0; idx < num_cmds; idx++) {
-    StringExtractorGDBRemote response;
-    m_gdb_comm.SendPacketAndWaitForResponse(
-        GetExtraStartupCommands().GetArgumentAtIndex(idx), response);
+  // First dispatch any commands from the platform:
+  auto handle_cmds = [&] (const Args &args) ->  void {
+    for (const Args::ArgEntry &entry : args) {
+      StringExtractorGDBRemote response;
+      m_gdb_comm.SendPacketAndWaitForResponse(
+          entry.c_str(), response);
+    }
+  };
+  
+  PlatformSP platform_sp = GetTarget().GetPlatform();
+  if (platform_sp) {
+    handle_cmds(platform_sp->GetExtraStartupCommands());
   }
+  
+  // Then dispatch any process commands:
+  handle_cmds(GetExtraStartupCommands());
+
   return error;
 }
 

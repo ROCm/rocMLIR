@@ -170,8 +170,8 @@ void SetShadowRegionHugePageMode(uptr addr, uptr length);
 bool DontDumpShadowMemory(uptr addr, uptr length);
 // Check if the built VMA size matches the runtime one.
 void CheckVMASize();
-void RunMallocHooks(const void *ptr, uptr size);
-void RunFreeHooks(const void *ptr);
+void RunMallocHooks(void *ptr, uptr size);
+void RunFreeHooks(void *ptr);
 
 class ReservedAddressRange {
  public:
@@ -294,6 +294,7 @@ void InitTlsSize();
 uptr GetTlsSize();
 
 // Other
+void WaitForDebugger(unsigned seconds, const char *label);
 void SleepForSeconds(unsigned seconds);
 void SleepForMillis(unsigned millis);
 u64 NanoTime();

@@ -31,6 +31,7 @@
 #include "clang/AST/PrettyDeclStackTrace.h"
 #include "clang/AST/PrettyPrinter.h"
 #include "clang/AST/Randstruct.h"
+#include "clang/AST/RecordLayout.h"
 #include "clang/AST/Redeclarable.h"
 #include "clang/AST/Stmt.h"
 #include "clang/AST/TemplateBase.h"
@@ -1850,7 +1851,7 @@ bool NamedDecl::hasLinkage() const {
 
 NamedDecl *NamedDecl::getUnderlyingDeclImpl() {
   NamedDecl *ND = this;
-  while (auto *UD = dyn_cast<UsingShadowDecl>(ND))
+  if (auto *UD = dyn_cast<UsingShadowDecl>(ND))
     ND = UD->getTargetDecl();
 
   if (auto *AD = dyn_cast<ObjCCompatibleAliasDecl>(ND))
@@ -2720,6 +2721,42 @@ VarDecl::needsDestruction(const ASTContext &Ctx) const {
     return QualType::DK_none;
 
   return getType().isDestructedType();
+}
+
+bool VarDecl::hasFlexibleArrayInit(const ASTContext &Ctx) const {
+  assert(hasInit() && "Expect initializer to check for flexible array init");
+  auto *Ty = getType()->getAs<RecordType>();
+  if (!Ty || !Ty->getDecl()->hasFlexibleArrayMember())
+    return false;
+  auto *List = dyn_cast<InitListExpr>(getInit()->IgnoreParens());
+  if (!List)
+    return false;
+  const Expr *FlexibleInit = List->getInit(List->getNumInits() - 1);
+  auto InitTy = Ctx.getAsConstantArrayType(FlexibleInit->getType());
+  if (!InitTy)
+    return false;
+  return InitTy->getSize() != 0;
+}
+
+CharUnits VarDecl::getFlexibleArrayInitChars(const ASTContext &Ctx) const {
+  assert(hasInit() && "Expect initializer to check for flexible array init");
+  auto *Ty = getType()->getAs<RecordType>();
+  if (!Ty || !Ty->getDecl()->hasFlexibleArrayMember())
+    return CharUnits::Zero();
+  auto *List = dyn_cast<InitListExpr>(getInit()->IgnoreParens());
+  if (!List)
+    return CharUnits::Zero();
+  const Expr *FlexibleInit = List->getInit(List->getNumInits() - 1);
+  auto InitTy = Ctx.getAsConstantArrayType(FlexibleInit->getType());
+  if (!InitTy)
+    return CharUnits::Zero();
+  CharUnits FlexibleArraySize = Ctx.getTypeSizeInChars(InitTy);
+  const ASTRecordLayout &RL = Ctx.getASTRecordLayout(Ty->getDecl());
+  CharUnits FlexibleArrayOffset =
+      Ctx.toCharUnitsFromBits(RL.getFieldOffset(RL.getFieldCount() - 1));
+  if (FlexibleArrayOffset + FlexibleArraySize < RL.getSize())
+    return CharUnits::Zero();
+  return FlexibleArrayOffset + FlexibleArraySize - RL.getSize();
 }
 
 MemberSpecializationInfo *VarDecl::getMemberSpecializationInfo() const {
@@ -4668,8 +4705,8 @@ bool RecordDecl::isMsStruct(const ASTContext &C) const {
   return hasAttr<MSStructAttr>() || C.getLangOpts().MSBitfields == 1;
 }
 
-void RecordDecl::reorderFields(const SmallVectorImpl<Decl *> &Fields) {
-  std::tie(FirstDecl, LastDecl) = DeclContext::BuildDeclChain(Fields, false);
+void RecordDecl::reorderDecls(const SmallVectorImpl<Decl *> &Decls) {
+  std::tie(FirstDecl, LastDecl) = DeclContext::BuildDeclChain(Decls, false);
   LastDecl->NextInContextAndBits.setPointer(nullptr);
   setIsRandomized(true);
 }

@@ -1,6 +1,6 @@
 // RUN: fir-opt --split-input-file --fir-to-llvm-ir="target=aarch64-unknown-linux-gnu" %s | FileCheck %s
 
-func @_QPsb1(%arg0: !fir.ref<i32> {fir.bindc_name = "n"}, %arg1: !fir.ref<!fir.array<?xi32>> {fir.bindc_name = "arr"}) {
+func.func @_QPsb1(%arg0: !fir.ref<i32> {fir.bindc_name = "n"}, %arg1: !fir.ref<!fir.array<?xi32>> {fir.bindc_name = "arr"}) {
   %c1_i64 = arith.constant 1 : i64
   %c1_i32 = arith.constant 1 : i32
   %0 = fir.alloca i32 {bindc_name = "i", uniq_name = "_QFsbEi"}
@@ -47,7 +47,7 @@ func @_QPsb1(%arg0: !fir.ref<i32> {fir.bindc_name = "n"}, %arg1: !fir.ref<!fir.a
 
 // -----
 
-func @_QPsb2(%arg0: !fir.ref<i32> {fir.bindc_name = "x"}, %arg1: !fir.ref<i32> {fir.bindc_name = "n"}) {
+func.func @_QPsb2(%arg0: !fir.ref<i32> {fir.bindc_name = "x"}, %arg1: !fir.ref<i32> {fir.bindc_name = "n"}) {
   omp.parallel  {
     omp.master  {
       %0 = fir.load %arg1 : !fir.ref<i32>
@@ -71,3 +71,36 @@ func @_QPsb2(%arg0: !fir.ref<i32> {fir.bindc_name = "x"}, %arg1: !fir.ref<i32> {
 // CHECK: }
 // CHECK: llvm.return
 // CHECK: }
+
+
+// -----
+
+func.func @_QPsb(%arr: !fir.box<!fir.array<?xi32>> {fir.bindc_name = "arr"}) {
+  %0 = fir.alloca i32 {bindc_name = "i", uniq_name = "_QFsbEi"}
+  omp.parallel   {
+    %c1 = arith.constant 1 : i32
+    %c50 = arith.constant 50 : i32
+    omp.wsloop   for  (%indx) : i32 = (%c1) to (%c50) inclusive step (%c1) {
+      %1 = fir.convert %indx : (i32) -> i64
+      %c1_i64 = arith.constant 1 : i64
+      %2 = arith.subi %1, %c1_i64 : i64
+      %3 = fir.coordinate_of %arr, %2 : (!fir.box<!fir.array<?xi32>>, i64) -> !fir.ref<i32>
+      fir.store %indx to %3 : !fir.ref<i32>
+      omp.yield
+    }
+    omp.terminator
+  }
+  return
+}
+
+// Check only for the structure of the OpenMP portion and the feasibility of the conversion
+// CHECK-LABEL: @_QPsb
+// CHECK-SAME: %{{.*}}: !llvm.ptr<struct<({{.*}})>> {fir.bindc_name = "arr"}
+// CHECK:    omp.parallel   {
+// CHECK:      %[[C1:.*]] = llvm.mlir.constant(1 : i32) : i32
+// CHECK:      %[[C50:.*]] = llvm.mlir.constant(50 : i32) : i32
+// CHECK:      omp.wsloop   for  (%[[INDX:.*]]) : i32 = (%[[C1]]) to (%[[C50]]) inclusive step (%[[C1]]) {
+// CHECK:        llvm.store %[[INDX]], %{{.*}} : !llvm.ptr<i32>
+// CHECK:        omp.yield
+// CHECK:      omp.terminator
+// CHECK:    llvm.return

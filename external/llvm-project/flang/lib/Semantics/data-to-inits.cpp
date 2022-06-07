@@ -36,14 +36,19 @@ namespace Fortran::semantics {
 // repetition.
 template <typename DSV = parser::DataStmtValue> class ValueListIterator {
 public:
-  explicit ValueListIterator(const std::list<DSV> &list)
-      : end_{list.end()}, at_{list.begin()} {
+  ValueListIterator(SemanticsContext &context, const std::list<DSV> &list)
+      : context_{context}, end_{list.end()}, at_{list.begin()} {
     SetRepetitionCount();
   }
   bool hasFatalError() const { return hasFatalError_; }
   bool IsAtEnd() const { return at_ == end_; }
-  const SomeExpr *operator*() const { return GetExpr(GetConstant()); }
-  parser::CharBlock LocateSource() const { return GetConstant().source; }
+  const SomeExpr *operator*() const { return GetExpr(context_, GetConstant()); }
+  std::optional<parser::CharBlock> LocateSource() const {
+    if (!hasFatalError_) {
+      return GetConstant().source;
+    }
+    return {};
+  }
   ValueListIterator &operator++() {
     if (repetitionsRemaining_ > 0) {
       --repetitionsRemaining_;
@@ -64,6 +69,7 @@ private:
     return std::get<parser::DataStmtConstant>(GetValue().t);
   }
 
+  SemanticsContext &context_;
   listIterator end_, at_;
   ConstantSubscript repetitionsRemaining_{0};
   bool hasFatalError_{false};
@@ -93,7 +99,7 @@ class DataInitializationCompiler {
 public:
   DataInitializationCompiler(DataInitializations &inits,
       evaluate::ExpressionAnalyzer &a, const std::list<DSV> &list)
-      : inits_{inits}, exprAnalyzer_{a}, values_{list} {}
+      : inits_{inits}, exprAnalyzer_{a}, values_{a.context(), list} {}
   const DataInitializations &inits() const { return inits_; }
   bool HasSurplusValues() const { return !values_.IsAtEnd(); }
   bool Scan(const parser::DataStmtObject &);
@@ -122,7 +128,7 @@ private:
 template <typename DSV>
 bool DataInitializationCompiler<DSV>::Scan(
     const parser::DataStmtObject &object) {
-  return std::visit(
+  return common::visit(
       common::visitors{
           [&](const common::Indirection<parser::Variable> &var) {
             return Scan(var.value());
@@ -134,7 +140,7 @@ bool DataInitializationCompiler<DSV>::Scan(
 
 template <typename DSV>
 bool DataInitializationCompiler<DSV>::Scan(const parser::Variable &var) {
-  if (const auto *expr{GetExpr(var)}) {
+  if (const auto *expr{GetExpr(exprAnalyzer_.context(), var)}) {
     exprAnalyzer_.GetFoldingContext().messages().SetLocation(var.GetSource());
     if (InitDesignator(*expr)) {
       return true;
@@ -160,10 +166,13 @@ template <typename DSV>
 bool DataInitializationCompiler<DSV>::Scan(const parser::DataImpliedDo &ido) {
   const auto &bounds{std::get<parser::DataImpliedDo::Bounds>(ido.t)};
   auto name{bounds.name.thing.thing};
-  const auto *lowerExpr{GetExpr(bounds.lower.thing.thing)};
-  const auto *upperExpr{GetExpr(bounds.upper.thing.thing)};
-  const auto *stepExpr{
-      bounds.step ? GetExpr(bounds.step->thing.thing) : nullptr};
+  const auto *lowerExpr{
+      GetExpr(exprAnalyzer_.context(), bounds.lower.thing.thing)};
+  const auto *upperExpr{
+      GetExpr(exprAnalyzer_.context(), bounds.upper.thing.thing)};
+  const auto *stepExpr{bounds.step
+          ? GetExpr(exprAnalyzer_.context(), bounds.step->thing.thing)
+          : nullptr};
   if (lowerExpr && upperExpr) {
     // Fold the bounds expressions (again) in case any of them depend
     // on outer implied DO loops.
@@ -214,7 +223,7 @@ bool DataInitializationCompiler<DSV>::Scan(const parser::DataImpliedDo &ido) {
 template <typename DSV>
 bool DataInitializationCompiler<DSV>::Scan(
     const parser::DataIDoObject &object) {
-  return std::visit(
+  return common::visit(
       common::visitors{
           [&](const parser::Scalar<common::Indirection<parser::Designator>>
                   &var) { return Scan(var.thing.value()); },
@@ -308,7 +317,9 @@ bool DataInitializationCompiler<DSV>::InitElement(
   bool isPointer{lastSymbol && IsPointer(*lastSymbol)};
   bool isProcPointer{lastSymbol && IsProcedurePointer(*lastSymbol)};
   evaluate::FoldingContext &context{exprAnalyzer_.GetFoldingContext()};
-  auto restorer{context.messages().SetLocation(values_.LocateSource())};
+  auto &messages{context.messages()};
+  auto restorer{
+      messages.SetLocation(values_.LocateSource().value_or(messages.at()))};
 
   const auto DescribeElement{[&]() {
     if (auto badDesignator{
@@ -364,8 +375,16 @@ bool DataInitializationCompiler<DSV>::InitElement(
     } else if (isProcPointer) {
       if (evaluate::IsProcedure(*expr)) {
         if (CheckPointerAssignment(context, designator, *expr)) {
-          GetImage().AddPointer(offsetSymbol.offset(), *expr);
-          return true;
+          if (lastSymbol->has<ProcEntityDetails>()) {
+            GetImage().AddPointer(offsetSymbol.offset(), *expr);
+            return true;
+          } else {
+            evaluate::AttachDeclaration(
+                exprAnalyzer_.context().Say(
+                    "DATA statement initialization of procedure pointer '%s' declared using a POINTER statement and an INTERFACE instead of a PROCEDURE statement"_todo_en_US,
+                    DescribeElement()),
+                *lastSymbol);
+          }
         }
       } else {
         exprAnalyzer_.Say(

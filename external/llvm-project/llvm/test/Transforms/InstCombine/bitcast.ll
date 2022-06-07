@@ -149,6 +149,21 @@ define <4 x float> @bitcasts_and_bitcast_to_fp(<4 x float> %a, <8 x i16> %b) {
   ret <4 x float> %bc3
 }
 
+define <4 x float> @bitcasts_or_bitcast_to_fp(<4 x float> %a, <8 x i16> %b) {
+; CHECK-LABEL: @bitcasts_or_bitcast_to_fp(
+; CHECK-NEXT:    [[BC1:%.*]] = bitcast <4 x float> [[A:%.*]] to <2 x i64>
+; CHECK-NEXT:    [[BC2:%.*]] = bitcast <8 x i16> [[B:%.*]] to <2 x i64>
+; CHECK-NEXT:    [[AND:%.*]] = or <2 x i64> [[BC1]], [[BC2]]
+; CHECK-NEXT:    [[BC3:%.*]] = bitcast <2 x i64> [[AND]] to <4 x float>
+; CHECK-NEXT:    ret <4 x float> [[BC3]]
+;
+  %bc1 = bitcast <4 x float> %a to <2 x i64>
+  %bc2 = bitcast <8 x i16> %b to <2 x i64>
+  %and = or <2 x i64> %bc1, %bc2
+  %bc3 = bitcast <2 x i64> %and to <4 x float>
+  ret <4 x float> %bc3
+}
+
 ; FIXME: Transform limited from changing vector op to integer op to avoid codegen problems.
 
 define i128 @bitcast_or_bitcast(i128 %a, <2 x i64> %b) {
@@ -429,6 +444,22 @@ define <2 x float> @test6(float %A){
   %mask20 = or i64 %tmp25, 1109917696
   %tmp35 = bitcast i64 %mask20 to <2 x float>
   ret <2 x float> %tmp35
+}
+
+; This test should not be optimized by OptimizeIntegerToVectorInsertions.
+; The bitcast from vector previously confused it.
+define <2 x i64> @int2vec_insertion_bitcast_from_vec(i64 %x) {
+; CHECK-LABEL: @int2vec_insertion_bitcast_from_vec(
+; CHECK-NEXT:    [[A:%.*]] = bitcast i64 [[X:%.*]] to <8 x i8>
+; CHECK-NEXT:    [[B:%.*]] = zext <8 x i8> [[A]] to <8 x i16>
+; CHECK-NEXT:    [[D:%.*]] = bitcast <8 x i16> [[B]] to <2 x i64>
+; CHECK-NEXT:    ret <2 x i64> [[D]]
+;
+  %a = bitcast i64 %x to <8 x i8>
+  %b = zext <8 x i8> %a to <8 x i16>
+  %c = bitcast <8 x i16> %b to i128
+  %d = bitcast i128 %c to <2 x i64>
+  ret <2 x i64> %d
 }
 
 define i64 @ISPC0(i64 %in) {

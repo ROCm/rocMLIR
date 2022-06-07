@@ -475,6 +475,7 @@ uint32_t Module::ResolveSymbolContextForAddress(
         resolve_scope & eSymbolContextBlock ||
         resolve_scope & eSymbolContextLineEntry ||
         resolve_scope & eSymbolContextVariable) {
+      symfile->SetLoadDebugInfoEnabled();
       resolved_flags |=
           symfile->ResolveSymbolContext(so_addr, resolve_scope, sc);
     }
@@ -738,13 +739,25 @@ void Module::LookupInfo::Prune(SymbolContextList &sc_list,
     while (i < sc_list.GetSize()) {
       if (!sc_list.GetContextAtIndex(i, sc))
         break;
-      ConstString full_name(sc.GetFunctionName());
-      if (full_name &&
-          ::strstr(full_name.GetCString(), m_name.GetCString()) == nullptr) {
-        sc_list.RemoveContextAtIndex(i);
-      } else {
-        ++i;
+      
+      llvm::StringRef user_name = m_name.GetStringRef();
+      bool keep_it = true;
+      Language *language = Language::FindPlugin(sc.GetLanguage());
+      // If the symbol has a language, then let the language make the match.
+      // Otherwise just check that the demangled name contains the user name.
+      if (language)
+        keep_it = language->DemangledNameContainsPath(m_name.GetStringRef(),
+                sc.GetFunctionName());
+      else {
+        llvm::StringRef full_name = sc.GetFunctionName().GetStringRef();
+        // We always keep unnamed symbols:
+        if (!full_name.empty())
+          keep_it = full_name.contains(user_name);
       }
+      if (keep_it)
+        ++i;
+      else
+        sc_list.RemoveContextAtIndex(i);
     }
   }
 
@@ -1126,6 +1139,31 @@ bool Module::FileHasChanged() const {
   return m_file_has_changed;
 }
 
+void Module::ReportWarningOptimization(
+    llvm::Optional<lldb::user_id_t> debugger_id) {
+  ConstString file_name = GetFileSpec().GetFilename();
+  if (file_name.IsEmpty())
+    return;
+
+  StreamString ss;
+  ss << file_name.GetStringRef()
+     << " was compiled with optimization - stepping may behave "
+        "oddly; variables may not be available.";
+  Debugger::ReportWarning(std::string(ss.GetString()), debugger_id,
+                          &m_optimization_warning);
+}
+
+void Module::ReportWarningUnsupportedLanguage(
+    LanguageType language, llvm::Optional<lldb::user_id_t> debugger_id) {
+  StreamString ss;
+  ss << "This version of LLDB has no plugin for the language \""
+     << Language::GetNameForLanguageType(language)
+     << "\". "
+        "Inspection of frame variables will be limited.";
+  Debugger::ReportWarning(std::string(ss.GetString()), debugger_id,
+                          &m_language_warning);
+}
+
 void Module::ReportErrorIfModifyDetected(const char *format, ...) {
   if (!m_first_file_changed_log) {
     if (FileHasChanged()) {
@@ -1380,7 +1418,6 @@ void Module::PreloadSymbols() {
   // Now let the symbol file preload its data and the symbol table will be
   // available without needing to take the module lock.
   sym_file->PreloadSymbols();
-
 }
 
 void Module::SetSymbolFileFileSpec(const FileSpec &file) {
@@ -1686,6 +1723,9 @@ DataFileCache *Module::GetIndexCache() {
     return nullptr;
   // NOTE: intentional leak so we don't crash if global destructor chain gets
   // called as other threads still use the result of this function
-  static DataFileCache *g_data_file_cache = new DataFileCache(ModuleList::GetGlobalModuleListProperties().GetLLDBIndexCachePath().GetPath());
+  static DataFileCache *g_data_file_cache =
+      new DataFileCache(ModuleList::GetGlobalModuleListProperties()
+                            .GetLLDBIndexCachePath()
+                            .GetPath());
   return g_data_file_cache;
 }
