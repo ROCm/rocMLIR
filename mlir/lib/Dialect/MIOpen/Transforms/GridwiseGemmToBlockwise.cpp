@@ -317,8 +317,8 @@ Value sliceBufferSubview(OpBuilder &b, Location loc, Value buffer,
 }
 
 // Utility function for creating a N-D reshaped view of a subview
-Value reshapeBufferSubview(OpBuilder &b, Location loc, Value buffer,
-                           ArrayRef<int64_t> shape) {
+TransformOp reshapeBufferSubview(OpBuilder &b, Location loc, Value buffer,
+                                 ArrayRef<int64_t> shape) {
   MemRefType bufferType = buffer.getType().cast<MemRefType>();
   ArrayRef<int64_t> outShape = bufferType.getShape();
   assert(outShape.size() == 1 && "Buffer being reshaped must start linear");
@@ -346,8 +346,8 @@ Value reshapeBufferSubview(OpBuilder &b, Location loc, Value buffer,
   transform.embed("slice", 0, outShape[0], nameRefs, strides);
 
   TransformMapAttr transformAttr = transform.get();
-  Value ret = b.create<TransformOp>(loc, buffer, transformAttr,
-                                    bufferType.getMemorySpaceAsInt());
+  auto ret = b.create<TransformOp>(loc, buffer, transformAttr,
+                                   bufferType.getMemorySpaceAsInt());
   return ret;
 }
 
@@ -438,10 +438,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
   LogicalResult matchAndRewrite(GridwiseGemmOp op,
                                 PatternRewriter &b) const override {
-    auto loc = op.getLoc();
+    Location loc = op.getLoc();
 
     // Obtain data type.
-    auto elementType = op.b().getType().cast<MemRefType>().getElementType();
+    Type elementType = op.b().getType().cast<MemRefType>().getElementType();
 
     // Determine the type used on VGPR to act as accumulator.
     // f32: f32.
@@ -549,6 +549,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
             .getInt();
 
     bool useIndexDiffs = true;
+    func::FuncOp parentFunc = op->getParentOfType<func::FuncOp>();
+    int64_t kernelBlockSize =
+        parentFunc->getAttrOfType<IntegerAttr>("block_size").getInt();
+    int64_t kernelGridSize =
+        parentFunc->getAttrOfType<IntegerAttr>("grid_size").getInt();
+
     // Get current workgroup ID.
     auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());
 
@@ -1007,11 +1013,17 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     LLVM_DEBUG(llvm::dbgs() << "GemmMRepeat: " << GemmMRepeat << "\n");
     LLVM_DEBUG(llvm::dbgs() << "GemmNRepeat: " << GemmNRepeat << "\n");
 
-    auto threadCRegisterMemRefType = MemRefType::get(
-        {1, GemmMRepeat * MPerThread, GemmNRepeat * NPerThread},
-        accumulatorType, {}, gpu::GPUDialect::getPrivateAddressSpace());
+    int64_t threadCNumM = GemmMRepeat * MPerThread;
+    int64_t threadCNumN = GemmNRepeat * NPerThread;
+    int64_t threadCNumRegisters = threadCNumM * threadCNumN;
+    auto threadCRegisterMemRefType =
+        MemRefType::get({1, threadCNumM, threadCNumN}, accumulatorType, {},
+                        gpu::GPUDialect::getPrivateAddressSpace());
     Value registerMatrixCAllocOp =
         b.create<GpuAllocOp>(loc, threadCRegisterMemRefType);
+    // TransformOp registerMatrixCView = reshapeBufferSubview(b, loc,
+    // registerMatrixCAllocOp, {1, GemmMRepeat * MPerThread, GemmNRepeat *
+    // NPerThread});
 
     // Determine vector / scalar load type for Matrix A / B.
     SmallVector<int64_t, 4> blockwiseCopyABounds;
@@ -1265,8 +1277,28 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         loc, ldsMatrixASubviewOp, ldsMatrixBSubviewOp, registerMatrixCAllocOp,
         mMyThreadOffsetA, mMyThreadOffsetB);
     affixBlockwiseGemmAttributes(blockwiseGemmTailOp, op, b);
-
+#if 0
     // Threadwise copy from register (naive tensor) to global (generic tensor).
+    TopDownTMBuilder splitMemoryCoords(b, {"bid", "tid", "iter"},
+        {1, 1, threadCNumRegisters}, loc);
+    splitMemoryCoords.merge({"g", "m_block", "n_block"}, {0, 1, 2}, "bid",
+        {kernelGridSize / GStride, GStride / NBlockWork, NBlockWork});
+    splitMemoryCoords.merge({"level1", "level0"}, {3, 4}, "tid",
+        {kernelBlockSize / ThreadPerLevel0Cluster, ThreadPerLevel0Cluster});
+    splitMemoryCoords.merge({"m_iter", "n_iter"}, {5, 6}, "iter",
+        {threadCNumM, threadCNumN});
+    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+
+    auto toClusters = TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
+    llvm::StringMap<uint32_t> toClustersIdxs = expandNamesInPlace(
+        splitMemoryCoords, {{"level1", {"level1_m", "level1_n"}},
+                            {"level0", {"level0_m", "level0_n"}},
+                            {"m_iter", {"m_iter_level1", "m_iter_level0"}},
+                            {"n_iter", {"n_iter_level1", "n_iter_level0"}}});
+    toClusters.passThrough({"g", "m_block", "n_block"});
+    toClusters.merge({"level1_m", "level1_n"}, {toClust})
+#endif
+
     int64_t M1 = MPerThread * MLevel0Cluster * MLevel1Cluster;
     int64_t M0 = M / M1;
     int64_t N1 = NPerThread * NLevel0Cluster * NLevel1Cluster;
@@ -2383,24 +2415,16 @@ struct GridwiseGemmV2RewritePattern
         splitMemoryCoords, {{"wave", {"wave_m", "wave_n"}},
                             {"i", {"m_i", "n_i"}},
                             {"j", {"blkMajor", "blkMinor"}}});
+    TopDownTMBottomDimsWrapper rowsAndColsWrap(toRowsAndCols, rowsAndColsIdxs);
+    rowsAndColsWrap.passThrough({"g", "m", "n"});
+    rowsAndColsWrap.merge({"wave_m", "wave_n"}, "wave",
+                          {wavesInKernelBlock / NWaves, NWaves});
+    rowsAndColsWrap.passThrough({"block", "tid_group", "tid_item"});
+    rowsAndColsWrap.merge(
+        {"m_i", "n_i"}, "i",
+        {splitMemoryCoords.endSize("i") / NRepeats, NRepeats});
 
-    // Block dimensions don't need their dimesnioss renumbered because they
-    // appear earlier in the map.
-    toRowsAndCols.passThrough({"g", "m", "n"});
-
-    toRowsAndCols.merge({"wave_m", "wave_n"},
-                        {rowsAndColsIdxs["wave_m"], rowsAndColsIdxs["wave_n"]},
-                        "wave", {wavesInKernelBlock / NWaves, NWaves});
-    toRowsAndCols.passThrough({"block", "tid_group", "tid_item"},
-                              {rowsAndColsIdxs["block"],
-                               rowsAndColsIdxs["tid_group"],
-                               rowsAndColsIdxs["tid_item"]},
-                              {"block", "tid_group", "tid_item"});
-
-    toRowsAndCols.merge({"m_i", "n_i"},
-                        {rowsAndColsIdxs["m_i"], rowsAndColsIdxs["n_i"]}, "i",
-                        {splitMemoryCoords.endSize("i") / NRepeats, NRepeats});
-
+    // Here we use the full builder API since we want index and name control
     bool isABroadcast = (NPerXdlops >= MPerXdlops);
     SmallVector<StringRef, 2> rowsFirst = {"blk_row", "blk_col"};
     SmallVector<StringRef, 2> colsFirst = {"blk_col", "blk_row"};
