@@ -126,60 +126,6 @@ float randomFloatValue(short min, short max) {
          minAsF;
 }
 
-extern "C" hipModule_t mgpuModuleLoad(void *data) {
-  hipModule_t module = nullptr;
-  (void)reportErrorIfAny(hipModuleLoadData(&module, data), "ModuleLoad");
-  return module;
-}
-
-extern "C" void mgpuModuleUnload(hipModule_t module) {
-  reportErrorIfAny(hipModuleUnload(module), "ModuleUnload");
-}
-
-extern "C" hipFunction_t mgpuModuleGetFunction(hipModule_t module,
-                                               const char *name) {
-  hipFunction_t function = nullptr;
-  (void)reportErrorIfAny(hipModuleGetFunction(&function, module, name),
-                         "GetFunction");
-  return function;
-}
-
-// The wrapper uses intptr_t instead of ROCM's unsigned int to match
-// the type of MLIR's index type. This avoids the need for casts in the
-// generated MLIR code.
-extern "C" int32_t mgpuLaunchKernel(hipFunction_t function, intptr_t gridX,
-                                    intptr_t gridY, intptr_t gridZ,
-                                    intptr_t blockX, intptr_t blockY,
-                                    intptr_t blockZ, int32_t smem,
-                                    hipStream_t stream, void **params,
-                                    void **extra) {
-  return reportErrorIfAny(hipModuleLaunchKernel(function, gridX, gridY, gridZ,
-                                                blockX, blockY, blockZ, smem,
-                                                stream, params, extra),
-                          "LaunchKernel");
-}
-
-extern "C" hipStream_t mgpuGetStreamHelper() {
-  hipStream_t stream;
-  reportErrorIfAny(hipStreamCreate(&stream), "StreamCreate");
-  return stream;
-}
-
-extern "C" hipStream_t mgpuStreamCreate() { return mgpuGetStreamHelper(); }
-
-extern "C" void mgpuStreamDestroy(hipStream_t stream) {
-  reportErrorIfAny(hipStreamDestroy(stream), "StreamDestroy");
-}
-
-extern "C" int32_t mgpuStreamSynchronize(hipStream_t stream) {
-  return reportErrorIfAny(hipStreamSynchronize(stream), "StreamSync");
-}
-
-extern "C" void mgpuStreamWaitEvent(hipStream_t stream, hipEvent_t event) {
-  reportErrorIfAny(hipStreamWaitEvent(stream, event, /*flags*/ 0),
-                   "StreamWaitEvent");
-}
-
 /// Helper functions for writing mlir example code
 
 // Allows to register byte array with the ROCM runtime. Helpful until we have
@@ -274,14 +220,6 @@ extern "C" void mcpuMemset(float *allocated, float *aligned, int64_t offset,
   for (unsigned i = 0; i < size; ++i) {
     aligned[i] = value;
   }
-}
-
-extern "C" StridedMemRefType<float, 1>
-mgpuMemAlloc(float *allocated, float *aligned, int64_t offset, int64_t size,
-             int64_t stride) {
-  float *gpuPtr;
-  hipMalloc((void **)&gpuPtr, size * sizeof(float));
-  return {gpuPtr, gpuPtr, offset, {size}, {stride}};
 }
 
 extern "C" void mgpuMemDealloc(float *allocated, float *aligned, int64_t offset,

@@ -193,9 +193,19 @@ std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
   return {ret, b.getArrayAttr(transformList)};
 }
 
-std::tuple<ArrayAttr, ArrayAttr>
-computeOobFromTransforms(Builder &b, ArrayAttr transforms) {
+std::tuple<ArrayAttr, ArrayAttr> computeOobFromTransforms(
+    Builder &b, ArrayAttr transforms,
+    Optional<std::tuple<ArrayAttr, ArrayAttr>> initialOob) {
   IntSet upperOobLeft, upperOobRight, lowerOobLeft, lowerOobRight;
+  if (initialOob.hasValue()) {
+    ArrayAttr initLeft, initRight;
+    std::tie(initLeft, initRight) = *initialOob;
+    for (APInt l : initLeft.getAsValueRange<IntegerAttr>())
+      upperOobLeft.insert(l.getZExtValue());
+    for (APInt r : initRight.getAsValueRange<IntegerAttr>())
+      upperOobRight.insert(r.getZExtValue());
+  }
+
   for (auto transformMap : transforms.getAsRange<TransformMapAttr>()) {
     propagateTransformOob(transformMap, upperOobLeft, upperOobRight,
                           lowerOobLeft, lowerOobRight);

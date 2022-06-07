@@ -1,7 +1,6 @@
 #include "Miir.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/Pipeline.h"
-#include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"

@@ -1,4 +1,4 @@
-// RUN: mlir-rocm-runner %s --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: mlir-rocm-runner %s --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
 
 module attributes {gpu.container_module} {
   gpu.module @gpu_kernels {
@@ -39,32 +39,32 @@ module attributes {gpu.container_module} {
     call @mcpuMemset(%5, %cst0) : (memref<?xf32>, f32) -> ()
 
     // allocate GPU memory.
-    %6 = call @mgpuMemAlloc(%3) : (memref<?xf32>) -> (memref<?xf32>)
-    %7 = call @mgpuMemAlloc(%4) : (memref<?xf32>) -> (memref<?xf32>)
-    %8 = call @mgpuMemAlloc(%5) : (memref<?xf32>) -> (memref<?xf32>)
-
-    // copy direction constants.
-    %cst_h2d = arith.constant 1 : i32
-    %cst_d2h = arith.constant 2 : i32
+    %6 = gpu.alloc () : memref<16xf32>
+    %7 = gpu.alloc () : memref<16xf32>
+    %8 = gpu.alloc () : memref<16xf32>
 
     // transfer data CPU -> GPU.
-    call @mgpuMemCopy(%3, %6, %cst_h2d) : (memref<?xf32>, memref<?xf32>, i32) -> ()
-    call @mgpuMemCopy(%4, %7, %cst_h2d) : (memref<?xf32>, memref<?xf32>, i32) -> ()
+    gpu.memcpy %6, %0 : memref<16xf32>, memref<16xf32>
+    gpu.memcpy %7, %1 : memref<16xf32>, memref<16xf32>
 
+    %26 = memref.cast %6 : memref<16xf32> to memref<?xf32>
+    %27 = memref.cast %7 : memref<16xf32> to memref<?xf32>
+    %28 = memref.cast %8 : memref<16xf32> to memref<?xf32>
+    
     // launch kernel.
-    call @vecadd(%6, %7, %8) : (memref<?xf32>, memref<?xf32>, memref<?xf32>) -> ()
+    call @vecadd(%26, %27, %28) : (memref<?xf32>, memref<?xf32>, memref<?xf32>) -> ()
 
     // transfer data GPU -> CPU.
-    call @mgpuMemCopy(%8, %5, %cst_d2h) : (memref<?xf32>, memref<?xf32>, i32) -> ()
+    gpu.memcpy %2, %8 : memref<16xf32>, memref<16xf32>
 
     // print result.
     %9 = memref.cast %5 : memref<?xf32> to memref<*xf32>
     call @print_memref_f32(%9) : (memref<*xf32>) -> ()
 
     // dellocate GPU memory.
-    call @mgpuMemDealloc(%6) : (memref<?xf32>) -> ()
-    call @mgpuMemDealloc(%7) : (memref<?xf32>) -> ()
-    call @mgpuMemDealloc(%8) : (memref<?xf32>) -> ()
+    gpu.dealloc %6 : memref<16xf32>
+    gpu.dealloc %7 : memref<16xf32>
+    gpu.dealloc %8 : memref<16xf32>
 
     // deallocate CPU memory.
     memref.dealloc %0 : memref<16xf32>
@@ -75,8 +75,5 @@ module attributes {gpu.container_module} {
   }
 
   func private @mcpuMemset(%ptr : memref<?xf32>, %value: f32) -> ()
-  func private @mgpuMemAlloc(%ptr : memref<?xf32>) -> (memref<?xf32>)
-  func private @mgpuMemDealloc(%ptr : memref<?xf32>) -> ()
-  func private @mgpuMemCopy(%src : memref<?xf32>, %dst : memref<?xf32>, %dir : i32) -> ()
   func private @print_memref_f32(%ptr : memref<*xf32>) -> ()
 }

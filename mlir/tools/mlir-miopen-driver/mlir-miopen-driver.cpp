@@ -19,8 +19,6 @@
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/Pipeline.h"
-#include "mlir/ExecutionEngine/ROCm/BackendUitls.h"
-#include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
@@ -220,9 +218,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
         return failure();
       }
 
-      BackendUtils utils(tripleName, targetChip, features);
-      miopen::addBackendPipeline(pm, utils.getTriple(), utils.getChip(),
-                                 utils.getFeatures(), optLevel);
+      miopen::addBackendPipeline(pm, tripleName, targetChip, features,
+                                 optLevel);
     }
   } else {
     auto errorHandler = [&](const Twine &msg) {

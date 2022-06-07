@@ -1,6 +1,4 @@
 set(LLVM_OPTIONAL_SOURCES
-  BackendUtils.cpp
-  IsaNameParser.cpp
   rocm-runtime-wrappers.cpp
   )
 
@@ -53,8 +51,6 @@ target_link_libraries(rocm-runtime-wrappers
 # that apparently works out okay.
 set_source_files_properties(rocm-runtime-wrappers.cpp PROPERTIES
   COMPILE_OPTIONS "-Wno-gnu-anonymous-struct;-Wno-nested-anon-types;-Wno-return-type-c-linkage;-Wno-c++98-compat-extra-semi")
-set_source_files_properties(BackendUtils.cpp PROPERTIES
-  COMPILE_OPTIONS "-Wno-gnu-anonymous-struct;-Wno-nested-anon-types;-Wno-c++98-compat-extra-semi")
 
 set(LIBS
   MLIRROCDLToLLVMIRTranslation
@@ -72,21 +68,9 @@ FOREACH(t ${TARGET_LIBS})
   LIST(APPEND targets_to_link "LLVM${t}")
 ENDFOREACH(t)
 
-add_llvm_library(LLVMROCmBackendUtils
-  BackendUtils.cpp
-  IsaNameParser.cpp
-  )
-
-llvm_update_compile_flags(LLVMROCmBackendUtils)
 if ( BUILD_FAT_LIBMLIRMIOPEN )
   # Skip linking with HIP so our library is runtime independent
   add_definitions(-D__INCLUDE_HIP__=0)
 else()
   add_definitions(-D__INCLUDE_HIP__=1)
-  target_include_directories(LLVMROCmBackendUtils
-    PRIVATE
-    "${HIP_PATH}/../include"
-    "${HIP_PATH}/include"
-  )
 endif()
-target_link_libraries(LLVMROCmBackendUtils PRIVATE ${LIBS} ${targets_to_link})

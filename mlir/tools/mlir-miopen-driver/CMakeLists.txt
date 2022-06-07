@@ -10,7 +10,6 @@ set(LIBS
   ${conversion_libs}
   LLVMAMDGPUAsmParser
   LLVMX86AsmParser
-  LLVMROCmBackendUtils
   MLIRAnalysis
   MLIRExecutionEngine
   MLIRMIOpenOps

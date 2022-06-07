@@ -380,10 +380,12 @@ pipeline {
                             buildProject(
                                 'check-mlir-miopen-build-only ci-performance-scripts',
                                 '')
-                            timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                sh """python3 ./bin/parameterSweeps.py \
-                                    ${params.canXdlops '--xdlops' : '--no-xdlops'} \
-                                    ${CONFIG}"""
+                            dir('build') {
+                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                    sh """python3 ./bin/parameterSweeps.py \
+                                        ${params.canXdlops ? '--xdlops' : '--no-xdlops'} \
+                                        ${CONFIG}"""
+                                }
                             }
                         }
                     }

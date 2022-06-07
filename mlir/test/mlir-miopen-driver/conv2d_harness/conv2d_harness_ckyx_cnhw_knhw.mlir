@@ -1,6 +1,6 @@
 // RUN: miopen-gen -p -fil_layout=gckyx -in_layout=gcnhw -out_layout=gknhw --host %s | FileCheck %s --check-prefix=HARNESS
 // RUN: miopen-gen -p -fil_layout=gckyx -in_layout=gcnhw -out_layout=gknhw --host %s | mlir-miopen-driver -c | FileCheck %s --check-prefix=LOWERING
-// RUN: miopen-gen -p -fil_layout=gckyx -in_layout=gcnhw -out_layout=gknhw --host %s | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
+// RUN: miopen-gen -p -fil_layout=gckyx -in_layout=gcnhw -out_layout=gknhw --host %s | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
 
 func private @miopen_conv2d_gckyx_gcnhw_gknhw_0(%filter : memref<1x8x128x3x3xf32>, %input : memref<1x8x128x32x32xf32>, %output : memref<1x128x128x30x30xf32>) -> ()
 

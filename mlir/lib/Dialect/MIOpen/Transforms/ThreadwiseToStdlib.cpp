@@ -91,9 +91,17 @@ struct TransformingForRewritePattern
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
     SmallVector<int64_t> bounds;
+    bounds.reserve(op.bounds().size());
     for (llvm::APInt v : op.bounds().getAsValueRange<IntegerAttr>()) {
       int64_t bound = v.getZExtValue();
       bounds.push_back(bound);
+    }
+
+    SmallVector<int64_t> strides;
+    strides.reserve(op.strides().size());
+    for (llvm::APInt v : op.strides().getAsValueRange<IntegerAttr>()) {
+      int64_t stride = v.getZExtValue();
+      strides.push_back(stride);
     }
 
     bool useDiffs = op.useIndexDiffs().getValueOr(false);
@@ -147,14 +155,16 @@ struct TransformingForRewritePattern
     llvm::SmallVector<AffineForOp, 5> loops;
     llvm::SmallVector<Value, 5> ivs;
     OpBuilder ilb = b;
-    for (int64_t bound : bounds) {
+    for (const auto &pair : llvm::zip(bounds, strides)) {
+      int64_t bound, stride;
+      std::tie(bound, stride) = pair;
       llvm::SmallVector<Value, 3> iterInits;
       if (loops.empty())
         llvm::copy(op.iterInits(), std::back_inserter(iterInits));
       else
         llvm::copy(loops[loops.size() - 1].getRegionIterArgs(),
                    std::back_inserter(iterInits));
-      auto loop = ilb.create<AffineForOp>(loc, 0, bound, 1, iterInits);
+      auto loop = ilb.create<AffineForOp>(loc, 0, bound, stride, iterInits);
       ivs.push_back(loop.getInductionVar());
       if (iterInits
               .empty()) // remove default affine.yield for cleaner code later
@@ -1085,7 +1095,6 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
     Type argType = xcs.argType;
 
     int64_t num_threads_blk = xcs.num_threads_blk;
-    int64_t wave_size = xcs.wave_size;
     int64_t num_input_blks = xcs.num_input_blks;
     int64_t num_output_blks = xcs.num_output_blks;
     int64_t k_base = xcs.k_base;
@@ -1102,8 +1111,9 @@ struct XdlopsGemmV2RewritePattern : public OpRewritePattern<XdlopsGemmV2Op> {
     // K * KRepeats; constexpr index_t BStride = K * KRepeats;
 
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
+    constexpr int64_t waveSize = 64;
     auto laneId =
-        b.create<RemUIOp>(loc, tid, b.create<ConstantIndexOp>(loc, wave_size));
+        b.create<RemUIOp>(loc, tid, b.create<ConstantIndexOp>(loc, waveSize));
 
     int64_t KRepeats = KPack / k_base;
     if (KRepeats == 0)
