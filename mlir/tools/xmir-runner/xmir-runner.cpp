@@ -12,8 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/ExecutionEngine/ROCm/BackendUitls.h"
-
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Conversion/AsyncToGPU/AsyncToGPU.h"
 #include "mlir/Conversion/AsyncToLLVM/AsyncToLLVM.h"
@@ -34,6 +32,8 @@
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitAllDialects.h"
+#include "mlir/InitAllPasses.h"
+#include "mlir/Pass/PassManager.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
 #include "mlir/Transforms/DialectConversion.h"
