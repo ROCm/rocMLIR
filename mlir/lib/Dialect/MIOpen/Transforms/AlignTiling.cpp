@@ -378,7 +378,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
     // generic and a copy operation or transform.
     int inpUses = 0;
     for (Operation *use : inp.getUsers()) {
-      if (dyn_cast<memref::DeallocOp>(use)) {
+      if (isa<memref::DeallocOp>(use)) {
         // ignore
         continue;
       }
