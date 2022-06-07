@@ -56,8 +56,7 @@ static void filterFuncAttributes(ArrayRef<NamedAttribute> attrs,
   for (const auto &attr : attrs) {
     if (attr.getName() == SymbolTable::getSymbolAttrName() ||
         attr.getName() == FunctionOpInterface::getTypeAttrName() ||
-        attr.getName() == "func.varargs" ||
-        attr.getName() == "access_map" ||
+        attr.getName() == "func.varargs" || attr.getName() == "access_map" ||
         (filterArgAndResAttrs &&
          (attr.getName() == FunctionOpInterface::getArgDictAttrName() ||
           attr.getName() == FunctionOpInterface::getResultDictAttrName())))

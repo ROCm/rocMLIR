@@ -34,7 +34,9 @@ class AsyncGPUTypeConverter : public TypeConverter {
 public:
   AsyncGPUTypeConverter() {
     addConversion([](Type type) { return type; });
-    addConversion([](TokenType type) { return gpu::AsyncTokenType::get(type.getContext()); });
+    addConversion([](TokenType type) {
+      return gpu::AsyncTokenType::get(type.getContext());
+    });
   }
 };
 } // namespace
@@ -121,9 +123,8 @@ public:
     return dstMem;
   }
 
-  LogicalResult
-  matchAndRewrite(async::LaunchOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rw) const override {
+  LogicalResult matchAndRewrite(async::LaunchOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rw) const override {
     Location loc = op.getLoc();
     auto module = op->getParentOfType<ModuleOp>();
     auto ctx = module.getContext();
@@ -206,10 +207,10 @@ public:
     auto tokenType = rw.getType<gpu::AsyncTokenType>();
 
     Value zeroIdx = rw.createOrFold<arith::ConstantIndexOp>(loc, 0);
-    Value blockSizeIdx = rw.createOrFold<arith::ConstantIndexOp>(loc,
-        blockSize.getValue().getLimitedValue());
-    Value gridSizeIdx = rw.createOrFold<arith::ConstantIndexOp>(loc,
-        gridSize.getValue().getLimitedValue());
+    Value blockSizeIdx = rw.createOrFold<arith::ConstantIndexOp>(
+        loc, blockSize.getValue().getLimitedValue());
+    Value gridSizeIdx = rw.createOrFold<arith::ConstantIndexOp>(
+        loc, gridSize.getValue().getLimitedValue());
     Value dynamicSharedMemorySize;
 
     // async dependencies
@@ -230,8 +231,8 @@ public:
       Value opr = operands[i];
       // move input memories to GPU
       if (!opr.getDefiningOp<gpu::AllocOp>()) {
-        opr = moveMemory(rw, opr, fidx, accessVec[fidx], copyBackOprs,
-                         asyncDeps);
+        opr =
+            moveMemory(rw, opr, fidx, accessVec[fidx], copyBackOprs, asyncDeps);
       }
       gpuOperands.push_back(opr);
     }
@@ -248,8 +249,7 @@ public:
 
     // Make gpu.launch_func
     auto gpuLaunchOp = rw.create<gpu::LaunchFuncOp>(
-        loc, asyncDeps, gpuFunc,
-        gpu::KernelDim3{gridSizeIdx, zeroIdx, zeroIdx},
+        loc, asyncDeps, gpuFunc, gpu::KernelDim3{gridSizeIdx, zeroIdx, zeroIdx},
         gpu::KernelDim3{blockSizeIdx, zeroIdx, zeroIdx},
         dynamicSharedMemorySize, gpuOperands);
     Value token = gpuLaunchOp->getResult(0);
@@ -259,8 +259,8 @@ public:
     for (auto pair : llvm::enumerate(copyBackOprs)) {
       if (auto gpuMem = pair.value()) {
         auto dst = operands[diff + pair.index()];
-        auto memcpy = rw.create<gpu::MemcpyOp>(
-            loc, tokenType, ValueRange{token}, dst, gpuMem);
+        auto memcpy = rw.create<gpu::MemcpyOp>(loc, tokenType,
+                                               ValueRange{token}, dst, gpuMem);
         tokens.push_back(memcpy.getResult(0));
       }
     }
@@ -290,9 +290,8 @@ class AwaitOpConversion : public OpConversionPattern<async::AwaitOp> {
 public:
   using OpConversionPattern::OpConversionPattern;
 
-  LogicalResult
-  matchAndRewrite(async::AwaitOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rw) const override {
+  LogicalResult matchAndRewrite(async::AwaitOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rw) const override {
     auto tokenType = rw.getType<gpu::AsyncTokenType>();
     rw.create<gpu::WaitOp>(op.getLoc(), tokenType, adaptor.getOperands());
     rw.eraseOp(op);
