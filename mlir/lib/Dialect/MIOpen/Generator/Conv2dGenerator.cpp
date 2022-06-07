@@ -346,19 +346,17 @@ bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {
   ConvolutionDims convDims = getConvolutionDims();
   GemmContext gemmSize = GemmContext::fromConvolution(dir, convDims);
 
-  // gemmM/N/KExtra is not used.
-  // populateParamsXDL is not used either.
-  // Only needExtraPad is used.
   bool needExtraPad = false;
-  int64_t gemmMExtra, gemmNExtra, gemmKExtra;
   if (!config.xdlops) {
     PopulateParams populateParams;
-    std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
-        calculatePaddingKernelSize(gemmSize, dir, dataType, populateParams);
+    needExtraPad =
+        calculatePaddingKernelSize(gemmSize, dir, dataType, populateParams)
+            .hasValue();
   } else {
     PopulateParamsXDL populateParamsXDL;
-    std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
-        calculatePaddingKernelSize(gemmSize, dir, dataType, populateParamsXDL);
+    needExtraPad =
+        calculatePaddingKernelSize(gemmSize, dir, dataType, populateParamsXDL)
+            .hasValue();
   }
   return needExtraPad;
 }

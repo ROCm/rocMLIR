@@ -61,15 +61,10 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
                      ArrayRef<int64_t> stride, ArrayRef<int64_t> dilation,
                      ArrayRef<int64_t> padding, int gemmid, Type type)
       : arch(architecture), num_cu(numCu), opType(op), dimIndexAndSize(dim),
-        strideVal(), dilationVal(), paddingVal(), gemmId(gemmid),
-        dataType(type) {
-    strideVal.reserve(stride.size());
-    llvm::copy(stride, std::back_inserter(strideVal));
-    dilationVal.reserve(dilation.size());
-    llvm::copy(dilation, std::back_inserter(dilationVal));
-    paddingVal.reserve(padding.size());
-    llvm::copy(padding, std::back_inserter(paddingVal));
-  }
+        strideVal(stride.begin(), stride.end()),
+        dilationVal(dilation.begin(), dilation.end()),
+        paddingVal(padding.begin(), padding.end()), gemmId(gemmid),
+        dataType(type) {}
 
   llvm::StringMap<DimIndexAndSize> getDimIndexAndSize() const {
     return dimIndexAndSize;

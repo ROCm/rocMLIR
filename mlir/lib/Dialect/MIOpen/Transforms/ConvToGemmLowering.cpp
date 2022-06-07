@@ -625,8 +625,6 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   int64_t xDotSlice =
       math_util::integer_divide_ceil(convDims.x - iXTilda, xTilda);
 
-  int64_t gemmMExtra, gemmNExtra, gemmKExtra;
-  gemmMExtra = gemmNExtra = gemmKExtra = 0;
   // backward data only, it's igemm v4r1 algo
   // c is input chaneels , k is output channels
   // n is batch , yDotSlice,xDotSlice computed in above
@@ -634,24 +632,25 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   int64_t gemmKSize = convDims.k * yDotSlice * xDotSlice;
   int64_t gemmNSize = convDims.n * hTildaSlice * wTildaSlice;
   GemmContext gemmSize(gemmMSize, gemmKSize, gemmNSize);
+  Optional<GemmContext> maybeGemmExtraPad;
 
   bool isXdlops = false;
   auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
   if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
     isXdlops = true;
 
-  bool needExtraPad = false;
   if (!isXdlops) {
     PopulateParams populateParams;
-    std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
+    maybeGemmExtraPad =
         calculatePaddingKernelSize(gemmSize, obtainConvDirection(op),
                                    obtainConvDataType(op), populateParams);
   } else { // xdlops
     PopulateParamsXDL populateParamsXDL;
-    std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
+    maybeGemmExtraPad =
         calculatePaddingKernelSize(gemmSize, obtainConvDirection(op),
                                    obtainConvDataType(op), populateParamsXDL);
   }
+  auto gemmExtraPad = maybeGemmExtraPad.getValueOr(GemmContext(0, 0, 0));
 
   Value gemmFilter, gemmInput, gemmOutput;
   Value gemmFilterKPack, gemmOutputKPack;
@@ -702,20 +701,20 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
         b.create<TransformOp>(loc, slicedFilter, gemmFilterTransformAttr);
 
     // Filter padding
-    bool filterCheckPadGemmM = (gemmMExtra > 0);
-    bool filterCheckPadGemmK = (gemmKExtra > 0);
+    bool filterCheckPadGemmM = (gemmExtraPad.m > 0);
+    bool filterCheckPadGemmK = (gemmExtraPad.k > 0);
     if (filterCheckPadGemmM || filterCheckPadGemmK) {
       auto padTransform = BottomUpTMBuilder::above(gemmFilterTransform,
                                                    gemmFilterTransformAttr);
       padTransform.passThrough("gemmG");
       if (filterCheckPadGemmK) {
-        padTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
+        padTransform.pad("gemmKPad", "gemmK", 0, gemmExtraPad.k);
       } else {
         padTransform.passThrough("gemmK");
       }
 
       if (filterCheckPadGemmM) {
-        padTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
+        padTransform.pad("gemmMPad", "gemmM", 0, gemmExtraPad.m);
       } else {
         padTransform.passThrough("gemmM");
       }
@@ -790,20 +789,20 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
     gemmInput = b.create<TransformOp>(loc, sliced, gemmTransformAttr);
 
-    bool inputCheckPadGemmM = (gemmMExtra > 0);
-    bool inputCheckPadGemmN = (gemmNExtra > 0);
+    bool inputCheckPadGemmM = (gemmExtraPad.m > 0);
+    bool inputCheckPadGemmN = (gemmExtraPad.n > 0);
     if (inputCheckPadGemmM || inputCheckPadGemmN) {
       auto padTransform =
           BottomUpTMBuilder::above(gemmTransform, gemmTransformAttr);
       padTransform.passThrough("gemmG");
       if (inputCheckPadGemmM) {
-        padTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
+        padTransform.pad("gemmMPad", "gemmM", 0, gemmExtraPad.m);
       } else {
         padTransform.passThrough("gemmM");
       }
 
       if (inputCheckPadGemmN) {
-        padTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
+        padTransform.pad("gemmNPad", "gemmN", 0, gemmExtraPad.n);
       } else {
         padTransform.passThrough("gemmN");
       }
@@ -855,20 +854,20 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     TransformMapAttr gemmOutputTransformAttr = gemmOutputTransform.get();
     gemmOutput = b.create<TransformOp>(loc, sliced, gemmOutputTransformAttr);
 
-    bool outputCheckPadGemmK = (gemmKExtra > 0);
-    bool outputCheckPadGemmN = (gemmNExtra > 0);
+    bool outputCheckPadGemmK = (gemmExtraPad.k > 0);
+    bool outputCheckPadGemmN = (gemmExtraPad.n > 0);
     if (outputCheckPadGemmK || outputCheckPadGemmN) {
       auto padTransform = BottomUpTMBuilder::above(gemmOutputTransform,
                                                    gemmOutputTransformAttr);
       padTransform.passThrough("gemmG");
       if (outputCheckPadGemmK) {
-        padTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
+        padTransform.pad("gemmKPad", "gemmK", 0, gemmExtraPad.k);
       } else {
         padTransform.passThrough("gemmK");
       }
 
       if (outputCheckPadGemmN) {
-        padTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
+        padTransform.pad("gemmNPad", "gemmN", 0, gemmExtraPad.n);
       } else {
         padTransform.passThrough("gemmN");
       }
@@ -893,8 +892,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     gridwiseGemmAttrs.push_back(
         b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
 
-  auto paddingInfo =
-      PaddingInfoAttr::get(b.getContext(), gemmMExtra, gemmKExtra, gemmNExtra);
+  auto paddingInfo = PaddingInfoAttr::get(b.getContext(), gemmExtraPad.m,
+                                          gemmExtraPad.k, gemmExtraPad.n);
 
   // Supply KPack information into gridwiseGemmAttrs.
   if (KPack > 1) {
@@ -976,32 +975,29 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       return failure();
     }
 
-    int64_t gemmMExtra, gemmNExtra, gemmKExtra;
-    gemmMExtra = gemmNExtra = gemmKExtra = 0;
     // compute we should use extra padding kernel or not
     // c,k already / g ,so we can skip / g here
     GemmContext gemmSize = GemmContext::fromConvolution(convOpType, convDims);
+    Optional<GemmContext> maybeGemmExtraPad;
 
-    bool needExtraPad = false;
     if (!isXdlops) {
       PopulateParams populateParams;
-      std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
-          calculatePaddingKernelSize(gemmSize, convOpType, dataType,
-                                     populateParams);
+      maybeGemmExtraPad = calculatePaddingKernelSize(gemmSize, convOpType,
+                                                     dataType, populateParams);
     } else { // xdlops
       PopulateParamsXDL populateParamsXDL;
-      std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
-          calculatePaddingKernelSize(gemmSize, convOpType, dataType,
-                                     populateParamsXDL);
+      maybeGemmExtraPad = calculatePaddingKernelSize(
+          gemmSize, convOpType, dataType, populateParamsXDL);
     }
 
     if (ConvOpType::BwdWeight == convOpType && isXdlops &&
         (dataType == b.getF32Type() || dataType == b.getF16Type()) &&
-        needExtraPad == false) {
+        !maybeGemmExtraPad.hasValue()) {
       // current backward weight with atomic_add can only run under xdlops +
       // fp32 / fp16.
       return backwardWeightAtomicAdd(cast<Conv2DBwdWeightOp>(op), b);
     }
+    auto gemmExtraPad = maybeGemmExtraPad.getValueOr(GemmContext(0, 0, 0));
 
     // Transform filter tensor.
 
@@ -1021,8 +1017,9 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       if (name != "g" && name != "k")
         filterNonKDims.push_back(name);
 
-    bool noNonKPad = (convOpType == ConvOpType::BwdWeight && gemmNExtra == 0) ||
-                     (convOpType == ConvOpType::Fwd && gemmKExtra == 0);
+    bool noNonKPad =
+        (convOpType == ConvOpType::BwdWeight && gemmExtraPad.n == 0) ||
+        (convOpType == ConvOpType::Fwd && gemmExtraPad.k == 0);
 
     BottomUpTMBuilder filterTransform(b, filterNames, filterShape, loc);
     filterTransform.passThrough({"gemmG"}, {0}, {"g"});
@@ -1061,11 +1058,11 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     bool filterCheckPadGemmK = false;
     bool filterCheckPadGemmN = false;
     filterCheckPadGemmM =
-        (convOpType == ConvOpType::Fwd && gemmMExtra > 0) ||
-        (convOpType == ConvOpType::BwdWeight && gemmMExtra > 0);
-    filterCheckPadGemmK = (convOpType == ConvOpType::Fwd && gemmKExtra > 0);
+        (convOpType == ConvOpType::Fwd && gemmExtraPad.m > 0) ||
+        (convOpType == ConvOpType::BwdWeight && gemmExtraPad.m > 0);
+    filterCheckPadGemmK = (convOpType == ConvOpType::Fwd && gemmExtraPad.k > 0);
     filterCheckPadGemmN =
-        (convOpType == ConvOpType::BwdWeight && gemmNExtra > 0);
+        (convOpType == ConvOpType::BwdWeight && gemmExtraPad.n > 0);
     bool isFilterPad = false;
     if (filterCheckPadGemmM || filterCheckPadGemmK || filterCheckPadGemmN) {
       isFilterPad = true;
@@ -1077,20 +1074,20 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       // tensor dimensions, only the leading dimension is added to the oob check
       // set, as adding all the dimensions historically led to miscompilation
       if (filterCheckPadGemmK) {
-        padGemmFilterTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
+        padGemmFilterTransform.pad("gemmKPad", "gemmK", 0, gemmExtraPad.k);
       } else if (convOpType != ConvOpType::BwdWeight) {
         // Backward weight has no GemmK on its filter
         padGemmFilterTransform.passThrough("gemmK");
       }
 
       if (filterCheckPadGemmM) {
-        padGemmFilterTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
+        padGemmFilterTransform.pad("gemmMPad", "gemmM", 0, gemmExtraPad.m);
       } else {
         padGemmFilterTransform.passThrough("gemmM");
       }
 
       if (filterCheckPadGemmN) {
-        padGemmFilterTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
+        padGemmFilterTransform.pad("gemmNPad", "gemmN", 0, gemmExtraPad.n);
       } else if (convOpType != ConvOpType::Fwd) {
         padGemmFilterTransform.passThrough("gemmN");
       }
@@ -1220,11 +1217,11 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     bool inputCheckPadGemmK = false;
     bool inputCheckPadGemmN = false;
     inputCheckPadGemmK =
-        (convOpType == ConvOpType::Fwd && gemmKExtra > 0) ||
-        (convOpType == ConvOpType::BwdWeight && gemmKExtra > 0);
+        (convOpType == ConvOpType::Fwd && gemmExtraPad.k > 0) ||
+        (convOpType == ConvOpType::BwdWeight && gemmExtraPad.k > 0);
     inputCheckPadGemmN =
-        (convOpType == ConvOpType::Fwd && gemmNExtra > 0) ||
-        (convOpType == ConvOpType::BwdWeight && gemmNExtra > 0);
+        (convOpType == ConvOpType::Fwd && gemmExtraPad.n > 0) ||
+        (convOpType == ConvOpType::BwdWeight && gemmExtraPad.n > 0);
     bool isInputPad = false;
     if (inputCheckPadGemmK || inputCheckPadGemmN) {
       isInputPad = true;
@@ -1232,13 +1229,13 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
           BottomUpTMBuilder::above(gemmInputTransform, gemmInputTransformAttr);
       padGemmInputTransform.passThrough("gemmG");
       if (inputCheckPadGemmK) {
-        padGemmInputTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
+        padGemmInputTransform.pad("gemmKPad", "gemmK", 0, gemmExtraPad.k);
       } else {
         padGemmInputTransform.passThrough("gemmK");
       }
 
       if (inputCheckPadGemmN) {
-        padGemmInputTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
+        padGemmInputTransform.pad("gemmNPad", "gemmN", 0, gemmExtraPad.n);
       } else {
         padGemmInputTransform.passThrough("gemmN");
       }
@@ -1312,11 +1309,11 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     bool outputCheckPadGemmM = false;
     bool outputCheckPadGemmN = false;
     outputCheckPadGemmK =
-        (convOpType == ConvOpType::BwdWeight && gemmKExtra > 0);
+        (convOpType == ConvOpType::BwdWeight && gemmExtraPad.k > 0);
     outputCheckPadGemmM =
-        (convOpType == ConvOpType::BwdWeight && gemmMExtra > 0) ||
-        (convOpType == ConvOpType::Fwd && gemmMExtra > 0);
-    outputCheckPadGemmN = (convOpType == ConvOpType::Fwd && gemmNExtra > 0);
+        (convOpType == ConvOpType::BwdWeight && gemmExtraPad.m > 0) ||
+        (convOpType == ConvOpType::Fwd && gemmExtraPad.m > 0);
+    outputCheckPadGemmN = (convOpType == ConvOpType::Fwd && gemmExtraPad.n > 0);
     bool isOutputPad = false;
     if (outputCheckPadGemmK || outputCheckPadGemmM || outputCheckPadGemmN) {
       isOutputPad = true;
@@ -1325,19 +1322,19 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       padGemmOutputTransform.passThrough("gemmG");
 
       if (outputCheckPadGemmK) {
-        padGemmOutputTransform.pad("gemmKPad", "gemmK", 0, gemmKExtra);
+        padGemmOutputTransform.pad("gemmKPad", "gemmK", 0, gemmExtraPad.k);
       } else if (convOpType != ConvOpType::Fwd) {
         padGemmOutputTransform.passThrough("gemmK");
       }
 
       if (outputCheckPadGemmM) {
-        padGemmOutputTransform.pad("gemmMPad", "gemmM", 0, gemmMExtra);
+        padGemmOutputTransform.pad("gemmMPad", "gemmM", 0, gemmExtraPad.m);
       } else {
         padGemmOutputTransform.passThrough("gemmM");
       }
 
       if (outputCheckPadGemmN) {
-        padGemmOutputTransform.pad("gemmNPad", "gemmN", 0, gemmNExtra);
+        padGemmOutputTransform.pad("gemmNPad", "gemmN", 0, gemmExtraPad.n);
       } else if (convOpType != ConvOpType::BwdWeight) {
         padGemmOutputTransform.passThrough("gemmN");
       }
@@ -1380,8 +1377,8 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     gemmC = arguments[fields.gridwiseGemmArgumentPosition[2]];
 
     // Create padding info attr
-    auto paddingInfo = PaddingInfoAttr::get(b.getContext(), gemmMExtra,
-                                            gemmKExtra, gemmNExtra);
+    auto paddingInfo = PaddingInfoAttr::get(b.getContext(), gemmExtraPad.m,
+                                            gemmExtraPad.k, gemmExtraPad.n);
 
     auto storeMethod = StoreMethod::Set;
     // Emit miopen.gridwise_gemm op.

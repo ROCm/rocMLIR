@@ -268,14 +268,13 @@ public:
 // For example, if gemmM size is 3 and gemmMPerBlock is 64,
 // we set gemmMExtra be 64 so (gemmM+gemmMExtra)%gemmMPerBlock=0.
 //
-// Returns:
-// - needExtraPad : a bool to indicate whether padding kernel is needed.
-// - gemmM/N/KExtra : additional padding required along Gemm M/N/K dimension.
-//                    They would be all be 0 in case needExtraPad is false.
+// If padding is needed, returns a GemmContext containing the number of elements
+// needed to pad the M, N, and K dimensions (**not** the new gemm size).
+// Otherwise, returns None
 template <typename T>
-std::tuple<bool, int64_t, int64_t, int64_t>
-calculatePaddingKernelSize(GemmContext gemmSize, ConvOpType dir, Type dataType,
-                           T populateParams) {
+Optional<GemmContext> calculatePaddingKernelSize(GemmContext gemmSize,
+                                                 ConvOpType dir, Type dataType,
+                                                 T populateParams) {
   bool needExtraPad = false;
   int64_t gemmMExtra, gemmNExtra, gemmKExtra;
   gemmMExtra = gemmNExtra = gemmKExtra = 0;
@@ -312,7 +311,9 @@ calculatePaddingKernelSize(GemmContext gemmSize, ConvOpType dir, Type dataType,
     // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
   }
 
-  return std::make_tuple(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra);
+  if (needExtraPad)
+    return GemmContext(gemmMExtra, gemmKExtra, gemmNExtra);
+  return llvm::None;
 }
 
 } // namespace miopen

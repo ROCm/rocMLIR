@@ -151,17 +151,14 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
     ConvolutionDims convDims = obtainConvDims(op);
     GemmContext gemmSize =
         GemmContext::fromConvolution(ConvOpType::BwdWeight, convDims);
-    int64_t gemmMExtra, gemmNExtra, gemmKExtra;
-    gemmMExtra = gemmNExtra = gemmKExtra = 0;
 
-    bool needExtraPad = false;
     PopulateParamsXDL populateParamsXDL;
-    std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
+    Optional<GemmContext> extraPadSizes =
         calculatePaddingKernelSize(gemmSize, obtainConvDirection(op),
                                    obtainConvDataType(op), populateParamsXDL);
 
     // For padding cases, gemmId must be 0.
-    if (needExtraPad == true) {
+    if (extraPadSizes.hasValue()) {
       assert(gemmId == 0);
     } else {
       assert((gemmId >= 0) && (gemmId < 3));
@@ -191,12 +188,6 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
   ConvolutionDims dims = obtainConvDims(op);
   ConvOpType opType = obtainConvDirection(op);
   GemmContext gemmSize = GemmContext::fromConvolution(opType, dims);
-
-  int64_t gemmMExtra, gemmNExtra, gemmKExtra;
-  gemmMExtra = gemmNExtra = gemmKExtra = 0;
-
-  // Only needExtraPad is used.
-  bool needExtraPad = false;
 
   std::string perfConfig;
   if (auto perfConfigAttr =
@@ -230,9 +221,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     Type dataType = obtainConvDataType(op);
 
     // Disable kpack in case we need padding kernel.
-    std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
+    Optional<GemmContext> gemmExtraPad =
         calculatePaddingKernelSize(gemmSize, dir, dataType, populateParamsXDL);
-    if (needExtraPad) {
+    if (gemmExtraPad.hasValue()) {
       validParams.gemmKPack = 1;
     }
 
