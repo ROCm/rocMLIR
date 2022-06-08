@@ -1,4 +1,4 @@
-add_llvm_library(conv-validation-wrappers SHARED
+add_mlir_library(conv-validation-wrappers SHARED
   conv-validation-wrappers.cpp
 )
 

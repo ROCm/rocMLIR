@@ -1,4 +1,4 @@
-// RUN: mlir-miopen-driver -host-pipeline partition,highlevel %s | miopen-gen -ph -print-results -fut resnet50 - | mlir-miopen-driver -host-pipeline xmodel -kernel-pipeline full -triple amdgcn-amd-amdhsa -target gfx908 | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: mlir-miopen-driver -host-pipeline partition,highlevel %s | miopen-gen -ph -print-results -fut resnet50 - | mlir-miopen-driver -host-pipeline xmodel -kernel-pipeline full -triple amdgcn-amd-amdhsa -target gfx908 | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
 
 module {
 // CHECK: Unranked Memref base@ = 0x{{.*}} rank = 4 offset = 0 sizes = [1, 32, 32, 64] strides = [65536, 2048, 64, 1] data =
