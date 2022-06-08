@@ -1,8 +1,8 @@
-// RUN: mlir-miopen-driver -host-pipeline full -kernel-pipeline full -triple amdgcn-amd-amdhsa -target gfx908 %s | FileCheck %s
+// RUN: mlir-miopen-driver -host-pipeline partition,highlevel %s | miopen-gen -ph -print-results -fut resnet50 - | mlir-miopen-driver -host-pipeline xmodel -kernel-pipeline full -triple amdgcn-amd-amdhsa -target gfx908 | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
 
 module {
-// CHECK: func private @resnet50_outlined_part_0(%arg0: memref<1x32x32x64xf32>, %arg1: memref<64x3x3x64xf32>, %arg2: memref<1x32x32x64xf32>) attributes {access_map = [#func.access_mode<ReadOnly>, #func.access_mode<ReadOnly>, #func.access_mode<WriteOnly>], kernel, targets = [{arch = "gfx908", binary = {{.*}}, block_size = 64 : i32, grid_size = 16 : i32, type = "gpu"}]}
-// CHECK: func private @resnet50_outlined_part_1(%arg0: memref<1x32x32x64xf32>, %arg1: memref<64x3x3x64xf32>, %arg2: memref<1x32x32x64xf32>, %arg3: memref<1x32x32x64xf32>) attributes {access_map = [#func.access_mode<ReadOnly>, #func.access_mode<ReadOnly>, #func.access_mode<ReadOnly>, #func.access_mode<WriteOnly>], kernel, targets = [{arch = "gfx908", binary = {{.*}}, block_size = 64 : i32, grid_size = 16 : i32, type = "gpu"}]}
+// CHECK: Unranked Memref base@ = 0x{{.*}} rank = 4 offset = 0 sizes = [1, 32, 32, 64] strides = [65536, 2048, 64, 1] data =
+    
 
   func @resnet50(%arg0: tensor<1x32x32x64xf32>, %arg1: tensor<64x3x3x64xf32>, %arg2: tensor<64x3x3x64xf32>) -> tensor<1x32x32x64xf32> {
 

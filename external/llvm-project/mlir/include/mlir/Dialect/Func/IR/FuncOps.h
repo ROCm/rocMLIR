@@ -51,4 +51,21 @@ struct PointerLikeTypeTraits<mlir::func::FuncOp> {
 };
 } // namespace llvm
 
+//===----------------------------------------------------------------------===//
+// Func Dialect Types
+//===----------------------------------------------------------------------===//
+
+#include "mlir/Dialect/Func/IR/FuncOpsTypes.h.inc"
+#define GET_ATTRDEF_CLASSES
+#include "mlir/Dialect/Func/IR/FuncOpsAttrDefs.h.inc"
+
+namespace mlir {
+namespace func {
+
+bool isAccessModeRead(AccessMode v);
+bool isAccessModeWrite(AccessMode v);
+
+} // namespace func
+} // namespace mlir
+
 #endif // MLIR_DIALECT_FUNC_IR_OPS_H

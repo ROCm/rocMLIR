@@ -134,6 +134,16 @@ def ConvertArmNeon2dToIntr : Pass<"arm-neon-2d-to-intr"> {
 }
 
 //===----------------------------------------------------------------------===//
+// AsyncToGPU
+//===----------------------------------------------------------------------===//
+
+def ConvertAsyncToGPU : Pass<"convert-async-to-gpu", "ModuleOp"> {
+  let summary = "Convert the async.launch operations to the GPU dialect";
+  let constructor = "mlir::createConvertAsyncToGPUPass()";
+  let dependentDialects = ["gpu::GPUDialect"];
+}
+
+//===----------------------------------------------------------------------===//
 // AsyncToLLVM
 //===----------------------------------------------------------------------===//
 

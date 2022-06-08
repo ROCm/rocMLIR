@@ -14,9 +14,11 @@
 #ifndef MLIR_XDLOPS_CODE_SELECTION_H
 #define MLIR_XDLOPS_CODE_SELECTION_H
 
-#include "mlir/Dialect/GPU/GPUDialect.h"
+#include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "llvm/Support/ErrorHandling.h"
-#include <stdint.h>
+#include <cstdint>
 
 using namespace mlir;
 
@@ -24,7 +26,7 @@ using namespace mlir;
 // XDLOPS code selection logic.
 //===----------------------------------------------------------------------===//
 struct XdlopsCodeSelection {
-  StringRef mfmaInstr;
+  amdgpu::MFMAInstr instr;
   int64_t MPerXdlops;
   int64_t NPerXdlops;
   int64_t MRepeats;
@@ -55,14 +57,13 @@ struct XdlopsCodeSelection {
     llvm::errs() << "dataType: ";
     dataType.dump();
     llvm::errs() << "\n";
-    llvm_unreachable("Can't meaningfully continue xdlop generation");
   }
 
   static XdlopsCodeSelection get(mlir::Type &dataType, int64_t MPerWave,
                                  int64_t NPerWave, OpBuilder &b) {
     // Determine which XDLOPS be used.
     int64_t MPerXdlops = 0, NPerXdlops = 0, MRepeats = 0, NRepeats = 0;
-    StringRef mfmaInstr = "";
+    amdgpu::MFMAInstr instr;
     VectorType vectorType;
     int64_t vectorNumber;
     SmallVector<SmallVector<unsigned, 3>, 2> imms;
@@ -70,7 +71,7 @@ struct XdlopsCodeSelection {
 
     if (dataType == b.getF32Type()) {
       if (MPerWave == 128 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x1f32";
+        instr = amdgpu::MFMAInstr::f32_32x32x1f32;
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 2;
@@ -83,7 +84,7 @@ struct XdlopsCodeSelection {
         imms.push_back({1, 1, 0});
         argType = b.getF32Type();
       } else if (MPerWave == 64 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x1f32";
+        instr = amdgpu::MFMAInstr::f32_32x32x1f32;
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -96,7 +97,7 @@ struct XdlopsCodeSelection {
         imms.push_back({1, 1, 0});
         argType = b.getF32Type();
       } else if (MPerWave == 64 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x1f32";
+        instr = amdgpu::MFMAInstr::f32_32x32x1f32;
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -107,7 +108,7 @@ struct XdlopsCodeSelection {
         imms.push_back({1, 1, 0});
         argType = b.getF32Type();
       } else if (MPerWave == 64 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x1f32";
+        instr = amdgpu::MFMAInstr::f32_32x32x1f32;
         MPerXdlops = 64;
         NPerXdlops = 32;
         MRepeats = 1;
@@ -117,7 +118,7 @@ struct XdlopsCodeSelection {
         imms.push_back({0, 0, 1});
         argType = b.getF32Type();
       } else if (MPerWave == 32 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x1f32";
+        instr = amdgpu::MFMAInstr::f32_32x32x1f32;
         MPerXdlops = 32;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -127,7 +128,7 @@ struct XdlopsCodeSelection {
         imms.push_back({1, 0, 0});
         argType = b.getF32Type();
       } else if (MPerWave == 64 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x1f32";
+        instr = amdgpu::MFMAInstr::f32_16x16x1f32;
         MPerXdlops = 64;
         NPerXdlops = 16;
         MRepeats = 1;
@@ -137,7 +138,7 @@ struct XdlopsCodeSelection {
         imms.push_back({0, 0, 4});
         argType = b.getF32Type();
       } else if (MPerWave == 16 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_16x16x1f32";
+        instr = amdgpu::MFMAInstr::f32_16x16x1f32;
         MPerXdlops = 16;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -147,7 +148,7 @@ struct XdlopsCodeSelection {
         imms.push_back({2, 0, 0});
         argType = b.getF32Type();
       } else if (MPerWave == 8 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_4x4x1f32";
+        instr = amdgpu::MFMAInstr::f32_4x4x1f32;
         MPerXdlops = 8;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -158,7 +159,7 @@ struct XdlopsCodeSelection {
         imms.push_back({4, 1, 0});
         argType = b.getF32Type();
       } else if (MPerWave == 4 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_4x4x1f32";
+        instr = amdgpu::MFMAInstr::f32_4x4x1f32;
         MPerXdlops = 4;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -168,7 +169,7 @@ struct XdlopsCodeSelection {
         imms.push_back({4, 0, 0});
         argType = b.getF32Type();
       } else if (MPerWave == 32 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x2f32";
+        instr = amdgpu::MFMAInstr::f32_32x32x2f32;
         MPerXdlops = 32;
         NPerXdlops = 32;
         MRepeats = 1;
@@ -178,7 +179,7 @@ struct XdlopsCodeSelection {
         imms.push_back({0, 0, 0});
         argType = b.getF32Type();
       } else if (MPerWave == 16 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x4f32";
+        instr = amdgpu::MFMAInstr::f32_16x16x4f32;
         MPerXdlops = 16;
         NPerXdlops = 16;
         MRepeats = 1;
@@ -189,10 +190,11 @@ struct XdlopsCodeSelection {
         argType = b.getF32Type();
       } else {
         dumpUnsupported(dataType, MPerWave, NPerWave);
+        llvm_unreachable("Can't meaningfully continue xdlop generation");
       }
     } else if (dataType == b.getF16Type()) {
       if (MPerWave == 128 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x4f16";
+        instr = amdgpu::MFMAInstr::f32_32x32x4f16;
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 2;
@@ -205,7 +207,7 @@ struct XdlopsCodeSelection {
         imms.push_back({1, 1, 0});
         argType = VectorType::get({4}, b.getF16Type());
       } else if (MPerWave == 64 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x4f16";
+        instr = amdgpu::MFMAInstr::f32_32x32x4f16;
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -218,7 +220,7 @@ struct XdlopsCodeSelection {
         imms.push_back({1, 1, 0});
         argType = VectorType::get({4}, b.getF16Type());
       } else if (MPerWave == 64 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x4f16";
+        instr = amdgpu::MFMAInstr::f32_32x32x4f16;
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -229,7 +231,7 @@ struct XdlopsCodeSelection {
         imms.push_back({1, 1, 0});
         argType = VectorType::get({4}, b.getF16Type());
       } else if (MPerWave == 64 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x4f16";
+        instr = amdgpu::MFMAInstr::f32_32x32x4f16;
         MPerXdlops = 64;
         NPerXdlops = 32;
         MRepeats = 1;
@@ -239,7 +241,7 @@ struct XdlopsCodeSelection {
         imms.push_back({0, 0, 1});
         argType = VectorType::get({4}, b.getF16Type());
       } else if (MPerWave == 64 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x4f16";
+        instr = amdgpu::MFMAInstr::f32_16x16x4f16;
         MPerXdlops = 64;
         NPerXdlops = 16;
         MRepeats = 1;
@@ -249,7 +251,7 @@ struct XdlopsCodeSelection {
         imms.push_back({0, 0, 4});
         argType = VectorType::get({4}, b.getF16Type());
       } else if (MPerWave == 16 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_16x16x4f16";
+        instr = amdgpu::MFMAInstr::f32_16x16x4f16;
         MPerXdlops = 16;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -259,7 +261,7 @@ struct XdlopsCodeSelection {
         imms.push_back({2, 0, 0});
         argType = VectorType::get({4}, b.getF16Type());
       } else if (MPerWave == 8 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_4x4x4f16";
+        instr = amdgpu::MFMAInstr::f32_4x4x4f16;
         MPerXdlops = 8;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -270,7 +272,7 @@ struct XdlopsCodeSelection {
         imms.push_back({4, 1, 0});
         argType = VectorType::get({4}, b.getF16Type());
       } else if (MPerWave == 4 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_4x4x4f16";
+        instr = amdgpu::MFMAInstr::f32_4x4x4f16;
         MPerXdlops = 4;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -280,7 +282,7 @@ struct XdlopsCodeSelection {
         imms.push_back({4, 0, 0});
         argType = VectorType::get({4}, b.getF16Type());
       } else if (MPerWave == 32 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x8f16";
+        instr = amdgpu::MFMAInstr::f32_32x32x8f16;
         MPerXdlops = 32;
         NPerXdlops = 32;
         MRepeats = 1;
@@ -290,7 +292,7 @@ struct XdlopsCodeSelection {
         imms.push_back({0, 0, 0});
         argType = VectorType::get({4}, b.getF16Type());
       } else if (MPerWave == 32 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x4f16";
+        instr = amdgpu::MFMAInstr::f32_32x32x4f16;
         MPerXdlops = 32;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -300,7 +302,7 @@ struct XdlopsCodeSelection {
         imms.push_back({1, 0, 0});
         argType = VectorType::get({4}, b.getF16Type());
       } else if (MPerWave == 16 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x16f16";
+        instr = amdgpu::MFMAInstr::f32_16x16x16f16;
         MPerXdlops = 16;
         NPerXdlops = 16;
         MRepeats = 1;
@@ -311,10 +313,11 @@ struct XdlopsCodeSelection {
         argType = VectorType::get({4}, b.getF16Type());
       } else {
         dumpUnsupported(dataType, MPerWave, NPerWave);
+        llvm_unreachable("Can't meaningfully continue xdlop generation");
       }
     } else if (dataType == b.getBF16Type()) {
       if (MPerWave == 128 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x2bf16";
+        instr = amdgpu::MFMAInstr::f32_32x32x2bf16;
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 2;
@@ -327,7 +330,7 @@ struct XdlopsCodeSelection {
         imms.push_back({1, 1, 0});
         argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 64 && NPerWave == 128) {
-        mfmaInstr = "mfma_f32_32x32x2bf16";
+        instr = amdgpu::MFMAInstr::f32_32x32x2bf16;
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -340,7 +343,7 @@ struct XdlopsCodeSelection {
         imms.push_back({1, 1, 0});
         argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 64 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x2bf16";
+        instr = amdgpu::MFMAInstr::f32_32x32x2bf16;
         MPerXdlops = 64;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -351,7 +354,7 @@ struct XdlopsCodeSelection {
         imms.push_back({1, 1, 0});
         argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 64 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x2bf16";
+        instr = amdgpu::MFMAInstr::f32_32x32x2bf16;
         MPerXdlops = 64;
         NPerXdlops = 32;
         MRepeats = 1;
@@ -361,7 +364,7 @@ struct XdlopsCodeSelection {
         imms.push_back({0, 0, 1});
         argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 32 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_32x32x2bf16";
+        instr = amdgpu::MFMAInstr::f32_32x32x2bf16;
         MPerXdlops = 32;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -371,7 +374,7 @@ struct XdlopsCodeSelection {
         imms.push_back({1, 0, 0});
         argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 64 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x2bf16";
+        instr = amdgpu::MFMAInstr::f32_16x16x2bf16;
         MPerXdlops = 64;
         NPerXdlops = 16;
         MRepeats = 1;
@@ -381,7 +384,7 @@ struct XdlopsCodeSelection {
         imms.push_back({0, 0, 4});
         argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 16 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_16x16x2bf16";
+        instr = amdgpu::MFMAInstr::f32_16x16x2bf16;
         MPerXdlops = 16;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -391,7 +394,7 @@ struct XdlopsCodeSelection {
         imms.push_back({2, 0, 0});
         argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 8 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_4x4x2bf16";
+        instr = amdgpu::MFMAInstr::f32_4x4x2bf16;
         MPerXdlops = 8;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -402,7 +405,7 @@ struct XdlopsCodeSelection {
         imms.push_back({4, 1, 0});
         argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 4 && NPerWave == 64) {
-        mfmaInstr = "mfma_f32_4x4x2bf16";
+        instr = amdgpu::MFMAInstr::f32_4x4x2bf16;
         MPerXdlops = 4;
         NPerXdlops = 64;
         MRepeats = 1;
@@ -412,7 +415,7 @@ struct XdlopsCodeSelection {
         imms.push_back({4, 0, 0});
         argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 32 && NPerWave == 32) {
-        mfmaInstr = "mfma_f32_32x32x4bf16";
+        instr = amdgpu::MFMAInstr::f32_32x32x4bf16;
         MPerXdlops = 32;
         NPerXdlops = 32;
         MRepeats = 1;
@@ -422,7 +425,7 @@ struct XdlopsCodeSelection {
         imms.push_back({0, 0, 0});
         argType = VectorType::get({2}, b.getBF16Type());
       } else if (MPerWave == 16 && NPerWave == 16) {
-        mfmaInstr = "mfma_f32_16x16x8bf16";
+        instr = amdgpu::MFMAInstr::f32_16x16x8bf16;
         MPerXdlops = 16;
         NPerXdlops = 16;
         MRepeats = 1;
@@ -433,10 +436,11 @@ struct XdlopsCodeSelection {
         argType = VectorType::get({2}, b.getBF16Type());
       } else {
         dumpUnsupported(dataType, MPerWave, NPerWave);
+        llvm_unreachable("Can't meaningfully continue xdlop generation");
       }
     } else if (dataType == b.getIntegerType(8)) {
       if (MPerWave == 32 && NPerWave == 32) {
-        mfmaInstr = "mfma_i32_32x32x8i8";
+        instr = amdgpu::MFMAInstr::i32_32x32x8i8;
         MPerXdlops = 32;
         NPerXdlops = 32;
         MRepeats = 1;
@@ -446,7 +450,7 @@ struct XdlopsCodeSelection {
         imms.push_back({0, 0, 0});
         argType = VectorType::get({4}, b.getIntegerType(8));
       } else if (MPerWave == 16 && NPerWave == 16) {
-        mfmaInstr = "mfma_i32_16x16x16i8";
+        instr = amdgpu::MFMAInstr::i32_16x16x16i8;
         MPerXdlops = 16;
         NPerXdlops = 16;
         MRepeats = 1;
@@ -457,6 +461,7 @@ struct XdlopsCodeSelection {
         argType = VectorType::get({4}, b.getIntegerType(8));
       } else {
         dumpUnsupported(dataType, MPerWave, NPerWave);
+        llvm_unreachable("Can't meaningfully continue xdlop generation");
       }
     } else {
       llvm_unreachable("XDLOPs for unsupported data types should be rejected");
@@ -465,7 +470,7 @@ struct XdlopsCodeSelection {
     // Obtain properties of MFMA instructions.
     int64_t group_size, num_groups_blk, num_regs_blk, num_threads_blk,
         num_output_blks, num_regs_xdlops, m, n, k, cycles, k_base;
-    if (mfmaInstr == "mfma_f32_32x32x1f32") {
+    if (instr == amdgpu::MFMAInstr::f32_32x32x1f32) {
       group_size = 4;
       num_groups_blk = 4;
       num_regs_blk = group_size * num_groups_blk;
@@ -477,7 +482,7 @@ struct XdlopsCodeSelection {
       k = 1;
       cycles = 64;
       k_base = 1;
-    } else if (mfmaInstr == "mfma_f32_32x32x2f32") {
+    } else if (instr == amdgpu::MFMAInstr::f32_32x32x2f32) {
       group_size = 4;
       num_groups_blk = 4;
       num_regs_blk = group_size * num_groups_blk;
@@ -489,7 +494,7 @@ struct XdlopsCodeSelection {
       k = 2;
       cycles = 64;
       k_base = 1;
-    } else if (mfmaInstr == "mfma_f32_16x16x4f32") {
+    } else if (instr == amdgpu::MFMAInstr::f32_16x16x4f32) {
       group_size = 4;
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
@@ -501,7 +506,7 @@ struct XdlopsCodeSelection {
       k = 4;
       cycles = 32;
       k_base = 1;
-    } else if (mfmaInstr == "mfma_f32_16x16x1f32") {
+    } else if (instr == amdgpu::MFMAInstr::f32_16x16x1f32) {
       group_size = 4;
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
@@ -513,7 +518,7 @@ struct XdlopsCodeSelection {
       k = 1;
       cycles = 32;
       k_base = 1;
-    } else if (mfmaInstr == "mfma_f32_4x4x1f32") {
+    } else if (instr == amdgpu::MFMAInstr::f32_4x4x1f32) {
       group_size = 4;
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
@@ -525,7 +530,7 @@ struct XdlopsCodeSelection {
       k = 1;
       cycles = 8;
       k_base = 1;
-    } else if (mfmaInstr == "mfma_f32_32x32x4f16") {
+    } else if (instr == amdgpu::MFMAInstr::f32_32x32x4f16) {
       group_size = 4;
       num_groups_blk = 4;
       num_regs_blk = group_size * num_groups_blk;
@@ -537,7 +542,7 @@ struct XdlopsCodeSelection {
       k = 4;
       cycles = 64;
       k_base = 4;
-    } else if (mfmaInstr == "mfma_f32_32x32x8f16") {
+    } else if (instr == amdgpu::MFMAInstr::f32_32x32x8f16) {
       group_size = 4;
       num_groups_blk = 4;
       num_regs_blk = group_size * num_groups_blk;
@@ -549,7 +554,7 @@ struct XdlopsCodeSelection {
       k = 8;
       cycles = 64;
       k_base = 4;
-    } else if (mfmaInstr == "mfma_f32_16x16x16f16") {
+    } else if (instr == amdgpu::MFMAInstr::f32_16x16x16f16) {
       group_size = 4;
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
@@ -561,7 +566,7 @@ struct XdlopsCodeSelection {
       k = 16;
       cycles = 32;
       k_base = 4;
-    } else if (mfmaInstr == "mfma_f32_16x16x4f16") {
+    } else if (instr == amdgpu::MFMAInstr::f32_16x16x4f16) {
       group_size = 4;
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
@@ -573,7 +578,7 @@ struct XdlopsCodeSelection {
       k = 4;
       cycles = 32;
       k_base = 4;
-    } else if (mfmaInstr == "mfma_f32_4x4x4f16") {
+    } else if (instr == amdgpu::MFMAInstr::f32_4x4x4f16) {
       group_size = 4;
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
@@ -585,7 +590,7 @@ struct XdlopsCodeSelection {
       k = 4;
       cycles = 8;
       k_base = 4;
-    } else if (mfmaInstr == "mfma_f32_32x32x2bf16") {
+    } else if (instr == amdgpu::MFMAInstr::f32_32x32x2bf16) {
       group_size = 4;
       num_groups_blk = 4;
       num_regs_blk = group_size * num_groups_blk;
@@ -597,7 +602,7 @@ struct XdlopsCodeSelection {
       k = 2;
       cycles = 64;
       k_base = 2;
-    } else if (mfmaInstr == "mfma_f32_32x32x4bf16") {
+    } else if (instr == amdgpu::MFMAInstr::f32_32x32x4bf16) {
       group_size = 4;
       num_groups_blk = 4;
       num_regs_blk = group_size * num_groups_blk;
@@ -609,7 +614,7 @@ struct XdlopsCodeSelection {
       k = 4;
       cycles = 64;
       k_base = 2;
-    } else if (mfmaInstr == "mfma_f32_16x16x8bf16") {
+    } else if (instr == amdgpu::MFMAInstr::f32_16x16x8bf16) {
       group_size = 4;
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
@@ -621,7 +626,7 @@ struct XdlopsCodeSelection {
       k = 8;
       cycles = 32;
       k_base = 2;
-    } else if (mfmaInstr == "mfma_f32_32x32x2xf32") {
+    } else if (instr == amdgpu::MFMAInstr::f32_32x32x2f32) {
       group_size = 4;
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
@@ -633,7 +638,7 @@ struct XdlopsCodeSelection {
       k = 2;
       cycles = 32;
       k_base = 2;
-    } else if (mfmaInstr == "mfma_f32_4x4x2bf16") {
+    } else if (instr == amdgpu::MFMAInstr::f32_4x4x2bf16) {
       group_size = 4;
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
@@ -645,7 +650,7 @@ struct XdlopsCodeSelection {
       k = 2;
       cycles = 8;
       k_base = 2;
-    } else if (mfmaInstr == "mfma_i32_32x32x8i8") {
+    } else if (instr == amdgpu::MFMAInstr::i32_32x32x8i8) {
       group_size = 4;
       num_groups_blk = 4;
       num_regs_blk = group_size * num_groups_blk;
@@ -657,7 +662,7 @@ struct XdlopsCodeSelection {
       k = 8;
       cycles = 64;
       k_base = 4;
-    } else if (mfmaInstr == "mfma_i32_16x16x16i8") {
+    } else if (instr == amdgpu::MFMAInstr::i32_16x16x16i8) {
       group_size = 4;
       num_groups_blk = 1;
       num_regs_blk = group_size * num_groups_blk;
@@ -676,7 +681,7 @@ struct XdlopsCodeSelection {
     constexpr int64_t wave_size = 64;
     // Populate result.
     XdlopsCodeSelection result;
-    result.mfmaInstr = mfmaInstr;
+    result.instr = instr;
     result.MPerXdlops = MPerXdlops;
     result.NPerXdlops = NPerXdlops;
     result.MRepeats = MRepeats;

@@ -614,12 +614,33 @@ void LaunchFuncOp::build(OpBuilder &builder, OperationState &result,
       SymbolRefAttr::get(kernelModule.getNameAttr(),
                          {SymbolRefAttr::get(kernelFunc.getNameAttr())});
   result.addAttribute(getKernelAttrName(), kernelSymbol);
-  SmallVector<int32_t, 9> segmentSizes(9, 1);
-  segmentSizes.front() = 0; // Initially no async dependencies.
-  segmentSizes[segmentSizes.size() - 2] = dynamicSharedMemorySize ? 1 : 0;
+  SmallVector<int32_t, 9> segmentSizes(9, 1); // initialized all sizes = 1
+  int32_t numGridSizeParams = 3;
+  int32_t numBlockSizeParams = 3;
+  int32_t count = numGridSizeParams + numBlockSizeParams +
+                  (!dynamicSharedMemorySize ? 0 : 1) + kernelOperands.size();
+  if (!dynamicSharedMemorySize) {
+    // clear dynamicSharedMemorySize param count
+    segmentSizes[segmentSizes.size() - 2] = 0;
+  }
+  // Set kernel param count
   segmentSizes.back() = static_cast<int32_t>(kernelOperands.size());
+  // Set token dependency count
+  segmentSizes[0] = result.operands.size() - count;
   result.addAttribute(getOperandSegmentSizeAttr(),
                       builder.getI32VectorAttr(segmentSizes));
+}
+
+void LaunchFuncOp::build(OpBuilder &builder, OperationState &result,
+                         ValueRange dependencies, GPUFuncOp kernelFunc,
+                         KernelDim3 gridSize, KernelDim3 blockSize,
+                         Value dynamicSharedMemorySize,
+                         ValueRange kernelOperands) {
+
+  result.addOperands(dependencies);
+  build(builder, result, kernelFunc, gridSize, blockSize,
+        dynamicSharedMemorySize, kernelOperands);
+  result.addTypes(builder.getType<AsyncTokenType>());
 }
 
 unsigned LaunchFuncOp::getNumKernelOperands() {

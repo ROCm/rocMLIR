@@ -5,8 +5,8 @@ func @miopen_xdlops_gemm_v2_two_results(%matrix : memref<1024xf32, 3>, %bufferA 
   %c0f = arith.constant 0.0 : f32
   %vectorC0 = vector.splat %c0f : vector<32xf32>
   %vectorC1 = vector.splat %c0f : vector<32xf32>
-  // CHECK: miopen.mfma_v2
-  // CHECK-NEXT: miopen.mfma_v2
+  // CHECK: amdgpu.mfma
+  // CHECK-NEXT: amdgpu.mfma
   %vectorD0, %vectorD1 = miopen.xdlops_gemm_v2(%matrix, %matrix, %c0, %c0, %bufferA, %bufferB, %vectorC0, %vectorC1) {
     block_size = 256 : i32,
     k = 2 : i32,
@@ -27,8 +27,8 @@ func @miopen_xdlops_gemm_v2_one_result(%matrix : memref<2048xi8, 3>, %bufferA : 
   %c0 = arith.constant 0 : index
   %c0i = arith.constant 0 : i32
   %vectorC0 = vector.splat %c0i : vector<16xi32>
-  // CHECK: miopen.mfma_v2
-  // CHECK-NOT: miopen.mfma_v2
+  // CHECK: amdgpu.mfma
+  // CHECK-NOT: amdgpu.mfma
   %vectorD0 = miopen.xdlops_gemm_v2(%matrix, %matrix, %c0, %c0, %bufferA, %bufferB, %vectorC0) {
     block_size = 256 : i32, // m_waves * n_waves * 64
     k = 2 : i32,
