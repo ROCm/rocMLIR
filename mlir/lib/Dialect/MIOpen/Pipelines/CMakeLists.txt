@@ -1,9 +1,11 @@
 add_mlir_dialect_library(MLIRMIOpenPipeline
-  Pipeline.cpp
+  Pipelines.cpp
+  XMIRPipelines.cpp
 
   LINK_LIBS PUBLIC
   MLIRDialect
   MLIRFunc
+  MLIRAsyncToGPU
   MLIRTosaToMIOpen
   MLIRTosaToLinalg
   MLIRTosaToSCF

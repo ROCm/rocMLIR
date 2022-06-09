@@ -22,6 +22,7 @@
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Dialect/Async/Passes.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
+#include "mlir/Dialect/MIOpen/XMIRPipelines.h"
 #include "mlir/InitAllTranslations.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
@@ -56,22 +57,8 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   // Host Compiler/Scheduler Pipeline
   PassManager pm(m.getContext());
   applyPassManagerCLOptions(pm);
-  pm.addPass(createLowerAffinePass());
-  pm.addPass(createConvertSCFToCFPass());
-  if (!cpuOnly) {
-    pm.addPass(createConvertAsyncToGPUPass());
-    pm.addPass(createSymbolDCEPass());
-  }
-  pm.addNestedPass<FuncOp>(createConvertMathToLLVMPass());
-  pm.addPass(createGpuToLLVMConversionPass());
-  pm.addPass(createAsyncToAsyncRuntimePass());
-  pm.addPass(createConvertAsyncToLLVMPass());
-  mlir::LowerToLLVMOptions lower_to_llvm_opts(m.getContext());
-  pm.addPass(createConvertFuncToLLVMPass(lower_to_llvm_opts));
-  pm.addPass(LLVM::createSoftwareBF16Pass());
 
-  registerLLVMDialectTranslation(*m.getContext());
-
+  xmir::buildRunnerPipeline(pm);
   return pm.run(m);
 }
 
@@ -90,7 +77,8 @@ int main(int argc, char **argv) {
   mlir::initializeLLVMPasses();
 
   DialectRegistry registry;
-  registerAllDialects(registry);
+  mlir::registerAllDialects(registry);
+  mlir::registerLLVMDialectTranslation(registry);
 #ifdef MLIR_INCLUDE_TESTS
   ::test::registerTestDialect(registry);
 #endif

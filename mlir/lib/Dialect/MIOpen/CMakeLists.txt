@@ -38,6 +38,6 @@ target_link_libraries(MLIRMIOpenOps
 add_subdirectory(Transforms)
 add_subdirectory(Tuning)
 add_subdirectory(Generator)
-add_subdirectory(Pipeline)
+add_subdirectory(Pipelines)
 add_subdirectory(utility)
 

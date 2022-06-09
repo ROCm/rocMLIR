@@ -1,4 +1,4 @@
-//===- Pipeline.cpp - Create MIOpen compilation pipeline ---------------===//
+//===- Pipelines.cpp - Create MIOpen compilation pipelines ---------------===//
 //
 // Copyright 2021 The MLIR Authors.
 //
@@ -20,7 +20,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/MIOpen/Pipeline.h"
+#include "mlir/Dialect/MIOpen/Pipelines.h"
+#include "mlir/Dialect/MIOpen/XMIRPipelines.h"
 
 #include "mlir/Conversion/MIOpenPasses.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
@@ -31,6 +32,8 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitAllPasses.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Pass/PassRegistry.h"
 
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
@@ -43,14 +46,15 @@ using namespace mlir;
 
 //===- Consolidate the MIOpen Pipelines here ---------------------===//
 
-void miopen::addPartitionPipeline(PassManager &pm, bool toMIOpen) {
+void miopen::buildPartitionPipeline(OpPassManager &pm,
+                                    const miopen::PartitionOptions &options) {
   // TOSA partitioning pass
   // make 'kernel' funcs with tosa dataflow
   /* miopen-opt --tosa-partition
    */
   pm.addPass(tosa::createTosaPartitionPass());
 
-  if (toMIOpen) {
+  if (options.cloneToMIOpenModule) {
     // clone 'kernel' funcs into __miopen module
     /* miopen-opt --miopen-clone-kernels
      */
@@ -58,9 +62,12 @@ void miopen::addPartitionPipeline(PassManager &pm, bool toMIOpen) {
   }
 }
 
-void miopen::addHighLevelPipeline(PassManager &pm, bool toMIOpen) {
+void miopen::buildBufferizePipeline(OpPassManager &pm,
+                                    const miopen::BufferizeOptions &options) {
+  bool noMIOpen = options.disableMIOpen;
+
   // TOSA conversion to miopen and/or linalg with async.launch's
-  if (toMIOpen) {
+  if (!noMIOpen) {
     // convert tosa.conv2d/matmul to miopen.conv2d
     /* miopen-opt --tosa-to-miopen
      */
@@ -97,7 +104,7 @@ void miopen::addHighLevelPipeline(PassManager &pm, bool toMIOpen) {
 
   bufferization::OneShotBufferizationOptions bufOpts;
   bufOpts.allowReturnAllocs = true;
-  bufOpts.createDeallocs = !toMIOpen;
+  bufOpts.createDeallocs = noMIOpen;
   bufOpts.fullyDynamicLayoutMaps = false;
   pm.addPass(createLinalgComprehensiveModuleBufferizePass(bufOpts));
 
@@ -109,7 +116,8 @@ void miopen::addHighLevelPipeline(PassManager &pm, bool toMIOpen) {
   pm.addNestedPass<FuncOp>(miopen::createMIOpenCopyOptPass());
 }
 
-void miopen::addPipeline(PassManager &pm, bool applicability, bool highLevel) {
+void miopen::buildKernelPipeline(OpPassManager &pm,
+                                 const miopen::KernelOptions &options) {
   // miopen lowering (tuning, global to block)
   /* miopen-opt --miopen-affix-params --miopen-lowering --miopen-lowering-step2
    */
@@ -117,8 +125,8 @@ void miopen::addPipeline(PassManager &pm, bool applicability, bool highLevel) {
   pm.addPass(miopen::createLowerMIOpenOpsStep1Pass());
   pm.addPass(miopen::createLowerMIOpenOpsStep2Pass());
 
-  if (!applicability) {
-    if (highLevel) {
+  if (!options.enableApplicability) {
+    if (options.enableFusion) {
       // align linalg tiling
       /* miopen-opt --canonicalize --miopen-linalg-align
        * --convert-linalg-to-affine-loops
@@ -149,14 +157,38 @@ void miopen::addPipeline(PassManager &pm, bool applicability, bool highLevel) {
   }
 }
 
-void miopen::addBackendPipeline(PassManager &pm, const std::string &triple,
-                                const std::string &chip,
-                                const std::string &features, int32_t optLevel,
-                                int32_t indexBitWidth) {
+void miopen::buildBackendPipeline(OpPassManager &pm,
+                                  const miopen::BackendOptions &options) {
   // lowering ROCDL (LLVM) to binary
   /* miopen-opt --strip-debuginfo --convert-gpu-to-rocdl --gpu-to-hsaco
    */
   pm.addPass(createStripDebugInfoPass());
-  pm.addPass(createLowerGpuOpsToROCDLOpsPass(indexBitWidth));
-  pm.addPass(createGpuSerializeToHsacoPass(triple, chip, features, optLevel));
+  pm.addPass(createLowerGpuOpsToROCDLOpsPass(options.indexBitwidth));
+  pm.addPass(createGpuSerializeToHsacoPass(options.triple, options.chip,
+                                           options.features, options.optLevel));
+}
+
+//===----------------------------------------------------------------------===//
+// Pipeline registration.
+//===----------------------------------------------------------------------===//
+
+void miopen::registerPipelines() {
+  PassPipelineRegistration<miopen::PartitionOptions>(
+      "miopen-partition-pipeline",
+      " representations and algorithms for sparse tensors.",
+      buildPartitionPipeline);
+  PassPipelineRegistration<miopen::BufferizeOptions>(
+      "miopen-bufferize-pipeline",
+      " representations and algorithms for sparse tensors.",
+      buildBufferizePipeline);
+  PassPipelineRegistration<miopen::KernelOptions>(
+      "miopen-kernel-pipeline",
+      " representations and algorithms for sparse tensors.",
+      buildKernelPipeline);
+  PassPipelineRegistration<miopen::BackendOptions>(
+      "miopen-backend-pipeline",
+      " representations and algorithms for sparse tensors.",
+      buildBackendPipeline);
+
+  xmir::registerPipelines();
 }
