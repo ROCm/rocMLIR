@@ -64,11 +64,11 @@ void showEnv() {
 }
 
 String dockerArgs() {
-    return "--device=/dev/kfd --device=/dev/dri --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
+    return "--device=/dev/kfd --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
 }
 
 String dockerImage() {
-    return 'rocm/mlir:rocm5.0-latest'
+    return 'rocm/mlir:rocm5.1-latest'
 }
 
 void preMergeCheck() {
