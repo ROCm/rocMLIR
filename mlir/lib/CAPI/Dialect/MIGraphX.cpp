@@ -16,7 +16,7 @@
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/MIGraphX/Pipeline.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
-#include "mlir/Dialect/MIOpen/Pipeline.h"
+#include "mlir/Dialect/MIOpen/Pipelines.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "llvm/Support/TargetSelect.h"
 #include <vector>
@@ -105,7 +105,7 @@ void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
   auto passMan = unwrap(pm);
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
   mlir::migraphx::addHighLevelPipeline(*passMan);
-  mlir::miopen::addHighLevelPipeline(*passMan);
+  mlir::miopen::buildBufferizePipeline(*passMan);
 }
 
 MLIR_CAPI_EXPORTED void mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
@@ -115,6 +115,12 @@ MLIR_CAPI_EXPORTED void mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   mlir::registerGpuSerializeToHsacoPass();
   auto passMan = unwrap(pm);
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
-  mlir::miopen::addPipeline(*passMan, false, true);
-  mlir::miopen::addBackendPipeline(*passMan, triple, chip, features, 3, 64);
+  mlir::miopen::buildKernelPipeline(*passMan);
+  mlir::miopen::BackendOptions opts;
+  opts.triple = triple;
+  opts.chip = chip;
+  opts.features = features;
+  opts.optLevel = 3;
+  opts.indexBitwidth = 64;
+  mlir::miopen::buildBackendPipeline(*passMan, opts);
 }
