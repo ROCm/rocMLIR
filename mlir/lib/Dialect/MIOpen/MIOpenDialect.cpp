@@ -964,6 +964,38 @@ LogicalResult InBoundsStoreOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// ThreadwiseGemmOp
+//===----------------------------------------------------------------------===//
+LogicalResult ThreadwiseGemmOp::verify() {
+  APInt expectedA = g() * k() * m() * kPack();
+  APInt expectedB = g() * k() * n() * kPack();
+  APInt expectedC = g() * m() * n() * kPack();
+  unsigned int width = expectedA.getBitWidth();
+
+  APInt matrixALen(width,
+                   matrixA().getType().cast<MemRefType>().getNumElements());
+  APInt matrixBLen(width,
+                   matrixB().getType().cast<MemRefType>().getNumElements());
+  APInt matrixCLen(width,
+                   matrixC().getType().cast<MemRefType>().getNumElements());
+
+  if (matrixALen != expectedA)
+    return emitOpError(
+        "Expected matrix A to have " + Twine(expectedA.getZExtValue()) +
+        " elements but it has " + Twine(matrixALen.getZExtValue()));
+  if (matrixBLen != expectedB)
+    return emitOpError(
+        "Expected matrix B to have " + Twine(expectedB.getZExtValue()) +
+        " elements but it has " + Twine(matrixBLen.getZExtValue()));
+  if (matrixCLen != expectedC)
+    return emitOpError(
+        "Expected matrix B to have " + Twine(expectedC.getZExtValue()) +
+        " elements but it has " + Twine(matrixCLen.getZExtValue()));
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ThreadwiseCopyOp
 //===----------------------------------------------------------------------===//
 

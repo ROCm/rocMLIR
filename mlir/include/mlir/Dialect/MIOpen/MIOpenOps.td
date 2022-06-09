@@ -702,7 +702,15 @@ def MIOpen_BlockwiseGemmOp:
                    MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$matrixB,
                    AnyMemRef:$matrixC,
                    Index:$threadOffsetA,
-                   Index:$threadOffsetB)> {
+                   Index:$threadOffsetB,
+                   IndexAttr:$mC,
+                   IndexAttr:$nC,
+                   IndexAttr:$kPerThread,
+                   IndexAttr:$mPerThread,
+                   IndexAttr:$nPerThread,
+                   IndexAttr:$mRepeatStride,
+                   IndexAttr:$nRepeatStride
+                   )> {
   let summary = "Blockwise GEMM non-XDLOPS version";
   let description = [{
     The `miopen.block_gemm` op does GEMM at workgroup (block) level.
@@ -750,18 +758,26 @@ def MIOpen_BlockwiseGemmV2Op:
 // threadwise_gemm
 def MIOpen_ThreadwiseGemmOp:
     MIOpen_Op<"threadwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$matrixA,
-                   MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$matrixB,
-                   MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$matrixC)> {
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [1]>:$matrixA,
+                   MemRefRankOf<[F32, F16, BF16, I32], [1]>:$matrixB,
+                   MemRefRankOf<[F32, F16, BF16, I32], [1]>:$matrixC,
+                   IndexAttr:$g,
+                   IndexAttr:$k,
+                   IndexAttr:$m,
+                   IndexAttr:$n,
+                   IndexAttr:$kPack)> {
   let summary = "Threadwise GEMM non-XDLOPS version";
   let description = [{
     The `miopen.threadwise_gemm` op does GEMM at thread level.
     - Matrix A and Matrix B shall reside on register (naive tensor).
     - Matrix C is in registers.
+
+    Dimensions holds the dimensions of the register tiles, including KPack (even if 1).
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
+    $matrixC `=` $matrixA `*` $matrixB attr-dict `:` type(operands)
   }];
+  let hasVerifier = 1;
 }
 
 // xdlops_gemm_V2

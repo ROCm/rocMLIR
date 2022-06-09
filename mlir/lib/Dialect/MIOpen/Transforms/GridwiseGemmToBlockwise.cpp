@@ -420,22 +420,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     LLVM_DEBUG(llvm::dbgs() << "double_block_space: " << block_space << "\n\n");
   }
 
-  void affixBlockwiseGemmAttributes(BlockwiseGemmOp bop, GridwiseGemmOp gop,
-                                    OpBuilder &b) const {
-    bop->setAttr("block_size", gop->getAttr("block_size"));
-    // Attributes used in non-xdlops lowering path.
-    bop->setAttr("m_per_thread", gop->getAttr("m_per_thread"));
-    bop->setAttr("n_per_thread", gop->getAttr("n_per_thread"));
-    bop->setAttr("k_per_thread", gop->getAttr("k_per_thread"));
-    bop->setAttr("m_level0_cluster", gop->getAttr("m_level0_cluster"));
-    bop->setAttr("m_level1_cluster", gop->getAttr("m_level1_cluster"));
-    bop->setAttr("n_level0_cluster", gop->getAttr("n_level0_cluster"));
-    bop->setAttr("n_level1_cluster", gop->getAttr("n_level1_cluster"));
-
-    if (gop->hasAttr("kpack"))
-      bop->setAttr("kpack", gop->getAttr("kpack"));
-  }
-
   LogicalResult matchAndRewrite(GridwiseGemmOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
@@ -503,12 +487,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         op->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
     int64_t NPerBlock =
         op->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
-    int64_t MPerThread =
-        op->getAttr("m_per_thread").template cast<IntegerAttr>().getInt();
-    int64_t NPerThread =
-        op->getAttr("n_per_thread").template cast<IntegerAttr>().getInt();
-    auto MPerThreadConstantOp = b.create<ConstantIndexOp>(loc, MPerThread);
-    auto NPerThreadConstantOp = b.create<ConstantIndexOp>(loc, NPerThread);
+    auto kPerThreadAttr =
+        b.getIndexAttr(op->getAttrOfType<IntegerAttr>("k_per_thread").getInt());
+    auto mPerThreadAttr = op->getAttrOfType<IntegerAttr>("m_per_thread");
+    auto nPerThreadAttr = op->getAttrOfType<IntegerAttr>("n_per_thread");
+    int64_t MPerThread = mPerThreadAttr.getInt();
+    int64_t NPerThread = nPerThreadAttr.getInt();
+    Value MPerThreadConstantOp = b.create<ConstantIndexOp>(loc, MPerThread);
+    Value NPerThreadConstantOp = b.create<ConstantIndexOp>(loc, NPerThread);
 
     int64_t MLevel0Cluster =
         op->getAttr("m_level0_cluster").template cast<IntegerAttr>().getInt();
@@ -759,7 +745,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                             << GemmBBlockCopyClusterLengths_GemmKPack << "\n");
 
     // Get current workitem ID.
-
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
 
     // Compute thread_data_id_begin for Matrix A.
@@ -1017,13 +1002,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     int64_t threadCNumN = GemmNRepeat * NPerThread;
     int64_t threadCNumRegisters = threadCNumM * threadCNumN;
     auto threadCRegisterMemRefType =
-        MemRefType::get({1, threadCNumM, threadCNumN}, accumulatorType, {},
+        MemRefType::get({threadCNumRegisters}, accumulatorType, {},
                         gpu::GPUDialect::getPrivateAddressSpace());
     Value registerMatrixCAllocOp =
         b.create<GpuAllocOp>(loc, threadCRegisterMemRefType);
-    // TransformOp registerMatrixCView = reshapeBufferSubview(b, loc,
-    // registerMatrixCAllocOp, {1, GemmMRepeat * MPerThread, GemmNRepeat *
-    // NPerThread});
 
     // Determine vector / scalar load type for Matrix A / B.
     SmallVector<int64_t, 4> blockwiseCopyABounds;
@@ -1119,6 +1101,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     int64_t MPerLevel0Cluster = MPerThread * MLevel0Cluster;
     int64_t NPerLevel0Cluster = NPerThread * NLevel0Cluster;
+    int64_t mRepeatLDSStride = MPerLevel0Cluster * MLevel1Cluster;
+    int64_t nRepeatLDSStride = NPerLevel0Cluster * NLevel1Cluster;
     auto MPerLevel0ClusterConstantOp =
         b.create<ConstantIndexOp>(loc, MPerLevel0Cluster);
     auto NPerLevel0ClusterConstantOp =
@@ -1225,8 +1209,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // Emit blockwise GEMM.
     auto blockwiseGemmOp = lb.create<BlockwiseGemmOp>(
         loc, ldsMatrixASubviewOp, ldsMatrixBSubviewOp, registerMatrixCAllocOp,
-        mMyThreadOffsetA, mMyThreadOffsetB);
-    affixBlockwiseGemmAttributes(blockwiseGemmOp, op, b);
+        mMyThreadOffsetA, mMyThreadOffsetB,
+        /*mC=*/b.getIndexAttr(threadCNumM), /*nC=*/b.getIndexAttr(threadCNumN),
+        kPerThreadAttr, b.getIndexAttr(MPerThread), b.getIndexAttr(NPerThread),
+        b.getIndexAttr(mRepeatLDSStride), b.getIndexAttr(nRepeatLDSStride));
 
     // LDS barrier.
     // This barrier prevents halo part of outputs having weird values.
@@ -1275,12 +1261,15 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // Emit blockwise GEMM for the loop tail.
     auto blockwiseGemmTailOp = b.create<BlockwiseGemmOp>(
         loc, ldsMatrixASubviewOp, ldsMatrixBSubviewOp, registerMatrixCAllocOp,
-        mMyThreadOffsetA, mMyThreadOffsetB);
-    affixBlockwiseGemmAttributes(blockwiseGemmTailOp, op, b);
-#if 0
+        mMyThreadOffsetA, mMyThreadOffsetB,
+        /*mC=*/b.getIndexAttr(threadCNumM), /*nC=*/b.getIndexAttr(threadCNumN),
+        kPerThreadAttr, b.getIndexAttr(MPerThread), b.getIndexAttr(NPerThread),
+        b.getIndexAttr(mRepeatLDSStride), b.getIndexAttr(nRepeatLDSStride));
+
     // Threadwise copy from register (naive tensor) to global (generic tensor).
-    TopDownTMBuilder splitMemoryCoords(b, {"bid", "tid", "iter"},
-        {1, 1, threadCNumRegisters}, loc);
+    TopDownTMBuilder splitMemoryCoords(
+        b, {"bid", "tid", "iter"},
+        {kernelGridSize, kernelBlockSize, threadCNumRegisters}, loc);
     splitMemoryCoords.merge({"g", "m_block", "n_block"}, {0, 1, 2}, "bid",
         {kernelGridSize / GStride, GStride / NBlockWork, NBlockWork});
     splitMemoryCoords.merge({"level1", "level0"}, {3, 4}, "tid",
@@ -1295,67 +1284,92 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                             {"level0", {"level0_m", "level0_n"}},
                             {"m_iter", {"m_iter_level1", "m_iter_level0"}},
                             {"n_iter", {"n_iter_level1", "n_iter_level0"}}});
-    toClusters.passThrough({"g", "m_block", "n_block"});
-    toClusters.merge({"level1_m", "level1_n"}, {toClust})
-#endif
+    TopDownTMBottomDimsWrapper clustersWrap(toClusters, toClustersIdxs);
+    clustersWrap.passThrough({"g", "m_block", "n_block"});
+    clustersWrap.merge(
+        {"level1_m", "level1_n"}, "level1",
+        {splitMemoryCoords.endSize("level1") / NLevel1Cluster, NLevel1Cluster});
+    clustersWrap.merge(
+        {"level0_m", "level0_n"}, "level0",
+        {splitMemoryCoords.endSize("level0") / NLevel0Cluster, NLevel0Cluster});
+    clustersWrap.merge({"m_iter_level1", "m_iter_level0"}, "m_iter",
+                       {GemmMRepeat, MPerThread});
+    clustersWrap.merge({"n_iter_level1", "n_iter_level0"}, "n_iter",
+                       {GemmNRepeat, NPerThread});
+    TransformMapAttr toClustersAttr = toClusters.get();
 
-    int64_t M1 = MPerThread * MLevel0Cluster * MLevel1Cluster;
-    int64_t M0 = M / M1;
-    int64_t N1 = NPerThread * NLevel0Cluster * NLevel1Cluster;
-    int64_t N0 = N / N1;
+    auto toMatrixC = TopDownTMBuilder::below(toClusters, toClustersAttr);
+    toMatrixC.passThrough({"gemmG"}, {0}, {"g"});
+    toMatrixC.embed(
+        "gemmM", 1, M,
+        {"m_block", "level1_m", "level0_m", "m_iter_level1", "m_iter_level0"},
+        {MPerBlock, MPerLevel0Cluster, MPerThread, mRepeatLDSStride, 1});
+    toMatrixC.embed(
+        "gemmN", 2, N,
+        {"n_block", "level1_n", "level0_n", "n_iter_level1", "n_iter_level0"},
+        {NPerBlock, NPerLevel0Cluster, NPerThread, nRepeatLDSStride, 1});
+    TransformMapAttr toTensorCAttr = toMatrixC.get();
 
-    auto M1ConstantOp = b.create<ConstantIndexOp>(loc, M1);
-    auto N1ConstantOp = b.create<ConstantIndexOp>(loc, N1);
+    TopDownTMBuilder toRegisterC(
+        b, {"bid", "tid", "iter"},
+        {kernelGridSize, kernelBlockSize, threadCNumRegisters}, loc);
+    toRegisterC.ignore("bid");
+    toRegisterC.ignore("tid");
+    toRegisterC.passThrough({"iter"}, {0}, {"iter"});
+    TransformMapAttr toRegisterCAttr = toRegisterC.get();
 
-    // Build transformation that unsplits the output matrix for writing
-    // by (g, m0, m1, n0, n1) -> (g, m0 * M1 + m1, n0 * N1, n1)
-    TopDownTMBuilder cSplitTransform(b, {"G", "M0", "M1", "N0", "N1"},
-                                     {G, M0, M1, N0, N1}, loc);
-    cSplitTransform.passThrough({"gemmG"}, {0}, {"G"});
-    cSplitTransform.embed("gemmM", 1, M1 * M0, {"M0", "M1"}, {M1, 1});
-    cSplitTransform.embed("gemmN", 2, N1 * N0, {"N0", "N1"}, {N1, 1});
+    Value registerC = registerMatrixCAllocOp;
+    // If we need to type-convert the accumulator (currently this is only
+    // fp32->f16) then we must do so before the writeback loop in which fusion
+    // takes places at this time, since the fusion pass as currently written
+    // can't interceps the type conversions.
+    Type destType = op.c().getType().cast<MemRefType>().getElementType();
+    if (destType != accumulatorType) {
+      auto convertedCType =
+          threadCRegisterMemRefType.clone(destType).cast<MemRefType>();
+      Value convertedC = b.create<miopen::GpuAllocOp>(loc, convertedCType);
+      auto convertLoop = b.create<TransformingForOp>(
+          loc, ArrayRef<ValueRange>{{zeroConstantOp}}, ArrayRef<Attribute>{},
+          /*bounds=*/convertedCType.getShape(), /*strides=*/llvm::None,
+          /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+      {
+        OpBuilder::InsertionGuard guard(b);
+        b.setInsertionPointToStart(convertLoop.getBody());
+        Value coord = convertLoop.getLowerCoords(/*domain=*/0)[0];
+        Value loaded =
+            b.create<InBoundsLoadOp>(loc, accumulatorType, registerC, coord);
+        Value cast = createTypeConversionOp(b, loc, loaded, destType);
+        b.create<InBoundsStoreOp>(loc, cast, convertedC, coord);
+      }
+      registerC = convertedC;
+    }
 
-    TransformMapAttr cSplitTransformAttr = cSplitTransform.get();
-    auto cTransformed = b.create<TransformOp>(loc, op.c(), cSplitTransformAttr);
+    ArrayAttr idToMatrixCMaps =
+        b.getArrayAttr({splitMemoryCoordsAttr, toClustersAttr, toTensorCAttr});
+    Value tensorC;
+    ArrayAttr idToTensorCMaps;
+    std::tie(tensorC, idToTensorCMaps) =
+        untransform(b, op.c(), idToMatrixCMaps);
+    auto writeOobDims = computeOobFromTransforms(b, idToTensorCMaps);
 
-    // Build transformation that maps the in-regester results to
-    // three dimensions for writing with
-    //  (g, m0, m1, n0, n1) -> (g, m0 * MPerThread + m1, n0 * NPerThread + n1)
-    SmallVector<int64_t, 5> copyBounds = {1, GemmMRepeat, MPerThread,
-                                          GemmNRepeat, NPerThread};
-    TopDownTMBuilder registerCTransform(
-        b, {"g", "gemmMRepeat", "mPerThread", "gemmNRepeat", "nPerThread"},
-        copyBounds, loc);
-    registerCTransform.passThrough({"gemmG"}, {0}, {"g"});
-    registerCTransform.embed("gemmM", 1, GemmMRepeat * MPerThread,
-                             {"gemmMRepeat", "mPerThread"}, {MPerThread, 1});
-    registerCTransform.embed("gemmN", 2, GemmNRepeat * NPerThread,
-                             {"gemmNRepeat", "nPerThread"}, {NPerThread, 1});
+    SmallVector<Value, 3> writeStartCoords = {bid, tid, zeroConstantOp};
 
-    TransformMapAttr registerCTransformAttr = registerCTransform.get();
-    Value registerCTransformed = b.create<TransformOp>(
-        loc, registerMatrixCAllocOp, registerCTransformAttr,
-        gpu::GPUDialect::getPrivateAddressSpace());
-
-    SmallVector<Value, 5> matrixCThreadwiseCopySourceCoords;
-    std::fill_n(std::back_inserter(matrixCThreadwiseCopySourceCoords), 5,
-                zeroConstantOp.getResult());
-
-    SmallVector<Value, 5> matrixCThreadwiseCopyDestCoords = {
-        GemmDataIdBegin_G,
-        b.create<DivUIOp>(loc, m_thread_data_on_global, M1ConstantOp),
-        b.create<RemUIOp>(loc, m_thread_data_on_global, M1ConstantOp),
-        b.create<DivUIOp>(loc, n_thread_data_on_global, N1ConstantOp),
-        b.create<RemUIOp>(loc, n_thread_data_on_global, N1ConstantOp)};
-    // g index
-
-    auto threadwiseCopyCMatrixOp = b.create<ThreadwiseCopyOp>(
-        loc, registerCTransformed, cTransformed,
-        b.getIndexArrayAttr(copyBounds),
-        b.getArrayAttr({noTransforms, noTransforms}), op.paddingInfo(),
-        matrixCThreadwiseCopySourceCoords, matrixCThreadwiseCopyDestCoords,
-        /*legacyLoad=*/nullptr, /*legacyStore=*/nullptr);
-    affixThreadwiseCopyAttributes(threadwiseCopyCMatrixOp, op, b);
+    auto outLoop = b.create<TransformingForOp>(
+        loc, ArrayRef<ValueRange>{writeStartCoords, writeStartCoords},
+        ArrayRef<Attribute>{b.getArrayAttr({toRegisterCAttr}), idToTensorCMaps},
+        ArrayRef<int64_t>{1, 1, threadCNumRegisters},
+        ArrayRef<int64_t>{1, 1, 1}, // TODO: matrixCDataPerCopy
+        /*forceUnroll=*/true, /*useIndexDiffs=*/useIndexDiffs);
+    {
+      OpBuilder::InsertionGuard guard(b);
+      b.setInsertionPointToStart(outLoop.getBody());
+      b.create<ThreadwiseCopyV2Op>(
+          loc, registerC, tensorC, /*length=*/b.getIndexAttr(1),
+          StoreMethodAttr::get(op.getContext(), StoreMethod::Set),
+          std::get<0>(writeOobDims), std::get<1>(writeOobDims),
+          outLoop.getLowerCoords(/*domain=*/0)[0],
+          outLoop.getLowerCoords(/*domain=*/1));
+    }
 
     b.eraseOp(op);
 
@@ -2492,8 +2506,9 @@ struct GridwiseGemmV2RewritePattern
     // the result vectors into a allocation of registers to maintain uniformity
     // with the non-xdlops gemm. (These "stores" will be optimized out)
     Type destType = op.c().getType().cast<MemRefType>().getElementType();
-    MemRefType mergedType =
-        MemRefType::get(numElements, destType, {}, /*memorySpace=*/5);
+    MemRefType mergedType = MemRefType::get(
+        numElements, destType, {},
+        /*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
     VectorType castVectorType = vectorType.clone(destType);
     Value resultMerged = b.create<miopen::GpuAllocOp>(loc, mergedType);
     for (const auto &pair : llvm::enumerate(transformedTail)) {
