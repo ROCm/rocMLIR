@@ -285,7 +285,8 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
                                            {{sourceLeftOob, sourceRightOob}});
 
       auto copyLoop = b.create<miopen::TransformingForOp>(
-          loc, op.destCoord(), sourceTransformsFromOp, /*bounds=*/consts,
+          loc, ArrayRef<ValueRange>{op.destCoord()},
+          ArrayRef<Attribute>{sourceTransformsFromOp}, /*bounds=*/consts,
           /*strides=*/ArrayRef<int64_t>(consts), /*forceUnroll=*/true,
           /*useIndexDiffs=*/false);
       {
@@ -321,7 +322,6 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
                         const AffineMapAttr &inpMap,
                         SmallVector<Value, 5> &transforms) const {
     Value ret = inp;
-
     // 0. move all input preceding ops before
     Operation *pred = miTWCopy;
     while (Operation *op = inp.getDefiningOp()) {
@@ -340,7 +340,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
       outType = miTransform0.getOperand().getType().cast<MemRefType>();
     } else {
       // A raw tensor argument
-      outType = ret.getType().cast<MemRefType>();
+      outType = miTWCopy->getOperand(1).getType().cast<MemRefType>();
     }
     ret = makeBroadcast(b, outType, ret, inpMap);
 

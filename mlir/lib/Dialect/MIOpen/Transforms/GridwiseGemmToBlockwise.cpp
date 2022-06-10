@@ -1329,7 +1329,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
           threadCRegisterMemRefType.clone(destType).cast<MemRefType>();
       Value convertedC = b.create<miopen::GpuAllocOp>(loc, convertedCType);
       auto convertLoop = b.create<TransformingForOp>(
-          loc, ArrayRef<ValueRange>{{zeroConstantOp}}, ArrayRef<Attribute>{},
+          loc, ArrayRef<ValueRange>{{zeroConstantOp}},
+          ArrayRef<Attribute>{b.getArrayAttr({})},
           /*bounds=*/convertedCType.getShape(), /*strides=*/llvm::None,
           /*useIndexDiffs=*/true, /*forceUnroll=*/true);
       {

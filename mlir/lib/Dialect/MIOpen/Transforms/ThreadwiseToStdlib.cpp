@@ -934,8 +934,8 @@ struct ThreadwiseGemmRewritePattern
 
     TopDownTMBuilder cView(b, {"g", "k", "m", "n", "kpack"}, dimensions, loc);
     cView.ignore("k");
-    cView.ignore("kPack");
-    aView.unmerge("raw", 0, {"g", "m", "n"}, {g, m, n});
+    cView.ignore("kpack");
+    cView.unmerge("raw", 0, {"g", "m", "n"}, {g, m, n});
     TransformMapAttr cViewAttr = cView.get();
 
     Value zeroConst = b.createOrFold<arith::ConstantIndexOp>(loc, 0);

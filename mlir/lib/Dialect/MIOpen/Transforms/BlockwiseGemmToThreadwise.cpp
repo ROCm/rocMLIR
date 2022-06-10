@@ -170,9 +170,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
 
     // Define views of register tiles for copies
     BottomUpTMBuilder viewA(b, {"raw"}, {threadANumRegisters}, loc);
-    viewA.unmerge({"g", "k", "mRepeat", "mPerThread", "kpack"},
-                  {0, 1, 2, 3, 4, 5}, "raw",
-                  {g, kPerThread, mRepeat, mPerThread, kPack});
+    viewA.unmerge({"g", "k", "mRepeat", "mPerThread", "kpack"}, {0, 1, 2, 3, 4},
+                  "raw", {g, kPerThread, mRepeat, mPerThread, kPack});
     TransformMapAttr threadACopyViewAttr = viewA.get();
 
     BottomUpTMBuilder viewB(b, {"raw"}, {threadBNumRegisters}, loc);
