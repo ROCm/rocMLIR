@@ -29,7 +29,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     xmir-runner.cpp
 
     DEPENDS
-    rocm-runtime-wrappers
+    conv-validation-wrappers
     mlir_rocm_runtime
     )
   llvm_update_compile_flags(xmir-runner)
