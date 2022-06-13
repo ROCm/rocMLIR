@@ -1595,6 +1595,25 @@ public:
     return parser.parseCommaSeparatedListUntil(Token::r_paren, parseElt);
   }
 
+  /// Parse a list of assignments of the form
+  ///   (%x1 = %y1 : type1, %x2 = %y2 : type2, ...).
+  OptionalParseResult
+  parseOptionalAssignmentListWithTypes(SmallVectorImpl<Argument> &lhs,
+                                       SmallVectorImpl<UnresolvedOperand> &rhs,
+                                       SmallVectorImpl<Type> &types) override {
+    if (failed(parseOptionalLParen()))
+      return llvm::None;
+
+    auto parseElt = [&]() -> ParseResult {
+      Type type;
+      if (parseArgument(lhs.emplace_back()) || parseEqual() ||
+          parseOperand(rhs.emplace_back()) || parseColon() || parseType(type))
+        return failure();
+      return success();
+    };
+    return parser.parseCommaSeparatedListUntil(Token::r_paren, parseElt);
+  }
+
   /// Parse a loc(...) specifier if present, filling in result if so.
   ParseResult
   parseOptionalLocationSpecifier(Optional<Location> &result) override {

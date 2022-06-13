@@ -36,10 +36,6 @@ TensorExp::TensorExp(Kind k, unsigned x, unsigned y, Value v, Operation *o)
     assert(x != -1u && y == -1u && !v && !o);
     index = x;
     break;
-  case kIndex:
-    assert(x != -1u && y == -1u && !v);
-    index = x;
-    break;
   case kAbsF:
   case kAbsC:
   case kCeilF:

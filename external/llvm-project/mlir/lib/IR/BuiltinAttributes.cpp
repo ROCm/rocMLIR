@@ -1002,18 +1002,6 @@ DenseElementsAttr DenseElementsAttr::resizeSplat(ShapedType newType) {
   return DenseIntOrFPElementsAttr::getRaw(newType, getRawData());
 }
 
-DenseElementsAttr DenseElementsAttr::resizeSplat(ShapedType newType) {
-  assert(isSplat() && "expected a splat type");
-
-  ShapedType curType = getType();
-  if (curType == newType)
-    return *this;
-
-  assert(newType.getElementType() == curType.getElementType() &&
-         "expected the same element type");
-  return DenseIntOrFPElementsAttr::getRaw(newType, getRawData(), true);
-}
-
 /// Return a new DenseElementsAttr that has the same data as the current
 /// attribute, but has bitcast elements such that it is now 'newType'. The new
 /// type must have the same shape and element types of the same bitwidth as the

@@ -218,7 +218,7 @@ LogicalResult LaunchOp::verify() {
   auto *callable = callIf.resolveCallable();
   if (!callable)
     return emitOpError("requires a resolved callable");
-  FuncOp func = dyn_cast<FuncOp>(callable);
+  func::FuncOp func = dyn_cast<func::FuncOp>(callable);
 
   if (!func || !func->hasAttr("kernel"))
     return emitOpError("requires a 'kernel' func reference");

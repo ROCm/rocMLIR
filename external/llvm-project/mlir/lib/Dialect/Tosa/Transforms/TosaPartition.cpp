@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Analysis/SliceAnalysis.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
@@ -107,7 +108,7 @@ struct OutliningCandidate {
   SmallVector<Value> returnVals;
   std::string partFnName;
   llvm::hash_code hash;
-  FuncOp function;
+  func::FuncOp function;
 
   /// Return the order index for the given value that is within the block of
   /// this data.
@@ -271,7 +272,7 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
   ValueRange values(params);
   OpBuilder b(convOp);
   Location loc = convOp->getLoc();
-  FuncOp outlinedFunc;
+  func::FuncOp outlinedFunc;
 
   // ------------------------------------------------------------
   // Merging part.
@@ -289,7 +290,7 @@ void outlineConvPartOps(Operation *convOp, ArrayRef<Operation *> secondOps,
 
     // Insert outlined function before current function.
     OpBuilder::InsertionGuard g(b);
-    b.setInsertionPoint(convOp->getParentOfType<FuncOp>());
+    b.setInsertionPoint(convOp->getParentOfType<func::FuncOp>());
 
     // Make FuncOp from convOp's operand types and secondOp's result type.
     MLIRContext *ctx = convOp->getContext();
@@ -419,7 +420,7 @@ public:
 
   void runOnOperation() override {
     ModuleOp module = getOperation();
-    auto funcOps = module.getOps<FuncOp>();
+    auto funcOps = module.getOps<func::FuncOp>();
     for (auto func : llvm::make_early_inc_range(funcOps)) {
       // Don't partition a kernel;  it may be already partitioned.
       if (func->hasAttr("kernel"))
