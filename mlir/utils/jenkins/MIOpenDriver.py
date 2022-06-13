@@ -282,15 +282,17 @@ def runConfigWithMIOpenDriver(commandLine, envs):
         outs, errs = p1.communicate(timeout=180)
         if len(errs) > 0:
             print("MIOpen benchmark produced errors: ", errs.decode('utf-8'))
+            return np.nan
+        else:
+            # convert bytes to str
+            outs=outs.decode()
+            # Extract Elapsed time in ms
+            elapsedTimeInMs = outs.split("Elapsed: ")[1].split("ms (average)")[0]
+            return float(elapsedTimeInMs)*1000000
     except subprocess.TimeoutExpired:
         p1.kill()
         print("MIOpen benchmark timed out")
         outs, errs = p1.communicate()
-    else:
-        outs=outs.decode()
-        # Extract Elapsed time in ms
-        elapsedTimeInMs = outs.split("Elapsed: ")[1].split("ms (average)")[0]
-        return float(elapsedTimeInMs)*1000000
 
 # Benchmarking function.
 def benchmarkMLIR(commandLine, xdlops):
@@ -318,7 +320,8 @@ def generatePerformanceResults(configs, xdlops):
     df.rename(columns={'TFlops': 'MLIR TFlops', 'TFlops (MIOpen)': 'MIOpen TFlops (no MLIR Kernels)'}, inplace=True)
 
     df['MLIR/MIOpen'] = df['MLIR TFlops'] / df['MIOpen TFlops (no MLIR Kernels)']
-    df.to_csv(reportUtils.PERF_REPORT_FILE, index=False)
+    # use NULL to represent missing data in csv file
+    df.to_csv(reportUtils.PERF_REPORT_FILE, index=False, na_rep='NULL')
 
 def getSolverName(testVector, xdlops):
     config = ConvConfiguration.fromCommandLine(testVector.split(sep=' '), xdlops)
@@ -344,7 +347,8 @@ def benchmarkMIOpenWithMLIRKernels(configs, xdlops, filename):
         envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER']=solver_names[testVector]
         perf_list.append(benchmarkMIOpen(testVector.split(sep=' '), xdlops, envs))
     df = pd.DataFrame(perf_list)
-    df.to_csv(filename, index=False)
+    # use NULL to represent missing data in csv file
+    df.to_csv(filename, index=False, na_rep='NULL')
 
 #Tune MIOpen with MLIR kernels
 def tuneMLIRKernels(configs, xdlops):
@@ -417,7 +421,7 @@ usage examples:
         else:
             # bechmarking one config with MLIR.
             df = pd.DataFrame([benchmarkMLIR(sys.argv[1:], xdlops)])
-
-        df.to_csv(fileName)
+        # use NULL to represent missing data in csv file
+        df.to_csv(fileName, na_rep='NULL')
         with pd.option_context('precision', reportUtils.ROUND_DIGITS):
             print(df) # for interactive consumption
