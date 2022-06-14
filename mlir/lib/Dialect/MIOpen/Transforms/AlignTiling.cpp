@@ -35,6 +35,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
 
@@ -43,6 +44,7 @@
 #define DEBUG_TYPE "miopen-linalg-align"
 
 using namespace mlir;
+using namespace mlir::miopen;
 
 namespace {
 struct MIOpenLinalgAlignPass
@@ -51,6 +53,46 @@ struct MIOpenLinalgAlignPass
 };
 
 } // end anonymous namespace
+
+/// If `inpMap` is a map of the form
+/// (d0, d1, ..., dk) -> (d(i0), d(i1), ..., d(ik))
+/// where thi i's don't make it the identity map, wrap `inp` in a
+/// miopen.transform that corresponds to the map, and returns the indexing map
+/// that is the result of applying the permutation. If no permutation is needed,
+/// returns its inputs.
+static std::tuple<Value, AffineMapAttr>
+makeTransposeTransform(PatternRewriter &b, Value inp,
+                       AffineMapAttr inpMapAttr) {
+  AffineMap inpMap = inpMapAttr.getAffineMap();
+  if (!inpMap.isMinorIdentityWithBroadcasting()) {
+    // permumation[i] says where the map output i should be sent.
+    SmallVector<uint32_t> permutation;
+    if (inpMap.isPermutationOfMinorIdentityWithBroadcasting(permutation)) {
+      Location loc = inp.getLoc();
+      MemRefType inputType = inp.getType().cast<MemRefType>();
+      ArrayRef<int64_t> inputShape = inputType.getShape();
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Transpose input type : " << inputType << "\n");
+      BottomUpTMBuilder permuteBuilder(b, inputShape, loc);
+
+      SmallVector<uint32_t> identityIdxs;
+      identityIdxs.reserve(inputShape.size());
+      for (uint32_t idx = 0, e = inputShape.size(); idx < e; ++idx)
+        identityIdxs.push_back(idx);
+
+      permuteBuilder.passThrough(permutation, identityIdxs);
+      TransformMapAttr permuteAttr = permuteBuilder.get();
+      Value ret = b.create<TransformOp>(loc, inp, permuteAttr,
+                                        inputType.getMemorySpaceAsInt());
+      AffineMap composed = permuteAttr.getMap().getAffineMap().compose(inpMap);
+      LLVM_DEBUG(llvm::dbgs() << "indexing = " << inpMap << " then transform "
+                              << permuteAttr.getMap().getAffineMap() << " is "
+                              << composed << "\n");
+      return {ret, AffineMapAttr::get(composed)};
+    }
+  }
+  return {inp, inpMapAttr};
+}
 
 //===- MILARewritePattern -------------------------------------------------===//
 //===-  ------------------------------------------------===//
@@ -150,7 +192,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
   }
 
   Value makeBroadcast(PatternRewriter &b, MemRefType outType, Value inp,
-                      const AffineMapAttr &inpMap) const {
+                      AffineMapAttr inpMap) const {
     auto inpIdxMap = inpMap.getAffineMap();
     if (!inpIdxMap.isIdentity()) {
       auto loc = inp.getLoc();
@@ -160,6 +202,8 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
 
       uint32_t diff = outShape.size() - inpShape.size();
       SmallVector<uint32_t> bcastDims;
+      LLVM_DEBUG(llvm::dbgs() << "Reached makeBroadcast with map " << inpIdxMap
+                              << " and diff = " << diff << "\n");
       if (diff) {
         // 0.1 expand dims (size = 1) in front
         SmallVector<uint32_t, 8> endDims;
@@ -190,6 +234,9 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
         // Check if it's transposed.
         if(bcastDims.size() == 0)
           return inp;
+        LLVM_DEBUG(llvm::dbgs() << "Broadcast dims: ");
+        LLVM_DEBUG(llvm::interleaveComma(bcastDims, llvm::dbgs()));
+        LLVM_DEBUG(llvm::dbgs() << "\n");
       }
 
       // 1. insert a broadcast miopen.transform
@@ -243,6 +290,8 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
   void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
                               miopen::ThreadwiseCopyV2Op op, Value srcOp,
                               Value dest) const {
+    LLVM_DEBUG(llvm::dbgs() << "Src type: " << srcOp.getType()
+                            << " dest type: " << op.dest().getType() << "\n");
     assert(srcOp.getType().cast<ShapedType>().getShape() ==
                op.dest().getType().cast<ShapedType>().getShape() &&
            "shape of extra fusion arguments matches shape of C tensor");
@@ -319,7 +368,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
   }
 
   Value applyTransforms(PatternRewriter &b, Operation *miTWCopy, Value inp,
-                        const AffineMapAttr &inpMap,
+                        AffineMapAttr inpMap,
                         SmallVector<Value, 5> &transforms) const {
     Value ret = inp;
     // 0. move all input preceding ops before
@@ -342,6 +391,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
       // A raw tensor argument
       outType = miTWCopy->getOperand(1).getType().cast<MemRefType>();
     }
+    std::tie(ret, inpMap) = makeTransposeTransform(b, ret, inpMap);
     ret = makeBroadcast(b, outType, ret, inpMap);
 
     BlockAndValueMapping cloningMap;

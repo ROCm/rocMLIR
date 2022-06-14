@@ -135,6 +135,10 @@ public:
                    ArrayRef<int64_t> startShape, mlir::Location loc)
       : TransformMapBuilder(builder, startNames, startShape, loc) {}
 
+  TopDownTMBuilder(mlir::Builder &builder, ArrayRef<int64_t> startShape,
+                   mlir::Location loc)
+      : TransformMapBuilder(builder, startShape, loc) {}
+
   static TopDownTMBuilder below(TopDownTMBuilder &previous,
                                 TransformMapAttr &result) {
     return TransformMapBuilder::nextTransforms(previous,
