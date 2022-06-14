@@ -281,7 +281,6 @@ def runConfigWithMIOpenDriver(commandLine, envs):
     try:
         outs, errs = p1.communicate(timeout=180)
         if len(errs) > 0:
-            print("MIOpen benchmark produced errors: ", errs.decode('utf-8'))
             return np.nan
         else:
             # convert bytes to str
@@ -320,8 +319,7 @@ def generatePerformanceResults(configs, xdlops):
     df.rename(columns={'TFlops': 'MLIR TFlops', 'TFlops (MIOpen)': 'MIOpen TFlops (no MLIR Kernels)'}, inplace=True)
 
     df['MLIR/MIOpen'] = df['MLIR TFlops'] / df['MIOpen TFlops (no MLIR Kernels)']
-    # use NULL to represent missing data in csv file
-    df.to_csv(reportUtils.PERF_REPORT_FILE, index=False, na_rep='NULL')
+    df.to_csv(reportUtils.PERF_REPORT_FILE, index=False)
 
 def getSolverName(testVector, xdlops):
     config = ConvConfiguration.fromCommandLine(testVector.split(sep=' '), xdlops)
@@ -347,8 +345,7 @@ def benchmarkMIOpenWithMLIRKernels(configs, xdlops, filename):
         envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER']=solver_names[testVector]
         perf_list.append(benchmarkMIOpen(testVector.split(sep=' '), xdlops, envs))
     df = pd.DataFrame(perf_list)
-    # use NULL to represent missing data in csv file
-    df.to_csv(filename, index=False, na_rep='NULL')
+    df.to_csv(filename, index=False)
 
 #Tune MIOpen with MLIR kernels
 def tuneMLIRKernels(configs, xdlops):
@@ -421,7 +418,6 @@ usage examples:
         else:
             # bechmarking one config with MLIR.
             df = pd.DataFrame([benchmarkMLIR(sys.argv[1:], xdlops)])
-        # use NULL to represent missing data in csv file
-        df.to_csv(fileName, na_rep='NULL')
+        df.to_csv(fileName)
         with pd.option_context('precision', reportUtils.ROUND_DIGITS):
             print(df) # for interactive consumption
