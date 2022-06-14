@@ -11,6 +11,7 @@
 
 #include "mlir/Conversion/GPUToMIGraphX/GPUToMIGraphX.h"
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
+#include "mlir/Dialect/MIGraphX/Passes.h"
 #include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/TosaToMIOpen/TosaToMIOpen.h"
