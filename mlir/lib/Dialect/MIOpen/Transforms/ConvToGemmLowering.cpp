@@ -1524,7 +1524,20 @@ struct RemoveTrivialTransposePattern
   }
 };
 
-//// If the input to a linalg.generic is the output of a conv2d and the indexing
+/// Return `true` if there is a chain of operations that leads from `v` to
+/// a miopen.conv2d* op.
+static bool hasConvUser(Value v) {
+  for (Operation *user : v.getUsers()) {
+    if (isa<Conv2DOp, Conv2DBwdDataOp, Conv2DBwdWeightOp>(user))
+      return true;
+    if (auto transform = dyn_cast<TransformOp>(user))
+      if (hasConvUser(transform.output()))
+        return true;
+  }
+  return false;
+}
+
+/// If the input to a linalg.generic is the output of a conv2d and the indexing
 /// map for that input is a non-trivial permutation of an identity, convert that
 /// indexing map to a transpose. This must happen before gridwise gemm
 /// conversion because all the transforms on the convolution output are
@@ -1535,20 +1548,24 @@ struct FoldTransposingConvAccess : OpRewritePattern<linalg::GenericOp> {
   LogicalResult matchAndRewrite(linalg::GenericOp laGeneric,
                                 PatternRewriter &b) const override {
     Location loc = laGeneric->getLoc();
+    // We do this out-of-line so as to not invalidate our iterator
+    SmallVector<
+        std::tuple<unsigned, Value, AffineMap, SmallVector<uint32_t, 4>>>
+        toReplace;
+
     for (OpOperand &operand : laGeneric->getOpOperands()) {
       Value opValue = operand.get();
-      LLVM_DEBUG(llvm::dbgs() << "Operand " << operand.getOperandNumber()
-                              << " : " << opValue << "\n");
-      llvm::SmallPtrSet<Operation *, 1> generics;
-      bool hasConvUsers = false;
+      if (!hasConvUser(opValue))
+        continue;
+
       for (Operation *user : opValue.getUsers()) {
-        if (isa<linalg::GenericOp>(user))
-          generics.insert(user);
-        while (auto transform = dyn_cast<miopen::TransformOp>(user))
-          user = transform.input().getDefiningOp();
-        hasConvUsers |= isa<Conv2DOp, Conv2DBwdDataOp, Conv2DBwdWeightOp>(user);
+        if (isa<linalg::GenericOp>(user) && user != laGeneric) {
+          LLVM_DEBUG(llvm::dbgs() << "Multiple generics on same conv output\n");
+          return failure();
+        }
       }
-      if (!hasConvUsers)
+
+      if (!isa_and_nonnull<memref::AllocOp>(opValue.getDefiningOp()))
         continue;
 
       AffineMap idxMap = laGeneric.getTiedIndexingMap(&operand);
@@ -1558,27 +1575,59 @@ struct FoldTransposingConvAccess : OpRewritePattern<linalg::GenericOp> {
       if (!idxMap.isPermutationOfMinorIdentityWithBroadcasting(permutation))
         continue;
 
+      unsigned opIndex = operand.getOperandNumber();
+      toReplace.emplace_back(opIndex, opValue, idxMap, permutation);
+    }
+
+    // Actually do the rewrites, if any
+    for (auto &tuple : toReplace) {
+      unsigned opIndex = std::get<0>(tuple);
+      Value opValue = std::get<1>(tuple);
+      AffineMap idxMap = std::get<2>(tuple);
+      SmallVector<uint32_t, 4> permutation = std::get<3>(tuple);
+      LLVM_DEBUG(llvm::dbgs() << "Replacing index map with permutation ");
+      LLVM_DEBUG(llvm::interleaveComma(permutation, llvm::dbgs()));
+      LLVM_DEBUG(llvm::dbgs() << "\n");
+
+      auto allocation = cast<memref::AllocOp>(opValue.getDefiningOp());
+      // Swap out the allocation for the form it needs to take in order to
+      // eliminate the non-trivial map.
       ArrayRef<int64_t> shape = opValue.getType().cast<MemRefType>().getShape();
-      miopen::BottomUpTMBuilder permuteMapBuilder(b, shape, laGeneric.getLoc());
-      SmallVector<uint32_t, 4> startIdentity;
-      for (uint32_t i = 0, e = shape.size(); i < e; ++i)
-        startIdentity.push_back(i);
-      permuteMapBuilder.passThrough(permutation, startIdentity);
+      SmallVector<int64_t, 4> newShape(shape.size(), -1LL);
+      SmallVector<uint32_t, 4> endIdentity;
+      for (uint32_t i = 0, e = shape.size(); i < e; ++i) {
+        endIdentity.push_back(i);
+        newShape[permutation[i]] = shape[i];
+      }
+
+      // All this new stuff needs to go where the old memref.alloc was
+      PatternRewriter::InsertionGuard guard(b);
+      b.setInsertionPointAfterValue(allocation);
+      auto newAllocType = allocation.getType()
+                              .cast<MemRefType>()
+                              .clone(newShape)
+                              .cast<MemRefType>();
+      Value newAlloc =
+          b.replaceOpWithNewOp<memref::AllocOp>(allocation, newAllocType);
+
+      miopen::BottomUpTMBuilder permuteMapBuilder(b, newShape, loc);
+      permuteMapBuilder.passThrough(endIdentity, permutation);
       TransformMapAttr permuteMapAttr = permuteMapBuilder.get();
-      Value permuted =
-          b.create<miopen::TransformOp>(loc, opValue, permuteMapAttr);
-      opValue.replaceAllUsesExcept(permuted, generics);
+      auto permuted =
+          b.create<miopen::TransformOp>(loc, newAlloc, permuteMapAttr);
+      llvm::SmallPtrSet<Operation *, 2> skips = {laGeneric, permuted};
+      newAlloc.replaceAllUsesExcept(permuted, skips);
 
       // Correct indexing maps
-      unsigned opIndex = operand.getOperandNumber();
       AffineMap composed =
-          permuteMapAttr.getMap().getAffineMap().compose(idxMap);
+          idxMap.compose(permuteMapAttr.getMap().getAffineMap());
       Attribute newMaps =
           laGeneric.indexing_maps().replaceImmediateSubAttribute(
               {{opIndex, AffineMapAttr::get(composed)}});
       laGeneric->setAttr(laGeneric.indexing_mapsAttrName(), newMaps);
     }
-    return success();
+
+    return success(!toReplace.empty());
   }
 };
 
