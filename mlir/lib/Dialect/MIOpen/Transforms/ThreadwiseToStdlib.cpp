@@ -920,7 +920,13 @@ struct ThreadwiseGemmRewritePattern
     int64_t m = op.mAttr().getInt();
     int64_t n = op.nAttr().getInt();
     int64_t kPack = op.kPackAttr().getInt();
-    ArrayRef<int64_t> dimensions = {g, k, m, n, kPack};
+    LLVM_DEBUG(llvm::dbgs() << "Threadwise gemm:\n"
+                            << "g = " << g << "\n"
+                            << "k = " << k << "\n"
+                            << "m = " << m << "\n"
+                            << "n = " << n << "\n"
+                            << "kPack = " << kPack << "\n");
+    SmallVector<int64_t> dimensions = {g, k, m, n, kPack};
 
     TopDownTMBuilder aView(b, {"g", "k", "m", "n", "kpack"}, dimensions, loc);
     aView.ignore("n");
@@ -946,7 +952,7 @@ struct ThreadwiseGemmRewritePattern
                             b.getArrayAttr({bViewAttr}),
                             b.getArrayAttr({cViewAttr})},
         dimensions,
-        /*strides=*/llvm::None, /*useIndexDiffs=*/false, /*forceUnroll=*/false);
+        /*strides=*/llvm::None, /*forceUnroll=*/true, /*useIndexDiffs=*/false);
 
     {
       OpBuilder::InsertionGuard guard(b);

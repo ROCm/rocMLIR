@@ -337,7 +337,7 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
           loc, ArrayRef<ValueRange>{op.destCoord()},
           ArrayRef<Attribute>{sourceTransformsFromOp}, /*bounds=*/consts,
           /*strides=*/ArrayRef<int64_t>(consts), /*forceUnroll=*/true,
-          /*useIndexDiffs=*/false);
+          /*useIndexDiffs=*/true);
       {
         OpBuilder::InsertionGuard guard(b);
         b.setInsertionPointToStart(copyLoop.getBody());
@@ -457,7 +457,8 @@ template <typename T> struct MILARewritePattern : public OpRewritePattern<T> {
           bool allValidUses = true;
           for (Operation *use : nextVal.getUsers()) {
             bool validUse = isa<Ttwcopy>(use) ||
-                            (hadRawCopyArg && isa<linalg::GenericOp>(use));
+                            (hadRawCopyArg &&
+                             isa<linalg::GenericOp, memref::DeallocOp>(use));
             allValidUses &= validUse;
           }
           if (allValidUses)

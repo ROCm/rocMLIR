@@ -775,7 +775,8 @@ def MIOpen_ThreadwiseGemmOp:
     Dimensions holds the dimensions of the register tiles, including KPack (even if 1).
   }];
   let assemblyFormat = [{
-    $matrixC `=` $matrixA `*` $matrixB attr-dict `:` type(operands)
+    $matrixC `=` $matrixA `*` $matrixB attr-dict
+    `:` type($matrixC) `=` type($matrixA) `*` type($matrixB)
   }];
   let hasVerifier = 1;
 }

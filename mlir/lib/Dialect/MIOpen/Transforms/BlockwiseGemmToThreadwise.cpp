@@ -180,18 +180,21 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
     TransformMapAttr threadBCopyViewAttr = viewB.get();
 
     // Main loop.
+    LLVM_DEBUG(llvm::dbgs() << "Outer loop:\n "
+                            << "k =  " << k << "\n"
+                            << " kPerThread = " << kPerThread << "\n");
     auto loopOp = b.create<AffineForOp>(loc, 0, k, kPerThread);
-
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(loopOp.getBody());
     Value kOffset = loopOp.getInductionVar();
 
     SmallVector<Value, 5> registerStartCoords(5, zeroConstantOp);
-    ValueRange ldsBufferAStartCoords = {zeroConstantOp, kOffset, zeroConstantOp,
-                                        op.threadOffsetA(), zeroConstantOp};
+    SmallVector<Value, 5> ldsBufferAStartCoords = {
+        zeroConstantOp, kOffset, zeroConstantOp, op.threadOffsetA(),
+        zeroConstantOp};
     auto copyALoop = b.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{ldsBufferAStartCoords, registerStartCoords},
-        ArrayRef<Attribute>{transformsA, b.getArrayAttr({threadACopyViewAttr})},
+        ArrayRef<Attribute>{transformsA, b.getArrayAttr(threadACopyViewAttr)},
         ArrayRef<int64_t>{g, kPerThread, mRepeat, mPerThread, kPack},
         /*strides=*/llvm::None, /*forceUnroll=*/true, /*indexDiffs=*/true);
     {
@@ -204,8 +207,9 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
                                 copyALoop.getLowerCoords(/*domain=*/1));
     }
 
-    ValueRange ldsBufferBStartCoords = {zeroConstantOp, kOffset, zeroConstantOp,
-                                        op.threadOffsetB(), zeroConstantOp};
+    SmallVector<Value, 5> ldsBufferBStartCoords = {
+        zeroConstantOp, kOffset, zeroConstantOp, op.threadOffsetB(),
+        zeroConstantOp};
     auto copyBLoop = b.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{ldsBufferBStartCoords, registerStartCoords},
         ArrayRef<Attribute>{transformsB, b.getArrayAttr(threadBCopyViewAttr)},
