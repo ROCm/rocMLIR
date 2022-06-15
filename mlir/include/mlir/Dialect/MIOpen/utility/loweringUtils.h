@@ -21,6 +21,7 @@
 
 namespace mlir {
 namespace miopen {
+struct ConvolutionDims;
 
 // Heuristic logic to compute KBlock for backward weight atomic add kernel.
 // The logic is adopted from MIOpen.
@@ -37,45 +38,10 @@ namespace miopen {
 // reasonable reduction of GemmK after splitting, without incurring too much
 // overheads on atomic adds. One potential future work is to make this value be
 // tunable.
-inline LogicalResult calculateKBlockNum(int64_t n, int64_t ho, int64_t wo,
-                                        int64_t g, int64_t k, int64_t c,
-                                        int64_t y, int64_t x, int64_t MPerBlock,
-                                        int64_t NPerBlock, int64_t KPerBlock,
-                                        int64_t KPack, int64_t num_cu,
-                                        int64_t &nKBlock) {
-  const int64_t gemmM = k;
-  const int64_t gemmN = c * y * x;
-  const int64_t gemmK = n * ho * wo;
-
-  int64_t gemmKBlock = 1;
-
-  if ((gemmM % MPerBlock != 0) || (gemmN % NPerBlock != 0) ||
-      (gemmK % (KPerBlock * KPack) != 0))
-    return failure();
-
-  const int64_t gridSize = g * (gemmM / MPerBlock) * (gemmN / NPerBlock);
-  const int64_t maxGridSize = 20 * num_cu;
-
-  gemmKBlock = std::max(maxGridSize / gridSize, static_cast<int64_t>(1));
-  gemmKBlock = std::min(gemmKBlock, n);
-
-  for (; gemmKBlock > 1; --gemmKBlock) {
-    if (n % gemmKBlock != 0)
-      continue;
-
-    if (gemmK % (gemmKBlock * KPerBlock * KPack) != 0)
-      continue;
-
-    break;
-  }
-  // not more than n
-  gemmKBlock = std::min(n, gemmKBlock);
-  // not less than 1
-  gemmKBlock = std::max((__int64_t)1, gemmKBlock);
-
-  nKBlock = gemmKBlock;
-  return success();
-}
+LogicalResult calculateKBlockNum(ConvolutionDims convDims, int64_t MPerBlock,
+                                 int64_t NPerBlock, int64_t KPerBlock,
+                                 int64_t KPack, int64_t num_cu,
+                                 int64_t &nKBlock);
 
 /// Unwrap a value from the transforms surrounding it, gathering up the
 /// transforms.
@@ -116,11 +82,11 @@ populateBackwardDataGemmIds(int64_t strideHeight, int64_t strideWidth,
 
 /// Obtain convolution direction given a Convolution Op.
 /// TODO(whchung): apply ConvolutionOp OpTrait check after supporting PR is in.
-miopen::ConvOpType obtainConvDirection(Operation *op);
+ConvOpType obtainConvDirection(Operation *op);
 
 /// Obtain convolution input data type given a Convolution Op.
 /// TODO(whchung): apply ConvolutionOp OpTrait check after supporting PR is in.
-mlir::Type obtainConvDataType(Operation *op);
+Type obtainConvDataType(Operation *op);
 } // end namespace miopen
 } // end namespace mlir
 #endif
