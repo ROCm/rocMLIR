@@ -68,11 +68,11 @@ struct MILARewritePattern : public OpRewritePattern<linalg::GenericOp> {
 /// that is the result of applying the permutation. If no permutation is needed,
 /// returns its inputs.
 static std::tuple<Value, AffineMap>
-makeTransposeTransform(PatternRewriter &b, Value inp, AffineMap inpIdxMap) {
-  if (!inpIdxMap.isMinorIdentityWithBroadcasting()) {
+makeTransposeTransform(PatternRewriter &b, Value inp, AffineMap inpMap) {
+  if (!inpMap.isMinorIdentityWithBroadcasting()) {
     // permumation[i] says where the map output i should be sent.
     SmallVector<uint32_t> permutation;
-    if (inpIdxMap.isPermutationOfMinorIdentityWithBroadcasting(permutation)) {
+    if (inpMap.isPermutationOfMinorIdentityWithBroadcasting(permutation)) {
       Location loc = inp.getLoc();
       MemRefType inputType = inp.getType().cast<MemRefType>();
       ArrayRef<int64_t> inputShape = inputType.getShape();
@@ -89,16 +89,14 @@ makeTransposeTransform(PatternRewriter &b, Value inp, AffineMap inpIdxMap) {
       TransformMapAttr permuteAttr = permuteBuilder.get();
       Value ret = b.create<TransformOp>(loc, inp, permuteAttr,
                                         inputType.getMemorySpaceAsInt());
-      AffineMap composed =
-          permuteAttr.getMap().getAffineMap().compose(inpIdxMap);
-      LLVM_DEBUG(llvm::dbgs()
-                 << "indexing = " << inpIdxMap << " then transform "
-                 << permuteAttr.getMap().getAffineMap() << " is " << composed
-                 << "\n");
+      AffineMap composed = permuteAttr.getMap().getAffineMap().compose(inpMap);
+      LLVM_DEBUG(llvm::dbgs() << "indexing = " << inpMap << " then transform "
+                              << permuteAttr.getMap().getAffineMap() << " is "
+                              << composed << "\n");
       return {ret, composed};
     }
   }
-  return {inp, inpIdxMap};
+  return {inp, inpMap};
 }
 
 static Value makeBroadcast(PatternRewriter &b, MemRefType outType, Value inp,

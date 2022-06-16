@@ -1524,17 +1524,17 @@ struct RemoveTrivialTransposePattern
   }
 };
 
-/// Return `true` if there is a chain of operations that leads from `v` to
-/// a miopen.conv2d* op.
-static bool hasConvUser(Value v) {
+/// If there is a chain of operations that leads from `v` to
+/// a miopen.conv2d* op, return that convolution.
+static Operation *getConvUser(Value v) {
   for (Operation *user : v.getUsers()) {
     if (isa<Conv2DOp, Conv2DBwdDataOp, Conv2DBwdWeightOp>(user))
-      return true;
+      return user;
     if (auto transform = dyn_cast<TransformOp>(user))
-      if (hasConvUser(transform.output()))
-        return true;
+      if (Operation *upstream = getConvUser(transform.output()))
+        return upstream;
   }
-  return false;
+  return nullptr;
 }
 
 /// If the input to a linalg.generic is the output of a conv2d and the indexing
@@ -1549,13 +1549,14 @@ struct FoldTransposingConvAccess : OpRewritePattern<linalg::GenericOp> {
                                 PatternRewriter &b) const override {
     Location loc = laGeneric->getLoc();
     // We do this out-of-line so as to not invalidate our iterator
-    SmallVector<
-        std::tuple<unsigned, Value, AffineMap, SmallVector<uint32_t, 4>>>
+    SmallVector<std::tuple<unsigned, Operation *, Value, AffineMap,
+                           SmallVector<uint32_t, 4>>>
         toReplace;
 
     for (OpOperand &operand : laGeneric->getOpOperands()) {
       Value opValue = operand.get();
-      if (!hasConvUser(opValue))
+      Operation *convUser = getConvUser(opValue);
+      if (!convUser)
         continue;
 
       for (Operation *user : opValue.getUsers()) {
@@ -1576,15 +1577,16 @@ struct FoldTransposingConvAccess : OpRewritePattern<linalg::GenericOp> {
         continue;
 
       unsigned opIndex = operand.getOperandNumber();
-      toReplace.emplace_back(opIndex, opValue, idxMap, permutation);
+      toReplace.emplace_back(opIndex, convUser, opValue, idxMap, permutation);
     }
 
     // Actually do the rewrites, if any
     for (auto &tuple : toReplace) {
       unsigned opIndex = std::get<0>(tuple);
-      Value opValue = std::get<1>(tuple);
-      AffineMap idxMap = std::get<2>(tuple);
-      SmallVector<uint32_t, 4> permutation = std::get<3>(tuple);
+      Operation *convolution = std::get<1>(tuple);
+      Value opValue = std::get<2>(tuple);
+      AffineMap idxMap = std::get<3>(tuple);
+      SmallVector<uint32_t, 4> permutation = std::get<4>(tuple);
       LLVM_DEBUG(llvm::dbgs() << "Replacing index map with permutation ");
       LLVM_DEBUG(llvm::interleaveComma(permutation, llvm::dbgs()));
       LLVM_DEBUG(llvm::dbgs() << "\n");
@@ -1625,6 +1627,10 @@ struct FoldTransposingConvAccess : OpRewritePattern<linalg::GenericOp> {
           laGeneric.indexing_maps().replaceImmediateSubAttribute(
               {{opIndex, AffineMapAttr::get(composed)}});
       laGeneric->setAttr(laGeneric.indexing_mapsAttrName(), newMaps);
+
+      // Correct convolution so it's not vectorized
+      // TODO(kdrewnia): Maybe be more intelligent here
+      convolution->setAttr("matrix_c_data_per_copy", b.getI32IntegerAttr(1));
     }
 
     return success(!toReplace.empty());
