@@ -638,35 +638,7 @@ def MIOpen_InBoundsStoreOp :
 }
 
 
-// TODO(kdrewnia): Remove these - they're left in to ensure a smooth transition
-// of fusion passes to the transforming_for structure
-
-// threadwise_copy
-def MIOpen_ThreadwiseCopyOp:
-    MIOpen_Op<"threadwise_copy", [SameVariadicOperandSize]>,
-    Arguments<(ins AnyMemRef:$source,
-                   AnyMemRef:$dest,
-                   IndexArrayAttr:$bounds,
-                   ArgTransforms<2>:$transforms,
-                   MIOpen_PaddingInfoAttr:$paddingInfo,
-                   Variadic<Index>:$sourceCoord,
-                   Variadic<Index>:$destCoord,
-                   OptionalAttr<BoolAttr>:$legacyLoad,
-                   OptionalAttr<BoolAttr>:$legacyStore)> {
-  let summary = "Threadwise GPU data movement";
-  let description = [{
-    The `miopen.threadwise_copy` op moves data on GPU. Following movements are
-    allowed:
-    - Global (generic tensor) to register (naive tensor).
-    - Register (naive tensor) to global (generic tensor).
-  }];
-  let assemblyFormat = [{
-    $source `[` $sourceCoord `]` `->` $dest `[` $destCoord `]`
-    `with` $transforms attr-dict
-    `:` type($source) `,` type($sourceCoord) `->` type($dest) `,` type($destCoord)
-  }];
-  let hasVerifier = 1;
-}
+// TODO(kdrewnia): Remove this by marking global loads and stores with attributes
 
 // threadwise_copy_v2
 def MIOpen_ThreadwiseCopyV2Op :

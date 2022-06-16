@@ -396,71 +396,6 @@ struct BlockwiseGemmV2RewritePattern
 };
 
 //===----------------------------------------------------------------------===//
-// ThreadwiseCopy lowering.
-//===----------------------------------------------------------------------===//
-struct ThreadwiseCopyRewritePattern
-    : public OpRewritePattern<ThreadwiseCopyOp> {
-  using OpRewritePattern<ThreadwiseCopyOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ThreadwiseCopyOp op,
-                                PatternRewriter &b) const override {
-    Location loc = op.getLoc();
-
-    ArrayAttr srcTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
-    ArrayAttr destTransformsOnOp = op.transforms()[1].cast<ArrayAttr>();
-    Value source, dest;
-    ArrayAttr srcTransforms, destTransforms;
-    std::tie(source, srcTransforms) =
-        untransform(b, op.source(), srcTransformsOnOp);
-    std::tie(dest, destTransforms) =
-        untransform(b, op.dest(), destTransformsOnOp);
-    MemRefType sourceType = source.getType().cast<MemRefType>();
-    MemRefType destType = dest.getType().cast<MemRefType>();
-
-    bool legacyLoad = op.legacyLoad().getValueOr(false);
-    bool legacyStore = op.legacyStore().getValueOr(false);
-    bool useIndexDiffs = !(legacyLoad || legacyStore);
-
-    ArrayAttr srcLeftOob, srcRightOob, destLeftOob, destRightOob;
-    std::tie(srcLeftOob, srcRightOob) =
-        computeOobFromTransforms(b, srcTransforms);
-    std::tie(destLeftOob, destRightOob) =
-        computeOobFromTransforms(b, destTransforms);
-
-    TransformingForOp loop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{op.sourceCoord(), op.destCoord()},
-        ArrayRef<Attribute>{srcTransforms, destTransforms}, op.bounds(),
-        /*strides=*/ArrayAttr{}, /*forceUnroll=*/true, useIndexDiffs);
-    PatternRewriter::InsertionGuard loopGuard(b);
-    b.setInsertionPointToStart(loop.getBody());
-
-    bool loadGlobal = sourceType.getMemorySpaceAsInt() == 0;
-    bool storeGlobal = destType.getMemorySpaceAsInt() == 0;
-
-    Value loaded;
-    if (loadGlobal)
-      loaded = b.create<BufferLoadOp>(loc, sourceType.getElementType(), source,
-                                      srcLeftOob, srcRightOob,
-                                      loop.getLowerCoords(/*domain=*/0));
-    else
-      loaded = b.create<memref::LoadOp>(loc, source,
-                                        loop.getLowerCoords(/*domain=*/0));
-    Value cast =
-        createTypeConversionOp(b, loc, loaded, destType.getElementType());
-    if (storeGlobal)
-      b.create<BufferStoreOp>(loc, cast, dest, destLeftOob, destRightOob,
-                              loop.getLowerCoords(/*domain=*/1),
-                              /*dataOperation=*/StoreMethod::Set);
-    else
-      b.create<memref::StoreOp>(loc, cast, dest,
-                                loop.getLowerCoords(/*domain=*/1));
-
-    b.eraseOp(op);
-    return success();
-  }
-};
-
-//===----------------------------------------------------------------------===//
 // ThreadwiseCopyV2 lowering.
 //===----------------------------------------------------------------------===//
 struct ThreadwiseCopyV2RewritePattern
@@ -496,8 +431,8 @@ void LowerMIOpenOpsStep3Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   RewritePatternSet patterns(ctx);
   patterns.add<FillRewritePattern, BlockwiseGemmRewritePattern,
-               BlockwiseGemmV2RewritePattern, ThreadwiseCopyRewritePattern,
-               ThreadwiseCopyV2RewritePattern>(ctx);
+               BlockwiseGemmV2RewritePattern, ThreadwiseCopyV2RewritePattern>(
+      ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }

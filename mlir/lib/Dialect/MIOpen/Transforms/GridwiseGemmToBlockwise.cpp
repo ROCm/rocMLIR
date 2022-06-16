@@ -116,17 +116,6 @@ ArrayAttr makeLinearDomain(OpBuilder &b, Location loc,
 }
 
 //===----------------------------------------------------------------------===//
-// Assigning attributes.
-//===----------------------------------------------------------------------===//
-void affixThreadwiseCopyAttributes(ThreadwiseCopyOp top, GridwiseGemmOp gop,
-                                   OpBuilder &b) {
-  top->setAttr("vector_read_write_dim",
-               gop->getAttr("matrix_c_dest_vector_write_dim"));
-  top->setAttr("source_data_per_read", gop->getAttr("matrix_c_data_per_copy"));
-  top->setAttr("dest_data_per_write", gop->getAttr("matrix_c_data_per_copy"));
-}
-
-//===----------------------------------------------------------------------===//
 // Building load/store loops
 //===----------------------------------------------------------------------===//
 TransformingForOp createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
@@ -155,8 +144,7 @@ TransformingForOp createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
   ArrayAttr noTransforms = b.getArrayAttr({});
   ArrayAttr resultIdxMap = makeLinearDomain(b, loc, sliceLengths);
 
-  SmallVector<int64_t, 4> loopBounds;
-  llvm::copy(sliceLengths, std::back_inserter(loopBounds));
+  SmallVector<int64_t, 4> loopBounds(sliceLengths.begin(), sliceLengths.end());
   assert(loopBounds[vectorDim] % loadLength == 0 && "Uneven vector load");
   loopBounds[vectorDim] /= loadLength;
 
@@ -237,8 +225,7 @@ TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
   ArrayAttr noTransforms = b.getArrayAttr({});
   ArrayAttr resultIdxMap = makeLinearDomain(b, loc, sliceLengths);
 
-  SmallVector<int64_t, 4> loopBounds;
-  llvm::copy(sliceLengths, std::back_inserter(loopBounds));
+  SmallVector<int64_t, 4> loopBounds(sliceLengths.begin(), sliceLengths.end());
   assert(loopBounds[vectorDim] % storeLength == 0 && "Uneven vector store");
   loopBounds[vectorDim] /= storeLength;
 
@@ -471,8 +458,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       return op.emitOpError("Mismatched N dimensions in matrix multiply:")
              << " B[2] = " << N << " C[2] = " << cShape[2];
     }
-
-    Attribute noTransforms = b.getArrayAttr({});
 
     // Obtain critical tuning parameters.
     int64_t KPack =
@@ -1259,12 +1244,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     b.create<LDSBarrierOp>(loc);
 
     // Emit blockwise GEMM for the loop tail.
-    auto blockwiseGemmTailOp = b.create<BlockwiseGemmOp>(
-        loc, ldsMatrixASubviewOp, ldsMatrixBSubviewOp, registerMatrixCAllocOp,
-        mMyThreadOffsetA, mMyThreadOffsetB,
-        /*mC=*/b.getIndexAttr(threadCNumM), /*nC=*/b.getIndexAttr(threadCNumN),
-        kPerThreadAttr, b.getIndexAttr(MPerThread), b.getIndexAttr(NPerThread),
-        b.getIndexAttr(mRepeatLDSStride), b.getIndexAttr(nRepeatLDSStride));
+    BlockAndValueMapping tailGemmCloneMap;
+    b.clone(*blockwiseGemmOp, tailGemmCloneMap);
 
     // Threadwise copy from register (naive tensor) to global (generic tensor).
     TopDownTMBuilder splitMemoryCoords(
