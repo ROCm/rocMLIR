@@ -421,7 +421,9 @@ public:
 
 class SimpleDefaultPartitionConfig : public PartitionConfig {
 public:
-  bool isAnchorOp(Operation *op) override { return isa<tosa::Conv2DOp>(op); }
+  bool isAnchorOp(Operation *op) override {
+    return isa<tosa::Conv2DOp,MatMulOp,DepthwiseConv2DOp>(op);
+  }
   bool isLeadingOp(Operation *op) override {
     return isConstantZero(op) || isFusibleOp(op);
   }
@@ -663,13 +665,14 @@ public:
       };
       pm.addPass(
           tosa::createTosaPartitionPass(new DepthwiseOnlyPartitionConfig()));
-    } else if (both) {
+    } else if (convOnly) {
       class DepthwiseAlsoPartitionConfig
           : public mlir::tosa::SimpleDefaultPartitionConfig {
       public:
         bool isAnchorOp(Operation *op) override {
-          return isa<tosa::Conv2DOp, tosa::DepthwiseConv2DOp>(op);
+          return isa<tosa::Conv2DOp>(op);
         }
+        std::string attributeName() override { return "four"; }
       };
       pm.addPass(
           tosa::createTosaPartitionPass(new DepthwiseAlsoPartitionConfig()));
@@ -677,6 +680,9 @@ public:
       class AttributeOnePartitionConfig
           : public mlir::tosa::SimpleDefaultPartitionConfig {
       public:
+        bool isAnchorOp(Operation *op) override {
+          return isa<tosa::Conv2DOp>(op);
+        }
         std::string attributeName() override { return "one"; }
       };
       pm.addPass(
@@ -696,8 +702,8 @@ public:
   Option<bool> defaultCase{*this, "default", llvm::cl::desc("Default.")};
   Option<bool> depthwiseOnly{*this, "depthwise-only",
                              llvm::cl::desc("Depthwise only.")};
-  Option<bool> both{*this, "both-conv-ops",
-                    llvm::cl::desc("Both depthwise-conv2d and conv2d.")};
+  Option<bool> convOnly{*this, "conv-only",
+                    llvm::cl::desc("Only conv2d.")};
   Option<bool> attrOne{*this, "attr-one",
                        llvm::cl::desc("Attribute-name 'one'.")};
   Option<bool> nofrontArg{*this, "nofront-arg",
