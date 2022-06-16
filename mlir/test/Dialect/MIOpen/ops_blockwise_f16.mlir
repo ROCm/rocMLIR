@@ -11,7 +11,7 @@ func @miopen_blockwise_gemm_f16(%A : memref<1x8x128xf16, 3>, %B : memref<1x8x128
     mRepeatStride = 64 : index,
     nC = 8 : index,
     nPerThread = 4 : index,
-    nRpeatStride = 64 : index
+    nRepeatStride = 64 : index
   } : memref<1x8x128xf16, 3>, memref<1x8x128xf16, 3>, memref<64xf16, 5>, index, index
   return
 }

@@ -99,10 +99,10 @@ func @miopen_threadwise_copy_f16(%source_coord : memref<2xindex, 5>, %dest_coord
 // CHECK-LABEL: func @miopen_threadwise_copy_f16
 //  CHECK: miopen.threadwise_copy
 
-func @miopen_threadwise_gemm_f16(%lhs : memref<32xf16, 5>, %rhs : memref<32xf16, 5>, %output : memref<256xf16, 5>) {
-  miopen.threadwise_gemm %output = %lhs * %rhs
+func @miopen_threadwise_gemm_f16(%lhs : memref<32xf16, 5>, %rhs : memref<32xf16, 5>, %output : memref<64xf16, 5>) {
+  miopen.threadwise_gemm %output += %lhs * %rhs
     { g = 1 : index, k = 4 : index, m = 8 : index, n = 8 : index, kPack = 1 : index }
-    : memref<256xf16, 5> = memref<32xf16, 5> * memref<32xf16, 5>
+    : memref<64xf16, 5> += memref<32xf16, 5> * memref<32xf16, 5>
   return
 }
 

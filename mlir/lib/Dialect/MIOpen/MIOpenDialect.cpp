@@ -989,7 +989,7 @@ LogicalResult ThreadwiseGemmOp::verify() {
         " elements but it has " + Twine(matrixBLen.getZExtValue()));
   if (matrixCLen != expectedC)
     return emitOpError(
-        "Expected matrix B to have " + Twine(expectedC.getZExtValue()) +
+        "Expected matrix C to have " + Twine(expectedC.getZExtValue()) +
         " elements but it has " + Twine(matrixCLen.getZExtValue()));
 
   return success();
