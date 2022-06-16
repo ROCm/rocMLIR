@@ -149,23 +149,29 @@ def MIOpen_GridwiseGemmV2Op :
                    MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$b,
                    MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$c,
                    MIOpen_PaddingInfoAttr:$paddingInfo,
-                   StoreMethod:$storeMethod)> {
+                   StoreMethodAttr:$storeMethod)> {
   let summary = "Gridwise GEMM V2";
   let description = [{
     The `miopen.gridwise_gemm` op computes gridwise GEMM with XDLOPS.
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
+    `(` operands `)` `storeMethod` `(` $storeMethod `)` attr-dict `:` type(operands)
   }];
 
     let builders = [
   OpBuilder<(ins "Value":$a, "Value":$b, "Value":$c,
     "PaddingInfoAttr":$paddingInfo, "StoreMethod":$storeMethod,
     "ArrayRef<NamedAttribute>":$extraAttrs), [{
+      return build($_builder, $_state, a, b, c, paddingInfo,
+        StoreMethodAttr::get($_builder.getContext(), storeMethod),
+        extraAttrs);
+    }]>,
+  OpBuilder<(ins "Value":$a, "Value":$b, "Value":$c,
+    "PaddingInfoAttr":$paddingInfo, "StoreMethodAttr":$storeMethod,
+    "ArrayRef<NamedAttribute>":$extraAttrs), [{
       $_state.addOperands({a, b, c});
       $_state.addAttribute(paddingInfoAttrName($_state.name), paddingInfo);
-      $_state.addAttribute(storeMethodAttrName($_state.name),
-        $_builder.getI32IntegerAttr(static_cast<uint32_t>(storeMethod)));
+      $_state.addAttribute(storeMethodAttrName($_state.name), storeMethod);
       $_state.addAttributes(extraAttrs);
       $_state.addTypes({});
     }]>
@@ -557,7 +563,7 @@ def MIOpen_BufferStoreOp :
       I32ArrayAttr:$leftOobDims,
       I32ArrayAttr:$rightOobDims,
       Variadic<Index>:$coords,
-      OptionalAttr<StoreMethod>:$storeMethod)> {
+      StoreMethodAttr:$storeMethod)> {
   let summary = "Store data to a global buffer";
 
   let description = [{
@@ -582,7 +588,7 @@ def MIOpen_BufferStoreOp :
     The buffer must reside in global memory.
   }];
   let assemblyFormat = [{
-    $data `->` $dest `[` $coords `]` attr-dict
+    $storeMethod $data `->` $dest `[` $coords `]` attr-dict
     `:` type($data) `->` type($dest) `,` type($coords)
   }];
   let hasVerifier = 1;
@@ -668,7 +674,7 @@ def MIOpen_ThreadwiseCopyV2Op :
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [1]>:$source,
                    AnyMemRef:$dest,
                    IndexAttr:$length,
-                   StoreMethod:$storeMethod,
+                   StoreMethodAttr:$storeMethod,
                    I32ArrayAttr:$leftOobDims,
                    I32ArrayAttr:$rightOobDims,
                    Index:$sourceCoord,
@@ -681,8 +687,9 @@ def MIOpen_ThreadwiseCopyV2Op :
     gemm.
   }];
   let assemblyFormat = [{
-    attr-dict $source `[` $sourceCoord `]`
+    $source `[` $sourceCoord `]`
     `->` $dest `[` $destCoord `]`
+    `storeMethod` `(` $storeMethod `)` attr-dict
     `:` type($source) `->`
     type($dest) `,` type($destCoord)
   }];
