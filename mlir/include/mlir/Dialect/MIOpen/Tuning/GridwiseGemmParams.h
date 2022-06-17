@@ -14,6 +14,7 @@
 #define MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H
 
 #include "mlir/Dialect/MIOpen/MIOpen.h"
+#include "mlir/Dialect/MIOpen/Tuning/GemmContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/Serializable.h"
 
 namespace mlir {
@@ -267,15 +268,13 @@ public:
 // For example, if gemmM size is 3 and gemmMPerBlock is 64,
 // we set gemmMExtra be 64 so (gemmM+gemmMExtra)%gemmMPerBlock=0.
 //
-// Returns:
-// - needExtraPad : a bool to indicate whether padding kernel is needed.
-// - gemmM/N/KExtra : additional padding required along Gemm M/N/K dimension.
-//                    They would be all be 0 in case needExtraPad is false.
+// If padding is needed, returns a GemmContext containing the number of elements
+// needed to pad the M, N, and K dimensions (**not** the new gemm size).
+// Otherwise, returns None
 template <typename T>
-std::tuple<bool, int64_t, int64_t, int64_t>
-calculatePaddingKernelSize(int64_t gemmMSize, int64_t gemmNSize,
-                           int64_t gemmKSize, ConvOpType dir, Type dataType,
-                           T populateParams) {
+Optional<GemmContext> calculatePaddingKernelSize(GemmContext gemmSize,
+                                                 ConvOpType dir, Type dataType,
+                                                 T populateParams) {
   bool needExtraPad = false;
   int64_t gemmMExtra, gemmNExtra, gemmKExtra;
   gemmMExtra = gemmNExtra = gemmKExtra = 0;
@@ -283,9 +282,9 @@ calculatePaddingKernelSize(int64_t gemmMSize, int64_t gemmNSize,
   auto configParams = populateParams.getTuningParameters(dir, dataType);
   size_t numOfFailedConfigs = 0;
   for (auto &params : configParams) {
-    if (gemmMSize % params.gemmMPerBlock == 0 &&
-        gemmKSize % params.gemmKPerBlock == 0 &&
-        gemmNSize % params.gemmNPerBlock == 0) {
+    if (gemmSize.m % params.gemmMPerBlock == 0 &&
+        gemmSize.k % params.gemmKPerBlock == 0 &&
+        gemmSize.n % params.gemmNPerBlock == 0) {
       break;
     }
     numOfFailedConfigs++;
@@ -296,15 +295,15 @@ calculatePaddingKernelSize(int64_t gemmMSize, int64_t gemmNSize,
     needExtraPad = true;
     int64_t gemmMRemain, gemmKRemain, gemmNRemain;
 
-    gemmMRemain = gemmMSize % extraParams.gemmMPerBlock;
+    gemmMRemain = gemmSize.m % extraParams.gemmMPerBlock;
     if (gemmMRemain != 0)
       gemmMExtra = extraParams.gemmMPerBlock - gemmMRemain;
 
-    gemmNRemain = gemmNSize % extraParams.gemmNPerBlock;
+    gemmNRemain = gemmSize.n % extraParams.gemmNPerBlock;
     if (gemmNRemain != 0)
       gemmNExtra = extraParams.gemmNPerBlock - gemmNRemain;
 
-    gemmKRemain = gemmKSize % extraParams.gemmKPerBlock;
+    gemmKRemain = gemmSize.k % extraParams.gemmKPerBlock;
     if (gemmKRemain != 0)
       gemmKExtra = extraParams.gemmKPerBlock - gemmKRemain;
 
@@ -312,7 +311,9 @@ calculatePaddingKernelSize(int64_t gemmMSize, int64_t gemmNSize,
     // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
   }
 
-  return std::make_tuple(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra);
+  if (needExtraPad)
+    return GemmContext(gemmMExtra, gemmKExtra, gemmNExtra);
+  return llvm::None;
 }
 
 } // namespace miopen

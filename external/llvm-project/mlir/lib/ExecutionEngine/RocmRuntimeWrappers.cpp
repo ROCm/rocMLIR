@@ -213,6 +213,85 @@ extern "C" void mgpuMemCopyInt32(int32_t *sourceAllocated,
                                 static_cast<hipMemcpyKind>(copyDirection)));
 }
 
+extern "C" StridedMemRefType<int8_t, 5>
+mgpuMemAlloc5DInt8(int8_t *allocated, int8_t *aligned, int64_t offset,
+                   int64_t size0, int64_t size1, int64_t size2, int64_t size3,
+                   int64_t size4, int64_t stride0, int64_t stride1,
+                   int64_t stride2, int64_t stride3, int64_t stride4) {
+  int8_t *gpuPtr;
+  HIP_REPORT_IF_ERROR(
+      hipMalloc((void **)&gpuPtr,
+                size0 * size1 * size2 * size3 * size4 * sizeof(int8_t)));
+  return {gpuPtr,
+          gpuPtr,
+          offset,
+          {size0, size1, size2, size3, size4},
+          {stride0, stride1, stride2, stride3, stride4}};
+}
+
+extern "C" void
+mgpuMemDealloc5DInt8(int8_t *allocated, int8_t *aligned, int64_t offset,
+                     int64_t size0, int64_t size1, int64_t size2, int64_t size3,
+                     int64_t size4, int64_t stride0, int64_t stride1,
+                     int64_t stride2, int64_t stride3, int64_t stride4) {
+  HIP_REPORT_IF_ERROR(hipFree(aligned));
+}
+
+extern "C" void mgpuMemCopy5DInt8(
+    int8_t *sourceAllocated, int8_t *sourceAligned, int64_t sourceOffset,
+    int64_t sourceSize0, int64_t sourceSize1, int64_t sourceSize2,
+    int64_t sourceSize3, int64_t sourceSize4, int64_t sourceStride0,
+    int64_t sourceStride1, int64_t sourceStride2, int64_t sourceStride3,
+    int64_t sourceStride4, float *destAllocated, float *destAligned,
+    int64_t destOffset, int64_t destSize0, int64_t destSize1, int64_t destSize2,
+    int64_t destSize3, int64_t destSize4, int64_t destStride0,
+    int64_t destStride1, int64_t destStride2, int64_t destStride3,
+    int64_t destStride4, unsigned copyDirection) {
+  HIP_REPORT_IF_ERROR(hipMemcpy(destAligned, sourceAligned,
+                                sourceSize0 * sourceSize1 * sourceSize2 *
+                                    sourceSize3 * sourceSize4 * sizeof(int8_t),
+                                static_cast<hipMemcpyKind>(copyDirection)));
+}
+
+extern "C" StridedMemRefType<int32_t, 5>
+mgpuMemAlloc5DInt32(int32_t *allocated, int32_t *aligned, int64_t offset,
+                    int64_t size0, int64_t size1, int64_t size2, int64_t size3,
+                    int64_t size4, int64_t stride0, int64_t stride1,
+                    int64_t stride2, int64_t stride3, int64_t stride4) {
+  int32_t *gpuPtr;
+  HIP_REPORT_IF_ERROR(
+      hipMalloc((void **)&gpuPtr,
+                size0 * size1 * size2 * size3 * size4 * sizeof(int32_t)));
+  return {gpuPtr,
+          gpuPtr,
+          offset,
+          {size0, size1, size2, size3, size4},
+          {stride0, stride1, stride2, stride3, stride4}};
+}
+
+extern "C" void mgpuMemDealloc5DInt32(
+    int32_t *allocated, int32_t *aligned, int64_t offset, int64_t size0,
+    int64_t size1, int64_t size2, int64_t size3, int64_t size4, int64_t stride0,
+    int64_t stride1, int64_t stride2, int64_t stride3, int64_t stride4) {
+  HIP_REPORT_IF_ERROR(hipFree(aligned));
+}
+
+extern "C" void mgpuMemCopy5DInt32(
+    int32_t *sourceAllocated, int32_t *sourceAligned, int64_t sourceOffset,
+    int64_t sourceSize0, int64_t sourceSize1, int64_t sourceSize2,
+    int64_t sourceSize3, int64_t sourceSize4, int64_t sourceStride0,
+    int64_t sourceStride1, int64_t sourceStride2, int64_t sourceStride3,
+    int64_t sourceStride4, float *destAllocated, float *destAligned,
+    int64_t destOffset, int64_t destSize0, int64_t destSize1, int64_t destSize2,
+    int64_t destSize3, int64_t destSize4, int64_t destStride0,
+    int64_t destStride1, int64_t destStride2, int64_t destStride3,
+    int64_t destStride4, unsigned copyDirection) {
+  HIP_REPORT_IF_ERROR(hipMemcpy(destAligned, sourceAligned,
+                                sourceSize0 * sourceSize1 * sourceSize2 *
+                                    sourceSize3 * sourceSize4 * sizeof(int32_t),
+                                static_cast<hipMemcpyKind>(copyDirection)));
+}
+
 extern "C" StridedMemRefType<float, 5>
 mgpuMemAlloc5DFloat(float *allocated, float *aligned, int64_t offset,
                     int64_t size0, int64_t size1, int64_t size2, int64_t size3,

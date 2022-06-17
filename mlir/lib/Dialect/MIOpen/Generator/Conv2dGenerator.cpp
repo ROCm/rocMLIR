@@ -1,6 +1,8 @@
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
+#include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
+#include "mlir/Dialect/MIOpen/Tuning/GemmContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/utility/IsaNameSplitter.h"
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
@@ -285,7 +287,7 @@ int Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder) const {
 
   if (config.xdlops) {
     Type dataType = getDataType(builder);
-    if (!needExtraPad(builder)) {
+    if (!needExtraPadBwdWeight(builder)) {
       if (dataType == builder.getF32Type()) {
         // For the following case, use 2 kernels:
         // - backward weight
@@ -335,36 +337,26 @@ Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
   return dataType;
 }
 
-bool Conv2dGenerator::needExtraPad(OpBuilder &builder) const {
+bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {
   Type dataType = getDataType(builder);
   ConvOpType dir = config.operation.getValue();
+  assert(dir == ConvOpType::BwdWeight &&
+         "This method should only be called for wrw ops");
 
-  // Logic to check if we need to pad along GemmM/N/K dimension for backward
-  // weight convolution.
-  auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
-  auto filDim = canonicalizeDims(config.filterDimension, config.filterLayout);
-  auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
+  ConvolutionDims convDims = getConvolutionDims();
+  GemmContext gemmSize = GemmContext::fromConvolution(dir, convDims);
 
-  int64_t gemmMSize, gemmNSize, gemmKSize;
-  gemmMSize = filDim["k"];
-  gemmKSize = outDim["n"] * outDim["h"] * outDim["w"];
-  gemmNSize = filDim["c"] * filDim["y"] * filDim["x"];
-
-  // gemmM/N/KExtra is not used.
-  // populateParamsXDL is not used either.
-  // Only needExtraPad is used.
   bool needExtraPad = false;
-  int64_t gemmMExtra, gemmNExtra, gemmKExtra;
   if (!config.xdlops) {
     PopulateParams populateParams;
-    std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
-        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, dir,
-                                   dataType, populateParams);
+    needExtraPad =
+        calculatePaddingKernelSize(gemmSize, dir, dataType, populateParams)
+            .hasValue();
   } else {
     PopulateParamsXDL populateParamsXDL;
-    std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
-        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, dir,
-                                   dataType, populateParamsXDL);
+    needExtraPad =
+        calculatePaddingKernelSize(gemmSize, dir, dataType, populateParamsXDL)
+            .hasValue();
   }
   return needExtraPad;
 }
@@ -384,7 +376,7 @@ bool Conv2dGenerator::hasWorkspace(OpBuilder &builder) const {
     if ((dir == ConvOpType::BwdWeight) && config.xdlops &&
         (dataType == builder.getF16Type())) {
       // In case we need extra padding, do not use workspace.
-      result = (needExtraPad(builder) == false);
+      result = (needExtraPadBwdWeight(builder) == false);
     }
   }
   return result;
@@ -605,6 +597,15 @@ void Conv2dGenerator::setDataType(std::string newType) {
 }
 
 void Conv2dGenerator::flipXdlops() { config.xdlops = !config.xdlops; }
+
+ConvolutionDims Conv2dGenerator::getConvolutionDims() const {
+  auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
+  auto filDim = canonicalizeDims(config.filterDimension, config.filterLayout);
+  auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
+  return ConvolutionDims(filDim["y"], filDim["x"], outDim["h"], outDim["w"],
+                         inDim["h"], inDim["w"], filDim["k"], filDim["c"],
+                         inDim["n"], inDim["g"]);
+}
 
 LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
                                              bool is_verifier,

@@ -519,7 +519,7 @@ struct ThreadwiseCopyRewritePattern
     if (storeGlobal)
       b.create<BufferStoreOp>(loc, cast, dest, destLeftOob, destRightOob,
                               loop.getLowerCoords(/*domain=*/1),
-                              /*dataOperation=*/nullptr);
+                              /*dataOperation=*/StoreMethod::Set);
     else
       b.create<memref::StoreOp>(loc, cast, dest,
                                 loop.getLowerCoords(/*domain=*/1));
