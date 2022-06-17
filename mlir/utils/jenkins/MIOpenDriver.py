@@ -291,7 +291,7 @@ def runConfigWithMIOpenDriver(commandLine, envs):
             # Use regular expression to match the contents between
             # "Elasped: " (note the space at the end) and "ms"
             pattern = re.compile(r"Elapsed: (.*)ms");
-            elapsedTimeInMs = pattern.match(outs).group(1);
+            elapsedTimeInMs = pattern.search(outs).group(1);
             return float(elapsedTimeInMs)*1.0e6
     except subprocess.TimeoutExpired:
         p1.kill()
