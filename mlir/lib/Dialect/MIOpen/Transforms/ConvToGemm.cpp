@@ -336,16 +336,16 @@ LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
   ArrayAttr leftOob = b.getI32ArrayAttr({});
   ArrayAttr rightOob = b.getI32ArrayAttr({0});
 
-  auto loopBody =
-      [&loadType, &storeType, &leftOob, &rightOob](
-          OpBuilder &b, Location loc, ValueRange collapsed, Value index) {
-        Value loaded = b.create<BufferLoadOp>(loc, loadType, collapsed[0],
-                                              leftOob, rightOob, index);
-        Value converted = createTypeConversionOp(b, loc, loaded, storeType);
-        b.create<BufferStoreOp>(
-            loc, converted, collapsed[1], leftOob, rightOob, index,
-            StoreMethodAttr::get(b.getContext(), StoreMethod::Set));
-      };
+  auto loopBody = [&loadType, &storeType, &leftOob,
+                   &rightOob](OpBuilder &b, Location loc, ValueRange collapsed,
+                              Value index) {
+    Value loaded = b.create<BufferLoadOp>(loc, loadType, collapsed[0], leftOob,
+                                          rightOob, index);
+    Value converted = createTypeConversionOp(b, loc, loaded, storeType);
+    b.create<BufferStoreOp>(
+        loc, converted, collapsed[1], leftOob, rightOob, index,
+        StoreMethodAttr::get(b.getContext(), StoreMethod::Set));
+  };
   LogicalResult res = createElementwiseLoop(b, loc, op, {workspace, filter},
                                             kConversionVectorLen, loopBody);
   if (failed(res))
