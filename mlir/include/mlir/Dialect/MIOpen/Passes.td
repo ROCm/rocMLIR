@@ -29,15 +29,20 @@ def MIOpenAsyncLaunchPass : Pass<"miopen-async-launch", "FuncOp"> {
 
 def MIOpenConvToGemmPass : Pass<"miopen-conv-to-gemm", "::mlir::FuncOp"> {
   let summary = "expand convolution into coordinate transformations and gridwise gemm";
+<<<<<<< HEAD
   let constructor = "mlir::miopen::createMIOpenConvToGemmPass()";
   let dependentDialects = ["miopen::MIOpenDialect", "memref::MemRefDialect", "arith::ArithmeticDialect",
     "AffineDialect", "scf::SCFDialect"];
+=======
+  let constructor = "mlir::miopen::createLowerMIOpenOpsStep1Pass()";
+  let dependentDialects = ["miopen::MIOpenDialect", "arith::ArithmeticDialect", "memref::MemRefDialect", "AffineDialect", "scf::SCFDialect"];
+>>>>>>> Maybe we're missing dialect dependencies?
 }
 
 def MIOpenOpsAffixTuningParametersPass : Pass<"miopen-affix-params", "::mlir::FuncOp"> {
   let summary = "populate tuning parameters for miopen.gridwise_gemm ops";
   let constructor = "mlir::miopen::createAffixTuningParametersPass()";
-  let dependentDialects = ["miopen::MIOpenDialect"];
+  let dependentDialects = ["miopen::MIOpenDialect", "arith::ArithmeticDialect"];
 }
 
 def MIOpenGridwiseGemmToBlockwisePass : Pass<"miopen-gridwise-gemm-to-blockwise", "::mlir::FuncOp"> {
