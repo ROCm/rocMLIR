@@ -32,7 +32,7 @@ DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 DATA_TYPES = ['conv', 'convfp16', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 # Compiled regexp object used for extracting elapsed time from MIOpenDriver's output
-pattern = re.compile(r"Elapsed: (.*)ms")
+ELAPSED_TIME_RE = re.compile(r"Elapsed: (.*)ms")
 
 # utility functions.
 def getConfigurations(fileName):
@@ -292,7 +292,7 @@ def runConfigWithMIOpenDriver(commandLine, envs):
             # Extract Elapsed time in ms from the output of MIOpenDriver
             # Use regular expression to match the contents between
             # "Elasped: " (note the space at the end) and "ms"
-            elapsedTimeInMs = pattern.search(outs).group(1);
+            elapsedTimeInMs = ELAPSED_TIME_RE.search(outs).group(1)
             return float(elapsedTimeInMs)*1.0e6
     except subprocess.TimeoutExpired:
         p1.kill()
