@@ -499,7 +499,7 @@ public:
       if (anchorOps.hasValue() || attributeName.hasValue() ||
           trailingOnly.hasValue()) {
         if (anchorOps.empty()) // ListOption doesn't have a default value.
-          anchorOps = {"tosa.conv2d"};
+          anchorOps = {"tosa.conv2d","tosa.matmul","tosa.depthwise_conv2d"};
         config = new mlir::tosa::PartitionConfigFromOptions(
             anchorOps, attributeName, trailingOnly);
       } else {
@@ -680,9 +680,6 @@ public:
       class AttributeOnePartitionConfig
           : public mlir::tosa::SimpleDefaultPartitionConfig {
       public:
-        bool isAnchorOp(Operation *op) override {
-          return isa<tosa::Conv2DOp>(op);
-        }
         std::string attributeName() override { return "one"; }
       };
       pm.addPass(

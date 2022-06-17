@@ -27,7 +27,10 @@
 
 // ONE-LABEL: func private @test_fusion8_outlined_part_0
 // ONE-SAME: attributes {one}
-// ONE-NEXT: tosa.conv2d
+// ONE-NEXT: arith.constant
+// ONE-NEXT: tosa.transpose
+// ONE-NEXT: tosa.depthwise_conv2d
+// ONE-NEXT: tosa.abs
 // ONE-NEXT: tosa.add
 // ONE-NEXT: return
 // ONE: func @test_fusion8
