@@ -32,7 +32,7 @@ DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 DATA_TYPES = ['conv', 'convfp16', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 # Compiled regexp object used for extracting elapsed time from MIOpenDriver's output
-pattern = re.compile(r"Elapsed: (.*)ms");
+pattern = re.compile(r"Elapsed: (.*)ms")
 
 # utility functions.
 def getConfigurations(fileName):
