@@ -344,7 +344,7 @@ LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
         Value converted = createTypeConversionOp(b, loc, loaded, storeType);
         b.create<BufferStoreOp>(
             loc, converted, collapsed[1], leftOob, rightOob, index,
-            StoreMethodAttr::get(b.getContext, StoreMethod::Set));
+            StoreMethodAttr::get(b.getContext(), StoreMethod::Set));
       };
   LogicalResult res = createElementwiseLoop(b, loc, op, {workspace, filter},
                                             kConversionVectorLen, loopBody);
