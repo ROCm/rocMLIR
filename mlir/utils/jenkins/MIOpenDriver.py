@@ -14,6 +14,7 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
+import re
 
 # global variables.
 MLIR_BIN_DIR = './bin'
@@ -85,7 +86,7 @@ class ConvConfiguration:
         return result
 
     def __repr__(self):
-        return f"""ConvConiguration(dtype={self.dataType!r}, direction={self.direction!r}, layout={self.inputLayout.upper()!r},
+        return f"""ConvConfiguration(dtype={self.dataType!r}, direction={self.direction!r}, layout={self.inputLayout.upper()!r},
                 n={self.n!r}, c={self.c!r}, hi={self.hi!r}, wi={self.wi!r}, k={self.k!r}, y={self.y!r}, x={self.x!r},
                 convStrideH={self.convStrideH!r}, convStrideW={self.convStrideW!r}, paddingH={self.paddingH!r}, paddingW={self.paddingW!r},
                 dilationH={self.dilationH!r}, dilationW={self.dilationW!r}, group={self.group!r}, xdlops={self.xdlops!r})"""
@@ -281,13 +282,17 @@ def runConfigWithMIOpenDriver(commandLine, envs):
     try:
         outs, errs = p1.communicate(timeout=180)
         if len(errs) > 0:
+            print("MIOpen benchmark produced errors: ", errs.decode('utf-8'))
             return np.nan
         else:
             # convert bytes to str
-            outs=outs.decode()
-            # Extract Elapsed time in ms
-            elapsedTimeInMs = outs.split("Elapsed: ")[1].split("ms (average)")[0]
-            return float(elapsedTimeInMs)*1000000
+            outs=outs.decode('utf-8')
+            # Extract Elapsed time in ms from the output of MIOpenDriver
+            # Use regular expression to match the contents between
+            # "Elasped: " (note the space at the end) and "ms"
+            pattern = re.compile(r"Elapsed: (.*)ms");
+            elapsedTimeInMs = pattern.match(outs).group(1);
+            return float(elapsedTimeInMs)*1.0e6
     except subprocess.TimeoutExpired:
         p1.kill()
         print("MIOpen benchmark timed out")
@@ -419,5 +424,5 @@ usage examples:
             # bechmarking one config with MLIR.
             df = pd.DataFrame([benchmarkMLIR(sys.argv[1:], xdlops)])
         df.to_csv(fileName)
-        with pd.option_context('precision', reportUtils.ROUND_DIGITS):
+        with pd.option_context('display.precision', reportUtils.ROUND_DIGITS):
             print(df) # for interactive consumption
