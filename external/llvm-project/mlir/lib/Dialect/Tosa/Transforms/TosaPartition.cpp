@@ -687,9 +687,6 @@ public:
       class AttributeOnePartitionConfig
           : public mlir::tosa::SimpleDefaultPartitionConfig {
       public:
-        bool isAnchorOp(Operation *op) override {
-          return isa<tosa::Conv2DOp>(op);
-        }
         std::string attributeName() override { return "one"; }
       };
       pm.addPass(
