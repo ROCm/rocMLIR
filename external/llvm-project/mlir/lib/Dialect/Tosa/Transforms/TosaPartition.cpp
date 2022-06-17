@@ -425,7 +425,7 @@ public:
 class SimpleDefaultPartitionConfig : public PartitionConfig {
 public:
   bool isAnchorOp(Operation *op) override {
-    return isa<tosa::Conv2DOp,MatMulOp,DepthwiseConv2DOp>(op);
+    return isa<tosa::Conv2DOp,tosa::MatMulOp,tosa::DepthwiseConv2DOp>(op);
   }
   bool isLeadingOp(Operation *op) override {
     return isConstantZero(op) || isFuseableOp(op);
@@ -462,7 +462,7 @@ namespace {
 // Inspired by / adapted from TestSCFIfUtilsPass in
 // test/lib/Transforms/TestSCFUtils.cpp.
 class TosaPartitionPass : public TosaPartitionBase<TosaPartitionPass> {
-  mlir::tosa::PartitionConfig *config = nullptr;
+  std::unique_ptr<mlir::tosa::PartitionConfig> config;
 
   // Special case:  TransposeOp's second operand must be a
   // constant, which means we must include it too if we include
@@ -474,8 +474,10 @@ class TosaPartitionPass : public TosaPartitionBase<TosaPartitionPass> {
 
 public:
   TosaPartitionPass() = default;
-  TosaPartitionPass(mlir::tosa::PartitionConfig *config) : config(config) {}
-  ~TosaPartitionPass() override { delete config; }
+  TosaPartitionPass(std::unique_ptr<mlir::tosa::PartitionConfig> config)
+    : config(std::move(config)) {}
+  ~TosaPartitionPass() override = default;
+  TosaPartitionPass(const TosaPartitionPass &other) {}
 
   void traceInputs(Operation *op, SetVector<Operation *> &predecessors,
                    SetVector<Value> &inputNodes) {
@@ -503,10 +505,10 @@ public:
           trailingOnly.hasValue()) {
         if (anchorOps.empty()) // ListOption doesn't have a default value.
           anchorOps = {"tosa.conv2d","tosa.matmul","tosa.depthwise_conv2d"};
-        config = new mlir::tosa::PartitionConfigFromOptions(
+        config = std::make_unique<mlir::tosa::PartitionConfigFromOptions>(
             anchorOps, attributeName, trailingOnly);
       } else {
-        config = new mlir::tosa::SimpleDefaultPartitionConfig();
+        config = std::make_unique<mlir::tosa::SimpleDefaultPartitionConfig>();
       }
     }
 
@@ -634,8 +636,8 @@ std::unique_ptr<Pass> mlir::tosa::createTosaPartitionPass() {
 }
 
 std::unique_ptr<Pass>
-mlir::tosa::createTosaPartitionPass(mlir::tosa::PartitionConfig *config) {
-  return std::make_unique<TosaPartitionPass>(config);
+mlir::tosa::createTosaPartitionPass(std::unique_ptr<mlir::tosa::PartitionConfig> config) {
+  return std::make_unique<TosaPartitionPass>(std::move(config));
 }
 
 namespace {
@@ -670,8 +672,7 @@ public:
           return isa<tosa::DepthwiseConv2DOp>(op);
         }
       };
-      pm.addPass(
-          tosa::createTosaPartitionPass(new DepthwiseOnlyPartitionConfig()));
+      pm.addPass(tosa::createTosaPartitionPass(std::make_unique<DepthwiseOnlyPartitionConfig>()));
     } else if (convOnly) {
       class DepthwiseAlsoPartitionConfig
           : public mlir::tosa::SimpleDefaultPartitionConfig {
@@ -682,7 +683,7 @@ public:
         std::string attributeName() override { return "four"; }
       };
       pm.addPass(
-          tosa::createTosaPartitionPass(new DepthwiseAlsoPartitionConfig()));
+          tosa::createTosaPartitionPass(std::make_unique<DepthwiseAlsoPartitionConfig>()));
     } else if (attrOne) {
       class AttributeOnePartitionConfig
           : public mlir::tosa::SimpleDefaultPartitionConfig {
@@ -690,13 +691,13 @@ public:
         std::string attributeName() override { return "one"; }
       };
       pm.addPass(
-          tosa::createTosaPartitionPass(new AttributeOnePartitionConfig()));
+          tosa::createTosaPartitionPass(std::make_unique<AttributeOnePartitionConfig>()));
     } else if (nofrontArg) {
       // Another way is to pass the values to PartitionConfigFromOptions.
-      mlir::tosa::PartitionConfig *config =
-          new mlir::tosa::PartitionConfigFromOptions({"tosa.depthwise_conv2d"},
-                                                     "kernel", true);
-      pm.addPass(tosa::createTosaPartitionPass(config));
+      std::unique_ptr<mlir::tosa::PartitionConfig> config =
+        std::unique_ptr<mlir::tosa::PartitionConfig>(new mlir::tosa::PartitionConfigFromOptions({"tosa.depthwise_conv2d"},
+                                                                   "kernel", true));
+      pm.addPass(tosa::createTosaPartitionPass(std::move(config)));
     }
 
     if (failed(pm.run(module)))

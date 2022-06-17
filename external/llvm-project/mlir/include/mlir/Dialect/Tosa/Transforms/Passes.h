@@ -32,7 +32,7 @@ std::unique_ptr<Pass> createTosaMakeBroadcastablePass();
 std::unique_ptr<Pass> createTosaTestQuantUtilAPIPass();
 std::unique_ptr<Pass> createTosaPartitionPass();
 class PartitionConfig;
-std::unique_ptr<Pass> createTosaPartitionPass(PartitionConfig *config);
+std::unique_ptr<Pass> createTosaPartitionPass(std::unique_ptr<PartitionConfig> config);
 std::unique_ptr<Pass> createTosaOptionalDecompositions();
 
 #define GEN_PASS_REGISTRATION
