@@ -2,25 +2,35 @@
 // RUN: mlir-opt --tosa-partition=attribute-name=one %s | FileCheck %s --check-prefix=ONE
 // RUN: mlir-opt --tosa-partition='anchor-ops=tosa.depthwise_conv2d attribute-name=two' %s | FileCheck %s --check-prefix=TWO
 // RUN: mlir-opt --tosa-partition='anchor-ops=tosa.depthwise_conv2d trailing-only attribute-name=three' %s | FileCheck %s --check-prefix=THREE
-// RUN: mlir-opt --tosa-partition='anchor-ops=tosa.conv2d,tosa.depthwise_conv2d attribute-name=four' %s | FileCheck %s --check-prefix=FOUR
+// RUN: mlir-opt --tosa-partition='anchor-ops=tosa.conv2d attribute-name=four' %s | FileCheck %s --check-prefix=FOUR
 
 // RUN: mlir-opt --test-tosa-partition-options=default %s | FileCheck %s --check-prefix=CHECK
 // RUN: mlir-opt --test-tosa-partition-options=depthwise-only %s | FileCheck %s --check-prefix=TWO
-// RUN: mlir-opt --test-tosa-partition-options=both-conv-ops %s | FileCheck %s --check-prefix=FOUR
+// RUN: mlir-opt --test-tosa-partition-options=conv-only %s | FileCheck %s --check-prefix=FOUR
 // RUN: mlir-opt --test-tosa-partition-options=attr-one %s | FileCheck %s --check-prefix=ONE
 // RUN: mlir-opt --test-tosa-partition-options=nofront-arg %s | FileCheck %s --check-prefix=THREE
 
 // CHECK-LABEL: func private @test_fusion8_outlined_part_0
 // CHECK-SAME: attributes {kernel}
-// CHECK-NEXT: tosa.conv2d
+// CHECK-NEXT: arith.constant
+// CHECK-NEXT: tosa.transpose
+// CHECK-NEXT: tosa.depthwise_conv2d
+// CHECK-NEXT: tosa.abs
 // CHECK-NEXT: tosa.add
 // CHECK-NEXT: return
+// CHECK: func private @test_fusion8_outlined_part_1
+// CHECK-NEXT: tosa.conv2d
+// CHECK-NEXT: return
 // CHECK: func @test_fusion8
+// CHECK: call @test_fusion8_outlined_part_1
 // CHECK: call @test_fusion8_outlined_part_0
 
 // ONE-LABEL: func private @test_fusion8_outlined_part_0
 // ONE-SAME: attributes {one}
-// ONE-NEXT: tosa.conv2d
+// ONE-NEXT: arith.constant
+// ONE-NEXT: tosa.transpose
+// ONE-NEXT: tosa.depthwise_conv2d
+// ONE-NEXT: tosa.abs
 // ONE-NEXT: tosa.add
 // ONE-NEXT: return
 // ONE: func @test_fusion8
@@ -48,17 +58,11 @@
 // THREE: call @test_fusion8_outlined_part_0
 
 // FOUR-LABEL: func private @test_fusion8_outlined_part_0
-// FOUR-NEXT: arith.constant
-// FOUR-NEXT: tosa.transpose
-// FOUR-NEXT: tosa.depthwise_conv2d
-// FOUR-NEXT: tosa.abs
+// FOUR-SAME: attributes {four}
+// FOUR-NEXT: tosa.conv2d
 // FOUR-NEXT: tosa.add
 // FOUR-NEXT: return
-// FOUR: func private @test_fusion8_outlined_part_1
-// FOUR-NEXT: tosa.conv2d
-// FOUR-NEXT: return
 // FOUR: func @test_fusion8
-// FOUR: call @test_fusion8_outlined_part_1
 // FOUR: call @test_fusion8_outlined_part_0
 
 func @test_fusion8(%arg0: tensor<128x32x32x8xf32>, %arg1: tensor<128x8x3x3xf32>, %arg2: tensor<8xf32>, %arg3: tensor<128x8x32x32xf32>, %arg4: tensor<128x8x3x3xf32>, %arg5: tensor<8xf32>) -> tensor<128x128x30x30xf32> {
