@@ -14,6 +14,7 @@
 #define MLIR_DIALECT_TOSA_TRANSFORMS_PASSES_H
 
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
@@ -30,10 +31,36 @@ void populateTosaDecomposeDepthwise(MLIRContext *ctx,
 std::unique_ptr<Pass> createTosaInferShapesPass();
 std::unique_ptr<Pass> createTosaMakeBroadcastablePass();
 std::unique_ptr<Pass> createTosaTestQuantUtilAPIPass();
-std::unique_ptr<Pass> createTosaPartitionPass();
-std::unique_ptr<Pass> createPostPartitionCollapsePass();
 std::unique_ptr<Pass> createTosaOptionalDecompositions();
-void registerTosaPartitionPipelinePass();
+std::unique_ptr<Pass> createTosaPartitionPass();
+
+class TosaPartitionPass : public TosaPartitionBase<TosaPartitionPass> {
+  // Special case:  TransposeOp's second operand must be a
+  // constant, which means we must include it too if we include
+  // the TransposeOp.  "ops" here may be either leadingOps or trailingOps.
+  void specialCaseForTranspose(Operation *op, SetVector<Operation *> &ops);
+
+public:
+  TosaPartitionPass() = default;
+  virtual bool isAnchorOp(Operation *op);
+  virtual bool isLeadingOp(Operation *op);
+  virtual bool isTrailingOp(Operation *op);
+  virtual StringRef partitionTag();
+  void traceInputs(Operation *op, SetVector<Operation *> &predecessors,
+                   SetVector<Value> &inputNodes);
+  void runOnOperation() override;
+};
+
+class TosaPartitionPassWithOptions : public TosaPartitionPass {
+public:
+  TosaPartitionPassWithOptions() = default;
+  TosaPartitionPassWithOptions(ArrayRef<std::string> anchorOps_,
+                               const std::string &attrName, bool trailingOnly_);
+
+  bool isAnchorOp(Operation *op) override;
+  bool isLeadingOp(Operation *op) override;
+  StringRef partitionTag() override;
+};
 
 #define GEN_PASS_REGISTRATION
 #include "mlir/Dialect/Tosa/Transforms/Passes.h.inc"

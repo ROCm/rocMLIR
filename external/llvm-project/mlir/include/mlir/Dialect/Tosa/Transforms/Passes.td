@@ -52,8 +52,14 @@ def TosaPartition : Pass<"tosa-partition", "ModuleOp"> {
   let constructor = "createTosaPartitionPass()";
 
   let options = [
-    Option<"nofront", "nofront", "bool", /*default=*/"false",
-           "Don't gather ops ahead of Conv2D">
+    ListOption<"anchorOps", "anchor-ops", "std::string",
+               "One or more operations to be used as focus of partitioned "
+               "kernels",
+               "llvm::cl::ZeroOrMore">,
+    Option<"partitionTagOpt", "partition-tag", "std::string",
+           /*default=*/"\"kernel\"", "Attribute for outlined functions">,
+    Option<"trailingOnly", "trailing-only", "bool", /*default=*/"false",
+           "Don't gather ops ahead of anchor op">
   ];
   let dependentDialects = ["tosa::TosaDialect"];
 }
