@@ -30,6 +30,8 @@
 using namespace mlir;
 using namespace mlir::miopen;
 
+#define DEBUG_TYPE "conv2d-gen"
+
 Conv2dGenerator::Conv2dGenerator(
     const std::string &chip, const std::string &triple,
     const std::string &features, const std::string &perfConfig, int num_cu,
@@ -103,8 +105,8 @@ static LogicalResult hasDimensions(const llvm::StringMap<int64_t> &map,
   for (size_t i = 0; i < wantedLayout.size(); ++i) {
     auto key = wantedLayout.slice(i, i + 1);
     if (map.count(key) == 0) {
-      llvm::errs() << "Layout for " << operation
-                   << " tensor missing dimension: " << key;
+      LLVM_DEBUG(llvm::dbgs() << "Layout for " << operation
+                              << " tensor missing dimension: " << key << "\n");
       return failure();
     }
   }
@@ -117,7 +119,7 @@ static LogicalResult smallEnough(const ArrayRef<int64_t> dims, size_t elemWidth,
                                  std::multiplies<int64_t>()) *
                  elemWidth;
   if (size >= (1LL << 31)) { // 2^31 = 2 GB
-    llvm::dbgs() << name << " tensor cannot be larger than 2 GB\n";
+    LLVM_DEBUG(llvm::dbgs() << name << " tensor cannot be larger than 2 GB\n");
     return failure();
   }
   return success();
@@ -141,7 +143,8 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
       config.strideWidth};
   if (std::any_of(strictlyPositiveParams.begin(), strictlyPositiveParams.end(),
                   [](const int64_t &a) { return a <= 0; })) {
-    llvm::errs() << "Dilation and stride must be a positive integer\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Dilation and stride must be a positive integer\n");
     return failure();
   }
 
@@ -150,7 +153,7 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
       config.paddingWidthLeft, config.paddingWidthRight};
   if (std::any_of(nonNegativeParams.begin(), nonNegativeParams.end(),
                   [](const int64_t &a) { return a < 0; })) {
-    llvm::errs() << "Padding values cannot be negative\n";
+    LLVM_DEBUG(llvm::dbgs() << "Padding values cannot be negative\n");
     return failure();
   }
 
@@ -165,19 +168,23 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
   };
 
   if (typeWidths.count(config.dataTypeStr) == 0) {
-    llvm::errs() << config.dataTypeStr << " is not a known datatype";
+    LLVM_DEBUG(llvm::dbgs()
+               << config.dataTypeStr << " is not a known datatype\n");
   }
   size_t elementWidth = typeWidths.lookup(config.dataTypeStr);
 
   if (!checkDimSizes(config.inputDimension)) {
-    llvm::errs() << "Input tensor dimensions must be strictly positive\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Input tensor dimensions must be strictly positive\n");
     return failure();
   }
   if (!checkDimSizes(config.filterDimension)) {
-    llvm::errs() << "Filter tensoor dimensions must be strictly positive\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Filter tensoor dimensions must be strictly positive\n");
   }
   if (!checkDimSizes(config.outputDimension)) {
-    llvm::errs() << "Output tensor dimensions must be strictly positive\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Output tensor dimensions must be strictly positive\n");
     return failure();
   }
 
@@ -193,22 +200,24 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
   }
 
   if (inDim["n"] != outDim["n"]) {
-    llvm::errs() << "Input and output batch sizes don't match\n";
+    LLVM_DEBUG(llvm::dbgs() << "Input and output batch sizes don't match\n");
     return failure();
   }
   if (inDim["g"] != outDim["g"] || inDim["g"] != filDim["g"]) {
-    llvm::errs()
-        << "Group sizes are not consistent between input, output, and filter\n";
+    LLVM_DEBUG(llvm::dbgs() << "Group sizes are not consistent between input, "
+                               "output, and filter\n");
     return failure();
   }
   if (inDim["c"] != filDim["c"]) {
-    llvm::errs() << "Number of channels in input doesn't match number of "
-                    "channels in filter\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Number of channels in input doesn't match number of "
+                  "channels in filter\n");
     return failure();
   }
   if (filDim["k"] != outDim["k"]) {
-    llvm::errs() << "Number of channels in output doesn't match number of "
-                    "channels in filter\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Number of channels in output doesn't match number of "
+                  "channels in filter\n");
     return failure();
   }
 
@@ -219,25 +228,29 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
       inDim["w"], filDim["x"], config.paddingWidthLeft,
       config.paddingWidthRight, config.strideWidth, config.dilationWidth);
   if (outDim["h"] != expectedOutHeight) {
-    llvm::errs() << "Output height " << outDim["h"] << " doesn't match height "
-                 << expectedOutHeight << " computed from other parameters\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Output height " << outDim["h"] << " doesn't match height "
+               << expectedOutHeight << " computed from other parameters\n");
     return failure();
   }
   if (outDim["w"] != expectedOutWidth) {
-    llvm::errs() << "Output width " << outDim["w"] << " doesn't match width "
-                 << expectedOutWidth << " computed from other parameters\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Output width " << outDim["w"] << " doesn't match width "
+               << expectedOutWidth << " computed from other parameters\n");
     return failure();
   }
 
   if (inDim["h"] + config.paddingHeightLeft + config.paddingHeightRight <
       filDim["y"]) {
-    llvm::errs() << "Input, including padding, is shorter than the filter\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Input, including padding, is shorter than the filter\n");
     return failure();
   }
 
   if (inDim["w"] + config.paddingWidthLeft + config.paddingWidthRight <
       filDim["x"]) {
-    llvm::errs() << "Input, including padding, is narrower than the filter\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Input, including padding, is narrower than the filter\n");
     return failure();
   }
 
