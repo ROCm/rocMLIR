@@ -20,8 +20,6 @@
 //===-----------------------------------------------------===//
 #include "PassDetail.h"
 
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
@@ -30,15 +28,15 @@
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BlockAndValueMapping.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/Support/LogicalResult.h"
+#include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/Passes.h"
 
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "miopen-gridwise-to-blockwise"
@@ -48,8 +46,9 @@ using namespace mlir::arith;
 using namespace mlir::miopen;
 
 namespace {
-struct LowerMIOpenOpsStep2Pass
-    : public MIOpenOpsStep2PassBase<LowerMIOpenOpsStep2Pass> {
+struct MIOpenGridwiseGemmToBlockwisePass
+    : public MIOpenGridwiseGemmToBlockwisePassBase<
+          MIOpenGridwiseGemmToBlockwisePass> {
   void runOnOperation() override;
 };
 
@@ -2517,7 +2516,7 @@ struct GridwiseGemmV2RewritePattern
   }
 };
 
-void LowerMIOpenOpsStep2Pass::runOnOperation() {
+void MIOpenGridwiseGemmToBlockwisePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
   target.addIllegalOp<miopen::GridwiseGemmOp, miopen::GridwiseGemmV2Op>();
@@ -2530,9 +2529,13 @@ void LowerMIOpenOpsStep2Pass::runOnOperation() {
                                     std::move(patterns)))) {
     signalPassFailure();
   }
+
+  OpPassManager cleanupPasses("func.func");
+  cleanupPasses.addPass(mlir::createCanonicalizerPass());
+  (void)runPipeline(cleanupPasses, getOperation());
 }
 } // end anonymous namespace
 
-std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep2Pass() {
-  return std::make_unique<LowerMIOpenOpsStep2Pass>();
+std::unique_ptr<Pass> mlir::miopen::createMIOpenGridwiseGemmToBlockwisePass() {
+  return std::make_unique<MIOpenGridwiseGemmToBlockwisePass>();
 }

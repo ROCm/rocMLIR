@@ -1,7 +1,7 @@
 // This tests checks the following aspects of lowering component:
 // * The correct padding attributes are generated and attached to the GEMM
 
-// RUN: miopen-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s
+// RUN: miopen-opt -miopen-affix-params -miopen-conv-to-gemm %s | FileCheck %s
 // CHECK-DAG: #[[$PAD_K:gemm_padding[0-9]+]] = #miopen.padding_info<extraM = 0, extraK = 14, extraN = 0>
 // CHECK-DAG: #[[$PAD_NONE:gemm_padding[0-9]+]] = #miopen.padding_info<extraM = 0, extraK = 0, extraN = 0>
 func @miopen_conv2d_kcyx_nchw_nkhw_padding_kernel(%filter : memref<32x128x2x3x3xf32>, %input : memref<64x32x2x11x11xf32>, %output : memref<64x32x128x9x9xf32>) {

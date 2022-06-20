@@ -31,28 +31,29 @@ std::unique_ptr<Pass> createMIOpenAsyncLaunchPass();
 
 /// Create a pass to convert MIOpen conv2d operations to transform and
 /// gridwise_gemm operations.
-std::unique_ptr<Pass> createLowerMIOpenOpsStep1Pass();
+std::unique_ptr<Pass> createMIOpenConvToGemmPass();
 
 /// Create a pass to convert MIOpen gridwise_gemm operations to blockwise
 /// operations.
-std::unique_ptr<Pass> createLowerMIOpenOpsStep2Pass();
+std::unique_ptr<Pass> createMIOpenGridwiseGemmToBlockwisePass();
 
 /// Create a pass to align tiling of subsequent linalg.generic ops with
-/// the miopen.conv2d op after lowering step2.
+/// the miopen.conv2d op after the gridwise -> blockwise pass.
 std::unique_ptr<Pass> createMIOpenLinalgAlignPass();
 
-/// Create a pass to
+/// Create a pass to optimize out global copies.
 std::unique_ptr<Pass> createMIOpenCopyOptPass();
 
 /// Create a pass to convert MIOpen blockwise operations to threadwise
 /// operations.
-std::unique_ptr<Pass> createLowerMIOpenOpsStep3Pass();
+std::unique_ptr<Pass> createMIOpenBlockwiseGemmToThreadwisePass();
 
 /// Create a pass to convert MIOpen threadwise operations to other dialects.
-std::unique_ptr<Pass> createLowerMIOpenOpsStep4Pass();
+std::unique_ptr<Pass> createMIOpenThreadwiseGemmLoweringPass();
 
-/// Create a pass to expand MIOpen shorthand ops to other dialects
-std::unique_ptr<Pass> createMIOpenExpandShorthandPass();
+/// Create a pass to expand transforming_for and other MIOpen shorthand to other
+/// dialects.
+std::unique_ptr<Pass> createMIOpenSugarToLoopsPass();
 
 /// Create a pass to convert affine / loop to cf dialect.
 std::unique_ptr<Pass> createMIOpenLoopsToCfPass();

@@ -1,6 +1,6 @@
 //  miopen.in_warp_transpose requires that %lane be index, but the llvm.and
 //  it expands into requires that it be an integral type.
-// RUN: miopen-opt -miopen-expand-shorthand %s | FileCheck %s
+// RUN: miopen-opt -miopen-sugar-to-loops %s | FileCheck %s
 func @in_warp_transpose_lowering(%arg0: vector<8xf32>) -> vector<8xf32> {
     // CHECK-LABEL: func @in_warp_transpose_lowering
     %cst64 = arith.constant 64 : index

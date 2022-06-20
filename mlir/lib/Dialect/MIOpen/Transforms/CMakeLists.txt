@@ -6,11 +6,11 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
   BlockwiseGemmToThreadwise.cpp
   CloneKernels.cpp
   CopyOpt.cpp
-  ConvToGemmLowering.cpp
-  ExpandShorthand.cpp
+  ConvToGemm.cpp
+  SugarToLoops.cpp
   GridwiseGemmToBlockwise.cpp
   LoopsToCf.cpp
-  ThreadwiseToStdlib.cpp
+  ThreadwiseGemmLowering.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/MIOpen

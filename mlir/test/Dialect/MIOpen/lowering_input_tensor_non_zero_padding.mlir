@@ -2,7 +2,7 @@
 // * Input tensor has non-zero padding.
 // * Memrefs get the correct affine map attached after transforms
 
-// RUN: miopen-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s
+// RUN: miopen-opt -miopen-affix-params -miopen-conv-to-gemm %s | FileCheck %s
 
 // CHECK-DAG: #[[$AFFINE:map[0-9]+]] = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3 - 1, d4 - 1)>
 // CHECK-DAG: #[[$MAP:transform_map[0-9]+]] = #miopen.transform_map<affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3 - 1, d4 - 1)> by [#miopen.transform<PassThrough ["ni"] at [2] -> ["ni"] at [2]>, #miopen.transform<PassThrough ["gi"] at [0] -> ["gi"] at [0]>, #miopen.transform<PassThrough ["ci"] at [1] -> ["ci"] at [1]>, #miopen.transform<Pad{1, 1, 1, 1} ["hipad", "wipad"] at [3, 4] -> ["hi", "wi"] at [3, 4]>] bounds = [1, 8, 128, 34, 34] -> [1, 8, 128, 32, 32]>

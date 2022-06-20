@@ -1,4 +1,4 @@
-// RUN: miopen-opt -miopen-lowering-step4 %s | FileCheck %s
+// RUN: miopen-opt --miopen-sugar-to-loops %s | FileCheck %s
 
 #transform_map0 = #miopen.transform_map<affine_map<(d0, d1) -> (d1 + 4 * d0)>
     by [#miopen.transform<Unmerge{16, 4} ["x", "y"] at [0, 1] -> ["r"] at [0]>]
