@@ -638,8 +638,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       }
       break;
     case GemmG:
-      llvm::errs() << "Vector loads/stores aren't possible in the G dimension "
-                      "and should not haven been attempted";
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Vector loads/stores aren't possible in the G dimension "
+                 << "and should not haven been attempted\n");
       return failure();
     }
 
@@ -658,8 +659,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     if (GemmABlockCopyThreadSliceLengths_GemmK == 0 ||
         GemmABlockCopyThreadSliceLengths_GemmM == 0 ||
         GemmABlockCopyThreadSliceLengths_GemmKPack == 0) {
-      llvm::errs() << "Blockwise copy slice lengths for matrix A is zero which "
-                      "is invalid.\n";
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Blockwise copy slice lengths for matrix A is zero which "
+                    "is invalid.\n");
       return failure();
     }
 
@@ -715,8 +717,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       }
       break;
     case GemmG:
-      llvm::errs() << "Vector loads/stores aren't possible in the G dimension "
-                      "and should not haven been attempted";
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Vector loads/stores aren't possible in the G dimension "
+                 << "and should not haven been attempted\n");
       return failure();
     }
 
@@ -734,8 +737,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     if (GemmBBlockCopyThreadSliceLengths_GemmK == 0 ||
         GemmBBlockCopyThreadSliceLengths_GemmN == 0 ||
         GemmBBlockCopyThreadSliceLengths_GemmKPack == 0) {
-      llvm::errs() << "Blockwise copy slice lengths for matrix B is zero which "
-                      "is invalid.\n";
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Blockwise copy slice lengths for matrix B is zero which "
+                 << "is invalid.\n");
       return failure();
     }
 
@@ -1635,8 +1639,9 @@ struct GridwiseGemmV2RewritePattern
       }
       break;
     case GemmG:
-      llvm::errs() << "Vector loads/stores aren't possible in the G dimension "
-                      "and should not haven been attempted";
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Vector loads/stores aren't possible in the G dimension "
+                 << "and should not haven been attempted\n");
       return failure();
     }
 
@@ -1649,8 +1654,9 @@ struct GridwiseGemmV2RewritePattern
     if (GemmABlockCopyThreadSliceLengths_GemmK == 0 ||
         GemmABlockCopyThreadSliceLengths_GemmM == 0 ||
         GemmABlockCopyThreadSliceLengths_GemmKPack == 0) {
-      llvm::errs() << "Blockwise copy slice lengths for matrix A is zero which "
-                      "is invalid.\n";
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Blockwise copy slice lengths for matrix A is zero which "
+                 << "is invalid.\n");
       return failure();
     }
 
@@ -1708,8 +1714,9 @@ struct GridwiseGemmV2RewritePattern
       }
       break;
     case GemmG:
-      llvm::errs() << "Vector loads/stores aren't possible in the G dimension "
-                      "and should not haven been attempted";
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Vector loads/stores aren't possible in the G dimension "
+                 << "and should not haven been attempted.\n");
       return failure();
     }
 
@@ -1722,8 +1729,9 @@ struct GridwiseGemmV2RewritePattern
     if (GemmBBlockCopyThreadSliceLengths_GemmK == 0 ||
         GemmBBlockCopyThreadSliceLengths_GemmN == 0 ||
         GemmBBlockCopyThreadSliceLengths_GemmKPack == 0) {
-      llvm::errs() << "Blockwise copy slice lengths for matrix B is zero which "
-                      "is invalid.\n";
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Blockwise copy slice lengths for matrix B is zero which "
+                 << "is invalid.\n");
       return failure();
     }
 
