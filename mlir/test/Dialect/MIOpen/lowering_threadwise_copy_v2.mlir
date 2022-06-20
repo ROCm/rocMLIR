@@ -24,8 +24,8 @@
   #miopen.transform<Merge{128, 14, 14} ["gemmN"] at [2] -> ["no", "ho", "wo"] at [0, 3, 4]>
 ] bounds = [1, 1024, 25088] -> [128, 1, 1024, 14, 14]>
 
-// CHECK-LABEL: func @miopen_threadwise_copy_v2
-func @miopen_threadwise_copy_v2(%source : vector<32xf32>,
+// CHECK-LABEL: func.func @miopen_threadwise_copy_v2
+func.func @miopen_threadwise_copy_v2(%source : vector<32xf32>,
                                 %dest1D : memref<32xf32>,
                                 %dest5D : memref<128x1x1024x14x14xf32>) {
   %c0 = arith.constant 0 : index
@@ -91,7 +91,7 @@ func @miopen_threadwise_copy_v2(%source : vector<32xf32>,
 ] bounds = [1, 1024, 32768] -> [128, 1, 1024, 16, 16]>
 
 // CHECK-LABEL: @miopen_threadwise_copy_v2_vectorized_nchw
-func @miopen_threadwise_copy_v2_vectorized_nchw(%source : vector<32xf32>,
+func.func @miopen_threadwise_copy_v2_vectorized_nchw(%source : vector<32xf32>,
                                 %dest5D : memref<128x1x1024x16x16xf32>) {
   %c0 = arith.constant 0 : index
 
@@ -138,7 +138,7 @@ func @miopen_threadwise_copy_v2_vectorized_nchw(%source : vector<32xf32>,
 ] bounds = [1, 1024, 32768] -> [128, 1, 16, 16, 1024]>
 
 // CHECK-LABEL: @miopen_threadwise_copy_v2_vectorized_nhwc
-func @miopen_threadwise_copy_v2_vectorized_nhwc(%source_offset : i32,
+func.func @miopen_threadwise_copy_v2_vectorized_nhwc(%source_offset : i32,
                                 %source : vector<32xf32>,
                                 %dest5D : memref<128x1x16x16x1024xf32>) {
   %c0 = arith.constant 0 : index

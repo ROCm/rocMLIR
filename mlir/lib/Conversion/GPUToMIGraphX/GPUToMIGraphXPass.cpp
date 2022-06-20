@@ -56,12 +56,12 @@ public:
                            LLVM::LLVMDialect>();
     target.addDynamicallyLegalOp<func::CallOp>([&](Operation *op) {
       auto fnAttr = op->getAttrOfType<FlatSymbolRefAttr>("callee");
-      auto fusedFuncOp = op->getParentOfType<ModuleOp>().lookupSymbol<FuncOp>(
+      auto fusedFuncOp = op->getParentOfType<ModuleOp>().lookupSymbol<func::FuncOp>(
           fnAttr.getValue());
       return (fusedFuncOp.getOperation()->getAttr("kernel") == nullptr);
     });
 
-    FuncOp func = getOperation();
+    func::FuncOp func = getOperation();
     mlir::migraphx::populateFuncToCOBJPatterns(func.getContext(), patterns);
 
     if (failed(applyPartialConversion(func, target, std::move(patterns)))) {
@@ -74,5 +74,5 @@ std::unique_ptr<Pass> migraphx::createGPUToMIGraphXPass() {
   return std::make_unique<GPUToMIGraphX>();
 }
 void migraphx::addGPUToMIGraphXPasses(OpPassManager &pm) {
-  pm.addNestedPass<FuncOp>(createGPUToMIGraphXPass());
+  pm.addNestedPass<func::FuncOp>(createGPUToMIGraphXPass());
 }

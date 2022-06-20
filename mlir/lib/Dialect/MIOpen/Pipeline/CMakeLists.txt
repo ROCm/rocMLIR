@@ -5,6 +5,7 @@ add_mlir_dialect_library(MLIRMIOpenPipeline
   MLIRDialect
   MLIRFunc
   LLVMROCmBackendUtils
+  MLIRTensorToLinalg
   MLIRTosaToMIOpen
   MLIRTosaToLinalg
   MLIRTosaToSCF

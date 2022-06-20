@@ -37,7 +37,7 @@ void mlirGetKernelInfo(MlirModule module, int *size, void *data) {
   assert((size != nullptr || data != nullptr) &&
          "Either size or data pointer should be provided");
   std::vector<int> info;
-  mod.walk([&](mlir::FuncOp f) {
+  mod.walk([&](mlir::func::FuncOp f) {
     auto args = f.getArguments();
     for (auto arg : args) {
       argNum++;

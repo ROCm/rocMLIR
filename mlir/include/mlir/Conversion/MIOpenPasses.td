@@ -42,7 +42,7 @@ def ConvertMIOpenToGPU : Pass<"convert-miopen-to-gpu", "ModuleOp"> {
 // TosaToMIOpen
 //===----------------------------------------------------------------------===//
 
-def TosaToMIOpen : Pass<"tosa-to-miopen", "::mlir::FuncOp"> {
+def TosaToMIOpen : Pass<"tosa-to-miopen", "::mlir::func::FuncOp"> {
   let summary = "Lower TOSA to MIOpen";
   let description = [{
     Pass that converts TOSA operations to bufferized MIOpen operations.
@@ -55,7 +55,7 @@ def TosaToMIOpen : Pass<"tosa-to-miopen", "::mlir::FuncOp"> {
 // MIGraphXToTosa
 //===----------------------------------------------------------------------===//
 
-def MIGraphXToTosa : Pass<"migraphx-to-tosa", "::mlir::FuncOp"> {
+def MIGraphXToTosa : Pass<"migraphx-to-tosa", "::mlir::func::FuncOp"> {
   let summary = "Lower MIGraphX to TOSA";
   let description = [{
     Pass that converts MIGraphX operations to TOSA operations.
@@ -68,7 +68,7 @@ def MIGraphXToTosa : Pass<"migraphx-to-tosa", "::mlir::FuncOp"> {
 // GPUToMIGraphX
 //===----------------------------------------------------------------------===//
 
-def GPUToMIGraphX : Pass<"gpu-to-migraphx", "::mlir::FuncOp"> {
+def GPUToMIGraphX : Pass<"gpu-to-migraphx", "::mlir::func::FuncOp"> {
   let summary = "Lower fused gpu launch to MIGraphX code object";
   let description = [{
     Pass that converts func operations with gpu.launch to MIGraphX operation.

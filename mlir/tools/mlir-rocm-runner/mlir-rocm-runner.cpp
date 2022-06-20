@@ -101,7 +101,7 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
 
   // Host Compiler Pipeline
   PassManager pmHost(m.getContext());
-  auto &funcPm = pmHost.nest<FuncOp>();
+  auto &funcPm = pmHost.nest<func::FuncOp>();
   funcPm.addPass(createGpuAsyncRegionPass());
   funcPm.addPass(createConvertMathToLLVMPass());
   pmHost.addPass(createGpuToLLVMConversionPass());
@@ -131,8 +131,6 @@ int main(int argc, char **argv) {
   LLVMInitializeAMDGPUTargetInfo();
   LLVMInitializeAMDGPUTargetMC();
   LLVMInitializeAMDGPUAsmPrinter();
-
-  mlir::initializeLLVMPasses();
 
   DialectRegistry registry;
   registerAllDialects(registry);

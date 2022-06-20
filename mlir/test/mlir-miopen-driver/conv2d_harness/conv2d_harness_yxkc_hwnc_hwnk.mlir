@@ -2,14 +2,14 @@
 // RUN: miopen-gen -p -fil_layout=gyxkc -in_layout=hwngc -out_layout=hwngk --host %s | mlir-miopen-driver -c | FileCheck %s --check-prefix=LOWERING
 // RUN: miopen-gen -p -fil_layout=gyxkc -in_layout=hwngc -out_layout=hwngk --host %s | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
 
-func private @miopen_conv2d_gyxkc_hwngc_hwngk_0(%filter : memref<1x3x3x128x8xf32>, %input : memref<32x32x128x1x8xf32>, %output : memref<30x30x128x1x128xf32>) -> ()
+func.func private @miopen_conv2d_gyxkc_hwngc_hwngk_0(%filter : memref<1x3x3x128x8xf32>, %input : memref<32x32x128x1x8xf32>, %output : memref<30x30x128x1x128xf32>) -> ()
 
 // HARNESS: module
-// HARNESS: func @miopen_conv2d_gyxkc_hwngc_hwngk_0([[FILTER_MEMREF:%.*]]: memref<1x3x3x128x8xf32>, [[INPUT_MEMREF:%.*]]: memref<32x32x128x1x8xf32>, [[OUTPUT_MEMREF:%.*]]: memref<30x30x128x1x128xf32>)
+// HARNESS: func.func @miopen_conv2d_gyxkc_hwngc_hwngk_0([[FILTER_MEMREF:%.*]]: memref<1x3x3x128x8xf32>, [[INPUT_MEMREF:%.*]]: memref<32x32x128x1x8xf32>, [[OUTPUT_MEMREF:%.*]]: memref<30x30x128x1x128xf32>)
 // LOWERING: module
 // LOWERING: gpu.launch_func  @miopen_conv2d_gyxkc_hwngc_hwngk_0_module::@miopen_conv2d_gyxkc_hwngc_hwngk_0 blocks in (%{{.*}}, %{{.*}}, %{{.*}}) threads in (%{{.*}}, %{{.*}}, %{{.*}}) dynamic_shared_memory_size %{{.*}} args(%{{.*}} : memref<1x3x3x128x8xf32>, %{{.*}} : memref<32x32x128x1x8xf32>, %{{.*}} : memref<30x30x128x1x128xf32>)
 
-func @main() {
+func.func @main() {
   // memref.allocate CPU memory.
   %0 = memref.alloc() : memref<1x3x3x128x8xf32>
   %1 = memref.alloc() : memref<32x32x128x1x8xf32>
@@ -52,7 +52,7 @@ func @main() {
   // verify result.
   // TBD. Add more verifying logic.
   %9 = memref.cast %5 : memref<?x?x?x?x?xf32> to memref<*xf32>
-  call @print_memref_f32(%9) : (memref<*xf32>) -> ()
+  call @printMemrefF32(%9) : (memref<*xf32>) -> ()
 
   // dellocate GPU memory.
   call @mgpuMemDealloc5DFloat(%6) : (memref<?x?x?x?x?xf32>) -> ()
@@ -67,11 +67,11 @@ func @main() {
   return
 }
 
-func private @mcpuMemset5DFloat(%ptr : memref<?x?x?x?x?xf32>, %value: f32) -> ()
-func private @mgpuMemAlloc5DFloat(%ptr : memref<?x?x?x?x?xf32>) -> (memref<?x?x?x?x?xf32>)
-func private @mgpuMemDealloc5DFloat(%ptr : memref<?x?x?x?x?xf32>) -> ()
-func private @mgpuMemCopy5DFloat(%src : memref<?x?x?x?x?xf32>, %dst : memref<?x?x?x?x?xf32>, %dir : i32) -> ()
-func private @print_memref_f32(%ptr : memref<*xf32>)
+func.func private @mcpuMemset5DFloat(%ptr : memref<?x?x?x?x?xf32>, %value: f32) -> ()
+func.func private @mgpuMemAlloc5DFloat(%ptr : memref<?x?x?x?x?xf32>) -> (memref<?x?x?x?x?xf32>)
+func.func private @mgpuMemDealloc5DFloat(%ptr : memref<?x?x?x?x?xf32>) -> ()
+func.func private @mgpuMemCopy5DFloat(%src : memref<?x?x?x?x?xf32>, %dst : memref<?x?x?x?x?xf32>, %dir : i32) -> ()
+func.func private @printMemrefF32(%ptr : memref<*xf32>)
 // LOWERING: gpu.module @miopen_conv2d_gyxkc_hwngc_hwngk_0_module
 // LOWERING: gpu.func @miopen_conv2d_gyxkc_hwngc_hwngk_0
 // TBD. Add more verifying logic.

@@ -188,7 +188,6 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   LLVMInitializeAMDGPUTargetInfo();
   LLVMInitializeAMDGPUTargetMC();
   LLVMInitializeAMDGPUAsmPrinter();
-  mlir::initializeLLVMPasses();
 
   const char *triple = "amdgcn-amd-amdhsa";
   const char *chip = "gfx908";
@@ -208,7 +207,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   mlirOperationDump(moduleMO);
 
   size_t argIdx = 0;
-  module.walk([&](mlir::FuncOp f) {
+  module.walk([&](mlir::func::FuncOp f) {
     auto args = f.getArguments();
     for (auto arg : args) {
       argIdx += 3; // 3 per memref : allocated ptr, aligned ptr, offset

@@ -16,7 +16,7 @@
       -> ["x", "w", "y", "z"] at [1, 0, 2, 3]>
     ] bounds = [1, 3, 3, 3] -> [3, 1, 3, 3]>
 
-func @miopen_threadwise_copy_f16(%source_coord : memref<2xindex, 5>, %dest_coord : memref<2xindex, 5>,
+func.func @miopen_threadwise_copy_f16(%source_coord : memref<2xindex, 5>, %dest_coord : memref<2xindex, 5>,
                              %source : memref<?x?xf16, 5>, %dest : memref<?x?xf16, 5>,
                              %source_with_transform_maps : memref<?x?x?x?xf16>,
                              %dest_with_transform_maps : memref<?x?x?x?xf16>) {
@@ -96,7 +96,7 @@ func @miopen_threadwise_copy_f16(%source_coord : memref<2xindex, 5>, %dest_coord
   return
 }
 
-// CHECK-LABEL: func @miopen_threadwise_copy_f16
+// CHECK-LABEL: func.func @miopen_threadwise_copy_f16
 //  CHECK: miopen.threadwise_copy
 
 #transform_map2 = #miopen.transform_map<
@@ -110,7 +110,7 @@ func @miopen_threadwise_copy_f16(%source_coord : memref<2xindex, 5>, %dest_coord
       ["g", "n", "c", "h", "w"] at [0, 1, 2, 3, 4]>
   ] bounds = [1, 4, 1, 4, 1] -> [1, 4, 1, 4, 1]>
 
-func @miopen_threadwise_copy_v2_f16(%source : vector<32xf16>,
+func.func @miopen_threadwise_copy_v2_f16(%source : vector<32xf16>,
                                 %dest : memref<?x?x?x?x?xf16>) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
@@ -131,13 +131,13 @@ func @miopen_threadwise_copy_v2_f16(%source : vector<32xf16>,
   return
 }
 
-// CHECK-LABEL: func @miopen_threadwise_copy_v2_f16
+// CHECK-LABEL: func.func @miopen_threadwise_copy_v2_f16
 //  CHECK: miopen.threadwise_copy_v2
 
-func @miopen_threadwise_gemm_f16(%lhs : memref<1x4x8xf16>, %rhs : memref<1x4x8xf16>, %output : memref<1x8x8xf16>) {
+func.func @miopen_threadwise_gemm_f16(%lhs : memref<1x4x8xf16>, %rhs : memref<1x4x8xf16>, %output : memref<1x8x8xf16>) {
   miopen.threadwise_gemm(%lhs, %rhs, %output) : memref<1x4x8xf16>, memref<1x4x8xf16>, memref<1x8x8xf16>
   return
 }
 
-// CHECK-LABEL: func @miopen_threadwise_gemm_f16
+// CHECK-LABEL: func.func @miopen_threadwise_gemm_f16
 //  CHECK: miopen.threadwise_gemm

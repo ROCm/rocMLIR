@@ -222,7 +222,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
   };
 
   auto processGpuKernelFunc = [&](gpu::GPUModuleOp &gpuMod,
-                                  FuncOp &theFunc) -> gpu::GPUFuncOp {
+                                  func::FuncOp &theFunc) -> gpu::GPUFuncOp {
     // Set up the symbol table for the GPU ModuleOp.
     SymbolTable gpuModuleSymbolTable(gpuMod);
     // Reset builder insertion point to the beginning of the GPU module,
@@ -308,9 +308,9 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     return gpuFunc;
   };
 
-  SmallVector<FuncOp, 1> processedFuncs;
+  SmallVector<func::FuncOp, 1> processedFuncs;
   // Check parameters and populate default values if necessary.
-  for (auto func : op.getOps<FuncOp>()) {
+  for (auto func : op.getOps<func::FuncOp>()) {
     if (func->hasAttr("kernel")) {
       std::string gfname = func.getName().str();
       gfname += "_module";

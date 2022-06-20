@@ -12,7 +12,7 @@ module attributes {gpu.container_module} {
     }
   }
 
-  func @vecadd(%arg0 : memref<?xf32>, %arg1 : memref<?xf32>, %arg2 : memref<?xf32>) {
+  func.func @vecadd(%arg0 : memref<?xf32>, %arg1 : memref<?xf32>, %arg2 : memref<?xf32>) {
     %cst = arith.constant 1 : index
     %cst0 = arith.constant 0 : index
     %cst2 = memref.dim %arg0, %cst0 : memref<?xf32>
@@ -21,7 +21,7 @@ module attributes {gpu.container_module} {
   }
 
   // CHECK: [2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46]
-  func @main() {
+  func.func @main() {
     // allocate CPU memory.
     %0 = memref.alloc() : memref<16xf32>
     %1 = memref.alloc() : memref<16xf32>
@@ -59,7 +59,7 @@ module attributes {gpu.container_module} {
 
     // print result.
     %9 = memref.cast %5 : memref<?xf32> to memref<*xf32>
-    call @print_memref_f32(%9) : (memref<*xf32>) -> ()
+    call @printMemrefF32(%9) : (memref<*xf32>) -> ()
 
     // dellocate GPU memory.
     call @mgpuMemDealloc(%6) : (memref<?xf32>) -> ()
@@ -74,9 +74,9 @@ module attributes {gpu.container_module} {
     return
   }
 
-  func private @mcpuMemset(%ptr : memref<?xf32>, %value: f32) -> ()
-  func private @mgpuMemAlloc(%ptr : memref<?xf32>) -> (memref<?xf32>)
-  func private @mgpuMemDealloc(%ptr : memref<?xf32>) -> ()
-  func private @mgpuMemCopy(%src : memref<?xf32>, %dst : memref<?xf32>, %dir : i32) -> ()
-  func private @print_memref_f32(%ptr : memref<*xf32>) -> ()
+  func.func private @mcpuMemset(%ptr : memref<?xf32>, %value: f32) -> ()
+  func.func private @mgpuMemAlloc(%ptr : memref<?xf32>) -> (memref<?xf32>)
+  func.func private @mgpuMemDealloc(%ptr : memref<?xf32>) -> ()
+  func.func private @mgpuMemCopy(%src : memref<?xf32>, %dst : memref<?xf32>, %dir : i32) -> ()
+  func.func private @printMemrefF32(%ptr : memref<*xf32>) -> ()
 }

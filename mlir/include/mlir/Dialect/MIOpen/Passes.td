@@ -21,7 +21,7 @@ def MIOpenApplyImplPass : Pass<"miopen-apply-impl", "ModuleOp"> {
   let constructor = "mlir::miopen::createMIOpenApplyImplPass()";
 }
 
-def MIOpenAsyncLaunchPass : Pass<"miopen-async-launch", "FuncOp"> {
+def MIOpenAsyncLaunchPass : Pass<"miopen-async-launch", "func::FuncOp"> {
   let summary = "convert kernel func call ops to async.launch ops with dependencies";
   let constructor = "mlir::miopen::createMIOpenAsyncLaunchPass()";
   let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "linalg::LinalgDialect", "vector::VectorDialect", "memref::MemRefDialect", "async::AsyncDialect"];
@@ -33,7 +33,7 @@ def MIOpenOpsStep1Pass : Pass<"miopen-lowering", "ModuleOp"> {
   let dependentDialects = ["miopen::MIOpenDialect", "memref::MemRefDialect", "AffineDialect", "scf::SCFDialect"];
 }
 
-def MIOpenOpsAffixTuningParametersPass : Pass<"miopen-affix-params", "::mlir::FuncOp"> {
+def MIOpenOpsAffixTuningParametersPass : Pass<"miopen-affix-params", "::mlir::func::FuncOp"> {
   let summary = "populate tuning parameters for miopen.gridwise_gemm ops";
   let constructor = "mlir::miopen::createAffixTuningParametersPass()";
   let dependentDialects = ["miopen::MIOpenDialect"];
@@ -45,13 +45,13 @@ def MIOpenOpsStep2Pass : Pass<"miopen-lowering-step2", "ModuleOp"> {
   let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "vector::VectorDialect", "memref::MemRefDialect", "AffineDialect"];
 }
 
-def MIOpenLinalgAlignPass : Pass<"miopen-linalg-align", "FuncOp"> {
+def MIOpenLinalgAlignPass : Pass<"miopen-linalg-align", "func::FuncOp"> {
   let summary = "expand linalg ops aligned with threadwise copy";
   let constructor = "mlir::miopen::createMIOpenLinalgAlignPass()";
   let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "linalg::LinalgDialect", "vector::VectorDialect", "memref::MemRefDialect"];
 }
 
-def MIOpenCopyOptPass : Pass<"miopen-copy-opt", "FuncOp"> {
+def MIOpenCopyOptPass : Pass<"miopen-copy-opt", "func::FuncOp"> {
   let summary = "Optimize global tensor allocations";
   let constructor = "mlir::miopen::createMIOpenCopyOptPass()";
   let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "linalg::LinalgDialect", "vector::VectorDialect", "memref::MemRefDialect"];

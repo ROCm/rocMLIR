@@ -24,6 +24,8 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 
 using namespace mlir;
 
@@ -86,5 +88,5 @@ std::unique_ptr<Pass> mlir::tosa::createTosaToMIOpenPass() {
 }
 
 void mlir::tosa::addTosaToMIOpenPasses(OpPassManager &pm) {
-  pm.addNestedPass<FuncOp>(createTosaToMIOpenPass());
+  pm.addNestedPass<func::FuncOp>(createTosaToMIOpenPass());
 }

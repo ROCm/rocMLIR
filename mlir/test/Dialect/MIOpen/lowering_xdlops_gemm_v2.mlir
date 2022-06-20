@@ -1,6 +1,6 @@
 // RUN: miopen-opt -miopen-lowering-step4 %s | FileCheck %s
 
-func @miopen_xdlops_gemm_v2_two_results(%matrix : memref<1024xf32, 3>, %bufferA : memref<2xvector<2xf32>, 5>, %bufferB : memref<2xvector<2xf32>, 5>) -> (vector<32xf32>, vector<32xf32>) {
+func.func @miopen_xdlops_gemm_v2_two_results(%matrix : memref<1024xf32, 3>, %bufferA : memref<2xvector<2xf32>, 5>, %bufferB : memref<2xvector<2xf32>, 5>) -> (vector<32xf32>, vector<32xf32>) {
   %c0 = arith.constant 0 : index
   %c0f = arith.constant 0.0 : f32
   %vectorC0 = vector.splat %c0f : vector<32xf32>
@@ -23,7 +23,7 @@ func @miopen_xdlops_gemm_v2_two_results(%matrix : memref<1024xf32, 3>, %bufferA 
   return %vectorD0, %vectorD1 : vector<32xf32>, vector<32xf32>
 }
 
-func @miopen_xdlops_gemm_v2_one_result(%matrix : memref<2048xi8, 3>, %bufferA : memref<2xvector<4xi8>, 5>, %bufferB : memref<2xvector<4xi8>, 5>) -> vector<16xi32> {
+func.func @miopen_xdlops_gemm_v2_one_result(%matrix : memref<2048xi8, 3>, %bufferA : memref<2xvector<4xi8>, 5>, %bufferB : memref<2xvector<4xi8>, 5>) -> vector<16xi32> {
   %c0 = arith.constant 0 : index
   %c0i = arith.constant 0 : i32
   %vectorC0 = vector.splat %c0i : vector<16xi32>

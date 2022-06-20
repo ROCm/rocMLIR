@@ -60,7 +60,7 @@ struct MIOpenApplyImplPass
         // apply target spec to original func
         gpuMod.walk([&](LLVM::LLVMFuncOp func) {
           if (auto attr = func->getAttrOfType<SymbolRefAttr>("original_func")) {
-            if (auto miopenFunc = mod.lookupSymbol<FuncOp>(attr)) {
+            if (auto miopenFunc = mod.lookupSymbol<func::FuncOp>(attr)) {
               std::vector<NamedAttribute> attributes{
                   b.getNamedAttr("type", b.getStringAttr("gpu")),
                   b.getNamedAttr("arch", gpuMod->getAttr("arch")),
