@@ -3,6 +3,7 @@
 #include "mlir/Dialect/MIOpen/Pipelines.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/InitMIOpenDialects.h"
 #include "mlir/Support/LogicalResult.h"
 
 #include "mlir/Dialect/GPU/Passes.h"
@@ -41,6 +42,7 @@ private:
     auto getRegistry = []() {
       DialectRegistry registry;
       registerAllDialects(registry);
+      registerMIOpenDialects(registry);
       return registry;
     };
     static MLIRContext context(getRegistry());
