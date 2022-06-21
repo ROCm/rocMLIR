@@ -282,7 +282,7 @@ def runConfigWithMIOpenDriver(commandLine, envs):
     p1 = subprocess.Popen(MIOpenDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envs)
     # get output.
     try:
-        outs, errs = p1.communicate(timeout=180)
+        outs, errs = p1.communicate(timeout=300)
         if len(errs) > 0:
             print("MIOpen benchmark produced errors: ", errs.decode('utf-8'))
             return np.nan
@@ -298,6 +298,8 @@ def runConfigWithMIOpenDriver(commandLine, envs):
         p1.kill()
         print("MIOpen benchmark timed out")
         outs, errs = p1.communicate()
+        ## make sure timeout does not break this script
+        return np.nan
 
 # Benchmarking function.
 def benchmarkMLIR(commandLine, xdlops):
