@@ -62,10 +62,6 @@ struct MIGraphXTransforms
     if (failed(applyFullConversion(func, target, std::move(patterns)))) {
       signalPassFailure();
     }
-    /*
-    if (applyPatternsAndFoldGreedily(func, std::move(patterns)).failed())
-      signalPassFailure();
-      */
   }
 };
 
