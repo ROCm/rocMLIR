@@ -915,33 +915,31 @@ struct ThreadwiseGemmRewritePattern
     Type dataType =
         gemmA.getType().template cast<MemRefType>().getElementType();
 
-    int64_t g = op.gAttr().getInt();
     int64_t k = op.kAttr().getInt();
     int64_t m = op.mAttr().getInt();
     int64_t n = op.nAttr().getInt();
     int64_t kPack = op.kPackAttr().getInt();
     LLVM_DEBUG(llvm::dbgs() << "Threadwise gemm:\n"
-                            << "g = " << g << "\n"
                             << "k = " << k << "\n"
                             << "m = " << m << "\n"
                             << "n = " << n << "\n"
                             << "kPack = " << kPack << "\n");
-    SmallVector<int64_t> dimensions = {g, k, m, n, kPack};
+    SmallVector<int64_t> dimensions = {k, m, n, kPack};
 
-    TopDownTMBuilder aView(b, {"g", "k", "m", "n", "kpack"}, dimensions, loc);
+    TopDownTMBuilder aView(b, {"k", "m", "n", "kpack"}, dimensions, loc);
     aView.ignore("n");
-    aView.unmerge("raw", 0, {"g", "k", "m", "kpack"}, {g, k, m, kPack});
+    aView.unmerge("raw", 0, {"k", "m", "kpack"}, {k, m, kPack});
     TransformMapAttr aViewAttr = aView.get();
 
-    TopDownTMBuilder bView(b, {"g", "k", "m", "n", "kpack"}, dimensions, loc);
+    TopDownTMBuilder bView(b, {"k", "m", "n", "kpack"}, dimensions, loc);
     bView.ignore("m");
-    bView.unmerge("raw", 0, {"g", "k", "n", "kpack"}, {g, k, n, kPack});
+    bView.unmerge("raw", 0, {"k", "n", "kpack"}, {k, n, kPack});
     TransformMapAttr bViewAttr = bView.get();
 
-    TopDownTMBuilder cView(b, {"g", "k", "m", "n", "kpack"}, dimensions, loc);
+    TopDownTMBuilder cView(b, {"k", "m", "n", "kpack"}, dimensions, loc);
     cView.ignore("k");
     cView.ignore("kpack");
-    cView.unmerge("raw", 0, {"g", "m", "n"}, {g, m, n});
+    cView.unmerge("raw", 0, {"m", "n"}, {m, n});
     TransformMapAttr cViewAttr = cView.get();
 
     Value zeroConst = b.createOrFold<arith::ConstantIndexOp>(loc, 0);

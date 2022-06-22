@@ -733,7 +733,6 @@ def MIOpen_ThreadwiseGemmOp:
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [1]>:$matrixA,
                    MemRefRankOf<[F32, F16, BF16, I32], [1]>:$matrixB,
                    MemRefRankOf<[F32, F16, BF16, I32], [1]>:$matrixC,
-                   IndexAttr:$g,
                    IndexAttr:$k,
                    IndexAttr:$m,
                    IndexAttr:$n,

@@ -98,6 +98,12 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
 
     // Obtain critical matrix dimensions.
     int64_t g = blockAType.getShape()[0];
+    if (g != 1) {
+      // TODO(kdrewnia): Remove this once blockwise_gemm is transitioned to 1D
+      // buffers
+      return op.emitOpError(
+          "Firsct (group) dimension of matrix must be 1 by blockwise gemm\n");
+    }
     int64_t k = blockAType.getShape()[1];
     int64_t m = blockAType.getShape()[2];
     int64_t n = blockBType.getShape()[2];
@@ -154,8 +160,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
     std::tie(matrixB, transformsB) =
         untransform(b, op.matrixB(), b.getArrayAttr({strideLDSBufferBAttr}));
 
-    int64_t threadANumRegisters = g * kPerThread * mC * kPack;
-    int64_t threadBNumRegisters = g * kPerThread * nC * kPack;
+    int64_t threadANumRegisters = kPerThread * mC * kPack;
+    int64_t threadBNumRegisters = kPerThread * nC * kPack;
 
     // Alloc register for thread_a and thread_b.
     auto threadARegisterMemRefType =
@@ -169,6 +175,8 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
     auto threadBAllocOp = b.create<GpuAllocOp>(loc, threadBRegisterMemRefType);
 
     // Define views of register tiles for copies
+    // Note: "g" is length 1 and only included here as a temporary compatibility
+    // measure until gridwise_gemm is refactored
     BottomUpTMBuilder viewA(b, {"raw"}, {threadANumRegisters}, loc);
     viewA.unmerge({"g", "k", "mRepeat", "mPerThread", "kpack"}, {0, 1, 2, 3, 4},
                   "raw", {g, kPerThread, mRepeat, mPerThread, kPack});
@@ -226,9 +234,9 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
     }
 
     // Actually do the gemm - this goes inside the look over kOffset
-    b.create<ThreadwiseGemmOp>(
-        loc, threadAAllocOp, threadBAllocOp, op.matrixC(), b.getIndexAttr(g),
-        op.kPerThreadAttr(), op.mCAttr(), op.nCAttr(), b.getIndexAttr(kPack));
+    b.create<ThreadwiseGemmOp>(loc, threadAAllocOp, threadBAllocOp,
+                               op.matrixC(), op.kPerThreadAttr(), op.mCAttr(),
+                               op.nCAttr(), b.getIndexAttr(kPack));
 
     op.erase();
     return success();

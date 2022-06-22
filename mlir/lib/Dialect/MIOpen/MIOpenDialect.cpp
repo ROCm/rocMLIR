@@ -967,9 +967,9 @@ LogicalResult InBoundsStoreOp::verify() {
 // ThreadwiseGemmOp
 //===----------------------------------------------------------------------===//
 LogicalResult ThreadwiseGemmOp::verify() {
-  APInt expectedA = g() * k() * m() * kPack();
-  APInt expectedB = g() * k() * n() * kPack();
-  APInt expectedC = g() * m() * n() * kPack();
+  APInt expectedA = k() * m() * kPack();
+  APInt expectedB = k() * n() * kPack();
+  APInt expectedC = m() * n() * kPack();
   unsigned int width = expectedA.getBitWidth();
 
   APInt matrixALen(width,
