@@ -271,8 +271,7 @@ public:
   }
 };
 
-class DotConverter final
-    : public OpConversionPattern<migraphx::DotOp> {
+class DotConverter final : public OpConversionPattern<migraphx::DotOp> {
 public:
   using OpConversionPattern<migraphx::DotOp>::OpConversionPattern;
 
@@ -288,36 +287,42 @@ public:
         op->getOperand(0).getType().cast<ShapedType>().getElementType();
     ShapedType outputTy = results[0].getType().cast<ShapedType>();
 
-    // check batch dimension. Tosa matmul only allow a single dimension for it, add reshape ops to flatten and restore the original dimension.
+    // check batch dimension. Tosa matmul only allow a single dimension for it,
+    // add reshape ops to flatten and restore the original dimension.
     ArrayRef<int64_t> orgOutDims = outputTy.getShape();
     RankedTensorType newOutType = RankedTensorType::get(orgOutDims, elementTy);
     size_t outRank = orgOutDims.size();
-    if (outRank > 3){ //A, B, Out have the same rank
+    if (outRank > 3) { // A, B, Out have the same rank
       ArrayRef<int64_t> orgDimsA = in_A.getType().cast<ShapedType>().getShape();
       ArrayRef<int64_t> orgDimsB = in_B.getType().cast<ShapedType>().getShape();
       int64_t batchSize = 1;
-      for (int i=0; i < outRank-2; i++){
+      for (int i = 0; i < outRank - 2; i++) {
         batchSize *= orgOutDims[i];
       }
-      int64_t newDimsA[3] = {batchSize, orgDimsA[outRank-2], orgDimsA[outRank-1]};
-      int64_t newDimsB[3] = {batchSize, orgDimsB[outRank-2], orgDimsB[outRank-1]};
-      int64_t newDimsOut[3] = {batchSize, orgOutDims[outRank-2], orgOutDims[outRank-1]};
+      int64_t newDimsA[3] = {batchSize, orgDimsA[outRank - 2],
+                             orgDimsA[outRank - 1]};
+      int64_t newDimsB[3] = {batchSize, orgDimsB[outRank - 2],
+                             orgDimsB[outRank - 1]};
+      int64_t newDimsOut[3] = {batchSize, orgOutDims[outRank - 2],
+                               orgOutDims[outRank - 1]};
       RankedTensorType newAType = RankedTensorType::get(newDimsA, elementTy);
       RankedTensorType newBType = RankedTensorType::get(newDimsB, elementTy);
       newOutType = RankedTensorType::get(newDimsOut, elementTy);
-      auto reshapeAOp = rewriter.create<tosa::ReshapeOp>(loc, newAType, in_A, rewriter.getI64ArrayAttr(newDimsA));
-      auto reshapeBOp = rewriter.create<tosa::ReshapeOp>(loc, newBType, in_B, rewriter.getI64ArrayAttr(newDimsB));
+      auto reshapeAOp = rewriter.create<tosa::ReshapeOp>(
+          loc, newAType, in_A, rewriter.getI64ArrayAttr(newDimsA));
+      auto reshapeBOp = rewriter.create<tosa::ReshapeOp>(
+          loc, newBType, in_B, rewriter.getI64ArrayAttr(newDimsB));
 
       // reassign inputs.
       in_A = reshapeAOp;
       in_B = reshapeBOp;
     }
     // Construct tosa.matmul.
-    auto mop = rewriter.create<tosa::MatMulOp>(
-        loc, newOutType, in_A, in_B);
+    auto mop = rewriter.create<tosa::MatMulOp>(loc, newOutType, in_A, in_B);
 
-    if (outRank > 3){
-      auto rop = rewriter.create<tosa::ReshapeOp>(loc, outputTy, mop, rewriter.getI64ArrayAttr(orgOutDims));
+    if (outRank > 3) {
+      auto rop = rewriter.create<tosa::ReshapeOp>(
+          loc, outputTy, mop, rewriter.getI64ArrayAttr(orgOutDims));
       rewriter.replaceOp(op, {rop});
       return success();
     }
@@ -329,6 +334,6 @@ public:
 
 void migraphx::populateMIGraphXToTosaConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
-  patterns.add<ConvConverter, BroadcastConverter, MultiBroadcastConverter, DotConverter>(
-      context);
+  patterns.add<ConvConverter, BroadcastConverter, MultiBroadcastConverter,
+               DotConverter>(context);
 }
