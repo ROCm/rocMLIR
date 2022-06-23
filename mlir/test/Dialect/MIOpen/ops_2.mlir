@@ -66,17 +66,15 @@ func @miopen_indexing() {
 //   CHECK-NEXT: miopen.workgroup_id
 //   CHECK-NEXT: miopen.workitem_id
 
-func @miopen_blockwise_gemm(%A : memref<1x8x128xf32, 3>, %B : memref<1x8x128xf32, 3>, %C : memref<64xf32, 5>) {
+func @miopen_blockwise_gemm(%A : memref<8x128x1xf32, 3>, %B : memref<8x128x1xf32, 3>, %C : memref<8x8xf32, 5>) {
   %c0 = arith.constant 0 : index
   miopen.blockwise_gemm(%A, %B, %C, %c0, %c0) {
     kPerThread = 1 : index,
-    mC = 8 : index,
     mPerThread = 4 : index,
     mRepeatStride = 64 : index,
-    nC = 8 : index,
     nPerThread = 4 : index,
     nRepeatStride = 64 : index
-  } : memref<1x8x128xf32, 3>, memref<1x8x128xf32, 3>, memref<64xf32, 5>, index, index
+  } : memref<8x128x1xf32, 3>, memref<8x128x1xf32, 3>, memref<8x8xf32, 5>, index, index
   return
 }
 
@@ -463,10 +461,9 @@ func @miopen_threadwise_copy_v2(%source : memref<32xf32, 5>,
 // CHECK-LABEL: func @miopen_threadwise_copy_v2
 // CHECK: miopen.threadwise_copy_v2
 
-func @miopen_threadwise_gemm(%lhs : memref<32xf32, 5>, %rhs : memref<32xf32, 5>, %output : memref<64xf32, 5>) {
-  miopen.threadwise_gemm %output += %lhs * %rhs {
-    k = 4 : index, m = 8 : index, n = 8 : index, kPack = 1 : index
-  } : memref<64xf32, 5> += memref<32xf32, 5> * memref<32xf32, 5>
+func @miopen_threadwise_gemm(%lhs : memref<4x8x1xf32, 5>, %rhs : memref<4x8x1xf32, 5>, %output : memref<8x8xf32, 5>) {
+  miopen.threadwise_gemm %output += %lhs * %rhs
+  : memref<8x8xf32, 5> += memref<4x8x1xf32, 5> * memref<4x8x1xf32, 5>
   return
 }
 

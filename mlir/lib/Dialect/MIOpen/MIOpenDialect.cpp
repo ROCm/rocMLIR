@@ -967,31 +967,18 @@ LogicalResult InBoundsStoreOp::verify() {
 // ThreadwiseGemmOp
 //===----------------------------------------------------------------------===//
 LogicalResult ThreadwiseGemmOp::verify() {
-  APInt expectedA = k() * m() * kPack();
-  APInt expectedB = k() * n() * kPack();
-  APInt expectedC = m() * n() * kPack();
-  unsigned int width = expectedA.getBitWidth();
+  ArrayRef<int64_t> aShape = matrixA().getType().cast<MemRefType>().getShape(),
+                    bShape = matrixB().getType().cast<MemRefType>().getShape(),
+                    cShape = matrixC().getType().cast<MemRefType>().getShape();
 
-  APInt matrixALen(width,
-                   matrixA().getType().cast<MemRefType>().getNumElements());
-  APInt matrixBLen(width,
-                   matrixB().getType().cast<MemRefType>().getNumElements());
-  APInt matrixCLen(width,
-                   matrixC().getType().cast<MemRefType>().getNumElements());
-
-  if (matrixALen != expectedA)
-    return emitOpError(
-        "Expected matrix A to have " + Twine(expectedA.getZExtValue()) +
-        " elements but it has " + Twine(matrixALen.getZExtValue()));
-  if (matrixBLen != expectedB)
-    return emitOpError(
-        "Expected matrix B to have " + Twine(expectedB.getZExtValue()) +
-        " elements but it has " + Twine(matrixBLen.getZExtValue()));
-  if (matrixCLen != expectedC)
-    return emitOpError(
-        "Expected matrix C to have " + Twine(expectedC.getZExtValue()) +
-        " elements but it has " + Twine(matrixCLen.getZExtValue()));
-
+  if (aShape[0] != bShape[0])
+    return emitOpError("K dimensions don't match");
+  if (aShape[1] != cShape[0])
+    return emitOpError("M dimensions don't match");
+  if (bShape[1] != cShape[1])
+    return emitOpError("N dimensions don't match");
+  if (aShape[2] != bShape[2])
+    return emitOpError("KPack dimensions don't match");
   return success();
 }
 

@@ -92,28 +92,20 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
 
     auto blockAType = op.matrixA().getType().cast<MemRefType>();
     auto blockBType = op.matrixB().getType().cast<MemRefType>();
+    auto bufferCType = op.matrixC().getType().cast<MemRefType>();
 
-    auto elementType =
-        op.matrixC().getType().cast<MemRefType>().getElementType();
+    auto elementType = bufferCType.getElementType();
 
-    // Obtain critical matrix dimensions.
-    int64_t g = blockAType.getShape()[0];
-    if (g != 1) {
-      // TODO(kdrewnia): Remove this once blockwise_gemm is transitioned to 1D
-      // buffers
-      return op.emitOpError(
-          "Firsct (group) dimension of matrix must be 1 by blockwise gemm\n");
-    }
-    int64_t k = blockAType.getShape()[1];
-    int64_t m = blockAType.getShape()[2];
-    int64_t n = blockBType.getShape()[2];
-    int64_t kPack = blockAType.getRank() > 3 ? blockAType.getShape()[3] : 1;
+    int64_t k = blockAType.getShape()[0];
+    int64_t m = blockAType.getShape()[1];
+    int64_t n = blockBType.getShape()[1];
+    int64_t kPack = blockAType.getShape()[2];
 
     // Non-xdlops path.
 
     // Obtain critical attributes.
-    int64_t mC = op.mCAttr().getInt();
-    int64_t nC = op.nCAttr().getInt();
+    int64_t mC = bufferCType.getShape()[0];
+    int64_t nC = bufferCType.getShape()[1];
     int64_t kPerThread = op.kPerThreadAttr().getInt();
     int64_t mPerThread = op.mPerThreadAttr().getInt();
     int64_t nPerThread = op.nPerThreadAttr().getInt();
@@ -129,28 +121,22 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
                             << "NRepeat: " << nRepeat << "\n"
                             << "NPerThread: " << nPerThread << "\n");
 
-    TopDownTMBuilder strideLDSBufferA(
-        b, {"g", "k", "mRepeat", "mPerThread", "kpack"},
-        {g, k, mRepeat, m / mRepeat, kPack}, loc);
-    strideLDSBufferA.passThrough({"g", "k"});
-    strideLDSBufferA.embed("m", 2, m, {"mRepeat", "mPerThread"},
+    TopDownTMBuilder strideLDSBufferA(b,
+                                      {"k", "mRepeat", "mPerThread", "kpack"},
+                                      {k, mRepeat, m / mRepeat, kPack}, loc);
+    strideLDSBufferA.passThrough("k");
+    strideLDSBufferA.embed("m", 1, m, {"mRepeat", "mPerThread"},
                            {mRepeatStride, 1});
-    if (kPack > 1)
-      strideLDSBufferA.passThrough({"kpack"}, {3}, {"kpack"});
-    else
-      strideLDSBufferA.ignore("kpack");
+    strideLDSBufferA.passThrough({"kpack"}, {2}, {"kpack"});
     TransformMapAttr strideLDSBufferAAttr = strideLDSBufferA.get();
 
-    TopDownTMBuilder strideLDSBufferB(
-        b, {"g", "k", "nRepeat", "nPerThread", "kpack"},
-        {g, k, nRepeat, n / nRepeat, kPack}, loc);
-    strideLDSBufferB.passThrough({"g", "k"});
-    strideLDSBufferB.embed("n", 2, n, {"nRepeat", "nPerThread"},
+    TopDownTMBuilder strideLDSBufferB(b,
+                                      {"k", "nRepeat", "nPerThread", "kpack"},
+                                      {k, nRepeat, n / nRepeat, kPack}, loc);
+    strideLDSBufferB.passThrough("k");
+    strideLDSBufferB.embed("n", 1, n, {"nRepeat", "nPerThread"},
                            {nRepeatStride, 1});
-    if (kPack > 1)
-      strideLDSBufferB.passThrough({"kpack"}, {3}, {"kpack"});
-    else
-      strideLDSBufferB.ignore("kpack");
+    strideLDSBufferB.passThrough({"kpack"}, {2}, {"kpack"});
     TransformMapAttr strideLDSBufferBAttr = strideLDSBufferB.get();
 
     Value matrixA, matrixB;
@@ -175,16 +161,14 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
     auto threadBAllocOp = b.create<GpuAllocOp>(loc, threadBRegisterMemRefType);
 
     // Define views of register tiles for copies
-    // Note: "g" is length 1 and only included here as a temporary compatibility
-    // measure until gridwise_gemm is refactored
     BottomUpTMBuilder viewA(b, {"raw"}, {threadANumRegisters}, loc);
-    viewA.unmerge({"g", "k", "mRepeat", "mPerThread", "kpack"}, {0, 1, 2, 3, 4},
-                  "raw", {g, kPerThread, mRepeat, mPerThread, kPack});
+    viewA.unmerge({"k", "mRepeat", "mPerThread", "kpack"}, {0, 1, 2, 3}, "raw",
+                  {kPerThread, mRepeat, mPerThread, kPack});
     TransformMapAttr threadACopyViewAttr = viewA.get();
 
     BottomUpTMBuilder viewB(b, {"raw"}, {threadBNumRegisters}, loc);
-    viewB.unmerge({"g", "k", "nRepeat", "nPerThread", "kpack"}, {0, 1, 2, 3, 4},
-                  "raw", {1, kPerThread, nRepeat, nPerThread, kPack});
+    viewB.unmerge({"k", "nRepeat", "nPerThread", "kpack"}, {0, 1, 2, 3}, "raw",
+                  {kPerThread, nRepeat, nPerThread, kPack});
     TransformMapAttr threadBCopyViewAttr = viewB.get();
 
     // Main loop.
@@ -196,14 +180,13 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
     b.setInsertionPointToStart(loopOp.getBody());
     Value kOffset = loopOp.getInductionVar();
 
-    SmallVector<Value, 5> registerStartCoords(5, zeroConstantOp);
+    SmallVector<Value, 5> registerStartCoords(4, zeroConstantOp);
     SmallVector<Value, 5> ldsBufferAStartCoords = {
-        zeroConstantOp, kOffset, zeroConstantOp, op.threadOffsetA(),
-        zeroConstantOp};
+        kOffset, zeroConstantOp, op.threadOffsetA(), zeroConstantOp};
     auto copyALoop = b.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{ldsBufferAStartCoords, registerStartCoords},
         ArrayRef<Attribute>{transformsA, b.getArrayAttr(threadACopyViewAttr)},
-        ArrayRef<int64_t>{g, kPerThread, mRepeat, mPerThread, kPack},
+        ArrayRef<int64_t>{kPerThread, mRepeat, mPerThread, kPack},
         /*strides=*/llvm::None, /*forceUnroll=*/true, /*indexDiffs=*/true);
     {
       OpBuilder::InsertionGuard copyAGuard(b);
@@ -216,12 +199,11 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
     }
 
     SmallVector<Value, 5> ldsBufferBStartCoords = {
-        zeroConstantOp, kOffset, zeroConstantOp, op.threadOffsetB(),
-        zeroConstantOp};
+        kOffset, zeroConstantOp, op.threadOffsetB(), zeroConstantOp};
     auto copyBLoop = b.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{ldsBufferBStartCoords, registerStartCoords},
         ArrayRef<Attribute>{transformsB, b.getArrayAttr(threadBCopyViewAttr)},
-        ArrayRef<int64_t>{g, kPerThread, nRepeat, nPerThread, kPack},
+        ArrayRef<int64_t>{kPerThread, nRepeat, nPerThread, kPack},
         /*strides=*/llvm::None, /*forceUnroll=*/true, /*indexDiffs=*/true);
     {
       OpBuilder::InsertionGuard copyBGuard(b);
@@ -233,10 +215,13 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
                                 copyBLoop.getLowerCoords(/*domain=*/1));
     }
 
+    Value reshapedARegisters = reshapeBuffer(
+        b, loc, threadAAllocOp, {"k", "m", "kpack"}, {kPerThread, mC, kPack});
+    Value reshapedBRegisters = reshapeBuffer(
+        b, loc, threadBAllocOp, {"k", "n", "kpack"}, {kPerThread, nC, kPack});
     // Actually do the gemm - this goes inside the look over kOffset
-    b.create<ThreadwiseGemmOp>(loc, threadAAllocOp, threadBAllocOp,
-                               op.matrixC(), op.kPerThreadAttr(), op.mCAttr(),
-                               op.nCAttr(), b.getIndexAttr(kPack));
+    b.create<ThreadwiseGemmOp>(loc, reshapedARegisters, reshapedBRegisters,
+                               op.matrixC());
 
     op.erase();
     return success();

@@ -2,17 +2,15 @@
 // RUN: miopen-opt %s | miopen-opt | FileCheck %s
 // Run: miopen-opt -mlir-print-op-generic %s | miopen-opt | FileCheck %s
 
-func @miopen_blockwise_gemm_f16(%A : memref<1x8x128xf16, 3>, %B : memref<1x8x128xf16, 3>, %C : memref<64xf16, 5>) {
+func @miopen_blockwise_gemm_f16(%A : memref<8x128x1xf16, 3>, %B : memref<8x128x1xf16, 3>, %C : memref<8x8xf16, 5>) {
   %c0 = arith.constant 0 : index
   miopen.blockwise_gemm(%A, %B, %C, %c0, %c0) {
     kPerThread = 1 : index,
-    mC = 8 : index,
     mPerThread = 4 : index,
     mRepeatStride = 64 : index,
-    nC = 8 : index,
     nPerThread = 4 : index,
     nRepeatStride = 64 : index
-  } : memref<1x8x128xf16, 3>, memref<1x8x128xf16, 3>, memref<64xf16, 5>, index, index
+  } : memref<8x128x1xf16, 3>, memref<8x128x1xf16, 3>, memref<8x8xf16, 5>, index, index
   return
 }
 

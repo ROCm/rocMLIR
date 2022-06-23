@@ -670,13 +670,11 @@ def MIOpen_ThreadwiseCopyV2Op :
 // blockwise_gemm
 def MIOpen_BlockwiseGemmOp:
     MIOpen_Op<"blockwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$matrixA,
-                   MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$matrixB,
-                   AnyMemRef:$matrixC,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixA,
+                   MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixB,
+                   MemRefRankOf<[F32, F16, BF16, I32], [2]>:$matrixC,
                    Index:$threadOffsetA,
                    Index:$threadOffsetB,
-                   IndexAttr:$mC,
-                   IndexAttr:$nC,
                    IndexAttr:$kPerThread,
                    IndexAttr:$mPerThread,
                    IndexAttr:$nPerThread,
@@ -685,9 +683,16 @@ def MIOpen_BlockwiseGemmOp:
                    )> {
   let summary = "Blockwise GEMM non-XDLOPS version";
   let description = [{
-    The `miopen.block_gemm` op does GEMM at workgroup (block) level.
-    - Matrix A and Matrix B shall reside on LDS (naive tensor).
-    - Matrix C shall reside on register (naive tensor).
+    The `miopen.blockwise_gemm` op does gemm at the blockwise level without xdlops.
+
+    Matrix A resides in LDS and has dimensions [k, m_c * mRepeatStride, kPack].
+    Matrix B resides in LDS and has dimensions [k, n_c * nRepeatStride, kPack].
+    Matrix C resides in registers and has dimensions [m_c, n_c].
+
+    The two index arguments specify a given threads's offset into the LDS buffer..
+    Each {m,n}PerThread group of elements (which may themselves be kPacks)
+    is read from LDS by a given thread, then the next mPerThread group is
+    mRepeatStride elements later in the buffer.
   }];
   let assemblyFormat = [{
     `(` operands `)` attr-dict `:` type(operands)
@@ -729,21 +734,18 @@ def MIOpen_BlockwiseGemmV2Op:
 
 // threadwise_gemm
 def MIOpen_ThreadwiseGemmOp:
-    MIOpen_Op<"threadwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [1]>:$matrixA,
-                   MemRefRankOf<[F32, F16, BF16, I32], [1]>:$matrixB,
-                   MemRefRankOf<[F32, F16, BF16, I32], [1]>:$matrixC,
-                   IndexAttr:$k,
-                   IndexAttr:$m,
-                   IndexAttr:$n,
-                   IndexAttr:$kPack)> {
+    MIOpen_Op<"threadwise_gemm",
+      [AllElementTypesMatch<["matrixA", "matrixB", "matrixC"]>]>,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [3]>:$matrixA,
+                   MemRefRankOf<[F32, F16, BF16, I32], [3]>:$matrixB,
+                   MemRefRankOf<[F32, F16, BF16, I32], [2]>:$matrixC)> {
   let summary = "Threadwise GEMM non-XDLOPS version";
   let description = [{
     The `miopen.threadwise_gemm` op does GEMM at thread level.
-    - Matrix A and Matrix B shall reside on register (naive tensor).
-    - Matrix C is in registers.
+    All arguments should be in registers (memref address space 5).
 
-    Dimensions holds the dimensions of the register tiles, including KPack (even if 1).
+    The dimensions of the multiplication arguments are
+     [m, n] = [k, m, kPack] * [k, n, kPack].
   }];
   let assemblyFormat = [{
     $matrixC `+` `` `=` $matrixA `*` $matrixB attr-dict

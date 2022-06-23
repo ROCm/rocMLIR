@@ -912,13 +912,14 @@ struct ThreadwiseGemmRewritePattern
     Value gemmA = op.matrixA();
     Value gemmB = op.matrixB();
     Value gemmC = op.matrixC();
-    Type dataType =
-        gemmA.getType().template cast<MemRefType>().getElementType();
+    auto gemmAType = gemmA.getType().cast<MemRefType>();
+    Type dataType = gemmAType.getElementType();
 
-    int64_t k = op.kAttr().getInt();
-    int64_t m = op.mAttr().getInt();
-    int64_t n = op.nAttr().getInt();
-    int64_t kPack = op.kPackAttr().getInt();
+    ArrayRef<int64_t> aShape = gemmAType.getShape();
+    int64_t k = aShape[0];
+    int64_t m = aShape[1];
+    int64_t kPack = aShape[2];
+    int64_t n = gemmB.getType().cast<MemRefType>().getShape()[1];
     LLVM_DEBUG(llvm::dbgs() << "Threadwise gemm:\n"
                             << "k = " << k << "\n"
                             << "m = " << m << "\n"
@@ -928,37 +929,41 @@ struct ThreadwiseGemmRewritePattern
 
     TopDownTMBuilder aView(b, {"k", "m", "n", "kpack"}, dimensions, loc);
     aView.ignore("n");
-    aView.unmerge("raw", 0, {"k", "m", "kpack"}, {k, m, kPack});
+    aView.passThrough({"k", "m", "kpack"}, {0, 1, 2}, {"k", "m", "kpack"});
     TransformMapAttr aViewAttr = aView.get();
 
     TopDownTMBuilder bView(b, {"k", "m", "n", "kpack"}, dimensions, loc);
     bView.ignore("m");
-    bView.unmerge("raw", 0, {"k", "n", "kpack"}, {k, n, kPack});
+    bView.passThrough({"k", "n", "kpack"}, {0, 1, 2}, {"k", "n", "kpack"});
     TransformMapAttr bViewAttr = bView.get();
 
     TopDownTMBuilder cView(b, {"k", "m", "n", "kpack"}, dimensions, loc);
     cView.ignore("k");
     cView.ignore("kpack");
-    cView.unmerge("raw", 0, {"m", "n"}, {m, n});
+    cView.passThrough({"m", "n"}, {0, 1}, {"m", "n"});
     TransformMapAttr cViewAttr = cView.get();
 
     Value zeroConst = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
     SmallVector<Value, 5> startCoords(5, zeroConst);
+
+    ArrayAttr aTransforms, bTransforms, cTransforms;
+    Value bufferA, bufferB, bufferC;
+    std::tie(bufferA, aTransforms) = untransform(b, gemmA, {aViewAttr});
+    std::tie(bufferB, bTransforms) = untransform(b, gemmB, {bViewAttr});
+    std::tie(bufferC, cTransforms) = untransform(b, gemmC, {cViewAttr});
+
     auto gemmLoop = b.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{startCoords, startCoords, startCoords},
-        ArrayRef<Attribute>{b.getArrayAttr({aViewAttr}),
-                            b.getArrayAttr({bViewAttr}),
-                            b.getArrayAttr({cViewAttr})},
-        dimensions,
+        ArrayRef<Attribute>{aTransforms, bTransforms, cTransforms}, dimensions,
         /*strides=*/llvm::None, /*forceUnroll=*/true, /*useIndexDiffs=*/false);
 
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(gemmLoop.getBody());
       Value aVal = b.create<InBoundsLoadOp>(
-          loc, dataType, gemmA, gemmLoop.getLowerCoords(/*domain=*/0));
+          loc, dataType, bufferA, gemmLoop.getLowerCoords(/*domain=*/0));
       Value bVal = b.create<InBoundsLoadOp>(
-          loc, dataType, gemmB, gemmLoop.getLowerCoords(/*domain=*/1));
+          loc, dataType, bufferB, gemmLoop.getLowerCoords(/*domain=*/1));
       Value mul;
       if (dataType.isa<IntegerType>())
         mul = b.create<MulIOp>(loc, aVal, bVal);
@@ -968,7 +973,7 @@ struct ThreadwiseGemmRewritePattern
         llvm_unreachable("Validation should make this ints or floats only");
 
       ValueRange cCoords = gemmLoop.getLowerCoords(/*domain=*/2);
-      Value cVal = b.create<InBoundsLoadOp>(loc, dataType, gemmC, cCoords);
+      Value cVal = b.create<InBoundsLoadOp>(loc, dataType, bufferC, cCoords);
       Value add;
       if (dataType.isa<IntegerType>())
         add = b.create<AddIOp>(loc, mul, cVal);
@@ -977,7 +982,7 @@ struct ThreadwiseGemmRewritePattern
       else
         llvm_unreachable("Very serously can't happen");
 
-      b.create<InBoundsStoreOp>(loc, add, gemmC, cCoords);
+      b.create<InBoundsStoreOp>(loc, add, bufferC, cCoords);
     }
     b.eraseOp(op);
     return success();

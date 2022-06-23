@@ -54,6 +54,8 @@ LogicalResult calculateKBlockNum(ConvolutionDims convDims, int64_t MPerBlock,
 
 std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
                                          ArrayAttr existing = nullptr);
+std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
+                                         ArrayRef<Attribute> existing);
 
 /// Given an array of transform_maps `transforms` (to be composed left to
 /// right), returns the array of dimensions in the lowest space of these
@@ -87,6 +89,11 @@ ConvOpType obtainConvDirection(Operation *op);
 /// Obtain convolution input data type given a Convolution Op.
 /// TODO(whchung): apply ConvolutionOp OpTrait check after supporting PR is in.
 Type obtainConvDataType(Operation *op);
+
+/// Return a `miopen.transform` op that reshapes a given 1D buffer `buffer`
+/// into `shape`, using `names` as the names of the reshaped dimensions.
+TransformOp reshapeBuffer(OpBuilder &b, Location loc, Value buffer,
+                          ArrayRef<StringRef> names, ArrayRef<int64_t> shape);
 } // end namespace miopen
 } // end namespace mlir
 #endif

@@ -303,41 +303,6 @@ Value sliceBufferSubview(OpBuilder &b, Location loc, Value buffer,
   return subview;
 }
 
-// Utility function for creating a N-D reshaped view of a subview
-TransformOp reshapeBufferSubview(OpBuilder &b, Location loc, Value buffer,
-                                 ArrayRef<int64_t> shape) {
-  MemRefType bufferType = buffer.getType().cast<MemRefType>();
-  ArrayRef<int64_t> outShape = bufferType.getShape();
-  assert(outShape.size() == 1 && "Buffer being reshaped must start linear");
-
-  SmallVector<int64_t> strides;
-  strides.reserve(shape.size());
-  int64_t stride = 1;
-  for (int64_t v : llvm::reverse(shape)) {
-    strides.push_back(stride);
-    stride *= v;
-  }
-  std::reverse(strides.begin(), strides.end());
-  assert(stride == outShape[0] && "Strides must multiply to buffer length");
-
-  SmallVector<SmallString<4>, 4> names;
-  SmallVector<StringRef, 4> nameRefs;
-  for (size_t i = 0, e = shape.size(); i < e; ++i) {
-    SmallString<4> name;
-    (Twine("dim") + Twine(i)).toVector(name);
-    names.push_back(name);
-    nameRefs.push_back(StringRef(names[i]));
-  }
-
-  TopDownTMBuilder transform(b, nameRefs, shape, loc);
-  transform.embed("slice", 0, outShape[0], nameRefs, strides);
-
-  TransformMapAttr transformAttr = transform.get();
-  auto ret = b.create<TransformOp>(loc, buffer, transformAttr,
-                                   bufferType.getMemorySpaceAsInt());
-  return ret;
-}
-
 struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
   using OpRewritePattern<GridwiseGemmOp>::OpRewritePattern;
 
@@ -948,13 +913,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Get matrix subviews.
     // Compute matrix A dimension from attributes.
-    Value ldsMatrixASubviewOp;
-    if (KPack > 1) {
-      ldsMatrixASubviewOp = reshapeBufferSubview(
-          b, loc, ldsBlockASubviewOp, {1, KPerBlock, MPerBlock, KPack});
-    } else {
-      ldsMatrixASubviewOp = reshapeBufferSubview(b, loc, ldsBlockASubviewOp,
-                                                 {1, KPerBlock, MPerBlock});
+    Value ldsMatrixASubviewOp =
+        reshapeBuffer(b, loc, ldsBlockASubviewOp, {"k", "m", "kpack"},
+                      {KPerBlock, MPerBlock, KPack});
+    // TODO: Remove this when kPack branches are unified here
+    Value ldsMatrixASubviewForCopy = ldsMatrixASubviewOp;
+    if (KPack == 1) {
+      ldsMatrixASubviewForCopy = reshapeBuffer(
+          b, loc, ldsBlockASubviewOp, {"k", "m"}, {KPerBlock, MPerBlock});
     }
 
     // Subviews for Matrix B.
@@ -964,13 +930,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Get matrix subviews.
     // Compute matrix B dimension from attributes.
-    Value ldsMatrixBSubviewOp;
-    if (KPack > 1) {
-      ldsMatrixBSubviewOp = reshapeBufferSubview(
-          b, loc, ldsBlockBSubviewOp, {1, KPerBlock, NPerBlock, KPack});
-    } else {
-      ldsMatrixBSubviewOp = reshapeBufferSubview(b, loc, ldsBlockBSubviewOp,
-                                                 {1, KPerBlock, NPerBlock});
+    Value ldsMatrixBSubviewOp =
+        reshapeBuffer(b, loc, ldsBlockBSubviewOp, {"k", "n", "kpack"},
+                      {KPerBlock, NPerBlock, KPack});
+    Value ldsMatrixBSubviewOpForCopy = ldsMatrixBSubviewOp;
+    if (KPack == 1) {
+      ldsMatrixBSubviewOpForCopy = reshapeBuffer(
+          b, loc, ldsBlockBSubviewOp, {"k", "n"}, {KPerBlock, NPerBlock});
     }
 
     // Alloc for Matrix C on registers.
@@ -991,6 +957,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                         gpu::GPUDialect::getPrivateAddressSpace());
     Value registerMatrixCAllocOp =
         b.create<GpuAllocOp>(loc, threadCRegisterMemRefType);
+    Value registerMatrixCViewOp = reshapeBuffer(
+        b, loc, registerMatrixCAllocOp, {"m", "n"}, {threadCNumM, threadCNumN});
 
     // Determine vector / scalar load type for Matrix A / B.
     SmallVector<int64_t, 4> blockwiseCopyABounds;
@@ -1142,33 +1110,36 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     SmallVector<Value, 4> blockwiseStoreACoords;
     if (KPack > 1) {
-      blockwiseStoreACoords = {zeroConstantOp, GemmABlockCopyDestCoord_Z,
+      blockwiseStoreACoords = {GemmABlockCopyDestCoord_Z,
                                GemmABlockCopyDestCoord_Y,
                                GemmABlockCopyDestCoord_X};
     } else {
-      blockwiseStoreACoords = {zeroConstantOp, GemmABlockCopyDestCoord_Y,
+      blockwiseStoreACoords = {GemmABlockCopyDestCoord_Y,
                                GemmABlockCopyDestCoord_X};
     }
     // Emit blockwise store for matrix A.
+    // Note: 1 subtracted here because there's no g dimension
     TransformingForOp blockwiseStoreA = createLdsStoreLoop(
-        b, loc, blockwiseLoadA.getResult(0), ldsMatrixASubviewOp,
-        blockwiseStoreACoords, aStoreType, blockwiseCopyABounds,
-        blockwiseVectorDimA);
+        b, loc, blockwiseLoadA.getResult(0), ldsMatrixASubviewForCopy,
+        blockwiseStoreACoords, aStoreType,
+        ArrayRef<int64_t>(blockwiseCopyABounds).drop_front(1),
+        blockwiseVectorDimA - 1);
 
     SmallVector<Value, 4> blockwiseStoreBCoords;
     if (KPack > 1) {
-      blockwiseStoreBCoords = {zeroConstantOp, GemmBBlockCopyDestCoord_Z,
+      blockwiseStoreBCoords = {GemmBBlockCopyDestCoord_Z,
                                GemmBBlockCopyDestCoord_Y,
                                GemmBBlockCopyDestCoord_X};
     } else {
-      blockwiseStoreBCoords = {zeroConstantOp, GemmBBlockCopyDestCoord_Y,
+      blockwiseStoreBCoords = {GemmBBlockCopyDestCoord_Y,
                                GemmBBlockCopyDestCoord_X};
     }
     // Emit blockwise store for matrix B.
     TransformingForOp blockwiseStoreB = createLdsStoreLoop(
-        b, loc, blockwiseLoadB.getResult(0), ldsMatrixBSubviewOp,
-        blockwiseStoreBCoords, bStoreType, blockwiseCopyBBounds,
-        blockwiseVectorDimB);
+        b, loc, blockwiseLoadB.getResult(0), ldsMatrixBSubviewOpForCopy,
+        blockwiseStoreBCoords, bStoreType,
+        ArrayRef<int64_t>(blockwiseCopyBBounds).drop_front(1),
+        blockwiseVectorDimB - 1);
 
     // Emit loop.
     // Compute loop iterations from attributes.
@@ -1193,10 +1164,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Emit blockwise GEMM.
     auto blockwiseGemmOp = lb.create<BlockwiseGemmOp>(
-        loc, ldsMatrixASubviewOp, ldsMatrixBSubviewOp, registerMatrixCAllocOp,
-        mMyThreadOffsetA, mMyThreadOffsetB,
-        /*mC=*/b.getIndexAttr(threadCNumM), /*nC=*/b.getIndexAttr(threadCNumN),
-        kPerThreadAttr, b.getIndexAttr(MPerThread), b.getIndexAttr(NPerThread),
+        loc, ldsMatrixASubviewOp, ldsMatrixBSubviewOp, registerMatrixCViewOp,
+        mMyThreadOffsetA, mMyThreadOffsetB, kPerThreadAttr,
+        b.getIndexAttr(MPerThread), b.getIndexAttr(NPerThread),
         b.getIndexAttr(mRepeatLDSStride), b.getIndexAttr(nRepeatLDSStride));
 
     // LDS barrier.
@@ -1990,11 +1960,13 @@ struct GridwiseGemmV2RewritePattern
     // Compute matrix A dimension from attributes.
     Value ldsMatrixASubviewOp;
     if (KPack > 1) {
-      ldsMatrixASubviewOp = reshapeBufferSubview(
-          b, loc, ldsBlockASubviewOp, {1, KPerBlock, MPerBlock, KPack});
+      ldsMatrixASubviewOp =
+          reshapeBuffer(b, loc, ldsBlockASubviewOp, {"g", "k", "m", "kpack"},
+                        {1, KPerBlock, MPerBlock, KPack});
     } else {
-      ldsMatrixASubviewOp = reshapeBufferSubview(b, loc, ldsBlockASubviewOp,
-                                                 {1, KPerBlock, MPerBlock});
+      ldsMatrixASubviewOp =
+          reshapeBuffer(b, loc, ldsBlockASubviewOp, {"g", "k", "m"},
+                        {1, KPerBlock, MPerBlock});
     }
 
     // Subviews for Matrix B.
@@ -2006,11 +1978,13 @@ struct GridwiseGemmV2RewritePattern
     // Compute matrix B dimension from attributes.
     Value ldsMatrixBSubviewOp;
     if (KPack > 1) {
-      ldsMatrixBSubviewOp = reshapeBufferSubview(
-          b, loc, ldsBlockBSubviewOp, {1, KPerBlock, NPerBlock, KPack});
+      ldsMatrixBSubviewOp =
+          reshapeBuffer(b, loc, ldsBlockBSubviewOp, {"g", "k", "m", "kpack"},
+                        {1, KPerBlock, NPerBlock, KPack});
     } else {
-      ldsMatrixBSubviewOp = reshapeBufferSubview(b, loc, ldsBlockBSubviewOp,
-                                                 {1, KPerBlock, NPerBlock});
+      ldsMatrixBSubviewOp =
+          reshapeBuffer(b, loc, ldsBlockBSubviewOp, {"g", "k", "m"},
+                        {1, KPerBlock, NPerBlock});
     }
 
     // -----
