@@ -177,7 +177,7 @@ TransformMapBuilder::TransformMapBuilder(mlir::Builder &builder,
     ("dim" + Twine(index)).toVector(name);
 
     startNames.push_back(name);
-    startIndices.insert_or_assign(name, index);
+    startIndices.insert_or_assign(startNames.back(), index);
 
     startShape.push_back(value);
   }
@@ -324,7 +324,7 @@ void TransformMapBuilder::passThrough(ArrayRef<uint32_t> endIndices,
   names.reserve(endIndices.size());
   for (auto tuple : llvm::zip(endIndices, startIndices)) {
     uint32_t index = std::get<1>(tuple);
-    auto name = startName(index);
+    StringRef name = startNames[index];
     names.push_back(name);
     defineDim(name, std::get<0>(tuple), startSize(index));
   }
