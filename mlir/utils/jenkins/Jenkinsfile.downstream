@@ -144,6 +144,7 @@ pipeline {
                                 installation: 'InSearchPath', workingDir: 'build'
                             }
                         }
+                        // Note: setting cxxflags here works around https://github.com/ROCmSoftwarePlatform/MIOpen/issues/1604
                         stage("Build MIOpen with libMLIRMIOpen") {
                             steps {
                                 dir('MIOpen') {
@@ -152,6 +153,7 @@ pipeline {
                                 buildMIOpen('''-DMIOPEN_USE_MLIR=On
                                         -DMIOPEN_BACKEND=HIP
                                         -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpenDeps"
+                                        -DCMAKE_CXX_FLAGS="-isystem ${WORKSPACE}/MIOpenDeps/include"
                                         -DMIOPEN_USER_DB_PATH=${WORKSPACE}/MIOpen/build/MIOpenUserDB
                                         -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
                                         ''')
