@@ -944,7 +944,7 @@ struct ThreadwiseGemmRewritePattern
     TransformMapAttr cViewAttr = cView.get();
 
     Value zeroConst = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-    SmallVector<Value, 5> startCoords(5, zeroConst);
+    SmallVector<Value, 5> startCoords(4, zeroConst);
 
     ArrayAttr aTransforms, bTransforms, cTransforms;
     Value bufferA, bufferB, bufferC;
