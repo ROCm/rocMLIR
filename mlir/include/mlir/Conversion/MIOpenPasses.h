@@ -14,6 +14,7 @@
 #include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/TosaToMIOpen/TosaToMIOpen.h"
+#include "mlir/Dialect/MIGraphX/Passes.h"
 
 namespace mlir {
 

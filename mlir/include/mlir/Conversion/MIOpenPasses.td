@@ -65,6 +65,19 @@ def MIGraphXToTosa : Pass<"migraphx-to-tosa", "::mlir::FuncOp"> {
 }
 
 //===----------------------------------------------------------------------===//
+// MIGraphXTransform
+//===----------------------------------------------------------------------===//
+
+def MIGraphXTransforms : Pass<"migraphx-transform", "::mlir::FuncOp"> {
+  let summary = "Transform MIGraphX ops";
+  let description = [{
+    Pass that applies MIGraphX operations level optimization.
+  }];
+
+  let constructor = "migraphx::createMIGraphXTransformPass()";
+}
+
+//===----------------------------------------------------------------------===//
 // GPUToMIGraphX
 //===----------------------------------------------------------------------===//
 
