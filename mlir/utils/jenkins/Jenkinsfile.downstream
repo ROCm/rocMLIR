@@ -149,9 +149,6 @@ pipeline {
                                 dir('MIOpen') {
                                 git branch: 'develop', poll: false,\
                                     url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
-                                sh 'sed -i "/ROCmSoftwarePlatform\\/llvm-project-mlir/d" ./requirements.txt'
-                                cmake arguments: "-P install_deps.cmake --minimum --prefix ${WORKSPACE}/MIOpenDeps",\
-                                    installation: "InSearchPath"
                                 buildMIOpen('''-DMIOPEN_USE_MLIR=On
                                         -DMIOPEN_BACKEND=HIP
                                         -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpenDeps"
