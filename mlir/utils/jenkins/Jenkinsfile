@@ -626,7 +626,7 @@ pipeline {
                 docker {
                     image dockerImage()
                     args dockerArgs()
-                    label "mlir && ${params.canXdlops ? 'gfx90a' : 'gfx906' }"
+                    label "mlir && ${params.canXdlops ? 'gfx908' : 'gfx906' }"
                     alwaysPull true
                 }
             }
