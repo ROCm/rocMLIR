@@ -103,6 +103,8 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, int *size, char *bin) {
 MLIR_CAPI_EXPORTED
 void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
   auto passMan = unwrap(pm);
+  // FIXME : WA for the multithreading issue, potentially fixed in upstream.
+  passMan->getContext()->disableMultithreading();
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
   mlir::migraphx::addHighLevelPipeline(*passMan);
   mlir::miopen::buildBufferizePipeline(*passMan);
