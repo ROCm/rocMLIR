@@ -397,17 +397,3 @@ gpu.module @test_module_kernel {
     gpu.return
   }
 }
-
-// -----
-
-gpu.module @test_module_gpu_mfma_i8 {
-  // CHECK-LABEL: func @gpu_mfma_i8
-  gpu.func @gpu_mfma_i8(%arg_i32 : i32, %arg_vi32x4 : vector<4xi32>, %arg_vi32x16 : vector<16xi32>){
-    // CHECK: rocdl.mfma.i32.32x32x8i8 %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} :
-    %result16xi32 = gpu.mfma(%arg_i32, %arg_i32, %arg_vi32x16) {instr = "mfma_i32_32x32x8i8"} : i32, vector<16xi32>
-    // CHECK: rocdl.mfma.i32.16x16x16i8 %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} :
-    %result4xi32 = gpu.mfma(%arg_i32, %arg_i32, %arg_vi32x4) {instr = "mfma_i32_16x16x16i8" } : i32, vector<4xi32>
-    gpu.return
-  }
-}
-

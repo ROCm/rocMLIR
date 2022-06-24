@@ -1,0 +1,47 @@
+// RUN: mlir-miopen-driver -host-pipeline partition,highlevel %s | miopen-gen -ph -print-results -fut resnet50 - | mlir-miopen-driver -host-pipeline xmodel -kernel-pipeline full -triple amdgcn-amd-amdhsa -target gfx908 | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+
+module {
+// CHECK: Unranked Memref base@ = 0x{{.*}} rank = 4 offset = 0 sizes = [1, 32, 32, 64] strides = [65536, 2048, 64, 1] data =
+    
+
+  func @resnet50(%arg0: tensor<1x32x32x64xf32>, %arg1: tensor<64x3x3x64xf32>, %arg2: tensor<64x3x3x64xf32>) -> tensor<1x32x32x64xf32> {
+
+    %cst = arith.constant dense<0.0> : tensor<64xf32>
+    %0 = "tosa.conv2d"(%arg0, %arg1, %cst) {
+      dilation = [1, 1],
+      pad = [1, 1, 1, 1],
+      stride = [1, 1]
+    }
+     : (tensor<1x32x32x64xf32>, tensor<64x3x3x64xf32>, tensor<64xf32>) -> tensor<1x32x32x64xf32>
+
+    %1 = "tosa.clamp"(%0) {
+      min_fp = 0.0 : f32,
+      max_fp = 6.0 : f32,
+      min_int = 0 : i64,
+      max_int = 6 : i64
+    }
+     : (tensor<1x32x32x64xf32>) -> tensor<1x32x32x64xf32>
+
+    //%cst1 = arith.constant dense<0.0> : tensor<64xf32>
+    %2 = "tosa.conv2d"(%1, %arg2, %cst) {
+      dilation = [1, 1],
+      pad = [1, 1, 1, 1],
+      stride = [1, 1]
+    }
+     : (tensor<1x32x32x64xf32>, tensor<64x3x3x64xf32>, tensor<64xf32>) -> tensor<1x32x32x64xf32>
+
+    %3 = "tosa.clamp"(%2) {
+      min_fp = 0.0 : f32,
+      max_fp = 6.0 : f32,
+      min_int = 0 : i64,
+      max_int = 6 : i64
+    }
+     : (tensor<1x32x32x64xf32>) -> tensor<1x32x32x64xf32>
+
+    %4 = "tosa.add"(%arg0, %3)
+     : (tensor<1x32x32x64xf32>, tensor<1x32x32x64xf32>) -> tensor<1x32x32x64xf32>
+
+    return %4 : tensor<1x32x32x64xf32>
+  }
+}
+

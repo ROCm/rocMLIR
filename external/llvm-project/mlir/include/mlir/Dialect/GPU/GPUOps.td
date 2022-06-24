@@ -407,7 +407,10 @@ def GPU_LaunchFuncOp : GPU_Op<"launch_func",
   let builders = [
     OpBuilder<(ins "GPUFuncOp":$kernelFunc, "KernelDim3":$gridSize,
       "KernelDim3":$blockSize, "Value":$dynamicSharedMemorySize,
-      "ValueRange":$kernelOperands)>
+      "ValueRange":$kernelOperands)>,
+    OpBuilder<(ins "ValueRange":$dependencies, "GPUFuncOp":$kernelFunc,
+      "KernelDim3":$gridSize, "KernelDim3":$blockSize,
+      "Value":$dynamicSharedMemorySize, "ValueRange":$kernelOperands)>
   ];
 
   let extraClassDeclaration = [{
@@ -1258,23 +1261,6 @@ def GPU_SubgroupMmaElementwiseOp : GPU_Op<"subgroup_mma_elementwise",
 
   let assemblyFormat = [{
     $operation $args attr-dict `:` functional-type($args, $res)
-  }];
-}
-
-// mfma
-def GPU_MFMAOp:
-    GPU_Op<"mfma", [AllTypesMatch<["sourceA", "sourceB"]>,
-                        AllTypesMatch<["destC", "destD"]>]>,
-    Arguments<(ins AnyTypeOf<[I32, F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>, VectorOfLengthAndType<[4], [BF16]>]>: $sourceA,
-                   AnyTypeOf<[I32, F32, VectorOfLengthAndType<[4], [F16]>, VectorOfLengthAndType<[2], [BF16]>, VectorOfLengthAndType<[4], [BF16]>]>: $sourceB,
-                   VectorOfRankAndType<[1], [I32, F32, F16]>: $destC)>,
-    Results<(outs VectorOfRankAndType<[1], [I32, F32, F16]>: $destD)> {
-  let summary = "XDLOPS MFMA";
-  let description = [{
-    The `gpu.mfma` op is an abstraction of XDLOPS.
-  }];
-  let assemblyFormat = [{
-    `(` $sourceA `,` $sourceB `,` $destC `)` attr-dict `:` type($sourceA) `,` type($destC)
   }];
 }
 

@@ -1,7 +1,6 @@
 #include "Miir.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
-#include "mlir/Dialect/MIOpen/Pipeline.h"
-#include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
+#include "mlir/Dialect/MIOpen/Pipelines.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
@@ -239,7 +238,9 @@ extern "C" MiirStatus miirLowerTuningParams(MiirHandle mlirHandle) {
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
 
-  miopen::addPipeline(pm, true);
+  miopen::KernelOptions opts;
+  opts.enableApplicability = true;
+  miopen::buildKernelPipeline(pm, opts);
 
   auto status = pm.run(module);
 
@@ -258,10 +259,13 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
 
   PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
 
-  miopen::addPipeline(pm);
+  miopen::buildKernelPipeline(pm);
 
-  miopen::addBackendPipeline(pm, handle->triple, handle->chip,
-                             handle->features);
+  miopen::BackendOptions opts;
+  opts.triple = handle->triple;
+  opts.chip = handle->chip;
+  opts.features = handle->features;
+  miopen::buildBackendPipeline(pm, opts);
 
   auto status = pm.run(module);
 

@@ -8,12 +8,17 @@ add_mlir_dialect_library(MLIRMIGraphX
   DEPENDS
   MLIRMIGraphXTypeIncGen
   MLIRMIGraphXOpsIncGen
+  MLIRMIGraphXPassIncGen
 
   )
 target_link_libraries(MLIRMIGraphX
   PUBLIC
   MLIRIR
   LLVMSupport
-  )
+  MLIRPass
+  MLIRFunc
+  MLIRTransforms
+  MLIRSupport
+)
 
 add_subdirectory(Pipeline)

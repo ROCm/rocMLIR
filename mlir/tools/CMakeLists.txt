@@ -9,6 +9,7 @@ add_subdirectory(mlir-rocm-runner)
 #add_subdirectory(mlir-spirv-cpu-runner)
 add_subdirectory(miopen-translate)
 #add_subdirectory(mlir-vulkan-runner)
+add_subdirectory(xmir-runner)
 
 # MIOpen dialect specific.
 add_subdirectory(mlir-miopen-driver)

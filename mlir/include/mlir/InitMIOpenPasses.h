@@ -17,6 +17,7 @@
 
 #include "mlir/Conversion/MIOpenPasses.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIOpen/Pipelines.h"
 
 #include "mlir/Transforms/Passes.h"
 
@@ -34,6 +35,8 @@ namespace mlir {
 inline void registerMIOpenPasses() {
   registerMIOpenConversionPasses();
   miopen::registerPasses();
+
+  miopen::registerPipelines();
 }
 
 } // namespace mlir

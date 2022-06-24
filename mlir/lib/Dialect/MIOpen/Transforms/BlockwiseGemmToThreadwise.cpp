@@ -231,7 +231,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
                              matrixAThreadwiseCopyDestCoords},
         ArrayRef<Attribute>{transformsA, emptyArr},
         ArrayRef<int64_t>{1, KPerThread, MPerThreadSubC},
-        /*forceUnroll=*/true, /*indexDiffs=*/false);
+        /*strides=*/llvm::None, /*forceUnroll=*/true, /*indexDiffs=*/false);
     OpBuilder copyABuilder =
         OpBuilder::atBlockTerminator(copyALoop.getBody(), lab.getListener());
     Value aCopy = copyABuilder.create<memref::LoadOp>(
@@ -286,7 +286,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
                              matrixBThreadwiseCopyDestCoords},
         ArrayRef<Attribute>{transformsB, emptyArr},
         ArrayRef<int64_t>{1, KPerThread, NPerThreadSubC},
-        /*forceUnroll=*/true, /*indexDiffs=*/false);
+        /*strides=*/llvm::None, /*forceUnroll=*/true, /*indexDiffs=*/false);
     OpBuilder copyBBuilder =
         OpBuilder::atBlockTerminator(copyBLoop.getBody(), lbb.getListener());
     Value bCopy = copyBBuilder.create<memref::LoadOp>(
@@ -499,7 +499,7 @@ struct ThreadwiseCopyRewritePattern
     TransformingForOp loop = b.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{op.sourceCoord(), op.destCoord()},
         ArrayRef<Attribute>{srcTransforms, destTransforms}, op.bounds(),
-        /*forceUnroll=*/true, useIndexDiffs);
+        /*strides=*/ArrayAttr{}, /*forceUnroll=*/true, useIndexDiffs);
     PatternRewriter::InsertionGuard loopGuard(b);
     b.setInsertionPointToStart(loop.getBody());
 
@@ -519,7 +519,7 @@ struct ThreadwiseCopyRewritePattern
     if (storeGlobal)
       b.create<BufferStoreOp>(loc, cast, dest, destLeftOob, destRightOob,
                               loop.getLowerCoords(/*domain=*/1),
-                              /*dataOperation=*/nullptr);
+                              /*dataOperation=*/StoreMethod::Set);
     else
       b.create<memref::StoreOp>(loc, cast, dest,
                                 loop.getLowerCoords(/*domain=*/1));
@@ -539,59 +539,23 @@ struct ThreadwiseCopyV2RewritePattern
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
 
-    int64_t dataPerCopy =
-        op->getAttrOfType<IntegerAttr>("data_per_copy").getInt();
+    Value source = op.source();
+    auto sourceType = source.getType().cast<MemRefType>();
+    Value sourceCoord = op.sourceCoord();
 
-    // threadwise_copy_v2 provides its bounds without regard to vectorization
-    // fix this here
-    SmallVector<int64_t, 6> bounds;
-    llvm::transform(op.bounds().getAsRange<IntegerAttr>(),
-                    std::back_inserter(bounds),
-                    [](const IntegerAttr &v) -> int64_t { return v.getInt(); });
-    int64_t vecDim =
-        op->getAttrOfType<IntegerAttr>("upper_vector_read_dim").getInt();
-    if (vecDim >= 0) {
-      assert(bounds[vecDim] % dataPerCopy == 0 &&
-             "Uneven vectorization in threadwise_copy_v2");
-      bounds[vecDim] /= dataPerCopy;
-    }
+    int64_t copyLength = op.length().getSExtValue();
+    Type typeToLoad = sourceType.getElementType();
+    if (copyLength > 1)
+      typeToLoad = VectorType::get({copyLength}, typeToLoad);
+    Type typeToStore = op.dest().getType().cast<MemRefType>().getElementType();
+    if (copyLength > 1)
+      typeToStore = VectorType::get({copyLength}, typeToStore);
 
-    LLVM_DEBUG(llvm::dbgs()
-               << "Threadwise copy vector dimension: " << vecDim << "\n"
-               << "Data per copy: " << dataPerCopy << "\n");
-    ArrayAttr srcTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
-    ArrayAttr destTransformsOnOp = op.transforms()[1].cast<ArrayAttr>();
-    Value source, dest;
-    ArrayAttr srcTransforms, destTransforms;
-    std::tie(source, srcTransforms) =
-        untransform(b, op.source(), srcTransformsOnOp);
-    std::tie(dest, destTransforms) =
-        untransform(b, op.dest(), destTransformsOnOp);
-    VectorType sourceType = source.getType().cast<VectorType>();
-    MemRefType destType = dest.getType().cast<MemRefType>();
-
-    Type typeToLoad, typeToStore;
-    if (dataPerCopy == 1) {
-      typeToLoad = sourceType.getElementType();
-      typeToStore = destType.getElementType();
-    } else {
-      typeToLoad = sourceType.clone({dataPerCopy});
-      typeToStore = VectorType::get({dataPerCopy}, destType.getElementType());
-    }
-
-    auto oobDims = computeOobFromTransforms(b, destTransforms);
-    auto loop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{op.sourceCoord(), op.destCoord()},
-        ArrayRef<Attribute>{srcTransforms, destTransforms}, bounds,
-        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-    PatternRewriter::InsertionGuard guard(b);
-    b.setInsertionPointToStart(loop.getBody());
-    Value loaded = b.create<ExtractSliceOp>(
-        loc, typeToLoad, source, loop.getLowerCoords(/*domain=*/0)[0]);
-    Value cast = createTypeConversionOp(b, loc, loaded, typeToStore);
-    b.create<BufferStoreOp>(
-        loc, cast, dest, std::get<0>(oobDims), std::get<1>(oobDims),
-        loop.getLowerCoords(/*domain=*/1), op.storeMethodAttr());
+    Value loaded =
+        b.create<InBoundsLoadOp>(loc, typeToLoad, source, sourceCoord);
+    b.create<BufferStoreOp>(loc, loaded, op.dest(), op.leftOobDims(),
+                            op.rightOobDims(), op.destCoord(),
+                            op.storeMethodAttr());
     b.eraseOp(op);
     return success();
   }

@@ -23,6 +23,7 @@
 
 namespace mlir {
 namespace miopen {
+struct ConvolutionDims;
 
 class Conv2dGenerator {
 public:
@@ -83,6 +84,8 @@ public:
 
   void flipXdlops();
 
+  ConvolutionDims getConvolutionDims() const;
+
   static inline constexpr int64_t outputDim(int64_t inputLen, int64_t filLen,
                                             int64_t leftPadLen,
                                             int64_t rightPadLen,
@@ -139,7 +142,7 @@ private:
   }
   int getBwdDataKernelCount() const;
   int getBwdWeightKernelCount(OpBuilder &builder) const;
-  bool needExtraPad(OpBuilder &builder) const;
+  bool needExtraPadBwdWeight(OpBuilder &builder) const;
   LogicalResult hasValidDimension() const;
   LogicalResult hasValidChip() const;
 

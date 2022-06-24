@@ -6,7 +6,7 @@ The configuration files are in TOML format.  Below is an example:
 
     directory= "mlir/test/mlir-miopen-driver/auto_e2e/"
     prefix = "miopen-gen"
-    suffix = "%pv %random_data %xdlops | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+    suffix = "%pv %random_data %xdlops | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
 
     [[axis]]
     name = "operation"

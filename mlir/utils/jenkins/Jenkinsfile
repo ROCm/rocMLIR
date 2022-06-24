@@ -10,6 +10,10 @@ void buildProject(String target, String cmakeOpts) {
     }
 }
 
+void MIOpen_cget_hack() {
+      sh 'sed -i "s|virtualenv_install(cget)|virtualenv_install(git+https://github.com/pcf000/cget.git@use-urlretrieve)|" install_deps.cmake'
+}
+
 void buildMIOpen(String cmakeOpts) {
     sh '[ ! -d build ] || rm -rf build'
     cmakeBuild generator: 'Unix Makefiles',\
@@ -27,6 +31,7 @@ void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
     git branch: 'int8-perf-config', poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
     sh 'sed -i "/ROCmSoftwarePlatform\\/llvm-project-mlir/d" ./requirements.txt'
+    MIOpen_cget_hack()
     cmake arguments: "-P install_deps.cmake --minimum ${prefixOpt}",\
         installation: "InSearchPath"
     buildMIOpen(cmakeOpts)
@@ -42,6 +47,7 @@ void buildMIOpenWithMLIR() {
         git branch: 'int8-perf-config', poll: false,\
             url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
         sh 'sed -i "/ROCmSoftwarePlatform\\/llvm-project-mlir/d" ./requirements.txt'
+        MIOpen_cget_hack()
         cmake arguments: "-P install_deps.cmake --minimum --prefix ${WORKSPACE}/MIOpenDeps",\
                 installation: "InSearchPath"
         buildMIOpen('''-DMIOPEN_USE_MLIR=On
@@ -127,6 +133,12 @@ def resetBuild() {
     }
 }
 
+void setHeartbeat() {
+    script {
+        System.setProperty("org.jenkinsci.plugins.durabletask.BourneShellScript.HEARTBEAT_CHECK_INTERVAL", "86400");
+    }
+}
+
 def rebootNode() {
     build job: 'reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
 }
@@ -154,9 +166,7 @@ pipeline {
     stages {
         stage("Set System Property") {
             steps {
-                script {
-                     System.setProperty("org.jenkinsci.plugins.durabletask.BourneShellScript.HEARTBEAT_CHECK_INTERVAL", "86400");
-                }
+                setHeartbeat()
             }
         }
         stage("Kill old PR builds") {
@@ -377,13 +387,16 @@ pipeline {
                     }
                     stage("Sweep parameters") {
                         steps {
+                            setHeartbeat()
                             buildProject(
                                 'check-mlir-miopen-build-only ci-performance-scripts',
                                 '')
-                            timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                sh """python3 ./bin/parameterSweeps.py \
-                                    ${params.canXdlops '--xdlops' : '--no-xdlops'} \
-                                    ${CONFIG}"""
+                            dir('build') {
+                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                    sh """python3 ./bin/parameterSweeps.py \
+                                        ${params.canXdlops ? '--xdlops' : '--no-xdlops'} \
+                                        ${CONFIG}"""
+                                }
                             }
                         }
                     }
@@ -445,9 +458,7 @@ pipeline {
                             equals expected: "gfx90a", actual: "${ARCH}"
                         }
                         steps {
-                            script {
-                               System.setProperty("org.jenkinsci.plugins.durabletask.BourneShellScript.HEARTBEAT_CHECK_INTERVAL", "86400");
-                            }
+                            setHeartbeat()
                         }
                     }
                     stage("Environment") {

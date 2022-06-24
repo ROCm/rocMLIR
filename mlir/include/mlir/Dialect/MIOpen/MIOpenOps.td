@@ -149,23 +149,29 @@ def MIOpen_GridwiseGemmV2Op :
                    MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$b,
                    MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$c,
                    MIOpen_PaddingInfoAttr:$paddingInfo,
-                   StoreMethod:$storeMethod)> {
+                   StoreMethodAttr:$storeMethod)> {
   let summary = "Gridwise GEMM V2";
   let description = [{
     The `miopen.gridwise_gemm` op computes gridwise GEMM with XDLOPS.
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
+    `(` operands `)` `storeMethod` `(` $storeMethod `)` attr-dict `:` type(operands)
   }];
 
     let builders = [
   OpBuilder<(ins "Value":$a, "Value":$b, "Value":$c,
     "PaddingInfoAttr":$paddingInfo, "StoreMethod":$storeMethod,
     "ArrayRef<NamedAttribute>":$extraAttrs), [{
+      return build($_builder, $_state, a, b, c, paddingInfo,
+        StoreMethodAttr::get($_builder.getContext(), storeMethod),
+        extraAttrs);
+    }]>,
+  OpBuilder<(ins "Value":$a, "Value":$b, "Value":$c,
+    "PaddingInfoAttr":$paddingInfo, "StoreMethodAttr":$storeMethod,
+    "ArrayRef<NamedAttribute>":$extraAttrs), [{
       $_state.addOperands({a, b, c});
       $_state.addAttribute(paddingInfoAttrName($_state.name), paddingInfo);
-      $_state.addAttribute(storeMethodAttrName($_state.name),
-        $_builder.getI32IntegerAttr(static_cast<uint32_t>(storeMethod)));
+      $_state.addAttribute(storeMethodAttrName($_state.name), storeMethod);
       $_state.addAttributes(extraAttrs);
       $_state.addTypes({});
     }]>
@@ -325,6 +331,7 @@ def MIOpen_TransformingForOp :
       ArgTransformsAttr:$transforms,
       Variadic<AnyType>:$iterInits,
       IndexArrayAttr:$bounds,
+      IndexArrayAttr:$strides,
       // This is a derived attribute that holds where in the block arguments
       // the coordinates for each lower domain are stored. It contains
       // one value for each iteration domain, and a final value for
@@ -344,7 +351,7 @@ def MIOpen_TransformingForOp :
 
     For each domain, when we have
     `(%l0, %l1, ... %lL) = [#transform_map1](%u0, %u1, ... %uU)`
-    with bounds `[b0, b1, ... bU]`
+    with bounds `[b0, b1, ... bU]` and strides `[1, 1, ..., 1]`
     the loop arguments %l0, ... %lL will take on the values
     - (%l0, ... %lL) = #transform_map1(%u0, %u1, ... %uU)
     - (%l0, ... %lL) = #transform_map1(%u0, %u1, ... %uU + 1)
@@ -366,8 +373,8 @@ def MIOpen_TransformingForOp :
     ```
     will lower to
     ```mlir
-    %res = affine.for %d0 = 0 to 4 (%arg0 = %cst0 : index) {
-      %res1 = affine.for %d1 = 0 to 8 (%arg1 = %arg0 : index) {
+    %res = affine.for %d0 = 0 to 4 step 1 (%arg0 = %cst0 : index) {
+      %res1 = affine.for %d1 = 0 to 8 step 1 (%arg1 = %arg0 : index) {
         %i0_shifted = arith.addi %i0, %d0
         %j0_shifted = arith.addi %j0, %d1
         %a1, %a2, %a3 = [expand affine map in #transform_map1 at %i0_shifted, %j0_shifted]
@@ -383,6 +390,8 @@ def MIOpen_TransformingForOp :
     When multiple transform_maps are specified for an interatino domain,
     they are composed, with the left one applying first (to the upper coordinates),
     and a lack of transform_maps simply passes the upper cooridate values through.
+
+    If `strides` is not specified during building, it will default to all 1s.
 
     If the `forceUnroll` attribute is specified, the loops above are unrolled
     after being generated.
@@ -406,22 +415,26 @@ def MIOpen_TransformingForOp :
   let builders = [
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
     "ArrayRef<Attribute>":$transforms,
-    "ArrayRef<int64_t>":$bounds, "bool":$forceUnroll, "bool":$useIndexDiffs,
+    "ArrayRef<int64_t>":$bounds, "Optional<ArrayRef<int64_t>>":$strides,
+    "bool":$forceUnroll, "bool":$useIndexDiffs,
     CArg<"ValueRange", "llvm::None">:$iterArgs)>,
 
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
     "ArrayRef<Attribute>":$transforms,
-    "ArrayAttr":$bounds, "bool":$forceUnroll, "bool":$useIndexDiffs,
+    "ArrayAttr":$bounds, "ArrayAttr":$strides,
+    "bool":$forceUnroll, "bool":$useIndexDiffs,
     CArg<"ValueRange", "llvm::None">:$iterArgs)>,
 
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
     "ArrayAttr":$transforms,
-    "ArrayRef<int64_t>":$bounds, "bool":$forceUnroll, "bool":$useIndexDiffs,
+    "ArrayRef<int64_t>":$bounds, "Optional<ArrayRef<int64_t>>":$strides,
+    "bool":$forceUnroll, "bool":$useIndexDiffs,
     CArg<"ValueRange", "llvm::None">:$iterArgs)>,
 
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
     "ArrayAttr":$transforms,
-    "ArrayAttr":$bounds, "bool":$forceUnroll, "bool":$useIndexDiffs,
+    "ArrayAttr":$bounds, "ArrayAttr":$strides,
+    "bool":$forceUnroll, "bool":$useIndexDiffs,
     CArg<"ValueRange", "llvm::None">:$iterArgs)>];
 
   let extraClassDeclaration = [{
@@ -550,7 +563,7 @@ def MIOpen_BufferStoreOp :
       I32ArrayAttr:$leftOobDims,
       I32ArrayAttr:$rightOobDims,
       Variadic<Index>:$coords,
-      OptionalAttr<StoreMethod>:$storeMethod)> {
+      StoreMethodAttr:$storeMethod)> {
   let summary = "Store data to a global buffer";
 
   let description = [{
@@ -575,7 +588,7 @@ def MIOpen_BufferStoreOp :
     The buffer must reside in global memory.
   }];
   let assemblyFormat = [{
-    $data `->` $dest `[` $coords `]` attr-dict
+    $storeMethod $data `->` $dest `[` $coords `]` attr-dict
     `:` type($data) `->` type($dest) `,` type($coords)
   }];
   let hasVerifier = 1;
@@ -656,28 +669,28 @@ def MIOpen_ThreadwiseCopyOp:
 }
 
 // threadwise_copy_v2
-def MIOpen_ThreadwiseCopyV2Op:
-    MIOpen_Op<"threadwise_copy_v2", [AttrSizedOperandSegments]>,
-    Arguments<(ins VectorOfRankAndType<[1], [F32, F16, I32]>:$source,
+def MIOpen_ThreadwiseCopyV2Op :
+    MIOpen_Op<"threadwise_copy_v2", [AllElementTypesMatch<["source", "dest"]>]>,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [1]>:$source,
                    AnyMemRef:$dest,
-                   IndexArrayAttr:$bounds,
-                   ArgTransforms<2>:$transforms,
-                   StoreMethod:$storeMethod,
-                   Variadic<Index>:$sourceCoord,
+                   IndexAttr:$length,
+                   StoreMethodAttr:$storeMethod,
+                   I32ArrayAttr:$leftOobDims,
+                   I32ArrayAttr:$rightOobDims,
+                   Index:$sourceCoord,
                    Variadic<Index>:$destCoord)> {
   let summary = "Threadwise GPU data movement XDLOPS version";
   let description = [{
-    The `miopen.threadwise_v2` op moves data on GPU. Following movements are
-    allowed:
-    - Register (naive tensor) as vector type to global (generic tensor).
-
-    The op is used to store C matrices, stored as vectors, back to global VMEM.
+    The `threadwise_copy_v2` op is a wrapper around storing to a global buffer
+    that hides type casts. This is used in order to make it easier for operator
+    fusion to identify the write out to global memory produced within an xdlops
+    gemm.
   }];
   let assemblyFormat = [{
     $source `[` $sourceCoord `]`
     `->` $dest `[` $destCoord `]`
-    `with` $transforms attr-dict
-    `:` type($source) `,` type($sourceCoord) `->`
+    `storeMethod` `(` $storeMethod `)` attr-dict
+    `:` type($source) `->`
     type($dest) `,` type($destCoord)
   }];
 }
@@ -748,29 +761,6 @@ def MIOpen_ThreadwiseGemmOp:
   }];
   let assemblyFormat = [{
     `(` operands `)` attr-dict `:` type(operands)
-  }];
-}
-
-// mfma_v2
-def MIOpen_MFMAV2Op:
-    MIOpen_Op<"mfma_v2", [AllTypesMatch<["sourceA", "sourceB"]>,
-      AllTypesMatch<["destC", "destD"]>]>,
-    Arguments<(ins AnyTypeOf<[F32,
-                              VectorOfLengthAndType<[4], [F16]>,
-                              VectorOfLengthAndType<[2], [BF16]>,
-                              VectorOfLengthAndType<[4], [I8]>]>: $sourceA,
-                   AnyTypeOf<[F32,
-                              VectorOfLengthAndType<[4], [F16]>,
-                              VectorOfLengthAndType<[2], [BF16]>,
-                              VectorOfLengthAndType<[4], [I8]>]>: $sourceB,
-                   VectorOfRankAndType<[1], [I32, F32, F16]>: $destC)>,
-    Results<(outs VectorOfRankAndType<[1], [I32, F32, F16]>: $destD)> {
-  let summary = "XDLOPS MFMA V2";
-  let description = [{
-    The `miopen.mfma_v2` op is an abstraction of XDLOPS.
-  }];
-  let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type($sourceA) `,` type($destD)
   }];
 }
 

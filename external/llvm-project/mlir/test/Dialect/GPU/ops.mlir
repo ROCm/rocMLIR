@@ -225,58 +225,6 @@ module attributes {gpu.container_module} {
     return %0 : i32
   }
 
-  gpu.module @mfma {
-    // CHECK-LABEL: gpu.func @mfma_f32
-    //   CHECK:      gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : f32, vector<32xf32>
-    //   CHECK-NEXT: gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : f32, vector<32xf32>
-    gpu.func @mfma_f32(%a : f32, %b : f32, %c : vector<32xf32>) {
-      gpu.mfma(%a, %b, %c) : f32, vector<32xf32>
-      %d = gpu.mfma(%a, %b, %c) : f32, vector<32xf32>
-
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @mfma_f16
-    //   CHECK:      gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf16>, vector<32xf32>
-    //   CHECK-NEXT: gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : vector<4xf16>, vector<32xf32>
-    gpu.func @mfma_f16(%a : vector<4xf16>, %b : vector<4xf16>, %c : vector<32xf32>) {
-      gpu.mfma(%a, %b, %c) : vector<4xf16>, vector<32xf32>
-      %d = gpu.mfma(%a, %b, %c) : vector<4xf16>, vector<32xf32>
-
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @mfma_bf16
-    //   CHECK:      gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xbf16>, vector<32xf32>
-    //   CHECK-NEXT: gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : vector<2xbf16>, vector<32xf32>
-    gpu.func @mfma_bf16(%a : vector<2xbf16>, %b : vector<2xbf16>, %c : vector<32xf32>) {
-      gpu.mfma(%a, %b, %c) : vector<2xbf16>, vector<32xf32>
-      %d = gpu.mfma(%a, %b, %c) : vector<2xbf16>, vector<32xf32>
-
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @mfma_i8_4xi32
-    // CHECK:       gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : i32, vector<4xi32>
-    // CHECK-NEXT:  gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : i32, vector<4xi32>
-    gpu.func @mfma_i8_4xi32(%a : i32, %b : i32, %c : vector<4xi32>) {
-      gpu.mfma(%a, %b, %c) : i32, vector<4xi32>
-      %d = gpu.mfma(%a, %b, %c) : i32, vector<4xi32>
-
-      gpu.return
-    }
-
-    // CHECK-LABEL: gpu.func @mfma_i8_16xi32
-    // CHECK:       gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : i32, vector<16xi32>
-    // CHECK-NEXT:  gpu.mfma(%{{.*}}, %{{.*}}, %{{.*}}) : i32, vector<16xi32>
-    gpu.func @mfma_i8_16xi32(%a : i32, %b : i32, %c : vector<16xi32>) {
-      gpu.mfma(%a, %b, %c) : i32, vector<16xi32>
-      %d = gpu.mfma(%a, %b, %c) : i32, vector<16xi32>
-
-      gpu.return
-    }
-  }
-
   func @mmamatrix_valid_element_type(%src : memref<32x32xf16, affine_map<(d0, d1) -> (d0 * 64 + d1)>>){
     // CHECK-LABEL: func @mmamatrix_valid_element_type
     %wg = memref.alloca() {alignment = 32} : memref<32x32xf16, 3>

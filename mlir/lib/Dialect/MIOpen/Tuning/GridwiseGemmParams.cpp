@@ -869,16 +869,9 @@ int64_t PopulateParamsXDL::obtainBlockSize(const InitParamsXDL &params,
 LogicalResult PopulateParamsXDL::getKBlocks(ConvolutionContext &ctx,
                                             const InitParamsXDL &params,
                                             int64_t &gemmKBlocks) {
-  int64_t n = ctx.dimIndexAndSize["no"].size;
-  int64_t ho = ctx.dimIndexAndSize["ho"].size;
-  int64_t wo = ctx.dimIndexAndSize["wo"].size;
-  int64_t g = ctx.dimIndexAndSize["g"].size;
-  int64_t k = ctx.dimIndexAndSize["k"].size;
-  int64_t c = ctx.dimIndexAndSize["c"].size;
-  int64_t y = ctx.dimIndexAndSize["y"].size;
-  int64_t x = ctx.dimIndexAndSize["x"].size;
+  ConvolutionDims convDims = ctx.getConvDims();
 
-  return calculateKBlockNum(n, ho, wo, g, k, c, y, x, params.gemmMPerBlock,
+  return calculateKBlockNum(convDims, params.gemmMPerBlock,
                             params.gemmNPerBlock, params.gemmKPerBlock,
                             params.gemmKPack, ctx.num_cu, gemmKBlocks);
 }

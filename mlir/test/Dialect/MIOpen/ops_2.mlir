@@ -266,186 +266,186 @@ func @miopen_buffer_load_4xi32(%source : memref<?x?x?xi32>, %sc0 : index, %sc1 :
 
 func @miopen_buffer_store_f32(%data: f32, %dest: memref<1x1x1x1x16xf32>, %idx: index) {
   %c0 = arith.constant 0 : index
-  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+  miopen.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
     {leftOobDims = [], rightOobDims = []}
     : f32 -> memref<1x1x1x1x16xf32>, index, index, index, index, index
   return
 }
 
 // CHECK-LABEL: func @miopen_buffer_store_f32
-// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+// CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 func @miopen_buffer_store_2xf32(%data: vector<2xf32>, %dest: memref<1x1x1x1x16xf32>, %idx: index) {
   %c0 = arith.constant 0 : index
-  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+  miopen.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
     {leftOobDims = [], rightOobDims = []}
     : vector<2xf32> -> memref<1x1x1x1x16xf32>, index, index, index, index, index
   return
 }
 
 // CHECK-LABEL: func @miopen_buffer_store_2xf32
-// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+// CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 func @miopen_buffer_store_4xf32(%data: vector<4xf32>, %dest: memref<1x1x1x1x16xf32>, %idx: index) {
   %c0 = arith.constant 0 : index
-  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+  miopen.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
     {leftOobDims = [], rightOobDims = []}
     : vector<4xf32> -> memref<1x1x1x1x16xf32>, index, index, index, index, index
   return
 }
 
 // CHECK-LABEL: func @miopen_buffer_store_4xf32
-// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+// CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 // f16 tests.
 
 func @miopen_buffer_store_f16(%data: f16, %dest: memref<1x1x1x1x16xf16>, %idx: index) {
   %c0 = arith.constant 0 : index
-  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+  miopen.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
     {leftOobDims = [], rightOobDims = []}
     : f16 -> memref<1x1x1x1x16xf16>, index, index, index, index, index
   return
 }
 
 // CHECK-LABEL: func @miopen_buffer_store_f16
-// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+// CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 func @miopen_buffer_store_2xf16(%data: vector<2xf16>, %dest: memref<1x1x1x1x16xf16>, %idx: index) {
   %c0 = arith.constant 0 : index
-  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+  miopen.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
     {leftOobDims = [], rightOobDims = []}
     : vector<2xf16> -> memref<1x1x1x1x16xf16>, index, index, index, index, index
   return
 }
 
 // CHECK-LABEL: func @miopen_buffer_store_2xf16
-// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+// CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 func @miopen_buffer_store_4xf16(%data: vector<4xf16>, %dest: memref<1x1x1x1x16xf16>, %idx: index) {
   %c0 = arith.constant 0 : index
-  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+  miopen.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
     {leftOobDims = [], rightOobDims = []}
     : vector<4xf16> -> memref<1x1x1x1x16xf16>, index, index, index, index, index
   return
 }
 
 // CHECK-LABEL: func @miopen_buffer_store_4xf16
-// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+// CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 func @miopen_buffer_store_8xf16(%data: vector<8xf16>, %dest: memref<1x1x1x1x16xf16>, %idx: index) {
   %c0 = arith.constant 0 : index
-  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+  miopen.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
     {leftOobDims = [], rightOobDims = []}
     : vector<8xf16> -> memref<1x1x1x1x16xf16>, index, index, index, index, index
   return
 }
 
 // CHECK-LABEL: func @miopen_buffer_store_8xf16
-// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+// CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 // bf16 tests.
 
 func @miopen_buffer_store_bf16(%data: bf16, %dest: memref<1x1x1x1x16xbf16>, %idx: index) {
   %c0 = arith.constant 0 : index
-  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+  miopen.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
     {leftOobDims = [], rightOobDims = []}
     : bf16 -> memref<1x1x1x1x16xbf16>, index, index, index, index, index
   return
 }
 
 // CHECK-LABEL: func @miopen_buffer_store_bf16
-// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+// CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 func @miopen_buffer_store_2xbf16(%data: vector<2xbf16>, %dest: memref<1x1x1x1x16xbf16>, %idx: index) {
   %c0 = arith.constant 0 : index
-  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+  miopen.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
     {leftOobDims = [], rightOobDims = []}
     : vector<2xbf16> -> memref<1x1x1x1x16xbf16>, index, index, index, index, index
   return
 }
 
 // CHECK-LABEL: func @miopen_buffer_store_2xbf16
-// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+// CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 func @miopen_buffer_store_4xbf16(%data: vector<4xbf16>, %dest: memref<1x1x1x1x16xbf16>, %idx: index) {
   %c0 = arith.constant 0 : index
-  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+  miopen.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
     {leftOobDims = [], rightOobDims = []}
     : vector<4xbf16> -> memref<1x1x1x1x16xbf16>, index, index, index, index, index
   return
 }
 
 // CHECK-LABEL: func @miopen_buffer_store_4xbf16
-// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+// CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 func @miopen_buffer_store_8xbf16(%data: vector<8xbf16>, %dest: memref<1x1x1x1x16xbf16>, %idx: index) {
   %c0 = arith.constant 0 : index
-  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+  miopen.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
     {leftOobDims = [], rightOobDims = []}
     : vector<8xbf16> -> memref<1x1x1x1x16xbf16>, index, index, index, index, index
   return
 }
 
 // CHECK-LABEL: func @miopen_buffer_store_8xbf16
-// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+// CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 // i8 tests.
 
 func @miopen_buffer_store_i8(%data: i8, %dest: memref<1x1x1x1x16xi8>, %idx: index) {
   %c0 = arith.constant 0 : index
-  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+  miopen.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
     {leftOobDims = [], rightOobDims = []}
     : i8 -> memref<1x1x1x1x16xi8>, index, index, index, index, index
           return
 }
 
 // CHECK-LABEL: func @miopen_buffer_store_i8
-// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+// CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 func @miopen_buffer_store_4xi8(%data: vector<4xi8>, %dest: memref<1x1x1x1x16xi8>, %idx: index) {
   %c0 = arith.constant 0 : index
-  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+  miopen.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
     {leftOobDims = [], rightOobDims = []}
     : vector<4xi8> -> memref<1x1x1x1x16xi8>, index, index, index, index, index
   return
 }
 
 // CHECK-LABEL: func @miopen_buffer_store_4xi8
-// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+// CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 // i32 tests.
 func @miopen_buffer_store_i32(%data: i32, %dest: memref<1x1x1x1x16xi32>, %idx: index) {
   %c0 = arith.constant 0 : index
-  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+  miopen.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
     {leftOobDims = [], rightOobDims = []}
     : i32 -> memref<1x1x1x1x16xi32>, index, index, index, index, index
   return
 }
 
 // CHECK-LABEL: func @miopen_buffer_store_i32
-// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+// CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 func @miopen_buffer_store_2xi32(%data: vector<2xi32>, %dest: memref<1x1x1x1x16xi32>, %idx: index) {
   %c0 = arith.constant 0 : index
-  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+  miopen.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
     {leftOobDims = [], rightOobDims = []}
     : vector<2xi32> -> memref<1x1x1x1x16xi32>, index, index, index, index, index
   return
 }
 
 // CHECK-LABEL: func @miopen_buffer_store_2xi32
-// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+// CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 func @miopen_buffer_store_4xi32(%data: vector<4xi32>, %dest: memref<1x1x1x1x16xi32>, %idx: index) {
   %c0 = arith.constant 0 : index
-  miopen.buffer_store %data -> %dest[%c0, %c0, %c0, %c0, %idx]
+  miopen.buffer_store set %data -> %dest[%c0, %c0, %c0, %c0, %idx]
     {leftOobDims = [], rightOobDims = []}
     : vector<4xi32> -> memref<1x1x1x1x16xi32>, index, index, index, index, index
   return
 }
 
 // CHECK-LABEL: func @miopen_buffer_store_4xi32
-// CHECK: miopen.buffer_store %{{.*}} -> %{{.*}}
+// CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 // --------------------------
 // threadwise_copy tests.
@@ -548,32 +548,17 @@ func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : m
 // --------------------------
 // threadwise_copy_v2 tests.
 
-#transform_map2 = #miopen.transform_map<
-  affine_map<(d0, d1, d2, d3, d4) -> (d1 * 4 + d3)> by [
-    #miopen.transform<Embed{0, 4, 0, 1, 0} ["g", "m0", "m1", "m2", "n"] at [0, 1, 2, 3, 4]
-    -> ["raw"] at [1]>
-  ] bounds = [1, 4, 1, 4, 1] -> [16]>
-#transform_map3 = #miopen.transform_map<
-  affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3, d4)> by [
-    #miopen.transform<PassThrough ["g", "m0", "m1", "m2", "n"] at [0, 1, 2, 3, 4] ->
-      ["g", "n", "c", "h", "w"] at [0, 1, 2, 3, 4]>
-  ] bounds = [1, 4, 1, 4, 1] -> [1, 4, 1, 4, 1]>
-
-func @miopen_threadwise_copy_v2(%source : vector<32xf32>,
+func @miopen_threadwise_copy_v2(%source : memref<32xf32, 5>,
                                 %dest : memref<?x?x?x?x?xf32>) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
   // check source and destination with coordinate transforms.
   miopen.threadwise_copy_v2
-    %source[%c0, %c0, %c0, %c0, %c0] ->
+    %source[%c0] ->
     %dest[%c1, %c1, %c1, %c1, %c1]
-    with [[#transform_map2], [#transform_map3]]
-    {
-      sourceOffset = 0 : index,
-      paddingInfo = #gemm_padding0,
-      bounds = [1 : index, 4 : index, 1 : index, 4 : index, 1 : index],
-      storeMethod = 0 : i32
-    } : vector<32xf32>, index, index, index, index, index
+    storeMethod(set)
+    {length = 1 : index, leftOobDims = [], rightOobDims = []}
+    : memref<32xf32, 5>
     -> memref<?x?x?x?x?xf32>, index, index, index, index, index
 
   return
@@ -589,48 +574,6 @@ func @miopen_threadwise_gemm(%lhs : memref<1x4x8xf32>, %rhs : memref<1x4x8xf32>,
 
 // CHECK-LABEL: func @miopen_threadwise_gemm
 // CHECK: miopen.threadwise_gemm
-
-// ----
-
-func @miopen_mfma_v2_f32(%a : f32, %b : f32, %c : vector<32xf32>) -> vector<32xf32> {
-  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_f32_32x32x1f32", imm = [1, 0, 0] } : f32, vector<32xf32>
-  return %d : vector<32xf32>
-}
-
-// CHECK-LABEL: func @miopen_mfma_v2_f32
-//   CHECK: miopen.mfma_v2
-
-func @miopen_mfma_v2_f16(%a : vector<4xf16>, %b : vector<4xf16>, %c : vector<32xf32>) -> vector<32xf32> {
-  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_f32_32x32x4f16", imm = [1, 0, 0] } : vector<4xf16>, vector<32xf32>
-  return %d : vector<32xf32>
-}
-
-// CHECK-LABEL: func @miopen_mfma_v2_f16
-//   CHECK: miopen.mfma_v2
-
-func @miopen_mfma_v2_i8_4xi32(%a : vector<4xi8>, %b : vector<4xi8>, %c : vector<4xi32>) -> vector<4xi32> {
-  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_i32_32x32x8i8", imm = [0, 0, 0] } : vector<4xi8>, vector<4xi32>
-  return %d : vector<4xi32>
-}
-
-// CHECK-LABEL: func @miopen_mfma_v2_i8_4xi32
-//   CHECK: miopen.mfma_v2
-
-func @miopen_mfma_v2_i8_16xi32(%a : vector<4xi8>, %b : vector<4xi8>, %c : vector<16xi32>) -> vector<16xi32> {
-  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_i32_16x16x16i8", imm = [0, 0, 0] } : vector<4xi8>, vector<16xi32>
-  return %d : vector<16xi32>
-}
-
-// CHECK-LABEL: func @miopen_mfma_v2_i8_16xi32
-//   CHECK: miopen.mfma_v2
-
-func @miopen_mfma_v2_bf16(%a : vector<2xbf16>, %b : vector<2xbf16>, %c : vector<32xf32>) -> vector<32xf32> {
-  %d = miopen.mfma_v2(%a, %b, %c) { instr = "mfma_f32_32x32x2bf16", imm = [1, 0, 0] } : vector<2xbf16>, vector<32xf32>
-  return %d : vector<32xf32>
-}
-
-// CHECK-LABEL: func @miopen_mfma_v2_bf16
-//   CHECK: miopen.mfma_v2
 
 // ----
 

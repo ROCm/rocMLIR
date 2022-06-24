@@ -5,12 +5,18 @@ set(LLVM_LINK_COMPONENTS
 get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 
+if(MLIR_INCLUDE_TESTS)
+  set(test_libs
+    MLIRTestDialect
+    )
+endif()
+
 set(LIBS
   ${dialect_libs}
   ${conversion_libs}
+  ${test_libs}
   LLVMAMDGPUAsmParser
   LLVMX86AsmParser
-  LLVMROCmBackendUtils
   MLIRAnalysis
   MLIRExecutionEngine
   MLIRMIOpenOps
@@ -22,7 +28,6 @@ set(LIBS
   MLIRTransforms
   MLIRSupport
   MLIRIR
-  MLIRTestDialect
   MLIRMIOpenThin
   )
 
