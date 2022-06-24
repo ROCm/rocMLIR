@@ -1221,15 +1221,18 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     TopDownTMBuilder splitMemoryCoords(
         b, {"bid", "tid", "iter"},
         {kernelGridSize, kernelBlockSize, threadCNumRegisters}, loc);
-    splitMemoryCoords.merge({"g", "m_block", "n_block"}, {0, 1, 2}, "bid",
+    splitMemoryCoords.merge(
+        {"g", "m_block", "n_block"}, {0, 1, 2}, "bid",
         {kernelGridSize / GStride, GStride / NBlockWork, NBlockWork});
-    splitMemoryCoords.merge({"level1", "level0"}, {3, 4}, "tid",
+    splitMemoryCoords.merge(
+        {"level1", "level0"}, {3, 4}, "tid",
         {kernelBlockSize / ThreadPerLevel0Cluster, ThreadPerLevel0Cluster});
     splitMemoryCoords.merge({"m_iter", "n_iter"}, {5, 6}, "iter",
-        {threadCNumM, threadCNumN});
+                            {threadCNumM, threadCNumN});
     TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
 
-    auto toClusters = TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
+    auto toClusters =
+        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
     llvm::StringMap<uint32_t> toClustersIdxs = expandNamesInPlace(
         splitMemoryCoords, {{"level1", {"level1_m", "level1_n"}},
                             {"level0", {"level0_m", "level0_n"}},
