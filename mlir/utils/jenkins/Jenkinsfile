@@ -590,6 +590,7 @@ pipeline {
                                     HOME="${WORKSPACE}"
                                 }
                                 steps {
+                                    setHeartbeat()
                                     // Test with perfDb
                                     testMIOpenDriver("$DTYPE", "$LAYOUT", "1", "0")
                                     testMIOpenDriver("$DTYPE", "$LAYOUT", "2", "0")
