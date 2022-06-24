@@ -74,7 +74,7 @@ String dockerArgs() {
 }
 
 String dockerImage() {
-    return 'rocm/mlir:rocm5.0-latest'
+    return 'pcf0/mlir:rocm5.0-latest'
 }
 
 void preMergeCheck() {
@@ -190,7 +190,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
+                            label "mlir && ${params.canXdlops ? '(gfx90a || gfx90a)' : 'rocm' }"
                             alwaysPull true
                         }
                     }
@@ -248,7 +248,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
+                            label "mlir && ${params.canXdlops ? '(gfx90a || gfx90a)' : 'rocm' }"
                             alwaysPull true
                         }
                     }
@@ -298,7 +298,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'gfx906' }"
+                            label "mlir && ${params.canXdlops ? '(gfx90a || gfx90a)' : 'gfx906' }"
                             alwaysPull true
                         }
                     }
@@ -372,7 +372,7 @@ pipeline {
                     docker {
                         image dockerImage()
                         args dockerArgs()
-                        label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
+                        label "mlir && ${params.canXdlops ? '(gfx90a || gfx90a)' : 'rocm' }"
                         alwaysPull true
                     }
                 }
@@ -441,7 +441,7 @@ pipeline {
                         }
                         allOf {
                             anyOf {
-                                equals expected: "gfx908", actual: "${ARCH}";
+                                equals expected: "gfx90a", actual: "${ARCH}";
                                 equals expected: "gfx90a", actual: "${ARCH}";
                             }
                             equals expected: true, actual: params.canXdlops;
@@ -514,7 +514,7 @@ pipeline {
             steps {
                 // Note: add additional architectures here
                 dir ('MIOpen/build/MIOpenUserDB') {
-                    unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx908' : 'gfx906'}"
+                    unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx90a' : 'gfx906'}"
                     // This'll stop being a duplicate once Navi CI starts
                     unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx90a' : 'gfx906'}"
                     sh 'date --utc +%Y-%m-%d >tuning-date'
@@ -551,7 +551,7 @@ pipeline {
                             docker {
                                 image dockerImage()
                                 args dockerArgs()
-                                label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'gfx906'}"
+                                label "mlir && ${params.canXdlops ? '(gfx90a || gfx90a)' : 'gfx906'}"
                                 alwaysPull true
                             }
                         }
