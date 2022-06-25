@@ -10,10 +10,6 @@ void buildProject(String target, String cmakeOpts) {
     }
 }
 
-void MIOpen_cget_hack() {
-      sh 'sed -i "s|virtualenv_install(cget)|virtualenv_install(git+https://github.com/pcf000/cget.git@use-urlretrieve)|" install_deps.cmake'
-}
-
 void buildMIOpen(String cmakeOpts) {
     sh '[ ! -d build ] || rm -rf build'
     cmakeBuild generator: 'Unix Makefiles',\
@@ -30,10 +26,6 @@ void buildMIOpen(String cmakeOpts) {
 void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
     git branch: 'int8-perf-config', poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
-    sh 'sed -i "/ROCmSoftwarePlatform\\/llvm-project-mlir/d" ./requirements.txt'
-    MIOpen_cget_hack()
-    cmake arguments: "-P install_deps.cmake --minimum ${prefixOpt}",\
-        installation: "InSearchPath"
     buildMIOpen(cmakeOpts)
 }
 
@@ -46,10 +38,6 @@ void buildMIOpenWithMLIR() {
     dir('MIOpen') {
         git branch: 'int8-perf-config', poll: false,\
             url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
-        sh 'sed -i "/ROCmSoftwarePlatform\\/llvm-project-mlir/d" ./requirements.txt'
-        MIOpen_cget_hack()
-        cmake arguments: "-P install_deps.cmake --minimum --prefix ${WORKSPACE}/MIOpenDeps",\
-                installation: "InSearchPath"
         buildMIOpen('''-DMIOPEN_USE_MLIR=On
                         -DMIOPEN_BACKEND=HIP
                         -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpenDeps"
