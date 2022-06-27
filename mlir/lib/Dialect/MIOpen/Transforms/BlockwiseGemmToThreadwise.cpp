@@ -25,12 +25,14 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -83,221 +85,143 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
 
   LogicalResult matchAndRewrite(BlockwiseGemmOp op,
                                 PatternRewriter &b) const override {
-    auto loc = op.getLoc();
+    Location loc = op.getLoc();
 
     // Prepare some useful constants.
-    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+    Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
 
     auto blockAType = op.matrixA().getType().cast<MemRefType>();
+    auto blockBType = op.matrixB().getType().cast<MemRefType>();
+    auto bufferCType = op.matrixC().getType().cast<MemRefType>();
 
-    auto elementType =
-        op.matrixC().getType().cast<MemRefType>().getElementType();
+    auto elementType = bufferCType.getElementType();
 
-    // Obtain critical matrix dimensions.
-    int64_t K = blockAType.getShape()[1];
+    int64_t k = blockAType.getShape()[0];
+    int64_t m = blockAType.getShape()[1];
+    int64_t n = blockBType.getShape()[1];
+    int64_t kPack = blockAType.getShape()[2];
 
-    Value matrixA, matrixB;
-    ArrayAttr transformsA, transformsB;
-    std::tie(matrixA, transformsA) = untransform(b, op.matrixA());
-    std::tie(matrixB, transformsB) = untransform(b, op.matrixB());
-
-    ArrayAttr emptyArr = b.getArrayAttr({});
     // Non-xdlops path.
 
     // Obtain critical attributes.
-    int64_t KPack =
-        op->hasAttr("kpack")
-            ? op->getAttr("kpack").template cast<IntegerAttr>().getInt()
-            : 1;
-    int64_t KPerThread =
-        op->getAttr("k_per_thread").template cast<IntegerAttr>().getInt();
-    int64_t MPerThread =
-        op.matrixC().getType().template cast<MemRefType>().getShape()[1];
-    int64_t NPerThread =
-        op.matrixC().getType().template cast<MemRefType>().getShape()[2];
-    int64_t MPerThreadSubC =
-        op->getAttr("m_per_thread").template cast<IntegerAttr>().getInt();
-    int64_t NPerThreadSubC =
-        op->getAttr("n_per_thread").template cast<IntegerAttr>().getInt();
+    int64_t mC = bufferCType.getShape()[0];
+    int64_t nC = bufferCType.getShape()[1];
+    int64_t kPerThread = op.kPerThreadAttr().getInt();
+    int64_t mPerThread = op.mPerThreadAttr().getInt();
+    int64_t nPerThread = op.nPerThreadAttr().getInt();
+    int64_t mRepeatStride = op.mRepeatStrideAttr().getInt();
+    int64_t nRepeatStride = op.nRepeatStrideAttr().getInt();
+    int64_t mRepeat = mC / mPerThread;
+    int64_t nRepeat = nC / nPerThread;
 
-    LLVM_DEBUG(llvm::dbgs() << "MPerThread: " << MPerThread << "\n"
-                            << "MPerThreadSubC: " << MPerThreadSubC << "\n"
-                            << "NPerThread: " << NPerThread << "\n"
-                            << "NPerThreadSubC: " << NPerThreadSubC << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "M: " << mC << "\n"
+                            << "NRepeat: " << mRepeat << "\n"
+                            << "MPerThread: " << mPerThread << "\n"
+                            << "N: " << nC << "\n"
+                            << "NRepeat: " << nRepeat << "\n"
+                            << "NPerThread: " << nPerThread << "\n");
 
-    auto MPerThreadSubCConstantOp =
-        b.create<ConstantIndexOp>(loc, MPerThreadSubC);
-    auto NPerThreadSubCConstantOp =
-        b.create<ConstantIndexOp>(loc, NPerThreadSubC);
+    TopDownTMBuilder strideLDSBufferA(b,
+                                      {"k", "mRepeat", "mPerThread", "kpack"},
+                                      {k, mRepeat, m / mRepeat, kPack}, loc);
+    strideLDSBufferA.passThrough("k");
+    strideLDSBufferA.embed("m", 1, m, {"mRepeat", "mPerThread"},
+                           {mRepeatStride, 1});
+    strideLDSBufferA.passThrough({"kpack"}, {2}, {"kpack"});
+    TransformMapAttr strideLDSBufferAAttr = strideLDSBufferA.get();
 
-    int64_t MLevel0Cluster =
-        op->getAttr("m_level0_cluster").template cast<IntegerAttr>().getInt();
-    int64_t MLevel1Cluster =
-        op->getAttr("m_level1_cluster").template cast<IntegerAttr>().getInt();
-    int64_t NLevel0Cluster =
-        op->getAttr("n_level0_cluster").template cast<IntegerAttr>().getInt();
-    int64_t NLevel1Cluster =
-        op->getAttr("n_level1_cluster").template cast<IntegerAttr>().getInt();
+    TopDownTMBuilder strideLDSBufferB(b,
+                                      {"k", "nRepeat", "nPerThread", "kpack"},
+                                      {k, nRepeat, n / nRepeat, kPack}, loc);
+    strideLDSBufferB.passThrough("k");
+    strideLDSBufferB.embed("n", 1, n, {"nRepeat", "nPerThread"},
+                           {nRepeatStride, 1});
+    strideLDSBufferB.passThrough({"kpack"}, {2}, {"kpack"});
+    TransformMapAttr strideLDSBufferBAttr = strideLDSBufferB.get();
 
-    int64_t MPerLevel1Cluster =
-        MPerThreadSubC * MLevel0Cluster * MLevel1Cluster;
-    int64_t NPerLevel1Cluster =
-        NPerThreadSubC * NLevel0Cluster * NLevel1Cluster;
-    auto MPerLevel1ClusterConstantOp =
-        b.create<ConstantIndexOp>(loc, MPerLevel1Cluster);
-    auto NPerLevel1ClusterConstantOp =
-        b.create<ConstantIndexOp>(loc, NPerLevel1Cluster);
+    Value matrixA, matrixB;
+    ArrayAttr transformsA, transformsB;
+    std::tie(matrixA, transformsA) =
+        untransform(b, op.matrixA(), b.getArrayAttr({strideLDSBufferAAttr}));
+    std::tie(matrixB, transformsB) =
+        untransform(b, op.matrixB(), b.getArrayAttr({strideLDSBufferBAttr}));
 
-    int64_t MRepeat = MPerThread / MPerThreadSubC;
-    int64_t NRepeat = NPerThread / NPerThreadSubC;
+    int64_t threadANumRegisters = kPerThread * mC * kPack;
+    int64_t threadBNumRegisters = kPerThread * nC * kPack;
 
     // Alloc register for thread_a and thread_b.
-    Type threadARegisterMemRefType;
-    if (KPack > 1) {
-      threadARegisterMemRefType =
-          MemRefType::get({1, KPerThread, MPerThread, KPack}, elementType, {},
-                          gpu::GPUDialect::getPrivateAddressSpace());
-    } else {
-      threadARegisterMemRefType =
-          MemRefType::get({1, KPerThread, MPerThread}, elementType, {},
-                          gpu::GPUDialect::getPrivateAddressSpace());
-    }
+    auto threadARegisterMemRefType =
+        MemRefType::get(threadANumRegisters, elementType, {},
+                        gpu::GPUDialect::getPrivateAddressSpace());
     auto threadAAllocOp = b.create<GpuAllocOp>(loc, threadARegisterMemRefType);
 
-    Type threadBRegisterMemRefType;
-    if (KPack > 1) {
-      threadBRegisterMemRefType =
-          MemRefType::get({1, KPerThread, NPerThread, KPack}, elementType, {},
-                          gpu::GPUDialect::getPrivateAddressSpace());
-    } else {
-      threadBRegisterMemRefType =
-          MemRefType::get({1, KPerThread, NPerThread}, elementType, {},
-                          gpu::GPUDialect::getPrivateAddressSpace());
-    }
+    auto threadBRegisterMemRefType =
+        MemRefType::get(threadBNumRegisters, elementType, {},
+                        gpu::GPUDialect::getPrivateAddressSpace());
     auto threadBAllocOp = b.create<GpuAllocOp>(loc, threadBRegisterMemRefType);
 
+    // Define views of register tiles for copies
+    BottomUpTMBuilder viewA(b, {"raw"}, {threadANumRegisters}, loc);
+    viewA.unmerge({"k", "mRepeat", "mPerThread", "kpack"}, {0, 1, 2, 3}, "raw",
+                  {kPerThread, mRepeat, mPerThread, kPack});
+    TransformMapAttr threadACopyViewAttr = viewA.get();
+
+    BottomUpTMBuilder viewB(b, {"raw"}, {threadBNumRegisters}, loc);
+    viewB.unmerge({"k", "nRepeat", "nPerThread", "kpack"}, {0, 1, 2, 3}, "raw",
+                  {kPerThread, nRepeat, nPerThread, kPack});
+    TransformMapAttr threadBCopyViewAttr = viewB.get();
+
     // Main loop.
-    auto loopIteration = K / KPerThread;
-    auto loopOp = b.create<AffineForOp>(loc, 0, loopIteration);
+    LLVM_DEBUG(llvm::dbgs() << "Outer loop:\n "
+                            << "k =  " << k << "\n"
+                            << " kPerThread = " << kPerThread << "\n");
+    auto loopOp = b.create<AffineForOp>(loc, 0, k, kPerThread);
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointToStart(loopOp.getBody());
+    Value kOffset = loopOp.getInductionVar();
 
-    // inside the main loop.
-    auto lb = OpBuilder::atBlockTerminator(loopOp.getBody(), b.getListener());
-
-    auto iv = loopOp.getInductionVar();
-
-    // read matrix A loop.
-    auto loopReadMatrixAIteration = MRepeat;
-    auto loopReadMatrixAOp =
-        lb.create<AffineForOp>(loc, 0, loopReadMatrixAIteration);
-
-    // inside read matrix A loop.
-    auto lab = OpBuilder::atBlockTerminator(loopReadMatrixAOp.getBody(),
-                                            lb.getListener());
-
-    auto iva = loopReadMatrixAOp.getInductionVar();
-
-    // Threadwise copy from LDS (naive tensor) to register (generic tensor).
-
-    // Set copy sorce and dest coordinate acoording to original C++ logic:
-    SmallVector<Value, 4> matrixAThreadwiseCopySourceCoords;
-    if (KPack > 1) {
-      matrixAThreadwiseCopySourceCoords = {
-          zeroConstantOp, zeroConstantOp, iv,
-          lab.create<AddIOp>(
-              loc, lab.create<MulIOp>(loc, iva, MPerLevel1ClusterConstantOp),
-              op.threadOffsetA())};
-    } else {
-      matrixAThreadwiseCopySourceCoords = {
-          zeroConstantOp, iv,
-          lab.create<AddIOp>(
-              loc, lab.create<MulIOp>(loc, iva, MPerLevel1ClusterConstantOp),
-              op.threadOffsetA())};
+    SmallVector<Value, 5> registerStartCoords(4, zeroConstantOp);
+    SmallVector<Value, 5> ldsBufferAStartCoords = {
+        kOffset, zeroConstantOp, op.threadOffsetA(), zeroConstantOp};
+    auto copyALoop = b.create<TransformingForOp>(
+        loc, ArrayRef<ValueRange>{ldsBufferAStartCoords, registerStartCoords},
+        ArrayRef<Attribute>{transformsA, b.getArrayAttr(threadACopyViewAttr)},
+        ArrayRef<int64_t>{kPerThread, mRepeat, mPerThread, kPack},
+        /*strides=*/llvm::None, /*forceUnroll=*/true, /*indexDiffs=*/true);
+    {
+      OpBuilder::InsertionGuard copyAGuard(b);
+      b.setInsertionPointToStart(copyALoop.getBody());
+      Value aCopy = b.create<memref::LoadOp>(
+          loc, matrixA, copyALoop.getLowerCoords(/*domain=*/0));
+      Value aCast = createTypeConversionOp(b, loc, aCopy, elementType);
+      b.create<memref::StoreOp>(loc, aCast, threadAAllocOp,
+                                copyALoop.getLowerCoords(/*domain=*/1));
     }
 
-    SmallVector<Value, 4> matrixAThreadwiseCopyDestCoords;
-    if (KPack > 1) {
-      matrixAThreadwiseCopyDestCoords = {
-          zeroConstantOp, zeroConstantOp, zeroConstantOp,
-          lab.create<MulIOp>(loc, iva, MPerThreadSubCConstantOp)};
-    } else {
-      matrixAThreadwiseCopyDestCoords = {
-          zeroConstantOp, zeroConstantOp,
-          lab.create<MulIOp>(loc, iva, MPerThreadSubCConstantOp)};
+    SmallVector<Value, 5> ldsBufferBStartCoords = {
+        kOffset, zeroConstantOp, op.threadOffsetB(), zeroConstantOp};
+    auto copyBLoop = b.create<TransformingForOp>(
+        loc, ArrayRef<ValueRange>{ldsBufferBStartCoords, registerStartCoords},
+        ArrayRef<Attribute>{transformsB, b.getArrayAttr(threadBCopyViewAttr)},
+        ArrayRef<int64_t>{kPerThread, nRepeat, nPerThread, kPack},
+        /*strides=*/llvm::None, /*forceUnroll=*/true, /*indexDiffs=*/true);
+    {
+      OpBuilder::InsertionGuard copyBGuard(b);
+      b.setInsertionPointToStart(copyBLoop.getBody());
+      Value bCopy = b.create<memref::LoadOp>(
+          loc, matrixB, copyBLoop.getLowerCoords(/*domain=*/0));
+      Value bCast = createTypeConversionOp(b, loc, bCopy, elementType);
+      b.create<memref::StoreOp>(loc, bCast, threadBAllocOp,
+                                copyBLoop.getLowerCoords(/*domain=*/1));
     }
 
-    auto copyALoop = lab.create<TransformingForOp>(
-        loc,
-        ArrayRef<ValueRange>{matrixAThreadwiseCopySourceCoords,
-                             matrixAThreadwiseCopyDestCoords},
-        ArrayRef<Attribute>{transformsA, emptyArr},
-        ArrayRef<int64_t>{1, KPerThread, MPerThreadSubC},
-        /*strides=*/llvm::None, /*forceUnroll=*/true, /*indexDiffs=*/false);
-    OpBuilder copyABuilder =
-        OpBuilder::atBlockTerminator(copyALoop.getBody(), lab.getListener());
-    Value aCopy = copyABuilder.create<memref::LoadOp>(
-        loc, matrixA, copyALoop.getLowerCoords(/*domain=*/0));
-    Value aCast = createTypeConversionOp(copyABuilder, loc, aCopy, elementType);
-    copyABuilder.create<memref::StoreOp>(
-        loc, aCast, threadAAllocOp, copyALoop.getLowerCoords(/*domain=*/1));
-
-    // read matrix B loop.
-    auto loopReadMatrixBIteration = NRepeat;
-    auto loopReadMatrixBOp =
-        lb.create<AffineForOp>(loc, 0, loopReadMatrixBIteration);
-
-    // inside read matrix B loop.
-    auto lbb = OpBuilder::atBlockTerminator(loopReadMatrixBOp.getBody(),
-                                            lb.getListener());
-
-    auto ivb = loopReadMatrixBOp.getInductionVar();
-
-    // Threadwise copy from LDS (naive tensor) to register (generic tensor).
-
-    // Set copy sorce and dest coordinate acoording to original C++ logic:
-    SmallVector<Value, 4> matrixBThreadwiseCopySourceCoords;
-    if (KPack > 1) {
-      matrixBThreadwiseCopySourceCoords = {
-          zeroConstantOp, zeroConstantOp, iv,
-          lbb.create<AddIOp>(
-              loc, lbb.create<MulIOp>(loc, ivb, NPerLevel1ClusterConstantOp),
-              op.threadOffsetB())};
-    } else {
-      matrixBThreadwiseCopySourceCoords = {
-          zeroConstantOp, iv,
-          lbb.create<AddIOp>(
-              loc, lbb.create<MulIOp>(loc, ivb, NPerLevel1ClusterConstantOp),
-              op.threadOffsetB())};
-    }
-
-    SmallVector<Value, 4> matrixBThreadwiseCopyDestCoords;
-    if (KPack > 1) {
-      matrixBThreadwiseCopyDestCoords = {
-          zeroConstantOp, zeroConstantOp, zeroConstantOp,
-          lbb.create<MulIOp>(loc, ivb, NPerThreadSubCConstantOp)};
-    } else {
-      matrixBThreadwiseCopyDestCoords = {
-          zeroConstantOp, zeroConstantOp,
-          lbb.create<MulIOp>(loc, ivb, NPerThreadSubCConstantOp)};
-    }
-
-    auto copyBLoop = lbb.create<TransformingForOp>(
-        loc,
-        ArrayRef<ValueRange>{matrixBThreadwiseCopySourceCoords,
-                             matrixBThreadwiseCopyDestCoords},
-        ArrayRef<Attribute>{transformsB, emptyArr},
-        ArrayRef<int64_t>{1, KPerThread, NPerThreadSubC},
-        /*strides=*/llvm::None, /*forceUnroll=*/true, /*indexDiffs=*/false);
-    OpBuilder copyBBuilder =
-        OpBuilder::atBlockTerminator(copyBLoop.getBody(), lbb.getListener());
-    Value bCopy = copyBBuilder.create<memref::LoadOp>(
-        loc, matrixB, copyBLoop.getLowerCoords(/*domain=*/0));
-    Value bCast = createTypeConversionOp(copyBBuilder, loc, bCopy, elementType);
-    copyBBuilder.create<memref::StoreOp>(
-        loc, bCast, threadBAllocOp, copyBLoop.getLowerCoords(/*domain=*/1));
-
-    // Actually do the gemm
-    lb.create<ThreadwiseGemmOp>(loc, threadAAllocOp, threadBAllocOp,
-                                op.matrixC());
+    Value reshapedARegisters = reshapeBuffer(
+        b, loc, threadAAllocOp, {"k", "m", "kpack"}, {kPerThread, mC, kPack});
+    Value reshapedBRegisters = reshapeBuffer(
+        b, loc, threadBAllocOp, {"k", "n", "kpack"}, {kPerThread, nC, kPack});
+    // Actually do the gemm - this goes inside the look over kOffset
+    b.create<ThreadwiseGemmOp>(loc, reshapedARegisters, reshapedBRegisters,
+                               op.matrixC());
 
     op.erase();
     return success();
@@ -465,71 +389,6 @@ struct BlockwiseGemmV2RewritePattern
 };
 
 //===----------------------------------------------------------------------===//
-// ThreadwiseCopy lowering.
-//===----------------------------------------------------------------------===//
-struct ThreadwiseCopyRewritePattern
-    : public OpRewritePattern<ThreadwiseCopyOp> {
-  using OpRewritePattern<ThreadwiseCopyOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ThreadwiseCopyOp op,
-                                PatternRewriter &b) const override {
-    Location loc = op.getLoc();
-
-    ArrayAttr srcTransformsOnOp = op.transforms()[0].cast<ArrayAttr>();
-    ArrayAttr destTransformsOnOp = op.transforms()[1].cast<ArrayAttr>();
-    Value source, dest;
-    ArrayAttr srcTransforms, destTransforms;
-    std::tie(source, srcTransforms) =
-        untransform(b, op.source(), srcTransformsOnOp);
-    std::tie(dest, destTransforms) =
-        untransform(b, op.dest(), destTransformsOnOp);
-    MemRefType sourceType = source.getType().cast<MemRefType>();
-    MemRefType destType = dest.getType().cast<MemRefType>();
-
-    bool legacyLoad = op.legacyLoad().getValueOr(false);
-    bool legacyStore = op.legacyStore().getValueOr(false);
-    bool useIndexDiffs = !(legacyLoad || legacyStore);
-
-    ArrayAttr srcLeftOob, srcRightOob, destLeftOob, destRightOob;
-    std::tie(srcLeftOob, srcRightOob) =
-        computeOobFromTransforms(b, srcTransforms);
-    std::tie(destLeftOob, destRightOob) =
-        computeOobFromTransforms(b, destTransforms);
-
-    TransformingForOp loop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{op.sourceCoord(), op.destCoord()},
-        ArrayRef<Attribute>{srcTransforms, destTransforms}, op.bounds(),
-        /*strides=*/ArrayAttr{}, /*forceUnroll=*/true, useIndexDiffs);
-    PatternRewriter::InsertionGuard loopGuard(b);
-    b.setInsertionPointToStart(loop.getBody());
-
-    bool loadGlobal = sourceType.getMemorySpaceAsInt() == 0;
-    bool storeGlobal = destType.getMemorySpaceAsInt() == 0;
-
-    Value loaded;
-    if (loadGlobal)
-      loaded = b.create<BufferLoadOp>(loc, sourceType.getElementType(), source,
-                                      srcLeftOob, srcRightOob,
-                                      loop.getLowerCoords(/*domain=*/0));
-    else
-      loaded = b.create<memref::LoadOp>(loc, source,
-                                        loop.getLowerCoords(/*domain=*/0));
-    Value cast =
-        createTypeConversionOp(b, loc, loaded, destType.getElementType());
-    if (storeGlobal)
-      b.create<BufferStoreOp>(loc, cast, dest, destLeftOob, destRightOob,
-                              loop.getLowerCoords(/*domain=*/1),
-                              /*dataOperation=*/StoreMethod::Set);
-    else
-      b.create<memref::StoreOp>(loc, cast, dest,
-                                loop.getLowerCoords(/*domain=*/1));
-
-    b.eraseOp(op);
-    return success();
-  }
-};
-
-//===----------------------------------------------------------------------===//
 // ThreadwiseCopyV2 lowering.
 //===----------------------------------------------------------------------===//
 struct ThreadwiseCopyV2RewritePattern
@@ -565,8 +424,8 @@ void LowerMIOpenOpsStep3Pass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   RewritePatternSet patterns(ctx);
   patterns.add<FillRewritePattern, BlockwiseGemmRewritePattern,
-               BlockwiseGemmV2RewritePattern, ThreadwiseCopyRewritePattern,
-               ThreadwiseCopyV2RewritePattern>(ctx);
+               BlockwiseGemmV2RewritePattern, ThreadwiseCopyV2RewritePattern>(
+      ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }

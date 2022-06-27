@@ -638,35 +638,7 @@ def MIOpen_InBoundsStoreOp :
 }
 
 
-// TODO(kdrewnia): Remove these - they're left in to ensure a smooth transition
-// of fusion passes to the transforming_for structure
-
-// threadwise_copy
-def MIOpen_ThreadwiseCopyOp:
-    MIOpen_Op<"threadwise_copy", [SameVariadicOperandSize]>,
-    Arguments<(ins AnyMemRef:$source,
-                   AnyMemRef:$dest,
-                   IndexArrayAttr:$bounds,
-                   ArgTransforms<2>:$transforms,
-                   MIOpen_PaddingInfoAttr:$paddingInfo,
-                   Variadic<Index>:$sourceCoord,
-                   Variadic<Index>:$destCoord,
-                   OptionalAttr<BoolAttr>:$legacyLoad,
-                   OptionalAttr<BoolAttr>:$legacyStore)> {
-  let summary = "Threadwise GPU data movement";
-  let description = [{
-    The `miopen.threadwise_copy` op moves data on GPU. Following movements are
-    allowed:
-    - Global (generic tensor) to register (naive tensor).
-    - Register (naive tensor) to global (generic tensor).
-  }];
-  let assemblyFormat = [{
-    $source `[` $sourceCoord `]` `->` $dest `[` $destCoord `]`
-    `with` $transforms attr-dict
-    `:` type($source) `,` type($sourceCoord) `->` type($dest) `,` type($destCoord)
-  }];
-  let hasVerifier = 1;
-}
+// TODO(kdrewnia): Remove this by marking global loads and stores with attributes
 
 // threadwise_copy_v2
 def MIOpen_ThreadwiseCopyV2Op :
@@ -698,16 +670,29 @@ def MIOpen_ThreadwiseCopyV2Op :
 // blockwise_gemm
 def MIOpen_BlockwiseGemmOp:
     MIOpen_Op<"blockwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$matrixA,
-                   MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$matrixB,
-                   AnyMemRef:$matrixC,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixA,
+                   MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixB,
+                   MemRefRankOf<[F32, F16, BF16, I32], [2]>:$matrixC,
                    Index:$threadOffsetA,
-                   Index:$threadOffsetB)> {
+                   Index:$threadOffsetB,
+                   IndexAttr:$kPerThread,
+                   IndexAttr:$mPerThread,
+                   IndexAttr:$nPerThread,
+                   IndexAttr:$mRepeatStride,
+                   IndexAttr:$nRepeatStride
+                   )> {
   let summary = "Blockwise GEMM non-XDLOPS version";
   let description = [{
-    The `miopen.block_gemm` op does GEMM at workgroup (block) level.
-    - Matrix A and Matrix B shall reside on LDS (naive tensor).
-    - Matrix C shall reside on register (naive tensor).
+    The `miopen.blockwise_gemm` op does gemm at the blockwise level without xdlops.
+
+    Matrix A resides in LDS and has dimensions [k, m_c * mRepeatStride, kPack].
+    Matrix B resides in LDS and has dimensions [k, n_c * nRepeatStride, kPack].
+    Matrix C resides in registers and has dimensions [m_c, n_c].
+
+    The two index arguments specify a given threads's offset into the LDS buffer..
+    Each {m,n}PerThread group of elements (which may themselves be kPacks)
+    is read from LDS by a given thread, then the next mPerThread group is
+    mRepeatStride elements later in the buffer.
   }];
   let assemblyFormat = [{
     `(` operands `)` attr-dict `:` type(operands)
@@ -749,19 +734,24 @@ def MIOpen_BlockwiseGemmV2Op:
 
 // threadwise_gemm
 def MIOpen_ThreadwiseGemmOp:
-    MIOpen_Op<"threadwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$matrixA,
-                   MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$matrixB,
-                   MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$matrixC)> {
+    MIOpen_Op<"threadwise_gemm",
+      [AllElementTypesMatch<["matrixA", "matrixB", "matrixC"]>]>,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [3]>:$matrixA,
+                   MemRefRankOf<[F32, F16, BF16, I32], [3]>:$matrixB,
+                   MemRefRankOf<[F32, F16, BF16, I32], [2]>:$matrixC)> {
   let summary = "Threadwise GEMM non-XDLOPS version";
   let description = [{
     The `miopen.threadwise_gemm` op does GEMM at thread level.
-    - Matrix A and Matrix B shall reside on register (naive tensor).
-    - Matrix C is in registers.
+    All arguments should be in registers (memref address space 5).
+
+    The dimensions of the multiplication arguments are
+     [m, n] = [k, m, kPack] * [k, n, kPack].
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
+    $matrixC `+` `` `=` $matrixA `*` $matrixB attr-dict
+    `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
   }];
+  let hasVerifier = 1;
 }
 
 // xdlops_gemm_V2

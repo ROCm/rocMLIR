@@ -964,65 +964,21 @@ LogicalResult InBoundsStoreOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// ThreadwiseCopyOp
+// ThreadwiseGemmOp
 //===----------------------------------------------------------------------===//
+LogicalResult ThreadwiseGemmOp::verify() {
+  ArrayRef<int64_t> aShape = matrixA().getType().cast<MemRefType>().getShape(),
+                    bShape = matrixB().getType().cast<MemRefType>().getShape(),
+                    cShape = matrixC().getType().cast<MemRefType>().getShape();
 
-LogicalResult ThreadwiseCopyOp::verify() {
-  ThreadwiseCopyOp &op = *this;
-  auto sourceCoord = op.sourceCoord();
-  auto destCoord = op.destCoord();
-  auto sourceType = op.source().getType().cast<MemRefType>();
-  auto destType = op.dest().getType().cast<MemRefType>();
-  auto sourceRank = sourceType.getRank();
-  auto destRank = destType.getRank();
-  auto sourceAffineMap = sourceType.getLayout().getAffineMap();
-  auto destAffineMap = destType.getLayout().getAffineMap();
-
-  unsigned expectedSourceCoords = sourceRank;
-  unsigned expectedDestCoords = destRank;
-
-  // check if memrefs have embedded affine maps.
-  expectedSourceCoords = sourceAffineMap.getNumInputs();
-  expectedDestCoords = destAffineMap.getNumInputs();
-
-  // check if memrefs have externally defined affine maps.
-  for (auto outerPair :
-       llvm::enumerate(op.transforms().getAsRange<ArrayAttr>())) {
-    size_t index = outerPair.index();
-    ArrayAttr transforms = outerPair.value();
-    if (transforms.size() > 0) {
-      auto firstTransform = transforms[0].cast<TransformMapAttr>();
-      auto lastTransform =
-          transforms[transforms.size() - 1].cast<TransformMapAttr>();
-      AffineMap firstMap = firstTransform.getMap().getValue();
-      AffineMap lastMap = lastTransform.getMap().getValue();
-      if (index == 0) {
-        if (lastMap.getNumResults() != sourceRank)
-          return op.emitError(
-              "Number of coordindates in externally defined affine map doesn't "
-              "match the rank of the source memref");
-
-        expectedSourceCoords = firstMap.getNumInputs();
-      } else if (index == 1) {
-        if (lastMap.getNumResults() != destRank)
-          return op.emitError(
-              "Number of coordindates in externally defined affine map doesn't "
-              "match the rank of the destination memref");
-
-        expectedDestCoords = firstMap.getNumInputs();
-      }
-    }
-  }
-
-  if (sourceCoord.size() != expectedSourceCoords)
-    return op.emitError(
-        "Number of coordinates supplied doesn't match the rank, or affine maps "
-        "of source memref");
-  if (destCoord.size() != expectedDestCoords)
-    return op.emitError(
-        "Number of coordinates supplied doesn't match the rank, or affine maps "
-        "of destination memref");
-
+  if (aShape[0] != bShape[0])
+    return emitOpError("K dimensions don't match");
+  if (aShape[1] != cShape[0])
+    return emitOpError("M dimensions don't match");
+  if (bShape[1] != cShape[1])
+    return emitOpError("N dimensions don't match");
+  if (aShape[2] != bShape[2])
+    return emitOpError("KPack dimensions don't match");
   return success();
 }
 

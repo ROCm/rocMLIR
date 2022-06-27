@@ -135,6 +135,10 @@ public:
                    ArrayRef<int64_t> startShape, mlir::Location loc)
       : TransformMapBuilder(builder, startNames, startShape, loc) {}
 
+  TopDownTMBuilder(mlir::Builder &builder, ArrayRef<int64_t> startShape,
+                   mlir::Location loc)
+      : TransformMapBuilder(builder, startShape, loc) {}
+
   static TopDownTMBuilder below(TopDownTMBuilder &previous,
                                 TransformMapAttr &result) {
     return TransformMapBuilder::nextTransforms(previous,
@@ -164,6 +168,36 @@ protected:
   void extractBounds(SmallVectorImpl<int64_t> &upperDims,
                      SmallVectorImpl<int64_t> &lowerDims) override final;
   int64_t paddingSign() const override final;
+};
+
+/// A wrapper around a TopDownTMBuilder that looks up end dimensions in a
+/// provided map, used for cases such as when merge()ing will create extra
+/// dimensions. This takes the builder by reference and does modefiations there
+/// and thus doesn't expose its own get() method. Everything is defined here
+/// to increase inlineability
+struct TopDownTMBottomDimsWrapper {
+  TopDownTMBuilder &b;
+  llvm::StringMap<uint32_t> bottomDims;
+
+  TopDownTMBottomDimsWrapper(TopDownTMBuilder &b,
+                             llvm::StringMap<uint32_t> bottomDims)
+      : b(b), bottomDims(bottomDims) {}
+  void passThrough(StringRef name);
+  void passThrough(ArrayRef<StringRef> names);
+
+  void pad(ArrayRef<StringRef> outNames, ArrayRef<StringRef> inNames,
+           ArrayRef<int64_t> params);
+
+  void embed(StringRef lowerName, int64_t lowerSize,
+             ArrayRef<StringRef> upperNames, ArrayRef<int64_t> coefficients);
+
+  void unmerge(StringRef lowerName, ArrayRef<StringRef> upperNames,
+               ArrayRef<int64_t> lengths);
+
+  void merge(ArrayRef<StringRef> lowerNames, StringRef upperName,
+             ArrayRef<int64_t> sizes, bool isUnfold = false);
+
+  llvm::SmallVector<uint32_t> toBottomDims(ArrayRef<StringRef> names);
 };
 
 /// Builds a coordinate transformation from the bottom (lower) layer up.

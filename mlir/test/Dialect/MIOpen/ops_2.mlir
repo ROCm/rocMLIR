@@ -66,23 +66,15 @@ func @miopen_indexing() {
 //   CHECK-NEXT: miopen.workgroup_id
 //   CHECK-NEXT: miopen.workitem_id
 
-func @miopen_blockwise_gemm(%A : memref<?x?x?xf32, 3>, %B : memref<?x?x?xf32, 3>, %C : memref<?x?x?xf32, 5>) {
+func @miopen_blockwise_gemm(%A : memref<8x128x1xf32, 3>, %B : memref<8x128x1xf32, 3>, %C : memref<8x8xf32, 5>) {
   %c0 = arith.constant 0 : index
   miopen.blockwise_gemm(%A, %B, %C, %c0, %c0) {
-    transforms = [[], []],
-
-    m_per_thread = 64,
-    n_per_thread = 64,
-    k_per_thread = 16,
-
-    m_level0_cluster = 16,
-    n_level0_cluster = 16,
-    m_level1_cluster = 16,
-    n_level1_cluster = 16,
-
-    matrix_a_source_data_per_read = 4,
-    matrix_b_source_data_per_read = 4
-  } : memref<?x?x?xf32, 3>, memref<?x?x?xf32, 3>, memref<?x?x?xf32, 5>, index, index
+    kPerThread = 1 : index,
+    mPerThread = 4 : index,
+    mRepeatStride = 64 : index,
+    nPerThread = 4 : index,
+    nRepeatStride = 64 : index
+  } : memref<8x128x1xf32, 3>, memref<8x128x1xf32, 3>, memref<8x8xf32, 5>, index, index
   return
 }
 
@@ -448,104 +440,6 @@ func @miopen_buffer_store_4xi32(%data: vector<4xi32>, %dest: memref<1x1x1x1x16xi
 // CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 // --------------------------
-// threadwise_copy tests.
-
-#transform_map0 = #miopen.transform_map<
-  affine_map<(d0, d1) -> (d1, d0 floordiv 9, (d0 mod 9) floordiv 3, (d0 mod 9) mod 3)> by
-  [#miopen.transform<PassThrough ["b"] at [1] -> ["w"] at [0]>,
-   #miopen.transform<Merge{3, 3, 3} ["a"] at [0] -> ["x", "y", "z"] at [1, 2, 3]>
-  ] bounds = [1, 27] -> [1, 3, 3, 3]>
-
-#transform_map1 = #miopen.transform_map<
-  affine_map<(d0, d1, d2, d3) -> (d1, d0, d2, d3)> by [
-    #miopen.transform<PassThrough ["w", "x", "y", "z"] at [0, 1, 2, 3]
-      -> ["x", "w", "y", "z"] at [1, 0, 2, 3]>
-    ] bounds = [1, 3, 3, 3] -> [3, 1, 3, 3]>
-
-func @miopen_threadwise_copy(%source_coord : memref<2xindex, 5>, %dest_coord : memref<2xindex, 5>,
-                             %source : memref<?x?xf32, 5>, %dest : memref<?x?xf32, 5>,
-                             %source_with_transform_maps : memref<?x?x?x?xf32>,
-                             %dest_with_transform_maps : memref<?x?x?x?xf32>) {
-  %c0 = arith.constant 0 : index
-  %c1 = arith.constant 1 : index
-  %source_coord_y = memref.load %source_coord[%c0] : memref<2xindex, 5>
-  %source_coord_x = memref.load %source_coord[%c0] : memref<2xindex, 5>
-  %dest_coord_y = memref.load %dest_coord[%c0] : memref<2xindex, 5>
-  %dest_coord_x = memref.load %dest_coord[%c0] : memref<2xindex, 5>
-
-  // check source and dest as vanilla memrefs.
-  miopen.threadwise_copy
-    %source[%source_coord_x, %source_coord_y] ->
-    %dest[%dest_coord_x, %dest_coord_y]
-    with [[], []]
-    { paddingInfo = #gemm_padding0,
-      bounds = [1 : index, 1 : index]}
-    : memref<?x?xf32, 5>, index, index -> memref<?x?xf32, 5>, index, index
-
-  // -----
-
-  // check source with one coordinate transform.
-  miopen.threadwise_copy
-    %source_with_transform_maps[%source_coord_x, %source_coord_y] ->
-    %dest[%dest_coord_x, %dest_coord_y] with [[#transform_map0], []]
-    { paddingInfo = #gemm_padding0,
-     bounds = [1 : index, 1 : index] }
-    : memref<?x?x?x?xf32>, index, index -> memref<?x?xf32, 5>, index, index
-
-  // check source with multiple coordinate transforms.
-  miopen.threadwise_copy
-    %source_with_transform_maps[%source_coord_x, %source_coord_y] ->
-    %dest[%dest_coord_x, %dest_coord_y]
-    with [[#transform_map0, #transform_map1], []]
-    { paddingInfo = #gemm_padding0,
-      bounds = [1 : index, 1 : index] }
-    : memref<?x?x?x?xf32>, index, index -> memref<?x?xf32, 5>, index, index
-
-  // check destination with one coordinate transform.
-  miopen.threadwise_copy
-    %source[%source_coord_x, %source_coord_y] ->
-    %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
-    with [[], [#transform_map0]]
-    { paddingInfo = #gemm_padding0,
-      bounds = [1 : index, 1 : index] }
-    : memref<?x?xf32, 5>, index, index -> memref<?x?x?x?xf32>, index, index
-
-  // check destination with multiple coordinate transform.
-  miopen.threadwise_copy
-    %source[%source_coord_x, %source_coord_y] ->
-    %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
-    with [[], [#transform_map0, #transform_map1]]
-    { paddingInfo = #gemm_padding0,
-      bounds = [1 : index, 1 : index] }
-    : memref<?x?xf32, 5>, index, index -> memref<?x?x?x?xf32>, index, index
-
-  // -----
-
-  // check source and destination with one coordinate transform.
-  miopen.threadwise_copy
-    %source_with_transform_maps[%source_coord_x, %source_coord_y] ->
-    %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
-    with [[#transform_map0], [#transform_map0]]
-    { paddingInfo = #gemm_padding0,
-      bounds = [1 : index, 1 : index] }
-    : memref<?x?x?x?xf32>, index, index -> memref<?x?x?x?xf32>, index, index
-
-  // check source and destination with multiple coordinate transforms.
-  miopen.threadwise_copy
-    %source_with_transform_maps[%source_coord_x, %source_coord_y] ->
-    %dest_with_transform_maps[%dest_coord_x, %dest_coord_y]
-    with [[#transform_map0, #transform_map1], [#transform_map0, #transform_map1]]
-    { paddingInfo = #gemm_padding0,
-      bounds = [1 : index, 1 : index] }
-    : memref<?x?x?x?xf32>, index, index -> memref<?x?x?x?xf32>, index, index
-
-  return
-}
-
-// CHECK-LABEL: func @miopen_threadwise_copy
-// CHECK: miopen.threadwise_copy
-
-// --------------------------
 // threadwise_copy_v2 tests.
 
 func @miopen_threadwise_copy_v2(%source : memref<32xf32, 5>,
@@ -567,8 +461,9 @@ func @miopen_threadwise_copy_v2(%source : memref<32xf32, 5>,
 // CHECK-LABEL: func @miopen_threadwise_copy_v2
 // CHECK: miopen.threadwise_copy_v2
 
-func @miopen_threadwise_gemm(%lhs : memref<1x4x8xf32>, %rhs : memref<1x4x8xf32>, %output : memref<1x8x8xf32>) {
-  miopen.threadwise_gemm(%lhs, %rhs, %output) : memref<1x4x8xf32>, memref<1x4x8xf32>, memref<1x8x8xf32>
+func @miopen_threadwise_gemm(%lhs : memref<4x8x1xf32, 5>, %rhs : memref<4x8x1xf32, 5>, %output : memref<8x8xf32, 5>) {
+  miopen.threadwise_gemm %output += %lhs * %rhs
+  : memref<8x8xf32, 5> += memref<4x8x1xf32, 5> * memref<4x8x1xf32, 5>
   return
 }
 

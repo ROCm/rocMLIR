@@ -9,6 +9,7 @@
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 
 #include "mlir/Dialect/MIOpen/MIOpen.h"
+#include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/DenseSet.h"
@@ -193,6 +194,11 @@ std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
   return {ret, b.getArrayAttr(transformList)};
 }
 
+std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
+                                         ArrayRef<Attribute> existing) {
+  return untransform(b, transformed, b.getArrayAttr(existing));
+}
+
 std::tuple<ArrayAttr, ArrayAttr> computeOobFromTransforms(
     Builder &b, ArrayAttr transforms,
     Optional<std::tuple<ArrayAttr, ArrayAttr>> initialOob) {
@@ -295,6 +301,31 @@ mlir::Type obtainConvDataType(Operation *op) {
       .getType()
       .template cast<MemRefType>()
       .getElementType();
+}
+
+TransformOp reshapeBuffer(OpBuilder &b, Location loc, Value buffer,
+                          ArrayRef<StringRef> names, ArrayRef<int64_t> shape) {
+  MemRefType bufferType = buffer.getType().cast<MemRefType>();
+  ArrayRef<int64_t> outShape = bufferType.getShape();
+  assert(outShape.size() == 1 && "Buffer being reshaped must start linear");
+
+  SmallVector<int64_t> strides;
+  strides.reserve(shape.size());
+  int64_t stride = 1;
+  for (int64_t v : llvm::reverse(shape)) {
+    strides.push_back(stride);
+    stride *= v;
+  }
+  std::reverse(strides.begin(), strides.end());
+  assert(stride == outShape[0] && "Strides must multiply to buffer length");
+
+  TopDownTMBuilder transform(b, names, shape, loc);
+  transform.embed("raw", 0, outShape[0], names, strides);
+
+  TransformMapAttr transformAttr = transform.get();
+  auto ret = b.create<TransformOp>(loc, buffer, transformAttr,
+                                   bufferType.getMemorySpaceAsInt());
+  return ret;
 }
 } // namespace miopen
 } // namespace mlir

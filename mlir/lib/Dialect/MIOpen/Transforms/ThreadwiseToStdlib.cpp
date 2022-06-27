@@ -31,6 +31,7 @@
 #include "mlir/Dialect/MIOpen/AffineMapHelper.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
 #include "mlir/Dialect/MIOpen/XdlopsCodeSelection.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
@@ -906,116 +907,84 @@ struct ThreadwiseGemmRewritePattern
 
   LogicalResult matchAndRewrite(ThreadwiseGemmOp op,
                                 PatternRewriter &b) const override {
-    auto loc = op.getLoc();
+    Location loc = op.getLoc();
 
-    auto gemmA = op.matrixA();
-    auto gemmB = op.matrixB();
-    auto gemmC = op.matrixC();
-    auto dataType =
-        gemmA.getType().template cast<MemRefType>().getElementType();
+    Value gemmA = op.matrixA();
+    Value gemmB = op.matrixB();
+    Value gemmC = op.matrixC();
+    auto gemmAType = gemmA.getType().cast<MemRefType>();
+    Type dataType = gemmAType.getElementType();
 
-    ArrayRef<int64_t> gemmAShape =
-        gemmA.getType().cast<MemRefType>().getShape();
-    ArrayRef<int64_t> gemmBShape =
-        gemmB.getType().cast<MemRefType>().getShape();
+    ArrayRef<int64_t> aShape = gemmAType.getShape();
+    int64_t k = aShape[0];
+    int64_t m = aShape[1];
+    int64_t kPack = aShape[2];
+    int64_t n = gemmB.getType().cast<MemRefType>().getShape()[1];
+    LLVM_DEBUG(llvm::dbgs() << "Threadwise gemm:\n"
+                            << "k = " << k << "\n"
+                            << "m = " << m << "\n"
+                            << "n = " << n << "\n"
+                            << "kPack = " << kPack << "\n");
+    SmallVector<int64_t> dimensions = {k, m, n, kPack};
 
-    assert(gemmAShape.size() == gemmBShape.size());
-    assert((gemmAShape.size() == 3) || (gemmAShape.size() == 4));
-    if (gemmAShape.size() == 3) {
-      // non-KPack path.
-      auto loopG = b.create<AffineForOp>(loc, 0, gemmAShape[0]);
-      auto lbG = loopG.getBody();
-      b.setInsertionPointToStart(lbG);
+    TopDownTMBuilder aView(b, {"k", "m", "n", "kpack"}, dimensions, loc);
+    aView.ignore("n");
+    aView.passThrough({"k", "m", "kpack"}, {0, 1, 2}, {"k", "m", "kpack"});
+    TransformMapAttr aViewAttr = aView.get();
 
-      auto loopK = b.create<AffineForOp>(loc, 0, gemmAShape[1]);
-      auto lbK = loopK.getBody();
-      b.setInsertionPointToStart(lbK);
+    TopDownTMBuilder bView(b, {"k", "m", "n", "kpack"}, dimensions, loc);
+    bView.ignore("m");
+    bView.passThrough({"k", "n", "kpack"}, {0, 1, 2}, {"k", "n", "kpack"});
+    TransformMapAttr bViewAttr = bView.get();
 
-      auto loopM = b.create<AffineForOp>(loopK.getLoc(), 0, gemmAShape[2]);
-      auto lbM = loopM.getBody();
-      b.setInsertionPointToStart(lbM);
+    TopDownTMBuilder cView(b, {"k", "m", "n", "kpack"}, dimensions, loc);
+    cView.ignore("k");
+    cView.ignore("kpack");
+    cView.passThrough({"m", "n"}, {0, 1}, {"m", "n"});
+    TransformMapAttr cViewAttr = cView.get();
 
-      auto loopN = b.create<AffineForOp>(loc, 0, gemmBShape[2]);
-      auto lbN = loopN.getBody();
-      b.setInsertionPointToStart(lbN);
+    Value zeroConst = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+    SmallVector<Value, 5> startCoords(4, zeroConst);
 
-      SmallVector<Value, 3> memIndicesKM;
-      extractForInductionVars({loopG, loopK, loopM}, &memIndicesKM);
-      auto gemmAKM = b.create<AffineLoadOp>(loc, gemmA, memIndicesKM);
+    ArrayAttr aTransforms, bTransforms, cTransforms;
+    Value bufferA, bufferB, bufferC;
+    std::tie(bufferA, aTransforms) = untransform(b, gemmA, {aViewAttr});
+    std::tie(bufferB, bTransforms) = untransform(b, gemmB, {bViewAttr});
+    std::tie(bufferC, cTransforms) = untransform(b, gemmC, {cViewAttr});
 
-      SmallVector<Value, 3> memIndicesKN;
-      extractForInductionVars({loopG, loopK, loopN}, &memIndicesKN);
-      auto gemmBKN = b.create<AffineLoadOp>(loc, gemmB, memIndicesKN);
+    auto gemmLoop = b.create<TransformingForOp>(
+        loc, ArrayRef<ValueRange>{startCoords, startCoords, startCoords},
+        ArrayRef<Attribute>{aTransforms, bTransforms, cTransforms}, dimensions,
+        /*strides=*/llvm::None, /*forceUnroll=*/true, /*useIndexDiffs=*/false);
 
+    {
+      OpBuilder::InsertionGuard guard(b);
+      b.setInsertionPointToStart(gemmLoop.getBody());
+      Value aVal = b.create<InBoundsLoadOp>(
+          loc, dataType, bufferA, gemmLoop.getLowerCoords(/*domain=*/0));
+      Value bVal = b.create<InBoundsLoadOp>(
+          loc, dataType, bufferB, gemmLoop.getLowerCoords(/*domain=*/1));
       Value mul;
-      if (dataType.isa<IntegerType>()) {
-        mul = b.create<MulIOp>(loc, dataType, gemmAKM, gemmBKN);
-      } else {
-        mul = b.create<MulFOp>(loc, dataType, gemmAKM, gemmBKN);
-      }
-      SmallVector<Value, 3> memIndicesMN;
-      extractForInductionVars({loopG, loopM, loopN}, &memIndicesMN);
-      auto gemmCMN = b.create<AffineLoadOp>(loc, gemmC, memIndicesMN);
+      if (dataType.isa<IntegerType>())
+        mul = b.create<MulIOp>(loc, aVal, bVal);
+      else if (dataType.isa<FloatType>())
+        mul = b.create<MulFOp>(loc, aVal, bVal);
+      else
+        llvm_unreachable("Validation should make this ints or floats only");
 
+      ValueRange cCoords = gemmLoop.getLowerCoords(/*domain=*/2);
+      Value cVal = b.create<InBoundsLoadOp>(loc, dataType, bufferC, cCoords);
       Value add;
-      if (dataType.isa<IntegerType>()) {
-        add = b.create<AddIOp>(loc, dataType, mul, gemmCMN);
-      } else {
-        add = b.create<AddFOp>(loc, dataType, mul, gemmCMN);
-      }
-      b.create<AffineStoreOp>(loc, add, gemmC, memIndicesMN);
-    } else if (gemmAShape.size() == 4) {
-      // KPack path.
-      auto loopG = b.create<AffineForOp>(loc, 0, gemmAShape[0]);
-      auto lbG = loopG.getBody();
-      b.setInsertionPointToStart(lbG);
+      if (dataType.isa<IntegerType>())
+        add = b.create<AddIOp>(loc, mul, cVal);
+      else if (dataType.isa<FloatType>())
+        add = b.create<AddFOp>(loc, mul, cVal);
+      else
+        llvm_unreachable("Very serously can't happen");
 
-      auto loopK = b.create<AffineForOp>(loc, 0, gemmAShape[1]);
-      auto lbK = loopK.getBody();
-      b.setInsertionPointToStart(lbK);
-
-      auto loopM = b.create<AffineForOp>(loopK.getLoc(), 0, gemmAShape[2]);
-      auto lbM = loopM.getBody();
-      b.setInsertionPointToStart(lbM);
-
-      auto loopKPack = b.create<AffineForOp>(loc, 0, gemmAShape[3]);
-      auto lbKPack = loopKPack.getBody();
-      b.setInsertionPointToStart(lbKPack);
-
-      auto loopN = b.create<AffineForOp>(loc, 0, gemmBShape[2]);
-      auto lbN = loopN.getBody();
-      b.setInsertionPointToStart(lbN);
-
-      SmallVector<Value, 4> memIndicesKMKPack;
-      extractForInductionVars({loopG, loopK, loopM, loopKPack},
-                              &memIndicesKMKPack);
-      auto gemmAKMKPack = b.create<AffineLoadOp>(loc, gemmA, memIndicesKMKPack);
-
-      SmallVector<Value, 4> memIndicesKNKPack;
-      extractForInductionVars({loopG, loopK, loopN, loopKPack},
-                              &memIndicesKNKPack);
-      auto gemmBKNKPack = b.create<AffineLoadOp>(loc, gemmB, memIndicesKNKPack);
-
-      Value mul;
-      if (dataType.isa<IntegerType>()) {
-        mul = b.create<MulIOp>(loc, dataType, gemmAKMKPack, gemmBKNKPack);
-      } else {
-        mul = b.create<MulFOp>(loc, dataType, gemmAKMKPack, gemmBKNKPack);
-      }
-      SmallVector<Value, 4> memIndicesMN;
-      extractForInductionVars({loopG, loopM, loopN}, &memIndicesMN);
-      auto gemmCMN = b.create<AffineLoadOp>(loc, gemmC, memIndicesMN);
-
-      Value add;
-      if (dataType.isa<IntegerType>()) {
-        add = b.create<AddIOp>(loc, dataType, mul, gemmCMN);
-      } else {
-        add = b.create<AddFOp>(loc, dataType, mul, gemmCMN);
-      }
-      b.create<AffineStoreOp>(loc, add, gemmC, memIndicesMN);
+      b.create<InBoundsStoreOp>(loc, add, bufferC, cCoords);
     }
-
-    op.erase();
+    b.eraseOp(op);
     return success();
   }
 };
