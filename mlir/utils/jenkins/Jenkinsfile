@@ -28,7 +28,7 @@ void buildMIOpen(String cmakeOpts) {
 }
 
 void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
-    git branch: 'int8-perf-config', poll: false,\
+    git branch: 'develop', poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
     sh 'sed -i "/ROCmSoftwarePlatform\\/llvm-project-mlir/d" ./requirements.txt'
     MIOpen_cget_hack()
@@ -44,7 +44,7 @@ void buildMIOpenWithMLIR() {
         installation: 'InSearchPath', workingDir: 'build'
 
     dir('MIOpen') {
-        git branch: 'int8-perf-config', poll: false,\
+        git branch: 'develop', poll: false,\
             url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
         sh 'sed -i "/ROCmSoftwarePlatform\\/llvm-project-mlir/d" ./requirements.txt'
         MIOpen_cget_hack()
