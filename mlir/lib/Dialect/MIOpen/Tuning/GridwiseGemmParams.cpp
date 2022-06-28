@@ -1,6 +1,7 @@
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/SqliteDb.h"
+#include "mlir/Dialect/MIOpen/utility/math.h"
 
 #include "llvm/Support/Debug.h"
 
