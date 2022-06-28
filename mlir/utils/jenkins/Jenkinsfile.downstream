@@ -152,7 +152,7 @@ pipeline {
                                     url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
                                 buildMIOpen("""-DMIOPEN_USE_MLIR=On
                                         -DMIOPEN_BACKEND=HIP
-                                        -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpenDeps;/usr/local"
+                                        -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpenDeps\\;/usr/local"
                                         -DCMAKE_CXX_FLAGS="-isystem ${WORKSPACE}/MIOpenDeps/include"
                                         -DMIOPEN_USER_DB_PATH=${WORKSPACE}/MIOpen/build/MIOpenUserDB
                                         -DMIOPEN_TEST_FLAGS="--verbose --disable-verification-cache"
