@@ -27,7 +27,7 @@ function build_rocm_image() {
   local docker_repository="rocm/mlir"
 
   local rocm_full_version rocm_short_version git_commit_hash
-  rocm_full_version=$(docker image inspect rocm-mlir:latest | grep "ROCM_PATH" | sed 's/.*-\([0-9][0-9]*[.][0-9][0-9.]*\)/\1/')
+  rocm_full_version=$(grep "ROCM_PATH" ./mlir/utils/jenkins/Dockerfile.rocm | sed 's/.*-\([0-9][0-9]*[.][0-9][0-9.]*\)/\1/')
   rocm_short_version="rocm${rocm_full_version%.*}"
   git_commit_hash=$(git rev-parse --short HEAD)
 
