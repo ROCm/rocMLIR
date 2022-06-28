@@ -697,9 +697,9 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
     cpuMem.push_back(arg);
 
     // Emit GPU memory allocation function calls.
-    auto gpuAllocOp =
-        b.create<gpu::AllocOp>(loc, arg.getType(), mlir::Type(), ValueRange{},
-                               ValueRange{}, ValueRange{});
+    auto gpuAllocOp = b.create<gpu::AllocOp>(
+        loc, arg.getType(), mlir::Type(), /*asyncDependencies=*/ValueRange{},
+        /*dynamicSizes=*/ValueRange{}, /*symbolOperands*/ ValueRange{});
     mlir::Value gpuAlloc = gpuAllocOp.getResult(0);
     gpuMem.push_back(gpuAlloc);
 
