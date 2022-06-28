@@ -704,7 +704,7 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
     gpuMem.push_back(gpuAlloc);
 
     // Emit CPU->GPU memcpy function calls.
-    b.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{arg, gpuAlloc});
+    b.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{gpuAlloc, arg});
   }
 
   // Emit kernel function call.
@@ -713,7 +713,7 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
 
   for (auto &pair : llvm::enumerate(kernel.params)) {
     uint32_t i = pair.index();
-    b.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{gpuMem[i], cpuMem[i]});
+    b.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{cpuMem[i], gpuMem[i]});
     b.create<gpu::DeallocOp>(loc, TypeRange{}, ValueRange{gpuMem[i]});
   }
 
