@@ -179,7 +179,7 @@ pipeline {
             }
         }
         stage("Build and Test") {
-//            parallel {
+            steps {      // parallel
                 stage("Shared Library: fixed E2E tests") {
                     when {
                         beforeAgent true;
@@ -353,7 +353,7 @@ pipeline {
                         }
                     }
                 }
-//            }
+            }
         }
         stage ("Parameter sweeps") {
             when {
