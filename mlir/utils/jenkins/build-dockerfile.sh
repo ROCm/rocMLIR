@@ -2,13 +2,15 @@
 
 set -x
 
-function err() {
+declare -a ARGS=("$@")
+
+err() {
   echo "$*" >&2
 }
 
 # Clean up the docker images
 # Note: includes a workaround for the occasional hung docker daemon
-function start_clean_docker() {
+start_clean_docker() {
   systemctl status docker | grep 'Active:'
   sudo /usr/bin/pkill -f docker
   sudo /bin/systemctl restart docker
@@ -17,7 +19,7 @@ function start_clean_docker() {
 }
 
 # Build the docker image and push it to the repository
-function build_rocm_image() {
+build_rocm_image() {
   if docker build -t rocm-mlir -f ./mlir/utils/jenkins/Dockerfile.rocm ./mlir/utils/jenkins ; then
     err Docker image build failed
     exit 1
@@ -54,8 +56,9 @@ function build_rocm_image() {
   docker logout
 }
 
-function main() {
-  if git diff --name-only HEAD^ HEAD | grep -q "Dockerfile.rocm"; then
+main() {
+  if [[ " ${ARGS[*]} " =~ " --force " ]] || \
+      git diff --name-only HEAD^ HEAD | grep -q "Dockerfile.rocm"; then
     echo "Start a new build"
     start_clean_docker
     build_rocm_image
@@ -65,4 +68,4 @@ function main() {
   fi
 }
 
-
+main
