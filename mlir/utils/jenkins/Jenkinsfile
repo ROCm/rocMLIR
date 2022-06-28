@@ -41,7 +41,7 @@ void buildMIOpenWithMLIR() {
         // Note: setting cxxflags here works around https://github.com/ROCmSoftwarePlatform/MIOpen/issues/1604
         buildMIOpen('''-DMIOPEN_USE_MLIR=On
                         -DMIOPEN_BACKEND=HIP
-                        -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpenDeps"
+                        -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpenDeps;/usr/local"
                         -DCMAKE_CXX_FRAGS="-isystem ${WORKSPACE}/MIOpenDeps/include"
                         -DMIOPEN_USER_DB_PATH=${WORKSPACE}/MIOpen/build/MIOpenUserDB
                         -DMIOPEN_TEST_FLAGS=\'--verbose --disable-verification-cache\'
