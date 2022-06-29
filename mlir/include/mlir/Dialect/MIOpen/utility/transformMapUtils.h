@@ -48,6 +48,15 @@ std::tuple<ArrayAttr, ArrayAttr> computeOobFromTransforms(
 TransformOp reshapeBuffer(OpBuilder &b, Location loc, Value buffer,
                           ArrayRef<StringRef> names, ArrayRef<int64_t> shape);
 
+/// Given an array of TransformMapAttrs `transforms`, a dimension `dim` in
+/// the input space of the first transform, and the length `len` of that
+/// dimension, returns the largest stride `s` such that length-`s` slices of
+/// `dim` correspond to contiguous slices of the underlying memory the
+/// `transforms` will be applied to, which is assumed to have shape
+/// `outputShape`.
+int64_t getMaxVectorization(ArrayAttr transforms, uint32_t dim, int64_t len,
+                            ArrayRef<int64_t> outputShape);
+
 } // end namespace miopen
 } // end namespace mlir
 #endif
