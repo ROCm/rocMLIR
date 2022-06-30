@@ -4,7 +4,7 @@
 // * Have the right number of transforms
 // * Have one gridwise_gemm
 
-// RUN: miopen-opt -miopen-lowering %s | FileCheck %s
+// RUN: miopen-opt -miopen-conv-to-gemm %s | FileCheck %s
 
 func @miopen_gridwise_gemm(%matrix_a : memref<?x?x?xf32>, %matrix_b : memref<?x?x?xf32>, %matrix_c : memref<?x?x?xf32>) {
   miopen.gridwise_gemm(%matrix_a, %matrix_b, %matrix_c) {

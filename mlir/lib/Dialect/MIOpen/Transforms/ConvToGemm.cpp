@@ -62,8 +62,8 @@ struct ArgumentFields {
   StringRef gemmTargetCharName[3];
 };
 
-struct LowerMIOpenOpsStep1Pass
-    : public MIOpenOpsStep1PassBase<LowerMIOpenOpsStep1Pass> {
+struct MIOpenConvToGemmPass
+    : public MIOpenConvToGemmPassBase<MIOpenConvToGemmPass> {
   void runOnOperation() override;
 };
 
@@ -1637,7 +1637,7 @@ struct FoldTransposingConvAccess : OpRewritePattern<linalg::GenericOp> {
   }
 };
 
-void LowerMIOpenOpsStep1Pass::runOnOperation() {
+void MIOpenConvToGemmPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
 
@@ -1668,6 +1668,6 @@ void LowerMIOpenOpsStep1Pass::runOnOperation() {
 }
 } // end anonymous namespace
 
-std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep1Pass() {
-  return std::make_unique<LowerMIOpenOpsStep1Pass>();
+std::unique_ptr<Pass> mlir::miopen::createMIOpenConvToGemmPass() {
+  return std::make_unique<MIOpenConvToGemmPass>();
 }

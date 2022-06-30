@@ -1,4 +1,4 @@
-// RUN: mlir-miopen-driver --host-pipeline highlevel %s | miopen-opt --miopen-affix-params --miopen-lowering | FileCheck %s
+// RUN: mlir-miopen-driver --host-pipeline highlevel %s | miopen-opt --miopen-affix-params --miopen-conv-to-gemm | FileCheck %s
 
 // CHECK-COUNT-1: linalg.generic
 // CHECK-NOT: linalg.generic

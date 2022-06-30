@@ -1,4 +1,4 @@
-// RUN: miopen-opt -miopen-lowering-step4 %s | FileCheck %s
+// RUN: miopen-opt -miopen-threadwise-gemm-lowering %s | FileCheck %s
 
 func @miopen_xdlops_gemm_v2_two_results(%matrix : memref<1024xf32, 3>, %bufferA : memref<2xvector<2xf32>, 5>, %bufferB : memref<2xvector<2xf32>, 5>) -> (vector<32xf32>, vector<32xf32>) {
   %c0 = arith.constant 0 : index

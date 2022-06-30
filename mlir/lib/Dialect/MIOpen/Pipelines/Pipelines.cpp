@@ -119,31 +119,32 @@ void miopen::buildBufferizePipeline(OpPassManager &pm,
 void miopen::buildKernelPipeline(OpPassManager &pm,
                                  const miopen::KernelOptions &options) {
   // miopen lowering (tuning, global to block)
-  /* miopen-opt --miopen-affix-params --miopen-lowering --miopen-lowering-step2
+  /* miopen-opt --miopen-affix-params --miopen-conv-to-gemm
+   * --miopen-gridwise-gemm-to-blockwise
    */
   pm.addPass(miopen::createAffixTuningParametersPass(0, 0));
-  pm.addPass(miopen::createLowerMIOpenOpsStep1Pass());
-  pm.addPass(miopen::createLowerMIOpenOpsStep2Pass());
+  pm.addNestedPass<FuncOp>(miopen::createMIOpenConvToGemmPass());
+  pm.addNestedPass<FuncOp>(miopen::createMIOpenGridwiseGemmToBlockwisePass());
 
   if (!options.enableApplicability) {
     if (options.enableFusion) {
       // align linalg tiling
-      /* miopen-opt --canonicalize --miopen-linalg-align
+      /* miopen-opt --miopen-linalg-align
        * --convert-linalg-to-affine-loops
        */
       // We need a canonicalize in order to eliminate dead code
-      pm.addPass(createCanonicalizerPass());
       pm.addPass(miopen::createMIOpenLinalgAlignPass());
       pm.addPass(createConvertLinalgToAffineLoopsPass());
     }
 
     // miopen lowering (block to thread)
-    /* miopen-opt --miopen-lowering-step3 --miopen-lowering-step4
-          --miopen-expand-shorthand --miopen-loops-to-cf --convert-miopen-to-gpu
+    /* miopen-opt --miopen-lowering-blockwise-gemm-to-threadwise
+       --miopen-threadwise-gemm-lowering
+          --miopen-sugar-to-loops --miopen-loops-to-cf --convert-miopen-to-gpu
      */
-    pm.addPass(miopen::createLowerMIOpenOpsStep3Pass());
-    pm.addPass(miopen::createLowerMIOpenOpsStep4Pass());
-    pm.addPass(miopen::createMIOpenExpandShorthandPass());
+    pm.addPass(miopen::createMIOpenBlockwiseGemmToThreadwisePass());
+    pm.addPass(miopen::createMIOpenThreadwiseGemmLoweringPass());
+    pm.addPass(miopen::createMIOpenSugarToLoopsPass());
     pm.addPass(miopen::createMIOpenLoopsToCfPass());
     pm.addPass(createLowerMIOpenOpsToGPUPass());
 

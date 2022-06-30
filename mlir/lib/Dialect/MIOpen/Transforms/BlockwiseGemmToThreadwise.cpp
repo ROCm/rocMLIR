@@ -22,19 +22,15 @@
 //===-----------------------------------------------------===//
 #include "PassDetail.h"
 
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/OperationSupport.h"
-#include "mlir/Support/LogicalResult.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/DialectConversion.h"
 
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
@@ -46,8 +42,9 @@ using namespace mlir::arith;
 using namespace mlir::miopen;
 
 namespace {
-struct LowerMIOpenOpsStep3Pass
-    : public MIOpenOpsStep3PassBase<LowerMIOpenOpsStep3Pass> {
+struct MIOpenLowerBlockwiseGemmToThreadwisePass
+    : public MIOpenBlockwiseGemmToThreadwisePassBase<
+          MIOpenLowerBlockwiseGemmToThreadwisePass> {
   void runOnOperation() override;
 };
 
@@ -55,23 +52,24 @@ struct LowerMIOpenOpsStep3Pass
 // Fill lowering.
 //===----------------------------------------------------------------------===//
 
-struct FillRewritePattern : public OpRewritePattern<FillOp> {
-  using OpRewritePattern<FillOp>::OpRewritePattern;
+struct FillRewritePattern : public OpConversionPattern<FillOp> {
+  using OpConversionPattern<FillOp>::OpConversionPattern;
 
-  LogicalResult matchAndRewrite(FillOp op, PatternRewriter &b) const override {
-    auto loc = op.getLoc();
+  LogicalResult matchAndRewrite(FillOp op, FillOpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const override {
+    Location loc = op.getLoc();
     auto inputType = op.input().getType().cast<MemRefType>();
     ArrayRef<int64_t> inputShape = inputType.getShape();
     llvm::SmallVector<int64_t> lbs(inputShape.size(), 0);
     llvm::SmallVector<int64_t> strides(inputShape.size(), 1);
 
     buildAffineLoopNest(b, loc, lbs, inputShape, strides,
-                        [value = op.value(), input = op.input()](
+                        [value = adaptor.value(), input = adaptor.input()](
                             OpBuilder &b, Location loc, ValueRange ivs) {
                           b.create<memref::StoreOp>(loc, value, input, ivs);
                         });
 
-    op.erase();
+    b.replaceOp(op, {});
     return success();
   }
 };
@@ -80,11 +78,13 @@ struct FillRewritePattern : public OpRewritePattern<FillOp> {
 // BlockwiseGemm lowering.
 //===----------------------------------------------------------------------===//
 
-struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
-  using OpRewritePattern<BlockwiseGemmOp>::OpRewritePattern;
+struct BlockwiseGemmRewritePattern
+    : public OpConversionPattern<BlockwiseGemmOp> {
+  using OpConversionPattern<BlockwiseGemmOp>::OpConversionPattern;
 
   LogicalResult matchAndRewrite(BlockwiseGemmOp op,
-                                PatternRewriter &b) const override {
+                                BlockwiseGemmOpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
     // Prepare some useful constants.
@@ -141,10 +141,10 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
 
     Value matrixA, matrixB;
     ArrayAttr transformsA, transformsB;
-    std::tie(matrixA, transformsA) =
-        untransform(b, op.matrixA(), b.getArrayAttr({strideLDSBufferAAttr}));
-    std::tie(matrixB, transformsB) =
-        untransform(b, op.matrixB(), b.getArrayAttr({strideLDSBufferBAttr}));
+    std::tie(matrixA, transformsA) = untransform(
+        b, adaptor.matrixA(), b.getArrayAttr({strideLDSBufferAAttr}));
+    std::tie(matrixB, transformsB) = untransform(
+        b, adaptor.matrixB(), b.getArrayAttr({strideLDSBufferBAttr}));
 
     int64_t threadANumRegisters = kPerThread * mC * kPack;
     int64_t threadBNumRegisters = kPerThread * nC * kPack;
@@ -175,7 +175,7 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
     LLVM_DEBUG(llvm::dbgs() << "Outer loop:\n "
                             << "k =  " << k << "\n"
                             << " kPerThread = " << kPerThread << "\n");
-    auto loopOp = b.create<AffineForOp>(loc, 0, k, kPerThread);
+    auto loopOp = b.replaceOpWithNewOp<AffineForOp>(op, 0, k, kPerThread);
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(loopOp.getBody());
     Value kOffset = loopOp.getInductionVar();
@@ -223,7 +223,6 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
     b.create<ThreadwiseGemmOp>(loc, reshapedARegisters, reshapedBRegisters,
                                op.matrixC());
 
-    op.erase();
     return success();
   }
 };
@@ -233,12 +232,13 @@ struct BlockwiseGemmRewritePattern : public OpRewritePattern<BlockwiseGemmOp> {
 //===----------------------------------------------------------------------===//
 
 struct BlockwiseGemmV2RewritePattern
-    : public OpRewritePattern<BlockwiseGemmV2Op> {
-  using OpRewritePattern<BlockwiseGemmV2Op>::OpRewritePattern;
+    : public OpConversionPattern<BlockwiseGemmV2Op> {
+  using OpConversionPattern<BlockwiseGemmV2Op>::OpConversionPattern;
 
   LogicalResult matchAndRewrite(BlockwiseGemmV2Op op,
-                                PatternRewriter &b) const override {
-    auto loc = op.getLoc();
+                                BlockwiseGemmV2OpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const override {
+    Location loc = op.getLoc();
 
     int64_t MPerWave =
         op->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
@@ -263,10 +263,11 @@ struct BlockwiseGemmV2RewritePattern
         resultTypes.push_back(result.getType());
       }
 
-      auto xdlopsGemmV2Op = b.create<XdlopsGemmV2Op>(
-          loc, resultTypes, op.matrixA(), op.matrixB(), op.ldsBufferOffsetA(),
-          op.ldsBufferOffsetB(), op.waveOffsetA(), op.waveOffsetB(),
-          op.bufferA(), op.bufferB(), op.vectorCs());
+      auto xdlopsGemmV2Op = b.replaceOpWithNewOp<XdlopsGemmV2Op>(
+          op, resultTypes, adaptor.matrixA(), adaptor.matrixB(),
+          op.ldsBufferOffsetA(), op.ldsBufferOffsetB(), adaptor.waveOffsetA(),
+          adaptor.waveOffsetB(), adaptor.bufferA(), adaptor.bufferB(),
+          adaptor.vectorCs());
 
       xdlopsGemmV2Op->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op->setAttr("n", op->getAttr("n"));
@@ -275,9 +276,6 @@ struct BlockwiseGemmV2RewritePattern
       xdlopsGemmV2Op->setAttr("n_per_wave", op->getAttr("n_per_wave"));
       if (op->hasAttr("kpack"))
         xdlopsGemmV2Op->setAttr("kpack", op->getAttr("kpack"));
-
-      op.replaceAllUsesWith(xdlopsGemmV2Op.vectorDs());
-      op.erase();
     } else if (MRepeats == 2 && NRepeats == 1) {
       // Original C++ logic.
       // p_c_thread.s.x.l = XdlopsGemm.template Run<M, N, K>(p_a_block,
@@ -289,10 +287,10 @@ struct BlockwiseGemmV2RewritePattern
       resultTypes0.push_back(op.vectorDs()[1].getType());
 
       auto xdlopsGemmV2Op0 = b.create<XdlopsGemmV2Op>(
-          loc, resultTypes0, op.matrixA(), op.matrixB(), op.ldsBufferOffsetA(),
-          op.ldsBufferOffsetB(), op.waveOffsetA(), op.waveOffsetB(),
-          op.bufferA(), op.bufferB(),
-          ValueRange{op.vectorCs()[0], op.vectorCs()[1]});
+          loc, resultTypes0, adaptor.matrixA(), adaptor.matrixB(),
+          op.ldsBufferOffsetA(), op.ldsBufferOffsetB(), adaptor.waveOffsetA(),
+          adaptor.waveOffsetB(), adaptor.bufferA(), adaptor.bufferB(),
+          adaptor.vectorCs().take_front(2));
 
       xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op0->setAttr("n", op->getAttr("n"));
@@ -310,11 +308,11 @@ struct BlockwiseGemmV2RewritePattern
 
       auto MPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, MPerXdlops);
       auto xdlopsGemmV2Op1 = b.create<XdlopsGemmV2Op>(
-          loc, resultTypes1, op.matrixA(), op.matrixB(), op.ldsBufferOffsetA(),
-          op.ldsBufferOffsetB(),
-          b.create<AddIOp>(loc, op.waveOffsetA(), MPerXdlopsConstantOp),
-          op.waveOffsetB(), op.bufferA(), op.bufferB(),
-          ValueRange{op.vectorCs()[2], op.vectorCs()[3]});
+          loc, resultTypes1, adaptor.matrixA(), adaptor.matrixB(),
+          op.ldsBufferOffsetA(), op.ldsBufferOffsetB(),
+          b.create<AddIOp>(loc, adaptor.waveOffsetA(), MPerXdlopsConstantOp),
+          adaptor.waveOffsetB(), adaptor.bufferA(), adaptor.bufferB(),
+          adaptor.vectorCs().drop_front(2));
 
       xdlopsGemmV2Op1->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op1->setAttr("n", op->getAttr("n"));
@@ -326,10 +324,10 @@ struct BlockwiseGemmV2RewritePattern
       if (op->hasAttr("kpack"))
         xdlopsGemmV2Op1->setAttr("kpack", op->getAttr("kpack"));
 
-      op.replaceAllUsesWith(ValueRange{
-          xdlopsGemmV2Op0.vectorDs()[0], xdlopsGemmV2Op0.vectorDs()[1],
-          xdlopsGemmV2Op1.vectorDs()[0], xdlopsGemmV2Op1.vectorDs()[1]});
-      op.erase();
+      b.replaceOp(op, ValueRange{xdlopsGemmV2Op0.vectorDs()[0],
+                                 xdlopsGemmV2Op0.vectorDs()[1],
+                                 xdlopsGemmV2Op1.vectorDs()[0],
+                                 xdlopsGemmV2Op1.vectorDs()[1]});
     } else if (MRepeats == 1 && NRepeats == 2) {
       // Original C++ logic.
       // p_c_thread.s.x.l = XdlopsGemm.template Run<M, N, K>(p_a_block,
@@ -341,10 +339,10 @@ struct BlockwiseGemmV2RewritePattern
       resultTypes0.push_back(op.vectorDs()[1].getType());
 
       auto xdlopsGemmV2Op0 = b.create<XdlopsGemmV2Op>(
-          loc, resultTypes0, op.matrixA(), op.matrixB(), op.ldsBufferOffsetA(),
-          op.ldsBufferOffsetB(), op.waveOffsetA(), op.waveOffsetB(),
-          op.bufferA(), op.bufferB(),
-          ValueRange{op.vectorCs()[0], op.vectorCs()[1]});
+          loc, resultTypes0, adaptor.matrixA(), adaptor.matrixB(),
+          op.ldsBufferOffsetA(), op.ldsBufferOffsetB(), adaptor.waveOffsetA(),
+          adaptor.waveOffsetB(), adaptor.bufferA(), adaptor.bufferB(),
+          adaptor.vectorCs().take_front(2));
 
       xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op0->setAttr("n", op->getAttr("n"));
@@ -362,11 +360,11 @@ struct BlockwiseGemmV2RewritePattern
 
       auto NPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, NPerXdlops);
       auto xdlopsGemmV2Op1 = b.create<XdlopsGemmV2Op>(
-          loc, resultTypes1, op.matrixA(), op.matrixB(), op.ldsBufferOffsetA(),
-          op.ldsBufferOffsetB(), op.waveOffsetA(),
-          b.create<AddIOp>(loc, op.waveOffsetB(), NPerXdlopsConstantOp),
-          op.bufferA(), op.bufferB(),
-          ValueRange{op.vectorCs()[2], op.vectorCs()[3]});
+          loc, resultTypes1, adaptor.matrixA(), adaptor.matrixB(),
+          op.ldsBufferOffsetA(), op.ldsBufferOffsetB(), adaptor.waveOffsetA(),
+          b.create<AddIOp>(loc, adaptor.waveOffsetB(), NPerXdlopsConstantOp),
+          adaptor.bufferA(), adaptor.bufferB(),
+          adaptor.vectorCs().drop_front(2));
 
       xdlopsGemmV2Op1->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op1->setAttr("n", op->getAttr("n"));
@@ -378,10 +376,10 @@ struct BlockwiseGemmV2RewritePattern
       if (op->hasAttr("kpack"))
         xdlopsGemmV2Op1->setAttr("kpack", op->getAttr("kpack"));
 
-      op.replaceAllUsesWith(ValueRange{
-          xdlopsGemmV2Op0.vectorDs()[0], xdlopsGemmV2Op0.vectorDs()[1],
-          xdlopsGemmV2Op1.vectorDs()[0], xdlopsGemmV2Op1.vectorDs()[1]});
-      op.erase();
+      b.replaceOp(op, ValueRange{xdlopsGemmV2Op0.vectorDs()[0],
+                                 xdlopsGemmV2Op0.vectorDs()[1],
+                                 xdlopsGemmV2Op1.vectorDs()[0],
+                                 xdlopsGemmV2Op1.vectorDs()[1]});
     }
 
     return success();
@@ -412,25 +410,33 @@ struct ThreadwiseCopyV2RewritePattern
 
     Value loaded =
         b.create<InBoundsLoadOp>(loc, typeToLoad, source, sourceCoord);
-    b.create<BufferStoreOp>(loc, loaded, op.dest(), op.leftOobDims(),
-                            op.rightOobDims(), op.destCoord(),
-                            op.storeMethodAttr());
-    b.eraseOp(op);
+    b.replaceOpWithNewOp<BufferStoreOp>(op, loaded, op.dest(), op.leftOobDims(),
+                                        op.rightOobDims(), op.destCoord(),
+                                        op.storeMethodAttr());
     return success();
   }
 };
 
-void LowerMIOpenOpsStep3Pass::runOnOperation() {
+void MIOpenLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
+  ConversionTarget target(*ctx);
+  target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmV2Op,
+                      ThreadwiseCopyV2Op>();
+  target.addLegalDialect<arith::ArithmeticDialect, miopen::MIOpenDialect,
+                         AffineDialect, memref::MemRefDialect,
+                         vector::VectorDialect>();
+
   RewritePatternSet patterns(ctx);
   patterns.add<FillRewritePattern, BlockwiseGemmRewritePattern,
                BlockwiseGemmV2RewritePattern, ThreadwiseCopyV2RewritePattern>(
       ctx);
-  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
+  if (failed(
+          applyPartialConversion(getOperation(), target, std::move(patterns))))
     signalPassFailure();
 }
 } // end anonymous namespace
 
-std::unique_ptr<Pass> mlir::miopen::createLowerMIOpenOpsStep3Pass() {
-  return std::make_unique<LowerMIOpenOpsStep3Pass>();
+std::unique_ptr<Pass>
+mlir::miopen::createMIOpenBlockwiseGemmToThreadwisePass() {
+  return std::make_unique<MIOpenLowerBlockwiseGemmToThreadwisePass>();
 }

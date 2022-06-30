@@ -1,4 +1,4 @@
-// RUN: miopen-opt -miopen-expand-shorthand %s | FileCheck %s
+// RUN: miopen-opt -miopen-sugar-to-loops %s | FileCheck %s
 
 module {
 // CHECK-LABEL: func @extract_slice_scalar

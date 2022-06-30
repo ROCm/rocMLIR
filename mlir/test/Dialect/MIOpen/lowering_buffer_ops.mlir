@@ -1,4 +1,4 @@
-// RUN: miopen-opt -miopen-lowering-step4 %s | FileCheck %s
+// RUN: miopen-opt --miopen-sugar-to-loops %s | FileCheck %s
 
 module {
 // CHECK-LABEL: func @load_scalar_in_bounds

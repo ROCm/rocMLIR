@@ -5,7 +5,7 @@
 // * Have one gridwise_gemm
 // * Can support F32 and F16
 
-// RUN: miopen-opt -miopen-affix-params -miopen-lowering %s | FileCheck %s
+// RUN: miopen-opt -miopen-affix-params -miopen-conv-to-gemm %s | FileCheck %s
 
 // CHECK-DAG: #[[$PADDING_NONE:gemm_padding[0-9]+]] = #miopen.padding_info<extraM = 0, extraK = 0, extraN = 0>
 // CHECK-DAG: #[[$PADDING_MN:gemm_padding[0-9]+]] = #miopen.padding_info<extraM = 61, extraK = 0, extraN = 21>

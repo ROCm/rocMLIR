@@ -1,4 +1,4 @@
-// RUN: miopen-opt -miopen-lowering-step3 %s | FileCheck %s
+// RUN: miopen-opt -miopen-blockwise-gemm-to-threadwise %s | FileCheck %s
 
 // CHECK-LABEL: func @miopen_threadwise_copy_v2
 func.func @miopen_threadwise_copy_v2(%source : memref<32xf32, 5>,
