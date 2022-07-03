@@ -45,4 +45,5 @@ OpFoldResult RecipOp::fold(ArrayRef<Attribute> operands) {
   if (auto parentRecip = inA().getDefiningOp<RecipOp>()) {
     return parentRecip.inA();
   }
+  return {};
 }
