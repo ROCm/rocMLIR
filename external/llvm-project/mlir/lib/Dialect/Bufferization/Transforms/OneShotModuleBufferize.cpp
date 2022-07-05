@@ -294,7 +294,7 @@ static func::FuncOp getCalledFunction(CallOpInterface callOp) {
 static void equivalenceAnalysis(func::FuncOp funcOp,
                                 BufferizationAliasInfo &aliasInfo,
                                 FuncAnalysisState &funcState) {
-  funcOp->walk([&](func::CallOp callOp) {
+  funcOp->walk([&](CallOpInterface callOp) {
     func::FuncOp calledFunction = getCalledFunction(callOp);
     assert(calledFunction && "could not retrieved called func::FuncOp");
 
@@ -305,8 +305,8 @@ static void equivalenceAnalysis(func::FuncOp funcOp,
     for (auto it : funcState.equivalentFuncArgs[calledFunction]) {
       int64_t returnIdx = it.first;
       int64_t bbargIdx = it.second;
-      Value returnVal = callOp.getResult(returnIdx);
-      Value argVal = callOp->getOperand(bbargIdx);
+      Value returnVal = callOp.getCallResults()[returnIdx];
+      Value argVal = callOp.getCallOperands()[bbargIdx];
       aliasInfo.unionEquivalenceClasses(returnVal, argVal);
     }
 
@@ -339,8 +339,8 @@ getFuncOpsOrderedByCalls(ModuleOp moduleOp,
 
     numberCallOpsContainedInFuncOp[funcOp] = 0;
     return funcOp.walk([&](CallOpInterface callOp) -> WalkResult {
-      // Only support CallOp for now.
-      if (!isa<func::CallOp>(callOp.getOperation()))
+      // No support CallIndirectOp for now.
+      if (isa<func::CallIndirectOp>(callOp.getOperation()))
         return callOp->emitError() << "expected a CallOp";
       func::FuncOp calledFunction = getCalledFunction(callOp);
       assert(calledFunction && "could not retrieved called func::FuncOp");
@@ -430,14 +430,12 @@ LogicalResult mlir::bufferization::runOneShotModuleBufferize(
 
   // A mapping of FuncOps to their callers.
   FuncCallerMap callerMap;
-
   if (failed(getFuncOpsOrderedByCalls(moduleOp, orderedFuncOps, callerMap)))
     return failure();
 
   // Collect bbArg/return value information after the analysis.
   options.addPostAnalysisStep(aliasingFuncOpBBArgsAnalysis);
   options.addPostAnalysisStep(funcOpBbArgReadWriteAnalysis);
-
   // Analyze ops.
   for (func::FuncOp funcOp : orderedFuncOps) {
     // No body => no analysis.

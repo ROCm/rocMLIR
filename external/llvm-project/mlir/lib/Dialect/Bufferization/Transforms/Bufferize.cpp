@@ -286,7 +286,6 @@ static bool hasTensorSemantics(Operation *op) {
     bool hasTensorResult = any_of(funcOp.getResultTypes(), isaTensor);
     return hasTensorArg || hasTensorResult;
   }
-
   bool hasTensorResult = any_of(op->getResultTypes(), isaTensor);
   bool hasTensorOperand = any_of(op->getOperandTypes(), isaTensor);
   return hasTensorResult || hasTensorOperand;
@@ -427,6 +426,7 @@ bufferization::bufferizeOp(Operation *op,
                                  bufferizationState.getOptions());
   for (unsigned i = 0; i < worklist.size(); ++i) {
     Operation *op = worklist[i];
+
     // Skip ops that were erased.
     if (erasedOps.contains(op))
       continue;
@@ -463,6 +463,10 @@ bufferization::bufferizeOp(Operation *op,
     // in-place) are allowed.
     if (!hasTensorSemantics(op))
       continue;
+
+    if (isa<bufferization::ToMemrefOp, bufferization::ToTensorOp>(op))
+      continue;
+
     // Continue ops that are not allowed.
     if (!options.isOpAllowed(op))
       continue;

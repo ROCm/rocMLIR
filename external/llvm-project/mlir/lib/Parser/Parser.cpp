@@ -1605,9 +1605,9 @@ public:
       return llvm::None;
 
     auto parseElt = [&]() -> ParseResult {
-      Type type;
       if (parseArgument(lhs.emplace_back()) || parseEqual() ||
-          parseOperand(rhs.emplace_back()) || parseColon() || parseType(type))
+          parseOperand(rhs.emplace_back()) || parseColon() ||
+          parseType(types.emplace_back()))
         return failure();
       return success();
     };
