@@ -71,7 +71,9 @@ namespace {
 struct LowerGpuOpsToROCDLOpsPass
     : public ConvertGpuOpsToROCDLOpsBase<LowerGpuOpsToROCDLOpsPass> {
   LowerGpuOpsToROCDLOpsPass() = default;
-  LowerGpuOpsToROCDLOpsPass(unsigned indexBitwidth, gpu::amd::Runtime runtime) {
+  LowerGpuOpsToROCDLOpsPass(const std::string &chipset, unsigned indexBitwidth,
+                            gpu::amd::Runtime runtime) {
+    this->chipset = chipset;
     this->indexBitwidth = indexBitwidth;
     this->runtime = runtime;
   }
@@ -79,6 +81,12 @@ struct LowerGpuOpsToROCDLOpsPass
   void runOnOperation() override {
     gpu::GPUModuleOp m = getOperation();
     MLIRContext *ctx = m.getContext();
+
+    FailureOr<amdgpu::Chipset> maybeChipset = amdgpu::Chipset::parse(chipset);
+    if (failed(maybeChipset)) {
+      emitError(UnknownLoc::get(ctx), "Invalid chipset name: " + chipset);
+      return signalPassFailure();
+    }
 
     /// Customize the bitwidth used for the device side index computations.
     LowerToLLVMOptions options(
@@ -100,7 +108,8 @@ struct LowerGpuOpsToROCDLOpsPass
     vector::populateVectorTransferLoweringPatterns(llvmPatterns);
     mlir::arith::populateArithmeticToLLVMConversionPatterns(converter,
                                                             llvmPatterns);
-    populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns);
+    populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns,
+                                            *maybeChipset);
     populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
     populateVectorToROCDLConversionPatterns(converter, llvmPatterns);
     cf::populateControlFlowToLLVMConversionPatterns(converter, llvmPatterns);
@@ -264,7 +273,9 @@ void mlir::populateGpuToROCDLConversionPatterns(
 }
 
 std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
-mlir::createLowerGpuOpsToROCDLOpsPass(unsigned indexBitwidth,
+mlir::createLowerGpuOpsToROCDLOpsPass(const std::string &chipset,
+                                      unsigned indexBitwidth,
                                       gpu::amd::Runtime runtime) {
-  return std::make_unique<LowerGpuOpsToROCDLOpsPass>(indexBitwidth, runtime);
+  return std::make_unique<LowerGpuOpsToROCDLOpsPass>(chipset, indexBitwidth,
+                                                     runtime);
 }
