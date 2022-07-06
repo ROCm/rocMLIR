@@ -161,10 +161,13 @@ void miopen::buildKernelPipeline(OpPassManager &pm,
 void miopen::buildBackendPipeline(OpPassManager &pm,
                                   const miopen::BackendOptions &options) {
   // lowering ROCDL (LLVM) to binary
-  /* miopen-opt --strip-debuginfo --convert-gpu-to-rocdl --gpu-to-hsaco
+  /* miopen-opt --strip-debuginfo
+   *   "--convert-gpu-to-rocdl=chipset=$chip index-bitwidth=32"
+   *   "--gpu-to-hsaco=triple=$triple chip=$chip features=$features opt-level=3"
    */
   pm.addPass(createStripDebugInfoPass());
-  pm.addPass(createLowerGpuOpsToROCDLOpsPass(options.indexBitwidth));
+  pm.addPass(
+      createLowerGpuOpsToROCDLOpsPass(options.chip, options.indexBitwidth));
   pm.addPass(createGpuSerializeToHsacoPass(options.triple, options.chip,
                                            options.features, options.optLevel));
 }

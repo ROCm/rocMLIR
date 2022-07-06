@@ -832,8 +832,7 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
     for (auto v : coords)
       coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
     b.replaceOpWithNewOp<amdgpu::RawBufferLoadOp>(
-        op, loadedType, source,
-        /*targetIsRDNA=*/false, coordsI32, /*boundsCheck=*/true,
+        op, loadedType, source, coordsI32, /*boundsCheck=*/true,
         /*indexOffset=*/nullptr, /*sgprOffset=*/nullptr);
     return success();
   }
@@ -913,21 +912,18 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
           Value item = b.create<vector::ExtractElementOp>(
               loc, data, b.create<ConstantIndexOp>(loc, i));
           b.create<amdgpu::RawBufferAtomicFaddOp>(
-              loc, item, dest,
-              /*targetIsRDNA=*/false, coordsI32, /*boundsCheck=*/true,
+              loc, item, dest, coordsI32, /*boundsCheck=*/true,
               /*indexOffset=*/b.getI32IntegerAttr(i), /*sgprOffset=*/nullptr);
         }
         b.eraseOp(op);
       } else {
         b.replaceOpWithNewOp<amdgpu::RawBufferAtomicFaddOp>(
-            op, data, dest,
-            /*targetIsRDNA=*/false, coordsI32, /*boundsCheck=*/true,
+            op, data, dest, coordsI32, /*boundsCheck=*/true,
             /*indexOffset=*/nullptr, /*sgprOffset=*/nullptr);
       }
     } else {
       b.replaceOpWithNewOp<amdgpu::RawBufferStoreOp>(
-          op, data, dest,
-          /*targetIsRDNA=*/false, coordsI32, /*boundsCheck=*/true,
+          op, data, dest, coordsI32, /*boundsCheck=*/true,
           /*indexOffset=*/nullptr, /*sgprOffset=*/nullptr);
     }
     return success();

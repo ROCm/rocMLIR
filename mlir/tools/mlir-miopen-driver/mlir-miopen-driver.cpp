@@ -192,13 +192,19 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
                         "specified for binary backend\n";
         return failure();
       }
-    } else {
-      if (!tripleName.empty() || !targetChip.empty() || !features.empty()) {
-        llvm::errs() << "Target (-triple,-target,-features) should not be set "
-                        "except for kernel-pipeline=binary\n";
+    } else if (kernelPipelineSet.contains("rocdl")) {
+      if (targetChip.empty()) {
+        llvm::errs()
+            << "Target chip (-target) not specified for ROCDL backend\n";
         return failure();
       }
+    } else if (!tripleName.empty() || !targetChip.empty() ||
+               !features.empty()) {
+      llvm::errs() << "Target (-triple,-target,-features) should not be set "
+                      "except for kernel-pipeline=binary\n";
+      return failure();
     }
+
     if (kernelPipelineSet.contains("applicability") &&
         kernelPipelineSet.size() != 1) {
       llvm::errs() << "The `applicability` pipeline cannot be combined with "
@@ -217,7 +223,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     }
     if (kernelPipelineSet.contains("rocdl")) {
       // Set up the lowering pipeline which goes down to ROCDL dialect.
-      pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
+      pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*chipset=*/targetChip,
+                                                 /*indexBitWidth=*/32));
     }
     if (kernelPipelineSet.contains("binary")) {
       // Set up the lowering pipeline which goes down to ELF Binary
