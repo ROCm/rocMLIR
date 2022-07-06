@@ -321,13 +321,19 @@ static StringRef mfmaInstrToIntrinsicName(MFMAInstr instr) {
 
 namespace {
 struct MFMAOpLowering : public ConvertOpToLLVMPattern<MFMAOp> {
-  using ConvertOpToLLVMPattern<MFMAOp>::ConvertOpToLLVMPattern;
+  MFMAOpLowering(LLVMTypeConverter &converter, Chipset chipset)
+      : ConvertOpToLLVMPattern<MFMAOp>(converter), chipset(chipset) {}
+
+  Chipset chipset;
+
   LogicalResult
   matchAndRewrite(MFMAOp op, MFMAOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     Type outType = typeConverter->convertType(op.destD().getType());
 
+    if (chipset.majorVersion != 9 || chipset.minorVersion < 0x08)
+      return op->emitOpError("MFMA only supported on gfx908+");
     OperationState loweredOp(loc, mfmaInstrToIntrinsicName(op.instr()));
     loweredOp.addTypes(outType);
     loweredOp.addOperands({mfmaConcatIfNeeded(rewriter, loc, adaptor.sourceA()),
