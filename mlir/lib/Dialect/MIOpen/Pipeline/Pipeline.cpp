@@ -26,9 +26,9 @@
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Dialect/Arithmetic/Transforms/Passes.h"
 #include "mlir/Dialect/Async/Passes.h"
+#include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/Tensor/Transforms/Passes.h"
-#include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitAllPasses.h"
@@ -36,9 +36,9 @@
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
+#include "mlir/Conversion/TensorToLinalg/TensorToLinalgPass.h"
 #include "mlir/InitAllDialects.h"
 #include "llvm/Support/TargetSelect.h"
-#include "mlir/Conversion/TensorToLinalg/TensorToLinalgPass.h"
 
 using namespace mlir;
 
@@ -105,8 +105,10 @@ void miopen::addHighLevelPipeline(PassManager &pm, bool toMIOpen) {
   bufOpts.allowReturnAllocs = true;
   bufOpts.createDeallocs = !toMIOpen;
   bufOpts.bufferizeFunctionBoundaries = true;
-  bufOpts.unknownTypeConversion = bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
-  bufOpts.functionBoundaryTypeConversion =bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
+  bufOpts.unknownTypeConversion =
+      bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
+  bufOpts.functionBoundaryTypeConversion =
+      bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
   pm.addPass(createOneShotBufferizePass(bufOpts));
 
   pm.addPass(bufferization::createBufferResultsToOutParamsPass());

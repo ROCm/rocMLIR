@@ -623,8 +623,9 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
       return failure();
     }
   }
-  assert(iterArgs.size() == iterTypes.size() && "mismatching number of arguments and types");
-  for(size_t i = 0; i< iterArgs.size(); i++) {
+  assert(iterArgs.size() == iterTypes.size() &&
+         "mismatching number of arguments and types");
+  for (size_t i = 0; i < iterArgs.size(); i++) {
     iterArgs[i].type = iterTypes[i];
   }
 

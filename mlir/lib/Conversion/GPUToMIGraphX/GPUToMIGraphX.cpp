@@ -42,7 +42,8 @@ class FuncToCOBJPattern : public OpConversionPattern<func::CallOp> {
     SmallVector<IntegerAttr, 5> localSizeAttr;
     SymbolRefAttr kernelRefAttr;
     auto fusedFuncOp =
-        op->getParentOfType<ModuleOp>().lookupSymbol<func::FuncOp>(fnAttr.getValue());
+        op->getParentOfType<ModuleOp>().lookupSymbol<func::FuncOp>(
+            fnAttr.getValue());
 
     // Insert alloc for result buffer
     rewriter.setInsertionPoint(op);

@@ -592,12 +592,12 @@ static LogicalResult detectMissingArguments() {
 }
 
 static func::FuncOp makeFuncDecl(ModuleOp module, StringRef funcName,
-                           TypeRange inputs, TypeRange results = {}) {
+                                 TypeRange inputs, TypeRange results = {}) {
   func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
   if (!func) {
     OpBuilder builder(module.getContext());
     func = func::FuncOp::create(builder.getUnknownLoc(), funcName,
-                          builder.getFunctionType(inputs, results));
+                                builder.getFunctionType(inputs, results));
     func.setSymVisibilityAttr(builder.getStringAttr("private"));
     module.push_back(func);
   }
@@ -955,7 +955,8 @@ createCPUConvFunc(ModuleOp module,
   if (hasWorkspace) {
     funcArgTypes = {filterType, inputType, outputType, workspaceArgType};
   }
-  func = func::FuncOp::create(loc, funcName, b.getFunctionType(funcArgTypes, {}));
+  func =
+      func::FuncOp::create(loc, funcName, b.getFunctionType(funcArgTypes, {}));
   module.push_back(func);
 
   // Construct a new Block.
@@ -1154,8 +1155,9 @@ const char *getTypeStr(const mlir::Type &type) {
   return "na";
 }
 
-static func::FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
-                                const mlir::Type &dstElemType) {
+static func::FuncOp getMemcpyFuncDecl(ModuleOp &module,
+                                      const mlir::Type &srcElemType,
+                                      const mlir::Type &dstElemType) {
   OpBuilder b(module.getContext());
 
   // memcpy_<srcElemType>_<dstElemType>
@@ -1335,8 +1337,8 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   auto gpuType = MemRefType::get(dims, elemType);
 
   // Emit verify_results function call
-  func =
-      func::FuncOp::create(loc, funcName, b.getFunctionType({gpuType, cpuType}, {}));
+  func = func::FuncOp::create(loc, funcName,
+                              b.getFunctionType({gpuType, cpuType}, {}));
   module.push_back(func);
 
   // Emit verification logic.
@@ -2038,7 +2040,8 @@ int main(int argc, char **argv) {
   // Make KernelIFs for the roots, to pass to populateHostHarnessLogic().
   SmallVector<KernelIF, 8> rootIFs;
   for (auto node : roots) {
-    func::FuncOp func = dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
+    func::FuncOp func =
+        dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
     rootIFs.emplace_back(func);
   }
 

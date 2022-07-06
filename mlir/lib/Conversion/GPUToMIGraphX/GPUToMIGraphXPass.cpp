@@ -56,8 +56,9 @@ public:
                            LLVM::LLVMDialect>();
     target.addDynamicallyLegalOp<func::CallOp>([&](Operation *op) {
       auto fnAttr = op->getAttrOfType<FlatSymbolRefAttr>("callee");
-      auto fusedFuncOp = op->getParentOfType<ModuleOp>().lookupSymbol<func::FuncOp>(
-          fnAttr.getValue());
+      auto fusedFuncOp =
+          op->getParentOfType<ModuleOp>().lookupSymbol<func::FuncOp>(
+              fnAttr.getValue());
       return (fusedFuncOp.getOperation()->getAttr("kernel") == nullptr);
     });
 

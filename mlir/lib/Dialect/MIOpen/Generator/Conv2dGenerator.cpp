@@ -675,7 +675,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
 
   // Construct the FuncOp.
   func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
-                        ArrayRef<NamedAttribute>(kernelAttrs));
+                              ArrayRef<NamedAttribute>(kernelAttrs));
   module.push_back(func);
   if (func.getName() != kernelName) {
     return failure();
