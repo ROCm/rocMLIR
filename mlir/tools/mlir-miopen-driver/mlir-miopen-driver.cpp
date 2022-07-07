@@ -156,6 +156,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   // Run partitioning pipeline.
   if (hostPipelineSet.contains("partition")) {
     PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
+    applyPassManagerCLOptions(pm);
 
     miopen::PartitionOptions opts;
     opts.cloneToMIOpenModule = !cpuOnly.getValue();
@@ -258,6 +259,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 
   if (isHighLevel && kernelModule != module) {
     PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
+    applyPassManagerCLOptions(pm);
     miopen::BufferizeOptions opts;
     opts.disableMIOpen = true;
     miopen::buildBufferizePipeline(pm, opts);
@@ -269,6 +271,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 
   if (hostPipelineSet.contains("xmodel")) {
     PassManager pm(module.getContext());
+    applyPassManagerCLOptions(pm);
     pm.addPass(miopen::createMIOpenApplyImplPass());
     if (failed(pm.run(module))) {
       return failure();
