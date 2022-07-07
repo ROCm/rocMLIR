@@ -10,7 +10,6 @@
 #define MLIR_DIALECT_FUNC_IR_FUNCOPS_TD
 
 include "mlir/IR/AttrTypeBase.td"
-include "mlir/IR/EnumAttr.td"
 include "mlir/IR/OpAsmInterface.td"
 include "mlir/IR/SymbolInterfaces.td"
 include "mlir/Interfaces/CallInterfaces.td"
@@ -25,23 +24,6 @@ def Func_Dialect : Dialect {
   let dependentDialects = ["cf::ControlFlowDialect"];
   let hasConstantMaterializer = 1;
   let emitAccessorPrefix = kEmitAccessorPrefix_Prefixed;
-}
-
-//===----------------------------------------------------------------------===//
-// AccessMode
-//===----------------------------------------------------------------------===//
-def AccessMode : I32EnumAttr<"AccessMode", "", [
-  I32EnumAttrCase<"Local", 0>,
-  I32EnumAttrCase<"ReadOnly", 1>,
-  I32EnumAttrCase<"WriteOnly", 2>,
-  I32EnumAttrCase<"ReadWrite", 3>
-]> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::func";
-}
-
-def AccessModeAttr : EnumAttr<Func_Dialect, AccessMode, "access_mode"> {
-  let assemblyFormat = "`<` $value `>`";
 }
 
 //===----------------------------------------------------------------------===//
@@ -323,6 +305,14 @@ def FuncOp : Func_Op<"func", [
     //===------------------------------------------------------------------===//
 
     bool isDeclaration() { return isExternal(); }
+
+    //===------------------------------------------------------------------===//
+    // FuncOp Methods
+    //===------------------------------------------------------------------===//
+
+    /// Arg attributes for access modes
+    static StringRef getReadAccessAttrName() { return "func.read_access"; }
+    static StringRef getWriteAccessAttrName() { return "func.write_access"; }
   }];
   let hasCustomAssemblyFormat = 1;
 }

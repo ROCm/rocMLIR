@@ -56,10 +56,21 @@ static void filterFuncAttributes(ArrayRef<NamedAttribute> attrs,
   for (const auto &attr : attrs) {
     if (attr.getName() == SymbolTable::getSymbolAttrName() ||
         attr.getName() == FunctionOpInterface::getTypeAttrName() ||
-        attr.getName() == "func.varargs" || attr.getName() == "access_map" ||
+        attr.getName() == "func.varargs" ||
         (filterArgAndResAttrs &&
          (attr.getName() == FunctionOpInterface::getArgDictAttrName() ||
           attr.getName() == FunctionOpInterface::getResultDictAttrName())))
+      continue;
+    result.push_back(attr);
+  }
+}
+
+/// Strip incompatible Argument attributes.
+static void filterArgAttributes(DictionaryAttr attrs,
+                                SmallVectorImpl<NamedAttribute> &result) {
+  for (const auto &attr : attrs) {
+    if (attr.getName() == FuncOp::getReadAccessAttrName() ||
+        attr.getName() == FuncOp::getWriteAccessAttrName())
       continue;
     result.push_back(attr);
   }
@@ -299,27 +310,51 @@ protected:
                          attributes);
     if (ArrayAttr resAttrDicts = funcOp.getAllResultAttrs()) {
       assert(!resAttrDicts.empty() && "expected array to be non-empty");
-      auto newResAttrDicts =
-          (funcOp.getNumResults() == 1)
-              ? resAttrDicts
-              : rewriter.getArrayAttr(
-                    {wrapAsStructAttrs(rewriter, resAttrDicts)});
-      attributes.push_back(rewriter.getNamedAttr(
-          FunctionOpInterface::getResultDictAttrName(), newResAttrDicts));
+      bool hasAttrs = false;
+      SmallVector<Attribute, 4> newResAttrs(funcOp.getNumResults(),
+                                            rewriter.getDictionaryAttr({}));
+      for (unsigned i = 0, e = funcOp.getNumResults(); i < e; ++i) {
+        SmallVector<NamedAttribute, 4> resAttrs;
+        filterArgAttributes(resAttrDicts[i].cast<DictionaryAttr>(), resAttrs);
+        if (resAttrs.size()) {
+          hasAttrs = true;
+          newResAttrs[i] = rewriter.getDictionaryAttr(resAttrs);
+        }
+      }
+      if (hasAttrs) {
+        auto newResArray = rewriter.getArrayAttr(newResAttrs);
+        auto newResAttrDicts =
+            (funcOp.getNumResults() == 1)
+                ? newResArray
+                : rewriter.getArrayAttr(
+                      {wrapAsStructAttrs(rewriter, newResArray)});
+        attributes.push_back(rewriter.getNamedAttr(
+            FunctionOpInterface::getResultDictAttrName(), newResAttrDicts));
+      }
     }
     if (ArrayAttr argAttrDicts = funcOp.getAllArgAttrs()) {
+      bool hasAttrs = false;
       SmallVector<Attribute, 4> newArgAttrs(
-          llvmType.cast<LLVM::LLVMFunctionType>().getNumParams());
+          llvmType.cast<LLVM::LLVMFunctionType>().getNumParams(),
+          rewriter.getDictionaryAttr({}));
       for (unsigned i = 0, e = funcOp.getNumArguments(); i < e; ++i) {
         auto mapping = result.getInputMapping(i);
         assert(mapping.hasValue() &&
                "unexpected deletion of function argument");
-        for (size_t j = 0; j < mapping->size; ++j)
-          newArgAttrs[mapping->inputNo + j] = argAttrDicts[i];
+        SmallVector<NamedAttribute, 4> argAttrs;
+        filterArgAttributes(argAttrDicts[i].cast<DictionaryAttr>(), argAttrs);
+        if (argAttrs.size()) {
+          hasAttrs = true;
+          for (size_t j = 0; j < mapping->size; ++j)
+            newArgAttrs[mapping->inputNo + j] =
+                rewriter.getDictionaryAttr(argAttrs);
+        }
       }
-      attributes.push_back(
-          rewriter.getNamedAttr(FunctionOpInterface::getArgDictAttrName(),
-                                rewriter.getArrayAttr(newArgAttrs)));
+      if (hasAttrs) {
+        attributes.push_back(
+            rewriter.getNamedAttr(FunctionOpInterface::getArgDictAttrName(),
+                                  rewriter.getArrayAttr(newArgAttrs)));
+      }
     }
     for (const auto &pair : llvm::enumerate(attributes)) {
       if (pair.value().getName() == "llvm.linkage") {
