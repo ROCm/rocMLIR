@@ -95,13 +95,13 @@ public:
     if (oprAllocOp)
       b.setInsertionPoint(oprAllocOp);
 
-    auto allocWait = makeWait(b, loc);
-    auto gpuMemType = opr.getType();
+    Value allocWait = makeWait(b, loc);
+    Type gpuMemType = opr.getType();
     auto dst = b.create<gpu::AllocOp>(loc, gpuMemType, tokenType,
                                       ValueRange{allocWait}, ValueRange{},
                                       ValueRange{});
-    auto dstMem = dst.getResult(0);
-    auto dstToken = dst.getResult(1);
+    Value dstMem = dst.getResult(0);
+    Value dstToken = dst.getResult(1);
     // if alloc, convert to gpu.alloc
     if (oprAllocOp) {
       // TODO(sjw): make sure accessors are all on the GPU
@@ -109,9 +109,8 @@ public:
     } else {
       if (readAccess) {
         // else copy to device
-        auto asyncDeps = ValueRange{dstToken};
         auto memcpyToken =
-            b.create<gpu::MemcpyOp>(loc, tokenType, asyncDeps, dstMem, opr);
+            b.create<gpu::MemcpyOp>(loc, tokenType, ValueRange{dstToken}, dstMem, opr);
         dstToken = memcpyToken.getResult(0);
       }
       if (writeAccess) {
