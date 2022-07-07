@@ -16,6 +16,7 @@
 #include "mlir/Analysis/SliceAnalysis.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
@@ -340,27 +341,31 @@ void outlinePartitionOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
     // Add access modes for parameters: read-only, write-only, read-write
     // All MemRef params are marked as 'read-write'
     // Non-MemRef inputs are added as 'read-only'
-    auto numInputs = values.size();
     auto readAccessAttr =
-        func::AccessModeAttr::get(ctx, func::AccessMode::ReadOnly);
-    auto readWriteAccessAttr =
-        func::AccessModeAttr::get(ctx, func::AccessMode::ReadWrite);
-    SmallVector<Attribute, 8> accessVec(numInputs + results.size(),
-                                        readAccessAttr);
+        b.getNamedAttr(FuncOp::getReadAccessAttrName(), b.getUnitAttr());
+    auto writeAccessAttr =
+        b.getNamedAttr(FuncOp::getWriteAccessAttrName(), b.getUnitAttr());
     for (auto pair : llvm::enumerate(values)) {
-      if (pair.value().getType().isa<MemRefType>())
-        accessVec[pair.index()] = readWriteAccessAttr;
+      auto vtype = pair.value().getType();
+      if (vtype.isa<VectorType, RankedTensorType, UnrankedTensorType>())
+        outlinedFunc.setArgAttrs(pair.index(),
+                                 b.getDictionaryAttr({readAccessAttr}));
+      else if (vtype.isa<MemRefType>())
+        outlinedFunc.setArgAttrs(
+            pair.index(),
+            b.getDictionaryAttr({readAccessAttr, writeAccessAttr}));
     }
     // Non-MemRef results are added as 'write-only'
-    auto writeAccessAttr =
-        func::AccessModeAttr::get(ctx, func::AccessMode::WriteOnly);
     for (auto pair : llvm::enumerate(results)) {
-      if (pair.value().getType().isa<MemRefType>())
-        accessVec[numInputs + pair.index()] = readWriteAccessAttr;
-      else
-        accessVec[numInputs + pair.index()] = writeAccessAttr;
+      auto vtype = pair.value().getType();
+      if (vtype.isa<VectorType, RankedTensorType, UnrankedTensorType>())
+        outlinedFunc.setResultAttrs(pair.index(),
+                                    b.getDictionaryAttr({writeAccessAttr}));
+      else if (vtype.isa<MemRefType>())
+        outlinedFunc.setResultAttrs(
+            pair.index(),
+            b.getDictionaryAttr({readAccessAttr, writeAccessAttr}));
     }
-    outlinedFunc->setAttr("access_map", ArrayAttr::get(ctx, accessVec));
 
     // Clone leadingOps, anchorOp, and trailingOps into the body of the new
     // function, while also updating the comparison details for future
