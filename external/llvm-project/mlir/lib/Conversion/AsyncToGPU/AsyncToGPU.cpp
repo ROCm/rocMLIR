@@ -221,8 +221,7 @@ public:
       if (opr.getType().isa<MemRefType>() &&
           !opr.getDefiningOp<gpu::AllocOp>()) {
         bool readAccess{func.getArgAttr(fidx, FuncOp::getReadAccessAttrName())};
-        bool writeAccess =
-            (bool)func.getArgAttr(fidx, FuncOp::getWriteAccessAttrName());
+        bool writeAccess{func.getArgAttr(fidx, FuncOp::getWriteAccessAttrName())};
         opr = moveMemory(rw, opr, fidx, readAccess, writeAccess, copyBackOprs,
                          asyncDeps);
       }
