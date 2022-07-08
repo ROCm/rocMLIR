@@ -44,8 +44,7 @@
 using namespace llvm;
 
 namespace llvm {
-cl::opt<bool> RunPartialInlining("enable-partial-inlining", cl::init(false),
-                                 cl::Hidden, cl::ZeroOrMore,
+cl::opt<bool> RunPartialInlining("enable-partial-inlining", cl::Hidden,
                                  cl::desc("Run Partial inlinining pass"));
 
 static cl::opt<bool>
@@ -100,8 +99,8 @@ static cl::opt<bool>
     EnablePerformThinLTO("perform-thinlto", cl::init(false), cl::Hidden,
                          cl::desc("Enable performing ThinLTO."));
 
-cl::opt<bool> EnableHotColdSplit("hot-cold-split", cl::init(false),
-    cl::ZeroOrMore, cl::desc("Enable hot-cold splitting pass"));
+cl::opt<bool> EnableHotColdSplit("hot-cold-split",
+                                 cl::desc("Enable hot-cold splitting pass"));
 
 cl::opt<bool> EnableIROutliner("ir-outliner", cl::init(false), cl::Hidden,
     cl::desc("Enable ir outliner pass"));
@@ -115,12 +114,12 @@ cl::opt<bool>
                       cl::desc("Disable pre-instrumentation inliner"));
 
 cl::opt<int> PreInlineThreshold(
-    "preinline-threshold", cl::Hidden, cl::init(75), cl::ZeroOrMore,
+    "preinline-threshold", cl::Hidden, cl::init(75),
     cl::desc("Control the amount of inlining in pre-instrumentation inliner "
              "(default = 75)"));
 
 cl::opt<bool>
-    EnableGVNHoist("enable-gvn-hoist", cl::init(false), cl::ZeroOrMore,
+    EnableGVNHoist("enable-gvn-hoist",
                    cl::desc("Enable the GVN hoisting pass (default = off)"));
 
 static cl::opt<bool>
@@ -129,7 +128,7 @@ static cl::opt<bool>
                               cl::desc("Disable shrink-wrap library calls"));
 
 cl::opt<bool>
-    EnableGVNSink("enable-gvn-sink", cl::init(false), cl::ZeroOrMore,
+    EnableGVNSink("enable-gvn-sink",
                   cl::desc("Enable the GVN sinking pass (default = off)"));
 
 // This option is used in simplifying testing SampleFDO optimizations for
@@ -733,8 +732,6 @@ void PassManagerBuilder::populateModulePassManager(
     MPM.add(createOpenMPOptCGSCCLegacyPass());
 
   MPM.add(createPostOrderFunctionAttrsLegacyPass());
-  if (OptLevel > 2)
-    MPM.add(createArgumentPromotionPass()); // Scalarize uninlined fn args
 
   addExtensionsToPM(EP_CGSCCOptimizerLate, MPM);
   addFunctionSimplificationPasses(MPM);
@@ -1004,14 +1001,10 @@ void PassManagerBuilder::addLTOOptimizationPasses(legacy::PassManagerBase &PM) {
     PM.add(createGlobalOptimizerPass());
   PM.add(createGlobalDCEPass()); // Remove dead functions.
 
-  // If we didn't decide to inline a function, check to see if we can
-  // transform it to pass arguments by value instead of by reference.
-  PM.add(createArgumentPromotionPass());
-
   // The IPO passes may leave cruft around.  Clean up after them.
   PM.add(createInstructionCombiningPass());
   addExtensionsToPM(EP_Peephole, PM);
-  PM.add(createJumpThreadingPass(/*FreezeSelectCond*/ true));
+  PM.add(createJumpThreadingPass());
 
   // Break up allocas
   PM.add(createSROAPass());
@@ -1056,7 +1049,7 @@ void PassManagerBuilder::addLTOOptimizationPasses(legacy::PassManagerBase &PM) {
 
   addExtensionsToPM(EP_Peephole, PM);
 
-  PM.add(createJumpThreadingPass(/*FreezeSelectCond*/ true));
+  PM.add(createJumpThreadingPass());
 }
 
 void PassManagerBuilder::addLateLTOOptimizationPasses(

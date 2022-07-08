@@ -143,7 +143,24 @@ endif()
 option(LIBCXXABI_HERMETIC_STATIC_LIBRARY
   "Do not export any symbols from the static library." ${LIBCXXABI_HERMETIC_STATIC_LIBRARY_DEFAULT})
 
-set(LIBCXXABI_TEST_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/test/lit.site.cfg.in" CACHE STRING
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  set(LIBCXXABI_DEFAULT_TEST_CONFIG "llvm-libc++abi-shared-gcc.cfg.in")
+elseif(MINGW)
+  set(LIBCXXABI_DEFAULT_TEST_CONFIG "llvm-libc++abi-mingw.cfg.in")
+elseif(WIN32) # clang-cl
+  if (LIBCXXABI_ENABLE_SHARED)
+    set(LIBCXXABI_DEFAULT_TEST_CONFIG "llvm-libc++abi-shared-clangcl.cfg.in")
+  else()
+    set(LIBCXXABI_DEFAULT_TEST_CONFIG "llvm-libc++abi-static-clangcl.cfg.in")
+  endif()
+else()
+  if (LIBCXXABI_ENABLE_SHARED)
+    set(LIBCXXABI_DEFAULT_TEST_CONFIG "llvm-libc++abi-shared.cfg.in")
+  else()
+    set(LIBCXXABI_DEFAULT_TEST_CONFIG "llvm-libc++abi-static.cfg.in")
+  endif()
+endif()
+set(LIBCXXABI_TEST_CONFIG "${LIBCXXABI_DEFAULT_TEST_CONFIG}" CACHE STRING
   "The path to the Lit testing configuration to use when running the tests.
    If a relative path is provided, it is assumed to be relative to '<monorepo>/libcxxabi/test/configs'.")
 if (NOT IS_ABSOLUTE "${LIBCXXABI_TEST_CONFIG}")
@@ -222,6 +239,11 @@ include(HandleLibcxxabiFlags)
 # Configure target flags
 if(ZOS)
   add_target_flags_if_supported("-fzos-le-char-mode=ebcdic")
+endif()
+
+if (${CMAKE_SYSTEM_NAME} MATCHES "AIX")
+  add_target_flags_if_supported("-mdefault-visibility-export-mapping=explicit")
+  set(CMAKE_AIX_EXPORT_ALL_SYMBOLS OFF)
 endif()
 
 # Configure compiler. Must happen after setting the target flags.
@@ -409,9 +431,6 @@ endif()
 if (LIBCXXABI_BUILD_EXTERNAL_THREAD_LIBRARY)
   add_definitions(-D_LIBCPP_HAS_THREAD_LIBRARY_EXTERNAL)
 endif()
-
-# Prevent libc++abi from having library dependencies on libc++
-add_definitions(-D_LIBCPP_DISABLE_EXTERN_TEMPLATE)
 
 if (MSVC)
   add_definitions(-D_CRT_SECURE_NO_WARNINGS)

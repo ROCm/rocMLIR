@@ -40,9 +40,9 @@ using namespace llvm;
 #include "AMDGPUGenSubtargetInfo.inc"
 #undef AMDGPUSubtarget
 
-static cl::opt<bool> DisablePowerSched(
-  "amdgpu-disable-power-sched",
-  cl::desc("Disable scheduling to minimize mAI power bursts"),
+static cl::opt<bool> EnablePowerSched(
+  "amdgpu-enable-power-sched",
+  cl::desc("Enable scheduling to minimize mAI power bursts"),
   cl::init(false));
 
 static cl::opt<bool> EnableVGPRIndexMode(
@@ -184,12 +184,15 @@ unsigned GCNSubtarget::getConstantBusLimit(unsigned Opcode) const {
   switch (Opcode) {
   case AMDGPU::V_LSHLREV_B64_e64:
   case AMDGPU::V_LSHLREV_B64_gfx10:
+  case AMDGPU::V_LSHLREV_B64_e64_gfx11:
   case AMDGPU::V_LSHL_B64_e64:
   case AMDGPU::V_LSHRREV_B64_e64:
   case AMDGPU::V_LSHRREV_B64_gfx10:
+  case AMDGPU::V_LSHRREV_B64_e64_gfx11:
   case AMDGPU::V_LSHR_B64_e64:
   case AMDGPU::V_ASHRREV_I64_e64:
   case AMDGPU::V_ASHRREV_I64_gfx10:
+  case AMDGPU::V_ASHRREV_I64_e64_gfx11:
   case AMDGPU::V_ASHR_I64_e64:
     return 1;
   }
@@ -532,13 +535,11 @@ uint64_t AMDGPUSubtarget::getExplicitKernArgSize(const Function &F,
   for (const Argument &Arg : F.args()) {
     const bool IsByRef = Arg.hasByRefAttr();
     Type *ArgTy = IsByRef ? Arg.getParamByRefType() : Arg.getType();
-    MaybeAlign Alignment = IsByRef ? Arg.getParamAlign() : None;
-    if (!Alignment)
-      Alignment = DL.getABITypeAlign(ArgTy);
-
+    Align Alignment = DL.getValueOrABITypeAlignment(
+        IsByRef ? Arg.getParamAlign() : None, ArgTy);
     uint64_t AllocSize = DL.getTypeAllocSize(ArgTy);
     ExplicitArgBytes = alignTo(ExplicitArgBytes, Alignment) + AllocSize;
-    MaxAlign = max(MaxAlign, Alignment);
+    MaxAlign = std::max(MaxAlign, Alignment);
   }
 
   return ExplicitArgBytes;
@@ -915,7 +916,7 @@ struct FillMFMAShadowMutation : ScheduleDAGMutation {
 
   void apply(ScheduleDAGInstrs *DAGInstrs) override {
     const GCNSubtarget &ST = DAGInstrs->MF.getSubtarget<GCNSubtarget>();
-    if (!ST.hasMAIInsts() || DisablePowerSched)
+    if (!ST.hasMAIInsts())
       return;
     DAG = static_cast<ScheduleDAGMI*>(DAGInstrs);
     const TargetSchedModel *TSchedModel = DAGInstrs->getSchedModel();
@@ -965,7 +966,8 @@ void GCNSubtarget::getPostRAMutations(
 
 std::unique_ptr<ScheduleDAGMutation>
 GCNSubtarget::createFillMFMAShadowMutation(const TargetInstrInfo *TII) const {
-  return std::make_unique<FillMFMAShadowMutation>(&InstrInfo);
+  return EnablePowerSched ? std::make_unique<FillMFMAShadowMutation>(&InstrInfo)
+                          : nullptr;
 }
 
 const AMDGPUSubtarget &AMDGPUSubtarget::get(const MachineFunction &MF) {

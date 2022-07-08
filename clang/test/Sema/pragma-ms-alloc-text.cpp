@@ -34,3 +34,26 @@ void foo4() {}
 void foo5();                // expected-note {{previous declaration is here}}
 #pragma alloc_text(c, foo5) // expected-error {{'#pragma alloc_text' is applicable only to functions with C linkage}}
 extern "C" void foo5() {}   // expected-error {{declaration of 'foo5' has a different language linkage}}
+
+extern "C" {
+static void foo6();
+#pragma alloc_text(c, foo6) // no-warning
+void foo6() {}
+}
+
+extern "C" {
+static void foo7();
+}
+static void foo7();
+#pragma alloc_text(c, foo7) // no-warning
+void foo7() {}
+
+static void foo8();
+extern "C" {
+static void foo8();
+}
+#pragma alloc_text(c, foo8) // expected-error {{'#pragma alloc_text' is applicable only to functions with C linkage}}
+void foo8() {}
+
+enum foo9 { A, B, C };
+#pragma alloc_text(c, foo9) // expected-error {{'#pragma alloc_text' is applicable only to functions}}

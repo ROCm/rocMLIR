@@ -203,6 +203,29 @@ add_entrypoint_object(
     libc.src.__support.File.file
 )
 
+add_entrypoint_object(
+  stdout
+  SRCS
+    stdout.cpp
+  HDRS
+    stdout.h
+  DEPENDS
+    libc.include.stdio
+    libc.src.__support.File.file
+    libc.src.__support.File.platform_file
+)
+
+add_entrypoint_object(
+  stderr
+  SRCS
+    stderr.cpp
+  HDRS
+    stderr.h
+  DEPENDS
+    libc.include.stdio
+    libc.src.__support.File.file
+    libc.src.__support.File.platform_file
+)
 
 add_entrypoint_object(
   sprintf
@@ -226,4 +249,29 @@ add_entrypoint_object(
     libc.src.stdio.printf_core.printf_main
     libc.src.stdio.printf_core.string_writer
     libc.src.stdio.printf_core.writer
+)
+
+add_entrypoint_object(
+  fprintf
+  SRCS
+    fprintf.cpp
+  HDRS
+    fprintf.h
+  DEPENDS
+    libc.src.__support.arg_list
+    libc.src.stdio.printf_core.vfprintf_internal
+)
+
+
+add_entrypoint_object(
+  printf
+  SRCS
+    printf.cpp
+  HDRS
+    printf.h
+  DEPENDS
+    libc.src.__support.File.file
+    libc.src.__support.File.platform_file
+    libc.src.__support.arg_list
+    libc.src.stdio.printf_core.vfprintf_internal
 )

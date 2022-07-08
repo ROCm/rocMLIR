@@ -52,6 +52,16 @@ void MachineCycleInfoWrapperPass::releaseMemory() {
   F = nullptr;
 }
 
+class MachineCycleInfoPrinterPass : public MachineFunctionPass {
+public:
+  static char ID;
+
+  MachineCycleInfoPrinterPass();
+
+  bool runOnMachineFunction(MachineFunction &F) override;
+  void getAnalysisUsage(AnalysisUsage &AU) const override;
+};
+
 char MachineCycleInfoPrinterPass::ID = 0;
 
 MachineCycleInfoPrinterPass::MachineCycleInfoPrinterPass()

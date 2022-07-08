@@ -78,18 +78,19 @@ Type mlir::sparse_tensor::getIndexOverheadType(
   return getOverheadType(builder, indexOverheadTypeEncoding(enc));
 }
 
+// TODO: Adjust the naming convention for the constructors of
+// `OverheadType` so we can use the `FOREVERY_O` x-macro here instead
+// of `FOREVERY_FIXED_O`; to further reduce the possibility of typo bugs
+// or things getting out of sync.
 StringRef mlir::sparse_tensor::overheadTypeFunctionSuffix(OverheadType ot) {
   switch (ot) {
   case OverheadType::kIndex:
-    return "";
-  case OverheadType::kU64:
-    return "64";
-  case OverheadType::kU32:
-    return "32";
-  case OverheadType::kU16:
-    return "16";
-  case OverheadType::kU8:
-    return "8";
+    return "0";
+#define CASE(ONAME, O)                                                         \
+  case OverheadType::kU##ONAME:                                                \
+    return #ONAME;
+    FOREVERY_FIXED_O(CASE)
+#undef CASE
   }
   llvm_unreachable("Unknown OverheadType");
 }
@@ -103,6 +104,10 @@ PrimaryType mlir::sparse_tensor::primaryTypeEncoding(Type elemTp) {
     return PrimaryType::kF64;
   if (elemTp.isF32())
     return PrimaryType::kF32;
+  if (elemTp.isF16())
+    return PrimaryType::kF16;
+  if (elemTp.isBF16())
+    return PrimaryType::kBF16;
   if (elemTp.isInteger(64))
     return PrimaryType::kI64;
   if (elemTp.isInteger(32))
@@ -123,22 +128,11 @@ PrimaryType mlir::sparse_tensor::primaryTypeEncoding(Type elemTp) {
 
 StringRef mlir::sparse_tensor::primaryTypeFunctionSuffix(PrimaryType pt) {
   switch (pt) {
-  case PrimaryType::kF64:
-    return "F64";
-  case PrimaryType::kF32:
-    return "F32";
-  case PrimaryType::kI64:
-    return "I64";
-  case PrimaryType::kI32:
-    return "I32";
-  case PrimaryType::kI16:
-    return "I16";
-  case PrimaryType::kI8:
-    return "I8";
-  case PrimaryType::kC64:
-    return "C64";
-  case PrimaryType::kC32:
-    return "C32";
+#define CASE(VNAME, V)                                                         \
+  case PrimaryType::k##VNAME:                                                  \
+    return #VNAME;
+    FOREVERY_V(CASE)
+#undef CASE
   }
   llvm_unreachable("Unknown PrimaryType");
 }

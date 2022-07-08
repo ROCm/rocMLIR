@@ -992,6 +992,8 @@ def err_pragma_expected_file_scope : Error<
   "'#pragma %0' can only appear at file scope">;
 def err_pragma_alloc_text_c_linkage: Error<
   "'#pragma alloc_text' is applicable only to functions with C linkage">;
+def err_pragma_alloc_text_not_function: Error<
+  "'#pragma alloc_text' is applicable only to functions">;
 
 def warn_pragma_unused_undeclared_var : Warning<
   "undeclared variable %0 used as an argument for '#pragma unused'">,
@@ -1527,9 +1529,9 @@ def err_static_assert_expression_is_not_constant : Error<
   "static_assert expression is not an integral constant expression">;
 def err_constexpr_if_condition_expression_is_not_constant : Error<
   "constexpr if condition is not a constant expression">;
-def err_static_assert_failed : Error<"static_assert failed%select{ %1|}0">;
+def err_static_assert_failed : Error<"static_assert failed%select{: %1|}0">;
 def err_static_assert_requirement_failed : Error<
-  "static_assert failed due to requirement '%0'%select{ %2|}1">;
+  "static_assert failed due to requirement '%0'%select{: %2|}1">;
 
 def warn_consteval_if_always_true : Warning<
   "consteval if is always true in an %select{unevaluated|immediate}0 context">,
@@ -3113,8 +3115,6 @@ def note_ownership_returns_index_mismatch : Note<
   "declared with index %0 here">;
 def err_format_strftime_third_parameter : Error<
   "strftime format attribute requires 3rd parameter to be 0">;
-def err_format_attribute_requires_variadic : Error<
-  "format attribute requires variadic function">;
 def err_format_attribute_not : Error<"format argument not a string type">;
 def err_format_attribute_result_not : Error<"function does not return %0">;
 def err_format_attribute_implicit_this_format_string : Error<
@@ -3354,8 +3354,6 @@ def warn_redeclaration_without_import_attribute : Warning<
 def warn_dllimport_dropped_from_inline_function : Warning<
   "%q0 redeclared inline; %1 attribute ignored">,
   InGroup<IgnoredAttributes>;
-def warn_attribute_ignored : Warning<"%0 attribute ignored">,
-  InGroup<IgnoredAttributes>;
 def warn_nothrow_attribute_ignored : Warning<"'nothrow' attribute conflicts with"
   " exception specification; attribute ignored">,
   InGroup<IgnoredAttributes>;
@@ -3392,8 +3390,11 @@ def note_attribute_has_no_effect_on_compile_time_if_here : Note<
   "annotating the 'if %select{constexpr|consteval}0' statement here">;
 def err_decl_attribute_invalid_on_stmt : Error<
   "%0 attribute cannot be applied to a statement">;
-def err_stmt_attribute_invalid_on_decl : Error<
+def err_attribute_invalid_on_decl : Error<
   "%0 attribute cannot be applied to a declaration">;
+def warn_type_attribute_deprecated_on_decl : Warning<
+  "applying attribute %0 to a declaration is deprecated; apply it to the type instead">,
+  InGroup<DeprecatedAttributes>;
 def warn_declspec_attribute_ignored : Warning<
   "attribute %0 is ignored, place it after "
   "\"%select{class|struct|interface|union|enum}1\" to apply attribute to "
@@ -4124,6 +4125,9 @@ def err_attribute_not_supported_on_arch
 def warn_gcc_ignores_type_attr : Warning<
   "GCC does not allow the %0 attribute to be written on a type">,
   InGroup<GccCompat>;
+def warn_gcc_requires_variadic_function : Warning<
+  "GCC requires a function with the %0 attribute to be variadic">,
+  InGroup<GccCompat>;
 
 // Clang-Specific Attributes
 def warn_attribute_iboutlet : Warning<
@@ -4180,7 +4184,7 @@ def err_attribute_preferred_name_arg_invalid : Error<
   "argument %0 to 'preferred_name' attribute is not a typedef for "
   "a specialization of %1">;
 def err_attribute_builtin_alias : Error<
-  "%0 attribute can only be applied to a ARM or RISC-V builtin">;
+  "%0 attribute can only be applied to a ARM, HLSL or RISC-V builtin">;
 
 // called-once attribute diagnostics.
 def err_called_once_attribute_wrong_type : Error<
@@ -4715,6 +4719,10 @@ def err_bound_member_function : Error<
   "reference to non-static member function must be called"
   "%select{|; did you mean to call it with no arguments?}0">;
 def note_possible_target_of_call : Note<"possible target for call">;
+def err_no_viable_destructor : Error<
+  "no viable destructor found for class %0">;
+def err_ambiguous_destructor : Error<
+  "destructor of class %0 is ambiguous">;
 
 def err_ovl_no_viable_object_call : Error<
   "no matching function for call to object of type %0">;
@@ -4822,8 +4830,12 @@ def warn_cxx14_compat_template_nontype_parm_auto_type : Warning<
   DefaultIgnore, InGroup<CXXPre17Compat>;
 def err_template_param_default_arg_redefinition : Error<
   "template parameter redefines default argument">;
+def err_template_param_default_arg_inconsistent_redefinition : Error<
+  "template parameter default argument is inconsistent with previous definition">;
 def note_template_param_prev_default_arg : Note<
   "previous default template argument defined here">;
+def note_template_param_prev_default_arg_in_other_module : Note<
+  "previous default template argument defined in module %0">;
 def err_template_param_default_arg_missing : Error<
   "template parameter missing a default argument">;
 def ext_template_parameter_default_in_function_template : ExtWarn<
@@ -5589,10 +5601,12 @@ def warn_strict_prototypes : Extension<
   "a %select{function|block}0 declaration without a prototype is deprecated "
   "%select{in all versions of C|}0">, InGroup<StrictPrototypes>;
 def warn_non_prototype_changes_behavior : Warning<
-  "a function declaration without a prototype is deprecated in all versions of "
-  "C and is not supported in C2x">, InGroup<DeprecatedNonPrototype>;
-def note_func_decl_changes_behavior : Note<
-  "a function declaration without a prototype is not supported in C2x">;
+  "a function %select{declaration|definition}0 without a prototype is "
+  "deprecated in all versions of C %select{and is not supported in C2x|and is "
+  "treated as a zero-parameter prototype in C2x, conflicting with a "
+  "%select{previous|subsequent}2 %select{declaration|definition}3}1">,
+  InGroup<DeprecatedNonPrototype>;
+def note_conflicting_prototype : Note<"conflicting prototype is here">;
 def warn_missing_variable_declarations : Warning<
   "no previous extern declaration for non-static variable %0">,
   InGroup<DiagGroup<"missing-variable-declarations">>, DefaultIgnore;
@@ -6135,6 +6149,9 @@ def note_exits_block_captures_non_trivial_c_struct : Note<
 def note_exits_compound_literal_scope : Note<
   "jump exits lifetime of a compound literal that is non-trivial to destruct">;
 
+def err_func_returning_qualified_void : ExtWarn<
+  "function cannot return qualified void type %0">,
+  InGroup<DiagGroup<"qualified-void-return-type">>;
 def err_func_returning_array_function : Error<
   "function cannot return %select{array|function}0 type %1">;
 def err_field_declared_as_function : Error<"field %0 declared as a function">;
@@ -7583,6 +7600,12 @@ def warn_deprecated_altivec_src_compat : Warning<
   "'-altivec-compat=xl' option">,
   InGroup<DiagGroup<"deprecated-altivec-src-compat">>;
 
+def warn_deprecated_lax_vec_conv_all : Warning<
+  "Implicit conversion between vector types ('%0' and '%1') is deprecated. "
+  "In the future, the behavior implied by '-fno-lax-vector-conversions' "
+  "will be the default.">,
+  InGroup<DiagGroup<"deprecate-lax-vec-conv-all">>;
+
 def err_catch_incomplete_ptr : Error<
   "cannot catch pointer to incomplete type %0">;
 def err_catch_incomplete_ref : Error<
@@ -8729,6 +8752,10 @@ def warn_unused_result : Warning<
 def warn_unused_result_msg : Warning<
   "ignoring return value of function declared with %0 attribute: %1">,
   InGroup<UnusedResult>;
+def warn_unused_result_typedef_unsupported_spelling : Warning<
+  "'[[%select{nodiscard|gnu::warn_unused_result}0]]' attribute ignored when "
+  "applied to a typedef; consider using '__attribute__((warn_unused_result))' "
+  "or '[[clang::warn_unused_result]]' instead">, InGroup<IgnoredAttributes>;
 def warn_unused_volatile : Warning<
   "expression result unused; assign into a variable to force a volatile load">,
   InGroup<DiagGroup<"unused-volatile-lvalue">>;
@@ -10997,6 +11024,9 @@ def err_omp_append_args_with_varargs : Error<
   "'append_args' is not allowed with varargs functions">;
 def err_openmp_vla_in_task_untied : Error<
   "variable length arrays are not supported in OpenMP tasking regions with 'untied' clause">;
+def warn_omp_unterminated_declare_target : Warning<
+  "expected '#pragma omp end declare target' at end of file to match '#pragma omp %0'">,
+  InGroup<SourceUsesOpenMP>;
 } // end of OpenMP category
 
 let CategoryName = "Related Result Type Issue" in {

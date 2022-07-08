@@ -355,12 +355,12 @@ func.func @divbyc(%arga: tensor<32xf64, #SV>,
 // CHECK-SAME:    %[[VAL_0:.*]]: tensor<32xf64, #sparse_tensor.encoding<{{{.*}}}>> {
 // CHECK-DAG:     %[[VAL_1:.*]] = arith.constant 0 : index
 // CHECK-DAG:     %[[VAL_2:.*]] = arith.constant 1 : index
-// CHECK-DAG:     %[[VAL_3:.*]] = arith.constant 32 : index
-// CHECK:         %[[VAL_4:.*]] = sparse_tensor.init{{\[}}%[[VAL_3]]] : tensor<32xf64, #sparse_tensor.encoding<{{{.*}}}>>
+// CHECK:         %[[VAL_4:.*]] = bufferization.alloc_tensor() : tensor<32xf64, #sparse_tensor.encoding<{{{.*}}}>>
 // CHECK:         %[[VAL_5:.*]] = sparse_tensor.pointers %[[VAL_0]], %[[VAL_1]] : tensor<32xf64, #sparse_tensor.encoding<{{{.*}}}>> to memref<?xindex>
 // CHECK:         %[[VAL_6:.*]] = sparse_tensor.indices %[[VAL_0]], %[[VAL_1]] : tensor<32xf64, #sparse_tensor.encoding<{{{.*}}}>> to memref<?xindex>
 // CHECK:         %[[VAL_7:.*]] = sparse_tensor.values %[[VAL_0]] : tensor<32xf64, #sparse_tensor.encoding<{{{.*}}}>> to memref<?xf64>
 // CHECK:         %[[VAL_8:.*]] = memref.alloca(%[[VAL_2]]) : memref<?xindex>
+// CHECK:         %[[BUF:.*]] = memref.alloca() : memref<f64>
 // CHECK:         %[[VAL_9:.*]] = memref.load %[[VAL_5]]{{\[}}%[[VAL_1]]] : memref<?xindex>
 // CHECK:         %[[VAL_10:.*]] = memref.load %[[VAL_5]]{{\[}}%[[VAL_2]]] : memref<?xindex>
 // CHECK:         scf.for %[[VAL_11:.*]] = %[[VAL_9]] to %[[VAL_10]] step %[[VAL_2]] {
@@ -375,14 +375,15 @@ func.func @divbyc(%arga: tensor<32xf64, #SV>,
 // CHECK:           %[[VAL_19:.*]] = math.log1p %[[VAL_18]] : f64
 // CHECK:           %[[VAL_20:.*]] = math.sin %[[VAL_19]] : f64
 // CHECK:           %[[VAL_21:.*]] = math.tanh %[[VAL_20]] : f64
-// CHECK:           sparse_tensor.lex_insert %[[VAL_4]], %[[VAL_8]], %[[VAL_21]] : tensor<32xf64, #sparse_tensor.encoding<{{{.*}}}>>, memref<?xindex>, f64
+// CHECK:           memref.store %[[VAL_21]], %[[BUF]][] : memref<f64>
+// CHECK:           sparse_tensor.lex_insert %[[VAL_4]], %[[VAL_8]], %[[BUF]] : tensor<32xf64, #sparse_tensor.encoding<{{{.*}}}>>, memref<?xindex>, memref<f64>
 // CHECK:         }
 // CHECK:         %[[VAL_22:.*]] = sparse_tensor.load %[[VAL_4]] hasInserts : tensor<32xf64, #sparse_tensor.encoding<{{{.*}}}>>
 // CHECK:         return %[[VAL_22]] : tensor<32xf64, #sparse_tensor.encoding<{{{.*}}}>>
 // CHECK:       }
 func.func @zero_preserving_math(%arga: tensor<32xf64, #SV>) -> tensor<32xf64, #SV> {
   %c32 = arith.constant 32 : index
-  %xinp = sparse_tensor.init [%c32] : tensor<32xf64, #SV>
+  %xinp = bufferization.alloc_tensor() : tensor<32xf64, #SV>
   %0 = linalg.generic #trait1
      ins(%arga: tensor<32xf64, #SV>)
     outs(%xinp: tensor<32xf64, #SV>) {

@@ -29,6 +29,8 @@ ELF Improvements
 * ``-z pack-relative-relocs`` is now available to support ``DT_RELR`` for glibc 2.36+.
   (`D120701 <https://reviews.llvm.org/D120701>`_)
 * ``--no-fortran-common`` (pre 12.0.0 behavior) is now the default.
+* ``FORCE_LLD_DIAGNOSTICS_CRASH`` environment variable is now available to force LLD to crash.
+  (`D128195 <https://reviews.llvm.org/D128195>`_)
 
 Breaking changes
 ----------------
@@ -38,6 +40,12 @@ Breaking changes
 * ``-d`` is now ignored.
 * If a prevailing COMDAT group defines STB_WEAK symbol, having a STB_GLOBAL symbol in a non-prevailing group is now rejected with a diagnostic.
   (`D120626 <https://reviews.llvm.org/D120626>`_)
+* Support for the legacy ``.zdebug`` format has been removed. Run
+  ``objcopy --decompress-debug-sections`` in case old object files use ``.zdebug``.
+  (`D126793 <https://reviews.llvm.org/D126793>`_)
+* ``--time-trace-file=<file>`` has been removed.
+  Use ``--time-trace=<file>`` instead.
+  (`D128451 <https://reviews.llvm.org/D128451>`_)
 
 COFF Improvements
 -----------------

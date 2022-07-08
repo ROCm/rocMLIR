@@ -206,6 +206,10 @@ int ExternalIoStatementBase::EndIoStatement() {
   return result;
 }
 
+void ExternalIoStatementBase::SetAsynchronous() {
+  asynchronousID_ = unit().GetAsynchronousId(*this);
+}
+
 void OpenStatementState::set_path(const char *path, std::size_t length) {
   pathLength_ = TrimTrailingSpaces(path, length);
   path_ = SaveDefaultCharacter(path, pathLength_, *this);
@@ -283,6 +287,7 @@ int CloseStatementState::EndIoStatement() {
 }
 
 void NoUnitIoStatementState::CompleteOperation() {
+  SignalPendingError();
   IoStatementBase::CompleteOperation();
 }
 
@@ -315,20 +320,18 @@ void ExternalIoStatementState<DIR>::CompleteOperation() {
   }
   if constexpr (DIR == Direction::Input) {
     BeginReadingRecord(); // in case there were no I/O items
-    if (mutableModes().nonAdvancing) {
+    if (mutableModes().nonAdvancing && !InError()) {
       unit().leftTabLimit = unit().furthestPositionInRecord;
-    }
-    if (!mutableModes().nonAdvancing || GetIoStat() == IostatEor) {
+    } else {
       FinishReadingRecord();
     }
   } else { // output
     if (mutableModes().nonAdvancing) {
       // Make effects of positioning past the last Emit() visible with blanks.
       std::int64_t n{unit().positionInRecord - unit().furthestPositionInRecord};
-      unit().positionInRecord = unit().furthestPositionInRecord;
       while (n-- > 0 && unit().Emit(" ", 1, 1, *this)) {
       }
-      unit().leftTabLimit = unit().furthestPositionInRecord;
+      unit().leftTabLimit = unit().positionInRecord;
     } else {
       unit().AdvanceRecord(*this);
     }
@@ -674,7 +677,8 @@ bool IoStatementState::CheckForEndOfRecord() {
     if (auto length{connection.EffectiveRecordLength()}) {
       if (connection.positionInRecord >= *length) {
         IoErrorHandler &handler{GetIoErrorHandler()};
-        if (mutableModes().nonAdvancing) {
+        const auto &modes{mutableModes()};
+        if (modes.nonAdvancing) {
           if (connection.access == Access::Stream &&
               connection.unterminatedRecord) {
             // Reading final unterminated record left by a
@@ -684,10 +688,10 @@ bool IoStatementState::CheckForEndOfRecord() {
           } else {
             handler.SignalEor();
           }
-        } else if (!connection.modes.pad) {
+        } else if (!modes.pad) {
           handler.SignalError(IostatRecordReadOverrun);
         }
-        return connection.modes.pad; // PAD='YES'
+        return modes.pad; // PAD='YES'
       }
     }
   }
@@ -796,7 +800,9 @@ ListDirectedStatementState<Direction::Input>::GetNextDataEdit(
     if (remaining_ > 0) {
       repeatPosition_.emplace(io);
     }
-    return edit;
+    if (!imaginaryPart_) {
+      return edit;
+    }
   }
   // Skip separators, handle a "r*c" repeat count; see 13.10.2 in Fortran 2018
   if (imaginaryPart_) {
@@ -1024,6 +1030,8 @@ void ExternalMiscIoStatementState::CompleteOperation() {
   case Rewind:
     ext.Rewind(*this);
     break;
+  case Wait:
+    break; // handled in io-api.cpp BeginWait
   }
   return IoStatementBase::CompleteOperation();
 }
@@ -1270,7 +1278,7 @@ bool InquireUnitState::Inquire(
     }
     return true;
   case HashInquiryKeyword("NUMBER"):
-    result = unit().IsConnected() ? unit().unitNumber() : -1;
+    result = unit().unitNumber();
     return true;
   case HashInquiryKeyword("POS"):
     result = unit().InquirePos();
@@ -1300,8 +1308,9 @@ bool InquireUnitState::Inquire(
   }
 }
 
-InquireNoUnitState::InquireNoUnitState(const char *sourceFile, int sourceLine)
-    : NoUnitIoStatementState{sourceFile, sourceLine, *this} {}
+InquireNoUnitState::InquireNoUnitState(
+    const char *sourceFile, int sourceLine, int badUnitNumber)
+    : NoUnitIoStatementState{*this, sourceFile, sourceLine, badUnitNumber} {}
 
 bool InquireNoUnitState::Inquire(
     InquiryKeywordHash inquiry, char *result, std::size_t length) {
@@ -1331,7 +1340,7 @@ bool InquireNoUnitState::Inquire(
   case HashInquiryKeyword("STREAM"):
   case HashInquiryKeyword("WRITE"):
   case HashInquiryKeyword("UNFORMATTED"):
-    ToFortranDefaultCharacter(result, length, "UNKNONN");
+    ToFortranDefaultCharacter(result, length, "UNKNOWN");
     return true;
   default:
     BadInquiryKeywordHashCrash(inquiry);
@@ -1370,8 +1379,10 @@ bool InquireNoUnitState::Inquire(
 bool InquireNoUnitState::Inquire(
     InquiryKeywordHash inquiry, std::int64_t &result) {
   switch (inquiry) {
-  case HashInquiryKeyword("NEXTREC"):
   case HashInquiryKeyword("NUMBER"):
+    result = badUnitNumber();
+    return true;
+  case HashInquiryKeyword("NEXTREC"):
   case HashInquiryKeyword("POS"):
   case HashInquiryKeyword("RECL"):
   case HashInquiryKeyword("SIZE"):
@@ -1385,7 +1396,7 @@ bool InquireNoUnitState::Inquire(
 
 InquireUnconnectedFileState::InquireUnconnectedFileState(
     OwningPtr<char> &&path, const char *sourceFile, int sourceLine)
-    : NoUnitIoStatementState{sourceFile, sourceLine, *this}, path_{std::move(
+    : NoUnitIoStatementState{*this, sourceFile, sourceLine}, path_{std::move(
                                                                  path)} {}
 
 bool InquireUnconnectedFileState::Inquire(
@@ -1480,8 +1491,10 @@ bool InquireUnconnectedFileState::Inquire(
   case HashInquiryKeyword("NUMBER"):
   case HashInquiryKeyword("POS"):
   case HashInquiryKeyword("RECL"):
-  case HashInquiryKeyword("SIZE"):
     result = -1;
+    return true;
+  case HashInquiryKeyword("SIZE"):
+    result = SizeInBytes(path_.get());
     return true;
   default:
     BadInquiryKeywordHashCrash(inquiry);
@@ -1491,7 +1504,7 @@ bool InquireUnconnectedFileState::Inquire(
 
 InquireIOLengthState::InquireIOLengthState(
     const char *sourceFile, int sourceLine)
-    : NoUnitIoStatementState{sourceFile, sourceLine, *this} {}
+    : NoUnitIoStatementState{*this, sourceFile, sourceLine} {}
 
 bool InquireIOLengthState::Emit(const char *, std::size_t n, std::size_t) {
   bytes_ += n;
@@ -1515,6 +1528,9 @@ bool InquireIOLengthState::Emit(const char32_t *p, std::size_t n) {
 
 int ErroneousIoStatementState::EndIoStatement() {
   SignalPendingError();
+  if (unit_) {
+    unit_->EndIoStatement();
+  }
   return IoStatementBase::EndIoStatement();
 }
 

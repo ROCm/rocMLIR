@@ -30,18 +30,13 @@ define void @test_f2(%f2* %P, %f2* %Q, %f2* %S) {
 ;
 ; AIX-P8-32-LABEL: test_f2:
 ; AIX-P8-32:       # %bb.0:
-; AIX-P8-32-NEXT:    lfs f0, 4(r3)
-; AIX-P8-32-NEXT:    lfs f1, 0(r3)
-; AIX-P8-32-NEXT:    lwz r6, L..C0(r2) # %const.0
-; AIX-P8-32-NEXT:    lfs f2, 4(r4)
-; AIX-P8-32-NEXT:    xscvdpspn v2, f0
-; AIX-P8-32-NEXT:    lfs f0, 0(r4)
-; AIX-P8-32-NEXT:    lxvw4x v0, 0, r6
-; AIX-P8-32-NEXT:    xscvdpspn v3, f1
-; AIX-P8-32-NEXT:    xscvdpspn v4, f2
-; AIX-P8-32-NEXT:    xscvdpspn v5, f0
-; AIX-P8-32-NEXT:    vperm v2, v3, v2, v0
-; AIX-P8-32-NEXT:    vperm v3, v5, v4, v0
+; AIX-P8-32-NEXT:    li r6, 4
+; AIX-P8-32-NEXT:    lxsiwzx v3, 0, r3
+; AIX-P8-32-NEXT:    lxsiwzx v5, 0, r4
+; AIX-P8-32-NEXT:    lxsiwzx v2, r3, r6
+; AIX-P8-32-NEXT:    lxsiwzx v4, r4, r6
+; AIX-P8-32-NEXT:    vmrgow v2, v3, v2
+; AIX-P8-32-NEXT:    vmrgow v3, v5, v4
 ; AIX-P8-32-NEXT:    xvaddsp vs0, v2, v3
 ; AIX-P8-32-NEXT:    xxsldwi vs1, vs0, vs0, 1
 ; AIX-P8-32-NEXT:    xscvspdpn f0, vs0
@@ -60,17 +55,14 @@ define void @test_f2(%f2* %P, %f2* %Q, %f2* %S) {
 ;
 ; AIX-P9-32-LABEL: test_f2:
 ; AIX-P9-32:       # %bb.0:
-; AIX-P9-32-NEXT:    lfs f0, 0(r3)
-; AIX-P9-32-NEXT:    lwz r3, 4(r3)
-; AIX-P9-32-NEXT:    mtfprwz f1, r3
-; AIX-P9-32-NEXT:    lwz r3, 4(r4)
-; AIX-P9-32-NEXT:    xscvdpspn vs0, f0
-; AIX-P9-32-NEXT:    mtfprwz f2, r3
-; AIX-P9-32-NEXT:    xxinsertw vs0, vs1, 4
-; AIX-P9-32-NEXT:    lfs f1, 0(r4)
-; AIX-P9-32-NEXT:    xscvdpspn vs1, f1
-; AIX-P9-32-NEXT:    xxinsertw vs1, vs2, 4
-; AIX-P9-32-NEXT:    xvaddsp vs0, vs0, vs1
+; AIX-P9-32-NEXT:    li r6, 4
+; AIX-P9-32-NEXT:    lxsiwzx v3, 0, r3
+; AIX-P9-32-NEXT:    lxsiwzx v4, 0, r4
+; AIX-P9-32-NEXT:    lxsiwzx v2, r3, r6
+; AIX-P9-32-NEXT:    vmrgow v2, v3, v2
+; AIX-P9-32-NEXT:    lxsiwzx v3, r4, r6
+; AIX-P9-32-NEXT:    vmrgow v3, v4, v3
+; AIX-P9-32-NEXT:    xvaddsp vs0, v2, v3
 ; AIX-P9-32-NEXT:    xscvspdpn f1, vs0
 ; AIX-P9-32-NEXT:    xxsldwi vs0, vs0, vs0, 1
 ; AIX-P9-32-NEXT:    xscvspdpn f0, vs0

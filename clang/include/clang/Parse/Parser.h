@@ -728,6 +728,8 @@ private:
                               SourceLocation PragmaLocation);
   bool HandlePragmaMSAllocText(StringRef PragmaName,
                                SourceLocation PragmaLocation);
+  bool HandlePragmaMSOptimize(StringRef PragmaName,
+                              SourceLocation PragmaLocation);
 
   /// Handle the annotation token produced for
   /// #pragma align...
@@ -2075,7 +2077,8 @@ private:
       SourceLocation *TrailingElseLoc = nullptr);
   StmtResult ParseStatementOrDeclarationAfterAttributes(
       StmtVector &Stmts, ParsedStmtContext StmtCtx,
-      SourceLocation *TrailingElseLoc, ParsedAttributes &Attrs);
+      SourceLocation *TrailingElseLoc, ParsedAttributes &DeclAttrs,
+      ParsedAttributes &DeclSpecAttrs);
   StmtResult ParseExprStatement(ParsedStmtContext StmtCtx);
   StmtResult ParseLabeledStatement(ParsedAttributes &Attrs,
                                    ParsedStmtContext StmtCtx);
@@ -2195,7 +2198,8 @@ private:
     DSC_template_param, // template parameter context
     DSC_template_type_arg, // template type argument context
     DSC_objc_method_result, // ObjC method result context, enables 'instancetype'
-    DSC_condition // condition declaration context
+    DSC_condition, // condition declaration context
+    DSC_association // A _Generic selection expression's type association
   };
 
   /// Is this a context in which we are parsing just a type-specifier (or
@@ -2214,6 +2218,7 @@ private:
     case DeclSpecContext::DSC_type_specifier:
     case DeclSpecContext::DSC_trailing:
     case DeclSpecContext::DSC_alias_declaration:
+    case DeclSpecContext::DSC_association:
       return true;
     }
     llvm_unreachable("Missing DeclSpecContext case");
@@ -2238,7 +2243,7 @@ private:
   /// so permit class and enum definitions in addition to non-defining class and
   /// enum elaborated-type-specifiers)?
   static AllowDefiningTypeSpec
-  isDefiningTypeSpecifierContext(DeclSpecContext DSC) {
+  isDefiningTypeSpecifierContext(DeclSpecContext DSC, bool IsCPlusPlus) {
     switch (DSC) {
     case DeclSpecContext::DSC_normal:
     case DeclSpecContext::DSC_class:
@@ -2254,6 +2259,10 @@ private:
     case DeclSpecContext::DSC_template_type_arg:
     case DeclSpecContext::DSC_type_specifier:
       return AllowDefiningTypeSpec::NoButErrorRecovery;
+
+    case DeclSpecContext::DSC_association:
+      return IsCPlusPlus ? AllowDefiningTypeSpec::NoButErrorRecovery
+                         : AllowDefiningTypeSpec::Yes;
 
     case DeclSpecContext::DSC_trailing:
       return AllowDefiningTypeSpec::No;
@@ -2276,6 +2285,7 @@ private:
     case DeclSpecContext::DSC_template_type_arg:
     case DeclSpecContext::DSC_type_specifier:
     case DeclSpecContext::DSC_trailing:
+    case DeclSpecContext::DSC_association:
       return false;
     }
     llvm_unreachable("Missing DeclSpecContext case");
@@ -2291,6 +2301,7 @@ private:
     case DeclSpecContext::DSC_top_level:
     case DeclSpecContext::DSC_condition:
     case DeclSpecContext::DSC_type_specifier:
+    case DeclSpecContext::DSC_association:
       return true;
 
     case DeclSpecContext::DSC_objc_method_result:
@@ -2316,15 +2327,18 @@ private:
 
   DeclGroupPtrTy ParseDeclaration(DeclaratorContext Context,
                                   SourceLocation &DeclEnd,
-                                  ParsedAttributes &Attrs,
+                                  ParsedAttributes &DeclAttrs,
+                                  ParsedAttributes &DeclSpecAttrs,
                                   SourceLocation *DeclSpecStart = nullptr);
   DeclGroupPtrTy
   ParseSimpleDeclaration(DeclaratorContext Context, SourceLocation &DeclEnd,
-                         ParsedAttributes &Attrs, bool RequireSemi,
+                         ParsedAttributes &DeclAttrs,
+                         ParsedAttributes &DeclSpecAttrs, bool RequireSemi,
                          ForRangeInit *FRI = nullptr,
                          SourceLocation *DeclSpecStart = nullptr);
   bool MightBeDeclarator(DeclaratorContext Context);
   DeclGroupPtrTy ParseDeclGroup(ParsingDeclSpec &DS, DeclaratorContext Context,
+                                ParsedAttributes &Attrs,
                                 SourceLocation *DeclEnd = nullptr,
                                 ForRangeInit *FRI = nullptr);
   Decl *ParseDeclarationAfterDeclarator(Declarator &D,
@@ -3332,30 +3346,14 @@ public:
   ExprResult ParseOpenMPParensExpr(StringRef ClauseName, SourceLocation &RLoc,
                                    bool IsAddressOfOperand = false);
 
-  /// Data used for parsing list of variables in OpenMP clauses.
-  struct OpenMPVarListDataTy {
-    Expr *DepModOrTailExpr = nullptr;
-    SourceLocation ColonLoc;
-    SourceLocation RLoc;
-    CXXScopeSpec ReductionOrMapperIdScopeSpec;
-    DeclarationNameInfo ReductionOrMapperId;
-    int ExtraModifier = -1; ///< Additional modifier for linear, map, depend or
-                            ///< lastprivate clause.
-    SmallVector<OpenMPMapModifierKind, NumberOfOMPMapClauseModifiers>
-    MapTypeModifiers;
-    SmallVector<SourceLocation, NumberOfOMPMapClauseModifiers>
-    MapTypeModifiersLoc;
-    SmallVector<OpenMPMotionModifierKind, NumberOfOMPMotionModifiers>
-        MotionModifiers;
-    SmallVector<SourceLocation, NumberOfOMPMotionModifiers> MotionModifiersLoc;
-    bool IsMapTypeImplicit = false;
-    SourceLocation ExtraModifierLoc;
-  };
-
+  /// Parses a reserved locator like 'omp_all_memory'.
+  bool ParseOpenMPReservedLocator(OpenMPClauseKind Kind,
+                                  Sema::OpenMPVarListDataTy &Data,
+                                  const LangOptions &LangOpts);
   /// Parses clauses with list.
   bool ParseOpenMPVarList(OpenMPDirectiveKind DKind, OpenMPClauseKind Kind,
                           SmallVectorImpl<Expr *> &Vars,
-                          OpenMPVarListDataTy &Data);
+                          Sema::OpenMPVarListDataTy &Data);
   bool ParseUnqualifiedId(CXXScopeSpec &SS, ParsedType ObjectType,
                           bool ObjectHadErrors, bool EnteringContext,
                           bool AllowDestructorName, bool AllowConstructorName,
@@ -3363,11 +3361,11 @@ public:
                           SourceLocation *TemplateKWLoc, UnqualifiedId &Result);
 
   /// Parses the mapper modifier in map, to, and from clauses.
-  bool parseMapperModifier(OpenMPVarListDataTy &Data);
+  bool parseMapperModifier(Sema::OpenMPVarListDataTy &Data);
   /// Parses map-type-modifiers in map clause.
   /// map([ [map-type-modifier[,] [map-type-modifier[,] ...] map-type : ] list)
   /// where, map-type-modifier ::= always | close | mapper(mapper-identifier)
-  bool parseMapTypeModifiers(OpenMPVarListDataTy &Data);
+  bool parseMapTypeModifiers(Sema::OpenMPVarListDataTy &Data);
 
 private:
   //===--------------------------------------------------------------------===//

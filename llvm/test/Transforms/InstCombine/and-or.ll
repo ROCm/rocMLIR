@@ -663,3 +663,73 @@ define i8 @or_and_or_pat8(i8 %a, i8 %b, i8 %c, i8 %d) {
   %or2 = or i8 %and1, %or1
   ret i8 %or2
 }
+
+declare void @use2(i32)
+
+define i32 @or_or_and_noOneUse_fail1(i32 %a, i32 %b) {
+; CHECK-LABEL: @or_or_and_noOneUse_fail1(
+; CHECK-NEXT:    [[SHR:%.*]] = ashr i32 [[A:%.*]], 23
+; CHECK-NEXT:    [[AND:%.*]] = and i32 [[SHR]], 157
+; CHECK-NEXT:    call void @use2(i32 [[AND]])
+; CHECK-NEXT:    [[AND3:%.*]] = and i32 [[SHR]], [[B:%.*]]
+; CHECK-NEXT:    [[OR:%.*]] = or i32 [[AND3]], [[AND]]
+; CHECK-NEXT:    [[TMP1:%.*]] = lshr i32 [[B]], 23
+; CHECK-NEXT:    [[AND9:%.*]] = and i32 [[TMP1]], 157
+; CHECK-NEXT:    [[R:%.*]] = or i32 [[OR]], [[AND9]]
+; CHECK-NEXT:    ret i32 [[R]]
+;
+  %shr = ashr i32 %a, 23
+  %conv = trunc i32 %shr to i8
+  %conv1 = zext i8 %conv to i32
+  %and = and i32 %conv1, 925
+  call void @use2(i32 %and)
+  %and3 = and i32 %shr, %b
+  %or = or i32 %and3, %and
+  %shr8 = ashr i32 %b, 23
+  %and9 = and i32 %shr8, 157
+  %r = or i32 %or, %and9
+  ret i32 %r
+}
+
+define { i1, i1, i1, i1, i1 } @or_or_and_noOneUse_fail2(i1 %a_0, i1 %a_1, i1 %a_2, i1 %a_3, i1 %b_0, i1 %b_1, i1 %b_2, i1 %b_3) {
+; CHECK-LABEL: @or_or_and_noOneUse_fail2(
+; CHECK-NEXT:  entry:
+; CHECK-NEXT:    [[TMP0:%.*]] = and i1 [[A_0:%.*]], [[B_0:%.*]]
+; CHECK-NEXT:    [[TMP1:%.*]] = and i1 [[A_3:%.*]], [[B_3:%.*]]
+; CHECK-NEXT:    [[TMP2:%.*]] = xor i1 [[A_2:%.*]], [[B_2:%.*]]
+; CHECK-NEXT:    [[TMP3:%.*]] = and i1 [[A_1:%.*]], [[B_1:%.*]]
+; CHECK-NEXT:    [[TMP4:%.*]] = xor i1 [[TMP3]], true
+; CHECK-NEXT:    [[TMP5:%.*]] = and i1 [[TMP0]], [[A_1]]
+; CHECK-NEXT:    [[TMP6:%.*]] = and i1 [[TMP2]], [[B_1]]
+; CHECK-NEXT:    [[TMP7:%.*]] = or i1 [[TMP3]], [[TMP6]]
+; CHECK-NEXT:    [[D:%.*]] = or i1 [[TMP7]], [[TMP5]]
+; CHECK-NEXT:    [[TMP8:%.*]] = or i1 [[TMP1]], [[TMP3]]
+; CHECK-NEXT:    [[TMP9:%.*]] = insertvalue { i1, i1, i1, i1, i1 } zeroinitializer, i1 [[D]], 0
+; CHECK-NEXT:    [[TMP10:%.*]] = insertvalue { i1, i1, i1, i1, i1 } [[TMP9]], i1 [[TMP4]], 1
+; CHECK-NEXT:    [[TMP11:%.*]] = insertvalue { i1, i1, i1, i1, i1 } [[TMP10]], i1 true, 2
+; CHECK-NEXT:    [[TMP12:%.*]] = insertvalue { i1, i1, i1, i1, i1 } [[TMP11]], i1 [[A_3]], 3
+; CHECK-NEXT:    [[TMP13:%.*]] = insertvalue { i1, i1, i1, i1, i1 } [[TMP12]], i1 [[TMP8]], 4
+; CHECK-NEXT:    ret { i1, i1, i1, i1, i1 } [[TMP13]]
+;
+entry:
+  %0 = and i1 %a_0, %b_0
+  %1 = and i1 %a_3, %b_3
+  %2 = xor i1 %a_2, %b_2
+  %3 = and i1 %a_1, %b_1
+  %4 = xor i1 %3, true
+  %5 = and i1 %0, %a_1
+  %6 = and i1 %2, %b_1
+  %7 = or i1 %3, %6
+  %d = or i1 %7, %5
+  %8 = xor i1 %d, true
+  %9 = xor i1 %8, true
+  %10 = xor i1 %1, true
+  %11 = and i1 %10, %4
+  %12 = xor i1 %11, true
+  %13 = insertvalue { i1, i1, i1, i1, i1 } zeroinitializer, i1 %9, 0
+  %14 = insertvalue { i1, i1, i1, i1, i1 } %13, i1 %4, 1
+  %15 = insertvalue { i1, i1, i1, i1, i1 } %14, i1 true, 2
+  %16 = insertvalue { i1, i1, i1, i1, i1 } %15, i1 %a_3, 3
+  %17 = insertvalue { i1, i1, i1, i1, i1 } %16, i1 %12, 4
+  ret { i1, i1, i1, i1, i1 } %17
+}

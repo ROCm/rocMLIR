@@ -9,6 +9,7 @@ add_mlir_dialect_library(MLIRSparseTensorPipelines
   MLIRAffineToStandard
   MLIRBufferizationTransforms
   MLIRComplexToLLVM
+  MLIRComplexToLibm
   MLIRComplexToStandard
   MLIRFuncTransforms
   MLIRLinalgTransforms
@@ -18,7 +19,7 @@ add_mlir_dialect_library(MLIRSparseTensorPipelines
   MLIRPass
   MLIRReconcileUnrealizedCasts
   MLIRSCFToControlFlow
-  MLIRSparseTensor
+  MLIRSparseTensorDialect
   MLIRSparseTensorTransforms
   MLIRTensorTransforms
   MLIRVectorToLLVM

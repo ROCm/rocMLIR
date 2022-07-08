@@ -102,10 +102,19 @@ nonloc::SymbolVal SValBuilder::makeNonLoc(const SymExpr *lhs,
   return nonloc::SymbolVal(SymMgr.getSymSymExpr(lhs, op, rhs, type));
 }
 
+NonLoc SValBuilder::makeNonLoc(const SymExpr *operand, UnaryOperator::Opcode op,
+                               QualType type) {
+  assert(operand);
+  assert(!Loc::isLocType(type));
+  return nonloc::SymbolVal(SymMgr.getUnarySymExpr(operand, op, type));
+}
+
 nonloc::SymbolVal SValBuilder::makeNonLoc(const SymExpr *operand,
                                           QualType fromTy, QualType toTy) {
   assert(operand);
   assert(!Loc::isLocType(toTy));
+  if (fromTy == toTy)
+    return operand;
   return nonloc::SymbolVal(SymMgr.getCastSymbol(operand, fromTy, toTy));
 }
 
@@ -434,6 +443,43 @@ SVal SValBuilder::makeSymExprValNN(BinaryOperator::Opcode Op,
   return UnknownVal();
 }
 
+SVal SValBuilder::evalMinus(NonLoc X) {
+  switch (X.getSubKind()) {
+  case nonloc::ConcreteIntKind:
+    return makeIntVal(-X.castAs<nonloc::ConcreteInt>().getValue());
+  case nonloc::SymbolValKind:
+    return makeNonLoc(X.castAs<nonloc::SymbolVal>().getSymbol(), UO_Minus,
+                      X.getType(Context));
+  default:
+    return UnknownVal();
+  }
+}
+
+SVal SValBuilder::evalComplement(NonLoc X) {
+  switch (X.getSubKind()) {
+  case nonloc::ConcreteIntKind:
+    return makeIntVal(~X.castAs<nonloc::ConcreteInt>().getValue());
+  case nonloc::SymbolValKind:
+    return makeNonLoc(X.castAs<nonloc::SymbolVal>().getSymbol(), UO_Not,
+                      X.getType(Context));
+  default:
+    return UnknownVal();
+  }
+}
+
+SVal SValBuilder::evalUnaryOp(ProgramStateRef state, UnaryOperator::Opcode opc,
+                 SVal operand, QualType type) {
+  auto OpN = operand.getAs<NonLoc>();
+  if (!OpN)
+    return UnknownVal();
+
+  if (opc == UO_Minus)
+    return evalMinus(*OpN);
+  if (opc == UO_Not)
+    return evalComplement(*OpN);
+  llvm_unreachable("Unexpected unary operator");
+}
+
 SVal SValBuilder::evalBinOp(ProgramStateRef state, BinaryOperator::Opcode op,
                             SVal lhs, SVal rhs, QualType type) {
   if (lhs.isUndef() || rhs.isUndef())
@@ -442,8 +488,7 @@ SVal SValBuilder::evalBinOp(ProgramStateRef state, BinaryOperator::Opcode op,
   if (lhs.isUnknown() || rhs.isUnknown())
     return UnknownVal();
 
-  if (lhs.getAs<nonloc::LazyCompoundVal>() ||
-      rhs.getAs<nonloc::LazyCompoundVal>()) {
+  if (isa<nonloc::LazyCompoundVal>(lhs) || isa<nonloc::LazyCompoundVal>(rhs)) {
     return UnknownVal();
   }
 
@@ -1057,6 +1102,10 @@ nonloc::SymbolVal SValBuilder::simplifySymbolCast(nonloc::SymbolVal V,
 
   SymbolRef RootSym = cast<SymbolCast>(SE)->getOperand();
   QualType RT = RootSym->getType().getCanonicalType();
+
+  // FIXME support simplification from non-integers.
+  if (!RT->isIntegralOrEnumerationType())
+    return makeNonLoc(SE, T, CastTy);
 
   BasicValueFactory &BVF = getBasicValueFactory();
   APSIntType CTy = BVF.getAPSIntType(CastTy);

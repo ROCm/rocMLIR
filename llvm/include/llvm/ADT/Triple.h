@@ -928,7 +928,7 @@ public:
   }
 
   /// Tests if the environment supports dllimport/export annotations.
-  bool hasDLLImportExport() const { return isOSWindows() || isPS4(); }
+  bool hasDLLImportExport() const { return isOSWindows() || isPS(); }
 
   /// @}
   /// @name Mutators
@@ -1036,7 +1036,7 @@ public:
 
   /// Get the "prefix" canonical name for the \p Kind architecture. This is the
   /// prefix used by the architecture specific builtins, and is suitable for
-  /// passing to \see Intrinsic::getIntrinsicForGCCBuiltin().
+  /// passing to \see Intrinsic::getIntrinsicForClangBuiltin().
   ///
   /// \return - The architecture prefix, or 0 if none is defined.
   static StringRef getArchTypePrefix(ArchType Kind);

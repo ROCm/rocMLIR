@@ -8,6 +8,7 @@
 
 #include <cstdlib>
 
+#include "DWARFASTParser.h"
 #include "DWARFASTParserClang.h"
 #include "DWARFDebugInfo.h"
 #include "DWARFDeclContext.h"
@@ -62,20 +63,6 @@ DWARFASTParserClang::DWARFASTParserClang(TypeSystemClang &ast)
     : m_ast(ast), m_die_to_decl_ctx(), m_decl_ctx_to_die() {}
 
 DWARFASTParserClang::~DWARFASTParserClang() = default;
-
-static AccessType DW_ACCESS_to_AccessType(uint32_t dwarf_accessibility) {
-  switch (dwarf_accessibility) {
-  case DW_ACCESS_public:
-    return eAccessPublic;
-  case DW_ACCESS_private:
-    return eAccessPrivate;
-  case DW_ACCESS_protected:
-    return eAccessProtected;
-  default:
-    break;
-  }
-  return eAccessNone;
-}
 
 static bool DeclKindIsCXXClass(clang::Decl::Kind decl_kind) {
   switch (decl_kind) {
@@ -314,7 +301,7 @@ ParsedDWARFTypeAttributes::ParsedDWARFTypeAttributes(const DWARFDIE &die) {
       break;
 
     case DW_AT_accessibility:
-      accessibility = DW_ACCESS_to_AccessType(form_value.Unsigned());
+      accessibility = DWARFASTParser::GetAccessTypeFromDWARF(form_value.Unsigned());
       break;
 
     case DW_AT_artificial:
@@ -627,7 +614,7 @@ DWARFASTParserClang::ParseTypeModifier(const SymbolContext &sc,
     resolve_state = Type::ResolveState::Full;
     clang_type = m_ast.GetBuiltinTypeForDWARFEncodingAndBitSize(
         attrs.name.GetStringRef(), attrs.encoding,
-        attrs.byte_size.getValueOr(0) * 8);
+        attrs.byte_size.value_or(0) * 8);
     break;
 
   case DW_TAG_pointer_type:
@@ -862,7 +849,7 @@ TypeSP DWARFASTParserClang::ParseEnum(const SymbolContext &sc,
       bool is_signed = false;
       enumerator_clang_type.IsIntegerType(is_signed);
       ParseChildEnumerators(clang_type, is_signed,
-                            type_sp->GetByteSize(nullptr).getValueOr(0), die);
+                            type_sp->GetByteSize(nullptr).value_or(0), die);
     }
     TypeSystemClang::CompleteTagDeclarationDefinition(clang_type);
   } else {
@@ -1310,7 +1297,7 @@ TypeSP DWARFASTParserClang::ParseArrayType(const DWARFDIE &die,
     attrs.bit_stride = array_info->bit_stride;
   }
   if (attrs.byte_stride == 0 && attrs.bit_stride == 0)
-    attrs.byte_stride = element_type->GetByteSize(nullptr).getValueOr(0);
+    attrs.byte_stride = element_type->GetByteSize(nullptr).value_or(0);
   CompilerType array_element_type = element_type->GetForwardCompilerType();
   RequireCompleteType(array_element_type);
 
@@ -1423,7 +1410,7 @@ void DWARFASTParserClang::ParseInheritance(
         break;
 
       case DW_AT_accessibility:
-        accessibility = DW_ACCESS_to_AccessType(form_value.Unsigned());
+        accessibility = DWARFASTParser::GetAccessTypeFromDWARF(form_value.Unsigned());
         break;
 
       case DW_AT_virtuality:
@@ -1545,7 +1532,7 @@ DWARFASTParserClang::ParseStructureLikeDIE(const SymbolContext &sc,
     }
 
     if (dwarf->GetUniqueDWARFASTTypeMap().Find(
-            unique_typename, die, unique_decl, attrs.byte_size.getValueOr(-1),
+            unique_typename, die, unique_decl, attrs.byte_size.value_or(-1),
             *unique_ast_entry_up)) {
       type_sp = unique_ast_entry_up->m_type_sp;
       if (type_sp) {
@@ -1770,7 +1757,7 @@ DWARFASTParserClang::ParseStructureLikeDIE(const SymbolContext &sc,
   unique_ast_entry_up->m_type_sp = type_sp;
   unique_ast_entry_up->m_die = die;
   unique_ast_entry_up->m_declaration = unique_decl;
-  unique_ast_entry_up->m_byte_size = attrs.byte_size.getValueOr(0);
+  unique_ast_entry_up->m_byte_size = attrs.byte_size.value_or(0);
   dwarf->GetUniqueDWARFASTTypeMap().Insert(unique_typename,
                                            *unique_ast_entry_up);
 
@@ -2127,7 +2114,7 @@ bool DWARFASTParserClang::CompleteRecordType(const DWARFDIE &die,
   if (!layout_info.field_offsets.empty() || !layout_info.base_offsets.empty() ||
       !layout_info.vbase_offsets.empty()) {
     if (type)
-      layout_info.bit_size = type->GetByteSize(nullptr).getValueOr(0) * 8;
+      layout_info.bit_size = type->GetByteSize(nullptr).value_or(0) * 8;
     if (layout_info.bit_size == 0)
       layout_info.bit_size =
           die.GetAttributeValueAsUnsigned(DW_AT_byte_size, 0) * 8;
@@ -2149,7 +2136,7 @@ bool DWARFASTParserClang::CompleteEnumType(const DWARFDIE &die,
       bool is_signed = false;
       clang_type.IsIntegerType(is_signed);
       ParseChildEnumerators(clang_type, is_signed,
-                            type->GetByteSize(nullptr).getValueOr(0), die);
+                            type->GetByteSize(nullptr).value_or(0), die);
     }
     TypeSystemClang::CompleteTagDeclarationDefinition(clang_type);
   }
@@ -2478,7 +2465,7 @@ MemberAttributes::MemberAttributes(const DWARFDIE &die,
         break;
 
       case DW_AT_accessibility:
-        accessibility = DW_ACCESS_to_AccessType(form_value.Unsigned());
+        accessibility = DWARFASTParser::GetAccessTypeFromDWARF(form_value.Unsigned());
         break;
       case DW_AT_artificial:
         is_artificial = form_value.Boolean();
@@ -2501,7 +2488,7 @@ MemberAttributes::MemberAttributes(const DWARFDIE &die,
   // are not sane, remove them. If we don't do this then we will end up
   // with a crash if we try to use this type in an expression when clang
   // becomes unhappy with its recycled debug info.
-  if (byte_size.getValueOr(0) == 0 && bit_offset < 0) {
+  if (byte_size.value_or(0) == 0 && bit_offset < 0) {
     bit_size = 0;
     bit_offset = 0;
   }
@@ -2682,7 +2669,7 @@ void DWARFASTParserClang::ParseSingleMember(
 
       ObjectFile *objfile = die.GetDWARF()->GetObjectFile();
       if (objfile->GetByteOrder() == eByteOrderLittle) {
-        this_field_info.bit_offset += attrs.byte_size.getValueOr(0) * 8;
+        this_field_info.bit_offset += attrs.byte_size.value_or(0) * 8;
         this_field_info.bit_offset -= (attrs.bit_offset + attrs.bit_size);
       } else {
         this_field_info.bit_offset += attrs.bit_offset;
@@ -3017,99 +3004,6 @@ size_t DWARFASTParserClang::ParseChildParameters(
     }
   }
   return arg_idx;
-}
-
-llvm::Optional<SymbolFile::ArrayInfo>
-DWARFASTParser::ParseChildArrayInfo(const DWARFDIE &parent_die,
-                                    const ExecutionContext *exe_ctx) {
-  SymbolFile::ArrayInfo array_info;
-  if (!parent_die)
-    return llvm::None;
-
-  for (DWARFDIE die : parent_die.children()) {
-    const dw_tag_t tag = die.Tag();
-    if (tag != DW_TAG_subrange_type)
-      continue;
-
-    DWARFAttributes attributes;
-    const size_t num_child_attributes = die.GetAttributes(attributes);
-    if (num_child_attributes > 0) {
-      uint64_t num_elements = 0;
-      uint64_t lower_bound = 0;
-      uint64_t upper_bound = 0;
-      bool upper_bound_valid = false;
-      uint32_t i;
-      for (i = 0; i < num_child_attributes; ++i) {
-        const dw_attr_t attr = attributes.AttributeAtIndex(i);
-        DWARFFormValue form_value;
-        if (attributes.ExtractFormValueAtIndex(i, form_value)) {
-          switch (attr) {
-          case DW_AT_name:
-            break;
-
-          case DW_AT_count:
-            if (DWARFDIE var_die = die.GetReferencedDIE(DW_AT_count)) {
-              if (var_die.Tag() == DW_TAG_variable)
-                if (exe_ctx) {
-                  if (auto frame = exe_ctx->GetFrameSP()) {
-                    Status error;
-                    lldb::VariableSP var_sp;
-                    auto valobj_sp = frame->GetValueForVariableExpressionPath(
-                        var_die.GetName(), eNoDynamicValues, 0, var_sp,
-                        error);
-                    if (valobj_sp) {
-                      num_elements = valobj_sp->GetValueAsUnsigned(0);
-                      break;
-                    }
-                  }
-                }
-            } else
-              num_elements = form_value.Unsigned();
-            break;
-
-          case DW_AT_bit_stride:
-            array_info.bit_stride = form_value.Unsigned();
-            break;
-
-          case DW_AT_byte_stride:
-            array_info.byte_stride = form_value.Unsigned();
-            break;
-
-          case DW_AT_lower_bound:
-            lower_bound = form_value.Unsigned();
-            break;
-
-          case DW_AT_upper_bound:
-            upper_bound_valid = true;
-            upper_bound = form_value.Unsigned();
-            break;
-
-          default:
-          case DW_AT_abstract_origin:
-          case DW_AT_accessibility:
-          case DW_AT_allocated:
-          case DW_AT_associated:
-          case DW_AT_data_location:
-          case DW_AT_declaration:
-          case DW_AT_description:
-          case DW_AT_sibling:
-          case DW_AT_threads_scaled:
-          case DW_AT_type:
-          case DW_AT_visibility:
-            break;
-          }
-        }
-      }
-
-      if (num_elements == 0) {
-        if (upper_bound_valid && upper_bound >= lower_bound)
-          num_elements = upper_bound - lower_bound + 1;
-      }
-
-      array_info.element_orders.push_back(num_elements);
-    }
-  }
-  return array_info;
 }
 
 Type *DWARFASTParserClang::GetTypeForDIE(const DWARFDIE &die) {

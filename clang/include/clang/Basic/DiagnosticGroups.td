@@ -15,6 +15,8 @@ def Implicit : DiagGroup<"implicit", [
     ImplicitInt
 ]>;
 
+def DeprecatedStaticAnalyzerFlag : DiagGroup<"deprecated-static-analyzer-flag">;
+
 // Empty DiagGroups are recognized by clang but ignored.
 def ODR : DiagGroup<"odr">;
 def : DiagGroup<"abi">;
@@ -611,7 +613,12 @@ def StaticInInline : DiagGroup<"static-in-inline">;
 def StaticLocalInInline : DiagGroup<"static-local-in-inline">;
 def GNUStaticFloatInit : DiagGroup<"gnu-static-float-init">;
 def StaticFloatInit : DiagGroup<"static-float-init", [GNUStaticFloatInit]>;
-def GNUStatementExpression : DiagGroup<"gnu-statement-expression">;
+// Allow differentiation between GNU statement expressions in a macro versus
+// written directly in source.
+def GNUStatementExpressionFromMacroExpansion :
+  DiagGroup<"gnu-statement-expression-from-macro-expansion">;
+def GNUStatementExpression : DiagGroup<"gnu-statement-expression",
+                                       [GNUStatementExpressionFromMacroExpansion]>;
 def StringConcatation : DiagGroup<"string-concatenation">;
 def StringCompare : DiagGroup<"string-compare">;
 def StringPlusInt : DiagGroup<"string-plus-int">;

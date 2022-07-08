@@ -16,7 +16,6 @@
 #include "AMDGPUInstrInfo.h"
 #include "GCNHazardRecognizer.h"
 #include "GCNSubtarget.h"
-#include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "SIMachineFunctionInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/LiveIntervals.h"
@@ -617,7 +616,7 @@ static void indirectCopyToAGPR(const SIInstrInfo &TII,
 
   // Registers in the sequence are allocated contiguously so we can just
   // use register number to pick one of three round-robin temps.
-  unsigned RegNo = DestReg % 3;
+  unsigned RegNo = (DestReg - AMDGPU::AGPR0) % 3;
   Register Tmp =
       MBB.getParent()->getInfo<SIMachineFunctionInfo>()->getVGPRForAGPRCopy();
   assert(MBB.getParent()->getRegInfo().isReserved(Tmp) &&
@@ -1771,14 +1770,8 @@ unsigned SIInstrInfo::getNumWaitStates(const MachineInstr &MI) {
 
   case AMDGPU::S_NOP:
     return MI.getOperand(0).getImm() + 1;
-
-  // FIXME: Any other pseudo instruction?
   // SI_RETURN_TO_EPILOG is a fallthrough to code outside of the function. The
   // hazard, even if one exist, won't really be visible. Should we handle it?
-  case AMDGPU::SI_MASKED_UNREACHABLE:
-  case AMDGPU::WAVE_BARRIER:
-  case AMDGPU::SCHED_BARRIER:
-    return 0;
   }
 }
 
@@ -2887,23 +2880,6 @@ bool SIInstrInfo::isFoldableCopy(const MachineInstr &MI) {
   }
 }
 
-unsigned SIInstrInfo::getAddressSpaceForPseudoSourceKind(
-    unsigned Kind) const {
-  switch(Kind) {
-  case PseudoSourceValue::Stack:
-  case PseudoSourceValue::FixedStack:
-    return AMDGPUAS::PRIVATE_ADDRESS;
-  case PseudoSourceValue::ConstantPool:
-  case PseudoSourceValue::GOT:
-  case PseudoSourceValue::JumpTable:
-  case PseudoSourceValue::GlobalValueCallEntry:
-  case PseudoSourceValue::ExternalSymbolCallEntry:
-  case PseudoSourceValue::TargetCustom:
-    return AMDGPUAS::CONSTANT_ADDRESS;
-  }
-  return AMDGPUAS::FLAT_ADDRESS;
-}
-
 static constexpr unsigned ModifierOpNames[] = {
     AMDGPU::OpName::src0_modifiers, AMDGPU::OpName::src1_modifiers,
     AMDGPU::OpName::src2_modifiers, AMDGPU::OpName::clamp,
@@ -3276,6 +3252,20 @@ MachineInstr *SIInstrInfo::convertToThreeAddress(MachineInstr &MI,
     updateLiveVariables(LV, MI, *MIB);
     if (LIS)
       LIS->ReplaceMachineInstrInMaps(MI, *MIB);
+    return MIB;
+  }
+
+  if (SIInstrInfo::isWMMA(MI)) {
+    unsigned NewOpc = AMDGPU::mapWMMA2AddrTo3AddrOpcode(MI.getOpcode());
+    MachineInstrBuilder MIB = BuildMI(MBB, MI, MI.getDebugLoc(), get(NewOpc))
+                                  .setMIFlags(MI.getFlags());
+    for (unsigned I = 0, E = MI.getNumOperands(); I != E; ++I)
+      MIB->addOperand(MI.getOperand(I));
+
+    updateLiveVariables(LV, MI, *MIB);
+    if (LIS)
+      LIS->ReplaceMachineInstrInMaps(MI, *MIB);
+
     return MIB;
   }
 
@@ -3914,7 +3904,7 @@ bool SIInstrInfo::usesConstantBus(const MachineRegisterInfo &MRI,
     return RI.isSGPRClass(MRI.getRegClass(MO.getReg()));
 
   // Null is free
-  if (MO.getReg() == AMDGPU::SGPR_NULL)
+  if (MO.getReg() == AMDGPU::SGPR_NULL || MO.getReg() == AMDGPU::SGPR_NULL64)
     return false;
 
   // SGPRs use the constant bus
@@ -3992,6 +3982,14 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr &MI,
   int Src0Idx = AMDGPU::getNamedOperandIdx(Opcode, AMDGPU::OpName::src0);
   int Src1Idx = AMDGPU::getNamedOperandIdx(Opcode, AMDGPU::OpName::src1);
   int Src2Idx = AMDGPU::getNamedOperandIdx(Opcode, AMDGPU::OpName::src2);
+  int Src3Idx = -1;
+  if (Src0Idx == -1) {
+    // VOPD V_DUAL_* instructions use different operand names.
+    Src0Idx = AMDGPU::getNamedOperandIdx(Opcode, AMDGPU::OpName::src0X);
+    Src1Idx = AMDGPU::getNamedOperandIdx(Opcode, AMDGPU::OpName::vsrc1X);
+    Src2Idx = AMDGPU::getNamedOperandIdx(Opcode, AMDGPU::OpName::src0Y);
+    Src3Idx = AMDGPU::getNamedOperandIdx(Opcode, AMDGPU::OpName::vsrc1Y);
+  }
 
   // Make sure the number of operands is correct.
   const MCInstrDesc &Desc = get(Opcode);
@@ -4265,9 +4263,9 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr &MI,
     // Only look at the true operands. Only a real operand can use the constant
     // bus, and we don't want to check pseudo-operands like the source modifier
     // flags.
-    for (int OpIdx : {Src0Idx, Src1Idx, Src2Idx}) {
+    for (int OpIdx : {Src0Idx, Src1Idx, Src2Idx, Src3Idx}) {
       if (OpIdx == -1)
-        break;
+        continue;
       const MachineOperand &MO = MI.getOperand(OpIdx);
       if (usesConstantBus(MRI, MO, MI.getDesc().OpInfo[OpIdx])) {
         if (MO.isReg()) {
@@ -4457,7 +4455,8 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr &MI,
   }
 
   if (isSMRD(MI)) {
-    if (MI.mayStore()) {
+    if (MI.mayStore() &&
+        ST.getGeneration() == AMDGPUSubtarget::VOLCANIC_ISLANDS) {
       // The register offset form of scalar stores may only use m0 as the
       // soffset register.
       const MachineOperand *Soff = getNamedOperand(MI, AMDGPU::OpName::soffset);
@@ -4619,25 +4618,36 @@ bool SIInstrInfo::verifyInstruction(const MachineInstr &MI,
     }
   }
 
-  if (ST.needsAlignedVGPRs() &&
-      (MI.getOpcode() == AMDGPU::DS_GWS_INIT ||
-       MI.getOpcode() == AMDGPU::DS_GWS_SEMA_BR ||
-       MI.getOpcode() == AMDGPU::DS_GWS_BARRIER)) {
-    const MachineOperand *Op = getNamedOperand(MI, AMDGPU::OpName::data0);
-    Register Reg = Op->getReg();
-    bool Aligned = true;
-    if (Reg.isPhysical()) {
-      Aligned = !(RI.getHWRegIndex(Reg) & 1);
-    } else {
+  if (ST.needsAlignedVGPRs()) {
+    const auto isAlignedReg = [&MI, &MRI, this](unsigned OpName) -> bool {
+      const MachineOperand *Op = getNamedOperand(MI, OpName);
+      if (!Op)
+        return true;
+      Register Reg = Op->getReg();
+      if (Reg.isPhysical())
+        return !(RI.getHWRegIndex(Reg) & 1);
       const TargetRegisterClass &RC = *MRI.getRegClass(Reg);
-      Aligned = RI.getRegSizeInBits(RC) > 32 && RI.isProperlyAlignedRC(RC) &&
-                !(RI.getChannelFromSubReg(Op->getSubReg()) & 1);
+      return RI.getRegSizeInBits(RC) > 32 && RI.isProperlyAlignedRC(RC) &&
+             !(RI.getChannelFromSubReg(Op->getSubReg()) & 1);
+    };
+
+    if (MI.getOpcode() == AMDGPU::DS_GWS_INIT ||
+        MI.getOpcode() == AMDGPU::DS_GWS_SEMA_BR ||
+        MI.getOpcode() == AMDGPU::DS_GWS_BARRIER) {
+
+      if (!isAlignedReg(AMDGPU::OpName::data0)) {
+        ErrInfo = "Subtarget requires even aligned vector registers "
+                  "for DS_GWS instructions";
+        return false;
+      }
     }
 
-    if (!Aligned) {
-      ErrInfo = "Subtarget requires even aligned vector registers "
-                "for DS_GWS instructions";
-      return false;
+    if (isMIMG(MI)) {
+      if (!isAlignedReg(AMDGPU::OpName::vaddr)) {
+        ErrInfo = "Subtarget requires even aligned vector registers "
+                  "for vaddr operand of image instructions";
+        return false;
+      }
     }
   }
 
@@ -6180,6 +6190,7 @@ MachineBasicBlock *SIInstrInfo::moveToVALU(MachineInstr &TopInst,
 
     case AMDGPU::S_PACK_LL_B32_B16:
     case AMDGPU::S_PACK_LH_B32_B16:
+    case AMDGPU::S_PACK_HL_B32_B16:
     case AMDGPU::S_PACK_HH_B32_B16:
       movePackToVALU(Worklist, MRI, Inst);
       Inst.eraseFromParent();
@@ -7091,6 +7102,17 @@ void SIInstrInfo::movePackToVALU(SetVectorType &Worklist,
       .addReg(ImmReg, RegState::Kill)
       .add(Src0)
       .add(Src1);
+    break;
+  }
+  case AMDGPU::S_PACK_HL_B32_B16: {
+    Register TmpReg = MRI.createVirtualRegister(&AMDGPU::VGPR_32RegClass);
+    BuildMI(*MBB, Inst, DL, get(AMDGPU::V_LSHRREV_B32_e64), TmpReg)
+        .addImm(16)
+        .add(Src0);
+    BuildMI(*MBB, Inst, DL, get(AMDGPU::V_LSHL_OR_B32_e64), ResultReg)
+        .add(Src1)
+        .addImm(16)
+        .addReg(TmpReg, RegState::Kill);
     break;
   }
   case AMDGPU::S_PACK_HH_B32_B16: {
@@ -8426,4 +8448,38 @@ bool SIInstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
   }
 
   return false;
+}
+
+void SIInstrInfo::enforceOperandRCAlignment(MachineInstr &MI,
+                                            unsigned OpName) const {
+  if (!ST.needsAlignedVGPRs())
+    return;
+
+  int OpNo = AMDGPU::getNamedOperandIdx(MI.getOpcode(), OpName);
+  if (OpNo < 0)
+    return;
+  MachineOperand &Op = MI.getOperand(OpNo);
+  if (getOpSize(MI, OpNo) > 4)
+    return;
+
+  // Add implicit aligned super-reg to force alignment on the data operand.
+  const DebugLoc &DL = MI.getDebugLoc();
+  MachineBasicBlock *BB = MI.getParent();
+  MachineRegisterInfo &MRI = BB->getParent()->getRegInfo();
+  Register DataReg = Op.getReg();
+  bool IsAGPR = RI.isAGPR(MRI, DataReg);
+  Register Undef = MRI.createVirtualRegister(
+      IsAGPR ? &AMDGPU::AGPR_32RegClass : &AMDGPU::VGPR_32RegClass);
+  BuildMI(*BB, MI, DL, get(AMDGPU::IMPLICIT_DEF), Undef);
+  Register NewVR =
+      MRI.createVirtualRegister(IsAGPR ? &AMDGPU::AReg_64_Align2RegClass
+                                       : &AMDGPU::VReg_64_Align2RegClass);
+  BuildMI(*BB, MI, DL, get(AMDGPU::REG_SEQUENCE), NewVR)
+      .addReg(DataReg, 0, Op.getSubReg())
+      .addImm(AMDGPU::sub0)
+      .addReg(Undef)
+      .addImm(AMDGPU::sub1);
+  Op.setReg(NewVR);
+  Op.setSubReg(AMDGPU::sub0);
+  MI.addOperand(MachineOperand::CreateReg(NewVR, false, true));
 }

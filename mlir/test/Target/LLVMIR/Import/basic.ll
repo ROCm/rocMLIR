@@ -122,8 +122,13 @@ define internal void @func_internal() {
 ; CHECK: llvm.func @fe(i32) -> f32
 declare float @fe(i32)
 
+; CHECK: llvm.func internal spir_funccc @spir_func_internal()
+define internal spir_func void @spir_func_internal() {
+  ret void
+}
+
 ; FIXME: function attributes.
-; CHECK-LABEL: llvm.func internal @f1(%arg0: i64) -> i32 {
+; CHECK-LABEL: llvm.func internal @f1(%arg0: i64) -> i32 attributes {dso_local} {
 ; CHECK-DAG: %[[c2:[0-9]+]] = llvm.mlir.constant(2 : i32) : i32
 ; CHECK-DAG: %[[c42:[0-9]+]] = llvm.mlir.constant(42 : i32) : i32
 ; CHECK-DAG: %[[c1:[0-9]+]] = llvm.mlir.constant(true) : i1
@@ -623,4 +628,35 @@ define void @select_inst(i32 %arg0, i32 %arg1, i1 %pred) {
 define void @unreachable_inst() {
   ; CHECK: llvm.unreachable
   unreachable
+}
+
+; Varadic function definition
+%struct.va_list = type { i8* }
+
+declare void @llvm.va_start(i8*)
+declare void @llvm.va_copy(i8*, i8*)
+declare void @llvm.va_end(i8*)
+
+; CHECK-LABEL: llvm.func @variadic_function
+define void @variadic_function(i32 %X, ...) {
+  ; CHECK: %[[ALLOCA0:.+]] = llvm.alloca %{{.*}} x !llvm.struct<"struct.va_list", (ptr<i8>)> {{.*}} : (i32) -> !llvm.ptr<struct<"struct.va_list", (ptr<i8>)>>
+  %ap = alloca %struct.va_list
+  ; CHECK: %[[CAST0:.+]] = llvm.bitcast %[[ALLOCA0]] : !llvm.ptr<struct<"struct.va_list", (ptr<i8>)>> to !llvm.ptr<i8>
+  %ap2 = bitcast %struct.va_list* %ap to i8*
+  ; CHECK: llvm.intr.vastart %[[CAST0]]
+  call void @llvm.va_start(i8* %ap2)
+
+  ; CHECK: %[[ALLOCA1:.+]] = llvm.alloca %{{.*}} x !llvm.ptr<i8> {{.*}} : (i32) -> !llvm.ptr<ptr<i8>>
+  %aq = alloca i8*
+  ; CHECK: %[[CAST1:.+]] = llvm.bitcast %[[ALLOCA1]] : !llvm.ptr<ptr<i8>> to !llvm.ptr<i8>
+  %aq2 = bitcast i8** %aq to i8*
+  ; CHECK: llvm.intr.vacopy %[[CAST0]] to %[[CAST1]]
+  call void @llvm.va_copy(i8* %aq2, i8* %ap2)
+  ; CHECK: llvm.intr.vaend %[[CAST1]]
+  call void @llvm.va_end(i8* %aq2)
+
+  ; CHECK: llvm.intr.vaend %[[CAST0]]
+  call void @llvm.va_end(i8* %ap2)
+  ; CHECK: llvm.return
+  ret void
 }

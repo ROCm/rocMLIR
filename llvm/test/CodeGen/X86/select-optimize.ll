@@ -105,20 +105,28 @@ define i32 @weighted_selects(i32 %a, i32 %b) !prof !19 {
 ; If select group predictable, turn it into a branch.
 define i32 @weighted_select_group(i32 %a, i32 %b, i32 %c, i1 %cmp) !prof !19 {
 ; CHECK-LABEL: @weighted_select_group(
+; CHECK-NEXT:    [[A1:%.*]] = add i32 [[A:%.*]], 1
 ; CHECK-NEXT:    [[SEL1_FROZEN:%.*]] = freeze i1 [[CMP:%.*]]
-; CHECK-NEXT:    br i1 [[SEL1_FROZEN]], label [[SELECT_END:%.*]], label [[SELECT_FALSE:%.*]], !prof [[PROF16]]
-; CHECK:       select.false:
+; CHECK-NEXT:    br i1 [[SEL1_FROZEN]], label [[SELECT_TRUE_SINK:%.*]], label [[SELECT_FALSE_SINK:%.*]], !prof [[PROF16]]
+; CHECK:       select.true.sink:
+; CHECK-NEXT:    [[C1:%.*]] = add i32 [[C:%.*]], 1
+; CHECK-NEXT:    br label [[SELECT_END:%.*]]
+; CHECK:       select.false.sink:
+; CHECK-NEXT:    [[B1:%.*]] = add i32 [[B:%.*]], 1
 ; CHECK-NEXT:    br label [[SELECT_END]]
 ; CHECK:       select.end:
-; CHECK-NEXT:    [[SEL1:%.*]] = phi i32 [ [[A:%.*]], [[TMP0:%.*]] ], [ [[B:%.*]], [[SELECT_FALSE]] ]
-; CHECK-NEXT:    [[SEL2:%.*]] = phi i32 [ [[C:%.*]], [[TMP0]] ], [ [[A]], [[SELECT_FALSE]] ]
+; CHECK-NEXT:    [[SEL1:%.*]] = phi i32 [ [[A1]], [[SELECT_TRUE_SINK]] ], [ [[B1]], [[SELECT_FALSE_SINK]] ]
+; CHECK-NEXT:    [[SEL2:%.*]] = phi i32 [ [[C1]], [[SELECT_TRUE_SINK]] ], [ [[A1]], [[SELECT_FALSE_SINK]] ]
 ; CHECK-NEXT:    call void @llvm.dbg.value(metadata i32 [[SEL1]], metadata [[META22:![0-9]+]], metadata !DIExpression()), !dbg [[DBG26:![0-9]+]]
 ; CHECK-NEXT:    [[ADD:%.*]] = add i32 [[SEL1]], [[SEL2]]
 ; CHECK-NEXT:    ret i32 [[ADD]]
 ;
-  %sel1 = select i1 %cmp, i32 %a, i32 %b, !prof !15
+  %a1 = add i32 %a, 1
+  %b1 = add i32 %b, 1
+  %c1 = add i32 %c, 1
+  %sel1 = select i1 %cmp, i32 %a1, i32 %b1, !prof !15
   call void @llvm.dbg.value(metadata i32 %sel1, metadata !24, metadata !DIExpression()), !dbg !DILocation(scope: !23)
-  %sel2 = select i1 %cmp, i32 %c, i32 %a, !prof !15
+  %sel2 = select i1 %cmp, i32 %c1, i32 %a1, !prof !15
   %add = add i32 %sel1, %sel2
   ret i32 %add
 }
@@ -149,63 +157,63 @@ define i32 @select_group_intra_group(i32 %a, i32 %b, i32 %c, i1 %cmp) {
 
 ; Select with cold one-use load value operand should form branch and
 ; sink load
-define i32 @expensive_val_operand1(i32* nocapture %a, i32 %y, i1 %cmp) {
+define i32 @expensive_val_operand1(ptr nocapture %a, i32 %y, i1 %cmp) {
 ; CHECK-LABEL: @expensive_val_operand1(
-; CHECK-NEXT:    [[LOAD:%.*]] = load i32, i32* [[A:%.*]], align 8
 ; CHECK-NEXT:    [[SEL_FROZEN:%.*]] = freeze i1 [[CMP:%.*]]
-; CHECK-NEXT:    br i1 [[SEL_FROZEN]], label [[SELECT_END:%.*]], label [[SELECT_FALSE:%.*]], !prof [[PROF18]]
-; CHECK:       select.false:
+; CHECK-NEXT:    br i1 [[SEL_FROZEN]], label [[SELECT_TRUE_SINK:%.*]], label [[SELECT_END:%.*]], !prof [[PROF18]]
+; CHECK:       select.true.sink:
+; CHECK-NEXT:    [[LOAD:%.*]] = load i32, ptr [[A:%.*]], align 8
 ; CHECK-NEXT:    br label [[SELECT_END]]
 ; CHECK:       select.end:
-; CHECK-NEXT:    [[SEL:%.*]] = phi i32 [ [[LOAD]], [[TMP0:%.*]] ], [ [[Y:%.*]], [[SELECT_FALSE]] ]
+; CHECK-NEXT:    [[SEL:%.*]] = phi i32 [ [[LOAD]], [[SELECT_TRUE_SINK]] ], [ [[Y:%.*]], [[TMP0:%.*]] ]
 ; CHECK-NEXT:    ret i32 [[SEL]]
 ;
-  %load = load i32, i32* %a, align 8
+  %load = load i32, ptr %a, align 8
   %sel = select i1 %cmp, i32 %load, i32 %y, !prof !17
   ret i32 %sel
 }
 
 ; Expensive hot value operand and cheap cold value operand.
-define i32 @expensive_val_operand2(i32* nocapture %a, i32 %x, i1 %cmp) {
+define i32 @expensive_val_operand2(ptr nocapture %a, i32 %x, i1 %cmp) {
 ; CHECK-LABEL: @expensive_val_operand2(
-; CHECK-NEXT:    [[LOAD:%.*]] = load i32, i32* [[A:%.*]], align 8
+; CHECK-NEXT:    [[LOAD:%.*]] = load i32, ptr [[A:%.*]], align 8
 ; CHECK-NEXT:    [[SEL:%.*]] = select i1 [[CMP:%.*]], i32 [[X:%.*]], i32 [[LOAD]], !prof [[PROF18]]
 ; CHECK-NEXT:    ret i32 [[SEL]]
 ;
-  %load = load i32, i32* %a, align 8
+  %load = load i32, ptr %a, align 8
   %sel = select i1 %cmp, i32 %x, i32 %load, !prof !17
   ret i32 %sel
 }
 
 ; Cold value operand with load in its one-use dependence slice shoud result
 ; into a branch with sinked dependence slice.
-define i32 @expensive_val_operand3(i32* nocapture %a, i32 %b, i32 %y, i1 %cmp) {
+define i32 @expensive_val_operand3(ptr nocapture %a, i32 %b, i32 %y, i1 %cmp) {
 ; CHECK-LABEL: @expensive_val_operand3(
-; CHECK-NEXT:    [[LOAD:%.*]] = load i32, i32* [[A:%.*]], align 8
-; CHECK-NEXT:    [[X:%.*]] = add i32 [[LOAD]], [[B:%.*]]
 ; CHECK-NEXT:    [[SEL_FROZEN:%.*]] = freeze i1 [[CMP:%.*]]
-; CHECK-NEXT:    br i1 [[SEL_FROZEN]], label [[SELECT_END:%.*]], label [[SELECT_FALSE:%.*]], !prof [[PROF18]]
-; CHECK:       select.false:
+; CHECK-NEXT:    br i1 [[SEL_FROZEN]], label [[SELECT_TRUE_SINK:%.*]], label [[SELECT_END:%.*]], !prof [[PROF18]]
+; CHECK:       select.true.sink:
+; CHECK-NEXT:    [[LOAD:%.*]] = load i32, ptr [[A:%.*]], align 8
+; CHECK-NEXT:    [[X:%.*]] = add i32 [[LOAD]], [[B:%.*]]
 ; CHECK-NEXT:    br label [[SELECT_END]]
 ; CHECK:       select.end:
-; CHECK-NEXT:    [[SEL:%.*]] = phi i32 [ [[X]], [[TMP0:%.*]] ], [ [[Y:%.*]], [[SELECT_FALSE]] ]
+; CHECK-NEXT:    [[SEL:%.*]] = phi i32 [ [[X]], [[SELECT_TRUE_SINK]] ], [ [[Y:%.*]], [[TMP0:%.*]] ]
 ; CHECK-NEXT:    ret i32 [[SEL]]
 ;
-  %load = load i32, i32* %a, align 8
+  %load = load i32, ptr %a, align 8
   %x = add i32 %load, %b
   %sel = select i1 %cmp, i32 %x, i32 %y, !prof !17
   ret i32 %sel
 }
 
 ; Multiple uses of the load value operand.
-define i32 @expensive_val_operand4(i32 %a, i32* nocapture %b, i32 %x, i1 %cmp) {
+define i32 @expensive_val_operand4(i32 %a, ptr nocapture %b, i32 %x, i1 %cmp) {
 ; CHECK-LABEL: @expensive_val_operand4(
-; CHECK-NEXT:    [[LOAD:%.*]] = load i32, i32* [[B:%.*]], align 4
+; CHECK-NEXT:    [[LOAD:%.*]] = load i32, ptr [[B:%.*]], align 4
 ; CHECK-NEXT:    [[SEL:%.*]] = select i1 [[CMP:%.*]], i32 [[X:%.*]], i32 [[LOAD]]
 ; CHECK-NEXT:    [[ADD:%.*]] = add i32 [[SEL]], [[LOAD]]
 ; CHECK-NEXT:    ret i32 [[ADD]]
 ;
-  %load = load i32, i32* %b, align 4
+  %load = load i32, ptr %b, align 4
   %sel = select i1 %cmp, i32 %x, i32 %load
   %add = add i32 %sel, %load
   ret i32 %add
@@ -218,7 +226,7 @@ define i32 @expensive_val_operand4(i32 %a, i32* nocapture %b, i32 %x, i1 %cmp) {
 ;; Use of cmov in this test would put a load and a fsub on the critical path.
 ;; Loop-level analysis should decide to form a branch.
 ;;
-;;double cmov_on_critical_path(int n, double x, double *a) {
+;;double cmov_on_critical_path(int n, double x, ptr a) {
 ;;  for (int i = 0; i < n; i++) {
 ;;    double r = a[i];
 ;;    if (x > r)
@@ -227,7 +235,7 @@ define i32 @expensive_val_operand4(i32 %a, i32* nocapture %b, i32 %x, i1 %cmp) {
 ;;  }
 ;;  return x;
 ;;}
-define double @cmov_on_critical_path(i32 %n, double %x, double* nocapture %a) {
+define double @cmov_on_critical_path(i32 %n, double %x, ptr nocapture %a) {
 ; CHECK-LABEL: @cmov_on_critical_path(
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[CMP1:%.*]] = icmp sgt i32 [[N:%.*]], 0
@@ -240,16 +248,16 @@ define double @cmov_on_critical_path(i32 %n, double %x, double* nocapture %a) {
 ; CHECK:       for.body:
 ; CHECK-NEXT:    [[INDVARS_IV:%.*]] = phi i64 [ [[INDVARS_IV_NEXT:%.*]], [[SELECT_END:%.*]] ], [ 0, [[FOR_BODY_PREHEADER]] ]
 ; CHECK-NEXT:    [[X1:%.*]] = phi double [ [[X2:%.*]], [[SELECT_END]] ], [ [[X]], [[FOR_BODY_PREHEADER]] ]
-; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds double, double* [[A:%.*]], i64 [[INDVARS_IV]]
-; CHECK-NEXT:    [[R:%.*]] = load double, double* [[ARRAYIDX]], align 8
-; CHECK-NEXT:    [[SUB:%.*]] = fsub double [[X1]], [[R]]
+; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds double, ptr [[A:%.*]], i64 [[INDVARS_IV]]
+; CHECK-NEXT:    [[R:%.*]] = load double, ptr [[ARRAYIDX]], align 8
 ; CHECK-NEXT:    [[CMP2:%.*]] = fcmp ogt double [[X1]], [[R]]
 ; CHECK-NEXT:    [[X2_FROZEN:%.*]] = freeze i1 [[CMP2]]
-; CHECK-NEXT:    br i1 [[X2_FROZEN]], label [[SELECT_END]], label [[SELECT_FALSE:%.*]], !prof [[PROF27:![0-9]+]]
-; CHECK:       select.false:
+; CHECK-NEXT:    br i1 [[X2_FROZEN]], label [[SELECT_TRUE_SINK:%.*]], label [[SELECT_END]], !prof [[PROF27:![0-9]+]]
+; CHECK:       select.true.sink:
+; CHECK-NEXT:    [[SUB:%.*]] = fsub double [[X1]], [[R]]
 ; CHECK-NEXT:    br label [[SELECT_END]]
 ; CHECK:       select.end:
-; CHECK-NEXT:    [[X2]] = phi double [ [[SUB]], [[FOR_BODY]] ], [ [[X1]], [[SELECT_FALSE]] ]
+; CHECK-NEXT:    [[X2]] = phi double [ [[SUB]], [[SELECT_TRUE_SINK]] ], [ [[X1]], [[FOR_BODY]] ]
 ; CHECK-NEXT:    [[INDVARS_IV_NEXT]] = add nuw nsw i64 [[INDVARS_IV]], 1
 ; CHECK-NEXT:    [[EXITCOND:%.*]] = icmp eq i64 [[INDVARS_IV_NEXT]], [[WIDE_TRIP_COUNT]]
 ; CHECK-NEXT:    br i1 [[EXITCOND]], label [[FOR_EXIT:%.*]], label [[FOR_BODY]]
@@ -270,8 +278,8 @@ for.body.preheader:                               ; preds = %entry
 for.body:                                         ; preds = %for.body.preheader, %for.body
   %indvars.iv = phi i64 [ %indvars.iv.next, %for.body ], [ 0, %for.body.preheader ]
   %x1 = phi double [ %x2, %for.body ], [ %x, %for.body.preheader ]
-  %arrayidx = getelementptr inbounds double, double* %a, i64 %indvars.iv
-  %r = load double, double* %arrayidx, align 8
+  %arrayidx = getelementptr inbounds double, ptr %a, i64 %indvars.iv
+  %r = load double, ptr %arrayidx, align 8
   %sub = fsub double %x1, %r
   %cmp2 = fcmp ogt double %x1, %r
   %x2 = select i1 %cmp2, double %sub, double %x1, !prof !18
@@ -287,7 +295,7 @@ for.exit:                                         ; preds = %for.body
 ;; branch similarly expensive to cmov, and thus the gain is small.
 ;; Loop-level analysis should decide on not forming a branch.
 ;;
-;;double small_gain(int n, double x, double *a) {
+;;double small_gain(int n, double x, ptr a) {
 ;;  for (int i = 0; i < n; i++) {
 ;;    double r = a[i];
 ;;    if (x > r)
@@ -296,7 +304,7 @@ for.exit:                                         ; preds = %for.body
 ;;  }
 ;;  return x;
 ;;}
-define double @small_gain(i32 %n, double %x, double* nocapture %a) {
+define double @small_gain(i32 %n, double %x, ptr nocapture %a) {
 ; CHECK-LABEL: @small_gain(
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[CMP1:%.*]] = icmp sgt i32 [[N:%.*]], 0
@@ -309,8 +317,8 @@ define double @small_gain(i32 %n, double %x, double* nocapture %a) {
 ; CHECK:       for.body:
 ; CHECK-NEXT:    [[INDVARS_IV:%.*]] = phi i64 [ [[INDVARS_IV_NEXT:%.*]], [[FOR_BODY]] ], [ 0, [[FOR_BODY_PREHEADER]] ]
 ; CHECK-NEXT:    [[X1:%.*]] = phi double [ [[X2:%.*]], [[FOR_BODY]] ], [ [[X]], [[FOR_BODY_PREHEADER]] ]
-; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds double, double* [[A:%.*]], i64 [[INDVARS_IV]]
-; CHECK-NEXT:    [[R:%.*]] = load double, double* [[ARRAYIDX]], align 8
+; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds double, ptr [[A:%.*]], i64 [[INDVARS_IV]]
+; CHECK-NEXT:    [[R:%.*]] = load double, ptr [[ARRAYIDX]], align 8
 ; CHECK-NEXT:    [[SUB:%.*]] = fsub double [[X1]], [[R]]
 ; CHECK-NEXT:    [[CMP2:%.*]] = fcmp ole double [[X1]], [[R]]
 ; CHECK-NEXT:    [[X2]] = select i1 [[CMP2]], double [[X1]], double [[SUB]], !prof [[PROF18]]
@@ -334,8 +342,8 @@ for.body.preheader:                               ; preds = %entry
 for.body:                                         ; preds = %for.body.preheader, %for.body
   %indvars.iv = phi i64 [ %indvars.iv.next, %for.body ], [ 0, %for.body.preheader ]
   %x1 = phi double [ %x2, %for.body ], [ %x, %for.body.preheader ]
-  %arrayidx = getelementptr inbounds double, double* %a, i64 %indvars.iv
-  %r = load double, double* %arrayidx, align 8
+  %arrayidx = getelementptr inbounds double, ptr %a, i64 %indvars.iv
+  %r = load double, ptr %arrayidx, align 8
   %sub = fsub double %x1, %r
   %cmp2 = fcmp ole double %x1, %r
   %x2 = select i1 %cmp2, double %x1, double %sub, !prof !17
@@ -352,7 +360,7 @@ for.exit:                                         ; preds = %for.body
 ;; Yet, the gain is not increasing much per iteration (small gradient gain).
 ;; Loop-level analysis should decide not to form a branch.
 ;;
-;;double small_gradient(int n, double x, double *a) {
+;;double small_gradient(int n, double x, ptr a) {
 ;;  for (int i = 0; i < n; i++) {
 ;;    double r = 2 * a[i] + i;
 ;;    if (r > 0)
@@ -361,7 +369,7 @@ for.exit:                                         ; preds = %for.body
 ;;  }
 ;;  return x;
 ;;}
-define double @small_gradient(i32 %n, double %x, double* nocapture %a) {
+define double @small_gradient(i32 %n, double %x, ptr nocapture %a) {
 ; CHECK-LABEL: @small_gradient(
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[CMP8:%.*]] = icmp sgt i32 [[N:%.*]], 0
@@ -375,8 +383,8 @@ define double @small_gradient(i32 %n, double %x, double* nocapture %a) {
 ; CHECK:       for.body:
 ; CHECK-NEXT:    [[INDVARS_IV:%.*]] = phi i64 [ 0, [[FOR_BODY_PREHEADER]] ], [ [[INDVARS_IV_NEXT:%.*]], [[FOR_BODY]] ]
 ; CHECK-NEXT:    [[X_ADDR_010:%.*]] = phi double [ [[X]], [[FOR_BODY_PREHEADER]] ], [ [[X_ADDR_1]], [[FOR_BODY]] ]
-; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds double, double* [[A:%.*]], i64 [[INDVARS_IV]]
-; CHECK-NEXT:    [[TMP0:%.*]] = load double, double* [[ARRAYIDX]], align 8
+; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds double, ptr [[A:%.*]], i64 [[INDVARS_IV]]
+; CHECK-NEXT:    [[TMP0:%.*]] = load double, ptr [[ARRAYIDX]], align 8
 ; CHECK-NEXT:    [[TMP1:%.*]] = call double @llvm.fmuladd.f64(double [[TMP0]], double 2.000000e+00, double 1.000000e+00)
 ; CHECK-NEXT:    [[CMP1:%.*]] = fcmp ogt double [[TMP1]], 0.000000e+00
 ; CHECK-NEXT:    [[SUB:%.*]] = select i1 [[CMP1]], double [[TMP1]], double 0.000000e+00, !prof [[PROF28:![0-9]+]]
@@ -400,8 +408,8 @@ for.cond.cleanup:                                 ; preds = %for.body, %entry
 for.body:                                         ; preds = %for.body.preheader, %for.body
   %indvars.iv = phi i64 [ 0, %for.body.preheader ], [ %indvars.iv.next, %for.body ]
   %x.addr.010 = phi double [ %x, %for.body.preheader ], [ %x.addr.1, %for.body ]
-  %arrayidx = getelementptr inbounds double, double* %a, i64 %indvars.iv
-  %0 = load double, double* %arrayidx, align 8
+  %arrayidx = getelementptr inbounds double, ptr %a, i64 %indvars.iv
+  %0 = load double, ptr %arrayidx, align 8
   %1 = call double @llvm.fmuladd.f64(double %0, double 2.000000e+00, double 1.000000e+00)
   %cmp1 = fcmp ogt double %1, 0.000000e+00
   %sub = select i1 %cmp1, double %1, double 0.000000e+00, !prof !28
@@ -415,7 +423,7 @@ for.body:                                         ; preds = %for.body.preheader,
 ;; Loop-level analysis should decide to form a branch only for
 ;; the select on the critical path.
 ;;
-;;double loop_select_groups(int n, double x, double *a, int k) {
+;;double loop_select_groups(int n, double x, ptr a, int k) {
 ;;  int c = 0;
 ;;  for (int i = 0; i < n; i++) {
 ;;    double r = a[i];
@@ -426,7 +434,7 @@ for.body:                                         ; preds = %for.body.preheader,
 ;;  }
 ;;  return x + c;
 ;;}
-define double @loop_select_groups(i32 %n, double %x, double* nocapture %a, i32 %k) {
+define double @loop_select_groups(i32 %n, double %x, ptr nocapture %a, i32 %k) {
 ; CHECK-LABEL: @loop_select_groups(
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[CMP19:%.*]] = icmp sgt i32 [[N:%.*]], 0
@@ -446,8 +454,8 @@ define double @loop_select_groups(i32 %n, double %x, double* nocapture %a, i32 %
 ; CHECK-NEXT:    [[INDVARS_IV:%.*]] = phi i64 [ 0, [[FOR_BODY_PREHEADER]] ], [ [[INDVARS_IV_NEXT:%.*]], [[SELECT_END:%.*]] ]
 ; CHECK-NEXT:    [[X_ADDR_022:%.*]] = phi double [ [[X]], [[FOR_BODY_PREHEADER]] ], [ [[X_ADDR_1]], [[SELECT_END]] ]
 ; CHECK-NEXT:    [[C_020:%.*]] = phi i32 [ 0, [[FOR_BODY_PREHEADER]] ], [ [[C_1]], [[SELECT_END]] ]
-; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds double, double* [[A:%.*]], i64 [[INDVARS_IV]]
-; CHECK-NEXT:    [[TMP0:%.*]] = load double, double* [[ARRAYIDX]], align 8
+; CHECK-NEXT:    [[ARRAYIDX:%.*]] = getelementptr inbounds double, ptr [[A:%.*]], i64 [[INDVARS_IV]]
+; CHECK-NEXT:    [[TMP0:%.*]] = load double, ptr [[ARRAYIDX]], align 8
 ; CHECK-NEXT:    [[CMP1:%.*]] = fcmp ogt double [[X_ADDR_022]], [[TMP0]]
 ; CHECK-NEXT:    [[SUB_FROZEN:%.*]] = freeze i1 [[CMP1]]
 ; CHECK-NEXT:    br i1 [[SUB_FROZEN]], label [[SELECT_END]], label [[SELECT_FALSE:%.*]]
@@ -486,8 +494,8 @@ for.body:                                         ; preds = %for.body.preheader,
   %indvars.iv = phi i64 [ 0, %for.body.preheader ], [ %indvars.iv.next, %for.body ]
   %x.addr.022 = phi double [ %x, %for.body.preheader ], [ %x.addr.1, %for.body ]
   %c.020 = phi i32 [ 0, %for.body.preheader ], [ %c.1, %for.body ]
-  %arrayidx = getelementptr inbounds double, double* %a, i64 %indvars.iv
-  %0 = load double, double* %arrayidx, align 8
+  %arrayidx = getelementptr inbounds double, ptr %a, i64 %indvars.iv
+  %0 = load double, ptr %arrayidx, align 8
   %cmp1 = fcmp ogt double %x.addr.022, %0
   %sub = select i1 %cmp1, double %0, double 0.000000e+00
   %x.addr.1 = fsub double %x.addr.022, %sub

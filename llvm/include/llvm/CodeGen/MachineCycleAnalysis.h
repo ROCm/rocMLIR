@@ -46,16 +46,6 @@ public:
   void print(raw_ostream &OS, const Module *M = nullptr) const override;
 };
 
-class MachineCycleInfoPrinterPass : public MachineFunctionPass {
-public:
-  static char ID;
-
-  MachineCycleInfoPrinterPass();
-
-  bool runOnMachineFunction(MachineFunction &F) override;
-  void getAnalysisUsage(AnalysisUsage &AU) const override;
-};
-
 // TODO: add this function to GenericCycle template after implementing IR
 //       version.
 bool isCycleInvariant(const MachineCycle *Cycle, MachineInstr &I);

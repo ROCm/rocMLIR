@@ -73,6 +73,26 @@ def AddOp : ComplexArithmeticOp<"add"> {
     %a = complex.add %b, %c : complex<f32>
     ```
   }];
+
+  let hasFolder = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// Atan2
+//===----------------------------------------------------------------------===//
+
+def Atan2Op : ComplexArithmeticOp<"atan2"> {
+  let summary = "complex 2-argument arctangent";
+  let description = [{
+    For complex numbers it is expressed using complex logarithm
+    atan2(y, x) = -i * log((x + i * y) / sqrt(x**2 + y**2))
+
+    Example:
+
+    ```mlir
+    %a = complex.atan2 %b, %c : complex<f32>
+    ```
+  }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -220,6 +240,8 @@ def ExpOp : ComplexUnaryOp<"exp", [SameOperandsAndResultType]> {
   }];
 
   let results = (outs Complex<AnyFloat>:$result);
+
+  let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -289,6 +311,8 @@ def LogOp : ComplexUnaryOp<"log", [SameOperandsAndResultType]> {
   }];
 
   let results = (outs Complex<AnyFloat>:$result);
+
+  let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -345,6 +369,8 @@ def NegOp : ComplexUnaryOp<"neg", [SameOperandsAndResultType]> {
   }];
 
   let results = (outs Complex<AnyFloat>:$result);
+
+  let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -525,6 +551,66 @@ def TanhOp : ComplexUnaryOp<"tanh", [SameOperandsAndResultType]> {
   }];
 
   let results = (outs Complex<AnyFloat>:$result);
+}
+
+//===----------------------------------------------------------------------===//
+// TanOp
+//===----------------------------------------------------------------------===//
+
+def TanOp : ComplexUnaryOp<"tan", [SameOperandsAndResultType]> {
+  let summary = "computes tangent of a complex number";
+  let description = [{
+    The `tan` op takes a single complex number and computes the tangent of
+    it, i.e. `tan(x)`, where `x` is the input value.
+
+    Example:
+
+    ```mlir
+    %a = complex.tan %b : complex<f32>
+    ```
+  }];
+  let results = (outs Complex<AnyFloat>:$result);
+}
+
+//===----------------------------------------------------------------------===//
+// Conj
+//===----------------------------------------------------------------------===//
+
+def ConjOp : ComplexUnaryOp<"conj", [SameOperandsAndResultType]> {
+  let summary = "Calculate the complex conjugate";
+  let description = [{
+    The `conj` op takes a single complex number and computes the
+    complex conjugate.
+
+    Example:
+
+    ```mlir
+    %a = complex.conj %b: complex<f32>
+    ```
+  }];
+
+  let results = (outs Complex<AnyFloat>:$result);
+}
+
+//===----------------------------------------------------------------------===//
+// AngleOp
+//===----------------------------------------------------------------------===//
+
+def AngleOp : ComplexUnaryOp<"angle",
+                           [TypesMatchWith<"complex element type matches result type",
+                                           "complex", "result",
+                                           "$_self.cast<ComplexType>().getElementType()">]> {
+  let summary = "computes argument value of a complex number";
+  let description = [{
+    The `angle` op takes a single complex number and computes its argument value with a branch cut along the negative real axis.
+
+    Example:
+
+    ```mlir
+         %a = complex.angle %b : complex<f32>
+    ```
+  }];
+  let results = (outs AnyFloat:$result);
 }
 
 #endif // COMPLEX_OPS

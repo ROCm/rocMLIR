@@ -19,11 +19,14 @@
 
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Object/Binary.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include <memory>
 
 namespace llvm {
+
+namespace object {
 
 /// The producer of the associated offloading image.
 enum OffloadKind : uint16_t {
@@ -54,15 +57,21 @@ enum ImageKind : uint16_t {
 /// detect ABI stability and the size is used to find other offloading entries
 /// that may exist in the same section. All offsets are given as absolute byte
 /// offsets from the beginning of the file.
-class OffloadBinary {
+class OffloadBinary : public Binary {
 public:
+  using string_iterator = StringMap<StringRef>::const_iterator;
+  using string_iterator_range = iterator_range<string_iterator>;
+
+  /// The current version of the binary used for backwards compatibility.
+  static const uint32_t Version = 1;
+
   /// The offloading metadata that will be serialized to a memory buffer.
   struct OffloadingImage {
     ImageKind TheImageKind;
     OffloadKind TheOffloadKind;
     uint32_t Flags;
     StringMap<StringRef> StringData;
-    MemoryBufferRef Image;
+    std::unique_ptr<MemoryBuffer> Image;
   };
 
   /// Attempt to parse the offloading binary stored in \p Data.
@@ -85,12 +94,18 @@ public:
     return StringRef(&Buffer[TheEntry->ImageOffset], TheEntry->ImageSize);
   }
 
+  // Iterator over all the key and value pairs in the binary.
+  string_iterator_range strings() const {
+    return string_iterator_range(StringData.begin(), StringData.end());
+  }
+
   StringRef getString(StringRef Key) const { return StringData.lookup(Key); }
 
-private:
+  static bool classof(const Binary *V) { return V->isOffloadFile(); }
+
   struct Header {
     uint8_t Magic[4] = {0x10, 0xFF, 0x10, 0xAD}; // 0x10FF10AD magic bytes.
-    uint32_t Version = 1;                        // Version identifier.
+    uint32_t Version = OffloadBinary::Version;   // Version identifier.
     uint64_t Size;        // Size in bytes of this entire binary.
     uint64_t EntryOffset; // Offset of the metadata entry in bytes.
     uint64_t EntrySize;   // Size of the metadata entry in bytes.
@@ -111,10 +126,11 @@ private:
     uint64_t ValueOffset;
   };
 
-  OffloadBinary(const char *Buffer, const Header *TheHeader,
+private:
+  OffloadBinary(MemoryBufferRef Source, const Header *TheHeader,
                 const Entry *TheEntry)
-      : Buffer(Buffer), TheHeader(TheHeader), TheEntry(TheEntry) {
-
+      : Binary(Binary::ID_Offload, Source), Buffer(Source.getBufferStart()),
+        TheHeader(TheHeader), TheEntry(TheEntry) {
     const StringEntry *StringMapBegin =
         reinterpret_cast<const StringEntry *>(&Buffer[TheEntry->StringOffset]);
     for (uint64_t I = 0, E = TheEntry->NumStrings; I != E; ++I) {
@@ -127,7 +143,7 @@ private:
 
   /// Map from keys to offsets in the binary.
   StringMap<StringRef> StringData;
-  /// Pointer to the beginning of the memory buffer for convenience.
+  /// Raw pointer to the MemoryBufferRef for convenience.
   const char *Buffer;
   /// Location of the header within the binary.
   const Header *TheHeader;
@@ -146,6 +162,8 @@ OffloadKind getOffloadKind(StringRef Name);
 
 /// Convert an offload kind to its string representation.
 StringRef getOffloadKindName(OffloadKind Name);
+
+} // namespace object
 
 } // namespace llvm
 #endif

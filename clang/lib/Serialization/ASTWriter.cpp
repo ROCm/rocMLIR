@@ -2306,7 +2306,7 @@ void ASTWriter::WritePreprocessor(const Preprocessor &PP, bool IsModule) {
   if (PP.isRecordingPreamble() && PP.hasRecordedPreamble()) {
     assert(!IsModule);
     auto SkipInfo = PP.getPreambleSkipInfo();
-    if (SkipInfo.hasValue()) {
+    if (SkipInfo) {
       Record.push_back(true);
       AddSourceLocation(SkipInfo->HashTokenLoc, Record);
       AddSourceLocation(SkipInfo->IfTokenLoc, Record);
@@ -6592,6 +6592,7 @@ void OMPClauseWriter::VisitOMPDependClause(OMPDependClause *C) {
   Record.push_back(C->getDependencyKind());
   Record.AddSourceLocation(C->getDependencyLoc());
   Record.AddSourceLocation(C->getColonLoc());
+  Record.AddSourceLocation(C->getOmpAllMemoryLoc());
   for (auto *VE : C->varlists())
     Record.AddStmt(VE);
   for (unsigned I = 0, E = C->getNumLoops(); I < E; ++I)

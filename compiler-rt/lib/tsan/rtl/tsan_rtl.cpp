@@ -45,7 +45,7 @@ void (*on_initialize)(void);
 int (*on_finalize)(int);
 #endif
 
-#if !SANITIZER_GO && !SANITIZER_MAC
+#if !SANITIZER_GO && !SANITIZER_APPLE
 __attribute__((tls_model("initial-exec")))
 THREADLOCAL char cur_thread_placeholder[sizeof(ThreadState)] ALIGNED(
     SANITIZER_CACHE_LINE_SIZE);
@@ -722,8 +722,10 @@ void MaybeSpawnBackgroundThread() {
 int Finalize(ThreadState *thr) {
   bool failed = false;
 
+#if !SANITIZER_GO
   if (common_flags()->print_module_map == 1)
     DumpProcessMap();
+#endif
 
   if (flags()->atexit_sleep_ms > 0 && ThreadCount(thr) > 1)
     internal_usleep(u64(flags()->atexit_sleep_ms) * 1000);

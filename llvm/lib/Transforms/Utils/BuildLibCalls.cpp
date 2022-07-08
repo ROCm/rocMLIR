@@ -246,6 +246,14 @@ static bool setAllocFamily(Function &F, StringRef Family) {
   return true;
 }
 
+static bool setAllocKind(Function &F, AllocFnKind K) {
+  if (F.hasFnAttribute(Attribute::AllocKind))
+    return false;
+  F.addFnAttr(
+      Attribute::get(F.getContext(), Attribute::AllocKind, uint64_t(K)));
+  return true;
+}
+
 bool llvm::inferNonMandatoryLibFuncAttrs(Module *M, StringRef Name,
                                          const TargetLibraryInfo &TLI) {
   Function *F = M->getFunction(Name);
@@ -442,12 +450,14 @@ bool llvm::inferNonMandatoryLibFuncAttrs(Function &F,
   case LibFunc_aligned_alloc:
     Changed |= setAlignedAllocParam(F, 0);
     Changed |= setAllocSize(F, 1, None);
+    Changed |= setAllocKind(F, AllocFnKind::Alloc | AllocFnKind::Uninitialized | AllocFnKind::Aligned);
     LLVM_FALLTHROUGH;
   case LibFunc_valloc:
   case LibFunc_malloc:
   case LibFunc_vec_malloc:
     Changed |= setAllocFamily(F, TheLibFunc == LibFunc_vec_malloc ? "vec_malloc"
                                                                   : "malloc");
+    Changed |= setAllocKind(F, AllocFnKind::Alloc | AllocFnKind::Uninitialized);
     Changed |= setAllocSize(F, 0, None);
     Changed |= setOnlyAccessesInaccessibleMemory(F);
     Changed |= setRetAndArgsNoUndef(F);
@@ -512,6 +522,8 @@ bool llvm::inferNonMandatoryLibFuncAttrs(Function &F,
     return Changed;
   case LibFunc_memalign:
     Changed |= setAllocFamily(F, "malloc");
+    Changed |= setAllocKind(F, AllocFnKind::Alloc | AllocFnKind::Aligned |
+                                   AllocFnKind::Uninitialized);
     Changed |= setAllocSize(F, 1, None);
     Changed |= setAlignedAllocParam(F, 0);
     Changed |= setOnlyAccessesInaccessibleMemory(F);
@@ -537,6 +549,7 @@ bool llvm::inferNonMandatoryLibFuncAttrs(Function &F,
   case LibFunc_vec_realloc:
     Changed |= setAllocFamily(
         F, TheLibFunc == LibFunc_vec_realloc ? "vec_malloc" : "malloc");
+    Changed |= setAllocKind(F, AllocFnKind::Realloc);
     Changed |= setAllocatedPointerParam(F, 0);
     Changed |= setAllocSize(F, 1, None);
     Changed |= setOnlyAccessesInaccessibleMemOrArgMem(F);
@@ -614,6 +627,7 @@ bool llvm::inferNonMandatoryLibFuncAttrs(Function &F,
   case LibFunc_vec_calloc:
     Changed |= setAllocFamily(F, TheLibFunc == LibFunc_vec_calloc ? "vec_malloc"
                                                                   : "malloc");
+    Changed |= setAllocKind(F, AllocFnKind::Alloc | AllocFnKind::Zeroed);
     Changed |= setAllocSize(F, 0, 1);
     Changed |= setOnlyAccessesInaccessibleMemory(F);
     Changed |= setRetAndArgsNoUndef(F);
@@ -675,6 +689,7 @@ bool llvm::inferNonMandatoryLibFuncAttrs(Function &F,
   case LibFunc_vec_free:
     Changed |= setAllocFamily(F, TheLibFunc == LibFunc_vec_free ? "vec_malloc"
                                                                 : "malloc");
+    Changed |= setAllocKind(F, AllocFnKind::Free);
     Changed |= setAllocatedPointerParam(F, 0);
     Changed |= setOnlyAccessesInaccessibleMemOrArgMem(F);
     Changed |= setArgsNoUndef(F);
@@ -1290,6 +1305,7 @@ FunctionCallee llvm::getOrInsertLibFunc(Module *M, const TargetLibraryInfo &TLI,
   case LibFunc_ldexpf:
   case LibFunc_ldexpl:
   case LibFunc_memchr:
+  case LibFunc_memrchr:
   case LibFunc_strchr:
     setArgExtAttr(*F, 1, TLI);
     break;
@@ -1519,6 +1535,15 @@ Value *llvm::emitMemChr(Value *Ptr, Value *Val, Value *Len, IRBuilderBase &B,
   LLVMContext &Context = B.GetInsertBlock()->getContext();
   return emitLibCall(
       LibFunc_memchr, B.getInt8PtrTy(),
+      {B.getInt8PtrTy(), B.getInt32Ty(), DL.getIntPtrType(Context)},
+      {castToCStr(Ptr, B), Val, Len}, B, TLI);
+}
+
+Value *llvm::emitMemRChr(Value *Ptr, Value *Val, Value *Len, IRBuilderBase &B,
+                        const DataLayout &DL, const TargetLibraryInfo *TLI) {
+  LLVMContext &Context = B.GetInsertBlock()->getContext();
+  return emitLibCall(
+      LibFunc_memrchr, B.getInt8PtrTy(),
       {B.getInt8PtrTy(), B.getInt32Ty(), DL.getIntPtrType(Context)},
       {castToCStr(Ptr, B), Val, Len}, B, TLI);
 }

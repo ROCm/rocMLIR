@@ -173,7 +173,8 @@ RuntimeCheckingPtrGroup::RuntimeCheckingPtrGroup(
     : High(RtCheck.Pointers[Index].End), Low(RtCheck.Pointers[Index].Start),
       AddressSpace(RtCheck.Pointers[Index]
                        .PointerValue->getType()
-                       ->getPointerAddressSpace()) {
+                       ->getPointerAddressSpace()),
+      NeedsFreeze(RtCheck.Pointers[Index].NeedsFreeze) {
   Members.push_back(Index);
 }
 
@@ -193,7 +194,8 @@ RuntimeCheckingPtrGroup::RuntimeCheckingPtrGroup(
 void RuntimePointerChecking::insert(Loop *Lp, Value *Ptr, const SCEV *PtrExpr,
                                     Type *AccessTy, bool WritePtr,
                                     unsigned DepSetId, unsigned ASId,
-                                    PredicatedScalarEvolution &PSE) {
+                                    PredicatedScalarEvolution &PSE,
+                                    bool NeedsFreeze) {
   ScalarEvolution *SE = PSE.getSE();
 
   const SCEV *ScStart;
@@ -229,7 +231,8 @@ void RuntimePointerChecking::insert(Loop *Lp, Value *Ptr, const SCEV *PtrExpr,
   const SCEV *EltSizeSCEV = SE->getStoreSizeOfExpr(IdxTy, AccessTy);
   ScEnd = SE->getAddExpr(ScEnd, EltSizeSCEV);
 
-  Pointers.emplace_back(Ptr, ScStart, ScEnd, WritePtr, DepSetId, ASId, PtrExpr);
+  Pointers.emplace_back(Ptr, ScStart, ScEnd, WritePtr, DepSetId, ASId, PtrExpr,
+                        NeedsFreeze);
 }
 
 void RuntimePointerChecking::tryToCreateDiffCheck(
@@ -314,7 +317,8 @@ void RuntimePointerChecking::tryToCreateDiffCheck(
     CanUseDiffCheck = false;
     return;
   }
-  DiffChecks.emplace_back(SrcStartInt, SinkStartInt, AllocSize);
+  DiffChecks.emplace_back(SrcStartInt, SinkStartInt, AllocSize,
+                          Src->NeedsFreeze || Sink->NeedsFreeze);
 }
 
 SmallVector<RuntimePointerCheck, 4> RuntimePointerChecking::generateChecks() {
@@ -369,11 +373,12 @@ bool RuntimeCheckingPtrGroup::addPointer(unsigned Index,
   return addPointer(
       Index, RtCheck.Pointers[Index].Start, RtCheck.Pointers[Index].End,
       RtCheck.Pointers[Index].PointerValue->getType()->getPointerAddressSpace(),
-      *RtCheck.SE);
+      RtCheck.Pointers[Index].NeedsFreeze, *RtCheck.SE);
 }
 
 bool RuntimeCheckingPtrGroup::addPointer(unsigned Index, const SCEV *Start,
                                          const SCEV *End, unsigned AS,
+                                         bool NeedsFreeze,
                                          ScalarEvolution &SE) {
   assert(AddressSpace == AS &&
          "all pointers in a checking group must be in the same address space");
@@ -398,6 +403,7 @@ bool RuntimeCheckingPtrGroup::addPointer(unsigned Index, const SCEV *Start,
     High = End;
 
   Members.push_back(Index);
+  this->NeedsFreeze |= NeedsFreeze;
   return true;
 }
 
@@ -782,14 +788,21 @@ bool AccessAnalysis::createCheckForAccess(RuntimePointerChecking &RtCheck,
   Value *Ptr = Access.getPointer();
 
   ScalarEvolution &SE = *PSE.getSE();
-  SmallVector<const SCEV *> TranslatedPtrs;
-  if (auto *SI = dyn_cast<SelectInst>(Ptr))
-    TranslatedPtrs = {SE.getSCEV(SI->getOperand(1)),
-                      SE.getSCEV(SI->getOperand(2))};
-  else
-    TranslatedPtrs = {replaceSymbolicStrideSCEV(PSE, StridesMap, Ptr)};
+  SmallVector<std::pair<const SCEV *, bool>> TranslatedPtrs;
+  auto *SI = dyn_cast<SelectInst>(Ptr);
+  // Look through selects in the current loop.
+  if (SI && !TheLoop->isLoopInvariant(SI)) {
+    TranslatedPtrs = {
+        std::make_pair(SE.getSCEV(SI->getOperand(1)),
+                       !isGuaranteedNotToBeUndefOrPoison(SI->getOperand(1))),
+        std::make_pair(SE.getSCEV(SI->getOperand(2)),
+                       !isGuaranteedNotToBeUndefOrPoison(SI->getOperand(2)))};
+  } else
+    TranslatedPtrs = {
+        std::make_pair(replaceSymbolicStrideSCEV(PSE, StridesMap, Ptr), false)};
 
-  for (const SCEV *PtrExpr : TranslatedPtrs) {
+  for (auto &P : TranslatedPtrs) {
+    const SCEV *PtrExpr = P.first;
     if (!hasComputableBounds(PSE, Ptr, PtrExpr, TheLoop, Assume))
       return false;
 
@@ -810,10 +823,13 @@ bool AccessAnalysis::createCheckForAccess(RuntimePointerChecking &RtCheck,
     // If there's only one option for Ptr, look it up after bounds and wrap
     // checking, because assumptions might have been added to PSE.
     if (TranslatedPtrs.size() == 1)
-      TranslatedPtrs[0] = replaceSymbolicStrideSCEV(PSE, StridesMap, Ptr);
+      TranslatedPtrs[0] = std::make_pair(
+          replaceSymbolicStrideSCEV(PSE, StridesMap, Ptr), false);
   }
 
-  for (const SCEV *PtrExpr : TranslatedPtrs) {
+  for (auto &P : TranslatedPtrs) {
+    const SCEV *PtrExpr = P.first;
+
     // The id of the dependence set.
     unsigned DepId;
 
@@ -828,7 +844,8 @@ bool AccessAnalysis::createCheckForAccess(RuntimePointerChecking &RtCheck,
       DepId = RunningDepId++;
 
     bool IsWrite = Access.getInt();
-    RtCheck.insert(TheLoop, Ptr, PtrExpr, AccessTy, IsWrite, DepId, ASId, PSE);
+    RtCheck.insert(TheLoop, Ptr, PtrExpr, AccessTy, IsWrite, DepId, ASId, PSE,
+                   P.second);
     LLVM_DEBUG(dbgs() << "LAA: Found a runtime check ptr:" << *Ptr << '\n');
   }
 

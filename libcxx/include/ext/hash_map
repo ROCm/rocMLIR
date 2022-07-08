@@ -206,8 +206,13 @@ template <class Key, class T, class Hash, class Pred, class Alloc>
 #include <__hash_table>
 #include <algorithm>
 #include <ext/__hash>
+#include <functional>
 #include <stdexcept>
 #include <type_traits>
+
+#ifndef _LIBCPP_REMOVE_TRANSITIVE_INCLUDES
+#  include <iterator>
+#endif
 
 #if defined(__DEPRECATED) && __DEPRECATED
 #if defined(_LIBCPP_WARNING)
