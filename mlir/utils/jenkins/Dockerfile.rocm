@@ -6,6 +6,7 @@ ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/5.0.1/
 ARG ROCM_BUILD_NAME=ubuntu
 ARG ROCM_BUILD_NUM=main
 ARG ROCM_PATH=/opt/rocm-5.0.1
+ARG MIOPEN_DEPS_COMMIT=8d67ae8b6a84b48debd3f140482b077b104c32dd
 
 ENV DEBIAN_FRONTEND noninteractive
 
@@ -116,3 +117,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   parallel && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
+
+# --------------------- Section 3: MIOpen dependencies ---------------
+WORKDIR /MiOpenDepsWork
+RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/${MIOPEN_DEPS_COMMIT}/requirements.txt \
+    && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/${MIOPEN_DEPS_COMMIT}/install_deps.cmake \
+    && sed -i -e '/llvm-project-mlir/d' requirements.txt \
+    && cmake -P install_deps.cmake --prefix /usr/local
+RUN echo ${MIOPEN_DEPS_COMMIT} >miopen-deps-commit-hash
+WORKDIR /

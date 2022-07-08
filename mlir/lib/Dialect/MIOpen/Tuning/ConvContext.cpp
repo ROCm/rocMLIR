@@ -17,7 +17,7 @@ populateDimIndexAndSize(const ArrayAttr &layoutAttr,
 }
 
 static void populateSeqVal(const ArrayAttr &seqAttr,
-                           llvm::SmallVector<int64_t, 0> &seqVal) {
+                           SmallVectorImpl<int64_t> &seqVal) {
   size_t seqValSize = seqAttr.size();
   for (size_t i = 0; i < seqValSize; ++i) {
     // Not nested array, push back the value and be done
@@ -35,6 +35,14 @@ static void populateSeqVal(const ArrayAttr &seqAttr,
                            .getInt());
     }
   }
+}
+
+ConvolutionDims ConvolutionContext::getConvDims() {
+  return ConvolutionDims(dimIndexAndSize["y"].size, dimIndexAndSize["x"].size,
+                         dimIndexAndSize["ho"].size, dimIndexAndSize["wo"].size,
+                         dimIndexAndSize["hi"].size, dimIndexAndSize["wi"].size,
+                         dimIndexAndSize["k"].size, dimIndexAndSize["c"].size,
+                         dimIndexAndSize["ni"].size, dimIndexAndSize["g"].size);
 }
 
 ConvolutionContext mlir::miopen::populateConvContext(Operation *op) {
@@ -57,15 +65,15 @@ ConvolutionContext mlir::miopen::populateConvContext(Operation *op) {
       op->template getAttrOfType<ArrayAttr>("output_layout");
 
   auto strideAttr = op->template getAttrOfType<ArrayAttr>("strides");
-  llvm::SmallVector<int64_t, 0> strideVal;
+  llvm::SmallVector<int64_t, 2> strideVal;
   populateSeqVal(strideAttr, strideVal);
 
   auto dilationAttr = op->template getAttrOfType<ArrayAttr>("dilations");
-  llvm::SmallVector<int64_t, 0> dilationVal;
+  llvm::SmallVector<int64_t, 2> dilationVal;
   populateSeqVal(dilationAttr, dilationVal);
 
   auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
-  llvm::SmallVector<int64_t, 0> paddingVal;
+  llvm::SmallVector<int64_t, 4> paddingVal;
   populateSeqVal(paddingAttr, paddingVal);
 
   populateDimIndexAndSize(

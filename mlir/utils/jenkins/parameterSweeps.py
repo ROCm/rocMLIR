@@ -32,7 +32,7 @@ class Options:
 
 class MLIROnlyConfig(ConvConfiguration):
     def __repr__(self):
-        return f"""ConvConiguration(dtype={self.dataType!r}, direction={self.direction!r}, layout={self.inputLayout.upper()!r},
+        return f"""ConvConfiguration(dtype={self.dataType!r}, direction={self.direction!r}, layout={self.inputLayout.upper()!r},
                 n={self.n!r}, c={self.c!r}, hi={self.hi!r}, wi={self.wi!r}, k={self.k!r}, y={self.y!r}, x={self.x!r},
                 convStrideH={self.convStrideH!r}, convStrideW={self.convStrideW!r}, paddingHL={self.paddingHL!r}, paddingHR={self.paddingHR!r},
                 paddingWL={self.paddingWL!r}, paddingWR={self.paddingWR!r}, dilationH={self.dilationH!r}, dilationW={self.dilationW!r},
@@ -193,7 +193,7 @@ Return code = {lowering.returncode}""")
 Output = {runnerOut}
 Errors = {runnerErrs.decode('utf-8')}
 Return code = {runner.returncode}""", file=sys.stderr)
-        return False
+        return TestResult.FAIL
 
     if not CORRECT_RESULT_RE.search(runnerOut):
         print(f"""Convolution returned intorrect result
@@ -375,7 +375,7 @@ def main() -> bool:
     parser.add_argument('--no-xdlops', '-X', dest='xdlops', action='store_false',
         help='Explicitly disable xdlops usage')
     parser.add_argument('--jobs', '-j', type=int,
-        default=(2 * len(os.sched_getaffinity(0))),
+        default=(len(os.sched_getaffinity(0)) // 2),
         help="Number of jobs to run in parallel (default %(default)s)")
     args = parser.parse_args()
     options = Options(debug=args.debug, quiet=args.quiet, xdlops=args.xdlops,

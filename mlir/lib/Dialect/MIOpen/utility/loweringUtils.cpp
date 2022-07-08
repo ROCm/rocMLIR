@@ -7,19 +7,22 @@
 //===-----------------------------------------------------===//
 
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
+
 #include "mlir/Dialect/MIOpen/MIOpen.h"
+#include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
+#include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/DenseSet.h"
 
 using namespace mlir;
 using namespace mlir::miopen;
 
-namespace {
 using IntSet = llvm::SmallDenseSet<uint32_t>;
 
-void propagateTransformOob(TransformMapAttr transformMap,
-                           const IntSet &upperLeft, const IntSet &upperRight,
-                           IntSet &lowerLeft, IntSet &lowerRight) {
+static void propagateTransformOob(TransformMapAttr transformMap,
+                                  const IntSet &upperLeft,
+                                  const IntSet &upperRight, IntSet &lowerLeft,
+                                  IntSet &lowerRight) {
   for (TransformAttr transform : transformMap.getOps()) {
     ArrayRef<uint32_t> upperDims = transform.getUpperDims();
     ArrayRef<uint32_t> lowerDims = transform.getLowerDims();
@@ -136,10 +139,48 @@ void propagateTransformOob(TransformMapAttr transformMap,
     }
   }
 }
-} // end anonymous namespace
 
 namespace mlir {
 namespace miopen {
+LogicalResult calculateKBlockNum(ConvolutionDims convDims, int64_t MPerBlock,
+                                 int64_t NPerBlock, int64_t KPerBlock,
+                                 int64_t KPack, int64_t num_cu,
+                                 int64_t &nKBlock) {
+  const int64_t gemmM = convDims.k;
+  const int64_t gemmN = convDims.c * convDims.y * convDims.x;
+  const int64_t gemmK = convDims.n * convDims.ho * convDims.wo;
+
+  int64_t gemmKBlock = 1;
+
+  if ((gemmM % MPerBlock != 0) || (gemmN % NPerBlock != 0) ||
+      (gemmK % (KPerBlock * KPack) != 0))
+    return failure();
+
+  const int64_t gridSize =
+      convDims.g * (gemmM / MPerBlock) * (gemmN / NPerBlock);
+  const int64_t maxGridSize = 20 * num_cu;
+
+  gemmKBlock = std::max(maxGridSize / gridSize, static_cast<int64_t>(1));
+  gemmKBlock = std::min(gemmKBlock, convDims.n);
+
+  for (; gemmKBlock > 1; --gemmKBlock) {
+    if (convDims.n % gemmKBlock != 0)
+      continue;
+
+    if (gemmK % (gemmKBlock * KPerBlock * KPack) != 0)
+      continue;
+
+    break;
+  }
+  // not more than n
+  gemmKBlock = std::min(convDims.n, gemmKBlock);
+  // not less than 1
+  gemmKBlock = std::max((__int64_t)1, gemmKBlock);
+
+  nKBlock = gemmKBlock;
+  return success();
+}
+
 std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
                                          ArrayAttr existing) {
   SmallVector<Attribute> transformList;
@@ -153,9 +194,24 @@ std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
   return {ret, b.getArrayAttr(transformList)};
 }
 
-std::tuple<ArrayAttr, ArrayAttr>
-computeOobFromTransforms(Builder &b, ArrayAttr transforms) {
+std::tuple<Value, ArrayAttr> untransform(OpBuilder &b, Value transformed,
+                                         ArrayRef<Attribute> existing) {
+  return untransform(b, transformed, b.getArrayAttr(existing));
+}
+
+std::tuple<ArrayAttr, ArrayAttr> computeOobFromTransforms(
+    Builder &b, ArrayAttr transforms,
+    Optional<std::tuple<ArrayAttr, ArrayAttr>> initialOob) {
   IntSet upperOobLeft, upperOobRight, lowerOobLeft, lowerOobRight;
+  if (initialOob.hasValue()) {
+    ArrayAttr initLeft, initRight;
+    std::tie(initLeft, initRight) = *initialOob;
+    for (APInt l : initLeft.getAsValueRange<IntegerAttr>())
+      upperOobLeft.insert(l.getZExtValue());
+    for (APInt r : initRight.getAsValueRange<IntegerAttr>())
+      upperOobRight.insert(r.getZExtValue());
+  }
+
   for (auto transformMap : transforms.getAsRange<TransformMapAttr>()) {
     propagateTransformOob(transformMap, upperOobLeft, upperOobRight,
                           lowerOobLeft, lowerOobRight);
@@ -245,6 +301,31 @@ mlir::Type obtainConvDataType(Operation *op) {
       .getType()
       .template cast<MemRefType>()
       .getElementType();
+}
+
+TransformOp reshapeBuffer(OpBuilder &b, Location loc, Value buffer,
+                          ArrayRef<StringRef> names, ArrayRef<int64_t> shape) {
+  MemRefType bufferType = buffer.getType().cast<MemRefType>();
+  ArrayRef<int64_t> outShape = bufferType.getShape();
+  assert(outShape.size() == 1 && "Buffer being reshaped must start linear");
+
+  SmallVector<int64_t> strides;
+  strides.reserve(shape.size());
+  int64_t stride = 1;
+  for (int64_t v : llvm::reverse(shape)) {
+    strides.push_back(stride);
+    stride *= v;
+  }
+  std::reverse(strides.begin(), strides.end());
+  assert(stride == outShape[0] && "Strides must multiply to buffer length");
+
+  TopDownTMBuilder transform(b, names, shape, loc);
+  transform.embed("raw", 0, outShape[0], names, strides);
+
+  TransformMapAttr transformAttr = transform.get();
+  auto ret = b.create<TransformOp>(loc, buffer, transformAttr,
+                                   bufferType.getMemorySpaceAsInt());
+  return ret;
 }
 } // namespace miopen
 } // namespace mlir

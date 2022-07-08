@@ -2,6 +2,8 @@
 
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
+#include "mlir/Dialect/MIOpen/Tuning/GemmContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/Tuning/UtilityParams.h"
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
@@ -43,60 +45,34 @@ private:
 
   void affixBackwardWeightUtilityKernels(Conv2DBwdWeightOp &op);
   void affixBackwardDataUtilityKernels(Conv2DBwdDataOp &op);
-
-  template <typename T>
-  std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
-             int64_t, int64_t>
-  fetchDimensions(T &op);
 };
 } // anonymous namespace
 
-void AffixTuningParameters::runOnOperation() {
-  func::FuncOp func = getOperation();
-
-  func.walk([&](Conv2DOp op) { affixTuningParametersImpl(op); });
-  func.walk([&](Conv2DBwdDataOp op) {
-    affixTuningParametersImpl(op);
-    affixBackwardDataUtilityKernels(op);
-  });
-  func.walk([&](Conv2DBwdWeightOp op) {
-    affixTuningParametersImpl(op);
-    affixBackwardWeightUtilityKernels(op);
-  });
-}
-
-template <typename T>
-std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
-           int64_t, int64_t>
-AffixTuningParameters::fetchDimensions(T &op) {
-  auto filterLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("filter_layout");
-  auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
+static ConvolutionDims obtainConvDims(Operation *op) {
+  auto filterLayoutAttr = op->getAttrOfType<ArrayAttr>("filter_layout");
+  auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
   auto outputLayoutAttr =
       op->template getAttrOfType<ArrayAttr>("output_layout");
 
   // Get shape of filter tensor.
-  auto filterType = op.filter().getType().template cast<MemRefType>();
-  auto filterShape = filterType.getShape();
+  auto filterType = op->getOperand(0).getType().template cast<MemRefType>();
+  ArrayRef<int64_t> filterShape = filterType.getShape();
 
   // Get shape of input tensor.
-  auto inputType = op.input().getType().template cast<MemRefType>();
-  auto inputShape = inputType.getShape();
+  auto inputType = op->getOperand(1).getType().template cast<MemRefType>();
+  ArrayRef<int64_t> inputShape = inputType.getShape();
 
   // Get shape of output tensor.
-  auto outputType = op.output().getType().template cast<MemRefType>();
-  auto outputShape = outputType.getShape();
+  auto outputType = op->getOperand(2).getType().template cast<MemRefType>();
+  ArrayRef<int64_t> outputShape = outputType.getShape();
 
-  // get y, x, ho, wo, hi, wi, k, c, n
-  int64_t y, x, ho, wo, hi, wi, k, c, n;
-  y = x = ho = wo = hi = wi = k = c = n = 0;
+  int64_t y, x, ho, wo, hi, wi, k, c, n, g;
+  y = x = ho = wo = hi = wi = k = c = n = g = 0;
 
   for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
-    auto filterAttr =
-        filterLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto inputAttr = inputLayoutAttr.getValue()[i].template cast<StringAttr>();
-    auto outputAttr =
-        outputLayoutAttr.getValue()[i].template cast<StringAttr>();
+    auto filterAttr = filterLayoutAttr.getValue()[i].cast<StringAttr>();
+    auto inputAttr = inputLayoutAttr.getValue()[i].cast<StringAttr>();
+    auto outputAttr = outputLayoutAttr.getValue()[i].cast<StringAttr>();
 
     if (filterAttr.getValue() == "y") {
       y = filterShape[i];
@@ -106,6 +82,8 @@ AffixTuningParameters::fetchDimensions(T &op) {
       k = filterShape[i];
     } else if (filterAttr.getValue() == "c") {
       c = filterShape[i];
+    } else if (filterAttr.getValue() == "g") {
+      g = filterShape[i];
     }
 
     if (inputAttr.getValue() == "hi") {
@@ -123,7 +101,21 @@ AffixTuningParameters::fetchDimensions(T &op) {
     }
   }
 
-  return std::make_tuple(y, x, ho, wo, hi, wi, k, c, n);
+  return ConvolutionDims(y, x, ho, wo, hi, wi, k, c, n, g);
+}
+
+void AffixTuningParameters::runOnOperation() {
+  func::FuncOp func = getOperation();
+
+  func.walk([&](Conv2DOp op) { affixTuningParametersImpl(op); });
+  func.walk([&](Conv2DBwdDataOp op) {
+    affixTuningParametersImpl(op);
+    affixBackwardDataUtilityKernels(op);
+  });
+  func.walk([&](Conv2DBwdWeightOp op) {
+    affixTuningParametersImpl(op);
+    affixBackwardWeightUtilityKernels(op);
+  });
 }
 
 void AffixTuningParameters::affixBackwardDataUtilityKernels(
@@ -156,27 +148,17 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
   if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
     OpBuilder b(op.getContext());
 
-    // get y, x, ho, wo, hi, wi, k, c, n
-    int64_t y, x, ho, wo, hi, wi, k, c, n;
-    std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
+    ConvolutionDims convDims = obtainConvDims(op);
+    GemmContext gemmSize =
+        GemmContext::fromConvolution(ConvOpType::BwdWeight, convDims);
 
-    int64_t gemmMSize, gemmNSize, gemmKSize;
-    gemmMSize = k;
-    gemmKSize = n * ho * wo;
-    gemmNSize = c * y * x;
-
-    int64_t gemmMExtra, gemmNExtra, gemmKExtra;
-    gemmMExtra = gemmNExtra = gemmKExtra = 0;
-
-    bool needExtraPad = false;
     PopulateParamsXDL populateParamsXDL;
-    std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
-        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize,
-                                   obtainConvDirection(op),
+    Optional<GemmContext> extraPadSizes =
+        calculatePaddingKernelSize(gemmSize, obtainConvDirection(op),
                                    obtainConvDataType(op), populateParamsXDL);
 
     // For padding cases, gemmId must be 0.
-    if (needExtraPad == true) {
+    if (extraPadSizes.hasValue()) {
       assert(gemmId == 0);
     } else {
       assert((gemmId >= 0) && (gemmId < 3));
@@ -203,23 +185,9 @@ template <typename T>
 void AffixTuningParameters::affixTuningParametersImpl(T &op) {
   OpBuilder b(op.getContext());
 
-  // get y, x, ho, wo, hi, wi, k, c, n
-  int64_t y, x, ho, wo, hi, wi, k, c, n;
-  std::tie(y, x, ho, wo, hi, wi, k, c, n) = fetchDimensions(op);
-
-  int64_t gemmMSize, gemmNSize, gemmKSize;
-  // FIXME : support forward convolution only right now.
-  // compute we should use extra padding kernel or not
-  // c,k already / g ,so we can skip / g here
-  gemmMSize = k;
-  gemmKSize = c * y * x;
-  gemmNSize = n * ho * wo;
-
-  int64_t gemmMExtra, gemmNExtra, gemmKExtra;
-  gemmMExtra = gemmNExtra = gemmKExtra = 0;
-
-  // Only needExtraPad is used.
-  bool needExtraPad = false;
+  ConvolutionDims dims = obtainConvDims(op);
+  ConvOpType opType = obtainConvDirection(op);
+  GemmContext gemmSize = GemmContext::fromConvolution(opType, dims);
 
   std::string perfConfig;
   if (auto perfConfigAttr =
@@ -253,10 +221,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     Type dataType = obtainConvDataType(op);
 
     // Disable kpack in case we need padding kernel.
-    std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
-        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, dir,
-                                   dataType, populateParamsXDL);
-    if (needExtraPad) {
+    Optional<GemmContext> gemmExtraPad =
+        calculatePaddingKernelSize(gemmSize, dir, dataType, populateParamsXDL);
+    if (gemmExtraPad.hasValue()) {
       validParams.gemmKPack = 1;
     }
 

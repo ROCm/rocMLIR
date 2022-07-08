@@ -18,6 +18,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #define PASS_NAME "tosa-test-quant-utils"
@@ -204,4 +205,81 @@ namespace mlir {
 void registerTosaTestQuantUtilAPIPass() {
   PassRegistration<TosaTestQuantUtilAPI>();
 }
+} // namespace mlir
+
+namespace {
+
+class TestTosaPartitionOptionsPass
+    : public PassWrapper<TestTosaPartitionOptionsPass,
+                         OperationPass<ModuleOp>> {
+public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestTosaPartitionOptionsPass)
+
+  StringRef getArgument() const final { return "test-tosa-partition-options"; }
+  StringRef getDescription() const final {
+    return "Tests the programmatic interface to --tosa-partition options.";
+  }
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<tosa::TosaDialect>();
+  }
+
+  TestTosaPartitionOptionsPass() = default;
+  TestTosaPartitionOptionsPass(const TestTosaPartitionOptionsPass &) {}
+
+  void runOnOperation() override {
+    ModuleOp module = getOperation();
+    PassManager pm(module.getContext(), mlir::PassManager::Nesting::Implicit);
+    if (defaultCase) {
+      pm.addPass(createTosaPartitionPass());
+    } else if (depthwiseOnly) {
+      class DepthwiseOnlyPartitionPass : public TosaPartitionPass {
+      public:
+        bool isAnchorOp(Operation *op) override {
+          return isa<tosa::DepthwiseConv2DOp>(op);
+        }
+      };
+      pm.addPass(std::make_unique<DepthwiseOnlyPartitionPass>());
+    } else if (convOnly) {
+      class ConvOnlyPartitionPass : public TosaPartitionPass {
+      public:
+        bool isAnchorOp(Operation *op) override {
+          return isa<tosa::Conv2DOp>(op);
+        }
+        StringRef partitionTag() override { return "four"; }
+      };
+      pm.addPass(std::make_unique<ConvOnlyPartitionPass>());
+    } else if (attrOne) {
+      class AttributeOnePartitionPass : public TosaPartitionPass {
+      public:
+        StringRef partitionTag() override { return "one"; }
+      };
+      pm.addPass(std::make_unique<AttributeOnePartitionPass>());
+    } else if (nofrontArg) {
+      // Another way is to pass the values to the pass constructor.
+      pm.addPass(
+          std::make_unique<TosaPartitionPassWithOptions, ArrayRef<std::string>>(
+              {"tosa.depthwise_conv2d"}, "kernel", true));
+    }
+
+    if (failed(pm.run(module)))
+      signalPassFailure();
+  }
+
+  Option<bool> defaultCase{*this, "default", llvm::cl::desc("Default.")};
+  Option<bool> depthwiseOnly{*this, "depthwise-only",
+                             llvm::cl::desc("Depthwise only.")};
+  Option<bool> convOnly{*this, "conv-only", llvm::cl::desc("Only conv2d.")};
+  Option<bool> attrOne{*this, "attr-one",
+                       llvm::cl::desc("Attribute-name 'one'.")};
+  Option<bool> nofrontArg{*this, "nofront-arg",
+                          llvm::cl::desc("Nofront as arg.")};
+};
+} // namespace
+
+namespace mlir {
+namespace test {
+void registerTestTosaPartitionOptionsPass() {
+  PassRegistration<TestTosaPartitionOptionsPass>();
+}
+} // namespace test
 } // namespace mlir

@@ -111,7 +111,7 @@ void registerTestRecursiveTypesPass();
 void registerTestSCFUtilsPass();
 void registerTestSliceAnalysisPass();
 void registerTestTensorTransforms();
-void registerTestTransformDialectInterpreterPass();
+void registerTestTosaPartitionOptionsPass();
 void registerTestVectorLowerings();
 } // namespace test
 } // namespace mlir
@@ -206,7 +206,7 @@ void registerTestPasses() {
   mlir::test::registerTestSCFUtilsPass();
   mlir::test::registerTestSliceAnalysisPass();
   mlir::test::registerTestTensorTransforms();
-  mlir::test::registerTestTransformDialectInterpreterPass();
+  mlir::test::registerTestTosaPartitionOptionsPass();
   mlir::test::registerTestVectorLowerings();
 }
 #endif

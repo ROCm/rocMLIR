@@ -246,18 +246,14 @@ module attributes {gpu.container_module} {
     return
   }
 
-  func.func @memset(%dst : memref<3x7xf32>, %value : f32) {
-    // CHECK-LABEL: func @memset
-    // CHECK: gpu.memset {{.*}}, {{.*}} : memref<3x7xf32>, f32
-    gpu.memset %dst, %value : memref<3x7xf32>, f32
-    // CHECK: %[[t0:.*]] = gpu.wait async
-    %0 = gpu.wait async
-    // CHECK: {{.*}} = gpu.memset async [%[[t0]]] {{.*}}, {{.*}} : memref<3x7xf32>, f32
-    %1 = gpu.memset async [%0] %dst, %value : memref<3x7xf32>, f32
-    return
+  func @warp_swizzle(%in : i32) -> i32 {
+    // CHECK-LABEL func @warp_swizzle
+    // CHECK %{{.*}} gpu.warp_swizzle { selector = [0 : i32, 3 : i32, 2 : i32, 1 : i32]} %{{.*}} : i32
+    %0 = gpu.warp_swizzle { selector = [0 : i32, 3 : i32, 2 : i32, 1 : i32] } %in : i32
+    return %0 : i32
   }
 
-  func.func @mmamatrix_valid_element_type(%src : memref<32x32xf16, affine_map<(d0, d1) -> (d0 * 64 + d1)>>){
+  func @mmamatrix_valid_element_type(%src : memref<32x32xf16, affine_map<(d0, d1) -> (d0 * 64 + d1)>>){
     // CHECK-LABEL: func @mmamatrix_valid_element_type
     %wg = memref.alloca() {alignment = 32} : memref<32x32xf16, 3>
     // CHECK: %[[wg:.*]] = memref.alloca()

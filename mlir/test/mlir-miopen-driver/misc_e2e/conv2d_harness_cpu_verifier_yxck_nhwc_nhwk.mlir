@@ -1,4 +1,4 @@
-// RUN: miopen-gen -p -fil_layout=gyxck -in_layout=nhwgc -out_layout=nhwgk %s | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%rocm_wrapper_library_dir/librocm-runtime-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
+// RUN: miopen-gen -p -fil_layout=gyxck -in_layout=nhwgc -out_layout=nhwgk %s | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
 
 // filter: GYXCK
 // input : NHWGC
@@ -58,42 +58,26 @@ module {
   func.func private @mcpuMemCopy5DFloat(memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>)
 
   func.func @gpu_conv(%arg0: memref<1x3x3x8x128xf32>, %arg1: memref<128x32x32x1x8xf32>, %arg2: memref<128x30x30x1x128xf32>) {
-    %0 = memref.cast %arg0 : memref<1x3x3x8x128xf32> to memref<?x?x?x?x?xf32>
-    %1 = memref.cast %arg1 : memref<128x32x32x1x8xf32> to memref<?x?x?x?x?xf32>
-    %2 = memref.cast %arg2 : memref<128x30x30x1x128xf32> to memref<?x?x?x?x?xf32>
-
     // allocate GPU memory.
-    %3 = call @mgpuMemAlloc5DFloat(%0) : (memref<?x?x?x?x?xf32>) -> memref<?x?x?x?x?xf32>
-    %4 = call @mgpuMemAlloc5DFloat(%1) : (memref<?x?x?x?x?xf32>) -> memref<?x?x?x?x?xf32>
-    %5 = call @mgpuMemAlloc5DFloat(%2) : (memref<?x?x?x?x?xf32>) -> memref<?x?x?x?x?xf32>
-
-    // copy direction constants.
-    %c1_i32 = arith.constant 1 : i32
-    %c2_i32 = arith.constant 2 : i32
+    %0 = gpu.alloc  () : memref<1x3x3x8x128xf32>
+    %1 = gpu.alloc  () : memref<128x32x32x1x8xf32>
+    %2 = gpu.alloc  () : memref<128x30x30x1x128xf32>
 
     // transfer data CPU -> GPU.
-    call @mgpuMemCopy5DFloat(%0, %3, %c1_i32) : (memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, i32) -> ()
-    call @mgpuMemCopy5DFloat(%1, %4, %c1_i32) : (memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, i32) -> ()
-    call @mgpuMemCopy5DFloat(%2, %5, %c1_i32) : (memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, i32) -> ()
+    gpu.memcpy  %0, %arg0 : memref<1x3x3x8x128xf32>, memref<1x3x3x8x128xf32>
+    gpu.memcpy  %1, %arg1 : memref<128x32x32x1x8xf32>, memref<128x32x32x1x8xf32>
+    gpu.memcpy  %2, %arg2 : memref<128x30x30x1x128xf32>, memref<128x30x30x1x128xf32>
 
     // launch kernel.
-    %6 = memref.cast %3 : memref<?x?x?x?x?xf32> to memref<1x3x3x8x128xf32>
-    %7 = memref.cast %4 : memref<?x?x?x?x?xf32> to memref<128x32x32x1x8xf32>
-    %8 = memref.cast %5 : memref<?x?x?x?x?xf32> to memref<128x30x30x1x128xf32>
-    call @miopen_conv2d_gyxck_nhwgc_nhwgk_0(%6, %7, %8) : (memref<1x3x3x8x128xf32>, memref<128x32x32x1x8xf32>, memref<128x30x30x1x128xf32>) -> ()
-    call @mgpuMemCopy5DFloat(%5, %2, %c2_i32) : (memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, i32) -> ()
+    call @miopen_conv2d_gyxck_nhwgc_nhwgk_0(%0, %1, %2) : (memref<1x3x3x8x128xf32>, memref<128x32x32x1x8xf32>, memref<128x30x30x1x128xf32>) -> ()
+    gpu.memcpy  %arg2, %2 : memref<128x30x30x1x128xf32>, memref<128x30x30x1x128xf32>
 
     // deallocate GPU memory.
-    call @mgpuMemDealloc5DFloat(%0) : (memref<?x?x?x?x?xf32>) -> ()
-    call @mgpuMemDealloc5DFloat(%1) : (memref<?x?x?x?x?xf32>) -> ()
-    call @mgpuMemDealloc5DFloat(%2) : (memref<?x?x?x?x?xf32>) -> ()
+    gpu.dealloc  %0 : memref<1x3x3x8x128xf32>
+    gpu.dealloc  %1 : memref<128x32x32x1x8xf32>
+    gpu.dealloc  %2 : memref<128x30x30x1x128xf32>
     return
   }
-
-  func.func private @mgpuMemAlloc5DFloat(memref<?x?x?x?x?xf32>) -> memref<?x?x?x?x?xf32>
-  func.func private @mgpuMemCopy5DFloat(memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, i32)
-
-  func.func private @mgpuMemDealloc5DFloat(memref<?x?x?x?x?xf32>)
 
   func.func @conv2d_host(%arg0: memref<1x3x3x8x128xf32>, %arg1: memref<128x32x32x1x8xf32>, %arg2: memref<128x30x30x1x128xf32>) {
     %0 = memref.cast %arg0 : memref<1x3x3x8x128xf32> to memref<?x?x?x?x?xf32>

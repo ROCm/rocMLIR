@@ -87,6 +87,9 @@ def ConvertAMDGPUToROCDL : Pass<"convert-amdgpu-to-rocdl"> {
     "LLVM::LLVMDialect",
     "ROCDL::ROCDLDialect",
   ];
+  let options = [Option<"chipset", "chipset", "std::string",
+                        /*default=*/"\"gfx000\"",
+                        "Chipset that these operations will run on">];
 }
 
 //===----------------------------------------------------------------------===//
@@ -131,6 +134,16 @@ def ConvertArmNeon2dToIntr : Pass<"arm-neon-2d-to-intr"> {
   let summary = "Convert Arm NEON structured ops to intrinsics";
   let constructor = "mlir::createConvertArmNeon2dToIntrPass()";
   let dependentDialects = ["arm_neon::ArmNeonDialect", "vector::VectorDialect"];
+}
+
+//===----------------------------------------------------------------------===//
+// AsyncToGPU
+//===----------------------------------------------------------------------===//
+
+def ConvertAsyncToGPU : Pass<"convert-async-to-gpu", "ModuleOp"> {
+  let summary = "Convert the async.launch operations to the GPU dialect";
+  let constructor = "mlir::createConvertAsyncToGPUPass()";
+  let dependentDialects = ["gpu::GPUDialect"];
 }
 
 //===----------------------------------------------------------------------===//
@@ -367,6 +380,9 @@ def ConvertGpuOpsToROCDLOps : Pass<"convert-gpu-to-rocdl", "gpu::GPUModuleOp"> {
   let constructor = "mlir::createLowerGpuOpsToROCDLOpsPass()";
   let dependentDialects = ["ROCDL::ROCDLDialect"];
   let options = [
+    Option<"chipset", "chipset", "std::string",
+           /*default=*/"\"gfx000\"",
+           "Chipset that these operations will run on">,
     Option<"indexBitwidth", "index-bitwidth", "unsigned",
            /*default=kDeriveIndexBitwidthFromDataLayout*/"0",
            "Bitwidth of the index type, 0 to use size of machine word">,

@@ -76,7 +76,53 @@ def MIGraphX_MulOp :
   let assemblyFormat = "`(`$inA `,` $inB`)` attr-dict `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
 }
 
+def MIGraphX_PowOp :
+    MIGraphX_Op<"pow">,
+    Arguments<(ins AnyRankedTensor:$inA,
+                   AnyRankedTensor:$inB)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Elementwise pow";
+  let description = [{
+    Calculate power.
+  }];
+  let assemblyFormat = "`(`$inA `,` $inB`)` attr-dict `:` `(`type($inA) `,` type($inB) `)` `->` type($output)";
+}
+
 // Elementwise unary operations
+
+def MIGraphX_TanhOp :
+    MIGraphX_Op<"tanh">,
+    Arguments<(ins AnyRankedTensor:$inA)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Hyperbolic Tan";
+  let description = [{
+    get tanh
+  }];
+  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
+}
+
+def MIGraphX_RecipOp :
+    MIGraphX_Op<"recip">,
+    Arguments<(ins AnyRankedTensor:$inA)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Elementwise reciprocal";
+  let description = [{
+    reciprocal elementwise
+  }];
+  let hasFolder = 1;
+  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
+}
+
+def MIGraphX_SqrtOp :
+    MIGraphX_Op<"sqrt">,
+    Arguments<(ins AnyRankedTensor:$inA)>,
+	  Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Elementwise sqrt";
+  let description = [{
+    square root elementwise
+  }];
+  let assemblyFormat = "`(`$inA`)` attr-dict `:` `(`type($inA)`)` `->` type($output)";
+}
 
 def MIGraphX_RsqrtOp :
     MIGraphX_Op<"rsqrt">,
@@ -288,16 +334,13 @@ def MIGraphX_MultiBroadcastOp :
 
 def MIGraphX_DotOp :
     MIGraphX_Op<"dot">,
-    Arguments<(ins AnyRankedTensor:$input,
-                   AnyRankedTensor:$a,
-                   AnyRankedTensor:$b,
-                   I64Attr:$alpha,
-                   I64Attr:$beta
+    Arguments<(ins AnyRankedTensor:$in_a,
+                   AnyRankedTensor:$in_b
                    )>,
 	Results<(outs AnyRankedTensor:$output)> {
   let summary = "Broadcast tensor in multiple dimensions";
   let description = [{
-    The `migraphx.multibroadcast` op.
+    The `migraphx.dot` op.
   }];
   let assemblyFormat = "`(` operands `)` attr-dict `:` type(operands) `->` type(results)";
 }
@@ -315,6 +358,32 @@ def MIGraphX_ConstantOp :
   }];
 
   let assemblyFormat = "attr-dict `:` `->` type($output)";
+}
+
+def MIGraphX_SoftmaxOp :
+    MIGraphX_Op<"softmax">,
+    Arguments<(ins AnyRankedTensor:$input,
+                   I64Attr:$axis
+                   )>,
+	Results<(outs AnyRankedTensor:$output)> {
+  let summary = "softmax operation";
+  let description = [{
+    The `migraphx.softmax` op.
+  }];
+  let assemblyFormat = "`(` operands `)` attr-dict `:` type(operands) `->` type(results)";
+}
+
+def MIGraphX_ReduceMeanOp :
+    MIGraphX_Op<"reduce_mean">,
+    Arguments<(ins AnyRankedTensor:$input,
+                   I64Attr:$axis
+                   )>,
+	Results<(outs AnyRankedTensor:$output)> {
+  let summary = "Get the mean of the values in given axis";
+  let description = [{
+    The `migraphx.reduce_mean` op.
+  }];
+  let assemblyFormat = "`(` operands `)` attr-dict `:` type(operands) `->` type(results)";
 }
 
 //--------- Execution layer Ops

@@ -14,12 +14,16 @@
 #ifndef MLIR_DIALECT_AMDGPU_AMDGPUDIALECT_H_
 #define MLIR_DIALECT_AMDGPU_AMDGPUDIALECT_H_
 
-#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include "mlir/Dialect/AMDGPU/AMDGPUDialect.h.inc"
+
+#include "mlir/Dialect/AMDGPU/AMDGPUEnums.h.inc"
+
+#define GET_ATTRDEF_CLASSES
+#include "mlir/Dialect/AMDGPU/AMDGPUAttributes.h.inc"
 
 #define GET_OP_CLASSES
 #include "mlir/Dialect/AMDGPU/AMDGPU.h.inc"

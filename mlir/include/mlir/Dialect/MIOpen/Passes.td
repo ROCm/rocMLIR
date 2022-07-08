@@ -27,10 +27,11 @@ def MIOpenAsyncLaunchPass : Pass<"miopen-async-launch", "func::FuncOp"> {
   let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "linalg::LinalgDialect", "vector::VectorDialect", "memref::MemRefDialect", "async::AsyncDialect"];
 }
 
-def MIOpenOpsStep1Pass : Pass<"miopen-lowering", "ModuleOp"> {
+def MIOpenConvToGemmPass : Pass<"miopen-conv-to-gemm", "::mlir::func::FuncOp"> {
   let summary = "expand convolution into coordinate transformations and gridwise gemm";
-  let constructor = "mlir::miopen::createLowerMIOpenOpsStep1Pass()";
-  let dependentDialects = ["miopen::MIOpenDialect", "memref::MemRefDialect", "AffineDialect", "scf::SCFDialect"];
+  let constructor = "mlir::miopen::createMIOpenConvToGemmPass()";
+  let dependentDialects = ["miopen::MIOpenDialect", "memref::MemRefDialect", "arith::ArithmeticDialect",
+    "AffineDialect", "scf::SCFDialect"];
 }
 
 def MIOpenOpsAffixTuningParametersPass : Pass<"miopen-affix-params", "::mlir::func::FuncOp"> {
@@ -39,40 +40,40 @@ def MIOpenOpsAffixTuningParametersPass : Pass<"miopen-affix-params", "::mlir::fu
   let dependentDialects = ["miopen::MIOpenDialect"];
 }
 
-def MIOpenOpsStep2Pass : Pass<"miopen-lowering-step2", "ModuleOp"> {
+def MIOpenGridwiseGemmToBlockwisePass : Pass<"miopen-gridwise-gemm-to-blockwise", "::mlir::func::FuncOp"> {
   let summary = "expand gridwise gemm into blockwise copy, blockwise gemm, and threadwise copy";
-  let constructor = "mlir::miopen::createLowerMIOpenOpsStep2Pass()";
+  let constructor = "mlir::miopen::createMIOpenGridwiseGemmToBlockwisePass()";
   let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "vector::VectorDialect", "memref::MemRefDialect", "AffineDialect"];
 }
 
-def MIOpenLinalgAlignPass : Pass<"miopen-linalg-align", "func::FuncOp"> {
+def MIOpenLinalgAlignPass : Pass<"miopen-linalg-align", "::mlir::func::FuncOp"> {
   let summary = "expand linalg ops aligned with threadwise copy";
   let constructor = "mlir::miopen::createMIOpenLinalgAlignPass()";
   let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "linalg::LinalgDialect", "vector::VectorDialect", "memref::MemRefDialect"];
 }
 
-def MIOpenCopyOptPass : Pass<"miopen-copy-opt", "func::FuncOp"> {
+def MIOpenCopyOptPass : Pass<"miopen-copy-opt", "::mlir::func::FuncOp"> {
   let summary = "Optimize global tensor allocations";
   let constructor = "mlir::miopen::createMIOpenCopyOptPass()";
   let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "linalg::LinalgDialect", "vector::VectorDialect", "memref::MemRefDialect"];
 }
 
-def MIOpenOpsStep3Pass : Pass<"miopen-lowering-step3", "ModuleOp"> {
-  let summary = "expand blockwise copy into threadwise copy, blockwise gemm into threadwise gemm";
-  let constructor = "mlir::miopen::createLowerMIOpenOpsStep3Pass()";
+def MIOpenBlockwiseGemmToThreadwisePass : Pass<"miopen-blockwise-gemm-to-threadwise", "::mlir::func::FuncOp"> {
+  let summary = "Expand blockwise gemm into threadwise gemm and clean up fusion-related shorthand";
+  let constructor = "mlir::miopen::createMIOpenBlockwiseGemmToThreadwisePass()";
   let dependentDialects = ["gpu::GPUDialect", "miopen::MIOpenDialect", "scf::SCFDialect", "vector::VectorDialect", "AffineDialect", "memref::MemRefDialect"];
 }
 
-def MIOpenOpsStep4Pass : Pass<"miopen-lowering-step4", "ModuleOp"> {
-  let summary = "expand threadwise copy and threadwise gemm to all other dialects.";
-  let constructor = "mlir::miopen::createLowerMIOpenOpsStep4Pass()";
+def MIOpenThreadwiseGemmLoweringPass : Pass<"miopen-threadwise-gemm-lowering", "::mlir::func::FuncOp"> {
+  let summary = "expand threadwise gemm to final implementation.";
+  let constructor = "mlir::miopen::createMIOpenThreadwiseGemmLoweringPass()";
   let dependentDialects = ["gpu::GPUDialect", "miopen::MIOpenDialect", "amdgpu::AMDGPUDialect", "scf::SCFDialect", "vector::VectorDialect", "AffineDialect", "memref::MemRefDialect", "LLVM::LLVMDialect"];
 }
 
-def MIOpenExpandShorthandPass : Pass<"miopen-expand-shorthand", "ModuleOp"> {
-  let summary = "Expand shorthand, like index_diff_update and extract_slice, to other dialects";
-  let constructor = "mlir::miopen::createMIOpenExpandShorthandPass()";
-  let dependentDialects = ["miopen::MIOpenDialect", "vector::VectorDialect", "arith::ArithmeticDialect", "memref::MemRefDialect", "gpu::GPUDialect"];
+def MIOpenSugarToLoopsPass : Pass<"miopen-sugar-to-loops", "::mlir::func::FuncOp"> {
+  let summary = "Expand shorthand, like transforming_for and extract_slice, to other dialects";
+  let constructor = "mlir::miopen::createMIOpenSugarToLoopsPass()";
+  let dependentDialects = ["miopen::MIOpenDialect", "vector::VectorDialect", "arith::ArithmeticDialect", "memref::MemRefDialect", "AffineDialect", "gpu::GPUDialect", "amdgpu::AMDGPUDialect"];
 }
 
 def MIOpenLoopsToCfPass : Pass<"miopen-loops-to-cf", "ModuleOp"> {

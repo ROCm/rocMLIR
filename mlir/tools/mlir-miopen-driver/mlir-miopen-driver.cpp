@@ -18,9 +18,7 @@
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
-#include "mlir/Dialect/MIOpen/Pipeline.h"
-#include "mlir/ExecutionEngine/ROCm/BackendUitls.h"
-#include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
+#include "mlir/Dialect/MIOpen/Pipelines.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
@@ -81,6 +79,9 @@ static cl::opt<bool> legacyMiopenPipeline("c", cl::Hidden, cl::init(false),
 
 /////////////////////////////////////////////////////////////////////////////
 //// Backend target spec
+static cl::opt<bool> cpuOnly("cpu-only", cl::Hidden, cl::init(false),
+                             cl::Optional);
+
 static cl::opt<int> gpuOpt("gO",
                            cl::desc("Optimization level for GPU compilation"),
                            cl::value_desc("Integer from 0 to 3"), cl::init(3));
@@ -156,7 +157,9 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   if (hostPipelineSet.contains("partition")) {
     PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
 
-    miopen::addPartitionPipeline(pm);
+    miopen::PartitionOptions opts;
+    opts.cloneToMIOpenModule = !cpuOnly.getValue();
+    miopen::buildPartitionPipeline(pm, opts);
 
     if (failed(pm.run(module))) {
       return failure();
@@ -175,7 +178,9 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 
   bool isHighLevel = hostPipelineSet.contains("highlevel");
   if (isHighLevel) {
-    miopen::addHighLevelPipeline(pm);
+    miopen::BufferizeOptions opts;
+    opts.disableMIOpen = cpuOnly.getValue();
+    miopen::buildBufferizePipeline(pm, opts);
   }
 
   // Set up lowering pipeline.
@@ -187,13 +192,19 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
                         "specified for binary backend\n";
         return failure();
       }
-    } else {
-      if (!tripleName.empty() || !targetChip.empty() || !features.empty()) {
-        llvm::errs() << "Target (-triple,-target,-features) should not be set "
-                        "except for kernel-pipeline=binary\n";
+    } else if (kernelPipelineSet.contains("rocdl")) {
+      if (targetChip.empty()) {
+        llvm::errs()
+            << "Target chip (-target) not specified for ROCDL backend\n";
         return failure();
       }
+    } else if (!tripleName.empty() || !targetChip.empty() ||
+               !features.empty()) {
+      llvm::errs() << "Target (-triple,-target,-features) should not be set "
+                      "except for kernel-pipeline=binary\n";
+      return failure();
     }
+
     if (kernelPipelineSet.contains("applicability") &&
         kernelPipelineSet.size() != 1) {
       llvm::errs() << "The `applicability` pipeline cannot be combined with "
@@ -202,15 +213,18 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     }
 
     if (kernelPipelineSet.contains("applicability")) {
-      miopen::addPipeline(pm, /*applicability=*/true);
+      miopen::KernelOptions opts;
+      opts.enableApplicability = true;
+      miopen::buildKernelPipeline(pm, opts);
     }
     if (kernelPipelineSet.contains("gpu")) {
       // Set up the default lowering pipeline which goes down to GPU dialect.
-      miopen::addPipeline(pm);
+      miopen::buildKernelPipeline(pm);
     }
     if (kernelPipelineSet.contains("rocdl")) {
       // Set up the lowering pipeline which goes down to ROCDL dialect.
-      pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*indexBitWidth=*/32));
+      pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*chipset=*/targetChip,
+                                                 /*indexBitWidth=*/32));
     }
     if (kernelPipelineSet.contains("binary")) {
       // Set up the lowering pipeline which goes down to ELF Binary
@@ -220,9 +234,12 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
         return failure();
       }
 
-      BackendUtils utils(tripleName, targetChip, features);
-      miopen::addBackendPipeline(pm, utils.getTriple(), utils.getChip(),
-                                 utils.getFeatures(), optLevel);
+      miopen::BackendOptions opts;
+      opts.triple = tripleName.getValue();
+      opts.chip = targetChip.getValue();
+      opts.features = features.getValue();
+      opts.optLevel = optLevel;
+      miopen::buildBackendPipeline(pm, opts);
     }
   } else {
     auto errorHandler = [&](const Twine &msg) {
@@ -241,7 +258,9 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 
   if (isHighLevel && kernelModule != module) {
     PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
-    miopen::addHighLevelPipeline(pm, false);
+    miopen::BufferizeOptions opts;
+    opts.disableMIOpen = true;
+    miopen::buildBufferizePipeline(pm, opts);
 
     if (failed(pm.run(module))) {
       return failure();

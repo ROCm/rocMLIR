@@ -43,6 +43,7 @@ set(LIBS
   MLIROptLib
   MLIRParser
   MLIRPass
+  MLIRMIOpenPipeline
   MLIRTransforms
   MLIRTransformUtils
   MLIRSupport

@@ -42,11 +42,11 @@ public:
     ConversionTarget target(ctx);
     target.addLegalDialect<tosa::TosaDialect, migraphx::MIGraphXDialect,
                            func::FuncDialect>();
-    target.addIllegalOp<migraphx::AddOp, migraphx::ConstantOp,
-                        migraphx::ConvolutionOp, migraphx::RsqrtOp,
-                        migraphx::ReluOp, migraphx::TransposeOp,
-                        migraphx::BroadcastOp, migraphx::MultiBroadcastOp,
-                        migraphx::ReshapeOp>();
+    target.addIllegalOp<
+        migraphx::AddOp, migraphx::ConstantOp, migraphx::ConvolutionOp,
+        migraphx::RsqrtOp, migraphx::ReluOp, migraphx::TransposeOp,
+        migraphx::BroadcastOp, migraphx::MultiBroadcastOp, migraphx::ReshapeOp,
+        migraphx::DotOp, migraphx::PowOp, migraphx::RecipOp>();
 
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
@@ -60,7 +60,6 @@ public:
     }
 
     OpPassManager cleanPM("func.func");
-    cleanPM.addPass(createCSEPass());
     cleanPM.addPass(createCSEPass());
     (void)runPipeline(cleanPM, func);
   }

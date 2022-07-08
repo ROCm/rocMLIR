@@ -8,10 +8,10 @@ get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 set(LIBS
   ${dialect_libs}
   ${conversion_libs}
-  LLVMROCmBackendUtils
   MLIRAnalysis
   MLIRDialect
   MLIRMIOpenOps
+  MLIRMIOpenUtility
   MLIRParser
   MLIRPass
   MLIRQuant

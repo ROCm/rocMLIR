@@ -71,7 +71,9 @@ namespace {
 struct LowerGpuOpsToROCDLOpsPass
     : public ConvertGpuOpsToROCDLOpsBase<LowerGpuOpsToROCDLOpsPass> {
   LowerGpuOpsToROCDLOpsPass() = default;
-  LowerGpuOpsToROCDLOpsPass(unsigned indexBitwidth, gpu::amd::Runtime runtime) {
+  LowerGpuOpsToROCDLOpsPass(const std::string &chipset, unsigned indexBitwidth,
+                            gpu::amd::Runtime runtime) {
+    this->chipset = chipset;
     this->indexBitwidth = indexBitwidth;
     this->runtime = runtime;
   }
@@ -79,6 +81,12 @@ struct LowerGpuOpsToROCDLOpsPass
   void runOnOperation() override {
     gpu::GPUModuleOp m = getOperation();
     MLIRContext *ctx = m.getContext();
+
+    FailureOr<amdgpu::Chipset> maybeChipset = amdgpu::Chipset::parse(chipset);
+    if (failed(maybeChipset)) {
+      emitError(UnknownLoc::get(ctx), "Invalid chipset name: " + chipset);
+      return signalPassFailure();
+    }
 
     /// Customize the bitwidth used for the device side index computations.
     LowerToLLVMOptions options(
@@ -100,7 +108,8 @@ struct LowerGpuOpsToROCDLOpsPass
     vector::populateVectorTransferLoweringPatterns(llvmPatterns);
     mlir::arith::populateArithmeticToLLVMConversionPatterns(converter,
                                                             llvmPatterns);
-    populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns);
+    populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns,
+                                            *maybeChipset);
     populateVectorToLLVMConversionPatterns(converter, llvmPatterns);
     populateVectorToROCDLConversionPatterns(converter, llvmPatterns);
     cf::populateControlFlowToLLVMConversionPatterns(converter, llvmPatterns);
@@ -135,140 +144,6 @@ void mlir::configureGpuToROCDLConversionLegality(ConversionTarget &target) {
 }
 
 namespace mlir {
-struct MFMAOpLowering : ConvertOpToLLVMPattern<gpu::MFMAOp> {
-  using ConvertOpToLLVMPattern<gpu::MFMAOp>::ConvertOpToLLVMPattern;
-
-  LogicalResult
-  matchAndRewrite(gpu::MFMAOp op, gpu::MFMAOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-
-    // Obtain MFMA instruction be used.
-    StringRef mfmaInstr = "mfma_f32_32x32x1f32";
-    if (op->getAttr("instr"))
-      mfmaInstr = op->getAttr("instr").cast<StringAttr>().getValue();
-
-    // Obtain immediate values be used.
-    ArrayAttr immArrayAttr = rewriter.getArrayAttr({
-        rewriter.getI32IntegerAttr(0),
-        rewriter.getI32IntegerAttr(0),
-        rewriter.getI32IntegerAttr(0),
-    });
-    if (op->getAttr("imm"))
-      immArrayAttr = op->getAttr("imm").cast<ArrayAttr>();
-
-    SmallVector<Value, 3> immValues;
-    for (Attribute immAttr : immArrayAttr)
-      immValues.push_back(rewriter.create<LLVM::ConstantOp>(
-          loc, typeConverter->convertType(rewriter.getIntegerType(32)),
-          immAttr));
-
-    Value sourceA = adaptor.sourceA();
-    Value sourceB = adaptor.sourceB();
-    Value destC = adaptor.destC();
-    Type retType = typeConverter->convertType(destC.getType());
-
-    if (mfmaInstr.endswith("f32")) {
-      // F32.
-      if (mfmaInstr == "mfma_f32_32x32x1f32")
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x1f32>(
-            op, retType,
-            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
-                       immValues[2]});
-      else if (mfmaInstr == "mfma_f32_32x32x2f32")
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x2f32>(
-            op, retType,
-            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
-                       immValues[2]});
-      else if (mfmaInstr == "mfma_f32_16x16x4f32")
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x4f32>(
-            op, retType,
-            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
-                       immValues[2]});
-      else if (mfmaInstr == "mfma_f32_16x16x1f32")
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x1f32>(
-            op, retType,
-            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
-                       immValues[2]});
-      else if (mfmaInstr == "mfma_f32_4x4x1f32")
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_4x4x1f32>(
-            op, retType,
-            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
-                       immValues[2]});
-    } else if (mfmaInstr.endswith("f16") && !mfmaInstr.endswith("bf16")) {
-      // F16.
-      if (mfmaInstr == "mfma_f32_32x32x4f16")
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x4f16>(
-            op, retType,
-            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
-                       immValues[2]});
-      else if (mfmaInstr == "mfma_f32_32x32x8f16")
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x8f16>(
-            op, retType,
-            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
-                       immValues[2]});
-      else if (mfmaInstr == "mfma_f32_16x16x16f16")
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x16f16>(
-            op, retType,
-            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
-                       immValues[2]});
-      else if (mfmaInstr == "mfma_f32_16x16x4f16")
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x4f16>(
-            op, retType,
-            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
-                       immValues[2]});
-      else if (mfmaInstr == "mfma_f32_4x4x4f16")
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_4x4x4f16>(
-            op, retType,
-            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
-                       immValues[2]});
-    } else if (mfmaInstr.endswith("bf16")) {
-      // BF16.
-      if (mfmaInstr == "mfma_f32_32x32x2bf16")
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x2bf16>(
-            op, retType,
-            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
-                       immValues[2]});
-      else if (mfmaInstr == "mfma_f32_32x32x4bf16")
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_32x32x4bf16>(
-            op, retType,
-            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
-                       immValues[2]});
-      else if (mfmaInstr == "mfma_f32_16x16x8bf16")
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x8bf16>(
-            op, retType,
-            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
-                       immValues[2]});
-      else if (mfmaInstr == "mfma_f32_16x16x2bf16")
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_16x16x2bf16>(
-            op, retType,
-            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
-                       immValues[2]});
-      else if (mfmaInstr == "mfma_f32_4x4x2bf16")
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_f32_4x4x2bf16>(
-            op, retType,
-            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
-                       immValues[2]});
-    } else if (mfmaInstr.endswith("i8")) {
-      if (mfmaInstr == "mfma_i32_32x32x8i8")
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_i32_32x32x8i8>(
-            op, retType,
-            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
-                       immValues[2]});
-      else if (mfmaInstr == "mfma_i32_16x16x16i8")
-        rewriter.replaceOpWithNewOp<ROCDL::mfma_i32_16x16x16i8>(
-            op, retType,
-            ValueRange{sourceA, sourceB, destC, immValues[0], immValues[1],
-                       immValues[2]});
-      else {
-        return failure();
-      }
-    }
-
-    return success();
-  }
-};
-
 struct WarpSwizzleOpLowering : ConvertOpToLLVMPattern<gpu::WarpSwizzleOp> {
   using ConvertOpToLLVMPattern<gpu::WarpSwizzleOp>::ConvertOpToLLVMPattern;
 
@@ -394,12 +269,13 @@ void mlir::populateGpuToROCDLConversionPatterns(
   patterns.add<OpToFuncCallLowering<math::TanhOp>>(converter, "__ocml_tanh_f32",
                                                    "__ocml_tanh_f64");
 
-  patterns.add<MFMAOpLowering, WarpSwizzleOpLowering, LDSBarrierOpLowering>(
-      converter);
+  patterns.add<WarpSwizzleOpLowering, LDSBarrierOpLowering>(converter);
 }
 
 std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
-mlir::createLowerGpuOpsToROCDLOpsPass(unsigned indexBitwidth,
+mlir::createLowerGpuOpsToROCDLOpsPass(const std::string &chipset,
+                                      unsigned indexBitwidth,
                                       gpu::amd::Runtime runtime) {
-  return std::make_unique<LowerGpuOpsToROCDLOpsPass>(indexBitwidth, runtime);
+  return std::make_unique<LowerGpuOpsToROCDLOpsPass>(chipset, indexBitwidth,
+                                                     runtime);
 }

@@ -1,10 +1,12 @@
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
+#include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
+#include "mlir/Dialect/MIOpen/Tuning/GemmContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/MIOpen/utility/IsaNameSplitter.h"
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/Dialect/MIOpen/utility/math.h"
-#include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
@@ -27,6 +29,8 @@
 
 using namespace mlir;
 using namespace mlir::miopen;
+
+#define DEBUG_TYPE "conv2d-gen"
 
 Conv2dGenerator::Conv2dGenerator(
     const std::string &chip, const std::string &triple,
@@ -101,8 +105,8 @@ static LogicalResult hasDimensions(const llvm::StringMap<int64_t> &map,
   for (size_t i = 0; i < wantedLayout.size(); ++i) {
     auto key = wantedLayout.slice(i, i + 1);
     if (map.count(key) == 0) {
-      llvm::errs() << "Layout for " << operation
-                   << " tensor missing dimension: " << key;
+      LLVM_DEBUG(llvm::dbgs() << "Layout for " << operation
+                              << " tensor missing dimension: " << key << "\n");
       return failure();
     }
   }
@@ -115,7 +119,7 @@ static LogicalResult smallEnough(const ArrayRef<int64_t> dims, size_t elemWidth,
                                  std::multiplies<int64_t>()) *
                  elemWidth;
   if (size >= (1LL << 31)) { // 2^31 = 2 GB
-    llvm::dbgs() << name << " tensor cannot be larger than 2 GB\n";
+    LLVM_DEBUG(llvm::dbgs() << name << " tensor cannot be larger than 2 GB\n");
     return failure();
   }
   return success();
@@ -139,7 +143,8 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
       config.strideWidth};
   if (std::any_of(strictlyPositiveParams.begin(), strictlyPositiveParams.end(),
                   [](const int64_t &a) { return a <= 0; })) {
-    llvm::errs() << "Dilation and stride must be a positive integer\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Dilation and stride must be a positive integer\n");
     return failure();
   }
 
@@ -148,7 +153,7 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
       config.paddingWidthLeft, config.paddingWidthRight};
   if (std::any_of(nonNegativeParams.begin(), nonNegativeParams.end(),
                   [](const int64_t &a) { return a < 0; })) {
-    llvm::errs() << "Padding values cannot be negative\n";
+    LLVM_DEBUG(llvm::dbgs() << "Padding values cannot be negative\n");
     return failure();
   }
 
@@ -163,19 +168,23 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
   };
 
   if (typeWidths.count(config.dataTypeStr) == 0) {
-    llvm::errs() << config.dataTypeStr << " is not a known datatype";
+    LLVM_DEBUG(llvm::dbgs()
+               << config.dataTypeStr << " is not a known datatype\n");
   }
   size_t elementWidth = typeWidths.lookup(config.dataTypeStr);
 
   if (!checkDimSizes(config.inputDimension)) {
-    llvm::errs() << "Input tensor dimensions must be strictly positive\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Input tensor dimensions must be strictly positive\n");
     return failure();
   }
   if (!checkDimSizes(config.filterDimension)) {
-    llvm::errs() << "Filter tensoor dimensions must be strictly positive\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Filter tensoor dimensions must be strictly positive\n");
   }
   if (!checkDimSizes(config.outputDimension)) {
-    llvm::errs() << "Output tensor dimensions must be strictly positive\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Output tensor dimensions must be strictly positive\n");
     return failure();
   }
 
@@ -191,22 +200,24 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
   }
 
   if (inDim["n"] != outDim["n"]) {
-    llvm::errs() << "Input and output batch sizes don't match\n";
+    LLVM_DEBUG(llvm::dbgs() << "Input and output batch sizes don't match\n");
     return failure();
   }
   if (inDim["g"] != outDim["g"] || inDim["g"] != filDim["g"]) {
-    llvm::errs()
-        << "Group sizes are not consistent between input, output, and filter\n";
+    LLVM_DEBUG(llvm::dbgs() << "Group sizes are not consistent between input, "
+                               "output, and filter\n");
     return failure();
   }
   if (inDim["c"] != filDim["c"]) {
-    llvm::errs() << "Number of channels in input doesn't match number of "
-                    "channels in filter\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Number of channels in input doesn't match number of "
+                  "channels in filter\n");
     return failure();
   }
   if (filDim["k"] != outDim["k"]) {
-    llvm::errs() << "Number of channels in output doesn't match number of "
-                    "channels in filter\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Number of channels in output doesn't match number of "
+                  "channels in filter\n");
     return failure();
   }
 
@@ -217,25 +228,29 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
       inDim["w"], filDim["x"], config.paddingWidthLeft,
       config.paddingWidthRight, config.strideWidth, config.dilationWidth);
   if (outDim["h"] != expectedOutHeight) {
-    llvm::errs() << "Output height " << outDim["h"] << " doesn't match height "
-                 << expectedOutHeight << " computed from other parameters\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Output height " << outDim["h"] << " doesn't match height "
+               << expectedOutHeight << " computed from other parameters\n");
     return failure();
   }
   if (outDim["w"] != expectedOutWidth) {
-    llvm::errs() << "Output width " << outDim["w"] << " doesn't match width "
-                 << expectedOutWidth << " computed from other parameters\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Output width " << outDim["w"] << " doesn't match width "
+               << expectedOutWidth << " computed from other parameters\n");
     return failure();
   }
 
   if (inDim["h"] + config.paddingHeightLeft + config.paddingHeightRight <
       filDim["y"]) {
-    llvm::errs() << "Input, including padding, is shorter than the filter\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Input, including padding, is shorter than the filter\n");
     return failure();
   }
 
   if (inDim["w"] + config.paddingWidthLeft + config.paddingWidthRight <
       filDim["x"]) {
-    llvm::errs() << "Input, including padding, is narrower than the filter\n";
+    LLVM_DEBUG(llvm::dbgs()
+               << "Input, including padding, is narrower than the filter\n");
     return failure();
   }
 
@@ -285,7 +300,7 @@ int Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder) const {
 
   if (config.xdlops) {
     Type dataType = getDataType(builder);
-    if (!needExtraPad(builder)) {
+    if (!needExtraPadBwdWeight(builder)) {
       if (dataType == builder.getF32Type()) {
         // For the following case, use 2 kernels:
         // - backward weight
@@ -335,36 +350,26 @@ Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
   return dataType;
 }
 
-bool Conv2dGenerator::needExtraPad(OpBuilder &builder) const {
+bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {
   Type dataType = getDataType(builder);
   ConvOpType dir = config.operation.getValue();
+  assert(dir == ConvOpType::BwdWeight &&
+         "This method should only be called for wrw ops");
 
-  // Logic to check if we need to pad along GemmM/N/K dimension for backward
-  // weight convolution.
-  auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
-  auto filDim = canonicalizeDims(config.filterDimension, config.filterLayout);
-  auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
+  ConvolutionDims convDims = getConvolutionDims();
+  GemmContext gemmSize = GemmContext::fromConvolution(dir, convDims);
 
-  int64_t gemmMSize, gemmNSize, gemmKSize;
-  gemmMSize = filDim["k"];
-  gemmKSize = outDim["n"] * outDim["h"] * outDim["w"];
-  gemmNSize = filDim["c"] * filDim["y"] * filDim["x"];
-
-  // gemmM/N/KExtra is not used.
-  // populateParamsXDL is not used either.
-  // Only needExtraPad is used.
   bool needExtraPad = false;
-  int64_t gemmMExtra, gemmNExtra, gemmKExtra;
   if (!config.xdlops) {
     PopulateParams populateParams;
-    std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
-        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, dir,
-                                   dataType, populateParams);
+    needExtraPad =
+        calculatePaddingKernelSize(gemmSize, dir, dataType, populateParams)
+            .hasValue();
   } else {
     PopulateParamsXDL populateParamsXDL;
-    std::tie(needExtraPad, gemmMExtra, gemmNExtra, gemmKExtra) =
-        calculatePaddingKernelSize(gemmMSize, gemmNSize, gemmKSize, dir,
-                                   dataType, populateParamsXDL);
+    needExtraPad =
+        calculatePaddingKernelSize(gemmSize, dir, dataType, populateParamsXDL)
+            .hasValue();
   }
   return needExtraPad;
 }
@@ -384,7 +389,7 @@ bool Conv2dGenerator::hasWorkspace(OpBuilder &builder) const {
     if ((dir == ConvOpType::BwdWeight) && config.xdlops &&
         (dataType == builder.getF16Type())) {
       // In case we need extra padding, do not use workspace.
-      result = (needExtraPad(builder) == false);
+      result = (needExtraPadBwdWeight(builder) == false);
     }
   }
   return result;
@@ -465,9 +470,9 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
 
   std::string arch;
   strToStr("arch", arch);
-  IsaNameParser parser(arch);
+  IsaNameSplitter splitter(arch);
   if (failed(
-          parser.parseIsaName(config.chip, config.triple, config.features))) {
+          splitter.parseIsaName(config.chip, config.triple, config.features))) {
     return failure();
   }
 
@@ -605,6 +610,15 @@ void Conv2dGenerator::setDataType(std::string newType) {
 }
 
 void Conv2dGenerator::flipXdlops() { config.xdlops = !config.xdlops; }
+
+ConvolutionDims Conv2dGenerator::getConvolutionDims() const {
+  auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
+  auto filDim = canonicalizeDims(config.filterDimension, config.filterLayout);
+  auto outDim = canonicalizeDims(config.outputDimension, config.outputLayout);
+  return ConvolutionDims(filDim["y"], filDim["x"], outDim["h"], outDim["w"],
+                         inDim["h"], inDim["w"], filDim["k"], filDim["c"],
+                         inDim["n"], inDim["g"]);
+}
 
 LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
                                              bool is_verifier,

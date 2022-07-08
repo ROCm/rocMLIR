@@ -20,7 +20,7 @@
 #include "mlir-c/Registration.h"
 
 #include "mlir/CAPI/IR.h"
-#include "mlir/Dialect/MIOpen/Pipeline.h"
+#include "mlir/Dialect/MIOpen/Pipelines.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "llvm/Support/TargetSelect.h"
 
@@ -229,11 +229,15 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   mlir::PassManager pm(module.getContext(),
                        mlir::PassManager::Nesting::Implicit);
 
-  mlir::miopen::addHighLevelPipeline(pm);
+  mlir::miopen::buildBufferizePipeline(pm);
 
-  mlir::miopen::addPipeline(pm, false, true);
+  mlir::miopen::buildKernelPipeline(pm);
 
-  mlir::miopen::addBackendPipeline(pm, triple, chip, features);
+  mlir::miopen::BackendOptions opts;
+  opts.triple = triple;
+  opts.chip = chip;
+  opts.features = features;
+  mlir::miopen::buildBackendPipeline(pm, opts);
 
   auto status = pm.run(module);
 

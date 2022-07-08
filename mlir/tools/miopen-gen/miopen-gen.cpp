@@ -19,11 +19,10 @@
 #include "mlir/Dialect/GPU/GPUDialect.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
-#include "mlir/Dialect/MIOpen/Pipeline.h"
+#include "mlir/Dialect/MIOpen/utility/IsaNameSplitter.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
-#include "mlir/ExecutionEngine/ROCm/IsaNameParser.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
@@ -691,141 +690,31 @@ static func::FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
         loc, b.create<arith::ConstantIntOp>(loc, deviceNum.getValue(),
                                             b.getIntegerType(32)));
 
-  // Emit some constant values for HIP runtime API calls.
-  auto oneConstantI32Op =
-      b.create<arith::ConstantIntOp>(loc, 1, b.getIntegerType(32));
-  auto twoConstantI32Op =
-      b.create<arith::ConstantIntOp>(loc, 2, b.getIntegerType(32));
-
-  auto getGpuAllocFunc = [&](mlir::Type elemType) -> func::FuncOp {
-    StringRef allocFuncName = "mgpuMemAlloc5DFloat";
-    if (elemType.isF32()) {
-    } else if (elemType.isF16()) {
-      allocFuncName = "mgpuMemAlloc5DHalf";
-    } else if (elemType.isBF16()) {
-      allocFuncName = "mgpuMemAlloc5DBF16";
-    } else if (elemType.isInteger(8)) {
-      allocFuncName = "mgpuMemAlloc5DInt8";
-    } else if (elemType.isInteger(32)) {
-      allocFuncName = "mgpuMemAlloc5DInt32";
-    }
-    auto unk5DType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
-    return makeFuncDecl(module, allocFuncName, {unk5DType}, {unk5DType});
-  };
-
-  auto getGpuDeallocFunc = [&](mlir::Type elemType) -> func::FuncOp {
-    StringRef deallocFuncName = "mgpuMemDealloc5DFloat";
-    if (elemType.isF32()) {
-    } else if (elemType.isF16()) {
-      deallocFuncName = "mgpuMemDealloc5DHalf";
-    } else if (elemType.isBF16()) {
-      deallocFuncName = "mgpuMemDealloc5DBF16";
-    } else if (elemType.isInteger(8)) {
-      deallocFuncName = "mgpuMemDealloc5DInt8";
-    } else if (elemType.isInteger(32)) {
-      deallocFuncName = "mgpuMemDealloc5DInt32";
-    }
-    auto unk5DType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
-    return makeFuncDecl(module, deallocFuncName, {unk5DType});
-  };
-
-  auto getGpuCopyFunc = [&](mlir::Type elemType) -> func::FuncOp {
-    StringRef allocFuncName = "mgpuMemCopy5DFloat";
-    if (elemType.isF32()) {
-    } else if (elemType.isF16()) {
-      allocFuncName = "mgpuMemCopy5DHalf";
-    } else if (elemType.isBF16()) {
-      allocFuncName = "mgpuMemCopy5DBF16";
-    } else if (elemType.isInteger(8)) {
-      allocFuncName = "mgpuMemCopy5DInt8";
-    } else if (elemType.isInteger(32)) {
-      allocFuncName = "mgpuMemCopy5DInt32";
-    }
-    auto unk5DType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
-    return makeFuncDecl(module, allocFuncName,
-                        {unk5DType, unk5DType, b.getIntegerType(32)});
-  };
-
   SmallVector<mlir::Value, 4> cpuMem;
   SmallVector<mlir::Value, 4> gpuMem;
-  SmallVector<mlir::Value, 4> paramCasts;
-  uint32_t i = 0;
-  for (auto &paramType : kernel.params) {
-    auto shapedType = paramType.dyn_cast<ShapedType>();
-    assert(shapedType);
-
-    auto elemType = shapedType.getElementType();
-
-    // Emit memref.expand_shape (if needed)
-    auto fiveDimUnknownSizeMemRefType =
-        MemRefType::get({-1, -1, -1, -1, -1}, elemType);
-
-    // Emit memref.cast.
-    mlir::Value arg = block->getArgument(i++);
-    mlir::Value castOp = b.create<memref::CastOp>(
-        loc, fiveDimUnknownSizeMemRefType, makeNDMemRef(b, arg, 5));
-    cpuMem.push_back(castOp);
+  for (auto pair : llvm::enumerate(kernel.params)) {
+    mlir::Value arg = block->getArgument(pair.index());
+    cpuMem.push_back(arg);
 
     // Emit GPU memory allocation function calls.
-    auto gpuAllocOp = b.create<func::CallOp>(loc, getGpuAllocFunc(elemType),
-                                             ValueRange{castOp});
+    auto gpuAllocOp = b.create<gpu::AllocOp>(
+        loc, arg.getType(), mlir::Type(), /*asyncDependencies=*/ValueRange{},
+        /*dynamicSizes=*/ValueRange{}, /*symbolOperands=*/ValueRange{});
     mlir::Value gpuAlloc = gpuAllocOp.getResult(0);
     gpuMem.push_back(gpuAlloc);
 
     // Emit CPU->GPU memcpy function calls.
-    b.create<func::CallOp>(loc, getGpuCopyFunc(elemType),
-                           ValueRange{castOp, gpuAlloc, oneConstantI32Op});
-
-    auto shape = shapedType.getShape();
-    if (shape.size() < 5) {
-      SmallVector<int64_t, 5> expShape(shape.begin(), shape.end());
-      for (int i = shape.size(); i < 5; ++i)
-        expShape.push_back(1);
-      auto param5DType = MemRefType::get(expShape, elemType);
-      // Emit memref.cast.
-      castOp = b.create<memref::CastOp>(loc, param5DType, gpuAlloc);
-
-      // Emit memref.collapse_shape
-      SmallVector<ReassociationExprs, 5> reassociations;
-      uint32_t dim = 0;
-      for (; dim < shape.size() - 1; ++dim) {
-        reassociations.push_back({getAffineDimExpr(dim, context)});
-      }
-
-      // last dimensions
-      SmallVector<AffineExpr, 2> exprs;
-      for (; dim < 5; ++dim)
-        exprs.push_back(getAffineDimExpr(dim, context));
-      reassociations.push_back(exprs);
-
-      castOp = b.create<memref::CollapseShapeOp>(loc, paramType, castOp,
-                                                 reassociations);
-    } else {
-      // Emit memref.cast.
-      castOp = b.create<memref::CastOp>(loc, paramType, gpuAlloc);
-    }
-
-    paramCasts.push_back(castOp);
+    b.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{gpuAlloc, arg});
   }
 
   // Emit kernel function call.
-  auto wrappedCall = b.create<func::CallOp>(loc, kernel.func, paramCasts);
+  auto wrappedCall = b.create<func::CallOp>(loc, kernel.func, gpuMem);
   wrappedCall->setAttr("wrapped_call", b.getUnitAttr());
 
-  i = 0;
-  for (auto &param : paramCasts) {
-    auto elemType = param.getType();
-    if (auto shapedType = param.getType().dyn_cast<ShapedType>())
-      elemType = shapedType.getElementType();
-
-    // Emit memref.expand_shape (if needed)
-    b.create<func::CallOp>(loc, getGpuCopyFunc(elemType),
-                           ValueRange{gpuMem[i], cpuMem[i], twoConstantI32Op});
-
-    // Emit GPU dealloc
-    b.create<func::CallOp>(loc, getGpuDeallocFunc(elemType),
-                           ValueRange{gpuMem[i]});
-    i++;
+  for (auto &pair : llvm::enumerate(kernel.params)) {
+    uint32_t i = pair.index();
+    b.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{cpuMem[i], gpuMem[i]});
+    b.create<gpu::DeallocOp>(loc, TypeRange{}, ValueRange{gpuMem[i]});
   }
 
   b.create<func::ReturnOp>(loc, ValueRange{});
@@ -1771,8 +1660,13 @@ populateHostHarnessLogic(ModuleOp &module,
 
   // Wrap the kernels and gather them to substitute in calls.
   llvm::SmallDenseMap<func::FuncOp, func::FuncOp> wrappedFuncs;
-  for (auto &kernel : kernels)
-    wrappedFuncs[kernel.func] = createGPUWrapper(module, kernel);
+  for (auto &kernel : kernels) {
+    if (kernel.func->hasAttr("kernel")) {
+      wrappedFuncs[kernel.func] = createGPUWrapper(module, kernel);
+    } else {
+      wrappedFuncs[kernel.func] = kernel.func;
+    }
+  }
 
   // Redirect calls to kernel functions to point at wrapped functions.
   module.walk([&](func::CallOp call) -> WalkResult {
@@ -1891,7 +1785,8 @@ int main(int argc, char **argv) {
   MLIRContext context(registry);
   context.loadDialect<miopen::MIOpenDialect, func::FuncDialect, scf::SCFDialect,
                       AffineDialect, memref::MemRefDialect, math::MathDialect,
-                      arith::ArithmeticDialect, vector::VectorDialect>();
+                      arith::ArithmeticDialect, vector::VectorDialect,
+                      gpu::GPUDialect>();
 
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv,
@@ -1959,8 +1854,8 @@ int main(int argc, char **argv) {
       // Scenario 2: We use cl::opt to initialize everything
     } else {
       std::string chip, triple, features;
-      IsaNameParser parser(arch.getValue());
-      auto status = parser.parseIsaName(chip, triple, features);
+      IsaNameSplitter splitter(arch.getValue());
+      auto status = splitter.parseIsaName(chip, triple, features);
       if (status.failed()) {
         exit(1);
       }
@@ -2018,20 +1913,11 @@ int main(int argc, char **argv) {
     }
   }
 
-  ModuleOp mod = module;
-  llvm::StringRef modName = "__miopen";
-  auto miopenModule = module.lookupSymbol<ModuleOp>(modName);
-  if (miopenModule) {
-    mod = miopenModule;
-  }
-
-  assert(mod == module);
-
   // Compute set of call-graph root nodes;  they're the ones we need to
   // call from main().  Start with all nodes, then erase the ones that
   // have edges to them.  Use SetVector because we want to preserve the
   // order to match an older implementation.
-  CallGraph cg(mod);
+  CallGraph cg(module);
   mlir::SetVector<CallGraphNode *> roots(cg.begin(), cg.end());
   for (auto &node : roots)
     for (auto &edge : *node)
@@ -2046,21 +1932,19 @@ int main(int argc, char **argv) {
   }
 
   if (testFuncNameVal.empty()) {
-    mod.walk([&](func::FuncOp func) -> WalkResult {
+    module.walk([&](func::FuncOp func) -> WalkResult {
       if (func->hasAttr("kernel")) {
         kernels.emplace_back(func);
       }
       return WalkResult::advance();
     });
+  } else {
+    auto func = module.lookupSymbol<func::FuncOp>(testFuncName);
+    assert(func);
+    rootIFs.clear();
+    kernels.emplace_back(func);
+    rootIFs.emplace_back(func);
   }
-  //     else {
-  //     auto func = mod.lookupSymbol<func::FuncOp>(testFuncName);
-  //     if (!func && mod != module) {
-  //       func = module.lookupSymbol<func::FuncOp>(testFuncName);
-  //     }
-  //     assert(func);
-  //     kernels.emplace_back(func);
-  //   }
 
   // populate host logic.
   if (genHostHarness.getValue()) {

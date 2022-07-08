@@ -98,7 +98,7 @@ func.func @miopen_conv2d_bwd_weight_f16(%filter : memref<?x?x?x?x?xf16>, %input 
 // test 1-1 dimension mappings.
 func.func @miopen_transform_1_to_1(%memref: memref<1x2x3x4x5xf32, 3>) {
   %transformed_memref = miopen.transform %memref by [
-    #miopen.transform_map<#map0 by[
+    #miopen.transform_map<#map0 by [
       #miopen.transform<PassThrough ["g"] at [0] -> ["g"] at [1]>,
       #miopen.transform<PassThrough ["n"] at [1] -> ["n"] at [0]>,
       #miopen.transform<PassThrough ["c"] at [2] -> ["c"] at [2]>,
@@ -114,7 +114,7 @@ func.func @miopen_transform_1_to_1(%memref: memref<1x2x3x4x5xf32, 3>) {
 // test multiple source dimensions map to 1 target dimension.
 func.func @miopen_transform_n_to_1(%memref : memref<1x128x64x32x16xf32>) {
   %transformed_memref = miopen.transform %memref by [
-    #miopen.transform_map<#map1 by[
+    #miopen.transform_map<#map1 by [
       #miopen.transform<PassThrough ["gemmG"] at [0] -> ["g"] at [0]>,
       #miopen.transform<Merge{64, 32, 16} ["gemmK"] at [1] -> ["c", "y", "x"] at [2, 3, 4]>,
       #miopen.transform<PassThrough ["gemmM"] at [2] -> ["k"] at [1]>
@@ -155,11 +155,10 @@ func.func @miopen_gridwise_gemm(%A : memref<?x?x?xf32>, %B : memref<?x?x?xf32>, 
 //  CHECK-NEXT: miopen.gridwise_gemm
 
 func.func @miopen_gridwise_gemm_v2(%A : memref<?x?x?xf32>, %B : memref<?x?x?xf32>, %C : memref<?x?x?xf32>) {
-  miopen.gridwise_gemm_v2(%A, %B, %C) {
+  miopen.gridwise_gemm_v2(%A, %B, %C) storeMethod(set) {
     paddingInfo =
       #miopen.padding_info<extraK = 0, extraM = 0, extraN = 0>,
-    transforms = [[], [], []],
-    storeMethod = 0 : i32
+    transforms = [[], [], []]
   } : memref<?x?x?xf32>, memref<?x?x?xf32>, memref<?x?x?xf32>
   return
 }
@@ -192,7 +191,7 @@ func.func @miopen_buffer_load(%buffer: memref<128x128xf32>, %idx0: index, %idx1:
 // CHECK-NEXT: miopen.buffer_load
 
 func.func @miopen_buffer_store(%buffer: memref<128x128xf32>, %data: vector<4xf32>, %idx0: index, %idx1: index) {
-  miopen.buffer_store %data -> %buffer[%idx0, %idx1] { leftOobDims = [], rightOobDims = [1 : i32] }
+  miopen.buffer_store set %data -> %buffer[%idx0, %idx1] { leftOobDims = [], rightOobDims = [1 : i32] }
   : vector<4xf32> -> memref<128x128xf32>, index, index
   return
 }

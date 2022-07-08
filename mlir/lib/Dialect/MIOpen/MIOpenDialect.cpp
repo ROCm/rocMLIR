@@ -28,6 +28,7 @@
 #include "mlir/Support/MathExtras.h"
 
 #include "llvm/ADT/APInt.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
@@ -441,38 +442,55 @@ LogicalResult InsertSliceOp::verify() {
 //===-----------------------------------------------------===//
 // TransformingForOp
 //===-----------------------------------------------------===//
+static ArrayAttr maybeIndexArray(OpBuilder &b,
+                                 Optional<ArrayRef<int64_t>> vals) {
+  return vals.map([&b](ArrayRef<int64_t> v) { return b.getIndexArrayAttr(v); })
+      .getValueOr(ArrayAttr{});
+}
+
 void TransformingForOp::build(OpBuilder &b, OperationState &state,
                               ArrayRef<ValueRange> inits,
                               ArrayRef<Attribute> transforms,
-                              ArrayRef<int64_t> bounds, bool forceUnroll,
-                              bool useIndexDiffs, ValueRange iterArgs) {
+                              ArrayRef<int64_t> bounds,
+                              Optional<ArrayRef<int64_t>> strides,
+                              bool forceUnroll, bool useIndexDiffs,
+                              ValueRange iterArgs) {
   build(b, state, inits, b.getArrayAttr(transforms),
-        b.getIndexArrayAttr(bounds), forceUnroll, useIndexDiffs, iterArgs);
+        b.getIndexArrayAttr(bounds), maybeIndexArray(b, strides), forceUnroll,
+        useIndexDiffs, iterArgs);
 }
 
 void TransformingForOp::build(OpBuilder &b, OperationState &state,
                               ArrayRef<ValueRange> inits,
                               ArrayRef<Attribute> transforms, ArrayAttr bounds,
+                              ArrayAttr strides, bool forceUnroll,
+                              bool useIndexDiffs, ValueRange iterArgs) {
+  build(b, state, inits, b.getArrayAttr(transforms), bounds, strides,
+        forceUnroll, useIndexDiffs, iterArgs);
+}
+
+void TransformingForOp::build(OpBuilder &b, OperationState &state,
+                              ArrayRef<ValueRange> inits, ArrayAttr transforms,
+                              ArrayRef<int64_t> bounds,
+                              Optional<ArrayRef<int64_t>> strides,
                               bool forceUnroll, bool useIndexDiffs,
                               ValueRange iterArgs) {
-  build(b, state, inits, b.getArrayAttr(transforms), bounds, forceUnroll,
-        useIndexDiffs, iterArgs);
+  build(b, state, inits, transforms, b.getIndexArrayAttr(bounds),
+        maybeIndexArray(b, strides), forceUnroll, useIndexDiffs, iterArgs);
 }
 
 void TransformingForOp::build(OpBuilder &b, OperationState &state,
                               ArrayRef<ValueRange> inits, ArrayAttr transforms,
-                              ArrayRef<int64_t> bounds, bool forceUnroll,
-                              bool useIndexDiffs, ValueRange iterArgs) {
-  build(b, state, inits, transforms, b.getIndexArrayAttr(bounds), forceUnroll,
-        useIndexDiffs, iterArgs);
-}
-
-void TransformingForOp::build(OpBuilder &b, OperationState &state,
-                              ArrayRef<ValueRange> inits, ArrayAttr transforms,
-                              ArrayAttr bounds, bool forceUnroll,
-                              bool useIndexDiffs, ValueRange iterArgs) {
+                              ArrayAttr bounds, ArrayAttr strides,
+                              bool forceUnroll, bool useIndexDiffs,
+                              ValueRange iterArgs) {
   // Set up user-provided attributes
   state.addAttribute(boundsAttrName(state.name), bounds);
+  if (!strides) {
+    SmallVector<int64_t> strideVec(bounds.size(), 1LL);
+    strides = b.getIndexArrayAttr(strideVec);
+  }
+  state.addAttribute(stridesAttrName(state.name), strides);
   state.addAttribute(transformsAttrName(state.name), transforms);
   if (forceUnroll)
     state.addAttribute(forceUnrollAttrName(state.name), b.getUnitAttr());
@@ -633,23 +651,38 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
     return failure();
   }
 
+  auto intListParser = [&](SmallVectorImpl<int64_t> &dest) -> ParseResult {
+    int64_t res;
+    if (parser.parseInteger(res)) {
+      return failure();
+    }
+    dest.push_back(res);
+    return success();
+  };
   llvm::SmallVector<int64_t> bounds;
   ParseResult boundsRes = parser.parseCommaSeparatedList(
-      Delimiter::Square,
-      [&]() -> ParseResult {
-        int64_t res;
-        if (parser.parseInteger(res)) {
-          return failure();
-        }
-        bounds.push_back(res);
-        return success();
-      },
+      Delimiter::Square, [&]() -> ParseResult { return intListParser(bounds); },
       "list of bounds");
   if (boundsRes) {
     return failure();
   }
   result.addAttribute(TransformingForOp::boundsAttrName(result.name),
                       b.getIndexArrayAttr(bounds));
+
+  if (parser.parseKeyword("strides")) {
+    return failure();
+  }
+
+  llvm::SmallVector<int64_t> strides;
+  ParseResult stridesRes = parser.parseCommaSeparatedList(
+      Delimiter::Square,
+      [&]() -> ParseResult { return intListParser(strides); },
+      "list of strides");
+  if (stridesRes) {
+    return failure();
+  }
+  result.addAttribute(TransformingForOp::stridesAttrName(result.name),
+                      b.getIndexArrayAttr(strides));
 
   SmallVector<OpAsmParser::Argument> regionArgs = std::move(lowerArgs);
   regionArgs.append(iterArgs);
@@ -680,7 +713,7 @@ void TransformingForOp::print(OpAsmPrinter &p) {
   p.printOptionalAttrDict(getOperation()->getAttrs(), /*elidedAttrs=*/{
                               TransformingForOp::getOperandSegmentSizeAttr(),
                               transformsAttrName(), lowerStartsAttrName(),
-                              boundsAttrName()});
+                              boundsAttrName(), stridesAttrName()});
   p << " ";
   for (uint32_t i = 0, e = domains(); i < e; ++i) {
     p << "(";
@@ -708,12 +741,31 @@ void TransformingForOp::print(OpAsmPrinter &p) {
   llvm::interleaveComma(bounds().getAsValueRange<IntegerAttr>(), p,
                         [&](llvm::APInt bound) { p << bound; });
   p << "] ";
+  p << "strides [";
+  llvm::interleaveComma(strides().getAsValueRange<IntegerAttr>(), p,
+                        [&](llvm::APInt stride) { p << stride; });
+  p << "] ";
   p.printRegion(region(), /*printEntryBlockArgs=*/false);
 }
 
 LogicalResult TransformingForOp::verify() {
   if (bounds().empty())
     return emitOpError("Must have at least one iteration dimension");
+  if (bounds().size() != strides().size())
+    return emitOpError("Bounds list and strides list must have same length");
+
+  for (size_t i = 0, e = bounds().size(); i < e; ++i) {
+    int64_t bound = bounds()[i].cast<IntegerAttr>().getInt();
+    int64_t stride = strides()[i].cast<IntegerAttr>().getInt();
+    if (stride <= 0)
+      return emitOpError("Negative and zero strides are not permitted");
+    if (bound % stride != 0)
+      return emitOpError(
+          "Bound for dimension " + Twine(i) + " (" + Twine(bound) +
+          ") does not evenly divide the stride in that dimension (" +
+          Twine(stride));
+  }
+
   if (getNumResults() != getIterArgs().size()) {
     return emitOpError(
         "Mismatch between number of yielded values and number of op results");
@@ -735,7 +787,8 @@ LogicalResult TransformingForOp::verify() {
     if (transforms.size() == 0) {
       if (upperInits.size() != lowerArgs.size()) {
         return emitOpError("Mismatch between number of lower and upper "
-                           "coordinates without a transform");
+                           "coordinates without a transform in domain #" +
+                           Twine(i));
       }
     } else {
       size_t nUpper = transforms[0]
@@ -749,17 +802,22 @@ LogicalResult TransformingForOp::verify() {
                           .getValue()
                           .getNumResults();
       if (upperInits.size() != nUpper) {
-        return emitOpError("Mismatch between number of upper initial values "
-                           "and number of inputs to transform sequence");
+        return emitOpError(
+            "Mismatch between number of upper initial values "
+            "and number of inputs to transform sequence in domain #" +
+            Twine(i));
       }
       if (lowerArgs.size() != nLower) {
-        return emitOpError("Mismatch between number of lower arguments and "
-                           "number of outputs of transform sequence");
+        return emitOpError(
+            "Mismatch between number of lower arguments and "
+            "number of outputs of transform sequence in domain #" +
+            Twine(i));
       }
     }
     lowerArgsCount += lowerArgs.size();
     if (lowerStart(i + 1) != lowerArgsCount) {
-      return emitOpError("Lower starts attribute not accurate");
+      return emitOpError("Lower starts attribute not accurate after domain #" +
+                         Twine(i));
     }
   }
   return success();
@@ -912,65 +970,21 @@ LogicalResult InBoundsStoreOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// ThreadwiseCopyOp
+// ThreadwiseGemmOp
 //===----------------------------------------------------------------------===//
+LogicalResult ThreadwiseGemmOp::verify() {
+  ArrayRef<int64_t> aShape = matrixA().getType().cast<MemRefType>().getShape(),
+                    bShape = matrixB().getType().cast<MemRefType>().getShape(),
+                    cShape = matrixC().getType().cast<MemRefType>().getShape();
 
-LogicalResult ThreadwiseCopyOp::verify() {
-  ThreadwiseCopyOp &op = *this;
-  auto sourceCoord = op.sourceCoord();
-  auto destCoord = op.destCoord();
-  auto sourceType = op.source().getType().cast<MemRefType>();
-  auto destType = op.dest().getType().cast<MemRefType>();
-  auto sourceRank = sourceType.getRank();
-  auto destRank = destType.getRank();
-  auto sourceAffineMap = sourceType.getLayout().getAffineMap();
-  auto destAffineMap = destType.getLayout().getAffineMap();
-
-  unsigned expectedSourceCoords = sourceRank;
-  unsigned expectedDestCoords = destRank;
-
-  // check if memrefs have embedded affine maps.
-  expectedSourceCoords = sourceAffineMap.getNumInputs();
-  expectedDestCoords = destAffineMap.getNumInputs();
-
-  // check if memrefs have externally defined affine maps.
-  for (auto outerPair :
-       llvm::enumerate(op.transforms().getAsRange<ArrayAttr>())) {
-    size_t index = outerPair.index();
-    ArrayAttr transforms = outerPair.value();
-    if (transforms.size() > 0) {
-      auto firstTransform = transforms[0].cast<TransformMapAttr>();
-      auto lastTransform =
-          transforms[transforms.size() - 1].cast<TransformMapAttr>();
-      AffineMap firstMap = firstTransform.getMap().getValue();
-      AffineMap lastMap = lastTransform.getMap().getValue();
-      if (index == 0) {
-        if (lastMap.getNumResults() != sourceRank)
-          return op.emitError(
-              "Number of coordindates in externally defined affine map doesn't "
-              "match the rank of the source memref");
-
-        expectedSourceCoords = firstMap.getNumInputs();
-      } else if (index == 1) {
-        if (lastMap.getNumResults() != destRank)
-          return op.emitError(
-              "Number of coordindates in externally defined affine map doesn't "
-              "match the rank of the destination memref");
-
-        expectedDestCoords = firstMap.getNumInputs();
-      }
-    }
-  }
-
-  if (sourceCoord.size() != expectedSourceCoords)
-    return op.emitError(
-        "Number of coordinates supplied doesn't match the rank, or affine maps "
-        "of source memref");
-  if (destCoord.size() != expectedDestCoords)
-    return op.emitError(
-        "Number of coordinates supplied doesn't match the rank, or affine maps "
-        "of destination memref");
-
+  if (aShape[0] != bShape[0])
+    return emitOpError("K dimensions don't match");
+  if (aShape[1] != cShape[0])
+    return emitOpError("M dimensions don't match");
+  if (bShape[1] != cShape[1])
+    return emitOpError("N dimensions don't match");
+  if (aShape[2] != bShape[2])
+    return emitOpError("KPack dimensions don't match");
   return success();
 }
 

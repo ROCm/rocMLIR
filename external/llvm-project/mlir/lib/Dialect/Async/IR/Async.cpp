@@ -108,8 +108,9 @@ void LaunchOp::updateSegmentSizes(MLIRContext *ctx) {
   int32_t numOperands = 0;
   for (const auto &oper : getOperands()) {
     if (oper.getType() == tokenTy) {
-      numDependencies++;
+      // All tokens should come first.
       assert(numOperands == 0);
+      numDependencies++;
     } else
       numOperands++;
   }
@@ -143,7 +144,7 @@ void LaunchOp::print(OpAsmPrinter &p) {
   p << ")";
 
   // -> (return.type, ...)
-  p.printOptionalArrowTypeList(llvm::drop_begin(getResultTypes()));
+  p.printArrowTypeList(llvm::drop_begin(getResultTypes()));
 }
 
 ParseResult LaunchOp::parse(OpAsmParser &parser, OperationState &result) {

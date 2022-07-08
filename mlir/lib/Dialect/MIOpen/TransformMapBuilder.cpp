@@ -24,12 +24,12 @@
 #include <iterator>
 
 using namespace mlir;
-
-namespace {
 using namespace mlir::miopen;
-AffineMapAttr assembleMapFor(Builder &b, ArrayRef<TransformAttr> transforms,
-                             ArrayRef<int64_t> upperBounds,
-                             ArrayRef<int64_t> lowerBounds) {
+
+static AffineMapAttr assembleMapFor(Builder &b,
+                                    ArrayRef<TransformAttr> transforms,
+                                    ArrayRef<int64_t> upperBounds,
+                                    ArrayRef<int64_t> lowerBounds) {
   llvm::SmallMapVector<int64_t, AffineExpr, 8> affExprsMap;
   for (const TransformAttr transform : transforms) {
     TransformType type = transform.getType();
@@ -139,10 +139,6 @@ AffineMapAttr assembleMapFor(Builder &b, ArrayRef<TransformAttr> transforms,
       AffineMap::get(upperBounds.size(), 0, affExprsVec, b.getContext());
   return AffineMapAttr::get(ret);
 }
-} // namespace
-
-namespace mlir {
-namespace miopen {
 
 /// Accessors and common infrastructure
 
@@ -177,7 +173,7 @@ TransformMapBuilder::TransformMapBuilder(mlir::Builder &builder,
     ("dim" + Twine(index)).toVector(name);
 
     startNames.push_back(name);
-    startIndices.insert_or_assign(name, index);
+    startIndices.insert_or_assign(startNames.back(), index);
 
     startShape.push_back(value);
   }
@@ -324,7 +320,7 @@ void TransformMapBuilder::passThrough(ArrayRef<uint32_t> endIndices,
   names.reserve(endIndices.size());
   for (auto tuple : llvm::zip(endIndices, startIndices)) {
     uint32_t index = std::get<1>(tuple);
-    auto name = startName(index);
+    StringRef name = startNames[index];
     names.push_back(name);
     defineDim(name, std::get<0>(tuple), startSize(index));
   }
@@ -510,6 +506,49 @@ void TopDownTMBuilder::merge(ArrayRef<StringRef> lowerNames,
                {upperName}, {upperDim}, lowerNames, lowerDims);
 }
 
+llvm::SmallVector<uint32_t>
+TopDownTMBottomDimsWrapper::toBottomDims(ArrayRef<StringRef> names) {
+  llvm::SmallVector<uint32_t> ret;
+  ret.reserve(names.size());
+  for (auto name : names) {
+    ret.push_back(bottomDims[name]);
+  }
+  return ret;
+}
+
+void TopDownTMBottomDimsWrapper::passThrough(StringRef name) {
+  b.passThrough(name, bottomDims[name], name);
+}
+
+void TopDownTMBottomDimsWrapper::passThrough(ArrayRef<StringRef> names) {
+  b.passThrough(names, toBottomDims(names), names);
+}
+
+void TopDownTMBottomDimsWrapper::pad(ArrayRef<StringRef> outNames,
+                                     ArrayRef<StringRef> inNames,
+                                     ArrayRef<int64_t> params) {
+  b.pad(outNames, toBottomDims(outNames), inNames, params);
+}
+
+void TopDownTMBottomDimsWrapper::embed(StringRef lowerName, int64_t lowerSize,
+                                       ArrayRef<StringRef> upperNames,
+                                       ArrayRef<int64_t> coefficients) {
+  b.embed(lowerName, bottomDims[lowerName], lowerSize, upperNames,
+          coefficients);
+}
+
+void TopDownTMBottomDimsWrapper::unmerge(StringRef lowerName,
+                                         ArrayRef<StringRef> upperNames,
+                                         ArrayRef<int64_t> lengths) {
+  b.unmerge(lowerName, bottomDims[lowerName], upperNames, lengths);
+}
+
+void TopDownTMBottomDimsWrapper::merge(ArrayRef<StringRef> lowerNames,
+                                       StringRef upperName,
+                                       ArrayRef<int64_t> sizes, bool isUnfold) {
+  b.merge(lowerNames, toBottomDims(lowerNames), upperName, sizes, isUnfold);
+}
+
 /// Building from a defined set of lower dimensions
 void BottomUpTMBuilder::addTransform(TransformType type,
                                      ArrayRef<int64_t> params,
@@ -686,6 +725,7 @@ void BottomUpTMBuilder::merge(StringRef upperName, uint32_t upperDim,
 void BottomUpTMTopDimsWrapper::passThrough(StringRef name) {
   b.passThrough({name}, {topDims[name]}, {name});
 }
+
 void BottomUpTMTopDimsWrapper::passThrough(ArrayRef<StringRef> names) {
   b.passThrough(names, toTopDims(names), names);
 }
@@ -732,9 +772,9 @@ BottomUpTMTopDimsWrapper::toTopDims(ArrayRef<StringRef> names) {
 
 /// Utility methods
 
-llvm::StringMap<uint32_t>
-expandNamesInPlace(ArrayRef<StringRef> original,
-                   const llvm::StringMap<SmallVector<StringRef, 2>> expansion) {
+llvm::StringMap<uint32_t> mlir::miopen::expandNamesInPlace(
+    ArrayRef<StringRef> original,
+    const llvm::StringMap<SmallVector<StringRef, 2>> expansion) {
   uint32_t offset = 0;
   llvm::StringMap<uint32_t> ret;
   for (auto pair : llvm::enumerate(original)) {
@@ -755,12 +795,10 @@ expandNamesInPlace(ArrayRef<StringRef> original,
   return ret;
 }
 
-llvm::StringMap<uint32_t>
-expandNamesInPlace(TransformMapBuilder &builder,
-                   const llvm::StringMap<SmallVector<StringRef, 2>> expansion) {
+llvm::StringMap<uint32_t> mlir::miopen::expandNamesInPlace(
+    TransformMapBuilder &builder,
+    const llvm::StringMap<SmallVector<StringRef, 2>> expansion) {
   SmallVector<StringRef, 8> names;
   builder.getEndNames(names);
   return expandNamesInPlace(names, expansion);
 }
-} // namespace miopen
-} // namespace mlir

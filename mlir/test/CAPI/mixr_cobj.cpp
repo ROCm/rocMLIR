@@ -22,7 +22,7 @@
 
 #include "mlir/CAPI/IR.h"
 #include "mlir/Dialect/MIGraphX/Pipeline.h"
-#include "mlir/Dialect/MIOpen/Pipeline.h"
+#include "mlir/Dialect/MIOpen/Pipelines.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/InitMIOpenDialects.h"
 #include "llvm/Support/TargetSelect.h"
@@ -202,7 +202,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   (void)pm.run(module);
   mlirOperationDump(moduleMO);
 
-  mlir::miopen::addHighLevelPipeline(pm);
+  mlir::miopen::buildBufferizePipeline(pm);
   (void)pm.run(module);
   mlirOperationDump(moduleMO);
 
@@ -233,8 +233,14 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   // uses 11 params : ptr, ptr, 0 /*offset */, 1, 64, 56, 56, 1, 64, 56, 56
   // printf("Estimated #kernel params : %d\n", argIdx);
 
-  mlir::miopen::addPipeline(pm, false, true);
-  mlir::miopen::addBackendPipeline(pm, triple, chip, features);
+  mlir::miopen::buildKernelPipeline(pm);
+
+  mlir::miopen::BackendOptions opts;
+  opts.triple = triple;
+  opts.chip = chip;
+  opts.features = features;
+  mlir::miopen::buildBackendPipeline(pm, opts);
+
   auto status = pm.run(module);
 
   module.walk([&](mlir::LLVM::LLVMFuncOp llvmFunc) {
