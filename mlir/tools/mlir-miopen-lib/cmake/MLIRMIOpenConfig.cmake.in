@@ -1,0 +1,4 @@
+@PACKAGE_INIT@
+include("@PACKAGE_LIB_CMAKE_DIR@/MLIRMIOpenTargets.cmake")
+# Auto compute the include dir relative to the installation dir
+set_and_check(MLIRMIOpen_INCLUDE_DIR "@PACKAGE_INCLUDE_DIR@")
