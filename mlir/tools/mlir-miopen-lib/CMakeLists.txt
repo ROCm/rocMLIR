@@ -92,7 +92,7 @@ if( BUILD_FAT_LIBMLIRMIOPEN )
 
   # Install Miir.h to ${CMAKE_INSTALL_PREFIX}/include/<project-name>-<version>/
   # as part of component libMLIRMIOpen
-  set(PACKAGE_DIR MLIRMIOpen-${CMAKE_PROJECT_VERSION})
+  set(PACKAGE_DIR MLIRMIOpen)
   install(FILES Miir.h
     DESTINATION include/${PACKAGE_DIR}
     COMPONENT libMLIRMIOpen EXCLUDE_FROM_ALL)
