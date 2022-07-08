@@ -78,13 +78,6 @@ if( BUILD_FAT_LIBMLIRMIOPEN )
                        POST_BUILD
                        COMMAND ${CMAKE_AR} -M < ${mri_file}
                        DEPENDS ${output_archive_dummy_file})
-
-    install(FILES ${full_output_path}
-            TYPE LIB
-            COMPONENT libMLIRMIOpen EXCLUDE_FROM_ALL)
-    install(FILES Miir.h
-            TYPE INCLUDE
-            COMPONENT libMLIRMIOpen EXCLUDE_FROM_ALL)
   endfunction(combine_archives)
 
   combine_archives(MLIRMIOpen)
@@ -96,5 +89,57 @@ if( BUILD_FAT_LIBMLIRMIOPEN )
 
   install(TARGETS MLIRMIOpen
     ARCHIVE DESTINATION lib)
+
+  # Install Miir.h to ${CMAKE_INSTALL_PREFIX}/include/<project-name>-<version>/
+  # as part of component libMLIRMIOpen
+  set(PACKAGE_DIR MLIRMIOpen-${CMAKE_PROJECT_VERSION})
+  install(FILES Miir.h
+    DESTINATION include/${PACKAGE_DIR}
+    COMPONENT libMLIRMIOpen EXCLUDE_FROM_ALL)
+
+  # Install lib${target_name} as part of ${component_name} and export it to be searchable by find_package()
+  function(export_target target_name component_name)
+    set(export_set ${target_name}Targets)
+    set(pkg_config_file ${target_name}Config.cmake)
+    set(pkg_version_file ${target_name}ConfigVersion.cmake)
+
+    # Install lib${target_name}.a to ${CMAKE_INSTALL_PREFIX}/lib/<project-name>-<version>/
+    # and group it into the ${target_name}Targets export-set
+    install(TARGETS ${target_name}
+      EXPORT ${export_set}
+      ARCHIVE DESTINATION lib/${PACKAGE_DIR}
+      COMPONENT ${component_name} EXCLUDE_FROM_ALL)
+
+    # Generate package version file
+    include(CMakePackageConfigHelpers)
+    write_basic_package_version_file(
+      "${CMAKE_CURRENT_BINARY_DIR}/${pkg_version_file}"
+      VERSION ${CMAKE_PROJECT_VERSION}
+      COMPATIBILITY AnyNewerVersion)
+
+    # configure the package configuration file
+    configure_file(cmake/${pkg_config_file}
+      "${CMAKE_CURRENT_BINARY_DIR}/${pkg_config_file}"
+      @ONLY)
+
+    # Generate Targets.cmake file for the exoport-set to contain imported targets
+    set(ConfigPackageLocation lib/cmake/${PACKAGE_DIR})
+    install(EXPORT ${export_set}
+      NAMESPACE MLIR::
+      DESTINATION ${ConfigPackageLocation}
+      COMPONENT ${component_name} EXCLUDE_FROM_ALL)
+
+    # Install package configuration and version files
+    install(
+      FILES
+      "${CMAKE_CURRENT_BINARY_DIR}/${pkg_config_file}"
+      "${CMAKE_CURRENT_BINARY_DIR}/${pkg_version_file}"
+      DESTINATION ${ConfigPackageLocation}
+      COMPONENT ${component_name} EXCLUDE_FROM_ALL)
+  endfunction(export_target)
+
+  # Install libMLIRMIOpen.a as part of component libMLIRMIOpen
+  # and export it to be searchable by find_package()
+  export_target(MLIRMIOpen libMLIRMIOpen)
 
 endif()
