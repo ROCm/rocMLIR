@@ -14,15 +14,18 @@
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
-class AffineDialect;
 
 // Forward declaration from Dialect.h
 template <typename ConcreteDialect>
 void registerDialect(DialectRegistry &registry);
 
-namespace complex {
-class ComplexDialect;
-} // end namespace complex
+namespace amdgpu {
+class AMDGPUDialect;
+} // end namespace amdgpu
+
+namespace func {
+class FuncDialect;
+} // end namespace func
 
 namespace gpu {
 class GPUDialect;
@@ -33,13 +36,6 @@ namespace linalg {
 class LinalgDialect;
 } // namespace linalg
 
-namespace LLVM {
-class LLVMArmNeonDialect;
-class LLVMArmSVEDialect;
-class LLVMAVX512Dialect;
-class LLVMDialect;
-} // end namespace LLVM
-
 namespace migraphx {
 class MIGraphXDialect;
 } // namespace migraphx
@@ -48,29 +44,9 @@ namespace miopen {
 class MIOpenDialect;
 } // namespace miopen
 
-namespace NVVM {
-class NVVMDialect;
-} // end namespace NVVM
-
-namespace omp {
-class OpenMPDialect;
-} // end namespace omp
-
-namespace pdl_interp {
-class PDLInterpDialect;
-} // end namespace pdl_interp
-
-namespace ROCDL {
-class ROCDLDialect;
-} // end namespace ROCDL
-
-namespace scf {
-class SCFDialect;
-} // end namespace scf
-
-namespace spirv {
-class SPIRVDialect;
-} // end namespace spirv
+namespace tosa {
+class TosaDialect;
+} // end namespace tosa
 
 namespace vector {
 class VectorDialect;
