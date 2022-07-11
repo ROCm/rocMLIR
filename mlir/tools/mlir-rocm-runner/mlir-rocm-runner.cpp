@@ -24,6 +24,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/TargetSelect.h"
+#include "llvm/TableGen/Record.h"
 
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/ExecutionEngine/JitRunner.h"
@@ -66,6 +67,11 @@ static cl::opt<std::string> targetChip("target", cl::desc("target chip"),
 static cl::opt<std::string> features("feature", cl::desc("target features"),
                                      cl::value_desc("AMDGPU target features"),
                                      cl::init(""));
+
+static cl::opt<bool> barePointers(
+    "bare-ptr-memref-kernels",
+    cl::desc("Use bare pointers to represent memrefs when calling kernels"),
+    cl::init(true));
 
 static cl::opt<bool>
     rocdlInput("rocdl-input",
@@ -132,6 +138,7 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
     kernelPm.addPass(
         createLowerGpuOpsToROCDLOpsPass(/*chipset=*/targetChip,
                                         /*indexBitWidth=*/32,
+                                        /*useBarePtrCallConv=*/barePointers,
                                         /*runtime=*/gpu::amd::Runtime::HIP));
   }
   kernelPm.addPass(createGpuSerializeToHsacoPass(tripleName, targetChip,
@@ -146,7 +153,8 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   auto &funcPm = pmHost.nest<func::FuncOp>();
   funcPm.addPass(createGpuAsyncRegionPass());
   funcPm.addPass(createConvertMathToLLVMPass());
-  pmHost.addPass(createGpuToLLVMConversionPass());
+  pmHost.addPass(
+      createGpuToLLVMConversionPass(/*kernelBarePtrCallConv=*/barePointers));
   pmHost.addPass(createAsyncToAsyncRuntimePass());
   pmHost.addPass(createConvertAsyncToLLVMPass());
   mlir::LowerToLLVMOptions lower_to_llvm_opts(m.getContext());

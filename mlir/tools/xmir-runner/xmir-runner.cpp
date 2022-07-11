@@ -48,6 +48,10 @@ using namespace llvm;
 // CLI switch for cpu-only support
 static cl::opt<bool> cpuOnly("cpu-only", cl::desc("Target CPU only"),
                              cl::init(false));
+static cl::opt<bool>
+    barePtrMemrefs("bare-ptr-memref-kernels",
+                   cl::desc("Use bare pointers to pass memrefs to GPU kernels"),
+                   cl::init(true));
 
 namespace test {
 void registerTestDialect(DialectRegistry &);

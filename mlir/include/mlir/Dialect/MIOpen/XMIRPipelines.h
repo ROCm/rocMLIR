@@ -14,6 +14,7 @@
 #define MLIR_DIALECT_XMIR_PIPELINES_H_
 
 #include "mlir/Pass/PassOptions.h"
+#include "llvm/Support/CommandLine.h"
 
 using namespace mlir::detail;
 using namespace llvm::cl;
@@ -37,6 +38,10 @@ struct RunnerOptions : public PassPipelineOptions<RunnerOptions> {
 
   PassOptions::Option<bool> cpuOnly{
       *this, "cpu-only", desc("Generate CPU-only code "), init(false)};
+
+  PassOptions::Option<bool> barePtrMemrefs{
+      *this, "bare-ptr-memref-kernels",
+      desc("Use bare pointers to pass memrefs to GPU kernels"), init(true)};
 };
 
 /// Build the XMIR Runner Pipeline.

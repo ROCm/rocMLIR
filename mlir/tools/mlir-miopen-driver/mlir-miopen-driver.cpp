@@ -213,7 +213,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     if (kernelPipelineSet.contains("rocdl")) {
       // Set up the lowering pipeline which goes down to ROCDL dialect.
       pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*chipset=*/targetChip,
-                                                 /*indexBitWidth=*/32));
+                                                 /*indexBitWidth=*/32,
+                                                 /*useBarePtrCallConv=*/true));
     }
     if (kernelPipelineSet.contains("binary")) {
       // Set up the lowering pipeline which goes down to ELF Binary

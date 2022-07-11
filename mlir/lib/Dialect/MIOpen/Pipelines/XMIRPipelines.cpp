@@ -48,7 +48,8 @@ void xmir::buildRunnerPipeline(OpPassManager &pm,
   } else {
     pm.addPass(createConvertAsyncToGPUPass());
     pm.addPass(createSymbolDCEPass());
-    pm.addPass(createGpuToLLVMConversionPass());
+    pm.addPass(createGpuToLLVMConversionPass(
+        /*kernelBarePtrCallConv=*/options.barePtrMemrefs));
     pm.addNestedPass<func::FuncOp>(createGpuAsyncRegionPass());
   }
   pm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
