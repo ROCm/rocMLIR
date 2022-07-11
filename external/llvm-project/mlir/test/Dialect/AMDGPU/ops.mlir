@@ -60,6 +60,13 @@ func.func @raw_buffer_atomic_fadd_f32_to_rank_4(%value : f32, %dst : memref<128x
   func.return
 }
 
+// CHECK-LABEL: func @lds_barrier
+func.func @lds_barrier() {
+  // CHECK: amdgpu.lds_barrier
+  amdgpu.lds_barrier
+  func.return
+}
+
 // CHECK-LABEL: func @mfma
 func.func @mfma(%arg0 : f32, %arg1 : vector<32xf32>, %arg2 : vector<16xf32>,
                 %arg3 : vector<4xf32>, %arg4 : vector<4xf16>,
