@@ -57,14 +57,6 @@ struct MIOpenThreadwiseGemmLoweringPass
 };
 
 //===----------------------------------------------------------------------===//
-// Utility function to emit load instructions for local buffers
-//===----------------------------------------------------------------------===//
-Value emitLoadLogic(OpBuilder &b, Location loc, Type loadedType,
-                    const Value source, ValueRange coords) {
-  return b.create<InBoundsLoadOp>(loc, loadedType, source, coords);
-}
-
-//===----------------------------------------------------------------------===//
 // ThreadwiseGemm lowering.
 //===----------------------------------------------------------------------===//
 struct ThreadwiseGemmRewritePattern
@@ -238,14 +230,20 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
 
     bool IsKReduction = (num_output_blks == 1) && (num_input_blks > 1);
 
-    // Original C++ logic.
+    if (KPack > 1 && (KPack < k_base || KPack % k_base != 0)) {
+      llvm_unreachable(
+          "Tuning parameter selection guarantees kPack is multiple of k_base,"
+          "this should never happen");
+    }
+
     // const index_t laneId = get_thread_local_1d_id() % mfma_type.wave_size;
-    // FloatA a[K * MRepeats];
-    // FloatB b[K * NRepeats];
-    // constexpr index_t KRepeats = sizeof(FloatA) / (sizeof(data_type) *
-    // mfma_type.k_base); auto pa = reinterpret_cast<const data_type*>(&a); auto
-    // pb = reinterpret_cast<const data_type*>(&b); constexpr index_t AStride =
-    // K * KRepeats; constexpr index_t BStride = K * KRepeats;
+    // FloatA a[KPerThread * MRepeats];
+    // FloatB b[KPerThread * NRepeats];
+    // constexpr index_t KRepeats = KPack / mfma_type.k_base;
+    // auto pa = reinterpret_cast<const data_type*>(&a);
+    // auto pb = reinterpret_cast<const data_type*>(&b);
+    // constexpr index_t AStride = KPerThread * KRepeats;
+    // constexpr index_t BStride = KPerThread * KRepeats;
 
     auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
     constexpr int64_t waveSize = 64;
@@ -274,31 +272,27 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     Type bufferAElementType = bufferAType.getElementType();
     Type bufferBElementType = bufferBType.getElementType();
 
-    if (!IsKReduction) {
-      // store bufferA logic.
+    int64_t KPerThread = IsKReduction ? K / num_input_blks : K;
 
-      // Original C++ logic.
-      // static_if<!IsKReduction>{}([&](auto) {
-      //   for(index_t m_i = 0; m_i < MRepeats; ++m_i)
-      //     for(index_t k_i      = 0; k_i < K; ++k_i)
-      //       a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops * m_i];
-      // p_a_wave need to be offseted by waveOffsetA.
+    if (!IsKReduction) {
+
+      // store bufferA logic.
+      // for(index_t m_i = 0; m_i < MRepeats; ++m_i)
+      //   for(index_t k_i      = 0; k_i < K; ++k_i)
+      //     a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops * m_i];
+      // Note: p_a_wave need to be offseted by waveOffsetA.
 
       auto outerLoopM = b.create<AffineForOp>(loc, 0, MRepeats);
-      auto olmb = ConversionPatternRewriter::atBlockTerminator(
-          outerLoopM.getBody(), b.getListener());
+      auto olmb = OpBuilder::atBlockBegin(outerLoopM.getBody());
       auto olmiv = outerLoopM.getInductionVar();
       auto mOffset = olmb.create<AddIOp>(
           loc, aBase, olmb.create<MulIOp>(loc, MPerXdlopsConstantOp, olmiv));
       auto kOffsetA = olmb.create<MulIOp>(loc, olmiv, KConstantOp);
 
-      auto innerLoopMK = olmb.create<AffineForOp>(loc, 0, K);
-      auto ilmkb = ConversionPatternRewriter::atBlockTerminator(
-          innerLoopMK.getBody(), olmb.getListener());
+      auto innerLoopMK = olmb.create<AffineForOp>(loc, 0, KPerThread);
+      auto ilmkb = OpBuilder::atBlockBegin(innerLoopMK.getBody());
       auto ilmkiv = innerLoopMK.getInductionVar();
 
-      //       a[k_i + m_i * K] = p_a_wave[k_i * M + laneId + MPerXdlops * m_i];
-      // p_a_wave need to be offseted by waveOffsetA.
       Value sourceOffsetA = ilmkb.create<AddIOp>(
           loc,
           ilmkb.create<AddIOp>(
@@ -311,40 +305,29 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
 
       auto destOffsetA = ilmkb.create<AddIOp>(loc, ilmkiv, kOffsetA);
 
-      Value valueA;
-      if (KPack > 1) {
-        valueA = emitLoadLogic(ilmkb, loc, bufferAElementType,
-                               adaptor.matrixA(), sourceOffsetA);
-      } else {
-        valueA = ilmkb.create<memref::LoadOp>(loc, dataType, adaptor.matrixA(),
-                                              sourceOffsetA);
-      }
-      ilmkb.create<memref::StoreOp>(loc, valueA, adaptor.bufferA(),
+      Value valueA = ilmkb.create<InBoundsLoadOp>(loc, bufferAElementType,
+                                                  op.matrixA(), sourceOffsetA);
+      ilmkb.create<memref::StoreOp>(loc, valueA, bufferA,
                                     ValueRange{destOffsetA});
 
       // store bufferB logic.
-
-      // Original C++ logic.
-      //   for(index_t n_i = 0; n_i < NRepeats; ++n_i)
-      //     for(index_t k_i      = 0; k_i < K; ++k_i)
-      //       b[k_i + n_i * K] = p_b_wave[k_i * N + laneId + NPerXdlops * n_i];
-      // p_b_wave need to be offseted by waveOffsetB.
+      // for(index_t n_i = 0; n_i < NRepeats; ++n_i)
+      //   for(index_t k_i      = 0; k_i < KPerThread; ++k_i)
+      //     b[k_i + n_i * KPerThread] = p_b_wave[k_i * N + laneId + NPerXdlops
+      //     * n_i];
+      // Note: p_b_wave need to be offseted by waveOffsetB.
 
       auto outerLoopN = b.create<AffineForOp>(loc, 0, NRepeats);
-      auto olnb = ConversionPatternRewriter::atBlockTerminator(
-          outerLoopN.getBody(), b.getListener());
+      auto olnb = OpBuilder::atBlockBegin(outerLoopN.getBody());
       auto olniv = outerLoopN.getInductionVar();
       auto nOffset = olnb.create<AddIOp>(
           loc, bBase, olnb.create<MulIOp>(loc, NPerXdlopsConstantOp, olniv));
       auto kOffsetB = olnb.create<MulIOp>(loc, olniv, KConstantOp);
 
-      auto innerLoopNK = olnb.create<AffineForOp>(loc, 0, K);
-      auto ilnkb = ConversionPatternRewriter::atBlockTerminator(
-          innerLoopNK.getBody(), olnb.getListener());
+      auto innerLoopNK = olnb.create<AffineForOp>(loc, 0, KPerThread);
+      auto ilnkb = OpBuilder::atBlockBegin(innerLoopNK.getBody());
       auto ilnkiv = innerLoopNK.getInductionVar();
 
-      //       b[k_i + n_i * K] = p_b_wave[k_i * N + laneId + NPerXdlops * n_i];
-      // p_b_wave need to be offseted by waveOffsetB.
       Value sourceOffsetB = ilnkb.create<AddIOp>(
           loc,
           ilnkb.create<AddIOp>(
@@ -357,166 +340,13 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
 
       auto destOffsetB = ilnkb.create<AddIOp>(loc, ilnkiv, kOffsetB);
 
-      Value valueB;
-      if (KPack > 1) {
-        valueB = emitLoadLogic(ilnkb, loc, bufferBElementType,
-                               adaptor.matrixB(), sourceOffsetB);
-      } else {
-        valueB = ilnkb.create<memref::LoadOp>(loc, dataType, adaptor.matrixB(),
-                                              sourceOffsetB);
-      }
-      ilnkb.create<memref::StoreOp>(loc, valueB, adaptor.bufferB(),
+      Value valueB = ilnkb.create<InBoundsLoadOp>(loc, bufferBElementType,
+                                                  op.matrixB(), sourceOffsetB);
+      ilnkb.create<memref::StoreOp>(loc, valueB, bufferB,
                                     ValueRange{destOffsetB});
-
-      // Original C++ logic.
-      //
-      // for(index_t k_i = 0; k_i < K * KRepeats; ++k_i)
-      // {
-      //     p_c_thread = mfma_type.template run<MPerXdlops * MRepeats,
-      //                                         NPerXdlops * NRepeats,
-      //                                         AStride,
-      //                                         BStride>(
-      //         &pa[k_i * mfma_type.k_base], &pb[k_i * mfma_type.k_base],
-      //         p_c_thread);
-      // }
-
-      // Rewrite as:
-      //
-      // for(index_t k_i = 0; k_i < K; ++k_i) {
-      //   bufferAElement = a[k_i];
-      //   bufferBElement = b[k_i];
-      //   for(index_t ki_i = 0; ki_i < KRepeats; ++ki_i)
-      //     argA = &bufferAElement[ki_i * mfma_type.k_base];
-      //     argB = &bufferAElement[ki_i * mfma_type.k_base];
-      //     p_c_thread = mfma_type.template run<MPerXlops * MRepeats,
-      //                                         NPerXdlops * NRepeats,
-      //                                         AStride,
-      //                                         BStride>(argA, argB,
-      //       p_c_thread);
-      // }
-
-      int64_t KForOuterLoop;
-      if (KPack > 1) {
-        KForOuterLoop = K;
-      } else {
-        KForOuterLoop = K / k_base;
-        if (KForOuterLoop == 0) {
-          // KForOuterLoop is too small. Reject lowering.
-          return failure();
-        }
-      }
-      auto outerLoop =
-          b.create<AffineForOp>(loc, 0, KForOuterLoop, 1, adaptor.vectorCs());
-      auto outerLoopb = ConversionPatternRewriter::atBlockBegin(
-          outerLoop.getBody(), b.getListener());
-      auto outerLoopiv = outerLoop.getInductionVar();
-
-      Value bufferAElement = outerLoopb.create<memref::LoadOp>(
-          loc, bufferAElementType, adaptor.bufferA(), ValueRange{outerLoopiv});
-      Value bufferBElement = outerLoopb.create<memref::LoadOp>(
-          loc, bufferBElementType, adaptor.bufferB(), ValueRange{outerLoopiv});
-
-      auto innerLoop = outerLoopb.create<AffineForOp>(
-          loc, 0, KRepeats, 1, outerLoop.getRegionIterArgs());
-      auto innerLoopb = ConversionPatternRewriter::atBlockBegin(
-          innerLoop.getBody(), outerLoopb.getListener());
-      auto innerLoopiv = innerLoop.getInductionVar();
-
-      Value argA;
-      Value argB;
-      int64_t argTypeVectorLength =
-          (argType.isa<VectorType>())
-              ? argType.template cast<VectorType>().getShape()[0]
-              : 1;
-      if (argTypeVectorLength > 1) {
-        Value zeroOp = createZeroConstantOp(innerLoopb, loc, dataType);
-
-        Value offset;
-        if (KPack > 1) {
-          offset = innerLoopb.create<MulIOp>(loc, innerLoopiv, KBaseConstantOp);
-        } else {
-          offset = innerLoopb.create<AddIOp>(
-              loc, innerLoopb.create<MulIOp>(loc, outerLoopiv, KBaseConstantOp),
-              innerLoopb.create<MulIOp>(loc, innerLoopiv, KBaseConstantOp));
-        }
-        if (bufferAElementType.isa<VectorType>()) {
-          // bufferA/BElement loaded on LDS are vectors.
-          // argA/B to be supplied to MFMA XDLOPS are also vectors.
-          assert(bufferAElementType.isa<VectorType>());
-          assert(bufferBElementType.isa<VectorType>());
-          assert(bufferAElementType.cast<VectorType>().getShape().size() == 1);
-          assert(bufferBElementType.cast<VectorType>().getShape().size() == 1);
-          assert(bufferAElementType.cast<VectorType>().getShape()[0] %
-                     argTypeVectorLength ==
-                 0);
-          assert(bufferBElementType.cast<VectorType>().getShape()[0] %
-                     argTypeVectorLength ==
-                 0);
-
-          argA = innerLoopb.create<vector::SplatOp>(loc, zeroOp, argType);
-          argB = innerLoopb.create<vector::SplatOp>(loc, zeroOp, argType);
-          for (int64_t i = 0; i < argTypeVectorLength; ++i) {
-            Value iConstantOp = innerLoopb.create<ConstantIndexOp>(loc, i);
-            Value iPlusOffsetConstantOp =
-                innerLoopb.create<AddIOp>(loc, iConstantOp, offset);
-
-            Value elementA = innerLoopb.create<vector::ExtractElementOp>(
-                loc, dataType, bufferAElement, iPlusOffsetConstantOp);
-            argA = innerLoopb.create<vector::InsertElementOp>(
-                loc, argType, elementA, argA, iConstantOp);
-            Value elementB = innerLoopb.create<vector::ExtractElementOp>(
-                loc, dataType, bufferBElement, iPlusOffsetConstantOp);
-            argB = innerLoopb.create<vector::InsertElementOp>(
-                loc, argType, elementB, argB, iConstantOp);
-          }
-        } else {
-          // bufferA/BElement loaded on LDS are scalars.
-          // argA/B to be supplied to MFMA XDLOPS are vectors.
-          argA = innerLoopb.create<vector::TransferReadOp>(
-              loc, argType.template cast<VectorType>(), adaptor.bufferA(),
-              ValueRange{offset});
-          argB = innerLoopb.create<vector::TransferReadOp>(
-              loc, argType.template cast<VectorType>(), adaptor.bufferB(),
-              ValueRange{offset});
-        }
-      } else {
-        if (bufferAElementType.isa<VectorType>()) {
-          // bufferA/BElement loaded on LDS are vectors.
-          // argA/B to be supplied to MFMA XDLOPS are scalars.
-          assert(bufferAElementType.isa<VectorType>());
-          assert(bufferBElementType.isa<VectorType>());
-          assert(bufferAElementType.cast<VectorType>().getShape().size() == 1);
-          assert(bufferBElementType.cast<VectorType>().getShape().size() == 1);
-
-          argA = innerLoopb.create<vector::ExtractElementOp>(
-              loc, dataType, bufferAElement, innerLoopiv);
-          argB = innerLoopb.create<vector::ExtractElementOp>(
-              loc, dataType, bufferBElement, innerLoopiv);
-        } else {
-          // bufferA/BElement loaded on LDS are scalars.
-          // argA/B to be supplied to MFMA XDLOPS are also scalars.
-          argA = bufferAElement;
-          argB = bufferBElement;
-        }
-      }
-
-      SmallVector<Value, 4> mfmas;
-      for (int64_t i = 0; i < vectorNumber; ++i) {
-        auto vectorC = innerLoop.getRegionIterArgs()[i];
-        auto mfma = innerLoopb.create<amdgpu::MFMAOp>(
-            loc, vectorType, mfmaInstr, argA, argB, vectorC,
-            /*cbsz=*/imms[i][0], /*abid=*/imms[i][1], /*blgp=*/imms[i][2]);
-        mfmas.push_back(mfma);
-      }
-      innerLoopb.create<AffineYieldOp>(loc, mfmas);
-
-      outerLoopb.create<AffineYieldOp>(loc, innerLoop.results());
-      b.replaceOp(op, outerLoop.results());
     } else {
-      // Original C++ logic.
-      //     const index_t blk_id = laneId / mfma_type.num_threads_blk;
-      //     const index_t blk_td = laneId % mfma_type.num_threads_blk;
-
+      // const index_t blk_id = laneId / mfma_type.num_threads_blk;
+      // const index_t blk_td = laneId % mfma_type.num_threads_blk;
       auto NumThreadsBlkConstantOp =
           b.create<ConstantIndexOp>(loc, num_threads_blk);
       auto blk_id = b.create<DivUIOp>(loc, laneId, NumThreadsBlkConstantOp);
@@ -525,32 +355,21 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
       Value kBaseA = b.create<AddIOp>(loc, aBase, blk_td);
       Value kBaseB = b.create<AddIOp>(loc, bBase, blk_td);
 
-      // Original C++ logic.
-      //     // load into registers
-      //     for(index_t k_i = 0; k_i < K; k_i += mfma_type.num_input_blks) {
-      //         a[k_i] = p_a_wave[(k_i + blk_id) * M + blk_td];
-      //         b[k_i] = p_b_wave[(k_i + blk_id) * N + blk_td];
-      //     }
+      // for(index_t k_i = 0; k_i < KPerThread; k_i += mfma_type.num_input_blks)
+      // {
+      //     a[k_i] = p_a_wave[(k_i * num_input_blks + blk_id) * M + blk_td];
+      //     b[k_i] = p_b_wave[(k_i * num_input_blks + blk_id) * N + blk_td];
+      // }
       // p_a_wave need to be offseted by waveOffsetA.
       // p_b_wave need to be offseted by waveOffsetB.
 
       auto NumInputBlksConstantOp =
           b.create<ConstantIndexOp>(loc, num_input_blks);
 
-      // Instead loop to K, change loop bound to K / num_input_blks.
-      auto loopKLoadIteration = K / num_input_blks;
-      auto loopKLoad = b.create<AffineForOp>(loc, 0, loopKLoadIteration);
-
-      auto lklb = ConversionPatternRewriter::atBlockTerminator(
-          loopKLoad.getBody(), b.getListener());
+      auto loopKLoad = b.create<AffineForOp>(loc, 0, KPerThread);
+      auto lklb = OpBuilder::atBlockBegin(loopKLoad.getBody());
       auto lkliv = loopKLoad.getInductionVar();
 
-      //         a[k_i] = p_a_wave[(k_i + blk_id) * M + blk_td];
-      //         b[k_i] = p_b_wave[(k_i + blk_id) * N + blk_td];
-      // p_a_wave need to be offseted by waveOffsetA.
-      // p_b_wave need to be offseted by waveOffsetB.
-
-      // NOTICE: We times k_i by num_input_blks in MLIR path.
       Value sourceOffsetA = lklb.create<AddIOp>(
           loc,
           lklb.create<MulIOp>(
@@ -565,18 +384,10 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         sourceOffsetA = lklb.create<MulIOp>(
             loc, sourceOffsetA, lklb.create<ConstantIndexOp>(loc, KPack));
 
-      Value valueA;
-      if (KPack > 1) {
-        valueA = emitLoadLogic(lklb, loc, bufferAElementType, adaptor.matrixA(),
-                               sourceOffsetA);
-      } else {
-        valueA = lklb.create<memref::LoadOp>(loc, dataType, adaptor.matrixA(),
-                                             ValueRange{sourceOffsetA});
-      }
-      lklb.create<memref::StoreOp>(loc, valueA, adaptor.bufferA(),
-                                   ValueRange{lkliv});
+      Value valueA = lklb.create<InBoundsLoadOp>(loc, bufferAElementType,
+                                                 op.matrixA(), sourceOffsetA);
+      lklb.create<memref::StoreOp>(loc, valueA, bufferA, ValueRange{lkliv});
 
-      // NOTICE: We times k_i by num_input_blks in MLIR path.
       Value sourceOffsetB = lklb.create<AddIOp>(
           loc,
           lklb.create<MulIOp>(
@@ -591,155 +402,89 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         sourceOffsetB = lklb.create<MulIOp>(
             loc, sourceOffsetB, lklb.create<ConstantIndexOp>(loc, KPack));
 
-      Value valueB;
-      if (KPack > 1) {
-        valueB = emitLoadLogic(lklb, loc, bufferBElementType, adaptor.matrixB(),
-                               sourceOffsetB);
-      } else {
-        valueB = lklb.create<memref::LoadOp>(loc, dataType, adaptor.matrixB(),
-                                             ValueRange{sourceOffsetB});
-      }
-      lklb.create<memref::StoreOp>(loc, valueB, adaptor.bufferB(),
-                                   ValueRange{lkliv});
-
-      // Original C++ logic.
-      // for(index_t k_i = 0; k_i < K; k_i += mfma_type.num_input_blks)
-      // {
-      //     for(index_t i = 0; i < KRepeats; ++i)
-      //         p_c_thread = mfma_type.template run<MPerXdlops, NPerXdlops,
-      //         AStride, BStride>(
-      //             &pa[(k_i * KRepeats + i) * mfma_type.k_base],
-      //             &pb[(k_i * KRepeats + i) * mfma_type.k_base],
-      //             p_c_thread);
-      // }
-
-      int64_t KForOuterLoop;
-      if (KPack > 1) {
-        KForOuterLoop = K / num_input_blks;
-      } else {
-        KForOuterLoop = K / num_input_blks / k_base;
-        if (KForOuterLoop == 0) {
-          llvm_unreachable(
-              "K tile size is too small to lower for reduction xdlops");
-          return failure();
-        }
-      }
-
-      // When kpack > 1 handle the number of kpack at a time
-      // When kpack == 1 handle the number of kbase at a time
-      auto outerLoop =
-          b.create<AffineForOp>(loc, 0, KForOuterLoop, 1, adaptor.vectorCs());
-      auto outerLoopb = ConversionPatternRewriter::atBlockBegin(
-          outerLoop.getBody(), b.getListener());
-      auto outerLoopiv = outerLoop.getInductionVar();
-
-      // When kpack > 1, element type is kpack, handle one kpack at a time
-      // When kpack == 1, element type is 1, handle one k_base at a time
-      auto innerLoop = outerLoopb.create<AffineForOp>(
-          loc, 0, KRepeats * k_base, k_base, outerLoop.getRegionIterArgs());
-      auto innerLoopb = ConversionPatternRewriter::atBlockBegin(
-          innerLoop.getBody(), outerLoopb.getListener());
-      auto innerLoopiv = innerLoop.getInductionVar();
-
-      Value argA;
-      Value argB;
-      int64_t argTypeVectorLength =
-          (argType.isa<VectorType>())
-              ? argType.template cast<VectorType>().getShape()[0]
-              : 1;
-      assert(argTypeVectorLength == k_base);
-
-      if (KPack == 1) {
-        // When KPack == 1, we are dealing with memref<T>.
-        // Use a combination of inner and outer offset to figure out the actual
-        // offset from vgpr
-        Value offset = innerLoopb.create<AddIOp>(
-            loc, innerLoopb.create<MulIOp>(loc, outerLoopiv, KBaseConstantOp),
-            innerLoopb.create<MulIOp>(loc, innerLoopiv, KBaseConstantOp));
-
-        if (k_base == 1) {
-          // xdlops needs only 1 element, load directly from buffer.
-          argA = innerLoopb.create<memref::LoadOp>(
-              loc, argType, adaptor.bufferA(), ValueRange{offset});
-          argB = innerLoopb.create<memref::LoadOp>(
-              loc, argType, adaptor.bufferB(), ValueRange{offset});
-        } else {
-          // k_base > 1, use transferRead to load a vector length equivalent
-          // with a xdlops argument.
-          argA = innerLoopb.create<vector::TransferReadOp>(
-              loc, argType.cast<VectorType>(), adaptor.bufferA(),
-              ValueRange{offset});
-          argB = innerLoopb.create<vector::TransferReadOp>(
-              loc, argType.cast<VectorType>(), adaptor.bufferB(),
-              ValueRange{offset});
-        }
-      } else {
-        // This lambda create an xdlops argument from the vgpr buffer.
-        // Each time in the nested loop, it first loads a vector of size
-        // kpack guarateed to be a multiple of the size of the xdlops
-        // argument. Then it construct the xdlops argument by extracting
-        // elements from the kpack vector.
-        auto constructXdlopsArg =
-            [&innerLoopb, &loc](Value &buffer, Value &outerLoopiv,
-                                Value &innerLoopiv, Type &argType) -> Value {
-          Value argWide = innerLoopb.create<memref::LoadOp>(
-              loc,
-              buffer.getType()
-                  .cast<MemRefType>()
-                  .getElementType()
-                  .cast<VectorType>(),
-              buffer, ValueRange{outerLoopiv});
-          return innerLoopb.create<ExtractSliceOp>(
-              loc, argType.cast<VectorType>(), argWide, innerLoopiv);
-        };
-
-        auto bufferAVectorLen =
-            bufferAElementType.cast<VectorType>().getShape()[0];
-        auto bufferBVectorLen =
-            bufferBElementType.cast<VectorType>().getShape()[0];
-        if ((bufferAVectorLen < k_base) || (bufferAVectorLen % k_base != 0)) {
-          llvm_unreachable(
-              "bufferA Vector length must be divisible by xdlops argument "
-              "length");
-        }
-        if ((bufferBVectorLen < k_base) || (bufferBVectorLen % k_base != 0)) {
-          llvm_unreachable(
-              "bufferB Vector length must be divisible by xdlops argument "
-              "length");
-        }
-
-        if (k_base == bufferAVectorLen && k_base == bufferBVectorLen) {
-          // If xdlops argument vector size happen to be similar to the vgpr
-          // vector length. Use memref load directly
-          argA = innerLoopb.create<memref::LoadOp>(
-              loc, bufferAElementType.cast<VectorType>(), bufferA,
-              ValueRange{outerLoopiv});
-          argB = innerLoopb.create<memref::LoadOp>(
-              loc, bufferBElementType.cast<VectorType>(), bufferB,
-              ValueRange{outerLoopiv});
-        } else {
-          // If xdlops argument vector size is smaller than the vgpr vector
-          // length, we have to temporarily construct smaller vgpr vector
-          // for xdlops to consume
-          argA = constructXdlopsArg(bufferA, outerLoopiv, innerLoopiv, argType);
-          argB = constructXdlopsArg(bufferB, outerLoopiv, innerLoopiv, argType);
-        }
-      }
-
-      SmallVector<Value, 4> mfmas;
-      for (int64_t i = 0; i < vectorNumber; ++i) {
-        auto vectorC = innerLoop.getRegionIterArgs()[i];
-        auto mfma = innerLoopb.create<amdgpu::MFMAOp>(
-            loc, vectorType, mfmaInstr, argA, argB, vectorC,
-            /*cbsz=*/imms[i][0], /*abid=*/imms[i][1], /*blgp=*/imms[i][2]);
-        mfmas.push_back(mfma);
-      }
-      innerLoopb.create<AffineYieldOp>(loc, mfmas);
-
-      outerLoopb.create<AffineYieldOp>(loc, innerLoop.results());
-
-      b.replaceOp(op, outerLoop.results());
+      Value valueB = lklb.create<InBoundsLoadOp>(loc, bufferBElementType,
+                                                 op.matrixB(), sourceOffsetB);
+      lklb.create<memref::StoreOp>(loc, valueB, bufferB, ValueRange{lkliv});
     }
+
+    // XdlopsGemm Logic, similar between reduction/non-reduction path
+    // for(index_t k_i = 0; k_i < KPerThread; ++k_i) {
+    //   bufferAElement = a[k_i];
+    //   bufferBElement = b[k_i];
+    //   // Loop within a kpack
+    //   for(index_t ki_i = k_base; ki_i < k_base * KRepeats; ++ki_i)
+    //     argA = &bufferAElement[ki_i];
+    //     argB = &bufferAElement[ki_i];
+    //     p_c_thread = mfma_type.template run<MPerXlops * MRepeats,
+    //                                         NPerXdlops * NRepeats,
+    //                                         AStride,
+    //                                         BStride>(argA, argB,
+    //       p_c_thread);
+    // }
+
+    auto outerLoop =
+        b.create<AffineForOp>(loc, 0, KPerThread, 1, op.vectorCs());
+    auto outerLoopb = OpBuilder::atBlockBegin(outerLoop.getBody());
+    auto outerLoopiv = outerLoop.getInductionVar();
+
+    Value bufferAElement = outerLoopb.create<memref::LoadOp>(
+        loc, bufferAElementType, bufferA, ValueRange{outerLoopiv});
+    Value bufferBElement = outerLoopb.create<memref::LoadOp>(
+        loc, bufferBElementType, bufferB, ValueRange{outerLoopiv});
+
+    auto innerLoop = outerLoopb.create<AffineForOp>(
+        loc, 0, KRepeats * k_base, k_base, outerLoop.getRegionIterArgs());
+    auto innerLoopb = OpBuilder::atBlockBegin(innerLoop.getBody());
+    auto innerLoopiv = innerLoop.getInductionVar();
+
+    Value argA;
+    Value argB;
+
+    if (KPack == 1) {
+      // When KPack == 1, we are dealing with memref<T>.
+      // Use a combination of inner and outer offset to figure out the actual
+      // offset from vgpr
+      Value offset = innerLoopb.create<AddIOp>(
+          loc, innerLoopb.create<MulIOp>(loc, outerLoopiv, KBaseConstantOp),
+          innerLoopb.create<MulIOp>(loc, innerLoopiv, KBaseConstantOp));
+
+      if (k_base == 1) {
+        // xdlops needs only 1 element, load directly from buffer.
+        argA = innerLoopb.create<memref::LoadOp>(loc, argType, bufferA,
+                                                 ValueRange{offset});
+        argB = innerLoopb.create<memref::LoadOp>(loc, argType, bufferB,
+                                                 ValueRange{offset});
+      } else {
+        // k_base > 1, use transferRead to load a vector length equivalent
+        // with a xdlops argument.
+        argA = innerLoopb.create<vector::TransferReadOp>(
+            loc, argType.cast<VectorType>(), bufferA, ValueRange{offset});
+        argB = innerLoopb.create<vector::TransferReadOp>(
+            loc, argType.cast<VectorType>(), bufferB, ValueRange{offset});
+      }
+    } else {
+      // At this point, we are guaranteed that buffer element vectorization
+      // length (kPack) must be a multiple of k_base. Use extractsliceop
+      // to handle a independent data slice at a time.
+      argA = innerLoopb.create<ExtractSliceOp>(loc, argType, bufferAElement,
+                                               innerLoopiv);
+      argB = innerLoopb.create<ExtractSliceOp>(loc, argType, bufferBElement,
+                                               innerLoopiv);
+    }
+
+    SmallVector<Value, 4> mfmas;
+    for (int64_t i = 0; i < vectorNumber; ++i) {
+      auto vectorC = innerLoop.getRegionIterArgs()[i];
+      auto mfma = innerLoopb.create<amdgpu::MFMAOp>(
+          loc, vectorType, mfmaInstr, argA, argB, vectorC,
+          /*cbsz=*/imms[i][0], /*abid=*/imms[i][1], /*blgp=*/imms[i][2]);
+      mfmas.push_back(mfma);
+    }
+    innerLoopb.create<AffineYieldOp>(loc, mfmas);
+
+    outerLoopb.create<AffineYieldOp>(loc, innerLoop.results());
+
+    b.replaceOp(op, outerLoop.results());
 
     return success();
   }
