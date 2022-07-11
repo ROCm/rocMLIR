@@ -14,8 +14,11 @@
 #include "llvm/ADT/IndexedMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Debug.h"
 #include <iterator>
 #include <numeric>
+
+#define DEBUG_TYPE "miopen-transform-map-utils"
 
 using namespace mlir;
 using namespace mlir::miopen;
@@ -238,7 +241,7 @@ static VectorizationData
 propagateVectorizationInfo(TransformMapAttr map,
                            const VectorizationData &input) {
   VectorizationData result;
-  result.grow(map.getMap().getValue().getNumResults());
+  result.grow(map.getMap().getValue().getNumResults() - 1);
   for (TransformAttr transform : map.getOps()) {
     ArrayRef<uint32_t> upperDims = transform.getUpperDims();
     ArrayRef<uint32_t> lowerDims = transform.getLowerDims();
@@ -364,14 +367,29 @@ int64_t mlir::miopen::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
     return len;
 
   VectorizationData maxLengths;
-  maxLengths.grow(transforms[0]
-                      .cast<TransformMapAttr>()
-                      .getMap()
-                      .getValue()
-                      .getNumInputs());
+  // grow() takes the last index, not the length
+  maxLengths.grow(
+      transforms[0].cast<TransformMapAttr>().getMap().getValue().getNumDims() -
+      1);
   maxLengths[dim] = len;
   for (auto transformMap : transforms.getAsRange<TransformMapAttr>()) {
+    LLVM_DEBUG(llvm::dbgs() << "Max vectorization data: ");
+    for (size_t i = 0, e = maxLengths.size(); i < e; ++i) {
+      if (maxLengths[i].hasValue())
+        LLVM_DEBUG(llvm::dbgs() << *maxLengths[i]);
+      else
+        LLVM_DEBUG(llvm::dbgs() << "?");
+      LLVM_DEBUG(llvm::dbgs() << (i == e - 1 ? "\n" : " "));
+    }
     maxLengths = propagateVectorizationInfo(transformMap, maxLengths);
+  }
+  LLVM_DEBUG(llvm::dbgs() << "Final max vectorization data: ");
+  for (size_t i = 0, e = maxLengths.size(); i < e; ++i) {
+    if (maxLengths[i].hasValue())
+      LLVM_DEBUG(llvm::dbgs() << *maxLengths[i]);
+    else
+      LLVM_DEBUG(llvm::dbgs() << "?");
+    LLVM_DEBUG(llvm::dbgs() << (i == e - 1 ? "\n" : " "));
   }
 
   int64_t result = 1;
