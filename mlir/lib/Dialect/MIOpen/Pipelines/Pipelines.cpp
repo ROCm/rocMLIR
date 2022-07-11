@@ -175,8 +175,8 @@ void miopen::buildBackendPipeline(OpPassManager &pm,
    *   "--gpu-to-hsaco=triple=$triple chip=$chip features=$features opt-level=3"
    */
   pm.addPass(createStripDebugInfoPass());
-  pm.addPass(
-      createLowerGpuOpsToROCDLOpsPass(options.chip, options.indexBitwidth));
+  pm.addPass(createLowerGpuOpsToROCDLOpsPass(
+      options.chip, options.indexBitwidth, /*useBarePtrCallConv=*/true));
   pm.addPass(createGpuSerializeToHsacoPass(options.triple, options.chip,
                                            options.features, options.optLevel));
 }
