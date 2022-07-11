@@ -109,8 +109,8 @@ public:
     } else {
       if (readAccess) {
         // else copy to device
-        auto memcpyToken =
-            b.create<gpu::MemcpyOp>(loc, tokenType, ValueRange{dstToken}, dstMem, opr);
+        auto memcpyToken = b.create<gpu::MemcpyOp>(
+            loc, tokenType, ValueRange{dstToken}, dstMem, opr);
         dstToken = memcpyToken.getResult(0);
       }
       if (writeAccess) {
@@ -221,7 +221,8 @@ public:
       if (opr.getType().isa<MemRefType>() &&
           !opr.getDefiningOp<gpu::AllocOp>()) {
         bool readAccess{func.getArgAttr(fidx, FuncOp::getReadAccessAttrName())};
-        bool writeAccess{func.getArgAttr(fidx, FuncOp::getWriteAccessAttrName())};
+        bool writeAccess{
+            func.getArgAttr(fidx, FuncOp::getWriteAccessAttrName())};
         opr = moveMemory(rw, opr, fidx, readAccess, writeAccess, copyBackOprs,
                          asyncDeps);
       }
