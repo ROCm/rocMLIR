@@ -4,7 +4,7 @@ add_mlir_dialect_library(MLIRMIOpenPipeline
 
   LINK_LIBS PUBLIC
   MLIRDialect
-  MLIRFunc
+  MLIRFuncDialect
   MLIRTensorToLinalg
   MLIRAsyncToGPU
   MLIRTosaToMIOpen
@@ -15,7 +15,7 @@ add_mlir_dialect_library(MLIRMIOpenPipeline
   MLIRGPUToROCDLTransforms
   MLIRIR
   MLIRPass
-  MLIRLLVMIR
+  MLIRLLVMDialect
   MLIRAffineToStandard
   MLIRMIOpenOps
   MLIRMIOpenTuning

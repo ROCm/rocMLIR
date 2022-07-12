@@ -27,8 +27,8 @@
 #include "mlir/InitMIOpenDialects.h"
 #include "llvm/Support/TargetSelect.h"
 
-#include "mlir/Dialect/GPU/GPUDialect.h"
-#include "mlir/Dialect/GPU/Passes.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 
 #include <assert.h>

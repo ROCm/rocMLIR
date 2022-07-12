@@ -33,7 +33,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
-#include "mlir/Dialect/GPU/Passes.h"
+#include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/MIOpen/utility/IsaNameSplitter.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"

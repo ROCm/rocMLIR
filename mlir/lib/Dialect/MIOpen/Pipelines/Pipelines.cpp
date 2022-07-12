@@ -113,8 +113,13 @@ void miopen::buildBufferizePipeline(OpPassManager &pm,
   bufOpts.allowReturnAllocs = true;
   bufOpts.createDeallocs = noMIOpen;
   bufOpts.bufferizeFunctionBoundaries = true;
-  bufOpts.unknownTypeConversion =
-      bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
+  bufOpts.unknownTypeConverterFn =
+    [](Value value, unsigned memorySpace,
+                                      const bufferization::BufferizationOptions &options) {
+    return bufferization::getMemRefTypeWithStaticIdentityLayout(
+        value.getType().cast<TensorType>(), memorySpace);
+  };
+      //bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
   bufOpts.functionBoundaryTypeConversion =
       bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
   pm.addPass(createOneShotBufferizePass(bufOpts));

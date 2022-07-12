@@ -1,4 +1,3 @@
-<<<<<<< HEAD:mlir/test/fusion/tosa-to-miopen-bias.e2e.mlir
 // RUN: mlir-miopen-driver -host-pipeline highlevel %s | miopen-gen -ph -print-results -rand none - | mlir-miopen-driver -c  | mlir-rocm-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext -entry-point-result=void | FileCheck %s
 
 // CHECK: Unranked Memref base

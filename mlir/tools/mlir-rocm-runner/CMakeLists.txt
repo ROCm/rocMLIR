@@ -51,7 +51,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     MLIRMIOpenOps
     MLIRMIOpenUtility
     MLIRParser
-    MLIRROCDLIR
+    MLIRROCDLDialect
     MLIRSupport
     MLIRGPUTransforms
     MLIRTargetLLVMIRExport

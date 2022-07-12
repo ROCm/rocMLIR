@@ -16,7 +16,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/GPU/GPUDialect.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/utility/IsaNameSplitter.h"

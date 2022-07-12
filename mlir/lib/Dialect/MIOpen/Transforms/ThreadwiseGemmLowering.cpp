@@ -25,7 +25,7 @@
 #include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
-#include "mlir/Dialect/GPU/GPUDialect.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MIOpen/AffineMapHelper.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"

@@ -1,6 +1,6 @@
 // RUN: mlir-miopen-driver --host-pipeline highlevel %s | miopen-opt --miopen-affix-params --miopen-conv-to-gemm --miopen-gridwise-gemm-to-blockwise --miopen-linalg-align | FileCheck %s
-// CHECK-DAG: #[[MAP1:.*]] = #miopen.transform_map<affine_map<{{.*}} by [#miopen.transform<PassThrough ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3] -> ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3]>, #miopen.transform<AddDim{1} ["g"] at [4] -> [] at []>] bounds = [256, 28, 28, 64, 1] -> [256, 28, 28, 64]>
-// CHECK-DAG: #[[MAP2:.*]] = #miopen.transform_map<affine_map<{{.*}}> by [#miopen.transform<PassThrough ["dim0", "dim1", "dim2", "dim3"] at [0, 3, 1, 2] -> ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3]>] bounds = [256, 28, 28, 64] -> [256, 64, 28, 28]>
+// CHECK-DAG: #[[MAP1:.*]] = #miopen.transform_map<affine_map<{{.*}} by [<PassThrough ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3] -> ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3]>, <AddDim{1} ["g"] at [4] -> [] at []>] bounds = [256, 28, 28, 64, 1] -> [256, 28, 28, 64]>
+// CHECK-DAG: #[[MAP2:.*]] = #miopen.transform_map<affine_map<{{.*}}> by [<PassThrough ["dim0", "dim1", "dim2", "dim3"] at [0, 3, 1, 2] -> ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3]>] bounds = [256, 28, 28, 64] -> [256, 64, 28, 28]>
 // CHECK: miopen.transforming_for{{.*}}#[[MAP1]]
 // CHECK: miopen.transforming_for
 // CHECK-SAME: [#[[MAP2]]]
