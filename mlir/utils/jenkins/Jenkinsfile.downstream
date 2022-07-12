@@ -49,7 +49,7 @@ def resetBuild() {
 }
 
 def rebootNode() {
-    build job: 'reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
+    build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
 }
 
 pipeline {
