@@ -13,7 +13,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define MIIR_VERSION_FLAT 5
+// Version 6: Switch kernel ABI to use bare pointers (just a pointer to the
+// buffer instead of a memref struct)
+#define MIIR_VERSION_FLAT 6
 
 enum MiirStatus {
   MIIR_SUCCESS = 0,
