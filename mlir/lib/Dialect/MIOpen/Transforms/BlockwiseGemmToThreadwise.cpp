@@ -404,13 +404,18 @@ struct ThreadwiseCopyV2RewritePattern
 
     Type sourceElemType = sourceType.getElementType();
     Type destElemType = op.dest().getType().cast<MemRefType>().getElementType();
+    int64_t elemsPerWord = (32 / destElemType.getIntOrFloatBitWidth());
+    int64_t maxWriteLen = 4 * elemsPerWord;
     int64_t remainingLength = op.length().getSExtValue();
     int64_t offset = 0;
     while (remainingLength > 0) {
-      int64_t copyLength = std::min(remainingLength, 4L);
-      // While the backend might be prepared to handle width-3 loads, we aren't.
-      if (copyLength == 3)
-        copyLength = 2;
+      int64_t copyLength = std::min(remainingLength, maxWriteLen);
+
+      // Clean up bad copy lengths
+      if (copyLength != maxWriteLen && copyLength > (2 * elemsPerWord))
+        copyLength = 2 * elemsPerWord;
+      if (copyLength > elemsPerWord && copyLength % elemsPerWord != 0)
+        copyLength = elemsPerWord;
 
       Type typeToLoad = sourceElemType;
       if (copyLength > 1)

@@ -25,3 +25,31 @@ func.func @miopen_threadwise_copy_v2_long(%source : memref<32xf32, 5>,
     : memref<32xf32, 5> -> memref<32x32xf32>, index, index
   func.return
 }
+
+// CHECK-LABEL: func @miopen_threadwise_copy_v2_8xf16
+func.func @miopen_threadwise_copy_v2_8xf16(%source : memref<32xf16, 5>,
+                                           %dest : memref<64xf16>) {
+  %c0 = arith.constant 0 : index
+  // CHECK: miopen.buffer_store
+  // CHECK-NOT: miopen.buffer_store
+  miopen.threadwise_copy_v2 %source[%c0] -> %dest[%c0]
+      storeMethod(set) {
+      length = 8 : index, leftOobDims = [], rightOobDims = [] }
+    : memref<32xf16, 5> -> memref<64xf16>, index
+  func.return
+}
+
+// CHECK-LABEL: func @miopen_threadwise_copy_v2_7xf16
+func.func @miopen_threadwise_copy_v2_7xf16(%source : memref<32xf16, 5>,
+                                           %dest : memref<64xf16>) {
+  %c0 = arith.constant 0 : index
+  // CHECK: miopen.buffer_store {{.*}} : vector<4xf16>
+  // CHECK: miopen.buffer_store {{.*}} : vector<2xf16>
+  // CHECK: miopen.buffer_store {{.*}} : f16
+  // CHECK-NOT: miopen.buffer_store
+  miopen.threadwise_copy_v2 %source[%c0] -> %dest[%c0]
+      storeMethod(set) {
+      length = 7 : index, leftOobDims = [], rightOobDims = [] }
+    : memref<32xf16, 5> -> memref<64xf16>, index
+  func.return
+}
