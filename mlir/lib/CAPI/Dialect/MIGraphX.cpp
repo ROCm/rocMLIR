@@ -124,5 +124,6 @@ MLIR_CAPI_EXPORTED void mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   opts.features = features;
   opts.optLevel = 3;
   opts.indexBitwidth = 64;
+  opts.tuningFallback = true;
   mlir::miopen::buildBackendPipeline(*passMan, opts);
 }

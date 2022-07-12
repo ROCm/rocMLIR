@@ -79,6 +79,9 @@ struct BackendOptions : public PassPipelineOptions<BackendOptions> {
       *this, "opt-level", desc("GPU compiler optimization level"), init(3)};
   PassOptions::Option<int32_t> indexBitwidth{*this, "index-bitwidth",
                                              desc("Index bit-width"), init(32)};
+  PassOptions::Option<bool> tuningFallback{
+      *this, "tuningFallback",
+      desc("Falls back default if invalid config is given"), init(false)};
 };
 
 /// Adds the `kernel` pipeline to the `OpPassManager`.
