@@ -25,6 +25,19 @@ func @load_vector_in_bounds(%mem: memref<1x2x3x4x8xf32>) -> vector<4xf32> {
     return %ret : vector<4xf32>
 }
 
+// CHECK-LABEL: func @load_vector_in_bounds_offset
+// CHECK-SAME: (%[[mem:.*]]: memref<1x2x3x4x8xf32>)
+func @load_vector_in_bounds_offset(%mem: memref<1x2x3x4x8xf32>) -> vector<4xf32> {
+    %c0 = arith.constant 0 : index
+    // CHECK: %[[ret:.*]] = amdgpu.raw_buffer_load {boundsCheck = true, indexOffset = 4 : i32} %[[mem]]
+    %ret = miopen.buffer_load %mem[%c0, %c0, %c0, %c0, %c0]
+        {leftOobDims = [], rightOobDims = [], offset = 4 : index}
+        : memref<1x2x3x4x8xf32>, index, index, index, index, index -> vector<4xf32>
+    // CHECK: return %[[ret]]
+    return %ret : vector<4xf32>
+}
+
+
 // CHECK-LABEL: func @load_vector_oob
 // CHECK-SAME: (%[[mem:.*]]: memref<1x2x3x4x8xf32>, %[[idx:.*]]: index)
 func @load_vector_oob(%mem: memref<1x2x3x4x8xf32>, %idx: index) -> vector<4xf32> {
@@ -58,6 +71,18 @@ func @store_vector_in_bounds(%val: vector<4xf32>, %mem: memref<1x2x3x4x8xf32>) {
         : vector<4xf32> -> memref<1x2x3x4x8xf32>, index, index, index, index, index
     return
 }
+
+// CHECK-LABEL: func @store_vector_in_bounds_offset
+// CHECK-SAME: (%[[val:.*]]: vector<4xf32>, %[[mem:.*]]: memref<1x2x3x4x8xf32>)
+func @store_vector_in_bounds_offset(%val: vector<4xf32>, %mem: memref<1x2x3x4x8xf32>) {
+    %c0 = arith.constant 0 : index
+    // CHECK: amdgpu.raw_buffer_store {boundsCheck = true, indexOffset = 4 : i32} %[[val]] -> %[[mem]]
+    miopen.buffer_store set %val -> %mem[%c0, %c0, %c0, %c0, %c0]
+        {leftOobDims = [], rightOobDims = [], offset = 4 : index}
+        : vector<4xf32> -> memref<1x2x3x4x8xf32>, index, index, index, index, index
+    return
+}
+
 
 // CHECK-LABEL: func @store_vector_oob
 // CHECK-SAME: (%[[val:.*]]: vector<4xf32>, %[[mem:.*]]: memref<1x2x3x4x8xf32>, %[[idx:.*]]: index)

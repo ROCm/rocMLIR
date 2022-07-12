@@ -159,9 +159,9 @@ TransformingForOp createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
       /*forceUnroll=*/true, useIndexDiffs, dest);
   OpBuilder::InsertionGuard guard(b);
   b.setInsertionPointToStart(loop.getBody());
-  Value loaded =
-      b.create<BufferLoadOp>(loc, loadType, global, leftOobDims, rightOobDims,
-                             loop.getLowerCoords(/*domain=*/0));
+  Value loaded = b.create<BufferLoadOp>(
+      loc, loadType, global, leftOobDims, rightOobDims,
+      loop.getLowerCoords(/*domain=*/0), /*offset=*/IntegerAttr());
   Value toYield = loaded;
   if (!fullyScalar) {
     Value loopArg = loop.getIterArgs()[0];
