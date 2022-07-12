@@ -21,6 +21,7 @@
 #ifndef LLVM_ANALYSIS_TARGETTRANSFORMINFO_H
 #define LLVM_ANALYSIS_TARGETTRANSFORMINFO_H
 
+#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/IR/FMF.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/PassManager.h"
@@ -616,8 +617,8 @@ public:
                              Instruction *I = nullptr) const;
 
   /// Return true if LSR cost of C1 is lower than C1.
-  bool isLSRCostLess(TargetTransformInfo::LSRCost &C1,
-                     TargetTransformInfo::LSRCost &C2) const;
+  bool isLSRCostLess(const TargetTransformInfo::LSRCost &C1,
+                     const TargetTransformInfo::LSRCost &C2) const;
 
   /// Return true if LSR major cost is number of registers. Targets which
   /// implement their own isLSRCostLess and unset number of registers as major
@@ -677,6 +678,16 @@ public:
   bool isLegalMaskedCompressStore(Type *DataType) const;
   /// Return true if the target supports masked expand load.
   bool isLegalMaskedExpandLoad(Type *DataType) const;
+
+  /// Return true if this is an alternating opcode pattern that can be lowered
+  /// to a single instruction on the target. In X86 this is for the addsub
+  /// instruction which corrsponds to a Shuffle + Fadd + FSub pattern in IR.
+  /// This function expectes two opcodes: \p Opcode1 and \p Opcode2 being
+  /// selected by \p OpcodeMask. The mask contains one bit per lane and is a `0`
+  /// when \p Opcode0 is selected and `1` when Opcode1 is selected.
+  /// \p VecTy is the vector type of the instruction to be generated.
+  bool isLegalAltInstr(VectorType *VecTy, unsigned Opcode0, unsigned Opcode1,
+                       const SmallBitVector &OpcodeMask) const;
 
   /// Return true if we should be enabling ordered reductions for the target.
   bool enableOrderedReductions() const;
@@ -764,6 +775,9 @@ public:
   /// return true here so that insertion/extraction costs are not added to
   /// the scalarization cost of a load/store.
   bool supportsEfficientVectorElementLoadStore() const;
+
+  /// If the target supports tail calls.
+  bool supportsTailCalls() const;
 
   /// Don't restrict interleaved unrolling to small loops.
   bool enableAggressiveInterleaving(bool LoopHasReductions) const;
@@ -1557,8 +1571,8 @@ public:
                                      int64_t BaseOffset, bool HasBaseReg,
                                      int64_t Scale, unsigned AddrSpace,
                                      Instruction *I) = 0;
-  virtual bool isLSRCostLess(TargetTransformInfo::LSRCost &C1,
-                             TargetTransformInfo::LSRCost &C2) = 0;
+  virtual bool isLSRCostLess(const TargetTransformInfo::LSRCost &C1,
+                             const TargetTransformInfo::LSRCost &C2) = 0;
   virtual bool isNumRegsMajorCostOfLSR() = 0;
   virtual bool isProfitableLSRChainElement(Instruction *I) = 0;
   virtual bool canMacroFuseCmp() = 0;
@@ -1581,6 +1595,9 @@ public:
                                            Align Alignment) = 0;
   virtual bool isLegalMaskedCompressStore(Type *DataType) = 0;
   virtual bool isLegalMaskedExpandLoad(Type *DataType) = 0;
+  virtual bool isLegalAltInstr(VectorType *VecTy, unsigned Opcode0,
+                               unsigned Opcode1,
+                               const SmallBitVector &OpcodeMask) const = 0;
   virtual bool enableOrderedReductions() = 0;
   virtual bool hasDivRemOp(Type *DataType, bool IsSigned) = 0;
   virtual bool hasVolatileVariant(Instruction *I, unsigned AddrSpace) = 0;
@@ -1607,6 +1624,7 @@ public:
   getOperandsScalarizationOverhead(ArrayRef<const Value *> Args,
                                    ArrayRef<Type *> Tys) = 0;
   virtual bool supportsEfficientVectorElementLoadStore() = 0;
+  virtual bool supportsTailCalls() = 0;
   virtual bool enableAggressiveInterleaving(bool LoopHasReductions) = 0;
   virtual MemCmpExpansionOptions
   enableMemCmpExpansion(bool OptSize, bool IsZeroCmp) const = 0;
@@ -1949,8 +1967,8 @@ public:
     return Impl.isLegalAddressingMode(Ty, BaseGV, BaseOffset, HasBaseReg, Scale,
                                       AddrSpace, I);
   }
-  bool isLSRCostLess(TargetTransformInfo::LSRCost &C1,
-                     TargetTransformInfo::LSRCost &C2) override {
+  bool isLSRCostLess(const TargetTransformInfo::LSRCost &C1,
+                     const TargetTransformInfo::LSRCost &C2) override {
     return Impl.isLSRCostLess(C1, C2);
   }
   bool isNumRegsMajorCostOfLSR() override {
@@ -2005,6 +2023,10 @@ public:
   }
   bool isLegalMaskedExpandLoad(Type *DataType) override {
     return Impl.isLegalMaskedExpandLoad(DataType);
+  }
+  bool isLegalAltInstr(VectorType *VecTy, unsigned Opcode0, unsigned Opcode1,
+                       const SmallBitVector &OpcodeMask) const override {
+    return Impl.isLegalAltInstr(VecTy, Opcode0, Opcode1, OpcodeMask);
   }
   bool enableOrderedReductions() override {
     return Impl.enableOrderedReductions();
@@ -2064,6 +2086,8 @@ public:
   bool supportsEfficientVectorElementLoadStore() override {
     return Impl.supportsEfficientVectorElementLoadStore();
   }
+
+  bool supportsTailCalls() override { return Impl.supportsTailCalls(); }
 
   bool enableAggressiveInterleaving(bool LoopHasReductions) override {
     return Impl.enableAggressiveInterleaving(LoopHasReductions);

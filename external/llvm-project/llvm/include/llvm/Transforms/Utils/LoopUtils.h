@@ -413,8 +413,10 @@ Value *createOrderedReduction(IRBuilderBase &B,
 /// of each scalar operation (VL) that will be converted into a vector (I).
 /// If OpValue is non-null, we only consider operations similar to OpValue
 /// when intersecting.
-/// Flag set: NSW, NUW, exact, and all of fast-math.
-void propagateIRFlags(Value *I, ArrayRef<Value *> VL, Value *OpValue = nullptr);
+/// Flag set: NSW, NUW (if IncludeWrapFlags is true), exact, and all of
+/// fast-math.
+void propagateIRFlags(Value *I, ArrayRef<Value *> VL, Value *OpValue = nullptr,
+                      bool IncludeWrapFlags = true);
 
 /// Returns true if we can prove that \p S is defined and always negative in
 /// loop \p L.
@@ -433,7 +435,13 @@ bool cannotBeMaxInLoop(const SCEV *S, const Loop *L, ScalarEvolution &SE,
 bool cannotBeMinInLoop(const SCEV *S, const Loop *L, ScalarEvolution &SE,
                        bool Signed);
 
-enum ReplaceExitVal { NeverRepl, OnlyCheapRepl, NoHardUse, AlwaysRepl };
+enum ReplaceExitVal {
+  NeverRepl,
+  OnlyCheapRepl,
+  NoHardUse,
+  UnusedIndVarInLoop,
+  AlwaysRepl
+};
 
 /// If the final value of any expressions that are recurrent in the loop can
 /// be computed, substitute the exit values from the loop into any instructions

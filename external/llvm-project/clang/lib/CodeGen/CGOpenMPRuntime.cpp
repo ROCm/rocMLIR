@@ -4507,7 +4507,8 @@ enum RTLDependenceKindTy {
   DepIn = 0x01,
   DepInOut = 0x3,
   DepMutexInOutSet = 0x4,
-  DepInOutSet = 0x8
+  DepInOutSet = 0x8,
+  DepOmpAllMem = 0x80,
 };
 /// Fields ids in kmp_depend_info record.
 enum RTLDependInfoFieldsTy { BaseAddr, Len, Flags };
@@ -4531,9 +4532,13 @@ static RTLDependenceKindTy translateDependencyKind(OpenMPDependClauseKind K) {
   case OMPC_DEPEND_inoutset:
     DepKind = DepInOutSet;
     break;
+  case OMPC_DEPEND_outallmemory:
+    DepKind = DepOmpAllMem;
+    break;
   case OMPC_DEPEND_source:
   case OMPC_DEPEND_sink:
   case OMPC_DEPEND_depobj:
+  case OMPC_DEPEND_inoutallmemory:
   case OMPC_DEPEND_unknown:
     llvm_unreachable("Unknown task dependence type");
   }
@@ -4600,12 +4605,21 @@ static void emitDependData(CodeGenFunction &CGF, QualType &KmpDependInfoTy,
   for (const Expr *E : Data.DepExprs) {
     llvm::Value *Addr;
     llvm::Value *Size;
-    std::tie(Addr, Size) = getPointerAndSize(CGF, E);
+
+    // The expression will be a nullptr in the 'omp_all_memory' case.
+    if (E) {
+      std::tie(Addr, Size) = getPointerAndSize(CGF, E);
+      Addr = CGF.Builder.CreatePtrToInt(Addr, CGF.IntPtrTy);
+    } else {
+      Addr = llvm::ConstantInt::get(CGF.IntPtrTy, 0);
+      Size = llvm::ConstantInt::get(CGF.SizeTy, 0);
+    }
     LValue Base;
     if (unsigned *P = Pos.dyn_cast<unsigned *>()) {
       Base = CGF.MakeAddrLValue(
           CGF.Builder.CreateConstGEP(DependenciesArray, *P), KmpDependInfoTy);
     } else {
+      assert(E && "Expected a non-null expression");
       LValue &PosLVal = *Pos.get<LValue *>();
       llvm::Value *Idx = CGF.EmitLoadOfScalar(PosLVal, E->getExprLoc());
       Base = CGF.MakeAddrLValue(
@@ -4614,8 +4628,7 @@ static void emitDependData(CodeGenFunction &CGF, QualType &KmpDependInfoTy,
     // deps[i].base_addr = &<Dependencies[i].second>;
     LValue BaseAddrLVal = CGF.EmitLValueForField(
         Base, *std::next(KmpDependInfoRD->field_begin(), BaseAddr));
-    CGF.EmitStoreOfScalar(CGF.Builder.CreatePtrToInt(Addr, CGF.IntPtrTy),
-                          BaseAddrLVal);
+    CGF.EmitStoreOfScalar(Addr, BaseAddrLVal);
     // deps[i].len = sizeof(<Dependencies[i].second>);
     LValue LenLVal = CGF.EmitLValueForField(
         Base, *std::next(KmpDependInfoRD->field_begin(), Len));
@@ -10220,7 +10233,8 @@ void CGOpenMPRuntime::emitTargetCall(
   assert((OffloadingMandatory || OutlinedFn) && "Invalid outlined function!");
 
   const bool RequiresOuterTask = D.hasClausesOfKind<OMPDependClause>() ||
-                                 D.hasClausesOfKind<OMPNowaitClause>();
+                                 D.hasClausesOfKind<OMPNowaitClause>() ||
+                                 D.hasClausesOfKind<OMPInReductionClause>();
   llvm::SmallVector<llvm::Value *, 16> CapturedVars;
   const CapturedStmt &CS = *D.getCapturedStmt(OMPD_target);
   auto &&ArgsCodegen = [&CS, &CapturedVars](CodeGenFunction &CGF,
@@ -10775,7 +10789,7 @@ void CGOpenMPRuntime::registerTargetGlobalVariable(const VarDecl *VD,
   // If we have host/nohost variables, they do not need to be registered.
   Optional<OMPDeclareTargetDeclAttr::DevTypeTy> DevTy =
       OMPDeclareTargetDeclAttr::getDeviceType(VD);
-  if (DevTy && DevTy.getValue() != OMPDeclareTargetDeclAttr::DT_Any)
+  if (DevTy && *DevTy != OMPDeclareTargetDeclAttr::DT_Any)
     return;
 
   llvm::Optional<OMPDeclareTargetDeclAttr::MapTypeTy> Res =
@@ -12172,25 +12186,14 @@ static llvm::Value *getAllocatorVal(CodeGenFunction &CGF,
   return AllocVal;
 }
 
-/// Given the allocate directive list item type and align clause value,
-/// return appropriate alignment.
-static llvm::Value *getAlignmentValue(CodeGenFunction &CGF, QualType ListItemTy,
-                                      const Expr *Alignment) {
-  if (!Alignment)
+/// Return the alignment from an allocate directive if present.
+static llvm::Value *getAlignmentValue(CodeGenModule &CGM, const VarDecl *VD) {
+  llvm::Optional<CharUnits> AllocateAlignment = CGM.getOMPAllocateAlignment(VD);
+
+  if (!AllocateAlignment)
     return nullptr;
 
-  unsigned UserAlign =
-      Alignment->EvaluateKnownConstInt(CGF.getContext()).getExtValue();
-  CharUnits NaturalAlign = CGF.CGM.getNaturalTypeAlignment(ListItemTy);
-
-  // OpenMP5.1 pg 185 lines 7-10
-  //   Each item in the align modifier list must be aligned to the maximum
-  //   of the specified alignment and the type's natural alignment.
-  //
-  // If no alignment specified then use the natural alignment.
-  return llvm::ConstantInt::get(
-      CGF.CGM.SizeTy,
-      std::max<unsigned>(UserAlign, NaturalAlign.getQuantity()));
+  return llvm::ConstantInt::get(CGM.SizeTy, AllocateAlignment->getQuantity());
 }
 
 Address CGOpenMPRuntime::getAddressOfLocalVariable(CodeGenFunction &CGF,
@@ -12231,8 +12234,7 @@ Address CGOpenMPRuntime::getAddressOfLocalVariable(CodeGenFunction &CGF,
     const auto *AA = CVD->getAttr<OMPAllocateDeclAttr>();
     const Expr *Allocator = AA->getAllocator();
     llvm::Value *AllocVal = getAllocatorVal(CGF, Allocator);
-    llvm::Value *Alignment = getAlignmentValue(
-        CGF, VD->getType().getNonReferenceType(), AA->getAlignment());
+    llvm::Value *Alignment = getAlignmentValue(CGM, CVD);
     SmallVector<llvm::Value *, 4> Args;
     Args.push_back(ThreadID);
     if (Alignment)

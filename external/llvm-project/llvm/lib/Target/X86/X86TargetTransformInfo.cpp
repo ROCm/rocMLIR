@@ -2623,7 +2623,7 @@ InstructionCost X86TTIImpl::getCmpSelInstrCost(unsigned Opcode, Type *ValTy,
   int ISD = TLI->InstructionOpcodeToISD(Opcode);
   assert(ISD && "Invalid opcode");
 
-  unsigned ExtraCost = 0;
+  InstructionCost ExtraCost = 0;
   if (Opcode == Instruction::ICmp || Opcode == Instruction::FCmp) {
     // Some vector comparison predicates cost extra instructions.
     // TODO: Should we invert this and assume worst case cmp costs
@@ -3654,7 +3654,7 @@ InstructionCost X86TTIImpl::getVectorInstrCost(unsigned Opcode, Type *Val,
 
   assert(Val->isVectorTy() && "This must be a vector type");
   Type *ScalarType = Val->getScalarType();
-  int RegisterFileMoveCost = 0;
+  InstructionCost RegisterFileMoveCost = 0;
 
   // Non-immediate extraction/insertion can be handled as a sequence of
   // aliased loads+stores via the stack.
@@ -3779,15 +3779,19 @@ InstructionCost X86TTIImpl::getScalarizationOverhead(VectorType *Ty,
                                                      const APInt &DemandedElts,
                                                      bool Insert,
                                                      bool Extract) {
+  assert(DemandedElts.getBitWidth() ==
+             cast<FixedVectorType>(Ty)->getNumElements() &&
+         "Vector size mismatch");
+
+  std::pair<InstructionCost, MVT> LT = TLI->getTypeLegalizationCost(DL, Ty);
+  MVT MScalarTy = LT.second.getScalarType();
+  unsigned SizeInBits = LT.second.getSizeInBits();
+
   InstructionCost Cost = 0;
 
   // For insertions, a ISD::BUILD_VECTOR style vector initialization can be much
   // cheaper than an accumulation of ISD::INSERT_VECTOR_ELT.
   if (Insert) {
-    std::pair<InstructionCost, MVT> LT = TLI->getTypeLegalizationCost(DL, Ty);
-    MVT MScalarTy = LT.second.getScalarType();
-    unsigned SizeInBits = LT.second.getSizeInBits();
-
     if ((MScalarTy == MVT::i16 && ST->hasSSE2()) ||
         (MScalarTy.isInteger() && ST->hasSSE41()) ||
         (MScalarTy == MVT::f32 && ST->hasSSE41())) {
@@ -3865,8 +3869,46 @@ InstructionCost X86TTIImpl::getScalarizationOverhead(VectorType *Ty,
       return MOVMSKCost;
     }
 
-    // TODO: Use default extraction for now, but we should investigate extending
-    // this to handle repeated subvector extraction.
+    if (LT.second.isVector()) {
+      int CostValue = *LT.first.getValue();
+      assert(CostValue >= 0 && "Negative cost!");
+
+      unsigned NumElts = LT.second.getVectorNumElements() * CostValue;
+      assert(NumElts >= DemandedElts.getBitWidth() &&
+             "Vector has been legalized to smaller element count");
+
+      // If we're extracting elements from a 128-bit subvector lane, we only need
+      // to extract each lane once, not for every element.
+      if (SizeInBits > 128) {
+        assert((SizeInBits % 128) == 0 && "Illegal vector");
+        unsigned NumLegal128Lanes = SizeInBits / 128;
+        unsigned Num128Lanes = NumLegal128Lanes * CostValue;
+        APInt WidenedDemandedElts = DemandedElts.zext(NumElts);
+        unsigned Scale = NumElts / Num128Lanes;
+
+        // Add cost for each demanded 128-bit subvector extraction.
+        // Luckily this is a lot easier than for insertion.
+        APInt DemandedUpper128Lanes =
+            APIntOps::ScaleBitMask(WidenedDemandedElts, Num128Lanes);
+        auto *Ty128 = FixedVectorType::get(Ty->getElementType(), Scale);
+        for (unsigned I = 0; I != Num128Lanes; ++I)
+          if (DemandedUpper128Lanes[I])
+            Cost += getShuffleCost(TTI::SK_ExtractSubvector, Ty, None,
+                                   I * Scale, Ty128);
+
+        // Add all the demanded element extractions together, but adjust the
+        // index to use the equivalent of the bottom 128 bit lane.
+        for (unsigned I = 0; I != NumElts; ++I)
+          if (WidenedDemandedElts[I]) {
+            unsigned Idx = I % Scale;
+            Cost += getVectorInstrCost(Instruction::ExtractElement, Ty, Idx);
+          }
+
+        return Cost;
+      }
+    }
+
+    // Fallback to default extraction.
     Cost += BaseT::getScalarizationOverhead(Ty, DemandedElts, false, Extract);
   }
 
@@ -5146,8 +5188,8 @@ InstructionCost X86TTIImpl::getGatherScatterOpCost(
   return getGSVectorCost(Opcode, SrcVTy, Ptr, Alignment, AddressSpace);
 }
 
-bool X86TTIImpl::isLSRCostLess(TargetTransformInfo::LSRCost &C1,
-                               TargetTransformInfo::LSRCost &C2) {
+bool X86TTIImpl::isLSRCostLess(const TargetTransformInfo::LSRCost &C1,
+                               const TargetTransformInfo::LSRCost &C2) {
     // X86 specific here are "instruction number 1st priority".
     return std::tie(C1.Insns, C1.NumRegs, C1.AddRecCost,
                     C1.NumIVMuls, C1.NumBaseAdds,
@@ -5297,6 +5339,39 @@ bool X86TTIImpl::isLegalMaskedGather(Type *DataTy, Align Alignment) {
 
   unsigned IntWidth = ScalarTy->getIntegerBitWidth();
   return IntWidth == 32 || IntWidth == 64;
+}
+
+bool X86TTIImpl::isLegalAltInstr(VectorType *VecTy, unsigned Opcode0,
+                                 unsigned Opcode1,
+                                 const SmallBitVector &OpcodeMask) const {
+  // ADDSUBPS  4xf32 SSE3
+  // VADDSUBPS 4xf32 AVX
+  // VADDSUBPS 8xf32 AVX2
+  // ADDSUBPD  2xf64 SSE3
+  // VADDSUBPD 2xf64 AVX
+  // VADDSUBPD 4xf64 AVX2
+
+  unsigned NumElements = cast<FixedVectorType>(VecTy)->getNumElements();
+  assert(OpcodeMask.size() == NumElements && "Mask and VecTy are incompatible");
+  if (!isPowerOf2_32(NumElements))
+    return false;
+  // Check the opcode pattern. We apply the mask on the opcode arguments and
+  // then check if it is what we expect.
+  for (int Lane : seq<int>(0, NumElements)) {
+    unsigned Opc = OpcodeMask.test(Lane) ? Opcode1 : Opcode0;
+    // We expect FSub for even lanes and FAdd for odd lanes.
+    if (Lane % 2 == 0 && Opc != Instruction::FSub)
+      return false;
+    if (Lane % 2 == 1 && Opc != Instruction::FAdd)
+      return false;
+  }
+  // Now check that the pattern is supported by the target ISA.
+  Type *ElemTy = cast<VectorType>(VecTy)->getElementType();
+  if (ElemTy->isFloatTy())
+    return ST->hasSSE3() && NumElements % 4 == 0;
+  if (ElemTy->isDoubleTy())
+    return ST->hasSSE3() && NumElements % 2 == 0;
+  return false;
 }
 
 bool X86TTIImpl::isLegalMaskedScatter(Type *DataType, Align Alignment) {

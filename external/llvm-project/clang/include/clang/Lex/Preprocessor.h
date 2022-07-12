@@ -29,7 +29,6 @@
 #include "clang/Lex/ModuleLoader.h"
 #include "clang/Lex/ModuleMap.h"
 #include "clang/Lex/PPCallbacks.h"
-#include "clang/Lex/PreprocessorExcludedConditionalDirectiveSkipMapping.h"
 #include "clang/Lex/Token.h"
 #include "clang/Lex/TokenLexer.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -518,7 +517,7 @@ private:
 
     bool hasRecordedPreamble() const { return !ConditionalStack.empty(); }
 
-    bool reachedEOFWhileSkipping() const { return SkipInfo.hasValue(); }
+    bool reachedEOFWhileSkipping() const { return SkipInfo.has_value(); }
 
     void clearSkipInfo() { SkipInfo.reset(); }
 
@@ -558,6 +557,7 @@ private:
     CLK_Lexer,
     CLK_TokenLexer,
     CLK_CachingLexer,
+    CLK_DependencyDirectivesLexer,
     CLK_LexAfterModuleImport
   } CurLexerKind = CLK_Lexer;
 
@@ -951,6 +951,18 @@ private:
   /// MacroInfos are managed as a chain for easy disposal.  This is the head
   /// of that list.
   MacroInfoChain *MIChainHead = nullptr;
+
+  /// True if \p Preprocessor::SkipExcludedConditionalBlock() is running.
+  /// This is used to guard against calling this function recursively.
+  ///
+  /// See comments at the use-site for more context about why it is needed.
+  bool SkippingExcludedConditionalBlock = false;
+
+  /// Keeps track of skipped range mappings that were recorded while skipping
+  /// excluded conditional directives. It maps the source buffer pointer at
+  /// the beginning of a skipped block, to the number of bytes that should be
+  /// skipped.
+  llvm::DenseMap<const char *, unsigned> RecordedSkippedRanges;
 
   void updateOutOfDateIdentifier(IdentifierInfo &II) const;
 
@@ -2243,10 +2255,7 @@ private:
   ///
   /// \param Tok - Token that represents the directive
   /// \param Directive - String reference for the directive name
-  /// \param EndLoc - End location for fixit
-  void SuggestTypoedDirective(const Token &Tok,
-                              StringRef Directive,
-                              const SourceLocation &EndLoc) const;
+  void SuggestTypoedDirective(const Token &Tok, StringRef Directive) const;
 
   /// We just read a \#if or related directive and decided that the
   /// subsequent tokens are in the \#if'd out portion of the
@@ -2595,14 +2604,6 @@ private:
   void emitMacroDeprecationWarning(const Token &Identifier) const;
   void emitRestrictExpansionWarning(const Token &Identifier) const;
   void emitFinalMacroWarning(const Token &Identifier, bool IsUndef) const;
-
-  Optional<unsigned>
-  getSkippedRangeForExcludedConditionalBlock(SourceLocation HashLoc);
-
-  /// Contains the currently active skipped range mappings for skipping excluded
-  /// conditional directives.
-  ExcludedPreprocessorDirectiveSkipMapping
-      *ExcludedConditionalDirectiveSkipMappings;
 };
 
 /// Abstract base class that describes a handler that will receive

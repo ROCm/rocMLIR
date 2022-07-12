@@ -208,7 +208,9 @@ identifiers::
    multiclass string        then          true
 
 .. warning::
-  The ``field`` reserved word is deprecated.
+  The ``field`` reserved word is deprecated, except when used with the
+  CodeEmitterGen backend where it's used to distinguish normal record
+  fields from encoding fields.
 
 Bang operators
 --------------
@@ -1721,6 +1723,10 @@ and non-0 as true.
 ``!isa<``\ *type*\ ``>(``\ *a*\ ``)``
     This operator produces 1 if the type of *a* is a subtype of the given *type*; 0
     otherwise.
+
+``!exists<``\ *type*\ ``>(``\ *name*\ ``)``
+    This operator produces 1 if a record of the given *type* whose name is *name*
+    exists; 0 otherwise. *name* should be of type *string*.
 
 ``!le(``\ *a*\ ``,`` *b*\ ``)``
     This operator produces 1 if *a* is less than or equal to *b*; 0 otherwise.

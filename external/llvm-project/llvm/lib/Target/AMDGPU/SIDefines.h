@@ -66,6 +66,9 @@ enum : uint64_t {
   // LDSDIR instruction format.
   LDSDIR = 1 << 26,
 
+  // VINTERP instruction format.
+  VINTERP = 1 << 27,
+
   // High bits - other information.
   VM_CNT = UINT64_C(1) << 32,
   EXP_CNT = UINT64_C(1) << 33,
@@ -123,7 +126,10 @@ enum : uint64_t {
   IsAtomicNoRet = UINT64_C(1) << 57,
 
   // Atomic with return.
-  IsAtomicRet = UINT64_C(1) << 58
+  IsAtomicRet = UINT64_C(1) << 58,
+
+  // Is a WMMA instruction.
+  IsWMMA = UINT64_C(1) << 59,
 };
 
 // v_cmp_class_* etc. use a 10-bit mask for what operation is checked.
@@ -261,9 +267,10 @@ namespace AMDGPUAsmVariants {
     VOP3 = 1,
     SDWA = 2,
     SDWA9 = 3,
-    DPP = 4
+    DPP = 4,
+    VOP3_DPP = 5
   };
-}
+} // namespace AMDGPUAsmVariants
 
 namespace AMDGPU {
 namespace EncValues { // Encoding values of enum9/8/7 operands
@@ -852,20 +859,23 @@ enum Target : unsigned {
   ET_MRT0 = 0,
   ET_MRT7 = 7,
   ET_MRTZ = 8,
-  ET_NULL = 9,
+  ET_NULL = 9,             // Pre-GFX11
   ET_POS0 = 12,
   ET_POS3 = 15,
-  ET_POS4 = 16,          // GFX10+
-  ET_POS_LAST = ET_POS4, // Highest pos used on any subtarget
-  ET_PRIM = 20,          // GFX10+
-  ET_PARAM0 = 32,
-  ET_PARAM31 = 63,
+  ET_POS4 = 16,            // GFX10+
+  ET_POS_LAST = ET_POS4,   // Highest pos used on any subtarget
+  ET_PRIM = 20,            // GFX10+
+  ET_DUAL_SRC_BLEND0 = 21, // GFX11+
+  ET_DUAL_SRC_BLEND1 = 22, // GFX11+
+  ET_PARAM0 = 32,          // Pre-GFX11
+  ET_PARAM31 = 63,         // Pre-GFX11
 
   ET_NULL_MAX_IDX = 0,
   ET_MRTZ_MAX_IDX = 0,
   ET_PRIM_MAX_IDX = 0,
   ET_MRT_MAX_IDX = 7,
   ET_POS_MAX_IDX = 4,
+  ET_DUAL_SRC_BLEND_MAX_IDX = 1,
   ET_PARAM_MAX_IDX = 31,
 
   ET_INVALID = 255,
@@ -1029,10 +1039,12 @@ enum Offset_COV5 : unsigned {
 #define FP_DENORM_MODE_DP(x) (((x) & 0x3) << 6)
 
 #define R_00B860_COMPUTE_TMPRING_SIZE                                   0x00B860
-#define   S_00B860_WAVESIZE(x)                                        (((x) & 0x1FFF) << 12)
+#define   S_00B860_WAVESIZE_PreGFX11(x)                               (((x) & 0x1FFF) << 12)
+#define   S_00B860_WAVESIZE_GFX11Plus(x)                              (((x) & 0x7FFF) << 12)
 
 #define R_0286E8_SPI_TMPRING_SIZE                                       0x0286E8
-#define   S_0286E8_WAVESIZE(x)                                        (((x) & 0x1FFF) << 12)
+#define   S_0286E8_WAVESIZE_PreGFX11(x)                               (((x) & 0x1FFF) << 12)
+#define   S_0286E8_WAVESIZE_GFX11Plus(x)                              (((x) & 0x7FFF) << 12)
 
 #define R_028B54_VGT_SHADER_STAGES_EN                                 0x028B54
 #define   S_028B54_HS_W32_EN(x)                                       (((x) & 0x1) << 21)

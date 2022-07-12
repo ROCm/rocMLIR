@@ -83,7 +83,6 @@ static cl::opt<bool> EnableNonTrivialUnswitch(
 
 static cl::opt<int>
     UnswitchThreshold("unswitch-threshold", cl::init(50), cl::Hidden,
-                      cl::ZeroOrMore,
                       cl::desc("The cost threshold for unswitching a loop."));
 
 static cl::opt<bool> EnableUnswitchCostMultiplier(
@@ -1685,7 +1684,7 @@ deleteDeadBlocksFromLoop(Loop &L,
     // uses in other blocks.
     for (auto &I : *BB)
       if (!I.use_empty())
-        I.replaceAllUsesWith(UndefValue::get(I.getType()));
+        I.replaceAllUsesWith(PoisonValue::get(I.getType()));
     BB->dropAllReferences();
   }
 
@@ -2232,11 +2231,12 @@ static void unswitchNontrivialInvariants(
       BasicBlock *ClonedPH = ClonedPHs.begin()->second;
       BI->setSuccessor(ClonedSucc, ClonedPH);
       BI->setSuccessor(1 - ClonedSucc, LoopPH);
+      Value *Cond = skipTrivialSelect(BI->getCondition());
       if (InsertFreeze) {
-        auto Cond = skipTrivialSelect(BI->getCondition());
         if (!isGuaranteedNotToBeUndefOrPoison(Cond, &AC, BI, &DT))
-          BI->setCondition(new FreezeInst(Cond, Cond->getName() + ".fr", BI));
+          Cond = new FreezeInst(Cond, Cond->getName() + ".fr", BI);
       }
+      BI->setCondition(Cond);
       DTUpdates.push_back({DominatorTree::Insert, SplitBB, ClonedPH});
     } else {
       assert(SI && "Must either be a branch or switch!");
@@ -2804,8 +2804,7 @@ static bool unswitchBestCondition(
       PartialIVInfo = *Info;
       PartialIVCondBranch = L.getHeader()->getTerminator();
       TinyPtrVector<Value *> ValsToDuplicate;
-      for (auto *Inst : Info->InstToDuplicate)
-        ValsToDuplicate.push_back(Inst);
+      llvm::append_range(ValsToDuplicate, Info->InstToDuplicate);
       UnswitchCandidates.push_back(
           {L.getHeader()->getTerminator(), std::move(ValsToDuplicate)});
     }
@@ -3152,8 +3151,7 @@ PreservedAnalyses SimpleLoopUnswitchPass::run(Loop &L, LoopAnalysisManager &AM,
       AR.MSSA->verifyMemorySSA();
   }
   if (!unswitchLoop(L, AR.DT, AR.LI, AR.AC, AR.AA, AR.TTI, Trivial, NonTrivial,
-                    UnswitchCB, &AR.SE,
-                    MSSAU.hasValue() ? MSSAU.getPointer() : nullptr,
+                    UnswitchCB, &AR.SE, MSSAU ? MSSAU.getPointer() : nullptr,
                     DestroyLoopCB))
     return PreservedAnalyses::all();
 

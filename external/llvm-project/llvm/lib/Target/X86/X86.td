@@ -266,6 +266,8 @@ def FeatureWBNOINVD    : SubtargetFeature<"wbnoinvd", "HasWBNOINVD", "true",
                                       "Write Back No Invalidate">;
 def FeatureRDPID : SubtargetFeature<"rdpid", "HasRDPID", "true",
                                     "Support RDPID instructions">;
+def FeatureRDPRU : SubtargetFeature<"rdpru", "HasRDPRU", "true",
+                                    "Support RDPRU instructions">;
 def FeatureWAITPKG  : SubtargetFeature<"waitpkg", "HasWAITPKG", "true",
                                       "Wait and pause enhancements">;
 def FeatureENQCMD : SubtargetFeature<"enqcmd", "HasENQCMD", "true",
@@ -381,6 +383,17 @@ def FeatureTaggedGlobals
           "tagged-globals", "AllowTaggedGlobals", "true",
           "Use an instruction sequence for taking the address of a global "
           "that allows a memory tag in the upper address bits.">;
+
+// Control codegen mitigation against Straight Line Speculation vulnerability.
+def FeatureHardenSlsRet
+    : SubtargetFeature<
+          "harden-sls-ret", "HardenSlsRet", "true",
+          "Harden against straight line speculation across RET instructions.">;
+
+def FeatureHardenSlsIJmp
+    : SubtargetFeature<
+          "harden-sls-ijmp", "HardenSlsIJmp", "true",
+          "Harden against straight line speculation across indirect JMP instructions.">;
 
 //===----------------------------------------------------------------------===//
 // X86 Subtarget Tuning features
@@ -1227,6 +1240,7 @@ def ProcessorFeatures {
                                      TuningInsertVZEROUPPER];
   list<SubtargetFeature> ZN2AdditionalFeatures = [FeatureCLWB,
                                                   FeatureRDPID,
+                                                  FeatureRDPRU,
                                                   FeatureWBNOINVD];
   list<SubtargetFeature> ZN2Tuning = ZNTuning;
   list<SubtargetFeature> ZN2Features =

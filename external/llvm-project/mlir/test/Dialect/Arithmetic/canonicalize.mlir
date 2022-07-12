@@ -948,6 +948,16 @@ func.func @test_mulf(%arg0 : f32) -> (f32, f32, f32, f32) {
   return %0, %1, %2, %3 : f32, f32, f32, f32
 }
 
+// CHECK-LABEL: @test_mulf1(
+func.func @test_mulf1(%arg0 : f32, %arg1 : f32) -> (f32) {
+  // CHECK-NEXT:  %[[X:.+]] = arith.mulf %arg0, %arg1 : f32
+  // CHECK-NEXT:  return %[[X]]
+  %0 = arith.negf %arg0 : f32
+  %1 = arith.negf %arg1 : f32
+  %2 = arith.mulf %0, %1 : f32
+  return %2 : f32
+}
+
 // -----
 
 // CHECK-LABEL: @test_divf(
@@ -959,6 +969,16 @@ func.func @test_divf(%arg0 : f64) -> (f64, f64) {
   %0 = arith.divf %arg0, %c1 : f64
   %1 = arith.divf %c1, %c2 : f64
   return %0, %1 : f64, f64
+}
+
+// CHECK-LABEL: @test_divf1(
+func.func @test_divf1(%arg0 : f32, %arg1 : f32) -> (f32) {
+  // CHECK-NEXT:  %[[X:.+]] = arith.divf %arg0, %arg1 : f32
+  // CHECK-NEXT:  return %[[X]]
+  %0 = arith.negf %arg0 : f32
+  %1 = arith.negf %arg1 : f32
+  %2 = arith.divf %0, %1 : f32
+  return %2 : f32
 }
 
 // -----
@@ -1373,4 +1393,26 @@ func.func @test_remsi_1(%arg : vector<4xi32>) -> (vector<4xi32>) {
   %v = arith.constant dense<[1, 1, 1, 1]> : vector<4xi32>
   %0 = arith.remsi %arg, %v : vector<4xi32>
   return %0 : vector<4xi32>
+}
+
+// -----
+
+// CHECK-LABEL: @test_remf(
+// CHECK: %[[res:.+]] = arith.constant -1.000000e+00 : f32
+// CHECK: return %[[res]]
+func.func @test_remf() -> (f32) {
+  %v1 = arith.constant 3.0 : f32
+  %v2 = arith.constant 2.0 : f32
+  %0 = arith.remf %v1, %v2 : f32
+  return %0 : f32
+}
+
+// CHECK-LABEL: @test_remf_vec(
+// CHECK: %[[res:.+]] = arith.constant dense<[1.000000e+00, 0.000000e+00, -1.000000e+00, 0.000000e+00]> : vector<4xf32>
+// CHECK: return %[[res]]
+func.func @test_remf_vec() -> (vector<4xf32>) {
+  %v1 = arith.constant dense<[1.0, 2.0, 3.0, 4.0]> : vector<4xf32>
+  %v2 = arith.constant dense<[2.0, 2.0, 2.0, 2.0]> : vector<4xf32>
+  %0 = arith.remf %v1, %v2 : vector<4xf32>
+  return %0 : vector<4xf32>
 }

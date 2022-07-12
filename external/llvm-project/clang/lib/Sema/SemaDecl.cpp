@@ -3911,6 +3911,8 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
     // ASTContext::typesAreCompatible().
     if (Old->hasPrototype() && !New->hasWrittenPrototype() && NewDeclIsDefn &&
         Old->getNumParams() != New->getNumParams()) {
+      if (Old->hasInheritedPrototype())
+        Old = Old->getCanonicalDecl();
       Diag(New->getLocation(), diag::err_conflicting_types) << New;
       Diag(Old->getLocation(), PrevDiag) << Old << Old->getType();
       return true;
@@ -3938,59 +3940,29 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
       }
 
       if (WithProto->getNumParams() != 0) {
-        // The function definition has parameters, so this will change
-        // behavior in C2x.
-        //
-        // If we already warned about about the function without a prototype
-        // being deprecated, add a note that it also changes behavior. If we
-        // didn't warn about it being deprecated (because the diagnostic is
-        // not enabled), warn now that it is deprecated and changes behavior.
-        bool AddNote = false;
-        if (Diags.isIgnored(diag::warn_strict_prototypes,
-                            WithoutProto->getLocation())) {
-          if (WithoutProto->getBuiltinID() == 0 &&
-              !WithoutProto->isImplicit() &&
-              SourceMgr.isBeforeInTranslationUnit(WithoutProto->getLocation(),
-                                                  WithProto->getLocation())) {
-            PartialDiagnostic PD =
-                PDiag(diag::warn_non_prototype_changes_behavior);
-            if (TypeSourceInfo *TSI = WithoutProto->getTypeSourceInfo()) {
-              if (auto FTL = TSI->getTypeLoc().getAs<FunctionNoProtoTypeLoc>())
-                PD << FixItHint::CreateInsertion(FTL.getRParenLoc(), "void");
-            }
-            Diag(WithoutProto->getLocation(), PD);
-          }
-        } else {
-          AddNote = true;
-        }
-
-        // Because the function with a prototype has parameters but a previous
-        // declaration had none, the function with the prototype will also
-        // change behavior in C2x.
-        if (WithProto->getBuiltinID() == 0 && !WithProto->isImplicit()) {
-          if (SourceMgr.isBeforeInTranslationUnit(
-                  WithProto->getLocation(), WithoutProto->getLocation())) {
-            // If the function with the prototype comes before the function
-            // without the prototype, we only want to diagnose the one without
-            // the prototype.
-            Diag(WithoutProto->getLocation(),
-                 diag::warn_non_prototype_changes_behavior);
-          } else {
-            // Otherwise, diagnose the one with the prototype, and potentially
-            // attach a note to the one without a prototype if needed.
-            Diag(WithProto->getLocation(),
-                 diag::warn_non_prototype_changes_behavior);
-            if (AddNote && WithoutProto->getBuiltinID() == 0)
-              Diag(WithoutProto->getLocation(),
-                   diag::note_func_decl_changes_behavior);
-          }
-        } else if (AddNote && WithoutProto->getBuiltinID() == 0 &&
-                   !WithoutProto->isImplicit()) {
-          // If we were supposed to add a note but the function with a
-          // prototype is a builtin or was implicitly declared, which means we
-          // have nothing to attach the note to, so we issue a warning instead.
+        if (WithoutProto->getBuiltinID() == 0 && !WithoutProto->isImplicit()) {
+          // The one without the prototype will be changing behavior in C2x, so
+          // warn about that one so long as it's a user-visible declaration.
+          bool IsWithoutProtoADef = false, IsWithProtoADef = false;
+          if (WithoutProto == New)
+            IsWithoutProtoADef = NewDeclIsDefn;
+          else
+            IsWithProtoADef = NewDeclIsDefn;
           Diag(WithoutProto->getLocation(),
-               diag::warn_non_prototype_changes_behavior);
+               diag::warn_non_prototype_changes_behavior)
+              << IsWithoutProtoADef << (WithoutProto->getNumParams() ? 0 : 1)
+              << (WithoutProto == Old) << IsWithProtoADef;
+
+          // The reason the one without the prototype will be changing behavior
+          // is because of the one with the prototype, so note that so long as
+          // it's a user-visible declaration. There is one exception to this:
+          // when the new declaration is a definition without a prototype, the
+          // old declaration with a prototype is not the cause of the issue,
+          // and that does not need to be noted because the one with a
+          // prototype will not change behavior in C2x.
+          if (WithProto->getBuiltinID() == 0 && !WithProto->isImplicit() &&
+              !IsWithoutProtoADef)
+            Diag(WithProto->getLocation(), diag::note_conflicting_prototype);
         }
       }
     }
@@ -4536,15 +4508,15 @@ void Sema::MergeVarDecl(VarDecl *New, LookupResult &Previous) {
   }
 
   // C++ doesn't have tentative definitions, so go right ahead and check here.
-  if (getLangOpts().CPlusPlus &&
-      New->isThisDeclarationADefinition() == VarDecl::Definition) {
+  if (getLangOpts().CPlusPlus) {
     if (Old->isStaticDataMember() && Old->getCanonicalDecl()->isInline() &&
         Old->getCanonicalDecl()->isConstexpr()) {
       // This definition won't be a definition any more once it's been merged.
       Diag(New->getLocation(),
            diag::warn_deprecated_redundant_constexpr_static_def);
-    } else if (VarDecl *Def = Old->getDefinition()) {
-      if (checkVarDeclRedefinition(Def, New))
+    } else if (New->isThisDeclarationADefinition() == VarDecl::Definition) {
+      VarDecl *Def = Old->getDefinition();
+      if (Def && checkVarDeclRedefinition(Def, New))
         return;
     }
   }
@@ -4657,11 +4629,12 @@ bool Sema::checkVarDeclRedefinition(VarDecl *Old, VarDecl *New) {
 
 /// ParsedFreeStandingDeclSpec - This method is invoked when a declspec with
 /// no declarator (e.g. "struct foo;") is parsed.
-Decl *
-Sema::ParsedFreeStandingDeclSpec(Scope *S, AccessSpecifier AS, DeclSpec &DS,
-                                 RecordDecl *&AnonRecord) {
-  return ParsedFreeStandingDeclSpec(S, AS, DS, MultiTemplateParamsArg(), false,
-                                    AnonRecord);
+Decl *Sema::ParsedFreeStandingDeclSpec(Scope *S, AccessSpecifier AS,
+                                       DeclSpec &DS,
+                                       const ParsedAttributesView &DeclAttrs,
+                                       RecordDecl *&AnonRecord) {
+  return ParsedFreeStandingDeclSpec(
+      S, AS, DS, DeclAttrs, MultiTemplateParamsArg(), false, AnonRecord);
 }
 
 // The MS ABI changed between VS2013 and VS2015 with regard to numbers used to
@@ -4874,11 +4847,12 @@ static unsigned GetDiagnosticTypeSpecifierID(DeclSpec::TST T) {
 /// ParsedFreeStandingDeclSpec - This method is invoked when a declspec with
 /// no declarator (e.g. "struct foo;") is parsed. It also accepts template
 /// parameters to cope with template friend declarations.
-Decl *
-Sema::ParsedFreeStandingDeclSpec(Scope *S, AccessSpecifier AS, DeclSpec &DS,
-                                 MultiTemplateParamsArg TemplateParams,
-                                 bool IsExplicitInstantiation,
-                                 RecordDecl *&AnonRecord) {
+Decl *Sema::ParsedFreeStandingDeclSpec(Scope *S, AccessSpecifier AS,
+                                       DeclSpec &DS,
+                                       const ParsedAttributesView &DeclAttrs,
+                                       MultiTemplateParamsArg TemplateParams,
+                                       bool IsExplicitInstantiation,
+                                       RecordDecl *&AnonRecord) {
   Decl *TagD = nullptr;
   TagDecl *Tag = nullptr;
   if (DS.getTypeSpecType() == DeclSpec::TST_class ||
@@ -5117,7 +5091,7 @@ Sema::ParsedFreeStandingDeclSpec(Scope *S, AccessSpecifier AS, DeclSpec &DS,
   // Warn about ignored type attributes, for example:
   // __attribute__((aligned)) struct A;
   // Attributes should be placed after tag to apply to type declaration.
-  if (!DS.getAttributes().empty()) {
+  if (!DS.getAttributes().empty() || !DeclAttrs.empty()) {
     DeclSpec::TST TypeSpecType = DS.getTypeSpecType();
     if (TypeSpecType == DeclSpec::TST_class ||
         TypeSpecType == DeclSpec::TST_struct ||
@@ -5125,6 +5099,9 @@ Sema::ParsedFreeStandingDeclSpec(Scope *S, AccessSpecifier AS, DeclSpec &DS,
         TypeSpecType == DeclSpec::TST_union ||
         TypeSpecType == DeclSpec::TST_enum) {
       for (const ParsedAttr &AL : DS.getAttributes())
+        Diag(AL.getLoc(), diag::warn_declspec_attribute_ignored)
+            << AL << GetDiagnosticTypeSpecifierID(TypeSpecType);
+      for (const ParsedAttr &AL : DeclAttrs)
         Diag(AL.getLoc(), diag::warn_declspec_attribute_ignored)
             << AL << GetDiagnosticTypeSpecifierID(TypeSpecType);
     }
@@ -5489,7 +5466,7 @@ Decl *Sema::BuildAnonymousStructOrUnion(Scope *S, DeclSpec &DS,
     Diag(DS.getBeginLoc(), diag::ext_no_declarators) << DS.getSourceRange();
 
   // Mock up a declarator.
-  Declarator Dc(DS, DeclaratorContext::Member);
+  Declarator Dc(DS, ParsedAttributesView::none(), DeclaratorContext::Member);
   TypeSourceInfo *TInfo = GetTypeForDeclarator(Dc, S);
   assert(TInfo && "couldn't build declarator info for anonymous struct/union");
 
@@ -5586,7 +5563,7 @@ Decl *Sema::BuildMicrosoftCAnonymousStruct(Scope *S, DeclSpec &DS,
   assert(Record && "expected a record!");
 
   // Mock up a declarator.
-  Declarator Dc(DS, DeclaratorContext::TypeName);
+  Declarator Dc(DS, ParsedAttributesView::none(), DeclaratorContext::TypeName);
   TypeSourceInfo *TInfo = GetTypeForDeclarator(Dc, S);
   assert(TInfo && "couldn't build declarator info for anonymous struct");
 
@@ -5891,11 +5868,24 @@ void Sema::warnOnReservedIdentifier(const NamedDecl *D) {
 
 Decl *Sema::ActOnDeclarator(Scope *S, Declarator &D) {
   D.setFunctionDefinitionKind(FunctionDefinitionKind::Declaration);
+
+  // Check if we are in an `omp begin/end declare variant` scope. Handle this
+  // declaration only if the `bind_to_declaration` extension is set.
+  SmallVector<FunctionDecl *, 4> Bases;
+  if (LangOpts.OpenMP && isInOpenMPDeclareVariantScope())
+    if (getOMPTraitInfoForSurroundingScope()->isExtensionActive(llvm::omp::TraitProperty::
+              implementation_extension_bind_to_declaration))
+    ActOnStartOfFunctionDefinitionInOpenMPDeclareVariantScope(
+        S, D, MultiTemplateParamsArg(), Bases);
+
   Decl *Dcl = HandleDeclarator(S, D, MultiTemplateParamsArg());
 
   if (OriginalLexicalContext && OriginalLexicalContext->isObjCContainer() &&
       Dcl && Dcl->getDeclContext()->isFileContext())
     Dcl->setTopLevelDeclInObjCContainer();
+
+  if (!Bases.empty())
+    ActOnFinishedFunctionDefinitionInOpenMPDeclareVariantScope(Dcl, Bases);
 
   return Dcl;
 }
@@ -7028,7 +7018,8 @@ static bool hasParsedAttr(Scope *S, const Declarator &PD,
   }
 
   // Finally, check attributes on the decl itself.
-  return PD.getAttributes().hasAttribute(Kind);
+  return PD.getAttributes().hasAttribute(Kind) ||
+         PD.getDeclarationAttributes().hasAttribute(Kind);
 }
 
 /// Adjust the \c DeclContext for a function or variable that might be a
@@ -8879,6 +8870,10 @@ static FunctionDecl *CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
           SemaRef.getCurFPFeatures().isFPConstrained(), isInline,
           /*isImplicitlyDeclared=*/false, ConstexprKind,
           TrailingRequiresClause);
+      // User defined destructors start as not selected if the class definition is still
+      // not done.
+      if (Record->isBeingDefined())
+        NewDD->setIneligibleOrNotSelected(true);
 
       // If the destructor needs an implicit exception specification, set it
       // now. FIXME: It'd be nice to be able to create the right type to start
@@ -10220,6 +10215,7 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
     AddRangeBasedOptnone(NewFD);
     AddImplicitMSFunctionNoBuiltinAttr(NewFD);
     AddSectionMSAllocText(NewFD);
+    ModifyFnAttributesMSPragmaOptimize(NewFD);
   }
 
   // If this is the first declaration of an extern C variable, update
@@ -13197,7 +13193,6 @@ void Sema::ActOnUninitializedDecl(Decl *RealDecl) {
     if (Type->isReferenceType()) {
       Diag(Var->getLocation(), diag::err_reference_var_requires_init)
           << Var << SourceRange(Var->getLocation(), Var->getLocation());
-      Var->setInvalidDecl();
       return;
     }
 
@@ -13361,7 +13356,7 @@ StmtResult Sema::ActOnCXXForRangeIdentifier(Scope *S, SourceLocation IdentLoc,
   DS.SetTypeSpecType(DeclSpec::TST_auto, IdentLoc, PrevSpec, DiagID,
                      getPrintingPolicy());
 
-  Declarator D(DS, DeclaratorContext::ForInit);
+  Declarator D(DS, ParsedAttributesView::none(), DeclaratorContext::ForInit);
   D.SetIdentifier(Ident, IdentLoc);
   D.takeAttributes(Attrs);
 
@@ -14359,7 +14354,8 @@ void Sema::ActOnFinishKNRParamDeclarations(Scope *S, Declarator &D,
         // Use the identifier location for the type source range.
         DS.SetRangeStart(FTI.Params[i].IdentLoc);
         DS.SetRangeEnd(FTI.Params[i].IdentLoc);
-        Declarator ParamD(DS, DeclaratorContext::KNRTypeList);
+        Declarator ParamD(DS, ParsedAttributesView::none(),
+                          DeclaratorContext::KNRTypeList);
         ParamD.SetIdentifier(FTI.Params[i].Ident, FTI.Params[i].IdentLoc);
         FTI.Params[i].Param = ActOnParamDeclarator(S, ParamD);
       }
@@ -15052,29 +15048,22 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
         // deprecated, add a note that it also changes behavior. If we didn't
         // warn about it being deprecated (because the diagnostic is not
         // enabled), warn now that it is deprecated and changes behavior.
-        bool AddNote = false;
-        if (PossiblePrototype) {
-          if (Diags.isIgnored(diag::warn_strict_prototypes,
-                              PossiblePrototype->getLocation())) {
 
-            PartialDiagnostic PD =
-                PDiag(diag::warn_non_prototype_changes_behavior);
-            if (TypeSourceInfo *TSI = PossiblePrototype->getTypeSourceInfo()) {
-              if (auto FTL = TSI->getTypeLoc().getAs<FunctionNoProtoTypeLoc>())
-                PD << FixItHint::CreateInsertion(FTL.getRParenLoc(), "void");
-            }
-            Diag(PossiblePrototype->getLocation(), PD);
-          } else {
-            AddNote = true;
-          }
-        }
+        // This K&R C function definition definitely changes behavior in C2x,
+        // so diagnose it.
+        Diag(FD->getLocation(), diag::warn_non_prototype_changes_behavior)
+            << /*definition*/ 1 << /* not supported in C2x */ 0;
 
-        // Because this function definition has no prototype and it has
-        // parameters, it will definitely change behavior in C2x.
-        Diag(FD->getLocation(), diag::warn_non_prototype_changes_behavior);
-        if (AddNote)
+        // If we have a possible prototype for the function which is a user-
+        // visible declaration, we already tested that it has no prototype.
+        // This will change behavior in C2x. This gets a warning rather than a
+        // note because it's the same behavior-changing problem as with the
+        // definition.
+        if (PossiblePrototype)
           Diag(PossiblePrototype->getLocation(),
-               diag::note_func_decl_changes_behavior);
+               diag::warn_non_prototype_changes_behavior)
+              << /*declaration*/ 0 << /* conflicting */ 1 << /*subsequent*/ 1
+              << /*definition*/ 1;
       }
 
       // Warn on CPUDispatch with an actual body.
@@ -15388,7 +15377,7 @@ NamedDecl *Sema::ImplicitlyDefineFunction(SourceLocation Loc,
   (void)Error; // Silence warning.
   assert(!Error && "Error setting up implicit decl!");
   SourceLocation NoLoc;
-  Declarator D(DS, DeclaratorContext::Block);
+  Declarator D(DS, ParsedAttributesView::none(), DeclaratorContext::Block);
   D.AddTypeInfo(DeclaratorChunk::getFunction(/*HasProto=*/false,
                                              /*IsAmbiguous=*/false,
                                              /*LParenLoc=*/NoLoc,
@@ -15473,7 +15462,7 @@ void Sema::AddKnownFunctionAttributesForReplaceableGlobalAllocationFunction(
   //   (3.1) If the allocation function takes an argument of type
   //         std​::​align_­val_­t, the storage will have the alignment
   //         specified by the value of this argument.
-  if (AlignmentParam.hasValue() && !FD->hasAttr<AllocAlignAttr>()) {
+  if (AlignmentParam && !FD->hasAttr<AllocAlignAttr>()) {
     FD->addAttr(AllocAlignAttr::CreateImplicit(
         Context, ParamIdx(AlignmentParam.getValue(), FD), FD->getLocation()));
   }
@@ -17130,16 +17119,11 @@ void Sema::ActOnTagDefinitionError(Scope *S, Decl *TagD) {
 
 // Note that FieldName may be null for anonymous bitfields.
 ExprResult Sema::VerifyBitField(SourceLocation FieldLoc,
-                                IdentifierInfo *FieldName,
-                                QualType FieldTy, bool IsMsStruct,
-                                Expr *BitWidth, bool *ZeroWidth) {
+                                IdentifierInfo *FieldName, QualType FieldTy,
+                                bool IsMsStruct, Expr *BitWidth) {
   assert(BitWidth);
   if (BitWidth->containsErrors())
     return ExprError();
-
-  // Default to true; that shouldn't confuse checks for emptiness
-  if (ZeroWidth)
-    *ZeroWidth = true;
 
   // C99 6.7.2.1p4 - verify the field type.
   // C++ 9.6p3: A bit-field shall have integral or enumeration type.
@@ -17167,9 +17151,6 @@ ExprResult Sema::VerifyBitField(SourceLocation FieldLoc,
   if (ICE.isInvalid())
     return ICE;
   BitWidth = ICE.get();
-
-  if (Value != 0 && ZeroWidth)
-    *ZeroWidth = false;
 
   // Zero-width bitfield is ok for anonymous field.
   if (Value == 0 && FieldName)
@@ -17423,17 +17404,15 @@ FieldDecl *Sema::CheckFieldDecl(DeclarationName Name, QualType T,
                                              AbstractFieldType))
     InvalidDecl = true;
 
-  bool ZeroWidth = false;
   if (InvalidDecl)
     BitWidth = nullptr;
   // If this is declared as a bit-field, check the bit-field.
   if (BitWidth) {
-    BitWidth = VerifyBitField(Loc, II, T, Record->isMsStruct(Context), BitWidth,
-                              &ZeroWidth).get();
+    BitWidth =
+        VerifyBitField(Loc, II, T, Record->isMsStruct(Context), BitWidth).get();
     if (!BitWidth) {
       InvalidDecl = true;
       BitWidth = nullptr;
-      ZeroWidth = false;
     }
   }
 
@@ -17755,6 +17734,75 @@ void Sema::ActOnLastBitfield(SourceLocation DeclLoc,
   AllIvarDecls.push_back(Ivar);
 }
 
+namespace {
+/// [class.dtor]p4:
+///   At the end of the definition of a class, overload resolution is
+///   performed among the prospective destructors declared in that class with
+///   an empty argument list to select the destructor for the class, also
+///   known as the selected destructor.
+///
+/// We do the overload resolution here, then mark the selected constructor in the AST.
+/// Later CXXRecordDecl::getDestructor() will return the selected constructor.
+void ComputeSelectedDestructor(Sema &S, CXXRecordDecl *Record) {
+  if (!Record->hasUserDeclaredDestructor()) {
+    return;
+  }
+
+  SourceLocation Loc = Record->getLocation();
+  OverloadCandidateSet OCS(Loc, OverloadCandidateSet::CSK_Normal);
+
+  for (auto *Decl : Record->decls()) {
+    if (auto *DD = dyn_cast<CXXDestructorDecl>(Decl)) {
+      if (DD->isInvalidDecl())
+        continue;
+      S.AddOverloadCandidate(DD, DeclAccessPair::make(DD, DD->getAccess()), {},
+                             OCS);
+      assert(DD->isIneligibleOrNotSelected() && "Selecting a destructor but a destructor was already selected.");
+    }
+  }
+
+  if (OCS.empty()) {
+    return;
+  }
+  OverloadCandidateSet::iterator Best;
+  unsigned Msg = 0;
+  OverloadCandidateDisplayKind DisplayKind;
+
+  switch (OCS.BestViableFunction(S, Loc, Best)) {
+  case OR_Success:
+  case OR_Deleted:
+    Record->addedSelectedDestructor(dyn_cast<CXXDestructorDecl>(Best->Function));
+    break;
+
+  case OR_Ambiguous:
+    Msg = diag::err_ambiguous_destructor;
+    DisplayKind = OCD_AmbiguousCandidates;
+    break;
+
+  case OR_No_Viable_Function:
+    Msg = diag::err_no_viable_destructor;
+    DisplayKind = OCD_AllCandidates;
+    break;
+  }
+
+  if (Msg) {
+    // OpenCL have got their own thing going with destructors. It's slightly broken,
+    // but we allow it.
+    if (!S.LangOpts.OpenCL) {
+      PartialDiagnostic Diag = S.PDiag(Msg) << Record;
+      OCS.NoteCandidates(PartialDiagnosticAt(Loc, Diag), S, DisplayKind, {});
+      Record->setInvalidDecl();
+    }
+    // It's a bit hacky: At this point we've raised an error but we want the
+    // rest of the compiler to continue somehow working. However almost
+    // everything we'll try to do with the class will depend on there being a
+    // destructor. So let's pretend the first one is selected and hope for the
+    // best.
+    Record->addedSelectedDestructor(dyn_cast<CXXDestructorDecl>(OCS.begin()->Function));
+  }
+}
+} // namespace
+
 void Sema::ActOnFields(Scope *S, SourceLocation RecLoc, Decl *EnclosingDecl,
                        ArrayRef<Decl *> Fields, SourceLocation LBrac,
                        SourceLocation RBrac,
@@ -17780,6 +17828,9 @@ void Sema::ActOnFields(Scope *S, SourceLocation RecLoc, Decl *EnclosingDecl,
 
   RecordDecl *Record = dyn_cast<RecordDecl>(EnclosingDecl);
   CXXRecordDecl *CXXRecord = dyn_cast<CXXRecordDecl>(EnclosingDecl);
+
+  if (CXXRecord && !CXXRecord->isDependentType())
+    ComputeSelectedDestructor(*this, CXXRecord);
 
   // Start counting up the number of named members; make sure to include
   // members of anonymous structs and unions in the total.
@@ -19069,12 +19120,12 @@ Sema::FunctionEmissionStatus Sema::getEmissionStatus(FunctionDecl *FD,
     //  #pragma omp declare target to(*) device_type(*).
     // Therefore DevTy having no value does not imply host. The emission status
     // will be checked again at the end of compilation unit with Final = true.
-    if (DevTy.hasValue())
+    if (DevTy)
       if (*DevTy == OMPDeclareTargetDeclAttr::DT_Host)
         return FunctionEmissionStatus::OMPDiscarded;
     // If we have an explicit value for the device type, or we are in a target
     // declare context, we need to emit all extern and used symbols.
-    if (isInOpenMPDeclareTargetContext() || DevTy.hasValue())
+    if (isInOpenMPDeclareTargetContext() || DevTy)
       if (IsEmittedForExternalSymbol())
         return FunctionEmissionStatus::Emitted;
     // Device mode only emits what it must, if it wasn't tagged yet and needed,
@@ -19087,7 +19138,7 @@ Sema::FunctionEmissionStatus Sema::getEmissionStatus(FunctionDecl *FD,
     // be ommitted.
     Optional<OMPDeclareTargetDeclAttr::DevTypeTy> DevTy =
         OMPDeclareTargetDeclAttr::getDeviceType(FD->getCanonicalDecl());
-    if (DevTy.hasValue())
+    if (DevTy)
       if (*DevTy == OMPDeclareTargetDeclAttr::DT_NoHost)
         return FunctionEmissionStatus::OMPDiscarded;
   }

@@ -263,8 +263,8 @@ LogicalResult LaunchOp::verify() {
 
 constexpr char kOperandSegmentSizesAttr[] = "operand_segment_sizes";
 
-OperandRange ExecuteOp::getSuccessorEntryOperands(unsigned index) {
-  assert(index == 0 && "invalid region index");
+OperandRange ExecuteOp::getSuccessorEntryOperands(Optional<unsigned> index) {
+  assert(index && *index == 0 && "invalid region index");
   return operands();
 }
 
@@ -281,7 +281,7 @@ void ExecuteOp::getSuccessorRegions(Optional<unsigned> index,
                                     ArrayRef<Attribute>,
                                     SmallVectorImpl<RegionSuccessor> &regions) {
   // The `body` region branch back to the parent operation.
-  if (index.hasValue()) {
+  if (index) {
     assert(*index == 0 && "invalid region index");
     regions.push_back(RegionSuccessor(results()));
     return;

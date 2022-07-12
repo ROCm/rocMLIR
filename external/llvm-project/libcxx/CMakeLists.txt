@@ -68,11 +68,11 @@ option(LIBCXX_ENABLE_FILESYSTEM "Build filesystem as part of the main libc++ lib
     ${ENABLE_FILESYSTEM_DEFAULT})
 option(LIBCXX_INCLUDE_TESTS "Build the libc++ tests." ${LLVM_INCLUDE_TESTS})
 option(LIBCXX_ENABLE_PARALLEL_ALGORITHMS "Enable the parallel algorithms library. This requires the PSTL to be available." OFF)
-option(LIBCXX_ENABLE_DEBUG_MODE_SUPPORT
-  "Whether to include support for libc++'s debugging mode in the library.
-   By default, this is turned on. If you turn it off and try to enable the
-   debug mode when compiling a program against libc++, it will fail to link
-   since the required support isn't provided in the library." ON)
+option(LIBCXX_ENABLE_DEBUG_MODE
+  "Whether to build libc++ with the debug mode enabled.
+   By default, this is turned off. Turning it on results in a different ABI (additional
+   symbols but also potentially different layouts of types), and one should not mix code
+   built against a dylib that has debug mode and code built against a regular dylib." OFF)
 option(LIBCXX_ENABLE_RANDOM_DEVICE
   "Whether to include support for std::random_device in the library. Disabling
    this can be useful when building the library for platforms that don't have
@@ -187,7 +187,7 @@ set(LIBCXX_LIBRARY_VERSION "${LIBCXX_ABI_VERSION}.0" CACHE STRING
    this also controls the linker's 'current_version' property.")
 set(LIBCXX_ABI_NAMESPACE "__${LIBCXX_ABI_VERSION}" CACHE STRING "The inline ABI namespace used by libc++. It defaults to __n where `n` is the current ABI version.")
 if (NOT LIBCXX_ABI_NAMESPACE MATCHES "__.*")
-  message(FATAL_ERROR "LIBCXX_ABI_NAMESPACE must be a reserved identifier.")
+  message(FATAL_ERROR "LIBCXX_ABI_NAMESPACE must be a reserved identifier, got '${LIBCXX_ABI_NAMESPACE}'.")
 endif()
 option(LIBCXX_ABI_FORCE_ITANIUM "Ignore auto-detection and force use of the Itanium ABI.")
 option(LIBCXX_ABI_FORCE_MICROSOFT "Ignore auto-detection and force use of the Microsoft ABI.")
@@ -205,10 +205,16 @@ if (NOT ("${LIBCXX_TYPEINFO_COMPARISON_IMPLEMENTATION}" IN_LIST TYPEINFO_COMPARI
                        LIBCXX_TYPEINFO_COMPARISON_IMPLEMENTATION")
 endif()
 
-option(LIBCXX_HIDE_FROM_ABI_PER_TU_BY_DEFAULT "Enable per TU ABI insulation by default. To be used by vendors." OFF)
 set(LIBCXX_ABI_DEFINES "" CACHE STRING "A semicolon separated list of ABI macros to define in the site config header.")
 option(LIBCXX_EXTRA_SITE_DEFINES "Extra defines to add into __config_site")
 option(LIBCXX_USE_COMPILER_RT "Use compiler-rt instead of libgcc" OFF)
+
+cmake_dependent_option(LIBCXX_ENABLE_BACKWARDS_COMPATIBILITY_DEBUG_MODE_SYMBOLS
+  "Whether to include the old Debug mode symbols in the compiled library. This
+   is provided for backwards compatibility since the compiled library used to
+   always contain those symbols, regardless of whether the library was built
+   with the debug mode enabled." ON
+   "LIBCXX_ABI_VERSION EQUAL 1" OFF) # Always OFF in ABI version != 1
 
 # ABI Library options ---------------------------------------------------------
 if (LIBCXX_TARGETING_MSVC)
@@ -221,12 +227,6 @@ endif()
 
 set(LIBCXX_SUPPORTED_ABI_LIBRARIES none libcxxabi system-libcxxabi libcxxrt libstdc++ libsupc++ vcruntime)
 set(LIBCXX_CXX_ABI "${LIBCXX_DEFAULT_ABI_LIBRARY}" CACHE STRING "Specify C++ ABI library to use. Supported values are ${LIBCXX_SUPPORTED_ABI_LIBRARIES}.")
-
-# Temporary to still accept existing CMake caches that contain "default" as the value
-if (LIBCXX_CXX_ABI STREQUAL "default")
-  set(LIBCXX_CXX_ABI "${LIBCXX_DEFAULT_ABI_LIBRARY}" CACHE STRING "" FORCE)
-endif()
-
 if (NOT "${LIBCXX_CXX_ABI}" IN_LIST LIBCXX_SUPPORTED_ABI_LIBRARIES)
   message(FATAL_ERROR "Unsupported C++ ABI library: '${LIBCXX_CXX_ABI}'. Supported values are ${LIBCXX_SUPPORTED_ABI_LIBRARIES}.")
 endif()
@@ -476,6 +476,11 @@ include(HandleLibcxxFlags)
 # 'LIBCXX_COMPILE_FLAGS' and 'LIBCXX_LINK_FLAGS'
 if(ZOS)
   add_target_flags_if_supported("-fzos-le-char-mode=ebcdic")
+endif()
+
+if (${CMAKE_SYSTEM_NAME} MATCHES "AIX")
+  add_target_flags_if_supported("-mdefault-visibility-export-mapping=explicit")
+  set(CMAKE_AIX_EXPORT_ALL_SYMBOLS OFF)
 endif()
 
 # Configure compiler.
@@ -841,7 +846,6 @@ config_define(${LIBCXX_ABI_VERSION} _LIBCPP_ABI_VERSION)
 config_define(${LIBCXX_ABI_NAMESPACE} _LIBCPP_ABI_NAMESPACE)
 config_define_if(LIBCXX_ABI_FORCE_ITANIUM _LIBCPP_ABI_FORCE_ITANIUM)
 config_define_if(LIBCXX_ABI_FORCE_MICROSOFT _LIBCPP_ABI_FORCE_MICROSOFT)
-config_define_if(LIBCXX_HIDE_FROM_ABI_PER_TU_BY_DEFAULT _LIBCPP_HIDE_FROM_ABI_PER_TU_BY_DEFAULT)
 config_define_if_not(LIBCXX_ENABLE_THREADS _LIBCPP_HAS_NO_THREADS)
 config_define_if_not(LIBCXX_ENABLE_MONOTONIC_CLOCK _LIBCPP_HAS_NO_MONOTONIC_CLOCK)
 if (NOT LIBCXX_TYPEINFO_COMPARISON_IMPLEMENTATION STREQUAL "default")
@@ -860,6 +864,7 @@ config_define_if_not(LIBCXX_ENABLE_LOCALIZATION _LIBCPP_HAS_NO_LOCALIZATION)
 config_define_if_not(LIBCXX_ENABLE_UNICODE _LIBCPP_HAS_NO_UNICODE)
 config_define_if_not(LIBCXX_ENABLE_WIDE_CHARACTERS _LIBCPP_HAS_NO_WIDE_CHARACTERS)
 config_define_if_not(LIBCXX_ENABLE_VENDOR_AVAILABILITY_ANNOTATIONS _LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS)
+config_define_if(LIBCXX_ENABLE_DEBUG_MODE _LIBCPP_ENABLE_DEBUG_MODE)
 if (LIBCXX_ENABLE_ASSERTIONS)
   config_define(1 _LIBCPP_ENABLE_ASSERTIONS_DEFAULT)
 else()

@@ -25,6 +25,7 @@ namespace sparse_tensor {
 TensorExp::TensorExp(Kind k, unsigned x, unsigned y, Value v, Operation *o)
     : kind(k), val(v), op(o) {
   switch (kind) {
+  // Leaf.
   case kTensor:
     assert(x != -1u && y == -1u && !v && !o);
     tensor = x;
@@ -36,17 +37,21 @@ TensorExp::TensorExp(Kind k, unsigned x, unsigned y, Value v, Operation *o)
     assert(x != -1u && y == -1u && !v && !o);
     index = x;
     break;
+  // Unary operations.
   case kAbsF:
   case kAbsC:
   case kCeilF:
   case kFloorF:
   case kSqrtF:
+  case kSqrtC:
   case kExpm1F:
+  case kExpm1C:
   case kLog1pF:
   case kLog1pC:
   case kSinF:
   case kSinC:
   case kTanhF:
+  case kTanhC:
   case kNegF:
   case kNegC:
   case kNegI:
@@ -83,13 +88,32 @@ TensorExp::TensorExp(Kind k, unsigned x, unsigned y, Value v, Operation *o)
     children.e0 = x;
     children.e1 = y;
     break;
-  case kBinary:
-    assert(x != -1u && y != -1u && !v && o);
+  // Binary operations.
+  case kMulF:
+  case kMulC:
+  case kMulI:
+  case kDivF:
+  case kDivC:
+  case kDivS:
+  case kDivU:
+  case kAddF:
+  case kAddC:
+  case kAddI:
+  case kSubF:
+  case kSubC:
+  case kSubI:
+  case kAndI:
+  case kOrI:
+  case kXorI:
+  case kShrS:
+  case kShrU:
+  case kShlI:
+    assert(x != -1u && y != -1u && !v && !o);
     children.e0 = x;
     children.e1 = y;
     break;
-  default:
-    assert(x != -1u && y != -1u && !v && !o);
+  case kBinary:
+    assert(x != -1u && y != -1u && !v && o);
     children.e0 = x;
     children.e1 = y;
     break;
@@ -277,19 +301,27 @@ bool Merger::hasAnyDimOf(const BitVector &bits, Dim d) const {
 
 bool Merger::isSingleCondition(unsigned t, unsigned e) const {
   switch (tensorExps[e].kind) {
+  // Leaf.
   case kTensor:
     return tensorExps[e].tensor == t;
+  case kInvariant:
+  case kIndex:
+    return false;
+  // Unary operations.
   case kAbsF:
   case kAbsC:
   case kCeilF:
   case kFloorF:
   case kSqrtF:
+  case kSqrtC:
   case kExpm1F:
+  case kExpm1C:
   case kLog1pF:
   case kLog1pC:
   case kSinF:
   case kSinC:
   case kTanhF:
+  case kTanhC:
   case kNegF:
   case kNegC:
   case kNegI:
@@ -307,6 +339,10 @@ bool Merger::isSingleCondition(unsigned t, unsigned e) const {
   case kCRe:
   case kBitCast:
     return isSingleCondition(t, tensorExps[e].children.e0);
+  case kBinaryBranch:
+  case kUnary:
+    return false;
+  // Binary operations.
   case kDivF: // note: x / c only
   case kDivC:
   case kDivS:
@@ -333,9 +369,15 @@ bool Merger::isSingleCondition(unsigned t, unsigned e) const {
   case kAddI:
     return isSingleCondition(t, tensorExps[e].children.e0) &&
            isSingleCondition(t, tensorExps[e].children.e1);
-  default:
+  case kSubF:
+  case kSubC:
+  case kSubI:
+  case kOrI:
+  case kXorI:
+  case kBinary:
     return false;
   }
+  llvm_unreachable("unexpected kind");
 }
 
 #ifndef NDEBUG
@@ -346,12 +388,14 @@ bool Merger::isSingleCondition(unsigned t, unsigned e) const {
 
 static const char *kindToOpSymbol(Kind kind) {
   switch (kind) {
+  // Leaf.
   case kTensor:
     return "tensor";
   case kInvariant:
     return "invariant";
   case kIndex:
     return "index";
+  // Unary operations.
   case kAbsF:
   case kAbsC:
     return "abs";
@@ -360,8 +404,10 @@ static const char *kindToOpSymbol(Kind kind) {
   case kFloorF:
     return "floor";
   case kSqrtF:
+  case kSqrtC:
     return "sqrt";
   case kExpm1F:
+  case kExpm1C:
     return "expm1";
   case kLog1pF:
   case kLog1pC:
@@ -370,6 +416,7 @@ static const char *kindToOpSymbol(Kind kind) {
   case kSinC:
     return "sin";
   case kTanhF:
+  case kTanhC:
     return "tanh";
   case kNegF:
   case kNegC:
@@ -395,6 +442,7 @@ static const char *kindToOpSymbol(Kind kind) {
     return "binary_branch";
   case kUnary:
     return "unary";
+  // Binary operations.
   case kMulF:
   case kMulC:
   case kMulI:
@@ -432,6 +480,7 @@ static const char *kindToOpSymbol(Kind kind) {
 
 void Merger::dumpExp(unsigned e) const {
   switch (tensorExps[e].kind) {
+  // Leaf.
   case kTensor:
     if (tensorExps[e].tensor == syntheticTensor)
       llvm::dbgs() << "synthetic_";
@@ -445,15 +494,23 @@ void Merger::dumpExp(unsigned e) const {
   case kIndex:
     llvm::dbgs() << "index_" << tensorExps[e].index;
     break;
+  // Unary operations.
   case kAbsF:
+  case kAbsC:
   case kCeilF:
   case kFloorF:
   case kSqrtF:
+  case kSqrtC:
   case kExpm1F:
+  case kExpm1C:
   case kLog1pF:
+  case kLog1pC:
   case kSinF:
+  case kSinC:
   case kTanhF:
+  case kTanhC:
   case kNegF:
+  case kNegC:
   case kNegI:
   case kTruncF:
   case kExtF:
@@ -465,11 +522,35 @@ void Merger::dumpExp(unsigned e) const {
   case kCastU:
   case kCastIdx:
   case kTruncI:
+  case kCIm:
+  case kCRe:
   case kBitCast:
+  case kBinaryBranch:
+  case kUnary:
     llvm::dbgs() << kindToOpSymbol(tensorExps[e].kind) << " ";
     dumpExp(tensorExps[e].children.e0);
     break;
-  default:
+  // Binary operations.
+  case kMulF:
+  case kMulC:
+  case kMulI:
+  case kDivF:
+  case kDivC:
+  case kDivS:
+  case kDivU:
+  case kAddF:
+  case kAddC:
+  case kAddI:
+  case kSubF:
+  case kSubC:
+  case kSubI:
+  case kAndI:
+  case kOrI:
+  case kXorI:
+  case kShrS:
+  case kShrU:
+  case kShlI:
+  case kBinary:
     llvm::dbgs() << "(";
     dumpExp(tensorExps[e].children.e0);
     llvm::dbgs() << " " << kindToOpSymbol(tensorExps[e].kind) << " ";
@@ -530,6 +611,7 @@ void Merger::dumpBits(const BitVector &bits) const {
 unsigned Merger::buildLattices(unsigned e, unsigned i) {
   Kind kind = tensorExps[e].kind;
   switch (kind) {
+  // Leaf.
   case kTensor:
   case kInvariant:
   case kIndex: {
@@ -548,19 +630,21 @@ unsigned Merger::buildLattices(unsigned e, unsigned i) {
     latSets[s].push_back(addLat(t, i, e));
     return s;
   }
+  // Unary operations.
   case kAbsF:
   case kAbsC:
   case kCeilF:
-  case kCIm:
-  case kCRe:
   case kFloorF:
   case kSqrtF:
+  case kSqrtC:
   case kExpm1F:
+  case kExpm1C:
   case kLog1pF:
   case kLog1pC:
   case kSinF:
   case kSinC:
   case kTanhF:
+  case kTanhC:
   case kNegF:
   case kNegC:
   case kNegI:
@@ -574,6 +658,8 @@ unsigned Merger::buildLattices(unsigned e, unsigned i) {
   case kCastU:
   case kCastIdx:
   case kTruncI:
+  case kCIm:
+  case kCRe:
   case kBitCast:
     // A zero preserving operation (viz. f(0) = 0, [Bik96,Ch5]) maps the
     // lattice set of the operand through the operator into a new set.
@@ -597,7 +683,7 @@ unsigned Merger::buildLattices(unsigned e, unsigned i) {
     {
       unsigned child0 = buildLattices(tensorExps[e].children.e0, i);
       UnaryOp unop = cast<UnaryOp>(tensorExps[e].op);
-      Region &absentRegion = unop.absentRegion();
+      Region &absentRegion = unop.getAbsentRegion();
 
       if (absentRegion.empty()) {
         // Simple mapping over existing values.
@@ -606,10 +692,11 @@ unsigned Merger::buildLattices(unsigned e, unsigned i) {
       // invariant on the right.
       Block &absentBlock = absentRegion.front();
       YieldOp absentYield = cast<YieldOp>(absentBlock.getTerminator());
-      Value absentVal = absentYield.result();
+      Value absentVal = absentYield.getResult();
       unsigned rhs = addExp(kInvariant, absentVal);
       return takeDisj(kind, child0, buildLattices(rhs, i), unop);
     }
+  // Binary operations.
   case kMulF:
   case kMulC:
   case kMulI:
@@ -686,8 +773,8 @@ unsigned Merger::buildLattices(unsigned e, unsigned i) {
       unsigned child0 = buildLattices(tensorExps[e].children.e0, i);
       unsigned child1 = buildLattices(tensorExps[e].children.e1, i);
       BinaryOp binop = cast<BinaryOp>(tensorExps[e].op);
-      Region &leftRegion = binop.leftRegion();
-      Region &rightRegion = binop.rightRegion();
+      Region &leftRegion = binop.getLeftRegion();
+      Region &rightRegion = binop.getRightRegion();
       // Left Region.
       Operation *leftYield = nullptr;
       if (!leftRegion.empty()) {
@@ -700,8 +787,8 @@ unsigned Merger::buildLattices(unsigned e, unsigned i) {
         Block &rightBlock = rightRegion.front();
         rightYield = rightBlock.getTerminator();
       }
-      bool includeLeft = binop.left_identity() || !leftRegion.empty();
-      bool includeRight = binop.right_identity() || !rightRegion.empty();
+      bool includeLeft = binop.getLeftIdentity() || !leftRegion.empty();
+      bool includeRight = binop.getRightIdentity() || !rightRegion.empty();
       return takeCombi(kBinary, child0, child1, binop, includeLeft,
                        kBinaryBranch, leftYield, includeRight, kBinaryBranch,
                        rightYield);
@@ -711,7 +798,9 @@ unsigned Merger::buildLattices(unsigned e, unsigned i) {
 }
 
 Optional<unsigned> Merger::buildTensorExpFromLinalg(linalg::GenericOp op) {
+  // Build the linalg semantics backward from yield.
   Operation *yield = op.region().front().getTerminator();
+  assert(isa<linalg::YieldOp>(yield));
   return buildTensorExp(op, yield->getOperand(0));
 }
 
@@ -743,6 +832,37 @@ Type Merger::inferType(unsigned e, Value src) {
   if (auto vtp = src.getType().dyn_cast<VectorType>())
     return VectorType::get(vtp.getNumElements(), dtp, vtp.getNumScalableDims());
   return dtp;
+}
+
+/// Ensures that sparse compiler can generate code for expression.
+static bool isAdmissableBranchExp(Operation *op, Block *block, Value v) {
+  // Arguments are always admissable.
+  if (auto arg = v.dyn_cast<BlockArgument>())
+    return true;
+  // Accept index anywhere.
+  Operation *def = v.getDefiningOp();
+  if (isa<linalg::IndexOp>(def))
+    return true;
+  // Operation defined outside branch.
+  if (def->getBlock() != block) {
+    return def->getBlock() != op->getBlock(); // invariant?
+  }
+  // Operation defined within branch. Anything is accepted,
+  // as long as all subexpressions are admissable.
+  for (unsigned i = 0, n = def->getNumOperands(); i < n; i++)
+    if (!isAdmissableBranchExp(op, block, def->getOperand(i)))
+      return false;
+  return true;
+}
+
+/// Ensures that sparse compiler can generate code for branch.
+static bool isAdmissableBranch(Operation *op, Region &region) {
+  if (region.empty())
+    return true;
+  // Build the semi-ring branch semantics backward from yield.
+  Operation *yield = region.front().getTerminator();
+  assert(isa<YieldOp>(yield));
+  return isAdmissableBranchExp(op, &region.front(), yield->getOperand(0));
 }
 
 Optional<unsigned> Merger::buildTensorExp(linalg::GenericOp op, Value v) {
@@ -785,8 +905,12 @@ Optional<unsigned> Merger::buildTensorExp(linalg::GenericOp op, Value v) {
         return addExp(kFloorF, e);
       if (isa<math::SqrtOp>(def))
         return addExp(kSqrtF, e);
+      if (isa<complex::SqrtOp>(def))
+        return addExp(kSqrtC, e);
       if (isa<math::ExpM1Op>(def))
         return addExp(kExpm1F, e);
+      if (isa<complex::Expm1Op>(def))
+        return addExp(kExpm1C, e);
       if (isa<math::Log1pOp>(def))
         return addExp(kLog1pF, e);
       if (isa<complex::Log1pOp>(def))
@@ -797,6 +921,8 @@ Optional<unsigned> Merger::buildTensorExp(linalg::GenericOp op, Value v) {
         return addExp(kSinC, e);
       if (isa<math::TanhOp>(def))
         return addExp(kTanhF, e);
+      if (isa<complex::TanhOp>(def))
+        return addExp(kTanhC, e);
       if (isa<arith::NegFOp>(def))
         return addExp(kNegF, e); // no negi in std
       if (isa<complex::NegOp>(def))
@@ -827,8 +953,11 @@ Optional<unsigned> Merger::buildTensorExp(linalg::GenericOp op, Value v) {
         return addExp(kCRe, e);
       if (isa<arith::BitcastOp>(def))
         return addExp(kBitCast, e, v);
-      if (isa<sparse_tensor::UnaryOp>(def))
-        return addExp(kUnary, e, Value(), def);
+      if (auto unop = dyn_cast<sparse_tensor::UnaryOp>(def)) {
+        if (isAdmissableBranch(unop, unop.getPresentRegion()) &&
+            isAdmissableBranch(unop, unop.getAbsentRegion()))
+          return addExp(kUnary, e, Value(), def);
+      }
     }
   }
   // Construct binary operations if subexpressions can be built.
@@ -878,8 +1007,14 @@ Optional<unsigned> Merger::buildTensorExp(linalg::GenericOp op, Value v) {
         return addExp(kShrU, e0, e1);
       if (isa<arith::ShLIOp>(def) && isInvariant(e1))
         return addExp(kShlI, e0, e1);
-      if (isa<sparse_tensor::BinaryOp>(def))
-        return addExp(kBinary, e0, e1, Value(), def);
+      if (auto binop = dyn_cast<sparse_tensor::BinaryOp>(def)) {
+        if (isAdmissableBranch(binop, binop.getOverlapRegion()) &&
+            (binop.getLeftIdentity() ||
+             isAdmissableBranch(binop, binop.getLeftRegion())) &&
+            (binop.getRightIdentity() ||
+             isAdmissableBranch(binop, binop.getRightRegion())))
+          return addExp(kBinary, e0, e1, Value(), def);
+      }
     }
   }
   // Cannot build.
@@ -897,7 +1032,7 @@ static Value insertYieldOp(RewriterBase &rewriter, Location loc, Region &region,
   // Merge cloned block and return yield value.
   Operation *placeholder = rewriter.create<arith::ConstantIndexOp>(loc, 0);
   rewriter.mergeBlockBefore(&tmpRegion.front(), placeholder, vals);
-  Value val = clonedYield.result();
+  Value val = clonedYield.getResult();
   rewriter.eraseOp(clonedYield);
   rewriter.eraseOp(placeholder);
   return val;
@@ -909,7 +1044,7 @@ static Value buildUnaryPresent(RewriterBase &rewriter, Location loc,
     // Empty input value must be propagated.
     return Value();
   UnaryOp unop = cast<UnaryOp>(op);
-  Region &presentRegion = unop.presentRegion();
+  Region &presentRegion = unop.getPresentRegion();
   if (presentRegion.empty())
     // Uninitialized Value() will be interpreted as missing data in the
     // output.
@@ -923,7 +1058,7 @@ static Value buildBinaryOverlap(RewriterBase &rewriter, Location loc,
     // Empty input values must be propagated.
     return Value();
   BinaryOp binop = cast<BinaryOp>(op);
-  Region &overlapRegion = binop.overlapRegion();
+  Region &overlapRegion = binop.getOverlapRegion();
   if (overlapRegion.empty())
     // Uninitialized Value() will be interpreted as missing data in the
     // output.
@@ -934,16 +1069,17 @@ static Value buildBinaryOverlap(RewriterBase &rewriter, Location loc,
 Value Merger::buildExp(RewriterBase &rewriter, Location loc, unsigned e,
                        Value v0, Value v1) {
   switch (tensorExps[e].kind) {
+  // Leaf.
   case kTensor:
   case kInvariant:
   case kIndex:
     llvm_unreachable("unexpected non-op");
-  // Unary ops.
+  // Unary operations.
   case kAbsF:
     return rewriter.create<math::AbsOp>(loc, v0);
   case kAbsC: {
-    auto type = v0.getType().template cast<ComplexType>();
-    auto eltType = type.getElementType().template cast<FloatType>();
+    auto type = v0.getType().cast<ComplexType>();
+    auto eltType = type.getElementType().cast<FloatType>();
     return rewriter.create<complex::AbsOp>(loc, eltType, v0);
   }
   case kCeilF:
@@ -952,8 +1088,12 @@ Value Merger::buildExp(RewriterBase &rewriter, Location loc, unsigned e,
     return rewriter.create<math::FloorOp>(loc, v0);
   case kSqrtF:
     return rewriter.create<math::SqrtOp>(loc, v0);
+  case kSqrtC:
+    return rewriter.create<complex::SqrtOp>(loc, v0);
   case kExpm1F:
     return rewriter.create<math::ExpM1Op>(loc, v0);
+  case kExpm1C:
+    return rewriter.create<complex::Expm1Op>(loc, v0);
   case kLog1pF:
     return rewriter.create<math::Log1pOp>(loc, v0);
   case kLog1pC:
@@ -964,6 +1104,8 @@ Value Merger::buildExp(RewriterBase &rewriter, Location loc, unsigned e,
     return rewriter.create<complex::SinOp>(loc, v0);
   case kTanhF:
     return rewriter.create<math::TanhOp>(loc, v0);
+  case kTanhC:
+    return rewriter.create<complex::TanhOp>(loc, v0);
   case kNegF:
     return rewriter.create<arith::NegFOp>(loc, v0);
   case kNegC:
@@ -994,18 +1136,19 @@ Value Merger::buildExp(RewriterBase &rewriter, Location loc, unsigned e,
     return rewriter.create<arith::IndexCastOp>(loc, inferType(e, v0), v0);
   case kTruncI:
     return rewriter.create<arith::TruncIOp>(loc, inferType(e, v0), v0);
-  case kCIm:
+  case kCIm: {
+    auto type = v0.getType().cast<ComplexType>();
+    auto eltType = type.getElementType().cast<FloatType>();
+    return rewriter.create<complex::ImOp>(loc, eltType, v0);
+  }
   case kCRe: {
-    auto type = v0.getType().template cast<ComplexType>();
-    auto eltType = type.getElementType().template cast<FloatType>();
-    if (tensorExps[e].kind == kCIm)
-      return rewriter.create<complex::ImOp>(loc, eltType, v0);
-
+    auto type = v0.getType().cast<ComplexType>();
+    auto eltType = type.getElementType().cast<FloatType>();
     return rewriter.create<complex::ReOp>(loc, eltType, v0);
   }
   case kBitCast:
     return rewriter.create<arith::BitcastOp>(loc, inferType(e, v0), v0);
-  // Binary ops.
+  // Binary operations.
   case kMulF:
     return rewriter.create<arith::MulFOp>(loc, v0, v1);
   case kMulC:
@@ -1044,8 +1187,7 @@ Value Merger::buildExp(RewriterBase &rewriter, Location loc, unsigned e,
     return rewriter.create<arith::ShRUIOp>(loc, v0, v1);
   case kShlI:
     return rewriter.create<arith::ShLIOp>(loc, v0, v1);
-  // Semiring ops with custom logic.
-  case kBinaryBranch:
+  case kBinaryBranch: // semi-ring ops with custom logic.
     return insertYieldOp(rewriter, loc,
                          *tensorExps[e].op->getBlock()->getParent(), {v0});
   case kUnary:

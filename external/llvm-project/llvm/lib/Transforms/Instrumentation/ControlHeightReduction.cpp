@@ -163,10 +163,10 @@ struct CHRStats {
 
 // RegInfo - some properties of a Region.
 struct RegInfo {
-  RegInfo() : R(nullptr), HasBranch(false) {}
-  RegInfo(Region *RegionIn) : R(RegionIn), HasBranch(false) {}
-  Region *R;
-  bool HasBranch;
+  RegInfo() = default;
+  RegInfo(Region *RegionIn) : R(RegionIn) {}
+  Region *R = nullptr;
+  bool HasBranch = false;
   SmallVector<SelectInst *, 8> Selects;
 };
 
@@ -1765,7 +1765,7 @@ void CHR::transformScopes(CHRScope *Scope, DenseSet<PHINode *> &TrivialPHIs) {
   // Create the combined branch condition and constant-fold the branches/selects
   // in the hot path.
   fixupBranchesAndSelects(Scope, PreEntryBlock, MergedBr,
-                          ProfileCount.getValueOr(0));
+                          ProfileCount.value_or(0));
 }
 
 // A helper for transformScopes. Clone the blocks in the scope (excluding the
@@ -1981,7 +1981,8 @@ void CHR::addToMergedCondition(bool IsTrueBiased, Value *Cond,
       !isGuaranteedNotToBeUndefOrPoison(Cond))
     Cond = IRB.CreateFreeze(Cond);
 
-  MergedCondition = IRB.CreateAnd(MergedCondition, Cond);
+  // Use logical and to avoid propagating poison from later conditions.
+  MergedCondition = IRB.CreateLogicalAnd(MergedCondition, Cond);
 }
 
 void CHR::transformScopes(SmallVectorImpl<CHRScope *> &CHRScopes) {

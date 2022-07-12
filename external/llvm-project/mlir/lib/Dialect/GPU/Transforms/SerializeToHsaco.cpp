@@ -10,9 +10,8 @@
 // adds that blob as a string attribute of the module.
 //
 //===----------------------------------------------------------------------===//
-#include "llvm/IR/Module.h"
-#include "llvm/Target/CGPassBuilderOption.h"
-#include "mlir/Dialect/GPU/Passes.h"
+
+#include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/LLVM.h"
@@ -324,7 +323,7 @@ SerializeToHsacoPass::translateToLLVMIR(llvm::LLVMContext &llvmContext) {
   }
 
   llvm::Linker linker(*ret);
-  for (std::unique_ptr<llvm::Module> &libModule : mbModules.getValue()) {
+  for (std::unique_ptr<llvm::Module> &libModule : *mbModules) {
     // This bitcode linking code is substantially similar to what is used in
     // hip-clang It imports the library functions into the module, allowing LLVM
     // optimization passes (which must run after linking) to optimize across the

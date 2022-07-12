@@ -482,7 +482,6 @@ add_entrypoint_object(
     libc.include.math
   COMPILE_OPTIONS
     -O3
-    -mfma
 )
 
 add_entrypoint_object(
@@ -497,7 +496,6 @@ add_entrypoint_object(
     libc.include.math
   COMPILE_OPTIONS
     -O3
-    -mfma
 )
 
 add_entrypoint_object(
@@ -514,7 +512,6 @@ add_entrypoint_object(
     libc.include.math
   COMPILE_OPTIONS
     -O3
-    -mfma
 )
 
 add_entrypoint_object(
@@ -682,7 +679,6 @@ add_entrypoint_object(
     libc.src.__support.FPUtil.polyeval
   COMPILE_OPTIONS
     -O3
-    -mfma
 )
 
 add_entrypoint_object(
@@ -698,7 +694,6 @@ add_entrypoint_object(
     libc.src.__support.FPUtil.polyeval
   COMPILE_OPTIONS
     -O3
-    -mfma
 )
 
 add_entrypoint_object(
@@ -713,7 +708,6 @@ add_entrypoint_object(
     libc.src.__support.FPUtil.polyeval
     COMPILE_OPTIONS
     -O3
-    -mfma
 )
 
 add_entrypoint_object(
@@ -729,7 +723,6 @@ add_entrypoint_object(
     libc.src.__support.FPUtil.polyeval
   COMPILE_OPTIONS
     -O3
-    -mfma
 )
 
 add_entrypoint_object(
@@ -1096,4 +1089,30 @@ add_object_library(
     libc.src.__support.CPP.uint
   COMPILE_OPTIONS
    -O3
+)
+
+add_entrypoint_object(
+  fmod
+  SRCS
+    fmod.cpp
+  HDRS
+    ../fmod.h
+  DEPENDS
+    libc.include.math
+    libc.src.__support.FPUtil.generic.fmod
+  COMPILE_OPTIONS
+    -O3
+)
+
+add_entrypoint_object(
+  fmodf
+  SRCS
+    fmodf.cpp
+  HDRS
+    ../fmodf.h
+  DEPENDS
+    libc.include.math
+    libc.src.__support.FPUtil.generic.fmod
+  COMPILE_OPTIONS
+    -O3
 )

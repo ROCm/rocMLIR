@@ -147,6 +147,9 @@ void AMDGCN::Linker::constructLldCommand(Compilation &C, const JobAction &JA,
 
   addLinkerCompressDebugSectionsOption(TC, Args, LldArgs);
 
+  for (auto *Arg : Args.filtered(options::OPT_Xoffload_linker))
+    LldArgs.push_back(Arg->getValue(1));
+
   LldArgs.append({"-o", Output.getFilename()});
   for (auto Input : Inputs)
     LldArgs.push_back(Input.getFilename());
@@ -243,11 +246,11 @@ void HIPAMDToolChain::addClangTargetOptions(
     CC1Args.push_back("-fapply-global-visibility-to-externs");
   }
 
-  llvm::for_each(getHIPDeviceLibs(DriverArgs), [&](auto BCFile) {
+  for (auto BCFile : getHIPDeviceLibs(DriverArgs)) {
     CC1Args.push_back(BCFile.ShouldInternalize ? "-mlink-builtin-bitcode"
                                                : "-mlink-bitcode-file");
     CC1Args.push_back(DriverArgs.MakeArgString(BCFile.Path));
-  });
+  }
 }
 
 llvm::opt::DerivedArgList *
@@ -408,6 +411,6 @@ void HIPAMDToolChain::checkTargetID(
   auto PTID = getParsedTargetID(DriverArgs);
   if (PTID.OptionalTargetID && !PTID.OptionalGPUArch) {
     getDriver().Diag(clang::diag::err_drv_bad_target_id)
-        << PTID.OptionalTargetID.getValue();
+        << *PTID.OptionalTargetID;
   }
 }

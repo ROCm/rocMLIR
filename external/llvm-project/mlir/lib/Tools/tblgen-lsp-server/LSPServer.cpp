@@ -43,6 +43,26 @@ struct LSPServer {
   void onDocumentDidChange(const DidChangeTextDocumentParams &params);
 
   //===--------------------------------------------------------------------===//
+  // Definitions and References
+
+  void onGoToDefinition(const TextDocumentPositionParams &params,
+                        Callback<std::vector<Location>> reply);
+  void onReference(const ReferenceParams &params,
+                   Callback<std::vector<Location>> reply);
+
+  //===----------------------------------------------------------------------===//
+  // DocumentLink
+
+  void onDocumentLink(const DocumentLinkParams &params,
+                      Callback<std::vector<DocumentLink>> reply);
+
+  //===--------------------------------------------------------------------===//
+  // Hover
+
+  void onHover(const TextDocumentPositionParams &params,
+               Callback<Optional<Hover>> reply);
+
+  //===--------------------------------------------------------------------===//
   // Fields
   //===--------------------------------------------------------------------===//
 
@@ -69,9 +89,16 @@ void LSPServer::onInitialize(const InitializeParams &params,
       {"textDocumentSync",
        llvm::json::Object{
            {"openClose", true},
-           {"change", (int)TextDocumentSyncKind::Full},
+           {"change", (int)TextDocumentSyncKind::Incremental},
            {"save", true},
        }},
+      {"definitionProvider", true},
+      {"referencesProvider", true},
+      {"documentLinkProvider",
+       llvm::json::Object{
+           {"resolveProvider", false},
+       }},
+      {"hoverProvider", true},
   };
 
   llvm::json::Object result{
@@ -92,9 +119,8 @@ void LSPServer::onShutdown(const NoParams &, Callback<std::nullptr_t> reply) {
 void LSPServer::onDocumentDidOpen(const DidOpenTextDocumentParams &params) {
   PublishDiagnosticsParams diagParams(params.textDocument.uri,
                                       params.textDocument.version);
-  server.addOrUpdateDocument(params.textDocument.uri, params.textDocument.text,
-                             params.textDocument.version,
-                             diagParams.diagnostics);
+  server.addDocument(params.textDocument.uri, params.textDocument.text,
+                     params.textDocument.version, diagParams.diagnostics);
 
   // Publish any recorded diagnostics.
   publishDiagnostics(diagParams);
@@ -111,18 +137,48 @@ void LSPServer::onDocumentDidClose(const DidCloseTextDocumentParams &params) {
       PublishDiagnosticsParams(params.textDocument.uri, *version));
 }
 void LSPServer::onDocumentDidChange(const DidChangeTextDocumentParams &params) {
-  // TODO: We currently only support full document updates, we should refactor
-  // to avoid this.
-  if (params.contentChanges.size() != 1)
-    return;
   PublishDiagnosticsParams diagParams(params.textDocument.uri,
                                       params.textDocument.version);
-  server.addOrUpdateDocument(
-      params.textDocument.uri, params.contentChanges.front().text,
-      params.textDocument.version, diagParams.diagnostics);
+  server.updateDocument(params.textDocument.uri, params.contentChanges,
+                        params.textDocument.version, diagParams.diagnostics);
 
   // Publish any recorded diagnostics.
   publishDiagnostics(diagParams);
+}
+
+//===----------------------------------------------------------------------===//
+// Definitions and References
+
+void LSPServer::onGoToDefinition(const TextDocumentPositionParams &params,
+                                 Callback<std::vector<Location>> reply) {
+  std::vector<Location> locations;
+  server.getLocationsOf(params.textDocument.uri, params.position, locations);
+  reply(std::move(locations));
+}
+
+void LSPServer::onReference(const ReferenceParams &params,
+                            Callback<std::vector<Location>> reply) {
+  std::vector<Location> locations;
+  server.findReferencesOf(params.textDocument.uri, params.position, locations);
+  reply(std::move(locations));
+}
+
+//===----------------------------------------------------------------------===//
+// DocumentLink
+
+void LSPServer::onDocumentLink(const DocumentLinkParams &params,
+                               Callback<std::vector<DocumentLink>> reply) {
+  std::vector<DocumentLink> links;
+  server.getDocumentLinks(params.textDocument.uri, links);
+  reply(std::move(links));
+}
+
+//===----------------------------------------------------------------------===//
+// Hover
+
+void LSPServer::onHover(const TextDocumentPositionParams &params,
+                        Callback<Optional<Hover>> reply) {
+  reply(server.findHover(params.textDocument.uri, params.position));
 }
 
 //===----------------------------------------------------------------------===//
@@ -147,6 +203,19 @@ LogicalResult mlir::lsp::runTableGenLSPServer(TableGenServer &server,
                               &LSPServer::onDocumentDidClose);
   messageHandler.notification("textDocument/didChange", &lspServer,
                               &LSPServer::onDocumentDidChange);
+
+  // Definitions and References
+  messageHandler.method("textDocument/definition", &lspServer,
+                        &LSPServer::onGoToDefinition);
+  messageHandler.method("textDocument/references", &lspServer,
+                        &LSPServer::onReference);
+
+  // Document Link
+  messageHandler.method("textDocument/documentLink", &lspServer,
+                        &LSPServer::onDocumentLink);
+
+  // Hover
+  messageHandler.method("textDocument/hover", &lspServer, &LSPServer::onHover);
 
   // Diagnostics
   lspServer.publishDiagnostics =

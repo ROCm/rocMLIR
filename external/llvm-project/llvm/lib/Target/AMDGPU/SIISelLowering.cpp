@@ -138,6 +138,8 @@ SITargetLowering::SITargetLowering(const TargetMachine &TM,
     addRegisterClass(MVT::v4f16, &AMDGPU::SReg_64RegClass);
     addRegisterClass(MVT::v8i16, &AMDGPU::SGPR_128RegClass);
     addRegisterClass(MVT::v8f16, &AMDGPU::SGPR_128RegClass);
+    addRegisterClass(MVT::v16i16, &AMDGPU::SGPR_256RegClass);
+    addRegisterClass(MVT::v16f16, &AMDGPU::SGPR_256RegClass);
   }
 
   addRegisterClass(MVT::v32i32, &AMDGPU::VReg_1024RegClass);
@@ -235,12 +237,12 @@ SITargetLowering::SITargetLowering(const TargetMachine &TM,
 
   // We only support LOAD/STORE and vector manipulation ops for vectors
   // with > 4 elements.
-  for (MVT VT : { MVT::v8i32, MVT::v8f32, MVT::v16i32, MVT::v16f32,
-                  MVT::v2i64, MVT::v2f64, MVT::v4i16, MVT::v4f16,
-                  MVT::v3i64, MVT::v3f64, MVT::v6i32, MVT::v6f32,
-                  MVT::v4i64, MVT::v4f64, MVT::v8i64, MVT::v8f64,
-                  MVT::v8i16, MVT::v8f16, MVT::v16i64, MVT::v16f64,
-                  MVT::v32i32, MVT::v32f32 }) {
+  for (MVT VT :
+       {MVT::v8i32,  MVT::v8f32,  MVT::v16i32, MVT::v16f32, MVT::v2i64,
+        MVT::v2f64,  MVT::v4i16,  MVT::v4f16,  MVT::v3i64,  MVT::v3f64,
+        MVT::v6i32,  MVT::v6f32,  MVT::v4i64,  MVT::v4f64,  MVT::v8i64,
+        MVT::v8f64,  MVT::v8i16,  MVT::v8f16,  MVT::v16i16, MVT::v16f16,
+        MVT::v16i64, MVT::v16f64, MVT::v32i32, MVT::v32f32}) {
     for (unsigned Op = 0; Op < ISD::BUILTIN_OP_END; ++Op) {
       switch (Op) {
       case ISD::LOAD:
@@ -350,7 +352,7 @@ SITargetLowering::SITargetLowering(const TargetMachine &TM,
   // TODO: Generalize to more vector types.
   setOperationAction({ISD::EXTRACT_VECTOR_ELT, ISD::INSERT_VECTOR_ELT},
                      {MVT::v2i16, MVT::v2f16, MVT::v2i8, MVT::v4i8, MVT::v8i8,
-                      MVT::v4i16, MVT::v4f16},
+                      MVT::v4i16, MVT::v4f16, MVT::v16i16, MVT::v16f16},
                      Custom);
 
   // Deal with vec3 vector operations when widened to vec4.
@@ -507,7 +509,7 @@ SITargetLowering::SITargetLowering(const TargetMachine &TM,
       setOperationAction(ISD::FMAD, MVT::f16, Legal);
 
     for (MVT VT : {MVT::v2i16, MVT::v2f16, MVT::v4i16, MVT::v4f16, MVT::v8i16,
-                   MVT::v8f16}) {
+                   MVT::v8f16, MVT::v16i16, MVT::v16f16}) {
       for (unsigned Op = 0; Op < ISD::BUILTIN_OP_END; ++Op) {
         switch (Op) {
         case ISD::LOAD:
@@ -581,6 +583,16 @@ SITargetLowering::SITargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::STORE, MVT::v8f16, Promote);
     AddPromotedToType(ISD::STORE, MVT::v8f16, MVT::v4i32);
 
+    setOperationAction(ISD::LOAD, MVT::v16i16, Promote);
+    AddPromotedToType(ISD::LOAD, MVT::v16i16, MVT::v8i32);
+    setOperationAction(ISD::LOAD, MVT::v16f16, Promote);
+    AddPromotedToType(ISD::LOAD, MVT::v16f16, MVT::v8i32);
+
+    setOperationAction(ISD::STORE, MVT::v16i16, Promote);
+    AddPromotedToType(ISD::STORE, MVT::v16i16, MVT::v8i32);
+    setOperationAction(ISD::STORE, MVT::v16f16, Promote);
+    AddPromotedToType(ISD::STORE, MVT::v16f16, MVT::v8i32);
+
     setOperationAction({ISD::ANY_EXTEND, ISD::ZERO_EXTEND, ISD::SIGN_EXTEND},
                        MVT::v2i32, Expand);
     setOperationAction(ISD::FP_EXTEND, MVT::v2f32, Expand);
@@ -603,12 +615,12 @@ SITargetLowering::SITargetLowering(const TargetMachine &TM,
     setOperationAction({ISD::FMAXNUM_IEEE, ISD::FMINNUM_IEEE}, MVT::f16, Legal);
 
     setOperationAction({ISD::FMINNUM_IEEE, ISD::FMAXNUM_IEEE},
-                       {MVT::v4f16, MVT::v8f16}, Custom);
+                       {MVT::v4f16, MVT::v8f16, MVT::v16f16}, Custom);
 
-    setOperationAction({ISD::FMINNUM, ISD::FMAXNUM}, {MVT::v4f16, MVT::v8f16},
-                       Expand);
+    setOperationAction({ISD::FMINNUM, ISD::FMAXNUM},
+                       {MVT::v4f16, MVT::v8f16, MVT::v16f16}, Expand);
 
-    for (MVT Vec16 : { MVT::v8i16, MVT::v8f16 }) {
+    for (MVT Vec16 : {MVT::v8i16, MVT::v8f16, MVT::v16i16, MVT::v16f16}) {
       setOperationAction(
           {ISD::BUILD_VECTOR, ISD::EXTRACT_VECTOR_ELT, ISD::SCALAR_TO_VECTOR},
           Vec16, Custom);
@@ -630,10 +642,11 @@ SITargetLowering::SITargetLowering(const TargetMachine &TM,
                        Custom);
 
     setOperationAction(ISD::VECTOR_SHUFFLE,
-                       {MVT::v4f16, MVT::v4i16, MVT::v8f16, MVT::v8i16},
+                       {MVT::v4f16, MVT::v4i16, MVT::v8f16, MVT::v8i16,
+                        MVT::v16f16, MVT::v16i16},
                        Custom);
 
-    for (MVT VT : {MVT::v4i16, MVT::v8i16})
+    for (MVT VT : {MVT::v4i16, MVT::v8i16, MVT::v16i16})
       // Split vector operations.
       setOperationAction({ISD::SHL, ISD::SRA, ISD::SRL, ISD::ADD, ISD::SUB,
                           ISD::MUL, ISD::SMIN, ISD::SMAX, ISD::UMIN, ISD::UMAX,
@@ -641,7 +654,7 @@ SITargetLowering::SITargetLowering(const TargetMachine &TM,
                           ISD::SSUBSAT},
                          VT, Custom);
 
-    for (MVT VT : {MVT::v4f16, MVT::v8f16})
+    for (MVT VT : {MVT::v4f16, MVT::v8f16, MVT::v16f16})
       // Split vector operations.
       setOperationAction({ISD::FADD, ISD::FMUL, ISD::FMA, ISD::FCANONICALIZE},
                          VT, Custom);
@@ -677,7 +690,7 @@ SITargetLowering::SITargetLowering(const TargetMachine &TM,
 
   setOperationAction(ISD::SELECT,
                      {MVT::v4i16, MVT::v4f16, MVT::v2i8, MVT::v4i8, MVT::v8i8,
-                      MVT::v8i16, MVT::v8f16},
+                      MVT::v8i16, MVT::v8f16, MVT::v16i16, MVT::v16f16},
                      Custom);
 
   setOperationAction({ISD::SMULO, ISD::UMULO}, MVT::i64, Custom);
@@ -948,13 +961,14 @@ bool SITargetLowering::getTgtMemIntrinsic(IntrinsicInfo &Info,
 
     SIMachineFunctionInfo *MFI = MF.getInfo<SIMachineFunctionInfo>();
 
+    const GCNTargetMachine &TM =
+        static_cast<const GCNTargetMachine &>(getTargetMachine());
+
     if (RsrcIntr->IsImage) {
-      Info.ptrVal =
-          MFI->getImagePSV(*MF.getSubtarget<GCNSubtarget>().getInstrInfo());
+      Info.ptrVal = MFI->getImagePSV(TM);
       Info.align.reset();
     } else {
-      Info.ptrVal =
-          MFI->getBufferPSV(*MF.getSubtarget<GCNSubtarget>().getInstrInfo());
+      Info.ptrVal = MFI->getBufferPSV(TM);
     }
 
     Info.flags |= MachineMemOperand::MODereferenceable;
@@ -1043,10 +1057,12 @@ bool SITargetLowering::getTgtMemIntrinsic(IntrinsicInfo &Info,
   case Intrinsic::amdgcn_buffer_atomic_fadd: {
     SIMachineFunctionInfo *MFI = MF.getInfo<SIMachineFunctionInfo>();
 
+    const GCNTargetMachine &TM =
+        static_cast<const GCNTargetMachine &>(getTargetMachine());
+
     Info.opc = ISD::INTRINSIC_W_CHAIN;
     Info.memVT = MVT::getVT(CI.getOperand(0)->getType());
-    Info.ptrVal =
-        MFI->getBufferPSV(*MF.getSubtarget<GCNSubtarget>().getInstrInfo());
+    Info.ptrVal = MFI->getBufferPSV(TM);
     Info.align.reset();
     Info.flags |= MachineMemOperand::MOLoad | MachineMemOperand::MOStore;
 
@@ -1084,8 +1100,11 @@ bool SITargetLowering::getTgtMemIntrinsic(IntrinsicInfo &Info,
     SIMachineFunctionInfo *MFI = MF.getInfo<SIMachineFunctionInfo>();
     Info.opc = ISD::INTRINSIC_W_CHAIN;
     Info.memVT = MVT::getVT(CI.getType()); // XXX: what is correct VT?
-    Info.ptrVal =
-        MFI->getImagePSV(*MF.getSubtarget<GCNSubtarget>().getInstrInfo());
+
+    const GCNTargetMachine &TM =
+        static_cast<const GCNTargetMachine &>(getTargetMachine());
+
+    Info.ptrVal = MFI->getImagePSV(TM);
     Info.align.reset();
     Info.flags |= MachineMemOperand::MOLoad |
                   MachineMemOperand::MODereferenceable;
@@ -1117,9 +1136,11 @@ bool SITargetLowering::getTgtMemIntrinsic(IntrinsicInfo &Info,
   case Intrinsic::amdgcn_ds_gws_sema_release_all: {
     Info.opc = ISD::INTRINSIC_VOID;
 
+    const GCNTargetMachine &TM =
+        static_cast<const GCNTargetMachine &>(getTargetMachine());
+
     SIMachineFunctionInfo *MFI = MF.getInfo<SIMachineFunctionInfo>();
-    Info.ptrVal =
-        MFI->getGWSPSV(*MF.getSubtarget<GCNSubtarget>().getInstrInfo());
+    Info.ptrVal = MFI->getGWSPSV(TM);
 
     // This is an abstract access, but we need to specify a type and size.
     Info.memVT = MVT::i32;
@@ -1571,6 +1592,15 @@ bool SITargetLowering::shouldConvertConstantLoadToIntImm(const APInt &Imm,
                                                          Type *Ty) const {
   // FIXME: Could be smarter if called for vector constants.
   return true;
+}
+
+bool SITargetLowering::isExtractSubvectorCheap(EVT ResVT, EVT SrcVT,
+                                               unsigned Index) const {
+  if (!isOperationLegalOrCustom(ISD::EXTRACT_SUBVECTOR, ResVT))
+    return false;
+
+  // TODO: Add more cases that are cheap.
+  return Index == 0;
 }
 
 bool SITargetLowering::isTypeDesirableForOp(unsigned Op, EVT VT) const {
@@ -2082,6 +2112,24 @@ void SITargetLowering::allocateSystemSGPRs(CCState &CCInfo,
                                            SIMachineFunctionInfo &Info,
                                            CallingConv::ID CallConv,
                                            bool IsShader) const {
+  if (Subtarget->hasUserSGPRInit16Bug()) {
+    // Pad up the used user SGPRs with dead inputs.
+    unsigned CurrentUserSGPRs = Info.getNumUserSGPRs();
+
+    // Note we do not count the PrivateSegmentWaveByteOffset. We do not want to
+    // rely on it to reach 16 since if we end up having no stack usage, it will
+    // not really be added.
+    unsigned NumRequiredSystemSGPRs = Info.hasWorkGroupIDX() +
+                                      Info.hasWorkGroupIDY() +
+                                      Info.hasWorkGroupIDZ() +
+                                      Info.hasWorkGroupInfo();
+    for (unsigned i = NumRequiredSystemSGPRs + CurrentUserSGPRs; i < 16; ++i) {
+      Register Reg = Info.addReservedUserSGPR();
+      MF.addLiveIn(Reg, &AMDGPU::SGPR_32RegClass);
+      CCInfo.AllocateReg(Reg);
+    }
+  }
+
   if (Info.hasWorkGroupIDX()) {
     Register Reg = Info.addWorkGroupIDX();
     MF.addLiveIn(Reg, &AMDGPU::SGPR_32RegClass);
@@ -2126,6 +2174,8 @@ void SITargetLowering::allocateSystemSGPRs(CCState &CCInfo,
     MF.addLiveIn(PrivateSegmentWaveByteOffsetReg, &AMDGPU::SGPR_32RegClass);
     CCInfo.AllocateReg(PrivateSegmentWaveByteOffsetReg);
   }
+
+  assert(!Subtarget->hasUserSGPRInit16Bug() || Info.getNumPreloadedSGPRs() >= 16);
 }
 
 static void reservePrivateMemoryRegs(const TargetMachine &TM,
@@ -4257,29 +4307,7 @@ MachineBasicBlock *SITargetLowering::EmitInstrWithCustomInserter(
   case AMDGPU::DS_GWS_INIT:
   case AMDGPU::DS_GWS_SEMA_BR:
   case AMDGPU::DS_GWS_BARRIER:
-    if (Subtarget->needsAlignedVGPRs()) {
-      // Add implicit aligned super-reg to force alignment on the data operand.
-      const DebugLoc &DL = MI.getDebugLoc();
-      MachineRegisterInfo &MRI = BB->getParent()->getRegInfo();
-      const SIRegisterInfo *TRI = Subtarget->getRegisterInfo();
-      MachineOperand *Op = TII->getNamedOperand(MI, AMDGPU::OpName::data0);
-      Register DataReg = Op->getReg();
-      bool IsAGPR = TRI->isAGPR(MRI, DataReg);
-      Register Undef = MRI.createVirtualRegister(
-          IsAGPR ? &AMDGPU::AGPR_32RegClass : &AMDGPU::VGPR_32RegClass);
-      BuildMI(*BB, MI, DL, TII->get(AMDGPU::IMPLICIT_DEF), Undef);
-      Register NewVR =
-          MRI.createVirtualRegister(IsAGPR ? &AMDGPU::AReg_64_Align2RegClass
-                                           : &AMDGPU::VReg_64_Align2RegClass);
-      BuildMI(*BB, MI, DL, TII->get(AMDGPU::REG_SEQUENCE), NewVR)
-          .addReg(DataReg, 0, Op->getSubReg())
-          .addImm(AMDGPU::sub0)
-          .addReg(Undef)
-          .addImm(AMDGPU::sub1);
-      Op->setReg(NewVR);
-      Op->setSubReg(AMDGPU::sub0);
-      MI.addOperand(MachineOperand::CreateReg(NewVR, false, true));
-    }
+    TII->enforceOperandRCAlignment(MI, AMDGPU::OpName::data0);
     LLVM_FALLTHROUGH;
   case AMDGPU::DS_GWS_SEMA_V:
   case AMDGPU::DS_GWS_SEMA_P:
@@ -4365,6 +4393,18 @@ MachineBasicBlock *SITargetLowering::EmitInstrWithCustomInserter(
 
 bool SITargetLowering::hasBitPreservingFPLogic(EVT VT) const {
   return isTypeLegal(VT.getScalarType());
+}
+
+bool SITargetLowering::hasAtomicFaddRtnForTy(SDValue &Op) const {
+  switch (Op.getValue(0).getSimpleValueType().SimpleTy) {
+  case MVT::f32:
+    return Subtarget->hasAtomicFaddRtnInsts();
+  case MVT::v2f16:
+  case MVT::f64:
+    return Subtarget->hasGFX90AInsts();
+  default:
+    return false;
+  }
 }
 
 bool SITargetLowering::enableAggressiveFMAFusion(EVT VT) const {
@@ -4520,8 +4560,9 @@ SDValue SITargetLowering::splitBinaryVectorOp(SDValue Op,
   unsigned Opc = Op.getOpcode();
   EVT VT = Op.getValueType();
   assert(VT == MVT::v4i16 || VT == MVT::v4f16 || VT == MVT::v4f32 ||
-         VT == MVT::v8i16 || VT == MVT::v8f16 || VT == MVT::v8f32 ||
-         VT == MVT::v16f32 || VT == MVT::v32f32);
+         VT == MVT::v8i16 || VT == MVT::v8f16 || VT == MVT::v16i16 ||
+         VT == MVT::v16f16 || VT == MVT::v8f32 || VT == MVT::v16f32 ||
+         VT == MVT::v32f32);
 
   SDValue Lo0, Hi0;
   std::tie(Lo0, Hi0) = DAG.SplitVectorOperand(Op.getNode(), 0);
@@ -4543,8 +4584,9 @@ SDValue SITargetLowering::splitTernaryVectorOp(SDValue Op,
   unsigned Opc = Op.getOpcode();
   EVT VT = Op.getValueType();
   assert(VT == MVT::v4i16 || VT == MVT::v4f16 || VT == MVT::v8i16 ||
-         VT == MVT::v8f16 || VT == MVT::v4f32 || VT == MVT::v8f32 ||
-         VT == MVT::v16f32 || VT == MVT::v32f32);
+         VT == MVT::v8f16 || VT == MVT::v4f32 || VT == MVT::v16i16 ||
+         VT == MVT::v16f16 || VT == MVT::v8f32 || VT == MVT::v16f32 ||
+         VT == MVT::v32f32);
 
   SDValue Lo0, Hi0;
   SDValue Op0 = Op.getOperand(0);
@@ -5243,7 +5285,7 @@ SDValue SITargetLowering::lowerFMINNUM_FMAXNUM(SDValue Op,
   if (IsIEEEMode)
     return expandFMINNUM_FMAXNUM(Op.getNode(), DAG);
 
-  if (VT == MVT::v4f16 || VT == MVT::v8f16)
+  if (VT == MVT::v4f16 || VT == MVT::v8f16 || VT == MVT::v16f16)
     return splitBinaryVectorOp(Op, DAG);
   return Op;
 }
@@ -5693,17 +5735,35 @@ SDValue SITargetLowering::lowerEXTRACT_VECTOR_ELT(SDValue Op,
   if (SDValue Combined = performExtractVectorEltCombine(Op.getNode(), DCI))
     return Combined;
 
-  if (VecSize == 128) {
+  if (VecSize == 128 || VecSize == 256) {
     SDValue Lo, Hi;
     EVT LoVT, HiVT;
-    SDValue V2 = DAG.getBitcast(MVT::v2i64, Vec);
     std::tie(LoVT, HiVT) = DAG.GetSplitDestVTs(VecVT);
-    Lo =
-        DAG.getBitcast(LoVT, DAG.getNode(ISD::EXTRACT_VECTOR_ELT, SL, MVT::i64,
-                                         V2, DAG.getConstant(0, SL, MVT::i32)));
-    Hi =
-        DAG.getBitcast(HiVT, DAG.getNode(ISD::EXTRACT_VECTOR_ELT, SL, MVT::i64,
-                                         V2, DAG.getConstant(1, SL, MVT::i32)));
+
+    if (VecSize == 128) {
+      SDValue V2 = DAG.getBitcast(MVT::v2i64, Vec);
+      Lo = DAG.getBitcast(LoVT,
+                          DAG.getNode(ISD::EXTRACT_VECTOR_ELT, SL, MVT::i64, V2,
+                                      DAG.getConstant(0, SL, MVT::i32)));
+      Hi = DAG.getBitcast(HiVT,
+                          DAG.getNode(ISD::EXTRACT_VECTOR_ELT, SL, MVT::i64, V2,
+                                      DAG.getConstant(1, SL, MVT::i32)));
+    } else {
+      assert(VecSize == 256);
+
+      SDValue V2 = DAG.getBitcast(MVT::v4i64, Vec);
+      SDValue Parts[4];
+      for (unsigned P = 0; P < 4; ++P) {
+        Parts[P] = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, SL, MVT::i64, V2,
+                               DAG.getConstant(P, SL, MVT::i32));
+      }
+
+      Lo = DAG.getBitcast(LoVT, DAG.getNode(ISD::BUILD_VECTOR, SL, MVT::v2i64,
+                                            Parts[0], Parts[1]));
+      Hi = DAG.getBitcast(HiVT, DAG.getNode(ISD::BUILD_VECTOR, SL, MVT::v2i64,
+                                            Parts[2], Parts[3]));
+    }
+
     EVT IdxVT = Idx.getValueType();
     unsigned NElem = VecVT.getVectorNumElements();
     assert(isPowerOf2_32(NElem));
@@ -5843,6 +5903,27 @@ SDValue SITargetLowering::lowerBUILD_VECTOR(SDValue Op,
 
     SDValue Blend = DAG.getBuildVector(MVT::getVectorVT(HalfIntVT, 2), SL,
                                        { CastLo, CastHi });
+    return DAG.getNode(ISD::BITCAST, SL, VT, Blend);
+  }
+
+  if (VT == MVT::v16i16 || VT == MVT::v16f16) {
+    EVT QuarterVT = MVT::getVectorVT(VT.getVectorElementType().getSimpleVT(),
+                                     VT.getVectorNumElements() / 4);
+    MVT QuarterIntVT = MVT::getIntegerVT(QuarterVT.getSizeInBits());
+
+    SmallVector<SDValue, 4> Parts[4];
+    for (unsigned I = 0, E = VT.getVectorNumElements() / 4; I != E; ++I) {
+      for (unsigned P = 0; P < 4; ++P)
+        Parts[P].push_back(Op.getOperand(I + P * E));
+    }
+    SDValue Casts[4];
+    for (unsigned P = 0; P < 4; ++P) {
+      SDValue Vec = DAG.getBuildVector(QuarterVT, SL, Parts[P]);
+      Casts[P] = DAG.getNode(ISD::BITCAST, SL, QuarterIntVT, Vec);
+    }
+
+    SDValue Blend =
+        DAG.getBuildVector(MVT::getVectorVT(QuarterIntVT, 4), SL, Casts);
     return DAG.getNode(ISD::BITCAST, SL, VT, Blend);
   }
 
@@ -6217,6 +6298,7 @@ SDValue SITargetLowering::lowerImage(SDValue Op,
   const AMDGPU::MIMGDimInfo *DimInfo = AMDGPU::getMIMGDimInfo(Intr->Dim);
   unsigned IntrOpcode = Intr->BaseOpcode;
   bool IsGFX10Plus = AMDGPU::isGFX10Plus(*Subtarget);
+  bool IsGFX11Plus = AMDGPU::isGFX11Plus(*Subtarget);
 
   SmallVector<EVT, 3> ResultTypes(Op->values());
   SmallVector<EVT, 3> OrigResultTypes(Op->values());
@@ -6395,6 +6477,10 @@ SDValue SITargetLowering::lowerImage(SDValue Op,
   //
   // SIShrinkInstructions will convert NSA encodings to non-NSA after register
   // allocation when possible.
+  //
+  // TODO: we can actually allow partial NSA where the final register is a
+  // contiguous set of the remaining addresses.
+  // This could help where there are more addresses than supported.
   bool UseNSA = ST->hasFeature(AMDGPU::FeatureNSAEncoding) &&
                 VAddrs.size() >= 3 &&
                 VAddrs.size() <= (unsigned)ST->getNSAMaxSize();
@@ -6501,7 +6587,12 @@ SDValue SITargetLowering::lowerImage(SDValue Op,
       UseNSA ? VAddrs.size() : VAddr.getValueType().getSizeInBits() / 32;
   int Opcode = -1;
 
-  if (IsGFX10Plus) {
+  if (IsGFX11Plus) {
+    Opcode = AMDGPU::getMIMGOpcode(IntrOpcode,
+                                   UseNSA ? AMDGPU::MIMGEncGfx11NSA
+                                          : AMDGPU::MIMGEncGfx11Default,
+                                   NumVDataDwords, NumVAddrDwords);
+  } else if (IsGFX10Plus) {
     Opcode = AMDGPU::getMIMGOpcode(IntrOpcode,
                                    UseNSA ? AMDGPU::MIMGEncGfx10NSA
                                           : AMDGPU::MIMGEncGfx10Default,
@@ -7108,11 +7199,13 @@ SDValue SITargetLowering::LowerINTRINSIC_W_CHAIN(SDValue Op,
     unsigned ShaderType =
         SIInstrInfo::getDSShaderTypeValue(DAG.getMachineFunction());
     unsigned Offset0 = OrderedCountIndex << 2;
-    unsigned Offset1 = WaveRelease | (WaveDone << 1) | (ShaderType << 2) |
-                       (Instruction << 4);
+    unsigned Offset1 = WaveRelease | (WaveDone << 1) | (Instruction << 4);
 
     if (Subtarget->getGeneration() >= AMDGPUSubtarget::GFX10)
       Offset1 |= (CountDw - 1) << 6;
+
+    if (Subtarget->getGeneration() < AMDGPUSubtarget::GFX11)
+      Offset1 |= ShaderType << 2;
 
     unsigned Offset = Offset0 | (Offset1 << 8);
 
@@ -7392,7 +7485,7 @@ SDValue SITargetLowering::LowerINTRINSIC_W_CHAIN(SDValue Op,
       Opcode = AMDGPUISD::BUFFER_ATOMIC_XOR;
       break;
     case Intrinsic::amdgcn_buffer_atomic_fadd:
-      if (!Op.getValue(0).use_empty() && !Subtarget->hasGFX90AInsts()) {
+      if (!Op.getValue(0).use_empty() && !hasAtomicFaddRtnForTy(Op)) {
         DiagnosticInfoUnsupported
           NoFpRet(DAG.getMachineFunction().getFunction(),
                   "return versions of fp atomics not supported",
@@ -7560,12 +7653,14 @@ SDValue SITargetLowering::LowerINTRINSIC_W_CHAIN(SDValue Op,
       return SDValue();
     }
 
+    const bool IsGFX11Plus = AMDGPU::isGFX11Plus(*Subtarget);
     const bool IsA16 = RayDir.getValueType().getVectorElementType() == MVT::f16;
     const bool Is64 = NodePtr.getValueType() == MVT::i64;
     const unsigned NumVDataDwords = 4;
     const unsigned NumVAddrDwords = IsA16 ? (Is64 ? 9 : 8) : (Is64 ? 12 : 11);
-    const bool UseNSA = Subtarget->hasNSAEncoding() &&
-                        NumVAddrDwords <= Subtarget->getNSAMaxSize();
+    const unsigned NumVAddrs = IsGFX11Plus ? (IsA16 ? 4 : 5) : NumVAddrDwords;
+    const bool UseNSA =
+        Subtarget->hasNSAEncoding() && NumVAddrs <= Subtarget->getNSAMaxSize();
     const unsigned BaseOpcodes[2][2] = {
         {AMDGPU::IMAGE_BVH_INTERSECT_RAY, AMDGPU::IMAGE_BVH_INTERSECT_RAY_a16},
         {AMDGPU::IMAGE_BVH64_INTERSECT_RAY,
@@ -7573,12 +7668,15 @@ SDValue SITargetLowering::LowerINTRINSIC_W_CHAIN(SDValue Op,
     int Opcode;
     if (UseNSA) {
       Opcode = AMDGPU::getMIMGOpcode(BaseOpcodes[Is64][IsA16],
-                                     AMDGPU::MIMGEncGfx10NSA, NumVDataDwords,
-                                     NumVAddrDwords);
+                                     IsGFX11Plus ? AMDGPU::MIMGEncGfx11NSA
+                                                 : AMDGPU::MIMGEncGfx10NSA,
+                                     NumVDataDwords, NumVAddrDwords);
     } else {
-      Opcode = AMDGPU::getMIMGOpcode(
-          BaseOpcodes[Is64][IsA16], AMDGPU::MIMGEncGfx10Default, NumVDataDwords,
-          PowerOf2Ceil(NumVAddrDwords));
+      Opcode =
+          AMDGPU::getMIMGOpcode(BaseOpcodes[Is64][IsA16],
+                                IsGFX11Plus ? AMDGPU::MIMGEncGfx11Default
+                                            : AMDGPU::MIMGEncGfx10Default,
+                                NumVDataDwords, PowerOf2Ceil(NumVAddrDwords));
     }
     assert(Opcode != -1);
 
@@ -7611,15 +7709,36 @@ SDValue SITargetLowering::LowerINTRINSIC_W_CHAIN(SDValue Op,
       }
     };
 
-    if (Is64)
-      DAG.ExtractVectorElements(DAG.getBitcast(MVT::v2i32, NodePtr), Ops, 0, 2);
-    else
+    if (UseNSA && IsGFX11Plus) {
       Ops.push_back(NodePtr);
+      Ops.push_back(DAG.getBitcast(MVT::i32, RayExtent));
+      Ops.push_back(RayOrigin);
+      if (IsA16) {
+        SmallVector<SDValue, 3> DirLanes, InvDirLanes, MergedLanes;
+        DAG.ExtractVectorElements(RayDir, DirLanes, 0, 3);
+        DAG.ExtractVectorElements(RayInvDir, InvDirLanes, 0, 3);
+        for (unsigned I = 0; I < 3; ++I) {
+          MergedLanes.push_back(DAG.getBitcast(
+              MVT::i32, DAG.getBuildVector(MVT::v2f16, DL,
+                                           {DirLanes[I], InvDirLanes[I]})));
+        }
+        Ops.push_back(DAG.getBuildVector(MVT::v3i32, DL, MergedLanes));
+      } else {
+        Ops.push_back(RayDir);
+        Ops.push_back(RayInvDir);
+      }
+    } else {
+      if (Is64)
+        DAG.ExtractVectorElements(DAG.getBitcast(MVT::v2i32, NodePtr), Ops, 0,
+                                  2);
+      else
+        Ops.push_back(NodePtr);
 
-    Ops.push_back(DAG.getBitcast(MVT::i32, RayExtent));
-    packLanes(RayOrigin, true);
-    packLanes(RayDir, true);
-    packLanes(RayInvDir, false);
+      Ops.push_back(DAG.getBitcast(MVT::i32, RayExtent));
+      packLanes(RayOrigin, true);
+      packLanes(RayDir, true);
+      packLanes(RayInvDir, false);
+    }
 
     if (!UseNSA) {
       // Build a single vector containing all the operands so far prepared.
@@ -7819,6 +7938,12 @@ SDValue SITargetLowering::LowerINTRINSIC_VOID(SDValue Op,
 
   switch (IntrinsicID) {
   case Intrinsic::amdgcn_exp_compr: {
+    if (!Subtarget->hasCompressedExport()) {
+      DiagnosticInfoUnsupported BadIntrin(
+          DAG.getMachineFunction().getFunction(),
+          "intrinsic not supported on subtarget", DL.getDebugLoc());
+      DAG.getContext()->diagnose(BadIntrin);
+    }
     SDValue Src0 = Op.getOperand(4);
     SDValue Src1 = Op.getOperand(5);
     // Hack around illegal type on SI by directly selecting it.
@@ -8376,7 +8501,7 @@ static SDValue getLoadExtOrTrunc(SelectionDAG &DAG,
 
 SDValue SITargetLowering::widenLoad(LoadSDNode *Ld, DAGCombinerInfo &DCI) const {
   SelectionDAG &DAG = DCI.DAG;
-  if (Ld->getAlignment() < 4 || Ld->isDivergent())
+  if (Ld->getAlign() < Align(4) || Ld->isDivergent())
     return SDValue();
 
   // FIXME: Constant loads should all be marked invariant.
@@ -8401,14 +8526,11 @@ SDValue SITargetLowering::widenLoad(LoadSDNode *Ld, DAGCombinerInfo &DCI) const 
 
   // TODO: Drop only high part of range.
   SDValue Ptr = Ld->getBasePtr();
-  SDValue NewLoad = DAG.getLoad(ISD::UNINDEXED, ISD::NON_EXTLOAD,
-                                MVT::i32, SL, Ld->getChain(), Ptr,
-                                Ld->getOffset(),
-                                Ld->getPointerInfo(), MVT::i32,
-                                Ld->getAlignment(),
-                                Ld->getMemOperand()->getFlags(),
-                                Ld->getAAInfo(),
-                                nullptr); // Drop ranges
+  SDValue NewLoad = DAG.getLoad(
+      ISD::UNINDEXED, ISD::NON_EXTLOAD, MVT::i32, SL, Ld->getChain(), Ptr,
+      Ld->getOffset(), Ld->getPointerInfo(), MVT::i32, Ld->getAlign(),
+      Ld->getMemOperand()->getFlags(), Ld->getAAInfo(),
+      nullptr); // Drop ranges
 
   EVT TruncVT = EVT::getIntegerVT(*DAG.getContext(), MemVT.getSizeInBits());
   if (MemVT.isFloatingPoint()) {
@@ -8497,11 +8619,10 @@ SDValue SITargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
   assert(Op.getValueType().getVectorElementType() == MVT::i32 &&
          "Custom lowering for non-i32 vectors hasn't been implemented.");
 
-  unsigned Alignment = Load->getAlignment();
+  Align Alignment = Load->getAlign();
   unsigned AS = Load->getAddressSpace();
-  if (Subtarget->hasLDSMisalignedBug() &&
-      AS == AMDGPUAS::FLAT_ADDRESS &&
-      Alignment < MemVT.getStoreSize() && MemVT.getSizeInBits() > 32) {
+  if (Subtarget->hasLDSMisalignedBug() && AS == AMDGPUAS::FLAT_ADDRESS &&
+      Alignment.value() < MemVT.getStoreSize() && MemVT.getSizeInBits() > 32) {
     return SplitVectorLoad(Op, DAG);
   }
 
@@ -8518,7 +8639,7 @@ SDValue SITargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
 
   if (AS == AMDGPUAS::CONSTANT_ADDRESS ||
       AS == AMDGPUAS::CONSTANT_ADDRESS_32BIT) {
-    if (!Op->isDivergent() && Alignment >= 4 && NumElements < 32) {
+    if (!Op->isDivergent() && Alignment >= Align(4) && NumElements < 32) {
       if (MemVT.isPow2VectorType())
         return SDValue();
       return WidenOrSplitVectorLoad(Op, DAG);
@@ -8534,7 +8655,7 @@ SDValue SITargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
       AS == AMDGPUAS::GLOBAL_ADDRESS) {
     if (Subtarget->getScalarizeGlobalBehavior() && !Op->isDivergent() &&
         Load->isSimple() && isMemOpHasNoClobberedMemOperand(Load) &&
-        Alignment >= 4 && NumElements < 32) {
+        Alignment >= Align(4) && NumElements < 32) {
       if (MemVT.isPow2VectorType())
         return SDValue();
       return WidenOrSplitVectorLoad(Op, DAG);
@@ -8607,7 +8728,7 @@ SDValue SITargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
 
 SDValue SITargetLowering::LowerSELECT(SDValue Op, SelectionDAG &DAG) const {
   EVT VT = Op.getValueType();
-  if (VT.getSizeInBits() == 128)
+  if (VT.getSizeInBits() == 128 || VT.getSizeInBits() == 256)
     return splitTernaryVectorOp(Op, DAG);
 
   assert(VT.getSizeInBits() == 64);
@@ -9039,7 +9160,7 @@ SDValue SITargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
   unsigned AS = Store->getAddressSpace();
   if (Subtarget->hasLDSMisalignedBug() &&
       AS == AMDGPUAS::FLAT_ADDRESS &&
-      Store->getAlignment() < VT.getStoreSize() && VT.getSizeInBits() > 32) {
+      Store->getAlign().value() < VT.getStoreSize() && VT.getSizeInBits() > 32) {
     return SplitVectorStore(Op, DAG);
   }
 
@@ -10424,7 +10545,8 @@ SDValue SITargetLowering::performCvtPkRTZCombine(SDNode *N,
 // expanded into a set of cmp/select instructions.
 bool SITargetLowering::shouldExpandVectorDynExt(unsigned EltSize,
                                                 unsigned NumElem,
-                                                bool IsDivergentIdx) {
+                                                bool IsDivergentIdx,
+                                                const GCNSubtarget *Subtarget) {
   if (UseDivergentRegisterIndexing)
     return false;
 
@@ -10446,10 +10568,18 @@ bool SITargetLowering::shouldExpandVectorDynExt(unsigned EltSize,
   // Large vectors would yield too many compares and v_cndmask_b32 instructions.
   unsigned NumInsts = NumElem /* Number of compares */ +
                       ((EltSize + 31) / 32) * NumElem /* Number of cndmasks */;
-  return NumInsts <= 16;
+
+  // On some architectures (GFX9) movrel is not available and it's better
+  // to expand.
+  if (!Subtarget->hasMovrel())
+    return NumInsts <= 16;
+
+  // If movrel is available, use it instead of expanding for vector of 8
+  // elements.
+  return NumInsts <= 15;
 }
 
-static bool shouldExpandVectorDynExt(SDNode *N) {
+bool SITargetLowering::shouldExpandVectorDynExt(SDNode *N) const {
   SDValue Idx = N->getOperand(N->getNumOperands() - 1);
   if (isa<ConstantSDNode>(Idx))
     return false;
@@ -10460,8 +10590,8 @@ static bool shouldExpandVectorDynExt(SDNode *N) {
   unsigned EltSize = EltVT.getSizeInBits();
   unsigned NumElem = VecVT.getVectorNumElements();
 
-  return SITargetLowering::shouldExpandVectorDynExt(EltSize, NumElem,
-                                                    Idx->isDivergent());
+  return SITargetLowering::shouldExpandVectorDynExt(
+      EltSize, NumElem, Idx->isDivergent(), getSubtarget());
 }
 
 SDValue SITargetLowering::performExtractVectorEltCombine(
@@ -10525,7 +10655,7 @@ SDValue SITargetLowering::performExtractVectorEltCombine(
   unsigned EltSize = EltVT.getSizeInBits();
 
   // EXTRACT_VECTOR_ELT (<n x e>, var-idx) => n x select (e, const-idx)
-  if (::shouldExpandVectorDynExt(N)) {
+  if (shouldExpandVectorDynExt(N)) {
     SDLoc SL(N);
     SDValue Idx = N->getOperand(1);
     SDValue V;
@@ -10588,7 +10718,7 @@ SITargetLowering::performInsertVectorEltCombine(SDNode *N,
 
   // INSERT_VECTOR_ELT (<n x e>, var-idx)
   // => BUILD_VECTOR n x select (e, const-idx)
-  if (!::shouldExpandVectorDynExt(N))
+  if (!shouldExpandVectorDynExt(N))
     return SDValue();
 
   SelectionDAG &DAG = DCI.DAG;
@@ -11832,8 +11962,11 @@ void SITargetLowering::AdjustInstrPostInstrSelection(MachineInstr &MI,
     return;
   }
 
-  if (TII->isMIMG(MI) && !MI.mayStore())
-    AddIMGInit(MI);
+  if (TII->isMIMG(MI)) {
+    if (!MI.mayStore())
+      AddIMGInit(MI);
+    TII->enforceOperandRCAlignment(MI, AMDGPU::OpName::vaddr);
+  }
 }
 
 static SDValue buildSMovImm32(SelectionDAG &DAG, const SDLoc &DL,
@@ -12582,7 +12715,7 @@ SITargetLowering::shouldExpandAtomicRMWInIR(AtomicRMWInst *RMW) const {
       return AtomicExpansionKind::CmpXChg;
 
     if ((AS == AMDGPUAS::GLOBAL_ADDRESS || AS == AMDGPUAS::FLAT_ADDRESS) &&
-         Subtarget->hasAtomicFaddInsts()) {
+        Subtarget->hasAtomicFaddNoRtnInsts()) {
       if (Subtarget->hasGFX940Insts())
         return AtomicExpansionKind::None;
 

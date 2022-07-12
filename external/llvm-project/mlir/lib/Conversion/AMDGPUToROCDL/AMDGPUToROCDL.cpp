@@ -39,8 +39,8 @@ struct RawBufferOpLowering : public ConvertOpToLLVMPattern<GpuOp> {
   matchAndRewrite(GpuOp gpuOp, typename GpuOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = gpuOp.getLoc();
-    Value memref = adaptor.memref();
-    Value unconvertedMemref = gpuOp.memref();
+    Value memref = adaptor.getMemref();
+    Value unconvertedMemref = gpuOp.getMemref();
     MemRefType memrefType = unconvertedMemref.getType().cast<MemRefType>();
 
     if (chipset.majorVersion < 9)
@@ -168,13 +168,13 @@ struct RawBufferOpLowering : public ConvertOpToLLVMPattern<GpuOp> {
     // bit 24: Reserved to 1 (RDNA) or 0 (CDNA)
     // bits 25-26: Reserved (0)
     // bit 27: Buffer is non-volatile (CDNA only)
-    // bits 28-29: Out of bounds select (0 = structured, 1 = raw, 2 = none, 3 =
-    // swizzles) RDNA only
+    // bits 28-29: Out of bounds select (0 = structured, 1 = check index, 2 =
+    //  none, 3 = either swizzles or testing against offset field) RDNA only
     // bits 30-31: Type (must be 0)
     uint32_t word3 = (7 << 12) | (4 << 15);
     if (chipset.majorVersion == 10) {
       word3 |= (1 << 24);
-      uint32_t oob = adaptor.boundsCheck() ? 1 : 2;
+      uint32_t oob = adaptor.getBoundsCheck() ? 3 : 2;
       word3 |= (oob << 28);
     }
     Value word3Const = createI32Constant(rewriter, loc, word3);
@@ -185,7 +185,7 @@ struct RawBufferOpLowering : public ConvertOpToLLVMPattern<GpuOp> {
 
     // Indexing (voffset)
     Value voffset;
-    for (auto &pair : llvm::enumerate(adaptor.indices())) {
+    for (auto &pair : llvm::enumerate(adaptor.getIndices())) {
       size_t i = pair.index();
       Value index = pair.value();
       Value strideOp;
@@ -200,8 +200,8 @@ struct RawBufferOpLowering : public ConvertOpToLLVMPattern<GpuOp> {
       voffset =
           voffset ? rewriter.create<LLVM::AddOp>(loc, voffset, index) : index;
     }
-    if (adaptor.indexOffset().hasValue()) {
-      int32_t indexOffset = *gpuOp.indexOffset() * elementByteWidth;
+    if (adaptor.getIndexOffset()) {
+      int32_t indexOffset = *gpuOp.getIndexOffset() * elementByteWidth;
       Value extraOffsetConst = createI32Constant(rewriter, loc, indexOffset);
       voffset =
           voffset ? rewriter.create<LLVM::AddOp>(loc, voffset, extraOffsetConst)
@@ -209,7 +209,7 @@ struct RawBufferOpLowering : public ConvertOpToLLVMPattern<GpuOp> {
     }
     args.push_back(voffset);
 
-    Value sgprOffset = adaptor.sgprOffset();
+    Value sgprOffset = adaptor.getSgprOffset();
     if (!sgprOffset)
       sgprOffset = createI32Constant(rewriter, loc, 0);
     if (ShapedType::isDynamicStrideOrOffset(offset))

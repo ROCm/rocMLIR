@@ -27,8 +27,8 @@
 #include "mlir/Conversion/VectorToROCDL/VectorToROCDL.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/GPU/GPUDialect.h"
-#include "mlir/Dialect/GPU/Passes.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
@@ -82,6 +82,12 @@ struct LowerGpuOpsToROCDLOpsPass
     gpu::GPUModuleOp m = getOperation();
     MLIRContext *ctx = m.getContext();
 
+    // Request C wrapper emission.
+    for (auto func : m.getOps<func::FuncOp>()) {
+      func->setAttr(LLVM::LLVMDialect::getEmitCWrapperAttrName(),
+                    UnitAttr::get(ctx));
+    }
+
     FailureOr<amdgpu::Chipset> maybeChipset = amdgpu::Chipset::parse(chipset);
     if (failed(maybeChipset)) {
       emitError(UnknownLoc::get(ctx), "Invalid chipset name: " + chipset);
@@ -90,13 +96,12 @@ struct LowerGpuOpsToROCDLOpsPass
 
     /// Customize the bitwidth used for the device side index computations.
     LowerToLLVMOptions options(
-        m.getContext(),
-        DataLayout(cast<DataLayoutOpInterface>(m.getOperation())));
-    options.emitCWrappers = true;
+        ctx, DataLayout(cast<DataLayoutOpInterface>(m.getOperation())));
     if (indexBitwidth != kDeriveIndexBitwidthFromDataLayout)
       options.overrideIndexBitwidth(indexBitwidth);
-
+    
     LLVMTypeConverter converter(ctx, options);
+
     RewritePatternSet patterns(ctx);
     RewritePatternSet llvmPatterns(ctx);
     RewritePatternSet bf16fixupPatterns(ctx);

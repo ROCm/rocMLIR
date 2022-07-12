@@ -246,14 +246,14 @@ module attributes {gpu.container_module} {
     return
   }
 
-  func @warp_swizzle(%in : i32) -> i32 {
+  func.func @warp_swizzle(%in : i32) -> i32 {
     // CHECK-LABEL func @warp_swizzle
     // CHECK %{{.*}} gpu.warp_swizzle { selector = [0 : i32, 3 : i32, 2 : i32, 1 : i32]} %{{.*}} : i32
     %0 = gpu.warp_swizzle { selector = [0 : i32, 3 : i32, 2 : i32, 1 : i32] } %in : i32
     return %0 : i32
   }
 
-  func @mmamatrix_valid_element_type(%src : memref<32x32xf16, affine_map<(d0, d1) -> (d0 * 64 + d1)>>){
+  func.func @mmamatrix_valid_element_type(%src : memref<32x32xf16, affine_map<(d0, d1) -> (d0 * 64 + d1)>>){
     // CHECK-LABEL: func @mmamatrix_valid_element_type
     %wg = memref.alloca() {alignment = 32} : memref<32x32xf16, 3>
     // CHECK: %[[wg:.*]] = memref.alloca()

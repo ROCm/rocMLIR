@@ -2095,18 +2095,8 @@ TEST_P(ASTMatchersTest, QualifiedTypeLocTest_BindsToConstIntVarDecl) {
 }
 
 TEST_P(ASTMatchersTest, QualifiedTypeLocTest_BindsToConstIntFunctionDecl) {
-  StringRef Code = R"(
-    const int f() { return 5; }
-  )";
-  // In C++, the qualified return type is retained.
-  EXPECT_TRUE(matchesConditionally(
-      Code, qualifiedTypeLoc(loc(asString("const int"))), true, langAnyCxx()));
-  // In C, the qualifications on the return type are dropped, so we expect it
-  // to match 'int' rather than 'const int'.
-  EXPECT_TRUE(matchesConditionally(
-      Code, qualifiedTypeLoc(loc(asString("const int"))), false, langAnyC()));
-  EXPECT_TRUE(
-      matchesConditionally(Code, loc(asString("int")), true, langAnyC()));
+  EXPECT_TRUE(matches("const int f() { return 5; }",
+                      qualifiedTypeLoc(loc(asString("const int")))));
 }
 
 TEST_P(ASTMatchersTest, QualifiedTypeLocTest_DoesNotBindToUnqualifiedVarDecl) {
@@ -2360,6 +2350,26 @@ TEST(ASTMatchersTestObjC, ObjCMessageExpr) {
   EXPECT_TRUE(
       matchesObjC(Objc1String, objcMessageExpr(matchesSelector("uppercase*"),
                                                argumentCountIs(0))));
+}
+
+TEST(ASTMatchersTestObjC, ObjCStringLiteral) {
+
+  StringRef Objc1String = "@interface NSObject "
+                          "@end "
+                          "@interface NSString "
+                          "@end "
+                          "@interface Test : NSObject "
+                          "+ (void)someFunction:(NSString *)Desc; "
+                          "@end "
+                          "@implementation Test "
+                          "+ (void)someFunction:(NSString *)Desc { "
+                          "    return; "
+                          "} "
+                          "- (void) foo { "
+                          "    [Test someFunction:@\"Ola!\"]; "
+                          "}\n"
+                          "@end ";
+    EXPECT_TRUE(matchesObjC(Objc1String, objcStringLiteral()));
 }
 
 TEST(ASTMatchersTestObjC, ObjCDecls) {

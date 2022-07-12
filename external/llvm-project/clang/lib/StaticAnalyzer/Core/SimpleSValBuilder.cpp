@@ -22,6 +22,13 @@ using namespace ento;
 namespace {
 class SimpleSValBuilder : public SValBuilder {
 
+  // Query the constraint manager whether the SVal has only one possible
+  // (integer) value. If that is the case, the value is returned. Otherwise,
+  // returns NULL.
+  // This is an implementation detail. Checkers should use `getKnownValue()`
+  // instead.
+  const llvm::APSInt *getConstValue(ProgramStateRef state, SVal V);
+
   // With one `simplifySValOnce` call, a compound symbols might collapse to
   // simpler symbol tree that is still possible to further simplify. Thus, we
   // do the simplification on a new symbol tree until we reach the simplest
@@ -45,7 +52,7 @@ class SimpleSValBuilder : public SValBuilder {
   SVal simplifyUntilFixpoint(ProgramStateRef State, SVal Val);
 
   // Recursively descends into symbolic expressions and replaces symbols
-  // with their known values (in the sense of the getKnownValue() method).
+  // with their known values (in the sense of the getConstValue() method).
   // We traverse the symbol tree and query the constraint values for the
   // sub-trees and if a value is a constant we do the constant folding.
   SVal simplifySValOnce(ProgramStateRef State, SVal V);
@@ -56,8 +63,6 @@ public:
       : SValBuilder(alloc, context, stateMgr) {}
   ~SimpleSValBuilder() override {}
 
-  SVal evalMinus(NonLoc val) override;
-  SVal evalComplement(NonLoc val) override;
   SVal evalBinOpNN(ProgramStateRef state, BinaryOperator::Opcode op,
                    NonLoc lhs, NonLoc rhs, QualType resultTy) override;
   SVal evalBinOpLL(ProgramStateRef state, BinaryOperator::Opcode op,
@@ -65,8 +70,9 @@ public:
   SVal evalBinOpLN(ProgramStateRef state, BinaryOperator::Opcode op,
                    Loc lhs, NonLoc rhs, QualType resultTy) override;
 
-  /// getKnownValue - evaluates a given SVal. If the SVal has only one possible
-  ///  (integer) value, that value is returned. Otherwise, returns NULL.
+  /// Evaluates a given SVal by recursively evaluating and
+  /// simplifying the children SVals. If the SVal has only one possible
+  /// (integer) value, that value is returned. Otherwise, returns NULL.
   const llvm::APSInt *getKnownValue(ProgramStateRef state, SVal V) override;
 
   SVal simplifySVal(ProgramStateRef State, SVal V) override;
@@ -80,28 +86,6 @@ SValBuilder *ento::createSimpleSValBuilder(llvm::BumpPtrAllocator &alloc,
                                            ASTContext &context,
                                            ProgramStateManager &stateMgr) {
   return new SimpleSValBuilder(alloc, context, stateMgr);
-}
-
-//===----------------------------------------------------------------------===//
-// Transfer function for unary operators.
-//===----------------------------------------------------------------------===//
-
-SVal SimpleSValBuilder::evalMinus(NonLoc val) {
-  switch (val.getSubKind()) {
-  case nonloc::ConcreteIntKind:
-    return val.castAs<nonloc::ConcreteInt>().evalMinus(*this);
-  default:
-    return UnknownVal();
-  }
-}
-
-SVal SimpleSValBuilder::evalComplement(NonLoc X) {
-  switch (X.getSubKind()) {
-  case nonloc::ConcreteIntKind:
-    return X.castAs<nonloc::ConcreteInt>().evalComplement(*this);
-  default:
-    return UnknownVal();
-  }
 }
 
 // Checks if the negation the value and flipping sign preserve
@@ -314,7 +298,6 @@ static NonLoc doRearrangeUnchecked(ProgramStateRef State,
   else
     llvm_unreachable("Operation not suitable for unchecked rearrangement!");
 
-  // FIXME: Can we use assume() without getting into an infinite recursion?
   if (LSym == RSym)
     return SVB.evalBinOpNN(State, Op, nonloc::ConcreteInt(LInt),
                            nonloc::ConcreteInt(RInt), ResultTy)
@@ -527,7 +510,7 @@ SVal SimpleSValBuilder::evalBinOpNN(ProgramStateRef state,
       llvm::APSInt LHSValue = lhs.castAs<nonloc::ConcreteInt>().getValue();
 
       // If we're dealing with two known constants, just perform the operation.
-      if (const llvm::APSInt *KnownRHSValue = getKnownValue(state, rhs)) {
+      if (const llvm::APSInt *KnownRHSValue = getConstValue(state, rhs)) {
         llvm::APSInt RHSValue = *KnownRHSValue;
         if (BinaryOperator::isComparisonOp(op)) {
           // We're looking for a type big enough to compare the two values.
@@ -647,7 +630,7 @@ SVal SimpleSValBuilder::evalBinOpNN(ProgramStateRef state,
         }
 
         // For now, only handle expressions whose RHS is a constant.
-        if (const llvm::APSInt *RHSValue = getKnownValue(state, rhs)) {
+        if (const llvm::APSInt *RHSValue = getConstValue(state, rhs)) {
           // If both the LHS and the current expression are additive,
           // fold their constants and try again.
           if (BinaryOperator::isAdditiveOp(op)) {
@@ -694,7 +677,7 @@ SVal SimpleSValBuilder::evalBinOpNN(ProgramStateRef state,
       }
 
       // Is the RHS a constant?
-      if (const llvm::APSInt *RHSValue = getKnownValue(state, rhs))
+      if (const llvm::APSInt *RHSValue = getConstValue(state, rhs))
         return MakeSymIntVal(Sym, op, *RHSValue, resultTy);
 
       if (Optional<NonLoc> V = tryRearrange(state, op, lhs, rhs, resultTy))
@@ -845,6 +828,8 @@ SVal SimpleSValBuilder::evalBinOpLL(ProgramStateRef state,
     return UnknownVal();
 
   case loc::ConcreteIntKind: {
+    auto L = lhs.castAs<loc::ConcreteInt>();
+
     // If one of the operands is a symbol and the other is a constant,
     // build an expression for use by the constraint manager.
     if (SymbolRef rSym = rhs.getAsLocSymbol()) {
@@ -853,19 +838,17 @@ SVal SimpleSValBuilder::evalBinOpLL(ProgramStateRef state,
       if (!BinaryOperator::isComparisonOp(op) || op == BO_Cmp)
         return UnknownVal();
 
-      const llvm::APSInt &lVal = lhs.castAs<loc::ConcreteInt>().getValue();
       op = BinaryOperator::reverseComparisonOp(op);
-      return makeNonLoc(rSym, op, lVal, resultTy);
+      return makeNonLoc(rSym, op, L.getValue(), resultTy);
     }
 
     // If both operands are constants, just perform the operation.
     if (Optional<loc::ConcreteInt> rInt = rhs.getAs<loc::ConcreteInt>()) {
-      SVal ResultVal =
-          lhs.castAs<loc::ConcreteInt>().evalBinOp(BasicVals, op, *rInt);
-      if (Optional<NonLoc> Result = ResultVal.getAs<NonLoc>())
-        return evalCast(*Result, resultTy, QualType{});
+      assert(BinaryOperator::isComparisonOp(op) || op == BO_Sub);
 
-      assert(!ResultVal.getAs<Loc>() && "Loc-Loc ops should not produce Locs");
+      if (const auto *ResultInt =
+              BasicVals.evalAPSInt(op, L.getValue(), rInt->getValue()))
+        return evalCast(nonloc::ConcreteInt(*ResultInt), resultTy, QualType{});
       return UnknownVal();
     }
 
@@ -873,7 +856,7 @@ SVal SimpleSValBuilder::evalBinOpLL(ProgramStateRef state,
     // This must come after the test if the RHS is a symbol, which is used to
     // build constraints. The address of any non-symbolic region is guaranteed
     // to be non-NULL, as is any label.
-    assert(rhs.getAs<loc::MemRegionVal>() || rhs.getAs<loc::GotoLabel>());
+    assert((isa<loc::MemRegionVal, loc::GotoLabel>(rhs)));
     if (lhs.isZeroConstant()) {
       switch (op) {
       default:
@@ -1182,9 +1165,8 @@ SVal SimpleSValBuilder::evalBinOpLN(ProgramStateRef state,
   return UnknownVal();
 }
 
-const llvm::APSInt *SimpleSValBuilder::getKnownValue(ProgramStateRef state,
-                                                   SVal V) {
-  V = simplifySVal(state, V);
+const llvm::APSInt *SimpleSValBuilder::getConstValue(ProgramStateRef state,
+                                                     SVal V) {
   if (V.isUnknownOrUndef())
     return nullptr;
 
@@ -1198,6 +1180,11 @@ const llvm::APSInt *SimpleSValBuilder::getKnownValue(ProgramStateRef state,
     return state->getConstraintManager().getSymVal(state, Sym);
 
   return nullptr;
+}
+
+const llvm::APSInt *SimpleSValBuilder::getKnownValue(ProgramStateRef state,
+                                                     SVal V) {
+  return getConstValue(state, simplifySVal(state, V));
 }
 
 SVal SimpleSValBuilder::simplifyUntilFixpoint(ProgramStateRef State, SVal Val) {
@@ -1266,13 +1253,11 @@ SVal SimpleSValBuilder::simplifySValOnce(ProgramStateRef State, SVal V) {
     SVal VisitSymbolData(const SymbolData *S) {
       // No cache here.
       if (const llvm::APSInt *I =
-              SVB.getKnownValue(State, SVB.makeSymbolVal(S)))
+              State->getConstraintManager().getSymVal(State, S))
         return Loc::isLocType(S->getType()) ? (SVal)SVB.makeIntLocVal(*I)
                                             : (SVal)SVB.makeIntVal(*I);
       return SVB.makeSymbolVal(S);
     }
-
-    // TODO: Support SymbolCast.
 
     SVal VisitSymIntExpr(const SymIntExpr *S) {
       auto I = Cached.find(S);
@@ -1343,6 +1328,30 @@ SVal SimpleSValBuilder::simplifySValOnce(ProgramStateRef State, SVal V) {
           S, SVB.evalBinOp(State, S->getOpcode(), LHS, RHS, S->getType()));
     }
 
+    SVal VisitSymbolCast(const SymbolCast *S) {
+      auto I = Cached.find(S);
+      if (I != Cached.end())
+        return I->second;
+      const SymExpr *OpSym = S->getOperand();
+      SVal OpVal = getConstOrVisit(OpSym);
+      if (isUnchanged(OpSym, OpVal))
+        return skip(S);
+
+      return cache(S, SVB.evalCast(OpVal, S->getType(), OpSym->getType()));
+    }
+
+    SVal VisitUnarySymExpr(const UnarySymExpr *S) {
+      auto I = Cached.find(S);
+      if (I != Cached.end())
+        return I->second;
+      SVal Op = getConstOrVisit(S->getOperand());
+      if (isUnchanged(S->getOperand(), Op))
+        return skip(S);
+
+      return cache(
+          S, SVB.evalUnaryOp(State, S->getOpcode(), Op, S->getType()));
+    }
+
     SVal VisitSymExpr(SymbolRef S) { return nonloc::SymbolVal(S); }
 
     SVal VisitMemRegion(const MemRegion *R) { return loc::MemRegionVal(R); }
@@ -1356,14 +1365,6 @@ SVal SimpleSValBuilder::simplifySValOnce(ProgramStateRef State, SVal V) {
     SVal VisitSVal(SVal V) { return V; }
   };
 
-  // A crude way of preventing this function from calling itself from evalBinOp.
-  static bool isReentering = false;
-  if (isReentering)
-    return V;
-
-  isReentering = true;
   SVal SimplifiedV = Simplifier(State).Visit(V);
-  isReentering = false;
-
   return SimplifiedV;
 }

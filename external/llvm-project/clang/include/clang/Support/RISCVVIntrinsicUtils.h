@@ -209,8 +209,8 @@ public:
   }
 
   bool isValid() const { return Valid; }
-  bool isScalar() const { return Scale.hasValue() && Scale.getValue() == 0; }
-  bool isVector() const { return Scale.hasValue() && Scale.getValue() != 0; }
+  bool isScalar() const { return Scale && Scale.getValue() == 0; }
+  bool isVector() const { return Scale && Scale.getValue() != 0; }
   bool isVector(unsigned Width) const {
     return isVector() && ElementBitwidth == Width;
   }
@@ -224,6 +224,8 @@ public:
   bool isFloat(unsigned Width) const {
     return isFloat() && ElementBitwidth == Width;
   }
+
+  bool isPointer() const { return IsPointer; }
 
 private:
   // Verify RVV vector type and set Valid.
@@ -256,7 +258,7 @@ public:
   /// have illegal RVVType.
   static llvm::Optional<RVVTypes>
   computeTypes(BasicType BT, int Log2LMUL, unsigned NF,
-               llvm::ArrayRef<PrototypeDescriptor> PrototypeSeq);
+               llvm::ArrayRef<PrototypeDescriptor> Prototype);
   static llvm::Optional<RVVTypePtr> computeType(BasicType BT, int Log2LMUL,
                                                 PrototypeDescriptor Proto);
 };
@@ -287,7 +289,7 @@ class RVVIntrinsic {
 private:
   std::string BuiltinName; // Builtin name
   std::string Name;        // C intrinsic name.
-  std::string MangledName;
+  std::string OverloadedName;
   std::string IRName;
   bool IsMasked;
   bool HasVL;
@@ -304,20 +306,22 @@ private:
   unsigned NF = 1;
 
 public:
-  RVVIntrinsic(llvm::StringRef Name, llvm::StringRef Suffix, llvm::StringRef MangledName,
-               llvm::StringRef MangledSuffix, llvm::StringRef IRName, bool IsMasked,
-               bool HasMaskedOffOperand, bool HasVL, PolicyScheme Scheme,
-               bool HasUnMaskedOverloaded, bool HasBuiltinAlias,
-               llvm::StringRef ManualCodegen, const RVVTypes &Types,
+  RVVIntrinsic(llvm::StringRef Name, llvm::StringRef Suffix,
+               llvm::StringRef OverloadedName, llvm::StringRef OverloadedSuffix,
+               llvm::StringRef IRName, bool IsMasked, bool HasMaskedOffOperand,
+               bool HasVL, PolicyScheme Scheme, bool HasUnMaskedOverloaded,
+               bool HasBuiltinAlias, llvm::StringRef ManualCodegen,
+               const RVVTypes &Types,
                const std::vector<int64_t> &IntrinsicTypes,
-               const std::vector<llvm::StringRef> &RequiredFeatures, unsigned NF);
+               const std::vector<llvm::StringRef> &RequiredFeatures,
+               unsigned NF);
   ~RVVIntrinsic() = default;
 
   RVVTypePtr getOutputType() const { return OutputType; }
   const RVVTypes &getInputTypes() const { return InputTypes; }
   llvm::StringRef getBuiltinName() const { return BuiltinName; }
   llvm::StringRef getName() const { return Name; }
-  llvm::StringRef getMangledName() const { return MangledName; }
+  llvm::StringRef getOverloadedName() const { return OverloadedName; }
   bool hasVL() const { return HasVL; }
   bool hasPolicy() const { return Scheme != SchemeNone; }
   bool hasPassthruOperand() const { return Scheme == HasPassthruOperand; }
@@ -340,9 +344,9 @@ public:
   // Return the type string for a BUILTIN() macro in Builtins.def.
   std::string getBuiltinTypeStr() const;
 
-  static std::string getSuffixStr(
-      BasicType Type, int Log2LMUL,
-      const llvm::SmallVector<PrototypeDescriptor> &PrototypeDescriptors);
+  static std::string
+  getSuffixStr(BasicType Type, int Log2LMUL,
+               llvm::ArrayRef<PrototypeDescriptor> PrototypeDescriptors);
 };
 
 } // end namespace RISCV

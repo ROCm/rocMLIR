@@ -37,6 +37,7 @@
 
 using namespace mlir;
 using namespace mlir::LLVM;
+using mlir::LLVM::cconv::getMaxEnumValForCConv;
 using mlir::LLVM::linkage::getMaxEnumValForLinkage;
 
 #include "mlir/Dialect/LLVMIR/LLVMOpsDialect.cpp.inc"
@@ -89,8 +90,28 @@ static LogicalResult verifySymbolAttrUse(FlatSymbolRefAttr symbol,
 }
 
 //===----------------------------------------------------------------------===//
-// Printing/parsing for LLVM::CmpOp.
+// Printing, parsing and builder for LLVM::CmpOp.
 //===----------------------------------------------------------------------===//
+
+void ICmpOp::build(OpBuilder &builder, OperationState &result,
+                   ICmpPredicate predicate, Value lhs, Value rhs) {
+  auto boolType = IntegerType::get(lhs.getType().getContext(), 1);
+  if (LLVM::isCompatibleVectorType(lhs.getType()) ||
+      LLVM::isCompatibleVectorType(rhs.getType())) {
+    int64_t numLHSElements = 1, numRHSElements = 1;
+    if (LLVM::isCompatibleVectorType(lhs.getType()))
+      numLHSElements =
+          LLVM::getVectorNumElements(lhs.getType()).getFixedValue();
+    if (LLVM::isCompatibleVectorType(rhs.getType()))
+      numRHSElements =
+          LLVM::getVectorNumElements(rhs.getType()).getFixedValue();
+    build(builder, result,
+          VectorType::get({std::max(numLHSElements, numRHSElements)}, boolType),
+          predicate, lhs, rhs);
+  } else {
+    build(builder, result, boolType, predicate, lhs, rhs);
+  }
+}
 
 void ICmpOp::print(OpAsmPrinter &p) {
   p << " \"" << stringifyICmpPredicate(getPredicate()) << "\" " << getOperand(0)
@@ -137,7 +158,7 @@ static ParseResult parseCmpOp(OpAsmParser &parser, OperationState &result) {
       return parser.emitError(predicateLoc)
              << "'" << predicateAttr.getValue()
              << "' is an incorrect value of the 'predicate' attribute";
-    predicateValue = static_cast<int64_t>(predicate.getValue());
+    predicateValue = static_cast<int64_t>(*predicate);
   } else {
     Optional<FCmpPredicate> predicate =
         symbolizeFCmpPredicate(predicateAttr.getValue());
@@ -145,7 +166,7 @@ static ParseResult parseCmpOp(OpAsmParser &parser, OperationState &result) {
       return parser.emitError(predicateLoc)
              << "'" << predicateAttr.getValue()
              << "' is an incorrect value of the 'predicate' attribute";
-    predicateValue = static_cast<int64_t>(predicate.getValue());
+    predicateValue = static_cast<int64_t>(*predicate);
   }
 
   result.attributes.set("predicate",
@@ -194,7 +215,7 @@ void AllocaOp::print(OpAsmPrinter &p) {
       FunctionType::get(getContext(), {getArraySize().getType()}, {getType()});
 
   p << ' ' << getArraySize() << " x " << elemTy;
-  if (getAlignment().hasValue() && *getAlignment() != 0)
+  if (getAlignment() && *getAlignment() != 0)
     p.printOptionalAttrDict((*this)->getAttrs(), {kElemTypeAttrName});
   else
     p.printOptionalAttrDict((*this)->getAttrs(),
@@ -877,6 +898,18 @@ SuccessorOperands InvokeOp::getSuccessorOperands(unsigned index) {
                                       : getUnwindDestOperandsMutable());
 }
 
+CallInterfaceCallable InvokeOp::getCallableForCallee() {
+  // Direct call.
+  if (FlatSymbolRefAttr calleeAttr = getCalleeAttr())
+    return calleeAttr;
+  // Indirect call, callee Value is the first operand.
+  return getOperand(0);
+}
+
+Operation::operand_range InvokeOp::getCallOperands() {
+  return getOperands().drop_front(getCallee().hasValue() ? 0 : 1);
+}
+
 LogicalResult InvokeOp::verify() {
   if (getNumResults() > 1)
     return emitOpError("must have 0 or 1 result");
@@ -1019,7 +1052,7 @@ ParseResult InvokeOp::parse(OpAsmParser &parser, OperationState &result) {
 LogicalResult LandingpadOp::verify() {
   Value value;
   if (LLVMFuncOp func = (*this)->getParentOfType<LLVMFuncOp>()) {
-    if (!func.getPersonality().hasValue())
+    if (!func.getPersonality())
       return emitError(
           "llvm.landingpad needs to be in a function with a personality");
   }
@@ -1103,6 +1136,18 @@ ParseResult LandingpadOp::parse(OpAsmParser &parser, OperationState &result) {
 //===----------------------------------------------------------------------===//
 // Verifying/Printing/parsing for LLVM::CallOp.
 //===----------------------------------------------------------------------===//
+
+CallInterfaceCallable CallOp::getCallableForCallee() {
+  // Direct call.
+  if (FlatSymbolRefAttr calleeAttr = getCalleeAttr())
+    return calleeAttr;
+  // Indirect call, callee Value is the first operand.
+  return getOperand(0);
+}
+
+Operation::operand_range CallOp::getCallOperands() {
+  return getOperands().drop_front(getCallee().hasValue() ? 0 : 1);
+}
 
 LogicalResult CallOp::verify() {
   if (getNumResults() > 1)
@@ -1821,6 +1866,7 @@ struct EnumTraits {};
 
 REGISTER_ENUM_TYPE(Linkage);
 REGISTER_ENUM_TYPE(UnnamedAddr);
+REGISTER_ENUM_TYPE(CConv);
 } // namespace
 
 /// Parse an enum from the keyword, or default to the provided default value.
@@ -2085,7 +2131,7 @@ ParseResult ShuffleVectorOp::parse(OpAsmParser &parser,
         loc, "expected LLVM IR dialect vector type for operand #1");
   auto vType =
       LLVM::getVectorType(LLVM::getVectorElementType(typeV1), maskAttr.size(),
-                          typeV1.cast<VectorType>().isScalable());
+                          LLVM::isScalableVectorType(typeV1));
   result.addTypes(vType);
   return success();
 }
@@ -2110,7 +2156,6 @@ LogicalResult ShuffleVectorOp::verify() {
 // Add the entry block to the function.
 Block *LLVMFuncOp::addEntryBlock() {
   assert(empty() && "function already has an entry block");
-  assert(!isVarArg() && "unimplemented: non-external variadic functions");
 
   auto *entry = new Block;
   push_back(entry);
@@ -2124,7 +2169,8 @@ Block *LLVMFuncOp::addEntryBlock() {
 
 void LLVMFuncOp::build(OpBuilder &builder, OperationState &result,
                        StringRef name, Type type, LLVM::Linkage linkage,
-                       bool dsoLocal, ArrayRef<NamedAttribute> attrs,
+                       bool dsoLocal, CConv cconv,
+                       ArrayRef<NamedAttribute> attrs,
                        ArrayRef<DictionaryAttr> argAttrs) {
   result.addRegion();
   result.addAttribute(SymbolTable::getSymbolAttrName(),
@@ -2133,6 +2179,8 @@ void LLVMFuncOp::build(OpBuilder &builder, OperationState &result,
                       TypeAttr::get(type));
   result.addAttribute(getLinkageAttrName(result.name),
                       LinkageAttr::get(builder.getContext(), linkage));
+  result.addAttribute(getCConvAttrName(result.name),
+                      CConvAttr::get(builder.getContext(), cconv));
   result.attributes.append(attrs.begin(), attrs.end());
   if (dsoLocal)
     result.addAttribute("dso_local", builder.getUnitAttr());
@@ -2185,7 +2233,8 @@ buildLLVMFunctionType(OpAsmParser &parser, SMLoc loc, ArrayRef<Type> inputs,
 
 // Parses an LLVM function.
 //
-// operation ::= `llvm.func` linkage? function-signature function-attributes?
+// operation ::= `llvm.func` linkage? cconv? function-signature
+// function-attributes?
 //               function-body
 //
 ParseResult LLVMFuncOp::parse(OpAsmParser &parser, OperationState &result) {
@@ -2195,6 +2244,12 @@ ParseResult LLVMFuncOp::parse(OpAsmParser &parser, OperationState &result) {
       LinkageAttr::get(parser.getContext(),
                        parseOptionalLLVMKeyword<Linkage>(
                            parser, result, LLVM::Linkage::External)));
+
+  // Default to C Calling Convention if no keyword is provided.
+  result.addAttribute(
+      getCConvAttrName(result.name),
+      CConvAttr::get(parser.getContext(), parseOptionalLLVMKeyword<CConv>(
+                                              parser, result, LLVM::CConv::C)));
 
   StringAttr nameAttr;
   SmallVector<OpAsmParser::Argument> entryArgs;
@@ -2239,6 +2294,9 @@ void LLVMFuncOp::print(OpAsmPrinter &p) {
   p << ' ';
   if (getLinkage() != LLVM::Linkage::External)
     p << stringifyLinkage(getLinkage()) << ' ';
+  if (getCConv() != LLVM::CConv::C)
+    p << stringifyCConv(getCConv()) << ' ';
+
   p.printSymbolName(getName());
 
   LLVMFunctionType fnType = getFunctionType();
@@ -2255,7 +2313,8 @@ void LLVMFuncOp::print(OpAsmPrinter &p) {
   function_interface_impl::printFunctionSignature(p, *this, argTypes,
                                                   isVarArg(), resTypes);
   function_interface_impl::printFunctionAttributes(
-      p, *this, argTypes.size(), resTypes.size(), {getLinkageAttrName()});
+      p, *this, argTypes.size(), resTypes.size(),
+      {getLinkageAttrName(), getCConvAttrName()});
 
   // Print the body if this is not an external function.
   Region &body = getBody();
@@ -2294,9 +2353,6 @@ LogicalResult LLVMFuncOp::verify() {
                            << "' linkage";
     return success();
   }
-
-  if (isVarArg())
-    return emitOpError("only external functions can be variadic");
 
   return success();
 }
@@ -2389,7 +2445,7 @@ static ParseResult parseAtomicBinOp(OpAsmParser &parser, OperationState &result,
            << "' attribute";
   }
 
-  auto value = static_cast<int64_t>(kind.getValue());
+  auto value = static_cast<int64_t>(*kind);
   auto attr = parser.getBuilder().getI64IntegerAttr(value);
   result.addAttribute(attrName, attr);
 
@@ -2416,7 +2472,7 @@ static ParseResult parseAtomicOrdering(OpAsmParser &parser,
            << "' attribute";
   }
 
-  auto value = static_cast<int64_t>(kind.getValue());
+  auto value = static_cast<int64_t>(*kind);
   auto attr = parser.getBuilder().getI64IntegerAttr(value);
   result.addAttribute(attrName, attr);
 
@@ -2645,7 +2701,7 @@ OpFoldResult LLVM::GEPOp::fold(ArrayRef<Attribute> operands) {
 //===----------------------------------------------------------------------===//
 
 void LLVMDialect::initialize() {
-  addAttributes<FMFAttr, LinkageAttr, LoopOptionsAttr>();
+  addAttributes<FMFAttr, LinkageAttr, CConvAttr, LoopOptionsAttr>();
 
   // clang-format off
   addTypes<LLVMVoidType,
@@ -2712,7 +2768,7 @@ LogicalResult LLVMDialect::verifyOperationAttribute(Operation *op,
                                << "' to be a dictionary attribute";
     Optional<NamedAttribute> parallelAccessGroup =
         loopAttr.getNamed(LLVMDialect::getParallelAccessAttrName());
-    if (parallelAccessGroup.hasValue()) {
+    if (parallelAccessGroup) {
       auto accessGroups = parallelAccessGroup->getValue().dyn_cast<ArrayAttr>();
       if (!accessGroups)
         return op->emitOpError()
@@ -2741,8 +2797,7 @@ LogicalResult LLVMDialect::verifyOperationAttribute(Operation *op,
 
     Optional<NamedAttribute> loopOptions =
         loopAttr.getNamed(LLVMDialect::getLoopOptionsAttrName());
-    if (loopOptions.hasValue() &&
-        !loopOptions->getValue().isa<LoopOptionsAttr>())
+    if (loopOptions && !loopOptions->getValue().isa<LoopOptionsAttr>())
       return op->emitOpError()
              << "expected '" << LLVMDialect::getLoopOptionsAttrName()
              << "' to be a `loopopts` attribute";
@@ -2940,6 +2995,31 @@ Attribute LinkageAttr::parse(AsmParser &parser, Type type) {
   return LinkageAttr::get(parser.getContext(), linkage);
 }
 
+void CConvAttr::print(AsmPrinter &printer) const {
+  printer << "<";
+  if (static_cast<uint64_t>(getCallingConv()) <= cconv::getMaxEnumValForCConv())
+    printer << stringifyEnum(getCallingConv());
+  else
+    printer << "INVALID_cc_" << static_cast<uint64_t>(getCallingConv());
+  printer << ">";
+}
+
+Attribute CConvAttr::parse(AsmParser &parser, Type type) {
+  StringRef convName;
+
+  if (parser.parseLess() || parser.parseKeyword(&convName) ||
+      parser.parseGreater())
+    return {};
+  auto cconv = cconv::symbolizeCConv(convName);
+  if (!cconv) {
+    parser.emitError(parser.getNameLoc(), "unknown calling convention: ")
+        << convName;
+    return {};
+  }
+  CConv cconvVal = *cconv;
+  return CConvAttr::get(parser.getContext(), cconvVal);
+}
+
 LoopOptionsAttrBuilder::LoopOptionsAttrBuilder(LoopOptionsAttr attr)
     : options(attr.getOptions().begin(), attr.getOptions().end()) {}
 
@@ -2949,7 +3029,7 @@ LoopOptionsAttrBuilder &LoopOptionsAttrBuilder::setOption(LoopOptionCase tag,
   auto option = llvm::find_if(
       options, [tag](auto option) { return option.first == tag; });
   if (option != options.end()) {
-    if (value.hasValue())
+    if (value)
       option->second = *value;
     else
       options.erase(option);

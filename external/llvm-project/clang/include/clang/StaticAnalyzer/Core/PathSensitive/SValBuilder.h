@@ -120,9 +120,8 @@ public:
   SVal evalIntegralCast(ProgramStateRef state, SVal val, QualType castTy,
                         QualType originalType);
 
-  virtual SVal evalMinus(NonLoc val) = 0;
-
-  virtual SVal evalComplement(NonLoc val) = 0;
+  SVal evalMinus(NonLoc val);
+  SVal evalComplement(NonLoc val);
 
   /// Create a new value which represents a binary expression with two non-
   /// location operands.
@@ -152,6 +151,9 @@ public:
   /// Constructs a symbolic expression for two non-location values.
   SVal makeSymExprValNN(BinaryOperator::Opcode op,
                         NonLoc lhs, NonLoc rhs, QualType resultTy);
+
+  SVal evalUnaryOp(ProgramStateRef state, UnaryOperator::Opcode opc,
+                 SVal operand, QualType type);
 
   SVal evalBinOp(ProgramStateRef state, BinaryOperator::Opcode op,
                  SVal lhs, SVal rhs, QualType type);
@@ -349,6 +351,9 @@ public:
 
   nonloc::SymbolVal makeNonLoc(const SymExpr *lhs, BinaryOperator::Opcode op,
                                const SymExpr *rhs, QualType type);
+
+  NonLoc makeNonLoc(const SymExpr *operand, UnaryOperator::Opcode op,
+                    QualType type);
 
   /// Create a NonLoc value for cast.
   nonloc::SymbolVal makeNonLoc(const SymExpr *operand, QualType fromTy,

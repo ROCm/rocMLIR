@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/Basic/AttributeCommonInfo.h"
 #include "clang/Basic/Attributes.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/FileManager.h"
@@ -1242,7 +1243,7 @@ static bool EvaluateHasIncludeCommon(Token &Tok, IdentifierInfo *II,
   }
 
   // Get the result value.  A result of true means the file exists.
-  return File.hasValue();
+  return File.has_value();
 }
 
 bool Preprocessor::EvaluateHasInclude(Token &Tok, IdentifierInfo *II) {
@@ -1310,7 +1311,7 @@ already_lexed:
 
       case tok::l_paren:
         ++ParenDepth;
-        if (Result.hasValue())
+        if (Result)
           break;
         if (!SuppressDiagnostic) {
           PP.Diag(Tok.getLocation(), diag::err_pp_nested_paren) << II;
@@ -1324,7 +1325,7 @@ already_lexed:
 
         // The last ')' has been reached; return the value if one found or
         // a diagnostic and a dummy value.
-        if (Result.hasValue()) {
+        if (Result) {
           OS << Result.getValue();
           // For strict conformance to __has_cpp_attribute rules, use 'L'
           // suffix for dated literals.
@@ -1340,7 +1341,7 @@ already_lexed:
 
       default: {
         // Parse the macro argument, if one not found so far.
-        if (Result.hasValue())
+        if (Result)
           break;
 
         bool HasLexedNextToken = false;
@@ -1689,8 +1690,9 @@ void Preprocessor::ExpandBuiltinMacro(Token &Tok) {
       [this](Token &Tok, bool &HasLexedNextToken) -> int {
         IdentifierInfo *II = ExpectFeatureIdentifierInfo(Tok, *this,
                                            diag::err_feature_check_malformed);
-        return II ? hasAttribute(AttrSyntax::GNU, nullptr, II,
-                                 getTargetInfo(), getLangOpts()) : 0;
+        return II ? hasAttribute(AttributeCommonInfo::Syntax::AS_GNU, nullptr,
+                                 II, getTargetInfo(), getLangOpts())
+                  : 0;
       });
   } else if (II == Ident__has_declspec) {
     EvaluateFeatureLikeBuiltinMacro(OS, Tok, II, *this, true,
@@ -1700,8 +1702,8 @@ void Preprocessor::ExpandBuiltinMacro(Token &Tok) {
         if (II) {
           const LangOptions &LangOpts = getLangOpts();
           return LangOpts.DeclSpecKeyword &&
-                 hasAttribute(AttrSyntax::Declspec, nullptr, II,
-                              getTargetInfo(), LangOpts);
+                 hasAttribute(AttributeCommonInfo::Syntax::AS_Declspec, nullptr,
+                              II, getTargetInfo(), LangOpts);
         }
 
         return false;
@@ -1730,7 +1732,9 @@ void Preprocessor::ExpandBuiltinMacro(Token &Tok) {
                                              diag::err_feature_check_malformed);
           }
 
-          AttrSyntax Syntax = IsCXX ? AttrSyntax::CXX : AttrSyntax::C;
+          AttributeCommonInfo::Syntax Syntax =
+              IsCXX ? AttributeCommonInfo::Syntax::AS_CXX11
+                    : AttributeCommonInfo::Syntax::AS_C2x;
           return II ? hasAttribute(Syntax, ScopeII, II, getTargetInfo(),
                                    getLangOpts())
                     : 0;
@@ -1895,9 +1899,9 @@ void Preprocessor::processPathForFileMacro(SmallVectorImpl<char> &Path,
   LangOpts.remapPathPrefix(Path);
   if (LangOpts.UseTargetPathSeparator) {
     if (TI.getTriple().isOSWindows())
-      llvm::sys::path::make_preferred(
-          Path, llvm::sys::path::Style::windows_backslash);
+      llvm::sys::path::remove_dots(Path, false,
+                                   llvm::sys::path::Style::windows_backslash);
     else
-      llvm::sys::path::make_preferred(Path, llvm::sys::path::Style::posix);
+      llvm::sys::path::remove_dots(Path, false, llvm::sys::path::Style::posix);
   }
 }

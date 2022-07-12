@@ -30,6 +30,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IRReader/IRReader.h"
 #include "llvm/Support/Error.h"
@@ -532,15 +533,28 @@ Value Importer::processConstant(llvm::Constant *c) {
     Type rootType = processType(c->getType());
     if (!rootType)
       return nullptr;
+    bool useInsertValue = rootType.isa<LLVMArrayType, LLVMStructType>();
+    assert((useInsertValue || LLVM::isCompatibleVectorType(rootType)) &&
+           "unrecognized aggregate type");
     Value root = bEntry.create<UndefOp>(unknownLoc, rootType);
     for (unsigned i = 0; i < numElements; ++i) {
       llvm::Constant *element = getElement(i);
       Value elementValue = processConstant(element);
       if (!elementValue)
         return nullptr;
-      ArrayAttr indexAttr = bEntry.getI32ArrayAttr({static_cast<int32_t>(i)});
-      root = bEntry.create<InsertValueOp>(UnknownLoc::get(context), rootType,
-                                          root, elementValue, indexAttr);
+      if (useInsertValue) {
+        ArrayAttr indexAttr = bEntry.getI32ArrayAttr({static_cast<int32_t>(i)});
+        root = bEntry.create<InsertValueOp>(UnknownLoc::get(context), rootType,
+                                            root, elementValue, indexAttr);
+      } else {
+        Attribute indexAttr = bEntry.getI32IntegerAttr(static_cast<int32_t>(i));
+        Value indexValue = bEntry.create<ConstantOp>(
+            unknownLoc, bEntry.getI32Type(), indexAttr);
+        if (!indexValue)
+          return nullptr;
+        root = bEntry.create<InsertElementOp>(
+            UnknownLoc::get(context), rootType, root, elementValue, indexValue);
+      }
     }
     return root;
   }
@@ -652,6 +666,15 @@ static StringRef lookupOperationNameFromOpcode(unsigned opcode) {
 #undef INST
 
   return opcMap.lookup(opcode);
+}
+
+/// Return the MLIR OperationName for the given LLVM intrinsic ID.
+static StringRef lookupOperationNameFromIntrinsicID(unsigned id) {
+  // Maps from LLVM intrinsic ID to MLIR OperationName.
+  static const DenseMap<unsigned, StringRef> intrMap = {
+#include "mlir/Dialect/LLVMIR/LLVMIntrinsicToLLVMIROpPairs.inc"
+  };
+  return intrMap.lookup(id);
 }
 
 static ICmpPredicate getICmpPredicate(llvm::CmpInst::Predicate p) {
@@ -952,6 +975,20 @@ LogicalResult Importer::processInstruction(llvm::Instruction *inst) {
     }
     Operation *op;
     if (llvm::Function *callee = ci->getCalledFunction()) {
+      // For all intrinsics, try to generate to the corresponding op.
+      if (callee->isIntrinsic()) {
+        auto id = callee->getIntrinsicID();
+        StringRef opName = lookupOperationNameFromIntrinsicID(id);
+        if (!opName.empty()) {
+          OperationState state(loc, opName);
+          state.addOperands(ops);
+          state.addTypes(tys);
+          Operation *op = b.create(state);
+          if (!inst->getType()->isVoidTy())
+            instMap[inst] = op->getResult(0);
+          return success();
+        }
+      }
       op = b.create<CallOp>(
           loc, tys, SymbolRefAttr::get(b.getContext(), callee->getName()), ops);
     } else {
@@ -1139,10 +1176,20 @@ LogicalResult Importer::processFunction(llvm::Function *f) {
   if (!functionType)
     return failure();
 
+  if (f->isIntrinsic()) {
+    StringRef opName = lookupOperationNameFromIntrinsicID(f->getIntrinsicID());
+    // Skip the intrinsic decleration if we could found a corresponding op.
+    if (!opName.empty())
+      return success();
+  }
+
+  bool dsoLocal = f->hasLocalLinkage();
+  CConv cconv = convertCConvFromLLVM(f->getCallingConv());
+
   b.setInsertionPoint(module.getBody(), getFuncInsertPt());
-  LLVMFuncOp fop =
-      b.create<LLVMFuncOp>(UnknownLoc::get(context), f->getName(), functionType,
-                           convertLinkageFromLLVM(f->getLinkage()));
+  LLVMFuncOp fop = b.create<LLVMFuncOp>(
+      UnknownLoc::get(context), f->getName(), functionType,
+      convertLinkageFromLLVM(f->getLinkage()), dsoLocal, cconv);
 
   if (FlatSymbolRefAttr personality = getPersonalityAsAttr(f))
     fop->setAttr(b.getStringAttr("personality"), personality);
