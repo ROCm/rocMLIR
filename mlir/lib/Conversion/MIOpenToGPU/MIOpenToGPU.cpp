@@ -23,38 +23,17 @@
 #include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
 #include "../PassDetail.h"
 
-#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
-#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
-#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
-#include "mlir/Dialect/GPU/Transforms/Passes.h"
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/Vector/IR/VectorOps.h"
-#include "mlir/IR/AffineExpr.h"
-#include "mlir/IR/AffineMap.h"
-#include "mlir/IR/Attributes.h"
 #include "mlir/IR/BlockAndValueMapping.h"
-#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/MLIRContext.h"
-#include "mlir/IR/Operation.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
-#include "mlir/IR/Types.h"
-#include "mlir/Pass/Pass.h"
-#include "mlir/Pass/PassManager.h"
-#include "mlir/Pass/PassRegistry.h"
-#include "mlir/Support/LogicalResult.h"
-#include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/RegionUtils.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -126,10 +105,10 @@ struct MIIdRewritePattern : public OpRewritePattern<Tmi> {
 } // namespace
 
 void LowerMIOpenOpsToGPUPass::runOnOperation() {
-  auto op = getOperation();
-  auto *ctx = op.getContext();
+  ModuleOp op = getOperation();
+  MLIRContext *ctx = op.getContext();
   OpBuilder b(ctx);
-  auto loc = op.getLoc();
+  Location loc = op.getLoc();
 
   // Annotate this module as a container module.
   op->setAttr(gpu::GPUDialect::getContainerModuleAttrName(),
@@ -177,12 +156,8 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
 
     // associate arguments for newly created GPUFuncOp.
     BlockAndValueMapping map;
-    for (unsigned idx = 0; idx < theFunc.getNumArguments(); ++idx) {
-      auto arg = theFunc.getArgument(idx);
-      auto gpuFuncArg = gpuFunc.getArgument(idx);
-
-      map.map(arg, gpuFuncArg);
-    }
+    for (auto pair : llvm::zip(theFunc.getArguments(), gpuFunc.getArguments()))
+      map.map(std::get<0>(pair), std::get<1>(pair));
 
     // clone function body into newly created GPUFuncOp.
     Region &gpuFuncBody = gpuFunc.body();
@@ -261,7 +236,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     // miopen-lowering
     patterns.add<MIGPUAllocRewritePattern,
                  MIOpRewritePattern<miopen::WorkgroupBarrierOp, gpu::BarrierOp>,
-                 MIOpRewritePattern<miopen::LDSBarrierOp, gpu::LDSBarrierOp>,
+                 MIOpRewritePattern<miopen::LDSBarrierOp, amdgpu::LDSBarrierOp>,
                  MIIdRewritePattern<miopen::WorkgroupIdOp, gpu::BlockIdOp>,
                  MIIdRewritePattern<miopen::WorkitemIdOp, gpu::ThreadIdOp>,
                  MIOpRewritePattern<func::ReturnOp, gpu::ReturnOp>>(ctx);

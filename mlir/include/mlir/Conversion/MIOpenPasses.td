@@ -30,10 +30,9 @@ def ConvertMIOpenToGPU : Pass<"convert-miopen-to-gpu", "ModuleOp"> {
   ];
   let dependentDialects = [
     "miopen::MIOpenDialect",
-    "AffineDialect",
-    "scf::SCFDialect",
+    "amdgpu::AMDGPUDialect",
+    "cf::ControlFlowDialect",
     "func::FuncDialect",
-    "vector::VectorDialect",
     "gpu::GPUDialect"
   ];
 }
@@ -62,6 +61,10 @@ def MIGraphXToTosa : Pass<"migraphx-to-tosa", "::mlir::func::FuncOp"> {
   }];
 
   let constructor = "migraphx::createMIGraphXToTosaPass()";
+  let dependentDialects = [
+    "func::FuncDialect",
+    "tosa::TosaDialect"
+  ];
 }
 
 //===----------------------------------------------------------------------===//

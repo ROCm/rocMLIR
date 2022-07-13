@@ -186,28 +186,6 @@ struct WarpSwizzleOpLowering : ConvertOpToLLVMPattern<gpu::WarpSwizzleOp> {
     return success();
   }
 };
-
-struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<gpu::LDSBarrierOp> {
-  using ConvertOpToLLVMPattern<gpu::LDSBarrierOp>::ConvertOpToLLVMPattern;
-
-  LogicalResult
-  matchAndRewrite(gpu::LDSBarrierOp op, gpu::LDSBarrierOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto asmDialectAttr = LLVM::AsmDialectAttr::get(rewriter.getContext(),
-                                                    LLVM::AsmDialect::AD_ATT);
-    const auto *asmStr = "s_waitcnt lgkmcnt(0) \n s_barrier";
-    const auto *asmCstr = "";
-    SmallVector<Value> asmVals{};
-    SmallVector<Type> types{};
-    rewriter.replaceOpWithNewOp<LLVM::InlineAsmOp>(
-        op,
-        /*resultTypes=*/types, /*operands=*/asmVals, /*asm_string=*/asmStr,
-        /*constraints=*/asmCstr, /*has_side_effects=*/true,
-        /*is_align_stack=*/false, /*asm_dialect=*/asmDialectAttr,
-        /*operand_attrs=*/ArrayAttr());
-    return success();
-  }
-};
 } // namespace mlir
 
 void mlir::populateGpuToROCDLConversionPatterns(
@@ -274,7 +252,7 @@ void mlir::populateGpuToROCDLConversionPatterns(
   patterns.add<OpToFuncCallLowering<math::TanhOp>>(converter, "__ocml_tanh_f32",
                                                    "__ocml_tanh_f64");
 
-  patterns.add<WarpSwizzleOpLowering, LDSBarrierOpLowering>(converter);
+  patterns.add<WarpSwizzleOpLowering>(converter);
 }
 
 std::unique_ptr<OperationPass<gpu::GPUModuleOp>>

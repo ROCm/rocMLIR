@@ -33,11 +33,6 @@
 
 #include "mlir/Dialect/Func/IR/FuncOpsDialect.cpp.inc"
 
-#define GET_ATTRDEF_CLASSES
-#include "mlir/Dialect/Func/IR/FuncOpsAttrDefs.cpp.inc"
-
-#include "mlir/Dialect/Func/IR/FuncOpsTypes.cpp.inc"
-
 using namespace mlir;
 using namespace mlir::func;
 
@@ -109,28 +104,11 @@ struct FuncInlinerInterface : public DialectInlinerInterface {
 //===----------------------------------------------------------------------===//
 
 void FuncDialect::initialize() {
-  addAttributes<
-#define GET_ATTRDEF_LIST
-#include "mlir/Dialect/Func/IR/FuncOpsAttrDefs.cpp.inc"
-      >();
   addOperations<
 #define GET_OP_LIST
 #include "mlir/Dialect/Func/IR/FuncOps.cpp.inc"
       >();
   addInterfaces<FuncInlinerInterface>();
-}
-
-//===----------------------------------------------------------------------===//
-// FuncDialect Types
-//===----------------------------------------------------------------------===//
-
-bool mlir::func::isAccessModeRead(mlir::func::AccessMode v) {
-  return v == mlir::func::AccessMode::ReadOnly ||
-         v == mlir::func::AccessMode::ReadWrite;
-}
-bool mlir::func::isAccessModeWrite(mlir::func::AccessMode v) {
-  return v == mlir::func::AccessMode::WriteOnly ||
-         v == mlir::func::AccessMode::ReadWrite;
 }
 
 /// Materialize a single constant operation from a given attribute value with

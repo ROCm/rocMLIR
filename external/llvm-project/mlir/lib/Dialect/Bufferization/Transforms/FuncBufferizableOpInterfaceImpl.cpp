@@ -276,11 +276,14 @@ struct CallOpInterface
   LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
                           const BufferizationOptions &options) const {
     mlir::CallOpInterface callOp(op);
+    auto callOperands = callOp.getCallOperands();
+    auto callResultTypes = callOp.getCallResultTypes();
     unsigned numOperands = callOp->getNumOperands();
     unsigned numResults = callOp->getNumResults();
     FuncOp funcOp = getCalledFunction(callOp);
     assert(funcOp && "expected CallOp to a FuncOp");
     FunctionType funcType = funcOp.getFunctionType();
+
     // Result types of the bufferized CallOp.
     SmallVector<Type> resultTypes;
     // Replacement values for the existing CallOp. These are usually the results
@@ -293,6 +296,7 @@ struct CallOpInterface
     SmallVector<Value> newOperands(numOperands, Value());
 
     // 1. Compute the result types of the new CallOp.
+    unsigned funcResultIdx = 0;
     for (const auto &it : llvm::enumerate(callOp->getResultTypes())) {
       unsigned returnValIdx = it.index();
       Type returnType = it.value();
@@ -300,20 +304,27 @@ struct CallOpInterface
         // Non-tensor values are returned.
         retValMapping[returnValIdx] = resultTypes.size();
         resultTypes.push_back(returnType);
+        if (returnType == callResultTypes[funcResultIdx])
+          funcResultIdx++;
         continue;
       }
+      assert(returnType == callResultTypes[funcResultIdx]); 
+
       retValMapping[returnValIdx] = resultTypes.size();
-      resultTypes.push_back(funcType.getResult(resultTypes.size()));
+      resultTypes.push_back(funcType.getResult(funcResultIdx));
+      funcResultIdx++;
     }
 
     // 2. Rewrite tensor operands as memrefs based on `bufferizedFuncType`.
+    unsigned funcOperandIdx = 0;
     for (OpOperand &opOperand : callOp->getOpOperands()) {
       unsigned idx = opOperand.getOperandNumber();
       Value tensorOperand = opOperand.get();
-
       // Non-tensor operands are just copied.
       if (!tensorOperand.getType().isa<TensorType>()) {
         newOperands[idx] = tensorOperand;
+      if (tensorOperand == callOperands[funcOperandIdx])
+          funcOperandIdx++;
         continue;
       }
 
@@ -328,7 +339,8 @@ struct CallOpInterface
       }
 
       // Caller / callee type mismatch is handled with a CastOp.
-      auto memRefType = funcType.getInput(idx);
+     // auto memRefType = funcType.getInput(idx);
+      auto memRefType = funcType.getInput(funcOperandIdx);
       // Since we don't yet have a clear layout story, to_memref may
       // conservatively turn tensors into more dynamic memref than necessary.
       // If the memref type of the callee fails, introduce an extra memref.cast
@@ -343,6 +355,7 @@ struct CallOpInterface
         buffer = castBuffer;
       }
       newOperands[idx] = buffer;
+      funcOperandIdx++;
     }
 
     // 3. Create the new CallOp.

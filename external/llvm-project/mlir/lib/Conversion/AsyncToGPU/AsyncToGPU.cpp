@@ -87,9 +87,8 @@ public:
     return b.create<gpu::WaitOp>(loc, tokenType, deps).asyncToken();
   }
 
-  Value moveMemory(OpBuilder b, Value opr, uint32_t fidx,
-                   func::AccessMode accessMode,
-                   llvm::SmallVector<Value> &copyBackOprs,
+  Value moveMemory(OpBuilder b, Value opr, uint32_t fidx, bool readAccess,
+                   bool writeAccess, llvm::SmallVector<Value> &copyBackOprs,
                    llvm::SmallVector<Value, 8> &asyncDeps) const {
     Location loc = opr.getLoc();
     auto tokenType = b.getType<gpu::AsyncTokenType>();
@@ -97,26 +96,25 @@ public:
     if (oprAllocOp)
       b.setInsertionPoint(oprAllocOp);
 
-    auto allocWait = makeWait(b, loc);
-    auto gpuMemType = opr.getType();
+    Value allocWait = makeWait(b, loc);
+    Type gpuMemType = opr.getType();
     auto dst = b.create<gpu::AllocOp>(loc, gpuMemType, tokenType,
                                       ValueRange{allocWait}, ValueRange{},
                                       ValueRange{});
-    auto dstMem = dst.getResult(0);
-    auto dstToken = dst.getResult(1);
+    Value dstMem = dst.getResult(0);
+    Value dstToken = dst.getResult(1);
     // if alloc, convert to gpu.alloc
     if (oprAllocOp) {
       // TODO(sjw): make sure accessors are all on the GPU
       oprAllocOp->replaceAllUsesWith(ValueRange{dstMem});
     } else {
-      if (func::isAccessModeRead(accessMode)) {
+      if (readAccess) {
         // else copy to device
-        auto asyncDeps = ValueRange{dstToken};
         auto memcpyToken =
-            b.create<gpu::MemcpyOp>(loc, tokenType, asyncDeps, dstMem, opr);
+            b.create<gpu::MemcpyOp>(loc, tokenType, ValueRange{dstToken}, dstMem, opr);
         dstToken = memcpyToken.getResult(0);
       }
-      if (func::isAccessModeWrite(accessMode)) {
+      if (writeAccess) {
         copyBackOprs[fidx] = dstMem;
       }
     }
@@ -145,16 +143,6 @@ public:
 
     auto func = *getCalledFunc(op);
     Location floc = func.getLoc();
-
-    // Also capture the accessMap for the params, default all to read-write
-    SmallVector<func::AccessMode> accessVec(func.getNumArguments(),
-                                            func::AccessMode::ReadWrite);
-    if (auto accessMap = func->getAttrOfType<ArrayAttr>("access_map")) {
-      accessVec =
-          llvm::to_vector<4>(llvm::map_range(accessMap, [](Attribute a) {
-            return a.cast<func::AccessModeAttr>().getValue();
-          }));
-    }
 
     // 2. create dummy gpu.module for reference from gpu.launch_func
     //    - with gpu.binary, arch attributes
@@ -231,9 +219,12 @@ public:
       auto fidx = i - diff;
       Value opr = operands[i];
       // move input memories to GPU
-      if (!opr.getDefiningOp<gpu::AllocOp>()) {
-        opr =
-            moveMemory(rw, opr, fidx, accessVec[fidx], copyBackOprs, asyncDeps);
+      if (opr.getType().isa<MemRefType>() &&
+          !opr.getDefiningOp<gpu::AllocOp>()) {
+        bool readAccess{func.getArgAttr(fidx, func::FuncOp::getReadAccessAttrName())};
+        bool writeAccess{func.getArgAttr(fidx, func::FuncOp::getWriteAccessAttrName())};
+        opr = moveMemory(rw, opr, fidx, readAccess, writeAccess, copyBackOprs,
+                         asyncDeps);
       }
       gpuOperands.push_back(opr);
     }

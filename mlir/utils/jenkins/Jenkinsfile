@@ -64,7 +64,7 @@ String dockerArgs() {
 }
 
 String dockerImage() {
-    return 'rocm/mlir:rocm5.0-latest'
+    return 'rocm/mlir:rocm5.1-latest'
 }
 
 void preMergeCheck() {
@@ -130,7 +130,7 @@ void setHeartbeat() {
 }
 
 def rebootNode() {
-    build job: 'reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
+    build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
 }
 
 pipeline {
