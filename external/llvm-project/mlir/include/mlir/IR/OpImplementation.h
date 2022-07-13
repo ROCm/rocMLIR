@@ -1424,22 +1424,10 @@ public:
 
   /// Parse a list of assignments of the form
   ///   (%x1 = %y1 : type1, %x2 = %y2 : type2, ...)
-  ParseResult
-  parseAssignmentListWithTypes(SmallVectorImpl<Argument> &lhs,
-                               SmallVectorImpl<UnresolvedOperand> &rhs,
-                               SmallVectorImpl<Type> &types) {
-    OptionalParseResult result =
-        parseOptionalAssignmentListWithTypes(lhs, rhs, types);
-    if (!result.hasValue())
-      return emitError(getCurrentLocation(), "expected '('");
-    return result.getValue();
-  }
-
   virtual OptionalParseResult
   parseOptionalAssignmentListWithTypes(SmallVectorImpl<Argument> &lhs,
                                        SmallVectorImpl<UnresolvedOperand> &rhs,
                                        SmallVectorImpl<Type> &types) = 0;
-
 };
 
 //===--------------------------------------------------------------------===//
