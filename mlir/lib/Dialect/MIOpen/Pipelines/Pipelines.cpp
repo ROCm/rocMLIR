@@ -121,9 +121,10 @@ void miopen::buildKernelPipeline(OpPassManager &pm,
   // miopen lowering (tuning, global to block)
   /* miopen-opt --miopen-affix-params --miopen-lowering --miopen-lowering-step2
    */
-  pm.addPass(miopen::createAffixTuningParametersPass(0, 0));
-  pm.addPass(miopen::createLowerMIOpenOpsStep1Pass());
-  pm.addPass(miopen::createLowerMIOpenOpsStep2Pass());
+  pm.addPass(
+      miopen::createAffixTuningParametersPass(0, 0, options.tuningFallback));
+  pm.addNestedPass<FuncOp>(miopen::createMIOpenConvToGemmPass());
+  pm.addNestedPass<FuncOp>(miopen::createMIOpenGridwiseGemmToBlockwisePass());
 
   if (!options.enableApplicability) {
     if (options.enableFusion) {
