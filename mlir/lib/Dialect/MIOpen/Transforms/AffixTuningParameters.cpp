@@ -18,11 +18,13 @@ using namespace mlir;
 using namespace mlir::miopen;
 
 namespace {
-struct AffixTuningParameters : public MIOpenOpsAffixTuningParametersPassBase<AffixTuningParameters> {
+struct AffixTuningParameters
+    : public MIOpenOpsAffixTuningParametersPassBase<AffixTuningParameters> {
 public:
-  AffixTuningParameters(int64_t blockSizeOverride, int64_t gridSizeOverride)
+  AffixTuningParameters(int64_t blockSizeOverride, int64_t gridSizeOverride,
+                        bool fallBackNoConfig)
       : blockSizeOverride(blockSizeOverride),
-        gridSizeOverride(gridSizeOverride) {}
+        gridSizeOverride(gridSizeOverride), fallBackNoConfig(fallBackNoConfig) {}
   void runOnOperation() override;
 
 private:
@@ -39,6 +41,7 @@ private:
   //   coherent tuning parameters with the pre-set block size.
   int64_t blockSizeOverride;
   int64_t gridSizeOverride;
+  bool fallBackNoConfig;
 
   // Actual implementation.
   template <typename T> void affixTuningParametersImpl(T &op);
@@ -210,7 +213,16 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
         gemmBDerivedParam, gemmCDerivedParam, blockSize, gridSize, gemmKBlocks);
 
     if (failed(status)) {
-      signalPassFailure();
+      // Try again if allowed.
+      if (fallBackNoConfig) {
+        perfConfig.clear();
+        status = populateParamsXDL.obtainTuningParameters(
+            op, blockSizeOverride, perfConfig, validParams, gemmADerivedParam,
+            gemmBDerivedParam, gemmCDerivedParam, blockSize, gridSize,
+            gemmKBlocks);
+      }
+      if (failed(status))
+        signalPassFailure();
     }
 
     op->setAttr("m_per_wave", b.getI32IntegerAttr(validParams.gemmMPerWave));
@@ -340,7 +352,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
 std::unique_ptr<Pass>
 mlir::miopen::createAffixTuningParametersPass(int64_t blockSizeOverride,
-                                              int64_t gridSizeOverride) {
-  return std::make_unique<AffixTuningParameters>(blockSizeOverride,
-                                                 gridSizeOverride);
+                                              int64_t gridSizeOverride,
+                                              bool fallBackNoConfig) {
+  return std::make_unique<AffixTuningParameters>(
+      blockSizeOverride, gridSizeOverride, fallBackNoConfig);
 }

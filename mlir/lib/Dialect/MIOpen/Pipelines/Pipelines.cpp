@@ -122,7 +122,8 @@ void miopen::buildKernelPipeline(OpPassManager &pm,
   /* miopen-opt --miopen-affix-params --miopen-conv-to-gemm
    * --miopen-gridwise-gemm-to-blockwise
    */
-  pm.addPass(miopen::createAffixTuningParametersPass(0, 0));
+  pm.addPass(
+      miopen::createAffixTuningParametersPass(0, 0, options.tuningFallback));
   pm.addNestedPass<FuncOp>(miopen::createMIOpenConvToGemmPass());
   pm.addNestedPass<FuncOp>(miopen::createMIOpenGridwiseGemmToBlockwisePass());
 

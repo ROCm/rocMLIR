@@ -60,6 +60,9 @@ struct KernelOptions : public PassPipelineOptions<KernelOptions> {
       *this, "enable-fusion",
       desc("Enable fusion alignment between anchor op and peripheral ops"),
       init(true)};
+  PassOptions::Option<bool> tuningFallback{
+      *this, "tuningFallback",
+      desc("Falls back default if invalid config is given"), init(false)};
 };
 
 /// Adds the `kernel` pipeline to the `OpPassManager`.
