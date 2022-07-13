@@ -283,14 +283,16 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
       // Note: p_a_wave need to be offseted by waveOffsetA.
 
       auto outerLoopM = b.create<AffineForOp>(loc, 0, MRepeats);
-      auto olmb = OpBuilder::atBlockBegin(outerLoopM.getBody());
+      auto olmb = ConversionPatternRewriter::atBlockBegin(outerLoopM.getBody(),
+                                                          b.getListener());
       auto olmiv = outerLoopM.getInductionVar();
       auto mOffset = olmb.create<AddIOp>(
           loc, aBase, olmb.create<MulIOp>(loc, MPerXdlopsConstantOp, olmiv));
       auto kOffsetA = olmb.create<MulIOp>(loc, olmiv, KConstantOp);
 
       auto innerLoopMK = olmb.create<AffineForOp>(loc, 0, KPerThread);
-      auto ilmkb = OpBuilder::atBlockBegin(innerLoopMK.getBody());
+      auto ilmkb = ConversionPatternRewriter::atBlockBegin(
+          innerLoopMK.getBody(), olmb.getListener());
       auto ilmkiv = innerLoopMK.getInductionVar();
 
       Value sourceOffsetA = ilmkb.create<AddIOp>(
@@ -318,14 +320,16 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
       // Note: p_b_wave need to be offseted by waveOffsetB.
 
       auto outerLoopN = b.create<AffineForOp>(loc, 0, NRepeats);
-      auto olnb = OpBuilder::atBlockBegin(outerLoopN.getBody());
+      auto olnb = ConversionPatternRewriter::atBlockBegin(outerLoopN.getBody(),
+                                                          b.getListener());
       auto olniv = outerLoopN.getInductionVar();
       auto nOffset = olnb.create<AddIOp>(
           loc, bBase, olnb.create<MulIOp>(loc, NPerXdlopsConstantOp, olniv));
       auto kOffsetB = olnb.create<MulIOp>(loc, olniv, KConstantOp);
 
       auto innerLoopNK = olnb.create<AffineForOp>(loc, 0, KPerThread);
-      auto ilnkb = OpBuilder::atBlockBegin(innerLoopNK.getBody());
+      auto ilnkb = ConversionPatternRewriter::atBlockBegin(
+          innerLoopNK.getBody(), olnb.getListener());
       auto ilnkiv = innerLoopNK.getInductionVar();
 
       Value sourceOffsetB = ilnkb.create<AddIOp>(
@@ -367,7 +371,8 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
           b.create<ConstantIndexOp>(loc, num_input_blks);
 
       auto loopKLoad = b.create<AffineForOp>(loc, 0, KPerThread);
-      auto lklb = OpBuilder::atBlockBegin(loopKLoad.getBody());
+      auto lklb = ConversionPatternRewriter::atBlockBegin(loopKLoad.getBody(),
+                                                          b.getListener());
       auto lkliv = loopKLoad.getInductionVar();
 
       Value sourceOffsetA = lklb.create<AddIOp>(
@@ -424,7 +429,8 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
 
     auto outerLoop =
         b.create<AffineForOp>(loc, 0, KPerThread, 1, op.vectorCs());
-    auto outerLoopb = OpBuilder::atBlockBegin(outerLoop.getBody());
+    auto outerLoopb = ConversionPatternRewriter::atBlockBegin(
+        outerLoop.getBody(), b.getListener());
     auto outerLoopiv = outerLoop.getInductionVar();
 
     Value bufferAElement = outerLoopb.create<memref::LoadOp>(
@@ -434,7 +440,8 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
 
     auto innerLoop = outerLoopb.create<AffineForOp>(
         loc, 0, KRepeats * k_base, k_base, outerLoop.getRegionIterArgs());
-    auto innerLoopb = OpBuilder::atBlockBegin(innerLoop.getBody());
+    auto innerLoopb = ConversionPatternRewriter::atBlockBegin(
+        innerLoop.getBody(), outerLoopb.getListener());
     auto innerLoopiv = innerLoop.getInductionVar();
 
     Value argA;
