@@ -117,7 +117,7 @@ MLIR_CAPI_EXPORTED void mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   mlir::registerGpuSerializeToHsacoPass();
   auto passMan = unwrap(pm);
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
-  miopen::KernelOptions kOpts;
+  mlir::miopen::KernelOptions kOpts;
   kOpts.tuningFallback = true;
   mlir::miopen::buildKernelPipeline(*passMan, kOpts);
   mlir::miopen::BackendOptions opts;
