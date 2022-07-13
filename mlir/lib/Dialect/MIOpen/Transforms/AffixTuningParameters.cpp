@@ -43,9 +43,8 @@ private:
   int64_t gridSizeOverride;
   bool fallBackNoConfig;
 
-      // Actual implementation.
-      template <typename T>
-      void affixTuningParametersImpl(T &op);
+  // Actual implementation.
+  template <typename T> void affixTuningParametersImpl(T &op);
 
   void affixBackwardWeightUtilityKernels(Conv2DBwdWeightOp &op);
   void affixBackwardDataUtilityKernels(Conv2DBwdDataOp &op);
@@ -356,5 +355,5 @@ mlir::miopen::createAffixTuningParametersPass(int64_t blockSizeOverride,
                                               int64_t gridSizeOverride,
                                               bool fallBackNoConfig) {
   return std::make_unique<AffixTuningParameters>(
-      blockSizeOverride, gridSizeOverride, bool fallBackNoConfig);
+      blockSizeOverride, gridSizeOverride, fallBackNoConfig);
 }
