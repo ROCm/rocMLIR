@@ -62,7 +62,7 @@ std::unique_ptr<Pass> createMIOpenLoopsToCfPass();
 std::unique_ptr<Pass>
 createAffixTuningParametersPass(int64_t blockSizeOverride = 0,
                                 int64_t gridSizeOverride = 0,
-                                bool fallBackNoConfig);
+                                bool fallBackNoConfig = false);
 
 #define GEN_PASS_REGISTRATION
 #include "mlir/Dialect/MIOpen/Passes.h.inc"
