@@ -19,8 +19,8 @@
 #include "mlir/Dialect/MIOpen/Pipelines.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "llvm/Support/TargetSelect.h"
-#include <vector>
 #include <mutex>
+#include <vector>
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(MIGraphX, migraphx,
                                       mlir::migraphx::MIGraphXDialect)
@@ -117,6 +117,8 @@ MLIR_CAPI_EXPORTED void mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
                                                        const char *features) {
   static std::mutex target_mutex;
   target_mutex.lock();
+  // Some calls included in regiserGpuSerializeToHsacoPass() are not thread safe
+  // and user may call this pipeline from different threads.
   mlir::registerGpuSerializeToHsacoPass();
   target_mutex.unlock();
   auto passMan = unwrap(pm);
