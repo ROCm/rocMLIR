@@ -24,6 +24,7 @@ def AMDGPU_Dialect : Dialect {
   }];
 
   let emitAccessorPrefix = kEmitAccessorPrefix_Both;
+  let useDefaultAttributePrinterParser = 1;
 }
 
 //===----------------------------------------------------------------------===//

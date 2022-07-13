@@ -800,14 +800,6 @@ def GPU_BarrierOp : GPU_Op<"barrier"> {
   let assemblyFormat = "attr-dict";
 }
 
-def GPU_LDSBarrierOp : GPU_Op<"lds_barrier"> {
-  let summary = "Synchronizes all LDS activities.";
-  let description = [{
-    The "lds_barrier" op synchronizes all LDS activities of a workgroup.
-  }];
-  let assemblyFormat = "attr-dict";
-}
-
 def GPU_GPUModuleOp : GPU_Op<"module", [
   DataLayoutOpInterface, HasDefaultDLTIDataLayout, IsolatedFromAbove,
   SymbolTable, Symbol,
