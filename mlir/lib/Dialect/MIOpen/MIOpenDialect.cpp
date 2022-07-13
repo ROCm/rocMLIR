@@ -443,19 +443,18 @@ LogicalResult InsertSliceOp::verify() {
 // TransformingForOp
 //===-----------------------------------------------------===//
 
-  /// Parse a list of assignments of the form
-  ///   (%x1 = %y1 : type1, %x2 = %y2 : type2, ...)
-static ParseResult
-  parseAssignmentListWithTypes(SmallVectorImpl<OpAsmParser::Argument> &lhs,
-                               SmallVectorImpl<OpAsmParser::UnresolvedOperand> &rhs,
-                               SmallVectorImpl<Type> &types,
-                               OpAsmParser &parser) {
-    OptionalParseResult result =
-        parser.parseOptionalAssignmentListWithTypes(lhs, rhs, types);
-    if (!result.hasValue())
-      return parser.emitError(parser.getCurrentLocation(), "expected '('");
-    return result.getValue();
-  }
+/// Parse a list of assignments of the form
+///   (%x1 = %y1 : type1, %x2 = %y2 : type2, ...)
+static ParseResult parseAssignmentListWithTypes(
+    SmallVectorImpl<OpAsmParser::Argument> &lhs,
+    SmallVectorImpl<OpAsmParser::UnresolvedOperand> &rhs,
+    SmallVectorImpl<Type> &types, OpAsmParser &parser) {
+  OptionalParseResult result =
+      parser.parseOptionalAssignmentListWithTypes(lhs, rhs, types);
+  if (!result.hasValue())
+    return parser.emitError(parser.getCurrentLocation(), "expected '('");
+  return result.getValue();
+}
 
 static ArrayAttr maybeIndexArray(OpBuilder &b,
                                  Optional<ArrayRef<int64_t>> vals) {

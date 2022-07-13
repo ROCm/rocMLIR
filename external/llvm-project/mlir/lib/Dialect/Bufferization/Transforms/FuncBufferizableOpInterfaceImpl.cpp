@@ -308,7 +308,7 @@ struct CallOpInterface
           funcResultIdx++;
         continue;
       }
-      assert(returnType == callResultTypes[funcResultIdx]); 
+      assert(returnType == callResultTypes[funcResultIdx]);
 
       retValMapping[returnValIdx] = resultTypes.size();
       resultTypes.push_back(funcType.getResult(funcResultIdx));
@@ -323,7 +323,7 @@ struct CallOpInterface
       // Non-tensor operands are just copied.
       if (!tensorOperand.getType().isa<TensorType>()) {
         newOperands[idx] = tensorOperand;
-      if (tensorOperand == callOperands[funcOperandIdx])
+        if (tensorOperand == callOperands[funcOperandIdx])
           funcOperandIdx++;
         continue;
       }
@@ -339,7 +339,7 @@ struct CallOpInterface
       }
 
       // Caller / callee type mismatch is handled with a CastOp.
-     // auto memRefType = funcType.getInput(idx);
+      // auto memRefType = funcType.getInput(idx);
       auto memRefType = funcType.getInput(funcOperandIdx);
       // Since we don't yet have a clear layout story, to_memref may
       // conservatively turn tensors into more dynamic memref than necessary.

@@ -25,7 +25,7 @@ class AMDGPUDialect;
 
 namespace cf {
 class ControlFlowDialect;
-} // end namespace sf
+} // namespace cf
 
 namespace func {
 class FuncDialect;

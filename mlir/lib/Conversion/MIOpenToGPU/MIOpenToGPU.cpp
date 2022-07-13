@@ -23,8 +23,8 @@
 #include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
 #include "../PassDetail.h"
 
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
