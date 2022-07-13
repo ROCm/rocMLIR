@@ -1275,7 +1275,8 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     return b.create<arith::ConstantFloatOp>(loc, apVal, elemFType);
   };
 
-  mlir::Value fval00, fval000001, fval001;
+  mlir::Value fval00, fval000001, fval001, fval025;
+  float f16_threshold = 0.25f;
   // Create constants needed for verification
   if ((randomSeed.getValue() != "none" &&
        randomDataType.getValue() == "float") ||
@@ -1283,6 +1284,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     fval00 = getFVal(0.0f);
     fval000001 = getFVal(0.000001f);
     fval001 = getFVal(0.001f);
+    fval025 = getFVal(f16_threshold);
   }
   // %%c1 = constant 1 : index
   auto c1IndexOp = b.create<arith::ConstantIndexOp>(loc, 1);
@@ -1370,7 +1372,12 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 
     auto absCpuVal = testBody.create<math::AbsOp>(loc, cpuLoadVal);
 
-    mlir::Value maxPercentVal = fval000001; // 0.0001%
+    mlir::Value maxPercentVal;
+    if (elemType.getIntOrFloatBitWidth() < 32) {
+        maxPercentVal = fval025; // 25%
+    } else {
+        maxPercentVal = fval000001; // 0.0001 %
+    }
 
     // <test> >= <max_percent>
     cmpVal = testBody.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT,
