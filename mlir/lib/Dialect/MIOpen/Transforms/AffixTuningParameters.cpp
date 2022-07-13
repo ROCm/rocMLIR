@@ -24,7 +24,7 @@ public:
   AffixTuningParameters(int64_t blockSizeOverride, int64_t gridSizeOverride,
                         bool fallBackNoConfig)
       : blockSizeOverride(blockSizeOverride),
-        gridSizeOverride(gridSizeOverride), fallBackNoConfig(false) {}
+        gridSizeOverride(gridSizeOverride), fallBackNoConfig(fallBackNoConfig) {}
   void runOnOperation() override;
 
 private:
