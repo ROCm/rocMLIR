@@ -20,6 +20,7 @@
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "llvm/Support/TargetSelect.h"
 #include <vector>
+#include <mutex>
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(MIGraphX, migraphx,
                                       mlir::migraphx::MIGraphXDialect)
@@ -114,7 +115,10 @@ MLIR_CAPI_EXPORTED void mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
                                                        const char *chip,
                                                        const char *triple,
                                                        const char *features) {
+  static std::mutex target_mutex;
+  target_mutex.lock();
   mlir::registerGpuSerializeToHsacoPass();
+  target_mutex.unlock();
   auto passMan = unwrap(pm);
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
   mlir::miopen::KernelOptions kOpts;
