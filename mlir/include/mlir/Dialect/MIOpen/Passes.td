@@ -37,7 +37,8 @@ def MIOpenConvToGemmPass : Pass<"miopen-conv-to-gemm", "::mlir::FuncOp"> {
 def MIOpenOpsAffixTuningParametersPass : Pass<"miopen-affix-params", "::mlir::FuncOp"> {
   let summary = "populate tuning parameters for miopen.gridwise_gemm ops";
   let constructor = "mlir::miopen::createAffixTuningParametersPass()";
-  let dependentDialects = ["miopen::MIOpenDialect", "arith::ArithmeticDialect"];
+  let dependentDialects = ["miopen::MIOpenDialect", "arith::ArithmeticDialect",
+                           "func::FuncDialect"];
 }
 
 def MIOpenGridwiseGemmToBlockwisePass : Pass<"miopen-gridwise-gemm-to-blockwise", "::mlir::FuncOp"> {
