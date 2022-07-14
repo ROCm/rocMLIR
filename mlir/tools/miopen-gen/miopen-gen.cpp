@@ -350,6 +350,11 @@ static cl::opt<std::string> randomSide(
              "By default, populate random numbers to both tensors."),
     cl::value_desc("tensor"), cl::init("both"));
 
+static cl::opt<float> f16Threshold(
+    "threshold",
+    cl::desc("Threshold used for CPU verification function for f16 datatype."),
+    cl::value_desc("error"), cl::init(0.25f));
+
 static cl::opt<int> deviceNum(
     "device",
     cl::desc("Device index on which to run the kernel (only with host code)"),
@@ -1276,7 +1281,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   };
 
   mlir::Value fval00, fval000001, fval001, fval025;
-  float f16_threshold = 0.25f;
+  float f16_threshold = f16Threshold.getValue();
   // Create constants needed for verification
   if ((randomSeed.getValue() != "none" &&
        randomDataType.getValue() == "float") ||
@@ -1373,8 +1378,10 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     auto absCpuVal = testBody.create<math::AbsOp>(loc, cpuLoadVal);
 
     mlir::Value maxPercentVal;
-    if (elemType.getIntOrFloatBitWidth() < 32) {
-      maxPercentVal = fval025; // 25%
+    if (elemType.isF16()) {
+      // The threshold for f16 datatype is controlled by -threshold
+      // The default value is set to 0.25
+      maxPercentVal = fval025;
     } else {
       maxPercentVal = fval000001; // 0.0001 %
     }
