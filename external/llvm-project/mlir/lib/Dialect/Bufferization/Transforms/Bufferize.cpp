@@ -467,9 +467,6 @@ LogicalResult bufferization::bufferizeOp(Operation *op,
     if (!hasTensorSemantics(op))
       continue;
 
-    if (isa<bufferization::ToMemrefOp, bufferization::ToTensorOp>(op))
-      continue;
-
     // Continue ops that are not allowed.
     if (!options.isOpAllowed(op))
       continue;
