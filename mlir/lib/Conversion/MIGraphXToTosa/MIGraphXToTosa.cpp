@@ -223,6 +223,8 @@ public:
 
     for (auto &use : op->getResult(0).getUses()) {
       auto expandedOp = use.getOwner();
+      if (expandedOp == op)
+        continue;
       // isa binary operation,
       if (isBroadcastable(expandedOp, op)) {
         // get shape of the use
