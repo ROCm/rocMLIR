@@ -13,10 +13,13 @@
 #include "mlir/Dialect/MIOpen/utility/math.h"
 #include "llvm/ADT/IndexedMap.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Debug.h"
 #include <iterator>
 #include <numeric>
+#include <utility>
 
 #define DEBUG_TYPE "miopen-transform-map-utils"
 
@@ -232,10 +235,45 @@ TransformOp mlir::miopen::reshapeBuffer(OpBuilder &b, Location loc,
 //===----------------------------------------------------------------------===//
 // Vectorization inference.
 //===----------------------------------------------------------------------===//
-// A map of dimensions to the maximal length in those dimensions that can
-// be vectorized. If a dimension's maximal length is `None`, that dimension
-// is assumed to be held constant.
+/// A map of dimensions to the maximal length in those dimensions that can
+/// be vectorized. If a dimension's maximal length is `None`, that dimension
+/// is assumed to be held constant.
 using VectorizationData = llvm::IndexedMap<Optional<int64_t>>;
+
+/// Determine the maximum vectorization length for unmerge-like operations,
+/// including the implicit final embedding at the end of the system.
+/// Takes an iterator over (length, dimension_index), which must proceed
+/// from the fastest-moving dimension to the slowest. It computes the product
+/// of the lengths of each dimension (including those held constant) along with
+/// the product of the vectorization lengths, until these products diverge.
+/// Such a divergence means that the dimension before the one under
+/// consideration cannot be completely traversed using vector operations,
+/// meaning that the unmerged result isn't guaranteed to be traversable with
+/// unit stride (the dimension that broke things could have jumps, padding,
+/// etc.).
+template <typename T>
+static Optional<int64_t>
+propagateUnmergeVectorization(T &&dimAndLength,
+                              const VectorizationData &input) {
+  int64_t previousDimsStride = 1;
+  Optional<int64_t> maxVectorizationLength;
+  for (auto pair : dimAndLength) {
+    uint32_t upperDim = std::get<0>(pair);
+    int64_t dimLength = std::get<1>(pair);
+    if (input[upperDim].hasValue()) {
+      if (!maxVectorizationLength.hasValue())
+        maxVectorizationLength = 1;
+      if (maxVectorizationLength == previousDimsStride) {
+        maxVectorizationLength =
+            (*maxVectorizationLength) * input[upperDim].getValue();
+      } else {
+        break;
+      }
+    }
+    previousDimsStride *= dimLength;
+  }
+  return maxVectorizationLength;
+}
 
 static VectorizationData
 propagateVectorizationInfo(TransformMapAttr map,
@@ -250,12 +288,29 @@ propagateVectorizationInfo(TransformMapAttr map,
     switch (transform.getType()) {
     case TransformType::PassThrough:
     case TransformType::AddDim:
-    case TransformType::Slice:
       for (auto pair : llvm::zip(upperDims, lowerDims)) {
         result[std::get<1>(pair)] = input[std::get<0>(pair)];
       }
       break;
-      // Padding limits the max length to gcd(length, length - padding)
+    // For a slice, each vector must be either fully in or fully out of the
+    // slice which means that the new maximum vectorization length is the gcd of
+    // the old length and the slice length
+    case TransformType::Slice:
+      for (auto data : llvm::enumerate(llvm::zip(upperDims, lowerDims))) {
+        uint32_t idx = data.index();
+        int64_t sliceBegin = params[2 * idx], sliceEnd = params[2 * idx + 1];
+        uint32_t upper, lower;
+        std::tie(upper, lower) = data.value();
+        if (input[upper].hasValue()) {
+          result[lower] = math_util::gcd(*input[upper], sliceEnd - sliceBegin);
+        }
+      }
+      break;
+    // Padding has the same "must be all in or all out" requirements as slices
+    // but on both the left and right. For example, if we had u <- Pad{2, 2}(v)
+    // and v's max vectorization was 4, its new maximum must be 2, because
+    // a vector of 4 would include both padded and non-padded elements on the
+    // left and the right.
     case TransformType::Pad:
       for (auto data : llvm::enumerate(llvm::zip(upperDims, lowerDims))) {
         uint32_t idx = data.index();
@@ -264,12 +319,15 @@ propagateVectorizationInfo(TransformMapAttr map,
         std::tie(upper, lower) = data.value();
         Optional<int64_t> upperLen = input[upper];
         if (upperLen.hasValue()) {
-          int64_t lowerLen = (*upperLen) - leftPad - rightPad;
-          int64_t newMaxVectorization = math_util::gcd(*upperLen, lowerLen);
-          result[lower] = newMaxVectorization;
+          int64_t maxVectorizationLeft =
+              math_util::gcd(*upperLen, *upperLen - leftPad);
+          int64_t maxVectorizationRight =
+              math_util::gcd(*upperLen, *upperLen - rightPad);
+          result[lower] = std::min(maxVectorizationLeft, maxVectorizationRight);
         }
       }
       break;
+      // Broadcast has in/out requirements like slice.
     case TransformType::Broadcast:
       for (auto data : llvm::zip(upperDims, lowerDims, params)) {
         uint32_t upper, lower;
@@ -312,23 +370,8 @@ propagateVectorizationInfo(TransformMapAttr map,
     }
     // Like `Embed`, but a bit simpler since we don't have to sort.
     case TransformType::Unmerge: {
-      int64_t stride = 1;
-      Optional<int64_t> maxLength;
-      for (auto pair :
-           llvm::zip(llvm::reverse(upperDims), llvm::reverse(params))) {
-        uint32_t upperDim = std::get<0>(pair);
-        int64_t dimLength = std::get<1>(pair);
-        if (input[upperDim].hasValue()) {
-          if (!maxLength.hasValue())
-            maxLength = 1;
-          if (maxLength == stride) {
-            maxLength = maxLength.getValue() * input[upperDim].getValue();
-          } else {
-            break;
-          }
-        }
-        stride *= dimLength;
-      }
+      Optional<int64_t> maxLength = propagateUnmergeVectorization(
+          llvm::zip(llvm::reverse(upperDims), llvm::reverse(params)), input);
       result[lowerDims[0]] = maxLength;
       break;
     }
@@ -337,7 +380,9 @@ propagateVectorizationInfo(TransformMapAttr map,
     // to the gcd of the remaining vectorization length and that dimension's
     // length. The remaining length gets lowered by the full lenght of the
     // output dimension so that Merge{3, 4} with a starting vectorization lenght
-    // of 6 gets the results [1, 2] and not [3, 2].
+    // of 6 gets the results [1, 2] and not [3, 2]. While this might be
+    // optimistic, if the dimesions don't get put back togther with the correct
+    // coefficients, their vectorization will disappear.
     case TransformType::Merge:
     case TransformType::Unfold: {
       int64_t upperDim = upperDims[0];
@@ -392,21 +437,12 @@ int64_t mlir::miopen::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
     LLVM_DEBUG(llvm::dbgs() << (i == e - 1 ? "\n" : " "));
   }
 
-  int64_t result = 1;
-  int64_t stride = 1;
-  for (size_t i = 0, e = outputShape.size(); i < e; ++i) {
-    uint32_t dimension = (e - 1) - i;
-    int64_t length = outputShape[dimension];
-    if (maxLengths[dimension].hasValue()) {
-      int64_t maxLength = maxLengths[dimension].getValue();
-      if (result == stride) {
-        result *= maxLength;
-      } else {
-        break;
-      }
-      stride *= length;
-    }
-  }
+  int64_t result = propagateUnmergeVectorization(
+                       llvm::zip(llvm::reverse(llvm::iota_range<uint32_t>(
+                                     0, outputShape.size(), false)),
+                                 llvm::reverse(outputShape)),
+                       maxLengths)
+                       .getValueOr(1);
   // TODO(kdrewnia): Add support for tails
   result = math_util::gcd(len, result);
   return result;
