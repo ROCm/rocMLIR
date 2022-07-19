@@ -123,8 +123,8 @@ void miopen::buildKernelPipeline(OpPassManager &pm,
    */
   pm.addPass(
       miopen::createAffixTuningParametersPass(0, 0, options.tuningFallback));
-  pm.addNestedPass<FuncOp>(miopen::createMIOpenConvToGemmPass());
-  pm.addNestedPass<FuncOp>(miopen::createMIOpenGridwiseGemmToBlockwisePass());
+  pm.addPass(miopen::createLowerMIOpenOpsStep1Pass());
+  pm.addPass(miopen::createLowerMIOpenOpsStep2Pass());
 
   if (!options.enableApplicability) {
     if (options.enableFusion) {
