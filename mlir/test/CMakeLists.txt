@@ -50,8 +50,9 @@ if(MLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED)
 endif()
 
 # Passed to lit.site.cfg.py.in to set the -rand flag for the mlir E2E tests.
+# If MLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED is not set, the default behavior is -rand fixed
 set(MLIR_RANDOM_DATA "")
-if(NOT MLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED STREQUAL "none")
+if(MLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED)
   set(MLIR_RANDOM_DATA "-rand ${MLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED} ")
 endif()
 
