@@ -9,9 +9,10 @@
 #include "mlir/Conversion/AsyncToGPU/AsyncToGPU.h"
 
 #include "../PassDetail.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/GPU/GPUDialect.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Interfaces/CallInterfaces.h"
@@ -42,10 +43,10 @@ public:
 } // namespace
 
 // Helper to pull out the called func
-static Optional<FuncOp> getCalledFunc(async::LaunchOp op) {
+static Optional<func::FuncOp> getCalledFunc(async::LaunchOp op) {
   CallOpInterface callIf(op);
   if (auto *callable = callIf.resolveCallable()) {
-    if (auto func = dyn_cast<FuncOp>(callable))
+    if (auto func = dyn_cast<func::FuncOp>(callable))
       return func;
   }
 
@@ -220,9 +221,10 @@ public:
       // move input memories to GPU
       if (opr.getType().isa<MemRefType>() &&
           !opr.getDefiningOp<gpu::AllocOp>()) {
-        bool readAccess{func.getArgAttr(fidx, FuncOp::getReadAccessAttrName())};
+        bool readAccess{
+            func.getArgAttr(fidx, func::FuncOp::getReadAccessAttrName())};
         bool writeAccess{
-            func.getArgAttr(fidx, FuncOp::getWriteAccessAttrName())};
+            func.getArgAttr(fidx, func::FuncOp::getWriteAccessAttrName())};
         opr = moveMemory(rw, opr, fidx, readAccess, writeAccess, copyBackOprs,
                          asyncDeps);
       }

@@ -670,7 +670,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
     kernelName += "_ver";
   }
 
-  FuncOp func = module.lookupSymbol<FuncOp>(kernelName);
+  func::FuncOp func = module.lookupSymbol<func::FuncOp>(kernelName);
   if (func) {
     assert(func.isDeclaration());
     func.erase();
@@ -688,8 +688,8 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
   };
 
   // Construct the FuncOp.
-  func = FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
-                        ArrayRef<NamedAttribute>(kernelAttrs));
+  func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
+                              ArrayRef<NamedAttribute>(kernelAttrs));
   module.push_back(func);
   if (func.getName() != kernelName) {
     return failure();
@@ -804,4 +804,4 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
   return success();
 }
 
-FuncOp Conv2dGenerator::getKernelFunc() const { return kernelFunc; }
+func::FuncOp Conv2dGenerator::getKernelFunc() const { return kernelFunc; }

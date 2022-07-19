@@ -481,7 +481,10 @@ styles:
     means that the declaration is visible to other modules and, in
     shared libraries, means that the declared entity may be overridden.
     On Darwin, default visibility means that the declaration is visible
-    to other modules. Default visibility corresponds to "external
+    to other modules. On XCOFF, default visibility means no explicit
+    visibility bit will be set and whether the symbol is visible
+    (i.e "exported") to other modules depends primarily on export lists
+    provided to the linker. Default visibility corresponds to "external
     linkage" in the language.
 "``hidden``" - Hidden style
     Two declarations of an object with hidden visibility refer to the
@@ -512,12 +515,15 @@ DLL storage class:
     symbol. On Microsoft Windows targets, the pointer name is formed by
     combining ``__imp_`` and the function or variable name.
 ``dllexport``
-    "``dllexport``" causes the compiler to provide a global pointer to a pointer
-    in a DLL, so that it can be referenced with the ``dllimport`` attribute. On
-    Microsoft Windows targets, the pointer name is formed by combining
-    ``__imp_`` and the function or variable name. Since this storage class
-    exists for defining a dll interface, the compiler, assembler and linker know
-    it is externally referenced and must refrain from deleting the symbol.
+    On Microsoft Windows targets, "``dllexport``" causes the compiler to provide
+    a global pointer to a pointer in a DLL, so that it can be referenced with the
+    ``dllimport`` attribute. the pointer name is formed by combining ``__imp_``
+    and the function or variable name. On XCOFF targets, ``dllexport`` indicates
+    that the symbol will be made visible to other modules using "exported"
+    visibility and thus placed by the linker in the loader section symbol table.
+    Since this storage class exists for defining a dll interface, the compiler,
+    assembler and linker know it is externally referenced and must refrain from
+    deleting the symbol.
 
 .. _tls_model:
 
@@ -740,6 +746,8 @@ Syntax::
                          <global | constant> <Type> [<InitializerConstant>]
                          [, section "name"] [, partition "name"]
                          [, comdat [($name)]] [, align <Alignment>]
+                         [, no_sanitize] [, no_sanitize_address]
+                         [, no_sanitize_hwaddress] [, sanitize_address_dyninit]
                          (, !name !N)*
 
 For example, the following defines a global in a numbered address space
@@ -776,13 +784,30 @@ an optional ``unnamed_addr`` attribute, a return type, an optional
 :ref:`parameter attribute <paramattrs>` for the return type, a function
 name, a (possibly empty) argument list (each with optional :ref:`parameter
 attributes <paramattrs>`), optional :ref:`function attributes <fnattrs>`,
-an optional address space, an optional section, an optional alignment,
-an optional :ref:`comdat <langref_comdats>`,
+an optional address space, an optional section, an optional partition,
+an optional alignment, an optional :ref:`comdat <langref_comdats>`,
 an optional :ref:`garbage collector name <gc>`, an optional :ref:`prefix <prefixdata>`,
 an optional :ref:`prologue <prologuedata>`,
 an optional :ref:`personality <personalityfn>`,
 an optional list of attached :ref:`metadata <metadata>`,
 an opening curly brace, a list of basic blocks, and a closing curly brace.
+
+Syntax::
+
+    define [linkage] [PreemptionSpecifier] [visibility] [DLLStorageClass]
+           [cconv] [ret attrs]
+           <ResultType> @<FunctionName> ([argument list])
+           [(unnamed_addr|local_unnamed_addr)] [AddrSpace] [fn Attrs]
+           [section "name"] [partition "name"] [comdat [($name)]] [align N]
+           [gc] [prefix Constant] [prologue Constant] [personality Constant]
+           (!name !N)* { ... }
+
+The argument list is a comma separated sequence of arguments where each
+argument is of the following form:
+
+Syntax::
+
+   <type> [parameter Attrs] [name]
 
 LLVM function declarations consist of the "``declare``" keyword, an
 optional :ref:`linkage type <linkage>`, an optional :ref:`visibility style
@@ -793,6 +818,14 @@ an optional :ref:`parameter attribute <paramattrs>` for the return type, a funct
 empty list of arguments, an optional alignment, an optional :ref:`garbage
 collector name <gc>`, an optional :ref:`prefix <prefixdata>`, and an optional
 :ref:`prologue <prologuedata>`.
+
+Syntax::
+
+    declare [linkage] [visibility] [DLLStorageClass]
+            [cconv] [ret attrs]
+            <ResultType> @<FunctionName> ([argument list])
+            [(unnamed_addr|local_unnamed_addr)] [align N] [gc]
+            [prefix Constant] [prologue Constant]
 
 A function definition contains a list of basic blocks, forming the CFG (Control
 Flow Graph) for the function. Each basic block may optionally start with a label
@@ -830,24 +863,6 @@ not be significant within the module.
 
 If an explicit address space is not given, it will default to the program
 address space from the :ref:`datalayout string<langref_datalayout>`.
-
-Syntax::
-
-    define [linkage] [PreemptionSpecifier] [visibility] [DLLStorageClass]
-           [cconv] [ret attrs]
-           <ResultType> @<FunctionName> ([argument list])
-           [(unnamed_addr|local_unnamed_addr)] [AddrSpace] [fn Attrs]
-           [section "name"] [partition "name"] [comdat [($name)]] [align N]
-           [gc] [prefix Constant] [prologue Constant] [personality Constant]
-           (!name !N)* { ... }
-
-The argument list is a comma separated sequence of arguments where each
-argument is of the following form:
-
-Syntax::
-
-   <type> [parameter Attrs] [name]
-
 
 .. _langref_aliases:
 
@@ -1392,6 +1407,13 @@ Currently, only the following parameter attributes are defined:
     alignments are permitted for the allocalign parameter, so long as the returned pointer
     is null. This attribute may only be applied to integer parameters.
 
+``allocptr``
+    The function parameter marked with this attribute is the pointer
+    that will be manipulated by the allocator. For a realloc-like
+    function the pointer will be invalidated upon success (but the
+    same address may be returned), for a free-like function the
+    pointer will always be invalidated.
+
 .. _gc:
 
 Garbage Collector Strategy Names
@@ -1556,6 +1578,37 @@ example:
     epilogue, the backend should forcibly align the stack pointer.
     Specify the desired alignment, which must be a power of two, in
     parentheses.
+``"alloc-family"="FAMILY"``
+    This indicates which "family" an allocator function is part of. To avoid
+    collisions, the family name should match the mangled name of the primary
+    allocator function, that is "malloc" for malloc/calloc/realloc/free,
+    "_Znwm" for ``::operator::new`` and ``::operator::delete``, and
+    "_ZnwmSt11align_val_t" for aligned ``::operator::new`` and
+    ``::operator::delete``. Matching malloc/realloc/free calls within a family
+    can be optimized, but mismatched ones will be left alone.
+``allockind("KIND")``
+    Describes the behavior of an allocation function. The KIND string contains comma
+    separated entries from the following options:
+
+    * "alloc": the function returns a new block of memory or null.
+    * "realloc": the function returns a new block of memory or null. If the
+      result is non-null the memory contents from the start of the block up to
+      the smaller of the original allocation size and the new allocation size
+      will match that of the ``allocptr`` argument and the ``allocptr``
+      argument is invalidated, even if the function returns the same address.
+    * "free": the function frees the block of memory specified by ``allocptr``.
+    * "uninitialized": Any newly-allocated memory (either a new block from
+      a "alloc" function or the enlarged capacity from a "realloc" function)
+      will be uninitialized.
+    * "zeroed": Any newly-allocated memory (either a new block from a "alloc"
+      function or the enlarged capacity from a "realloc" function) will be
+      zeroed.
+    * "aligned": the function returns memory aligned according to the
+      ``allocalign`` parameter.
+
+    The first three options are mutually exclusive, and the remaining options
+    describe more details of how the function behaves. The remaining options
+    are invalid for "free"-type functions.
 ``allocsize(<EltSizeParam>[, <NumEltsParam>])``
     This attribute indicates that the annotated function will always return at
     least a given number of bytes (or null). Its arguments are zero-indexed
@@ -1870,26 +1923,27 @@ example:
     On a function, this attribute indicates that the function computes its
     result (or decides to unwind an exception) based strictly on its arguments,
     without dereferencing any pointer arguments or otherwise accessing
-    any mutable state (e.g. memory, control registers, etc) visible to
-    caller functions. It does not write through any pointer arguments
-    (including ``byval`` arguments) and never changes any state visible
-    to callers. This means while it cannot unwind exceptions by calling
-    the ``C++`` exception throwing methods (since they write to memory), there may
-    be non-``C++`` mechanisms that throw exceptions without writing to LLVM
-    visible memory.
+    any mutable state (e.g. memory, control registers, etc) visible outside the
+    ``readnone`` function. It does not write through any pointer arguments
+    (including ``byval`` arguments) and never changes any state visible to
+    callers. This means while it cannot unwind exceptions by calling the ``C++``
+    exception throwing methods (since they write to memory), there may be
+    non-``C++`` mechanisms that throw exceptions without writing to LLVM visible
+    memory.
 
     On an argument, this attribute indicates that the function does not
     dereference that pointer argument, even though it may read or write the
     memory that the pointer points to if accessed through other pointers.
 
-    If a readnone function reads or writes memory visible to the program, or
-    has other side-effects, the behavior is undefined. If a function reads from
-    or writes to a readnone pointer argument, the behavior is undefined.
+    If a readnone function reads or writes memory visible outside the function,
+    or has other side-effects, the behavior is undefined. If a
+    function reads from or writes to a readnone pointer argument, the behavior
+    is undefined.
 ``readonly``
     On a function, this attribute indicates that the function does not write
     through any pointer arguments (including ``byval`` arguments) or otherwise
-    modify any state (e.g. memory, control registers, etc) visible to
-    caller functions. It may dereference pointer arguments and read
+    modify any state (e.g. memory, control registers, etc) visible outside the
+    ``readonly`` function. It may dereference pointer arguments and read
     state that may be set in the caller. A readonly function always
     returns the same value (or unwinds an exception identically) when
     called with the same set of arguments and global state.  This means while it
@@ -1901,9 +1955,9 @@ example:
     through this pointer argument, even though it may write to the memory that
     the pointer points to.
 
-    If a readonly function writes memory visible to the program, or
-    has other side-effects, the behavior is undefined. If a function writes to
-    a readonly pointer argument, the behavior is undefined.
+    If a readonly function writes memory visible outside the function, or has
+    other side-effects, the behavior is undefined. If a function writes to a
+    readonly pointer argument, the behavior is undefined.
 ``"stack-probe-size"``
     This attribute controls the behavior of stack probes: either
     the ``"probe-stack"`` attribute, or ABI-required stack probes, if any.
@@ -1923,14 +1977,14 @@ example:
     This attribute disables ABI-required stack probes, if any.
 ``writeonly``
     On a function, this attribute indicates that the function may write to but
-    does not read from memory.
+    does not read from memory visible outside the ``writeonly`` function.
 
     On an argument, this attribute indicates that the function may write to but
     does not read through this pointer argument (even though it may read from
     the memory that the pointer points to).
 
-    If a writeonly function reads memory visible to the program, or
-    has other side-effects, the behavior is undefined. If a function reads
+    If a writeonly function reads memory visible outside the function or has
+    other side-effects, the behavior is undefined. If a function reads
     from a writeonly pointer argument, the behavior is undefined.
 ``argmemonly``
     This attribute indicates that the only memory accesses inside function are
@@ -2174,6 +2228,14 @@ example:
     unbounded. If the optional max value is omitted then max is set to the
     value of min. If the attribute is not present, no assumptions are made
     about the range of vscale.
+``"min-legal-vector-width"="<size>"``
+    This attribute indicates the minimum legal vector width required by the
+    calling conversion. It is the maximum width of vector arguments and
+    returnings in the function and functions called by this function. Because
+    all the vectors are supposed to be legal type for compatibility.
+    Backends are free to ignore the attribute if they don't need to support
+    different maximum legal vector types or such information can be inferred by
+    other attributes.
 
 Call Site Attributes
 ----------------------
@@ -2260,6 +2322,25 @@ Global Attributes
 Attributes may be set to communicate additional information about a global variable.
 Unlike :ref:`function attributes <fnattrs>`, attributes on a global variable
 are grouped into a single :ref:`attribute group <attrgrp>`.
+
+``no_sanitize``
+    This attribute indicates that the global variable should not have any
+    sanitizers applied to it, either because it was in the sanitizer ignore
+    list, or it was annotated with
+    `__attribute__((disable_sanitizer_instrumentation))`.
+``no_sanitize_address``
+    This attribute indicates that the global variable should not have
+    AddressSanitizer instrumentation applied to it, because it was annotated
+    with `__attribute__((no_sanitize("address")))`.
+``no_sanitize_hwaddress``
+    This attribute indicates that the global variable should not have
+    HWAddressSanitizer instrumentation applied to it, because it was annotated
+    with `__attribute__((no_sanitize("hwaddress")))`.
+``sanitize_address_dyninit``
+    This attribute indicates that the global variable, when instrumented with
+    AddressSanitizer, should be checked for ODR violations. This attribute is
+    applied to global variables that are dynamically initialized according to
+    C++ rules.
 
 .. _opbundles:
 
@@ -4658,6 +4739,8 @@ Some constraint codes are typically supported by all targets:
 - ``m``: A memory address operand. It is target-specific what addressing modes
   are supported, typical examples are register, or register + register offset,
   or register + immediate offset (of some target-specific size).
+- ``p``: An address operand. Similar to ``m``, but used by "load address"
+  type instructions without touching memory.
 - ``i``: An integer constant (of target-specific width). Allows either a simple
   immediate, or a relocatable value.
 - ``n``: An integer constant -- *not* including relocatable values.
@@ -5204,7 +5287,7 @@ multiple metadata attachments with the same identifier.
 
 A transformation is required to drop any metadata attachment that it does not
 know or know it can't preserve. Currently there is an exception for metadata
-attachment to globals for ``!type`` and ``!absolute_symbol`` which can't be
+attachment to globals for ``!func_sanitize``, ``!type`` and ``!absolute_symbol`` which can't be
 unconditionally dropped unless the global is itself deleted.
 
 Metadata attached to a module using named metadata may not be dropped, with
@@ -6313,6 +6396,24 @@ final ``i1 true``).
     !1 = !{i64 2, i64 -1, i64 -1, i1 true}
     !0 = !{!1}
 
+'``exclude``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^
+
+``exclude`` metadata may be attached to a global variable to signify that its
+section should not be included in the final executable or shared library. This
+option is only valid for global variables with an explicit section targeting ELF
+or COFF. This is done using the ``SHF_EXCLUDE`` flag on ELF targets and the
+``IMAGE_SCN_LNK_REMOVE`` and ``IMAGE_SCN_MEM_DISCARDABLE`` flags for COFF
+targets. Additionally, this metadata is only used as a flag, so the associated
+node must be empty. The explicit section should not conflict with any other
+sections that the user does not want removed after linking.
+
+.. code-block:: text
+
+  @object = private constant [1 x i8] c"\00", section ".foo" !exclude !0
+
+  ...
+  !0 = !{}
 
 '``unpredictable``' Metadata
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -7092,6 +7193,26 @@ Example:
     %a.addr = alloca float*, align 8, !annotation !0
     !0 = !{!"auto-init"}
 
+'``func_sanitize``' Metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``func_sanitize`` metadata is used to attach two values for the function
+sanitizer instrumentation. The first value is the ubsan function signature.
+The second value is the address of the proxy variable which stores the address
+of the RTTI descriptor. If :ref:`prologue <prologuedata>` and '``func_sanitize``'
+are used at the same time, :ref:`prologue <prologuedata>` is emitted before
+'``func_sanitize``' in the output.
+
+Example:
+
+.. code-block:: text
+
+    @__llvm_rtti_proxy = private unnamed_addr constant i8* bitcast ({ i8*, i8* }* @_ZTIFvvE to i8*)
+    define void @_Z3funv() !func_sanitize !0 {
+      return void
+    }
+    !0 = !{i32 846595819, i8** @__llvm_rtti_proxy}
+
 Module Flags Metadata
 =====================
 
@@ -7325,6 +7446,19 @@ LTO Post-Link Module Flags Metadata
 Some optimisations are only when the entire LTO unit is present in the current
 module. This is represented by the ``LTOPostLink`` module flags metadata, which
 will be created with a value of ``1`` when LTO linking occurs.
+
+Embedded Objects Names Metadata
+===============================
+
+Offloading compilations need to embed device code into the host section table to
+create a fat binary. This metadata node references each global that will be
+embedded in the module. The primary use for this is to make referencing these
+globals more efficient in the IR. The metadata references nodes containing
+pointers to the global to be embedded followed by the section name it will be
+stored at::
+
+    !llvm.embedded.objects = !{!0}
+    !0 = !{ptr @object, !".section"}
 
 Automatic Linker Flags Named Metadata
 =====================================
@@ -10227,12 +10361,14 @@ operation. The operation must be one of the following keywords:
 -  umin
 -  fadd
 -  fsub
+-  fmax
+-  fmin
 
 For most of these operations, the type of '<value>' must be an integer
 type whose bit width is a power of two greater than or equal to eight
 and less than or equal to a target-specific size limit. For xchg, this
-may also be a floating point type with the same size constraints as
-integers.  For fadd/fsub, this must be a floating point type.  The
+may also be a floating point or a pointer type with the same size constraints
+as integers.  For fadd/fsub/fmax/fmin, this must be a floating point type.  The
 type of the '``<pointer>``' operand must be a pointer to that type. If
 the ``atomicrmw`` is marked as ``volatile``, then the optimizer is not
 allowed to modify the number or order of execution of this
@@ -10269,6 +10405,8 @@ operation argument:
 -  umin: ``*ptr = *ptr < val ? *ptr : val`` (using an unsigned comparison)
 - fadd: ``*ptr = *ptr + val`` (using floating point arithmetic)
 - fsub: ``*ptr = *ptr - val`` (using floating point arithmetic)
+-  fmax: ``*ptr = maxnum(*ptr, val)`` (match the `llvm.maxnum.*`` intrinsic)
+-  fmin: ``*ptr = minnum(*ptr, val)`` (match the `llvm.minnum.*`` intrinsic)
 
 Example:
 """"""""
@@ -12623,7 +12761,7 @@ the entry of the current function calling this intrinsic.
 Semantics:
 """"""""""
 
-Note this intrinsic is only verified on AArch64.
+Note this intrinsic is only verified on AArch64 and ARM.
 
 '``llvm.frameaddress``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -13802,8 +13940,73 @@ the argument.
 If ``<len>`` is 0, it is no-op modulo the behavior of attributes attached to
 the arguments.
 If ``<len>`` is not a well-defined value, the behavior is undefined.
-If ``<len>`` is not zero, both ``<dest>`` and ``<src>`` should be well-defined,
-otherwise the behavior is undefined.
+If ``<len>`` is not zero, ``<dest>`` should be well-defined, otherwise the
+behavior is undefined.
+
+.. _int_memset_inline:
+
+'``llvm.memset.inline``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+This is an overloaded intrinsic. You can use ``llvm.memset.inline`` on any
+integer bit width and for different address spaces. Not all targets
+support all bit widths however.
+
+::
+
+      declare void @llvm.memset.inline.p0i8.p0i8.i32(i8* <dest>, i8 <val>,
+                                                     i32 <len>,
+                                                     i1 <isvolatile>)
+      declare void @llvm.memset.inline.p0i8.p0i8.i64(i8* <dest>, i8 <val>,
+                                                     i64 <len>,
+                                                     i1 <isvolatile>)
+
+Overview:
+"""""""""
+
+The '``llvm.memset.inline.*``' intrinsics fill a block of memory with a
+particular byte value and guarantees that no external functions are called.
+
+Note that, unlike the standard libc function, the ``llvm.memset.inline.*``
+intrinsics do not return a value, take an extra isvolatile argument and the
+pointer can be in specified address spaces.
+
+Arguments:
+""""""""""
+
+The first argument is a pointer to the destination to fill, the second
+is the byte value with which to fill it, the third argument is a constant
+integer argument specifying the number of bytes to fill, and the fourth
+is a boolean indicating a volatile access.
+
+The :ref:`align <attr_align>` parameter attribute can be provided
+for the first argument.
+
+If the ``isvolatile`` parameter is ``true``, the ``llvm.memset.inline`` call is
+a :ref:`volatile operation <volatile>`. The detailed access behavior is not
+very cleanly specified and it is unwise to depend on it.
+
+Semantics:
+""""""""""
+
+The '``llvm.memset.inline.*``' intrinsics fill "len" bytes of memory starting
+at the destination location. If the argument is known to be
+aligned to some boundary, this can be specified as an attribute on
+the argument.
+
+``len`` must be a constant expression.
+If ``<len>`` is 0, it is no-op modulo the behavior of attributes attached to
+the arguments.
+If ``<len>`` is not a well-defined value, the behavior is undefined.
+If ``<len>`` is not zero, ``<dest>`` should be well-defined, otherwise the
+behavior is undefined.
+
+The behavior of '``llvm.memset.inline.*``' is equivalent to the behavior of
+'``llvm.memset.*``', but the generated code is guaranteed not to call any
+external functions.
 
 '``llvm.sqrt.*``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -14913,7 +15116,7 @@ Semantics:
 """"""""""
 
 The ``llvm.bitreverse.iN`` intrinsic returns an iN value that has bit
-``M`` in the input moved to bit ``N-M`` in the output. The vector
+``M`` in the input moved to bit ``N-M-1`` in the output. The vector
 intrinsics, such as ``llvm.bitreverse.v4i32``, operate on a per-element
 basis and the element order is not affected.
 
@@ -15825,7 +16028,7 @@ multiplication can be represented as
         ; Expands to
         %a2 = sext i4 %a to i8
         %b2 = sext i4 %b to i8
-        %mul = mul nsw nuw i8 %a, %b
+        %mul = mul nsw nuw i8 %a2, %b2
         %scale2 = trunc i32 %scale to i8
         %r = ashr i8 %mul, i8 %scale2  ; this is for a target rounding down towards negative infinity
         %result = trunc i8 %r to i4
@@ -17120,27 +17323,35 @@ Arguments:
 """"""""""
 The argument to this intrinsic must be a vector of floating-point values.
 
-'``llvm.experimental.vector.insert``' Intrinsic
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+'``llvm.vector.insert``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Syntax:
 """""""
-This is an overloaded intrinsic. You can use ``llvm.experimental.vector.insert``
-to insert a fixed-width vector into a scalable vector, but not the other way
-around.
+This is an overloaded intrinsic.
 
 ::
 
-      declare <vscale x 4 x float> @llvm.experimental.vector.insert.nxv4f32.v4f32(<vscale x 4 x float> %vec, <4 x float> %subvec, i64 %idx)
-      declare <vscale x 2 x double> @llvm.experimental.vector.insert.nxv2f64.v2f64(<vscale x 2 x double> %vec, <2 x double> %subvec, i64 %idx)
+      ; Insert fixed type into scalable type
+      declare <vscale x 4 x float> @llvm.vector.insert.nxv4f32.v4f32(<vscale x 4 x float> %vec, <4 x float> %subvec, i64 <idx>)
+      declare <vscale x 2 x double> @llvm.vector.insert.nxv2f64.v2f64(<vscale x 2 x double> %vec, <2 x double> %subvec, i64 <idx>)
+
+      ; Insert scalable type into scalable type
+      declare <vscale x 4 x float> @llvm.vector.insert.nxv4f64.nxv2f64(<vscale x 4 x float> %vec, <vscale x 2 x float> %subvec, i64 <idx>)
+
+      ; Insert fixed type into fixed type
+      declare <4 x double> @llvm.vector.insert.v4f64.v2f64(<4 x double> %vec, <2 x double> %subvec, i64 <idx>)
 
 Overview:
 """""""""
 
-The '``llvm.experimental.vector.insert.*``' intrinsics insert a vector into another vector
+The '``llvm.vector.insert.*``' intrinsics insert a vector into another vector
 starting from a given index. The return type matches the type of the vector we
 insert into. Conceptually, this can be used to build a scalable vector out of
-non-scalable vectors.
+non-scalable vectors, however this intrinsic can also be used on purely fixed
+types.
+
+Scalable vectors can only be inserted into other scalable vectors.
 
 Arguments:
 """"""""""
@@ -17158,27 +17369,35 @@ cannot be determined statically but is false at runtime, then the result vector
 is undefined.
 
 
-'``llvm.experimental.vector.extract``' Intrinsic
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+'``llvm.vector.extract``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Syntax:
 """""""
-This is an overloaded intrinsic. You can use
-``llvm.experimental.vector.extract`` to extract a fixed-width vector from a
-scalable vector, but not the other way around.
+This is an overloaded intrinsic.
 
 ::
 
-      declare <4 x float> @llvm.experimental.vector.extract.v4f32.nxv4f32(<vscale x 4 x float> %vec, i64 %idx)
-      declare <2 x double> @llvm.experimental.vector.extract.v2f64.nxv2f64(<vscale x 2 x double> %vec, i64 %idx)
+      ; Extract fixed type from scalable type
+      declare <4 x float> @llvm.vector.extract.v4f32.nxv4f32(<vscale x 4 x float> %vec, i64 <idx>)
+      declare <2 x double> @llvm.vector.extract.v2f64.nxv2f64(<vscale x 2 x double> %vec, i64 <idx>)
+
+      ; Extract scalable type from scalable type
+      declare <vscale x 2 x float> @llvm.vector.extract.nxv2f32.nxv4f32(<vscale x 4 x float> %vec, i64 <idx>)
+
+      ; Extract fixed type from fixed type
+      declare <2 x double> @llvm.vector.extract.v2f64.v4f64(<4 x double> %vec, i64 <idx>)
 
 Overview:
 """""""""
 
-The '``llvm.experimental.vector.extract.*``' intrinsics extract a vector from
-within another vector starting from a given index. The return type must be
-explicitly specified. Conceptually, this can be used to decompose a scalable
-vector into non-scalable parts.
+The '``llvm.vector.extract.*``' intrinsics extract a vector from within another
+vector starting from a given index. The return type must be explicitly
+specified. Conceptually, this can be used to decompose a scalable vector into
+non-scalable parts, however this intrinsic can also be used on purely fixed
+types.
+
+Scalable vectors can only be extracted from other scalable vectors.
 
 Arguments:
 """"""""""
@@ -17955,7 +18174,7 @@ Example:
       ;; Lanes at and above %pivot are taken from %on_false
       %atfirst = insertelement <4 x i32> undef, i32 %pivot, i32 0
       %splat = shufflevector <4 x i32> %atfirst, <4 x i32> poison, <4 x i32> zeroinitializer
-      %pivotmask = icmp ult <4 x i32> %splat, <4 x i32> <i32 0, i32 1, i32 2, i32 3>
+      %pivotmask = icmp ult <4 x i32> <i32 0, i32 1, i32 2, i32 3>, <4 x i32> %splat
       %mergemask = and <4 x i1> %cond, <4 x i1> %pivotmask
       %also.r = select <4 x i1> %mergemask, <4 x i32> %on_true, <4 x i32> %on_false
 
@@ -20429,7 +20648,7 @@ Semantics:
 The '``llvm.vp.fpext``' intrinsic extends the ``value`` from a smaller
 :ref:`floating-point <t_floating>` type to a larger :ref:`floating-point
 <t_floating>` type. The '``llvm.vp.fpext``' cannot be used to make a
-*no-op cast* because it always changes bits. Use ``bitcast`` to make a 
+*no-op cast* because it always changes bits. Use ``bitcast`` to make a
 *no-op cast* for a floating-point cast.
 The conversion is performed on lane positions below the explicit vector length
 and where the vector mask is true.  Masked-off lanes are undefined.
@@ -23241,6 +23460,83 @@ return any value and uses platform-independent representation of IEEE rounding
 modes.
 
 
+Floating-Point Test Intrinsics
+------------------------------
+
+These functions get properties of floating-point values.
+
+
+'``llvm.is.fpclass``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      declare i1 @llvm.is.fpclass(<fptype> <op>, i32 <test>)
+      declare <N x i1> @llvm.is.fpclass(<vector-fptype> <op>, i32 <test>)
+
+Overview:
+"""""""""
+
+The '``llvm.is.fpclass``' intrinsic returns a boolean value or vector of boolean
+values depending on whether the first argument satisfies the test specified by
+the second argument.
+
+If the first argument is a floating-point scalar, then the result type is a
+boolean (:ref:`i1 <t_integer>`).
+
+If the first argument is a floating-point vector, then the result type is a
+vector of boolean with the same number of elements as the first argument.
+
+Arguments:
+""""""""""
+
+The first argument to the '``llvm.is.fpclass``' intrinsic must be
+:ref:`floating-point <t_floating>` or :ref:`vector <t_vector>`
+of floating-point values.
+
+The second argument specifies, which tests to perform. It must be a compile-time
+integer constant, each bit in which specifies floating-point class:
+
++-------+----------------------+
+| Bit # | floating-point class |
++=======+======================+
+| 0     | Signaling NaN        |
++-------+----------------------+
+| 1     | Quiet NaN            |
++-------+----------------------+
+| 2     | Negative infinity    |
++-------+----------------------+
+| 3     | Negative normal      |
++-------+----------------------+
+| 4     | Negative subnormal   |
++-------+----------------------+
+| 5     | Negative zero        |
++-------+----------------------+
+| 6     | Positive zero        |
++-------+----------------------+
+| 7     | Positive subnormal   |
++-------+----------------------+
+| 8     | Positive normal      |
++-------+----------------------+
+| 9     | Positive infinity    |
++-------+----------------------+
+
+Semantics:
+""""""""""
+
+The function checks if ``op`` belongs to any of the floating-point classes
+specified by ``test``. If ``op`` is a vector, then the check is made element by
+element. Each check yields an :ref:`i1 <t_integer>` result, which is ``true``,
+if the element value satisfies the specified test. The argument ``test`` is a
+bit mask where each bit specifies floating-point class to test. For example, the
+value 0x108 makes test for normal value, - bits 3 and 8 in it are set, which
+means that the function returns ``true`` if ``op`` is a positive or negative
+normal value. The function never raises floating-point exceptions.
+
+
 General Intrinsics
 ------------------
 
@@ -23314,8 +23610,10 @@ Semantics:
 
 This intrinsic allows annotation of a pointer to an integer with arbitrary
 strings. This can be useful for special purpose optimizations that want to look
-for these annotations. These have no other defined use; they are ignored by code
-generation and optimization.
+for these annotations. These have no other defined use; transformations preserve
+annotations on a best-effort basis but are allowed to replace the intrinsic with
+its first argument without breaking semantics and the intrinsic is completely
+dropped during instruction selection.
 
 '``llvm.annotation.*``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -23350,10 +23648,12 @@ the line number. It returns the value of the first argument.
 Semantics:
 """"""""""
 
-This intrinsic allows annotations to be put on arbitrary expressions
-with arbitrary strings. This can be useful for special purpose
-optimizations that want to look for these annotations. These have no
-other defined use; they are ignored by code generation and optimization.
+This intrinsic allows annotations to be put on arbitrary expressions with
+arbitrary strings. This can be useful for special purpose optimizations that
+want to look for these annotations. These have no other defined use;
+transformations preserve annotations on a best-effort basis but are allowed to
+replace the intrinsic with its first argument without breaking semantics and the
+intrinsic is completely dropped during instruction selection.
 
 '``llvm.codeview.annotation``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

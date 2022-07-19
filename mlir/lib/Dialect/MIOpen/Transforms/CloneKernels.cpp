@@ -52,7 +52,7 @@ struct MIOpenCloneKernelsPass
     }
     SymbolTable symbolTable(gpuMod);
 
-    for (auto func : mod.getOps<FuncOp>()) {
+    for (auto func : mod.getOps<func::FuncOp>()) {
       if (func->hasAttr("kernel")) {
         // clone the func
         auto gpuFunc = func.clone();

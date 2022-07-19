@@ -3,6 +3,7 @@
 // RUN: mlir-tblgen -print-records -I %S/../../include %s | FileCheck %s --check-prefix=RECORD
 
 include "mlir/IR/AttrTypeBase.td"
+include "mlir/IR/EnumAttr.td"
 include "mlir/IR/OpBase.td"
 
 def Test_Dialect : Dialect {
@@ -479,19 +480,3 @@ def SomeTypedArrayAttr : TypedArrayAttrBase<SomeAttr, "SomeAttr array">;
 
 // RECORD-LABEL: def SomeTypedArrayAttr
 // RECORD: Attr elementAttr = SomeAttr;
-
-def Test_Dialect_2 : Dialect {
-  let name = "dialect_2";
-}
-def MyStruct : StructAttr<"MyStruct", Test_Dialect_2,
-[StructFieldAttr<"potatoes", I64ElementsAttr>]> {
-  let summary = "A structure describing a number of potatoes.";
-}
-
-def StructAttrOp : NS_Op<"struct_attr_op", []> {
-  let arguments = (ins
-    MyStruct:$potatoes
-  );
-}
-
-// DECL: dialect_2::MyStruct potatoes();

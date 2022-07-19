@@ -143,9 +143,9 @@ private:
   Module *M = nullptr;
 
   static std::map<std::string, GlobalVariable *> GEPGlobals;
-  // A map to link preserve_*_access_index instrinsic calls.
+  // A map to link preserve_*_access_index intrinsic calls.
   std::map<CallInst *, std::pair<CallInst *, CallInfo>> AIChain;
-  // A map to hold all the base preserve_*_access_index instrinsic calls.
+  // A map to hold all the base preserve_*_access_index intrinsic calls.
   // The base call is not an input of any other preserve_*
   // intrinsics.
   std::map<CallInst *, CallInfo> BaseAICalls;
@@ -332,6 +332,8 @@ bool BPFAbstractMemberAccess::IsPreserveDIAccessIndexCall(const CallInst *Call,
       report_fatal_error("Incorrect flag for llvm.bpf.preserve.type.info intrinsic");
     if (Flag == BPFCoreSharedInfo::PRESERVE_TYPE_INFO_EXISTENCE)
       CInfo.AccessIndex = BPFCoreSharedInfo::TYPE_EXISTENCE;
+    else if (Flag == BPFCoreSharedInfo::PRESERVE_TYPE_INFO_MATCH)
+      CInfo.AccessIndex = BPFCoreSharedInfo::TYPE_MATCH;
     else
       CInfo.AccessIndex = BPFCoreSharedInfo::TYPE_SIZE;
     return true;
@@ -933,7 +935,8 @@ MDNode *BPFAbstractMemberAccess::computeAccessKey(CallInst *Call,
 
   int64_t PatchImm;
   std::string AccessStr("0");
-  if (CInfo.AccessIndex == BPFCoreSharedInfo::TYPE_EXISTENCE) {
+  if (CInfo.AccessIndex == BPFCoreSharedInfo::TYPE_EXISTENCE ||
+      CInfo.AccessIndex == BPFCoreSharedInfo::TYPE_MATCH) {
     PatchImm = 1;
   } else if (CInfo.AccessIndex == BPFCoreSharedInfo::TYPE_SIZE) {
     // typedef debuginfo type has size 0, get the eventual base type.
@@ -943,8 +946,11 @@ MDNode *BPFAbstractMemberAccess::computeAccessKey(CallInst *Call,
     // ENUM_VALUE_EXISTENCE and ENUM_VALUE
     IsInt32Ret = false;
 
-    const auto *CE = cast<ConstantExpr>(Call->getArgOperand(1));
-    const GlobalVariable *GV = cast<GlobalVariable>(CE->getOperand(0));
+    // The argument could be a global variable or a getelementptr with base to
+    // a global variable depending on whether the clang option `opaque-options`
+    // is set or not.
+    const GlobalVariable *GV =
+        cast<GlobalVariable>(Call->getArgOperand(1)->stripPointerCasts());
     assert(GV->hasInitializer());
     const ConstantDataArray *DA = cast<ConstantDataArray>(GV->getInitializer());
     assert(DA->isString());

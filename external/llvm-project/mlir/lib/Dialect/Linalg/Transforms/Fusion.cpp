@@ -168,8 +168,8 @@ static LinalgOp fuse(OpBuilder &b, LinalgOp producer,
 
   // Shift all IndexOp results by the tile offset.
   SmallVector<Value> allIvs;
-  transform(loopRanges, std::back_inserter(allIvs),
-            [](Range range) { return range.offset; });
+  llvm::transform(loopRanges, std::back_inserter(allIvs),
+                  [](Range range) { return range.offset; });
   addTileLoopIvsToIndexOpResults(b, clonedOp, allIvs);
 
   return clonedOp;
@@ -302,8 +302,7 @@ findFusableProducer(OpOperand &consumerOpOperand,
                    elem.getIndexingOpViewOperandNum();
                return isa<LinalgOp>(elem.getDependentOp()) &&
                       v == consumerOpOperand.get() && operandNum &&
-                      operandNum.getValue() ==
-                          consumerOpOperand.getOperandNumber();
+                      *operandNum == consumerOpOperand.getOperandNumber();
              })) {
       // Consumer consumes this view, `isStructurallyFusableProducer` also
       // checks whether it is a strict subview of the producer view.
@@ -388,7 +387,7 @@ static void getProducerOfTensor(Value tensor, OpResult &opResult) {
       return;
     }
     if (auto sliceOp = tensor.getDefiningOp<tensor::ExtractSliceOp>()) {
-      tensor = sliceOp.source();
+      tensor = sliceOp.getSource();
       continue;
     }
     if (auto blockArg = tensor.dyn_cast<BlockArgument>()) {
@@ -533,7 +532,7 @@ static bool doesTransposeAccess(AffineMap map,
       lastFusableLoop = pos;
       continue;
     }
-    if (pos <= lastFusableLoop.getValue())
+    if (pos <= *lastFusableLoop)
       return true;
     lastFusableLoop = pos;
   }

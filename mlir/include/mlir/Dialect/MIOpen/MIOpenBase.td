@@ -9,6 +9,7 @@
 #ifndef MIOPEN_BASE
 #define MIOPEN_BASE
 
+include "mlir/IR/EnumAttr.td"
 include "mlir/IR/OpBase.td"
 
 def MIOpen_Dialect : Dialect {

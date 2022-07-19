@@ -15,6 +15,7 @@
 //   allocate_at_least(Allocator& a, size_t n);
 
 #include <cassert>
+#include <concepts>
 #include <memory>
 
 // check that std::allocation_result exists and isn't restricted to pointers
@@ -60,7 +61,9 @@ constexpr bool test() {
   return true;
 }
 
-int main() {
+int main(int, char**) {
   test();
   static_assert(test());
+
+  return 0;
 }

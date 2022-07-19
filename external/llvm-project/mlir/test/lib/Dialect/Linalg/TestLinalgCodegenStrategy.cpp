@@ -14,7 +14,7 @@
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/GPU/GPUDialect.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/CodegenStrategy.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
@@ -30,7 +30,8 @@ using namespace mlir::linalg;
 
 namespace {
 struct TestLinalgCodegenStrategy
-    : public PassWrapper<TestLinalgCodegenStrategy, OperationPass<FuncOp>> {
+    : public PassWrapper<TestLinalgCodegenStrategy,
+                         OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestLinalgCodegenStrategy)
 
   StringRef getArgument() const final { return "test-linalg-codegen-strategy"; }
@@ -100,18 +101,14 @@ struct TestLinalgCodegenStrategy
                    llvm::cl::init(false)};
   ListOption<std::string> paddingValues{
       *this, "padding-values",
-      llvm::cl::desc("Operand padding values parsed by the attribute parser."),
-      llvm::cl::ZeroOrMore};
+      llvm::cl::desc("Operand padding values parsed by the attribute parser.")};
   ListOption<int64_t> paddingDimensions{
       *this, "padding-dimensions",
-      llvm::cl::desc("Operation iterator dimensions to pad."),
-      llvm::cl::ZeroOrMore};
+      llvm::cl::desc("Operation iterator dimensions to pad.")};
   ListOption<int64_t> packPaddings{*this, "pack-paddings",
-                                   llvm::cl::desc("Operand packing flags."),
-                                   llvm::cl::ZeroOrMore};
+                                   llvm::cl::desc("Operand packing flags.")};
   ListOption<int64_t> hoistPaddings{*this, "hoist-paddings",
-                                    llvm::cl::desc("Operand hoisting depths."),
-                                    llvm::cl::ZeroOrMore};
+                                    llvm::cl::desc("Operand hoisting depths.")};
   ListOption<SmallVector<int64_t>> transposePaddings{
       *this, "transpose-paddings",
       llvm::cl::desc(
@@ -121,8 +118,7 @@ struct TestLinalgCodegenStrategy
           "It defines the interchange [1, 0, 2] for operand one and "
           "the interchange [0, 1] (no transpose) for the remaining operands."
           "All interchange vectors have to be permuations matching the "
-          "operand rank."),
-      llvm::cl::ZeroOrMore};
+          "operand rank.")};
   Option<bool> generalize{*this, "generalize",
                           llvm::cl::desc("Generalize named operations."),
                           llvm::cl::init(false)};
@@ -222,7 +218,7 @@ void TestLinalgCodegenStrategy::runStrategy(
               .enableContractionLowering()
               .enableTransferToSCFConversion());
   // Created a nested OpPassManager and run.
-  FuncOp funcOp = getOperation();
+  func::FuncOp funcOp = getOperation();
   OpPassManager dynamicPM("func.func");
   strategy.configurePassPipeline(dynamicPM, funcOp.getContext(), runEnablePass);
   if (failed(runPipeline(dynamicPM, funcOp)))

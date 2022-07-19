@@ -446,6 +446,20 @@ LogicalResult InsertSliceOp::verify() {
 //===-----------------------------------------------------===//
 // TransformingForOp
 //===-----------------------------------------------------===//
+
+/// Parse a list of assignments of the form
+///   (%x1 = %y1 : type1, %x2 = %y2 : type2, ...)
+static ParseResult parseAssignmentListWithTypes(
+    SmallVectorImpl<OpAsmParser::Argument> &lhs,
+    SmallVectorImpl<OpAsmParser::UnresolvedOperand> &rhs,
+    SmallVectorImpl<Type> &types, OpAsmParser &parser) {
+  OptionalParseResult result =
+      parser.parseOptionalAssignmentListWithTypes(lhs, rhs, types);
+  if (!result.hasValue())
+    return parser.emitError(parser.getCurrentLocation(), "expected '('");
+  return result.getValue();
+}
+
 static ArrayAttr maybeIndexArray(OpBuilder &b,
                                  Optional<ArrayRef<int64_t>> vals) {
   return vals.map([&b](ArrayRef<int64_t> v) { return b.getIndexArrayAttr(v); })
@@ -558,7 +572,7 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
 
   SmallVector<Attribute> transforms;
   SmallVector<int32_t> lowerStarts;
-  SmallVector<OperandType> lowerArgs;
+  SmallVector<OpAsmParser::Argument> lowerArgs;
   SmallVector<OperandType> upperInits;
 
   parser.parseOptionalAttrDict(result.attributes);
@@ -573,9 +587,12 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
         size_t oldNUpper = upperInits.size();
         lowerStarts.push_back(oldNLower);
 
-        if (parser.parseRegionArgumentList(lowerArgs, Delimiter::Paren) ||
+        if (parser.parseArgumentList(lowerArgs, Delimiter::Paren) ||
             parser.parseEqual()) {
           return failure();
+        }
+        for (size_t i = 0; i < lowerArgs.size(); i++) {
+          lowerArgs[i].type = indexTy;
         }
         ArrayAttr theseTransforms;
         if (parser.parseAttribute(theseTransforms)) {
@@ -634,13 +651,18 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
                       b.getI32VectorAttr(lowerStarts));
 
   llvm::SMLoc iterArgsLoc = parser.getCurrentLocation();
-  llvm::SmallVector<OperandType> iterArgs;
+  llvm::SmallVector<OpAsmParser::Argument> iterArgs;
   llvm::SmallVector<OperandType> iterInits;
   llvm::SmallVector<mlir::Type> iterTypes;
   if (parser.parseOptionalKeyword("iter_args").succeeded()) {
-    if (parser.parseAssignmentListWithTypes(iterArgs, iterInits, iterTypes)) {
+    if (parseAssignmentListWithTypes(iterArgs, iterInits, iterTypes, parser)) {
       return failure();
     }
+  }
+  assert(iterArgs.size() == iterTypes.size() &&
+         "mismatching number of arguments and types");
+  for (size_t i = 0; i < iterArgs.size(); i++) {
+    iterArgs[i].type = iterTypes[i];
   }
 
   if (parser.parseKeyword("bounds")) {
@@ -680,14 +702,12 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
   result.addAttribute(TransformingForOp::stridesAttrName(result.name),
                       b.getIndexArrayAttr(strides));
 
-  SmallVector<Type> regionArgTypes(lowerArgs.size(), indexTy);
-  regionArgTypes.append(iterTypes);
-  SmallVector<OperandType> regionArgs = std::move(lowerArgs);
+  SmallVector<OpAsmParser::Argument> regionArgs = std::move(lowerArgs);
   regionArgs.append(iterArgs);
   result.addTypes(iterTypes);
 
   Region *body = result.addRegion();
-  if (parser.parseRegion(*body, regionArgs, regionArgTypes)) {
+  if (parser.parseRegion(*body, regionArgs)) {
     return failure();
   }
   TransformingForOp::ensureTerminator(*body, b, result.location);

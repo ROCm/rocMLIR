@@ -9,8 +9,8 @@
     bounds = [4, 16] -> [16, 4]>
 
 module {
-// CHECK-LABEL: func @no_transform_to_affine
-func @no_transform_to_affine() {
+// CHECK-LABEL: func.func @no_transform_to_affine
+func.func @no_transform_to_affine() {
     %c0 = arith.constant 0 : index
     // CHECK: affine.for %[[arg0:.*]] = {{.*}}to 2
     // CHECK: affine.for %[[arg1:.*]] = {{.*}}to 3
@@ -21,8 +21,8 @@ func @no_transform_to_affine() {
     return
 }
 
-// CHECK-LABEL: func @no_transform_to_affine_strided
-func @no_transform_to_affine_strided() {
+// CHECK-LABEL: func.func @no_transform_to_affine_strided
+func.func @no_transform_to_affine_strided() {
     %c0 = arith.constant 0 : index
     // CHECK: affine.for %[[arg0:.*]] = {{.*}}to 2 step 2
     // CHECK: affine.for %[[arg1:.*]] = {{.*}}to 3
@@ -34,8 +34,8 @@ func @no_transform_to_affine_strided() {
 }
 
 
-// CHECK-LABEL: func @no_transform_unrolled
-func @no_transform_unrolled() {
+// CHECK-LABEL: func.func @no_transform_unrolled
+func.func @no_transform_unrolled() {
     %c0 = arith.constant 0 : index
     // CHECK-NOT: affine.for
     // CHECK-COUNT-6: gpu.printf
@@ -45,8 +45,8 @@ func @no_transform_unrolled() {
     return
 }
 
-// CHECK-LABEL: func @no_transform_unrolled_strided
-func @no_transform_unrolled_strided() {
+// CHECK-LABEL: func.func @no_transform_unrolled_strided
+func.func @no_transform_unrolled_strided() {
     %c0 = arith.constant 0 : index
     // CHECK-NOT: affine.for
     // CHECK-COUNT-3: gpu.printf
@@ -57,9 +57,9 @@ func @no_transform_unrolled_strided() {
 }
 
 
-// CHECK-LABEL: func @one_transform
+// CHECK-LABEL: func.func @one_transform
 // CHECK-SAME:(%[[arg0:.*]]: index, %[[arg1:.*]]: index)
-func @one_transform(%arg0: index, %arg1: index) {
+func.func @one_transform(%arg0: index, %arg1: index) {
     // CHECK: affine.for %[[d0:.*]] = 0 to 2
     // CHECK: %[[u0:.*]] = arith.addi %[[arg0]], %[[d0]]
     // CHECK: %[[cmp0:.*]] = arith.muli %[[u0]]
@@ -73,9 +73,9 @@ func @one_transform(%arg0: index, %arg1: index) {
     return
 }
 
-// CHECK-LABEL: func @one_transform_index_diff
+// CHECK-LABEL: func.func @one_transform_index_diff
 // CHECK-SAME:(%[[arg0:.*]]: index, %[[arg1:.*]]: index)
-func @one_transform_index_diff(%arg0: index, %arg1: index) {
+func.func @one_transform_index_diff(%arg0: index, %arg1: index) {
     // CHECK: %[[linit_cmp:.*]] = arith.muli %[[arg0]]
     // CHECK: %[[linit:.*]] = arith.addi %[[arg1]], %[[linit_cmp]]
     // CHECK: affine.for %[[d0:.*]] = 0 to 2
@@ -90,8 +90,8 @@ func @one_transform_index_diff(%arg0: index, %arg1: index) {
     return
 }
 
-// CHECK-LABEL: func @one_transform_unroll
-func @one_transform_unroll(%arg0: index, %arg1: index) {
+// CHECK-LABEL: func.func @one_transform_unroll
+func.func @one_transform_unroll(%arg0: index, %arg1: index) {
     // CHECK-NOT: affine.for
     // CHECK-COUNT-2: arith.muli
     // Three printf after the second iteration of outer loop
@@ -102,9 +102,9 @@ func @one_transform_unroll(%arg0: index, %arg1: index) {
     return
 }
 
-// CHECK-LABEL: func @one_transform_index_diff_unroll
+// CHECK-LABEL: func.func @one_transform_index_diff_unroll
 // CHECK-SAME: (%[[arg0:.*]]: index, %[[arg1:.*]]: index)
-func @one_transform_index_diff_unroll(%arg0: index, %arg1: index) {
+func.func @one_transform_index_diff_unroll(%arg0: index, %arg1: index) {
     // CHECK-NOT: affine.for
     // CHECK-DAG: %[[c1:.*]] = arith.constant 1
     // CHECK-DAG: %[[c2:.*]] = arith.constant 2
@@ -130,9 +130,9 @@ func @one_transform_index_diff_unroll(%arg0: index, %arg1: index) {
     return
 }
 
-// CHECK-LABEL: func @deep_transforms
+// CHECK-LABEL: func.func @deep_transforms
 // CHECK-SAME: (%[[arg0:.*]]: index, %[[arg1:.*]]: index)
-func @deep_transforms(%arg0: index, %arg1: index) {
+func.func @deep_transforms(%arg0: index, %arg1: index) {
     miopen.transforming_for (%arg2) = [#transform_map1, #transform_map0](%arg0, %arg1) bounds [2, 3] strides [1, 1] {
         // CHECK: %[[shft2:.*]] = arith.addi %[[arg1]]
         // CHECK: %[[l0_int:.*]] = arith.muli %[[shft2]]
@@ -143,9 +143,9 @@ func @deep_transforms(%arg0: index, %arg1: index) {
     return
 }
 
-// CHECK-LABEL: func @deep_transforms_index_diff
+// CHECK-LABEL: func.func @deep_transforms_index_diff
 // CHECK-SAME: (%[[arg0:.*]]: index, %[[arg1:.*]]: index)
-func @deep_transforms_index_diff(%arg0: index, %arg1: index) {
+func.func @deep_transforms_index_diff(%arg0: index, %arg1: index) {
     // CHECK: %[[init0:.*]] = arith.muli %[[arg1]]
     // CHECK: %[[init1:.*]] = arith.addi %[[arg0]], %[[init0]]
     // CHECK: affine.for %[[d0:.*]] = 0 to 2
@@ -160,8 +160,8 @@ func @deep_transforms_index_diff(%arg0: index, %arg1: index) {
     return
 }
 
-// CHECK-LABEL: func @multi_iteration
-func @multi_iteration() {
+// CHECK-LABEL: func.func @multi_iteration
+func.func @multi_iteration() {
     %c0 = arith.constant 0 : index
     // CHECK-COUNT-6: gpu.printf
     miopen.transforming_for {forceUnroll} (%arg0, %arg1) = [#transform_map1](%c0, %c0), (%arg2) = [#transform_map0](%c0, %c0) bounds [2, 3] strides [1, 1] {
@@ -170,8 +170,8 @@ func @multi_iteration() {
     return
 }
 
-// CHECK-LABEL: func @loop_result
-func @loop_result(%arg0: index, %arg1: index) -> index {
+// CHECK-LABEL: func.func @loop_result
+func.func @loop_result(%arg0: index, %arg1: index) -> index {
     // CHECK: %[[c0:.*]] = arith.constant 0
     %c0 = arith.constant 0 : index
     // CHECK: %[[ret:.*]] = affine.for {{.*}} iter_args(%[[oarg:.*]] = %[[c0]]

@@ -31,6 +31,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/LoopInvariantCodeMotionUtils.h"
 #include "mlir/Transforms/Passes.h"
 
 #include "llvm/ADT/STLExtras.h"
@@ -1336,7 +1337,7 @@ struct InWarpTransposeRewritePattern
 
 void MIOpenSugarToLoopsPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
-  FuncOp op = getOperation();
+  func::FuncOp op = getOperation();
   RewritePatternSet patterns(ctx);
   patterns.add<TransformingForRewritePattern, ExtractSliceRewritePattern,
                InsertSliceRewritePattern, BufferLoadRewritePattern,

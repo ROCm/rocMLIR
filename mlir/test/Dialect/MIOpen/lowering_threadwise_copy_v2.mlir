@@ -1,6 +1,6 @@
 // RUN: miopen-opt -miopen-blockwise-gemm-to-threadwise %s | FileCheck %s
 
-// CHECK-LABEL: func @miopen_threadwise_copy_v2
+// CHECK-LABEL: func.func @miopen_threadwise_copy_v2
 func.func @miopen_threadwise_copy_v2(%source : memref<32xf32, 5>,
                                 %dest2D : memref<32x32xf32>) {
   %c0 = arith.constant 0 : index

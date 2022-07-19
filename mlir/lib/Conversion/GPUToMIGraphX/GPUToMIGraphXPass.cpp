@@ -16,7 +16,7 @@
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/GPU/GPUDialect.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 
@@ -55,12 +55,13 @@ public:
                            LLVM::LLVMDialect>();
     target.addDynamicallyLegalOp<func::CallOp>([&](Operation *op) {
       auto fnAttr = op->getAttrOfType<FlatSymbolRefAttr>("callee");
-      auto fusedFuncOp = op->getParentOfType<ModuleOp>().lookupSymbol<FuncOp>(
-          fnAttr.getValue());
+      auto fusedFuncOp =
+          op->getParentOfType<ModuleOp>().lookupSymbol<func::FuncOp>(
+              fnAttr.getValue());
       return (fusedFuncOp.getOperation()->getAttr("kernel") == nullptr);
     });
 
-    FuncOp func = getOperation();
+    func::FuncOp func = getOperation();
     mlir::migraphx::populateFuncToCOBJPatterns(func.getContext(), patterns);
 
     if (failed(applyPartialConversion(func, target, std::move(patterns)))) {
@@ -73,5 +74,5 @@ std::unique_ptr<Pass> migraphx::createGPUToMIGraphXPass() {
   return std::make_unique<GPUToMIGraphX>();
 }
 void migraphx::addGPUToMIGraphXPasses(OpPassManager &pm) {
-  pm.addNestedPass<FuncOp>(createGPUToMIGraphXPass());
+  pm.addNestedPass<func::FuncOp>(createGPUToMIGraphXPass());
 }

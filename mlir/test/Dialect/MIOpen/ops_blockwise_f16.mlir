@@ -2,7 +2,7 @@
 // RUN: miopen-opt %s | miopen-opt | FileCheck %s
 // Run: miopen-opt -mlir-print-op-generic %s | miopen-opt | FileCheck %s
 
-func @miopen_blockwise_gemm_f16(%A : memref<8x128x1xf16, 3>, %B : memref<8x128x1xf16, 3>, %C : memref<8x8xf16, 5>) {
+func.func @miopen_blockwise_gemm_f16(%A : memref<8x128x1xf16, 3>, %B : memref<8x128x1xf16, 3>, %C : memref<8x8xf16, 5>) {
   %c0 = arith.constant 0 : index
   miopen.blockwise_gemm(%A, %B, %C, %c0, %c0) {
     kPerThread = 1 : index,
@@ -14,12 +14,12 @@ func @miopen_blockwise_gemm_f16(%A : memref<8x128x1xf16, 3>, %B : memref<8x128x1
   return
 }
 
-// CHECK-LABEL: func @miopen_blockwise_gemm_f16
+// CHECK-LABEL: func.func @miopen_blockwise_gemm_f16
 //  CHECK: miopen.blockwise_gemm
 
 // ----
 
-func @miopen_xdlops_gemm_v2_one_result_f16(%matrix : memref<12288xf16, 3>,
+func.func @miopen_xdlops_gemm_v2_one_result_f16(%matrix : memref<12288xf16, 3>,
                                        %bufferA : memref<32xf16, 5>, %bufferB : memref<16xf16, 5>) -> vector<32xf16> {
   %c0 = arith.constant 0 : index
   %c0f = arith.constant 0.0 : f16
@@ -36,12 +36,12 @@ func @miopen_xdlops_gemm_v2_one_result_f16(%matrix : memref<12288xf16, 3>,
   return %vectorD0 : vector<32xf16>
 }
 
-// CHECK-LABEL: func @miopen_xdlops_gemm_v2_one_result_f16
+// CHECK-LABEL: func.func @miopen_xdlops_gemm_v2_one_result_f16
 //  CHECK: miopen.xdlops_gemm_v2
 
 // ----
 
-func @miopen_xdlops_gemm_v2_two_results_f16(%matrix : memref<12288xf16, 3>,
+func.func @miopen_xdlops_gemm_v2_two_results_f16(%matrix : memref<12288xf16, 3>,
                                         %bufferA : memref<32xf16, 5>, %bufferB: memref<16xf16, 5>) -> (vector<32xf16>, vector<32xf16>) {
   %c0 = arith.constant 0 : index
   %c0f = arith.constant 0.0 : f16
@@ -59,12 +59,12 @@ func @miopen_xdlops_gemm_v2_two_results_f16(%matrix : memref<12288xf16, 3>,
   return %vectorD0, %vectorD1 : vector<32xf16>, vector<32xf16>
 }
 
-// CHECK-LABEL: func @miopen_xdlops_gemm_v2_two_results_f16
+// CHECK-LABEL: func.func @miopen_xdlops_gemm_v2_two_results_f16
 //  CHECK: miopen.xdlops_gemm_v2
 
 // ----
 
-func @miopen_blockwise_gemm_v2_one_result_f16(%matrix : memref<12288xf16, 3>,
+func.func @miopen_blockwise_gemm_v2_one_result_f16(%matrix : memref<12288xf16, 3>,
                                           %bufferA : memref<32xf16, 5>, %bufferB : memref<16xf16, 5>) -> vector<32xf16> {
   %c0 = arith.constant 0 : index
   %c0f = arith.constant 0.0 : f16
@@ -81,12 +81,12 @@ func @miopen_blockwise_gemm_v2_one_result_f16(%matrix : memref<12288xf16, 3>,
   return %vectorD0 : vector<32xf16>
 }
 
-// CHECK-LABEL: func @miopen_blockwise_gemm_v2_one_result_f16
+// CHECK-LABEL: func.func @miopen_blockwise_gemm_v2_one_result_f16
 //  CHECK: miopen.blockwise_gemm_v2
 
 // ----
 
-func @miopen_blockwise_gemm_v2_two_results_f16(%matrix : memref<12288xf16, 3>,
+func.func @miopen_blockwise_gemm_v2_two_results_f16(%matrix : memref<12288xf16, 3>,
                                            %bufferA : memref<32xf16, 5>, %bufferB : memref<16xf16, 5>) -> (vector<32xf16>, vector<32xf16>) {
   %c0 = arith.constant 0 : index
   %c0f = arith.constant 0.0 : f16
@@ -104,5 +104,5 @@ func @miopen_blockwise_gemm_v2_two_results_f16(%matrix : memref<12288xf16, 3>,
   return %vectorD0, %vectorD1 : vector<32xf16>, vector<32xf16>
 }
 
-// CHECK-LABEL: func @miopen_blockwise_gemm_v2_two_results_f16
+// CHECK-LABEL: func.func @miopen_blockwise_gemm_v2_two_results_f16
 //  CHECK: miopen.blockwise_gemm_v2

@@ -16,7 +16,7 @@
 
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 
-#include "mlir/Dialect/GPU/GPUDialect.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -82,7 +82,7 @@ ParseResult MubufStoreOp::parse(OpAsmParser &parser, OperationState &result) {
 }
 
 void MubufStoreOp::print(OpAsmPrinter &p) {
-  p << " " << getOperands() << " : " << vdata().getType();
+  p << " " << getOperands() << " : " << getVdata().getType();
 }
 
 // <operation> ::=
@@ -104,7 +104,7 @@ ParseResult RawBufferLoadOp::parse(OpAsmParser &parser,
 }
 
 void RawBufferLoadOp::print(OpAsmPrinter &p) {
-  p << " " << getOperands() << " : " << res().getType();
+  p << " " << getOperands() << " : " << getRes().getType();
 }
 
 // <operation> ::=
@@ -128,7 +128,7 @@ ParseResult RawBufferStoreOp::parse(OpAsmParser &parser,
 }
 
 void RawBufferStoreOp::print(OpAsmPrinter &p) {
-  p << " " << getOperands() << " : " << vdata().getType();
+  p << " " << getOperands() << " : " << getVdata().getType();
 }
 
 // <operation> ::=
@@ -152,7 +152,7 @@ ParseResult RawBufferAtomicFAddOp::parse(OpAsmParser &parser,
 }
 
 void RawBufferAtomicFAddOp::print(mlir::OpAsmPrinter &p) {
-  p << " " << getOperands() << " : " << vdata().getType();
+  p << " " << getOperands() << " : " << getVdata().getType();
 }
 
 //===----------------------------------------------------------------------===//

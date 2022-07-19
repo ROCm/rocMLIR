@@ -16,7 +16,7 @@ target_link_libraries(MLIRMIGraphX
   MLIRIR
   LLVMSupport
   MLIRPass
-  MLIRFunc
+  MLIRFuncDialect
   MLIRTransforms
   MLIRSupport
 )

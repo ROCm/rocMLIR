@@ -50,7 +50,7 @@ class MIOpenAsyncLaunchPass
     if (auto call = dyn_cast<func::CallOp>(op)) {
       CallOpInterface callIf(call);
       if (auto *callable = callIf.resolveCallable()) {
-        FuncOp func = dyn_cast<FuncOp>(callable);
+        func::FuncOp func = dyn_cast<func::FuncOp>(callable);
         assert(func);
         if (func->hasAttr("kernel")) {
           // Replace call op with async version.
@@ -77,7 +77,7 @@ class MIOpenAsyncLaunchPass
   }
 
   // Replaces asyncOp with a clone that returns a token.
-  LogicalResult rewriteCallOp(func::CallOp op, FuncOp func) {
+  LogicalResult rewriteCallOp(func::CallOp op, func::FuncOp func) {
     OpBuilder builder(op);
     // builder.setInsertionPoint(op);
     // Find tokens related to inputs

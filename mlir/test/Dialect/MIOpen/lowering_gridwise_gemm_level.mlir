@@ -6,7 +6,7 @@
 
 // RUN: miopen-opt -miopen-conv-to-gemm %s | FileCheck %s
 
-func @miopen_gridwise_gemm(%matrix_a : memref<?x?x?xf32>, %matrix_b : memref<?x?x?xf32>, %matrix_c : memref<?x?x?xf32>) {
+func.func @miopen_gridwise_gemm(%matrix_a : memref<?x?x?xf32>, %matrix_b : memref<?x?x?xf32>, %matrix_c : memref<?x?x?xf32>) {
   miopen.gridwise_gemm(%matrix_a, %matrix_b, %matrix_c) {
     transforms = [[], [], []],
     paddingInfo = #miopen.padding_info<extraM = 0, extraN = 0, extraK = 0>,
@@ -41,4 +41,4 @@ func @miopen_gridwise_gemm(%matrix_a : memref<?x?x?xf32>, %matrix_b : memref<?x?
 }
 
 // TBD: add lowering checks
-// CHECK-LABEL: func @miopen_gridwise_gemm{{.*}}%arg0{{.*}}%arg1{{.*}}%arg2
+// CHECK-LABEL: func.func @miopen_gridwise_gemm{{.*}}%arg0{{.*}}%arg1{{.*}}%arg2

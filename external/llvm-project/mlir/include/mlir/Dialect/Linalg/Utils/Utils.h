@@ -11,7 +11,7 @@
 
 #include "mlir/Dialect/Linalg/Analysis/DependenceAnalysis.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/SCF/SCF.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SetVector.h"
 
@@ -21,12 +21,25 @@ class AffineForOp;
 class AffineMap;
 class PatternRewriter;
 
+namespace tensor {
+class ExtractSliceOp;
+} // namespace tensor
+
 namespace linalg {
 class LinalgDependenceGraph;
 
 //===----------------------------------------------------------------------===//
 // General utilities
 //===----------------------------------------------------------------------===//
+
+/// Check if all indexing maps are projected permutations.
+bool allIndexingsAreProjectedPermutation(LinalgOp op);
+
+/// Detect whether `r` has only ConstantOp, ElementwiseMappable and YieldOp.
+bool hasOnlyScalarElementwiseOp(Region &r);
+
+/// Check if a LinalgOp is an element-wise operation.
+bool isElementwise(LinalgOp op);
 
 /// Check if `permutation` is a permutation of the range
 /// `[0, permutation.size())`.
@@ -46,6 +59,9 @@ SmallVector<Value, 4> getDynOperands(Location loc, Value val, OpBuilder &b);
 /// values. The method sets `boundMap` to an affine map that given
 /// `boundOperands` evaluates to an upper bound for the index computation.
 ///
+/// If constantRequired is true, only returns the constant bounds (potentially
+/// over-approximating) and fails when not possible.
+///
 /// Example:
 /// ```
 /// %dim0 = dim %tensor, %c0
@@ -58,7 +74,8 @@ SmallVector<Value, 4> getDynOperands(Location loc, Value val, OpBuilder &b);
 /// - boundMap = affine.map<(d0) -> (d0 + 40)>
 /// - boundOperands = [%dim1]
 void getUpperBoundForIndex(Value value, AffineMap &boundMap,
-                           SmallVectorImpl<Value> &boundOperands);
+                           SmallVectorImpl<Value> &boundOperands,
+                           bool constantRequired = false);
 
 /// Returns a constant upper bound for the result `value` of an index
 /// computation. Calls `getUpperBoundForIndex` and returns a constant upper
@@ -126,6 +143,15 @@ GenericOp makeTransposeOp(OpBuilder &b, Location loc, Value inputTensor,
 /// or vectorize.
 GenericOp makeMemRefCopyOp(OpBuilder &b, Location loc, Value from, Value to);
 
+/// Get the reassociation maps to fold the result of a extract_slice (or source
+/// of a insert_slice) operation with given offsets, and sizes to its
+/// rank-reduced version. This is only done for the cases where the size is 1
+/// and offset is 0. Strictly speaking the offset 0 is not required in general,
+/// but non-zero offsets are not handled by SPIR-V backend at this point (and
+/// potentially cannot be handled).
+Optional<SmallVector<ReassociationIndices>>
+getReassociationMapForFoldingUnitDims(ArrayRef<OpFoldResult> mixedSizes);
+
 //===----------------------------------------------------------------------===//
 // Fusion / Tiling utilities
 //===----------------------------------------------------------------------===//
@@ -151,18 +177,38 @@ bool isProducerLastWriteOfView(const LinalgDependenceGraph &graph,
 bool isFusableInto(const LinalgDependenceGraph &graph, LinalgOp consumer,
                    Value consumedView, LinalgOp producer);
 
-/// Compute tile offsets, given a list of loop `ivs` and `tileSizes`. In case a
+/// Creates either a memref.subview or a tensor.extract_slice with the given
+/// offsets/sizes/strides based on the type of `value`.
+Value createSlice(OpBuilder &builder, Location loc, Value value,
+                  ArrayRef<OpFoldResult> offsets, ArrayRef<OpFoldResult> sizes,
+                  ArrayRef<OpFoldResult> strides);
+
+/// Computes tile offsets, given a list of loop `ivs` and `tileSizes`. In case a
 /// tile size is zero (i.e., no tiling), the corresponding offset is also zero.
 SmallVector<Value> computeTileOffsets(OpBuilder &b, Location loc,
                                       ValueRange ivs, ValueRange tileSizes);
 
-/// Compute tile sizes, given a list of loop `ivs`, `tileSizes` and dimension
+/// Computes tile sizes, given a list of `tileSizes` and dimension
 /// sizes (`sizeBounds`). In case a tile size is zero (i.e., no tiling), the
 /// corresponding result size is the corresponding value from `sizeBounds`.
 /// Note: The returned tile sizes are closed intervals.
-SmallVector<Value> computeTileSizes(OpBuilder &b, Location loc, ValueRange ivs,
+SmallVector<Value> computeTileSizes(OpBuilder &b, Location loc,
                                     ValueRange tileSizes,
                                     ArrayRef<Value> sizeBounds);
+
+/// Returns the list of tensor output types produced when the given structured
+/// operation `op` is applied to the given `operands`. Note that `operands` are
+/// not necessarily the actual operands of `op`.
+SmallVector<Type> getTensorOutputTypes(LinalgOp op, ValueRange operands);
+
+/// Creates `insert_slice` ops that insert `results` back into larger tensors
+/// they were originally extracted from with `extract_slice` before being passed
+/// as `operands` to the given structured operation `op` or its clone. Note that
+/// `operands` are not necessarily the actual operands of `op`, the operation
+/// serves only as metadata container for operand types and positions.
+SmallVector<Value> insertSlicesBack(OpBuilder &builder, Location loc,
+                                    LinalgOp op, ValueRange operands,
+                                    ValueRange results);
 
 /// Creates an extract_slice/subview op for a single `valueToTile` with
 /// `builder`. This new operation extracts a tile of `valueToTile`, starting
