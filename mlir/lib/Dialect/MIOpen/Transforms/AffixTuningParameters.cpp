@@ -130,7 +130,8 @@ static void setUtilityKernelSizes(OpBuilder &b, Value arg, Operation *convOp,
   int64_t elemsPerThread = kUtilityKernelElemsPerThread;
   int64_t gridSize =
       math_util::integer_divide_ceil(numElements, blockSize * elemsPerThread);
-  for (Operation *op : ArrayRef<Operation *>{convOp, funcOp}) {
+  SmallVector<Operation *, 2> ops = {convOp, funcOp};
+  for (Operation *op : ops) {
     op->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
     op->setAttr("block_size", b.getI32IntegerAttr(blockSize));
     op->setAttr("elems_per_thread", b.getI32IntegerAttr(elemsPerThread));
