@@ -27,7 +27,7 @@ target_link_libraries(MLIRMIOpenOps
   MLIRAnalysis
   MLIRExecutionEngine
   MLIRParser
-  MLIRROCDLIR
+  MLIRROCDLDialect
   MLIRSupport
   MLIRTargetLLVMIRExport
   MLIRToLLVMIRTranslationRegistration

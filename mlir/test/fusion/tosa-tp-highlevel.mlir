@@ -5,7 +5,7 @@
 // Just test needs to be amended once any change is detected.
 
 module {
-  func @layout_opt(%arg0: tensor<256x128x28x28xf32>, %arg1: tensor<64x128x3x3xf32>, %arg2: tensor<256x64x28x28xf32>
+  func.func @layout_opt(%arg0: tensor<256x128x28x28xf32>, %arg1: tensor<64x128x3x3xf32>, %arg2: tensor<256x64x28x28xf32>
     , %arg3: tensor<64x64x3x3xf32>, %arg4: tensor<64xf32>) -> tensor<256x64x28x28xf32> {
     %cst = arith.constant dense<[0, 2, 3, 1]> : tensor<4xi64>
     %cst_1 = arith.constant dense<[0, 3, 1, 2]> : tensor<4xi64>

@@ -49,7 +49,7 @@ struct BubbleUpExtractSliceOpPattern
 
   LogicalResult matchAndRewrite(tensor::ExtractSliceOp sliceOp,
                                 PatternRewriter &rewriter) const final {
-    Value source = sliceOp.source();
+    Value source = sliceOp.getSource();
     auto linalgOp = source.getDefiningOp<LinalgOp>();
     if (!linalgOp) {
       return rewriter.notifyMatchFailure(sliceOp,
@@ -75,6 +75,10 @@ struct BubbleUpExtractSliceOpPattern
 
     if (!sliceOp.hasUnitStride())
       return rewriter.notifyMatchFailure(sliceOp, "expected unit stride");
+
+    if (sliceOp.getType().getRank() != sliceOp.getSourceType().getRank()) {
+      return rewriter.notifyMatchFailure(sliceOp, "expected no rank reduction");
+    }
 
     OpOperand *outOperand = linalgOp.getOutputOperand(0);
     AffineMap indexingMap = linalgOp.getTiedIndexingMap(outOperand);

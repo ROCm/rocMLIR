@@ -28,9 +28,9 @@
     bounds = [16, 4] -> [4]>
 
 module {
-    // CHECK-LABEL: func @index_diff_passthrough
+    // CHECK-LABEL: func.func @index_diff_passthrough
     // CHECK-SAME: ({{.*}}%[[l0:.*]]: index, %[[l1:.*]]: index)
-    func @index_diff_passthrough(%mem: memref<128x64xf32>, %v: f32,
+    func.func @index_diff_passthrough(%mem: memref<128x64xf32>, %v: f32,
             %l0: index, %l1: index) {
         // CHECK-DAG: %[[dx:.*]] = arith.constant 1
         // CHECK-DAG: %[[dy:.*]] = arith.constant 2
@@ -45,9 +45,9 @@ module {
         return
     }
 
-    // CHECK-LABEL: func @index_diff_no_dim_change
+    // CHECK-LABEL: func.func @index_diff_no_dim_change
     // CHECK-SAME: ({{.*}}, %[[l0:.*]]: index, %[[l1:.*]]: index, %[[l2:.*]]: index, %[[db:.*]]: index)
-    func @index_diff_no_dim_change(%mem: memref<64x64x64xf32>, %v: f32,
+    func.func @index_diff_no_dim_change(%mem: memref<64x64x64xf32>, %v: f32,
             %l0: index, %l1: index, %l2: index, %db: index) {
         // CHECK-DAG: %[[dc:.*]] = arith.constant 1
         // CHECK-DAG: %[[i1:.*]] = arith.addi %[[l1]], %[[db]]
@@ -60,9 +60,9 @@ module {
         return
     }
 
-    // CHECK-LABEL: func @index_diff_embed
+    // CHECK-LABEL: func.func @index_diff_embed
     // CHECK-SAME: ({{.*}}%[[l0:.*]]: index)
-    func @index_diff_embed(%mem: memref<65xf32>, %v: f32, %l0: index) {
+    func.func @index_diff_embed(%mem: memref<65xf32>, %v: f32, %l0: index) {
         %c1 = arith.constant 1 : index
         %c2 = arith.constant 2 : index
         // CHECK-DAG: %[[c3:.*]] = arith.constant 3
@@ -73,9 +73,9 @@ module {
         return
     }
 
-    // CHECK-LABEL: func @index_diff_unmerge
+    // CHECK-LABEL: func.func @index_diff_unmerge
     // CHECK-SAME: ({{.*}}%[[l0:.*]]: index)
-    func @index_diff_unmerge(%mem: memref<64xf32>, %v: f32, %l0: index) {
+    func.func @index_diff_unmerge(%mem: memref<64xf32>, %v: f32, %l0: index) {
         %c1 = arith.constant 1 : index
         %c2 = arith.constant 2 : index
         // CHECK-DAG: %[[c6:.*]] = arith.constant 6
@@ -86,9 +86,9 @@ module {
         return
     }
 
-    // CHECK-LABEL: func @index_diff_overflow_checks
+    // CHECK-LABEL: func.func @index_diff_overflow_checks
     // CHECK-SAME: ({{.*}}, %[[l0:.*]]: index, %[[l1:.*]]: index)
-    func @index_diff_overflow_checks(%mem: memref<16x4xf32>, %v: f32, %l0: index, %l1: index) {
+    func.func @index_diff_overflow_checks(%mem: memref<16x4xf32>, %v: f32, %l0: index, %l1: index) {
         %c1 = arith.constant 1 : index
         // CHECK-DAG: %[[c1:.*]] = arith.constant 1
         // CHECK-DAG: %[[c4:.*]] = arith.constant 4
@@ -102,9 +102,9 @@ module {
         return
     }
 
-    // CHECK-LABEL: func @index_diff_elide_overflow
+    // CHECK-LABEL: func.func @index_diff_elide_overflow
     // CHECK-SAME: ({{.*}}, %[[l0:.*]]: index, %[[l1:.*]]: index)
-    func @index_diff_elide_overflow(%mem: memref<16x4xf32>, %v: f32, %l0: index, %l1: index) {
+    func.func @index_diff_elide_overflow(%mem: memref<16x4xf32>, %v: f32, %l0: index, %l1: index) {
         %c4 = arith.constant 4 : index
         // CHECK-DAG: %[[c1:.*]] = arith.constant 1
         // CHECK-DAG: %[[i0:.*]] = arith.addi %[[l0]], %[[c1]]
@@ -114,9 +114,9 @@ module {
         return
     }
 
-    // CHECK-LABEL: func @index_diff_add_dim
+    // CHECK-LABEL: func.func @index_diff_add_dim
     // CHECK-SAME: ({{.*}}, %[[l0:.*]]: index, %[[dx:.*]]: index)
-    func @index_diff_add_dim(%mem: memref<4xf32>, %v: f32, %l0: index, %dx: index) {
+    func.func @index_diff_add_dim(%mem: memref<4xf32>, %v: f32, %l0: index, %dx: index) {
         // CHECK-NEXT: %[[c1:.*]] = arith.constant 1
         %c1 = arith.constant 1 : index
         // CHECK-NEXT: %[[i0:.*]] = arith.addi %[[l0]], %[[c1]]
@@ -126,9 +126,9 @@ module {
         return
     }
 
-    // CHECK-LABEL: func @chain_diffs
+    // CHECK-LABEL: func.func @chain_diffs
     // CHECK-SAME: ({{.*}}, %[[int0:.*]]: index, %[[int1:.*]]: index, %[[l0:.*]]: index)
-    func @chain_diffs(%mem: memref<64xf32>, %v: f32, %int0: index, %int1: index, %l0: index) {
+    func.func @chain_diffs(%mem: memref<64xf32>, %v: f32, %int0: index, %int1: index, %l0: index) {
         %c1 = arith.constant 1 : index
         %c2 = arith.constant 2 : index
         %int0_upd, %int1_upd, %dint0, %dint1 = miopen.index_diff_update #transform_map0(%c1, %c2) + (%int0, %int1) : index, index
@@ -140,9 +140,9 @@ module {
         return
     }
 
-    // CHECK-LABEL: func @index_diff_broadcast
+    // CHECK-LABEL: func.func @index_diff_broadcast
     // CHECK-SAME: ({{.*}}, %[[int0:.*]]: index, %[[int1:.*]]: index, %[[l0:.*]]: index)
-    func @index_diff_broadcast(%mem: memref<1x64xf32>, %v: f32, %int0: index, %int1: index, %l0: index) {
+    func.func @index_diff_broadcast(%mem: memref<1x64xf32>, %v: f32, %int0: index, %int1: index, %l0: index) {
         %c0 = arith.constant 0 : index
         %c1 = arith.constant 1 : index
         %c2 = arith.constant 2 : index

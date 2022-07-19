@@ -5,7 +5,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
 
-#include "mlir/Dialect/GPU/Passes.h"
+#include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/InitAllDialects.h"
 #include "llvm/Support/TargetSelect.h"
@@ -80,7 +80,6 @@ void miirLazyInit() {
     LLVMInitializeAMDGPUTargetInfo();
     LLVMInitializeAMDGPUTargetMC();
     LLVMInitializeAMDGPUAsmPrinter();
-    mlir::initializeLLVMPasses();
   });
 }
 
@@ -195,8 +194,8 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
   int32_t gridSize = 0;
 
   // If mlirHandle contains result from miirLowerTuningParams(), it is still
-  // a mlir::FuncOp
-  module.walk([&](FuncOp funcOp) -> WalkResult {
+  // a mlir::func::FuncOp
+  module.walk([&](func::FuncOp funcOp) -> WalkResult {
     auto statusBlock = getSizeAttr(funcOp->getAttr("block_size"), blockSize);
     auto statusGrid = getSizeAttr(funcOp->getAttr("grid_size"), gridSize);
     if (statusBlock.succeeded() && statusGrid.succeeded()) {

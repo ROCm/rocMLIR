@@ -18,7 +18,7 @@ add_mlir_conversion_library(MLIRMIGraphXToTosa
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRPass
-  MLIRTosa
+  MLIRTosaDialect
   MLIRTosaTransforms
   MLIRMIOpenTransforms
   MLIRTransforms

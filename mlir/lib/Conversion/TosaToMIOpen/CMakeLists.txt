@@ -11,11 +11,11 @@ add_mlir_conversion_library(MLIRTosaToMIOpen
 
   LINK_LIBS PUBLIC
   MLIRIR
-  MLIRLinalg
+  MLIRLinalgDialect
   MLIRMIOpenTransforms
   MLIRLinalgUtils
   MLIRPass
-  MLIRTosa
+  MLIRTosaDialect
   MLIRTosaTransforms
   MLIRSupport
   )

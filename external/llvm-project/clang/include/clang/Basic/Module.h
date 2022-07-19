@@ -168,6 +168,10 @@ public:
   /// some C++ module.
   bool isGlobalModule() const { return Kind == GlobalModuleFragment; }
 
+  bool isPrivateModule() const { return Kind == PrivateModuleFragment; }
+
+  bool isModuleMapModule() const { return Kind == ModuleMapModule; }
+
 private:
   /// The submodules of this module, indexed by name.
   std::vector<Module *> SubModules;
@@ -534,12 +538,29 @@ public:
     return Kind == ModuleInterfaceUnit || isModulePartition();
   }
 
+  bool isModuleInterfaceUnit() const {
+    return Kind == ModuleInterfaceUnit || Kind == ModulePartitionInterface;
+  }
+
   /// Get the primary module interface name from a partition.
   StringRef getPrimaryModuleInterfaceName() const {
+    // Technically, global module fragment belongs to global module. And global
+    // module has no name: [module.unit]p6:
+    //   The global module has no name, no module interface unit, and is not
+    //   introduced by any module-declaration.
+    //
+    // <global> is the default name showed in module map.
+    if (isGlobalModule())
+      return "<global>";
+
     if (isModulePartition()) {
       auto pos = Name.find(':');
       return StringRef(Name.data(), pos);
     }
+
+    if (isPrivateModule())
+      return getTopLevelModuleName();
+
     return Name;
   }
 

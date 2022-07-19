@@ -23,6 +23,10 @@ namespace amdgpu {
 class AMDGPUDialect;
 } // end namespace amdgpu
 
+namespace cf {
+class ControlFlowDialect;
+} // namespace cf
+
 namespace func {
 class FuncDialect;
 } // end namespace func

@@ -554,8 +554,7 @@ public:
   Error accept(MutableSectionVisitor &Visitor) override;
 
   static bool classof(const SectionBase *S) {
-    return (S->OriginalFlags & ELF::SHF_COMPRESSED) ||
-           (StringRef(S->Name).startswith(".zdebug"));
+    return S->OriginalFlags & ELF::SHF_COMPRESSED;
   }
 };
 
@@ -568,8 +567,6 @@ public:
     Size = Sec.getDecompressedSize();
     Align = Sec.getDecompressedAlign();
     Flags = OriginalFlags = (Flags & ~ELF::SHF_COMPRESSED);
-    if (StringRef(Name).startswith(".zdebug"))
-      Name = "." + Name.substr(2);
   }
 
   Error accept(SectionVisitor &Visitor) const override;
@@ -621,6 +618,11 @@ enum SymbolShndxType {
   SYMBOL_HEXAGON_SCOMMON_2 = ELF::SHN_HEXAGON_SCOMMON_2,
   SYMBOL_HEXAGON_SCOMMON_4 = ELF::SHN_HEXAGON_SCOMMON_4,
   SYMBOL_HEXAGON_SCOMMON_8 = ELF::SHN_HEXAGON_SCOMMON_8,
+  SYMBOL_MIPS_ACOMMON = ELF::SHN_MIPS_ACOMMON,
+  SYMBOL_MIPS_TEXT = ELF::SHN_MIPS_TEXT,
+  SYMBOL_MIPS_DATA = ELF::SHN_MIPS_DATA,
+  SYMBOL_MIPS_SCOMMON = ELF::SHN_MIPS_SCOMMON,
+  SYMBOL_MIPS_SUNDEFINED = ELF::SHN_MIPS_SUNDEFINED,
   SYMBOL_HIPROC = ELF::SHN_HIPROC,
   SYMBOL_LOOS = ELF::SHN_LOOS,
   SYMBOL_HIOS = ELF::SHN_HIOS,

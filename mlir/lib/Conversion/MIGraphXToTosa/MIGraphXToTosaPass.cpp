@@ -13,6 +13,7 @@
 
 #include "../PassDetail.h"
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
@@ -49,7 +50,7 @@ public:
 
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
-    FuncOp func = getOperation();
+    func::FuncOp func = getOperation();
     populateWithGenerated(patterns);
     migraphx::populateMIGraphXToTosaConversionPatterns(func.getContext(),
                                                        patterns);
@@ -70,5 +71,5 @@ std::unique_ptr<Pass> mlir::migraphx::createMIGraphXToTosaPass() {
   return std::make_unique<MIGraphXToTosa>();
 }
 void mlir::migraphx::addMIGraphXToTosaPasses(OpPassManager &pm) {
-  pm.addNestedPass<FuncOp>(createMIGraphXToTosaPass());
+  pm.addNestedPass<func::FuncOp>(createMIGraphXToTosaPass());
 }

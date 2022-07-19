@@ -5,7 +5,6 @@ from lldbsuite.test import lldbutil
 from lldbsuite.test.decorators import *
 
 class TestTraceDumpInfo(TraceIntelPTTestCaseBase):
-    mydir = TestBase.compute_mydir(__file__)
 
     def testErrorMessages(self):
         # We first check the output when there are no targets
@@ -38,9 +37,20 @@ class TestTraceDumpInfo(TraceIntelPTTestCaseBase):
             substrs=['''Trace technology: intel-pt
 
 thread #1: tid = 3842849
-  Raw trace size: 4 KiB
-  Total number of instructions: 21
-  Total approximate memory usage: 0.27 KiB
-  Average memory usage per instruction: 13.00 bytes
+  Total number of trace items: 23
 
-  Number of TSC decoding errors: 0'''])
+  Memory usage:
+    Raw trace size: 4 KiB
+    Total approximate memory usage (excluding raw trace): 0.20 KiB
+    Average memory usage per item (excluding raw trace): 9.00 bytes
+
+  Timing for this thread:
+    Decoding instructions: ''', '''
+
+  Events:
+    Number of individual events: 2
+      software disabled tracing: 2
+
+  Errors:
+    Number of TSC decoding errors: 0'''],
+            patterns=["Decoding instructions: \d.\d\ds"])

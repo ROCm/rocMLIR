@@ -15,6 +15,7 @@
 #define MIGRAPHX_OPS
 
 include "mlir/Dialect/MIGraphX/MIGraphXTypes.td"
+include "mlir/IR/EnumAttr.td"
 include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 

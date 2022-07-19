@@ -107,7 +107,7 @@ public:
                               bool is_verifier = false,
                               bool ignoreTuning = false);
 
-  FuncOp getKernelFunc() const;
+  func::FuncOp getKernelFunc() const;
 
   template <typename Vector>
   std::string translateLayout(const Vector &src, const Vector &srcSpec,
@@ -150,7 +150,7 @@ private:
   Config config;
 
   // Generated Kernel Func
-  FuncOp kernelFunc;
+  func::FuncOp kernelFunc;
 };
 
 } // namespace miopen

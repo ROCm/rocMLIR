@@ -24,9 +24,10 @@
 #include "../PassDetail.h"
 
 #include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/GPU/GPUDialect.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/IR/BlockAndValueMapping.h"
@@ -125,7 +126,7 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
   };
 
   auto processGpuKernelFunc = [&](gpu::GPUModuleOp &gpuMod,
-                                  FuncOp &theFunc) -> gpu::GPUFuncOp {
+                                  func::FuncOp &theFunc) -> gpu::GPUFuncOp {
     // Set up the symbol table for the GPU ModuleOp.
     SymbolTable gpuModuleSymbolTable(gpuMod);
     // Reset builder insertion point to the beginning of the GPU module,
@@ -207,9 +208,9 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     return gpuFunc;
   };
 
-  SmallVector<FuncOp, 1> processedFuncs;
+  SmallVector<func::FuncOp, 1> processedFuncs;
   // Check parameters and populate default values if necessary.
-  for (auto func : op.getOps<FuncOp>()) {
+  for (auto func : op.getOps<func::FuncOp>()) {
     if (func->hasAttr("kernel")) {
       std::string gfname = func.getName().str();
       gfname += "_module";

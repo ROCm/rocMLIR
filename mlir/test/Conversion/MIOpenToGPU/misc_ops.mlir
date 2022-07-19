@@ -4,7 +4,7 @@
 // CHECK-NEXT: gpu.module @misckernel_module
 // CHECK-NEXT: gpu.func @misckernel(%{{.*}}: memref<?xf32>, %{{.*}}: memref<?xf32>) kernel
 module {
-  func @misckernel(%arg0: memref<?xf32>, %arg1: memref<?xf32>) attributes {kernel = 0 : i32} {
+  func.func @misckernel(%arg0: memref<?xf32>, %arg1: memref<?xf32>) attributes {kernel = 0 : i32} {
     // CHECK: gpu.barrier
     miopen.workgroup_barrier
 

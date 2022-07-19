@@ -342,9 +342,9 @@ void outlinePartitionOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
     // All MemRef params are marked as 'read-write'
     // Non-MemRef inputs are added as 'read-only'
     auto readAccessAttr =
-        b.getNamedAttr(FuncOp::getReadAccessAttrName(), b.getUnitAttr());
+        b.getNamedAttr(func::FuncOp::getReadAccessAttrName(), b.getUnitAttr());
     auto writeAccessAttr =
-        b.getNamedAttr(FuncOp::getWriteAccessAttrName(), b.getUnitAttr());
+        b.getNamedAttr(func::FuncOp::getWriteAccessAttrName(), b.getUnitAttr());
     for (auto pair : llvm::enumerate(values)) {
       auto vtype = pair.value().getType();
       if (vtype.isa<VectorType, RankedTensorType, UnrankedTensorType>())

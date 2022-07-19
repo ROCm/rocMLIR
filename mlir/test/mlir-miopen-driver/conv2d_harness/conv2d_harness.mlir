@@ -2,14 +2,14 @@
 // RUN: miopen-gen -p --host %s | mlir-miopen-driver -c | FileCheck %s --check-prefix=LOWERING
 // RUN: miopen-gen -p --host %s | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
 
-func private @miopen_conv2d_gkcyx_ngchw_ngkhw_0(%arg0: memref<1x128x8x3x3xf32>, %arg1: memref<128x1x8x32x32xf32>, %arg2: memref<128x1x128x30x30xf32>) -> ()
+func.func private @miopen_conv2d_gkcyx_ngchw_ngkhw_0(%arg0: memref<1x128x8x3x3xf32>, %arg1: memref<128x1x8x32x32xf32>, %arg2: memref<128x1x128x30x30xf32>) -> ()
 
 // HARNESS: module
 // HARNESS: func @miopen_conv2d_gkcyx_ngchw_ngkhw_0([[FILTER_MEMREF:%.*]]: memref<1x128x8x3x3xf32>, [[INPUT_MEMREF:%.*]]: memref<128x1x8x32x32xf32>, [[OUTPUT_MEMREF:%.*]]: memref<128x1x128x30x30xf32>)
 // LOWERING: module
 // LOWERING: gpu.launch_func  @miopen_conv2d_gkcyx_ngchw_ngkhw_0_module::@miopen_conv2d_gkcyx_ngchw_ngkhw_0  blocks in (%{{.*}}, %{{.*}}, %{{.*}}) threads in (%{{.*}}, %{{.*}}, %{{.*}}) dynamic_shared_memory_size %{{.*}} args(%{{.*}} : memref<1x128x8x3x3xf32>, %{{.*}} : memref<128x1x8x32x32xf32>, %{{.*}} : memref<128x1x128x30x30xf32>)
 
-func @main() {
+func.func @main() {
   // memref.allocate CPU memory.
   %0 = memref.alloc() : memref<1x128x8x3x3xf32>
   %1 = memref.alloc() : memref<128x1x8x32x32xf32>
@@ -45,7 +45,7 @@ func @main() {
   // verify result.
   // TBD. Add more verifying logic.
   %6 = memref.cast %2 : memref<128x1x128x30x30xf32> to memref<*xf32>
-  call @print_memref_f32(%6) : (memref<*xf32>) -> ()
+  call @printMemrefF32(%6) : (memref<*xf32>) -> ()
 
   // dellocate GPU memory.
   gpu.dealloc  %filter : memref<1x128x8x3x3xf32>
@@ -60,8 +60,8 @@ func @main() {
   return
 }
 
-func private @mcpuMemset5DFloat(%ptr : memref<?x?x?x?x?xf32>, %value: f32) -> ()
-func private @print_memref_f32(%ptr : memref<*xf32>)
+func.func private @mcpuMemset5DFloat(%ptr : memref<?x?x?x?x?xf32>, %value: f32) -> ()
+func.func private @printMemrefF32(%ptr : memref<*xf32>)
 // LOWERING: gpu.module @miopen_conv2d_gkcyx_ngchw_ngkhw_0_module
 // LOWERING: gpu.func @miopen_conv2d_gkcyx_ngchw_ngkhw_0
 // TBD. Add more verifying logic.
