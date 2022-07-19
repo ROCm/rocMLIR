@@ -21,10 +21,10 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
 
   LINK_LIBS PUBLIC
   MLIRDialect
-  MLIRFunc
+  MLIRFuncDialect
   MLIRIR
   MLIRPass
-  MLIRLLVMIR
+  MLIRLLVMDialect
   MLIRAffineToStandard
   MLIRMIOpenOps
   MLIRMIOpenTuning

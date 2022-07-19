@@ -602,6 +602,12 @@ enum CommandArgumentType {
   eArgTypeColumnNum,
   eArgTypeModuleUUID,
   eArgTypeSaveCoreStyle,
+  eArgTypeLogHandler,
+  eArgTypeSEDStylePair,
+  eArgTypeRecognizerID,
+  eArgTypeConnectURL,
+  eArgTypeTargetID,
+  eArgTypeStopHookID,
   eArgTypeLastArg // Always keep this entry as the last entry in this
                   // enumeration!!
 };
@@ -1144,7 +1150,22 @@ enum SaveCoreStyle {
 // Type of counter values associated with instructions in a trace.
 enum TraceCounter {
   // Timestamp counter, like the one offered by Intel CPUs (TSC).
-  eTraceCounterTSC,
+  eTraceCounterTSC = 0,
+};
+
+// Events that might happen during a trace session.
+enum TraceEvent {
+  // Tracing was disabled for some time due to a software trigger
+  eTraceEventDisabledSW,
+  // Tracing was disable for some time due to a hardware trigger
+  eTraceEventDisabledHW,
+};
+
+// Enum used to identify which kind of item a \a TraceCursor is pointing at
+enum TraceItemKind {
+  eTraceItemKindError = 0,
+  eTraceItemKindEvent,
+  eTraceItemKindInstruction,
 };
 
 } // namespace lldb

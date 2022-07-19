@@ -87,10 +87,11 @@ getTiledProducerLoops(OpResult producerResult,
   assert(tiledProducerIndexingSubMap.isProjectedPermutation() &&
          "expect slice and producer loop dimensions map one-to-one");
   SmallVector<int64_t> tiledProducerLoopIndices;
-  transform(llvm::seq<unsigned>(0, tiledProducerIndexingSubMap.getNumResults()),
-            std::back_inserter(tiledProducerLoopIndices), [&](unsigned idx) {
-              return tiledProducerIndexingSubMap.getDimPosition(idx);
-            });
+  llvm::transform(
+      llvm::seq<unsigned>(0, tiledProducerIndexingSubMap.getNumResults()),
+      std::back_inserter(tiledProducerLoopIndices), [&](unsigned idx) {
+        return tiledProducerIndexingSubMap.getDimPosition(idx);
+      });
 
   return tiledProducerLoopIndices;
 }
@@ -141,9 +142,9 @@ static LinalgOp getTiledProducer(OpBuilder &b, OpResult producerResult,
 
   // Obtain the `producerOp` loop bounds and the `sliceOp` ranges.
   SmallVector<Value> producerLoopBounds;
-  transform(producerOp.createLoopRanges(b, loc),
-            std::back_inserter(producerLoopBounds),
-            [](Range range) { return range.size; });
+  llvm::transform(producerOp.createLoopRanges(b, loc),
+                  std::back_inserter(producerLoopBounds),
+                  [](Range range) { return range.size; });
   SmallVector<Range> sliceOpRanges = sliceOp.getOrCreateRanges(b, loc);
 
   // Tile the producer operands given the `sliceOp` ranges. Iterate the
@@ -255,7 +256,7 @@ bool TileLoopNest::hasOtherUses(BlockArgument bbArg,
     }
     if (auto insertSliceOp = dyn_cast<tensor::InsertSliceOp>(op)) {
       SetVector<Operation *> backwardSlice;
-      getBackwardSlice(insertSliceOp.source(), &backwardSlice,
+      getBackwardSlice(insertSliceOp.getSource(), &backwardSlice,
                        [](Operation *op) {
                          return isa<LinalgOp, tensor::InsertSliceOp>(op);
                        });
@@ -287,8 +288,7 @@ LogicalResult TileLoopNest::tileRootOp(
                       .setTileSizes(tileSizes)
                       .setLoopType(LinalgTilingLoopType::Loops);
   if (tileDistribution)
-    tilingOptions =
-        tilingOptions.setDistributionOptions(tileDistribution.getValue());
+    tilingOptions = tilingOptions.setDistributionOptions(*tileDistribution);
 
   // TODO: Propagate RewriterBase everywhere.
   IRRewriter rewriter(b);
@@ -358,8 +358,8 @@ FailureOr<LinalgOp> TileLoopNest::fuseProducer(OpBuilder &b,
 
   // Check if the producer is a LinalgOp possibly passed by iteration argument.
   OpOperand *iterArg = nullptr;
-  auto producerResult = sliceOp.source().dyn_cast<OpResult>();
-  if (auto bbArg = sliceOp.source().dyn_cast<BlockArgument>()) {
+  auto producerResult = sliceOp.getSource().dyn_cast<OpResult>();
+  if (auto bbArg = sliceOp.getSource().dyn_cast<BlockArgument>()) {
     iterArg = getTiedIterArg(bbArg);
     // Check the iteration argument may be used to pass in the producer output.
     if (!iterArg || hasOtherUses(bbArg, sliceOp))

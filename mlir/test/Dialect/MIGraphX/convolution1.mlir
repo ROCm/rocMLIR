@@ -1,7 +1,7 @@
 // RUN: miopen-opt %s | FileCheck %s
 
 module {
-  func @main(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
+  func.func @main(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x64x112x112xf32> {
     %0 = "migraphx.constant"(){shape = [64:i64, 3:i64, 7:i64, 7:i64], type = f32}: () -> tensor<64x3x7x7xf32>
     %1 = "migraphx.constant"(){shape = [64:i64, 1:i64], type = f32}: () -> tensor<64x1xf32>
     %2 = "migraphx.constant"(){shape = [64:i64, 1:i64], type = f32}: () -> tensor<64x1xf32>

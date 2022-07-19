@@ -37,10 +37,6 @@ struct LinalgElementwiseFusionOptions;
 struct LinalgFusionOptions;
 struct LinalgTilingOptions;
 
-/// Default function to control reshape folding. Skips folding unit dimension
-/// reshapes.
-bool skipUnitDimReshape(const OpResult &producer, OpOperand &consumer);
-
 //===----------------------------------------------------------------------===//
 // Transformations exposed as function calls.
 //===----------------------------------------------------------------------===//
@@ -65,43 +61,31 @@ void populateSparseTensorRewriting(RewritePatternSet &patterns);
 /// Function type which is used to control when to stop fusion. It is expected
 /// that OpOperand is not modified in the callback. The OpOperand is not marked
 /// as const to allow callers to use non-const methods.
-using ControlElementwiseOpsFusionFn =
+using ControlFusionFn =
     std::function<bool(const OpResult &producer, OpOperand &consumer)>;
+
+/// Patterns for fusing linalg operation on tensors.
+
+/// Pattern to fuse `linalg.generic` -> `linalg.generic` operations
+/// when both operations are fusable elementwise operations.
+void populateElementwiseOpsFusionPatterns(
+    RewritePatternSet &patterns,
+    const ControlFusionFn &controlElementwiseOpFusion);
 
 /// Patterns to fold an expanding (collapsing) tensor_reshape operation with its
 /// producer (consumer) generic operation by expanding the dimensionality of the
 /// loop in the generic op.
 void populateFoldReshapeOpsByExpansionPatterns(
-    RewritePatternSet &patterns,
-    const ControlElementwiseOpsFusionFn &controlFoldingReshapes =
-        skipUnitDimReshape);
+    RewritePatternSet &patterns, const ControlFusionFn &controlFoldingReshapes);
 
 /// Patterns to fold an expanding tensor.expand_shape operation with its
 /// producer generic operation by collapsing the dimensions of the generic op.
 void populateFoldReshapeOpsByCollapsingPatterns(
-    RewritePatternSet &patterns,
-    const ControlElementwiseOpsFusionFn &controlFoldingReshapes =
-        [](const OpResult & /*producer*/, OpOperand & /*consumer*/) {
-          return true;
-        });
+    RewritePatternSet &patterns, const ControlFusionFn &controlFoldingReshapes);
 
-/// Patterns to fold a collapsing (expanding) tensor_reshape operation with its
-/// producer (consumer) generic operation by linearizing the indexing map used
-/// to access the source (target) of the reshape operation in the generic
-/// operation.
-/// TODO(ravishankarm): These patterns are to be deprecated in favor of using
-/// the `populateFoldReshapeByCollapsingPatterns`.
-void populateFoldReshapeOpsByLinearizationPatterns(RewritePatternSet &patterns);
-
-/// Patterns to fold a collapsing (expanding) tensor_reshape operation with its
-/// producer (consumer) generic operation by linearizing the indexing map used
-/// to access the source (target) of the reshape operation in the generic
-/// operation. The patterns are applied only when the tensor reshape involved is
-/// collapsing (introducing) unit-extent dimensions.
-/// TODO(ravishankarm): These patterns are to be deprecated in favor of using
-/// the `populateFoldReshapeByCollapsingPatterns`.
-void populateFoldUnitDimsReshapeOpsByLinearizationPatterns(
-    RewritePatternSet &patterns);
+/// Patterns to constant fold Linalg operations.
+void populateConstantFoldLinalgOperations(RewritePatternSet &patterns,
+                                          const ControlFusionFn &controlFn);
 
 /// Pattern to fuse a `tensor.pad` operation with the producer of its source,
 /// if the producer is a `linalg` operation with all parallel iterator types.
@@ -122,44 +106,33 @@ void populateInlineConstantOperandsPatterns(RewritePatternSet &patterns);
 /// Patterns that are used to bubble up extract slice op above linalg op.
 void populateBubbleUpExtractSliceOpPatterns(RewritePatternSet &patterns);
 
-/// Options that control fusion of elementwise operations.
-struct LinalgElementwiseFusionOptions {
-  /// Enable fusion of reshapes into the shape with elementwise operations. By
-  /// default it is disabled for unit dimensions reshape.
-  ControlElementwiseOpsFusionFn controlFoldingReshapesFn = skipUnitDimReshape;
-
-  LinalgElementwiseFusionOptions &
-  setControlFoldingReshapes(ControlElementwiseOpsFusionFn fun) {
-    controlFoldingReshapesFn = std::move(fun);
-    return *this;
-  }
-
-  /// Function to allow the caller to control when to stop fusion. Once a
-  /// producer is deemed fusable with the consumer (structurally), this callback
-  /// can be used to abort the fusion based on non-structural constraints. This
-  /// is the hook for cost models to control the amount of fusion done.
-  ControlElementwiseOpsFusionFn controlElementwiseOpsFusionFn =
-      [](const OpResult & /*producer */, OpOperand & /*consumer */) {
-        return true;
-      };
-
-  LinalgElementwiseFusionOptions &
-  setControlElementwiseOpsFusionFn(ControlElementwiseOpsFusionFn fun) {
-    controlElementwiseOpsFusionFn = std::move(fun);
-    return *this;
-  }
-};
-
-/// Patterns for fusing linalg operation on tensors.
-void populateElementwiseOpsFusionPatterns(
-    RewritePatternSet &patterns,
-    LinalgElementwiseFusionOptions options = LinalgElementwiseFusionOptions());
-
-/// Patterns to push reshape op towards the end of the graph in order to expose
-/// more fusion opportunities.
-/// TODO(ravishankarm): These patterns are to be deprecated in favor of using
-/// the `populateFoldReshapeByCollapsingPatterns`.
-void populatePushReshapeOpsPatterns(RewritePatternSet &patterns);
+/// Split the given `op` into two parts along the given iteration space
+/// `dimension` at the specified `splitPoint`, and return the two parts.
+///
+/// For example, the following op:
+///
+///   linalg.matmul ins(%0, %1 : tensor<128x32xf32>, tensor<32x64xf32>)
+///                 outs(%2 : tensor<128x64xf32>)
+///
+/// split along the first dimension at position 42 will result in:
+///
+///   %3 = tensor.extract_slice %0[0, 0][42, 32][1, 1]
+///   %4 = tensor.extract_slice %2[0, 0][42, 64][1, 1]
+///   %5 = linalg.matmul ins(%3, %1 : tensor<42x32xf32>, tensor<32x64xf32>)
+///                      outs(%5 : tensor<42x64xf32>)
+///   %6 = tensor.insert_slice %5 into %2[0, 0][42, 64][1, 1]
+///
+///   %7 = tensor.extract_slice %0[42, 0][86, 32][1, 1]
+///   %8 = tensor.extract_slice %6[42, 0][86, 64][1, 1]
+///   %9 = linalg.matmul ins(%7, %1 : tensor<86x32xf32>, tensor<32x64xf32>)
+///                      outs(%8 : tensor<86x64xf32>)
+///   tensor.insert_slice %5 into %6[42, 0][86, 64][1, 1]
+///
+/// Note that there is no simplification other than constant propagation applied
+/// to slice extraction and insertion.
+std::pair<LinalgOp, LinalgOp> splitOp(RewriterBase &rewriter, LinalgOp op,
+                                      unsigned dimension,
+                                      OpFoldResult splitPoint);
 
 /// Perform standalone tiling of a single LinalgOp by `tileSizes`.
 /// and permute the loop nest according to `interchangeVector`
@@ -183,6 +156,9 @@ struct TiledLinalgOp {
 };
 FailureOr<TiledLinalgOp> tileLinalgOp(RewriterBase &b, LinalgOp op,
                                       const LinalgTilingOptions &options);
+
+/// Peel and canonicalize 'loops'.
+void peelLoops(RewriterBase &rewriter, ArrayRef<scf::ForOp> loops);
 
 /// Peel the loops of a TiledLinalgOp.
 void peelTiledLinalgOp(RewriterBase &rewriter, TiledLinalgOp &res,
@@ -263,6 +239,8 @@ tileAndFuseLinalgOps(OpBuilder &builder, ArrayRef<LinalgOp> ops,
 /// `interchangeVector = [1,2,0]`. All values in `interchangeVector` must be
 /// integers, in the range 0..`op.rank` without duplications
 /// (i.e. `[1,1,2]` is an invalid permutation).
+///
+/// Return failure if the permutation is not valid.
 FailureOr<GenericOp> interchangeGenericOp(RewriterBase &rewriter,
                                           GenericOp genericOp,
                                           ArrayRef<unsigned> interchangeVector);
@@ -763,6 +741,56 @@ private:
   LinalgPaddingOptions options;
 };
 
+/// Rewrites 2-D convolution ops with size-1 window dimensions into 1-D
+/// convolution ops.
+struct DownscaleSizeOneWindowed2DConvolution final
+    : public OpRewritePattern<Conv2DNhwcHwcfOp> {
+  DownscaleSizeOneWindowed2DConvolution(
+      MLIRContext *context,
+      LinalgTransformationFilter f = LinalgTransformationFilter(),
+      PatternBenefit benefit = 1)
+      : OpRewritePattern<Conv2DNhwcHwcfOp>(context, benefit),
+        filter(std::move(f)) {}
+
+  FailureOr<Conv1DNwcWcfOp>
+  returningMatchAndRewrite(linalg::Conv2DNhwcHwcfOp convOp,
+                           PatternRewriter &rewriter) const;
+
+  LogicalResult matchAndRewrite(linalg::Conv2DNhwcHwcfOp convOp,
+                                PatternRewriter &rewriter) const override {
+    return returningMatchAndRewrite(convOp, rewriter);
+  }
+
+private:
+  /// LinalgTransformMarker handles special attribute manipulations.
+  LinalgTransformationFilter filter;
+};
+
+/// Rewrites 2-D depthwise convolution ops with size-1 (w, kw) or (h, kh)
+/// dimensions into 1-D depthwise convolution ops.
+struct DownscaleDepthwiseConv2DNhwcHwcOp final
+    : public OpRewritePattern<DepthwiseConv2DNhwcHwcOp> {
+  DownscaleDepthwiseConv2DNhwcHwcOp(
+      MLIRContext *context,
+      LinalgTransformationFilter f = LinalgTransformationFilter(),
+      PatternBenefit benefit = 1)
+      : OpRewritePattern<DepthwiseConv2DNhwcHwcOp>(context, benefit),
+        filter(std::move(f)) {}
+
+  FailureOr<DepthwiseConv1DNwcWcOp>
+  returningMatchAndRewrite(DepthwiseConv2DNhwcHwcOp convOp,
+                           PatternRewriter &rewriter) const;
+
+  LogicalResult matchAndRewrite(DepthwiseConv2DNhwcHwcOp convOp,
+                                PatternRewriter &rewriter) const override {
+    return returningMatchAndRewrite(convOp, rewriter);
+  }
+
+private:
+  /// LinalgTransformMarker handles special attribute manipulations.
+  LinalgTransformationFilter filter;
+};
+
 struct LinalgFusionOptions {
   /// List of operands indices to use for fusion.
   llvm::SmallSet<unsigned, 1> indicesToFuse = {};
@@ -968,6 +996,49 @@ struct LinalgPromotionPattern : public LinalgBasePromotionPattern {
       LinalgTransformationFilter f = LinalgTransformationFilter(),
       PatternBenefit benefit = 1)
       : LinalgBasePromotionPattern(opName, context, options, f, benefit) {}
+};
+
+///
+/// Linalg peeling patterns.
+///
+
+/// Compute the loops to peel and return them in a SmallVector. Loops will be
+/// peeled in order of appearance in the SmallVector. This order will impact the
+/// output IR. If an inner-to-outer order is provided, the peeled iterations of
+/// the outer loops will also contain the peeled inner loops. If an
+/// outer-to-inner order is provided, the peeled iterations of the outer loops
+/// will not contain any peeled inner loops.
+using LoopsToPeelComputationFunction = std::function<void(
+    OpBuilder &, Operation *, SmallVectorImpl<scf::ForOp> &)>;
+
+struct LinalgPeelOptions {
+  LoopsToPeelComputationFunction loopsToPeelComputationFunction = nullptr;
+};
+
+/// `filter` controls LinalgTransformMarker matching and update when specified.
+struct LinalgPeelingPattern : public OpInterfaceRewritePattern<LinalgOp> {
+  /// Construct a generic pattern applied to all LinalgOp that verify `filter`.
+  LinalgPeelingPattern(
+      MLIRContext *context,
+      LinalgTransformationFilter f = LinalgTransformationFilter(),
+      LinalgPeelOptions options = LinalgPeelOptions(),
+      PatternBenefit benefit = 1);
+
+  /// Construct a pattern specifically applied to `opName`.
+  LinalgPeelingPattern(
+      StringRef opName, MLIRContext *context,
+      LinalgPeelOptions options = LinalgPeelOptions(),
+      LinalgTransformationFilter f = LinalgTransformationFilter(),
+      PatternBenefit benefit = 1);
+
+  LogicalResult matchAndRewrite(LinalgOp linalgOp,
+                                PatternRewriter &rewriter) const override;
+
+private:
+  /// LinalgTransformMarker handles special attribute manipulations.
+  const LinalgTransformationFilter filter;
+  /// Peeling options.
+  const LinalgPeelOptions options;
 };
 
 ///
@@ -1260,7 +1331,7 @@ protected:
                                const SmallVector<Value> &dynSizes) const;
 };
 
-/// Populates `patterns` with patterns that vectorize linalg.pad_tensor.
+/// Populates `patterns` with patterns that vectorize tensor.pad.
 /// These patterns are meant to apply in a complementary fashion. Benefits
 /// are used to encode a certain ordering of pattern application. To avoid
 /// scattering magic constants throughout the code base, the patterns must be
@@ -1345,7 +1416,7 @@ LogicalResult applyStagedPatterns(
     const FrozenRewritePatternSet &stage2Patterns,
     function_ref<LogicalResult(Operation *)> stage3Lambda = nullptr);
 
-/// Rewrite extract_slice(pad_tensor(x)) into pad_tensor(extract_slice(x)).
+/// Rewrite extract_slice(tensor.pad(x)) into tensor.pad(extract_slice(x)).
 struct ExtractSliceOfPadTensorSwapPattern
     : public OpRewritePattern<tensor::ExtractSliceOp> {
   /// A function to control pattern application and rewrite logic.
@@ -1425,14 +1496,16 @@ public:
 /// reduction dimension. The dimension index is used to control where the extra
 /// dimension is added to the intermediate tensor shape. If the ratio value is
 /// less or equal to 1 then nothing will be done.
+// TODO: don't use unsigned unless doing bit manipulation.
 using ControlSplitReductionFn =
     std::function<std::pair<int64_t, unsigned>(LinalgOp op)>;
 
 /// Patterns to apply `splitReduction` below.
 void populateSplitReductionPattern(
     RewritePatternSet &patterns,
-    ControlSplitReductionFn controlSplitReductionFn,
-    LinalgTransformationFilter f = LinalgTransformationFilter());
+    const ControlSplitReductionFn &controlSplitReductionFn,
+    const LinalgTransformationFilter &f = LinalgTransformationFilter(),
+    bool useAlloc = false);
 
 /// Apply transformation to split the single linalg op reduction into a parallel
 /// and reduction dimension. Then create a new linalg.generic op doing the rest
@@ -1475,8 +1548,73 @@ void populateSplitReductionPattern(
 /// ```
 FailureOr<LinalgOp>
 splitReduction(PatternRewriter &b, LinalgOp op,
-               ControlSplitReductionFn controlSplitReductionFn,
-               LinalgTransformationFilter f);
+               const ControlSplitReductionFn &controlSplitReductionFn,
+               const LinalgTransformationFilter &f, bool useAlloc = false);
+
+/// Filterless version of the above.
+/// Returns both the new linalg ops as well as the fillOp needed to initialize
+/// the temporary expanded tensor with the proper neutral element.
+struct SplitReductionResult {
+  Operation *initOrAlloc;
+  FillOp fillOp;
+  LinalgOp splitLinalgOp;
+  LinalgOp resultCombiningLinalgOp;
+};
+FailureOr<SplitReductionResult>
+splitReduction(PatternRewriter &b, LinalgOp op,
+               const ControlSplitReductionFn &controlSplitReductionFn,
+               bool useAlloc = false);
+
+/// Scaling-based implementation of the split reduction transformation.
+/// Instead of introducing an ExpandShapeOp, this rewrites a reduction dimension
+/// `k` into `k * scale + kk`.
+///
+/// Example:
+/// ```
+///  %0 = linalg.matmul ins(%A, %B: tensor<16x256xf32>, tensor<256x32xf32>)
+///    outs(%C: tensor<16x32xf32>) -> tensor<16x32xf32>
+/// ```
+///
+/// Is transformed to:
+///
+/// ```
+///  #map0 = affine_map<(d0, d1, d2, d3) -> (d0, d2 * 4 + d3)>
+///  #map1 = affine_map<(d0, d1, d2, d3) -> (d2 * 4 + d3, d1)>
+///  #map2 = affine_map<(d0, d1, d2, d3) -> (d2, d3)>
+///  #map3 = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2)>
+///  #map4 = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
+///  #map5 = affine_map<(d0, d1, d2) -> (d0, d1)>
+///  %0 = linalg.init_tensor [16, 32, 64] : tensor<16x32x64xf32>
+///  %cst = arith.constant 0.000000e+00 : f32
+///  %1 = linalg.fill ins(%cst : f32) outs(%0 : tensor<16x32x64xf32>) ->
+///     tensor<16x32x64xf32>
+///  %2 = linalg.init_tensor [64, 4] : tensor<64x4xi1>
+///
+///  %3 = linalg.generic {indexing_maps = [#map0, #map1, #map2, #map3],
+///    iterator_types = ["parallel", "parallel", "parallel", "reduction"]}
+///    ins(%A, %B, %2 : tensor<16x256xf32>, tensor<256x32xf32>, tensor<64x4xi1>)
+///    outs(%1 : tensor<16x32x64xf32>) {
+///      ^bb0(%arg3: f32, %arg4: f32, %arg5: i1, %arg6: f32):
+///        %5 = arith.mulf %arg3, %arg4 : f32
+///        %6 = arith.addf %arg6, %5 : f32
+///        linalg.yield %6 : f32
+///  } -> tensor<16x32x64xf32>
+///
+///  %4 = linalg.generic {indexing_maps = [#map4, #map5],
+///    iterator_types = ["parallel", "parallel", "reduction"]}
+//     ins(%3 : tensor<16x32x64xf32>)
+///    outs(%C : tensor<16x32xf32>) {
+///      ^bb0(%arg3: f32, %arg4: f32):
+///        %5 = arith.addf %arg3, %arg4 : f32
+///        linalg.yield %5 : f32
+///  } -> tensor<16x32xf32>
+///
+///  return %4 : tensor<16x32xf32>
+/// ```
+FailureOr<SplitReductionResult>
+splitReductionByScaling(PatternRewriter &b, LinalgOp op,
+                        const ControlSplitReductionFn &controlSplitReductionFn,
+                        bool useAlloc = false);
 
 } // namespace linalg
 } // namespace mlir

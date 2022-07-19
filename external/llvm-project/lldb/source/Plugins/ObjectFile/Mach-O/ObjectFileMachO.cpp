@@ -1932,10 +1932,10 @@ public:
           if (first_section_sp)
             filename = first_section_sp->GetObjectFile()->GetFileSpec().GetPath();
 
-          Host::SystemLog(Host::eSystemLogError,
-                          "error: unable to find section %d for a symbol in "
-                          "%s, corrupt file?\n",
-                          n_sect, filename.c_str());
+          Debugger::ReportError(
+              llvm::formatv("unable to find section {0} for a symbol in "
+                            "{1}, corrupt file?",
+                            n_sect, filename));
         }
       }
       if (m_section_infos[n_sect].vm_range.Contains(file_addr)) {
@@ -2806,12 +2806,11 @@ void ObjectFileMachO::ParseSymtab(Symtab &symtab) {
                       // No symbol should be NULL, even the symbols with no
                       // string values should have an offset zero which
                       // points to an empty C-string
-                      Host::SystemLog(
-                          Host::eSystemLogError,
-                          "error: DSC unmapped local symbol[%u] has invalid "
-                          "string table offset 0x%x in %s, ignoring symbol\n",
+                      Debugger::ReportError(llvm::formatv(
+                          "DSC unmapped local symbol[{0}] has invalid "
+                          "string table offset {1:x} in {2}, ignoring symbol",
                           nlist_index, nlist.n_strx,
-                          module_sp->GetFileSpec().GetPath().c_str());
+                          module_sp->GetFileSpec().GetPath());
                       continue;
                     }
                     if (symbol_name[0] == '\0')
@@ -3732,11 +3731,10 @@ void ObjectFileMachO::ParseSymtab(Symtab &symtab) {
         if (symbol_name == nullptr) {
           // No symbol should be NULL, even the symbols with no string values
           // should have an offset zero which points to an empty C-string
-          Host::SystemLog(Host::eSystemLogError,
-                          "error: symbol[%u] has invalid string table offset "
-                          "0x%x in %s, ignoring symbol\n",
-                          nlist_idx, nlist.n_strx,
-                          module_sp->GetFileSpec().GetPath().c_str());
+          Debugger::ReportError(llvm::formatv(
+              "symbol[{0}] has invalid string table offset {1:x} in {2}, "
+              "ignoring symbol",
+              nlist_idx, nlist.n_strx, module_sp->GetFileSpec().GetPath()));
           return true;
         }
         if (symbol_name[0] == '\0')
@@ -6005,7 +6003,7 @@ llvm::VersionTuple ObjectFileMachO::GetMinimumOSVersion() {
 }
 
 llvm::VersionTuple ObjectFileMachO::GetSDKVersion() {
-  if (!m_sdk_versions.hasValue()) {
+  if (!m_sdk_versions) {
     lldb::offset_t offset = MachHeaderSizeFromMagic(m_header.magic);
     for (uint32_t i = 0; i < m_header.ncmds; ++i) {
       const lldb::offset_t load_cmd_offset = offset;
@@ -6034,7 +6032,7 @@ llvm::VersionTuple ObjectFileMachO::GetSDKVersion() {
       offset = load_cmd_offset + lc.cmdsize;
     }
 
-    if (!m_sdk_versions.hasValue()) {
+    if (!m_sdk_versions) {
       offset = MachHeaderSizeFromMagic(m_header.magic);
       for (uint32_t i = 0; i < m_header.ncmds; ++i) {
         const lldb::offset_t load_cmd_offset = offset;
@@ -6071,11 +6069,11 @@ llvm::VersionTuple ObjectFileMachO::GetSDKVersion() {
       }
     }
 
-    if (!m_sdk_versions.hasValue())
+    if (!m_sdk_versions)
       m_sdk_versions = llvm::VersionTuple();
   }
 
-  return m_sdk_versions.getValue();
+  return *m_sdk_versions;
 }
 
 bool ObjectFileMachO::GetIsDynamicLinkEditor() {
@@ -6520,7 +6518,7 @@ bool ObjectFileMachO::SaveCore(const lldb::ProcessSP &process_sp,
             addr_t pagesize = range_info.GetPageSize();
             const llvm::Optional<std::vector<addr_t>> &dirty_page_list =
                 range_info.GetDirtyPageList();
-            if (dirty_pages_only && dirty_page_list.hasValue()) {
+            if (dirty_pages_only && dirty_page_list) {
               for (addr_t dirtypage : dirty_page_list.getValue()) {
                 page_object obj;
                 obj.addr = dirtypage;
@@ -6969,7 +6967,8 @@ bool ObjectFileMachO::LoadCoreFileImages(lldb_private::Process &process) {
       module_spec.GetFileSpec() = FileSpec(image.filename.c_str());
     }
     if (image.currently_executing) {
-      Symbols::DownloadObjectAndSymbolFile(module_spec, true);
+      Status error;
+      Symbols::DownloadObjectAndSymbolFile(module_spec, error, true);
       if (FileSystem::Instance().Exists(module_spec.GetFileSpec())) {
         process.GetTarget().GetOrCreateModule(module_spec, false);
       }

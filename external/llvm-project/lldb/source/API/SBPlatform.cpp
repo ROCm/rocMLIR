@@ -292,9 +292,7 @@ SBPlatform::SBPlatform() { LLDB_INSTRUMENT_VA(this); }
 SBPlatform::SBPlatform(const char *platform_name) {
   LLDB_INSTRUMENT_VA(this, platform_name);
 
-  Status error;
-  if (platform_name && platform_name[0])
-    m_opaque_sp = Platform::Create(ConstString(platform_name), error);
+  m_opaque_sp = Platform::Create(platform_name);
 }
 
 SBPlatform::SBPlatform(const SBPlatform &rhs) {
@@ -426,7 +424,7 @@ const char *SBPlatform::GetOSBuild() {
 
   PlatformSP platform_sp(GetSP());
   if (platform_sp) {
-    std::string s = platform_sp->GetOSBuildString().getValueOr("");
+    std::string s = platform_sp->GetOSBuildString().value_or("");
     if (!s.empty()) {
       // Const-ify the string so we don't need to worry about the lifetime of
       // the string
@@ -441,7 +439,7 @@ const char *SBPlatform::GetOSDescription() {
 
   PlatformSP platform_sp(GetSP());
   if (platform_sp) {
-    std::string s = platform_sp->GetOSKernelDescription().getValueOr("");
+    std::string s = platform_sp->GetOSKernelDescription().value_or("");
     if (!s.empty()) {
       // Const-ify the string so we don't need to worry about the lifetime of
       // the string
@@ -475,7 +473,7 @@ uint32_t SBPlatform::GetOSMinorVersion() {
   llvm::VersionTuple version;
   if (PlatformSP platform_sp = GetSP())
     version = platform_sp->GetOSVersion();
-  return version.getMinor().getValueOr(UINT32_MAX);
+  return version.getMinor().value_or(UINT32_MAX);
 }
 
 uint32_t SBPlatform::GetOSUpdateVersion() {
@@ -484,7 +482,7 @@ uint32_t SBPlatform::GetOSUpdateVersion() {
   llvm::VersionTuple version;
   if (PlatformSP platform_sp = GetSP())
     version = platform_sp->GetOSVersion();
-  return version.getSubminor().getValueOr(UINT32_MAX);
+  return version.getSubminor().value_or(UINT32_MAX);
 }
 
 void SBPlatform::SetSDKRoot(const char *sysroot) {

@@ -12,10 +12,12 @@
 
 #include "../PassDetail.h"
 #include "mlir/Conversion/TosaToMIOpen/TosaToMIOpen.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
@@ -86,5 +88,5 @@ std::unique_ptr<Pass> mlir::tosa::createTosaToMIOpenPass() {
 }
 
 void mlir::tosa::addTosaToMIOpenPasses(OpPassManager &pm) {
-  pm.addNestedPass<FuncOp>(createTosaToMIOpenPass());
+  pm.addNestedPass<func::FuncOp>(createTosaToMIOpenPass());
 }

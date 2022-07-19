@@ -27,6 +27,7 @@
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Dialect/Arithmetic/Transforms/Passes.h"
 #include "mlir/Dialect/Async/Passes.h"
+#include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/Tensor/Transforms/Passes.h"
 #include "mlir/IR/Builders.h"
@@ -38,6 +39,7 @@
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
+#include "mlir/Conversion/TensorToLinalg/TensorToLinalgPass.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/Transforms/Passes.h"
 #include "llvm/Support/TargetSelect.h"
@@ -71,7 +73,7 @@ void miopen::buildBufferizePipeline(OpPassManager &pm,
     // convert tosa.conv2d/matmul to miopen.conv2d
     /* miopen-opt --tosa-to-miopen
      */
-    pm.addNestedPass<FuncOp>(tosa::createTosaToMIOpenPass());
+    pm.addNestedPass<func::FuncOp>(tosa::createTosaToMIOpenPass());
   }
   // use tosa conversion pipeline
   // (see mlir/lib/Conversion/TosaToLinalg/TosaToLinalgPass.cpp)
@@ -80,40 +82,54 @@ void miopen::buildBufferizePipeline(OpPassManager &pm,
   // linalg tensor opts
   /* miopen-opt --linalg-fuse-elementwise-ops
    */
-  pm.addNestedPass<FuncOp>(createLinalgElementwiseOpFusionPass());
+  pm.addNestedPass<func::FuncOp>(createLinalgElementwiseOpFusionPass());
 
   // make async kernel launch's
   /* miopen-opt --miopen-async-launch
    */
-  pm.addNestedPass<FuncOp>(createMIOpenAsyncLaunchPass());
+  pm.addNestedPass<func::FuncOp>(createMIOpenAsyncLaunchPass());
 
   // for tosa control flow
   /* miopen-opt --tosa-to-scf --tosa-to-arith
    */
-  pm.addNestedPass<FuncOp>(tosa::createTosaToSCF());
-  pm.addNestedPass<FuncOp>(tosa::createTosaToArith());
+  pm.addNestedPass<func::FuncOp>(tosa::createTosaToSCF());
+  pm.addNestedPass<func::FuncOp>(tosa::createTosaToArith());
 
   // bufferization
-  /* miopen-opt --canonicalize --cse
-        --linalg-comprehensive-module-bufferize="allow-return-allocs=1
-     create-deallocs=0 fully-dynamic-layout-maps=0"
+  /* miopen-opt --canonicalize --cse -convert-tensor-to-linalg
+        --one-shot-bufferize="allow-return-allocs=1
+     create-deallocs=0 bufferize-function-boundaries=1
+     unknown-type-conversion=identity-layout-map
+     function-boundary-type-conversion=identity-layout-map"
         --buffer-results-to-out-params
    */
-  pm.addNestedPass<FuncOp>(createCanonicalizerPass());
-  pm.addNestedPass<FuncOp>(createCSEPass());
+  pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
+  pm.addNestedPass<func::FuncOp>(createCSEPass());
+
+  pm.addPass(createConvertTensorToLinalgPass());
+  pm.addNestedPass<func::FuncOp>(createLinalgInitTensorToAllocTensorPass());
 
   bufferization::OneShotBufferizationOptions bufOpts;
   bufOpts.allowReturnAllocs = true;
   bufOpts.createDeallocs = noMIOpen;
-  bufOpts.fullyDynamicLayoutMaps = false;
-  pm.addPass(createLinalgComprehensiveModuleBufferizePass(bufOpts));
+  bufOpts.bufferizeFunctionBoundaries = true;
+  bufOpts.unknownTypeConverterFn =
+    [](Value value, unsigned memorySpace,
+                                      const bufferization::BufferizationOptions &options) {
+    return bufferization::getMemRefTypeWithStaticIdentityLayout(
+        value.getType().cast<TensorType>(), memorySpace);
+  };
+      //bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
+  bufOpts.functionBoundaryTypeConversion =
+      bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
+  pm.addPass(createOneShotBufferizePass(bufOpts));
 
   pm.addPass(bufferization::createBufferResultsToOutParamsPass());
 
   // copy opt (cleanup from high-level transforms)
   /* miopen-opt --miopen-copy-opt
    */
-  pm.addNestedPass<FuncOp>(miopen::createMIOpenCopyOptPass());
+  pm.addNestedPass<func::FuncOp>(miopen::createMIOpenCopyOptPass());
 }
 
 void miopen::buildKernelPipeline(OpPassManager &pm,
@@ -124,8 +140,8 @@ void miopen::buildKernelPipeline(OpPassManager &pm,
    */
   pm.addPass(
       miopen::createAffixTuningParametersPass(0, 0, options.tuningFallback));
-  pm.addNestedPass<FuncOp>(miopen::createMIOpenConvToGemmPass());
-  pm.addNestedPass<FuncOp>(miopen::createMIOpenGridwiseGemmToBlockwisePass());
+  pm.addNestedPass<func::FuncOp>(miopen::createMIOpenConvToGemmPass());
+  pm.addNestedPass<func::FuncOp>(miopen::createMIOpenGridwiseGemmToBlockwisePass());
 
   if (!options.enableApplicability) {
     if (options.enableFusion) {

@@ -154,6 +154,7 @@ int __kmp_hier_threads_per[kmp_hier_layer_e::LAYER_LAST + 1];
 kmp_hier_sched_env_t __kmp_hier_scheds = {0, 0, NULL, NULL, NULL};
 #endif
 int __kmp_dflt_blocktime = KMP_DEFAULT_BLOCKTIME;
+bool __kmp_wpolicy_passive = false;
 #if KMP_USE_MONITOR
 int __kmp_monitor_wakeups = KMP_MIN_MONITOR_WAKEUPS;
 int __kmp_bt_intervals = KMP_INTERVALS_FROM_BLOCKTIME(KMP_DEFAULT_BLOCKTIME,
@@ -424,7 +425,13 @@ int __kmp_env_consistency_check = FALSE; /* KMP_CONSISTENCY_CHECK specified? */
 // 0 = never yield;
 // 1 = always yield (default);
 // 2 = yield only if oversubscribed
+#if KMP_OS_DARWIN && KMP_ARCH_AARCH64
+// Set to 0 for environments where yield is slower
+kmp_int32 __kmp_use_yield = 0;
+#else
 kmp_int32 __kmp_use_yield = 1;
+#endif
+
 // This will be 1 if KMP_USE_YIELD environment variable was set explicitly
 kmp_int32 __kmp_use_yield_exp_set = 0;
 
@@ -441,6 +448,7 @@ kmp_uint64 __kmp_pause_init = 1; // for tpause
 KMP_ALIGN_CACHE
 kmp_info_t **__kmp_threads = NULL;
 kmp_root_t **__kmp_root = NULL;
+kmp_old_threads_list_t *__kmp_old_threads_list = NULL;
 
 /* data read/written to often by primary threads */
 KMP_ALIGN_CACHE

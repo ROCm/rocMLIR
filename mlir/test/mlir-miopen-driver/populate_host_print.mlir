@@ -3,7 +3,7 @@
 // RUN: miopen-gen -p -ph -pr -t bf16 | FileCheck %s --check-prefix=BF16
 // RUN: miopen-gen -p -ph -pr -t i8 | FileCheck %s --check-prefix=I8
 
-// CHECK-LABEL: func @main()
+// CHECK-LABEL: func.func @main()
 // CHECK-NEXT: memref.alloc() : memref<[[G:[0-9]+]]x[[K:[0-9]+]]x[[C:[0-9]+]]x[[Y:[0-9]+]]x[[X:[0-9]+]]x[[TYPE:[a-zA-Z0-9]+]]>
 // CHECK-NEXT: arith.constant dense{{.*}} : vector<3x{{.*}}>
 // CHECK-NEXT: arith.constant {{.*}} : f32
@@ -75,7 +75,7 @@
 // I8: memref.alloc() : memref<{{.*}}>
 // I8: call @_memcpy_i32_f32(%{{.*}}, %{{.*}}, %{{.*}}) : ({{.*}} -> ()
 // CHECK-NEXT: memref.cast %{{.*}} : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]> to memref<*x[[TYPE]]>
-// CHECK-NEXT: call @print_memref_f32(%{{.*}}) : (memref<*x[[TYPE]]>) -> ()
+// CHECK-NEXT: call @printMemrefF32(%{{.*}}) : (memref<*x[[TYPE]]>) -> ()
 // F16: memref.dealloc {{.*}} : memref<{{.*}}>
 // BF16: memref.dealloc {{.*}} : memref<{{.*}}>
 // I8: memref.dealloc {{.*}} : memref<{{.*}}>

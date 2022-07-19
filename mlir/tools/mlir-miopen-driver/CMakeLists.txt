@@ -23,8 +23,8 @@ set(LIBS
   MLIRMIOpenPipeline
   MLIRParser
   MLIRPass
-  MLIRQuant
-  MLIRShape
+  MLIRQuantDialect
+  MLIRShapeDialect
   MLIRTransforms
   MLIRSupport
   MLIRIR

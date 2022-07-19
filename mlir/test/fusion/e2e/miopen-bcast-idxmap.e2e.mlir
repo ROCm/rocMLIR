@@ -5,7 +5,7 @@
 #map1 = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3, d4)>
 #map2 = affine_map<(d0, d1, d2, d3, d4) -> (0, 0, 0, 0, d4)>
 module {
-  func @test_fusion(%arg0: memref<1x64x64x64x64xf32>, %arg1: memref<1x64x1x1x64xf32>, %arg2: memref<64xf32>, %arg3: memref<1x64x64x64x64xf32>) attributes {kernel} {
+  func.func @test_fusion(%arg0: memref<1x64x64x64x64xf32>, %arg1: memref<1x64x1x1x64xf32>, %arg2: memref<64xf32>, %arg3: memref<1x64x64x64x64xf32>) attributes {kernel} {
     %0 = memref.alloc() : memref<1x64x64x64x64xf32>
     miopen.conv2d(%arg1, %arg0, %0) {arch = "gfx908", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "y", "x", "c"], input_layout = ["gi", "ni", "hi", "wi", "ci"], num_cu = 64 : i32, output_layout = ["go", "no", "ho", "wo", "ko"], padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32], strides = [1 : i32, 1 : i32], xdlopsV2 = false} : memref<1x64x1x1x64xf32>, memref<1x64x64x64x64xf32>, memref<1x64x64x64x64xf32>
     %4 = memref.expand_shape %arg2 [[0, 1, 2, 3, 4]] : memref<64xf32> into memref<1x1x1x1x64xf32>

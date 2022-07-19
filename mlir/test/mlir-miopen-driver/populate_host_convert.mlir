@@ -3,9 +3,9 @@
 // RUN: miopen-gen -p -ph -pr -t bf16 | FileCheck %s --check-prefix=BF16
 // RUN: miopen-gen -p -ph -pr -t i8 | FileCheck %s --check-prefix=I8
 
-// F32-NOT: func @_memcpy_
+// F32-NOT: func.func @_memcpy_
 
-// F16: func @_memcpy_f16_f32(%arg0: memref<?xf16>, %arg1: memref<?xf32>, %arg2: index) {
+// F16: func.func @_memcpy_f16_f32(%arg0: memref<?xf16>, %arg1: memref<?xf32>, %arg2: index) {
 // F16-NEXT:   %c0 = arith.constant 0 : index
 // F16-NEXT:   %c1 = arith.constant 1 : index
 // F16-NEXT:   scf.for %arg3 = %c0 to %arg2 step %c1 {
@@ -16,7 +16,7 @@
 // F16-NEXT:   return
 // F16-NEXT: }
 
-// BF16: func @_memcpy_bf16_f32(%arg0: memref<?xbf16>, %arg1: memref<?xf32>, %arg2: index) {
+// BF16: func.func @_memcpy_bf16_f32(%arg0: memref<?xbf16>, %arg1: memref<?xf32>, %arg2: index) {
 // BF16-NEXT:   %c0 = arith.constant 0 : index
 // BF16-NEXT:   %c1 = arith.constant 1 : index
 // BF16-NEXT:   scf.for %arg3 = %c0 to %arg2 step %c1 {
@@ -27,7 +27,7 @@
 // BF16-NEXT:   return
 // BF16-NEXT: }
 
-// I8:  func @_memcpy_i32_f32(%arg0: memref<?xi32>, %arg1: memref<?xf32>, %arg2: index) {
+// I8:  func.func @_memcpy_i32_f32(%arg0: memref<?xi32>, %arg1: memref<?xf32>, %arg2: index) {
 // I8-NEXT:   %c0 = arith.constant 0 : index
 // I8-NEXT:   %c1 = arith.constant 1 : index
 // I8-NEXT:   scf.for %arg3 = %c0 to %arg2 step %c1 {

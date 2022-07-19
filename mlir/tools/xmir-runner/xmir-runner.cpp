@@ -74,8 +74,6 @@ int main(int argc, char **argv) {
   llvm::InitializeNativeTargetAsmPrinter();
   llvm::InitializeNativeTargetAsmParser();
 
-  mlir::initializeLLVMPasses();
-
   DialectRegistry registry;
   mlir::registerAllDialects(registry);
   mlir::registerLLVMDialectTranslation(registry);

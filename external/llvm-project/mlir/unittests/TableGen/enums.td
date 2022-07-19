@@ -6,12 +6,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+include "mlir/IR/EnumAttr.td"
 include "mlir/IR/OpBase.td"
 
-def CaseA: StrEnumAttrCase<"CaseA">;
-def CaseB: StrEnumAttrCase<"CaseB", 10>;
+def CaseA: I32EnumAttrCase<"CaseA", 0>;
+def CaseB: I32EnumAttrCase<"CaseB", 1>;
 
-def StrEnum: StrEnumAttr<"StrEnum", "A test enum", [CaseA, CaseB]> {
+def FooEnum: I32EnumAttr<"FooEnum", "A test enum", [CaseA, CaseB]> {
   let cppNamespace = "Outer::Inner";
   let stringToSymbolFnName = "ConvertToEnum";
   let symbolToStringFnName = "ConvertToString";
@@ -32,16 +33,31 @@ def Bit4 : I32BitEnumAttrCaseBit<"Bit4", 4>;
 def Bit5 : I32BitEnumAttrCaseBit<"Bit5", 5>;
 
 def BitEnumWithNone : I32BitEnumAttr<"BitEnumWithNone", "A test enum",
-                                     [NoBits, Bit0, Bit3]>;
+                                     [NoBits, Bit0, Bit3]> {
+  let separator = " | ";
+}
 
 def BitEnumWithoutNone : I32BitEnumAttr<"BitEnumWithoutNone", "A test enum",
                                         [Bit0, Bit3]>;
 
 def Bits0To3 : I32BitEnumAttrCaseGroup<"Bits0To3",
                                        [Bit0, Bit1, Bit2, Bit3]>;
+def Bits4And5 : I32BitEnumAttrCaseGroup<"Bits4And5",
+                                       [Bit4, Bit5]>;
+def Bits0To5 : I32BitEnumAttrCaseGroup<"Bits0To5",
+                                       [Bits0To3, Bits4And5]>;
 
 def BitEnumWithGroup : I32BitEnumAttr<"BitEnumWithGroup", "A test enum",
-                                      [Bit0, Bit1, Bit2, Bit3, Bit4, Bits0To3]>;
+                                      [Bit0, Bit1, Bit2, Bit3, Bit4, Bits0To3]> {
+  let separator = "|";
+}
+
+def BitEnumPrimaryGroup : I32BitEnumAttr<"BitEnumPrimaryGroup", "test enum",
+                                        [Bit0, Bit1, Bit2, Bit3, Bit4, Bit5,
+                                         Bits0To3, Bits4And5, Bits0To5]> {
+  let separator = ", ";
+  let printBitEnumPrimaryGroups = 1;
+}
 
 def BitEnum64_None : I64BitEnumAttrCaseNone<"None">;
 def BitEnum64_57   : I64BitEnumAttrCaseBit<"Bit57", 57>;

@@ -14,7 +14,7 @@
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/GPU/GPUDialect.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/PatternMatch.h"
@@ -42,7 +42,8 @@ class FuncToCOBJPattern : public OpConversionPattern<func::CallOp> {
     SmallVector<IntegerAttr, 5> localSizeAttr;
     SymbolRefAttr kernelRefAttr;
     auto fusedFuncOp =
-        op->getParentOfType<ModuleOp>().lookupSymbol<FuncOp>(fnAttr.getValue());
+        op->getParentOfType<ModuleOp>().lookupSymbol<func::FuncOp>(
+            fnAttr.getValue());
 
     // Insert alloc for result buffer
     rewriter.setInsertionPoint(op);

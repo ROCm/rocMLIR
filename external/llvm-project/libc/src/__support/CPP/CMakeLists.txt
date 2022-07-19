@@ -5,18 +5,32 @@ add_header_library(
 )
 
 add_header_library(
+  uint
+  HDRS
+    UInt.h
+  DEPENDS
+    .array
+)
+
+add_header_library(
+  uint128
+  HDRS
+    UInt128.h
+  DEPENDS
+    .uint
+)
+
+add_header_library(
   array_ref
   HDRS
     ArrayRef.h
 )
-
 
 add_header_library(
   bit
   HDRS
     Bit.h
 )
-
 
 add_header_library(
   bitset
@@ -34,6 +48,8 @@ add_header_library(
   limits
   HDRS
     Limits.h
+  DEPENDS
+    .uint
 )
 
 add_header_library(
@@ -46,6 +62,8 @@ add_header_library(
   type_traits
   HDRS
     TypeTraits.h
+  DEPENDS
+    .uint
 )
 
 add_header_library(

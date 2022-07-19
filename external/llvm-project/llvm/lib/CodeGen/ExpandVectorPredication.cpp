@@ -113,6 +113,16 @@ static void replaceOperation(Value &NewOp, VPIntrinsic &OldOp) {
   OldOp.eraseFromParent();
 }
 
+static bool maySpeculateLanes(VPIntrinsic &VPI) {
+  // The result of VP reductions depends on the mask and evl.
+  if (isa<VPReductionIntrinsic>(VPI))
+    return false;
+  // Fallback to whether the intrinsic is speculatable.
+  Optional<unsigned> OpcOpt = VPI.getFunctionalOpcode();
+  unsigned FunctionalOpc = OpcOpt.value_or((unsigned)Instruction::Call);
+  return isSafeToSpeculativelyExecuteWithOpcode(FunctionalOpc, &VPI);
+}
+
 //// } Helpers
 
 namespace {
@@ -216,8 +226,7 @@ Value *CachingVPExpander::convertEVLToMask(IRBuilder<> &Builder,
 Value *
 CachingVPExpander::expandPredicationInBinaryOperator(IRBuilder<> &Builder,
                                                      VPIntrinsic &VPI) {
-  assert((isSafeToSpeculativelyExecute(&VPI) ||
-          VPI.canIgnoreVectorLengthParam()) &&
+  assert((maySpeculateLanes(VPI) || VPI.canIgnoreVectorLengthParam()) &&
          "Implicitly dropping %evl in non-speculatable operator!");
 
   auto OC = static_cast<Instruction::BinaryOps>(*VPI.getFunctionalOpcode());
@@ -296,8 +305,7 @@ static Value *getNeutralReductionElement(const VPReductionIntrinsic &VPI,
 Value *
 CachingVPExpander::expandPredicationInReduction(IRBuilder<> &Builder,
                                                 VPReductionIntrinsic &VPI) {
-  assert((isSafeToSpeculativelyExecute(&VPI) ||
-          VPI.canIgnoreVectorLengthParam()) &&
+  assert((maySpeculateLanes(VPI) || VPI.canIgnoreVectorLengthParam()) &&
          "Implicitly dropping %evl in non-speculatable operator!");
 
   Value *Mask = VPI.getMaskParam();
@@ -471,9 +479,9 @@ struct TransformJob {
   bool isDone() const { return Strategy.shouldDoNothing(); }
 };
 
-void sanitizeStrategy(Instruction &I, VPLegalization &LegalizeStrat) {
-  // Speculatable instructions do not strictly need predication.
-  if (isSafeToSpeculativelyExecute(&I)) {
+void sanitizeStrategy(VPIntrinsic &VPI, VPLegalization &LegalizeStrat) {
+  // Operations with speculatable lanes do not strictly need predication.
+  if (maySpeculateLanes(VPI)) {
     // Converting a speculatable VP intrinsic means dropping %mask and %evl.
     // No need to expand %evl into the %mask only to ignore that code.
     if (LegalizeStrat.OpStrategy == VPLegalization::Convert)
@@ -518,7 +526,7 @@ bool CachingVPExpander::expandVectorPredication() {
     if (!VPI)
       continue;
     auto VPStrat = getVPLegalizationStrategy(*VPI);
-    sanitizeStrategy(I, VPStrat);
+    sanitizeStrategy(*VPI, VPStrat);
     if (!VPStrat.shouldDoNothing())
       Worklist.emplace_back(VPI, VPStrat);
   }

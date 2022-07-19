@@ -221,7 +221,6 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   LLVMInitializeAMDGPUTargetInfo();
   LLVMInitializeAMDGPUTargetMC();
   LLVMInitializeAMDGPUAsmPrinter();
-  mlir::initializeLLVMPasses();
 
   const char *triple = "amdgcn-amd-amdhsa";
   const char *chip = "gfx908";

@@ -12,14 +12,14 @@ target_link_libraries(MLIRMIOpenToGPU
   PUBLIC
   MLIRAffineToStandard
   MLIRMIOpenTransforms
-  MLIRLLVMIR
+  MLIRLLVMDialect
   MLIRIR
   MLIRPass
   MLIRSCFToControlFlow
   MLIRFuncToLLVM
   MLIRSupport
   MLIRTransforms
-  MLIRVector
+  MLIRVectorDialect
   LLVMCore
   LLVMSupport
   )

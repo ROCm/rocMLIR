@@ -13,6 +13,7 @@
 #ifndef MIGRAPHX_TYPES
 #define MIGRAPHX_TYPES
 
+include "mlir/IR/EnumAttr.td"
 include "mlir/IR/OpBase.td"
 
 def default_ : I32EnumAttrCase<"default_", 0>;

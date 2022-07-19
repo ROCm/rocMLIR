@@ -149,6 +149,14 @@ private:
                                    MachineBasicBlock::iterator MBBI) const;
   void emitCalleeSavedSVELocations(MachineBasicBlock &MBB,
                                    MachineBasicBlock::iterator MBBI) const;
+  void emitCalleeSavedGPRRestores(MachineBasicBlock &MBB,
+                                  MachineBasicBlock::iterator MBBI) const;
+  void emitCalleeSavedSVERestores(MachineBasicBlock &MBB,
+                                  MachineBasicBlock::iterator MBBI) const;
+
+  /// Emit target zero call-used regs.
+  void emitZeroCallUsedRegs(BitVector RegsToZero,
+                            MachineBasicBlock &MBB) const override;
 };
 
 } // End llvm namespace
