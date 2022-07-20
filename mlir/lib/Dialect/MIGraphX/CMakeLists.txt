@@ -9,6 +9,7 @@ add_mlir_dialect_library(MLIRMIGraphX
   MLIRMIGraphXTypeIncGen
   MLIRMIGraphXOpsIncGen
   MLIRMIGraphXPassIncGen
+  MLIRFuncOpsIncGen
 
   )
 target_link_libraries(MLIRMIGraphX
