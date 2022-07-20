@@ -364,7 +364,7 @@ def MIOpen_TransformingForOp :
     That is, the loop
     ```mlir
     %res = miopen.transforming_for (%a1, %a2, %a3) = [#transform_map1](%i0, %j0), (%i, %j) = [](%cst0, %cst0)
-      iter_args(%arg0 = %c0 : index) bounds [4, 8] {
+      iter_args(%arg0 = %c0) -> (index) bounds [4, 8] {
       %v = miopen.buffer_load {...} %place[%a1, %a2, %a3]
       miopen.buffer_store {...} %v -> %buffer[%i, %j]
       %cont = addi %arg0, %c1

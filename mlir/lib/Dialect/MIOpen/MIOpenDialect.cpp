@@ -443,19 +443,6 @@ LogicalResult InsertSliceOp::verify() {
 // TransformingForOp
 //===-----------------------------------------------------===//
 
-/// Parse a list of assignments of the form
-///   (%x1 = %y1 : type1, %x2 = %y2 : type2, ...)
-static ParseResult parseAssignmentListWithTypes(
-    SmallVectorImpl<OpAsmParser::Argument> &lhs,
-    SmallVectorImpl<OpAsmParser::UnresolvedOperand> &rhs,
-    SmallVectorImpl<Type> &types, OpAsmParser &parser) {
-  OptionalParseResult result =
-      parser.parseOptionalAssignmentListWithTypes(lhs, rhs, types);
-  if (!result.hasValue())
-    return parser.emitError(parser.getCurrentLocation(), "expected '('");
-  return result.getValue();
-}
-
 static ArrayAttr maybeIndexArray(OpBuilder &b,
                                  Optional<ArrayRef<int64_t>> vals) {
   return vals.map([&b](ArrayRef<int64_t> v) { return b.getIndexArrayAttr(v); })
@@ -571,7 +558,8 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
   SmallVector<OpAsmParser::Argument> lowerArgs;
   SmallVector<OperandType> upperInits;
 
-  parser.parseOptionalAttrDict(result.attributes);
+  if (failed(parser.parseOptionalAttrDict(result.attributes)))
+    return failure();
 
   // Parse iteration domains
   llvm::SMLoc transformedLoc = parser.getCurrentLocation();
@@ -648,17 +636,19 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
 
   llvm::SMLoc iterArgsLoc = parser.getCurrentLocation();
   llvm::SmallVector<OpAsmParser::Argument> iterArgs;
-  llvm::SmallVector<OperandType> iterInits;
+  llvm::SmallVector<OpAsmParser::UnresolvedOperand> iterInits;
   llvm::SmallVector<mlir::Type> iterTypes;
   if (parser.parseOptionalKeyword("iter_args").succeeded()) {
-    if (parseAssignmentListWithTypes(iterArgs, iterInits, iterTypes, parser)) {
+    if (parser.parseAssignmentList(iterArgs, iterInits) ||
+        parser.parseArrowTypeList(iterTypes)) {
       return failure();
     }
   }
-  assert(iterArgs.size() == iterTypes.size() &&
-         "mismatching number of arguments and types");
-  for (size_t i = 0; i < iterArgs.size(); i++) {
-    iterArgs[i].type = iterTypes[i];
+  if (iterInits.size() != iterTypes.size())
+    return parser.emitError(iterArgsLoc,
+                            "Mismatch between number of iter_args and types");
+  for (auto pair : llvm::zip(iterArgs, iterTypes)) {
+    std::get<0>(pair).type = std::get<1>(pair);
   }
 
   if (parser.parseKeyword("bounds")) {
@@ -747,9 +737,9 @@ void TransformingForOp::print(OpAsmPrinter &p) {
     llvm::interleaveComma(
         llvm::zip(getIterArgs(), iterInits()), p, [&](auto i) {
           Value init = std::get<1>(i);
-          p << std::get<0>(i) << " = " << init << " : " << init.getType();
+          p << std::get<0>(i) << " = " << init;
         });
-    p << ")";
+    p << ") -> (" << iterInits().getTypes() << ")";
   }
   p << " bounds [";
   llvm::interleaveComma(bounds().getAsValueRange<IntegerAttr>(), p,
