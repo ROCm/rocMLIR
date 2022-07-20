@@ -227,6 +227,35 @@ extern "C" void mcpuPrintBF16(unsigned short *allocated,
   }
 }
 
+extern "C" void mcpuPrint5DBF16(unsigned short *allocated,
+                              unsigned short *aligned, int64_t offset,
+                              int64_t size0, int64_t size1, int64_t size2,
+                                int64_t size3, int64_t size4,
+                                int64_t stride0, int64_t stride1,
+                                int64_t stride2, int64_t stride3, int64_t stride4) {
+    int64_t dataSize = size0 * size1 * size2 * size3 * size4;
+    for (int64_t i = 0; i < dataSize; i++) {
+        float fvalue = bfloat16_to_float(aligned[i]);
+        printf("%f\t", fvalue);
+    }
+    printf("\n");
+}
+
+extern "C" void mcpuPrintBF161D(unsigned short *allocated,
+                              unsigned short *aligned, int64_t offset,
+                              int64_t size0, int64_t stride0) {
+    int64_t dataSize = size0;
+    for (int64_t i = 0; i < dataSize; i++) {
+        float fvalue = bfloat16_to_float(aligned[i]);
+        printf("%f\t", fvalue);
+    }
+    printf("\n");
+}
+
+extern "C" void printMsg0() {
+    printf("Hello world!!\n");
+}
+
 extern "C" void mcpuPrintF32(float f1, float f2) {
   printf("Values: %f, %f\n", f1, f2);
 }
