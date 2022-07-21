@@ -1,4 +1,5 @@
 add_subdirectory(CAPI)
+add_subdirectory(lib)
 
 llvm_canonicalize_cmake_booleans(
   MLIR_BINDINGS_PYTHON_ENABLED
