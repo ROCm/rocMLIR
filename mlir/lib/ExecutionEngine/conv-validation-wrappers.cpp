@@ -456,7 +456,8 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
     double aveRelDiff = sumRelDiff / static_cast<double>(dataSize);
     double err_RMS = sqrt(sumDiffSq) /
         (static_cast<double>(maxMag) * sqrt(static_cast<double>(dataSize)));
-    printf("%ld  %f  %lf  %lf  %lf  %lf\n", dataSize, maxAbsDiff, aveAbsDiff, maxRelDiff, aveRelDiff, err_RMS);
+    printf("%ld  %f  %lf  %lf  %.10lf  %.10lf\n", dataSize, maxAbsDiff,
+           aveAbsDiff, maxRelDiff, aveRelDiff, err_RMS);
 }
 
 extern "C" void mcpuMemset5DHalfRandInt(
