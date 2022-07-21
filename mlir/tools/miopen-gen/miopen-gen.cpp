@@ -1753,9 +1753,41 @@ populateHostHarnessLogic(ModuleOp &module,
     mlir::Value testResult = localVars[outIdx];
     mlir::Value valResult = valVars[outIdx];
 
-    auto verifierFunc = createVerifierFunc(module, root0, genConfig);
-    b.create<func::CallOp>(loc, verifierFunc,
-                           ValueRange{testResult, valResult});
+    // If the element type is f16, call the new verifier function,
+    // which is different from the old verification in 2 ways:
+    // 1. It does comparison in f32
+    // 2. It computes several statistical values, including RMS
+    // In the future, the verifier function will take one method and compare
+    // the result with the threshold to determine the correctness of the results.
+    auto testType = testResult.getType().template dyn_cast<MemRefType>();
+    auto elemType = testType.getElementType();
+    if (elemType.isF16()) {
+      // For f16 test results, we convert them to f32 before verification
+      auto testNewType = valResult.getType().template dyn_cast<MemRefType>();
+      auto testNew = b.create<memref::AllocOp>(loc, testNewType);
+      emitMemcpy(b, testResult, testNew);
+      // Prepare the arguements for the new verifier function
+      auto mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, floatType);
+      auto testResultNew = b.create<memref::CastOp>(loc, mr5DUnkType, testNew);
+      auto valResultNew = b.create<memref::CastOp>(loc, mr5DUnkType, valResult);
+      // Get the f16 threshold as the third argument of the verifier function
+      float f16_threshold = f16Threshold.getValue();
+      llvm::APFloat apVal(f16_threshold);
+      auto f16Thr =b.create<arith::ConstantFloatOp>(loc, apVal, floatType);
+      // Declare the new verifier function
+      auto verifyFuncDecl = makeFuncDecl(
+          module, "mcpuVerify5DFloatFloat", {mr5DUnkType, mr5DUnkType, floatType});
+      // Call the new verify function
+      b.create<func::CallOp>(
+          loc, verifyFuncDecl,
+          ValueRange{testResultNew, valResultNew, f16Thr});
+      // Deallocate the buffer for f32 version of the test results
+      b.create<memref::DeallocOp>(loc, testNew);
+    } else {
+      auto verifierFunc = createVerifierFunc(module, root0, genConfig);
+      b.create<func::CallOp>(loc, verifierFunc,
+                             ValueRange{testResult, valResult});
+    }
   }
 
   // Print and cleanup validation vars
