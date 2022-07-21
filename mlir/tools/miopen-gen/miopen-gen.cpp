@@ -1758,7 +1758,8 @@ populateHostHarnessLogic(ModuleOp &module,
     // 1. It does comparison in f32
     // 2. It computes several statistical values, including RMS
     // In the future, the verifier function will take one method and compare
-    // the result with the threshold to determine the correctness of the results.
+    // the result with the threshold to determine the correctness of the
+    // results.
     auto testType = testResult.getType().template dyn_cast<MemRefType>();
     auto elemType = testType.getElementType();
     if (elemType.isF16()) {
@@ -1773,14 +1774,13 @@ populateHostHarnessLogic(ModuleOp &module,
       // Get the f16 threshold as the third argument of the verifier function
       float f16_threshold = f16Threshold.getValue();
       llvm::APFloat apVal(f16_threshold);
-      auto f16Thr =b.create<arith::ConstantFloatOp>(loc, apVal, floatType);
+      auto f16Thr = b.create<arith::ConstantFloatOp>(loc, apVal, floatType);
       // Declare the new verifier function
-      auto verifyFuncDecl = makeFuncDecl(
-          module, "mcpuVerify5DFloatFloat", {mr5DUnkType, mr5DUnkType, floatType});
+      auto verifyFuncDecl = makeFuncDecl(module, "mcpuVerify5DFloatFloat",
+                                         {mr5DUnkType, mr5DUnkType, floatType});
       // Call the new verify function
-      b.create<func::CallOp>(
-          loc, verifyFuncDecl,
-          ValueRange{testResultNew, valResultNew, f16Thr});
+      b.create<func::CallOp>(loc, verifyFuncDecl,
+                             ValueRange{testResultNew, valResultNew, f16Thr});
       // Deallocate the buffer for f32 version of the test results
       b.create<memref::DeallocOp>(loc, testNew);
     } else {
