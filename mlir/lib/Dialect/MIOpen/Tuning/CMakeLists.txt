@@ -9,7 +9,6 @@ add_mlir_dialect_library(MLIRMIOpenTuning
 
   DEPENDS
   MLIRSupport
-  MLIRGPUOpInterfacesIncGen
   MLIRMIOpenPassIncGen
 )
 
