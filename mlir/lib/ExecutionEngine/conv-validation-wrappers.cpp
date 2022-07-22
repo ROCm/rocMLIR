@@ -423,12 +423,12 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
     printf("gpu output size: (%ldx%ldx%ldx%ldx%ld)\n", gpuSize0, gpuSize1, gpuSize2, gpuSize3, gpuSize4);
     printf("cpu output size: (%ldx%ldx%ldx%ldx%ld)\n", cpuSize0, cpuSize1, cpuSize2, cpuSize3, cpuSize4);
     float cpuVal, gpuVal;
-    float maxAbsDiff = 0;
-    double sumAbsDiff = 0;
-    double maxRelDiff = 0;
-    double sumRelDiff = 0;
-    float maxMag = 0;
-    double sumDiffSq = 0;
+    float maxAbsDiff = 0.0f;
+    double sumAbsDiff = 0.0;
+    double maxRelDiff = 0.0;
+    double sumRelDiff = 0.0;
+    float maxMag = 0.0f;
+    double sumDiffSq = 0.0;
     for (int64_t i = 0 ; i < dataSize; ++i){
         cpuVal = cpuAligned[i];
         gpuVal = gpuAligned[i];
@@ -456,7 +456,7 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
     double aveRelDiff = sumRelDiff / static_cast<double>(dataSize);
     double err_RMS = sqrt(sumDiffSq) /
         (static_cast<double>(maxMag) * sqrt(static_cast<double>(dataSize)));
-    printf("%ld  %f  %lf  %lf  %.10lf  %.10lf\n", dataSize, maxAbsDiff,
+    printf("%-10ld  %f  %lf  %lf  %.10lf  %.10lf\n", dataSize, maxAbsDiff,
            aveAbsDiff, maxRelDiff, aveRelDiff, err_RMS);
 }
 
