@@ -1779,6 +1779,11 @@ populateHostHarnessLogic(ModuleOp &module,
       float f16_threshold = f16Threshold.getValue();
       llvm::APFloat apVal(f16_threshold);
       auto f16Thr = b.create<arith::ConstantFloatOp>(loc, apVal, floatType);
+      // To be fair, we bring down the valResult to f16 and then convert
+      // back to f32
+      auto valResultLow = b.create<memref::AllocOp>(loc, testType);
+      emitMemcpy(b, valResult, valResultLow);
+      emitMemcpy(b, valResultLow, valResult);
       // Declare the new verifier function
       auto verifyFuncDecl = makeFuncDecl(module, "mcpuVerify5DFloatFloat",
                                          {mr5DUnkType, mr5DUnkType, floatType});
