@@ -201,7 +201,7 @@ pipeline {
                                   -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
                                   -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
                                   -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=1
-                                  -DLLVM_LIT_ARGS=-v
+                                  -DLLVM_LIT_ARGS='-v --time-tests'
                                   -DCMAKE_EXPORT_COMPILE_COMMANDS=1
                                 """)
                             }
@@ -260,8 +260,7 @@ pipeline {
                                              -DMLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED=1
                                              -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=0
                                              -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=0
-                                             -DMLIR_MIOPEN_DRIVER_TIMING_TEST_ENABLED=1
-                                             -DLLVM_LIT_ARGS=-v
+                                             -DLLVM_LIT_ARGS='-v --time-tests'
                                              -DCMAKE_EXPORT_COMPILE_COMMANDS=1""")
                             }
                         }

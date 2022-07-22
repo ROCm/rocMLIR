@@ -177,7 +177,7 @@ func.func @loop_result(%arg0: index, %arg1: index) -> index {
     // CHECK: %[[ret:.*]] = affine.for {{.*}} iter_args(%[[oarg:.*]] = %[[c0]]
     // CHECK: %[[inner:.*]] = affine.for {{.*}} iter_args(%[[iarg:.*]] = %[[oarg]]
     %ret = miopen.transforming_for (%arg2) = [#transform_map0](%arg0, %arg1)
-            iter_args(%arg3 = %c0 : index) bounds [2, 3] strides [1, 1] {
+            iter_args(%arg3 = %c0) -> (index) bounds [2, 3] strides [1, 1] {
         // CHECK: %[[iret:.*]] = arith.addi %[[iarg]]
         %i = arith.addi %arg3, %arg2 : index
         // CHECK: affine.yield %[[iret]]

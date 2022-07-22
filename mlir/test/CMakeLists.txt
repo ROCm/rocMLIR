@@ -15,7 +15,6 @@ llvm_canonicalize_cmake_booleans(
   MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED
   MLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED
   MLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED
-  MLIR_MIOPEN_DRIVER_TIMING_TEST_ENABLED
   MLIR_MIOPEN_SQLITE_ENABLED
   )
 
@@ -60,13 +59,6 @@ endif()
 set(MLIR_POPULATE_VALIDATION "-pv")
 if(MLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION)
   set(MLIR_POPULATE_VALIDATION "-pv_with_gpu")
-endif()
-
-# Sets execution options for lit test
-set(LIT_EXE_OPTION "")
-# Enables time tracking of individual tests
-if(MLIR_MIOPEN_DRIVER_TIMING_TEST_ENABLED)
-  set(LIT_EXE_OPTION "--time-tests")
 endif()
 
 configure_lit_site_cfg(
@@ -137,7 +129,6 @@ add_custom_target(check-mlir-miopen-build-only
 add_lit_testsuite(check-mlir-miopen "Running the MLIR-MIOpen regression tests"
   ${CMAKE_CURRENT_BINARY_DIR}
   DEPENDS ${MLIR_MIOPEN_TEST_DEPENDS}
-  ARGS ${LIT_EXE_OPTION}
   )
 set_target_properties(check-mlir-miopen PROPERTIES FOLDER "Tests")
 
