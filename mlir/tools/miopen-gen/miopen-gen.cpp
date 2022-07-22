@@ -355,6 +355,10 @@ static cl::opt<float> f16Threshold(
     cl::desc("Threshold used for CPU verification function for f16 datatype."),
     cl::value_desc("error"), cl::init(0.25f));
 
+static cl::opt<bool> newVerifier("nv",
+                                 cl::desc("Use the new verifier function"),
+                                 cl::init(true));
+
 static cl::opt<int> deviceNum(
     "device",
     cl::desc("Device index on which to run the kernel (only with host code)"),
@@ -1760,7 +1764,7 @@ populateHostHarnessLogic(ModuleOp &module,
     // results.
     auto testType = testResult.getType().template dyn_cast<MemRefType>();
     auto elemType = testType.getElementType();
-    if (elemType.isF16()) {
+    if (elemType.isF16() && newVerifier.getValue()) {
       // For f16 test results, we convert them to f32 before verification
       auto testNewType = valResult.getType().template dyn_cast<MemRefType>();
       auto testNew = b.create<memref::AllocOp>(loc, testNewType);
