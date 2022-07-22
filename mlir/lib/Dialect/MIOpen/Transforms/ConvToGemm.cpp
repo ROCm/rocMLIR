@@ -265,7 +265,8 @@ LogicalResult zeroInit(Conv2DBwdDataOp op, PatternRewriter &b) {
                                                  Value index) {
     b.create<BufferStoreOp>(
         loc, zeroOp, collapsed[0], leftOob, rightOob, index,
-        StoreMethodAttr::get(b.getContext(), StoreMethod::Set));
+        StoreMethodAttr::get(b.getContext(), StoreMethod::Set),
+        /*offset=*/IntegerAttr());
   };
   LogicalResult res =
       createElementwiseLoop(b, loc, op, output, kZeroInitVecLen, loopBody);
@@ -307,7 +308,8 @@ LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
                                                  Value index) {
     b.create<BufferStoreOp>(
         loc, zeroOp, collapsed[0], leftOob, rightOob, index,
-        StoreMethodAttr::get(b.getContext(), StoreMethod::Set));
+        StoreMethodAttr::get(b.getContext(), StoreMethod::Set),
+        /*offset=*/IntegerAttr());
   };
 
   LogicalResult res =
@@ -340,12 +342,14 @@ LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
   auto loopBody = [&loadType, &storeType, &leftOob,
                    &rightOob](OpBuilder &b, Location loc, ValueRange collapsed,
                               Value index) {
-    Value loaded = b.create<BufferLoadOp>(loc, loadType, collapsed[0], leftOob,
-                                          rightOob, index);
+    Value loaded =
+        b.create<BufferLoadOp>(loc, loadType, collapsed[0], leftOob, rightOob,
+                               index, /*offset=*/IntegerAttr());
     Value converted = createTypeConversionOp(b, loc, loaded, storeType);
     b.create<BufferStoreOp>(
         loc, converted, collapsed[1], leftOob, rightOob, index,
-        StoreMethodAttr::get(b.getContext(), StoreMethod::Set));
+        StoreMethodAttr::get(b.getContext(), StoreMethod::Set),
+        /*offset=*/IntegerAttr());
   };
   LogicalResult res = createElementwiseLoop(b, loc, op, {workspace, filter},
                                             kConversionVectorLen, loopBody);
