@@ -257,8 +257,16 @@ extern "C" void printMsg0() {
     printf("Hello world!!\n");
 }
 
+extern "C" void printMsgOldVerify() {
+    printf("Print GPU results from old verify function (f16->f32):\n");
+}
+
 extern "C" void mcpuPrintF32(float f1, float f2) {
-  printf("Values: %f, %f\n", f1, f2);
+  printf("Values: %.10f, %.10f\n", f1, f2);
+}
+
+extern "C" void mcpuPrint4F32(float f1, float f2, float f3, float f4) {
+    printf("%.10f %.10f %.10f %.10f\n", f1, f2, f3, f4);
 }
 
 extern "C" void mcpuPrintInt32(int32_t d1, int32_t d2) {
@@ -422,10 +430,48 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
     int64_t dataSize = cpuSize0 * cpuSize1 * cpuSize2 * cpuSize3 * cpuSize4;
     printf("gpu output size: (%ldx%ldx%ldx%ldx%ld)\n", gpuSize0, gpuSize1, gpuSize2, gpuSize3, gpuSize4);
     printf("cpu output size: (%ldx%ldx%ldx%ldx%ld)\n", cpuSize0, cpuSize1, cpuSize2, cpuSize3, cpuSize4);
+
+    // printf("GPU result in new verify function:\n");
+    // for (int64_t h = 0 ; h < gpuSize3; ++h){
+    //     for (int64_t w = 0 ; w < gpuSize4; ++w){
+    //         printf("%.10f ", gpuAligned[h*gpuStride3+w*gpuStride4]);
+    //     }
+    //     printf("\n");
+    // }
+
+    // printf("CPU result in new verify function:\n");
+    // for (int64_t h = 0 ; h < cpuSize3; ++h){
+    //     for (int64_t w = 0 ; w < cpuSize4; ++w){
+    //         printf("%.10f ", cpuAligned[h*cpuStride3+w*cpuStride4]);
+    //     }
+    //     printf("\n");
+    // }
+
+    // for (int64_t b = 0 ; b < cpuSize0; ++b)
+    //     for (int64_t c = 0 ; c < cpuSize2; ++c)
+    //         for (int64_t h = 0 ; h < cpuSize3; ++h){
+    //             for (int64_t w = 0 ; w < cpuSize4; ++w){
+    //                 float cpuVal = cpuAligned[b*cpuStride0+
+    //                                           c*cpuStride2+
+    //                                           h*cpuStride3+
+    //                                           w*cpuStride4];
+    //                 float gpuVal = gpuAligned[b*cpuStride0+
+    //                                           c*cpuStride2+
+    //                                           h*cpuStride3+
+    //                                           w*cpuStride4];
+    //                 if (cpuVal != gpuVal){
+    //                     printf("[%ld %d %ld %ld %ld] diff: %.10f, relDiff: %.10lf\n",
+    //                            b, 0, c, h, w, cpuVal-gpuVal, (double)(cpuVal-gpuVal)/(double)cpuVal);
+    //                 }
+    //             }
+    //         }
+
     float cpuVal, gpuVal;
     float maxAbsDiff = 0.0f;
+    float thr = 1.0004e-03;
     double sumAbsDiff = 0.0;
     double maxRelDiff = 0.0;
+    double maxRelDiff_oldVerifier = 0.0f;
     double sumRelDiff = 0.0;
     float maxMag = 0.0f;
     double sumDiffSq = 0.0;
@@ -442,6 +488,8 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
         if (cpuVal != 0.0f) {
             double relDiff = static_cast<double>(absDiff) / (static_cast<double>(fabs(cpuVal)));
             maxRelDiff = std::max(maxRelDiff, relDiff);
+            if (cpuVal > thr)
+                maxRelDiff_oldVerifier = std::max (maxRelDiff_oldVerifier, relDiff);
             sumRelDiff += relDiff;
         }
         // Old logic for verification
@@ -456,8 +504,8 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
     double aveRelDiff = sumRelDiff / static_cast<double>(dataSize);
     double err_RMS = sqrt(sumDiffSq) /
         (static_cast<double>(maxMag) * sqrt(static_cast<double>(dataSize)));
-    printf("%-10ld  %f  %lf  %lf  %.10lf  %.10lf\n", dataSize, maxAbsDiff,
-           aveAbsDiff, maxRelDiff, aveRelDiff, err_RMS);
+    printf("%-10ld  %f  %lf  %.10lf  %.10lf  %.10lf  %.10lf\n", dataSize, maxAbsDiff,
+           aveAbsDiff, maxRelDiff, maxRelDiff_oldVerifier, aveRelDiff, err_RMS);
 }
 
 extern "C" void mcpuMemset5DHalfRandInt(
@@ -691,6 +739,46 @@ static void performConv2d(
     int32_t padding_h_r, int32_t padding_w_l, int32_t padding_w_r,
     int32_t dilation_h, int32_t dilation_w, int32_t xdlops) {
 
+    // printf("Info about input and filter\n");
+    // printf("Input sizes: (%ldx%ldx%ldx%ldx%ld)\n",
+    //        inputSizes[0], inputSizes[1], inputSizes[2], inputSizes[3], inputSizes[4]);
+    // printf("filter sizes: (%ldx%ldx%ldx%ldx%ld)\n",
+    //        filterSizes[0], filterSizes[1], filterSizes[2], filterSizes[3], filterSizes[4]);
+    // printf("Output sizes: (%ldx%ldx%ldx%ldx%ld)\n",
+    //        outputSizes[0], outputSizes[1], outputSizes[2], outputSizes[3], outputSizes[4]);
+
+    // printf("Input image:\n");
+    // int64_t in_channels = inputSizes[2];
+    // int64_t in_h = inputSizes[3];
+    // int64_t in_w = inputSizes[4];
+    // for (int64_t h = 0; h < in_h; ++h){
+    //     for (int64_t c = 0; c < in_channels; ++c){
+    //         for (int64_t w = 0; w < in_w; ++w){
+    //             printf("%.10lf ", (double)inputAllocated[c * inputStrides[2] +
+    //                                          h * inputStrides[3] +
+    //                                          w * inputStrides[4]]);
+    //         }
+    //         printf("   ");
+    //     }
+    //     printf("\n");
+    // }
+
+    // printf("Filter:\n");
+    // int64_t fil_channels = filterSizes[2];
+    // int64_t fil_h = filterSizes[3];
+    // int64_t fil_w = filterSizes[4];
+    // for (int64_t h = 0; h < fil_h; ++h){
+    //     for (int64_t c = 0; c < fil_channels; ++c){
+    //         for (int64_t w = 0; w < fil_w; ++w){
+    //             printf("%.10lf ", (double)filterAllocated[c * filterStrides[2] +
+    //                                                      h * filterStrides[3] +
+    //                                                      w * filterStrides[4]]);
+    //         }
+    //         printf("   ");
+    //     }
+    //     printf("\n");
+    // }
+
   // Perform forward convolution
   for (int64_t g = 0; g < outputSizes[0]; g++)
     for (int64_t n = 0; n < outputSizes[1]; n++)
@@ -734,6 +822,20 @@ static void performConv2d(
                             k * outputStrides[2] + out_h * outputStrides[3] +
                             out_w * outputStrides[4]] = (TOut)acc;
           }
+
+  // printf("Result:\n");
+  // int64_t out_h = outputSizes[3];
+  // int64_t out_w = outputSizes[4];
+  // for (int64_t h = 0; h < out_h; ++h){
+  //     //for (int64_t c = 0; c < fil_channels; ++c){
+  //         for (int64_t w = 0; w < out_w; ++w){
+  //             printf("%.10lf ", (double)outputAllocated[h * outputStrides[3] +
+  //                                                       w * outputStrides[4]]);
+  //         }
+  //         printf("   ");
+  //         //}
+  //     printf("\n");
+  // }
 }
 
 // A generic forward convolution function that supports random layouts,
