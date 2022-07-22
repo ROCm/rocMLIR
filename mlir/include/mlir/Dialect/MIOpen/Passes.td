@@ -77,6 +77,12 @@ def MIOpenSugarToLoopsPass : Pass<"miopen-sugar-to-loops", "::mlir::func::FuncOp
   let dependentDialects = ["miopen::MIOpenDialect", "vector::VectorDialect", "arith::ArithmeticDialect", "memref::MemRefDialect", "AffineDialect", "gpu::GPUDialect", "amdgpu::AMDGPUDialect"];
 }
 
+def MIOpenCleanMathPass : Pass<"miopen-clean-math", "::mlir::func::FuncOp"> {
+  let summary = "Clean up math using integer range analysis and other MLIR passes";
+  let constructor = "mlir::miopen::createMIOpenCleanMathPass()";
+  let dependentDialects = ["miopen::MIOpenDialect", "arith::ArithmeticDialect"];
+}
+
 def MIOpenLoopsToCfPass : Pass<"miopen-loops-to-cf", "ModuleOp"> {
   let summary = "expand loop / affine dialects to control flow. Notice GPU dialect will explicitly NOT be used in this pass";
   let constructor = "mlir::miopen::createMIOpenLoopsToCfPass()";

@@ -40,6 +40,7 @@
 #include "llvm/Support/SMLoc.h"
 #include <algorithm>
 #include <iterator>
+#include <limits>
 
 using namespace mlir;
 using namespace mlir::miopen;
@@ -1044,6 +1045,35 @@ LogicalResult InWarpTransposeOp::verify() {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// WorkgroupIdOp and WorkitemIdOp
+//===----------------------------------------------------------------------===//
+static ConstantIntRanges
+getIdRange(StringRef idName, Operation *op,
+           int64_t fallback = std::numeric_limits<int32_t>::max()) {
+  uint32_t bitwidth =
+      ConstantIntRanges::getStorageBitwidth(op->getResultTypes().front());
+  APInt zero = APInt::getZero(bitwidth);
+  APInt max(bitwidth, fallback);
+  if (func::FuncOp container = op->getParentOfType<func::FuncOp>()) {
+    if (IntegerAttr size =
+            container->getAttr(idName).dyn_cast_or_null<IntegerAttr>()) {
+      // Range inference uses ranges that're inclusive on both ends
+      max = APInt(bitwidth, size.getValue().getSExtValue() - 1);
+    }
+  }
+  return ConstantIntRanges::fromUnsigned(zero, max);
+}
+
+void WorkgroupIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
+                                      SetIntRangeFn setResultRanges) {
+  setResultRanges(getResult(), getIdRange("grid_size", getOperation()));
+}
+
+void WorkitemIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
+                                     SetIntRangeFn setResultRanges) {
+  setResultRanges(getResult(), getIdRange("block_size", getOperation()));
+}
 //===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
