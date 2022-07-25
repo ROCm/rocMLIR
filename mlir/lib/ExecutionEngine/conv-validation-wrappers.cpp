@@ -409,6 +409,31 @@ extern "C" void mcpuMemset4DHalf(unsigned short *allocated,
               value;
 }
 
+// Return the inteval of the given val as a half precsion float number
+float halfFloatInterval(float val)
+{
+    float powerTwo[41];
+    //int en = 0;
+    for (int i = 0; i < 41; ++i){
+        powerTwo[i] = pow(2.0f, static_cast<float>(i-24));
+        //printf("2^%d = %.10f   ", i-24, powerTwo[i]);
+        //en ++;
+        //if (en % 3 == 0)
+        //    printf("\n");
+    }
+    //printf("\n");
+    float absVal = fabs(val);
+    if (absVal <= powerTwo[11]) // 2^-13
+        return powerTwo[0]; // 2^-24
+    for (int exp = -13; exp <= 15; ++exp){ // 2^-13 ~ 2^15 (32768)
+        if ((powerTwo[exp+24] < absVal) && (absVal <= powerTwo[exp+24+1])){
+            return powerTwo[exp+14];
+        }
+    }
+    return 0.0f; // absVal = inf
+    //return std::pow(2.0f, -10.0f);
+}
+
 // Compare the results between gpu kernel (f32) and cpu validation (f32)
 //
 extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
@@ -430,6 +455,10 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
     int64_t dataSize = cpuSize0 * cpuSize1 * cpuSize2 * cpuSize3 * cpuSize4;
     printf("gpu output size: (%ldx%ldx%ldx%ldx%ld)\n", gpuSize0, gpuSize1, gpuSize2, gpuSize3, gpuSize4);
     printf("cpu output size: (%ldx%ldx%ldx%ldx%ld)\n", cpuSize0, cpuSize1, cpuSize2, cpuSize3, cpuSize4);
+
+    //float val = 1234.0f;
+    //printf("val = %lf, interval = %.10f\n", val, halfFloatInterval(val));
+    //return;
 
     // printf("GPU result in new verify function:\n");
     // for (int64_t h = 0 ; h < gpuSize3; ++h){
@@ -460,14 +489,16 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
     //                                           h*cpuStride3+
     //                                           w*cpuStride4];
     //                 if (cpuVal != gpuVal){
-    //                     printf("[%ld %d %ld %ld %ld] diff: %.10f, relDiff: %.10lf\n",
-    //                            b, 0, c, h, w, cpuVal-gpuVal, (double)(cpuVal-gpuVal)/(double)cpuVal);
+    //                     printf("[%-3ld %d %-3ld %-2ld %-2ld]\tdiff: %.10f\trelDiff: %.10f\tcpu: %lf\tgpu: %f\n",
+    //                            b, 0, c, h, w, cpuVal-gpuVal, (double)(cpuVal-gpuVal)/(double)cpuVal,
+    //                            cpuVal, gpuVal);
     //                 }
     //             }
     //         }
 
     float cpuVal, gpuVal;
     float maxAbsDiff = 0.0f;
+    float maxEpsilonDiff = 0.0f; // Theoretically, it should be an int
     float thr = 1.0004e-03;
     double sumAbsDiff = 0.0;
     double maxRelDiff = 0.0;
@@ -475,22 +506,48 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
     double sumRelDiff = 0.0;
     float maxMag = 0.0f;
     double sumDiffSq = 0.0;
+    int cnt_epsilon = 0;
+    int cnt_exact = 0;
+    int cnt_large = 0;
+    int cnt_unknown = 0;
+    float maxCPU = 0.0f;
+    float maxGPU = 0.0f;
     for (int64_t i = 0 ; i < dataSize; ++i){
         cpuVal = cpuAligned[i];
         gpuVal = gpuAligned[i];
 
-        float absDiff = fabs(cpuVal - gpuVal);
-        maxAbsDiff = std::max (maxAbsDiff, absDiff);
-        sumAbsDiff += static_cast<double>(absDiff);
         float maxVal = std::max(fabs(cpuVal), fabs(gpuVal));
         maxMag = std::max(maxMag, maxVal);
-        sumDiffSq += static_cast<double>(absDiff) * static_cast<double>(absDiff);
-        if (cpuVal != 0.0f) {
-            double relDiff = static_cast<double>(absDiff) / (static_cast<double>(fabs(cpuVal)));
-            maxRelDiff = std::max(maxRelDiff, relDiff);
-            if (cpuVal > thr)
-                maxRelDiff_oldVerifier = std::max (maxRelDiff_oldVerifier, relDiff);
-            sumRelDiff += relDiff;
+
+        if (cpuVal == gpuVal){
+            cnt_exact ++;
+        } else {
+            float absDiff = fabs(cpuVal - gpuVal);
+            float epsilonDiff = absDiff / halfFloatInterval(cpuVal);
+            if (epsilonDiff == 1.0f) // diff within one epsilon
+                cnt_epsilon ++;
+            else if (epsilonDiff >= 2.0f) // diff larger than one epsilon
+                cnt_large ++;
+            else {
+                cnt_unknown ++; // diff between 1 and 2 and between 0 and 1 (not expected)
+                printf("cpuVal = %.10f, gpuVal = %.10f, absDiff = %.10f, epsilonDiff = %f, epsilon=%.10f\n",
+                       cpuVal, gpuVal, absDiff, epsilonDiff, halfFloatInterval(cpuVal));
+            }
+            if (epsilonDiff > maxEpsilonDiff) {
+                maxCPU = cpuVal;
+                maxGPU = gpuVal;
+            }
+            maxEpsilonDiff = std::max(maxEpsilonDiff, epsilonDiff);
+            maxAbsDiff = std::max(maxAbsDiff, absDiff);
+            sumAbsDiff += static_cast<double>(absDiff);
+            sumDiffSq += static_cast<double>(absDiff) * static_cast<double>(absDiff);
+            if (cpuVal != 0.0f) {
+                double relDiff = static_cast<double>(absDiff) / (static_cast<double>(fabs(cpuVal)));
+                maxRelDiff = std::max(maxRelDiff, relDiff);
+                if (cpuVal > thr)
+                    maxRelDiff_oldVerifier = std::max (maxRelDiff_oldVerifier, relDiff);
+                sumRelDiff += relDiff;
+            }
         }
         // Old logic for verification
         // if (cpuVal != gpuVal){
@@ -504,8 +561,11 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
     double aveRelDiff = sumRelDiff / static_cast<double>(dataSize);
     double err_RMS = sqrt(sumDiffSq) /
         (static_cast<double>(maxMag) * sqrt(static_cast<double>(dataSize)));
-    printf("%-10ld  %f  %lf  %.10lf  %.10lf  %.10lf  %.10lf\n", dataSize, maxAbsDiff,
-           aveAbsDiff, maxRelDiff, maxRelDiff_oldVerifier, aveRelDiff, err_RMS);
+    printf("%-10ld (%d %d %d %d) %.1f (%.10f %.10f)  %f  %lf  %.1e  %.1e  %.1e  %.1e\n",
+           dataSize, cnt_exact, cnt_epsilon, cnt_large, cnt_unknown, maxEpsilonDiff, maxCPU, maxGPU,
+           maxAbsDiff, aveAbsDiff,
+           maxRelDiff, maxRelDiff_oldVerifier, aveRelDiff,
+           err_RMS);
 }
 
 extern "C" void mcpuMemset5DHalfRandInt(
