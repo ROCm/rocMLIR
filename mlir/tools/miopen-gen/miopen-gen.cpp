@@ -528,24 +528,24 @@ static void populateDefaults() {
   arch.setValue("amdgcn-amd-amdhsa:gfx900");
 
   if (populateDefaultValues == true) {
-    if (xdlopsV2.getValue() == false) {
-      groupSize.setValue(1);
-      batchSize.setValue(128);
-      inputChannel.setValue(8);
-      outputChannel.setValue(128);
-      inputHeight.setValue(32);
-      inputWidth.setValue(32);
-      filterHeight.setValue(3);
-      filterWidth.setValue(3);
-      dilationHeight.setValue(1);
-      dilationWidth.setValue(1);
-      strideHeight.setValue(1);
-      strideWidth.setValue(1);
-      paddingHeightLeft.setValue(0);
-      paddingHeightRight.setValue(0);
-      paddingWidthLeft.setValue(0);
-      paddingWidthRight.setValue(0);
-    } else {
+    // if (xdlopsV2.getValue() == false) {
+    //   groupSize.setValue(1);
+    //   batchSize.setValue(128);
+    //   inputChannel.setValue(8);
+    //   outputChannel.setValue(128);
+    //   inputHeight.setValue(32);
+    //   inputWidth.setValue(32);
+    //   filterHeight.setValue(3);
+    //   filterWidth.setValue(3);
+    //   dilationHeight.setValue(1);
+    //   dilationWidth.setValue(1);
+    //   strideHeight.setValue(1);
+    //   strideWidth.setValue(1);
+    //   paddingHeightLeft.setValue(0);
+    //   paddingHeightRight.setValue(0);
+    //   paddingWidthLeft.setValue(0);
+    //   paddingWidthRight.setValue(0);
+    // } else {
       groupSize.setValue(1);
       batchSize.setValue(128);
       inputChannel.setValue(1024);
@@ -564,7 +564,7 @@ static void populateDefaults() {
       paddingWidthRight.setValue(0);
       num_cu.setValue(120);
       arch.setValue("amdgcn-amd-amdhsa:gfx908");
-    }
+      //}
   }
 
   if (xdlopsV2.getValue() == true) {
