@@ -523,7 +523,7 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
             cnt_exact ++;
         } else {
             float absDiff = fabs(cpuVal - gpuVal);
-            float epsilonDiff = absDiff / halfFloatInterval(cpuVal);
+            float epsilonDiff = absDiff / halfFloatInterval(std::min(fabs(cpuVal), fabs(gpuVal)));
             if (epsilonDiff == 1.0f) // diff within one epsilon
                 cnt_epsilon ++;
             else if (epsilonDiff >= 2.0f) // diff larger than one epsilon
