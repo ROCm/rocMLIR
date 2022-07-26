@@ -1311,19 +1311,25 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         untransform(b, op.c(), idToMatrixCMaps);
     auto writeOobDims = computeOobFromTransforms(b, idToTensorCMaps);
 
+    ArrayRef<int64_t> tensorCShape =
+        tensorC.getType().cast<MemRefType>().getShape();
+    int64_t tensorCDataPerCopy = getMaxVectorization(
+        idToTensorCMaps, /*dim=*/2, threadCNumRegisters, tensorCShape);
+
     SmallVector<Value, 3> writeStartCoords = {bid, tid, zeroConstantOp};
 
     auto outLoop = b.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{writeStartCoords, writeStartCoords},
         ArrayRef<Attribute>{b.getArrayAttr({toRegisterCAttr}), idToTensorCMaps},
         ArrayRef<int64_t>{1, 1, threadCNumRegisters},
-        ArrayRef<int64_t>{1, 1, 1}, // TODO: matrixCDataPerCopy
+        ArrayRef<int64_t>{1, 1, tensorCDataPerCopy},
         /*forceUnroll=*/true, /*useIndexDiffs=*/useIndexDiffs);
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(outLoop.getBody());
       b.create<ThreadwiseCopyV2Op>(
-          loc, registerC, tensorC, /*length=*/b.getIndexAttr(1),
+          loc, registerC, tensorC,
+          /*length=*/b.getIndexAttr(tensorCDataPerCopy),
           StoreMethodAttr::get(op.getContext(), StoreMethod::Set),
           std::get<0>(writeOobDims), std::get<1>(writeOobDims),
           outLoop.getLowerCoords(/*domain=*/0)[0],
