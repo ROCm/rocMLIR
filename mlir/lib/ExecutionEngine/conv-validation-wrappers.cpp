@@ -512,6 +512,8 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
     int cnt_unknown = 0;
     float maxCPU = 0.0f;
     float maxGPU = 0.0f;
+    float cpuMax_old = 0.0f;
+    float gpuMax_old = 0.0f;
     for (int64_t i = 0 ; i < dataSize; ++i){
         cpuVal = cpuAligned[i];
         gpuVal = gpuAligned[i];
@@ -541,30 +543,30 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
             maxAbsDiff = std::max(maxAbsDiff, absDiff);
             sumAbsDiff += static_cast<double>(absDiff);
             sumDiffSq += static_cast<double>(absDiff) * static_cast<double>(absDiff);
+            // old logic for verification
             if (cpuVal != 0.0f) {
                 double relDiff = static_cast<double>(absDiff) / (static_cast<double>(fabs(cpuVal)));
                 maxRelDiff = std::max(maxRelDiff, relDiff);
-                if (cpuVal > thr)
-                    maxRelDiff_oldVerifier = std::max (maxRelDiff_oldVerifier, relDiff);
+                if (fabs(cpuVal) > thr){
+                    if (relDiff > maxRelDiff_oldVerifier){
+                        maxRelDiff_oldVerifier = std::max (maxRelDiff_oldVerifier, relDiff);
+                        cpuMax_old = cpuVal;
+                        gpuMax_old = gpuVal;
+                    }
+                }
                 sumRelDiff += relDiff;
             }
         }
-        // Old logic for verification
-        // if (cpuVal != gpuVal){
-        //     float diffVal = (cpuVal == 0.0f)? (cpuVal - gpuVal) : ((cpuVal-gpuVal)/cpuVal);
-        //     if ( (fabs(diffVal) > threshold) && (fabs(cpuVal) > 1.0e-03)){
-        //         mcpuPrintF32(diffVal, cpuVal);
-        //         mcpuPrintF32(gpuVal, cpuVal);
-        //     }
     }
     double aveAbsDiff = sumAbsDiff / static_cast<double>(dataSize);
     double aveRelDiff = sumRelDiff / static_cast<double>(dataSize);
     double err_RMS = sqrt(sumDiffSq) /
         (static_cast<double>(maxMag) * sqrt(static_cast<double>(dataSize)));
-    printf("%-10ld (%d %d %d %d) %.1f (%.10f %.10f)  %f  %lf  %.1e  %.1e  %.1e  %.1e\n",
+    printf("%-10ld (%d %d %d %d) %.1f (%.10f %.10f) %f %lf %.1e %.1e (%.10f %.10f) %.1e %.1e\n",
            dataSize, cnt_exact, cnt_epsilon, cnt_large, cnt_unknown, maxEpsilonDiff, maxCPU, maxGPU,
            maxAbsDiff, aveAbsDiff,
-           maxRelDiff, maxRelDiff_oldVerifier, aveRelDiff,
+           maxRelDiff, maxRelDiff_oldVerifier, cpuMax_old, gpuMax_old,
+           aveRelDiff,
            err_RMS);
 }
 
