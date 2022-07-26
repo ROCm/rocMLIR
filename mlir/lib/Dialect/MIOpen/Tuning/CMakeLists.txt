@@ -9,6 +9,7 @@ add_mlir_dialect_library(MLIRMIOpenTuning
 
   DEPENDS
   MLIRSupport
+  MLIRMIOpenPassIncGen
 )
 
 if (MLIR_MIOPEN_SQLITE_ENABLED)
