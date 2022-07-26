@@ -203,7 +203,7 @@ struct SoftwareBF16Trunc : OpRewritePattern<LLVM::FPTruncOp> {
     // b = (a + 32767) >> 16
     // c = ((a >> 16) & 1)
     // d = b + c
-    // truncate (d << 16) to i16 and return this i16
+    // truncate d to i16 and return this i16
     Value bitcastop =
         rewriter.create<LLVM::BitcastOp>(loc, bitcastType, op.getArg());
 
@@ -222,10 +222,7 @@ struct SoftwareBF16Trunc : OpRewritePattern<LLVM::FPTruncOp> {
 
     Value addValue = rewriter.create<LLVM::AddOp>(loc, andValue, shiftBigValue);
 
-    Value shiftBeforeTruncValue = rewriter.create<LLVM::LShrOp>(
-        loc, bitcastType, addValue, constantSixteen);
-    Value truncValue =
-        rewriter.create<LLVM::TruncOp>(loc, destType, shiftBeforeTruncValue);
+    Value truncValue = rewriter.create<LLVM::TruncOp>(loc, destType, addValue);
     rewriter.replaceOp(op.getOperation(), {truncValue});
 
     return success();
