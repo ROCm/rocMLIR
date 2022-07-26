@@ -299,7 +299,7 @@ public:
       ArrayRef<int64_t> orgDimsA = in_A.getType().cast<ShapedType>().getShape();
       ArrayRef<int64_t> orgDimsB = in_B.getType().cast<ShapedType>().getShape();
       int64_t batchSize = 1;
-      for (int i = 0; i < outRank - 2; i++) {
+      for (size_t i = 0; i < outRank - 2; i++) {
         batchSize *= orgOutDims[i];
       }
       int64_t newDimsA[3] = {batchSize, orgDimsA[outRank - 2],
