@@ -355,6 +355,16 @@ static cl::opt<float> f16Threshold(
     cl::desc("Threshold used for CPU verification function for f16 datatype."),
     cl::value_desc("error"), cl::init(0.25f));
 
+static cl::opt<std::string> randMin(
+    "rand_min",
+    cl::desc("min value of [min, max]"),
+    cl::value_desc("min"), cl::init("-1"));
+
+static cl::opt<std::string> randMax(
+    "rand_max",
+    cl::desc("max value of [min, max]"),
+    cl::value_desc("max"), cl::init("1"));
+
 static cl::opt<bool> newVerifier("nv",
                                  cl::desc("Use the new verifier function"),
                                  cl::init(true));
@@ -759,9 +769,10 @@ static std::tuple<short, short, int> getRandomTestData(int idx) {
       min = -5;
       max = 5;
     } else {
-      // generate random floats in [-1, 1)
-      min = -1;
-      max = 1;
+      // generate random floats
+      // the default randge is [-1, 1)
+      min = stoi(randMin.getValue());
+      max = stoi(randMax.getValue());
     }
     std::string rseed = randomSeed.getValue();
     if (rseed[0] >= '0' and rseed[0] <= '9')
