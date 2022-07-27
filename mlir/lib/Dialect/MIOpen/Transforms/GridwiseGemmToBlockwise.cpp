@@ -2083,6 +2083,17 @@ struct GridwiseGemmV2RewritePattern
     std::fill_n(std::back_inserter(vectorCTypes), vectorNumber, vectorType);
 
     // -----
+    // Convert GEMM results to the expected output type (so we can fuse in)
+    // operations expecting that type before writeback and store
+    // the result vectors into a allocation of registers to maintain uniformity
+    // with the non-xdlops gemm. (These "stores" will be optimized out)
+    int64_t resultCVectorLen = vectorType.getNumElements();
+    int64_t numElements = resultCVectorLen * vectorCs.size();
+    Type destType = op.c().getType().cast<MemRefType>().getElementType();
+    MemRefType resultMergedType = MemRefType::get(
+        numElements, destType, {},
+        /*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
+    Value resultMerged = b.create<miopen::GpuAllocOp>(loc, resultMergedType);
 
     // Emit loop.
 
@@ -2130,7 +2141,7 @@ struct GridwiseGemmV2RewritePattern
     auto blockwiseGemmV2Op = mfmalb.create<BlockwiseGemmV2Op>(
         loc, vectorCTypes, ldsGpuAllocOp, ldsGpuAllocOp,
         b.getIndexAttr(ldsBlockAOffset), b.getIndexAttr(ldsBlockBOffset),
-        mMyWaveOffsetA, mMyWaveOffsetB, arrayA, arrayB, vectorCs);
+        mMyWaveOffsetA, mMyWaveOffsetB, arrayA, arrayB, resultMerged, vectorCs);
     affixBlockwiseGemmV2Attributes(blockwiseGemmV2Op, op, MPerBlock, KPerBlock,
                                    NPerBlock, b);
 
@@ -2173,7 +2184,7 @@ struct GridwiseGemmV2RewritePattern
     auto blockwiseGemmV2TailOp = b.create<BlockwiseGemmV2Op>(
         loc, vectorCTypes, ldsGpuAllocOp, ldsGpuAllocOp,
         b.getIndexAttr(ldsBlockAOffset), b.getIndexAttr(ldsBlockBOffset),
-        mMyWaveOffsetA, mMyWaveOffsetB, arrayA, arrayB, vectorCs);
+        mMyWaveOffsetA, mMyWaveOffsetB, arrayA, arrayB, resultMerged, vectorCs);
     affixBlockwiseGemmV2Attributes(blockwiseGemmV2TailOp, op, MPerBlock,
                                    KPerBlock, NPerBlock, b);
 
@@ -2183,8 +2194,6 @@ struct GridwiseGemmV2RewritePattern
     int64_t numBlksPerXdlops = (MPerXdlops * NPerXdlops) / (m * n);
     const auto &tailResults = blockwiseGemmV2TailOp->getResults();
     int64_t wavesInKernelBlock = kernelBlockSize / waveSize;
-    int64_t resultCVectorLen = vectorType.getNumElements();
-    int64_t numElements = resultCVectorLen * tailResults.size();
 
     TopDownTMBuilder splitMemoryCoords(
         b, {"bid", "tid", "item"},
@@ -2364,32 +2373,21 @@ struct GridwiseGemmV2RewritePattern
 
     if (enableOutSwizzles) {
       Value laneId = b.create<arith::RemUIOp>(loc, tid, waveSizeConstantOp);
-      for (Value result : tailResults) {
+      for (int i = 0; i < vectorNumber; ++i) {
+        Value indexOp =
+            b.createOrFold<ConstantIndexOp>(loc, i * resultCVectorLen);
+        Value loaded =
+            b.create<InBoundsLoadOp>(loc, vectorType, resultMerged, indexOp);
         Value swizzle = b.create<InWarpTransposeOp>(
-            loc, result.getType(), result, laneId,
-            b.getI32IntegerAttr(group_size), b.getI32ArrayAttr({0, 1, 2, 3}));
+            loc, vectorType, loaded, laneId, b.getI32IntegerAttr(group_size),
+            b.getI32ArrayAttr({0, 1, 2, 3}));
         transformedTail.push_back(swizzle);
+        b.create<miopen::InBoundsStoreOp>(loc, swizzle, resultMerged, indexOp);
       }
     } else {
       llvm::copy(tailResults, std::back_inserter(transformedTail));
     }
 
-    // Convert GEMM results to the expected output type (so we can fuse in)
-    // operations expecting that type before writeback and store
-    // the result vectors into a allocation of registers to maintain uniformity
-    // with the non-xdlops gemm. (These "stores" will be optimized out)
-    Type destType = op.c().getType().cast<MemRefType>().getElementType();
-    MemRefType mergedType = MemRefType::get(
-        numElements, destType, {},
-        /*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
-    VectorType castVectorType = vectorType.clone(destType);
-    Value resultMerged = b.create<miopen::GpuAllocOp>(loc, mergedType);
-    for (const auto &pair : llvm::enumerate(transformedTail)) {
-      Value cast = createTypeConversionOp(b, loc, pair.value(), castVectorType);
-      Value offset = b.createOrFold<arith::ConstantIndexOp>(
-          loc, pair.index() * resultCVectorLen);
-      b.create<miopen::InBoundsStoreOp>(loc, cast, resultMerged, offset);
-    }
     auto writeOobDims = computeOobFromTransforms(b, idToTensorCMaps);
 
     SmallVector<Value, 3> writeStartCoords = {bid, tid, zeroConstantOp};

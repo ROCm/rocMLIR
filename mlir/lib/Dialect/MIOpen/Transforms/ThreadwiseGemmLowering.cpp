@@ -216,7 +216,7 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     //   bufferAElement = a[k_i];
     //   bufferBElement = b[k_i];
     //   // Loop within a kpack
-    //   for(index_t ki_i = k_base; ki_i < k_base * KRepeats; ++ki_i)
+    //   for(index_t ki_i = 0; ki_i < k_base * KRepeats; ki_i += k_base)
     //     argA = &bufferAElement[ki_i];
     //     argB = &bufferAElement[ki_i];
     //     p_c_thread = mfma_type.template run<MPerXlops * MRepeats,
@@ -225,8 +225,19 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     //                                         BStride>(argA, argB,
     //       p_c_thread);
     // }
+    int64_t outerLoopUpperBound = KPerThread;
+    // In case xdlops consume multiple elements from memref<T>, divide by k_base
+    // such that the generated loop is not out of bounds.
+    if (KPack == 1) {
+      outerLoopUpperBound /= k_base;
+    }
+    auto regAConstantOp =
+        b.create<ConstantIndexOp>(loc, op.regOffsetAAttr().getInt());
+    auto regBConstantOp =
+        b.create<ConstantIndexOp>(loc, op.regOffsetBAttr().getInt());
+
     auto outerLoop =
-        b.create<AffineForOp>(loc, 0, KPerThread, 1, op.vectorCs());
+        b.create<AffineForOp>(loc, 0, outerLoopUpperBound, 1, op.vectorCs());
     auto outerLoopb = ConversionPatternRewriter::atBlockBegin(
         outerLoop.getBody(), b.getListener());
     auto outerLoopiv = outerLoop.getInductionVar();
@@ -237,12 +248,12 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
 
     if (KPack > 1) {
       Value regAIdx =
-          outerLoopb.create<AddIOp>(loc, adaptor.regOffsetA(), outerLoopiv);
+          outerLoopb.create<AddIOp>(loc, regAConstantOp, outerLoopiv);
       bufferAElement = outerLoopb.create<memref::LoadOp>(
           loc, bufferAElementType, bufferA, ValueRange{regAIdx});
 
       Value regBIdx =
-          outerLoopb.create<AddIOp>(loc, adaptor.regOffsetB(), outerLoopiv);
+          outerLoopb.create<AddIOp>(loc, regBConstantOp, outerLoopiv);
       bufferBElement = outerLoopb.create<memref::LoadOp>(
           loc, bufferBElementType, bufferB, ValueRange{regBIdx});
     }
@@ -264,10 +275,8 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
           loc, innerLoopb.create<MulIOp>(loc, outerLoopiv, KBaseConstantOp),
           innerLoopb.create<MulIOp>(loc, innerLoopiv, KBaseConstantOp));
 
-      Value regAIdx =
-          innerLoopb.create<AddIOp>(loc, adaptor.regOffsetA(), offset);
-      Value regBIdx =
-          innerLoopb.create<AddIOp>(loc, adaptor.regOffsetB(), offset);
+      Value regAIdx = innerLoopb.create<AddIOp>(loc, regAConstantOp, offset);
+      Value regBIdx = innerLoopb.create<AddIOp>(loc, regBConstantOp, offset);
 
       if (k_base == 1) {
         // xdlops needs only 1 element, load directly from buffer.
@@ -300,6 +309,20 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
           loc, vectorType, mfmaInstr, argA, argB, vectorC,
           /*cbsz=*/imms[i][0], /*abid=*/imms[i][1], /*blgp=*/imms[i][2]);
       mfmas.push_back(mfma);
+      auto vectorD = mfma.destD();
+
+      // Note below is assuming only one of MRepeats or NRepeats is larger
+      // than 1, which fits the existing blockwisegemmv2op implementation.
+      // TODO: Move MRepeats and NRepeats into xdlopsgemmv2op
+      int64_t regDOffset = 0;
+      if (op.regOffsetAAttr().getInt() > 0 ||
+          op.regOffsetBAttr().getInt() > 0) {
+        regDOffset += vectorNumber;
+      }
+      Value offset = innerLoopb.createOrFold<arith::ConstantIndexOp>(
+          loc, (regDOffset + i) * vectorType.getNumElements());
+      innerLoopb.create<miopen::InBoundsStoreOp>(loc, vectorD,
+                                                 adaptor.matrixRes(), offset);
     }
     innerLoopb.create<AffineYieldOp>(loc, mfmas);
 
