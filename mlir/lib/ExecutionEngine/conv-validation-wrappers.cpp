@@ -423,10 +423,10 @@ float halfFloatInterval(float val)
     }
     //printf("\n");
     float absVal = fabs(val);
-    if (absVal <= powerTwo[11]) // 2^-13
+    if (absVal < powerTwo[11]) // 2^-13
         return powerTwo[0]; // 2^-24
     for (int exp = -13; exp <= 15; ++exp){ // 2^-13 ~ 2^15 (32768)
-        if ((powerTwo[exp+24] < absVal) && (absVal <= powerTwo[exp+24+1])){
+        if ((powerTwo[exp+24] <= absVal) && (absVal < powerTwo[exp+24+1])){
             return powerTwo[exp+14];
         }
     }
