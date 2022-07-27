@@ -434,6 +434,52 @@ float halfFloatInterval(float val)
     //return std::pow(2.0f, -10.0f);
 }
 
+#define HISTOGRAM
+
+int findIdxHistRelDiff(double relDiff)
+{
+    /*
+      hist_relDiff[]:
+      0: 0
+      1: 0 - 1e-6
+      2: 1e-6 - 1e-5
+      3: 1e-5 - 1e-4
+      4: 1e-4 - 1e-3
+      5: 1e-3 - 1e-2
+      6: 1e-2 - 0.1
+      7: 0.1 - 1
+      8: >= 1
+     */
+    if (relDiff == 0.0) return 0;
+    if (relDiff < 1.0e-06) return 1;
+    if (relDiff < 1.0e-05) return 2;
+    if (relDiff < 1.0e-04) return 3;
+    if (relDiff < 1.0e-03) return 4;
+    if (relDiff < 1.0e-02) return 5;
+    if (relDiff < 0.1) return 6;
+    if (relDiff < 1.0) return 7;
+    return 8;
+}
+
+int findIdxHistEpsilonDiff(float epsilonDiff)
+{
+    /*
+      hist_epsilonDiff[]:
+      0: 0
+      1: 1
+      2: 2
+      3: 3 - 10
+      4: 11 - 100
+      5: > 100
+    */
+    if (epsilonDiff == 0.0f) return 0;
+    if (epsilonDiff == 1.0f) return 1;
+    if (epsilonDiff == 2.0f) return 2;
+    if (epsilonDiff <= 10.0f) return 3;
+    if (epsilonDiff <= 100.0f ) return 4;
+    return 5;
+}
+
 // Compare the results between gpu kernel (f32) and cpu validation (f32)
 //
 extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
@@ -514,6 +560,11 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
     float maxGPU = 0.0f;
     float cpuMax_old = 0.0f;
     float gpuMax_old = 0.0f;
+    // histogram
+    // note that hist_relDiff[9]++ when cpuVal == 0
+    int hist_relDiff[10] = {0};
+    int hist_relDiff_old[10] = {0};
+    int hist_epsilonDiff[6] = {0};
     for (int64_t i = 0 ; i < dataSize; ++i){
         cpuVal = cpuAligned[i];
         gpuVal = gpuAligned[i];
@@ -523,9 +574,13 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
 
         if (cpuVal == gpuVal){
             cnt_exact ++;
+            hist_relDiff[0] ++;
+            hist_relDiff_old[0] ++;
+            hist_epsilonDiff[0] ++;
         } else {
             float absDiff = fabs(cpuVal - gpuVal);
             float epsilonDiff = absDiff / halfFloatInterval(std::min(fabs(cpuVal), fabs(gpuVal)));
+            hist_epsilonDiff[findIdxHistEpsilonDiff(epsilonDiff)] ++;
             if (epsilonDiff == 1.0f) // diff within one epsilon
                 cnt_epsilon ++;
             else if (epsilonDiff >= 2.0f) // diff larger than one epsilon
@@ -546,8 +601,10 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
             // old logic for verification
             if (cpuVal != 0.0f) {
                 double relDiff = static_cast<double>(absDiff) / (static_cast<double>(fabs(cpuVal)));
+                hist_relDiff[findIdxHistRelDiff(relDiff)] ++;
                 maxRelDiff = std::max(maxRelDiff, relDiff);
                 if (fabs(cpuVal) > thr){
+                    hist_relDiff_old[findIdxHistRelDiff(relDiff)] ++;
                     if (relDiff > maxRelDiff_oldVerifier){
                         maxRelDiff_oldVerifier = std::max (maxRelDiff_oldVerifier, relDiff);
                         cpuMax_old = cpuVal;
@@ -555,6 +612,10 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
                     }
                 }
                 sumRelDiff += relDiff;
+            }
+            else {
+                hist_relDiff[9] ++;
+                hist_relDiff_old[9] ++;
             }
         }
     }
@@ -568,6 +629,17 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
            maxRelDiff, maxRelDiff_oldVerifier, cpuMax_old, gpuMax_old,
            aveRelDiff,
            err_RMS);
+#ifdef HISTOGRAM
+    printf("Printing hisorgra,\n");
+    for (int i = 0; i < 10; ++i)
+        printf("%d(%lf%%) ", hist_relDiff[i], 100.0*static_cast<double>(hist_relDiff[i])/static_cast<double>(dataSize));
+    for (int i = 0; i < 10; ++i)
+        printf("%d(%lf%%) ", hist_relDiff_old[i], 100.0*static_cast<double>(hist_relDiff_old[i])/static_cast<double>(dataSize));
+    printf("%.1e %.10f %.10f ", maxRelDiff_oldVerifier, cpuMax_old, gpuMax_old);
+    for (int i = 0; i < 6; ++i)
+        printf("%d(%lf%%) ", hist_epsilonDiff[i], 100.0*static_cast<double>(hist_epsilonDiff[i])/static_cast<double>(dataSize));
+    printf("%.1e %.10f %.10f\n", maxEpsilonDiff, maxCPU, maxGPU);
+#endif
 }
 
 extern "C" void mcpuMemset5DHalfRandInt(
