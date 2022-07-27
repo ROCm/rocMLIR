@@ -415,6 +415,9 @@ propagateVectorizationInfo(TransformMapAttr map,
         int64_t coefficient = std::get<0>(pair);
         uint32_t upperDim = std::get<1>(pair);
         if (input[upperDim].hasValue()) {
+          if (coefficient == 0)
+            continue;
+
           int64_t upperLen = input[upperDim]->maxLength;
           int64_t needsCoeff = input[upperDim]->needsCoefficient;
 
