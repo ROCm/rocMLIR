@@ -284,6 +284,10 @@ TransformAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     if (upperDims.size() != lowerDims.size()) {
       return emitError() << "Broadcast must have same rank";
     }
+    if (params.size() != lowerDims.size()) {
+      return emitError()
+             << "Broadcast must specify the output length for each dimension";
+    }
     break;
   }
   return success();

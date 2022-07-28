@@ -26,7 +26,8 @@
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/MIOpen/XdlopsCodeSelection.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
-#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
+#include "mlir/Dialect/MIOpen/utility/math.h"
+#include "mlir/Dialect/MIOpen/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -158,9 +159,9 @@ TransformingForOp createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
       /*forceUnroll=*/true, useIndexDiffs, dest);
   OpBuilder::InsertionGuard guard(b);
   b.setInsertionPointToStart(loop.getBody());
-  Value loaded =
-      b.create<BufferLoadOp>(loc, loadType, global, leftOobDims, rightOobDims,
-                             loop.getLowerCoords(/*domain=*/0));
+  Value loaded = b.create<BufferLoadOp>(
+      loc, loadType, global, leftOobDims, rightOobDims,
+      loop.getLowerCoords(/*domain=*/0), /*offset=*/IntegerAttr());
   Value toYield = loaded;
   if (!fullyScalar) {
     Value loopArg = loop.getIterArgs()[0];
@@ -2327,44 +2328,6 @@ struct GridwiseGemmV2RewritePattern
     // -----
 
     // Matrix C write out logic.
-    int64_t gemmCVectorizedMatrixDim =
-        op->getAttrOfType<IntegerAttr>("matrix_c_source_vector_read_dim")
-            .getInt();
-    int64_t matrixCDataPerCopy =
-        op->getAttrOfType<IntegerAttr>("matrix_c_data_per_copy").getInt();
-
-    // Determine if we need to exclude the specified vectorization
-    ArrayAttr cLeftOobCheck, cRightOobCheck;
-    ArrayAttr cTransforms = std::get<1>(untransform(b, op.c()));
-    std::tie(cLeftOobCheck, cRightOobCheck) =
-        computeOobFromTransforms(b, cTransforms);
-    bool canOutOob = cLeftOobCheck.size() > 0 || cRightOobCheck.size() > 0;
-
-    constexpr int64_t swizzleGroup = 4;
-    // Ensure that the prerequisites are met
-    // - The N dimension of the output will be stored vectorized
-    // - The lowest level of splitting in registers is equal to swizzleGroup
-    //    so transpose is well defined
-    // - None of the larger dimensions of interest have overhangs that lead to
-    //    incomplete transposes
-    // - The writes will vectorize: if we're not getting vectorization
-    //    due to HW % swizzleGroup != 0, then there's no point
-    bool enableOutSwizzles =
-        gemmCVectorizedMatrixDim == gemmCDimN &&
-        (matrixCDataPerCopy >= swizzleGroup) &&
-        (group_size == swizzleGroup && (m % swizzleGroup == 0) &&
-         (n % swizzleGroup == 0) && (MPerWave % swizzleGroup == 0) &&
-         (NPerWave % swizzleGroup == 0));
-
-    if (canOutOob ||
-        (gemmCVectorizedMatrixDim == gemmCDimN && !enableOutSwizzles)) {
-      LLVM_DEBUG(
-          llvm::dbgs()
-          << "Disabling vectorization of output write. Output oob checks = "
-          << canOutOob << "\n");
-      matrixCDataPerCopy = 1;
-    }
-
     int64_t numBlksPerXdlops = (MPerXdlops * NPerXdlops) / (m * n);
     const auto &tailResults = blockwiseGemmV2TailOp->getResults();
     int64_t wavesInKernelBlock = kernelBlockSize / waveSize;
@@ -2422,22 +2385,114 @@ struct GridwiseGemmV2RewritePattern
     auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols, toRowsAndColsAttr);
     toMatrixC.passThrough({"gemmG"}, {0}, {"g"});
 
-    // The output swizzles cause transposes to be emitted that allow for
-    // vectorization in the n dimension. By default, the "tid_item" coordinate,
-    // a function of the thread ID, is the slowest-moving part of the n
-    // coordinate and the "vec_item" coordinate, a function of the iteration
-    // number, is the slowest-moving part of the m coordinate, but the transpose
-    // switch the m and n positions
-    toMatrixC.embed("gemmM", 1, M,
-                    {"m", "wave_m", "block", "m_i", "blk_row", "vec_group",
-                     enableOutSwizzles ? "tid_item" : "vec_item"},
-                    {MPerBlock, MPerWave, group_size, MPerXdlops, m,
-                     num_input_blks * group_size, 1});
+    toMatrixC.embed(
+        "gemmM", 1, M,
+        {"m", "wave_m", "block", "m_i", "blk_row", "vec_group", "vec_item"},
+        {MPerBlock, MPerWave, group_size, MPerXdlops, m,
+         num_input_blks * group_size, 1});
     toMatrixC.embed("gemmN", 2, N,
-                    {"n", "wave_n", "tid_group", "n_i", "blk_col",
-                     enableOutSwizzles ? "vec_item" : "tid_item"},
+                    {"n", "wave_n", "tid_group", "n_i", "blk_col", "tid_item"},
                     {NPerBlock, NPerWave, group_size, NPerXdlops, n, 1});
     TransformMapAttr toMatrixCAttr = toMatrixC.get();
+
+    ArrayAttr idToMatrixCMaps = b.getArrayAttr(
+        {splitMemoryCoordsAttr, toRowsAndColsAttr, toMatrixCAttr});
+    Value tensorC;
+    ArrayAttr idToTensorCMaps;
+    std::tie(tensorC, idToTensorCMaps) =
+        untransform(b, op.c(), idToMatrixCMaps);
+
+    constexpr int64_t swizzleGroup = 4;
+    ArrayRef<int64_t> tensorCShape =
+        tensorC.getType().cast<MemRefType>().getShape();
+    int64_t tensorCDataPerCopy = getMaxVectorization(idToTensorCMaps, /*dim=*/2,
+                                                     numElements, tensorCShape);
+    int64_t threadsWithConsecutiveElems = getMaxVectorization(
+        idToTensorCMaps, /*dim=*/1, swizzleGroup, tensorCShape);
+    bool enableOutSwizzles = (tensorCDataPerCopy == 1) &&
+                             (threadsWithConsecutiveElems == swizzleGroup);
+    if (enableOutSwizzles) {
+      // Add the coordinate transformations that reflect the transpose we'll be
+      // doing in the emitted kernel.
+      tensorCDataPerCopy = threadsWithConsecutiveElems;
+      auto indexSplit =
+          TopDownTMBuilder(b, {"bid", "tid", "iter"},
+                           {kernelGridSize, kernelBlockSize, numElements}, loc);
+      indexSplit.passThrough("bid");
+      indexSplit.merge({"tid_group", "tid_item"}, {1, 2}, "tid",
+                       {kernelBlockSize / 4, 4});
+      indexSplit.merge({"vec_group", "vec_item"}, {3, 4}, "iter",
+                       {numElements / 4, 4});
+      TransformMapAttr indexSplitAttr = indexSplit.get();
+
+      // Note that we switch the positions of tid_item and vec_item when
+      // recombining the coordinates.
+      auto indexCombine = TopDownTMBuilder::below(indexSplit, indexSplitAttr);
+      indexCombine.passThrough("bid");
+      indexCombine.embed("tid", 1, kernelBlockSize, {"tid_group", "vec_item"},
+                         {4, 1});
+      indexCombine.embed("iter", 2, numElements, {"vec_group", "tid_item"},
+                         {4, 1});
+      TransformMapAttr indexCombineAttr = indexCombine.get();
+
+      SmallVector<Attribute, 8> newTransforms = {indexSplitAttr,
+                                                 indexCombineAttr};
+      llvm::copy(idToTensorCMaps, std::back_inserter(newTransforms));
+      idToTensorCMaps = b.getArrayAttr(newTransforms);
+    }
+
+    // Legacy vectorization usage
+    int64_t gemmCVectorizedMatrixDim =
+        op->getAttrOfType<IntegerAttr>("matrix_c_source_vector_read_dim")
+            .getInt();
+    int64_t matrixCDataPerCopy =
+        op->getAttrOfType<IntegerAttr>("matrix_c_data_per_copy").getInt();
+
+    // Determine if we need to exclude the specified vectorization
+    ArrayAttr cLeftOobCheck, cRightOobCheck;
+    ArrayAttr cTransforms = std::get<1>(untransform(b, op.c()));
+    std::tie(cLeftOobCheck, cRightOobCheck) =
+        computeOobFromTransforms(b, cTransforms);
+    bool oldCanOutOob = cLeftOobCheck.size() > 0 || cRightOobCheck.size() > 0;
+
+    // Ensure that the prerequisites are met
+    // - The N dimension of the output will be stored vectorized
+    // - The lowest level of splitting in registers is equal to swizzleGroup
+    //    so transpose is well defined
+    // - None of the larger dimensions of interest have overhangs that lead to
+    //    incomplete transposes
+    // - The writes will vectorize: if we're not getting vectorization
+    //    due to HW % swizzleGroup != 0, then there's no point
+    bool oldEnableOutSwizzles =
+        gemmCVectorizedMatrixDim == gemmCDimN &&
+        (matrixCDataPerCopy >= swizzleGroup) &&
+        (group_size == swizzleGroup && (m % swizzleGroup == 0) &&
+         (n % swizzleGroup == 0) && (MPerWave % swizzleGroup == 0) &&
+         (NPerWave % swizzleGroup == 0));
+
+    if (oldCanOutOob ||
+        (gemmCVectorizedMatrixDim == gemmCDimN && !enableOutSwizzles)) {
+      LLVM_DEBUG(
+          llvm::dbgs()
+          << "Disabling vectorization of output write. Output oob checks = "
+          << oldCanOutOob << "\n");
+      matrixCDataPerCopy = 1;
+    }
+
+    LLVM_DEBUG(llvm::dbgs()
+               << "Enable swizzles (new): " << enableOutSwizzles << "\n"
+               << "Enable swizzles (old): " << oldEnableOutSwizzles << "\n"
+               << "Data per copy (new): " << tensorCDataPerCopy << "\n"
+               << "Data per copy (old): " << matrixCDataPerCopy << "\n");
+    if ((matrixCDataPerCopy > 1) && (enableOutSwizzles != oldEnableOutSwizzles))
+      return op.emitOpError("New vectorizer swizzle enable " +
+                            Twine(enableOutSwizzles) +
+                            " disagrees with old etting " +
+                            Twine(oldEnableOutSwizzles) + " and it matters");
+    if (tensorCDataPerCopy < matrixCDataPerCopy)
+      return op.emitOpError(
+          "New vectorizer calls for " + Twine(tensorCDataPerCopy) +
+          " elements but the old one wants " + Twine(matrixCDataPerCopy));
 
     // Make the vector slice starting point jump in units of the vectorization.
     TopDownTMBuilder correctVectorCoords(
@@ -2483,13 +2538,6 @@ struct GridwiseGemmV2RewritePattern
           loc, pair.index() * resultCVectorLen);
       b.create<miopen::InBoundsStoreOp>(loc, cast, resultMerged, offset);
     }
-
-    ArrayAttr idToMatrixCMaps = b.getArrayAttr(
-        {splitMemoryCoordsAttr, toRowsAndColsAttr, toMatrixCAttr});
-    Value tensorC;
-    ArrayAttr idToTensorCMaps;
-    std::tie(tensorC, idToTensorCMaps) =
-        untransform(b, op.c(), idToMatrixCMaps);
     auto writeOobDims = computeOobFromTransforms(b, idToTensorCMaps);
 
     SmallVector<Value, 3> writeStartCoords = {bid, tid, zeroConstantOp};
@@ -2499,13 +2547,13 @@ struct GridwiseGemmV2RewritePattern
         ArrayRef<Attribute>{b.getArrayAttr({correctVectorCoordsAttr}),
                             idToTensorCMaps},
         ArrayRef<int64_t>{1, 1, numElements},
-        ArrayRef<int64_t>{1, 1, matrixCDataPerCopy},
+        ArrayRef<int64_t>{1, 1, tensorCDataPerCopy},
         /*forceUnroll=*/true, /*useIndexDiffs=*/useIndexDiffs);
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(outLoop.getBody());
       b.create<ThreadwiseCopyV2Op>(
-          loc, resultMerged, tensorC, b.getIndexAttr(matrixCDataPerCopy),
+          loc, resultMerged, tensorC, b.getIndexAttr(tensorCDataPerCopy),
           op.storeMethodAttr(), std::get<0>(writeOobDims),
           std::get<1>(writeOobDims), outLoop.getLowerCoords(/*domain=*/0)[0],
           outLoop.getLowerCoords(/*domain=*/1));

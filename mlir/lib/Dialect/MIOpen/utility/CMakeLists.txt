@@ -2,6 +2,7 @@ add_mlir_dialect_library(MLIRMIOpenUtility
   builderUtils.cpp
   loweringUtils.cpp
   IsaNameSplitter.cpp
+  transformMapUtils.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/MIOpen

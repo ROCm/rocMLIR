@@ -519,7 +519,8 @@ def MIOpen_BufferLoadOp :
         "buffer to load from", [MemRead]>:$source,
       I32ArrayAttr:$leftOobDims,
       I32ArrayAttr:$rightOobDims,
-      Variadic<Index>:$coords)>,
+      Variadic<Index>:$coords,
+      OptionalAttr<IndexAttr>:$offset)>,
     Results<(outs AnyTypeOf<[F32, F16, BF16, I8, I32,
               VectorOfLengthAndType<[2, 4], [F32]>,
               VectorOfLengthAndType<[2, 4, 8], [F16]>,
@@ -539,6 +540,9 @@ def MIOpen_BufferLoadOp :
     If a load is determined to be out of bounds, its value is 0.
 
     This op can perform vector reads.
+
+    If provided, `offset` is a constant offset (in units of the underlying scalar
+    data type) that is added to the final coordinates.
 
     The memref must be in global memory (memory space 0).
   }];
@@ -563,7 +567,8 @@ def MIOpen_BufferStoreOp :
       I32ArrayAttr:$leftOobDims,
       I32ArrayAttr:$rightOobDims,
       Variadic<Index>:$coords,
-      StoreMethodAttr:$storeMethod)> {
+      StoreMethodAttr:$storeMethod,
+      OptionalAttr<IndexAttr>:$offset)> {
   let summary = "Store data to a global buffer";
 
   let description = [{
@@ -638,8 +643,6 @@ def MIOpen_InBoundsStoreOp :
 }
 
 
-// TODO(kdrewnia): Remove this by marking global loads and stores with attributes
-
 // threadwise_copy_v2
 def MIOpen_ThreadwiseCopyV2Op :
     MIOpen_Op<"threadwise_copy_v2", [AllElementTypesMatch<["source", "dest"]>]>,
@@ -657,6 +660,11 @@ def MIOpen_ThreadwiseCopyV2Op :
     that hides type casts. This is used in order to make it easier for operator
     fusion to identify the write out to global memory produced within an xdlops
     gemm.
+
+    It will lower to one or more buffer store operations.
+
+    The location `%dest[..., %N + (length - 1)]` must be a valid memory
+    address, even if it is not in-bounds from the `memref` perspective.
   }];
   let assemblyFormat = [{
     $source `[` $sourceCoord `]`

@@ -32,7 +32,7 @@
 #include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
 #include "mlir/Dialect/MIOpen/XdlopsCodeSelection.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
-#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
+#include "mlir/Dialect/MIOpen/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Transforms/DialectConversion.h"

@@ -27,6 +27,7 @@
 
 #include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -832,9 +833,15 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
     SmallVector<Value, 5> coordsI32;
     for (auto v : coords)
       coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
+    IntegerAttr indexOffset =
+        op.offset()
+            .map([&b](const APInt &offset) -> IntegerAttr {
+              return b.getI32IntegerAttr(offset.getZExtValue());
+            })
+            .getValueOr(IntegerAttr());
     b.replaceOpWithNewOp<amdgpu::RawBufferLoadOp>(
-        op, loadedType, source, coordsI32, /*boundsCheck=*/true,
-        /*indexOffset=*/nullptr, /*sgprOffset=*/nullptr);
+        op, loadedType, source, coordsI32, /*boundsCheck=*/true, indexOffset,
+        /*sgprOffset=*/nullptr);
     return success();
   }
 };
@@ -904,28 +911,39 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
     SmallVector<Value, 5> coordsI32;
     for (Value v : coords)
       coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
+    IntegerAttr indexOffset =
+        op.offset()
+            .map([&b](const APInt &offset) -> IntegerAttr {
+              return b.getI32IntegerAttr(offset.getZExtValue());
+            })
+            .getValueOr(IntegerAttr());
 
     if (memoryOp == StoreMethod::AtomicAdd) {
       // TODO: test padding in atomic add kernels now that we can oob with them
       if (auto dataVector = data.getType().dyn_cast<VectorType>()) {
         int32_t nAtomics = dataVector.getNumElements();
+        int32_t offset =
+            op.offset()
+                .map([](const APInt &v) -> int32_t { return v.getZExtValue(); })
+                .getValueOr(0);
         for (int32_t i = 0; i < nAtomics; ++i) {
           Value item = b.create<vector::ExtractElementOp>(
               loc, data, b.create<ConstantIndexOp>(loc, i));
           b.create<amdgpu::RawBufferAtomicFaddOp>(
               loc, item, dest, coordsI32, /*boundsCheck=*/true,
-              /*indexOffset=*/b.getI32IntegerAttr(i), /*sgprOffset=*/nullptr);
+              /*indexOffset=*/b.getI32IntegerAttr(i + offset),
+              /*sgprOffset=*/nullptr);
         }
         b.eraseOp(op);
       } else {
         b.replaceOpWithNewOp<amdgpu::RawBufferAtomicFaddOp>(
-            op, data, dest, coordsI32, /*boundsCheck=*/true,
-            /*indexOffset=*/nullptr, /*sgprOffset=*/nullptr);
+            op, data, dest, coordsI32, /*boundsCheck=*/true, indexOffset,
+            /*sgprOffset=*/nullptr);
       }
     } else {
       b.replaceOpWithNewOp<amdgpu::RawBufferStoreOp>(
-          op, data, dest, coordsI32, /*boundsCheck=*/true,
-          /*indexOffset=*/nullptr, /*sgprOffset=*/nullptr);
+          op, data, dest, coordsI32, /*boundsCheck=*/true, indexOffset,
+          /*sgprOffset=*/nullptr);
     }
     return success();
   }

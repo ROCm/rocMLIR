@@ -22,15 +22,17 @@
 //===-----------------------------------------------------===//
 #include "PassDetail.h"
 
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
-#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
+#include "mlir/Dialect/MIOpen/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/MIOpen/XdlopsCodeSelection.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -633,19 +635,43 @@ struct ThreadwiseCopyV2RewritePattern
     auto sourceType = source.getType().cast<MemRefType>();
     Value sourceCoord = op.sourceCoord();
 
-    int64_t copyLength = op.length().getSExtValue();
-    Type typeToLoad = sourceType.getElementType();
-    if (copyLength > 1)
-      typeToLoad = VectorType::get({copyLength}, typeToLoad);
-    Type typeToStore = op.dest().getType().cast<MemRefType>().getElementType();
-    if (copyLength > 1)
-      typeToStore = VectorType::get({copyLength}, typeToStore);
+    Type sourceElemType = sourceType.getElementType();
+    Type destElemType = op.dest().getType().cast<MemRefType>().getElementType();
+    int64_t elemsPerWord = (32 / destElemType.getIntOrFloatBitWidth());
+    int64_t maxWriteLen = 4 * elemsPerWord;
+    int64_t remainingLength = op.length().getSExtValue();
+    int64_t offset = 0;
+    while (remainingLength > 0) {
+      int64_t copyLength = std::min(remainingLength, maxWriteLen);
 
-    Value loaded =
-        b.create<InBoundsLoadOp>(loc, typeToLoad, source, sourceCoord);
-    b.replaceOpWithNewOp<BufferStoreOp>(op, loaded, op.dest(), op.leftOobDims(),
-                                        op.rightOobDims(), op.destCoord(),
-                                        op.storeMethodAttr());
+      // Clean up bad copy lengths
+      if (copyLength != maxWriteLen && copyLength > (2 * elemsPerWord))
+        copyLength = 2 * elemsPerWord;
+      if (copyLength > elemsPerWord && copyLength % elemsPerWord != 0)
+        copyLength = elemsPerWord;
+
+      Type typeToLoad = sourceElemType;
+      if (copyLength > 1)
+        typeToLoad = VectorType::get({copyLength}, typeToLoad);
+      Type typeToStore = destElemType;
+      if (copyLength > 1)
+        typeToStore = VectorType::get({copyLength}, typeToStore);
+
+      Value loadCoord = sourceCoord;
+      if (offset > 0)
+        loadCoord = b.createOrFold<AddIOp>(
+            loc, sourceCoord, b.create<ConstantIndexOp>(loc, offset));
+      Value loaded =
+          b.create<InBoundsLoadOp>(loc, typeToLoad, source, loadCoord);
+      IntegerAttr offsetAttr =
+          (offset > 0) ? b.getIndexAttr(offset) : IntegerAttr();
+      b.create<BufferStoreOp>(loc, loaded, op.dest(), op.leftOobDims(),
+                              op.rightOobDims(), op.destCoord(),
+                              op.storeMethodAttr(), offsetAttr);
+      remainingLength -= copyLength;
+      offset += copyLength;
+    }
+    b.eraseOp(op);
     return success();
   }
 };

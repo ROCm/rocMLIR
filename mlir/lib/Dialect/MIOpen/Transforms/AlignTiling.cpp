@@ -28,7 +28,7 @@
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
-#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
+#include "mlir/Dialect/MIOpen/utility/transformMapUtils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -201,7 +201,8 @@ static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
   // If there are no broadcasts, re-use the coordianes for the writeback
   if (sourceTransformsFromOp.empty()) {
     Value loaded = b.create<BufferLoadOp>(
-        loc, typeToLoad, source, sourceLeftOob, sourceRightOob, op.destCoord());
+        loc, typeToLoad, source, sourceLeftOob, sourceRightOob, op.destCoord(),
+        /*offset=*/IntegerAttr());
     b.create<InBoundsStoreOp>(loc, loaded, dest, zero);
   } else {
     // Note: this is a hack around the fact that we don't have a good way
@@ -221,7 +222,7 @@ static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
       b.setInsertionPointToStart(copyLoop.getBody());
       Value loaded = b.create<BufferLoadOp>(
           loc, typeToLoad, source, sourceLeftOob, sourceRightOob,
-          copyLoop.getLowerCoords(/*domain=*/0));
+          copyLoop.getLowerCoords(/*domain=*/0), /*offset=*/IntegerAttr());
       b.create<InBoundsStoreOp>(loc, loaded, dest, zero);
     }
   }

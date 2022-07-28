@@ -19,6 +19,7 @@ if(MLIR_INCLUDE_TESTS)
     MLIRGPUTestPasses
     MLIRLinalgTestPasses
     MLIRMathTestPasses
+    MLIRMIOpenTestPasses
     MLIRSCFTestPasses
     MLIRShapeTestPasses
     MLIRSPIRVTestPasses
