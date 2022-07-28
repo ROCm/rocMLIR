@@ -3346,8 +3346,9 @@ struct OmpMapClause {
 // 2.15.5.2 defaultmap -> DEFAULTMAP (implicit-behavior[:variable-category])
 struct OmpDefaultmapClause {
   TUPLE_CLASS_BOILERPLATE(OmpDefaultmapClause);
-  ENUM_CLASS(ImplicitBehavior, Tofrom)
-  ENUM_CLASS(VariableCategory, Scalar)
+  ENUM_CLASS(
+      ImplicitBehavior, Alloc, To, From, Tofrom, Firstprivate, None, Default)
+  ENUM_CLASS(VariableCategory, Scalar, Aggregate, Allocatable, Pointer)
   std::tuple<ImplicitBehavior, std::optional<VariableCategory>> t;
 };
 
@@ -3430,6 +3431,13 @@ struct OmpReductionOperator {
 //                                         variable-name-list)
 struct OmpReductionClause {
   TUPLE_CLASS_BOILERPLATE(OmpReductionClause);
+  std::tuple<OmpReductionOperator, OmpObjectList> t;
+};
+
+// OMP 5.0 2.19.5.6 in_reduction-clause -> IN_REDUCTION (reduction-identifier:
+//                                         variable-name-list)
+struct OmpInReductionClause {
+  TUPLE_CLASS_BOILERPLATE(OmpInReductionClause);
   std::tuple<OmpReductionOperator, OmpObjectList> t;
 };
 
@@ -3754,7 +3762,6 @@ struct OpenMPCancelConstruct {
   std::tuple<Verbatim, OmpCancelType, std::optional<If>> t;
 };
 
-
 // 2.17.8 flush -> FLUSH [memory-order-clause] [(variable-name-list)]
 struct OpenMPFlushConstruct {
   TUPLE_CLASS_BOILERPLATE(OpenMPFlushConstruct);
@@ -3906,6 +3913,17 @@ struct AccObjectListWithReduction {
 struct AccWaitArgument {
   TUPLE_CLASS_BOILERPLATE(AccWaitArgument);
   std::tuple<std::optional<ScalarIntExpr>, std::list<ScalarIntExpr>> t;
+};
+
+struct AccDeviceTypeExpr {
+  TUPLE_CLASS_BOILERPLATE(AccDeviceTypeExpr);
+  CharBlock source;
+  std::tuple<std::optional<ScalarIntExpr>> t; // if null then *
+};
+
+struct AccDeviceTypeExprList {
+  WRAPPER_CLASS_BOILERPLATE(
+      AccDeviceTypeExprList, std::list<AccDeviceTypeExpr>);
 };
 
 struct AccTileExpr {

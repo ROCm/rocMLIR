@@ -10,8 +10,8 @@
 #include "mlir-c/Dialect/MIGraphX.h"
 #include "mlir/CAPI/Pass.h"
 #include "mlir/CAPI/Registration.h"
-#include "mlir/Dialect/GPU/GPUDialect.h"
-#include "mlir/Dialect/GPU/Passes.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/MIGraphX/Pipeline.h"
@@ -38,7 +38,7 @@ void mlirGetKernelInfo(MlirModule module, int *size, void *data) {
   assert((size != nullptr || data != nullptr) &&
          "Either size or data pointer should be provided");
   std::vector<int> info;
-  mod.walk([&](mlir::FuncOp f) {
+  mod.walk([&](mlir::func::FuncOp f) {
     auto args = f.getArguments();
     for (auto arg : args) {
       argNum++;

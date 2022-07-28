@@ -23,7 +23,7 @@ target_link_libraries(miopen-translate
   MLIRMIGraphX
   MLIRParser
   MLIRPass
-  MLIRSPIRV
+  MLIRSPIRVDialect
   MLIRTosaToMIOpen
   MLIRTranslateLib
   MLIRSupport

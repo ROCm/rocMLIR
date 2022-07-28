@@ -317,36 +317,30 @@ bool Sema::CheckConstraintSatisfaction(
     OutSatisfaction.IsSatisfied = true;
     return false;
   }
-
-  llvm::FoldingSetNodeID ID;
-  void *InsertPos;
-  ConstraintSatisfaction *Satisfaction = nullptr;
-  bool ShouldCache = LangOpts.ConceptSatisfactionCaching && Template;
-  if (ShouldCache) {
-    ConstraintSatisfaction::Profile(ID, Context, Template, TemplateArgs);
-    Satisfaction = SatisfactionCache.FindNodeOrInsertPos(ID, InsertPos);
-    if (Satisfaction) {
-      OutSatisfaction = *Satisfaction;
-      return false;
-    }
-    Satisfaction = new ConstraintSatisfaction(Template, TemplateArgs);
-  } else {
-    Satisfaction = &OutSatisfaction;
+  if (!Template) {
+    return ::CheckConstraintSatisfaction(*this, nullptr, ConstraintExprs,
+                                         TemplateArgs, TemplateIDRange,
+                                         OutSatisfaction);
   }
+  llvm::FoldingSetNodeID ID;
+  ConstraintSatisfaction::Profile(ID, Context, Template, TemplateArgs);
+  void *InsertPos;
+  if (auto *Cached = SatisfactionCache.FindNodeOrInsertPos(ID, InsertPos)) {
+    OutSatisfaction = *Cached;
+    return false;
+  }
+  auto Satisfaction =
+      std::make_unique<ConstraintSatisfaction>(Template, TemplateArgs);
   if (::CheckConstraintSatisfaction(*this, Template, ConstraintExprs,
                                     TemplateArgs, TemplateIDRange,
                                     *Satisfaction)) {
-    if (ShouldCache)
-      delete Satisfaction;
     return true;
   }
-
-  if (ShouldCache) {
-    // We cannot use InsertNode here because CheckConstraintSatisfaction might
-    // have invalidated it.
-    SatisfactionCache.InsertNode(Satisfaction);
-    OutSatisfaction = *Satisfaction;
-  }
+  OutSatisfaction = *Satisfaction;
+  // We cannot use InsertPos here because CheckConstraintSatisfaction might have
+  // invalidated it.
+  // Note that entries of SatisfactionCache are deleted in Sema's destructor.
+  SatisfactionCache.InsertNode(Satisfaction.release());
   return false;
 }
 
@@ -354,8 +348,9 @@ bool Sema::CheckConstraintSatisfaction(const Expr *ConstraintExpr,
                                        ConstraintSatisfaction &Satisfaction) {
   return calculateConstraintSatisfaction(
       *this, ConstraintExpr, Satisfaction,
-      [](const Expr *AtomicExpr) -> ExprResult {
-        return ExprResult(const_cast<Expr *>(AtomicExpr));
+      [this](const Expr *AtomicExpr) -> ExprResult {
+        // We only do this to immitate lvalue-to-rvalue conversion.
+        return PerformContextuallyConvertToBool(const_cast<Expr *>(AtomicExpr));
       });
 }
 

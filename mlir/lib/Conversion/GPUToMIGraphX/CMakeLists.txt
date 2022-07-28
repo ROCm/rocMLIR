@@ -8,6 +8,7 @@ add_mlir_conversion_library(MLIRGPUToMIGraphX
 
   DEPENDS
   MLIRMIOpenConversionPassIncGen
+  MLIRMIGraphXTypeIncGen
 )
 
 target_link_libraries(MLIRGPUToMIGraphX

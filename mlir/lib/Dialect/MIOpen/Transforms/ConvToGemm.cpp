@@ -21,6 +21,7 @@
 //===-----------------------------------------------------===//
 #include "PassDetail.h"
 
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
@@ -169,26 +170,58 @@ void affixGridwiseGemmAttributes(Operation *convOp, Operation *gop,
   }
 }
 
-void createElementwiseLoop(OpBuilder &b, Location loc, int64_t bound,
-                           function_ref<void(Value)> emitBodyFunc) {
-  // Pseudo code:
-  // size_t offset = (hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
-  // size_t stride = hipBlockDim_x * hipGridDim_x;
-  // for (size_t i = offset; i < sizeof(collapsedOutput); i+= stride)
-  //     collapsedOutput[i] = 0;
+/// Create an elementwise utility kernel.
+/// The callback has type (builder, location, collapsedBuffers, coordinate).
+/// Note: you are expected to handle out of bounds, such as by using
+/// miopen.buffer_store
+LogicalResult createElementwiseLoop(
+    OpBuilder &b, Location loc, Operation *convOp, ValueRange memrefs,
+    int64_t vectorLen,
+    function_ref<void(OpBuilder &, Location, ValueRange, Value)> emitBodyFunc) {
+  int64_t blockSize = convOp->getAttrOfType<IntegerAttr>("block_size").getInt();
+  int64_t elemsPerThread =
+      convOp->getAttrOfType<IntegerAttr>("elems_per_thread").getInt();
+  if (elemsPerThread % vectorLen != 0)
+    return convOp->emitOpError("Unevenly vectorized elementwise kernel");
 
-  auto workgroupId = b.create<WorkgroupIdOp>(loc, b.getIndexType());
-  auto workgroupDim = b.create<ConstantIndexOp>(loc, kUtilityKernelBlockSize);
-  auto workitemId = b.create<WorkitemIdOp>(loc, b.getIndexType());
-  auto offset = b.create<AddIOp>(
-      loc, b.create<MulIOp>(loc, workgroupId, workgroupDim), workitemId);
-  auto gridDim = b.create<ConstantIndexOp>(loc, kUtilityKernelGridSize);
-  auto stride = b.create<MulIOp>(loc, workgroupDim, gridDim);
+  Value workgroupId = b.create<WorkgroupIdOp>(loc, b.getIndexType());
+  Value workgroupDim = b.create<ConstantIndexOp>(loc, blockSize);
+  Value elemsPerThreadOp = b.create<ConstantIndexOp>(loc, elemsPerThread);
+  Value workitemId = b.create<WorkitemIdOp>(loc, b.getIndexType());
 
-  auto loop = b.create<scf::ForOp>(
-      loc, offset, b.create<ConstantIndexOp>(loc, bound), stride);
-  b.setInsertionPointToStart(loop.getBody());
-  emitBodyFunc(loop.getInductionVar());
+  SmallVector<Value, 2> collapsedBufs;
+  for (Value memref : memrefs) {
+    if (auto transform =
+            dyn_cast_or_null<TransformOp>(memref.getDefiningOp())) {
+      return convOp->emitOpError(
+          "Arguments to utility kernels must be pure memrefs");
+    }
+    Value collapsed = createCollapseShapeOp(b, loc, memref);
+    collapsedBufs.push_back(collapsed);
+  }
+  int64_t collapsedLen =
+      collapsedBufs[0].getType().cast<MemRefType>().getShape()[0];
+  for (Value c : collapsedBufs)
+    if (c.getType().cast<MemRefType>().getNumElements() != collapsedLen)
+      return convOp->emitOpError(
+          "Utility kernel arguments have different lengths");
+
+  Value offset = b.create<MulIOp>(
+      loc,
+      b.create<AddIOp>(loc, b.create<MulIOp>(loc, workgroupId, workgroupDim),
+                       workitemId),
+      elemsPerThreadOp);
+
+  Value zero = b.create<arith::ConstantIndexOp>(loc, 0);
+  Value vectorLenOp = b.create<arith::ConstantIndexOp>(loc, vectorLen);
+  auto loop = b.create<scf::ForOp>(loc, zero, elemsPerThreadOp, vectorLenOp);
+  {
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointToStart(loop.getBody());
+    Value index = b.create<arith::AddIOp>(loc, offset, loop.getInductionVar());
+    emitBodyFunc(b, loc, collapsedBufs, index);
+  }
+  return success();
 }
 
 Value createKPackLogic(OpBuilder &b, Location loc, Value source,
@@ -219,15 +252,24 @@ Value createKPackLogic(OpBuilder &b, Location loc, Value source,
 LogicalResult zeroInit(Conv2DBwdDataOp op, PatternRewriter &b) {
   auto loc = op.getLoc();
   Value output = op.input();
-  auto outputDataType = output.getType().cast<MemRefType>().getElementType();
-  auto collapsedOutput = createCollapseShapeOp(b, loc, output);
-  ArrayRef<int64_t> collapsedOutputShape =
-      collapsedOutput.getType().cast<MemRefType>().getShape();
+  Type outputType = output.getType().cast<MemRefType>().getElementType();
+  constexpr int64_t kZeroInitVecLen = 4;
+  Type storeType = VectorType::get(kZeroInitVecLen, outputType);
+  Value zeroOp = createZeroConstantOp(b, loc, storeType);
+  ArrayAttr leftOob = b.getI32ArrayAttr({});
+  ArrayAttr rightOob = b.getI32ArrayAttr({0});
 
-  createElementwiseLoop(b, loc, collapsedOutputShape[0], [&](Value iv) {
-    auto zeroOp = createZeroConstantOp(b, loc, outputDataType);
-    b.create<memref::StoreOp>(loc, zeroOp, collapsedOutput, iv);
-  });
+  auto loopBody = [&zeroOp, &leftOob, &rightOob](OpBuilder &b, Location loc,
+                                                 ValueRange collapsed,
+                                                 Value index) {
+    b.create<BufferStoreOp>(
+        loc, zeroOp, collapsed[0], leftOob, rightOob, index,
+        StoreMethodAttr::get(b.getContext(), StoreMethod::Set));
+  };
+  LogicalResult res =
+      createElementwiseLoop(b, loc, op, output, kZeroInitVecLen, loopBody);
+  if (failed(res))
+    return failure();
 
   b.eraseOp(op);
   return success();
@@ -238,27 +280,39 @@ LogicalResult zeroInit(Conv2DBwdDataOp op, PatternRewriter &b) {
 /// For f32 type, the output is the filter tensor.
 /// for f16 type, the output is the workspace.
 LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
-  auto loc = op.getLoc();
-  auto filterDataType =
+  Location loc = op.getLoc();
+  Type filterDataType =
       op.filter().getType().cast<MemRefType>().getElementType();
   Value output;
   if (filterDataType == b.getF32Type()) {
     output = op.filter();
   } else if (filterDataType == b.getF16Type()) {
-    assert(op.workspace() && "Op has no workspace");
+    if (!op.workspace())
+      return op.emitOpError("op has no workspace");
     output = op.workspace();
   } else {
-    llvm_unreachable("Incorrect memref type supplied");
+    return op.emitOpError("Unsupported zeroing data type");
   }
-  auto outputDataType = output.getType().cast<MemRefType>().getElementType();
-  auto collapsedOutput = createCollapseShapeOp(b, loc, output);
-  ArrayRef<int64_t> collapsedOutputShape =
-      collapsedOutput.getType().cast<MemRefType>().getShape();
 
-  createElementwiseLoop(b, loc, collapsedOutputShape[0], [&](Value iv) {
-    auto zeroOp = createZeroConstantOp(b, loc, outputDataType);
-    b.create<memref::StoreOp>(loc, zeroOp, collapsedOutput, iv);
-  });
+  Type outputType = output.getType().cast<MemRefType>().getElementType();
+  constexpr int64_t kZeroInitVecLen = 4;
+  Type storeType = VectorType::get(kZeroInitVecLen, outputType);
+  Value zeroOp = createZeroConstantOp(b, loc, storeType);
+  ArrayAttr leftOob = b.getI32ArrayAttr({});
+  ArrayAttr rightOob = b.getI32ArrayAttr({0});
+
+  auto loopBody = [&zeroOp, &leftOob, &rightOob](OpBuilder &b, Location loc,
+                                                 ValueRange collapsed,
+                                                 Value index) {
+    b.create<BufferStoreOp>(
+        loc, zeroOp, collapsed[0], leftOob, rightOob, index,
+        StoreMethodAttr::get(b.getContext(), StoreMethod::Set));
+  };
+
+  LogicalResult res =
+      createElementwiseLoop(b, loc, op, output, kZeroInitVecLen, loopBody);
+  if (failed(res))
+    return failure();
 
   b.eraseOp(op);
   return success();
@@ -267,26 +321,35 @@ LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
 /// Element-wise conversion from the workspace to the output (filter tensor)
 /// for a backward weight convolution which uses atomic adds.
 LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
-  auto loc = op.getLoc();
-  assert(op.workspace() && "Op has no workspace");
-  auto filter = op.filter();
-  auto workspace = op.workspace();
-  auto filterDataType = filter.getType().cast<MemRefType>().getElementType();
-  auto collapsedFilter = createCollapseShapeOp(b, loc, filter);
-  auto collapsedWorkspace = createCollapseShapeOp(b, loc, workspace);
-  ArrayRef<int64_t> collapsedFilterShape =
-      collapsedFilter.getType().cast<MemRefType>().getShape();
-  ArrayRef<int64_t> collapsedWorkspaceShape =
-      collapsedWorkspace.getType().cast<MemRefType>().getShape();
-  assert((collapsedFilterShape[0] == collapsedWorkspaceShape[0]) &&
-         "Filter tensor and workspace size mismatch");
+  Location loc = op.getLoc();
+  if (!op.workspace())
+    return op.emitOpError("op has no workspace");
+  Value filter = op.filter();
+  Value workspace = op.workspace();
+  Type filterDataType = filter.getType().cast<MemRefType>().getElementType();
+  Type workspaceDataType =
+      workspace.getType().cast<MemRefType>().getElementType();
 
-  createElementwiseLoop(b, loc, collapsedWorkspaceShape[0], [&](Value iv) {
-    auto loadedValue = b.create<memref::LoadOp>(loc, collapsedWorkspace, iv);
-    auto convertedValue =
-        createTypeConversionOp(b, loc, loadedValue, filterDataType);
-    b.create<memref::StoreOp>(loc, convertedValue, collapsedFilter, iv);
-  });
+  int64_t kConversionVectorLen = 4;
+  Type loadType = VectorType::get(kConversionVectorLen, workspaceDataType);
+  Type storeType = VectorType::get(kConversionVectorLen, filterDataType);
+  ArrayAttr leftOob = b.getI32ArrayAttr({});
+  ArrayAttr rightOob = b.getI32ArrayAttr({0});
+
+  auto loopBody = [&loadType, &storeType, &leftOob,
+                   &rightOob](OpBuilder &b, Location loc, ValueRange collapsed,
+                              Value index) {
+    Value loaded = b.create<BufferLoadOp>(loc, loadType, collapsed[0], leftOob,
+                                          rightOob, index);
+    Value converted = createTypeConversionOp(b, loc, loaded, storeType);
+    b.create<BufferStoreOp>(
+        loc, converted, collapsed[1], leftOob, rightOob, index,
+        StoreMethodAttr::get(b.getContext(), StoreMethod::Set));
+  };
+  LogicalResult res = createElementwiseLoop(b, loc, op, {workspace, filter},
+                                            kConversionVectorLen, loopBody);
+  if (failed(res))
+    return failure();
 
   b.eraseOp(op);
   return success();
@@ -1651,7 +1714,8 @@ void MIOpenConvToGemmPass::runOnOperation() {
                       miopen::Conv2DBwdWeightOp>();
   target.addLegalOp<miopen::TransformOp, miopen::GridwiseGemmOp,
                     miopen::GridwiseGemmV2Op, miopen::WorkgroupIdOp,
-                    miopen::WorkitemIdOp>();
+                    miopen::WorkitemIdOp, miopen::BufferLoadOp,
+                    miopen::BufferStoreOp>();
   // Below are required legalize for the lowering of Conv2DBwdWeightOp
   target.addLegalDialect<arith::ArithmeticDialect, memref::MemRefDialect,
                          AffineDialect, scf::SCFDialect>();

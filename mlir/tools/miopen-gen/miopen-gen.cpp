@@ -16,7 +16,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/GPU/GPUDialect.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/utility/IsaNameSplitter.h"
@@ -381,11 +381,11 @@ static cl::alias deviceShort("dev", cl::aliasopt(deviceNum));
 ////  - Detected/capture kernel interface
 ////////////////////////////////////////////////////////////////////////////////
 struct KernelIF {
-  FuncOp func;
+  func::FuncOp func;
   SmallVector<mlir::Type, 8> params;
 
   // CTOR w/ FuncOp
-  KernelIF(FuncOp _f) : func(_f) {
+  KernelIF(func::FuncOp _f) : func(_f) {
     assert(func.getNumResults() == 0);
     for (auto &paramType : func.getFunctionType().getInputs())
       params.push_back(paramType);
@@ -609,13 +609,13 @@ static LogicalResult detectMissingArguments() {
   return success();
 }
 
-static FuncOp makeFuncDecl(ModuleOp module, StringRef funcName,
-                           TypeRange inputs, TypeRange results = {}) {
-  FuncOp func = module.lookupSymbol<FuncOp>(funcName);
+static func::FuncOp makeFuncDecl(ModuleOp module, StringRef funcName,
+                                 TypeRange inputs, TypeRange results = {}) {
+  func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
   if (!func) {
     OpBuilder builder(module.getContext());
-    func = FuncOp::create(builder.getUnknownLoc(), funcName,
-                          builder.getFunctionType(inputs, results));
+    func = func::FuncOp::create(builder.getUnknownLoc(), funcName,
+                                builder.getFunctionType(inputs, results));
     func.setSymVisibilityAttr(builder.getStringAttr("private"));
     module.push_back(func);
   }
@@ -685,7 +685,7 @@ static mlir::Value makeNDMemRef(OpBuilder &b, mlir::Value var, uint32_t ndim) {
   return var;
 }
 
-static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
+static func::FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
   auto context = module.getContext();
   OpBuilder b(context);
   auto loc = kernel.func->getLoc();
@@ -696,7 +696,7 @@ static FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
   auto gpuWrapperFuncType = b.getFunctionType(kernel.params, {});
 
   auto gpuWrapperFunc =
-      FuncOp::create(loc, StringRef(funcName), gpuWrapperFuncType);
+      func::FuncOp::create(loc, StringRef(funcName), gpuWrapperFuncType);
   module.push_back(gpuWrapperFunc);
 
   // Emit gpu convolution logic.
@@ -803,7 +803,7 @@ static std::string getMemsetFuncName(mlir::Type dataType) {
   return memsetFuncName;
 }
 
-static FuncOp getMemsetFunc(ModuleOp module, mlir::Type elemType) {
+static func::FuncOp getMemsetFunc(ModuleOp module, mlir::Type elemType) {
   OpBuilder b(module.getContext());
 
   auto int16Type = b.getIntegerType(16);
@@ -818,7 +818,7 @@ static FuncOp getMemsetFunc(ModuleOp module, mlir::Type elemType) {
       {fiveDimUnknownSizeMemRefType, int16Type, int16Type, int32Type});
 }
 
-static FuncOp
+static func::FuncOp
 createCPUConvFunc(ModuleOp module,
                   const miopen::Conv2dGenerator::Config &genConfig) {
 
@@ -827,7 +827,7 @@ createCPUConvFunc(ModuleOp module,
       miopen::getNameForConvOpType(genConfig.operation.getValue()).str();
 
   funcName += "_cpu";
-  FuncOp func = module.lookupSymbol<FuncOp>(funcName);
+  func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
   if (func) // already exists
     return func;
 
@@ -864,7 +864,8 @@ createCPUConvFunc(ModuleOp module,
   if (hasWorkspace) {
     funcArgTypes = {filterType, inputType, outputType, workspaceArgType};
   }
-  func = FuncOp::create(loc, funcName, b.getFunctionType(funcArgTypes, {}));
+  func =
+      func::FuncOp::create(loc, funcName, b.getFunctionType(funcArgTypes, {}));
   module.push_back(func);
 
   // Construct a new Block.
@@ -1063,8 +1064,9 @@ const char *getTypeStr(const mlir::Type &type) {
   return "na";
 }
 
-static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
-                                const mlir::Type &dstElemType) {
+static func::FuncOp getMemcpyFuncDecl(ModuleOp &module,
+                                      const mlir::Type &srcElemType,
+                                      const mlir::Type &dstElemType) {
   OpBuilder b(module.getContext());
 
   // memcpy_<srcElemType>_<dstElemType>
@@ -1073,7 +1075,7 @@ static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
   funcName += "_";
   funcName += getTypeStr(dstElemType);
 
-  FuncOp func = module.lookupSymbol<FuncOp>(funcName);
+  func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
   if (func) // already exists
     return func;
 
@@ -1092,7 +1094,7 @@ static FuncOp getMemcpyFuncDecl(ModuleOp &module, const mlir::Type &srcElemType,
   // clang-format on
 
   // Emit function definition
-  func = FuncOp::create(
+  func = func::FuncOp::create(
       loc, funcName,
       b.getFunctionType({rSrcType, rDstType, b.getIndexType()}, {}));
 
@@ -1184,7 +1186,7 @@ static void emitPrintTensor(OpBuilder &b, mlir::Value var) {
 
   auto module = b.getBlock()->getParentOp()->getParentOfType<ModuleOp>();
   auto unrankedMRType = UnrankedMemRefType::get(b.getF32Type(), 0);
-  auto printFunc = makeFuncDecl(module, "print_memref_f32", {unrankedMRType});
+  auto printFunc = makeFuncDecl(module, "printMemrefF32", {unrankedMRType});
 
   // Emit cast + call print
   auto printCast = b.create<memref::CastOp>(loc, unrankedMRType, pvar);
@@ -1196,12 +1198,12 @@ static void emitPrintTensor(OpBuilder &b, mlir::Value var) {
   }
 }
 
-static FuncOp
+static func::FuncOp
 createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
                    const miopen::Conv2dGenerator::Config &genConfig) {
   auto kfunc = kernel.func;
   std::string funcName = kfunc.getName().str() + "_verify";
-  FuncOp func = module.lookupSymbol<FuncOp>(funcName);
+  func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
   if (func) // already exists
     return func;
 
@@ -1244,8 +1246,8 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   auto gpuType = MemRefType::get(dims, elemType);
 
   // Emit verify_results function call
-  func =
-      FuncOp::create(loc, funcName, b.getFunctionType({gpuType, cpuType}, {}));
+  func = func::FuncOp::create(loc, funcName,
+                              b.getFunctionType({gpuType, cpuType}, {}));
   module.push_back(func);
 
   // Emit verification logic.
@@ -1430,7 +1432,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
                                    ValueRange{c0IndexOp});
 
   // call mcpuPrintF32(float f1, float f2)
-  FuncOp printFunc;
+  func::FuncOp printFunc;
   if (elemType.isIntOrIndex()) {
     printFunc = makeFuncDecl(module, "mcpuPrintInt32", {intType, intType});
   } else {
@@ -1539,7 +1541,7 @@ populateHostHarnessLogic(ModuleOp &module,
   auto loc = b.getUnknownLoc();
 
   // Construct main function.
-  auto func = FuncOp::create(loc, "main", b.getFunctionType({}, {}));
+  auto func = func::FuncOp::create(loc, "main", b.getFunctionType({}, {}));
   module.push_back(func);
 
   // Construct a new Block.
@@ -1680,7 +1682,7 @@ populateHostHarnessLogic(ModuleOp &module,
   }
 
   // Wrap the kernels and gather them to substitute in calls.
-  llvm::SmallDenseMap<FuncOp, FuncOp> wrappedFuncs;
+  llvm::SmallDenseMap<func::FuncOp, func::FuncOp> wrappedFuncs;
   for (auto &kernel : kernels) {
     if (kernel.func->hasAttr("kernel")) {
       wrappedFuncs[kernel.func] = createGPUWrapper(module, kernel);
@@ -1701,7 +1703,7 @@ populateHostHarnessLogic(ModuleOp &module,
     Operation *op = call;
     CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
     Operation *callableFromInt = callInt.resolveCallable();
-    FuncOp fop = dyn_cast<FuncOp>(*callableFromInt);
+    func::FuncOp fop = dyn_cast<func::FuncOp>(*callableFromInt);
     if (wrappedFuncs.find(fop) != wrappedFuncs.end()) {
       call->setAttr("callee", FlatSymbolRefAttr::get(
                                   context, wrappedFuncs[fop].getSymName()));
@@ -1885,7 +1887,7 @@ int main(int argc, char **argv) {
     }
     module = moduleRef.release();
 
-    module.walk([&](FuncOp func) -> WalkResult {
+    module.walk([&](func::FuncOp func) -> WalkResult {
       if (func->hasAttr("kernel")) {
         hasUserKernel = true;
       }
@@ -1984,19 +1986,20 @@ int main(int argc, char **argv) {
   // Make KernelIFs for the roots, to pass to populateHostHarnessLogic().
   SmallVector<KernelIF, 8> rootIFs;
   for (auto node : roots) {
-    FuncOp func = dyn_cast<FuncOp>(node->getCallableRegion()->getParentOp());
+    func::FuncOp func =
+        dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
     rootIFs.emplace_back(func);
   }
 
   if (testFuncNameVal.empty()) {
-    module.walk([&](FuncOp func) -> WalkResult {
+    module.walk([&](func::FuncOp func) -> WalkResult {
       if (func->hasAttr("kernel")) {
         kernels.emplace_back(func);
       }
       return WalkResult::advance();
     });
   } else {
-    auto func = module.lookupSymbol<FuncOp>(testFuncName);
+    auto func = module.lookupSymbol<func::FuncOp>(testFuncName);
     assert(func);
     rootIFs.clear();
     kernels.emplace_back(func);

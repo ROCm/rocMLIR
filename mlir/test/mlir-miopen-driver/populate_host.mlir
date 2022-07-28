@@ -1,7 +1,7 @@
 // RUN: miopen-gen -p -ph | FileCheck %s
 // RUN: miopen-gen -p -ph -t f16 | FileCheck %s
 
-// CHECK-LABEL: func @main()
+// CHECK-LABEL: func.func @main()
 // CHECK-NEXT: memref.alloc() : memref<[[G:[0-9]+]]x[[K:[0-9]+]]x[[C:[0-9]+]]x[[Y:[0-9]+]]x[[X:[0-9]+]]x[[TYPE:[a-zA-Z0-9]+]]>
 // CHECK-NEXT: arith.constant dense{{.*}} : vector<3x[[TYPE]]>
 // CHECK-NEXT: arith.constant {{.*}} : [[TYPE]]
@@ -80,7 +80,7 @@
 // CHECK-NEXT: memref.dealloc {{.*}} : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]>
 // CHECK-NEXT: return
 
-// CHECK: func @miopen_conv2d_gkcyx_ngchw_ngkhw_0_gpu(%{{.*}}: memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>, %{{.*}}: memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>, %{{.*}}: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]>)
+// CHECK: func.func @miopen_conv2d_gkcyx_ngchw_ngkhw_0_gpu(%{{.*}}: memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>, %{{.*}}: memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>, %{{.*}}: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]>)
 // CHECK-NEXT: gpu.alloc  () : memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>
 // CHECK-NEXT: gpu.memcpy  %{{.*}}, %{{.*}} : memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>,  memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>
 // CHECK-NEXT: gpu.alloc  () : memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>
@@ -98,7 +98,7 @@
 
 // RUN: miopen-gen -p -ph -t i8 | FileCheck %s --check-prefix=INT8
 
-// INT8-LABEL: func @main()
+// INT8-LABEL: func.func @main()
 // INT8-NEXT: memref.alloc() : memref<[[G:[0-9]+]]x[[K:[0-9]+]]x[[C:[0-9]+]]x[[Y:[0-9]+]]x[[X:[0-9]+]]x[[TYPE:i8]]>
 // INT8-NEXT: arith.constant dense{{.*}} : vector<3x[[TYPE]]>
 // INT8-NEXT: arith.constant {{.*}} : [[TYPE]]
@@ -177,7 +177,7 @@
 // INT8-NEXT: memref.dealloc {{.*}} : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPEI32]]>
 // INT8-NEXT: return
 
-// INT8: func @miopen_conv2d_gkcyx_ngchw_ngkhw_0_gpu(%{{.*}}: memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>, %{{.*}}: memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>, %{{.*}}: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPEI32]]>)
+// INT8: func.func @miopen_conv2d_gkcyx_ngchw_ngkhw_0_gpu(%{{.*}}: memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>, %{{.*}}: memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>, %{{.*}}: memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPEI32]]>)
 // INT8-NEXT: gpu.alloc  () : memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>
 // INT8-NEXT: gpu.memcpy  %{{.*}}, %{{.*}} : memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>,  memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>
 // INT8-NEXT: gpu.alloc  () : memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>

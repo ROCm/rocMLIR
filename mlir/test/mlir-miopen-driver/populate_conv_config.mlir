@@ -84,4 +84,4 @@
 // RUN:  miopen-gen --conv-config "--x2 1 --operation conv2d_bwd_weight  --kernel_id 0 --num_cu 120 --arch amdgcn-amd-amdhsa:gfx908:sramecc+:xnack- --groupsize 1 --fil_layout GNCHW --fil_type fp32 --in_layout NGCHW --out_layout NGCHW --in_type fp32 --out_type fp32 --batchsize 256 --in_channels 1024 --out_channels 2048 --in_h 14 --in_w 14 --fil_h 1 --fil_w 1 --out_h 8 --out_w 8 --dilation_h 2 --dilation_w 2 --conv_stride_h 2 --conv_stride_w 2 --padding_h 1 --padding_w 1 --kernel_name mlir_gen_igemm_conv2d_v4r4_wrw_xdlops" -ph -pr  | FileCheck %s --check-prefix=PH
 
 //PH: [[FIL:%.*]] = memref.cast %{{.*}} : memref<1x2048x1024x1x1xf32> to memref<*xf32>
-//PH: call @print_memref_f32([[FIL]]) : (memref<*xf32>) -> ()
+//PH: call @printMemrefF32([[FIL]]) : (memref<*xf32>) -> ()

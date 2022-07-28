@@ -1,8 +1,8 @@
 //  miopen.in_warp_transpose requires that %lane be index, but the llvm.and
 //  it expands into requires that it be an integral type.
 // RUN: miopen-opt -miopen-sugar-to-loops %s | FileCheck %s
-func @in_warp_transpose_lowering(%arg0: vector<8xf32>) -> vector<8xf32> {
-    // CHECK-LABEL: func @in_warp_transpose_lowering
+func.func @in_warp_transpose_lowering(%arg0: vector<8xf32>) -> vector<8xf32> {
+    // CHECK-LABEL: func.func @in_warp_transpose_lowering
     %cst64 = arith.constant 64 : index
     %workitem = miopen.workitem_id : index
     %lane = arith.remui %workitem, %cst64 : index
@@ -15,8 +15,8 @@ func @in_warp_transpose_lowering(%arg0: vector<8xf32>) -> vector<8xf32> {
     return %0 : vector<8xf32>
 }
 
-func @in_warp_transpose_lowering_2x2(%arg0: vector<8xf32>) -> vector<8xf32> {
-    // CHECK-LABEL: func @in_warp_transpose_lowering_2x2
+func.func @in_warp_transpose_lowering_2x2(%arg0: vector<8xf32>) -> vector<8xf32> {
+    // CHECK-LABEL: func.func @in_warp_transpose_lowering_2x2
     %cst64 = arith.constant 64 : index
     %workitem = miopen.workitem_id : index
     %lane = arith.remui %workitem, %cst64 : index
@@ -26,8 +26,8 @@ func @in_warp_transpose_lowering_2x2(%arg0: vector<8xf32>) -> vector<8xf32> {
     return %0 : vector<8xf32>
 }
 
-func @in_warp_transpose_lowering_2x2_perm(%arg0: vector<8xf32>) -> vector<8xf32> {
-    // CHECK-LABEL: func @in_warp_transpose_lowering_2x2_perm
+func.func @in_warp_transpose_lowering_2x2_perm(%arg0: vector<8xf32>) -> vector<8xf32> {
+    // CHECK-LABEL: func.func @in_warp_transpose_lowering_2x2_perm
     %cst64 = arith.constant 64 : index
     %workitem = miopen.workitem_id : index
     %lane = arith.remui %workitem, %cst64 : index

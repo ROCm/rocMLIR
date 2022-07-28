@@ -442,6 +442,7 @@ LogicalResult InsertSliceOp::verify() {
 //===-----------------------------------------------------===//
 // TransformingForOp
 //===-----------------------------------------------------===//
+
 static ArrayAttr maybeIndexArray(OpBuilder &b,
                                  Optional<ArrayRef<int64_t>> vals) {
   return vals.map([&b](ArrayRef<int64_t> v) { return b.getIndexArrayAttr(v); })
@@ -554,10 +555,11 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
 
   SmallVector<Attribute> transforms;
   SmallVector<int32_t> lowerStarts;
-  SmallVector<OperandType> lowerArgs;
+  SmallVector<OpAsmParser::Argument> lowerArgs;
   SmallVector<OperandType> upperInits;
 
-  parser.parseOptionalAttrDict(result.attributes);
+  if (failed(parser.parseOptionalAttrDict(result.attributes)))
+    return failure();
 
   // Parse iteration domains
   llvm::SMLoc transformedLoc = parser.getCurrentLocation();
@@ -569,9 +571,12 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
         size_t oldNUpper = upperInits.size();
         lowerStarts.push_back(oldNLower);
 
-        if (parser.parseRegionArgumentList(lowerArgs, Delimiter::Paren) ||
+        if (parser.parseArgumentList(lowerArgs, Delimiter::Paren) ||
             parser.parseEqual()) {
           return failure();
+        }
+        for (size_t i = 0; i < lowerArgs.size(); i++) {
+          lowerArgs[i].type = indexTy;
         }
         ArrayAttr theseTransforms;
         if (parser.parseAttribute(theseTransforms)) {
@@ -630,13 +635,20 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
                       b.getI32VectorAttr(lowerStarts));
 
   llvm::SMLoc iterArgsLoc = parser.getCurrentLocation();
-  llvm::SmallVector<OperandType> iterArgs;
-  llvm::SmallVector<OperandType> iterInits;
+  llvm::SmallVector<OpAsmParser::Argument> iterArgs;
+  llvm::SmallVector<OpAsmParser::UnresolvedOperand> iterInits;
   llvm::SmallVector<mlir::Type> iterTypes;
   if (parser.parseOptionalKeyword("iter_args").succeeded()) {
-    if (parser.parseAssignmentListWithTypes(iterArgs, iterInits, iterTypes)) {
+    if (parser.parseAssignmentList(iterArgs, iterInits) ||
+        parser.parseArrowTypeList(iterTypes)) {
       return failure();
     }
+  }
+  if (iterInits.size() != iterTypes.size())
+    return parser.emitError(iterArgsLoc,
+                            "Mismatch between number of iter_args and types");
+  for (auto pair : llvm::zip(iterArgs, iterTypes)) {
+    std::get<0>(pair).type = std::get<1>(pair);
   }
 
   if (parser.parseKeyword("bounds")) {
@@ -676,14 +688,12 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
   result.addAttribute(TransformingForOp::stridesAttrName(result.name),
                       b.getIndexArrayAttr(strides));
 
-  SmallVector<Type> regionArgTypes(lowerArgs.size(), indexTy);
-  regionArgTypes.append(iterTypes);
-  SmallVector<OperandType> regionArgs = std::move(lowerArgs);
+  SmallVector<OpAsmParser::Argument> regionArgs = std::move(lowerArgs);
   regionArgs.append(iterArgs);
   result.addTypes(iterTypes);
 
   Region *body = result.addRegion();
-  if (parser.parseRegion(*body, regionArgs, regionArgTypes)) {
+  if (parser.parseRegion(*body, regionArgs)) {
     return failure();
   }
   TransformingForOp::ensureTerminator(*body, b, result.location);
@@ -727,9 +737,9 @@ void TransformingForOp::print(OpAsmPrinter &p) {
     llvm::interleaveComma(
         llvm::zip(getIterArgs(), iterInits()), p, [&](auto i) {
           Value init = std::get<1>(i);
-          p << std::get<0>(i) << " = " << init << " : " << init.getType();
+          p << std::get<0>(i) << " = " << init;
         });
-    p << ")";
+    p << ") -> (" << iterInits().getTypes() << ")";
   }
   p << " bounds [";
   llvm::interleaveComma(bounds().getAsValueRange<IntegerAttr>(), p,

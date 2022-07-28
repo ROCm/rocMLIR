@@ -1,6 +1,6 @@
 // RUN: mlir-rocm-runner %s --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
 
-func @vecadd(%arg0 : memref<16xf32>, %arg1 : memref<16xf32>, %arg2 : memref<16xf32>) {
+func.func @vecadd(%arg0 : memref<16xf32>, %arg1 : memref<16xf32>, %arg2 : memref<16xf32>) {
   %cst = arith.constant 1 : index
   %cst0 = arith.constant 0 : index
   %cst2 = memref.dim %arg0, %cst0 : memref<16xf32>
@@ -11,12 +11,12 @@ func @vecadd(%arg0 : memref<16xf32>, %arg1 : memref<16xf32>, %arg2 : memref<16xf
     %c = arith.addf %a, %b : f32
     memref.store %c, %arg2[%tx] : memref<16xf32>
     gpu.terminator
-  } {operand_segment_sizes = dense<[1,1,1, 1,1,1, 1,1,1]> : vector<9xi32>}
+  }
   return
 }
 
 // CHECK: [2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46, 2.46]
-func @main() {
+func.func @main() {
   // allocate CPU memory.
   %0 = memref.alloc() : memref<16xf32>
   %1 = memref.alloc() : memref<16xf32>
@@ -55,7 +55,7 @@ func @main() {
 
   // print result.
   %9 = memref.cast %5 : memref<?xf32> to memref<*xf32>
-  call @print_memref_f32(%9) : (memref<*xf32>) -> ()
+  call @printMemrefF32(%9) : (memref<*xf32>) -> ()
 
   // dellocate GPU memory.
   gpu.dealloc %6 : memref<16xf32>
@@ -70,5 +70,5 @@ func @main() {
   return
 }
 
-func private @mcpuMemset(%ptr : memref<?xf32>, %value: f32) -> ()
-func private @print_memref_f32(%ptr : memref<*xf32>) -> ()
+func.func private @mcpuMemset(%ptr : memref<?xf32>, %value: f32) -> ()
+func.func private @printMemrefF32(%ptr : memref<*xf32>) -> ()

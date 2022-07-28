@@ -8,10 +8,10 @@ add_mlir_dialect_library(MLIRMIOpenUtility
 
   LINK_LIBS PUBLIC
   MLIRDialect
-  MLIRFunc
+  MLIRFuncDialect
   MLIRMIOpenOps
   MLIRIR
-  MLIRMemRef
+  MLIRMemRefDialect
   MLIRSupport
 )
 

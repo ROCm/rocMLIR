@@ -7,19 +7,20 @@ add_mlir_conversion_library(MLIRMIOpenToGPU
   DEPENDS
   MLIRConversionPassIncGen
   MLIRMIOpenConversionPassIncGen
+  MLIRMIOpenPassIncGen
 )
 target_link_libraries(MLIRMIOpenToGPU
   PUBLIC
   MLIRAffineToStandard
   MLIRMIOpenTransforms
-  MLIRLLVMIR
+  MLIRLLVMDialect
   MLIRIR
   MLIRPass
   MLIRSCFToControlFlow
   MLIRFuncToLLVM
   MLIRSupport
   MLIRTransforms
-  MLIRVector
+  MLIRVectorDialect
   LLVMCore
   LLVMSupport
   )

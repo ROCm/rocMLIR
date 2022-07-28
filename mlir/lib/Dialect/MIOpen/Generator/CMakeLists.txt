@@ -14,8 +14,8 @@ set(LIBS
   MLIRMIOpenUtility
   MLIRParser
   MLIRPass
-  MLIRQuant
-  MLIRShape
+  MLIRQuantDialect
+  MLIRShapeDialect
   MLIRTransforms
   MLIRSupport
   MLIRIR

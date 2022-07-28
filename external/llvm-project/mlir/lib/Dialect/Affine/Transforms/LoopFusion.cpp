@@ -61,7 +61,7 @@ struct LoopFusion : public AffineLoopFusionBase<LoopFusion> {
 
 } // namespace
 
-std::unique_ptr<OperationPass<FuncOp>>
+std::unique_ptr<OperationPass<func::FuncOp>>
 mlir::createLoopFusionPass(unsigned fastMemorySpace,
                            uint64_t localBufSizeThreshold, bool maximalFusion,
                            enum FusionMode affineFusionMode) {
@@ -202,7 +202,7 @@ public:
 
   // Initializes the dependence graph based on operations in 'f'.
   // Returns true on success, false otherwise.
-  bool init(FuncOp f);
+  bool init(func::FuncOp f);
 
   // Returns the graph node for 'id'.
   Node *getNode(unsigned id) {
@@ -633,13 +633,13 @@ static bool canRemoveSrcNodeAfterFusion(
   // that all the dependences are preserved.
   if (hasOutDepsAfterFusion || !escapingMemRefs.empty()) {
     Optional<bool> isMaximal = fusionSlice.isMaximal();
-    if (!isMaximal.hasValue()) {
+    if (!isMaximal) {
       LLVM_DEBUG(llvm::dbgs() << "Src loop can't be removed: can't determine "
                                  "if fusion is maximal\n");
       return false;
     }
 
-    if (!isMaximal.getValue()) {
+    if (!*isMaximal) {
       LLVM_DEBUG(llvm::dbgs()
                  << "Src loop can't be removed: fusion is not maximal\n");
       return false;
@@ -731,7 +731,7 @@ void gatherEscapingMemrefs(unsigned id, MemRefDependenceGraph *mdg,
 // Assigns each node in the graph a node id based on program order in 'f'.
 // TODO: Add support for taking a Block arg to construct the
 // dependence graph at a different depth.
-bool MemRefDependenceGraph::init(FuncOp f) {
+bool MemRefDependenceGraph::init(func::FuncOp f) {
   LLVM_DEBUG(llvm::dbgs() << "--- Initializing MDG ---\n");
   DenseMap<Value, SetVector<unsigned>> memrefAccesses;
 
@@ -895,7 +895,7 @@ static Value createPrivateMemRef(AffineForOp forOp, Operation *srcStoreOpInst,
   // Create builder to insert alloc op just before 'forOp'.
   OpBuilder b(forInst);
   // Builder to create constants at the top level.
-  OpBuilder top(forInst->getParentOfType<FuncOp>().getBody());
+  OpBuilder top(forInst->getParentOfType<func::FuncOp>().getBody());
   // Create new memref type based on slice bounds.
   auto oldMemRef = cast<AffineWriteOpInterface>(srcStoreOpInst).getMemRef();
   auto oldMemRefType = oldMemRef.getType().cast<MemRefType>();
@@ -914,15 +914,14 @@ static Value createPrivateMemRef(AffineForOp forOp, Operation *srcStoreOpInst,
   // by 'srcStoreOpInst' at depth 'dstLoopDepth'.
   Optional<int64_t> numElements =
       region.getConstantBoundingSizeAndShape(&newShape, &lbs, &lbDivisors);
-  assert(numElements.hasValue() &&
-         "non-constant number of elts in local buffer");
+  assert(numElements && "non-constant number of elts in local buffer");
 
   const FlatAffineValueConstraints *cst = region.getConstraints();
   // 'outerIVs' holds the values that this memory region is symbolic/parametric
   // on; this would correspond to loop IVs surrounding the level at which the
   // slice is being materialized.
   SmallVector<Value, 8> outerIVs;
-  cst->getValues(rank, cst->getNumIds(), &outerIVs);
+  cst->getValues(rank, cst->getNumVars(), &outerIVs);
 
   // Build 'rank' AffineExprs from MemRefRegion 'lbs'
   SmallVector<AffineExpr, 4> offsets;
@@ -1234,7 +1233,7 @@ static bool isFusionProfitable(Operation *srcOpInst, Operation *srcStoreOpInst,
 
   // A simple cost model: fuse if it reduces the memory footprint.
 
-  if (!bestDstLoopDepth.hasValue()) {
+  if (!bestDstLoopDepth) {
     LLVM_DEBUG(
         llvm::dbgs()
         << "All fusion choices involve more than the threshold amount of "
@@ -1242,13 +1241,13 @@ static bool isFusionProfitable(Operation *srcOpInst, Operation *srcStoreOpInst,
     return false;
   }
 
-  if (!bestDstLoopDepth.hasValue()) {
+  if (!bestDstLoopDepth) {
     LLVM_DEBUG(llvm::dbgs() << "no fusion depth could be evaluated.\n");
     return false;
   }
 
   // Set dstLoopDepth based on best values from search.
-  *dstLoopDepth = bestDstLoopDepth.getValue();
+  *dstLoopDepth = *bestDstLoopDepth;
 
   LLVM_DEBUG(
       llvm::dbgs() << " LoopFusion fusion stats:"
@@ -1263,7 +1262,7 @@ static bool isFusionProfitable(Operation *srcOpInst, Operation *srcStoreOpInst,
 
   Optional<double> storageReduction = None;
 
-  if (!dstMemSize.hasValue() || !srcMemSize.hasValue()) {
+  if (!dstMemSize || !srcMemSize) {
     LLVM_DEBUG(llvm::dbgs()
                << "  fusion memory benefit cannot be evaluated; NOT fusing.\n");
     return false;
@@ -1272,7 +1271,7 @@ static bool isFusionProfitable(Operation *srcOpInst, Operation *srcStoreOpInst,
   auto srcMemSizeVal = srcMemSize.getValue();
   auto dstMemSizeVal = dstMemSize.getValue();
 
-  assert(sliceMemEstimate.hasValue() && "expected value");
+  assert(sliceMemEstimate && "expected value");
   auto fusedMem = dstMemSizeVal + sliceMemEstimate.getValue();
 
   LLVM_DEBUG(llvm::dbgs() << "   src mem: " << srcMemSizeVal << "\n"
@@ -1298,9 +1297,7 @@ static bool isFusionProfitable(Operation *srcOpInst, Operation *srcStoreOpInst,
     msg << " fusion is most profitable at depth " << *dstLoopDepth << " with "
         << std::setprecision(2) << additionalComputeFraction
         << "% redundant computation and a ";
-    msg << (storageReduction.hasValue()
-                ? std::to_string(storageReduction.getValue())
-                : "<unknown>");
+    msg << (storageReduction ? std::to_string(*storageReduction) : "<unknown>");
     msg << "% storage reduction.\n";
     llvm::dbgs() << msg.str();
   });
@@ -1853,7 +1850,7 @@ public:
     };
 
     // Search for siblings which load the same memref function argument.
-    auto fn = dstNode->op->getParentOfType<FuncOp>();
+    auto fn = dstNode->op->getParentOfType<func::FuncOp>();
     for (unsigned i = 0, e = fn.getNumArguments(); i != e; ++i) {
       for (auto *user : fn.getArgument(i).getUsers()) {
         if (auto loadOp = dyn_cast<AffineReadOpInterface>(user)) {
@@ -1949,8 +1946,9 @@ public:
     // edges, and it does not write to a memref which escapes the
     // function.
     if (mdg->getOutEdgeCount(sibNode->id) == 0) {
+      Operation *op = sibNode->op;
       mdg->removeNode(sibNode->id);
-      sibNode->op->erase();
+      op->erase();
     }
   }
 

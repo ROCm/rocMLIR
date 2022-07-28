@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/TosaToMIOpen/TosaToMIOpen.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -99,7 +100,7 @@ makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
                  const char *outputLayout, const ArrayAttr &pad,
                  const ArrayAttr &stride, const ArrayAttr &dilation) {
   auto loc = op->getLoc();
-  auto func = op->getParentOfType<FuncOp>();
+  auto func = op->getParentOfType<func::FuncOp>();
 
   // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
   auto inputExp = expandMemRef(rw, op, input);

@@ -15,25 +15,18 @@
 FROM rocm/mlir:rocm5.1-latest
 
 RUN apt-get update; \
-    apt-get install -y dumb-init; \
+    apt-get install -y dumb-init cmake; \
     update-alternatives --install /usr/bin/clang clang /usr/bin/clang-10 100 ;\
     update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-10 100 ;\
     update-alternatives --install /usr/bin/lld lld /usr/bin/lld-10 100
 
 # LTS releases often bundle obsolete pip versions that cannot access newest
 # Linux binary wheels.
-RUN python3 -m pip install --upgrade pip
-
-RUN apt-add-repository ppa:deadsnakes/ppa && apt-get update \
-     && apt-get install -y --no-install-recommends \
-            python3.8 python3.8-dev python3.8-venv \
-     && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 10 \
-     && python3 -m pip install --upgrade pip \
-     && python3 -m pip install --ignore-installed PyYAML
+RUN rm /usr/local/bin/python3 && python3 -m pip install --upgrade pip && python3 -m pip install --ignore-installed PyYAML
 
 # Refer to mlir/lib/Bindings/Python/requirements.txt. Listed explicitly here
 # and version pinned for consistency as this is a bot.
-RUN python3 -m pip install numpy pybind11>=2.8.0 PyYAML>5 dataclasses
+RUN python3 -m pip install numpy 'pybind11>=2.8.0' dataclasses
 
 # Install build bot (server was at 2.8.5-dev at time of writing).
 RUN pip3 install buildbot-worker

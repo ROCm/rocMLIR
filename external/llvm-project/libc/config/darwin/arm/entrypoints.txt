@@ -35,6 +35,8 @@ set(TARGET_LIBC_ENTRYPOINTS
     libc.src.string.strcmp
     libc.src.string.strcpy
     libc.src.string.strcspn
+    libc.src.string.strlcat
+    libc.src.string.strlcpy
     libc.src.string.strlen
     libc.src.string.strncat
     libc.src.string.strncmp
@@ -129,6 +131,8 @@ set(TARGET_LIBM_ENTRYPOINTS
     libc.src.math.fmin
     libc.src.math.fminf
     libc.src.math.fminl
+    libc.src.math.fmod
+    libc.src.math.fmodf
     libc.src.math.frexp
     libc.src.math.frexpf
     libc.src.math.frexpl

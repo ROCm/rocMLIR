@@ -11,7 +11,7 @@
 
 include "mlir/Pass/PassBase.td"
 
-def MIGraphXTransformPass : Pass<"migraphx-transform", "FuncOp"> {
+def MIGraphXTransformPass : Pass<"migraphx-transform", "func::FuncOp"> {
   let summary = "apply migraphx operation optimization transform";
   let constructor = "mlir::migraphx::createMIGraphXTransformPass()";
 }

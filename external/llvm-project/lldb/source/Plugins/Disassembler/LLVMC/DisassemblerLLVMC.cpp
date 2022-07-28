@@ -10,6 +10,7 @@
 
 #include "llvm-c/Disassembler.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCDisassembler/MCDisassembler.h"
@@ -22,6 +23,7 @@
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCTargetOptions.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/Support/AArch64TargetParser.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/ScopedPrinter.h"
 #include "llvm/Support/TargetSelect.h"
@@ -1177,12 +1179,9 @@ DisassemblerLLVMC::DisassemblerLLVMC(const ArchSpec &arch,
       features_str += "+dspr2,";
   }
 
-  // If any AArch64 variant, enable latest ISA with any optional
-  // extensions like MTE.
+  // If any AArch64 variant, enable latest ISA with all extensions.
   if (triple.isAArch64()) {
-    features_str += "+v9.3a,+mte,+sm4,+sha2,+sha3,+aes,+fp16fml,+sve2-aes,+"
-                    "sve2-sm4,+sve2-sha3,+sve2-bitperm,+f32mm,+f64mm,+tme,+"
-                    "ls64,+sme,+sme-f64,+sme-i64,+spe,+rand,+brbe";
+    features_str += "+all,";
 
     if (triple.getVendor() == llvm::Triple::Apple)
       cpu = "apple-latest";
@@ -1379,7 +1378,7 @@ const char *DisassemblerLLVMC::SymbolLookup(uint64_t value, uint64_t *type_ptr,
         // the ADRP's register and this ADD's register are the same,
         // then this is a pc-relative address calculation.
         if (*type_ptr == LLVMDisassembler_ReferenceType_In_ARM64_ADDXri &&
-            m_adrp_insn.hasValue() && m_adrp_address == pc - 4 &&
+            m_adrp_insn && m_adrp_address == pc - 4 &&
             (m_adrp_insn.getValue() & 0x1f) == ((value >> 5) & 0x1f)) {
           uint32_t addxri_inst;
           uint64_t adrp_imm, addxri_imm;

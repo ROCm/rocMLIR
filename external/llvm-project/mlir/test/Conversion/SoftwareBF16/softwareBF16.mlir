@@ -21,8 +21,7 @@ module attributes {llvm.data_layout = ""} {
 //CHECK-NEXT:    %[[V8:.*]] = llvm.add %[[V5]], %[[V0]]  : i32
 //CHECK-NEXT:    %[[V9:.*]] = llvm.lshr %[[V8]], %[[V1]]  : i32
 //CHECK-NEXT:    %[[V10:.*]] = llvm.add %[[V7]], %[[V9]]  : i32
-//CHECK-NEXT:    %[[V11:.*]] = llvm.lshr %[[V10]], %[[V1]]  : i32
-//CHECK-NEXT:    %[[V12:.*]] = llvm.trunc %[[V11]] : i32 to i16
+//CHECK-NEXT:    %[[V12:.*]] = llvm.trunc %[[V10]] : i32 to i16
 
     %4 = llvm.fsub %arg0, %3  : bf16
 //CHECK:    %[[V13:.*]] = llvm.zext %arg0 : i16 to i32
@@ -38,8 +37,7 @@ module attributes {llvm.data_layout = ""} {
 //CHECK-NEXT:    %[[V23:.*]] = llvm.add %[[V20]], %[[V0]]  : i32
 //CHECK-NEXT:    %[[V24:.*]] = llvm.lshr %[[V23]], %[[V1]]  : i32
 //CHECK-NEXT:    %[[V25:.*]] = llvm.add %[[V22]], %[[V24]]  : i32
-//CHECK-NEXT:    %[[V26:.*]] = llvm.lshr %[[V25]], %[[V1]]  : i32
-//CHECK-NEXT:    %[[V27:.*]] = llvm.trunc %[[V26]] : i32 to i16
+//CHECK-NEXT:    %[[V27:.*]] = llvm.trunc %[[V25]] : i32 to i16
 
     %5 = llvm.fcmp "ugt" %4, %2 : bf16
 //CHECK:    %[[V28:.*]] = llvm.zext %[[V27]] : i16 to i32
