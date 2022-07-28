@@ -447,6 +447,8 @@ void outlinePartitionOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
 void TosaPartitionPass::specialCaseForTranspose(Operation *op,
                                                 SetVector<Operation *> &ops) {
   auto *operand = op->getOpOperand(1).get().getDefiningOp();
+  if (ops.contains(operand)) // If already present, move it for new use.
+    ops.remove(operand);
   ops.insert(operand);
 }
 
@@ -475,7 +477,8 @@ void TosaPartitionPass::traceInputs(Operation *op,
         // depth first
         traceInputs(usedOp, predecessors, inputNodes);
       }
-    } else {
+    } else if (!predecessors.contains(
+                   usedOp)) { // special-case consts aren't inputs
       inputNodes.insert(opnd);
     }
   }
@@ -568,7 +571,8 @@ void TosaPartitionPass::runOnOperation() {
               trailingOps.insert(userOp);
               worklist.push_back(userOp);
               for (Value opnd : userOp->getOperands())
-                if (!resultNodes.contains(opnd))
+                if (!resultNodes.contains(opnd) &&
+                    !trailingOps.contains(opnd.getDefiningOp()))
                   inputNodes.insert(opnd);
               for (const Value &val : resultNodes)
                 if (llvm::all_of(val.getUsers(), [&](Operation *u) {
