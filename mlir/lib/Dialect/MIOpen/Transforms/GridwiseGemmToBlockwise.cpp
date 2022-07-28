@@ -2074,26 +2074,17 @@ struct GridwiseGemmV2RewritePattern
     auto arrayB = b.create<GpuAllocOp>(loc, arrayBType);
 
     // -----
-
     // Logic to allocate 0-initialized vectors for C.
-    SmallVector<Value, 4> vectorCs;
-    SmallVector<Type, 4> vectorCTypes;
-    auto vectorZeroConst = createZeroConstantOp(b, loc, vectorType);
-    std::fill_n(std::back_inserter(vectorCs), vectorNumber, vectorZeroConst);
-    std::fill_n(std::back_inserter(vectorCTypes), vectorNumber, vectorType);
-
-    // -----
-    // Convert GEMM results to the expected output type (so we can fuse in)
-    // operations expecting that type before writeback and store
-    // the result vectors into a allocation of registers to maintain uniformity
-    // with the non-xdlops gemm. (These "stores" will be optimized out)
-    int64_t resultCVectorLen = vectorType.getNumElements();
-    int64_t numElements = resultCVectorLen * vectorCs.size();
+    int64_t regCVectorLen = vectorType.getNumElements();
+    int64_t numElements = regCVectorLen * vectorNumber;
     Type destType = op.c().getType().cast<MemRefType>().getElementType();
-    MemRefType resultMergedType = MemRefType::get(
+    MemRefType regCAllocType = MemRefType::get(
         numElements, destType, {},
         /*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
-    Value resultMerged = b.create<miopen::GpuAllocOp>(loc, resultMergedType);
+    Value regCAllocOp = b.create<miopen::GpuAllocOp>(loc, regCAllocType);
+
+    Value zeroConstantCOp = createZeroConstantOp(b, loc, destType);
+    b.create<FillOp>(loc, regCAllocOp, zeroConstantCOp);
 
     // Emit loop.
 
@@ -2105,7 +2096,6 @@ struct GridwiseGemmV2RewritePattern
     // 2-x : vectorCs.
     SmallVector<Value, 6> iterArgs = {blockwiseLoadACoords[1],
                                       blockwiseLoadBCoords[1]};
-    iterArgs.append(vectorCs);
 
     auto mfmaLoopOp = b.create<AffineForOp>(loc, 0, loopIteration, 1, iterArgs);
 
@@ -2113,8 +2103,6 @@ struct GridwiseGemmV2RewritePattern
     auto mfmalb = OpBuilder::atBlockBegin(mfmaLoopOp.getBody());
 
     const auto &mfmalArgs = mfmaLoopOp.getRegionIterArgs();
-    // get vectorCs for this iteration.
-    std::copy(mfmalArgs.begin() + 2, mfmalArgs.end(), vectorCs.begin());
 
     // Blockwise copy from global (generic tensor) to register (naive tensor).
     Value blockwiseCopyASrcUpdated =
@@ -2139,9 +2127,9 @@ struct GridwiseGemmV2RewritePattern
     // Emit blockwise V2 GEMM.
     // The xdlops gemms take a 1D buffer because reasons
     auto blockwiseGemmV2Op = mfmalb.create<BlockwiseGemmV2Op>(
-        loc, vectorCTypes, ldsGpuAllocOp, ldsGpuAllocOp,
-        b.getIndexAttr(ldsBlockAOffset), b.getIndexAttr(ldsBlockBOffset),
-        mMyWaveOffsetA, mMyWaveOffsetB, arrayA, arrayB, resultMerged, vectorCs);
+        loc, ldsGpuAllocOp, ldsGpuAllocOp, b.getIndexAttr(ldsBlockAOffset),
+        b.getIndexAttr(ldsBlockBOffset), mMyWaveOffsetA, mMyWaveOffsetB, arrayA,
+        arrayB, regCAllocOp);
     affixBlockwiseGemmV2Attributes(blockwiseGemmV2Op, op, MPerBlock, KPerBlock,
                                    NPerBlock, b);
 
@@ -2163,9 +2151,6 @@ struct GridwiseGemmV2RewritePattern
     // blockwiseCopyASrcVector and blockwiseCopyBSrcVector are updated.
     iterArgs[0] = blockwiseCopyASrcUpdated;
     iterArgs[1] = blockwiseCopyBSrcUpdated;
-    // blockwise_gemm_v2 updates iter args[4-].
-    std::copy(blockwiseGemmV2Op.getResults().begin(),
-              blockwiseGemmV2Op.getResults().end(), iterArgs.begin() + 2);
 
     // emit loop yield so iter args can be passed to the next iteration.
     mfmalb.create<AffineYieldOp>(loc, iterArgs);
@@ -2176,15 +2161,11 @@ struct GridwiseGemmV2RewritePattern
     // LDS barrier.
     b.create<LDSBarrierOp>(loc);
 
-    // get vectorCs for loop tail.
-    std::copy(mfmaLoopOp.getResults().begin() + 2,
-              mfmaLoopOp.getResults().end(), vectorCs.begin());
-
     // Emit blockwise GEMM for the loop tail.
     auto blockwiseGemmV2TailOp = b.create<BlockwiseGemmV2Op>(
-        loc, vectorCTypes, ldsGpuAllocOp, ldsGpuAllocOp,
-        b.getIndexAttr(ldsBlockAOffset), b.getIndexAttr(ldsBlockBOffset),
-        mMyWaveOffsetA, mMyWaveOffsetB, arrayA, arrayB, resultMerged, vectorCs);
+        loc, ldsGpuAllocOp, ldsGpuAllocOp, b.getIndexAttr(ldsBlockAOffset),
+        b.getIndexAttr(ldsBlockBOffset), mMyWaveOffsetA, mMyWaveOffsetB, arrayA,
+        arrayB, regCAllocOp);
     affixBlockwiseGemmV2Attributes(blockwiseGemmV2TailOp, op, MPerBlock,
                                    KPerBlock, NPerBlock, b);
 
@@ -2374,15 +2355,14 @@ struct GridwiseGemmV2RewritePattern
     if (enableOutSwizzles) {
       Value laneId = b.create<arith::RemUIOp>(loc, tid, waveSizeConstantOp);
       for (int i = 0; i < vectorNumber; ++i) {
-        Value indexOp =
-            b.createOrFold<ConstantIndexOp>(loc, i * resultCVectorLen);
+        Value indexOp = b.createOrFold<ConstantIndexOp>(loc, i * regCVectorLen);
         Value loaded =
-            b.create<InBoundsLoadOp>(loc, vectorType, resultMerged, indexOp);
+            b.create<InBoundsLoadOp>(loc, vectorType, regCAllocOp, indexOp);
         Value swizzle = b.create<InWarpTransposeOp>(
             loc, vectorType, loaded, laneId, b.getI32IntegerAttr(group_size),
             b.getI32ArrayAttr({0, 1, 2, 3}));
         transformedTail.push_back(swizzle);
-        b.create<miopen::InBoundsStoreOp>(loc, swizzle, resultMerged, indexOp);
+        b.create<miopen::InBoundsStoreOp>(loc, swizzle, regCAllocOp, indexOp);
       }
     } else {
       llvm::copy(tailResults, std::back_inserter(transformedTail));
@@ -2403,7 +2383,7 @@ struct GridwiseGemmV2RewritePattern
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(outLoop.getBody());
       b.create<ThreadwiseCopyV2Op>(
-          loc, resultMerged, tensorC, b.getIndexAttr(tensorCDataPerCopy),
+          loc, regCAllocOp, tensorC, b.getIndexAttr(tensorCDataPerCopy),
           op.storeMethodAttr(), std::get<0>(writeOobDims),
           std::get<1>(writeOobDims), outLoop.getLowerCoords(/*domain=*/0)[0],
           outLoop.getLowerCoords(/*domain=*/1));
