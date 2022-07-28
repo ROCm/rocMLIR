@@ -397,8 +397,6 @@ struct BlockwiseGemmV2RewritePattern
     Type bufferBElementType = bufferBType.getElementType();
 
     int64_t KPerThread = IsKReduction ? K / num_input_blks : K;
-    Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
-    auto KPerBlockConstantOp = b.create<ConstantIndexOp>(loc, KPerThread);
 
     if (!IsKReduction) {
 
@@ -539,16 +537,10 @@ struct BlockwiseGemmV2RewritePattern
     }
 
     if (MRepeats == 1 && NRepeats == 1) {
-      SmallVector<Type, 2> resultTypes;
-      for (auto result : op.vectorDs()) {
-        resultTypes.push_back(result.getType());
-      }
-
-      auto xdlopsGemmV2Op = b.replaceOpWithNewOp<XdlopsGemmV2Op>(
-          op, resultTypes, adaptor.matrixA(), adaptor.matrixB(),
-          op.ldsBufferOffsetAAttr(), op.ldsBufferOffsetBAttr(),
-          b.getIndexAttr(0), b.getIndexAttr(0), adaptor.bufferA(),
-          adaptor.bufferB(), adaptor.matrixRes(), adaptor.vectorCs());
+      auto xdlopsGemmV2Op = b.create<XdlopsGemmV2Op>(
+          loc, adaptor.matrixA(), adaptor.matrixB(), op.ldsBufferOffsetAAttr(),
+          op.ldsBufferOffsetBAttr(), b.getIndexAttr(0), b.getIndexAttr(0),
+          adaptor.bufferA(), adaptor.bufferB(), adaptor.matrixRes());
 
       xdlopsGemmV2Op->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op->setAttr("n", op->getAttr("n"));
@@ -557,6 +549,8 @@ struct BlockwiseGemmV2RewritePattern
       xdlopsGemmV2Op->setAttr("n_per_wave", op->getAttr("n_per_wave"));
       if (op->hasAttr("kpack"))
         xdlopsGemmV2Op->setAttr("kpack", op->getAttr("kpack"));
+
+      b.eraseOp(op);
     } else if (MRepeats == 2 && NRepeats == 1) {
       // Original C++ logic.
       // p_c_thread.s.x.l = XdlopsGemm.template Run<M, N, K>(
@@ -564,16 +558,10 @@ struct BlockwiseGemmV2RewritePattern
       // p_c_thread.s.y.l = XdlopsGemm.templateRun<M, N, K>(
       // p_a_block + MPerXdlops, p_b_block, p_c_thread.s.y.l);
 
-      SmallVector<Type, 2> resultTypes0;
-      resultTypes0.push_back(op.vectorDs()[0].getType());
-      resultTypes0.push_back(op.vectorDs()[1].getType());
-
       auto xdlopsGemmV2Op0 = b.create<XdlopsGemmV2Op>(
-          loc, resultTypes0, adaptor.matrixA(), adaptor.matrixB(),
-          op.ldsBufferOffsetAAttr(), op.ldsBufferOffsetBAttr(),
-          b.getIndexAttr(0), b.getIndexAttr(0), adaptor.bufferA(),
-          adaptor.bufferB(), adaptor.matrixRes(),
-          adaptor.vectorCs().take_front(2));
+          loc, adaptor.matrixA(), adaptor.matrixB(), op.ldsBufferOffsetAAttr(),
+          op.ldsBufferOffsetBAttr(), b.getIndexAttr(0), b.getIndexAttr(0),
+          adaptor.bufferA(), adaptor.bufferB(), adaptor.matrixRes());
 
       xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op0->setAttr("n", op->getAttr("n"));
@@ -585,16 +573,11 @@ struct BlockwiseGemmV2RewritePattern
       if (op->hasAttr("kpack"))
         xdlopsGemmV2Op0->setAttr("kpack", op->getAttr("kpack"));
 
-      SmallVector<Type, 2> resultTypes1;
-      resultTypes1.push_back(op.vectorDs()[2].getType());
-      resultTypes1.push_back(op.vectorDs()[3].getType());
-
       auto xdlopsGemmV2Op1 = b.create<XdlopsGemmV2Op>(
-          loc, resultTypes1, adaptor.matrixA(), adaptor.matrixB(),
-          op.ldsBufferOffsetAAttr(), op.ldsBufferOffsetBAttr(),
-          b.getIndexAttr(KPerThread), b.getIndexAttr(0), adaptor.bufferA(),
-          adaptor.bufferB(), adaptor.matrixRes(),
-          adaptor.vectorCs().drop_front(2));
+          loc, adaptor.matrixA(), adaptor.matrixB(), op.ldsBufferOffsetAAttr(),
+          op.ldsBufferOffsetBAttr(), b.getIndexAttr(KPerThread),
+          b.getIndexAttr(0), adaptor.bufferA(), adaptor.bufferB(),
+          adaptor.matrixRes());
 
       xdlopsGemmV2Op1->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op1->setAttr("n", op->getAttr("n"));
@@ -606,10 +589,7 @@ struct BlockwiseGemmV2RewritePattern
       if (op->hasAttr("kpack"))
         xdlopsGemmV2Op1->setAttr("kpack", op->getAttr("kpack"));
 
-      b.replaceOp(op, ValueRange{xdlopsGemmV2Op0.vectorDs()[0],
-                                 xdlopsGemmV2Op0.vectorDs()[1],
-                                 xdlopsGemmV2Op1.vectorDs()[0],
-                                 xdlopsGemmV2Op1.vectorDs()[1]});
+      b.eraseOp(op);
     } else if (MRepeats == 1 && NRepeats == 2) {
       // Original C++ logic.
       // p_c_thread.s.x.l = XdlopsGemm.template Run<M, N, K>(
@@ -617,16 +597,10 @@ struct BlockwiseGemmV2RewritePattern
       // p_c_thread.s.y.l = XdlopsGemm.template Run<M, N, K>(
       // p_a_block, p_b_block + NPerXdlops, p_c_thread.s.y.l);
 
-      SmallVector<Type, 2> resultTypes0;
-      resultTypes0.push_back(op.vectorDs()[0].getType());
-      resultTypes0.push_back(op.vectorDs()[1].getType());
-
       auto xdlopsGemmV2Op0 = b.create<XdlopsGemmV2Op>(
-          loc, resultTypes0, adaptor.matrixA(), adaptor.matrixB(),
-          op.ldsBufferOffsetAAttr(), op.ldsBufferOffsetBAttr(),
-          b.getIndexAttr(0), b.getIndexAttr(0), adaptor.bufferA(),
-          adaptor.bufferB(), adaptor.matrixRes(),
-          adaptor.vectorCs().take_front(2));
+          loc, adaptor.matrixA(), adaptor.matrixB(), op.ldsBufferOffsetAAttr(),
+          op.ldsBufferOffsetBAttr(), b.getIndexAttr(0), b.getIndexAttr(0),
+          adaptor.bufferA(), adaptor.bufferB(), adaptor.matrixRes());
 
       xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op0->setAttr("n", op->getAttr("n"));
@@ -638,16 +612,11 @@ struct BlockwiseGemmV2RewritePattern
       if (op->hasAttr("kpack"))
         xdlopsGemmV2Op0->setAttr("kpack", op->getAttr("kpack"));
 
-      SmallVector<Type, 2> resultTypes1;
-      resultTypes1.push_back(op.vectorDs()[2].getType());
-      resultTypes1.push_back(op.vectorDs()[3].getType());
-
       auto xdlopsGemmV2Op1 = b.create<XdlopsGemmV2Op>(
-          loc, resultTypes1, adaptor.matrixA(), adaptor.matrixB(),
-          op.ldsBufferOffsetAAttr(), op.ldsBufferOffsetBAttr(),
-          b.getIndexAttr(0), b.getIndexAttr(KPerThread), adaptor.bufferA(),
-          adaptor.bufferB(), adaptor.matrixRes(),
-          adaptor.vectorCs().drop_front(2));
+          loc, adaptor.matrixA(), adaptor.matrixB(), op.ldsBufferOffsetAAttr(),
+          op.ldsBufferOffsetBAttr(), b.getIndexAttr(0),
+          b.getIndexAttr(KPerThread), adaptor.bufferA(), adaptor.bufferB(),
+          adaptor.matrixRes());
 
       xdlopsGemmV2Op1->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op1->setAttr("n", op->getAttr("n"));
@@ -659,10 +628,7 @@ struct BlockwiseGemmV2RewritePattern
       if (op->hasAttr("kpack"))
         xdlopsGemmV2Op1->setAttr("kpack", op->getAttr("kpack"));
 
-      b.replaceOp(op, ValueRange{xdlopsGemmV2Op0.vectorDs()[0],
-                                 xdlopsGemmV2Op0.vectorDs()[1],
-                                 xdlopsGemmV2Op1.vectorDs()[0],
-                                 xdlopsGemmV2Op1.vectorDs()[1]});
+      b.eraseOp(op);
     }
 
     return success();

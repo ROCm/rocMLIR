@@ -730,9 +730,7 @@ def MIOpen_BlockwiseGemmV2Op:
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
                              VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$bufferB,
-                   MemRefOf<[F32, F16, BF16, I32]>:$matrixRes,
-                   Variadic<VectorOfRankAndType<[1], [F32, F16, I32]>>:$vectorCs)>,
-    Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16, I32]>>: $vectorDs)> {
+                   MemRefOf<[F32, F16, BF16, I32]>:$matrixRes)>{
   let summary = "Blockwise GEMM XDLOPS version";
   let description = [{
     The `miopen.block_gemm` op does GEMM at workgroup (block) level.
@@ -743,7 +741,7 @@ def MIOpen_BlockwiseGemmV2Op:
     not slices of a larger object.
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands) `->` type($vectorDs)
+    `(` operands `)` attr-dict `:` type(operands)
   }];
 }
 
@@ -786,9 +784,7 @@ def MIOpen_XdlopsGemmV2Op:
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
                              VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$bufferB,
-                   MemRefOf<[F32, F16, BF16, I32]>:$matrixRes,
-                   Variadic<VectorOfRankAndType<[1], [F32, F16, I32]>>:$vectorCs)>,
-    Results<(outs Variadic<VectorOfRankAndType<[1], [F32, F16, I32]>>:$vectorDs)> {
+                   MemRefOf<[F32, F16, BF16, I32]>:$matrixRes)>{
   let summary = "XDLOPS GEMM V2";
   let description = [{
     The `miopen.xdlops_gemm_v2` op is an abstraction of doing GEMM based on XDLOPS.

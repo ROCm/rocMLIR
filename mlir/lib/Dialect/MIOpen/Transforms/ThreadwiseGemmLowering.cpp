@@ -236,8 +236,7 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     auto regBConstantOp =
         b.create<ConstantIndexOp>(loc, op.regOffsetBAttr().getInt());
 
-    auto outerLoop =
-        b.create<AffineForOp>(loc, 0, outerLoopUpperBound, 1, op.vectorCs());
+    auto outerLoop = b.create<AffineForOp>(loc, 0, outerLoopUpperBound);
     auto outerLoopb = ConversionPatternRewriter::atBlockBegin(
         outerLoop.getBody(), b.getListener());
     auto outerLoopiv = outerLoop.getInductionVar();
@@ -258,8 +257,8 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
           loc, bufferBElementType, bufferB, ValueRange{regBIdx});
     }
 
-    auto innerLoop = outerLoopb.create<AffineForOp>(
-        loc, 0, KRepeats * k_base, k_base, outerLoop.getRegionIterArgs());
+    auto innerLoop =
+        outerLoopb.create<AffineForOp>(loc, 0, KRepeats * k_base, k_base);
     auto innerLoopb = ConversionPatternRewriter::atBlockBegin(
         innerLoop.getBody(), outerLoopb.getListener());
     auto innerLoopiv = innerLoop.getInductionVar();
@@ -302,15 +301,7 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
                                                innerLoopiv);
     }
 
-    SmallVector<Value, 4> mfmas;
     for (int64_t i = 0; i < vectorNumber; ++i) {
-      auto vectorC = innerLoop.getRegionIterArgs()[i];
-      auto mfma = innerLoopb.create<amdgpu::MFMAOp>(
-          loc, vectorType, mfmaInstr, argA, argB, vectorC,
-          /*cbsz=*/imms[i][0], /*abid=*/imms[i][1], /*blgp=*/imms[i][2]);
-      mfmas.push_back(mfma);
-      auto vectorD = mfma.destD();
-
       // Note below is assuming only one of MRepeats or NRepeats is larger
       // than 1, which fits the existing blockwisegemmv2op implementation.
       // TODO: Move MRepeats and NRepeats into xdlopsgemmv2op
@@ -321,15 +312,19 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
       }
       Value offset = innerLoopb.createOrFold<arith::ConstantIndexOp>(
           loc, (regDOffset + i) * vectorType.getNumElements());
+
+      auto vectorC = innerLoopb.create<miopen::InBoundsLoadOp>(
+          loc, vectorType, adaptor.matrixRes(), offset);
+      auto mfma = innerLoopb.create<amdgpu::MFMAOp>(
+          loc, vectorType, mfmaInstr, argA, argB, vectorC,
+          /*cbsz=*/imms[i][0], /*abid=*/imms[i][1], /*blgp=*/imms[i][2]);
+      auto vectorD = mfma.destD();
+
       innerLoopb.create<miopen::InBoundsStoreOp>(loc, vectorD,
                                                  adaptor.matrixRes(), offset);
     }
-    innerLoopb.create<AffineYieldOp>(loc, mfmas);
 
-    outerLoopb.create<AffineYieldOp>(loc, innerLoop.results());
-
-    b.replaceOp(op, outerLoop.results());
-
+    b.eraseOp(op);
     return success();
   }
 };
