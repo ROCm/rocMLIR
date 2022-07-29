@@ -434,7 +434,9 @@ float halfFloatInterval(float val)
     //return std::pow(2.0f, -10.0f);
 }
 
-#define HISTOGRAM
+//#define HISTOGRAM
+#define MI200
+
 
 int findIdxHistRelDiff(double relDiff)
 {
@@ -623,6 +625,11 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
     double aveRelDiff = sumRelDiff / static_cast<double>(dataSize);
     double err_RMS = sqrt(sumDiffSq) /
         (static_cast<double>(maxMag) * sqrt(static_cast<double>(dataSize)));
+#ifdef MI200
+    printf("Verify results for MI200 %f\n", pow(2.0f, -14.0f));
+#else
+    printf("Verify results for MI100\n");
+#endif
     printf("%-10ld (%d %d %d %d) %.1f (%.10f %.10f) %f %lf %.1e %.1e (%.10f %.10f) %.1e %.1e\n",
            dataSize, cnt_exact, cnt_epsilon, cnt_large, cnt_unknown, maxEpsilonDiff, maxCPU, maxGPU,
            maxAbsDiff, aveAbsDiff,
@@ -630,7 +637,6 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
            aveRelDiff,
            err_RMS);
 #ifdef HISTOGRAM
-    printf("Printing hisorgra,\n");
     for (int i = 0; i < 10; ++i)
         printf("%d(%lf%%) ", hist_relDiff[i], 100.0*static_cast<double>(hist_relDiff[i])/static_cast<double>(dataSize));
     for (int i = 0; i < 10; ++i)
@@ -863,6 +869,7 @@ static void getSizesAndStrides(int64_t rank1, StridedMemRefType<T1, 5> *filter,
                          oStrides);
 }
 
+
 template <typename TIn, typename TOut, typename TAcc>
 static void performConv2d(
     TIn *filterAllocated, TIn *inputAllocated, TOut *outputAllocated,
@@ -873,13 +880,13 @@ static void performConv2d(
     int32_t padding_h_r, int32_t padding_w_l, int32_t padding_w_r,
     int32_t dilation_h, int32_t dilation_w, int32_t xdlops) {
 
-    // printf("Info about input and filter\n");
-    // printf("Input sizes: (%ldx%ldx%ldx%ldx%ld)\n",
-    //        inputSizes[0], inputSizes[1], inputSizes[2], inputSizes[3], inputSizes[4]);
-    // printf("filter sizes: (%ldx%ldx%ldx%ldx%ld)\n",
-    //        filterSizes[0], filterSizes[1], filterSizes[2], filterSizes[3], filterSizes[4]);
-    // printf("Output sizes: (%ldx%ldx%ldx%ldx%ld)\n",
-    //        outputSizes[0], outputSizes[1], outputSizes[2], outputSizes[3], outputSizes[4]);
+    printf("Info about input and filter\n");
+    printf("Input sizes: (%ldx%ldx%ldx%ldx%ld)\n",
+           inputSizes[0], inputSizes[1], inputSizes[2], inputSizes[3], inputSizes[4]);
+    printf("filter sizes: (%ldx%ldx%ldx%ldx%ld)\n",
+           filterSizes[0], filterSizes[1], filterSizes[2], filterSizes[3], filterSizes[4]);
+    printf("Output sizes: (%ldx%ldx%ldx%ldx%ld)\n",
+           outputSizes[0], outputSizes[1], outputSizes[2], outputSizes[3], outputSizes[4]);
 
     // printf("Input image:\n");
     // int64_t in_channels = inputSizes[2];
@@ -912,7 +919,7 @@ static void performConv2d(
     //     }
     //     printf("\n");
     // }
-
+    float smallest_normal = pow(2.0f, -14.0f);
   // Perform forward convolution
   for (int64_t g = 0; g < outputSizes[0]; g++)
     for (int64_t n = 0; n < outputSizes[1]; n++)
@@ -920,41 +927,56 @@ static void performConv2d(
         for (int64_t out_h = 0; out_h < outputSizes[3]; out_h++)
           for (int64_t out_w = 0; out_w < outputSizes[4]; out_w++) {
 
-            TAcc acc = 0.0;
-            for (int64_t c = 0; c < inputSizes[2]; c++)
-              for (int64_t fil_h = 0; fil_h < filterSizes[3]; fil_h++)
-                for (int64_t fil_w = 0; fil_w < filterSizes[4]; fil_w++) {
+            TOut acc = 0.0;
+            int cnt = 0;
+            TAcc acc_mid = 0.0;
+            for (int64_t c = 0; c < inputSizes[2]; c++){
+                //acc_mid = 0.0;
+                for (int64_t fil_h = 0; fil_h < filterSizes[3]; fil_h++){
+                    for (int64_t fil_w = 0; fil_w < filterSizes[4]; fil_w++) {
 
-                  TIn input;
-                  int64_t in_h =
-                      out_h * stride_h + fil_h * dilation_h - padding_h_l;
-                  int64_t in_w =
-                      out_w * stride_w + fil_w * dilation_w - padding_w_l;
+                        TIn input;
+                        TIn fil;
+                        int64_t in_h = out_h * stride_h + fil_h * dilation_h - padding_h_l;
+                        int64_t in_w = out_w * stride_w + fil_w * dilation_w - padding_w_l;
 
-                  if (in_h < 0 || in_h >= inputSizes[3] || in_w < 0 ||
-                      in_w >= inputSizes[4])
-                    input = (TIn)0;
-                  else
-
-                    input = inputAllocated[g * inputStrides[0] +
-                                           n * inputStrides[1] +
-                                           c * inputStrides[2] +
-                                           in_h * inputStrides[3] +
-                                           in_w * inputStrides[4]];
-
-                  acc +=
-                      (TAcc)(input * filterAllocated[g * filterStrides[0] +
-                                                     k * filterStrides[1] +
-                                                     c * filterStrides[2] +
-                                                     fil_h * filterStrides[3] +
-                                                     fil_w * filterStrides[4]]);
-                  if (!xdlops) // || (fil_w + fil_h + c) % 4 == 3)
-                    acc = (TOut)acc;
+                        if (in_h < 0 || in_h >= inputSizes[3] || in_w < 0 || in_w >= inputSizes[4])
+                            input = (TIn)0;
+                        else
+                            input = inputAllocated[g * inputStrides[0] + n * inputStrides[1] + c * inputStrides[2] +
+                                                   in_h * inputStrides[3] + in_w * inputStrides[4]];
+                        fil = filterAllocated[g * filterStrides[0] + k * filterStrides[1] + c * filterStrides[2] +
+                                              fil_h * filterStrides[3] + fil_w * filterStrides[4]];
+                        //acc_mid += (TAcc)input * (TAcc)fil;
+#ifdef MI200
+                        // On MI200, subnormal numbers in inputs is flushed to zero
+                        if (fabs((float)input) < smallest_normal) input = 0.0;
+                        if (fabs((float)fil) < smallest_normal) fil = 0.0;
+#endif
+                        acc_mid += (TAcc)input * (TAcc)fil;
+                        //acc += (TAcc)input * (TAcc)fil;
+                        cnt ++;
+                        if (cnt == 4){
+                            cnt = 0;
+                            acc = (TOut) (acc_mid + (TAcc) acc);
+#ifdef MI200
+                            //if (fabs((float)acc) < smallest_normal) acc = (TOut)0.0;
+#endif
+                            acc_mid = (TAcc)0.0;
+                         }
+                        //if (!xdlops) // || (fil_w + fil_h + c) % 4 == 3)
+                        //  acc = (TOut)acc;
+                    }
                 }
+            }
+            acc = (TOut) (acc_mid + (TAcc) acc);
+#ifdef MI200
+            //if (fabs((float)acc) < smallest_normal) acc = (TOut)0.0;
+#endif
 
             outputAllocated[g * outputStrides[0] + n * outputStrides[1] +
                             k * outputStrides[2] + out_h * outputStrides[3] +
-                            out_w * outputStrides[4]] = (TOut)acc;
+                            out_w * outputStrides[4]] = acc;
           }
 
   // printf("Result:\n");
@@ -1050,7 +1072,7 @@ extern "C" void mcpuConv2dBwdWeightFloat(
                   int64_t in_w =
                       out_w * stride_w + x * dilation_w - padding_w_l;
                   if (in_h >= 0 && in_h < inputSizes[3] && in_w >= 0 &&
-                      in_w < inputSizes[4])
+                      in_w < inputSizes[4]){
                     acc += (double)(inputAllocated[g * inputStrides[0] +
                                                    n * inputStrides[1] +
                                                    c * inputStrides[2] +
@@ -1061,6 +1083,7 @@ extern "C" void mcpuConv2dBwdWeightFloat(
                                                     k * outputStrides[2] +
                                                     out_h * outputStrides[3] +
                                                     out_w * outputStrides[4]]);
+                  }
                   if (!xdlops) // || (out_w + out_h + n) % 4 == 3)
                     acc = (float)acc;
                 }
