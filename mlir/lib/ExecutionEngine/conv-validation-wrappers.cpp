@@ -626,9 +626,9 @@ extern "C" void mcpuVerify5DFloatFloat(float *gpuAllocated,
     double err_RMS = sqrt(sumDiffSq) /
         (static_cast<double>(maxMag) * sqrt(static_cast<double>(dataSize)));
 #ifdef MI200
-    printf("Verify results for MI200 %f\n", pow(2.0f, -14.0f));
+    printf("Verify results for MI200 %.10f\n", pow(2.0f, -14.0f));
 #else
-    printf("Verify results for MI100\n");
+    printf("Verify results for MI100 %.10f\n", pow(2.0f, -24.0f));
 #endif
     printf("%-10ld (%d %d %d %d) %.1f (%.10f %.10f) %f %lf %.1e %.1e (%.10f %.10f) %.1e %.1e\n",
            dataSize, cnt_exact, cnt_epsilon, cnt_large, cnt_unknown, maxEpsilonDiff, maxCPU, maxGPU,
@@ -920,6 +920,7 @@ static void performConv2d(
     //     printf("\n");
     // }
     float smallest_normal = pow(2.0f, -14.0f);
+    float smallest_subnormal = pow(2.0f, -24.0f);
   // Perform forward convolution
   for (int64_t g = 0; g < outputSizes[0]; g++)
     for (int64_t n = 0; n < outputSizes[1]; n++)
@@ -952,6 +953,10 @@ static void performConv2d(
                         // On MI200, subnormal numbers in inputs is flushed to zero
                         if (fabs((float)input) < smallest_normal) input = 0.0;
                         if (fabs((float)fil) < smallest_normal) fil = 0.0;
+#else
+                        // On MI100, underflow numbers in inputs is flushed to zero
+                        if (fabs((float)input) < smallest_subnormal) input = 0.0;
+                        if (fabs((float)fil) < smallest_subnormal) fil = 0.0;
 #endif
                         acc_mid += (TAcc)input * (TAcc)fil;
                         //acc += (TAcc)input * (TAcc)fil;
@@ -959,9 +964,6 @@ static void performConv2d(
                         if (cnt == 4){
                             cnt = 0;
                             acc = (TOut) (acc_mid + (TAcc) acc);
-#ifdef MI200
-                            //if (fabs((float)acc) < smallest_normal) acc = (TOut)0.0;
-#endif
                             acc_mid = (TAcc)0.0;
                          }
                         //if (!xdlops) // || (fil_w + fil_h + c) % 4 == 3)
@@ -970,9 +972,6 @@ static void performConv2d(
                 }
             }
             acc = (TOut) (acc_mid + (TAcc) acc);
-#ifdef MI200
-            //if (fabs((float)acc) < smallest_normal) acc = (TOut)0.0;
-#endif
 
             outputAllocated[g * outputStrides[0] + n * outputStrides[1] +
                             k * outputStrides[2] + out_h * outputStrides[3] +
@@ -1056,6 +1055,8 @@ extern "C" void mcpuConv2dBwdWeightFloat(
                                    filterStrides, inputSizes, inputStrides,
                                    outputSizes, outputStrides);
 
+  float smallest_normal = pow(2.0f, -14.0f);
+  float smallest_subnormal = pow(2.0f, -24.0f);
   // Perform bwd_weight convolution
   for (int64_t g = 0; g < outputSizes[0]; g++)
     for (int64_t k = 0; k < filterSizes[1]; k++)
@@ -1063,7 +1064,9 @@ extern "C" void mcpuConv2dBwdWeightFloat(
         for (int64_t y = 0; y < filterSizes[3]; y++)
           for (int64_t x = 0; x < filterSizes[4]; x++) {
 
-            double acc = 0.0;
+            float acc = 0.0f;
+            int cnt = 0;
+            double acc_mid = 0.0;
             for (int64_t n = 0; n < outputSizes[1]; n++)
               for (int64_t out_h = 0; out_h < outputSizes[3]; out_h++)
                 for (int64_t out_w = 0; out_w < outputSizes[4]; out_w++) {
@@ -1073,23 +1076,40 @@ extern "C" void mcpuConv2dBwdWeightFloat(
                       out_w * stride_w + x * dilation_w - padding_w_l;
                   if (in_h >= 0 && in_h < inputSizes[3] && in_w >= 0 &&
                       in_w < inputSizes[4]){
-                    acc += (double)(inputAllocated[g * inputStrides[0] +
+                      float input = inputAllocated[g * inputStrides[0] +
                                                    n * inputStrides[1] +
                                                    c * inputStrides[2] +
                                                    in_h * inputStrides[3] +
-                                                   in_w * inputStrides[4]] *
-                                    outputAllocated[g * outputStrides[0] +
-                                                    n * outputStrides[1] +
-                                                    k * outputStrides[2] +
-                                                    out_h * outputStrides[3] +
-                                                    out_w * outputStrides[4]]);
+                                                   in_w * inputStrides[4]];
+                      float output = outputAllocated[g * outputStrides[0] +
+                                                     n * outputStrides[1] +
+                                                     k * outputStrides[2] +
+                                                     out_h * outputStrides[3] +
+                                                     out_w * outputStrides[4]];
+#ifdef MI200
+                      // On MI200, subnormal numbers in inputs is flushed to zero
+                      if (fabs((float)input) < smallest_normal) input = 0.0;
+                      if (fabs((float)output) < smallest_normal) output = 0.0;
+#else
+                      // On MI100, underflow flushes to zero
+                      if (fabs((float)input) < smallest_subnormal) input = 0.0;
+                      if (fabs((float)output) < smallest_subnormal) output = 0.0;
+#endif
+                      acc_mid += (double)input * (double)output;
+                      cnt ++;
+                      if (cnt == 4){
+                          cnt = 0;
+                          acc = (float) (acc_mid + (double) acc);
+                          acc_mid = 0.0;
+                      }
                   }
-                  if (!xdlops) // || (out_w + out_h + n) % 4 == 3)
-                    acc = (float)acc;
+                  //if (!xdlops) // || (out_w + out_h + n) % 4 == 3)
+                  //  acc = (float)acc;
                 }
+            acc = (float) (acc_mid + (double) acc);
             filterAllocated[g * filterStrides[0] + k * filterStrides[1] +
                             c * filterStrides[2] + y * filterStrides[3] +
-                            x * filterStrides[4]] = (float)acc;
+                            x * filterStrides[4]] = acc;
           }
 }
 
