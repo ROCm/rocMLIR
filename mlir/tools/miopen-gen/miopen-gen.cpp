@@ -292,7 +292,7 @@ static cl::opt<std::string> genValidation(
     "verifier", cl::desc("Select verification from: none(default), cpu, gpu"),
     cl::cb<void, std::string>([](const std::string &v) {
       if (!v.empty())
-        genHostHarness.setValue(true);
+        genHostHarness = true;
     }),
     cl::value_desc("Specify host validation logic"), cl::init(""));
 
@@ -300,8 +300,8 @@ static cl::opt<bool> genCPUValidation("pv", cl::Hidden, cl::init(false),
                                       cl::Optional,
                                       cl::cb<void, bool>([](bool v) {
                                         if (v) {
-                                          genValidation.setValue("cpu");
-                                          genHostHarness.setValue(true);
+                                          genValidation = "cpu";
+                                          genHostHarness = true;
                                         }
                                       }));
 
@@ -309,8 +309,8 @@ static cl::opt<bool> genGPUValidation("pv_with_gpu", cl::Hidden,
                                       cl::init(false), cl::Optional,
                                       cl::cb<void, bool>([](bool v) {
                                         if (v) {
-                                          genValidation.setValue("gpu");
-                                          genHostHarness.setValue(true);
+                                          genValidation = "gpu";
+                                          genHostHarness = true;
                                         }
                                       }));
 
@@ -319,8 +319,8 @@ static cl::opt<bool> genCPUKernel("cpu-kernels",
                                   cl::init(false), cl::Optional,
                                   cl::cb<void, bool>([](bool v) {
                                     if (v) {
-                                      genHostHarness.setValue(true);
-                                      printResults.setValue(true);
+                                      genHostHarness = true;
+                                      printResults = true;
                                     }
                                   }));
 static cl::alias aliasGenCPUKernel("prc", cl::aliasopt(genCPUKernel));
@@ -386,65 +386,55 @@ static void correctParameters() {
   std::string filterLayoutValue = filterLayout.getValue();
   std::string inputLayoutValue = inputLayout.getValue();
   std::string outputLayoutValue = outputLayout.getValue();
-  if (filterLayoutValue.size() == 4) { // yxcgk not implement yet
-    if (filterLayoutValue == "kcyx")
-      filterLayout.setValue("gkcyx");
-    else if (filterLayoutValue == "kyxc")
-      filterLayout.setValue("gkyxc");
-    else
-      filterLayout.setValue("g" + filterLayoutValue);
-  }
-  if (outputLayoutValue.size() == 4) {
-    if (outputLayoutValue == "nkhw")
-      outputLayout.setValue("ngkhw");
-    else if (outputLayoutValue == "nhwk")
-      outputLayout.setValue("nhwgk");
-    else
-      outputLayout.setValue("g" + outputLayoutValue);
-  }
+  // yxcgk not implement yet
+  if (filterLayoutValue == "kcyx")
+    filterLayout = "gkcyx";
+  else if (filterLayoutValue == "kyxc")
+    filterLayout = "gkyxc";
+  else if (filterLayoutValue.size() == 4)
+    filterLayout = "g" + filterLayoutValue;
 
-  if (inputLayoutValue.size() == 4) {
-    if (inputLayoutValue == "nchw")
-      inputLayout.setValue("ngchw");
-    else if (inputLayoutValue == "nhwc")
-      inputLayout.setValue("nhwgc");
-    else
-      inputLayout.setValue("g" + inputLayoutValue);
-  }
+  if (outputLayoutValue == "nkhw")
+    outputLayout = "ngkhw";
+  else if (outputLayoutValue == "nhwk")
+    outputLayout = "nhwgk";
+  else if (outputLayoutValue.size() == 4)
+    outputLayout = "g" + outputLayoutValue;
+
+  if (inputLayoutValue == "nchw")
+    inputLayout = "ngchw";
+  else if (inputLayoutValue == "nhwc")
+    inputLayout = "nhwgc";
+  else if (inputLayoutValue.size() == 4)
+    inputLayout = "g" + inputLayoutValue;
 
   // we can use paddingHeight or paddingHeightLeft + paddingHeightRight
   // if use paddingHeight , paddingHeightLeft and paddingHeightRight =
   // paddingHeight if use paddingHeightLeft + paddingHeightRight , please
   // assigne value
-  if (paddingHeight.getValue() > 0) {
-    if (paddingHeightLeft.getValue() == 0 &&
-        paddingHeightRight.getValue() == 0) {
-      paddingHeightLeft.setValue(paddingHeight.getValue());
-      paddingHeightRight.setValue(paddingHeight.getValue());
-    } else {
-      if (paddingHeightLeft.getValue() != paddingHeight.getValue() ||
-          paddingHeightRight.getValue() != paddingHeight.getValue()) {
-        llvm::errs()
-            << "you can't use both padding_h and (padding_h_l,padding_h_r).\n";
+  auto validatePadding = [](cl::opt<int>& combined, cl::opt<int>& left,
+                            cl::opt<int>& right, StringRef name) {
+    if (combined.getValue() > 0) {
+      int combinedVal = combined.getValue();
+      int leftVal = left.getValue();
+      int rightVal = right.getValue();
+      if (leftVal == 0 && rightVal == 0) {
+        left = combinedVal;
+        right = combinedVal;
+      } else {
+        if (leftVal != combinedVal || rightVal != combinedVal) {
+          llvm::errs()
+            << "you can't use both " << name << " and (" << name << "_l,"
+            << name << "_r).\n";
+        }
       }
     }
-  }
+  };
 
-  // we can use paddingWidth or paddingWidthLeft + paddingWidthRight
-  // if use paddingWidth , paddingWidthLeft and paddingWidthRight = paddingWidth
-  // if use paddingWidthLeft + paddingWidthRight , please assigne value
-  if (paddingWidth.getValue() > 0) {
-    if (paddingWidthLeft.getValue() == 0 && paddingWidthRight.getValue() == 0) {
-      paddingWidthLeft.setValue(paddingWidth.getValue());
-      paddingWidthRight.setValue(paddingWidth.getValue());
-    } else {
-      if (paddingWidthLeft.getValue() != paddingWidth.getValue() ||
-          paddingWidthRight.getValue() != paddingWidth.getValue()) {
-        llvm::errs()
-            << "you can't use both padding_w and (padding_w_l,padding_w_r).\n";
-      }
-    }
-  }
+  validatePadding(paddingHeight, paddingHeightLeft, paddingHeightRight,
+                  "padding_h");
+  validatePadding(paddingWidth, paddingWidthLeft, paddingWidthRight,
+                  "padding_w");
 
   // adjust the padding size
   // getOutputDim can give us correct output size
@@ -474,7 +464,7 @@ static void correctParameters() {
   // add extra padding on the right to allow the convolution to execute
   // successfully.
   if (hi_minimum > hi_specified)
-    paddingHeightRight.setValue(in_right_pad_h + (hi_minimum - hi_specified));
+    paddingHeightRight = in_right_pad_h + (hi_minimum - hi_specified);
 
   int wi = inputWidth.getValue();
   int x = filterWidth.getValue();
@@ -493,7 +483,7 @@ static void correctParameters() {
   // add extra padding on the right to allow the convolution to execute
   // successfully.
   if (wi_minimum > wi_specified)
-    paddingWidthRight.setValue(in_right_pad_w + (wi_minimum - wi_specified));
+    paddingWidthRight = in_right_pad_w + (wi_minimum - wi_specified);
 }
 
 static void verifyLayout() {
@@ -521,64 +511,64 @@ static void populateDefaults() {
   // We don't particularly care about this field in the lowering
   // process unless it is tuning related. Therefore, setting this
   // field to a default value regardless.
-  arch.setValue("amdgcn-amd-amdhsa:gfx900");
+  arch = "amdgcn-amd-amdhsa:gfx900";
 
-  if (populateDefaultValues == true) {
-    if (xdlopsV2.getValue() == false) {
-      groupSize.setValue(1);
-      batchSize.setValue(128);
-      inputChannel.setValue(8);
-      outputChannel.setValue(128);
-      inputHeight.setValue(32);
-      inputWidth.setValue(32);
-      filterHeight.setValue(3);
-      filterWidth.setValue(3);
-      dilationHeight.setValue(1);
-      dilationWidth.setValue(1);
-      strideHeight.setValue(1);
-      strideWidth.setValue(1);
-      paddingHeightLeft.setValue(0);
-      paddingHeightRight.setValue(0);
-      paddingWidthLeft.setValue(0);
-      paddingWidthRight.setValue(0);
+  if (populateDefaultValues) {
+    if (!xdlopsV2.getValue()) {
+      groupSize = 1;
+      batchSize = 128;
+      inputChannel = 8;
+      outputChannel = 128;
+      inputHeight = 32;
+      inputWidth = 32;
+      filterHeight = 3;
+      filterWidth = 3;
+      dilationHeight = 1;
+      dilationWidth = 1;
+      strideHeight = 1;
+      strideWidth = 1;
+      paddingHeightLeft = 0;
+      paddingHeightRight = 0;
+      paddingWidthLeft = 0;
+      paddingWidthRight = 0;
     } else {
-      groupSize.setValue(1);
-      batchSize.setValue(128);
-      inputChannel.setValue(1024);
-      outputChannel.setValue(1024);
-      inputHeight.setValue(14);
-      inputWidth.setValue(14);
-      filterHeight.setValue(1);
-      filterWidth.setValue(1);
-      dilationHeight.setValue(1);
-      dilationWidth.setValue(1);
-      strideHeight.setValue(1);
-      strideWidth.setValue(1);
-      paddingHeightLeft.setValue(0);
-      paddingHeightRight.setValue(0);
-      paddingWidthLeft.setValue(0);
-      paddingWidthRight.setValue(0);
-      num_cu.setValue(120);
-      arch.setValue("amdgcn-amd-amdhsa:gfx908");
+      groupSize = 1;
+      batchSize = 128;
+      inputChannel = 1024;
+      outputChannel = 1024;
+      inputHeight = 14;
+      inputWidth = 14;
+      filterHeight = 1;
+      filterWidth = 1;
+      dilationHeight = 1;
+      dilationWidth = 1;
+      strideHeight = 1;
+      strideWidth = 1;
+      paddingHeightLeft = 0;
+      paddingHeightRight = 0;
+      paddingWidthLeft = 0;
+      paddingWidthRight = 0;
+      num_cu = 120;
+      arch = "amdgcn-amd-amdhsa:gfx908";
     }
   }
 
-  if (xdlopsV2.getValue() == true) {
-    num_cu.setValue(120);
-    arch.setValue("amdgcn-amd-amdhsa:gfx908");
+  if (xdlopsV2.getValue()) {
+    num_cu = 120;
+    arch = "amdgcn-amd-amdhsa:gfx908";
   }
 
   if (outputHeight.getNumOccurrences() == 0) {
-    outputHeight.setValue(miopen::Conv2dGenerator::outputDim(
+    outputHeight = miopen::Conv2dGenerator::outputDim(
         inputHeight.getValue(), filterHeight.getValue(),
         paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
-        strideHeight.getValue(), dilationHeight.getValue()));
+        strideHeight.getValue(), dilationHeight.getValue());
   }
   if (outputWidth.getNumOccurrences() == 0) {
-    outputWidth.setValue(miopen::Conv2dGenerator::outputDim(
+    outputWidth = miopen::Conv2dGenerator::outputDim(
         inputWidth.getValue(), filterWidth.getValue(),
         paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
-        strideWidth.getValue(), dilationWidth.getValue()));
+        strideWidth.getValue(), dilationWidth.getValue());
   }
 }
 
@@ -1033,20 +1023,11 @@ createCPUConvFunc(ModuleOp module,
   return func;
 }
 
-const char *getTypeStr(const mlir::Type &type) {
-  if (type.isF32())
-    return "f32";
-  else if (type.isF16())
-    return "f16";
-  else if (type.isBF16())
-    return "bf16";
-  else if (type.isInteger(32))
-    return "i32";
-  else if (type.isInteger(16))
-    return "i16";
-  else if (type.isInteger(8))
-    return "i8";
-  return "na";
+std::string getTypeStr(const mlir::Type &type) {
+  std::string typeName;
+  llvm::raw_string_ostream nameStream(typeName);
+  nameStream << type;
+  return nameStream.str();
 }
 
 static func::FuncOp getMemcpyFuncDecl(ModuleOp &module,
@@ -1654,14 +1635,14 @@ populateHostHarnessLogic(ModuleOp &module,
     } else if (!valVars.empty()) {
       b.create<func::CallOp>(loc, root.func, valVars);
       if (!root.func->hasAttr("kernel")) {
-        printValidationResults.setValue(true);
-        printResults.setValue(false);
+        printValidationResults = true;
+        printResults = false;
       }
     } else {
       b.create<func::CallOp>(loc, root.func, localVars);
       if (!root.func->hasAttr("kernel")) {
-        printValidationResults.setValue(false);
-        printResults.setValue(true);
+        printValidationResults = false;
+        printResults = true;
       }
     }
   }
