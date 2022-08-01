@@ -195,7 +195,7 @@ public:
 
     auto tokenType = rw.getType<gpu::AsyncTokenType>();
 
-    Value zeroIdx = rw.createOrFold<arith::ConstantIndexOp>(loc, 0);
+    Value oneIdx = rw.createOrFold<arith::ConstantIndexOp>(loc, 1);
     Value blockSizeIdx = rw.createOrFold<arith::ConstantIndexOp>(
         loc, blockSize.getValue().getLimitedValue());
     Value gridSizeIdx = rw.createOrFold<arith::ConstantIndexOp>(
@@ -243,8 +243,8 @@ public:
 
     // Make gpu.launch_func
     auto gpuLaunchOp = rw.create<gpu::LaunchFuncOp>(
-        loc, asyncDeps, gpuFunc, gpu::KernelDim3{gridSizeIdx, zeroIdx, zeroIdx},
-        gpu::KernelDim3{blockSizeIdx, zeroIdx, zeroIdx},
+        loc, asyncDeps, gpuFunc, gpu::KernelDim3{gridSizeIdx, oneIdx, oneIdx},
+        gpu::KernelDim3{blockSizeIdx, oneIdx, oneIdx},
         dynamicSharedMemorySize, gpuOperands);
     Value token = gpuLaunchOp->getResult(0);
 
