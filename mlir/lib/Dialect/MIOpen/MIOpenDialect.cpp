@@ -979,6 +979,48 @@ LogicalResult InBoundsStoreOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// BlockwiseGemmOp
+//===----------------------------------------------------------------------===//
+LogicalResult BlockwiseGemmOp::verify() {
+  auto blockAType = matrixA().getType().cast<MemRefType>();
+  auto blockBType = matrixB().getType().cast<MemRefType>();
+  auto bufferCType = matrixC().getType().cast<MemRefType>();
+
+  int64_t k = blockAType.getShape()[0];
+  int64_t m = blockAType.getShape()[1];
+  int64_t n = blockBType.getShape()[1];
+  int64_t kPack = blockAType.getShape()[2];
+
+  if (k != blockBType.getShape()[0]) {
+    return emitOpError("Mismatched k dimensions between A and B");
+  }
+  if (kPack != blockBType.getShape()[2]) {
+    return emitOpError("Mismatched kPack between A and B");
+  }
+
+  // Obtain critical attributes.
+  int64_t mC = bufferCType.getShape()[0];
+  int64_t nC = bufferCType.getShape()[1];
+  int64_t mPerThread = mPerThreadAttr().getInt();
+  int64_t nPerThread = nPerThreadAttr().getInt();
+
+  int64_t mThreadsPerCuwave = mThreadsPerCuwaveAttr().getInt();
+  int64_t nThreadsPerCuwave = nThreadsPerCuwaveAttr().getInt();
+
+  int64_t mCuwavesPerBlock = mCuwavesPerBlockAttr().getInt();
+  int64_t nCuwavesPerBlock = nCuwavesPerBlockAttr().getInt();
+
+  int64_t mRepeat = mC / mPerThread;
+  int64_t nRepeat = nC / nPerThread;
+
+  if (mRepeat * mCuwavesPerBlock * mThreadsPerCuwave * mPerThread != m)
+    return emitOpError("The m turing attributes don't multiply to M_LDS");
+  if (nRepeat * nCuwavesPerBlock * nThreadsPerCuwave * nPerThread != n)
+    return emitOpError("The n turing parameters don't multiply to N_LDS");
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ThreadwiseGemmOp
 //===----------------------------------------------------------------------===//
 LogicalResult ThreadwiseGemmOp::verify() {

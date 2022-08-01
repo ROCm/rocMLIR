@@ -326,14 +326,14 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     // Hard coded parameters, will change in a different pass. Please visit
     // gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw for details
     op->setAttr("k_per_thread", b.getI32IntegerAttr(1));
-    op->setAttr("m_level0_cluster",
-                b.getI32IntegerAttr(blockGemmDerivedParam.gemmMLevel0Cluster));
-    op->setAttr("n_level0_cluster",
-                b.getI32IntegerAttr(blockGemmDerivedParam.gemmNLevel0Cluster));
-    op->setAttr("m_level1_cluster",
-                b.getI32IntegerAttr(blockGemmDerivedParam.gemmMLevel1Cluster));
-    op->setAttr("n_level1_cluster",
-                b.getI32IntegerAttr(blockGemmDerivedParam.gemmNLevel1Cluster));
+    op->setAttr("m_threads_per_cuwave",
+                b.getIndexAttr(blockGemmDerivedParam.gemmMThreadsPerCuwave));
+    op->setAttr("n_threads_per_cuwave",
+                b.getIndexAttr(blockGemmDerivedParam.gemmNThreadsPerCuwave));
+    op->setAttr("m_cuwaves_per_block",
+                b.getIndexAttr(blockGemmDerivedParam.gemmMCuwavesPerBlock));
+    op->setAttr("n_cuwaves_per_block",
+                b.getIndexAttr(blockGemmDerivedParam.gemmNCuwavesPerBlock));
 
     op->setAttr("matrix_c_data_per_copy",
                 b.getI32IntegerAttr(gemmCDerivedParam.dataPerCopy));

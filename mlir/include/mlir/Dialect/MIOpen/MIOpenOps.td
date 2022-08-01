@@ -684,13 +684,13 @@ def MIOpen_BlockwiseGemmOp:
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixA,
                    MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixB,
                    MemRefRankOf<[F32, F16, BF16, I32], [2]>:$matrixC,
-                   Index:$threadOffsetA,
-                   Index:$threadOffsetB,
                    IndexAttr:$kPerThread,
                    IndexAttr:$mPerThread,
                    IndexAttr:$nPerThread,
-                   IndexAttr:$mRepeatStride,
-                   IndexAttr:$nRepeatStride
+                   IndexAttr:$mThreadsPerCuwave,
+                   IndexAttr:$nThreadsPerCuwave,
+                   IndexAttr:$mCuwavesPerBlock,
+                   IndexAttr:$nCuwavesPerBlock
                    )> {
   let summary = "Blockwise GEMM non-XDLOPS version";
   let description = [{
@@ -706,8 +706,11 @@ def MIOpen_BlockwiseGemmOp:
     mRepeatStride elements later in the buffer.
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
+    $matrixC `+` `=` $matrixA `*` $matrixB attr-dict
+    `:` type($matrixC) `+` `=` type($matrixA) `*` type($matrixB)
   }];
+
+  let hasVerifier = 1;
 }
 
 // blockwise_gemm_v2

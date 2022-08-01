@@ -112,42 +112,80 @@ struct BlockwiseGemmRewritePattern
     int64_t kPerThread = op.kPerThreadAttr().getInt();
     int64_t mPerThread = op.mPerThreadAttr().getInt();
     int64_t nPerThread = op.nPerThreadAttr().getInt();
-    int64_t mRepeatStride = op.mRepeatStrideAttr().getInt();
-    int64_t nRepeatStride = op.nRepeatStrideAttr().getInt();
+
+    int64_t mThreadsPerCuwave = op.mThreadsPerCuwaveAttr().getInt();
+    int64_t nThreadsPerCuwave = op.nThreadsPerCuwaveAttr().getInt();
+    int64_t cuwaveLen = mThreadsPerCuwave * nThreadsPerCuwave;
+
+    int64_t mCuwavesPerBlock = op.mCuwavesPerBlockAttr().getInt();
+    int64_t nCuwavesPerBlock = op.nCuwavesPerBlockAttr().getInt();
+    int64_t numCuwaves = mCuwavesPerBlock * nCuwavesPerBlock;
+    int64_t blockSize = numCuwaves * cuwaveLen;
+
     int64_t mRepeat = mC / mPerThread;
     int64_t nRepeat = nC / nPerThread;
 
-    LLVM_DEBUG(llvm::dbgs() << "M: " << mC << "\n"
-                            << "NRepeat: " << mRepeat << "\n"
-                            << "MPerThread: " << mPerThread << "\n"
-                            << "N: " << nC << "\n"
-                            << "NRepeat: " << nRepeat << "\n"
-                            << "NPerThread: " << nPerThread << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "M: " << m << "\n"
+               << "mRepeat: " << mRepeat << "\n"
+               << "mCuwavesPerBlock: " << mCuwavesPerBlock << "\n"
+               << "mThreadsPerCuwave: " << mThreadsPerCuwave << "\n"
+               << "mPerThread: " << mPerThread << "\n"
+               << "n: " << n << "\n"
+               << "nRepeat: " << nRepeat << "\n"
+               << "nCuwavesPerBlock: " << nCuwavesPerBlock << "\n"
+               << "nThreadsPerCuwave: " << nThreadsPerCuwave << "\n"
+               << "nPerThread: " << nPerThread << "\n");
 
-    TopDownTMBuilder strideLDSBufferA(b,
-                                      {"k", "mRepeat", "mPerThread", "kpack"},
-                                      {k, mRepeat, m / mRepeat, kPack}, loc);
-    strideLDSBufferA.passThrough("k");
-    strideLDSBufferA.embed("m", 1, m, {"mRepeat", "mPerThread"},
-                           {mRepeatStride, 1});
-    strideLDSBufferA.passThrough({"kpack"}, {2}, {"kpack"});
-    TransformMapAttr strideLDSBufferAAttr = strideLDSBufferA.get();
+    auto ldsTidSplitter = [&](StringRef repeatName, int64_t repeatLen,
+                              StringRef perThreadName,
+                              int64_t perThreadLen) -> TopDownTMBuilder {
+      TopDownTMBuilder splitTidForLDS(
+          b, {"k", repeatName, "tid", perThreadName, "kpack"},
+          {k, repeatLen, blockSize, perThreadLen, kPack}, loc);
+      splitTidForLDS.passThrough({"k", repeatName});
+      splitTidForLDS.merge({"m_cuwaves", "n_cuwaves", "m_cuwave", "n_cuwave"},
+                           {2, 3, 4, 5}, "tid",
+                           {mCuwavesPerBlock, nCuwavesPerBlock,
+                            mThreadsPerCuwave, nThreadsPerCuwave},
+                           /*isUnfold=*/true);
+      splitTidForLDS.passThrough({perThreadName, "kpack"}, {6, 7},
+                                 {perThreadName, "kpack"});
+      return splitTidForLDS;
+    };
 
-    TopDownTMBuilder strideLDSBufferB(b,
-                                      {"k", "nRepeat", "nPerThread", "kpack"},
-                                      {k, nRepeat, n / nRepeat, kPack}, loc);
-    strideLDSBufferB.passThrough("k");
-    strideLDSBufferB.embed("n", 1, n, {"nRepeat", "nPerThread"},
-                           {nRepeatStride, 1});
-    strideLDSBufferB.passThrough({"kpack"}, {2}, {"kpack"});
-    TransformMapAttr strideLDSBufferBAttr = strideLDSBufferB.get();
+    TopDownTMBuilder splitTidA =
+        ldsTidSplitter("m_repeat", mRepeat, "m_thread", mPerThread);
+    TransformMapAttr splitTidAAttr = splitTidA.get();
+    auto toLdsIndexA = TopDownTMBuilder::below(splitTidA, splitTidAAttr);
+    toLdsIndexA.passThrough("k");
+    toLdsIndexA.unmerge(
+        "m", 1, {"m_repeat", "m_cuwaves", "m_cuwave", "m_thread"},
+        {mRepeat, mCuwavesPerBlock, mThreadsPerCuwave, mPerThread});
+    toLdsIndexA.ignore("n_cuwaves");
+    toLdsIndexA.ignore("n_cuwave");
+    toLdsIndexA.passThrough({"kpack"}, {2}, {"kpack"});
+    TransformMapAttr toLdsIndexAAttr = toLdsIndexA.get();
+
+    TopDownTMBuilder splitTidB =
+        ldsTidSplitter("n_repeat", nRepeat, "n_thread", nPerThread);
+    TransformMapAttr splitTidBAttr = splitTidB.get();
+    auto toLdsIndexB = TopDownTMBuilder::below(splitTidB, splitTidBAttr);
+    toLdsIndexB.passThrough("k");
+    toLdsIndexB.unmerge(
+        "n", 1, {"n_repeat", "n_cuwaves", "n_cuwave", "n_thread"},
+        {nRepeat, nCuwavesPerBlock, nThreadsPerCuwave, nPerThread});
+    toLdsIndexB.ignore("m_cuwaves");
+    toLdsIndexB.ignore("m_cuwave");
+    toLdsIndexB.passThrough({"kpack"}, {2}, {"kpack"});
+    TransformMapAttr toLdsIndexBAttr = toLdsIndexB.get();
 
     Value matrixA, matrixB;
     ArrayAttr transformsA, transformsB;
     std::tie(matrixA, transformsA) = untransform(
-        b, adaptor.matrixA(), b.getArrayAttr({strideLDSBufferAAttr}));
+        b, adaptor.matrixA(), b.getArrayAttr({splitTidAAttr, toLdsIndexAAttr}));
     std::tie(matrixB, transformsB) = untransform(
-        b, adaptor.matrixB(), b.getArrayAttr({strideLDSBufferBAttr}));
+        b, adaptor.matrixB(), b.getArrayAttr({splitTidBAttr, toLdsIndexBAttr}));
 
     int64_t threadANumRegisters = kPerThread * mC * kPack;
     int64_t threadBNumRegisters = kPerThread * nC * kPack;
@@ -165,16 +203,20 @@ struct BlockwiseGemmRewritePattern
 
     // Define views of register tiles for copies
     BottomUpTMBuilder viewA(b, {"raw"}, {threadANumRegisters}, loc);
-    viewA.unmerge({"k", "mRepeat", "mPerThread", "kpack"}, {0, 1, 2, 3}, "raw",
-                  {kPerThread, mRepeat, mPerThread, kPack});
+    viewA.unmerge({"k", "m_repeat", "tid", "m_thread", "kpack"},
+                  {0, 1, 2, 3, 4}, "raw",
+                  {kPerThread, mRepeat, 1, mPerThread, kPack});
     TransformMapAttr threadACopyViewAttr = viewA.get();
 
     BottomUpTMBuilder viewB(b, {"raw"}, {threadBNumRegisters}, loc);
-    viewB.unmerge({"k", "nRepeat", "nPerThread", "kpack"}, {0, 1, 2, 3}, "raw",
-                  {kPerThread, nRepeat, nPerThread, kPack});
+    viewB.unmerge({"k", "n_repeat", "tid", "n_thread", "kpack"},
+                  {0, 1, 2, 3, 4}, "raw",
+                  {kPerThread, nRepeat, 1, nPerThread, kPack});
     TransformMapAttr threadBCopyViewAttr = viewB.get();
 
     // Main loop.
+    Value workitem =
+        b.createOrFold<miopen::WorkitemIdOp>(loc, b.getIndexType());
     LLVM_DEBUG(llvm::dbgs() << "Outer loop:\n "
                             << "k =  " << k << "\n"
                             << " kPerThread = " << kPerThread << "\n");
@@ -183,13 +225,13 @@ struct BlockwiseGemmRewritePattern
     b.setInsertionPointToStart(loopOp.getBody());
     Value kOffset = loopOp.getInductionVar();
 
-    SmallVector<Value, 5> registerStartCoords(4, zeroConstantOp);
+    SmallVector<Value, 5> registerStartCoords(5, zeroConstantOp);
     SmallVector<Value, 5> ldsBufferAStartCoords = {
-        kOffset, zeroConstantOp, op.threadOffsetA(), zeroConstantOp};
+        kOffset, zeroConstantOp, workitem, zeroConstantOp, zeroConstantOp};
     auto copyALoop = b.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{ldsBufferAStartCoords, registerStartCoords},
         ArrayRef<Attribute>{transformsA, b.getArrayAttr(threadACopyViewAttr)},
-        ArrayRef<int64_t>{kPerThread, mRepeat, mPerThread, kPack},
+        ArrayRef<int64_t>{kPerThread, mRepeat, 1, mPerThread, kPack},
         /*strides=*/llvm::None, /*forceUnroll=*/true, /*indexDiffs=*/true);
     {
       OpBuilder::InsertionGuard copyAGuard(b);
@@ -202,11 +244,11 @@ struct BlockwiseGemmRewritePattern
     }
 
     SmallVector<Value, 5> ldsBufferBStartCoords = {
-        kOffset, zeroConstantOp, op.threadOffsetB(), zeroConstantOp};
+        kOffset, zeroConstantOp, workitem, zeroConstantOp, zeroConstantOp};
     auto copyBLoop = b.create<TransformingForOp>(
         loc, ArrayRef<ValueRange>{ldsBufferBStartCoords, registerStartCoords},
         ArrayRef<Attribute>{transformsB, b.getArrayAttr(threadBCopyViewAttr)},
-        ArrayRef<int64_t>{kPerThread, nRepeat, nPerThread, kPack},
+        ArrayRef<int64_t>{kPerThread, nRepeat, 1, nPerThread, kPack},
         /*strides=*/llvm::None, /*forceUnroll=*/true, /*indexDiffs=*/true);
     {
       OpBuilder::InsertionGuard copyBGuard(b);

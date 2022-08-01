@@ -376,15 +376,41 @@ TransformMapBuilder::operator=(const TransformMapBuilder &other) {
     result = other.result;
     loc = other.loc;
 
-    startIndices = other.startIndices;
     startNames = other.startNames;
     startShape = other.startShape;
-    endIndices = other.endIndices;
     endNames = other.endNames;
     endShape = other.endShape;
     frozen = other.frozen;
+
+    startIndices.clear();
+    for (uint32_t i = 0, e = startNames.size(); i < e; ++i)
+      startIndices.insert({StringRef(startNames[i]), i});
+
+    endIndices.clear();
+    for (const auto &pair : endNames)
+      endIndices.insert({StringRef(pair.second), pair.first});
   }
   return *this;
+}
+
+TransformMapBuilder::TransformMapBuilder(const TransformMapBuilder &other)
+    : b(other.b), result(other.result), loc(other.loc), startIndices(),
+      startNames(other.startNames), startShape(other.startShape), endIndices(),
+      endNames(other.endNames), endShape(other.endShape), frozen(other.frozen) {
+  for (uint32_t i = 0, e = startNames.size(); i < e; ++i)
+    startIndices.insert({StringRef(startNames[i]), i});
+  for (const auto &pair : endNames)
+    endIndices.insert({StringRef(pair.second), pair.first});
+}
+
+TransformMapBuilder::TransformMapBuilder(TransformMapBuilder &&other)
+    : b(other.b), result(other.result), loc(other.loc), startIndices(),
+      startNames(other.startNames), startShape(other.startShape), endIndices(),
+      endNames(other.endNames), endShape(other.endShape), frozen(other.frozen) {
+  for (uint32_t i = 0, e = startNames.size(); i < e; ++i)
+    startIndices.insert({StringRef(startNames[i]), i});
+  for (const auto &pair : endNames)
+    endIndices.insert({StringRef(pair.second), pair.first});
 }
 
 /// Building from a defined set of upper dimensions

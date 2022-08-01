@@ -33,6 +33,10 @@ class TransformMapBuilder {
 public:
   virtual ~TransformMapBuilder() = default;
 
+  TransformMapBuilder(const TransformMapBuilder &other);
+  TransformMapBuilder &operator=(const TransformMapBuilder &other);
+  TransformMapBuilder(TransformMapBuilder &&other);
+
   // Get the TransformsAttr that's being built up by the builder
   TransformMapAttr get();
   // Only valid after the transformation has been built.
@@ -65,9 +69,6 @@ public:
   void pad(StringRef outName, StringRef inName, int64_t left, int64_t right);
   void pad(ArrayRef<StringRef> outNames, ArrayRef<uint32_t> outDims,
            ArrayRef<StringRef> inNames, ArrayRef<int64_t> params);
-
-  TransformMapBuilder(const TransformMapBuilder &other) = default;
-  TransformMapBuilder &operator=(const TransformMapBuilder &other);
 
 protected:
   TransformMapBuilder(mlir::Builder &builder, ArrayRef<StringRef> startNames,
