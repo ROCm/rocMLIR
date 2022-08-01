@@ -1,7 +1,8 @@
-// RUN: mlir-miopen-driver -host-pipeline partition,highlevel %s | miopen-gen -ph -print-results -fut resnet50 - | mlir-miopen-driver -host-pipeline xmodel -kernel-pipeline full -triple amdgcn-amd-amdhsa -target gfx908 | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: mlir-miopen-driver -host-pipeline partition,highlevel %s | miopen-gen -ph -print-results -rand_type float -rand 1 -fut resnet50 - | mlir-miopen-driver -host-pipeline xmodel -kernel-pipeline full -triple amdgcn-amd-amdhsa -target gfx90a | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
 
 module {
 // CHECK: Unranked Memref base@ = 0x{{.*}} rank = 4 offset = 0 sizes = [1, 32, 32, 64] strides = [65536, 2048, 64, 1] data =
+// CHECK-NEXT: 0.680375,     -0.211234,     0.566198,     6.59688,     0.823295,     -0.604897,     5.67045,     6.53646,     5.55555,     6.10794,
     
 
   func.func @resnet50(%arg0: tensor<1x32x32x64xf32>, %arg1: tensor<64x3x3x64xf32>, %arg2: tensor<64x3x3x64xf32>) -> tensor<1x32x32x64xf32> {
@@ -14,10 +15,8 @@ module {
     }
      : (tensor<1x32x32x64xf32>, tensor<64x3x3x64xf32>, tensor<64xf32>) -> tensor<1x32x32x64xf32>
 
-    %1 = "tosa.clamp"(%0) {
-      min_fp = 0.0 : f32,
+    %1 = "tosa.reluN"(%0) {
       max_fp = 6.0 : f32,
-      min_int = 0 : i64,
       max_int = 6 : i64
     }
      : (tensor<1x32x32x64xf32>) -> tensor<1x32x32x64xf32>
@@ -30,10 +29,8 @@ module {
     }
      : (tensor<1x32x32x64xf32>, tensor<64x3x3x64xf32>, tensor<64xf32>) -> tensor<1x32x32x64xf32>
 
-    %3 = "tosa.clamp"(%2) {
-      min_fp = 0.0 : f32,
+    %3 = "tosa.reluN"(%2) {
       max_fp = 6.0 : f32,
-      min_int = 0 : i64,
       max_int = 6 : i64
     }
      : (tensor<1x32x32x64xf32>) -> tensor<1x32x32x64xf32>

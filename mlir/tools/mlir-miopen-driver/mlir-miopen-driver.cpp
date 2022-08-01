@@ -11,22 +11,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/MIOpenPasses.h"
-#include "mlir/Conversion/MIOpenToGPU/MIOpenToGPU.h"
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/GPU/IR/GPUDialect.h"
-#include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/Pipelines.h"
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/Block.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/Location.h"
-#include "mlir/IR/MLIRContext.h"
-#include "mlir/IR/Operation.h"
-#include "mlir/IR/Types.h"
+#include "mlir/Dialect/MIOpen/XMIRPipelines.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Parser/Parser.h"
@@ -272,7 +260,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   if (hostPipelineSet.contains("xmodel")) {
     PassManager pm(module.getContext());
     applyPassManagerCLOptions(pm);
-    pm.addPass(miopen::createMIOpenApplyImplPass());
+    xmir::buildModelPipeline(pm);
     if (failed(pm.run(module))) {
       return failure();
     }
