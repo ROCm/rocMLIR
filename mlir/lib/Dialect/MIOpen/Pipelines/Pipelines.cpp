@@ -156,12 +156,14 @@ void miopen::buildKernelPipeline(OpPassManager &pm,
 
     // miopen lowering (block to thread)
     /* miopen-opt --miopen-lowering-blockwise-gemm-to-threadwise
-       --miopen-threadwise-gemm-lowering
-          --miopen-sugar-to-loops --miopen-loops-to-cf --convert-miopen-to-gpu
+         --miopen-threadwise-gemm-lowering
+         --miopen-sugar-to-loops --miopen-clean-math --miopen-loops-to-cf
+         --convert-miopen-to-gpu
      */
     pm.addPass(miopen::createMIOpenBlockwiseGemmToThreadwisePass());
     pm.addPass(miopen::createMIOpenThreadwiseGemmLoweringPass());
     pm.addPass(miopen::createMIOpenSugarToLoopsPass());
+    pm.addPass(miopen::createMIOpenCleanMathPass());
     pm.addPass(miopen::createMIOpenLoopsToCfPass());
     pm.addPass(createLowerMIOpenOpsToGPUPass());
 

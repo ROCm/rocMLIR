@@ -1,4 +1,4 @@
-// RUN: miopen-opt -miopen-affix-params -miopen-conv-to-gemm -miopen-gridwise-gemm-to-blockwise -miopen-blockwise-gemm-to-threadwise -miopen-threadwise-gemm-lowering -miopen-sugar-to-loops -miopen-loops-to-cf -convert-miopen-to-gpu %s | miopen-opt
+// RUN: miopen-opt -miopen-affix-params -miopen-conv-to-gemm -miopen-gridwise-gemm-to-blockwise -miopen-blockwise-gemm-to-threadwise -miopen-threadwise-gemm-lowering -miopen-sugar-to-loops -miopen-clean-math -miopen-loops-to-cf -convert-miopen-to-gpu %s | miopen-opt
 
 // The last kernel be converted would appear as the first.
 

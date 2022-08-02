@@ -55,6 +55,10 @@ std::unique_ptr<Pass> createMIOpenThreadwiseGemmLoweringPass();
 /// dialects.
 std::unique_ptr<Pass> createMIOpenSugarToLoopsPass();
 
+/// Create a pass to clean up math using integer range analysis and other MLIR
+/// passes.
+std::unique_ptr<Pass> createMIOpenCleanMathPass();
+
 /// Create a pass to convert affine / loop to cf dialect.
 std::unique_ptr<Pass> createMIOpenLoopsToCfPass();
 

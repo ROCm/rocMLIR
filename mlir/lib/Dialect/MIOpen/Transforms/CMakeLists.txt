@@ -4,6 +4,7 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
   ApplyImpl.cpp
   AsyncLaunch.cpp
   BlockwiseGemmToThreadwise.cpp
+  CleanMath.cpp
   CloneKernels.cpp
   CopyOpt.cpp
   ConvToGemm.cpp
@@ -20,6 +21,7 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
   MLIRMIOpenPassIncGen
 
   LINK_LIBS PUBLIC
+  MLIRArithmeticTransforms
   MLIRDialect
   MLIRFuncDialect
   MLIRIR

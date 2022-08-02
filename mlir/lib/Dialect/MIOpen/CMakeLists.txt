@@ -22,6 +22,7 @@ target_link_libraries(MLIRMIOpenOps
   PUBLIC
   MLIRGPUOps
   MLIRIR
+  MLIRInferIntRangeInterface
   MLIRDialect
   MLIRJitRunner
   MLIRAnalysis

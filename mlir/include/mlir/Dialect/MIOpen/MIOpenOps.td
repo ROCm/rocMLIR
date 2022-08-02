@@ -15,6 +15,7 @@
 
 include "mlir/Dialect/MIOpen/MIOpenAttrDefs.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
+include "mlir/Interfaces/InferIntRangeInterface.td"
 include "mlir/Interfaces/LoopLikeInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/Interfaces/VectorInterfaces.td"
@@ -229,7 +230,8 @@ def MIOpen_LDSBarrierOp:
 }
 
 def MIOpen_WorkgroupIdOp:
-    MIOpen_Op<"workgroup_id">,
+    MIOpen_Op<"workgroup_id", [NoSideEffect,
+      DeclareOpInterfaceMethods<InferIntRangeInterface>]>,
     Results<(outs Index:$id)> {
   let summary = "Get current workgroup ID";
   let description = [{
@@ -239,7 +241,8 @@ def MIOpen_WorkgroupIdOp:
 }
 
 def MIOpen_WorkitemIdOp:
-    MIOpen_Op<"workitem_id">,
+    MIOpen_Op<"workitem_id", [NoSideEffect,
+      DeclareOpInterfaceMethods<InferIntRangeInterface>]>,
     Results<(outs Index:$id)> {
   let summary = "Get current workitem ID";
   let description = [{

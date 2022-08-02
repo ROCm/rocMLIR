@@ -1,4 +1,4 @@
-//===- ExpandShorthand.cpp - Expand indexing shorthand ops  -------===//
+//===- SugarToLoops.cpp - Lower MIOpen sugar and transforming_for  ----===//
 //
 // Copyright 2020 The MLIR Authors.
 //
@@ -1387,12 +1387,6 @@ void MIOpenSugarToLoopsPass::runOnOperation() {
   postUnrollPatterns.add<IndexDiffUpdateRewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(op, std::move(postUnrollPatterns))))
     signalPassFailure();
-
-  // Run canonicalizers and CSE to clean up the code created by loop unrolling
-  OpPassManager cleanupPipeline("func.func");
-  cleanupPipeline.addPass(createCanonicalizerPass());
-  cleanupPipeline.addPass(createCSEPass());
-  (void)runPipeline(cleanupPipeline, op);
 }
 } // end anonymous namespace
 
