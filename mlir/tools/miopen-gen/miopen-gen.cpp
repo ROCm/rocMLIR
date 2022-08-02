@@ -2271,7 +2271,7 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
-  module.print(output->os());
+  module.print(output->os(), OpPrintingFlags().printGenericOpForm());
   output->keep();
   return 0;
 }
