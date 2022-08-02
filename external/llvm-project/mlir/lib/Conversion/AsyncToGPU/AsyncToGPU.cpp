@@ -244,8 +244,8 @@ public:
     // Make gpu.launch_func
     auto gpuLaunchOp = rw.create<gpu::LaunchFuncOp>(
         loc, asyncDeps, gpuFunc, gpu::KernelDim3{gridSizeIdx, oneIdx, oneIdx},
-        gpu::KernelDim3{blockSizeIdx, oneIdx, oneIdx},
-        dynamicSharedMemorySize, gpuOperands);
+        gpu::KernelDim3{blockSizeIdx, oneIdx, oneIdx}, dynamicSharedMemorySize,
+        gpuOperands);
     Value token = gpuLaunchOp->getResult(0);
 
     // Insert gpu.memcpy for results
