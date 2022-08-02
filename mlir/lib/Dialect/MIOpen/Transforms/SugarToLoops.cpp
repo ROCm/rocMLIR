@@ -19,11 +19,10 @@
 
 #include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
-#include "mlir/Dialect/MIOpen/AffineMapHelper.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
-#include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
+#include "mlir/Dialect/MIOpen/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -105,11 +104,7 @@ struct TransformingForRewritePattern
           lowerInit.push_back(std::move(*init));
         }
       } else {
-        SmallVector<AffineMap, 2> maps;
-        for (auto t : transforms.getAsRange<TransformMapAttr>()) {
-          maps.push_back(t.getMap().getAffineMap());
-        }
-        AffineMap composed = composeTransforms(maps);
+        AffineMap composed = composeTransforms(transforms);
         composedMaps.push_back(composed);
         Optional<SmallVector<Value, 8>> init =
             expandAffineMap(b, loc, composed, op.getUpperInits(i));

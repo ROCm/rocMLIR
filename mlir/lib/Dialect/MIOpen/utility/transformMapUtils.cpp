@@ -505,3 +505,15 @@ int64_t mlir::miopen::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
   result = math_util::gcd(len, result);
   return result;
 }
+
+AffineMap mlir::miopen::composeTransforms(ArrayAttr transforms) {
+  AffineMap result;
+  for (auto attr : llvm::reverse(transforms.getAsRange<TransformMapAttr>())) {
+    AffineMap map = attr.getMap().getAffineMap();
+    if (result)
+      result = result.compose(map);
+    else
+      result = map;
+  }
+  return result;
+}
