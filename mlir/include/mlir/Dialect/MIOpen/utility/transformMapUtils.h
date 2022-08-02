@@ -11,6 +11,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 
 namespace mlir {
+class AffineMap;
 class Builder;
 class OpBuilder;
 class Value;
@@ -56,6 +57,10 @@ TransformOp reshapeBuffer(OpBuilder &b, Location loc, Value buffer,
 /// `outputShape`.
 int64_t getMaxVectorization(ArrayAttr transforms, uint32_t dim, int64_t len,
                             ArrayRef<int64_t> outputShape);
+
+/// Get the affine map corresponding to the composition of these affine maps.
+/// Returns null when passed an empty array.
+AffineMap composeTransforms(ArrayAttr transforms);
 
 } // end namespace miopen
 } // end namespace mlir
