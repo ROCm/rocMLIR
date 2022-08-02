@@ -38,11 +38,6 @@ std::unique_ptr<Pass> createTosaOptionalDecompositions();
 std::unique_ptr<Pass> createTosaPartitionPass();
 
 class TosaPartitionPass : public TosaPartitionBase<TosaPartitionPass> {
-  // Special case:  TransposeOp's second operand must be a
-  // constant, which means we must include it too if we include
-  // the TransposeOp.  "ops" here may be either leadingOps or trailingOps.
-  void specialCaseForTranspose(Operation *op, SetVector<Operation *> &ops);
-
 public:
   TosaPartitionPass() = default;
   virtual bool isAnchorOp(Operation *op);

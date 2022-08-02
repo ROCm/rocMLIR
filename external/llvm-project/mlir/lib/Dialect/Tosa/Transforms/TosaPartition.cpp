@@ -120,6 +120,15 @@ bool isConstantZero(Operation *op) {
   return false;
 }
 
+bool isSmallishConstant(Operation *op) {
+  if (mlir::detail::isConstantLike(op))
+    // In TOSA, should always be tensor and thus shaped, but just in case.
+    if (auto cstType = op->getResult(0).getType().dyn_cast<ShapedType>())
+      if (cstType.hasStaticShape() && cstType.getNumElements() <= 8)
+        return true;
+  return false;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 // Inspired by / adapted from outlineIfOp() in SCF/Transforms/Utils.cpp
@@ -441,23 +450,12 @@ void outlinePartitionOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
 
 } // namespace
 
-// Special case:  TransposeOp's second operand must be a
-// constant, which means we must include it too if we include
-// the TransposeOp.  "ops" here may be either leadingOps or trailingOps.
-void TosaPartitionPass::specialCaseForTranspose(Operation *op,
-                                                SetVector<Operation *> &ops) {
-  auto *operand = op->getOpOperand(1).get().getDefiningOp();
-  if (ops.contains(operand)) // If already present, move it for new use.
-    ops.remove(operand);
-  ops.insert(operand);
-}
-
 bool TosaPartitionPass::isAnchorOp(Operation *op) {
   return isa<tosa::Conv2DOp, tosa::MatMulOp, tosa::DepthwiseConv2DOp>(op);
 }
 
 bool TosaPartitionPass::isLeadingOp(Operation *op) {
-  return isConstantZero(op) || isFuseableOp(op);
+  return isConstantZero(op) || isSmallishConstant(op) || isFuseableOp(op);
 }
 
 bool TosaPartitionPass::isTrailingOp(Operation *op) { return isFuseableOp(op); }
@@ -468,10 +466,11 @@ void TosaPartitionPass::traceInputs(Operation *op,
                                     SetVector<Operation *> &predecessors,
                                     SetVector<Value> &inputNodes) {
   for (const auto &opnd : op->getOperands()) {
-    if (isa<tosa::TransposeOp>(op))
-      specialCaseForTranspose(op, predecessors);
     Operation *usedOp = opnd.getDefiningOp();
     if (usedOp && isLeadingOp(usedOp)) {
+      if (predecessors.contains(
+              usedOp)) // If already present, move it for new use.
+        predecessors.remove(usedOp);
       predecessors.insert(usedOp);
       if (!mlir::detail::isConstantLike(usedOp)) {
         // depth first
@@ -557,6 +556,16 @@ void TosaPartitionPass::runOnOperation() {
               }
             }
 
+            // Third criterion:  TransposeOps can be acceptable trailing ops
+            // while also being acceptable leading ops.  Let's prefer the
+            // latter by insisting that a trailing TransposeOp directly uses
+            // an anchor op.
+            if (isa<tosa::TransposeOp>(userOp)) {
+              auto *firstOp = userOp->getOpOperand(0).get().getDefiningOp();
+              if (!firstOp || !isAnchorOp(firstOp))
+                skip = true;
+            }
+
             // userOp is acceptable.  Keep it as a trailingOp, put it on the
             // worklist.  Add its operands to inputNodes unless they come
             // from other trailingOps (indicated by being in resultNodes).
@@ -564,8 +573,11 @@ void TosaPartitionPass::runOnOperation() {
             // no need to return it so remove from resultNodes.  Finally,
             // add all userOp's results to resultNodes.
             if (!skip) {
-              if (isa<tosa::TransposeOp>(userOp)) {
-                specialCaseForTranspose(userOp, trailingOps);
+              // Also accept small constant inputs to userOp.
+              for (Value opnd : userOp->getOperands()) {
+                auto *op = opnd.getDefiningOp();
+                if (op && (isConstantZero(op) || isSmallishConstant(op)))
+                  trailingOps.insert(op);
               }
               // General case.
               trailingOps.insert(userOp);
@@ -619,7 +631,7 @@ bool TosaPartitionPassWithOptions::isAnchorOp(Operation *op) {
 }
 
 bool TosaPartitionPassWithOptions::isLeadingOp(Operation *op) {
-  return !trailingOnly && (isConstantZero(op) || isFuseableOp(op));
+  return !trailingOnly && TosaPartitionPass::isLeadingOp(op);
 }
 
 StringRef TosaPartitionPassWithOptions::partitionTag() {
