@@ -793,7 +793,7 @@ def MIOpen_XdlopsGemmV2Op:
     Matrices A and B reside in LDS, the buffers live in registers, C is a vector
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands) `->` type(results)
+    `(` operands `)` attr-dict `:` type(operands)
   }];
 }
 
