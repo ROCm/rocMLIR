@@ -260,16 +260,12 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     // Derived parameters for gemmA.
     op->setAttr("matrix_a_source_data_per_read",
                 b.getI32IntegerAttr(gemmADerivedParam.srcDataPerRead));
-    op->setAttr("matrix_a_dest_data_per_write_dim_m",
-                b.getI32IntegerAttr(gemmADerivedParam.dstDataPerWrite));
     op->setAttr("matrix_a_source_vector_read_dim",
                 b.getI32IntegerAttr(gemmADerivedParam.srcVectorReadDim));
 
     // Derived parameters for gemmB.
     op->setAttr("matrix_b_source_data_per_read",
                 b.getI32IntegerAttr(gemmBDerivedParam.srcDataPerRead));
-    op->setAttr("matrix_b_dest_data_per_write_dim_n",
-                b.getI32IntegerAttr(gemmBDerivedParam.dstDataPerWrite));
     op->setAttr("matrix_b_source_vector_read_dim",
                 b.getI32IntegerAttr(gemmBDerivedParam.srcVectorReadDim));
 
@@ -318,16 +314,12 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     // Derived parameters for gemmA.
     op->setAttr("matrix_a_source_data_per_read",
                 b.getI32IntegerAttr(gemmADerivedParam.srcDataPerRead));
-    op->setAttr("matrix_a_dest_data_per_write_dim_m",
-                b.getI32IntegerAttr(gemmADerivedParam.dstDataPerWrite));
     op->setAttr("matrix_a_source_vector_read_dim",
                 b.getI32IntegerAttr(gemmADerivedParam.srcVectorReadDim));
 
     // Derived parameters for gemmB.
     op->setAttr("matrix_b_source_data_per_read",
                 b.getI32IntegerAttr(gemmBDerivedParam.srcDataPerRead));
-    op->setAttr("matrix_b_dest_data_per_write_dim_n",
-                b.getI32IntegerAttr(gemmBDerivedParam.dstDataPerWrite));
     op->setAttr("matrix_b_source_vector_read_dim",
                 b.getI32IntegerAttr(gemmBDerivedParam.srcVectorReadDim));
 

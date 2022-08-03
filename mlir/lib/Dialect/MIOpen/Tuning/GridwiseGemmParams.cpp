@@ -306,14 +306,6 @@ LogicalResult calculateInputDerivedParams(const InitParams &param,
   }
   assert(derived.srcVectorReadDim != GemmG);
 
-  // FIXME: force scalar write for now. Logic being commented out would
-  // need to be scrutinized.
-  //
-  // dstDataPerWrite also bounded by size of threadwise copy
-  // derived.dstDataPerWrite = gcd(vectorizationSize,
-  // dataPerThreadCopyGemmPos2);
-  derived.dstDataPerWrite = 1;
-
   // calculate blockwise copy thread cluster lengths
   if (isGemmA) {
     derived.clusterLenGemmPos1 =
@@ -901,8 +893,7 @@ LogicalResult PopulateParamsXDL::calculateLdsNumberOfByte(
       param.gemmNPerBlock / gemmBDerived.clusterLenGemmPos2;
 
   const auto max_lds_align =
-      math_util::lcm(gemmADerived.dstDataPerWrite, gemmBDerived.dstDataPerWrite,
-                     threadGemmDataPerRead_GemmM, threadGemmDataPerRead_GemmN);
+      math_util::lcm(threadGemmDataPerRead_GemmM, threadGemmDataPerRead_GemmN);
 
   const auto a_block_space =
       param.gemmKPerBlock *
