@@ -49,13 +49,12 @@ struct GemmSize {
 struct DerivedParams {
   int64_t srcVectorReadDim;
   int64_t srcDataPerRead;
-  int64_t dstDataPerWrite;
   int64_t clusterLenGemmPos0; // G
   int64_t clusterLenGemmPos1; // K
   int64_t clusterLenGemmPos2; // M or N
   DerivedParams()
-      : srcVectorReadDim(GemmG), srcDataPerRead(1), dstDataPerWrite(1),
-        clusterLenGemmPos1(0), clusterLenGemmPos2(0) {}
+      : srcVectorReadDim(GemmG), srcDataPerRead(1), clusterLenGemmPos1(0),
+        clusterLenGemmPos2(0) {}
 };
 
 struct DerivedOutParams {
