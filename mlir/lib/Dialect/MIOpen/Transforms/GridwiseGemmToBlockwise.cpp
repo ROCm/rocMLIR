@@ -334,11 +334,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Determine the type used on VGPR to act as accumulator.
     // f32: f32.
-    // f16: f32 to prevent overflow from happening.
-    // i16(bf16) : i16.
+    // f16, bf16: f32 to prevent overflow from happening.
     // i8: i32, since we have an i32 output
     Type accumulatorType = elementType;
-    if (elementType == b.getF16Type()) {
+    if (elementType == b.getF16Type() || elementType == b.getBF16Type()) {
       accumulatorType = b.getF32Type();
     } else if (elementType == b.getI8Type()) {
       accumulatorType = b.getI32Type();
@@ -2078,12 +2077,26 @@ struct GridwiseGemmV2RewritePattern
     int64_t regCVectorLen = vectorType.getNumElements();
     int64_t numElements = regCVectorLen * vectorNumber;
     Type destType = op.c().getType().cast<MemRefType>().getElementType();
+
+    // Determine the type used on VGPR to act as accumulator.
+    // f32: f32.
+    // f16: f32 to prevent overflow from happening.
+    // i16(bf16) : i16.
+    // i8: i32, since we have an i32 output
+    Type accumulatorType = destType;
+    if (elementType == b.getF16Type() || elementType == b.getBF16Type()) {
+      accumulatorType = b.getF32Type();
+    } else if (elementType == b.getI8Type()) {
+      accumulatorType = b.getI32Type();
+    }
+
     MemRefType regCAllocType = MemRefType::get(
-        numElements, destType, {},
+        numElements, accumulatorType, {},
+        // numElements, destType, {},
         /*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
     Value regCAllocOp = b.create<miopen::GpuAllocOp>(loc, regCAllocType);
 
-    Value zeroConstantCOp = createZeroConstantOp(b, loc, destType);
+    Value zeroConstantCOp = createZeroConstantOp(b, loc, accumulatorType);
     b.create<FillOp>(loc, regCAllocOp, zeroConstantCOp);
 
     // Emit loop.
@@ -2368,6 +2381,27 @@ struct GridwiseGemmV2RewritePattern
       llvm::copy(tailResults, std::back_inserter(transformedTail));
     }
 
+    Value registerC = regCAllocOp;
+    if (destType != accumulatorType) {
+      auto convertedCType = regCAllocType.clone(destType).cast<MemRefType>();
+      Value convertedC = b.create<miopen::GpuAllocOp>(loc, convertedCType);
+      auto convertLoop = b.create<TransformingForOp>(
+          loc, ArrayRef<ValueRange>{{zeroConstantOp}},
+          ArrayRef<Attribute>{b.getArrayAttr({})},
+          /*bounds=*/convertedCType.getShape(), /*strides=*/llvm::None,
+          /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+      {
+        OpBuilder::InsertionGuard guard(b);
+        b.setInsertionPointToStart(convertLoop.getBody());
+        Value coord = convertLoop.getLowerCoords(/*domain=*/0)[0];
+        Value loaded =
+            b.create<InBoundsLoadOp>(loc, accumulatorType, registerC, coord);
+        Value cast = createTypeConversionOp(b, loc, loaded, destType);
+        b.create<InBoundsStoreOp>(loc, cast, convertedC, coord);
+      }
+      registerC = convertedC;
+    }
+
     auto writeOobDims = computeOobFromTransforms(b, idToTensorCMaps);
 
     SmallVector<Value, 3> writeStartCoords = {bid, tid, zeroConstantOp};
@@ -2383,7 +2417,7 @@ struct GridwiseGemmV2RewritePattern
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(outLoop.getBody());
       b.create<ThreadwiseCopyV2Op>(
-          loc, regCAllocOp, tensorC, b.getIndexAttr(tensorCDataPerCopy),
+          loc, registerC, tensorC, b.getIndexAttr(tensorCDataPerCopy),
           op.storeMethodAttr(), std::get<0>(writeOobDims),
           std::get<1>(writeOobDims), outLoop.getLowerCoords(/*domain=*/0)[0],
           outLoop.getLowerCoords(/*domain=*/1));
