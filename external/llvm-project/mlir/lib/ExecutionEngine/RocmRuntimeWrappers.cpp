@@ -22,13 +22,19 @@
 
 #define HIP_REPORT_IF_ERROR(expr)                                              \
   [](hipError_t result) {                                                      \
-    if (!result)                                                               \
-      return;                                                                  \
-    const char *name = hipGetErrorName(result);                                \
-    if (!name)                                                                 \
-      name = "<unknown>";                                                      \
-    fprintf(stderr, "'%s' failed with '%s'\n", #expr, name);                   \
+    if (result != hipSuccess)                                                  \
+      mgpuFailure(result, #expr);                                              \
   }(expr)
+
+extern "C" void mgpuFailure(hipError_t result, const char *expr) {
+  const char *name = hipGetErrorName(result);
+  if (!name)
+    name = "<unknown>";
+  fprintf(stderr, "'%s' failed with '%s'\n", expr, name);
+#ifndef NDEBUG
+  assert(result == 0);
+#endif
+}
 
 thread_local static int32_t defaultDevice = 0;
 

@@ -1,4 +1,4 @@
-//===- Pipeline.cpp - Create MIOpen compilation pipeline ---------------===//
+//===- XMIRPipeline.cpp - Create XMIR runtime pipeline --------------------===//
 //
 // Copyright 2021 The MLIR Authors.
 //
@@ -21,26 +21,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/MIOpen/XMIRPipelines.h"
-#include "mlir/Dialect/MIOpen/Pipelines.h"
 
-#include "mlir/Conversion/MIOpenPasses.h"
-#include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
-#include "mlir/Dialect/Arithmetic/Transforms/Passes.h"
-#include "mlir/Dialect/Async/Passes.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
-#include "mlir/Dialect/Tensor/Transforms/Passes.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinOps.h"
+#include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
-
-#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
-#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
-#include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
-#include "mlir/InitAllDialects.h"
 #include "mlir/Transforms/Passes.h"
-#include "llvm/Support/TargetSelect.h"
 
 using namespace mlir;
 
@@ -53,15 +40,23 @@ void xmir::buildModelPipeline(OpPassManager &pm,
 
 void xmir::buildRunnerPipeline(OpPassManager &pm,
                                const xmir::RunnerOptions &options) {
+  pm.addNestedPass<func::FuncOp>(createConvertLinalgToAffineLoopsPass());
   pm.addPass(createLowerAffinePass());
   pm.addPass(createConvertSCFToCFPass());
-  if (!options.cpuOnly) {
+  if (options.cpuOnly) {
+
+  } else {
     pm.addPass(createConvertAsyncToGPUPass());
     pm.addPass(createSymbolDCEPass());
+    pm.addPass(createGpuToLLVMConversionPass());
+    pm.addNestedPass<func::FuncOp>(createGpuAsyncRegionPass());
   }
   pm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
-  pm.addPass(createGpuToLLVMConversionPass());
+  pm.addPass(createConvertLinalgToLLVMPass());
   pm.addPass(createAsyncToAsyncRuntimePass());
+  pm.addPass(createAsyncRuntimeRefCountingOptPass());
+  pm.addPass(createConvertVectorToLLVMPass());
+  pm.addPass(createMemRefToLLVMPass());
   pm.addPass(createConvertAsyncToLLVMPass());
   pm.addPass(createConvertFuncToLLVMPass());
   pm.addPass(LLVM::createSoftwareBF16Pass());

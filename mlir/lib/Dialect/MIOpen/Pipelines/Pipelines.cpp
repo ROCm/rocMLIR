@@ -24,24 +24,14 @@
 #include "mlir/Dialect/MIOpen/XMIRPipelines.h"
 
 #include "mlir/Conversion/MIOpenPasses.h"
-#include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
-#include "mlir/Dialect/Arithmetic/Transforms/Passes.h"
-#include "mlir/Dialect/Async/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
-#include "mlir/Dialect/Tensor/Transforms/Passes.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinOps.h"
+#include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
-
-#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
-#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
-#include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
-#include "mlir/Conversion/TensorToLinalg/TensorToLinalgPass.h"
-#include "mlir/InitAllDialects.h"
 #include "mlir/Transforms/Passes.h"
+
 #include "llvm/Support/TargetSelect.h"
 
 using namespace mlir;
