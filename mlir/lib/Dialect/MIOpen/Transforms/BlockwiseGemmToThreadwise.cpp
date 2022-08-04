@@ -540,7 +540,7 @@ struct BlockwiseGemmV2RewritePattern
       auto xdlopsGemmV2Op = b.create<XdlopsGemmV2Op>(
           loc, adaptor.matrixA(), adaptor.matrixB(), op.ldsBufferOffsetAAttr(),
           op.ldsBufferOffsetBAttr(), b.getIndexAttr(0), b.getIndexAttr(0),
-          adaptor.bufferA(), adaptor.bufferB(), adaptor.matrixRes());
+          adaptor.bufferA(), adaptor.bufferB(), adaptor.matrixC());
 
       xdlopsGemmV2Op->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op->setAttr("n", op->getAttr("n"));
@@ -561,7 +561,7 @@ struct BlockwiseGemmV2RewritePattern
       auto xdlopsGemmV2Op0 = b.create<XdlopsGemmV2Op>(
           loc, adaptor.matrixA(), adaptor.matrixB(), op.ldsBufferOffsetAAttr(),
           op.ldsBufferOffsetBAttr(), b.getIndexAttr(0), b.getIndexAttr(0),
-          adaptor.bufferA(), adaptor.bufferB(), adaptor.matrixRes());
+          adaptor.bufferA(), adaptor.bufferB(), adaptor.matrixC());
 
       xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op0->setAttr("n", op->getAttr("n"));
@@ -577,7 +577,7 @@ struct BlockwiseGemmV2RewritePattern
           loc, adaptor.matrixA(), adaptor.matrixB(), op.ldsBufferOffsetAAttr(),
           op.ldsBufferOffsetBAttr(), b.getIndexAttr(KPerThread),
           b.getIndexAttr(0), adaptor.bufferA(), adaptor.bufferB(),
-          adaptor.matrixRes());
+          adaptor.matrixC());
 
       xdlopsGemmV2Op1->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op1->setAttr("n", op->getAttr("n"));
@@ -600,7 +600,7 @@ struct BlockwiseGemmV2RewritePattern
       auto xdlopsGemmV2Op0 = b.create<XdlopsGemmV2Op>(
           loc, adaptor.matrixA(), adaptor.matrixB(), op.ldsBufferOffsetAAttr(),
           op.ldsBufferOffsetBAttr(), b.getIndexAttr(0), b.getIndexAttr(0),
-          adaptor.bufferA(), adaptor.bufferB(), adaptor.matrixRes());
+          adaptor.bufferA(), adaptor.bufferB(), adaptor.matrixC());
 
       xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op0->setAttr("n", op->getAttr("n"));
@@ -616,7 +616,7 @@ struct BlockwiseGemmV2RewritePattern
           loc, adaptor.matrixA(), adaptor.matrixB(), op.ldsBufferOffsetAAttr(),
           op.ldsBufferOffsetBAttr(), b.getIndexAttr(0),
           b.getIndexAttr(KPerThread), adaptor.bufferA(), adaptor.bufferB(),
-          adaptor.matrixRes());
+          adaptor.matrixC());
 
       xdlopsGemmV2Op1->setAttr("m", op->getAttr("m"));
       xdlopsGemmV2Op1->setAttr("n", op->getAttr("n"));

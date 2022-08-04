@@ -310,18 +310,18 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
           op.regOffsetBAttr().getInt() > 0) {
         regDOffset += vectorNumber;
       }
-      Value offset = innerLoopb.createOrFold<arith::ConstantIndexOp>(
-          loc, (regDOffset + i) * vectorType.getNumElements());
+      Value offset =
+          innerLoopb.createOrFold<arith::ConstantIndexOp>(loc, regDOffset + i);
 
-      auto vectorC = innerLoopb.create<miopen::InBoundsLoadOp>(
-          loc, vectorType, adaptor.matrixRes(), offset);
+      auto vectorC = innerLoopb.create<memref::LoadOp>(
+          loc, vectorType, adaptor.matrixC(), offset);
       auto mfma = innerLoopb.create<amdgpu::MFMAOp>(
           loc, vectorType, mfmaInstr, argA, argB, vectorC,
           /*cbsz=*/imms[i][0], /*abid=*/imms[i][1], /*blgp=*/imms[i][2]);
       auto vectorD = mfma.destD();
 
-      innerLoopb.create<miopen::InBoundsStoreOp>(loc, vectorD,
-                                                 adaptor.matrixRes(), offset);
+      innerLoopb.create<memref::StoreOp>(loc, vectorD, adaptor.matrixC(),
+                                         offset);
     }
 
     b.eraseOp(op);

@@ -1,13 +1,10 @@
 // RUN: miopen-opt -miopen-threadwise-gemm-lowering %s | FileCheck %s
 
-func.func @miopen_xdlops_gemm_v2_nonreduction_nokpack(%matrix : memref<1536xf32, 3>, %bufferA : memref<8xf32, 5>, %bufferB : memref<8xf32, 5>) -> (vector<32xf32>) {
-  %c0 = arith.constant 0 : index
-  %c0f = arith.constant 0.0 : f32
-  %vectorC = vector.splat %c0f : vector<32xf32>
+func.func @miopen_xdlops_gemm_v2_nonreduction_nokpack(%matrix : memref<1536xf32, 3>, %bufferA : memref<8xf32, 5>, %bufferB : memref<8xf32, 5>, %bufferC : memref<32xf32, 5>) {
   // CHECK: memref.load 
   // CHECK: memref.load 
   // CHECK: amdgpu.mfma
-   %vectorD = miopen.xdlops_gemm_v2(%matrix, %matrix, %c0, %c0, %bufferA, %bufferB, %vectorC) {
+  miopen.xdlops_gemm_v2(%matrix, %matrix, %c0, %c0, %bufferA, %bufferB, %bufferC) {
      k = 8 : i32, 
      kpack = 1 : i32, 
      ldsBufferOffsetA = 0 : index, 
@@ -16,8 +13,7 @@ func.func @miopen_xdlops_gemm_v2_nonreduction_nokpack(%matrix : memref<1536xf32,
      m_per_wave = 64 : i32, 
      n = 64 : i32, 
      n_per_wave = 32 : i32
-     } : memref<1536xf32, 3>, memref<1536xf32, 3>, index, index, memref<8xf32, 5>, memref<8xf32, 5>, vector<32xf32> -> vector<32xf32>
-  return %vectorD : vector<32xf32>
+     } : memref<1536xf32, 3>, memref<1536xf32, 3>, index, index, memref<8xf32, 5>, memref<8xf32, 5>, memref<32xf32, 5>
 }
 
 func.func @miopen_xdlops_gemm_v2_nonreduction_kpack(%matrix : memref<1024xf32, 3>, %bufferA : memref<2xvector<2xf32>, 5>, %bufferB : memref<2xvector<2xf32>, 5>) -> (vector<32xf32>, vector<32xf32>) {

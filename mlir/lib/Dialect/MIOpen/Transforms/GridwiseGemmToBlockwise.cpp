@@ -1305,7 +1305,7 @@ struct GridwiseGemmV2RewritePattern
     auto elementType = op.b().getType().cast<MemRefType>().getElementType();
 
     // Prepare some useful constants.
-    auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+    Value zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
     // Obtain critical matrix dimensions.
     ArrayRef<int64_t> aShape, bShape, cShape;
@@ -2075,7 +2075,6 @@ struct GridwiseGemmV2RewritePattern
     // -----
     // Logic to allocate 0-initialized vectors for C.
     int64_t regCVectorLen = vectorType.getNumElements();
-    int64_t numElements = regCVectorLen * vectorNumber;
     Type destType = op.c().getType().cast<MemRefType>().getElementType();
 
     // Determine the type used on VGPR to act as accumulator.
@@ -2090,13 +2089,14 @@ struct GridwiseGemmV2RewritePattern
       accumulatorType = b.getI32Type();
     }
 
+    VectorType accumulatorVectorType =
+        vectorType.cloneWith({}, accumulatorType);
     MemRefType regCAllocType = MemRefType::get(
-        numElements, accumulatorType, {},
-        // numElements, destType, {},
+        vectorNumber, accumulatorVectorType, {},
         /*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
     Value regCAllocOp = b.create<miopen::GpuAllocOp>(loc, regCAllocType);
 
-    Value zeroConstantCOp = createZeroConstantOp(b, loc, accumulatorType);
+    Value zeroConstantCOp = createZeroConstantOp(b, loc, vectorType);
     b.create<FillOp>(loc, regCAllocOp, zeroConstantCOp);
 
     // Emit loop.
@@ -2189,6 +2189,7 @@ struct GridwiseGemmV2RewritePattern
     const auto &tailResults = blockwiseGemmV2TailOp->getResults();
     int64_t wavesInKernelBlock = kernelBlockSize / waveSize;
 
+    int64_t numElements = regCVectorLen * vectorNumber;
     TopDownTMBuilder splitMemoryCoords(
         b, {"bid", "tid", "item"},
         {kernelGridSize, kernelBlockSize, numElements}, loc);
@@ -2368,39 +2369,48 @@ struct GridwiseGemmV2RewritePattern
     if (enableOutSwizzles) {
       Value laneId = b.create<arith::RemUIOp>(loc, tid, waveSizeConstantOp);
       for (int i = 0; i < vectorNumber; ++i) {
-        Value indexOp = b.createOrFold<ConstantIndexOp>(loc, i * regCVectorLen);
+        Value indexOp = b.createOrFold<ConstantIndexOp>(loc, i);
         Value loaded =
-            b.create<InBoundsLoadOp>(loc, vectorType, regCAllocOp, indexOp);
+            b.create<memref::LoadOp>(loc, vectorType, regCAllocOp, indexOp);
         Value swizzle = b.create<InWarpTransposeOp>(
             loc, vectorType, loaded, laneId, b.getI32IntegerAttr(group_size),
             b.getI32ArrayAttr({0, 1, 2, 3}));
         transformedTail.push_back(swizzle);
-        b.create<miopen::InBoundsStoreOp>(loc, swizzle, regCAllocOp, indexOp);
+        b.create<memref::StoreOp>(loc, swizzle, regCAllocOp, indexOp);
       }
     } else {
       llvm::copy(tailResults, std::back_inserter(transformedTail));
     }
 
     Value registerC = regCAllocOp;
-    if (destType != accumulatorType) {
-      auto convertedCType = regCAllocType.clone(destType).cast<MemRefType>();
-      Value convertedC = b.create<miopen::GpuAllocOp>(loc, convertedCType);
-      auto convertLoop = b.create<TransformingForOp>(
-          loc, ArrayRef<ValueRange>{{zeroConstantOp}},
-          ArrayRef<Attribute>{b.getArrayAttr({})},
-          /*bounds=*/convertedCType.getShape(), /*strides=*/llvm::None,
-          /*useIndexDiffs=*/true, /*forceUnroll=*/true);
-      {
-        OpBuilder::InsertionGuard guard(b);
-        b.setInsertionPointToStart(convertLoop.getBody());
-        Value coord = convertLoop.getLowerCoords(/*domain=*/0)[0];
-        Value loaded =
-            b.create<InBoundsLoadOp>(loc, accumulatorType, registerC, coord);
-        Value cast = createTypeConversionOp(b, loc, loaded, destType);
-        b.create<InBoundsStoreOp>(loc, cast, convertedC, coord);
+    auto convertedCType = MemRefType::get(
+        vectorType.getNumElements() * vectorNumber, destType, {},
+        /*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
+    Value convertedC = b.create<miopen::GpuAllocOp>(loc, convertedCType);
+
+    // Convert from memref<?xvector<?xT>> to memref<?xT> where the source T
+    // is the accumulatorType and destination type is destType
+    auto convertLoop = b.create<TransformingForOp>(
+        loc, ArrayRef<ValueRange>{{zeroConstantOp}},
+        ArrayRef<Attribute>{b.getArrayAttr({})},
+        /*bounds=*/regCAllocType.getShape(), /*strides=*/llvm::None,
+        /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+    {
+      OpBuilder::InsertionGuard guard(b);
+      b.setInsertionPointToStart(convertLoop.getBody());
+      Value coord = convertLoop.getLowerCoords(/*domain=*/0)[0];
+      Value loaded = b.create<memref::LoadOp>(loc, accumulatorVectorType,
+                                              registerC, coord);
+      Value cast = loaded;
+      if (destType != accumulatorType) {
+        VectorType destVectorType = vectorType.cloneWith({}, destType);
+        cast = createTypeConversionOp(b, loc, loaded, destVectorType);
       }
-      registerC = convertedC;
+      Value offset = b.create<MulIOp>(
+          loc, coord, b.create<arith::ConstantIndexOp>(loc, regCVectorLen));
+      b.create<InBoundsStoreOp>(loc, cast, convertedC, offset);
     }
+    registerC = convertedC;
 
     auto writeOobDims = computeOobFromTransforms(b, idToTensorCMaps);
 
@@ -2433,7 +2443,8 @@ void MIOpenGridwiseGemmToBlockwisePass::runOnOperation() {
   ConversionTarget target(*ctx);
   target.addIllegalOp<miopen::GridwiseGemmOp, miopen::GridwiseGemmV2Op>();
   target.addLegalDialect<arith::ArithmeticDialect, miopen::MIOpenDialect,
-                         AffineDialect, vector::VectorDialect>();
+                         memref::MemRefDialect, AffineDialect,
+                         vector::VectorDialect>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<GridwiseGemmRewritePattern, GridwiseGemmV2RewritePattern>(ctx);

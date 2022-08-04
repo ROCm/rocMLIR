@@ -199,9 +199,10 @@ def MIOpen_GpuAllocOp:
 
 // TBD: eventually replace this with linalg.fill?
 def MIOpen_FillOp:
-    MIOpen_Op<"fill", [AllElementTypesMatch<["input", "value"]>]>,
+    MIOpen_Op<"fill">,
     Arguments<(ins AnyMemRef:$input,
-                   AnyTypeOf<[AnyInteger, AnyFloat]>:$value)> {
+                   //AnyTypeOf<[AnyInteger, AnyFloat]>:$value)> {
+                   AnyTypeOf<[AnyInteger, AnyFloat, AnyVector]>:$value)> {
   let summary = "Fill memory with constant value on GPU";
   let description = [{
     The `miopen.fill` op fills a memref on GPU with a constant value.
@@ -730,7 +731,8 @@ def MIOpen_BlockwiseGemmV2Op:
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
                              VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$bufferB,
-                   MemRefOf<[F32, F16, BF16, I32]>:$matrixRes)>{
+                   MemRefOf<[F32, F16, BF16, I32,
+                             VectorOf<[F32, F16, BF16, I32]>]>:$matrixC)>{
   let summary = "Blockwise GEMM XDLOPS version";
   let description = [{
     The `miopen.block_gemm` op does GEMM at workgroup (block) level.
@@ -784,7 +786,8 @@ def MIOpen_XdlopsGemmV2Op:
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
                              VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$bufferB,
-                   MemRefOf<[F32, F16, BF16, I32]>:$matrixRes)>{
+                   MemRefOf<[F32, F16, BF16, I32,
+                             VectorOf<[F32, F16, BF16, I32]>]>:$matrixC)>{
   let summary = "XDLOPS GEMM V2";
   let description = [{
     The `miopen.xdlops_gemm_v2` op is an abstraction of doing GEMM based on XDLOPS.
