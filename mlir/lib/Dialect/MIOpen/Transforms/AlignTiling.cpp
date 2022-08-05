@@ -59,6 +59,13 @@ struct MILARewritePattern : public OpRewritePattern<linalg::GenericOp> {
   LogicalResult matchAndRewrite(linalg::GenericOp laGeneric,
                                 PatternRewriter &b) const override;
 };
+
+struct LGDropDimsPattern : public OpRewritePattern<linalg::GenericOp> {
+  using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(linalg::GenericOp laGeneric,
+                                PatternRewriter &b) const override;
+};
 } // end anonymous namespace
 
 /// If `inpMap` is a map of the form
@@ -172,10 +179,10 @@ static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
                                    Value dest) {
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << srcOp.getType()
                           << " dest type: " << op.dest().getType() << "\n");
-  assert(srcOp.getType().cast<ShapedType>().getShape() ==
-             op.dest().getType().cast<ShapedType>().getShape() &&
-         "shape of extra fusion arguments matches shape of C tensor");
-
+  /*  assert(srcOp.getType().cast<ShapedType>().getShape() ==
+               op.dest().getType().cast<ShapedType>().getShape() &&
+           "shape of extra fusion arguments matches shape of C tensor");
+  */
   auto writeCLoop = op->getParentOfType<TransformingForOp>();
   assert(writeCLoop && "threadwise_copy_v2 must be in a transforming_for");
 
@@ -469,9 +476,113 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   return failure();
 }
 
+void eliminateAll(Operation *op) {
+  for (Operation *user : op->getUsers()) {
+    eliminateAll(user);
+  }
+  op->dropAllUses();
+  op->erase();
+}
+
+// Dropping expanded dims from linalg elementwise fusion
+LogicalResult LGDropDimsPattern::matchAndRewrite(linalg::GenericOp laGeneric,
+                                                 PatternRewriter &b) const {
+  Location loc = laGeneric.getLoc();
+  SmallVector<AffineMap, 5> laGenericAMaps;
+  SmallVector<Value, 5> newInputs;
+  MLIRContext *ctx = laGeneric.getContext();
+
+  // Check the same tests as main linalg aligning has.
+  Value out = *laGeneric.outputs().begin();
+  if (laGeneric.outputs().size() > 1)
+    return failure();
+  MemRefType regType;
+
+  // Check memref alloc as output and eliminate it with all users
+  for (Operation *user : out.getUsers()) {
+    if (isa<memref::CollapseShapeOp>(user)) {
+      regType = user->getResult(0).getType().template cast<MemRefType>();
+      eliminateAll(user);
+      break;
+    }
+    return failure();
+  }
+  if (!regType)
+    return failure();
+
+  SmallVector<AffineMap> idxMaps = laGeneric.getIndexingMaps();
+  AffineMap outIdxMap = idxMaps.back();
+  if (!outIdxMap.isIdentity())
+    return failure();
+
+  // Original dims could have the size of 1 and can't be folded.
+  // Current strategy is to get original ranks of the inputs and take the
+  // highest one as the common rank. e.g.,  Expanding rank 4 -> 8 should be
+  // shrinked but need to keep the expanded rank 1 -> 4
+  unsigned commonRank = 1;
+  for (Value inp : laGeneric.inputs()) {
+    if (auto expanded = inp.getDefiningOp<memref::ExpandShapeOp>()) {
+      auto src = expanded->getOperand(0);
+      unsigned currRank = src.getType().template cast<MemRefType>().getRank();
+      if (currRank > commonRank)
+        commonRank = currRank;
+    }
+  }
+
+  Value laOut;
+  bool bFirst = true;
+  // Reconfigure the linalg.generic, this tries to restore the original rank
+  // which was already compatible
+  elementwise fusion duplicated some dims.for (auto pair :
+                                               llvm::zip(idxMaps,
+                                                         laGeneric.inputs())) {
+    AffineMap inpIdxMap = std::get<0>(pair);
+    Value inp = std::get<1>(pair);
+    if (auto expanded = inp.getDefiningOp<memref::ExpandShapeOp>()) {
+      auto src = expanded->getOperand(0);
+      Value newValue;
+      unsigned currRank =
+          expanded.getType().template cast<MemRefType>().getRank();
+      if (currRank != commonRank) {
+        newValue = src;
+      } else {
+        newValue = inp;
+      }
+      newInputs.push_back(newValue);
+
+      // The first input comes from the anchor op and to be used as the final
+      // output
+      if (bFirst)
+        laOut = newValue;
+      laGenericAMaps.push_back(
+          AffineMap::getMultiDimIdentityMap(commonRank, ctx));
+    } else {
+      newInputs.push_back(inp);
+      laGenericAMaps.push_back(inpIdxMap);
+    }
+    bFirst = false;
+  }
+
+  // set output map and in/out
+  laGenericAMaps.push_back(AffineMap::getMultiDimIdentityMap(commonRank, ctx));
+  laGeneric.inputsMutable().assign(newInputs);
+  laGeneric.outputsMutable().assign(laOut);
+
+  // Reset affine maps
+  laGeneric.indexing_mapsAttr(b.getAffineMapArrayAttr(laGenericAMaps));
+
+  // Reset iterator types
+  SmallVector<StringAttr, 5> laGenericIteratorArr(commonRank,
+                                                  b.getStringAttr("parallel"));
+  laGeneric.iterator_typesAttr(b.getArrayAttr(ArrayRef<Attribute>(
+      laGenericIteratorArr.begin(), laGenericIteratorArr.end())));
+  return success();
+}
+
 void MIOpenLinalgAlignPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   RewritePatternSet patterns(ctx);
+  patterns.add<LGDropDimsPattern>(ctx);
   patterns.add<MILARewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
