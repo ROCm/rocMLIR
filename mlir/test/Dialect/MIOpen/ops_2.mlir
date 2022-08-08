@@ -474,20 +474,21 @@ func.func @miopen_threadwise_gemm(%lhs : memref<4x8x1xf32, 5>, %rhs : memref<4x8
 // ----
 
 func.func @miopen_xdlops_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
-                                       %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>) -> vector<32xf32> {
+                                            %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>,
+                                            %matrixC : memref<1xvector<32xf32>, 5>) {
   %c0 = arith.constant 0 : index
-  %c0f = arith.constant 0.0 : f32
-  %vectorC0 = vector.splat %c0f : vector<32xf32>
-  %vectorD0 = miopen.xdlops_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0) {
+  miopen.xdlops_gemm_v2(%matrixA, %matrixB, %bufferA, %bufferB, %matrixC) {
     m = 256,
     n = 256,
     k = 16,
     m_per_wave = 128,
     n_per_wave = 64,
     ldsBufferOffsetA = 0 : index,
-    ldsBufferOffsetB = 8192 : index
-  } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32> -> vector<32xf32>
-  return %vectorD0 : vector<32xf32>
+    ldsBufferOffsetB = 8192 : index,
+    regOffsetA = 0 : index,
+    regOffsetB = 0 : index
+  } : memref<12288xf32, 3>, memref<12288xf32, 3>, memref<32xf32, 5>, memref<16xf32, 5>, memref<1xvector<32xf32>, 5>
+  return
 }
 
 // CHECK-LABEL: func.func @miopen_xdlops_gemm_v2_one_result
@@ -496,21 +497,21 @@ func.func @miopen_xdlops_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %ma
 // ----
 
 func.func @miopen_xdlops_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
-                                        %bufferA : memref<32xf32, 5>, %bufferB: memref<16xf32, 5>) -> (vector<32xf32>, vector<32xf32>) {
+                                            %bufferA : memref<32xf32, 5>, %bufferB: memref<16xf32, 5>,
+                                            %matrixC : memref<2xvector<32xf32>, 5>) {
   %c0 = arith.constant 0 : index
-  %c0f = arith.constant 0.0 : f32
-  %vectorC0 = vector.splat %c0f : vector<32xf32>
-  %vectorC1 = vector.splat %c0f : vector<32xf32>
-  %vectorD0, %vectorD1 = miopen.xdlops_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0, %vectorC1) {
+  miopen.xdlops_gemm_v2(%matrixA, %matrixB, %bufferA, %bufferB, %matrixC) {
     m = 256,
     n = 256,
     k = 16,
     m_per_wave = 128,
     n_per_wave = 64,
     ldsBufferOffsetA = 0 : index,
-    ldsBufferOffsetB = 8192 : index
-  } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32>, vector<32xf32> -> vector<32xf32>, vector<32xf32>
-  return %vectorD0, %vectorD1 : vector<32xf32>, vector<32xf32>
+    ldsBufferOffsetB = 8192 : index,
+    regOffsetA = 0 : index,
+    regOffsetB = 0 : index
+  } : memref<12288xf32, 3>, memref<12288xf32, 3>, memref<32xf32, 5>, memref<16xf32, 5>, memref<2xvector<32xf32>, 5>
+  return
 }
 
 // CHECK-LABEL: func.func @miopen_xdlops_gemm_v2_two_results
@@ -519,11 +520,10 @@ func.func @miopen_xdlops_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %m
 // ----
 
 func.func @miopen_blockwise_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
-                                          %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>) -> vector<32xf32> {
+                                              %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>,
+                                              %matrixC : memref<1xvector<32xf32>, 5>) {
   %c0 = arith.constant 0 : index
-  %c0f = arith.constant 0.0 : f32
-  %vectorC0 = vector.splat %c0f : vector<32xf32>
-  %vectorD0 = miopen.blockwise_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0) {
+  miopen.blockwise_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %matrixC) {
     m = 256,
     n = 256,
     k = 16,
@@ -531,8 +531,8 @@ func.func @miopen_blockwise_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, 
     n_per_wave = 64,
     ldsBufferOffsetA = 0 : index,
     ldsBufferOffsetB = 0 : index
-  } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32> -> vector<32xf32>
-  return %vectorD0 : vector<32xf32>
+  } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, memref<1xvector<32xf32>, 5>
+  return
 }
 
 // CHECK-LABEL: func.func @miopen_blockwise_gemm_v2_one_result
@@ -541,12 +541,10 @@ func.func @miopen_blockwise_gemm_v2_one_result(%matrixA : memref<12288xf32, 3>, 
 // ----
 
 func.func @miopen_blockwise_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
-                                           %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>) -> (vector<32xf32>, vector<32xf32>) {
+                                                %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>,
+                                                %matrixC : memref<2xvector<32xf32>, 5>) {
   %c0 = arith.constant 0 : index
-  %c0f = arith.constant 0.0 : f32
-  %vectorC0 = vector.splat %c0f : vector<32xf32>
-  %vectorC1 = vector.splat %c0f : vector<32xf32>
-  %vectorD0, %vectorD1 = miopen.blockwise_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %vectorC0, %vectorC1) {
+  miopen.blockwise_gemm_v2(%matrixA, %matrixB, %c0, %c0, %bufferA, %bufferB, %matrixC) {
     m = 256,
     n = 256,
     k = 16,
@@ -554,8 +552,8 @@ func.func @miopen_blockwise_gemm_v2_two_results(%matrixA : memref<12288xf32, 3>,
     n_per_wave = 64,
     ldsBufferOffsetA = 0 : index,
     ldsBufferOffsetB = 8192 : index
-  } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, vector<32xf32>, vector<32xf32> -> vector<32xf32>, vector<32xf32>
-  return %vectorD0, %vectorD1 : vector<32xf32>, vector<32xf32>
+  } : memref<12288xf32, 3>, memref<12288xf32, 3>, index, index, memref<32xf32, 5>, memref<16xf32, 5>, memref<2xvector<32xf32>, 5>
+  return
 }
 
 // CHECK-LABEL: func.func @miopen_blockwise_gemm_v2_two_results
