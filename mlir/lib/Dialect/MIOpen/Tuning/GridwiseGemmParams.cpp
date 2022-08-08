@@ -10,6 +10,18 @@
 using namespace mlir;
 using namespace mlir::miopen;
 
+llvm::raw_ostream &mlir::miopen::operator<<(llvm::raw_ostream &os,
+                                            GemmDimension dim) {
+  switch (dim) {
+  case GemmDimension::G:
+    return os << "GemmDimmension::G";
+  case GemmDimension::K:
+    return os << "GemmDimension::K";
+  case GemmDimension::MorN:
+    return os << "GemmDimension::MorN";
+  }
+}
+
 static void
 obtainGemmADimKVectorizable(ConvOpType opType,
                             llvm::StringMap<DimIndexAndSize> &dimIndexAndSize,

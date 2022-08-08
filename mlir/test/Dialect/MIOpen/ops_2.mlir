@@ -445,6 +445,23 @@ func.func @miopen_buffer_store_4xi32(%data: vector<4xi32>, %dest: memref<1x1x1x1
 // CHECK: miopen.buffer_store set %{{.*}} -> %{{.*}}
 
 // --------------------------
+// global_load tests.
+
+func.func @miopen_global_load(%source : memref<?x?x?x?x?xf32>) -> vector<8xf32> {
+  %c1 = arith.constant 1 : index
+  // check source and destination with coordinate transforms.
+  %loaded = miopen.global_load
+    %source[%c1, %c1, %c1, %c1, %c1]
+    {leftOobDims = [], rightOobDims = []}
+    : memref<?x?x?x?x?xf32> -> vector<8xf32>
+
+  return %loaded : vector<8xf32>
+}
+
+// CHECK-LABEL: func.func @miopen_global_load
+// CHECK: miopen.global_load
+
+// --------------------------
 // threadwise_copy_v2 tests.
 
 func.func @miopen_threadwise_copy_v2(%source : memref<32xf32, 5>,

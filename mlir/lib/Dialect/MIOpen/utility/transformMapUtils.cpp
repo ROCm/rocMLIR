@@ -13,7 +13,6 @@
 #include "mlir/Dialect/MIOpen/utility/math.h"
 #include "llvm/ADT/IndexedMap.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Debug.h"
@@ -410,10 +409,18 @@ propagateVectorizationInfo(TransformMapAttr map,
       SmallVector<std::tuple<int64_t, uint32_t>> data(zip.begin(), zip.end());
       std::sort(data.begin(), data.end());
 
+      // Note: with negative coefficients, we can't reliably vectorize, as
+      // the subtraction can push us off the left edge and we don't necessarily
+      // have an upper bound on how much will be subtracted. So, we use
+      // a length of 1 in the fastest vectorizing dimension we can find and
+      // call it a day.
+      bool hasNegativeCoefficients = false;
       Optional<VectorizationInfo> ourResult;
       for (auto pair : data) {
         int64_t coefficient = std::get<0>(pair);
         uint32_t upperDim = std::get<1>(pair);
+        if (coefficient < 0)
+          hasNegativeCoefficients = true;
         if (input[upperDim].hasValue()) {
           if (coefficient == 0)
             continue;
@@ -421,8 +428,11 @@ propagateVectorizationInfo(TransformMapAttr map,
           int64_t upperLen = input[upperDim]->maxLength;
           int64_t needsCoeff = input[upperDim]->needsCoefficient;
 
-          if (!ourResult.hasValue())
+          if (!ourResult.hasValue()) {
             ourResult = VectorizationInfo(1, coefficient);
+            if (hasNegativeCoefficients)
+              break;
+          }
           if (coefficient == needsCoeff &&
               coefficient ==
                   (ourResult->maxLength * ourResult->needsCoefficient)) {
@@ -448,8 +458,7 @@ propagateVectorizationInfo(TransformMapAttr map,
     // of 6 gets the results [1, 2] and not [3, 2]. While this might be
     // optimistic, if the dimesions don't get put back togther with the correct
     // coefficients, their vectorization will disappear.
-    case TransformType::Merge:
-    case TransformType::Unfold: {
+    case TransformType::Merge: {
       int64_t upperDim = upperDims[0];
       if (!input[upperDim].hasValue()) {
         break;
@@ -465,6 +474,26 @@ propagateVectorizationInfo(TransformMapAttr map,
         maxLen = std::max(maxLen / lowerLen, 1L);
         coeff *= lowerLen;
       }
+      break;
+    }
+    // Unfold is a promise to the coordinate transforms engine that
+    // the dimensions that are being "merged" are contiguous in the underlying
+    // memory. When someone is able to make this promise, we take advantage
+    // of it by putting all the vectorization on the slowest-moving of the
+    // dimmensions.
+    case TransformType::Unfold: {
+      int64_t upperDim = upperDims[0];
+      if (!input[upperDim].hasValue()) {
+        break;
+      }
+      int64_t maxLen = input[upperDim]->maxLength;
+      int64_t coeff = input[upperDim]->needsCoefficient;
+      int64_t lastLowerDim = lowerDims.back();
+      int64_t lowerDimsLen = 1;
+      for (int64_t length : params)
+        lowerDimsLen *= length;
+      int64_t resultMaxLen = math_util::gcd(maxLen, lowerDimsLen);
+      result[lastLowerDim] = VectorizationInfo(resultMaxLen, coeff);
       break;
     }
     }

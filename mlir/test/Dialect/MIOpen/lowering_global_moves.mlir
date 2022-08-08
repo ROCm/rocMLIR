@@ -53,3 +53,55 @@ func.func @miopen_threadwise_copy_v2_7xf16(%source : memref<32xf16, 5>,
     : memref<32xf16, 5> -> memref<64xf16>, index
   func.return
 }
+
+// CHECK-LABEL: func.func @miopen_global_load
+func.func @miopen_global_load(%source2D : memref<32x32xf32>) -> vector<4xf32> {
+  %c0 = arith.constant 0 : index
+  // CHECK: %[[loaded:.*]] = miopen.buffer_load {{.*}}: memref<32x32xf32>, index, index -> vector<4xf32>
+  // CHECK: %[[ret:.*]] = miopen.insert_slice %[[loaded]]
+  %loaded = miopen.global_load %source2D[%c0, %c0]
+    { leftOobDims = [], rightOobDims = [] }
+    : memref<32x32xf32> -> vector<4xf32>
+  // CHECK: return %[[ret]]
+  func.return %loaded : vector<4xf32>
+}
+
+// CHECK-LABEL: func.func @miopen_global_load_long
+func.func @miopen_global_load_long(%source2D : memref<32x32xf32>) -> vector<8xf32> {
+  %c0 = arith.constant 0 : index
+  // CHECK: %[[ret_0:.*]] = arith.constant {{.*}} : vector<8xf32>
+  // CHECK: %[[loaded_0:.*]] = miopen.buffer_load {{.*}}: memref<32x32xf32>, index, index -> vector<4xf32>
+  // CHECK: %[[ret_1:.*]] = miopen.insert_slice %[[loaded_0]] -> %[[ret_0]]
+  // CHECK: %[[loaded_1:.*]] = miopen.buffer_load {{.*}} offset = 4 {{.*}}: memref<32x32xf32>, index, index -> vector<4xf32>
+  // CHECK: %[[ret:.*]] = miopen.insert_slice %[[loaded_1]] -> %[[ret_1]]
+  %loaded = miopen.global_load %source2D[%c0, %c0]
+    { leftOobDims = [], rightOobDims = [] }
+    : memref<32x32xf32> -> vector<8xf32>
+  // CHECK: return %[[ret]]
+  func.return %loaded : vector<8xf32>
+}
+
+// CHECK-LABEL: func.func @miopen_global_load_8xf16
+func.func @miopen_global_load_8xf16(%source2D : memref<32x32xf16>) -> vector<8xf16> {
+  %c0 = arith.constant 0 : index
+  // CHECK: miopen.buffer_load
+  // CHECK-NOT: miopen.buffer_load
+  %loaded = miopen.global_load %source2D[%c0, %c0]
+    { leftOobDims = [], rightOobDims = [] }
+    : memref<32x32xf16> -> vector<8xf16>
+  func.return %loaded : vector<8xf16>
+}
+
+// CHECK-LABEL: func.func @miopen_global_load_7xf16
+func.func @miopen_global_load_7xf16(%source2D : memref<32x32xf16>) -> vector<7xf16> {
+  %c0 = arith.constant 0 : index
+  // CHECK: miopen.buffer_load
+  // CHECK: miopen.buffer_load
+  // CHECK: miopen.buffer_load
+  // CHECK-NOT: miopen.buffer_load
+  %loaded = miopen.global_load %source2D[%c0, %c0]
+    { leftOobDims = [], rightOobDims = [] }
+    : memref<32x32xf16> -> vector<7xf16>
+  func.return %loaded : vector<7xf16>
+}
+

@@ -33,13 +33,19 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/IR/Attributes.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/FormatVariadic.h"
 
 #define DEBUG_TYPE "miopen-gridwise-to-blockwise"
 
@@ -53,6 +59,7 @@ struct MIOpenGridwiseGemmToBlockwisePass
           MIOpenGridwiseGemmToBlockwisePass> {
   void runOnOperation() override;
 };
+} // end anonymous namespace
 
 // TODO(kdrewnia): Could rank-0 vectors clear some of this up?
 // Utility function for crafting optional vector types
@@ -261,6 +268,295 @@ static TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc,
   return loop;
 }
 
+/// Temporary function to remove the kPack transformation currently being
+/// introduced in conv-to-gemm. kPack is a LDS-specific transformation and
+/// should not have been applied to the gridwise gemm argument. Future work will
+/// make the conversion stop doing that, and we'll be able to get rid of this.
+static Value unKpack(OpBuilder &b, Value matrix) {
+  ArrayRef<int64_t> shape = matrix.getType().cast<MemRefType>().getShape();
+  if (shape.size() != 4)
+    return matrix;
+  BottomUpTMBuilder unkpack(b, {"g", "k", "d", "kpack"}, shape,
+                            matrix.getLoc());
+  unkpack.passThrough({"g", "m"});
+  unkpack.merge("k", 1, {"k", "kpack"});
+  TransformMapAttr unkpackAttr = unkpack.get();
+  return b.create<TransformOp>(matrix.getLoc(), matrix, unkpackAttr);
+}
+
+/// Given a G x K x D matrix and the block tuning parameters and how much data
+/// each thread will load,
+/// return the dimension in which the load of this matrix from global memory
+/// should be vectorized and the length of that vector load. Also takes
+/// `tiebreaker`, the vectorization dimension to be used when both choises are
+/// equal, which should be the vectorization dimension of the store to LDS.
+static std::pair<GemmDimension, int64_t>
+bestVectorization(OpBuilder &b, Value matrix, int64_t dataPerThread,
+                  GemmDimension tiebreaker) {
+  Value tensor;
+  ArrayAttr transforms;
+  std::tie(tensor, transforms) = untransform(b, matrix);
+  ArrayRef<int64_t> tensorShape =
+      tensor.getType().cast<MemRefType>().getShape();
+  int64_t kVectorLen =
+      getMaxVectorization(transforms, static_cast<uint32_t>(GemmDimension::K),
+                          dataPerThread, tensorShape);
+  int64_t dVectorLen = getMaxVectorization(
+      transforms, static_cast<uint32_t>(GemmDimension::MorN), dataPerThread,
+      tensorShape);
+  if (kVectorLen > dVectorLen)
+    return {GemmDimension::K, kVectorLen};
+  if (dVectorLen > kVectorLen)
+    return {GemmDimension::MorN, dVectorLen};
+  return {tiebreaker, kVectorLen};
+}
+
+/// Applies the transforms that take a G x K x D matrix to a k_iter x bid x tid
+/// x iter value suitable for using in a global load loop. `dName` should be "m"
+/// and "n", and is used to make the maps have the right names for debugging.
+///
+/// bidGridOrder should
+/// contain the strings "g_block", "m_block", and "n_block" in some order
+/// indicating how the block ID is to be partitioned into offsets (last element
+/// moves fastest) and bidGridLengths should be the lengths of those three
+/// dimensions. This is needed because the xdlops and non-xdlops gemms partition
+/// their block ID in different orders.
+static FailureOr<Value> wrapMatrixForGlobalLoad(
+    OpBuilder &b, Location loc, Value matrix, StringRef dName,
+    ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
+    int64_t gridSize, int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock,
+    int64_t kPerThread, int64_t dPerThread, GemmDimension vectorDim) {
+
+  if (dName != "m" && dName != "n") {
+    return emitError(loc, "expected dName to be m or n but got " + dName);
+  }
+  StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
+  StringRef otherBlockDim = dName == "m" ? "n_block" : "m_block";
+
+  MemRefType matrixType = matrix.getType().cast<MemRefType>();
+  ArrayRef<int64_t> matrixShape = matrixType.getShape();
+  int64_t kGlobal = matrixShape[1];
+  int64_t dGlobal = matrixShape[2];
+
+  int64_t kIters = kGlobal / kPerBlock;
+  int64_t dataPerThread = (kPerBlock * dPerBlock) / blockSize;
+
+  SmallString<8> dIterName = llvm::formatv("{0}_iter", dName);
+  SmallString<8> dThreadName = llvm::formatv("{0}_thread", dName);
+
+  // Note: (kThreads * dThreads) = (kPerBlock * dPerBlock) / dataPerThread) =
+  // blockSize
+  int64_t kThreads = kPerBlock / kPerThread;
+  int64_t dThreads = dPerBlock / dPerThread;
+
+  TopDownTMBuilder splitId(b, {"k_loop", "bid", "tid", "iter"},
+                           {kIters, gridSize, blockSize, dataPerThread}, loc);
+  splitId.passThrough("k_loop");
+  splitId.merge(bidGridOrder, {1, 2, 3}, "bid", bidGridLengths);
+  // That threads are grouped [other dim, k] is important: it menas we can
+  // ignore kPack here but then account for it when writing to LDS.
+  splitId.merge({dThreadName, "k_thread"}, {4, 5}, "tid", {dThreads, kThreads});
+  if (vectorDim == GemmDimension::K) {
+    splitId.merge({dIterName, "k_iter"}, {6, 7}, "iter",
+                  {dPerThread, kPerThread});
+  } else {
+    splitId.merge({"k_iter", dIterName}, {6, 7}, "iter",
+                  {kPerThread, dPerThread});
+  }
+  TransformMapAttr splitIdAttr = splitId.get();
+
+  auto toGlobalIdx = TopDownTMBuilder::below(splitId, splitIdAttr);
+  toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
+  toGlobalIdx.unmerge("k", 1, {"k_loop", "k_thread", "k_iter"},
+                      {kGlobal / kPerBlock, kThreads, kPerThread});
+  toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
+                      {dGlobal / dPerBlock, dThreads, dPerThread});
+  toGlobalIdx.ignore(otherBlockDim);
+  TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
+
+  Value intermediate = b.create<TransformOp>(loc, matrix, toGlobalIdxAttr);
+  Value transformed = b.create<TransformOp>(loc, intermediate, splitIdAttr);
+  return transformed;
+}
+
+/// Wraps the LDS buffer "buffer", which is K x D x KPack, into a
+/// tid x iter view.
+static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
+                                              Value buffer, StringRef dName,
+                                              int64_t kPerThread,
+                                              int64_t dPerThread) {
+  MemRefType bufferType = buffer.getType().cast<MemRefType>();
+  ArrayRef<int64_t> bufferShape = bufferType.getShape();
+  if (bufferShape.size() != 3)
+    return emitError(loc, "Expected a kOuter x d x kpack LDS  buffer");
+
+  int64_t kOuter = bufferShape[0];
+  int64_t d = bufferShape[1];
+  int64_t kpack = bufferShape[2];
+
+  int64_t kpackPerThread = std::min(kPerThread, kpack);
+  int64_t kOuterPerThread = kPerThread / kpackPerThread;
+
+  SmallString<8> dThreadName = llvm::formatv("{0}_thread", dName);
+  SmallString<8> dIterName = llvm::formatv("{0}_iter", dName);
+  BottomUpTMBuilder tidIterSplit(b, {"k_outer", dName, "kpack"}, bufferShape,
+                                 loc);
+  tidIterSplit.unmerge({"k_thread", "k_iter"}, {0, 1}, "k_outer",
+                       {kOuter / kOuterPerThread, kOuterPerThread});
+  tidIterSplit.unmerge({dThreadName, dIterName}, {2, 3}, dName,
+                       {d / dPerThread, dPerThread});
+  tidIterSplit.unmerge({"kpack_thread", "kpack_iter"}, {4, 5}, "kpack",
+                       {kpack / kpackPerThread, kpackPerThread});
+  TransformMapAttr tidIterSplitAttr = tidIterSplit.get();
+  Value withTidIterSplit = b.create<TransformOp>(loc, buffer, tidIterSplitAttr);
+
+  // Note: the fact that the global load groups the data each threads loads by
+  // k and then by d means that we can smath the k and kpack thread IDs together
+  // without any trouble.
+  auto tidIter = BottomUpTMBuilder::above(tidIterSplit, tidIterSplitAttr);
+  tidIter.merge("tid", 0, {dThreadName, "k_thread", "kpack_thread"});
+  tidIter.merge("iter", 1, {"k_iter", dIterName, "kpack_iter"});
+  TransformMapAttr tidIterAttr = tidIter.get();
+  Value transformed = b.create<TransformOp>(loc, withTidIterSplit, tidIterAttr);
+  return transformed;
+}
+
+/// Returns the map from (kOuter, bid, tid, iter) to indices in the vector
+/// of values loaded from global memory.
+static ArrayAttr globalVectorLayout(OpBuilder &b, Location loc, StringRef dName,
+                                    int64_t kPerThread, int64_t dPerThread,
+                                    int64_t kpack, GemmDimension vectorDim) {
+  int64_t kOuter = kPerThread / std::min(kPerThread, kpack);
+  int64_t dataPerThread = kPerThread * dPerThread;
+
+  TopDownTMBuilder splitIter(b, {"iter"}, {dataPerThread});
+  if (vectorDim == GemmDimension::K)
+    splitIter.merge({dName, "k", "kpack"}, {0, 1, 2}, "iter",
+                    {dPerThread, kOuter, kpack});
+  else
+    splitIter.merge({"k", "kpack", dName}, {0, 1, 2}, "iter",
+                    {kOuter, kpack, dPerThread});
+  TransformMapAttr splitIterAttr = splitIter.get();
+
+  auto toVector = TopDownTMBuilder::below(splitIter, splitIterAttr);
+  toVector.unmerge("raw", 0, {"k", dName, "kpack"},
+                   {kOuter, dPerThread, kpack});
+  TransformMapAttr toVectorAttr = toVector.get();
+  return b.getArrayAttr({splitIterAttr, toVectorAttr});
+}
+
+/// Returns the map from (tid, iter) to indices the vector of values that will
+/// be stored into LDS.
+static ArrayAttr ldsVectorLayout(OpBuilder &b, Location loc,
+                                 int64_t dataPerThread) {
+  TopDownTMBuilder ignoreTid(b, {"tid", "iter"}, {1, dataPerThread}, loc);
+  ignoreTid.ignore("tid");
+  ignoreTid.passThrough({"raw"}, {0}, {"iter"});
+  TransformMapAttr ignoreTidAttr = ignoreTid.get();
+  return b.getArrayAttr({ignoreTidAttr});
+}
+
+static TransformingForOp
+createGlobalLoadLoop(PatternRewriter &b, Location loc, Value wrappedMatrix,
+                     ArrayAttr vectorMap, int64_t dataPerThread,
+                     int64_t vectorLen, Value bid, Value tid) {
+  Value tensor;
+  ArrayAttr matrixToTensor;
+  std::tie(tensor, matrixToTensor) = untransform(b, wrappedMatrix);
+
+  ArrayAttr leftOobDims, rightOobDims;
+  std::tie(leftOobDims, rightOobDims) =
+      computeOobFromTransforms(b, matrixToTensor);
+
+  Type elementType =
+      wrappedMatrix.getType().cast<MemRefType>().getElementType();
+  Type loadType = vectorTypeOrSelf(elementType, vectorLen);
+  Type resultType = vectorTypeOrSelf(elementType, dataPerThread);
+
+  Value resultInit = createZeroConstantOp(b, loc, resultType);
+  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+
+  SmallVector<Value, 4> globalStart = {zero, bid, tid, zero};
+  SmallVector<Value, 4> vectorStartOuter(4, zero);
+  auto outerLoop = b.create<TransformingForOp>(
+      loc, ArrayRef<ValueRange>{globalStart, vectorStartOuter},
+      ArrayRef<Attribute>{matrixToTensor, b.getArrayAttr({})},
+      /*bounds=*/ArrayRef<int64_t>{1, 1, 1, dataPerThread},
+      /*strides=*/ArrayRef<int64_t>{1, 1, 1, vectorLen},
+      /*forceUnroll=*/true, /*useIndexDiffs=*/true, resultInit);
+  {
+    PatternRewriter::InsertionGuard outerGuard(b);
+    b.setInsertionPointToEnd(outerLoop.getBody());
+    Value loaded =
+        b.create<GlobalLoadOp>(loc, loadType, tensor, leftOobDims, rightOobDims,
+                               outerLoop.getLowerCoords(/*domain=*/0));
+    auto innerLoop = b.create<TransformingForOp>(
+        loc,
+        ArrayRef<ValueRange>{zero,
+                             outerLoop.getLowerCoords(/*domain=*/1).back()},
+        ArrayRef<Attribute>{b.getArrayAttr({}), vectorMap},
+        /*bounds=*/ArrayRef<int64_t>{vectorLen},
+        /*strides=*/ArrayRef<int64_t>{1},
+        /*forceUnroll=*/true, /*useIndexDiffs=*/true,
+        outerLoop.getIterArgs()[0]);
+    {
+      PatternRewriter::InsertionGuard innerGuard(b);
+      b.setInsertionPointToEnd(innerLoop.getBody());
+      Value loadElem =
+          vectorLen == 1
+              ? loaded
+              : b.create<vector::ExtractElementOp>(
+                    loc, loaded, innerLoop.getLowerCoords(/*domain=*/0)[0]);
+      Value toYieldInner = dataPerThread == 1
+                               ? loadElem
+                               : b.create<vector::InsertElementOp>(
+                                     loc, loadElem, innerLoop.getIterArgs()[0],
+                                     innerLoop.getLowerCoords(/*domain=*/1)[0]);
+      b.create<miopen::YieldOp>(loc, toYieldInner);
+    }
+    b.create<miopen::YieldOp>(loc, innerLoop.getResult(0));
+  }
+  return outerLoop;
+}
+
+static TransformingForOp createLdsStoreLoop(PatternRewriter &b, Location loc,
+                                            Value loaded,
+                                            ArrayAttr ldsVectorMap,
+                                            Value wrappedBuffer,
+                                            int64_t dataPerThread, Value tid) {
+  Value rawBuffer;
+  ArrayAttr bufferView;
+  std::tie(rawBuffer, bufferView) = untransform(b, wrappedBuffer);
+
+  Type loadedType = loaded.getType();
+  Type elementType = loadedType;
+  if (auto vectorLoadTy = loadedType.dyn_cast<VectorType>())
+    elementType = vectorLoadTy.getElementType();
+
+  Value zero = b.createOrFold<ConstantIndexOp>(loc, 0);
+  SmallVector<Value, 2> vecCoordInit(2, zero);
+  SmallVector<Value, 2> ldsCoordInit = {tid, zero};
+
+  auto loop = b.create<TransformingForOp>(
+      loc, ArrayRef<ValueRange>{vecCoordInit, ldsCoordInit},
+      ArrayRef<Attribute>{ldsVectorMap, bufferView},
+      /*bounds=*/ArrayRef<int64_t>{1, dataPerThread},
+      /*strides=*/ArrayRef<int64_t>{1, 1},
+      /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+  {
+    PatternRewriter::InsertionGuard guard(b);
+    b.setInsertionPointToStart(loop.getBody());
+    Value toStore =
+        dataPerThread == 1
+            ? loaded
+            : b.create<vector::ExtractElementOp>(
+                  loc, loaded, loop.getLowerCoords(/*domain=*/0)[0]);
+    b.create<InBoundsStoreOp>(loc, toStore, rawBuffer,
+                              loop.getLowerCoords(/*domain=*/1));
+  }
+  return loop;
+}
+
 //===----------------------------------------------------------------------===//
 // GridwiseGemm lowering.
 //===----------------------------------------------------------------------===//
@@ -283,6 +579,7 @@ static Value sliceBufferSubview(OpBuilder &b, Location loc, Value buffer,
   return subview;
 }
 
+namespace {
 struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
   using OpRewritePattern<GridwiseGemmOp>::OpRewritePattern;
 
@@ -354,9 +651,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Value zeroConstantFloatOp = createZeroConstantOp(b, loc, accumulatorType);
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
+    // Temporary values while unKpack is present
+    Value matA = unKpack(b, op.a());
+    Value matB = unKpack(b, op.b());
     ArrayRef<int64_t> aShape, bShape, cShape;
-    aShape = op.a().getType().template cast<MemRefType>().getShape();
-    bShape = op.b().getType().template cast<MemRefType>().getShape();
+    aShape = matA.getType().template cast<MemRefType>().getShape();
+    bShape = matB.getType().template cast<MemRefType>().getShape();
     cShape = op.c().getType().template cast<MemRefType>().getShape();
     // Obtain critical matrix dimensions.
     int64_t G = aShape[0];
@@ -383,14 +683,22 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
              << " B[2] = " << N << " C[2] = " << cShape[2];
     }
 
+    if (cShape[2] != N) {
+      return op.emitOpError("Mismatched N dimensions in matrix multiply:")
+             << " B[2] = " << N << " C[2] = " << cShape[2];
+    }
+
     // Obtain critical tuning parameters.
     uint32_t blockSize = op.blockSize();
     uint32_t gridSize = op.gridSize();
     GeneralGemmParamsAttr tuningParams = op.params();
-    int64_t KPack = tuningParams.getKpack();
-    int64_t KPerBlock = tuningParams.getKPerBlock();
-    int64_t MPerBlock = tuningParams.getMPerBlock();
-    int64_t NPerBlock = tuningParams.getNPerBlock();
+    int64_t kpack = tuningParams.getKpack();
+    // TODO: kPerBlock, as defined in parameter selection etc,
+    // is in units of kPack, not individual k. This should be changed
+    // at some future point, but it'll be worked around for now.
+    int64_t kpacksPerBlock = tuningParams.getKPerBlock();
+    int64_t mPerBlock = tuningParams.getMPerBlock();
+    int64_t nPerBlock = tuningParams.getNPerBlock();
     int64_t mPerThread = tuningParams.getMPerThread();
     int64_t nPerThread = tuningParams.getNPerThread();
     int64_t mThreadsPerCuwave = tuningParams.getMThreadsPerCuwave();
@@ -398,31 +706,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     int64_t mCuwavesPerBlock = tuningParams.getMCuwavesPerBlock();
     int64_t nCuwavesPerBlock = tuningParams.getNCuwavesPerBlock();
 
-    int64_t matrix_a_source_data_per_read =
-        op->getAttr("matrix_a_source_data_per_read")
-            .template cast<IntegerAttr>()
-            .getInt();
-    int64_t matrix_b_source_data_per_read =
-        op->getAttr("matrix_b_source_data_per_read")
-            .template cast<IntegerAttr>()
-            .getInt();
-    auto matrix_a_source_vector_read_dim = static_cast<GemmDimensions>(
-        op->getAttr("matrix_a_source_vector_read_dim")
-            .template cast<IntegerAttr>()
-            .getInt());
-    auto matrix_b_source_vector_read_dim = static_cast<GemmDimensions>(
-        op->getAttr("matrix_b_source_vector_read_dim")
-            .template cast<IntegerAttr>()
-            .getInt());
-
     bool useIndexDiffs = true;
 
-    // Get current workgroup ID.
-    auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());
-
-    int64_t MBlockWork = M / MPerBlock;
-    int64_t NBlockWork = N / NPerBlock;
-    int64_t GStride = MBlockWork * NBlockWork;
+    int64_t mBlocks = M / mPerBlock;
+    int64_t nBlocks = N / nPerBlock;
 
     LLVM_DEBUG(llvm::dbgs() << "\ngridwise_gemm op:\n");
     LLVM_DEBUG(op.print(llvm::dbgs()));
@@ -432,400 +719,24 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                << "M: " << M << "\n"
                << "N: " << N << "\n"
                << "K: " << K << "\n"
-               << "BlockSize: " << blockSize << "\n"
-               << "MPerBlock: " << MPerBlock << "\n"
-               << "NPerBlock: " << NPerBlock << "\n"
-               << "KPerBlock: " << KPerBlock << "\n"
-               << "KPack: " << KPack << "\n"
-               << "MPerThread: " << mPerThread << "\n"
-               << "NPerThread: " << nPerThread << "\n"
-               << "MBlockWork = M / MPerBlock: " << MBlockWork << "\n"
-               << "NBlockWork = N / NPerBlock: " << NBlockWork << "\n"
+               << "G: " << G << "\n"
+               << "blockSize: " << kernelBlockSize << "\n"
+               << "mPerBlock: " << mPerBlock << "\n"
+               << "mBlocks = M / mPerBlock: " << mBlocks << "\n"
+               << "nPerBlock: " << nPerBlock << "\n"
+               << "nBlocks = N / NPerBlock: " << nBlocks << "\n"
+               << "kPerBlock: " << kPerBlock << "\n"
+               << "kpack: " << kpack << "\n"
+               << "mPerThread: " << mPerThread << "\n"
+               << "nPerThread: " << nPerThread << "\n"
                << "mThreadsPerCuwave: " << mThreadsPerCuwave << "\n"
                << "mCuwavesPerBlock: " << mCuwavesPerBlock << "\n"
                << "nThreadsPerCuwave: " << nThreadsPerCuwave << "\n"
                << "nCuwavesPerBlock: " << nCuwavesPerBlock << "\n");
 
-    auto NBlockWorkConstantOp = b.create<ConstantIndexOp>(loc, NBlockWork);
-    auto GStridOp = b.create<ConstantIndexOp>(loc, GStride);
-    auto block_work_id_g =
-        b.create<DivUIOp>(loc, bid, GStridOp); // id_g of coordinate
-    auto block_work_rem = b.create<RemUIOp>(loc, bid, GStridOp);
-    auto block_work_id_m =
-        b.create<DivUIOp>(loc, block_work_rem, NBlockWorkConstantOp);
-    auto block_work_id_n =
-        b.create<RemUIOp>(loc, block_work_rem, NBlockWorkConstantOp);
-    auto MPerBlockConstantOp = b.create<ConstantIndexOp>(loc, MPerBlock);
-    auto NPerBlockConstantOp = b.create<ConstantIndexOp>(loc, NPerBlock);
-    auto m_block_data_on_global =
-        b.create<MulIOp>(loc, block_work_id_m, MPerBlockConstantOp);
-    auto n_block_data_on_global =
-        b.create<MulIOp>(loc, block_work_id_n, NPerBlockConstantOp);
-
-    LLVM_DEBUG(llvm::dbgs() << "matrix_a_source_data_per_read: "
-                            << matrix_a_source_data_per_read << "\n");
-    LLVM_DEBUG(llvm::dbgs() << "matrix_b_source_data_per_read: "
-                            << matrix_b_source_data_per_read << "\n");
-
-    // Compute ThreadSliceLengths for Matrix A.
-    int64_t GemmABlockCopyNumberDataPerThread =
-        MPerBlock * KPerBlock / blockSize;
-
-    int64_t GemmABlockCopyThreadSliceLengths_GemmK;
-    int64_t GemmABlockCopyThreadSliceLengths_GemmM;
-    int64_t GemmABlockCopyThreadSliceLengths_GemmKPack = 1;
-    switch (matrix_a_source_vector_read_dim) {
-    case GemmK:
-      if (KPack > 1) {
-        GemmABlockCopyThreadSliceLengths_GemmKPack =
-            matrix_a_source_data_per_read;
-        GemmABlockCopyThreadSliceLengths_GemmK =
-            KPack / matrix_a_source_data_per_read;
-        GemmABlockCopyThreadSliceLengths_GemmM =
-            GemmABlockCopyNumberDataPerThread / KPack;
-      } else {
-        GemmABlockCopyThreadSliceLengths_GemmK = matrix_a_source_data_per_read;
-        GemmABlockCopyThreadSliceLengths_GemmM =
-            GemmABlockCopyNumberDataPerThread /
-            GemmABlockCopyThreadSliceLengths_GemmK;
-      }
-      break;
-    case GemmMorN:
-      // TBD: FIXME. Review logic here.
-      if (KPack > 1) {
-        GemmABlockCopyThreadSliceLengths_GemmM = matrix_a_source_data_per_read;
-        GemmABlockCopyThreadSliceLengths_GemmK =
-            GemmABlockCopyNumberDataPerThread /
-            GemmABlockCopyThreadSliceLengths_GemmM / KPack;
-        GemmABlockCopyThreadSliceLengths_GemmKPack = KPack;
-      } else {
-        GemmABlockCopyThreadSliceLengths_GemmM = matrix_a_source_data_per_read;
-        GemmABlockCopyThreadSliceLengths_GemmK =
-            GemmABlockCopyNumberDataPerThread /
-            GemmABlockCopyThreadSliceLengths_GemmM;
-      }
-      break;
-    case GemmG:
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Vector loads/stores aren't possible in the G dimension "
-                 << "and should not haven been attempted\n");
-      return failure();
-    }
-
-    LLVM_DEBUG(llvm::dbgs()
-               << "thread slice lengths for Matrix A: "
-               << GemmABlockCopyThreadSliceLengths_GemmK << " "
-               << GemmABlockCopyThreadSliceLengths_GemmM << " "
-               << GemmABlockCopyThreadSliceLengths_GemmKPack << "\n");
-
-    // Each thread should not read exceed the length of the corresponding tile
-    if (GemmABlockCopyThreadSliceLengths_GemmK > KPerBlock ||
-        GemmABlockCopyThreadSliceLengths_GemmM > MPerBlock) {
-      return failure();
-    }
-
-    if (GemmABlockCopyThreadSliceLengths_GemmK == 0 ||
-        GemmABlockCopyThreadSliceLengths_GemmM == 0 ||
-        GemmABlockCopyThreadSliceLengths_GemmKPack == 0) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Blockwise copy slice lengths for matrix A is zero which "
-                    "is invalid.\n");
-      return failure();
-    }
-
-    // Compute ThreadClusterLengths for Matrix A.
-    uint64_t GemmABlockCopyClusterLengths_GemmKPack =
-        KPack / GemmABlockCopyThreadSliceLengths_GemmKPack;
-    uint64_t GemmABlockCopyClusterLengths_GemmK =
-        KPerBlock / GemmABlockCopyThreadSliceLengths_GemmK;
-    // int64_t GemmABlockCopyClusterLengths_GemmM =
-    //    MPerBlock / GemmABlockCopyThreadSliceLengths_GemmM;
-
-    LLVM_DEBUG(llvm::dbgs() << "thread cluster lengths for Matrix A: "
-                            << GemmABlockCopyClusterLengths_GemmK << " "
-                            << GemmABlockCopyClusterLengths_GemmKPack << "\n");
-
-    // Compute ThreadSliceLengths for Matrix B.
-    int64_t GemmBBlockCopyNumberDataPerThread =
-        NPerBlock * KPerBlock / blockSize;
-
-    int64_t GemmBBlockCopyThreadSliceLengths_GemmK;
-    int64_t GemmBBlockCopyThreadSliceLengths_GemmN;
-    int64_t GemmBBlockCopyThreadSliceLengths_GemmKPack = 1;
-    assert(matrix_b_source_vector_read_dim != GemmG);
-    switch (matrix_b_source_vector_read_dim) {
-    case GemmK:
-      if (KPack > 1) {
-        GemmBBlockCopyThreadSliceLengths_GemmKPack =
-            matrix_b_source_data_per_read;
-        GemmBBlockCopyThreadSliceLengths_GemmK =
-            KPack / matrix_b_source_data_per_read;
-        GemmBBlockCopyThreadSliceLengths_GemmN =
-            GemmBBlockCopyNumberDataPerThread / KPack;
-      } else {
-        GemmBBlockCopyThreadSliceLengths_GemmK = matrix_b_source_data_per_read;
-        GemmBBlockCopyThreadSliceLengths_GemmN =
-            GemmBBlockCopyNumberDataPerThread /
-            GemmBBlockCopyThreadSliceLengths_GemmK;
-      }
-      break;
-    case GemmMorN:
-      // TBD: FIXME. Review logic here.
-      if (KPack > 1) {
-        GemmBBlockCopyThreadSliceLengths_GemmN = matrix_b_source_data_per_read;
-        GemmBBlockCopyThreadSliceLengths_GemmK =
-            GemmBBlockCopyNumberDataPerThread /
-            GemmBBlockCopyThreadSliceLengths_GemmN / KPack;
-        GemmBBlockCopyThreadSliceLengths_GemmKPack = KPack;
-      } else {
-        GemmBBlockCopyThreadSliceLengths_GemmN = matrix_b_source_data_per_read;
-        GemmBBlockCopyThreadSliceLengths_GemmK =
-            GemmBBlockCopyNumberDataPerThread /
-            GemmBBlockCopyThreadSliceLengths_GemmN;
-      }
-      break;
-    case GemmG:
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Vector loads/stores aren't possible in the G dimension "
-                 << "and should not haven been attempted\n");
-      return failure();
-    }
-
-    LLVM_DEBUG(llvm::dbgs()
-               << "thread slice lengths for Matrix B: "
-               << GemmBBlockCopyThreadSliceLengths_GemmK << " "
-               << GemmBBlockCopyThreadSliceLengths_GemmN << " "
-               << GemmBBlockCopyThreadSliceLengths_GemmKPack << "\n");
-    // Each thread should not read exceed the length of the corresponding tile
-    if (GemmBBlockCopyThreadSliceLengths_GemmK > KPerBlock ||
-        GemmBBlockCopyThreadSliceLengths_GemmN > NPerBlock) {
-      return failure();
-    }
-
-    if (GemmBBlockCopyThreadSliceLengths_GemmK == 0 ||
-        GemmBBlockCopyThreadSliceLengths_GemmN == 0 ||
-        GemmBBlockCopyThreadSliceLengths_GemmKPack == 0) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Blockwise copy slice lengths for matrix B is zero which "
-                 << "is invalid.\n");
-      return failure();
-    }
-
-    // Compute ThreadClusterLengths for Matrix B.
-    uint64_t GemmBBlockCopyClusterLengths_GemmKPack =
-        KPack / GemmBBlockCopyThreadSliceLengths_GemmKPack;
-    uint64_t GemmBBlockCopyClusterLengths_GemmK =
-        KPerBlock / GemmBBlockCopyThreadSliceLengths_GemmK;
-    uint64_t GemmBBlockCopyClusterLengths_GemmN =
-        NPerBlock / GemmBBlockCopyThreadSliceLengths_GemmN;
-
-    LLVM_DEBUG(llvm::dbgs() << "thread cluster lengths for Matrix B: "
-                            << GemmBBlockCopyClusterLengths_GemmK << " "
-                            << GemmBBlockCopyClusterLengths_GemmN << " "
-                            << GemmBBlockCopyClusterLengths_GemmKPack << "\n");
-
-    // Get current workitem ID.
-    auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
-
-    // Compute thread_data_id_begin for Matrix A.
-    // ClusterArrangeOrder for Matrix A is <1, 0>.
-    // So divide by GemmABlockCopyClusterLengths_GemmK.
-    auto GemmABlockCopyClusterLengths_GemmKConstantOp =
-        b.create<ConstantIndexOp>(loc, GemmABlockCopyClusterLengths_GemmK);
-    auto GemmABlockCopyThreadSliceLengths_GemmKConstantOp =
-        b.create<ConstantIndexOp>(loc, GemmABlockCopyThreadSliceLengths_GemmK);
-    auto GemmABlockCopyThreadSliceLengths_GemmMConstantOp =
-        b.create<ConstantIndexOp>(loc, GemmABlockCopyThreadSliceLengths_GemmM);
-
-    Value GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp;
-    Value GemmABlockCopyClusterLengths_GemmKPackConstantOp;
-    Value GemmABlockCopyThreadSliceLengths_GemmKPackConstantOp;
-    if (KPack > 1) {
-      GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp =
-          b.create<ConstantIndexOp>(loc,
-                                    GemmABlockCopyClusterLengths_GemmK *
-                                        GemmABlockCopyClusterLengths_GemmKPack);
-      GemmABlockCopyClusterLengths_GemmKPackConstantOp =
-          b.create<ConstantIndexOp>(loc,
-                                    GemmABlockCopyClusterLengths_GemmKPack);
-
-      GemmABlockCopyThreadSliceLengths_GemmKPackConstantOp =
-          b.create<ConstantIndexOp>(loc,
-                                    GemmABlockCopyThreadSliceLengths_GemmKPack);
-    }
-
-    Value GemmABlockCopyThreadClusterId_Y;
-    Value GemmABlockCopyThreadClusterId_X;
-    Value GemmAThreadDataIdBegin_Y;
-    Value GemmAThreadDataIdBegin_X;
-
-    Value GemmABlockCopyThreadClusterId_Z;
-    Value GemmAThreadDataIdBegin_Z;
-    if (KPack > 1) {
-      GemmABlockCopyThreadClusterId_Z = b.create<RemUIOp>(
-          loc,
-          b.create<RemUIOp>(
-              loc, tid,
-              GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp),
-          GemmABlockCopyClusterLengths_GemmKConstantOp);
-      GemmABlockCopyThreadClusterId_Y = b.create<DivUIOp>(
-          loc, tid, GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp);
-      GemmABlockCopyThreadClusterId_X = b.create<DivUIOp>(
-          loc,
-          b.create<RemUIOp>(
-              loc, tid,
-              GemmABlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp),
-          GemmABlockCopyClusterLengths_GemmKConstantOp);
-
-      GemmAThreadDataIdBegin_Z =
-          b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_Z,
-                           GemmABlockCopyThreadSliceLengths_GemmKConstantOp);
-      GemmAThreadDataIdBegin_Y =
-          b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_Y,
-                           GemmABlockCopyThreadSliceLengths_GemmMConstantOp);
-      GemmAThreadDataIdBegin_X = b.create<MulIOp>(
-          loc, GemmABlockCopyThreadClusterId_X,
-          GemmABlockCopyThreadSliceLengths_GemmKPackConstantOp);
-    } else {
-      GemmABlockCopyThreadClusterId_Y = b.create<RemUIOp>(
-          loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
-      GemmABlockCopyThreadClusterId_X = b.create<DivUIOp>(
-          loc, tid, GemmABlockCopyClusterLengths_GemmKConstantOp);
-      GemmAThreadDataIdBegin_Y =
-          b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_Y,
-                           GemmABlockCopyThreadSliceLengths_GemmKConstantOp);
-      GemmAThreadDataIdBegin_X =
-          b.create<MulIOp>(loc, GemmABlockCopyThreadClusterId_X,
-                           GemmABlockCopyThreadSliceLengths_GemmMConstantOp);
-    }
-
-    Value GemmABlockCopySourceCoord_Y;
-    Value GemmABlockCopySourceCoord_X;
-
-    Value GemmABlockCopySourceCoord_Z;
-    if (KPack > 1) {
-      GemmABlockCopySourceCoord_Z = GemmAThreadDataIdBegin_Z;
-      GemmABlockCopySourceCoord_Y = b.create<AddIOp>(
-          loc, m_block_data_on_global, GemmAThreadDataIdBegin_Y);
-      GemmABlockCopySourceCoord_X = GemmAThreadDataIdBegin_X;
-    } else {
-      GemmABlockCopySourceCoord_Y = GemmAThreadDataIdBegin_Y;
-      GemmABlockCopySourceCoord_X = b.create<AddIOp>(
-          loc, m_block_data_on_global, GemmAThreadDataIdBegin_X);
-    }
-
-    Value GemmABlockCopyDestCoord_Y;
-    Value GemmABlockCopyDestCoord_X;
-
-    Value GemmABlockCopyDestCoord_Z;
-    if (KPack > 1) {
-      GemmABlockCopyDestCoord_Z = GemmAThreadDataIdBegin_Z;
-    }
-    GemmABlockCopyDestCoord_Y = GemmAThreadDataIdBegin_Y;
-    GemmABlockCopyDestCoord_X = GemmAThreadDataIdBegin_X;
-
-    // Compute thread_data_id_begin for Matrix B.
-    // ClusterArrangeOrder for Matrix B is <0, 1>
-    // So divide by GemmBBlockCopyClusterLengths_GemmN.
-    auto GemmBBlockCopyClusterLengths_GemmNConstantOp =
-        b.create<ConstantIndexOp>(loc, GemmBBlockCopyClusterLengths_GemmN);
-    auto GemmBBlockCopyThreadSliceLengths_GemmKConstantOp =
-        b.create<ConstantIndexOp>(loc, GemmBBlockCopyThreadSliceLengths_GemmK);
-    auto GemmBBlockCopyThreadSliceLengths_GemmNConstantOp =
-        b.create<ConstantIndexOp>(loc, GemmBBlockCopyThreadSliceLengths_GemmN);
-
-    Value GemmBBlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp;
-    Value GemmBBlockCopyClusterLengths_GemmKPackConstantOp;
-    Value GemmBBlockCopyThreadSliceLengths_GemmKPackConstantOp;
-    if (KPack > 1) {
-      GemmBBlockCopyClusterLengths_GemmKTimesGemmKPackConstantOp =
-          b.create<ConstantIndexOp>(loc,
-                                    GemmBBlockCopyClusterLengths_GemmK *
-                                        GemmBBlockCopyClusterLengths_GemmKPack);
-      GemmBBlockCopyClusterLengths_GemmKPackConstantOp =
-          b.create<ConstantIndexOp>(loc,
-                                    GemmBBlockCopyClusterLengths_GemmKPack);
-
-      GemmBBlockCopyThreadSliceLengths_GemmKPackConstantOp =
-          b.create<ConstantIndexOp>(loc,
-                                    GemmBBlockCopyThreadSliceLengths_GemmKPack);
-    }
-
-    Value GemmBBlockCopyThreadClusterId_Y;
-    Value GemmBBlockCopyThreadClusterId_X;
-    Value GemmBThreadDataIdBegin_Y;
-    Value GemmBThreadDataIdBegin_X;
-
-    Value GemmBBlockCopyThreadClusterId_Z;
-    Value GemmBThreadDataIdBegin_Z;
-
-    if (KPack > 1) {
-      GemmBBlockCopyThreadClusterId_Z = b.create<DivUIOp>(
-          loc,
-          b.create<DivUIOp>(loc, tid,
-                            GemmBBlockCopyClusterLengths_GemmNConstantOp),
-          GemmBBlockCopyClusterLengths_GemmKPackConstantOp);
-      GemmBBlockCopyThreadClusterId_Y = b.create<RemUIOp>(
-          loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
-      GemmBBlockCopyThreadClusterId_X = b.create<RemUIOp>(
-          loc,
-          b.create<DivUIOp>(loc, tid,
-                            GemmBBlockCopyClusterLengths_GemmNConstantOp),
-          GemmBBlockCopyClusterLengths_GemmKPackConstantOp);
-
-      GemmBThreadDataIdBegin_Z =
-          b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Z,
-                           GemmBBlockCopyThreadSliceLengths_GemmKConstantOp);
-      GemmBThreadDataIdBegin_Y =
-          b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Y,
-                           GemmBBlockCopyThreadSliceLengths_GemmNConstantOp);
-      GemmBThreadDataIdBegin_X = b.create<MulIOp>(
-          loc, GemmBBlockCopyThreadClusterId_X,
-          GemmBBlockCopyThreadSliceLengths_GemmKPackConstantOp);
-    } else {
-      GemmBBlockCopyThreadClusterId_Y = b.create<DivUIOp>(
-          loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
-      GemmBBlockCopyThreadClusterId_X = b.create<RemUIOp>(
-          loc, tid, GemmBBlockCopyClusterLengths_GemmNConstantOp);
-      GemmBThreadDataIdBegin_Y =
-          b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_Y,
-                           GemmBBlockCopyThreadSliceLengths_GemmKConstantOp);
-      GemmBThreadDataIdBegin_X =
-          b.create<MulIOp>(loc, GemmBBlockCopyThreadClusterId_X,
-                           GemmBBlockCopyThreadSliceLengths_GemmNConstantOp);
-    }
-
-    Value GemmBBlockCopySourceCoord_Y;
-    Value GemmBBlockCopySourceCoord_X;
-
-    Value GemmBBlockCopySourceCoord_Z;
-    if (KPack > 1) {
-      GemmBBlockCopySourceCoord_Z = GemmBThreadDataIdBegin_Z;
-      GemmBBlockCopySourceCoord_Y = b.create<AddIOp>(
-          loc, n_block_data_on_global, GemmBThreadDataIdBegin_Y);
-      GemmBBlockCopySourceCoord_X = GemmBThreadDataIdBegin_X;
-    } else {
-      GemmBBlockCopySourceCoord_Y = GemmBThreadDataIdBegin_Y;
-      GemmBBlockCopySourceCoord_X = b.create<AddIOp>(
-          loc, n_block_data_on_global, GemmBThreadDataIdBegin_X);
-    }
-
-    Value GemmBBlockCopyDestCoord_Y;
-    Value GemmBBlockCopyDestCoord_X;
-
-    Value GemmBBlockCopyDestCoord_Z;
-    if (KPack > 1) {
-      GemmBBlockCopyDestCoord_Z = GemmBThreadDataIdBegin_Z;
-    }
-    GemmBBlockCopyDestCoord_Y = GemmBThreadDataIdBegin_Y;
-    GemmBBlockCopyDestCoord_X = GemmBThreadDataIdBegin_X;
-
-    auto GemmDataIdBegin_G = block_work_id_g;
-    auto GemmBlockCoord_G = GemmDataIdBegin_G;
-
     // Compute required LDS sizes.
     int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
-    computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize, KPack);
+    computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize, kpack);
 
     LLVM_DEBUG(llvm::dbgs() << "LDS block size:" << ldsBlockASize << " "
                             << ldsBlockBSize << " " << ldsBlockSize << "\n");
@@ -836,52 +747,34 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                         gpu::GPUDialect::getWorkgroupAddressSpace());
     auto ldsGpuAllocOp = b.create<GpuAllocOp>(loc, ldsMemRefType);
 
-    // Subviews for Matrix A.
-    auto ldsBlockAOffset = 0;
+    // Subviews for matrix A tile in LDS buffer.
+    int64_t ldsBlockAOffset = 0;
     auto ldsBlockASubviewOp = sliceBufferSubview(
         b, loc, ldsGpuAllocOp, ldsBlockAOffset, ldsBlockASize);
-
-    // Get matrix subviews.
-    // Compute matrix A dimension from attributes.
     Value ldsMatrixASubviewOp =
         reshapeBuffer(b, loc, ldsBlockASubviewOp, {"k", "m", "kpack"},
-                      {KPerBlock, MPerBlock, KPack});
-    // TODO: Remove this when kPack branches are unified here
-    Value ldsMatrixASubviewForCopy = ldsMatrixASubviewOp;
-    if (KPack == 1) {
-      ldsMatrixASubviewForCopy = reshapeBuffer(
-          b, loc, ldsBlockASubviewOp, {"k", "m"}, {KPerBlock, MPerBlock});
-    }
-
-    // Subviews for Matrix B.
-    auto ldsBlockBOffset = ldsBlockASize;
+                      {kpacksPerBlock, mPerBlock, kpack});
+    // Subviews for matrix B tile in LDS buffer.
+    int64_t ldsBlockBOffset = ldsBlockASize;
     auto ldsBlockBSubviewOp = sliceBufferSubview(
         b, loc, ldsGpuAllocOp, ldsBlockBOffset, ldsBlockBSize);
-
-    // Get matrix subviews.
-    // Compute matrix B dimension from attributes.
     Value ldsMatrixBSubviewOp =
         reshapeBuffer(b, loc, ldsBlockBSubviewOp, {"k", "n", "kpack"},
-                      {KPerBlock, NPerBlock, KPack});
-    Value ldsMatrixBSubviewOpForCopy = ldsMatrixBSubviewOp;
-    if (KPack == 1) {
-      ldsMatrixBSubviewOpForCopy = reshapeBuffer(
-          b, loc, ldsBlockBSubviewOp, {"k", "n"}, {KPerBlock, NPerBlock});
-    }
+                      {kpacksPerBlock, nPerBlock, kpack});
 
     // Alloc for Matrix C on registers.
     // Compute register size from attributes.
 
-    int64_t GemmMRepeat =
-        MPerBlock / (mPerThread * mThreadsPerCuwave * mCuwavesPerBlock);
-    int64_t GemmNRepeat =
-        NPerBlock / (nPerThread * nThreadsPerCuwave * nCuwavesPerBlock);
+    int64_t gemmMRepeat =
+        mPerBlock / (mPerThread * mThreadsPerCuwave * mCuwavesPerBlock);
+    int64_t gemmNRepeat =
+        nPerBlock / (nPerThread * nThreadsPerCuwave * nCuwavesPerBlock);
 
-    LLVM_DEBUG(llvm::dbgs() << "GemmMRepeat: " << GemmMRepeat << "\n");
-    LLVM_DEBUG(llvm::dbgs() << "GemmNRepeat: " << GemmNRepeat << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "GemmMRepeat: " << gemmMRepeat << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "GemmNRepeat: " << gemmNRepeat << "\n");
 
-    int64_t threadCNumM = GemmMRepeat * mPerThread;
-    int64_t threadCNumN = GemmNRepeat * nPerThread;
+    int64_t threadCNumM = gemmMRepeat * mPerThread;
+    int64_t threadCNumN = gemmNRepeat * nPerThread;
     int64_t threadCNumRegisters = threadCNumM * threadCNumN;
     auto threadCRegisterMemRefType =
         MemRefType::get({threadCNumRegisters}, accumulatorType, {},
@@ -891,195 +784,151 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Value registerMatrixCViewOp = reshapeBuffer(
         b, loc, registerMatrixCAllocOp, {"m", "n"}, {threadCNumM, threadCNumN});
 
-    // Determine vector / scalar load type for Matrix A / B.
-    SmallVector<int64_t, 4> blockwiseCopyABounds;
-    if (KPack > 1) {
-      blockwiseCopyABounds = {1, GemmABlockCopyThreadSliceLengths_GemmK,
-                              GemmABlockCopyThreadSliceLengths_GemmM,
-                              GemmABlockCopyThreadSliceLengths_GemmKPack};
-    } else {
-      blockwiseCopyABounds = {1, GemmABlockCopyThreadSliceLengths_GemmK,
-                              GemmABlockCopyThreadSliceLengths_GemmM};
-    }
-
-    uint32_t blockwiseVectorDimA = matrix_a_source_vector_read_dim;
-    int64_t blockwiseLoadVectorLenA = matrix_a_source_data_per_read;
-    Type aLoadIntermediate, aLoadType;
-    computeLoadStoreTypeInfo(b, blockwiseCopyABounds, blockwiseLoadVectorLenA,
-                             blockwiseVectorDimA, KPack, elementType, aLoadType,
-                             aLoadIntermediate);
-    LLVM_DEBUG(llvm::dbgs()
-               << "Corrected blockwise vector dim A: " << blockwiseVectorDimA
-               << "\n"
-               << "Load type A: " << aLoadType << "\n"
-               << "Intermediate type A: " << aLoadIntermediate << "\n");
-
-    LLVM_DEBUG(llvm::dbgs() << "blockwise copy A bounds: ");
-    for (auto v : blockwiseCopyABounds)
-      LLVM_DEBUG(llvm::dbgs() << v << " ");
-    LLVM_DEBUG(llvm::dbgs() << "\n");
-
-    SmallVector<int64_t, 4> blockwiseCopyBBounds;
-    if (KPack > 1) {
-      blockwiseCopyBBounds = {1, GemmBBlockCopyThreadSliceLengths_GemmK,
-                              GemmBBlockCopyThreadSliceLengths_GemmN,
-                              GemmBBlockCopyThreadSliceLengths_GemmKPack};
-    } else {
-      blockwiseCopyBBounds = {1, GemmBBlockCopyThreadSliceLengths_GemmK,
-                              GemmBBlockCopyThreadSliceLengths_GemmN};
-    }
-    uint32_t blockwiseVectorDimB = matrix_b_source_vector_read_dim;
-    int64_t blockwiseLoadVectorLenB = matrix_b_source_data_per_read;
-    Type bLoadIntermediate, bLoadType;
-    computeLoadStoreTypeInfo(b, blockwiseCopyBBounds, blockwiseLoadVectorLenB,
-                             blockwiseVectorDimB, KPack, elementType, bLoadType,
-                             bLoadIntermediate);
-    LLVM_DEBUG(llvm::dbgs()
-               << "Corrected blockwise vector dim B: " << blockwiseVectorDimB
-               << "\n"
-               << "Load type B: " << bLoadType << "\n"
-               << "Intermediate type B: " << bLoadIntermediate << "\n");
-
-    LLVM_DEBUG(llvm::dbgs() << "blockwise copy B bounds: ");
-    for (auto v : blockwiseCopyBBounds)
-      LLVM_DEBUG(llvm::dbgs() << v << " ");
-    LLVM_DEBUG(llvm::dbgs() << "\n");
-
     // Zero init Matrix C on registers.
     b.create<FillOp>(loc, registerMatrixCAllocOp, zeroConstantFloatOp);
 
-    // Blockwise copies before the loop.
-    // Blockwise copy from global (generic tensor) to LDS (naive tensor).
+    // Get current workgroup ID.
+    auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());
+    // Get current workitem ID.
+    auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
 
-    // Compute source and destination coordinates for BlockwiseCopy ops.
-    // Matrix A: {0, 0, m_block_data_on_global}, {0, 0, 0}
-    // Matrix B: {0, 0, n_block_data_on_global}, {0, 0, 0}
+    SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
+    SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
 
-    SmallVector<Value, 4> blockwiseLoadACoords;
-    if (KPack > 1) {
-      blockwiseLoadACoords = {GemmBlockCoord_G, GemmABlockCopySourceCoord_Z,
-                              GemmABlockCopySourceCoord_Y,
-                              GemmABlockCopySourceCoord_X};
-    } else {
-      blockwiseLoadACoords = {GemmBlockCoord_G, GemmABlockCopySourceCoord_Y,
-                              GemmABlockCopySourceCoord_X};
-    }
-    // Emit blockwise load for matrix A.
-    TransformingForOp blockwiseLoadA = createGlobalLoadLoop(
-        b, loc, op.a(), blockwiseLoadACoords, aLoadIntermediate, aLoadType,
-        blockwiseCopyABounds, blockwiseVectorDimA, useIndexDiffs);
+    int64_t aCopyPerThread = (kPerBlock * mPerBlock) / kernelBlockSize;
+    int64_t bCopyPerThread = (kPerBlock * nPerBlock) / kernelBlockSize;
 
-    SmallVector<Value, 4> blockwiseLoadBCoords;
-    if (KPack > 1) {
-      blockwiseLoadBCoords = {GemmBlockCoord_G, GemmBBlockCopySourceCoord_Z,
-                              GemmBBlockCopySourceCoord_Y,
-                              GemmBBlockCopySourceCoord_X};
-    } else {
-      blockwiseLoadBCoords = {GemmBlockCoord_G, GemmBBlockCopySourceCoord_Y,
-                              GemmBBlockCopySourceCoord_X};
-    }
-    // Emit blockwise load for matrix B.
-    TransformingForOp blockwiseLoadB = createGlobalLoadLoop(
-        b, loc, op.b(), blockwiseLoadBCoords, bLoadIntermediate, bLoadType,
-        blockwiseCopyBBounds, blockwiseVectorDimB, useIndexDiffs);
+    GemmDimension vectorTiebreaker =
+        (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
+    int64_t aVectorLen, bVectorLen;
+    GemmDimension aVectorDim, bVectorDim;
+    std::tie(aVectorDim, aVectorLen) =
+        bestVectorization(b, matA, aCopyPerThread, vectorTiebreaker);
+    std::tie(bVectorDim, bVectorLen) =
+        bestVectorization(b, matB, bCopyPerThread, vectorTiebreaker);
 
-    SmallVector<Value, 4> blockwiseStoreACoords;
-    if (KPack > 1) {
-      blockwiseStoreACoords = {GemmABlockCopyDestCoord_Z,
-                               GemmABlockCopyDestCoord_Y,
-                               GemmABlockCopyDestCoord_X};
-    } else {
-      blockwiseStoreACoords = {GemmABlockCopyDestCoord_Y,
-                               GemmABlockCopyDestCoord_X};
-    }
-    // Emit blockwise store for matrix A.
-    // Note: first bound (g dimension) dropped because blockwise store doesn't
-    // have it
-    TransformingForOp blockwiseStoreA = createLdsStoreLoop(
-        b, loc, blockwiseLoadA.getResult(0), ldsMatrixASubviewForCopy,
-        blockwiseStoreACoords,
-        ArrayRef<int64_t>(blockwiseCopyABounds).drop_front(1));
+    LLVM_DEBUG(llvm::dbgs()
+               << "aCopyPerThread: " << aCopyPerThread << "\n"
+               << "bCopyPerThread: " << bCopyPerThread << "\n"
+               << "aVectorDim: " << aVectorDim << "\n"
+               << "aVectorLen: " << aVectorLen << "\n"
+               << "bVectorDim: " << bVectorDim << "\n"
+               << "bVectorLen: " << bVectorLen << "\n"
+               << "vectorTiebreaker: " << vectorTiebreaker << "\n");
 
-    SmallVector<Value, 4> blockwiseStoreBCoords;
-    if (KPack > 1) {
-      blockwiseStoreBCoords = {GemmBBlockCopyDestCoord_Z,
-                               GemmBBlockCopyDestCoord_Y,
-                               GemmBBlockCopyDestCoord_X};
-    } else {
-      blockwiseStoreBCoords = {GemmBBlockCopyDestCoord_Y,
-                               GemmBBlockCopyDestCoord_X};
-    }
-    // Emit blockwise store for matrix B.
-    TransformingForOp blockwiseStoreB = createLdsStoreLoop(
-        b, loc, blockwiseLoadB.getResult(0), ldsMatrixBSubviewOpForCopy,
-        blockwiseStoreBCoords,
-        ArrayRef<int64_t>(blockwiseCopyBBounds).drop_front(1));
+    // Vectorization lengths evenly devide *CopyPerThread, this is safe.
+    int64_t aCopyKPerThread = aVectorDim == GemmDimension::K
+                                  ? aVectorLen
+                                  : aCopyPerThread / aVectorLen;
+    int64_t copyMPerThread = aVectorDim == GemmDimension::MorN
+                                 ? aVectorLen
+                                 : aCopyPerThread / aVectorLen;
+    int64_t bCopyKPerThread = bVectorDim == GemmDimension::K
+                                  ? bVectorLen
+                                  : bCopyPerThread / bVectorLen;
+    int64_t copyNPerThread = bVectorDim == GemmDimension::MorN
+                                 ? bVectorLen
+                                 : bCopyPerThread / bVectorLen;
+
+    FailureOr<Value> maybeWrappedA = wrapMatrixForGlobalLoad(
+        b, loc, matA, "m", bidGridOrder, bidGridLengths, kernelGridSize,
+        kernelBlockSize, kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread,
+        aVectorDim);
+    if (!maybeWrappedA.has_value())
+      return maybeWrappedA;
+    FailureOr<Value> maybeWrappedB = wrapMatrixForGlobalLoad(
+        b, loc, matB, "n", bidGridOrder, bidGridLengths, kernelGridSize,
+        kernelBlockSize, kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread,
+        bVectorDim);
+    if (!maybeWrappedB.has_value())
+      return maybeWrappedB;
+    Value wrappedA = std::move(*maybeWrappedA),
+          wrappedB = std::move(*maybeWrappedB);
+
+    ArrayAttr aVectorGlobalMap = globalVectorLayout(
+        b, loc, "m", aCopyKPerThread, copyMPerThread, kpack, aVectorDim);
+    ArrayAttr bVectorGlobalMap = globalVectorLayout(
+        b, loc, "n", bCopyKPerThread, copyNPerThread, kpack, bVectorDim);
+
+    TransformingForOp blockwiseLoadA =
+        createGlobalLoadLoop(b, loc, wrappedA, aVectorGlobalMap, aCopyPerThread,
+                             aVectorLen, bid, tid);
+    TransformingForOp blockwiseLoadB =
+        createGlobalLoadLoop(b, loc, wrappedB, bVectorGlobalMap, bCopyPerThread,
+                             bVectorLen, bid, tid);
+
+    ArrayAttr aVectorLdsMap = ldsVectorLayout(b, loc, aCopyPerThread);
+    ArrayAttr bVectorLdsMap = ldsVectorLayout(b, loc, bCopyPerThread);
+
+    FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
+        b, loc, ldsMatrixASubviewOp, "m", aCopyKPerThread, copyMPerThread);
+    if (!maybeWrappedLdsA.has_value())
+      return maybeWrappedLdsA;
+    FailureOr<Value> maybeWrappedLdsB = wrapLDSBufferForStore(
+        b, loc, ldsMatrixBSubviewOp, "n", bCopyKPerThread, copyNPerThread);
+    if (!maybeWrappedLdsB.has_value())
+      return maybeWrappedLdsB;
+    Value wrappedLdsA = std::move(*maybeWrappedLdsA),
+          wrappedLdsB = std::move(*maybeWrappedLdsB);
+
+    TransformingForOp blockwiseStoreA =
+        createLdsStoreLoop(b, loc, blockwiseLoadA.getResult(0), aVectorLdsMap,
+                           wrappedLdsA, aCopyPerThread, tid);
+    TransformingForOp blockwiseStoreB =
+        createLdsStoreLoop(b, loc, blockwiseLoadB.getResult(0), bVectorLdsMap,
+                           wrappedLdsB, bCopyPerThread, tid);
 
     // Emit loop.
-    // Compute loop iterations from attributes.
+    int64_t nIterations = K / kPerBlock;
+    BlockwiseGemmOp blockwiseGemmOp;
+    // Start at 1 to make it clearer we have performed software pipelining.
+    auto loopOp = b.create<AffineForOp>(loc, 1, nIterations, 1);
+    {
+      // inside the loop.
+      PatternRewriter::InsertionGuard guard(b);
+      b.setInsertionPointToStart(loopOp.getBody());
 
-    auto KPerBlockConstantOp = b.create<ConstantIndexOp>(loc, KPerBlock);
+      // LDS barrier.
+      b.create<LDSBarrierOp>(loc);
 
-    int64_t loopIteration = (K - KPerBlock) / KPerBlock;
+      // Emit blockwise GEMM.
+      blockwiseGemmOp = b.create<BlockwiseGemmOp>(
+          loc, ldsMatrixASubviewOp, ldsMatrixBSubviewOp, registerMatrixCViewOp,
+          kPerThreadAttr, b.getIndexAttr(mPerThread),
+          b.getIndexAttr(nPerThread), mThreadsPerCuwaveAttr,
+          nThreadsPerCuwaveAttr, mCuwavesPerBlockAttr, nCuwavesPerBlockAttr);
 
-    // Assign iter args.
-    // 0: blockwise copy A src y coordinate.
-    // 1: blockwise copy B src y coordinate.
-    SmallVector<Value, 2> iterArgs = {blockwiseLoadACoords[1],
-                                      blockwiseLoadBCoords[1]};
+      // LDS barrier.
+      // This barrier prevents halo part of outputs having weird values.
+      b.create<LDSBarrierOp>(loc);
 
-    auto loopOp = b.create<AffineForOp>(loc, 0, loopIteration, 1, iterArgs);
+      // We don't update in the clone becasue we might accidentally replace
+      // other zeroes.
+      Value iv = loopOp.getInductionVar();
+      BlockAndValueMapping loadAUpdates, loadBUpdates;
+      auto blockwiseLoadAClone = cast<TransformingForOp>(
+          b.clone(*blockwiseLoadA.getOperation(), loadAUpdates));
+      blockwiseLoadAClone.setOperand(
+          blockwiseLoadAClone.getUpperInits(/*domain=*/0)
+              .getBeginOperandIndex(),
+          iv);
 
-    // inside the loop.
-    auto lb = OpBuilder::atBlockBegin(loopOp.getBody(), b.getListener());
+      auto blockwiseLoadBClone = cast<TransformingForOp>(
+          b.clone(*blockwiseLoadB.getOperation(), loadBUpdates));
+      blockwiseLoadBClone.setOperand(
+          blockwiseLoadBClone.getUpperInits(/*domain=*/0)
+              .getBeginOperandIndex(),
+          iv);
 
-    // LDS barrier.
-    lb.create<LDSBarrierOp>(loc);
-
-    // Emit blockwise GEMM.
-    auto blockwiseGemmOp = lb.create<BlockwiseGemmOp>(
-        loc, ldsMatrixASubviewOp, ldsMatrixBSubviewOp, registerMatrixCViewOp,
-        op.params());
-
-    // LDS barrier.
-    // This barrier prevents halo part of outputs having weird values.
-    lb.create<LDSBarrierOp>(loc);
-
-    // Blockwise copy from global (generic tensor) to register (naive tensor).
-    const auto &args = loopOp.getRegionIterArgs();
-    // Emit blockwise load for matrix A.
-    Value blockwiseCopyASrcUpdated =
-        lb.create<AddIOp>(loc, args[0], KPerBlockConstantOp);
-    BlockAndValueMapping loadAUpdates;
-    loadAUpdates.map(blockwiseLoadACoords[1], blockwiseCopyASrcUpdated);
-    auto blockwiseLoadAClone = cast<TransformingForOp>(
-        lb.clone(*blockwiseLoadA.getOperation(), loadAUpdates));
-
-    // Emit blockwise load for matrix B.
-    BlockAndValueMapping loadBUpdates;
-    Value blockwiseCopyBSrcUpdated =
-        lb.create<AddIOp>(loc, args[1], KPerBlockConstantOp);
-    loadBUpdates.map(blockwiseLoadBCoords[1], blockwiseCopyBSrcUpdated);
-    auto blockwiseLoadBClone = cast<TransformingForOp>(
-        lb.clone(*blockwiseLoadB.getOperation(), loadBUpdates));
-    // Blockwise copy from register (naive tensor) to LDS (naive tensor).
-
-    // Emit blockwise stores
-    BlockAndValueMapping storeAUpdates, storeBUpdates;
-    storeAUpdates.map(blockwiseLoadA.getResult(0),
-                      blockwiseLoadAClone.getResult(0));
-    storeBUpdates.map(blockwiseLoadB.getResult(0),
-                      blockwiseLoadBClone.getResult(0));
-    lb.clone(*blockwiseStoreA.getOperation(), storeAUpdates);
-    lb.clone(*blockwiseStoreB.getOperation(), storeBUpdates);
-
-    // update iter args.
-    // blockwiseCopyASrcVector and blockwiseCopyBSrcVector are updated.
-    iterArgs[0] = blockwiseCopyASrcUpdated;
-    iterArgs[1] = blockwiseCopyBSrcUpdated;
-    // emit loop yield so iter args can be passed to the next iteration.
-    lb.create<AffineYieldOp>(loc, iterArgs);
-
+      // Emit blockwise stores
+      BlockAndValueMapping storeAUpdates, storeBUpdates;
+      storeAUpdates.map(blockwiseLoadA.getResult(0),
+                        blockwiseLoadAClone.getResult(0));
+      storeBUpdates.map(blockwiseLoadB.getResult(0),
+                        blockwiseLoadBClone.getResult(0));
+      b.clone(*blockwiseStoreA.getOperation(), storeAUpdates);
+      b.clone(*blockwiseStoreB.getOperation(), storeBUpdates);
+    }
     // outside the loop.
 
     // LDS barrier.
@@ -1089,20 +938,24 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     BlockAndValueMapping tailGemmCloneMap;
     b.clone(*blockwiseGemmOp, tailGemmCloneMap);
 
+    // Apparently, the canonicalizer doesn't get rid of empty loops without
+    // results properly, remove them ourselves.
+    if (nIterations <= 1)
+      b.eraseOp(loopOp);
+
     // Threadwise copy from register (naive tensor) to global (generic tensor).
     TopDownTMBuilder splitMemoryCoords(
         b, {"bid", "tid", "iter"}, {gridSize, blockSize, threadCNumRegisters},
         loc);
-    splitMemoryCoords.merge(
-        {"g", "m_block", "n_block"}, {0, 1, 2}, "bid",
-        {gridSize / GStride, GStride / NBlockWork, NBlockWork});
+    splitMemoryCoords.merge({"g", "m_block", "n_block"}, {0, 1, 2}, "bid",
+                            {G, mBlocks, nBlocks});
     splitMemoryCoords.merge({"m_cuwaves", "n_cuwaves", "m_cuwave", "n_cuwave"},
                             {3, 4, 5, 6}, "tid",
                             {mCuwavesPerBlock, nCuwavesPerBlock,
                              mThreadsPerCuwave, nThreadsPerCuwave});
     splitMemoryCoords.merge({"m_repeat", "m_thread", "n_repeat", "n_thread"},
                             {7, 8, 9, 10}, "iter",
-                            {GemmMRepeat, mPerThread, GemmNRepeat, nPerThread});
+                            {gemmMRepeat, mPerThread, gemmNRepeat, nPerThread});
     TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
 
     auto toMatrixC =
@@ -1111,12 +964,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     toMatrixC.unmerge(
         "gemmM", 1,
         {"m_block", "m_repeat", "m_cuwaves", "m_cuwave", "m_thread"},
-        {M / MPerBlock, GemmMRepeat, mCuwavesPerBlock, mThreadsPerCuwave,
+        {M / mPerBlock, gemmMRepeat, mCuwavesPerBlock, mThreadsPerCuwave,
          mPerThread});
     toMatrixC.unmerge(
         "gemmN", 2,
         {"n_block", "n_repeat", "n_cuwaves", "n_cuwave", "n_thread"},
-        {N / NPerBlock, GemmNRepeat, nCuwavesPerBlock, nThreadsPerCuwave,
+        {N / nPerBlock, gemmNRepeat, nCuwavesPerBlock, nThreadsPerCuwave,
          nPerThread});
 
     TransformMapAttr toMatrixCAttr = toMatrixC.get();
@@ -2359,6 +2212,7 @@ struct GridwiseGemmV2RewritePattern
     return success();
   }
 };
+} // end anonymous namespace
 
 void MIOpenGridwiseGemmToBlockwisePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
@@ -2379,7 +2233,6 @@ void MIOpenGridwiseGemmToBlockwisePass::runOnOperation() {
   cleanupPasses.addPass(mlir::createCanonicalizerPass());
   (void)runPipeline(cleanupPasses, getOperation());
 }
-} // end anonymous namespace
 
 std::unique_ptr<Pass> mlir::miopen::createMIOpenGridwiseGemmToBlockwisePass() {
   return std::make_unique<MIOpenGridwiseGemmToBlockwisePass>();
