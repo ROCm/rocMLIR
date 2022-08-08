@@ -1993,7 +1993,7 @@ struct GridwiseGemmV2RewritePattern
     int64_t MRepeats = xcs.MRepeats;
     int64_t NRepeats = xcs.NRepeats;
     VectorType vectorType = xcs.vectorType;
-    int64_t vectorNumber = xcs.vectorNumber;
+    int64_t numVectors = xcs.vectorNumber;
     SmallVector<SmallVector<unsigned, 3>, 2> imms = xcs.imms;
 
     int64_t group_size = xcs.group_size;
@@ -2092,7 +2092,7 @@ struct GridwiseGemmV2RewritePattern
     VectorType accumulatorVectorType =
         vectorType.cloneWith({}, accumulatorType);
     MemRefType regCAllocType = MemRefType::get(
-        vectorNumber, accumulatorVectorType, {},
+        numVectors, accumulatorVectorType, {},
         /*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
     Value regCAllocOp = b.create<miopen::GpuAllocOp>(loc, regCAllocType);
 
@@ -2189,7 +2189,7 @@ struct GridwiseGemmV2RewritePattern
     const auto &tailResults = blockwiseGemmV2TailOp->getResults();
     int64_t wavesInKernelBlock = kernelBlockSize / waveSize;
 
-    int64_t numElements = regCVectorLen * vectorNumber;
+    int64_t numElements = regCVectorLen * numVectors;
     TopDownTMBuilder splitMemoryCoords(
         b, {"bid", "tid", "item"},
         {kernelGridSize, kernelBlockSize, numElements}, loc);
@@ -2368,7 +2368,7 @@ struct GridwiseGemmV2RewritePattern
 
     if (enableOutSwizzles) {
       Value laneId = b.create<arith::RemUIOp>(loc, tid, waveSizeConstantOp);
-      for (int i = 0; i < vectorNumber; ++i) {
+      for (int i = 0; i < numVectors; ++i) {
         Value indexOp = b.createOrFold<ConstantIndexOp>(loc, i);
         Value loaded =
             b.create<memref::LoadOp>(loc, vectorType, regCAllocOp, indexOp);
@@ -2384,7 +2384,7 @@ struct GridwiseGemmV2RewritePattern
 
     Value registerC = regCAllocOp;
     auto convertedCType = MemRefType::get(
-        vectorType.getNumElements() * vectorNumber, destType, {},
+        vectorType.getNumElements() * numVectors, destType, {},
         /*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
     Value convertedC = b.create<miopen::GpuAllocOp>(loc, convertedCType);
 
@@ -2403,7 +2403,7 @@ struct GridwiseGemmV2RewritePattern
                                               registerC, coord);
       Value cast = loaded;
       if (destType != accumulatorType) {
-        VectorType destVectorType = vectorType.cloneWith({}, destType);
+        VectorType destVectorType = vectorType.clone(destType);
         cast = createTypeConversionOp(b, loc, loaded, destVectorType);
       }
       Value offset = b.create<MulIOp>(

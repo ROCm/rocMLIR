@@ -743,7 +743,10 @@ def MIOpen_BlockwiseGemmV2Op:
     not slices of a larger object.
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
+    $matrixC `+` `` `=` $bufferA `by` $matrixA `[` $waveOffsetA `]` `*`
+                        $bufferB `by` $matrixB `[` $waveOffsetB `]` attr-dict
+    `:` type($matrixC) `+` `` `=` type($bufferA) `by` type($matrixA) `*` 
+                                  type($bufferB) `by` type($matrixB)
   }];
 }
 
@@ -772,20 +775,16 @@ def MIOpen_ThreadwiseGemmOp:
 // xdlops_gemm_V2
 def MIOpen_XdlopsGemmV2Op:
     MIOpen_Op<"xdlops_gemm_v2">,
-    Arguments<(ins MemRefOf<[F32, F16, BF16, I8]>:$matrixA,
-                   MemRefOf<[F32, F16, BF16, I8]>:$matrixB,
-                   IndexAttr:$ldsBufferOffsetA,
-                   IndexAttr:$ldsBufferOffsetB,
-                   IndexAttr:$regOffsetA,
+    Arguments<(ins IndexAttr:$regOffsetA,
                    IndexAttr:$regOffsetB,
                    MemRefOf<[F32, F16, BF16, I8,
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
-                             VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$bufferA,
+                             VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$matrixA,
                    MemRefOf<[F32, F16, BF16, I8,
                              VectorOfLengthAndType<[2, 4], [F32]>,
                              VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
-                             VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$bufferB,
+                             VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$matrixB,
                    MemRefOf<[F32, F16, BF16, I32,
                              VectorOf<[F32, F16, BF16, I32]>]>:$matrixC)>{
   let summary = "XDLOPS GEMM V2";
@@ -796,7 +795,9 @@ def MIOpen_XdlopsGemmV2Op:
     Matrices A and B reside in LDS, the buffers live in registers, C is a vector
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
+    $matrixC `+` `` `=` $matrixA `[` $regOffsetA `]` `*` 
+                        $matrixB  `[` $regOffsetB `]` attr-dict
+    `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
   }];
 }
 

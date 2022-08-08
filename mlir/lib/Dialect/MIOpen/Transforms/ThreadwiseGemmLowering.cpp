@@ -171,6 +171,9 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
                         .getType()
                         .template cast<MemRefType>()
                         .getElementType();
+    if (dataType.isa<VectorType>()) {
+      dataType = dataType.template cast<VectorType>().getElementType();
+    }
 
     // Logic to do XDLOPS code selection.
     LLVM_DEBUG(llvm::dbgs() << "Invoke XDLOPS code selection logic:\n"
@@ -197,12 +200,12 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
 
     bool IsKReduction = (num_output_blks == 1) && (num_input_blks > 1);
 
-    Value bufferA = adaptor.bufferA();
-    Value bufferB = adaptor.bufferB();
-    auto bufferAType = adaptor.bufferA().getType().cast<MemRefType>();
-    auto bufferBType = adaptor.bufferB().getType().cast<MemRefType>();
-    Type bufferAElementType = bufferAType.getElementType();
-    Type bufferBElementType = bufferBType.getElementType();
+    Value matrixA = adaptor.matrixA();
+    Value matrixB = adaptor.matrixB();
+    auto matrixAType = adaptor.matrixA().getType().cast<MemRefType>();
+    auto matrixBType = adaptor.matrixB().getType().cast<MemRefType>();
+    Type matrixAElementType = matrixAType.getElementType();
+    Type matrixBElementType = matrixBType.getElementType();
 
     int64_t KPerThread = IsKReduction ? K / num_input_blks : K;
     int64_t KRepeats = KPack / k_base;
@@ -213,12 +216,12 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
 
     // XdlopsGemm Logic, similar between reduction/non-reduction path
     // for(index_t k_i = 0; k_i < KPerThread; ++k_i) {
-    //   bufferAElement = a[k_i];
-    //   bufferBElement = b[k_i];
+    //   matrixAElement = a[k_i];
+    //   matrixBElement = b[k_i];
     //   // Loop within a kpack
     //   for(index_t ki_i = 0; ki_i < k_base * KRepeats; ki_i += k_base)
-    //     argA = &bufferAElement[ki_i];
-    //     argB = &bufferAElement[ki_i];
+    //     argA = &matrixAElement[ki_i];
+    //     argB = &matrixAElement[ki_i];
     //     p_c_thread = mfma_type.template run<MPerXlops * MRepeats,
     //                                         NPerXdlops * NRepeats,
     //                                         AStride,
@@ -241,20 +244,20 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         outerLoop.getBody(), b.getListener());
     auto outerLoopiv = outerLoop.getInductionVar();
 
-    // bufferAElement and bufferBElement are only useful when KPack > 1
-    Value bufferAElement;
-    Value bufferBElement;
+    // matrixAElement and matrixBElement are only useful when KPack > 1
+    Value matrixAElement;
+    Value matrixBElement;
 
     if (KPack > 1) {
       Value regAIdx =
           outerLoopb.create<AddIOp>(loc, regAConstantOp, outerLoopiv);
-      bufferAElement = outerLoopb.create<memref::LoadOp>(
-          loc, bufferAElementType, bufferA, ValueRange{regAIdx});
+      matrixAElement = outerLoopb.create<memref::LoadOp>(
+          loc, matrixAElementType, matrixA, ValueRange{regAIdx});
 
       Value regBIdx =
           outerLoopb.create<AddIOp>(loc, regBConstantOp, outerLoopiv);
-      bufferBElement = outerLoopb.create<memref::LoadOp>(
-          loc, bufferBElementType, bufferB, ValueRange{regBIdx});
+      matrixBElement = outerLoopb.create<memref::LoadOp>(
+          loc, matrixBElementType, matrixB, ValueRange{regBIdx});
     }
 
     auto innerLoop =
@@ -279,25 +282,25 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
 
       if (k_base == 1) {
         // xdlops needs only 1 element, load directly from buffer.
-        argA = innerLoopb.create<memref::LoadOp>(loc, argType, bufferA,
+        argA = innerLoopb.create<memref::LoadOp>(loc, argType, matrixA,
                                                  ValueRange{regAIdx});
-        argB = innerLoopb.create<memref::LoadOp>(loc, argType, bufferB,
+        argB = innerLoopb.create<memref::LoadOp>(loc, argType, matrixB,
                                                  ValueRange{regBIdx});
       } else {
         // k_base > 1, use transferRead to load a vector length equivalent
         // with a xdlops argument.
         argA = innerLoopb.create<vector::TransferReadOp>(
-            loc, argType.cast<VectorType>(), bufferA, ValueRange{regAIdx});
+            loc, argType.cast<VectorType>(), matrixA, ValueRange{regAIdx});
         argB = innerLoopb.create<vector::TransferReadOp>(
-            loc, argType.cast<VectorType>(), bufferB, ValueRange{regBIdx});
+            loc, argType.cast<VectorType>(), matrixB, ValueRange{regBIdx});
       }
     } else {
       // At this point, we are guaranteed that buffer element vectorization
       // length (kPack) must be a multiple of k_base. Use extractsliceop
       // to handle a independent data slice at a time.
-      argA = innerLoopb.create<ExtractSliceOp>(loc, argType, bufferAElement,
+      argA = innerLoopb.create<ExtractSliceOp>(loc, argType, matrixAElement,
                                                innerLoopiv);
-      argB = innerLoopb.create<ExtractSliceOp>(loc, argType, bufferBElement,
+      argB = innerLoopb.create<ExtractSliceOp>(loc, argType, matrixBElement,
                                                innerLoopiv);
     }
 
