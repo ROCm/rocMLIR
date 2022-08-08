@@ -706,8 +706,8 @@ def MIOpen_BlockwiseGemmOp:
     mRepeatStride elements later in the buffer.
   }];
   let assemblyFormat = [{
-    $matrixC `+` `=` $matrixA `*` $matrixB attr-dict
-    `:` type($matrixC) `+` `=` type($matrixA) `*` type($matrixB)
+    $matrixC `+` `` `=` $matrixA `*` $matrixB attr-dict
+    `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
   }];
 
   let hasVerifier = 1;
