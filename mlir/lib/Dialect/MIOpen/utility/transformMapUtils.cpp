@@ -479,7 +479,7 @@ propagateVectorizationInfo(TransformMapAttr map,
     // Unfold is a promise to the coordinate transforms engine that
     // the dimensions that are being "merged" are contiguous in the underlying
     // memory. When someone is able to make this promise, we take advantage
-    // of it by putting all the vectorization on the slowest-moving of the
+    // of it by putting all the vectorization on the fastest-moving of the
     // dimmensions.
     case TransformType::Unfold: {
       int64_t upperDim = upperDims[0];
