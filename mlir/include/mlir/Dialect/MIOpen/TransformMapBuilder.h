@@ -34,8 +34,8 @@ public:
   virtual ~TransformMapBuilder() = default;
 
   TransformMapBuilder(const TransformMapBuilder &other);
+  TransformMapBuilder(TransformMapBuilder &&other) = delete;
   TransformMapBuilder &operator=(const TransformMapBuilder &other);
-  TransformMapBuilder(TransformMapBuilder &&other);
 
   // Get the TransformsAttr that's being built up by the builder
   TransformMapAttr get();
