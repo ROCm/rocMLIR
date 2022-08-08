@@ -64,7 +64,7 @@ func.func @miopen_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x
 // CHECK-NEXT:  %[[IN2:.*]] = miopen.transform %[[IN1]] by [#[[$MAP_INPUT2_FWD]]]
 // CHECK-NEXT:  %[[IN3:.*]] = miopen.transform %[[IN2]] by [#[[$MAP_INPUT3_FWD]]]
 // CHECK-NEXT:  %[[OUT:.*]] = miopen.transform %arg2 by [#[[$MAP_OUTPUT_FWD]]]
-// CHECK-NEXT:  miopen.gridwise_gemm(%[[FILTER]], %[[IN3]], %[[OUT]])
+// CHECK-NEXT:  miopen.gridwise_gemm %[[OUT]] += %[[FILTER]] * %[[IN3]]
 
 func.func @miopen_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
   miopen.conv2d(%filter, %input, %output) {
@@ -86,7 +86,7 @@ func.func @miopen_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<
 // CHECK-NEXT:  %[[IN2:.*]] = miopen.transform %[[IN1]] by [#[[$MAP_INPUT2_FWD]]]
 // CHECK-NEXT:  %[[IN3:.*]] = miopen.transform %[[IN2]] by [#[[$MAP_INPUT3_FWD]]]
 // CHECK-NEXT:  %[[OUT:.*]] = miopen.transform %arg2 by [#[[$MAP_OUTPUT_FWD]]]
-// CHECK-NEXT:  miopen.gridwise_gemm(%[[FILTER]], %[[IN3]], %[[OUT]])
+// CHECK-NEXT:  miopen.gridwise_gemm %[[OUT]] += %[[FILTER]] * %[[IN3]]
 
 func.func @miopen_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x1x8x32x32xi8>, %output : memref<128x1x128x30x30xi32>) {
   miopen.conv2d(%filter, %input, %output) {
@@ -205,7 +205,7 @@ func.func @miopen_conv2d_bwd_data_padMN(%filter : memref<1x64x3x1x1xf32>, %input
 // CHECK-NEXT:  %[[OUT2:.*]] = miopen.transform %[[OUT1]]
 // CHECK-NEXT:  %[[OUT3:.*]] = miopen.transform %[[OUT2]]
 // CHECK-NEXT:  %[[OUT4:.*]] = miopen.transform %[[OUT3]] by [#[[$MAP_BWD_DATA_OUT_PAD_MN]]]
-// CHECK-NEXT:  miopen.gridwise_gemm(%[[FIL4]], %[[OUT4]], %[[IN5]]){{.*}}
+// CHECK-NEXT:  miopen.gridwise_gemm %[[IN5]] += %[[FIL4]] * %[[OUT4]]{{.*}}
 
 func.func @miopen_conv2d_bwd_data_padMK(%filter : memref<1x11x3x1x1xf32>, %input : memref<128x1x3x15x15xf32>, %output : memref<128x1x11x15x15xf32>) {
   miopen.conv2d_bwd_data(%filter, %input, %output) {
@@ -237,7 +237,7 @@ func.func @miopen_conv2d_bwd_data_padMK(%filter : memref<1x11x3x1x1xf32>, %input
 // CHECK-NEXT:  %[[OUT2:.*]] = miopen.transform %[[OUT1]]
 // CHECK-NEXT:  %[[OUT3:.*]] = miopen.transform %[[OUT2]]
 // CHECK-NEXT:  %[[OUT4:.*]] = miopen.transform %[[OUT3]] by [#[[$MAP_BWD_DATA_OUT_PAD_MK]]]
-// CHECK-NEXT:  miopen.gridwise_gemm(%[[FIL4]], %[[OUT4]], %[[IN5]]){{.*}}
+// CHECK-NEXT:  miopen.gridwise_gemm %[[IN5]] += %[[FIL4]] * %[[OUT4]]{{.*}}
 
 func.func @miopen_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) {
@@ -262,7 +262,7 @@ func.func @miopen_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : 
 // CHECK-NEXT:  %[[IN3:.*]] = miopen.transform %[[IN2]] by [#[[$MAP_BWD_WEIGHT_IN3]]]
 // CHECK-NEXT:  %[[IN4:.*]] = miopen.transform %[[IN3]] by [#[[$MAP_BWD_WEIGHT_IN_PAD]]]
 // CHECK-NEXT:  %[[OUT:.*]] = miopen.transform %arg2 by [#[[$MAP_BWD_WEIGHT_OUT]]]
-// CHECK-NEXT:  miopen.gridwise_gemm(%[[OUT]], %[[IN4]], %[[FIL2]]){{.*}}
+// CHECK-NEXT:  miopen.gridwise_gemm %[[FIL2]] += %[[OUT]] * %[[IN4]]{{.*}}
 
 func.func @miopen_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) {
@@ -287,7 +287,7 @@ func.func @miopen_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %inpu
 // CHECK-NEXT:  %[[IN3:.*]] = miopen.transform %[[IN2]] by [#[[$MAP_BWD_WEIGHT_IN3]]]
 // CHECK-NEXT:  %[[IN4:.*]] = miopen.transform %[[IN3]] by [#[[$MAP_BWD_WEIGHT_IN_PAD]]]
 // CHECK-NEXT:  %[[OUT:.*]] = miopen.transform %arg2 by [#[[$MAP_BWD_WEIGHT_OUT]]]
-// CHECK-NEXT:  miopen.gridwise_gemm(%[[OUT]], %[[IN4]], %[[FIL2]]){{.*}}
+// CHECK-NEXT:  miopen.gridwise_gemm %[[FIL2]] += %[[OUT]] * %[[IN4]]{{.*}}
 
 func.func @miopen_conv2d_bwd_weight_padALL(%filter : memref<1x20x8x3x3xf32>, %input : memref<7x1x8x32x32xf32>, %output : memref<7x1x20x30x30xf32>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) {
@@ -313,7 +313,7 @@ func.func @miopen_conv2d_bwd_weight_padALL(%filter : memref<1x20x8x3x3xf32>, %in
 // CHECK-NEXT:  %[[IN4:.*]] = miopen.transform %[[IN3]] by [#[[$MAP_BWD_WEIGHT_IN_PAD_ALL]]]
 // CHECK-NEXT:  %[[OUT1:.*]] = miopen.transform %arg2
 // CHECK-NEXT:  %[[OUT2:.*]] = miopen.transform %[[OUT1]] by [#[[$MAP_BWD_WEIGHT_OUT_PAD_ALL]]]
-// CHECK-NEXT:  miopen.gridwise_gemm(%[[OUT2]], %[[IN4]], %[[FIL2]]){{.*}}
+// CHECK-NEXT:  miopen.gridwise_gemm %[[FIL2]] += %[[OUT2]] * %[[IN4]]{{.*}}
 
 func.func @miopen_conv2d_bwd_weight_padALL_f16(%filter : memref<1x20x8x3x3xf16>, %input : memref<7x1x8x32x32xf16>, %output : memref<7x1x20x30x30xf16>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) {
@@ -339,4 +339,4 @@ func.func @miopen_conv2d_bwd_weight_padALL_f16(%filter : memref<1x20x8x3x3xf16>,
 // CHECK-NEXT:  %[[IN4:.*]] = miopen.transform %[[IN3]] by [#[[$MAP_BWD_WEIGHT_IN_PAD_ALL]]]
 // CHECK-NEXT:  %[[OUT1:.*]] = miopen.transform %arg2
 // CHECK-NEXT:  %[[OUT2:.*]] = miopen.transform %[[OUT1]] by [#[[$MAP_BWD_WEIGHT_OUT_PAD_ALL]]]
-// CHECK-NEXT:  miopen.gridwise_gemm(%[[OUT2]], %[[IN4]], %[[FIL2]]){{.*}}
+// CHECK-NEXT:  miopen.gridwise_gemm %[[FIL2]] += %[[OUT2]] * %[[IN4]]{{.*}}

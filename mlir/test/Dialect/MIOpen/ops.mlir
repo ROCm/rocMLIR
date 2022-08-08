@@ -155,7 +155,7 @@ func.func @miopen_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
 //  CHECK-NEXT: miopen.transform
 
 func.func @miopen_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf32>, %C : memref<2x128x256xf32>) {
-  miopen.gridwise_gemm(%A, %B, %C) {
+  miopen.gridwise_gemm %C += %A * %B {
     arch = "gfx900",
     blockSize = 256 : i32,
     gridSize = 1 : i32,
