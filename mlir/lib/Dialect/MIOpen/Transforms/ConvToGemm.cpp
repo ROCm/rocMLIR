@@ -160,10 +160,12 @@ void affixGridwiseGemmAttributes(Operation *convOp, Operation *gop,
     gop->setAttr("m_per_thread", convOp->getAttr("m_per_thread"));
     gop->setAttr("n_per_thread", convOp->getAttr("n_per_thread"));
     gop->setAttr("k_per_thread", convOp->getAttr("k_per_thread"));
-    gop->setAttr("m_level0_cluster", convOp->getAttr("m_level0_cluster"));
-    gop->setAttr("m_level1_cluster", convOp->getAttr("m_level1_cluster"));
-    gop->setAttr("n_level0_cluster", convOp->getAttr("n_level0_cluster"));
-    gop->setAttr("n_level1_cluster", convOp->getAttr("n_level1_cluster"));
+    gop->setAttr("m_threads_per_cuwave",
+                 convOp->getAttr("m_threads_per_cuwave"));
+    gop->setAttr("m_cuwaves_per_block", convOp->getAttr("m_cuwaves_per_block"));
+    gop->setAttr("n_threads_per_cuwave",
+                 convOp->getAttr("n_threads_per_cuwave"));
+    gop->setAttr("n_cuwaves_per_block", convOp->getAttr("n_cuwaves_per_block"));
   }
 }
 

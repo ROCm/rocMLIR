@@ -67,14 +67,15 @@ func.func @miopen_indexing() {
 //   CHECK-NEXT: miopen.workitem_id
 
 func.func @miopen_blockwise_gemm(%A : memref<8x128x1xf32, 3>, %B : memref<8x128x1xf32, 3>, %C : memref<8x8xf32, 5>) {
-  %c0 = arith.constant 0 : index
-  miopen.blockwise_gemm(%A, %B, %C, %c0, %c0) {
+  miopen.blockwise_gemm %C += %A * %B {
     kPerThread = 1 : index,
     mPerThread = 4 : index,
-    mRepeatStride = 64 : index,
+    mThreadsPerCuwave = 4 : index,
+    mCuwavesPerBlock = 4 : index,
     nPerThread = 4 : index,
-    nRepeatStride = 64 : index
-  } : memref<8x128x1xf32, 3>, memref<8x128x1xf32, 3>, memref<8x8xf32, 5>, index, index
+    nThreadsPerCuwave = 4 : index,
+    nCuwavesPerBlock = 4 : index
+  } :  memref<8x8xf32, 5> += memref<8x128x1xf32, 3> * memref<8x128x1xf32, 3>
   return
 }
 

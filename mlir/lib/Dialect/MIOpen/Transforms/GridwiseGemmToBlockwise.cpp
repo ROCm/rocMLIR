@@ -34,6 +34,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BlockAndValueMapping.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
@@ -393,23 +394,21 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         b.getIndexAttr(op->getAttrOfType<IntegerAttr>("k_per_thread").getInt());
     auto mPerThreadAttr = op->getAttrOfType<IntegerAttr>("m_per_thread");
     auto nPerThreadAttr = op->getAttrOfType<IntegerAttr>("n_per_thread");
-    int64_t MPerThread = mPerThreadAttr.getInt();
-    int64_t NPerThread = nPerThreadAttr.getInt();
-    Value MPerThreadConstantOp = b.create<ConstantIndexOp>(loc, MPerThread);
-    Value NPerThreadConstantOp = b.create<ConstantIndexOp>(loc, NPerThread);
+    int64_t mPerThread = mPerThreadAttr.getInt();
+    int64_t nPerThread = nPerThreadAttr.getInt();
 
-    int64_t MLevel0Cluster =
-        op->getAttr("m_level0_cluster").template cast<IntegerAttr>().getInt();
-    int64_t MLevel1Cluster =
-        op->getAttr("m_level1_cluster").template cast<IntegerAttr>().getInt();
-    int64_t NLevel0Cluster =
-        op->getAttr("n_level0_cluster").template cast<IntegerAttr>().getInt();
-    int64_t NLevel1Cluster =
-        op->getAttr("n_level1_cluster").template cast<IntegerAttr>().getInt();
-    auto NLevel0ClusterConstantOp =
-        b.create<ConstantIndexOp>(loc, NLevel0Cluster);
-    auto NLevel1ClusterConstantOp =
-        b.create<ConstantIndexOp>(loc, NLevel1Cluster);
+    auto mThreadsPerCuwaveAttr =
+        op->getAttrOfType<IntegerAttr>("m_threads_per_cuwave");
+    int64_t mThreadsPerCuwave = mThreadsPerCuwaveAttr.getInt();
+    auto nThreadsPerCuwaveAttr =
+        op->getAttrOfType<IntegerAttr>("n_threads_per_cuwave");
+    int64_t nThreadsPerCuwave = nThreadsPerCuwaveAttr.getInt();
+    auto mCuwavesPerBlockAttr =
+        op->getAttrOfType<IntegerAttr>("m_cuwaves_per_block");
+    int64_t mCuwavesPerBlock = mCuwavesPerBlockAttr.getInt();
+    auto nCuwavesPerBlockAttr =
+        op->getAttrOfType<IntegerAttr>("n_cuwaves_per_block");
+    int64_t nCuwavesPerBlock = nCuwavesPerBlockAttr.getInt();
 
     int64_t matrix_a_source_data_per_read =
         op->getAttr("matrix_a_source_data_per_read")
@@ -455,14 +454,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                << "NPerBlock: " << NPerBlock << "\n"
                << "KPerBlock: " << KPerBlock << "\n"
                << "KPack: " << KPack << "\n"
-               << "MPerThread: " << MPerThread << "\n"
-               << "NPerThread: " << NPerThread << "\n"
+               << "MPerThread: " << mPerThread << "\n"
+               << "NPerThread: " << nPerThread << "\n"
                << "MBlockWork = M / MPerBlock: " << MBlockWork << "\n"
                << "NBlockWork = N / NPerBlock: " << NBlockWork << "\n"
-               << "MLevel0Cluster: " << MLevel0Cluster << "\n"
-               << "MLevel1Cluster: " << MLevel1Cluster << "\n"
-               << "NLevel0Cluster: " << NLevel0Cluster << "\n"
-               << "NLevel1Cluster: " << NLevel1Cluster << "\n");
+               << "mThreadsPerCuwave: " << mThreadsPerCuwave << "\n"
+               << "mCuwavesPerBlock: " << mCuwavesPerBlock << "\n"
+               << "nThreadsPerCuwave: " << nThreadsPerCuwave << "\n"
+               << "nCuwavesPerBlock: " << nCuwavesPerBlock << "\n");
 
     auto NBlockWorkConstantOp = b.create<ConstantIndexOp>(loc, NBlockWork);
     auto GStridOp = b.create<ConstantIndexOp>(loc, GStride);
@@ -889,16 +888,17 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Alloc for Matrix C on registers.
     // Compute register size from attributes.
-    int64_t GemmMRepeat = 0, GemmNRepeat = 0;
 
-    GemmMRepeat = MPerBlock / (MPerThread * MLevel0Cluster * MLevel1Cluster);
-    GemmNRepeat = NPerBlock / (NPerThread * NLevel0Cluster * NLevel1Cluster);
+    int64_t GemmMRepeat =
+        MPerBlock / (mPerThread * mThreadsPerCuwave * mCuwavesPerBlock);
+    int64_t GemmNRepeat =
+        NPerBlock / (nPerThread * nThreadsPerCuwave * nCuwavesPerBlock);
 
     LLVM_DEBUG(llvm::dbgs() << "GemmMRepeat: " << GemmMRepeat << "\n");
     LLVM_DEBUG(llvm::dbgs() << "GemmNRepeat: " << GemmNRepeat << "\n");
 
-    int64_t threadCNumM = GemmMRepeat * MPerThread;
-    int64_t threadCNumN = GemmNRepeat * NPerThread;
+    int64_t threadCNumM = GemmMRepeat * mPerThread;
+    int64_t threadCNumN = GemmNRepeat * nPerThread;
     int64_t threadCNumRegisters = threadCNumM * threadCNumN;
     auto threadCRegisterMemRefType =
         MemRefType::get({threadCNumRegisters}, accumulatorType, {},
@@ -971,56 +971,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // Compute source and destination coordinates for BlockwiseCopy ops.
     // Matrix A: {0, 0, m_block_data_on_global}, {0, 0, 0}
     // Matrix B: {0, 0, n_block_data_on_global}, {0, 0, 0}
-
-    Value mMyThreadOffsetA, mMyThreadOffsetB;
-    Value c_thread_mtx_index_row, c_thread_mtx_index_col;
-    Value m_thread_data_on_global, n_thread_data_on_global;
-
-    // Compute c_thread_mtx_index for Matrix C.
-    int64_t ThreadPerLevel0Cluster = MLevel0Cluster * NLevel0Cluster;
-    auto ThreadPerLevel0ClusterConstantOp =
-        b.create<ConstantIndexOp>(loc, ThreadPerLevel0Cluster);
-    auto level1_id =
-        b.create<DivUIOp>(loc, tid, ThreadPerLevel0ClusterConstantOp);
-    auto level1_m_id =
-        b.create<DivUIOp>(loc, level1_id, NLevel1ClusterConstantOp);
-    auto level1_n_id =
-        b.create<RemUIOp>(loc, level1_id, NLevel1ClusterConstantOp);
-
-    auto level0_id =
-        b.create<RemUIOp>(loc, tid, ThreadPerLevel0ClusterConstantOp);
-    auto level0_m_id =
-        b.create<DivUIOp>(loc, level0_id, NLevel0ClusterConstantOp);
-    auto level0_n_id =
-        b.create<RemUIOp>(loc, level0_id, NLevel0ClusterConstantOp);
-
-    int64_t MPerLevel0Cluster = MPerThread * MLevel0Cluster;
-    int64_t NPerLevel0Cluster = NPerThread * NLevel0Cluster;
-    int64_t mRepeatLDSStride = MPerLevel0Cluster * MLevel1Cluster;
-    int64_t nRepeatLDSStride = NPerLevel0Cluster * NLevel1Cluster;
-    auto MPerLevel0ClusterConstantOp =
-        b.create<ConstantIndexOp>(loc, MPerLevel0Cluster);
-    auto NPerLevel0ClusterConstantOp =
-        b.create<ConstantIndexOp>(loc, NPerLevel0Cluster);
-
-    // mMyThreadOffsetA = BlockMatrixA::GetOffsetFromMultiIndex{0,
-    // c_thread_mtx_index.row} = c_thread_mtx_index_row
-    c_thread_mtx_index_row = b.create<AddIOp>(
-        loc, b.create<MulIOp>(loc, level1_m_id, MPerLevel0ClusterConstantOp),
-        b.create<MulIOp>(loc, level0_m_id, MPerThreadConstantOp));
-    mMyThreadOffsetA = c_thread_mtx_index_row;
-
-    // mMyThreadOffsetB = BlockMatrixB::GetOffsetFromMultiIndex{0,
-    // c_thread_mtx_index.col} = c_thread_mtx_index_col
-    c_thread_mtx_index_col = b.create<AddIOp>(
-        loc, b.create<MulIOp>(loc, level1_n_id, NPerLevel0ClusterConstantOp),
-        b.create<MulIOp>(loc, level0_n_id, NPerThreadConstantOp));
-    mMyThreadOffsetB = c_thread_mtx_index_col;
-
-    m_thread_data_on_global =
-        b.create<AddIOp>(loc, m_block_data_on_global, c_thread_mtx_index_row);
-    n_thread_data_on_global =
-        b.create<AddIOp>(loc, n_block_data_on_global, c_thread_mtx_index_col);
 
     SmallVector<Value, 4> blockwiseLoadACoords;
     if (KPack > 1) {
@@ -1106,9 +1056,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // Emit blockwise GEMM.
     auto blockwiseGemmOp = lb.create<BlockwiseGemmOp>(
         loc, ldsMatrixASubviewOp, ldsMatrixBSubviewOp, registerMatrixCViewOp,
-        mMyThreadOffsetA, mMyThreadOffsetB, kPerThreadAttr,
-        b.getIndexAttr(MPerThread), b.getIndexAttr(NPerThread),
-        b.getIndexAttr(mRepeatLDSStride), b.getIndexAttr(nRepeatLDSStride));
+        kPerThreadAttr, b.getIndexAttr(mPerThread), b.getIndexAttr(nPerThread),
+        mThreadsPerCuwaveAttr, nThreadsPerCuwaveAttr, mCuwavesPerBlockAttr,
+        nCuwavesPerBlockAttr);
 
     // LDS barrier.
     // This barrier prevents halo part of outputs having weird values.
@@ -1165,45 +1115,30 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     splitMemoryCoords.merge(
         {"g", "m_block", "n_block"}, {0, 1, 2}, "bid",
         {kernelGridSize / GStride, GStride / NBlockWork, NBlockWork});
-    splitMemoryCoords.merge(
-        {"level1", "level0"}, {3, 4}, "tid",
-        {kernelBlockSize / ThreadPerLevel0Cluster, ThreadPerLevel0Cluster});
-    splitMemoryCoords.merge({"m_iter", "n_iter"}, {5, 6}, "iter",
-                            {threadCNumM, threadCNumN});
+    splitMemoryCoords.merge({"m_cuwaves", "n_cuwaves", "m_cuwave", "n_cuwave"},
+                            {3, 4, 5, 6}, "tid",
+                            {mCuwavesPerBlock, nCuwavesPerBlock,
+                             mThreadsPerCuwave, nThreadsPerCuwave});
+    splitMemoryCoords.merge({"m_repeat", "m_thread", "n_repeat", "n_thread"},
+                            {7, 8, 9, 10}, "iter",
+                            {GemmMRepeat, mPerThread, GemmNRepeat, nPerThread});
     TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
 
-    auto toClusters =
+    auto toMatrixC =
         TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
-    llvm::StringMap<uint32_t> toClustersIdxs = expandNamesInPlace(
-        splitMemoryCoords, {{"level1", {"level1_m", "level1_n"}},
-                            {"level0", {"level0_m", "level0_n"}},
-                            {"m_iter", {"m_iter_level1", "m_iter_level0"}},
-                            {"n_iter", {"n_iter_level1", "n_iter_level0"}}});
-    TopDownTMBottomDimsWrapper clustersWrap(toClusters, toClustersIdxs);
-    clustersWrap.passThrough({"g", "m_block", "n_block"});
-    clustersWrap.merge(
-        {"level1_m", "level1_n"}, "level1",
-        {splitMemoryCoords.endSize("level1") / NLevel1Cluster, NLevel1Cluster});
-    clustersWrap.merge(
-        {"level0_m", "level0_n"}, "level0",
-        {splitMemoryCoords.endSize("level0") / NLevel0Cluster, NLevel0Cluster});
-    clustersWrap.merge({"m_iter_level1", "m_iter_level0"}, "m_iter",
-                       {GemmMRepeat, MPerThread});
-    clustersWrap.merge({"n_iter_level1", "n_iter_level0"}, "n_iter",
-                       {GemmNRepeat, NPerThread});
-    TransformMapAttr toClustersAttr = toClusters.get();
-
-    auto toMatrixC = TopDownTMBuilder::below(toClusters, toClustersAttr);
     toMatrixC.passThrough({"gemmG"}, {0}, {"g"});
-    toMatrixC.embed(
-        "gemmM", 1, M,
-        {"m_block", "level1_m", "level0_m", "m_iter_level1", "m_iter_level0"},
-        {MPerBlock, MPerLevel0Cluster, MPerThread, mRepeatLDSStride, 1});
-    toMatrixC.embed(
-        "gemmN", 2, N,
-        {"n_block", "level1_n", "level0_n", "n_iter_level1", "n_iter_level0"},
-        {NPerBlock, NPerLevel0Cluster, NPerThread, nRepeatLDSStride, 1});
-    TransformMapAttr toTensorCAttr = toMatrixC.get();
+    toMatrixC.unmerge(
+        "gemmM", 1,
+        {"m_block", "m_repeat", "m_cuwaves", "m_cuwave", "m_thread"},
+        {M / MPerBlock, GemmMRepeat, mCuwavesPerBlock, mThreadsPerCuwave,
+         mPerThread});
+    toMatrixC.unmerge(
+        "gemmN", 2,
+        {"n_block", "n_repeat", "n_cuwaves", "n_cuwave", "n_thread"},
+        {N / NPerBlock, GemmNRepeat, nCuwavesPerBlock, nThreadsPerCuwave,
+         nPerThread});
+
+    TransformMapAttr toMatrixCAttr = toMatrixC.get();
 
     TopDownTMBuilder toRegisterC(
         b, {"bid", "tid", "iter"},
@@ -1241,7 +1176,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     }
 
     ArrayAttr idToMatrixCMaps =
-        b.getArrayAttr({splitMemoryCoordsAttr, toClustersAttr, toTensorCAttr});
+        b.getArrayAttr({splitMemoryCoordsAttr, toMatrixCAttr});
     Value tensorC;
     ArrayAttr idToTensorCMaps;
     std::tie(tensorC, idToTensorCMaps) =

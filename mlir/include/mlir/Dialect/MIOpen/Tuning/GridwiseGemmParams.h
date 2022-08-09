@@ -128,10 +128,10 @@ template <typename T> std::string genDebugForParams(T params) {
 // block gemm tuning params that sepcific the layout of thread-wise gemm in a
 // workgroup
 struct DerivedBlockGemmParams {
-  int64_t gemmMLevel0Cluster;
-  int64_t gemmNLevel0Cluster;
-  int64_t gemmMLevel1Cluster;
-  int64_t gemmNLevel1Cluster;
+  int64_t gemmMThreadsPerCuwave;
+  int64_t gemmNThreadsPerCuwave;
+  int64_t gemmMCuwavesPerBlock;
+  int64_t gemmNCuwavesPerBlock;
 };
 
 class PopulateParams {

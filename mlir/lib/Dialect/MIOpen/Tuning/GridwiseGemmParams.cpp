@@ -516,26 +516,26 @@ LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
     const InitParamsNonXDL &param, const ConvolutionContext &ctx,
     DerivedBlockGemmParams &derived) {
 
-  derived.gemmMLevel0Cluster = 0;
-  derived.gemmNLevel0Cluster = 0;
-  derived.gemmMLevel1Cluster = 0;
-  derived.gemmNLevel1Cluster = 0;
+  derived.gemmMThreadsPerCuwave = 0;
+  derived.gemmNThreadsPerCuwave = 0;
+  derived.gemmMCuwavesPerBlock = 0;
+  derived.gemmNCuwavesPerBlock = 0;
 
   if (param.blockSize == 64) {
-    derived.gemmMLevel0Cluster = 4;
-    derived.gemmNLevel0Cluster = 4;
-    derived.gemmMLevel1Cluster = 2;
-    derived.gemmNLevel1Cluster = 2;
+    derived.gemmMThreadsPerCuwave = 4;
+    derived.gemmNThreadsPerCuwave = 4;
+    derived.gemmMCuwavesPerBlock = 2;
+    derived.gemmNCuwavesPerBlock = 2;
   } else if (param.blockSize == 128) {
-    derived.gemmMLevel0Cluster = 4;
-    derived.gemmNLevel0Cluster = 4;
-    derived.gemmMLevel1Cluster = 4;
-    derived.gemmNLevel1Cluster = 2;
+    derived.gemmMThreadsPerCuwave = 4;
+    derived.gemmNThreadsPerCuwave = 4;
+    derived.gemmMCuwavesPerBlock = 4;
+    derived.gemmNCuwavesPerBlock = 2;
   } else if (param.blockSize == 256) {
-    derived.gemmMLevel0Cluster = 4;
-    derived.gemmNLevel0Cluster = 4;
-    derived.gemmMLevel1Cluster = 4;
-    derived.gemmNLevel1Cluster = 4;
+    derived.gemmMThreadsPerCuwave = 4;
+    derived.gemmNThreadsPerCuwave = 4;
+    derived.gemmMCuwavesPerBlock = 4;
+    derived.gemmNCuwavesPerBlock = 4;
   } else {
     return failure();
   }
@@ -554,9 +554,9 @@ LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
   const auto threadGemmNPerBlock = param.gemmNPerBlock / param.gemmNPerThread;
 
   const auto threadGemmMPerCluster =
-      derived.gemmMLevel0Cluster * derived.gemmMLevel1Cluster;
+      derived.gemmMThreadsPerCuwave * derived.gemmMCuwavesPerBlock;
   const auto threadGemmNPerCluster =
-      derived.gemmNLevel0Cluster * derived.gemmNLevel1Cluster;
+      derived.gemmNThreadsPerCuwave * derived.gemmNCuwavesPerBlock;
 
   if (!(threadGemmMPerBlock % threadGemmMPerCluster == 0) &&
       (threadGemmNPerBlock % threadGemmNPerCluster == 0))
