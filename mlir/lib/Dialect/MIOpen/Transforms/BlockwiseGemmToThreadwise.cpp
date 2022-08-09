@@ -81,6 +81,8 @@ struct FillRewritePattern : public OpConversionPattern<FillOp> {
 // BlockwiseGemm lowering.
 //===----------------------------------------------------------------------===//
 
+// The structure of this lowing is documented at
+// https://github.com/ROCmSoftwarePlatform/llvm-project-mlir/issues/719
 struct BlockwiseGemmRewritePattern
     : public OpConversionPattern<BlockwiseGemmOp> {
   using OpConversionPattern<BlockwiseGemmOp>::OpConversionPattern;
