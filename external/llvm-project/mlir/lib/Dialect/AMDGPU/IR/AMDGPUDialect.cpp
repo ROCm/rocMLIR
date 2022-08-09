@@ -13,6 +13,8 @@
 #include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
 
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/TypeUtilities.h"
@@ -62,128 +64,61 @@ LogicalResult RawBufferAtomicFaddOp::verify() {
 
 //===----------------------------------------------------------------------===//
 // MFMAOp
-//===----------------------------------------------------------------------===//
+//===-----------------------
 LogicalResult MFMAOp::verify() {
-  Builder b(getOperation());
-  StringRef instrName = stringifyMFMAInstr(instr());
+  constexpr uint32_t waveSize = 64;
+  Builder b(getContext());
 
-  Type inType = sourceA().getType();
-  switch (instr()) {
-  case MFMAInstr::f32_32x32x1f32:
-  case MFMAInstr::f32_16x16x1f32:
-  case MFMAInstr::f32_4x4x1f32:
-  case MFMAInstr::f32_32x32x2f32:
-  case MFMAInstr::f32_16x16x4f32:
-    if (inType != b.getF32Type())
-      return emitOpError(instrName + " requires f32 inputs");
-    break;
-  case MFMAInstr::f32_32x32x4f16:
-  case MFMAInstr::f32_16x16x4f16:
-  case MFMAInstr::f32_4x4x4f16:
-  case MFMAInstr::f32_32x32x8f16:
-  case MFMAInstr::f32_16x16x16f16:
-    if (inType != VectorType::get(4, b.getF16Type()))
-      return emitOpError(instrName + " requires vector<4xf16> inputs");
-    break;
-  case MFMAInstr::i32_32x32x4i8:
-  case MFMAInstr::i32_16x16x4i8:
-  case MFMAInstr::i32_4x4x4i8:
-  case MFMAInstr::i32_32x32x8i8:
-  case MFMAInstr::i32_16x16x16i8:
-    if (inType != b.getI32Type() && inType != VectorType::get(4, b.getI8Type()))
-      return emitOpError(instrName + " requires i32 or vector<4xi8> inputs");
-    break;
-  case MFMAInstr::f32_32x32x2bf16:
-  case MFMAInstr::f32_16x16x2bf16:
-  case MFMAInstr::f32_4x4x2bf16:
-  case MFMAInstr::f32_32x32x4bf16:
-  case MFMAInstr::f32_16x16x8bf16:
-    if (inType != VectorType::get(2, b.getBF16Type()))
-      return emitOpError(instrName + " requires vector<2xbf16> inputs");
-    break;
-  case MFMAInstr::f32_32x32x4bf16_1k:
-  case MFMAInstr::f32_16x16x4bf16_1k:
-  case MFMAInstr::f32_4x4x4bf16_1k:
-  case MFMAInstr::f32_32x32x8bf16_1k:
-  case MFMAInstr::f32_16x16x16bf16_1k:
-    if (inType != VectorType::get(4, b.getBF16Type()))
-      return emitOpError(instrName + " requires vector<4xbf16> inputs");
-    break;
-  case MFMAInstr::f64_16x16x4f64:
-  case MFMAInstr::f64_4x4x4f64:
-    if (inType != b.getF64Type())
-      return emitOpError(instrName + " requires f64 inputs");
-    break;
-  case MFMAInstr::i32_16x16x32_i8:
-  case MFMAInstr::i32_32x32x16_i8:
-    if (inType != b.getI64Type() && inType != VectorType::get(8, b.getI8Type()))
-      return emitOpError(instrName + " requires i64 or vector<8xi8> inputs");
-    break;
-  case MFMAInstr::f32_16x16x8_xf32:
-  case MFMAInstr::f32_32x32x4_xf32:
-    if (inType != VectorType::get(2, b.getF32Type()))
-      return emitOpError(instrName + " requires vector<2xf32> inputs");
-    break;
+  Type sourceType = sourceA().getType();
+  Type destType = destC().getType();
+
+  Type sourceElem = sourceType, destElem = destType;
+  uint32_t sourceLen = 1, destLen = 1;
+  if (auto sourceVector = sourceType.dyn_cast<VectorType>()) {
+    sourceLen = sourceVector.getNumElements();
+    sourceElem = sourceVector.getElementType();
+  }
+  if (auto destVector = destType.dyn_cast<VectorType>()) {
+    destLen = destVector.getNumElements();
+    destElem = destVector.getElementType();
   }
 
-  Type outType = destC().getType();
-  switch (instr()) {
-  case MFMAInstr::f32_32x32x1f32:
-  case MFMAInstr::f32_32x32x4f16:
-  case MFMAInstr::f32_32x32x2bf16:
-  case MFMAInstr::f32_32x32x4bf16_1k:
-    if (outType != VectorType::get(32, b.getF32Type()))
-      return emitOpError(instrName + " must have vector<32xf32> outputs");
-    break;
-  case MFMAInstr::f32_16x16x1f32:
-  case MFMAInstr::f32_32x32x2f32:
-  case MFMAInstr::f32_16x16x4f16:
-  case MFMAInstr::f32_32x32x8f16:
-  case MFMAInstr::f32_16x16x2bf16:
-  case MFMAInstr::f32_32x32x4bf16:
-  case MFMAInstr::f32_16x16x4bf16_1k:
-  case MFMAInstr::f32_32x32x8bf16_1k:
-  case MFMAInstr::f32_32x32x4_xf32:
-    if (outType != VectorType::get(16, b.getF32Type()))
-      return emitOpError(instrName + " must have vector<16xf32> outputs");
-    break;
-  case MFMAInstr::f32_4x4x1f32:
-  case MFMAInstr::f32_16x16x4f32:
-  case MFMAInstr::f32_4x4x4f16:
-  case MFMAInstr::f32_16x16x16f16:
-  case MFMAInstr::f32_4x4x2bf16:
-  case MFMAInstr::f32_16x16x8bf16:
-  case MFMAInstr::f32_4x4x4bf16_1k:
-  case MFMAInstr::f32_16x16x16bf16_1k:
-  case MFMAInstr::f32_16x16x8_xf32:
-    if (outType != VectorType::get(4, b.getF32Type()))
-      return emitOpError(instrName + " must have vector<4xf32> outputs");
-    break;
-  case MFMAInstr::i32_32x32x4i8:
-
-    if (outType != VectorType::get(32, b.getI32Type()))
-      return emitOpError(instrName + " must have vector<32xi32> outputs");
-    break;
-  case MFMAInstr::i32_16x16x4i8:
-  case MFMAInstr::i32_32x32x8i8:
-  case MFMAInstr::i32_32x32x16_i8:
-    if (outType != VectorType::get(16, b.getI32Type()))
-      return emitOpError(instrName + " must have vector<16xi32> outputs");
-    break;
-  case MFMAInstr::i32_4x4x4i8:
-  case MFMAInstr::i32_16x16x16i8:
-  case MFMAInstr::i32_16x16x32_i8:
-    if (outType != VectorType::get(4, b.getI32Type()))
-      return emitOpError(instrName + " must have vector<4xi32> outputs");
-    break;
-  case MFMAInstr::f64_16x16x4f64:
-    if (outType != VectorType::get(4, b.getF64Type()))
-      return emitOpError(instrName + " must have vector<4xf64> outputs");
-    break;
-  case MFMAInstr::f64_4x4x4f64:
-    if (outType != b.getF64Type())
-      return emitOpError(instrName + " must have f64 outputs");
+  // Normalize the wider integer types the compiler expects to i8
+  if (sourceElem.isInteger(32)) {
+    sourceLen *= 4;
+    sourceElem = b.getI8Type();
   }
+  if (sourceElem.isInteger(64)) {
+    sourceLen *= 8;
+    sourceElem = b.getI8Type();
+  }
+
+  int64_t numSourceElems = (m() * k() * blocks()) / waveSize;
+  if (sourceLen != numSourceElems)
+    return emitOpError("expected " + Twine(numSourceElems) +
+                       " source values for this operation but got " +
+                       Twine(numSourceElems));
+
+  int64_t numDestElems = (m() * n() * blocks()) / waveSize;
+  if (destLen != numDestElems)
+    return emitOpError("expected " + Twine(numDestElems) +
+                       " result values for this operation but got " +
+                       Twine(numSourceElems));
+
+  if (destElem.isF64() && blgp() != MFMAPermB::none)
+    return emitOpError(
+        "double-percision ops do not support permuting lanes of B");
+  if (destElem.isF64() && cbsz() != 0)
+    return emitOpError(
+        "double-precision ops do not support permuting lanes of A");
+  if (abid() >= (1 << cbsz()))
+    return emitOpError(
+        "block ID for permuting A (abid) must be below 2 ** cbsz");
+
+  if ((negateA() || negateB() || negateC()) && !destElem.isF64())
+    return emitOpError(
+        "negation flags only available for double-precision operations");
+
   return success();
 }
 
