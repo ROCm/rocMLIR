@@ -1931,8 +1931,6 @@ struct GridwiseGemmV2RewritePattern
     int64_t NRepeats = xcs.NRepeats;
     VectorType vectorType = xcs.vectorType;
     int64_t numVectors = xcs.vectorNumber;
-    SmallVector<SmallVector<unsigned, 3>, 2> imms = xcs.imms;
-
     int64_t group_size = xcs.group_size;
     int64_t num_groups_blk = xcs.num_groups_blk;
     int64_t num_threads_blk = xcs.num_threads_blk;

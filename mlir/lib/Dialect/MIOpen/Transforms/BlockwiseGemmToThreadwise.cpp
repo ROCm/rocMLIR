@@ -339,10 +339,6 @@ struct BlockwiseGemmV2RewritePattern
         XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 
     // Extract values from XdlopsCodeSelection.
-    amdgpu::MFMAInstr mfmaInstr = xcs.instr;
-    LLVM_DEBUG(llvm::dbgs() << "Selected xdlop: "
-                            << amdgpu::stringifyMFMAInstr(mfmaInstr) << "\n");
-    SmallVector<SmallVector<unsigned, 3>, 2> imms = xcs.imms;
     Type argType = xcs.argType;
 
     int64_t num_threads_blk = xcs.num_threads_blk;

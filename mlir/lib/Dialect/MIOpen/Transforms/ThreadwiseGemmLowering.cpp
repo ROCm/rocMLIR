@@ -180,16 +180,12 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     XdlopsCodeSelection xcs =
         XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 
-    // Extract values from XdlopsCodeSelection.
-    amdgpu::MFMAInstr mfmaInstr = xcs.instr;
-    LLVM_DEBUG(llvm::dbgs() << "Selected xdlop: "
-                            << amdgpu::stringifyMFMAInstr(mfmaInstr) << "\n");
-
     VectorType vectorType = xcs.vectorType;
     int64_t vectorNumber = xcs.vectorNumber;
-    SmallVector<SmallVector<unsigned, 3>, 2> imms = xcs.imms;
+    ArrayRef<MFMAParams> imms(xcs.imms);
     Type argType = xcs.argType;
 
+    int64_t mfmaNonKDim = xcs.mfmaNonKDim;
     int64_t num_input_blks = xcs.num_input_blks;
     int64_t num_output_blks = xcs.num_output_blks;
     int64_t k_base = xcs.k_base;
@@ -229,8 +225,10 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         auto vectorC = b.create<memref::LoadOp>(loc, vectorType,
                                                 adaptor.matrixC(), offset);
         auto mfma = b.create<amdgpu::MFMAOp>(
-            loc, vectorType, mfmaInstr, argA, argB, vectorC,
-            /*cbsz=*/imms[i][0], /*abid=*/imms[i][1], /*blgp=*/imms[i][2]);
+            loc, vectorType, /*m=*/mfmaNonKDim, /*n=*/mfmaNonKDim, xcs.k,
+            xcs.blocksMfma, argA, argB, vectorC, imms[i].cbsz, imms[i].abid,
+            imms[i].blgp, /*reducePrecision=*/false, /*negateA=*/false,
+            /*negateB=*/false, /*negateC=*/false);
         auto vectorD = mfma.destD();
 
         b.create<memref::StoreOp>(loc, vectorD, adaptor.matrixC(), offset);
