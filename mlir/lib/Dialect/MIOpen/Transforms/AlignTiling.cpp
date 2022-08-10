@@ -505,7 +505,7 @@ LogicalResult LGDropDimsPattern::matchAndRewrite(linalg::GenericOp laGeneric,
         regType = user->getResult(0).getType().template cast<MemRefType>();
         if (isa<memref::CopyOp>(copyOp)) {
           // getTarget
-          laOut = copyOp->getOperand(1));
+          laOut = copyOp->getOperand(1);
         }
       }
       eliminateAll(user);
