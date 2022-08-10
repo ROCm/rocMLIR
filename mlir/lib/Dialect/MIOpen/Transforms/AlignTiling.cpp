@@ -532,10 +532,8 @@ LogicalResult LGDropDimsPattern::matchAndRewrite(linalg::GenericOp laGeneric,
   Value laOut;
   bool bFirst = true;
   // Reconfigure the linalg.generic, this tries to restore the original rank
-  // which was already compatible
-  elementwise fusion duplicated some dims.for (auto pair :
-                                               llvm::zip(idxMaps,
-                                                         laGeneric.inputs())) {
+  // which was already compatible elementwise fusion duplicated some dims.
+  for (auto pair : llvm::zip(idxMaps, laGeneric.inputs())) {
     AffineMap inpIdxMap = std::get<0>(pair);
     Value inp = std::get<1>(pair);
     if (auto expanded = inp.getDefiningOp<memref::ExpandShapeOp>()) {
