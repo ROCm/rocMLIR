@@ -501,10 +501,11 @@ LogicalResult LGDropDimsPattern::matchAndRewrite(linalg::GenericOp laGeneric,
   // Check memref alloc as output and eliminate it with all users
   for (Operation *user : out.getUsers()) {
     if (isa<memref::CollapseShapeOp>(user)) {
-      for (Operation *copyOp : user.getUsers()) {
+      for (Operation *copyOp : user->getUsers()) {
         regType = user->getResult(0).getType().template cast<MemRefType>();
         if (isa<memref::CopyOp>(copyOp)) {
-          laOut = copyOp->getTarget();
+          // getTarget
+          laOut = copyOp->getOperand(1));
         }
       }
       eliminateAll(user);
