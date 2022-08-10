@@ -497,11 +497,16 @@ LogicalResult LGDropDimsPattern::matchAndRewrite(linalg::GenericOp laGeneric,
   if (laGeneric.outputs().size() > 1)
     return failure();
   MemRefType regType;
-
+  Value laOut;
   // Check memref alloc as output and eliminate it with all users
   for (Operation *user : out.getUsers()) {
     if (isa<memref::CollapseShapeOp>(user)) {
-      regType = user->getResult(0).getType().template cast<MemRefType>();
+      for (Operation *copyOp : user.getUsers()) {
+        regType = user->getResult(0).getType().template cast<MemRefType>();
+        if (isa<memref::CopyOp>(copyOp)) {
+          laOut = copyOp->getTarget();
+        }
+      }
       eliminateAll(user);
       break;
     }
@@ -529,8 +534,6 @@ LogicalResult LGDropDimsPattern::matchAndRewrite(linalg::GenericOp laGeneric,
     }
   }
 
-  Value laOut;
-  bool bFirst = true;
   // Reconfigure the linalg.generic, this tries to restore the original rank
   // which was already compatible elementwise fusion duplicated some dims.
   for (auto pair : llvm::zip(idxMaps, laGeneric.inputs())) {
@@ -547,18 +550,12 @@ LogicalResult LGDropDimsPattern::matchAndRewrite(linalg::GenericOp laGeneric,
         newValue = inp;
       }
       newInputs.push_back(newValue);
-
-      // The first input comes from the anchor op and to be used as the final
-      // output
-      if (bFirst)
-        laOut = newValue;
       laGenericAMaps.push_back(
           AffineMap::getMultiDimIdentityMap(commonRank, ctx));
     } else {
       newInputs.push_back(inp);
       laGenericAMaps.push_back(inpIdxMap);
     }
-    bFirst = false;
   }
 
   // set output map and in/out
