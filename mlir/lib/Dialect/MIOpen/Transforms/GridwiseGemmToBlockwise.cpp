@@ -2384,31 +2384,36 @@ struct GridwiseGemmV2RewritePattern
 
     Value registerC = regCAllocOp;
     auto convertedCType = MemRefType::get(
-        vectorType.getNumElements() * numVectors, destType, {},
+        numElements, destType, {},
         /*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
     Value convertedC = b.create<miopen::GpuAllocOp>(loc, convertedCType);
+
+    BottomUpTMBuilder toRegCScalar(b, {"scalar"}, {numElements}, loc);
+    toRegCScalar.embed({"vector"}, {0}, {numVectors}, "scalar",
+                       {regCVectorLen});
+    TransformMapAttr toRegCScalarAttr = toRegCScalar.get();
 
     // Convert from memref<?xvector<?xT>> to memref<?xT> where the source T
     // is the accumulatorType and destination type is destType
     auto convertLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{{zeroConstantOp}},
-        ArrayRef<Attribute>{b.getArrayAttr({})},
+        loc, ArrayRef<ValueRange>{{zeroConstantOp}, {zeroConstantOp}},
+        ArrayRef<Attribute>{b.getArrayAttr({}),
+                            b.getArrayAttr(toRegCScalarAttr)},
         /*bounds=*/regCAllocType.getShape(), /*strides=*/llvm::None,
         /*useIndexDiffs=*/true, /*forceUnroll=*/true);
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(convertLoop.getBody());
-      Value coord = convertLoop.getLowerCoords(/*domain=*/0)[0];
-      Value loaded = b.create<memref::LoadOp>(loc, accumulatorVectorType,
-                                              registerC, coord);
+      Value loaded =
+          b.create<memref::LoadOp>(loc, accumulatorVectorType, registerC,
+                                   convertLoop.getLowerCoords(/*domain*/ 0));
       Value cast = loaded;
       if (destType != accumulatorType) {
         VectorType destVectorType = vectorType.clone(destType);
         cast = createTypeConversionOp(b, loc, loaded, destVectorType);
       }
-      Value offset = b.create<MulIOp>(
-          loc, coord, b.create<arith::ConstantIndexOp>(loc, regCVectorLen));
-      b.create<InBoundsStoreOp>(loc, cast, convertedC, offset);
+      b.create<InBoundsStoreOp>(loc, cast, convertedC,
+                                convertLoop.getLowerCoords(/*domain*/ 1));
     }
     registerC = convertedC;
 
