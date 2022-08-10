@@ -743,10 +743,10 @@ def MIOpen_BlockwiseGemmV2Op:
     not slices of a larger object.
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $bufferA `by` $matrixA `[` $waveOffsetA `]` `*`
-                        $bufferB `by` $matrixB `[` $waveOffsetB `]` attr-dict
-    `:` type($matrixC) `+` `` `=` type($bufferA) `by` type($matrixA) `*` 
-                                  type($bufferB) `by` type($matrixB)
+    $matrixC `+` `` `=` $bufferA `from` $matrixA `[` $waveOffsetA `]` `*`
+                        $bufferB `from` $matrixB `[` $waveOffsetB `]` attr-dict
+    `:` type($matrixC) `+` `` `=` type($bufferA) `from` type($matrixA) `*` 
+                                  type($bufferB) `from` type($matrixB)
   }];
 }
 
