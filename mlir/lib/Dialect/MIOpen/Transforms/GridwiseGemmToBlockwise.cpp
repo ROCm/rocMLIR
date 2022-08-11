@@ -84,6 +84,21 @@ void computeLoadStoreTypeInfo(OpBuilder &b, ArrayRef<int64_t> sliceLengths,
   loadType = vectorTypeOrSelf(elementType, loadLength);
 }
 
+Type obtainAccumulatorType(OpBuilder &b, Type &elementType, Type &destType) {
+  // Determine the type used on VGPR to act as accumulator.
+  // f32: f32.
+  // f16, bf16: f32 to prevent overflow from happening.
+  // i16 : i16.
+  // i8: i32, since we have an i32 output
+  Type accumulatorType = destType;
+  if (elementType == b.getF16Type() || elementType == b.getBF16Type()) {
+    accumulatorType = b.getF32Type();
+  } else if (elementType == b.getI8Type()) {
+    accumulatorType = b.getI32Type();
+  }
+  return accumulatorType;
+}
+
 // Create a transformation domain that computes the linear, row-major iteration
 // index over a rectangular space with dimensions `sliceLengths`.
 // The iteration starts at all-zeros
@@ -331,17 +346,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Obtain data type.
     Type elementType = op.b().getType().cast<MemRefType>().getElementType();
-
-    // Determine the type used on VGPR to act as accumulator.
-    // f32: f32.
-    // f16, bf16: f32 to prevent overflow from happening.
-    // i8: i32, since we have an i32 output
-    Type accumulatorType = elementType;
-    if (elementType == b.getF16Type() || elementType == b.getBF16Type()) {
-      accumulatorType = b.getF32Type();
-    } else if (elementType == b.getI8Type()) {
-      accumulatorType = b.getI32Type();
-    }
+    Type destType = op.c().getType().cast<MemRefType>().getElementType();
+    Type accumulatorType = obtainAccumulatorType(b, elementType, destType);
 
     // Prepare some useful constants.
     Value zeroConstantFloatOp = createZeroConstantOp(b, loc, accumulatorType);
@@ -1152,7 +1158,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // fp32->f16) then we must do so before the writeback loop in which fusion
     // takes places at this time, since the fusion pass as currently written
     // can't interceps the type conversions.
-    Type destType = op.c().getType().cast<MemRefType>().getElementType();
     if (destType != accumulatorType) {
       auto convertedCType =
           threadCRegisterMemRefType.clone(destType).cast<MemRefType>();
@@ -2076,19 +2081,7 @@ struct GridwiseGemmV2RewritePattern
     // Logic to allocate 0-initialized vectors for C.
     int64_t regCVectorLen = vectorType.getNumElements();
     Type destType = op.c().getType().cast<MemRefType>().getElementType();
-
-    // Determine the type used on VGPR to act as accumulator.
-    // f32: f32.
-    // f16: f32 to prevent overflow from happening.
-    // i16(bf16) : i16.
-    // i8: i32, since we have an i32 output
-    Type accumulatorType = destType;
-    if (elementType == b.getF16Type() || elementType == b.getBF16Type()) {
-      accumulatorType = b.getF32Type();
-    } else if (elementType == b.getI8Type()) {
-      accumulatorType = b.getI32Type();
-    }
-
+    Type accumulatorType = obtainAccumulatorType(b, elementType, destType);
     VectorType accumulatorVectorType =
         vectorType.cloneWith({}, accumulatorType);
     MemRefType regCAllocType = MemRefType::get(
@@ -2100,7 +2093,6 @@ struct GridwiseGemmV2RewritePattern
     b.create<FillOp>(loc, regCAllocOp, zeroConstantCOp);
 
     // Emit loop.
-
     int64_t loopIteration = (K - KPerBlock) / KPerBlock;
 
     // Assign iter args.
