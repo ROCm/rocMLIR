@@ -95,7 +95,7 @@ if( BUILD_FAT_LIBMLIRMIOPEN )
   set(PACKAGE_NAME Miir)
   install(FILES Miir.h
     DESTINATION include/${PACKAGE_NAME}
-    COMPONENT libMLIRMIOpen EXCLUDE_FROM_ALL)
+    COMPONENT libMLIRMIOpen)
 
   # Install lib${target_name} as part of ${component_name} and
   # export it to be searchable by find_package()
@@ -133,7 +133,7 @@ if( BUILD_FAT_LIBMLIRMIOPEN )
     install(TARGETS ${target_name}
       EXPORT ${export_set}
       ARCHIVE DESTINATION lib/${PACKAGE_NAME}
-      COMPONENT ${component_name} EXCLUDE_FROM_ALL)
+      COMPONENT ${component_name})
 
     # Generate package config and version file
     include(CMakePackageConfigHelpers)
@@ -152,7 +152,7 @@ if( BUILD_FAT_LIBMLIRMIOPEN )
     install(EXPORT ${export_set}
       NAMESPACE Miir::
       DESTINATION ${ConfigPackageLocation}
-      COMPONENT ${component_name} EXCLUDE_FROM_ALL)
+      COMPONENT ${component_name})
 
     # Install package configuration and version files
     install(
@@ -160,7 +160,7 @@ if( BUILD_FAT_LIBMLIRMIOPEN )
       "${CMAKE_CURRENT_BINARY_DIR}/${pkg_config_file}"
       "${CMAKE_CURRENT_BINARY_DIR}/${pkg_version_file}"
       DESTINATION ${ConfigPackageLocation}
-      COMPONENT ${component_name} EXCLUDE_FROM_ALL)
+      COMPONENT ${component_name})
   endfunction(export_target)
 
   # Install libMLIRMIOpen.a as part of component libMLIRMIOpen
