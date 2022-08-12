@@ -169,9 +169,6 @@ static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
                                    Value dest) {
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << srcOp.getType()
                           << " dest type: " << op.dest().getType() << "\n");
-  assert(srcOp.getType().cast<ShapedType>().getShape() ==
-             op.dest().getType().cast<ShapedType>().getShape() &&
-         "shape of extra fusion arguments matches shape of C tensor");
 
   auto writeCLoop = op->getParentOfType<TransformingForOp>();
   assert(writeCLoop && "threadwise_copy_v2 must be in a transforming_for");
@@ -288,6 +285,21 @@ static ThreadwiseCopyV2Op traceToThreadwiseCopy(Value inp) {
       allValidUses = false;
     }
   }
+
+  // broadcast input
+  if (auto expanded = inp.getDefiningOp<memref::ExpandShapeOp>()) {
+    auto src = expanded.getSrc();
+    for (Operation *use : src.getUsers()) {
+      if (auto copy = dyn_cast<ThreadwiseCopyV2Op>(use)) {
+        if (result) {
+          LLVM_DEBUG(llvm::dbgs() << "Multiple copies somehow, no fusion\n");
+          allValidUses = false;
+        }
+        result = copy;
+      }
+    }
+  }
+
   if (!result)
     LLVM_DEBUG(llvm::dbgs() << "Align tiling: generic not tracing to copy");
   if (!allValidUses)
@@ -314,6 +326,12 @@ static Value reconfigureLAGeneric(PatternRewriter &b,
       Value newInput;
       if (inp == twout) {
         newInput = laIn;
+      } else if (auto expanded = inp.getDefiningOp<memref::ExpandShapeOp>()) {
+        if (expanded.getSrc() == twout)
+          newInput = laIn;
+        else {
+          newInput = applyTransforms(b, twcopy, inp, inpIdxMap);
+        }
       } else {
         // 2.1.1. Align tiling of other inputs
         newInput = applyTransforms(b, twcopy, inp, inpIdxMap);
