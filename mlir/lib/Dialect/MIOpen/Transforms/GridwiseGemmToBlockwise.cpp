@@ -56,7 +56,7 @@ struct MIOpenGridwiseGemmToBlockwisePass
 
 // TODO(kdrewnia): Could rank-0 vectors clear some of this up?
 // Utility function for crafting optional vector types
-Type vectorTypeOrSelf(Type elementType, int64_t len) {
+static Type vectorTypeOrSelf(Type elementType, int64_t len) {
   if (len == 1)
     return elementType;
   return VectorType::get({len}, elementType);
@@ -65,10 +65,11 @@ Type vectorTypeOrSelf(Type elementType, int64_t len) {
 //===----------------------------------------------------------------------===//
 // Utility function to determine the type to be loaded
 //===----------------------------------------------------------------------===//
-void computeLoadStoreTypeInfo(OpBuilder &b, ArrayRef<int64_t> sliceLengths,
-                              int64_t loadLength, uint32_t &vectorDim,
-                              int64_t kPack, Type elementType, Type &loadType,
-                              Type &intermediateType) {
+static void computeLoadStoreTypeInfo(OpBuilder &b,
+                                     ArrayRef<int64_t> sliceLengths,
+                                     int64_t loadLength, uint32_t &vectorDim,
+                                     int64_t kPack, Type elementType,
+                                     Type &loadType, Type &intermediateType) {
 
   // In case KPack and vector load is used, and we vector load on GemmK
   // dimension (1), use the last dimension (GemmKPack) instead.
@@ -84,11 +85,27 @@ void computeLoadStoreTypeInfo(OpBuilder &b, ArrayRef<int64_t> sliceLengths,
   loadType = vectorTypeOrSelf(elementType, loadLength);
 }
 
+static Type obtainAccumulatorType(OpBuilder &b, Type &elementType,
+                                  Type &destType) {
+  // Determine the type used on VGPR to act as accumulator.
+  // f32: f32.
+  // f16, bf16: f32 to prevent overflow from happening.
+  // i16 : i16.
+  // i8: i32, since we have an i32 output
+  Type accumulatorType = destType;
+  if (elementType.isF16() || elementType.isBF16()) {
+    accumulatorType = b.getF32Type();
+  } else if (elementType.isInteger(8)) {
+    accumulatorType = b.getI32Type();
+  }
+  return accumulatorType;
+}
+
 // Create a transformation domain that computes the linear, row-major iteration
 // index over a rectangular space with dimensions `sliceLengths`.
 // The iteration starts at all-zeros
-ArrayAttr makeLinearDomain(OpBuilder &b, Location loc,
-                           ArrayRef<int64_t> sliceLengths) {
+static ArrayAttr makeLinearDomain(OpBuilder &b, Location loc,
+                                  ArrayRef<int64_t> sliceLengths) {
   size_t nDims = sliceLengths.size();
   SmallVector<SmallString<4>, 5> dimNames;
   dimNames.reserve(nDims);
@@ -117,11 +134,11 @@ ArrayAttr makeLinearDomain(OpBuilder &b, Location loc,
 //===----------------------------------------------------------------------===//
 // Building load/store loops
 //===----------------------------------------------------------------------===//
-TransformingForOp createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
-                                       ValueRange globalStart, Type resultType,
-                                       Type loadType,
-                                       ArrayRef<int64_t> sliceLengths,
-                                       uint32_t vectorDim, bool useIndexDiffs) {
+static TransformingForOp
+createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
+                     ValueRange globalStart, Type resultType, Type loadType,
+                     ArrayRef<int64_t> sliceLengths, uint32_t vectorDim,
+                     bool useIndexDiffs) {
   bool fullyScalar = !resultType.isa<ShapedType>();
   int64_t loadLength = 1;
   if (auto loadVectorType = loadType.dyn_cast<VectorType>())
@@ -201,9 +218,10 @@ TransformingForOp createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
   return loop;
 }
 
-TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
-                                     Value buffer, ValueRange bufferStart,
-                                     ArrayRef<int64_t> sliceLengths) {
+static TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc,
+                                            Value loaded, Value buffer,
+                                            ValueRange bufferStart,
+                                            ArrayRef<int64_t> sliceLengths) {
   Type loadedType = loaded.getType();
   Type elementType = loadedType;
   if (auto loadedVector = loadedType.dyn_cast<ShapedType>())
@@ -249,8 +267,8 @@ TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc, Value loaded,
 
 /// Utility function for constructing a subview that slices a buffer as a
 /// TransformOp
-Value sliceBufferSubview(OpBuilder &b, Location loc, Value buffer,
-                         int64_t start, int64_t length) {
+static Value sliceBufferSubview(OpBuilder &b, Location loc, Value buffer,
+                                int64_t start, int64_t length) {
   auto bufferType = buffer.getType().cast<MemRefType>();
   assert(bufferType.getRank() == 1 && "Can't slice multidimensional buffer");
   ArrayRef<int64_t> shape = bufferType.getShape();
@@ -331,17 +349,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Obtain data type.
     Type elementType = op.b().getType().cast<MemRefType>().getElementType();
-
-    // Determine the type used on VGPR to act as accumulator.
-    // f32: f32.
-    // f16, bf16: f32 to prevent overflow from happening.
-    // i8: i32, since we have an i32 output
-    Type accumulatorType = elementType;
-    if (elementType == b.getF16Type() || elementType == b.getBF16Type()) {
-      accumulatorType = b.getF32Type();
-    } else if (elementType == b.getI8Type()) {
-      accumulatorType = b.getI32Type();
-    }
+    Type destType = op.c().getType().cast<MemRefType>().getElementType();
+    Type accumulatorType = obtainAccumulatorType(b, elementType, destType);
 
     // Prepare some useful constants.
     Value zeroConstantFloatOp = createZeroConstantOp(b, loc, accumulatorType);
@@ -1152,7 +1161,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // fp32->f16) then we must do so before the writeback loop in which fusion
     // takes places at this time, since the fusion pass as currently written
     // can't interceps the type conversions.
-    Type destType = op.c().getType().cast<MemRefType>().getElementType();
     if (destType != accumulatorType) {
       auto convertedCType =
           threadCRegisterMemRefType.clone(destType).cast<MemRefType>();
@@ -2076,19 +2084,7 @@ struct GridwiseGemmV2RewritePattern
     // Logic to allocate 0-initialized vectors for C.
     int64_t regCVectorLen = vectorType.getNumElements();
     Type destType = op.c().getType().cast<MemRefType>().getElementType();
-
-    // Determine the type used on VGPR to act as accumulator.
-    // f32: f32.
-    // f16: f32 to prevent overflow from happening.
-    // i16(bf16) : i16.
-    // i8: i32, since we have an i32 output
-    Type accumulatorType = destType;
-    if (elementType == b.getF16Type() || elementType == b.getBF16Type()) {
-      accumulatorType = b.getF32Type();
-    } else if (elementType == b.getI8Type()) {
-      accumulatorType = b.getI32Type();
-    }
-
+    Type accumulatorType = obtainAccumulatorType(b, elementType, destType);
     VectorType accumulatorVectorType =
         vectorType.cloneWith({}, accumulatorType);
     MemRefType regCAllocType = MemRefType::get(
@@ -2100,7 +2096,6 @@ struct GridwiseGemmV2RewritePattern
     b.create<FillOp>(loc, regCAllocOp, zeroConstantCOp);
 
     // Emit loop.
-
     int64_t loopIteration = (K - KPerBlock) / KPerBlock;
 
     // Assign iter args.
