@@ -59,10 +59,6 @@ struct MIOpenOpAsmDialectInterface : public OpAsmDialectInterface {
       os << "transform_map";
       return AliasResult::OverridableAlias;
     }
-    if (attr.isa<PaddingInfoAttr>()) {
-      os << "gemm_padding";
-      return AliasResult::OverridableAlias;
-    }
     return AliasResult::NoAlias;
   }
 };

@@ -60,8 +60,6 @@ func.func @miopen_indexing() {
   return
 }
 
-#gemm_padding0 = #miopen.padding_info<extraM = 0, extraK = 0, extraN = 0>
-
 // CHECK-LABEL: func.func @miopen_indexing
 //   CHECK-NEXT: miopen.workgroup_id
 //   CHECK-NEXT: miopen.workitem_id
@@ -473,7 +471,7 @@ func.func @miopen_threadwise_gemm(%lhs : memref<4x8x1xf32, 5>, %rhs : memref<4x8
 
 // ----
 
-func.func @miopen_xdlops_gemm_v2_one_result(%matrixA : memref<32xf32, 5>, 
+func.func @miopen_xdlops_gemm_v2_one_result(%matrixA : memref<32xf32, 5>,
                                             %matrixB : memref<16xf32, 5>,
                                             %matrixC : memref<1xvector<32xf32>, 5>) {
   %c0 = arith.constant 0 : index
@@ -492,7 +490,7 @@ func.func @miopen_xdlops_gemm_v2_one_result(%matrixA : memref<32xf32, 5>,
 
 // ----
 
-func.func @miopen_xdlops_gemm_v2_two_results(%matrixA : memref<32xf32, 5>, 
+func.func @miopen_xdlops_gemm_v2_two_results(%matrixA : memref<32xf32, 5>,
                                              %matrixB : memref<16xf32, 5>,
                                              %matrixC : memref<2xvector<32xf32>, 5>) {
   %c0 = arith.constant 0 : index

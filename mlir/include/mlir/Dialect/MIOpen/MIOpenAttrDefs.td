@@ -172,29 +172,4 @@ def MIOpen_TransformMapAttr : MIOpen_Attr<"TransformMap"> {
     let genVerifyDecl = 1;
 }
 
-/// PaddingInfoAttr
-def MIOpen_PaddingInfoAttr : MIOpen_Attr<"PaddingInfo"> {
-    let mnemonic = "padding_info";
-
-    let description = [{
-        A structure packaging information about what padding has been
-        applied to the M, K, and N dimensions of a matrix multiplication,
-        as well as information about what backward padding kernel workarounds,
-        if any, will be needed.
-    }];
-    let parameters =
-    (ins
-    "int64_t":$extraM,
-    "int64_t":$extraK,
-    "int64_t":$extraN);
-
-    let assemblyFormat = "`<` struct($extraM, $extraK, $extraN) `>`";
-
-    let extraClassDeclaration = [{
-      bool hasPadding() {
-          return getExtraM() > 0 || getExtraK() > 0 || getExtraN() > 0;
-      }
-    }];
-}
-
 #endif

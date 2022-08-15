@@ -122,8 +122,7 @@ def MIOpen_GridwiseGemmOp :
     MIOpen_Op<"gridwise_gemm">,
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$a,
                    MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$b,
-                   MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$c,
-                   MIOpen_PaddingInfoAttr:$paddingInfo)> {
+                   MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$c)> {
   let summary = "Gridwise GEMM";
   let description = [{
     The `miopen.gridwise_gemm` op computes gridwise GEMM.
@@ -134,9 +133,8 @@ def MIOpen_GridwiseGemmOp :
 
   let builders = [
   OpBuilder<(ins "Value":$a, "Value":$b, "Value":$c,
-    "PaddingInfoAttr":$paddingInfo, "ArrayRef<NamedAttribute>":$extraAttrs), [{
+    "ArrayRef<NamedAttribute>":$extraAttrs), [{
       $_state.addOperands({a, b, c});
-      $_state.addAttribute(paddingInfoAttrName($_state.name), paddingInfo);
       $_state.addAttributes(extraAttrs);
       $_state.addTypes({});
     }]>
@@ -149,7 +147,6 @@ def MIOpen_GridwiseGemmV2Op :
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$a,
                    MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$b,
                    MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$c,
-                   MIOpen_PaddingInfoAttr:$paddingInfo,
                    StoreMethodAttr:$storeMethod)> {
   let summary = "Gridwise GEMM V2";
   let description = [{
@@ -161,17 +158,16 @@ def MIOpen_GridwiseGemmV2Op :
 
     let builders = [
   OpBuilder<(ins "Value":$a, "Value":$b, "Value":$c,
-    "PaddingInfoAttr":$paddingInfo, "StoreMethod":$storeMethod,
+    "StoreMethod":$storeMethod,
     "ArrayRef<NamedAttribute>":$extraAttrs), [{
-      return build($_builder, $_state, a, b, c, paddingInfo,
+      return build($_builder, $_state, a, b, c,
         StoreMethodAttr::get($_builder.getContext(), storeMethod),
         extraAttrs);
     }]>,
   OpBuilder<(ins "Value":$a, "Value":$b, "Value":$c,
-    "PaddingInfoAttr":$paddingInfo, "StoreMethodAttr":$storeMethod,
+    "StoreMethodAttr":$storeMethod,
     "ArrayRef<NamedAttribute>":$extraAttrs), [{
       $_state.addOperands({a, b, c});
-      $_state.addAttribute(paddingInfoAttrName($_state.name), paddingInfo);
       $_state.addAttribute(storeMethodAttrName($_state.name), storeMethod);
       $_state.addAttributes(extraAttrs);
       $_state.addTypes({});
@@ -745,7 +741,7 @@ def MIOpen_BlockwiseGemmV2Op:
   let assemblyFormat = [{
     $matrixC `+` `` `=` $bufferA `from` $matrixA `[` $waveOffsetA `]` `*`
                         $bufferB `from` $matrixB `[` $waveOffsetB `]` attr-dict
-    `:` type($matrixC) `+` `` `=` type($bufferA) `from` type($matrixA) `*` 
+    `:` type($matrixC) `+` `` `=` type($bufferA) `from` type($matrixA) `*`
                                   type($bufferB) `from` type($matrixB)
   }];
 }
@@ -795,7 +791,7 @@ def MIOpen_XdlopsGemmV2Op:
     Matrices A and B reside in LDS, the buffers live in registers, C is a vector
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $matrixA `[` $regOffsetA `]` `*` 
+    $matrixC `+` `` `=` $matrixA `[` $regOffsetA `]` `*`
                         $matrixB  `[` $regOffsetB `]` attr-dict
     `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
   }];

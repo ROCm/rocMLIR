@@ -142,24 +142,39 @@ func.func @miopen_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
 // CHECK-LABEL: func.func @miopen_transform_1_to_n
 //  CHECK-NEXT: miopen.transform
 
-func.func @miopen_gridwise_gemm(%A : memref<?x?x?xf32>, %B : memref<?x?x?xf32>, %C : memref<?x?x?xf32>) {
+func.func @miopen_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf32>, %C : memref<2x128x256xf32>) {
   miopen.gridwise_gemm(%A, %B, %C) {
-    paddingInfo =
-      #miopen.padding_info<extraK = 0, extraM = 0, extraN = 0>,
-    transforms = [[], [], []]
-  } : memref<?x?x?xf32>, memref<?x?x?xf32>, memref<?x?x?xf32>
+    arch = "gfx900",
+    block_size = 256 : i32,
+    k_per_block = 8 : i32,
+    kpack = 1 : i32,
+    m_cuwaves_per_block = 4 : index,
+    m_per_block = 128 : index,
+    m_per_thread = 4 : i32,
+    m_threads_per_cuwave = 4 : index,
+    n_cuwaves_per_block = 4 : index,
+    n_per_block = 128 : index,
+    n_per_thread = 4 : i32,
+    n_threads_per_cuwave = 4 : index
+  } : memref<2x72x128xf32>, memref<2x72x256xf32>, memref<2x128x256xf32>
   return
 }
 
 // CHECK-LABEL: func.func @miopen_gridwise_gemm
 //  CHECK-NEXT: miopen.gridwise_gemm
 
-func.func @miopen_gridwise_gemm_v2(%A : memref<?x?x?xf32>, %B : memref<?x?x?xf32>, %C : memref<?x?x?xf32>) {
+func.func @miopen_gridwise_gemm_v2(%A : memref<2x256x1024x4xf32>, %B : memref<2x256x2048x4xf32>, %C : memref<2x1024x2048xf32>) {
   miopen.gridwise_gemm_v2(%A, %B, %C) storeMethod(set) {
-    paddingInfo =
-      #miopen.padding_info<extraK = 0, extraM = 0, extraN = 0>,
-    transforms = [[], [], []]
-  } : memref<?x?x?xf32>, memref<?x?x?xf32>, memref<?x?x?xf32>
+    arch = "gfx908",
+    block_size = 256 : i32,
+    k_per_block = 4 : i32,
+    kpack = 4 : i32,
+    m_per_block = 128 : i32,
+    m_per_wave = 64 : i32,
+    n_per_block = 128 : i32,
+    n_per_wave = 64 : i32,
+    xdlopsV2 = true
+  } : memref<2x256x1024x4xf32>, memref<2x256x2048x4xf32>, memref<2x1024x2048xf32>
   return
 }
 
