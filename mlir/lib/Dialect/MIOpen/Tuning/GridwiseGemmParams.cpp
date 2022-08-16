@@ -1003,26 +1003,6 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(
     return failure();
   }
 
-  // TODO remove : Ignore KReduction XDLOPS path for forward and backward
-  // weight convolution now (unless int8). These M/NPerBlock combinations used
-  // to result in lowering errors at tuning. Once non-int8 types are tested,
-  // we should get rid of this limitation.
-  if (param.gemmKPack > 1 && !dataType.isInteger(8)) {
-    if ((param.gemmMPerBlock == 16 || param.gemmMPerBlock == 32 ||
-         param.gemmMPerBlock == 64) &&
-        (param.gemmNPerBlock == 16 || param.gemmNPerBlock == 32 ||
-         param.gemmNPerBlock == 64)) {
-      return failure();
-    }
-
-    if (param.gemmMPerBlock == 32 && param.gemmNPerBlock == 128) {
-      return failure();
-    }
-    if (param.gemmMPerBlock == 128 && param.gemmNPerBlock == 32) {
-      return failure();
-    }
-  }
-
   return success();
 }
 
