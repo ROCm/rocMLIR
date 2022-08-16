@@ -172,4 +172,72 @@ def MIOpen_TransformMapAttr : MIOpen_Attr<"TransformMap"> {
     let genVerifyDecl = 1;
 }
 
+def MIOpen_GeneralGemmParamsAttr : MIOpen_Attr<"GeneralGemmParams"> {
+  let mnemonic = "general_gemm_params";
+  let description = [{
+    The tuning parameters for a general (no special instructions) matrix
+    multiplication.
+
+    - kPerBlock: The number of values of k to process during each main loop
+      iteration within a workgroup
+    - mPerBlock: The number of values of m to process in each workgroup
+    - nPerBlock: The number of values of n to process in each workgroup
+    - kPerThread: The number of values of k to process as a unit on each thread
+    - mPerThread: The number of values of m to process as a unit on each thread
+    - nPerThread: The number of values of n to process as a unit on each thread
+    - kpack: The number of values of k to pack contiguously into the shared buffer
+    - mThreadsPerCuwave: The length of the m dimension in the grid the 16 threads
+      of a CU wave are arranged into
+    - nThreadsPerCuwave: The length of the n dimension of said thread grid
+    - mCuwavesPerBlock: The length of the m dimension of the grid the CU waves
+      composing each block is arranged in to
+    - nCuwavesPerBlock: The n dimension of said grid of CU waves
+  }];
+  let parameters = (ins
+    "int64_t":$kPerBlock,
+    "int64_t":$mPerBlock,
+    "int64_t":$nPerBlock,
+    "int64_t":$kPerThread,
+    "int64_t":$mPerThread,
+    "int64_t":$nPerThread,
+    "int64_t":$kpack,
+    "int64_t":$mThreadsPerCuwave,
+    "int64_t":$nThreadsPerCuwave,
+    "int64_t":$mCuwavesPerBlock,
+    "int64_t":$nCuwavesPerBlock
+  );
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
+}
+
+def MIOpen_XdlopsGemmParamsAttr : MIOpen_Attr<"XdlopsGemmParams"> {
+  let mnemonic = "xdlops_gemm_params";
+  let description = [{
+    The tuning parameters for an xdlops-based matrix multiplication.
+
+    TODO: Document these once they've settled down
+  }];
+  let parameters = (ins
+    "int64_t":$kPerBlock,
+    "int64_t":$mPerBlock,
+    "int64_t":$nPerBlock,
+    "int64_t":$kPerThread,
+    "int64_t":$mPerThread,
+    "int64_t":$nPerThread,
+    "int64_t":$kpack,
+    "int64_t":$mPerWave,
+    "int64_t":$nPerWave
+  );
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
+}
+
+def MIOpen_OptionalGemmParams : OptionalAttr<AnyAttrOf<[
+  MIOpen_GeneralGemmParamsAttr,
+  MIOpen_XdlopsGemmParamsAttr]>>;
+
 #endif
