@@ -958,7 +958,7 @@ extern "C" void mcpuVerify5DFloatFloat(
          maxRelDiff, maxVAL_rel, maxGPU_rel, aveRelDiff);
   printf("RMS = %.1e\n", err_RMS);
   printf("Histogram of relDiff: \n");
-  printf("             relDiff = 0: %d/%ld (%lf%%)\n", hist_relDiff[0],
+  printf("          relDiff = 0   : %d/%ld (%lf%%)\n", hist_relDiff[0],
          dataSize,
          100.0 * static_cast<double>(hist_relDiff[0]) /
              static_cast<double>(dataSize));
@@ -982,15 +982,15 @@ extern "C" void mcpuVerify5DFloatFloat(
          dataSize,
          100.0 * static_cast<double>(hist_relDiff[5]) /
              static_cast<double>(dataSize));
-  printf("   1e-2 <= relDiff < 0.1: %d/%ld (%lf%%)\n", hist_relDiff[6],
+  printf("  1e-2 <= relDiff < 0.1 : %d/%ld (%lf%%)\n", hist_relDiff[6],
          dataSize,
          100.0 * static_cast<double>(hist_relDiff[6]) /
              static_cast<double>(dataSize));
-  printf("      0.1 <= relDiff < 1: %d/%ld (%lf%%)\n", hist_relDiff[7],
+  printf("   0.1 <= relDiff < 1   : %d/%ld (%lf%%)\n", hist_relDiff[7],
          dataSize,
          100.0 * static_cast<double>(hist_relDiff[7]) /
              static_cast<double>(dataSize));
-  printf("      1 <= relDiff < inf: %d/%ld (%lf%%)\n", hist_relDiff[8],
+  printf("     1 <= relDiff < inf : %d/%ld (%lf%%)\n", hist_relDiff[8],
          dataSize,
          100.0 * static_cast<double>(hist_relDiff[8]) /
              static_cast<double>(dataSize));
@@ -998,9 +998,8 @@ extern "C" void mcpuVerify5DFloatFloat(
          dataSize,
          100.0 * static_cast<double>(hist_relDiff[9]) /
              static_cast<double>(dataSize));
-  // Check if pass based on all three metrics: RMS, maxAbsDiff, maxRelDiff
+  // Check if pass based on RMS only
   int RMS_pass = (err_RMS <= thr_RMS) ? 1 : 0;
-  int absDiff_pass = (maxAbsDiff <= thr_absDiff) ? 1 : 0;
-  int relDiff_pass = (maxRelDiff <= thr_relDiff) ? 1 : 0;
-  printf("[%d %d %d]\n", RMS_pass, absDiff_pass, relDiff_pass);
+  printf("Unranked Memref base@ = 0x00 rank = 1 offset = 0 sizes = [1] strides = [1] data =\n");
+  printf("[%d]\n", RMS_pass);
 }

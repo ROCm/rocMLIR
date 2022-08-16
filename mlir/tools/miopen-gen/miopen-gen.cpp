@@ -352,7 +352,7 @@ static cl::opt<std::string> randomSide(
 
 static cl::opt<float> RMSThreshold("RMS_threshold",
                                    cl::desc("Threshold for RMS metric"),
-                                   cl::value_desc("error"), cl::init(0.00001f));
+                                   cl::value_desc("error"), cl::init(0.00003f));
 
 static cl::opt<float> absDiffThreshold("absDiff_threshold",
                                        cl::desc("Threshold for absDiff metric"),
