@@ -20,6 +20,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <array>
+#include <cmath>
 #include <unordered_map>
 
 typedef union bf16_fp32_cvt {
@@ -841,4 +842,165 @@ mcpuConv2dInt8(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
       filterStrides, inputSizes, inputStrides, outputSizes, outputStrides,
       stride_h, stride_w, padding_h_l, padding_h_r, padding_w_l, padding_w_r,
       dilation_h, dilation_w, xdlops);
+}
+
+int findIdxHistRelDiff(double relDiff) {
+  /*
+    hist_relDiff[]:
+    0: 0
+    1: 0 - 1e-6
+    2: 1e-6 - 1e-5
+    3: 1e-5 - 1e-4
+    4: 1e-4 - 1e-3
+    5: 1e-3 - 1e-2
+    6: 1e-2 - 0.1
+    7: 0.1 - 1
+    8: >= 1
+   */
+  if (relDiff == 0.0)
+    return 0;
+  if (relDiff < 1.0e-06)
+    return 1;
+  if (relDiff < 1.0e-05)
+    return 2;
+  if (relDiff < 1.0e-04)
+    return 3;
+  if (relDiff < 1.0e-03)
+    return 4;
+  if (relDiff < 1.0e-02)
+    return 5;
+  if (relDiff < 0.1)
+    return 6;
+  if (relDiff < 1.0)
+    return 7;
+  return 8;
+}
+
+// Compare the results between gpu kernel (f32) and cpu validation (f32)
+//
+extern "C" void mcpuVerify5DFloatFloat(
+    float *gpuAllocated, float *gpuAligned, int64_t gpuOffset, int64_t gpuSize0,
+    int64_t gpuSize1, int64_t gpuSize2, int64_t gpuSize3, int64_t gpuSize4,
+    int64_t gpuStride0, int64_t gpuStride1, int64_t gpuStride2,
+    int64_t gpuStride3, int64_t gpuStride4, float *valAllocated,
+    float *valAligned, int64_t valOffset, int64_t valSize0, int64_t valSize1,
+    int64_t valSize2, int64_t valSize3, int64_t valSize4, int64_t valStride0,
+    int64_t valStride1, int64_t valStride2, int64_t valStride3,
+    int64_t valStride4, float thr_RMS, float thr_absDiff, float thr_relDiff) {
+  assert(gpuSize0 * gpuSize1 * gpuSize2 * gpuSize3 * gpuSize4 ==
+         valSize0 * valSize1 * valSize2 * valSize3 * valSize4);
+  int64_t dataSize = valSize0 * valSize1 * valSize2 * valSize3 * valSize4;
+
+  float valNum, gpuNum;
+  // metric maxAbsDiff
+  float maxAbsDiff = 0.0f;
+  double sumAbsDiff = 0.0;
+  float maxVAL_abs = 0.0f;
+  float maxGPU_abs = 0.0f;
+  // metric maxRelDiff
+  double maxRelDiff = 0.0;
+  double sumRelDiff = 0.0;
+  float maxVAL_rel = 0.0f;
+  float maxGPU_rel = 0.0f;
+  // Metric RMS
+  float maxMag = 0.0f;
+  double sumDiffSq = 0.0;
+  // histogram
+  // hist_relDiff[9]++ when cpuVal == 0
+  int hist_relDiff[10] = {0};
+  for (int64_t i = 0; i < dataSize; ++i) {
+    valNum = valAligned[i];
+    gpuNum = gpuAligned[i];
+    // Update the max magnitutde value
+    float maxNum = std::max(fabs(valNum), fabs(gpuNum));
+    maxMag = std::max(maxMag, maxNum);
+
+    if (valNum == gpuNum) {
+      hist_relDiff[0]++;
+    } else {
+      float absDiff = fabs(valNum - gpuNum);
+      // Update maxAbsDiff and its correspinding pair of values
+      if (absDiff > maxAbsDiff) {
+        maxVAL_abs = valNum;
+        maxGPU_abs = gpuNum;
+        maxAbsDiff = absDiff;
+      }
+      sumAbsDiff += static_cast<double>(absDiff);
+      // Update maxRelDiff only if cpuVal != 0
+      if (valNum != 0.0f) {
+        double relDiff =
+            static_cast<double>(absDiff) / (static_cast<double>(fabs(valNum)));
+        hist_relDiff[findIdxHistRelDiff(relDiff)]++;
+        if (relDiff > maxRelDiff) {
+          maxVAL_rel = valNum;
+          maxGPU_rel = gpuNum;
+          maxRelDiff = relDiff;
+        }
+        sumRelDiff += relDiff;
+      } else {
+        hist_relDiff[9]++;
+      }
+      // Accumulate square root
+      sumDiffSq += static_cast<double>(absDiff) * static_cast<double>(absDiff);
+    }
+  }
+  double aveAbsDiff = sumAbsDiff / static_cast<double>(dataSize);
+  double aveRelDiff = sumRelDiff / static_cast<double>(dataSize);
+  double err_RMS = sqrt(sumDiffSq) / (static_cast<double>(maxMag) *
+                                      sqrt(static_cast<double>(dataSize)));
+  // Verbose information about the difference
+  printf("Number of elements: %ld\n", dataSize);
+  printf("maxAbsDiff info: maxAbsDiff = %f (valNum = %.5f, gpuNum = %.5f), "
+         "average absDiff = %.1e\n",
+         maxAbsDiff, maxVAL_abs, maxGPU_abs, aveAbsDiff);
+  printf("maxRelDiff info: maxRelDiff = %.1e (valNum = %.10f, gpuNum = %.10f), "
+         "average relDiff = %.1e\n",
+         maxRelDiff, maxVAL_rel, maxGPU_rel, aveRelDiff);
+  printf("RMS = %.1e\n", err_RMS);
+  printf("Histogram of relDiff: \n");
+  printf("             relDiff = 0: %d/%ld (%lf%%)\n", hist_relDiff[0],
+         dataSize,
+         100.0 * static_cast<double>(hist_relDiff[0]) /
+             static_cast<double>(dataSize));
+  printf("      0 < relDiff < 1e-6: %d/%ld (%lf%%)\n", hist_relDiff[1],
+         dataSize,
+         100.0 * static_cast<double>(hist_relDiff[1]) /
+             static_cast<double>(dataSize));
+  printf("  1e-6 <= relDiff < 1e-5: %d/%ld (%lf%%)\n", hist_relDiff[2],
+         dataSize,
+         100.0 * static_cast<double>(hist_relDiff[2]) /
+             static_cast<double>(dataSize));
+  printf("  1e-5 <= relDiff < 1e-4: %d/%ld (%lf%%)\n", hist_relDiff[3],
+         dataSize,
+         100.0 * static_cast<double>(hist_relDiff[3]) /
+             static_cast<double>(dataSize));
+  printf("  1e-4 <= relDiff < 1e-3: %d/%ld (%lf%%)\n", hist_relDiff[4],
+         dataSize,
+         100.0 * static_cast<double>(hist_relDiff[4]) /
+             static_cast<double>(dataSize));
+  printf("  1e-3 <= relDiff < 1e-2: %d/%ld (%lf%%)\n", hist_relDiff[5],
+         dataSize,
+         100.0 * static_cast<double>(hist_relDiff[5]) /
+             static_cast<double>(dataSize));
+  printf("   1e-2 <= relDiff < 0.1: %d/%ld (%lf%%)\n", hist_relDiff[6],
+         dataSize,
+         100.0 * static_cast<double>(hist_relDiff[6]) /
+             static_cast<double>(dataSize));
+  printf("      0.1 <= relDiff < 1: %d/%ld (%lf%%)\n", hist_relDiff[7],
+         dataSize,
+         100.0 * static_cast<double>(hist_relDiff[7]) /
+             static_cast<double>(dataSize));
+  printf("      1 <= relDiff < inf: %d/%ld (%lf%%)\n", hist_relDiff[8],
+         dataSize,
+         100.0 * static_cast<double>(hist_relDiff[8]) /
+             static_cast<double>(dataSize));
+  printf("             valNum == 0: %d/%ld (%lf%%)\n", hist_relDiff[9],
+         dataSize,
+         100.0 * static_cast<double>(hist_relDiff[9]) /
+             static_cast<double>(dataSize));
+  // Check if pass based on all three metrics: RMS, maxAbsDiff, maxRelDiff
+  int RMS_pass = (err_RMS <= thr_RMS) ? 1 : 0;
+  int absDiff_pass = (maxAbsDiff <= thr_absDiff) ? 1 : 0;
+  int relDiff_pass = (maxRelDiff <= thr_relDiff) ? 1 : 0;
+  printf("[%d %d %d]\n", RMS_pass, absDiff_pass, relDiff_pass);
 }
