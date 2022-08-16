@@ -1753,9 +1753,59 @@ populateHostHarnessLogic(ModuleOp &module,
     mlir::Value testResult = localVars[outIdx];
     mlir::Value valResult = valVars[outIdx];
 
-    auto verifierFunc = createVerifierFunc(module, root0, genConfig);
-    b.create<func::CallOp>(loc, verifierFunc,
-                           ValueRange{testResult, valResult});
+    // auto verifierFunc = createVerifierFunc(module, root0, genConfig);
+    // b.create<func::CallOp>(loc, verifierFunc,
+    //                       ValueRange{testResult, valResult});
+    // If the element type is f16, call the new verifier function,
+    // which is different from the old verification in 2 ways:
+    // 1. It does comparison in f32
+    // 2. It computes several statistical values, including RMS
+    // In the future, the verifier function will take one method and compare
+    // the result with the threshold to determine the correctness of the
+    // results.
+    auto testType = testResult.getType().template dyn_cast<MemRefType>();
+    auto elemType = testType.getElementType();
+    if (elemType.isF16()) {
+      // For f16 test results, we convert them to f32 before verification
+      auto testNewType = valResult.getType().template dyn_cast<MemRefType>();
+      auto testNew = b.create<memref::AllocOp>(loc, testNewType);
+      emitMemcpy(b, testResult, testNew);
+      // Prepare the arguements for the new verifier function
+      auto mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, floatType);
+      auto testResultNew = b.create<memref::CastOp>(loc, mr5DUnkType, testNew);
+      auto valResultNew = b.create<memref::CastOp>(loc, mr5DUnkType, valResult);
+      // Get the thresholds as the last three arguments of the verifier function
+      float RMS_threshold = 1e-5f;
+      float absDiff_threshold = 100.0f;
+      float relDiff_threshold = 100.0f;
+      llvm::APFloat RMS_thr(RMS_threshold);
+      llvm::APFloat absDiff_thr(absDiff_threshold);
+      llvm::APFloat relDiff_thr(relDiff_threshold);
+      auto thr_RMS = b.create<arith::ConstantFloatOp>(loc, RMS_thr, floatType);
+      auto thr_absDiff =
+          b.create<arith::ConstantFloatOp>(loc, absDiff_thr, floatType);
+      auto thr_relDiff =
+          b.create<arith::ConstantFloatOp>(loc, relDiff_thr, floatType);
+      // To be fair, we bring down the valResult to f16 and then convert
+      // back to f32
+      auto valResultLow = b.create<memref::AllocOp>(loc, testType);
+      emitMemcpy(b, valResult, valResultLow);
+      emitMemcpy(b, valResultLow, valResult);
+      // Declare the new verifier function
+      auto verifyFuncDecl = makeFuncDecl(
+          module, "mcpuVerify5DFloatFloat",
+          {mr5DUnkType, mr5DUnkType, floatType, floatType, floatType});
+      // Call the new verify function
+      b.create<func::CallOp>(loc, verifyFuncDecl,
+                             ValueRange{testResultNew, valResultNew, thr_RMS,
+                                        thr_absDiff, thr_relDiff});
+      // Deallocate the buffer for f32 version of the test results
+      b.create<memref::DeallocOp>(loc, testNew);
+    } else {
+      auto verifierFunc = createVerifierFunc(module, root0, genConfig);
+      b.create<func::CallOp>(loc, verifierFunc,
+                             ValueRange{testResult, valResult});
+    }
   }
 
   // Print and cleanup validation vars
