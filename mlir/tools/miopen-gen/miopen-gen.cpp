@@ -350,10 +350,19 @@ static cl::opt<std::string> randomSide(
              "By default, populate random numbers to both tensors."),
     cl::value_desc("tensor"), cl::init("both"));
 
-static cl::opt<float> f16Threshold(
-    "threshold",
-    cl::desc("Threshold used for CPU verification function for f16 datatype."),
-    cl::value_desc("error"), cl::init(0.25f));
+static cl::opt<float> RMSThreshold("RMS_threshold",
+                                   cl::desc("Threshold for RMS metric"),
+                                   cl::value_desc("error"), cl::init(0.00001f));
+
+static cl::opt<float> absDiffThreshold("absDiff_threshold",
+                                       cl::desc("Threshold for absDiff metric"),
+                                       cl::value_desc("error"),
+                                       cl::init(100.0f));
+
+static cl::opt<float> relDiffThreshold("relDiff_threshold",
+                                       cl::desc("Threshold for relDiff metric"),
+                                       cl::value_desc("error"),
+                                       cl::init(100.0f));
 
 static cl::opt<int> deviceNum(
     "device",
@@ -1282,8 +1291,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     return b.create<arith::ConstantFloatOp>(loc, apVal, elemFType);
   };
 
-  mlir::Value fval00, fval000001, fval001, fval025;
-  float f16_threshold = f16Threshold.getValue();
+  mlir::Value fval00, fval000001, fval001;
   // Create constants needed for verification
   if ((randomSeed.getValue() != "none" &&
        randomDataType.getValue() == "float") ||
@@ -1291,7 +1299,6 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     fval00 = getFVal(0.0f);
     fval000001 = getFVal(0.000001f);
     fval001 = getFVal(0.001f);
-    fval025 = getFVal(f16_threshold);
   }
   // %%c1 = constant 1 : index
   auto c1IndexOp = b.create<arith::ConstantIndexOp>(loc, 1);
@@ -1379,14 +1386,7 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 
     auto absCpuVal = testBody.create<math::AbsOp>(loc, cpuLoadVal);
 
-    mlir::Value maxPercentVal;
-    if (elemType.isF16()) {
-      // The threshold for f16 datatype is controlled by -threshold
-      // The default value is set to 0.25
-      maxPercentVal = fval025;
-    } else {
-      maxPercentVal = fval000001; // 0.0001 %
-    }
+    mlir::Value maxPercentVal = fval000001;
 
     // <test> >= <max_percent>
     cmpVal = testBody.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT,
@@ -1765,6 +1765,10 @@ populateHostHarnessLogic(ModuleOp &module,
     // results.
     auto testType = testResult.getType().template dyn_cast<MemRefType>();
     auto elemType = testType.getElementType();
+    auto getF32Val = [&](float val) -> mlir::Value {
+      llvm::APFloat apVal(val);
+      return b.create<arith::ConstantFloatOp>(loc, apVal, floatType);
+    };
     if (elemType.isF16()) {
       // For f16 test results, we convert them to f32 before verification
       auto testNewType = valResult.getType().template dyn_cast<MemRefType>();
@@ -1775,17 +1779,9 @@ populateHostHarnessLogic(ModuleOp &module,
       auto testResultNew = b.create<memref::CastOp>(loc, mr5DUnkType, testNew);
       auto valResultNew = b.create<memref::CastOp>(loc, mr5DUnkType, valResult);
       // Get the thresholds as the last three arguments of the verifier function
-      float RMS_threshold = 1e-5f;
-      float absDiff_threshold = 100.0f;
-      float relDiff_threshold = 100.0f;
-      llvm::APFloat RMS_thr(RMS_threshold);
-      llvm::APFloat absDiff_thr(absDiff_threshold);
-      llvm::APFloat relDiff_thr(relDiff_threshold);
-      auto thr_RMS = b.create<arith::ConstantFloatOp>(loc, RMS_thr, floatType);
-      auto thr_absDiff =
-          b.create<arith::ConstantFloatOp>(loc, absDiff_thr, floatType);
-      auto thr_relDiff =
-          b.create<arith::ConstantFloatOp>(loc, relDiff_thr, floatType);
+      auto thr_RMS = getF32Val(RMSThreshold.getValue());
+      auto thr_absDiff = getF32Val(absDiffThreshold.getValue());
+      auto thr_relDiff = getF32Val(relDiffThreshold.getValue());
       // To be fair, we bring down the valResult to f16 and then convert
       // back to f32
       auto valResultLow = b.create<memref::AllocOp>(loc, testType);
