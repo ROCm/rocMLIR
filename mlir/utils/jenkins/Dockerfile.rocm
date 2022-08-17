@@ -97,8 +97,11 @@ RUN echo "deb [arch=amd64] $ROCM_DEB_REPO $ROCM_BUILD_NAME $ROCM_BUILD_NUM" > /e
 RUN wget --no-check-certificate -qO - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | apt-key add -
 RUN apt-add-repository 'deb https://apt.kitware.com/ubuntu/ bionic main'
 
+
 # Note instead of installing the latest, we should always manually bump cmake version when necessary.
 # This make sure that we don't accidentally use newer cmake features incompatible with our client.
+# As of 2022-08-17, the rocm/miopen images has /opt/conda/bin/cmake at 3.22.1, so we'll match that.
+# Note that the mlir minimum is 3.18.
 RUN apt-get update && apt-get install -y --no-install-recommends \
   rocm-dev \
   rocminfo \
@@ -111,8 +114,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   kmod \
   file \
   netcat-openbsd \
-  cmake-data=3.15.1-0kitware1 \
-  cmake=3.15.1-0kitware1 \
+  cmake-data=3.22.1-0kitware1ubuntu18.04.1 \
+  cmake=3.22.1-0kitware1ubuntu18.04.1 \
   libsqlite3-dev \
   parallel && \
   apt-get clean && \
