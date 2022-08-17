@@ -43,6 +43,7 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/Support/CommandLine.h"
@@ -2083,6 +2084,32 @@ populateHostHarnessLogic(ModuleOp &module,
   return success();
 }
 
+
+//     if (i16vals.find(v) == i16vals.end()) {
+//       auto i16Type = b.getIntegerType(16);
+//       i16vals.try_emplace(v, b.create<arith::ConstantIntOp>(loc, v, i16Type));
+
+void postOrderTraverse(CallGraphNode *node, llvm::SmallDenseSet<CallGraphNode*>& calleesSeen) {
+  for (auto &edge : *node) {
+    if (!calleesSeen.contains(edge.getTarget()))
+      postOrderTraverse(edge.getTarget(), calleesSeen);
+    else
+      ;   // Replace callee with new callee.
+  }
+  {
+    auto *callableRegion = node->getCallableRegion();
+    auto *parentOp = callableRegion->getParentOp();
+    llvm::errs() << "'" << callableRegion->getParentOp()->getName() << "' - Region #"
+       << callableRegion->getRegionNumber();
+    auto attrs = parentOp->getAttrDictionary();
+    if (!attrs.empty())
+      llvm::errs() << " : " << attrs;
+    llvm::errs() << "\n";
+  }
+  calleesSeen.insert(node);
+}
+
+
 int main(int argc, char **argv) {
   DialectRegistry registry;
   registerAllDialects(registry);
@@ -2240,6 +2267,13 @@ int main(int argc, char **argv) {
         dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
     rootIFs.emplace_back(func);
   }
+
+
+  llvm::SmallDenseSet<CallGraphNode*> calleesSeen;
+  for (auto root : roots) {
+    postOrderTraverse(root, calleesSeen);
+  }
+
 
   if (testFuncNameVal.empty()) {
     module.walk([&](func::FuncOp func) -> WalkResult {
