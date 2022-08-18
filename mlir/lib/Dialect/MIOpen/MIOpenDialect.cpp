@@ -59,6 +59,14 @@ struct MIOpenOpAsmDialectInterface : public OpAsmDialectInterface {
       os << "transform_map";
       return AliasResult::OverridableAlias;
     }
+    if (attr.isa<GeneralGemmParamsAttr>()) {
+      os << "general_gemm_params";
+      return AliasResult::OverridableAlias;
+    }
+    if (attr.isa<XdlopsGemmParamsAttr>()) {
+      os << "xdlops_gemm_params";
+      return AliasResult::OverridableAlias;
+    }
     return AliasResult::NoAlias;
   }
 };
@@ -997,14 +1005,15 @@ LogicalResult BlockwiseGemmOp::verify() {
   // Obtain critical attributes.
   int64_t mC = bufferCType.getShape()[0];
   int64_t nC = bufferCType.getShape()[1];
-  int64_t mPerThread = mPerThreadAttr().getInt();
-  int64_t nPerThread = nPerThreadAttr().getInt();
+  GeneralGemmParamsAttr params = paramsAttr();
+  int64_t mPerThread = params.getMPerThread();
+  int64_t nPerThread = params.getNPerThread();
 
-  int64_t mThreadsPerCuwave = mThreadsPerCuwaveAttr().getInt();
-  int64_t nThreadsPerCuwave = nThreadsPerCuwaveAttr().getInt();
+  int64_t mThreadsPerCuwave = params.getMThreadsPerCuwave();
+  int64_t nThreadsPerCuwave = params.getNThreadsPerCuwave();
 
-  int64_t mCuwavesPerBlock = mCuwavesPerBlockAttr().getInt();
-  int64_t nCuwavesPerBlock = nCuwavesPerBlockAttr().getInt();
+  int64_t mCuwavesPerBlock = params.getMCuwavesPerBlock();
+  int64_t nCuwavesPerBlock = params.getNCuwavesPerBlock();
 
   int64_t mRepeat = mC / mPerThread;
   int64_t nRepeat = nC / nPerThread;

@@ -223,9 +223,6 @@ def MIOpen_XdlopsGemmParamsAttr : MIOpen_Attr<"XdlopsGemmParams"> {
     "int64_t":$kPerBlock,
     "int64_t":$mPerBlock,
     "int64_t":$nPerBlock,
-    "int64_t":$kPerThread,
-    "int64_t":$mPerThread,
-    "int64_t":$nPerThread,
     "int64_t":$kpack,
     "int64_t":$mPerWave,
     "int64_t":$nPerWave

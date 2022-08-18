@@ -41,6 +41,8 @@ def MIOpen_Conv2DOp :
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [5]>:$filter,
                    MemRefRankOf<[F32, F16, BF16, I8], [5]>:$input,
                    MemRefRankOf<[F32, F16, BF16, I32], [5]>:$output,
+                   StrAttr:$arch,
+                   IndexAttr:$numCu,
                    OptionalAttr<IndexAttr>:$blockSize,
                    OptionalAttr<IndexAttr>:$gridSize,
                    MIOpen_OptionalGemmParams:$params)> {
@@ -59,6 +61,8 @@ def MIOpen_Conv2DBwdDataOp :
     Arguments<(ins MemRefRankOf<[F32, F16, BF16], [5]>:$filter,
                    MemRefRankOf<[F32, F16, BF16], [5]>:$input,
                    MemRefRankOf<[F32, F16, BF16], [5]>:$output,
+                   StrAttr:$arch,
+                   IndexAttr:$numCu,
                    OptionalAttr<IndexAttr>:$blockSize,
                    OptionalAttr<IndexAttr>:$gridSize,
                    MIOpen_OptionalGemmParams:$params)> {
@@ -78,9 +82,12 @@ def MIOpen_Conv2DBwdWeightOp :
                    MemRefRankOf<[F32, F16, BF16], [5]>:$input,
                    MemRefRankOf<[F32, F16, BF16], [5]>:$output,
                    Optional<MemRefRankOf<[F32], [5]>>:$workspace,
+                   StrAttr:$arch,
+                   IndexAttr:$numCu,
                    OptionalAttr<IndexAttr>:$blockSize,
                    OptionalAttr<IndexAttr>:$gridSize,
-                   MIOpen_OptionalGemmParams:$params)> {
+                   MIOpen_OptionalGemmParams:$params,
+                   OptionalAttr<IndexAttr>:$kBlocks)> {
   let summary = "2D convolution backward weight";
   let description = [{
     The `miopen.conv2d_bwd_weight` op computes 2D convolution backward weight.
@@ -132,6 +139,9 @@ def MIOpen_GridwiseGemmOp :
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$a,
                    MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$b,
                    MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$c,
+                   StrAttr:$arch,
+                   // Note: num_cu is not used
+                   // arch isn't either, but I'm passing it down just in case
                    IndexAttr:$blockSize,
                    IndexAttr:$gridSize,
                    MIOpen_GeneralGemmParamsAttr:$params)> {
@@ -151,6 +161,8 @@ def MIOpen_GridwiseGemmV2Op :
                    MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$b,
                    MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$c,
                    StoreMethodAttr:$storeMethod,
+                   StrAttr:$arch,
+                   // Note: num_cu isn't used
                    IndexAttr:$blockSize,
                    IndexAttr:$gridSize,
                    MIOpen_XdlopsGemmParamsAttr:$params)> {
@@ -668,13 +680,7 @@ def MIOpen_BlockwiseGemmOp:
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixA,
                    MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixB,
                    MemRefRankOf<[F32, F16, BF16, I32], [2]>:$matrixC,
-                   IndexAttr:$kPerThread,
-                   IndexAttr:$mPerThread,
-                   IndexAttr:$nPerThread,
-                   IndexAttr:$mThreadsPerCuwave,
-                   IndexAttr:$nThreadsPerCuwave,
-                   IndexAttr:$mCuwavesPerBlock,
-                   IndexAttr:$nCuwavesPerBlock
+                   MIOpen_GeneralGemmParamsAttr:$params
                    )> {
   let summary = "Blockwise GEMM non-XDLOPS version";
   let description = [{
@@ -715,7 +721,9 @@ def MIOpen_BlockwiseGemmV2Op:
                              VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
                              VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$bufferB,
                    MemRefOf<[F32, F16, BF16, I32,
-                             VectorOf<[F32, F16, BF16, I32]>]>:$matrixC)>{
+                             VectorOf<[F32, F16, BF16, I32]>]>:$matrixC,
+                   IndexAttr:$blockSize,
+                   MIOpen_XdlopsGemmParamsAttr:$params)>{
   let summary = "Blockwise GEMM XDLOPS version";
   let description = [{
     The `miopen.block_gemm` op does GEMM at workgroup (block) level.
@@ -769,7 +777,8 @@ def MIOpen_XdlopsGemmV2Op:
                              VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
                              VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$matrixB,
                    MemRefOf<[F32, F16, BF16, I32,
-                             VectorOf<[F32, F16, BF16, I32]>]>:$matrixC)>{
+                             VectorOf<[F32, F16, BF16, I32]>]>:$matrixC,
+                   MIOpen_XdlopsGemmParamsAttr:$params)> {
   let summary = "XDLOPS GEMM V2";
   let description = [{
     The `miopen.xdlops_gemm_v2` op is an abstraction of doing GEMM based on XDLOPS.

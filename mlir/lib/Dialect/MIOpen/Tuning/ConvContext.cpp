@@ -48,8 +48,10 @@ ConvolutionDims ConvolutionContext::getConvDims() {
 ConvolutionContext mlir::miopen::populateConvContext(Operation *op) {
   ConvOpType opType = obtainConvDirection(op);
 
+  // XXX: Do we need these, especially since we're not actually serializing
+  // anything to sqlite?
   auto archVal = op->template getAttrOfType<StringAttr>("arch").getValue();
-  int numCuVal = op->template getAttrOfType<IntegerAttr>("num_cu").getInt();
+  int numCuVal = op->template getAttrOfType<IntegerAttr>("numCu").getInt();
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
   int gemmId = 0;
   if (gemmIdAttr) {

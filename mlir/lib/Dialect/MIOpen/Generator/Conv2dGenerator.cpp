@@ -728,7 +728,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
   std::vector<NamedAttribute> attributes{
       builder.getNamedAttr("gemm_id", builder.getI32IntegerAttr(gemmId)),
       builder.getNamedAttr("arch", builder.getStringAttr(config.chip)),
-      builder.getNamedAttr("num_cu", builder.getI32IntegerAttr(config.num_cu)),
+      builder.getNamedAttr("numCu", builder.getIndexAttr(config.num_cu)),
 
       builder.getNamedAttr(
           "filter_layout",
