@@ -384,8 +384,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     }
 
     // Obtain critical tuning parameters.
-    int64_t blockSize = op.blockSize().getZExtValue();
-    int64_t gridSize = op.gridSize().getZExtValue();
+    uint32_t blockSize = op.blockSize();
+    uint32_t gridSize = op.gridSize();
     GeneralGemmParamsAttr tuningParams = op.params();
     int64_t KPack = tuningParams.getKpack();
     int64_t KPerBlock = tuningParams.getKPerBlock();
@@ -1286,8 +1286,8 @@ struct GridwiseGemmV2RewritePattern
     }
 
     // Obtain critical tuning parameters.
-    int64_t blockSize = op.blockSize().getZExtValue();
-    int64_t gridSize = op.gridSize().getZExtValue();
+    uint32_t blockSize = op.blockSize();
+    uint32_t gridSize = op.gridSize();
     XdlopsGemmParamsAttr tuningParams = op.params();
     int64_t KPack = tuningParams.getKpack();
     int64_t KPerBlock = tuningParams.getKPerBlock();

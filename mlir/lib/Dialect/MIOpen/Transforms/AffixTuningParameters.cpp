@@ -22,7 +22,7 @@ namespace {
 struct AffixTuningParameters
     : public MIOpenOpsAffixTuningParametersPassBase<AffixTuningParameters> {
 public:
-  AffixTuningParameters(int64_t blockSizeOverride, int64_t gridSizeOverride,
+  AffixTuningParameters(uint32_t blockSizeOverride, uint32_t gridSizeOverride,
                         bool fallBackNoConfig)
       : blockSizeOverride(blockSizeOverride),
         gridSizeOverride(gridSizeOverride), fallBackNoConfig(fallBackNoConfig) {
@@ -41,8 +41,8 @@ private:
   //   to generate tuning parameters based on this blockSizeOverride.
   //   This guarantess that affix tuning parameters pass generate
   //   coherent tuning parameters with the pre-set block size.
-  int64_t blockSizeOverride;
-  int64_t gridSizeOverride;
+  uint32_t blockSizeOverride;
+  uint32_t gridSizeOverride;
   bool fallBackNoConfig;
 
   // Actual implementation.
@@ -126,16 +126,19 @@ void AffixTuningParameters::runOnOperation() {
 static void setUtilityKernelSizes(OpBuilder &b, Value arg, Operation *convOp,
                                   Operation *funcOp) {
   int64_t numElements = arg.getType().cast<MemRefType>().getNumElements();
-  int64_t blockSize = kUtilityKernelBlockSize;
+  uint32_t blockSize = kUtilityKernelBlockSize;
   int64_t elemsPerThread = kUtilityKernelElemsPerThread;
-  int64_t gridSize =
+  uint32_t gridSize =
       math_util::integer_divide_ceil(numElements, blockSize * elemsPerThread);
-  SmallVector<Operation *, 2> ops = {convOp, funcOp};
-  for (Operation *op : ops) {
-    op->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
-    op->setAttr("block_size", b.getI32IntegerAttr(blockSize));
-    op->setAttr("elems_per_thread", b.getI32IntegerAttr(elemsPerThread));
-  }
+
+  IntegerAttr blockSizeAttr = b.getI32IntegerAttr(blockSize);
+  IntegerAttr gridSizeAttr = b.getI32IntegerAttr(gridSize);
+  convOp->setAttr("blockSize", blockSizeAttr);
+  convOp->setAttr("gridSize", gridSizeAttr);
+  convOp->setAttr("elems_per_thread", b.getIndexAttr(elemsPerThread));
+
+  funcOp->setAttr("block_size", blockSizeAttr);
+  funcOp->setAttr("grid_size", gridSizeAttr);
 }
 
 void AffixTuningParameters::affixBackwardDataUtilityKernels(
@@ -206,8 +209,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     DerivedParams gemmADerivedParam;
     DerivedParams gemmBDerivedParam;
     DerivedOutParams gemmCDerivedParam;
-    int64_t blockSize = 0;
-    int64_t gridSize = 0;
+    uint32_t blockSize = 0;
+    uint32_t gridSize = 0;
     int64_t gemmKBlocks = 1;
 
     LogicalResult status = populateParamsXDL.obtainTuningParameters(
@@ -237,8 +240,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
       validParams.gemmKPack = 1;
     }
 
-    op->setAttr(op.blockSizeAttrName(), b.getIndexAttr(blockSize));
-    op->setAttr(op.gridSizeAttrName(), b.getIndexAttr(gridSize));
+    gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
+    op->setAttr(op.blockSizeAttrName(), b.getI32IntegerAttr(blockSize));
+    op->setAttr(op.gridSizeAttrName(), b.getI32IntegerAttr(gridSize));
 
     // Set kblocks attribute only for backward weight convolutions.
     if (auto bwdOp = dyn_cast<Conv2DBwdWeightOp>(op.getOperation()))
@@ -252,9 +256,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
-    getOperation()->setAttr(
-        "grid_size",
-        b.getI32IntegerAttr(gridSizeOverride ? gridSizeOverride : gridSize));
+    getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
 
     // Derived parameters for gemmA.
     // All this goes away after new-style vectorization is implemented.
@@ -281,7 +283,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     DerivedParams gemmBDerivedParam;
     DerivedBlockGemmParams blockGemmDerivedParam;
     DerivedOutParams gemmCDerivedParam;
-    int64_t gridSize;
+    uint32_t gridSize;
 
     PopulateParams populateParams;
     LogicalResult status = populateParams.obtainTuningParameters(
@@ -294,8 +296,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
     gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
 
-    op->setAttr(op.blockSizeAttrName(), b.getIndexAttr(validParams.blockSize));
-    op->setAttr(op.gridSizeAttrName(), b.getIndexAttr(gridSize));
+    op->setAttr(op.blockSizeAttrName(),
+                b.getI32IntegerAttr(validParams.blockSize));
+    op->setAttr(op.gridSizeAttrName(), b.getI32IntegerAttr(gridSize));
 
     // For non-XDLOPS path, do not use KPack for now.
 
@@ -342,8 +345,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 }
 
 std::unique_ptr<Pass>
-mlir::miopen::createAffixTuningParametersPass(int64_t blockSizeOverride,
-                                              int64_t gridSizeOverride,
+mlir::miopen::createAffixTuningParametersPass(uint32_t blockSizeOverride,
+                                              uint32_t gridSizeOverride,
                                               bool fallBackNoConfig) {
   return std::make_unique<AffixTuningParameters>(
       blockSizeOverride, gridSizeOverride, fallBackNoConfig);

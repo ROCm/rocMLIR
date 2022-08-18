@@ -42,9 +42,9 @@ def MIOpen_Conv2DOp :
                    MemRefRankOf<[F32, F16, BF16, I8], [5]>:$input,
                    MemRefRankOf<[F32, F16, BF16, I32], [5]>:$output,
                    StrAttr:$arch,
-                   IndexAttr:$numCu,
-                   OptionalAttr<IndexAttr>:$blockSize,
-                   OptionalAttr<IndexAttr>:$gridSize,
+                   I32Attr:$numCu,
+                   OptionalAttr<I32Attr>:$blockSize,
+                   OptionalAttr<I32Attr>:$gridSize,
                    MIOpen_OptionalGemmParams:$params)> {
   let summary = "2D convolution forward";
   let description = [{
@@ -62,9 +62,9 @@ def MIOpen_Conv2DBwdDataOp :
                    MemRefRankOf<[F32, F16, BF16], [5]>:$input,
                    MemRefRankOf<[F32, F16, BF16], [5]>:$output,
                    StrAttr:$arch,
-                   IndexAttr:$numCu,
-                   OptionalAttr<IndexAttr>:$blockSize,
-                   OptionalAttr<IndexAttr>:$gridSize,
+                   I32Attr:$numCu,
+                   OptionalAttr<I32Attr>:$blockSize,
+                   OptionalAttr<I32Attr>:$gridSize,
                    MIOpen_OptionalGemmParams:$params)> {
   let summary = "2D convolution backward data";
   let description = [{
@@ -83,9 +83,9 @@ def MIOpen_Conv2DBwdWeightOp :
                    MemRefRankOf<[F32, F16, BF16], [5]>:$output,
                    Optional<MemRefRankOf<[F32], [5]>>:$workspace,
                    StrAttr:$arch,
-                   IndexAttr:$numCu,
-                   OptionalAttr<IndexAttr>:$blockSize,
-                   OptionalAttr<IndexAttr>:$gridSize,
+                   I32Attr:$numCu,
+                   OptionalAttr<I32Attr>:$blockSize,
+                   OptionalAttr<I32Attr>:$gridSize,
                    MIOpen_OptionalGemmParams:$params,
                    OptionalAttr<IndexAttr>:$kBlocks)> {
   let summary = "2D convolution backward weight";
@@ -142,8 +142,8 @@ def MIOpen_GridwiseGemmOp :
                    StrAttr:$arch,
                    // Note: num_cu is not used
                    // arch isn't either, but I'm passing it down just in case
-                   IndexAttr:$blockSize,
-                   IndexAttr:$gridSize,
+                   I32Attr:$blockSize,
+                   I32Attr:$gridSize,
                    MIOpen_GeneralGemmParamsAttr:$params)> {
   let summary = "Gridwise GEMM";
   let description = [{
@@ -163,8 +163,8 @@ def MIOpen_GridwiseGemmV2Op :
                    StoreMethodAttr:$storeMethod,
                    StrAttr:$arch,
                    // Note: num_cu isn't used
-                   IndexAttr:$blockSize,
-                   IndexAttr:$gridSize,
+                   I32Attr:$blockSize,
+                   I32Attr:$gridSize,
                    MIOpen_XdlopsGemmParamsAttr:$params)> {
   let summary = "Gridwise GEMM V2";
   let description = [{
@@ -722,7 +722,7 @@ def MIOpen_BlockwiseGemmV2Op:
                              VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$bufferB,
                    MemRefOf<[F32, F16, BF16, I32,
                              VectorOf<[F32, F16, BF16, I32]>]>:$matrixC,
-                   IndexAttr:$blockSize,
+                   I32Attr:$blockSize,
                    MIOpen_XdlopsGemmParamsAttr:$params)>{
   let summary = "Blockwise GEMM XDLOPS version";
   let description = [{

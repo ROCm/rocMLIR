@@ -109,7 +109,7 @@ makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
 
   // TODO(sjw): get these from options
   StringRef arch = "gfx906";
-  int64_t num_cu = 64;
+  uint32_t num_cu = 64;
   bool xdlopsV2 = false;
 
   if (auto attr = op->getAttrOfType<StringAttr>("arch"))
@@ -129,7 +129,7 @@ makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
 
   auto cop = rw.create<miopen::Conv2DOp>(
       loc, filterExp, inputExp, outputExp, rw.getStringAttr(arch),
-      rw.getIndexAttr(num_cu), /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+      rw.getI32IntegerAttr(num_cu), /*blockSize=*/nullptr, /*gridSize=*/nullptr,
       /*params=*/nullptr);
   // translate attributes
   int32_t padTop = pad[0].dyn_cast<IntegerAttr>().getInt();

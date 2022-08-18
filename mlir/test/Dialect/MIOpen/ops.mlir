@@ -5,6 +5,8 @@
 
 func.func @miopen_conv2d(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
   miopen.conv2d(%filter, %input, %output) {
+    arch = "gfx906",
+    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
     output_layout = ["n", "go", "k", "ho", "wo"],
@@ -19,6 +21,8 @@ func.func @miopen_conv2d(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x
 
 func.func @miopen_conv2d_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
   miopen.conv2d(%filter, %input, %output) {
+    arch = "gfx906",
+    numCu = 64 : i32,
     filter_layout = ["g" ,"k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
     output_layout = ["n", "go", "k", "ho", "wo"],
@@ -33,6 +37,8 @@ func.func @miopen_conv2d_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x
 
 func.func @miopen_conv2d_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
   miopen.conv2d_bwd_data(%filter, %input, %output) {
+    arch = "gfx906",
+    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
     output_layout = ["n", "go", "k", "ho", "wo"],
@@ -47,6 +53,8 @@ func.func @miopen_conv2d_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memr
 
 func.func @miopen_conv2d_bwd_data_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
   miopen.conv2d_bwd_data(%filter, %input, %output) {
+    arch = "gfx906",
+    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
     output_layout = ["n", "go", "k", "ho", "wo"],
@@ -61,6 +69,8 @@ func.func @miopen_conv2d_bwd_data_f16(%filter : memref<?x?x?x?x?xf16>, %input : 
 
 func.func @miopen_conv2d_bwd_weight(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) {
+    arch = "gfx906",
+    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
     output_layout = ["n", "go", "k", "ho", "wo"],
@@ -75,6 +85,8 @@ func.func @miopen_conv2d_bwd_weight(%filter : memref<?x?x?x?x?xf32>, %input : me
 
 func.func @miopen_conv2d_bwd_weight_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) {
+    arch = "gfx906",
+    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
     output_layout = ["n", "go", "k", "ho", "wo"],
@@ -145,17 +157,20 @@ func.func @miopen_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
 func.func @miopen_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf32>, %C : memref<2x128x256xf32>) {
   miopen.gridwise_gemm(%A, %B, %C) {
     arch = "gfx900",
-    block_size = 256 : i32,
-    k_per_block = 8 : i32,
-    kpack = 1 : i32,
-    m_cuwaves_per_block = 4 : index,
-    m_per_block = 128 : index,
-    m_per_thread = 4 : i32,
-    m_threads_per_cuwave = 4 : index,
-    n_cuwaves_per_block = 4 : index,
-    n_per_block = 128 : index,
-    n_per_thread = 4 : i32,
-    n_threads_per_cuwave = 4 : index
+    blockSize = 256 : i32,
+    gridSize = 1 : i32,
+    params = #miopen.general_gemm_params<
+      kPerBlock = 8,
+      kPerThread = 1,
+      kpack = 1,
+      mCuwavesPerBlock = 4,
+      mPerBlock = 128,
+      mPerThread = 4,
+      mThreadsPerCuwave = 4,
+      nCuwavesPerBlock = 4,
+      nPerBlock = 128,
+      nPerThread = 4,
+      nThreadsPerCuwave = 4>
   } : memref<2x72x128xf32>, memref<2x72x256xf32>, memref<2x128x256xf32>
   return
 }
@@ -166,14 +181,15 @@ func.func @miopen_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256x
 func.func @miopen_gridwise_gemm_v2(%A : memref<2x256x1024x4xf32>, %B : memref<2x256x2048x4xf32>, %C : memref<2x1024x2048xf32>) {
   miopen.gridwise_gemm_v2(%A, %B, %C) storeMethod(set) {
     arch = "gfx908",
-    block_size = 256 : i32,
-    k_per_block = 4 : i32,
-    kpack = 4 : i32,
-    m_per_block = 128 : i32,
-    m_per_wave = 64 : i32,
-    n_per_block = 128 : i32,
-    n_per_wave = 64 : i32,
-    xdlopsV2 = true
+    blockSize = 256 : i32,
+    gridSize = 1 : i32,
+    params = #miopen.xdlops_gemm_params<
+      kPerBlock = 4,
+      kpack = 4,
+      mPerBlock = 128,
+      mPerWave = 64,
+      nPerBlock = 128,
+      nPerWave = 64>
   } : memref<2x256x1024x4xf32>, memref<2x256x2048x4xf32>, memref<2x1024x2048xf32>
   return
 }

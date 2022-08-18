@@ -4,13 +4,19 @@
 
 func.func @miopen_blockwise_gemm_f16(%A : memref<8x128x1xf16, 3>, %B : memref<8x128x1xf16, 3>, %C : memref<8x8xf16, 5>) {
   miopen.blockwise_gemm %C += %A * %B {
-    kPerThread = 1 : index,
-    mPerThread = 4 : index,
-    mThreadsPerCuwave = 4 : index,
-    mCuwavesPerBlock = 4 : index,
-    nPerThread = 4 : index,
-    nThreadsPerCuwave = 4 : index,
-    nCuwavesPerBlock = 4 : index
+    blockSize = 256 : i32,
+    params = #miopen.general_gemm_params<
+      kPerBlock = 8,
+      mPerBlock = 256,
+      nPerBlock = 256,
+      kPerThread = 1,
+      mPerThread = 4,
+      mThreadsPerCuwave = 4,
+      mCuwavesPerBlock = 4,
+      nPerThread = 4,
+      nThreadsPerCuwave = 4,
+      nCuwavesPerBlock = 4,
+      kpack = 1>
   } : memref<8x8xf16, 5> += memref<8x128x1xf16, 3> * memref<8x128x1xf16, 3>
   return
 }
@@ -20,16 +26,18 @@ func.func @miopen_blockwise_gemm_f16(%A : memref<8x128x1xf16, 3>, %B : memref<8x
 
 // ----
 
-func.func @miopen_xdlops_gemm_v2_one_result_f16(%matrixA : memref<32xf16, 5>, 
-                                                %matrixB : memref<16xf16, 5>, 
+func.func @miopen_xdlops_gemm_v2_one_result_f16(%matrixA : memref<32xf16, 5>,
+                                                %matrixB : memref<16xf16, 5>,
                                                 %matrixC : memref<1xvector<32xf16>, 5>) {
   %c0 = arith.constant 0 : index
   miopen.xdlops_gemm_v2 %matrixC += %matrixA[0] * %matrixB[0] {
-    m = 256,
-    n = 256,
-    k = 16,
-    m_per_wave = 128,
-    n_per_wave = 64
+    params = #miopen.xdlops_gemm_params<
+      mPerBlock = 256,
+      nPerBlock = 256,
+      kPerBlock = 16,
+      mPerWave = 128,
+      nPerWave = 64,
+      kpack = 1>
   } : memref<1xvector<32xf16>, 5> += memref<32xf16, 5> * memref<16xf16, 5>
   return
 }
@@ -39,16 +47,18 @@ func.func @miopen_xdlops_gemm_v2_one_result_f16(%matrixA : memref<32xf16, 5>,
 
 // ----
 
-func.func @miopen_xdlops_gemm_v2_two_results_f16(%matrixA : memref<32xf16, 5>, 
+func.func @miopen_xdlops_gemm_v2_two_results_f16(%matrixA : memref<32xf16, 5>,
                                                  %matrixB: memref<16xf16, 5>,
                                                  %matrixC : memref<1xvector<32xf16>, 5>) {
   %c0 = arith.constant 0 : index
   miopen.xdlops_gemm_v2 %matrixC += %matrixA[0] * %matrixB[0] {
-    m = 256,
-    n = 256,
-    k = 16,
-    m_per_wave = 128,
-    n_per_wave = 64
+    params = #miopen.xdlops_gemm_params<
+      mPerBlock = 256,
+      nPerBlock = 256,
+      kPerBlock = 16,
+      mPerWave = 128,
+      nPerWave = 64,
+      kpack = 1>
   } : memref<1xvector<32xf16>, 5> += memref<32xf16, 5> * memref<16xf16, 5>
   return
 }
@@ -59,16 +69,19 @@ func.func @miopen_xdlops_gemm_v2_two_results_f16(%matrixA : memref<32xf16, 5>,
 // ----
 
 func.func @miopen_blockwise_gemm_v2_one_result_f16(%matrix : memref<12288xf16, 3>,
-                                          %bufferA : memref<32xf16, 5>, %bufferB : memref<16xf16, 5>, 
+                                          %bufferA : memref<32xf16, 5>, %bufferB : memref<16xf16, 5>,
                                           %matrixC : memref<1xvector<32xf16>, 5>) {
   %c0 = arith.constant 0 : index
   %c0f = arith.constant 0.0 : f16
   miopen.blockwise_gemm_v2 %matrixC += %bufferA from %matrix[%c0] * %bufferB from %matrix[%c0] {
-    m = 256,
-    n = 256,
-    k = 16,
-    m_per_wave = 128,
-    n_per_wave = 64,
+    blockSize = 256 : i32,
+    params = #miopen.xdlops_gemm_params<
+      mPerBlock = 256,
+      nPerBlock = 256,
+      kPerBlock = 16,
+      mPerWave = 16,
+      nPerWave = 16,
+      kpack = 1>,
     ldsBufferOffsetA = 0 : index,
     ldsBufferOffsetB = 8192 : index
   } : memref<1xvector<32xf16>, 5> +=  memref<32xf16, 5> from memref<12288xf16, 3> * memref<16xf16, 5> from memref<12288xf16, 3>
@@ -85,11 +98,14 @@ func.func @miopen_blockwise_gemm_v2_two_results_f16(%matrix : memref<12288xf16, 
                                                %matrixC : memref<2xvector<32xf16>, 5>) {
   %c0 = arith.constant 0 : index
   miopen.blockwise_gemm_v2 %matrixC += %bufferA from %matrix[%c0] * %bufferB from %matrix[%c0] {
-    m = 256,
-    n = 256,
-    k = 16,
-    m_per_wave = 128,
-    n_per_wave = 64,
+    blockSize = 256 : i32,
+    params = #miopen.xdlops_gemm_params<
+      mPerBlock = 256,
+      nPerBlock = 256,
+      kPerBlock = 16,
+      mPerWave = 128,
+      nPerWave = 64,
+      kpack = 1>,
     ldsBufferOffsetA = 0 : index,
     ldsBufferOffsetB = 8192 : index
   } : memref<2xvector<32xf16>, 5> += memref<32xf16, 5> from memref<12288xf16, 3> * memref<16xf16, 5> from memref<12288xf16, 3>
