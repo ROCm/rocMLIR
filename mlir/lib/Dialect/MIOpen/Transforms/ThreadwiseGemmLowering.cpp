@@ -249,7 +249,7 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
       //   argB = a[k_i];
       //   p_c_thread = mfma(argA, argB, p_c_thread);
       // }
-      Value zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+      Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
       auto mfmaLoop = b.create<TransformingForOp>(
           loc, ArrayRef<ValueRange>{{zeroConstantOp}},
           ArrayRef<Attribute>{b.getArrayAttr({})},
@@ -261,26 +261,25 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         b.setInsertionPointToStart(mfmaLoop.getBody());
         Value coord = mfmaLoop.getLowerCoords(/*domain=*/0)[0];
 
-        Value offset = coord;
-        Value regAIdx = b.create<AddIOp>(loc, regAConstantOp, offset);
-        Value regBIdx = b.create<AddIOp>(loc, regBConstantOp, offset);
+        auto loadArg = [&](Value regOffset, Value matrix) {
+          Value regIdx = b.create<AddIOp>(loc, regOffset, coord);
+          Value arg;
+          if (k_base == 1) {
+            // xdlops needs only 1 element, load directly from buffer.
+            arg = b.create<InBoundsLoadOp>(loc, argType, matrix,
+                                           ValueRange{regIdx});
+          } else {
+            // k_base > 1, use transferRead to load a vector length equivalent
+            // with a xdlops argument.
+            arg = b.create<vector::TransferReadOp>(
+                loc, argType.cast<VectorType>(), matrix, ValueRange{regIdx},
+                /*InBounds*/ ArrayRef<bool>(true));
+          }
+          return arg;
+        };
 
-        Value argA;
-        Value argB;
-        if (k_base == 1) {
-          // xdlops needs only 1 element, load directly from buffer.
-          argA = b.create<memref::LoadOp>(loc, argType, matrixA,
-                                          ValueRange{regAIdx});
-          argB = b.create<memref::LoadOp>(loc, argType, matrixB,
-                                          ValueRange{regBIdx});
-        } else {
-          // k_base > 1, use transferRead to load a vector length equivalent
-          // with a xdlops argument.
-          argA = b.create<vector::TransferReadOp>(
-              loc, argType.cast<VectorType>(), matrixA, ValueRange{regAIdx});
-          argB = b.create<vector::TransferReadOp>(
-              loc, argType.cast<VectorType>(), matrixB, ValueRange{regBIdx});
-        }
+        Value argA = loadArg(regAConstantOp, matrixA);
+        Value argB = loadArg(regBConstantOp, matrixB);
         populateMfma(b, argA, argB);
       }
     } else {
@@ -304,15 +303,17 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
           outerLoop.getBody(), b.getListener());
       auto outerLoopiv = outerLoop.getInductionVar();
 
-      Value regAIdx =
-          outerLoopb.create<AddIOp>(loc, regAConstantOp, outerLoopiv);
-      Value matrixAElement = outerLoopb.create<memref::LoadOp>(
-          loc, matrixAElementType, matrixA, ValueRange{regAIdx});
-
-      Value regBIdx =
-          outerLoopb.create<AddIOp>(loc, regBConstantOp, outerLoopiv);
-      Value matrixBElement = outerLoopb.create<memref::LoadOp>(
-          loc, matrixBElementType, matrixB, ValueRange{regBIdx});
+      auto loadSingleKPack = [&](Value regOffset, Type elementType,
+                                 Value matrix) {
+        Value regIdx = outerLoopb.create<AddIOp>(loc, regOffset, outerLoopiv);
+        Value element = outerLoopb.create<memref::LoadOp>(
+            loc, elementType, matrix, ValueRange{regIdx});
+        return element;
+      };
+      Value matrixAElement =
+          loadSingleKPack(regAConstantOp, matrixAElementType, matrixA);
+      Value matrixBElement =
+          loadSingleKPack(regBConstantOp, matrixBElementType, matrixB);
 
       auto innerLoop =
           outerLoopb.create<AffineForOp>(loc, 0, KRepeats * k_base, k_base);
@@ -327,7 +328,6 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
           loc, argType, matrixAElement, innerLoopiv);
       Value argB = innerLoopb.create<ExtractSliceOp>(
           loc, argType, matrixBElement, innerLoopiv);
-
       populateMfma(innerLoopb, argA, argB);
     }
 
