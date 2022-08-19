@@ -30,10 +30,10 @@ public:
   struct Config {
     std::string chip;
     std::string triple;
-    std::string features;
+    std::string chipFeatures;
     std::string perfConfig;
     int num_cu;
-    bool xdlops;
+    GemmFeatures features;
     llvm::Optional<miopen::ConvOpType> operation;
     std::string dataTypeStr;
     int dilationHeight, dilationWidth;
@@ -57,9 +57,9 @@ public:
   };
 
   Conv2dGenerator(const std::string &chip = "", const std::string &triple = "",
-                  const std::string &features = "",
+                  const std::string &chipFeatures = "",
                   const std::string &perfConfig = "", int num_cu = 0,
-                  bool xdlops = false,
+                  GemmFeatures features = GemmFeatures::none,
                   const Optional<miopen::ConvOpType> operation = llvm::None,
                   const std::string &dataTypeStr = "f32",
                   int dilationHeight = 1, int dilationWidth = 1,

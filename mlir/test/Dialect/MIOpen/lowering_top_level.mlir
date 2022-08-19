@@ -45,7 +45,7 @@
 // CHECK-DAG: #[[$MAP_BWD_WEIGHT_IN_PAD_ALL:transform_map[0-9]+]] = {{.*}}by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 4} ["gemmKPad"] at [1] -> ["gemmK"] at [1]>, <Pad{0, 56} ["gemmNPad"] at [2] -> ["gemmN"] at [2]>]
 // CHECK-DAG: #[[$MAP_BWD_WEIGHT_OUT_PAD_ALL:transform_map[0-9]+]] = {{.*}}by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 4} ["gemmKPad"] at [1] -> ["gemmK"] at [1]>, <Pad{0, 44} ["gemmMPad"] at [2] -> ["gemmM"] at [2]>]
 func.func @miopen_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
-  miopen.conv2d(%filter, %input, %output) {
+  miopen.conv2d(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
@@ -67,7 +67,7 @@ func.func @miopen_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x
 // CHECK-NEXT:  miopen.gridwise_gemm(%[[FILTER]], %[[IN3]], %[[OUT]])
 
 func.func @miopen_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
-  miopen.conv2d(%filter, %input, %output) {
+  miopen.conv2d(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
@@ -89,7 +89,7 @@ func.func @miopen_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<
 // CHECK-NEXT:  miopen.gridwise_gemm(%[[FILTER]], %[[IN3]], %[[OUT]])
 
 func.func @miopen_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x1x8x32x32xi8>, %output : memref<128x1x128x30x30xi32>) {
-  miopen.conv2d(%filter, %input, %output) {
+  miopen.conv2d(%filter, %input, %output) features = xdlops {
     arch = "gfx908",
     numCu = 120 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
@@ -97,8 +97,7 @@ func.func @miopen_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<12
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1, 1],
     strides = [1, 1],
-    padding = [0, 0, 0 ,0],
-    xdlopsV2 = true
+    padding = [0, 0, 0 ,0]
   } : memref<1x128x8x3x3xi8>, memref<128x1x8x32x32xi8>, memref<128x1x128x30x30xi32>
   return
 }
@@ -113,7 +112,7 @@ func.func @miopen_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<12
 
 
 func.func @miopen_conv2d_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: memref<128x1x1024x14x14xf32>, %output: memref<128x1x1024x14x14xf32>) attributes {kernel = 0 : i32} {
-miopen.conv2d_bwd_data(%filter, %input, %output) {
+miopen.conv2d_bwd_data(%filter, %input, %output) features = xdlops {
     arch = "gfx908",
     dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
@@ -122,8 +121,7 @@ miopen.conv2d_bwd_data(%filter, %input, %output) {
     numCu = 120 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 , 0 , 0 , 0],
-    strides = [1 : i32, 1 : i32],
-    xdlopsV2 = true
+    strides = [1 : i32, 1 : i32]
   } : memref<1x1024x1024x1x1xf32>, memref<128x1x1024x14x14xf32>, memref<128x1x1024x14x14xf32>
   return
 }
@@ -145,7 +143,7 @@ miopen.conv2d_bwd_data(%filter, %input, %output) {
 // CHECK-NEXT:  miopen.gridwise_gemm_v2(%[[FIL4]], %[[OUT4]], %[[IN4]]){{.*}}
 
 func.func @miopen_conv2d_bwd_data_f16(%filter: memref<1x1024x1024x1x1xf16>, %input: memref<128x1x1024x14x14xf16>, %output: memref<128x1x1024x14x14xf16>) attributes {kernel = 0 : i32} {
-miopen.conv2d_bwd_data(%filter, %input, %output) {
+miopen.conv2d_bwd_data(%filter, %input, %output) features = xdlops {
     arch = "gfx908",
     dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
@@ -154,8 +152,7 @@ miopen.conv2d_bwd_data(%filter, %input, %output) {
     numCu = 120 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 , 0 , 0 , 0],
-    strides = [1 : i32, 1 : i32],
-    xdlopsV2 = true
+    strides = [1 : i32, 1 : i32]
   } : memref<1x1024x1024x1x1xf16>, memref<128x1x1024x14x14xf16>, memref<128x1x1024x14x14xf16>
   return
 }
@@ -176,7 +173,7 @@ miopen.conv2d_bwd_data(%filter, %input, %output) {
 // CHECK-NEXT:  miopen.gridwise_gemm_v2(%[[FIL4]], %[[OUT4]], %[[IN4]]){{.*}}
 
 func.func @miopen_conv2d_bwd_data_padMN(%filter : memref<1x64x3x1x1xf32>, %input : memref<11x1x3x15x15xf32>, %output : memref<11x1x64x15x15xf32>) {
-  miopen.conv2d_bwd_data(%filter, %input, %output) {
+  miopen.conv2d_bwd_data(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
@@ -208,7 +205,7 @@ func.func @miopen_conv2d_bwd_data_padMN(%filter : memref<1x64x3x1x1xf32>, %input
 // CHECK-NEXT:  miopen.gridwise_gemm(%[[FIL4]], %[[OUT4]], %[[IN5]]){{.*}}
 
 func.func @miopen_conv2d_bwd_data_padMK(%filter : memref<1x11x3x1x1xf32>, %input : memref<128x1x3x15x15xf32>, %output : memref<128x1x11x15x15xf32>) {
-  miopen.conv2d_bwd_data(%filter, %input, %output) {
+  miopen.conv2d_bwd_data(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
@@ -240,7 +237,7 @@ func.func @miopen_conv2d_bwd_data_padMK(%filter : memref<1x11x3x1x1xf32>, %input
 // CHECK-NEXT:  miopen.gridwise_gemm(%[[FIL4]], %[[OUT4]], %[[IN5]]){{.*}}
 
 func.func @miopen_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
-  miopen.conv2d_bwd_weight(%filter, %input, %output) {
+  miopen.conv2d_bwd_weight(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
@@ -265,7 +262,7 @@ func.func @miopen_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : 
 // CHECK-NEXT:  miopen.gridwise_gemm(%[[OUT]], %[[IN4]], %[[FIL2]]){{.*}}
 
 func.func @miopen_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
-  miopen.conv2d_bwd_weight(%filter, %input, %output) {
+  miopen.conv2d_bwd_weight(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
@@ -290,7 +287,7 @@ func.func @miopen_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %inpu
 // CHECK-NEXT:  miopen.gridwise_gemm(%[[OUT]], %[[IN4]], %[[FIL2]]){{.*}}
 
 func.func @miopen_conv2d_bwd_weight_padALL(%filter : memref<1x20x8x3x3xf32>, %input : memref<7x1x8x32x32xf32>, %output : memref<7x1x20x30x30xf32>) {
-  miopen.conv2d_bwd_weight(%filter, %input, %output) {
+  miopen.conv2d_bwd_weight(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
@@ -316,7 +313,7 @@ func.func @miopen_conv2d_bwd_weight_padALL(%filter : memref<1x20x8x3x3xf32>, %in
 // CHECK-NEXT:  miopen.gridwise_gemm(%[[OUT2]], %[[IN4]], %[[FIL2]]){{.*}}
 
 func.func @miopen_conv2d_bwd_weight_padALL_f16(%filter : memref<1x20x8x3x3xf16>, %input : memref<7x1x8x32x32xf16>, %output : memref<7x1x20x30x30xf16>) {
-  miopen.conv2d_bwd_weight(%filter, %input, %output) {
+  miopen.conv2d_bwd_weight(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
