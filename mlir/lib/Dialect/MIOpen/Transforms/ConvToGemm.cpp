@@ -242,10 +242,9 @@ LogicalResult zeroInit(Conv2DBwdDataOp op, PatternRewriter &b) {
   auto loopBody = [&zeroOp, &leftOob, &rightOob](OpBuilder &b, Location loc,
                                                  ValueRange collapsed,
                                                  Value index) {
-    b.create<BufferStoreOp>(
-        loc, zeroOp, collapsed[0], leftOob, rightOob, index,
-        StoreMethodAttr::get(b.getContext(), StoreMethod::Set),
-        /*offset=*/IntegerAttr());
+    b.create<BufferStoreOp>(loc, zeroOp, collapsed[0], leftOob, rightOob, index,
+                            b.getAttr<StoreMethodAttr>(StoreMethod::Set),
+                            /*offset=*/IntegerAttr());
   };
   LogicalResult res =
       createElementwiseLoop(b, loc, op, output, kZeroInitVecLen, loopBody);
@@ -285,10 +284,9 @@ LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
   auto loopBody = [&zeroOp, &leftOob, &rightOob](OpBuilder &b, Location loc,
                                                  ValueRange collapsed,
                                                  Value index) {
-    b.create<BufferStoreOp>(
-        loc, zeroOp, collapsed[0], leftOob, rightOob, index,
-        StoreMethodAttr::get(b.getContext(), StoreMethod::Set),
-        /*offset=*/IntegerAttr());
+    b.create<BufferStoreOp>(loc, zeroOp, collapsed[0], leftOob, rightOob, index,
+                            b.getAttr<StoreMethodAttr>(StoreMethod::Set),
+                            /*offset=*/IntegerAttr());
   };
 
   LogicalResult res =
@@ -325,10 +323,9 @@ LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
         b.create<BufferLoadOp>(loc, loadType, collapsed[0], leftOob, rightOob,
                                index, /*offset=*/IntegerAttr());
     Value converted = createTypeConversionOp(b, loc, loaded, storeType);
-    b.create<BufferStoreOp>(
-        loc, converted, collapsed[1], leftOob, rightOob, index,
-        StoreMethodAttr::get(b.getContext(), StoreMethod::Set),
-        /*offset=*/IntegerAttr());
+    b.create<BufferStoreOp>(loc, converted, collapsed[1], leftOob, rightOob,
+                            index, b.getAttr<StoreMethodAttr>(StoreMethod::Set),
+                            /*offset=*/IntegerAttr());
   };
   LogicalResult res = createElementwiseLoop(b, loc, op, {workspace, filter},
                                             kConversionVectorLen, loopBody);
@@ -568,8 +565,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   }
 
   // This kernel is not run when there is padding on the GEMM
-  auto storeMethod =
-      StoreMethodAttr::get(op.getContext(), StoreMethod::AtomicAdd);
+  auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::AtomicAdd);
 
   Value gemmA = gemmOutputKPack;
   Value gemmB = gemmInputKPack;
@@ -946,7 +942,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   Value gemmC = gemmInput;
   // Emit miopen.gridwise_gemm op.
   // Emit miopen.gridwise_gemm_v2 if using xdlops
-  auto storeMethod = StoreMethodAttr::get(op->getContext(), StoreMethod::Set);
+  auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
   if (isXdlops) {
     auto gop = b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, storeMethod,
                                           op.archAttr(), op.blockSizeAttr(),
@@ -1420,7 +1416,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     gemmB = arguments[fields.gridwiseGemmArgumentPosition[1]];
     gemmC = arguments[fields.gridwiseGemmArgumentPosition[2]];
 
-    auto storeMethod = StoreMethodAttr::get(op.getContext(), StoreMethod::Set);
+    auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
     // Emit miopen.gridwise_gemm op.
     // Emit miopen.gridwise_gemm_v2 if xdlopsV2 attribute is true.
 

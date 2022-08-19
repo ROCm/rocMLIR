@@ -248,8 +248,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     if (auto bwdOp = dyn_cast<Conv2DBwdWeightOp>(op.getOperation()))
       bwdOp->setAttr(bwdOp.kBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
 
-    Attribute gemmParams = XdlopsGemmParamsAttr::get(
-        op.getContext(), validParams.gemmKPerBlock, validParams.gemmMPerBlock,
+    Attribute gemmParams = b.getAttr<XdlopsGemmParamsAttr>(
+        validParams.gemmKPerBlock, validParams.gemmMPerBlock,
         validParams.gemmNPerBlock, validParams.gemmKPack,
         validParams.gemmMPerWave, validParams.gemmNPerWave);
     op->setAttr(op.paramsAttrName(), gemmParams);
@@ -306,8 +306,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     // different pass. Please visit
     // gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw for details
 
-    Attribute gemmParams = GeneralGemmParamsAttr::get(
-        op->getContext(), validParams.gemmKPerBlock, validParams.gemmMPerBlock,
+    Attribute gemmParams = b.getAttr<GeneralGemmParamsAttr>(
+        validParams.gemmKPerBlock, validParams.gemmMPerBlock,
         validParams.gemmNPerBlock,
         /*kPerThread=*/1, validParams.gemmMPerThread,
         validParams.gemmNPerThread,

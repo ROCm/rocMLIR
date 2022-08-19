@@ -537,10 +537,9 @@ struct BlockwiseGemmV2RewritePattern
     if (MRepeats > 1 || NRepeats > 1) {
       // Hard-coded m_per_wave/n_per_wave as 64 when MRepeat>1 or NRepeat>1.
       // So each xdlops_gemm_v2 handles a 64x64 GEMM.
-      threadwiseParams = XdlopsGemmParamsAttr::get(
-          tuningParams.getContext(), tuningParams.getKPerBlock(),
-          tuningParams.getMPerBlock(), tuningParams.getNPerBlock(),
-          tuningParams.getKpack(), /*mPerWave=*/64,
+      threadwiseParams = b.getAttr<XdlopsGemmParamsAttr>(
+          tuningParams.getKPerBlock(), tuningParams.getMPerBlock(),
+          tuningParams.getNPerBlock(), tuningParams.getKpack(), /*mPerWave=*/64,
           /*nPerWave=*/64);
     }
     if (MRepeats == 1 && NRepeats == 1) {
