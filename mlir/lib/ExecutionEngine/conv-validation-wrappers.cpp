@@ -876,21 +876,10 @@ int findIdxHistRelDiff(double relDiff) {
   return 8;
 }
 
-// Compare the results between gpu kernel (f32) and cpu validation (f32)
-//
-extern "C" void mcpuVerify5DFloatFloat(
-    float *gpuAllocated, float *gpuAligned, int64_t gpuOffset, int64_t gpuSize0,
-    int64_t gpuSize1, int64_t gpuSize2, int64_t gpuSize3, int64_t gpuSize4,
-    int64_t gpuStride0, int64_t gpuStride1, int64_t gpuStride2,
-    int64_t gpuStride3, int64_t gpuStride4, float *valAllocated,
-    float *valAligned, int64_t valOffset, int64_t valSize0, int64_t valSize1,
-    int64_t valSize2, int64_t valSize3, int64_t valSize4, int64_t valStride0,
-    int64_t valStride1, int64_t valStride2, int64_t valStride3,
-    int64_t valStride4, float thr_RMS, float thr_absDiff, float thr_relDiff) {
-  assert(gpuSize0 * gpuSize1 * gpuSize2 * gpuSize3 * gpuSize4 ==
-         valSize0 * valSize1 * valSize2 * valSize3 * valSize4);
-  int64_t dataSize = valSize0 * valSize1 * valSize2 * valSize3 * valSize4;
-
+template <typename T>
+void mcpuVerify(T *gpuResults, T *validationResults, int64_t dataSize,
+                float thr_RMS, float thr_absDiff, float thr_relDiff)
+{
   float valNum, gpuNum;
   // metric maxAbsDiff
   float maxAbsDiff = 0.0f;
@@ -909,8 +898,8 @@ extern "C" void mcpuVerify5DFloatFloat(
   // hist_relDiff[9]++ when cpuVal == 0
   int hist_relDiff[10] = {0};
   for (int64_t i = 0; i < dataSize; ++i) {
-    valNum = valAligned[i];
-    gpuNum = gpuAligned[i];
+    valNum = static_cast<float>(validationResults[i]);
+    gpuNum = static_cast<float>(gpuResults[i]);
     // Update the max magnitutde value
     float maxNum = std::max(fabs(valNum), fabs(gpuNum));
     maxMag = std::max(maxMag, maxNum);
@@ -998,8 +987,41 @@ extern "C" void mcpuVerify5DFloatFloat(
          dataSize,
          100.0 * static_cast<double>(hist_relDiff[9]) /
              static_cast<double>(dataSize));
-  // Check if pass based on RMS only
+  // Check if pass based on all three metrics: RMS, maxAbsDiff, maxRelDiff
   int RMS_pass = (err_RMS <= thr_RMS) ? 1 : 0;
-  printf("Unranked Memref base@ = 0x00 rank = 1 offset = 0 sizes = [1] strides = [1] data =\n");
-  printf("[%d]\n", RMS_pass);
+  int absDiff_pass = (maxAbsDiff <= thr_absDiff) ? 1 : 0;
+  int relDiff_pass = (maxRelDiff <= thr_relDiff) ? 1 : 0;
+  printf("[%d %d %d]\n", RMS_pass, absDiff_pass, relDiff_pass);
+}
+
+// Compare the results in f32
+extern "C" void mcpuVerify5DFloat(
+    float *gpuAllocated, float *gpuAligned, int64_t gpuOffset, int64_t gpuSize0,
+    int64_t gpuSize1, int64_t gpuSize2, int64_t gpuSize3, int64_t gpuSize4,
+    int64_t gpuStride0, int64_t gpuStride1, int64_t gpuStride2,
+    int64_t gpuStride3, int64_t gpuStride4, float *valAllocated,
+    float *valAligned, int64_t valOffset, int64_t valSize0, int64_t valSize1,
+    int64_t valSize2, int64_t valSize3, int64_t valSize4, int64_t valStride0,
+    int64_t valStride1, int64_t valStride2, int64_t valStride3,
+    int64_t valStride4, float thr_RMS, float thr_absDiff, float thr_relDiff) {
+  assert(gpuSize0 * gpuSize1 * gpuSize2 * gpuSize3 * gpuSize4 ==
+         valSize0 * valSize1 * valSize2 * valSize3 * valSize4);
+  int64_t dataSize = valSize0 * valSize1 * valSize2 * valSize3 * valSize4;
+  mcpuVerify<float>(gpuAligned, valAligned, dataSize, thr_RMS, thr_absDiff, thr_relDiff);
+}
+
+// Compare the results in int32
+extern "C" void mcpuVerify5DInt32(
+    int32_t *gpuAllocated, int32_t *gpuAligned, int64_t gpuOffset, int64_t gpuSize0,
+    int64_t gpuSize1, int64_t gpuSize2, int64_t gpuSize3, int64_t gpuSize4,
+    int64_t gpuStride0, int64_t gpuStride1, int64_t gpuStride2,
+    int64_t gpuStride3, int64_t gpuStride4, int32_t *valAllocated,
+    int32_t *valAligned, int64_t valOffset, int64_t valSize0, int64_t valSize1,
+    int64_t valSize2, int64_t valSize3, int64_t valSize4, int64_t valStride0,
+    int64_t valStride1, int64_t valStride2, int64_t valStride3,
+    int64_t valStride4, float thr_RMS, float thr_absDiff, float thr_relDiff) {
+    assert(gpuSize0 * gpuSize1 * gpuSize2 * gpuSize3 * gpuSize4 ==
+           valSize0 * valSize1 * valSize2 * valSize3 * valSize4);
+    int64_t dataSize = valSize0 * valSize1 * valSize2 * valSize3 * valSize4;
+    mcpuVerify<int32_t>(gpuAligned, valAligned, dataSize, thr_RMS, thr_absDiff, thr_relDiff);
 }

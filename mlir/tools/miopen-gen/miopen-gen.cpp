@@ -1789,7 +1789,7 @@ populateHostHarnessLogic(ModuleOp &module,
       emitMemcpy(b, valResultLow, valResult);
       // Declare the new verifier function
       auto verifyFuncDecl = makeFuncDecl(
-          module, "mcpuVerify5DFloatFloat",
+          module, "mcpuVerify5DFloat",
           {mr5DUnkType, mr5DUnkType, floatType, floatType, floatType});
       // Call the new verify function
       b.create<func::CallOp>(loc, verifyFuncDecl,
