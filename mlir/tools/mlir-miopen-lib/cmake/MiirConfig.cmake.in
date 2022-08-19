@@ -1,4 +1,2 @@
 @PACKAGE_INIT@
 include("@PACKAGE_LIB_CMAKE_DIR@/@PACKAGE_NAME@Targets.cmake")
-# Auto compute the include dir relative to the installation dir
-set_and_check(@target_name@_INCLUDE_DIR "@PACKAGE_INCLUDE_DIR@")

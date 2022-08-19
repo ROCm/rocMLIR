@@ -47,9 +47,6 @@ llvm_update_compile_flags(mlir-miopen-lib-test)
 target_link_libraries(mlir-miopen-lib-test PRIVATE MLIRMIOpenThin ${LIBS})
 mlir_check_link_libraries(mlir-miopen-lib-test)
 
-install(FILES "Miir.h"
-  DESTINATION include)
-
 llvm_canonicalize_cmake_booleans(BUILD_FAT_LIBMLIRMIOPEN)
 # Static library target, enabled only when building static libs
 if( BUILD_FAT_LIBMLIRMIOPEN )
@@ -86,9 +83,6 @@ if( BUILD_FAT_LIBMLIRMIOPEN )
     DEPENDS
     MLIRMIOpen
     )
-
-  install(TARGETS MLIRMIOpen
-    ARCHIVE DESTINATION lib)
 
   # Install Miir.h to ${CMAKE_INSTALL_PREFIX}/include/<package>/
   # as part of component libMLIRMIOpen
@@ -130,10 +124,15 @@ if( BUILD_FAT_LIBMLIRMIOPEN )
 
     # Install lib${target_name}.a to ${CMAKE_INSTALL_PREFIX}/lib/<package>/
     # and group it into the ${export-set}
+    # The INTERFACE_INCLUDE_DIRECTORIES will be set as the property of the exported library
+    # so that when comsumer libraries (MIOpen) link in ibMLIRMIOpen, ${INCLUDE_DIR} is
+    # automatically propagated to the consumer library's include_dirs, which has the same
+    # effects as calling target_include_directories(MIOpen ${MLIRMIOpen_INCLUDE_DIR})
     install(TARGETS ${target_name}
       EXPORT ${export_set}
       ARCHIVE DESTINATION lib/${PACKAGE_NAME}
-      COMPONENT ${component_name})
+      COMPONENT ${component_name}
+      INCLUDES DESTINATION ${INCLUDE_DIR})
 
     # Generate package config and version file
     include(CMakePackageConfigHelpers)
@@ -147,7 +146,7 @@ if( BUILD_FAT_LIBMLIRMIOPEN )
       INSTALL_DESTINATION lib/cmake/${PACKAGE_NAME}
       PATH_VARS INCLUDE_DIR LIB_CMAKE_DIR)
 
-    # Generate Targets.cmake file for the exoport-set to contain imported targets
+    # Generate Targets.cmake file for the export-set to contain imported targets
     set(ConfigPackageLocation lib/cmake/${PACKAGE_NAME})
     install(EXPORT ${export_set}
       NAMESPACE Miir::
