@@ -1815,7 +1815,6 @@ populateHostHarnessLogic(ModuleOp &module,
                          const SmallVector<KernelIF, 8> &kernels,
                          const SmallVector<KernelIF, 8> &roots,
                          const miopen::Conv2dGenerator::Config &genConfig) {
-
   auto context = module.getContext();
   OpBuilder b(context);
   auto loc = b.getUnknownLoc();
@@ -2084,31 +2083,74 @@ populateHostHarnessLogic(ModuleOp &module,
   return success();
 }
 
-
-//     if (i16vals.find(v) == i16vals.end()) {
-//       auto i16Type = b.getIntegerType(16);
-//       i16vals.try_emplace(v, b.create<arith::ConstantIntOp>(loc, v, i16Type));
-
-void postOrderTraverse(CallGraphNode *node, llvm::SmallDenseSet<CallGraphNode*>& calleesSeen) {
+void postOrderTraverseInternal(CallGraphNode *node, SymbolTable& symbolTable,
+                               llvm::SmallDenseSet<CallGraphNode*>& calleesSeen,
+                               llvm::SmallDenseMap<Operation*,Operation*>& calleesRemapped) {
   for (auto &edge : *node) {
-    if (!calleesSeen.contains(edge.getTarget()))
-      postOrderTraverse(edge.getTarget(), calleesSeen);
-    else
+    if (!calleesSeen.count(edge.getTarget()))
+      postOrderTraverseInternal(edge.getTarget(), symbolTable,
+                                calleesSeen, calleesRemapped);
+     else
       ;   // Replace callee with new callee.
   }
-  {
-    auto *callableRegion = node->getCallableRegion();
-    auto *parentOp = callableRegion->getParentOp();
-    llvm::errs() << "'" << callableRegion->getParentOp()->getName() << "' - Region #"
-       << callableRegion->getRegionNumber();
-    auto attrs = parentOp->getAttrDictionary();
-    if (!attrs.empty())
-      llvm::errs() << " : " << attrs;
-    llvm::errs() << "\n";
-  }
+
+  auto *callableRegion = node->getCallableRegion();
+  auto *parentOp = callableRegion->getParentOp();
+
+  // debug printing
+  llvm::errs() << "'" << callableRegion->getParentOp()->getName() << "' - Region #"
+     << callableRegion->getRegionNumber();
+  auto attrs = parentOp->getAttrDictionary();
+  if (!attrs.empty())
+    llvm::errs() << " : " << attrs;
+  llvm::errs() << "\n";
+
+  // clone the func
+  auto cloneFunc = parentOp->clone();
+  cloneFunc->setAttr("original_func", SymbolRefAttr::get(parentOp));
+
+  // add the clone into the symbol table.
+  symbolTable.insert(cloneFunc);
+
+  // update callees
+//   for (auto call : cloneFunc->getOps<func::CallOp>()) {
+//     CallOpInterface callInt = dyn_cast<CallOpInterface>(call);
+//     Operation *callableFromInt = callInt.resolveCallable();
+//     if (callableFromInt) {
+//       func::FuncOp fop = dyn_cast<func::FuncOp>(*callableFromInt);
+//       if (calleesRemapped.find(fop) != calleesRemapped.end()) {
+//         call->setAttr("callee", FlatSymbolRefAttr::get(context, calleesRemapped[fop].getSymName()));
+//       } else {
+//         // must be an external function, or a bug;  how to check?
+//       }
+//     }
+//   }
+
+  auto context = cloneFunc->getContext();
+
+  cloneFunc->walk([&](func::CallOp call) -> WalkResult {
+    Operation *op = call;
+    CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
+    Operation *callableFromInt = callInt.resolveCallable();
+    if (callableFromInt) {
+      if (calleesRemapped.find(callableFromInt) != calleesRemapped.end()) {
+        func::FuncOp fop = dyn_cast<func::FuncOp>(*calleesRemapped[callableFromInt]);
+        call->setAttr("callee", FlatSymbolRefAttr::get(context, fop.getSymName()));
+      } else {
+        // must be an external function, or a bug;  how to check?
+      }
+    }
+    return WalkResult::advance();
+  });
+  calleesRemapped[parentOp] = cloneFunc;
   calleesSeen.insert(node);
 }
 
+void postOrderTraverse(CallGraphNode *node, SymbolTable& symbolTable) {
+  llvm::SmallDenseSet<CallGraphNode*> calleesSeen;
+  llvm::SmallDenseMap<Operation*,Operation*> calleesRemapped;
+  postOrderTraverseInternal(node, symbolTable, calleesSeen, calleesRemapped);
+}
 
 int main(int argc, char **argv) {
   DialectRegistry registry;
@@ -2268,12 +2310,10 @@ int main(int argc, char **argv) {
     rootIFs.emplace_back(func);
   }
 
-
-  llvm::SmallDenseSet<CallGraphNode*> calleesSeen;
+  SymbolTable symbolTable(module);
   for (auto root : roots) {
-    postOrderTraverse(root, calleesSeen);
+    postOrderTraverse(root, symbolTable);
   }
-
 
   if (testFuncNameVal.empty()) {
     module.walk([&](func::FuncOp func) -> WalkResult {
