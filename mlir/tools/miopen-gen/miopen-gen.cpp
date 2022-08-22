@@ -1192,149 +1192,152 @@ static void emitPrintTensor(OpBuilder &b, mlir::Value var) {
   }
 }
 
-static func::FuncOp
-createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
-                       mlir::MemRefType testType, mlir::MemRefType valType) {
-    auto kfunc = kernel.func;
-    std::string funcName = kfunc.getName().str() + "_verify";
-    func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
-    if (func) // already exists
-        return func;
+static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
+                                       mlir::MemRefType testType,
+                                       mlir::MemRefType valType) {
+  auto kfunc = kernel.func;
+  std::string funcName = kfunc.getName().str() + "_verify";
+  func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
+  if (func) // already exists
+    return func;
 
-    OpBuilder b(module.getContext());
-    auto loc = b.getUnknownLoc();
-    auto floatType = b.getF32Type();
+  OpBuilder b(module.getContext());
+  auto loc = b.getUnknownLoc();
+  auto floatType = b.getF32Type();
 
-    // Emit verify_results function call
-    func = func::FuncOp::create(loc, funcName,
-                                b.getFunctionType({testType, valType}, {}));
-    module.push_back(func);
+  // Emit verify_results function call
+  func = func::FuncOp::create(loc, funcName,
+                              b.getFunctionType({testType, valType}, {}));
+  module.push_back(func);
 
-    // Emit verification logic.
-    // Create a new block
-    Block *block = func.addEntryBlock();
-    b.setInsertionPoint(block, block->begin());
+  // Emit verification logic.
+  // Create a new block
+  Block *block = func.addEntryBlock();
+  b.setInsertionPoint(block, block->begin());
 
-    // obtain function arguments
-    // arg0: test result
-    // arg1: validation result
-    auto arg0 = block->getArgument(0);
-    auto arg1 = block->getArgument(1);
-    // obtain element type
-    auto valElemType = valType.getElementType();
-    auto testOutType = testType.getElementType();
+  // obtain function arguments
+  // arg0: test result
+  // arg1: validation result
+  auto arg0 = block->getArgument(0);
+  auto arg1 = block->getArgument(1);
+  // obtain element type
+  auto valElemType = valType.getElementType();
+  auto testOutType = testType.getElementType();
 
-    // Emit constants for thresholds
+  // Emit constants for thresholds
+
+  // clang-format off
+  // %cst = arith.constant 9.99999974E-6 : f32
+  // %cst_0 = arith.constant 1.000000e+02 : f32
+  // %cst_1 = arith.constant 1.000000e+02 : f32
+  // clang-format on
+
+  auto getF32Val = [&](float val) -> mlir::Value {
+    llvm::APFloat apVal(val);
+    return b.create<arith::ConstantFloatOp>(loc, apVal, floatType);
+  };
+  // Thresholds for different metrics
+  // RMS: 0.00003f for all data types
+  // absDiff: 100.0f for all data types, i.e. the maxAbsDiff metric is disabled
+  // relDiff 100.0f for f16, i.e. maxRelDiff metric is disabled for f16
+  // datatypes
+  //         0.000001f for other data types
+  auto thr_RMS = getF32Val(RMSThreshold.getValue());
+  auto thr_absDiff = getF32Val(absDiffThreshold.getValue());
+  mlir::Value thr_relDiff;
+  if (testOutType.isF16())
+    thr_relDiff = getF32Val(relDiffThreshold.getValue());
+  else
+    thr_relDiff = getF32Val(0.000001f);
+
+  // obtain function name of the verifier wrapper
+  std::string verifyFuncName = "mcpuVerify5D";
+  if (valElemType.isF32())
+    verifyFuncName += "Float";
+  else
+    verifyFuncName += "Int32";
+
+  auto mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, valElemType);
+  bool isTestAndValSameType =
+      (testOutType.isInteger(32) || testOutType.isF32());
+
+  mlir::Value testResult, valResult; // Values passed to the verify function
+  mlir::Value testResultNew, valResultTmp; // Values used for type conversion
+  if (!isTestAndValSameType) {
+    // When gpu kernel output data type = f16 | bf16, type conversions
+    // are required before calling the verify function
+
+    // step 1: cast test result to the same type as valid result
 
     // clang-format off
-    // %cst = arith.constant 9.99999974E-6 : f32
-    // %cst_0 = arith.constant 1.000000e+02 : f32
-    // %cst_1 = arith.constant 1.000000e+02 : f32
+    // %0 = memref.alloc() : memref<1x64x3x7x7xf32>
+    // %1 = memref.collapse_shape %arg0 [[0, 1, 2, 3, 4]] : memref<1x64x3x7x7xf16> into memref<9408xf16>
+    // %2 = memref.cast %1 : memref<9408xf16> to memref<?xf16>
+    // %3 = memref.collapse_shape %0 [[0, 1, 2, 3, 4]] : memref<1x64x3x7x7xf32> into memref<9408xf32>
+    // %4 = memref.cast %3 : memref<9408xf32> to memref<?xf32>
+    // %c9408 = arith.constant 9408 : index
+    // call @_memcpy_f16_f32(%2, %4, %c9408) : (memref<?xf16>, memref<?xf32>, index) -> ()
     // clang-format on
 
-    auto getF32Val = [&](float val) -> mlir::Value {
-        llvm::APFloat apVal(val);
-        return b.create<arith::ConstantFloatOp>(loc, apVal, floatType);
-    };
-    // Thresholds for different metrics
-    // RMS: 0.00003f for all data types
-    // absDiff: 100.0f for all data types, i.e. the maxAbsDiff metric is disabled
-    // relDiff 100.0f for f16, i.e. maxRelDiff metric is disabled for f16 datatypes
-    //         0.000001f for other data types
-    auto thr_RMS = getF32Val(RMSThreshold.getValue());
-    auto thr_absDiff = getF32Val(absDiffThreshold.getValue());
-    mlir::Value thr_relDiff;
-    if (testOutType.isF16())
-        thr_relDiff = getF32Val(relDiffThreshold.getValue());
-    else
-        thr_relDiff = getF32Val(0.000001f);
+    testResultNew = b.create<memref::AllocOp>(loc, valType);
+    emitMemcpy(b, arg0, testResultNew);
 
-    // obtain function name of the verifier wrapper
-    std::string verifyFuncName = "mcpuVerify5D";
-    if (valElemType.isF32())
-        verifyFuncName += "Float";
-    else
-        verifyFuncName += "Int32";
+    // step 2: cast valid result down to the same type as test result and cast
+    // back
+    //   For f16 and bf16 datatypes, gpu hardware outputs f32 results, which are
+    //   truncated to f16/bf16 before returning from the gpu kernel
+    //   To make the comparison fair, the truncation step is added manually to
+    //   the validation results.
 
-    auto mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, valElemType);
-    bool isTestAndValSameType = (testOutType.isInteger(32) || testOutType.isF32());
+    // clang-format off
+    // %5 = memref.alloc() : memref<1x64x3x7x7xf16>
+    // %6 = memref.collapse_shape %arg1 [[0, 1, 2, 3, 4]] : memref<1x64x3x7x7xf32> into memref<9408xf32>
+    // %7 = memref.cast %6 : memref<9408xf32> to memref<?xf32>
+    // %8 = memref.collapse_shape %5 [[0, 1, 2, 3, 4]] : memref<1x64x3x7x7xf16> into memref<9408xf16>
+    // %9 = memref.cast %8 : memref<9408xf16> to memref<?xf16>
+    // %c9408_2 = arith.constant 9408 : index
+    // call @_memcpy_f32_f16(%7, %9, %c9408_2) : (memref<?xf32>, memref<?xf16>, index) -> ()
+    // %10 = memref.collapse_shape %5 [[0, 1, 2, 3, 4]] : memref<1x64x3x7x7xf16> into memref<9408xf16>
+    // %11 = memref.cast %10 : memref<9408xf16> to memref<?xf16>
+    // %12 = memref.collapse_shape %arg1 [[0, 1, 2, 3, 4]] : memref<1x64x3x7x7xf32> into memref<9408xf32>
+    // %13 = memref.cast %12 : memref<9408xf32> to memref<?xf32>
+    // %c9408_3 = arith.constant 9408 : index
+    // call @_memcpy_f16_f32(%11, %13, %c9408_3) : (memref<?xf16>, memref<?xf32>, index) -> ()
+    // clang-format on
 
-    mlir::Value testResult, valResult; // Values passed to the verify function
-    mlir::Value testResultNew, valResultTmp; // Values used for type conversion
-    if (!isTestAndValSameType) {
-        // When gpu kernel output data type = f16 | bf16, type conversions
-        // are required before calling the verify function
+    valResultTmp = b.create<memref::AllocOp>(loc, testType);
+    emitMemcpy(b, arg1, valResultTmp);
+    emitMemcpy(b, valResultTmp, arg1);
 
-        // step 1: cast test result to the same type as valid result
+    // step 3: prepare the test result for the verify function
+    // %14 = memref.cast %0 : memref<1x64x3x7x7xf32> to memref<?x?x?x?x?xf32>
+    testResult = b.create<memref::CastOp>(loc, mr5DUnkType, testResultNew);
+  } else {
+    // %0 = memref.cast %arg0 : memref<1x64x3x7x7xf32> to memref<?x?x?x?x?xf32>
+    testResult = b.create<memref::CastOp>(loc, mr5DUnkType, arg0);
+  }
 
-        // clang-format off
-        // %0 = memref.alloc() : memref<1x64x3x7x7xf32>
-        // %1 = memref.collapse_shape %arg0 [[0, 1, 2, 3, 4]] : memref<1x64x3x7x7xf16> into memref<9408xf16>
-        // %2 = memref.cast %1 : memref<9408xf16> to memref<?xf16>
-        // %3 = memref.collapse_shape %0 [[0, 1, 2, 3, 4]] : memref<1x64x3x7x7xf32> into memref<9408xf32>
-        // %4 = memref.cast %3 : memref<9408xf32> to memref<?xf32>
-        // %c9408 = arith.constant 9408 : index
-        // call @_memcpy_f16_f32(%2, %4, %c9408) : (memref<?xf16>, memref<?xf32>, index) -> ()
-        // clang-format on
+  // Prepare the validation result for the verify function
+  valResult = b.create<memref::CastOp>(loc, mr5DUnkType, arg1);
+  // Declare and call the wrapper verify function
+  auto verifyFuncDecl =
+      makeFuncDecl(module, verifyFuncName,
+                   {mr5DUnkType, mr5DUnkType, floatType, floatType, floatType});
+  b.create<func::CallOp>(
+      loc, verifyFuncDecl,
+      ValueRange{testResult, valResult, thr_RMS, thr_absDiff, thr_relDiff});
 
-        testResultNew = b.create<memref::AllocOp>(loc, valType);
-        emitMemcpy(b, arg0, testResultNew);
+  if (!isTestAndValSameType) {
+    // step 4: deallocate buffer
+    // Deallocate the buffer for f32 version of the test results
+    b.create<memref::DeallocOp>(loc, testResultNew);
+    // Deallocate the buffer for downcasted version of the valid results
+    b.create<memref::DeallocOp>(loc, valResultTmp);
+  }
 
-        // step 2: cast valid result down to the same type as test result and cast back
-        //   For f16 and bf16 datatypes, gpu hardware outputs f32 results, which are
-        //   truncated to f16/bf16 before returning from the gpu kernel
-        //   To make the comparison fair, the truncation step is added manually to
-        //   the validation results.
+  b.create<func::ReturnOp>(loc, ValueRange{});
 
-        // clang-format off
-        // %5 = memref.alloc() : memref<1x64x3x7x7xf16>
-        // %6 = memref.collapse_shape %arg1 [[0, 1, 2, 3, 4]] : memref<1x64x3x7x7xf32> into memref<9408xf32>
-        // %7 = memref.cast %6 : memref<9408xf32> to memref<?xf32>
-        // %8 = memref.collapse_shape %5 [[0, 1, 2, 3, 4]] : memref<1x64x3x7x7xf16> into memref<9408xf16>
-        // %9 = memref.cast %8 : memref<9408xf16> to memref<?xf16>
-        // %c9408_2 = arith.constant 9408 : index
-        // call @_memcpy_f32_f16(%7, %9, %c9408_2) : (memref<?xf32>, memref<?xf16>, index) -> ()
-        // %10 = memref.collapse_shape %5 [[0, 1, 2, 3, 4]] : memref<1x64x3x7x7xf16> into memref<9408xf16>
-        // %11 = memref.cast %10 : memref<9408xf16> to memref<?xf16>
-        // %12 = memref.collapse_shape %arg1 [[0, 1, 2, 3, 4]] : memref<1x64x3x7x7xf32> into memref<9408xf32>
-        // %13 = memref.cast %12 : memref<9408xf32> to memref<?xf32>
-        // %c9408_3 = arith.constant 9408 : index
-        // call @_memcpy_f16_f32(%11, %13, %c9408_3) : (memref<?xf16>, memref<?xf32>, index) -> ()
-        // clang-format on
-
-        valResultTmp = b.create<memref::AllocOp>(loc, testType);
-        emitMemcpy(b, arg1, valResultTmp);
-        emitMemcpy(b, valResultTmp, arg1);
-
-        // step 3: prepare the test result for the verify function
-        // %14 = memref.cast %0 : memref<1x64x3x7x7xf32> to memref<?x?x?x?x?xf32>
-        testResult = b.create<memref::CastOp>(loc, mr5DUnkType, testResultNew);
-    } else {
-        // %0 = memref.cast %arg0 : memref<1x64x3x7x7xf32> to memref<?x?x?x?x?xf32>
-        testResult = b.create<memref::CastOp>(loc, mr5DUnkType, arg0);
-    }
-
-    // Prepare the validation result for the verify function
-    valResult = b.create<memref::CastOp>(loc, mr5DUnkType, arg1);
-    // Declare and call the wrapper verify function
-    auto verifyFuncDecl = makeFuncDecl(
-        module, verifyFuncName,
-        {mr5DUnkType, mr5DUnkType, floatType, floatType, floatType});
-    b.create<func::CallOp>(loc, verifyFuncDecl,
-                           ValueRange{testResult, valResult, thr_RMS,
-                               thr_absDiff, thr_relDiff});
-
-    if (!isTestAndValSameType) {
-        // step 4: deallocate buffer
-        // Deallocate the buffer for f32 version of the test results
-        b.create<memref::DeallocOp>(loc, testResultNew);
-        // Deallocate the buffer for downcasted version of the valid results
-        b.create<memref::DeallocOp>(loc, valResultTmp);
-    }
-
-    b.create<func::ReturnOp>(loc, ValueRange{});
-
-    return func;
+  return func;
 }
 
 static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
@@ -1651,7 +1654,7 @@ populateHostHarnessLogic(ModuleOp &module,
     auto valType = valResult.getType().template dyn_cast<MemRefType>();
     auto verifierFunc = createVerifierFunc(module, root0, testType, valType);
     b.create<func::CallOp>(loc, verifierFunc,
-                          ValueRange{testResult, valResult});
+                           ValueRange{testResult, valResult});
   }
 
   // Print and cleanup validation vars
