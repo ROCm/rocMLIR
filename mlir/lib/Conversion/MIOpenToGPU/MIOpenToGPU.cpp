@@ -142,8 +142,8 @@ void LowerMIOpenOpsToGPUPass::runOnOperation() {
     gpuModuleSymbolTable.insert(gpuFunc);
 
     // Set kernel attribute.
-    int64_t gridSize = 0;
-    int64_t blockSize = 0;
+    uint32_t gridSize = 0;
+    uint32_t blockSize = 0;
     gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(), b.getUnitAttr());
     if (auto attr = theFunc->getAttr("block_size")) {
       gpuFunc->setAttr("block_size", attr);

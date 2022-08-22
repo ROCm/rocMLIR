@@ -22,7 +22,7 @@ namespace {
 struct AffixTuningParameters
     : public MIOpenOpsAffixTuningParametersPassBase<AffixTuningParameters> {
 public:
-  AffixTuningParameters(int64_t blockSizeOverride, int64_t gridSizeOverride,
+  AffixTuningParameters(uint32_t blockSizeOverride, uint32_t gridSizeOverride,
                         bool fallBackNoConfig)
       : blockSizeOverride(blockSizeOverride),
         gridSizeOverride(gridSizeOverride), fallBackNoConfig(fallBackNoConfig) {
@@ -41,8 +41,8 @@ private:
   //   to generate tuning parameters based on this blockSizeOverride.
   //   This guarantess that affix tuning parameters pass generate
   //   coherent tuning parameters with the pre-set block size.
-  int64_t blockSizeOverride;
-  int64_t gridSizeOverride;
+  uint32_t blockSizeOverride;
+  uint32_t gridSizeOverride;
   bool fallBackNoConfig;
 
   // Actual implementation.
@@ -126,16 +126,19 @@ void AffixTuningParameters::runOnOperation() {
 static void setUtilityKernelSizes(OpBuilder &b, Value arg, Operation *convOp,
                                   Operation *funcOp) {
   int64_t numElements = arg.getType().cast<MemRefType>().getNumElements();
-  int64_t blockSize = kUtilityKernelBlockSize;
+  uint32_t blockSize = kUtilityKernelBlockSize;
   int64_t elemsPerThread = kUtilityKernelElemsPerThread;
-  int64_t gridSize =
+  uint32_t gridSize =
       math_util::integer_divide_ceil(numElements, blockSize * elemsPerThread);
-  SmallVector<Operation *, 2> ops = {convOp, funcOp};
-  for (Operation *op : ops) {
-    op->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
-    op->setAttr("block_size", b.getI32IntegerAttr(blockSize));
-    op->setAttr("elems_per_thread", b.getI32IntegerAttr(elemsPerThread));
-  }
+
+  IntegerAttr blockSizeAttr = b.getI32IntegerAttr(blockSize);
+  IntegerAttr gridSizeAttr = b.getI32IntegerAttr(gridSize);
+  convOp->setAttr("blockSize", blockSizeAttr);
+  convOp->setAttr("gridSize", gridSizeAttr);
+  convOp->setAttr("elems_per_thread", b.getIndexAttr(elemsPerThread));
+
+  funcOp->setAttr("block_size", blockSizeAttr);
+  funcOp->setAttr("grid_size", gridSizeAttr);
 }
 
 void AffixTuningParameters::affixBackwardDataUtilityKernels(
@@ -206,8 +209,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     DerivedParams gemmADerivedParam;
     DerivedParams gemmBDerivedParam;
     DerivedOutParams gemmCDerivedParam;
-    int64_t blockSize = 0;
-    int64_t gridSize = 0;
+    uint32_t blockSize = 0;
+    uint32_t gridSize = 0;
     int64_t gemmKBlocks = 1;
 
     LogicalResult status = populateParamsXDL.obtainTuningParameters(
@@ -227,10 +230,6 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
         signalPassFailure();
     }
 
-    op->setAttr("m_per_wave", b.getI32IntegerAttr(validParams.gemmMPerWave));
-    op->setAttr("n_per_wave", b.getI32IntegerAttr(validParams.gemmNPerWave));
-    op->setAttr("block_size", b.getI32IntegerAttr(blockSize));
-
     ConvOpType dir = obtainConvDirection(op);
     Type dataType = obtainConvDataType(op);
 
@@ -241,23 +240,26 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
       validParams.gemmKPack = 1;
     }
 
-    op->setAttr("kpack", b.getI32IntegerAttr(validParams.gemmKPack));
+    gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
+    op->setAttr(op.blockSizeAttrName(), b.getI32IntegerAttr(blockSize));
+    op->setAttr(op.gridSizeAttrName(), b.getI32IntegerAttr(gridSize));
+
     // Set kblocks attribute only for backward weight convolutions.
-    if (dir == ConvOpType::BwdWeight) {
-      op->setAttr("kblocks", b.getI32IntegerAttr(gemmKBlocks));
-    }
+    if (auto bwdOp = dyn_cast<Conv2DBwdWeightOp>(op.getOperation()))
+      bwdOp->setAttr(bwdOp.kBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
+
+    Attribute gemmParams = b.getAttr<XdlopsGemmParamsAttr>(
+        validParams.gemmKPerBlock, validParams.gemmMPerBlock,
+        validParams.gemmNPerBlock, validParams.gemmKPack,
+        validParams.gemmMPerWave, validParams.gemmNPerWave);
+    op->setAttr(op.paramsAttrName(), gemmParams);
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
-    getOperation()->setAttr(
-        "grid_size",
-        b.getI32IntegerAttr(gridSizeOverride ? gridSizeOverride : gridSize));
-
-    op->setAttr("m_per_block", b.getI32IntegerAttr(validParams.gemmMPerBlock));
-    op->setAttr("n_per_block", b.getI32IntegerAttr(validParams.gemmNPerBlock));
-    op->setAttr("k_per_block", b.getI32IntegerAttr(validParams.gemmKPerBlock));
+    getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
 
     // Derived parameters for gemmA.
+    // All this goes away after new-style vectorization is implemented.
     op->setAttr("matrix_a_source_data_per_read",
                 b.getI32IntegerAttr(gemmADerivedParam.srcDataPerRead));
     op->setAttr("matrix_a_source_vector_read_dim",
@@ -281,7 +283,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     DerivedParams gemmBDerivedParam;
     DerivedBlockGemmParams blockGemmDerivedParam;
     DerivedOutParams gemmCDerivedParam;
-    int64_t gridSize;
+    uint32_t gridSize;
 
     PopulateParams populateParams;
     LogicalResult status = populateParams.obtainTuningParameters(
@@ -292,26 +294,36 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
       signalPassFailure();
     }
 
-    op->setAttr("m_per_thread",
-                b.getI32IntegerAttr(validParams.gemmMPerThread));
-    op->setAttr("n_per_thread",
-                b.getI32IntegerAttr(validParams.gemmNPerThread));
-    op->setAttr("block_size", b.getI32IntegerAttr(validParams.blockSize));
+    gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
+
+    op->setAttr(op.blockSizeAttrName(),
+                b.getI32IntegerAttr(validParams.blockSize));
+    op->setAttr(op.gridSizeAttrName(), b.getI32IntegerAttr(gridSize));
+
     // For non-XDLOPS path, do not use KPack for now.
-    op->setAttr("kpack", b.getI32IntegerAttr(1));
+
+    // kPerThread and the cuwave parameters are hardcoded, may change in a
+    // different pass. Please visit
+    // gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw for details
+
+    Attribute gemmParams = b.getAttr<GeneralGemmParamsAttr>(
+        validParams.gemmKPerBlock, validParams.gemmMPerBlock,
+        validParams.gemmNPerBlock,
+        /*kPerThread=*/1, validParams.gemmMPerThread,
+        validParams.gemmNPerThread,
+        /*kpack=*/1, blockGemmDerivedParam.gemmMThreadsPerCuwave,
+        blockGemmDerivedParam.gemmNThreadsPerCuwave,
+        blockGemmDerivedParam.gemmMCuwavesPerBlock,
+        blockGemmDerivedParam.gemmNCuwavesPerBlock);
+    op->setAttr(op.paramsAttrName(), gemmParams);
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size",
                             b.getI32IntegerAttr(validParams.blockSize));
-    getOperation()->setAttr(
-        "grid_size",
-        b.getI32IntegerAttr(gridSizeOverride ? gridSizeOverride : gridSize));
-
-    op->setAttr("m_per_block", b.getI32IntegerAttr(validParams.gemmMPerBlock));
-    op->setAttr("n_per_block", b.getI32IntegerAttr(validParams.gemmNPerBlock));
-    op->setAttr("k_per_block", b.getI32IntegerAttr(validParams.gemmKPerBlock));
+    getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
 
     // Derived parameters for gemmA.
+    // Will be dead with new vectorization scheme.
     op->setAttr("matrix_a_source_data_per_read",
                 b.getI32IntegerAttr(gemmADerivedParam.srcDataPerRead));
     op->setAttr("matrix_a_source_vector_read_dim",
@@ -323,18 +335,6 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("matrix_b_source_vector_read_dim",
                 b.getI32IntegerAttr(gemmBDerivedParam.srcVectorReadDim));
 
-    // Hard coded parameters, will change in a different pass. Please visit
-    // gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw for details
-    op->setAttr("k_per_thread", b.getI32IntegerAttr(1));
-    op->setAttr("m_threads_per_cuwave",
-                b.getIndexAttr(blockGemmDerivedParam.gemmMThreadsPerCuwave));
-    op->setAttr("n_threads_per_cuwave",
-                b.getIndexAttr(blockGemmDerivedParam.gemmNThreadsPerCuwave));
-    op->setAttr("m_cuwaves_per_block",
-                b.getIndexAttr(blockGemmDerivedParam.gemmMCuwavesPerBlock));
-    op->setAttr("n_cuwaves_per_block",
-                b.getIndexAttr(blockGemmDerivedParam.gemmNCuwavesPerBlock));
-
     op->setAttr("matrix_c_data_per_copy",
                 b.getI32IntegerAttr(gemmCDerivedParam.dataPerCopy));
     op->setAttr("matrix_c_source_vector_read_dim",
@@ -345,8 +345,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 }
 
 std::unique_ptr<Pass>
-mlir::miopen::createAffixTuningParametersPass(int64_t blockSizeOverride,
-                                              int64_t gridSizeOverride,
+mlir::miopen::createAffixTuningParametersPass(uint32_t blockSizeOverride,
+                                              uint32_t gridSizeOverride,
                                               bool fallBackNoConfig) {
   return std::make_unique<AffixTuningParameters>(
       blockSizeOverride, gridSizeOverride, fallBackNoConfig);

@@ -47,7 +47,7 @@
 func.func @miopen_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
   miopen.conv2d(%filter, %input, %output) {
     arch = "gfx906",
-    num_cu = 64,
+    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -69,7 +69,7 @@ func.func @miopen_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x
 func.func @miopen_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
   miopen.conv2d(%filter, %input, %output) {
     arch = "gfx906",
-    num_cu = 64,
+    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -91,7 +91,7 @@ func.func @miopen_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<
 func.func @miopen_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x1x8x32x32xi8>, %output : memref<128x1x128x30x30xi32>) {
   miopen.conv2d(%filter, %input, %output) {
     arch = "gfx908",
-    num_cu = 120,
+    numCu = 120 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -119,7 +119,7 @@ miopen.conv2d_bwd_data(%filter, %input, %output) {
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 0 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    num_cu = 120 : i32,
+    numCu = 120 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 , 0 , 0 , 0],
     strides = [1 : i32, 1 : i32],
@@ -151,7 +151,7 @@ miopen.conv2d_bwd_data(%filter, %input, %output) {
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 0 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    num_cu = 120 : i32,
+    numCu = 120 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 , 0 , 0 , 0],
     strides = [1 : i32, 1 : i32],
@@ -178,7 +178,7 @@ miopen.conv2d_bwd_data(%filter, %input, %output) {
 func.func @miopen_conv2d_bwd_data_padMN(%filter : memref<1x64x3x1x1xf32>, %input : memref<11x1x3x15x15xf32>, %output : memref<11x1x64x15x15xf32>) {
   miopen.conv2d_bwd_data(%filter, %input, %output) {
     arch = "gfx906",
-    num_cu = 64,
+    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -210,7 +210,7 @@ func.func @miopen_conv2d_bwd_data_padMN(%filter : memref<1x64x3x1x1xf32>, %input
 func.func @miopen_conv2d_bwd_data_padMK(%filter : memref<1x11x3x1x1xf32>, %input : memref<128x1x3x15x15xf32>, %output : memref<128x1x11x15x15xf32>) {
   miopen.conv2d_bwd_data(%filter, %input, %output) {
     arch = "gfx906",
-    num_cu = 64,
+    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -242,7 +242,7 @@ func.func @miopen_conv2d_bwd_data_padMK(%filter : memref<1x11x3x1x1xf32>, %input
 func.func @miopen_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) {
     arch = "gfx906",
-    num_cu = 64,
+    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -267,7 +267,7 @@ func.func @miopen_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : 
 func.func @miopen_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) {
     arch = "gfx906",
-    num_cu = 64,
+    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -292,7 +292,7 @@ func.func @miopen_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %inpu
 func.func @miopen_conv2d_bwd_weight_padALL(%filter : memref<1x20x8x3x3xf32>, %input : memref<7x1x8x32x32xf32>, %output : memref<7x1x20x30x30xf32>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) {
     arch = "gfx906",
-    num_cu = 64,
+    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -318,7 +318,7 @@ func.func @miopen_conv2d_bwd_weight_padALL(%filter : memref<1x20x8x3x3xf32>, %in
 func.func @miopen_conv2d_bwd_weight_padALL_f16(%filter : memref<1x20x8x3x3xf16>, %input : memref<7x1x8x32x32xf16>, %output : memref<7x1x20x30x30xf16>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) {
     arch = "gfx906",
-    num_cu = 64,
+    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
