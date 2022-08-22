@@ -29,6 +29,10 @@ std::unique_ptr<Pass> createMIOpenApplyImplPass();
 /// Create a pass to
 std::unique_ptr<Pass> createMIOpenAsyncLaunchPass();
 
+/// Create a pass to apply rewrite patterns that enable fusing generic
+/// operations with convolution and GEMM kernels.
+std::unique_ptr<Pass> createMIOpenFixupForFusionPass();
+
 /// Create a pass to convert MIOpen conv2d operations to transform and
 /// gridwise_gemm operations.
 std::unique_ptr<Pass> createMIOpenConvToGemmPass();

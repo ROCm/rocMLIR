@@ -27,6 +27,12 @@ def MIOpenAsyncLaunchPass : Pass<"miopen-async-launch", "func::FuncOp"> {
   let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "linalg::LinalgDialect", "vector::VectorDialect", "memref::MemRefDialect", "async::AsyncDialect"];
 }
 
+def MIOpenFixupForFusionPass : Pass<"miopen-fixup-for-fusion", "::mlir::func::FuncOp"> {
+  let summary = "rewrite patterns to enable fusing with convolution and GEMM";
+  let constructor = "mlir::miopen::createMIOpenFixupForFusionPass()";
+  let dependentDialects = ["miopen::MIOpenDialect", "linalg::LinalgDialect"];
+}
+
 def MIOpenConvToGemmPass : Pass<"miopen-conv-to-gemm", "::mlir::func::FuncOp"> {
   let summary = "expand convolution into coordinate transformations and gridwise gemm";
   let constructor = "mlir::miopen::createMIOpenConvToGemmPass()";

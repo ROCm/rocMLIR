@@ -124,8 +124,14 @@ void miopen::buildBufferizePipeline(OpPassManager &pm,
 
 void miopen::buildKernelPipeline(OpPassManager &pm,
                                  const miopen::KernelOptions &options) {
+  // Pre kernel lowering fixups for patterns that aren't amenable to lawer
+  // fusion
+  /* miopen-opt --miopen-fixup-for-fusion */
+  if (options.enableFusion) {
+    pm.addNestedPass<func::FuncOp>(miopen::createMIOpenFixupForFusionPass());
+  }
   // miopen lowering (tuning, global to block)
-  /* miopen-opt --miopen-affix-params --miopen-conv-to-gemm
+  /* miopen-opt --miopen-affix-params  --miopen-conv-to-gemm
    * --miopen-gridwise-gemm-to-blockwise
    */
   pm.addPass(
@@ -139,7 +145,6 @@ void miopen::buildKernelPipeline(OpPassManager &pm,
       /* miopen-opt --miopen-linalg-align
        * --convert-linalg-to-affine-loops
        */
-      // We need a canonicalize in order to eliminate dead code
       pm.addPass(miopen::createMIOpenLinalgAlignPass());
       pm.addPass(createConvertLinalgToAffineLoopsPass());
     }
