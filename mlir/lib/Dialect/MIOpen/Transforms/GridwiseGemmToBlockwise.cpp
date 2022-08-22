@@ -677,11 +677,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
              << " B[2] = " << N << " C[2] = " << cShape[2];
     }
 
-    if (cShape[2] != N) {
-      return op.emitOpError("Mismatched N dimensions in matrix multiply:")
-             << " B[2] = " << N << " C[2] = " << cShape[2];
-    }
-
     // Obtain critical tuning parameters.
     uint32_t blockSize = op.blockSize();
     uint32_t gridSize = op.gridSize();
@@ -700,6 +695,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     int64_t mCuwavesPerBlock = tuningParams.getMCuwavesPerBlock();
     int64_t nCuwavesPerBlock = tuningParams.getNCuwavesPerBlock();
 
+    int64_t kPerBlock = kpacksPerBlock * kpack;
+
     bool useIndexDiffs = true;
 
     int64_t mBlocks = M / mPerBlock;
@@ -714,7 +711,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                << "N: " << N << "\n"
                << "K: " << K << "\n"
                << "G: " << G << "\n"
-               << "blockSize: " << kernelBlockSize << "\n"
+               << "blockSize: " << blockSize << "\n"
                << "mPerBlock: " << mPerBlock << "\n"
                << "mBlocks = M / mPerBlock: " << mBlocks << "\n"
                << "nPerBlock: " << nPerBlock << "\n"
@@ -789,8 +786,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
 
-    int64_t aCopyPerThread = (kPerBlock * mPerBlock) / kernelBlockSize;
-    int64_t bCopyPerThread = (kPerBlock * nPerBlock) / kernelBlockSize;
+    int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
+    int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
 
     GemmDimension vectorTiebreaker =
         (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
@@ -825,15 +822,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                                  : bCopyPerThread / bVectorLen;
 
     FailureOr<Value> maybeWrappedA = wrapMatrixForGlobalLoad(
-        b, loc, matA, "m", bidGridOrder, bidGridLengths, kernelGridSize,
-        kernelBlockSize, kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread,
-        aVectorDim);
+        b, loc, matA, "m", bidGridOrder, bidGridLengths, gridSize, blockSize,
+        kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread, aVectorDim);
     if (!maybeWrappedA.has_value())
       return maybeWrappedA;
     FailureOr<Value> maybeWrappedB = wrapMatrixForGlobalLoad(
-        b, loc, matB, "n", bidGridOrder, bidGridLengths, kernelGridSize,
-        kernelBlockSize, kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread,
-        bVectorDim);
+        b, loc, matB, "n", bidGridOrder, bidGridLengths, gridSize, blockSize,
+        kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread, bVectorDim);
     if (!maybeWrappedB.has_value())
       return maybeWrappedB;
     Value wrappedA = std::move(*maybeWrappedA),
@@ -888,9 +883,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       // Emit blockwise GEMM.
       blockwiseGemmOp = b.create<BlockwiseGemmOp>(
           loc, ldsMatrixASubviewOp, ldsMatrixBSubviewOp, registerMatrixCViewOp,
-          kPerThreadAttr, b.getIndexAttr(mPerThread),
-          b.getIndexAttr(nPerThread), mThreadsPerCuwaveAttr,
-          nThreadsPerCuwaveAttr, mCuwavesPerBlockAttr, nCuwavesPerBlockAttr);
+          op.paramsAttr());
 
       // LDS barrier.
       // This barrier prevents halo part of outputs having weird values.

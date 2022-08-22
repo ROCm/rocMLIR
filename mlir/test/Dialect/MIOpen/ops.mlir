@@ -171,7 +171,7 @@ func.func @miopen_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256x
       nPerBlock = 128,
       nPerThread = 4,
       nThreadsPerCuwave = 4>
-  } : memref<2x72x128xf32>, memref<2x72x256xf32>, memref<2x128x256xf32>
+  } : memref<2x128x256xf32> += memref<2x72x128xf32> * memref<2x72x256xf32>
   return
 }
 
