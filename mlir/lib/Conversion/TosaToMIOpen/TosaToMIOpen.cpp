@@ -107,11 +107,6 @@ makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   auto filterExp = expandMemRef(rw, op, filter);
   auto outputExp = expandMemRef(rw, op, output);
 
-  // Construct a new Conv2DOp.
-  TypeRange resultTypes;
-  auto cop = rw.create<miopen::Conv2DOp>(
-      loc, resultTypes, ValueRange{filterExp, inputExp, outputExp});
-
   // TODO(sjw): get these from options
   StringRef arch = "gfx906";
   uint32_t num_cu = 64;
@@ -132,6 +127,10 @@ makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   else if (auto attr = func->getAttrOfType<BoolAttr>("xdlopsV2"))
     xdlopsV2 = attr.getValue();
 
+  auto cop = rw.create<miopen::Conv2DOp>(
+      loc, filterExp, inputExp, outputExp, rw.getStringAttr(arch),
+      rw.getI32IntegerAttr(num_cu), /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+      /*params=*/nullptr);
   // translate attributes
   int32_t padTop = pad[0].dyn_cast<IntegerAttr>().getInt();
   int32_t padBottom = pad[1].dyn_cast<IntegerAttr>().getInt();
@@ -157,8 +156,6 @@ makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
 
   // arch-specific attributes
   // TODO: remove these
-  cop->setAttr("arch", rw.getStringAttr(arch));
-  cop->setAttr("num_cu", rw.getI32IntegerAttr(num_cu));
   cop->setAttr("xdlopsV2", rw.getBoolAttr(xdlopsV2));
   if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
     cop->setAttr("perf_config", attr);

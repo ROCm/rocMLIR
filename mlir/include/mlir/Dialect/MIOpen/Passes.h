@@ -64,8 +64,8 @@ std::unique_ptr<Pass> createMIOpenLoopsToCfPass();
 
 /// Create a pass to affix tuning parameters to gridwise gemm ops.
 std::unique_ptr<Pass>
-createAffixTuningParametersPass(int64_t blockSizeOverride = 0,
-                                int64_t gridSizeOverride = 0,
+createAffixTuningParametersPass(uint32_t blockSizeOverride = 0,
+                                uint32_t gridSizeOverride = 0,
                                 bool fallBackNoConfig = false);
 
 #define GEN_PASS_REGISTRATION

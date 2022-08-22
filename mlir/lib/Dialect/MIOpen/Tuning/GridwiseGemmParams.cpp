@@ -576,7 +576,7 @@ LogicalResult PopulateParams::populateDerived(
     ConvolutionContext &ctx, const InitParamsNonXDL &params, GemmSize &gemmSize,
     DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
     DerivedBlockGemmParams &blockGemmDerivedParam,
-    DerivedOutParams &gemmCDerivedParams, int64_t &gridSize) {
+    DerivedOutParams &gemmCDerivedParams, uint32_t &gridSize) {
 
   LogicalResult res = failure();
   res = isValidGemm(params, gemmSize);
@@ -635,7 +635,7 @@ LogicalResult PopulateParams::populatePaddingKernelDerived(
     ConvolutionContext &ctx, const InitParamsNonXDL &param, GemmSize &gemmSize,
     DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
     DerivedBlockGemmParams &blockGemmDerivedParam,
-    DerivedOutParams &gemmCDerivedParam, int64_t &gridSize) {
+    DerivedOutParams &gemmCDerivedParam, uint32_t &gridSize) {
 
   LogicalResult res = failure();
   InitParams paddingParam = getUniversalParameters();
@@ -695,11 +695,11 @@ LogicalResult PopulateParams::populatePaddingKernelDerived(
 }
 
 LogicalResult PopulateParams::obtainTuningParameters(
-    Operation *op, int64_t blockSizeOverride, const std::string &perfConfig,
+    Operation *op, uint32_t blockSizeOverride, const std::string &perfConfig,
     InitParamsNonXDL &validParams, DerivedParams &gemmADerivedParam,
     DerivedParams &gemmBDerivedParam,
     DerivedBlockGemmParams &blockGemmDerivedParam,
-    DerivedOutParams &gemmCDerivedParam, int64_t &gridSize) {
+    DerivedOutParams &gemmCDerivedParam, uint32_t &gridSize) {
 
   ConvolutionContext ctx = populateConvContext(op);
 
@@ -853,8 +853,8 @@ PopulateParamsXDL::initParametersForwardI8[
 
 const InitParams PopulateParamsXDL::universalParameters = {32, 64, 4};
 
-int64_t PopulateParamsXDL::obtainBlockSize(const InitParamsXDL &params,
-                                           int64_t waveSize) {
+uint32_t PopulateParamsXDL::obtainBlockSize(const InitParamsXDL &params,
+                                            int64_t waveSize) {
   return waveSize * params.gemmNPerBlock * params.gemmMPerBlock /
          (params.gemmMPerWave * params.gemmNPerWave);
 }
@@ -912,7 +912,7 @@ LogicalResult PopulateParamsXDL::calculateLdsNumberOfByte(
 }
 
 LogicalResult PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(
-    const InitParamsXDL &param, ConvolutionContext &ctx, int64_t blockSize) {
+    const InitParamsXDL &param, ConvolutionContext &ctx, uint32_t blockSize) {
   // TBD: support fp16/bf16
 
   auto dataType = ctx.getDataType();
@@ -1029,8 +1029,8 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(
 LogicalResult PopulateParamsXDL::populateDerived(
     ConvolutionContext &ctx, const InitParamsXDL &params, GemmSize &gemmSize,
     DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
-    DerivedOutParams &gemmCDerivedParam, int64_t &blockSize, int64_t &gridSize,
-    int64_t &gemmKBlocks) {
+    DerivedOutParams &gemmCDerivedParam, uint32_t &blockSize,
+    uint32_t &gridSize, int64_t &gemmKBlocks) {
   LogicalResult res = isValidGemm(params, gemmSize);
   if (failed(res)) {
     LLVM_DEBUG(llvm::dbgs()
@@ -1104,8 +1104,8 @@ LogicalResult PopulateParamsXDL::populateDerived(
 LogicalResult PopulateParamsXDL::populatePaddingKernelDerived(
     ConvolutionContext &ctx, const InitParamsXDL &param, GemmSize &gemmSize,
     DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
-    DerivedOutParams &gemmCDerivedParam, int64_t &blockSize,
-    int64_t &gridSize) {
+    DerivedOutParams &gemmCDerivedParam, uint32_t &blockSize,
+    uint32_t &gridSize) {
 
   LogicalResult res = failure();
   InitParams paddingParam = getUniversalParameters();
@@ -1183,10 +1183,10 @@ LogicalResult PopulateParamsXDL::isValidGridGemmXdlops(GemmSize &gemmSize) {
 }
 
 LogicalResult PopulateParamsXDL::obtainTuningParameters(
-    Operation *op, int64_t blockSizeOverride, const std::string &perfConfig,
+    Operation *op, uint32_t blockSizeOverride, const std::string &perfConfig,
     InitParamsXDL &validParams, DerivedParams &gemmADerivedParam,
     DerivedParams &gemmBDerivedParam, DerivedOutParams &gemmCDerivedParam,
-    int64_t &blockSize, int64_t &gridSize, int64_t &gemmKBlocks) {
+    uint32_t &blockSize, uint32_t &gridSize, int64_t &gemmKBlocks) {
 
   ConvolutionContext ctx = populateConvContext(op);
 

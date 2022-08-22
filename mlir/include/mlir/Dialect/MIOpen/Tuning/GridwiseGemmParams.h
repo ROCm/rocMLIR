@@ -65,17 +65,17 @@ struct DerivedOutParams {
 };
 
 struct InitParamsNonXDL : InitParams, Serializable<InitParamsNonXDL> {
-  constexpr InitParamsNonXDL(int64_t bSize, int64_t mPerBlock,
+  constexpr InitParamsNonXDL(uint32_t bSize, int64_t mPerBlock,
                              int64_t nPerBlock, int64_t kPerBlock,
                              int64_t mPerThread, int64_t nPerThread)
       : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerThread(mPerThread),
         gemmNPerThread(nPerThread), blockSize(bSize) {}
   int64_t gemmMPerThread;
   int64_t gemmNPerThread;
-  int64_t blockSize;
+  uint32_t blockSize;
 
   constexpr InitParamsNonXDL()
-      : InitParamsNonXDL(0LL, 0LL, 0LL, 0LL, 0LL, 0LL) {}
+      : InitParamsNonXDL(0U, 0LL, 0LL, 0LL, 0LL, 0LL) {}
 
   template <class Self, class F> static void visit(Self &&self, F f) {
     f(self.blockSize);
@@ -166,22 +166,22 @@ private:
                   GemmSize &gemmSize, DerivedParams &gemmADerivedParam,
                   DerivedParams &gemmBDerivedParam,
                   DerivedBlockGemmParams &blockGemmDerivedParam,
-                  DerivedOutParams &gemmCDerivedParam, int64_t &gridSize);
+                  DerivedOutParams &gemmCDerivedParam, uint32_t &gridSize);
 
   LogicalResult populatePaddingKernelDerived(
       ConvolutionContext &ctx, const InitParamsNonXDL &validParams,
       GemmSize &gemmSize, DerivedParams &gemmADerivedParam,
       DerivedParams &gemmBDerivedParam,
       DerivedBlockGemmParams &blockGemmDerivedParam,
-      DerivedOutParams &gemmCDerivedParam, int64_t &gridSize);
+      DerivedOutParams &gemmCDerivedParam, uint32_t &gridSize);
 
 public:
   LogicalResult obtainTuningParameters(
-      Operation *op, int64_t blockSizeOverride, const std::string &perfConfig,
+      Operation *op, uint32_t blockSizeOverride, const std::string &perfConfig,
       InitParamsNonXDL &validParams, DerivedParams &gemmADerivedParam,
       DerivedParams &gemmBDerivedParam,
       DerivedBlockGemmParams &blockGemmDerivedParam,
-      DerivedOutParams &gemmCDerivedParam, int64_t &gridSize);
+      DerivedOutParams &gemmCDerivedParam, uint32_t &gridSize);
 
   ArrayRef<InitParamsNonXDL> getTuningParameters(ConvOpType dir,
                                                  Type dataType) const;
@@ -209,7 +209,7 @@ private:
   // add more 3 gemmk.
   static const InitParams universalParameters;
 
-  int64_t obtainBlockSize(const InitParamsXDL &params, int64_t waveSize);
+  uint32_t obtainBlockSize(const InitParamsXDL &params, int64_t waveSize);
 
   LogicalResult getKBlocks(ConvolutionContext &ctx, const InitParamsXDL &params,
                            int64_t &gemmKBlocks);
@@ -231,29 +231,29 @@ private:
 
   LogicalResult isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
                                            ConvolutionContext &ctx,
-                                           int64_t blockSize);
+                                           uint32_t blockSize);
 
   LogicalResult
   populateDerived(ConvolutionContext &ctx, const InitParamsXDL &validParams,
                   GemmSize &gemmSize, DerivedParams &gemmADerivedParam,
                   DerivedParams &gemmBDerivedParam,
-                  DerivedOutParams &gemmCDerivedParam, int64_t &blockSize,
-                  int64_t &gridSize, int64_t &gemmKBlocks);
+                  DerivedOutParams &gemmCDerivedParam, uint32_t &blockSize,
+                  uint32_t &gridSize, int64_t &gemmKBlocks);
 
   LogicalResult populatePaddingKernelDerived(
       ConvolutionContext &ctx, const InitParamsXDL &validParams,
       GemmSize &gemmSize, DerivedParams &gemmADerivedParam,
       DerivedParams &gemmBDerivedParam, DerivedOutParams &gemmCDerivedParam,
-      int64_t &blockSize, int64_t &gridSize);
+      uint32_t &blockSize, uint32_t &gridSize);
 
   LogicalResult isValidGridGemmXdlops(GemmSize &gemmSize);
 
 public:
   LogicalResult obtainTuningParameters(
-      Operation *op, int64_t blockSizeOverride, const std::string &perfConfig,
+      Operation *op, uint32_t blockSizeOverride, const std::string &perfConfig,
       InitParamsXDL &validParams, DerivedParams &gemmADerivedParam,
       DerivedParams &gemmBDerivedParam, DerivedOutParams &gemmCDerivedParam,
-      int64_t &blockSize, int64_t &gridSize, int64_t &gemmKBlocks);
+      uint32_t &blockSize, uint32_t &gridSize, int64_t &gemmKBlocks);
 
   llvm::ArrayRef<InitParamsXDL> getTuningParameters(ConvOpType dir,
                                                     Type dataType) const;

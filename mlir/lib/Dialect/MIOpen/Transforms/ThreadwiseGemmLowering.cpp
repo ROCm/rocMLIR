@@ -156,16 +156,12 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
+    XdlopsGemmParamsAttr tuningParams = op.params();
     // Obtain critical information.
-    int64_t KPack =
-        op->hasAttr("kpack")
-            ? op->getAttr("kpack").template cast<IntegerAttr>().getInt()
-            : 1;
-    int64_t K = op->getAttr("k").template cast<IntegerAttr>().getInt();
-    int64_t MPerWave =
-        op->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
-    int64_t NPerWave =
-        op->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
+    int64_t KPack = tuningParams.getKpack();
+    int64_t K = tuningParams.getKPerBlock();
+    int64_t MPerWave = tuningParams.getMPerWave();
+    int64_t NPerWave = tuningParams.getNPerWave();
 
     auto dataType = adaptor.matrixA()
                         .getType()

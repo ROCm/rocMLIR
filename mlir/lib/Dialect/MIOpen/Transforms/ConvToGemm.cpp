@@ -131,12 +131,9 @@ LogicalResult getConvDimNames(T op, SmallVectorImpl<StringRef> &filterNames,
   return success();
 }
 
+// To be removed on migration to new vectorization scheme
 void affixGridwiseGemmAttributes(Operation *convOp, Operation *gop,
                                  OpBuilder &b) {
-  gop->setAttr("block_size", convOp->getAttr("block_size"));
-  gop->setAttr("m_per_block", convOp->getAttr("m_per_block"));
-  gop->setAttr("n_per_block", convOp->getAttr("n_per_block"));
-  gop->setAttr("k_per_block", convOp->getAttr("k_per_block"));
   gop->setAttr("matrix_a_source_data_per_read",
                convOp->getAttr("matrix_a_source_data_per_read"));
   gop->setAttr("matrix_a_source_vector_read_dim",
@@ -151,22 +148,6 @@ void affixGridwiseGemmAttributes(Operation *convOp, Operation *gop,
                convOp->getAttr("matrix_c_dest_vector_write_dim"));
   gop->setAttr("matrix_c_source_vector_read_dim",
                convOp->getAttr("matrix_c_source_vector_read_dim"));
-
-  auto xdlopsV2Attr = convOp->getAttrOfType<BoolAttr>("xdlopsV2");
-  if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
-    gop->setAttr("m_per_wave", convOp->getAttr("m_per_wave"));
-    gop->setAttr("n_per_wave", convOp->getAttr("n_per_wave"));
-  } else {
-    gop->setAttr("m_per_thread", convOp->getAttr("m_per_thread"));
-    gop->setAttr("n_per_thread", convOp->getAttr("n_per_thread"));
-    gop->setAttr("k_per_thread", convOp->getAttr("k_per_thread"));
-    gop->setAttr("m_threads_per_cuwave",
-                 convOp->getAttr("m_threads_per_cuwave"));
-    gop->setAttr("m_cuwaves_per_block", convOp->getAttr("m_cuwaves_per_block"));
-    gop->setAttr("n_threads_per_cuwave",
-                 convOp->getAttr("n_threads_per_cuwave"));
-    gop->setAttr("n_cuwaves_per_block", convOp->getAttr("n_cuwaves_per_block"));
-  }
 }
 
 /// Create an elementwise utility kernel.
@@ -177,7 +158,7 @@ LogicalResult createElementwiseLoop(
     OpBuilder &b, Location loc, Operation *convOp, ValueRange memrefs,
     int64_t vectorLen,
     function_ref<void(OpBuilder &, Location, ValueRange, Value)> emitBodyFunc) {
-  int64_t blockSize = convOp->getAttrOfType<IntegerAttr>("block_size").getInt();
+  uint32_t blockSize = convOp->getAttrOfType<IntegerAttr>("blockSize").getInt();
   int64_t elemsPerThread =
       convOp->getAttrOfType<IntegerAttr>("elems_per_thread").getInt();
   if (elemsPerThread % vectorLen != 0)
@@ -261,10 +242,9 @@ LogicalResult zeroInit(Conv2DBwdDataOp op, PatternRewriter &b) {
   auto loopBody = [&zeroOp, &leftOob, &rightOob](OpBuilder &b, Location loc,
                                                  ValueRange collapsed,
                                                  Value index) {
-    b.create<BufferStoreOp>(
-        loc, zeroOp, collapsed[0], leftOob, rightOob, index,
-        StoreMethodAttr::get(b.getContext(), StoreMethod::Set),
-        /*offset=*/IntegerAttr());
+    b.create<BufferStoreOp>(loc, zeroOp, collapsed[0], leftOob, rightOob, index,
+                            b.getAttr<StoreMethodAttr>(StoreMethod::Set),
+                            /*offset=*/IntegerAttr());
   };
   LogicalResult res =
       createElementwiseLoop(b, loc, op, output, kZeroInitVecLen, loopBody);
@@ -304,10 +284,9 @@ LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
   auto loopBody = [&zeroOp, &leftOob, &rightOob](OpBuilder &b, Location loc,
                                                  ValueRange collapsed,
                                                  Value index) {
-    b.create<BufferStoreOp>(
-        loc, zeroOp, collapsed[0], leftOob, rightOob, index,
-        StoreMethodAttr::get(b.getContext(), StoreMethod::Set),
-        /*offset=*/IntegerAttr());
+    b.create<BufferStoreOp>(loc, zeroOp, collapsed[0], leftOob, rightOob, index,
+                            b.getAttr<StoreMethodAttr>(StoreMethod::Set),
+                            /*offset=*/IntegerAttr());
   };
 
   LogicalResult res =
@@ -344,10 +323,9 @@ LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
         b.create<BufferLoadOp>(loc, loadType, collapsed[0], leftOob, rightOob,
                                index, /*offset=*/IntegerAttr());
     Value converted = createTypeConversionOp(b, loc, loaded, storeType);
-    b.create<BufferStoreOp>(
-        loc, converted, collapsed[1], leftOob, rightOob, index,
-        StoreMethodAttr::get(b.getContext(), StoreMethod::Set),
-        /*offset=*/IntegerAttr());
+    b.create<BufferStoreOp>(loc, converted, collapsed[1], leftOob, rightOob,
+                            index, b.getAttr<StoreMethodAttr>(StoreMethod::Set),
+                            /*offset=*/IntegerAttr());
   };
   LogicalResult res = createElementwiseLoop(b, loc, op, {workspace, filter},
                                             kConversionVectorLen, loopBody);
@@ -363,14 +341,26 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
                                       PatternRewriter &b) {
   auto loc = op.getLoc();
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
-  auto archAttr = op->template getAttrOfType<StringAttr>("arch");
-  auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
 
-  auto KPackAttr = op->template getAttrOfType<IntegerAttr>("kpack");
-  int64_t KPack = KPackAttr.getInt();
+  // TODO #1: Move to gemm-to-gridwise-gemm
+  // TODO #2: Remove after new gridwise gemm structure adopted everywhere
+  int64_t KPack;
+  Attribute tuningParams = op.paramsAttr();
+  if (!tuningParams) {
+    return op.emitOpError("can't lower without tuning parameters\n");
+  }
+  auto maybeGeneralParams = tuningParams.dyn_cast<GeneralGemmParamsAttr>();
+  auto maybeXdlopsParams = tuningParams.dyn_cast<XdlopsGemmParamsAttr>();
+  if (maybeGeneralParams)
+    KPack = maybeGeneralParams.getKpack();
+  else if (maybeXdlopsParams)
+    KPack = maybeXdlopsParams.getKpack();
+  else
+    return op.emitOpError("unknown tuning parameter struct type");
 
-  auto KBlocksAttr = op->template getAttrOfType<IntegerAttr>("kblocks");
-  int64_t gemmKBlocks = KBlocksAttr.getInt();
+  if (!op.kBlocks().has_value())
+    return op.emitOpError("must have kBlocks set at lowering");
+  int64_t gemmKBlocks = op.kBlocks()->getZExtValue();
 
   ConvolutionContext ctx = populateConvContext(op);
 
@@ -574,32 +564,17 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
                                        gemmOutputTransformAttr, KPack);
   }
 
-  // Set attributes for gridwise_gemm op.
-  llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
-      b.getNamedAttr("gemm_id", gemmIdAttr), b.getNamedAttr("arch", archAttr),
-      b.getNamedAttr("num_cu", numCuAttr)};
-
-  // Supply KPack information into gridwiseGemmAttrs.
-  if (KPack > 1) {
-    gridwiseGemmAttrs.push_back(
-        b.getNamedAttr("kpack", b.getI32IntegerAttr(KPack)));
-  }
-
-  // xdlopsV2.
-  if (isXdlops)
-    gridwiseGemmAttrs.push_back(
-        b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
-
   // This kernel is not run when there is padding on the GEMM
-  auto paddingInfo = PaddingInfoAttr::get(b.getContext(), 0, 0, 0);
-  auto storeMethod = StoreMethod::AtomicAdd;
+  auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::AtomicAdd);
 
   Value gemmA = gemmOutputKPack;
   Value gemmB = gemmInputKPack;
   Value gemmC = gemmFilter;
   if (isXdlops) {
-    auto gop = b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, paddingInfo,
-                                          storeMethod, gridwiseGemmAttrs);
+    auto gop = b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, storeMethod,
+                                          op.archAttr(), op.blockSizeAttr(),
+                                          op.gridSizeAttr(), maybeXdlopsParams);
+    gop->setAttr("gemm_id", gemmIdAttr);
     affixGridwiseGemmAttributes(op, gop, b);
   } else {
     op->emitOpError("Backward weight atomic add kernel requires xdlops and "
@@ -615,11 +590,22 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
 LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   auto loc = op.getLoc();
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
-  auto archAttr = op->template getAttrOfType<StringAttr>("arch");
-  auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
 
-  auto KPackAttr = op->template getAttrOfType<IntegerAttr>("kpack");
-  int64_t KPack = KPackAttr.getInt();
+  // TODO #1: Move to gemm-to-gridwise-gemm
+  // TODO #2: Remove after new gridwise gemm structure adopted everywhere
+  int64_t KPack;
+  Attribute tuningParams = op.paramsAttr();
+  if (!tuningParams) {
+    return op.emitOpError("can't lower without tuning parameters\n");
+  }
+  auto maybeGeneralParams = tuningParams.dyn_cast<GeneralGemmParamsAttr>();
+  auto maybeXdlopsParams = tuningParams.dyn_cast<XdlopsGemmParamsAttr>();
+  if (maybeGeneralParams)
+    KPack = maybeGeneralParams.getKpack();
+  else if (maybeXdlopsParams)
+    KPack = maybeXdlopsParams.getKpack();
+  else
+    return op.emitOpError("unknown tuning parameter struct type");
 
   ConvolutionContext ctx = populateConvContext(op);
 
@@ -951,36 +937,23 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
                                        gemmOutputTransformAttr, KPack);
   }
 
-  // Set attributes for gridwise_gemm op.
-  llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
-      b.getNamedAttr("gemm_id", gemmIdAttr), b.getNamedAttr("arch", archAttr),
-      b.getNamedAttr("num_cu", numCuAttr)};
-  // xdlopsV2.
-  if (isXdlops)
-    gridwiseGemmAttrs.push_back(
-        b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
-
-  auto paddingInfo = PaddingInfoAttr::get(b.getContext(), gemmExtraPad.m,
-                                          gemmExtraPad.k, gemmExtraPad.n);
-
-  // Supply KPack information into gridwiseGemmAttrs.
-  if (KPack > 1) {
-    gridwiseGemmAttrs.push_back(
-        b.getNamedAttr("kpack", b.getI32IntegerAttr(KPack)));
-  }
-
   Value gemmA = gemmFilterKPack;
   Value gemmB = gemmOutputKPack;
   Value gemmC = gemmInput;
   // Emit miopen.gridwise_gemm op.
   // Emit miopen.gridwise_gemm_v2 if using xdlops
+  auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
   if (isXdlops) {
-    auto gop = b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, paddingInfo,
-                                          StoreMethod::Set, gridwiseGemmAttrs);
+    auto gop = b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, storeMethod,
+                                          op.archAttr(), op.blockSizeAttr(),
+                                          op.gridSizeAttr(), maybeXdlopsParams);
+    gop->setAttr("gemm_id", gemmIdAttr);
     affixGridwiseGemmAttributes(op, gop, b);
   } else {
-    auto gop = b.create<GridwiseGemmOp>(loc, gemmA, gemmB, gemmC, paddingInfo,
-                                        gridwiseGemmAttrs);
+    auto gop = b.create<GridwiseGemmOp>(loc, gemmA, gemmB, gemmC, op.archAttr(),
+                                        op.blockSizeAttr(), op.gridSizeAttr(),
+                                        maybeGeneralParams);
+    gop->setAttr("gemm_id", gemmIdAttr);
     affixGridwiseGemmAttributes(op, gop, b);
   }
   // Finally, erase the original Conv2D op.
@@ -1004,13 +977,23 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     if (ConvOpType::BwdData == convOpType) {
       return backwardData(cast<Conv2DBwdDataOp>(op), b);
     }
-    auto loc = op.getLoc();
+    Location loc = op.getLoc();
 
-    auto archAttr = op->template getAttrOfType<StringAttr>("arch");
-    auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
-
-    auto KPackAttr = op->template getAttrOfType<IntegerAttr>("kpack");
-    int64_t KPack = KPackAttr.getInt();
+    // TODO #1: Move to gemm-to-gridwise-gemm
+    // TODO #2: Remove after new gridwise gemm structure adopted everywhere
+    int64_t KPack;
+    Attribute tuningParams = op.paramsAttr();
+    if (!tuningParams) {
+      return op.emitOpError("can't lower without tuning parameters\n");
+    }
+    auto maybeGeneralParams = tuningParams.dyn_cast<GeneralGemmParamsAttr>();
+    auto maybeXdlopsParams = tuningParams.dyn_cast<XdlopsGemmParamsAttr>();
+    if (maybeGeneralParams)
+      KPack = maybeGeneralParams.getKpack();
+    else if (maybeXdlopsParams)
+      KPack = maybeXdlopsParams.getKpack();
+    else
+      return op.emitOpError("unknown tuning parameter struct type");
 
     ConvolutionContext ctx = populateConvContext(op);
 
@@ -1425,17 +1408,6 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
                                          sourceTransformAttr, KPack);
     }
 
-    // Set attributes for gridwise_gemm op.
-    llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
-        b.getNamedAttr("arch", archAttr),
-        b.getNamedAttr("num_cu", numCuAttr),
-    };
-
-    // xdlopsV2.
-    if (isXdlops)
-      gridwiseGemmAttrs.push_back(
-          b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
-
     SmallVector<Value, 3> arguments = {gemmFilterKPack, gemmInputKPack,
                                        gemmOutputKPack};
 
@@ -1444,32 +1416,19 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     gemmB = arguments[fields.gridwiseGemmArgumentPosition[1]];
     gemmC = arguments[fields.gridwiseGemmArgumentPosition[2]];
 
-    // Create padding info attr
-    auto paddingInfo = PaddingInfoAttr::get(b.getContext(), gemmExtraPad.m,
-                                            gemmExtraPad.k, gemmExtraPad.n);
-
-    auto storeMethod = StoreMethod::Set;
+    auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
     // Emit miopen.gridwise_gemm op.
     // Emit miopen.gridwise_gemm_v2 if xdlopsV2 attribute is true.
 
-    // Supply KPack information into gridwiseGemmAttrs.
-    if ((KPack > 1) && ((convOpType == ConvOpType::Fwd) ||
-                        (convOpType == ConvOpType::BwdWeight))) {
-      gridwiseGemmAttrs.push_back(
-          b.getNamedAttr("kpack", b.getI32IntegerAttr(KPack)));
-    } else {
-      gridwiseGemmAttrs.push_back(
-          b.getNamedAttr("kpack", b.getI32IntegerAttr(1)));
-    }
-
     if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
-      auto gop =
-          b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, paddingInfo,
-                                     storeMethod, gridwiseGemmAttrs);
+      auto gop = b.create<GridwiseGemmV2Op>(
+          loc, gemmA, gemmB, gemmC, storeMethod, op.archAttr(),
+          op.blockSizeAttr(), op.gridSizeAttr(), maybeXdlopsParams);
       affixGridwiseGemmAttributes(op, gop, b);
     } else {
-      auto gop = b.create<GridwiseGemmOp>(loc, gemmA, gemmB, gemmC, paddingInfo,
-                                          gridwiseGemmAttrs);
+      auto gop = b.create<GridwiseGemmOp>(
+          loc, gemmA, gemmB, gemmC, op.archAttr(), op.blockSizeAttr(),
+          op.gridSizeAttr(), maybeGeneralParams);
       affixGridwiseGemmAttributes(op, gop, b);
     }
 
