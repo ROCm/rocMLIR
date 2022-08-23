@@ -453,8 +453,8 @@ static void correctParameters() {
   // if use paddingHeight , paddingHeightLeft and paddingHeightRight =
   // paddingHeight if use paddingHeightLeft + paddingHeightRight , please
   // assigne value
-  auto validatePadding = [](cl::opt<int>& combined, cl::opt<int>& left,
-                            cl::opt<int>& right, StringRef name) {
+  auto validatePadding = [](cl::opt<int> &combined, cl::opt<int> &left,
+                            cl::opt<int> &right, StringRef name) {
     if (combined.getValue() > 0) {
       int combinedVal = combined.getValue();
       int leftVal = left.getValue();
@@ -464,9 +464,8 @@ static void correctParameters() {
         right = combinedVal;
       } else {
         if (leftVal != combinedVal || rightVal != combinedVal) {
-          llvm::errs()
-            << "you can't use both " << name << " and (" << name << "_l,"
-            << name << "_r).\n";
+          llvm::errs() << "you can't use both " << name << " and (" << name
+                       << "_l," << name << "_r).\n";
         }
       }
     }
@@ -2083,23 +2082,24 @@ populateHostHarnessLogic(ModuleOp &module,
   return success();
 }
 
-void postOrderTraverseInternal(CallGraphNode *node, SymbolTable& symbolTable,
-                               llvm::SmallDenseSet<CallGraphNode*>& calleesSeen,
-                               llvm::SmallDenseMap<Operation*,Operation*>& calleesRemapped) {
+void postOrderTraverseInternal(
+    CallGraphNode *node, SymbolTable &symbolTable,
+    llvm::SmallDenseSet<CallGraphNode *> &calleesSeen,
+    llvm::SmallDenseMap<Operation *, Operation *> &calleesRemapped) {
   for (auto &edge : *node) {
     if (!calleesSeen.count(edge.getTarget()))
-      postOrderTraverseInternal(edge.getTarget(), symbolTable,
-                                calleesSeen, calleesRemapped);
-     else
-      ;   // Replace callee with new callee.
+      postOrderTraverseInternal(edge.getTarget(), symbolTable, calleesSeen,
+                                calleesRemapped);
+    else
+      ; // Replace callee with new callee.
   }
 
   auto *callableRegion = node->getCallableRegion();
   auto *parentOp = callableRegion->getParentOp();
 
   // debug printing
-  llvm::errs() << "'" << callableRegion->getParentOp()->getName() << "' - Region #"
-     << callableRegion->getRegionNumber();
+  llvm::errs() << "'" << callableRegion->getParentOp()->getName()
+               << "' - Region #" << callableRegion->getRegionNumber();
   auto attrs = parentOp->getAttrDictionary();
   if (!attrs.empty())
     llvm::errs() << " : " << attrs;
@@ -2120,8 +2120,10 @@ void postOrderTraverseInternal(CallGraphNode *node, SymbolTable& symbolTable,
     Operation *callableFromInt = callInt.resolveCallable();
     if (callableFromInt) {
       if (calleesRemapped.find(callableFromInt) != calleesRemapped.end()) {
-        func::FuncOp fop = dyn_cast<func::FuncOp>(*calleesRemapped[callableFromInt]);
-        call->setAttr("callee", FlatSymbolRefAttr::get(context, fop.getSymName()));
+        func::FuncOp fop =
+            dyn_cast<func::FuncOp>(*calleesRemapped[callableFromInt]);
+        call->setAttr("callee",
+                      FlatSymbolRefAttr::get(context, fop.getSymName()));
       } else {
         // must be an external function, or a bug;  how to check?
       }
@@ -2132,9 +2134,9 @@ void postOrderTraverseInternal(CallGraphNode *node, SymbolTable& symbolTable,
   calleesSeen.insert(node);
 }
 
-void postOrderTraverse(CallGraphNode *node, SymbolTable& symbolTable) {
-  llvm::SmallDenseSet<CallGraphNode*> calleesSeen;
-  llvm::SmallDenseMap<Operation*,Operation*> calleesRemapped;
+void postOrderTraverse(CallGraphNode *node, SymbolTable &symbolTable) {
+  llvm::SmallDenseSet<CallGraphNode *> calleesSeen;
+  llvm::SmallDenseMap<Operation *, Operation *> calleesRemapped;
   postOrderTraverseInternal(node, symbolTable, calleesSeen, calleesRemapped);
 }
 
