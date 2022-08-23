@@ -2113,21 +2113,7 @@ void postOrderTraverseInternal(CallGraphNode *node, SymbolTable& symbolTable,
   symbolTable.insert(cloneFunc);
 
   // update callees
-//   for (auto call : cloneFunc->getOps<func::CallOp>()) {
-//     CallOpInterface callInt = dyn_cast<CallOpInterface>(call);
-//     Operation *callableFromInt = callInt.resolveCallable();
-//     if (callableFromInt) {
-//       func::FuncOp fop = dyn_cast<func::FuncOp>(*callableFromInt);
-//       if (calleesRemapped.find(fop) != calleesRemapped.end()) {
-//         call->setAttr("callee", FlatSymbolRefAttr::get(context, calleesRemapped[fop].getSymName()));
-//       } else {
-//         // must be an external function, or a bug;  how to check?
-//       }
-//     }
-//   }
-
   auto context = cloneFunc->getContext();
-
   cloneFunc->walk([&](func::CallOp call) -> WalkResult {
     Operation *op = call;
     CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
