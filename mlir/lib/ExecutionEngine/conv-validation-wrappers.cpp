@@ -915,8 +915,9 @@ void mcpuVerify(T *gpuResults, T *validationResults, int64_t dataSize,
       }
       sumAbsDiff += static_cast<double>(absDiff);
       // Update maxRelDiff only if cpuVal != 0
+      double relDiff = 0.0;
       if (valNum != 0.0f) {
-        double relDiff =
+        relDiff =
             static_cast<double>(absDiff) / (static_cast<double>(fabs(valNum)));
         hist_relDiff[findIdxHistRelDiff(relDiff)]++;
         if (relDiff > maxRelDiff) {
@@ -930,6 +931,9 @@ void mcpuVerify(T *gpuResults, T *validationResults, int64_t dataSize,
       }
       // Accumulate square root
       sumDiffSq += static_cast<double>(absDiff) * static_cast<double>(absDiff);
+      // Print out values if difference is larger than threshold
+      if (absDiff > thr_absDiff || relDiff > thr_relDiff)
+        printf("%ld: %f %f %f %lf\n", i, valNum, gpuNum, absDiff, relDiff);
     }
   }
   double aveAbsDiff = sumAbsDiff / static_cast<double>(dataSize);
