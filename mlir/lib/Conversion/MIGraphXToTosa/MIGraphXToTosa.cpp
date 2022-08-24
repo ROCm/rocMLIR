@@ -42,12 +42,12 @@ static TosaOp createOpAndInfer(mlir::PatternRewriter &rewriter, mlir::Location l
                         Args &&...args){
     auto op = rewriter.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
     InferShapedTypeOpInterface shapeInterface = cast<InferShapedTypeOpInterface>(op.getOperation());
-    SmallVector<ShapedTypeComponents> ReturnShape;
+    SmallVector<ShapedTypeComponents> returnShape;
     LogicalResult shapeInferenceStatus = shapeInterface.inferReturnTypeComponents(op.getContext(), op.getLoc(),
                                       op->getOperands(), op->getAttrDictionary(),
-                                      op->getRegions(), ReturnShape);
+                                      op->getRegions(), returnShape);
     assert(shapeInferenceStatus.succeeded());
-    Type newOutTy = RankedTensorType::get({ReturnShape[0].getDims()}, elemType);
+    Type newOutTy = RankedTensorType::get({returnShape[0].getDims()}, elemType);
     auto result = op->getResult(0);
     result.setType(newOutTy);
     return op;
