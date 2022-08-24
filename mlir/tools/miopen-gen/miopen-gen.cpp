@@ -1215,7 +1215,7 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   OpBuilder b(module.getContext());
   auto loc = b.getUnknownLoc();
   auto floatType = b.getF32Type();
-  auto intType = b.getIntegerType(32);
+  auto charType = b.getIntegerType(8);
 
   // Emit verify_results function call
   func = func::FuncOp::create(loc, funcName,
@@ -1261,7 +1261,7 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     thr_relDiff = getF32Val(relDiffThreshold.getValue());
   else
     thr_relDiff = getF32Val(0.000001f);
-  int printDebug = 1;
+  char printDebug = 1;
   std::string printVerifyOption = printVerifyResults.getValue();
   if (printVerifyOption == "always") {
     printDebug = 2;
@@ -1275,7 +1275,8 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     llvm::errs() << " (supported options: always, failure, off)\n";
     exit(1);
   }
-  auto printDebugVal = b.create<arith::ConstantIntOp>(loc, printDebug, intType);
+  auto printDebugVal =
+      b.create<arith::ConstantIntOp>(loc, printDebug, charType);
 
   // obtain function name of the verifier wrapper
   std::string verifyFuncName = "mcpuVerify5D";
@@ -1364,7 +1365,7 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   // Declare and call the wrapper verify function
   auto verifyFuncDecl = makeFuncDecl(
       module, verifyFuncName,
-      {mr5DUnkType, mr5DUnkType, floatType, floatType, floatType, intType});
+      {mr5DUnkType, mr5DUnkType, floatType, floatType, floatType, charType});
   b.create<func::CallOp>(loc, verifyFuncDecl,
                          ValueRange{testResult, valResult, thr_RMS, thr_absDiff,
                                     thr_relDiff, printDebugVal});
