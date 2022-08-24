@@ -2106,7 +2106,7 @@ void postOrderTraverseInternal(
 //   llvm::errs() << "\n";
 
   // clone the func
-  auto cloneFunc = parentOp->clone();
+  auto *cloneFunc = parentOp->clone();
   cloneFunc->setAttr("original_func", SymbolRefAttr::get(parentOp));
   parentOp->setAttr("clone_func", SymbolRefAttr::get(cloneFunc));
 
@@ -2114,7 +2114,7 @@ void postOrderTraverseInternal(
   symbolTable.insert(cloneFunc);
 
   // update callees
-  auto context = cloneFunc->getContext();
+  auto *context = cloneFunc->getContext();
   cloneFunc->walk([&](func::CallOp call) -> WalkResult {
     Operation *op = call;
     CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
