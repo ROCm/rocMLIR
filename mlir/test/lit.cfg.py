@@ -86,17 +86,9 @@ tools = [
 # The following tools are optional
 tools.extend([
     ToolSubst('%PYTHON', config.python_executable, unresolved='ignore'),
-    ToolSubst('toy-ch1', unresolved='ignore'),
-    ToolSubst('toy-ch2', unresolved='ignore'),
-    ToolSubst('toy-ch3', unresolved='ignore'),
-    ToolSubst('toy-ch4', unresolved='ignore'),
-    ToolSubst('toy-ch5', unresolved='ignore'),
-    ToolSubst('%cuda_wrapper_library_dir', config.cuda_wrapper_library_dir, unresolved='ignore'),
     ToolSubst('%linalg_test_lib_dir', config.linalg_test_lib_dir, unresolved='ignore'),
     ToolSubst('%mlir_runner_utils_dir', config.mlir_runner_utils_dir, unresolved='ignore'),
     ToolSubst('%conv_validation_wrapper_library_dir', config.conv_validation_wrapper_library_dir, unresolved='fatal'),
-    ToolSubst('%spirv_wrapper_library_dir', config.spirv_wrapper_library_dir, unresolved='ignore'),
-    ToolSubst('%vulkan_wrapper_library_dir', config.vulkan_wrapper_library_dir, unresolved='ignore'),
 ])
 
 llvm_config.add_tool_substitutions(tools, tool_dirs)
