@@ -2097,17 +2097,18 @@ void postOrderTraverseInternal(
   auto *callableRegion = node->getCallableRegion();
   auto *parentOp = callableRegion->getParentOp();
 
-  // debug printing
-  llvm::errs() << "'" << callableRegion->getParentOp()->getName()
-               << "' - Region #" << callableRegion->getRegionNumber();
-  auto attrs = parentOp->getAttrDictionary();
-  if (!attrs.empty())
-    llvm::errs() << " : " << attrs;
-  llvm::errs() << "\n";
+//   // debug printing
+//   llvm::errs() << "'" << callableRegion->getParentOp()->getName()
+//                << "' - Region #" << callableRegion->getRegionNumber();
+//   auto attrs = parentOp->getAttrDictionary();
+//   if (!attrs.empty())
+//     llvm::errs() << " : " << attrs;
+//   llvm::errs() << "\n";
 
   // clone the func
   auto cloneFunc = parentOp->clone();
   cloneFunc->setAttr("original_func", SymbolRefAttr::get(parentOp));
+  parentOp->setAttr("clone_func", SymbolRefAttr::get(cloneFunc));
 
   // add the clone into the symbol table.
   symbolTable.insert(cloneFunc);
@@ -2290,20 +2291,23 @@ int main(int argc, char **argv) {
     for (auto &edge : *node)
       roots.remove(edge.getTarget());
 
-  // Make KernelIFs for the roots, to pass to populateHostHarnessLogic().
-  SmallVector<KernelIF, 8> rootIFs;
-  for (auto node : roots) {
-    func::FuncOp func =
-        dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
-    rootIFs.emplace_back(func);
-  }
-
   SymbolTable symbolTable(module);
   for (auto root : roots) {
     postOrderTraverse(root, symbolTable);
   }
 
+  // Make KernelIFs for the roots, to pass to populateHostHarnessLogic().
+  SmallVector<KernelIF, 8> rootIFs;
+
   if (testFuncNameVal.empty()) {
+    for (auto node : roots) {
+      func::FuncOp func =
+        dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
+      rootIFs.emplace_back(func);
+      auto cloneAttr = func->getAttrOfType<SymbolRefAttr>("clone_func");
+      if (cloneAttr)
+        rootIFs.emplace_back(module.lookupSymbol<func::FuncOp>(cloneAttr.getLeafReference()));
+    }
     module.walk([&](func::FuncOp func) -> WalkResult {
       if (func->hasAttr("kernel")) {
         kernels.emplace_back(func);
@@ -2313,9 +2317,9 @@ int main(int argc, char **argv) {
   } else {
     auto func = module.lookupSymbol<func::FuncOp>(testFuncName);
     assert(func);
-    rootIFs.clear();
-    kernels.emplace_back(func);
+    kernels.emplace_back(func);         // +++pf: should it be a kernel?
     rootIFs.emplace_back(func);
+    // if func->getAttr("clone_func") then also emplace clone_func
   }
 
   // populate host logic.
