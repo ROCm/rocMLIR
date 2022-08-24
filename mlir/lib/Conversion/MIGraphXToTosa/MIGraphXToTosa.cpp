@@ -360,27 +360,27 @@ public:
   LogicalResult
   matchAndRewrite(migraphx::SoftmaxOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    auto Operands = adaptor.getOperands();
-    auto Input = Operands[0];
-    auto AxisAttr = op->getAttr("axis").cast<IntegerAttr>();
-    ShapedType InputType = Input.getType().cast<ShapedType>();
-    auto ElementType = InputType.getElementType();
-    Location Loc = op->getLoc();
+    auto operands = adaptor.getOperands();
+    auto input = operands[0];
+    auto axisAttr = op->getAttr("axis").cast<IntegerAttr>();
+    ShapedType inputType = input.getType().cast<ShapedType>();
+    auto elementType = inputType.getElementType();
+    Location loc = op->getLoc();
 
-    auto TosaMax = createOpAndInfer<tosa::ReduceMaxOp>(
-        rewriter, Loc, ElementType, Input, AxisAttr);
-    auto TosaSub = createOpAndInfer<tosa::SubOp>(rewriter, Loc, ElementType,
-                                                 Input, TosaMax);
-    auto TosaExp =
-        createOpAndInfer<tosa::ExpOp>(rewriter, Loc, ElementType, TosaSub);
-    auto TosaReduceSum = createOpAndInfer<tosa::ReduceSumOp>(
-        rewriter, Loc, ElementType, TosaExp, AxisAttr);
-    auto TosaReciprocal = createOpAndInfer<tosa::ReciprocalOp>(
-        rewriter, Loc, ElementType, TosaReduceSum);
-    auto TosaMul = createOpAndInfer<tosa::MulOp>(
-        rewriter, Loc, ElementType, TosaExp, TosaReciprocal, /*shift=*/0);
+    auto tosaMax = createOpAndInfer<tosa::ReduceMaxOp>(
+        rewriter, loc, elementType, input, axisAttr);
+    auto tosaSub = createOpAndInfer<tosa::SubOp>(rewriter, loc, elementType,
+                                                 input, tosaMax);
+    auto tosaExp =
+        createOpAndInfer<tosa::ExpOp>(rewriter, loc, elementType, tosaSub);
+    auto tosaReduceSum = createOpAndInfer<tosa::ReduceSumOp>(
+        rewriter, loc, elementType, tosaExp, axisAttr);
+    auto tosaReciprocal = createOpAndInfer<tosa::ReciprocalOp>(
+        rewriter, loc, elementType, tosaReduceSum);
+    auto tosaMul = createOpAndInfer<tosa::MulOp>(
+        rewriter, loc, elementType, tosaExp, tosaReciprocal, /*shift=*/0);
 
-    rewriter.replaceOp(op, {TosaMul});
+    rewriter.replaceOp(op, {tosaMul});
     return success();
   }
 };
