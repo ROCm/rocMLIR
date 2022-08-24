@@ -350,6 +350,7 @@ static cl::opt<std::string> randomSide(
              "By default, populate random numbers to both tensors."),
     cl::value_desc("tensor"), cl::init("both"));
 
+// Verification function options
 static cl::opt<float> RMSThreshold("RMS_threshold",
                                    cl::desc("Threshold for RMS metric"),
                                    cl::value_desc("error"), cl::init(0.00003f));
@@ -363,6 +364,16 @@ static cl::opt<float> relDiffThreshold("relDiff_threshold",
                                        cl::desc("Threshold for relDiff metric"),
                                        cl::value_desc("error"),
                                        cl::init(100.0f));
+static cl::opt<std::string> printVerifyResults(
+    "print-verify-results",
+    cl::desc("Choose when to print verbose debug information in the "
+             "verification function:"
+             "always: print debug info"
+             "failure: print debug info if the test fails (default)"
+             "off: do not print debug info"),
+    cl::value_desc("info"), cl::init("failure"));
+static cl::alias aliasPrintVerifyResults("p_verify",
+                                         cl::aliasopt(printVerifyResults));
 
 static cl::opt<int> deviceNum(
     "device",
@@ -1204,6 +1215,7 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   OpBuilder b(module.getContext());
   auto loc = b.getUnknownLoc();
   auto floatType = b.getF32Type();
+  auto intType = b.getIntegerType(32);
 
   // Emit verify_results function call
   func = func::FuncOp::create(loc, funcName,
@@ -1249,6 +1261,21 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     thr_relDiff = getF32Val(relDiffThreshold.getValue());
   else
     thr_relDiff = getF32Val(0.000001f);
+  int printDebug = 1;
+  std::string printVerifyOption = printVerifyResults.getValue();
+  if (printVerifyOption == "always") {
+    printDebug = 2;
+  } else if (printVerifyOption == "failure") {
+    printDebug = 1;
+  } else if (printVerifyOption == "off") {
+    printDebug = 0;
+  } else {
+    llvm::errs() << "Unsupported print-verify-results option: "
+                 << printVerifyOption;
+    llvm::errs() << " (supported options: always, failure, off)\n";
+    exit(1);
+  }
+  auto printDebugVal = b.create<arith::ConstantIntOp>(loc, printDebug, intType);
 
   // obtain function name of the verifier wrapper
   std::string verifyFuncName = "mcpuVerify5D";
@@ -1335,12 +1362,12 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   // Prepare the validation result for the verify function
   valResult = b.create<memref::CastOp>(loc, mr5DUnkType, arg1);
   // Declare and call the wrapper verify function
-  auto verifyFuncDecl =
-      makeFuncDecl(module, verifyFuncName,
-                   {mr5DUnkType, mr5DUnkType, floatType, floatType, floatType});
-  b.create<func::CallOp>(
-      loc, verifyFuncDecl,
-      ValueRange{testResult, valResult, thr_RMS, thr_absDiff, thr_relDiff});
+  auto verifyFuncDecl = makeFuncDecl(
+      module, verifyFuncName,
+      {mr5DUnkType, mr5DUnkType, floatType, floatType, floatType, intType});
+  b.create<func::CallOp>(loc, verifyFuncDecl,
+                         ValueRange{testResult, valResult, thr_RMS, thr_absDiff,
+                                    thr_relDiff, printDebugVal});
 
   if (!isTestAndValSameType) {
     // Deallocate the buffer for f32 version of the test results
