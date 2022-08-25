@@ -29,6 +29,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/IntegerSet.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
@@ -847,8 +848,8 @@ getConv2dBounds(miopen::ConvOpType dir,
                 const miopen::Conv2dGenerator::Config &genConfig) {
   int64_t dim, dimH, dimW;
   char channel;
-  std::string layout;
-  SmallVector<int64_t, 5> dimension;
+  StringRef layout;
+  ArrayRef<int64_t> dimension;
   switch (dir) {
   case miopen::ConvOpType::Fwd:
     channel = 'c';
@@ -867,12 +868,12 @@ getConv2dBounds(miopen::ConvOpType dir,
     break;
   }
   for (const auto &t : llvm::zip(layout, dimension)) {
-    char *c(&std::get<0>(t));
-    if (*c == channel)
+    char c(std::get<0>(t));
+    if (c == channel)
       dim = std::get<1>(t);
-    if (*c == 'h')
+    if (c == 'h')
       dimH = std::get<1>(t);
-    if (*c == 'w')
+    if (c == 'w')
       dimW = std::get<1>(t);
   }
   return std::make_tuple(dim, dimH, dimW);
@@ -886,7 +887,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   Block *block = func.addEntryBlock();
   b.setInsertionPoint(block, block->begin());
 
-  auto loc = b.getUnknownLoc();
+  Location loc = b.getUnknownLoc();
   auto zeroI16Op = b.create<arith::ConstantIntOp>(loc, 0, b.getIntegerType(16));
   auto zeroI32Op = b.create<arith::ConstantIntOp>(loc, 0, b.getIntegerType(32));
 
@@ -904,19 +905,23 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
     break;
   }
   auto resultType = resultTensor.getType().template dyn_cast<MemRefType>();
-  auto elemType = resultType.getElementType();
+  mlir::Type elemType = resultType.getElementType();
   MemRefType mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
   auto memrefCastOp = b.create<memref::CastOp>(loc, mr5DUnkType, resultTensor);
   b.create<func::CallOp>(
       loc, getMemsetFunc(module, elemType),
       ValueRange{memrefCastOp, zeroI16Op, zeroI16Op, zeroI32Op});
 
+  // Create affine maps
   AffineExpr heightExpr, widthExpr;
   AffineMap heightMap, widthMap;
+  AffineExpr outputHeightExpr, outputWidthExpr;
+  AffineMap outputHeightMap, outputWidthMap;
 
   switch (genConfig.operation.getValue()) {
   case miopen::ConvOpType::Fwd:
   case miopen::ConvOpType::BwdWeight:
+    // d0 * stride + d1 * dilation - padding
     heightExpr = b.getAffineDimExpr(0) * genConfig.strideHeight +
                  b.getAffineDimExpr(1) * genConfig.dilationHeight -
                  genConfig.paddingHeightLeft;
@@ -925,16 +930,51 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
                 genConfig.paddingWidthLeft;
     break;
   case miopen::ConvOpType::BwdData:
+    // d0 + padding - d1 * dilation
     heightExpr = b.getAffineDimExpr(0) + genConfig.paddingHeightLeft -
                  b.getAffineDimExpr(1) * genConfig.dilationHeight;
     widthExpr = b.getAffineDimExpr(0) + genConfig.paddingWidthLeft -
                 b.getAffineDimExpr(1) * genConfig.dilationWidth;
-    heightMap = AffineMap::get(2, 0, {heightExpr}, b.getContext());
-    widthMap = AffineMap::get(2, 0, {widthExpr}, b.getContext());
     break;
   }
   heightMap = AffineMap::get(2, 0, {heightExpr}, b.getContext());
   widthMap = AffineMap::get(2, 0, {widthExpr}, b.getContext());
+
+  // Create extra maps for backward data
+  if (genConfig.operation.getValue() == miopen::ConvOpType::BwdData) {
+    // d0 / stride
+    outputHeightExpr = b.getAffineDimExpr(0).floorDiv(genConfig.strideHeight);
+    outputWidthExpr = b.getAffineDimExpr(0).floorDiv(genConfig.strideWidth);
+    outputHeightMap = AffineMap::get(1, 0, {outputHeightExpr}, b.getContext());
+    outputWidthMap = AffineMap::get(1, 0, {outputWidthExpr}, b.getContext());
+  }
+
+  // Create constraints for boundary checks
+  SmallVector<AffineExpr, 6> exprs;
+  SmallVector<bool, 6> eqFlags;
+  IntegerSet condition;
+  if (genConfig.operation.getValue() == miopen::ConvOpType::BwdData) {
+    // out_h_tmp % stride_h == 0, out_w_tmp % stride_w == 0
+    exprs.push_back(b.getAffineDimExpr(2) % genConfig.strideHeight);
+    eqFlags.push_back(true);
+    exprs.push_back(b.getAffineDimExpr(3) % genConfig.strideWidth);
+    eqFlags.push_back(true);
+  }
+  // out_h_idx >= 0, out_h_idx < out_height, out_w_idx >= 0, out_w_idx <
+  // out_width
+  exprs.push_back(b.getAffineDimExpr(0));
+  eqFlags.push_back(false);
+  exprs.push_back(b.getAffineSymbolExpr(0) - b.getAffineDimExpr(0) - 1);
+  eqFlags.push_back(false);
+  exprs.push_back(b.getAffineDimExpr(1));
+  eqFlags.push_back(false);
+  exprs.push_back(b.getAffineSymbolExpr(1) - b.getAffineDimExpr(1) - 1);
+  eqFlags.push_back(false);
+  if (genConfig.operation.getValue() == miopen::ConvOpType::BwdData) {
+    condition = IntegerSet::get(4, 2, exprs, eqFlags);
+  } else {
+    condition = IntegerSet::get(2, 2, exprs, eqFlags);
+  }
 
   SmallVector<int64_t, 8> lowerBounds(8, 0);
   SmallVector<int64_t, 8> upperBounds;
@@ -976,13 +1016,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
     break;
   }
 
-  auto createConv2dLoopNest = [elemType, heightMap, widthMap, dimH, dimW, block,
-                               loopIVs, &genConfig](OpBuilder b, Location loc,
-                                                    ValueRange ivs) {
-    auto strideHeight =
-        b.create<arith::ConstantIndexOp>(loc, genConfig.strideHeight);
-    auto strideWidth =
-        b.create<arith::ConstantIndexOp>(loc, genConfig.strideWidth);
+  auto createConv2dLoopNest = [&](OpBuilder b, Location loc, ValueRange ivs) {
     mlir::Value heightIdx, widthIdx;
     mlir::Value heightTempIdx, widthTempIdx;
 
@@ -1008,9 +1042,10 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
           ValueRange{ivs[genConfig.inputLayout.find('w')], ivs[7]});
       // out_h_idx = out_h_tmp / stride_h;
       // out_w_idx = out_w_tmp / stride_w;
-      heightIdx =
-          b.create<arith::FloorDivSIOp>(loc, heightTempIdx, strideHeight);
-      widthIdx = b.create<arith::FloorDivSIOp>(loc, widthTempIdx, strideWidth);
+      heightIdx = b.create<AffineApplyOp>(loc, outputHeightMap,
+                                          ValueRange{heightTempIdx});
+      widthIdx = b.create<AffineApplyOp>(loc, outputWidthMap,
+                                         ValueRange{widthTempIdx});
       break;
     case miopen::ConvOpType::BwdWeight:
       // in_h_idx = out_h_idx * stride_h + fil_h_idx * dilation_h - padding_h_l;
@@ -1024,12 +1059,12 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
       break;
     }
 
-    auto getIndices = [&](std::string tensor) {
-      SmallVector<mlir::Value, 5> result;
+    enum TENSOR { FILTER = 0, INPUT = 1, OUTPUT = 2 };
+    auto getIndices = [&](TENSOR tensor, SmallVectorImpl<mlir::Value> &result) {
       std::string layout;
-      if (tensor == "filter")
+      if (tensor == FILTER)
         layout = genConfig.filterLayout;
-      else if (tensor == "input")
+      else if (tensor == INPUT)
         layout = genConfig.inputLayout;
       else
         layout = genConfig.outputLayout;
@@ -1037,7 +1072,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
         auto direction = genConfig.operation.getValue();
         if ((direction == miopen::ConvOpType::Fwd ||
              direction == miopen::ConvOpType::BwdWeight) &&
-            tensor == "input") {
+            tensor == INPUT) {
           if (c == 'h') {
             result.push_back(heightIdx);
             continue;
@@ -1046,7 +1081,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
             continue;
           }
         } else if (direction == miopen::ConvOpType::BwdData &&
-                   tensor == "output") {
+                   tensor == OUTPUT) {
           if (c == 'h') {
             result.push_back(heightIdx);
             continue;
@@ -1057,47 +1092,25 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
         }
         result.push_back(ivs[loopIVs.find(c)]);
       }
-      return result;
+      return;
     };
 
     // Generate boundary testing
-    auto zeroIdx = b.create<arith::ConstantIndexOp>(loc, 0);
     auto dimHeight = b.create<arith::ConstantIndexOp>(loc, dimH);
     auto dimWidth = b.create<arith::ConstantIndexOp>(loc, dimW);
 
-    arith::CmpIOp testTop, testBottom, testLeft, testRight;
-    arith::AndIOp testHeight, testWidth, testAll;
-
-    // in_h_idx >= 0
-    testTop = b.create<arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::uge,
-                                      heightIdx, zeroIdx);
-    // in_h_idx < in_h
-    testBottom = b.create<arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::ult,
-                                         heightIdx, dimHeight);
-    // in_w_idx >= 0
-    testLeft = b.create<arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::uge,
-                                       widthIdx, zeroIdx);
-    // i_w_idx < in_w
-    testRight = b.create<arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::ult,
-                                        widthIdx, dimWidth);
-    testHeight = b.create<arith::AndIOp>(loc, testTop, testBottom);
-    testWidth = b.create<arith::AndIOp>(loc, testLeft, testRight);
-    testAll = b.create<arith::AndIOp>(loc, testHeight, testWidth);
-
+    AffineIfOp ifOp;
     if (genConfig.operation.getValue() == miopen::ConvOpType::BwdData) {
-      // out_h_tmp % stride_h == 0 && out_w_tmp % stride_w == 0
-      auto heightRemSIOp =
-          b.create<arith::RemSIOp>(loc, heightTempIdx, strideHeight);
-      auto widthRemSIOp =
-          b.create<arith::RemSIOp>(loc, widthTempIdx, strideWidth);
-      auto testHeightTemp = b.create<arith::CmpIOp>(
-          loc, mlir::arith::CmpIPredicate::eq, heightRemSIOp, zeroIdx);
-      auto testWidthTemp = b.create<arith::CmpIOp>(
-          loc, mlir::arith::CmpIPredicate::eq, widthRemSIOp, zeroIdx);
-      auto testHW = b.create<arith::AndIOp>(loc, testHeightTemp, testWidthTemp);
-      testAll = b.create<arith::AndIOp>(loc, testHW, testAll);
+      ifOp = b.create<mlir::AffineIfOp>(loc, condition,
+                                        ValueRange{heightIdx, widthIdx,
+                                                   heightTempIdx, widthTempIdx,
+                                                   dimHeight, dimWidth},
+                                        false);
+    } else {
+      ifOp = b.create<mlir::AffineIfOp>(
+          loc, condition, ValueRange{heightIdx, widthIdx, dimHeight, dimWidth},
+          false);
     }
-    scf::IfOp ifOp = b.create<scf::IfOp>(loc, testAll, false);
     auto thenBody = ifOp.getThenBodyBuilder();
 
     // Perform MAC operation
@@ -1106,22 +1119,22 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
 
     switch (genConfig.operation.getValue()) {
     case miopen::ConvOpType::Fwd:
-      idx1 = getIndices("filter");
-      idx2 = getIndices("input");
+      getIndices(FILTER, idx1);
+      getIndices(INPUT, idx2);
       opd1 = block->getArgument(0);
       opd2 = block->getArgument(1);
       result = block->getArgument(2);
       break;
     case miopen::ConvOpType::BwdWeight:
-      idx1 = getIndices("output");
-      idx2 = getIndices("input");
+      getIndices(OUTPUT, idx1);
+      getIndices(INPUT, idx2);
       opd1 = block->getArgument(2);
       opd2 = block->getArgument(1);
       result = block->getArgument(0);
       break;
     case miopen::ConvOpType::BwdData:
-      idx1 = getIndices("filter");
-      idx2 = getIndices("output");
+      getIndices(FILTER, idx1);
+      getIndices(OUTPUT, idx2);
       opd1 = block->getArgument(0);
       opd2 = block->getArgument(2);
       result = block->getArgument(1);

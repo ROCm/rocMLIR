@@ -12,21 +12,11 @@
 //PV-NEXT:              affine.for [[ARG8:%.*]] = 0 to 256 {
 //PV-NEXT:                affine.for [[ARG9:%.*]] = 0 to 8 {
 //PV-NEXT:                  affine.for [[ARG10:%.*]] = 0 to 8 {
-//PV:                    [[C2:%.*]] = arith.constant 2 : index
-//PV:                    [[C2_0:%.*]] = arith.constant 2 : index
-//PV:                    [[INH:%.*]] = affine.apply #map3([[ARG9]], [[ARG6]])
-//PV:                    [[INW:%.*]] = affine.apply #map3([[ARG10]], [[ARG7]])
-//PV:                    [[C0:%.*]] = arith.constant 0 : index
-//PV:                    [[C14:%.*]] = arith.constant 14 : index
-//PV:                    [[C14_1:%.*]] = arith.constant 14 : index
-//PV:                    [[TOP:%.*]] = arith.cmpi uge, [[INH]], [[C0]] : index
-//PV:                    [[BOTTOM:%.*]] = arith.cmpi ult, [[INH]], [[C14]] : index
-//PV:                    [[RIGHT:%.*]] = arith.cmpi uge, [[INW]], [[C0]] : index
-//PV:                    [[LEFT:%.*]] = arith.cmpi ult, [[INW]], [[C14_1]] : index
-//PV:                    [[T7:%.*]] = arith.andi [[TOP]], [[BOTTOM]] : i1
-//PV:                    [[T8:%.*]] = arith.andi [[RIGHT]], [[LEFT]] : i1
-//PV:                    [[T9:%.*]] = arith.andi [[T7]], [[T8]] : i1
-//PV:                    scf.if [[T9]] {
+//PV:                         [[INH:%.*]] = affine.apply #map3([[ARG9]], [[ARG6]])
+//PV:                         [[INW:%.*]] = affine.apply #map3([[ARG10]], [[ARG7]])
+//PV:                         [[C14:%.*]] = arith.constant 14 : index
+//PV:                         [[C14_0:%.*]] = arith.constant 14 : index
+//PV:                        affine.if #set([[INH]], [[INW]])[[[C14]], [[C14_0]]] {
 //PV-NEXT:                      [[OUT:%.*]] = memref.load %arg2[[[ARG8]], [[ARG3]], [[ARG4]], [[ARG9]], [[ARG10]]] : memref<256x1x2048x8x8xf32>
 //PV-NEXT:                      [[IN:%.*]] = memref.load %arg1[[[ARG8]], [[ARG3]], [[ARG5]], [[INH]], [[INW]]] : memref<256x1x1024x14x14xf32>
 //PV-NEXT:                      [[FIL:%.*]] = memref.load %arg0[[[ARG3]], [[ARG4]], [[ARG5]], [[ARG6]], [[ARG7]]] : memref<1x2048x1024x1x1xf32>
