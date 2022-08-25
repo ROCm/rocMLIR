@@ -1971,21 +1971,24 @@ populateHostHarnessLogic(ModuleOp &module,
   }
 
   // Redirect calls to kernel functions to point at wrapped functions.
-  module.walk([&](func::CallOp call) -> WalkResult {
+  module.walk([&](Operation *op) -> WalkResult {
     // Don't substitute the call inside the wrapper.
-    if (call->hasAttr("wrapped_call")) {
-      call->removeAttr("wrapped_call");
+    if (op->hasAttr("wrapped_call")) {
+      op->removeAttr("wrapped_call");
       return WalkResult::advance();
     }
 
     // If the callee matches a wrapped function, update the call.
-    Operation *op = call;
     CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
-    Operation *callableFromInt = callInt.resolveCallable();
-    func::FuncOp fop = dyn_cast<func::FuncOp>(*callableFromInt);
-    if (wrappedFuncs.find(fop) != wrappedFuncs.end()) {
-      call->setAttr("callee", FlatSymbolRefAttr::get(
-                                  context, wrappedFuncs[fop].getSymName()));
+    if (callInt) {
+      Operation *callableFromInt = callInt.resolveCallable();
+      if (callableFromInt) {
+        func::FuncOp fop = dyn_cast<func::FuncOp>(*callableFromInt);
+        if (wrappedFuncs.find(fop) != wrappedFuncs.end()) {
+          op->setAttr("callee", FlatSymbolRefAttr::get(
+                                context, wrappedFuncs[fop].getSymName()));
+        }
+      }
     }
     return WalkResult::advance();
   });
@@ -2115,18 +2118,19 @@ void postOrderTraverseInternal(
 
   // update callees
   auto *context = cloneFunc->getContext();
-  cloneFunc->walk([&](func::CallOp call) -> WalkResult {
-    Operation *op = call;
+  cloneFunc->walk([&](Operation *op) -> WalkResult {
     CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
-    Operation *callableFromInt = callInt.resolveCallable();
-    if (callableFromInt) {
-      if (calleesRemapped.find(callableFromInt) != calleesRemapped.end()) {
-        func::FuncOp fop =
-            dyn_cast<func::FuncOp>(*calleesRemapped[callableFromInt]);
-        call->setAttr("callee",
-                      FlatSymbolRefAttr::get(context, fop.getSymName()));
-      } else {
-        // must be an external function, or a bug;  how to check?
+    if (callInt) {
+      Operation *callableFromInt = callInt.resolveCallable();
+      if (callableFromInt) {
+        if (calleesRemapped.find(callableFromInt) != calleesRemapped.end()) {
+          func::FuncOp fop =
+              dyn_cast<func::FuncOp>(*calleesRemapped[callableFromInt]);
+          op->setAttr("callee",
+                        FlatSymbolRefAttr::get(context, fop.getSymName()));
+        } else {
+          // must be an external function, or a bug;  how to check?
+        }
       }
     }
     return WalkResult::advance();
@@ -2291,10 +2295,10 @@ int main(int argc, char **argv) {
     for (auto &edge : *node)
       roots.remove(edge.getTarget());
 
-  SymbolTable symbolTable(module);
-  for (auto root : roots) {
-    postOrderTraverse(root, symbolTable);
-  }
+//   SymbolTable symbolTable(module);
+//   for (auto root : roots) {
+//     postOrderTraverse(root, symbolTable);
+//   }
 
   // Make KernelIFs for the roots, to pass to populateHostHarnessLogic().
   SmallVector<KernelIF, 8> rootIFs;
@@ -2337,7 +2341,7 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
-  module.print(output->os(), OpPrintingFlags().printGenericOpForm());
+  module.print(output->os());
   output->keep();
   return 0;
 }
