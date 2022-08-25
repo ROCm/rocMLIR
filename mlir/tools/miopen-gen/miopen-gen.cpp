@@ -350,10 +350,30 @@ static cl::opt<std::string> randomSide(
              "By default, populate random numbers to both tensors."),
     cl::value_desc("tensor"), cl::init("both"));
 
-static cl::opt<float> f16Threshold(
-    "threshold",
-    cl::desc("Threshold used for CPU verification function for f16 datatype."),
-    cl::value_desc("error"), cl::init(0.25f));
+// Verification function options
+static cl::opt<float> RMSThreshold("RMS_threshold",
+                                   cl::desc("Threshold for RMS metric"),
+                                   cl::value_desc("error"), cl::init(0.00003f));
+
+static cl::opt<float> absDiffThreshold("absDiff_threshold",
+                                       cl::desc("Threshold for absDiff metric"),
+                                       cl::value_desc("error"),
+                                       cl::init(100.0f));
+
+static cl::opt<float> relDiffThreshold("relDiff_threshold",
+                                       cl::desc("Threshold for relDiff metric"),
+                                       cl::value_desc("error"),
+                                       cl::init(100.0f));
+static cl::opt<std::string> printVerifyResults(
+    "print-verify-results",
+    cl::desc("Choose when to print verbose debug information in the "
+             "verification function:"
+             "always: print debug info"
+             "failure: print debug info if the test fails (default)"
+             "off: do not print debug info"),
+    cl::value_desc("info"), cl::init("failure"));
+static cl::alias aliasPrintVerifyResults("p_verify",
+                                         cl::aliasopt(printVerifyResults));
 
 static cl::opt<int> deviceNum(
     "device",
@@ -1183,9 +1203,9 @@ static void emitPrintTensor(OpBuilder &b, mlir::Value var) {
   }
 }
 
-static func::FuncOp
-createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
-                   const miopen::Conv2dGenerator::Config &genConfig) {
+static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
+                                       mlir::MemRefType testType,
+                                       mlir::MemRefType valType) {
   auto kfunc = kernel.func;
   std::string funcName = kfunc.getName().str() + "_verify";
   func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
@@ -1195,44 +1215,11 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   OpBuilder b(module.getContext());
   auto loc = b.getUnknownLoc();
   auto floatType = b.getF32Type();
-  auto intType = b.getIntegerType(32);
-
-  assert(genConfig.operation.hasValue());
-
-  mlir::Type elemType = floatType; // @@@@
-  mlir::Type cpuElemType = floatType;
-  if (genConfig.dataTypeStr == "f32") {
-  } else if (genConfig.dataTypeStr == "f16") {
-    elemType = b.getF16Type();
-  } else if (genConfig.dataTypeStr == "bf16") {
-    elemType = b.getBF16Type();
-  } else if (genConfig.dataTypeStr == "i8") {
-    elemType = b.getI8Type();
-    cpuElemType = b.getI8Type();
-    if (genConfig.operation.getValue() == miopen::ConvOpType::Fwd) {
-      elemType = intType;
-      cpuElemType = intType;
-    }
-  }
-
-  SmallVector<int64_t, 5> dims;
-  switch (genConfig.operation.getValue()) {
-  case miopen::ConvOpType::Fwd:
-    dims = genConfig.outputDimension;
-    break;
-  case miopen::ConvOpType::BwdData:
-    dims = genConfig.inputDimension;
-    break;
-  case miopen::ConvOpType::BwdWeight:
-    dims = genConfig.filterDimension;
-    break;
-  }
-  auto cpuType = MemRefType::get(dims, cpuElemType);
-  auto gpuType = MemRefType::get(dims, elemType);
+  auto charType = b.getIntegerType(8);
 
   // Emit verify_results function call
   func = func::FuncOp::create(loc, funcName,
-                              b.getFunctionType({gpuType, cpuType}, {}));
+                              b.getFunctionType({testType, valType}, {}));
   module.push_back(func);
 
   // Emit verification logic.
@@ -1240,203 +1227,153 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   Block *block = func.addEntryBlock();
   b.setInsertionPoint(block, block->begin());
 
-  // %c0 = constant 0: index
-  auto c0IndexOp = b.create<arith::ConstantIndexOp>(loc, 0);
+  // obtain function arguments
+  // arg0: test result
+  // arg1: validation result
+  auto arg0 = block->getArgument(0);
+  auto arg1 = block->getArgument(1);
+  // obtain element type
+  auto valElemType = valType.getElementType();
+  auto testOutType = testType.getElementType();
 
-  // %result = alloca() : memref<1xi32>
-  SmallVector<int64_t, 1> oneElementVector({1});
-  auto resultMemRefType = MemRefType::get(
-      ArrayRef<int64_t>(oneElementVector.begin(), oneElementVector.end()),
-      intType);
-  auto cmpResultAllocOp = b.create<memref::AllocaOp>(loc, resultMemRefType);
-
-  // %c0_i32 = constant 0 : i32
-  // %c1_i32 = constant 1 : i32
-  auto c0ConstantInt32Op = b.create<arith::ConstantIntOp>(loc, 0, intType);
-  auto c1ConstantInt32Op = b.create<arith::ConstantIntOp>(loc, 1, intType);
-
-  // store %c1_i32, %result[%c0] : memref<1xi32>
-  b.create<memref::StoreOp>(loc, c1ConstantInt32Op, cmpResultAllocOp,
-                            ValueRange{c0IndexOp});
-
-  mlir::FloatType elemFType = floatType;
-  if (elemType.isIntOrIndex()) { // i8, i32
-  } else if (!elemType.isF32()) {
-    if (elemType.isBF16()) {
-      elemFType = b.getBF16Type();
-    } else if (elemType.isF16()) {
-      elemFType = b.getF16Type();
-    }
-  }
-
-  auto getFVal = [&](float val) -> mlir::Value {
-    llvm::APFloat apVal(val);
-    bool ignored;
-    if (elemFType.isF16()) {
-      apVal.convert(llvm::APFloat::IEEEhalf(), APFloat::rmNearestTiesToEven,
-                    &ignored);
-    } else if (elemFType.isBF16()) {
-      apVal.convert(llvm::APFloat::BFloat(), APFloat::rmNearestTiesToEven,
-                    &ignored);
-    }
-    return b.create<arith::ConstantFloatOp>(loc, apVal, elemFType);
-  };
-
-  mlir::Value fval00, fval000001, fval001, fval025;
-  float f16_threshold = f16Threshold.getValue();
-  // Create constants needed for verification
-  if ((randomSeed.getValue() != "none" &&
-       randomDataType.getValue() == "float") ||
-      elemType.isF16() || elemType.isBF16()) {
-    fval00 = getFVal(0.0f);
-    fval000001 = getFVal(0.000001f);
-    fval001 = getFVal(0.001f);
-    fval025 = getFVal(f16_threshold);
-  }
-  // %%c1 = constant 1 : index
-  auto c1IndexOp = b.create<arith::ConstantIndexOp>(loc, 1);
-
-  // Emit constant index Ops for loop upper bounds
+  // Emit constants for thresholds
 
   // clang-format off
-  // scf.for %arg0 = %c0 to %c128 step %c1 {
-  //  scf.for %arg1 = %c0 to %c30 step %c1 {
-  //    scf.for %arg2 = %c0 to %c30 step %c1 {
-  //      scf.for %arg3 = %c0 to %c1 step %c1 {
-  //        scf.for %arg4 = %c0 to %c128 step %c1 {
-  //          %2 = load %CpuResults[%arg0, %arg1, %arg2, %arg3, %arg4] : memref<128x30x30x1x128xf32>
-  //          %3 = load %GpuResults[%arg0, %arg1, %arg2, %arg3, %arg4] : memref<128x30x30x1x128xf32>
-  //          %cst = constant 1.000000e-07 : f32
-  //          %4 = subf %2, %3 : f32
-  //          %5 = absf %4 : f32
-  //          %6 = cmpf ugt, %5, %cst : f32
-  //          scf.if %6 {
-  //            store %c0_i32, %result[%c0] : memref<1xi32>
-  //          }
-  //        }
-  //      }
-  //    }
-  //  }
-  //}
+  // %cst = arith.constant 9.99999974E-6 : f32
+  // %cst_0 = arith.constant 1.000000e+02 : f32
+  // %cst_1 = arith.constant 1.000000e+02 : f32
   // clang-format on
 
-  SmallVector<mlir::Value, 5> dimOps;
-  for (uint32_t i = 0; i < dims.size(); ++i) {
-    dimOps.push_back(b.create<arith::ConstantIndexOp>(loc, dims[i]));
-  }
-
-  scf::ForOp loop;
-  OpBuilder loopB = b;
-  SmallVector<mlir::Value, 5> idxs;
-  for (uint32_t i = 0; i < dims.size(); ++i) {
-    loop = loopB.create<scf::ForOp>(loc, c0IndexOp, dimOps[i], c1IndexOp);
-    loopB = OpBuilder::atBlockTerminator(loop.getBody());
-    idxs.push_back(loop.getInductionVar());
-  }
-
-  OpBuilder testBody = loopB;
-  // Inner loop body
-  mlir::Value gpuLoadVal =
-      loopB.create<memref::LoadOp>(loc, block->getArgument(0), idxs);
-  mlir::Value cpuLoadVal =
-      loopB.create<memref::LoadOp>(loc, block->getArgument(1), idxs);
-
-  mlir::Value gpuPrintVal = gpuLoadVal;
-  mlir::Value cpuPrintVal = cpuLoadVal;
-
-  // Lower cpu values to gpu precision
-  if (elemType.isF16() || elemType.isBF16()) {
-    cpuLoadVal = loopB.create<arith::TruncFOp>(loc, elemFType, cpuLoadVal);
-    gpuPrintVal = loopB.create<arith::ExtFOp>(loc, floatType, gpuLoadVal);
-  }
-
-  mlir::Value percentDiffVal;
-  mlir::Value cmpVal;
-  if ((randomSeed.getValue() != "none" && randomSeed.getValue() != "fixed" &&
-       randomDataType.getValue() == "float") ||
-      elemType.isF16() || elemType.isBF16()) {
-    // <test> = <cpu> != <gpu>
-
-    auto cmpfOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
-                                              cpuLoadVal, gpuLoadVal);
-    scf::IfOp ifOp = loopB.create<scf::IfOp>(loc, cmpfOp, false);
-    testBody = ifOp.getThenBodyBuilder();
-
-    // <test> = |(<cpu> - <gpu>) / <cpu>| > <max_percent>
-
-    // <test> = <cpu> - <gpu>
-    auto subfOp = testBody.create<arith::SubFOp>(loc, cpuLoadVal, gpuLoadVal);
-    auto divfOp = testBody.create<arith::DivFOp>(loc, subfOp, cpuLoadVal);
-    // <test> = select (<cpu> != 0.0), <divf>, <subf>)
-    auto notZeroOp = testBody.create<arith::CmpFOp>(
-        loc, arith::CmpFPredicate::UNE, cpuLoadVal, fval00);
-    auto testOp =
-        testBody.create<arith::SelectOp>(loc, notZeroOp, divfOp, subfOp);
-    percentDiffVal = divfOp;
-
-    // <test> = |<test>|
-    auto absfOp = testBody.create<math::AbsOp>(loc, testOp);
-
-    auto absCpuVal = testBody.create<math::AbsOp>(loc, cpuLoadVal);
-
-    mlir::Value maxPercentVal;
-    if (elemType.isF16()) {
-      // The threshold for f16 datatype is controlled by -threshold
-      // The default value is set to 0.25
-      maxPercentVal = fval025;
-    } else {
-      maxPercentVal = fval000001; // 0.0001 %
-    }
-
-    // <test> >= <max_percent>
-    cmpVal = testBody.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT,
-                                            absfOp, maxPercentVal);
-    if (elemType.getIntOrFloatBitWidth() < 32) {
-      // && <cpu> >= 0.001f
-      auto cmp1Op = testBody.create<arith::CmpFOp>(
-          loc, arith::CmpFPredicate::UGT, absCpuVal, fval001);
-
-      cmpVal = testBody.create<arith::AndIOp>(loc, cmpVal, cmp1Op);
-
-      // TODO?: check for GPU inf
-    }
-
-  } else if (elemType.isF32()) {
-    cmpVal = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
-                                         cpuLoadVal, gpuLoadVal);
-    percentDiffVal = loopB.create<arith::SubFOp>(loc, cpuLoadVal, gpuLoadVal);
+  auto getF32Val = [&](float val) -> mlir::Value {
+    llvm::APFloat apVal(val);
+    return b.create<arith::ConstantFloatOp>(loc, apVal, floatType);
+  };
+  // Thresholds for different metrics
+  // RMS: 0.00003f for all data types
+  // absDiff: 100.0f for all data types, i.e. the maxAbsDiff metric is disabled
+  // relDiff 100.0f for f16, i.e. maxRelDiff metric is disabled for f16
+  // datatypes
+  //         0.000001f for other data types
+  auto thr_RMS = getF32Val(RMSThreshold.getValue());
+  auto thr_absDiff = getF32Val(absDiffThreshold.getValue());
+  mlir::Value thr_relDiff;
+  if (testOutType.isF16())
+    thr_relDiff = getF32Val(relDiffThreshold.getValue());
+  else
+    thr_relDiff = getF32Val(0.000001f);
+  char printDebug = 1;
+  std::string printVerifyOption = printVerifyResults.getValue();
+  if (printVerifyOption == "always") {
+    printDebug = 2;
+  } else if (printVerifyOption == "failure") {
+    printDebug = 1;
+  } else if (printVerifyOption == "off") {
+    printDebug = 0;
   } else {
-    cmpVal = loopB.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
-                                         cpuLoadVal, gpuLoadVal);
+    llvm::errs() << "Unsupported print-verify-results option: "
+                 << printVerifyOption;
+    llvm::errs() << " (supported options: always, failure, off)\n";
+    exit(1);
   }
+  auto printDebugVal =
+      b.create<arith::ConstantIntOp>(loc, printDebug, charType);
 
-  scf::IfOp ifOp = testBody.create<scf::IfOp>(loc, cmpVal, false);
-  auto thenBody = ifOp.getThenBodyBuilder();
-
-  thenBody.create<memref::StoreOp>(loc, c0ConstantInt32Op, cmpResultAllocOp,
-                                   ValueRange{c0IndexOp});
-
-  // call mcpuPrintF32(float f1, float f2)
-  func::FuncOp printFunc;
-  if (elemType.isIntOrIndex()) {
-    printFunc = makeFuncDecl(module, "mcpuPrintInt32", {intType, intType});
+  // obtain function name of the verifier wrapper
+  std::string verifyFuncName = "mcpuVerify5D";
+  if (valElemType.isF32()) {
+    verifyFuncName += "Float";
+  } else if (valElemType.isInteger(32)) {
+    verifyFuncName += "Int32";
   } else {
-    printFunc = makeFuncDecl(module, "mcpuPrintF32", {floatType, floatType});
+    llvm::errs() << "Unsupported type of validation function output: ";
+    valElemType.dump();
+    llvm::errs() << " (Only f32 and int32 are supported)\n";
+    exit(1);
   }
 
-  if (!elemType.isIntOrIndex()) {
-    if (elemType.getIntOrFloatBitWidth() < 32) { // f16, bf16
-      percentDiffVal =
-          thenBody.create<arith::ExtFOp>(loc, floatType, percentDiffVal);
-    }
-    thenBody.create<func::CallOp>(loc, printFunc,
-                                  ValueRange{percentDiffVal, cpuPrintVal});
-  }
-  thenBody.create<func::CallOp>(loc, printFunc,
-                                ValueRange{gpuPrintVal, cpuPrintVal});
+  auto mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, valElemType);
+  bool isTestAndValSameType =
+      (testOutType.isInteger(32) || testOutType.isF32());
 
-  // Emit print function call
-  emitPrintTensor(b, cmpResultAllocOp);
+  mlir::Value testResult, valResult; // Values passed to the verify function
+  mlir::Value testResultNew;         // Values used for type conversion
+  if (!isTestAndValSameType) {
+    // When gpu kernel output data type = f16 | bf16, type conversions
+    // are required before calling the verify function
+
+    // Cast test result to the same type as valid result
+
+    // clang-format off
+    // %0 = memref.alloc() : memref<1x1x64x112x112xf32>
+    // %1 = memref.collapse_shape %arg0 [[0, 1, 2, 3, 4]] : memref<1x1x64x112x112xf16> into memref<802816xf16>
+    // %2 = memref.cast %1 : memref<802816xf16> to memref<?xf16>
+    // %3 = memref.collapse_shape %0 [[0, 1, 2, 3, 4]] : memref<1x1x64x112x112xf32> into memref<802816xf32>
+    // %4 = memref.cast %3 : memref<802816xf32> to memref<?xf32>
+    // %c802816 = arith.constant 802816 : index
+    // call @_memcpy_f16_f32(%2, %4, %c802816) : (memref<?xf16>, memref<?xf32>, index) -> ()
+    // %5 = memref.cast %0 : memref<1x1x64x112x112xf32> to memref<?x?x?x?x?xf32>
+    // clang-format on
+
+    testResultNew = b.create<memref::AllocOp>(loc, valType);
+    emitMemcpy(b, arg0, testResultNew);
+    testResult = b.create<memref::CastOp>(loc, mr5DUnkType, testResultNew);
+
+    // Cast valid result down to the same type as test result and cast back
+    //   For f16 and bf16 datatypes, gpu hardware outputs f32 results, which are
+    //   truncated to f16/bf16 before returning from the gpu kernel
+    //   To make the comparison fair, the truncation step is added manually to
+    //   the validation results.
+
+    // clang-format off
+    // affine.for %arg2 = 0 to 1 {
+    //   affine.for %arg3 = 0 to 1 {
+    //     affine.for %arg4 = 0 to 64 {
+    //       affine.for %arg5 = 0 to 112 {
+    //         affine.for %arg6 = 0 to 112 {
+    //           %7 = memref.load %arg1[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<1x1x64x112x112xf32>
+    //           %8 = arith.truncf %7 : f32 to f16
+    //           %9 = arith.extf %8 : f16 to f32
+    //           memref.store %9, %arg1[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<1x1x64x112x112xf32>
+    //         }
+    //       }
+    //     }
+    //   }
+    // }
+    // clang-format on
+
+    SmallVector<int64_t, 5> lowerBounds(5, 0);
+    SmallVector<int64_t, 5> upperBounds;
+    llvm::copy(valType.getShape(), std::back_inserter(upperBounds));
+    SmallVector<int64_t, 5> steps(5, 1);
+
+    mlir::buildAffineLoopNest(
+        b, loc, lowerBounds, upperBounds, steps,
+        [arg1, testOutType, valElemType](OpBuilder b, Location loc,
+                                         ValueRange ivs) {
+          auto valOrig = b.create<memref::LoadOp>(loc, arg1, ivs);
+          auto valTruncated =
+              b.create<arith::TruncFOp>(loc, testOutType, valOrig);
+          auto valExt = b.create<arith::ExtFOp>(loc, valElemType, valTruncated);
+          b.create<memref::StoreOp>(loc, valExt, arg1, ivs);
+        });
+  } else {
+    testResult = b.create<memref::CastOp>(loc, mr5DUnkType, arg0);
+  }
+
+  // Prepare the validation result for the verify function
+  valResult = b.create<memref::CastOp>(loc, mr5DUnkType, arg1);
+  // Declare and call the wrapper verify function
+  auto verifyFuncDecl = makeFuncDecl(
+      module, verifyFuncName,
+      {mr5DUnkType, mr5DUnkType, floatType, floatType, floatType, charType});
+  b.create<func::CallOp>(loc, verifyFuncDecl,
+                         ValueRange{testResult, valResult, thr_RMS, thr_absDiff,
+                                    thr_relDiff, printDebugVal});
+
+  if (!isTestAndValSameType) {
+    // Deallocate the buffer for f32 version of the test results
+    b.create<memref::DeallocOp>(loc, testResultNew);
+  }
 
   b.create<func::ReturnOp>(loc, ValueRange{});
 
@@ -1753,7 +1690,9 @@ populateHostHarnessLogic(ModuleOp &module,
     mlir::Value testResult = localVars[outIdx];
     mlir::Value valResult = valVars[outIdx];
 
-    auto verifierFunc = createVerifierFunc(module, root0, genConfig);
+    auto testType = testResult.getType().dyn_cast<MemRefType>();
+    auto valType = valResult.getType().dyn_cast<MemRefType>();
+    auto verifierFunc = createVerifierFunc(module, root0, testType, valType);
     b.create<func::CallOp>(loc, verifierFunc,
                            ValueRange{testResult, valResult});
   }
