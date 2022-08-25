@@ -12,13 +12,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-
 #include "mlir/Conversion/AsyncToLLVM/AsyncToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
+#include "mlir/Dialect/Arithmetic/Transforms/Passes.h"
 #include "mlir/Dialect/Async/Passes.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "llvm/Support/CommandLine.h"
@@ -151,6 +151,7 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   // Host Compiler Pipeline
   PassManager pmHost(m.getContext());
   auto &funcPm = pmHost.nest<func::FuncOp>();
+  pmHost.addPass(mlir::arith::createArithmeticExpandOpsPass());
   funcPm.addPass(createGpuAsyncRegionPass());
   funcPm.addPass(createConvertMathToLLVMPass());
   pmHost.addPass(
