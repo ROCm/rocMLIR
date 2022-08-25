@@ -69,7 +69,14 @@ configure_lit_site_cfg(
   ${CMAKE_CURRENT_BINARY_DIR}/Unit/lit.site.cfg.py
   MAIN_CONFIG
   ${CMAKE_CURRENT_SOURCE_DIR}/Unit/lit.cfg.py
-  )
+)
+
+configure_lit_site_cfg(
+  ${CMAKE_CURRENT_SOURCE_DIR}/mlir-miopen-driver/e2e/lit.site.cfg.py.in
+  ${CMAKE_CURRENT_BINARY_DIR}/mlir-miopen-driver/e2e/lit.site.cfg.py
+  MAIN_CONFIG
+  ${CMAKE_CURRENT_SOURCE_DIR}/mlir-miopen-driver/e2e/lit.cfg.py
+)
 
 set(MLIR_MIOPEN_TEST_DEPENDS
   FileCheck count not
@@ -86,7 +93,9 @@ set(MLIR_MIOPEN_TEST_DEPENDS
   mlir_runner_utils
   mlir_c_runner_utils
   mlir_async_runtime
-  )
+)
+
+
 
 list(APPEND MLIR_MIOPEN_TEST_DEPENDS MLIRMIOpenUnitTests)
 
@@ -117,17 +126,51 @@ if(MLIR_MIOPEN_DRIVER_ENABLED)
     )
 endif()
 
+# Generate the E2E tests if -DROCK_E2E_TEST_ENABLED=1
+if(ROCK_E2E_TEST_ENABLED)
+  list(APPEND MLIR_MIOPEN_TEST_DEPENDS
+    gen_e2e_tests
+  )
+endif()
+
 add_custom_target(check-mlir-miopen-build-only
   DEPENDS ${MLIR_MIOPEN_TEST_DEPENDS})
 
 # check-mlir-miopen runs MLIR-MIOpen regression tests including E2E tests
 # when MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED is set
+# It runs E2E tests in Resnet50 and Resnext101 when
+# ROCK_E2E_TEST_ENABLED is set
 add_lit_testsuite(check-mlir-miopen "Running the MLIR-MIOpen regression tests"
   ${CMAKE_CURRENT_BINARY_DIR}
   DEPENDS ${MLIR_MIOPEN_TEST_DEPENDS}
-  )
+)
 set_target_properties(check-mlir-miopen PROPERTIES FOLDER "Tests")
 
 add_lit_testsuites(MLIR-MIOPEN ${CMAKE_CURRENT_SOURCE_DIR}
   DEPENDS ${MLIR_MIOPEN_TEST_DEPENDS}
+)
+
+# Dependencies for the E2E test only
+set(ROCK_E2E_DEPENDS
+  FileCheck count not
+  miopen-opt
+  miopen-gen
+  mlir-miopen-driver
+  mlir-rocm-runner
+  gen_e2e_tests
+)
+
+# target to generate the E2E tests
+set(E2E_DIR ${CMAKE_CURRENT_BINARY_DIR}/mlir-miopen-driver/e2e)
+set(E2E_GEN_SCRIPT "${PROJECT_SOURCE_DIR}/mlir/utils/generateE2ETest.py")
+set(CONFIG_DIR ${PROJECT_SOURCE_DIR}/mlir/utils)
+add_custom_target(gen_e2e_tests
+  COMMENT "Generating rock E2E tests in ${E2E_DIR}"
+  COMMAND ${Python3_EXECUTABLE} ${E2E_GEN_SCRIPT} -d ${E2E_DIR} -i ${CONFIG_DIR}/Resnet50Config.toml
+  COMMAND ${Python3_EXECUTABLE} ${E2E_GEN_SCRIPT} -d ${E2E_DIR} -i ${CONFIG_DIR}/Resnext101Config.toml
+)
+# Add a new target to run the E2E test only
+add_lit_testsuite(check-rock-e2e "Running rock e2e tests"
+  ${CMAKE_CURRENT_BINARY_DIR}/mlir-miopen-driver/e2e
+  DEPENDS ${ROCK_E2E_DEPENDS}
 )

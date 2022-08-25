@@ -117,6 +117,9 @@ if __name__ == '__main__':
                 if "exclude" in test:
                     exclusions = generate_option_list(axis_prefixes, test, "exclude", "values")
                 for opt in combinations:
+                    # Only generate i8 data type for fwd convolutions
+                    if "i8" in opt[2] and ("conv2d_" in opt[0]):
+                      continue
                     opt_idx = opt_idx + 1
                     config = prefix + ' ' +test["config"]
                     skip = False;
@@ -131,8 +134,7 @@ if __name__ == '__main__':
                     config = leading + config + ' ' + ' '.join(opt)
                     f.write(f"{config}  {suffix}CHECK_{suite_name}_{test_idx}_{opt_idx}")
                     f.write(f"""
-// CHECK_{suite_name}_{test_idx}_{opt_idx}: Unranked Memref base@ = 0x{{{{.*}}}} rank = 1 offset = 0 sizes = [1] strides = [1] data =
-// CHECK_{suite_name}_{test_idx}_{opt_idx}: [1]
+// CHECK_{suite_name}_{test_idx}_{opt_idx}: [1 1 1]
 
 """)                
     print("DONE!")
