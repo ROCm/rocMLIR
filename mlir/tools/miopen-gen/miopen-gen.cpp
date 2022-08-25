@@ -292,7 +292,7 @@ static cl::alias
 
 // populate host validation logic.
 static cl::opt<std::string> genValidation(
-    "verifier", cl::desc("Select verification from: none(default), cpu, gpu"),
+    "verifier", cl::desc("Select verification from: none(default), cpu, gpu, cpp, mlir"),
     cl::cb<void, std::string>([](const std::string &v) {
       if (!v.empty())
         genHostHarness = true;
@@ -402,6 +402,11 @@ static cl::opt<int> deviceNum(
     cl::value_desc("Between 0 and number of GPUs on system. "
                    "Omission leaves current device intact."));
 static cl::alias deviceShort("dev", cl::aliasopt(deviceNum));
+
+static cl::opt<bool> cloneTest(
+                               "clone",
+                               cl::desc("Clone the test function tree."),
+                               cl::init(false), cl::Optional);
 
 ////////////////////////////////////////////////////////////////////////////////
 ////  Struct KernelIF
@@ -778,7 +783,7 @@ static std::tuple<short, short, int> getRandomTestData(int idx) {
     break;
   }
 
-  if (randomSeed.getValue() != "none" && randomSeed.getValue() != "fixed") {
+  if (randomSeed != "none" && randomSeed != "fixed") {
     if ((idx_spec >= 0) && (idx_spec != idx)) {
     } else if (randomDataType.getValue() == "int") {
       // generate random integer in [-5, 5)
@@ -789,7 +794,7 @@ static std::tuple<short, short, int> getRandomTestData(int idx) {
       min = -1;
       max = 1;
     }
-    std::string rseed = randomSeed.getValue();
+    std::string rseed = randomSeed;
     if (rseed[0] >= '0' and rseed[0] <= '9')
       seed = std::stoi(rseed);
     else
@@ -1142,13 +1147,13 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
       auto muliOp = thenBody.create<arith::MulIOp>(loc, loadOp1, loadOp2);
       auto extsiOp = thenBody.create<arith::ExtSIOp>(loc, elemType, muliOp);
       auto addiOp = thenBody.create<arith::AddIOp>(loc, loadOutput, extsiOp);
-      auto storeOp = thenBody.create<memref::StoreOp>(
+      thenBody.create<memref::StoreOp>(
           loc, addiOp, result,
           ValueRange{ivs[0], ivs[1], ivs[2], ivs[3], ivs[4]});
     } else {
       auto mulfOp = thenBody.create<arith::MulFOp>(loc, loadOp1, loadOp2);
       auto addfOp = thenBody.create<arith::AddFOp>(loc, loadOutput, mulfOp);
-      auto storeOp = thenBody.create<memref::StoreOp>(
+      thenBody.create<memref::StoreOp>(
           loc, addfOp, result,
           ValueRange{ivs[0], ivs[1], ivs[2], ivs[3], ivs[4]});
     }
@@ -2295,10 +2300,12 @@ int main(int argc, char **argv) {
     for (auto &edge : *node)
       roots.remove(edge.getTarget());
 
-  //   SymbolTable symbolTable(module);
-  //   for (auto root : roots) {
-  //     postOrderTraverse(root, symbolTable);
-  //   }
+  if (cloneTest) {
+    SymbolTable symbolTable(module);
+    for (auto root : roots) {
+      postOrderTraverse(root, symbolTable);
+    }
+  }
 
   // Make KernelIFs for the roots, to pass to populateHostHarnessLogic().
   SmallVector<KernelIF, 8> rootIFs;
