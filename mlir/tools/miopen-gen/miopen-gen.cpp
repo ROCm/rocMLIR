@@ -454,10 +454,41 @@ static void correctParameters() {
   else if (inputLayoutValue.size() == 4)
     inputLayout = "g" + inputLayoutValue;
 
+#if 1
   // we can use paddingHeight or paddingHeightLeft + paddingHeightRight
   // if use paddingHeight , paddingHeightLeft and paddingHeightRight =
   // paddingHeight if use paddingHeightLeft + paddingHeightRight , please
   // assigne value
+  if (paddingHeight.getValue() > 0) {
+    if (paddingHeightLeft.getValue() == 0 &&
+        paddingHeightRight.getValue() == 0) {
+      paddingHeightLeft.setValue(paddingHeight.getValue());
+      paddingHeightRight.setValue(paddingHeight.getValue());
+    } else {
+      if (paddingHeightLeft.getValue() != paddingHeight.getValue() ||
+          paddingHeightRight.getValue() != paddingHeight.getValue()) {
+        llvm::errs()
+            << "you can't use both padding_h and (padding_h_l,padding_h_r).\n";
+      }
+    }
+  }
+
+  // we can use paddingWidth or paddingWidthLeft + paddingWidthRight
+  // if use paddingWidth , paddingWidthLeft and paddingWidthRight = paddingWidth
+  // if use paddingWidthLeft + paddingWidthRight , please assigne value
+  if (paddingWidth.getValue() > 0) {
+    if (paddingWidthLeft.getValue() == 0 && paddingWidthRight.getValue() == 0) {
+      paddingWidthLeft.setValue(paddingWidth.getValue());
+      paddingWidthRight.setValue(paddingWidth.getValue());
+    } else {
+      if (paddingWidthLeft.getValue() != paddingWidth.getValue() ||
+          paddingWidthRight.getValue() != paddingWidth.getValue()) {
+        llvm::errs()
+            << "you can't use both padding_w and (padding_w_l,padding_w_r).\n";
+      }
+    }
+  }
+#else
   auto validatePadding = [](cl::opt<int> &combined, cl::opt<int> &left,
                             cl::opt<int> &right, StringRef name) {
     if (combined.getValue() > 0) {
@@ -480,6 +511,7 @@ static void correctParameters() {
                   "padding_h");
   validatePadding(paddingWidth, paddingWidthLeft, paddingWidthRight,
                   "padding_w");
+#endif  /* 0 */
 
   // adjust the padding size
   // getOutputDim can give us correct output size
