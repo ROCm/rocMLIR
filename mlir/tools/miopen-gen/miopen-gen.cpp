@@ -312,8 +312,8 @@ static cl::opt<bool> genCPPValidation("pv_with_cpp", cl::Hidden,
                                       cl::init(false), cl::Optional,
                                       cl::cb<void, bool>([](bool v) {
                                         if (v) {
-                                          genValidation.setValue("cpp");
-                                          genHostHarness.setValue(true);
+                                          genValidation = "cpp";
+                                          genHostHarness = true;
                                         }
                                       }));
 
@@ -321,8 +321,8 @@ static cl::opt<bool> genMLIRValidation("pv_with_mlir", cl::Hidden,
                                        cl::init(false), cl::Optional,
                                        cl::cb<void, bool>([](bool v) {
                                          if (v) {
-                                           genValidation.setValue("mlir");
-                                           genHostHarness.setValue(true);
+                                           genValidation = "mlir";
+                                           genHostHarness = true;
                                          }
                                        }));
 
