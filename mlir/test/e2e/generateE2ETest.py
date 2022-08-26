@@ -118,7 +118,7 @@ if __name__ == '__main__':
                     exclusions = generate_option_list(axis_prefixes, test, "exclude", "values")
                 for opt in combinations:
                     # Only generate i8 data type for fwd convolutions
-                    if "i8" in opt[2] and ("conv2d_" in opt[0]):
+                    if "i8" in opt[2] and ("conv2d_bwd_data" in opt[0] or "conv2d_bwd_weight" in opt[0]):
                       continue
                     opt_idx = opt_idx + 1
                     config = prefix + ' ' +test["config"]

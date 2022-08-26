@@ -21,11 +21,10 @@ config.name = 'ROCK E2E'
 config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
 
 # suffixes: A list of file extensions to treat as test files.
-config.suffixes = ['.td', '.mlir', '.toy', '.ll', '.tc', '.py']
+config.suffixes = ['.mlir']
 
 # test_source_root: The root path where tests are located.
-#config.test_source_root = os.path.dirname(__file__)
-config.test_source_root = os.path.join(config.mlir_obj_root, 'mlir/test/mlir-miopen-driver/e2e')
+config.test_source_root = os.path.join(config.mlir_obj_root, 'mlir/test/e2e')
 # test_exec_root: The root path where tests should be run.
 config.test_exec_root = os.path.join(config.mlir_obj_root, 'test')
 
@@ -88,19 +87,10 @@ tools.extend([
 
 llvm_config.add_tool_substitutions(tools, tool_dirs)
 
-
 # FileCheck -enable-var-scope is enabled by default in MLIR test
 # This option avoids to accidentally reuse variable across -LABEL match,
 # it can be explicitly opted-in by prefixing the variable name with $
 config.environment['FILECHECK_OPTS'] = "-enable-var-scope --allow-unused-prefixes=false"
-
-
-# LLVM can be configured with an empty default triple
-# by passing ` -DLLVM_DEFAULT_TARGET_TRIPLE="" `.
-# This is how LLVM filters tests that require the host target
-# to be available for JIT tests.
-if config.target_triple:
-    config.available_features.add('default_triple')
 
 # Add the python path for both the source and binary tree.
 # Note that presently, the python sources come from the source tree and the
