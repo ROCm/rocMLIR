@@ -18,6 +18,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/utility/IsaNameSplitter.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
@@ -1268,8 +1269,10 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
   auto gConstantOp = b.create<arith::ConstantIntOp>(loc, 'g', charType);
 
   // reduce precision if !xdlops
+  bool hasXdlops =
+      miopen::bitEnumContains(genConfig.features, miopen::GemmFeatures::xdlops);
   auto xdlopsConstantOp =
-      b.create<arith::ConstantIntOp>(loc, genConfig.xdlops, intType);
+      b.create<arith::ConstantIntOp>(loc, hasXdlops, intType);
 
   std::unordered_map<char, arith::ConstantIntOp> layoutConstOps;
   layoutConstOps['g'] = gConstantOp;
@@ -2009,16 +2012,18 @@ populateHostHarnessLogic(ModuleOp &module,
   });
 
   // Run validation
+  bool hasXdlops =
+      miopen::bitEnumContains(genConfig.features, miopen::GemmFeatures::xdlops);
   if (hasValidation) {
     if (validationType == "gpu" &&
-        (genConfig.xdlops || genConfig.dataTypeStr == "f16" ||
+        (hasXdlops || genConfig.dataTypeStr == "f16" ||
          genConfig.dataTypeStr == "bf16")) {
       // generate generic kernels
       miopen::Conv2dGenerator conv2dGenerator(genConfig);
       // use non-xdlops kernels to verify xdlops kernels
-      if (genConfig.xdlops)
+      if (hasXdlops)
         conv2dGenerator.flipXdlops();
-      if (!genConfig.xdlops || genConfig.dataTypeStr != "i8")
+      if (!hasXdlops || genConfig.dataTypeStr != "i8")
         // use f32 data type to verify non-f32 or xdlops f32 kernels
         // except that i8 xdlops is verified with i8 non-xdlops
         conv2dGenerator.setDataType("f32");
@@ -2175,16 +2180,19 @@ int main(int argc, char **argv) {
       }
       // Scenario 2: We use cl::opt to initialize everything
     } else {
-      std::string chip, triple, features;
+      std::string chip, triple, chipFeatures;
       IsaNameSplitter splitter(arch.getValue());
-      auto status = splitter.parseIsaName(chip, triple, features);
+      auto status = splitter.parseIsaName(chip, triple, chipFeatures);
       if (status.failed()) {
         exit(1);
       }
 
+      miopen::GemmFeatures enabledFeatures = miopen::GemmFeatures::none;
+      if (xdlopsV2.getValue())
+        enabledFeatures = enabledFeatures | miopen::GemmFeatures::xdlops;
       conv2dGenerator = miopen::Conv2dGenerator(
-          chip, triple, features, perfConfig.getValue(), num_cu.getValue(),
-          xdlopsV2.getValue(), operation.getValue(), tensorDataType.getValue(),
+          chip, triple, chipFeatures, perfConfig.getValue(), num_cu.getValue(),
+          enabledFeatures, operation.getValue(), tensorDataType.getValue(),
           dilationHeight.getValue(), dilationWidth.getValue(),
           strideHeight.getValue(), strideWidth.getValue(),
           paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
