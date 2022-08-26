@@ -1995,40 +1995,7 @@ populateHostHarnessLogic(ModuleOp &module,
         printResults = true;
       }
     }
-  }
 
-  // Wrap the kernels and gather them to substitute in calls.
-  llvm::SmallDenseMap<func::FuncOp, func::FuncOp> wrappedFuncs;
-  for (auto &kernel : kernels) {
-    if (kernel.func->hasAttr("kernel")) {
-      wrappedFuncs[kernel.func] = createGPUWrapper(module, kernel);
-    } else {
-      wrappedFuncs[kernel.func] = kernel.func;
-    }
-  }
-
-  // Redirect calls to kernel functions to point at wrapped functions.
-  module.walk([&](Operation *op) -> WalkResult {
-    // Don't substitute the call inside the wrapper.
-    if (op->hasAttr("wrapped_call")) {
-      op->removeAttr("wrapped_call");
-      return WalkResult::advance();
-    }
-
-    // If the callee matches a wrapped function, update the call.
-    CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
-    if (callInt) {
-      Operation *callableFromInt = callInt.resolveCallable();
-      if (callableFromInt) {
-        func::FuncOp fop = dyn_cast<func::FuncOp>(*callableFromInt);
-        if (wrappedFuncs.find(fop) != wrappedFuncs.end()) {
-          op->setAttr("callee", FlatSymbolRefAttr::get(
-                                    context, wrappedFuncs[fop].getSymName()));
-        }
-      }
-    }
-    return WalkResult::advance();
-  });
 
   // Run validation
   bool hasXdlops =
@@ -2102,7 +2069,7 @@ populateHostHarnessLogic(ModuleOp &module,
     if ((vvar == valVars[outIdx]) && printValidationResults.getValue())
       emitPrintTensor(b, vvar);
     // dealloc vvar
-    b.create<memref::DeallocOp>(loc, vvar);
+//    b.create<memref::DeallocOp>(loc, vvar);
   }
 
   // Print and cleanup
@@ -2114,10 +2081,52 @@ populateHostHarnessLogic(ModuleOp &module,
     if (printp)
       emitPrintTensor(b, lvar);
     // dealloc lvar
+//    b.create<memref::DeallocOp>(loc, lvar);
+  }
+
+  }
+
+  for (auto &vvar : valVars) {
+    b.create<memref::DeallocOp>(loc, vvar);
+  }
+  for (auto &lvar : localVars) {
     b.create<memref::DeallocOp>(loc, lvar);
   }
 
   b.create<func::ReturnOp>(loc, ValueRange{});
+
+  // Wrap the kernels and gather them to substitute in calls.
+  llvm::SmallDenseMap<func::FuncOp, func::FuncOp> wrappedFuncs;
+  for (auto &kernel : kernels) {
+    if (kernel.func->hasAttr("kernel")) {
+      wrappedFuncs[kernel.func] = createGPUWrapper(module, kernel);
+    } else {
+      wrappedFuncs[kernel.func] = kernel.func;
+    }
+  }
+
+  // Redirect calls to kernel functions to point at wrapped functions.
+  module.walk([&](Operation *op) -> WalkResult {
+    // Don't substitute the call inside the wrapper.
+    if (op->hasAttr("wrapped_call")) {
+      op->removeAttr("wrapped_call");
+      return WalkResult::advance();
+    }
+
+    // If the callee matches a wrapped function, update the call.
+    CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
+    if (callInt) {
+      Operation *callableFromInt = callInt.resolveCallable();
+      if (callableFromInt) {
+        func::FuncOp fop = dyn_cast<func::FuncOp>(*callableFromInt);
+        if (wrappedFuncs.find(fop) != wrappedFuncs.end()) {
+          op->setAttr("callee", FlatSymbolRefAttr::get(
+                                    context, wrappedFuncs[fop].getSymName()));
+        }
+      }
+    }
+    return WalkResult::advance();
+  });
 
   return success();
 }
@@ -2366,7 +2375,12 @@ int main(int argc, char **argv) {
     assert(func);
     kernels.emplace_back(func); // +++pf: should it be a kernel?
     rootIFs.emplace_back(func);
-    // if func->getAttr("clone_func") then also emplace clone_func
+    // +++pf: should it do this for -fut?
+    if (auto cloneAttr = func->getAttrOfType<SymbolRefAttr>("clone_func")) {
+      auto clone = module.lookupSymbol<func::FuncOp>(cloneAttr.getLeafReference());
+      kernels.emplace_back(clone);
+      rootIFs.emplace_back(clone);
+    }
   }
 
   // populate host logic.
