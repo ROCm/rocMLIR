@@ -2147,6 +2147,10 @@ void postOrderTraverseInternal(
 
   // clone the func
   auto *cloneFunc = parentOp->clone();
+  SymbolOpInterface cloneFuncOp = dyn_cast<SymbolOpInterface>(cloneFunc);
+  SmallString<128> nameBuffer(cloneFuncOp.getName());
+  nameBuffer += "_cloned";
+  cloneFuncOp.setName(nameBuffer);
   cloneFunc->setAttr("original_func", SymbolRefAttr::get(parentOp));
   parentOp->setAttr("clone_func", SymbolRefAttr::get(cloneFunc));
 
@@ -2347,8 +2351,7 @@ int main(int argc, char **argv) {
       func::FuncOp func =
           dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
       rootIFs.emplace_back(func);
-      auto cloneAttr = func->getAttrOfType<SymbolRefAttr>("clone_func");
-      if (cloneAttr)
+      if (auto cloneAttr = func->getAttrOfType<SymbolRefAttr>("clone_func"))
         rootIFs.emplace_back(
             module.lookupSymbol<func::FuncOp>(cloneAttr.getLeafReference()));
     }
