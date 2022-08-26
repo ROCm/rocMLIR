@@ -37,6 +37,25 @@ static bool isBroadcastable(Operation *op, Operation *operand) {
   return true;
 }
 
+template <typename TosaOp, typename... Args>
+static TosaOp createOpAndInfer(mlir::PatternRewriter &rewriter,
+                               mlir::Location loc, Type elemType,
+                               Args &&... args) {
+  auto op =
+      rewriter.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
+  InferShapedTypeOpInterface shapeInterface =
+      cast<InferShapedTypeOpInterface>(op.getOperation());
+  SmallVector<ShapedTypeComponents> returnShape;
+  LogicalResult shapeInferenceStatus = shapeInterface.inferReturnTypeComponents(
+      op.getContext(), op.getLoc(), op->getOperands(), op->getAttrDictionary(),
+      op->getRegions(), returnShape);
+  assert(shapeInferenceStatus.succeeded());
+  Type newOutTy = RankedTensorType::get({returnShape[0].getDims()}, elemType);
+  auto result = op->getResult(0);
+  result.setType(newOutTy);
+  return op;
+}
+
 class ConvConverter final
     : public OpConversionPattern<migraphx::ConvolutionOp> {
 public:
@@ -333,10 +352,43 @@ public:
     return success();
   }
 };
+
+class SoftmaxConverter final : public OpConversionPattern<migraphx::SoftmaxOp> {
+public:
+  using OpConversionPattern<migraphx::SoftmaxOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::SoftmaxOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto operands = adaptor.getOperands();
+    auto input = operands[0];
+    auto axisAttr = op->getAttr("axis").cast<IntegerAttr>();
+    ShapedType inputType = input.getType().cast<ShapedType>();
+    auto elementType = inputType.getElementType();
+    Location loc = op->getLoc();
+
+    auto tosaMax = createOpAndInfer<tosa::ReduceMaxOp>(
+        rewriter, loc, elementType, input, axisAttr);
+    auto tosaSub = createOpAndInfer<tosa::SubOp>(rewriter, loc, elementType,
+                                                 input, tosaMax);
+    auto tosaExp =
+        createOpAndInfer<tosa::ExpOp>(rewriter, loc, elementType, tosaSub);
+    auto tosaReduceSum = createOpAndInfer<tosa::ReduceSumOp>(
+        rewriter, loc, elementType, tosaExp, axisAttr);
+    auto tosaReciprocal = createOpAndInfer<tosa::ReciprocalOp>(
+        rewriter, loc, elementType, tosaReduceSum);
+    auto tosaMul = createOpAndInfer<tosa::MulOp>(
+        rewriter, loc, elementType, tosaExp, tosaReciprocal, /*shift=*/0);
+
+    rewriter.replaceOp(op, {tosaMul});
+    return success();
+  }
+};
+
 } // namespace
 
 void migraphx::populateMIGraphXToTosaConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
   patterns.add<ConvConverter, BroadcastConverter, MultiBroadcastConverter,
-               DotConverter>(context);
+               SoftmaxConverter, DotConverter>(context);
 }
