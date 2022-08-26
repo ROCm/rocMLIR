@@ -303,7 +303,7 @@ static cl::opt<bool> genCPUValidation("pv", cl::Hidden, cl::init(false),
                                       cl::Optional,
                                       cl::cb<void, bool>([](bool v) {
                                         if (v) {
-                                          genValidation = "cpu";
+                                          genValidation = "mlir";
                                           genHostHarness = true;
                                         }
                                       }));
