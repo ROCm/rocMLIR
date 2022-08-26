@@ -101,7 +101,7 @@ func.func @miopen_conv2d_bwd_weight_f16(%filter : memref<?x?x?x?x?xf16>, %input 
 // CHECK-NEXT: miopen.conv2d_bwd_weight
 
 func.func @miopen_gemm(%a : memref<32x64xf16>, %b : memref<1x32x128xf16>, %c : memref<64x128xf32>) {
-  miopen.gemm %c += tr %a * %b features = none {
+  miopen.gemm %c += tr %a * %b features = none storeMethod = set {
     arch = "gfx906",
     numCu = 64 : i32
   } : memref<64x128xf32> += memref<32x64xf16> * memref<1x32x128xf16>

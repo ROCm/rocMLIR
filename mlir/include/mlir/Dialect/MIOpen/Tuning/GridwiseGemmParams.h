@@ -315,6 +315,12 @@ Optional<GemmContext> calculatePaddingKernelSize(GemmContext gemmSize,
   return llvm::None;
 }
 
+/// Given a tuning parameter struct, determine how much padding the gemm with
+/// a given gemm size requires. Returns None if no padding is needed. The
+/// values in the returned gemm context represent the number of 0s that need to
+/// be added to the given dimension.
+Optional<GemmContext> requiredPadding(Attribute params, GemmContext gemmSize);
+
 } // namespace miopen
 } // namespace mlir
 #endif // MLIR_DIALECT_MIOPEN_GRIDWISE_GEMM_PARAMS_H

@@ -115,6 +115,7 @@ def MIOpen_GemmOp :
                    StrAttr:$arch,
                    I32Attr:$numCu,
                    MIOpen_GemmFeaturesAttr:$features,
+                   StoreMethodAttr:$storeMethod,
                    OptionalAttr<I32Attr>:$blockSize,
                    OptionalAttr<I32Attr>:$gridSize,
                    MIOpen_OptionalGemmParams:$params)> {
@@ -141,7 +142,7 @@ def MIOpen_GemmOp :
   let hasVerifier = 1;
   let assemblyFormat = [{
     (`tr` $cTransposed^)? $c `+` `` `=` (`tr` $aTransposed^)? $a `*` (`tr` $bTransposed^)? $b
-    `features` `=` $features attr-dict
+    `features` `=` $features `storeMethod` `=` $storeMethod attr-dict
     `:` type($c) `+` `` `=` type($a) `*` type($b)
   }];
 }

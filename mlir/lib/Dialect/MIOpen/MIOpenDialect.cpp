@@ -436,6 +436,20 @@ LogicalResult GemmOp::verify() {
   if (kA != kB)
     return emitOpError("K dimensions don't match")
            << " k_a = " << kA << " k_b = " << kB;
+
+  bool isXdlops = bitEnumContains(features(), GemmFeatures::xdlops);
+  if (Attribute params = this->params().getValueOr(nullptr)) {
+    if (isXdlops && !params.isa<XdlopsGemmParamsAttr>())
+      return emitOpError("an xdlops GEMM has non-xdlops tuning parameters");
+    if (features() == GemmFeatures::none &&
+        !params.isa<GeneralGemmParamsAttr>())
+      return emitOpError("an all-hardwase gemm must used the general gemm "
+                         "tuning parameters");
+  }
+
+  if (storeMethod() != StoreMethod::Set && !isXdlops) {
+    return emitOpError("general kernels don't support non-set store methods");
+  }
   return success();
 }
 

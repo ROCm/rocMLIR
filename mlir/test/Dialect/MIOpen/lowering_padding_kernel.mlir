@@ -1,7 +1,7 @@
 // This tests checks the following aspects of lowering component:
 // * The correct padding transformations are generated and added to the gemm
 
-// RUN: miopen-opt -miopen-affix-params -miopen-conv-to-gemm %s | FileCheck %s
+// RUN: miopen-opt -miopen-affix-params -miopen-conv-to-gemm -miopen-gemm-to-gridwise %s | FileCheck %s
 // CHECK-DAG: #[[$PAD_GEMMK:.*]] = #miopen.transform_map{{.*}}Pad{0, 14} ["gemmKPad"] at [1] -> ["gemmK"] at [1]
 
 // CHECK-LABEL: func.func @miopen_conv2d_kcyx_nchw_nkhw_padding_kernel
