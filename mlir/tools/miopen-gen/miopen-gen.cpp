@@ -1974,7 +1974,9 @@ populateHostHarnessLogic(ModuleOp &module,
   }
 
   // Call the roots.
-  for (auto &root : roots) {
+//  for (auto &root : roots)
+  auto &root = roots[0];
+                           {
     // Is the root also a kernel?
     bool rootKernel =
         std::find_if(kernels.begin(), kernels.end(), [&](const KernelIF &k) {
@@ -2046,10 +2048,12 @@ populateHostHarnessLogic(ModuleOp &module,
         b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
       }
       conv2dGenerator.setKernelName(kernelBaseName);
-    } else { // -pv_with_cpp or -pv_with_mlir (-pv)
+    } else if (validationType != "clone") { // -pv_with_cpp or -pv_with_mlir (-pv)
       // Emit call to host_<conv>
       auto cpuConvFunc = createCPUConvFunc(module, genConfig);
       b.create<func::CallOp>(loc, cpuConvFunc, valVars);
+    } else {                            // clone
+      b.create<func::CallOp>(loc, roots[1].func, valVars);
     }
 
     // Emit call to verifier
@@ -2160,6 +2164,7 @@ void postOrderTraverseInternal(
   SmallString<128> nameBuffer(cloneFuncOp.getName());
   nameBuffer += "_cloned";
   cloneFuncOp.setName(nameBuffer);
+//  cloneFunc->removeAttr("kernel");
   cloneFunc->setAttr("original_func", SymbolRefAttr::get(parentOp));
   parentOp->setAttr("clone_func", SymbolRefAttr::get(cloneFunc));
 
@@ -2345,9 +2350,9 @@ int main(int argc, char **argv) {
     for (auto &edge : *node)
       roots.remove(edge.getTarget());
 
-  if (cloneTest) {
+  if (genValidation == "clone") {
     SymbolTable symbolTable(module);
-    for (auto root : roots) {
+    for (auto &root : roots) {
       postOrderTraverse(root, symbolTable);
     }
   }
