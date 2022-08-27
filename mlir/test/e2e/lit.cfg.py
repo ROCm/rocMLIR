@@ -106,6 +106,3 @@ if config.enable_bindings_python:
         # lib/Bindings/Python/CMakeLists.txt for where this is set up.
         os.path.join(config.llvm_obj_root, 'python'),
     ], append_path=True)
-
-if not config.enable_rock_e2e_test or config.no_AMD_GPU:
-  config.unsupported = True

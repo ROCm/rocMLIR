@@ -134,7 +134,16 @@ add_lit_testsuites(MLIR-MIOPEN ${CMAKE_CURRENT_SOURCE_DIR}
   DEPENDS ${MLIR_MIOPEN_TEST_DEPENDS}
 )
 
-# Generate the E2E tests if -DROCK_E2E_TEST_ENABLED=1
+# Update the configs for E2E tests
+# This needs to be done regardless of the value of ROCK_E2E_TEST_ENABLED
+configure_lit_site_cfg(
+  ${CMAKE_CURRENT_SOURCE_DIR}/e2e/lit.site.cfg.py.in
+  ${CMAKE_CURRENT_BINARY_DIR}/e2e/lit.site.cfg.py
+  MAIN_CONFIG
+  ${CMAKE_CURRENT_SOURCE_DIR}/e2e/lit.cfg.py
+)
+
+# Enable the ROCK E2E tests if -DROCK_E2E_TEST_ENABLED=1
 if(ROCK_E2E_TEST_ENABLED)
   list(APPEND MLIR_MIOPEN_TEST_DEPENDS gen_e2e_tests)
   add_subdirectory(e2e)
