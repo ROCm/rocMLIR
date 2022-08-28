@@ -199,6 +199,7 @@ pipeline {
                                   -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
                                   -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
                                   -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+                                  -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
                                   -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
                                   -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=1
                                   -DLLVM_LIT_ARGS='-v --time-tests'
@@ -257,6 +258,7 @@ pipeline {
                                              """-DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=0
                                              -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
                                              -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=1
+                                             -DROCK_E2E_TEST_ENABLED=1
                                              -DMLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED=1
                                              -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=0
                                              -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=0
