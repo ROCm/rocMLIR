@@ -10,7 +10,7 @@
 // CHECK: %[[padK:.*]] = miopen.transform %[[gemmFilter]] by [#[[$PAD_GEMMK]]]
 // CHECK: miopen.gridwise_gemm %{{.*}} += %[[padK]] * %{{.*}}
 func.func @miopen_conv2d_kcyx_nchw_nkhw_padding_kernel(%filter : memref<32x128x2x3x3xf32>, %input : memref<64x32x2x11x11xf32>, %output : memref<64x32x128x9x9xf32>) {
-  miopen.conv2d(%filter, %input, %output) {
+  miopen.conv2d(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
@@ -28,7 +28,7 @@ func.func @miopen_conv2d_kcyx_nchw_nkhw_padding_kernel(%filter : memref<32x128x2
 // CHECK: %[[gemmFilter:.*]] = miopen.transform %[[filter]]
 // CHECK: miopen.gridwise_gemm %{{.*}} += %[[gemmFilter]] * %{{.*}}
 func.func @miopen_conv2d_kcyx_nchw_nkhw_no_extra_padding(%filter : memref<1x128x64x3x3xf32>, %input : memref<128x1x64x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
-  miopen.conv2d(%filter, %input, %output) {
+  miopen.conv2d(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
@@ -48,7 +48,7 @@ func.func @miopen_conv2d_kcyx_nchw_nkhw_no_extra_padding(%filter : memref<1x128x
 // CHECK: miopen.gridwise_gemm %{{.*}} += %[[padK]] * %{{.*}}
 
 func.func @miopen_conv2d_kcyx_nchw_nkhw_partial_padding_kernel(%filter : memref<32x128x2x3x3xf32>, %input : memref<128x32x2x11x11xf32>, %output : memref<128x32x128x9x9xf32>) {
-  miopen.conv2d(%filter, %input, %output) {
+  miopen.conv2d(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],

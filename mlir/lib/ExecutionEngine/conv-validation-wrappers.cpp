@@ -20,6 +20,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <array>
+#include <cmath>
 #include <unordered_map>
 
 typedef union bf16_fp32_cvt {
@@ -841,4 +842,195 @@ mcpuConv2dInt8(int64_t rank1, void *f_ptr, int64_t rank2, void *i_ptr,
       filterStrides, inputSizes, inputStrides, outputSizes, outputStrides,
       stride_h, stride_w, padding_h_l, padding_h_r, padding_w_l, padding_w_r,
       dilation_h, dilation_w, xdlops);
+}
+
+size_t findIdxHistRelDiff(double relDiff, const double *BUCKET_BOUNDARIES,
+                          size_t NUM_BOUNDARIES) {
+  if (relDiff == 0.0)
+    return 0;
+  size_t i = 0;
+  while (i < NUM_BOUNDARIES && relDiff > BUCKET_BOUNDARIES[i])
+    i++;
+  return i + 1;
+}
+
+void printDebugVerifyResults(int64_t dataSize, float maxAbsDiff,
+                             float maxVAL_abs, float maxGPU_abs,
+                             double aveAbsDiff, double maxRelDiff,
+                             float maxVAL_rel, float maxGPU_rel,
+                             double aveRelDiff, double err_RMS,
+                             const double *BUCKET_BOUNDARIES,
+                             size_t NUM_BUCKETS, int *hist_relDiff) {
+  printf("Number of elements: %ld\n", dataSize);
+  printf("maxAbsDiff info: maxAbsDiff = %f (valNum = %.5f, gpuNum = %.5f), "
+         "average absDiff = %.1e\n",
+         maxAbsDiff, maxVAL_abs, maxGPU_abs, aveAbsDiff);
+  printf("maxRelDiff info: maxRelDiff = %.1e (valNum = %.10f, gpuNum = %.10f), "
+         "average relDiff = %.1e\n",
+         maxRelDiff, maxVAL_rel, maxGPU_rel, aveRelDiff);
+  printf("RMS = %.1e\n", err_RMS);
+  printf("Histogram of relDiff: \n");
+  for (size_t i = 0; i < NUM_BUCKETS; ++i) {
+    if (i == 0)
+      printf("        relDiff = 0     ");
+    else if (i == 1)
+      printf("     0 < relDiff < %.0e", BUCKET_BOUNDARIES[i - 1]);
+    else if (i == NUM_BUCKETS - 2) // second to the last bucket
+      printf("%.0e < relDiff < inf   ", BUCKET_BOUNDARIES[i - 2]);
+    else if (i == NUM_BUCKETS - 1) // last bucket
+      printf("        relDiff = inf   ");
+    else
+      printf("%.0e < relDiff <= %.0e", BUCKET_BOUNDARIES[i - 2],
+             BUCKET_BOUNDARIES[i - 1]);
+
+    printf(": %d/%ld (%lf%%)\n", hist_relDiff[i], dataSize,
+           100.0 * static_cast<double>(hist_relDiff[i]) /
+               static_cast<double>(dataSize));
+  }
+}
+
+template <typename T>
+void mcpuVerify(T *gpuResults, T *validationResults, int64_t dataSize,
+                float thr_RMS, float thr_absDiff, float thr_relDiff,
+                char printDebug) {
+  float valNum, gpuNum;
+  // metric maxAbsDiff
+  float maxAbsDiff = 0.0f;
+  double sumAbsDiff = 0.0;
+  float maxVAL_abs = 0.0f;
+  float maxGPU_abs = 0.0f;
+  // metric maxRelDiff
+  double maxRelDiff = 0.0;
+  double sumRelDiff = 0.0;
+  float maxVAL_rel = 0.0f;
+  float maxGPU_rel = 0.0f;
+  // Metric RMS
+  float maxMag = 0.0f;
+  double sumDiffSq = 0.0;
+  // histogram of relDiss metric
+  // bucket index --> interval:
+  //     0: 0
+  //     1: 0 - 1e-6
+  //     2: 1e-6 - 1e-5
+  //     3: 1e-5 - 1e-4
+  //     4: 1e-4 - 1e-3
+  //     5: 1e-3 - 1e-2
+  //     6: 1e-2 - 0.1
+  //     7: 0.1 - 1
+  //     8: >= 1
+  //     9: Inf
+  constexpr size_t NUM_BOUNDARIES = 7;
+  static const double BUCKET_BOUNDARIES[NUM_BOUNDARIES] = {
+      1.0e-06, 1.0e-05, 1.0e-04, 1.0e-03, 1.0e-02, 0.1, 1.0};
+  // 3 more buckets compared to the bucket boundaries
+  // 1. relDiff = 0
+  // 2. largest boundary < relDiff <= inf
+  // 3. relDiff = inf
+  constexpr size_t NUM_BUCKETS = NUM_BOUNDARIES + 3;
+  int hist_relDiff[NUM_BUCKETS] = {0};
+  // Obtain print debug info option
+  enum class PrintOption : char {
+    Always = 2,  // always print debug info
+    Failure = 1, // print debug info only if the test fails
+    Off = 0      // do not print debug info
+  };
+  PrintOption print_option = static_cast<PrintOption>(printDebug);
+
+  for (int64_t i = 0; i < dataSize; ++i) {
+    valNum = static_cast<float>(validationResults[i]);
+    gpuNum = static_cast<float>(gpuResults[i]);
+    // Update the max magnitutde value
+    float maxNum = std::max(fabs(valNum), fabs(gpuNum));
+    maxMag = std::max(maxMag, maxNum);
+
+    if (valNum == gpuNum) {
+      hist_relDiff[0]++;
+    } else {
+      float absDiff = fabs(valNum - gpuNum);
+      // Update maxAbsDiff and its correspinding pair of values
+      if (absDiff > maxAbsDiff) {
+        maxVAL_abs = valNum;
+        maxGPU_abs = gpuNum;
+        maxAbsDiff = absDiff;
+      }
+      sumAbsDiff += static_cast<double>(absDiff);
+      // Update maxRelDiff only if cpuVal != 0
+      double relDiff = 0.0;
+      if (valNum != 0.0f) {
+        relDiff =
+            static_cast<double>(absDiff) / (static_cast<double>(fabs(valNum)));
+        hist_relDiff[findIdxHistRelDiff(relDiff, BUCKET_BOUNDARIES,
+                                        NUM_BOUNDARIES)]++;
+        if (relDiff > maxRelDiff) {
+          maxVAL_rel = valNum;
+          maxGPU_rel = gpuNum;
+          maxRelDiff = relDiff;
+        }
+        sumRelDiff += relDiff;
+      } else {
+        // relDiff = inf goes to the last bucket
+        hist_relDiff[NUM_BUCKETS - 1]++;
+      }
+      // Accumulate square root
+      sumDiffSq += static_cast<double>(absDiff) * static_cast<double>(absDiff);
+      // Print out values if difference is larger than threshold
+      if (print_option != PrintOption::Off &&
+          (absDiff > thr_absDiff || relDiff > thr_relDiff))
+        printf("%ld: %f %f %f %lf\n", i, valNum, gpuNum, absDiff, relDiff);
+    }
+  }
+  double aveAbsDiff = sumAbsDiff / static_cast<double>(dataSize);
+  double aveRelDiff = sumRelDiff / static_cast<double>(dataSize);
+  double err_RMS = sqrt(sumDiffSq) / (static_cast<double>(maxMag) *
+                                      sqrt(static_cast<double>(dataSize)));
+  // Check if pass based on all three metrics: RMS, maxAbsDiff, maxRelDiff
+  int RMS_pass = (err_RMS <= thr_RMS) ? 1 : 0;
+  int absDiff_pass = (maxAbsDiff <= thr_absDiff) ? 1 : 0;
+  int relDiff_pass = (maxRelDiff <= thr_relDiff) ? 1 : 0;
+  int all_pass = (RMS_pass && absDiff_pass && relDiff_pass) ? 1 : 0;
+  // Verbose information about the difference
+  if (print_option == PrintOption::Always ||
+      (print_option == PrintOption::Failure && all_pass == 0))
+    printDebugVerifyResults(dataSize, maxAbsDiff, maxVAL_abs, maxGPU_abs,
+                            aveAbsDiff, maxRelDiff, maxVAL_rel, maxGPU_rel,
+                            aveRelDiff, err_RMS, BUCKET_BOUNDARIES, NUM_BUCKETS,
+                            hist_relDiff);
+  printf("[%d %d %d]\n", RMS_pass, absDiff_pass, relDiff_pass);
+}
+
+// Compare the results in f32
+extern "C" void
+mcpuVerify5DFloat(float *gpuAllocated, float *gpuAligned, int64_t gpuOffset,
+                  int64_t gpuSize0, int64_t gpuSize1, int64_t gpuSize2,
+                  int64_t gpuSize3, int64_t gpuSize4, int64_t gpuStride0,
+                  int64_t gpuStride1, int64_t gpuStride2, int64_t gpuStride3,
+                  int64_t gpuStride4, float *valAllocated, float *valAligned,
+                  int64_t valOffset, int64_t valSize0, int64_t valSize1,
+                  int64_t valSize2, int64_t valSize3, int64_t valSize4,
+                  int64_t valStride0, int64_t valStride1, int64_t valStride2,
+                  int64_t valStride3, int64_t valStride4, float thr_RMS,
+                  float thr_absDiff, float thr_relDiff, char printDebug) {
+  assert(gpuSize0 * gpuSize1 * gpuSize2 * gpuSize3 * gpuSize4 ==
+         valSize0 * valSize1 * valSize2 * valSize3 * valSize4);
+  int64_t dataSize = valSize0 * valSize1 * valSize2 * valSize3 * valSize4;
+  mcpuVerify<float>(gpuAligned, valAligned, dataSize, thr_RMS, thr_absDiff,
+                    thr_relDiff, printDebug);
+}
+
+// Compare the results in int32
+extern "C" void mcpuVerify5DInt32(
+    int32_t *gpuAllocated, int32_t *gpuAligned, int64_t gpuOffset,
+    int64_t gpuSize0, int64_t gpuSize1, int64_t gpuSize2, int64_t gpuSize3,
+    int64_t gpuSize4, int64_t gpuStride0, int64_t gpuStride1,
+    int64_t gpuStride2, int64_t gpuStride3, int64_t gpuStride4,
+    int32_t *valAllocated, int32_t *valAligned, int64_t valOffset,
+    int64_t valSize0, int64_t valSize1, int64_t valSize2, int64_t valSize3,
+    int64_t valSize4, int64_t valStride0, int64_t valStride1,
+    int64_t valStride2, int64_t valStride3, int64_t valStride4, float thr_RMS,
+    float thr_absDiff, float thr_relDiff, char printDebug) {
+  assert(gpuSize0 * gpuSize1 * gpuSize2 * gpuSize3 * gpuSize4 ==
+         valSize0 * valSize1 * valSize2 * valSize3 * valSize4);
+  int64_t dataSize = valSize0 * valSize1 * valSize2 * valSize3 * valSize4;
+  mcpuVerify<int32_t>(gpuAligned, valAligned, dataSize, thr_RMS, thr_absDiff,
+                      thr_relDiff, printDebug);
 }

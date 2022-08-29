@@ -127,10 +127,14 @@ makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   else if (auto attr = func->getAttrOfType<BoolAttr>("xdlopsV2"))
     xdlopsV2 = attr.getValue();
 
+  miopen::GemmFeatures features = miopen::GemmFeatures::none;
+  if (xdlopsV2)
+    features = features | miopen::GemmFeatures::xdlops;
   auto cop = rw.create<miopen::Conv2DOp>(
       loc, filterExp, inputExp, outputExp, rw.getStringAttr(arch),
-      rw.getI32IntegerAttr(num_cu), /*blockSize=*/nullptr, /*gridSize=*/nullptr,
-      /*params=*/nullptr);
+      rw.getI32IntegerAttr(num_cu),
+      rw.getAttr<miopen::GemmFeaturesAttr>(features),
+      /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
   // translate attributes
   int32_t padTop = pad[0].dyn_cast<IntegerAttr>().getInt();
   int32_t padBottom = pad[1].dyn_cast<IntegerAttr>().getInt();
@@ -156,7 +160,6 @@ makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
 
   // arch-specific attributes
   // TODO: remove these
-  cop->setAttr("xdlopsV2", rw.getBoolAttr(xdlopsV2));
   if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
     cop->setAttr("perf_config", attr);
 

@@ -1,4 +1,8 @@
-// RUN: mlir-rocm-runner %s --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: mlir-rocm-runner %s \
+// RUN:   --bare-ptr-memref-kernels=false \
+// RUN:   --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext \
+// RUN:   --entry-point-result=void \
+// RUN: | FileCheck %s
 
 module attributes {gpu.container_module} {
   gpu.module @gpu_kernels {
@@ -50,7 +54,7 @@ module attributes {gpu.container_module} {
     %26 = memref.cast %6 : memref<16xf32> to memref<?xf32>
     %27 = memref.cast %7 : memref<16xf32> to memref<?xf32>
     %28 = memref.cast %8 : memref<16xf32> to memref<?xf32>
-    
+
     // launch kernel.
     call @vecadd(%26, %27, %28) : (memref<?xf32>, memref<?xf32>, memref<?xf32>) -> ()
 

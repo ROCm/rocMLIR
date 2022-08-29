@@ -43,6 +43,7 @@ def MIOpen_Conv2DOp :
                    MemRefRankOf<[F32, F16, BF16, I32], [5]>:$output,
                    StrAttr:$arch,
                    I32Attr:$numCu,
+                   MIOpen_GemmFeaturesAttr:$features,
                    OptionalAttr<I32Attr>:$blockSize,
                    OptionalAttr<I32Attr>:$gridSize,
                    MIOpen_OptionalGemmParams:$params)> {
@@ -52,7 +53,7 @@ def MIOpen_Conv2DOp :
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
+    `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
   }];
 }
 
@@ -63,6 +64,7 @@ def MIOpen_Conv2DBwdDataOp :
                    MemRefRankOf<[F32, F16, BF16], [5]>:$output,
                    StrAttr:$arch,
                    I32Attr:$numCu,
+                   MIOpen_GemmFeaturesAttr:$features,
                    OptionalAttr<I32Attr>:$blockSize,
                    OptionalAttr<I32Attr>:$gridSize,
                    MIOpen_OptionalGemmParams:$params)> {
@@ -72,7 +74,7 @@ def MIOpen_Conv2DBwdDataOp :
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
+    `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
   }];
 }
 
@@ -84,6 +86,7 @@ def MIOpen_Conv2DBwdWeightOp :
                    Optional<MemRefRankOf<[F32], [5]>>:$workspace,
                    StrAttr:$arch,
                    I32Attr:$numCu,
+                   MIOpen_GemmFeaturesAttr:$features,
                    OptionalAttr<I32Attr>:$blockSize,
                    OptionalAttr<I32Attr>:$gridSize,
                    MIOpen_OptionalGemmParams:$params,
@@ -94,7 +97,7 @@ def MIOpen_Conv2DBwdWeightOp :
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
+    `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
   }];
 }
 

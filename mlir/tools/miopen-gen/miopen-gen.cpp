@@ -18,6 +18,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/utility/IsaNameSplitter.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
@@ -29,6 +30,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/IntegerSet.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
@@ -300,10 +302,28 @@ static cl::opt<bool> genCPUValidation("pv", cl::Hidden, cl::init(false),
                                       cl::Optional,
                                       cl::cb<void, bool>([](bool v) {
                                         if (v) {
-                                          genValidation.setValue("cpu");
+                                          genValidation.setValue("mlir");
                                           genHostHarness.setValue(true);
                                         }
                                       }));
+
+static cl::opt<bool> genCPPValidation("pv_with_cpp", cl::Hidden,
+                                      cl::init(false), cl::Optional,
+                                      cl::cb<void, bool>([](bool v) {
+                                        if (v) {
+                                          genValidation.setValue("cpp");
+                                          genHostHarness.setValue(true);
+                                        }
+                                      }));
+
+static cl::opt<bool> genMLIRValidation("pv_with_mlir", cl::Hidden,
+                                       cl::init(false), cl::Optional,
+                                       cl::cb<void, bool>([](bool v) {
+                                         if (v) {
+                                           genValidation.setValue("mlir");
+                                           genHostHarness.setValue(true);
+                                         }
+                                       }));
 
 static cl::opt<bool> genGPUValidation("pv_with_gpu", cl::Hidden,
                                       cl::init(false), cl::Optional,
@@ -319,6 +339,7 @@ static cl::opt<bool> genCPUKernel("cpu-kernels",
                                   cl::init(false), cl::Optional,
                                   cl::cb<void, bool>([](bool v) {
                                     if (v) {
+                                      genValidation.setValue("mlir");
                                       genHostHarness.setValue(true);
                                       printResults.setValue(true);
                                     }
@@ -350,10 +371,30 @@ static cl::opt<std::string> randomSide(
              "By default, populate random numbers to both tensors."),
     cl::value_desc("tensor"), cl::init("both"));
 
-static cl::opt<float> f16Threshold(
-    "threshold",
-    cl::desc("Threshold used for CPU verification function for f16 datatype."),
-    cl::value_desc("error"), cl::init(0.25f));
+// Verification function options
+static cl::opt<float> RMSThreshold("RMS_threshold",
+                                   cl::desc("Threshold for RMS metric"),
+                                   cl::value_desc("error"), cl::init(0.00003f));
+
+static cl::opt<float> absDiffThreshold("absDiff_threshold",
+                                       cl::desc("Threshold for absDiff metric"),
+                                       cl::value_desc("error"),
+                                       cl::init(100.0f));
+
+static cl::opt<float> relDiffThreshold("relDiff_threshold",
+                                       cl::desc("Threshold for relDiff metric"),
+                                       cl::value_desc("error"),
+                                       cl::init(100.0f));
+static cl::opt<std::string> printVerifyResults(
+    "print-verify-results",
+    cl::desc("Choose when to print verbose debug information in the "
+             "verification function:"
+             "always: print debug info"
+             "failure: print debug info if the test fails (default)"
+             "off: do not print debug info"),
+    cl::value_desc("info"), cl::init("failure"));
+static cl::alias aliasPrintVerifyResults("p_verify",
+                                         cl::aliasopt(printVerifyResults));
 
 static cl::opt<int> deviceNum(
     "device",
@@ -803,60 +844,354 @@ static func::FuncOp getMemsetFunc(ModuleOp module, mlir::Type elemType) {
       {fiveDimUnknownSizeMemRefType, int16Type, int16Type, int32Type});
 }
 
-static func::FuncOp
-createCPUConvFunc(ModuleOp module,
-                  const miopen::Conv2dGenerator::Config &genConfig) {
+static std::tuple<int64_t, int64_t, int64_t>
+getConv2dBounds(miopen::ConvOpType dir,
+                const miopen::Conv2dGenerator::Config &genConfig) {
+  int64_t dim, dimH, dimW;
+  char channel;
+  StringRef layout;
+  ArrayRef<int64_t> dimension;
+  switch (dir) {
+  case miopen::ConvOpType::Fwd:
+    channel = 'c';
+    dimension = genConfig.inputDimension;
+    layout = genConfig.inputLayout;
+    break;
+  case miopen::ConvOpType::BwdData:
+    channel = 'k';
+    dimension = genConfig.outputDimension;
+    layout = genConfig.outputLayout;
+    break;
+  case miopen::ConvOpType::BwdWeight:
+    channel = 'n';
+    dimension = genConfig.inputDimension;
+    layout = genConfig.inputLayout;
+    break;
+  }
+  for (const auto &t : llvm::zip(layout, dimension)) {
+    char c(std::get<0>(t));
+    if (c == channel)
+      dim = std::get<1>(t);
+    if (c == 'h')
+      dimH = std::get<1>(t);
+    if (c == 'w')
+      dimW = std::get<1>(t);
+  }
+  return std::make_tuple(dim, dimH, dimW);
+}
 
-  assert(genConfig.operation.hasValue());
-  std::string funcName =
-      miopen::getNameForConvOpType(genConfig.operation.getValue()).str();
-
-  funcName += "_cpu";
-  func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
-  if (func) // already exists
-    return func;
-
+static void
+createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
+                      const miopen::Conv2dGenerator::Config &genConfig) {
   OpBuilder b(module.getContext());
-  auto loc = b.getUnknownLoc();
 
-  mlir::Type elemType = b.getF32Type();
-  mlir::Type outputElemType = b.getF32Type();
-  if (genConfig.dataTypeStr == "i8") {
-    elemType = b.getI8Type();
-    outputElemType = b.getIntegerType(32);
-    assert(genConfig.operation.getValue() == miopen::ConvOpType::Fwd);
-  }
-
-  auto filterDimension = genConfig.filterDimension;
-  auto inputDimension = genConfig.inputDimension;
-  auto outputDimension = genConfig.outputDimension;
-
-  auto filterType = MemRefType::get(filterDimension, elemType);
-  auto inputType = MemRefType::get(inputDimension, elemType);
-  auto outputType = MemRefType::get(outputDimension, outputElemType);
-
-  // Create conv2d_host function
-  miopen::Conv2dGenerator conv2dGenerator(genConfig);
-  bool hasWorkspace = conv2dGenerator.hasWorkspace(b);
-  mlir::Type workspaceArgType;
-  if (hasWorkspace) {
-    workspaceArgType = MemRefType::get(
-        ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
-        b.getF32Type());
-  }
-
-  SmallVector<mlir::Type, 3> funcArgTypes = {filterType, inputType, outputType};
-  if (hasWorkspace) {
-    funcArgTypes = {filterType, inputType, outputType, workspaceArgType};
-  }
-  func =
-      func::FuncOp::create(loc, funcName, b.getFunctionType(funcArgTypes, {}));
-  module.push_back(func);
-
-  // Construct a new Block.
   Block *block = func.addEntryBlock();
   b.setInsertionPoint(block, block->begin());
 
+  Location loc = b.getUnknownLoc();
+  auto zeroI16Op = b.create<arith::ConstantIntOp>(loc, 0, b.getIntegerType(16));
+  auto zeroI32Op = b.create<arith::ConstantIntOp>(loc, 0, b.getIntegerType(32));
+
+  // Initialize the result tensor
+  mlir::BlockArgument resultTensor;
+  switch (genConfig.operation.getValue()) {
+  case miopen::ConvOpType::Fwd:
+    resultTensor = block->getArgument(2);
+    break;
+  case miopen::ConvOpType::BwdData:
+    resultTensor = block->getArgument(1);
+    break;
+  case miopen::ConvOpType::BwdWeight:
+    resultTensor = block->getArgument(0);
+    break;
+  }
+  auto resultType = resultTensor.getType().template dyn_cast<MemRefType>();
+  mlir::Type elemType = resultType.getElementType();
+  MemRefType mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
+  auto memrefCastOp = b.create<memref::CastOp>(loc, mr5DUnkType, resultTensor);
+  b.create<func::CallOp>(
+      loc, getMemsetFunc(module, elemType),
+      ValueRange{memrefCastOp, zeroI16Op, zeroI16Op, zeroI32Op});
+
+  // Create affine maps
+  AffineExpr heightExpr, widthExpr;
+  AffineMap heightMap, widthMap;
+  AffineExpr outputHeightExpr, outputWidthExpr;
+  AffineMap outputHeightMap, outputWidthMap;
+
+  switch (genConfig.operation.getValue()) {
+  case miopen::ConvOpType::Fwd:
+  case miopen::ConvOpType::BwdWeight:
+    // d0 * stride + d1 * dilation - padding
+    heightExpr = b.getAffineDimExpr(0) * genConfig.strideHeight +
+                 b.getAffineDimExpr(1) * genConfig.dilationHeight -
+                 genConfig.paddingHeightLeft;
+    widthExpr = b.getAffineDimExpr(0) * genConfig.strideWidth +
+                b.getAffineDimExpr(1) * genConfig.dilationWidth -
+                genConfig.paddingWidthLeft;
+    break;
+  case miopen::ConvOpType::BwdData:
+    // d0 + padding - d1 * dilation
+    heightExpr = b.getAffineDimExpr(0) + genConfig.paddingHeightLeft -
+                 b.getAffineDimExpr(1) * genConfig.dilationHeight;
+    widthExpr = b.getAffineDimExpr(0) + genConfig.paddingWidthLeft -
+                b.getAffineDimExpr(1) * genConfig.dilationWidth;
+    break;
+  }
+  heightMap = AffineMap::get(2, 0, {heightExpr}, b.getContext());
+  widthMap = AffineMap::get(2, 0, {widthExpr}, b.getContext());
+
+  // Create extra maps for backward data
+  if (genConfig.operation.getValue() == miopen::ConvOpType::BwdData) {
+    // d0 / stride
+    outputHeightExpr = b.getAffineDimExpr(0).floorDiv(genConfig.strideHeight);
+    outputWidthExpr = b.getAffineDimExpr(0).floorDiv(genConfig.strideWidth);
+    outputHeightMap = AffineMap::get(1, 0, {outputHeightExpr}, b.getContext());
+    outputWidthMap = AffineMap::get(1, 0, {outputWidthExpr}, b.getContext());
+  }
+
+  // Create constraints for boundary checks
+  SmallVector<AffineExpr, 6> exprs;
+  SmallVector<bool, 6> eqFlags;
+  IntegerSet condition;
+  if (genConfig.operation.getValue() == miopen::ConvOpType::BwdData) {
+    // out_h_tmp % stride_h == 0, out_w_tmp % stride_w == 0
+    exprs.push_back(b.getAffineDimExpr(2) % genConfig.strideHeight);
+    eqFlags.push_back(true);
+    exprs.push_back(b.getAffineDimExpr(3) % genConfig.strideWidth);
+    eqFlags.push_back(true);
+  }
+  // out_h_idx >= 0, out_h_idx < out_height, out_w_idx >= 0, out_w_idx <
+  // out_width
+  exprs.push_back(b.getAffineDimExpr(0));
+  eqFlags.push_back(false);
+  exprs.push_back(b.getAffineSymbolExpr(0) - b.getAffineDimExpr(0) - 1);
+  eqFlags.push_back(false);
+  exprs.push_back(b.getAffineDimExpr(1));
+  eqFlags.push_back(false);
+  exprs.push_back(b.getAffineSymbolExpr(1) - b.getAffineDimExpr(1) - 1);
+  eqFlags.push_back(false);
+  if (genConfig.operation.getValue() == miopen::ConvOpType::BwdData) {
+    condition = IntegerSet::get(4, 2, exprs, eqFlags);
+  } else {
+    condition = IntegerSet::get(2, 2, exprs, eqFlags);
+  }
+
+  SmallVector<int64_t, 8> lowerBounds(8, 0);
+  SmallVector<int64_t, 8> upperBounds;
+  SmallVector<int64_t, 8> steps(8, 1);
+  std::string loopIVs;
+
+  int64_t dimX, dimH, dimW;
+  int64_t out_h, out_w;
+  std::tie(dimX, dimH, dimW) =
+      getConv2dBounds(genConfig.operation.getValue(), genConfig);
+
+  // Create the upper bounds
+  switch (genConfig.operation.getValue()) {
+  case miopen::ConvOpType::Fwd:
+    llvm::copy(genConfig.outputDimension, std::back_inserter(upperBounds));
+    upperBounds.push_back(dimX);
+    upperBounds.push_back(genConfig.filterHeight);
+    upperBounds.push_back(genConfig.filterWidth);
+    loopIVs.append(genConfig.outputLayout);
+    loopIVs.append("cyx");
+    break;
+  case miopen::ConvOpType::BwdData:
+    llvm::copy(genConfig.inputDimension, std::back_inserter(upperBounds));
+    upperBounds.push_back(dimX);
+    upperBounds.push_back(genConfig.filterHeight);
+    upperBounds.push_back(genConfig.filterWidth);
+    loopIVs.append(genConfig.inputLayout);
+    loopIVs.append("kyx");
+    break;
+  case miopen::ConvOpType::BwdWeight:
+    std::tie(std::ignore, out_h, out_w) =
+        getConv2dBounds(miopen::ConvOpType::BwdData, genConfig);
+    llvm::copy(genConfig.filterDimension, std::back_inserter(upperBounds));
+    upperBounds.push_back(dimX);
+    upperBounds.push_back(out_h);
+    upperBounds.push_back(out_w);
+    loopIVs.append(genConfig.filterLayout);
+    loopIVs.append("nhw");
+    break;
+  }
+
+  auto createConv2dLoopNest = [&](OpBuilder b, Location loc, ValueRange ivs) {
+    mlir::Value heightIdx, widthIdx;
+    mlir::Value heightTempIdx, widthTempIdx;
+
+    switch (genConfig.operation.getValue()) {
+    case miopen::ConvOpType::Fwd:
+      // in_h_idx = out_h_idx * stride_h + fil_h_idx * dilation_h - padding_h_l;
+      // in_w_idx = out_w_idx * stride_w + fil_w_idx * dilation_w - padding_w_l;
+      heightIdx = b.create<AffineApplyOp>(
+          loc, heightMap,
+          ValueRange{ivs[genConfig.outputLayout.find('h')], ivs[6]});
+      widthIdx = b.create<AffineApplyOp>(
+          loc, widthMap,
+          ValueRange{ivs[genConfig.outputLayout.find('w')], ivs[7]});
+      break;
+    case miopen::ConvOpType::BwdData:
+      // out_h_tmp = in_h_idx + padding_h_l - fil_h_idx * dilation_h;
+      // out_w_tmp = in_w_idx + padding_w_l - fil_w_idx * dilation_w;
+      heightTempIdx = b.create<AffineApplyOp>(
+          loc, heightMap,
+          ValueRange{ivs[genConfig.inputLayout.find('h')], ivs[6]});
+      widthTempIdx = b.create<AffineApplyOp>(
+          loc, widthMap,
+          ValueRange{ivs[genConfig.inputLayout.find('w')], ivs[7]});
+      // out_h_idx = out_h_tmp / stride_h;
+      // out_w_idx = out_w_tmp / stride_w;
+      heightIdx = b.create<AffineApplyOp>(loc, outputHeightMap,
+                                          ValueRange{heightTempIdx});
+      widthIdx = b.create<AffineApplyOp>(loc, outputWidthMap,
+                                         ValueRange{widthTempIdx});
+      break;
+    case miopen::ConvOpType::BwdWeight:
+      // in_h_idx = out_h_idx * stride_h + fil_h_idx * dilation_h - padding_h_l;
+      // in_w_idx = out_w_idx * stride_w + fil_w_idx * dilation_w - padding_w_l;
+      heightIdx = b.create<AffineApplyOp>(
+          loc, heightMap,
+          ValueRange{ivs[6], ivs[genConfig.filterLayout.find('y')]});
+      widthIdx = b.create<AffineApplyOp>(
+          loc, widthMap,
+          ValueRange{ivs[7], ivs[genConfig.filterLayout.find('x')]});
+      break;
+    }
+
+    enum TENSOR { FILTER = 0, INPUT = 1, OUTPUT = 2 };
+    auto getIndices = [&](TENSOR tensor, SmallVectorImpl<mlir::Value> &result) {
+      std::string layout;
+      if (tensor == FILTER)
+        layout = genConfig.filterLayout;
+      else if (tensor == INPUT)
+        layout = genConfig.inputLayout;
+      else
+        layout = genConfig.outputLayout;
+      for (auto c : layout) {
+        auto direction = genConfig.operation.getValue();
+        if ((direction == miopen::ConvOpType::Fwd ||
+             direction == miopen::ConvOpType::BwdWeight) &&
+            tensor == INPUT) {
+          if (c == 'h') {
+            result.push_back(heightIdx);
+            continue;
+          } else if (c == 'w') {
+            result.push_back(widthIdx);
+            continue;
+          }
+        } else if (direction == miopen::ConvOpType::BwdData &&
+                   tensor == OUTPUT) {
+          if (c == 'h') {
+            result.push_back(heightIdx);
+            continue;
+          } else if (c == 'w') {
+            result.push_back(widthIdx);
+            continue;
+          }
+        }
+        result.push_back(ivs[loopIVs.find(c)]);
+      }
+      return;
+    };
+
+    // Generate boundary testing
+    auto dimHeight = b.create<arith::ConstantIndexOp>(loc, dimH);
+    auto dimWidth = b.create<arith::ConstantIndexOp>(loc, dimW);
+
+    AffineIfOp ifOp;
+    if (genConfig.operation.getValue() == miopen::ConvOpType::BwdData) {
+      ifOp = b.create<mlir::AffineIfOp>(loc, condition,
+                                        ValueRange{heightIdx, widthIdx,
+                                                   heightTempIdx, widthTempIdx,
+                                                   dimHeight, dimWidth},
+                                        false);
+    } else {
+      ifOp = b.create<mlir::AffineIfOp>(
+          loc, condition, ValueRange{heightIdx, widthIdx, dimHeight, dimWidth},
+          false);
+    }
+    auto thenBody = ifOp.getThenBodyBuilder();
+
+    // Perform MAC operation
+    SmallVector<mlir::Value, 5> idx1, idx2;
+    BlockArgument opd1, opd2, result;
+
+    switch (genConfig.operation.getValue()) {
+    case miopen::ConvOpType::Fwd:
+      getIndices(FILTER, idx1);
+      getIndices(INPUT, idx2);
+      opd1 = block->getArgument(0);
+      opd2 = block->getArgument(1);
+      result = block->getArgument(2);
+      break;
+    case miopen::ConvOpType::BwdWeight:
+      getIndices(OUTPUT, idx1);
+      getIndices(INPUT, idx2);
+      opd1 = block->getArgument(2);
+      opd2 = block->getArgument(1);
+      result = block->getArgument(0);
+      break;
+    case miopen::ConvOpType::BwdData:
+      getIndices(FILTER, idx1);
+      getIndices(OUTPUT, idx2);
+      opd1 = block->getArgument(0);
+      opd2 = block->getArgument(2);
+      result = block->getArgument(1);
+      break;
+    }
+    llvm::ArrayRef<mlir::Value> idxRef1(idx1.data(), idx1.size());
+    auto loadOp1 =
+        thenBody.create<memref::LoadOp>(loc, opd1, ValueRange{idxRef1});
+    llvm::ArrayRef<mlir::Value> idxRef2(idx2.data(), idx2.size());
+    auto loadOp2 =
+        thenBody.create<memref::LoadOp>(loc, opd2, ValueRange{idxRef2});
+    auto loadOutput = thenBody.create<memref::LoadOp>(
+        loc, result, ValueRange{ivs[0], ivs[1], ivs[2], ivs[3], ivs[4]});
+    if (elemType.isIntOrIndex()) {
+      auto muliOp = thenBody.create<arith::MulIOp>(loc, loadOp1, loadOp2);
+      auto extsiOp = thenBody.create<arith::ExtSIOp>(loc, elemType, muliOp);
+      auto addiOp = thenBody.create<arith::AddIOp>(loc, loadOutput, extsiOp);
+      auto storeOp = thenBody.create<memref::StoreOp>(
+          loc, addiOp, result,
+          ValueRange{ivs[0], ivs[1], ivs[2], ivs[3], ivs[4]});
+    } else {
+      auto mulfOp = thenBody.create<arith::MulFOp>(loc, loadOp1, loadOp2);
+      auto addfOp = thenBody.create<arith::AddFOp>(loc, loadOutput, mulfOp);
+      auto storeOp = thenBody.create<memref::StoreOp>(
+          loc, addfOp, result,
+          ValueRange{ivs[0], ivs[1], ivs[2], ivs[3], ivs[4]});
+    }
+  };
+
+  // Generate the loop nest
+  mlir::buildAffineLoopNest(b, loc, lowerBounds, upperBounds, steps,
+                            createConv2dLoopNest);
+
+  b.create<func::ReturnOp>(loc, ValueRange{});
+  return;
+}
+
+static void
+createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
+                     const miopen::Conv2dGenerator::Config &genConfig) {
+  OpBuilder b(module.getContext());
+
+  Block *block = func.addEntryBlock();
+  b.setInsertionPoint(block, block->begin());
+
+  auto loc = b.getUnknownLoc();
+
+  mlir::Type elemType = b.getF32Type();
+  if (genConfig.dataTypeStr == "i8") {
+    elemType = b.getI8Type();
+  }
+
+  auto filterType =
+      block->getArgument(0).getType().template dyn_cast<MemRefType>();
+  auto outputType =
+      block->getArgument(2).getType().template dyn_cast<MemRefType>();
   // Emit memref_cast.
   // %a0 = memref_cast %arg0 : memref<128x8x3x3xf32> to memref<*xf32>
   // %a1 = memref_cast %arg1 : memref<128x8x32x32xf32> to memref<*xf32>
@@ -934,8 +1269,10 @@ createCPUConvFunc(ModuleOp module,
   auto gConstantOp = b.create<arith::ConstantIntOp>(loc, 'g', charType);
 
   // reduce precision if !xdlops
+  bool hasXdlops =
+      miopen::bitEnumContains(genConfig.features, miopen::GemmFeatures::xdlops);
   auto xdlopsConstantOp =
-      b.create<arith::ConstantIntOp>(loc, genConfig.xdlops, intType);
+      b.create<arith::ConstantIntOp>(loc, hasXdlops, intType);
 
   std::unordered_map<char, arith::ConstantIntOp> layoutConstOps;
   layoutConstOps['g'] = gConstantOp;
@@ -1029,6 +1366,66 @@ createCPUConvFunc(ModuleOp module,
 
   // Emit return op
   b.create<func::ReturnOp>(loc, ValueRange{});
+  return;
+}
+
+static func::FuncOp
+createCPUConvFunc(ModuleOp module,
+                  const miopen::Conv2dGenerator::Config &genConfig) {
+  assert(genConfig.operation.hasValue());
+  std::string funcName =
+      miopen::getNameForConvOpType(genConfig.operation.getValue()).str();
+
+  funcName += "_cpu";
+  func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
+  if (func) // already exists
+    return func;
+
+  OpBuilder b(module.getContext());
+  auto loc = b.getUnknownLoc();
+
+  mlir::Type elemType = b.getF32Type();
+  mlir::Type outputElemType = b.getF32Type();
+  if (genConfig.dataTypeStr == "i8") {
+    elemType = b.getI8Type();
+    outputElemType = b.getIntegerType(32);
+    assert(genConfig.operation.getValue() == miopen::ConvOpType::Fwd);
+  }
+
+  auto filterDimension = genConfig.filterDimension;
+  auto inputDimension = genConfig.inputDimension;
+  auto outputDimension = genConfig.outputDimension;
+
+  auto filterType = MemRefType::get(filterDimension, elemType);
+  auto inputType = MemRefType::get(inputDimension, elemType);
+  auto outputType = MemRefType::get(outputDimension, outputElemType);
+
+  // Create conv2d_host function
+  miopen::Conv2dGenerator conv2dGenerator(genConfig);
+
+  bool hasWorkspace = conv2dGenerator.hasWorkspace(b);
+  mlir::Type workspaceArgType;
+  if (hasWorkspace) {
+    workspaceArgType = MemRefType::get(
+        ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
+        b.getF32Type());
+  }
+
+  SmallVector<mlir::Type, 3> funcArgTypes = {filterType, inputType, outputType};
+
+  if (hasWorkspace) {
+    funcArgTypes = {filterType, inputType, outputType, workspaceArgType};
+  }
+
+  func =
+      func::FuncOp::create(loc, funcName, b.getFunctionType(funcArgTypes, {}));
+  module.push_back(func);
+
+  if (genValidation.getValue() == "mlir") { // -pv_with_mlir or -prc
+    createCPUConvWithMLIR(module, func, genConfig);
+  } else { // -pv_with_cpp
+    createCPUConvWithCPP(module, func, genConfig);
+  }
 
   return func;
 }
@@ -1183,9 +1580,9 @@ static void emitPrintTensor(OpBuilder &b, mlir::Value var) {
   }
 }
 
-static func::FuncOp
-createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
-                   const miopen::Conv2dGenerator::Config &genConfig) {
+static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
+                                       mlir::MemRefType testType,
+                                       mlir::MemRefType valType) {
   auto kfunc = kernel.func;
   std::string funcName = kfunc.getName().str() + "_verify";
   func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
@@ -1195,44 +1592,11 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   OpBuilder b(module.getContext());
   auto loc = b.getUnknownLoc();
   auto floatType = b.getF32Type();
-  auto intType = b.getIntegerType(32);
-
-  assert(genConfig.operation.hasValue());
-
-  mlir::Type elemType = floatType; // @@@@
-  mlir::Type cpuElemType = floatType;
-  if (genConfig.dataTypeStr == "f32") {
-  } else if (genConfig.dataTypeStr == "f16") {
-    elemType = b.getF16Type();
-  } else if (genConfig.dataTypeStr == "bf16") {
-    elemType = b.getBF16Type();
-  } else if (genConfig.dataTypeStr == "i8") {
-    elemType = b.getI8Type();
-    cpuElemType = b.getI8Type();
-    if (genConfig.operation.getValue() == miopen::ConvOpType::Fwd) {
-      elemType = intType;
-      cpuElemType = intType;
-    }
-  }
-
-  SmallVector<int64_t, 5> dims;
-  switch (genConfig.operation.getValue()) {
-  case miopen::ConvOpType::Fwd:
-    dims = genConfig.outputDimension;
-    break;
-  case miopen::ConvOpType::BwdData:
-    dims = genConfig.inputDimension;
-    break;
-  case miopen::ConvOpType::BwdWeight:
-    dims = genConfig.filterDimension;
-    break;
-  }
-  auto cpuType = MemRefType::get(dims, cpuElemType);
-  auto gpuType = MemRefType::get(dims, elemType);
+  auto charType = b.getIntegerType(8);
 
   // Emit verify_results function call
   func = func::FuncOp::create(loc, funcName,
-                              b.getFunctionType({gpuType, cpuType}, {}));
+                              b.getFunctionType({testType, valType}, {}));
   module.push_back(func);
 
   // Emit verification logic.
@@ -1240,203 +1604,153 @@ createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   Block *block = func.addEntryBlock();
   b.setInsertionPoint(block, block->begin());
 
-  // %c0 = constant 0: index
-  auto c0IndexOp = b.create<arith::ConstantIndexOp>(loc, 0);
+  // obtain function arguments
+  // arg0: test result
+  // arg1: validation result
+  auto arg0 = block->getArgument(0);
+  auto arg1 = block->getArgument(1);
+  // obtain element type
+  auto valElemType = valType.getElementType();
+  auto testOutType = testType.getElementType();
 
-  // %result = alloca() : memref<1xi32>
-  SmallVector<int64_t, 1> oneElementVector({1});
-  auto resultMemRefType = MemRefType::get(
-      ArrayRef<int64_t>(oneElementVector.begin(), oneElementVector.end()),
-      intType);
-  auto cmpResultAllocOp = b.create<memref::AllocaOp>(loc, resultMemRefType);
-
-  // %c0_i32 = constant 0 : i32
-  // %c1_i32 = constant 1 : i32
-  auto c0ConstantInt32Op = b.create<arith::ConstantIntOp>(loc, 0, intType);
-  auto c1ConstantInt32Op = b.create<arith::ConstantIntOp>(loc, 1, intType);
-
-  // store %c1_i32, %result[%c0] : memref<1xi32>
-  b.create<memref::StoreOp>(loc, c1ConstantInt32Op, cmpResultAllocOp,
-                            ValueRange{c0IndexOp});
-
-  mlir::FloatType elemFType = floatType;
-  if (elemType.isIntOrIndex()) { // i8, i32
-  } else if (!elemType.isF32()) {
-    if (elemType.isBF16()) {
-      elemFType = b.getBF16Type();
-    } else if (elemType.isF16()) {
-      elemFType = b.getF16Type();
-    }
-  }
-
-  auto getFVal = [&](float val) -> mlir::Value {
-    llvm::APFloat apVal(val);
-    bool ignored;
-    if (elemFType.isF16()) {
-      apVal.convert(llvm::APFloat::IEEEhalf(), APFloat::rmNearestTiesToEven,
-                    &ignored);
-    } else if (elemFType.isBF16()) {
-      apVal.convert(llvm::APFloat::BFloat(), APFloat::rmNearestTiesToEven,
-                    &ignored);
-    }
-    return b.create<arith::ConstantFloatOp>(loc, apVal, elemFType);
-  };
-
-  mlir::Value fval00, fval000001, fval001, fval025;
-  float f16_threshold = f16Threshold.getValue();
-  // Create constants needed for verification
-  if ((randomSeed.getValue() != "none" &&
-       randomDataType.getValue() == "float") ||
-      elemType.isF16() || elemType.isBF16()) {
-    fval00 = getFVal(0.0f);
-    fval000001 = getFVal(0.000001f);
-    fval001 = getFVal(0.001f);
-    fval025 = getFVal(f16_threshold);
-  }
-  // %%c1 = constant 1 : index
-  auto c1IndexOp = b.create<arith::ConstantIndexOp>(loc, 1);
-
-  // Emit constant index Ops for loop upper bounds
+  // Emit constants for thresholds
 
   // clang-format off
-  // scf.for %arg0 = %c0 to %c128 step %c1 {
-  //  scf.for %arg1 = %c0 to %c30 step %c1 {
-  //    scf.for %arg2 = %c0 to %c30 step %c1 {
-  //      scf.for %arg3 = %c0 to %c1 step %c1 {
-  //        scf.for %arg4 = %c0 to %c128 step %c1 {
-  //          %2 = load %CpuResults[%arg0, %arg1, %arg2, %arg3, %arg4] : memref<128x30x30x1x128xf32>
-  //          %3 = load %GpuResults[%arg0, %arg1, %arg2, %arg3, %arg4] : memref<128x30x30x1x128xf32>
-  //          %cst = constant 1.000000e-07 : f32
-  //          %4 = subf %2, %3 : f32
-  //          %5 = absf %4 : f32
-  //          %6 = cmpf ugt, %5, %cst : f32
-  //          scf.if %6 {
-  //            store %c0_i32, %result[%c0] : memref<1xi32>
-  //          }
-  //        }
-  //      }
-  //    }
-  //  }
-  //}
+  // %cst = arith.constant 9.99999974E-6 : f32
+  // %cst_0 = arith.constant 1.000000e+02 : f32
+  // %cst_1 = arith.constant 1.000000e+02 : f32
   // clang-format on
 
-  SmallVector<mlir::Value, 5> dimOps;
-  for (uint32_t i = 0; i < dims.size(); ++i) {
-    dimOps.push_back(b.create<arith::ConstantIndexOp>(loc, dims[i]));
-  }
-
-  scf::ForOp loop;
-  OpBuilder loopB = b;
-  SmallVector<mlir::Value, 5> idxs;
-  for (uint32_t i = 0; i < dims.size(); ++i) {
-    loop = loopB.create<scf::ForOp>(loc, c0IndexOp, dimOps[i], c1IndexOp);
-    loopB = OpBuilder::atBlockTerminator(loop.getBody());
-    idxs.push_back(loop.getInductionVar());
-  }
-
-  OpBuilder testBody = loopB;
-  // Inner loop body
-  mlir::Value gpuLoadVal =
-      loopB.create<memref::LoadOp>(loc, block->getArgument(0), idxs);
-  mlir::Value cpuLoadVal =
-      loopB.create<memref::LoadOp>(loc, block->getArgument(1), idxs);
-
-  mlir::Value gpuPrintVal = gpuLoadVal;
-  mlir::Value cpuPrintVal = cpuLoadVal;
-
-  // Lower cpu values to gpu precision
-  if (elemType.isF16() || elemType.isBF16()) {
-    cpuLoadVal = loopB.create<arith::TruncFOp>(loc, elemFType, cpuLoadVal);
-    gpuPrintVal = loopB.create<arith::ExtFOp>(loc, floatType, gpuLoadVal);
-  }
-
-  mlir::Value percentDiffVal;
-  mlir::Value cmpVal;
-  if ((randomSeed.getValue() != "none" && randomSeed.getValue() != "fixed" &&
-       randomDataType.getValue() == "float") ||
-      elemType.isF16() || elemType.isBF16()) {
-    // <test> = <cpu> != <gpu>
-
-    auto cmpfOp = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
-                                              cpuLoadVal, gpuLoadVal);
-    scf::IfOp ifOp = loopB.create<scf::IfOp>(loc, cmpfOp, false);
-    testBody = ifOp.getThenBodyBuilder();
-
-    // <test> = |(<cpu> - <gpu>) / <cpu>| > <max_percent>
-
-    // <test> = <cpu> - <gpu>
-    auto subfOp = testBody.create<arith::SubFOp>(loc, cpuLoadVal, gpuLoadVal);
-    auto divfOp = testBody.create<arith::DivFOp>(loc, subfOp, cpuLoadVal);
-    // <test> = select (<cpu> != 0.0), <divf>, <subf>)
-    auto notZeroOp = testBody.create<arith::CmpFOp>(
-        loc, arith::CmpFPredicate::UNE, cpuLoadVal, fval00);
-    auto testOp =
-        testBody.create<arith::SelectOp>(loc, notZeroOp, divfOp, subfOp);
-    percentDiffVal = divfOp;
-
-    // <test> = |<test>|
-    auto absfOp = testBody.create<math::AbsOp>(loc, testOp);
-
-    auto absCpuVal = testBody.create<math::AbsOp>(loc, cpuLoadVal);
-
-    mlir::Value maxPercentVal;
-    if (elemType.isF16()) {
-      // The threshold for f16 datatype is controlled by -threshold
-      // The default value is set to 0.25
-      maxPercentVal = fval025;
-    } else {
-      maxPercentVal = fval000001; // 0.0001 %
-    }
-
-    // <test> >= <max_percent>
-    cmpVal = testBody.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UGT,
-                                            absfOp, maxPercentVal);
-    if (elemType.getIntOrFloatBitWidth() < 32) {
-      // && <cpu> >= 0.001f
-      auto cmp1Op = testBody.create<arith::CmpFOp>(
-          loc, arith::CmpFPredicate::UGT, absCpuVal, fval001);
-
-      cmpVal = testBody.create<arith::AndIOp>(loc, cmpVal, cmp1Op);
-
-      // TODO?: check for GPU inf
-    }
-
-  } else if (elemType.isF32()) {
-    cmpVal = loopB.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
-                                         cpuLoadVal, gpuLoadVal);
-    percentDiffVal = loopB.create<arith::SubFOp>(loc, cpuLoadVal, gpuLoadVal);
+  auto getF32Val = [&](float val) -> mlir::Value {
+    llvm::APFloat apVal(val);
+    return b.create<arith::ConstantFloatOp>(loc, apVal, floatType);
+  };
+  // Thresholds for different metrics
+  // RMS: 0.00003f for all data types
+  // absDiff: 100.0f for all data types, i.e. the maxAbsDiff metric is disabled
+  // relDiff 100.0f for f16, i.e. maxRelDiff metric is disabled for f16
+  // datatypes
+  //         0.000001f for other data types
+  auto thr_RMS = getF32Val(RMSThreshold.getValue());
+  auto thr_absDiff = getF32Val(absDiffThreshold.getValue());
+  mlir::Value thr_relDiff;
+  if (testOutType.isF16())
+    thr_relDiff = getF32Val(relDiffThreshold.getValue());
+  else
+    thr_relDiff = getF32Val(0.000001f);
+  char printDebug = 1;
+  std::string printVerifyOption = printVerifyResults.getValue();
+  if (printVerifyOption == "always") {
+    printDebug = 2;
+  } else if (printVerifyOption == "failure") {
+    printDebug = 1;
+  } else if (printVerifyOption == "off") {
+    printDebug = 0;
   } else {
-    cmpVal = loopB.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
-                                         cpuLoadVal, gpuLoadVal);
+    llvm::errs() << "Unsupported print-verify-results option: "
+                 << printVerifyOption;
+    llvm::errs() << " (supported options: always, failure, off)\n";
+    exit(1);
   }
+  auto printDebugVal =
+      b.create<arith::ConstantIntOp>(loc, printDebug, charType);
 
-  scf::IfOp ifOp = testBody.create<scf::IfOp>(loc, cmpVal, false);
-  auto thenBody = ifOp.getThenBodyBuilder();
-
-  thenBody.create<memref::StoreOp>(loc, c0ConstantInt32Op, cmpResultAllocOp,
-                                   ValueRange{c0IndexOp});
-
-  // call mcpuPrintF32(float f1, float f2)
-  func::FuncOp printFunc;
-  if (elemType.isIntOrIndex()) {
-    printFunc = makeFuncDecl(module, "mcpuPrintInt32", {intType, intType});
+  // obtain function name of the verifier wrapper
+  std::string verifyFuncName = "mcpuVerify5D";
+  if (valElemType.isF32()) {
+    verifyFuncName += "Float";
+  } else if (valElemType.isInteger(32)) {
+    verifyFuncName += "Int32";
   } else {
-    printFunc = makeFuncDecl(module, "mcpuPrintF32", {floatType, floatType});
+    llvm::errs() << "Unsupported type of validation function output: ";
+    valElemType.dump();
+    llvm::errs() << " (Only f32 and int32 are supported)\n";
+    exit(1);
   }
 
-  if (!elemType.isIntOrIndex()) {
-    if (elemType.getIntOrFloatBitWidth() < 32) { // f16, bf16
-      percentDiffVal =
-          thenBody.create<arith::ExtFOp>(loc, floatType, percentDiffVal);
-    }
-    thenBody.create<func::CallOp>(loc, printFunc,
-                                  ValueRange{percentDiffVal, cpuPrintVal});
-  }
-  thenBody.create<func::CallOp>(loc, printFunc,
-                                ValueRange{gpuPrintVal, cpuPrintVal});
+  auto mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, valElemType);
+  bool isTestAndValSameType =
+      (testOutType.isInteger(32) || testOutType.isF32());
 
-  // Emit print function call
-  emitPrintTensor(b, cmpResultAllocOp);
+  mlir::Value testResult, valResult; // Values passed to the verify function
+  mlir::Value testResultNew;         // Values used for type conversion
+  if (!isTestAndValSameType) {
+    // When gpu kernel output data type = f16 | bf16, type conversions
+    // are required before calling the verify function
+
+    // Cast test result to the same type as valid result
+
+    // clang-format off
+    // %0 = memref.alloc() : memref<1x1x64x112x112xf32>
+    // %1 = memref.collapse_shape %arg0 [[0, 1, 2, 3, 4]] : memref<1x1x64x112x112xf16> into memref<802816xf16>
+    // %2 = memref.cast %1 : memref<802816xf16> to memref<?xf16>
+    // %3 = memref.collapse_shape %0 [[0, 1, 2, 3, 4]] : memref<1x1x64x112x112xf32> into memref<802816xf32>
+    // %4 = memref.cast %3 : memref<802816xf32> to memref<?xf32>
+    // %c802816 = arith.constant 802816 : index
+    // call @_memcpy_f16_f32(%2, %4, %c802816) : (memref<?xf16>, memref<?xf32>, index) -> ()
+    // %5 = memref.cast %0 : memref<1x1x64x112x112xf32> to memref<?x?x?x?x?xf32>
+    // clang-format on
+
+    testResultNew = b.create<memref::AllocOp>(loc, valType);
+    emitMemcpy(b, arg0, testResultNew);
+    testResult = b.create<memref::CastOp>(loc, mr5DUnkType, testResultNew);
+
+    // Cast valid result down to the same type as test result and cast back
+    //   For f16 and bf16 datatypes, gpu hardware outputs f32 results, which are
+    //   truncated to f16/bf16 before returning from the gpu kernel
+    //   To make the comparison fair, the truncation step is added manually to
+    //   the validation results.
+
+    // clang-format off
+    // affine.for %arg2 = 0 to 1 {
+    //   affine.for %arg3 = 0 to 1 {
+    //     affine.for %arg4 = 0 to 64 {
+    //       affine.for %arg5 = 0 to 112 {
+    //         affine.for %arg6 = 0 to 112 {
+    //           %7 = memref.load %arg1[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<1x1x64x112x112xf32>
+    //           %8 = arith.truncf %7 : f32 to f16
+    //           %9 = arith.extf %8 : f16 to f32
+    //           memref.store %9, %arg1[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<1x1x64x112x112xf32>
+    //         }
+    //       }
+    //     }
+    //   }
+    // }
+    // clang-format on
+
+    SmallVector<int64_t, 5> lowerBounds(5, 0);
+    SmallVector<int64_t, 5> upperBounds;
+    llvm::copy(valType.getShape(), std::back_inserter(upperBounds));
+    SmallVector<int64_t, 5> steps(5, 1);
+
+    mlir::buildAffineLoopNest(
+        b, loc, lowerBounds, upperBounds, steps,
+        [arg1, testOutType, valElemType](OpBuilder b, Location loc,
+                                         ValueRange ivs) {
+          auto valOrig = b.create<memref::LoadOp>(loc, arg1, ivs);
+          auto valTruncated =
+              b.create<arith::TruncFOp>(loc, testOutType, valOrig);
+          auto valExt = b.create<arith::ExtFOp>(loc, valElemType, valTruncated);
+          b.create<memref::StoreOp>(loc, valExt, arg1, ivs);
+        });
+  } else {
+    testResult = b.create<memref::CastOp>(loc, mr5DUnkType, arg0);
+  }
+
+  // Prepare the validation result for the verify function
+  valResult = b.create<memref::CastOp>(loc, mr5DUnkType, arg1);
+  // Declare and call the wrapper verify function
+  auto verifyFuncDecl = makeFuncDecl(
+      module, verifyFuncName,
+      {mr5DUnkType, mr5DUnkType, floatType, floatType, floatType, charType});
+  b.create<func::CallOp>(loc, verifyFuncDecl,
+                         ValueRange{testResult, valResult, thr_RMS, thr_absDiff,
+                                    thr_relDiff, printDebugVal});
+
+  if (!isTestAndValSameType) {
+    // Deallocate the buffer for f32 version of the test results
+    b.create<memref::DeallocOp>(loc, testResultNew);
+  }
 
   b.create<func::ReturnOp>(loc, ValueRange{});
 
@@ -1576,7 +1890,7 @@ populateHostHarnessLogic(ModuleOp &module,
   }
   auto root0 = *roots.begin();
   bool isCPUKernel = !root0.func->hasAttr("kernel");
-  bool hasValidation = !validationType.empty();
+  bool hasValidation = !validationType.empty() && !genCPUKernel.getValue();
   SmallVector<mlir::Value, 5> localVars;
   SmallVector<mlir::Value, 5> valVars;
   int32_t idx = 0;
@@ -1624,7 +1938,8 @@ populateHostHarnessLogic(ModuleOp &module,
     if (hasValidation ||
         (isCPUKernel && (elemType.isF16() || elemType.isBF16()))) {
       // Emit validation var
-      mlir::Type valElemType = floatType;
+      mlir::Type valElemType = elemType;
+      valElemType = floatType; // QY fix this later
       if (genConfig.dataTypeStr == "i8") {
         valElemType = elemType;
       }
@@ -1697,16 +2012,18 @@ populateHostHarnessLogic(ModuleOp &module,
   });
 
   // Run validation
+  bool hasXdlops =
+      miopen::bitEnumContains(genConfig.features, miopen::GemmFeatures::xdlops);
   if (hasValidation) {
     if (validationType == "gpu" &&
-        (genConfig.xdlops || genConfig.dataTypeStr == "f16" ||
+        (hasXdlops || genConfig.dataTypeStr == "f16" ||
          genConfig.dataTypeStr == "bf16")) {
       // generate generic kernels
       miopen::Conv2dGenerator conv2dGenerator(genConfig);
       // use non-xdlops kernels to verify xdlops kernels
-      if (genConfig.xdlops)
+      if (hasXdlops)
         conv2dGenerator.flipXdlops();
-      if (!genConfig.xdlops || genConfig.dataTypeStr != "i8")
+      if (!hasXdlops || genConfig.dataTypeStr != "i8")
         // use f32 data type to verify non-f32 or xdlops f32 kernels
         // except that i8 xdlops is verified with i8 non-xdlops
         conv2dGenerator.setDataType("f32");
@@ -1743,7 +2060,7 @@ populateHostHarnessLogic(ModuleOp &module,
         b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
       }
       conv2dGenerator.setKernelName(kernelBaseName);
-    } else { // if (validationType == "cpu")
+    } else { // -pv_with_cpp or -pv_with_mlir (-pv)
       // Emit call to host_<conv>
       auto cpuConvFunc = createCPUConvFunc(module, genConfig);
       b.create<func::CallOp>(loc, cpuConvFunc, valVars);
@@ -1753,7 +2070,9 @@ populateHostHarnessLogic(ModuleOp &module,
     mlir::Value testResult = localVars[outIdx];
     mlir::Value valResult = valVars[outIdx];
 
-    auto verifierFunc = createVerifierFunc(module, root0, genConfig);
+    auto testType = testResult.getType().dyn_cast<MemRefType>();
+    auto valType = valResult.getType().dyn_cast<MemRefType>();
+    auto verifierFunc = createVerifierFunc(module, root0, testType, valType);
     b.create<func::CallOp>(loc, verifierFunc,
                            ValueRange{testResult, valResult});
   }
@@ -1861,16 +2180,19 @@ int main(int argc, char **argv) {
       }
       // Scenario 2: We use cl::opt to initialize everything
     } else {
-      std::string chip, triple, features;
+      std::string chip, triple, chipFeatures;
       IsaNameSplitter splitter(arch.getValue());
-      auto status = splitter.parseIsaName(chip, triple, features);
+      auto status = splitter.parseIsaName(chip, triple, chipFeatures);
       if (status.failed()) {
         exit(1);
       }
 
+      miopen::GemmFeatures enabledFeatures = miopen::GemmFeatures::none;
+      if (xdlopsV2.getValue())
+        enabledFeatures = enabledFeatures | miopen::GemmFeatures::xdlops;
       conv2dGenerator = miopen::Conv2dGenerator(
-          chip, triple, features, perfConfig.getValue(), num_cu.getValue(),
-          xdlopsV2.getValue(), operation.getValue(), tensorDataType.getValue(),
+          chip, triple, chipFeatures, perfConfig.getValue(), num_cu.getValue(),
+          enabledFeatures, operation.getValue(), tensorDataType.getValue(),
           dilationHeight.getValue(), dilationWidth.getValue(),
           strideHeight.getValue(), strideWidth.getValue(),
           paddingHeightLeft.getValue(), paddingHeightRight.getValue(),

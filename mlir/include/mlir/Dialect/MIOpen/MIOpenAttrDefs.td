@@ -237,4 +237,16 @@ def MIOpen_OptionalGemmParams : OptionalAttr<AnyAttrOf<[
   MIOpen_GeneralGemmParamsAttr,
   MIOpen_XdlopsGemmParamsAttr]>>;
 
+// GEMM Features
+def MIOpen_GemmFeatures_None : I32BitEnumAttrCaseNone<"none">;
+def MIOpen_GemmFeatures_Xdlops : I32BitEnumAttrCaseBit<"xdlops", 0>;
+
+def MIOpen_GemmFeatures : I32BitEnumAttr<"GemmFeatures",
+    "Features that can be enabled on GEMM-based operations",
+    [MIOpen_GemmFeatures_None, MIOpen_GemmFeatures_Xdlops]> {
+  let cppNamespace = "::mlir::miopen";
+  let genSpecializedAttr = 0;
+}
+
+def MIOpen_GemmFeaturesAttr : EnumAttr<MIOpen_Dialect, MIOpen_GemmFeatures, "GemmFeatures">;
 #endif

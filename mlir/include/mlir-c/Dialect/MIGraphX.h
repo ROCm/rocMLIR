@@ -18,6 +18,10 @@
 extern "C" {
 #endif
 
+// Version 2: Use bare pointer ABI (kernels take just a pointer to the data
+// buffer, not an entire memref struct). Also introduces this constant.
+#define MLIR_MIGRAPHX_DIALECT_API_VERSION 2
+
 MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(MIGraphX, migraphx);
 
 // Phase 0 functions : Assuming the given module contains only one function

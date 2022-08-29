@@ -38,6 +38,30 @@ module  {
      return %1 : tensor<16xf32>
   }
 
+  // CHECK-LABEL: func.func @func_softmax_1d
+  // CHECK-DAG: [[REDUCE_MAX:%[a-z0-9]+]] = "tosa.reduce_max"([[INPUT:%[a-z0-9]+]])
+  // CHECK-DAG: [[SUB:%[a-z0-9]+]] = "tosa.sub"([[INPUT]], [[REDUCE_MAX]])
+  // CHECK-DAG: [[EXP:%[a-z0-9]+]] = "tosa.exp"([[SUB]])
+  // CHECK-DAG: [[REDUCE_SUM:%[a-z0-9]+]] = "tosa.reduce_sum"([[EXP]])
+  // CHECK-DAG: [[RECIPROCAL:%[a-z0-9]+]] = "tosa.reciprocal"([[REDUCE_SUM]])
+  // CHECK-DAG: "tosa.mul"([[EXP]], [[RECIPROCAL]])
+  func.func @func_softmax_1d(%arg0: tensor<16xf32>) -> tensor<16xf32> {
+    %0 = "migraphx.softmax"(%arg0) {axis = 0 : i64} : (tensor<16xf32>) -> tensor<16xf32>
+     return %0 : tensor<16xf32>
+  }
+
+  // CHECK-LABEL: func.func @func_softmax_4d
+  // CHECK-DAG: [[REDUCE_MAX:%[a-z0-9]+]] = "tosa.reduce_max"([[INPUT:%[a-z0-9]+]])
+  // CHECK-DAG: [[SUB:%[a-z0-9]+]] = "tosa.sub"([[INPUT]], [[REDUCE_MAX]])
+  // CHECK-DAG: [[EXP:%[a-z0-9]+]] = "tosa.exp"([[SUB]])
+  // CHECK-DAG: [[REDUCE_SUM:%[a-z0-9]+]] = "tosa.reduce_sum"([[EXP]])
+  // CHECK-DAG: [[RECIPROCAL:%[a-z0-9]+]] = "tosa.reciprocal"([[REDUCE_SUM]])
+  // CHECK-DAG: "tosa.mul"([[EXP]], [[RECIPROCAL]])
+  func.func @func_softmax_4d(%arg0: tensor<16x16x16x16xf32>) -> tensor<16x16x16x16xf32> {
+    %0 = "migraphx.softmax"(%arg0) {axis = 1 : i64} : (tensor<16x16x16x16xf32>) -> tensor<16x16x16x16xf32>
+     return %0 : tensor<16x16x16x16xf32>
+  }
+
   // broadcast ops will be lowered as implicit broadcast in tosa, passes if they're converted and legalize tosa.
   // CHECK-LABEL: func @func_mbcast
   func.func @func_mbcast(%arg0: tensor<1x64x1x1xf32>, %arg1: tensor<1x3x224x224xf32>, %arg2: tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32> attributes {kernel = "mixr"} {

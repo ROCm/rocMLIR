@@ -9,7 +9,7 @@
 // CHECK-LABEL: func.func @miopen_conv2d_gcyxk_gcnhw_gknhw
 // CHECK: miopen.transform %arg1 by [#[[$MAP]]] : memref<1x8x128x32x32xf32> to memref<1x8x128x34x34xf32, #[[$AFFINE]]>
 func.func @miopen_conv2d_gcyxk_gcnhw_gknhw(%filter : memref<1x8x3x3x128xf32>, %input : memref<1x8x128x32x32xf32>, %output : memref<1x128x128x32x32xf32>) {
-  miopen.conv2d(%filter, %input, %output) {
+  miopen.conv2d(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "c", "y", "x", "k"],

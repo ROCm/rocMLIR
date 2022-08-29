@@ -364,8 +364,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
 
   ConvolutionContext ctx = populateConvContext(op);
 
-  auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-  bool isXdlops = (xdlopsV2Attr && xdlopsV2Attr.getValue() == true);
+  GemmFeatures features = op.features();
+  bool isXdlops = bitEnumContains(features, GemmFeatures::xdlops);
 
   // Get shape of filter tensor.
   auto filterType = op.filter().getType().template cast<MemRefType>();
@@ -688,10 +688,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   GemmContext gemmSize(gemmMSize, gemmKSize, gemmNSize);
   Optional<GemmContext> maybeGemmExtraPad;
 
-  bool isXdlops = false;
-  auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-  if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
-    isXdlops = true;
+  GemmFeatures features = op.features();
+  bool isXdlops = bitEnumContains(features, GemmFeatures::xdlops);
 
   if (!isXdlops) {
     PopulateParams populateParams;
@@ -968,10 +966,9 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
   using OpRewritePattern<T>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
-    bool isXdlops = false;
-    auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
-      isXdlops = true;
+    GemmFeatures features = op.features();
+    bool isXdlops = bitEnumContains(features, GemmFeatures::xdlops);
+
     auto dataType =
         op.input().getType().template cast<MemRefType>().getElementType();
     if (ConvOpType::BwdData == convOpType) {
@@ -1418,9 +1415,9 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
     // Emit miopen.gridwise_gemm op.
-    // Emit miopen.gridwise_gemm_v2 if xdlopsV2 attribute is true.
+    // Emit miopen.gridwise_gemm_v2 if xdlops are enabled.
 
-    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
+    if (isXdlops) {
       auto gop = b.create<GridwiseGemmV2Op>(
           loc, gemmA, gemmB, gemmC, storeMethod, op.archAttr(),
           op.blockSizeAttr(), op.gridSizeAttr(), maybeXdlopsParams);
