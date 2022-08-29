@@ -443,7 +443,7 @@ LogicalResult GemmOp::verify() {
       return emitOpError("an xdlops GEMM has non-xdlops tuning parameters");
     if (features() == GemmFeatures::none &&
         !params.isa<GeneralGemmParamsAttr>())
-      return emitOpError("an all-hardwase gemm must used the general gemm "
+      return emitOpError("an all-hardware gemm must used the general gemm "
                          "tuning parameters");
   }
 

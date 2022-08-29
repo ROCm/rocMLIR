@@ -57,7 +57,7 @@ func.func @miopen_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x
 // CHECK-NEXT:  %[[IN2:.*]] = miopen.transform %[[IN1]] by [#[[$MAP_INPUT2_FWD]]]
 // CHECK-NEXT:  %[[IN3:.*]] = miopen.transform %[[IN2]] by [#[[$MAP_INPUT3_FWD]]]
 // CHECK-NEXT:  %[[OUT:.*]] = miopen.transform %arg2 by [#[[$MAP_OUTPUT_FWD]]]
-// CHECK-NEXT:  miopen.gemm %[[OUT]] += tr %[[FILTER]] * %[[IN3]]
+// CHECK-NEXT:  miopen.gemm %[[OUT]] = tr %[[FILTER]] * %[[IN3]]
 
 func.func @miopen_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
   miopen.conv2d(%filter, %input, %output) features = none {
@@ -82,7 +82,7 @@ func.func @miopen_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<
 // CHECK-NEXT:  %[[IN2:.*]] = miopen.transform %[[IN1]] by [#[[$MAP_INPUT2_FWD]]]
 // CHECK-NEXT:  %[[IN3:.*]] = miopen.transform %[[IN2]] by [#[[$MAP_INPUT3_FWD]]]
 // CHECK-NEXT:  %[[OUT:.*]] = miopen.transform %arg2 by [#[[$MAP_OUTPUT_FWD]]]
-// CHECK-NEXT:  miopen.gemm %[[OUT]] += tr %[[FILTER]] * %[[IN3]]
+// CHECK-NEXT:  miopen.gemm %[[OUT]] = tr %[[FILTER]] * %[[IN3]]
 
 func.func @miopen_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x1x8x32x32xi8>, %output : memref<128x1x128x30x30xi32>) {
   miopen.conv2d(%filter, %input, %output) features = xdlops {
@@ -107,7 +107,7 @@ func.func @miopen_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<12
 // CHECK-NEXT:  %[[IN2:.*]] = miopen.transform %[[IN1]] by [#[[$MAP_INPUT2_FWD]]]
 // CHECK-NEXT:  %[[IN3:.*]] = miopen.transform %[[IN2]] by [#[[$MAP_INPUT3_FWD]]]
 // CHECK-NEXT:  %[[OUT:.*]] = miopen.transform %arg2 by [#[[$MAP_OUTPUT_FWD]]]
-// CHECK-NEXT:  miopen.gemm %[[OUT]] += tr %[[FILTER]] * %[[IN3]]
+// CHECK-NEXT:  miopen.gemm %[[OUT]] = tr %[[FILTER]] * %[[IN3]]
 
 
 func.func @miopen_conv2d_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: memref<128x1x1024x14x14xf32>, %output: memref<128x1x1024x14x14xf32>) attributes {kernel = 0 : i32} {
@@ -140,7 +140,7 @@ func.func @miopen_conv2d_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: 
 // CHECK-NEXT:  %[[OUT1:.*]] = miopen.transform %arg2 by [#[[$MAP_BWD_DATA_OUT1_NO_PAD]]]
 // CHECK-NEXT:  %[[OUT2:.*]] = miopen.transform %[[OUT1]] by [#[[$MAP_BWD_DATA_OUT2_NO_PAD]]]
 // CHECK-NEXT:  %[[OUT3:.*]] = miopen.transform %[[OUT2]] by [#[[$MAP_BWD_DATA_OUT3_NO_PAD]]]
-// CHECK-NEXT:  miopen.gemm %[[IN4]] += tr %[[FIL3]] * %[[OUT3]]{{.*}}
+// CHECK-NEXT:  miopen.gemm %[[IN4]] = tr %[[FIL3]] * %[[OUT3]]{{.*}}
 
 func.func @miopen_conv2d_bwd_data_f16(%filter: memref<1x1024x1024x1x1xf16>, %input: memref<128x1x1024x14x14xf16>, %output: memref<128x1x1024x14x14xf16>) attributes {kernel = 0 : i32} {
 miopen.conv2d_bwd_data(%filter, %input, %output) features = xdlops {
@@ -172,7 +172,7 @@ miopen.conv2d_bwd_data(%filter, %input, %output) features = xdlops {
 // CHECK-NEXT:  %[[OUT1:.*]] = miopen.transform %arg2 by [#[[$MAP_BWD_DATA_OUT1_NO_PAD]]]
 // CHECK-NEXT:  %[[OUT2:.*]] = miopen.transform %[[OUT1]] by [#[[$MAP_BWD_DATA_OUT2_NO_PAD]]]
 // CHECK-NEXT:  %[[OUT3:.*]] = miopen.transform %[[OUT2]] by [#[[$MAP_BWD_DATA_OUT3_NO_PAD]]]
-// CHECK-NEXT:  miopen.gemm %[[IN4]] += tr %[[FIL3]] * %[[OUT3]]{{.*}}
+// CHECK-NEXT:  miopen.gemm %[[IN4]] = tr %[[FIL3]] * %[[OUT3]]{{.*}}
 
 func.func @miopen_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) features = none {
@@ -198,7 +198,7 @@ func.func @miopen_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : 
 // CHECK-NEXT:  %[[IN2:.*]] = miopen.transform %[[IN1]] by [#[[$MAP_INPUT2_FWD]]]
 // CHECK-NEXT:  %[[IN3:.*]] = miopen.transform %[[IN2]] by [#[[$MAP_BWD_WEIGHT_IN3]]]
 // CHECK-NEXT:  %[[OUT:.*]] = miopen.transform %arg2 by [#[[$MAP_BWD_WEIGHT_OUT]]]
-// CHECK-NEXT:  miopen.gemm %[[FIL1]] += tr %[[OUT]] * %[[IN3]]{{.*}}
+// CHECK-NEXT:  miopen.gemm %[[FIL1]] = tr %[[OUT]] * %[[IN3]]{{.*}}
 
 func.func @miopen_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
   miopen.conv2d_bwd_weight(%filter, %input, %output) features = none {
@@ -224,4 +224,4 @@ func.func @miopen_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %inpu
 // CHECK-NEXT:  %[[IN2:.*]] = miopen.transform %[[IN1]] by [#[[$MAP_INPUT2_FWD]]]
 // CHECK-NEXT:  %[[IN3:.*]] = miopen.transform %[[IN2]] by [#[[$MAP_BWD_WEIGHT_IN3]]]
 // CHECK-NEXT:  %[[OUT:.*]] = miopen.transform %arg2 by [#[[$MAP_BWD_WEIGHT_OUT]]]
-// CHECK-NEXT:  miopen.gemm %[[FIL1]] += tr %[[OUT]] * %[[IN3]]{{.*}}
+// CHECK-NEXT:  miopen.gemm %[[FIL1]] = tr %[[OUT]] * %[[IN3]]{{.*}}

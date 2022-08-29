@@ -14,13 +14,13 @@
 // CHECK-SAME: (%[[a:.*]]: memref<1x72x128xf32>, %[[b:.*]]: memref<1x72x512xf32>, %[[c:.*]]: memref<1x128x512xf32>)
 func.func @gemm_easy_case_from_conv(%a: memref<1x72x128xf32>, %b: memref<1x72x512xf32>, %c: memref<1x128x512xf32>) {
   // CHECK-NEXT: miopen.gridwise_gemm(%[[a]], %[[b]], %[[c]])
-  miopen.gemm %c += tr %a * %b features = none storeMethod = set {
+  miopen.gemm %c = tr %a * %b features = none storeMethod = set {
     arch = "gfx906",
     blockSize = 256 : i32,
     gridSize = 4 : i32,
     numCu = 64 : i32,
     params = #general_gemm_params0
-  } : memref<1x128x512xf32> += memref<1x72x128xf32> * memref<1x72x512xf32>
+  } : memref<1x128x512xf32> = memref<1x72x128xf32> * memref<1x72x512xf32>
   func.return
 }
 
@@ -28,13 +28,13 @@ func.func @gemm_easy_case_from_conv(%a: memref<1x72x128xf32>, %b: memref<1x72x51
 // CHECK-SAME: (%[[a:.*]]: memref<1x72x128xf32>, %[[b:.*]]: memref<1x72x512xf32>, %[[c:.*]]: memref<1x128x512xf32>)
 func.func @gemm_easy_case_from_conv_xdlops(%a: memref<1x72x128xf32>, %b: memref<1x72x512xf32>, %c: memref<1x128x512xf32>) {
   // CHECK-NEXT: miopen.gridwise_gemm_v2(%[[a]], %[[b]], %[[c]])
-  miopen.gemm %c += tr %a * %b features = xdlops storeMethod = set {
+  miopen.gemm %c = tr %a * %b features = xdlops storeMethod = set {
     arch = "gfx908",
     blockSize = 256 : i32,
     gridSize = 4 : i32,
     numCu = 64 : i32,
     params = #xdlops_gemm_params0
-  } : memref<1x128x512xf32> += memref<1x72x128xf32> * memref<1x72x512xf32>
+  } : memref<1x128x512xf32> = memref<1x72x128xf32> * memref<1x72x512xf32>
   func.return
 }
 
@@ -45,13 +45,13 @@ func.func @gemm_most_general_padding_case(%a: memref<1x1x1xf32>, %b: memref<1x1x
   // CHECK-DAG: %[[padB:.*]] = miopen.transform %[[b]] by {{.*}} : memref<1x1x1xf32> to memref<1x16x64xf32{{.*}}>
   // CHECK-DAG: %[[padC:.*]] = miopen.transform %[[c]] by {{.*}} : memref<1x1x1xf32> to memref<1x64x64xf32{{.*}}>
   // CHECK: miopen.gridwise_gemm(%[[padA]], %[[padB]], %[[padC]])
-  miopen.gemm %c += tr %a * %b features = none storeMethod = set {
+  miopen.gemm %c = tr %a * %b features = none storeMethod = set {
     arch = "gfx906",
     blockSize = 64 : i32,
     gridSize = 1 : i32,
     numCu = 64 : i32,
     params = #general_gemm_params1
-  } : memref<1x1x1xf32> += memref<1x1x1xf32> * memref<1x1x1xf32>
+  } : memref<1x1x1xf32> = memref<1x1x1xf32> * memref<1x1x1xf32>
   func.return
 }
 
@@ -62,13 +62,13 @@ func.func @gemm_in_standard_form(%a: memref<128x72xf32>, %b: memref<72x512xf32>,
   // CHECK-DAG: %[[normalizeB:.*]] = miopen.transform %[[b]] by {{.*}} : memref<72x512xf32> to memref<1x72x512xf32{{.*}}>
   // CHECK-DAG: %[[normalizeC:.*]] = miopen.transform %[[c]] by {{.*}} : memref<128x512xf32> to memref<1x128x512xf32{{.*}}>
   // CHECK: miopen.gridwise_gemm(%[[normalizeA]], %[[normalizeB]], %[[normalizeC]])
-  miopen.gemm %c += %a * %b features = none storeMethod = set {
+  miopen.gemm %c = %a * %b features = none storeMethod = set {
     arch = "gfx906",
     blockSize = 256 : i32,
     gridSize = 4 : i32,
     numCu = 64 : i32,
     params = #general_gemm_params0
-  } : memref<128x512xf32> += memref<128x72xf32> * memref<72x512xf32>
+  } : memref<128x512xf32> = memref<128x72xf32> * memref<72x512xf32>
   func.return
 }
 
@@ -79,13 +79,13 @@ func.func @gemm_transposed_from_gridwise(%a: memref<1x128x72xf32>, %b: memref<1x
   // CHECK-DAG: %[[normalizeB:.*]] = miopen.transform %[[b]] {{.*}} : memref<1x512x72xf32> to memref<1x72x512xf32{{.*}}>
   // CHECK-DAG: %[[normalizeC:.*]] = miopen.transform %[[c]] {{.*}} : memref<1x512x128xf32> to memref<1x128x512xf32{{.*}}>
   // CHECK: miopen.gridwise_gemm(%[[normalizeA]], %[[normalizeB]], %[[normalizeC]])
-  miopen.gemm tr %c += %a * tr %b features = none storeMethod = set {
+  miopen.gemm tr %c = %a * tr %b features = none storeMethod = set {
     arch = "gfx906",
     blockSize = 256 : i32,
     gridSize = 4 : i32,
     numCu = 64 : i32,
     params = #general_gemm_params0
-  } : memref<1x512x128xf32> += memref<1x128x72xf32> * memref<1x512x72xf32>
+  } : memref<1x512x128xf32> = memref<1x128x72xf32> * memref<1x512x72xf32>
   func.return
 }
 
@@ -97,12 +97,12 @@ func.func @gemm_kpack(%a: memref<1x72x128xf32>, %b: memref<1x72x512xf32>, %c: me
   // CHECK-DAG: %[[kpackA:.*]] = miopen.transform %[[a]] by {{.*}} : memref<1x72x128xf32> to memref<1x18x128x4xf32{{.*}}>
   // CHECK-DAG: %[[kpackB:.*]] = miopen.transform %[[b]] by {{.*}} : memref<1x72x512xf32> to memref<1x18x512x4xf32{{.*}}>
   // CHECK-NEXT: miopen.gridwise_gemm_v2(%[[kpackA]], %[[kpackB]], %[[c]])
-  miopen.gemm %c += tr %a * %b features = xdlops storeMethod = set {
+  miopen.gemm %c = tr %a * %b features = xdlops storeMethod = set {
     arch = "gfx908",
     blockSize = 256 : i32,
     gridSize = 4 : i32,
     numCu = 64 : i32,
     params = #xdlops_gemm_params1
-  } : memref<1x128x512xf32> += memref<1x72x128xf32> * memref<1x72x512xf32>
+  } : memref<1x128x512xf32> = memref<1x72x128xf32> * memref<1x72x512xf32>
   func.return
 }

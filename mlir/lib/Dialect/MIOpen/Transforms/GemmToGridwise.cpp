@@ -15,7 +15,7 @@
 // limitations under the License.
 // ============================================================
 //
-// This pass converts miopen.gemm into the appropritae miopen.gridwise_gemm
+// This pass converts miopen.gemm into the appropriate miopen.gridwise_gemm
 // adding padding and group dimensions if needed.
 //
 //===-----------------------------------------------------===//
@@ -59,7 +59,7 @@ struct GemmRewritePattern : public OpConversionPattern<GemmOp> {
 /// If doTranspose is true, meaning the user's transpose requests don't match
 /// what the underlying gridwise gemm expects, transpose the matrix to match,
 /// using firstDim as the name of the first dimension in the new value and
-/// secondDim as the name of the second dimesnios.
+/// secondDim as the name of the second dimesion.
 static Value normalizeMatrix(Value matrix, ConversionPatternRewriter &b,
                              Location loc, bool doTranspose, StringRef firstDim,
                              StringRef secondDim) {
@@ -133,7 +133,7 @@ static Value applyKpack(Value matrix, int64_t kpack,
 }
 
 /// Copy heuristic vector lengths from gemm to gridwise gemm.
-/// TODO: remove this once both xdlopn and non-xdlops gemm use the new
+/// TODO: remove this once both xdlops and non-xdlops gemm use the new
 /// vectorization scheme
 static void maybeSetAttr(StringRef attr, Operation *from, Operation *to) {
   Attribute maybeValue = from->getAttr(attr);

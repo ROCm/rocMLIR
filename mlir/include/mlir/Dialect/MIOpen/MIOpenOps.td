@@ -137,13 +137,13 @@ def MIOpen_GemmOp :
     a tuning process or a heuristic, but they must be set before the `gemm` is
     lowered into the `gridwise_gemm` stage of the code generation pipeline.
 
-    `features` specifies what hardwase features can be used in the generated code.
+    `features` specifies what hardware features can be used in the generated code.
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    (`tr` $cTransposed^)? $c `+` `` `=` (`tr` $aTransposed^)? $a `*` (`tr` $bTransposed^)? $b
+    (`tr` $cTransposed^)? $c `=` (`tr` $aTransposed^)? $a `*` (`tr` $bTransposed^)? $b
     `features` `=` $features `storeMethod` `=` $storeMethod attr-dict
-    `:` type($c) `+` `` `=` type($a) `*` type($b)
+    `:` type($c) `=` type($a) `*` type($b)
   }];
 }
 

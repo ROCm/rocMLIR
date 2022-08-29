@@ -834,7 +834,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       maybeGemmExtraPad = requiredPadding(tuningParams, gemmSize);
     } else {
       // We don't know if this'll be a padding kernel, so we can't promise an
-      // unfold or rely on atemic add, and so set the extraPad to a nonsense but
+      // unfold or rely on atomic add, and so set the extraPad to a nonsense but
       // existing value.
       maybeGemmExtraPad = GemmContext{-1, -1, -1};
     }
