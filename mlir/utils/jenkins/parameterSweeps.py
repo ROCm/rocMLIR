@@ -116,7 +116,7 @@ class MLIROnlyConfig(ConvConfiguration):
         self.wo = math.floor((self.wi + self.paddingWL + self.paddingWR * 2 - (self.x - 1) * self.dilationW - 1 ) / self.convStrideW) + 1
 
 
-CORRECT_RESULT_RE = re.compile('data\s*=\s*\[1\]')
+CORRECT_RESULT_RE = re.compile('\[1\s*1\s*1\]')
 
 class TestResult(enum.Enum):
     PASS = 1
