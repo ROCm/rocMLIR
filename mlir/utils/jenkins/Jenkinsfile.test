@@ -1,0 +1,150 @@
+// ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
+void buildProject(String target, String cmakeOpts) {
+    timeout(time: 60, activity: true, unit: 'MINUTES') {
+        cmakeBuild generator: 'Ninja',\
+            buildDir: 'build',\
+            buildType: 'RelWithDebInfo',\
+            installation: 'InSearchPath',\
+            steps: [[args: target]],\
+            cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
+    }
+}
+
+void showEnv() {
+    echo "$env.NODE_NAME"
+    sh 'cat /etc/os-release'
+    sh 'ulimit -a'
+    // Ignore rocm-smi failures in ixt-sjc2-05
+    sh '/opt/rocm/bin/rocm-smi || true'
+    sh '/opt/rocm/bin/rocm_agent_enumerator || true'
+    sh 'id'
+}
+
+String dockerArgs(String deviceName) {
+    echo "docker run --network=host --device=/dev/kfd --device=/dev/dri/${deviceName} --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
+    return "--network=host --device=/dev/kfd --device=/dev/dri/${deviceName} --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
+}
+
+String dockerImage() {
+    return 'rocm/mlir:rocm5.1-latest'
+}
+
+void setHeartbeat() {
+    script {
+        System.setProperty("org.jenkinsci.plugins.durabletask.BourneShellScript.HEARTBEAT_CHECK_INTERVAL", "86400");
+    }
+}
+
+def rebootNode() {
+    build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
+}
+
+pipeline {
+    agent {
+      node {
+        label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a) && multi_gpu' : 'rocm' }"
+      }
+    } 
+    parameters {
+        // Below should be set statically by Jenkins job
+        booleanParam(name: 'nightly', defaultValue: params.nightly ? true : false,
+                     description: 'Run extra nightly-only tests')
+        booleanParam(name: 'canXdlops', defaultValue: params.canXdlops == false ? false : true,
+                     description: 'Can this CI instance use xdlops (no for public server)')
+        booleanParam(name: 'weekly', defaultValue: params.weekly ? true : false,
+                     description: 'Run weekly-only jobs')
+
+        // Each below control whether to run a individual stage from parallel run
+        // They default to true or empty but deverloper can toggle them for debugging purpose
+        booleanParam(name: 'sharedLib', defaultValue: true,
+                     description: 'Run the shared library stage')
+        booleanParam(name: 'staticLib', defaultValue: true,
+                     description: 'Run the static library stage')
+        booleanParam(name: 'perfTest', defaultValue: true,
+                     description: 'Run the performance testing stage')
+    }
+    stages {
+        stage("Set System Property") {
+            steps {
+                setHeartbeat()
+            }
+        }
+        stage("Find GPUs") {
+          steps {
+            sh 'ls /dev/dri | grep render'
+          }
+        }
+        stage("Build and Test") {
+            parallel {
+                stage("Shared Library: fixed E2E tests") {
+                    when {
+                        beforeAgent true;
+                        equals expected: true, actual: params.sharedLib;
+                        equals expected: false, actual: params.weekly;
+                    }
+                    agent {
+                        docker {
+                            image dockerImage()
+                            args dockerArgs("renderD128")
+                            reuseNode true
+                            alwaysPull true
+                        }
+                    }
+                    environment {
+                        HOME="${WORKSPACE}"
+                    }
+                    stages {
+                        stage('Environment') {
+                            steps {
+                                showEnv()
+                            }
+                        }
+                     }
+                     post {
+                        unsuccessful {
+                            rebootNode()
+                        }
+                        always {
+                            cleanWs()
+                        }
+                    }
+                }
+                stage("Shared Library: random E2E tests") {
+                    when {
+                        beforeAgent true;
+                        allOf {
+                            equals expected: true, actual: params.sharedLib;
+                            equals expected: true, actual: params.nightly
+                        }
+                    }
+                    agent {
+                        docker {
+                            image dockerImage()
+                            args dockerArgs("renderD129")
+                            reuseNode true
+                            alwaysPull true
+                        }
+                    }
+                    environment {
+                        HOME="${WORKSPACE}"
+                    }
+                    stages {
+                        stage('Environment') {
+                            steps {
+                                showEnv()
+                            }
+                        }
+                    }
+                    post {
+                        unsuccessful {
+                            rebootNode()
+                        }
+                        always {
+                            cleanWs()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
