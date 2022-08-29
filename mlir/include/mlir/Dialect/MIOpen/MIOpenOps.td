@@ -153,7 +153,7 @@ def MIOpen_GridwiseGemmOp :
     The `miopen.gridwise_gemm` op computes gridwise GEMM.
   }];
   let assemblyFormat = [{
-    $c `+` `` `=` $a `*` $b attr-dict `:` type($c) `+` `` `=` type($a) `*` type($b)
+    $c `=` $a `*` $b attr-dict `:` type($c) `=` type($a) `*` type($b)
   }];
 }
 
