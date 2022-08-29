@@ -40,25 +40,24 @@ struct XdlopsCodeSelection {
   int64_t k;
   int64_t blocksMfma;
 
-  int64_t MPerXdlops;
-  int64_t NPerXdlops;
   int64_t MRepeats;
   int64_t NRepeats;
+  int64_t nResultVectors;
+
   VectorType vectorType;
-  int64_t vectorNumber;
   SmallVector<MFMAParams, 2> imms;
   Type argType;
 
-  int64_t group_size;
-  int64_t num_groups_blk;
-  int64_t num_regs_blk;
-  int64_t num_threads_blk;
-  int64_t num_input_blks;
-  int64_t num_output_blks;
-  int64_t num_regs_xdlops;
-  int64_t m;
-  int64_t n;
   int64_t k_base;
+
+  int64_t rowGroupSize;
+  int64_t rowsPerMfmaOutput;
+  int64_t blocksPerMfmaOutput;
+  int64_t rowGroupsPerBlock;
+  int64_t blocksInOutRegs;
+
+  int64_t inputSpanLen;
+  int64_t inputSpansPerMfmaIn;
 
   static void dumpUnsupported(const mlir::Type &dataType, int64_t MPerWave,
                               int64_t NPerWave) {
@@ -442,11 +441,11 @@ struct XdlopsCodeSelection {
 
     // Derived properties of the individual MFMA. These are computed here
     // and used in places throughout the code and may not all be needed.
-    int64_t kPerInputArg =
+    int64_t kPerMfmaInput =
         math_util::integer_divide_ceil(waveSize, mfmaNonKDim * blocksMfma);
     // k_base is the number of times you need to step in the k dimension on each
     // lane in a wave.
-    int64_t k_base = k / kPerInputArg;
+    int64_t k_base = k / kPerMfmaInput;
 
     // Number of logical values each thread needs to pass in to the MFMA in
     // order for the correct number of input values to be passed to the MFMA.
@@ -464,9 +463,12 @@ struct XdlopsCodeSelection {
       vectorElem = b.getF32Type();
     VectorType vectorType = VectorType::get({nOutputsOfMfma}, vectorElem);
 
-    constexpr int64_t group_size = 4;
-    // The number of rows in each MFMA result:
-    // For most MFMA's, this is bounded by the number of retitions of n_mfma
+    constexpr int64_t rowGroupSize = 4;
+    // The number of rows in each MFMA output item (usually a VGPR, except in
+    // the case of double-precision). Note, a "row" is a complete output row of
+    // one of blocks produced by the MFMA.
+
+    // For most MFMAs, this is bounded by the number of retitions of n_mfma
     // that you can fit into a wave (ex. a 32x32x2 mfma can fit two rows per
     // result). However, in the case of 4x4xk (16 blocks) MFMAs, counting that
     // number would produce the inaccurate result 64 / 4 = 16 rows per output,
@@ -474,45 +476,39 @@ struct XdlopsCodeSelection {
     // (remembering that the rows are first tiled into groups of group_size
     // outputs). Therefore, we need to impose the bound m_mfma / group_size on
     // the number of rows per output.
-    int64_t rowsPerOutput = std::min(waveSize / /*n_mfma=*/mfmaNonKDim,
-                                     /*m_mfma=*/mfmaNonKDim / group_size);
-    // The number of blocks in each MFMA output. If rowsPerOutput followed the
-    // typical case and was computed using waveSize / n_mfma, this will be 1.
-    // However, in the 4x4 case, where we do have 16 blocks packed into each
-    // output blocksPerOutput will be > 1 (namely 16).
-    int64_t blocksPerOutput = math_util::integer_divide_ceil(
-        waveSize, rowsPerOutput * /*n_mfma=*/mfmaNonKDim);
+    int64_t rowsPerMfmaOutput = std::min(waveSize / /*n_mfma=*/mfmaNonKDim,
+                                         /*m_mfma=*/mfmaNonKDim / rowGroupSize);
+    // The number of blocks in each MFMA output. If rowsPerMfmaOutput followed
+    // the typical case and was computed using waveSize / n_mfma, this will
+    // be 1. However, in the 4x4 case, where we do have 16 blocks packed into
+    // each output blocksPerOutput will be > 1 (namely 16).
+    int64_t blocksPerMfmaOutput = math_util::integer_divide_ceil(
+        waveSize, rowsPerMfmaOutput * /*n_mfma=*/mfmaNonKDim);
     // The number of register groups (of four rows) per block of output
     // Note that the inclusion of blocksPerOutput forces this value to be 1 in
     // the 4x4 case, as it should be.
-    int64_t num_groups_blk = math_util::integer_divide_ceil(
-        /*m_mfma=*/mfmaNonKDim, group_size * rowsPerOutput * blocksPerOutput);
-    int64_t num_regs_blk = group_size * num_groups_blk;
-    int64_t num_output_blks = blocksMfma / blocksPerOutput;
-    int64_t num_regs_xdlops = num_regs_blk * num_output_blks;
-    assert(nOutputsOfMfma == num_regs_xdlops &&
-           "Registers per xdlops equal to vector size");
+    int64_t rowGroupsPerBlock = math_util::integer_divide_ceil(
+        /*m_mfma=*/mfmaNonKDim,
+        rowGroupSize * rowsPerMfmaOutput * blocksPerMfmaOutput);
+    // Number of output blocks that can be accessed by going through the
+    // registers on any given lane.
+    int64_t blocksInOutRegs = blocksMfma / blocksPerMfmaOutput;
 
     // Properties of th selected bundle of MFMA instructions, or of how they
     // are used to implement GEMM.
 
     // Rename this field in future refactoring
-    int64_t vectorNumber = imms.size();
-    int64_t MPerXdlops = MPerWave / MRepeats;
-    int64_t NPerXdlops = NPerWave / NRepeats;
+    int64_t nResultVectors = imms.size();
 
     // Because the 4x4xk instructions are the only ones with blocksPerOutput > 1
     // and because they're only used for broadcast operations, we have
-    // historically represented them as 4x64 operations with one large,
-    // length 64 block in the n dimension. The inclusion of `blocksPerOutput`
-    // in a lot of the math above handles most of the inconsistencies that were
-    // created by chis choice, but the one that is not handled above is the
-    // choice to have n be 64. To make the math above clearer while retaining
-    // compatibility, we multiply n by blocksPerOUtput after it's been used in
-    // the computation.
-    int64_t m = mfmaNonKDim;
-    int64_t n = mfmaNonKDim * blocksPerOutput;
-    int64_t num_threads_blk = n;
+    // historically represented them as 4x64 operations that have one large
+    // "block" instead of 16 tiny ones. So, the length of an input span
+    // (row for A, column for B) is usually equal to mfmaNonKDim, but is
+    // more generally equal to mfmaNonKDim * blocksPerOutput in order to
+    // enable the math throughout our code to note break.
+    int64_t inputSpanLen = mfmaNonKDim * blocksPerMfmaOutput;
+    int64_t inputSpansPerMfmaIn = waveSize / inputSpanLen;
 
     // Populate result.
     XdlopsCodeSelection result;
@@ -520,26 +516,23 @@ struct XdlopsCodeSelection {
     result.k = k;
     result.blocksMfma = blocksMfma;
 
-    result.MPerXdlops = MPerXdlops;
-    result.NPerXdlops = NPerXdlops;
     result.MRepeats = MRepeats;
     result.NRepeats = NRepeats;
+    result.nResultVectors = nResultVectors;
+
     result.vectorType = vectorType;
-    result.vectorNumber = vectorNumber;
     result.imms = imms;
     result.argType = argType;
-
-    result.group_size = group_size;
-    result.num_groups_blk = num_groups_blk;
-    result.num_regs_blk = num_regs_blk;
-    result.num_threads_blk = num_threads_blk;
-    result.num_input_blks = waveSize / num_threads_blk;
-    result.num_output_blks = num_output_blks;
-    result.num_regs_xdlops = num_regs_xdlops;
-    result.m = m;
-    result.n = n;
     result.k_base = k_base;
 
+    result.rowGroupSize = rowGroupSize;
+    result.rowGroupsPerBlock = rowGroupsPerBlock;
+    result.rowsPerMfmaOutput = rowsPerMfmaOutput;
+    result.blocksPerMfmaOutput = blocksPerMfmaOutput;
+    result.blocksInOutRegs = blocksInOutRegs;
+
+    result.inputSpanLen = inputSpanLen;
+    result.inputSpansPerMfmaIn = inputSpansPerMfmaIn;
     // llvm::errs() << "XDLOPS code selection result:\n";
     // llvm::errs() << "mfmaInstr: " << mfmaInstr << "\n";
     // llvm::errs() << "MPerXdlops: " << MPerXdlops << "\n";
