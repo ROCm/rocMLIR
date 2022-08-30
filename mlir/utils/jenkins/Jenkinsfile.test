@@ -39,6 +39,9 @@ def rebootNode() {
     build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
 }
 
+def getDeviceName(num) {
+  
+}
 pipeline {
     agent {
       node {
@@ -50,7 +53,14 @@ pipeline {
                          script: 'echo "$(ls /dev/dri | grep -m1 render)"'
                     )}"""
       DEVICE_TWO = """${sh( returnStdout: true,
-                         script: 'echo "$(ls /dev/dri | grep -m2 render | tail -n1 | sed -r \'s/\\s+//g\')"'
+                         script: 'echo "$(ls /dev/dri | grep -m2 render | tail -n1')"'
+                    )}"""
+      DEVICE_THREE = """${sh( returnStdout: true,
+                         script: 'if [ $(ls /dev/dri |grep render|wc -l) > 2 ]; then
+                             echo \"$(ls /dev/dri | grep -m3 render | tail -n1)\"
+                           else
+                             echo \"$(ls /dev/dri | grep -m1 render)\"
+                         fi'
                     )}"""
     }
     parameters {
