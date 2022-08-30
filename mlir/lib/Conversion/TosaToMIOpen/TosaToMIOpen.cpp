@@ -356,6 +356,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
         convOp->setAttr("expected_filter_layout", b.getStringAttr(layout));
         top.replaceAllUsesWith({tInput});
       }
+      top.erase();
     }
 
     return success();
