@@ -8,6 +8,7 @@
 
 #include "mlir/Conversion/AMDGPUToROCDL/AMDGPUToROCDL.h"
 #include "../PassDetail.h"
+#include "mlir/Conversion/AMDGPUToROCDL/Chipset.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
@@ -305,49 +306,100 @@ static Value mfmaConcatIfNeeded(ConversionPatternRewriter &rewriter,
   return input;
 }
 
-/// Return the `rocdl` intrinsic corresponding to a `MFMAInstr` value.
-/// This conversion happens here to allow code up the stack to handle the choice
-/// of mfma by picking between enum variants, which is much more ergonomic than
-/// picking between ops, at the cost of some long switch statements in this
-/// pass.
-static StringRef mfmaInstrToIntrinsicName(MFMAInstr instr) {
-#define LOWERING_CASE(type)                                                    \
-  case MFMAInstr::type:                                                        \
-    return ROCDL::mfma_##type::getOperationName();
-  switch (instr) {
-    LOWERING_CASE(f32_32x32x1f32)
-    LOWERING_CASE(f32_16x16x1f32)
-    LOWERING_CASE(f32_4x4x1f32)
-    LOWERING_CASE(f32_32x32x2f32)
-    LOWERING_CASE(f32_16x16x4f32)
-    LOWERING_CASE(f32_32x32x4f16)
-    LOWERING_CASE(f32_16x16x4f16)
-    LOWERING_CASE(f32_4x4x4f16)
-    LOWERING_CASE(f32_32x32x8f16)
-    LOWERING_CASE(f32_16x16x16f16)
-    LOWERING_CASE(i32_32x32x4i8)
-    LOWERING_CASE(i32_16x16x4i8)
-    LOWERING_CASE(i32_4x4x4i8)
-    LOWERING_CASE(i32_32x32x8i8)
-    LOWERING_CASE(i32_16x16x16i8)
-    LOWERING_CASE(f32_32x32x2bf16)
-    LOWERING_CASE(f32_16x16x2bf16)
-    LOWERING_CASE(f32_4x4x2bf16)
-    LOWERING_CASE(f32_32x32x4bf16)
-    LOWERING_CASE(f32_16x16x8bf16)
-    LOWERING_CASE(f32_32x32x4bf16_1k)
-    LOWERING_CASE(f32_16x16x4bf16_1k)
-    LOWERING_CASE(f32_4x4x4bf16_1k)
-    LOWERING_CASE(f32_32x32x8bf16_1k)
-    LOWERING_CASE(f32_16x16x16bf16_1k)
-    LOWERING_CASE(f64_16x16x4f64)
-    LOWERING_CASE(f64_4x4x4f64)
-    LOWERING_CASE(i32_16x16x32_i8)
-    LOWERING_CASE(i32_32x32x16_i8)
-    LOWERING_CASE(f32_16x16x8_xf32)
-    LOWERING_CASE(f32_32x32x4_xf32)
+/// Return the `rocdl` intrinsic corresponding to a MFMA operation `mfma`
+/// if one exists. This includes checking to ensure the intrinsic is supported
+/// on the architecture you are compiling for.
+static Optional<StringRef> mfmaOpToIntrinsic(MFMAOp mfma, Chipset chipset) {
+  uint32_t m = mfma.m(), n = mfma.n(), k = mfma.k(), b = mfma.blocks();
+  Type sourceElem = mfma.sourceA().getType();
+  if (auto sourceType = sourceElem.dyn_cast<VectorType>())
+    sourceElem = sourceType.getElementType();
+  Type destElem = mfma.destC().getType();
+  if (auto destType = destElem.dyn_cast<VectorType>())
+    destElem = destType.getElementType();
+
+  if (sourceElem.isF32() && destElem.isF32()) {
+    if (mfma.reducePrecision() && chipset.minorVersion >= 0x40) {
+      if (m == 32 && n == 32 && k == 4 && b == 1)
+        return ROCDL::mfma_f32_32x32x4_xf32::getOperationName();
+      if (m == 16 && n == 16 && k == 8 && b == 1)
+        return ROCDL::mfma_f32_16x16x8_xf32::getOperationName();
+    }
+    if (m == 32 && n == 32 && k == 1 && b == 2)
+      return ROCDL::mfma_f32_32x32x1f32::getOperationName();
+    if (m == 16 && n == 16 && k == 1 && b == 4)
+      return ROCDL::mfma_f32_16x16x1f32::getOperationName();
+    if (m == 4 && n == 4 && k == 1 && b == 16)
+      return ROCDL::mfma_f32_4x4x1f32::getOperationName();
+    if (m == 32 && n == 32 && k == 2 && b == 1)
+      return ROCDL::mfma_f32_32x32x2f32::getOperationName();
+    if (m == 16 && n == 16 && k == 4 && b == 1)
+      return ROCDL::mfma_f32_16x16x4f32::getOperationName();
   }
-#undef LOWERING_CASE
+
+  if (sourceElem.isF16() && destElem.isF32()) {
+    if (m == 32 && n == 32 && k == 4 && b == 2)
+      return ROCDL::mfma_f32_32x32x4f16::getOperationName();
+    if (m == 16 && n == 16 && k == 4 && b == 4)
+      return ROCDL::mfma_f32_16x16x4f16::getOperationName();
+    if (m == 4 && n == 4 && k == 4 && b == 16)
+      return ROCDL::mfma_f32_4x4x4f16::getOperationName();
+    if (m == 32 && n == 32 && k == 8 && b == 1)
+      return ROCDL::mfma_f32_32x32x8f16::getOperationName();
+    if (m == 16 && n == 16 && k == 16 && b == 1)
+      return ROCDL::mfma_f32_16x16x16f16::getOperationName();
+  }
+
+  if (sourceElem.isBF16() && destElem.isF32() && chipset.minorVersion >= 0x0a) {
+    if (m == 32 && n == 32 && k == 4 && b == 2)
+      return ROCDL::mfma_f32_32x32x4bf16_1k::getOperationName();
+    if (m == 16 && n == 16 && k == 4 && b == 4)
+      return ROCDL::mfma_f32_16x16x4bf16_1k::getOperationName();
+    if (m == 4 && n == 4 && k == 4 && b == 16)
+      return ROCDL::mfma_f32_4x4x4bf16_1k::getOperationName();
+    if (m == 32 && n == 32 && k == 8 && b == 1)
+      return ROCDL::mfma_f32_32x32x8bf16_1k::getOperationName();
+    if (m == 16 && n == 16 && k == 16 && b == 1)
+      return ROCDL::mfma_f32_16x16x16bf16_1k::getOperationName();
+  }
+
+  if (sourceElem.isBF16() && destElem.isF32()) {
+    if (m == 32 && n == 32 && k == 2 && b == 2)
+      return ROCDL::mfma_f32_32x32x2bf16::getOperationName();
+    if (m == 16 && n == 16 && k == 2 && b == 4)
+      return ROCDL::mfma_f32_16x16x2bf16::getOperationName();
+    if (m == 4 && n == 4 && k == 2 && b == 16)
+      return ROCDL::mfma_f32_4x4x2bf16::getOperationName();
+    if (m == 32 && n == 32 && k == 4 && b == 1)
+      return ROCDL::mfma_f32_32x32x4bf16::getOperationName();
+    if (m == 16 && n == 16 && k == 8 && b == 1)
+      return ROCDL::mfma_f32_16x16x8bf16::getOperationName();
+  }
+
+  if (sourceElem.isa<IntegerType>() && destElem.isInteger(32)) {
+    if (m == 32 && n == 32 && k == 4 && b == 2)
+      return ROCDL::mfma_i32_32x32x4i8::getOperationName();
+    if (m == 16 && n == 16 && k == 4 && b == 4)
+      return ROCDL::mfma_i32_16x16x4i8::getOperationName();
+    if (m == 4 && n == 4 && k == 4 && b == 16)
+      return ROCDL::mfma_i32_4x4x4i8::getOperationName();
+    if (m == 32 && n == 32 && k == 8 && b == 1)
+      return ROCDL::mfma_i32_32x32x8i8::getOperationName();
+    if (m == 16 && n == 16 && k == 16 && b == 1)
+      return ROCDL::mfma_i32_16x16x16i8::getOperationName();
+    if (m == 32 && n == 32 && k == 16 && b == 1 && chipset.minorVersion >= 0x40)
+      return ROCDL::mfma_i32_32x32x16_i8::getOperationName();
+    if (m == 16 && n == 16 && k == 32 && b == 1 && chipset.minorVersion >= 0x40)
+      return ROCDL::mfma_i32_16x16x32_i8::getOperationName();
+  }
+
+  if (sourceElem.isF64() && destElem.isF64() && chipset.minorVersion >= 0x0a) {
+    if (m == 16 && n == 16 && k == 4 && b == 1)
+      return ROCDL::mfma_f64_16x16x4f64::getOperationName();
+    if (m == 4 && n == 4 && k == 4 && b == 4)
+      return ROCDL::mfma_f64_4x4x4f64::getOperationName();
+  }
+  return None;
 }
 
 namespace {
@@ -365,14 +417,23 @@ struct MFMAOpLowering : public ConvertOpToLLVMPattern<MFMAOp> {
 
     if (chipset.majorVersion != 9 || chipset.minorVersion < 0x08)
       return op->emitOpError("MFMA only supported on gfx908+");
-    OperationState loweredOp(loc, mfmaInstrToIntrinsicName(op.instr()));
+    uint32_t blgpField = static_cast<uint32_t>(op.blgp());
+    if (op.negateA() || op.negateB() || op.negateC()) {
+      if (chipset.minorVersion < 0x40)
+        return op.emitOpError("negation unsupported on older than gfx840");
+      blgpField |= op.negateA() | (op.negateB() << 1) | (op.negateC() << 2);
+    }
+    Optional<StringRef> maybeIntrinsic = mfmaOpToIntrinsic(op, chipset);
+    if (!maybeIntrinsic.has_value())
+      return op.emitOpError("no intrinsic matching MFMA size on given chipset");
+    OperationState loweredOp(loc, *maybeIntrinsic);
     loweredOp.addTypes(outType);
     loweredOp.addOperands({mfmaConcatIfNeeded(rewriter, loc, adaptor.sourceA()),
                            mfmaConcatIfNeeded(rewriter, loc, adaptor.sourceB()),
                            adaptor.destC(),
                            createI32Constant(rewriter, loc, op.cbsz()),
                            createI32Constant(rewriter, loc, op.abid()),
-                           createI32Constant(rewriter, loc, op.blgp())});
+                           createI32Constant(rewriter, loc, blgpField)});
     Operation *lowered = rewriter.create(loweredOp);
     rewriter.replaceOp(op, lowered->getResults());
     return success();

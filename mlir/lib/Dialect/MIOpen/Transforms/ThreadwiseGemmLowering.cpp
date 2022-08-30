@@ -180,21 +180,17 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     XdlopsCodeSelection xcs =
         XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 
-    // Extract values from XdlopsCodeSelection.
-    amdgpu::MFMAInstr mfmaInstr = xcs.instr;
-    LLVM_DEBUG(llvm::dbgs() << "Selected xdlop: "
-                            << amdgpu::stringifyMFMAInstr(mfmaInstr) << "\n");
-
     VectorType vectorType = xcs.vectorType;
-    int64_t vectorNumber = xcs.vectorNumber;
-    SmallVector<SmallVector<unsigned, 3>, 2> imms = xcs.imms;
+    int64_t nResultVectors = xcs.nResultVectors;
+    ArrayRef<MFMAParams> imms(xcs.imms);
     Type argType = xcs.argType;
 
-    int64_t num_input_blks = xcs.num_input_blks;
-    int64_t num_output_blks = xcs.num_output_blks;
+    int64_t mfmaNonKDim = xcs.mfmaNonKDim;
+    int64_t inputSpansPerMfmaIn = xcs.inputSpansPerMfmaIn;
+    int64_t blocksInOutRegs = xcs.blocksInOutRegs;
     int64_t k_base = xcs.k_base;
 
-    bool IsKReduction = (num_output_blks == 1) && (num_input_blks > 1);
+    bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
 
     Value matrixA = adaptor.matrixA();
     Value matrixB = adaptor.matrixB();
@@ -203,7 +199,7 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     Type matrixAElementType = matrixAType.getElementType();
     Type matrixBElementType = matrixBType.getElementType();
 
-    int64_t KPerThread = IsKReduction ? K / num_input_blks : K;
+    int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
     int64_t KRepeats = KPack / k_base;
     if (KRepeats == 0)
       KRepeats = 1;
@@ -214,14 +210,14 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         b.create<ConstantIndexOp>(loc, op.regOffsetBAttr().getInt());
 
     auto populateMfma = [&](OpBuilder &b, Value &argA, Value &argB) {
-      for (int64_t i = 0; i < vectorNumber; ++i) {
+      for (int64_t i = 0; i < nResultVectors; ++i) {
         // Note below is assuming only one of MRepeats or NRepeats is larger
         // than 1, which fits the existing blockwisegemmv2op implementation.
         // TODO: Move MRepeats and NRepeats into xdlopsgemmv2op
         int64_t regDOffset = 0;
         if (op.regOffsetAAttr().getInt() > 0 ||
             op.regOffsetBAttr().getInt() > 0) {
-          regDOffset += vectorNumber;
+          regDOffset += nResultVectors;
         }
         Value offset =
             b.createOrFold<arith::ConstantIndexOp>(loc, regDOffset + i);
@@ -229,8 +225,10 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         auto vectorC = b.create<memref::LoadOp>(loc, vectorType,
                                                 adaptor.matrixC(), offset);
         auto mfma = b.create<amdgpu::MFMAOp>(
-            loc, vectorType, mfmaInstr, argA, argB, vectorC,
-            /*cbsz=*/imms[i][0], /*abid=*/imms[i][1], /*blgp=*/imms[i][2]);
+            loc, vectorType, /*m=*/mfmaNonKDim, /*n=*/mfmaNonKDim, xcs.k,
+            xcs.blocksMfma, argA, argB, vectorC, imms[i].cbsz, imms[i].abid,
+            imms[i].blgp, /*reducePrecision=*/false, /*negateA=*/false,
+            /*negateB=*/false, /*negateC=*/false);
         auto vectorD = mfma.destD();
 
         b.create<memref::StoreOp>(loc, vectorD, adaptor.matrixC(), offset);
