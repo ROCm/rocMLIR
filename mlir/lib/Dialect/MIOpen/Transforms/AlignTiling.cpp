@@ -87,8 +87,7 @@ makeTransposeTransform(PatternRewriter &b, Value inp, AffineMap inpMap) {
 
       permuteBuilder.passThrough(permutation, identityIdxs);
       TransformMapAttr permuteAttr = permuteBuilder.get();
-      Value ret = b.create<TransformOp>(loc, inp, permuteAttr,
-                                        inputType.getMemorySpaceAsInt());
+      Value ret = b.create<TransformOp>(loc, inp, permuteAttr);
       AffineMap composed = permuteAttr.getMap().getAffineMap().compose(inpMap);
       LLVM_DEBUG(llvm::dbgs() << "indexing = " << inpMap << " then transform "
                               << permuteAttr.getMap().getAffineMap() << " is "
@@ -131,8 +130,7 @@ static Value makeBroadcast(PatternRewriter &b, MemRefType outType, Value inp,
         bcastDims.push_back(i);
       }
 
-      inp = b.create<TransformOp>(loc, inp, transform.get(),
-                                  inpType.getMemorySpaceAsInt());
+      inp = b.create<TransformOp>(loc, inp, transform.get());
 
       inpType = inp.getType().template cast<MemRefType>();
       inpShape = inpType.getShape();
@@ -161,8 +159,7 @@ static Value makeBroadcast(PatternRewriter &b, MemRefType outType, Value inp,
     transform.passThrough(ptDims, ptDims);
     transform.broadcast(bcastDims, bcastSizes);
 
-    inp = b.create<TransformOp>(loc, inp, transform.get(),
-                                inpType.getMemorySpaceAsInt());
+    inp = b.create<TransformOp>(loc, inp, transform.get());
   }
   return inp;
 }

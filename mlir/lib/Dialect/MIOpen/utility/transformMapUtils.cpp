@@ -228,8 +228,7 @@ TransformOp mlir::miopen::reshapeBuffer(OpBuilder &b, Location loc,
   transform.embed("raw", 0, outShape[0], names, strides);
 
   TransformMapAttr transformAttr = transform.get();
-  auto ret = b.create<TransformOp>(loc, buffer, transformAttr,
-                                   bufferType.getMemorySpaceAsInt());
+  auto ret = b.create<TransformOp>(loc, buffer, transformAttr);
   return ret;
 }
 

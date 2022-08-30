@@ -1497,8 +1497,7 @@ struct RemoveTrivialTransposePattern
     }
     miopen::BottomUpTMBuilder transform(b, inpShape, loc);
     transform.passThrough(endDims, startDims);
-    auto tfOp = b.create<miopen::TransformOp>(loc, inp, transform.get(),
-                                              inpType.getMemorySpaceAsInt());
+    auto tfOp = b.create<miopen::TransformOp>(loc, inp, transform.get());
     return tfOp;
   }
 
