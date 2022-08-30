@@ -77,11 +77,11 @@ pipeline {
                 setHeartbeat()
             }
         }
-        stage("Find GPUs") {
-          steps {
-            sh 'ls /dev/dri | grep render'
-          }
-        }
+        //stage("Find GPUs") {
+        //  steps {
+        //    sh 'ls /dev/dri | grep render'
+        //  }
+        //}
         stage("Build and Test") {
             parallel {
                 stage("Shared Library: fixed E2E tests") {
@@ -93,7 +93,7 @@ pipeline {
                     agent {
                         docker {
                             image dockerImage()
-                            args dockerArgs("renderD128")
+                            args dockerArgs(DEVICE_ONE)
                             reuseNode true
                             alwaysPull true
                         }
@@ -128,7 +128,7 @@ pipeline {
                     agent {
                         docker {
                             image dockerImage()
-                            args dockerArgs("renderD129")
+                            args dockerArgs(DEVICE_TWO)
                             reuseNode true
                             alwaysPull true
                         }
