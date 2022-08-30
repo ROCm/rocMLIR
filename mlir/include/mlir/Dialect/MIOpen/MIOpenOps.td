@@ -114,17 +114,15 @@ def MIOpen_TransformOp :
   }];
   let builders = [
    // Custom builder to populate bounds of input and output memrefs as attributes.
-   OpBuilder<(ins "Value":$input, "TransformMapAttr":$transforms,
-    CArg<"unsigned", "0">:$memorySpace),
+   OpBuilder<(ins "Value":$input, "TransformMapAttr":$transform),
    [{
      $_state.addOperands({input});
      MemRefType lowerType = input.getType().template cast<MemRefType>();
      Type elemType = lowerType.getElementType();
-     AffineMap lowerMap = lowerType.getLayout().getAffineMap();
-     AffineMap composed = lowerMap.compose(transforms.getMap().getAffineMap());
-     MemRefType upperType = MemRefType::get(transforms.getUpperBounds(), elemType,
-      composed, memorySpace);
-     $_state.addAttribute("transforms", $_builder.getArrayAttr({transforms}));
+     int memorySpace = lowerType.getMemorySpaceAsInt();
+     MemRefType upperType = MemRefType::get(transform.getUpperBounds(), elemType,
+      /*layout=*/{}, memorySpace);
+     $_state.addAttribute("transforms", $_builder.getArrayAttr({transform}));
      $_state.addTypes(upperType);
    }]>,
   ];

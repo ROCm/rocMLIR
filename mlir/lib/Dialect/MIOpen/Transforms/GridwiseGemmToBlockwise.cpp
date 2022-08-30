@@ -278,8 +278,7 @@ static Value sliceBufferSubview(OpBuilder &b, Location loc, Value buffer,
   transform.slice({"slice"}, {"buffer"}, {start}, {end});
 
   TransformMapAttr transformAttr = transform.get();
-  Value subview = b.create<TransformOp>(loc, buffer, transformAttr,
-                                        bufferType.getMemorySpaceAsInt());
+  Value subview = b.create<TransformOp>(loc, buffer, transformAttr);
   return subview;
 }
 
