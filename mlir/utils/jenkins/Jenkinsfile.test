@@ -45,6 +45,14 @@ pipeline {
         label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a) && multi_gpu' : 'rocm' }"
       }
     } 
+    environment {
+      DEVICE_ONE = """ ${sh( returnStdout: true,
+                         script: 'echo "$(ls /dev/dri | grep -m1 render)"'
+                    )}"""
+      DEVICE_TWO = """ ${sh( returnStdout: true,
+                         script: 'echo "$(ls /dev/dri | grep -m2 render | tail -n1)"'
+                    )}"""
+    }
     parameters {
         // Below should be set statically by Jenkins job
         booleanParam(name: 'nightly', defaultValue: params.nightly ? true : false,
