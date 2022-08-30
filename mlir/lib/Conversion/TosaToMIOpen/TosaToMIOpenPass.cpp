@@ -46,25 +46,11 @@ public:
     // Split patterns into two stages by bufferization
     RewritePatternSet tensor_patterns(&ctx);
     RewritePatternSet patterns(&ctx);
-    ConversionTarget tensor_target(ctx);
     ConversionTarget target(ctx);
 
-    tensor_target.addLegalDialect<
-        miopen::MIOpenDialect, tosa::TosaDialect, memref::MemRefDialect,
-        mlir::func::FuncDialect, BuiltinDialect, arith::ArithmeticDialect,
-        bufferization::BufferizationDialect>();
-    tensor_target.addDynamicallyLegalOp<tosa::TransposeOp>(
-        [&](tosa::TransposeOp op) {
-          auto attrDeletable = op->getAttr("changing_layout_root");
-          if (attrDeletable)
-            // Only apply the pattern to the transpose at the bottom
-            return !attrDeletable.dyn_cast<BoolAttr>().getValue();
-          return true;
-        });
-    mlir::tosa::populateTosaToMIOpenTensorConversionPatterns(func.getContext(),
+    mlir::tosa::populateTosaToMIOpenTensorConversionPatterns(&ctx,
                                                              tensor_patterns);
-    if (failed(applyFullConversion(func, tensor_target,
-                                   std::move(tensor_patterns))))
+    if (failed(applyPatternsAndFoldGreedily(func, std::move(tensor_patterns))))
       signalPassFailure();
 
     target.addLegalDialect<miopen::MIOpenDialect, linalg::LinalgDialect,
