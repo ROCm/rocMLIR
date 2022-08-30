@@ -438,6 +438,12 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   }
   // 2. Apply if input found
 
+  // move reshape before la access it.
+  if (out.getDefiningOp<memref::ExpandShapeOp>()) {
+    auto parentTransff = copyOp->getParentOp();
+    out.getDefiningOp()->moveBefore(parentTransff);
+  }
+
   Value gemmV2Outs = copyOp.source();
   auto gemmV2OutsType = gemmV2Outs.getType().cast<MemRefType>();
   {
