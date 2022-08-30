@@ -192,13 +192,13 @@ public:
     Value output = rw.create<memref::AllocOp>(loc, outputType);
 
     SmallString<5> filterLayout("kyxcg");
-    if (auto attr = op->getAttrOfType<StringAttr>("expected_filter_layout"))
+    if (auto attr = op->getAttrOfType<StringAttr>("filter_layout"))
       filterLayout = Twine(attr.getValue() + "g").str();
     SmallString<5> inputLayout("nhwcg");
-    if (auto attr = op->getAttrOfType<StringAttr>("expected_input_layout"))
+    if (auto attr = op->getAttrOfType<StringAttr>("input_layout"))
       inputLayout = Twine(attr.getValue() + "g").str();
     SmallString<5> outputLayout("nhwkg");
-    if (auto attr = op->getAttrOfType<StringAttr>("expected_output_layout"))
+    if (auto attr = op->getAttrOfType<StringAttr>("output_layout"))
       outputLayout = Twine(attr.getValue() + "g").str();
 
     if (failed(makeMIOpenConv2D(rw, op, input, inputLayout, filter,
@@ -281,21 +281,40 @@ public:
   }
 };
 
-static SmallVector<int32_t> getTransposeDims(Value v) {
-  if (Operation *cval = v.getDefiningOp<arith::ConstantOp>()) {
-    auto cattr = cval->getAttr("value").cast<DenseElementsAttr>();
-    return SmallVector<int32_t>(cattr.getValues<int64_t>());
-  }
-  if (Operation *cval = v.getDefiningOp<tosa::ConstOp>()) {
-    auto cattr = cval->getAttr("value").cast<DenseElementsAttr>();
-    return SmallVector<int32_t>(cattr.getValues<int32_t>());
-  }
-  // assert!! must be bufferization.cast
-  return getTransposeDims(v.getDefiningOp()->getOperand(0));
-}
-
 struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
   using OpRewritePattern<tosa::TransposeOp>::OpRewritePattern;
+
+  SmallVector<int32_t> getTransposeDims(Value v) const {
+    if (Operation *cval = v.getDefiningOp<arith::ConstantOp>()) {
+      auto cattr = cval->getAttr("value").cast<DenseElementsAttr>();
+      return SmallVector<int32_t>(cattr.getValues<int64_t>());
+    }
+    if (Operation *cval = v.getDefiningOp<tosa::ConstOp>()) {
+      auto cattr = cval->getAttr("value").cast<DenseElementsAttr>();
+      return SmallVector<int32_t>(cattr.getValues<int32_t>());
+    }
+    // May be bufferization cast
+    //  but this is no longer a bufferization pass, so assert
+    assert(0);
+    return getTransposeDims(v.getDefiningOp()->getOperand(0));
+  }
+
+  void permuteLayout(Operation *op, const char *attrKey,
+                     const char *layoutDefault, ArrayRef<int32_t> permDims,
+                     bool isInput = false) const {
+    StringRef currentLayout(layoutDefault);
+    if (auto attr = op->getAttrOfType<StringAttr>(attrKey))
+      currentLayout = attr.getValue();
+    SmallString<4> layout(currentLayout);
+    if (isInput) {
+      for (int i = 0, e = permDims.size(); i < e; ++i)
+        layout[permDims[i]] = currentLayout[i];
+    } else {
+      for (int i = 0, e = permDims.size(); i < e; ++i)
+        layout[i] = currentLayout[permDims[i]];
+    }
+    op->setAttr(attrKey, StringAttr::get(op->getContext(), layout));
+  }
 
   // Fold transpose ops and convert convolution into changed layout.
   // case #0 : fold TP(NCHW2NHWC)+tosa.conv.NHWC+TP(NHWC2NCHW) back to
@@ -316,8 +335,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
 
     if (tosa::Conv2DOp convOp = tInput.getDefiningOp<tosa::Conv2DOp>()) {
       // tosa.conv2d output is transpose
-      assert(dims[0] == 0 && dims[1] == 3 && dims[2] == 1 && dims[3] == 2);
-      convOp->setAttr("expected_output_layout", b.getStringAttr("nkhw"));
+      permuteLayout(convOp, "output_layout", "nhwk", dims);
       convOp->getResult(0).setType(tOutput.getType());
       top->replaceAllUsesWith(convOp);
     } else {
@@ -333,32 +351,19 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
       }
 
       // conv Input Modifier
-      // replace conv input
       if (convOp.getOperand(0) == tOutput) {
         // input feature map
-        const char *layout = "nhwc";
-        if (dims[0] == 0 && dims[1] == 2 && dims[2] == 3 && dims[3] == 1) {
-          layout = "nchw";
-        } else {
-          assert(dims[0] == 0 && dims[1] == 3 && dims[2] == 1 && dims[3] == 2);
-        }
-        convOp->setAttr("expected_input_layout", b.getStringAttr(layout));
+        permuteLayout(convOp, "input_layout", "nhwc", dims, true);
         top.replaceAllUsesWith({tInput});
       } else {
         // filter
         assert(convOp.getOperand(1) == tOutput);
-        const char *layout = "kyxc";
-        if (dims[0] == 0 && dims[1] == 2 && dims[2] == 3 && dims[3] == 1) {
-          layout = "kcyx";
-        } else {
-          assert(dims[0] == 0 && dims[1] == 3 && dims[2] == 1 && dims[3] == 2);
-        }
-        convOp->setAttr("expected_filter_layout", b.getStringAttr(layout));
+        permuteLayout(convOp, "filter_layout", "kyxc", dims, true);
         top.replaceAllUsesWith({tInput});
       }
-      top.erase();
     }
 
+    top.erase();
     return success();
   }
 };
