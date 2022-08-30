@@ -53,7 +53,7 @@ pipeline {
                          script: 'echo "$(ls /dev/dri | grep -m1 render)"'
                     )}"""
       DEVICE_TWO = """${sh( returnStdout: true,
-                         script: 'echo "$(ls /dev/dri | grep -m2 render | tail -n1')"'
+                         script: 'echo "$(ls /dev/dri | grep -m2 render | tail -n1)"'
                     )}"""
       DEVICE_THREE = """${sh( returnStdout: true,
                          script: 'if [ $(ls /dev/dri |grep render|wc -l) > 2 ]; then
