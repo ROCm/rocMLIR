@@ -47,10 +47,10 @@ pipeline {
     } 
     environment {
       DEVICE_ONE = """ ${sh( returnStdout: true,
-                         script: 'echo "$(ls /dev/dri | grep -m1 render |sed 's/ *$//')"'
+                         script: 'echo "$(ls /dev/dri | grep -m1 render |sed -r 's/\s+//g')"'
                     )}"""
       DEVICE_TWO = """ ${sh( returnStdout: true,
-                         script: 'echo "$(ls /dev/dri | grep -m2 render | tail -n1 | sed 's/ *$//')"'
+                         script: 'echo "$(ls /dev/dri | grep -m2 render | tail -n1 | sed -r 's/\s+//g')"'
                     )}"""
     }
     parameters {
