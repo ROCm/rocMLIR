@@ -1751,11 +1751,13 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
           b.create<memref::StoreOp>(loc, valExt, arg1, ivs);
         });
   } else {
-    testResult = b.create<memref::CastOp>(loc, mr5DUnkType, arg0);
+    testResult = makeNDMemRef(b, arg0, 5);
+    testResult = b.create<memref::CastOp>(loc, mr5DUnkType, testResult);
   }
 
   // Prepare the validation result for the verify function
-  valResult = b.create<memref::CastOp>(loc, mr5DUnkType, arg1);
+  valResult = makeNDMemRef(b, arg1, 5);
+  valResult = b.create<memref::CastOp>(loc, mr5DUnkType, valResult);
   // Declare and call the wrapper verify function
   auto verifyFuncDecl = makeFuncDecl(
       module, verifyFuncName,
