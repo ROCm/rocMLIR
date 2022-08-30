@@ -1,4 +1,4 @@
-// RUN: miopen-opt --miopen-fixup-for-fusion -miopen-affix-params -miopen-conv-to-gemm -miopen-gridwise-gemm-to-blockwise -miopen-linalg-align %s | FileCheck %s
+// RUN: miopen-opt --miopen-fixup-for-fusion -miopen-affix-params -miopen-conv-to-gemm -miopen-gemm-to-gridwise -miopen-gridwise-gemm-to-blockwise -miopen-linalg-align %s | FileCheck %s
 
 // CHECK:  <Broadcast{1, 1, 1, 1} ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3] -> ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3]>] bounds = [1, 1, 30, 30, 16] -> [1, 1, 1, 1, 16]>
 

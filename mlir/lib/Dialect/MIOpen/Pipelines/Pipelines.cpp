@@ -132,11 +132,12 @@ void miopen::buildKernelPipeline(OpPassManager &pm,
   }
   // miopen lowering (tuning, global to block)
   /* miopen-opt --miopen-affix-params  --miopen-conv-to-gemm
-   * --miopen-gridwise-gemm-to-blockwise
+   * --miopen-gemm-to-gridwise --miopen-gridwise-gemm-to-blockwise
    */
   pm.addPass(
       miopen::createAffixTuningParametersPass(0, 0, options.tuningFallback));
   pm.addNestedPass<func::FuncOp>(miopen::createMIOpenConvToGemmPass());
+  pm.addNestedPass<func::FuncOp>(miopen::createMIOpenGemmToGridwisePass());
   pm.addNestedPass<func::FuncOp>(miopen::createMIOpenGridwiseGemmToBlockwisePass());
 
   if (!options.enableApplicability) {

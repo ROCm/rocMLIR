@@ -9,6 +9,7 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
   CopyOpt.cpp
   ConvToGemm.cpp
   FixupForFusion.cpp
+  GemmToGridwise.cpp
   SugarToLoops.cpp
   GridwiseGemmToBlockwise.cpp
   LoopsToCf.cpp

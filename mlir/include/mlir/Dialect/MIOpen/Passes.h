@@ -37,6 +37,10 @@ std::unique_ptr<Pass> createMIOpenFixupForFusionPass();
 /// gridwise_gemm operations.
 std::unique_ptr<Pass> createMIOpenConvToGemmPass();
 
+/// Create a pass to convert MIOpen gemm operations to gridwise operations,
+/// adding padding.
+std::unique_ptr<Pass> createMIOpenGemmToGridwisePass();
+
 /// Create a pass to convert MIOpen gridwise_gemm operations to blockwise
 /// operations.
 std::unique_ptr<Pass> createMIOpenGridwiseGemmToBlockwisePass();
