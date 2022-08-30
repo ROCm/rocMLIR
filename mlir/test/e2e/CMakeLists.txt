@@ -21,7 +21,7 @@ set(LOCAL_CONFIG_FILE_BIN ${CMAKE_CURRENT_BINARY_DIR}/lit.local.cfg)
 #  1. conditionally if a target depends on ${LOCAL_CONFIG_FILE_BIN}.
 #  2. unconditionally if a target depends on __e2e_tests_regen since it is always missing.
 add_custom_command(OUTPUT ${LOCAL_CONFIG_FILE_BIN} __e2e_tests_regen
-  COMMAND cp ${LOCAL_CONFIG_FILE_SRC} ${LOCAL_CONFIG_FILE_BIN}
+  COMMAND ${CMAKE_COMMAND} -E copy ${LOCAL_CONFIG_FILE_SRC} ${LOCAL_CONFIG_FILE_BIN}
   COMMAND ${Python3_EXECUTABLE} ${E2E_GEN_SCRIPT} -d ${E2E_DIR} -i ${CONFIG_DIR}/Resnet50Config.toml
   COMMAND ${Python3_EXECUTABLE} ${E2E_GEN_SCRIPT} -d ${E2E_DIR} -i ${CONFIG_DIR}/Resnext101Config.toml
   DEPENDS ${CONFIG_DIR}/Resnext101Config.toml ${CONFIG_DIR}/Resnet50Config.toml
@@ -36,6 +36,8 @@ add_custom_target(e2e_tests
 )
 
 # Trigger the e2e tests generation unconditionally
+# TODO:
+#   Figure out a better way to force regenerate the E2E tests
 add_custom_target(re-gen-e2e-tests
   DEPENDS __e2e_tests_regen
 )
