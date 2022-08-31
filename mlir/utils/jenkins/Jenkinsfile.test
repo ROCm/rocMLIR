@@ -39,10 +39,10 @@ def rebootNode() {
     build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
 }
 
-def getDeviceName(num) {
+def getDeviceName(int num) {
   return """${sh( returnStdout: true,
                   script: 'total=$(ls /dev/dri | grep render | wc -l); \
-                           n=`expr $total % \${num}`; \
+                           n=`expr $total % ${num}`; \
                          if [ $total -ge $num ]; then \
                              echo "$(ls /dev/dri | grep -m${num} render | tail -n1)"; \
                            else \
