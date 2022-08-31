@@ -20,7 +20,7 @@ void showEnv() {
     sh 'ls /dev/dri | grep render'
 }
 
-String dockerArgs(String deviceName=null) {
+String dockerArgs(String deviceName='') {
     echo "docker run --network=host --device=/dev/kfd --device=/dev/dri/${deviceName} --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
     return "--network=host --device=/dev/kfd --device=/dev/dri/${deviceName} --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
 }
