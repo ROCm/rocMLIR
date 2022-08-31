@@ -16,7 +16,6 @@ void showEnv() {
     sh 'ulimit -a'
     // Ignore rocm-smi failures in ixt-sjc2-05
     sh '/opt/rocm/bin/rocm-smi || true'
-    sh '/opt/rocm/bin/rocm_agent_enumerator || true'
     sh 'id'
 }
 
@@ -47,7 +46,7 @@ def getDeviceName(int num) {
             )}"""  
 }
 
-def getDevice(String dType, String layout) {
+def getDevice1(String dType, String layout) {
   return """${sh( returnStdout: true,
                   script: "dType=${dType}; layout=${layout}; " + 
                           'if [ $dType = "fp16" && $layout = "NCHW" ]; then \
@@ -58,6 +57,13 @@ def getDevice(String dType, String layout) {
                               echo "DEVICE_THREE"; \
                            else echo "DEVICE_FOUR"; \
                            fi;'
+             )}"""
+}
+
+def getDevice1(String dType, String layout) {
+  return """${sh( returnStdout: true,
+                  script: "dType=${dType}; layout=${layout}; " +
+                           'echo "renderD128"'
              )}"""
 }
 
