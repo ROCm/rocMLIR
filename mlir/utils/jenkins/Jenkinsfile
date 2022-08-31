@@ -59,8 +59,9 @@ void showEnv() {
     sh 'id'
 }
 
-String dockerArgs() {
-    return "--device=/dev/kfd --device=/dev/dri --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
+String dockerArgs(String deviceName='') {
+    echo "docker run --network=host --device=/dev/kfd --device=/dev/dri/${deviceName} --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
+    return " --network=host --device=/dev/kfd --device=/dev/dri/${deviceName} --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
 }
 
 String dockerImage() {
@@ -133,8 +134,39 @@ def rebootNode() {
     build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
 }
 
+def getDeviceName(int num) {
+  return """${sh( returnStdout: true,
+                  script: "num=${num}; " + 'total=$(ls /dev/dri | grep render | wc -l); \
+                           n=`expr $num % $total`; \
+                           echo "$(ls /dev/dri | grep -m$n render | tail -n1)"' 
+            )}"""  
+}
+
+def mapDevice(String dType, String layout) {
+  return """${sh( returnStdout: true,
+                  script: "if [ $dType = 'fp16' ] && [ $layout = 'NCHW' ]; then \
+                              echo \"${DEVICE_ONE}\"; \
+                           elif [ $dType = 'fp16' ] && [ $layout = 'NHWC' ]; then \
+                              echo \"${DEVICE_TWO}\"; \
+                           elif [ $dType = 'fp32' ] && [ $layout = 'NCHW' ]; then \
+                              echo \"${DEVICE_THREE}\"; \
+                           else echo \"${DEVICE_FOUR}\"; \
+                           fi;"
+             )}"""
+}
+
 pipeline {
-    agent none
+    agent {
+      node {
+        label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a) && multi_gpu' : 'rocm' }"
+      }
+    }
+    environment {
+      DEVICE_ONE = getDeviceName(1)
+      DEVICE_TWO = getDeviceName(2)
+      DEVICE_THREE = getDeviceName(3)
+      DEVICE_FOUR = getDeviceName(4)
+    }
     parameters {
         // Below should be set statically by Jenkins job
         booleanParam(name: 'nightly', defaultValue: params.nightly ? true : false,
@@ -179,8 +211,8 @@ pipeline {
                     agent {
                         docker {
                             image dockerImage()
-                            args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
+                            args dockerArgs(DEVICE_ONE)
+                            reuseNode true
                             alwaysPull true
                         }
                     }
@@ -237,8 +269,8 @@ pipeline {
                     agent {
                         docker {
                             image dockerImage()
-                            args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
+                            args dockerArgs(DEVICE_TWO)
+                            reuseNode true
                             alwaysPull true
                         }
                     }
@@ -286,8 +318,8 @@ pipeline {
                     agent {
                         docker {
                             image dockerImage()
-                            args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'gfx906' }"
+                            args dockerArgs(DEVICE_THREE)
+                            reuseNode true
                             alwaysPull true
                         }
                     }
@@ -360,8 +392,12 @@ pipeline {
                 agent {
                     docker {
                         image dockerImage()
-                        args dockerArgs()
-                        label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a) && multi_gpu' : 'rocm' }"
+                        args dockerArgs("""${sh( returnStdout: true,
+                                            script: "if [ $CONFIG = 'conv_structure' ]; then \
+                                                     echo \"${DEVICE_ONE}\"; else \
+                                                     echo \"${DEVICE_TWO}\"; fi"
+                                         )}""")
+                        reuseNode true
                         alwaysPull true
                     }
                 }
@@ -539,8 +575,8 @@ pipeline {
                         agent {
                             docker {
                                 image dockerImage()
-                                args dockerArgs()
-                                label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'gfx906'}"
+                                args dockerArgs(mapDevice(DTYPE, LAYOUT))
+                                reuseNode true
                                 alwaysPull true
                             }
                         }
@@ -613,8 +649,8 @@ pipeline {
             agent {
                 docker {
                     image dockerImage()
-                    args dockerArgs()
-                    label "mlir && ${params.canXdlops ? 'gfx90a' : 'gfx906' }"
+                    args dockerArgs(DEVICE_ONE)
+                    reuseNode true
                     alwaysPull true
                 }
             }
