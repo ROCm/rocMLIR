@@ -2074,7 +2074,7 @@ populateHostHarnessLogic(ModuleOp &module,
     // Non-clone validation validates at end;  the roots are related kernels.
     if (hasCloneValidation)
       insertValidationCalls(genConfig, b, module, valVars, localVars, outIdx,
-                            func, root0);
+                            root.func, root0);
   }
 
   // Run validation
