@@ -196,7 +196,7 @@ pipeline {
                         agent {
                             docker {
                                 image dockerImage()
-                                args dockerArgs(getDevice(${DTYPE}, ${LAYOUT}))
+                                args dockerArgs(getDevice(DTYPE, LAYOUT))
                                 //label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'gfx906'} && multi_gpu"
                                 reuseNode true
                                 alwaysPull true
