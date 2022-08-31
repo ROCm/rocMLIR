@@ -42,11 +42,25 @@ def rebootNode() {
 def getDeviceName(int num) {
   return """${sh( returnStdout: true,
                   script: "num=${num}; " + 'total=$(ls /dev/dri | grep render | wc -l); \
-                           echo "$total"; \
                            n=`expr $num % $total`; \
                            echo "$(ls /dev/dri | grep -m$n render | tail -n1)"' 
-                    )}"""  
+            )}"""  
 }
+
+def getDevice(String dType, String layout) {
+  return """${sh( returnStdout: true,
+                  script: "dType=${dType}; layout=${layout}; " + 
+                          'if [ $dType = 'fp16' && $layout = 'NCHW' ]; then \
+                              echo "$DEVICE_ONE"; \
+                           elif [ $dType = 'fp16' && $layout = 'NHWC' ]; then \
+                              echo "$DEVICE_TWO"; \
+                           elif [ $dType = 'fp32' && $layout = 'NCHW' ]; then \  
+                              echo "$DEVICE_THREE"; \
+                           else echo "$DEVICE_FOUR"; \
+                           fi;'
+             )}"""
+}
+
 pipeline {
     agent {
       node {
@@ -83,11 +97,6 @@ pipeline {
                 setHeartbeat()
             }
         }
-        //stage("Find GPUs") {
-        //  steps {
-        //    sh 'ls /dev/dri | grep render'
-        //  }
-        //}
         stage("Build and Test") {
             parallel {
                 stage("Shared Library: fixed E2E tests") {
@@ -160,5 +169,52 @@ pipeline {
                 }
             }
         }
+        stage("MIOpen Resnet50 Config Test") {
+            when { allOf {
+                    equals expected: true, actual: params.nightly;
+                    equals expected: true, actual: params.staticLib;
+            }}
+            matrix {
+                axes {
+                    axis {
+                        name 'DTYPE'
+                        values 'fp16', 'fp32'
+                    }
+                    axis {
+                        name 'LAYOUT'
+                        values 'NCHW', 'NHWC'
+                    }
+                }
+                stages {
+                    stage('Test MIOpen integration') {
+                        agent {
+                            docker {
+                                image dockerImage()
+                                args dockerArgs(getDevice($DTYPE, $LAYOUT))
+                                //label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'gfx906'} && multi_gpu"
+                                reuseNode true
+                                alwaysPull true
+                            }
+                        }
+                        stages {
+                            stage('Environment') {
+                                steps {
+                                    echo "Config is ($DTYPE, $LAYOUT)"
+                                    showEnv()
+                                }
+                            }
+                        }
+                        post {
+                            unsuccessful {
+                                rebootNode()
+                            }
+                            always {
+                                cleanWs()
+                            }
+                        }
+                   }
+              }
+          }
+       }
     }
 }
