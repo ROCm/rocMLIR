@@ -96,6 +96,50 @@ pipeline {
                 setHeartbeat()
             }
         }
+        stage ("Parameter sweeps") {
+            when {
+                beforeAgent true;
+                equals expected: true, actual: params.sharedLib;
+            }
+            matrix {
+                axes {
+                    axis {
+                        name 'CONFIG'
+                        values 'conv_structure', 'perf_config'
+                    }
+                }
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs( """${sh( returnStdout: true,
+                                            script: "if [ $CONFIG = 'conv_structure' ]; then \
+                                                     echo \"${DEVICE_ONE}\"; else \ 
+                                                     echo \"${DEVICE_TWO}\"; fi"
+                                         )}"""
+                        reuseNode true
+                        alwaysPull true
+                    }
+                }
+                environment {
+                    HOME="${WORKSPACE}"
+                }
+                stages {
+                    stage('Environment') {
+                        steps {
+                            showEnv()
+                        }
+                    }
+                }
+                post {
+                            unsuccessful {
+                                rebootNode()
+                            }
+                            always {
+                                cleanWs()
+                            }
+                }
+            }
+        }
         stage("MIOpen Resnet50 Config Test") {
             when { allOf {
                     equals expected: true, actual: params.nightly;
