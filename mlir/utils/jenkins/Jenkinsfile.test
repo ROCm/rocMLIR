@@ -103,7 +103,54 @@ pipeline {
                 setHeartbeat()
             }
         }
-        stage("Build and Test") {
+        stage("MIOpen Resnet50 Config Test") {
+            when { allOf {
+                    equals expected: true, actual: params.nightly;
+                    equals expected: true, actual: params.staticLib;
+            }}
+            matrix {
+                axes {
+                    axis {
+                        name 'DTYPE'
+                        values 'fp16', 'fp32'
+                    }
+                    axis {
+                        name 'LAYOUT'
+                        values 'NCHW', 'NHWC'
+                    }
+                }
+                stages {
+                    stage('Test MIOpen integration') {
+                        agent {
+                            docker {
+                                image dockerImage()
+                                args dockerArgs(getDevice(DTYPE, LAYOUT))
+                                //label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'gfx906'} && multi_gpu"
+                                reuseNode true
+                                alwaysPull true
+                            }
+                        }
+                        stages {
+                            stage('Environment') {
+                                steps {
+                                    echo "Config is ($DTYPE, $LAYOUT)"
+                                    showEnv()
+                                }
+                            }
+                        }
+                        post {
+                            unsuccessful {
+                                rebootNode()
+                            }
+                            always {
+                                cleanWs()
+                            }
+                        }
+                   }
+              }
+          }
+       }
+       stage("Build and Test") {
             parallel {
                 stage("Shared Library: fixed E2E tests") {
                     when {
@@ -175,52 +222,5 @@ pipeline {
                 }
             }
         }
-        stage("MIOpen Resnet50 Config Test") {
-            when { allOf {
-                    equals expected: true, actual: params.nightly;
-                    equals expected: true, actual: params.staticLib;
-            }}
-            matrix {
-                axes {
-                    axis {
-                        name 'DTYPE'
-                        values 'fp16', 'fp32'
-                    }
-                    axis {
-                        name 'LAYOUT'
-                        values 'NCHW', 'NHWC'
-                    }
-                }
-                stages {
-                    stage('Test MIOpen integration') {
-                        agent {
-                            docker {
-                                image dockerImage()
-                                args dockerArgs(getDevice(DTYPE, LAYOUT))
-                                //label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'gfx906'} && multi_gpu"
-                                reuseNode true
-                                alwaysPull true
-                            }
-                        }
-                        stages {
-                            stage('Environment') {
-                                steps {
-                                    echo "Config is ($DTYPE, $LAYOUT)"
-                                    showEnv()
-                                }
-                            }
-                        }
-                        post {
-                            unsuccessful {
-                                rebootNode()
-                            }
-                            always {
-                                cleanWs()
-                            }
-                        }
-                   }
-              }
-          }
-       }
     }
 }
