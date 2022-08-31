@@ -60,7 +60,7 @@ def getDevice1(String dType, String layout) {
              )}"""
 }
 
-def getDevice1(String dType, String layout) {
+def getDevice(String dType, String layout) {
   return """${sh( returnStdout: true,
                   script: "dType=${dType}; layout=${layout}; " +
                            'echo "renderD128"'
