@@ -41,13 +41,9 @@ def rebootNode() {
 
 def getDeviceName(int num) {
   return """${sh( returnStdout: true,
-                  script: 'total=$(ls /dev/dri | grep render | wc -l); \
-                           n=`expr $total % 3`; \
-                         if [ $total -ge $num ]; then \
-                             echo "$(ls /dev/dri | grep -m${num} render | tail -n1)"; \
-                           else \
-                             echo "$(ls /dev/dri | grep -m$n render | tail -n1)"; \
-                         fi'
+                  script: "total=$(ls /dev/dri | grep render | wc -l); \
+                           n=`expr $num % $total`; \
+                           echo \"$(ls /dev/dri | grep -m$n render | tail -n1)\" "
                     )}"""  
 }
 pipeline {
