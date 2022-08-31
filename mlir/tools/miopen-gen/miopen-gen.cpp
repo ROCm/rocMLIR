@@ -403,11 +403,6 @@ static cl::opt<int> deviceNum(
                    "Omission leaves current device intact."));
 static cl::alias deviceShort("dev", cl::aliasopt(deviceNum));
 
-static cl::opt<bool> cloneTest(
-                               "clone",
-                               cl::desc("Clone the test function tree."),
-                               cl::init(false), cl::Optional);
-
 ////////////////////////////////////////////////////////////////////////////////
 ////  Struct KernelIF
 ////  - Detected/capture kernel interface
@@ -1848,6 +1843,83 @@ static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
   return success();
 }
 
+static void
+insertValidationCalls(const miopen::Conv2dGenerator::Config &genConfig,
+                      OpBuilder &b, ModuleOp &module,
+                      SmallVectorImpl<mlir::Value> &valVars,
+                      SmallVectorImpl<mlir::Value> &localVars,
+                      int32_t outIdx, Operation *func, KernelIF &root0) {
+  auto validationType = genValidation.getValue();
+  auto loc = b.getUnknownLoc();
+  bool hasXdlops =
+      miopen::bitEnumContains(genConfig.features, miopen::GemmFeatures::xdlops);
+  if (validationType == "gpu" &&
+      (hasXdlops || genConfig.dataTypeStr == "f16" ||
+       genConfig.dataTypeStr == "bf16")) {
+    // generate generic kernels
+    miopen::Conv2dGenerator conv2dGenerator(genConfig);
+    // use non-xdlops kernels to verify xdlops kernels
+    if (hasXdlops)
+      conv2dGenerator.flipXdlops();
+    if (!hasXdlops || genConfig.dataTypeStr != "i8")
+      // use f32 data type to verify non-f32 or xdlops f32 kernels
+      // except that i8 xdlops is verified with i8 non-xdlops
+      conv2dGenerator.setDataType("f32");
+
+    int kernelStart = genConfig.kernelId;
+    int kernelCount = conv2dGenerator.getKernelCount(b);
+    if (kernelStart < 0) {
+      kernelStart = 0;
+    } else {
+      kernelCount = kernelStart + 1;
+    }
+    // generate all sub-kernels, and get corresponding gemmId
+    std::string kernelBaseName = genConfig.kernelBaseName;
+    for (int i = kernelStart; i < kernelCount; ++i) {
+      conv2dGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
+      if (failed(conv2dGenerator.genConvModule(module, i, true,
+                                               /*ignoreTuning=*/true))) {
+        llvm::errs() << "Module population failed.\n";
+        exit(1);
+      }
+      KernelIF kernel(conv2dGenerator.getKernelFunc());
+      miopen::Conv2dGenerator::Config newConfig = conv2dGenerator.getConfig();
+      auto kernelWrapperFunc = createGPUWrapper(module, kernel);
+
+      // Decide whether to trim the last workspace argument to the verifier
+      // GPU kernel.
+      miopen::Conv2dGenerator originalConv2dGenerator(genConfig);
+      bool originalHasWorkspace = originalConv2dGenerator.hasWorkspace(b);
+      bool verifierHasWorkspace = conv2dGenerator.hasWorkspace(b);
+      if (originalHasWorkspace && !verifierHasWorkspace) {
+        valVars.resize(valVars.size() - 1);
+      }
+
+      b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
+    }
+    conv2dGenerator.setKernelName(kernelBaseName);
+  } else if (validationType != "clone") { // -pv_with_cpp or -pv_with_mlir (-pv)
+    // Emit call to host_<conv>
+    auto cpuConvFunc = createCPUConvFunc(module, genConfig);
+    b.create<func::CallOp>(loc, cpuConvFunc, valVars);
+  } else {                            // clone
+    auto cloneAttr = func->getAttrOfType<SymbolRefAttr>("clone_func");
+    assert(cloneAttr);
+    auto cloneFunc = module.lookupSymbol<func::FuncOp>(cloneAttr.getLeafReference());
+    b.create<func::CallOp>(loc, cloneFunc, valVars);
+  }
+
+  // Emit call to verifier
+  mlir::Value testResult = localVars[outIdx];
+  mlir::Value valResult = valVars[outIdx];
+
+  auto testType = testResult.getType().dyn_cast<MemRefType>();
+  auto valType = valResult.getType().dyn_cast<MemRefType>();
+  auto verifierFunc = createVerifierFunc(module, root0, testType, valType);
+  b.create<func::CallOp>(loc, verifierFunc,
+                         ValueRange{testResult, valResult});
+}
+
 static LogicalResult
 populateHostHarnessLogic(ModuleOp &module,
                          const SmallVector<KernelIF, 8> &kernels,
@@ -1976,9 +2048,7 @@ populateHostHarnessLogic(ModuleOp &module,
   }
 
   // Call the roots.
-//  for (auto &root : roots)
-  auto &root = roots[0];
-                           {
+  for (auto &root : roots) {
     // Is the root also a kernel?
     bool rootKernel =
         std::find_if(kernels.begin(), kernels.end(), [&](const KernelIF &k) {
@@ -1999,74 +2069,16 @@ populateHostHarnessLogic(ModuleOp &module,
         printResults = true;
       }
     }
-
+//     if (cloneValidation) {
+//       insertValidationCalls(genConfig, b, module, valVars, localVars, outIdx,
+//                             func, root0);
+//     }
+  }
 
   // Run validation
-  bool hasXdlops =
-      miopen::bitEnumContains(genConfig.features, miopen::GemmFeatures::xdlops);
-  if (hasValidation) {
-    if (validationType == "gpu" &&
-        (hasXdlops || genConfig.dataTypeStr == "f16" ||
-         genConfig.dataTypeStr == "bf16")) {
-      // generate generic kernels
-      miopen::Conv2dGenerator conv2dGenerator(genConfig);
-      // use non-xdlops kernels to verify xdlops kernels
-      if (hasXdlops)
-        conv2dGenerator.flipXdlops();
-      if (!hasXdlops || genConfig.dataTypeStr != "i8")
-        // use f32 data type to verify non-f32 or xdlops f32 kernels
-        // except that i8 xdlops is verified with i8 non-xdlops
-        conv2dGenerator.setDataType("f32");
-
-      int kernelStart = genConfig.kernelId;
-      int kernelCount = conv2dGenerator.getKernelCount(b);
-      if (kernelStart < 0) {
-        kernelStart = 0;
-      } else {
-        kernelCount = kernelStart + 1;
-      }
-      // generate all sub-kernels, and get corresponding gemmId
-      std::string kernelBaseName = genConfig.kernelBaseName;
-      for (int i = kernelStart; i < kernelCount; ++i) {
-        conv2dGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
-        if (failed(conv2dGenerator.genConvModule(module, i, true,
-                                                 /*ignoreTuning=*/true))) {
-          llvm::errs() << "Module population failed.\n";
-          exit(1);
-        }
-        KernelIF kernel(conv2dGenerator.getKernelFunc());
-        miopen::Conv2dGenerator::Config newConfig = conv2dGenerator.getConfig();
-        auto kernelWrapperFunc = createGPUWrapper(module, kernel);
-
-        // Decide whether to trim the last workspace argument to the verifier
-        // GPU kernel.
-        miopen::Conv2dGenerator originalConv2dGenerator(genConfig);
-        bool originalHasWorkspace = originalConv2dGenerator.hasWorkspace(b);
-        bool verifierHasWorkspace = conv2dGenerator.hasWorkspace(b);
-        if (originalHasWorkspace && !verifierHasWorkspace) {
-          valVars.resize(valVars.size() - 1);
-        }
-
-        b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
-      }
-      conv2dGenerator.setKernelName(kernelBaseName);
-    } else if (validationType != "clone") { // -pv_with_cpp or -pv_with_mlir (-pv)
-      // Emit call to host_<conv>
-      auto cpuConvFunc = createCPUConvFunc(module, genConfig);
-      b.create<func::CallOp>(loc, cpuConvFunc, valVars);
-    } else {                            // clone
-      b.create<func::CallOp>(loc, roots[1].func, valVars);
-    }
-
-    // Emit call to verifier
-    mlir::Value testResult = localVars[outIdx];
-    mlir::Value valResult = valVars[outIdx];
-
-    auto testType = testResult.getType().dyn_cast<MemRefType>();
-    auto valType = valResult.getType().dyn_cast<MemRefType>();
-    auto verifierFunc = createVerifierFunc(module, root0, testType, valType);
-    b.create<func::CallOp>(loc, verifierFunc,
-                           ValueRange{testResult, valResult});
+  if (hasValidation /* and not cloneValidation */ ) {
+    insertValidationCalls(genConfig, b, module, valVars, localVars, outIdx,
+                          func, root0);
   }
 
   // Print and cleanup validation vars
@@ -2074,8 +2086,6 @@ populateHostHarnessLogic(ModuleOp &module,
     // print vvar
     if ((vvar == valVars[outIdx]) && printValidationResults.getValue())
       emitPrintTensor(b, vvar);
-    // dealloc vvar
-//    b.create<memref::DeallocOp>(loc, vvar);
   }
 
   // Print and cleanup
@@ -2086,10 +2096,6 @@ populateHostHarnessLogic(ModuleOp &module,
       printp = printResults.getValue();
     if (printp)
       emitPrintTensor(b, lvar);
-    // dealloc lvar
-//    b.create<memref::DeallocOp>(loc, lvar);
-  }
-
   }
 
   for (auto &vvar : valVars) {
@@ -2367,9 +2373,6 @@ int main(int argc, char **argv) {
       func::FuncOp func =
           dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
       rootIFs.emplace_back(func);
-      if (auto cloneAttr = func->getAttrOfType<SymbolRefAttr>("clone_func"))
-        rootIFs.emplace_back(
-            module.lookupSymbol<func::FuncOp>(cloneAttr.getLeafReference()));
     }
     module.walk([&](func::FuncOp func) -> WalkResult {
       if (func->hasAttr("kernel")) {
@@ -2382,12 +2385,6 @@ int main(int argc, char **argv) {
     assert(func);
     kernels.emplace_back(func); // +++pf: should it be a kernel?
     rootIFs.emplace_back(func);
-    // +++pf: should it do this for -fut?
-    if (auto cloneAttr = func->getAttrOfType<SymbolRefAttr>("clone_func")) {
-      auto clone = module.lookupSymbol<func::FuncOp>(cloneAttr.getLeafReference());
-      kernels.emplace_back(clone);
-      rootIFs.emplace_back(clone);
-    }
   }
 
   // populate host logic.
