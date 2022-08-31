@@ -13,34 +13,48 @@ set(E2E_GEN_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/generateE2ETest.py")
 set(CONFIG_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(LOCAL_CONFIG_FILE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/lit.local.cfg)
 set(LOCAL_CONFIG_FILE_BIN ${CMAKE_CURRENT_BINARY_DIR}/lit.local.cfg)
+# Create a list for configs
+set(CONFIGS
+  Resnet50Config.toml
+  Resnext101Config.toml
+)
+# Create a list for dummy files
+set(CONFIG_DUMMY_FILES ${CONFIGS})
+list(TRANSFORM CONFIG_DUMMY_FILES PREPEND ${E2E_DIR}/)
+list(TRANSFORM CONFIG_DUMMY_FILES APPEND .copy)
 
-# Command to generate the E2E tests and a local lit config file to control
-# whether the tests are supported or not.
-# The E2E tests are generated whenever any of the *.toml files are changed.
-# The E2E tests generation can be triggered
-#  1. conditionally if a target depends on ${LOCAL_CONFIG_FILE_BIN}.
-#  2. unconditionally if a target depends on __e2e_tests_regen since it is always missing.
-add_custom_command(OUTPUT ${LOCAL_CONFIG_FILE_BIN} __e2e_tests_regen
+# Add a command to copy lit.local.cfg
+add_custom_command(OUTPUT ${LOCAL_CONFIG_FILE_BIN}
   COMMAND ${CMAKE_COMMAND} -E copy ${LOCAL_CONFIG_FILE_SRC} ${LOCAL_CONFIG_FILE_BIN}
-  COMMAND ${Python3_EXECUTABLE} ${E2E_GEN_SCRIPT} -d ${E2E_DIR} -i ${CONFIG_DIR}/Resnet50Config.toml
-  COMMAND ${Python3_EXECUTABLE} ${E2E_GEN_SCRIPT} -d ${E2E_DIR} -i ${CONFIG_DIR}/Resnext101Config.toml
-  DEPENDS ${CONFIG_DIR}/Resnext101Config.toml ${CONFIG_DIR}/Resnet50Config.toml
-  COMMENT "Generating rock E2E tests in ${E2E_DIR}"
+  COMMENT "Copying lit.local.cfg"
 )
 
-# Trigger the e2e tests generation if
-#   ${LOCAL_CONFIG_FILE_BIN} is missing or
-#   any of *.toml files are changed
+# Add a command to generate E2E tests for each config file
+foreach(config ${CONFIGS})
+  set(config_file ${CONFIG_DIR}/${config})
+  set(config_file_copy ${E2E_DIR}/${config}.copy)
+  add_custom_command(OUTPUT ${config_file_copy}
+    COMMAND ${CMAKE_COMMAND} -E copy ${config_file} ${config_file_copy}
+    COMMAND ${Python3_EXECUTABLE} ${E2E_GEN_SCRIPT} -d ${E2E_DIR} -i ${config_file}
+    DEPENDS ${config_file}
+    COMMENT "Generating rock E2E tests for ${config}"
+  )
+endforeach()
+
+# Add a target to trigger E2E tests generation conditionally
+#   1. any of the *.toml files are changed OR
+#   2. ${LOCAL_CONFIG_FILE_BIN} is missing
 add_custom_target(e2e_tests
-  DEPENDS ${LOCAL_CONFIG_FILE}
+  DEPENDS ${LOCAL_CONFIG_FILE_BIN} ${CONFIG_DUMMY_FILES}
 )
 
-# Trigger the e2e tests generation unconditionally
-# TODO:
-#   Figure out a better way to force regenerate the E2E tests
-add_custom_target(re-gen-e2e-tests
-  DEPENDS __e2e_tests_regen
-)
+# Add a target to trigger E2E tests generation unconditionally
+add_custom_target(re-gen-e2e-tests)
+foreach(config ${CONFIGS})
+  add_custom_command(TARGET re-gen-e2e-tests
+    COMMAND ${Python3_EXECUTABLE} ${E2E_GEN_SCRIPT} -d ${E2E_DIR} -i ${CONFIG_DIR}/${config}
+  )
+endforeach()
 
 # Add a new target to run the E2E test only
 add_lit_testsuite(check-rock-e2e "Running rock e2e tests"
