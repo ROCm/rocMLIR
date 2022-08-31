@@ -47,11 +47,28 @@ def find_mlir_build_dir() -> str:
     Finds mlir build dir searching either WORKSPACE dir
     or home dir
     """
-    workspace_dir = os.environ.get('WORKSPACE', str(Path.home()))
-    assert workspace_dir, "Cant find WORKSPACE env arg or home directory"
-    miopen_opt_path = glob.glob(workspace_dir + '/**/bin/miopen-opt', recursive=True)
-    assert len(miopen_opt_path) == 1, "Multiple paths found to contain */bin/miopen-opt"
-    miopen_opt_path = miopen_opt_path[0]
+    miopen_opt_path = None
+    candidate_paths = [
+        # if the script is run from build dir
+        Path('./bin/miopen-opt'),
+        # if the script is run from source
+        Path(__file__).parent.parent.parent.parent / 'build' / 'bin' / 'miopen-opt'
+    ]
+    for candidate_path in candidate_paths:
+        if candidate_path.exists():
+            miopen_opt_path = candidate_path
+    if not miopen_opt_path:
+        try:
+            # Prioritize the search in the current repo first.
+            search_root = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
+        except subprocess.CalledProcessError:
+            # Else look in the home or WORKSPACE directory
+            search_root = os.environ.get('WORKSPACE', str(Path.home()))
+            assert search_root, "Cant find WORKSPACE env arg or home directory"
+        miopen_opt_path = glob.glob(search_root + '/**/bin/miopen-opt', recursive=True)
+        assert len(miopen_opt_path) == 1, "Multiple paths found to contain */bin/miopen-opt"
+        miopen_opt_path = miopen_opt_path[0]
+
     build_dir = Path(miopen_opt_path).parent.parent
     return str(build_dir)
 
@@ -61,17 +78,30 @@ def find_miopen_build_dir() -> str:
     Finds miopen build dir searching either WORKSPACE dir
     or home dir
     """
-    workspace_dir = os.environ.get('WORKSPACE', str(Path.home()))
-    assert workspace_dir, "Cant find WORKSPACE env arg or home directory"
-    miopen_driver_path = glob.glob(workspace_dir + '/**/bin/MIOpenDriver', recursive=True)
-    if len(miopen_driver_path) == 0:
-        # MIOpen driver not available
-        return None
-    assert len(miopen_driver_path) == 1, "Multiple paths found to contain */bin/miopen-opt"
-    miopen_driver_path = miopen_driver_path[0]
+
+    miopen_driver_path = None
+    candidate_paths = [
+        # if the script is run from build dir and assuming MIOpen is under mlir build
+        Path('../MIOpen/build/bin/MIOpenDriver'),
+        # if the script is run from source and assuming MIOpen is under mlir build
+        Path(__file__).parent.parent.parent.parent / 'MIOpen'/ 'build' / 'bin' / 'MIOpenDriver'
+    ]
+    for candidate_path in candidate_paths:
+        if candidate_path.exists():
+            miopen_driver_path = candidate_path
+
+    if not miopen_driver_path:
+        search_root = os.environ.get('WORKSPACE', str(Path.home()))
+        assert search_root, "Cant find WORKSPACE env arg or home directory"
+        miopen_driver_path = glob.glob(search_root + '/**/bin/MIOpenDriver', recursive=True)
+        if len(miopen_driver_path) == 0:
+            # MIOpen driver not available
+            return None
+        assert len(miopen_driver_path) == 1, "Multiple paths found to contain */bin/miopen-opt"
+        miopen_driver_path = miopen_driver_path[0]
+
     miopen_build_dir = Path(miopen_driver_path).parent.parent
     return str(miopen_build_dir)
-
 
 def create_paths(mlir_build_dir_path, miopen_build_dir_path) -> Paths:
     """Creates the composite Paths structure using build dir paths"""
@@ -448,7 +478,7 @@ def is_xdlops_present() -> bool:
     xdlop_supported_gpus_str = xdlop_supported_gpus[0]
     for gpu in xdlop_supported_gpus[1:]:
         xdlop_supported_gpus_str += '|' + xdlop_supported_gpus_str
-    r = subprocess.run(f"/opt/rocm/bin/rocm_agent_enumerator -t GPU | grep -E '{xdlop_supported_gpus_str}'", shell=True)
+    r = subprocess.run(f"/opt/rocm/bin/rocm_agent_enumerator -t GPU | grep -q -E '{xdlop_supported_gpus_str}'", shell=True)
     if r.returncode == 0:
         return True
     return False
@@ -542,6 +572,11 @@ def main(args=None):
         help="The build directory of MIOpen",
     )
     parsed_args, _ = parser.parse_known_args(args)
+
+    if parsed_args.miopen or parsed_args.bmiopen or parsed_args.bmiopen_use_tuned_mlir or parsed_args.bmiopen_use_untuned_mlir:
+        if not parsed_args.miopen_build_dir:
+            raise RuntimeError("MIOpen build dir was not provided/found where the test requires it")
+
     paths = create_paths(parsed_args.mlir_build_dir, parsed_args.miopen_build_dir)
     xdlops = is_xdlops_present()
     configs = getConfigurations(paths.configuration_file_path)
