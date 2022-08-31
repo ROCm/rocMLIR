@@ -17,6 +17,7 @@ void showEnv() {
     // Ignore rocm-smi failures in ixt-sjc2-05
     sh '/opt/rocm/bin/rocm-smi || true'
     sh 'id'
+    sh 'ls /dev/dri | grep render'
 }
 
 String dockerArgs(String deviceName) {
@@ -50,9 +51,9 @@ def getDevice(String dType, String layout) {
   return """${sh( returnStdout: true,
                   script: "if [ $dType = 'fp16' ] && [ $layout = 'NCHW' ]; then \
                               echo \"${DEVICE_ONE}\"; \
-                           elif [ $dType = "fp16" ] && [ $layout = "NHWC" ]; then \
+                           elif [ $dType = 'fp16' ] && [ $layout = 'NHWC' ]; then \
                               echo \"${DEVICE_TWO}\"; \
-                           elif [ $dType = "fp32" ] && [ $layout = "NCHW" ]; then \
+                           elif [ $dType = 'fp32' ] && [ $layout = 'NCHW' ]; then \
                               echo \"${DEVICE_THREE}\"; \
                            else echo \"${DEVICE_FOUR}\"; \
                            fi;"
