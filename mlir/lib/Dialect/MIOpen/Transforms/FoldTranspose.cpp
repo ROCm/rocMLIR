@@ -1,4 +1,4 @@
-//===- FixupForFusion.cpp - rewrites to allow MIOpen kernel fusion  ------===//
+//===- FoldTranspose.cpp - rewrites to allow MIOpen kernel fusion  ------===//
 //
 // Copyright 2022 Advanced Micro Devices.
 //
@@ -26,14 +26,14 @@
 
 #include "llvm/Support/Debug.h"
 
-#define DEBUG_TYPE "miopen-fixup-for-fusion"
+#define DEBUG_TYPE "miopen-fold-transpose"
 
 using namespace mlir;
 using namespace mlir::miopen;
 
 namespace {
-struct MIOpenFixupForFusionPass
-    : public MIOpenFixupForFusionPassBase<MIOpenFixupForFusionPass> {
+struct MIOpenFoldTransposePass
+    : public MIOpenFoldTransposePassBase<MIOpenFoldTransposePass> {
   void runOnOperation() override;
 };
 } // end namespace
@@ -80,8 +80,7 @@ struct RemoveTrivialTransposePattern
     }
     miopen::BottomUpTMBuilder transform(b, inpShape, loc);
     transform.passThrough(endDims, startDims);
-    auto tfOp = b.create<miopen::TransformOp>(loc, inp, transform.get(),
-                                              inpType.getMemorySpaceAsInt());
+    auto tfOp = b.create<miopen::TransformOp>(loc, inp, transform.get());
     return tfOp;
   }
 
@@ -225,7 +224,7 @@ struct FoldTransposingConvAccess : OpRewritePattern<linalg::GenericOp> {
 };
 } // end namespace
 
-void MIOpenFixupForFusionPass::runOnOperation() {
+void MIOpenFoldTransposePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
 
   RewritePatternSet patternsTP(ctx);
@@ -235,6 +234,6 @@ void MIOpenFixupForFusionPass::runOnOperation() {
     signalPassFailure();
 }
 
-std::unique_ptr<Pass> mlir::miopen::createMIOpenFixupForFusionPass() {
-  return std::make_unique<MIOpenFixupForFusionPass>();
+std::unique_ptr<Pass> mlir::miopen::createMIOpenFoldTransposePass() {
+  return std::make_unique<MIOpenFoldTransposePass>();
 }

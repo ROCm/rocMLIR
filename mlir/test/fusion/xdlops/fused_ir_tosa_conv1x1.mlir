@@ -1,4 +1,4 @@
-//RUN: mlir-miopen-driver -host-pipeline highlevel --miopen-fixup-for-fusion --miopen-affix-params --miopen-conv-to-gemm --miopen-gemm-to-gridwise --miopen-gridwise-gemm-to-blockwise --miopen-linalg-align %s | FileCheck %s
+//RUN: mlir-miopen-driver -host-pipeline highlevel --miopen-fold-transpose --miopen-affix-params --miopen-conv-to-gemm --miopen-gemm-to-gridwise --miopen-gridwise-gemm-to-blockwise --miopen-linalg-align %s | FileCheck %s
 module {
   func.func @main(%arg0: tensor<1x64x56x56xf32>, %arg1: tensor<64x64x1x1xf32>, %arg2: tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32> attributes {kernel} {
     %cst = arith.constant dense<[0, 2, 3, 1]> : tensor<4xi64>

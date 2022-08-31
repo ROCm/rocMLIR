@@ -126,9 +126,9 @@ void miopen::buildKernelPipeline(OpPassManager &pm,
                                  const miopen::KernelOptions &options) {
   // Pre kernel lowering fixups for patterns that aren't amenable to lawer
   // fusion
-  /* miopen-opt --miopen-fixup-for-fusion */
+  /* miopen-opt --miopen-fold-transpose */
   if (options.enableFusion) {
-    pm.addNestedPass<func::FuncOp>(miopen::createMIOpenFixupForFusionPass());
+    pm.addNestedPass<func::FuncOp>(miopen::createMIOpenFoldTransposePass());
   }
   // miopen lowering (tuning, global to block)
   /* miopen-opt --miopen-affix-params  --miopen-conv-to-gemm
