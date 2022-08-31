@@ -20,7 +20,7 @@ void showEnv() {
     sh 'ls /dev/dri | grep render'
 }
 
-String dockerArgs(String deviceName) {
+String dockerArgs(String deviceName=null) {
     echo "docker run --network=host --device=/dev/kfd --device=/dev/dri/${deviceName} --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
     return "--network=host --device=/dev/kfd --device=/dev/dri/${deviceName} --group-add video --group-add render -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro"
 }
@@ -94,6 +94,46 @@ pipeline {
         stage("Set System Property") {
             steps {
                 setHeartbeat()
+            }
+        }
+        stage ("test") {
+            when {
+                beforeAgent true;
+                equals expected: true, actual: params.sharedLib;
+            }
+            matrix {
+                axes {
+                    axis {
+                        name 'ARCH'
+                        values 'gfx906', 'gfx908', 'gfx90a'
+                    }
+                }
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs()
+                        label "mlir && ${ARCH}"
+                        alwaysPull true
+                    }
+                }
+                environment {
+                    HOME="${WORKSPACE}"
+                }
+                stages {
+                    stage('Environment') {
+                        steps {
+                            showEnv()
+                        }
+                    }
+                }
+                post {
+                            unsuccessful {
+                                rebootNode()
+                            }
+                            always {
+                                cleanWs()
+                            }
+                }
             }
         }
         stage ("Parameter sweeps") {
