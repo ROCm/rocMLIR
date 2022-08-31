@@ -39,8 +39,14 @@ def rebootNode() {
     build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
 }
 
-def getDeviceName(num) {
-  
+def getDeviceName() {
+  return """${sh( returnStdout: true,
+                         script: 'if [ $(ls /dev/dri |grep render|wc -l) > 3 ]; then \
+                             echo "$(ls /dev/dri | grep -m4 render | tail -n1)"; \
+                           else \
+                             echo "$(ls /dev/dri | grep -m2 render)"; \
+                         fi'
+                    )}"""  
 }
 pipeline {
     agent {
@@ -62,6 +68,7 @@ pipeline {
                              echo "$(ls /dev/dri | grep -m1 render)"; \
                          fi'
                     )}"""
+       DEVICE_FOUR = getDeviceName()
     }
     parameters {
         // Below should be set statically by Jenkins job
