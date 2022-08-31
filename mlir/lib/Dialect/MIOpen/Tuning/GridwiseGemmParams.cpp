@@ -1,9 +1,12 @@
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
+#include "mlir/Dialect/MIOpen/Tuning/GemmContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/SqliteDb.h"
 #include "mlir/Dialect/MIOpen/utility/math.h"
 
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #define DEBUG_TYPE "miopen-tuning-parameter"
 
@@ -1278,4 +1281,27 @@ LogicalResult PopulateParamsXDL::isValidGemm(const InitParamsXDL &param,
     return failure();
   }
   return success();
+}
+
+Optional<GemmContext> mlir::miopen::requiredPadding(Attribute params,
+                                                    GemmContext gemmSize) {
+  int64_t kPerBlock, mPerBlock, nPerBlock;
+  if (auto generalParams = params.dyn_cast<GeneralGemmParamsAttr>()) {
+    kPerBlock = generalParams.getKPerBlock();
+    mPerBlock = generalParams.getMPerBlock();
+    nPerBlock = generalParams.getNPerBlock();
+  } else if (auto xdlopsParams = params.dyn_cast<XdlopsGemmParamsAttr>()) {
+    kPerBlock = xdlopsParams.getKPerBlock();
+    mPerBlock = xdlopsParams.getMPerBlock();
+    nPerBlock = xdlopsParams.getNPerBlock();
+  } else {
+    llvm_unreachable("The tuning paramaters are general or xdlops");
+  }
+
+  int64_t kExtra = kPerBlock - math_util::mod_1_to_n(gemmSize.k, kPerBlock);
+  int64_t mExtra = mPerBlock - math_util::mod_1_to_n(gemmSize.m, mPerBlock);
+  int64_t nExtra = nPerBlock - math_util::mod_1_to_n(gemmSize.n, nPerBlock);
+  if (mExtra == 0 && kExtra == 0 && nExtra == 0)
+    return None;
+  return GemmContext(mExtra, kExtra, nExtra);
 }

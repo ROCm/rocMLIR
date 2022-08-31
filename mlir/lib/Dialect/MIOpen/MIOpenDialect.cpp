@@ -398,6 +398,62 @@ LogicalResult Conv2DBwdDataOp::verify() { return verifyConvOp(*this); }
 LogicalResult Conv2DBwdWeightOp::verify() { return verifyConvOp(*this); }
 
 //===-----------------------------------------------------===//
+// GemmOp
+//===-----------------------------------------------------===//
+LogicalResult GemmOp::verify() {
+  auto typeA = a().getType().cast<MemRefType>(),
+       typeB = b().getType().cast<MemRefType>(),
+       typeC = c().getType().cast<MemRefType>();
+  Type inElems = typeA.getElementType(), outElems = typeC.getElementType();
+  if (inElems.isa<IntegerType>() && !outElems.isInteger(32))
+    return emitOpError("integer-valued multiply must have i32 as its result");
+  if (inElems.isa<FloatType>() && !outElems.isa<FloatType>())
+    return emitOpError(
+        "float-valued inputs must have a floating-point output type");
+
+  ArrayRef<int64_t> dimsA = typeA.getShape(), dimsB = typeB.getShape(),
+                    dimsC = typeC.getShape();
+  int64_t offsetA = dimsA.size() == 2 ? 0 : 1,
+          offsetB = dimsB.size() == 2 ? 0 : 1,
+          offsetC = dimsC.size() == 2 ? 0 : 1;
+  int64_t gA = offsetA ? dimsA[0] : 1, gB = offsetB ? dimsB[0] : 1,
+          gC = offsetC ? dimsC[0] : 1;
+  int64_t mA = dimsA[offsetA + (aTransposed() ? 1 : 0)],
+          kA = dimsA[offsetA + (aTransposed() ? 0 : 1)],
+          kB = dimsB[offsetB + (bTransposed() ? 1 : 0)],
+          nB = dimsB[offsetB + (bTransposed() ? 0 : 1)],
+          mC = dimsC[offsetC + (cTransposed() ? 1 : 0)],
+          nC = dimsC[offsetC + (cTransposed() ? 0 : 1)];
+  if (gA != gB || gA != gC)
+    return emitOpError("group dimensions don't match")
+           << " g_a = " << gA << " g_b = " << gB << " g_c = " << gC;
+  if (mA != mC)
+    return emitOpError("M dimensions don't match")
+           << " m_a = " << mA << " m_c = " << mC;
+  if (nB != nC)
+    return emitOpError("N dimensions don't match")
+           << " n_b = " << nB << " n_c = " << nC;
+  if (kA != kB)
+    return emitOpError("K dimensions don't match")
+           << " k_a = " << kA << " k_b = " << kB;
+
+  bool isXdlops = bitEnumContains(features(), GemmFeatures::xdlops);
+  if (Attribute params = this->params().getValueOr(nullptr)) {
+    if (isXdlops && !params.isa<XdlopsGemmParamsAttr>())
+      return emitOpError("an xdlops GEMM has non-xdlops tuning parameters");
+    if (features() == GemmFeatures::none &&
+        !params.isa<GeneralGemmParamsAttr>())
+      return emitOpError("an all-hardware gemm must used the general gemm "
+                         "tuning parameters");
+  }
+
+  if (storeMethod() != StoreMethod::Set && !isXdlops) {
+    return emitOpError("general kernels don't support non-set store methods");
+  }
+  return success();
+}
+
+//===-----------------------------------------------------===//
 // ExtractSliceOp
 //===-----------------------------------------------------===//
 LogicalResult ExtractSliceOp::canonicalize(ExtractSliceOp op,

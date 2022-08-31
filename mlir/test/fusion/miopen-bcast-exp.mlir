@@ -1,4 +1,4 @@
-// RUN: miopen-opt -miopen-affix-params -miopen-conv-to-gemm -miopen-gridwise-gemm-to-blockwise -miopen-linalg-align %s | FileCheck %s
+// RUN: miopen-opt --miopen-fold-transpose -miopen-affix-params -miopen-conv-to-gemm -miopen-gemm-to-gridwise -miopen-gridwise-gemm-to-blockwise -miopen-linalg-align %s | FileCheck %s
 
 // CHECK: #miopen.transform_map<affine_map<(d0, d1, d2, d3, d4) -> (0, 0, 0, 0, d4)> by [<PassThrough ["dim4"] at [4] -> ["dim4"] at [4]>, <Broadcast{1, 1, 1, 1} ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3] -> ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3]>] bounds = [1, 1, 30, 30, 16] -> [1, 1, 1, 1, 16]>
 // CHECK-NEXT: #miopen.transform_map<affine_map<(d0, d1, d2, d3, d4) -> (d4)> by [<PassThrough ["dim0"] at [4] -> ["dim0"] at [0]>, <AddDim{1} ["exp0"] at [0] -> [] at []>, <AddDim{1} ["exp1"] at [1] -> [] at []>, <AddDim{1} ["exp2"] at [2] -> [] at []>, <AddDim{1} ["exp3"] at [3] -> [] at []>] bounds = [1, 1, 1, 1, 16] -> [16]>

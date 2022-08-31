@@ -100,6 +100,16 @@ func.func @miopen_conv2d_bwd_weight_f16(%filter : memref<?x?x?x?x?xf16>, %input 
 // CHECK-LABEL: func.func @miopen_conv2d_bwd_weight_f16
 // CHECK-NEXT: miopen.conv2d_bwd_weight
 
+func.func @miopen_gemm(%a : memref<32x64xf16>, %b : memref<1x32x128xf16>, %c : memref<64x128xf32>) {
+  miopen.gemm %c = tr %a * %b features = none storeMethod = set {
+    arch = "gfx906",
+    numCu = 64 : i32
+  } : memref<64x128xf32> = memref<32x64xf16> * memref<1x32x128xf16>
+  func.return
+}
+// CHECK-LABEL: func.func @miopen_gemm
+// CHECK-NEXT: miopen.gemm
+
 // Affine maps needed when testing transform
 #map0 = affine_map<(d0, d1, d2, d3, d4) -> (d1, d0, d2, d3 - 1, d4 - 2)>
 #map1 = affine_map<(d0, d1, d2) -> (d0, d2, d1 floordiv 512,

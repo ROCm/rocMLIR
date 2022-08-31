@@ -45,5 +45,9 @@ template <class X, class Y> auto integer_least_multiple(X x, Y y) {
   return y * integer_divide_ceil(x, y);
 }
 
+/// Returns a % b except that when a % b, returns b
+template <class X> constexpr X mod_1_to_n(X a, X b) {
+  return (a % b == 0) ? b : a % b;
+}
 } // namespace math_util
 #endif

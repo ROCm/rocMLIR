@@ -101,6 +101,52 @@ def MIOpen_Conv2DBwdWeightOp :
   }];
 }
 
+def MIOpen_GemmOp :
+    MIOpen_Op<"gemm", [AllElementTypesMatch<["a", "b"]>]>,
+    Arguments<(ins Arg<MemRefRankOf<[F32, F16, BF16, I8], [2, 3]>,
+                       "matrix A", [MemRead]>:$a,
+                   Arg<MemRefRankOf<[F32, F16, BF16, I8], [2, 3]>,
+                       "matrix B", [MemRead]>:$b,
+                   Arg<MemRefRankOf<[F32, F16, BF16, I32], [2, 3]>,
+                       "matrix C", [MemRead, MemWrite]>:$c,
+                   UnitAttr:$aTransposed,
+                   UnitAttr:$bTransposed,
+                   UnitAttr:$cTransposed,
+                   StrAttr:$arch,
+                   I32Attr:$numCu,
+                   MIOpen_GemmFeaturesAttr:$features,
+                   StoreMethodAttr:$storeMethod,
+                   OptionalAttr<I32Attr>:$blockSize,
+                   OptionalAttr<I32Attr>:$gridSize,
+                   MIOpen_OptionalGemmParams:$params)> {
+  let summary = "General matrix multiplication (GEMM)";
+  let description = [{
+    Performs the operation C += A * B.
+
+    If none of the `transposed` attributes are set, then A is [G] x M x K,
+    B is [G] x K x N, and C is [G] x M x N, where G is the optional group dimension
+    (which is assumed to be 1 if not set).
+
+    The transpose attributes allow for the non-group dimensions of the matrix to be
+    transposed. For example, if `aTransposed` is set, then the argument A should be
+    a [G] x K x M memory.
+
+    Those creating a `miopen.gemm` must specify the GPU architecture being targetted
+    and the number of compute units (numCu) available. The parameters
+    `blockSize`, `gridSize`, and `params` are optional as they can be inferred by
+    a tuning process or a heuristic, but they must be set before the `gemm` is
+    lowered into the `gridwise_gemm` stage of the code generation pipeline.
+
+    `features` specifies what hardware features can be used in the generated code.
+  }];
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    (`tr` $cTransposed^)? $c `=` (`tr` $aTransposed^)? $a `*` (`tr` $bTransposed^)? $b
+    `features` `=` $features `storeMethod` `=` $storeMethod attr-dict
+    `:` type($c) `=` type($a) `*` type($b)
+  }];
+}
+
 def MIOpen_TransformOp :
     MIOpen_Op<"transform", [NoSideEffect, ViewLikeOpInterface]>,
     Arguments<(ins AnyMemRef:$input, TransformMapArrayAttr:$transforms)>,
