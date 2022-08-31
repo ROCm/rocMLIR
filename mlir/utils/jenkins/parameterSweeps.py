@@ -21,6 +21,7 @@ from typing import Callable, Iterable, List, Sequence, Optional, Tuple, TypeVar,
 
 import MIOpenDriver
 from MIOpenDriver import ConvConfiguration
+from MIOpenDriver import Paths
 
 @dataclass(frozen=True)
 class Options:
@@ -123,7 +124,7 @@ class TestResult(enum.Enum):
     INVALID = 2
     FAIL = 3
 
-async def testConfig(config: MLIROnlyConfig, options: Options) -> TestResult:
+async def testConfig(config: MLIROnlyConfig, options: Options, paths: Paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
     miopenGenOpts = config.generateMlirDriverCommandLine()
@@ -131,13 +132,13 @@ async def testConfig(config: MLIROnlyConfig, options: Options) -> TestResult:
 
     applicableFromGen, genToApplicable = os.pipe()
     generator = await asyncio.create_subprocess_exec(
-        os.path.join(MIOpenDriver.MLIR_BIN_DIR, MIOpenDriver.MIOPEN_GEN),
+        paths.miopen_gen_path,
         *miopenGenOpts, stdout=genToApplicable, stderr=asyncio.subprocess.PIPE,
         stdin=asyncio.subprocess.DEVNULL)
     os.close(genToApplicable)
 
     applicability = await asyncio.create_subprocess_exec(
-        os.path.join(MIOpenDriver.MLIR_BIN_DIR, MIOpenDriver.MLIR_MIOPEN_DRIVER),
+        paths.mlir_miopen_driver_path,
         '--kernel-pipeline=applicability', '-', stdin=applicableFromGen,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     os.close(applicableFromGen)
@@ -164,14 +165,15 @@ Errors = {tuneErrs.decode('utf-8')}
 
     runnerFromLowering, loweringToRunner = os.pipe()
     lowering = await asyncio.create_subprocess_exec(
-        os.path.join(MIOpenDriver.MLIR_BIN_DIR, MIOpenDriver.MLIR_MIOPEN_DRIVER),
+        paths.mlir_miopen_driver_path,
         '--kernel-pipeline=gpu', '-', stdin=asyncio.subprocess.PIPE,
         stdout=loweringToRunner, stderr=asyncio.subprocess.PIPE)
     os.close(loweringToRunner)
 
-    runner = await asyncio.create_subprocess_exec(os.path.join(
-        MIOpenDriver.MLIR_BIN_DIR, MIOpenDriver.MLIR_ROCM_RUNNER),
-        *MIOpenDriver.MLIR_ROCM_RUNNER_ARGS, stdin=runnerFromLowering,
+    mlir_rocm_runner_args = [f'--shared-libs={paths.libmlir_rocm_runtime_path},{paths.libconv_validation_wrappers_path},{paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
+    runner = await asyncio.create_subprocess_exec(
+        paths.rocm_runner_path,
+        *mlir_rocm_runner_args, stdin=runnerFromLowering,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     os.close(runnerFromLowering)
 
@@ -212,10 +214,10 @@ def grouper(iterable: Iterable[IterType], n: int):
         yield chunk
 
 async def dropGoodConfig(config: ConvConfiguration,
-        options: Options) -> Union[TestResult, ConvConfiguration]:
+        options: Options, paths: Paths) -> Union[TestResult, ConvConfiguration]:
     """Test the given `params`, returning the corresponding `config` on failure
     and `None` on success or inapplicability"""
-    result = await testConfig(config, options)
+    result = await testConfig(config, options, paths)
     if not options.quiet:
         print(f"{result.name}: {config!r}")
     if result == TestResult.FAIL:
@@ -224,12 +226,12 @@ async def dropGoodConfig(config: ConvConfiguration,
 
 async def sweepParameters(paramIter: Iterable[IterType],
         toConfig: Callable[[IterType, Options], MLIROnlyConfig],
-        options: Options) -> Tuple[int, int, List[MLIROnlyConfig]]:
+        options: Options, paths: Paths) -> Tuple[int, int, List[MLIROnlyConfig]]:
     failingConfigs = []
     passed = 0
     invalid = 0
     configs = (c for c in (toConfig(p, options) for p in paramIter))
-    for configs in grouper((dropGoodConfig(c, options) for c in configs),
+    for configs in grouper((dropGoodConfig(c, options, paths) for c in configs),
             options.concurrent_tests):
         configsFuture = asyncio.gather(*configs)
         try:
@@ -346,9 +348,9 @@ def to_non_xdlops_perf_config_test(params, options: Options) -> MLIROnlyConfig:
 
 async def runConfig(paramIter: Iterable[IterType],
         toConfig: Callable[[IterType, Options], MLIROnlyConfig],
-        options: Options) -> bool:
+        options: Options, paths: Paths) -> bool:
     n_passes, n_invalids, failures = \
-        await sweepParameters(paramIter, toConfig, options)
+        await sweepParameters(paramIter, toConfig, options, paths)
     if len(failures) != 0:
         print("*** Summary of failures ***")
         for c in failures:
@@ -377,9 +379,22 @@ def main() -> bool:
     parser.add_argument('--jobs', '-j', type=int,
         default=(len(os.sched_getaffinity(0)) // 2),
         help="Number of jobs to run in parallel (default %(default)s)")
+    parser.add_argument(
+        "--mlir-build-dir",
+        type=str,
+        default=MIOpenDriver.find_mlir_build_dir(),
+        help="The build directory of MLIR based kernel generator",
+    )
+    parser.add_argument(
+        "--miopen-build-dir",
+        type=str,
+        default=MIOpenDriver.find_miopen_build_dir(),
+        help="The build directory of MIOpen",
+    )
     args = parser.parse_args()
     options = Options(debug=args.debug, quiet=args.quiet, xdlops=args.xdlops,
         concurrent_tests=args.jobs)
+    paths = MIOpenDriver.create_paths(args.mlir_build_dir, args.miopen_build_dir)
 
     config = args.config
     if config == 'perf_config':
@@ -387,13 +402,13 @@ def main() -> bool:
     succeeded = False
     if config == 'conv_structure':
         succeeded = asyncio.run(runConfig(CONV_STRUCTURE,
-            to_conv_structure_type_test, options))
+            to_conv_structure_type_test, options, paths))
     elif config == 'xdlops_perf_config':
         succeeded = asyncio.run(runConfig(XDLOPS_PERF_CONFIG,
-            to_xdlops_perf_config_test, options))
+            to_xdlops_perf_config_test, options, paths))
     elif config == 'non_xdlops_perf_config':
         succeeded = asyncio.run(runConfig(NON_XDLOPS_PERF_CONFIG,
-            to_non_xdlops_perf_config_test, options))
+            to_non_xdlops_perf_config_test, options, paths))
     else:
         print(f"Unknown config: {config}", file=sys.stderr)
     return succeeded
