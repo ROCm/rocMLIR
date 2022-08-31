@@ -43,7 +43,7 @@ def getDeviceName(int num) {
   return """${sh( returnStdout: true,
                   script: "total=\$(ls /dev/dri | grep render | wc -l); \
                            n=`expr $num % $total`; \
-                           echo \"$(ls /dev/dri | grep -m$n render | tail -n1)\" "
+                           echo \"\$(ls /dev/dri | grep -m$n render | tail -n1)\" "
                     )}"""  
 }
 pipeline {
