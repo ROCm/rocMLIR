@@ -93,7 +93,6 @@ struct ThreadwiseGemmRewritePattern
     SmallVector<int64_t, 4> dimensions = {k, m, n, kPack};
     SmallVector<int64_t, 4> strides = {1, 1, 1, loadKpackLen};
     auto abType = VectorType::get(loadKpackLen, dataType);
-    auto cType = VectorType::get(1, dataType);
 
     TopDownTMBuilder aView(b, {"k", "m", "n", "kpack"}, dimensions, loc);
     aView.ignore("n");
@@ -137,21 +136,28 @@ struct ThreadwiseGemmRewritePattern
           loc, abType, bufferB, gemmLoop.getLowerCoords(/*domain=*/1),
           /*inBounds=*/ArrayRef<bool>(true));
       ValueRange cCoords = gemmLoop.getLowerCoords(/*domain=*/2);
-      Value cVal =
-          b.create<vector::TransferReadOp>(loc, cType, bufferC, cCoords,
-                                           /*inBounds=*/ArrayRef<bool>(true));
+      Value cVal = b.create<InBoundsLoadOp>(loc, dataType, bufferC, cCoords);
+
+      Value cVector = b.create<vector::SplatOp>(loc, abType, cVal);
       Value result;
       if (dataType.isa<IntegerType>()) {
         Value mul = b.create<MulIOp>(loc, aVal, bVal);
-        result = b.create<AddIOp>(loc, mul, cVal);
+        result = b.create<AddIOp>(loc, mul, cVector);
+        if (abType.getNumElements() != 1)
+          return op.emitOpError(
+              "Shouldn't've gone down the scalar code path (int)");
+        result = b.create<vector::ExtractElementOp>(loc, result, zeroConst);
       } else if (dataType.isa<FloatType>()) {
-        result = b.create<vector::FMAOp>(loc, aVal, bVal, cVal);
+        result = b.create<vector::FMAOp>(loc, aVal, bVal, cVector);
+        if (abType.getNumElements() != 1)
+          return op.emitOpError(
+              "Shouldn't've gone down the scalar code path (float)");
+        result = b.create<vector::ExtractElementOp>(loc, result, zeroConst);
       } else {
         llvm_unreachable("Validation should make this ints or floats only");
       }
 
-      b.create<vector::TransferWriteOp>(loc, result, bufferC, cCoords,
-                                        /*inBounds=*/ArrayRef<bool>(true));
+      b.create<InBoundsStoreOp>(loc, result, bufferC, cCoords);
     }
     return success();
   }
