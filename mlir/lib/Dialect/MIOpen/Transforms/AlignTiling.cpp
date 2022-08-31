@@ -169,6 +169,16 @@ static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
                                    Value dest) {
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << srcOp.getType()
                           << " dest type: " << op.dest().getType() << "\n");
+  ArrayRef<int64_t> sType, dType;
+  sType = srcOp.getType().cast<ShapedType>().getShape();
+  dType = op.dest().getType().cast<ShapedType>().getShape();
+  assert(sType.size() == dType.size() &&
+         "Rank of extra fusion arguments matches shape of C tensor");
+  for (unsigned i = 0; i < sType.size(); i++) {
+    assert((sType[i] == dType[i] || sType[i] == 1) &&
+           "shape of extra fusion arguments matches shape of C tensor or "
+           "broastable");
+  }
 
   auto writeCLoop = op->getParentOfType<TransformingForOp>();
   assert(writeCLoop && "threadwise_copy_v2 must be in a transforming_for");
@@ -438,10 +448,13 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   }
   // 2. Apply if input found
 
-  // move reshape before la access it.
-  if (out.getDefiningOp<memref::ExpandShapeOp>()) {
-    auto parentTransff = copyOp->getParentOp();
-    out.getDefiningOp()->moveBefore(parentTransff);
+  // point back to original memory.
+  Value delOut = nullptr;
+  if (memref::ExpandShapeOp expanded =
+          out.getDefiningOp<memref::ExpandShapeOp>()) {
+    if (out.hasOneUse())
+      delOut = out;
+    out = expanded.getSrc();
   }
 
   Value gemmV2Outs = copyOp.source();
@@ -486,6 +499,10 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
 
     return success();
   }
+
+  // Delete expandShapeOp whose single use has been dropped
+  if (delOut)
+    delOut.getDefiningOp()->erase();
 
   return failure();
 }
