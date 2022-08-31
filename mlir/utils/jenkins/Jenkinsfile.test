@@ -48,15 +48,14 @@ def getDeviceName(int num) {
 
 def getDevice(String dType, String layout) {
   return """${sh( returnStdout: true,
-                  script: "dType=${dType}; layout=${layout}; " + 
-                          'if [[ $dType = "fp16" && $layout = "NCHW" ]]; then \
-                              echo "${DEVICE_ONE}"; \
-                           elif [[ $dType = "fp16" && $layout = "NHWC" ]]; then \
-                              echo "${DEVICE_TWO}"; \
+                  script: "if [ $dType = 'fp16' ] && [ $layout = 'NCHW' ]; then \
+                              echo \"${DEVICE_ONE}\"; \
+                           elif [ $dType = "fp16" ] && [ $layout = "NHWC" ]; then \
+                              echo \"${DEVICE_TWO}\"; \
                            elif [ $dType = "fp32" ] && [ $layout = "NCHW" ]; then \
-                              echo "${DEVICE_THREE}"; \
-                           else echo "${DEVICE_FOUR}"; \
-                           fi;'
+                              echo \"${DEVICE_THREE}\"; \
+                           else echo \"${DEVICE_FOUR}\"; \
+                           fi;"
              )}"""
 }
 
