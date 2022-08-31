@@ -46,7 +46,7 @@ def getDeviceName(int num) {
             )}"""  
 }
 
-def getDevice1(String dType, String layout) {
+def getDevice(String dType, String layout) {
   return """${sh( returnStdout: true,
                   script: "dType=${dType}; layout=${layout}; " + 
                           'if [ $dType = "fp16" && $layout = "NCHW" ]; then \
@@ -57,13 +57,6 @@ def getDevice1(String dType, String layout) {
                               echo "DEVICE_THREE"; \
                            else echo "DEVICE_FOUR"; \
                            fi;'
-             )}"""
-}
-
-def getDevice(String dType, String layout) {
-  return """${sh( returnStdout: true,
-                  script: "echo \"${dType}\"; dType=${dType}; layout=${layout}; " +
-                           'echo $dType; echo "renderD128"'
              )}"""
 }
 
