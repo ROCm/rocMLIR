@@ -1981,6 +1981,7 @@ populateHostHarnessLogic(ModuleOp &module,
   auto root0 = *roots.begin();
   bool isCPUKernel = !root0.func->hasAttr("kernel");
   bool hasValidation = !validationType.empty() && !genCPUKernel.getValue();
+  bool hasCloneValidation = hasValidation && (validationType == "clone");
   SmallVector<mlir::Value, 5> localVars;
   SmallVector<mlir::Value, 5> valVars;
   int32_t idx = 0;
@@ -2069,17 +2070,17 @@ populateHostHarnessLogic(ModuleOp &module,
         printResults = true;
       }
     }
-//     if (cloneValidation) {
-//       insertValidationCalls(genConfig, b, module, valVars, localVars, outIdx,
-//                             func, root0);
-//     }
+    // Clone-style validation wants to validate each root function.
+    // Non-clone validation validates at end;  the roots are related kernels.
+    if (hasCloneValidation)
+      insertValidationCalls(genConfig, b, module, valVars, localVars, outIdx,
+                            func, root0);
   }
 
   // Run validation
-  if (hasValidation /* and not cloneValidation */ ) {
+  if (hasValidation && !hasCloneValidation )
     insertValidationCalls(genConfig, b, module, valVars, localVars, outIdx,
                           func, root0);
-  }
 
   // Print and cleanup validation vars
   for (auto &vvar : valVars) {
