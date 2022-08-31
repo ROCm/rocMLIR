@@ -115,7 +115,7 @@ pipeline {
                                             script: "if [ $CONFIG = 'conv_structure' ]; then \
                                                      echo \"${DEVICE_ONE}\"; else \
                                                      echo \"${DEVICE_TWO}\"; fi"
-                                         )}"""
+                                         )}""")
                         reuseNode true
                         alwaysPull true
                     }
