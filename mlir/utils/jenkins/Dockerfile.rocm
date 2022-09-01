@@ -6,8 +6,6 @@ ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/5.2.3/
 ARG ROCM_BUILD_NAME=ubuntu
 ARG ROCM_BUILD_NUM=main
 ARG ROCM_PATH=/opt/rocm-5.2.3
-# MIOpen commit updated at 9/1/2022
-ARG MIOPEN_DEPS_COMMIT=f1263d7a30aadd113ba53dfb206875784aad602e
 
 ENV DEBIAN_FRONTEND noninteractive
 
@@ -124,9 +122,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # --------------------- Section 3: MIOpen dependencies ---------------
 WORKDIR /MiOpenDepsWork
-RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/${MIOPEN_DEPS_COMMIT}/requirements.txt \
-    && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/${MIOPEN_DEPS_COMMIT}/install_deps.cmake \
+RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/develop/requirements.txt \
+    && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/develop/install_deps.cmake \
     && sed -i -e '/llvm-project-mlir/d' requirements.txt \
     && cmake -P install_deps.cmake --prefix /usr/local
-RUN echo ${MIOPEN_DEPS_COMMIT} >miopen-deps-commit-hash
+RUN echo $(git ls-remote https://github.com/ROCmSoftwarePlatform/MIOpen HEAD) > miopen-deps-commit-hash
 WORKDIR /
