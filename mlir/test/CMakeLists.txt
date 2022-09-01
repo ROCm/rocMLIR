@@ -69,7 +69,7 @@ configure_lit_site_cfg(
   ${CMAKE_CURRENT_BINARY_DIR}/Unit/lit.site.cfg.py
   MAIN_CONFIG
   ${CMAKE_CURRENT_SOURCE_DIR}/Unit/lit.cfg.py
-  )
+)
 
 set(MLIR_MIOPEN_TEST_DEPENDS
   FileCheck count not
@@ -86,7 +86,7 @@ set(MLIR_MIOPEN_TEST_DEPENDS
   mlir_runner_utils
   mlir_c_runner_utils
   mlir_async_runtime
-  )
+)
 
 list(APPEND MLIR_MIOPEN_TEST_DEPENDS MLIRMIOpenUnitTests)
 
@@ -122,12 +122,29 @@ add_custom_target(check-mlir-miopen-build-only
 
 # check-mlir-miopen runs MLIR-MIOpen regression tests including E2E tests
 # when MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED is set
+# It runs E2E tests in Resnet50 and Resnext101 when
+# ROCK_E2E_TEST_ENABLED is set
 add_lit_testsuite(check-mlir-miopen "Running the MLIR-MIOpen regression tests"
   ${CMAKE_CURRENT_BINARY_DIR}
   DEPENDS ${MLIR_MIOPEN_TEST_DEPENDS}
-  )
+)
 set_target_properties(check-mlir-miopen PROPERTIES FOLDER "Tests")
 
 add_lit_testsuites(MLIR-MIOPEN ${CMAKE_CURRENT_SOURCE_DIR}
   DEPENDS ${MLIR_MIOPEN_TEST_DEPENDS}
 )
+
+# Update the configs for E2E tests
+# This needs to be done regardless of the value of ROCK_E2E_TEST_ENABLED
+configure_lit_site_cfg(
+  ${CMAKE_CURRENT_SOURCE_DIR}/e2e/lit.site.cfg.py.in
+  ${CMAKE_CURRENT_BINARY_DIR}/e2e/lit.site.cfg.py
+  MAIN_CONFIG
+  ${CMAKE_CURRENT_SOURCE_DIR}/e2e/lit.cfg.py
+)
+
+# Enable the ROCK E2E tests if -DROCK_E2E_TEST_ENABLED=1
+if(ROCK_E2E_TEST_ENABLED)
+  list(APPEND MLIR_MIOPEN_TEST_DEPENDS gen_e2e_tests)
+  add_subdirectory(e2e)
+endif()
