@@ -6,7 +6,8 @@ ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/5.2.3/
 ARG ROCM_BUILD_NAME=ubuntu
 ARG ROCM_BUILD_NUM=main
 ARG ROCM_PATH=/opt/rocm-5.2.3
-ARG MIOPEN_DEPS_COMMIT=8d67ae8b6a84b48debd3f140482b077b104c32dd
+# MIOpen commit updated at 9/1/2022
+ARG MIOPEN_DEPS_COMMIT=f1263d7a30aadd113ba53dfb206875784aad602e
 
 ENV DEBIAN_FRONTEND noninteractive
 
