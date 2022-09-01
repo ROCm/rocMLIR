@@ -55,7 +55,7 @@ void showEnv() {
     sh 'ulimit -a'
     // Ignore rocm-smi failures in ixt-sjc2-05
     sh '/opt/rocm/bin/rocm-smi || true'
-    sh '/opt/rocm/bin/rocm_agent_enumerator'
+    sh '/opt/rocm/bin/rocm_agent_enumerator || true'
     sh 'id'
 }
 
