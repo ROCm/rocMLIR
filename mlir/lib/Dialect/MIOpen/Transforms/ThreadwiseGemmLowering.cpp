@@ -247,7 +247,7 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
             xcs.blocksMfma, argA, argB, vectorC, imms[i].cbsz, imms[i].abid,
             imms[i].blgp, /*reducePrecision=*/false, /*negateA=*/false,
             /*negateB=*/false, /*negateC=*/false);
-        auto vectorD = mfma.destD();
+        auto vectorD = mfma.getDestD();
 
         b.create<memref::StoreOp>(loc, vectorD, adaptor.matrixC(), offset);
       }
