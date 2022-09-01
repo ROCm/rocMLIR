@@ -769,18 +769,16 @@ def MIOpen_ThreadwiseGemmOp:
 // xdlops_gemm_V2
 def MIOpen_XdlopsGemmV2Op:
     MIOpen_Op<"xdlops_gemm_v2">,
-    Arguments<(ins IndexAttr:$regOffsetA,
-                   IndexAttr:$regOffsetB,
-                   MemRefOf<[F32, F16, BF16, I8,
-                             VectorOfLengthAndType<[2, 4], [F32]>,
-                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
-                             VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$matrixA,
-                   MemRefOf<[F32, F16, BF16, I8,
-                             VectorOfLengthAndType<[2, 4], [F32]>,
-                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
-                             VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$matrixB,
-                   MemRefOf<[F32, F16, BF16, I32,
-                             VectorOf<[F32, F16, BF16, I32]>]>:$matrixC,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8,
+                      VectorOfLengthAndType<[2, 4], [F32]>,
+                      VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
+                      VectorOfLengthAndType<[4, 8, 16], [I8]>], [2]>:$matrixA,
+                   MemRefRankOf<[F32, F16, BF16, I8,
+                      VectorOfLengthAndType<[2, 4], [F32]>,
+                      VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
+                      VectorOfLengthAndType<[4, 8, 16], [I8]>], [2]>:$matrixB,
+                   MemRefRankOf<[F32, F16, BF16, I32,
+                      VectorOf<[F32, F16, BF16, I32]>], [3]>:$matrixC,
                    MIOpen_XdlopsGemmParamsAttr:$params)> {
   let summary = "XDLOPS GEMM V2";
   let description = [{
@@ -790,10 +788,10 @@ def MIOpen_XdlopsGemmV2Op:
     Matrices A and B reside in LDS, the buffers live in registers, C is a vector
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $matrixA `[` $regOffsetA `]` `*`
-                        $matrixB  `[` $regOffsetB `]` attr-dict
+    $matrixC `+` `` `=` $matrixA `*` $matrixB attr-dict
     `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
   }];
+  let hasVerifier = 1;
 }
 
 // TODO(kdrewnia): upstream these

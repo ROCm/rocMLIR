@@ -168,8 +168,8 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     // TODO: amend this for tuning parameter selection as well
     int64_t MRepeats = (MPerWave > 64) ? (MPerWave / 64) : 1;
     int64_t NRepeats = (NPerWave > 64) ? (NPerWave / 64) : 1;
-    MPerWave = (MPerWave > 64) ? 64 : MPerWave;
-    NPerWave = (NPerWave > 64) ? 64 : NPerWave;
+    int64_t MPerXdlops = (MPerWave > 64) ? 64 : MPerWave;
+    int64_t NPerXdlops = (NPerWave > 64) ? 64 : NPerWave;
 
     auto dataType = adaptor.matrixA()
                         .getType()
@@ -182,11 +182,11 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     // Logic to do XDLOPS code selection.
     LLVM_DEBUG(llvm::dbgs() << "Invoke XDLOPS code selection logic:\n"
                             << "dataType: " << dataType << "\n"
-                            << "MPerWave: " << MPerWave << "\n"
-                            << "NPerWave: " << NPerWave << "\n");
+                            << "MPerXdlops: " << MPerXdlops << "\n"
+                            << "NPerXdlops: " << NPerXdlops << "\n");
 
     XdlopsCodeSelection xcs =
-        XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
+        XdlopsCodeSelection::get(dataType, MPerXdlops, NPerXdlops, b);
 
     VectorType vectorType = xcs.vectorType;
     int64_t nResultVectors = xcs.nResultVectors;
@@ -209,16 +209,6 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     Type matrixBElementType = matrixBType.getElementType();
 
     int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
-
-    Value reshapedARegisters =
-        reshapeBuffer(b, loc, matrixA, {"m", "k"}, {MRepeats, KPerThread});
-    matrixA = reshapedARegisters;
-    Value reshapedBRegisters =
-        reshapeBuffer(b, loc, matrixB, {"n", "k"}, {NRepeats, KPerThread});
-    matrixB = reshapedBRegisters;
-    Value reshapedCRegisters = reshapeBuffer(
-        b, loc, matrixC, {"m", "n", "v"}, {MRepeats, NRepeats, nResultVectors});
-    matrixC = reshapedCRegisters;
 
     SmallVector<int64_t> dimensions = {MRepeats, NRepeats, KPerThread,
                                        nResultVectors};
@@ -255,8 +245,8 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
         offset = b.create<AddIOp>(loc, offset, regCOffset);
 
-        auto vectorC = b.create<memref::LoadOp>(loc, vectorType,
-                                                adaptor.matrixC(), offset);
+        auto vectorC =
+            b.create<memref::LoadOp>(loc, vectorType, bufferC, offset);
         auto mfma = b.create<amdgpu::MFMAOp>(
             loc, vectorType, mfmaNonKDim, mfmaNonKDim, xcs.k, xcs.blocksMfma,
             argA, argB, vectorC, /*cbsz=*/imms[i].cbsz, /*abid=*/imms[i].abid,
@@ -264,7 +254,7 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
             /*negateB=*/false, /*negateC=*/false);
         auto vectorD = mfma.destD();
 
-        b.create<memref::StoreOp>(loc, vectorD, adaptor.matrixC(), offset);
+        b.create<memref::StoreOp>(loc, vectorD, bufferC, offset);
       }
     };
 

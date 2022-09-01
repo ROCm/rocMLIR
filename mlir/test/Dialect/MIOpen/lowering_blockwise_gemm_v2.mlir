@@ -21,7 +21,7 @@ func.func @miopen_blockwise_gemm_v2_two_results(%matrix : memref<1024xf32, 3>,
 }
 
 func.func @miopen_blockwise_gemm_v2_one_result(%matrix : memref<2048xi8, 3>,
-                                               %bufferA : memref<2xvector<4xi8>, 5>, %bufferB : memref<2xvector<4xi8>, 5>,
+                                               %bufferA : memref<1xvector<4xi8>, 5>, %bufferB : memref<1xvector<4xi8>, 5>,
                                                %matrixC : memref<1xvector<16xi32>, 5>) {
   %c0 = arith.constant 0 : index
   // CHECK:  miopen.xdlops_gemm_v2
@@ -36,6 +36,6 @@ func.func @miopen_blockwise_gemm_v2_one_result(%matrix : memref<2048xi8, 3>,
       nPerWave = 32>,
     ldsBufferOffsetA = 0 : index,
     ldsBufferOffsetB = 1024 : index
-  } : memref<1xvector<16xi32>, 5> += memref<2xvector<4xi8>, 5> from memref<2048xi8, 3> * memref<2xvector<4xi8>, 5> from memref<2048xi8, 3>
+  } : memref<1xvector<16xi32>, 5> += memref<1xvector<4xi8>, 5> from memref<2048xi8, 3> * memref<1xvector<4xi8>, 5> from memref<2048xi8, 3>
   return
 }

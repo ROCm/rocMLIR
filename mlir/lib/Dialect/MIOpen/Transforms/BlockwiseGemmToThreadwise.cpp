@@ -533,9 +533,21 @@ struct BlockwiseGemmV2RewritePattern
       lklb.create<memref::StoreOp>(loc, valueB, bufferB, ValueRange{lkliv});
     }
 
-    b.replaceOpWithNewOp<XdlopsGemmV2Op>(
-        op, b.getIndexAttr(0), b.getIndexAttr(0), adaptor.bufferA(),
-        adaptor.bufferB(), adaptor.matrixC(), tuningParams);
+    // Workload of either MPerWave and NPerWave that are larger
+    // than wave size of 64 will be executed by repeats
+    // TODO: amend this for tuning parameter selection as well
+    xcs = XdlopsCodeSelection::get(dataType, MPerXdlops, NPerXdlops, b);
+    Value reshapedARegisters = reshapeBuffer(
+        b, loc, adaptor.bufferA(), {"m", "k"}, {MRepeats, KPerThread});
+    Value reshapedBRegisters = reshapeBuffer(
+        b, loc, adaptor.bufferB(), {"n", "k"}, {NRepeats, KPerThread});
+    Value reshapedCRegisters =
+        reshapeBuffer(b, loc, adaptor.matrixC(), {"m", "n", "v"},
+                      {MRepeats, NRepeats, xcs.nResultVectors});
+
+    b.replaceOpWithNewOp<XdlopsGemmV2Op>(op, reshapedARegisters,
+                                         reshapedBRegisters, reshapedCRegisters,
+                                         tuningParams);
     return success();
   }
 };

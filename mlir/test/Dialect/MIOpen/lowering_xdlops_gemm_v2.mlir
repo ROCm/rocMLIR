@@ -1,13 +1,22 @@
 // RUN: miopen-opt -miopen-threadwise-gemm-lowering %s | FileCheck %s
+#transform_map0 = #miopen.transform_map<affine_map<(d0, d1) -> (d0 * 8 + d1)> by [<Embed{8, 1} ["m", "k"] at [0, 1] -> ["raw"] at [0]>] bounds = [1, 8] -> [8]>
+#transform_map1 = #miopen.transform_map<affine_map<(d0, d1) -> (d0 * 8 + d1)> by [<Embed{8, 1} ["n", "k"] at [0, 1] -> ["raw"] at [0]>] bounds = [1, 8] -> [8]>
+#transform_map2 = #miopen.transform_map<affine_map<(d0, d1, d2) -> (d0 * 2 + d1 * 2 + d2)> by [<Embed{2, 2, 1} ["m", "n", "v"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [1, 1, 2] -> [2]>
+
+#map0 = affine_map<(d0, d1) -> (d0 * 8 + d1)>
+#map1 = affine_map<(d0, d1, d2) -> (d0 * 2 + d1 * 2 + d2)>
 
 func.func @miopen_xdlops_gemm_v2_nonreduction_nokpack(%matrixA : memref<8xf32, 5>,
                                                       %matrixB : memref<8xf32, 5>,
-                                                      %matrixC : memref<1xvector<32xf32>, 5>) {
+                                                      %matrixC : memref<2xvector<32xf32>, 5>) {
   // CHECK-LABEL: func.func @miopen_xdlops_gemm_v2_nonreduction_nokpack
   // CHECK: miopen.in_bounds_load
   // CHECK: miopen.in_bounds_load
   // CHECK: amdgpu.mfma
-  miopen.xdlops_gemm_v2 %matrixC += %matrixA[0] * %matrixB[0] {
+  %A = miopen.transform %matrixA by [#transform_map0] : memref<8xf32, 5> to memref<1x8xf32, #map0, 5>
+  %B = miopen.transform %matrixB by [#transform_map1] : memref<8xf32, 5> to memref<1x8xf32, #map0, 5>
+  %C = miopen.transform %matrixC by [#transform_map2] : memref<2xvector<32xf32>, 5> to memref<1x1x2xvector<32xf32>, #map1, 5>
+  miopen.xdlops_gemm_v2 %C += %A * %B {
     params = #miopen.xdlops_gemm_params<
        kPerBlock = 8,
        kpack = 1,
@@ -15,9 +24,16 @@ func.func @miopen_xdlops_gemm_v2_nonreduction_nokpack(%matrixA : memref<8xf32, 5
        mPerWave = 64,
        nPerBlock = 64,
        nPerWave = 32>
-     } : memref<1xvector<32xf32>, 5> += memref<8xf32, 5> * memref<8xf32, 5>
+     } : memref<1x1x2xvector<32xf32>, #map1, 5> += memref<1x8xf32, #map0, 5> * memref<1x8xf32, #map0, 5>
   return
 }
+
+#transform_map3 = #miopen.transform_map<affine_map<(d0, d1) -> (d0 * 2 + d1)> by [<Embed{2, 1} ["m", "k"] at [0, 1] -> ["raw"] at [0]>] bounds = [1, 2] -> [2]>
+#transform_map4 = #miopen.transform_map<affine_map<(d0, d1) -> (d0 * 2 + d1)> by [<Embed{2, 1} ["n", "k"] at [0, 1] -> ["raw"] at [0]>] bounds = [1, 2] -> [2]>
+#transform_map5 = #miopen.transform_map<affine_map<(d0, d1, d2) -> (d0 * 2 + d1 * 2 + d2)> by [<Embed{2, 2, 1} ["m", "n", "v"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [1, 1, 2] -> [2]>
+
+#map2 = affine_map<(d0, d1) -> (d0 * 2 + d1)>
+#map3 = affine_map<(d0, d1, d2) -> (d0 * 2 + d1 * 2 + d2)>
 
 func.func @miopen_xdlops_gemm_v2_nonreduction_kpack(%matrixA : memref<2xvector<2xf32>, 5>,
                                                     %matrixB : memref<2xvector<2xf32>, 5>,
@@ -28,7 +44,10 @@ func.func @miopen_xdlops_gemm_v2_nonreduction_kpack(%matrixA : memref<2xvector<2
   // CHECK: miopen.extract_slice
   // CHECK: amdgpu.mfma
   // CHECK: amdgpu.mfma
-  miopen.xdlops_gemm_v2 %matrixC += %matrixA[0] * %matrixB[0] {
+  %A = miopen.transform %matrixA by [#transform_map3] : memref<2xvector<2xf32>, 5> to memref<1x2xvector<2xf32>, #map2, 5>
+  %B = miopen.transform %matrixB by [#transform_map4] : memref<2xvector<2xf32>, 5> to memref<1x2xvector<2xf32>, #map2, 5>
+  %C = miopen.transform %matrixC by [#transform_map5] : memref<2xvector<32xf32>, 5> to memref<1x1x2xvector<32xf32>, #map3, 5>
+  miopen.xdlops_gemm_v2 %C += %A * %B {
     params = #miopen.xdlops_gemm_params<
       kPerBlock = 2,
       kpack = 2,
@@ -36,7 +55,7 @@ func.func @miopen_xdlops_gemm_v2_nonreduction_kpack(%matrixA : memref<2xvector<2
       mPerWave = 64,
       nPerBlock = 128,
       nPerWave = 64>
-  } : memref<2xvector<32xf32>, 5> += memref<2xvector<2xf32>, 5> * memref<2xvector<2xf32>, 5>
+  } : memref<1x1x2xvector<32xf32>, #map3, 5> += memref<1x2xvector<2xf32>, #map2, 5> * memref<1x2xvector<2xf32>, #map2, 5>
   return
 }
 
@@ -49,7 +68,10 @@ func.func @miopen_xdlops_gemm_v2_reduction_kpack(%matrixA : memref<2xvector<8xi8
   // CHECK: miopen.extract_slice
   // CHECK: amdgpu.mfma
   // CHECK-NOT: amdgpu.mfma
-  miopen.xdlops_gemm_v2 %matrixC += %matrixA[0] * %matrixB[0] {
+  %A = miopen.transform %matrixA by [#transform_map3] : memref<2xvector<8xi8>, 5> to memref<1x2xvector<8xi8>, #map2, 5>
+  %B = miopen.transform %matrixB by [#transform_map4] : memref<2xvector<8xi8>, 5> to memref<1x2xvector<8xi8>, #map2, 5>
+  %C = miopen.transform %matrixC by [#transform_map5] : memref<1xvector<16xi32>, 5> to memref<1x1x1xvector<16xi32>, #map3, 5>
+  miopen.xdlops_gemm_v2 %C += %A * %B {
     params = #miopen.xdlops_gemm_params<
       kPerBlock = 4,
       kpack = 8,
@@ -57,6 +79,6 @@ func.func @miopen_xdlops_gemm_v2_reduction_kpack(%matrixA : memref<2xvector<8xi8
       nPerWave = 32,
       mPerBlock = 64,
       nPerBlock = 64>
-  } : memref<1xvector<16xi32>, 5> += memref<2xvector<8xi8>, 5> * memref<2xvector<8xi8>, 5>
+  } : memref<1x1x1xvector<16xi32>, #map3, 5> += memref<1x2xvector<8xi8>, #map2, 5> * memref<1x2xvector<8xi8>, #map2, 5>
   return
 }
