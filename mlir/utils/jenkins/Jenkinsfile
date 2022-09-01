@@ -24,19 +24,19 @@ void buildMIOpen(String cmakeOpts) {
 }
 
 void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
-    git branch: 'find-MLIR', poll: false,\
+    git branch: 'rename-MLIR', poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
     buildMIOpen(cmakeOpts)
 }
 
 void buildMIOpenWithMLIR() {
-    buildProject('libMLIRMIOpen',
-                    '-DBUILD_FAT_LIBMLIRMIOPEN=ON')
-    cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/MIOpenDeps",\
+    buildProject('librockCompiler',
+                    '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+    cmake arguments: "--install . --component librockCompiler --prefix ${WORKSPACE}/MIOpenDeps",\
         installation: 'InSearchPath', workingDir: 'build'
 
     dir('MIOpen') {
-        git branch: 'find-MLIR', poll: false,\
+        git branch: 'rename-MLIR', poll: false,\
             url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
         // Note: setting cxxflags here works around https://github.com/ROCmSoftwarePlatform/MIOpen/issues/1604
         buildMIOpen("""-DMIOPEN_USE_MLIR=On
@@ -303,7 +303,7 @@ pipeline {
                                 showEnv()
                             }
                         }
-                        stage("Build MIOpen with libMLIRMIOpen") {
+                        stage("Build MIOpen with librockCompiler") {
                             steps {
                                 buildMIOpenWithMLIR()
                             }
@@ -458,7 +458,7 @@ pipeline {
                             showEnv()
                         }
                     }
-                    stage("Build MIOpen with libMLIRMIOpen") {
+                    stage("Build MIOpen with librockCompiler") {
                         steps {
                             buildMIOpenWithMLIR()
                         }
@@ -553,7 +553,7 @@ pipeline {
                                     showEnv()
                                 }
                             }
-                            stage("Build MIOpen with libMLIRMIOpen") {
+                            stage("Build MIOpen with librockCompiler") {
                                 environment {
                                     PATH="/opt/rocm/llvm/bin:$PATH"
                                     HOME="${WORKSPACE}"
@@ -632,7 +632,7 @@ pipeline {
                         showEnv()
                     }
                 }
-                stage("Build MLIR with libMLIRMIOpen") {
+                stage("Build MLIR with librockCompiler") {
                     steps {
                         buildMIOpenWithMLIR()
                     }
