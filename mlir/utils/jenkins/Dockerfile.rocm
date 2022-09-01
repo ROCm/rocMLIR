@@ -2,10 +2,10 @@
 FROM ubuntu:bionic
 MAINTAINER Zhuoran Yin <zhuoran.yin@amd.com>
 
-ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/5.1.1/
+ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/5.2.3/
 ARG ROCM_BUILD_NAME=ubuntu
 ARG ROCM_BUILD_NUM=main
-ARG ROCM_PATH=/opt/rocm-5.1.1
+ARG ROCM_PATH=/opt/rocm-5.2.3
 ARG MIOPEN_DEPS_COMMIT=8d67ae8b6a84b48debd3f140482b077b104c32dd
 
 ENV DEBIAN_FRONTEND noninteractive
