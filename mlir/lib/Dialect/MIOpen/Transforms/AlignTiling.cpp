@@ -177,7 +177,7 @@ static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
   for (unsigned i = 0; i < sType.size(); i++) {
     assert((sType[i] == dType[i] || sType[i] == 1) &&
            "shape of extra fusion arguments matches shape of C tensor or "
-           "broastable");
+           "broadcastable");
   }
 
   auto writeCLoop = op->getParentOfType<TransformingForOp>();
@@ -296,7 +296,8 @@ static ThreadwiseCopyV2Op traceToThreadwiseCopy(Value inp) {
     }
   }
 
-  // broadcast input
+  // Additionally catch the case when gemm result had to be expanded before
+  // being fed.
   if (auto expanded = inp.getDefiningOp<memref::ExpandShapeOp>()) {
     auto src = expanded.getSrc();
     for (Operation *use : src.getUsers()) {
@@ -334,14 +335,9 @@ static Value reconfigureLAGeneric(PatternRewriter &b,
     if (Value inp = std::get<0>(pair)) {
       AffineMap inpIdxMap = std::get<1>(pair);
       Value newInput;
-      if (inp == twout) {
+      auto expanded = inp.getDefiningOp<memref::ExpandShapeOp>();
+      if (inp == twout || (expanded && expanded.getSrc() == twout)) {
         newInput = laIn;
-      } else if (auto expanded = inp.getDefiningOp<memref::ExpandShapeOp>()) {
-        if (expanded.getSrc() == twout)
-          newInput = laIn;
-        else {
-          newInput = applyTransforms(b, twcopy, inp, inpIdxMap);
-        }
       } else {
         // 2.1.1. Align tiling of other inputs
         newInput = applyTransforms(b, twcopy, inp, inpIdxMap);
@@ -449,11 +445,8 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   // 2. Apply if input found
 
   // point back to original memory.
-  Value delOut = nullptr;
   if (memref::ExpandShapeOp expanded =
           out.getDefiningOp<memref::ExpandShapeOp>()) {
-    if (out.hasOneUse())
-      delOut = out;
     out = expanded.getSrc();
   }
 
@@ -499,10 +492,6 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
 
     return success();
   }
-
-  // Delete expandShapeOp whose single use has been dropped
-  if (delOut)
-    delOut.getDefiningOp()->erase();
 
   return failure();
 }
