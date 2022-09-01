@@ -180,7 +180,8 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
+                            // label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
+                            label "lockhart-6"
                             alwaysPull true
                         }
                     }
@@ -289,7 +290,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'gfx906' }"
+                            label "lockhart-6"
                             alwaysPull true
                         }
                     }
