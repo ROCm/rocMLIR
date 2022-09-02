@@ -172,4 +172,44 @@ if(BUILD_FAT_LIBROCKCOMPILER)
   # and export it to be searchable by find_package()
   export_target(${LIBRARY_NAME} lib${LIBRARY_NAME})
 
+  if ((NOT LLVM_INSTALL_TOOLCHAIN_ONLY) AND EXPORT_ALL_HEADERS)
+    install(DIRECTORY
+      ${PROJECT_SOURCE_DIR}/mlir/include/mlir
+      ${PROJECT_SOURCE_DIR}/mlir/include/mlir-c
+      DESTINATION include/${PACKAGE_NAME}
+      COMPONENT ${LIBRARY_NAME}-headers
+      FILES_MATCHING
+      PATTERN "*.def"
+      PATTERN "*.h"
+      PATTERN "*.inc"
+      PATTERN "*.td"
+      PATTERN "LICENSE.TXT"
+    )
+
+    install(DIRECTORY ${MLIR_INCLUDE_DIRS}
+      DESTINATION include/${PACKAGE_NAME}/external
+      COMPONENT ${LIBRARY_NAME}-headers
+      FILES_MATCHING
+      PATTERN "*.def"
+      PATTERN "*.h"
+      PATTERN "*.gen"
+      PATTERN "*.inc"
+      PATTERN "*.td"
+      PATTERN "CMakeFiles" EXCLUDE
+      PATTERN "config.h" EXCLUDE
+    )
+
+    install(DIRECTORY ${PROJECT_BINARY_DIR}/mlir/include
+      DESTINATION include/${PACKAGE_NAME}/build
+      COMPONENT ${LIBRARY_NAME}-headers
+      FILES_MATCHING
+      PATTERN "*.def"
+      PATTERN "*.h"
+      PATTERN "*.gen"
+      PATTERN "*.inc"
+      PATTERN "*.td"
+      PATTERN "CMakeFiles" EXCLUDE
+      PATTERN "config.h" EXCLUDE
+    )
+  endif()
 endif()
