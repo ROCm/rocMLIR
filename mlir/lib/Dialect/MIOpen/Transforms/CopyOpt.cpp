@@ -59,6 +59,7 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
     // 1. Capture allocation->copy pattern
     Operation *writer = nullptr;
     memref::CopyOp reader = nullptr;
+    memref::CollapseShapeOp csop = nullptr;
     for (auto &use : mem.getUses()) {
       if (auto laop = dyn_cast<linalg::GenericOp>(use.getOwner())) {
         // 1.0 Output of linalg.generic
@@ -99,6 +100,19 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
         if (mrop.getSource() != mem)
           return fail;
         reader = mrop;
+      } else if (csop =
+                     dyn_cast<memref::CollapseShapeOp>(use.getOwner())) {
+        // 1.4 catch the case it has collapse shape befor the copy
+        if (reader)
+          return fail;
+        if (!use.getOwner()->hasOneUse())
+          return fail;
+        for (auto &cop : use.getOwner()->getUses()) {
+          if (auto mrop = dyn_cast<memref::CopyOp>(cop.getOwner())) {
+            reader = mrop;
+          } else
+            return fail;
+        }
       } else {
         // unsupported op
         return fail;
@@ -111,9 +125,14 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
 
       if (mem.getType() == realMem.getType()) {
         mem.replaceAllUsesWith(realMem);
-
         reader->erase();
-
+        return success();
+      } else if (csop) {
+        Location loc = mem.getLoc();
+        auto new_expand = b.create<memref::ExpandShapeOp>(
+          loc, mem.getType(), realMem, csop.getReassociation());
+        mem.replaceAllUsesWith(new_expand);
+        reader->erase();
         return success();
       }
     }
