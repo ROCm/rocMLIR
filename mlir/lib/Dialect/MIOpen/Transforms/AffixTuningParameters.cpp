@@ -160,7 +160,7 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
   int64_t gemmId = gemmIdAttr.getInt();
 
   GemmFeatures features = op.features();
-  if (bitEnumContains(features, GemmFeatures::xdlops)) {
+  if (bitEnumContains(features, GemmFeatures::mfma)) {
     OpBuilder b(op.getContext());
 
     ConvolutionDims convDims = obtainConvDims(op);
@@ -203,7 +203,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     perfConfig = perfConfigAttr.getValue().str();
   }
   GemmFeatures features = op.features();
-  if (bitEnumContains(features, GemmFeatures::xdlops)) {
+  if (bitEnumContains(features, GemmFeatures::mfma)) {
     PopulateParamsXDL populateParamsXDL;
     InitParamsXDL validParams;
     DerivedParams gemmADerivedParam;

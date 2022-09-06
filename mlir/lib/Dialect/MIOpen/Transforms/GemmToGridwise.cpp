@@ -178,7 +178,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   b = padMatrix(b, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
 
-  bool isXdlops = bitEnumContains(op.features(), GemmFeatures::xdlops);
+  bool isXdlops = bitEnumContains(op.features(), GemmFeatures::mfma);
   // TODO: temporary code for befor the gridwise gemm is rewritten to not do
   // this
   if (isXdlops) {

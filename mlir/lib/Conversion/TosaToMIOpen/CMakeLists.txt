@@ -12,6 +12,7 @@ add_mlir_conversion_library(MLIRTosaToMIOpen
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRLinalgDialect
+  MLIRMIOpenConv2dGenerator
   MLIRMIOpenTransforms
   MLIRLinalgUtils
   MLIRPass

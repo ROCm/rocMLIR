@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/MIOpen/Generator/AmdArchDb.h"
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
@@ -1270,7 +1271,7 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
 
   // reduce precision if !xdlops
   bool hasXdlops =
-      miopen::bitEnumContains(genConfig.features, miopen::GemmFeatures::xdlops);
+      miopen::bitEnumContains(genConfig.features, miopen::GemmFeatures::mfma);
   auto xdlopsConstantOp =
       b.create<arith::ConstantIntOp>(loc, hasXdlops, intType);
 
@@ -2013,7 +2014,7 @@ populateHostHarnessLogic(ModuleOp &module,
 
   // Run validation
   bool hasXdlops =
-      miopen::bitEnumContains(genConfig.features, miopen::GemmFeatures::xdlops);
+      miopen::bitEnumContains(genConfig.features, miopen::GemmFeatures::mfma);
   if (hasValidation) {
     if (validationType == "gpu" &&
         (hasXdlops || genConfig.dataTypeStr == "f16" ||
@@ -2190,9 +2191,10 @@ int main(int argc, char **argv) {
 
       LogicalResult status = success();
 
-      miopen::GemmFeatures enabledFeatures = miopen::GemmFeatures::none;
-      if (xdlopsV2.getValue())
-        enabledFeatures = enabledFeatures | miopen::GemmFeatures::xdlops;
+      miopen::AmdArchInfo archInfo = miopen::lookupArchInfo(chip);
+      miopen::GemmFeatures enabledFeatures = archInfo.defaultFeatures;
+      enabledFeatures = miopen::bitEnumSet(
+          enabledFeatures, miopen::GemmFeatures::mfma, xdlopsV2.getValue());
       conv2dGenerator = miopen::Conv2dGenerator(
           chip, triple, chipFeatures, perfConfig.getValue(), num_cu.getValue(),
           enabledFeatures, operation.getValue(), tensorDataType.getValue(),

@@ -54,7 +54,7 @@ func.func @miopen_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<12
   // CHECK-SAME: blockSize = 256
   // CHECK-SAME: gridSize = 3600
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_0]]
-  miopen.conv2d(%filter, %input, %output) features = xdlops {
+  miopen.conv2d(%filter, %input, %output) features = mfma|dot|atomic_add {
     arch = "gfx908",
     numCu = 120 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
@@ -73,7 +73,7 @@ func.func @miopen_conv2d_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: 
   // CHECK-SAME: blockSize = 256
   // CHECK-SAME: gridSize = 1568
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_1]]
-  miopen.conv2d_bwd_data(%filter, %input, %output) features = xdlops {
+  miopen.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add {
     arch = "gfx908",
     dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
@@ -93,7 +93,7 @@ func.func @miopen_conv2d_bwd_data_f16(%filter: memref<1x1024x1024x1x1xf16>, %inp
   // CHECK-SAME: blockSize = 256
   // CHECK-SAME: gridSize = 1568
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_1]]
-  miopen.conv2d_bwd_data(%filter, %input, %output) features = xdlops {
+  miopen.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add {
     arch = "gfx908",
     dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],

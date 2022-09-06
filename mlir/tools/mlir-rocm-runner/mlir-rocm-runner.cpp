@@ -78,8 +78,6 @@ static cl::opt<bool>
                cl::desc("input is in the MLIR LLVM/ROCDL dialect"),
                cl::init(false));
 
-static constexpr const char kTargetTriple[] = "amdgcn-amd-amdhsa";
-
 // As per the coding standard of LLVM, anonymous namespace should only be used
 // for class declarations.
 // https://llvm.org/docs/CodingStandards.html#anonymous-namespaces

@@ -1,7 +1,7 @@
 // RUN: mlir-miopen-driver --host-pipeline highlevel %s | FileCheck %s
 
-// CHECK: miopen.conv2d(%{{.*}}, %{{.*}}, %{{.*}}) features =  none {arch = "gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["k", "c", "y", "x", "g"], input_layout = ["ni", "hi", "wi", "ci", "gi"], numCu = 64 : i32, output_layout = ["no", "ko", "ho", "wo", "go"], padding = [1 : i32, 1 : i32, 1 : i32, 1 : i32], strides = [1 : i32, 1 : i32]} : memref<64x128x3x3x1xf32>, memref<256x28x28x128x1xf32>, memref<256x64x28x28x1xf32>
-    
+// CHECK: miopen.conv2d(%{{.*}}, %{{.*}}, %{{.*}}) features =  none {arch = "gfx900", dilations = [1 : i32, 1 : i32], filter_layout = ["k", "c", "y", "x", "g"], input_layout = ["ni", "hi", "wi", "ci", "gi"], numCu = 64 : i32, output_layout = ["no", "ko", "ho", "wo", "go"], padding = [1 : i32, 1 : i32, 1 : i32, 1 : i32], strides = [1 : i32, 1 : i32]} : memref<64x128x3x3x1xf32>, memref<256x28x28x128x1xf32>, memref<256x64x28x28x1xf32>
+
 // CHECK-COUNT-1: linalg.generic
 // CHECK-NOT: linalg.generic
 
@@ -17,7 +17,7 @@ module {
 
     %c1 = "tosa.transpose"(%0, %cst_t) : (tensor<256x28x28x64xf32>, tensor<4xi64>) -> tensor<256x64x28x28xf32>
     %2 = "tosa.add"(%c1, %arg2) : (tensor<256x64x28x28xf32>, tensor<256x64x28x28xf32>) -> tensor<256x64x28x28xf32>
-    
+
     return %2 : tensor<256x64x28x28xf32>
   }
 }

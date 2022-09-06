@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MIOpen/Generator/AmdArchDb.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
@@ -93,7 +94,7 @@ makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   // TODO(sjw): get these from options
   StringRef chip = "";
   uint32_t num_cu = 64;
-  bool xdlopsV2 = false;
+  Optional<bool> xdlopsV2 = None;
 
   if (auto attr = op->getAttrOfType<StringAttr>("arch"))
     chip = attr.getValue();
@@ -112,9 +113,11 @@ makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   else if (auto attr = func->getAttrOfType<BoolAttr>("xdlopsV2"))
     xdlopsV2 = attr.getValue();
 
-  miopen::GemmFeatures features = miopen::GemmFeatures::none;
-  if (xdlopsV2)
-    features = features | miopen::GemmFeatures::xdlops;
+  miopen::AmdArchInfo archInfo = miopen::lookupArchInfo(chip);
+  miopen::GemmFeatures features = archInfo.defaultFeatures;
+  if (xdlopsV2.has_value())
+    features =
+        miopen::bitEnumSet(features, miopen::GemmFeatures::mfma, *xdlopsV2);
   auto cop = rw.create<miopen::Conv2DOp>(
       loc, filterExp, inputExp, outputExp, rw.getStringAttr(chip),
       rw.getI32IntegerAttr(num_cu),

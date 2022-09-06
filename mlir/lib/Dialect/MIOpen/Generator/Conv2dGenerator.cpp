@@ -1,5 +1,6 @@
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/MIOpen/Generator/AmdArchDb.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/GemmContext.h"
@@ -13,7 +14,6 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Types.h"
-#include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/MathExtras.h"
 
@@ -274,7 +274,7 @@ LogicalResult Conv2dGenerator::hasValidChip() const {
     return failure();
 
   // XDLOPS are only supported on MI-100 (gfx908) and MI-200 (gfx90a)
-  if (bitEnumContains(config.features, GemmFeatures::xdlops) &&
+  if (bitEnumContains(config.features, GemmFeatures::mfma) &&
       (chipHexNumber != 0x908 && chipHexNumber != 0x90a))
     return failure();
   return success();
@@ -299,7 +299,7 @@ int Conv2dGenerator::getKernelCount(OpBuilder &builder) const {
 int Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder) const {
   assert(config.operation.getValue() == ConvOpType::BwdWeight);
 
-  if (bitEnumContains(config.features, GemmFeatures::xdlops)) {
+  if (bitEnumContains(config.features, GemmFeatures::mfma)) {
     Type dataType = getDataType(builder);
     if (!needExtraPadBwdWeight(builder)) {
       if (dataType == builder.getF32Type()) {
@@ -361,7 +361,7 @@ bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {
   GemmContext gemmSize = GemmContext::fromConvolution(dir, convDims);
 
   bool needExtraPad = false;
-  if (!bitEnumContains(config.features, GemmFeatures::xdlops)) {
+  if (!bitEnumContains(config.features, GemmFeatures::mfma)) {
     PopulateParams populateParams;
     needExtraPad =
         calculatePaddingKernelSize(gemmSize, dir, dataType, populateParams)
@@ -388,7 +388,7 @@ bool Conv2dGenerator::hasWorkspace(OpBuilder &builder) const {
     Type dataType = getDataType(builder);
     ConvOpType dir = config.operation.getValue();
     if ((dir == ConvOpType::BwdWeight) &&
-        bitEnumContains(config.features, GemmFeatures::xdlops) &&
+        bitEnumContains(config.features, GemmFeatures::mfma) &&
         (dataType == builder.getF16Type())) {
       // In case we need extra padding, do not use workspace.
       result = (needExtraPadBwdWeight(builder) == false);
@@ -479,13 +479,14 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   config.chip = splitter.getChip().str();
   config.chipFeatures = splitter.getFeatures().str();
   config.triple = splitter.getTriple().str();
+  AmdArchInfo archInfo = lookupArchInfo(splitter.getChip());
+  config.features = archInfo.defaultFeatures;
 
   strToStr("perf_config", config.perfConfig);
   strToInt("num_cu", config.num_cu);
   int hasXdlops = 0;
   strToInt("x2", hasXdlops);
-  if (hasXdlops)
-    config.features = config.features | GemmFeatures::xdlops;
+  config.features = bitEnumSet(config.features, GemmFeatures::mfma, hasXdlops);
 
   // conv settings
   auto const op = getConvOpTypeForName(argMap["operation"]);
@@ -617,12 +618,7 @@ void Conv2dGenerator::setDataType(std::string newType) {
 }
 
 void Conv2dGenerator::flipXdlops() {
-  if (bitEnumContains(config.features, GemmFeatures::xdlops))
-    config.features =
-        static_cast<GemmFeatures>(static_cast<uint32_t>(config.features) &
-                                  ~static_cast<uint32_t>(GemmFeatures::xdlops));
-  else
-    config.features = config.features | GemmFeatures::xdlops;
+  config.features = config.features ^ GemmFeatures::mfma;
 }
 
 ConvolutionDims Conv2dGenerator::getConvolutionDims() const {

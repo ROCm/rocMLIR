@@ -70,7 +70,6 @@ TransformMapAttr getTransformMapAttrChecked(
     llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     MLIRContext *context, ArrayRef<TransformAttr> ops, AffineMapAttr map,
     ArrayRef<int64_t> upperBounds, ArrayRef<int64_t> lowerBounds);
-
 } // namespace miopen
 } // namespace mlir
 #endif // MLIR_MIOPENOPS_OPS_H_
