@@ -338,18 +338,14 @@ struct BlockwiseGemmV2RewritePattern
         XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 
     // Extract values from XdlopsCodeSelection.
-    amdgpu::MFMAInstr mfmaInstr = xcs.instr;
-    LLVM_DEBUG(llvm::dbgs() << "Selected xdlop: "
-                            << amdgpu::stringifyMFMAInstr(mfmaInstr) << "\n");
-    SmallVector<SmallVector<unsigned, 3>, 2> imms = xcs.imms;
     Type argType = xcs.argType;
 
-    int64_t num_threads_blk = xcs.num_threads_blk;
-    int64_t num_input_blks = xcs.num_input_blks;
-    int64_t num_output_blks = xcs.num_output_blks;
+    int64_t inputSpanLen = xcs.inputSpanLen;
+    int64_t inputSpansPerMfmaIn = xcs.inputSpansPerMfmaIn;
+    int64_t blocksInOutRegs = xcs.blocksInOutRegs;
     int64_t k_base = xcs.k_base;
 
-    bool IsKReduction = (num_output_blks == 1) && (num_input_blks > 1);
+    bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
 
     if (KPack > 1 && (KPack < k_base || KPack % k_base != 0)) {
       llvm_unreachable(
@@ -392,7 +388,7 @@ struct BlockwiseGemmV2RewritePattern
     Type bufferAElementType = bufferAType.getElementType();
     Type bufferBElementType = bufferBType.getElementType();
 
-    int64_t KPerThread = IsKReduction ? K / num_input_blks : K;
+    int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
 
     if (!IsKReduction) {
 
@@ -471,10 +467,10 @@ struct BlockwiseGemmV2RewritePattern
     } else {
       // const index_t blk_id = laneId / mfma_type.num_threads_blk;
       // const index_t blk_td = laneId % mfma_type.num_threads_blk;
-      auto NumThreadsBlkConstantOp =
-          b.create<ConstantIndexOp>(loc, num_threads_blk);
-      auto blk_id = b.create<DivUIOp>(loc, laneId, NumThreadsBlkConstantOp);
-      auto blk_td = b.create<RemUIOp>(loc, laneId, NumThreadsBlkConstantOp);
+      auto inputSpanLenConstantOp =
+          b.create<ConstantIndexOp>(loc, inputSpanLen);
+      auto blk_id = b.create<DivUIOp>(loc, laneId, inputSpanLenConstantOp);
+      auto blk_td = b.create<RemUIOp>(loc, laneId, inputSpanLenConstantOp);
 
       Value kBaseA = b.create<AddIOp>(loc, aBase, blk_td);
       Value kBaseB = b.create<AddIOp>(loc, bBase, blk_td);
@@ -487,8 +483,8 @@ struct BlockwiseGemmV2RewritePattern
       // p_a_wave need to be offseted by waveOffsetA.
       // p_b_wave need to be offseted by waveOffsetB.
 
-      auto NumInputBlksConstantOp =
-          b.create<ConstantIndexOp>(loc, num_input_blks);
+      auto inputSpansPerMfmaInConstantOp =
+          b.create<ConstantIndexOp>(loc, inputSpansPerMfmaIn);
 
       auto loopKLoad = b.create<AffineForOp>(loc, 0, KPerThread);
       auto lklb = ConversionPatternRewriter::atBlockBegin(loopKLoad.getBody(),
@@ -500,7 +496,9 @@ struct BlockwiseGemmV2RewritePattern
           lklb.create<MulIOp>(
               loc,
               lklb.create<AddIOp>(
-                  loc, lklb.create<MulIOp>(loc, lkliv, NumInputBlksConstantOp),
+                  loc,
+                  lklb.create<MulIOp>(loc, lkliv,
+                                      inputSpansPerMfmaInConstantOp),
                   blk_id),
               MConstantOp),
           kBaseA);
@@ -518,7 +516,9 @@ struct BlockwiseGemmV2RewritePattern
           lklb.create<MulIOp>(
               loc,
               lklb.create<AddIOp>(
-                  loc, lklb.create<MulIOp>(loc, lkliv, NumInputBlksConstantOp),
+                  loc,
+                  lklb.create<MulIOp>(loc, lkliv,
+                                      inputSpansPerMfmaInConstantOp),
                   blk_id),
               NConstantOp),
           kBaseB);

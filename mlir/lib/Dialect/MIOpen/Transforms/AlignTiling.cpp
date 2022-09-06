@@ -87,8 +87,7 @@ makeTransposeTransform(PatternRewriter &b, Value inp, AffineMap inpMap) {
 
       permuteBuilder.passThrough(permutation, identityIdxs);
       TransformMapAttr permuteAttr = permuteBuilder.get();
-      Value ret = b.create<TransformOp>(loc, inp, permuteAttr,
-                                        inputType.getMemorySpaceAsInt());
+      Value ret = b.create<TransformOp>(loc, inp, permuteAttr);
       AffineMap composed = permuteAttr.getMap().getAffineMap().compose(inpMap);
       LLVM_DEBUG(llvm::dbgs() << "indexing = " << inpMap << " then transform "
                               << permuteAttr.getMap().getAffineMap() << " is "
@@ -131,8 +130,7 @@ static Value makeBroadcast(PatternRewriter &b, MemRefType outType, Value inp,
         bcastDims.push_back(i);
       }
 
-      inp = b.create<TransformOp>(loc, inp, transform.get(),
-                                  inpType.getMemorySpaceAsInt());
+      inp = b.create<TransformOp>(loc, inp, transform.get());
 
       inpType = inp.getType().template cast<MemRefType>();
       inpShape = inpType.getShape();
@@ -161,8 +159,7 @@ static Value makeBroadcast(PatternRewriter &b, MemRefType outType, Value inp,
     transform.passThrough(ptDims, ptDims);
     transform.broadcast(bcastDims, bcastSizes);
 
-    inp = b.create<TransformOp>(loc, inp, transform.get(),
-                                inpType.getMemorySpaceAsInt());
+    inp = b.create<TransformOp>(loc, inp, transform.get());
   }
   return inp;
 }
@@ -172,9 +169,16 @@ static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
                                    Value dest) {
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << srcOp.getType()
                           << " dest type: " << op.dest().getType() << "\n");
-  assert(srcOp.getType().cast<ShapedType>().getShape() ==
-             op.dest().getType().cast<ShapedType>().getShape() &&
-         "shape of extra fusion arguments matches shape of C tensor");
+  ArrayRef<int64_t> sType, dType;
+  sType = srcOp.getType().cast<ShapedType>().getShape();
+  dType = op.dest().getType().cast<ShapedType>().getShape();
+  assert(sType.size() == dType.size() &&
+         "Rank of extra fusion arguments matches shape of C tensor");
+  for (unsigned i = 0; i < sType.size(); i++) {
+    assert((sType[i] == dType[i] || sType[i] == 1) &&
+           "shape of extra fusion arguments matches shape of C tensor or "
+           "broadcastable");
+  }
 
   auto writeCLoop = op->getParentOfType<TransformingForOp>();
   assert(writeCLoop && "threadwise_copy_v2 must be in a transforming_for");
@@ -291,6 +295,22 @@ static ThreadwiseCopyV2Op traceToThreadwiseCopy(Value inp) {
       allValidUses = false;
     }
   }
+
+  // Additionally catch the case when gemm result had to be expanded before
+  // being fed.
+  if (auto expanded = inp.getDefiningOp<memref::ExpandShapeOp>()) {
+    auto src = expanded.getSrc();
+    for (Operation *use : src.getUsers()) {
+      if (auto copy = dyn_cast<ThreadwiseCopyV2Op>(use)) {
+        if (result) {
+          LLVM_DEBUG(llvm::dbgs() << "Multiple copies somehow, no fusion\n");
+          allValidUses = false;
+        }
+        result = copy;
+      }
+    }
+  }
+
   if (!result)
     LLVM_DEBUG(llvm::dbgs() << "Align tiling: generic not tracing to copy");
   if (!allValidUses)
@@ -315,7 +335,8 @@ static Value reconfigureLAGeneric(PatternRewriter &b,
     if (Value inp = std::get<0>(pair)) {
       AffineMap inpIdxMap = std::get<1>(pair);
       Value newInput;
-      if (inp == twout) {
+      auto expanded = inp.getDefiningOp<memref::ExpandShapeOp>();
+      if (inp == twout || (expanded && expanded.getSrc() == twout)) {
         newInput = laIn;
       } else {
         // 2.1.1. Align tiling of other inputs
@@ -422,6 +443,12 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     return failure();
   }
   // 2. Apply if input found
+
+  // point back to original memory.
+  if (memref::ExpandShapeOp expanded =
+          out.getDefiningOp<memref::ExpandShapeOp>()) {
+    out = expanded.getSrc();
+  }
 
   Value gemmV2Outs = copyOp.source();
   auto gemmV2OutsType = gemmV2Outs.getType().cast<MemRefType>();

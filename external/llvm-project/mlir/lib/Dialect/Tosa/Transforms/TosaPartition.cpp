@@ -114,9 +114,11 @@ bool isZeroAttribute(Attribute value) {
 
 bool isConstantZero(Operation *op) {
   // test for zero
-  if (auto cst = dyn_cast<arith::ConstantOp>(op)) {
+  // test for zero
+  if (auto cst = dyn_cast<arith::ConstantOp>(op))
     return isZeroAttribute(cst.getValue());
-  }
+  else if (auto cst = dyn_cast<tosa::ConstOp>(op))
+    return isZeroAttribute(cst->getAttr("value"));
   return false;
 }
 

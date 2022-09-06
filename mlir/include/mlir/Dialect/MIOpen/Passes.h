@@ -29,9 +29,17 @@ std::unique_ptr<Pass> createMIOpenApplyImplPass();
 /// Create a pass to
 std::unique_ptr<Pass> createMIOpenAsyncLaunchPass();
 
+/// Create a pass to fold certain transpose operations in order to enable
+/// fusing generic operations with convolution and GEMM kernels.
+std::unique_ptr<Pass> createMIOpenFoldTransposePass();
+
 /// Create a pass to convert MIOpen conv2d operations to transform and
 /// gridwise_gemm operations.
 std::unique_ptr<Pass> createMIOpenConvToGemmPass();
+
+/// Create a pass to convert MIOpen gemm operations to gridwise operations,
+/// adding padding.
+std::unique_ptr<Pass> createMIOpenGemmToGridwisePass();
 
 /// Create a pass to convert MIOpen gridwise_gemm operations to blockwise
 /// operations.

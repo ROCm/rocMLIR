@@ -1,6 +1,7 @@
 // RUN: mlir-opt --tosa-partition %s | FileCheck %s
 // CHECK-LABEL: func private @forward_outlined_part_0
 // CHECK-NEXT: tosa.const
+// CHECK-NEXT: tosa.const
 // CHECK-NEXT: tosa.transpose
 // CHECK-NEXT: tosa.transpose
 // CHECK-NEXT: tosa.conv2d
@@ -8,6 +9,7 @@
 // CHECK-NEXT: tosa.transpose
 // CHECK: return
 // CHECK-LABEL: func private @forward_outlined_part_1
+// CHECK-NEXT: tosa.const
 // CHECK-NEXT: tosa.const
 // CHECK-NEXT: tosa.transpose
 // CHECK-NEXT: tosa.transpose

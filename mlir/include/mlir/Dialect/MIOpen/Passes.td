@@ -27,18 +27,30 @@ def MIOpenAsyncLaunchPass : Pass<"miopen-async-launch", "func::FuncOp"> {
   let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "linalg::LinalgDialect", "vector::VectorDialect", "memref::MemRefDialect", "async::AsyncDialect"];
 }
 
+def MIOpenFoldTransposePass : Pass<"miopen-fold-transpose", "::mlir::func::FuncOp"> {
+  let summary = "fold transposes to enable fusion with convolution and GEMM";
+  let constructor = "mlir::miopen::createMIOpenFoldTransposePass()";
+  let dependentDialects = ["miopen::MIOpenDialect", "linalg::LinalgDialect"];
+}
+
 def MIOpenConvToGemmPass : Pass<"miopen-conv-to-gemm", "::mlir::func::FuncOp"> {
-  let summary = "expand convolution into coordinate transformations and gridwise gemm";
+  let summary = "expand convolution into coordinate transformations and gemm";
   let constructor = "mlir::miopen::createMIOpenConvToGemmPass()";
   let dependentDialects = ["miopen::MIOpenDialect", "memref::MemRefDialect", "arith::ArithmeticDialect",
     "AffineDialect", "scf::SCFDialect"];
 }
 
 def MIOpenOpsAffixTuningParametersPass : Pass<"miopen-affix-params", "::mlir::func::FuncOp"> {
-  let summary = "populate tuning parameters for miopen.gridwise_gemm ops";
+  let summary = "populate tuning parameters for gemm and convolution ops";
   let constructor = "mlir::miopen::createAffixTuningParametersPass()";
   let dependentDialects = ["miopen::MIOpenDialect", "arith::ArithmeticDialect",
                            "func::FuncDialect"];
+}
+
+def MIOpenGemmToGridwisePass : Pass<"miopen-gemm-to-gridwise", "::mlir::func::FuncOp"> {
+  let summary = "convert gemm to gridwise gemm, adding padding";
+  let constructor = "mlir::miopen::createMIOpenGemmToGridwisePass()";
+  let dependentDialects = ["miopen::MIOpenDialect", "func::FuncDialect"];
 }
 
 def MIOpenGridwiseGemmToBlockwisePass : Pass<"miopen-gridwise-gemm-to-blockwise", "::mlir::func::FuncOp"> {

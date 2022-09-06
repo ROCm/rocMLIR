@@ -34,6 +34,7 @@
 #include "mlir/Dialect/MIOpen/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 
@@ -77,12 +78,21 @@ struct ThreadwiseGemmRewritePattern
     int64_t m = aShape[1];
     int64_t kPack = aShape[2];
     int64_t n = gemmB.getType().cast<MemRefType>().getShape()[1];
+    // Note for future: when we use dot products, we should increase this to
+    // the number of elements supported by the relevant dot product.
+    int64_t loadKpackLen = 1;
     LLVM_DEBUG(llvm::dbgs() << "Threadwise gemm:\n"
                             << "k = " << k << "\n"
                             << "m = " << m << "\n"
                             << "n = " << n << "\n"
-                            << "kPack = " << kPack << "\n");
-    SmallVector<int64_t> dimensions = {k, m, n, kPack};
+                            << "kPack = " << kPack << "\n"
+                            << "loadKpackLen = " << loadKpackLen << "\n");
+    if (loadKpackLen > kPack || kPack % loadKpackLen != 0)
+      return op->emitOpError("load length " + Twine(loadKpackLen) +
+                             " not compatible with kpack of " + Twine(kPack));
+    SmallVector<int64_t, 4> dimensions = {k, m, n, kPack};
+    SmallVector<int64_t, 4> strides = {1, 1, 1, loadKpackLen};
+    auto abType = VectorType::get(loadKpackLen, dataType);
 
     TopDownTMBuilder aView(b, {"k", "m", "n", "kpack"}, dimensions, loc);
     aView.ignore("n");
@@ -117,29 +127,37 @@ struct ThreadwiseGemmRewritePattern
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(gemmLoop.getBody());
-      Value aVal = b.create<InBoundsLoadOp>(
-          loc, dataType, bufferA, gemmLoop.getLowerCoords(/*domain=*/0));
-      Value bVal = b.create<InBoundsLoadOp>(
-          loc, dataType, bufferB, gemmLoop.getLowerCoords(/*domain=*/1));
-      Value mul;
-      if (dataType.isa<IntegerType>())
-        mul = b.create<MulIOp>(loc, aVal, bVal);
-      else if (dataType.isa<FloatType>())
-        mul = b.create<MulFOp>(loc, aVal, bVal);
-      else
-        llvm_unreachable("Validation should make this ints or floats only");
-
+      // These are vector::TransferRead ops so they always return a vector
+      // result so that FMA doesn't complain
+      Value aVal = b.create<vector::TransferReadOp>(
+          loc, abType, bufferA, gemmLoop.getLowerCoords(/*domain=*/0),
+          /*inBounds=*/ArrayRef<bool>(true));
+      Value bVal = b.create<vector::TransferReadOp>(
+          loc, abType, bufferB, gemmLoop.getLowerCoords(/*domain=*/1),
+          /*inBounds=*/ArrayRef<bool>(true));
       ValueRange cCoords = gemmLoop.getLowerCoords(/*domain=*/2);
       Value cVal = b.create<InBoundsLoadOp>(loc, dataType, bufferC, cCoords);
-      Value add;
-      if (dataType.isa<IntegerType>())
-        add = b.create<AddIOp>(loc, mul, cVal);
-      else if (dataType.isa<FloatType>())
-        add = b.create<AddFOp>(loc, mul, cVal);
-      else
-        llvm_unreachable("Very serously can't happen");
 
-      b.create<InBoundsStoreOp>(loc, add, bufferC, cCoords);
+      Value cVector = b.create<vector::SplatOp>(loc, abType, cVal);
+      Value result;
+      if (dataType.isa<IntegerType>()) {
+        Value mul = b.create<MulIOp>(loc, aVal, bVal);
+        result = b.create<AddIOp>(loc, mul, cVector);
+        if (abType.getNumElements() != 1)
+          return op.emitOpError(
+              "Shouldn't've gone down the scalar code path (int)");
+        result = b.create<vector::ExtractElementOp>(loc, result, zeroConst);
+      } else if (dataType.isa<FloatType>()) {
+        result = b.create<vector::FMAOp>(loc, aVal, bVal, cVector);
+        if (abType.getNumElements() != 1)
+          return op.emitOpError(
+              "Shouldn't've gone down the scalar code path (float)");
+        result = b.create<vector::ExtractElementOp>(loc, result, zeroConst);
+      } else {
+        llvm_unreachable("Validation should make this ints or floats only");
+      }
+
+      b.create<InBoundsStoreOp>(loc, result, bufferC, cCoords);
     }
     return success();
   }
@@ -180,21 +198,17 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     XdlopsCodeSelection xcs =
         XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 
-    // Extract values from XdlopsCodeSelection.
-    amdgpu::MFMAInstr mfmaInstr = xcs.instr;
-    LLVM_DEBUG(llvm::dbgs() << "Selected xdlop: "
-                            << amdgpu::stringifyMFMAInstr(mfmaInstr) << "\n");
-
     VectorType vectorType = xcs.vectorType;
-    int64_t vectorNumber = xcs.vectorNumber;
-    SmallVector<SmallVector<unsigned, 3>, 2> imms = xcs.imms;
+    int64_t nResultVectors = xcs.nResultVectors;
+    ArrayRef<MFMAParams> imms(xcs.imms);
     Type argType = xcs.argType;
 
-    int64_t num_input_blks = xcs.num_input_blks;
-    int64_t num_output_blks = xcs.num_output_blks;
+    int64_t mfmaNonKDim = xcs.mfmaNonKDim;
+    int64_t inputSpansPerMfmaIn = xcs.inputSpansPerMfmaIn;
+    int64_t blocksInOutRegs = xcs.blocksInOutRegs;
     int64_t k_base = xcs.k_base;
 
-    bool IsKReduction = (num_output_blks == 1) && (num_input_blks > 1);
+    bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
 
     Value matrixA = adaptor.matrixA();
     Value matrixB = adaptor.matrixB();
@@ -203,7 +217,7 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     Type matrixAElementType = matrixAType.getElementType();
     Type matrixBElementType = matrixBType.getElementType();
 
-    int64_t KPerThread = IsKReduction ? K / num_input_blks : K;
+    int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
     int64_t KRepeats = KPack / k_base;
     if (KRepeats == 0)
       KRepeats = 1;
@@ -214,14 +228,14 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         b.create<ConstantIndexOp>(loc, op.regOffsetBAttr().getInt());
 
     auto populateMfma = [&](OpBuilder &b, Value &argA, Value &argB) {
-      for (int64_t i = 0; i < vectorNumber; ++i) {
+      for (int64_t i = 0; i < nResultVectors; ++i) {
         // Note below is assuming only one of MRepeats or NRepeats is larger
         // than 1, which fits the existing blockwisegemmv2op implementation.
         // TODO: Move MRepeats and NRepeats into xdlopsgemmv2op
         int64_t regDOffset = 0;
         if (op.regOffsetAAttr().getInt() > 0 ||
             op.regOffsetBAttr().getInt() > 0) {
-          regDOffset += vectorNumber;
+          regDOffset += nResultVectors;
         }
         Value offset =
             b.createOrFold<arith::ConstantIndexOp>(loc, regDOffset + i);
@@ -229,8 +243,10 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         auto vectorC = b.create<memref::LoadOp>(loc, vectorType,
                                                 adaptor.matrixC(), offset);
         auto mfma = b.create<amdgpu::MFMAOp>(
-            loc, vectorType, mfmaInstr, argA, argB, vectorC,
-            /*cbsz=*/imms[i][0], /*abid=*/imms[i][1], /*blgp=*/imms[i][2]);
+            loc, vectorType, /*m=*/mfmaNonKDim, /*n=*/mfmaNonKDim, xcs.k,
+            xcs.blocksMfma, argA, argB, vectorC, imms[i].cbsz, imms[i].abid,
+            imms[i].blgp, /*reducePrecision=*/false, /*negateA=*/false,
+            /*negateB=*/false, /*negateC=*/false);
         auto vectorD = mfma.destD();
 
         b.create<memref::StoreOp>(loc, vectorD, adaptor.matrixC(), offset);
