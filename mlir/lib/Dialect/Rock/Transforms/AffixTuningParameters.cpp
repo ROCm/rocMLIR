@@ -168,14 +168,14 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
     GemmContext gemmSize =
         GemmContext::fromConvolution(ConvOpType::BwdWeight, convDims);
 
-    PopulateParamsXDL populateParamsXDL;
-    Optional<GemmContext> extraPadSizes =
-        calculatePaddingKernelSize(gemmSize, obtainConvDirection(op),
-                                   obtainConvDataType(op), populateParamsXDL);
-
-    // For padding cases, gemmId must be 0.
-    if (extraPadSizes.has_value()) {
-      assert(gemmId == 0);
+    auto gemmParams =
+        op->getAttrOfType<XdlopsGemmParamsAttr>(op.paramsAttrName());
+    Optional<GemmContext> extraPadSizes = calculatePadding(
+        gemmParams.getKPerBlock(), gemmParams.getMPerBlock(),
+        gemmParams.getNPerBlock(), gemmSize, gemmParams.getKpack());
+    if (extraPadSizes.hasValue()) {
+      assert(gemmId == 0 &&
+             "if there is padding, only a single kernel should be generated");
     } else {
       assert((gemmId >= 0) && (gemmId < 3));
       switch (gemmId) {
@@ -235,9 +235,10 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     Type dataType = obtainConvDataType(op);
 
     // Disable kpack in case we need padding kernel.
-    Optional<GemmContext> gemmExtraPad =
-        calculatePaddingKernelSize(gemmSize, dir, dataType, populateParamsXDL);
-    if (gemmExtraPad.has_value()) {
+    Optional<GemmContext> gemmExtraPad = calculatePadding(
+        validParams.gemmKPerBlock, validParams.gemmMPerBlock,
+        validParams.gemmNPerBlock, gemmSize, validParams.gemmKPack);
+    if (gemmExtraPad.hasValue()) {
       validParams.gemmKPack = 1;
     }
 
