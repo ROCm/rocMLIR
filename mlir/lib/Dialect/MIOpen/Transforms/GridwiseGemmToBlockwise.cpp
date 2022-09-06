@@ -262,22 +262,6 @@ static TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc,
   return loop;
 }
 
-/// Temporary function to remove the kPack transformation currently being
-/// introduced in conv-to-gemm. kPack is a LDS-specific transformation and
-/// should not have been applied to the gridwise gemm argument. Future work will
-/// make the conversion stop doing that, and we'll be able to get rid of this.
-static Value unKpack(OpBuilder &b, Value matrix) {
-  ArrayRef<int64_t> shape = matrix.getType().cast<MemRefType>().getShape();
-  if (shape.size() != 4)
-    return matrix;
-  BottomUpTMBuilder unkpack(b, {"g", "k", "d", "kpack"}, shape,
-                            matrix.getLoc());
-  unkpack.passThrough({"g", "m"});
-  unkpack.merge("k", 1, {"k", "kpack"});
-  TransformMapAttr unkpackAttr = unkpack.get();
-  return b.create<TransformOp>(matrix.getLoc(), matrix, unkpackAttr);
-}
-
 /// Given a G x K x D matrix and the block tuning parameters and how much data
 /// each thread will load,
 /// return the dimension in which the load of this matrix from global memory
@@ -644,12 +628,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Value zeroConstantFloatOp = createZeroConstantOp(b, loc, accumulatorType);
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
-    // Temporary values while unKpack is present
-    Value matA = unKpack(b, op.a());
-    Value matB = unKpack(b, op.b());
     ArrayRef<int64_t> aShape, bShape, cShape;
-    aShape = matA.getType().template cast<MemRefType>().getShape();
-    bShape = matB.getType().template cast<MemRefType>().getShape();
+    aShape = op.a().getType().template cast<MemRefType>().getShape();
+    bShape = op.b().getType().template cast<MemRefType>().getShape();
     cShape = op.c().getType().template cast<MemRefType>().getShape();
     // Obtain critical matrix dimensions.
     int64_t G = aShape[0];
@@ -793,9 +774,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     int64_t aVectorLen, bVectorLen;
     GemmDimension aVectorDim, bVectorDim;
     std::tie(aVectorDim, aVectorLen) =
-        bestVectorization(b, matA, aCopyPerThread, vectorTiebreaker);
+        bestVectorization(b, op.a(), aCopyPerThread, vectorTiebreaker);
     std::tie(bVectorDim, bVectorLen) =
-        bestVectorization(b, matB, bCopyPerThread, vectorTiebreaker);
+        bestVectorization(b, op.b(), bCopyPerThread, vectorTiebreaker);
 
     LLVM_DEBUG(llvm::dbgs()
                << "aCopyPerThread: " << aCopyPerThread << "\n"
@@ -821,12 +802,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                                  : bCopyPerThread / bVectorLen;
 
     FailureOr<Value> maybeWrappedA = wrapMatrixForGlobalLoad(
-        b, loc, matA, "m", bidGridOrder, bidGridLengths, gridSize, blockSize,
+        b, loc, op.a(), "m", bidGridOrder, bidGridLengths, gridSize, blockSize,
         kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread, aVectorDim);
     if (!maybeWrappedA.has_value())
       return maybeWrappedA;
     FailureOr<Value> maybeWrappedB = wrapMatrixForGlobalLoad(
-        b, loc, matB, "n", bidGridOrder, bidGridLengths, gridSize, blockSize,
+        b, loc, op.b(), "n", bidGridOrder, bidGridLengths, gridSize, blockSize,
         kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread, bVectorDim);
     if (!maybeWrappedB.has_value())
       return maybeWrappedB;

@@ -412,7 +412,11 @@ propagateVectorizationInfo(TransformMapAttr map,
       // the subtraction can push us off the left edge and we don't necessarily
       // have an upper bound on how much will be subtracted. So, we use
       // a length of 1 in the fastest vectorizing dimension we can find and
-      // call it a day.
+      // call it a day. This flag is needed so that we have the cases
+      // - Negative coefficient, but no vectorization info in any inputs =>
+      // unknows
+      // - Negative coefficient, at least one input is tracked => vectorization
+      // of 1
       bool hasNegativeCoefficients = false;
       Optional<VectorizationInfo> ourResult;
       for (auto pair : data) {

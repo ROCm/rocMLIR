@@ -613,6 +613,9 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
         copyLength = 2 * elemsPerWord;
       if (copyLength > elemsPerWord && copyLength % elemsPerWord != 0)
         copyLength = elemsPerWord;
+      if (copyLength > 1 && copyLength < elemsPerWord)
+        // TODO: revisit this to handle things like (2xi8) -> load short
+        copyLength = 1;
 
       Type typeToLoad = sourceElemType;
       if (copyLength > 1)
@@ -668,6 +671,8 @@ struct ThreadwiseCopyV2RewritePattern
         copyLength = 2 * elemsPerWord;
       if (copyLength > elemsPerWord && copyLength % elemsPerWord != 0)
         copyLength = elemsPerWord;
+      if (copyLength > 1 && copyLength < elemsPerWord)
+        copyLength = 1;
 
       Type typeToLoad = sourceElemType;
       if (copyLength > 1)

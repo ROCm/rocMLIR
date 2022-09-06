@@ -105,3 +105,17 @@ func.func @miopen_global_load_7xf16(%source2D : memref<32x32xf16>) -> vector<7xf
   func.return %loaded : vector<7xf16>
 }
 
+// CHECK-LABEL: func.func @miopen_global_load_7xi8
+func.func @miopen_global_load_7xi8(%source2D : memref<32x32xi8>) -> vector<7xi8> {
+  %c0 = arith.constant 0 : index
+  // CHECK: miopen.buffer_load {{.*}} -> vector<4xi8>
+  // CHECK: miopen.buffer_load {{.*}} -> i8
+  // CHECK: miopen.buffer_load {{.*}} -> i8
+  // CHECK: miopen.buffer_load {{.*}} -> i8
+  // CHECK-NOT: miopen.buffer_load
+  %loaded = miopen.global_load %source2D[%c0, %c0]
+    { leftOobDims = [], rightOobDims = [] }
+    : memref<32x32xi8> -> vector<7xi8>
+  func.return %loaded : vector<7xi8>
+}
+
