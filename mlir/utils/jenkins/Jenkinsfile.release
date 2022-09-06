@@ -67,11 +67,11 @@ pipeline {
                         sh "git checkout ${params.releaseBranch}"
                         sh "tar --transform 's#^#mlir-source-${branch}/#' -czf mlir-source-${branch}.tar.gz *"
                         buildProject('', """
-                          -DBUILD_FAT_LIBMLIRMIOPEN=ON
+                          -DBUILD_FAT_LIBROCKCOMPILER=ON
                           -DCMAKE_BUILD_TYPE=Release
                           -DCMAKE_EXPORT_COMPILE_COMMANDS=1
                         """)
-                        cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/build/include",\
+                        cmake arguments: "--install . --component librockCompiler --prefix ${WORKSPACE}/build/include",\
                                 installation: 'InSearchPath', workingDir: 'build'
                         sh """
                             echo "This directory contains MLIR binaries for the release branch ${params.releaseBranch}." > build/README

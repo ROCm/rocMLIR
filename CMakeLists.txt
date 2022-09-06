@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.15.1)
 
 # Allow VERSION for projects, as expected in CMake 3.0+
 cmake_policy(SET CMP0048 NEW)
-project(miopen-mlir VERSION 1.0.0 LANGUAGES CXX C)
+project(rocMLIR VERSION 1.0.0 LANGUAGES CXX C)
 
 # New in CMake 3.20. https://cmake.org/cmake/help/latest/policy/CMP0116.html
 if(POLICY CMP0116)
@@ -54,15 +54,15 @@ set(CMAKE_BUILD_RPATH "${MLIR_MIOPEN_LIB_DIR};${LLVM_EXTERNAL_LIB_DIR}")
 message(STATUS "CMAKE_BUILD_RPATH: ${CMAKE_BUILD_RPATH}")
 
 if(BUILD_MIXR_TARGET)
-  set(BUILD_FAT_LIBMLIRMIOPEN ON CACHE BOOL "Build static libMLIRMIOpen")
+  set(BUILD_FAT_LIBROCKCOMPILER ON CACHE BOOL "Build static librockCompiler")
   set(EXPORT_ALL_HEADERS ON CACHE BOOL "Export internal headers")
 endif()
 
 # Library type and linkage settings
-if( NOT DEFINED BUILD_FAT_LIBMLIRMIOPEN )
-  set(BUILD_FAT_LIBMLIRMIOPEN OFF CACHE BOOL "Build fat libMLIRMIOpen to link into MIOpen driver")
+if( NOT DEFINED BUILD_FAT_LIBROCKCOMPILER )
+  set(BUILD_FAT_LIBROCKCOMPILER OFF CACHE BOOL "Build fat libMLIRMIOpen to link into MIOpen driver")
 endif()
-if( BUILD_FAT_LIBMLIRMIOPEN )
+if( BUILD_FAT_LIBROCKCOMPILER )
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
   set(LLVM_BUILD_LLVM_DYLIB OFF CACHE BOOL "")
   # rocm-runner is not supported with static libraries
