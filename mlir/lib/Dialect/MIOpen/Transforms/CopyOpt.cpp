@@ -100,8 +100,7 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
         if (mrop.getSource() != mem)
           return fail;
         reader = mrop;
-      } else if (csop =
-                     dyn_cast<memref::CollapseShapeOp>(use.getOwner())) {
+      } else if (csop = dyn_cast<memref::CollapseShapeOp>(use.getOwner())) {
         // 1.4 catch the case it has collapse shape befor the copy
         if (reader)
           return fail;
@@ -130,7 +129,7 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
       } else if (csop) {
         Location loc = mem.getLoc();
         auto new_expand = b.create<memref::ExpandShapeOp>(
-          loc, mem.getType(), realMem, csop.getReassociation());
+            loc, mem.getType(), realMem, csop.getReassociation());
         mem.replaceAllUsesWith(new_expand);
         reader->erase();
         return success();
