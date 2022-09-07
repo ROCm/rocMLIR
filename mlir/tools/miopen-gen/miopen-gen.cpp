@@ -1902,7 +1902,7 @@ insertValidationCalls(const miopen::Conv2dGenerator::Config &genConfig,
     // Emit call to host_<conv>
     auto cpuConvFunc = createCPUConvFunc(module, genConfig);
     b.create<func::CallOp>(loc, cpuConvFunc, valVars);
-  } else {                            // clone
+  } else if (0) {                            // clone
     auto cloneAttr = func->getAttrOfType<SymbolRefAttr>("clone_func");
     assert(cloneAttr);
     auto cloneFunc = module.lookupSymbol<func::FuncOp>(cloneAttr.getLeafReference());
@@ -2234,8 +2234,6 @@ int main(int argc, char **argv) {
 
   miopen::Conv2dGenerator conv2dGenerator;
 
-  SmallVector<KernelIF, 8> kernels;
-
   auto testFuncNameVal = testFuncName.getValue();
   bool hasUserKernel = !testFuncNameVal.empty();
 
@@ -2267,6 +2265,11 @@ int main(int argc, char **argv) {
       return WalkResult::advance();
     });
   } else {
+    if (genValidation == "clone") {
+      llvm::errs() << "Clone validation is not compatible with kernel generation.\n";
+      exit(1);
+    }
+
     // Construct a new ModuleOp.
     module = ModuleOp::create(builder.getUnknownLoc());
   }
@@ -2355,22 +2358,29 @@ int main(int argc, char **argv) {
   // order to match an older implementation.
   CallGraph cg(module);
   mlir::SetVector<CallGraphNode *> roots(cg.begin(), cg.end());
-  for (auto &node : roots)
+  for (auto &node : roots) {
     for (auto &edge : *node)
       roots.remove(edge.getTarget());
+    func::FuncOp func =
+      dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
+    if (func->hasAttr("clone_func"))
+      roots.remove(node);
+  }
 
-  if (genValidation == "clone") {
+  if (0&& genValidation == "clone") {
     SymbolTable symbolTable(module);
     for (auto &root : roots) {
       postOrderTraverse(root, symbolTable);
     }
   }
 
+  SmallVector<KernelIF, 8> kernels;
+
   // Make KernelIFs for the roots, to pass to populateHostHarnessLogic().
   SmallVector<KernelIF, 8> rootIFs;
 
   if (testFuncNameVal.empty()) {
-    for (auto node : roots) {
+    for (auto *node : roots) {
       func::FuncOp func =
           dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
       rootIFs.emplace_back(func);
