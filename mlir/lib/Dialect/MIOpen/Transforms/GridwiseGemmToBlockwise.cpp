@@ -2305,6 +2305,8 @@ struct GridwiseGemmV2RewritePattern
 };
 
 void MIOpenGridwiseGemmToBlockwisePass::runOnOperation() {
+  if (getOperation()->hasAttr("original_func") && !getOperation()->hasAttr("kernel")) return;
+
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
   target.addIllegalOp<miopen::GridwiseGemmOp, miopen::GridwiseGemmV2Op>();

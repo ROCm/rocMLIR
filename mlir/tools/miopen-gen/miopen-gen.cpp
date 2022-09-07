@@ -34,6 +34,7 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Types.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
@@ -2173,7 +2174,7 @@ void postOrderTraverseInternal(
   SmallString<128> nameBuffer(cloneFuncOp.getName());
   nameBuffer += "_cloned";
   cloneFuncOp.setName(nameBuffer);
-//  cloneFunc->removeAttr("kernel");
+  cloneFunc->removeAttr("kernel");
   cloneFunc->setAttr("original_func", SymbolRefAttr::get(parentOp));
   parentOp->setAttr("clone_func", SymbolRefAttr::get(cloneFunc));
 

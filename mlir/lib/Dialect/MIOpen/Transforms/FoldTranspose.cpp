@@ -225,6 +225,8 @@ struct FoldTransposingConvAccess : OpRewritePattern<linalg::GenericOp> {
 } // end namespace
 
 void MIOpenFoldTransposePass::runOnOperation() {
+  if (getOperation()->hasAttr("original_func") && !getOperation()->hasAttr("kernel")) return;
+
   MLIRContext *ctx = &getContext();
 
   RewritePatternSet patternsTP(ctx);
