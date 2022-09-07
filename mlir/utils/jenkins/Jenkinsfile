@@ -180,7 +180,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "lockhart-6"
+                            label "lockhart-16"
                             alwaysPull true
                         }
                     }
@@ -289,7 +289,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "lockhart-6"
+                            label "lockhart-16"
                             alwaysPull true
                         }
                     }
