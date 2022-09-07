@@ -174,16 +174,15 @@ static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
   dType = op.dest().getType().cast<ShapedType>().getShape();
   assert(sType.size() == dType.size() &&
          "Rank of extra fusion arguments matches shape of C tensor");
-  OperandRange loadCoord = op.destCoord();
-  auto cIter = loadCoord.begin();
+  SmallVector<Value, 6> loadCoord = op.destCoord();
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
   for (unsigned i = 0; i < sType.size(); i++) {
     assert((sType[i] == dType[i] || sType[i] == 1) &&
            "shape of extra fusion arguments matches shape of C tensor or "
            "broadcastable");
+    // broadcast source.
     if (sType[i] != dType[i])
-      *cIter = zero;
-    cIter++;
+      loadCoord[i] = zero;
   }
 
   auto writeCLoop = op->getParentOfType<TransformingForOp>();
