@@ -81,8 +81,26 @@ static AffineMapAttr assembleMapFor(Builder &b,
       affExprsMap.insert({lowerDim, expr});
     } else if (type == TransformType::Unmerge) {
       ArrayRef<int64_t> lengths = params;
-      AffineExpr expr = b.getAffineDimExpr(upperDims[0]);
-      for (auto pair : llvm::zip(upperDims.slice(1), lengths.slice(1))) {
+      //AffineExpr expr = b.getAffineDimExpr(upperDims[0]);
+      SmallVector<int64_t> coefs;
+      coefs.reserve(lengths.size());
+      int64_t prev = 1;
+      for (size_t idx = lengths.size()-1; idx > 0; idx--) {
+        prev = lengths[idx] * prev;
+        coefs.insert(coefs.begin(), prev);
+      }
+      coefs.push_back(1);
+      ArrayRef<int64_t> coefficients(coefs);
+      AffineExpr expr = b.getAffineConstantExpr(0);
+      for (auto pair : llvm::zip(upperDims, coefficients)) {
+        uint32_t upperDim;
+        int64_t coefficient;
+        std::tie(upperDim, coefficient) = pair;
+        expr = expr + (b.getAffineDimExpr(upperDim) *
+                       b.getAffineConstantExpr(coefficient));
+      }
+      affExprsMap.insert({lowerDims[0], expr});
+      /*for (auto pair : llvm::zip(upperDims.slice(1), lengths.slice(1))) {
         uint32_t upperDim;
         int64_t length;
         std::tie(upperDim, length) = pair;
@@ -90,6 +108,7 @@ static AffineMapAttr assembleMapFor(Builder &b,
                b.getAffineDimExpr(upperDim);
       }
       affExprsMap.insert({lowerDims[0], expr});
+      */
     } else if (type == TransformType::Merge || type == TransformType::Unfold) {
       // Compute lower dimension strides.
       llvm::SmallVector<int64_t, 4> lowerDimStrides;
