@@ -358,7 +358,7 @@ struct BlockwiseGemmV2RewritePattern
                          b.create<ConstantIndexOp>(loc, ldsOffsetB / KPack));
 
     XdlopsCodeSelection xcs =
-        XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
+        XdlopsCodeSelection::get(dataType, MPerWave, NPerWave);
 
     // Extract values from XdlopsCodeSelection.
     Type argType = xcs.argType;
@@ -558,7 +558,7 @@ struct BlockwiseGemmV2RewritePattern
     // Workload of either MPerWave and NPerWave that are larger
     // than wave size of 64 will be executed by repeats
     // TODO: amend this for tuning parameter selection as well
-    xcs = XdlopsCodeSelection::get(dataType, MPerXdlops, NPerXdlops, b);
+    xcs = XdlopsCodeSelection::get(dataType, MPerXdlops, NPerXdlops);
     Value reshapedARegisters = reshapeBuffer(
         b, loc, adaptor.getBufferA(), {"m", "k"}, {MRepeats, KPerThread});
     Value reshapedBRegisters = reshapeBuffer(

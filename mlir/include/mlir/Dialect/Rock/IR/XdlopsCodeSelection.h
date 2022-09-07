@@ -70,14 +70,13 @@ struct XdlopsCodeSelection {
   }
 
   static XdlopsCodeSelection get(mlir::Type dataType, int64_t MPerWave,
-                                 int64_t NPerWave, OpBuilder &b) {
+                                 int64_t NPerWave) {
     using amdgpu::MFMAPermB;
     constexpr int64_t waveSize = 64;
     // Determine which XDLOPS be used.
     int64_t mfmaNonKDim = 0, MRepeats = 0, NRepeats = 0, k = 0, blocksMfma = 0;
     SmallVector<MFMAParams, 2> imms;
-
-    if (dataType == b.getF32Type()) {
+    if (dataType.isF32()) {
       if (MPerWave == 128 && NPerWave == 64) {
         // instr = amdgpu::MFMAInstr::f32_32x32x1f32;
         mfmaNonKDim = 32;
@@ -189,7 +188,7 @@ struct XdlopsCodeSelection {
         dumpUnsupported(dataType, MPerWave, NPerWave);
         llvm_unreachable("Can't meaningfully continue xdlop generation");
       }
-    } else if (dataType == b.getF16Type()) {
+    } else if (dataType.isF16()) {
       if (MPerWave == 128 && NPerWave == 64) {
         // instr = amdgpu::MFMAInstr::f32_32x32x4f16;
         mfmaNonKDim = 32;
@@ -301,7 +300,7 @@ struct XdlopsCodeSelection {
         dumpUnsupported(dataType, MPerWave, NPerWave);
         llvm_unreachable("Can't meaningfully continue xdlop generation");
       }
-    } else if (dataType == b.getBF16Type()) {
+    } else if (dataType.isBF16()) {
       if (MPerWave == 128 && NPerWave == 64) {
         // instr = amdgpu::MFMAInstr::f32_32x32x2bf16;
         mfmaNonKDim = 32;
@@ -413,7 +412,7 @@ struct XdlopsCodeSelection {
         dumpUnsupported(dataType, MPerWave, NPerWave);
         llvm_unreachable("Can't meaningfully continue xdlop generation");
       }
-    } else if (dataType == b.getIntegerType(8)) {
+    } else if (dataType.isInteger(8)) {
       if (MPerWave == 32 && NPerWave == 32) {
         // instr = amdgpu::MFMAInstr::i32_32x32x8i8;
         mfmaNonKDim = 32;
@@ -456,11 +455,13 @@ struct XdlopsCodeSelection {
 
     int64_t nOutputsOfMfma =
         (mfmaNonKDim * mfmaNonKDim * blocksMfma) / waveSize;
+
+    Builder builder(dataType.getContext());
     Type vectorElem;
     if (dataType.isa<IntegerType>())
-      vectorElem = b.getI32Type();
+      vectorElem = builder.getI32Type();
     else
-      vectorElem = b.getF32Type();
+      vectorElem = builder.getF32Type();
     VectorType vectorType = VectorType::get({nOutputsOfMfma}, vectorElem);
 
     constexpr int64_t rowGroupSize = 4;
@@ -561,6 +562,40 @@ struct XdlopsCodeSelection {
     // llvm::errs() << "k_base: " << k_base << "\n";
 
     return result;
+  }
+
+  // Checks whether given XDLOp config is valid for a given
+  // KPack and KPerBlock values.
+  bool isValid(int64_t KPack, int64_t KPerBlock) {
+    bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
+    if (KPack > 1) {
+      if (KPack < k_base) {
+        // llvm::dbgs()
+        //     << "Should pack at least k_base elements and avoid waste
+        //     xdlopsgemm cycles\n";
+        return false;
+      }
+      if (IsKReduction && KPerBlock < inputSpansPerMfmaIn) {
+        // llvm::dbgs()
+        //     << " When reduction, KPerBlock must be at least
+        //     num_input_blks\n";
+        return false;
+      }
+      return true;
+    } else {
+      if (!IsKReduction && KPerBlock < k_base) {
+        // llvm::dbgs()
+        //     << "When non-reduction, KPerBlock must be at least k_base\n";
+        return false;
+      }
+      if (IsKReduction && KPerBlock < k_base * inputSpansPerMfmaIn) {
+        // llvm::dbgs()
+        //     << "When reduction, KPerBlock must be at least k_base *
+        //     num_input_blks\n";
+        return false;
+      }
+      return true;
+    }
   }
 };
 #endif
