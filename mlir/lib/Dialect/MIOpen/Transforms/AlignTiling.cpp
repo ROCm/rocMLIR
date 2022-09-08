@@ -174,10 +174,15 @@ static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
   dType = op.dest().getType().cast<ShapedType>().getShape();
   assert(sType.size() == dType.size() &&
          "Rank of extra fusion arguments matches shape of C tensor");
+  SmallVector<Value, 6> loadCoord = op.destCoord();
+  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
   for (unsigned i = 0; i < sType.size(); i++) {
     assert((sType[i] == dType[i] || sType[i] == 1) &&
            "shape of extra fusion arguments matches shape of C tensor or "
            "broadcastable");
+    // broadcast source.
+    if (sType[i] != dType[i])
+      loadCoord[i] = zero;
   }
 
   auto writeCLoop = op->getParentOfType<TransformingForOp>();
@@ -195,7 +200,6 @@ static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
 
   ArrayAttr sourceLeftOob = op.leftOobDims();
   ArrayAttr sourceRightOob = op.rightOobDims();
-  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
 
   // In general, note that keeping the vectorization of the writeback is safe
   // on account of the fact that vectorization means that the maps for the
@@ -205,19 +209,19 @@ static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
   // If there are no broadcasts, re-use the coordianes for the writeback
   if (sourceTransformsFromOp.empty()) {
     Value loaded = b.create<BufferLoadOp>(
-        loc, typeToLoad, source, sourceLeftOob, sourceRightOob, op.destCoord(),
+        loc, typeToLoad, source, sourceLeftOob, sourceRightOob, loadCoord,
         /*offset=*/IntegerAttr());
     b.create<InBoundsStoreOp>(loc, loaded, dest, zero);
   } else {
     // Note: this is a hack around the fact that we don't have a good way
     // to add a domain to the enclosing loop currently.
-    size_t extraMapInSize = op.destCoord().size();
+    size_t extraMapInSize = loadCoord.size();
     SmallVector<int64_t> consts(extraMapInSize, 1LL);
     std::tie(sourceLeftOob, sourceRightOob) = computeOobFromTransforms(
         b, sourceTransformsFromOp, {{sourceLeftOob, sourceRightOob}});
 
     auto copyLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{op.destCoord()},
+        loc, ArrayRef<ValueRange>{loadCoord},
         ArrayRef<Attribute>{sourceTransformsFromOp}, /*bounds=*/consts,
         /*strides=*/ArrayRef<int64_t>(consts), /*forceUnroll=*/true,
         /*useIndexDiffs=*/true);
