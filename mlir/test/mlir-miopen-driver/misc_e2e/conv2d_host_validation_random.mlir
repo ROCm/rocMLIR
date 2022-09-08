@@ -58,7 +58,7 @@
  -pv -p -rand 1 -rand_type float | miopen-gen | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CHECK_RAND_FLOAT_1
 
 // The test set includes very small results that break with FMA
-// CHECK_RAND_FLOAT_1: [1 1 {{\d}}]
+// CHECK_RAND_FLOAT_1: [1 1 {{0|1}}]
 
 // RUN: miopen-gen -pv -p -t f16 -rand 1 -rand_type float | mlir-miopen-driver -c | mlir-rocm-runner  --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CHECK_RAND_FLOAT_2
  -pv -p -t f16 -rand 1 -rand_type float | miopen-gen | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CHECK_RAND_FLOAT_2
