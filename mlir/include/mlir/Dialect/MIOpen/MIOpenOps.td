@@ -197,7 +197,7 @@ def MIOpen_GridwiseGemmOp :
     The `miopen.gridwise_gemm` op computes gridwise GEMM.
   }];
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
+    $c `=` $a `*` $b attr-dict `:` type($c) `=` type($a) `*` type($b)
   }];
 }
 
@@ -688,6 +688,27 @@ def MIOpen_InBoundsStoreOp :
   let hasVerifier = 1;
 }
 
+// global_load
+def MIOpen_GlobalLoadOp :
+    MIOpen_Op<"global_load", [AllElementTypesMatch<["source", "result"]>]>,
+    Arguments<(ins Arg<AnyMemRef, "source memory", [MemRead]>:$source,
+                   I32ArrayAttr:$leftOobDims,
+                   I32ArrayAttr:$rightOobDims,
+                   Variadic<Index>:$sourceCoord)>,
+    Results<(outs AnyType:$result)> {
+  let summary = "Marker for one or more vectorized global loads";
+  let description = [{
+    `global_load` is a wrapper around one or more `miopen.buffer_load` operations
+    that loads a contiguous vector from %source[%sourceCoord, ...].
+    This is used both to allow for vectorization lengths greater than one load
+    instruction permits and to mark the global load loops to allow fusion.
+  }];
+  let assemblyFormat = [{
+    $source `[` $sourceCoord `]` attr-dict
+    `:` type($source) `->`
+    type($result)
+  }];
+}
 
 // threadwise_copy_v2
 def MIOpen_ThreadwiseCopyV2Op :
@@ -700,11 +721,11 @@ def MIOpen_ThreadwiseCopyV2Op :
                    I32ArrayAttr:$rightOobDims,
                    Index:$sourceCoord,
                    Variadic<Index>:$destCoord)> {
-  let summary = "Threadwise GPU data movement XDLOPS version";
+  let summary = "Marker for stores to global memory";
   let description = [{
-    The `threadwise_copy_v2` op is a wrapper around storing to a global buffer
-    that hides type casts. This is used in order to make it easier for operator
-    fusion to identify the write out to global memory produced within an xdlops
+    The `threadwise_copy_v2` op is a wrapper around storing to a global buffer.
+    This is used in order to make it easier for operator
+    fusion to identify the write out to global memory produced within a gridwise
     gemm.
 
     It will lower to one or more buffer store operations.

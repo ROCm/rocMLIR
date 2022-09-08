@@ -13,7 +13,7 @@
 // CHECK-LABEL: func.func @gemm_easy_case_from_conv
 // CHECK-SAME: (%[[a:.*]]: memref<1x72x128xf32>, %[[b:.*]]: memref<1x72x512xf32>, %[[c:.*]]: memref<1x128x512xf32>)
 func.func @gemm_easy_case_from_conv(%a: memref<1x72x128xf32>, %b: memref<1x72x512xf32>, %c: memref<1x128x512xf32>) {
-  // CHECK-NEXT: miopen.gridwise_gemm(%[[a]], %[[b]], %[[c]])
+  // CHECK-NEXT: miopen.gridwise_gemm %[[c]] = %[[a]] * %[[b]]
   miopen.gemm %c = tr %a * %b features = none storeMethod = set {
     arch = "gfx906",
     blockSize = 256 : i32,
@@ -44,7 +44,7 @@ func.func @gemm_most_general_padding_case(%a: memref<1x1x1xf32>, %b: memref<1x1x
   // CHECK-DAG: %[[padA:.*]] = miopen.transform %[[a]] by {{.*}} : memref<1x1x1xf32> to memref<1x16x64xf32{{.*}}>
   // CHECK-DAG: %[[padB:.*]] = miopen.transform %[[b]] by {{.*}} : memref<1x1x1xf32> to memref<1x16x64xf32{{.*}}>
   // CHECK-DAG: %[[padC:.*]] = miopen.transform %[[c]] by {{.*}} : memref<1x1x1xf32> to memref<1x64x64xf32{{.*}}>
-  // CHECK: miopen.gridwise_gemm(%[[padA]], %[[padB]], %[[padC]])
+  // CHECK: miopen.gridwise_gemm %[[padC]] = %[[padA]] * %[[padB]]
   miopen.gemm %c = tr %a * %b features = none storeMethod = set {
     arch = "gfx906",
     blockSize = 64 : i32,
@@ -61,7 +61,7 @@ func.func @gemm_in_standard_form(%a: memref<128x72xf32>, %b: memref<72x512xf32>,
   // CHECK-DAG: %[[normalizeA:.*]] = miopen.transform %[[a]] by {{.*}} : memref<128x72xf32> to memref<1x72x128xf32{{.*}}>
   // CHECK-DAG: %[[normalizeB:.*]] = miopen.transform %[[b]] by {{.*}} : memref<72x512xf32> to memref<1x72x512xf32{{.*}}>
   // CHECK-DAG: %[[normalizeC:.*]] = miopen.transform %[[c]] by {{.*}} : memref<128x512xf32> to memref<1x128x512xf32{{.*}}>
-  // CHECK: miopen.gridwise_gemm(%[[normalizeA]], %[[normalizeB]], %[[normalizeC]])
+  // CHECK: miopen.gridwise_gemm %[[normalizeC]] = %[[normalizeA]] * %[[normalizeB]]
   miopen.gemm %c = %a * %b features = none storeMethod = set {
     arch = "gfx906",
     blockSize = 256 : i32,
@@ -78,7 +78,7 @@ func.func @gemm_transposed_from_gridwise(%a: memref<1x128x72xf32>, %b: memref<1x
   // CHECK-DAG: %[[normalizeA:.*]] = miopen.transform %[[a]] {{.*}} : memref<1x128x72xf32> to memref<1x72x128xf32{{.*}}>
   // CHECK-DAG: %[[normalizeB:.*]] = miopen.transform %[[b]] {{.*}} : memref<1x512x72xf32> to memref<1x72x512xf32{{.*}}>
   // CHECK-DAG: %[[normalizeC:.*]] = miopen.transform %[[c]] {{.*}} : memref<1x512x128xf32> to memref<1x128x512xf32{{.*}}>
-  // CHECK: miopen.gridwise_gemm(%[[normalizeA]], %[[normalizeB]], %[[normalizeC]])
+  // CHECK: miopen.gridwise_gemm %[[normalizeC]] = %[[normalizeA]] * %[[normalizeB]]
   miopen.gemm tr %c = %a * tr %b features = none storeMethod = set {
     arch = "gfx906",
     blockSize = 256 : i32,

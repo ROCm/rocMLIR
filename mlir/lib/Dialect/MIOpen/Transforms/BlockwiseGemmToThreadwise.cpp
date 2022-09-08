@@ -32,7 +32,6 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/MIOpen/XdlopsCodeSelection.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -582,6 +581,69 @@ struct BlockwiseGemmV2RewritePattern
 };
 
 //===----------------------------------------------------------------------===//
+// GlobalLoadOp lowering.
+//===----------------------------------------------------------------------===//
+struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
+  using OpRewritePattern<GlobalLoadOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(GlobalLoadOp op,
+                                PatternRewriter &b) const override {
+    Location loc = op.getLoc();
+
+    Value source = op.source();
+    auto sourceType = source.getType().cast<MemRefType>();
+    Type sourceElemType = sourceType.getElementType();
+    int64_t elemsPerWord = (32 / sourceElemType.getIntOrFloatBitWidth());
+    int64_t maxLoadLen = 4 * elemsPerWord;
+
+    Type resType = op.result().getType();
+    int64_t totalLength = 1;
+    if (auto vecType = resType.dyn_cast<VectorType>()) {
+      totalLength = vecType.getNumElements();
+    }
+    int64_t remainingLength = totalLength;
+    int64_t offset = 0;
+
+    Value result = createZeroConstantOp(b, loc, resType);
+
+    while (remainingLength > 0) {
+      int64_t copyLength = std::min(remainingLength, maxLoadLen);
+
+      // Clean up bad copy lengths
+      if (copyLength != maxLoadLen && copyLength > (2 * elemsPerWord))
+        copyLength = 2 * elemsPerWord;
+      if (copyLength > elemsPerWord && copyLength % elemsPerWord != 0)
+        copyLength = elemsPerWord;
+      if (copyLength > 1 && copyLength < elemsPerWord)
+        // TODO: revisit this to handle things like (2xi8) -> load short
+        copyLength = 1;
+
+      Type typeToLoad = sourceElemType;
+      if (copyLength > 1)
+        typeToLoad = VectorType::get({copyLength}, typeToLoad);
+
+      IntegerAttr offsetAttr =
+          (offset > 0) ? b.getIndexAttr(offset) : IntegerAttr();
+
+      Value loaded = b.create<BufferLoadOp>(loc, typeToLoad, op.source(),
+                                            op.leftOobDims(), op.rightOobDims(),
+                                            op.sourceCoord(), offsetAttr);
+      if (totalLength == 1) {
+        result = loaded;
+      } else {
+        Value offsetIdx = b.createOrFold<ConstantIndexOp>(loc, offset);
+        result =
+            b.create<InsertSliceOp>(loc, resType, loaded, result, offsetIdx);
+      }
+
+      remainingLength -= copyLength;
+      offset += copyLength;
+    }
+    b.replaceOp(op, {result});
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // ThreadwiseCopyV2 lowering.
 //===----------------------------------------------------------------------===//
 struct ThreadwiseCopyV2RewritePattern
@@ -609,6 +671,8 @@ struct ThreadwiseCopyV2RewritePattern
         copyLength = 2 * elemsPerWord;
       if (copyLength > elemsPerWord && copyLength % elemsPerWord != 0)
         copyLength = elemsPerWord;
+      if (copyLength > 1 && copyLength < elemsPerWord)
+        copyLength = 1;
 
       Type typeToLoad = sourceElemType;
       if (copyLength > 1)
@@ -639,7 +703,7 @@ struct ThreadwiseCopyV2RewritePattern
 void MIOpenLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
-  target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmV2Op,
+  target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmV2Op, GlobalLoadOp,
                       ThreadwiseCopyV2Op>();
   target.addLegalDialect<arith::ArithmeticDialect, miopen::MIOpenDialect,
                          AffineDialect, memref::MemRefDialect,
@@ -647,8 +711,8 @@ void MIOpenLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
 
   RewritePatternSet patterns(ctx);
   patterns.add<FillRewritePattern, BlockwiseGemmRewritePattern,
-               BlockwiseGemmV2RewritePattern, ThreadwiseCopyV2RewritePattern>(
-      ctx);
+               BlockwiseGemmV2RewritePattern, GlobalLoadRewritePattern,
+               ThreadwiseCopyV2RewritePattern>(ctx);
   if (failed(
           applyPartialConversion(getOperation(), target, std::move(patterns))))
     signalPassFailure();
