@@ -166,10 +166,9 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     // Workload of either MPerWave and NPerWave that are larger
     // than wave size of 64 will be executed by repeats
     // TODO: amend this for tuning parameter selection as well
-    int64_t MRepeats = (MPerWave > 64) ? (MPerWave / 64) : 1;
-    int64_t NRepeats = (NPerWave > 64) ? (NPerWave / 64) : 1;
-    int64_t MPerXdlops = (MPerWave > 64) ? 64 : MPerWave;
-    int64_t NPerXdlops = (NPerWave > 64) ? 64 : NPerWave;
+    int64_t waveSize = 64;
+    int64_t MPerXdlops = (MPerWave > waveSize) ? waveSize : MPerWave;
+    int64_t NPerXdlops = (NPerWave > waveSize) ? waveSize : NPerWave;
 
     auto dataType = adaptor.matrixA()
                         .getType()
@@ -207,6 +206,11 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     auto matrixBType = adaptor.matrixB().getType().cast<MemRefType>();
     Type matrixAElementType = matrixAType.getElementType();
     Type matrixBElementType = matrixBType.getElementType();
+
+    ArrayRef<int64_t> aShape = matrixAType.getShape();
+    ArrayRef<int64_t> bShape = matrixBType.getShape();
+    int64_t MRepeats = aShape[0];
+    int64_t NRepeats = bShape[0];
 
     int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
 
@@ -266,7 +270,7 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
             ArrayRef<Attribute>{b.getArrayAttr({})},
             /*bounds=*/ArrayRef<int64_t>{KPerThread},
             /*strides=*/ArrayRef<int64_t>{k_base},
-            /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+            /*forceUnroll=*/true, /*useIndexDiffs=*/true);
         {
           OpBuilder::InsertionGuard guard(b);
           b.setInsertionPointToStart(mfmaLoop.getBody());
