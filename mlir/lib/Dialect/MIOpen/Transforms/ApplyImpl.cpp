@@ -26,6 +26,7 @@
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
 using namespace mlir;
@@ -37,53 +38,63 @@ struct MIOpenApplyImplPass
 
   void runOnOperation() override {
     ModuleOp mod = getOperation();
-    llvm::StringRef modName = miopen::MIOpenDialect::kKernelModuleName;
-    if (mod.getName() == modName)
-      return;
+    OpBuilder b(mod.getContext());
 
-    if (auto miopenMod = mod.lookupSymbol<ModuleOp>(modName)) {
-      SymbolTable symbolTable(mod);
-      auto *ctx = mod.getContext();
-      OpBuilder b(ctx);
+    llvm::SmallVector<ModuleOp, 8> kernelMods;
+    llvm::SmallDenseMap<func::FuncOp, llvm::SmallVector<DictionaryAttr, 4>>
+        kernelImpls;
 
-      SmallVector<gpu::GPUModuleOp, 8> gpuMods;
-      miopenMod->walk([&](gpu::GPUModuleOp gpuMod) {
-        auto binaryAttr = gpuMod->getAttrOfType<StringAttr>(
-            gpu::getDefaultGpuBinaryAnnotation());
-        if (!binaryAttr) {
-          gpuMod.emitOpError() << "missing gpu.binary attribute";
-          return;
+    mod->walk([&](ModuleOp kernelMod) {
+      if (kernelMod->hasAttr("kernel.module")) {
+
+        SmallVector<gpu::GPUModuleOp, 8> gpuMods;
+        kernelMod->walk([&](gpu::GPUModuleOp gpuMod) {
+          auto binaryAttr = gpuMod->getAttrOfType<StringAttr>(
+              gpu::getDefaultGpuBinaryAnnotation());
+          if (!binaryAttr) {
+            gpuMod.emitOpError() << "missing gpu.binary attribute";
+            return;
+          }
+
+          gpuMods.push_back(gpuMod);
+
+          // apply target spec to original func
+          gpuMod.walk([&](LLVM::LLVMFuncOp func) {
+            if (auto attr =
+                    func->getAttrOfType<SymbolRefAttr>("original_func")) {
+              if (auto kernelFunc = mod.lookupSymbol<func::FuncOp>(attr)) {
+                std::vector<NamedAttribute> attributes{
+                    b.getNamedAttr("type", b.getStringAttr("gpu")),
+                    b.getNamedAttr("arch", gpuMod->getAttr("arch")),
+                    b.getNamedAttr("grid_size", func->getAttr("grid_size")),
+                    b.getNamedAttr("block_size", func->getAttr("block_size")),
+                    b.getNamedAttr("binary", binaryAttr)};
+
+                kernelImpls[kernelFunc].push_back(
+                    b.getDictionaryAttr(attributes));
+              }
+            }
+          });
+        });
+
+        // clean processed gpu.modules
+        for (auto gpuMod : gpuMods) {
+          gpuMod.erase();
         }
 
-        gpuMods.push_back(gpuMod);
-
-        // apply target spec to original func
-        gpuMod.walk([&](LLVM::LLVMFuncOp func) {
-          if (auto attr = func->getAttrOfType<SymbolRefAttr>("original_func")) {
-            if (auto miopenFunc = mod.lookupSymbol<func::FuncOp>(attr)) {
-              std::vector<NamedAttribute> attributes{
-                  b.getNamedAttr("type", b.getStringAttr("gpu")),
-                  b.getNamedAttr("arch", gpuMod->getAttr("arch")),
-                  b.getNamedAttr("grid_size", func->getAttr("grid_size")),
-                  b.getNamedAttr("block_size", func->getAttr("block_size")),
-                  b.getNamedAttr("binary", binaryAttr)};
-
-              miopenFunc->setAttr(
-                  "targets", b.getArrayAttr({b.getDictionaryAttr(attributes)}));
-            }
-          }
-        });
-      });
-
-      // clean processed gpu.modules
-      for (auto gpuMod : gpuMods) {
-        gpuMod.erase();
+        // remove __kernel_*
+        kernelMods.push_back(kernelMod);
       }
+    });
 
-      // remove __miopen
-      // assert(miopenMod->empty());
-      miopenMod->erase();
+    for (auto pair : kernelImpls) {
+      pair.first->setAttr("async.targets", b.getArrayAttr({pair.second.begin(),
+                                                           pair.second.end()}));
     }
+
+    // cleanup
+    for (auto kernelMod : kernelMods)
+      kernelMod->erase();
   }
 };
 

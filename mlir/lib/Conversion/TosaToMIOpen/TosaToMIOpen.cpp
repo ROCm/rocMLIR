@@ -83,6 +83,7 @@ makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
                  const ArrayAttr &stride, const ArrayAttr &dilation) {
   auto loc = op->getLoc();
   auto func = op->getParentOfType<func::FuncOp>();
+  auto mod = func->getParentOfType<ModuleOp>();
 
   // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
   auto inputExp = expandMemRef(rw, op, input);
@@ -90,14 +91,16 @@ makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   auto outputExp = expandMemRef(rw, op, output);
 
   // TODO(sjw): get these from options
-  StringRef arch = "gfx906";
+  StringRef chip = "";
   uint32_t num_cu = 64;
   bool xdlopsV2 = false;
 
   if (auto attr = op->getAttrOfType<StringAttr>("arch"))
-    arch = attr.getValue();
+    chip = attr.getValue();
   else if (auto attr = func->getAttrOfType<StringAttr>("arch"))
-    arch = attr.getValue();
+    chip = attr.getValue();
+  else if (auto attr = mod->getAttrOfType<StringAttr>("kernel.chip"))
+    chip = attr.getValue();
 
   if (auto attr = op->getAttrOfType<IntegerAttr>("num_cu"))
     num_cu = attr.getValue().getZExtValue();
@@ -113,7 +116,7 @@ makeMIOpenConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   if (xdlopsV2)
     features = features | miopen::GemmFeatures::xdlops;
   auto cop = rw.create<miopen::Conv2DOp>(
-      loc, filterExp, inputExp, outputExp, rw.getStringAttr(arch),
+      loc, filterExp, inputExp, outputExp, rw.getStringAttr(chip),
       rw.getI32IntegerAttr(num_cu),
       rw.getAttr<miopen::GemmFeaturesAttr>(features),
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);

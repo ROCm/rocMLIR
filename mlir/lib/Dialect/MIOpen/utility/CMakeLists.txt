@@ -1,7 +1,6 @@
 add_mlir_dialect_library(MLIRMIOpenUtility
   builderUtils.cpp
   loweringUtils.cpp
-  IsaNameSplitter.cpp
   transformMapUtils.cpp
 
   ADDITIONAL_HEADER_DIRS

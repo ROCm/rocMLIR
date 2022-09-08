@@ -14,6 +14,9 @@ include "mlir/Pass/PassBase.td"
 def MIOpenCloneKernelsPass : Pass<"miopen-clone-kernels", "ModuleOp"> {
   let summary = "clone all kernel funcs into miopen module";
   let constructor = "mlir::miopen::createMIOpenCloneKernelsPass()";
+  let options = [
+    ListOption<"chips", "chips", "std::string", "List of chip architectures">
+  ];
 }
 
 def MIOpenApplyImplPass : Pass<"miopen-apply-impl", "ModuleOp"> {

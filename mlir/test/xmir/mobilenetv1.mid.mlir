@@ -1,4 +1,4 @@
-// RUN: mlir-miopen-driver -host-pipeline partition,highlevel %s | FileCheck %s
+// RUN: mlir-miopen-driver -host-pipeline partition,highlevel -target %chip %s | FileCheck %s
 
 module {
 

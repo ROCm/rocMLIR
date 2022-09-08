@@ -12,25 +12,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
-#include "mlir/Conversion/AsyncToGPU/AsyncToGPU.h"
-#include "mlir/Conversion/AsyncToLLVM/AsyncToLLVM.h"
-#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
-#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
-#include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
-#include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
-#include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
-#include "mlir/Dialect/Async/Passes.h"
-#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/XMIRPipelines.h"
-#include "mlir/InitAllTranslations.h"
-#include "llvm/Support/CommandLine.h"
-#include "llvm/Support/InitLLVM.h"
-#include "llvm/Support/TargetSelect.h"
 
-#include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
+#include "mlir/ExecutionEngine/CpuSystemDetect.h"
 #include "mlir/ExecutionEngine/JitRunner.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
+#include "mlir/ExecutionEngine/RocmSystemDetect.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
@@ -39,30 +26,67 @@
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/TargetSelect.h"
+
 #include <cstdlib>
 #include <mutex>
 
 using namespace mlir;
 using namespace llvm;
 
-// CLI switch for cpu-only support
-static cl::opt<bool> cpuOnly("cpu-only", cl::desc("Target CPU only"),
-                             cl::init(false));
-static cl::opt<bool>
-    barePtrMemrefs("bare-ptr-memref-kernels",
-                   cl::desc("Use bare pointers to pass memrefs to GPU kernels"),
-                   cl::init(true));
+// CLI switch for launch-mode
+static cl::opt<std::string> targetType("target-type",
+                                       cl::desc("Kernel target type"),
+                                       cl::value_desc("valid options: gpu,cpu"),
+                                       cl::init("gpu"));
+static cl::opt<std::string>
+    targetChip("target-chip", cl::desc("Specify target chip"), cl::init(""));
 
 namespace test {
 void registerTestDialect(DialectRegistry &);
 } // namespace test
 
 static LogicalResult runMLIRPasses(ModuleOp m) {
+
+  auto testChip = [](StringRef chip) -> bool {
+    if (targetChip.getValue().empty()) {
+      auto devices = SystemDevices::get<CpuSystemDetect, RocmSystemDetect>();
+      return devices.find(chip.str()) != devices.end();
+    }
+    return targetChip == chip;
+  };
+
+  // walk and select targets
+  OpBuilder b(m);
+  m->walk([&](func::FuncOp func) {
+    if (auto targets = func->getAttrOfType<ArrayAttr>("async.targets")) {
+      DictionaryAttr targetDict;
+      for (auto targetAttr : targets.getValue()) {
+        auto dictAttr = targetAttr.cast<DictionaryAttr>();
+        if (auto type = dictAttr.getAs<StringAttr>("type")) {
+          auto chip = dictAttr.getAs<StringAttr>("arch");
+          if (type == targetType && testChip(chip.getValue())) {
+            // test perf?
+            targetDict = dictAttr;
+          }
+        }
+      }
+      if (targetDict)
+        func->setAttr("async.targets", b.getArrayAttr(targetDict));
+      else {
+        func->removeAttr("async.targets");
+      }
+    }
+  });
+
   // Host Compiler/Scheduler Pipeline
   PassManager pm(m.getContext());
   applyPassManagerCLOptions(pm);
 
   xmir::buildRunnerPipeline(pm);
+
   return pm.run(m);
 }
 

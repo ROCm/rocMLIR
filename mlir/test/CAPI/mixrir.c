@@ -207,7 +207,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 
   MlirValue retOperands[] = {relu0Value};
   MlirOperationState retState = mlirOperationStateGet(
-      mlirStringRefCreateFromCString("std.return"), location);
+      mlirStringRefCreateFromCString("func.return"), location);
   mlirOperationStateAddOperands(&retState, 1, retOperands);
   MlirOperation ret = mlirOperationCreate(&retState);
   mlirBlockAppendOwnedOperation(funcBody, ret);
