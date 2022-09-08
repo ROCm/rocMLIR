@@ -33,38 +33,51 @@ namespace {
 
 struct MIOpenCloneKernelsPass
     : public MIOpenCloneKernelsPassBase<MIOpenCloneKernelsPass> {
+  MIOpenCloneKernelsPass(ArrayRef<StringRef> _chips)
+      : chips{_chips.begin(), _chips.end()} {}
+
   void runOnOperation() override {
+    const char *kernel = "kernel.module";
     ModuleOp mod = getOperation();
-    llvm::StringRef modName = miopen::MIOpenDialect::kKernelModuleName;
-    if (mod.getName() == modName)
+    if (mod->hasAttr(kernel))
       return;
 
-    auto *ctx = &getContext();
-    auto gpuMod = mod.lookupSymbol<ModuleOp>(modName);
-    if (!gpuMod) {
-      OpBuilder b(ctx);
-      // create a GPUModuleOp in case the GPU module specified does not exist.
-      gpuMod = b.create<ModuleOp>(mod.getLoc(), modName);
+    for (auto chip : chips) {
+      SmallString<32> modName(Twine("__kernel_", chip).str());
 
-      // add the GPUModuleOp into the symbol table.
-      SymbolTable symbolTable(mod);
-      symbolTable.insert(gpuMod);
-    }
-    SymbolTable symbolTable(gpuMod);
+      auto *ctx = &getContext();
+      auto kernelMod = mod.lookupSymbol<ModuleOp>(modName);
+      if (!kernelMod) {
+        OpBuilder b(ctx);
+        // create a KERNEL ModuleOp in case the KERNEL module specified does not
+        // exist.
+        kernelMod = b.create<ModuleOp>(mod.getLoc(), StringRef(modName));
+        kernelMod->setAttr(kernel, b.getUnitAttr());
+        kernelMod->setAttr("kernel.chip", b.getStringAttr(chip));
 
-    for (auto func : mod.getOps<func::FuncOp>()) {
-      if (func->hasAttr("kernel")) {
-        // clone the func
-        auto gpuFunc = func.clone();
-        gpuFunc->setAttr("original_func", SymbolRefAttr::get(func));
+        // add the KERNELModuleOp into the symbol table.
+        SymbolTable symbolTable(mod);
+        symbolTable.insert(kernelMod);
+      }
+      SymbolTable symbolTable(kernelMod);
 
-        // add the GPUModuleOp into the symbol table.
-        symbolTable.insert(gpuFunc);
+      for (auto func : mod.getOps<func::FuncOp>()) {
+        if (func->hasAttr("kernel")) {
+          // clone the func
+          auto kernelFunc = func.clone();
+          kernelFunc->setAttr("original_func", SymbolRefAttr::get(func));
 
-        // TODO: also find all calls and import callee
+          // add the KERNELModuleOp into the symbol table.
+          symbolTable.insert(kernelFunc);
+
+          // TODO: also find all calls and import callee
+        }
       }
     }
   }
+
+private:
+  SmallVector<SmallString<32>, 4> chips;
 };
 
 } // end anonymous namespace
@@ -72,6 +85,7 @@ struct MIOpenCloneKernelsPass
 //===- Passes -------------------------------------------------------------===//
 //
 
-std::unique_ptr<Pass> mlir::miopen::createMIOpenCloneKernelsPass() {
-  return std::make_unique<MIOpenCloneKernelsPass>();
+std::unique_ptr<Pass>
+mlir::miopen::createMIOpenCloneKernelsPass(ArrayRef<StringRef> _chips) {
+  return std::make_unique<MIOpenCloneKernelsPass>(_chips);
 }

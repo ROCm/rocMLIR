@@ -4,9 +4,9 @@
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/GemmContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
-#include "mlir/Dialect/MIOpen/utility/IsaNameSplitter.h"
 #include "mlir/Dialect/MIOpen/utility/loweringUtils.h"
 #include "mlir/Dialect/MIOpen/utility/math.h"
+#include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
@@ -472,11 +472,13 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
 
   std::string arch;
   strToStr("arch", arch);
-  IsaNameSplitter splitter(arch);
-  if (failed(splitter.parseIsaName(config.chip, config.triple,
-                                   config.chipFeatures))) {
+  RocmDeviceName splitter(arch);
+  if (!splitter) {
     return failure();
   }
+  config.chip = splitter.getChip().str();
+  config.chipFeatures = splitter.getFeatures().str();
+  config.triple = splitter.getTriple().str();
 
   strToStr("perf_config", config.perfConfig);
   strToInt("num_cu", config.num_cu);

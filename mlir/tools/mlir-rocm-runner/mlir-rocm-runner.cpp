@@ -35,7 +35,7 @@
 
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
-#include "mlir/Dialect/MIOpen/utility/IsaNameSplitter.h"
+#include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Transforms/Passes.h"
@@ -113,14 +113,15 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   }
 
   if (tripleName.empty() && targetChip.empty() && features.empty()) {
-    tripleName = kTargetTriple;
     std::string gcnArchName;
     getGpuGCNArchName(0, gcnArchName);
-    auto status =
-        IsaNameSplitter::parseArchName(gcnArchName, targetChip, features);
-    if (status.failed()) {
+    RocmDeviceName rocmDevice(gcnArchName);
+    if (!rocmDevice) {
       llvm_unreachable("HIP ArchName parsing should never fail.");
     }
+    tripleName = rocmDevice.getTriple().str();
+    targetChip = rocmDevice.getChip().str();
+    features = rocmDevice.getFeatures().str();
   }
 
   // Find MIOpen module and compile kernel funcs

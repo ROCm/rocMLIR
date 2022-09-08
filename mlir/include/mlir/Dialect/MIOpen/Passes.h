@@ -20,8 +20,9 @@
 namespace mlir {
 namespace miopen {
 
-/// Create a pass to clone kernel funcs into MIOpen module
-std::unique_ptr<Pass> createMIOpenCloneKernelsPass();
+/// Create a pass to clone kernel funcs into Kernel modules
+std::unique_ptr<Pass>
+createMIOpenCloneKernelsPass(llvm::ArrayRef<llvm::StringRef> _chips = {});
 
 /// Create a pass to apply target implementation to host kernel funcs
 std::unique_ptr<Pass> createMIOpenApplyImplPass();

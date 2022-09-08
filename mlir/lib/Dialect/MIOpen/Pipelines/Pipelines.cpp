@@ -50,7 +50,7 @@ void miopen::buildPartitionPipeline(OpPassManager &pm,
     // clone 'kernel' funcs into __miopen module
     /* miopen-opt --miopen-clone-kernels
      */
-    pm.addPass(miopen::createMIOpenCloneKernelsPass());
+    pm.addPass(miopen::createMIOpenCloneKernelsPass(options.targetChips));
   }
 }
 

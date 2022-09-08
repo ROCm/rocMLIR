@@ -1,4 +1,4 @@
-// RUN: mlir-miopen-driver -host-pipeline full %s | FileCheck %s
+// RUN: mlir-miopen-driver -host-pipeline full -targets %chip %s | FileCheck %s
 
 module {
 // CHECK: func.func @resnet50(%[[ARG0:.*]]: memref<1x32x32x64xf32>, %[[ARG1:.*]]: memref<64x3x3x64xf32>, %[[ARG2:.*]]: memref<64x3x3x64xf32>, %[[ARG3:.*]]: memref<1x32x32x64xf32>) 

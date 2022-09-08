@@ -20,10 +20,10 @@
 #include "mlir/Dialect/MIOpen/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
-#include "mlir/Dialect/MIOpen/utility/IsaNameSplitter.h"
 #include "mlir/Dialect/MIOpen/utility/builderUtils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
@@ -2180,12 +2180,15 @@ int main(int argc, char **argv) {
       }
       // Scenario 2: We use cl::opt to initialize everything
     } else {
-      std::string chip, triple, chipFeatures;
-      IsaNameSplitter splitter(arch.getValue());
-      auto status = splitter.parseIsaName(chip, triple, chipFeatures);
-      if (status.failed()) {
+      RocmDeviceName splitter(arch.getValue());
+      if (!splitter) {
         exit(1);
       }
+      std::string triple = splitter.getTriple().str();
+      std::string chip = splitter.getChip().str();
+      std::string chipFeatures = splitter.getFeatures().str();
+
+      LogicalResult status = success();
 
       miopen::GemmFeatures enabledFeatures = miopen::GemmFeatures::none;
       if (xdlopsV2.getValue())

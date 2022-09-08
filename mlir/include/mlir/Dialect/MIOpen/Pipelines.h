@@ -31,7 +31,10 @@ struct PartitionOptions : public PassPipelineOptions<PartitionOptions> {
 
   PassOptions::Option<bool> cloneToMIOpenModule{
       *this, "clone-to-miopen",
-      desc("Clone all kernel funcs into __miopen module"), init(true)};
+      desc("Clone all kernel funcs into __kernel_<chip> modules"), init(true)};
+  PassOptions::ListOption<StringRef> targetChips{
+      *this, "target-chips",
+      desc("list of target chip architectures to clone kernels for")};
 };
 
 /// Adds the "partition" pipeline to the `OpPassManager`.

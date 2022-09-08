@@ -181,7 +181,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 
   MlirValue retOperands[] = {relu0Value};
   MlirOperationState retState = mlirOperationStateGet(
-      mlirStringRefCreateFromCString("std.return"), location);
+      mlirStringRefCreateFromCString("func.return"), location);
   mlirOperationStateAddOperands(&retState, 1, retOperands);
   MlirOperation ret = mlirOperationCreate(&retState);
   mlirBlockAppendOwnedOperation(funcBody, ret);
@@ -193,7 +193,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   // module  {
   //   func @tosa_kernel(%arg0: tensor<1x64x56x56xf32>, %arg1:
   //   tensor<64x64x1x1xf32>, %arg2: tensor<1x64x1x1xf32>) ->
-  //   tensor<1x64x56x56xf32> attributes {kernel} {
+  //   tensor<1x64x56x56xf32> attributes {kernel, arch = "gfx908"} {
   //     %0 = "tosa.conv2d"(%arg0, %arg1, %arg2) {dilation = [1, 1], pad = [0,
   //     0, 0, 0], stride = [1, 1]} : (tensor<1x64x56x56xf32>,
   //     tensor<64x64x1x1xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
