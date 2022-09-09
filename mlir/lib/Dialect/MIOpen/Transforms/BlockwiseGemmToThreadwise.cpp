@@ -532,50 +532,21 @@ struct BlockwiseGemmV2RewritePattern
       lklb.create<memref::StoreOp>(loc, valueB, bufferB, ValueRange{lkliv});
     }
 
-    XdlopsGemmParamsAttr threadwiseParams = tuningParams;
-    if (MRepeats > 1 || NRepeats > 1) {
-      // Hard-coded m_per_wave/n_per_wave as 64 when MRepeat>1 or NRepeat>1.
-      // So each xdlops_gemm_v2 handles a 64x64 GEMM.
-      threadwiseParams = b.getAttr<XdlopsGemmParamsAttr>(
-          tuningParams.getKPerBlock(), tuningParams.getMPerBlock(),
-          tuningParams.getNPerBlock(), tuningParams.getKpack(), /*mPerWave=*/64,
-          /*nPerWave=*/64);
-    }
-    if (MRepeats == 1 && NRepeats == 1) {
-      b.create<XdlopsGemmV2Op>(loc, b.getIndexAttr(0), b.getIndexAttr(0),
-                               adaptor.bufferA(), adaptor.bufferB(),
-                               adaptor.matrixC(), threadwiseParams);
-      b.eraseOp(op);
-    } else if (MRepeats == 2 && NRepeats == 1) {
-      // Original C++ logic.
-      // p_c_thread.s.x.l = XdlopsGemm.template Run<M, N, K>(
-      // p_a_block, p_b_block, p_c_thread.s.x.l);
-      // p_c_thread.s.y.l = XdlopsGemm.templateRun<M, N, K>(
-      // p_a_block + MPerXdlops, p_b_block, p_c_thread.s.y.l);
+    // Workload of either MPerWave and NPerWave that are larger
+    // than wave size of 64 will be executed by repeats
+    // TODO: amend this for tuning parameter selection as well
+    xcs = XdlopsCodeSelection::get(dataType, MPerXdlops, NPerXdlops, b);
+    Value reshapedARegisters = reshapeBuffer(
+        b, loc, adaptor.bufferA(), {"m", "k"}, {MRepeats, KPerThread});
+    Value reshapedBRegisters = reshapeBuffer(
+        b, loc, adaptor.bufferB(), {"n", "k"}, {NRepeats, KPerThread});
+    Value reshapedCRegisters =
+        reshapeBuffer(b, loc, adaptor.matrixC(), {"m", "n", "v"},
+                      {MRepeats, NRepeats, xcs.nResultVectors});
 
-      b.create<XdlopsGemmV2Op>(loc, b.getIndexAttr(0), b.getIndexAttr(0),
-                               adaptor.bufferA(), adaptor.bufferB(),
-                               adaptor.matrixC(), threadwiseParams);
-      b.create<XdlopsGemmV2Op>(
-          loc, b.getIndexAttr(KPerThread), b.getIndexAttr(0), adaptor.bufferA(),
-          adaptor.bufferB(), adaptor.matrixC(), threadwiseParams);
-      b.eraseOp(op);
-    } else if (MRepeats == 1 && NRepeats == 2) {
-      // Original C++ logic.
-      // p_c_thread.s.x.l = XdlopsGemm.template Run<M, N, K>(
-      // p_a_block, p_b_block, p_c_thread.s.x.l);
-      // p_c_thread.s.y.l = XdlopsGemm.template Run<M, N, K>(
-      // p_a_block, p_b_block + NPerXdlops, p_c_thread.s.y.l);
-
-      b.create<XdlopsGemmV2Op>(loc, b.getIndexAttr(0), b.getIndexAttr(0),
-                               adaptor.bufferA(), adaptor.bufferB(),
-                               adaptor.matrixC(), threadwiseParams);
-      b.create<XdlopsGemmV2Op>(
-          loc, b.getIndexAttr(0), b.getIndexAttr(KPerThread), adaptor.bufferA(),
-          adaptor.bufferB(), adaptor.matrixC(), threadwiseParams);
-      b.eraseOp(op);
-    }
-
+    b.replaceOpWithNewOp<XdlopsGemmV2Op>(op, reshapedARegisters,
+                                         reshapedBRegisters, reshapedCRegisters,
+                                         tuningParams);
     return success();
   }
 };

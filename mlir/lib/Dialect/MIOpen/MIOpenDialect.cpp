@@ -1101,6 +1101,22 @@ LogicalResult ThreadwiseGemmOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// XdlopsGemmV2Op
+//===----------------------------------------------------------------------===//
+LogicalResult XdlopsGemmV2Op::verify() {
+  ArrayRef<int64_t> aShape = matrixA().getType().cast<MemRefType>().getShape(),
+                    bShape = matrixB().getType().cast<MemRefType>().getShape(),
+                    cShape = matrixC().getType().cast<MemRefType>().getShape();
+
+  if (aShape[1] != bShape[1])
+    return emitOpError("K dimensions don't match");
+  if (aShape[0] != cShape[0])
+    return emitOpError("M dimensions don't match");
+  if (bShape[0] != cShape[1])
+    return emitOpError("N dimensions don't match");
+  return success();
+}
+//===----------------------------------------------------------------------===//
 // InWarpTransposeOp
 //===----------------------------------------------------------------------===//
 
