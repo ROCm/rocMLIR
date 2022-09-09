@@ -21,9 +21,7 @@ namespace mlir {
 // RocmDeviceName handles decomposition of gcnArchName
 class RocmDeviceName {
 public:
-  RocmDeviceName(StringRef devName);
-
-  operator bool() const { return succeeded(status); }
+  LogicalResult parse(StringRef devName);
 
   StringRef getChip() const { return chip; }
   StringRef getFeatures() const { return features; }
@@ -32,7 +30,6 @@ public:
   SmallString<256> getFullName() const;
 
 private:
-  LogicalResult status;
   SmallString<32> chip;
   SmallString<32> features;
   SmallString<32> triple;

@@ -39,8 +39,9 @@ static LogicalResult parseTargetFeatures(ArrayRef<StringRef> tokens,
   return success();
 }
 
-RocmDeviceName::RocmDeviceName(StringRef devName)
-    : status(failure()), triple(kGcnDefaultTriple) {
+LogicalResult RocmDeviceName::parse(StringRef devName) {
+  triple = kGcnDefaultTriple;
+
   // tokenize on :
   SmallVector<StringRef, 8> tokens;
   devName.split(tokens, ':');
@@ -59,11 +60,13 @@ RocmDeviceName::RocmDeviceName(StringRef devName)
   if (tokens.size()) {
     chip = tokens.front();
     tokens.erase(tokens.begin());
-    if (!chip.startswith("gfx"))
-      return;
-    // get features
-    status = parseTargetFeatures(tokens, features);
+    if (chip.startswith("gfx")) {
+      // get features
+      return parseTargetFeatures(tokens, features);
+    }
   }
+
+  return failure();
 }
 
 SmallString<256> RocmDeviceName::getFullName() const {
