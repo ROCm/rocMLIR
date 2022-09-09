@@ -42,21 +42,20 @@ RocmSystemDetect::RocmSystemDetect() {
     if (herr == hipSuccess) {
       RocmDeviceName chip(deviceProps.gcnArchName);
       if (chip) {
-        SmallString<32> fullChipName(chip.getFullName());
         llvm::StringRef chipName(chip.getChip());
         llvm::StringRef vendor("AMD");
         llvm::StringRef features(chip.getFeatures());
         llvm::StringRef triple(chip.getTriple());
 
         auto itr = std::find_if(begin(), end(), [&](const SystemDevice &dev) {
-          return dev.chip == fullChipName;
+          return dev.chip == chipName;
         });
         if (itr != end()) {
           itr->count++;
         } else {
           push_back(
               {SystemDevice::Type::EGPU,
-               fullChipName,
+               chipName,
                1,
                {{"vendor", vendor},
                 {"chip", chipName},
