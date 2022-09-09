@@ -20,7 +20,7 @@ def testHeader() -> str:
 // RUN: miopen-opt \\
 // RUN: --miopen-sugar-to-loops --miopen-loops-to-cf --convert-miopen-to-gpu %s \\
 // RUN:  | mlir-rocm-runner \\
-// RUN: --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext \\
+// RUN: --target=%targets --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext \\
 // RUN: --entry-point-result=i32 | FileCheck %s
 
 // CHECK: {{^}}0{{$}}

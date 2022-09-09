@@ -1,6 +1,6 @@
 // RUN: mlir-rocm-runner %s \
 // RUN:   --bare-ptr-memref-kernels=false \
-// RUN:   --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext \
+// RUN:   --target=%targets --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext \
 // RUN:   --entry-point-result=void \
 // RUN: | FileCheck %s
 

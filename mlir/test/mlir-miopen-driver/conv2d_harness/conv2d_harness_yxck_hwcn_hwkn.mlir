@@ -1,6 +1,6 @@
 // RUN: miopen-gen -p -fil_layout=gyxck -in_layout=hwgcn -out_layout=hwgkn --host %s | FileCheck %s --check-prefix=HARNESS
 // RUN: miopen-gen -p -fil_layout=gyxck -in_layout=hwgcn -out_layout=hwgkn --host %s | mlir-miopen-driver -c | FileCheck %s --check-prefix=LOWERING
-// RUN: miopen-gen -p -fil_layout=gyxck -in_layout=hwgcn -out_layout=hwgkn --host %s | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
+// RUN: miopen-gen -p -fil_layout=gyxck -in_layout=hwgcn -out_layout=hwgkn --host %s | mlir-miopen-driver -c | mlir-rocm-runner --target=%targets --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
 
 func.func private @miopen_conv2d_gyxck_hwgcn_hwgkn_0(%filter : memref<1x3x3x8x128xf32>, %input : memref<32x32x1x8x128xf32>, %output : memref<30x30x1x128x128xf32>) -> ()
 

@@ -34,6 +34,7 @@ config.substitutions.append(("%mlir_src_root", config.mlir_src_root))
 config.substitutions.append(('%random_data', config.random_data))
 config.substitutions.append(('%xdlops', config.xdlops))
 config.substitutions.append(('%pv', config.populate_validation))
+config.substitutions.append(('%targets', config.targets))
 
 llvm_config.with_system_environment(
     ['HOME', 'INCLUDE', 'LIB', 'TMP', 'TEMP'])

@@ -56,11 +56,14 @@ static cl::opt<int> gpuOpt("gO",
                            cl::desc("Optimization level for GPU compilation"),
                            cl::value_desc("Integer from 0 to 3"), cl::init(3));
 
+static cl::opt<std::string> target("target", cl::desc("Full target name"),
+                                   cl::value_desc("target"), cl::init(""));
+
 static cl::opt<std::string> tripleName("triple", cl::desc("target triple"),
                                        cl::value_desc("triple string"),
                                        cl::init(""));
 
-static cl::opt<std::string> targetChip("target", cl::desc("target chip"),
+static cl::opt<std::string> targetChip("chip", cl::desc("target chip"),
                                        cl::value_desc("AMDGPU ISA version"),
                                        cl::init(""));
 
@@ -112,6 +115,16 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
     return failure();
   }
 
+  if (!target.empty()) {
+    RocmDeviceName rocmDevice;
+    if (failed(rocmDevice.parse(target))) {
+      llvm::errs() << "Invalid target name: " << target << "\n";
+      return failure();
+    }
+    tripleName = rocmDevice.getTriple().str();
+    targetChip = rocmDevice.getChip().str();
+    features = rocmDevice.getFeatures().str();
+  }
   if (tripleName.empty() && targetChip.empty() && features.empty()) {
     std::string gcnArchName;
     getGpuGCNArchName(0, gcnArchName);

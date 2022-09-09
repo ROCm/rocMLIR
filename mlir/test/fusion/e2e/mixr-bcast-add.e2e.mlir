@@ -1,4 +1,4 @@
-// RUN: miopen-opt -migraphx-to-tosa %s | mlir-miopen-driver -host-pipeline highlevel | miopen-gen -ph -print-results -rand none - | mlir-miopen-driver -c  | mlir-rocm-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: miopen-opt -migraphx-to-tosa %s | mlir-miopen-driver -host-pipeline highlevel | miopen-gen -ph -print-results -rand none - | mlir-miopen-driver -c  | mlir-rocm-runner --target=%targets --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
 
 // CHECK:  6,     6,     6,     6
 module {

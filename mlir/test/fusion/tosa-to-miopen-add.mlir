@@ -1,4 +1,4 @@
-// RUN: mlir-miopen-driver -host-pipeline highlevel -kernel-pipeline=gpu,rocdl -target gfx1030 %s -o -| FileCheck %s
+// RUN: mlir-miopen-driver -host-pipeline highlevel -kernel-pipeline=gpu,rocdl -chip gfx1030 %s -o -| FileCheck %s
 
 // CHECK-LABEL: test_fusion
 

@@ -21,6 +21,7 @@ set(LIBS
   MLIRExecutionEngine
   MLIRMIOpenOps
   MLIRMIOpenPipeline
+  MLIRMIOpenUtility
   MLIRParser
   MLIRPass
   MLIRQuantDialect
