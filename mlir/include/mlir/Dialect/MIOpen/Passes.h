@@ -29,9 +29,17 @@ std::unique_ptr<Pass> createMIOpenApplyImplPass();
 /// Create a pass to
 std::unique_ptr<Pass> createMIOpenAsyncLaunchPass();
 
+/// Create a pass to fold certain transpose operations in order to enable
+/// fusing generic operations with convolution and GEMM kernels.
+std::unique_ptr<Pass> createMIOpenFoldTransposePass();
+
 /// Create a pass to convert MIOpen conv2d operations to transform and
 /// gridwise_gemm operations.
 std::unique_ptr<Pass> createMIOpenConvToGemmPass();
+
+/// Create a pass to convert MIOpen gemm operations to gridwise operations,
+/// adding padding.
+std::unique_ptr<Pass> createMIOpenGemmToGridwisePass();
 
 /// Create a pass to convert MIOpen gridwise_gemm operations to blockwise
 /// operations.
@@ -64,8 +72,8 @@ std::unique_ptr<Pass> createMIOpenLoopsToCfPass();
 
 /// Create a pass to affix tuning parameters to gridwise gemm ops.
 std::unique_ptr<Pass>
-createAffixTuningParametersPass(int64_t blockSizeOverride = 0,
-                                int64_t gridSizeOverride = 0,
+createAffixTuningParametersPass(uint32_t blockSizeOverride = 0,
+                                uint32_t gridSizeOverride = 0,
                                 bool fallBackNoConfig = false);
 
 #define GEN_PASS_REGISTRATION

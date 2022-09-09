@@ -8,6 +8,8 @@ add_mlir_dialect_library(MLIRMIOpenTransforms
   CloneKernels.cpp
   CopyOpt.cpp
   ConvToGemm.cpp
+  FoldTranspose.cpp
+  GemmToGridwise.cpp
   SugarToLoops.cpp
   GridwiseGemmToBlockwise.cpp
   LoopsToCf.cpp

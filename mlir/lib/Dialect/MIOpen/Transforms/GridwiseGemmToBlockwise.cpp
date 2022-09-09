@@ -278,8 +278,7 @@ static Value sliceBufferSubview(OpBuilder &b, Location loc, Value buffer,
   transform.slice({"slice"}, {"buffer"}, {start}, {end});
 
   TransformMapAttr transformAttr = transform.get();
-  Value subview = b.create<TransformOp>(loc, buffer, transformAttr,
-                                        bufferType.getMemorySpaceAsInt());
+  Value subview = b.create<TransformOp>(loc, buffer, transformAttr);
   return subview;
 }
 
@@ -289,21 +288,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
   void computeLDSBlockSizes(GridwiseGemmOp op, int64_t &a_block_space,
                             int64_t &b_block_space, int64_t &block_space,
                             int64_t KPack = 1) const {
+    GeneralGemmParamsAttr tuningParams = op.params();
     int64_t ThreadGemmAThreadCopySrcDataPerRead_M =
-        op->getAttr("m_per_thread").template cast<IntegerAttr>().getInt();
+        tuningParams.getMPerThread();
     int64_t ThreadGemmBThreadCopySrcDataPerRead_N =
-        op->getAttr("n_per_thread").template cast<IntegerAttr>().getInt();
+        tuningParams.getNPerThread();
 
     int64_t max_lds_align =
         math_util::lcm(ThreadGemmAThreadCopySrcDataPerRead_M,
                        ThreadGemmBThreadCopySrcDataPerRead_N);
 
-    int64_t KPerBlock =
-        op->getAttr("k_per_block").template cast<IntegerAttr>().getInt();
-    int64_t MPerBlock =
-        op->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
-    int64_t NPerBlock =
-        op->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
+    int64_t KPerBlock = tuningParams.getKPerBlock();
+    int64_t MPerBlock = tuningParams.getMPerBlock();
+    int64_t NPerBlock = tuningParams.getNPerBlock();
 
     int64_t AlignedNPerBlock =
         max_lds_align *
@@ -386,37 +383,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     }
 
     // Obtain critical tuning parameters.
-    int64_t KPack =
-        op->hasAttr("kpack")
-            ? op->getAttr("kpack").template cast<IntegerAttr>().getInt()
-            : 1;
-    int64_t BlockSize =
-        op->getAttr("block_size").template cast<IntegerAttr>().getInt();
-    int64_t KPerBlock =
-        op->getAttr("k_per_block").template cast<IntegerAttr>().getInt();
-    int64_t MPerBlock =
-        op->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
-    int64_t NPerBlock =
-        op->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
-    auto kPerThreadAttr =
-        b.getIndexAttr(op->getAttrOfType<IntegerAttr>("k_per_thread").getInt());
-    auto mPerThreadAttr = op->getAttrOfType<IntegerAttr>("m_per_thread");
-    auto nPerThreadAttr = op->getAttrOfType<IntegerAttr>("n_per_thread");
-    int64_t mPerThread = mPerThreadAttr.getInt();
-    int64_t nPerThread = nPerThreadAttr.getInt();
-
-    auto mThreadsPerCuwaveAttr =
-        op->getAttrOfType<IntegerAttr>("m_threads_per_cuwave");
-    int64_t mThreadsPerCuwave = mThreadsPerCuwaveAttr.getInt();
-    auto nThreadsPerCuwaveAttr =
-        op->getAttrOfType<IntegerAttr>("n_threads_per_cuwave");
-    int64_t nThreadsPerCuwave = nThreadsPerCuwaveAttr.getInt();
-    auto mCuwavesPerBlockAttr =
-        op->getAttrOfType<IntegerAttr>("m_cuwaves_per_block");
-    int64_t mCuwavesPerBlock = mCuwavesPerBlockAttr.getInt();
-    auto nCuwavesPerBlockAttr =
-        op->getAttrOfType<IntegerAttr>("n_cuwaves_per_block");
-    int64_t nCuwavesPerBlock = nCuwavesPerBlockAttr.getInt();
+    uint32_t blockSize = op.blockSize();
+    uint32_t gridSize = op.gridSize();
+    GeneralGemmParamsAttr tuningParams = op.params();
+    int64_t KPack = tuningParams.getKpack();
+    int64_t KPerBlock = tuningParams.getKPerBlock();
+    int64_t MPerBlock = tuningParams.getMPerBlock();
+    int64_t NPerBlock = tuningParams.getNPerBlock();
+    int64_t mPerThread = tuningParams.getMPerThread();
+    int64_t nPerThread = tuningParams.getNPerThread();
+    int64_t mThreadsPerCuwave = tuningParams.getMThreadsPerCuwave();
+    int64_t nThreadsPerCuwave = tuningParams.getNThreadsPerCuwave();
+    int64_t mCuwavesPerBlock = tuningParams.getMCuwavesPerBlock();
+    int64_t nCuwavesPerBlock = tuningParams.getNCuwavesPerBlock();
 
     int64_t matrix_a_source_data_per_read =
         op->getAttr("matrix_a_source_data_per_read")
@@ -436,11 +415,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
             .getInt());
 
     bool useIndexDiffs = true;
-    func::FuncOp parentFunc = op->getParentOfType<func::FuncOp>();
-    int64_t kernelBlockSize =
-        parentFunc->getAttrOfType<IntegerAttr>("block_size").getInt();
-    int64_t kernelGridSize =
-        parentFunc->getAttrOfType<IntegerAttr>("grid_size").getInt();
 
     // Get current workgroup ID.
     auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());
@@ -457,7 +431,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                << "M: " << M << "\n"
                << "N: " << N << "\n"
                << "K: " << K << "\n"
-               << "BlockSize: " << BlockSize << "\n"
+               << "BlockSize: " << blockSize << "\n"
                << "MPerBlock: " << MPerBlock << "\n"
                << "NPerBlock: " << NPerBlock << "\n"
                << "KPerBlock: " << KPerBlock << "\n"
@@ -494,7 +468,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Compute ThreadSliceLengths for Matrix A.
     int64_t GemmABlockCopyNumberDataPerThread =
-        MPerBlock * KPerBlock / BlockSize;
+        MPerBlock * KPerBlock / blockSize;
 
     int64_t GemmABlockCopyThreadSliceLengths_GemmK;
     int64_t GemmABlockCopyThreadSliceLengths_GemmM;
@@ -572,7 +546,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Compute ThreadSliceLengths for Matrix B.
     int64_t GemmBBlockCopyNumberDataPerThread =
-        NPerBlock * KPerBlock / BlockSize;
+        NPerBlock * KPerBlock / blockSize;
 
     int64_t GemmBBlockCopyThreadSliceLengths_GemmK;
     int64_t GemmBBlockCopyThreadSliceLengths_GemmN;
@@ -1064,9 +1038,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // Emit blockwise GEMM.
     auto blockwiseGemmOp = lb.create<BlockwiseGemmOp>(
         loc, ldsMatrixASubviewOp, ldsMatrixBSubviewOp, registerMatrixCViewOp,
-        kPerThreadAttr, b.getIndexAttr(mPerThread), b.getIndexAttr(nPerThread),
-        mThreadsPerCuwaveAttr, nThreadsPerCuwaveAttr, mCuwavesPerBlockAttr,
-        nCuwavesPerBlockAttr);
+        op.params());
 
     // LDS barrier.
     // This barrier prevents halo part of outputs having weird values.
@@ -1118,11 +1090,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Threadwise copy from register (naive tensor) to global (generic tensor).
     TopDownTMBuilder splitMemoryCoords(
-        b, {"bid", "tid", "iter"},
-        {kernelGridSize, kernelBlockSize, threadCNumRegisters}, loc);
+        b, {"bid", "tid", "iter"}, {gridSize, blockSize, threadCNumRegisters},
+        loc);
     splitMemoryCoords.merge(
         {"g", "m_block", "n_block"}, {0, 1, 2}, "bid",
-        {kernelGridSize / GStride, GStride / NBlockWork, NBlockWork});
+        {gridSize / GStride, GStride / NBlockWork, NBlockWork});
     splitMemoryCoords.merge({"m_cuwaves", "n_cuwaves", "m_cuwave", "n_cuwave"},
                             {3, 4, 5, 6}, "tid",
                             {mCuwavesPerBlock, nCuwavesPerBlock,
@@ -1148,9 +1120,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     TransformMapAttr toMatrixCAttr = toMatrixC.get();
 
-    TopDownTMBuilder toRegisterC(
-        b, {"bid", "tid", "iter"},
-        {kernelGridSize, kernelBlockSize, threadCNumRegisters}, loc);
+    TopDownTMBuilder toRegisterC(b, {"bid", "tid", "iter"},
+                                 {gridSize, blockSize, threadCNumRegisters},
+                                 loc);
     toRegisterC.ignore("bid");
     toRegisterC.ignore("tid");
     toRegisterC.passThrough({"iter"}, {0}, {"iter"});
@@ -1234,12 +1206,10 @@ struct GridwiseGemmV2RewritePattern
                             int64_t KPack = 1) const {
     int64_t max_lds_align = 1;
 
-    int64_t KPerBlock =
-        op->getAttr("k_per_block").template cast<IntegerAttr>().getInt();
-    int64_t MPerBlock =
-        op->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
-    int64_t NPerBlock =
-        op->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
+    XdlopsGemmParamsAttr tuningParams = op.params();
+    int64_t KPerBlock = tuningParams.getKPerBlock();
+    int64_t MPerBlock = tuningParams.getMPerBlock();
+    int64_t NPerBlock = tuningParams.getNPerBlock();
 
     int64_t AlignedNPerBlock =
         max_lds_align *
@@ -1273,36 +1243,6 @@ struct GridwiseGemmV2RewritePattern
     LLVM_DEBUG(llvm::dbgs() << "b_block_space: " << b_block_space << "\n");
     LLVM_DEBUG(llvm::dbgs()
                << "total_block_space: " << total_block_space << "\n\n");
-  }
-
-  void affixBlockwiseGemmV2Attributes(BlockwiseGemmV2Op bop,
-                                      GridwiseGemmV2Op gop, int64_t m,
-                                      int64_t k, int64_t n,
-                                      OpBuilder &b) const {
-    bop->setAttr("block_size", gop->getAttr("block_size"));
-
-    int64_t MPerBlock =
-        gop->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
-    int64_t NPerBlock =
-        gop->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
-    int64_t MPerWave =
-        gop->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
-    int64_t NPerWave =
-        gop->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
-    int64_t MWaves = MPerBlock / MPerWave;
-    int64_t NWaves = NPerBlock / NPerWave;
-
-    bop->setAttr("m_per_wave", gop->getAttr("m_per_wave"));
-    bop->setAttr("n_per_wave", gop->getAttr("n_per_wave"));
-    bop->setAttr("m_waves", b.getI32IntegerAttr(MWaves));
-    bop->setAttr("n_waves", b.getI32IntegerAttr(NWaves));
-
-    bop->setAttr("m", b.getI32IntegerAttr(m));
-    bop->setAttr("n", b.getI32IntegerAttr(n));
-    bop->setAttr("k", b.getI32IntegerAttr(k));
-
-    if (gop->hasAttr("kpack"))
-      bop->setAttr("kpack", gop->getAttr("kpack"));
   }
 
   LogicalResult matchAndRewrite(GridwiseGemmV2Op op,
@@ -1345,19 +1285,15 @@ struct GridwiseGemmV2RewritePattern
     }
 
     // Obtain critical tuning parameters.
-    int64_t KPack =
-        op->hasAttr("kpack")
-            ? op->getAttr("kpack").template cast<IntegerAttr>().getInt()
-            : 1;
-    int64_t BlockSize =
-        op->getAttr("block_size").template cast<IntegerAttr>().getInt();
-    int64_t KPerBlock =
-        op->getAttr("k_per_block").template cast<IntegerAttr>().getInt();
-    int64_t MPerBlock =
-        op->getAttr("m_per_block").template cast<IntegerAttr>().getInt();
-    int64_t NPerBlock =
-        op->getAttr("n_per_block").template cast<IntegerAttr>().getInt();
+    uint32_t blockSize = op.blockSize();
+    uint32_t gridSize = op.gridSize();
+    XdlopsGemmParamsAttr tuningParams = op.params();
+    int64_t KPack = tuningParams.getKpack();
+    int64_t KPerBlock = tuningParams.getKPerBlock();
+    int64_t MPerBlock = tuningParams.getMPerBlock();
+    int64_t NPerBlock = tuningParams.getNPerBlock();
 
+    // TODO: remove in favor of new vectorization framework
     int64_t matrix_a_source_data_per_read =
         op->getAttr("matrix_a_source_data_per_read")
             .template cast<IntegerAttr>()
@@ -1376,10 +1312,8 @@ struct GridwiseGemmV2RewritePattern
             .getInt());
 
     // Obtain XDLOPS-related attributes.
-    int64_t MPerWave =
-        op->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
-    int64_t NPerWave =
-        op->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
+    int64_t MPerWave = tuningParams.getMPerWave();
+    int64_t NPerWave = tuningParams.getNPerWave();
     // int64_t MWaves = MPerBlock / MPerWave;
     int64_t NWaves = NPerBlock / NPerWave;
 
@@ -1391,12 +1325,6 @@ struct GridwiseGemmV2RewritePattern
     auto waveSizeConstantOp = b.create<ConstantIndexOp>(loc, waveSize);
 
     bool useIndexDiffs = true;
-
-    func::FuncOp parentFunc = op->getParentOfType<func::FuncOp>();
-    int64_t kernelBlockSize =
-        parentFunc->getAttrOfType<IntegerAttr>("block_size").getInt();
-    int64_t kernelGridSize =
-        parentFunc->getAttrOfType<IntegerAttr>("grid_size").getInt();
 
     // Get current workgroup ID.
     auto bid = b.create<WorkgroupIdOp>(loc, b.getIndexType());
@@ -1467,7 +1395,7 @@ struct GridwiseGemmV2RewritePattern
 
     // Compute ThreadSliceLengths for Matrix A.
     int64_t GemmABlockCopyNumberDataPerThread =
-        MPerBlock * KPerBlock * KPack / BlockSize;
+        MPerBlock * KPerBlock * KPack / blockSize;
 
     LLVM_DEBUG(llvm::dbgs() << "GemmABlockCopyNumberDataPerThread: "
                             << GemmABlockCopyNumberDataPerThread << "\n");
@@ -1542,7 +1470,7 @@ struct GridwiseGemmV2RewritePattern
 
     // Compute ThreadSliceLengths for Matrix B.
     int64_t GemmBBlockCopyNumberDataPerThread =
-        NPerBlock * KPerBlock * KPack / BlockSize;
+        NPerBlock * KPerBlock * KPack / blockSize;
 
     LLVM_DEBUG(llvm::dbgs() << "GemmBBlockCopyNumberDataPerThread: "
                             << GemmBBlockCopyNumberDataPerThread << "\n");
@@ -1996,23 +1924,24 @@ struct GridwiseGemmV2RewritePattern
         XdlopsCodeSelection::get(elementType, MPerWave, NPerWave, b);
 
     // Extract values from XdlopsCodeSelection.
-    int64_t MPerXdlops = xcs.MPerXdlops;
-    int64_t NPerXdlops = xcs.NPerXdlops;
     int64_t MRepeats = xcs.MRepeats;
     int64_t NRepeats = xcs.NRepeats;
-    VectorType vectorType = xcs.vectorType;
-    int64_t numVectors = xcs.vectorNumber;
-    SmallVector<SmallVector<unsigned, 3>, 2> imms = xcs.imms;
+    int64_t mPerRepeat = MPerWave / MRepeats;
+    int64_t nPerRepeat = NPerWave / NRepeats;
 
-    int64_t group_size = xcs.group_size;
-    int64_t num_groups_blk = xcs.num_groups_blk;
-    int64_t num_threads_blk = xcs.num_threads_blk;
-    int64_t num_input_blks = xcs.num_input_blks;
-    int64_t num_output_blks = xcs.num_output_blks;
-    int64_t m = xcs.m;
-    int64_t n = xcs.n;
+    VectorType vectorType = xcs.vectorType;
+    int64_t nResultVectors = xcs.nResultVectors;
+    int64_t rowGroupSize = xcs.rowGroupSize;
+    int64_t rowGroupsPerBlock = xcs.rowGroupsPerBlock;
+    int64_t inputSpanLen = xcs.inputSpanLen;
+    int64_t inputSpansPerMfmaIn = xcs.inputSpansPerMfmaIn;
+    int64_t blocksInOutRegs = xcs.blocksInOutRegs;
+    int64_t m = xcs.mfmaNonKDim;
+    // Note n has the 4x4 => 4x64 behavior that necessitated inputSpansPerMfmaIn
+    int64_t n = xcs.inputSpanLen;
     int64_t k_base = xcs.k_base;
 
+    int64_t blocksPerRepeat = (mPerRepeat * nPerRepeat) / (m * n);
     // -----
 
     // Logic to setup blockwise_gemm_v2 parameters.
@@ -2035,13 +1964,13 @@ struct GridwiseGemmV2RewritePattern
 
     // Logic to setup buffers for blockwise_gemm_v2.
 
-    bool IsKReduction = (num_output_blks == 1) && (num_input_blks > 1);
+    bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
     int64_t arrayASize = (!IsKReduction)
                              ? (KPerBlock * MRepeats)
-                             : (KPerBlock / num_input_blks * MRepeats);
+                             : (KPerBlock / inputSpansPerMfmaIn * MRepeats);
     int64_t arrayBSize = (!IsKReduction)
                              ? (KPerBlock * NRepeats)
-                             : (KPerBlock / num_input_blks * NRepeats);
+                             : (KPerBlock / inputSpansPerMfmaIn * NRepeats);
     Type arrayAType, arrayBType;
     if (KPack > 1) {
       // Should pack at least k_base elements and avoid waste xdlopsgemm
@@ -2051,7 +1980,7 @@ struct GridwiseGemmV2RewritePattern
       }
 
       // When reduction, KPerBlock must be at least num_input_blks
-      if (IsKReduction && KPerBlock < num_input_blks) {
+      if (IsKReduction && KPerBlock < inputSpansPerMfmaIn) {
         return failure();
       }
 
@@ -2068,7 +1997,7 @@ struct GridwiseGemmV2RewritePattern
       }
 
       // When reduction, KPerBlock must be at least k_base * num_input_blks
-      if (IsKReduction && KPerBlock < k_base * num_input_blks) {
+      if (IsKReduction && KPerBlock < k_base * inputSpansPerMfmaIn) {
         return failure();
       }
 
@@ -2088,7 +2017,7 @@ struct GridwiseGemmV2RewritePattern
     VectorType accumulatorVectorType =
         vectorType.cloneWith({}, accumulatorType);
     MemRefType regCAllocType = MemRefType::get(
-        numVectors, accumulatorVectorType, {},
+        nResultVectors, accumulatorVectorType, {},
         /*memorySpace=*/gpu::GPUDialect::getPrivateAddressSpace());
     Value regCAllocOp = b.create<miopen::GpuAllocOp>(loc, regCAllocType);
 
@@ -2134,12 +2063,10 @@ struct GridwiseGemmV2RewritePattern
 
     // Emit blockwise V2 GEMM.
     // The xdlops gemms take a 1D buffer because reasons
-    auto blockwiseGemmV2Op = mfmalb.create<BlockwiseGemmV2Op>(
+    mfmalb.create<BlockwiseGemmV2Op>(
         loc, ldsGpuAllocOp, ldsGpuAllocOp, b.getIndexAttr(ldsBlockAOffset),
         b.getIndexAttr(ldsBlockBOffset), mMyWaveOffsetA, mMyWaveOffsetB, arrayA,
-        arrayB, regCAllocOp);
-    affixBlockwiseGemmV2Attributes(blockwiseGemmV2Op, op, MPerBlock, KPerBlock,
-                                   NPerBlock, b);
+        arrayB, regCAllocOp, op.blockSizeAttr(), op.paramsAttr());
 
     // LDS barrier : defer the next LDS update until this round's GEMM
     // calculation is done. requires barrier only.
@@ -2173,32 +2100,27 @@ struct GridwiseGemmV2RewritePattern
     auto blockwiseGemmV2TailOp = b.create<BlockwiseGemmV2Op>(
         loc, ldsGpuAllocOp, ldsGpuAllocOp, b.getIndexAttr(ldsBlockAOffset),
         b.getIndexAttr(ldsBlockBOffset), mMyWaveOffsetA, mMyWaveOffsetB, arrayA,
-        arrayB, regCAllocOp);
-    affixBlockwiseGemmV2Attributes(blockwiseGemmV2TailOp, op, MPerBlock,
-                                   KPerBlock, NPerBlock, b);
+        arrayB, regCAllocOp, op.blockSizeAttr(), op.paramsAttr());
 
     // -----
 
     // Matrix C write out logic.
-    int64_t numBlksPerXdlops = (MPerXdlops * NPerXdlops) / (m * n);
     const auto &tailResults = blockwiseGemmV2TailOp->getResults();
-    int64_t wavesInKernelBlock = kernelBlockSize / waveSize;
+    int64_t wavesInKernelBlock = blockSize / waveSize;
 
-    int64_t numElements = regCVectorLen * numVectors;
-    TopDownTMBuilder splitMemoryCoords(
-        b, {"bid", "tid", "item"},
-        {kernelGridSize, kernelBlockSize, numElements}, loc);
+    int64_t numElements = regCVectorLen * nResultVectors;
+    TopDownTMBuilder splitMemoryCoords(b, {"bid", "tid", "item"},
+                                       {gridSize, blockSize, numElements}, loc);
     splitMemoryCoords.merge(
         {"g", "n", "m"}, {0, 1, 2}, {"bid"},
-        {kernelGridSize / GStride, GStride / MBlockWork, MBlockWork});
-    splitMemoryCoords.merge({"wave", "block", "tid_group", "tid_item"},
-                            {3, 4, 5, 6}, "tid",
-                            {wavesInKernelBlock, waveSize / num_threads_blk,
-                             num_threads_blk / group_size, group_size});
+        {gridSize / GStride, GStride / MBlockWork, MBlockWork});
     splitMemoryCoords.merge(
-        {"i", "j", "vec_group", "vec_item"}, {7, 8, 9, 10}, "item",
-        {numElements / (numBlksPerXdlops * num_groups_blk * group_size),
-         numBlksPerXdlops, num_groups_blk, group_size});
+        {"wave", "m_tid", "n_tid"}, {3, 4, 5}, "tid",
+        {wavesInKernelBlock, waveSize / inputSpanLen, inputSpanLen});
+    splitMemoryCoords.merge(
+        {"i", "j", "vec_group", "vec_item"}, {6, 7, 8, 9}, "item",
+        {numElements / (blocksPerRepeat * rowGroupsPerBlock * rowGroupSize),
+         blocksPerRepeat, rowGroupsPerBlock, rowGroupSize});
     TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
 
     // "blkMajor" and "blkMinor" are placeholder names because we don't know if
@@ -2213,19 +2135,19 @@ struct GridwiseGemmV2RewritePattern
     rowsAndColsWrap.passThrough({"g", "m", "n"});
     rowsAndColsWrap.merge({"wave_m", "wave_n"}, "wave",
                           {wavesInKernelBlock / NWaves, NWaves});
-    rowsAndColsWrap.passThrough({"block", "tid_group", "tid_item"});
+    rowsAndColsWrap.passThrough({"m_tid", "n_tid"});
     rowsAndColsWrap.merge(
         {"m_i", "n_i"}, "i",
         {splitMemoryCoords.endSize("i") / NRepeats, NRepeats});
 
     // Here we use the full builder API since we want index and name control
-    bool isABroadcast = (NPerXdlops >= MPerXdlops);
+    bool isABroadcast = (nPerRepeat >= mPerRepeat);
     SmallVector<StringRef, 2> rowsFirst = {"blk_row", "blk_col"};
     SmallVector<StringRef, 2> colsFirst = {"blk_col", "blk_row"};
     toRowsAndCols.merge(
         isABroadcast ? rowsFirst : colsFirst,
         {rowsAndColsIdxs["blkMajor"], rowsAndColsIdxs["blkMinor"]}, "j",
-        {splitMemoryCoords.endSize("j") / num_output_blks, num_output_blks});
+        {splitMemoryCoords.endSize("j") / blocksInOutRegs, blocksInOutRegs});
     toRowsAndCols.passThrough(
         {"vec_group", "vec_item"},
         {rowsAndColsIdxs["vec_group"], rowsAndColsIdxs["vec_item"]},
@@ -2238,12 +2160,11 @@ struct GridwiseGemmV2RewritePattern
 
     toMatrixC.embed(
         "gemmM", 1, M,
-        {"m", "wave_m", "block", "m_i", "blk_row", "vec_group", "vec_item"},
-        {MPerBlock, MPerWave, group_size, MPerXdlops, m,
-         num_input_blks * group_size, 1});
-    toMatrixC.embed("gemmN", 2, N,
-                    {"n", "wave_n", "tid_group", "n_i", "blk_col", "tid_item"},
-                    {NPerBlock, NPerWave, group_size, NPerXdlops, n, 1});
+        {"m", "wave_m", "m_tid", "m_i", "blk_row", "vec_group", "vec_item"},
+        {MPerBlock, MPerWave, rowGroupSize, mPerRepeat, m,
+         inputSpansPerMfmaIn * rowGroupSize, 1});
+    toMatrixC.embed("gemmN", 2, N, {"n", "wave_n", "n_i", "blk_col", "n_tid"},
+                    {NPerBlock, NPerWave, nPerRepeat, n, 1});
     TransformMapAttr toMatrixCAttr = toMatrixC.get();
 
     ArrayAttr idToMatrixCMaps = b.getArrayAttr(
@@ -2266,12 +2187,11 @@ struct GridwiseGemmV2RewritePattern
       // Add the coordinate transformations that reflect the transpose we'll be
       // doing in the emitted kernel.
       tensorCDataPerCopy = threadsWithConsecutiveElems;
-      auto indexSplit =
-          TopDownTMBuilder(b, {"bid", "tid", "iter"},
-                           {kernelGridSize, kernelBlockSize, numElements}, loc);
+      auto indexSplit = TopDownTMBuilder(
+          b, {"bid", "tid", "iter"}, {gridSize, blockSize, numElements}, loc);
       indexSplit.passThrough("bid");
       indexSplit.merge({"tid_group", "tid_item"}, {1, 2}, "tid",
-                       {kernelBlockSize / 4, 4});
+                       {blockSize / 4, 4});
       indexSplit.merge({"vec_group", "vec_item"}, {3, 4}, "iter",
                        {numElements / 4, 4});
       TransformMapAttr indexSplitAttr = indexSplit.get();
@@ -2280,7 +2200,7 @@ struct GridwiseGemmV2RewritePattern
       // recombining the coordinates.
       auto indexCombine = TopDownTMBuilder::below(indexSplit, indexSplitAttr);
       indexCombine.passThrough("bid");
-      indexCombine.embed("tid", 1, kernelBlockSize, {"tid_group", "vec_item"},
+      indexCombine.embed("tid", 1, blockSize, {"tid_group", "vec_item"},
                          {4, 1});
       indexCombine.embed("iter", 2, numElements, {"vec_group", "tid_item"},
                          {4, 1});
@@ -2292,63 +2212,9 @@ struct GridwiseGemmV2RewritePattern
       idToTensorCMaps = b.getArrayAttr(newTransforms);
     }
 
-    // Legacy vectorization usage
-    int64_t gemmCVectorizedMatrixDim =
-        op->getAttrOfType<IntegerAttr>("matrix_c_source_vector_read_dim")
-            .getInt();
-    int64_t matrixCDataPerCopy =
-        op->getAttrOfType<IntegerAttr>("matrix_c_data_per_copy").getInt();
-
-    // Determine if we need to exclude the specified vectorization
-    ArrayAttr cLeftOobCheck, cRightOobCheck;
-    ArrayAttr cTransforms = std::get<1>(untransform(b, op.c()));
-    std::tie(cLeftOobCheck, cRightOobCheck) =
-        computeOobFromTransforms(b, cTransforms);
-    bool oldCanOutOob = cLeftOobCheck.size() > 0 || cRightOobCheck.size() > 0;
-
-    // Ensure that the prerequisites are met
-    // - The N dimension of the output will be stored vectorized
-    // - The lowest level of splitting in registers is equal to swizzleGroup
-    //    so transpose is well defined
-    // - None of the larger dimensions of interest have overhangs that lead to
-    //    incomplete transposes
-    // - The writes will vectorize: if we're not getting vectorization
-    //    due to HW % swizzleGroup != 0, then there's no point
-    bool oldEnableOutSwizzles =
-        gemmCVectorizedMatrixDim == gemmCDimN &&
-        (matrixCDataPerCopy >= swizzleGroup) &&
-        (group_size == swizzleGroup && (m % swizzleGroup == 0) &&
-         (n % swizzleGroup == 0) && (MPerWave % swizzleGroup == 0) &&
-         (NPerWave % swizzleGroup == 0));
-
-    if (oldCanOutOob ||
-        (gemmCVectorizedMatrixDim == gemmCDimN && !enableOutSwizzles)) {
-      LLVM_DEBUG(
-          llvm::dbgs()
-          << "Disabling vectorization of output write. Output oob checks = "
-          << oldCanOutOob << "\n");
-      matrixCDataPerCopy = 1;
-    }
-
-    LLVM_DEBUG(llvm::dbgs()
-               << "Enable swizzles (new): " << enableOutSwizzles << "\n"
-               << "Enable swizzles (old): " << oldEnableOutSwizzles << "\n"
-               << "Data per copy (new): " << tensorCDataPerCopy << "\n"
-               << "Data per copy (old): " << matrixCDataPerCopy << "\n");
-    if ((matrixCDataPerCopy > 1) && (enableOutSwizzles != oldEnableOutSwizzles))
-      return op.emitOpError("New vectorizer swizzle enable " +
-                            Twine(enableOutSwizzles) +
-                            " disagrees with old etting " +
-                            Twine(oldEnableOutSwizzles) + " and it matters");
-    if (tensorCDataPerCopy < matrixCDataPerCopy)
-      return op.emitOpError(
-          "New vectorizer calls for " + Twine(tensorCDataPerCopy) +
-          " elements but the old one wants " + Twine(matrixCDataPerCopy));
-
     // Make the vector slice starting point jump in units of the vectorization.
     TopDownTMBuilder correctVectorCoords(
-        b, {"bid", "tid", "item"},
-        {kernelGridSize, kernelBlockSize, numElements}, loc);
+        b, {"bid", "tid", "item"}, {gridSize, blockSize, numElements}, loc);
     correctVectorCoords.ignore("bid");
     correctVectorCoords.ignore("tid");
     correctVectorCoords.passThrough({"index"}, {0}, {"item"});
@@ -2363,12 +2229,12 @@ struct GridwiseGemmV2RewritePattern
 
     if (enableOutSwizzles) {
       Value laneId = b.create<arith::RemUIOp>(loc, tid, waveSizeConstantOp);
-      for (int i = 0; i < numVectors; ++i) {
+      for (int i = 0; i < nResultVectors; ++i) {
         Value indexOp = b.createOrFold<ConstantIndexOp>(loc, i);
         Value loaded =
             b.create<memref::LoadOp>(loc, vectorType, regCAllocOp, indexOp);
         Value swizzle = b.create<InWarpTransposeOp>(
-            loc, vectorType, loaded, laneId, b.getI32IntegerAttr(group_size),
+            loc, vectorType, loaded, laneId, b.getI32IntegerAttr(rowGroupSize),
             b.getI32ArrayAttr({0, 1, 2, 3}));
         transformedTail.push_back(swizzle);
         b.create<memref::StoreOp>(loc, swizzle, regCAllocOp, indexOp);
@@ -2384,7 +2250,7 @@ struct GridwiseGemmV2RewritePattern
     Value convertedC = b.create<miopen::GpuAllocOp>(loc, convertedCType);
 
     BottomUpTMBuilder toRegCScalar(b, {"scalar"}, {numElements}, loc);
-    toRegCScalar.embed({"vector"}, {0}, {numVectors}, "scalar",
+    toRegCScalar.embed({"vector"}, {0}, {nResultVectors}, "scalar",
                        {regCVectorLen});
     TransformMapAttr toRegCScalarAttr = toRegCScalar.get();
 
@@ -2439,6 +2305,8 @@ struct GridwiseGemmV2RewritePattern
 };
 
 void MIOpenGridwiseGemmToBlockwisePass::runOnOperation() {
+  if (getOperation()->hasAttr("original_func") && !getOperation()->hasAttr("kernel")) return;
+
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
   target.addIllegalOp<miopen::GridwiseGemmOp, miopen::GridwiseGemmV2Op>();

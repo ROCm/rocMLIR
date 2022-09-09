@@ -172,29 +172,81 @@ def MIOpen_TransformMapAttr : MIOpen_Attr<"TransformMap"> {
     let genVerifyDecl = 1;
 }
 
-/// PaddingInfoAttr
-def MIOpen_PaddingInfoAttr : MIOpen_Attr<"PaddingInfo"> {
-    let mnemonic = "padding_info";
+def MIOpen_GeneralGemmParamsAttr : MIOpen_Attr<"GeneralGemmParams"> {
+  let mnemonic = "general_gemm_params";
+  let description = [{
+    The tuning parameters for a general (no special instructions) matrix
+    multiplication.
 
-    let description = [{
-        A structure packaging information about what padding has been
-        applied to the M, K, and N dimensions of a matrix multiplication,
-        as well as information about what backward padding kernel workarounds,
-        if any, will be needed.
-    }];
-    let parameters =
-    (ins
-    "int64_t":$extraM,
-    "int64_t":$extraK,
-    "int64_t":$extraN);
+    - kPerBlock: The number of values of k to process during each main loop
+      iteration within a workgroup
+    - mPerBlock: The number of values of m to process in each workgroup
+    - nPerBlock: The number of values of n to process in each workgroup
+    - kPerThread: The number of values of k to process as a unit on each thread
+    - mPerThread: The number of values of m to process as a unit on each thread
+    - nPerThread: The number of values of n to process as a unit on each thread
+    - kpack: The number of values of k to pack contiguously into the shared buffer
+    - mThreadsPerCuwave: The length of the m dimension in the grid the 16 threads
+      of a CU wave are arranged into
+    - nThreadsPerCuwave: The length of the n dimension of said thread grid
+    - mCuwavesPerBlock: The length of the m dimension of the grid the CU waves
+      composing each block is arranged in to
+    - nCuwavesPerBlock: The n dimension of said grid of CU waves
+  }];
+  let parameters = (ins
+    "int64_t":$kPerBlock,
+    "int64_t":$mPerBlock,
+    "int64_t":$nPerBlock,
+    "int64_t":$kPerThread,
+    "int64_t":$mPerThread,
+    "int64_t":$nPerThread,
+    "int64_t":$kpack,
+    "int64_t":$mThreadsPerCuwave,
+    "int64_t":$nThreadsPerCuwave,
+    "int64_t":$mCuwavesPerBlock,
+    "int64_t":$nCuwavesPerBlock
+  );
 
-    let assemblyFormat = "`<` struct($extraM, $extraK, $extraN) `>`";
-
-    let extraClassDeclaration = [{
-      bool hasPadding() {
-          return getExtraM() > 0 || getExtraK() > 0 || getExtraN() > 0;
-      }
-    }];
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
 }
 
+def MIOpen_XdlopsGemmParamsAttr : MIOpen_Attr<"XdlopsGemmParams"> {
+  let mnemonic = "xdlops_gemm_params";
+  let description = [{
+    The tuning parameters for an xdlops-based matrix multiplication.
+
+    TODO: Document these once they've settled down
+  }];
+  let parameters = (ins
+    "int64_t":$kPerBlock,
+    "int64_t":$mPerBlock,
+    "int64_t":$nPerBlock,
+    "int64_t":$kpack,
+    "int64_t":$mPerWave,
+    "int64_t":$nPerWave
+  );
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
+}
+
+def MIOpen_OptionalGemmParams : OptionalAttr<AnyAttrOf<[
+  MIOpen_GeneralGemmParamsAttr,
+  MIOpen_XdlopsGemmParamsAttr]>>;
+
+// GEMM Features
+def MIOpen_GemmFeatures_None : I32BitEnumAttrCaseNone<"none">;
+def MIOpen_GemmFeatures_Xdlops : I32BitEnumAttrCaseBit<"xdlops", 0>;
+
+def MIOpen_GemmFeatures : I32BitEnumAttr<"GemmFeatures",
+    "Features that can be enabled on GEMM-based operations",
+    [MIOpen_GemmFeatures_None, MIOpen_GemmFeatures_Xdlops]> {
+  let cppNamespace = "::mlir::miopen";
+  let genSpecializedAttr = 0;
+}
+
+def MIOpen_GemmFeaturesAttr : EnumAttr<MIOpen_Dialect, MIOpen_GemmFeatures, "GemmFeatures">;
 #endif

@@ -34,8 +34,8 @@ using namespace mlir::miopen;
 
 Conv2dGenerator::Conv2dGenerator(
     const std::string &chip, const std::string &triple,
-    const std::string &features, const std::string &perfConfig, int num_cu,
-    bool xdlops, const Optional<ConvOpType> operation,
+    const std::string &chipFeatures, const std::string &perfConfig, int num_cu,
+    GemmFeatures features, const Optional<ConvOpType> operation,
     const std::string &dataTypeStr, int dilationHeight, int dilationWidth,
     int strideHeight, int strideWidth, int paddingHeightLeft,
     int paddingHeightRight, int paddingWidthLeft, int paddingWidthRight,
@@ -43,10 +43,10 @@ Conv2dGenerator::Conv2dGenerator(
     const std::string &outputLayout, const std::string &kernelBaseName)
     : config{chip,
              triple,
-             features,
+             chipFeatures,
              perfConfig,
              num_cu,
-             xdlops,
+             features,
              operation,
              dataTypeStr,
              dilationHeight,
@@ -274,7 +274,8 @@ LogicalResult Conv2dGenerator::hasValidChip() const {
     return failure();
 
   // XDLOPS are only supported on MI-100 (gfx908) and MI-200 (gfx90a)
-  if (config.xdlops && (chipHexNumber != 0x908 && chipHexNumber != 0x90a))
+  if (bitEnumContains(config.features, GemmFeatures::xdlops) &&
+      (chipHexNumber != 0x908 && chipHexNumber != 0x90a))
     return failure();
   return success();
 }
@@ -298,7 +299,7 @@ int Conv2dGenerator::getKernelCount(OpBuilder &builder) const {
 int Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder) const {
   assert(config.operation.getValue() == ConvOpType::BwdWeight);
 
-  if (config.xdlops) {
+  if (bitEnumContains(config.features, GemmFeatures::xdlops)) {
     Type dataType = getDataType(builder);
     if (!needExtraPadBwdWeight(builder)) {
       if (dataType == builder.getF32Type()) {
@@ -360,7 +361,7 @@ bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {
   GemmContext gemmSize = GemmContext::fromConvolution(dir, convDims);
 
   bool needExtraPad = false;
-  if (!config.xdlops) {
+  if (!bitEnumContains(config.features, GemmFeatures::xdlops)) {
     PopulateParams populateParams;
     needExtraPad =
         calculatePaddingKernelSize(gemmSize, dir, dataType, populateParams)
@@ -386,7 +387,8 @@ bool Conv2dGenerator::hasWorkspace(OpBuilder &builder) const {
   if (config.operation.hasValue()) {
     Type dataType = getDataType(builder);
     ConvOpType dir = config.operation.getValue();
-    if ((dir == ConvOpType::BwdWeight) && config.xdlops &&
+    if ((dir == ConvOpType::BwdWeight) &&
+        bitEnumContains(config.features, GemmFeatures::xdlops) &&
         (dataType == builder.getF16Type())) {
       // In case we need extra padding, do not use workspace.
       result = (needExtraPadBwdWeight(builder) == false);
@@ -471,14 +473,17 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   std::string arch;
   strToStr("arch", arch);
   IsaNameSplitter splitter(arch);
-  if (failed(
-          splitter.parseIsaName(config.chip, config.triple, config.features))) {
+  if (failed(splitter.parseIsaName(config.chip, config.triple,
+                                   config.chipFeatures))) {
     return failure();
   }
 
   strToStr("perf_config", config.perfConfig);
   strToInt("num_cu", config.num_cu);
-  strToInt("x2", config.xdlops);
+  int hasXdlops = 0;
+  strToInt("x2", hasXdlops);
+  if (hasXdlops)
+    config.features = config.features | GemmFeatures::xdlops;
 
   // conv settings
   auto const op = getConvOpTypeForName(argMap["operation"]);
@@ -609,7 +614,14 @@ void Conv2dGenerator::setDataType(std::string newType) {
   config.dataTypeStr = newType;
 }
 
-void Conv2dGenerator::flipXdlops() { config.xdlops = !config.xdlops; }
+void Conv2dGenerator::flipXdlops() {
+  if (bitEnumContains(config.features, GemmFeatures::xdlops))
+    config.features =
+        static_cast<GemmFeatures>(static_cast<uint32_t>(config.features) &
+                                  ~static_cast<uint32_t>(GemmFeatures::xdlops));
+  else
+    config.features = config.features | GemmFeatures::xdlops;
+}
 
 ConvolutionDims Conv2dGenerator::getConvolutionDims() const {
   auto inDim = canonicalizeDims(config.inputDimension, config.inputLayout);
@@ -728,7 +740,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
   std::vector<NamedAttribute> attributes{
       builder.getNamedAttr("gemm_id", builder.getI32IntegerAttr(gemmId)),
       builder.getNamedAttr("arch", builder.getStringAttr(config.chip)),
-      builder.getNamedAttr("num_cu", builder.getI32IntegerAttr(config.num_cu)),
+      builder.getNamedAttr("numCu", builder.getI32IntegerAttr(config.num_cu)),
 
       builder.getNamedAttr(
           "filter_layout",
@@ -761,11 +773,9 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
                      })),
   };
 
-  // xdlops v2.
-  if (config.xdlops) {
-    attributes.push_back(
-        builder.getNamedAttr("xdlopsV2", builder.getBoolAttr(true)));
-  }
+  // features
+  attributes.push_back(builder.getNamedAttr(
+      "features", builder.getAttr<GemmFeaturesAttr>(config.features)));
 
   // perf_config
   if (!ignoreTuning && !config.perfConfig.empty()) {

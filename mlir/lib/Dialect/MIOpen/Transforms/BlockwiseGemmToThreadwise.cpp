@@ -111,16 +111,17 @@ struct BlockwiseGemmRewritePattern
     // Obtain critical attributes.
     int64_t mC = bufferCType.getShape()[0];
     int64_t nC = bufferCType.getShape()[1];
-    int64_t kPerThread = op.kPerThreadAttr().getInt();
-    int64_t mPerThread = op.mPerThreadAttr().getInt();
-    int64_t nPerThread = op.nPerThreadAttr().getInt();
+    GeneralGemmParamsAttr params = op.params();
+    int64_t kPerThread = params.getKPerThread();
+    int64_t mPerThread = params.getMPerThread();
+    int64_t nPerThread = params.getNPerThread();
 
-    int64_t mThreadsPerCuwave = op.mThreadsPerCuwaveAttr().getInt();
-    int64_t nThreadsPerCuwave = op.nThreadsPerCuwaveAttr().getInt();
+    int64_t mThreadsPerCuwave = params.getMThreadsPerCuwave();
+    int64_t nThreadsPerCuwave = params.getNThreadsPerCuwave();
     int64_t cuwaveLen = mThreadsPerCuwave * nThreadsPerCuwave;
 
-    int64_t mCuwavesPerBlock = op.mCuwavesPerBlockAttr().getInt();
-    int64_t nCuwavesPerBlock = op.nCuwavesPerBlockAttr().getInt();
+    int64_t mCuwavesPerBlock = params.getMCuwavesPerBlock();
+    int64_t nCuwavesPerBlock = params.getNCuwavesPerBlock();
     int64_t numCuwaves = mCuwavesPerBlock * nCuwavesPerBlock;
     int64_t blockSize = numCuwaves * cuwaveLen;
 
@@ -287,17 +288,13 @@ struct BlockwiseGemmV2RewritePattern
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
-    int64_t M = op->getAttr("m").template cast<IntegerAttr>().getInt();
-    int64_t N = op->getAttr("n").template cast<IntegerAttr>().getInt();
-    int64_t K = op->getAttr("k").template cast<IntegerAttr>().getInt();
-    int64_t MPerWave =
-        op->getAttr("m_per_wave").template cast<IntegerAttr>().getInt();
-    int64_t NPerWave =
-        op->getAttr("n_per_wave").template cast<IntegerAttr>().getInt();
-    int64_t KPack =
-        op->hasAttr("kpack")
-            ? op->getAttr("kpack").template cast<IntegerAttr>().getInt()
-            : 1;
+    XdlopsGemmParamsAttr tuningParams = op.params();
+    int64_t M = tuningParams.getMPerBlock();
+    int64_t N = tuningParams.getNPerBlock();
+    int64_t K = tuningParams.getKPerBlock();
+    int64_t MPerWave = tuningParams.getMPerWave();
+    int64_t NPerWave = tuningParams.getNPerWave();
+    int64_t KPack = tuningParams.getKpack();
 
     // Original C++ logic.
     // static constexpr index_t MRepeats = (GemmMPerWave > 64) ? (GemmMPerWave /
@@ -342,18 +339,14 @@ struct BlockwiseGemmV2RewritePattern
         XdlopsCodeSelection::get(dataType, MPerWave, NPerWave, b);
 
     // Extract values from XdlopsCodeSelection.
-    amdgpu::MFMAInstr mfmaInstr = xcs.instr;
-    LLVM_DEBUG(llvm::dbgs() << "Selected xdlop: "
-                            << amdgpu::stringifyMFMAInstr(mfmaInstr) << "\n");
-    SmallVector<SmallVector<unsigned, 3>, 2> imms = xcs.imms;
     Type argType = xcs.argType;
 
-    int64_t num_threads_blk = xcs.num_threads_blk;
-    int64_t num_input_blks = xcs.num_input_blks;
-    int64_t num_output_blks = xcs.num_output_blks;
+    int64_t inputSpanLen = xcs.inputSpanLen;
+    int64_t inputSpansPerMfmaIn = xcs.inputSpansPerMfmaIn;
+    int64_t blocksInOutRegs = xcs.blocksInOutRegs;
     int64_t k_base = xcs.k_base;
 
-    bool IsKReduction = (num_output_blks == 1) && (num_input_blks > 1);
+    bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
 
     if (KPack > 1 && (KPack < k_base || KPack % k_base != 0)) {
       llvm_unreachable(
@@ -396,7 +389,7 @@ struct BlockwiseGemmV2RewritePattern
     Type bufferAElementType = bufferAType.getElementType();
     Type bufferBElementType = bufferBType.getElementType();
 
-    int64_t KPerThread = IsKReduction ? K / num_input_blks : K;
+    int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
 
     if (!IsKReduction) {
 
@@ -475,10 +468,10 @@ struct BlockwiseGemmV2RewritePattern
     } else {
       // const index_t blk_id = laneId / mfma_type.num_threads_blk;
       // const index_t blk_td = laneId % mfma_type.num_threads_blk;
-      auto NumThreadsBlkConstantOp =
-          b.create<ConstantIndexOp>(loc, num_threads_blk);
-      auto blk_id = b.create<DivUIOp>(loc, laneId, NumThreadsBlkConstantOp);
-      auto blk_td = b.create<RemUIOp>(loc, laneId, NumThreadsBlkConstantOp);
+      auto inputSpanLenConstantOp =
+          b.create<ConstantIndexOp>(loc, inputSpanLen);
+      auto blk_id = b.create<DivUIOp>(loc, laneId, inputSpanLenConstantOp);
+      auto blk_td = b.create<RemUIOp>(loc, laneId, inputSpanLenConstantOp);
 
       Value kBaseA = b.create<AddIOp>(loc, aBase, blk_td);
       Value kBaseB = b.create<AddIOp>(loc, bBase, blk_td);
@@ -491,8 +484,8 @@ struct BlockwiseGemmV2RewritePattern
       // p_a_wave need to be offseted by waveOffsetA.
       // p_b_wave need to be offseted by waveOffsetB.
 
-      auto NumInputBlksConstantOp =
-          b.create<ConstantIndexOp>(loc, num_input_blks);
+      auto inputSpansPerMfmaInConstantOp =
+          b.create<ConstantIndexOp>(loc, inputSpansPerMfmaIn);
 
       auto loopKLoad = b.create<AffineForOp>(loc, 0, KPerThread);
       auto lklb = ConversionPatternRewriter::atBlockBegin(loopKLoad.getBody(),
@@ -504,7 +497,9 @@ struct BlockwiseGemmV2RewritePattern
           lklb.create<MulIOp>(
               loc,
               lklb.create<AddIOp>(
-                  loc, lklb.create<MulIOp>(loc, lkliv, NumInputBlksConstantOp),
+                  loc,
+                  lklb.create<MulIOp>(loc, lkliv,
+                                      inputSpansPerMfmaInConstantOp),
                   blk_id),
               MConstantOp),
           kBaseA);
@@ -522,7 +517,9 @@ struct BlockwiseGemmV2RewritePattern
           lklb.create<MulIOp>(
               loc,
               lklb.create<AddIOp>(
-                  loc, lklb.create<MulIOp>(loc, lkliv, NumInputBlksConstantOp),
+                  loc,
+                  lklb.create<MulIOp>(loc, lkliv,
+                                      inputSpansPerMfmaInConstantOp),
                   blk_id),
               NConstantOp),
           kBaseB);
@@ -536,19 +533,19 @@ struct BlockwiseGemmV2RewritePattern
       lklb.create<memref::StoreOp>(loc, valueB, bufferB, ValueRange{lkliv});
     }
 
+    XdlopsGemmParamsAttr threadwiseParams = tuningParams;
+    if (MRepeats > 1 || NRepeats > 1) {
+      // Hard-coded m_per_wave/n_per_wave as 64 when MRepeat>1 or NRepeat>1.
+      // So each xdlops_gemm_v2 handles a 64x64 GEMM.
+      threadwiseParams = b.getAttr<XdlopsGemmParamsAttr>(
+          tuningParams.getKPerBlock(), tuningParams.getMPerBlock(),
+          tuningParams.getNPerBlock(), tuningParams.getKpack(), /*mPerWave=*/64,
+          /*nPerWave=*/64);
+    }
     if (MRepeats == 1 && NRepeats == 1) {
-      auto xdlopsGemmV2Op = b.create<XdlopsGemmV2Op>(
-          loc, b.getIndexAttr(0), b.getIndexAttr(0), adaptor.bufferA(),
-          adaptor.bufferB(), adaptor.matrixC());
-
-      xdlopsGemmV2Op->setAttr("m", op->getAttr("m"));
-      xdlopsGemmV2Op->setAttr("n", op->getAttr("n"));
-      xdlopsGemmV2Op->setAttr("k", op->getAttr("k"));
-      xdlopsGemmV2Op->setAttr("m_per_wave", op->getAttr("m_per_wave"));
-      xdlopsGemmV2Op->setAttr("n_per_wave", op->getAttr("n_per_wave"));
-      if (op->hasAttr("kpack"))
-        xdlopsGemmV2Op->setAttr("kpack", op->getAttr("kpack"));
-
+      b.create<XdlopsGemmV2Op>(loc, b.getIndexAttr(0), b.getIndexAttr(0),
+                               adaptor.bufferA(), adaptor.bufferB(),
+                               adaptor.matrixC(), threadwiseParams);
       b.eraseOp(op);
     } else if (MRepeats == 2 && NRepeats == 1) {
       // Original C++ logic.
@@ -557,34 +554,12 @@ struct BlockwiseGemmV2RewritePattern
       // p_c_thread.s.y.l = XdlopsGemm.templateRun<M, N, K>(
       // p_a_block + MPerXdlops, p_b_block, p_c_thread.s.y.l);
 
-      auto xdlopsGemmV2Op0 = b.create<XdlopsGemmV2Op>(
-          loc, b.getIndexAttr(0), b.getIndexAttr(0), adaptor.bufferA(),
-          adaptor.bufferB(), adaptor.matrixC());
-
-      xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
-      xdlopsGemmV2Op0->setAttr("n", op->getAttr("n"));
-      xdlopsGemmV2Op0->setAttr("k", op->getAttr("k"));
-      // Hard-coded m_per_wave/n_per_wave as 64 when MRepeat>1 or NRepeat>1.
-      // So each xdlops_gemm_v2 handles a 64x64 GEMM.
-      xdlopsGemmV2Op0->setAttr("m_per_wave", b.getI32IntegerAttr(64));
-      xdlopsGemmV2Op0->setAttr("n_per_wave", b.getI32IntegerAttr(64));
-      if (op->hasAttr("kpack"))
-        xdlopsGemmV2Op0->setAttr("kpack", op->getAttr("kpack"));
-
-      auto xdlopsGemmV2Op1 = b.create<XdlopsGemmV2Op>(
+      b.create<XdlopsGemmV2Op>(loc, b.getIndexAttr(0), b.getIndexAttr(0),
+                               adaptor.bufferA(), adaptor.bufferB(),
+                               adaptor.matrixC(), threadwiseParams);
+      b.create<XdlopsGemmV2Op>(
           loc, b.getIndexAttr(KPerThread), b.getIndexAttr(0), adaptor.bufferA(),
-          adaptor.bufferB(), adaptor.matrixC());
-
-      xdlopsGemmV2Op1->setAttr("m", op->getAttr("m"));
-      xdlopsGemmV2Op1->setAttr("n", op->getAttr("n"));
-      xdlopsGemmV2Op1->setAttr("k", op->getAttr("k"));
-      // Hard-coded m_per_wave/n_per_wave as 64 when MRepeat>1 or NRepeat>1.
-      // So each xdlops_gemm_v2 handles a 64x64 GEMM.
-      xdlopsGemmV2Op1->setAttr("m_per_wave", b.getI32IntegerAttr(64));
-      xdlopsGemmV2Op1->setAttr("n_per_wave", b.getI32IntegerAttr(64));
-      if (op->hasAttr("kpack"))
-        xdlopsGemmV2Op1->setAttr("kpack", op->getAttr("kpack"));
-
+          adaptor.bufferB(), adaptor.matrixC(), threadwiseParams);
       b.eraseOp(op);
     } else if (MRepeats == 1 && NRepeats == 2) {
       // Original C++ logic.
@@ -593,34 +568,12 @@ struct BlockwiseGemmV2RewritePattern
       // p_c_thread.s.y.l = XdlopsGemm.template Run<M, N, K>(
       // p_a_block, p_b_block + NPerXdlops, p_c_thread.s.y.l);
 
-      auto xdlopsGemmV2Op0 = b.create<XdlopsGemmV2Op>(
-          loc, b.getIndexAttr(0), b.getIndexAttr(0), adaptor.bufferA(),
-          adaptor.bufferB(), adaptor.matrixC());
-
-      xdlopsGemmV2Op0->setAttr("m", op->getAttr("m"));
-      xdlopsGemmV2Op0->setAttr("n", op->getAttr("n"));
-      xdlopsGemmV2Op0->setAttr("k", op->getAttr("k"));
-      // Hard-coded m_per_wave/n_per_wave as 64 when MRepeat>1 or NRepeat>1.
-      // So each xdlops_gemm_v2 handles a 64x64 GEMM.
-      xdlopsGemmV2Op0->setAttr("m_per_wave", b.getI32IntegerAttr(64));
-      xdlopsGemmV2Op0->setAttr("n_per_wave", b.getI32IntegerAttr(64));
-      if (op->hasAttr("kpack"))
-        xdlopsGemmV2Op0->setAttr("kpack", op->getAttr("kpack"));
-
-      auto xdlopsGemmV2Op1 = b.create<XdlopsGemmV2Op>(
+      b.create<XdlopsGemmV2Op>(loc, b.getIndexAttr(0), b.getIndexAttr(0),
+                               adaptor.bufferA(), adaptor.bufferB(),
+                               adaptor.matrixC(), threadwiseParams);
+      b.create<XdlopsGemmV2Op>(
           loc, b.getIndexAttr(0), b.getIndexAttr(KPerThread), adaptor.bufferA(),
-          adaptor.bufferB(), adaptor.matrixC());
-
-      xdlopsGemmV2Op1->setAttr("m", op->getAttr("m"));
-      xdlopsGemmV2Op1->setAttr("n", op->getAttr("n"));
-      xdlopsGemmV2Op1->setAttr("k", op->getAttr("k"));
-      // Hard-coded m_per_wave/n_per_wave as 64 when MRepeat>1 or NRepeat>1.
-      // So each xdlops_gemm_v2 handles a 64x64 GEMM.
-      xdlopsGemmV2Op1->setAttr("m_per_wave", b.getI32IntegerAttr(64));
-      xdlopsGemmV2Op1->setAttr("n_per_wave", b.getI32IntegerAttr(64));
-      if (op->hasAttr("kpack"))
-        xdlopsGemmV2Op1->setAttr("kpack", op->getAttr("kpack"));
-
+          adaptor.bufferB(), adaptor.matrixC(), threadwiseParams);
       b.eraseOp(op);
     }
 

@@ -24,19 +24,19 @@ void buildMIOpen(String cmakeOpts) {
 }
 
 void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
-    git branch: 'find-MLIR', poll: false,\
+    git branch: 'rename-MLIR', poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
     buildMIOpen(cmakeOpts)
 }
 
 void buildMIOpenWithMLIR() {
-    buildProject('libMLIRMIOpen',
-                    '-DBUILD_FAT_LIBMLIRMIOPEN=ON')
-    cmake arguments: "--install . --component libMLIRMIOpen --prefix ${WORKSPACE}/MIOpenDeps",\
+    buildProject('librockCompiler',
+                    '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+    cmake arguments: "--install . --component librockCompiler --prefix ${WORKSPACE}/MIOpenDeps",\
         installation: 'InSearchPath', workingDir: 'build'
 
     dir('MIOpen') {
-        git branch: 'find-MLIR', poll: false,\
+        git branch: 'rename-MLIR', poll: false,\
             url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
         // Note: setting cxxflags here works around https://github.com/ROCmSoftwarePlatform/MIOpen/issues/1604
         buildMIOpen("""-DMIOPEN_USE_MLIR=On
@@ -64,7 +64,7 @@ String dockerArgs() {
 }
 
 String dockerImage() {
-    return 'rocm/mlir:rocm5.1-latest'
+    return 'rocm/mlir:rocm5.2-latest'
 }
 
 void preMergeCheck() {
@@ -199,6 +199,7 @@ pipeline {
                                   -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
                                   -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
                                   -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+                                  -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
                                   -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
                                   -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=1
                                   -DLLVM_LIT_ARGS='-v --time-tests'
@@ -257,6 +258,7 @@ pipeline {
                                              """-DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=0
                                              -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
                                              -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=1
+                                             -DROCK_E2E_TEST_ENABLED=1
                                              -DMLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED=1
                                              -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=0
                                              -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=0
@@ -301,7 +303,7 @@ pipeline {
                                 showEnv()
                             }
                         }
-                        stage("Build MIOpen with libMLIRMIOpen") {
+                        stage("Build MIOpen with librockCompiler") {
                             steps {
                                 buildMIOpenWithMLIR()
                             }
@@ -456,7 +458,7 @@ pipeline {
                             showEnv()
                         }
                     }
-                    stage("Build MIOpen with libMLIRMIOpen") {
+                    stage("Build MIOpen with librockCompiler") {
                         steps {
                             buildMIOpenWithMLIR()
                         }
@@ -551,7 +553,7 @@ pipeline {
                                     showEnv()
                                 }
                             }
-                            stage("Build MIOpen with libMLIRMIOpen") {
+                            stage("Build MIOpen with librockCompiler") {
                                 environment {
                                     PATH="/opt/rocm/llvm/bin:$PATH"
                                     HOME="${WORKSPACE}"
@@ -630,7 +632,7 @@ pipeline {
                         showEnv()
                     }
                 }
-                stage("Build MLIR with libMLIRMIOpen") {
+                stage("Build MLIR with librockCompiler") {
                     steps {
                         buildMIOpenWithMLIR()
                     }

@@ -16,13 +16,12 @@
 // ============================================================
 //
 // This pass converts miopen.conv2d into miopen.transform and
-// miopen.gridwise_gemm.
+// miopen.gemm.
 //
 //===-----------------------------------------------------===//
 #include "PassDetail.h"
 
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
 #include "mlir/Dialect/MIOpen/TransformMapBuilder.h"
@@ -35,7 +34,6 @@
 #include "mlir/Dialect/MIOpen/utility/math.h"
 
 #include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallSet.h"
@@ -131,42 +129,20 @@ LogicalResult getConvDimNames(T op, SmallVectorImpl<StringRef> &filterNames,
   return success();
 }
 
-void affixGridwiseGemmAttributes(Operation *convOp, Operation *gop,
-                                 OpBuilder &b) {
-  gop->setAttr("block_size", convOp->getAttr("block_size"));
-  gop->setAttr("m_per_block", convOp->getAttr("m_per_block"));
-  gop->setAttr("n_per_block", convOp->getAttr("n_per_block"));
-  gop->setAttr("k_per_block", convOp->getAttr("k_per_block"));
-  gop->setAttr("matrix_a_source_data_per_read",
-               convOp->getAttr("matrix_a_source_data_per_read"));
-  gop->setAttr("matrix_a_source_vector_read_dim",
-               convOp->getAttr("matrix_a_source_vector_read_dim"));
-  gop->setAttr("matrix_b_source_data_per_read",
-               convOp->getAttr("matrix_b_source_data_per_read"));
-  gop->setAttr("matrix_b_source_vector_read_dim",
-               convOp->getAttr("matrix_b_source_vector_read_dim"));
-  gop->setAttr("matrix_c_data_per_copy",
-               convOp->getAttr("matrix_c_data_per_copy"));
-  gop->setAttr("matrix_c_dest_vector_write_dim",
-               convOp->getAttr("matrix_c_dest_vector_write_dim"));
-  gop->setAttr("matrix_c_source_vector_read_dim",
-               convOp->getAttr("matrix_c_source_vector_read_dim"));
-
-  auto xdlopsV2Attr = convOp->getAttrOfType<BoolAttr>("xdlopsV2");
-  if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
-    gop->setAttr("m_per_wave", convOp->getAttr("m_per_wave"));
-    gop->setAttr("n_per_wave", convOp->getAttr("n_per_wave"));
-  } else {
-    gop->setAttr("m_per_thread", convOp->getAttr("m_per_thread"));
-    gop->setAttr("n_per_thread", convOp->getAttr("n_per_thread"));
-    gop->setAttr("k_per_thread", convOp->getAttr("k_per_thread"));
-    gop->setAttr("m_threads_per_cuwave",
-                 convOp->getAttr("m_threads_per_cuwave"));
-    gop->setAttr("m_cuwaves_per_block", convOp->getAttr("m_cuwaves_per_block"));
-    gop->setAttr("n_threads_per_cuwave",
-                 convOp->getAttr("n_threads_per_cuwave"));
-    gop->setAttr("n_cuwaves_per_block", convOp->getAttr("n_cuwaves_per_block"));
-  }
+// To be removed on migration to new vectorization scheme
+static void maybeSetAttr(StringRef attr, Operation *from, Operation *to) {
+  Attribute maybeValue = from->getAttr(attr);
+  if (maybeValue)
+    to->setAttr(attr, maybeValue);
+}
+void affixGemmAttributes(Operation *convOp, Operation *gop, OpBuilder &b) {
+  maybeSetAttr("matrix_a_source_data_per_read", convOp, gop);
+  maybeSetAttr("matrix_a_source_vector_read_dim", convOp, gop);
+  maybeSetAttr("matrix_b_source_data_per_read", convOp, gop);
+  maybeSetAttr("matrix_b_source_vector_read_dim", convOp, gop);
+  maybeSetAttr("matrix_c_data_per_copy", convOp, gop);
+  maybeSetAttr("matrix_c_dest_vector_write_dim", convOp, gop);
+  maybeSetAttr("matrix_c_source_vector_read_dim", convOp, gop);
 }
 
 /// Create an elementwise utility kernel.
@@ -177,7 +153,7 @@ LogicalResult createElementwiseLoop(
     OpBuilder &b, Location loc, Operation *convOp, ValueRange memrefs,
     int64_t vectorLen,
     function_ref<void(OpBuilder &, Location, ValueRange, Value)> emitBodyFunc) {
-  int64_t blockSize = convOp->getAttrOfType<IntegerAttr>("block_size").getInt();
+  uint32_t blockSize = convOp->getAttrOfType<IntegerAttr>("blockSize").getInt();
   int64_t elemsPerThread =
       convOp->getAttrOfType<IntegerAttr>("elems_per_thread").getInt();
   if (elemsPerThread % vectorLen != 0)
@@ -223,29 +199,6 @@ LogicalResult createElementwiseLoop(
   return success();
 }
 
-Value createKPackLogic(OpBuilder &b, Location loc, Value source,
-                       BottomUpTMBuilder &sourceTransform,
-                       TransformMapAttr &sourceTransformAttr, int64_t KPack) {
-  Value result = source;
-  if (KPack > 1) {
-    BottomUpTMBuilder kpackGemmTransform =
-        BottomUpTMBuilder::above(sourceTransform, sourceTransformAttr);
-
-    // Passthrough gemmG (dim 0) and gemmN (dim 2).
-    kpackGemmTransform.passThrough(sourceTransform.endName(0));
-    kpackGemmTransform.passThrough(sourceTransform.endName(2));
-    // Use Unmerge to split gemmK (dim 1) into gemmK and gemmKPack, place
-    // gemmKPack at dim 3.
-    int64_t gemmKLength = sourceTransform.endSize(1);
-    auto gemmKName = sourceTransform.endName(1);
-    kpackGemmTransform.unmerge({gemmKName, "gemmKPack"}, {1, 3}, gemmKName,
-                               {gemmKLength / KPack, KPack});
-    TransformMapAttr kpackGemmTransformAttr = kpackGemmTransform.get();
-    result = b.create<TransformOp>(loc, source, kpackGemmTransformAttr);
-  }
-  return result;
-}
-
 /// 0-initialize the output for a backward data convolution.
 /// The output is the input tensor.
 LogicalResult zeroInit(Conv2DBwdDataOp op, PatternRewriter &b) {
@@ -261,10 +214,9 @@ LogicalResult zeroInit(Conv2DBwdDataOp op, PatternRewriter &b) {
   auto loopBody = [&zeroOp, &leftOob, &rightOob](OpBuilder &b, Location loc,
                                                  ValueRange collapsed,
                                                  Value index) {
-    b.create<BufferStoreOp>(
-        loc, zeroOp, collapsed[0], leftOob, rightOob, index,
-        StoreMethodAttr::get(b.getContext(), StoreMethod::Set),
-        /*offset=*/IntegerAttr());
+    b.create<BufferStoreOp>(loc, zeroOp, collapsed[0], leftOob, rightOob, index,
+                            b.getAttr<StoreMethodAttr>(StoreMethod::Set),
+                            /*offset=*/IntegerAttr());
   };
   LogicalResult res =
       createElementwiseLoop(b, loc, op, output, kZeroInitVecLen, loopBody);
@@ -304,10 +256,9 @@ LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
   auto loopBody = [&zeroOp, &leftOob, &rightOob](OpBuilder &b, Location loc,
                                                  ValueRange collapsed,
                                                  Value index) {
-    b.create<BufferStoreOp>(
-        loc, zeroOp, collapsed[0], leftOob, rightOob, index,
-        StoreMethodAttr::get(b.getContext(), StoreMethod::Set),
-        /*offset=*/IntegerAttr());
+    b.create<BufferStoreOp>(loc, zeroOp, collapsed[0], leftOob, rightOob, index,
+                            b.getAttr<StoreMethodAttr>(StoreMethod::Set),
+                            /*offset=*/IntegerAttr());
   };
 
   LogicalResult res =
@@ -344,10 +295,9 @@ LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
         b.create<BufferLoadOp>(loc, loadType, collapsed[0], leftOob, rightOob,
                                index, /*offset=*/IntegerAttr());
     Value converted = createTypeConversionOp(b, loc, loaded, storeType);
-    b.create<BufferStoreOp>(
-        loc, converted, collapsed[1], leftOob, rightOob, index,
-        StoreMethodAttr::get(b.getContext(), StoreMethod::Set),
-        /*offset=*/IntegerAttr());
+    b.create<BufferStoreOp>(loc, converted, collapsed[1], leftOob, rightOob,
+                            index, b.getAttr<StoreMethodAttr>(StoreMethod::Set),
+                            /*offset=*/IntegerAttr());
   };
   LogicalResult res = createElementwiseLoop(b, loc, op, {workspace, filter},
                                             kConversionVectorLen, loopBody);
@@ -363,19 +313,20 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
                                       PatternRewriter &b) {
   auto loc = op.getLoc();
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
-  auto archAttr = op->template getAttrOfType<StringAttr>("arch");
-  auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
 
-  auto KPackAttr = op->template getAttrOfType<IntegerAttr>("kpack");
-  int64_t KPack = KPackAttr.getInt();
+  Attribute tuningParams = op.paramsAttr();
+  if (!tuningParams) {
+    return op.emitOpError("can't lower without tuning parameters\n");
+  }
 
-  auto KBlocksAttr = op->template getAttrOfType<IntegerAttr>("kblocks");
-  int64_t gemmKBlocks = KBlocksAttr.getInt();
+  if (!op.kBlocks().has_value())
+    return op.emitOpError("must have kBlocks set at lowering");
+  int64_t gemmKBlocks = op.kBlocks()->getZExtValue();
 
   ConvolutionContext ctx = populateConvContext(op);
 
-  auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-  bool isXdlops = (xdlopsV2Attr && xdlopsV2Attr.getValue() == true);
+  GemmFeatures features = op.features();
+  bool isXdlops = bitEnumContains(features, GemmFeatures::xdlops);
 
   // Get shape of filter tensor.
   auto filterType = op.filter().getType().template cast<MemRefType>();
@@ -384,8 +335,9 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   // Determine whether to use workspace.
   bool hasWorkspace =
       (filterType.getElementType() == b.getF16Type() && isXdlops);
-  if (hasWorkspace) {
-    assert(op.workspace() && "Op has no workspace");
+  if (hasWorkspace && !op.workspace()) {
+    return op.emitOpError(
+        "workspace needed for f16 atomic add but none provided");
   }
 
   // Emit utility kernels.
@@ -406,6 +358,9 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   }
   // The 1st kernel will conduct the actual backward weight convolution using
   // atomic adds.
+
+  if (!isXdlops)
+    return op->emitOpError("atomic add kernel requires xdlops");
 
   // Get shape of input tensor.
   auto inputType = op.input().getType().template cast<MemRefType>();
@@ -433,7 +388,6 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   }
 
   Value gemmFilter, gemmInput, gemmOutput;
-  Value gemmInputKPack, gemmOutputKPack;
   // Transform filter tensor.
   {
     SmallVector<StringRef, 5> nonKDims;
@@ -536,10 +490,6 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
 
     TransformMapAttr gemmInputTransformAttr = gemmInputTransform.get();
     gemmInput = b.create<TransformOp>(loc, embedded, gemmInputTransformAttr);
-
-    // KPack for input tensor.
-    gemmInputKPack = createKPackLogic(b, loc, gemmInput, gemmInputTransform,
-                                      gemmInputTransformAttr, KPack);
   }
 
   // Transform output tensor
@@ -568,43 +518,18 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     TransformMapAttr gemmOutputTransformAttr = gemmOutputTransform.get();
     gemmOutput =
         b.create<TransformOp>(loc, transformed, gemmOutputTransformAttr);
-
-    // KPack for output tensor.
-    gemmOutputKPack = createKPackLogic(b, loc, gemmOutput, gemmOutputTransform,
-                                       gemmOutputTransformAttr, KPack);
   }
-
-  // Set attributes for gridwise_gemm op.
-  llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
-      b.getNamedAttr("gemm_id", gemmIdAttr), b.getNamedAttr("arch", archAttr),
-      b.getNamedAttr("num_cu", numCuAttr)};
-
-  // Supply KPack information into gridwiseGemmAttrs.
-  if (KPack > 1) {
-    gridwiseGemmAttrs.push_back(
-        b.getNamedAttr("kpack", b.getI32IntegerAttr(KPack)));
-  }
-
-  // xdlopsV2.
-  if (isXdlops)
-    gridwiseGemmAttrs.push_back(
-        b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
 
   // This kernel is not run when there is padding on the GEMM
-  auto paddingInfo = PaddingInfoAttr::get(b.getContext(), 0, 0, 0);
-  auto storeMethod = StoreMethod::AtomicAdd;
+  auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::AtomicAdd);
 
-  Value gemmA = gemmOutputKPack;
-  Value gemmB = gemmInputKPack;
-  Value gemmC = gemmFilter;
-  if (isXdlops) {
-    auto gop = b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, paddingInfo,
-                                          storeMethod, gridwiseGemmAttrs);
-    affixGridwiseGemmAttributes(op, gop, b);
-  } else {
-    op->emitOpError("Backward weight atomic add kernel requires xdlops and "
-                    "shouldn't have been tried without them");
-  }
+  auto gemm = b.create<GemmOp>(
+      loc, gemmOutput, gemmInput, gemmFilter,
+      /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
+      /*cTransposed=*/nullptr, op.archAttr(), op.numCuAttr(), op.featuresAttr(),
+      storeMethod, op.blockSizeAttr(), op.gridSizeAttr(), op.paramsAttr());
+  gemm->setAttr("gemm_id", gemmIdAttr);
+  affixGemmAttributes(op, gemm, b);
 
   // Finally, erase the original Conv2D op.
   b.eraseOp(op);
@@ -613,13 +538,8 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
 }
 
 LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
-  auto loc = op.getLoc();
-  auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
-  auto archAttr = op->template getAttrOfType<StringAttr>("arch");
-  auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
-
-  auto KPackAttr = op->template getAttrOfType<IntegerAttr>("kpack");
-  int64_t KPack = KPackAttr.getInt();
+  Location loc = op.getLoc();
+  auto gemmIdAttr = op->getAttrOfType<IntegerAttr>("gemm_id");
 
   ConvolutionContext ctx = populateConvContext(op);
 
@@ -677,9 +597,6 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
       wTilda,
       math_util::integer_divide_ceil(leftPadW + convDims.wi - 1, strideW) + 1);
 
-  int64_t hTildaSlice = iHTildaRight - iHTildaLeft;
-  int64_t wTildaSlice = iWTildaRight - iWTildaLeft;
-
   int64_t gemmId = gemmIdAttr.getInt();
   // In case the actual gemm ID is -1, emit the zero initialization kernel.
   if (gemmId < 0) {
@@ -696,32 +613,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   // backward data only, it's igemm v4r1 algo
   // c is input chaneels , k is output channels
   // n is batch , yDotSlice,xDotSlice computed in above
-  int64_t gemmMSize = convDims.c;
-  int64_t gemmKSize = convDims.k * yDotSlice * xDotSlice;
-  int64_t gemmNSize = convDims.n * hTildaSlice * wTildaSlice;
-  GemmContext gemmSize(gemmMSize, gemmKSize, gemmNSize);
-  Optional<GemmContext> maybeGemmExtraPad;
-
-  bool isXdlops = false;
-  auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-  if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
-    isXdlops = true;
-
-  if (!isXdlops) {
-    PopulateParams populateParams;
-    maybeGemmExtraPad =
-        calculatePaddingKernelSize(gemmSize, obtainConvDirection(op),
-                                   obtainConvDataType(op), populateParams);
-  } else { // xdlops
-    PopulateParamsXDL populateParamsXDL;
-    maybeGemmExtraPad =
-        calculatePaddingKernelSize(gemmSize, obtainConvDirection(op),
-                                   obtainConvDataType(op), populateParamsXDL);
-  }
-  auto gemmExtraPad = maybeGemmExtraPad.getValueOr(GemmContext(0, 0, 0));
 
   Value gemmFilter, gemmInput, gemmOutput;
-  Value gemmFilterKPack, gemmOutputKPack;
   // Transform filter tensor.
   {
     // Embed y/x into {y/x}dot and {y/x}tilda (Why the
@@ -767,41 +660,11 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
     TransformMapAttr gemmFilterTransformAttr = gemmFilterTransform.get();
     gemmFilter =
         b.create<TransformOp>(loc, slicedFilter, gemmFilterTransformAttr);
-
-    // Filter padding
-    bool filterCheckPadGemmM = (gemmExtraPad.m > 0);
-    bool filterCheckPadGemmK = (gemmExtraPad.k > 0);
-    if (filterCheckPadGemmM || filterCheckPadGemmK) {
-      auto padTransform = BottomUpTMBuilder::above(gemmFilterTransform,
-                                                   gemmFilterTransformAttr);
-      padTransform.passThrough("gemmG");
-      if (filterCheckPadGemmK) {
-        padTransform.pad("gemmKPad", "gemmK", 0, gemmExtraPad.k);
-      } else {
-        padTransform.passThrough("gemmK");
-      }
-
-      if (filterCheckPadGemmM) {
-        padTransform.pad("gemmMPad", "gemmM", 0, gemmExtraPad.m);
-      } else {
-        padTransform.passThrough("gemmM");
-      }
-
-      TransformMapAttr padTransformAttr = padTransform.get();
-      // Replace filter gemm with padded version
-      gemmFilter = b.create<TransformOp>(loc, gemmFilter, padTransformAttr);
-    }
-
-    // KPack for filter tensor.
-    gemmFilterKPack = createKPackLogic(b, loc, gemmFilter, gemmFilterTransform,
-                                       gemmFilterTransformAttr, KPack);
   }
 
-  // outside its usual scope so we can look up input tensor dim order
-  // for the backwards padding kernel info
-  BottomUpTMBuilder padInputTransform(b, inputNames, inputShape, loc);
   // Transform input tensor
   {
+    BottomUpTMBuilder padInputTransform(b, inputNames, inputShape, loc);
     padInputTransform.passThrough({"gi", "ni", "ci"});
     padInputTransform.pad({"hipad", "wipad"},
                           {padInputTransform.startIndex("hi"),
@@ -856,29 +719,6 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
     gemmInput = b.create<TransformOp>(loc, sliced, gemmTransformAttr);
-
-    bool inputCheckPadGemmM = (gemmExtraPad.m > 0);
-    bool inputCheckPadGemmN = (gemmExtraPad.n > 0);
-    if (inputCheckPadGemmM || inputCheckPadGemmN) {
-      auto padTransform =
-          BottomUpTMBuilder::above(gemmTransform, gemmTransformAttr);
-      padTransform.passThrough("gemmG");
-      if (inputCheckPadGemmM) {
-        padTransform.pad("gemmMPad", "gemmM", 0, gemmExtraPad.m);
-      } else {
-        padTransform.passThrough("gemmM");
-      }
-
-      if (inputCheckPadGemmN) {
-        padTransform.pad("gemmNPad", "gemmN", 0, gemmExtraPad.n);
-      } else {
-        padTransform.passThrough("gemmN");
-      }
-
-      TransformMapAttr padTransformAttr = padTransform.get();
-      // Replace input gemm with padded version
-      gemmInput = b.create<TransformOp>(loc, gemmInput, padTransformAttr);
-    }
   }
 
   // Transform output tensor
@@ -921,68 +761,18 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
 
     TransformMapAttr gemmOutputTransformAttr = gemmOutputTransform.get();
     gemmOutput = b.create<TransformOp>(loc, sliced, gemmOutputTransformAttr);
-
-    bool outputCheckPadGemmK = (gemmExtraPad.k > 0);
-    bool outputCheckPadGemmN = (gemmExtraPad.n > 0);
-    if (outputCheckPadGemmK || outputCheckPadGemmN) {
-      auto padTransform = BottomUpTMBuilder::above(gemmOutputTransform,
-                                                   gemmOutputTransformAttr);
-      padTransform.passThrough("gemmG");
-      if (outputCheckPadGemmK) {
-        padTransform.pad("gemmKPad", "gemmK", 0, gemmExtraPad.k);
-      } else {
-        padTransform.passThrough("gemmK");
-      }
-
-      if (outputCheckPadGemmN) {
-        padTransform.pad("gemmNPad", "gemmN", 0, gemmExtraPad.n);
-      } else {
-        padTransform.passThrough("gemmN");
-      }
-
-      TransformMapAttr padTransformAttr = padTransform.get();
-      // Replace output gemm with padded version
-      gemmOutputTransformAttr = padTransformAttr;
-      gemmOutput = b.create<TransformOp>(loc, gemmOutput, padTransformAttr);
-    }
-
-    // KPack for output tensor.
-    gemmOutputKPack = createKPackLogic(b, loc, gemmOutput, gemmOutputTransform,
-                                       gemmOutputTransformAttr, KPack);
   }
 
-  // Set attributes for gridwise_gemm op.
-  llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
-      b.getNamedAttr("gemm_id", gemmIdAttr), b.getNamedAttr("arch", archAttr),
-      b.getNamedAttr("num_cu", numCuAttr)};
-  // xdlopsV2.
-  if (isXdlops)
-    gridwiseGemmAttrs.push_back(
-        b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
+  // Emit miopen.gemm op.
+  auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
+  auto gemm = b.create<GemmOp>(
+      loc, gemmFilter, gemmOutput, gemmInput,
+      /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
+      /*cTransposed=*/nullptr, op.archAttr(), op.numCuAttr(), op.featuresAttr(),
+      storeMethod, op.blockSizeAttr(), op.gridSizeAttr(), op.paramsAttr());
+  gemm->setAttr("gemm_id", gemmIdAttr);
+  affixGemmAttributes(op, gemm, b);
 
-  auto paddingInfo = PaddingInfoAttr::get(b.getContext(), gemmExtraPad.m,
-                                          gemmExtraPad.k, gemmExtraPad.n);
-
-  // Supply KPack information into gridwiseGemmAttrs.
-  if (KPack > 1) {
-    gridwiseGemmAttrs.push_back(
-        b.getNamedAttr("kpack", b.getI32IntegerAttr(KPack)));
-  }
-
-  Value gemmA = gemmFilterKPack;
-  Value gemmB = gemmOutputKPack;
-  Value gemmC = gemmInput;
-  // Emit miopen.gridwise_gemm op.
-  // Emit miopen.gridwise_gemm_v2 if using xdlops
-  if (isXdlops) {
-    auto gop = b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, paddingInfo,
-                                          StoreMethod::Set, gridwiseGemmAttrs);
-    affixGridwiseGemmAttributes(op, gop, b);
-  } else {
-    auto gop = b.create<GridwiseGemmOp>(loc, gemmA, gemmB, gemmC, paddingInfo,
-                                        gridwiseGemmAttrs);
-    affixGridwiseGemmAttributes(op, gop, b);
-  }
   // Finally, erase the original Conv2D op.
   b.eraseOp(op);
 
@@ -995,22 +785,15 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
   using OpRewritePattern<T>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
-    bool isXdlops = false;
-    auto xdlopsV2Attr = op->template getAttrOfType<BoolAttr>("xdlopsV2");
-    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true)
-      isXdlops = true;
+    GemmFeatures features = op.features();
+    bool isXdlops = bitEnumContains(features, GemmFeatures::xdlops);
+
     auto dataType =
         op.input().getType().template cast<MemRefType>().getElementType();
     if (ConvOpType::BwdData == convOpType) {
       return backwardData(cast<Conv2DBwdDataOp>(op), b);
     }
-    auto loc = op.getLoc();
-
-    auto archAttr = op->template getAttrOfType<StringAttr>("arch");
-    auto numCuAttr = op->template getAttrOfType<IntegerAttr>("num_cu");
-
-    auto KPackAttr = op->template getAttrOfType<IntegerAttr>("kpack");
-    int64_t KPack = KPackAttr.getInt();
+    Location loc = op.getLoc();
 
     ConvolutionContext ctx = populateConvContext(op);
 
@@ -1043,21 +826,18 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       return failure();
     }
 
-    // compute we should use extra padding kernel or not
-    // c,k already / g ,so we can skip / g here
+    Attribute tuningParams = op.paramsAttr();
     GemmContext gemmSize = GemmContext::fromConvolution(convOpType, convDims);
     Optional<GemmContext> maybeGemmExtraPad;
 
-    if (!isXdlops) {
-      PopulateParams populateParams;
-      maybeGemmExtraPad = calculatePaddingKernelSize(gemmSize, convOpType,
-                                                     dataType, populateParams);
-    } else { // xdlops
-      PopulateParamsXDL populateParamsXDL;
-      maybeGemmExtraPad = calculatePaddingKernelSize(
-          gemmSize, convOpType, dataType, populateParamsXDL);
+    if (tuningParams) {
+      maybeGemmExtraPad = requiredPadding(tuningParams, gemmSize);
+    } else {
+      // We don't know if this'll be a padding kernel, so we can't promise an
+      // unfold or rely on atomic add, and so set the extraPad to a nonsense but
+      // existing value.
+      maybeGemmExtraPad = GemmContext{-1, -1, -1};
     }
-
     if (ConvOpType::BwdWeight == convOpType && isXdlops &&
         (dataType == b.getF32Type() || dataType == b.getF16Type()) &&
         !maybeGemmExtraPad.hasValue()) {
@@ -1065,7 +845,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       // fp32 / fp16.
       return backwardWeightAtomicAdd(cast<Conv2DBwdWeightOp>(op), b);
     }
-    auto gemmExtraPad = maybeGemmExtraPad.getValueOr(GemmContext(0, 0, 0));
+    auto gemmExtraPad = maybeGemmExtraPad.getValueOr(GemmContext{0, 0, 0});
 
     // Transform filter tensor.
 
@@ -1112,71 +892,6 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     TransformMapAttr filterTransformAttr = filterTransform.get();
     Value gemmFilter =
         b.create<TransformOp>(loc, op.filter(), filterTransformAttr);
-
-    BottomUpTMBuilder padGemmFilterTransform = filterTransform;
-    TransformMapAttr padGemmFilterTransformAttr = filterTransformAttr;
-    Value gemmFilterPad = gemmFilter;
-
-    // filter pad start
-    // K:output channel, C:input channel,Y:filter height,X:filter width
-    // filter dim : K & merge(C,Y,X) , if C*Y*X is under 64 or 32
-    // we pad CYX to 32 or 64, then mlir can do gemm
-    // we add more one transform to do pad
-    bool filterCheckPadGemmM = false;
-    bool filterCheckPadGemmK = false;
-    bool filterCheckPadGemmN = false;
-    filterCheckPadGemmM =
-        (convOpType == ConvOpType::Fwd && gemmExtraPad.m > 0) ||
-        (convOpType == ConvOpType::BwdWeight && gemmExtraPad.m > 0);
-    filterCheckPadGemmK = (convOpType == ConvOpType::Fwd && gemmExtraPad.k > 0);
-    filterCheckPadGemmN =
-        (convOpType == ConvOpType::BwdWeight && gemmExtraPad.n > 0);
-    bool isFilterPad = false;
-    if (filterCheckPadGemmM || filterCheckPadGemmK || filterCheckPadGemmN) {
-      isFilterPad = true;
-      padGemmFilterTransform =
-          BottomUpTMBuilder::above(filterTransform, filterTransformAttr);
-      padGemmFilterTransform.passThrough("gemmG");
-
-      // Note that, when padding a gemm dimension that came from the non-K
-      // tensor dimensions, only the leading dimension is added to the oob check
-      // set, as adding all the dimensions historically led to miscompilation
-      if (filterCheckPadGemmK) {
-        padGemmFilterTransform.pad("gemmKPad", "gemmK", 0, gemmExtraPad.k);
-      } else if (convOpType != ConvOpType::BwdWeight) {
-        // Backward weight has no GemmK on its filter
-        padGemmFilterTransform.passThrough("gemmK");
-      }
-
-      if (filterCheckPadGemmM) {
-        padGemmFilterTransform.pad("gemmMPad", "gemmM", 0, gemmExtraPad.m);
-      } else {
-        padGemmFilterTransform.passThrough("gemmM");
-      }
-
-      if (filterCheckPadGemmN) {
-        padGemmFilterTransform.pad("gemmNPad", "gemmN", 0, gemmExtraPad.n);
-      } else if (convOpType != ConvOpType::Fwd) {
-        padGemmFilterTransform.passThrough("gemmN");
-      }
-
-      padGemmFilterTransformAttr = padGemmFilterTransform.get();
-      gemmFilterPad =
-          b.create<TransformOp>(loc, gemmFilter, padGemmFilterTransformAttr);
-      // filter pad end
-    }
-
-    // KPack for filter tensor.
-    Value gemmFilterKPack = gemmFilterPad;
-    if ((KPack > 1) && (convOpType == ConvOpType::Fwd)) {
-      BottomUpTMBuilder sourceTransform =
-          (isFilterPad) ? padGemmFilterTransform : filterTransform;
-      TransformMapAttr sourceTransformAttr =
-          (isFilterPad) ? padGemmFilterTransformAttr : filterTransformAttr;
-      Value source = (isFilterPad) ? gemmFilterPad : gemmFilter;
-      gemmFilterKPack = createKPackLogic(b, loc, source, sourceTransform,
-                                         sourceTransformAttr, KPack);
-    }
 
     // Transform input tensor.
     // Input tensor step 1: padded input.
@@ -1270,63 +985,6 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     Value gemmInput =
         b.create<TransformOp>(loc, embeddedInput, gemmInputTransformAttr);
 
-    BottomUpTMBuilder padGemmInputTransform = gemmInputTransform;
-    TransformMapAttr padGemmInputTransformAttr = gemmInputTransformAttr;
-    Value gemmInputPad = gemmInput;
-
-    // input padding start
-    // input : NHW & CRS , if CRS is under 64 or 32
-    // we pad CRS to 32 or 64, then mlir can do gemm
-    // we add more one transform to do pad
-
-    // input forward : gemmK,gemmN
-    // backward weights: gemmK,gemmN
-    // so we don't need to pad gemmK
-    bool inputCheckPadGemmK = false;
-    bool inputCheckPadGemmN = false;
-    inputCheckPadGemmK =
-        (convOpType == ConvOpType::Fwd && gemmExtraPad.k > 0) ||
-        (convOpType == ConvOpType::BwdWeight && gemmExtraPad.k > 0);
-    inputCheckPadGemmN =
-        (convOpType == ConvOpType::Fwd && gemmExtraPad.n > 0) ||
-        (convOpType == ConvOpType::BwdWeight && gemmExtraPad.n > 0);
-    bool isInputPad = false;
-    if (inputCheckPadGemmK || inputCheckPadGemmN) {
-      isInputPad = true;
-      padGemmInputTransform =
-          BottomUpTMBuilder::above(gemmInputTransform, gemmInputTransformAttr);
-      padGemmInputTransform.passThrough("gemmG");
-      if (inputCheckPadGemmK) {
-        padGemmInputTransform.pad("gemmKPad", "gemmK", 0, gemmExtraPad.k);
-      } else {
-        padGemmInputTransform.passThrough("gemmK");
-      }
-
-      if (inputCheckPadGemmN) {
-        padGemmInputTransform.pad("gemmNPad", "gemmN", 0, gemmExtraPad.n);
-      } else {
-        padGemmInputTransform.passThrough("gemmN");
-      }
-
-      padGemmInputTransformAttr = padGemmInputTransform.get();
-      gemmInputPad =
-          b.create<TransformOp>(loc, gemmInput, padGemmInputTransformAttr);
-      // input padding end
-    }
-
-    // KPack for input tensor.
-    Value gemmInputKPack = gemmInputPad;
-    if ((KPack > 1) && ((convOpType == ConvOpType::Fwd) ||
-                        (convOpType == ConvOpType::BwdWeight))) {
-      BottomUpTMBuilder sourceTransform =
-          (isInputPad) ? padGemmInputTransform : gemmInputTransform;
-      TransformMapAttr sourceTransformAttr =
-          (isInputPad) ? padGemmInputTransformAttr : gemmInputTransformAttr;
-      Value source = (isInputPad) ? gemmInputPad : gemmInput;
-      gemmInputKPack = createKPackLogic(b, loc, source, sourceTransform,
-                                        sourceTransformAttr, KPack);
-    }
-
     // Transform output tensor.
     // - PassThrough G to dimmension 0, name it gemmG, then
     // Output tensor transformation for Conv2DOp:
@@ -1361,117 +1019,22 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     Value gemmOutput =
         b.create<TransformOp>(loc, op.output(), outputTransformAttr);
 
-    BottomUpTMBuilder padGemmOutputTransform = outputTransform;
-    TransformMapAttr padGemmOutputTransformAttr = outputTransformAttr;
-    Value gemmOutputPad = gemmOutput;
-
-    // output padding start
-    // output matrix dim: K & NHW
-    // when backward weight , GEMMK = NHW
-    // N:batch size, H:output height ,W:output width
-    // If size of N*h*w is under 32 or 64 ,we pad it to 32 or 64
-    // then mlir can do gemm
-    // we just add more one transform to do it
-
-    bool outputCheckPadGemmK = false;
-    bool outputCheckPadGemmM = false;
-    bool outputCheckPadGemmN = false;
-    outputCheckPadGemmK =
-        (convOpType == ConvOpType::BwdWeight && gemmExtraPad.k > 0);
-    outputCheckPadGemmM =
-        (convOpType == ConvOpType::BwdWeight && gemmExtraPad.m > 0) ||
-        (convOpType == ConvOpType::Fwd && gemmExtraPad.m > 0);
-    outputCheckPadGemmN = (convOpType == ConvOpType::Fwd && gemmExtraPad.n > 0);
-    bool isOutputPad = false;
-    if (outputCheckPadGemmK || outputCheckPadGemmM || outputCheckPadGemmN) {
-      isOutputPad = true;
-      padGemmOutputTransform =
-          BottomUpTMBuilder::above(outputTransform, outputTransformAttr);
-      padGemmOutputTransform.passThrough("gemmG");
-
-      if (outputCheckPadGemmK) {
-        padGemmOutputTransform.pad("gemmKPad", "gemmK", 0, gemmExtraPad.k);
-      } else if (convOpType != ConvOpType::Fwd) {
-        padGemmOutputTransform.passThrough("gemmK");
-      }
-
-      if (outputCheckPadGemmM) {
-        padGemmOutputTransform.pad("gemmMPad", "gemmM", 0, gemmExtraPad.m);
-      } else {
-        padGemmOutputTransform.passThrough("gemmM");
-      }
-
-      if (outputCheckPadGemmN) {
-        padGemmOutputTransform.pad("gemmNPad", "gemmN", 0, gemmExtraPad.n);
-      } else if (convOpType != ConvOpType::BwdWeight) {
-        padGemmOutputTransform.passThrough("gemmN");
-      }
-
-      padGemmOutputTransformAttr = padGemmOutputTransform.get();
-      gemmOutputPad =
-          b.create<TransformOp>(loc, gemmOutput, padGemmOutputTransformAttr);
-      // output padding end
-    }
-
-    // KPack for output tensor.
-    Value gemmOutputKPack = gemmOutputPad;
-    if ((KPack > 1) && (convOpType == ConvOpType::BwdWeight)) {
-      BottomUpTMBuilder sourceTransform =
-          (isOutputPad) ? padGemmOutputTransform : outputTransform;
-      TransformMapAttr sourceTransformAttr =
-          (isOutputPad) ? padGemmOutputTransformAttr : outputTransformAttr;
-      Value source = (isOutputPad) ? gemmOutputPad : gemmOutput;
-      gemmOutputKPack = createKPackLogic(b, loc, source, sourceTransform,
-                                         sourceTransformAttr, KPack);
-    }
-
-    // Set attributes for gridwise_gemm op.
-    llvm::SmallVector<NamedAttribute, 8> gridwiseGemmAttrs{
-        b.getNamedAttr("arch", archAttr),
-        b.getNamedAttr("num_cu", numCuAttr),
-    };
-
-    // xdlopsV2.
-    if (isXdlops)
-      gridwiseGemmAttrs.push_back(
-          b.getNamedAttr("xdlopsV2", b.getBoolAttr(true)));
-
-    SmallVector<Value, 3> arguments = {gemmFilterKPack, gemmInputKPack,
-                                       gemmOutputKPack};
+    SmallVector<Value, 3> arguments = {gemmFilter, gemmInput, gemmOutput};
 
     Value gemmA, gemmB, gemmC;
     gemmA = arguments[fields.gridwiseGemmArgumentPosition[0]];
     gemmB = arguments[fields.gridwiseGemmArgumentPosition[1]];
     gemmC = arguments[fields.gridwiseGemmArgumentPosition[2]];
 
-    // Create padding info attr
-    auto paddingInfo = PaddingInfoAttr::get(b.getContext(), gemmExtraPad.m,
-                                            gemmExtraPad.k, gemmExtraPad.n);
-
-    auto storeMethod = StoreMethod::Set;
-    // Emit miopen.gridwise_gemm op.
-    // Emit miopen.gridwise_gemm_v2 if xdlopsV2 attribute is true.
-
-    // Supply KPack information into gridwiseGemmAttrs.
-    if ((KPack > 1) && ((convOpType == ConvOpType::Fwd) ||
-                        (convOpType == ConvOpType::BwdWeight))) {
-      gridwiseGemmAttrs.push_back(
-          b.getNamedAttr("kpack", b.getI32IntegerAttr(KPack)));
-    } else {
-      gridwiseGemmAttrs.push_back(
-          b.getNamedAttr("kpack", b.getI32IntegerAttr(1)));
-    }
-
-    if (xdlopsV2Attr && xdlopsV2Attr.getValue() == true) {
-      auto gop =
-          b.create<GridwiseGemmV2Op>(loc, gemmA, gemmB, gemmC, paddingInfo,
-                                     storeMethod, gridwiseGemmAttrs);
-      affixGridwiseGemmAttributes(op, gop, b);
-    } else {
-      auto gop = b.create<GridwiseGemmOp>(loc, gemmA, gemmB, gemmC, paddingInfo,
-                                          gridwiseGemmAttrs);
-      affixGridwiseGemmAttributes(op, gop, b);
-    }
+    // Emit miopen.gemm op.
+    auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
+    auto gemm = b.create<GemmOp>(
+        loc, gemmA, gemmB, gemmC,
+        /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
+        /*cTransposed=*/nullptr, op.archAttr(), op.numCuAttr(),
+        op.featuresAttr(), storeMethod, op.blockSizeAttr(), op.gridSizeAttr(),
+        tuningParams);
+    affixGemmAttributes(op, gemm, b);
 
     // Finally, erase the original Conv2D op.
     b.eraseOp(op);
@@ -1513,210 +1076,15 @@ template struct Conv2DRewritePattern<Conv2DOp>;
 template struct Conv2DRewritePattern<Conv2DBwdDataOp>;
 template struct Conv2DRewritePattern<Conv2DBwdWeightOp>;
 
-// MITPRewritePattern
-// Fold linarg.generic and memref.alloc generated by transpose op into
-// miopen.transform
-struct RemoveTrivialTransposePattern
-    : public OpRewritePattern<linalg::GenericOp> {
-  // Explicit constructor to set a higher pattern benefic than the more general
-  // pattern below.
-  explicit RemoveTrivialTransposePattern(MLIRContext *ctx)
-      : OpRewritePattern<linalg::GenericOp>(ctx, /*benefit=*/2) {}
-
-  miopen::TransformOp makeTranspose(PatternRewriter &b, Value inp,
-                                    const AffineMapAttr &inMap,
-                                    const AffineMapAttr &outMap) const {
-    AffineMap inpIdxMap = inMap.getAffineMap();
-    AffineMap outpIdxMap = outMap.getAffineMap();
-    Location loc = inp.getLoc();
-    MemRefType inpType = inp.getType().template cast<MemRefType>();
-    ArrayRef<int64_t> inpShape = inpType.getShape();
-
-    SmallVector<uint32_t, 8> endDims;
-    SmallVector<uint32_t, 8> startDims;
-    for (uint32_t i = 0, e = inpShape.size(); i < e; ++i) {
-      startDims.push_back(i);
-      uint32_t inMapped = inpIdxMap.getDimPosition(i);
-      endDims.push_back(outpIdxMap.getDimPosition(inMapped));
-    }
-    miopen::BottomUpTMBuilder transform(b, inpShape, loc);
-    transform.passThrough(endDims, startDims);
-    auto tfOp = b.create<miopen::TransformOp>(loc, inp, transform.get(),
-                                              inpType.getMemorySpaceAsInt());
-    return tfOp;
-  }
-
-  LogicalResult matchAndRewrite(linalg::GenericOp laGeneric,
-                                PatternRewriter &b) const override {
-    // 0. Test compatibility
-    // 0.0. Only fully parallel for now
-    for (StringRef itr :
-         laGeneric.iterator_types().getAsValueRange<StringAttr>()) {
-      if (itr != "parallel") {
-        return failure();
-      }
-    }
-
-    bool bPassing = false;
-    laGeneric.getRegion().walk([&](linalg::YieldOp yieldOp) {
-      Value laReturn = yieldOp->getOperand(0);
-      bPassing = (laReturn == laGeneric.getRegion().getArgument(0));
-    });
-
-    // 0.1. Test it only passes through 1:1 and no other calculation
-    if (laGeneric.inputs().size() != 1 || laGeneric.outputs().size() != 1 ||
-        !bPassing) {
-      return failure();
-    }
-
-    // 0.2. linalg.generic lowered from tosa.transpose should have memref.alloc
-    Value out = *laGeneric.outputs().begin();
-    auto allocToDel = out.getDefiningOp<memref::AllocOp>();
-    if (!allocToDel) {
-      return failure();
-    }
-
-    // get maps to construct a transforming map for the transpose
-    auto idxMaps =
-        laGeneric->template getAttrOfType<ArrayAttr>("indexing_maps");
-    AffineMapAttr inIdxMap = idxMaps[0].cast<AffineMapAttr>();
-    AffineMapAttr outIdxMap = idxMaps[1].cast<AffineMapAttr>();
-    auto tpTransform =
-        makeTranspose(b, laGeneric->getOperand(0), inIdxMap, outIdxMap);
-
-    b.replaceOp(allocToDel, {tpTransform});
-    b.eraseOp(laGeneric);
-    return success();
-  }
-};
-
-/// If there is a chain of operations that leads from `v` to
-/// a miopen.conv2d* op, return that convolution.
-static Operation *getConvUser(Value v) {
-  for (Operation *user : v.getUsers()) {
-    if (isa<Conv2DOp, Conv2DBwdDataOp, Conv2DBwdWeightOp>(user))
-      return user;
-    if (auto transform = dyn_cast<TransformOp>(user))
-      if (Operation *upstream = getConvUser(transform.output()))
-        return upstream;
-  }
-  return nullptr;
-}
-
-/// If the input to a linalg.generic is the output of a conv2d and the indexing
-/// map for that input is a non-trivial permutation of an identity, convert that
-/// indexing map to a transpose. This must happen before gridwise gemm
-/// conversion because all the transforms on the convolution output are
-/// collected at that time.
-struct FoldTransposingConvAccess : OpRewritePattern<linalg::GenericOp> {
-  using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(linalg::GenericOp laGeneric,
-                                PatternRewriter &b) const override {
-    Location loc = laGeneric->getLoc();
-    // We do this out-of-line so as to not invalidate our iterator
-    SmallVector<std::tuple<unsigned, Operation *, Value, AffineMap,
-                           SmallVector<uint32_t, 4>>>
-        toReplace;
-
-    for (OpOperand &operand : laGeneric->getOpOperands()) {
-      Value opValue = operand.get();
-      Operation *convUser = getConvUser(opValue);
-      if (!convUser)
-        continue;
-
-      for (Operation *user : opValue.getUsers()) {
-        if (isa<linalg::GenericOp>(user) && user != laGeneric) {
-          LLVM_DEBUG(llvm::dbgs() << "Multiple generics on same conv output\n");
-          return failure();
-        }
-      }
-
-      if (!isa_and_nonnull<memref::AllocOp>(opValue.getDefiningOp()))
-        continue;
-
-      AffineMap idxMap = laGeneric.getTiedIndexingMap(&operand);
-      if (idxMap.isMinorIdentityWithBroadcasting())
-        continue;
-      SmallVector<uint32_t, 4> permutation;
-      if (!idxMap.isPermutationOfMinorIdentityWithBroadcasting(permutation))
-        continue;
-
-      unsigned opIndex = operand.getOperandNumber();
-      toReplace.emplace_back(opIndex, convUser, opValue, idxMap, permutation);
-    }
-
-    // Actually do the rewrites, if any
-    for (auto &tuple : toReplace) {
-      unsigned opIndex = std::get<0>(tuple);
-      Operation *convolution = std::get<1>(tuple);
-      Value opValue = std::get<2>(tuple);
-      AffineMap idxMap = std::get<3>(tuple);
-      SmallVector<uint32_t, 4> permutation = std::get<4>(tuple);
-      LLVM_DEBUG(llvm::dbgs() << "Replacing index map with permutation ");
-      LLVM_DEBUG(llvm::interleaveComma(permutation, llvm::dbgs()));
-      LLVM_DEBUG(llvm::dbgs() << "\n");
-
-      auto allocation = cast<memref::AllocOp>(opValue.getDefiningOp());
-      // Swap out the allocation for the form it needs to take in order to
-      // eliminate the non-trivial map.
-      ArrayRef<int64_t> shape = opValue.getType().cast<MemRefType>().getShape();
-      SmallVector<int64_t, 4> newShape(shape.size(), -1LL);
-      SmallVector<uint32_t, 4> endIdentity;
-      for (uint32_t i = 0, e = shape.size(); i < e; ++i) {
-        endIdentity.push_back(i);
-        newShape[permutation[i]] = shape[i];
-      }
-
-      // All this new stuff needs to go where the old memref.alloc was
-      PatternRewriter::InsertionGuard guard(b);
-      b.setInsertionPointAfterValue(allocation);
-      auto newAllocType = allocation.getType()
-                              .cast<MemRefType>()
-                              .clone(newShape)
-                              .cast<MemRefType>();
-      Value newAlloc =
-          b.replaceOpWithNewOp<memref::AllocOp>(allocation, newAllocType);
-
-      miopen::BottomUpTMBuilder permuteMapBuilder(b, newShape, loc);
-      permuteMapBuilder.passThrough(endIdentity, permutation);
-      TransformMapAttr permuteMapAttr = permuteMapBuilder.get();
-      auto permuted =
-          b.create<miopen::TransformOp>(loc, newAlloc, permuteMapAttr);
-      llvm::SmallPtrSet<Operation *, 2> skips = {laGeneric, permuted};
-      newAlloc.replaceAllUsesExcept(permuted, skips);
-
-      // Correct indexing maps
-      AffineMap composed =
-          idxMap.compose(permuteMapAttr.getMap().getAffineMap());
-      Attribute newMaps =
-          laGeneric.indexing_maps().replaceImmediateSubAttribute(
-              {{opIndex, AffineMapAttr::get(composed)}});
-      laGeneric->setAttr(laGeneric.indexing_mapsAttrName(), newMaps);
-
-      // Correct convolution so it's not vectorized
-      // TODO(kdrewnia): Maybe be more intelligent here
-      convolution->setAttr("matrix_c_data_per_copy", b.getI32IntegerAttr(1));
-    }
-
-    return success(!toReplace.empty());
-  }
-};
-
 void MIOpenConvToGemmPass::runOnOperation() {
+  if (getOperation()->hasAttr("original_func") && !getOperation()->hasAttr("kernel")) return;
+
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
 
-  RewritePatternSet patternsTP(ctx);
-  patternsTP.add<RemoveTrivialTransposePattern, FoldTransposingConvAccess>(ctx);
-  if (failed(
-          applyPatternsAndFoldGreedily(getOperation(), std::move(patternsTP))))
-    signalPassFailure();
-
   target.addIllegalOp<miopen::Conv2DOp, miopen::Conv2DBwdDataOp,
                       miopen::Conv2DBwdWeightOp>();
-  target.addLegalOp<miopen::TransformOp, miopen::GridwiseGemmOp,
-                    miopen::GridwiseGemmV2Op, miopen::WorkgroupIdOp,
+  target.addLegalOp<miopen::TransformOp, miopen::GemmOp, miopen::WorkgroupIdOp,
                     miopen::WorkitemIdOp, miopen::BufferLoadOp,
                     miopen::BufferStoreOp>();
   // Below are required legalize for the lowering of Conv2DBwdWeightOp

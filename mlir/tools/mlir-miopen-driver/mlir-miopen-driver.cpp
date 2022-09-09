@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Analysis/CallGraph.h"
 #include "mlir/Conversion/MIOpenPasses.h"
 #include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Passes.h"
@@ -122,6 +123,73 @@ parsePipeline(StringRef pipeline, llvm::SmallDenseSet<StringRef> &pipelineSet,
   return success();
 }
 
+void postOrderTraverseInternal(
+    CallGraphNode *node, SymbolTable &symbolTable,
+    llvm::SmallDenseSet<CallGraphNode *> &calleesSeen,
+    llvm::SmallDenseMap<Operation *, Operation *> &calleesRemapped) {
+  for (auto &edge : *node) {
+    if (!calleesSeen.count(edge.getTarget()))
+      postOrderTraverseInternal(edge.getTarget(), symbolTable, calleesSeen,
+                                calleesRemapped);
+    else
+      ; // Replace callee with new callee.
+  }
+
+  auto *callableRegion = node->getCallableRegion();
+  auto *parentOp = callableRegion->getParentOp();
+
+  //   // debug printing
+  //   llvm::errs() << "'" << callableRegion->getParentOp()->getName()
+  //                << "' - Region #" << callableRegion->getRegionNumber();
+  //   auto attrs = parentOp->getAttrDictionary();
+  //   if (!attrs.empty())
+  //     llvm::errs() << " : " << attrs;
+  //   llvm::errs() << "\n";
+
+  // clone the func
+  auto *cloneFunc = parentOp->clone();
+  SymbolOpInterface cloneFuncOp = dyn_cast<SymbolOpInterface>(cloneFunc);
+  SmallString<128> nameBuffer(cloneFuncOp.getName());
+  nameBuffer += "_cloned";
+  cloneFuncOp.setName(nameBuffer);
+  cloneFunc->removeAttr("kernel");
+  cloneFunc->setAttr("original_func", SymbolRefAttr::get(parentOp));
+  parentOp->setAttr("clone_func", SymbolRefAttr::get(cloneFunc));
+
+  // add the clone into the symbol table.
+  symbolTable.insert(cloneFunc);
+
+  // update callees
+  auto *context = cloneFunc->getContext();
+  cloneFunc->walk([&](Operation *op) -> WalkResult {
+    CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
+    if (callInt) {
+      Operation *callableFromInt = callInt.resolveCallable();
+      if (callableFromInt) {
+        if (calleesRemapped.find(callableFromInt) != calleesRemapped.end()) {
+          func::FuncOp fop =
+              dyn_cast<func::FuncOp>(*calleesRemapped[callableFromInt]);
+          op->setAttr("callee",
+                      FlatSymbolRefAttr::get(context, fop.getSymName()));
+        } else {
+          // must be an external function, or a bug;  how to check?
+        }
+      }
+    }
+    return WalkResult::advance();
+  });
+  calleesRemapped[parentOp] = cloneFunc;
+  calleesSeen.insert(node);
+}
+
+void postOrderTraverse(CallGraphNode *node, SymbolTable &symbolTable) {
+  llvm::SmallDenseSet<CallGraphNode *> calleesSeen;
+  llvm::SmallDenseMap<Operation *, Operation *> calleesRemapped;
+  postOrderTraverseInternal(node, symbolTable, calleesSeen, calleesRemapped);
+}
+
+
+
 static LogicalResult runMLIRPasses(ModuleOp &module,
                                    mlir::PassPipelineCLParser &passPipeline) {
   llvm::SmallDenseSet<StringRef> kernelPipelineOptions{"applicability", "gpu",
@@ -134,11 +202,29 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   }
 
   llvm::SmallDenseSet<StringRef> hostPipelineOptions{"partition", "highlevel",
-                                                     "xmodel"};
+                                                     "xmodel", "clone"};
   llvm::SmallDenseSet<StringRef> hostPipelineSet;
   if (failed(parsePipeline(hostPipeline.getValue(), hostPipelineSet,
                            hostPipelineOptions, hostPipelineOptions))) {
     return failure();
+  }
+
+  if (hostPipelineSet.contains("clone")) {
+    CallGraph cg(module);
+    mlir::SetVector<CallGraphNode *> roots(cg.begin(), cg.end());
+    for (auto &node : roots) {
+      for (auto &edge : *node)
+        roots.remove(edge.getTarget());
+      func::FuncOp func =
+        dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
+      if (func->hasAttr("clone_func"))
+        roots.remove(node);
+    }
+
+    SymbolTable symbolTable(module);
+    for (auto &root : roots) {
+      postOrderTraverse(root, symbolTable);
+    }
   }
 
   // Run partitioning pipeline.
@@ -213,7 +299,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     if (kernelPipelineSet.contains("rocdl")) {
       // Set up the lowering pipeline which goes down to ROCDL dialect.
       pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*chipset=*/targetChip,
-                                                 /*indexBitWidth=*/32));
+                                                 /*indexBitWidth=*/32,
+                                                 /*useBarePtrCallConv=*/true));
     }
     if (kernelPipelineSet.contains("binary")) {
       // Set up the lowering pipeline which goes down to ELF Binary

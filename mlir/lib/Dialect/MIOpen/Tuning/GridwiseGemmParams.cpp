@@ -1,9 +1,12 @@
 #include "mlir/Dialect/MIOpen/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/MIOpen/MIOpen.h"
 #include "mlir/Dialect/MIOpen/Tuning/ConvContext.h"
+#include "mlir/Dialect/MIOpen/Tuning/GemmContext.h"
 #include "mlir/Dialect/MIOpen/Tuning/SqliteDb.h"
 #include "mlir/Dialect/MIOpen/utility/math.h"
 
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #define DEBUG_TYPE "miopen-tuning-parameter"
 
@@ -576,7 +579,7 @@ LogicalResult PopulateParams::populateDerived(
     ConvolutionContext &ctx, const InitParamsNonXDL &params, GemmSize &gemmSize,
     DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
     DerivedBlockGemmParams &blockGemmDerivedParam,
-    DerivedOutParams &gemmCDerivedParams, int64_t &gridSize) {
+    DerivedOutParams &gemmCDerivedParams, uint32_t &gridSize) {
 
   LogicalResult res = failure();
   res = isValidGemm(params, gemmSize);
@@ -635,7 +638,7 @@ LogicalResult PopulateParams::populatePaddingKernelDerived(
     ConvolutionContext &ctx, const InitParamsNonXDL &param, GemmSize &gemmSize,
     DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
     DerivedBlockGemmParams &blockGemmDerivedParam,
-    DerivedOutParams &gemmCDerivedParam, int64_t &gridSize) {
+    DerivedOutParams &gemmCDerivedParam, uint32_t &gridSize) {
 
   LogicalResult res = failure();
   InitParams paddingParam = getUniversalParameters();
@@ -695,11 +698,11 @@ LogicalResult PopulateParams::populatePaddingKernelDerived(
 }
 
 LogicalResult PopulateParams::obtainTuningParameters(
-    Operation *op, int64_t blockSizeOverride, const std::string &perfConfig,
+    Operation *op, uint32_t blockSizeOverride, const std::string &perfConfig,
     InitParamsNonXDL &validParams, DerivedParams &gemmADerivedParam,
     DerivedParams &gemmBDerivedParam,
     DerivedBlockGemmParams &blockGemmDerivedParam,
-    DerivedOutParams &gemmCDerivedParam, int64_t &gridSize) {
+    DerivedOutParams &gemmCDerivedParam, uint32_t &gridSize) {
 
   ConvolutionContext ctx = populateConvContext(op);
 
@@ -853,8 +856,8 @@ PopulateParamsXDL::initParametersForwardI8[
 
 const InitParams PopulateParamsXDL::universalParameters = {32, 64, 4};
 
-int64_t PopulateParamsXDL::obtainBlockSize(const InitParamsXDL &params,
-                                           int64_t waveSize) {
+uint32_t PopulateParamsXDL::obtainBlockSize(const InitParamsXDL &params,
+                                            int64_t waveSize) {
   return waveSize * params.gemmNPerBlock * params.gemmMPerBlock /
          (params.gemmMPerWave * params.gemmNPerWave);
 }
@@ -912,7 +915,7 @@ LogicalResult PopulateParamsXDL::calculateLdsNumberOfByte(
 }
 
 LogicalResult PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(
-    const InitParamsXDL &param, ConvolutionContext &ctx, int64_t blockSize) {
+    const InitParamsXDL &param, ConvolutionContext &ctx, uint32_t blockSize) {
   // TBD: support fp16/bf16
 
   auto dataType = ctx.getDataType();
@@ -1003,34 +1006,14 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(
     return failure();
   }
 
-  // TODO remove : Ignore KReduction XDLOPS path for forward and backward
-  // weight convolution now (unless int8). These M/NPerBlock combinations used
-  // to result in lowering errors at tuning. Once non-int8 types are tested,
-  // we should get rid of this limitation.
-  if (param.gemmKPack > 1 && !dataType.isInteger(8)) {
-    if ((param.gemmMPerBlock == 16 || param.gemmMPerBlock == 32 ||
-         param.gemmMPerBlock == 64) &&
-        (param.gemmNPerBlock == 16 || param.gemmNPerBlock == 32 ||
-         param.gemmNPerBlock == 64)) {
-      return failure();
-    }
-
-    if (param.gemmMPerBlock == 32 && param.gemmNPerBlock == 128) {
-      return failure();
-    }
-    if (param.gemmMPerBlock == 128 && param.gemmNPerBlock == 32) {
-      return failure();
-    }
-  }
-
   return success();
 }
 
 LogicalResult PopulateParamsXDL::populateDerived(
     ConvolutionContext &ctx, const InitParamsXDL &params, GemmSize &gemmSize,
     DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
-    DerivedOutParams &gemmCDerivedParam, int64_t &blockSize, int64_t &gridSize,
-    int64_t &gemmKBlocks) {
+    DerivedOutParams &gemmCDerivedParam, uint32_t &blockSize,
+    uint32_t &gridSize, int64_t &gemmKBlocks) {
   LogicalResult res = isValidGemm(params, gemmSize);
   if (failed(res)) {
     LLVM_DEBUG(llvm::dbgs()
@@ -1104,8 +1087,8 @@ LogicalResult PopulateParamsXDL::populateDerived(
 LogicalResult PopulateParamsXDL::populatePaddingKernelDerived(
     ConvolutionContext &ctx, const InitParamsXDL &param, GemmSize &gemmSize,
     DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
-    DerivedOutParams &gemmCDerivedParam, int64_t &blockSize,
-    int64_t &gridSize) {
+    DerivedOutParams &gemmCDerivedParam, uint32_t &blockSize,
+    uint32_t &gridSize) {
 
   LogicalResult res = failure();
   InitParams paddingParam = getUniversalParameters();
@@ -1183,10 +1166,10 @@ LogicalResult PopulateParamsXDL::isValidGridGemmXdlops(GemmSize &gemmSize) {
 }
 
 LogicalResult PopulateParamsXDL::obtainTuningParameters(
-    Operation *op, int64_t blockSizeOverride, const std::string &perfConfig,
+    Operation *op, uint32_t blockSizeOverride, const std::string &perfConfig,
     InitParamsXDL &validParams, DerivedParams &gemmADerivedParam,
     DerivedParams &gemmBDerivedParam, DerivedOutParams &gemmCDerivedParam,
-    int64_t &blockSize, int64_t &gridSize, int64_t &gemmKBlocks) {
+    uint32_t &blockSize, uint32_t &gridSize, int64_t &gemmKBlocks) {
 
   ConvolutionContext ctx = populateConvContext(op);
 
@@ -1298,4 +1281,27 @@ LogicalResult PopulateParamsXDL::isValidGemm(const InitParamsXDL &param,
     return failure();
   }
   return success();
+}
+
+Optional<GemmContext> mlir::miopen::requiredPadding(Attribute params,
+                                                    GemmContext gemmSize) {
+  int64_t kPerBlock, mPerBlock, nPerBlock;
+  if (auto generalParams = params.dyn_cast<GeneralGemmParamsAttr>()) {
+    kPerBlock = generalParams.getKPerBlock();
+    mPerBlock = generalParams.getMPerBlock();
+    nPerBlock = generalParams.getNPerBlock();
+  } else if (auto xdlopsParams = params.dyn_cast<XdlopsGemmParamsAttr>()) {
+    kPerBlock = xdlopsParams.getKPerBlock();
+    mPerBlock = xdlopsParams.getMPerBlock();
+    nPerBlock = xdlopsParams.getNPerBlock();
+  } else {
+    llvm_unreachable("The tuning paramaters are general or xdlops");
+  }
+
+  int64_t kExtra = kPerBlock - math_util::mod_1_to_n(gemmSize.k, kPerBlock);
+  int64_t mExtra = mPerBlock - math_util::mod_1_to_n(gemmSize.m, mPerBlock);
+  int64_t nExtra = nPerBlock - math_util::mod_1_to_n(gemmSize.n, nPerBlock);
+  if (mExtra == 0 && kExtra == 0 && nExtra == 0)
+    return None;
+  return GemmContext(mExtra, kExtra, nExtra);
 }

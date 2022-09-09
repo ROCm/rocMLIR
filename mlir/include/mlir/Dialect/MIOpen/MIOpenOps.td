@@ -40,14 +40,20 @@ def MIOpen_Conv2DOp :
     MIOpen_Op<"conv2d">,
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [5]>:$filter,
                    MemRefRankOf<[F32, F16, BF16, I8], [5]>:$input,
-                   MemRefRankOf<[F32, F16, BF16, I32], [5]>:$output)> {
+                   MemRefRankOf<[F32, F16, BF16, I32], [5]>:$output,
+                   StrAttr:$arch,
+                   I32Attr:$numCu,
+                   MIOpen_GemmFeaturesAttr:$features,
+                   OptionalAttr<I32Attr>:$blockSize,
+                   OptionalAttr<I32Attr>:$gridSize,
+                   MIOpen_OptionalGemmParams:$params)> {
   let summary = "2D convolution forward";
   let description = [{
     The `miopen.conv2d` op computes 2D convolution forward.
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
+    `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
   }];
 }
 
@@ -55,14 +61,20 @@ def MIOpen_Conv2DBwdDataOp :
     MIOpen_Op<"conv2d_bwd_data">,
     Arguments<(ins MemRefRankOf<[F32, F16, BF16], [5]>:$filter,
                    MemRefRankOf<[F32, F16, BF16], [5]>:$input,
-                   MemRefRankOf<[F32, F16, BF16], [5]>:$output)> {
+                   MemRefRankOf<[F32, F16, BF16], [5]>:$output,
+                   StrAttr:$arch,
+                   I32Attr:$numCu,
+                   MIOpen_GemmFeaturesAttr:$features,
+                   OptionalAttr<I32Attr>:$blockSize,
+                   OptionalAttr<I32Attr>:$gridSize,
+                   MIOpen_OptionalGemmParams:$params)> {
   let summary = "2D convolution backward data";
   let description = [{
     The `miopen.conv2d_bwd_data` op computes 2D convolution backward data.
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
+    `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
   }];
 }
 
@@ -71,14 +83,67 @@ def MIOpen_Conv2DBwdWeightOp :
     Arguments<(ins MemRefRankOf<[F32, F16, BF16], [5]>:$filter,
                    MemRefRankOf<[F32, F16, BF16], [5]>:$input,
                    MemRefRankOf<[F32, F16, BF16], [5]>:$output,
-                   Optional<MemRefRankOf<[F32], [5]>>:$workspace)> {
+                   Optional<MemRefRankOf<[F32], [5]>>:$workspace,
+                   StrAttr:$arch,
+                   I32Attr:$numCu,
+                   MIOpen_GemmFeaturesAttr:$features,
+                   OptionalAttr<I32Attr>:$blockSize,
+                   OptionalAttr<I32Attr>:$gridSize,
+                   MIOpen_OptionalGemmParams:$params,
+                   OptionalAttr<IndexAttr>:$kBlocks)> {
   let summary = "2D convolution backward weight";
   let description = [{
     The `miopen.conv2d_bwd_weight` op computes 2D convolution backward weight.
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
+    `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
+  }];
+}
+
+def MIOpen_GemmOp :
+    MIOpen_Op<"gemm", [AllElementTypesMatch<["a", "b"]>]>,
+    Arguments<(ins Arg<MemRefRankOf<[F32, F16, BF16, I8], [2, 3]>,
+                       "matrix A", [MemRead]>:$a,
+                   Arg<MemRefRankOf<[F32, F16, BF16, I8], [2, 3]>,
+                       "matrix B", [MemRead]>:$b,
+                   Arg<MemRefRankOf<[F32, F16, BF16, I32], [2, 3]>,
+                       "matrix C", [MemRead, MemWrite]>:$c,
+                   UnitAttr:$aTransposed,
+                   UnitAttr:$bTransposed,
+                   UnitAttr:$cTransposed,
+                   StrAttr:$arch,
+                   I32Attr:$numCu,
+                   MIOpen_GemmFeaturesAttr:$features,
+                   StoreMethodAttr:$storeMethod,
+                   OptionalAttr<I32Attr>:$blockSize,
+                   OptionalAttr<I32Attr>:$gridSize,
+                   MIOpen_OptionalGemmParams:$params)> {
+  let summary = "General matrix multiplication (GEMM)";
+  let description = [{
+    Performs the operation C += A * B.
+
+    If none of the `transposed` attributes are set, then A is [G] x M x K,
+    B is [G] x K x N, and C is [G] x M x N, where G is the optional group dimension
+    (which is assumed to be 1 if not set).
+
+    The transpose attributes allow for the non-group dimensions of the matrix to be
+    transposed. For example, if `aTransposed` is set, then the argument A should be
+    a [G] x K x M memory.
+
+    Those creating a `miopen.gemm` must specify the GPU architecture being targetted
+    and the number of compute units (numCu) available. The parameters
+    `blockSize`, `gridSize`, and `params` are optional as they can be inferred by
+    a tuning process or a heuristic, but they must be set before the `gemm` is
+    lowered into the `gridwise_gemm` stage of the code generation pipeline.
+
+    `features` specifies what hardware features can be used in the generated code.
+  }];
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    (`tr` $cTransposed^)? $c `=` (`tr` $aTransposed^)? $a `*` (`tr` $bTransposed^)? $b
+    `features` `=` $features `storeMethod` `=` $storeMethod attr-dict
+    `:` type($c) `=` type($a) `*` type($b)
   }];
 }
 
@@ -95,17 +160,15 @@ def MIOpen_TransformOp :
   }];
   let builders = [
    // Custom builder to populate bounds of input and output memrefs as attributes.
-   OpBuilder<(ins "Value":$input, "TransformMapAttr":$transforms,
-    CArg<"unsigned", "0">:$memorySpace),
+   OpBuilder<(ins "Value":$input, "TransformMapAttr":$transform),
    [{
      $_state.addOperands({input});
      MemRefType lowerType = input.getType().template cast<MemRefType>();
      Type elemType = lowerType.getElementType();
-     AffineMap lowerMap = lowerType.getLayout().getAffineMap();
-     AffineMap composed = lowerMap.compose(transforms.getMap().getAffineMap());
-     MemRefType upperType = MemRefType::get(transforms.getUpperBounds(), elemType,
-      composed, memorySpace);
-     $_state.addAttribute("transforms", $_builder.getArrayAttr({transforms}));
+     int memorySpace = lowerType.getMemorySpaceAsInt();
+     MemRefType upperType = MemRefType::get(transform.getUpperBounds(), elemType,
+      /*layout=*/{}, memorySpace);
+     $_state.addAttribute("transforms", $_builder.getArrayAttr({transform}));
      $_state.addTypes(upperType);
    }]>,
   ];
@@ -123,7 +186,12 @@ def MIOpen_GridwiseGemmOp :
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$a,
                    MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$b,
                    MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$c,
-                   MIOpen_PaddingInfoAttr:$paddingInfo)> {
+                   StrAttr:$arch,
+                   // Note: num_cu is not used
+                   // arch isn't either, but I'm passing it down just in case
+                   I32Attr:$blockSize,
+                   I32Attr:$gridSize,
+                   MIOpen_GeneralGemmParamsAttr:$params)> {
   let summary = "Gridwise GEMM";
   let description = [{
     The `miopen.gridwise_gemm` op computes gridwise GEMM.
@@ -131,16 +199,6 @@ def MIOpen_GridwiseGemmOp :
   let assemblyFormat = [{
     `(` operands `)` attr-dict `:` type(operands)
   }];
-
-  let builders = [
-  OpBuilder<(ins "Value":$a, "Value":$b, "Value":$c,
-    "PaddingInfoAttr":$paddingInfo, "ArrayRef<NamedAttribute>":$extraAttrs), [{
-      $_state.addOperands({a, b, c});
-      $_state.addAttribute(paddingInfoAttrName($_state.name), paddingInfo);
-      $_state.addAttributes(extraAttrs);
-      $_state.addTypes({});
-    }]>
-  ];
 }
 
 // gridwise_gemm_v2
@@ -149,8 +207,12 @@ def MIOpen_GridwiseGemmV2Op :
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$a,
                    MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$b,
                    MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$c,
-                   MIOpen_PaddingInfoAttr:$paddingInfo,
-                   StoreMethodAttr:$storeMethod)> {
+                   StoreMethodAttr:$storeMethod,
+                   StrAttr:$arch,
+                   // Note: num_cu isn't used
+                   I32Attr:$blockSize,
+                   I32Attr:$gridSize,
+                   MIOpen_XdlopsGemmParamsAttr:$params)> {
   let summary = "Gridwise GEMM V2";
   let description = [{
     The `miopen.gridwise_gemm` op computes gridwise GEMM with XDLOPS.
@@ -158,26 +220,6 @@ def MIOpen_GridwiseGemmV2Op :
   let assemblyFormat = [{
     `(` operands `)` `storeMethod` `(` $storeMethod `)` attr-dict `:` type(operands)
   }];
-
-    let builders = [
-  OpBuilder<(ins "Value":$a, "Value":$b, "Value":$c,
-    "PaddingInfoAttr":$paddingInfo, "StoreMethod":$storeMethod,
-    "ArrayRef<NamedAttribute>":$extraAttrs), [{
-      return build($_builder, $_state, a, b, c, paddingInfo,
-        StoreMethodAttr::get($_builder.getContext(), storeMethod),
-        extraAttrs);
-    }]>,
-  OpBuilder<(ins "Value":$a, "Value":$b, "Value":$c,
-    "PaddingInfoAttr":$paddingInfo, "StoreMethodAttr":$storeMethod,
-    "ArrayRef<NamedAttribute>":$extraAttrs), [{
-      $_state.addOperands({a, b, c});
-      $_state.addAttribute(paddingInfoAttrName($_state.name), paddingInfo);
-      $_state.addAttribute(storeMethodAttrName($_state.name), storeMethod);
-      $_state.addAttributes(extraAttrs);
-      $_state.addTypes({});
-    }]>
-  ];
-
 }
 
 // Memory allocation on GPU memory hierachy.
@@ -685,13 +727,7 @@ def MIOpen_BlockwiseGemmOp:
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixA,
                    MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixB,
                    MemRefRankOf<[F32, F16, BF16, I32], [2]>:$matrixC,
-                   IndexAttr:$kPerThread,
-                   IndexAttr:$mPerThread,
-                   IndexAttr:$nPerThread,
-                   IndexAttr:$mThreadsPerCuwave,
-                   IndexAttr:$nThreadsPerCuwave,
-                   IndexAttr:$mCuwavesPerBlock,
-                   IndexAttr:$nCuwavesPerBlock
+                   MIOpen_GeneralGemmParamsAttr:$params
                    )> {
   let summary = "Blockwise GEMM non-XDLOPS version";
   let description = [{
@@ -732,7 +768,9 @@ def MIOpen_BlockwiseGemmV2Op:
                              VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
                              VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$bufferB,
                    MemRefOf<[F32, F16, BF16, I32,
-                             VectorOf<[F32, F16, BF16, I32]>]>:$matrixC)>{
+                             VectorOf<[F32, F16, BF16, I32]>]>:$matrixC,
+                   I32Attr:$blockSize,
+                   MIOpen_XdlopsGemmParamsAttr:$params)>{
   let summary = "Blockwise GEMM XDLOPS version";
   let description = [{
     The `miopen.block_gemm` op does GEMM at workgroup (block) level.
@@ -745,7 +783,7 @@ def MIOpen_BlockwiseGemmV2Op:
   let assemblyFormat = [{
     $matrixC `+` `` `=` $bufferA `from` $matrixA `[` $waveOffsetA `]` `*`
                         $bufferB `from` $matrixB `[` $waveOffsetB `]` attr-dict
-    `:` type($matrixC) `+` `` `=` type($bufferA) `from` type($matrixA) `*` 
+    `:` type($matrixC) `+` `` `=` type($bufferA) `from` type($matrixA) `*`
                                   type($bufferB) `from` type($matrixB)
   }];
 }
@@ -786,7 +824,8 @@ def MIOpen_XdlopsGemmV2Op:
                              VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
                              VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$matrixB,
                    MemRefOf<[F32, F16, BF16, I32,
-                             VectorOf<[F32, F16, BF16, I32]>]>:$matrixC)>{
+                             VectorOf<[F32, F16, BF16, I32]>]>:$matrixC,
+                   MIOpen_XdlopsGemmParamsAttr:$params)> {
   let summary = "XDLOPS GEMM V2";
   let description = [{
     The `miopen.xdlops_gemm_v2` op is an abstraction of doing GEMM based on XDLOPS.
@@ -795,7 +834,7 @@ def MIOpen_XdlopsGemmV2Op:
     Matrices A and B reside in LDS, the buffers live in registers, C is a vector
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $matrixA `[` $regOffsetA `]` `*` 
+    $matrixC `+` `` `=` $matrixA `[` $regOffsetA `]` `*`
                         $matrixB  `[` $regOffsetB `]` attr-dict
     `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
   }];

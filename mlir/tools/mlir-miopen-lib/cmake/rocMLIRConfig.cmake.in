@@ -1,0 +1,2 @@
+@PACKAGE_INIT@
+include("@PACKAGE_LIB_CMAKE_DIR@/@PACKAGE_NAME@Targets.cmake")

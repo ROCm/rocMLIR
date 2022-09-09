@@ -224,4 +224,3 @@ class SubstituteCaptures:
 
     def __getitem__(self, item):
         return self.substitution.__getitem__(item)
-

@@ -15,7 +15,7 @@
 FROM rocm/mlir:rocm5.1-latest
 
 RUN apt-get update; \
-    apt-get install -y dumb-init cmake; \
+    apt-get install -y dumb-init; \
     update-alternatives --install /usr/bin/clang clang /usr/bin/clang-10 100 ;\
     update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-10 100 ;\
     update-alternatives --install /usr/bin/lld lld /usr/bin/lld-10 100

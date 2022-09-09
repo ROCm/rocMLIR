@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.15.1)
 
 # Allow VERSION for projects, as expected in CMake 3.0+
 cmake_policy(SET CMP0048 NEW)
-project(miopen-mlir VERSION 1.0.0 LANGUAGES CXX C)
+project(rocMLIR VERSION 1.0.0 LANGUAGES CXX C)
 
 # New in CMake 3.20. https://cmake.org/cmake/help/latest/policy/CMP0116.html
 if(POLICY CMP0116)
@@ -35,6 +35,7 @@ set(MLIR_MIOPEN_SQLITE_ENABLED 0 CACHE BOOL "Enable SQLite integration")
 set(MLIR_ENABLE_SQLITE "${MLIR_MIOPEN_SQLITE_ENABLED}")
 set(LLVM_ENABLE_ZLIB "OFF" CACHE STRING "")
 set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
+set(ROCK_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build rock E2E tests")
 
 # LLVM settings that have an effect on the MLIR dialect
 set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
@@ -53,15 +54,15 @@ set(CMAKE_BUILD_RPATH "${MLIR_MIOPEN_LIB_DIR};${LLVM_EXTERNAL_LIB_DIR}")
 message(STATUS "CMAKE_BUILD_RPATH: ${CMAKE_BUILD_RPATH}")
 
 if(BUILD_MIXR_TARGET)
-  set(BUILD_FAT_LIBMLIRMIOPEN ON CACHE BOOL "Build static libMLIRMIOpen")
+  set(BUILD_FAT_LIBROCKCOMPILER ON CACHE BOOL "Build static librockCompiler")
   set(EXPORT_ALL_HEADERS ON CACHE BOOL "Export internal headers")
 endif()
 
 # Library type and linkage settings
-if( NOT DEFINED BUILD_FAT_LIBMLIRMIOPEN )
-  set(BUILD_FAT_LIBMLIRMIOPEN OFF CACHE BOOL "Build fat libMLIRMIOpen to link into MIOpen driver")
+if( NOT DEFINED BUILD_FAT_LIBROCKCOMPILER )
+  set(BUILD_FAT_LIBROCKCOMPILER OFF CACHE BOOL "Build fat libMLIRMIOpen to link into MIOpen driver")
 endif()
-if( BUILD_FAT_LIBMLIRMIOPEN )
+if( BUILD_FAT_LIBROCKCOMPILER )
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
   set(LLVM_BUILD_LLVM_DYLIB OFF CACHE BOOL "")
   # rocm-runner is not supported with static libraries
@@ -75,12 +76,6 @@ else()
   set(MLIR_ENABLE_ROCM_RUNNER 1 CACHE BOOL "")
   set(MLIR_INCLUDE_INTEGRATION_TESTS ON CACHE BOOL "")
 endif()
-
-# Disable other runners
-set(MLIR_CUDA_RUNNER_ENABLED 0 CACHE BOOL "")
-set(MLIR_SPIRV_CPU_RUNNER_ENABLED 0 CACHE BOOL "")
-set(MLIR_VULKAN_RUNNER_ENABLED 0 CACHE BOOL "")
-set(MLIR_BINDINGS_PYTHON_ENABLED 0 CACHE BOOL "")
 
 # Set up the build for the LLVM/MLIR git-submodule
 include(cmake/llvm-project.cmake)

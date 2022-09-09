@@ -27,14 +27,14 @@ To build the static library that is used by MIOpen
 ```sh
 mkdir build
 cd build
-cmake -G Ninja .. -DBUILD_FAT_LIBMLIRMIOPEN -DCMAKE_BUILD_TYPE=Release
-ninja libMLIRMIOpen
+cmake -G Ninja .. -DBUILD_FAT_LIBROCKCOMPILER -DCMAKE_BUILD_TYPE=Release
+ninja librockCompiler
 ```
 
 
 and to install it so MIOpen can find it
 ```
-cmake --install . --component libMLIRMIOpen --prefix [your MIOpen deps]
+cmake --install . --component librockCompiler --prefix [your MIOpen deps]
 ```
 
 ## Standalone usage

@@ -126,7 +126,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
 
   handle->triple = config.triple;
   handle->chip = config.chip;
-  handle->features = config.features;
+  handle->features = config.chipFeatures;
 
   ModuleOp module = handle->getModule();
   OpBuilder builder(module.getContext());
