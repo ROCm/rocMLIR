@@ -2180,8 +2180,8 @@ int main(int argc, char **argv) {
       }
       // Scenario 2: We use cl::opt to initialize everything
     } else {
-      RocmDeviceName splitter(arch.getValue());
-      if (!splitter) {
+      RocmDeviceName splitter;
+      if (failed(splitter.parse(arch.getValue()))) {
         exit(1);
       }
       std::string triple = splitter.getTriple().str();

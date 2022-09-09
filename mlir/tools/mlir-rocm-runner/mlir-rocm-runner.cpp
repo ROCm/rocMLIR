@@ -115,8 +115,8 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   if (tripleName.empty() && targetChip.empty() && features.empty()) {
     std::string gcnArchName;
     getGpuGCNArchName(0, gcnArchName);
-    RocmDeviceName rocmDevice(gcnArchName);
-    if (!rocmDevice) {
+    RocmDeviceName rocmDevice;
+    if (failed(rocmDevice.parse(gcnArchName))) {
       llvm_unreachable("HIP ArchName parsing should never fail.");
     }
     tripleName = rocmDevice.getTriple().str();
