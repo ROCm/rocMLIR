@@ -472,8 +472,8 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
 
   std::string arch;
   strToStr("arch", arch);
-  RocmDeviceName splitter(arch);
-  if (!splitter) {
+  RocmDeviceName splitter;
+  if (failed(splitter.parse(arch))) {
     return failure();
   }
   config.chip = splitter.getChip().str();
