@@ -47,17 +47,18 @@ def find_mlir_build_dir() -> str:
     Finds mlir build dir searching either WORKSPACE dir
     or home dir
     """
-    miopen_opt_path = None
+    miopen_gen_path = None
     candidate_paths = [
         # if the script is run from build dir
-        Path('./bin/miopen-opt'),
+        Path('./bin/miopen-gen'),
         # if the script is run from source
-        Path(__file__).parent.parent.parent.parent / 'build' / 'bin' / 'miopen-opt'
+        Path(__file__).parent.parent.parent.parent / 'build' / 'bin' / 'miopen-gen'
     ]
     for candidate_path in candidate_paths:
         if candidate_path.exists():
-            miopen_opt_path = candidate_path
-    if not miopen_opt_path:
+            miopen_gen_path = candidate_path
+    
+    if not miopen_gen_path:
         try:
             # Prioritize the search in the current repo first.
             search_root = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
@@ -65,11 +66,15 @@ def find_mlir_build_dir() -> str:
             # Else look in the home or WORKSPACE directory
             search_root = os.environ.get('WORKSPACE', str(Path.home()))
             assert search_root, "Cant find WORKSPACE env arg or home directory"
-        miopen_opt_path = glob.glob(search_root + '/**/bin/miopen-opt', recursive=True)
-        assert len(miopen_opt_path) == 1, "Multiple paths found to contain */bin/miopen-opt"
-        miopen_opt_path = miopen_opt_path[0]
+        
+        miopen_gen_path = glob.glob(search_root + '/**/bin/miopen-gen', recursive=True)
+        if len(miopen_gen_path) == 0:
+            # MLIR miopen_gen not available
+            return None
+        assert len(miopen_gen_path) == 1, "Multiple paths found to contain */bin/miopen-gen"
+        miopen_gen_path = miopen_gen_path[0]
 
-    build_dir = Path(miopen_opt_path).parent.parent
+    build_dir = Path(miopen_gen_path).parent.parent
     return str(build_dir)
 
 
@@ -97,7 +102,7 @@ def find_miopen_build_dir() -> str:
         if len(miopen_driver_path) == 0:
             # MIOpen driver not available
             return None
-        assert len(miopen_driver_path) == 1, "Multiple paths found to contain */bin/miopen-opt"
+        assert len(miopen_driver_path) == 1, "Multiple paths found to contain */bin/MIOpenDriver"
         miopen_driver_path = miopen_driver_path[0]
 
     miopen_build_dir = Path(miopen_driver_path).parent.parent
@@ -105,27 +110,30 @@ def find_miopen_build_dir() -> str:
 
 def create_paths(mlir_build_dir_path, miopen_build_dir_path) -> Paths:
     """Creates the composite Paths structure using build dir paths"""
+    mlir_bin_dir = ''
+    mlir_lib_dir = ''
+    llvm_lib_dir = ''
+    if mlir_build_dir_path: 
+        mlir_bin_dir = str((Path(mlir_build_dir_path) / 'bin').resolve())
+        mlir_lib_dir = str((Path(mlir_build_dir_path) / 'lib').resolve())
+        llvm_lib_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/lib').resolve())
 
-    mlir_bin_dir = Path(mlir_build_dir_path) / 'bin'
-    mlir_lib_dir = Path(mlir_build_dir_path) / 'lib'
-    llvm_lib_dir = Path(mlir_build_dir_path) / 'external/llvm-project/llvm/lib'
-    configuration_dir = Path(mlir_build_dir_path) / '../mlir/utils/jenkins/miopen-tests'
-
-    miopen_driver_path = None
+    miopen_driver_path = ''
     if miopen_build_dir_path:
         miopen_driver_bin_dir = Path(miopen_build_dir_path) / 'bin'
         miopen_driver_path = str((miopen_driver_bin_dir / 'MIOpenDriver').resolve())
 
-    return Paths(
-        miopen_gen_path = str((mlir_bin_dir / 'miopen-gen').resolve()),
-        mlir_miopen_driver_path = str((mlir_bin_dir / 'mlir-miopen-driver').resolve()),
+    root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
+    configuration_dir = root_dir + '/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs'
+
+    return Paths(miopen_gen_path = mlir_bin_dir + '/miopen-gen',
+        mlir_miopen_driver_path = mlir_bin_dir + '/mlir-miopen-driver',
         miopen_driver_path = miopen_driver_path,
-        rocm_runner_path = str((mlir_bin_dir / 'mlir-rocm-runner').resolve()),
-        libmlir_rocm_runtime_path =  str((llvm_lib_dir / 'libmlir_rocm_runtime.so').resolve()),
-        libconv_validation_wrappers_path = str((mlir_lib_dir / 'libconv-validation-wrappers.so').resolve()),
-        libmlir_runtime_utils_path = str((llvm_lib_dir / 'libmlir_runner_utils.so').resolve()),
-        configuration_file_path = str((configuration_dir / 'resnet50-miopen-configs').resolve()),
-    )
+        rocm_runner_path = mlir_bin_dir + '/mlir-rocm-runner',
+        libmlir_rocm_runtime_path =  llvm_lib_dir + '/libmlir_rocm_runtime.so',
+        libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',
+        libmlir_runtime_utils_path = llvm_lib_dir + '/libmlir_runner_utils.so',
+        configuration_file_path = configuration_dir)
 
 # utility functions.
 def getConfigurations(fileName):
@@ -573,9 +581,14 @@ def main(args=None):
     )
     parsed_args, _ = parser.parse_known_args(args)
 
-    if parsed_args.miopen or parsed_args.bmiopen or parsed_args.bmiopen_use_tuned_mlir or parsed_args.bmiopen_use_untuned_mlir:
+    if parsed_args.miopen or parsed_args.bmiopen or parsed_args.bmiopen_use_tuned_mlir or \
+       parsed_args.bmiopen_use_untuned_mlir or parsed_args.tuning or len(sys.argv) == 1:
         if not parsed_args.miopen_build_dir:
             raise RuntimeError("MIOpen build dir was not provided/found where the test requires it")
+
+    if parsed_args.b or len(sys.argv) == 1:
+        if not parsed_args.mlir_build_dir:
+            raise RuntimeError("MLIR build dir was not provided/found")
 
     paths = create_paths(parsed_args.mlir_build_dir, parsed_args.miopen_build_dir)
     xdlops = is_xdlops_present()
@@ -601,6 +614,8 @@ def main(args=None):
         else:
             # Will only reach here with more than 1 unspecified arguments
             # These are arguments are directly passed through to benchmarkMLIR
+            if not parsed_args.mlir_build_dir:
+                raise RuntimeError("MLIR build dir was not provided/found")
             df = pd.DataFrame([benchmarkMLIR(sys.argv[1:], xdlops, paths)])
         df.to_csv(parsed_args.fileName)
         with pd.option_context('display.precision', reportUtils.ROUND_DIGITS):
