@@ -133,6 +133,8 @@ public:
   // inserts the necessary synchronization (as gpu.wait ops). Assumes sequential
   // execution semantics and that no GPU ops are asynchronous yet.
   void runOnOperation() override {
+    if (!getOperation()->hasAttr("kernel")) return; // +++pf: avoid later error
+
     auto walker = [this](Block *block) {
       for (Operation &op : make_early_inc_range(*block)) {
         if (failed(visit(&op)))

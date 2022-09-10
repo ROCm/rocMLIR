@@ -129,8 +129,8 @@ void postOrderTraverseInternal(
     llvm::SmallDenseMap<Operation *, Operation *> &calleesRemapped) {
   for (auto &edge : *node) {
     if (!calleesSeen.count(edge.getTarget()))
-      postOrderTraverseInternal(edge.getTarget(), symbolTable, calleesSeen,
-                                calleesRemapped);
+      postOrderTraverseInternal(edge.getTarget(), symbolTable,
+                                calleesSeen, calleesRemapped);
     else
       ; // Replace callee with new callee.
   }
@@ -148,29 +148,54 @@ void postOrderTraverseInternal(
 
   // clone the func
   auto *cloneFunc = parentOp->clone();
+//  auto *ctx = parentOp->getContext();
+//  cloneFunc->setAttr("sym_visibility", StringAttr::get(ctx, "nested"));
   SymbolOpInterface cloneFuncOp = dyn_cast<SymbolOpInterface>(cloneFunc);
   SmallString<128> nameBuffer(cloneFuncOp.getName());
   nameBuffer += "_cloned";
   cloneFuncOp.setName(nameBuffer);
+
+  // add the clone into the symbol table.
   cloneFunc->removeAttr("kernel");
+  symbolTable.insert(cloneFunc);
+
   cloneFunc->setAttr("original_func", SymbolRefAttr::get(parentOp));
   parentOp->setAttr("clone_func", SymbolRefAttr::get(cloneFunc));
 
-  // add the clone into the symbol table.
-  symbolTable.insert(cloneFunc);
-
   // update callees
-  auto *context = cloneFunc->getContext();
+//   auto *context = cloneFunc->getContext();
   cloneFunc->walk([&](Operation *op) -> WalkResult {
     CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
     if (callInt) {
       Operation *callableFromInt = callInt.resolveCallable();
       if (callableFromInt) {
-        if (calleesRemapped.find(callableFromInt) != calleesRemapped.end()) {
-          func::FuncOp fop =
-              dyn_cast<func::FuncOp>(*calleesRemapped[callableFromInt]);
+        if (callableFromInt->hasAttr("clone_func")) {
+          SymbolRefAttr attr = callableFromInt->getAttrOfType<SymbolRefAttr>("clone_func");
+//         if (calleesRemapped.find(callableFromInt) != calleesRemapped.end()) {
+//           func::FuncOp fop =
+//               dyn_cast<func::FuncOp>(*calleesRemapped[callableFromInt]);
+//          SymbolRefAttr attr = SymbolRefAttr::get(context, fop.getSymName());
           op->setAttr("callee",
-                      FlatSymbolRefAttr::get(context, fop.getSymName()));
+                      attr);
+
+
+//           llvm::errs() << "fop sym name is " << fop.getSymName() << "\n";
+//           llvm::errs() << "fop leaf ref is " << attr.getLeafReference() << "\n";
+//           CallInterfaceCallable callable = callInt.getCallableForCallee();
+//           auto callableRef = callable.get<SymbolRefAttr>();
+//           auto lookup = SymbolTable::lookupNearestSymbolFrom(op ,callableRef);
+//           llvm::errs() << "lookup is ";  lookup->dump();  llvm::errs() << "\n";
+//
+//           auto kernelModule = cloneFunc->getParentOfType<ModuleOp>();
+//           auto kernelSymbol =
+//             SymbolRefAttr::get(kernelModule.getNameAttr(),
+//                                {SymbolRefAttr::get(context, fop.getSymName())});
+//           llvm::errs() << "kernelSymbol is " << kernelSymbol.getLeafReference() << "\n";
+
+
+
+
+
         } else {
           // must be an external function, or a bug;  how to check?
         }
@@ -188,6 +213,44 @@ void postOrderTraverse(CallGraphNode *node, SymbolTable &symbolTable) {
   postOrderTraverseInternal(node, symbolTable, calleesSeen, calleesRemapped);
 }
 
+struct SelectPipelinePass : public PassWrapper<SelectPipelinePass,
+                                               OperationPass<func::FuncOp>> {
+  SelectPipelinePass() = delete;
+  SelectPipelinePass(const SelectPipelinePass &pass)
+    : PassWrapper(pass), hostPM(pass.hostPM), kernelPM(pass.kernelPM) {}
+  SelectPipelinePass(OpPassManager forHost, OpPassManager forKernel)
+    : hostPM(forHost), kernelPM(forKernel) {}
+
+  void runOnOperation() override {
+    llvm::errs() << "SelectPipelinePass\n";  getOperation()->dump();
+    llvm::errs() << "hostPM in runOnOperation\n";  hostPM.dump();
+    llvm::errs() << "kernelPM in runOnOperation\n";  kernelPM.dump();
+
+//     OpPassManager fooPM("func.func");
+//     fooPM.addPass(tosa::createTosaToMIOpenPass());
+//     llvm::errs() << "fooPM in runOnOperation\n";  fooPM.dump();
+//     if (failed(runPipeline(fooPM, getOperation())))
+//       return signalPassFailure();
+
+    // Get the current operation being operated on.
+    func::FuncOp op = getOperation();
+//     OpPassManager &pm = (op->hasAttr("kernel")) ? kernelPM : hostPM;
+//     if (failed(runPipeline(pm, op)))
+//       return signalPassFailure();
+    if (op->hasAttr("kernel")) {
+      if (failed(runPipeline(kernelPM, op)))
+        return signalPassFailure();
+    } else {
+      if (failed(runPipeline(hostPM, op)))
+        return signalPassFailure();
+    }
+
+  }
+
+private:
+  OpPassManager hostPM;
+  OpPassManager kernelPM;
+};
 
 
 static LogicalResult runMLIRPasses(ModuleOp &module,
@@ -209,6 +272,20 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     return failure();
   }
 
+  // Run partitioning pipeline.
+  if (hostPipelineSet.contains("partition")) {
+    PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
+    applyPassManagerCLOptions(pm);
+
+    miopen::PartitionOptions opts;
+    opts.cloneToMIOpenModule = !cpuOnly.getValue() && !hostPipelineSet.contains("clone");
+    miopen::buildPartitionPipeline(pm, opts);
+
+    if (failed(pm.run(module))) {
+      return failure();
+    }
+  }
+
   if (hostPipelineSet.contains("clone")) {
     CallGraph cg(module);
     mlir::SetVector<CallGraphNode *> roots(cg.begin(), cg.end());
@@ -227,35 +304,23 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     }
   }
 
-  // Run partitioning pipeline.
-  if (hostPipelineSet.contains("partition")) {
-    PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
-    applyPassManagerCLOptions(pm);
+  llvm::errs() << "module before setting up pipelines\n";  module.dump();
 
-    miopen::PartitionOptions opts;
-    opts.cloneToMIOpenModule = !cpuOnly.getValue();
-    miopen::buildPartitionPipeline(pm, opts);
+  OpPassManager hostPM("func.func", PassManager::Nesting::Implicit);
+  OpPassManager kernelPM("func.func", PassManager::Nesting::Implicit);
 
-    if (failed(pm.run(module))) {
-      return failure();
-    }
-  }
+  PassManager overallPM(module.getContext(), PassManager::Nesting::Implicit);
+  applyPassManagerCLOptions(overallPM);
 
-  // Find kernel module, defaults to top module
-  auto kernelModule =
-      module.lookupSymbol<ModuleOp>(miopen::MIOpenDialect::kKernelModuleName);
-  if (!kernelModule) {
-    kernelModule = module;
-  }
-
-  PassManager pm(kernelModule.getContext(), PassManager::Nesting::Implicit);
-  applyPassManagerCLOptions(pm);
-
-  bool isHighLevel = hostPipelineSet.contains("highlevel");
-  if (isHighLevel) {
+  if (hostPipelineSet.contains("highlevel")) {
     miopen::BufferizeOptions opts;
-    opts.disableMIOpen = cpuOnly.getValue();
-    miopen::buildBufferizePipeline(pm, opts);
+    opts.disableMIOpen = false;
+    miopen::buildBufferizePipeline(hostPM, opts);
+    opts.disableMIOpen = false;
+    miopen::buildBufferizePipeline(kernelPM, opts);
+  }
+  if (hostPipelineSet.contains("xmodel")) {
+    xmir::buildModelPipeline(hostPM);
   }
 
   // Set up lowering pipeline.
@@ -290,17 +355,17 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     if (kernelPipelineSet.contains("applicability")) {
       miopen::KernelOptions opts;
       opts.enableApplicability = true;
-      miopen::buildKernelPipeline(pm, opts);
+      miopen::buildKernelPipeline(kernelPM, opts);
     }
     if (kernelPipelineSet.contains("gpu")) {
       // Set up the default lowering pipeline which goes down to GPU dialect.
-      miopen::buildKernelPipeline(pm);
+      miopen::buildKernelPipeline(kernelPM);
     }
     if (kernelPipelineSet.contains("rocdl")) {
       // Set up the lowering pipeline which goes down to ROCDL dialect.
-      pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*chipset=*/targetChip,
-                                                 /*indexBitWidth=*/32,
-                                                 /*useBarePtrCallConv=*/true));
+      kernelPM.addPass(createLowerGpuOpsToROCDLOpsPass(/*chipset=*/targetChip,
+                                                       /*indexBitWidth=*/32,
+                                                       /*useBarePtrCallConv=*/true));
     }
     if (kernelPipelineSet.contains("binary")) {
       // Set up the lowering pipeline which goes down to ELF Binary
@@ -315,33 +380,25 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
       opts.chip = targetChip.getValue();
       opts.features = features.getValue();
       opts.optLevel = optLevel;
-      miopen::buildBackendPipeline(pm, opts);
+      miopen::buildBackendPipeline(kernelPM, opts);
     }
   } else {
     auto errorHandler = [&](const Twine &msg) {
-      emitError(UnknownLoc::get(kernelModule.getContext())) << msg;
+      emitError(UnknownLoc::get(module.getContext())) << msg;
       return failure();
     };
 
     // Use lowering pipeline specified at command line.
-    if (failed(passPipeline.addToPipeline(pm, errorHandler)))
+    if (failed(passPipeline.addToPipeline(kernelPM, errorHandler)))
       return failure();
   }
 
-  if (failed(pm.run(kernelModule))) {
+  llvm::errs() << "hostPM\n";  hostPM.dump();
+  llvm::errs() << "kernelPM\n";  kernelPM.dump();
+
+  overallPM.addPass(std::make_unique<SelectPipelinePass>(hostPM, kernelPM));
+  if (failed(overallPM.run(module))) {
     return failure();
-  }
-
-  if (isHighLevel && kernelModule != module) {
-    PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
-    applyPassManagerCLOptions(pm);
-    miopen::BufferizeOptions opts;
-    opts.disableMIOpen = true;
-    miopen::buildBufferizePipeline(pm, opts);
-
-    if (failed(pm.run(module))) {
-      return failure();
-    }
   }
 
   if (hostPipelineSet.contains("xmodel")) {
@@ -363,6 +420,7 @@ int main(int argc, char **argv) {
   test::registerTestDialect(registry);
 #endif
   MLIRContext context(registry);
+  context.disableMultithreading();
   context
       .loadDialect<miopen::MIOpenDialect, func::FuncDialect, scf::SCFDialect,
                    AffineDialect, memref::MemRefDialect, math::MathDialect,

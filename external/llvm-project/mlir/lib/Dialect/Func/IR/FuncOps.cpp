@@ -133,7 +133,7 @@ LogicalResult CallOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   FuncOp fn = symbolTable.lookupNearestSymbolFrom<FuncOp>(*this, fnAttr);
   if (!fn)
     return emitOpError() << "'" << fnAttr.getValue()
-                         << "' does not reference a valid function";
+                         << "' does not reference a valid function (foo!)";
 
   // Verify that the operand and result types match the callee.
   auto fnType = fn.getFunctionType();

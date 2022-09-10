@@ -450,46 +450,6 @@ static void correctParameters() {
   else if (inputLayoutValue.size() == 4)
     inputLayout = "g" + inputLayoutValue;
 
-#if 1
-  // we can use paddingHeight or paddingHeightLeft + paddingHeightRight
-  // if use paddingHeight , paddingHeightLeft and paddingHeightRight =
-  // paddingHeight if use paddingHeightLeft + paddingHeightRight , please
-  // assigne value
-  auto validatePadding = [](cl::opt<int>& combined, cl::opt<int>& left,
-                            cl::opt<int>& right, StringRef name) {
-    if (combined.getValue() > 0) {
-      int combinedVal = combined.getValue();
-      int leftVal = left.getValue();
-      int rightVal = right.getValue();
-      if (leftVal == 0 && rightVal == 0) {
-        left = combinedVal;
-        right = combinedVal;
-      } else {
-        if (leftVal != combinedVal || rightVal != combinedVal) {
-          llvm::errs()
-            << "you can't use both " << name << " and (" << name << "_l,"
-            << name << "_r).\n";
-        }
-      }
-    }
-  };
-
-  // we can use paddingWidth or paddingWidthLeft + paddingWidthRight
-  // if use paddingWidth , paddingWidthLeft and paddingWidthRight = paddingWidth
-  // if use paddingWidthLeft + paddingWidthRight , please assigne value
-  if (paddingWidth.getValue() > 0) {
-    if (paddingWidthLeft.getValue() == 0 && paddingWidthRight.getValue() == 0) {
-      paddingWidthLeft.setValue(paddingWidth.getValue());
-      paddingWidthRight.setValue(paddingWidth.getValue());
-    } else {
-      if (paddingWidthLeft.getValue() != paddingWidth.getValue() ||
-          paddingWidthRight.getValue() != paddingWidth.getValue()) {
-        llvm::errs()
-            << "you can't use both padding_w and (padding_w_l,padding_w_r).\n";
-      }
-    }
-  }
-#else
   auto validatePadding = [](cl::opt<int> &combined, cl::opt<int> &left,
                             cl::opt<int> &right, StringRef name) {
     if (combined.getValue() > 0) {
@@ -512,7 +472,6 @@ static void correctParameters() {
                   "padding_h");
   validatePadding(paddingWidth, paddingWidthLeft, paddingWidthRight,
                   "padding_w");
-#endif  /* 0 */
 
   // adjust the padding size
   // getOutputDim can give us correct output size
@@ -1908,11 +1867,20 @@ insertValidationCalls(const miopen::Conv2dGenerator::Config &genConfig,
     // Emit call to host_<conv>
     auto cpuConvFunc = createCPUConvFunc(module, genConfig);
     b.create<func::CallOp>(loc, cpuConvFunc, valVars);
-  } else if (0) {                            // clone
+  } else {                            // clone
     auto cloneAttr = func->getAttrOfType<SymbolRefAttr>("clone_func");
     assert(cloneAttr);
-    auto cloneFunc = module.lookupSymbol<func::FuncOp>(cloneAttr.getLeafReference());
-    b.create<func::CallOp>(loc, cloneFunc, valVars);
+//     auto cloneFunc = module.lookupSymbol<func::FuncOp>(cloneAttr.getLeafReference());
+//
+//     auto kernelModule = cloneFunc->getParentOfType<ModuleOp>();
+//     auto kernelSymbol =
+//       SymbolRefAttr::get(kernelModule.getNameAttr(),
+//                          {SymbolRefAttr::get(cloneFunc.getNameAttr())});
+//     llvm::errs() << "kernelSymbol is " << kernelSymbol.getLeafReference() << "\n";
+
+
+
+    b.create<func::CallOp>(loc, cloneAttr, TypeRange{}, valVars);
   }
 
   // Emit call to verifier
@@ -2369,7 +2337,7 @@ int main(int argc, char **argv) {
       roots.remove(edge.getTarget());
     func::FuncOp func =
       dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
-    if (func->hasAttr("clone_func"))
+    if (func->hasAttr("original_func"))
       roots.remove(node);
   }
 
