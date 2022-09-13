@@ -95,7 +95,7 @@ def MIOpenCleanMathPass : Pass<"miopen-clean-math", "::mlir::func::FuncOp"> {
   let dependentDialects = ["miopen::MIOpenDialect", "arith::ArithmeticDialect"];
 }
 
-def MIOpenLoopsToCfPass : Pass<"miopen-loops-to-cf", "::mlir::func::FuncOp"> {
+def MIOpenLoopsToCfPass : Pass<"miopen-loops-to-cf", "ModuleOp"> {
   let summary = "expand loop / affine dialects to control flow. Notice GPU dialect will explicitly NOT be used in this pass";
   let constructor = "mlir::miopen::createMIOpenLoopsToCfPass()";
   let dependentDialects = ["miopen::MIOpenDialect", "scf::SCFDialect", "AffineDialect", "func::FuncDialect", "memref::MemRefDialect"];

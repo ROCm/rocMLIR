@@ -58,6 +58,10 @@ struct MIOpenCloneKernelsPass
         auto gpuFunc = func.clone();
         gpuFunc->setAttr("original_func", SymbolRefAttr::get(func));
 
+        SmallString<128> nameBuffer(gpuFunc.getName());
+        nameBuffer += "_miopen";
+        gpuFunc.setName(nameBuffer);
+
         // add the GPUModuleOp into the symbol table.
         symbolTable.insert(gpuFunc);
 

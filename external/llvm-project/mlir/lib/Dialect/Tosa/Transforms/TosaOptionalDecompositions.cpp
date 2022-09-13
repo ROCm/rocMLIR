@@ -25,8 +25,6 @@ namespace {
 struct TosaOptionalDecompositions
     : public TosaOptionalDecompositionsBase<TosaOptionalDecompositions> {
   void runOnOperation() override {
-    llvm::errs() << "TosaOptionalDecompositions\n";
-
     auto *ctx = &getContext();
     RewritePatternSet patterns(ctx);
     auto func = getOperation();

@@ -497,8 +497,6 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
 }
 
 void MIOpenLinalgAlignPass::runOnOperation() {
-  if (getOperation()->hasAttr("original_func") && !getOperation()->hasAttr("kernel")) return;
-
   MLIRContext *ctx = &getContext();
   RewritePatternSet patterns(ctx);
   patterns.add<MILARewritePattern>(ctx);

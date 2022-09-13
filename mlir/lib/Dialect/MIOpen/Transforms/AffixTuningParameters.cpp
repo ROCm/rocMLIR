@@ -111,8 +111,6 @@ static ConvolutionDims obtainConvDims(Operation *op) {
 
 void AffixTuningParameters::runOnOperation() {
   func::FuncOp func = getOperation();
-  if (func->hasAttr("original_func") && !func->hasAttr("kernel")) return;
-
   func.walk([&](Conv2DOp op) { affixTuningParametersImpl(op); });
   func.walk([&](Conv2DBwdDataOp op) {
     affixTuningParametersImpl(op);

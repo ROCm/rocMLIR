@@ -213,45 +213,6 @@ void postOrderTraverse(CallGraphNode *node, SymbolTable &symbolTable) {
   postOrderTraverseInternal(node, symbolTable, calleesSeen, calleesRemapped);
 }
 
-struct SelectPipelinePass : public PassWrapper<SelectPipelinePass,
-                                               OperationPass<func::FuncOp>> {
-  SelectPipelinePass() = delete;
-  SelectPipelinePass(const SelectPipelinePass &pass)
-    : PassWrapper(pass), hostPM(pass.hostPM), kernelPM(pass.kernelPM) {}
-  SelectPipelinePass(OpPassManager forHost, OpPassManager forKernel)
-    : hostPM(forHost), kernelPM(forKernel) {}
-
-  void runOnOperation() override {
-    llvm::errs() << "SelectPipelinePass\n";  getOperation()->dump();
-    llvm::errs() << "hostPM in runOnOperation\n";  hostPM.dump();
-    llvm::errs() << "kernelPM in runOnOperation\n";  kernelPM.dump();
-
-//     OpPassManager fooPM("func.func");
-//     fooPM.addPass(tosa::createTosaToMIOpenPass());
-//     llvm::errs() << "fooPM in runOnOperation\n";  fooPM.dump();
-//     if (failed(runPipeline(fooPM, getOperation())))
-//       return signalPassFailure();
-
-    // Get the current operation being operated on.
-    func::FuncOp op = getOperation();
-//     OpPassManager &pm = (op->hasAttr("kernel")) ? kernelPM : hostPM;
-//     if (failed(runPipeline(pm, op)))
-//       return signalPassFailure();
-    if (op->hasAttr("kernel")) {
-      if (failed(runPipeline(kernelPM, op)))
-        return signalPassFailure();
-    } else {
-      if (failed(runPipeline(hostPM, op)))
-        return signalPassFailure();
-    }
-
-  }
-
-private:
-  OpPassManager hostPM;
-  OpPassManager kernelPM;
-};
-
 
 static LogicalResult runMLIRPasses(ModuleOp &module,
                                    mlir::PassPipelineCLParser &passPipeline) {
@@ -278,7 +239,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     applyPassManagerCLOptions(pm);
 
     miopen::PartitionOptions opts;
-    opts.cloneToMIOpenModule = !cpuOnly.getValue() && !hostPipelineSet.contains("clone");
+    opts.cloneToMIOpenModule = !cpuOnly.getValue() /*&& !hostPipelineSet.contains("clone")*/;
     miopen::buildPartitionPipeline(pm, opts);
 
     if (failed(pm.run(module))) {
@@ -304,23 +265,20 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     }
   }
 
-  llvm::errs() << "module before setting up pipelines\n";  module.dump();
-
-  OpPassManager hostPM("func.func", PassManager::Nesting::Implicit);
-  OpPassManager kernelPM("func.func", PassManager::Nesting::Implicit);
-
-  PassManager overallPM(module.getContext(), PassManager::Nesting::Implicit);
-  applyPassManagerCLOptions(overallPM);
-
-  if (hostPipelineSet.contains("highlevel")) {
-    miopen::BufferizeOptions opts;
-    opts.disableMIOpen = false;
-    miopen::buildBufferizePipeline(hostPM, opts);
-    opts.disableMIOpen = false;
-    miopen::buildBufferizePipeline(kernelPM, opts);
+  // Find kernel module, defaults to top module
+  auto kernelModule =
+      module.lookupSymbol<ModuleOp>(miopen::MIOpenDialect::kKernelModuleName);
+  if (!kernelModule) {
+    kernelModule = module;
   }
-  if (hostPipelineSet.contains("xmodel")) {
-    xmir::buildModelPipeline(hostPM);
+
+  PassManager pm(kernelModule.getContext(), PassManager::Nesting::Implicit);
+  applyPassManagerCLOptions(pm);
+  bool isHighLevel = hostPipelineSet.contains("highlevel");
+  if (isHighLevel) {
+    miopen::BufferizeOptions opts;
+    opts.disableMIOpen = cpuOnly.getValue();
+    miopen::buildBufferizePipeline(pm, opts);
   }
 
   // Set up lowering pipeline.
@@ -355,15 +313,15 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     if (kernelPipelineSet.contains("applicability")) {
       miopen::KernelOptions opts;
       opts.enableApplicability = true;
-      miopen::buildKernelPipeline(kernelPM, opts);
+      miopen::buildKernelPipeline(pm, opts);
     }
     if (kernelPipelineSet.contains("gpu")) {
       // Set up the default lowering pipeline which goes down to GPU dialect.
-      miopen::buildKernelPipeline(kernelPM);
+      miopen::buildKernelPipeline(pm);
     }
     if (kernelPipelineSet.contains("rocdl")) {
       // Set up the lowering pipeline which goes down to ROCDL dialect.
-      kernelPM.addPass(createLowerGpuOpsToROCDLOpsPass(/*chipset=*/targetChip,
+      pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*chipset=*/targetChip,
                                                        /*indexBitWidth=*/32,
                                                        /*useBarePtrCallConv=*/true));
     }
@@ -380,25 +338,33 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
       opts.chip = targetChip.getValue();
       opts.features = features.getValue();
       opts.optLevel = optLevel;
-      miopen::buildBackendPipeline(kernelPM, opts);
+      miopen::buildBackendPipeline(pm, opts);
     }
   } else {
     auto errorHandler = [&](const Twine &msg) {
-      emitError(UnknownLoc::get(module.getContext())) << msg;
+      emitError(UnknownLoc::get(kernelModule.getContext())) << msg;
       return failure();
     };
 
     // Use lowering pipeline specified at command line.
-    if (failed(passPipeline.addToPipeline(kernelPM, errorHandler)))
+    if (failed(passPipeline.addToPipeline(pm, errorHandler)))
       return failure();
   }
 
-  llvm::errs() << "hostPM\n";  hostPM.dump();
-  llvm::errs() << "kernelPM\n";  kernelPM.dump();
-
-  overallPM.addPass(std::make_unique<SelectPipelinePass>(hostPM, kernelPM));
-  if (failed(overallPM.run(module))) {
+  if (failed(pm.run(kernelModule))) {
     return failure();
+  }
+
+  if (isHighLevel && kernelModule != module) {
+    PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
+    applyPassManagerCLOptions(pm);
+    miopen::BufferizeOptions opts;
+    opts.disableMIOpen = true;
+    miopen::buildBufferizePipeline(pm, opts);
+
+    if (failed(pm.run(module))) {
+      return failure();
+    }
   }
 
   if (hostPipelineSet.contains("xmodel")) {
@@ -408,6 +374,14 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     if (failed(pm.run(module))) {
       return failure();
     }
+  }
+
+// +++pf:  need to restore kernelModule and activate this code.
+//         or:  should each new funcop replace the old funcop?  depends on simon's needs
+  if (kernelModule != module) {
+    module.getBody()->getOperations().splice(
+        module.getBody()->begin(), kernelModule.getBody()->getOperations());
+    module.getBody()->getOperations().remove(kernelModule);
   }
 
   return success();

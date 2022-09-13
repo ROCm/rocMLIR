@@ -1077,8 +1077,6 @@ template struct Conv2DRewritePattern<Conv2DBwdDataOp>;
 template struct Conv2DRewritePattern<Conv2DBwdWeightOp>;
 
 void MIOpenConvToGemmPass::runOnOperation() {
-  llvm::errs() << "ConvToGemmPass\n";
-
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
 
