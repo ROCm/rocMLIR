@@ -152,6 +152,8 @@ pipeline {
                      description: 'Run the static library stage')
         booleanParam(name: 'perfTest', defaultValue: true,
                      description: 'Run the performance testing stage')
+        booleanParam(name: 'navi21', defaultValue: false,
+                     description: 'Run on Navi 21 (gfx1030)')
     }
     stages {
         stage("Set System Property") {
@@ -180,7 +182,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
+                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : ${params.navi21 ? 'navi21' : 'rocm'} }"
                             alwaysPull true
                         }
                     }
@@ -239,7 +241,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
+                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : ${params.navi21 ? 'navi21' : 'rocm' } }"
                             alwaysPull true
                         }
                     }
@@ -289,7 +291,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'gfx906' }"
+                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : ${params.navi21 ? 'navi21' : 'gfx906' } }"
                             alwaysPull true
                         }
                     }
@@ -363,7 +365,7 @@ pipeline {
                     docker {
                         image dockerImage()
                         args dockerArgs()
-                        label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a) && multi_gpu' : 'rocm' }"
+                        label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a) && multi_gpu' : ${params.navi21 'navi21' : 'rocm' } }"
                         alwaysPull true
                     }
                 }
