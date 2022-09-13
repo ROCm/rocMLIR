@@ -133,6 +133,18 @@ def rebootNode() {
     build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
 }
 
+String getLabel(String nonxdlopsLabel)
+{
+    if (params.navi21) {
+        label = "navi21"
+    } else if (params.canXdlops) {
+        label = "mlir && (gfx908 || gfx90a)"
+    } else {
+        label = "mlir && ${nonxdlopsLabel}"
+    }
+    return label
+}
+
 pipeline {
     agent none
     parameters {
@@ -182,7 +194,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : ${params.navi21 ? 'navi21' : 'rocm'} }"
+                            label getLabel("rocm")
                             alwaysPull true
                         }
                     }
@@ -241,7 +253,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : ${params.navi21 ? 'navi21' : 'rocm' } }"
+                            label getLabel("rocm")
                             alwaysPull true
                         }
                     }
@@ -291,7 +303,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : ${params.navi21 ? 'navi21' : 'gfx906' } }"
+                            label getLabel("gfx906")
                             alwaysPull true
                         }
                     }
@@ -365,7 +377,7 @@ pipeline {
                     docker {
                         image dockerImage()
                         args dockerArgs()
-                        label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a) && multi_gpu' : ${params.navi21 'navi21' : 'rocm' } }"
+                        label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a) && multi_gpu' : 'rocm' }"
                         alwaysPull true
                     }
                 }
