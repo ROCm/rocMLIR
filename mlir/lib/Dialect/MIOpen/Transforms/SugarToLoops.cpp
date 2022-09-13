@@ -952,22 +952,10 @@ struct InBoundsLoadRewritePattern : public OpRewritePattern<InBoundsLoadOp> {
 
   LogicalResult matchAndRewrite(InBoundsLoadOp op,
                                 PatternRewriter &b) const override {
-    Location loc = op.getLoc();
     if (auto destType = op.result().getType().dyn_cast<VectorType>()) {
-      SmallVector<Value> coords;
-      llvm::copy(op.coords(), std::back_inserter(coords));
-
-      int64_t loadSize = destType.getNumElements();
-      Value ret = createZeroConstantOp(b, loc, destType);
-      Value one = b.createOrFold<ConstantIndexOp>(loc, 1);
-      for (int64_t i = 0; i < loadSize; ++i) {
-        Value cDest = b.createOrFold<ConstantIndexOp>(loc, i);
-        Value v = b.create<memref::LoadOp>(loc, op.source(), coords);
-        ret = b.create<vector::InsertElementOp>(loc, v, ret, cDest);
-        coords[coords.size() - 1] =
-            b.createOrFold<AddIOp>(loc, coords[coords.size() - 1], one);
-      }
-      b.replaceOp(op, ret);
+      b.replaceOpWithNewOp<vector::TransferReadOp>(
+          op, destType, op.source(), op.coords(),
+          /*inbounds=*/ArrayRef<bool>(true));
     } else {
       b.replaceOpWithNewOp<memref::LoadOp>(op, op.source(), op.coords());
     }
@@ -983,21 +971,10 @@ struct InBoundsStoreRewritePattern : public OpRewritePattern<InBoundsStoreOp> {
 
   LogicalResult matchAndRewrite(InBoundsStoreOp op,
                                 PatternRewriter &b) const override {
-    Location loc = op.getLoc();
     if (auto srcType = op.data().getType().dyn_cast<VectorType>()) {
-      SmallVector<Value> coords;
-      llvm::copy(op.coords(), std::back_inserter(coords));
-
-      int64_t storeSize = srcType.getNumElements();
-      Value one = b.createOrFold<ConstantIndexOp>(loc, 1);
-      for (int64_t i = 0; i < storeSize; ++i) {
-        Value cSrc = b.createOrFold<ConstantIndexOp>(loc, i);
-        Value v = b.create<vector::ExtractElementOp>(loc, op.data(), cSrc);
-        b.create<memref::StoreOp>(loc, v, op.dest(), coords);
-        coords[coords.size() - 1] =
-            b.createOrFold<AddIOp>(loc, coords[coords.size() - 1], one);
-      }
-      b.eraseOp(op);
+      b.replaceOpWithNewOp<vector::TransferWriteOp>(
+          op, op.data(), op.dest(), op.coords(),
+          /*inbounds=*/ArrayRef<bool>(true));
     } else {
       b.replaceOpWithNewOp<memref::StoreOp>(op, op.data(), op.dest(),
                                             op.coords());
