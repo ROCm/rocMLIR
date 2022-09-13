@@ -118,8 +118,12 @@ void postProcessPerfRes() {
 
 //makes sure multiple builds are not triggered for branch indexing
 def resetBuild() {
-    if (currentBuild.getPreviousBuild() == null || currentBuild.getPreviousBuild().getBuildCauses().toString().contains('BranchIndexingCause')) {
-        def buildNumber = BUILD_NUMBER as int; if (buildNumber > 1) milestone(buildNumber - 1); milestone(buildNumber)
+    if (currentBuild.getPreviousBuild() == null ||
+        currentBuild.getPreviousBuild().getBuildCauses().toString().contains('BranchIndexingCause')) {
+        def buildNumber = BUILD_NUMBER as int;
+        if (buildNumber > 1)
+            milestone(buildNumber - 1);
+        milestone(buildNumber)
     }
 }
 
@@ -131,6 +135,24 @@ void setHeartbeat() {
 
 def rebootNode() {
     build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
+}
+
+String getLabel(String nonxdlopsLabel) {
+    if (params.navi21) {
+        label = "navi21"
+    } else if (params.canXdlops) {
+        label = "mlir && (gfx908 || gfx90a)"
+    } else {
+        label = "mlir && ${nonxdlopsLabel}"
+    }
+    return label
+}
+
+void printFeatureInfo() {
+    echo "${params.feature} is chosen"
+    if (params.feature == "mfma") {
+        echo "using params.feature == mfma"
+    }
 }
 
 pipeline {
@@ -152,6 +174,13 @@ pipeline {
                      description: 'Run the static library stage')
         booleanParam(name: 'perfTest', defaultValue: true,
                      description: 'Run the performance testing stage')
+        booleanParam(name: 'navi21', defaultValue: true,
+                     description: 'Run on Navi 21 (gfx1030)')
+        choice(name: 'feature',
+               choices: ['mfma', 'wmma'],
+               description: 'Choose the feature to test')
+        choice(name: 'target chip',
+               choices: ['All', 'gfx1030'])
     }
     stages {
         stage("Set System Property") {
@@ -168,6 +197,11 @@ pipeline {
                 resetBuild()
             }
         }
+        stage("Feature info") {
+            steps {
+                printFeatureInfo()
+            }
+        }
         stage("Build and Test") {
             parallel {
                 stage("Shared Library: fixed E2E tests") {
@@ -180,7 +214,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
+                            label getLabel("rocm")
                             alwaysPull true
                         }
                     }
@@ -239,7 +273,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
+                            label getLabel("rocm")
                             alwaysPull true
                         }
                     }
@@ -290,7 +324,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'gfx906' }"
+                            label getLabel("gfx906")
                             alwaysPull true
                         }
                     }
