@@ -631,7 +631,7 @@ elementwiseMatchAndRewriteHelper(Operation *operation,
     SmallVector<AffineExpr, 4> affineExprs;
     newShape.reserve(type.getRank());
     for (const auto &it : llvm::enumerate(type.getShape())) {
-      if (it.value() == resultTy.getDimSize(it.index()) && it.value() != 1) {
+      if (it.value() == resultTy.getDimSize(it.index())) {
         newShape.push_back(it.value());
         affineExprs.push_back(
             mlir::getAffineDimExpr(it.index(), rewriter.getContext()));
