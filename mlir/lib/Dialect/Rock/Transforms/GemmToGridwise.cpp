@@ -140,15 +140,6 @@ static void maybeSetAttr(StringRef attr, Operation *from, Operation *to) {
   if (maybeValue)
     to->setAttr(attr, maybeValue);
 }
-static void affixGridwiseGemmAttributes(GemmOp src, Operation *dest) {
-  maybeSetAttr("matrix_a_source_data_per_read", src, dest);
-  maybeSetAttr("matrix_a_source_vector_read_dim", src, dest);
-  maybeSetAttr("matrix_b_source_data_per_read", src, dest);
-  maybeSetAttr("matrix_b_source_vector_read_dim", src, dest);
-  maybeSetAttr("matrix_c_data_per_copy", src, dest);
-  maybeSetAttr("matrix_c_dest_vector_write_dim", src, dest);
-  maybeSetAttr("matrix_c_source_vector_read_dim", src, dest);
-}
 
 LogicalResult
 GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
@@ -198,13 +189,11 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     auto gridwise = rw.create<GridwiseGemmV2Op>(
         loc, a, b, c, op.storeMethodAttr(), op.archAttr(), blockSize, gridSize,
         params.cast<XdlopsGemmParamsAttr>());
-    affixGridwiseGemmAttributes(op, gridwise);
     rw.eraseOp(op);
   } else {
     auto gridwise = rw.create<GridwiseGemmOp>(
         loc, a, b, c, op.archAttr(), blockSize, gridSize,
         params.cast<GeneralGemmParamsAttr>());
-    affixGridwiseGemmAttributes(op, gridwise);
     rw.eraseOp(op);
   }
   return success();

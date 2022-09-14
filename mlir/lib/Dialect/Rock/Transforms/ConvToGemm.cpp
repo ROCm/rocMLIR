@@ -135,15 +135,6 @@ static void maybeSetAttr(StringRef attr, Operation *from, Operation *to) {
   if (maybeValue)
     to->setAttr(attr, maybeValue);
 }
-void affixGemmAttributes(Operation *convOp, Operation *gop, OpBuilder &b) {
-  maybeSetAttr("matrix_a_source_data_per_read", convOp, gop);
-  maybeSetAttr("matrix_a_source_vector_read_dim", convOp, gop);
-  maybeSetAttr("matrix_b_source_data_per_read", convOp, gop);
-  maybeSetAttr("matrix_b_source_vector_read_dim", convOp, gop);
-  maybeSetAttr("matrix_c_data_per_copy", convOp, gop);
-  maybeSetAttr("matrix_c_dest_vector_write_dim", convOp, gop);
-  maybeSetAttr("matrix_c_source_vector_read_dim", convOp, gop);
-}
 
 /// Create an elementwise utility kernel.
 /// The callback has type (builder, location, collapsedBuffers, coordinate).
@@ -529,7 +520,6 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
       /*cTransposed=*/nullptr, op.archAttr(), op.numCuAttr(), op.featuresAttr(),
       storeMethod, op.blockSizeAttr(), op.gridSizeAttr(), op.paramsAttr());
   gemm->setAttr("gemm_id", gemmIdAttr);
-  affixGemmAttributes(op, gemm, b);
 
   // Finally, erase the original Conv2D op.
   b.eraseOp(op);
@@ -771,7 +761,6 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
       /*cTransposed=*/nullptr, op.archAttr(), op.numCuAttr(), op.featuresAttr(),
       storeMethod, op.blockSizeAttr(), op.gridSizeAttr(), op.paramsAttr());
   gemm->setAttr("gemm_id", gemmIdAttr);
-  affixGemmAttributes(op, gemm, b);
 
   // Finally, erase the original Conv2D op.
   b.eraseOp(op);
@@ -1034,7 +1023,6 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
         /*cTransposed=*/nullptr, op.archAttr(), op.numCuAttr(),
         op.featuresAttr(), storeMethod, op.blockSizeAttr(), op.gridSizeAttr(),
         tuningParams);
-    affixGemmAttributes(op, gemm, b);
 
     // Finally, erase the original Conv2D op.
     b.eraseOp(op);

@@ -74,7 +74,7 @@ static void computeLoadStoreTypeInfo(OpBuilder &b,
 
   // In case KPack and vector load is used, and we vector load on GemmK
   // dimension (1), use the last dimension (GemmKPack) instead.
-  if ((loadLength > 1) && (kPack > 1) && (vectorDim == GemmK)) {
+  if ((loadLength > 1) && (kPack > 1) && (vectorDim == 1)) {
     vectorDim = sliceLengths.size() - 1;
   }
 
@@ -560,9 +560,10 @@ namespace {
 struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
   using OpRewritePattern<GridwiseGemmOp>::OpRewritePattern;
 
-  void computeLDSBlockSizes(GridwiseGemmOp op, int64_t &a_block_space,
-                            int64_t &b_block_space, int64_t &block_space,
-                            int64_t KPack = 1) const {
+  LogicalResult computeLDSBlockSizes(GridwiseGemmOp op, int64_t &a_block_space,
+                                     int64_t &b_block_space,
+                                     int64_t &block_space,
+                                     int64_t KPack = 1) const {
     GeneralGemmParamsAttr tuningParams = op.params();
     int64_t ThreadGemmAThreadCopySrcDataPerRead_M =
         tuningParams.getMPerThread();
@@ -613,6 +614,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     LLVM_DEBUG(llvm::dbgs() << "a_block_space: " << a_block_space << "\n");
     LLVM_DEBUG(llvm::dbgs() << "b_block_space: " << b_block_space << "\n");
     LLVM_DEBUG(llvm::dbgs() << "double_block_space: " << block_space << "\n\n");
+
+    // TODO: adjust for data type and device
+    if (block_space * sizeof(float) > 64 * 1024)
+      return failure();
+    else
+      return success();
   }
 
   LogicalResult matchAndRewrite(GridwiseGemmOp op,
@@ -707,10 +714,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Compute required LDS sizes.
     int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
-    computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize, kpack);
-
+    LogicalResult res = computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize,
+                                             ldsBlockSize, kpack);
     LLVM_DEBUG(llvm::dbgs() << "LDS block size:" << ldsBlockASize << " "
                             << ldsBlockBSize << " " << ldsBlockSize << "\n");
+    if (res.failed())
+      return failure();
 
     // Allocate LDS.
     auto ldsMemRefType =
@@ -1022,9 +1031,11 @@ struct GridwiseGemmV2RewritePattern
     : public OpRewritePattern<GridwiseGemmV2Op> {
   using OpRewritePattern<GridwiseGemmV2Op>::OpRewritePattern;
 
-  void computeLDSBlockSizes(GridwiseGemmV2Op op, int64_t &a_block_space,
-                            int64_t &b_block_space, int64_t &total_block_space,
-                            int64_t KPack = 1) const {
+  LogicalResult computeLDSBlockSizes(GridwiseGemmV2Op op,
+                                     int64_t &a_block_space,
+                                     int64_t &b_block_space,
+                                     int64_t &total_block_space,
+                                     int64_t KPack = 1) const {
     int64_t max_lds_align = 1;
 
     XdlopsGemmParamsAttr tuningParams = op.params();
@@ -1064,6 +1075,12 @@ struct GridwiseGemmV2RewritePattern
     LLVM_DEBUG(llvm::dbgs() << "b_block_space: " << b_block_space << "\n");
     LLVM_DEBUG(llvm::dbgs()
                << "total_block_space: " << total_block_space << "\n\n");
+
+    // TODO: adjust for data type and device
+    if (total_block_space * sizeof(float) > 64 * 1024)
+      return failure();
+    else
+      return success();
   }
 
   LogicalResult matchAndRewrite(GridwiseGemmV2Op op,
@@ -1114,23 +1131,19 @@ struct GridwiseGemmV2RewritePattern
     int64_t MPerBlock = tuningParams.getMPerBlock();
     int64_t NPerBlock = tuningParams.getNPerBlock();
 
-    // TODO: remove in favor of new vectorization framework
-    int64_t matrix_a_source_data_per_read =
-        op->getAttr("matrix_a_source_data_per_read")
-            .template cast<IntegerAttr>()
-            .getInt();
-    int64_t matrix_b_source_data_per_read =
-        op->getAttr("matrix_b_source_data_per_read")
-            .template cast<IntegerAttr>()
-            .getInt();
-    auto matrix_a_source_vector_read_dim = static_cast<GemmDimensions>(
-        op->getAttr("matrix_a_source_vector_read_dim")
-            .template cast<IntegerAttr>()
-            .getInt());
-    auto matrix_b_source_vector_read_dim = static_cast<GemmDimensions>(
-        op->getAttr("matrix_b_source_vector_read_dim")
-            .template cast<IntegerAttr>()
-            .getInt());
+    int64_t matrix_a_source_data_per_read = 0;
+    int64_t matrix_b_source_data_per_read = 0;
+    GemmDimension matrix_a_source_vector_read_dim;
+    GemmDimension matrix_b_source_vector_read_dim;
+
+    int64_t aCopyPerThread = (KPerBlock * MPerBlock) / blockSize;
+    int64_t bCopyPerThread = (KPerBlock * NPerBlock) / blockSize;
+    GemmDimension vectorTiebreaker =
+        (KPack > 1) ? GemmDimension::K : GemmDimension::MorN;
+    std::tie(matrix_a_source_vector_read_dim, matrix_a_source_data_per_read) =
+        bestVectorization(b, op.a(), aCopyPerThread, vectorTiebreaker);
+    std::tie(matrix_b_source_vector_read_dim, matrix_b_source_data_per_read) =
+        bestVectorization(b, op.b(), bCopyPerThread, vectorTiebreaker);
 
     // Obtain XDLOPS-related attributes.
     int64_t MPerWave = tuningParams.getMPerWave();
@@ -1225,7 +1238,7 @@ struct GridwiseGemmV2RewritePattern
     int64_t GemmABlockCopyThreadSliceLengths_GemmM;
     int64_t GemmABlockCopyThreadSliceLengths_GemmKPack = 1;
     switch (matrix_a_source_vector_read_dim) {
-    case GemmK:
+    case GemmDimension::K:
       if (KPack > 1) {
         GemmABlockCopyThreadSliceLengths_GemmKPack =
             matrix_a_source_data_per_read;
@@ -1240,7 +1253,7 @@ struct GridwiseGemmV2RewritePattern
             GemmABlockCopyThreadSliceLengths_GemmK;
       }
       break;
-    case GemmMorN:
+    case GemmDimension::MorN:
       // TBD: FIXME. Review logic here.
       if (KPack > 1) {
         GemmABlockCopyThreadSliceLengths_GemmM = matrix_a_source_data_per_read;
@@ -1255,7 +1268,7 @@ struct GridwiseGemmV2RewritePattern
             GemmABlockCopyThreadSliceLengths_GemmM;
       }
       break;
-    case GemmG:
+    case GemmDimension::G:
       LLVM_DEBUG(llvm::dbgs()
                  << "Vector loads/stores aren't possible in the G dimension "
                  << "and should not haven been attempted\n");
@@ -1300,7 +1313,7 @@ struct GridwiseGemmV2RewritePattern
     int64_t GemmBBlockCopyThreadSliceLengths_GemmN;
     int64_t GemmBBlockCopyThreadSliceLengths_GemmKPack = 1;
     switch (matrix_b_source_vector_read_dim) {
-    case GemmK:
+    case GemmDimension::K:
       if (KPack > 1) {
         GemmBBlockCopyThreadSliceLengths_GemmKPack =
             matrix_b_source_data_per_read;
@@ -1315,7 +1328,7 @@ struct GridwiseGemmV2RewritePattern
             GemmBBlockCopyThreadSliceLengths_GemmK;
       }
       break;
-    case GemmMorN:
+    case GemmDimension::MorN:
       // TBD: FIXME. Review logic here.
       if (KPack > 1) {
         GemmBBlockCopyThreadSliceLengths_GemmN = matrix_b_source_data_per_read;
@@ -1330,7 +1343,7 @@ struct GridwiseGemmV2RewritePattern
             GemmBBlockCopyThreadSliceLengths_GemmN;
       }
       break;
-    case GemmG:
+    case GemmDimension::G:
       LLVM_DEBUG(llvm::dbgs()
                  << "Vector loads/stores aren't possible in the G dimension "
                  << "and should not haven been attempted.\n");
@@ -1566,10 +1579,12 @@ struct GridwiseGemmV2RewritePattern
 
     // Compute required LDS sizes.
     int64_t ldsBlockASize, ldsBlockBSize, ldsBlockSize;
-    computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize, ldsBlockSize, KPack);
-
+    LogicalResult res = computeLDSBlockSizes(op, ldsBlockASize, ldsBlockBSize,
+                                             ldsBlockSize, KPack);
     LLVM_DEBUG(llvm::dbgs() << "LDS block size:" << ldsBlockASize << " "
                             << ldsBlockBSize << " " << ldsBlockSize << "\n");
+    if (res.failed())
+      return failure();
 
     // Allocate LDS.
     auto ldsMemRefType =
@@ -1627,7 +1642,18 @@ struct GridwiseGemmV2RewritePattern
                               GemmABlockCopyThreadSliceLengths_GemmM};
     }
 
-    uint32_t blockwiseVectorDimA = matrix_a_source_vector_read_dim;
+    auto dimToIndex = [](GemmDimension dim) {
+      if (dim == GemmDimension::G)
+        return 0;
+      else if (dim == GemmDimension::K)
+        return 1;
+      else
+        return 2;
+    };
+
+    GemmDimension dimA = matrix_a_source_vector_read_dim;
+    uint32_t blockwiseVectorDimA = dimToIndex(dimA);
+
     int64_t blockwiseLoadVectorLenA = matrix_a_source_data_per_read;
     Type aLoadIntermediate, aLoadType;
     computeLoadStoreTypeInfo(b, blockwiseCopyABounds, blockwiseLoadVectorLenA,
@@ -1659,8 +1685,10 @@ struct GridwiseGemmV2RewritePattern
       LLVM_DEBUG(llvm::dbgs() << v << " ");
     LLVM_DEBUG(llvm::dbgs() << "\n");
 
-    uint32_t blockwiseVectorDimB = matrix_b_source_vector_read_dim;
+    GemmDimension dimB = matrix_b_source_vector_read_dim;
+    uint32_t blockwiseVectorDimB = dimToIndex(dimB);
     int64_t blockwiseLoadVectorLenB = matrix_b_source_data_per_read;
+
     Type bLoadIntermediate, bLoadType;
     computeLoadStoreTypeInfo(b, blockwiseCopyBBounds, blockwiseLoadVectorLenB,
                              blockwiseVectorDimB, KPack, elementType, bLoadType,
