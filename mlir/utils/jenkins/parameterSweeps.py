@@ -132,13 +132,13 @@ async def testConfig(config: MLIROnlyConfig, options: Options, paths: Paths) -> 
 
     applicableFromGen, genToApplicable = os.pipe()
     generator = await asyncio.create_subprocess_exec(
-        paths.miopen_gen_path,
+        paths.mlir_paths.miopen_gen_path,
         *miopenGenOpts, stdout=genToApplicable, stderr=asyncio.subprocess.PIPE,
         stdin=asyncio.subprocess.DEVNULL)
     os.close(genToApplicable)
 
     applicability = await asyncio.create_subprocess_exec(
-        paths.mlir_miopen_driver_path,
+        paths.mlir_paths.mlir_miopen_driver_path,
         '--kernel-pipeline=applicability', '-', stdin=applicableFromGen,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     os.close(applicableFromGen)
@@ -165,14 +165,14 @@ Errors = {tuneErrs.decode('utf-8')}
 
     runnerFromLowering, loweringToRunner = os.pipe()
     lowering = await asyncio.create_subprocess_exec(
-        paths.mlir_miopen_driver_path,
+        paths.mlir_paths.mlir_miopen_driver_path,
         '--kernel-pipeline=gpu', '-', stdin=asyncio.subprocess.PIPE,
         stdout=loweringToRunner, stderr=asyncio.subprocess.PIPE)
     os.close(loweringToRunner)
 
-    mlir_rocm_runner_args = [f'--shared-libs={paths.libmlir_rocm_runtime_path},{paths.libconv_validation_wrappers_path},{paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
+    mlir_rocm_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
     runner = await asyncio.create_subprocess_exec(
-        paths.rocm_runner_path,
+        paths.mlir_paths.rocm_runner_path,
         *mlir_rocm_runner_args, stdin=runnerFromLowering,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     os.close(runnerFromLowering)
