@@ -19,6 +19,8 @@ import argparse
 import numpy as np
 import pandas as pd
 import re
+from dataclasses import dataclass
+from typing import Optional
 
 # global variables.
 ROCPROF = '/opt/rocm/bin/rocprof'
@@ -30,17 +32,21 @@ LAYOUTS = ['NHWC', 'NCHW']
 # Compiled regexp object used for extracting elapsed time from MIOpenDriver's output
 ELAPSED_TIME_RE = re.compile(r"Elapsed: (.*)ms")
 
-class Paths(NamedTuple):
-    """This structure is used to hold paths needed to perform the tests"""
-    miopen_gen_path : str
-    mlir_miopen_driver_path : str
-    miopen_driver_path : str
+@dataclass
+class MLIRPaths:
+    miopen_gen_path: str
+    mlir_miopen_driver_path: str
     rocm_runner_path : str
     libmlir_rocm_runtime_path : str
     libconv_validation_wrappers_path : str
     libmlir_runtime_utils_path : str
-    configuration_file_path : str
 
+@dataclass
+class Paths:
+    """This structure is used to hold paths needed to perform the tests"""
+    configuration_file_path : str
+    mlir_paths: Optional[MLIRPaths] = None
+    miopen_driver_path: Optional[str] = None
 
 def find_mlir_build_dir() -> str:
     """
@@ -110,15 +116,20 @@ def find_miopen_build_dir() -> str:
 
 def create_paths(mlir_build_dir_path, miopen_build_dir_path) -> Paths:
     """Creates the composite Paths structure using build dir paths"""
-    mlir_bin_dir = ''
-    mlir_lib_dir = ''
-    llvm_lib_dir = ''
+
+    mlir_paths = None
     if mlir_build_dir_path: 
         mlir_bin_dir = str((Path(mlir_build_dir_path) / 'bin').resolve())
         mlir_lib_dir = str((Path(mlir_build_dir_path) / 'lib').resolve())
         llvm_lib_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/lib').resolve())
+        mlir_paths = MLIRPaths(miopen_gen_path = mlir_bin_dir + '/miopen-gen',
+        mlir_miopen_driver_path = mlir_bin_dir + '/mlir-miopen-driver',
+        rocm_runner_path = mlir_bin_dir + '/mlir-rocm-runner',
+        libmlir_rocm_runtime_path =  llvm_lib_dir + '/libmlir_rocm_runtime.so',
+        libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',
+        libmlir_runtime_utils_path = llvm_lib_dir + '/libmlir_runner_utils.so')
 
-    miopen_driver_path = ''
+    miopen_driver_path = None
     if miopen_build_dir_path:
         miopen_driver_bin_dir = Path(miopen_build_dir_path) / 'bin'
         miopen_driver_path = str((miopen_driver_bin_dir / 'MIOpenDriver').resolve())
@@ -126,14 +137,7 @@ def create_paths(mlir_build_dir_path, miopen_build_dir_path) -> Paths:
     root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
     configuration_dir = root_dir + '/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs'
 
-    return Paths(miopen_gen_path = mlir_bin_dir + '/miopen-gen',
-        mlir_miopen_driver_path = mlir_bin_dir + '/mlir-miopen-driver',
-        miopen_driver_path = miopen_driver_path,
-        rocm_runner_path = mlir_bin_dir + '/mlir-rocm-runner',
-        libmlir_rocm_runtime_path =  llvm_lib_dir + '/libmlir_rocm_runtime.so',
-        libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',
-        libmlir_runtime_utils_path = llvm_lib_dir + '/libmlir_runner_utils.so',
-        configuration_file_path = configuration_dir)
+    return Paths(configuration_dir, mlir_paths, miopen_driver_path)
 
 # utility functions.
 def getConfigurations(fileName):
@@ -353,10 +357,10 @@ def runConfigWithMLIR(config: ConvConfiguration, paths: Paths):
     os.system("rm "+BENCHMARKING_RESULT_FILE_NAME)
     commandLineOptions = config.generateMlirDriverCommandLine()
     print("Running MLIR Benchmark: ", repr(config))
-    miopenGenCommand = paths.miopen_gen_path + ' -ph ' + commandLineOptions
-    mlirMiopenDriverCommand = [paths.mlir_miopen_driver_path, '-c']
-    mlir_rocm_runner_args = [f'--shared-libs={paths.libmlir_rocm_runtime_path},{paths.libconv_validation_wrappers_path},{paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
-    profilerCommand = [ROCPROF, '--stats', paths.rocm_runner_path] + mlir_rocm_runner_args
+    miopenGenCommand = paths.mlir_paths.miopen_gen_path + ' -ph ' + commandLineOptions
+    mlirMiopenDriverCommand = [paths.mlir_paths.mlir_miopen_driver_path, '-c']
+    mlir_rocm_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
+    profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.rocm_runner_path] + mlir_rocm_runner_args
 
     # invoke miopen-gen.
     p1 = subprocess.Popen(miopenGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
