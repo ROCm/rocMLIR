@@ -35,6 +35,7 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Types.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
@@ -44,6 +45,7 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/Support/CommandLine.h"
@@ -292,10 +294,10 @@ static cl::alias
 
 // populate host validation logic.
 static cl::opt<std::string> genValidation(
-    "verifier", cl::desc("Select verification from: none(default), cpu, gpu"),
+    "verifier", cl::desc("Select verification from: none(default), cpu, gpu, cpp, mlir"),
     cl::cb<void, std::string>([](const std::string &v) {
       if (!v.empty())
-        genHostHarness.setValue(true);
+        genHostHarness = true;
     }),
     cl::value_desc("Specify host validation logic"), cl::init(""));
 
@@ -303,8 +305,8 @@ static cl::opt<bool> genCPUValidation("pv", cl::Hidden, cl::init(false),
                                       cl::Optional,
                                       cl::cb<void, bool>([](bool v) {
                                         if (v) {
-                                          genValidation.setValue("mlir");
-                                          genHostHarness.setValue(true);
+                                          genValidation = "mlir";
+                                          genHostHarness = true;
                                         }
                                       }));
 
@@ -312,8 +314,8 @@ static cl::opt<bool> genCPPValidation("pv_with_cpp", cl::Hidden,
                                       cl::init(false), cl::Optional,
                                       cl::cb<void, bool>([](bool v) {
                                         if (v) {
-                                          genValidation.setValue("cpp");
-                                          genHostHarness.setValue(true);
+                                          genValidation = "cpp";
+                                          genHostHarness = true;
                                         }
                                       }));
 
@@ -321,8 +323,8 @@ static cl::opt<bool> genMLIRValidation("pv_with_mlir", cl::Hidden,
                                        cl::init(false), cl::Optional,
                                        cl::cb<void, bool>([](bool v) {
                                          if (v) {
-                                           genValidation.setValue("mlir");
-                                           genHostHarness.setValue(true);
+                                           genValidation = "mlir";
+                                           genHostHarness = true;
                                          }
                                        }));
 
@@ -330,8 +332,8 @@ static cl::opt<bool> genGPUValidation("pv_with_gpu", cl::Hidden,
                                       cl::init(false), cl::Optional,
                                       cl::cb<void, bool>([](bool v) {
                                         if (v) {
-                                          genValidation.setValue("gpu");
-                                          genHostHarness.setValue(true);
+                                          genValidation = "gpu";
+                                          genHostHarness = true;
                                         }
                                       }));
 
@@ -340,9 +342,8 @@ static cl::opt<bool> genCPUKernel("cpu-kernels",
                                   cl::init(false), cl::Optional,
                                   cl::cb<void, bool>([](bool v) {
                                     if (v) {
-                                      genValidation.setValue("mlir");
-                                      genHostHarness.setValue(true);
-                                      printResults.setValue(true);
+                                      genHostHarness = true;
+                                      printResults = true;
                                     }
                                   }));
 static cl::alias aliasGenCPUKernel("prc", cl::aliasopt(genCPUKernel));
@@ -428,65 +429,50 @@ static void correctParameters() {
   std::string filterLayoutValue = filterLayout.getValue();
   std::string inputLayoutValue = inputLayout.getValue();
   std::string outputLayoutValue = outputLayout.getValue();
-  if (filterLayoutValue.size() == 4) { // yxcgk not implement yet
-    if (filterLayoutValue == "kcyx")
-      filterLayout.setValue("gkcyx");
-    else if (filterLayoutValue == "kyxc")
-      filterLayout.setValue("gkyxc");
-    else
-      filterLayout.setValue("g" + filterLayoutValue);
-  }
-  if (outputLayoutValue.size() == 4) {
-    if (outputLayoutValue == "nkhw")
-      outputLayout.setValue("ngkhw");
-    else if (outputLayoutValue == "nhwk")
-      outputLayout.setValue("nhwgk");
-    else
-      outputLayout.setValue("g" + outputLayoutValue);
-  }
+  // yxcgk not implement yet
+  if (filterLayoutValue == "kcyx")
+    filterLayout = "gkcyx";
+  else if (filterLayoutValue == "kyxc")
+    filterLayout = "gkyxc";
+  else if (filterLayoutValue.size() == 4)
+    filterLayout = "g" + filterLayoutValue;
 
-  if (inputLayoutValue.size() == 4) {
-    if (inputLayoutValue == "nchw")
-      inputLayout.setValue("ngchw");
-    else if (inputLayoutValue == "nhwc")
-      inputLayout.setValue("nhwgc");
-    else
-      inputLayout.setValue("g" + inputLayoutValue);
-  }
+  if (outputLayoutValue == "nkhw")
+    outputLayout = "ngkhw";
+  else if (outputLayoutValue == "nhwk")
+    outputLayout = "nhwgk";
+  else if (outputLayoutValue.size() == 4)
+    outputLayout = "g" + outputLayoutValue;
 
-  // we can use paddingHeight or paddingHeightLeft + paddingHeightRight
-  // if use paddingHeight , paddingHeightLeft and paddingHeightRight =
-  // paddingHeight if use paddingHeightLeft + paddingHeightRight , please
-  // assigne value
-  if (paddingHeight.getValue() > 0) {
-    if (paddingHeightLeft.getValue() == 0 &&
-        paddingHeightRight.getValue() == 0) {
-      paddingHeightLeft.setValue(paddingHeight.getValue());
-      paddingHeightRight.setValue(paddingHeight.getValue());
-    } else {
-      if (paddingHeightLeft.getValue() != paddingHeight.getValue() ||
-          paddingHeightRight.getValue() != paddingHeight.getValue()) {
-        llvm::errs()
-            << "you can't use both padding_h and (padding_h_l,padding_h_r).\n";
+  if (inputLayoutValue == "nchw")
+    inputLayout = "ngchw";
+  else if (inputLayoutValue == "nhwc")
+    inputLayout = "nhwgc";
+  else if (inputLayoutValue.size() == 4)
+    inputLayout = "g" + inputLayoutValue;
+
+  auto validatePadding = [](cl::opt<int> &combined, cl::opt<int> &left,
+                            cl::opt<int> &right, StringRef name) {
+    if (combined.getValue() > 0) {
+      int combinedVal = combined.getValue();
+      int leftVal = left.getValue();
+      int rightVal = right.getValue();
+      if (leftVal == 0 && rightVal == 0) {
+        left = combinedVal;
+        right = combinedVal;
+      } else {
+        if (leftVal != combinedVal || rightVal != combinedVal) {
+          llvm::errs() << "you can't use both " << name << " and (" << name
+                       << "_l," << name << "_r).\n";
+        }
       }
     }
-  }
+  };
 
-  // we can use paddingWidth or paddingWidthLeft + paddingWidthRight
-  // if use paddingWidth , paddingWidthLeft and paddingWidthRight = paddingWidth
-  // if use paddingWidthLeft + paddingWidthRight , please assigne value
-  if (paddingWidth.getValue() > 0) {
-    if (paddingWidthLeft.getValue() == 0 && paddingWidthRight.getValue() == 0) {
-      paddingWidthLeft.setValue(paddingWidth.getValue());
-      paddingWidthRight.setValue(paddingWidth.getValue());
-    } else {
-      if (paddingWidthLeft.getValue() != paddingWidth.getValue() ||
-          paddingWidthRight.getValue() != paddingWidth.getValue()) {
-        llvm::errs()
-            << "you can't use both padding_w and (padding_w_l,padding_w_r).\n";
-      }
-    }
-  }
+  validatePadding(paddingHeight, paddingHeightLeft, paddingHeightRight,
+                  "padding_h");
+  validatePadding(paddingWidth, paddingWidthLeft, paddingWidthRight,
+                  "padding_w");
 
   // adjust the padding size
   // getOutputDim can give us correct output size
@@ -516,7 +502,7 @@ static void correctParameters() {
   // add extra padding on the right to allow the convolution to execute
   // successfully.
   if (hi_minimum > hi_specified)
-    paddingHeightRight.setValue(in_right_pad_h + (hi_minimum - hi_specified));
+    paddingHeightRight = in_right_pad_h + (hi_minimum - hi_specified);
 
   int wi = inputWidth.getValue();
   int x = filterWidth.getValue();
@@ -535,7 +521,7 @@ static void correctParameters() {
   // add extra padding on the right to allow the convolution to execute
   // successfully.
   if (wi_minimum > wi_specified)
-    paddingWidthRight.setValue(in_right_pad_w + (wi_minimum - wi_specified));
+    paddingWidthRight = in_right_pad_w + (wi_minimum - wi_specified);
 }
 
 static void verifyLayout() {
@@ -563,64 +549,64 @@ static void populateDefaults() {
   // We don't particularly care about this field in the lowering
   // process unless it is tuning related. Therefore, setting this
   // field to a default value regardless.
-  arch.setValue("amdgcn-amd-amdhsa:gfx900");
+  arch = "amdgcn-amd-amdhsa:gfx900";
 
-  if (populateDefaultValues == true) {
-    if (xdlopsV2.getValue() == false) {
-      groupSize.setValue(1);
-      batchSize.setValue(128);
-      inputChannel.setValue(8);
-      outputChannel.setValue(128);
-      inputHeight.setValue(32);
-      inputWidth.setValue(32);
-      filterHeight.setValue(3);
-      filterWidth.setValue(3);
-      dilationHeight.setValue(1);
-      dilationWidth.setValue(1);
-      strideHeight.setValue(1);
-      strideWidth.setValue(1);
-      paddingHeightLeft.setValue(0);
-      paddingHeightRight.setValue(0);
-      paddingWidthLeft.setValue(0);
-      paddingWidthRight.setValue(0);
+  if (populateDefaultValues) {
+    if (!xdlopsV2.getValue()) {
+      groupSize = 1;
+      batchSize = 128;
+      inputChannel = 8;
+      outputChannel = 128;
+      inputHeight = 32;
+      inputWidth = 32;
+      filterHeight = 3;
+      filterWidth = 3;
+      dilationHeight = 1;
+      dilationWidth = 1;
+      strideHeight = 1;
+      strideWidth = 1;
+      paddingHeightLeft = 0;
+      paddingHeightRight = 0;
+      paddingWidthLeft = 0;
+      paddingWidthRight = 0;
     } else {
-      groupSize.setValue(1);
-      batchSize.setValue(128);
-      inputChannel.setValue(1024);
-      outputChannel.setValue(1024);
-      inputHeight.setValue(14);
-      inputWidth.setValue(14);
-      filterHeight.setValue(1);
-      filterWidth.setValue(1);
-      dilationHeight.setValue(1);
-      dilationWidth.setValue(1);
-      strideHeight.setValue(1);
-      strideWidth.setValue(1);
-      paddingHeightLeft.setValue(0);
-      paddingHeightRight.setValue(0);
-      paddingWidthLeft.setValue(0);
-      paddingWidthRight.setValue(0);
-      num_cu.setValue(120);
-      arch.setValue("amdgcn-amd-amdhsa:gfx908");
+      groupSize = 1;
+      batchSize = 128;
+      inputChannel = 1024;
+      outputChannel = 1024;
+      inputHeight = 14;
+      inputWidth = 14;
+      filterHeight = 1;
+      filterWidth = 1;
+      dilationHeight = 1;
+      dilationWidth = 1;
+      strideHeight = 1;
+      strideWidth = 1;
+      paddingHeightLeft = 0;
+      paddingHeightRight = 0;
+      paddingWidthLeft = 0;
+      paddingWidthRight = 0;
+      num_cu = 120;
+      arch = "amdgcn-amd-amdhsa:gfx908";
     }
   }
 
-  if (xdlopsV2.getValue() == true) {
-    num_cu.setValue(120);
-    arch.setValue("amdgcn-amd-amdhsa:gfx908");
+  if (xdlopsV2.getValue()) {
+    num_cu = 120;
+    arch = "amdgcn-amd-amdhsa:gfx908";
   }
 
   if (outputHeight.getNumOccurrences() == 0) {
-    outputHeight.setValue(rock::Conv2dGenerator::outputDim(
+    outputHeight = rock::Conv2dGenerator::outputDim(
         inputHeight.getValue(), filterHeight.getValue(),
         paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
-        strideHeight.getValue(), dilationHeight.getValue()));
+        strideHeight.getValue(), dilationHeight.getValue());
   }
   if (outputWidth.getNumOccurrences() == 0) {
-    outputWidth.setValue(rock::Conv2dGenerator::outputDim(
+    outputWidth = rock::Conv2dGenerator::outputDim(
         inputWidth.getValue(), filterWidth.getValue(),
         paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
-        strideWidth.getValue(), dilationWidth.getValue()));
+        strideWidth.getValue(), dilationWidth.getValue());
   }
 }
 
@@ -790,7 +776,7 @@ static std::tuple<short, short, int> getRandomTestData(int idx) {
     break;
   }
 
-  if (randomSeed.getValue() != "none" && randomSeed.getValue() != "fixed") {
+  if (randomSeed != "none" && randomSeed != "fixed") {
     if ((idx_spec >= 0) && (idx_spec != idx)) {
     } else if (randomDataType.getValue() == "int") {
       // generate random integer in [-5, 5)
@@ -801,7 +787,7 @@ static std::tuple<short, short, int> getRandomTestData(int idx) {
       min = -1;
       max = 1;
     }
-    std::string rseed = randomSeed.getValue();
+    std::string rseed = randomSeed;
     if (rseed[0] >= '0' and rseed[0] <= '9')
       seed = std::stoi(rseed);
     else
@@ -1154,13 +1140,13 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
       auto muliOp = thenBody.create<arith::MulIOp>(loc, loadOp1, loadOp2);
       auto extsiOp = thenBody.create<arith::ExtSIOp>(loc, elemType, muliOp);
       auto addiOp = thenBody.create<arith::AddIOp>(loc, loadOutput, extsiOp);
-      auto storeOp = thenBody.create<memref::StoreOp>(
+      thenBody.create<memref::StoreOp>(
           loc, addiOp, result,
           ValueRange{ivs[0], ivs[1], ivs[2], ivs[3], ivs[4]});
     } else {
       auto mulfOp = thenBody.create<arith::MulFOp>(loc, loadOp1, loadOp2);
       auto addfOp = thenBody.create<arith::AddFOp>(loc, loadOutput, mulfOp);
-      auto storeOp = thenBody.create<memref::StoreOp>(
+      thenBody.create<memref::StoreOp>(
           loc, addfOp, result,
           ValueRange{ivs[0], ivs[1], ivs[2], ivs[3], ivs[4]});
     }
@@ -1431,20 +1417,11 @@ createCPUConvFunc(ModuleOp module,
   return func;
 }
 
-const char *getTypeStr(const mlir::Type &type) {
-  if (type.isF32())
-    return "f32";
-  else if (type.isF16())
-    return "f16";
-  else if (type.isBF16())
-    return "bf16";
-  else if (type.isInteger(32))
-    return "i32";
-  else if (type.isInteger(16))
-    return "i16";
-  else if (type.isInteger(8))
-    return "i8";
-  return "na";
+std::string getTypeStr(const mlir::Type &type) {
+  std::string typeName;
+  llvm::raw_string_ostream nameStream(typeName);
+  nameStream << type;
+  return nameStream.str();
 }
 
 static func::FuncOp getMemcpyFuncDecl(ModuleOp &module,
@@ -1735,11 +1712,13 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
           b.create<memref::StoreOp>(loc, valExt, arg1, ivs);
         });
   } else {
-    testResult = b.create<memref::CastOp>(loc, mr5DUnkType, arg0);
+    testResult = makeNDMemRef(b, arg0, 5);
+    testResult = b.create<memref::CastOp>(loc, mr5DUnkType, testResult);
   }
 
   // Prepare the validation result for the verify function
-  valResult = b.create<memref::CastOp>(loc, mr5DUnkType, arg1);
+  valResult = makeNDMemRef(b, arg1, 5);
+  valResult = b.create<memref::CastOp>(loc, mr5DUnkType, valResult);
   // Declare and call the wrapper verify function
   auto verifyFuncDecl = makeFuncDecl(
       module, verifyFuncName,
@@ -1830,12 +1809,87 @@ static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
   return success();
 }
 
+static void
+insertValidationCalls(const miopen::Conv2dGenerator::Config &genConfig,
+                      OpBuilder &b, ModuleOp &module,
+                      SmallVectorImpl<mlir::Value> &valVars,
+                      SmallVectorImpl<mlir::Value> &localVars,
+                      int32_t outIdx, Operation *func, KernelIF &root0) {
+  auto validationType = genValidation.getValue();
+  auto loc = b.getUnknownLoc();
+  bool hasXdlops =
+      miopen::bitEnumContains(genConfig.features, miopen::GemmFeatures::xdlops);
+  if (validationType == "gpu" &&
+      (hasXdlops || genConfig.dataTypeStr == "f16" ||
+       genConfig.dataTypeStr == "bf16")) {
+    // generate generic kernels
+    miopen::Conv2dGenerator conv2dGenerator(genConfig);
+    // use non-xdlops kernels to verify xdlops kernels
+    if (hasXdlops)
+      conv2dGenerator.flipXdlops();
+    if (!hasXdlops || genConfig.dataTypeStr != "i8")
+      // use f32 data type to verify non-f32 or xdlops f32 kernels
+      // except that i8 xdlops is verified with i8 non-xdlops
+      conv2dGenerator.setDataType("f32");
+
+    int kernelStart = genConfig.kernelId;
+    int kernelCount = conv2dGenerator.getKernelCount(b);
+    if (kernelStart < 0) {
+      kernelStart = 0;
+    } else {
+      kernelCount = kernelStart + 1;
+    }
+    // generate all sub-kernels, and get corresponding gemmId
+    std::string kernelBaseName = genConfig.kernelBaseName;
+    for (int i = kernelStart; i < kernelCount; ++i) {
+      conv2dGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
+      if (failed(conv2dGenerator.genConvModule(module, i, true,
+                                               /*ignoreTuning=*/true))) {
+        llvm::errs() << "Module population failed.\n";
+        exit(1);
+      }
+      KernelIF kernel(conv2dGenerator.getKernelFunc());
+      miopen::Conv2dGenerator::Config newConfig = conv2dGenerator.getConfig();
+      auto kernelWrapperFunc = createGPUWrapper(module, kernel);
+
+      // Decide whether to trim the last workspace argument to the verifier
+      // GPU kernel.
+      miopen::Conv2dGenerator originalConv2dGenerator(genConfig);
+      bool originalHasWorkspace = originalConv2dGenerator.hasWorkspace(b);
+      bool verifierHasWorkspace = conv2dGenerator.hasWorkspace(b);
+      if (originalHasWorkspace && !verifierHasWorkspace) {
+        valVars.resize(valVars.size() - 1);
+      }
+
+      b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
+    }
+    conv2dGenerator.setKernelName(kernelBaseName);
+  } else if (validationType != "clone") { // -pv_with_cpp or -pv_with_mlir (-pv)
+    // Emit call to host_<conv>
+    auto cpuConvFunc = createCPUConvFunc(module, genConfig);
+    b.create<func::CallOp>(loc, cpuConvFunc, valVars);
+  } else {                            // clone
+    auto cloneAttr = func->getAttrOfType<SymbolRefAttr>("clone_func");
+    assert(cloneAttr);
+    b.create<func::CallOp>(loc, cloneAttr, TypeRange{}, valVars);
+  }
+
+  // Emit call to verifier
+  mlir::Value testResult = localVars[outIdx];
+  mlir::Value valResult = valVars[outIdx];
+
+  auto testType = testResult.getType().dyn_cast<MemRefType>();
+  auto valType = valResult.getType().dyn_cast<MemRefType>();
+  auto verifierFunc = createVerifierFunc(module, root0, testType, valType);
+  b.create<func::CallOp>(loc, verifierFunc,
+                         ValueRange{testResult, valResult});
+}
+
 static LogicalResult
 populateHostHarnessLogic(ModuleOp &module,
                          const SmallVector<KernelIF, 8> &kernels,
                          const SmallVector<KernelIF, 8> &roots,
                          const rock::Conv2dGenerator::Config &genConfig) {
-
   auto context = module.getContext();
   OpBuilder b(context);
   auto loc = b.getUnknownLoc();
@@ -1892,6 +1946,7 @@ populateHostHarnessLogic(ModuleOp &module,
   auto root0 = *roots.begin();
   bool isCPUKernel = !root0.func->hasAttr("kernel");
   bool hasValidation = !validationType.empty() && !genCPUKernel.getValue();
+  bool hasCloneValidation = hasValidation && (validationType == "clone");
   SmallVector<mlir::Value, 5> localVars;
   SmallVector<mlir::Value, 5> valVars;
   int32_t idx = 0;
@@ -1970,17 +2025,53 @@ populateHostHarnessLogic(ModuleOp &module,
     } else if (!valVars.empty()) {
       b.create<func::CallOp>(loc, root.func, valVars);
       if (!root.func->hasAttr("kernel")) {
-        printValidationResults.setValue(true);
-        printResults.setValue(false);
+        printValidationResults = true;
+        printResults = false;
       }
     } else {
       b.create<func::CallOp>(loc, root.func, localVars);
       if (!root.func->hasAttr("kernel")) {
-        printValidationResults.setValue(false);
-        printResults.setValue(true);
+        printValidationResults = false;
+        printResults = true;
       }
     }
+    // Clone-style validation wants to validate each root function.
+    // Non-clone validation validates at end;  the roots are related kernels.
+    if (hasCloneValidation)
+      insertValidationCalls(genConfig, b, module, valVars, localVars, outIdx,
+                            root.func, root0);
   }
+
+  // Run validation
+  if (hasValidation && !hasCloneValidation )
+    insertValidationCalls(genConfig, b, module, valVars, localVars, outIdx,
+                          func, root0);
+
+  // Print and cleanup validation vars
+  for (auto &vvar : valVars) {
+    // print vvar
+    if ((vvar == valVars[outIdx]) && printValidationResults.getValue())
+      emitPrintTensor(b, vvar);
+  }
+
+  // Print and cleanup
+  for (auto &lvar : localVars) {
+    // print lvar
+    bool printp = printInputs.getValue();
+    if (lvar == localVars[outIdx])
+      printp = printResults.getValue();
+    if (printp)
+      emitPrintTensor(b, lvar);
+  }
+
+  for (auto &vvar : valVars) {
+    b.create<memref::DeallocOp>(loc, vvar);
+  }
+  for (auto &lvar : localVars) {
+    b.create<memref::DeallocOp>(loc, lvar);
+  }
+
+  b.create<func::ReturnOp>(loc, ValueRange{});
 
   // Wrap the kernels and gather them to substitute in calls.
   llvm::SmallDenseMap<func::FuncOp, func::FuncOp> wrappedFuncs;
@@ -1993,115 +2084,86 @@ populateHostHarnessLogic(ModuleOp &module,
   }
 
   // Redirect calls to kernel functions to point at wrapped functions.
-  module.walk([&](func::CallOp call) -> WalkResult {
+  module.walk([&](Operation *op) -> WalkResult {
     // Don't substitute the call inside the wrapper.
-    if (call->hasAttr("wrapped_call")) {
-      call->removeAttr("wrapped_call");
+    if (op->hasAttr("wrapped_call")) {
+      op->removeAttr("wrapped_call");
       return WalkResult::advance();
     }
 
     // If the callee matches a wrapped function, update the call.
-    Operation *op = call;
     CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
-    Operation *callableFromInt = callInt.resolveCallable();
-    func::FuncOp fop = dyn_cast<func::FuncOp>(*callableFromInt);
-    if (wrappedFuncs.find(fop) != wrappedFuncs.end()) {
-      call->setAttr("callee", FlatSymbolRefAttr::get(
-                                  context, wrappedFuncs[fop].getSymName()));
+    if (callInt) {
+      Operation *callableFromInt = callInt.resolveCallable();
+      if (callableFromInt) {
+        func::FuncOp fop = dyn_cast<func::FuncOp>(*callableFromInt);
+        if (wrappedFuncs.find(fop) != wrappedFuncs.end()) {
+          op->setAttr("callee", FlatSymbolRefAttr::get(
+                                    context, wrappedFuncs[fop].getSymName()));
+        }
+      }
     }
     return WalkResult::advance();
   });
 
-  // Run validation
-  bool hasXdlops =
-      rock::bitEnumContains(genConfig.features, rock::GemmFeatures::mfma);
-  if (hasValidation) {
-    if (validationType == "gpu" &&
-        (hasXdlops || genConfig.dataTypeStr == "f16" ||
-         genConfig.dataTypeStr == "bf16")) {
-      // generate generic kernels
-      rock::Conv2dGenerator conv2dGenerator(genConfig);
-      // use non-xdlops kernels to verify xdlops kernels
-      if (hasXdlops)
-        conv2dGenerator.flipXdlops();
-      if (!hasXdlops || genConfig.dataTypeStr != "i8")
-        // use f32 data type to verify non-f32 or xdlops f32 kernels
-        // except that i8 xdlops is verified with i8 non-xdlops
-        conv2dGenerator.setDataType("f32");
-
-      int kernelStart = genConfig.kernelId;
-      int kernelCount = conv2dGenerator.getKernelCount(b);
-      if (kernelStart < 0) {
-        kernelStart = 0;
-      } else {
-        kernelCount = kernelStart + 1;
-      }
-      // generate all sub-kernels, and get corresponding gemmId
-      std::string kernelBaseName = genConfig.kernelBaseName;
-      for (int i = kernelStart; i < kernelCount; ++i) {
-        conv2dGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
-        if (failed(conv2dGenerator.genConvModule(module, i, true,
-                                                 /*ignoreTuning=*/true))) {
-          llvm::errs() << "Module population failed.\n";
-          exit(1);
-        }
-        KernelIF kernel(conv2dGenerator.getKernelFunc());
-        rock::Conv2dGenerator::Config newConfig = conv2dGenerator.getConfig();
-        auto kernelWrapperFunc = createGPUWrapper(module, kernel);
-
-        // Decide whether to trim the last workspace argument to the verifier
-        // GPU kernel.
-        rock::Conv2dGenerator originalConv2dGenerator(genConfig);
-        bool originalHasWorkspace = originalConv2dGenerator.hasWorkspace(b);
-        bool verifierHasWorkspace = conv2dGenerator.hasWorkspace(b);
-        if (originalHasWorkspace && !verifierHasWorkspace) {
-          valVars.resize(valVars.size() - 1);
-        }
-
-        b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
-      }
-      conv2dGenerator.setKernelName(kernelBaseName);
-    } else { // -pv_with_cpp or -pv_with_mlir (-pv)
-      // Emit call to host_<conv>
-      auto cpuConvFunc = createCPUConvFunc(module, genConfig);
-      b.create<func::CallOp>(loc, cpuConvFunc, valVars);
-    }
-
-    // Emit call to verifier
-    mlir::Value testResult = localVars[outIdx];
-    mlir::Value valResult = valVars[outIdx];
-
-    auto testType = testResult.getType().dyn_cast<MemRefType>();
-    auto valType = valResult.getType().dyn_cast<MemRefType>();
-    auto verifierFunc = createVerifierFunc(module, root0, testType, valType);
-    b.create<func::CallOp>(loc, verifierFunc,
-                           ValueRange{testResult, valResult});
-  }
-
-  // Print and cleanup validation vars
-  for (auto &vvar : valVars) {
-    // print vvar
-    if ((vvar == valVars[outIdx]) && printValidationResults.getValue())
-      emitPrintTensor(b, vvar);
-    // dealloc vvar
-    b.create<memref::DeallocOp>(loc, vvar);
-  }
-
-  // Print and cleanup
-  for (auto &lvar : localVars) {
-    // print lvar
-    bool printp = printInputs.getValue();
-    if (lvar == localVars[outIdx])
-      printp = printResults.getValue();
-    if (printp)
-      emitPrintTensor(b, lvar);
-    // dealloc lvar
-    b.create<memref::DeallocOp>(loc, lvar);
-  }
-
-  b.create<func::ReturnOp>(loc, ValueRange{});
-
   return success();
+}
+
+void postOrderTraverseInternal(
+    CallGraphNode *node, SymbolTable &symbolTable,
+    llvm::SmallDenseSet<CallGraphNode *> &calleesSeen,
+    llvm::SmallDenseMap<Operation *, Operation *> &calleesRemapped) {
+  for (auto &edge : *node) {
+    if (!calleesSeen.count(edge.getTarget()))
+      postOrderTraverseInternal(edge.getTarget(), symbolTable, calleesSeen,
+                                calleesRemapped);
+    else
+      ; // Replace callee with new callee.
+  }
+
+  auto *callableRegion = node->getCallableRegion();
+  auto *parentOp = callableRegion->getParentOp();
+
+  // clone the func
+  auto *cloneFunc = parentOp->clone();
+  SymbolOpInterface cloneFuncOp = dyn_cast<SymbolOpInterface>(cloneFunc);
+  SmallString<128> nameBuffer(cloneFuncOp.getName());
+  nameBuffer += "_cloned";
+  cloneFuncOp.setName(nameBuffer);
+  cloneFunc->removeAttr("kernel");
+  cloneFunc->setAttr("original_func", SymbolRefAttr::get(parentOp));
+  parentOp->setAttr("clone_func", SymbolRefAttr::get(cloneFunc));
+
+  // add the clone into the symbol table.
+  symbolTable.insert(cloneFunc);
+
+  // update callees
+  auto *context = cloneFunc->getContext();
+  cloneFunc->walk([&](Operation *op) -> WalkResult {
+    CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
+    if (callInt) {
+      Operation *callableFromInt = callInt.resolveCallable();
+      if (callableFromInt) {
+        if (calleesRemapped.find(callableFromInt) != calleesRemapped.end()) {
+          func::FuncOp fop =
+              dyn_cast<func::FuncOp>(*calleesRemapped[callableFromInt]);
+          op->setAttr("callee",
+                      FlatSymbolRefAttr::get(context, fop.getSymName()));
+        } else {
+          // must be an external function, or a bug;  how to check?
+        }
+      }
+    }
+    return WalkResult::advance();
+  });
+  calleesRemapped[parentOp] = cloneFunc;
+  calleesSeen.insert(node);
+}
+
+void postOrderTraverse(CallGraphNode *node, SymbolTable &symbolTable) {
+  llvm::SmallDenseSet<CallGraphNode *> calleesSeen;
+  llvm::SmallDenseMap<Operation *, Operation *> calleesRemapped;
+  postOrderTraverseInternal(node, symbolTable, calleesSeen, calleesRemapped);
 }
 
 int main(int argc, char **argv) {
@@ -2128,8 +2190,6 @@ int main(int argc, char **argv) {
   populateDefaults();
 
   rock::Conv2dGenerator conv2dGenerator;
-
-  SmallVector<KernelIF, 8> kernels;
 
   auto testFuncNameVal = testFuncName.getValue();
   bool hasUserKernel = !testFuncNameVal.empty();
@@ -2162,6 +2222,11 @@ int main(int argc, char **argv) {
       return WalkResult::advance();
     });
   } else {
+    if (genValidation == "clone") {
+      llvm::errs() << "Clone validation is not compatible with kernel generation.\n";
+      exit(1);
+    }
+
     // Construct a new ModuleOp.
     module = ModuleOp::create(builder.getUnknownLoc());
   }
@@ -2254,19 +2319,33 @@ int main(int argc, char **argv) {
   // order to match an older implementation.
   CallGraph cg(module);
   mlir::SetVector<CallGraphNode *> roots(cg.begin(), cg.end());
-  for (auto &node : roots)
+  for (auto &node : roots) {
     for (auto &edge : *node)
       roots.remove(edge.getTarget());
+    func::FuncOp func =
+      dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
+    if (func->hasAttr("orig_func"))
+      roots.remove(node);
+  }
+
+  if (0&& genValidation == "clone") {
+    SymbolTable symbolTable(module);
+    for (auto &root : roots) {
+      postOrderTraverse(root, symbolTable);
+    }
+  }
+
+  SmallVector<KernelIF, 8> kernels;
 
   // Make KernelIFs for the roots, to pass to populateHostHarnessLogic().
   SmallVector<KernelIF, 8> rootIFs;
-  for (auto node : roots) {
-    func::FuncOp func =
-        dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
-    rootIFs.emplace_back(func);
-  }
 
   if (testFuncNameVal.empty()) {
+    for (auto *node : roots) {
+      func::FuncOp func =
+          dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
+      rootIFs.emplace_back(func);
+    }
     module.walk([&](func::FuncOp func) -> WalkResult {
       if (func->hasAttr("kernel")) {
         kernels.emplace_back(func);
@@ -2276,8 +2355,7 @@ int main(int argc, char **argv) {
   } else {
     auto func = module.lookupSymbol<func::FuncOp>(testFuncName);
     assert(func);
-    rootIFs.clear();
-    kernels.emplace_back(func);
+    kernels.emplace_back(func); // +++pf: should it be a kernel?
     rootIFs.emplace_back(func);
   }
 
