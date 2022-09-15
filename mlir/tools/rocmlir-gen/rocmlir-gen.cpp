@@ -1809,6 +1809,44 @@ static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
   return success();
 }
 
+
+void undoAsyncLaunchPass(Operation *cloneFunc) {
+  SymbolTableCollection symbolTable;
+  auto walker = [&](Operation *op) {
+                  OpBuilder builder(op);
+                  if (auto launch = dyn_cast<async::LaunchOp>(op)) {
+                    SymbolRefAttr calleeAttr = launch->getAttrOfType<SymbolRefAttr>("callee");
+
+                    assert(launch->getNumResults() == 1);
+                    auto aresults = launch->getResults();
+                    mlir::Type tokenType = aresults.front().getType();
+
+                    auto operands = launch->getOperands();
+                    BitVector indicesToErase(launch.getNumOperands());
+                    for (auto idx : llvm::seq<int>(0, launch.getNumOperands()))
+                      if (!launch->getOperand(idx) || launch->getOperand(idx).getType() == tokenType)
+                        indicesToErase.set(idx);
+                    launch->eraseOperands(indicesToErase);
+                    operands = launch->getOperands();
+
+                    auto call = builder.create<func::CallOp>(op->getLoc(), calleeAttr,
+                                                             TypeRange{}, operands);
+
+                    call->moveBefore(op);
+                    op->dropAllUses();
+                    op->erase();
+                    return WalkResult::interrupt();
+                  } else if (auto launch = dyn_cast<async::AwaitOp>(op)) {
+                    op->erase();
+                    return WalkResult::interrupt();
+                  }
+                  return WalkResult::advance();
+                };
+  while (cloneFunc->walk(walker).wasInterrupted()) {
+  }
+}
+
+
 static void
 insertValidationCalls(const miopen::Conv2dGenerator::Config &genConfig,
                       OpBuilder &b, ModuleOp &module,
@@ -1869,9 +1907,20 @@ insertValidationCalls(const miopen::Conv2dGenerator::Config &genConfig,
     auto cpuConvFunc = createCPUConvFunc(module, genConfig);
     b.create<func::CallOp>(loc, cpuConvFunc, valVars);
   } else {                            // clone
-    auto cloneAttr = func->getAttrOfType<SymbolRefAttr>("clone_func");
-    assert(cloneAttr);
-    b.create<func::CallOp>(loc, cloneAttr, TypeRange{}, valVars);
+    auto *cloneFunc = func->clone();
+
+    undoAsyncLaunchPass(cloneFunc);
+
+    SymbolOpInterface cloneFuncOp = dyn_cast<SymbolOpInterface>(cloneFunc);
+    SmallString<128> nameBuffer(cloneFuncOp.getName());
+    nameBuffer += "_cloned";
+    cloneFuncOp.setName(nameBuffer);
+    cloneFunc->removeAttr("kernel");
+//     cloneFunc->setAttr("original_func", SymbolRefAttr::get(func));
+//     func->setAttr("clone_func", SymbolRefAttr::get(cloneFunc));
+    SymbolTable symbolTable(module);
+    symbolTable.insert(cloneFunc);
+    b.create<func::CallOp>(loc, SymbolRefAttr::get(cloneFunc), TypeRange{}, valVars);
   }
 
   // Emit call to verifier
@@ -2324,7 +2373,9 @@ int main(int argc, char **argv) {
       roots.remove(edge.getTarget());
     func::FuncOp func =
       dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
-    if (func->hasAttr("orig_func"))
+    if (func->hasAttr("original_func"))
+      roots.remove(node);
+    if (func->getParentOp() && func->getParentOp()->getParentOp())
       roots.remove(node);
   }
 
