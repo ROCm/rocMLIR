@@ -145,6 +145,6 @@ configure_lit_site_cfg(
 
 # Enable the ROCK E2E tests if -DROCK_E2E_TEST_ENABLED=1
 if(ROCK_E2E_TEST_ENABLED)
-  list(APPEND MLIR_MIOPEN_TEST_DEPENDS gen_e2e_tests)
+  list(APPEND MLIR_MIOPEN_TEST_DEPENDS e2e_tests)
   add_subdirectory(e2e)
 endif()
