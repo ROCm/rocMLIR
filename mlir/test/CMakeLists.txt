@@ -117,6 +117,12 @@ if(MLIR_MIOPEN_DRIVER_ENABLED)
     )
 endif()
 
+# Enable the ROCK E2E tests if -DROCK_E2E_TEST_ENABLED=1
+if(ROCK_E2E_TEST_ENABLED)
+  list(APPEND MLIR_MIOPEN_TEST_DEPENDS e2e_tests)
+  add_subdirectory(e2e)
+endif()
+
 add_custom_target(check-mlir-miopen-build-only
   DEPENDS ${MLIR_MIOPEN_TEST_DEPENDS})
 
@@ -142,9 +148,3 @@ configure_lit_site_cfg(
   MAIN_CONFIG
   ${CMAKE_CURRENT_SOURCE_DIR}/e2e/lit.cfg.py
 )
-
-# Enable the ROCK E2E tests if -DROCK_E2E_TEST_ENABLED=1
-if(ROCK_E2E_TEST_ENABLED)
-  list(APPEND MLIR_MIOPEN_TEST_DEPENDS gen_e2e_tests)
-  add_subdirectory(e2e)
-endif()
