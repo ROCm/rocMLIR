@@ -46,7 +46,6 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/LogicalResult.h"
 
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/Support/CommandLine.h"
@@ -295,7 +294,9 @@ static cl::alias
 
 // populate host validation logic.
 static cl::opt<std::string> genValidation(
-    "verifier", cl::desc("Select verification from: none(default), cpu, gpu, cpp, mlir"),
+    "verifier",
+    cl::desc(
+        "Select verification from: none(default), cpu, gpu, cpp, mlir, clone"),
     cl::cb<void, std::string>([](const std::string &v) {
       if (!v.empty())
         genHostHarness = true;
@@ -343,6 +344,7 @@ static cl::opt<bool> genCPUKernel("cpu-kernels",
                                   cl::init(false), cl::Optional,
                                   cl::cb<void, bool>([](bool v) {
                                     if (v) {
+                                      genValidation = "mlir";
                                       genHostHarness = true;
                                       printResults = true;
                                     }
@@ -1810,59 +1812,61 @@ static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
   return success();
 }
 
-
+// Convert the async.launch/async.await pattern back to func.call.
 void undoAsyncLaunchPass(Operation *cloneFunc) {
   SymbolTableCollection symbolTable;
   auto walker = [&](Operation *op) {
-                  OpBuilder builder(op);
-                  if (auto launch = dyn_cast<async::LaunchOp>(op)) {
-                    SymbolRefAttr calleeAttr = launch->getAttrOfType<SymbolRefAttr>("callee");
+    OpBuilder builder(op);
+    if (auto launch = dyn_cast<async::LaunchOp>(op)) {
+      SymbolRefAttr calleeAttr = launch->getAttrOfType<SymbolRefAttr>("callee");
 
-                    assert(launch->getNumResults() == 1);
-                    auto aresults = launch->getResults();
-                    mlir::Type tokenType = aresults.front().getType();
+      // Token is assumed to be the sole result of async.launch.
+      assert(launch->getNumResults() == 1);
+      auto aresults = launch->getResults();
+      mlir::Type tokenType = aresults.front().getType();
 
-                    auto operands = launch->getOperands();
-                    BitVector indicesToErase(launch.getNumOperands());
-                    for (auto idx : llvm::seq<int>(0, launch.getNumOperands()))
-                      if (!launch->getOperand(idx) || launch->getOperand(idx).getType() == tokenType)
-                        indicesToErase.set(idx);
-                    launch->eraseOperands(indicesToErase);
-                    operands = launch->getOperands();
+      // Remove any token operands, at any position.
+      auto operands = launch->getOperands();
+      BitVector indicesToErase(launch.getNumOperands());
+      for (auto idx : llvm::seq<int>(0, launch.getNumOperands()))
+        if (!launch->getOperand(idx) ||
+            launch->getOperand(idx).getType() == tokenType)
+          indicesToErase.set(idx);
+      launch->eraseOperands(indicesToErase);
+      operands = launch->getOperands();
 
-                    auto call = builder.create<func::CallOp>(op->getLoc(), calleeAttr,
-                                                             TypeRange{}, operands);
+      auto call = builder.create<func::CallOp>(op->getLoc(), calleeAttr,
+                                               TypeRange{}, operands);
 
-                    call->moveBefore(op);
-                    op->dropAllUses();
-                    op->erase();
-                    return WalkResult::interrupt();
-                  } else if (auto launch = dyn_cast<async::AwaitOp>(op)) {
-                    op->erase();
-                    return WalkResult::interrupt();
-                  }
-                  return WalkResult::advance();
-                };
+      call->moveBefore(op);
+      op->dropAllUses();
+      op->erase();
+      return WalkResult::interrupt();
+    }
+    if (auto launch = dyn_cast<async::AwaitOp>(op)) {
+      op->erase();
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  };
   while (cloneFunc->walk(walker).wasInterrupted()) {
   }
 }
 
-
 static void
-insertValidationCalls(const miopen::Conv2dGenerator::Config &genConfig,
+insertValidationCalls(const rock::Conv2dGenerator::Config &genConfig,
                       OpBuilder &b, ModuleOp &module,
                       SmallVectorImpl<mlir::Value> &valVars,
-                      SmallVectorImpl<mlir::Value> &localVars,
-                      int32_t outIdx, Operation *func, KernelIF &root0) {
+                      SmallVectorImpl<mlir::Value> &localVars, int32_t outIdx,
+                      Operation *func, KernelIF &root0) {
   auto validationType = genValidation.getValue();
   auto loc = b.getUnknownLoc();
   bool hasXdlops =
-      miopen::bitEnumContains(genConfig.features, miopen::GemmFeatures::xdlops);
-  if (validationType == "gpu" &&
-      (hasXdlops || genConfig.dataTypeStr == "f16" ||
-       genConfig.dataTypeStr == "bf16")) {
+      rock::bitEnumContainsAll(genConfig.features, rock::GemmFeatures::mfma);
+  if (validationType == "gpu" && (hasXdlops || genConfig.dataTypeStr == "f16" ||
+                                  genConfig.dataTypeStr == "bf16")) {
     // generate generic kernels
-    miopen::Conv2dGenerator conv2dGenerator(genConfig);
+    rock::Conv2dGenerator conv2dGenerator(genConfig);
     // use non-xdlops kernels to verify xdlops kernels
     if (hasXdlops)
       conv2dGenerator.flipXdlops();
@@ -1888,12 +1892,12 @@ insertValidationCalls(const miopen::Conv2dGenerator::Config &genConfig,
         exit(1);
       }
       KernelIF kernel(conv2dGenerator.getKernelFunc());
-      miopen::Conv2dGenerator::Config newConfig = conv2dGenerator.getConfig();
+      rock::Conv2dGenerator::Config newConfig = conv2dGenerator.getConfig();
       auto kernelWrapperFunc = createGPUWrapper(module, kernel);
 
       // Decide whether to trim the last workspace argument to the verifier
       // GPU kernel.
-      miopen::Conv2dGenerator originalConv2dGenerator(genConfig);
+      rock::Conv2dGenerator originalConv2dGenerator(genConfig);
       bool originalHasWorkspace = originalConv2dGenerator.hasWorkspace(b);
       bool verifierHasWorkspace = conv2dGenerator.hasWorkspace(b);
       if (originalHasWorkspace && !verifierHasWorkspace) {
@@ -1907,21 +1911,24 @@ insertValidationCalls(const miopen::Conv2dGenerator::Config &genConfig,
     // Emit call to host_<conv>
     auto cpuConvFunc = createCPUConvFunc(module, genConfig);
     b.create<func::CallOp>(loc, cpuConvFunc, valVars);
-  } else {                            // clone
+  } else { // clone
+    // Clone the kernel-calling function.  xmir-runner will call the appropriate
+    // binary kernel from the async.launch ops;  here, we'll replace those with
+    // func.call which will get the MLIR kernel.  No redirection of callees
+    // needed.
     auto *cloneFunc = func->clone();
-
     undoAsyncLaunchPass(cloneFunc);
-
     SymbolOpInterface cloneFuncOp = dyn_cast<SymbolOpInterface>(cloneFunc);
     SmallString<128> nameBuffer(cloneFuncOp.getName());
     nameBuffer += "_cloned";
     cloneFuncOp.setName(nameBuffer);
     cloneFunc->removeAttr("kernel");
-//     cloneFunc->setAttr("original_func", SymbolRefAttr::get(func));
-//     func->setAttr("clone_func", SymbolRefAttr::get(cloneFunc));
+    //     cloneFunc->setAttr("original_func", SymbolRefAttr::get(func));
+    //     func->setAttr("clone_func", SymbolRefAttr::get(cloneFunc));
     SymbolTable symbolTable(module);
     symbolTable.insert(cloneFunc);
-    b.create<func::CallOp>(loc, SymbolRefAttr::get(cloneFunc), TypeRange{}, valVars);
+    b.create<func::CallOp>(loc, SymbolRefAttr::get(cloneFunc), TypeRange{},
+                           valVars);
   }
 
   // Emit call to verifier
@@ -1931,8 +1938,7 @@ insertValidationCalls(const miopen::Conv2dGenerator::Config &genConfig,
   auto testType = testResult.getType().dyn_cast<MemRefType>();
   auto valType = valResult.getType().dyn_cast<MemRefType>();
   auto verifierFunc = createVerifierFunc(module, root0, testType, valType);
-  b.create<func::CallOp>(loc, verifierFunc,
-                         ValueRange{testResult, valResult});
+  b.create<func::CallOp>(loc, verifierFunc, ValueRange{testResult, valResult});
 }
 
 static LogicalResult
@@ -2093,7 +2099,7 @@ populateHostHarnessLogic(ModuleOp &module,
   }
 
   // Run validation
-  if (hasValidation && !hasCloneValidation )
+  if (hasValidation && !hasCloneValidation)
     insertValidationCalls(genConfig, b, module, valVars, localVars, outIdx,
                           func, root0);
 
@@ -2159,63 +2165,6 @@ populateHostHarnessLogic(ModuleOp &module,
   return success();
 }
 
-void postOrderTraverseInternal(
-    CallGraphNode *node, SymbolTable &symbolTable,
-    llvm::SmallDenseSet<CallGraphNode *> &calleesSeen,
-    llvm::SmallDenseMap<Operation *, Operation *> &calleesRemapped) {
-  for (auto &edge : *node) {
-    if (!calleesSeen.count(edge.getTarget()))
-      postOrderTraverseInternal(edge.getTarget(), symbolTable, calleesSeen,
-                                calleesRemapped);
-    else
-      ; // Replace callee with new callee.
-  }
-
-  auto *callableRegion = node->getCallableRegion();
-  auto *parentOp = callableRegion->getParentOp();
-
-  // clone the func
-  auto *cloneFunc = parentOp->clone();
-  SymbolOpInterface cloneFuncOp = dyn_cast<SymbolOpInterface>(cloneFunc);
-  SmallString<128> nameBuffer(cloneFuncOp.getName());
-  nameBuffer += "_cloned";
-  cloneFuncOp.setName(nameBuffer);
-  cloneFunc->removeAttr("kernel");
-  cloneFunc->setAttr("original_func", SymbolRefAttr::get(parentOp));
-  parentOp->setAttr("clone_func", SymbolRefAttr::get(cloneFunc));
-
-  // add the clone into the symbol table.
-  symbolTable.insert(cloneFunc);
-
-  // update callees
-  auto *context = cloneFunc->getContext();
-  cloneFunc->walk([&](Operation *op) -> WalkResult {
-    CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
-    if (callInt) {
-      Operation *callableFromInt = callInt.resolveCallable();
-      if (callableFromInt) {
-        if (calleesRemapped.find(callableFromInt) != calleesRemapped.end()) {
-          func::FuncOp fop =
-              dyn_cast<func::FuncOp>(*calleesRemapped[callableFromInt]);
-          op->setAttr("callee",
-                      FlatSymbolRefAttr::get(context, fop.getSymName()));
-        } else {
-          // must be an external function, or a bug;  how to check?
-        }
-      }
-    }
-    return WalkResult::advance();
-  });
-  calleesRemapped[parentOp] = cloneFunc;
-  calleesSeen.insert(node);
-}
-
-void postOrderTraverse(CallGraphNode *node, SymbolTable &symbolTable) {
-  llvm::SmallDenseSet<CallGraphNode *> calleesSeen;
-  llvm::SmallDenseMap<Operation *, Operation *> calleesRemapped;
-  postOrderTraverseInternal(node, symbolTable, calleesSeen, calleesRemapped);
-}
-
 int main(int argc, char **argv) {
   DialectRegistry registry;
   registerAllDialects(registry);
@@ -2274,7 +2223,8 @@ int main(int argc, char **argv) {
     });
   } else {
     if (genValidation == "clone") {
-      llvm::errs() << "Clone validation is not compatible with kernel generation.\n";
+      llvm::errs()
+          << "Clone validation is not compatible with kernel generation.\n";
       exit(1);
     }
 
@@ -2364,36 +2314,29 @@ int main(int argc, char **argv) {
     }
   }
 
-  // Compute set of call-graph root nodes;  they're the ones we need to
-  // call from main().  Start with all nodes, then erase the ones that
-  // have edges to them.  Use SetVector because we want to preserve the
-  // order to match an older implementation.
-  CallGraph cg(module);
-  mlir::SetVector<CallGraphNode *> roots(cg.begin(), cg.end());
-  for (auto &node : roots) {
-    for (auto &edge : *node)
-      roots.remove(edge.getTarget());
-    func::FuncOp func =
-      dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
-    if (func->hasAttr("original_func"))
-      roots.remove(node);
-    if (func->getParentOp() && func->getParentOp()->getParentOp())
-      roots.remove(node);
-  }
-
-  if (0&& genValidation == "clone") {
-    SymbolTable symbolTable(module);
-    for (auto &root : roots) {
-      postOrderTraverse(root, symbolTable);
-    }
-  }
-
   SmallVector<KernelIF, 8> kernels;
 
   // Make KernelIFs for the roots, to pass to populateHostHarnessLogic().
   SmallVector<KernelIF, 8> rootIFs;
 
   if (testFuncNameVal.empty()) {
+    // Compute set of call-graph root nodes;  they're the ones we need to
+    // call from main().  Start with all nodes, then erase the ones that
+    // have edges to them.  Use SetVector because we want to preserve the
+    // order to match an older implementation.
+    CallGraph cg(module);
+    mlir::SetVector<CallGraphNode *> roots(cg.begin(), cg.end());
+    for (auto &node : roots) {
+      for (auto &edge : *node)
+        roots.remove(edge.getTarget());
+      func::FuncOp func =
+          dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
+      if (func->hasAttr("original_func"))
+        roots.remove(node);
+      if (func->getParentOp() && func->getParentOp()->getParentOp())
+        roots.remove(node);
+    }
+
     for (auto *node : roots) {
       func::FuncOp func =
           dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());

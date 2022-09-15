@@ -1,9 +1,18 @@
 // RUN: rocmlir-driver -host-pipeline partition,highlevel -targets gfx908,gfx90a %s | rocmlir-gen -ph -print-results -rand_type float -rand 1 -fut resnet50 - | rocmlir-driver -host-pipeline xmodel -kernel-pipeline full -triple amdgcn-amd-amdhsa -targets gfx908,gfx90a | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: rocmlir-driver -host-pipeline partition,highlevel -targets gfx908,gfx90a %s | rocmlir-gen -ph -print-results -rand_type float -rand 1 -fut resnet50 --verifier clone - | rocmlir-driver -host-pipeline xmodel -kernel-pipeline full -triple amdgcn-amd-amdhsa -targets gfx908,gfx90a | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CLONE
 
 module {
 // CHECK: Unranked Memref base@ = 0x{{.*}} rank = 4 offset = 0 sizes = [1, 32, 32, 64] strides = [65536, 2048, 64, 1] data =
 // CHECK-NEXT: 0.680375,     -0.211234,     0.566198,     6.59688,     0.823295,     -0.604897,     5.67045,     6.53646,     5.55555,     6.10794,
 
+// CLONE: Number of elements: 65536
+// CLONE-NEXT: maxAbsDiff info:
+// CLONE-NEXT: maxRelDiff info:
+// CLONE-NEXT: RMS =
+// CLONE-NEXT: Histogram of relDiff:
+// CLONE: [1 1 0]
+// CLONE-NEXT: Unranked Memref base@ = 0x{{.*}} rank = 4 offset = 0 sizes = [1, 32, 32, 64] strides = [65536, 2048, 64, 1] data =
+// CLONE-NEXT: 0.680375,     -0.211234,     0.566198,     6.59688,     0.823295,     -0.604897,     5.67045,     6.53646,     5.55555,     6.10794,
 
   func.func @resnet50(%arg0: tensor<1x32x32x64xf32>, %arg1: tensor<64x3x3x64xf32>, %arg2: tensor<64x3x3x64xf32>) -> tensor<1x32x32x64xf32> {
 
@@ -45,4 +54,3 @@ module {
     return %4 : tensor<1x32x32x64xf32>
   }
 }
-
