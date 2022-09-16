@@ -47,6 +47,23 @@
   <PassThrough ["a", "b"] at [0, 2] -> ["a", "b"] at [0, 2]>]
   bounds = [4, 5, 8] -> [4, 1, 8]>
 
+// Test for the alignment bug
+#transform_map_align_e11 = #miopen.transform_map<affine_map<(d0, d1) -> (d0 + d1)>
+  by [<Embed{1, 1} ["a", "b"] at [0, 1] -> ["xpad"] at [0]>]
+  bounds = [4, 4] -> [16]>
+
+#transform_map_align_e41 = #miopen.transform_map<affine_map<(d0, d1) -> (d0 * 2 + d1)>
+  by [<Embed{4, 1} ["a", "b"] at [0, 1] -> ["xpad"] at [0]>]
+  bounds = [4, 4] -> [16]>
+
+#transform_map_align_pad = #miopen.transform_map<affine_map<(d0) -> (d0)>
+  by [<Pad{0, 2} ["xpad"] at [0] -> ["x"] at [0]>]
+  bounds = [16] -> [14]>
+
+#transform_map_align_nopad = #miopen.transform_map<affine_map<(d0) -> (d0)>
+  by [<Pad{0, 0} ["xpad"] at [0] -> ["x"] at [0]>]
+  bounds = [16] -> [16]>
+
 // CHECK-LABEL: func.func @test
 func.func @test_vectorization() {
   // CHECK-NEXT: result = 4
@@ -110,5 +127,21 @@ func.func @test_vectorization() {
   // CHECK-NEXT: result = 32
   %20 = "get_length"() {transforms = [#transform_map7, #transform_map9], in_dim = 0 : index, max_len = 32 : index} : () -> (memref<4x1x8xf32>)
 
+  // Regression test for padding and alignment
+  // CHECK-NEXT: result = 1
+  %21 = "get_length"() {transforms = [#transform_map_align_e11, #transform_map_align_pad], in_dim = 1 : index, max_len = 4 : index} : () -> (memref<14xf32>)
+  // CHECK-NEXT: result = 2
+  %22 = "get_length"() {transforms = [#transform_map_align_e41, #transform_map_align_pad], in_dim = 1 : index, max_len = 4 : index} : () -> (memref<14xf32>)
+  // CHECK-NEXT: result = 4
+  %23 = "get_length"() {transforms = [#transform_map_align_e11, #transform_map_align_nopad], in_dim = 1 : index, max_len = 4 : index} : () -> (memref<16xf32>)
+  // CHECK-NEXT: result = 4
+  %24 = "get_length"() {transforms = [#transform_map_align_e41, #transform_map_align_nopad], in_dim = 1 : index, max_len = 4 : index} : () -> (memref<16xf32>)
+
+  func.return
+}
+
+
+// CHECK-LABEL: func @test_vectorization_align_pad
+func.func @test_vectorization_align_pad() {
   func.return
 }
