@@ -439,7 +439,7 @@ propagateVectorizationInfo(TransformMapAttr map,
     // vectorization lengths of dimensions, stopping if the accumulated length
     // ends up not equal to theat dimension's coefficient or if the coefficient
     // isn't equal to the accumulated value times the smallest coefficient seen
-    // on a dimension being vectorized. d.
+    // on a dimension being vectorized.
     case TransformType::Embed: {
       // Since embed coefficients can go in any order, we need them sorted
       auto &&zip = llvm::zip(params, upperDims);
