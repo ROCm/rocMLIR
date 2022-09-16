@@ -48,8 +48,8 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     MLIRAnalysis
     MLIRExecutionEngine
     MLIRIR
-    MLIRMIOpenOps
-    MLIRMIOpenUtility
+    MLIRRockOps
+    MLIRRockUtility
     MLIRParser
     MLIRROCDLDialect
     MLIRSupport

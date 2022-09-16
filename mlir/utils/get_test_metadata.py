@@ -3,7 +3,7 @@
 
 """Loop through the E2E tests in this repository and collect information about them.
 
-Expects to be run from mlir/utils/ (where it lives), though editing MIOPEN_ROOT
+Expects to be run from mlir/utils/ (where it lives), though editing ROCK_ROOT
 can change that.
 
 Output is a file in pickle form containing the extracted data
@@ -17,13 +17,13 @@ import re
 import pickle
 from typing import Dict, List, Union, Optional, Tuple, Iterable
 
-MIOPEN_ROOT = Path('../..')
-MIOPEN_BIN = MIOPEN_ROOT / 'build' / 'bin'
-MIOPEN_GEN = MIOPEN_BIN / 'miopen-gen'
-MLIR_MIOPEN_DRIVER = MIOPEN_BIN / 'mlir-miopen-driver'
-E2E_TEST_ROOT = MIOPEN_ROOT / 'mlir' / 'test' / 'mlir-miopen-driver'
+ROCK_ROOT = Path('../..')
+ROCK_BIN = ROCK_ROOT / 'build' / 'bin'
+ROCK_GEN = ROCK_BIN / 'rock-gen'
+MLIR_ROCK_DRIVER = ROCK_BIN / 'mlir-rock-driver'
+E2E_TEST_ROOT = ROCK_ROOT / 'mlir' / 'test' / 'mlir-rock-driver'
 
-CONV_CONFIG_RE = re.compile(r'miopen-gen\s*([^|]+)\s*\|')
+CONV_CONFIG_RE = re.compile(r'rock-gen\s*([^|]+)\s*\|')
 UNNEEDED_PARAMS_RE = re.compile(r'%pv|%random_data|%xdlops|-x2|-pv|-pv_with_gpu|-ph')
 def clean_configs_from(data: str) -> List[str]:
     ret = []
@@ -38,7 +38,7 @@ async def run_generator(config: str, xdlops: bool) -> str:
     args = config.split()
     if xdlops:
         args.append("-x2")
-    proc = await asyncio.create_subprocess_exec(MIOPEN_GEN, *args,
+    proc = await asyncio.create_subprocess_exec(ROCK_GEN, *args,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     (stdout, stderr) = await proc.communicate()
     stdout = stdout.decode("utf-8")
@@ -49,27 +49,27 @@ async def run_generator(config: str, xdlops: bool) -> str:
         raise ValueError(f"Convolution generator failed for config '{config}', xdlops={xdlops}")
     return stdout
 
-CONV_FUNC_FINDER = re.compile(r'func.*miopen\.conv.*return\s*\}', re.MULTILINE | re.DOTALL)
-def isolate_real_kernel(miopen_gen_out: str) -> str:
+CONV_FUNC_FINDER = re.compile(r'func.*rock\.conv.*return\s*\}', re.MULTILINE | re.DOTALL)
+def isolate_real_kernel(rock_gen_out: str) -> str:
     """Strip out utility kernels and return [one example of] the 'real' convolution.
 
     If there is only one kernel call, return it.
 
     Otherwise, return the kernel with GEMM ID 1, since in both wrw and bwd, this is the kernel
     that isn't responsible for zeroing or other such activities."""
-    matches = CONV_FUNC_FINDER.findall(miopen_gen_out)
+    matches = CONV_FUNC_FINDER.findall(rock_gen_out)
     if len(matches) == 1:
         return matches[0]
     elif len(matches) > 1:
         return matches[1]
     else:
-        raise ValueError("No convolution kernels in miopen-gen outputs")
+        raise ValueError("No convolution kernels in rock-gen outputs")
 
 async def get_kernel(config: str, xdlops: bool) -> str:
     return isolate_real_kernel(await run_generator(config, xdlops))
 
 async def run_passes(kernel: str, passes: List[str]) -> Tuple[str, str]:
-    proc = await asyncio.create_subprocess_exec(MLIR_MIOPEN_DRIVER, *passes,
+    proc = await asyncio.create_subprocess_exec(MLIR_ROCK_DRIVER, *passes,
                             stdin=asyncio.subprocess.PIPE,
                             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     stdout, stderr = await proc.communicate(kernel.encode("utf-8"))
@@ -82,19 +82,19 @@ async def run_passes(kernel: str, passes: List[str]) -> Tuple[str, str]:
 # sample_config = '-batchsize=64 -in_channels=64 -in_h=56 -in_w=56 -out_channels=256 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --conv_stride_h=1 --conv_stride_w=1 --padding_h=0 --padding_w=0 --operation conv2d -fil_layout=gkcyx -in_layout=ngchw -out_layout=ngkhw -t f32'
 # sample_kernel = await get_kernel(sample_config, True)
 # sample_kernel_affix_tuning, sample_kernel_affix_tuning_debug =\
-#     await run_passes(sample_kernel, ["-miopen-affix-params", "-debug-only=miopen-tuning-parameter"])
+#     await run_passes(sample_kernel, ["-rock-affix-params", "-debug-only=rock-tuning-parameter"])
 # print(sample_kernel_affix_tuning)
 # print(sample_kernel_affix_tuning_debug)
 
 # sample_kernel_gridwise, sample_kernel_gridwise_debug =\
 #     await run_passes(sample_kernel_affix_tuning,
-#                ["-miopen-lowering", "-miopen-lowering-step2",
-#                 "-debug-only=miopen-gridwise-to-blockwise"])
+#                ["-rock-lowering", "-rock-lowering-step2",
+#                 "-debug-only=rock-gridwise-to-blockwise"])
 # print(sample_kernel_gridwise)
 # print(sample_kernel_gridwise_debug)
 # sample_kernel_stdlib, sample_kernel_stdlib_debug =\
-#     await run_passes(sample_kernel_gridwise, ["-miopen-lowering-step3", "-miopen-lowering-step4",
-#                                        "-debug-only=miopen-blockwise-to-threadwise,miopen-threadwise-to-stdlib"])
+#     await run_passes(sample_kernel_gridwise, ["-rock-lowering-step3", "-rock-lowering-step4",
+#                                        "-debug-only=rock-blockwise-to-threadwise,rock-threadwise-to-stdlib"])
 # print(sample_kernel_stdlib_debug)
 
 def get_array_attribute(kernel: str, name: str) -> str:
@@ -152,7 +152,7 @@ def parse_type(typ: str) -> Tuple[int, str]:
         return (int(vector_match[1]), vector_match[2])
     return (1, typ)
 
-GEMM_PADDING_RE = re.compile('#miopen.padding_info<extraM = (\d+), extraK = (\d+), extraN = (\d+)>')
+GEMM_PADDING_RE = re.compile('#rock.padding_info<extraM = (\d+), extraK = (\d+), extraN = (\d+)>')
 def get_padding_info(kernel: str) -> Tuple[int, int, int]:
     match = GEMM_PADDING_RE.search(kernel)
     return int(match[1]), int(match[2]), int(match[3])
@@ -162,7 +162,7 @@ def normalize_layout(layout_attr: List[str]) -> str:
 
 REDUNDANT_SIZES = frozenset({"no", "ci", "ko", "gi", "go"})
 RENAMES = {"ni": "n"}
-MEMREFS_RE = re.compile(r'miopen.conv.* : ((?:memref<\w+>,?\s*)+)$', re.MULTILINE)
+MEMREFS_RE = re.compile(r'rock.conv.* : ((?:memref<\w+>,?\s*)+)$', re.MULTILINE)
 MEMREF_RE = re.compile(r'memref<(\w+)>')
 def parse_sizes(kernel: str) -> List[List[int]]:
     types = MEMREFS_RE.search(kernel)
@@ -173,11 +173,11 @@ def parse_sizes(kernel: str) -> List[List[int]]:
     return ret
 
 def get_op(kernel: str) -> str:
-    if "miopen.conv2d_bwd_data" in kernel:
+    if "rock.conv2d_bwd_data" in kernel:
         return "bwd"
-    if "miopen.conv2d_bwd_weight" in kernel:
+    if "rock.conv2d_bwd_weight" in kernel:
         return "wrw"
-    if "miopen.conv2d" in kernel:
+    if "rock.conv2d" in kernel:
         return "fwd"
     raise ValueError("Kernel is not a convolution")
 
@@ -186,14 +186,14 @@ async def get_properties(config: str, xdlops: bool, filename: Optional[str] = No
     kernel = await get_kernel(config, xdlops)
     try:
         tuning, tuning_dbg =\
-            await run_passes(kernel, ["-miopen-affix-params", "-debug-only=miopen-tuning-parameter"])
-        conv, conv_dbg = await run_passes(tuning, ["-miopen-lowering"])
+            await run_passes(kernel, ["-rock-affix-params", "-debug-only=rock-tuning-parameter"])
+        conv, conv_dbg = await run_passes(tuning, ["-rock-lowering"])
         grid, grid_dbg =\
-            await run_passes(conv, ["-miopen-lowering-step2", "-debug-only=miopen-gridwise-to-blockwise"])
+            await run_passes(conv, ["-rock-lowering-step2", "-debug-only=rock-gridwise-to-blockwise"])
         block, block_dbg =\
-            await run_passes(grid, ["-miopen-lowering-step3", "-debug-only=miopen-blockwise-to-threadwise"])
+            await run_passes(grid, ["-rock-lowering-step3", "-debug-only=rock-blockwise-to-threadwise"])
         thread, thread_dbg =\
-            await run_passes(block, ["-miopen-lowering-step4", "-debug-only=miopen-threadwise-to-stdlib"])
+            await run_passes(block, ["-rock-lowering-step4", "-debug-only=rock-threadwise-to-stdlib"])
     except OptPassException:
         print(f"Inapplicable config '{config}' xdlops={xdlops}")
         return None
@@ -282,8 +282,8 @@ async def main():
     if len(sys.argv) != 2:
         print(f"Usage: {sys.argv[0]} out_file", file=sys.stderr)
         sys.exit(1)
-    if not MLIR_MIOPEN_DRIVER.exists():
-        print(f"Cannot find mlir-miopen-driver at {MLIR_MIOPEN_DRIVER}", file=sys.stderr)
+    if not MLIR_ROCK_DRIVER.exists():
+        print(f"Cannot find mlir-rock-driver at {MLIR_ROCK_DRIVER}", file=sys.stderr)
         sys.exit(1)
     filename = sys.argv[1]
     with open(filename, 'wb') as f:

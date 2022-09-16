@@ -5,11 +5,11 @@ void buildProject(String target, String cmakeOpts) {
             buildType: 'RelWithDebInfo',\
             installation: 'InSearchPath',\
             steps: [[args: target]],\
-            cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
+            cmakeArgs: "-DMLIR_ROCK_DRIVER_ENABLED=1 $cmakeOpts"
     }
 }
 
-void buildMIOpen(String cmakeOpts) {
+void buildRock(String cmakeOpts) {
     sh '[ ! -d build ] || rm -rf build'
     timeout(time: 60, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Unix Makefiles',\
@@ -20,7 +20,7 @@ void buildMIOpen(String cmakeOpts) {
                          -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
                          ${cmakeOpts}
                          """
-        sh 'cd build; make -j $(nproc) MIOpenDriver'
+        sh 'cd build; make -j $(nproc) RockDriver'
     }
 }
 
@@ -58,7 +58,7 @@ pipeline {
         booleanParam(name: 'sharedLib', defaultValue: true,
             description: 'Run shared library tests')
         booleanParam(name: 'staticLib', defaultValue: true,
-            description: 'Run static library and MIOpen integration tests')
+            description: 'Run static library and Rock integration tests')
     }
     stages {
         stage('Kill old PR builds') {
@@ -92,12 +92,12 @@ pipeline {
                         }
                         stage("Shared library build and fixed tests") {
                             steps {
-                                buildProject('check-mlir check-mlir-miopen', """
-                                  -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=1
-                                  -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=0
-                                  -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=0
-                                  -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=0
-                                  -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=1
+                                buildProject('check-mlir check-mlir-rock', """
+                                  -DMLIR_ROCK_DRIVER_PR_E2E_TEST_ENABLED=1
+                                  -DMLIR_ROCK_DRIVER_XDLOPS_TEST_ENABLED=0
+                                  -DMLIR_ROCK_DRIVER_E2E_TEST_ENABLED=0
+                                  -DMLIR_ROCK_DRIVER_MISC_E2E_TEST_ENABLED=0
+                                  -DMLIR_ROCK_DRIVER_TEST_GPU_VALIDATION=1
                                   -DLLVM_LIT_ARGS=-v
                                   -DCMAKE_EXPORT_COMPILE_COMMANDS=1
                                 """)
@@ -140,40 +140,40 @@ pipeline {
                                 checkout scm
                                 buildProject('librockCompiler',
                                              '-DBUILD_FAT_LIBROCKCOMPILER=ON')
-                                cmake arguments: "--install . --component librockCompiler --prefix ${WORKSPACE}/MIOpenDeps",\
+                                cmake arguments: "--install . --component librockCompiler --prefix ${WORKSPACE}/RockDeps",\
                                 installation: 'InSearchPath', workingDir: 'build'
                             }
                         }
-                        // Note: setting cxxflags here works around https://github.com/ROCmSoftwarePlatform/MIOpen/issues/1604
-                        stage("Build MIOpen with librockCompiler") {
+                        // Note: setting cxxflags here works around https://github.com/ROCmSoftwarePlatform/Rock/issues/1604
+                        stage("Build Rock with librockCompiler") {
                             steps {
-                                dir('MIOpen') {
+                                dir('Rock') {
                                 git branch: 'rename-MLIR', poll: false,\
-                                    url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
-                                buildMIOpen("""-DMIOPEN_USE_MLIR=On
-                                        -DMIOPEN_BACKEND=HIP
-                                        -DCMAKE_PREFIX_PATH=${WORKSPACE}/MIOpenDeps
-                                        -DCMAKE_CXX_FLAGS="-isystem ${WORKSPACE}/MIOpenDeps/include"
-                                        -DMIOPEN_USER_DB_PATH=${WORKSPACE}/MIOpen/build/MIOpenUserDB
-                                        -DMIOPEN_TEST_FLAGS="--verbose --disable-verification-cache"
+                                    url: 'https://github.com/ROCmSoftwarePlatform/Rock.git'
+                                buildRock("""-DROCK_USE_MLIR=On
+                                        -DROCK_BACKEND=HIP
+                                        -DCMAKE_PREFIX_PATH=${WORKSPACE}/RockDeps
+                                        -DCMAKE_CXX_FLAGS="-isystem ${WORKSPACE}/RockDeps/include"
+                                        -DROCK_USER_DB_PATH=${WORKSPACE}/Rock/build/RockUserDB
+                                        -DROCK_TEST_FLAGS="--verbose --disable-verification-cache"
                                         """)
                                 }
                             }
                         }
-                        stage("Test selected MIOpen configs") {
+                        stage("Test selected Rock configs") {
                             environment {
-                                // Make libMIOpen.so accessible to the test driver
-                                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                                // Make libRock.so accessible to the test driver
+                                LD_LIBRARY_PATH="${WORKSPACE}/Rock/build/lib:$LD_LIBRARY_PATH:"
                             }
                             steps {
                                 sh 'ldconfig'
-                                dir('MIOpen/build/') {
+                                dir('Rock/build/') {
                                     sh """
-                                    bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --no-tuning\
-                                       < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
+                                    bash ${WORKSPACE}/mlir/utils/jenkins/rock-tests/rock_validate.sh --test-all --no-tuning\
+                                       < ${WORKSPACE}/mlir/utils/jenkins/rock-tests/selected-resnet50-rock-configs"""
                                     sh """
-                                    bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
-                                       < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
+                                    bash ${WORKSPACE}/mlir/utils/jenkins/rock-tests/rock_validate.sh --test-all --tuning\
+                                       < ${WORKSPACE}/mlir/utils/jenkins/rock-tests/selected-resnet50-rock-configs"""
                                 }
                             }
                         }

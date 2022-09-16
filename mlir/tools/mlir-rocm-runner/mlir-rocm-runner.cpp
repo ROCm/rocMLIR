@@ -20,7 +20,7 @@
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Dialect/Arithmetic/Transforms/Passes.h"
 #include "mlir/Dialect/Async/Passes.h"
-#include "mlir/Dialect/MIOpen/MIOpen.h"
+#include "mlir/Dialect/Rock/Rock.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/TargetSelect.h"
@@ -124,11 +124,11 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
     features = rocmDevice.getFeatures().str();
   }
 
-  // Find MIOpen module and compile kernel funcs
+  // Find Rock module and compile kernel funcs
   ModuleOp kernelModule = m;
-  if (auto miopenModule = kernelModule.lookupSymbol<ModuleOp>(
-          miopen::MIOpenDialect::kKernelModuleName)) {
-    kernelModule = miopenModule;
+  if (auto rockModule = kernelModule.lookupSymbol<ModuleOp>(
+          rock::RockDialect::kKernelModuleName)) {
+    kernelModule = rockModule;
   }
 
   pm.addPass(createConvertSCFToCFPass());

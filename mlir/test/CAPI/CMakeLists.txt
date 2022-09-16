@@ -29,7 +29,7 @@ target_link_libraries(mlir-tosa-miir-test
   PRIVATE
   MLIRCAPIIR
   MLIRCAPIRegistration
-  MLIRMIOpenPipeline
+  MLIRRockPipeline
   LLVMAMDGPUAsmParser
   LLVMX86AsmParser
 )
@@ -47,7 +47,7 @@ target_link_libraries(mlir-mixr-full-test
   MLIRCAPIMIGraphX
   MLIRCAPIGPU
   MLIRMIGraphXPipeline
-  MLIRMIOpenPipeline
+  MLIRRockPipeline
   LLVMAMDGPUAsmParser
   LLVMX86AsmParser
 )

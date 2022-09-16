@@ -1,4 +1,4 @@
-// RUN: mlir-miopen-driver -host-pipeline full -kernel-pipeline full -triple amdgcn-amd-amdhsa -target gfx908 %s | FileCheck %s
+// RUN: mlir-rock-driver -host-pipeline full -kernel-pipeline full -triple amdgcn-amd-amdhsa -target gfx908 %s | FileCheck %s
 
 module {
 // CHECK: func.func private @resnet50_outlined_part_0(%arg0: memref<1x32x32x64xf32> {func.read_access}, %arg1: memref<64x3x3x64xf32> {func.read_access}, %arg2: memref<1x32x32x64xf32> {func.write_access}) attributes {async.targets = [{arch = "gfx908", binary = {{.*}}, block_size = 64 : i32, grid_size = 16 : i32, type = "gpu"}], kernel}

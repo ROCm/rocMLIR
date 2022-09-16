@@ -16,7 +16,7 @@ from lit.llvm.subst import FindTool
 # Configuration file for the 'lit' test runner.
 
 # name: The name of this test suite.
-config.name = 'MLIR-MIOpen'
+config.name = 'MLIR-Rock'
 
 config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
 
@@ -71,16 +71,16 @@ config.test_source_root = os.path.dirname(__file__)
 config.test_exec_root = os.path.join(config.mlir_obj_root, 'mlir', 'test')
 
 # Tweak the PATH to include the tools dir.
-llvm_config.with_environment('PATH', config.mlir_miopen_tools_dir, append_path=True)
+llvm_config.with_environment('PATH', config.mlir_rock_tools_dir, append_path=True)
 llvm_config.with_environment('PATH', config.lit_tools_dir, append_path=True)
 llvm_config.with_environment('PATH', config.llvm_tools_dir, append_path=True)
 
-tool_dirs = [config.mlir_miopen_tools_dir, config.mlir_tools_dir, config.llvm_tools_dir]
+tool_dirs = [config.mlir_rock_tools_dir, config.mlir_tools_dir, config.llvm_tools_dir]
 tools = [
     'mlir-opt',
     'mlir-translate',
-    'miopen-opt',
-    'miopen-translate'
+    'rock-opt',
+    'rock-translate'
 ]
 
 # The following tools are optional

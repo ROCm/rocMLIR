@@ -1,16 +1,16 @@
 #add_subdirectory(mlir-cuda-runner)
 #add_subdirectory(mlir-cpu-runner)
-add_subdirectory(miopen-lsp-server)
-add_subdirectory(miopen-opt)
-add_subdirectory(miopen-gen)
+add_subdirectory(rock-lsp-server)
+add_subdirectory(rock-opt)
+add_subdirectory(rock-gen)
 #add_subdirectory(mlir-reduce)
 add_subdirectory(mlir-rocm-runner)
 #add_subdirectory(mlir-shlib)
 #add_subdirectory(mlir-spirv-cpu-runner)
-add_subdirectory(miopen-translate)
+add_subdirectory(rock-translate)
 #add_subdirectory(mlir-vulkan-runner)
 add_subdirectory(xmir-runner)
 
-# MIOpen dialect specific.
-add_subdirectory(mlir-miopen-driver)
-add_subdirectory(mlir-miopen-lib)
+# Rock dialect specific.
+add_subdirectory(mlir-rock-driver)
+add_subdirectory(mlir-rock-lib)

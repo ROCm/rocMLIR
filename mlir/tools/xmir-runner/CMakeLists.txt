@@ -15,7 +15,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     MLIRAnalysis
     MLIRExecutionEngine
     MLIRIR
-    MLIRMIOpenOps
+    MLIRRockOps
     MLIRParser
     MLIRSupport
     MLIRGPUTransforms

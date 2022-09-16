@@ -11,8 +11,8 @@ add_mlir_dialect_library(MLIRMIGraphXPipeline
   MLIRPass
   MLIRLLVMDialect
   MLIRAffineToStandard
-  MLIRMIOpenOps
-  MLIRMIOpenTuning
+  MLIRRockOps
+  MLIRRockTuning
   MLIRSCFToControlFlow
   MLIRSupport
   MLIRTransformUtils

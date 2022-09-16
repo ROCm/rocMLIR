@@ -1,9 +1,9 @@
 # Dependencies for the E2E test only
 set(ROCK_E2E_DEPENDS
   FileCheck count not
-  miopen-opt
-  miopen-gen
-  mlir-miopen-driver
+  rock-opt
+  rock-gen
+  mlir-rock-driver
   mlir-rocm-runner
   e2e_tests
 )

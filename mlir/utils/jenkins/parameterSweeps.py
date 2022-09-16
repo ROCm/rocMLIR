@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Script to sweep the parameters of the MIOpen driver for bugs
+"""Script to sweep the parameters of the Rock driver for bugs
 
 Note: This requires Python 3.7 or newer, use pyenv or the like to install it temporarily
 
 Usage:
-$ ninja miopen-gen mlir-miopen-driver mlir-rocm-runner ci-performance-scripts
+$ ninja rock-gen mlir-rock-driver mlir-rocm-runner ci-performance-scripts
 $ stdbuf --output=L python3 ./bin/parameterSweeps.py [config] | stdbuf --output=L tee [output-file-of-choice]"""
 
 import argparse
@@ -19,9 +19,9 @@ import sys
 from dataclasses import dataclass
 from typing import Callable, Iterable, List, Sequence, Optional, Tuple, TypeVar, Union
 
-import MIOpenDriver
-from MIOpenDriver import ConvConfiguration
-from MIOpenDriver import Paths
+import RockDriver
+from RockDriver import ConvConfiguration
+from RockDriver import Paths
 
 @dataclass(frozen=True)
 class Options:
@@ -127,18 +127,18 @@ class TestResult(enum.Enum):
 async def testConfig(config: MLIROnlyConfig, options: Options, paths: Paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
-    miopenGenOpts = config.generateMlirDriverCommandLine()
-    miopenGenOpts.append('-pv')
+    rockGenOpts = config.generateMlirDriverCommandLine()
+    rockGenOpts.append('-pv')
 
     applicableFromGen, genToApplicable = os.pipe()
     generator = await asyncio.create_subprocess_exec(
-        paths.mlir_paths.miopen_gen_path,
-        *miopenGenOpts, stdout=genToApplicable, stderr=asyncio.subprocess.PIPE,
+        paths.mlir_paths.rock_gen_path,
+        *rockGenOpts, stdout=genToApplicable, stderr=asyncio.subprocess.PIPE,
         stdin=asyncio.subprocess.DEVNULL)
     os.close(genToApplicable)
 
     applicability = await asyncio.create_subprocess_exec(
-        paths.mlir_paths.mlir_miopen_driver_path,
+        paths.mlir_paths.mlir_rock_driver_path,
         '--kernel-pipeline=applicability', '-', stdin=applicableFromGen,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     os.close(applicableFromGen)
@@ -147,8 +147,8 @@ async def testConfig(config: MLIROnlyConfig, options: Options, paths: Paths) -> 
 
     if generator.returncode != 0:
         if options.debug:
-            print(f"""miopen-gen failed for config {config!r}
-Command line = {miopenGenOpts}
+            print(f"""rock-gen failed for config {config!r}
+Command line = {rockGenOpts}
 Return code = {generator.returncode}
 Errors = {genErrs.decode('utf-8')}
 """)
@@ -156,8 +156,8 @@ Errors = {genErrs.decode('utf-8')}
 
     if applicability.returncode != 0:
         if options.debug:
-            print(f"""mlir-miopen-driver applicability pipeline failed for config {config!r}
-Generator command line = {miopenGenOpts}
+            print(f"""mlir-rock-driver applicability pipeline failed for config {config!r}
+Generator command line = {rockGenOpts}
 Return code = {applicability.returncode}
 Errors = {tuneErrs.decode('utf-8')}
 """)
@@ -165,7 +165,7 @@ Errors = {tuneErrs.decode('utf-8')}
 
     runnerFromLowering, loweringToRunner = os.pipe()
     lowering = await asyncio.create_subprocess_exec(
-        paths.mlir_paths.mlir_miopen_driver_path,
+        paths.mlir_paths.mlir_rock_driver_path,
         '--kernel-pipeline=gpu', '-', stdin=asyncio.subprocess.PIPE,
         stdout=loweringToRunner, stderr=asyncio.subprocess.PIPE)
     os.close(loweringToRunner)
@@ -184,7 +184,7 @@ Errors = {tuneErrs.decode('utf-8')}
     if lowering.returncode != 0:
         if options.debug:
             print(f"""Low-level lowering did not complete succesfully for config {config!r}
-Command line = {miopenGenOpts}
+Command line = {rockGenOpts}
 Errors = {loweringErrs.decode('utf-8')}
 Return code = {lowering.returncode}""")
         return TestResult.FAIL
@@ -382,19 +382,19 @@ def main() -> bool:
     parser.add_argument(
         "--mlir-build-dir",
         type=str,
-        default=MIOpenDriver.find_mlir_build_dir(),
+        default=RockDriver.find_mlir_build_dir(),
         help="The build directory of MLIR based kernel generator",
     )
     parser.add_argument(
-        "--miopen-build-dir",
+        "--rock-build-dir",
         type=str,
-        default=MIOpenDriver.find_miopen_build_dir(),
-        help="The build directory of MIOpen",
+        default=RockDriver.find_rock_build_dir(),
+        help="The build directory of Rock",
     )
     args = parser.parse_args()
     options = Options(debug=args.debug, quiet=args.quiet, xdlops=args.xdlops,
         concurrent_tests=args.jobs)
-    paths = MIOpenDriver.create_paths(args.mlir_build_dir, args.miopen_build_dir)
+    paths = RockDriver.create_paths(args.mlir_build_dir, args.rock_build_dir)
 
     config = args.config
     if config == 'perf_config':

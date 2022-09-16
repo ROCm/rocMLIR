@@ -1,4 +1,4 @@
-// RUN:  miopen-opt -convert-gpu-to-rocdl %s | FileCheck %s
+// RUN:  rock-opt -convert-gpu-to-rocdl %s | FileCheck %s
 module attributes {gpu.container_module} {
   gpu.module @cast {
 // CHECK-LABEL: llvm.func @cast

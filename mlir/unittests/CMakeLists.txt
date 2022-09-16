@@ -1,7 +1,7 @@
-set_target_properties(MLIRMIOpenUnitTests PROPERTIES FOLDER "MLIR MIOpen Tests")
+set_target_properties(MLIRRockUnitTests PROPERTIES FOLDER "MLIR Rock Tests")
 
-function(add_mlir_miopen_unittest test_dirname)
-  add_unittest(MLIRMIOpenUnitTests ${test_dirname} ${ARGN})
+function(add_mlir_rock_unittest test_dirname)
+  add_unittest(MLIRRockUnitTests ${test_dirname} ${ARGN})
 endfunction()
 
 add_subdirectory(Dialect)

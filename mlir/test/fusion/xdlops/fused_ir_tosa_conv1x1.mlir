@@ -1,4 +1,4 @@
-// RUN: mlir-miopen-driver -host-pipeline highlevel %s | mlir-miopen-driver --miopen-fold-transpose --miopen-affix-params --miopen-conv-to-gemm --miopen-gemm-to-gridwise --miopen-gridwise-gemm-to-blockwise --miopen-linalg-align | FileCheck %s
+// RUN: mlir-rock-driver -host-pipeline highlevel %s | mlir-rock-driver --rock-fold-transpose --rock-affix-params --rock-conv-to-gemm --rock-gemm-to-gridwise --rock-gridwise-gemm-to-blockwise --rock-linalg-align | FileCheck %s
 module {
   func.func @main(%arg0: tensor<1x64x56x56xf32>, %arg1: tensor<64x64x1x1xf32>, %arg2: tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32> attributes {kernel, arch = "gfx908"} {
     %cst = arith.constant dense<[0, 2, 3, 1]> : tensor<4xi64>
@@ -14,18 +14,18 @@ module {
   }
 }
 // 1. Tracks the beginning of the store loop of gemmv2
-//CHECK: miopen.blockwise_gemm_v2
-//CHECK: miopen.transforming_for
+//CHECK: rock.blockwise_gemm_v2
+//CHECK: rock.transforming_for
 
 // 2. Check if ops are fused and copy_v2 is not present here
-//CHECK-NOT: miopen.threadwise_copy_v2
+//CHECK-NOT: rock.threadwise_copy_v2
 
 // 3. Check correct sequence of load-linalg-store
-//CHECK: miopen.transforming_for
-//CHECK: miopen.yield
+//CHECK: rock.transforming_for
+//CHECK: rock.yield
 //CHECK: linalg.generic
-//CHECK: miopen.threadwise_copy_v2
+//CHECK: rock.threadwise_copy_v2
 
 // 4. Check if there is leftover ops.
-//CHECK: miopen.yield
+//CHECK: rock.yield
 //CHECK-NOT: linalg.generic

@@ -1,5 +1,5 @@
-// RUN-DISABLE: mlir-miopen-driver -host-pipeline partition,highlevel -targets gfx90a %s | miopen-gen -ph -print-results -rand_type float -rand 1 -fut forward - | mlir-miopen-driver -host-pipeline xmodel -kernel-pipeline full -triple amdgcn-amd-amdhsa -targets gfx90a | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
-// RUN: mlir-miopen-driver -host-pipeline partition %s | FileCheck %s
+// RUN-DISABLE: mlir-rock-driver -host-pipeline partition,highlevel -targets gfx90a %s | rock-gen -ph -print-results -rand_type float -rand 1 -fut forward - | mlir-rock-driver -host-pipeline xmodel -kernel-pipeline full -triple amdgcn-amd-amdhsa -targets gfx90a | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: mlir-rock-driver -host-pipeline partition %s | FileCheck %s
 // CHECK: @forward_outlined_part_20
 module attributes {torch.debug_module_name = "ResNet"} {
   func.func @forward(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x1000xf32> {

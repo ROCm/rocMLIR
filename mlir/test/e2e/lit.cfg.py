@@ -70,12 +70,12 @@ config.excludes = ['Inputs', 'CMakeLists.txt', 'README.txt', 'LICENSE.txt',
 #config.test_exec_root = os.path.join(config.mlir_obj_root, 'mlir', 'test')
 
 # Tweak the PATH to include the tools dir.
-llvm_config.with_environment('PATH', config.mlir_miopen_tools_dir, append_path=True)
+llvm_config.with_environment('PATH', config.mlir_rock_tools_dir, append_path=True)
 llvm_config.with_environment('PATH', config.lit_tools_dir, append_path=True)
 llvm_config.with_environment('PATH', config.llvm_tools_dir, append_path=True)
 
-tool_dirs = [config.mlir_miopen_tools_dir, config.mlir_tools_dir, config.llvm_tools_dir]
-tools = ['miopen-opt']
+tool_dirs = [config.mlir_rock_tools_dir, config.mlir_tools_dir, config.llvm_tools_dir]
+tools = ['rock-opt']
 
 # The following tools are optional
 tools.extend([

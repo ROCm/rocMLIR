@@ -1,4 +1,4 @@
-// RUN: mlir-miopen-driver -host-pipeline partition %s | miopen-opt --miopen-async-launch - | FileCheck %s
+// RUN: mlir-rock-driver -host-pipeline partition %s | rock-opt --rock-async-launch - | FileCheck %s
 
 
 module {
