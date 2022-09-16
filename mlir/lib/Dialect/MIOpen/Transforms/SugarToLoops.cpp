@@ -426,7 +426,8 @@ struct IndexDiffUpdateRewritePattern
                                  upperIndicesDiff[upperDim]));
           }
         }
-
+//llvm::errs()<<"Embed lowerDiff is ";
+//lowerDiff.dump();
         uint32_t lowerDim = q[0];
         lowerIndicesDiffMap[lowerDim] = lowerDiff;
         lowerIndicesUpdatedMap[lowerDim] =
@@ -435,7 +436,36 @@ struct IndexDiffUpdateRewritePattern
         assert(e.size() == p.size());
         assert(q.size() == 1);
         uint32_t upperDim = p[0];
-        Value lowerDiff = upperIndicesDiff[upperDim];
+
+SmallVector<int64_t> coefs;
+coefs.reserve(e.size());
+int64_t prev = 1;
+for (size_t idx = e.size()-1; idx > 0; idx--) {
+  prev = e[idx] * prev;
+  coefs.insert(coefs.begin(), prev);
+}
+coefs.push_back(1);
+ArrayRef<int64_t> coefficients(coefs);
+        Value lowerDiff = zeroConstantOp;
+        for (unsigned iter = 0; iter < coefficients.size(); ++iter) {
+          int64_t coefficient = coefficients[iter];
+          uint32_t upperDim = p[iter];
+          auto mbUpperDiff = isConstantValue(upperIndicesDiff[upperDim]);
+          auto mbLowerDiff = isConstantValue(lowerDiff);
+          if (mbUpperDiff.hasValue() && mbLowerDiff.hasValue()) {
+            lowerDiff = b.create<ConstantIndexOp>(
+                loc,
+                mbLowerDiff.getValue() + coefficient * mbUpperDiff.getValue());
+          } else {
+            lowerDiff = b.create<AddIOp>(
+                loc, lowerDiff,
+                b.create<MulIOp>(loc,
+                                 b.create<ConstantIndexOp>(loc, coefficient),
+                                 upperIndicesDiff[upperDim]));
+          }
+        }
+//        Value lowerDiff = upperIndicesDiff[upperDim];
+/*
         for (unsigned iter = 1; iter < e.size(); ++iter) {
           int64_t coefficient = e[iter];
           uint32_t upperDim = p[iter];
@@ -453,6 +483,9 @@ struct IndexDiffUpdateRewritePattern
                                  lowerDiff));
           }
         }
+*/
+//llvm::errs()<<"Unmerge lowerDiff is ";
+//lowerDiff.dump();
         uint32_t lowerDim = q[0];
         lowerIndicesDiffMap[lowerDim] = lowerDiff;
         lowerIndicesUpdatedMap[lowerDim] =
