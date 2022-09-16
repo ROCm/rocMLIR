@@ -20,7 +20,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Rock/XMIRPipelines.h"
+#include "mlir/Dialect/Rock/Pipelines/XMIRPipelines.h"
 
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/InitAllDialects.h"

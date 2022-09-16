@@ -1,6 +1,6 @@
 #include "Miir.h"
 #include "mlir/Dialect/Rock/Generator/Conv2dGenerator.h"
-#include "mlir/Dialect/Rock/Pipelines.h"
+#include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitRockDialects.h"

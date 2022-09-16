@@ -34,8 +34,8 @@ class PatternRewriter;
 //===----------------------------------------------------------------------===//
 //  Rock Dialect
 //===----------------------------------------------------------------------===//
-#include "mlir/Dialect/Rock/RockOpsDialect.h.inc"
-#include "mlir/Dialect/Rock/RockTypes.h.inc"
+#include "mlir/Dialect/Rock/IR/RockOpsDialect.h.inc"
+#include "mlir/Dialect/Rock/IR/RockTypes.h.inc"
 
 namespace mlir {
 namespace rock {
@@ -53,10 +53,10 @@ ArrayAttr getIndexArrayAttr(Builder &b, ArrayRef<int64_t> values);
 } // end namespace mlir
 
 #define GET_ATTRDEF_CLASSES
-#include "mlir/Dialect/Rock/RockAttrDefs.h.inc"
+#include "mlir/Dialect/Rock/IR/RockAttrDefs.h.inc"
 
 #define GET_OP_CLASSES
-#include "mlir/Dialect/Rock/RockOps.h.inc"
+#include "mlir/Dialect/Rock/IR/RockOps.h.inc"
 
 namespace mlir {
 namespace rock {

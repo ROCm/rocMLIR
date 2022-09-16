@@ -20,8 +20,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Rock/Pipelines.h"
-#include "mlir/Dialect/Rock/XMIRPipelines.h"
+#include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
+#include "mlir/Dialect/Rock/Pipelines/XMIRPipelines.h"
 
 #include "mlir/Conversion/RockPasses.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"

@@ -17,7 +17,7 @@
 
 #include "PassDetail.h"
 
-#include "mlir/Dialect/Rock/Rock.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"

@@ -7,7 +7,7 @@
 //===-----------------------------------------------------===//
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Rock/Rock.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Location.h"

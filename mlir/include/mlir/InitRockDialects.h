@@ -16,7 +16,7 @@
 #define MLIR_INITROCKDIALECTS_H_
 
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
-#include "mlir/Dialect/Rock/Rock.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 
 #include "mlir/IR/Dialect.h"
 

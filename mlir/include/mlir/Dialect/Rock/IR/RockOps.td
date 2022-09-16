@@ -13,7 +13,7 @@
 #ifndef ROCK_OPS
 #define ROCK_OPS
 
-include "mlir/Dialect/Rock/RockAttrDefs.td"
+include "mlir/Dialect/Rock/IR/RockAttrDefs.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
 include "mlir/Interfaces/LoopLikeInterface.td"

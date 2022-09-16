@@ -17,7 +17,7 @@
 
 #include "mlir/Conversion/RockPasses.h"
 #include "mlir/Dialect/Rock/Passes.h"
-#include "mlir/Dialect/Rock/Pipelines.h"
+#include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 
 #include "mlir/Transforms/Passes.h"
 

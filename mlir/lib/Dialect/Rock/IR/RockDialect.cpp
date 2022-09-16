@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Rock/Rock.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/AffineMap.h"
@@ -45,8 +45,8 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-#include "mlir/Dialect/Rock/RockOpsDialect.cpp.inc"
-#include "mlir/Dialect/Rock/RockTypes.cpp.inc"
+#include "mlir/Dialect/Rock/IR/RockOpsDialect.cpp.inc"
+#include "mlir/Dialect/Rock/IR/RockTypes.cpp.inc"
 //===----------------------------------------------------------------------===//
 // RockDialect Interfaces
 //===----------------------------------------------------------------------===//
@@ -357,11 +357,11 @@ LogicalResult TransformMapAttr::verify(
 void RockDialect::initialize() {
   addAttributes<
 #define GET_ATTRDEF_LIST
-#include "mlir/Dialect/Rock/RockAttrDefs.cpp.inc"
+#include "mlir/Dialect/Rock/IR/RockAttrDefs.cpp.inc"
       >();
   addOperations<
 #define GET_OP_LIST
-#include "mlir/Dialect/Rock/RockOps.cpp.inc"
+#include "mlir/Dialect/Rock/IR/RockOps.cpp.inc"
       >();
   addInterfaces<RockOpAsmDialectInterface>();
 }
@@ -1198,7 +1198,7 @@ void WorkitemIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
 //===----------------------------------------------------------------------===//
 
 #define GET_ATTRDEF_CLASSES
-#include "mlir/Dialect/Rock/RockAttrDefs.cpp.inc"
+#include "mlir/Dialect/Rock/IR/RockAttrDefs.cpp.inc"
 
 #define GET_OP_CLASSES
-#include "mlir/Dialect/Rock/RockOps.cpp.inc"
+#include "mlir/Dialect/Rock/IR/RockOps.cpp.inc"

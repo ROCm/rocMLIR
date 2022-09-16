@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Rock/TransformMapBuilder.h"
-#include "mlir/Dialect/Rock/Rock.h"
+#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/Builders.h"

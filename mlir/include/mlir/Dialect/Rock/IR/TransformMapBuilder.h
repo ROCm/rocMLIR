@@ -13,7 +13,7 @@
 #ifndef MLIR_DIALECT_ROCK_TRANSFORMMAPBUILDER_H
 #define MLIR_DIALECT_ROCK_TRANSFORMMAPBUILDER_H
 
-#include "mlir/Dialect/Rock/Rock.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "llvm/ADT/MapVector.h"
 
 namespace mlir {

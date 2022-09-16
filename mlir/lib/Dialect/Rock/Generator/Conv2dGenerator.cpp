@@ -1,6 +1,6 @@
 #include "mlir/Dialect/Rock/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Rock/Rock.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GemmContext.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"

@@ -20,7 +20,7 @@
 #include "mlir-c/Registration.h"
 
 #include "mlir/CAPI/IR.h"
-#include "mlir/Dialect/Rock/Pipelines.h"
+#include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "llvm/Support/TargetSelect.h"
 

@@ -9,7 +9,7 @@
 #ifndef ROCK_ATTRS
 #define ROCK_ATTRS
 
-include "mlir/Dialect/Rock/RockBase.td"
+include "mlir/Dialect/Rock/IR/RockBase.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
 

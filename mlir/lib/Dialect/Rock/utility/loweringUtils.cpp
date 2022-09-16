@@ -8,7 +8,7 @@
 
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 
-#include "mlir/Dialect/Rock/Rock.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinAttributes.h"

@@ -13,7 +13,7 @@
 #ifndef MLIR_DIALECT_ROCK_CONV2DGENERATOR_H_
 #define MLIR_DIALECT_ROCK_CONV2DGENERATOR_H_
 
-#include "mlir/Dialect/Rock/Rock.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
 

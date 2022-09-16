@@ -14,7 +14,7 @@
 #ifndef MLIR_DIALECT_ROCK_TUNING_GEMMCONTEXT_H
 #define MLIR_DIALECT_ROCK_TUNING_GEMMCONTEXT_H
 
-#include "mlir/Dialect/Rock/Rock.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 
 namespace mlir {
 class Operation;

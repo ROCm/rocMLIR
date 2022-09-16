@@ -15,8 +15,8 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/MIGraphX/Pipeline.h"
-#include "mlir/Dialect/Rock/Rock.h"
-#include "mlir/Dialect/Rock/Pipelines.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "llvm/Support/TargetSelect.h"
 #include <mutex>
