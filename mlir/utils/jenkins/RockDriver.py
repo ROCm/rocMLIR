@@ -358,14 +358,14 @@ def runConfigWithMLIR(config: ConvConfiguration, paths: Paths):
     commandLineOptions = config.generateMlirDriverCommandLine()
     print("Running MLIR Benchmark: ", repr(config))
     rockGenCommand = paths.mlir_paths.rock_gen_path + ' -ph ' + commandLineOptions
-    mlirMiopenDriverCommand = [paths.mlir_paths.mlir_rock_driver_path, '-c']
+    mlirRockDriverCommand = [paths.mlir_paths.mlir_rock_driver_path, '-c']
     mlir_rocm_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
     profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.rocm_runner_path] + mlir_rocm_runner_args
 
     # invoke rock-gen.
     p1 = subprocess.Popen(rockGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     # pipe to mlir-rock-driver
-    p2 = subprocess.Popen(mlirMiopenDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    p2 = subprocess.Popen(mlirRockDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     p1.stdout.close() # Allow p1 to receive a SIGPIPE if p2 exits.
     # pipe to rocprof + mlir-rocm-runner.
     p3 = subprocess.Popen(profilerCommand, stdin=p2.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

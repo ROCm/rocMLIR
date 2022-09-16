@@ -57,7 +57,7 @@ static cl::opt<std::string>
                                 "partition,highlevel,execmodel or full"),
                  cl::init(""));
 
-static cl::opt<bool> legacyMiopenPipeline("c", cl::Hidden, cl::init(false),
+static cl::opt<bool> legacyRockPipeline("c", cl::Hidden, cl::init(false),
                                           cl::Optional,
                                           cl::cb<void, bool>([](bool v) {
                                             if (v) {

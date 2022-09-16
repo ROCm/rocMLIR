@@ -121,7 +121,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   rm -rf /var/lib/apt/lists/*
 
 # --------------------- Section 3: Rock dependencies ---------------
-WORKDIR /MiOpenDepsWork
+WORKDIR /RockDepsWork
 RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/Rock/develop/requirements.txt \
     && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/Rock/develop/install_deps.cmake \
     && sed -i -e '/llvm-project-mlir/d' requirements.txt \
