@@ -308,6 +308,7 @@ propagateUnmergeVectorization(T &&dimAndLength,
                               const VectorizationData &input) {
   Optional<VectorizationInfo> result;
   int64_t previousDimsStride = 1;
+  Optional<int64_t> previousAlign;
   for (auto pair : dimAndLength) {
     uint32_t upperDim = std::get<0>(pair);
     int64_t dimLength = std::get<1>(pair);
@@ -322,18 +323,25 @@ propagateUnmergeVectorization(T &&dimAndLength,
           (result->maxLength * result->needsCoefficient) ==
               previousDimsStride) {
         result->maxLength *= upperInfo.maxLength;
-        // If our alignment is equal to the previous strides, we can extend it
-        // by multiplying in the alignment of this dimension. This is not
-        // the case when a held-constant dimension has interveined or a previous
-        // dimension was not fully aligned to its coefficient
-        if (result->alignment % previousDimsStride == 0)
-          result->alignment *= upperInfo.alignment;
+        if (!previousAlign.has_value())
+          previousAlign = upperInfo.alignment * previousDimsStride;
+        else
+          previousAlign = math_util::gcd(
+              *previousAlign, upperInfo.alignment * previousDimsStride);
       } else {
         break;
       }
+    } else {
+      // Dimensions held constant affect alignment
+      if (!previousAlign.has_value())
+        previousAlign = previousDimsStride;
+      else
+        previousAlign = math_util::gcd(*previousAlign, previousDimsStride);
     }
     previousDimsStride *= dimLength;
   }
+  if (result.has_value())
+    result->alignment = previousAlign.getValueOr(1);
   return result;
 }
 
@@ -466,7 +474,8 @@ propagateVectorizationInfo(TransformMapAttr map,
           int64_t thisAlignment = input[upperDim]->alignment;
 
           if (!ourResult.hasValue()) {
-            ourResult = VectorizationInfo(1, coefficient, coefficient);
+            ourResult =
+                VectorizationInfo(1, coefficient, thisAlignment * coefficient);
             if (hasNegativeCoefficients) {
               ourResult->alignment = 1;
               break;
@@ -476,8 +485,8 @@ propagateVectorizationInfo(TransformMapAttr map,
               coefficient ==
                   (ourResult->maxLength * ourResult->needsCoefficient)) {
             ourResult->maxLength *= upperLen;
-            if (thisAlignment % coefficient == 0)
-              ourResult->alignment *= thisAlignment;
+            ourResult->alignment = math_util::gcd(ourResult->alignment,
+                                                  thisAlignment * coefficient);
           } else {
             break;
           }
@@ -520,16 +529,18 @@ propagateVectorizationInfo(TransformMapAttr map,
       }
       int64_t maxLen = input[upperDim]->maxLength;
       int64_t coeff = input[upperDim]->needsCoefficient;
+      int64_t stride = 1;
       for (auto pair :
            llvm::zip(llvm::reverse(lowerDims), llvm::reverse(params))) {
         uint32_t lowerDim = std::get<0>(pair);
         int64_t lowerLen = std::get<1>(pair);
         int64_t thisMaxLen = math_util::gcd(maxLen, lowerLen);
         int64_t thisAlignment =
-            math_util::gcd(input[upperDim]->alignment, coeff);
-        result[lowerDim] = VectorizationInfo(thisMaxLen, coeff, thisAlignment);
+            std::max(input[upperDim]->alignment / stride, 1l);
+        result[lowerDim] =
+            VectorizationInfo(thisMaxLen, coeff * stride, thisAlignment);
         maxLen = std::max(maxLen / lowerLen, 1L);
-        coeff *= lowerLen;
+        stride *= lowerLen;
       }
       break;
     }
