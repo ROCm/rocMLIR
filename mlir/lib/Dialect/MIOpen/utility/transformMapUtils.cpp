@@ -326,7 +326,7 @@ propagateUnmergeVectorization(T &&dimAndLength,
         // by multiplying in the alignment of this dimension. This is not
         // the case when a held-constant dimension has interveined or a previous
         // dimension was not fully aligned to its coefficient
-        if (result->alignment == previousDimsStride)
+        if (result->alignment % previousDimsStride == 0)
           result->alignment *= upperInfo.alignment;
       } else {
         break;
@@ -476,7 +476,7 @@ propagateVectorizationInfo(TransformMapAttr map,
               coefficient ==
                   (ourResult->maxLength * ourResult->needsCoefficient)) {
             ourResult->maxLength *= upperLen;
-            if (coefficient == thisAlignment)
+            if (thisAlignment % coefficient == 0)
               ourResult->alignment *= thisAlignment;
           } else {
             break;
