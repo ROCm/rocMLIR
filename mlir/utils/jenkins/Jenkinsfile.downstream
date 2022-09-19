@@ -92,7 +92,7 @@ pipeline {
                         }
                         stage("Shared library build and fixed tests") {
                             steps {
-                                buildProject('check-mlir check-mlir-rock', """
+                                buildProject('check-mlir check-rocmlir', """
                                   -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=1
                                   -DROCMLIR_DRIVER_XDLOPS_TEST_ENABLED=0
                                   -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0

@@ -123,20 +123,20 @@ if(ROCK_E2E_TEST_ENABLED)
   add_subdirectory(e2e)
 endif()
 
-add_custom_target(check-mlir-rock-build-only
+add_custom_target(check-rocmlir-build-only
   DEPENDS ${ROCMLIR_TEST_DEPENDS})
 
-# check-mlir-rock runs MLIR-Rock regression tests including E2E tests
+# check-rocmlir runs RocMLIR regression tests including E2E tests
 # when ROCMLIR_DRIVER_E2E_TEST_ENABLED is set
 # It runs E2E tests in Resnet50 and Resnext101 when
 # ROCK_E2E_TEST_ENABLED is set
-add_lit_testsuite(check-mlir-rock "Running the MLIR-Rock regression tests"
+add_lit_testsuite(check-rocmlir "Running the RocMLIR regression tests"
   ${CMAKE_CURRENT_BINARY_DIR}
   DEPENDS ${ROCMLIR_TEST_DEPENDS}
 )
-set_target_properties(check-mlir-rock PROPERTIES FOLDER "Tests")
+set_target_properties(check-rocmlir PROPERTIES FOLDER "Tests")
 
-add_lit_testsuites(MLIR-ROCK ${CMAKE_CURRENT_SOURCE_DIR}
+add_lit_testsuites(ROCMLIR ${CMAKE_CURRENT_SOURCE_DIR}
   DEPENDS ${ROCMLIR_TEST_DEPENDS}
 )
 
