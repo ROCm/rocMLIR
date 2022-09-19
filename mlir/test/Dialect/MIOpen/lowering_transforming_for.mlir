@@ -81,7 +81,7 @@ func.func @one_transform_index_diff(%arg0: index, %arg1: index) {
     // CHECK: affine.for %[[d0:.*]] = 0 to 2
     // CHECK-NEXT: affine.for %[[d1:.*]] = 0 to 3
     // CHECK-NEXT: %[[c0:.*]] = arith.muli %[[d0]]
-    // CHECK-NEXT: %[[c1:.*]] = arith.addi %[[d1]], %[[c0]]
+    // CHECK-NEXT: %[[c1:.*]] = arith.addi %[[c0]], %[[d1]]
     // CHECK-NEXT: %[[l0:.*]] = arith.addi %[[linit]], %[[c1]]
     // CHECK-NEXT: gpu.printf "%d" %[[l0]]
     miopen.transforming_for {useIndexDiffs} (%arg2) = [#transform_map0](%arg0, %arg1) bounds [2, 3] strides [1, 1] {
@@ -152,7 +152,7 @@ func.func @deep_transforms_index_diff(%arg0: index, %arg1: index) {
     // CHECK-NEXT: affine.for %[[d1:.*]] = 0 to 3
     miopen.transforming_for {useIndexDiffs} (%arg2) = [#transform_map1, #transform_map0](%arg0, %arg1) bounds [2, 3] strides [1, 1] {
         // CHECK-DAG: %[[c0:.*]] = arith.muli %[[d1]]
-        // CHECK-DAG: %[[c1:.*]] = arith.addi %[[d0]], %[[c0]]
+        // CHECK-DAG: %[[c1:.*]] = arith.addi %[[c0]], %[[d0]]
         // CHECK-DAG: %[[l0:.*]] = arith.addi %[[init1]], %[[c1]]
         // CHECK-NEXT: gpu.printf "%d" %[[l0]]
         gpu.printf "%d" %arg2 : index

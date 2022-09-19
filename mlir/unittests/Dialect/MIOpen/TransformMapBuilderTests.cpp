@@ -153,7 +153,7 @@ TEST_F(TMBuilderTest, Unmerge) {
 
   EXPECT_EQ(resDown.getMap().getAffineMap(),
             AffineMap::get(3, 0,
-                           {(affD(0) * affC(3) + affD(1)) * affC(4) + affD(2)},
+                           {affD(0) * affC(12) + affD(1) * affC(4) + affD(2)},
                            &context));
   EXPECT_EQ(resDown, resUp);
 }
