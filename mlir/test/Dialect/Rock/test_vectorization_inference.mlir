@@ -48,19 +48,19 @@
   bounds = [4, 5, 8] -> [4, 1, 8]>
 
 // Test for the alignment bug
-#transform_map_align_e11 = #miopen.transform_map<affine_map<(d0, d1) -> (d0 + d1)>
+#transform_map_align_e11 = #rock.transform_map<affine_map<(d0, d1) -> (d0 + d1)>
   by [<Embed{1, 1} ["a", "b"] at [0, 1] -> ["xpad"] at [0]>]
   bounds = [4, 4] -> [16]>
 
-#transform_map_align_e41 = #miopen.transform_map<affine_map<(d0, d1) -> (d0 * 2 + d1)>
+#transform_map_align_e41 = #rock.transform_map<affine_map<(d0, d1) -> (d0 * 2 + d1)>
   by [<Embed{4, 1} ["a", "b"] at [0, 1] -> ["xpad"] at [0]>]
   bounds = [4, 4] -> [16]>
 
-#transform_map_align_pad = #miopen.transform_map<affine_map<(d0) -> (d0)>
+#transform_map_align_pad = #rock.transform_map<affine_map<(d0) -> (d0)>
   by [<Pad{0, 2} ["xpad"] at [0] -> ["x"] at [0]>]
   bounds = [16] -> [14]>
 
-#transform_map_align_nopad = #miopen.transform_map<affine_map<(d0) -> (d0)>
+#transform_map_align_nopad = #rock.transform_map<affine_map<(d0) -> (d0)>
   by [<Pad{0, 0} ["xpad"] at [0] -> ["x"] at [0]>]
   bounds = [16] -> [16]>
 
