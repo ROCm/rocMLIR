@@ -2,7 +2,7 @@
 
 This is the repository for a MLIR-based convolution and GEMM kernel generator
 targetting AMD hardware. This generator is mainly used from
-[Rock](https://github.com/ROCmSoftwarePlatform/Rock/)
+[MIOpen](https://github.com/ROCmSoftwarePlatform/MIOpen/)
 and [MIGraphX](https://github.com/ROCmSoftwarePlatform/AMDMIGraphX),
 but it can be used on a standalone basis. (The ability to use this code via
 `torch-mlir` is being investigated as well.)
@@ -23,7 +23,7 @@ to the `cmake` invocation above.
 
 To not actually run the tests, use `check-mlir-miopen-build-only`.
 
-To build the static library that is used by Rock
+To build the static library that is used by MIOpen
 ```sh
 mkdir build
 cd build
@@ -32,9 +32,9 @@ ninja librockCompiler
 ```
 
 
-and to install it so Rock can find it
+and to install it so MIOpen can find it
 ```
-cmake --install . --component librockCompiler --prefix [your Rock deps]
+cmake --install . --component librockCompiler --prefix [your MIOpen deps]
 ```
 
 ## Standalone usage
