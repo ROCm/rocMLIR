@@ -9,7 +9,7 @@ declare -ig TESTFWD=0
 declare -g DTYPE=""
 declare -g DIRECTION=""
 declare -g LAYOUT=""
-declare -g DRIVER="./bin/RockDriver"
+declare -g DRIVER="./bin/MIOpenDriver"
 
 declare -a ALL_DTYPES=(fp16 fp32)
 declare -a ALL_DIRECTIONS=(1 2 4)
@@ -20,7 +20,7 @@ function usage() {
     cat <<END
 $0: [-d | --direction] DIR [-t | --dtype] [int8 | fp16 | fp32] [-l | --layout] LAYOUT
 [-x | --xdlops] [-X | --no-xdlops (default)] [--tuning | --no-tuning (default)]
-[--driver DRIVER (default bin/RockDriver)] [--test-all]
+[--driver DRIVER (default bin/MIOpenDriver)] [--test-all]
 
 DIR is either 1 (forward (fwd)) 2 (backward data (bwd)), or
 4 (backward weights (wrw)), other values are currently unsupported
@@ -120,7 +120,7 @@ function construct_fixed_args() {
 }
 
 function create_configs() {
-    TMPFILE=$(mktemp /tmp/test-config-cmds-rock.XXXXXX)
+    TMPFILE=$(mktemp /tmp/test-config-cmds-miopen.XXXXXX)
     if [[ $? != 0 ]]; then
        echo "$0: Couldn't make tempfile: $TMPFILE"
        exit 1
@@ -131,36 +131,36 @@ function create_configs() {
     done
 }
 
-function clean_rock_caches() {
-    rm -rf /tmp/rock-*
-    rm -rf ~/.cache/rock
-    rm -rf ~/.config/rock/
+function clean_miopen_caches() {
+    rm -rf /tmp/miopen-*
+    rm -rf ~/.cache/miopen
+    rm -rf ~/.config/miopen/
 }
 
 function setup_environment() {
-    export ROCK_FIND_MODE=1
-    export ROCK_DRIVER_USE_GPU_REFERENCE=1
+    export MIOPEN_FIND_MODE=1
+    export MIOPEN_DRIVER_USE_GPU_REFERENCE=1
 
     if [[ $TUNING == 1 ]]; then
-        export ROCK_FIND_ENFORCE=4
+        export MIOPEN_FIND_ENFORCE=4
     fi
 
-    declare -xg ROCK_DEBUG_FIND_ONLY_SOLVER
+    declare -xg MIOPEN_DEBUG_FIND_ONLY_SOLVER
     case "$DIRECTION" in
-        1) ROCK_DEBUG_FIND_ONLY_SOLVER=ConvMlirIgemmFwd ;;
-        2) ROCK_DEBUG_FIND_ONLY_SOLVER=ConvMlirIgemmBwd ;;
-        4) ROCK_DEBUG_FIND_ONLY_SOLVER=ConvMlirIgemmWrW ;;
+        1) MIOPEN_DEBUG_FIND_ONLY_SOLVER=ConvMlirIgemmFwd ;;
+        2) MIOPEN_DEBUG_FIND_ONLY_SOLVER=ConvMlirIgemmBwd ;;
+        4) MIOPEN_DEBUG_FIND_ONLY_SOLVER=ConvMlirIgemmWrW ;;
         *) echo "$0: Unsupported direction flag $DIRECTION"; exit 2
     esac
 
     if [[ $XDLOPS == 1 ]]; then
-       ROCK_DEBUG_FIND_ONLY_SOLVER+="Xdlops"
+       MIOPEN_DEBUG_FIND_ONLY_SOLVER+="Xdlops"
     fi
-    export ROCK_DEBUG_FIND_ONLY_SOLVER
+    export MIOPEN_DEBUG_FIND_ONLY_SOLVER
 }
 
 function run_tests() {
-    if [[ -z "$ROCK_DEBUG_FIND_ONLY_SOLVER" || ! -f "$TMPFILE" ]]
+    if [[ -z "$MIOPEN_DEBUG_FIND_ONLY_SOLVER" || ! -f "$TMPFILE" ]]
     then
         echo "Test execution preconditions not met"
         exit 3
@@ -215,7 +215,7 @@ function run_tests_for_inference() {
 }
 
 function main() {
-    clean_rock_caches
+    clean_miopen_caches
     parse_options "$@"
     get_configs
     if [[ $TESTALL == 1 ]]; then
