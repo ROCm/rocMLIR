@@ -1,16 +1,8 @@
-#add_subdirectory(mlir-cuda-runner)
-#add_subdirectory(mlir-cpu-runner)
 add_subdirectory(rocmlir-lsp-server)
 add_subdirectory(rocmlir-opt)
 add_subdirectory(rocmlir-gen)
-#add_subdirectory(mlir-reduce)
 add_subdirectory(mlir-rocm-runner)
-#add_subdirectory(mlir-shlib)
-#add_subdirectory(mlir-spirv-cpu-runner)
 add_subdirectory(rocmlir-translate)
-#add_subdirectory(mlir-vulkan-runner)
 add_subdirectory(xmir-runner)
-
-# Rock dialect specific.
 add_subdirectory(rocmlir-driver)
 add_subdirectory(rocmlir-lib)
