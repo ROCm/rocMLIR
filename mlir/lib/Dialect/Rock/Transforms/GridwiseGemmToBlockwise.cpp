@@ -272,7 +272,7 @@ static Value unKpack(OpBuilder &b, Value matrix) {
     return matrix;
   BottomUpTMBuilder unkpack(b, {"g", "k", "d", "kpack"}, shape,
                             matrix.getLoc());
-  unkpack.passThrough({"g", "m"});
+  unkpack.passThrough({"g", "d"});
   unkpack.merge("k", 1, {"k", "kpack"});
   TransformMapAttr unkpackAttr = unkpack.get();
   return b.create<TransformOp>(matrix.getLoc(), matrix, unkpackAttr);
@@ -1114,8 +1114,8 @@ struct GridwiseGemmV2RewritePattern
 
     // Obtain critical matrix dimensions.
     ArrayRef<int64_t> aShape, bShape, cShape;
-    aShape = matA.getType().template cast<MemRefType>().getShape();
-    bShape = matB.getType().template cast<MemRefType>().getShape();
+    aShape = op.a().getType().template cast<MemRefType>().getShape();
+    bShape = op.b().getType().template cast<MemRefType>().getShape();
     cShape = op.c().getType().template cast<MemRefType>().getShape();
     // Obtain critical matrix dimensions.
     int64_t G = aShape[0];

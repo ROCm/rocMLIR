@@ -129,13 +129,6 @@ LogicalResult getConvDimNames(T op, SmallVectorImpl<StringRef> &filterNames,
   return success();
 }
 
-// To be removed on migration to new vectorization scheme
-static void maybeSetAttr(StringRef attr, Operation *from, Operation *to) {
-  Attribute maybeValue = from->getAttr(attr);
-  if (maybeValue)
-    to->setAttr(attr, maybeValue);
-}
-
 /// Create an elementwise utility kernel.
 /// The callback has type (builder, location, collapsedBuffers, coordinate).
 /// Note: you are expected to handle out of bounds, such as by using
