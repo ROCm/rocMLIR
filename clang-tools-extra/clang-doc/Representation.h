@@ -181,10 +181,15 @@ struct FieldTypeInfo : public TypeInfo {
       : TypeInfo(RefName, Path), Name(Name) {}
 
   bool operator==(const FieldTypeInfo &Other) const {
-    return std::tie(Type, Name) == std::tie(Other.Type, Other.Name);
+    return std::tie(Type, Name, DefaultValue) ==
+           std::tie(Other.Type, Other.Name, Other.DefaultValue);
   }
 
   SmallString<16> Name; // Name associated with this info.
+
+  // When used for function parameters, contains the string representing the
+  // expression of the default value, if any.
+  SmallString<16> DefaultValue;
 };
 
 // Info for member types.
@@ -201,8 +206,8 @@ struct MemberTypeInfo : public FieldTypeInfo {
       : FieldTypeInfo(RefName, Path, Name), Access(Access) {}
 
   bool operator==(const MemberTypeInfo &Other) const {
-    return std::tie(Type, Name, Access) ==
-           std::tie(Other.Type, Other.Name, Other.Access);
+    return std::tie(Type, Name, Access, Description) ==
+           std::tie(Other.Type, Other.Name, Other.Access, Other.Description);
   }
 
   // Access level associated with this info (public, protected, private, none).
@@ -210,6 +215,8 @@ struct MemberTypeInfo : public FieldTypeInfo {
   // with value 0 to be used as the default.
   // (AS_public = 0, AS_protected = 1, AS_private = 2, AS_none = 3)
   AccessSpecifier Access = AccessSpecifier::AS_public;
+
+  std::vector<CommentInfo> Description; // Comment description of this field.
 };
 
 struct Location {
@@ -346,10 +353,15 @@ struct RecordInfo : public SymbolInfo {
 
   void merge(RecordInfo &&I);
 
-  TagTypeKind TagType = TagTypeKind::TTK_Struct; // Type of this record
-                                                 // (struct, class, union,
-                                                 // interface).
-  bool IsTypeDef = false; // Indicates if record was declared using typedef
+  // Type of this record (struct, class, union, interface).
+  TagTypeKind TagType = TagTypeKind::TTK_Struct;
+
+  // Indicates if the record was declared using a typedef. Things like anonymous
+  // structs in a typedef:
+  //   typedef struct { ... } foo_t;
+  // are converted into records with the typedef as the Name + this flag set.
+  bool IsTypeDef = false;
+
   llvm::SmallVector<MemberTypeInfo, 4>
       Members;                             // List of info about record members.
   llvm::SmallVector<Reference, 4> Parents; // List of base/parent records

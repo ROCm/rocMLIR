@@ -228,7 +228,7 @@ AliasResult AliasSet::aliasesPointer(const Value *Ptr, LocationSize Size,
 }
 
 bool AliasSet::aliasesUnknownInst(const Instruction *Inst,
-                                  AliasAnalysis &AA) const {
+                                  BatchAAResults &AA) const {
 
   if (AliasAny)
     return true;
@@ -299,9 +299,10 @@ AliasSet *AliasSetTracker::mergeAliasSetsForPointer(const Value *Ptr,
 }
 
 AliasSet *AliasSetTracker::findAliasSetForUnknownInst(Instruction *Inst) {
+  BatchAAResults BatchAA(AA);
   AliasSet *FoundSet = nullptr;
   for (AliasSet &AS : llvm::make_early_inc_range(*this)) {
-    if (AS.Forward || !AS.aliasesUnknownInst(Inst, AA))
+    if (AS.Forward || !AS.aliasesUnknownInst(Inst, BatchAA))
       continue;
     if (!FoundSet) {
       // If this is the first alias set ptr can go into, remember it.
@@ -451,7 +452,7 @@ void AliasSetTracker::add(Instruction *I) {
           return AliasSet::NoAccess;
       };
 
-      ModRefInfo CallMask = createModRefInfo(AA.getModRefBehavior(Call));
+      ModRefInfo CallMask = AA.getModRefBehavior(Call).getModRef();
 
       // Some intrinsics are marked as modifying memory for control flow
       // modelling purposes, but don't actually modify any specific memory
@@ -459,7 +460,7 @@ void AliasSetTracker::add(Instruction *I) {
       using namespace PatternMatch;
       if (Call->use_empty() &&
           match(Call, m_Intrinsic<Intrinsic::invariant_start>()))
-        CallMask = clearMod(CallMask);
+        CallMask &= ModRefInfo::Ref;
 
       for (auto IdxArgPair : enumerate(Call->args())) {
         int ArgIdx = IdxArgPair.index();
@@ -469,7 +470,7 @@ void AliasSetTracker::add(Instruction *I) {
         MemoryLocation ArgLoc =
             MemoryLocation::getForArgument(Call, ArgIdx, nullptr);
         ModRefInfo ArgMask = AA.getArgModRefInfo(Call, ArgIdx);
-        ArgMask = intersectModRef(CallMask, ArgMask);
+        ArgMask &= CallMask;
         if (!isNoModRef(ArgMask))
           addPointer(ArgLoc, getAccessFromModRef(ArgMask));
       }
@@ -579,7 +580,7 @@ AliasSet &AliasSetTracker::mergeAllAliasSets() {
   AliasAnyAS->Access = AliasSet::ModRefAccess;
   AliasAnyAS->AliasAny = true;
 
-  for (auto Cur : ASVector) {
+  for (auto *Cur : ASVector) {
     // If Cur was already forwarding, just forward to the new AS instead.
     AliasSet *FwdTo = Cur->Forward;
     if (FwdTo) {

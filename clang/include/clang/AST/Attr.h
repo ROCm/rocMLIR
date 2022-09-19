@@ -24,7 +24,6 @@
 #include "clang/Basic/OpenMPKinds.h"
 #include "clang/Basic/Sanitizers.h"
 #include "clang/Basic/SourceLocation.h"
-#include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/VersionTuple.h"
 #include "llvm/Support/raw_ostream.h"
@@ -187,6 +186,22 @@ public:
   static bool classof(const Attr *A) {
     return A->getKind() >= attr::FirstInheritableParamAttr &&
            A->getKind() <= attr::LastInheritableParamAttr;
+  }
+};
+
+class HLSLAnnotationAttr : public InheritableAttr {
+protected:
+  HLSLAnnotationAttr(ASTContext &Context, const AttributeCommonInfo &CommonInfo,
+                     attr::Kind AK, bool IsLateParsed,
+                     bool InheritEvenIfAlreadyPresent)
+      : InheritableAttr(Context, CommonInfo, AK, IsLateParsed,
+                        InheritEvenIfAlreadyPresent) {}
+
+public:
+  // Implement isa/cast/dyncast/etc.
+  static bool classof(const Attr *A) {
+    return A->getKind() >= attr::FirstHLSLAnnotationAttr &&
+           A->getKind() <= attr::LastHLSLAnnotationAttr;
   }
 };
 

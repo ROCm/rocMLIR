@@ -53,7 +53,7 @@ static llvm::Expected<Scalar> Evaluate(llvm::ArrayRef<uint8_t> expr,
       return Scalar(llvm::APInt(buf.GetByteSize()*8, val, false));
     }
   }
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   default:
     return status.ToError();
   }
@@ -61,6 +61,9 @@ static llvm::Expected<Scalar> Evaluate(llvm::ArrayRef<uint8_t> expr,
 
 class DWARFExpressionTester : public YAMLModuleTester {
 public:
+  DWARFExpressionTester(llvm::StringRef yaml_data, size_t cu_index) :
+      YAMLModuleTester(yaml_data, cu_index) {}
+
   using YAMLModuleTester::YAMLModuleTester;
   llvm::Expected<Scalar> Eval(llvm::ArrayRef<uint8_t> expr) {
     return ::Evaluate(expr, m_module_sp, m_dwarf_unit);
@@ -131,6 +134,25 @@ TEST(DWARFExpression, DW_OP_const) {
       llvm::HasValue(0xffff010101010101));
 }
 
+TEST(DWARFExpression, DW_OP_skip) {
+  EXPECT_THAT_EXPECTED(Evaluate({DW_OP_const1u, 0x42, DW_OP_skip, 0x02, 0x00,
+                                 DW_OP_const1u, 0xff}),
+                       llvm::HasValue(0x42));
+}
+
+TEST(DWARFExpression, DW_OP_bra) {
+  EXPECT_THAT_EXPECTED(
+      // clang-format off
+      Evaluate({
+        DW_OP_const1u, 0x42,     // push 0x42
+        DW_OP_const1u, 0x1,      // push 0x1
+        DW_OP_bra, 0x02, 0x00,   // if 0x1 > 0, then skip 0x0002 opcodes
+        DW_OP_const1u, 0xff,     // push 0xff
+      }),
+      // clang-format on
+      llvm::HasValue(0x42));
+}
+
 TEST(DWARFExpression, DW_OP_convert) {
   /// Auxiliary debug info.
   const char *yamldata = R"(
@@ -160,6 +182,17 @@ DWARF:
   debug_info:
     - Version:         4
       AddrSize:        8
+      AbbrevTableID:   0
+      AbbrOffset:      0x0
+      Entries:
+        - AbbrCode:        0x00000001
+          Values:
+            - Value:           0x000000000000000C
+        - AbbrCode:        0x00000000
+    - Version:         4
+      AddrSize:        8
+      AbbrevTableID:   0
+      AbbrOffset:      0x0
       Entries:
         - AbbrCode:        0x00000001
           Values:
@@ -195,14 +228,16 @@ DWARF:
             - Value:           0x000000000000000b # DW_ATE_numeric_string
             - Value:           0x0000000000000001
         - AbbrCode:        0x00000000
+
 )";
+  // Compile unit relative offsets to each DW_TAG_base_type
   uint8_t offs_uint32_t = 0x0000000e;
   uint8_t offs_uint64_t = 0x00000011;
   uint8_t offs_sint64_t = 0x00000014;
   uint8_t offs_uchar = 0x00000017;
   uint8_t offs_schar = 0x0000001a;
 
-  DWARFExpressionTester t(yamldata);
+  DWARFExpressionTester t(yamldata, /*cu_index=*/1);
   ASSERT_TRUE((bool)t.GetDwarfUnit());
 
   // Constant is given as little-endian.
@@ -309,7 +344,9 @@ TEST_F(DWARFExpressionMockProcessTest, DW_OP_deref) {
   EXPECT_THAT_EXPECTED(Evaluate({DW_OP_lit0, DW_OP_deref}), llvm::Failed());
 
   struct MockProcess : Process {
-    using Process::Process;
+    MockProcess(lldb::TargetSP target_sp, lldb::ListenerSP listener_sp)
+        : Process(target_sp, listener_sp) {}
+
     llvm::StringRef GetPluginName() override { return "mock process"; }
     bool CanDebug(lldb::TargetSP target,
                   bool plugin_specified_by_name) override {

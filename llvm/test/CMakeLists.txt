@@ -83,6 +83,7 @@ set(LLVM_TEST_DEPENDS
           llvm-dlltool
           dsymutil
           llvm-dwarfdump
+          llvm-dwarfutil
           llvm-dwp
           llvm-exegesis
           llvm-extract
@@ -117,6 +118,7 @@ set(LLVM_TEST_DEPENDS
           llvm-readelf
           llvm-reduce
           llvm-remark-size-diff
+          llvm-remarkutil
           llvm-rtdyld
           llvm-sim
           llvm-size

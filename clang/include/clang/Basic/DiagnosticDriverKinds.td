@@ -60,8 +60,6 @@ def err_drv_no_cuda_libdevice : Error<
   "cannot find libdevice for %0; provide path to different CUDA installation "
   "via '--cuda-path', or pass '-nocudalib' to build without linking with "
   "libdevice">;
-def err_drv_no_rdc_new_driver : Error<
-  "Using '--offload-new-driver' requires '-fgpu-rdc'">;
 
 def err_drv_no_rocm_device_lib : Error<
   "cannot find ROCm device library%select{| for %1|for ABI version %1}0; provide its path via "
@@ -130,8 +128,6 @@ def err_drv_invalid_stdlib_name : Error<
 def err_drv_invalid_output_with_multiple_archs : Error<
   "cannot use '%0' output with multiple -arch options">;
 def err_drv_no_input_files : Error<"no input files">;
-def err_drv_use_of_Z_option : Error<
-  "unsupported use of internal gcc -Z option '%0'">;
 def err_drv_output_argument_with_multiple_files : Error<
   "cannot specify -o when generating multiple output files">;
 def err_drv_out_file_argument_with_multiple_sources : Error<
@@ -410,7 +406,7 @@ def warn_missing_sysroot : Warning<"no such sysroot directory: '%0'">,
   InGroup<DiagGroup<"missing-sysroot">>;
 def warn_incompatible_sysroot : Warning<"using sysroot for '%0' but targeting '%1'">,
   InGroup<DiagGroup<"incompatible-sysroot">>;
-def warn_debug_compression_unavailable : Warning<"cannot compress debug sections (zlib not enabled)">,
+def warn_debug_compression_unavailable : Warning<"cannot compress debug sections (%0 not enabled)">,
   InGroup<DiagGroup<"debug-compression-unavailable">>;
 def warn_drv_disabling_vptr_no_rtti_default : Warning<
   "implicitly disabling vptr sanitizer because rtti wasn't enabled">,
@@ -670,6 +666,8 @@ def err_drv_invalid_directx_shader_module : Error<
   "invalid profile : %0">;
 def err_drv_dxc_missing_target_profile : Error<
   "target profile option (-T) is missing">;
+def err_drv_hlsl_unsupported_target : Error<
+  "HLSL code generation is unsupported for target '%0'">;
 
 def err_drv_invalid_range_dxil_validator_version : Error<
   "invalid validator version : %0\n"
@@ -680,4 +678,11 @@ def err_drv_invalid_format_dxil_validator_version : Error<
 def err_drv_invalid_empty_dxil_validator_version : Error<
   "invalid validator version : %0\n"
   "If validator major version is 0, minor version must also be 0.">;
+
+def warn_drv_sarif_format_unstable : Warning<
+  "diagnostic formatting in SARIF mode is currently unstable">,
+  InGroup<DiagGroup<"sarif-format-unstable">>;
+
+def err_drv_riscv_unsupported_with_linker_relaxation : Error<
+  "%0 is unsupported with RISC-V linker relaxation (-mrelax)">;
 }

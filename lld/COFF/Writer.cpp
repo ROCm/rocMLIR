@@ -24,6 +24,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/BinaryFormat/COFF.h"
 #include "llvm/Support/BinaryStreamReader.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Endian.h"
@@ -395,7 +396,7 @@ getThunk(DenseMap<uint64_t, Defined *> &lastThunks, Defined *target, uint64_t p,
   default:
     llvm_unreachable("Unexpected architecture");
   }
-  Defined *d = make<DefinedSynthetic>("", c);
+  Defined *d = make<DefinedSynthetic>("range_extension_thunk", c);
   lastThunk = d;
   return {d, true};
 }
@@ -451,11 +452,8 @@ static bool createThunks(OutputSection *os, int margin) {
       if (isInRange(rel.Type, s, p, margin))
         continue;
 
-      // If the target isn't in range, hook it up to an existing or new
-      // thunk.
-      Defined *thunk;
-      bool wasNew;
-      std::tie(thunk, wasNew) = getThunk(lastThunks, sym, p, rel.Type, margin);
+      // If the target isn't in range, hook it up to an existing or new thunk.
+      auto [thunk, wasNew] = getThunk(lastThunks, sym, p, rel.Type, margin);
       if (wasNew) {
         Chunk *thunkChunk = thunk->getChunk();
         thunkChunk->setRVA(
@@ -650,7 +648,8 @@ void Writer::run() {
 
   ScopedTimer t2(ctx.outputCommitTimer);
   if (auto e = buffer->commit())
-    fatal("failed to write the output file: " + toString(std::move(e)));
+    fatal("failed to write output '" + buffer->getPath() +
+          "': " + toString(std::move(e)));
 }
 
 static StringRef getOutputSectionName(StringRef name) {
@@ -1705,12 +1704,12 @@ void Writer::createGuardCFTables() {
 
   // Set __guard_flags, which will be used in the load config to indicate that
   // /guard:cf was enabled.
-  uint32_t guardFlags = uint32_t(coff_guard_flags::CFInstrumented) |
-                        uint32_t(coff_guard_flags::HasFidTable);
+  uint32_t guardFlags = uint32_t(GuardFlags::CF_INSTRUMENTED) |
+                        uint32_t(GuardFlags::CF_FUNCTION_TABLE_PRESENT);
   if (config->guardCF & GuardCFLevel::LongJmp)
-    guardFlags |= uint32_t(coff_guard_flags::HasLongJmpTable);
+    guardFlags |= uint32_t(GuardFlags::CF_LONGJUMP_TABLE_PRESENT);
   if (config->guardCF & GuardCFLevel::EHCont)
-    guardFlags |= uint32_t(coff_guard_flags::HasEHContTable);
+    guardFlags |= uint32_t(GuardFlags::EH_CONTINUATION_TABLE_PRESENT);
   Symbol *flagSym = ctx.symtab.findUnderscore("__guard_flags");
   cast<DefinedAbsolute>(flagSym)->setVA(guardFlags);
 }

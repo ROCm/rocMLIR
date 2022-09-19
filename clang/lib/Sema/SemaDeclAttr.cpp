@@ -1876,8 +1876,7 @@ static void handleOwnershipAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
     for (const auto *I : D->specific_attrs<OwnershipAttr>()) {
       // Cannot have two ownership attributes of different kinds for the same
       // index.
-      if (I->getOwnKind() != K && I->args_end() !=
-          std::find(I->args_begin(), I->args_end(), Idx)) {
+      if (I->getOwnKind() != K && llvm::is_contained(I->args(), Idx)) {
         S.Diag(AL.getLoc(), diag::err_attributes_are_not_compatible) << AL << I;
         return;
       } else if (K == OwnershipAttr::Returns &&
@@ -2329,6 +2328,10 @@ static void handleUnusedAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
 
 static void handleConstructorAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   uint32_t priority = ConstructorAttr::DefaultPriority;
+  if (S.getLangOpts().HLSL && AL.getNumArgs()) {
+    S.Diag(AL.getLoc(), diag::err_hlsl_init_priority_unsupported);
+    return;
+  }
   if (AL.getNumArgs() &&
       !checkUInt32Argument(S, AL, AL.getArgAsExpr(0), priority))
     return;
@@ -2673,7 +2676,7 @@ static void handleAvailabilityAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
         if (IOSToWatchOSMapping) {
           if (auto MappedVersion = IOSToWatchOSMapping->map(
                   Version, MinimumWatchOSVersion, None)) {
-            return MappedVersion.getValue();
+            return MappedVersion.value();
           }
         }
 
@@ -2682,10 +2685,10 @@ static void handleAvailabilityAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
         if (NewMajor >= 2) {
           if (Version.getMinor()) {
             if (Version.getSubminor())
-              return VersionTuple(NewMajor, Version.getMinor().getValue(),
-                                  Version.getSubminor().getValue());
+              return VersionTuple(NewMajor, Version.getMinor().value(),
+                                  Version.getSubminor().value());
             else
-              return VersionTuple(NewMajor, Version.getMinor().getValue());
+              return VersionTuple(NewMajor, Version.getMinor().value());
           }
           return VersionTuple(NewMajor);
         }
@@ -3730,6 +3733,11 @@ static void handleInitPriorityAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
     S.Diag(AL.getLoc(), diag::warn_attribute_ignored) << AL;
     return;
   }
+  
+  if (S.getLangOpts().HLSL) {
+    S.Diag(AL.getLoc(), diag::err_hlsl_init_priority_unsupported);
+    return;
+  }
 
   if (S.getCurFunctionOrMethodDecl()) {
     S.Diag(AL.getLoc(), diag::err_init_priority_object_attr);
@@ -4312,13 +4320,6 @@ void Sema::AddAlignedAttr(Decl *D, const AttributeCommonInfo &CI, Expr *E,
     return;
 
   uint64_t AlignVal = Alignment.getZExtValue();
-  // 16 byte ByVal alignment not due to a vector member is not honoured by XL
-  // on AIX. Emit a warning here that users are generating binary incompatible
-  // code to be safe.
-  if (AlignVal >= 16 && isa<FieldDecl>(D) &&
-      Context.getTargetInfo().getTriple().isOSAIX())
-    Diag(AttrLoc, diag::warn_not_xl_compatible) << E->getSourceRange();
-
   // C++11 [dcl.align]p2:
   //   -- if the constant expression evaluates to zero, the alignment
   //      specifier shall have no effect
@@ -5550,9 +5551,10 @@ static bool ArmBuiltinAliasValid(unsigned BuiltinID, StringRef AliasName,
                                  const char *IntrinNames) {
   if (AliasName.startswith("__arm_"))
     AliasName = AliasName.substr(6);
-  const IntrinToName *It = std::lower_bound(
-      Map.begin(), Map.end(), BuiltinID,
-      [](const IntrinToName &L, unsigned Id) { return L.Id < Id; });
+  const IntrinToName *It =
+      llvm::lower_bound(Map, BuiltinID, [](const IntrinToName &L, unsigned Id) {
+        return L.Id < Id;
+      });
   if (It == Map.end() || It->Id != BuiltinID)
     return false;
   StringRef FullName(&IntrinNames[It->FullName]);
@@ -6912,7 +6914,11 @@ static void handleHLSLShaderAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
     return;
 
   HLSLShaderAttr::ShaderType ShaderType;
-  if (!HLSLShaderAttr::ConvertStrToShaderType(Str, ShaderType)) {
+  if (!HLSLShaderAttr::ConvertStrToShaderType(Str, ShaderType) ||
+      // Library is added to help convert HLSLShaderAttr::ShaderType to
+      // llvm::Triple::EnviromentType. It is not a legal
+      // HLSLShaderAttr::ShaderType.
+      ShaderType == HLSLShaderAttr::Library) {
     S.Diag(AL.getLoc(), diag::warn_attribute_type_not_supported)
         << AL << Str << ArgLoc;
     return;
@@ -7259,7 +7265,7 @@ static void handleAVRSignalAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
 
 static void handleBPFPreserveAIRecord(Sema &S, RecordDecl *RD) {
   // Add preserve_access_index attribute to all fields and inner records.
-  for (auto D : RD->decls()) {
+  for (auto *D : RD->decls()) {
     if (D->hasAttr<BPFPreserveAccessIndexAttr>())
       continue;
 
@@ -7881,8 +7887,8 @@ static void handleNoSanitizeAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
         SanitizerName != "coverage")
       S.Diag(LiteralLoc, diag::warn_unknown_sanitizer_ignored) << SanitizerName;
     else if (isGlobalVar(D) && !isSanitizerAttributeAllowedOnGlobals(SanitizerName))
-      S.Diag(D->getLocation(), diag::err_attribute_wrong_decl_type)
-          << AL << ExpectedFunctionOrMethod;
+      S.Diag(D->getLocation(), diag::warn_attribute_type_not_supported_global)
+          << AL << SanitizerName;
     Sanitizers.push_back(SanitizerName);
   }
 
@@ -7998,6 +8004,26 @@ static void handleZeroCallUsedRegsAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
 
   D->dropAttr<ZeroCallUsedRegsAttr>();
   D->addAttr(ZeroCallUsedRegsAttr::Create(S.Context, Kind, AL));
+}
+
+static void handleFunctionReturnThunksAttr(Sema &S, Decl *D,
+                                           const ParsedAttr &AL) {
+  StringRef KindStr;
+  SourceLocation LiteralLoc;
+  if (!S.checkStringLiteralArgumentAttr(AL, 0, KindStr, &LiteralLoc))
+    return;
+
+  FunctionReturnThunksAttr::Kind Kind;
+  if (!FunctionReturnThunksAttr::ConvertStrToKind(KindStr, Kind)) {
+    S.Diag(LiteralLoc, diag::warn_attribute_type_not_supported)
+        << AL << KindStr;
+    return;
+  }
+  // FIXME: it would be good to better handle attribute merging rather than
+  // silently replacing the existing attribute, so long as it does not break
+  // the expected codegen tests.
+  D->dropAttr<FunctionReturnThunksAttr>();
+  D->addAttr(FunctionReturnThunksAttr::Create(S.Context, Kind, AL));
 }
 
 static void handleSYCLKernelAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
@@ -8621,6 +8647,9 @@ ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D, const ParsedAttr &AL,
   case ParsedAttr::AT_NoEscape:
     handleNoEscapeAttr(S, D, AL);
     break;
+  case ParsedAttr::AT_MaybeUndef:
+    handleSimpleAttribute<MaybeUndefAttr>(S, D, AL);
+    break;
   case ParsedAttr::AT_AssumeAligned:
     handleAssumeAlignedAttr(S, D, AL);
     break;
@@ -8865,6 +8894,9 @@ ProcessDeclAttribute(Sema &S, Scope *scope, Decl *D, const ParsedAttr &AL,
     break;
   case ParsedAttr::AT_ZeroCallUsedRegs:
     handleZeroCallUsedRegsAttr(S, D, AL);
+    break;
+  case ParsedAttr::AT_FunctionReturnThunks:
+    handleFunctionReturnThunksAttr(S, D, AL);
     break;
 
   // Microsoft attributes:

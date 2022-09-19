@@ -24,7 +24,7 @@
 
 #ifdef __cplusplus
 
-#  define _LIBCPP_VERSION 15000
+#  define _LIBCPP_VERSION 16000
 
 #  define _LIBCPP_CONCAT_IMPL(_X, _Y) _X##_Y
 #  define _LIBCPP_CONCAT(_X, _Y) _LIBCPP_CONCAT_IMPL(_X, _Y)
@@ -47,7 +47,8 @@
 #    elif __cplusplus <= 202002L
 #      define _LIBCPP_STD_VER 20
 #    else
-#      define _LIBCPP_STD_VER 22 // current year, or date of c++2b ratification
+// Expected release year of the next C++ standard
+#      define _LIBCPP_STD_VER 23
 #    endif
 #  endif // _LIBCPP_STD_VER
 
@@ -155,7 +156,7 @@
 #    define _LIBCPP_ABI_BAD_FUNCTION_CALL_KEY_FUNCTION
 #  endif
 
-#  define _LIBCPP_TOSTRING2(x) #  x
+#  define _LIBCPP_TOSTRING2(x) #x
 #  define _LIBCPP_TOSTRING(x) _LIBCPP_TOSTRING2(x)
 
 #  if __cplusplus < 201103L
@@ -214,6 +215,12 @@
 #    error "libc++ only supports C++03 with Clang-based compilers. Please enable C++11"
 #  endif
 
+#  ifdef _LIBCPP_COMPILER_MSVC
+#    error If you successfully use libc++ with MSVC please tell the libc++ developers and consider upstreaming your \
+changes. We are not aware of anybody using this configuration and know that at least some code is currently broken. \
+If there are users of this configuration we are happy to provide support.
+#  endif
+
 // FIXME: ABI detection should be done via compiler builtin macros. This
 // is just a placeholder until Clang implements such macros. For now assume
 // that Windows compilers pretending to be MSVC++ target the Microsoft ABI,
@@ -235,6 +242,18 @@
 
 #  if defined(_LIBCPP_ABI_MICROSOFT) && !defined(_LIBCPP_NO_VCRUNTIME)
 #    define _LIBCPP_ABI_VCRUNTIME
+#  endif
+
+#  if __has_feature(experimental_library)
+#    ifndef _LIBCPP_ENABLE_EXPERIMENTAL
+#      define _LIBCPP_ENABLE_EXPERIMENTAL
+#    endif
+#  endif
+
+// Incomplete features get their own specific disabling flags. This makes it
+// easier to grep for target specific flags once the feature is complete.
+#  if !defined(_LIBCPP_ENABLE_EXPERIMENTAL) && !defined(_LIBCPP_BUILDING_LIBRARY)
+#    define _LIBCPP_HAS_NO_INCOMPLETE_FORMAT
 #  endif
 
 // Need to detect which libc we're using if we're on Linux.
@@ -399,17 +418,21 @@
 #    define _LIBCPP_NORETURN [[noreturn]]
 #    define _NOEXCEPT noexcept
 #    define _NOEXCEPT_(x) noexcept(x)
+#    define _LIBCPP_CONSTEXPR constexpr
 
 #  else
 
 #    define _LIBCPP_ALIGNOF(_Tp) _Alignof(_Tp)
 #    define _ALIGNAS_TYPE(x) __attribute__((__aligned__(_LIBCPP_ALIGNOF(x))))
 #    define _ALIGNAS(x) __attribute__((__aligned__(x)))
-#    define _LIBCPP_NORETURN __attribute__((noreturn))
+#    define _LIBCPP_NORETURN __attribute__((__noreturn__))
 #    define _LIBCPP_HAS_NO_NOEXCEPT
 #    define nullptr __nullptr
 #    define _NOEXCEPT throw()
 #    define _NOEXCEPT_(x)
+#    define static_assert(...) _Static_assert(__VA_ARGS__)
+#    define decltype(...) __decltype(__VA_ARGS__)
+#    define _LIBCPP_CONSTEXPR
 
 typedef __char16_t char16_t;
 typedef __char32_t char32_t;
@@ -545,10 +568,14 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_TYPE_VIS _LIBCPP_VISIBILITY("default")
 #    define _LIBCPP_TEMPLATE_DATA_VIS _LIBCPP_VISIBILITY("default")
 #    define _LIBCPP_EXPORTED_FROM_ABI _LIBCPP_VISIBILITY("default")
-#    define _LIBCPP_OVERRIDABLE_FUNC_VIS _LIBCPP_VISIBILITY("default")
 #    define _LIBCPP_EXCEPTION_ABI _LIBCPP_VISIBILITY("default")
 #    define _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS _LIBCPP_VISIBILITY("default")
 #    define _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS
+
+// TODO: Make this a proper customization point or remove the option to override it.
+#    ifndef _LIBCPP_OVERRIDABLE_FUNC_VIS
+#      define _LIBCPP_OVERRIDABLE_FUNC_VIS _LIBCPP_VISIBILITY("default")
+#    endif
 
 #    if !defined(_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS)
 // The inline should be removed once PR32114 is resolved
@@ -657,31 +684,20 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #    define _LIBCPP_HAS_NO_INT128
 #  endif
 
-#  ifdef _LIBCPP_CXX03_LANG
-#    define static_assert(...) _Static_assert(__VA_ARGS__)
-#    define decltype(...) __decltype(__VA_ARGS__)
-#  endif // _LIBCPP_CXX03_LANG
-
-#  ifdef _LIBCPP_CXX03_LANG
-#    define _LIBCPP_CONSTEXPR
-#  else
-#    define _LIBCPP_CONSTEXPR constexpr
-#  endif
-
 #  ifndef __cpp_consteval
 #    define _LIBCPP_CONSTEVAL _LIBCPP_CONSTEXPR
 #  else
 #    define _LIBCPP_CONSTEVAL consteval
 #  endif
 
-#  ifdef __GNUC__
+#  if __has_attribute(__malloc__)
 #    define _LIBCPP_NOALIAS __attribute__((__malloc__))
 #  else
 #    define _LIBCPP_NOALIAS
 #  endif
 
-#  if __has_attribute(using_if_exists)
-#    define _LIBCPP_USING_IF_EXISTS __attribute__((using_if_exists))
+#  if __has_attribute(__using_if_exists__)
+#    define _LIBCPP_USING_IF_EXISTS __attribute__((__using_if_exists__))
 #  else
 #    define _LIBCPP_USING_IF_EXISTS
 #  endif
@@ -748,7 +764,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #  if !defined(_LIBCPP_DISABLE_DEPRECATION_WARNINGS)
 #    if __has_attribute(deprecated)
 #      define _LIBCPP_DEPRECATED __attribute__((deprecated))
-#      define _LIBCPP_DEPRECATED_(m) __attribute__((deprected(m)))
+#      define _LIBCPP_DEPRECATED_(m) __attribute__((deprecated(m)))
 #    elif _LIBCPP_STD_VER > 11
 #      define _LIBCPP_DEPRECATED [[deprecated]]
 #      define _LIBCPP_DEPRECATED_(m) [[deprecated(m)]]
@@ -809,27 +825,31 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #  endif
 
 #  if _LIBCPP_STD_VER > 11
-#    define _LIBCPP_CONSTEXPR_AFTER_CXX11 constexpr
+#    define _LIBCPP_CONSTEXPR_SINCE_CXX14 constexpr
 #  else
-#    define _LIBCPP_CONSTEXPR_AFTER_CXX11
+#    define _LIBCPP_CONSTEXPR_SINCE_CXX14
 #  endif
 
 #  if _LIBCPP_STD_VER > 14
-#    define _LIBCPP_CONSTEXPR_AFTER_CXX14 constexpr
+#    define _LIBCPP_CONSTEXPR_SINCE_CXX17 constexpr
 #  else
-#    define _LIBCPP_CONSTEXPR_AFTER_CXX14
+#    define _LIBCPP_CONSTEXPR_SINCE_CXX17
 #  endif
 
 #  if _LIBCPP_STD_VER > 17
-#    define _LIBCPP_CONSTEXPR_AFTER_CXX17 constexpr
+#    define _LIBCPP_CONSTEXPR_SINCE_CXX20 constexpr
 #  else
-#    define _LIBCPP_CONSTEXPR_AFTER_CXX17
+#    define _LIBCPP_CONSTEXPR_SINCE_CXX20
 #  endif
 
-#  if __has_cpp_attribute(nodiscard) || defined(_LIBCPP_COMPILER_MSVC)
+#  if _LIBCPP_STD_VER > 20
+#    define _LIBCPP_CONSTEXPR_SINCE_CXX23 constexpr
+#  else
+#    define _LIBCPP_CONSTEXPR_SINCE_CXX23
+#  endif
+
+#  if __has_cpp_attribute(nodiscard)
 #    define _LIBCPP_NODISCARD [[nodiscard]]
-#  elif defined(_LIBCPP_COMPILER_CLANG_BASED) && !defined(_LIBCPP_CXX03_LANG)
-#    define _LIBCPP_NODISCARD [[clang::warn_unused_result]]
 #  else
 // We can't use GCC's [[gnu::warn_unused_result]] and
 // __attribute__((warn_unused_result)), because GCC does not silence them via
@@ -839,19 +859,19 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 
 // _LIBCPP_NODISCARD_EXT may be used to apply [[nodiscard]] to entities not
 // specified as such as an extension.
-#  if defined(_LIBCPP_ENABLE_NODISCARD) && !defined(_LIBCPP_DISABLE_NODISCARD_EXT)
+#  if !defined(_LIBCPP_DISABLE_NODISCARD_EXT)
 #    define _LIBCPP_NODISCARD_EXT _LIBCPP_NODISCARD
 #  else
 #    define _LIBCPP_NODISCARD_EXT
 #  endif
 
-#  if !defined(_LIBCPP_DISABLE_NODISCARD_AFTER_CXX17) && (_LIBCPP_STD_VER > 17 || defined(_LIBCPP_ENABLE_NODISCARD))
+#  if _LIBCPP_STD_VER > 17 || !defined(_LIBCPP_DISABLE_NODISCARD_EXT)
 #    define _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_NODISCARD
 #  else
 #    define _LIBCPP_NODISCARD_AFTER_CXX17
 #  endif
 
-#  if __has_attribute(no_destroy)
+#  if __has_attribute(__no_destroy__)
 #    define _LIBCPP_NO_DESTROY __attribute__((__no_destroy__))
 #  else
 #    define _LIBCPP_NO_DESTROY
@@ -1013,18 +1033,16 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 
 #  if _LIBCPP_STD_VER > 17
 #    define _LIBCPP_CONSTINIT constinit
-#  elif __has_attribute(require_constant_initialization)
+#  elif __has_attribute(__require_constant_initialization__)
 #    define _LIBCPP_CONSTINIT __attribute__((__require_constant_initialization__))
 #  else
 #    define _LIBCPP_CONSTINIT
 #  endif
 
-#  if __has_attribute(diagnose_if) && !defined(_LIBCPP_DISABLE_ADDITIONAL_DIAGNOSTICS)
-#    define _LIBCPP_DIAGNOSE_WARNING(...) __attribute__((diagnose_if(__VA_ARGS__, "warning")))
-#    define _LIBCPP_DIAGNOSE_ERROR(...) __attribute__((diagnose_if(__VA_ARGS__, "error")))
+#  if __has_attribute(__diagnose_if__) && !defined(_LIBCPP_DISABLE_ADDITIONAL_DIAGNOSTICS)
+#    define _LIBCPP_DIAGNOSE_WARNING(...) __attribute__((__diagnose_if__(__VA_ARGS__, "warning")))
 #  else
 #    define _LIBCPP_DIAGNOSE_WARNING(...)
-#    define _LIBCPP_DIAGNOSE_ERROR(...)
 #  endif
 
 // Use a function like macro to imply that it must be followed by a semicolon
@@ -1122,19 +1140,13 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #    define _LIBCPP_HAS_NO_FGETPOS_FSETPOS
 #  endif
 
-#  if __has_attribute(init_priority)
-// TODO: Remove this once we drop support for building libc++ with old Clangs
-#    if (defined(_LIBCPP_CLANG_VER) && _LIBCPP_CLANG_VER < 1200) ||                                                    \
-        (defined(__apple_build_version__) && __apple_build_version__ < 13000000)
-#      define _LIBCPP_INIT_PRIORITY_MAX __attribute__((init_priority(101)))
-#    else
-#      define _LIBCPP_INIT_PRIORITY_MAX __attribute__((init_priority(100)))
-#    endif
+#  if __has_attribute(__init_priority__)
+#    define _LIBCPP_INIT_PRIORITY_MAX __attribute__((__init_priority__(100)))
 #  else
 #    define _LIBCPP_INIT_PRIORITY_MAX
 #  endif
 
-#  if defined(__GNUC__) || defined(__clang__)
+#  if __has_attribute(__format__)
 // The attribute uses 1-based indices for ordinary and static member functions.
 // The attribute uses 2-based indices for non-static member functions.
 #    define _LIBCPP_ATTRIBUTE_FORMAT(archetype, format_string_index, first_format_arg_index)                           \
@@ -1194,6 +1206,22 @@ _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_END_NAMESPACE_STD
 #    define _LIBCPP_PACKED __attribute__((__packed__))
 #  else
 #    define _LIBCPP_PACKED
+#  endif
+
+// c8rtomb() and mbrtoc8() were added in C++20 and C23. Support for these
+// functions is gradually being added to existing C libraries. The conditions
+// below check for known C library versions and conditions under which these
+// functions are declared by the C library.
+#  define _LIBCPP_HAS_NO_C8RTOMB_MBRTOC8
+// GNU libc 2.36 and newer declare c8rtomb() and mbrtoc8() in C++ modes if
+// __cpp_char8_t is defined or if C2X extensions are enabled. Unfortunately,
+// determining the latter depends on internal GNU libc details. If the
+// __cpp_char8_t feature test macro is not defined, then a char8_t typedef
+// will be declared as well.
+#  if defined(_LIBCPP_GLIBC_PREREQ) && defined(__GLIBC_USE)
+#    if _LIBCPP_GLIBC_PREREQ(2, 36) && (defined(__cpp_char8_t) || __GLIBC_USE(ISOC2X))
+#      undef _LIBCPP_HAS_NO_C8RTOMB_MBRTOC8
+#    endif
 #  endif
 
 #endif // __cplusplus

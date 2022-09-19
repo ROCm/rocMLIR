@@ -51,7 +51,7 @@ class DWARFUnitHeader {
   uint64_t m_type_hash = 0;
   uint32_t m_type_offset = 0;
 
-  uint64_t m_dwo_id = 0;
+  llvm::Optional<uint64_t> m_dwo_id;
 
   DWARFUnitHeader() = default;
 
@@ -67,7 +67,7 @@ public:
   }
   uint64_t GetTypeHash() const { return m_type_hash; }
   dw_offset_t GetTypeOffset() const { return m_type_offset; }
-  uint64_t GetDWOId() const { return m_dwo_id; }
+  llvm::Optional<uint64_t> GetDWOId() const { return m_dwo_id; }
   bool IsTypeUnit() const {
     return m_unit_type == llvm::dwarf::DW_UT_type ||
            m_unit_type == llvm::dwarf::DW_UT_split_type;
@@ -92,7 +92,7 @@ public:
   virtual ~DWARFUnit();
 
   bool IsDWOUnit() { return m_is_dwo; }
-  uint64_t GetDWOId();
+  llvm::Optional<uint64_t> GetDWOId();
 
   void ExtractUnitDIEIfNeeded();
   void ExtractUnitDIENoDwoIfNeeded();
@@ -165,6 +165,8 @@ public:
   void SetRangesBase(dw_addr_t ranges_base);
   void SetStrOffsetsBase(dw_offset_t str_offsets_base);
   virtual void BuildAddressRangeTable(DWARFDebugAranges *debug_aranges) = 0;
+
+  dw_addr_t ReadAddressFromDebugAddrSection(uint32_t index) const;
 
   lldb::ByteOrder GetByteOrder() const;
 
@@ -255,6 +257,15 @@ public:
 
   lldb_private::DWARFDataExtractor GetLocationData() const;
 
+  /// Returns true if any DIEs in the unit match any DW_TAG values in \a tags.
+  ///
+  /// \param[in] tags
+  ///   An array of dw_tag_t values to check all abbrevitions for.
+  ///
+  /// \returns
+  ///   True if any DIEs match any tag in \a tags, false otherwise.
+  bool HasAny(llvm::ArrayRef<dw_tag_t> tags);
+
 protected:
   DWARFUnit(SymbolFileDWARF &dwarf, lldb::user_id_t uid,
             const DWARFUnitHeader &header,
@@ -334,7 +345,7 @@ protected:
   bool m_is_dwo;
   bool m_has_parsed_non_skeleton_unit;
   /// Value of DW_AT_GNU_dwo_id (v4) or dwo_id from CU header (v5).
-  uint64_t m_dwo_id;
+  llvm::Optional<uint64_t> m_dwo_id;
 
 private:
   void ParseProducerInfo();

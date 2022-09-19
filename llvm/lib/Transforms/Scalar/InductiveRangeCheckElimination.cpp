@@ -307,7 +307,7 @@ InductiveRangeCheck::parseRangeCheckICmp(Loop *L, ICmpInst *ICI,
 
   case ICmpInst::ICMP_SLE:
     std::swap(LHS, RHS);
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case ICmpInst::ICMP_SGE:
     IsSigned = true;
     if (match(RHS, m_ConstantInt<0>())) {
@@ -318,7 +318,7 @@ InductiveRangeCheck::parseRangeCheckICmp(Loop *L, ICmpInst *ICI,
 
   case ICmpInst::ICMP_SLT:
     std::swap(LHS, RHS);
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case ICmpInst::ICMP_SGT:
     IsSigned = true;
     if (match(RHS, m_ConstantInt<-1>())) {
@@ -335,7 +335,7 @@ InductiveRangeCheck::parseRangeCheckICmp(Loop *L, ICmpInst *ICI,
 
   case ICmpInst::ICMP_ULT:
     std::swap(LHS, RHS);
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case ICmpInst::ICMP_UGT:
     IsSigned = false;
     if (IsLoopInvariant(LHS)) {
@@ -1184,6 +1184,7 @@ void LoopConstrainer::cloneLoop(LoopConstrainer::ClonedLoop &Result,
       for (PHINode &PN : SBB->phis()) {
         Value *OldIncoming = PN.getIncomingValueForBlock(OriginalBB);
         PN.addIncoming(GetClonedValue(OldIncoming), ClonedBB);
+        SE.forgetValue(&PN);
       }
     }
   }
@@ -1451,7 +1452,7 @@ bool LoopConstrainer::run() {
       return false;
     }
 
-    if (!isSafeToExpandAt(ExitPreLoopAtSCEV, InsertPt, SE)) {
+    if (!Expander.isSafeToExpandAt(ExitPreLoopAtSCEV, InsertPt)) {
       LLVM_DEBUG(dbgs() << "irce: could not prove that it is safe to expand the"
                         << " preloop exit limit " << *ExitPreLoopAtSCEV
                         << " at block " << InsertPt->getParent()->getName()
@@ -1478,7 +1479,7 @@ bool LoopConstrainer::run() {
       return false;
     }
 
-    if (!isSafeToExpandAt(ExitMainLoopAtSCEV, InsertPt, SE)) {
+    if (!Expander.isSafeToExpandAt(ExitMainLoopAtSCEV, InsertPt)) {
       LLVM_DEBUG(dbgs() << "irce: could not prove that it is safe to expand the"
                         << " main loop exit limit " << *ExitMainLoopAtSCEV
                         << " at block " << InsertPt->getParent()->getName()
@@ -1582,8 +1583,11 @@ InductiveRangeCheck::computeSafeIterationSpace(
     bool IsLatchSigned) const {
   // We can deal when types of latch check and range checks don't match in case
   // if latch check is more narrow.
-  auto *IVType = cast<IntegerType>(IndVar->getType());
-  auto *RCType = cast<IntegerType>(getBegin()->getType());
+  auto *IVType = dyn_cast<IntegerType>(IndVar->getType());
+  auto *RCType = dyn_cast<IntegerType>(getBegin()->getType());
+  // Do not work with pointer types.
+  if (!IVType || !RCType)
+    return None;
   if (IVType->getBitWidth() > RCType->getBitWidth())
     return None;
   // IndVar is of the form "A + B * I" (where "I" is the canonical induction
@@ -1710,7 +1714,7 @@ IntersectSignedRange(ScalarEvolution &SE,
     return None;
   if (!R1)
     return R2;
-  auto &R1Value = R1.getValue();
+  auto &R1Value = R1.value();
   // We never return empty ranges from this function, and R1 is supposed to be
   // a result of intersection. Thus, R1 is never empty.
   assert(!R1Value.isEmpty(SE, /* IsSigned */ true) &&
@@ -1739,7 +1743,7 @@ IntersectUnsignedRange(ScalarEvolution &SE,
     return None;
   if (!R1)
     return R2;
-  auto &R1Value = R1.getValue();
+  auto &R1Value = R1.value();
   // We never return empty ranges from this function, and R1 is supposed to be
   // a result of intersection. Thus, R1 is never empty.
   assert(!R1Value.isEmpty(SE, /* IsSigned */ false) &&
@@ -1898,7 +1902,7 @@ bool InductiveRangeCheckElimination::run(
   LLVMContext &Context = Preheader->getContext();
   SmallVector<InductiveRangeCheck, 16> RangeChecks;
 
-  for (auto BBI : L->getBlocks())
+  for (auto *BBI : L->getBlocks())
     if (BranchInst *TBI = dyn_cast<BranchInst>(BBI->getTerminator()))
       InductiveRangeCheck::extractRangeChecksFromBranch(TBI, L, SE, BPI,
                                                         RangeChecks);
@@ -1950,13 +1954,12 @@ bool InductiveRangeCheckElimination::run(
                                                 LS.IsSignedPredicate);
     if (Result) {
       auto MaybeSafeIterRange =
-          IntersectRange(SE, SafeIterRange, Result.getValue());
+          IntersectRange(SE, SafeIterRange, Result.value());
       if (MaybeSafeIterRange) {
-        assert(
-            !MaybeSafeIterRange.getValue().isEmpty(SE, LS.IsSignedPredicate) &&
-            "We should never return empty ranges!");
+        assert(!MaybeSafeIterRange.value().isEmpty(SE, LS.IsSignedPredicate) &&
+               "We should never return empty ranges!");
         RangeChecksToEliminate.push_back(IRC);
-        SafeIterRange = MaybeSafeIterRange.getValue();
+        SafeIterRange = MaybeSafeIterRange.value();
       }
     }
   }
@@ -1964,8 +1967,7 @@ bool InductiveRangeCheckElimination::run(
   if (!SafeIterRange)
     return false;
 
-  LoopConstrainer LC(*L, LI, LPMAddNewLoop, LS, SE, DT,
-                     SafeIterRange.getValue());
+  LoopConstrainer LC(*L, LI, LPMAddNewLoop, LS, SE, DT, SafeIterRange.value());
   bool Changed = LC.run();
 
   if (Changed) {

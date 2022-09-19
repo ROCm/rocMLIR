@@ -213,9 +213,8 @@ enum NodeType : unsigned {
   VECREDUCE_FMIN_VL,
   VECREDUCE_FMAX_VL,
 
-  // Vector binary and unary ops with a mask as a third operand, and VL as a
-  // fourth operand.
-  // FIXME: Can we replace these with ISD::VP_*?
+  // Vector binary ops with a merge as a third operand, a mask as a fourth
+  // operand, and VL as a fifth operand.
   ADD_VL,
   AND_VL,
   MUL_VL,
@@ -229,40 +228,46 @@ enum NodeType : unsigned {
   UDIV_VL,
   UREM_VL,
   XOR_VL,
+  SMIN_VL,
+  SMAX_VL,
+  UMIN_VL,
+  UMAX_VL,
 
   SADDSAT_VL,
   UADDSAT_VL,
   SSUBSAT_VL,
   USUBSAT_VL,
 
+  MULHS_VL,
+  MULHU_VL,
   FADD_VL,
   FSUB_VL,
   FMUL_VL,
   FDIV_VL,
+  FMINNUM_VL,
+  FMAXNUM_VL,
+
+  // Vector unary ops with a mask as a second operand and VL as a third operand.
   FNEG_VL,
   FABS_VL,
   FSQRT_VL,
-  VFMADD_VL,
-  VFNMADD_VL,
-  VFMSUB_VL,
-  VFNMSUB_VL,
-  FCOPYSIGN_VL,
-  SMIN_VL,
-  SMAX_VL,
-  UMIN_VL,
-  UMAX_VL,
-  FMINNUM_VL,
-  FMAXNUM_VL,
-  MULHS_VL,
-  MULHU_VL,
+  FCOPYSIGN_VL, // Has a merge operand
   FP_TO_SINT_VL,
   FP_TO_UINT_VL,
+  VFCVT_X_F_VL,
   SINT_TO_FP_VL,
   UINT_TO_FP_VL,
   FP_ROUND_VL,
   FP_EXTEND_VL,
 
-  // Widening instructions
+  // Vector FMA ops with a mask as a fourth operand and VL as a fifth operand.
+  VFMADD_VL,
+  VFNMADD_VL,
+  VFMSUB_VL,
+  VFNMSUB_VL,
+
+  // Widening instructions with a merge value a third operand, a mask as a
+  // fourth operand, and VL as a fifth operand.
   VWMUL_VL,
   VWMULU_VL,
   VWMULSU_VL,
@@ -274,6 +279,8 @@ enum NodeType : unsigned {
   VWADDU_W_VL,
   VWSUB_W_VL,
   VWSUBU_W_VL,
+
+  VNSRL_VL,
 
   // Vector compare producing a mask. Fourth operand is input mask. Fifth
   // operand is VL.
@@ -366,8 +373,9 @@ public:
   bool isZExtFree(SDValue Val, EVT VT2) const override;
   bool isSExtCheaperThanZExt(EVT SrcVT, EVT DstVT) const override;
   bool signExtendConstant(const ConstantInt *CI) const override;
-  bool isCheapToSpeculateCttz() const override;
-  bool isCheapToSpeculateCtlz() const override;
+  bool isCheapToSpeculateCttz(Type *Ty) const override;
+  bool isCheapToSpeculateCtlz(Type *Ty) const override;
+  bool isMaskAndCmp0FoldingBeneficial(const Instruction &AndI) const override;
   bool hasAndNotCompare(SDValue Y) const override;
   bool hasBitTest(SDValue X, SDValue Y) const override;
   bool shouldProduceAndByConstByHoistingConstFromShiftsLHSOfAnd(
@@ -376,9 +384,14 @@ public:
       SelectionDAG &DAG) const override;
   bool shouldSinkOperands(Instruction *I,
                           SmallVectorImpl<Use *> &Ops) const override;
+  bool shouldScalarizeBinop(SDValue VecOp) const override;
   bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
   bool isFPImmLegal(const APFloat &Imm, EVT VT,
                     bool ForCodeSize) const override;
+  bool isExtractSubvectorCheap(EVT ResVT, EVT SrcVT,
+                               unsigned Index) const override;
+
+  bool isIntDivCheap(EVT VT, AttributeList Attr) const override;
 
   bool softPromoteHalfType() const override { return true; }
 
@@ -520,9 +533,8 @@ public:
                     SmallVectorImpl<SDValue> &InVals) const override;
 
   bool shouldConvertConstantLoadToIntImm(const APInt &Imm,
-                                         Type *Ty) const override {
-    return true;
-  }
+                                         Type *Ty) const override;
+  bool isUsedByReturnOnly(SDNode *N, SDValue &Chain) const override;
   bool mayBeEmittedAsTailCall(const CallInst *CI) const override;
   bool shouldConsiderGEPOffsetSplit() const override { return true; }
 
@@ -598,6 +610,8 @@ public:
                                           const MachineBasicBlock *MBB,
                                           unsigned uid,
                                           MCContext &Ctx) const override;
+
+  bool isVScaleKnownToBeAPowerOfTwo() const override;
 
 private:
   /// RISCVCCAssignFn - This target-specific function extends the default
@@ -676,14 +690,17 @@ private:
   SDValue lowerFixedLengthVectorSelectToRVV(SDValue Op,
                                             SelectionDAG &DAG) const;
   SDValue lowerToScalableOp(SDValue Op, SelectionDAG &DAG, unsigned NewOpc,
-                            bool HasMask = true) const;
-  SDValue lowerVPOp(SDValue Op, SelectionDAG &DAG, unsigned RISCVISDOpc) const;
+                            bool HasMergeOp = false, bool HasMask = true) const;
+  SDValue lowerVPOp(SDValue Op, SelectionDAG &DAG, unsigned RISCVISDOpc,
+                    bool HasMergeOp = false) const;
   SDValue lowerLogicVPOp(SDValue Op, SelectionDAG &DAG, unsigned MaskOpc,
                          unsigned VecOpc) const;
   SDValue lowerVPExtMaskOp(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerVPSetCCMaskOp(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerVPFPIntConvOp(SDValue Op, SelectionDAG &DAG,
                              unsigned RISCVISDOpc) const;
+  SDValue lowerVPStridedLoad(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerVPStridedStore(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerFixedLengthVectorExtendToRVV(SDValue Op, SelectionDAG &DAG,
                                             unsigned ExtendOpc) const;
   SDValue lowerGET_ROUNDING(SDValue Op, SelectionDAG &DAG) const;

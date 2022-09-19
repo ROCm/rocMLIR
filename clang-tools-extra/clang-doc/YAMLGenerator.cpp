@@ -109,6 +109,7 @@ static void TypeInfoMapping(IO &IO, TypeInfo &I) {
 static void FieldTypeInfoMapping(IO &IO, FieldTypeInfo &I) {
   TypeInfoMapping(IO, I);
   IO.mapOptional("Name", I.Name, SmallString<16>());
+  IO.mapOptional("DefaultValue", I.DefaultValue, SmallString<16>());
 }
 
 static void InfoMapping(IO &IO, Info &I) {
@@ -127,7 +128,8 @@ static void SymbolInfoMapping(IO &IO, SymbolInfo &I) {
 
 static void RecordInfoMapping(IO &IO, RecordInfo &I) {
   SymbolInfoMapping(IO, I);
-  IO.mapOptional("TagType", I.TagType, clang::TagTypeKind::TTK_Struct);
+  IO.mapOptional("TagType", I.TagType);
+  IO.mapOptional("IsTypeDef", I.IsTypeDef, false);
   IO.mapOptional("Members", I.Members);
   IO.mapOptional("Bases", I.Bases);
   IO.mapOptional("Parents", I.Parents, llvm::SmallVector<Reference, 4>());
@@ -182,6 +184,7 @@ template <> struct MappingTraits<FieldTypeInfo> {
   static void mapping(IO &IO, FieldTypeInfo &I) {
     TypeInfoMapping(IO, I);
     IO.mapOptional("Name", I.Name, SmallString<16>());
+    IO.mapOptional("DefaultValue", I.DefaultValue, SmallString<16>());
   }
 };
 
@@ -192,6 +195,7 @@ template <> struct MappingTraits<MemberTypeInfo> {
     // the AS that shouldn't be part of the output. Even though AS_public is the
     // default in the struct, it should be displayed in the YAML output.
     IO.mapOptional("Access", I.Access, clang::AccessSpecifier::AS_none);
+    IO.mapOptional("Description", I.Description);
   }
 };
 

@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/PDLToPDLInterp/PDLToPDLInterp.h"
-#include "../PassDetail.h"
+
 #include "PredicateTree.h"
 #include "mlir/Dialect/PDL/IR/PDL.h"
 #include "mlir/Dialect/PDL/IR/PDLTypes.h"
@@ -19,6 +19,11 @@
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
+
+namespace mlir {
+#define GEN_PASS_DEF_CONVERTPDLTOPDLINTERP
+#include "mlir/Conversion/Passes.h.inc"
+} // namespace mlir
 
 using namespace mlir;
 using namespace mlir::pdl_to_pdl_interp;
@@ -830,28 +835,7 @@ void PatternLowering::generateOperationResultTypeRewriter(
     pdl::OperationOp op, function_ref<Value(Value)> mapRewriteValue,
     SmallVectorImpl<Value> &types, DenseMap<Value, Value> &rewriteValues,
     bool &hasInferredResultTypes) {
-  // Look for an operation that was replaced by `op`. The result types will be
-  // inferred from the results that were replaced.
   Block *rewriterBlock = op->getBlock();
-  for (OpOperand &use : op.op().getUses()) {
-    // Check that the use corresponds to a ReplaceOp and that it is the
-    // replacement value, not the operation being replaced.
-    pdl::ReplaceOp replOpUser = dyn_cast<pdl::ReplaceOp>(use.getOwner());
-    if (!replOpUser || use.getOperandNumber() == 0)
-      continue;
-    // Make sure the replaced operation was defined before this one.
-    Value replOpVal = replOpUser.operation();
-    Operation *replacedOp = replOpVal.getDefiningOp();
-    if (replacedOp->getBlock() == rewriterBlock &&
-        !replacedOp->isBeforeInBlock(op))
-      continue;
-
-    Value replacedOpResults = builder.create<pdl_interp::GetResultsOp>(
-        replacedOp->getLoc(), mapRewriteValue(replOpVal));
-    types.push_back(builder.create<pdl_interp::GetValueTypeOp>(
-        replacedOp->getLoc(), replacedOpResults));
-    return;
-  }
 
   // Try to handle resolution for each of the result types individually. This is
   // preferred over type inferrence because it will allow for us to use existing
@@ -890,6 +874,31 @@ void PatternLowering::generateOperationResultTypeRewriter(
     return;
   }
 
+  // Look for an operation that was replaced by `op`. The result types will be
+  // inferred from the results that were replaced.
+  for (OpOperand &use : op.op().getUses()) {
+    // Check that the use corresponds to a ReplaceOp and that it is the
+    // replacement value, not the operation being replaced.
+    pdl::ReplaceOp replOpUser = dyn_cast<pdl::ReplaceOp>(use.getOwner());
+    if (!replOpUser || use.getOperandNumber() == 0)
+      continue;
+    // Make sure the replaced operation was defined before this one. PDL
+    // rewrites only have single block regions, so if the op isn't in the
+    // rewriter block (i.e. the current block of the operation) we already know
+    // it dominates (i.e. it's in the matcher).
+    Value replOpVal = replOpUser.operation();
+    Operation *replacedOp = replOpVal.getDefiningOp();
+    if (replacedOp->getBlock() == rewriterBlock &&
+        !replacedOp->isBeforeInBlock(op))
+      continue;
+
+    Value replacedOpResults = builder.create<pdl_interp::GetResultsOp>(
+        replacedOp->getLoc(), mapRewriteValue(replOpVal));
+    types.push_back(builder.create<pdl_interp::GetValueTypeOp>(
+        replacedOp->getLoc(), replacedOpResults));
+    return;
+  }
+
   // If the types could not be inferred from any context and there weren't any
   // explicit result types, assume the user actually meant for the operation to
   // have no results.
@@ -909,7 +918,7 @@ void PatternLowering::generateOperationResultTypeRewriter(
 
 namespace {
 struct PDLToPDLInterpPass
-    : public ConvertPDLToPDLInterpBase<PDLToPDLInterpPass> {
+    : public impl::ConvertPDLToPDLInterpBase<PDLToPDLInterpPass> {
   void runOnOperation() final;
 };
 } // namespace

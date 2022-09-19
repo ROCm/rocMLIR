@@ -417,14 +417,18 @@ bool getMAIIsGFX940XDL(unsigned Opc) {
 CanBeVOPD getCanBeVOPD(unsigned Opc) {
   const VOPDComponentInfo *Info = getVOPDComponentHelper(Opc);
   if (Info)
-    return {Info->CanBeVOPDX, 1};
+    return {Info->CanBeVOPDX, true};
   else
-    return {0, 0};
+    return {false, false};
 }
 
 unsigned getVOPDOpcode(unsigned Opc) {
   const VOPDComponentInfo *Info = getVOPDComponentHelper(Opc);
   return Info ? Info->VOPDOp : ~0u;
+}
+
+bool isVOPD(unsigned Opc) {
+  return AMDGPU::getNamedOperandIdx(Opc, AMDGPU::OpName::src0X) != -1;
 }
 
 unsigned mapWMMA2AddrTo3AddrOpcode(unsigned Opc) {

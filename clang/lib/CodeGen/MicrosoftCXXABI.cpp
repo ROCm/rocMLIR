@@ -782,7 +782,7 @@ public:
   LoadVTablePtr(CodeGenFunction &CGF, Address This,
                 const CXXRecordDecl *RD) override;
 
-  virtual bool
+  bool
   isPermittedToBeHomogeneousAggregate(const CXXRecordDecl *RD) const override;
 
 private:
@@ -2347,6 +2347,10 @@ void MicrosoftCXXABI::registerGlobalDtor(CodeGenFunction &CGF, const VarDecl &D,
 
   if (D.getTLSKind())
     return emitGlobalDtorWithTLRegDtor(CGF, D, Dtor, Addr);
+
+  // HLSL doesn't support atexit.
+  if (CGM.getLangOpts().HLSL)
+    return CGM.AddCXXDtorEntry(Dtor, Addr);
 
   // The default behavior is to use atexit.
   CGF.registerGlobalDtorWithAtExit(D, Dtor, Addr);

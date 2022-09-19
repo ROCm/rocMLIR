@@ -8,27 +8,17 @@ func.func @invalid_new_dense(%arg0: !llvm.ptr<i8>) -> tensor<32xf32> {
 
 // -----
 
-func.func @invalid_release_dense(%arg0: tensor<4xi32>) {
-  // expected-error@+1 {{'sparse_tensor.release' op operand #0 must be sparse tensor of any type values, but got 'tensor<4xi32>'}}
-  sparse_tensor.release %arg0 : tensor<4xi32>
-  return
-}
-
-// -----
-
 func.func @invalid_pointers_dense(%arg0: tensor<128xf64>) -> memref<?xindex> {
-  %c = arith.constant 0 : index
   // expected-error@+1 {{'sparse_tensor.pointers' op operand #0 must be sparse tensor of any type values, but got 'tensor<128xf64>'}}
-  %0 = sparse_tensor.pointers %arg0, %c : tensor<128xf64> to memref<?xindex>
+  %0 = sparse_tensor.pointers %arg0 { dimension = 0 : index } : tensor<128xf64> to memref<?xindex>
   return %0 : memref<?xindex>
 }
 
 // -----
 
 func.func @invalid_pointers_unranked(%arg0: tensor<*xf64>) -> memref<?xindex> {
-  %c = arith.constant 0 : index
   // expected-error@+1 {{'sparse_tensor.pointers' op operand #0 must be sparse tensor of any type values, but got 'tensor<*xf64>'}}
-  %0 = sparse_tensor.pointers %arg0, %c : tensor<*xf64> to memref<?xindex>
+  %0 = sparse_tensor.pointers %arg0 { dimension = 0 : index } : tensor<*xf64> to memref<?xindex>
   return %0 : memref<?xindex>
 }
 
@@ -37,9 +27,8 @@ func.func @invalid_pointers_unranked(%arg0: tensor<*xf64>) -> memref<?xindex> {
 #SparseVector = #sparse_tensor.encoding<{dimLevelType = ["compressed"], pointerBitWidth=32}>
 
 func.func @mismatch_pointers_types(%arg0: tensor<128xf64, #SparseVector>) -> memref<?xindex> {
-  %c = arith.constant 0 : index
   // expected-error@+1 {{unexpected type for pointers}}
-  %0 = sparse_tensor.pointers %arg0, %c : tensor<128xf64, #SparseVector> to memref<?xindex>
+  %0 = sparse_tensor.pointers %arg0 { dimension = 0 : index } : tensor<128xf64, #SparseVector> to memref<?xindex>
   return %0 : memref<?xindex>
 }
 
@@ -48,27 +37,24 @@ func.func @mismatch_pointers_types(%arg0: tensor<128xf64, #SparseVector>) -> mem
 #SparseVector = #sparse_tensor.encoding<{dimLevelType = ["compressed"]}>
 
 func.func @pointers_oob(%arg0: tensor<128xf64, #SparseVector>) -> memref<?xindex> {
-  %c = arith.constant 1 : index
   // expected-error@+1 {{requested pointers dimension out of bounds}}
-  %0 = sparse_tensor.pointers %arg0, %c : tensor<128xf64, #SparseVector> to memref<?xindex>
+  %0 = sparse_tensor.pointers %arg0 { dimension = 1 : index } : tensor<128xf64, #SparseVector> to memref<?xindex>
   return %0 : memref<?xindex>
 }
 
 // -----
 
 func.func @invalid_indices_dense(%arg0: tensor<10x10xi32>) -> memref<?xindex> {
-  %c = arith.constant 1 : index
   // expected-error@+1 {{'sparse_tensor.indices' op operand #0 must be sparse tensor of any type values, but got 'tensor<10x10xi32>'}}
-  %0 = sparse_tensor.indices %arg0, %c : tensor<10x10xi32> to memref<?xindex>
+  %0 = sparse_tensor.indices %arg0 { dimension = 1 : index } : tensor<10x10xi32> to memref<?xindex>
   return %0 : memref<?xindex>
 }
 
 // -----
 
 func.func @invalid_indices_unranked(%arg0: tensor<*xf64>) -> memref<?xindex> {
-  %c = arith.constant 0 : index
   // expected-error@+1 {{'sparse_tensor.indices' op operand #0 must be sparse tensor of any type values, but got 'tensor<*xf64>'}}
-  %0 = sparse_tensor.indices %arg0, %c : tensor<*xf64> to memref<?xindex>
+  %0 = sparse_tensor.indices %arg0 { dimension = 0 : index } : tensor<*xf64> to memref<?xindex>
   return %0 : memref<?xindex>
 }
 
@@ -77,9 +63,8 @@ func.func @invalid_indices_unranked(%arg0: tensor<*xf64>) -> memref<?xindex> {
 #SparseVector = #sparse_tensor.encoding<{dimLevelType = ["compressed"]}>
 
 func.func @mismatch_indices_types(%arg0: tensor<?xf64, #SparseVector>) -> memref<?xi32> {
-  %c = arith.constant 0 : index
   // expected-error@+1 {{unexpected type for indices}}
-  %0 = sparse_tensor.indices %arg0, %c : tensor<?xf64, #SparseVector> to memref<?xi32>
+  %0 = sparse_tensor.indices %arg0 { dimension = 0 : index } : tensor<?xf64, #SparseVector> to memref<?xi32>
   return %0 : memref<?xi32>
 }
 
@@ -88,9 +73,8 @@ func.func @mismatch_indices_types(%arg0: tensor<?xf64, #SparseVector>) -> memref
 #SparseVector = #sparse_tensor.encoding<{dimLevelType = ["compressed"]}>
 
 func.func @indices_oob(%arg0: tensor<128xf64, #SparseVector>) -> memref<?xindex> {
-  %c = arith.constant 1 : index
   // expected-error@+1 {{requested indices dimension out of bounds}}
-  %0 = sparse_tensor.indices %arg0, %c : tensor<128xf64, #SparseVector> to memref<?xindex>
+  %0 = sparse_tensor.indices %arg0 { dimension = 1 : index } : tensor<128xf64, #SparseVector> to memref<?xindex>
   return %0 : memref<?xindex>
 }
 
@@ -123,8 +107,8 @@ func.func @sparse_unannotated_load(%arg0: tensor<16x32xf64>) -> tensor<16x32xf64
 // -----
 
 func.func @sparse_unannotated_insert(%arg0: tensor<128xf64>, %arg1: memref<?xindex>, %arg2: f64) {
-  // expected-error@+1 {{'sparse_tensor.lex_insert' op operand #0 must be sparse tensor of any type values, but got 'tensor<128xf64>'}}
-  sparse_tensor.lex_insert %arg0, %arg1, %arg2 : tensor<128xf64>, memref<?xindex>, f64
+  // expected-error@+1 {{'sparse_tensor.insert' op operand #0 must be sparse tensor of any type values, but got 'tensor<128xf64>'}}
+  sparse_tensor.insert %arg0, %arg1, %arg2 : tensor<128xf64>, memref<?xindex>, f64
   return
 }
 
@@ -253,6 +237,20 @@ func.func @invalid_binary_wrong_identity_type(%arg0: i64, %arg1: f64) -> f64 {
 
 // -----
 
+func.func @invalid_binary_wrong_yield(%arg0: f64, %arg1: f64) -> f64 {
+  // expected-error@+1 {{left region must end with sparse_tensor.yield}}
+  %0 = sparse_tensor.binary %arg0, %arg1 : f64, f64 to f64
+    overlap={}
+    left={
+      ^bb0(%x: f64):
+        tensor.yield %x : f64
+    }
+    right=identity
+  return %0 : f64
+}
+
+// -----
+
 func.func @invalid_unary_argtype_mismatch(%arg0: f64) -> f64 {
   // expected-error@+1 {{present region argument 1 type mismatch}}
   %r = sparse_tensor.unary %arg0 : f64 to f64
@@ -289,4 +287,184 @@ func.func @invalid_unary_wrong_return_type(%arg0: f64) -> f64 {
     }
     absent={}
   return %0 : f64
+}
+
+// -----
+
+func.func @invalid_unary_wrong_yield(%arg0: f64) -> f64 {
+  // expected-error@+1 {{present region must end with sparse_tensor.yield}}
+  %0 = sparse_tensor.unary %arg0 : f64 to f64
+    present={
+      ^bb0(%x: f64):
+        tensor.yield %x : f64
+    }
+    absent={}
+  return %0 : f64
+}
+
+// -----
+
+func.func @invalid_reduce_num_args_mismatch(%arg0: f64, %arg1: f64) -> f64 {
+  %cf1 = arith.constant 1.0 : f64
+  // expected-error@+1 {{reduce region must have exactly 2 arguments}}
+  %r = sparse_tensor.reduce %arg0, %arg1, %cf1 : f64 {
+      ^bb0(%x: f64):
+        sparse_tensor.yield %x : f64
+    }
+  return %r : f64
+}
+
+// -----
+
+func.func @invalid_reduce_block_arg_type_mismatch(%arg0: i64, %arg1: i64) -> i64 {
+  %ci1 = arith.constant 1 : i64
+  // expected-error@+1 {{reduce region argument 1 type mismatch}}
+  %r = sparse_tensor.reduce %arg0, %arg1, %ci1 : i64 {
+      ^bb0(%x: f64, %y: f64):
+        %cst = arith.constant 2 : i64
+        sparse_tensor.yield %cst : i64
+    }
+  return %r : i64
+}
+
+// -----
+
+func.func @invalid_reduce_return_type_mismatch(%arg0: f64, %arg1: f64) -> f64 {
+  %cf1 = arith.constant 1.0 : f64
+  // expected-error@+1 {{reduce region yield type mismatch}}
+  %r = sparse_tensor.reduce %arg0, %arg1, %cf1 : f64 {
+      ^bb0(%x: f64, %y: f64):
+        %cst = arith.constant 2 : i64
+        sparse_tensor.yield %cst : i64
+    }
+  return %r : f64
+}
+
+// -----
+
+func.func @invalid_reduce_wrong_yield(%arg0: f64, %arg1: f64) -> f64 {
+  %cf1 = arith.constant 1.0 : f64
+  // expected-error@+1 {{reduce region must end with sparse_tensor.yield}}
+  %r = sparse_tensor.reduce %arg0, %arg1, %cf1 : f64 {
+      ^bb0(%x: f64, %y: f64):
+        %cst = arith.constant 2 : i64
+        tensor.yield %cst : i64
+    }
+  return %r : f64
+}
+
+// -----
+
+func.func @invalid_select_num_args_mismatch(%arg0: f64) -> f64 {
+  // expected-error@+1 {{select region must have exactly 1 arguments}}
+  %r = sparse_tensor.select %arg0 : f64 {
+      ^bb0(%x: f64, %y: f64):
+        %ret = arith.constant 1 : i1
+        sparse_tensor.yield %ret : i1
+    }
+  return %r : f64
+}
+
+// -----
+
+func.func @invalid_select_return_type_mismatch(%arg0: f64) -> f64 {
+  // expected-error@+1 {{select region yield type mismatch}}
+  %r = sparse_tensor.select %arg0 : f64 {
+      ^bb0(%x: f64):
+        sparse_tensor.yield %x : f64
+    }
+  return %r : f64
+}
+
+// -----
+
+func.func @invalid_select_wrong_yield(%arg0: f64) -> f64 {
+  // expected-error@+1 {{select region must end with sparse_tensor.yield}}
+  %r = sparse_tensor.select %arg0 : f64 {
+      ^bb0(%x: f64):
+        tensor.yield %x : f64
+    }
+  return %r : f64
+}
+
+// -----
+
+#DC = #sparse_tensor.encoding<{dimLevelType = ["dense", "compressed"]}>
+func.func @invalid_concat_less_inputs(%arg: tensor<9x4xf64, #DC>) -> tensor<9x4xf64, #DC> {
+  // expected-error@+1 {{Need at least two tensors to concatenate.}}
+  %0 = sparse_tensor.concatenate %arg {dimension = 1 : index}
+       : tensor<9x4xf64, #DC> to tensor<9x4xf64, #DC>
+  return %0 : tensor<9x4xf64, #DC>
+}
+
+// -----
+
+#DC = #sparse_tensor.encoding<{dimLevelType = ["dense", "compressed"]}>
+func.func @invalid_concat_dim(%arg0: tensor<2x4xf64, #DC>,
+                              %arg1: tensor<3x4xf64, #DC>,
+                              %arg2: tensor<4x4xf64, #DC>) -> tensor<9x4xf64, #DC> {
+  // expected-error@+1 {{Failed to concatentate tensors with rank=2 on dimension=4}}
+  %0 = sparse_tensor.concatenate %arg0, %arg1, %arg2 {dimension = 4 : index}
+       : tensor<2x4xf64, #DC>,
+         tensor<3x4xf64, #DC>,
+         tensor<4x4xf64, #DC> to tensor<9x4xf64, #DC>
+  return %0 : tensor<9x4xf64, #DC>
+}
+
+// -----
+
+#C = #sparse_tensor.encoding<{dimLevelType = ["compressed"]}>
+#DC = #sparse_tensor.encoding<{dimLevelType = ["dense", "compressed"]}>
+#DCC = #sparse_tensor.encoding<{dimLevelType = ["dense", "compressed", "compressed"]}>
+func.func @invalid_concat_rank_mismatch(%arg0: tensor<2xf64, #C>,
+                                        %arg1: tensor<3x4xf64, #DC>,
+                                        %arg2: tensor<4x4x4xf64, #DCC>) -> tensor<9x4xf64, #DC> {
+  // expected-error@+1 {{The input tensor $0 has a different rank (rank=1) from the output tensor (rank=2)}}
+  %0 = sparse_tensor.concatenate %arg0, %arg1, %arg2 {dimension = 0 : index}
+       : tensor<2xf64, #C>,
+         tensor<3x4xf64, #DC>,
+         tensor<4x4x4xf64, #DCC> to tensor<9x4xf64, #DC>
+  return %0 : tensor<9x4xf64, #DC>
+}
+
+// -----
+
+#DC = #sparse_tensor.encoding<{dimLevelType = ["dense", "compressed"]}>
+func.func @invalid_concat_size_mismatch_dyn(%arg0: tensor<?x4xf64, #DC>,
+                                            %arg1: tensor<5x4xf64, #DC>,
+                                            %arg2: tensor<4x4xf64, #DC>) -> tensor<9x4xf64, #DC> {
+  // expected-error@+1 {{Only statically-sized input tensors are supported.}}
+  %0 = sparse_tensor.concatenate %arg0, %arg1, %arg2 {dimension = 0 : index}
+       : tensor<?x4xf64, #DC>,
+         tensor<5x4xf64, #DC>,
+         tensor<4x4xf64, #DC> to tensor<9x4xf64, #DC>
+  return %0 : tensor<9x4xf64, #DC>
+}
+
+// -----
+
+#DC = #sparse_tensor.encoding<{dimLevelType = ["dense", "compressed"]}>
+func.func @invalid_concat_size_mismatch(%arg0: tensor<3x4xf64, #DC>,
+                                        %arg1: tensor<5x4xf64, #DC>,
+                                        %arg2: tensor<4x4xf64, #DC>) -> tensor<9x4xf64, #DC> {
+  // expected-error@+1 {{The concatenation dimension of the output tensor should be the sum of}}
+  %0 = sparse_tensor.concatenate %arg0, %arg1, %arg2 {dimension = 0 : index}
+       : tensor<3x4xf64, #DC>,
+         tensor<5x4xf64, #DC>,
+         tensor<4x4xf64, #DC> to tensor<9x4xf64, #DC>
+  return %0 : tensor<9x4xf64, #DC>
+}
+
+// -----
+
+#DC = #sparse_tensor.encoding<{dimLevelType = ["dense", "compressed"]}>
+func.func @invalid_concat_size_mismatch(%arg0: tensor<2x4xf64, #DC>,
+                                        %arg1: tensor<3x3xf64, #DC>,
+                                        %arg2: tensor<4x4xf64, #DC>) -> tensor<9x4xf64, #DC> {
+  // expected-error@+1 {{All dimensions (expect for the concatenating one) should be equal}}
+  %0 = sparse_tensor.concatenate %arg0, %arg1, %arg2 {dimension = 0 : index}
+       : tensor<2x4xf64, #DC>,
+         tensor<3x3xf64, #DC>,
+         tensor<4x4xf64, #DC> to tensor<9x4xf64, #DC>
+  return %0 : tensor<9x4xf64, #DC>
 }
