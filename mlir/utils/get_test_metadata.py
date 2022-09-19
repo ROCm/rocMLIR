@@ -20,7 +20,7 @@ from typing import Dict, List, Union, Optional, Tuple, Iterable
 ROCK_ROOT = Path('../..')
 ROCK_BIN = ROCK_ROOT / 'build' / 'bin'
 ROCK_GEN = ROCK_BIN / 'rock-gen'
-MLIR_ROCK_DRIVER = ROCK_BIN / 'mlir-rock-driver'
+ROCMLIR_DRIVER = ROCK_BIN / 'mlir-rock-driver'
 E2E_TEST_ROOT = ROCK_ROOT / 'mlir' / 'test' / 'mlir-rock-driver'
 
 CONV_CONFIG_RE = re.compile(r'rock-gen\s*([^|]+)\s*\|')
@@ -69,7 +69,7 @@ async def get_kernel(config: str, xdlops: bool) -> str:
     return isolate_real_kernel(await run_generator(config, xdlops))
 
 async def run_passes(kernel: str, passes: List[str]) -> Tuple[str, str]:
-    proc = await asyncio.create_subprocess_exec(MLIR_ROCK_DRIVER, *passes,
+    proc = await asyncio.create_subprocess_exec(ROCMLIR_DRIVER, *passes,
                             stdin=asyncio.subprocess.PIPE,
                             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     stdout, stderr = await proc.communicate(kernel.encode("utf-8"))
@@ -282,8 +282,8 @@ async def main():
     if len(sys.argv) != 2:
         print(f"Usage: {sys.argv[0]} out_file", file=sys.stderr)
         sys.exit(1)
-    if not MLIR_ROCK_DRIVER.exists():
-        print(f"Cannot find mlir-rock-driver at {MLIR_ROCK_DRIVER}", file=sys.stderr)
+    if not ROCMLIR_DRIVER.exists():
+        print(f"Cannot find mlir-rock-driver at {ROCMLIR_DRIVER}", file=sys.stderr)
         sys.exit(1)
     filename = sys.argv[1]
     with open(filename, 'wb') as f:

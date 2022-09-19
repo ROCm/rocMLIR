@@ -54,7 +54,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
   set(LIBRARY_NAME rockCompiler)
   function(combine_archives output_archive)
     set(mri_file ${CMAKE_CURRENT_BINARY_DIR}/${output_archive}.mri)
-    set(full_output_path ${MLIR_ROCK_LIB_DIR}/lib${output_archive}.a)
+    set(full_output_path ${ROCMLIR_LIB_DIR}/lib${output_archive}.a)
     set(output_archive_dummy_file ./${output_archive}.dummy.cpp)
 
     # Step one: construct mri file.
@@ -62,7 +62,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
                        COMMAND if [ -f ${output_archive}.mri ]\; then rm ${output_archive}.mri\; fi
                        COMMAND touch ${output_archive}.mri
                        COMMAND echo "create ${full_output_path}" >> ${output_archive}.mri
-                       COMMAND for archive in ${MLIR_ROCK_LIB_DIR}/*.a ${LLVM_EXTERNAL_LIB_DIR}/*.a\;
+                       COMMAND for archive in ${ROCMLIR_LIB_DIR}/*.a ${LLVM_EXTERNAL_LIB_DIR}/*.a\;
                        do echo "addlib $$archive" >> ${output_archive}.mri \; done
                        COMMAND echo "save" >> ${output_archive}.mri
                        COMMAND echo "end" >> ${output_archive}.mri

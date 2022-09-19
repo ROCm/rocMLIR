@@ -4,12 +4,12 @@ import scipy.stats
 
 from typing import Tuple, List
 
-PERF_REPORT_FILE = 'mlir_vs_rock_perf.csv'
-PERF_PLOT_REPORT_FILE = 'mlir_vs_rock_perf_for_plot.csv'
-PERF_STATS_REPORT_FILE = 'mlir_vs_rock_perf_means.csv'
-ROCK_REPORT_FILE = 'rock_perf.csv'
-ROCK_TUNED_REPORT_FILE = 'rock_tuned_perf.csv'
-ROCK_UNTUNED_REPORT_FILE = 'rock_untuned_perf.csv'
+PERF_REPORT_FILE = 'mlir_vs_miopen_perf.csv'
+PERF_PLOT_REPORT_FILE = 'mlir_vs_miopen_perf_for_plot.csv'
+PERF_STATS_REPORT_FILE = 'mlir_vs_miopen_perf_means.csv'
+MIOPEN_REPORT_FILE = 'miopen_perf.csv'
+MIOPEN_TUNED_REPORT_FILE = 'miopen_tuned_perf.csv'
+MIOPEN_UNTUNED_REPORT_FILE = 'miopen_untuned_perf.csv'
 
 TEST_PARAMETERS = ['Direction', 'DataType', 'XDLOPS', 'FilterLayout', 'InputLayout', 'OutputLayout',
                        'N', 'C', 'H', 'W', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW',

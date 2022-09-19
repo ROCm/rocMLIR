@@ -6,11 +6,11 @@ void buildProject(String target, String cmakeOpts) {
             buildType: 'RelWithDebInfo',\
             installation: 'InSearchPath',\
             steps: [[args: target]],\
-            cmakeArgs: "-DMLIR_ROCK_DRIVER_ENABLED=1 $cmakeOpts"
+            cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
     }
 }
 
-void buildRock(String cmakeOpts) {
+void buildMIOpen(String cmakeOpts) {
     sh '[ ! -d build ] || rm -rf build'
     cmakeBuild generator: 'Unix Makefiles',\
         buildDir: 'build',\
@@ -20,31 +20,31 @@ void buildRock(String cmakeOpts) {
                      -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
                      ${cmakeOpts}
                      """
-    sh 'cd build; make -j $(nproc) RockDriver'
+    sh 'cd build; make -j $(nproc) MIOpenDriver'
 }
 
-void getAndBuildRock(String prefixOpt, String cmakeOpts) {
+void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
     git branch: 'rename-MLIR', poll: false,\
-        url: 'https://github.com/ROCmSoftwarePlatform/Rock.git'
-    buildRock(cmakeOpts)
+        url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+    buildMIOpen(cmakeOpts)
 }
 
-void buildRockWithMLIR() {
+void buildMIOpenWithMLIR() {
     buildProject('librockCompiler',
                     '-DBUILD_FAT_LIBROCKCOMPILER=ON')
-    cmake arguments: "--install . --component librockCompiler --prefix ${WORKSPACE}/RockDeps",\
+    cmake arguments: "--install . --component librockCompiler --prefix ${WORKSPACE}/MIOpenDeps",\
         installation: 'InSearchPath', workingDir: 'build'
 
-    dir('Rock') {
+    dir('MIOpen') {
         git branch: 'rename-MLIR', poll: false,\
-            url: 'https://github.com/ROCmSoftwarePlatform/Rock.git'
-        // Note: setting cxxflags here works around https://github.com/ROCmSoftwarePlatform/Rock/issues/1604
-        buildRock("""-DROCK_USE_MLIR=On
-                        -DROCK_BACKEND=HIP
-                        -DCMAKE_PREFIX_PATH=${WORKSPACE}/RockDeps
-                        -DCMAKE_CXX_FLAGS="-isystem ${WORKSPACE}/RockDeps/include"
-                        -DROCK_USER_DB_PATH=${WORKSPACE}/Rock/build/RockUserDB
-                        -DROCK_TEST_FLAGS="--verbose --disable-verification-cache"
+            url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
+        // Note: setting cxxflags here works around https://github.com/ROCmSoftwarePlatform/MIOpen/issues/1604
+        buildMIOpen("""-DMIOPEN_USE_MLIR=On
+                        -DMIOPEN_BACKEND=HIP
+                        -DCMAKE_PREFIX_PATH=${WORKSPACE}/MIOpenDeps
+                        -DCMAKE_CXX_FLAGS="-isystem ${WORKSPACE}/MIOpenDeps/include"
+                        -DMIOPEN_USER_DB_PATH=${WORKSPACE}/MIOpen/build/MIOpenUserDB
+                        -DMIOPEN_TEST_FLAGS="--verbose --disable-verification-cache"
                         """)
     }
 }
@@ -80,17 +80,17 @@ void preMergeCheck() {
     sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
 }
 
-void testRockDriver(String dtype, String layout, String direction, String tuning) {
+void testMIOpenDriver(String dtype, String layout, String direction, String tuning) {
     echo "Config is (${dtype}, ${layout}, dir=${direction}, tuning=${tuning})"
     timeout(time: 60, activity: true, unit: 'MINUTES') {
-        dir('Rock/build/') {
+        dir('MIOpen/build/') {
             sh """
-            bash ${WORKSPACE}/mlir/utils/jenkins/rock-tests/rock_validate.sh \
+            bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh \
             --layout ${layout} \
             --direction ${direction} \
             --dtype ${dtype} \
             ${tuning == '1' ? '--tuning' : '--no-tuning'} \
-            < ${WORKSPACE}/mlir/utils/jenkins/rock-tests/resnet50-rock-configs"""
+            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
         }
     }
 }
@@ -101,12 +101,12 @@ void postProcessPerfRes() {
         alwaysLinkToLastBuild: false,
         keepAll: true,
         reportDir: 'build',
-        reportFiles: 'MLIR_Performance_Changes.html,MLIR_vs_Rock.html',
+        reportFiles: 'MLIR_Performance_Changes.html,MLIR_vs_MIOpen.html',
         reportName: 'Performance report'
     ])
 
     plot csvFileName: 'plot-nightly-perf-results-000001.csv',\
-        csvSeries: [[file: 'build/mlir_vs_rock_perf_for_plot.csv', displayTableFlag: false]],\
+        csvSeries: [[file: 'build/mlir_vs_miopen_perf_for_plot.csv', displayTableFlag: false]],\
         title: 'Test performance summary',\
         yaxis: 'TFlops',\
         style: 'line',\
@@ -195,13 +195,13 @@ pipeline {
                         }
                         stage("Shared library build and fixed tests") {
                             steps {
-                                buildProject('check-mlir check-mlir-rock', """
-                                  -DMLIR_ROCK_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
-                                  -DMLIR_ROCK_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
-                                  -DMLIR_ROCK_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+                                buildProject('check-mlir check-mlir-miopen', """
+                                  -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
+                                  -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
+                                  -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
                                   -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-                                  -DMLIR_ROCK_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-                                  -DMLIR_ROCK_DRIVER_TEST_GPU_VALIDATION=1
+                                  -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+                                  -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=1
                                   -DLLVM_LIT_ARGS='-v --time-tests'
                                   -DCMAKE_EXPORT_COMPILE_COMMANDS=1
                                 """)
@@ -254,14 +254,14 @@ pipeline {
                         }
                         stage("Shared library build and random tests") {
                             steps {
-                                buildProject('check-mlir-rock',
-                                             """-DMLIR_ROCK_DRIVER_PR_E2E_TEST_ENABLED=0
-                                             -DMLIR_ROCK_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
-                                             -DMLIR_ROCK_DRIVER_E2E_TEST_ENABLED=1
+                                buildProject('check-mlir-miopen',
+                                             """-DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=0
+                                             -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
+                                             -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=1
                                              -DROCK_E2E_TEST_ENABLED=1
-                                             -DMLIR_ROCK_DRIVER_RANDOM_DATA_SEED=1
-                                             -DMLIR_ROCK_DRIVER_MISC_E2E_TEST_ENABLED=0
-                                             -DMLIR_ROCK_DRIVER_TEST_GPU_VALIDATION=0
+                                             -DMLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED=1
+                                             -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=0
+                                             -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=0
                                              -DLLVM_LIT_ARGS='-v --time-tests'
                                              -DCMAKE_EXPORT_COMPILE_COMMANDS=1""")
                             }
@@ -303,33 +303,33 @@ pipeline {
                                 showEnv()
                             }
                         }
-                        stage("Build Rock with librockCompiler") {
+                        stage("Build MIOpen with librockCompiler") {
                             steps {
-                                buildRockWithMLIR()
+                                buildMIOpenWithMLIR()
                             }
                         }
-                        stage("Test selected Rock configs") {
+                        stage("Test selected MIOpen configs") {
                             environment {
-                                // Make libRock.so accessible to the test driver
-                                LD_LIBRARY_PATH="${WORKSPACE}/Rock/build/lib:$LD_LIBRARY_PATH:"
+                                // Make libMIOpen.so accessible to the test driver
+                                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
                             }
                             steps {
                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                    dir('Rock/build/') {
+                                    dir('MIOpen/build/') {
                                         // no-tuning test configs
                                         sh """
-                                        bash ${WORKSPACE}/mlir/utils/jenkins/rock-tests/rock_validate.sh --test-all --no-tuning\
-                                           < ${WORKSPACE}/mlir/utils/jenkins/rock-tests/selected-resnet50-rock-configs"""
+                                        bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --no-tuning\
+                                           < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
                                         sh """
-                                        bash ${WORKSPACE}/mlir/utils/jenkins/rock-tests/rock_validate.sh --test-fwd --dtype int8 --no-tuning\
-                                           < ${WORKSPACE}/mlir/utils/jenkins/rock-tests/selected-resnet50-rock-configs"""
+                                        bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd --dtype int8 --no-tuning\
+                                           < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
                                         // tuning test configs
                                         sh """
-                                        bash ${WORKSPACE}/mlir/utils/jenkins/rock-tests/rock_validate.sh --test-all --tuning\
-                                           < ${WORKSPACE}/mlir/utils/jenkins/rock-tests/selected-resnet50-rock-configs"""
+                                        bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
+                                           < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
                                         sh """
-                                        bash ${WORKSPACE}/mlir/utils/jenkins/rock-tests/rock_validate.sh --test-fwd --dtype int8 --tuning\
-                                           < ${WORKSPACE}/mlir/utils/jenkins/rock-tests/selected-resnet50-rock-configs"""
+                                        bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd --dtype int8 --tuning\
+                                           < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
                                     }
                                 }
                             }
@@ -380,7 +380,7 @@ pipeline {
                         steps {
                             setHeartbeat()
                             buildProject(
-                                'check-mlir-rock-build-only ci-performance-scripts',
+                                'check-mlir-miopen-build-only ci-performance-scripts',
                                 '')
                             dir('build') {
                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
@@ -458,28 +458,28 @@ pipeline {
                             showEnv()
                         }
                     }
-                    stage("Build Rock with librockCompiler") {
+                    stage("Build MIOpen with librockCompiler") {
                         steps {
-                            buildRockWithMLIR()
+                            buildMIOpenWithMLIR()
                         }
                     }
                     stage("Tune MLIR kernels") {
                         environment {
-                            // Make libRock.so accessible to the test driver
-                            LD_LIBRARY_PATH="${WORKSPACE}/Rock/build/lib:$LD_LIBRARY_PATH:"
+                            // Make libMIOpen.so accessible to the test driver
+                            LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
                         }
                         steps {
-                            dir('Rock/build/') {
+                            dir('MIOpen/build/') {
                                 sh """
-                                bash ${WORKSPACE}/mlir/utils/jenkins/rock-tests/rock_validate.sh --test-all --tuning\
-                                    < ${WORKSPACE}/mlir/utils/jenkins/rock-tests/resnet50-rock-configs"""
+                                bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
+                                    < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
                                 sh """
-                                bash ${WORKSPACE}/mlir/utils/jenkins/rock-tests/rock_validate.sh --test-fwd --dtype int8 --tuning\
-                                    < ${WORKSPACE}/mlir/utils/jenkins/rock-tests/resnet50-rock-configs"""
-                                sh 'ls -l RockUserDB'
+                                bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd --dtype int8 --tuning\
+                                    < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+                                sh 'ls -l MIOpenUserDB'
                             }
                             // Save user database for nightly jobs
-                            dir ('Rock/build/RockUserDB') {
+                            dir ('MIOpen/build/MIOpenUserDB') {
                                 stash name: "MLIR-PerfDB-${ARCH}", includes: "**"
                             }
                         }
@@ -504,13 +504,13 @@ pipeline {
             }
             steps {
                 // Note: add additional architectures here
-                dir ('Rock/build/RockUserDB') {
+                dir ('MIOpen/build/MIOpenUserDB') {
                     unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx908' : 'gfx906'}"
                     // This'll stop being a duplicate once Navi CI starts
                     unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx90a' : 'gfx906'}"
                     sh 'date --utc +%Y-%m-%d >tuning-date'
                 }
-                archiveArtifacts artifacts: 'Rock/build/RockUserDB/**',\
+                archiveArtifacts artifacts: 'MIOpen/build/MIOpenUserDB/**',\
                     onlyIfSuccessful: true
             }
             post {
@@ -520,7 +520,7 @@ pipeline {
             }
         }
 
-        stage("Rock Resnet50 Config Test") {
+        stage("MIOpen Resnet50 Config Test") {
             when { allOf {
                     equals expected: true, actual: params.nightly;
                     equals expected: true, actual: params.staticLib;
@@ -537,7 +537,7 @@ pipeline {
                     }
                 }
                 stages {
-                    stage('Test Rock integration') {
+                    stage('Test MIOpen integration') {
                         agent {
                             docker {
                                 image dockerImage()
@@ -553,43 +553,43 @@ pipeline {
                                     showEnv()
                                 }
                             }
-                            stage("Build Rock with librockCompiler") {
+                            stage("Build MIOpen with librockCompiler") {
                                 environment {
                                     PATH="/opt/rocm/llvm/bin:$PATH"
                                     HOME="${WORKSPACE}"
                                 }
                                 steps {
-                                    buildRockWithMLIR()
+                                    buildMIOpenWithMLIR()
                                 }
                             }
                             stage("Copy perfdb") {
                                 steps {
-                                    copyArtifacts filter: 'Rock/build/RockUserDB/**',\
+                                    copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
                                                optional: true,\
                                                flatten: true,\
                                                projectName: "/MLIR/mlir-weekly",\
                                                selector: lastSuccessful(),\
-                                               target: 'Rock/build/RockUserDB'
-                                    sh 'ls Rock/build/RockUserDB'
-                                    sh 'cat Rock/build/RockUserDB/tuning-date'
+                                               target: 'MIOpen/build/MIOpenUserDB'
+                                    sh 'ls MIOpen/build/MIOpenUserDB'
+                                    sh 'cat MIOpen/build/MIOpenUserDB/tuning-date'
                                 }
                             }
-                            stage("Test Rock config") {
+                            stage("Test MIOpen config") {
                                 environment {
-                                    // Make libRock.so accessible to the test driver
-                                    LD_LIBRARY_PATH="${WORKSPACE}/Rock/build/lib:$LD_LIBRARY_PATH:"
+                                    // Make libMIOpen.so accessible to the test driver
+                                    LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
                                     HOME="${WORKSPACE}"
                                 }
                                 steps {
                                     // Test with perfDb
-                                    testRockDriver("$DTYPE", "$LAYOUT", "1", "0")
-                                    testRockDriver("$DTYPE", "$LAYOUT", "2", "0")
-                                    testRockDriver("$DTYPE", "$LAYOUT", "4", "0")
+                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "1", "0")
+                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "2", "0")
+                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "4", "0")
                                     // Test without perfDb
-                                    sh 'rm -rf ${WORKSPACE}/Rock/build/RockUserDB'
-                                    testRockDriver("$DTYPE", "$LAYOUT", "1", "0")
-                                    testRockDriver("$DTYPE", "$LAYOUT", "2", "0")
-                                    testRockDriver("$DTYPE", "$LAYOUT", "4", "0")
+                                    sh 'rm -rf ${WORKSPACE}/MIOpen/build/MIOpenUserDB'
+                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "1", "0")
+                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "2", "0")
+                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "4", "0")
                                 }
                             }
                         }
@@ -621,9 +621,9 @@ pipeline {
                 }
             }
             environment {
-                // Make libRock.so accessible to the test driver
+                // Make libMIOpen.so accessible to the test driver
                 PATH="/opt/rocm/llvm/bin:$PATH"
-                LD_LIBRARY_PATH="${WORKSPACE}/Rock/build/lib:$LD_LIBRARY_PATH:"
+                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
                 HOME="${WORKSPACE}"
             }
             stages {
@@ -634,39 +634,39 @@ pipeline {
                 }
                 stage("Build MLIR with librockCompiler") {
                     steps {
-                        buildRockWithMLIR()
+                        buildMIOpenWithMLIR()
                     }
                 }
                 stage("Copy tuning database") {
                     steps {
-                        copyArtifacts filter: 'Rock/build/RockUserDB/**',\
+                        copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
                                                optional: true,\
                                                flatten: true,\
                                                projectName: "/MLIR/mlir-weekly",\
                                                selector: lastSuccessful(),\
-                                               target: 'Rock/build/RockUserDB'
-                        sh 'ls Rock/build/RockUserDB'
-                        sh 'cat Rock/build/RockUserDB/tuning-date'
+                                               target: 'MIOpen/build/MIOpenUserDB'
+                        sh 'ls MIOpen/build/MIOpenUserDB'
+                        sh 'cat MIOpen/build/MIOpenUserDB/tuning-date'
                     }
                 }
                 stage("Performance Test: Tuned vs Untuned") {
                     steps {
                         buildProject('ci-performance-scripts', '')
                         dir('build') {
-                           sh 'python3 ./bin/RockDriver.py -brock_use_tuned_mlir'
-                           sh 'rm -rf ${WORKSPACE}/Rock/build/RockUserDB'
-                           sh 'python3 ./bin/RockDriver.py -brock_use_untuned_mlir'
+                           sh 'python3 ./bin/MIOpenDriver.py -bmiopen_use_tuned_mlir'
+                           sh 'rm -rf ${WORKSPACE}/MIOpen/build/MIOpenUserDB'
+                           sh 'python3 ./bin/MIOpenDriver.py -bmiopen_use_untuned_mlir'
                         }
                     }
                 }
-                stage("Build Rock with HIP") {
+                stage("Build MIOpen with HIP") {
                     steps {
-                        sh 'rm -rf Rock'
-                        dir('Rock') {
-                            getAndBuildRock("--prefix ${WORKSPACE}/Rock/RockDeps",
-                                '''-DROCK_BACKEND=HIP -DROCK_USE_MLIR=OFF
-                                   -DCMAKE_PREFIX_PATH="${WORKSPACE}/Rock/RockDeps"
-                                   -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/Rock/build/RockInstallDir
+                        sh 'rm -rf MIOpen'
+                        dir('MIOpen') {
+                            getAndBuildMIOpen("--prefix ${WORKSPACE}/MIOpen/MIOpenDeps",
+                                '''-DMIOPEN_BACKEND=HIP -DMIOPEN_USE_MLIR=OFF
+                                   -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
+                                   -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/MIOpen/build/MIOpenInstallDir
                                    ''')
                             sh 'cd build; make -j $(nproc)'
                             sh 'cd build; make install'
@@ -678,15 +678,15 @@ pipeline {
                         // Clean up build settings to disable static library and allow
                         // mlir-rocm-runner
                         sh 'rm build/CMakeCache.txt'
-                        buildProject('rock-gen mlir-rock-driver mlir-rocm-runner ci-performance-scripts', '')
+                        buildProject('miopen-gen mlir-miopen-driver mlir-rocm-runner ci-performance-scripts', '')
                     }
                 }
-                stage("Test MLIR vs Rock") {
+                stage("Test MLIR vs MIOpen") {
                     steps {
                         dir('build') {
                             sh 'date --utc +%Y-%m-%d > perf-run-date'
                             // Run MLIR perf benchmarks
-                            sh 'python3 ./bin/RockDriver.py'
+                            sh 'python3 ./bin/MIOpenDriver.py'
                         }
                     }
                 }

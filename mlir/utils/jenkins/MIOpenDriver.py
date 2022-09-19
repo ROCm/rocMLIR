@@ -29,7 +29,7 @@ DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 DATA_TYPES = ['conv', 'convfp16', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 
-# Compiled regexp object used for extracting elapsed time from RockDriver's output
+# Compiled regexp object used for extracting elapsed time from MIOpenDriver's output
 ELAPSED_TIME_RE = re.compile(r"Elapsed: (.*)ms")
 
 @dataclass
@@ -46,7 +46,7 @@ class Paths:
     """This structure is used to hold paths needed to perform the tests"""
     configuration_file_path : str
     mlir_paths: Optional[MLIRPaths] = None
-    rock_driver_path: Optional[str] = None
+    miopen_driver_path: Optional[str] = None
 
 def find_mlir_build_dir() -> str:
     """
@@ -84,37 +84,37 @@ def find_mlir_build_dir() -> str:
     return str(build_dir)
 
 
-def find_rock_build_dir() -> str:
+def find_miopen_build_dir() -> str:
     """
-    Finds rock build dir searching either WORKSPACE dir
+    Finds miopen build dir searching either WORKSPACE dir
     or home dir
     """
 
-    rock_driver_path = None
+    miopen_driver_path = None
     candidate_paths = [
-        # if the script is run from build dir and assuming Rock is under mlir build
-        Path('../Rock/build/bin/RockDriver'),
-        # if the script is run from source and assuming Rock is under mlir build
-        Path(__file__).parent.parent.parent.parent / 'Rock'/ 'build' / 'bin' / 'RockDriver'
+        # if the script is run from build dir and assuming MIOpen is under mlir build
+        Path('../MIOpen/build/bin/MIOpenDriver'),
+        # if the script is run from source and assuming MIOpen is under mlir build
+        Path(__file__).parent.parent.parent.parent / 'MIOpen'/ 'build' / 'bin' / 'MIOpenDriver'
     ]
     for candidate_path in candidate_paths:
         if candidate_path.exists():
-            rock_driver_path = candidate_path
+            miopen_driver_path = candidate_path
 
-    if not rock_driver_path:
+    if not miopen_driver_path:
         search_root = os.environ.get('WORKSPACE', str(Path.home()))
         assert search_root, "Cant find WORKSPACE env arg or home directory"
-        rock_driver_path = glob.glob(search_root + '/**/bin/RockDriver', recursive=True)
-        if len(rock_driver_path) == 0:
-            # Rock driver not available
+        miopen_driver_path = glob.glob(search_root + '/**/bin/MIOpenDriver', recursive=True)
+        if len(miopen_driver_path) == 0:
+            # MIOpen driver not available
             return None
-        assert len(rock_driver_path) == 1, "Multiple paths found to contain */bin/RockDriver"
-        rock_driver_path = rock_driver_path[0]
+        assert len(miopen_driver_path) == 1, "Multiple paths found to contain */bin/MIOpenDriver"
+        miopen_driver_path = miopen_driver_path[0]
 
-    rock_build_dir = Path(rock_driver_path).parent.parent
-    return str(rock_build_dir)
+    miopen_build_dir = Path(miopen_driver_path).parent.parent
+    return str(miopen_build_dir)
 
-def create_paths(mlir_build_dir_path, rock_build_dir_path) -> Paths:
+def create_paths(mlir_build_dir_path, miopen_build_dir_path) -> Paths:
     """Creates the composite Paths structure using build dir paths"""
 
     mlir_paths = None
@@ -129,15 +129,15 @@ def create_paths(mlir_build_dir_path, rock_build_dir_path) -> Paths:
         libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',
         libmlir_runtime_utils_path = llvm_lib_dir + '/libmlir_runner_utils.so')
 
-    rock_driver_path = None
-    if rock_build_dir_path:
-        rock_driver_bin_dir = Path(rock_build_dir_path) / 'bin'
-        rock_driver_path = str((rock_driver_bin_dir / 'RockDriver').resolve())
+    miopen_driver_path = None
+    if miopen_build_dir_path:
+        miopen_driver_bin_dir = Path(miopen_build_dir_path) / 'bin'
+        miopen_driver_path = str((miopen_driver_bin_dir / 'MIOpenDriver').resolve())
 
     root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
-    configuration_dir = root_dir + '/mlir/utils/jenkins/rock-tests/resnet50-rock-configs'
+    configuration_dir = root_dir + '/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs'
 
-    return Paths(configuration_dir, mlir_paths, rock_driver_path)
+    return Paths(configuration_dir, mlir_paths, miopen_driver_path)
 
 # utility functions.
 def getConfigurations(fileName):
@@ -357,15 +357,15 @@ def runConfigWithMLIR(config: ConvConfiguration, paths: Paths):
     os.system("rm "+BENCHMARKING_RESULT_FILE_NAME)
     commandLineOptions = config.generateMlirDriverCommandLine()
     print("Running MLIR Benchmark: ", repr(config))
-    rockGenCommand = paths.mlir_paths.rock_gen_path + ' -ph ' + commandLineOptions
-    mlirRockDriverCommand = [paths.mlir_paths.mlir_rock_driver_path, '-c']
+    miopenGenCommand = paths.mlir_paths.rock_gen_path + ' -ph ' + commandLineOptions
+    mlirMiopenDriverCommand = [paths.mlir_paths.mlir_rock_driver_path, '-c']
     mlir_rocm_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
     profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.rocm_runner_path] + mlir_rocm_runner_args
 
-    # invoke rock-gen.
-    p1 = subprocess.Popen(rockGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    # pipe to mlir-rock-driver
-    p2 = subprocess.Popen(mlirRockDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    # invoke miopen-gen.
+    p1 = subprocess.Popen(miopenGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    # pipe to mlir-miopen-driver
+    p2 = subprocess.Popen(mlirMiopenDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     p1.stdout.close() # Allow p1 to receive a SIGPIPE if p2 exits.
     # pipe to rocprof + mlir-rocm-runner.
     p3 = subprocess.Popen(profilerCommand, stdin=p2.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -375,34 +375,34 @@ def runConfigWithMLIR(config: ConvConfiguration, paths: Paths):
         outs, errs = p3.communicate(timeout=60)
         if len(errs) > 0:
             print("Test printed errors: ", errs.decode('utf-8'))
-            print("Failing command line: ", rockGenCommand)
+            print("Failing command line: ", miopenGenCommand)
     except subprocess.TimeoutExpired:
-        print("Test timed out: ", rockGenCommand)
+        print("Test timed out: ", miopenGenCommand)
         p3.kill()
         outs, errs = p3.communicate()
 
-def runConfigWithRockDriver(commandLine, paths: Paths, envs):
-    RockDriverCommand = [paths.rock_driver_path, *commandLine, '-V', '0']
-    print("Running Rock Benchmark: ", ' '.join(commandLine))
-    # invoke RockDriver.
-    p1 = subprocess.Popen(RockDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envs)
+def runConfigWithMIOpenDriver(commandLine, paths: Paths, envs):
+    MIOpenDriverCommand = [paths.miopen_driver_path, *commandLine, '-V', '0']
+    print("Running MIOpen Benchmark: ", ' '.join(commandLine))
+    # invoke MIOpenDriver.
+    p1 = subprocess.Popen(MIOpenDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envs)
     # get output.
     try:
         outs, errs = p1.communicate(timeout=300)
         if len(errs) > 0:
-            print("Rock benchmark produced errors: ", errs.decode('utf-8'))
+            print("MIOpen benchmark produced errors: ", errs.decode('utf-8'))
             return np.nan
         else:
             # convert bytes to str
             outs=outs.decode('utf-8')
-            # Extract Elapsed time in ms from the output of RockDriver
+            # Extract Elapsed time in ms from the output of MIOpenDriver
             # Use regular expression to match the contents between
             # "Elasped: " (note the space at the end) and "ms"
             elapsedTimeInMs = ELAPSED_TIME_RE.search(outs).group(1)
             return float(elapsedTimeInMs)*1.0e6
     except subprocess.TimeoutExpired:
         p1.kill()
-        print("Rock benchmark timed out")
+        print("MIOpen benchmark timed out")
         outs, errs = p1.communicate()
         ## make sure timeout does not break this script
         return np.nan
@@ -415,24 +415,24 @@ def benchmarkMLIR(commandLine, xdlops, paths: Paths):
     nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
     return config.tableEntry(nanoSeconds)
 
-def benchmarkRock(commandLine, xdlops, paths: Paths, envs=dict()):
+def benchmarkMIOpen(commandLine, xdlops, paths: Paths, envs=dict()):
     config = ConvConfiguration.fromCommandLine(commandLine, xdlops)
-    # get nanoseconds from RockDriver output
-    nanoSeconds = runConfigWithRockDriver(commandLine, paths, envs)
+    # get nanoseconds from MIOpenDriver output
+    nanoSeconds = runConfigWithMIOpenDriver(commandLine, paths, envs)
     return config.tableEntry(nanoSeconds)
 
-#Generate MLIR vs. Rock performance results
+#Generate MLIR vs. MIOpen performance results
 def generatePerformanceResults(configs, xdlops, paths: Paths):
     mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), xdlops, paths)
         for testVector in configs)
-    rock_df = pd.DataFrame(benchmarkRock(testVector.split(sep=' '), xdlops, paths)
+    miopen_df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), xdlops, paths)
         for testVector in configs)
 
-    df = mlir_df.merge(rock_df, on=ConvConfiguration.TABLE_COLUMNS[:-1],
-                           suffixes=('', ' (Rock)'))
-    df.rename(columns={'TFlops': 'MLIR TFlops', 'TFlops (Rock)': 'Rock TFlops (no MLIR Kernels)'}, inplace=True)
+    df = mlir_df.merge(miopen_df, on=ConvConfiguration.TABLE_COLUMNS[:-1],
+                           suffixes=('', ' (MIOpen)'))
+    df.rename(columns={'TFlops': 'MLIR TFlops', 'TFlops (MIOpen)': 'MIOpen TFlops (no MLIR Kernels)'}, inplace=True)
 
-    df['MLIR/Rock'] = df['MLIR TFlops'] / df['Rock TFlops (no MLIR Kernels)']
+    df['MLIR/MIOpen'] = df['MLIR TFlops'] / df['MIOpen TFlops (no MLIR Kernels)']
     df.to_csv(reportUtils.PERF_REPORT_FILE, index=False)
 
 def getSolverName(testVector, xdlops):
@@ -447,41 +447,41 @@ def getSolverName(testVector, xdlops):
        solverName+='Xdlops'
     return solverName
 
-def benchmarkRockWithMLIRKernels(configs, xdlops, filename, paths: Paths):
+def benchmarkMIOpenWithMLIRKernels(configs, xdlops, filename, paths: Paths):
     solver_names = {testVector : getSolverName(testVector, xdlops) for testVector in configs}
 
-    # Set environment variables for running RockDriver with MLIR kernels
+    # Set environment variables for running MIOpenDriver with MLIR kernels
     envs = os.environ.copy()
-    envs['ROCK_FIND_MODE'] = '1'
-    envs['ROCK_DRIVER_USE_GPU_REFERENCE'] = '1'
+    envs['MIOPEN_FIND_MODE'] = '1'
+    envs['MIOPEN_DRIVER_USE_GPU_REFERENCE'] = '1'
     perf_list = []
     for testVector in configs:
-        envs['ROCK_DEBUG_FIND_ONLY_SOLVER']=solver_names[testVector]
-        perf_list.append(benchmarkRock(testVector.split(sep=' '), xdlops, paths, envs))
+        envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER']=solver_names[testVector]
+        perf_list.append(benchmarkMIOpen(testVector.split(sep=' '), xdlops, paths, envs))
     df = pd.DataFrame(perf_list)
     df.to_csv(filename, index=False)
 
-#Tune Rock with MLIR kernels
+#Tune MIOpen with MLIR kernels
 def tuneMLIRKernels(configs, xdlops, paths: Paths):
     solver_names = {testVector : getSolverName(testVector, xdlops) for testVector in configs}
 
     envs = os.environ.copy()
-    envs['ROCK_FIND_ENFORCE'] = '4'
-    envs['ROCK_DRIVER_USE_GPU_REFERENCE'] = '1'
+    envs['MIOPEN_FIND_ENFORCE'] = '4'
+    envs['MIOPEN_DRIVER_USE_GPU_REFERENCE'] = '1'
     for testVector in configs:
-        envs['ROCK_DEBUG_FIND_ONLY_SOLVER']=solver_names[testVector]
+        envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER']=solver_names[testVector]
         commandLine = testVector.split(sep=' ')
         config = ConvConfiguration.fromCommandLine(commandLine, xdlops)
         if config.inputLayout == 'nchw':
-            RockDriverCommand = [paths.rock_driver_path, *commandLine,'-V', '0']
-            print(' '.join(RockDriverCommand))
-            p1 = subprocess.Popen(RockDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envs)
+            MIOpenDriverCommand = [paths.miopen_driver_path, *commandLine,'-V', '0']
+            print(' '.join(MIOpenDriverCommand))
+            p1 = subprocess.Popen(MIOpenDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envs)
             # get output.
             try:
                outs, errs = p1.communicate(timeout=300)
             except subprocess.TimeoutExpired:
                 p1.kill()
-                print("Rock tuning timed out")
+                print("MIOpen tuning timed out")
                 outs, errs = p1.communicate()
 
 def is_xdlops_present() -> bool:
@@ -514,32 +514,32 @@ def main(args=None):
     """
     usage examples:
 
-    python3 RockDriver.py
-    python3 RockDriver.py -b
-    python3 RockDriver.py -brock
-    python3 RockDriver.py conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
-    python3 RockDriver.py -rock conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
-    python3 RockDriver.py -brock_use_tuned_mlir
-    python3 RockDriver.py -brock_use_untuned_mlir
+    python3 MIOpenDriver.py
+    python3 MIOpenDriver.py -b
+    python3 MIOpenDriver.py -bmiopen
+    python3 MIOpenDriver.py conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+    python3 MIOpenDriver.py -miopen conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+    python3 MIOpenDriver.py -bmiopen_use_tuned_mlir
+    python3 MIOpenDriver.py -bmiopen_use_untuned_mlir
     """
     if args is None:
         args = sys.argv[1:]
     args = add_double_dash_convention(args)
 
     parser = argparse.ArgumentParser(
-        prog="RockDriver Test Runner",
-        description="A test runner script for Rock and MLIR-based kernel generator",
+        prog="MIOpenDriver Test Runner",
+        description="A test runner script for MIOpen and MLIR-based kernel generator",
         allow_abbrev=False,
     )
 
     mutex_arg_group = parser.add_mutually_exclusive_group()
     mutex_arg_group.add_argument(
-        "--brock_use_tuned_mlir",
+        "--bmiopen_use_tuned_mlir",
         action="store_true",
         help="Run the benchmarks using tuned MLIR kernels",
     )
     mutex_arg_group.add_argument(
-        "--brock_use_untuned_mlir",
+        "--bmiopen_use_untuned_mlir",
         action="store_true",
         help="Run the benchmarks using untuned MLIR kernels"
     )
@@ -554,12 +554,12 @@ def main(args=None):
         help="CSV batch benchmarking mode with MLIR"
     )
     mutex_arg_group.add_argument(
-        "--brock",
+        "--bmiopen",
         action="store_true",
-        help="CSV batch benchmarking mode with Rock"
+        help="CSV batch benchmarking mode with MIOpen"
     )
     mutex_arg_group.add_argument(
-        "--rock",
+        "--miopen",
         action="store_true",
         help="benchmark a single config"
     )
@@ -578,43 +578,43 @@ def main(args=None):
         help="The build directory of MLIR based kernel generator",
     )
     parser.add_argument(
-        "--rock-build-dir",
+        "--miopen-build-dir",
         type=str,
-        default=find_rock_build_dir(),
-        help="The build directory of Rock",
+        default=find_miopen_build_dir(),
+        help="The build directory of MIOpen",
     )
     parsed_args, _ = parser.parse_known_args(args)
 
-    if parsed_args.rock or parsed_args.brock or parsed_args.brock_use_tuned_mlir or \
-       parsed_args.brock_use_untuned_mlir or parsed_args.tuning or len(sys.argv) == 1:
-        if not parsed_args.rock_build_dir:
-            raise RuntimeError("Rock build dir was not provided/found where the test requires it")
+    if parsed_args.miopen or parsed_args.bmiopen or parsed_args.bmiopen_use_tuned_mlir or \
+       parsed_args.bmiopen_use_untuned_mlir or parsed_args.tuning or len(sys.argv) == 1:
+        if not parsed_args.miopen_build_dir:
+            raise RuntimeError("MIOpen build dir was not provided/found where the test requires it")
 
     if parsed_args.b or len(sys.argv) == 1:
         if not parsed_args.mlir_build_dir:
             raise RuntimeError("MLIR build dir was not provided/found")
 
-    paths = create_paths(parsed_args.mlir_build_dir, parsed_args.rock_build_dir)
+    paths = create_paths(parsed_args.mlir_build_dir, parsed_args.miopen_build_dir)
     xdlops = is_xdlops_present()
     configs = getConfigurations(paths.configuration_file_path)
 
-    #If no arguments are passed, then benchmark with MLIR and Rock
+    #If no arguments are passed, then benchmark with MLIR and MIOpen
     if len(sys.argv) == 1:
-        # batch benchmark with MLIR and Rock.
+        # batch benchmark with MLIR and MIOpen.
         generatePerformanceResults(configs, xdlops, paths)
-    elif parsed_args.brock_use_tuned_mlir:
-        benchmarkRockWithMLIRKernels(configs, xdlops, reportUtils.ROCK_TUNED_REPORT_FILE, paths)
-    elif parsed_args.brock_use_untuned_mlir:
-        benchmarkRockWithMLIRKernels(configs, xdlops, reportUtils.ROCK_UNTUNED_REPORT_FILE, paths)
+    elif parsed_args.bmiopen_use_tuned_mlir:
+        benchmarkMIOpenWithMLIRKernels(configs, xdlops, reportUtils.MIOPEN_TUNED_REPORT_FILE, paths)
+    elif parsed_args.bmiopen_use_untuned_mlir:
+        benchmarkMIOpenWithMLIRKernels(configs, xdlops, reportUtils.MIOPEN_UNTUNED_REPORT_FILE, paths)
     elif parsed_args.tuning:
         tuneMLIRKernels(configs, xdlops, paths)
     else:
         if parsed_args.b:
             df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), xdlops, paths) for testVector in configs)
-        elif parsed_args.brock:
-            df = pd.DataFrame(benchmarkRock(testVector.split(sep=' '), xdlops, paths) for testVector in configs)
-        elif parsed_args.rock:
-            df = pd.DataFrame([benchmarkRock(sys.argv[2:], xdlops, paths)])
+        elif parsed_args.bmiopen:
+            df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), xdlops, paths) for testVector in configs)
+        elif parsed_args.miopen:
+            df = pd.DataFrame([benchmarkMIOpen(sys.argv[2:], xdlops, paths)])
         else:
             # Will only reach here with more than 1 unspecified arguments
             # These are arguments are directly passed through to benchmarkMLIR

@@ -12,7 +12,7 @@ add_mlir_dialect_library(MLIRRockTuning
   MLIRRockPassIncGen
 )
 
-if (MLIR_ROCK_SQLITE_ENABLED)
+if (ROCMLIR_SQLITE_ENABLED)
   # MLIR now depends on SQLite and existence of rock perfdb
   list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
   set (SQLITE3_FOUND 0)

@@ -10,8 +10,8 @@ import pandas as pd
 
 def loadMlirData(filename: str):
     df = pd.read_csv(filename, sep=',', header=0, index_col=False)
-    COLUMNS_DROPPED = ['Rock TFlops (no MLIR Kernels)', 'MLIR/Rock', 'Rock TFlops (Tuned MLIR Kernels)',
-                       'Rock TFlops (Untuned MLIR Kernels)', 'Tuned/Untuned', 'Tuned/Rock']
+    COLUMNS_DROPPED = ['MIOpen TFlops (no MLIR Kernels)', 'MLIR/MIOpen', 'MIOpen TFlops (Tuned MLIR Kernels)',
+                       'MIOpen TFlops (Untuned MLIR Kernels)', 'Tuned/Untuned', 'Tuned/MIOpen']
     df.drop(columns=COLUMNS_DROPPED, inplace=True, errors='ignore')
     return df
 
@@ -71,7 +71,7 @@ if __name__ == '__main__':
         newDf = loadMlirData(str(newDataPath))
         newLabel = getPerfDate(newDataPath, "new")
     except FileNotFoundError:
-        print("Could not load current performance data: run ./RockDriver.py or provide a path", file=sys.stderr)
+        print("Could not load current performance data: run ./MIOpenDriver.py or provide a path", file=sys.stderr)
         sys.exit(1)
     try:
         oldDf = loadMlirData(str(oldDataPath))

@@ -19,9 +19,9 @@ import sys
 from dataclasses import dataclass
 from typing import Callable, Iterable, List, Sequence, Optional, Tuple, TypeVar, Union
 
-import RockDriver
-from RockDriver import ConvConfiguration
-from RockDriver import Paths
+import MIOpenDriver
+from MIOpenDriver import ConvConfiguration
+from MIOpenDriver import Paths
 
 @dataclass(frozen=True)
 class Options:
@@ -382,19 +382,19 @@ def main() -> bool:
     parser.add_argument(
         "--mlir-build-dir",
         type=str,
-        default=RockDriver.find_mlir_build_dir(),
+        default=MIOpenDriver.find_mlir_build_dir(),
         help="The build directory of MLIR based kernel generator",
     )
     parser.add_argument(
-        "--rock-build-dir",
+        "--miopen-build-dir",
         type=str,
-        default=RockDriver.find_rock_build_dir(),
-        help="The build directory of Rock",
+        default=MIOpenDriver.find_miopen_build_dir(),
+        help="The build directory of MIOpen",
     )
     args = parser.parse_args()
     options = Options(debug=args.debug, quiet=args.quiet, xdlops=args.xdlops,
         concurrent_tests=args.jobs)
-    paths = RockDriver.create_paths(args.mlir_build_dir, args.rock_build_dir)
+    paths = MIOpenDriver.create_paths(args.mlir_build_dir, args.miopen_build_dir)
 
     config = args.config
     if config == 'perf_config':

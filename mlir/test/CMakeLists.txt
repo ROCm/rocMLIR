@@ -7,11 +7,11 @@ llvm_canonicalize_cmake_booleans(
   MLIR_ENABLE_ROCM_CONVERSIONS
   MLIR_ENABLE_ROCM_RUNNER
 
-  MLIR_ROCK_DRIVER_ENABLED
-  MLIR_ROCK_DRIVER_E2E_TEST_ENABLED
-  MLIR_ROCK_DRIVER_MISC_E2E_TEST_ENABLED
-  MLIR_ROCK_DRIVER_PR_E2E_TEST_ENABLED
-  MLIR_ROCK_SQLITE_ENABLED
+  ROCMLIR_DRIVER_ENABLED
+  ROCMLIR_DRIVER_E2E_TEST_ENABLED
+  ROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED
+  ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED
+  ROCMLIR_SQLITE_ENABLED
   )
 
 # Passed to lit.site.cfg.py.so that the out of tree Standalone dialect test
@@ -26,10 +26,10 @@ set(MLIR_RUNNER_UTILS_DIR ${LLVM_EXTERNAL_BIN_DIR})
 
 # Passed to lit.site.cfg.py.in to set up the path where to find the libraries
 # for the rocm runner tests.
-set(MLIR_CONV_VALIDATION_WRAPPER_LIBRARY_DIR ${MLIR_ROCK_LIB_DIR})
+set(MLIR_CONV_VALIDATION_WRAPPER_LIBRARY_DIR ${ROCMLIR_LIB_DIR})
 
 message(STATUS "LLVM_EXTERNAL_BIN_DIR: ${LLVM_EXTERNAL_BIN_DIR}")
-message(STATUS "MLIR_ROCK_BIN_DIR: ${MLIR_ROCK_BIN_DIR}")
+message(STATUS "ROCMLIR_BIN_DIR: ${ROCMLIR_BIN_DIR}")
 message(STATUS "MLIR_CONV_VALIDATION_WRAPPER_LIBRARY_DIR: ${MLIR_CONV_VALIDATION_WRAPPER_LIBRARY_DIR}")
 
 # Need to explicitly give paths to llvm tools
@@ -37,23 +37,23 @@ set(LLVM_LIT_TOOLS_DIR ${LLVM_EXTERNAL_BIN_DIR})
 set(LLVM_EXTERNAL_LIT "${LLVM_LIT_TOOLS_DIR}/llvm-lit")
 set(LLVM_TOOLS_DIR ${LLVM_EXTERNAL_BIN_DIR})
 set(MLIR_TOOLS_DIR ${LLVM_EXTERNAL_BIN_DIR})
-set(MLIR_ROCK_TOOLS_DIR ${MLIR_ROCK_BIN_DIR})
+set(ROCMLIR_TOOLS_DIR ${ROCMLIR_BIN_DIR})
 
 # Passed to lit.site.cfg.py.in to set the -x2 flag for the mlir E2E tests.
 set(MLIR_XDLOPS "")
-if(MLIR_ROCK_DRIVER_XDLOPS_TEST_ENABLED)
+if(ROCMLIR_DRIVER_XDLOPS_TEST_ENABLED)
   set(MLIR_XDLOPS "-x2")
 endif()
 
 # Passed to lit.site.cfg.py.in to set the -rand flag for the mlir E2E tests.
 set(MLIR_RANDOM_DATA "")
-if(NOT MLIR_ROCK_DRIVER_RANDOM_DATA_SEED STREQUAL "none")
-  set(MLIR_RANDOM_DATA "-rand ${MLIR_ROCK_DRIVER_RANDOM_DATA_SEED} ")
+if(NOT ROCMLIR_DRIVER_RANDOM_DATA_SEED STREQUAL "none")
+  set(MLIR_RANDOM_DATA "-rand ${ROCMLIR_DRIVER_RANDOM_DATA_SEED} ")
 endif()
 
 # Passed to lit.site.cfg.py.in to set the -pv or -pv_with_gpu flag for the mlir E2E tests.
 set(MLIR_POPULATE_VALIDATION "-pv")
-if(MLIR_ROCK_DRIVER_TEST_GPU_VALIDATION)
+if(ROCMLIR_DRIVER_TEST_GPU_VALIDATION)
   set(MLIR_POPULATE_VALIDATION "-pv_with_gpu")
 endif()
 
@@ -71,7 +71,7 @@ configure_lit_site_cfg(
   ${CMAKE_CURRENT_SOURCE_DIR}/Unit/lit.cfg.py
 )
 
-set(MLIR_ROCK_TEST_DEPENDS
+set(ROCMLIR_TEST_DEPENDS
   FileCheck count not
   rock-opt
   rock-translate
@@ -88,17 +88,17 @@ set(MLIR_ROCK_TEST_DEPENDS
   mlir_async_runtime
 )
 
-list(APPEND MLIR_ROCK_TEST_DEPENDS MLIRRockUnitTests)
+list(APPEND ROCMLIR_TEST_DEPENDS RocMLIRUnitTests)
 
 if(MLIR_ENABLE_ROCM_RUNNER)
-  list(APPEND MLIR_ROCK_TEST_DEPENDS
+  list(APPEND ROCMLIR_TEST_DEPENDS
     mlir-rocm-runner
     xmir-runner
   )
 endif()
 
 if(MLIR_BINDINGS_PYTHON_ENABLED)
-  list(APPEND MLIR_ROCK_TEST_DEPENDS
+  list(APPEND ROCMLIR_TEST_DEPENDS
     MLIRBindingsPythonExtension
     MLIRBindingsPythonTestOps
     MLIRTransformsBindingsPythonExtension
@@ -106,8 +106,8 @@ if(MLIR_BINDINGS_PYTHON_ENABLED)
 endif()
 
 # Rock dialect tools.
-if(MLIR_ROCK_DRIVER_ENABLED)
-  list(APPEND MLIR_ROCK_TEST_DEPENDS
+if(ROCMLIR_DRIVER_ENABLED)
+  list(APPEND ROCMLIR_TEST_DEPENDS
     mlir-rock-driver
     rock-gen
     mlir-rock-lib-test
@@ -119,25 +119,25 @@ endif()
 
 # Enable the ROCK E2E tests if -DROCK_E2E_TEST_ENABLED=1
 if(ROCK_E2E_TEST_ENABLED)
-  list(APPEND MLIR_ROCK_TEST_DEPENDS e2e_tests)
+  list(APPEND ROCMLIR_TEST_DEPENDS e2e_tests)
   add_subdirectory(e2e)
 endif()
 
 add_custom_target(check-mlir-rock-build-only
-  DEPENDS ${MLIR_ROCK_TEST_DEPENDS})
+  DEPENDS ${ROCMLIR_TEST_DEPENDS})
 
 # check-mlir-rock runs MLIR-Rock regression tests including E2E tests
-# when MLIR_ROCK_DRIVER_E2E_TEST_ENABLED is set
+# when ROCMLIR_DRIVER_E2E_TEST_ENABLED is set
 # It runs E2E tests in Resnet50 and Resnext101 when
 # ROCK_E2E_TEST_ENABLED is set
 add_lit_testsuite(check-mlir-rock "Running the MLIR-Rock regression tests"
   ${CMAKE_CURRENT_BINARY_DIR}
-  DEPENDS ${MLIR_ROCK_TEST_DEPENDS}
+  DEPENDS ${ROCMLIR_TEST_DEPENDS}
 )
 set_target_properties(check-mlir-rock PROPERTIES FOLDER "Tests")
 
 add_lit_testsuites(MLIR-ROCK ${CMAKE_CURRENT_SOURCE_DIR}
-  DEPENDS ${MLIR_ROCK_TEST_DEPENDS}
+  DEPENDS ${ROCMLIR_TEST_DEPENDS}
 )
 
 # Update the configs for E2E tests
