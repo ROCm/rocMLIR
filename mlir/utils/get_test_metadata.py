@@ -19,11 +19,11 @@ from typing import Dict, List, Union, Optional, Tuple, Iterable
 
 ROCK_ROOT = Path('../..')
 ROCK_BIN = ROCK_ROOT / 'build' / 'bin'
-ROCK_GEN = ROCK_BIN / 'rock-gen'
-ROCMLIR_DRIVER = ROCK_BIN / 'mlir-rock-driver'
-E2E_TEST_ROOT = ROCK_ROOT / 'mlir' / 'test' / 'mlir-rock-driver'
+ROCK_GEN = ROCK_BIN / 'rocmlir-gen'
+ROCMLIR_DRIVER = ROCK_BIN / 'rocmlir-driver'
+E2E_TEST_ROOT = ROCK_ROOT / 'mlir' / 'test' / 'rocmlir-driver'
 
-CONV_CONFIG_RE = re.compile(r'rock-gen\s*([^|]+)\s*\|')
+CONV_CONFIG_RE = re.compile(r'rocmlir-gen\s*([^|]+)\s*\|')
 UNNEEDED_PARAMS_RE = re.compile(r'%pv|%random_data|%xdlops|-x2|-pv|-pv_with_gpu|-ph')
 def clean_configs_from(data: str) -> List[str]:
     ret = []
@@ -63,7 +63,7 @@ def isolate_real_kernel(rock_gen_out: str) -> str:
     elif len(matches) > 1:
         return matches[1]
     else:
-        raise ValueError("No convolution kernels in rock-gen outputs")
+        raise ValueError("No convolution kernels in rocmlir-gen outputs")
 
 async def get_kernel(config: str, xdlops: bool) -> str:
     return isolate_real_kernel(await run_generator(config, xdlops))
@@ -283,7 +283,7 @@ async def main():
         print(f"Usage: {sys.argv[0]} out_file", file=sys.stderr)
         sys.exit(1)
     if not ROCMLIR_DRIVER.exists():
-        print(f"Cannot find mlir-rock-driver at {ROCMLIR_DRIVER}", file=sys.stderr)
+        print(f"Cannot find rocmlir-driver at {ROCMLIR_DRIVER}", file=sys.stderr)
         sys.exit(1)
     filename = sys.argv[1]
     with open(filename, 'wb') as f:

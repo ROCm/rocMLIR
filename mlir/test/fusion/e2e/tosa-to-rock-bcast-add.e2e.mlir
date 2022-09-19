@@ -1,4 +1,4 @@
-// RUN: mlir-rock-driver -host-pipeline highlevel %s | rock-gen -ph -print-inputs -print-results -rand none - | mlir-rock-driver -c  | mlir-rocm-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext -entry-point-result=void | FileCheck %s
+// RUN: rocmlir-driver -host-pipeline highlevel %s | rocmlir-gen -ph -print-inputs -print-results -rand none - | rocmlir-driver -c  | mlir-rocm-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext -entry-point-result=void | FileCheck %s
 
 // CHECK: Unranked Memref base
 // CHECK: 5,     5,     5,     5,     5,     5,     5,     5

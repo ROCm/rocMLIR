@@ -1,4 +1,4 @@
-// RUN: rock-opt --migraphx-transform --canonicalize --migraphx-to-tosa %s -verify-diagnostics -o -| FileCheck %s
+// RUN: rocmlir-opt --migraphx-transform --canonicalize --migraphx-to-tosa %s -verify-diagnostics -o -| FileCheck %s
 
 module  {
   // CHECK-LABEL: func.func @matmul

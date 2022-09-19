@@ -83,5 +83,5 @@ include(cmake/llvm-project.cmake)
 # Set up the build for the official MLIR 'standalone' example
 #add_subdirectory(mlir-standalone-example)
 
-# Set up the build for the MLIR Rock dialect
+# Set up the build for the rocMLIR dialects
 add_subdirectory(mlir)

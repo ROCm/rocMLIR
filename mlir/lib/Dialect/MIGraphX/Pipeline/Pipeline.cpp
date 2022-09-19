@@ -22,7 +22,7 @@
 
 #include "mlir/Dialect/MIGraphX/Pipeline.h"
 
-#include "mlir/Conversion/RockPasses.h"
+#include "mlir/Conversion/RocMLIRPasses.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"

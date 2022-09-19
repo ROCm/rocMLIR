@@ -24,7 +24,7 @@
 #include "mlir/Dialect/MIGraphX/Pipeline.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
-#include "mlir/InitRockDialects.h"
+#include "mlir/InitRocMLIRDialects.h"
 #include "llvm/Support/TargetSelect.h"
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"

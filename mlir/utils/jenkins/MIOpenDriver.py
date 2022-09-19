@@ -56,9 +56,9 @@ def find_mlir_build_dir() -> str:
     rock_gen_path = None
     candidate_paths = [
         # if the script is run from build dir
-        Path('./bin/rock-gen'),
+        Path('./bin/rocmlir-gen'),
         # if the script is run from source
-        Path(__file__).parent.parent.parent.parent / 'build' / 'bin' / 'rock-gen'
+        Path(__file__).parent.parent.parent.parent / 'build' / 'bin' / 'rocmlir-gen'
     ]
     for candidate_path in candidate_paths:
         if candidate_path.exists():
@@ -73,11 +73,11 @@ def find_mlir_build_dir() -> str:
             search_root = os.environ.get('WORKSPACE', str(Path.home()))
             assert search_root, "Cant find WORKSPACE env arg or home directory"
         
-        rock_gen_path = glob.glob(search_root + '/**/bin/rock-gen', recursive=True)
+        rock_gen_path = glob.glob(search_root + '/**/bin/rocmlir-gen', recursive=True)
         if len(rock_gen_path) == 0:
             # MLIR rock_gen not available
             return None
-        assert len(rock_gen_path) == 1, "Multiple paths found to contain */bin/rock-gen"
+        assert len(rock_gen_path) == 1, "Multiple paths found to contain */bin/rocmlir-gen"
         rock_gen_path = rock_gen_path[0]
 
     build_dir = Path(rock_gen_path).parent.parent
@@ -122,8 +122,8 @@ def create_paths(mlir_build_dir_path, miopen_build_dir_path) -> Paths:
         mlir_bin_dir = str((Path(mlir_build_dir_path) / 'bin').resolve())
         mlir_lib_dir = str((Path(mlir_build_dir_path) / 'lib').resolve())
         llvm_lib_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/lib').resolve())
-        mlir_paths = MLIRPaths(rock_gen_path = mlir_bin_dir + '/rock-gen',
-        mlir_rock_driver_path = mlir_bin_dir + '/mlir-rock-driver',
+        mlir_paths = MLIRPaths(rock_gen_path = mlir_bin_dir + '/rocmlir-gen',
+        mlir_rock_driver_path = mlir_bin_dir + '/rocmlir-driver',
         rocm_runner_path = mlir_bin_dir + '/mlir-rocm-runner',
         libmlir_rocm_runtime_path =  llvm_lib_dir + '/libmlir_rocm_runtime.so',
         libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',

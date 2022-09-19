@@ -1,6 +1,6 @@
 
-set(LLVM_TARGET_DEFINITIONS RockPasses.td)
-mlir_tablegen(RockPasses.h.inc -gen-pass-decls -name RockConversion)
-add_public_tablegen_target(MLIRRockConversionPassIncGen)
+set(LLVM_TARGET_DEFINITIONS RocMLIRPasses.td)
+mlir_tablegen(RocMLIRPasses.h.inc -gen-pass-decls -name RocMLIRConversion)
+add_public_tablegen_target(RocMLIRConversionPassIncGen)
 
-add_mlir_doc(RockPasses -gen-pass-doc RockConversionPasses ./)
+add_mlir_doc(RocMLIRPasses -gen-pass-doc RocMLIRConversionPasses ./)

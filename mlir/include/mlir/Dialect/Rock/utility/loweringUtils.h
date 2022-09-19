@@ -22,7 +22,7 @@ enum class ConvOpType : uint32_t;
 struct ConvolutionDims;
 
 // Heuristic logic to compute KBlock for backward weight atomic add kernel.
-// The logic is adopted from Rock.
+// The logic is adopted from MIOpen.
 //
 // The logic searches within the range of [1, 20 * number of CUs / gridSize],
 // where gridSize is the original number of workgroups required for the
@@ -32,7 +32,7 @@ struct ConvolutionDims;
 // splitting).
 // - n (batch size) is divisible by KBlock.
 //
-// 20 is a magic number obtained in Rock after empirical testing. It offers a
+// 20 is a magic number obtained in MIOpen after empirical testing. It offers a
 // reasonable reduction of GemmK after splitting, without incurring too much
 // overheads on atomic adds. One potential future work is to make this value be
 // tunable.

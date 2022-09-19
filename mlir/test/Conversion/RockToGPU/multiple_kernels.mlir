@@ -1,4 +1,4 @@
-// RUN: rock-opt -rock-affix-params -rock-conv-to-gemm -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -rock-sugar-to-loops -rock-clean-math -rock-loops-to-cf -convert-rock-to-gpu %s | rock-opt
+// RUN: rocmlir-opt -rock-affix-params -rock-conv-to-gemm -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -rock-sugar-to-loops -rock-clean-math -rock-loops-to-cf -convert-rock-to-gpu %s | rocmlir-opt
 
 // The last kernel be converted would appear as the first.
 

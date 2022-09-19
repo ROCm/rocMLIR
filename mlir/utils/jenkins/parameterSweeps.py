@@ -4,7 +4,7 @@
 Note: This requires Python 3.7 or newer, use pyenv or the like to install it temporarily
 
 Usage:
-$ ninja rock-gen mlir-rock-driver mlir-rocm-runner ci-performance-scripts
+$ ninja rocmlir-gen rocmlir-driver mlir-rocm-runner ci-performance-scripts
 $ stdbuf --output=L python3 ./bin/parameterSweeps.py [config] | stdbuf --output=L tee [output-file-of-choice]"""
 
 import argparse
@@ -147,7 +147,7 @@ async def testConfig(config: MLIROnlyConfig, options: Options, paths: Paths) -> 
 
     if generator.returncode != 0:
         if options.debug:
-            print(f"""rock-gen failed for config {config!r}
+            print(f"""rocmlir-gen failed for config {config!r}
 Command line = {rockGenOpts}
 Return code = {generator.returncode}
 Errors = {genErrs.decode('utf-8')}
@@ -156,7 +156,7 @@ Errors = {genErrs.decode('utf-8')}
 
     if applicability.returncode != 0:
         if options.debug:
-            print(f"""mlir-rock-driver applicability pipeline failed for config {config!r}
+            print(f"""rocmlir-driver applicability pipeline failed for config {config!r}
 Generator command line = {rockGenOpts}
 Return code = {applicability.returncode}
 Errors = {tuneErrs.decode('utf-8')}

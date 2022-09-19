@@ -1,4 +1,4 @@
-// RUN: rock-opt -rock-blockwise-gemm-to-threadwise %s | FileCheck %s
+// RUN: rocmlir-opt -rock-blockwise-gemm-to-threadwise %s | FileCheck %s
 
 func.func @rock_blockwise_gemm_v2_two_results(%matrix : memref<1024xf32, 3>,
                                                 %bufferA : memref<2xvector<2xf32>, 5>, %bufferB : memref<2xvector<2xf32>, 5>,

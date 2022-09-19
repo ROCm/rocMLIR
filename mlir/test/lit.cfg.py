@@ -79,8 +79,8 @@ tool_dirs = [config.mlir_rock_tools_dir, config.mlir_tools_dir, config.llvm_tool
 tools = [
     'mlir-opt',
     'mlir-translate',
-    'rock-opt',
-    'rock-translate'
+    'rocmlir-opt',
+    'rocmlir-translate'
 ]
 
 # The following tools are optional

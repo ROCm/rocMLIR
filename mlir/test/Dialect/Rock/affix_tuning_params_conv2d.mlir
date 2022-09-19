@@ -3,7 +3,7 @@
 // If versions of these tests appear in lowering_top_level, then changes to the tuning
 // parameters made here should be reflected in that file
 
-// RUN: rock-opt -rock-affix-params %s | FileCheck %s
+// RUN: rocmlir-opt -rock-affix-params %s | FileCheck %s
 
 // CHECK-DAG: #[[$GENERAL_PARAMS_0:.*]] = #rock.general_gemm_params<kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1, mThreadsPerCuwave = 4, nThreadsPerCuwave = 4, mCuwavesPerBlock = 4, nCuwavesPerBlock = 4>
 // CHECK-DAG: #[[$GENERAL_PARAMS_1:.*]] = #rock.general_gemm_params<kPerBlock = 16, mPerBlock = 64, nPerBlock = 64, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1, mThreadsPerCuwave = 4, nThreadsPerCuwave = 4, mCuwavesPerBlock = 2, nCuwavesPerBlock = 2>

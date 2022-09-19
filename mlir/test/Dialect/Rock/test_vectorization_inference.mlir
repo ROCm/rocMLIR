@@ -1,4 +1,4 @@
-// RUN: rock-opt -rock-vectorization-inference-test \
+// RUN: rocmlir-opt -rock-vectorization-inference-test \
 // RUN: -allow-unregistered-dialect %s \
 // RUN: | FileCheck %s
 

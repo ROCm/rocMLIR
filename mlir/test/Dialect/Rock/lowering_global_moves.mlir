@@ -1,4 +1,4 @@
-// RUN: rock-opt -rock-blockwise-gemm-to-threadwise %s | FileCheck %s
+// RUN: rocmlir-opt -rock-blockwise-gemm-to-threadwise %s | FileCheck %s
 
 // CHECK-LABEL: func.func @rock_threadwise_copy_v2
 func.func @rock_threadwise_copy_v2(%source : memref<32xf32, 5>,

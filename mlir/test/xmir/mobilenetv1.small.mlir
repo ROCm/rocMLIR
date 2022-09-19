@@ -1,4 +1,4 @@
-// RUN: mlir-rock-driver -host-pipeline partition %s | rock-opt --rock-async-launch - | FileCheck %s
+// RUN: rocmlir-driver -host-pipeline partition %s | rocmlir-opt --rock-async-launch - | FileCheck %s
 
 
 module {

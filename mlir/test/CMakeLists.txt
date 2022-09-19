@@ -73,9 +73,9 @@ configure_lit_site_cfg(
 
 set(ROCMLIR_TEST_DEPENDS
   FileCheck count not
-  rock-opt
-  rock-translate
-  rock-lsp-server
+  rocmlir-opt
+  rocmlir-translate
+  rocmlir-lsp-server
   mlir-mixr-capi-test
   mlir-mixr-full-test
   mlir-mixr-fullc-test
@@ -108,9 +108,9 @@ endif()
 # Rock dialect tools.
 if(ROCMLIR_DRIVER_ENABLED)
   list(APPEND ROCMLIR_TEST_DEPENDS
-    mlir-rock-driver
-    rock-gen
-    mlir-rock-lib-test
+    rocmlir-driver
+    rocmlir-gen
+    rocmlir-lib-test
     mlir-translate
     opt
     llc

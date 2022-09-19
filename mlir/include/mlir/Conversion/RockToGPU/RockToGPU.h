@@ -1,4 +1,4 @@
-//===- Passes.h - Linalg pass entry points ----------------------*- C++ -*-===//
+//===- RockToGPU.h - Conversion from Rock to GPU ----------------*- C++ -*-===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -10,8 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_DIALECT_ROCK_CONVERT_ROCK_TO_GPU_H_
-#define MLIR_DIALECT_ROCK_CONVERT_ROCK_TO_GPU_H_
+#ifndef MLIR_CONVERSION_ROCKTOGPU_ROCKTOGPU_H_
+#define MLIR_CONVERSION_ROCKTOGPU_ROCKTOGPU_H_
 
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -29,4 +29,4 @@ std::unique_ptr<OperationPass<ModuleOp>> createLowerRockOpsToGPUPass();
 
 } // namespace mlir
 
-#endif // MLIR_DIALECT_ROCK_CONVERT_ROCK_TO_GPU_H_
+#endif // MLIR_CONVERSION_ROCKTOGPU_ROCKTOGPU_H_

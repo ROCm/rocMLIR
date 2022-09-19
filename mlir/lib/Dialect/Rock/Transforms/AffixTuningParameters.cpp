@@ -34,9 +34,9 @@ private:
   // * Through the MLIR lowering pass:
   //   At this case, blockSizeOverride will be initialized to zero. Then
   //   the affix tuning parameters pass will decide on a block size.
-  //   Finally, block size will be hinted back to mlir-rock-driver.
+  //   Finally, block size will be hinted back to rocmlir-driver.
   // * Through cmd option "block_size":
-  //   At this case, mlir-rock-driver assigns a blockSizeOverride. As
+  //   At this case, rocmlir-driver assigns a blockSizeOverride. As
   //   a result, affix tuning parameters pass should make its decisions
   //   to generate tuning parameters based on this blockSizeOverride.
   //   This guarantess that affix tuning parameters pass generate

@@ -1,4 +1,4 @@
-// RUN: rock-opt -rock-sugar-to-loops %s | FileCheck %s
+// RUN: rocmlir-opt -rock-sugar-to-loops %s | FileCheck %s
 
 #transform_map0 = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)>
     by [#rock.transform<PassThrough ["x", "y"] at [0, 1] -> ["x", "y"] at [1, 0]>]

@@ -1,4 +1,4 @@
-// RUN: rock-opt -migraphx-to-tosa %s | mlir-rock-driver -host-pipeline highlevel | rock-gen -ph -print-results -rand none -fut test - | rock-opt -convert-linalg-to-loops -lower-affine -convert-scf-to-cf  | mlir-rocm-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: rocmlir-opt -migraphx-to-tosa %s | rocmlir-driver -host-pipeline highlevel | rocmlir-gen -ph -print-results -rand none -fut test - | rocmlir-opt -convert-linalg-to-loops -lower-affine -convert-scf-to-cf  | mlir-rocm-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
 
 module {
 // CHECK: Unranked Memref base@ = 0x{{.*}} rank = 1 offset = 0 sizes = [4] strides = [1] data =

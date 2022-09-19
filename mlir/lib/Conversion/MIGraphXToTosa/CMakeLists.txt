@@ -12,7 +12,7 @@ add_mlir_conversion_library(MLIRMIGraphXToTosa
 
   DEPENDS
   MLIRConversionPassIncGen
-  MLIRRockConversionPassIncGen
+  RocMLIRConversionPassIncGen
   MLIRMIGraphXToTosaConversionIncGen
 
   LINK_LIBS PUBLIC

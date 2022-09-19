@@ -5,7 +5,7 @@
 // * Have one gridwise_gemm
 // * Can support F32 and F16
 
-// RUN: rock-opt -rock-conv-to-gemm %s | FileCheck %s
+// RUN: rocmlir-opt -rock-conv-to-gemm %s | FileCheck %s
 
 // CHECK-DAG: #[[$MAP_FILTER_FWD:transform_map[0-9]+]] = #rock.transform_map<{{.*}} bounds = [1, 72, 128] -> [1, 128, 8, 3, 3]>
 // CHECK-DAG: #[[$MAP_INPUT1_FWD:transform_map[0-9]+]] = #rock.transform_map<{{.*}} bounds = [128, 1, 8, 32, 32] -> [128, 1, 8, 32, 32]>

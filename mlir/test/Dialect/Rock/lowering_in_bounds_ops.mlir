@@ -1,4 +1,4 @@
-// RUN: rock-opt -rock-sugar-to-loops %s | FileCheck %s
+// RUN: rocmlir-opt -rock-sugar-to-loops %s | FileCheck %s
 
 module {
 // CHECK-LABEL: func.func @in_bounds_load_scalar

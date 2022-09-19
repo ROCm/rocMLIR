@@ -1,4 +1,4 @@
-// RUN: rock-opt -rock-threadwise-gemm-lowering %s | FileCheck %s
+// RUN: rocmlir-opt -rock-threadwise-gemm-lowering %s | FileCheck %s
 #transform_map0 = #rock.transform_map<affine_map<(d0, d1) -> (d0 * 8 + d1)> by [<Embed{8, 1} ["m", "k"] at [0, 1] -> ["raw"] at [0]>] bounds = [1, 8] -> [8]>
 #transform_map1 = #rock.transform_map<affine_map<(d0, d1) -> (d0 * 8 + d1)> by [<Embed{8, 1} ["n", "k"] at [0, 1] -> ["raw"] at [0]>] bounds = [1, 8] -> [8]>
 #transform_map2 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0 * 2 + d1 * 2 + d2)> by [<Embed{2, 2, 1} ["m", "n", "v"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [1, 1, 2] -> [2]>

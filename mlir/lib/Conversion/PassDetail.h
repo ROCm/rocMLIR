@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef ROCK_CONVERSION_PASSDETAIL_H_
-#define ROCK_CONVERSION_PASSDETAIL_H_
+#ifndef ROCMLIR_CONVERSION_PASSDETAIL_H_
+#define ROCMLIR_CONVERSION_PASSDETAIL_H_
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -57,8 +57,8 @@ class VectorDialect;
 } // end namespace vector
 
 #define GEN_PASS_CLASSES
-#include "mlir/Conversion/RockPasses.h.inc"
+#include "mlir/Conversion/RocMLIRPasses.h.inc"
 
 } // end namespace mlir
 
-#endif // ROCK_CONVERSION_PASSDETAIL_H_
+#endif // ROCMLIR_CONVERSION_PASSDETAIL_H_

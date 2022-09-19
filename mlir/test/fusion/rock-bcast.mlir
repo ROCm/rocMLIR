@@ -1,4 +1,4 @@
-// RUN: rock-opt --rock-fold-transpose -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-linalg-align %s | FileCheck %s
+// RUN: rocmlir-opt --rock-fold-transpose -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-linalg-align %s | FileCheck %s
 
 // CHECK:  <Broadcast{1, 1, 1, 1} ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3] -> ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3]>] bounds = [1, 1, 30, 30, 16] -> [1, 1, 1, 1, 16]>
 

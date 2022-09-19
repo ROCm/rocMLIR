@@ -1,5 +1,5 @@
 // XFAIL: *
-// RUN: mlir-rock-lib-test --option=bin --args "--operation conv2d \
+// RUN: rocmlir-lib-test --option=bin --args "--operation conv2d \
 // RUN: --arch amdgcn-amd-amdhsa:gfx908 --num_cu 64 --in_type fp32 \
 // RUN: --fil_type fp32 --out_type fp32  --in_layout NGCHW --fil_layout GNCHW \
 // RUN: --out_layout NGCHW --batchsize 128 --in_channels 256 --in_h 256 \

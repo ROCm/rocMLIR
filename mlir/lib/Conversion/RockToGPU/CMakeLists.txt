@@ -6,7 +6,7 @@ add_mlir_conversion_library(MLIRRockToGPU
 
   DEPENDS
   MLIRConversionPassIncGen
-  MLIRRockConversionPassIncGen
+  RocMLIRConversionPassIncGen
   MLIRRockPassIncGen
 )
 target_link_libraries(MLIRRockToGPU

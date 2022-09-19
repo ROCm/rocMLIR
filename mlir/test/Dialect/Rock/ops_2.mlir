@@ -1,6 +1,6 @@
-// RUN: rock-opt %s | FileCheck %s
-// RUN: rock-opt %s | rock-opt | FileCheck %s
-// Run: rock-opt -mlir-print-op-generic %s | rock-opt | FileCheck %s
+// RUN: rocmlir-opt %s | FileCheck %s
+// RUN: rocmlir-opt %s | rocmlir-opt | FileCheck %s
+// Run: rocmlir-opt -mlir-print-op-generic %s | rocmlir-opt | FileCheck %s
 
 func.func @rock_alloc() {
   // allocation on global.

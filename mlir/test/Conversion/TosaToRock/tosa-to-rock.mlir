@@ -1,4 +1,4 @@
-// RUN: rock-opt --tosa-to-rock %s -verify-diagnostics -o -| FileCheck %s
+// RUN: rocmlir-opt --tosa-to-rock %s -verify-diagnostics -o -| FileCheck %s
 
 // CHECK-LABEL: test_fusion
 // CHECK: rock.conv2d(%{{.*}}, %{{.*}}, %{{.*}}) features = {{none|xdlops}} {arch = {{.*}}, dilations = [1 : i32, 1 : i32], filter_layout = ["k", "y", "x", "c", "g"], input_layout = ["ni", "hi", "wi", "ci", "gi"], numCu = {{.*}} : i32, output_layout = ["no", "ho", "wo", "ko", "go"], padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32], strides = [1 : i32, 1 : i32]} : memref<128x8x3x3x1xf32>, memref<128x8x32x32x1xf32>, memref<128x128x30x30x1xf32>

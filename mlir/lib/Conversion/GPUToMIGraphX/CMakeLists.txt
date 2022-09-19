@@ -7,7 +7,7 @@ add_mlir_conversion_library(MLIRGPUToMIGraphX
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/IR
 
   DEPENDS
-  MLIRRockConversionPassIncGen
+  RocMLIRConversionPassIncGen
   MLIRMIGraphXTypeIncGen
 )
 

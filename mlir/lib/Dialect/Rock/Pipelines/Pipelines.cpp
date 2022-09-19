@@ -23,7 +23,7 @@
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Pipelines/XMIRPipelines.h"
 
-#include "mlir/Conversion/RockPasses.h"
+#include "mlir/Conversion/RocMLIRPasses.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/InitAllDialects.h"
@@ -42,13 +42,13 @@ void rock::buildPartitionPipeline(OpPassManager &pm,
                                     const rock::PartitionOptions &options) {
   // TOSA partitioning pass
   // make 'kernel' funcs with tosa dataflow
-  /* rock-opt --tosa-partition
+  /* rocmlir-opt --tosa-partition
    */
   pm.addPass(tosa::createTosaPartitionPass());
 
   if (options.cloneToRockModule) {
     // clone 'kernel' funcs into __rock module
-    /* rock-opt --rock-clone-kernels
+    /* rocmlir-opt --rock-clone-kernels
      */
     pm.addPass(rock::createRockCloneKernelsPass(options.targetChips));
   }
@@ -61,7 +61,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   // TOSA conversion to rock and/or linalg with async.launch's
   if (!noRock) {
     // convert tosa.conv2d/matmul to rock.conv2d
-    /* rock-opt --tosa-to-rock
+    /* rocmlir-opt --tosa-to-rock
      */
     pm.addNestedPass<func::FuncOp>(tosa::createTosaToRockPass());
   }
@@ -70,23 +70,23 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   mlir::tosa::addTosaToLinalgPasses(pm);
 
   // linalg tensor opts
-  /* rock-opt --linalg-fuse-elementwise-ops
+  /* rocmlir-opt --linalg-fuse-elementwise-ops
    */
   pm.addNestedPass<func::FuncOp>(createLinalgElementwiseOpFusionPass());
 
   // make async kernel launch's
-  /* rock-opt --rock-async-launch
+  /* rocmlir-opt --rock-async-launch
    */
   pm.addNestedPass<func::FuncOp>(createRockAsyncLaunchPass());
 
   // for tosa control flow
-  /* rock-opt --tosa-to-scf --tosa-to-arith
+  /* rocmlir-opt --tosa-to-scf --tosa-to-arith
    */
   pm.addNestedPass<func::FuncOp>(tosa::createTosaToSCF());
   pm.addNestedPass<func::FuncOp>(tosa::createTosaToArith());
 
   // bufferization
-  /* rock-opt --canonicalize --cse -convert-tensor-to-linalg
+  /* rocmlir-opt --canonicalize --cse -convert-tensor-to-linalg
         --one-shot-bufferize="allow-return-allocs=1
      create-deallocs=0 bufferize-function-boundaries=1
      unknown-type-conversion=identity-layout-map
@@ -117,7 +117,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   pm.addPass(bufferization::createBufferResultsToOutParamsPass());
 
   // copy opt (cleanup from high-level transforms)
-  /* rock-opt --rock-copy-opt
+  /* rocmlir-opt --rock-copy-opt
    */
   pm.addNestedPass<func::FuncOp>(rock::createRockCopyOptPass());
 }
@@ -126,12 +126,12 @@ void rock::buildKernelPipeline(OpPassManager &pm,
                                  const rock::KernelOptions &options) {
   // Pre kernel lowering fixups for patterns that aren't amenable to lawer
   // fusion
-  /* rock-opt --rock-fold-transpose */
+  /* rocmlir-opt --rock-fold-transpose */
   if (options.enableFusion) {
     pm.addNestedPass<func::FuncOp>(rock::createRockFoldTransposePass());
   }
   // rock lowering (tuning, global to block)
-  /* rock-opt --rock-affix-params  --rock-conv-to-gemm
+  /* rocmlir-opt --rock-affix-params  --rock-conv-to-gemm
    * --rock-gemm-to-gridwise --rock-gridwise-gemm-to-blockwise
    */
   pm.addPass(
@@ -143,7 +143,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   if (!options.enableApplicability) {
     if (options.enableFusion) {
       // align linalg tiling
-      /* rock-opt --rock-linalg-align
+      /* rocmlir-opt --rock-linalg-align
        * --convert-linalg-to-affine-loops
        */
       pm.addPass(rock::createRockLinalgAlignPass());
@@ -151,7 +151,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     }
 
     // rock lowering (block to thread)
-    /* rock-opt --rock-lowering-blockwise-gemm-to-threadwise
+    /* rocmlir-opt --rock-lowering-blockwise-gemm-to-threadwise
          --rock-threadwise-gemm-lowering
          --rock-sugar-to-loops --rock-clean-math --rock-loops-to-cf
          --convert-rock-to-gpu
@@ -164,7 +164,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     pm.addPass(createLowerRockOpsToGPUPass());
 
     // lowering linalg to cf
-    /* rock-opt --convert-linalg-to-affine-loops --lower-affine
+    /* rocmlir-opt --convert-linalg-to-affine-loops --lower-affine
      * --convert-scf-to-cf
      */
     pm.addPass(createConvertLinalgToAffineLoopsPass());
@@ -176,7 +176,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
 void rock::buildBackendPipeline(OpPassManager &pm,
                                   const rock::BackendOptions &options) {
   // lowering ROCDL (LLVM) to binary
-  /* rock-opt --strip-debuginfo
+  /* rocmlir-opt --strip-debuginfo
    *   "--convert-gpu-to-rocdl=chipset=$chip index-bitwidth=32"
    *   "--gpu-to-hsaco=triple=$triple chip=$chip features=$features opt-level=3"
    */

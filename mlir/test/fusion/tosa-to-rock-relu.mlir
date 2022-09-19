@@ -1,4 +1,4 @@
-// RUN: mlir-rock-driver -host-pipeline highlevel -kernel-pipeline=gpu,rocdl -target gfx1030 %s | FileCheck %s
+// RUN: rocmlir-driver -host-pipeline highlevel -kernel-pipeline=gpu,rocdl -target gfx1030 %s | FileCheck %s
 
 module {
 // CHECK: llvm.func @test_fusion

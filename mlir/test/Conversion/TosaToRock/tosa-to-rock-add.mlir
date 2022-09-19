@@ -1,4 +1,4 @@
-// RUN: rock-opt --tosa-to-rock %s -verify-diagnostics -o -| FileCheck %s
+// RUN: rocmlir-opt --tosa-to-rock %s -verify-diagnostics -o -| FileCheck %s
 
 // CHECK-LABEL: test_fusion
 func.func @test_fusion(%arg0: tensor<128x32x32x8xf32>, %arg1: tensor<128x3x3x8xf32>, %arg3: tensor<128x30x30x128xf32>) -> tensor<128x30x30x128xf32> attributes {kernel, arch = "gfx908"} {
