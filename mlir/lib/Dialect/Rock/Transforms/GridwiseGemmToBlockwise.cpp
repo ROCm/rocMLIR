@@ -262,6 +262,22 @@ static TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc,
   return loop;
 }
 
+/// Temporary function to remove the kPack transformation currently being
+/// introduced in conv-to-gemm. kPack is a LDS-specific transformation and
+/// should not have been applied to the gridwise gemm argument. Future work will
+/// make the conversion stop doing that, and we'll be able to get rid of this.
+static Value unKpack(OpBuilder &b, Value matrix) {
+  ArrayRef<int64_t> shape = matrix.getType().cast<MemRefType>().getShape();
+  if (shape.size() != 4)
+    return matrix;
+  BottomUpTMBuilder unkpack(b, {"g", "k", "d", "kpack"}, shape,
+                            matrix.getLoc());
+  unkpack.passThrough({"g", "m"});
+  unkpack.merge("k", 1, {"k", "kpack"});
+  TransformMapAttr unkpackAttr = unkpack.get();
+  return b.create<TransformOp>(matrix.getLoc(), matrix, unkpackAttr);
+}
+
 /// Given a G x K x D matrix and the block tuning parameters and how much data
 /// each thread will load,
 /// return the dimension in which the load of this matrix from global memory
@@ -618,8 +634,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // TODO: adjust for data type and device
     if (block_space * sizeof(float) > 64 * 1024)
       return failure();
-    else
-      return success();
+
+    return success();
   }
 
   LogicalResult matchAndRewrite(GridwiseGemmOp op,
@@ -1079,8 +1095,8 @@ struct GridwiseGemmV2RewritePattern
     // TODO: adjust for data type and device
     if (total_block_space * sizeof(float) > 64 * 1024)
       return failure();
-    else
-      return success();
+
+    return success();
   }
 
   LogicalResult matchAndRewrite(GridwiseGemmV2Op op,
@@ -1093,10 +1109,13 @@ struct GridwiseGemmV2RewritePattern
     // Prepare some useful constants.
     Value zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
+    Value matA = unKpack(b, op.a());
+    Value matB = unKpack(b, op.b());
+
     // Obtain critical matrix dimensions.
     ArrayRef<int64_t> aShape, bShape, cShape;
-    aShape = op.a().getType().template cast<MemRefType>().getShape();
-    bShape = op.b().getType().template cast<MemRefType>().getShape();
+    aShape = matA.getType().template cast<MemRefType>().getShape();
+    bShape = matB.getType().template cast<MemRefType>().getShape();
     cShape = op.c().getType().template cast<MemRefType>().getShape();
     // Obtain critical matrix dimensions.
     int64_t G = aShape[0];
@@ -1141,9 +1160,9 @@ struct GridwiseGemmV2RewritePattern
     GemmDimension vectorTiebreaker =
         (KPack > 1) ? GemmDimension::K : GemmDimension::MorN;
     std::tie(matrix_a_source_vector_read_dim, matrix_a_source_data_per_read) =
-        bestVectorization(b, op.a(), aCopyPerThread, vectorTiebreaker);
+        bestVectorization(b, matA, aCopyPerThread, vectorTiebreaker);
     std::tie(matrix_b_source_vector_read_dim, matrix_b_source_data_per_read) =
-        bestVectorization(b, op.b(), bCopyPerThread, vectorTiebreaker);
+        bestVectorization(b, matB, bCopyPerThread, vectorTiebreaker);
 
     // Obtain XDLOPS-related attributes.
     int64_t MPerWave = tuningParams.getMPerWave();
@@ -1643,12 +1662,7 @@ struct GridwiseGemmV2RewritePattern
     }
 
     auto dimToIndex = [](GemmDimension dim) {
-      if (dim == GemmDimension::G)
-        return 0;
-      else if (dim == GemmDimension::K)
-        return 1;
-      else
-        return 2;
+      return static_cast<uint32_t>(dim);
     };
 
     GemmDimension dimA = matrix_a_source_vector_read_dim;
