@@ -1,4 +1,4 @@
-add_mlir_rock_unittest(MLIRRockTransformMapBuilderTests
+add_rocmlir_unittest(MLIRRockTransformMapBuilderTests
   TransformMapBuilderTests.cpp
 )
 
