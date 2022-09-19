@@ -76,6 +76,7 @@ TEST(YAMLGeneratorTest, emitRecordYAML) {
   RecordInfo I;
   I.Name = "r";
   I.Path = "path/to/A";
+  I.IsTypeDef = true;
   I.Namespace.emplace_back(EmptySID, "A", InfoType::IT_namespace);
 
   I.DefLoc = Location(10, llvm::SmallString<16>{"test.cpp"});
@@ -83,6 +84,19 @@ TEST(YAMLGeneratorTest, emitRecordYAML) {
 
   I.Members.emplace_back("int", "path/to/int", "X",
                          AccessSpecifier::AS_private);
+
+  // Member documentation.
+  CommentInfo TopComment;
+  TopComment.Kind = "FullComment";
+  TopComment.Children.emplace_back(std::make_unique<CommentInfo>());
+  CommentInfo *Brief = TopComment.Children.back().get();
+  Brief->Kind = "ParagraphComment";
+  Brief->Children.emplace_back(std::make_unique<CommentInfo>());
+  Brief->Children.back()->Kind = "TextComment";
+  Brief->Children.back()->Name = "ParagraphComment";
+  Brief->Children.back()->Text = "Value of the thing.";
+  I.Members.back().Description.push_back(std::move(TopComment));
+
   I.TagType = TagTypeKind::TTK_Class;
   I.Bases.emplace_back(EmptySID, "F", "path/to/F", true,
                        AccessSpecifier::AS_public, true);
@@ -123,16 +137,26 @@ Location:
   - LineNumber:      12
     Filename:        'test.cpp'
 TagType:         Class
+IsTypeDef:       true
 Members:
   - Type:
       Name:            'int'
       Path:            'path/to/int'
     Name:            'X'
     Access:          Private
+    Description:
+      - Kind:            'FullComment'
+        Children:
+          - Kind:            'ParagraphComment'
+            Children:
+              - Kind:            'TextComment'
+                Text:            'Value of the thing.'
+                Name:            'ParagraphComment'
 Bases:
   - USR:             '0000000000000000000000000000000000000000'
     Name:            'F'
     Path:            'path/to/F'
+    TagType:         Struct
     Members:
       - Type:
           Name:            'int'
@@ -185,6 +209,8 @@ TEST(YAMLGeneratorTest, emitFunctionYAML) {
   I.ReturnType =
       TypeInfo(EmptySID, "void", InfoType::IT_default, "path/to/void");
   I.Params.emplace_back("int", "path/to/int", "P");
+  I.Params.emplace_back("double", "path/to/double", "D");
+  I.Params.back().DefaultValue = "2.0 * M_PI";
   I.IsMethod = true;
   I.Parent = Reference(EmptySID, "Parent", InfoType::IT_record);
 
@@ -216,6 +242,11 @@ Params:
       Name:            'int'
       Path:            'path/to/int'
     Name:            'P'
+  - Type:
+      Name:            'double'
+      Path:            'path/to/double'
+    Name:            'D'
+    DefaultValue:    '2.0 * M_PI'
 ReturnType:
   Type:
     Name:            'void'

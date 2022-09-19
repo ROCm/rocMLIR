@@ -241,14 +241,6 @@ def S_SUB_U64_PSEUDO : SPseudoInstSI <
   [(set SReg_64:$sdst, (UniformBinFrag<sub> i64:$src0, i64:$src1))]
 >;
 
-def S_ADD_U64_CO_PSEUDO : SPseudoInstSI <
-  (outs SReg_64:$vdst, VOPDstS64orS32:$sdst), (ins SSrc_b64:$src0, SSrc_b64:$src1)
->;
-
-def S_SUB_U64_CO_PSEUDO : SPseudoInstSI <
-  (outs SReg_64:$vdst, VOPDstS64orS32:$sdst), (ins SSrc_b64:$src0, SSrc_b64:$src1)
->;
-
 def S_ADD_CO_PSEUDO : SPseudoInstSI <
   (outs SReg_32:$sdst, SSrc_i1:$scc_out), (ins SSrc_b32:$src0, SSrc_b32:$src1, SSrc_i1:$scc_in)
 >;
@@ -318,6 +310,34 @@ def WAVE_BARRIER : SPseudoInstSI<(outs), (ins),
 
 def SCHED_BARRIER : SPseudoInstSI<(outs), (ins i32imm:$mask),
   [(int_amdgcn_sched_barrier (i32 timm:$mask))]> {
+  let SchedRW = [];
+  let hasNoSchedulingInfo = 1;
+  let hasSideEffects = 1;
+  let mayLoad = 0;
+  let mayStore = 0;
+  let isConvergent = 1;
+  let FixedSize = 1;
+  let Size = 0;
+  let isMeta = 1;
+}
+
+def SCHED_GROUP_BARRIER : SPseudoInstSI<
+  (outs),
+  (ins i32imm:$mask, i32imm:$size, i32imm:$syncid),
+  [(int_amdgcn_sched_group_barrier (i32 timm:$mask), (i32 timm:$size), (i32 timm:$syncid))]> {
+  let SchedRW = [];
+  let hasNoSchedulingInfo = 1;
+  let hasSideEffects = 1;
+  let mayLoad = 0;
+  let mayStore = 0;
+  let isConvergent = 1;
+  let FixedSize = 1;
+  let Size = 0;
+  let isMeta = 1;
+}
+
+def IGLP_OPT : SPseudoInstSI<(outs), (ins i32imm:$mask),
+  [(int_amdgcn_iglp_opt (i32 timm:$mask))]> {
   let SchedRW = [];
   let hasNoSchedulingInfo = 1;
   let hasSideEffects = 1;
@@ -964,20 +984,18 @@ def : GCNPat <
 
 // NoMods pattern used for mac. If there are any source modifiers then it's
 // better to select mad instead of mac.
-class FMADPat <ValueType vt, Instruction inst, SDPatternOperator node>
-  : GCNPat <(vt (node (vt (VOP3NoMods vt:$src0)),
-                      (vt (VOP3NoMods vt:$src1)),
-                      (vt (VOP3NoMods vt:$src2)))),
+class FMADPat <ValueType vt, Instruction inst>
+  : GCNPat <(vt (any_fmad (vt (VOP3NoMods vt:$src0)),
+                          (vt (VOP3NoMods vt:$src1)),
+                          (vt (VOP3NoMods vt:$src2)))),
     (inst SRCMODS.NONE, $src0, SRCMODS.NONE, $src1,
           SRCMODS.NONE, $src2, DSTCLAMP.NONE, DSTOMOD.NONE)
 >;
 
 // Prefer mac form when there are no modifiers.
 let AddedComplexity = 9 in {
-let OtherPredicates = [HasMadMacF32Insts] in {
-def : FMADPat <f32, V_MAC_F32_e64, fmad>;
-def : FMADPat <f32, V_MAC_F32_e64, AMDGPUfmad_ftz>;
-} // OtherPredicates = [HasMadMacF32Insts]
+let OtherPredicates = [HasMadMacF32Insts] in
+def : FMADPat <f32, V_MAC_F32_e64>;
 
 // Don't allow source modifiers. If there are any source modifiers then it's
 // better to select mad instead of mac.
@@ -1002,23 +1020,9 @@ def : GCNPat <
                              SRCMODS.NONE, $src2, DSTCLAMP.NONE, DSTOMOD.NONE)
 >;
 
-let SubtargetPredicate = Has16BitInsts in {
-def : FMADPat <f16, V_MAC_F16_e64, fmad>;
-def : FMADPat <f16, V_MAC_F16_e64, AMDGPUfmad_ftz>;
-} // SubtargetPredicate = Has16BitInsts
+let SubtargetPredicate = Has16BitInsts in
+def : FMADPat <f16, V_MAC_F16_e64>;
 } // AddedComplexity = 9
-
-class FMADModsPat<ValueType Ty, Instruction inst, SDPatternOperator mad_opr>
-  : GCNPat<
-  (Ty (mad_opr (Ty (VOP3Mods Ty:$src0, i32:$src0_mod)),
-               (Ty (VOP3Mods Ty:$src1, i32:$src1_mod)),
-               (Ty (VOP3Mods Ty:$src2, i32:$src2_mod)))),
-  (inst $src0_mod, $src0, $src1_mod, $src1,
-  $src2_mod, $src2, DSTCLAMP.NONE, DSTOMOD.NONE)
->;
-
-let OtherPredicates = [HasMadMacF32Insts] in
-def : FMADModsPat<f32, V_MAD_F32_e64, AMDGPUfmad_ftz>;
 
 let OtherPredicates = [HasMadMacF32Insts, NoFP32Denormals] in
 def : GCNPat <
@@ -1028,9 +1032,6 @@ def : GCNPat <
       (V_MAD_LEGACY_F32_e64 $src0_mod, $src0, $src1_mod, $src1,
                         $src2_mod, $src2, DSTCLAMP.NONE, DSTOMOD.NONE)
 >;
-
-let SubtargetPredicate = Has16BitInsts in
-def : FMADModsPat<f16, V_MAD_F16_e64, AMDGPUfmad_ftz>;
 
 class VOPSelectModsPat <ValueType vt> : GCNPat <
   (vt (select i1:$src0, (VOP3Mods vt:$src1, i32:$src1_mods),
@@ -1449,6 +1450,14 @@ def : BitConvert <v8i32, v16f16, VReg_256>;
 def : BitConvert <v8i32, v16i16, VReg_256>;
 def : BitConvert <v8f32, v16f16, VReg_256>;
 def : BitConvert <v8f32, v16i16, VReg_256>;
+def : BitConvert <v16f16, v4i64, VReg_256>;
+def : BitConvert <v16i16, v4i64, VReg_256>;
+def : BitConvert <v16f16, v4f64, VReg_256>;
+def : BitConvert <v16i16, v4f64, VReg_256>;
+def : BitConvert <v4i64, v16f16, VReg_256>;
+def : BitConvert <v4i64, v16i16, VReg_256>;
+def : BitConvert <v4f64, v16f16, VReg_256>;
+def : BitConvert <v4f64, v16i16, VReg_256>;
 
 // 512-bit bitcast
 def : BitConvert <v16i32, v16f32, VReg_512>;
@@ -2941,71 +2950,67 @@ def : AMDGPUPat <
 
 multiclass IntMed3Pat<Instruction med3Inst,
                  SDPatternOperator min,
-                 SDPatternOperator max,
-                 SDPatternOperator min_oneuse,
-                 SDPatternOperator max_oneuse> {
+                 SDPatternOperator max> {
 
   // This matches 16 permutations of
   // min(max(a, b), max(min(a, b), c))
   def : AMDGPUPat <
-  (min (max_oneuse i32:$src0, i32:$src1),
-       (max_oneuse (min_oneuse i32:$src0, i32:$src1), i32:$src2)),
+  (min (max i32:$src0, i32:$src1),
+       (max (min i32:$src0, i32:$src1), i32:$src2)),
   (med3Inst VSrc_b32:$src0, VSrc_b32:$src1, VSrc_b32:$src2)
 >;
 
   // This matches 16 permutations of
   // max(min(x, y), min(max(x, y), z))
   def : AMDGPUPat <
-  (max (min_oneuse i32:$src0, i32:$src1),
-       (min_oneuse (max_oneuse i32:$src0, i32:$src1), i32:$src2)),
+  (max (min i32:$src0, i32:$src1),
+       (min (max i32:$src0, i32:$src1), i32:$src2)),
   (med3Inst VSrc_b32:$src0, VSrc_b32:$src1, VSrc_b32:$src2)
 >;
 }
 
-defm : IntMed3Pat<V_MED3_I32_e64, smin, smax, smin_oneuse, smax_oneuse>;
-defm : IntMed3Pat<V_MED3_U32_e64, umin, umax, umin_oneuse, umax_oneuse>;
+defm : IntMed3Pat<V_MED3_I32_e64, smin, smax>;
+defm : IntMed3Pat<V_MED3_U32_e64, umin, umax>;
 
 // This matches 16 permutations of
 // max(min(x, y), min(max(x, y), z))
 class FPMed3Pat<ValueType vt,
                 //SDPatternOperator max, SDPatternOperator min,
                 Instruction med3Inst> : GCNPat<
-  (fmaxnum_like (fminnum_like_oneuse (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
-                           (VOP3Mods_nnan vt:$src1, i32:$src1_mods)),
-           (fminnum_like_oneuse (fmaxnum_like_oneuse (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
-                                           (VOP3Mods_nnan vt:$src1, i32:$src1_mods)),
-                           (vt (VOP3Mods_nnan vt:$src2, i32:$src2_mods)))),
+  (fmaxnum_like (fminnum_like (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
+                              (VOP3Mods_nnan vt:$src1, i32:$src1_mods)),
+           (fminnum_like (fmaxnum_like (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
+                                       (VOP3Mods_nnan vt:$src1, i32:$src1_mods)),
+                         (vt (VOP3Mods_nnan vt:$src2, i32:$src2_mods)))),
   (med3Inst $src0_mods, $src0, $src1_mods, $src1, $src2_mods, $src2, DSTCLAMP.NONE, DSTOMOD.NONE)
 >;
 
 class FP16Med3Pat<ValueType vt,
                 Instruction med3Inst> : GCNPat<
-  (fmaxnum_like (fminnum_like_oneuse (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
+  (fmaxnum_like (fminnum_like (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
                                      (VOP3Mods_nnan vt:$src1, i32:$src1_mods)),
-           (fminnum_like_oneuse (fmaxnum_like_oneuse (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
-                                                     (VOP3Mods_nnan vt:$src1, i32:$src1_mods)),
-                           (vt (VOP3Mods_nnan vt:$src2, i32:$src2_mods)))),
+                (fminnum_like (fmaxnum_like (VOP3Mods_nnan vt:$src0, i32:$src0_mods),
+                                            (VOP3Mods_nnan vt:$src1, i32:$src1_mods)),
+                              (vt (VOP3Mods_nnan vt:$src2, i32:$src2_mods)))),
   (med3Inst $src0_mods, $src0, $src1_mods, $src1, $src2_mods, $src2, DSTCLAMP.NONE)
 >;
 
 multiclass Int16Med3Pat<Instruction med3Inst,
-                   SDPatternOperator min,
-                   SDPatternOperator max,
-                   SDPatternOperator max_oneuse,
-                   SDPatternOperator min_oneuse> {
+                        SDPatternOperator min,
+                        SDPatternOperator max> {
   // This matches 16 permutations of
   // max(min(x, y), min(max(x, y), z))
   def : GCNPat <
-  (max (min_oneuse i16:$src0, i16:$src1),
-       (min_oneuse (max_oneuse i16:$src0, i16:$src1), i16:$src2)),
+  (max (min i16:$src0, i16:$src1),
+       (min (max i16:$src0, i16:$src1), i16:$src2)),
   (med3Inst SRCMODS.NONE, VSrc_b16:$src0, SRCMODS.NONE, VSrc_b16:$src1, SRCMODS.NONE, VSrc_b16:$src2, DSTCLAMP.NONE)
 >;
 
   // This matches 16 permutations of
   // min(max(a, b), max(min(a, b), c))
   def : GCNPat <
-  (min (max_oneuse i16:$src0, i16:$src1),
-      (max_oneuse (min_oneuse i16:$src0, i16:$src1), i16:$src2)),
+  (min (max i16:$src0, i16:$src1),
+       (max (min i16:$src0, i16:$src1), i16:$src2)),
   (med3Inst SRCMODS.NONE, VSrc_b16:$src0, SRCMODS.NONE, VSrc_b16:$src1, SRCMODS.NONE, VSrc_b16:$src2, DSTCLAMP.NONE)
 >;
 }
@@ -3043,8 +3048,8 @@ def : FPMinMaxPat<V_MAXMIN_F16_e64, f16, fminnum_like, fmaxnum_like_oneuse>;
 
 let OtherPredicates = [isGFX9Plus] in {
 def : FP16Med3Pat<f16, V_MED3_F16_e64>;
-defm : Int16Med3Pat<V_MED3_I16_e64, smin, smax, smax_oneuse, smin_oneuse>;
-defm : Int16Med3Pat<V_MED3_U16_e64, umin, umax, umax_oneuse, umin_oneuse>;
+defm : Int16Med3Pat<V_MED3_I16_e64, smin, smax>;
+defm : Int16Med3Pat<V_MED3_U16_e64, umin, umax>;
 } // End Predicates = [isGFX9Plus]
 
 class AMDGPUGenericInstruction : GenericInstruction {
@@ -3332,4 +3337,26 @@ def G_FPTRUNC_ROUND_DOWNWARD : AMDGPUGenericInstruction {
   let OutOperandList = (outs type0:$vdst);
   let InOperandList = (ins type1:$src0);
   let hasSideEffects = 0;
+}
+
+//============================================================================//
+// Dummy Instructions
+//============================================================================//
+
+def V_ILLEGAL_gfx6_gfx7_gfx8_gfx9 : Enc32, InstSI<(outs), (ins), "v_illegal"> {
+  let Inst{31-0} = 0xFFFFFFFF;
+  let FixedSize = 1;
+  let Size = 4;
+  let Uses = [EXEC];
+  let hasSideEffects = 1;
+  let SubtargetPredicate = isGFX6GFX7GFX8GFX9;
+}
+
+def V_ILLEGAL : Enc32, InstSI<(outs), (ins), "v_illegal"> {
+  let Inst{31-0} = 0x00000000;
+  let FixedSize = 1;
+  let Size = 4;
+  let Uses = [EXEC];
+  let hasSideEffects = 1;
+  let SubtargetPredicate = isGFX10Plus;
 }

@@ -7,24 +7,28 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/AMDGPUToROCDL/AMDGPUToROCDL.h"
-#include "../PassDetail.h"
-#include "mlir/Conversion/AMDGPUToROCDL/Chipset.h"
+
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
-#include "mlir/IR/TypeRange.h"
+#include "mlir/Pass/Pass.h"
+
 #include "llvm/ADT/STLExtras.h"
+
+namespace mlir {
+#define GEN_PASS_DEF_CONVERTAMDGPUTOROCDL
+#include "mlir/Conversion/Passes.h.inc"
+} // namespace mlir
 
 using namespace mlir;
 using namespace mlir::amdgpu;
 
 static Value createI32Constant(ConversionPatternRewriter &rewriter,
                                Location loc, int32_t value) {
-  IntegerAttr valAttr = rewriter.getI32IntegerAttr(value);
   Type llvmI32 = rewriter.getI32Type();
-  return rewriter.createOrFold<LLVM::ConstantOp>(loc, llvmI32, valAttr);
+  return rewriter.createOrFold<LLVM::ConstantOp>(loc, llvmI32, value);
 }
 
 namespace {
@@ -273,8 +277,7 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
     return success();
   }
 };
-
-} // end anonymous namespace
+} // namespace
 
 /// If `input` is a vector of bytes, concatentate those bytes in little-endian
 /// order to form a single integer of size 8 * [vector length]. This works
@@ -285,7 +288,7 @@ static Value mfmaConcatIfNeeded(ConversionPatternRewriter &rewriter,
                                 Location loc, Value input) {
   Type inputType = input.getType();
   if (auto vectorType = inputType.dyn_cast<VectorType>()) {
-    if (vectorType.getElementType() != rewriter.getI8Type())
+    if (!vectorType.getElementType().isInteger(8))
       return input;
     int64_t numBytes = vectorType.getNumElements();
     Type destType = rewriter.getIntegerType(numBytes * 8);
@@ -310,16 +313,17 @@ static Value mfmaConcatIfNeeded(ConversionPatternRewriter &rewriter,
 /// if one exists. This includes checking to ensure the intrinsic is supported
 /// on the architecture you are compiling for.
 static Optional<StringRef> mfmaOpToIntrinsic(MFMAOp mfma, Chipset chipset) {
-  uint32_t m = mfma.m(), n = mfma.n(), k = mfma.k(), b = mfma.blocks();
-  Type sourceElem = mfma.sourceA().getType();
+  uint32_t m = mfma.getM(), n = mfma.getN(), k = mfma.getK(),
+           b = mfma.getBlocks();
+  Type sourceElem = mfma.getSourceA().getType();
   if (auto sourceType = sourceElem.dyn_cast<VectorType>())
     sourceElem = sourceType.getElementType();
-  Type destElem = mfma.destC().getType();
+  Type destElem = mfma.getDestC().getType();
   if (auto destType = destElem.dyn_cast<VectorType>())
     destElem = destType.getElementType();
 
   if (sourceElem.isF32() && destElem.isF32()) {
-    if (mfma.reducePrecision() && chipset.minorVersion >= 0x40) {
+    if (mfma.getReducePrecision() && chipset.minorVersion >= 0x40) {
       if (m == 32 && n == 32 && k == 4 && b == 1)
         return ROCDL::mfma_f32_32x32x4_xf32::getOperationName();
       if (m == 16 && n == 16 && k == 8 && b == 1)
@@ -413,27 +417,28 @@ struct MFMAOpLowering : public ConvertOpToLLVMPattern<MFMAOp> {
   matchAndRewrite(MFMAOp op, MFMAOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    Type outType = typeConverter->convertType(op.destD().getType());
+    Type outType = typeConverter->convertType(op.getDestD().getType());
 
     if (chipset.majorVersion != 9 || chipset.minorVersion < 0x08)
       return op->emitOpError("MFMA only supported on gfx908+");
-    uint32_t blgpField = static_cast<uint32_t>(op.blgp());
-    if (op.negateA() || op.negateB() || op.negateC()) {
+    uint32_t getBlgpField = static_cast<uint32_t>(op.getBlgp());
+    if (op.getNegateA() || op.getNegateB() || op.getNegateC()) {
       if (chipset.minorVersion < 0x40)
         return op.emitOpError("negation unsupported on older than gfx840");
-      blgpField |= op.negateA() | (op.negateB() << 1) | (op.negateC() << 2);
+      getBlgpField |=
+          op.getNegateA() | (op.getNegateB() << 1) | (op.getNegateC() << 2);
     }
     Optional<StringRef> maybeIntrinsic = mfmaOpToIntrinsic(op, chipset);
     if (!maybeIntrinsic.has_value())
       return op.emitOpError("no intrinsic matching MFMA size on given chipset");
     OperationState loweredOp(loc, *maybeIntrinsic);
     loweredOp.addTypes(outType);
-    loweredOp.addOperands({mfmaConcatIfNeeded(rewriter, loc, adaptor.sourceA()),
-                           mfmaConcatIfNeeded(rewriter, loc, adaptor.sourceB()),
-                           adaptor.destC(),
-                           createI32Constant(rewriter, loc, op.cbsz()),
-                           createI32Constant(rewriter, loc, op.abid()),
-                           createI32Constant(rewriter, loc, blgpField)});
+    loweredOp.addOperands(
+        {mfmaConcatIfNeeded(rewriter, loc, adaptor.getSourceA()),
+         mfmaConcatIfNeeded(rewriter, loc, adaptor.getSourceB()),
+         adaptor.getDestC(), createI32Constant(rewriter, loc, op.getCbsz()),
+         createI32Constant(rewriter, loc, op.getAbid()),
+         createI32Constant(rewriter, loc, getBlgpField)});
     Operation *lowered = rewriter.create(loweredOp);
     rewriter.replaceOp(op, lowered->getResults());
     return success();
@@ -441,7 +446,7 @@ struct MFMAOpLowering : public ConvertOpToLLVMPattern<MFMAOp> {
 };
 
 struct ConvertAMDGPUToROCDLPass
-    : public ConvertAMDGPUToROCDLBase<ConvertAMDGPUToROCDLPass> {
+    : public impl::ConvertAMDGPUToROCDLBase<ConvertAMDGPUToROCDLPass> {
   ConvertAMDGPUToROCDLPass() = default;
 
   void runOnOperation() override {
@@ -464,7 +469,7 @@ struct ConvertAMDGPUToROCDLPass
       signalPassFailure();
   }
 };
-} // end anonymous namespace
+} // namespace
 
 void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                                    RewritePatternSet &patterns,

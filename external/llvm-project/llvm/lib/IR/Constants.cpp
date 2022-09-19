@@ -535,8 +535,8 @@ void llvm::deleteConstant(Constant *C) {
     delete static_cast<PoisonValue *>(C);
     break;
   case Constant::ConstantExprVal:
-    if (isa<UnaryConstantExpr>(C))
-      delete static_cast<UnaryConstantExpr *>(C);
+    if (isa<CastConstantExpr>(C))
+      delete static_cast<CastConstantExpr *>(C);
     else if (isa<BinaryConstantExpr>(C))
       delete static_cast<BinaryConstantExpr *>(C);
     else if (isa<SelectConstantExpr>(C))
@@ -1484,8 +1484,6 @@ Constant *ConstantExpr::getWithOperands(ArrayRef<Constant *> Ops, Type *Ty,
                                           OnlyIfReducedTy);
   case Instruction::ExtractElement:
     return ConstantExpr::getExtractElement(Ops[0], Ops[1], OnlyIfReducedTy);
-  case Instruction::FNeg:
-    return ConstantExpr::getFNeg(Ops[0]);
   case Instruction::ShuffleVector:
     return ConstantExpr::getShuffleVector(Ops[0], Ops[1], getShuffleMask(),
                                           OnlyIfReducedTy);
@@ -2230,37 +2228,6 @@ Constant *ConstantExpr::getAddrSpaceCast(Constant *C, Type *DstTy,
   return getFoldedCast(Instruction::AddrSpaceCast, C, DstTy, OnlyIfReduced);
 }
 
-Constant *ConstantExpr::get(unsigned Opcode, Constant *C, unsigned Flags,
-                            Type *OnlyIfReducedTy) {
-  // Check the operands for consistency first.
-  assert(Instruction::isUnaryOp(Opcode) &&
-         "Invalid opcode in unary constant expression");
-
-#ifndef NDEBUG
-  switch (Opcode) {
-  case Instruction::FNeg:
-    assert(C->getType()->isFPOrFPVectorTy() &&
-           "Tried to create a floating-point operation on a "
-           "non-floating-point type!");
-    break;
-  default:
-    break;
-  }
-#endif
-
-  if (Constant *FC = ConstantFoldUnaryInstruction(Opcode, C))
-    return FC;
-
-  if (OnlyIfReducedTy == C->getType())
-    return nullptr;
-
-  Constant *ArgVec[] = { C };
-  ConstantExprKeyType Key(Opcode, ArgVec, 0, Flags);
-
-  LLVMContextImpl *pImpl = C->getContext().pImpl;
-  return pImpl->ExprConstants.getOrCreate(C->getType(), Key);
-}
-
 Constant *ConstantExpr::get(unsigned Opcode, Constant *C1, Constant *C2,
                             unsigned Flags, Type *OnlyIfReducedTy) {
   // Check the operands for consistency first.
@@ -2355,6 +2322,11 @@ bool ConstantExpr::isSupportedBinOp(unsigned Opcode) {
   case Instruction::SDiv:
   case Instruction::URem:
   case Instruction::SRem:
+  case Instruction::FAdd:
+  case Instruction::FSub:
+  case Instruction::FMul:
+  case Instruction::FDiv:
+  case Instruction::FRem:
     return false;
   case Instruction::Add:
   case Instruction::Sub:
@@ -2365,11 +2337,6 @@ bool ConstantExpr::isSupportedBinOp(unsigned Opcode) {
   case Instruction::And:
   case Instruction::Or:
   case Instruction::Xor:
-  case Instruction::FAdd:
-  case Instruction::FSub:
-  case Instruction::FMul:
-  case Instruction::FDiv:
-  case Instruction::FRem:
     return true;
   default:
     llvm_unreachable("Argument must be binop opcode");
@@ -2480,7 +2447,7 @@ Constant *ConstantExpr::getGetElementPtr(Type *Ty, Constant *C,
   if (VectorType *VecTy = dyn_cast<VectorType>(C->getType()))
     EltCount = VecTy->getElementCount();
   else
-    for (auto Idx : Idxs)
+    for (auto *Idx : Idxs)
       if (VectorType *VecTy = dyn_cast<VectorType>(Idx->getType()))
         EltCount = VecTy->getElementCount();
 
@@ -2649,12 +2616,6 @@ Constant *ConstantExpr::getNeg(Constant *C, bool HasNUW, bool HasNSW) {
                 C, HasNUW, HasNSW);
 }
 
-Constant *ConstantExpr::getFNeg(Constant *C) {
-  assert(C->getType()->isFPOrFPVectorTy() &&
-         "Cannot FNEG a non-floating-point value!");
-  return get(Instruction::FNeg, C);
-}
-
 Constant *ConstantExpr::getNot(Constant *C) {
   assert(C->getType()->isIntOrIntVectorTy() &&
          "Cannot NOT a nonintegral value!");
@@ -2668,10 +2629,6 @@ Constant *ConstantExpr::getAdd(Constant *C1, Constant *C2,
   return get(Instruction::Add, C1, C2, Flags);
 }
 
-Constant *ConstantExpr::getFAdd(Constant *C1, Constant *C2) {
-  return get(Instruction::FAdd, C1, C2);
-}
-
 Constant *ConstantExpr::getSub(Constant *C1, Constant *C2,
                                bool HasNUW, bool HasNSW) {
   unsigned Flags = (HasNUW ? OverflowingBinaryOperator::NoUnsignedWrap : 0) |
@@ -2679,27 +2636,11 @@ Constant *ConstantExpr::getSub(Constant *C1, Constant *C2,
   return get(Instruction::Sub, C1, C2, Flags);
 }
 
-Constant *ConstantExpr::getFSub(Constant *C1, Constant *C2) {
-  return get(Instruction::FSub, C1, C2);
-}
-
 Constant *ConstantExpr::getMul(Constant *C1, Constant *C2,
                                bool HasNUW, bool HasNSW) {
   unsigned Flags = (HasNUW ? OverflowingBinaryOperator::NoUnsignedWrap : 0) |
                    (HasNSW ? OverflowingBinaryOperator::NoSignedWrap   : 0);
   return get(Instruction::Mul, C1, C2, Flags);
-}
-
-Constant *ConstantExpr::getFMul(Constant *C1, Constant *C2) {
-  return get(Instruction::FMul, C1, C2);
-}
-
-Constant *ConstantExpr::getFDiv(Constant *C1, Constant *C2) {
-  return get(Instruction::FDiv, C1, C2);
-}
-
-Constant *ConstantExpr::getFRem(Constant *C1, Constant *C2) {
-  return get(Instruction::FRem, C1, C2);
 }
 
 Constant *ConstantExpr::getAnd(Constant *C1, Constant *C2) {
@@ -3490,9 +3431,6 @@ Instruction *ConstantExpr::getAsInstruction(Instruction *InsertBefore) const {
     return CmpInst::Create((Instruction::OtherOps)getOpcode(),
                            (CmpInst::Predicate)getPredicate(), Ops[0], Ops[1],
                            "", InsertBefore);
-  case Instruction::FNeg:
-    return UnaryOperator::Create((Instruction::UnaryOps)getOpcode(), Ops[0], "",
-                                 InsertBefore);
   default:
     assert(getNumOperands() == 2 && "Must be binary operator?");
     BinaryOperator *BO = BinaryOperator::Create(

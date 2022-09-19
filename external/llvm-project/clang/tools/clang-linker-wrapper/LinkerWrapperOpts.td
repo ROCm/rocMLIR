@@ -31,7 +31,7 @@ def device_linker_args_EQ : Joined<["--"], "device-linker=">,
 def dry_run : Flag<["--"], "dry-run">,
   Flags<[WrapperOnlyOption]>,
   HelpText<"Print program arguments without running">;
-def verbose : Flag<["--"], "verbose">,
+def verbose : Flag<["--"], "wrapper-verbose">,
   Flags<[WrapperOnlyOption]>, HelpText<"Verbose output from tools">;
 def embed_bitcode : Flag<["--"], "embed-bitcode">,
   Flags<[WrapperOnlyOption]>, HelpText<"Embed linked bitcode in the module">;
@@ -52,6 +52,13 @@ def print_wrapped_module : Flag<["--"], "print-wrapped-module">,
 def save_temps : Flag<["--"], "save-temps">,
   Flags<[WrapperOnlyOption]>, HelpText<"Save intermediate results">;
 
+def wrapper_time_trace_eq : Joined<["--"], "wrapper-time-trace=">,
+  Flags<[WrapperOnlyOption]>, MetaVarName<"<file>">,
+  HelpText<"Enable time-trace and write the output to <file>">;
+def wrapper_time_trace_granularity : Joined<["--"], "wrapper-time-trace-granularity=">,
+  Flags<[WrapperOnlyOption]>, MetaVarName<"<number>">,
+  HelpText<"Set the granularity of time-trace updates">;
+
 // Flags passed to the device linker.
 def arch_EQ : Joined<["--"], "arch=">,
   Flags<[DeviceOnlyOption, HelpHidden]>, MetaVarName<"<arch>">,
@@ -69,6 +76,12 @@ def linker_arg_EQ : Joined<["--"], "linker-arg=">,
 // Separator between the linker wrapper and host linker flags.
 def separator : Flag<["--"], "">, Flags<[WrapperOnlyOption]>,
   HelpText<"The separator for the wrapped linker arguments">;
+
+// Arguments for the LLVM backend.
+def mllvm : Separate<["-"], "mllvm">, Flags<[WrapperOnlyOption]>,
+  MetaVarName<"<arg>">, HelpText<"Arguments passed to the LLVM invocation">;
+def offload_opt_eq_minus : Joined<["--", "-"], "offload-opt=-">, Flags<[HelpHidden, WrapperOnlyOption]>,
+  HelpText<"Options passed to LLVM">;
 
 // Standard linker flags also used by the linker wrapper.
 def sysroot_EQ : Joined<["--"], "sysroot">, HelpText<"Set the system root">;

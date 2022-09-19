@@ -14,6 +14,7 @@
 #include "clang/AST/PrettyDeclStackTrace.h"
 #include "clang/Basic/Attributes.h"
 #include "clang/Basic/PrettyStackTrace.h"
+#include "clang/Basic/TokenKinds.h"
 #include "clang/Parse/LoopHint.h"
 #include "clang/Parse/Parser.h"
 #include "clang/Parse/RAIIObjectsForParser.h"
@@ -188,7 +189,8 @@ Retry:
     Actions.CodeCompleteOrdinaryName(getCurScope(), Sema::PCC_Statement);
     return StmtError();
 
-  case tok::identifier: {
+  case tok::identifier:
+  ParseIdentifier: {
     Token Next = NextToken();
     if (Next.is(tok::colon)) { // C99 6.8.1: labeled-statement
       // Both C++11 and GNU attributes preceding the label appertain to the
@@ -222,7 +224,7 @@ Retry:
     }
 
     // Fall through
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   }
 
   default: {
@@ -261,7 +263,19 @@ Retry:
       return StmtError();
     }
 
-    return ParseExprStatement(StmtCtx);
+    switch (Tok.getKind()) {
+#define TRANSFORM_TYPE_TRAIT_DEF(_, Trait) case tok::kw___##Trait:
+#include "clang/Basic/TransformTypeTraits.def"
+      if (NextToken().is(tok::less)) {
+        Tok.setKind(tok::identifier);
+        Diag(Tok, diag::ext_keyword_as_ident)
+            << Tok.getIdentifierInfo()->getName() << 0;
+        goto ParseIdentifier;
+      }
+      [[fallthrough]];
+    default:
+      return ParseExprStatement(StmtCtx);
+    }
   }
 
   case tok::kw___attribute: {
@@ -448,7 +462,7 @@ Retry:
     // processing a #pragma omp clause.
     ProhibitAttributes(CXX11Attrs);
     ProhibitAttributes(GNUAttrs);
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case tok::annot_attr_openmp:
     // Do not prohibit attributes if they were OpenMP attributes.
     return ParseOpenMPDeclarativeOrExecutableDirective(StmtCtx);
@@ -665,9 +679,12 @@ StmtResult Parser::ParseSEHLeaveStatement() {
 
 /// ParseLabeledStatement - We have an identifier and a ':' after it.
 ///
+///       label:
+///         identifier ':'
+/// [GNU]   identifier ':' attributes[opt]
+///
 ///       labeled-statement:
-///         identifier ':' statement
-/// [GNU]   identifier ':' attributes[opt] statement
+///         label statement
 ///
 StmtResult Parser::ParseLabeledStatement(ParsedAttributes &Attrs,
                                          ParsedStmtContext StmtCtx) {
@@ -709,6 +726,20 @@ StmtResult Parser::ParseLabeledStatement(ParsedAttributes &Attrs,
       if (!TempAttrs.empty() && !SubStmt.isInvalid())
         SubStmt = Actions.ActOnAttributedStmt(TempAttrs, SubStmt.get());
     }
+  }
+
+  // The label may have no statement following it
+  if (SubStmt.isUnset() && Tok.is(tok::r_brace)) {
+    if (getLangOpts().CPlusPlus) {
+      Diag(Tok, getLangOpts().CPlusPlus2b
+                    ? diag::warn_cxx20_compat_label_end_of_compound_statement
+                    : diag::ext_cxx_label_end_of_compound_statement);
+    } else {
+      Diag(Tok, getLangOpts().C2x
+                    ? diag::warn_c2x_compat_label_end_of_compound_statement
+                    : diag::ext_c_label_end_of_compound_statement);
+    }
+    SubStmt = Actions.ActOnNullStmt(ColonLoc);
   }
 
   // If we've not parsed a statement yet, parse one now.
@@ -859,8 +890,8 @@ StmtResult Parser::ParseCaseStatement(ParsedStmtContext StmtCtx,
     // another parsing error, so avoid producing extra diagnostics.
     if (ColonLoc.isValid()) {
       SourceLocation AfterColonLoc = PP.getLocForEndOfToken(ColonLoc);
-      Diag(AfterColonLoc, diag::err_label_end_of_compound_statement)
-        << FixItHint::CreateInsertion(AfterColonLoc, " ;");
+      Diag(AfterColonLoc, diag::err_switch_label_end_of_compound_statement)
+          << FixItHint::CreateInsertion(AfterColonLoc, " ;");
     }
     SubStmt = StmtError();
   }
@@ -914,8 +945,8 @@ StmtResult Parser::ParseDefaultStatement(ParsedStmtContext StmtCtx) {
     // Diagnose the common error "switch (X) {... default: }", which is
     // not valid.
     SourceLocation AfterColonLoc = PP.getLocForEndOfToken(ColonLoc);
-    Diag(AfterColonLoc, diag::err_label_end_of_compound_statement)
-      << FixItHint::CreateInsertion(AfterColonLoc, " ;");
+    Diag(AfterColonLoc, diag::err_switch_label_end_of_compound_statement)
+        << FixItHint::CreateInsertion(AfterColonLoc, " ;");
     SubStmt = true;
   }
 
@@ -956,7 +987,7 @@ StmtResult Parser::ParseCompoundStatement(bool isStmtExpr) {
 ///
 StmtResult Parser::ParseCompoundStatement(bool isStmtExpr,
                                           unsigned ScopeFlags) {
-  assert(Tok.is(tok::l_brace) && "Not a compount stmt!");
+  assert(Tok.is(tok::l_brace) && "Not a compound stmt!");
 
   // Enter a scope to hold everything within the compound stmt.  Compound
   // statements can always hold declarations.
@@ -1082,10 +1113,10 @@ StmtResult Parser::handleExprStmt(ExprResult E, ParsedStmtContext StmtCtx) {
   return Actions.ActOnExprStmt(E, /*DiscardedValue=*/!IsStmtExprResult);
 }
 
-/// ParseCompoundStatementBody - Parse a sequence of statements and invoke the
-/// ActOnCompoundStmt action.  This expects the '{' to be the current token, and
-/// consume the '}' at the end of the block.  It does not manipulate the scope
-/// stack.
+/// ParseCompoundStatementBody - Parse a sequence of statements optionally
+/// followed by a label and invoke the ActOnCompoundStmt action.  This expects
+/// the '{' to be the current token, and consume the '}' at the end of the
+/// block.  It does not manipulate the scope stack.
 StmtResult Parser::ParseCompoundStatementBody(bool isStmtExpr) {
   PrettyStackTraceLoc CrashInfo(PP.getSourceManager(),
                                 Tok.getLocation(),

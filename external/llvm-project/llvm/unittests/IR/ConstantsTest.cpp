@@ -241,20 +241,14 @@ TEST(ConstantsTest, AsInstructionsTest) {
 #define P6STR "bitcast (i32 ptrtoint (ptr @dummy2 to i32) to <2 x i16>)"
 
   CHECK(ConstantExpr::getNeg(P0), "sub i32 0, " P0STR);
-  CHECK(ConstantExpr::getFNeg(P1), "fneg float " P1STR);
   CHECK(ConstantExpr::getNot(P0), "xor i32 " P0STR ", -1");
   CHECK(ConstantExpr::getAdd(P0, P0), "add i32 " P0STR ", " P0STR);
   CHECK(ConstantExpr::getAdd(P0, P0, false, true),
         "add nsw i32 " P0STR ", " P0STR);
   CHECK(ConstantExpr::getAdd(P0, P0, true, true),
         "add nuw nsw i32 " P0STR ", " P0STR);
-  CHECK(ConstantExpr::getFAdd(P1, P1), "fadd float " P1STR ", " P1STR);
   CHECK(ConstantExpr::getSub(P0, P0), "sub i32 " P0STR ", " P0STR);
-  CHECK(ConstantExpr::getFSub(P1, P1), "fsub float " P1STR ", " P1STR);
   CHECK(ConstantExpr::getMul(P0, P0), "mul i32 " P0STR ", " P0STR);
-  CHECK(ConstantExpr::getFMul(P1, P1), "fmul float " P1STR ", " P1STR);
-  CHECK(ConstantExpr::getFDiv(P1, P1), "fdiv float " P1STR ", " P1STR);
-  CHECK(ConstantExpr::getFRem(P1, P1), "frem float " P1STR ", " P1STR);
   CHECK(ConstantExpr::getAnd(P0, P0), "and i32 " P0STR ", " P0STR);
   CHECK(ConstantExpr::getOr(P0, P0), "or i32 " P0STR ", " P0STR);
   CHECK(ConstantExpr::getXor(P0, P0), "xor i32 " P0STR ", " P0STR);

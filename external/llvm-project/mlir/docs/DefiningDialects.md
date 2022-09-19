@@ -327,8 +327,8 @@ This field may any of the following values:
 * `kEmitAccessorPrefix_Both`
   - Emit with **and** without prefix.
 
-All new dialects are strongly encouraged to use the `kEmitAccessorPrefix_Prefixed` value, as
-the `Raw` form is deprecated and in the process of being removed.
+All new dialects are strongly encouraged to use the default `kEmitAccessorPrefix_Prefixed`
+value, as the `Raw` form is deprecated and in the process of being removed.
 
 Note: Remove this section when all dialects have been switched to the new accessor form.
 
@@ -528,7 +528,7 @@ Type MyDialect::parseType(DialectAsmParser &parser) const {
     // Try to parse a dynamic type with 'typeTag' name.
     Type dynType;
     auto parseResult = parseOptionalDynamicType(typeTag, parser, dynType);
-    if (parseResult.hasValue()) {
+    if (parseResult.has_value()) {
         if (succeeded(parseResult.getValue()))
             return dynType;
          return Type();
@@ -628,8 +628,8 @@ Attribute MyDialect::parseAttribute(DialectAsmParser &parser,
     // Try to parse a dynamic attribute with 'attrTag' name.
     Attribute dynAttr;
     auto parseResult = parseOptionalDynamicAttr(attrTag, parser, dynAttr);
-    if (parseResult.hasValue()) {
-        if (succeeded(parseResult.getValue()))
+    if (parseResult.has_value()) {
+        if (succeeded(*parseResult))
             return dynAttr;
          return Attribute();
     }

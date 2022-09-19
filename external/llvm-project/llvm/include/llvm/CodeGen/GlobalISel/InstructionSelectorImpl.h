@@ -694,7 +694,7 @@ bool InstructionSelector::executeMatchTable(
           (ISel.*ISelInfo.ComplexPredicates[ComplexPredicateID])(
               State.MIs[InsnID]->getOperand(OpIdx));
       if (Renderer)
-        State.Renderers[RendererID] = Renderer.getValue();
+        State.Renderers[RendererID] = Renderer.value();
       else
         if (handleReject() == RejectAndGiveUp)
           return false;
@@ -865,7 +865,7 @@ bool InstructionSelector::executeMatchTable(
         OutMIs.resize(NewInsnID + 1);
 
       OutMIs[NewInsnID] = BuildMI(*State.MIs[0]->getParent(), State.MIs[0],
-                                  State.MIs[0]->getDebugLoc(), TII.get(Opcode));
+                                  MIMetadata(*State.MIs[0]), TII.get(Opcode));
       DEBUG_WITH_TYPE(TgtInstructionSelector::getName(),
                       dbgs() << CurrentIdx << ": GIR_BuildMI(OutMIs["
                              << NewInsnID << "], " << Opcode << ")\n");

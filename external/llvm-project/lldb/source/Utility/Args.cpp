@@ -215,7 +215,12 @@ bool Args::GetCommandString(std::string &command) const {
   for (size_t i = 0; i < m_entries.size(); ++i) {
     if (i > 0)
       command += ' ';
+    char quote = m_entries[i].quote;
+    if (quote != '\0')
+     command += quote;
     command += m_entries[i].ref();
+    if (quote != '\0')
+      command += quote;
   }
 
   return !m_entries.empty();
@@ -385,6 +390,7 @@ std::string Args::GetShellSafeArgument(const FileSpec &shell,
   };
 
   static ShellDescriptor g_Shells[] = {{ConstString("bash"), " '\"<>()&;"},
+                                       {ConstString("fish"), " '\"<>()&\\|;"},
                                        {ConstString("tcsh"), " '\"<>()&;"},
                                        {ConstString("zsh"), " '\"<>()&;\\|"},
                                        {ConstString("sh"), " '\"<>()&;"}};

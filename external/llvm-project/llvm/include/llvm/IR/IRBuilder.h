@@ -199,6 +199,14 @@ public:
       SetCurrentDebugLocation(IP->getDebugLoc());
   }
 
+  /// This specifies that created instructions should inserted at the beginning
+  /// end of the specified function, but after already existing static alloca
+  /// instructions that are at the start.
+  void SetInsertPointPastAllocas(Function *F) {
+    BB = &F->getEntryBlock();
+    InsertPt = BB->getFirstNonPHIOrDbgOrAlloca();
+  }
+
   /// Set location information used by debugging information.
   void SetCurrentDebugLocation(DebugLoc L) {
     AddOrRemoveMetadataToCopy(LLVMContext::MD_dbg, L.getAsMDNode());
@@ -222,7 +230,7 @@ public:
 
   /// Add all entries in MetadataToCopy to \p I.
   void AddMetadataToInst(Instruction *I) const {
-    for (auto &KV : MetadataToCopy)
+    for (const auto &KV : MetadataToCopy)
       I->setMetadata(KV.first, KV.second);
   }
 
@@ -691,6 +699,10 @@ public:
       MDNode *TBAAStructTag = nullptr, MDNode *ScopeTag = nullptr,
       MDNode *NoAliasTag = nullptr);
 
+private:
+  CallInst *getReductionIntrinsic(Intrinsic::ID ID, Value *Src);
+
+public:
   /// Create a sequential vector fadd reduction intrinsic of the source vector.
   /// The first parameter is a scalar accumulator value. An unordered reduction
   /// can be created by adding the reassoc fast-math flag to the resulting
@@ -749,6 +761,9 @@ public:
   /// If the pointer isn't i8* it will be converted.
   CallInst *CreateInvariantStart(Value *Ptr, ConstantInt *Size = nullptr);
 
+  /// Create a call to llvm.threadlocal.address intrinsic.
+  CallInst *CreateThreadLocalAddress(Value *Ptr);
+
   /// Create a call to Masked Load intrinsic
   CallInst *CreateMaskedLoad(Type *Ty, Value *Ptr, Align Alignment, Value *Mask,
                              Value *PassThru = nullptr, const Twine &Name = "");
@@ -765,6 +780,15 @@ public:
   /// Create a call to Masked Scatter intrinsic
   CallInst *CreateMaskedScatter(Value *Val, Value *Ptrs, Align Alignment,
                                 Value *Mask = nullptr);
+
+  /// Create a call to Masked Expand Load intrinsic
+  CallInst *CreateMaskedExpandLoad(Type *Ty, Value *Ptr, Value *Mask = nullptr,
+                                   Value *PassThru = nullptr,
+                                   const Twine &Name = "");
+
+  /// Create a call to Masked Compress Store intrinsic
+  CallInst *CreateMaskedCompressStore(Value *Val, Value *Ptr,
+                                      Value *Mask = nullptr);
 
   /// Create an assume intrinsic call that allows the optimizer to
   /// assume that the provided condition will be true.
@@ -879,10 +903,18 @@ public:
                                   Instruction *FMFSource = nullptr,
                                   const Twine &Name = "");
 
-  /// Create a call to intrinsic \p ID with \p args, mangled using \p Types. If
+  /// Create a call to intrinsic \p ID with \p Args, mangled using \p Types. If
   /// \p FMFSource is provided, copy fast-math-flags from that instruction to
   /// the intrinsic.
   CallInst *CreateIntrinsic(Intrinsic::ID ID, ArrayRef<Type *> Types,
+                            ArrayRef<Value *> Args,
+                            Instruction *FMFSource = nullptr,
+                            const Twine &Name = "");
+
+  /// Create a call to intrinsic \p ID with \p RetTy and \p Args. If
+  /// \p FMFSource is provided, copy fast-math-flags from that instruction to
+  /// the intrinsic.
+  CallInst *CreateIntrinsic(Type *RetTy, Intrinsic::ID ID,
                             ArrayRef<Value *> Args,
                             Instruction *FMFSource = nullptr,
                             const Twine &Name = "");
@@ -974,7 +1006,7 @@ public:
   /// This is a convenience function for code that uses aggregate return values
   /// as a vehicle for having multiple return values.
   ReturnInst *CreateAggregateRet(Value *const *retVals, unsigned N) {
-    Value *V = UndefValue::get(getCurrentFunctionReturnType());
+    Value *V = PoisonValue::get(getCurrentFunctionReturnType());
     for (unsigned i = 0; i != N; ++i)
       V = CreateInsertValue(V, retVals[i], i, "mrv");
     return Insert(ReturnInst::Create(Context, V));
@@ -1162,11 +1194,11 @@ private:
     RoundingMode UseRounding = DefaultConstrainedRounding;
 
     if (Rounding)
-      UseRounding = Rounding.getValue();
+      UseRounding = Rounding.value();
 
     Optional<StringRef> RoundingStr = convertRoundingModeToStr(UseRounding);
     assert(RoundingStr && "Garbage strict rounding mode!");
-    auto *RoundingMDS = MDString::get(Context, RoundingStr.getValue());
+    auto *RoundingMDS = MDString::get(Context, RoundingStr.value());
 
     return MetadataAsValue::get(Context, RoundingMDS);
   }
@@ -1175,11 +1207,11 @@ private:
     fp::ExceptionBehavior UseExcept = DefaultConstrainedExcept;
 
     if (Except)
-      UseExcept = Except.getValue();
+      UseExcept = Except.value();
 
     Optional<StringRef> ExceptStr = convertExceptionBehaviorToStr(UseExcept);
     assert(ExceptStr && "Garbage strict exception behavior!");
-    auto *ExceptMDS = MDString::get(Context, ExceptStr.getValue());
+    auto *ExceptMDS = MDString::get(Context, ExceptStr.value());
 
     return MetadataAsValue::get(Context, ExceptMDS);
   }
@@ -1588,8 +1620,8 @@ public:
 
   Value *CreateFNeg(Value *V, const Twine &Name = "",
                     MDNode *FPMathTag = nullptr) {
-    if (auto *VC = dyn_cast<Constant>(V))
-      return Insert(Folder.CreateFNeg(VC), Name);
+    if (Value *Res = Folder.FoldUnOpFMF(Instruction::FNeg, V, FMF))
+      return Res;
     return Insert(setFPAttrs(UnaryOperator::CreateFNeg(V), FPMathTag, FMF),
                   Name);
   }
@@ -1598,10 +1630,10 @@ public:
   /// default FMF.
   Value *CreateFNegFMF(Value *V, Instruction *FMFSource,
                        const Twine &Name = "") {
-   if (auto *VC = dyn_cast<Constant>(V))
-     return Insert(Folder.CreateFNeg(VC), Name);
-   return Insert(setFPAttrs(UnaryOperator::CreateFNeg(V), nullptr,
-                            FMFSource->getFastMathFlags()),
+   FastMathFlags FMF = FMFSource->getFastMathFlags();
+    if (Value *Res = Folder.FoldUnOpFMF(Instruction::FNeg, V, FMF))
+      return Res;
+   return Insert(setFPAttrs(UnaryOperator::CreateFNeg(V), nullptr, FMF),
                  Name);
   }
 
@@ -1612,8 +1644,8 @@ public:
   Value *CreateUnOp(Instruction::UnaryOps Opc,
                     Value *V, const Twine &Name = "",
                     MDNode *FPMathTag = nullptr) {
-    if (auto *VC = dyn_cast<Constant>(V))
-      return Insert(Folder.CreateUnOp(Opc, VC), Name);
+    if (Value *Res = Folder.FoldUnOpFMF(Opc, V, FMF))
+      return Res;
     Instruction *UnOp = UnaryOperator::Create(Opc, V);
     if (isa<FPMathOperator>(UnOp))
       setFPAttrs(UnOp, FPMathTag, FMF);
@@ -2226,6 +2258,13 @@ public:
     return Insert(Phi, Name);
   }
 
+private:
+  CallInst *createCallHelper(Function *Callee, ArrayRef<Value *> Ops,
+                             const Twine &Name = "",
+                             Instruction *FMFSource = nullptr,
+                             ArrayRef<OperandBundleDef> OpBundles = {});
+
+public:
   CallInst *CreateCall(FunctionType *FTy, Value *Callee,
                        ArrayRef<Value *> Args = None, const Twine &Name = "",
                        MDNode *FPMathTag = nullptr) {

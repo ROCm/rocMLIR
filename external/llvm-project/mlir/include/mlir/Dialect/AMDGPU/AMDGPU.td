@@ -23,7 +23,6 @@ def AMDGPU_Dialect : Dialect {
     that will eventually be executed on AMD hardware.
   }];
 
-  let emitAccessorPrefix = kEmitAccessorPrefix_Both;
   let useDefaultAttributePrinterParser = 1;
 }
 
@@ -165,7 +164,8 @@ def AMDGPU_RawBufferAtomicFaddOp :
   }];
   let hasVerifier = 1;
 }
-def GPU_LDSBarrierOp : AMDGPU_Op<"lds_barrier"> {
+
+def AMDGPU_LDSBarrierOp : AMDGPU_Op<"lds_barrier"> {
   let summary = "Barrier that includes a wait for LDS memory operations.";
   let description = [{
     `amdgpu.lds_barrier` is both a barrier (all workitems in a workgroup must reach
@@ -186,7 +186,7 @@ def GPU_LDSBarrierOp : AMDGPU_Op<"lds_barrier"> {
 def AMDGPU_MFMAPermB : I32EnumAttr<"MFMAPermB",
     "The possible permutations of the lanes storing B available in an MFMA",
     [
-      I32EnumAttrCase<"none",             0>,
+      I32EnumAttrCase<"none",            0>,
       I32EnumAttrCase<"bcast_first_32",  1>,
       I32EnumAttrCase<"bcast_second_32", 2>,
       I32EnumAttrCase<"rotate_16_right", 3>,

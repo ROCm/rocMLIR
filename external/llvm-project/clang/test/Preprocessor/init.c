@@ -874,6 +874,9 @@
 
 // RUN: %clang_cc1 -E -dM -ffreestanding -fgnuc-version=4.2.1 -triple=sparc-none-none < /dev/null | FileCheck -match-full-lines -check-prefix SPARC -check-prefix SPARC-DEFAULT %s
 // RUN: %clang_cc1 -E -dM -ffreestanding -fgnuc-version=4.2.1 -triple=sparc-rtems-elf < /dev/null | FileCheck -match-full-lines -check-prefix SPARC -check-prefix SPARC-DEFAULT %s
+// Check that clang defines __NO_INLINE__ unconditionally (even at -O) to
+// work around Issue #47994.
+// RUN: %clang_cc1 -E -dM -triple=sparc-unknown-linux-gnu -O < /dev/null | FileCheck -match-full-lines -check-prefix SPARC-LINUX %s
 // RUN: %clang_cc1 -E -dM -ffreestanding -fgnuc-version=4.2.1 -triple=sparc-none-netbsd < /dev/null | FileCheck -match-full-lines -check-prefix SPARC -check-prefix SPARC-NETOPENBSD %s
 // RUN: %clang_cc1 -x c++ -E -dM -ffreestanding -fgnuc-version=4.2.1 -triple=sparc-none-none < /dev/null | FileCheck -match-full-lines -check-prefix SPARC -check-prefix SPARC-DEFAULT -check-prefix SPARC-DEFAULT-CXX %s
 //
@@ -997,6 +1000,7 @@
 // SPARC:#define __LONG_LONG_MAX__ 9223372036854775807LL
 // SPARC:#define __LONG_MAX__ 2147483647L
 // SPARC-NOT:#define __LP64__
+// SPARC-LINUX:#define __NO_INLINE__ 1
 // SPARC:#define __POINTER_WIDTH__ 32
 // SPARC-DEFAULT:#define __PTRDIFF_TYPE__ int
 // SPARC-NETOPENBSD:#define __PTRDIFF_TYPE__ long int
@@ -1342,7 +1346,8 @@
 // PS4:#define __SSE2__ 1
 // PS4:#define __SSE_MATH__ 1
 // PS4:#define __SSE__ 1
-// PS4:#define __STDC_VERSION__ 199901L
+// PS4ONLY:#define __STDC_VERSION__ 199901L
+// PS5ONLY:#define __STDC_VERSION__ 201710L
 // PS4:#define __UINTMAX_TYPE__ long unsigned int
 // PS4:#define __USER_LABEL_PREFIX__
 // PS4:#define __WCHAR_MAX__ 65535
@@ -1378,6 +1383,11 @@
 // SPARCV9:#define __SIZEOF_LONG__ 8
 // SPARCV9:#define __SIZEOF_POINTER__ 8
 // SPARCV9:#define __UINTPTR_TYPE__ long unsigned int
+//
+// Check that clang defines __NO_INLINE__ unconditionally (even at -O) to
+// work around Issue #47994.
+// RUN: %clang_cc1 -E -dM -triple=sparc64-unknown-linux-gnu -O < /dev/null | FileCheck -match-full-lines -check-prefix SPARC64-LINUX %s
+// SPARC64-LINUX:#define __NO_INLINE__ 1
 //
 // RUN: %clang_cc1 -E -dM -ffreestanding -triple=sparc64-none-openbsd < /dev/null | FileCheck -match-full-lines -check-prefix SPARC64-OBSD %s
 // SPARC64-OBSD:#define __INT64_TYPE__ long long int

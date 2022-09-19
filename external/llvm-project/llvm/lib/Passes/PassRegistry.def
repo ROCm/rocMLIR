@@ -119,10 +119,10 @@ MODULE_PASS("verify", VerifierPass())
 MODULE_PASS("view-callgraph", CallGraphViewerPass())
 MODULE_PASS("wholeprogramdevirt", WholeProgramDevirtPass())
 MODULE_PASS("dfsan", DataFlowSanitizerPass())
-MODULE_PASS("msan-module", ModuleMemorySanitizerPass({}))
 MODULE_PASS("module-inline", ModuleInlinerPass())
 MODULE_PASS("tsan-module", ModuleThreadSanitizerPass())
-MODULE_PASS("sancov-module", ModuleSanitizerCoveragePass())
+MODULE_PASS("sancov-module", SanitizerCoveragePass())
+MODULE_PASS("sanmd-module", SanitizerBinaryMetadataPass())
 MODULE_PASS("memprof-module", ModuleMemProfilerPass())
 MODULE_PASS("poison-checking", PoisonCheckingPass())
 MODULE_PASS("pseudo-probe-update", PseudoProbeUpdatePass())
@@ -147,13 +147,20 @@ MODULE_PASS_WITH_PARAMS("hwasan",
                         },
                         parseHWASanPassOptions,
                         "kernel;recover")
-MODULE_PASS_WITH_PARAMS("asan-module",
-                        "ModuleAddressSanitizerPass",
+MODULE_PASS_WITH_PARAMS("asan",
+                        "AddressSanitizerPass",
                         [](AddressSanitizerOptions Opts) {
-                          return ModuleAddressSanitizerPass(Opts);
+                          return AddressSanitizerPass(Opts);
                         },
                         parseASanPassOptions,
                         "kernel")
+MODULE_PASS_WITH_PARAMS("msan",
+                        "MemorySanitizerPass",
+                        [](MemorySanitizerOptions Opts) {
+                          return MemorySanitizerPass(Opts);
+                        },
+                        parseMSanPassOptions,
+                        "recover;kernel;eager-checks;track-origins=N")
 #undef MODULE_PASS_WITH_PARAMS
 
 #ifndef CGSCC_ANALYSIS
@@ -420,13 +427,6 @@ FUNCTION_PASS_WITH_PARAMS("loop-unroll",
                           "no-profile-peeling;profile-peeling;"
                           "no-runtime;runtime;"
                           "no-upperbound;upperbound")
-FUNCTION_PASS_WITH_PARAMS("msan",
-                          "MemorySanitizerPass",
-                           [](MemorySanitizerOptions Opts) {
-                             return MemorySanitizerPass(Opts);
-                           },
-                          parseMSanPassOptions,
-                          "recover;kernel;eager-checks;track-origins=N")
 FUNCTION_PASS_WITH_PARAMS("simplifycfg",
                           "SimplifyCFGPass",
                            [](SimplifyCFGOptions Opts) {
@@ -473,6 +473,13 @@ FUNCTION_PASS_WITH_PARAMS("print<stack-lifetime>",
                            },
                           parseStackLifetimeOptions,
                           "may;must")
+FUNCTION_PASS_WITH_PARAMS("print<da>",
+                          "DependenceAnalysisPrinterPass",
+                           [](bool NormalizeResults) {
+                             return DependenceAnalysisPrinterPass(dbgs(), NormalizeResults);
+                           },
+                          parseDependenceAnalysisPrinterOptions,
+                          "normalized-results")
 #undef FUNCTION_PASS_WITH_PARAMS
 
 #ifndef LOOPNEST_PASS
@@ -510,7 +517,7 @@ LOOP_PASS("loop-simplifycfg", LoopSimplifyCFGPass())
 LOOP_PASS("loop-reduce", LoopStrengthReducePass())
 LOOP_PASS("indvars", IndVarSimplifyPass())
 LOOP_PASS("loop-unroll-full", LoopFullUnrollPass())
-LOOP_PASS("print-access-info", LoopAccessInfoPrinterPass(dbgs()))
+LOOP_PASS("print<access-info>", LoopAccessInfoPrinterPass(dbgs()))
 LOOP_PASS("print<ddg>", DDGAnalysisPrinterPass(dbgs()))
 LOOP_PASS("print<iv-users>", IVUsersPrinterPass(dbgs()))
 LOOP_PASS("print<loopnest>", LoopNestPrinterPass(dbgs()))

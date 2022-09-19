@@ -282,7 +282,7 @@ def err_inline_nested_namespace_definition : Error<
 def err_expected_semi_after_attribute_list : Error<
   "expected ';' after attribute list">;
 def err_expected_semi_after_static_assert : Error<
-  "expected ';' after static_assert">;
+  "expected ';' after '%0'">;
 def err_expected_semi_for : Error<"expected ';' in 'for' statement specifier">;
 def err_single_decl_assign_in_for_range : Error<
   "range-based 'for' statement uses ':', not '='">;
@@ -295,8 +295,20 @@ def note_missing_selector_name : Note<
 def note_force_empty_selector_name : Note<
   "or insert whitespace before ':' to use %0 as parameter name "
   "and have an empty entry in the selector">;
-def err_label_end_of_compound_statement : Error<
-  "label at end of compound statement: expected statement">;
+def err_switch_label_end_of_compound_statement : Error<
+  "label at end of switch compound statement: expected statement">;
+def ext_c_label_end_of_compound_statement : ExtWarn<
+  "label at end of compound statement is a C2x extension">,
+   InGroup<C2x>;
+def ext_cxx_label_end_of_compound_statement : ExtWarn<
+  "label at end of compound statement is a C++2b extension">,
+   InGroup<CXX2b>;
+def warn_c2x_compat_label_end_of_compound_statement : Warning<
+  "label at end of compound statement is incompatible with C standards before C2x">,
+  InGroup<CPre2xCompat>, DefaultIgnore;
+def warn_cxx20_compat_label_end_of_compound_statement : Warning<
+  "label at end of compound statement is incompatible with C++ standards before C++2b">,
+  InGroup<CXXPre2bCompat>, DefaultIgnore;
 def err_address_of_label_outside_fn : Error<
   "use of address-of-label extension outside of a function body">;
 def err_asm_operand_wide_string_literal : Error<
@@ -425,7 +437,7 @@ def err_unexpected_token_in_nested_name_spec : Error<
 def err_bool_redeclaration : Error<
   "redeclaration of C++ built-in type 'bool'">;
 def warn_cxx98_compat_static_assert : Warning<
-  "static_assert declarations are incompatible with C++98">,
+  "'static_assert' declarations are incompatible with C++98">,
   InGroup<CXX98Compat>, DefaultIgnore;
 def ext_ms_static_assert : ExtWarn<
   "use of 'static_assert' without inclusion of <assert.h> is a Microsoft "
@@ -538,6 +550,8 @@ def err_invalid_operator_on_type : Error<
   "cannot use %select{dot|arrow}0 operator on a type">;
 def err_expected_unqualified_id : Error<
   "expected %select{identifier|unqualified-id}0">;
+def err_while_loop_outside_of_a_function : Error<
+  "while loop outside of a function">; 
 def err_brackets_go_after_unqualified_id : Error<
   "brackets are not allowed here; to declare an array, "
   "place the brackets after the %select{identifier|name}0">;
@@ -773,7 +787,8 @@ def warn_cxx14_compat_template_template_param_typename : Warning<
 def err_template_spec_syntax_non_template : Error<
   "identifier followed by '<' indicates a class template specialization but "
   "%0 %select{does not refer to a template|refers to a function template|"
-  "<unused>|refers to a variable template|<unused>|refers to a concept}1">;
+  "<unused>|refers to a variable template|<unused>|<unused>|"
+  "refers to a concept}1">;
 def err_id_after_template_in_nested_name_spec : Error<
   "expected template name after 'template' keyword in nested name specifier">;
 def err_unexpected_template_in_unqualified_id : Error<
