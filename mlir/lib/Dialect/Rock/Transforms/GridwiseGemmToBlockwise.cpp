@@ -1155,8 +1155,8 @@ struct GridwiseGemmV2RewritePattern
     GemmDimension matrix_a_source_vector_read_dim;
     GemmDimension matrix_b_source_vector_read_dim;
 
-    int64_t aCopyPerThread = (KPerBlock * MPerBlock) / blockSize;
-    int64_t bCopyPerThread = (KPerBlock * NPerBlock) / blockSize;
+    int64_t aCopyPerThread = (KPerBlock * KPack * MPerBlock) / blockSize;
+    int64_t bCopyPerThread = (KPerBlock * KPack * NPerBlock) / blockSize;
     GemmDimension vectorTiebreaker =
         (KPack > 1) ? GemmDimension::K : GemmDimension::MorN;
     std::tie(matrix_a_source_vector_read_dim, matrix_a_source_data_per_read) =
