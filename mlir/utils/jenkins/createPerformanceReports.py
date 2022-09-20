@@ -20,13 +20,13 @@ def printAllPerformance():
         return
 
     try:
-        tuned_df = pd.read_csv(reportUtils.ROCK_TUNED_REPORT_FILE)
+        tuned_df = pd.read_csv(reportUtils.MIOPEN_TUNED_REPORT_FILE)
         tunedReportFound = True
     except FileNotFoundError:
         print('Rock with turned MLIR report not found.')
 
     try:
-        untuned_df = pd.read_csv(reportUtils.ROCK_UNTUNED_REPORT_FILE)
+        untuned_df = pd.read_csv(reportUtils.MIOPEN_UNTUNED_REPORT_FILE)
         untunedReportFound = True
     except FileNotFoundError:
         print('Rock with untuned MLIR report not found.')
