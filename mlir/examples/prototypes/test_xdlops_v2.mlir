@@ -138,7 +138,7 @@ gpu.module @mfma {
     %c96 = constant 96 : index
     %c128 = constant 128 : index
 
-    // miopen.gridwise_gemm will be revised to select the followings:
+    // rock.gridwise_gemm will be revised to select the followings:
     //
     // - MFMA intrinsic to be used.
     // - Immediates supplied per MFMA intrinsic.
@@ -151,23 +151,23 @@ gpu.module @mfma {
     // - MPerWave attribute.
     // - NPerWave attribute.
     //
-    // All the code selection process will be carried out at miopen.gridwise_gemm level now.
+    // All the code selection process will be carried out at rock.gridwise_gemm level now.
 
-    // miopen.gridwise_gemm will be revised to allocate and 0-initialize matrix C on VGPR like below.
+    // rock.gridwise_gemm will be revised to allocate and 0-initialize matrix C on VGPR like below.
     // vector.type_cast is no longer necessary.
     %c0f = constant 0.0 : f32
     %vector_c0 = splat %c0f : vector<32xf32>
     %vector_c1 = splat %c0f : vector<32xf32>
 
-    // miopen.xdlops_gemm will be rewritten to produce this block.
-    // Notice miopen.xdlops_gemm would now take variadic numbers of vectors.
+    // rock.xdlops_gemm will be rewritten to produce this block.
+    // Notice rock.xdlops_gemm would now take variadic numbers of vectors.
     %d3, %e3 = scf.for %i = %c0 to %c16 step %c1 iter_args(%arg_c0 = %vector_c0, %arg_c1 = %vector_c1) -> (vector<32xf32>, vector<32xf32>) {
       %d0 = gpu.mfma(%a0, %b0, %arg_c0) { imm = [1, 0, 0] } : f32, vector<32xf32>
       %e0 = gpu.mfma(%a0, %b0, %arg_c1) { imm = [1, 1, 0] } : f32, vector<32xf32>
       scf.yield %d0, %e0 : vector<32xf32>, vector<32xf32>
     }
 
-    // miopen.threadwise_copy will be revised to produce following blocks when given a vector typed input.
+    // rock.threadwise_copy will be revised to produce following blocks when given a vector typed input.
     scf.for %i = %c0 to %c32 step %c1 {
       %i_i32 = index_cast %i : index to i32
       %d = vector.extractelement %d3[%i_i32 : i32] : vector<32xf32>

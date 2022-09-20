@@ -4,7 +4,7 @@ module attributes {gpu.container_module} {
   func @conv2d(%arg0: memref<128x8x3x3xf32>, %arg1: memref<128x8x32x32xf32>, %arg2: memref<128x128x30x30xf32>) {
     %c1 = constant 1 : index
     %c256 = constant 256 : index
-    "gpu.launch_func"(%c1, %c1, %c1, %c256, %c1, %c1, %arg0, %arg1, %arg2) {kernel = @miopen_kernel_module::@miopen_conv2d_kcyx_nchw_nkhw} : (index, index, index, index, index, index, memref<128x8x3x3xf32>, memref<128x8x32x32xf32>, memref<128x128x30x30xf32>) -> ()
+    "gpu.launch_func"(%c1, %c1, %c1, %c256, %c1, %c1, %arg0, %arg1, %arg2) {kernel = @rock_kernel_module::@rock_conv2d_kcyx_nchw_nkhw} : (index, index, index, index, index, index, memref<128x8x3x3xf32>, memref<128x8x32x32xf32>, memref<128x128x30x30xf32>) -> ()
     return
   }
   func @main() {
@@ -47,8 +47,8 @@ module attributes {gpu.container_module} {
   func @mgpuMemDealloc4DFloat(memref<?x?x?x?xf32>)
   func @mgpuMemCopy4DFloat(memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, i32)
   func @print_memref_f32(memref<*xf32>)
-  gpu.module @miopen_kernel_module {
-    gpu.func @miopen_conv2d_kcyx_nchw_nkhw(%arg0: memref<128x8x3x3xf32>, %arg1: memref<128x8x32x32xf32>, %arg2: memref<128x128x30x30xf32>) kernel {
+  gpu.module @rock_kernel_module {
+    gpu.func @rock_conv2d_kcyx_nchw_nkhw(%arg0: memref<128x8x3x3xf32>, %arg1: memref<128x8x32x32xf32>, %arg2: memref<128x128x30x30xf32>) kernel {
       %cst = constant 0.000000e+00 : f32
       %c900 = constant 900 : index
       %c128 = constant 128 : index
@@ -67,14 +67,14 @@ module attributes {gpu.container_module} {
       %c4_i32 = constant 4 : i32
       %c64_i32 = constant 64 : i32
       %c8 = constant 8 : index
-      %0 = miopen.workgroup_id : index
+      %0 = rock.workgroup_id : index
       %1 = divi_signed %0, %c900 : index
       %2 = remi_signed %0, %c900 : index
       %3 = muli %1, %c128 : index
       %4 = muli %2, %c128 : index
       %5 = index_cast %3 : index to i32
       %6 = index_cast %4 : index to i32
-      %7 = miopen.workitem_id : index
+      %7 = rock.workitem_id : index
       %8 = divi_signed %7, %c8 : index
       %9 = remi_signed %7, %c8 : index
       %10 = muli %9, %c4 : index
@@ -87,9 +87,9 @@ module attributes {gpu.container_module} {
       %17 = index_cast %14 : index to i32
       %18 = index_cast %16 : index to i32
       %19 = addi %6, %18 : i32
-      %20 = miopen.alloc() : memref<4096xf32, 3>
-      %21 = miopen.alloc() : memref<8x8xf32, 5>
-      %22 = miopen.alloc() : memref<1x4xf32, 5>
+      %20 = rock.alloc() : memref<4096xf32, 3>
+      %21 = rock.alloc() : memref<8x8xf32, 5>
+      %22 = rock.alloc() : memref<1x4xf32, 5>
       scf.for %arg3 = %c0 to %c8 step %c1 {
         scf.for %arg4 = %c0 to %c8 step %c1 {
           store %cst, %21[%c0, %c0] : memref<8x8xf32, 5>
@@ -172,10 +172,10 @@ module attributes {gpu.container_module} {
           store %cst, %21[%c7, %c7] : memref<8x8xf32, 5>
         }
       }
-      %23 = miopen.alloc() : memref<2xi32, 5>
+      %23 = rock.alloc() : memref<2xi32, 5>
       store %11, %23[%c0] : memref<2xi32, 5>
       store %13, %23[%c1] : memref<2xi32, 5>
-      %24 = miopen.alloc() : memref<2xi32, 5>
+      %24 = rock.alloc() : memref<2xi32, 5>
       store %11, %24[%c0] : memref<2xi32, 5>
       store %12, %24[%c1] : memref<2xi32, 5>
       %25 = divi_signed %7, %c16 : index
@@ -196,7 +196,7 @@ module attributes {gpu.container_module} {
       %40 = addi %6, %38 : i32
       %41 = load %23[%c0] : memref<2xi32, 5>
       %42 = load %23[%c1] : memref<2xi32, 5>
-      miopen.threadwise_copy(%arg0, %22, %41, %42, %c0_i32, %c0_i32) {coord_transforms = [{operand = 0 : i32, transforms = [affine_map<(d0, d1) -> (d1, d0 floordiv 9, (d0 mod 9) floordiv 3, (d0 mod 9) mod 3)>]}], dest_data_per_write = 1 : i32, dim_access_order = [1 : i32, 0 : i32], source_data_per_read = 1 : i32, vector_read_write_dim = 0 : i32} : memref<128x8x3x3xf32>, memref<1x4xf32, 5>
+      rock.threadwise_copy(%arg0, %22, %41, %42, %c0_i32, %c0_i32) {coord_transforms = [{operand = 0 : i32, transforms = [affine_map<(d0, d1) -> (d1, d0 floordiv 9, (d0 mod 9) floordiv 3, (d0 mod 9) mod 3)>]}], dest_data_per_write = 1 : i32, dim_access_order = [1 : i32, 0 : i32], source_data_per_read = 1 : i32, vector_read_write_dim = 0 : i32} : memref<128x8x3x3xf32>, memref<1x4xf32, 5>
 
       scf.for %iter = %c0 to %c4 step %c1 {
         %v = load %22[%c0, %iter] : memref<1x4xf32, 5>
@@ -205,8 +205,8 @@ module attributes {gpu.container_module} {
 
       //%43 = load %24[%c0] : memref<2xi32, 5>
       //%44 = load %24[%c1] : memref<2xi32, 5>
-      //miopen.threadwise_copy(%22, %20, %c0_i32, %c0_i32, %43, %44) {coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0, d1) -> (d1 + d0 * 128)>]}], dest_data_per_write = 1 : i32, dim_access_order = [0 : i32, 1 : i32], source_data_per_read = 1 : i32, vector_read_write_dim = 0 : i32} : memref<1x4xf32, 5>, memref<4096xf32, 3>
-      //miopen.workgroup_barrier
+      //rock.threadwise_copy(%22, %20, %c0_i32, %c0_i32, %43, %44) {coord_transforms = [{operand = 1 : i32, transforms = [affine_map<(d0, d1) -> (d1 + d0 * 128)>]}], dest_data_per_write = 1 : i32, dim_access_order = [0 : i32, 1 : i32], source_data_per_read = 1 : i32, vector_read_write_dim = 0 : i32} : memref<1x4xf32, 5>, memref<4096xf32, 3>
+      //rock.workgroup_barrier
       //%c30 = constant 30 : index
       //%45 = cmpi "eq", %7, %c0 : index
       //scf.if %45 {

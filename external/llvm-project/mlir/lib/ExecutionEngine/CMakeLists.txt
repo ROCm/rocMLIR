@@ -8,9 +8,13 @@ set(LLVM_OPTIONAL_SOURCES
   SparseTensorUtils.cpp
   ExecutionEngine.cpp
   Float16bits.cpp
+  RocmDeviceName.cpp
   RocmRuntimeWrappers.cpp
   RunnerUtils.cpp
   OptUtils.cpp
+  RocmSystemDetect.cpp
+  CpuSystemDetect.cpp
+  SystemDevices.cpp
   JitRunner.cpp
   )
 
@@ -19,6 +23,9 @@ set(LLVM_OPTIONAL_SOURCES
 # libMLIR.so.
 add_mlir_library(MLIRExecutionEngineUtils
   OptUtils.cpp
+  CpuSystemDetect.cpp
+  RocmDeviceName.cpp
+  SystemDevices.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/ExecutionEngine
@@ -29,15 +36,20 @@ add_mlir_library(MLIRExecutionEngineUtils
   LINK_COMPONENTS
   Analysis
   Core
-  Coroutines
   AggressiveInstCombine
   InstCombine
+  MC
   ScalarOpts
+  Target
   Vectorize
   TransformUtils
   IPO
   Passes
   )
+  
+if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+  add_definitions(-D__LINUX__)
+endif()
 
 # Only enable the ExecutionEngine if the native target is configured in.
 if(NOT TARGET ${LLVM_NATIVE_ARCH})
@@ -280,4 +292,33 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     PUBLIC
     ${ROCM_RUNTIME_LIBRARY}
   )
+
+  # Set HIP compile-time flags.
+  add_definitions(-D__HIP_PLATFORM_AMD__)
+
+  set_source_files_properties(RocmSystemDetect.cpp PROPERTIES
+    COMPILE_OPTIONS "-Wno-gnu-anonymous-struct;-Wno-nested-anon-types;-Wno-c++98-compat-extra-semi")
+  
+  add_mlir_library(MLIRRocmExecutionEngineUtils
+    RocmSystemDetect.cpp
+
+    ADDITIONAL_HEADER_DIRS
+    ${MLIR_MAIN_INCLUDE_DIR}/mlir/ExecutionEngine
+
+    DEPENDS
+    intrinsics_gen
+  )
+
+  llvm_update_compile_flags(MLIRRocmExecutionEngineUtils)
+  target_include_directories(MLIRRocmExecutionEngineUtils
+    PRIVATE
+    ${HIP_PATH}/include
+    ${ROCM_PATH}/include
+  )
+  
+  target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE 
+    MLIRExecutionEngineUtils
+    ${ROCM_RUNTIME_LIBRARY}
+  )
+  
 endif()

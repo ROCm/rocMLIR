@@ -1,1 +1,1 @@
-add_subdirectory(MIOpen)
+add_subdirectory(Rock)

@@ -4,9 +4,9 @@ This script reads in a configuration file and generates MLIR E2E tests.
 
 The configuration files are in TOML format.  Below is an example:
 
-    directory= "mlir/test/mlir-miopen-driver/auto_e2e/"
-    prefix = "miopen-gen"
-    suffix = "%pv %random_data %xdlops | mlir-miopen-driver -c | mlir-rocm-runner --shared-libs=%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+    directory= "mlir/test/rocmlir-driver/auto_e2e/"
+    prefix = "rocmlir-gen"
+    suffix = "%pv %random_data %xdlops | rocmlir-driver -c | mlir-rocm-runner --shared-libs=%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
 
     [[axis]]
     name = "operation"

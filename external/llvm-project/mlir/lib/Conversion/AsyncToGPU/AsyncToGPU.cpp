@@ -59,7 +59,7 @@ static Optional<DictionaryAttr> getGPUTarget(async::LaunchOp op) {
   if (!func.hasValue() || func->getNumResults() != 0)
     return llvm::None;
 
-  auto attr = (*func)->template getAttrOfType<ArrayAttr>("targets");
+  auto attr = (*func)->template getAttrOfType<ArrayAttr>("async.targets");
   if (!attr)
     return llvm::None;
 
