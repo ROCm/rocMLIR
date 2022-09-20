@@ -241,15 +241,23 @@ namespace {
 /// next part of memory, etc.), which is an optimistic guess, and the
 /// coefficient that the dimension needs to be multiplied by for the dimension
 /// to vectorize properly when it is embeded into a broader context.
+/// The alignment field tracks what we know about how the values in a particular
+/// dimension will be aligned, with the initial assiumption being that the
+/// input dimension is aligned to the maximum vectorization length. This
+/// information is important in ensuring that a pad() that would otherwise
+/// vectorize doesn't have reads that go partly into the padding.
 struct VectorizationInfo {
-  int64_t maxLength = 0, needsCoefficient = 0;
+  int64_t maxLength = 0, needsCoefficient = 0, alignment = 0;
 
-  VectorizationInfo(int64_t maxLength, int64_t needsCoefficient)
-      : maxLength(maxLength), needsCoefficient(needsCoefficient) {}
+  VectorizationInfo(int64_t maxLength, int64_t needsCoefficient,
+                    int64_t alignment)
+      : maxLength(maxLength), needsCoefficient(needsCoefficient),
+        alignment(alignment) {}
 
   friend llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
                                        const VectorizationInfo &info) {
-    return os << info.maxLength << "@" << info.needsCoefficient;
+    return os << info.maxLength << "@" << info.needsCoefficient << " align("
+              << info.alignment << ")";
   }
 };
 
@@ -276,7 +284,7 @@ struct VectorizationData {
       if (data[i].hasValue())
         LLVM_DEBUG(llvm::dbgs() << *data[i]);
       else
-        LLVM_DEBUG(llvm::dbgs() << "?@?");
+        LLVM_DEBUG(llvm::dbgs() << "?@? align(?)");
       LLVM_DEBUG(llvm::dbgs() << (i == e - 1 ? "\n" : " "));
     }
   }
@@ -300,13 +308,14 @@ propagateUnmergeVectorization(T &&dimAndLength,
                               const VectorizationData &input) {
   Optional<VectorizationInfo> result;
   int64_t previousDimsStride = 1;
+  Optional<int64_t> previousAlign;
   for (auto pair : dimAndLength) {
     uint32_t upperDim = std::get<0>(pair);
     int64_t dimLength = std::get<1>(pair);
     if (input[upperDim].hasValue()) {
       VectorizationInfo upperInfo = *input[upperDim];
       if (!result.hasValue())
-        result = VectorizationInfo(1, upperInfo.needsCoefficient);
+        result = VectorizationInfo(1, upperInfo.needsCoefficient, 1);
       // Catch
       // 1. Dimensions merged out of order and then
       // 2. Previous dimensions having incomplete vector lengths
@@ -314,12 +323,25 @@ propagateUnmergeVectorization(T &&dimAndLength,
           (result->maxLength * result->needsCoefficient) ==
               previousDimsStride) {
         result->maxLength *= upperInfo.maxLength;
+        if (!previousAlign.has_value())
+          previousAlign = upperInfo.alignment * previousDimsStride;
+        else
+          previousAlign = math_util::gcd(
+              *previousAlign, upperInfo.alignment * previousDimsStride);
       } else {
         break;
       }
+    } else {
+      // Dimensions held constant affect alignment
+      if (!previousAlign.has_value())
+        previousAlign = previousDimsStride;
+      else
+        previousAlign = math_util::gcd(*previousAlign, previousDimsStride);
     }
     previousDimsStride *= dimLength;
   }
+  if (result.has_value())
+    result->alignment = previousAlign.getValueOr(1);
   return result;
 }
 
@@ -340,20 +362,24 @@ propagateVectorizationInfo(TransformMapAttr map,
         result[std::get<1>(pair)] = input[std::get<0>(pair)];
       }
       break;
-    // For a slice, each vector must be either fully in or fully out of the
-    // slice which means that the new maximum vectorization length is the gcd of
-    // the old length and the slice length
+    // A slice doesn't affect the vectorization length, as it just shifts around
+    // the beginning coordinate, but it can change the alignment of the
+    // dimension.
     case TransformType::Slice:
       for (auto data : llvm::enumerate(llvm::zip(upperDims, lowerDims))) {
         uint32_t idx = data.index();
-        int64_t sliceBegin = params[2 * idx], sliceEnd = params[2 * idx + 1];
+        int64_t sliceBegin =
+            params[2 * idx]; // , sliceEnd = params[2 * idx + 1];
         uint32_t upper, lower;
         std::tie(upper, lower) = data.value();
         if (input[upper].hasValue()) {
-          int64_t maxLength =
-              math_util::gcd(input[upper]->maxLength, sliceEnd - sliceBegin);
+          int64_t alignment =
+              sliceBegin == 0
+                  ? input[upper]->alignment
+                  : math_util::gcd(input[upper]->alignment, sliceBegin);
           result[lower] =
-              VectorizationInfo(maxLength, input[upper]->needsCoefficient);
+              VectorizationInfo(input[upper]->maxLength,
+                                input[upper]->needsCoefficient, alignment);
         }
       }
       break;
@@ -371,18 +397,28 @@ propagateVectorizationInfo(TransformMapAttr map,
         Optional<VectorizationInfo> upperInfo = input[upper];
         if (upperInfo.hasValue()) {
           int64_t maxUpperLen = upperInfo->maxLength;
+          int64_t upperAlign = upperInfo->alignment;
           int64_t maxVectorizationLeft =
               math_util::gcd(maxUpperLen, maxUpperLen - leftPad);
           int64_t maxVectorizationRight =
               math_util::gcd(maxUpperLen, maxUpperLen - rightPad);
           int64_t lowerMaxLen =
               std::min(maxVectorizationLeft, maxVectorizationRight);
-          result[lower] =
-              VectorizationInfo(lowerMaxLen, upperInfo->needsCoefficient);
+          // Padding is unique in that it imposes the requirement that
+          // the padded dimension's vectorization lenght be a multiple of
+          // the alignment of said dimension, to prevent reads that go partially
+          // into the padding. However, this only applies if there's actual
+          // padding being applied.
+          if (leftPad != 0 || rightPad != 0)
+            lowerMaxLen = math_util::gcd(lowerMaxLen, upperAlign);
+          result[lower] = VectorizationInfo(
+              lowerMaxLen, upperInfo->needsCoefficient, upperAlign);
         }
       }
       break;
-      // Broadcast has in/out requirements like slice.
+    // For a broadcast, each vector must be either fully in or fully out of the
+    // broadcast which means that the new maximum vectorization length is the
+    // gcd of the old length and the broadcast modulus.
     case TransformType::Broadcast:
       for (auto data : llvm::zip(upperDims, lowerDims, params)) {
         uint32_t upper, lower;
@@ -391,8 +427,10 @@ propagateVectorizationInfo(TransformMapAttr map,
         if (input[upper].hasValue()) {
           int64_t lowerMaxLen =
               math_util::gcd(input[upper]->maxLength, modulus);
-          result[lower] =
-              VectorizationInfo(lowerMaxLen, input[upper]->needsCoefficient);
+          int64_t lowerAlignment =
+              math_util::gcd(input[upper]->alignment, modulus);
+          result[lower] = VectorizationInfo(
+              lowerMaxLen, input[upper]->needsCoefficient, lowerAlignment);
         }
       }
       break;
@@ -401,7 +439,7 @@ propagateVectorizationInfo(TransformMapAttr map,
     // vectorization lengths of dimensions, stopping if the accumulated length
     // ends up not equal to theat dimension's coefficient or if the coefficient
     // isn't equal to the accumulated value times the smallest coefficient seen
-    // on a dimension being vectorized.
+    // on a dimension being vectorized. d.
     case TransformType::Embed: {
       // Since embed coefficients can go in any order, we need them sorted
       auto &&zip = llvm::zip(params, upperDims);
@@ -419,6 +457,9 @@ propagateVectorizationInfo(TransformMapAttr map,
       // of 1
       bool hasNegativeCoefficients = false;
       Optional<VectorizationInfo> ourResult;
+      // We first compute the alignment assuming the held constant dimensions
+      // don't matter, then we take the gcd of that result with the coefficients
+      // on the held-constant dimensions.
       for (auto pair : data) {
         int64_t coefficient = std::get<0>(pair);
         uint32_t upperDim = std::get<1>(pair);
@@ -430,19 +471,39 @@ propagateVectorizationInfo(TransformMapAttr map,
 
           int64_t upperLen = input[upperDim]->maxLength;
           int64_t needsCoeff = input[upperDim]->needsCoefficient;
+          int64_t thisAlignment = input[upperDim]->alignment;
 
           if (!ourResult.hasValue()) {
-            ourResult = VectorizationInfo(1, coefficient);
-            if (hasNegativeCoefficients)
+            ourResult =
+                VectorizationInfo(1, coefficient, thisAlignment * coefficient);
+            if (hasNegativeCoefficients) {
+              ourResult->alignment = 1;
               break;
+            }
           }
           if (coefficient == needsCoeff &&
               coefficient ==
                   (ourResult->maxLength * ourResult->needsCoefficient)) {
             ourResult->maxLength *= upperLen;
+            ourResult->alignment = math_util::gcd(ourResult->alignment,
+                                                  thisAlignment * coefficient);
           } else {
             break;
           }
+        }
+      }
+      // Fix up the alignment for cases like Embed{1, 1}(?@?, 2@1), which should
+      // be aligned to 1, not 2
+      if (ourResult.has_value()) {
+        for (auto pair : data) {
+          int64_t coefficient = std::get<0>(pair);
+          int64_t upperDim = std::get<1>(pair);
+          if (coefficient <= 0)
+            continue;
+          if (input[upperDim].has_value())
+            continue;
+          ourResult->alignment =
+              math_util::gcd(ourResult->alignment, coefficient);
         }
       }
       result[lowerDims[0]] = ourResult;
@@ -468,14 +529,18 @@ propagateVectorizationInfo(TransformMapAttr map,
       }
       int64_t maxLen = input[upperDim]->maxLength;
       int64_t coeff = input[upperDim]->needsCoefficient;
+      int64_t stride = 1;
       for (auto pair :
            llvm::zip(llvm::reverse(lowerDims), llvm::reverse(params))) {
         uint32_t lowerDim = std::get<0>(pair);
         int64_t lowerLen = std::get<1>(pair);
         int64_t thisMaxLen = math_util::gcd(maxLen, lowerLen);
-        result[lowerDim] = VectorizationInfo(thisMaxLen, coeff);
+        int64_t thisAlignment =
+            std::max(input[upperDim]->alignment / stride, 1l);
+        result[lowerDim] =
+            VectorizationInfo(thisMaxLen, coeff * stride, thisAlignment);
         maxLen = std::max(maxLen / lowerLen, 1L);
-        coeff *= lowerLen;
+        stride *= lowerLen;
       }
       break;
     }
@@ -491,12 +556,15 @@ propagateVectorizationInfo(TransformMapAttr map,
       }
       int64_t maxLen = input[upperDim]->maxLength;
       int64_t coeff = input[upperDim]->needsCoefficient;
+      int64_t align = input[upperDim]->alignment;
       int64_t lastLowerDim = lowerDims.back();
       int64_t lowerDimsLen = 1;
       for (int64_t length : params)
         lowerDimsLen *= length;
       int64_t resultMaxLen = math_util::gcd(maxLen, lowerDimsLen);
-      result[lastLowerDim] = VectorizationInfo(resultMaxLen, coeff);
+      int64_t resultAlignment = math_util::gcd(align, lowerDimsLen);
+      result[lastLowerDim] =
+          VectorizationInfo(resultMaxLen, coeff, resultAlignment);
       break;
     }
     }
@@ -516,7 +584,8 @@ int64_t mlir::miopen::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
   VectorizationData data;
   // grow() takes the last index, not the length
   data.grow(numInitialDims);
-  data[dim] = VectorizationInfo(len, 1);
+  data[dim] = VectorizationInfo(/*maxLength=*/len, /*needsCoefficient=*/1,
+                                /*alignment=*/len);
   for (auto transformMap : transforms.getAsRange<TransformMapAttr>()) {
     LLVM_DEBUG(llvm::dbgs() << "Max vectorization data: ");
     data.debugPrint();
@@ -531,6 +600,10 @@ int64_t mlir::miopen::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
                 llvm::reverse(outputShape)),
       data);
   int64_t result = 1;
+  if (finalUnmerge.has_value())
+    LLVM_DEBUG(llvm::dbgs() << "Final unmerge: " << *finalUnmerge << "\n");
+  else
+    LLVM_DEBUG(llvm::dbgs() << "Final unmerge yielded no result\n");
   if (finalUnmerge && finalUnmerge->needsCoefficient == 1)
     result = finalUnmerge->maxLength;
   // TODO(kdrewnia): Add support for tails

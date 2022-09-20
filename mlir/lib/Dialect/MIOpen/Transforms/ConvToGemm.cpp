@@ -889,17 +889,6 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       break;
     }
 
-    // Hotfix: handle problems with the gemm logic not interecting well with
-    // even padding Note: xdlops doesn't use any of the suspect logic yet, and
-    // so we can put this fix after we move to atomic add.
-    int64_t x = filterTransform.startSize("x");
-    if ((x > 1) && ((leftPadW > 0 && leftPadW % x == 0) ||
-                    (rightPadW > 0 && rightPadW % x == 0))) {
-      return op.emitOpError(
-          "padding of input tensor in w dimension that's an exact multiple of "
-          "the filter width is temporarily disabled");
-    }
-
     TransformMapAttr filterTransformAttr = filterTransform.get();
     Value gemmFilter =
         b.create<TransformOp>(loc, op.filter(), filterTransformAttr);
