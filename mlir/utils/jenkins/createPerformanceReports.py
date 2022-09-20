@@ -14,7 +14,7 @@ def printAllPerformance():
     try:
         df = pd.read_csv(reportUtils.PERF_REPORT_FILE)
         perfReportFound = True
-        COLUMNS_TO_AVERAGE = ['MLIR TFlops', 'Rock TFlops (no MLIR Kernels)', 'MLIR/Rock']
+        COLUMNS_TO_AVERAGE = ['MLIR TFlops', 'MIOpen TFlops (no MLIR Kernels)', 'MLIR/MIOpen']
     except FileNotFoundError:
         print('Perf report not found.')
         return
@@ -23,29 +23,29 @@ def printAllPerformance():
         tuned_df = pd.read_csv(reportUtils.MIOPEN_TUNED_REPORT_FILE)
         tunedReportFound = True
     except FileNotFoundError:
-        print('Rock with turned MLIR report not found.')
+        print('MIOpen with turned MLIR report not found.')
 
     try:
         untuned_df = pd.read_csv(reportUtils.MIOPEN_UNTUNED_REPORT_FILE)
         untunedReportFound = True
     except FileNotFoundError:
-        print('Rock with untuned MLIR report not found.')
+        print('MIOpen with untuned MLIR report not found.')
 
     # Add tuned and untuned performance to the existing performance table
     if tunedReportFound == True and untunedReportFound == True :
-        df['Rock TFlops (Tuned MLIR Kernels)'] = tuned_df['TFlops']
-        df['Rock TFlops (Untuned MLIR Kernels)'] = untuned_df['TFlops']
-        df['Tuned/Untuned'] = df['Rock TFlops (Tuned MLIR Kernels)']/df['Rock TFlops (Untuned MLIR Kernels)']
-        df['Tuned/Rock'] = df['Rock TFlops (Tuned MLIR Kernels)']/df['Rock TFlops (no MLIR Kernels)']
+        df['MIOpen TFlops (Tuned MLIR Kernels)'] = tuned_df['TFlops']
+        df['MIOpen TFlops (Untuned MLIR Kernels)'] = untuned_df['TFlops']
+        df['Tuned/Untuned'] = df['MIOpen TFlops (Tuned MLIR Kernels)']/df['MIOpen TFlops (Untuned MLIR Kernels)']
+        df['Tuned/MIOpen'] = df['MIOpen TFlops (Tuned MLIR Kernels)']/df['MIOpen TFlops (no MLIR Kernels)']
         df.to_csv(reportUtils.PERF_REPORT_FILE, index=False)
-        COLUMNS_TO_AVERAGE = ['MLIR TFlops', 'Rock TFlops (no MLIR Kernels)', 'MLIR/Rock',
-                              'Rock TFlops (Tuned MLIR Kernels)', 'Rock TFlops (Untuned MLIR Kernels)', 'Tuned/Untuned', 'Tuned/Rock']
+        COLUMNS_TO_AVERAGE = ['MLIR TFlops', 'MIOpen TFlops (no MLIR Kernels)', 'MLIR/MIOpen',
+                              'MIOpen TFlops (Tuned MLIR Kernels)', 'MIOpen TFlops (Untuned MLIR Kernels)', 'Tuned/Untuned', 'Tuned/MIOpen']
 
     plotMean = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
     plotMean.name = "Geo. mean"
     plotMean = pd.DataFrame(plotMean).T
 
-    plotMean[['MLIR TFlops', 'Rock TFlops (no MLIR Kernels)']]\
+    plotMean[['MLIR TFlops', 'MIOpen TFlops (no MLIR Kernels)']]\
         .to_csv(reportUtils.PERF_PLOT_REPORT_FILE, index=False)
 
     means = df.groupby(["Direction", "DataType", "InputLayout"])[COLUMNS_TO_AVERAGE]\
@@ -53,8 +53,8 @@ def printAllPerformance():
     means.loc[("All", "All", "All"),:] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
     means.to_csv(reportUtils.PERF_STATS_REPORT_FILE)
 
-    with open("MLIR_vs_Rock.html", 'w') as htmlOutput:
-        reportUtils.htmlReport(df, means, "MLIR vs. Rock performance", ["MLIR/Rock", "Tuned/Untuned", "Tuned/Rock"], htmlOutput)
+    with open("MLIR_vs_MIOpen.html", 'w') as htmlOutput:
+        reportUtils.htmlReport(df, means, "MLIR vs. MIOpen performance", ["MLIR/MIOpen", "Tuned/Untuned", "Tuned/MIOpen"], htmlOutput)
 
 # Main function.
 if __name__ == '__main__':
