@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MIOPEN_CONVERSION_PASSDETAIL_H_
-#define MIOPEN_CONVERSION_PASSDETAIL_H_
+#ifndef ROCMLIR_CONVERSION_PASSDETAIL_H_
+#define ROCMLIR_CONVERSION_PASSDETAIL_H_
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -44,9 +44,9 @@ namespace migraphx {
 class MIGraphXDialect;
 } // namespace migraphx
 
-namespace miopen {
-class MIOpenDialect;
-} // namespace miopen
+namespace rock {
+class RockDialect;
+} // namespace rock
 
 namespace tosa {
 class TosaDialect;
@@ -57,8 +57,8 @@ class VectorDialect;
 } // end namespace vector
 
 #define GEN_PASS_CLASSES
-#include "mlir/Conversion/MIOpenPasses.h.inc"
+#include "mlir/Conversion/RocMLIRPasses.h.inc"
 
 } // end namespace mlir
 
-#endif // MIOPEN_CONVERSION_PASSDETAIL_H_
+#endif // ROCMLIR_CONVERSION_PASSDETAIL_H_

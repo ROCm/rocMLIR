@@ -8,7 +8,7 @@ import subprocess
 import lit.formats
 
 # name: The name of this test suite.
-config.name = 'MLIR-MIOpen--Unit'
+config.name = 'RocMLIR--Unit'
 
 # suffixes: A list of file extensions to treat as test files.
 config.suffixes = []

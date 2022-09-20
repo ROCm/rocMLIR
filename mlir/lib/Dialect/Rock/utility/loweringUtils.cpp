@@ -1,0 +1,120 @@
+//===- loweringUtils.cpp - Rock utility functions -----------------===//
+//
+// Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===-----------------------------------------------------===//
+
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
+
+#include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/Tuning/ConvContext.h"
+#include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/IR/BuiltinAttributes.h"
+
+using namespace mlir;
+using namespace mlir::rock;
+
+LogicalResult mlir::rock::calculateKBlockNum(
+    ConvolutionDims convDims, int64_t MPerBlock, int64_t NPerBlock,
+    int64_t KPerBlock, int64_t KPack, int64_t num_cu, int64_t &nKBlock) {
+  const int64_t gemmM = convDims.k;
+  const int64_t gemmN = convDims.c * convDims.y * convDims.x;
+  const int64_t gemmK = convDims.n * convDims.ho * convDims.wo;
+
+  int64_t gemmKBlock = 1;
+
+  if ((gemmM % MPerBlock != 0) || (gemmN % NPerBlock != 0) ||
+      (gemmK % (KPerBlock * KPack) != 0))
+    return failure();
+
+  const int64_t gridSize =
+      convDims.g * (gemmM / MPerBlock) * (gemmN / NPerBlock);
+  const int64_t maxGridSize = 20 * num_cu;
+
+  gemmKBlock = std::max(maxGridSize / gridSize, static_cast<int64_t>(1));
+  gemmKBlock = std::min(gemmKBlock, convDims.n);
+
+  for (; gemmKBlock > 1; --gemmKBlock) {
+    if (convDims.n % gemmKBlock != 0)
+      continue;
+
+    if (gemmK % (gemmKBlock * KPerBlock * KPack) != 0)
+      continue;
+
+    break;
+  }
+  // not more than n
+  gemmKBlock = std::min(convDims.n, gemmKBlock);
+  // not less than 1
+  gemmKBlock = std::max((__int64_t)1, gemmKBlock);
+
+  nKBlock = gemmKBlock;
+  return success();
+}
+
+SmallVector<int64_t> mlir::rock::populateBackwardDataGemmIds(
+    int64_t strideHeight, int64_t strideWidth, int64_t dilationHeight,
+    int64_t dilationWidth, int64_t filterHeight, int64_t filterWidth) {
+  int64_t gcdStrideDilationH = math_util::gcd(strideHeight, dilationHeight);
+  int64_t gcdStrideDilationW = math_util::gcd(strideWidth, dilationWidth);
+
+  int64_t yTilda = strideHeight / gcdStrideDilationH;
+  int64_t xTilda = strideWidth / gcdStrideDilationW;
+
+  int64_t y = filterHeight;
+  int64_t x = filterWidth;
+
+  // Heuristic to determine if every pixel in the output would be written by the
+  // backward data convolution algorithm.
+  auto isEveryPixelWritten = [&]() -> bool {
+    bool result = true;
+    for (int32_t dim = 0; dim < 2; ++dim) {
+      int64_t convStride = (dim == 0) ? strideHeight : strideWidth;
+      int64_t convDilation = (dim == 0) ? dilationHeight : dilationWidth;
+      int64_t filterSize = (dim == 0) ? filterHeight : filterWidth;
+
+      if (!(convDilation == 1 && convStride <= filterSize))
+        result = false;
+    }
+    return result;
+  };
+  bool needZeroInitKernel = !isEveryPixelWritten();
+
+  llvm::SmallVector<int64_t> gemmIds;
+  if (needZeroInitKernel)
+    gemmIds.push_back(-1);
+
+  // Populate the gemm IDs according to the current backward data convolution
+  // algorithm implementation.
+  for (int64_t gemmId = 0; gemmId < yTilda * xTilda; ++gemmId) {
+    // gemmK size is different for each GEMM
+    const int64_t iYTilda = gemmId / xTilda;
+    const int64_t iXTilda = gemmId % xTilda;
+
+    int64_t yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
+    int64_t xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
+    // gemmK must > 0, otherwise not need to run
+    if (yDotSlice * xDotSlice > 0) {
+      gemmIds.push_back(gemmId);
+    }
+  }
+  return gemmIds;
+}
+
+ConvOpType mlir::rock::obtainConvDirection(Operation *op) {
+  ConvOpType opType = ConvOpType::Fwd;
+  if (isa<Conv2DOp>(*op)) {
+    opType = ConvOpType::Fwd;
+  } else if (isa<Conv2DBwdDataOp>(*op)) {
+    opType = ConvOpType::BwdData;
+  } else if (isa<Conv2DBwdWeightOp>(*op)) {
+    opType = ConvOpType::BwdWeight;
+  }
+  return opType;
+}
+
+Type mlir::rock::obtainConvDataType(Operation *op) {
+  return op->getOperand(1).getType().cast<MemRefType>().getElementType();
+}

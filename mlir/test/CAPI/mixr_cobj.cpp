@@ -22,9 +22,9 @@
 
 #include "mlir/CAPI/IR.h"
 #include "mlir/Dialect/MIGraphX/Pipeline.h"
-#include "mlir/Dialect/MIOpen/Pipelines.h"
+#include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
-#include "mlir/InitMIOpenDialects.h"
+#include "mlir/InitRocMLIRDialects.h"
 #include "llvm/Support/TargetSelect.h"
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
@@ -166,7 +166,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 
   MlirValue retOperands[] = {conv0Value};
   MlirOperationState retState = mlirOperationStateGet(
-      mlirStringRefCreateFromCString("std.return"), location);
+      mlirStringRefCreateFromCString("func.return"), location);
   mlirOperationStateAddOperands(&retState, 1, retOperands);
   MlirOperation ret = mlirOperationCreate(&retState);
   mlirBlockAppendOwnedOperation(funcBody, ret);
@@ -202,7 +202,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   (void)pm.run(module);
   mlirOperationDump(moduleMO);
 
-  mlir::miopen::buildBufferizePipeline(pm);
+  mlir::rock::buildBufferizePipeline(pm);
   (void)pm.run(module);
   mlirOperationDump(moduleMO);
 
@@ -233,13 +233,13 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   // uses 11 params : ptr, ptr, 0 /*offset */, 1, 64, 56, 56, 1, 64, 56, 56
   // printf("Estimated #kernel params : %d\n", argIdx);
 
-  mlir::miopen::buildKernelPipeline(pm);
+  mlir::rock::buildKernelPipeline(pm);
 
-  mlir::miopen::BackendOptions opts;
+  mlir::rock::BackendOptions opts;
   opts.triple = triple;
   opts.chip = chip;
   opts.features = features;
-  mlir::miopen::buildBackendPipeline(pm, opts);
+  mlir::rock::buildBackendPipeline(pm, opts);
 
   auto status = pm.run(module);
 

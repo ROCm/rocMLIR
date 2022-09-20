@@ -15,8 +15,8 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/MIGraphX/Pipeline.h"
-#include "mlir/Dialect/MIOpen/MIOpen.h"
-#include "mlir/Dialect/MIOpen/Pipelines.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "llvm/Support/TargetSelect.h"
 #include <mutex>
@@ -108,7 +108,7 @@ void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
   passMan->getContext()->disableMultithreading();
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
   mlir::migraphx::addHighLevelPipeline(*passMan);
-  mlir::miopen::buildBufferizePipeline(*passMan);
+  mlir::rock::buildBufferizePipeline(*passMan);
 }
 
 MLIR_CAPI_EXPORTED void mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
@@ -123,14 +123,14 @@ MLIR_CAPI_EXPORTED void mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   target_mutex.unlock();
   auto passMan = unwrap(pm);
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
-  mlir::miopen::KernelOptions kOpts;
+  mlir::rock::KernelOptions kOpts;
   kOpts.tuningFallback = true;
-  mlir::miopen::buildKernelPipeline(*passMan, kOpts);
-  mlir::miopen::BackendOptions opts;
+  mlir::rock::buildKernelPipeline(*passMan, kOpts);
+  mlir::rock::BackendOptions opts;
   opts.triple = triple;
   opts.chip = chip;
   opts.features = features;
   opts.optLevel = 3;
   opts.indexBitwidth = 64;
-  mlir::miopen::buildBackendPipeline(*passMan, opts);
+  mlir::rock::buildBackendPipeline(*passMan, opts);
 }

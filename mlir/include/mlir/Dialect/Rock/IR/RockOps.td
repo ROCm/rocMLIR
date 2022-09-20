@@ -1,0 +1,914 @@
+//===- RockOps.td - Rock operation definitions ---------*- tablegen -*-===//
+//
+// Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// Defines MLIR Rock operations.
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef ROCK_OPS
+#define ROCK_OPS
+
+include "mlir/Dialect/Rock/IR/RockAttrDefs.td"
+include "mlir/Interfaces/ControlFlowInterfaces.td"
+include "mlir/Interfaces/InferIntRangeInterface.td"
+include "mlir/Interfaces/LoopLikeInterface.td"
+include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Interfaces/VectorInterfaces.td"
+include "mlir/Interfaces/ViewLikeInterface.td"
+
+// Base class for Rock dialect ops.
+class Rock_Op<string mnemonic, list<Trait> traits = []> :
+    Op<Rock_Dialect, mnemonic, traits> {
+  let extraClassDeclaration = [{
+  }];
+}
+
+def TransformMapArrayAttr : TypedArrayAttrBase<Rock_TransformMapAttr,
+  "Coordinate transforms array attribute, giving the sequence of transform maps applicable to a value, uppermost to lowermost"> {}
+
+def ArgTransformsAttr : TypedArrayAttrBase<TransformMapArrayAttr,
+  "An array of arrays of transformations, one per operation argument">;
+
+class ArgTransforms<int n> : Confined<ArgTransformsAttr, [ArrayCount<n>]>;
+
+def Rock_Conv2DOp :
+    Rock_Op<"conv2d">,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [5]>:$filter,
+                   MemRefRankOf<[F32, F16, BF16, I8], [5]>:$input,
+                   MemRefRankOf<[F32, F16, BF16, I32], [5]>:$output,
+                   StrAttr:$arch,
+                   I32Attr:$numCu,
+                   Rock_GemmFeaturesAttr:$features,
+                   OptionalAttr<I32Attr>:$blockSize,
+                   OptionalAttr<I32Attr>:$gridSize,
+                   Rock_OptionalGemmParams:$params)> {
+  let summary = "2D convolution forward";
+  let description = [{
+    The `rock.conv2d` op computes 2D convolution forward.
+  }];
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
+  }];
+}
+
+def Rock_Conv2DBwdDataOp :
+    Rock_Op<"conv2d_bwd_data">,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [5]>:$filter,
+                   MemRefRankOf<[F32, F16, BF16], [5]>:$input,
+                   MemRefRankOf<[F32, F16, BF16], [5]>:$output,
+                   StrAttr:$arch,
+                   I32Attr:$numCu,
+                   Rock_GemmFeaturesAttr:$features,
+                   OptionalAttr<I32Attr>:$blockSize,
+                   OptionalAttr<I32Attr>:$gridSize,
+                   Rock_OptionalGemmParams:$params)> {
+  let summary = "2D convolution backward data";
+  let description = [{
+    The `rock.conv2d_bwd_data` op computes 2D convolution backward data.
+  }];
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
+  }];
+}
+
+def Rock_Conv2DBwdWeightOp :
+    Rock_Op<"conv2d_bwd_weight">,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [5]>:$filter,
+                   MemRefRankOf<[F32, F16, BF16], [5]>:$input,
+                   MemRefRankOf<[F32, F16, BF16], [5]>:$output,
+                   Optional<MemRefRankOf<[F32], [5]>>:$workspace,
+                   StrAttr:$arch,
+                   I32Attr:$numCu,
+                   Rock_GemmFeaturesAttr:$features,
+                   OptionalAttr<I32Attr>:$blockSize,
+                   OptionalAttr<I32Attr>:$gridSize,
+                   Rock_OptionalGemmParams:$params,
+                   OptionalAttr<IndexAttr>:$kBlocks)> {
+  let summary = "2D convolution backward weight";
+  let description = [{
+    The `rock.conv2d_bwd_weight` op computes 2D convolution backward weight.
+  }];
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
+  }];
+}
+
+def Rock_GemmOp :
+    Rock_Op<"gemm", [AllElementTypesMatch<["a", "b"]>]>,
+    Arguments<(ins Arg<MemRefRankOf<[F32, F16, BF16, I8], [2, 3]>,
+                       "matrix A", [MemRead]>:$a,
+                   Arg<MemRefRankOf<[F32, F16, BF16, I8], [2, 3]>,
+                       "matrix B", [MemRead]>:$b,
+                   Arg<MemRefRankOf<[F32, F16, BF16, I32], [2, 3]>,
+                       "matrix C", [MemRead, MemWrite]>:$c,
+                   UnitAttr:$aTransposed,
+                   UnitAttr:$bTransposed,
+                   UnitAttr:$cTransposed,
+                   StrAttr:$arch,
+                   I32Attr:$numCu,
+                   Rock_GemmFeaturesAttr:$features,
+                   StoreMethodAttr:$storeMethod,
+                   OptionalAttr<I32Attr>:$blockSize,
+                   OptionalAttr<I32Attr>:$gridSize,
+                   Rock_OptionalGemmParams:$params)> {
+  let summary = "General matrix multiplication (GEMM)";
+  let description = [{
+    Performs the operation C += A * B.
+
+    If none of the `transposed` attributes are set, then A is [G] x M x K,
+    B is [G] x K x N, and C is [G] x M x N, where G is the optional group dimension
+    (which is assumed to be 1 if not set).
+
+    The transpose attributes allow for the non-group dimensions of the matrix to be
+    transposed. For example, if `aTransposed` is set, then the argument A should be
+    a [G] x K x M memory.
+
+    Those creating a `rock.gemm` must specify the GPU architecture being targetted
+    and the number of compute units (numCu) available. The parameters
+    `blockSize`, `gridSize`, and `params` are optional as they can be inferred by
+    a tuning process or a heuristic, but they must be set before the `gemm` is
+    lowered into the `gridwise_gemm` stage of the code generation pipeline.
+
+    `features` specifies what hardware features can be used in the generated code.
+  }];
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    (`tr` $cTransposed^)? $c `=` (`tr` $aTransposed^)? $a `*` (`tr` $bTransposed^)? $b
+    `features` `=` $features `storeMethod` `=` $storeMethod attr-dict
+    `:` type($c) `=` type($a) `*` type($b)
+  }];
+}
+
+def Rock_TransformOp :
+    Rock_Op<"transform", [NoSideEffect, ViewLikeOpInterface]>,
+    Arguments<(ins AnyMemRef:$input, TransformMapArrayAttr:$transforms)>,
+    Results<(outs AnyMemRef:$output)> {
+  let summary = "Tensor transformation";
+  let description = [{
+    Create a viee `output` of the tensor `input` with the same element type
+    such that, when the coordinates used to index into `output` are passed through
+    the coordinate transformations `transforms` from left to right,
+    they become coordinates into the `input` tensor.
+  }];
+  let builders = [
+   // Custom builder to populate bounds of input and output memrefs as attributes.
+   OpBuilder<(ins "Value":$input, "TransformMapAttr":$transform),
+   [{
+     $_state.addOperands({input});
+     MemRefType lowerType = input.getType().template cast<MemRefType>();
+     Type elemType = lowerType.getElementType();
+     int memorySpace = lowerType.getMemorySpaceAsInt();
+     MemRefType upperType = MemRefType::get(transform.getUpperBounds(), elemType,
+      /*layout=*/{}, memorySpace);
+     $_state.addAttribute("transforms", $_builder.getArrayAttr({transform}));
+     $_state.addTypes(upperType);
+   }]>,
+  ];
+  let assemblyFormat = [{
+    $input `by` $transforms attr-dict `:` type($input) `to` type($output)
+  }];
+
+  let extraClassDeclaration = [{
+    Value getViewSource() { return input(); }
+  }];
+}
+
+def Rock_GridwiseGemmOp :
+    Rock_Op<"gridwise_gemm">,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$a,
+                   MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$b,
+                   MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$c,
+                   StrAttr:$arch,
+                   // Note: num_cu is not used
+                   // arch isn't either, but I'm passing it down just in case
+                   I32Attr:$blockSize,
+                   I32Attr:$gridSize,
+                   Rock_GeneralGemmParamsAttr:$params)> {
+  let summary = "Gridwise GEMM";
+  let description = [{
+    The `rock.gridwise_gemm` op computes gridwise GEMM.
+  }];
+  let assemblyFormat = [{
+    $c `=` $a `*` $b attr-dict `:` type($c) `=` type($a) `*` type($b)
+  }];
+}
+
+// gridwise_gemm_v2
+def Rock_GridwiseGemmV2Op :
+    Rock_Op<"gridwise_gemm_v2">,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$a,
+                   MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$b,
+                   MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$c,
+                   StoreMethodAttr:$storeMethod,
+                   StrAttr:$arch,
+                   // Note: num_cu isn't used
+                   I32Attr:$blockSize,
+                   I32Attr:$gridSize,
+                   Rock_XdlopsGemmParamsAttr:$params)> {
+  let summary = "Gridwise GEMM V2";
+  let description = [{
+    The `rock.gridwise_gemm` op computes gridwise GEMM with XDLOPS.
+  }];
+  let assemblyFormat = [{
+    `(` operands `)` `storeMethod` `(` $storeMethod `)` attr-dict `:` type(operands)
+  }];
+}
+
+// Memory allocation on GPU memory hierachy.
+def Rock_GpuAllocOp:
+    Rock_Op<"alloc">,
+    Results<(outs Res<AnyMemRef, "", [MemAlloc]>:$output)> {
+  let summary = "Memory allocation on GPU";
+  let description = [{
+    The `rock.alloc` op allocates memory on GPU.
+    - Address space 0 : global.
+    - Address space 3 : LDS.
+    - Address space 5 : private (VGPR).
+    All other values would be considered as allocation on global.
+  }];
+  let assemblyFormat = [{
+    `(` `)` attr-dict `:` type($output)
+  }];
+}
+
+// TBD: eventually replace this with linalg.fill?
+def Rock_FillOp:
+    Rock_Op<"fill">,
+    Arguments<(ins AnyMemRef:$input,
+                   //AnyTypeOf<[AnyInteger, AnyFloat]>:$value)> {
+                   AnyTypeOf<[AnyInteger, AnyFloat, AnyVector]>:$value)> {
+  let summary = "Fill memory with constant value on GPU";
+  let description = [{
+    The `rock.fill` op fills a memref on GPU with a constant value.
+  }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type(operands)
+  }];
+}
+
+def Rock_WorkgroupBarrierOp:
+    Rock_Op<"workgroup_barrier"> {
+  let summary = "Setup an workgroup barrier";
+  let description = [{
+    The `rock.workgroup_barrier` op sets up a workgroup-level barrier.
+  }];
+  let assemblyFormat = "attr-dict";
+}
+
+def Rock_LDSBarrierOp:
+    Rock_Op<"lds_barrier"> {
+  let summary = "Setup an LDS barrier";
+  let description = [{
+    The `rock.lds_barrier` op sets up a workgroup-level barrier on LDS activities.
+  }];
+  let assemblyFormat = "attr-dict";
+}
+
+def Rock_WorkgroupIdOp:
+    Rock_Op<"workgroup_id", [NoSideEffect,
+      DeclareOpInterfaceMethods<InferIntRangeInterface>]>,
+    Results<(outs Index:$id)> {
+  let summary = "Get current workgroup ID";
+  let description = [{
+    The `rock.workgroup_id` op gets the current workgroup ID.
+  }];
+  let assemblyFormat = "attr-dict `:` type($id)";
+}
+
+def Rock_WorkitemIdOp:
+    Rock_Op<"workitem_id", [NoSideEffect,
+      DeclareOpInterfaceMethods<InferIntRangeInterface>]>,
+    Results<(outs Index:$id)> {
+  let summary = "Get current workitem ID";
+  let description = [{
+    The `rock.workgroup_id` op gets the current workitem ID.
+  }];
+  let assemblyFormat = "attr-dict `:` type($id)";
+}
+
+// extract_slice
+def Rock_ExtractSliceOp :
+    Rock_Op<"extract_slice", [NoSideEffect,
+      AllElementTypesMatch<["vector", "result"]>]>,
+    Arguments<(ins
+      VectorOfRank<[1]>:$vector,
+      Index:$coord)>,
+    Results<(outs AnyType:$result)> {
+  let summary = "Extract a slice from a vector";
+
+  let description = [{
+    Extracts `len(result)` contiguous elements starting at `coord`  in `vector`.
+    If `result` is a scalar type, the length is 1 and this is just `vector.extractelement`.
+    If this causes an out of bounds read, the result is undefined.
+  }];
+
+  let assemblyFormat = [{
+    attr-dict $vector `[` $coord `]` `:` type($vector) `->` type($result)
+  }];
+  let hasVerifier = 1;
+  let hasCanonicalizeMethod = 1;
+}
+
+// insert_slice
+def Rock_InsertSliceOp :
+    Rock_Op<"insert_slice", [NoSideEffect,
+      AllElementTypesMatch<["source", "dest"]>,
+      AllTypesMatch<["dest", "result"]>]>,
+    Arguments<(ins
+      AnyType:$source,
+      VectorOfRank<[1]>:$dest,
+      Index:$coord)>,
+    Results<(outs VectorOfRank<[1]>:$result)> {
+  let summary = "Insert a slice into a vector";
+
+  let description = [{
+    Inserts  `source` into contigious indices of `dest`, starting at `coord`.
+    If `source` is a scalar type, this is just `vector.insertelement`.
+    If the indices into `dest` go out of bounds, the result is undefined.
+  }];
+
+  let assemblyFormat = [{
+    attr-dict $source `->` $dest `[` $coord `]` `:` type($source) `->` type($dest)
+  }];
+  let hasVerifier = 1;
+  let hasCanonicalizeMethod = 1;
+}
+
+// yield
+def Rock_YieldOp :
+    Rock_Op<"yield", [NoSideEffect, Terminator, ReturnLike]> {
+  let summary = "yield for Rock loops";
+
+  let description = [{
+    Op that terminates the Rock looping constructs (currently transforming for).
+
+    If the loops produce any values, then this op's arguments should match the types
+    of those values. Otherwise, this op is implicit and can be omitted.
+
+    Note that, in a transforming_for, you don't need to yield back the lower coordinates,
+    as these are managed implicitly.
+  }];
+
+  // Yoinked from affine.yield
+  let arguments = (ins Variadic<AnyType>:$operands);
+
+  let builders = [
+    OpBuilder<(ins), [{ build($_builder, $_state, llvm::None); }]>
+  ];
+
+  let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
+}
+
+// Transforming for
+def Rock_TransformingForOp :
+    Rock_Op<"transforming_for", [RecursiveSideEffects,
+      DeclareOpInterfaceMethods<LoopLikeOpInterface, ["isDefinedOutsideOfLoop"]>,
+      AttrSizedOperandSegments,
+      SingleBlockImplicitTerminator<"::mlir::rock::YieldOp">]>,
+    Arguments<(ins Variadic<Index>:$upperInits,
+      ArgTransformsAttr:$transforms,
+      Variadic<AnyType>:$iterInits,
+      IndexArrayAttr:$bounds,
+      IndexArrayAttr:$strides,
+      // This is a derived attribute that holds where in the block arguments
+      // the coordinates for each lower domain are stored. It contains
+      // one value for each iteration domain, and a final value for
+      // the start of the iteration arguments. That is, lowerStarts = [0, 2]
+      // means there is one iteration domain with two lower coordinates,
+      // while with lowerStarts = [0, 3, 4], there are two iteration domains -
+      // the first with three lower coordinates and the second with one
+      I32ElementsAttr:$lowerStarts,
+      OptionalAttr<UnitAttr>:$useIndexDiffs,
+      OptionalAttr<UnitAttr>:$forceUnroll)>,
+    Results<(outs Variadic<AnyType>:$results)> {
+  let summary = "for loop with coordinate transforms";
+  let description = [{
+    Loops over several a rectangular regeon of dimensions `bounds` in several
+    iteration domains, which are coordinate spaces that are the upper coordinates
+    for a sequence of coordinate transformations.
+
+    For each domain, when we have
+    `(%l0, %l1, ... %lL) = [#transform_map1](%u0, %u1, ... %uU)`
+    with bounds `[b0, b1, ... bU]` and strides `[1, 1, ..., 1]`
+    the loop arguments %l0, ... %lL will take on the values
+    - (%l0, ... %lL) = #transform_map1(%u0, %u1, ... %uU)
+    - (%l0, ... %lL) = #transform_map1(%u0, %u1, ... %uU + 1)
+    - ...
+    - (%l0, ... %lL) = #transform_map1(%u0, %u1, ... %uU + bU - 1)
+    - (%l0, ... %lL) = #transform_map1(%u0, %u1, ... %u(U-1) + 1, %uU)
+    - ...
+    - (%l0, ... %lL) = #transform_map1(%u0 + b0 - 1, ... %uU + bU - 1)
+
+    That is, the loop
+    ```mlir
+    %res = rock.transforming_for (%a1, %a2, %a3) = [#transform_map1](%i0, %j0), (%i, %j) = [](%cst0, %cst0)
+      iter_args(%arg0 = %c0) -> (index) bounds [4, 8] {
+      %v = rock.buffer_load {...} %place[%a1, %a2, %a3]
+      rock.buffer_store {...} %v -> %buffer[%i, %j]
+      %cont = addi %arg0, %c1
+      rock.yield %cont : index
+    }
+    ```
+    will lower to
+    ```mlir
+    %res = affine.for %d0 = 0 to 4 step 1 (%arg0 = %cst0 : index) {
+      %res1 = affine.for %d1 = 0 to 8 step 1 (%arg1 = %arg0 : index) {
+        %i0_shifted = arith.addi %i0, %d0
+        %j0_shifted = arith.addi %j0, %d1
+        %a1, %a2, %a3 = [expand affine map in #transform_map1 at %i0_shifted, %j0_shifted]
+        %v = rock.buffer_load {...} %place[%a1, %a2, %a3]
+        rock.buffer_store {...} %v -> %buffer[%d0, %d1]
+        %cont = arith.addi %arg1, %c1 : index
+        affine.yield %cont : index
+      }
+      affine.yield %res1
+    }
+    ```
+
+    When multiple transform_maps are specified for an interatino domain,
+    they are composed, with the left one applying first (to the upper coordinates),
+    and a lack of transform_maps simply passes the upper cooridate values through.
+
+    If `strides` is not specified during building, it will default to all 1s.
+
+    If the `forceUnroll` attribute is specified, the loops above are unrolled
+    after being generated.
+
+    If `useIndexDiffs` is set, instead of computing the affine map within each
+    loop, the index diff mechanism is used to determine the change in the lower
+    coordinates based on the induction variables of the affine loops and
+    the values of the lower coordinates at the initial start values.
+
+    The purpose of this looping construct is to remove redundancy and make the
+    application of coordinate transformations more explicit in the IR.
+  }];
+
+  let regions = (region SizedRegion<1>:$region);
+
+  DerivedAttr upperLen = DerivedAttr<"uint32_t", [{
+    return upperInits().size() / transforms().size();
+  }], [{ $_builder.getI32IntegerAttr($_self) }]>;
+
+  let skipDefaultBuilders = 1;
+  let builders = [
+    OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
+    "ArrayRef<Attribute>":$transforms,
+    "ArrayRef<int64_t>":$bounds, "Optional<ArrayRef<int64_t>>":$strides,
+    "bool":$forceUnroll, "bool":$useIndexDiffs,
+    CArg<"ValueRange", "llvm::None">:$iterArgs)>,
+
+    OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
+    "ArrayRef<Attribute>":$transforms,
+    "ArrayAttr":$bounds, "ArrayAttr":$strides,
+    "bool":$forceUnroll, "bool":$useIndexDiffs,
+    CArg<"ValueRange", "llvm::None">:$iterArgs)>,
+
+    OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
+    "ArrayAttr":$transforms,
+    "ArrayRef<int64_t>":$bounds, "Optional<ArrayRef<int64_t>>":$strides,
+    "bool":$forceUnroll, "bool":$useIndexDiffs,
+    CArg<"ValueRange", "llvm::None">:$iterArgs)>,
+
+    OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
+    "ArrayAttr":$transforms,
+    "ArrayAttr":$bounds, "ArrayAttr":$strides,
+    "bool":$forceUnroll, "bool":$useIndexDiffs,
+    CArg<"ValueRange", "llvm::None">:$iterArgs)>];
+
+  let extraClassDeclaration = [{
+    void moveOutOfLoop(ArrayRef<Operation *> ops);
+
+    uint32_t lowerStart(uint32_t n) {
+      return *(lowerStarts().getValues<uint32_t>().begin() + n);
+    }
+
+    // Retreive the block arguments corresponding to the lower coordinates
+    // for a given iteration domain.
+    Block::BlockArgListType getLowerCoords(uint32_t domain) {
+      uint32_t start = lowerStart(domain);
+      uint32_t end = lowerStart(domain + 1);
+      return getBody()->getArguments().slice(start, end - start);
+    }
+    Block::BlockArgListType getLowerCoords() {
+      assert(lowerStarts().size() == 2 && "Ambiguous call to getLowerCoords() with multple iteration domains");
+      return getBody()->getArguments().take_front(lowerStart(1));
+    }
+
+    Block::BlockArgListType getIterArgs() {
+      return getBody()->getArguments().drop_front(lowerStart(lowerStarts().size() - 1));
+    }
+
+    ValueTypeRange<Block::BlockArgListType> getIterArgTypes() {
+      return ValueTypeRange<Block::BlockArgListType>(getIterArgs());
+    }
+
+    Operation::operand_range getUpperInits(uint32_t domain) {
+      uint32_t theUpperLen = upperLen();
+      return upperInits().slice(domain * theUpperLen, theUpperLen);
+    }
+
+    ArrayAttr getTransforms(uint32_t domain) {
+      return transforms()[domain].cast<ArrayAttr>();
+    }
+
+    uint32_t domains() {
+      return transforms().size();
+    }
+  }];
+
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+}
+
+// index_diff_update
+def Rock_IndexDiffUpdateOp :
+    Rock_Op<"index_diff_update", [NoSideEffect, AttrSizedOperandSegments,
+      SameVariadicResultSize, AllTypesMatch<["lowerIndices", "lowerDiff"]>]>,
+    Arguments<(ins Rock_TransformMapAttr:$map,
+      Variadic<Index>:$upperDiffs,
+      Variadic<Index>:$lowerOrig)>,
+    Results<(outs Variadic<Index>:$lowerIndices,
+      Variadic<Index>:$lowerDiff)> {
+  let summary = "Compute change in lower indices (map output) using index diffs";
+  let description = [{
+    `rock.index_diff_update' computes the change in the output of a transform_map
+    from adding `upperDiffs` to the inputs that produced the output `lowerOrig'.
+
+    The operation returns both `lowerIndices`, the new indices, and `lowerDiff`,
+    the change in the lower indices compared to `lowerOrig'.
+  }];
+
+  let builders = [
+    OpBuilder<(ins "TransformMapAttr":$transform, "ValueRange":$upperDiffs,
+      "ValueRange":$lowerOrig)>
+  ];
+
+  let assemblyFormat = [{
+    attr-dict $map `(` $upperDiffs `)` `+` `(` $lowerOrig `)` `:`
+      type($lowerIndices)
+  }];
+  let hasVerifier = 1;
+}
+
+// buffer_load
+def Rock_BufferLoadOp :
+    Rock_Op<"buffer_load">,
+    Arguments<(ins Arg<MemRefOf<[F32, F16, BF16, I8, I32]>,
+        "buffer to load from", [MemRead]>:$source,
+      I32ArrayAttr:$leftOobDims,
+      I32ArrayAttr:$rightOobDims,
+      Variadic<Index>:$coords,
+      OptionalAttr<IndexAttr>:$offset)>,
+    Results<(outs AnyTypeOf<[F32, F16, BF16, I8, I32,
+              VectorOfLengthAndType<[2, 4], [F32]>,
+              VectorOfLengthAndType<[2, 4, 8], [F16]>,
+              VectorOfLengthAndType<[2, 4, 8], [BF16]>,
+              VectorOfLengthAndType<[2, 4, 8, 16], [I8]>,
+              VectorOfLengthAndType<[2, 4], [I32]>]>:$result)> {
+  let summary = "Load data from a global buffer";
+
+  let description = [{
+    rock.buffer_load uses, if necessary, GPU buffer load intrinsics to
+    ensure that out of bounds loads return 0 instead of a garbage value.
+
+    The bounds on each coordinate are zero on the left and
+    the size of the memref in that coordinate on the right.
+    Only dimensions present in `leftOobDims` or `rightOobDims` have their
+    bounds checked on the left or right, respectively.
+    If a load is determined to be out of bounds, its value is 0.
+
+    This op can perform vector reads.
+
+    If provided, `offset` is a constant offset (in units of the underlying scalar
+    data type) that is added to the final coordinates.
+
+    The memref must be in global memory (memory space 0).
+  }];
+  let assemblyFormat = [{
+    $source `[` $coords `]` attr-dict
+    `:` type($source) `,` type($coords) `->` type($result)
+  }];
+  let hasVerifier = 1;
+}
+
+// buffer_store
+def Rock_BufferStoreOp :
+    Rock_Op<"buffer_store", []>,
+    Arguments<(ins AnyTypeOf<[F32, F16, BF16, I8, I32,
+        VectorOfLengthAndType<[2, 4], [F32]>,
+        VectorOfLengthAndType<[2, 4, 8], [F16]>,
+        VectorOfLengthAndType<[2, 4, 8], [BF16]>,
+        VectorOfLengthAndType<[4], [I8]>,
+        VectorOfLengthAndType<[2, 4], [I32]>]>:$data,
+      Arg<MemRefOf<[F32, F16, BF16, I8, I32]>,
+        "Buffer to store to", [MemWrite]>:$dest,
+      I32ArrayAttr:$leftOobDims,
+      I32ArrayAttr:$rightOobDims,
+      Variadic<Index>:$coords,
+      StoreMethodAttr:$storeMethod,
+      OptionalAttr<IndexAttr>:$offset)> {
+  let summary = "Store data to a global buffer";
+
+  let description = [{
+    `rock.buffer_store` stores data to a global buffer, ignoring out of bounds writes.
+
+    A write is out of bounds on the left if a coordinate's value is less than zero,
+    and out of bounds on the right if the coordinate is greater than the size of
+    the memref in that coordinate.
+
+    Only coordinates listed in `leftOobDims` or `rightOobDims` are checked for
+    out of bounds accesses on the left or right, respectively. Coordinates that
+    aren't checked may still be out of bounds but the write will still be permitted
+    to occur.
+
+    Writes that are detected to be out of bounds are ignored.
+
+    This op supports vector writes and uses buffer store intrinsics if needed.
+
+    `storeMethod` controls whether the data is written to memory, overwriting
+    existing contents, or whether it is added to the existing memory atomically.
+
+    The buffer must reside in global memory.
+  }];
+  let assemblyFormat = [{
+    $storeMethod $data `->` $dest `[` $coords `]` attr-dict
+    `:` type($data) `->` type($dest) `,` type($coords)
+  }];
+  let hasVerifier = 1;
+}
+
+// in_bounds_load
+def Rock_InBoundsLoadOp :
+    Rock_Op<"in_bounds_load", [AllElementTypesMatch<["source", "result"]>]>,
+    Arguments<(ins Arg<AnyMemRef,
+        "buffer to load from", [MemRead]>:$source,
+      Variadic<Index>:$coords)>,
+    Results<(outs AnyType:$result)> {
+  let summary = "Load one or more contiguous items from `source`";
+
+  let description = [{
+    rock.in_bounds_loads reads either one scalar value or a vector of values
+    from a memref. The memref can be in any memory space. The read begins at
+    `coords`.
+  }];
+  let assemblyFormat = [{
+    $source `[` $coords `]` attr-dict
+    `:` type($source) `,` type($coords) `->` type($result)
+  }];
+  let hasVerifier = 1;
+}
+
+// in_bounds_store
+def Rock_InBoundsStoreOp :
+    Rock_Op<"in_bounds_store", [AllElementTypesMatch<["data", "dest"]>]>,
+    Arguments<(ins AnyType:$data,
+      Arg<AnyMemRef,
+        "Buffer to store to", [MemWrite]>:$dest,
+      Variadic<Index>:$coords)> {
+  let summary = "Store one or more items to contiguous indices in `dest`";
+
+  let description = [{
+    `rock.in_bounds_store` stores the item or items in `data` (which can be
+    a scalar or a vector) to the buffer `dest`, starting at `coords`.
+    The memref can be in any memory space.
+    This op assumes that all indices will land in bounds.
+  }];
+  let assemblyFormat = [{
+    $data `->` $dest `[` $coords `]` attr-dict
+    `:` type($data) `->` type($dest) `,` type($coords)
+  }];
+  let hasVerifier = 1;
+}
+
+// global_load
+def Rock_GlobalLoadOp :
+    Rock_Op<"global_load", [AllElementTypesMatch<["source", "result"]>]>,
+    Arguments<(ins Arg<AnyMemRef, "source memory", [MemRead]>:$source,
+                   I32ArrayAttr:$leftOobDims,
+                   I32ArrayAttr:$rightOobDims,
+                   Variadic<Index>:$sourceCoord)>,
+    Results<(outs AnyType:$result)> {
+  let summary = "Marker for one or more vectorized global loads";
+  let description = [{
+    `global_load` is a wrapper around one or more `rock.buffer_load` operations
+    that loads a contiguous vector from %source[%sourceCoord, ...].
+    This is used both to allow for vectorization lengths greater than one load
+    instruction permits and to mark the global load loops to allow fusion.
+  }];
+  let assemblyFormat = [{
+    $source `[` $sourceCoord `]` attr-dict
+    `:` type($source) `->`
+    type($result)
+  }];
+}
+
+// threadwise_copy_v2
+def Rock_ThreadwiseCopyV2Op :
+    Rock_Op<"threadwise_copy_v2", [AllElementTypesMatch<["source", "dest"]>]>,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [1]>:$source,
+                   AnyMemRef:$dest,
+                   IndexAttr:$length,
+                   StoreMethodAttr:$storeMethod,
+                   I32ArrayAttr:$leftOobDims,
+                   I32ArrayAttr:$rightOobDims,
+                   Index:$sourceCoord,
+                   Variadic<Index>:$destCoord)> {
+  let summary = "Marker for stores to global memory";
+  let description = [{
+    The `threadwise_copy_v2` op is a wrapper around storing to a global buffer.
+    This is used in order to make it easier for operator
+    fusion to identify the write out to global memory produced within a gridwise
+    gemm.
+
+    It will lower to one or more buffer store operations.
+
+    The location `%dest[..., %N + (length - 1)]` must be a valid memory
+    address, even if it is not in-bounds from the `memref` perspective.
+  }];
+  let assemblyFormat = [{
+    $source `[` $sourceCoord `]`
+    `->` $dest `[` $destCoord `]`
+    `storeMethod` `(` $storeMethod `)` attr-dict
+    `:` type($source) `->`
+    type($dest) `,` type($destCoord)
+  }];
+}
+
+// blockwise_gemm
+def Rock_BlockwiseGemmOp:
+    Rock_Op<"blockwise_gemm">,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixA,
+                   MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixB,
+                   MemRefRankOf<[F32, F16, BF16, I32], [2]>:$matrixC,
+                   Rock_GeneralGemmParamsAttr:$params
+                   )> {
+  let summary = "Blockwise GEMM non-XDLOPS version";
+  let description = [{
+    The `rock.blockwise_gemm` op does gemm at the blockwise level without xdlops.
+
+    Matrix A resides in LDS and has dimensions [k, m_c * mRepeatStride, kPack].
+    Matrix B resides in LDS and has dimensions [k, n_c * nRepeatStride, kPack].
+    Matrix C resides in registers and has dimensions [m_c, n_c].
+
+    The two index arguments specify a given threads's offset into the LDS buffer..
+    Each {m,n}PerThread group of elements (which may themselves be kPacks)
+    is read from LDS by a given thread, then the next mPerThread group is
+    mRepeatStride elements later in the buffer.
+  }];
+  let assemblyFormat = [{
+    $matrixC `+` `` `=` $matrixA `*` $matrixB attr-dict
+    `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
+  }];
+
+  let hasVerifier = 1;
+}
+
+// blockwise_gemm_v2
+def Rock_BlockwiseGemmV2Op:
+    Rock_Op<"blockwise_gemm_v2">,
+    Arguments<(ins MemRefOf<[F32, F16, BF16, I8]>:$matrixA,
+                   MemRefOf<[F32, F16, BF16, I8]>:$matrixB,
+                   IndexAttr:$ldsBufferOffsetA,
+                   IndexAttr:$ldsBufferOffsetB,
+                   Index:$waveOffsetA,
+                   Index:$waveOffsetB,
+                   MemRefOf<[F32, F16, BF16, I8,
+                             VectorOfLengthAndType<[2, 4], [F32]>,
+                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
+                             VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$bufferA,
+                   MemRefOf<[F32, F16, BF16, I8,
+                             VectorOfLengthAndType<[2, 4], [F32]>,
+                             VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
+                             VectorOfLengthAndType<[4, 8, 16], [I8]>]>:$bufferB,
+                   MemRefOf<[F32, F16, BF16, I32,
+                             VectorOf<[F32, F16, BF16, I32]>]>:$matrixC,
+                   I32Attr:$blockSize,
+                   Rock_XdlopsGemmParamsAttr:$params)>{
+  let summary = "Blockwise GEMM XDLOPS version";
+  let description = [{
+    The `rock.block_gemm` op does GEMM at workgroup (block) level.
+    - Matrix A and Matrix B shall reside on LDS (naive tensor).
+    - Matrix C shall be vectors.
+
+    There are only two slots for argument transforms since the buffers are
+    not slices of a larger object.
+  }];
+  let assemblyFormat = [{
+    $matrixC `+` `` `=` $bufferA `from` $matrixA `[` $waveOffsetA `]` `*`
+                        $bufferB `from` $matrixB `[` $waveOffsetB `]` attr-dict
+    `:` type($matrixC) `+` `` `=` type($bufferA) `from` type($matrixA) `*`
+                                  type($bufferB) `from` type($matrixB)
+  }];
+}
+
+// threadwise_gemm
+def Rock_ThreadwiseGemmOp:
+    Rock_Op<"threadwise_gemm",
+      [AllElementTypesMatch<["matrixA", "matrixB", "matrixC"]>]>,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [3]>:$matrixA,
+                   MemRefRankOf<[F32, F16, BF16, I32], [3]>:$matrixB,
+                   MemRefRankOf<[F32, F16, BF16, I32], [2]>:$matrixC)> {
+  let summary = "Threadwise GEMM non-XDLOPS version";
+  let description = [{
+    The `rock.threadwise_gemm` op does GEMM at thread level.
+    All arguments should be in registers (memref address space 5).
+
+    The dimensions of the multiplication arguments are
+     [m, n] = [k, m, kPack] * [k, n, kPack].
+  }];
+  let assemblyFormat = [{
+    $matrixC `+` `` `=` $matrixA `*` $matrixB attr-dict
+    `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
+  }];
+  let hasVerifier = 1;
+}
+
+// xdlops_gemm_V2
+def Rock_XdlopsGemmV2Op:
+    Rock_Op<"xdlops_gemm_v2">,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8,
+                      VectorOfLengthAndType<[2, 4], [F32]>,
+                      VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
+                      VectorOfLengthAndType<[4, 8, 16], [I8]>], [2]>:$matrixA,
+                   MemRefRankOf<[F32, F16, BF16, I8,
+                      VectorOfLengthAndType<[2, 4], [F32]>,
+                      VectorOfLengthAndType<[2, 4, 8], [F16, BF16]>,
+                      VectorOfLengthAndType<[4, 8, 16], [I8]>], [2]>:$matrixB,
+                   MemRefRankOf<[F32, F16, BF16, I32,
+                      VectorOf<[F32, F16, BF16, I32]>], [3]>:$matrixC,
+                   Rock_XdlopsGemmParamsAttr:$params)> {
+  let summary = "XDLOPS GEMM V2";
+  let description = [{
+    The `rock.xdlops_gemm_v2` op is an abstraction of doing GEMM based on XDLOPS.
+    It would employ a series of `rock.mfma` operations.
+
+    Matrices A and B reside in LDS, the buffers live in registers, C is a vector
+  }];
+  let assemblyFormat = [{
+    $matrixC `+` `` `=` $matrixA `*` $matrixB attr-dict
+    `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
+  }];
+  let hasVerifier = 1;
+}
+
+// TODO(kdrewnia): upstream these
+// Whether the vector's length is divisible by `divisor`
+class IsVectorOfDivisibleLengthPred<int divisor> :
+  And<[IsVectorTypePred,
+       CPred<[{$_self.cast<::mlir::VectorType>().getNumElements()
+                           % }] # divisor # [{ == 0 }]>]>;
+
+// Any vector where the number of elements is from the given
+// `allowedLengths` list
+class VectorOfDivisibleLength<int divisor> : Type<
+  IsVectorOfDivisibleLengthPred<divisor>,
+  " with length divisble by " # divisor,
+  "::mlir::VectorType">;
+class VectorOfDivisibleLengthAndType<int  divisor,
+                          list<Type> allowedTypes> : Type<
+  And<[VectorOf<allowedTypes>.predicate,
+       VectorOfDivisibleLength<divisor>.predicate]>,
+  VectorOf<allowedTypes>.summary # VectorOfDivisibleLength<divisor>.summary,
+  "::mlir::VectorType">;
+
+defvar swizzleGroupSize = 4;
+def Rock_InWarpTransposeOp :
+    Rock_Op<"in_warp_transpose", [AllTypesMatch<["vector", "res"]>]>,
+    Arguments<(ins VectorOfDivisibleLengthAndType<swizzleGroupSize,
+                                                          [F32, I32]>:$vector,
+                  Index:$laneId,
+                  Confined<I32Attr, [IntMaxValue<swizzleGroupSize>]>:$size,
+                  DefaultValuedAttr<Confined<I32ArrayAttr,
+                        [ArrayCount<swizzleGroupSize>]>,
+                    "{0, 1, 2, 3}">:$inGroupPerm)>,
+    Results<(outs VectorOfDivisibleLengthAndType<swizzleGroupSize, [F32, I32]>:$res)> {
+  let summary = "Transpose blocks of data distributed accross a warp";
+  let description = [{
+    `Rock.in_warp_transpose` takes a vector representing a matrix of values
+    stored accross the threads in a warp and transposes `size`x`size` blocks
+    of this matrix. The rows of the output (if we regard each thread's vector
+    as a row in the matrix) are further permuted with the `inGroupPerm`
+    permutation.
+
+    It is an ***unchecked invariant*** that laneId contanes the ID of the current
+    lane with the wave, and thus is an integer in [0, waveSize).
+  }];
+
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    attr-dict $vector `,` $laneId `:` type($vector) `,` type($laneId)
+  }];
+
+  let extraClassDeclaration = "static constexpr size_t swizzleGroupSize = "
+    # !cast<string>(swizzleGroupSize) # ";\n";
+}
+
+#endif // ROCK_OPS
