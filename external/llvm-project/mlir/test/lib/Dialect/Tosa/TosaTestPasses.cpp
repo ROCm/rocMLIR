@@ -20,6 +20,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/SmallVector.h"
 
 #define PASS_NAME "tosa-test-quant-utils"
 
@@ -232,33 +233,31 @@ public:
     if (defaultCase) {
       pm.addPass(createTosaPartitionPass());
     } else if (depthwiseOnly) {
-      class DepthwiseOnlyPartitionPass : public TosaPartitionPass {
-      public:
-        bool isAnchorOp(Operation *op) override {
-          return isa<tosa::DepthwiseConv2DOp>(op);
-        }
-      };
-      pm.addPass(std::make_unique<DepthwiseOnlyPartitionPass>());
+      SmallVector<std::string> anchors = {"tosa.depthwise_conv2d"};
+      TosaPartitionOptions options;
+      options.anchorOps = anchors;
+      pm.addPass(createTosaPartitionPass(options));
     } else if (convOnly) {
-      class ConvOnlyPartitionPass : public TosaPartitionPass {
-      public:
-        bool isAnchorOp(Operation *op) override {
-          return isa<tosa::Conv2DOp>(op);
-        }
-        StringRef partitionTag() override { return "four"; }
-      };
-      pm.addPass(std::make_unique<ConvOnlyPartitionPass>());
+      SmallVector<std::string> anchors = {"tosa.conv2d"};
+      TosaPartitionOptions options;
+      options.anchorOps = anchors;
+      options.partitionTagOpt = "four";
+      pm.addPass(createTosaPartitionPass(options));
     } else if (attrOne) {
-      class AttributeOnePartitionPass : public TosaPartitionPass {
-      public:
-        StringRef partitionTag() override { return "one"; }
-      };
-      pm.addPass(std::make_unique<AttributeOnePartitionPass>());
+      // TODO: Once list options can have defaults, use that
+      SmallVector<std::string> anchors = {"tosa.conv2d", "tosa.matmul",
+                                          "tosa.depthwise_conv2d"};
+      TosaPartitionOptions options;
+      options.anchorOps = anchors;
+      options.partitionTagOpt = "one";
+      pm.addPass(createTosaPartitionPass(options));
     } else if (nofrontArg) {
-      // Another way is to pass the values to the pass constructor.
-      pm.addPass(
-          std::make_unique<TosaPartitionPassWithOptions, ArrayRef<std::string>>(
-              {"tosa.depthwise_conv2d"}, "kernel", true));
+      SmallVector<std::string> anchors = {"tosa.depthwise_conv2d"};
+      TosaPartitionOptions options;
+      options.anchorOps = anchors;
+      options.trailingOnly = true;
+      options.partitionTagOpt = "three";
+      pm.addPass(createTosaPartitionPass(options));
     }
 
     if (failed(pm.run(module)))

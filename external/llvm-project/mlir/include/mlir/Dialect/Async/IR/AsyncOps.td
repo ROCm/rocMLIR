@@ -19,6 +19,7 @@ include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/IR/SymbolInterfaces.td"
 
 //===----------------------------------------------------------------------===//
 // Async op definitions
@@ -29,7 +30,9 @@ class Async_Op<string mnemonic, list<Trait> traits = []> :
     Op<AsyncDialect, mnemonic, traits>;
 
 def Async_LaunchOp :
-  Async_Op<"launch", [DeclareOpInterfaceMethods<CallOpInterface>,
+  Async_Op<"launch", [DeclareOpInterfaceMethods<CallOpInterface,
+                      ["getCallResults", "getCallResultTypes"]>,
+                      DeclareOpInterfaceMethods<SymbolUserOpInterface>,
                       AttrSizedOperandSegments]> {
   let summary = "Asynchronous launch operation";
   let description = [{
@@ -88,11 +91,7 @@ def Async_LaunchOp :
   ];
 
   let extraClassDeclaration = [{
-    operand_range getCallOperands();
-    result_range getCallResults();
-    result_type_range getCallResultTypes();
     void updateSegmentSizes(MLIRContext *);
-    CallInterfaceCallable getCallableForCallee();
   }];
 
   let hasCustomAssemblyFormat = 1;

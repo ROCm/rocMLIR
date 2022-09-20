@@ -348,7 +348,7 @@ protected:
             convertedAttrs.push_back(rewriter.getNamedAttr(
                 LLVM::LLVMDialect::getInAllocaAttrName(), convert(attr)));
           } else if (attr.getName() == func::FuncOp::getReadAccessAttrName() ||
-           attr.getName() == func::FuncOp::getWriteAccessAttrName())
+                     attr.getName() == func::FuncOp::getWriteAccessAttrName()) {
             continue;
           } else {
             convertedAttrs.push_back(attr);

@@ -917,7 +917,7 @@ CallInterfaceCallable InvokeOp::getCallableForCallee() {
 }
 
 Operation::operand_range InvokeOp::getCallOperands() {
-  return getOperands().drop_front(getCallee().hasValue() ? 0 : 1);
+  return getOperands().drop_front(getCallee().has_value() ? 0 : 1);
 }
 
 LogicalResult InvokeOp::verify() {
@@ -1175,7 +1175,7 @@ CallInterfaceCallable CallOp::getCallableForCallee() {
 }
 
 Operation::operand_range CallOp::getCallOperands() {
-  return getOperands().drop_front(getCallee().hasValue() ? 0 : 1);
+  return getOperands().drop_front(getCallee().has_value() ? 0 : 1);
 }
 
 LogicalResult CallOp::verifySymbolUses(SymbolTableCollection &symbolTable) {

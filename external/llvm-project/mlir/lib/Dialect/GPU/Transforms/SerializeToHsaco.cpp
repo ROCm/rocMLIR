@@ -136,7 +136,7 @@ std::string SerializeToHsacoPass::getRocmPath() {
   if (rocmPath.getNumOccurrences() > 0)
     return rocmPath.getValue();
   if (auto env = llvm::sys::Process::GetEnv("ROCM_PATH"))
-    return env.getValue();
+    return env.value();
   return __DEFAULT_ROCM_PATH__;
 }
 
@@ -308,7 +308,7 @@ SerializeToHsacoPass::translateToLLVMIR(llvm::LLVMContext &llvmContext) {
   // Handle legacy override variable
   auto env = llvm::sys::Process::GetEnv("HIP_DEVICE_LIB_PATH");
   if (env && (rocmPath.getNumOccurrences() == 0)) {
-    llvm::SmallString<32> overrideValue(env.getValue());
+    llvm::SmallString<32> overrideValue(env.value());
     auto mbAtOldPath = loadLibraries(overrideValue, libraries, llvmContext);
     if (mbAtOldPath)
       mbModules = std::move(mbAtOldPath);

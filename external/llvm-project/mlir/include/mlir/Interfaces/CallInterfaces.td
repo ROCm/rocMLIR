@@ -59,27 +59,14 @@ def CallOpInterface : OpInterface<"CallOpInterface"> {
         reference to a symbol, via SymbolRefAttr, or a reference to a defined
         SSA value. If the reference is an SSA value, the SSA value corresponds
         to a region of a lambda-like operation.
-      }],
-      /*retTy=*/"::mlir::CallInterfaceCallable",
-      /*methodName=*/"getCallableForCallee",
-      /*args=*/(ins),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/[{
-        return nullptr;
-      }]
+      }], "::mlir::CallInterfaceCallable", "getCallableForCallee"
     >,
     InterfaceMethod<
       /*desc=*/[{
         Returns the operands within this call that are used as arguments to the
         callee.
       }],
-      /*retTy=*/"::mlir::Operation::operand_range",
-      /*methodName=*/"getCallOperands",
-      /*args=*/(ins),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/[{
-        return $_op->getOperands();
-      }]
+      "::mlir::Operation::operand_range", "getCallOperands"
     >,
     InterfaceMethod<
       /*desc=*/[{

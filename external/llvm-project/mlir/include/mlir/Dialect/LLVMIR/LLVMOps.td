@@ -636,10 +636,6 @@ def LLVM_InvokeOp : LLVM_Op<"invoke", [
     }]>];
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
-  let extraClassDeclaration = [{
-    operand_range getCallOperands();
-    CallInterfaceCallable getCallableForCallee();
-  }];
 }
 
 def LLVM_LandingpadOp : LLVM_Op<"landingpad"> {
@@ -700,10 +696,6 @@ def LLVM_CallOp : LLVM_Op<"call",
   ];
 
   let hasCustomAssemblyFormat = 1;
-  let extraClassDeclaration = [{
-    operand_range getCallOperands();
-    CallInterfaceCallable getCallableForCallee();
-  }];
 }
 
 //===----------------------------------------------------------------------===//

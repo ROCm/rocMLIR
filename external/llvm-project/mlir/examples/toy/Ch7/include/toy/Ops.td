@@ -248,11 +248,6 @@ def GenericCallOp : Toy_Op<"generic_call",
   let builders = [
     OpBuilder<(ins "StringRef":$callee, "ArrayRef<Value>":$arguments)>
   ];
-
-  let extraClassDeclaration = [{
-    operand_range getCallOperands();
-    CallInterfaceCallable getCallableForCallee();
-  }];
 }
 
 //===----------------------------------------------------------------------===//

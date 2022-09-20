@@ -2,12 +2,13 @@
 // RUN: -pass-pipeline="func.func(tosa-to-linalg)" --tosa-to-tensor \
 // RUN: -tosa-to-arith \
 // RUN: -one-shot-bufferize="allow-return-allocs bufferize-function-boundaries" \
-// RUN: --convert-linalg-to-loops \
+// RUN: --buffer-deallocation --convert-linalg-to-loops \
 // RUN: -lower-affine -convert-linalg-to-llvm --convert-scf-to-cf \
-// RUN: -convert-math-to-llvm --convert-func-to-llvm --reconcile-unrealized-casts \
+// RUN: -convert-math-to-llvm --convert-memref-to-llvm --convert-func-to-llvm \
+// RUN: --reconcile-unrealized-casts \
 // RUN: | mlir-cpu-runner -e main -entry-point-result=void \
-// RUN:   -shared-libs=%mlir_runner_utils_dir/libmlir_runner_utils%shlibext \
-// RUN:   -shared-libs=%mlir_runner_utils_dir/libmlir_c_runner_utils%shlibext \
+// RUN:   -shared-libs=%mlir_lib_dir/libmlir_runner_utils%shlibext \
+// RUN:   -shared-libs=%mlir_lib_dir/libmlir_c_runner_utils%shlibext \
 // RUN: > %t1
 //
 // RUN  cat %t1 | FileCheck %s
@@ -21,18 +22,19 @@
 // RUN: -pass-pipeline="func.func(tosa-to-linalg)" --tosa-to-tensor \
 // RUN: -tosa-to-arith \
 // RUN: -one-shot-bufferize="allow-return-allocs bufferize-function-boundaries" \
-// RUN: --convert-linalg-to-loops \
+// RUN: --buffer-deallocation --convert-linalg-to-loops \
 // RUN: -lower-affine -convert-linalg-to-llvm --convert-scf-to-cf \
-// RUN: --convert-math-to-llvm --convert-func-to-llvm --reconcile-unrealized-casts \
+// RUN: --convert-math-to-llvm --convert-memref-to-llvm --convert-func-to-llvm \
+// RUN: --reconcile-unrealized-casts \
 // RUN: | mlir-cpu-runner -e main -entry-point-result=void \
-// RUN:   -shared-libs=%mlir_runner_utils_dir/libmlir_runner_utils%shlibext \
-// RUN:   -shared-libs=%mlir_runner_utils_dir/libmlir_c_runner_utils%shlibext \
+// RUN:   -shared-libs=%mlir_lib_dir/libmlir_runner_utils%shlibext \
+// RUN:   -shared-libs=%mlir_lib_dir/libmlir_c_runner_utils%shlibext \
 // RUN: > %t2
 //
 // RUN: diff --ignore-matching-lines='Unranked Memref' %t1 %t2
 
 module attributes {torch.debug_module_name = "Conv2dNoPaddingModule"} {
-  func.func private @printMemrefF32(memref<*xf32>)
+  func.func private @printMemrefF32(tensor<*xf32>)
   func.func private @printNewline()
   func.func @main() {
     %0 = "tosa.const"() {value = dense<[0, 3, 1, 2]> : tensor<4xi32>} : () -> tensor<4xi32>
@@ -45,9 +47,9 @@ module attributes {torch.debug_module_name = "Conv2dNoPaddingModule"} {
     %7 = "tosa.transpose"(%4, %1) : (tensor<10x2x3x3xf32>, tensor<4xi32>) -> tensor<10x3x3x2xf32>
     %8 = "tosa.conv2d"(%6, %7, %2) {dilation = [1, 1], pad = [0, 0, 0, 0], stride = [1, 1]} : (tensor<5x10x20x2xf32>, tensor<10x3x3x2xf32>, tensor<10xf32>) -> tensor<5x8x18x10xf32>
     %9 = "tosa.transpose"(%8, %0) : (tensor<5x8x18x10xf32>, tensor<4xi32>) -> tensor<5x10x8x18xf32>
-    %10 = bufferization.to_memref %9 : memref<5x10x8x18xf32>
-    %11 = memref.cast %10 : memref<5x10x8x18xf32> to memref<*xf32>
-    call @printMemrefF32(%11) : (memref<*xf32>) -> ()
+    %10 = bufferization.alloc_tensor() copy(%9) : tensor<5x10x8x18xf32>
+    %11 = tensor.cast %10 : tensor<5x10x8x18xf32> to tensor<*xf32>
+    call @printMemrefF32(%11) : (tensor<*xf32>) -> ()
     call @printNewline() : () -> ()
     return
   }

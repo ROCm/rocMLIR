@@ -239,18 +239,6 @@ def SPV_FunctionCallOp : SPV_Op<"FunctionCall", [
     Optional<SPV_Type>:$result
   );
 
-  let extraClassDeclaration = [{
-    /// Return the call arguments of this operation.
-    Operation::operand_range getCallOperands() {
-      return arguments();
-    }
-
-    /// Return the callee of this operation.
-    CallInterfaceCallable getCallableForCallee() {
-      return calleeAttr();
-    }
-  }];
-
   let autogenSerialization = 0;
 
   let assemblyFormat = [{

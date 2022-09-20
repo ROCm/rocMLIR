@@ -10,6 +10,7 @@
 #define MLIR_DIALECT_FUNC_IR_FUNCOPS_TD
 
 include "mlir/IR/AttrTypeBase.td"
+include "mlir/IR/EnumAttr.td"
 include "mlir/IR/OpAsmInterface.td"
 include "mlir/IR/SymbolInterfaces.td"
 include "mlir/Interfaces/CallInterfaces.td"
@@ -25,10 +26,6 @@ def Func_Dialect : Dialect {
   let hasConstantMaterializer = 1;
 }
 
-//===----------------------------------------------------------------------===//
-// Base class for Func dialect ops.
-//===----------------------------------------------------------------------===//
-
 class Func_Op<string mnemonic, list<Trait> traits = []> :
     Op<Func_Dialect, mnemonic, traits>;
 
@@ -37,7 +34,7 @@ class Func_Op<string mnemonic, list<Trait> traits = []> :
 //===----------------------------------------------------------------------===//
 
 def CallOp : Func_Op<"call",
-    [DeclareOpInterfaceMethods<CallOpInterface>, MemRefsNormalizable,
+    [CallOpInterface, MemRefsNormalizable,
      DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "call operation";
   let description = [{
@@ -81,9 +78,17 @@ def CallOp : Func_Op<"call",
   let extraClassDeclaration = [{
     FunctionType getCalleeType();
 
+    /// Get the argument operands to the called function.
+    operand_range getCallOperands() {
+      return {arg_operand_begin(), arg_operand_end()};
+    }
+
+    operand_iterator arg_operand_begin() { return operand_begin(); }
+    operand_iterator arg_operand_end() { return operand_end(); }
+
     /// Return the callee of this operation.
     CallInterfaceCallable getCallableForCallee() {
-      return getCalleeAttr();
+      return (*this)->getAttrOfType<SymbolRefAttr>("callee");
     }
   }];
 
@@ -97,7 +102,7 @@ def CallOp : Func_Op<"call",
 //===----------------------------------------------------------------------===//
 
 def CallIndirectOp : Func_Op<"call_indirect", [
-      DeclareOpInterfaceMethods<CallOpInterface>,
+      CallOpInterface,
       TypesMatchWith<"callee input types match argument types",
                      "callee", "callee_operands",
                      "$_self.cast<FunctionType>().getInputs()">,
@@ -139,8 +144,11 @@ def CallIndirectOp : Func_Op<"call_indirect", [
 
     /// Get the argument operands to the called function.
     operand_range getCallOperands() {
-      return {++operand_begin(), operand_end()};
+      return {arg_operand_begin(), arg_operand_end()};
     }
+
+    operand_iterator arg_operand_begin() { return ++operand_begin(); }
+    operand_iterator arg_operand_end() { return operand_end(); }
 
     /// Return the callee of this operation.
     CallInterfaceCallable getCallableForCallee() { return getCallee(); }

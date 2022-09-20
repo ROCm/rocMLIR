@@ -1291,7 +1291,7 @@ def GPU_SubgroupMmaElementwiseOp : GPU_Op<"subgroup_mma_elementwise",
 
 def GPU_WarpSwizzleOp :
     GPU_Op<"warp_swizzle">,
-    Arguments<(ins I32:$in, Confined<I32ArrayAttr, [ArrayCount<4>]>:$selector)>,
+    Arguments<(ins I32:$in, ConfinedAttr<I32ArrayAttr, [ArrayCount<4>]>:$selector)>,
     Results<(outs I32:$out)> {
   let summary = "Swizzle a value accross lanes/threads according to `selector``";
   let description = [{
