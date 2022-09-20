@@ -26,6 +26,7 @@ def Func_Dialect : Dialect {
   let hasConstantMaterializer = 1;
 }
 
+// Base class for Func dialect ops.
 class Func_Op<string mnemonic, list<Trait> traits = []> :
     Op<Func_Dialect, mnemonic, traits>;
 

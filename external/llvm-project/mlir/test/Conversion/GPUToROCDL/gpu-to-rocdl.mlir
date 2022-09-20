@@ -1,7 +1,7 @@
 // RUN: mlir-opt %s -convert-gpu-to-rocdl -split-input-file | FileCheck %s
 // RUN: mlir-opt %s -convert-gpu-to-rocdl='index-bitwidth=32' -split-input-file | FileCheck --check-prefix=CHECK32 %s
 
-gpu.module @test_module_index_op {
+gpu.module @test_module {
   // CHECK-LABEL: func @gpu_index_ops()
   // CHECK32-LABEL: func @gpu_index_ops()
   func.func @gpu_index_ops()
@@ -58,7 +58,7 @@ gpu.module @test_module_index_op {
 
 // -----
 
-gpu.module @test_module_index_comp {
+gpu.module @test_module {
   // CHECK-LABEL: func @gpu_index_comp
   // CHECK32-LABEL: func @gpu_index_comp
   func.func @gpu_index_comp(%idx : index) -> index {
@@ -73,7 +73,7 @@ gpu.module @test_module_index_comp {
 
 // -----
 
-gpu.module @test_module_gpu_sync {
+gpu.module @test_module {
   // CHECK-LABEL: func @gpu_sync()
   func.func @gpu_sync() {
     // CHECK: rocdl.barrier
@@ -84,7 +84,7 @@ gpu.module @test_module_gpu_sync {
 
 // -----
 
-gpu.module @test_module_gpu_fabs {
+gpu.module @test_module {
   // CHECK: llvm.func @__ocml_fabs_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_fabs_f64(f64) -> f64
   // CHECK-LABEL: func @gpu_fabs
@@ -99,7 +99,7 @@ gpu.module @test_module_gpu_fabs {
 
 // -----
 
-gpu.module @test_module_gpu_ceil {
+gpu.module @test_module {
   // CHECK: llvm.func @__ocml_ceil_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_ceil_f64(f64) -> f64
   // CHECK-LABEL: func @gpu_ceil
@@ -114,7 +114,7 @@ gpu.module @test_module_gpu_ceil {
 
 // -----
 
-gpu.module @test_module_gpu_floor {
+gpu.module @test_module {
   // CHECK: llvm.func @__ocml_floor_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_floor_f64(f64) -> f64
   // CHECK-LABEL: func @gpu_floor
@@ -129,7 +129,7 @@ gpu.module @test_module_gpu_floor {
 
 // -----
 
-gpu.module @test_module_gpu_cos {
+gpu.module @test_module {
   // CHECK: llvm.func @__ocml_cos_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_cos_f64(f64) -> f64
   // CHECK-LABEL: func @gpu_cos
@@ -144,7 +144,7 @@ gpu.module @test_module_gpu_cos {
 
 // -----
 
-gpu.module @test_module_gpu_exp {
+gpu.module @test_module {
   // CHECK: llvm.func @__ocml_exp_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_exp_f64(f64) -> f64
   // CHECK-LABEL: func @gpu_exp
@@ -161,7 +161,7 @@ gpu.module @test_module_gpu_exp {
 
 // -----
 
-gpu.module @test_module_gpu_exp2 {
+gpu.module @test_module {
   // CHECK: llvm.func @__ocml_exp2_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_exp2_f64(f64) -> f64
   // CHECK-LABEL: func @gpu_exp2
@@ -179,7 +179,7 @@ gpu.module @test_module_gpu_exp2 {
 // -----
 
 // Test that we handled properly operation with SymbolTable other than module op
-gpu.module @test_module_gpu_exp3 {
+gpu.module @test_module {
   "test.symbol_scope"() ({
     // CHECK: test.symbol_scope
     // CHECK: llvm.func @__ocml_exp_f32(f32) -> f32
@@ -200,7 +200,7 @@ gpu.module @test_module_gpu_exp3 {
 
 // -----
 
-gpu.module @test_module_gpu_expm1 {
+gpu.module @test_module {
   // CHECK: llvm.func @__ocml_expm1_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_expm1_f64(f64) -> f64
   // CHECK-LABEL: func @gpu_expm1
@@ -217,7 +217,7 @@ gpu.module @test_module_gpu_expm1 {
 
 // -----
 
-gpu.module @test_module_gpu_log {
+gpu.module @test_module {
   // CHECK: llvm.func @__ocml_log_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_log_f64(f64) -> f64
   // CHECK-LABEL: func @gpu_log
@@ -232,7 +232,7 @@ gpu.module @test_module_gpu_log {
 
 // -----
 
-gpu.module @test_module_gpu_log1p {
+gpu.module @test_module {
   // CHECK: llvm.func @__ocml_log1p_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_log1p_f64(f64) -> f64
   // CHECK-LABEL: func @gpu_log1p
@@ -247,7 +247,7 @@ gpu.module @test_module_gpu_log1p {
 
 // -----
 
-gpu.module @test_module_gpu_log10 {
+gpu.module @test_module {
   // CHECK: llvm.func @__ocml_log10_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_log10_f64(f64) -> f64
   // CHECK-LABEL: func @gpu_log10
@@ -262,7 +262,7 @@ gpu.module @test_module_gpu_log10 {
 
 // -----
 
-gpu.module @test_module_gpu_log2 {
+gpu.module @test_module {
   // CHECK: llvm.func @__ocml_log2_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_log2_f64(f64) -> f64
   // CHECK-LABEL: func @gpu_log2
@@ -277,7 +277,7 @@ gpu.module @test_module_gpu_log2 {
 
 // -----
 
-gpu.module @test_module_gpu_rsqrt {
+gpu.module @test_module {
   // CHECK: llvm.func @__ocml_rsqrt_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_rsqrt_f64(f64) -> f64
   // CHECK-LABEL: func @gpu_rsqrt
@@ -297,7 +297,7 @@ gpu.module @test_module_gpu_rsqrt {
 
 // -----
 
-gpu.module @test_module_gpu_sqrt {
+gpu.module @test_module {
   // CHECK: llvm.func @__ocml_sqrt_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_sqrt_f64(f64) -> f64
   // CHECK-LABEL: func @gpu_sqrt
@@ -317,7 +317,7 @@ gpu.module @test_module_gpu_sqrt {
 
 // -----
 
-gpu.module @test_module_gpu_tanh {
+gpu.module @test_module {
   // CHECK: llvm.func @__ocml_tanh_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_tanh_f64(f64) -> f64
   // CHECK-LABEL: func @gpu_tanh
@@ -332,7 +332,7 @@ gpu.module @test_module_gpu_tanh {
 
 // -----
 
-gpu.module @test_module_gpu_atan {
+gpu.module @test_module {
   // CHECK: llvm.func @__ocml_atan_f32(f32) -> f32
   // CHECK: llvm.func @__ocml_atan_f64(f64) -> f64
   // CHECK-LABEL: func @gpu_atan
@@ -347,7 +347,7 @@ gpu.module @test_module_gpu_atan {
 
 // -----
 
-gpu.module @test_module_gpu_atan2 {
+gpu.module @test_module {
   // CHECK: llvm.func @__ocml_atan2_f32(f32, f32) -> f32
   // CHECK: llvm.func @__ocml_atan2_f64(f64, f64) -> f64
   // CHECK-LABEL: func @gpu_atan2
@@ -362,7 +362,7 @@ gpu.module @test_module_gpu_atan2 {
 
 // -----
 
-gpu.module @test_module_gpu_pow {
+gpu.module @test_module {
   // CHECK: llvm.func @__ocml_pow_f32(f32, f32) -> f32
   // CHECK: llvm.func @__ocml_pow_f64(f64, f64) -> f64
   // CHECK-LABEL: func @gpu_pow
@@ -377,7 +377,7 @@ gpu.module @test_module_gpu_pow {
 
 // -----
 
-gpu.module @test_module_kernel {
+gpu.module @test_module {
   // CHECK-LABEL: @kernel_func
   // CHECK: attributes
   // CHECK: gpu.kernel
