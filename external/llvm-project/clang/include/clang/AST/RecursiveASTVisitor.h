@@ -313,12 +313,6 @@ public:
   /// \returns false if the visitation was terminated early, true otherwise.
   bool TraverseObjCProtocolLoc(ObjCProtocolLoc ProtocolLoc);
 
-  /// Recursively visit an Objective-C protocol reference with location
-  /// information.
-  ///
-  /// \returns false if the visitation was terminated early, true otherwise.
-  bool TraverseObjCProtocolLoc(ObjCProtocolLoc ProtocolLoc);
-
   // ---- Methods on Attrs ----
 
   // Visit an attribute.
@@ -2514,12 +2508,6 @@ bool RecursiveASTVisitor<Derived>::TraverseSynOrSemInitListExpr(
     if (!Queue && getDerived().shouldTraversePostOrder())
       TRY_TO(WalkUpFromInitListExpr(S));
   }
-  return true;
-}
-
-template <typename Derived>
-bool RecursiveASTVisitor<Derived>::TraverseObjCProtocolLoc(
-    ObjCProtocolLoc ProtocolLoc) {
   return true;
 }
 

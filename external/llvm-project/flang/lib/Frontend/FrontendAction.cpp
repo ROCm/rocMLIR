@@ -199,21 +199,6 @@ bool FrontendAction::generateRtTypeTables() {
   return true;
 }
 
-bool FrontendAction::GenerateRtTypeTables() {
-  instance().setRtTyTables(
-      std::make_unique<Fortran::semantics::RuntimeDerivedTypeTables>(
-          BuildRuntimeDerivedTypeTables(
-              instance().invocation().semanticsContext())));
-
-  // The runtime derived type information table builder may find additional
-  // semantic errors. Report them.
-  if (reportFatalSemanticErrors()) {
-    return false;
-  }
-
-  return true;
-}
-
 template <unsigned N>
 bool FrontendAction::reportFatalErrors(const char (&message)[N]) {
   if (!instance->getParsing().messages().empty() &&

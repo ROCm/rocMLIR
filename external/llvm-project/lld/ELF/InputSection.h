@@ -231,8 +231,6 @@ public:
     return llvm::makeArrayRef<T>((const T *)rawData.data(), s / sizeof(T));
   }
 
-  mutable ArrayRef<uint8_t> rawData;
-
 protected:
   template <typename ELFT>
   void parseCompressedHeader();

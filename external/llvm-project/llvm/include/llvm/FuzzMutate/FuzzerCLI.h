@@ -19,8 +19,6 @@
 
 namespace llvm {
 
-class LLVMContext;
-class Module;
 class StringRef;
 
 /// Parse cl::opts from a fuzz target commandline.

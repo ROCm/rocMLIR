@@ -831,12 +831,6 @@ void TargetLoweringBase::initActions() {
         {ISD::AVGFLOORS, ISD::AVGFLOORU, ISD::AVGCEILS, ISD::AVGCEILU}, VT,
         Expand);
 
-    // Halving adds
-    setOperationAction(ISD::AVGFLOORS, VT, Expand);
-    setOperationAction(ISD::AVGFLOORU, VT, Expand);
-    setOperationAction(ISD::AVGCEILS, VT, Expand);
-    setOperationAction(ISD::AVGCEILU, VT, Expand);
-
     // Absolute difference
     setOperationAction({ISD::ABDS, ISD::ABDU}, VT, Expand);
 

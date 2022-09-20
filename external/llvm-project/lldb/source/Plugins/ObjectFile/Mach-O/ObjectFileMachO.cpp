@@ -2728,7 +2728,7 @@ void ObjectFileMachO::ParseSymtab(Symtab &symtab) {
         if (process_shared_cache_uuid.IsValid() &&
           process_shared_cache_uuid != UUID::fromData(&cache_uuid, 16))
         return;
-      const bool pinned = dyld_shared_cache_pin_mapping(shared_cache);
+
       dyld_shared_cache_for_each_image(shared_cache, ^(dyld_image_t image) {
         uuid_t dsc_image_uuid;
         if (found_image)
@@ -2785,8 +2785,6 @@ void ObjectFileMachO::ParseSymtab(Symtab &symtab) {
               nlist_count = nlistCount;
             });
       });
-      if (pinned)
-        dyld_shared_cache_unpin_mapping(shared_cache);
     });
     if (nlist_buffer) {
       DataExtractor dsc_local_symbols_data(nlist_buffer,

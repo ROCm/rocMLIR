@@ -55,8 +55,6 @@ class CompilerInstance {
 
   std::unique_ptr<Fortran::semantics::RuntimeDerivedTypeTables> rtTyTables;
 
-  std::unique_ptr<Fortran::semantics::RuntimeDerivedTypeTables> rtTyTables_;
-
   /// The stream for diagnostics from Semantics
   llvm::raw_ostream *semaOutputStream = &llvm::errs();
 
@@ -149,16 +147,6 @@ public:
   Fortran::semantics::RuntimeDerivedTypeTables &getRtTyTables() {
     assert(rtTyTables && "Missing runtime derived type tables!");
     return *rtTyTables;
-  }
-
-  void setRtTyTables(
-      std::unique_ptr<Fortran::semantics::RuntimeDerivedTypeTables> tables) {
-    rtTyTables_ = std::move(tables);
-  }
-
-  Fortran::semantics::RuntimeDerivedTypeTables &getRtTyTables() {
-    assert(rtTyTables_ && "Missing runtime derived type tables!");
-    return *rtTyTables_;
   }
 
   /// }

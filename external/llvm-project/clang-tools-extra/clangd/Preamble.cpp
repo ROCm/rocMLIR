@@ -566,10 +566,6 @@ buildPreamble(PathRef FileName, CompilerInvocation CI,
     Result->CanonIncludes = CapturedInfo.takeCanonicalIncludes();
     Result->StatCache = std::move(StatCache);
     Result->MainIsIncludeGuarded = CapturedInfo.isMainFileIncludeGuarded();
-    if (Stats != nullptr) {
-      Stats->TotalBuildTime = PreambleTimer.getTime();
-      Stats->FileSystemTime = TimedFS->getTime();
-    }
     return Result;
   }
 
