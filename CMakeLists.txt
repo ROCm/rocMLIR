@@ -23,16 +23,16 @@ endif()
 # Set policy CMP0057 to support IN_LIST operators
 cmake_policy(SET CMP0057 NEW)
 
-# MIOpen dialect.
-set(MLIR_MIOPEN_DRIVER_ENABLED 1 CACHE BOOL "Enable build MIOpen driver")
-set(MLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for MIOpen driver")
-set(MLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build miscellaneous E2E tests for MIOpen driver")
-set(MLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED 1 CACHE BOOL "Enable build PR-triggered E2E tests for MIOpen driver")
-set(MLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED "none" CACHE STRING "Enable E2E tests using random data")
-set(MLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for XDLops")
-set(MLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION 1 CACHE BOOL "Enable E2E tests with GPU validation")
-set(MLIR_MIOPEN_SQLITE_ENABLED 0 CACHE BOOL "Enable SQLite integration")
-set(MLIR_ENABLE_SQLITE "${MLIR_MIOPEN_SQLITE_ENABLED}")
+# Rock dialect.
+set(ROCMLIR_DRIVER_ENABLED 1 CACHE BOOL "Enable build Rock driver")
+set(ROCMLIR_DRIVER_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for Rock driver")
+set(ROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build miscellaneous E2E tests for Rock driver")
+set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED 1 CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
+set(ROCMLIR_DRIVER_RANDOM_DATA_SEED "none" CACHE STRING "Enable E2E tests using random data")
+set(ROCMLIR_DRIVER_XDLOPS_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for XDLops")
+set(ROCMLIR_DRIVER_TEST_GPU_VALIDATION 1 CACHE BOOL "Enable E2E tests with GPU validation")
+set(ROCMLIR_SQLITE_ENABLED 0 CACHE BOOL "Enable SQLite integration")
+set(MLIR_ENABLE_SQLITE "${ROCMLIR_SQLITE_ENABLED}")
 set(LLVM_ENABLE_ZLIB "OFF" CACHE STRING "")
 set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
 set(ROCK_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build rock E2E tests")
@@ -40,17 +40,17 @@ set(ROCK_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build rock E2E tests")
 # LLVM settings that have an effect on the MLIR dialect
 set(LLVM_TARGETS_TO_BUILD "X86;AMDGPU" CACHE STRING "")
 
-# Pointers to: 1) external LLVM bins/libs, and 2) MIOpen Dialect bins/libs
+# Pointers to: 1) external LLVM bins/libs, and 2) Rock Dialect bins/libs
 set(LLVM_MAIN_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/llvm-project/llvm" CACHE PATH "Path to LLVM sources")
 set(LLVM_EXTERNAL_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/external/llvm-project/llvm/bin" CACHE PATH "")
 set(LLVM_EXTERNAL_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/external/llvm-project/llvm/lib" CACHE PATH "")
-set(MLIR_MIOPEN_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/bin" CACHE PATH "")
-set(MLIR_MIOPEN_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/lib" CACHE PATH "")
+set(ROCMLIR_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/bin" CACHE PATH "")
+set(ROCMLIR_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/lib" CACHE PATH "")
 message(STATUS "LLVM_EXTERNAL_BIN_DIR: ${LLVM_EXTERNAL_BIN_DIR}")
-message(STATUS "MLIR_MIOPEN_BIN_DIR: ${MLIR_MIOPEN_BIN_DIR}")
+message(STATUS "ROCMLIR_BIN_DIR: ${ROCMLIR_BIN_DIR}")
 
 # Update the build-tree RPATH
-set(CMAKE_BUILD_RPATH "${MLIR_MIOPEN_LIB_DIR};${LLVM_EXTERNAL_LIB_DIR}")
+set(CMAKE_BUILD_RPATH "${ROCMLIR_LIB_DIR};${LLVM_EXTERNAL_LIB_DIR}")
 message(STATUS "CMAKE_BUILD_RPATH: ${CMAKE_BUILD_RPATH}")
 
 if(BUILD_MIXR_TARGET)
@@ -60,7 +60,7 @@ endif()
 
 # Library type and linkage settings
 if( NOT DEFINED BUILD_FAT_LIBROCKCOMPILER )
-  set(BUILD_FAT_LIBROCKCOMPILER OFF CACHE BOOL "Build fat libMLIRMIOpen to link into MIOpen driver")
+  set(BUILD_FAT_LIBROCKCOMPILER OFF CACHE BOOL "Build fat librockCompiler to link into Rock driver")
 endif()
 if( BUILD_FAT_LIBROCKCOMPILER )
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
@@ -83,5 +83,5 @@ include(cmake/llvm-project.cmake)
 # Set up the build for the official MLIR 'standalone' example
 #add_subdirectory(mlir-standalone-example)
 
-# Set up the build for the MLIR MIOpen dialect
+# Set up the build for the rocMLIR dialects
 add_subdirectory(mlir)

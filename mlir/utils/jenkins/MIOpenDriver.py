@@ -34,8 +34,8 @@ ELAPSED_TIME_RE = re.compile(r"Elapsed: (.*)ms")
 
 @dataclass
 class MLIRPaths:
-    miopen_gen_path: str
-    mlir_miopen_driver_path: str
+    rock_gen_path: str
+    mlir_rock_driver_path: str
     rocm_runner_path : str
     libmlir_rocm_runtime_path : str
     libconv_validation_wrappers_path : str
@@ -53,18 +53,18 @@ def find_mlir_build_dir() -> str:
     Finds mlir build dir searching either WORKSPACE dir
     or home dir
     """
-    miopen_gen_path = None
+    rock_gen_path = None
     candidate_paths = [
         # if the script is run from build dir
-        Path('./bin/miopen-gen'),
+        Path('./bin/rocmlir-gen'),
         # if the script is run from source
-        Path(__file__).parent.parent.parent.parent / 'build' / 'bin' / 'miopen-gen'
+        Path(__file__).parent.parent.parent.parent / 'build' / 'bin' / 'rocmlir-gen'
     ]
     for candidate_path in candidate_paths:
         if candidate_path.exists():
-            miopen_gen_path = candidate_path
+            rock_gen_path = candidate_path
     
-    if not miopen_gen_path:
+    if not rock_gen_path:
         try:
             # Prioritize the search in the current repo first.
             search_root = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
@@ -73,14 +73,14 @@ def find_mlir_build_dir() -> str:
             search_root = os.environ.get('WORKSPACE', str(Path.home()))
             assert search_root, "Cant find WORKSPACE env arg or home directory"
         
-        miopen_gen_path = glob.glob(search_root + '/**/bin/miopen-gen', recursive=True)
-        if len(miopen_gen_path) == 0:
-            # MLIR miopen_gen not available
+        rock_gen_path = glob.glob(search_root + '/**/bin/rocmlir-gen', recursive=True)
+        if len(rock_gen_path) == 0:
+            # MLIR rock_gen not available
             return None
-        assert len(miopen_gen_path) == 1, "Multiple paths found to contain */bin/miopen-gen"
-        miopen_gen_path = miopen_gen_path[0]
+        assert len(rock_gen_path) == 1, "Multiple paths found to contain */bin/rocmlir-gen"
+        rock_gen_path = rock_gen_path[0]
 
-    build_dir = Path(miopen_gen_path).parent.parent
+    build_dir = Path(rock_gen_path).parent.parent
     return str(build_dir)
 
 
@@ -122,8 +122,8 @@ def create_paths(mlir_build_dir_path, miopen_build_dir_path) -> Paths:
         mlir_bin_dir = str((Path(mlir_build_dir_path) / 'bin').resolve())
         mlir_lib_dir = str((Path(mlir_build_dir_path) / 'lib').resolve())
         llvm_lib_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/lib').resolve())
-        mlir_paths = MLIRPaths(miopen_gen_path = mlir_bin_dir + '/miopen-gen',
-        mlir_miopen_driver_path = mlir_bin_dir + '/mlir-miopen-driver',
+        mlir_paths = MLIRPaths(rock_gen_path = mlir_bin_dir + '/rocmlir-gen',
+        mlir_rock_driver_path = mlir_bin_dir + '/rocmlir-driver',
         rocm_runner_path = mlir_bin_dir + '/mlir-rocm-runner',
         libmlir_rocm_runtime_path =  llvm_lib_dir + '/libmlir_rocm_runtime.so',
         libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',
@@ -357,8 +357,8 @@ def runConfigWithMLIR(config: ConvConfiguration, paths: Paths):
     os.system("rm "+BENCHMARKING_RESULT_FILE_NAME)
     commandLineOptions = config.generateMlirDriverCommandLine()
     print("Running MLIR Benchmark: ", repr(config))
-    miopenGenCommand = paths.mlir_paths.miopen_gen_path + ' -ph ' + commandLineOptions
-    mlirMiopenDriverCommand = [paths.mlir_paths.mlir_miopen_driver_path, '-c']
+    miopenGenCommand = paths.mlir_paths.rock_gen_path + ' -ph ' + commandLineOptions
+    mlirMiopenDriverCommand = [paths.mlir_paths.mlir_rock_driver_path, '-c']
     mlir_rocm_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
     profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.rocm_runner_path] + mlir_rocm_runner_args
 

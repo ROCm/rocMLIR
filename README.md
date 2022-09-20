@@ -18,7 +18,7 @@ ninja check-mlir-miopen
 ```
 
 If you will be targetting a MI-100, MI-200, or other system that supports
-mfma instructions, add the flag `-DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=1 `
+mfma instructions, add the flag `-DROCMLIR_DRIVER_XDLOPS_TEST_ENABLED=1 `
 to the `cmake` invocation above.
 
 To not actually run the tests, use `check-mlir-miopen-build-only`.

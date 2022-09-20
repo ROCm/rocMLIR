@@ -1,4 +1,4 @@
-//===- Pipeline.cpp - Create MIOpen compilation pipeline ---------------===//
+//===- Pipeline.cpp - Create Rock compilation pipeline ---------------===//
 //
 // Copyright 2021 The MLIR Authors.
 //
@@ -15,15 +15,15 @@
 // limitations under the License.
 // =============================================================================
 //
-// This interface adds the MIOpen compilation pipeline for various flows but
+// This interface adds the Rock compilation pipeline for various flows but
 // keeping a unified ordering of the pipeline.
 //
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/MIGraphX/Pipeline.h"
 
-#include "mlir/Conversion/MIOpenPasses.h"
-#include "mlir/Dialect/MIOpen/Passes.h"
+#include "mlir/Conversion/RocMLIRPasses.h"
+#include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitAllPasses.h"
@@ -36,7 +36,7 @@
 
 using namespace mlir;
 
-//===- Consolidate the MIOpen Pipelines here ---------------------===//
+//===- Consolidate the Rock Pipelines here ---------------------===//
 
 void migraphx::addHighLevelPipeline(PassManager &pm) {
   // passes for MIXR to TOSA

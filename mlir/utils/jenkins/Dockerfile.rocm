@@ -60,7 +60,7 @@ RUN ln -s /usr/bin/clang-10 /usr/bin/clang;\
     ln -s /usr/bin/lld-10 /usr/bin/lld;\
     ln -s /usr/bin/llvm-symbolizer-10 /usr/bin/llvm-symbolizer
 
-# --------------------- Section 2: MIOpen dialect setups -----------------
+# --------------------- Section 2: Rock dialect setups -----------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
   apt-utils \
   apt-transport-https \
@@ -99,7 +99,7 @@ RUN apt-add-repository 'deb https://apt.kitware.com/ubuntu/ bionic main'
 
 # Note instead of installing the latest, we should always manually bump cmake version when necessary.
 # This make sure that we don't accidentally use newer cmake features incompatible with our client.
-# As of 2022-08-17, the rocm/miopen images has /opt/conda/bin/cmake at 3.22.1, so we'll match that.
+# As of 2022-08-17, the rocm/rock images has /opt/conda/bin/cmake at 3.22.1, so we'll match that.
 # Note that the mlir minimum is 3.18.
 RUN apt-get update && apt-get install -y --no-install-recommends \
   rocm-dev \
@@ -120,11 +120,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
 
-# --------------------- Section 3: MIOpen dependencies ---------------
-WORKDIR /MiOpenDepsWork
-RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/develop/requirements.txt \
-    && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/develop/install_deps.cmake \
+# --------------------- Section 3: Rock dependencies ---------------
+WORKDIR /RockDepsWork
+RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/Rock/develop/requirements.txt \
+    && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/Rock/develop/install_deps.cmake \
     && sed -i -e '/llvm-project-mlir/d' requirements.txt \
     && cmake -P install_deps.cmake --prefix /usr/local
-RUN echo $(git ls-remote https://github.com/ROCmSoftwarePlatform/MIOpen HEAD) > miopen-deps-commit-hash
+RUN echo $(git ls-remote https://github.com/ROCmSoftwarePlatform/Rock HEAD) > rock-deps-commit-hash
 WORKDIR /

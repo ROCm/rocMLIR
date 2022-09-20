@@ -18,7 +18,7 @@ module attributes {gpu.container_module} {
     %c1 = constant 1 : index
     %c256 = constant 256 : index
     %c900 = constant 900 : index
-    "gpu.launch_func"(%c1, %c1, %c1, %c256, %c1, %c1, %arg0, %arg1, %arg2) {kernel = @miopen_kernel_module::@miopen_conv2d_kcyx_nchw_nkhw} : (index, index, index, index, index, index, memref<128x8x3x3xf32>, memref<128x8x32x32xf32>, memref<128x128x30x30xf32>) -> ()
+    "gpu.launch_func"(%c1, %c1, %c1, %c256, %c1, %c1, %arg0, %arg1, %arg2) {kernel = @rock_kernel_module::@rock_conv2d_kcyx_nchw_nkhw} : (index, index, index, index, index, index, memref<128x8x3x3xf32>, memref<128x8x32x32xf32>, memref<128x128x30x30xf32>) -> ()
     return
   }
   func @main() {
@@ -61,8 +61,8 @@ module attributes {gpu.container_module} {
   func @mgpuMemDealloc4DFloat(memref<?x?x?x?xf32>)
   func @mgpuMemCopy4DFloat(memref<?x?x?x?xf32>, memref<?x?x?x?xf32>, i32)
   func @print_memref_f32(memref<*xf32>)
-  gpu.module @miopen_kernel_module {
-    gpu.func @miopen_conv2d_kcyx_nchw_nkhw(%arg0: memref<128x8x3x3xf32>, %arg1: memref<128x8x32x32xf32>, %arg2: memref<128x128x30x30xf32>) kernel {
+  gpu.module @rock_kernel_module {
+    gpu.func @rock_conv2d_kcyx_nchw_nkhw(%arg0: memref<128x8x3x3xf32>, %arg1: memref<128x8x32x32xf32>, %arg2: memref<128x128x30x30xf32>) kernel {
     %cst = constant 0.000000e+00 : f32
     %c0_i32 = constant 0 : i32
     %c1 = constant 1 : index
@@ -77,12 +77,12 @@ module attributes {gpu.container_module} {
     %c4 = constant 4 : index
     %c8_i32 = constant 8 : i32
     %c64_i32 = constant 64 : i32
-    %0 = miopen.transform(%arg0) {gridwise_gemm_argument_position = 0 : i32, layout = [{dimensions = [0 : i32], names = ["gemmK"], source_dimensions = [1 : i32, 2 : i32, 3 : i32], source_names = ["c", "y", "x"], transformation = "Unfold"}, {dimensions = [1 : i32], names = ["gemmM"], source_dimensions = [0 : i32], source_names = ["k"], transformation = "PassThrough"}], output_layout = ["gemmK", "gemmM"], source_layout = ["k", "c", "y", "x"]} : memref<128x8x3x3xf32> to memref<72x128xf32, #map0>
-    %1 = miopen.transform(%arg1) {layout = [{dimensions = [0 : i32], names = ["ni"], source_dimensions = [0 : i32], source_names = ["ni"], transformation = "PassThrough"}, {dimensions = [1 : i32], names = ["ci"], source_dimensions = [1 : i32], source_names = ["ci"], transformation = "PassThrough"}, {dimensions = [2 : i32, 3 : i32], names = ["hipad", "wipad"], parameters = [0 : i32, 0 : i32], source_dimensions = [2 : i32, 3 : i32], source_names = ["hi", "wi"], transformation = "Pad"}], output_layout = ["ni", "ci", "hipad", "wipad"], source_layout = ["ni", "ci", "hi", "wi"]} : memref<128x8x32x32xf32> to memref<128x8x32x32xf32>
-    %2 = miopen.transform(%1) {intermediate_layout = ["ni", "ci", "hipad", "wipad"], layout = [{dimensions = [0 : i32], names = ["ni"], source_dimensions = [0 : i32], source_names = ["ni"], transformation = "PassThrough"}, {dimensions = [1 : i32], names = ["ci"], source_dimensions = [1 : i32], source_names = ["ci"], transformation = "PassThrough"}, {dimensions = [2 : i32, 3 : i32], names = ["y", "ho"], parameters = [2 : i32, 1 : i32, 1 : i32, 0 : i32], source_dimensions = [2 : i32], source_names = ["hipad"], transformation = "Embed"}, {dimensions = [4 : i32, 5 : i32], names = ["x", "wo"], parameters = [2 : i32, 1 : i32, 1 : i32, 0 : i32], source_dimensions = [3 : i32], source_names = ["wipad"], transformation = "Embed"}], output_layout = ["ni", "ci", "y", "ho", "x", "wo"]} : memref<128x8x32x32xf32> to memref<128x8x3x30x3x30xf32, #map1>
-    %3 = miopen.transform(%2) {gridwise_gemm_argument_position = 1 : i32, intermediate_layout = ["ni", "ci", "y", "ho", "x", "wo"], layout = [{dimensions = [0 : i32], names = ["gemmK"], source_dimensions = [1 : i32, 2 : i32, 4 : i32], source_names = ["ci", "y", "x"], transformation = "Merge"}, {dimensions = [1 : i32], names = ["gemmN"], source_dimensions = [0 : i32, 3 : i32, 5 : i32], source_names = ["ni", "ho", "wo"], transformation = "Merge"}], output_layout = ["gemmK", "gemmN"]} : memref<128x8x3x30x3x30xf32, #map1> to memref<72x115200xf32, #map2>
-    %4 = miopen.transform(%arg2) {gridwise_gemm_argument_position = 2 : i32, layout = [{dimensions = [0 : i32], names = ["gemmM"], source_dimensions = [1 : i32], source_names = ["ko"], transformation = "PassThrough"}, {dimensions = [1 : i32], names = ["gemmN"], source_dimensions = [0 : i32, 2 : i32, 3 : i32], source_names = ["no", "ho", "wo"], transformation = "Merge"}], output_layout = ["gemmM", "gemmN"], source_layout = ["no", "ko", "ho", "wo"]} : memref<128x128x30x30xf32> to memref<128x115200xf32, #map3>
-    //%5 = miopen.workgroup_id : index
+    %0 = rock.transform(%arg0) {gridwise_gemm_argument_position = 0 : i32, layout = [{dimensions = [0 : i32], names = ["gemmK"], source_dimensions = [1 : i32, 2 : i32, 3 : i32], source_names = ["c", "y", "x"], transformation = "Unfold"}, {dimensions = [1 : i32], names = ["gemmM"], source_dimensions = [0 : i32], source_names = ["k"], transformation = "PassThrough"}], output_layout = ["gemmK", "gemmM"], source_layout = ["k", "c", "y", "x"]} : memref<128x8x3x3xf32> to memref<72x128xf32, #map0>
+    %1 = rock.transform(%arg1) {layout = [{dimensions = [0 : i32], names = ["ni"], source_dimensions = [0 : i32], source_names = ["ni"], transformation = "PassThrough"}, {dimensions = [1 : i32], names = ["ci"], source_dimensions = [1 : i32], source_names = ["ci"], transformation = "PassThrough"}, {dimensions = [2 : i32, 3 : i32], names = ["hipad", "wipad"], parameters = [0 : i32, 0 : i32], source_dimensions = [2 : i32, 3 : i32], source_names = ["hi", "wi"], transformation = "Pad"}], output_layout = ["ni", "ci", "hipad", "wipad"], source_layout = ["ni", "ci", "hi", "wi"]} : memref<128x8x32x32xf32> to memref<128x8x32x32xf32>
+    %2 = rock.transform(%1) {intermediate_layout = ["ni", "ci", "hipad", "wipad"], layout = [{dimensions = [0 : i32], names = ["ni"], source_dimensions = [0 : i32], source_names = ["ni"], transformation = "PassThrough"}, {dimensions = [1 : i32], names = ["ci"], source_dimensions = [1 : i32], source_names = ["ci"], transformation = "PassThrough"}, {dimensions = [2 : i32, 3 : i32], names = ["y", "ho"], parameters = [2 : i32, 1 : i32, 1 : i32, 0 : i32], source_dimensions = [2 : i32], source_names = ["hipad"], transformation = "Embed"}, {dimensions = [4 : i32, 5 : i32], names = ["x", "wo"], parameters = [2 : i32, 1 : i32, 1 : i32, 0 : i32], source_dimensions = [3 : i32], source_names = ["wipad"], transformation = "Embed"}], output_layout = ["ni", "ci", "y", "ho", "x", "wo"]} : memref<128x8x32x32xf32> to memref<128x8x3x30x3x30xf32, #map1>
+    %3 = rock.transform(%2) {gridwise_gemm_argument_position = 1 : i32, intermediate_layout = ["ni", "ci", "y", "ho", "x", "wo"], layout = [{dimensions = [0 : i32], names = ["gemmK"], source_dimensions = [1 : i32, 2 : i32, 4 : i32], source_names = ["ci", "y", "x"], transformation = "Merge"}, {dimensions = [1 : i32], names = ["gemmN"], source_dimensions = [0 : i32, 3 : i32, 5 : i32], source_names = ["ni", "ho", "wo"], transformation = "Merge"}], output_layout = ["gemmK", "gemmN"]} : memref<128x8x3x30x3x30xf32, #map1> to memref<72x115200xf32, #map2>
+    %4 = rock.transform(%arg2) {gridwise_gemm_argument_position = 2 : i32, layout = [{dimensions = [0 : i32], names = ["gemmM"], source_dimensions = [1 : i32], source_names = ["ko"], transformation = "PassThrough"}, {dimensions = [1 : i32], names = ["gemmN"], source_dimensions = [0 : i32, 2 : i32, 3 : i32], source_names = ["no", "ho", "wo"], transformation = "Merge"}], output_layout = ["gemmM", "gemmN"], source_layout = ["no", "ko", "ho", "wo"]} : memref<128x128x30x30xf32> to memref<128x115200xf32, #map3>
+    //%5 = rock.workgroup_id : index
     %5 = constant 899 : index
     //%5 = constant 0 : index
     %6 = divi_signed %5, %c900 : index
@@ -91,7 +91,7 @@ module attributes {gpu.container_module} {
     %9 = muli %7, %c128 : index
     %10 = index_cast %8 : index to i32
     %11 = index_cast %9 : index to i32
-    %12 = miopen.workitem_id : index
+    %12 = rock.workitem_id : index
     %13 = remi_signed %12, %c8 : index
     %14 = divi_signed %12, %c8 : index
     %15 = muli %14, %c4 : index
@@ -104,33 +104,33 @@ module attributes {gpu.container_module} {
     %22 = index_cast %19 : index to i32
     %23 = index_cast %21 : index to i32
     %24 = addi %11, %23 : i32
-    %25 = miopen.alloc() : memref<4096xf32, 3>
-    %26 = miopen.subview(%25, %c0) : memref<4096xf32, 3> to memref<2048xf32, 3>
-    %27 = miopen.subview(%26, %c0) : memref<2048xf32, 3> to memref<1024xf32, 3>
-    %28 = miopen.subview(%26, %c1024) : memref<2048xf32, 3> to memref<1024xf32, #map4, 3>
-    %29 = miopen.subview(%27, %c0) : memref<1024xf32, 3> to memref<8x128xf32, #map5, 3>
-    %30 = miopen.subview(%28, %c0) : memref<1024xf32, #map4, 3> to memref<8x128xf32, #map6, 3>
-    %31 = miopen.subview(%25, %c2048) : memref<4096xf32, 3> to memref<2048xf32, #map7, 3>
-    %32 = miopen.subview(%31, %c0) : memref<2048xf32, #map7, 3> to memref<1024xf32, #map7, 3>
-    %33 = miopen.subview(%31, %c1024) : memref<2048xf32, #map7, 3> to memref<1024xf32, #map8, 3>
-    %34 = miopen.subview(%32, %c0) : memref<1024xf32, #map7, 3> to memref<8x128xf32, #map9, 3>
-    %35 = miopen.subview(%33, %c0) : memref<1024xf32, #map8, 3> to memref<8x128xf32, #map10, 3>
-    %36 = miopen.alloc() : memref<8x8xf32, 5>
-    %37 = miopen.alloc() : memref<1x4xf32, 5>
-    %38 = miopen.alloc() : memref<1x4xf32, 5>
-    %39 = miopen.alloc() : memref<1x4xf32, 5>
-    %40 = miopen.alloc() : memref<1x4xf32, 5>
-    miopen.fill(%36, %cst) : memref<8x8xf32, 5>
-    %41 = miopen.alloc() : memref<2xi32, 5>
+    %25 = rock.alloc() : memref<4096xf32, 3>
+    %26 = rock.subview(%25, %c0) : memref<4096xf32, 3> to memref<2048xf32, 3>
+    %27 = rock.subview(%26, %c0) : memref<2048xf32, 3> to memref<1024xf32, 3>
+    %28 = rock.subview(%26, %c1024) : memref<2048xf32, 3> to memref<1024xf32, #map4, 3>
+    %29 = rock.subview(%27, %c0) : memref<1024xf32, 3> to memref<8x128xf32, #map5, 3>
+    %30 = rock.subview(%28, %c0) : memref<1024xf32, #map4, 3> to memref<8x128xf32, #map6, 3>
+    %31 = rock.subview(%25, %c2048) : memref<4096xf32, 3> to memref<2048xf32, #map7, 3>
+    %32 = rock.subview(%31, %c0) : memref<2048xf32, #map7, 3> to memref<1024xf32, #map7, 3>
+    %33 = rock.subview(%31, %c1024) : memref<2048xf32, #map7, 3> to memref<1024xf32, #map8, 3>
+    %34 = rock.subview(%32, %c0) : memref<1024xf32, #map7, 3> to memref<8x128xf32, #map9, 3>
+    %35 = rock.subview(%33, %c0) : memref<1024xf32, #map8, 3> to memref<8x128xf32, #map10, 3>
+    %36 = rock.alloc() : memref<8x8xf32, 5>
+    %37 = rock.alloc() : memref<1x4xf32, 5>
+    %38 = rock.alloc() : memref<1x4xf32, 5>
+    %39 = rock.alloc() : memref<1x4xf32, 5>
+    %40 = rock.alloc() : memref<1x4xf32, 5>
+    rock.fill(%36, %cst) : memref<8x8xf32, 5>
+    %41 = rock.alloc() : memref<2xi32, 5>
     store %16, %41[%c0] : memref<2xi32, 5>
     store %18, %41[%c1] : memref<2xi32, 5>
-    %42 = miopen.alloc() : memref<2xi32, 5>
+    %42 = rock.alloc() : memref<2xi32, 5>
     store %16, %42[%c0] : memref<2xi32, 5>
     store %17, %42[%c1] : memref<2xi32, 5>
-    %43 = miopen.alloc() : memref<2xi32, 5>
+    %43 = rock.alloc() : memref<2xi32, 5>
     store %22, %43[%c0] : memref<2xi32, 5>
     store %24, %43[%c1] : memref<2xi32, 5>
-    %44 = miopen.alloc() : memref<2xi32, 5>
+    %44 = rock.alloc() : memref<2xi32, 5>
     store %22, %44[%c0] : memref<2xi32, 5>
     store %23, %44[%c1] : memref<2xi32, 5>
     %45 = divi_signed %12, %c16 : index
@@ -149,8 +149,8 @@ module attributes {gpu.container_module} {
     %58 = index_cast %57 : index to i32
     %59 = addi %10, %54 : i32
     %60 = addi %11, %58 : i32
-    miopen.blockwise_copy(%0, %29, %41, %42, %38) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [1 : i32, 0 : i32], source_vector_read_dim = 0 : i32} : memref<72x128xf32, #map0>, memref<8x128xf32, #map5, 3>, memref<2xi32, 5>, memref<2xi32, 5>, memref<1x4xf32, 5>
-    miopen.blockwise_copy(%3, %34, %43, %44, %40) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [0 : i32, 1 : i32], source_vector_read_dim = 1 : i32} : memref<72x115200xf32, #map2>, memref<8x128xf32, #map9, 3>, memref<2xi32, 5>, memref<2xi32, 5>, memref<1x4xf32, 5>
+    rock.blockwise_copy(%0, %29, %41, %42, %38) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [1 : i32, 0 : i32], source_vector_read_dim = 0 : i32} : memref<72x128xf32, #map0>, memref<8x128xf32, #map5, 3>, memref<2xi32, 5>, memref<2xi32, 5>, memref<1x4xf32, 5>
+    rock.blockwise_copy(%3, %34, %43, %44, %40) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [0 : i32, 1 : i32], source_vector_read_dim = 1 : i32} : memref<72x115200xf32, #map2>, memref<8x128xf32, #map9, 3>, memref<2xi32, 5>, memref<2xi32, 5>, memref<1x4xf32, 5>
 
     // // XXX. write out coordinate for Matrix A.
     // %y_a_0_i32 = load %41[%c0] : memref<2xi32, 5>
@@ -177,9 +177,9 @@ module attributes {gpu.container_module} {
     %bid_x = remi_signed %5, %c128 : index
 
     scf.for %arg3 = %c0 to %c4 step %c1 {
-      miopen.workgroup_barrier
+      rock.workgroup_barrier
 
-      miopen.move_pos(%41, %c8_i32, %c0_i32) : memref<2xi32, 5>
+      rock.move_pos(%41, %c8_i32, %c0_i32) : memref<2xi32, 5>
 
       // XXX. write out coordinate for Matrix A.
       %y_a_0_i32 = load %41[%c0] : memref<2xi32, 5>
@@ -189,10 +189,10 @@ module attributes {gpu.container_module} {
       store %y_a_0_f32, %arg2[%c0, %12, %arg3, %c0] : memref<128x128x30x30xf32>
       store %x_a_0_f32, %arg2[%c0, %12, %arg3, %c1] : memref<128x128x30x30xf32>
 
-      miopen.blockwise_copy(%0, %37, %41, %42) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [1 : i32, 0 : i32], source_vector_read_dim = 0 : i32} : memref<72x128xf32, #map0>, memref<1x4xf32, 5>, memref<2xi32, 5>, memref<2xi32, 5>
+      rock.blockwise_copy(%0, %37, %41, %42) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [1 : i32, 0 : i32], source_vector_read_dim = 0 : i32} : memref<72x128xf32, #map0>, memref<1x4xf32, 5>, memref<2xi32, 5>, memref<2xi32, 5>
 
       // matrix B
-      miopen.move_pos(%43, %c8_i32, %c0_i32) : memref<2xi32, 5>
+      rock.move_pos(%43, %c8_i32, %c0_i32) : memref<2xi32, 5>
 
       // XXX. write out coordinate for Matrix B.
       %y_b_0_i32 = load %43[%c0] : memref<2xi32, 5>
@@ -202,18 +202,18 @@ module attributes {gpu.container_module} {
       store %y_b_0_f32, %arg2[%c1, %12, %arg3, %c0] : memref<128x128x30x30xf32>
       store %x_b_0_f32, %arg2[%c1, %12, %arg3, %c1] : memref<128x128x30x30xf32>
  
-      miopen.blockwise_copy(%3, %39, %43, %44) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [0 : i32, 1 : i32], source_vector_read_dim = 1 : i32} : memref<72x115200xf32, #map2>, memref<1x4xf32, 5>, memref<2xi32, 5>, memref<2xi32, 5>
+      rock.blockwise_copy(%3, %39, %43, %44) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [0 : i32, 1 : i32], source_vector_read_dim = 1 : i32} : memref<72x115200xf32, #map2>, memref<1x4xf32, 5>, memref<2xi32, 5>, memref<2xi32, 5>
 
-      //miopen.blockwise_gemm(%29, %34, %36, %53, %57) {block_size = 256 : i32, k_per_thread = 1 : i32, m_level0_cluster = 4 : i32, m_level1_cluster = 4 : i32, m_per_thread = 4 : i32, n_level0_cluster = 4 : i32, n_level1_cluster = 4 : i32, n_per_thread = 4 : i32} : memref<8x128xf32, #map5, 3>, memref<8x128xf32, #map9, 3>, memref<8x8xf32, 5>, index, index
+      //rock.blockwise_gemm(%29, %34, %36, %53, %57) {block_size = 256 : i32, k_per_thread = 1 : i32, m_level0_cluster = 4 : i32, m_level1_cluster = 4 : i32, m_per_thread = 4 : i32, n_level0_cluster = 4 : i32, n_level1_cluster = 4 : i32, n_per_thread = 4 : i32} : memref<8x128xf32, #map5, 3>, memref<8x128xf32, #map9, 3>, memref<8x8xf32, 5>, index, index
 
-      miopen.blockwise_copy(%37, %30, %41, %42) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [1 : i32, 0 : i32], source_vector_read_dim = 0 : i32} : memref<1x4xf32, 5>, memref<8x128xf32, #map6, 3>, memref<2xi32, 5>, memref<2xi32, 5>
+      rock.blockwise_copy(%37, %30, %41, %42) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [1 : i32, 0 : i32], source_vector_read_dim = 0 : i32} : memref<1x4xf32, 5>, memref<8x128xf32, #map6, 3>, memref<2xi32, 5>, memref<2xi32, 5>
 
       // matrix B
-      miopen.blockwise_copy(%39, %35, %43, %44) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [0 : i32, 1 : i32], source_vector_read_dim = 1 : i32} : memref<1x4xf32, 5>, memref<8x128xf32, #map10, 3>, memref<2xi32, 5>, memref<2xi32, 5>
+      rock.blockwise_copy(%39, %35, %43, %44) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [0 : i32, 1 : i32], source_vector_read_dim = 1 : i32} : memref<1x4xf32, 5>, memref<8x128xf32, #map10, 3>, memref<2xi32, 5>, memref<2xi32, 5>
 
-      miopen.workgroup_barrier
+      rock.workgroup_barrier
 
-      miopen.move_pos(%41, %c8_i32, %c0_i32) : memref<2xi32, 5>
+      rock.move_pos(%41, %c8_i32, %c0_i32) : memref<2xi32, 5>
 
       // XXX. write out coordinate for Matrix A.
       %y_a_1_i32 = load %41[%c0] : memref<2xi32, 5>
@@ -223,10 +223,10 @@ module attributes {gpu.container_module} {
       store %y_a_1_f32, %arg2[%c0, %12, %arg3, %c2] : memref<128x128x30x30xf32>
       store %x_a_1_f32, %arg2[%c0, %12, %arg3, %c3] : memref<128x128x30x30xf32>
 
-      miopen.blockwise_copy(%0, %38, %41, %42) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [1 : i32, 0 : i32], source_vector_read_dim = 0 : i32} : memref<72x128xf32, #map0>, memref<1x4xf32, 5>, memref<2xi32, 5>, memref<2xi32, 5>
+      rock.blockwise_copy(%0, %38, %41, %42) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [1 : i32, 0 : i32], source_vector_read_dim = 0 : i32} : memref<72x128xf32, #map0>, memref<1x4xf32, 5>, memref<2xi32, 5>, memref<2xi32, 5>
 
       // matrix B. crashes at workgroup 899.
-      miopen.move_pos(%43, %c8_i32, %c0_i32) : memref<2xi32, 5>
+      rock.move_pos(%43, %c8_i32, %c0_i32) : memref<2xi32, 5>
 
       // XXX. write out coordinate for Matrix B.
       %y_b_1_i32 = load %43[%c0] : memref<2xi32, 5>
@@ -236,24 +236,24 @@ module attributes {gpu.container_module} {
       store %y_b_1_f32, %arg2[%c1, %12, %arg3, %c2] : memref<128x128x30x30xf32>
       store %x_b_1_f32, %arg2[%c1, %12, %arg3, %c3] : memref<128x128x30x30xf32>
 
-      miopen.blockwise_copy(%3, %40, %43, %44) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [0 : i32, 1 : i32], source_vector_read_dim = 1 : i32} : memref<72x115200xf32, #map2>, memref<1x4xf32, 5>, memref<2xi32, 5>, memref<2xi32, 5>
+      rock.blockwise_copy(%3, %40, %43, %44) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [0 : i32, 1 : i32], source_vector_read_dim = 1 : i32} : memref<72x115200xf32, #map2>, memref<1x4xf32, 5>, memref<2xi32, 5>, memref<2xi32, 5>
 
-      //miopen.blockwise_gemm(%30, %35, %36, %53, %57) {block_size = 256 : i32, k_per_thread = 1 : i32, m_level0_cluster = 4 : i32, m_level1_cluster = 4 : i32, m_per_thread = 4 : i32, n_level0_cluster = 4 : i32, n_level1_cluster = 4 : i32, n_per_thread = 4 : i32} : memref<8x128xf32, #map6, 3>, memref<8x128xf32, #map10, 3>, memref<8x8xf32, 5>, index, index
+      //rock.blockwise_gemm(%30, %35, %36, %53, %57) {block_size = 256 : i32, k_per_thread = 1 : i32, m_level0_cluster = 4 : i32, m_level1_cluster = 4 : i32, m_per_thread = 4 : i32, n_level0_cluster = 4 : i32, n_level1_cluster = 4 : i32, n_per_thread = 4 : i32} : memref<8x128xf32, #map6, 3>, memref<8x128xf32, #map10, 3>, memref<8x8xf32, 5>, index, index
 
-      miopen.blockwise_copy(%38, %29, %41, %42) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [1 : i32, 0 : i32], source_vector_read_dim = 0 : i32} : memref<1x4xf32, 5>, memref<8x128xf32, #map5, 3>, memref<2xi32, 5>, memref<2xi32, 5>
+      rock.blockwise_copy(%38, %29, %41, %42) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [1 : i32, 0 : i32], source_vector_read_dim = 0 : i32} : memref<1x4xf32, 5>, memref<8x128xf32, #map5, 3>, memref<2xi32, 5>, memref<2xi32, 5>
       // matrix B
-      miopen.blockwise_copy(%40, %34, %43, %44) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [0 : i32, 1 : i32], source_vector_read_dim = 1 : i32} : memref<1x4xf32, 5>, memref<8x128xf32, #map9, 3>, memref<2xi32, 5>, memref<2xi32, 5>
+      rock.blockwise_copy(%40, %34, %43, %44) {block_size = 256 : i32, dest_data_per_write = 4 : i32, dest_dim_access_order = [0 : i32, 1 : i32], dest_vector_write_dim = 1 : i32, source_data_per_read = 4 : i32, source_dim_access_order = [0 : i32, 1 : i32], source_vector_read_dim = 1 : i32} : memref<1x4xf32, 5>, memref<8x128xf32, #map9, 3>, memref<2xi32, 5>, memref<2xi32, 5>
     }
 
-    // miopen.workgroup_barrier
-    // miopen.blockwise_gemm(%30, %35, %36, %53, %57) {block_size = 256 : i32, k_per_thread = 1 : i32, m_level0_cluster = 4 : i32, m_level1_cluster = 4 : i32, m_per_thread = 4 : i32, n_level0_cluster = 4 : i32, n_level1_cluster = 4 : i32, n_per_thread = 4 : i32} : memref<8x128xf32, #map6, 3>, memref<8x128xf32, #map10, 3>, memref<8x8xf32, 5>, index, index
-    // %61 = miopen.transform(%4) : memref<128x115200xf32, #map3> to memref<2x64x1800x64xf32, #map11>
-    // %62 = miopen.transform(%36) : memref<8x8xf32, 5> to memref<2x4x2x4xf32, #map12, 5>
+    // rock.workgroup_barrier
+    // rock.blockwise_gemm(%30, %35, %36, %53, %57) {block_size = 256 : i32, k_per_thread = 1 : i32, m_level0_cluster = 4 : i32, m_level1_cluster = 4 : i32, m_per_thread = 4 : i32, n_level0_cluster = 4 : i32, n_level1_cluster = 4 : i32, n_per_thread = 4 : i32} : memref<8x128xf32, #map6, 3>, memref<8x128xf32, #map10, 3>, memref<8x8xf32, 5>, index, index
+    // %61 = rock.transform(%4) : memref<128x115200xf32, #map3> to memref<2x64x1800x64xf32, #map11>
+    // %62 = rock.transform(%36) : memref<8x8xf32, 5> to memref<2x4x2x4xf32, #map12, 5>
     // %63 = divi_signed %59, %c64_i32 : i32
     // %64 = remi_signed %59, %c64_i32 : i32
     // %65 = divi_signed %60, %c64_i32 : i32
     // %66 = remi_signed %60, %c64_i32 : i32
-    // miopen.threadwise_copy(%62, %61, %c0_i32, %c0_i32, %c0_i32, %c0_i32, %63, %64, %65, %66) {dest_data_per_write = 1 : i32, dim_access_order = [0 : i32, 1 : i32, 2 : i32, 3 : i32], source_data_per_read = 1 : i32, vector_read_write_dim = 1 : i32} : memref<2x4x2x4xf32, #map12, 5>, memref<2x64x1800x64xf32, #map11>
+    // rock.threadwise_copy(%62, %61, %c0_i32, %c0_i32, %c0_i32, %c0_i32, %63, %64, %65, %66) {dest_data_per_write = 1 : i32, dim_access_order = [0 : i32, 1 : i32, 2 : i32, 3 : i32], source_data_per_read = 1 : i32, vector_read_write_dim = 1 : i32} : memref<2x4x2x4xf32, #map12, 5>, memref<2x64x1800x64xf32, #map11>
     gpu.return
   }
   } // gpu.module
