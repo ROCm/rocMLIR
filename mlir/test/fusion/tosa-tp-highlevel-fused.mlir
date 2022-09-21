@@ -1,10 +1,10 @@
-// RUN: mlir-miopen-driver --host-pipeline highlevel %s | miopen-opt --miopen-fold-transpose --miopen-affix-params --miopen-conv-to-gemm --miopen-gemm-to-gridwise | FileCheck %s
+// RUN: rocmlir-driver --host-pipeline highlevel %s | rocmlir-opt --rock-fold-transpose --rock-affix-params --rock-conv-to-gemm --rock-gemm-to-gridwise | FileCheck %s
 
 // CHECK-COUNT-1: linalg.generic
 // CHECK-NOT: linalg.generic
 
 module {
-  func.func @test_fusion(%arg0: tensor<256x128x28x28xf32>, %arg1: tensor<64x128x3x3xf32>, %arg2: tensor<256x64x28x28xf32>) -> tensor<256x28x28x64xf32> attributes {kernel, arch = "gfx908"} {
+  func.func @test_fusion(%arg0: tensor<256x128x28x28xf32>, %arg1: tensor<64x128x3x3xf32>, %arg2: tensor<256x64x28x28xf32>) -> tensor<256x28x28x64xf32> attributes {kernel, arch = ""} {
     %cst = arith.constant dense<[0, 2, 3, 1]> : tensor<4xi64>
     %cst_0 = arith.constant dense<0.000000e+00> : tensor<1xf32>
     %a = "tosa.transpose"(%arg0, %cst) : (tensor<256x128x28x28xf32>, tensor<4xi64>) -> tensor<256x28x28x128xf32>

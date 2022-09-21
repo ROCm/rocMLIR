@@ -24,7 +24,7 @@
 
 using namespace mlir;
 
-void mlir::miopen::registerGpuModuleToROCDLIRTranslation() {
+void mlir::rock::registerGpuModuleToROCDLIRTranslation() {
   TranslateFromMLIRRegistration registration(
       "gpu-module-to-rocdlir",
       [](ModuleOp module, raw_ostream &output) {

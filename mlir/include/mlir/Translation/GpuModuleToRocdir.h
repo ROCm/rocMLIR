@@ -16,11 +16,11 @@
 #define MLIR_TRANSLATION_GPUMODULETOROCDLIR_H
 
 namespace mlir {
-namespace miopen {
+namespace rock {
 /// A translation that converts LLVM Dialect within a GPU module
 /// to LLVM IR
 void registerGpuModuleToROCDLIRTranslation();
-} // namespace miopen
+} // namespace rock
 } // namespace mlir
 
 #endif // MLIR_TRANSLATION_GPUMODULETOROCDLIR_H

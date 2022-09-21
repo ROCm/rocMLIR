@@ -12,7 +12,7 @@ add_mlir_conversion_library(MLIRMIGraphXToTosa
 
   DEPENDS
   MLIRConversionPassIncGen
-  MLIRMIOpenConversionPassIncGen
+  RocMLIRConversionPassIncGen
   MLIRMIGraphXToTosaConversionIncGen
 
   LINK_LIBS PUBLIC
@@ -20,7 +20,7 @@ add_mlir_conversion_library(MLIRMIGraphXToTosa
   MLIRPass
   MLIRTosaDialect
   MLIRTosaTransforms
-  MLIRMIOpenTransforms
+  MLIRRockTransforms
   MLIRTransforms
   MLIRSupport
   MLIRMIGraphX

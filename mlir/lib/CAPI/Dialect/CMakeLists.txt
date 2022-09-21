@@ -6,6 +6,6 @@ add_mlir_public_c_api_library(MLIRCAPIMIGraphX
   MLIRCAPIIR
   MLIRMIGraphX
   MLIRMIGraphXPipeline
-  MLIRMIOpenPipeline
+  MLIRRockPipeline
   MLIRGPUTransforms
 )

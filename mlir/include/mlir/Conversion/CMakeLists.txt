@@ -1,6 +1,6 @@
 
-set(LLVM_TARGET_DEFINITIONS MIOpenPasses.td)
-mlir_tablegen(MIOpenPasses.h.inc -gen-pass-decls -name MIOpenConversion)
-add_public_tablegen_target(MLIRMIOpenConversionPassIncGen)
+set(LLVM_TARGET_DEFINITIONS RocMLIRPasses.td)
+mlir_tablegen(RocMLIRPasses.h.inc -gen-pass-decls -name RocMLIRConversion)
+add_public_tablegen_target(RocMLIRConversionPassIncGen)
 
-add_mlir_doc(MIOpenPasses -gen-pass-doc MIOpenConversionPasses ./)
+add_mlir_doc(RocMLIRPasses -gen-pass-doc RocMLIRConversionPasses ./)

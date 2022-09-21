@@ -1,5 +1,5 @@
 module {
-  func @miopen_threadwise_gemm_concept(%a : memref<2x8xf32>, %b : memref<2x8xf32>, %c : memref<8x8xf32>, %d : vector<8x8xf32>) {
+  func @rock_threadwise_gemm_concept(%a : memref<2x8xf32>, %b : memref<2x8xf32>, %c : memref<8x8xf32>, %d : vector<8x8xf32>) {
 
     // Convert memrefs to memrefs of vectors.
     %mv_a = vector.type_cast %a : memref<2x8xf32> to memref<vector<2x8xf32>>
@@ -35,7 +35,7 @@ module {
     return
   }
 
-  func @miopen_threadwise_gemm_1d(%a : memref<1x8xf32>, %b : memref<1x8xf32>, %c : memref<8x8xf32>, %d : vector<8x8xf32>) {
+  func @rock_threadwise_gemm_1d(%a : memref<1x8xf32>, %b : memref<1x8xf32>, %c : memref<8x8xf32>, %d : vector<8x8xf32>) {
 
     // Convert memrefs to memrefs of vectors.
     %mv_a = vector.type_cast %a : memref<1x8xf32> to memref<vector<1x8xf32>>

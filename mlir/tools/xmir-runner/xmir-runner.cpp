@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/MIOpen/XMIRPipelines.h"
+#include "mlir/Dialect/Rock/Pipelines/XMIRPipelines.h"
 
 #include "mlir/ExecutionEngine/CpuSystemDetect.h"
 #include "mlir/ExecutionEngine/JitRunner.h"

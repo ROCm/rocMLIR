@@ -9,7 +9,7 @@
 #add_subdirectory(Linalg)
 #add_subdirectory(LLVMIR)
 #add_subdirectory(OpenACC)
-add_subdirectory(MIOpen)
+add_subdirectory(Rock)
 add_subdirectory(MIGraphX)
 #add_subdirectory(OpenMP)
 #add_subdirectory(PDL)
