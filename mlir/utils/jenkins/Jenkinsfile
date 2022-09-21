@@ -6,7 +6,7 @@ void buildProject(String target, String cmakeOpts) {
             buildType: 'RelWithDebInfo',\
             installation: 'InSearchPath',\
             steps: [[args: target]],\
-            cmakeArgs: "-DMLIR_MIOPEN_DRIVER_ENABLED=1 $cmakeOpts"
+            cmakeArgs: "-DROCMLIR_DRIVER_ENABLED=1 $cmakeOpts"
     }
 }
 
@@ -195,13 +195,13 @@ pipeline {
                         }
                         stage("Shared library build and fixed tests") {
                             steps {
-                                buildProject('check-mlir check-mlir-miopen', """
-                                  -DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
-                                  -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
-                                  -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+                                buildProject('check-mlir check-rocmlir', """
+                                  -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
+                                  -DROCMLIR_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
+                                  -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
                                   -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-                                  -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-                                  -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=1
+                                  -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+                                  -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
                                   -DLLVM_LIT_ARGS='-v --time-tests'
                                   -DCMAKE_EXPORT_COMPILE_COMMANDS=1
                                 """)
@@ -254,14 +254,14 @@ pipeline {
                         }
                         stage("Shared library build and random tests") {
                             steps {
-                                buildProject('check-mlir-miopen',
-                                             """-DMLIR_MIOPEN_DRIVER_PR_E2E_TEST_ENABLED=0
-                                             -DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
-                                             -DMLIR_MIOPEN_DRIVER_E2E_TEST_ENABLED=1
+                                buildProject('check-rocmlir',
+                                             """-DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
+                                             -DROCMLIR_DRIVER_XDLOPS_TEST_ENABLED=${params.canXdlops ? '1' : '0'}
+                                             -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
                                              -DROCK_E2E_TEST_ENABLED=1
-                                             -DMLIR_MIOPEN_DRIVER_RANDOM_DATA_SEED=1
-                                             -DMLIR_MIOPEN_DRIVER_MISC_E2E_TEST_ENABLED=0
-                                             -DMLIR_MIOPEN_DRIVER_TEST_GPU_VALIDATION=0
+                                             -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
+                                             -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=0
+                                             -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
                                              -DLLVM_LIT_ARGS='-v --time-tests'
                                              -DCMAKE_EXPORT_COMPILE_COMMANDS=1""")
                             }
@@ -380,7 +380,7 @@ pipeline {
                         steps {
                             setHeartbeat()
                             buildProject(
-                                'check-mlir-miopen-build-only ci-performance-scripts',
+                                'check-rocmlir-build-only ci-performance-scripts',
                                 '')
                             dir('build') {
                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
@@ -678,7 +678,7 @@ pipeline {
                         // Clean up build settings to disable static library and allow
                         // mlir-rocm-runner
                         sh 'rm build/CMakeCache.txt'
-                        buildProject('miopen-gen mlir-miopen-driver mlir-rocm-runner ci-performance-scripts', '')
+                        buildProject('rocmlir-gen rocmlir-driver mlir-rocm-runner ci-performance-scripts', '')
                     }
                 }
                 stage("Test MLIR vs MIOpen") {

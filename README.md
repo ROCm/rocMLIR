@@ -14,14 +14,14 @@ To build the system
 mkdir build
 cd build
 cmake -G Ninja .. -DCMAKE_BUILD_TYPE=RelWithDebInfo
-ninja check-mlir-miopen
+ninja check-rocmlir
 ```
 
 If you will be targetting a MI-100, MI-200, or other system that supports
-mfma instructions, add the flag `-DMLIR_MIOPEN_DRIVER_XDLOPS_TEST_ENABLED=1 `
+mfma instructions, add the flag `-DROCMLIR_DRIVER_XDLOPS_TEST_ENABLED=1 `
 to the `cmake` invocation above.
 
-To not actually run the tests, use `check-mlir-miopen-build-only`.
+To not actually run the tests, use `check-rocmlir-build-only`.
 
 To build the static library that is used by MIOpen
 ```sh
@@ -39,14 +39,14 @@ cmake --install . --component librockCompiler --prefix [your MIOpen deps]
 
 ## Standalone usage
 
-For usage examples, see `mlir/test/mlir-miopen-driver`, especiallly the files
+For usage examples, see `mlir/test/rocmlir-driver`, especiallly the files
 `sanity.mlir` and the contents of the `e2e_for_pr` directory.
 
 This project also includes cod that translates from TOSA to kernels, see
 `mlir/test/fusion` for examples of how to invoke it.
 
 In general (with all invocations given from the build directory)
-- `./bin/miopen-gen` generates high-level convolution operations and
+- `./bin/rocmlir-gen` generates high-level convolution operations and
   host code. Many of the options control data layout, size, etc, but some other
   useful flags are:
     - `-x2` (which enables mfma usage)
@@ -54,7 +54,7 @@ In general (with all invocations given from the build directory)
     - `-pv` (which makes the host code validtae the results against a reference)
     - `-pv_with_gpu` (which uses a GPU validator instead)
     - `-pr` (which prints kkrnel results)
-- `./bin/mlir-miopen-driver` is a wrapper around the kernel generation pipeline.
+- `./bin/rocmlir-driver` is a wrapper around the kernel generation pipeline.
   Use `-c` (or `--kernel-pipeline=gpu`) to run the default pipeline
 - `./bin/mlir-rocm-runner` runs kernels by compiling the GPU code and
   JIT-compiling (as in `mlir-cpu-runner`) the host code.
