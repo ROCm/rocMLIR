@@ -489,7 +489,7 @@ def is_xdlops_present() -> bool:
     xdlop_supported_gpus = ['gfx908', 'gfx90a']
     xdlop_supported_gpus_str = xdlop_supported_gpus[0]
     for gpu in xdlop_supported_gpus[1:]:
-        xdlop_supported_gpus_str += '|' + xdlop_supported_gpus_str
+        xdlop_supported_gpus_str += '|' + gpu
     r = subprocess.run(f"/opt/rocm/bin/rocm_agent_enumerator -t GPU | grep -q -E '{xdlop_supported_gpus_str}'", shell=True)
     if r.returncode == 0:
         return True
