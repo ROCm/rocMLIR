@@ -34,7 +34,7 @@ def TransformMapArrayAttr : TypedArrayAttrBase<Rock_TransformMapAttr,
 def ArgTransformsAttr : TypedArrayAttrBase<TransformMapArrayAttr,
   "An array of arrays of transformations, one per operation argument">;
 
-class ArgTransforms<int n> : Confined<ArgTransformsAttr, [ArrayCount<n>]>;
+class ArgTransforms<int n> : ConfinedAttr<ArgTransformsAttr, [ArrayCount<n>]>;
 
 def Rock_Conv2DOp :
     Rock_Op<"conv2d">,
@@ -885,8 +885,8 @@ def Rock_InWarpTransposeOp :
     Arguments<(ins VectorOfDivisibleLengthAndType<swizzleGroupSize,
                                                           [F32, I32]>:$vector,
                   Index:$laneId,
-                  Confined<I32Attr, [IntMaxValue<swizzleGroupSize>]>:$size,
-                  DefaultValuedAttr<Confined<I32ArrayAttr,
+                  ConfinedAttr<I32Attr, [IntMaxValue<swizzleGroupSize>]>:$size,
+                  DefaultValuedAttr<ConfinedAttr<I32ArrayAttr,
                         [ArrayCount<swizzleGroupSize>]>,
                     "{0, 1, 2, 3}">:$inGroupPerm)>,
     Results<(outs VectorOfDivisibleLengthAndType<swizzleGroupSize, [F32, I32]>:$res)> {
