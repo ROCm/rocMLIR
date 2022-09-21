@@ -506,10 +506,14 @@ static TransformingForOp createLdsStoreLoop(PatternRewriter &b, Location loc,
   ArrayAttr bufferView;
   std::tie(rawBuffer, bufferView) = untransform(b, wrappedBuffer);
 
+  int64_t ldsStoreVectorization =
+      getMaxVectorization(bufferView, /*dim=*/1, dataPerThread,
+                          rawBuffer.getType().cast<MemRefType>().getShape());
   Type loadedType = loaded.getType();
   Type elementType = loadedType;
   if (auto vectorLoadTy = loadedType.dyn_cast<VectorType>())
     elementType = vectorLoadTy.getElementType();
+  Type storeType = vectorTypeOrSelf(elementType, ldsStoreVectorization);
 
   Value zero = b.createOrFold<ConstantIndexOp>(loc, 0);
   SmallVector<Value, 2> vecCoordInit(2, zero);
@@ -519,7 +523,7 @@ static TransformingForOp createLdsStoreLoop(PatternRewriter &b, Location loc,
       loc, ArrayRef<ValueRange>{vecCoordInit, ldsCoordInit},
       ArrayRef<Attribute>{ldsVectorMap, bufferView},
       /*bounds=*/ArrayRef<int64_t>{1, dataPerThread},
-      /*strides=*/ArrayRef<int64_t>{1, 1},
+      /*strides=*/ArrayRef<int64_t>{1, ldsStoreVectorization},
       /*forceUnroll=*/true, /*useIndexDiffs=*/true);
   {
     PatternRewriter::InsertionGuard guard(b);
@@ -527,8 +531,8 @@ static TransformingForOp createLdsStoreLoop(PatternRewriter &b, Location loc,
     Value toStore =
         dataPerThread == 1
             ? loaded
-            : b.create<vector::ExtractElementOp>(
-                  loc, loaded, loop.getLowerCoords(/*domain=*/0)[0]);
+            : b.create<ExtractSliceOp>(loc, storeType, loaded,
+                                       loop.getLowerCoords(/*domain=*/0)[0]);
     b.create<InBoundsStoreOp>(loc, toStore, rawBuffer,
                               loop.getLowerCoords(/*domain=*/1));
   }
