@@ -16,12 +16,12 @@
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Generator/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -116,8 +116,7 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(chip);
   rock::GemmFeatures features = archInfo.defaultFeatures;
   if (xdlopsV2.has_value())
-    features =
-        rock::bitEnumSet(features, rock::GemmFeatures::mfma, *xdlopsV2);
+    features = rock::bitEnumSet(features, rock::GemmFeatures::mfma, *xdlopsV2);
   auto cop = rw.create<rock::Conv2DOp>(
       loc, filterExp, inputExp, outputExp, rw.getStringAttr(chip),
       rw.getI32IntegerAttr(num_cu),
