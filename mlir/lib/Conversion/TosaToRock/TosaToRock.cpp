@@ -16,11 +16,12 @@
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/Generator/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -93,7 +94,7 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   // TODO(sjw): get these from options
   StringRef chip = "";
   uint32_t num_cu = 64;
-  bool xdlopsV2 = false;
+  Optional<bool> xdlopsV2 = None;
 
   if (auto attr = op->getAttrOfType<StringAttr>("arch"))
     chip = attr.getValue();
@@ -112,9 +113,10 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   else if (auto attr = func->getAttrOfType<BoolAttr>("xdlopsV2"))
     xdlopsV2 = attr.getValue();
 
-  rock::GemmFeatures features = rock::GemmFeatures::none;
-  if (xdlopsV2)
-    features = features | rock::GemmFeatures::xdlops;
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(chip);
+  rock::GemmFeatures features = archInfo.defaultFeatures;
+  if (xdlopsV2.has_value())
+    features = rock::bitEnumSet(features, rock::GemmFeatures::mfma, *xdlopsV2);
   auto cop = rw.create<rock::Conv2DOp>(
       loc, filterExp, inputExp, outputExp, rw.getStringAttr(chip),
       rw.getI32IntegerAttr(num_cu),

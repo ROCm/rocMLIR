@@ -12,6 +12,7 @@ add_mlir_conversion_library(MLIRTosaToRock
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRLinalgDialect
+  MLIRRockConv2dGenerator
   MLIRRockTransforms
   MLIRLinalgUtils
   MLIRPass

@@ -17,11 +17,12 @@
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/Generator/AmdArchDb.h"
 #include "mlir/Dialect/Rock/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/AffineExpr.h"
@@ -1270,7 +1271,7 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
 
   // reduce precision if !xdlops
   bool hasXdlops =
-      rock::bitEnumContains(genConfig.features, rock::GemmFeatures::xdlops);
+      rock::bitEnumContains(genConfig.features, rock::GemmFeatures::mfma);
   auto xdlopsConstantOp =
       b.create<arith::ConstantIntOp>(loc, hasXdlops, intType);
 
@@ -2013,7 +2014,7 @@ populateHostHarnessLogic(ModuleOp &module,
 
   // Run validation
   bool hasXdlops =
-      rock::bitEnumContains(genConfig.features, rock::GemmFeatures::xdlops);
+      rock::bitEnumContains(genConfig.features, rock::GemmFeatures::mfma);
   if (hasValidation) {
     if (validationType == "gpu" &&
         (hasXdlops || genConfig.dataTypeStr == "f16" ||
@@ -2190,9 +2191,10 @@ int main(int argc, char **argv) {
 
       LogicalResult status = success();
 
-      rock::GemmFeatures enabledFeatures = rock::GemmFeatures::none;
-      if (xdlopsV2.getValue())
-        enabledFeatures = enabledFeatures | rock::GemmFeatures::xdlops;
+      rock::AmdArchInfo archInfo = rock::lookupArchInfo(chip);
+      rock::GemmFeatures enabledFeatures = archInfo.defaultFeatures;
+      enabledFeatures = rock::bitEnumSet(
+          enabledFeatures, rock::GemmFeatures::mfma, xdlopsV2.getValue());
       conv2dGenerator = rock::Conv2dGenerator(
           chip, triple, chipFeatures, perfConfig.getValue(), num_cu.getValue(),
           enabledFeatures, operation.getValue(), tensorDataType.getValue(),
