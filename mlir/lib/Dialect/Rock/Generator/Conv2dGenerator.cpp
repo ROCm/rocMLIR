@@ -274,7 +274,7 @@ LogicalResult Conv2dGenerator::hasValidChip() const {
     return failure();
 
   // XDLOPS are only supported on MI-100 (gfx908) and MI-200 (gfx90a)
-  if (bitEnumContains(config.features, GemmFeatures::xdlops) &&
+  if (bitEnumContainsAll(config.features, GemmFeatures::xdlops) &&
       (chipHexNumber != 0x908 && chipHexNumber != 0x90a))
     return failure();
   return success();
@@ -284,8 +284,8 @@ int Conv2dGenerator::getKernelCount(OpBuilder &builder) const {
   if (config.kernelId > 0) { // generate only 1 specified kernel
     return 1;
   }
-  assert(config.operation.hasValue());
-  switch (config.operation.getValue()) {
+  assert(config.operation.has_value());
+  switch (config.operation.value()) {
   case ConvOpType::BwdData:
     return getBwdDataKernelCount();
   case ConvOpType::Fwd:
@@ -297,9 +297,9 @@ int Conv2dGenerator::getKernelCount(OpBuilder &builder) const {
 }
 
 int Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder) const {
-  assert(config.operation.getValue() == ConvOpType::BwdWeight);
+  assert(config.operation.value() == ConvOpType::BwdWeight);
 
-  if (bitEnumContains(config.features, GemmFeatures::xdlops)) {
+  if (bitEnumContainsAll(config.features, GemmFeatures::xdlops)) {
     Type dataType = getDataType(builder);
     if (!needExtraPadBwdWeight(builder)) {
       if (dataType == builder.getF32Type()) {
@@ -353,7 +353,7 @@ Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
 
 bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {
   Type dataType = getDataType(builder);
-  ConvOpType dir = config.operation.getValue();
+  ConvOpType dir = config.operation.value();
   assert(dir == ConvOpType::BwdWeight &&
          "This method should only be called for wrw ops");
 
@@ -361,16 +361,16 @@ bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {
   GemmContext gemmSize = GemmContext::fromConvolution(dir, convDims);
 
   bool needExtraPad = false;
-  if (!bitEnumContains(config.features, GemmFeatures::xdlops)) {
+  if (!bitEnumContainsAll(config.features, GemmFeatures::xdlops)) {
     PopulateParams populateParams;
     needExtraPad =
         calculatePaddingKernelSize(gemmSize, dir, dataType, populateParams)
-            .hasValue();
+            .has_value();
   } else {
     PopulateParamsXDL populateParamsXDL;
     needExtraPad =
         calculatePaddingKernelSize(gemmSize, dir, dataType, populateParamsXDL)
-            .hasValue();
+            .has_value();
   }
   return needExtraPad;
 }
@@ -384,11 +384,11 @@ bool Conv2dGenerator::hasWorkspace(OpBuilder &builder) const {
   // - No need to pad along Gemm M/N/K dimension.
   bool result = false;
 
-  if (config.operation.hasValue()) {
+  if (config.operation.has_value()) {
     Type dataType = getDataType(builder);
-    ConvOpType dir = config.operation.getValue();
+    ConvOpType dir = config.operation.value();
     if ((dir == ConvOpType::BwdWeight) &&
-        bitEnumContains(config.features, GemmFeatures::xdlops) &&
+        bitEnumContainsAll(config.features, GemmFeatures::xdlops) &&
         (dataType == builder.getF16Type())) {
       // In case we need extra padding, do not use workspace.
       result = (needExtraPadBwdWeight(builder) == false);
@@ -489,7 +489,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
 
   // conv settings
   auto const op = getConvOpTypeForName(argMap["operation"]);
-  if (!op.hasValue()) {
+  if (!op.has_value()) {
     return failure();
   }
 
@@ -501,7 +501,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
     else
       return type;
   };
-  config.operation = op.getValue();
+  config.operation = op.value();
   strToInt("kernel_id", config.kernelId);
   config.dataTypeStr = canonicalizeDataType(argMap["in_type"]);
   strToInt("dilation_h", config.dilationHeight);
@@ -516,7 +516,7 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   strToStr("kernel_name", config.kernelBaseName);
 
   // Allow only fwd direction for int8. Reject other directions.
-  if (config.operation.getValue() != ConvOpType::Fwd &&
+  if (config.operation.value() != ConvOpType::Fwd &&
       config.dataTypeStr == "i8") {
     return failure();
   }
@@ -597,8 +597,8 @@ Conv2dGenerator::parseConvDims(int64_t batchSize, int64_t groupSize,
 
   // Determine kernel name, if there isn't one.
   if (config.kernelBaseName.empty()) {
-    assert(config.operation.hasValue());
-    auto opType = config.operation.getValue();
+    assert(config.operation.has_value());
+    auto opType = config.operation.value();
     config.kernelBaseName = std::string("rock_") +
                             getNameForConvOpType(opType).str() + "_" +
                             config.filterLayout + "_" + config.inputLayout +
@@ -617,7 +617,7 @@ void Conv2dGenerator::setDataType(std::string newType) {
 }
 
 void Conv2dGenerator::flipXdlops() {
-  if (bitEnumContains(config.features, GemmFeatures::xdlops))
+  if (bitEnumContainsAll(config.features, GemmFeatures::xdlops))
     config.features =
         static_cast<GemmFeatures>(static_cast<uint32_t>(config.features) &
                                   ~static_cast<uint32_t>(GemmFeatures::xdlops));
@@ -731,7 +731,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
   int64_t gemmId = kernel_id;
 
   // Obtain gemm ID from kernel_id for backward data convolution.
-  if (config.operation.getValue() == ConvOpType::BwdData) {
+  if (config.operation.value() == ConvOpType::BwdData) {
     llvm::SmallVector<int64_t> gemmIds = populateBackwardDataGemmIds(
         config.strideHeight, config.strideWidth, config.dilationHeight,
         config.dilationWidth, config.filterHeight, config.filterWidth);
@@ -791,7 +791,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
     args = {func.getArgument(0), func.getArgument(1), func.getArgument(2),
             func.getArgument(3)};
   }
-  switch (config.operation.getValue()) {
+  switch (config.operation.value()) {
   case ConvOpType::Fwd: {
     auto convOp = builder.create<Conv2DOp>(builder.getUnknownLoc(),
                                            ArrayRef<Type>{}, args, attributes);

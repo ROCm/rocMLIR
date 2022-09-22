@@ -233,7 +233,11 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 
     rock::PartitionOptions opts;
     opts.cloneToRockModule = !cpuOnly.getValue();
-    opts.targetChips = chips;
+    SmallVector<std::string> chipClones;
+    chipClones.reserve(chips.size());
+    for (StringRef chip : chips)
+      chipClones.push_back(chip.str());
+    opts.targetChips = chipClones;
     rock::buildPartitionPipeline(pm, opts);
 
     if (failed(pm.run(module))) {

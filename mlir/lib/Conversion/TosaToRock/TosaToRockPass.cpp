@@ -10,16 +10,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "../PassDetail.h"
 #include "mlir/Conversion/TosaToRock/TosaToRock.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
-#include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
 #include "mlir/IR/PatternMatch.h"
@@ -27,10 +25,15 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+namespace mlir {
+#define GEN_PASS_DEF_TOSATOROCKPASS
+#include "mlir/Conversion/RocMLIRPasses.h.inc"
+} // namespace mlir
+
 using namespace mlir;
 
 namespace {
-struct TosaToRock : public TosaToRockBase<TosaToRock> {
+struct TosaToRock : public impl::TosaToRockPassBase<TosaToRock> {
 public:
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<rock::RockDialect, linalg::LinalgDialect,
@@ -44,13 +47,13 @@ public:
     }
     auto &ctx = getContext();
     // Split patterns into two stages by bufferization
-    RewritePatternSet tensor_patterns(&ctx);
+    RewritePatternSet tensorPatterns(&ctx);
     RewritePatternSet patterns(&ctx);
     ConversionTarget target(ctx);
 
     mlir::tosa::populateTosaToRockTensorConversionPatterns(&ctx,
-                                                             tensor_patterns);
-    if (failed(applyPatternsAndFoldGreedily(func, std::move(tensor_patterns))))
+                                                           tensorPatterns);
+    if (failed(applyPatternsAndFoldGreedily(func, std::move(tensorPatterns))))
       signalPassFailure();
 
     target.addLegalDialect<rock::RockDialect, linalg::LinalgDialect,
@@ -68,10 +71,6 @@ public:
   }
 };
 } // namespace
-
-std::unique_ptr<Pass> mlir::tosa::createTosaToRockPass() {
-  return std::make_unique<TosaToRock>();
-}
 
 void mlir::tosa::addTosaToRockPasses(OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(createTosaToRockPass());

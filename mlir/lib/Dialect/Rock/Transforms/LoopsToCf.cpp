@@ -15,9 +15,6 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#include "PassDetail.h"
-
-#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
@@ -25,12 +22,19 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKLOOPSTOCFPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
+
 using namespace mlir;
 using namespace mlir::rock;
 
 namespace {
 struct RockLoopsToCfPass
-    : public RockLoopsToCfPassBase<RockLoopsToCfPass> {
+    : public rock::impl::RockLoopsToCfPassBase<RockLoopsToCfPass> {
   void runOnOperation() override;
 };
 
@@ -43,7 +47,3 @@ void RockLoopsToCfPass::runOnOperation() {
     signalPassFailure();
 }
 } // end anonymous namespace
-
-std::unique_ptr<Pass> mlir::rock::createRockLoopsToCfPass() {
-  return std::make_unique<RockLoopsToCfPass>();
-}

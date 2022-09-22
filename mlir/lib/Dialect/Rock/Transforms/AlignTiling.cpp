@@ -21,15 +21,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PassDetail.h"
-
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/Passes.h"
-#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
-#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -42,6 +41,13 @@
 
 #include <numeric>
 
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKLINALGALIGNPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
+
 #define DEBUG_TYPE "rock-linalg-align"
 
 using namespace mlir;
@@ -49,7 +55,7 @@ using namespace mlir::rock;
 
 namespace {
 struct RockLinalgAlignPass
-    : public RockLinalgAlignPassBase<RockLinalgAlignPass> {
+    : public rock::impl::RockLinalgAlignPassBase<RockLinalgAlignPass> {
   void runOnOperation() override;
 };
 
@@ -405,7 +411,7 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     }
   }
 
-  SmallVector<AffineMap> idxMaps = laGeneric.getIndexingMaps();
+  SmallVector<AffineMap> idxMaps = laGeneric.getIndexingMapsArray();
   // Output must be indexed by identity map for this to work
   AffineMap outIdxMap = idxMaps.back();
   if (!outIdxMap.isIdentity())
@@ -506,8 +512,4 @@ void RockLinalgAlignPass::runOnOperation() {
   patterns.add<MILARewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
-}
-
-std::unique_ptr<Pass> mlir::rock::createRockLinalgAlignPass() {
-  return std::make_unique<RockLinalgAlignPass>();
 }

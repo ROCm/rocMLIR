@@ -19,8 +19,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PassDetail.h"
-
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -29,12 +28,19 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKAPPLYIMPLPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
+
 using namespace mlir;
 
 namespace {
 
 struct RockApplyImplPass
-    : public RockApplyImplPassBase<RockApplyImplPass> {
+    : public rock::impl::RockApplyImplPassBase<RockApplyImplPass> {
 
   void runOnOperation() override {
     ModuleOp mod = getOperation();
@@ -99,10 +105,3 @@ struct RockApplyImplPass
 };
 
 } // end anonymous namespace
-
-//===- Passes -------------------------------------------------------------===//
-//
-
-std::unique_ptr<Pass> mlir::rock::createRockApplyImplPass() {
-  return std::make_unique<RockApplyImplPass>();
-}

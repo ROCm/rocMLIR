@@ -23,6 +23,7 @@
 #include "mlir/Dialect/MIGraphX/Pipeline.h"
 
 #include "mlir/Conversion/RocMLIRPasses.h"
+#include "mlir/Dialect/MIGraphX/Passes.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -42,9 +43,9 @@ void migraphx::addHighLevelPipeline(PassManager &pm) {
   // passes for MIXR to TOSA
   pm.addPass(migraphx::createMIGraphXTransformPass());
   pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
-  pm.addPass(migraphx::createMIGraphXToTosaPass());
+  pm.addPass(createMIGraphXToTosaPass());
 }
 
 void migraphx::addBackendPipeline(PassManager &pm) {
-  pm.addPass(migraphx::createGPUToMIGraphXPass());
+  pm.addPass(createGPUToMIGraphXPass());
 }

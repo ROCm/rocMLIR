@@ -21,8 +21,10 @@
 namespace mlir {
 class LLVMTypeConverter;
 
+#define GEN_PASS_DECL_GPUTOMIGRAPHXPASS
+#include "mlir/Conversion/RocMLIRPasses.h.inc"
+
 namespace migraphx {
-std::unique_ptr<Pass> createGPUToMIGraphXPass();
 
 /// Populates passes to convert from GPU to MIGraphX.
 /// The pass lowers a func only contains a gpu launch and result allocation

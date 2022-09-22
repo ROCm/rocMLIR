@@ -1,5 +1,4 @@
-#include "PassDetail.h"
-
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
@@ -15,18 +14,23 @@
 
 #include "llvm/Support/raw_ostream.h"
 
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKAFFIXTUNINGPARAMETERSPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
+
 using namespace mlir;
 using namespace mlir::rock;
 
 namespace {
 struct AffixTuningParameters
-    : public RockOpsAffixTuningParametersPassBase<AffixTuningParameters> {
+    : public rock::impl::RockAffixTuningParametersPassBase<
+          AffixTuningParameters> {
 public:
-  AffixTuningParameters(uint32_t blockSizeOverride, uint32_t gridSizeOverride,
-                        bool fallBackNoConfig)
-      : blockSizeOverride(blockSizeOverride),
-        gridSizeOverride(gridSizeOverride), fallBackNoConfig(fallBackNoConfig) {
-  }
+  using rock::impl::RockAffixTuningParametersPassBase<
+      AffixTuningParameters>::RockAffixTuningParametersPassBase;
   void runOnOperation() override;
 
 private:
@@ -41,9 +45,6 @@ private:
   //   to generate tuning parameters based on this blockSizeOverride.
   //   This guarantess that affix tuning parameters pass generate
   //   coherent tuning parameters with the pre-set block size.
-  uint32_t blockSizeOverride;
-  uint32_t gridSizeOverride;
-  bool fallBackNoConfig;
 
   // Actual implementation.
   template <typename T> void affixTuningParametersImpl(T &op);
@@ -160,7 +161,7 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
   int64_t gemmId = gemmIdAttr.getInt();
 
   GemmFeatures features = op.features();
-  if (bitEnumContains(features, GemmFeatures::xdlops)) {
+  if (bitEnumContainsAll(features, GemmFeatures::xdlops)) {
     OpBuilder b(op.getContext());
 
     ConvolutionDims convDims = obtainConvDims(op);
@@ -173,7 +174,7 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
                                    obtainConvDataType(op), populateParamsXDL);
 
     // For padding cases, gemmId must be 0.
-    if (extraPadSizes.hasValue()) {
+    if (extraPadSizes.has_value()) {
       assert(gemmId == 0);
     } else {
       assert((gemmId >= 0) && (gemmId < 3));
@@ -203,7 +204,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     perfConfig = perfConfigAttr.getValue().str();
   }
   GemmFeatures features = op.features();
-  if (bitEnumContains(features, GemmFeatures::xdlops)) {
+  if (bitEnumContainsAll(features, GemmFeatures::xdlops)) {
     PopulateParamsXDL populateParamsXDL;
     InitParamsXDL validParams;
     DerivedParams gemmADerivedParam;
@@ -236,7 +237,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     // Disable kpack in case we need padding kernel.
     Optional<GemmContext> gemmExtraPad =
         calculatePaddingKernelSize(gemmSize, dir, dataType, populateParamsXDL);
-    if (gemmExtraPad.hasValue()) {
+    if (gemmExtraPad.has_value()) {
       validParams.gemmKPack = 1;
     }
 
@@ -342,12 +343,4 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     op->setAttr("matrix_c_dest_vector_write_dim",
                 b.getI32IntegerAttr(gemmCDerivedParam.destVectorDim));
   }
-}
-
-std::unique_ptr<Pass>
-mlir::rock::createAffixTuningParametersPass(uint32_t blockSizeOverride,
-                                              uint32_t gridSizeOverride,
-                                              bool fallBackNoConfig) {
-  return std::make_unique<AffixTuningParameters>(
-      blockSizeOverride, gridSizeOverride, fallBackNoConfig);
 }

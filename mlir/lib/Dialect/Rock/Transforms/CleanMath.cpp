@@ -15,9 +15,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#include "PassDetail.h"
-
 #include "mlir/Dialect/Arithmetic/Transforms/Passes.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
@@ -27,6 +26,13 @@
 #include "mlir/Analysis/DataFlow/IntegerRangeAnalysis.h"
 #include "mlir/Transforms/FoldUtils.h"
 
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKCLEANMATHPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
+
 #define DEBUG_TYPE "rock-clean-math"
 
 using namespace mlir;
@@ -35,7 +41,7 @@ using namespace mlir::dataflow;
 
 namespace {
 struct RockCleanMathPass
-    : public RockCleanMathPassBase<RockCleanMathPass> {
+    : public rock::impl::RockCleanMathPassBase<RockCleanMathPass> {
   void runOnOperation() override;
 };
 } // end namespace
@@ -48,12 +54,12 @@ static LogicalResult replaceWithConstant(DataFlowSolver &solver, OpBuilder &b,
                                          OperationFolder &folder, Value value) {
   auto *maybeInferredRange =
       solver.lookupState<IntegerValueRangeLattice>(value);
-  if (!maybeInferredRange || maybeInferredRange->isUninitialized())
+  if (!maybeInferredRange || maybeInferredRange->getValue().isUninitialized())
     return failure();
   const ConstantIntRanges &inferredRange =
       maybeInferredRange->getValue().getValue();
   Optional<APInt> maybeConstValue = inferredRange.getConstantValue();
-  if (!maybeConstValue.hasValue())
+  if (!maybeConstValue.has_value())
     return failure();
 
   Operation *maybeDefiningOp = value.getDefiningOp();
@@ -138,8 +144,4 @@ void RockCleanMathPass::runOnOperation() {
   postAnalysisPipeline.addPass(
       arith::createArithmeticUnsignedWhenEquivalentPass());
   (void)runPipeline(postAnalysisPipeline, op);
-}
-
-std::unique_ptr<Pass> mlir::rock::createRockCleanMathPass() {
-  return std::make_unique<RockCleanMathPass>();
 }

@@ -16,7 +16,7 @@ get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 target_link_libraries(mlir-mixr-capi-test
   PRIVATE
   MLIRCAPIIR
-  MLIRCAPIRegistration
+  MLIRCAPIRegisterEverything
 )
 
 add_llvm_executable(mlir-tosa-miir-test
@@ -28,7 +28,7 @@ get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 target_link_libraries(mlir-tosa-miir-test
   PRIVATE
   MLIRCAPIIR
-  MLIRCAPIRegistration
+  MLIRCAPIRegisterEverything
   MLIRRockPipeline
   LLVMAMDGPUAsmParser
   LLVMX86AsmParser
@@ -43,7 +43,7 @@ get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 target_link_libraries(mlir-mixr-full-test
   PRIVATE
   MLIRCAPIIR
-  MLIRCAPIRegistration
+  MLIRCAPIRegisterEverything
   MLIRCAPIMIGraphX
   MLIRCAPIGPU
   MLIRMIGraphXPipeline
@@ -61,7 +61,7 @@ get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 target_link_libraries(mlir-mixr-fullc-test
   PRIVATE
   MLIRCAPIIR
-  MLIRCAPIRegistration
+  MLIRCAPIRegisterEverything
   MLIRCAPIMIGraphX
   MLIRCAPIGPU
 )

@@ -20,8 +20,6 @@
 // the threadwise lowering
 //
 //===-----------------------------------------------------===//
-#include "PassDetail.h"
-
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -30,12 +28,20 @@
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Rock/IR/XdlopsCodeSelection.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/XdlopsCodeSelection.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
+
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKBLOCKWISEGEMMTOTHREADWISEPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
 
 #define DEBUG_TYPE "rock-blockwise-to-threadwise"
 
@@ -45,7 +51,7 @@ using namespace mlir::rock;
 
 namespace {
 struct RockLowerBlockwiseGemmToThreadwisePass
-    : public RockBlockwiseGemmToThreadwisePassBase<
+    : public rock::impl::RockBlockwiseGemmToThreadwisePassBase<
           RockLowerBlockwiseGemmToThreadwisePass> {
   void runOnOperation() override;
 };
@@ -677,8 +683,7 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmV2Op, GlobalLoadOp,
                       ThreadwiseCopyV2Op>();
   target.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect,
-                         AffineDialect, memref::MemRefDialect,
-                         vector::VectorDialect>();
+                         AffineDialect, memref::MemRefDialect>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<FillRewritePattern, BlockwiseGemmRewritePattern,
@@ -689,8 +694,3 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
     signalPassFailure();
 }
 } // end anonymous namespace
-
-std::unique_ptr<Pass>
-mlir::rock::createRockBlockwiseGemmToThreadwisePass() {
-  return std::make_unique<RockLowerBlockwiseGemmToThreadwisePass>();
-}

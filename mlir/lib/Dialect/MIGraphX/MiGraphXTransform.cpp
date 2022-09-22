@@ -13,16 +13,23 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
-#include "mlir/Dialect/MIGraphX/PassDetail.h"
 #include "mlir/Dialect/MIGraphX/Passes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+namespace mlir {
+namespace migraphx {
+#define GEN_PASS_DEF_MIGRAPHXTRANSFORMPASS
+#include "mlir/Dialect/MIGraphX/Passes.h.inc"
+} // namespace migraphx
+} // namespace mlir
+
 using namespace mlir;
-using namespace migraphx;
+using namespace mlir::migraphx;
 
 namespace {
 
@@ -49,7 +56,7 @@ void populateMIGraphXSqrt(MLIRContext *context, RewritePatternSet &patterns) {
 }
 
 struct MIGraphXTransforms
-    : public MIGraphXTransformPassBase<MIGraphXTransforms> {
+    : public migraphx::impl::MIGraphXTransformPassBase<MIGraphXTransforms> {
   void runOnOperation() override {
     auto &ctx = getContext();
     RewritePatternSet patterns(&ctx);
@@ -66,7 +73,3 @@ struct MIGraphXTransforms
 };
 
 } // namespace
-
-std::unique_ptr<Pass> mlir::migraphx::createMIGraphXTransformPass() {
-  return std::make_unique<MIGraphXTransforms>();
-}

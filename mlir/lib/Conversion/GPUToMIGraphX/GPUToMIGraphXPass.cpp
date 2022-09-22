@@ -10,7 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "../PassDetail.h"
 #include "mlir/Conversion/GPUToMIGraphX/GPUToMIGraphX.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
@@ -34,9 +33,14 @@
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 
+namespace mlir {
+#define GEN_PASS_DEF_GPUTOMIGRAPHXPASS
+#include "mlir/Conversion/RocMLIRPasses.h.inc"
+} // namespace mlir
+
 using namespace mlir;
 
-struct GPUToMIGraphX : public GPUToMIGraphXBase<GPUToMIGraphX> {
+struct GPUToMIGraphX : public impl::GPUToMIGraphXPassBase<GPUToMIGraphX> {
 public:
   void getDependentDialects(DialectRegistry &registry) const override {
     registry
@@ -70,9 +74,6 @@ public:
   }
 };
 
-std::unique_ptr<Pass> migraphx::createGPUToMIGraphXPass() {
-  return std::make_unique<GPUToMIGraphX>();
-}
 void migraphx::addGPUToMIGraphXPasses(OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(createGPUToMIGraphXPass());
 }

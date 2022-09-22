@@ -19,12 +19,11 @@
 // rock.gemm.
 //
 //===-----------------------------------------------------===//
-#include "PassDetail.h"
-
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GemmContext.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
@@ -32,6 +31,7 @@
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -39,6 +39,13 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
+
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKCONVTOGEMMPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
 
 #define DEBUG_TYPE "rock-conv-to-gemm"
 
@@ -63,7 +70,7 @@ struct ArgumentFields {
 };
 
 struct RockConvToGemmPass
-    : public RockConvToGemmPassBase<RockConvToGemmPass> {
+    : public rock::impl::RockConvToGemmPassBase<RockConvToGemmPass> {
   void runOnOperation() override;
 };
 
@@ -326,7 +333,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   ConvolutionContext ctx = populateConvContext(op);
 
   GemmFeatures features = op.features();
-  bool isXdlops = bitEnumContains(features, GemmFeatures::xdlops);
+  bool isXdlops = bitEnumContainsAll(features, GemmFeatures::xdlops);
 
   // Get shape of filter tensor.
   auto filterType = op.filter().getType().template cast<MemRefType>();
@@ -786,7 +793,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
     GemmFeatures features = op.features();
-    bool isXdlops = bitEnumContains(features, GemmFeatures::xdlops);
+    bool isXdlops = bitEnumContainsAll(features, GemmFeatures::xdlops);
 
     auto dataType =
         op.input().getType().template cast<MemRefType>().getElementType();
@@ -1087,7 +1094,7 @@ void RockConvToGemmPass::runOnOperation() {
                     rock::BufferStoreOp>();
   // Below are required legalize for the lowering of Conv2DBwdWeightOp
   target.addLegalDialect<arith::ArithmeticDialect, memref::MemRefDialect,
-                         AffineDialect, scf::SCFDialect>();
+                         scf::SCFDialect>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<Conv2DRewritePattern<Conv2DOp>,
@@ -1100,7 +1107,3 @@ void RockConvToGemmPass::runOnOperation() {
   }
 }
 } // end anonymous namespace
-
-std::unique_ptr<Pass> mlir::rock::createRockConvToGemmPass() {
-  return std::make_unique<RockConvToGemmPass>();
-}

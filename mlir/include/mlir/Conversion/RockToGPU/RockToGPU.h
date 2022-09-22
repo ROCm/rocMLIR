@@ -24,8 +24,8 @@ class Pass;
 
 template <typename T> class OperationPass;
 
-/// Create a pass to convert Rock operations to std operations.
-std::unique_ptr<OperationPass<ModuleOp>> createLowerRockOpsToGPUPass();
+#define GEN_PASS_DECL_CONVERTROCKTOGPUPASS
+#include "mlir/Conversion/RocMLIRPasses.h.inc"
 
 } // namespace mlir
 

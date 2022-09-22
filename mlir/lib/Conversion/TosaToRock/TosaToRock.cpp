@@ -204,9 +204,9 @@ public:
     if (auto attr = op->getAttrOfType<StringAttr>("output_layout"))
       outputLayout = Twine(attr.getValue() + "g").str();
 
-    if (failed(makeRockConv2D(rw, op, input, inputLayout, filter,
-                                filterLayout, output, outputLayout, op.pad(),
-                                op.stride(), op.dilation()))) {
+    if (failed(makeRockConv2D(rw, op, input, inputLayout, filter, filterLayout,
+                              output, outputLayout, op.getPad(), op.getStride(),
+                              op.getDilation()))) {
       return failure();
     }
 

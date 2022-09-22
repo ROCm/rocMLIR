@@ -119,7 +119,7 @@ mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
   llvm::SMLoc typeLoc = parser.getCurrentLocation();
   Optional<TransformType> transformType =
       getTransformTypeForName(transformName);
-  if (!transformType.hasValue()) {
+  if (!transformType.has_value()) {
     parser.emitError(typeLoc, "expected a name of a known transform")
             .attachNote()
         << "The transforms are PassThrough, Pad, Slice, Embed, Unmerge, Merge, "
@@ -186,8 +186,8 @@ mlir::Attribute TransformAttr::parse(mlir::AsmParser &parser, mlir::Type type) {
   }
 
   return parser.getChecked<TransformAttr>(
-      startLoc, parser.getContext(), transformType.getValue(), params,
-      upperNames, upperDims, lowerNames, lowerDims);
+      startLoc, parser.getContext(), transformType.value(), params, upperNames,
+      upperDims, lowerNames, lowerDims);
 }
 
 void TransformAttr::print(mlir::AsmPrinter &printer) const {
@@ -437,8 +437,8 @@ LogicalResult GemmOp::verify() {
     return emitOpError("K dimensions don't match")
            << " k_a = " << kA << " k_b = " << kB;
 
-  bool isXdlops = bitEnumContains(features(), GemmFeatures::xdlops);
-  if (Attribute params = this->params().getValueOr(nullptr)) {
+  bool isXdlops = bitEnumContainsAll(features(), GemmFeatures::xdlops);
+  if (Attribute params = this->params().value_or(nullptr)) {
     if (isXdlops && !params.isa<XdlopsGemmParamsAttr>())
       return emitOpError("an xdlops GEMM has non-xdlops tuning parameters");
     if (features() == GemmFeatures::none &&
@@ -510,8 +510,9 @@ LogicalResult InsertSliceOp::verify() {
 
 static ArrayAttr maybeIndexArray(OpBuilder &b,
                                  Optional<ArrayRef<int64_t>> vals) {
-  return vals.map([&b](ArrayRef<int64_t> v) { return b.getIndexArrayAttr(v); })
-      .getValueOr(ArrayAttr{});
+  return vals
+      .transform([&b](ArrayRef<int64_t> v) { return b.getIndexArrayAttr(v); })
+      .value_or(ArrayAttr{});
 }
 
 void TransformingForOp::build(OpBuilder &b, OperationState &state,
@@ -572,8 +573,8 @@ void TransformingForOp::build(OpBuilder &b, OperationState &state,
   // Track sizes of variadic arguments to enable them to be looped up
   state.addAttribute(
       TransformingForOp::getOperandSegmentSizeAttr(),
-      b.getI32VectorAttr({upperLen * static_cast<int32_t>(inits.size()),
-                          static_cast<int32_t>(iterArgs.size())}));
+      b.getDenseI32ArrayAttr({upperLen * static_cast<int32_t>(inits.size()),
+                              static_cast<int32_t>(iterArgs.size())}));
 
   // Set up region and block
   Region *bodyRegion = state.addRegion();
@@ -773,8 +774,8 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
 
   result.addAttribute(
       TransformingForOp::getOperandSegmentSizeAttr(),
-      b.getI32VectorAttr({static_cast<int32_t>(upperInits.size()),
-                          static_cast<int32_t>(iterInits.size())}));
+      b.getDenseI32ArrayAttr({static_cast<int32_t>(upperInits.size()),
+                              static_cast<int32_t>(iterInits.size())}));
   return success();
 }
 

@@ -17,7 +17,7 @@
 #include "mlir-c/Dialect/Tosa.h"
 #include "mlir-c/IR.h"
 #include "mlir-c/IntegerSet.h"
-#include "mlir-c/Registration.h"
+#include "mlir-c/RegisterEverything.h"
 
 #include "mlir/CAPI/IR.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
@@ -253,7 +253,14 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 
 int main() {
   MlirContext ctx = mlirContextCreate();
-  mlirRegisterAllDialects(ctx);
+  MlirDialectRegistry registry = mlirDialectRegistryCreate();
+  mlirRegisterAllDialects(registry);
+  mlirContextAppendDialectRegistry(ctx, registry);
+  // TODO: this is a emulation of an old behavior, we should load only the
+  // dialects we use
+  mlirContextLoadAllAvailableDialects(ctx);
+  mlirDialectRegistryDestroy(registry);
+
   if (!constructAndTraverseIr(ctx)) {
     printf("FAILED!\n");
     return 1;

@@ -1270,7 +1270,7 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
 
   // reduce precision if !xdlops
   bool hasXdlops =
-      rock::bitEnumContains(genConfig.features, rock::GemmFeatures::xdlops);
+      rock::bitEnumContainsAll(genConfig.features, rock::GemmFeatures::xdlops);
   auto xdlopsConstantOp =
       b.create<arith::ConstantIntOp>(loc, hasXdlops, intType);
 
@@ -2013,7 +2013,7 @@ populateHostHarnessLogic(ModuleOp &module,
 
   // Run validation
   bool hasXdlops =
-      rock::bitEnumContains(genConfig.features, rock::GemmFeatures::xdlops);
+      rock::bitEnumContainsAll(genConfig.features, rock::GemmFeatures::xdlops);
   if (hasValidation) {
     if (validationType == "gpu" &&
         (hasXdlops || genConfig.dataTypeStr == "f16" ||

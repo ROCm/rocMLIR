@@ -11,11 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "../PassDetail.h"
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
 #include "mlir/IR/PatternMatch.h"
@@ -24,12 +22,17 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h"
 
+namespace mlir {
+#define GEN_PASS_DEF_MIGRAPHXTOTOSAPASS
+#include "mlir/Conversion/RocMLIRPasses.h.inc"
+} // namespace mlir
+
 using namespace mlir;
 namespace {
 // import tablegen'ed populate function
 #include "MIGraphXToTosa.cpp.inc"
 
-struct MIGraphXToTosa : public MIGraphXToTosaBase<MIGraphXToTosa> {
+struct MIGraphXToTosa : public impl::MIGraphXToTosaPassBase<MIGraphXToTosa> {
 public:
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<tosa::TosaDialect, migraphx::MIGraphXDialect,
@@ -68,9 +71,6 @@ public:
 
 } // namespace
 
-std::unique_ptr<Pass> mlir::migraphx::createMIGraphXToTosaPass() {
-  return std::make_unique<MIGraphXToTosa>();
-}
 void mlir::migraphx::addMIGraphXToTosaPasses(OpPassManager &pm) {
   pm.addNestedPass<func::FuncOp>(createMIGraphXToTosaPass());
 }

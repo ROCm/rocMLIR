@@ -15,16 +15,18 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#include "PassDetail.h"
-
-#include "mlir/Dialect/Affine/LoopUtils.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
+#include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/Dialect/Affine/Utils.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Pass/PassManager.h"
@@ -38,6 +40,13 @@
 #include "llvm/Support/Debug.h"
 #include <numeric>
 
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKSUGARTOLOOPSPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
+
 #define DEBUG_TYPE "rock-sugar-to-loops"
 
 using namespace mlir;
@@ -46,7 +55,7 @@ using namespace mlir::rock;
 
 namespace {
 struct RockSugarToLoopsPass
-    : public RockSugarToLoopsPassBase<RockSugarToLoopsPass> {
+    : public rock::impl::RockSugarToLoopsPassBase<RockSugarToLoopsPass> {
   void runOnOperation() override;
 };
 
@@ -1361,7 +1370,3 @@ void RockSugarToLoopsPass::runOnOperation() {
     signalPassFailure();
 }
 } // end anonymous namespace
-
-std::unique_ptr<Pass> mlir::rock::createRockSugarToLoopsPass() {
-  return std::make_unique<RockSugarToLoopsPass>();
-}
