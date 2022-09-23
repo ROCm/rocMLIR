@@ -437,7 +437,7 @@ LogicalResult GemmOp::verify() {
     return emitOpError("K dimensions don't match")
            << " k_a = " << kA << " k_b = " << kB;
 
-  bool isXdlops = bitEnumContainsAll(features(), GemmFeatures::xdlops);
+  bool isXdlops = bitEnumContainsAll(features(), GemmFeatures::mfma);
   if (Attribute params = this->params().value_or(nullptr)) {
     if (isXdlops && !params.isa<XdlopsGemmParamsAttr>())
       return emitOpError("an xdlops GEMM has non-xdlops tuning parameters");

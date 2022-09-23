@@ -333,7 +333,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   ConvolutionContext ctx = populateConvContext(op);
 
   GemmFeatures features = op.features();
-  bool isXdlops = bitEnumContainsAll(features, GemmFeatures::xdlops);
+  bool isXdlops = bitEnumContainsAll(features, GemmFeatures::mfma);
 
   // Get shape of filter tensor.
   auto filterType = op.filter().getType().template cast<MemRefType>();
@@ -793,7 +793,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
     GemmFeatures features = op.features();
-    bool isXdlops = bitEnumContainsAll(features, GemmFeatures::xdlops);
+    bool isXdlops = bitEnumContainsAll(features, GemmFeatures::mfma);
 
     auto dataType =
         op.input().getType().template cast<MemRefType>().getElementType();
@@ -845,7 +845,11 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       // existing value.
       maybeGemmExtraPad = GemmContext{-1, -1, -1};
     }
-    if (ConvOpType::BwdWeight == convOpType && isXdlops &&
+
+    // TODO: don't restrict this to xdlops only once we've validated on a gfx11
+    // machine
+    if (ConvOpType::BwdWeight == convOpType &&
+        bitEnumContainsAll(features, GemmFeatures::mfma | GemmFeatures::atomic_add) &&
         (dataType == b.getF32Type() || dataType == b.getF16Type()) &&
         !maybeGemmExtraPad.hasValue()) {
       // current backward weight with atomic_add can only run under xdlops +
