@@ -793,7 +793,6 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
     GemmFeatures features = op.features();
-    bool isXdlops = bitEnumContainsAll(features, GemmFeatures::mfma);
 
     auto dataType =
         op.input().getType().template cast<MemRefType>().getElementType();
@@ -851,12 +850,12 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     if (ConvOpType::BwdWeight == convOpType &&
         bitEnumContainsAll(features, GemmFeatures::mfma | GemmFeatures::atomic_add) &&
         (dataType == b.getF32Type() || dataType == b.getF16Type()) &&
-        !maybeGemmExtraPad.hasValue()) {
+        !maybeGemmExtraPad.has_value()) {
       // current backward weight with atomic_add can only run under xdlops +
       // fp32 / fp16.
       return backwardWeightAtomicAdd(cast<Conv2DBwdWeightOp>(op), b);
     }
-    auto gemmExtraPad = maybeGemmExtraPad.getValueOr(GemmContext{0, 0, 0});
+    auto gemmExtraPad = maybeGemmExtraPad.value_or(GemmContext{0, 0, 0});
 
     // Transform filter tensor.
 
