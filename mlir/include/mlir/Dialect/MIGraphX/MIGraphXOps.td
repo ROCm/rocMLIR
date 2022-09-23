@@ -352,7 +352,7 @@ def MIGraphX_ConstantOp :
     MIGraphX_Op<"constant">,
     Arguments<(ins OptionalAttr<ElementsAttr>:$value,
                    OptionalAttr<I64ArrayAttr>:$shape,
-                   OptionalAttr<TypeAttr>:$type
+                   OptionalAttr<TypeAttr>:$valueType
                    )>,
 	Results<(outs AnyRankedTensor:$output)> {
   let summary = "constant tensor operation";
