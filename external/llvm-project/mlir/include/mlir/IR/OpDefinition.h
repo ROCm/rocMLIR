@@ -1735,8 +1735,8 @@ private:
   /// model that works for every op.
   template <typename T>
   static void checkInterfaceTarget() {
-    static_assert(true || std::is_same<typename InterfaceTargetOrOpT<T>::type,
-                                       ConcreteType>::value,
+    static_assert(std::is_same<typename InterfaceTargetOrOpT<T>::type,
+                               ConcreteType>::value,
                   "attaching an interface to the wrong op kind");
   }
 
