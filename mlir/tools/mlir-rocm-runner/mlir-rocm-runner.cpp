@@ -31,6 +31,7 @@
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitAllDialects.h"
+#include "mlir/InitRocMLIRDialects.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
@@ -184,6 +185,7 @@ int main(int argc, char **argv) {
 
   DialectRegistry registry;
   registerAllDialects(registry);
+  registerRocMLIRDialects(registry);
 #ifdef MLIR_INCLUDE_TESTS
   ::test::registerTestDialect(registry);
 #endif

@@ -18,6 +18,7 @@
 #include "mlir-c/IR.h"
 #include "mlir-c/IntegerSet.h"
 #include "mlir-c/RegisterEverything.h"
+#include "mlir-c/RegisterRocMLIR.h"
 
 #include "mlir/CAPI/IR.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"

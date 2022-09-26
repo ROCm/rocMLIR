@@ -14,9 +14,8 @@
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
@@ -35,11 +34,6 @@ using namespace mlir;
 namespace {
 struct TosaToRock : public impl::TosaToRockPassBase<TosaToRock> {
 public:
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<rock::RockDialect, linalg::LinalgDialect,
-                    bufferization::BufferizationDialect, func::FuncDialect>();
-  }
-
   void runOnOperation() override {
     auto func = getOperation();
     if (!func->hasAttr("kernel")) {
@@ -56,17 +50,14 @@ public:
     if (failed(applyPatternsAndFoldGreedily(func, std::move(tensorPatterns))))
       signalPassFailure();
 
-    target.addLegalDialect<rock::RockDialect, linalg::LinalgDialect,
-                           memref::MemRefDialect, tosa::TosaDialect,
-                           bufferization::BufferizationDialect,
-                           mlir::func::FuncDialect>();
+    target.addLegalDialect<rock::RockDialect, tosa::TosaDialect,
+                           tensor::TensorDialect,
+                           bufferization::BufferizationDialect>();
     target.addIllegalOp<tosa::Conv2DOp, tosa::MatMulOp>();
-    target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
-    bufferization::BufferizeTypeConverter typeConverter;
-    mlir::tosa::populateTosaToRockConversionPatterns(
-        typeConverter, func->getContext(), patterns);
-    if (failed(applyFullConversion(func, target, std::move(patterns))))
+    mlir::tosa::populateTosaToRockConversionPatterns(func->getContext(),
+                                                     patterns);
+    if (failed(applyPartialConversion(func, target, std::move(patterns))))
       signalPassFailure();
   }
 };

@@ -105,6 +105,8 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   bufOpts.allowReturnAllocs = true;
   bufOpts.createDeallocs = noRock;
   bufOpts.bufferizeFunctionBoundaries = true;
+  bufOpts.functionBoundaryTypeConversion =
+      bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
   bufOpts.unknownTypeConverterFn =
     [](Value value, unsigned memorySpace,
                                       const bufferization::BufferizationOptions &options) {
@@ -112,8 +114,6 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
         value.getType().cast<TensorType>(), memorySpace);
   };
       //bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
-  bufOpts.functionBoundaryTypeConversion =
-      bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
   pm.addPass(createOneShotBufferizePass(bufOpts));
 
   pm.addPass(bufferization::createBufferResultsToOutParamsPass());

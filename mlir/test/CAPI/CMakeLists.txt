@@ -17,6 +17,7 @@ target_link_libraries(mlir-mixr-capi-test
   PRIVATE
   MLIRCAPIIR
   MLIRCAPIRegisterEverything
+  MLIRCAPIRegisterRocMLIR
 )
 
 add_llvm_executable(mlir-tosa-miir-test
@@ -29,6 +30,7 @@ target_link_libraries(mlir-tosa-miir-test
   PRIVATE
   MLIRCAPIIR
   MLIRCAPIRegisterEverything
+  MLIRCAPIRegisterRocMLIR
   MLIRRockPipeline
   LLVMAMDGPUAsmParser
   LLVMX86AsmParser
@@ -44,6 +46,7 @@ target_link_libraries(mlir-mixr-full-test
   PRIVATE
   MLIRCAPIIR
   MLIRCAPIRegisterEverything
+  MLIRCAPIRegisterRocMLIR
   MLIRCAPIMIGraphX
   MLIRCAPIGPU
   MLIRMIGraphXPipeline
@@ -62,6 +65,7 @@ target_link_libraries(mlir-mixr-fullc-test
   PRIVATE
   MLIRCAPIIR
   MLIRCAPIRegisterEverything
+  MLIRCAPIRegisterRocMLIR
   MLIRCAPIMIGraphX
   MLIRCAPIGPU
 )

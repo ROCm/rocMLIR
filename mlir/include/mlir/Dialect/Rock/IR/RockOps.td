@@ -36,6 +36,30 @@ def ArgTransformsAttr : TypedArrayAttrBase<TransformMapArrayAttr,
 
 class ArgTransforms<int n> : ConfinedAttr<ArgTransformsAttr, [ArrayCount<n>]>;
 
+def Rock_TensorConv2DOp :
+    Rock_Op<"tensor_conv2d", [AllTypesMatch<["output", "result"]>]>,
+    Arguments<(ins TensorRankOf<[F32, F16, BF16, I8], [5]>:$filter,
+                   TensorRankOf<[F32, F16, BF16, I8], [5]>:$input,
+                   TensorRankOf<[F32, F16, BF16, I32], [5]>:$output,
+                   StrAttr:$arch,
+                   I32Attr:$numCu,
+                   Rock_GemmFeaturesAttr:$features,
+                   OptionalAttr<I32Attr>:$blockSize,
+                   OptionalAttr<I32Attr>:$gridSize,
+                   Rock_OptionalGemmParams:$params)>,
+    Results<(outs TensorRankOf<[F32, F16, BF16, I32], [5]>:$result)> {
+  let summary = "2D convolution forward, tensor version";
+  let description = [{
+    The `rock.tensor_conv2d` op computes 2D convolution forward.
+    TEMPORARY HACK: we'll make the conv operators all tensor ops later or something
+    No, seriously, TEMPORARY HACK!
+  }];
+  let assemblyFormat = [{
+    `(` operands `)` `features` `=` $features attr-dict `:` type($filter) `,` type($input) `,` type($output)
+  }];
+}
+
+
 def Rock_Conv2DOp :
     Rock_Op<"conv2d">,
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [5]>:$filter,
@@ -149,8 +173,8 @@ def Rock_GemmOp :
 
 def Rock_TransformOp :
     Rock_Op<"transform", [NoSideEffect, ViewLikeOpInterface]>,
-    Arguments<(ins AnyMemRef:$input, TransformMapArrayAttr:$transforms)>,
-    Results<(outs AnyMemRef:$output)> {
+    Arguments<(ins AnyShaped:$input, TransformMapArrayAttr:$transforms)>,
+    Results<(outs AnyShaped:$output)> {
   let summary = "Tensor transformation";
   let description = [{
     Create a viee `output` of the tensor `input` with the same element type
@@ -163,11 +187,16 @@ def Rock_TransformOp :
    OpBuilder<(ins "Value":$input, "TransformMapAttr":$transform),
    [{
      $_state.addOperands({input});
-     MemRefType lowerType = input.getType().template cast<MemRefType>();
+     ShapedType lowerType = input.getType().template cast<ShapedType>();
      Type elemType = lowerType.getElementType();
-     int memorySpace = lowerType.getMemorySpaceAsInt();
-     MemRefType upperType = MemRefType::get(transform.getUpperBounds(), elemType,
-      /*layout=*/{}, memorySpace);
+     ShapedType upperType;
+     if (auto mrType = lowerType.template dyn_cast<MemRefType>()) {
+       int memorySpace = mrType.getMemorySpaceAsInt();
+       upperType = MemRefType::get(transform.getUpperBounds(), elemType,
+        /*layout=*/{}, memorySpace);
+     } else {
+       upperType = lowerType.cloneWith(transform.getUpperBounds(), elemType);
+     }
      $_state.addAttribute("transforms", $_builder.getArrayAttr({transform}));
      $_state.addTypes(upperType);
    }]>,
@@ -178,6 +207,37 @@ def Rock_TransformOp :
 
   let extraClassDeclaration = [{
     Value getViewSource() { return input(); }
+  }];
+}
+
+def Rock_TensorUntransformCastOp :
+    Rock_Op<"tensor_untransform_cast",
+      [NoSideEffect, AllTypesMatch<["transformedResult", "transformedArg"]>]>,
+    Arguments<(ins AnyRankedTensor:$transformedResult,
+                      AnyRankedTensor:$transformedArg)>,
+    Results<(outs AnyRankedTensor:$untransformed)> {
+  let summary = "Cast transformed tensor 'result' back to underlying allocation";
+  let description = [{
+    This operation exists to enable bufferization where we have the pattern
+    ```mlir
+    %buf = bufferization.alloc_tensor : T
+    %t1 = rock.transform %buf : T to I1
+    ...
+    %output = rock.transform %tK : TK to U
+    %result = rock.conv2d(..., %output) : ..., U
+    op(%result, ...)
+    ```
+    where op required a value of type %T.
+
+    This op
+    Thi op must be eliminated during bufferization.
+
+    If the alleged result type is not equal to the type of untransform(transformArg),
+    it is in error.
+  }];
+  let assemblyFormat = [{
+    attr-dict $transformedResult `aka` $transformedArg
+    `:` type($transformedResult) `to` type($untransformed)
   }];
 }
 

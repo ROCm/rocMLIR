@@ -19,6 +19,7 @@
 #include "mlir-c/IR.h"
 #include "mlir-c/IntegerSet.h"
 #include "mlir-c/RegisterEverything.h"
+#include "mlir-c/RegisterRocMLIR.h"
 
 #include "mlir/CAPI/IR.h"
 #include "mlir/Dialect/MIGraphX/Pipeline.h"
@@ -295,8 +296,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 int main() {
   MlirContext ctx = mlirContextCreate();
   MlirDialectRegistry registry = mlirDialectRegistryCreate();
-  MlirDialectHandle mixrHandle = mlirGetDialectHandle__migraphx__();
-  mlirDialectHandleInsertDialect(mixrHandle, registry);
+  mlirRegisterRocMLIRDialects(registry);
   mlirRegisterAllDialects(registry);
   mlirContextAppendDialectRegistry(ctx, registry);
   // TODO: this is a emulation of an old behavior, we should load only the

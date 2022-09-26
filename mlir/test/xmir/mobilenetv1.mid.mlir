@@ -28,8 +28,10 @@ module {
       stride = [2, 2]
     } : (tensor<1x224x224x3xf32>, tensor<32x3x3x3xf32>, tensor<32xf32>) -> tensor<1x112x112x32xf32>
 
-    %relu0 = "tosa.reluN"(%conv0) {
+    %relu0 = "tosa.clamp"(%conv0) {
+      min_fp = 0.0 : f32,
       max_fp = 6.0 : f32,
+      min_int = 0 : i64,
       max_int = 6 : i64
     } : (tensor<1x112x112x32xf32>) -> tensor<1x112x112x32xf32>
 
@@ -40,8 +42,10 @@ module {
       stride = [1, 1]
     } : (tensor<1x112x112x32xf32>, tensor<3x3x32x1xf32>, tensor<32xf32>) -> tensor<1x112x112x32xf32>
 
-    %relu1 = "tosa.reluN"(%dwconv1) {
+    %relu1 = "tosa.clamp"(%dwconv1) {
+      min_fp = 0.0 : f32,
       max_fp = 6.0 : f32,
+      min_int = 0 : i64,
       max_int = 6 : i64
     } : (tensor<1x112x112x32xf32>) -> tensor<1x112x112x32xf32>
 
@@ -51,8 +55,10 @@ module {
       stride = [1, 1]
     } : (tensor<1x112x112x32xf32>, tensor<64x1x1x32xf32>, tensor<64xf32>) -> tensor<1x112x112x64xf32>
 
-    %relu2 = "tosa.reluN"(%conv1) {
+    %relu2 = "tosa.clamp"(%conv1) {
+      min_fp = 0.0 : f32,
       max_fp = 6.0 : f32,
+      min_int = 0 : i64,
       max_int = 6 : i64
     } : (tensor<1x112x112x64xf32>) -> tensor<1x112x112x64xf32>
 
@@ -63,8 +69,10 @@ module {
       stride = [2, 2]
     } : (tensor<1x112x112x64xf32>, tensor<3x3x64x1xf32>, tensor<64xf32>) -> tensor<1x56x56x64xf32>
 
-    %relu3 = "tosa.reluN"(%dwconv2) {
+    %relu3 = "tosa.clamp"(%dwconv2) {
+      min_fp = 0.0 : f32,
       max_fp = 6.0 : f32,
+      min_int = 0 : i64,
       max_int = 6 : i64
     } : (tensor<1x56x56x64xf32>) -> tensor<1x56x56x64xf32>
 
@@ -75,8 +83,10 @@ module {
       stride = [1, 1]
     } : (tensor<1x56x56x64xf32>, tensor<128x1x1x64xf32>, tensor<128xf32>) -> tensor<1x56x56x128xf32>
 
-    %relu4 = "tosa.reluN"(%conv2) {
+    %relu4 = "tosa.clamp"(%conv2) {
+      min_fp = 0.0 : f32,
       max_fp = 6.0 : f32,
+      min_int = 0 : i64,
       max_int = 6 : i64
     } : (tensor<1x56x56x128xf32>) -> tensor<1x56x56x128xf32>
 

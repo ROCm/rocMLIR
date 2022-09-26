@@ -14,7 +14,6 @@
 #ifndef MLIR_CONVERSION_TOSATOROCK_TOSATOROCK_H
 #define MLIR_CONVERSION_TOSATOROCK_TOSATOROCK_H
 
-#include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
@@ -29,9 +28,8 @@ namespace tosa {
 void addTosaToRockPasses(OpPassManager &pm);
 
 /// Populates conversion passes from TOSA dialect to Rock dialect.
-void populateTosaToRockConversionPatterns(
-    bufferization::BufferizeTypeConverter &typeConverter, MLIRContext *context,
-    RewritePatternSet &patterns);
+void populateTosaToRockConversionPatterns(MLIRContext *context,
+                                          RewritePatternSet &patterns);
 
 void populateTosaToRockTensorConversionPatterns(MLIRContext *context,
                                                   RewritePatternSet &patterns);

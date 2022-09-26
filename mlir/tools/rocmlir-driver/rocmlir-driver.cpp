@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Rock/Pipelines/XMIRPipelines.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
+#include "mlir/InitRocMLIRDialects.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -316,6 +317,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 int main(int argc, char **argv) {
   DialectRegistry registry;
   registerAllDialects(registry);
+  registerRocMLIRDialects(registry);
 #ifdef MLIR_INCLUDE_TESTS
   test::registerTestDialect(registry);
 #endif

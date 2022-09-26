@@ -17,6 +17,7 @@
 #include "mlir-c/IR.h"
 #include "mlir-c/IntegerSet.h"
 #include "mlir-c/RegisterEverything.h"
+#include "mlir-c/RegisterRocMLIR.h"
 
 #include <assert.h>
 #include <math.h>
