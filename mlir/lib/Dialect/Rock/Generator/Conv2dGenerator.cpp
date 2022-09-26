@@ -264,13 +264,19 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
 }
 
 LogicalResult Conv2dGenerator::hasValidChip() const {
-  // We support in between gfx900 to gfx908 for nonxdlops algorithm
-  // For example, gfx803, gfx90c and gfx1030 are unsupported now
+  // We support in between gfx900 to gfx908 and gfx1030 for nonxdlops algorithm
+  // For example, gfx803, gfx90c are unsupported now
   unsigned int chipHexNumber = 0;
   if (sscanf(config.chip.c_str(), "gfx%x", &chipHexNumber) != 1)
     return failure();
 
-  if ((chipHexNumber > 0x90a) || (chipHexNumber < 0x900))
+  constexpr size_t NUM_SUPPORTED_CHIPS = 5;
+  static const unsigned int supportedChips[NUM_SUPPORTED_CHIPS] = {
+      0x900, 0x906, 0x908, 0x90a, 0x1030};
+  const unsigned int *ptr;
+  ptr = std::find(supportedChips, supportedChips + NUM_SUPPORTED_CHIPS,
+                  chipHexNumber);
+  if (ptr == supportedChips + NUM_SUPPORTED_CHIPS)
     return failure();
 
   // XDLOPS are only supported on MI-100 (gfx908) and MI-200 (gfx90a)
