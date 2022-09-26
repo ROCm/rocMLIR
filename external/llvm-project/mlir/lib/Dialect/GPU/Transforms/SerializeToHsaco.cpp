@@ -14,8 +14,6 @@
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
-#include "mlir/Support/LLVM.h"
-#include "mlir/Support/LogicalResult.h"
 
 #if MLIR_GPU_TO_HSACO_PASS_ENABLE
 #include "mlir/ExecutionEngine/OptUtils.h"
@@ -24,16 +22,8 @@
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Export.h"
 
-#include "llvm/ADT/APInt.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringRef.h"
-
 #include "llvm/IR/Constants.h"
-#include "llvm/IR/DerivedTypes.h"
-#include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/GlobalVariable.h"
-#include "llvm/IR/LLVMContext.h"
-#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IRReader/IRReader.h"
 #include "llvm/Linker/Linker.h"
@@ -51,15 +41,10 @@
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/TargetRegistry.h"
 
-#include "llvm/Support/Alignment.h"
-#include "llvm/Support/CodeGen.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Error.h"
-#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Process.h"
-#include "llvm/Support/Program.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/WithColor.h"
@@ -70,7 +55,6 @@
 #include "llvm/Transforms/IPO/Internalize.h"
 
 #include <mutex>
-#include <string>
 
 using namespace mlir;
 

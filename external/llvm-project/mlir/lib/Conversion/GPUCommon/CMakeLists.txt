@@ -23,7 +23,6 @@ add_mlir_conversion_library(MLIRGPUToGPURuntimeTransforms
   intrinsics_gen
 
   LINK_COMPONENTS
-  ipo
   Core
   MC
   ${AMDGPU_LIBS}

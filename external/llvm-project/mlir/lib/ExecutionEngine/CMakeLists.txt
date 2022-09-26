@@ -36,20 +36,15 @@ add_mlir_library(MLIRExecutionEngineUtils
   LINK_COMPONENTS
   Analysis
   Core
+  Coroutines
   AggressiveInstCombine
   InstCombine
-  MC
   ScalarOpts
-  Target
   Vectorize
   TransformUtils
   IPO
   Passes
   )
-  
-if(CMAKE_SYSTEM_NAME MATCHES "Linux")
-  add_definitions(-D__LINUX__)
-endif()
 
 if(NOT MLIR_ENABLE_EXECUTION_ENGINE)
   return()
@@ -213,7 +208,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
 
   # Locate HIP runtime library.
   find_library(ROCM_RUNTIME_LIBRARY amdhip64
-               PATHS "${HIP_ROOT_DIR}/lib")
+               PATHS "${HIP_PATH}/lib")
   if (NOT ROCM_RUNTIME_LIBRARY)
     message(SEND_ERROR "Could not locate ROCm HIP runtime library")
   else()
@@ -297,7 +292,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
 
   set_source_files_properties(RocmSystemDetect.cpp PROPERTIES
     COMPILE_OPTIONS "-Wno-gnu-anonymous-struct;-Wno-nested-anon-types;-Wno-c++98-compat-extra-semi")
-  
+
   add_mlir_library(MLIRRocmExecutionEngineUtils
     RocmSystemDetect.cpp
 
@@ -314,10 +309,10 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     ${HIP_PATH}/include
     ${ROCM_PATH}/include
   )
-  
-  target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE 
+
+  target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
     MLIRExecutionEngineUtils
     ${ROCM_RUNTIME_LIBRARY}
   )
-  
+
 endif()

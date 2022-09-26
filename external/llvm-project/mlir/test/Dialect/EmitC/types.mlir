@@ -2,7 +2,7 @@
 // check parser
 // RUN: mlir-opt -verify-diagnostics %s | mlir-opt -verify-diagnostics | FileCheck %s
 
-// CHECK-LABEL: func.func @opaque_types() {
+// CHECK-LABEL: func @opaque_types() {
 func.func @opaque_types() {
   // CHECK-NEXT: !emitc.opaque<"int">
   emitc.call "f"() {template_args = [!emitc<opaque<"int">>]} : () -> ()
@@ -20,7 +20,7 @@ func.func @opaque_types() {
   return
 }
 
-// CHECK-LABEL: func.func @pointer_types() {
+// CHECK-LABEL: func @pointer_types() {
 func.func @pointer_types() {
   // CHECK-NEXT: !emitc.ptr<i32>
   emitc.call "f"() {template_args = [!emitc.ptr<i32>]} : () -> ()
