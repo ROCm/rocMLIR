@@ -2379,13 +2379,6 @@ int main(int argc, char **argv) {
       roots.remove(node);
   }
 
-  if (0&& genValidation == "clone") {
-    SymbolTable symbolTable(module);
-    for (auto &root : roots) {
-      postOrderTraverse(root, symbolTable);
-    }
-  }
-
   SmallVector<KernelIF, 8> kernels;
 
   // Make KernelIFs for the roots, to pass to populateHostHarnessLogic().
