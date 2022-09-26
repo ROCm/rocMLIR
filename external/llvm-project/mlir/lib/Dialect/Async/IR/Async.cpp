@@ -71,9 +71,8 @@ void LaunchOp::build(OpBuilder &builder, OperationState &result,
   // Add derived `operand_segment_sizes` attribute based on parsed operands.
   int32_t numDependencies = dependencies.size();
   int32_t numOperands = operands.size();
-  auto operandSegmentSizes = DenseIntElementsAttr::get(
-      VectorType::get({2}, builder.getIntegerType(32)),
-      {numDependencies, numOperands});
+  auto operandSegmentSizes =
+      builder.getDenseI32ArrayAttr({numDependencies, numOperands});
   result.addAttribute(operand_segment_sizesAttrName(result.name),
                       operandSegmentSizes);
 
@@ -117,8 +116,7 @@ void LaunchOp::updateSegmentSizes(MLIRContext *ctx) {
   }
 
   auto operandSegmentSizes =
-      DenseIntElementsAttr::get(VectorType::get({2}, IntegerType::get(ctx, 32)),
-                                {numDependencies, numOperands});
+      DenseI32ArrayAttr::get(ctx, {numDependencies, numOperands});
   (*this)->setAttr(operand_segment_sizesAttrName(), operandSegmentSizes);
 
   assert(!(*this)->hasAttr("result_segment_sizes"));

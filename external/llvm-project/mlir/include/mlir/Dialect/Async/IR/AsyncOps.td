@@ -87,6 +87,11 @@ def Async_LaunchOp :
       $_state.addOperands(operands);
       $_state.addAttribute("callee", callee);
       $_state.addTypes(results);
+      auto operandSegmentSizes = $_builder.getDenseI32ArrayAttr(
+        {0, static_cast<int32_t>(operands.size())});
+      $_state.addAttribute(operand_segment_sizesAttrName($_state.name),
+                           operandSegmentSizes);
+
     }]>,
   ];
 
