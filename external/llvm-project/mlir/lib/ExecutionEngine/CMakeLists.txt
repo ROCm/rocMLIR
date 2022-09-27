@@ -264,6 +264,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
   )
 
   add_mlir_library(MLIRRocmExecutionEngineUtils
+    SHARED
     RocmSystemDetect.cpp
 
     ADDITIONAL_HEADER_DIRS
@@ -291,7 +292,8 @@ if(MLIR_ENABLE_ROCM_RUNNER)
   endif()
 
   target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
-    MLIRExecutionEngineUtils)
+    MLIRExecutionEngineUtils
+  )
   target_link_libraries(MLIRRocmExecutionEngineUtils PUBLIC
     hip::host hip::amdhip64
   )
