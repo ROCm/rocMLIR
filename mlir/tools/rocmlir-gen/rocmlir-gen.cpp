@@ -223,6 +223,12 @@ static cl::opt<bool>
              cl::value_desc("To use XDLOPS V2 lowering pipeline"),
              cl::init(false));
 
+// disable feature mfma
+static cl::opt<bool>
+    noMfma("no-mfma", cl::desc("Do not use XDLOPS V2 lowering pipeline"),
+           cl::value_desc("Do not use XDLOPS V2 lowering pipeline"),
+           cl::init(false));
+
 // data type
 static cl::opt<std::string>
     tensorDataType("t", cl::desc("Data type for convolution"),
@@ -567,7 +573,7 @@ static void populateDefaults() {
   arch.setValue("amdgcn-amd-amdhsa:gfx900");
 
   if (populateDefaultValues == true) {
-    if (xdlopsV2.getValue() == false) {
+    if (noMfma.getValue() == true) {
       groupSize.setValue(1);
       batchSize.setValue(128);
       inputChannel.setValue(8);
@@ -606,7 +612,7 @@ static void populateDefaults() {
     }
   }
 
-  if (xdlopsV2.getValue() == true) {
+  if (noMfma.getValue() == false) {
     num_cu.setValue(120);
     arch.setValue("amdgcn-amd-amdhsa:gfx908");
   }
@@ -2196,7 +2202,7 @@ int main(int argc, char **argv) {
       rock::AmdArchInfo archInfo = rock::lookupArchInfo(chip);
       rock::GemmFeatures enabledFeatures = archInfo.defaultFeatures;
       enabledFeatures = rock::bitEnumSet(
-          enabledFeatures, rock::GemmFeatures::mfma, xdlopsV2.getValue());
+          enabledFeatures, rock::GemmFeatures::mfma, !noMfma.getValue());
       conv2dGenerator = rock::Conv2dGenerator(
           chip, triple, chipFeatures, perfConfig.getValue(), num_cu.getValue(),
           enabledFeatures, operation.getValue(), tensorDataType.getValue(),

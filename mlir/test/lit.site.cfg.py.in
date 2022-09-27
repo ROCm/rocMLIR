@@ -51,6 +51,7 @@ config.enable_rock_sqlite = @ROCMLIR_SQLITE_ENABLED@
 config.enable_bindings_python = @MLIR_BINDINGS_PYTHON_ENABLED@
 config.random_data = "@MLIR_RANDOM_DATA@"
 config.xdlops = "@MLIR_XDLOPS@"
+config.no_advanced_feature = "@ROCMLIR_DISABLE_ADVANCED_FEATURE@"
 config.populate_validation = "@MLIR_POPULATE_VALIDATION@"
 config.rocm_path = "@ROCM_PATH@"
 

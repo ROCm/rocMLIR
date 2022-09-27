@@ -17,8 +17,9 @@ cmake -G Ninja .. -DCMAKE_BUILD_TYPE=RelWithDebInfo
 ninja check-rocmlir
 ```
 
-If you will be targetting a MI-100, MI-200, or other system that supports
-mfma instructions, add the flag `-DROCMLIR_DRIVER_XDLOPS_TEST_ENABLED=1 `
+By default, xdlops is enabled on MI-100, MI-200, or other system that supports
+mfma instructions.
+To disable xdlops, add the flag `-DROCMLIR_DRIVER_DISABLE_MFMA=1`
 to the `cmake` invocation above.
 
 To not actually run the tests, use `check-rocmlir-build-only`.
