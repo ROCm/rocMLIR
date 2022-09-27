@@ -12,6 +12,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
 
   list(APPEND CMAKE_PREFIX_PATH ${ROCM_PATH} "${ROCM_PATH}/hip")
   find_package(hip REQUIRED)
+  message("Found HIP version: ${hip_VERSION}")
 
   set_source_files_properties(mlir-rocm-runner.cpp PROPERTIES
     COMPILE_OPTIONS "-Wno-gnu-anonymous-struct;-Wno-nested-anon-types;-Wno-c++98-compat-extra-semi")
