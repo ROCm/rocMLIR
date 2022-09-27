@@ -1848,7 +1848,7 @@ void undoAsyncLaunchPass(Operation *cloneFunc) {
 
 
 static void
-insertValidationCalls(const miopen::Conv2dGenerator::Config &genConfig,
+insertValidationCalls(const rock::Conv2dGenerator::Config &genConfig,
                       OpBuilder &b, ModuleOp &module,
                       SmallVectorImpl<mlir::Value> &valVars,
                       SmallVectorImpl<mlir::Value> &localVars,
@@ -1856,12 +1856,12 @@ insertValidationCalls(const miopen::Conv2dGenerator::Config &genConfig,
   auto validationType = genValidation.getValue();
   auto loc = b.getUnknownLoc();
   bool hasXdlops =
-      miopen::bitEnumContains(genConfig.features, miopen::GemmFeatures::xdlops);
+      rock::bitEnumContains(genConfig.features, rock::GemmFeatures::mfma);
   if (validationType == "gpu" &&
       (hasXdlops || genConfig.dataTypeStr == "f16" ||
        genConfig.dataTypeStr == "bf16")) {
     // generate generic kernels
-    miopen::Conv2dGenerator conv2dGenerator(genConfig);
+    rock::Conv2dGenerator conv2dGenerator(genConfig);
     // use non-xdlops kernels to verify xdlops kernels
     if (hasXdlops)
       conv2dGenerator.flipXdlops();
@@ -1887,12 +1887,12 @@ insertValidationCalls(const miopen::Conv2dGenerator::Config &genConfig,
         exit(1);
       }
       KernelIF kernel(conv2dGenerator.getKernelFunc());
-      miopen::Conv2dGenerator::Config newConfig = conv2dGenerator.getConfig();
+      rock::Conv2dGenerator::Config newConfig = conv2dGenerator.getConfig();
       auto kernelWrapperFunc = createGPUWrapper(module, kernel);
 
       // Decide whether to trim the last workspace argument to the verifier
       // GPU kernel.
-      miopen::Conv2dGenerator originalConv2dGenerator(genConfig);
+      rock::Conv2dGenerator originalConv2dGenerator(genConfig);
       bool originalHasWorkspace = originalConv2dGenerator.hasWorkspace(b);
       bool verifierHasWorkspace = conv2dGenerator.hasWorkspace(b);
       if (originalHasWorkspace && !verifierHasWorkspace) {
