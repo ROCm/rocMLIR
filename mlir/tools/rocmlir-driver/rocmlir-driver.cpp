@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Pipelines/XMIRPipelines.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/InitRocMLIRDialects.h"
@@ -331,6 +332,8 @@ int main(int argc, char **argv) {
   mlir::registerRocMLIRConversionPasses();
   rock::registerPasses();
   InitLLVM y(argc, argv);
+
+  registerMLIRContextCLOptions();
 
   // Register any pass manager command line options.
   mlir::registerPassManagerCLOptions();
