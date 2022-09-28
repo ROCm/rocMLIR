@@ -46,6 +46,7 @@
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
@@ -224,10 +225,15 @@ static cl::opt<bool>
              cl::init(false));
 
 // disable feature mfma
-static cl::opt<bool>
-    noMfma("no-mfma", cl::desc("Do not use XDLOPS V2 lowering pipeline"),
-           cl::value_desc("Do not use XDLOPS V2 lowering pipeline"),
-           cl::init(false));
+static cl::opt<std::string>
+    featureInfo("feature", cl::desc("Requested feature:"
+             "mfma: enable xdlops on gfx908 or gfx90a (cdnaInfo)"
+             "pre-wmma: enable dot product instructions on gfx1030 (rdnaInfo)"
+             "wmma: enable wmma instructions on gfx11 (gfx11Info)"
+             "vanilla: enable dot product instructions on gfx906 (rdnaInfo)"
+             "none: disable all features on gfx900 (gcnInfo)"),
+             cl::value_desc("feature"),
+             cl::init("vanilla"));
 
 // data type
 static cl::opt<std::string>
@@ -570,10 +576,9 @@ static void populateDefaults() {
   // We don't particularly care about this field in the lowering
   // process unless it is tuning related. Therefore, setting this
   // field to a default value regardless.
-  arch.setValue("amdgcn-amd-amdhsa:gfx900");
 
   if (populateDefaultValues == true) {
-    if (noMfma.getValue() == true) {
+    if (featureInfo.getValue() != "mfma") {
       groupSize.setValue(1);
       batchSize.setValue(128);
       inputChannel.setValue(8);
@@ -608,13 +613,7 @@ static void populateDefaults() {
       paddingWidthLeft.setValue(0);
       paddingWidthRight.setValue(0);
       num_cu.setValue(120);
-      arch.setValue("amdgcn-amd-amdhsa:gfx908");
     }
-  }
-
-  if (noMfma.getValue() == false) {
-    num_cu.setValue(120);
-    arch.setValue("amdgcn-amd-amdhsa:gfx908");
   }
 
   if (outputHeight.getNumOccurrences() == 0) {
@@ -2189,20 +2188,21 @@ int main(int argc, char **argv) {
       }
       // Scenario 2: We use cl::opt to initialize everything
     } else {
-      RocmDeviceName splitter;
-      if (failed(splitter.parse(arch.getValue()))) {
-        exit(1);
-      }
-      std::string triple = splitter.getTriple().str();
-      std::string chip = splitter.getChip().str();
-      std::string chipFeatures = splitter.getFeatures().str();
+
+      std::string chip = llvm::StringSwitch<std::string>(featureInfo.getValue())
+          .Case("mfma", "gfx908")
+          .Case("pre-wmma", "gfx1030")
+          .Case("wmma", "gfx1100")
+          .Case("vanilla", "gfx906")
+          .Case("none", "gfx900")
+          .Default("gfx906");
+      std::string triple("amdgcn-amd-amdhsa");
+      std::string chipFeatures("");
 
       LogicalResult status = success();
 
       rock::AmdArchInfo archInfo = rock::lookupArchInfo(chip);
       rock::GemmFeatures enabledFeatures = archInfo.defaultFeatures;
-      enabledFeatures = rock::bitEnumSet(
-          enabledFeatures, rock::GemmFeatures::mfma, !noMfma.getValue());
       conv2dGenerator = rock::Conv2dGenerator(
           chip, triple, chipFeatures, perfConfig.getValue(), num_cu.getValue(),
           enabledFeatures, operation.getValue(), tensorDataType.getValue(),

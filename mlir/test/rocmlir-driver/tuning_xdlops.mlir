@@ -1,8 +1,8 @@
 // Check the naming of tuning parameters for xdlops and matrix c vectorization values
 
-// RUN: rocmlir-gen -p -x2 | rocmlir-driver -rock-affix-params -rock-conv-to-gemm | FileCheck %s --check-prefix=STEP1
-// RUN: rocmlir-gen -p -x2 | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gridwise-gemm-to-blockwise | FileCheck %s --check-prefix=STEP2
-// RUN: rocmlir-gen -p --fil_layout=kyxc --in_layout=nhwc --out_layout=nhwk -x2 | rocmlir-driver -rock-affix-params -rock-conv-to-gemm | FileCheck %s --check-prefix=NHWC
+// RUN: rocmlir-gen -p -feature mfma | rocmlir-driver -rock-affix-params -rock-conv-to-gemm | FileCheck %s --check-prefix=STEP1
+// RUN: rocmlir-gen -p -feature mfma | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gridwise-gemm-to-blockwise | FileCheck %s --check-prefix=STEP2
+// RUN: rocmlir-gen -p --fil_layout=kyxc --in_layout=nhwc --out_layout=nhwk -feature mfma | rocmlir-driver -rock-affix-params -rock-conv-to-gemm | FileCheck %s --check-prefix=NHWC
 
 // STEP1: mPerWave
 // STEP1: nPerWave

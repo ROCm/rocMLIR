@@ -17,10 +17,13 @@ cmake -G Ninja .. -DCMAKE_BUILD_TYPE=RelWithDebInfo
 ninja check-rocmlir
 ```
 
-By default, xdlops is enabled on MI-100, MI-200, or other system that supports
-mfma instructions.
-To disable xdlops, add the flag `-DROCMLIR_DRIVER_DISABLE_MFMA=1`
-to the `cmake` invocation above.
+By default, tests requiring xdlops are enabled, which requires
+MI-100, MI-200, or any other system that supports mfma instructions.
+To disable tests that require xdlops and run on gfx906 GPUs, add the flag 
+`-DROCMLIR_DRIVER_FEATURE=vanilla` to the `cmake` invocation above.
+To run tests on gfx900 GPUs, add the flag 
+`-DROCMLIR_DRIVER_FEATURE=none` to the `cmake` invocation above.
+In the future, the feature list will be extended as more chips are supported.
 
 To not actually run the tests, use `check-rocmlir-build-only`.
 

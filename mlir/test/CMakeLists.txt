@@ -11,7 +11,6 @@ llvm_canonicalize_cmake_booleans(
   ROCMLIR_DRIVER_E2E_TEST_ENABLED
   ROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED
   ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED
-  ROCMLIR_DRIVER_DISABLE_MFMA
   ROCMLIR_SQLITE_ENABLED
   )
 
@@ -46,13 +45,13 @@ if(ROCMLIR_DRIVER_XDLOPS_TEST_ENABLED)
   set(MLIR_XDLOPS "-x2")
 endif()
 
-# Passed to lit.site.cfg.py.in to set the -no-mfma flag for the mlir E2E tests.
-set(ROCMLIR_DISABLE_ADVANCED_FEATURE "")
-if(ROCMLIR_DRIVER_DISABLE_MFMA)
-  set(ROCMLIR_DISABLE_ADVANCED_FEATURE "-no-mfma")
+# Passed to lit.site.cfg.py.in to set the --feature flag for the mlir E2E tests.
+set(ROCMLIR_FEATURE "")
+if(ROCMLIR_DRIVER_FEATURE)
+  set(ROCMLIR_FEATURE "--feature ${ROCMLIR_DRIVER_FEATURE}")
 endif()
 
-message ("ROCMLIR_DISABLE_MFMA: ${ROCMLIR_DISABLE_MFMA}")
+message ("ROCMLIR_FEATURE: ${ROCMLIR_FEATURE}")
 
 # Passed to lit.site.cfg.py.in to set the -rand flag for the mlir E2E tests.
 set(MLIR_RANDOM_DATA "")

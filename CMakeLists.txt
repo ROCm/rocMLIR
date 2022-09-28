@@ -30,7 +30,7 @@ set(ROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build miscellaneou
 set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED 1 CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
 set(ROCMLIR_DRIVER_RANDOM_DATA_SEED "none" CACHE STRING "Enable E2E tests using random data")
 set(ROCMLIR_DRIVER_XDLOPS_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for XDLops")
-set(ROCMLIR_DRIVER_DISABLE_MFMA 1 CACHE BOOL "Disable build E2E tests for XDLops")
+set(ROCMLIR_DRIVER_FEATURE "mfma" CACHE BOOL "Choose the feature")
 set(ROCMLIR_DRIVER_TEST_GPU_VALIDATION 1 CACHE BOOL "Enable E2E tests with GPU validation")
 set(ROCMLIR_SQLITE_ENABLED 0 CACHE BOOL "Enable SQLite integration")
 set(MLIR_ENABLE_SQLITE "${ROCMLIR_SQLITE_ENABLED}")
