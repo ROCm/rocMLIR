@@ -186,35 +186,3 @@ extern "C" void mgpuSetDefaultDevice(int32_t device) {
   defaultDevice = device;
   HIP_REPORT_IF_ERROR(hipSetDevice(device));
 }
-
-extern "C" StridedMemRefType<int32_t, 1>
-mgpuMemAllocInt32(int32_t *allocated, int32_t *aligned, int64_t offset,
-                  int64_t size, int64_t stride) {
-  int32_t *gpuPtr;
-  HIP_REPORT_IF_ERROR(hipMalloc((void **)&gpuPtr, size * sizeof(int32_t)));
-  return {gpuPtr, gpuPtr, offset, {size}, {stride}};
-}
-
-extern "C" void mgpuMemDeallocInt32(int32_t *allocated, int32_t *aligned,
-                                    int64_t offset, int64_t size,
-                                    int64_t stride) {
-  HIP_REPORT_IF_ERROR(hipFree(aligned));
-}
-
-extern "C" void mgpuMemSetInt32(int32_t *allocated, int32_t *aligned,
-                                int64_t offset, int64_t size, int64_t stride,
-                                int32_t value) {
-  HIP_REPORT_IF_ERROR(
-      hipMemset((void *)aligned, value, size * sizeof(int32_t)));
-}
-
-extern "C" void mgpuMemCopyInt32(int32_t *sourceAllocated,
-                                 int32_t *sourceAligned, int64_t sourceOffset,
-                                 int64_t sourceSize, int64_t sourceStride,
-                                 int32_t *destAllocated, int32_t *destAligned,
-                                 int64_t destOffset, int64_t destSize,
-                                 int64_t destStride, unsigned copyDirection) {
-  HIP_REPORT_IF_ERROR(hipMemcpy(destAligned, sourceAligned,
-                                sourceSize * sizeof(int32_t),
-                                static_cast<hipMemcpyKind>(copyDirection)));
-}

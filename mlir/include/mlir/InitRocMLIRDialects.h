@@ -16,6 +16,7 @@
 
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/Transforms/BufferizableOpInterfaceImpl.h"
 
 #include "mlir/IR/Dialect.h"
 
@@ -27,6 +28,7 @@ inline void registerRocMLIRDialects(DialectRegistry &registry) {
   registry.insert<rock::RockDialect,
                   migraphx::MIGraphXDialect>();
   // clang-format on
+  rock::registerBufferizableOpInterfaceExternalModels(registry);
 }
 
 } // namespace mlir

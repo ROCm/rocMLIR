@@ -1,8 +1,5 @@
 """Test stepping through ObjC method dispatch in various forms."""
 
-from __future__ import print_function
-
-
 import lldb
 from lldbsuite.test.decorators import *
 from lldbsuite.test.lldbtest import *
@@ -19,7 +16,6 @@ class TestObjCDirectDispatchStepping(TestBase):
         self.main_source = lldb.SBFileSpec("stepping-tests.m")
 
     @add_test_categories(['pyapi', 'basic_process'])
-    @expectedFailureAll(remote=True)
     def test_with_python_api(self):
         """Test stepping through the 'direct dispatch' optimized method calls."""
         self.build()

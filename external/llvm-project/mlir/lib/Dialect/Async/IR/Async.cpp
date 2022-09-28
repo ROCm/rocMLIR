@@ -9,6 +9,7 @@
 #include "mlir/Dialect/Async/IR/Async.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -70,9 +71,8 @@ void LaunchOp::build(OpBuilder &builder, OperationState &result,
   // Add derived `operand_segment_sizes` attribute based on parsed operands.
   int32_t numDependencies = dependencies.size();
   int32_t numOperands = operands.size();
-  auto operandSegmentSizes = DenseIntElementsAttr::get(
-      VectorType::get({2}, builder.getIntegerType(32)),
-      {numDependencies, numOperands});
+  auto operandSegmentSizes =
+      builder.getDenseI32ArrayAttr({numDependencies, numOperands});
   result.addAttribute(operand_segment_sizesAttrName(result.name),
                       operandSegmentSizes);
 
@@ -116,8 +116,7 @@ void LaunchOp::updateSegmentSizes(MLIRContext *ctx) {
   }
 
   auto operandSegmentSizes =
-      DenseIntElementsAttr::get(VectorType::get({2}, IntegerType::get(ctx, 32)),
-                                {numDependencies, numOperands});
+      DenseI32ArrayAttr::get(ctx, {numDependencies, numOperands});
   (*this)->setAttr(operand_segment_sizesAttrName(), operandSegmentSizes);
 
   assert(!(*this)->hasAttr("result_segment_sizes"));
@@ -202,26 +201,24 @@ ParseResult LaunchOp::parse(OpAsmParser &parser, OperationState &result) {
   // Add derived `operand_segment_sizes` attribute based on parsed operands.
   int32_t numOperands = result.operands.size() - numDependencies;
   auto operandSegmentSizes =
-      DenseIntElementsAttr::get(VectorType::get({2}, IntegerType::get(ctx, 32)),
-                                {numDependencies, numOperands});
+      DenseI32ArrayAttr::get(ctx, {numDependencies, numOperands});
   result.addAttribute(operand_segment_sizesAttrName(result.name),
                       operandSegmentSizes);
 
   return success();
 }
 
-LogicalResult LaunchOp::verify() {
-  MLIRContext *ctx = getContext();
-  auto tokenTy = TokenType::get(ctx);
-
-  // The 'callable' must be a kernel and resolved.
-  CallOpInterface callIf(*this);
-  auto *callable = callIf.resolveCallable();
+LogicalResult LaunchOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  auto callable = (*this)->getAttrOfType<FlatSymbolRefAttr>("callee");
   if (!callable)
-    return emitOpError("requires a resolved callable");
-  func::FuncOp func = dyn_cast<func::FuncOp>(callable);
+    return emitOpError("requires a 'callee' symbol reference attribute");
 
-  if (!func || !func->hasAttr("kernel"))
+  func::FuncOp func =
+      symbolTable.lookupNearestSymbolFrom<func::FuncOp>(*this, callable);
+  if (!func)
+    return emitOpError() << "'" << callable.getValue()
+                         << "' does not reference a valid function";
+  if (!func->hasAttr("kernel"))
     return emitOpError("requires a 'kernel' func reference");
 
   auto funcResultTypes = func.getResultTypes();
@@ -238,12 +235,6 @@ LogicalResult LaunchOp::verify() {
       return emitOpError("requires matching result types with func");
   }
 
-  // The dependencies must be async.tokens
-  for (auto dep : dependencies()) {
-    if (dep.getType() != tokenTy)
-      return emitOpError("requires all dependencies to be async.token");
-  }
-
   // Match operand types
   auto funcArgumentTypes = func.getArgumentTypes();
   if (funcArgumentTypes.size() != operands().size())
@@ -252,6 +243,19 @@ LogicalResult LaunchOp::verify() {
   for (auto tuple : llvm::zip(operands(), funcArgumentTypes)) {
     if (std::get<0>(tuple).getType() != std::get<1>(tuple))
       return emitOpError("requires matching operand types");
+  }
+
+  return success();
+}
+
+LogicalResult LaunchOp::verify() {
+  MLIRContext *ctx = getContext();
+  auto tokenTy = TokenType::get(ctx);
+
+  // The dependencies must be async.tokens
+  for (auto dep : dependencies()) {
+    if (dep.getType() != tokenTy)
+      return emitOpError("requires all dependencies to be async.token");
   }
 
   return success();
@@ -301,9 +305,8 @@ void ExecuteOp::build(OpBuilder &builder, OperationState &result,
   // Add derived `operand_segment_sizes` attribute based on parsed operands.
   int32_t numDependencies = dependencies.size();
   int32_t numOperands = operands.size();
-  auto operandSegmentSizes = DenseIntElementsAttr::get(
-      VectorType::get({2}, builder.getIntegerType(32)),
-      {numDependencies, numOperands});
+  auto operandSegmentSizes =
+      builder.getDenseI32ArrayAttr({numDependencies, numOperands});
   result.addAttribute(kOperandSegmentSizesAttr, operandSegmentSizes);
 
   // First result is always a token, and then `resultTypes` wrapped into
@@ -407,9 +410,8 @@ ParseResult ExecuteOp::parse(OpAsmParser &parser, OperationState &result) {
   int32_t numOperands = valueArgs.size();
 
   // Add derived `operand_segment_sizes` attribute based on parsed operands.
-  auto operandSegmentSizes = DenseIntElementsAttr::get(
-      VectorType::get({2}, parser.getBuilder().getI32Type()),
-      {numDependencies, numOperands});
+  auto operandSegmentSizes =
+      parser.getBuilder().getDenseI32ArrayAttr({numDependencies, numOperands});
   result.addAttribute(kOperandSegmentSizesAttr, operandSegmentSizes);
 
   // Parse the types of results returned from the async execute op.

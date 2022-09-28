@@ -13,6 +13,7 @@
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "transform-dialect"
+#define DEBUG_PRINT_AFTER_ALL "transform-dialect-print-top-level-after-all"
 #define DBGS() (llvm::dbgs() << "[" DEBUG_TYPE "] ")
 
 using namespace mlir;
@@ -55,7 +56,7 @@ Value transform::TransformState::getHandleForPayloadOp(Operation *op) const {
 LogicalResult transform::TransformState::tryEmplaceReverseMapping(
     Mappings &map, Operation *operation, Value handle) {
   auto insertionResult = map.reverse.insert({operation, handle});
-  if (!insertionResult.second) {
+  if (!insertionResult.second && insertionResult.first->second != handle) {
     InFlightDiagnostic diag = operation->emitError()
                               << "operation tracked by two handles";
     diag.attachNote(handle.getLoc()) << "handle";
@@ -147,15 +148,18 @@ void transform::TransformState::recordHandleInvalidation(OpOperand &handle) {
         Operation *owner = handle.getOwner();
         unsigned operandNo = handle.getOperandNumber();
         invalidatedHandles[otherHandle] = [ancestorLoc, opLoc, owner, operandNo,
-                                           otherHandle]() {
-          InFlightDiagnostic diag =
-              owner->emitOpError()
-              << "invalidated the handle to payload operations nested in the "
-                 "payload operation associated with its operand #"
-              << operandNo;
-          diag.attachNote(ancestorLoc) << "ancestor op";
-          diag.attachNote(opLoc) << "nested op";
-          diag.attachNote(otherHandle.getLoc()) << "other handle";
+                                           otherHandle](Location currentLoc) {
+          InFlightDiagnostic diag = emitError(currentLoc)
+                                    << "op uses a handle invalidated by a "
+                                       "previously executed transform op";
+          diag.attachNote(otherHandle.getLoc()) << "handle to invalidated ops";
+          diag.attachNote(owner->getLoc())
+              << "invalidated by this transform op that consumes its operand #"
+              << operandNo
+              << " and invalidates handles to payload ops nested in payload "
+                 "ops associated with the consumed handle";
+          diag.attachNote(ancestorLoc) << "ancestor payload op";
+          diag.attachNote(opLoc) << "nested payload op";
         };
       }
     }
@@ -174,7 +178,7 @@ LogicalResult transform::TransformState::checkAndRecordHandleInvalidation(
     // If the operand uses an invalidated handle, report it.
     auto it = invalidatedHandles.find(target.get());
     if (it != invalidatedHandles.end())
-      return it->getSecond()(), failure();
+      return it->getSecond()(transform->getLoc()), failure();
 
     // Invalidate handles pointing to the operations nested in the operation
     // associated with the handle consumed by this operation.
@@ -182,7 +186,7 @@ LogicalResult transform::TransformState::checkAndRecordHandleInvalidation(
       return isa<MemoryEffects::Free>(effect.getEffect()) &&
              effect.getValue() == target.get();
     };
-    if (llvm::find_if(effects, consumesTarget) != effects.end())
+    if (llvm::any_of(effects, consumesTarget))
       recordHandleInvalidation(target);
   }
   return success();
@@ -191,9 +195,35 @@ LogicalResult transform::TransformState::checkAndRecordHandleInvalidation(
 DiagnosedSilenceableFailure
 transform::TransformState::applyTransform(TransformOpInterface transform) {
   LLVM_DEBUG(DBGS() << "applying: " << transform << "\n");
-  if (options.getExpensiveChecksEnabled() &&
-      failed(checkAndRecordHandleInvalidation(transform))) {
-    return DiagnosedSilenceableFailure::definiteFailure();
+  auto printOnFailureRAII = llvm::make_scope_exit([this] {
+    (void)this;
+    DEBUG_WITH_TYPE(DEBUG_PRINT_AFTER_ALL, {
+      DBGS() << "Top-level payload:\n";
+      getTopLevel()->print(llvm::dbgs(),
+                           mlir::OpPrintingFlags().printGenericOpForm());
+    });
+  });
+  if (options.getExpensiveChecksEnabled()) {
+    if (failed(checkAndRecordHandleInvalidation(transform)))
+      return DiagnosedSilenceableFailure::definiteFailure();
+
+    for (OpOperand &operand : transform->getOpOperands()) {
+      if (!isHandleConsumed(operand.get(), transform))
+        continue;
+
+      DenseSet<Operation *> seen;
+      for (Operation *op : getPayloadOps(operand.get())) {
+        if (!seen.insert(op).second) {
+          DiagnosedSilenceableFailure diag =
+              transform.emitSilenceableError()
+              << "a handle passed as operand #" << operand.getOperandNumber()
+              << " and consumed by this operation points to a payload "
+                 "operation more than once";
+          diag.attachNote(op->getLoc()) << "repeated target op";
+          return diag;
+        }
+      }
+    }
   }
 
   transform::TransformResults results(transform->getNumResults());
@@ -226,6 +256,11 @@ transform::TransformState::applyTransform(TransformOpInterface transform) {
       return DiagnosedSilenceableFailure::definiteFailure();
   }
 
+  printOnFailureRAII.release();
+  DEBUG_WITH_TYPE(DEBUG_PRINT_AFTER_ALL, {
+    DBGS() << "Top-level payload:\n";
+    getTopLevel()->print(llvm::dbgs());
+  });
   return DiagnosedSilenceableFailure::success();
 }
 
@@ -324,6 +359,71 @@ transform::detail::verifyPossibleTopLevelTransformOpTrait(Operation *op) {
   }
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// Memory effects.
+//===----------------------------------------------------------------------===//
+
+void transform::consumesHandle(
+    ValueRange handles,
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  for (Value handle : handles) {
+    effects.emplace_back(MemoryEffects::Read::get(), handle,
+                         TransformMappingResource::get());
+    effects.emplace_back(MemoryEffects::Free::get(), handle,
+                         TransformMappingResource::get());
+  }
+}
+
+/// Returns `true` if the given list of effects instances contains an instance
+/// with the effect type specified as template parameter.
+template <typename EffectTy, typename ResourceTy = SideEffects::DefaultResource>
+static bool hasEffect(ArrayRef<MemoryEffects::EffectInstance> effects) {
+  return llvm::any_of(effects, [](const MemoryEffects::EffectInstance &effect) {
+    return isa<EffectTy>(effect.getEffect()) &&
+           isa<ResourceTy>(effect.getResource());
+  });
+}
+
+bool transform::isHandleConsumed(Value handle,
+                                 transform::TransformOpInterface transform) {
+  auto iface = cast<MemoryEffectOpInterface>(transform.getOperation());
+  SmallVector<MemoryEffects::EffectInstance> effects;
+  iface.getEffectsOnValue(handle, effects);
+  return ::hasEffect<MemoryEffects::Read, TransformMappingResource>(effects) &&
+         ::hasEffect<MemoryEffects::Free, TransformMappingResource>(effects);
+}
+
+void transform::producesHandle(
+    ValueRange handles,
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  for (Value handle : handles) {
+    effects.emplace_back(MemoryEffects::Allocate::get(), handle,
+                         TransformMappingResource::get());
+    effects.emplace_back(MemoryEffects::Write::get(), handle,
+                         TransformMappingResource::get());
+  }
+}
+
+void transform::onlyReadsHandle(
+    ValueRange handles,
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  for (Value handle : handles) {
+    effects.emplace_back(MemoryEffects::Read::get(), handle,
+                         TransformMappingResource::get());
+  }
+}
+
+void transform::modifiesPayload(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), PayloadIRResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), PayloadIRResource::get());
+}
+
+void transform::onlyReadsPayload(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), PayloadIRResource::get());
 }
 
 //===----------------------------------------------------------------------===//

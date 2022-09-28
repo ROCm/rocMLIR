@@ -30,8 +30,8 @@ func.func @int32_scalar(%lhs: i32, %rhs: i32) {
 // CHECK-LABEL: @int32_scalar_srem
 // CHECK-SAME: (%[[LHS:.+]]: i32, %[[RHS:.+]]: i32)
 func.func @int32_scalar_srem(%lhs: i32, %rhs: i32) {
-  // CHECK: %[[LABS:.+]] = spv.GLSL.SAbs %[[LHS]] : i32
-  // CHECK: %[[RABS:.+]] = spv.GLSL.SAbs %[[RHS]] : i32
+  // CHECK: %[[LABS:.+]] = spv.GL.SAbs %[[LHS]] : i32
+  // CHECK: %[[RABS:.+]] = spv.GL.SAbs %[[RHS]] : i32
   // CHECK:  %[[ABS:.+]] = spv.UMod %[[LABS]], %[[RABS]] : i32
   // CHECK:  %[[POS:.+]] = spv.IEqual %[[LHS]], %[[LABS]] : i32
   // CHECK:  %[[NEG:.+]] = spv.SNegate %[[ABS]] : i32
@@ -62,14 +62,41 @@ func.func @index_scalar(%lhs: index, %rhs: index) {
 func.func @index_scalar_srem(%lhs: index, %rhs: index) {
   // CHECK: %[[LHS:.+]] = builtin.unrealized_conversion_cast %[[A]] : index to i32
   // CHECK: %[[RHS:.+]] = builtin.unrealized_conversion_cast %[[B]] : index to i32
-  // CHECK: %[[LABS:.+]] = spv.GLSL.SAbs %[[LHS]] : i32
-  // CHECK: %[[RABS:.+]] = spv.GLSL.SAbs %[[RHS]] : i32
+  // CHECK: %[[LABS:.+]] = spv.GL.SAbs %[[LHS]] : i32
+  // CHECK: %[[RABS:.+]] = spv.GL.SAbs %[[RHS]] : i32
   // CHECK:  %[[ABS:.+]] = spv.UMod %[[LABS]], %[[RABS]] : i32
   // CHECK:  %[[POS:.+]] = spv.IEqual %[[LHS]], %[[LABS]] : i32
   // CHECK:  %[[NEG:.+]] = spv.SNegate %[[ABS]] : i32
   // CHECK:      %{{.+}} = spv.Select %[[POS]], %[[ABS]], %[[NEG]] : i1, i32
   %0 = arith.remsi %lhs, %rhs: index
   return
+}
+
+// Check integer add-with-carry conversions.
+// CHECK-LABEL: @int32_scalar_addui_carry
+// CHECK-SAME: (%[[LHS:.+]]: i32, %[[RHS:.+]]: i32)
+func.func @int32_scalar_addui_carry(%lhs: i32, %rhs: i32) -> (i32, i1) {
+  // CHECK-NEXT: %[[IAC:.+]] = spv.IAddCarry %[[LHS]], %[[RHS]] : !spv.struct<(i32, i32)>
+  // CHECK-DAG:  %[[SUM:.+]] = spv.CompositeExtract %[[IAC]][0 : i32] : !spv.struct<(i32, i32)>
+  // CHECK-DAG:  %[[C0:.+]]  = spv.CompositeExtract %[[IAC]][1 : i32] : !spv.struct<(i32, i32)>
+  // CHECK-DAG:  %[[ONE:.+]] = spv.Constant 1 : i32
+  // CHECK-NEXT: %[[C1:.+]]  = spv.IEqual %[[C0]], %[[ONE]] : i32
+  // CHECK-NEXT: return %[[SUM]], %[[C1]] : i32, i1
+  %sum, %carry = arith.addui_carry %lhs, %rhs: i32, i1
+  return %sum, %carry : i32, i1
+}
+
+// CHECK-LABEL: @int32_vector_addui_carry
+// CHECK-SAME: (%[[LHS:.+]]: vector<4xi32>, %[[RHS:.+]]: vector<4xi32>)
+func.func @int32_vector_addui_carry(%lhs: vector<4xi32>, %rhs: vector<4xi32>) -> (vector<4xi32>, vector<4xi1>) {
+  // CHECK-NEXT: %[[IAC:.+]] = spv.IAddCarry %[[LHS]], %[[RHS]] : !spv.struct<(vector<4xi32>, vector<4xi32>)>
+  // CHECK-DAG:  %[[SUM:.+]] = spv.CompositeExtract %[[IAC]][0 : i32] : !spv.struct<(vector<4xi32>, vector<4xi32>)>
+  // CHECK-DAG:  %[[C0:.+]]  = spv.CompositeExtract %[[IAC]][1 : i32] : !spv.struct<(vector<4xi32>, vector<4xi32>)>
+  // CHECK-DAG:  %[[ONE:.+]] = spv.Constant dense<1> : vector<4xi32>
+  // CHECK-NEXT: %[[C1:.+]]  = spv.IEqual %[[C0]], %[[ONE]] : vector<4xi32>
+  // CHECK-NEXT: return %[[SUM]], %[[C1]] : vector<4xi32>, vector<4xi1>
+  %sum, %carry = arith.addui_carry %lhs, %rhs: vector<4xi32>, vector<4xi1>
+  return %sum, %carry : vector<4xi32>, vector<4xi1>
 }
 
 // Check float unary operation conversions.
@@ -109,8 +136,8 @@ func.func @int_vector234(%arg0: vector<2xi8>, %arg1: vector<4xi64>) {
 // CHECK-LABEL: @vector_srem
 // CHECK-SAME: (%[[LHS:.+]]: vector<3xi16>, %[[RHS:.+]]: vector<3xi16>)
 func.func @vector_srem(%arg0: vector<3xi16>, %arg1: vector<3xi16>) {
-  // CHECK: %[[LABS:.+]] = spv.GLSL.SAbs %[[LHS]] : vector<3xi16>
-  // CHECK: %[[RABS:.+]] = spv.GLSL.SAbs %[[RHS]] : vector<3xi16>
+  // CHECK: %[[LABS:.+]] = spv.GL.SAbs %[[LHS]] : vector<3xi16>
+  // CHECK: %[[RABS:.+]] = spv.GL.SAbs %[[RHS]] : vector<3xi16>
   // CHECK:  %[[ABS:.+]] = spv.UMod %[[LABS]], %[[RABS]] : vector<3xi16>
   // CHECK:  %[[POS:.+]] = spv.IEqual %[[LHS]], %[[LABS]] : vector<3xi16>
   // CHECK:  %[[NEG:.+]] = spv.SNegate %[[ABS]] : vector<3xi16>
@@ -943,17 +970,85 @@ func.func @sitofp(%arg0 : i64) -> f64 {
 
 // -----
 
-// Check OpenCL lowering of arith.remsi
+// Check various lowerings for OpenCL.
 module attributes {
   spv.target_env = #spv.target_env<
     #spv.vce<v1.0, [Int16, Kernel], []>, #spv.resource_limits<>>
 } {
 
+// Check integer operation conversions.
+// CHECK-LABEL: @int32_scalar
+func.func @int32_scalar(%lhs: i32, %rhs: i32) {
+  // CHECK: spv.IAdd %{{.*}}, %{{.*}}: i32
+  %0 = arith.addi %lhs, %rhs: i32
+  // CHECK: spv.ISub %{{.*}}, %{{.*}}: i32
+  %1 = arith.subi %lhs, %rhs: i32
+  // CHECK: spv.IMul %{{.*}}, %{{.*}}: i32
+  %2 = arith.muli %lhs, %rhs: i32
+  // CHECK: spv.SDiv %{{.*}}, %{{.*}}: i32
+  %3 = arith.divsi %lhs, %rhs: i32
+  // CHECK: spv.UDiv %{{.*}}, %{{.*}}: i32
+  %4 = arith.divui %lhs, %rhs: i32
+  // CHECK: spv.UMod %{{.*}}, %{{.*}}: i32
+  %5 = arith.remui %lhs, %rhs: i32
+  // CHECK: spv.CL.s_max %{{.*}}, %{{.*}}: i32
+  %6 = arith.maxsi %lhs, %rhs : i32
+  // CHECK: spv.CL.u_max %{{.*}}, %{{.*}}: i32
+  %7 = arith.maxui %lhs, %rhs : i32
+  // CHECK: spv.CL.s_min %{{.*}}, %{{.*}}: i32
+  %8 = arith.minsi %lhs, %rhs : i32
+  // CHECK: spv.CL.u_min %{{.*}}, %{{.*}}: i32
+  %9 = arith.minui %lhs, %rhs : i32
+  return
+}
+
+// Check float binary operation conversions.
+// CHECK-LABEL: @float32_binary_scalar
+func.func @float32_binary_scalar(%lhs: f32, %rhs: f32) {
+  // CHECK: spv.FAdd %{{.*}}, %{{.*}}: f32
+  %0 = arith.addf %lhs, %rhs: f32
+  // CHECK: spv.FSub %{{.*}}, %{{.*}}: f32
+  %1 = arith.subf %lhs, %rhs: f32
+  // CHECK: spv.FMul %{{.*}}, %{{.*}}: f32
+  %2 = arith.mulf %lhs, %rhs: f32
+  // CHECK: spv.FDiv %{{.*}}, %{{.*}}: f32
+  %3 = arith.divf %lhs, %rhs: f32
+  // CHECK: spv.FRem %{{.*}}, %{{.*}}: f32
+  %4 = arith.remf %lhs, %rhs: f32
+  return
+}
+
+// CHECK-LABEL: @float32_minf_scalar
+// CHECK-SAME: %[[LHS:.+]]: f32, %[[RHS:.+]]: f32
+func.func @float32_minf_scalar(%arg0 : f32, %arg1 : f32) -> f32 {
+  // CHECK: %[[MIN:.+]] = spv.CL.fmin %arg0, %arg1 : f32
+  // CHECK: %[[LHS_NAN:.+]] = spv.IsNan %[[LHS]] : f32
+  // CHECK: %[[RHS_NAN:.+]] = spv.IsNan %[[RHS]] : f32
+  // CHECK: %[[SELECT1:.+]] = spv.Select %[[LHS_NAN]], %[[LHS]], %[[MIN]]
+  // CHECK: %[[SELECT2:.+]] = spv.Select %[[RHS_NAN]], %[[RHS]], %[[SELECT1]]
+  %0 = arith.minf %arg0, %arg1 : f32
+  // CHECK: return %[[SELECT2]]
+  return %0: f32
+}
+
+// CHECK-LABEL: @float32_maxf_scalar
+// CHECK-SAME: %[[LHS:.+]]: vector<2xf32>, %[[RHS:.+]]: vector<2xf32>
+func.func @float32_maxf_scalar(%arg0 : vector<2xf32>, %arg1 : vector<2xf32>) -> vector<2xf32> {
+  // CHECK: %[[MAX:.+]] = spv.CL.fmax %arg0, %arg1 : vector<2xf32>
+  // CHECK: %[[LHS_NAN:.+]] = spv.IsNan %[[LHS]] : vector<2xf32>
+  // CHECK: %[[RHS_NAN:.+]] = spv.IsNan %[[RHS]] : vector<2xf32>
+  // CHECK: %[[SELECT1:.+]] = spv.Select %[[LHS_NAN]], %[[LHS]], %[[MAX]]
+  // CHECK: %[[SELECT2:.+]] = spv.Select %[[RHS_NAN]], %[[RHS]], %[[SELECT1]]
+  %0 = arith.maxf %arg0, %arg1 : vector<2xf32>
+  // CHECK: return %[[SELECT2]]
+  return %0: vector<2xf32>
+}
+
 // CHECK-LABEL: @scalar_srem
 // CHECK-SAME: (%[[LHS:.+]]: i32, %[[RHS:.+]]: i32)
 func.func @scalar_srem(%lhs: i32, %rhs: i32) {
-  // CHECK: %[[LABS:.+]] = spv.OCL.s_abs %[[LHS]] : i32
-  // CHECK: %[[RABS:.+]] = spv.OCL.s_abs %[[RHS]] : i32
+  // CHECK: %[[LABS:.+]] = spv.CL.s_abs %[[LHS]] : i32
+  // CHECK: %[[RABS:.+]] = spv.CL.s_abs %[[RHS]] : i32
   // CHECK:  %[[ABS:.+]] = spv.UMod %[[LABS]], %[[RABS]] : i32
   // CHECK:  %[[POS:.+]] = spv.IEqual %[[LHS]], %[[LABS]] : i32
   // CHECK:  %[[NEG:.+]] = spv.SNegate %[[ABS]] : i32
@@ -965,8 +1060,8 @@ func.func @scalar_srem(%lhs: i32, %rhs: i32) {
 // CHECK-LABEL: @vector_srem
 // CHECK-SAME: (%[[LHS:.+]]: vector<3xi16>, %[[RHS:.+]]: vector<3xi16>)
 func.func @vector_srem(%arg0: vector<3xi16>, %arg1: vector<3xi16>) {
-  // CHECK: %[[LABS:.+]] = spv.OCL.s_abs %[[LHS]] : vector<3xi16>
-  // CHECK: %[[RABS:.+]] = spv.OCL.s_abs %[[RHS]] : vector<3xi16>
+  // CHECK: %[[LABS:.+]] = spv.CL.s_abs %[[LHS]] : vector<3xi16>
+  // CHECK: %[[RABS:.+]] = spv.CL.s_abs %[[RHS]] : vector<3xi16>
   // CHECK:  %[[ABS:.+]] = spv.UMod %[[LABS]], %[[RABS]] : vector<3xi16>
   // CHECK:  %[[POS:.+]] = spv.IEqual %[[LHS]], %[[LABS]] : vector<3xi16>
   // CHECK:  %[[NEG:.+]] = spv.SNegate %[[ABS]] : vector<3xi16>
@@ -1021,13 +1116,13 @@ func.func @int32_scalar(%lhs: i32, %rhs: i32) {
   %4 = arith.divui %lhs, %rhs: i32
   // CHECK: spv.UMod %{{.*}}, %{{.*}}: i32
   %5 = arith.remui %lhs, %rhs: i32
-  // CHECK: spv.GLSL.SMax %{{.*}}, %{{.*}}: i32
+  // CHECK: spv.GL.SMax %{{.*}}, %{{.*}}: i32
   %6 = arith.maxsi %lhs, %rhs : i32
-  // CHECK: spv.GLSL.UMax %{{.*}}, %{{.*}}: i32
+  // CHECK: spv.GL.UMax %{{.*}}, %{{.*}}: i32
   %7 = arith.maxui %lhs, %rhs : i32
-  // CHECK: spv.GLSL.SMin %{{.*}}, %{{.*}}: i32
+  // CHECK: spv.GL.SMin %{{.*}}, %{{.*}}: i32
   %8 = arith.minsi %lhs, %rhs : i32
-  // CHECK: spv.GLSL.UMin %{{.*}}, %{{.*}}: i32
+  // CHECK: spv.GL.UMin %{{.*}}, %{{.*}}: i32
   %9 = arith.minui %lhs, %rhs : i32
   return
 }
@@ -1035,8 +1130,8 @@ func.func @int32_scalar(%lhs: i32, %rhs: i32) {
 // CHECK-LABEL: @scalar_srem
 // CHECK-SAME: (%[[LHS:.+]]: i32, %[[RHS:.+]]: i32)
 func.func @scalar_srem(%lhs: i32, %rhs: i32) {
-  // CHECK: %[[LABS:.+]] = spv.GLSL.SAbs %[[LHS]] : i32
-  // CHECK: %[[RABS:.+]] = spv.GLSL.SAbs %[[RHS]] : i32
+  // CHECK: %[[LABS:.+]] = spv.GL.SAbs %[[LHS]] : i32
+  // CHECK: %[[RABS:.+]] = spv.GL.SAbs %[[RHS]] : i32
   // CHECK:  %[[ABS:.+]] = spv.UMod %[[LABS]], %[[RABS]] : i32
   // CHECK:  %[[POS:.+]] = spv.IEqual %[[LHS]], %[[LABS]] : i32
   // CHECK:  %[[NEG:.+]] = spv.SNegate %[[ABS]] : i32
@@ -1066,11 +1161,33 @@ func.func @float32_binary_scalar(%lhs: f32, %rhs: f32) {
   %3 = arith.divf %lhs, %rhs: f32
   // CHECK: spv.FRem %{{.*}}, %{{.*}}: f32
   %4 = arith.remf %lhs, %rhs: f32
-  // CHECK: spv.GLSL.FMax %{{.*}}, %{{.*}}: f32
-  %5 = arith.maxf %lhs, %rhs: f32
-  // CHECK: spv.GLSL.FMin %{{.*}}, %{{.*}}: f32
-  %6 = arith.minf %lhs, %rhs: f32
   return
+}
+
+// CHECK-LABEL: @float32_minf_scalar
+// CHECK-SAME: %[[LHS:.+]]: f32, %[[RHS:.+]]: f32
+func.func @float32_minf_scalar(%arg0 : f32, %arg1 : f32) -> f32 {
+  // CHECK: %[[MIN:.+]] = spv.GL.FMin %arg0, %arg1 : f32
+  // CHECK: %[[LHS_NAN:.+]] = spv.IsNan %[[LHS]] : f32
+  // CHECK: %[[RHS_NAN:.+]] = spv.IsNan %[[RHS]] : f32
+  // CHECK: %[[SELECT1:.+]] = spv.Select %[[LHS_NAN]], %[[LHS]], %[[MIN]]
+  // CHECK: %[[SELECT2:.+]] = spv.Select %[[RHS_NAN]], %[[RHS]], %[[SELECT1]]
+  %0 = arith.minf %arg0, %arg1 : f32
+  // CHECK: return %[[SELECT2]]
+  return %0: f32
+}
+
+// CHECK-LABEL: @float32_maxf_scalar
+// CHECK-SAME: %[[LHS:.+]]: vector<2xf32>, %[[RHS:.+]]: vector<2xf32>
+func.func @float32_maxf_scalar(%arg0 : vector<2xf32>, %arg1 : vector<2xf32>) -> vector<2xf32> {
+  // CHECK: %[[MAX:.+]] = spv.GL.FMax %arg0, %arg1 : vector<2xf32>
+  // CHECK: %[[LHS_NAN:.+]] = spv.IsNan %[[LHS]] : vector<2xf32>
+  // CHECK: %[[RHS_NAN:.+]] = spv.IsNan %[[RHS]] : vector<2xf32>
+  // CHECK: %[[SELECT1:.+]] = spv.Select %[[LHS_NAN]], %[[LHS]], %[[MAX]]
+  // CHECK: %[[SELECT2:.+]] = spv.Select %[[RHS_NAN]], %[[RHS]], %[[SELECT1]]
+  %0 = arith.maxf %arg0, %arg1 : vector<2xf32>
+  // CHECK: return %[[SELECT2]]
+  return %0: vector<2xf32>
 }
 
 // Check int vector types.
@@ -1086,8 +1203,8 @@ func.func @int_vector234(%arg0: vector<2xi8>, %arg1: vector<4xi64>) {
 // CHECK-LABEL: @vector_srem
 // CHECK-SAME: (%[[LHS:.+]]: vector<3xi16>, %[[RHS:.+]]: vector<3xi16>)
 func.func @vector_srem(%arg0: vector<3xi16>, %arg1: vector<3xi16>) {
-  // CHECK: %[[LABS:.+]] = spv.GLSL.SAbs %[[LHS]] : vector<3xi16>
-  // CHECK: %[[RABS:.+]] = spv.GLSL.SAbs %[[RHS]] : vector<3xi16>
+  // CHECK: %[[LABS:.+]] = spv.GL.SAbs %[[LHS]] : vector<3xi16>
+  // CHECK: %[[RABS:.+]] = spv.GL.SAbs %[[RHS]] : vector<3xi16>
   // CHECK:  %[[ABS:.+]] = spv.UMod %[[LABS]], %[[RABS]] : vector<3xi16>
   // CHECK:  %[[POS:.+]] = spv.IEqual %[[LHS]], %[[LABS]] : vector<3xi16>
   // CHECK:  %[[NEG:.+]] = spv.SNegate %[[ABS]] : vector<3xi16>

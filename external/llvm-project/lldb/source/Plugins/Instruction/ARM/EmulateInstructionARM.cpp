@@ -3769,10 +3769,6 @@ bool EmulateInstructionARM::EmulateShiftImm(const uint32_t opcode,
 
     switch (use_encoding) {
     case eEncodingT1:
-      // Due to the above special case handling!
-      if (shift_type == SRType_ROR)
-        return false;
-
       Rd = Bits32(opcode, 2, 0);
       Rm = Bits32(opcode, 5, 3);
       setflags = !InITBlock();
@@ -4139,8 +4135,6 @@ bool EmulateInstructionARM::EmulateLDMDA(const uint32_t opcode,
 
     // if wback && registers<n> == '0' then R[n] = R[n] - 4*BitCount(registers);
     if (wback && BitIsClear(registers, n)) {
-      if (!success)
-        return false;
 
       offset = (addr_byte_size * BitCount(registers)) * -1;
       context.type = EmulateInstruction::eContextAdjustBaseRegister;
@@ -4277,8 +4271,6 @@ bool EmulateInstructionARM::EmulateLDMDB(const uint32_t opcode,
 
     // if wback && registers<n> == '0' then R[n] = R[n] - 4*BitCount(registers);
     if (wback && BitIsClear(registers, n)) {
-      if (!success)
-        return false;
 
       offset = (addr_byte_size * BitCount(registers)) * -1;
       context.type = EmulateInstruction::eContextAdjustBaseRegister;
@@ -4391,8 +4383,6 @@ bool EmulateInstructionARM::EmulateLDMIB(const uint32_t opcode,
 
     // if wback && registers<n> == '0' then R[n] = R[n] + 4*BitCount(registers);
     if (wback && BitIsClear(registers, n)) {
-      if (!success)
-        return false;
 
       offset = addr_byte_size * BitCount(registers);
       context.type = EmulateInstruction::eContextAdjustBaseRegister;
@@ -13198,7 +13188,7 @@ EmulateInstructionARM::GetARMOpcodeForInstruction(const uint32_t opcode,
        &EmulateInstructionARM::EmulateRFE, "rfe{<amode>} <Rn>{!}"}
 
   };
-  static const size_t k_num_arm_opcodes = llvm::array_lengthof(g_arm_opcodes);
+  static const size_t k_num_arm_opcodes = std::size(g_arm_opcodes);
 
   for (size_t i = 0; i < k_num_arm_opcodes; ++i) {
     if ((g_arm_opcodes[i].mask & opcode) == g_arm_opcodes[i].value &&
@@ -13749,7 +13739,7 @@ EmulateInstructionARM::GetThumbOpcodeForInstruction(const uint32_t opcode,
        &EmulateInstructionARM::EmulateUXTH, "uxth<c>.w <Rd>,<Rm>{,<rotation>}"},
   };
 
-  const size_t k_num_thumb_opcodes = llvm::array_lengthof(g_thumb_opcodes);
+  const size_t k_num_thumb_opcodes = std::size(g_thumb_opcodes);
   for (size_t i = 0; i < k_num_thumb_opcodes; ++i) {
     if ((g_thumb_opcodes[i].mask & opcode) == g_thumb_opcodes[i].value &&
         (g_thumb_opcodes[i].variants & arm_isa) != 0)
@@ -14453,10 +14443,10 @@ bool EmulateInstructionARM::TestEmulation(Stream *out_stream, ArchSpec &arch,
     return false;
   }
 
-  success = before_state.CompareState(after_state);
+  success = before_state.CompareState(after_state, out_stream);
   if (!success)
     out_stream->Printf(
-        "TestEmulation:  'before' and 'after' states do not match.\n");
+        "TestEmulation:  State after emulation does not match 'after' state.\n");
 
   return success;
 }

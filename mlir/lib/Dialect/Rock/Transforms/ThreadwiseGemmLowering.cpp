@@ -20,8 +20,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PassDetail.h"
-
 #include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
@@ -43,6 +41,13 @@
 #include <iterator>
 #include <numeric>
 
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKTHREADWISEGEMMLOWERINGPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
+
 #define DEBUG_TYPE "rock-threadwise-gemm-lowering"
 
 using namespace mlir;
@@ -51,7 +56,7 @@ using namespace mlir::rock;
 
 namespace {
 struct RockThreadwiseGemmLoweringPass
-    : public RockThreadwiseGemmLoweringPassBase<
+    : public rock::impl::RockThreadwiseGemmLoweringPassBase<
           RockThreadwiseGemmLoweringPass> {
   void runOnOperation() override;
 };
@@ -274,7 +279,7 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
             argA, argB, vectorC, /*cbsz=*/imms[i].cbsz, /*abid=*/imms[i].abid,
             /*blgp=*/imms[i].blgp, /*reducePrecision=*/false, /*negateA=*/false,
             /*negateB=*/false, /*negateC=*/false);
-        auto vectorD = mfma.destD();
+        auto vectorD = mfma.getDestD();
 
         b.create<memref::StoreOp>(loc, vectorD, bufferC, offset);
       }
@@ -403,7 +408,3 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
 }
 
 } // end anonymous namespace
-
-std::unique_ptr<Pass> mlir::rock::createRockThreadwiseGemmLoweringPass() {
-  return std::make_unique<RockThreadwiseGemmLoweringPass>();
-}

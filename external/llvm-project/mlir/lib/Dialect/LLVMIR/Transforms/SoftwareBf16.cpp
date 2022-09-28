@@ -6,12 +6,18 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PassDetail.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
+namespace mlir {
+namespace LLVM {
+#define GEN_PASS_DEF_SOFTWAREBF16
+#include "mlir/Dialect/LLVMIR/Transforms/Passes.h.inc"
+} // namespace LLVM
+} // namespace mlir
 
 using namespace mlir;
 
@@ -251,7 +257,6 @@ static void replaceBF16WithI16(Operation *op, TypeConverter &converter) {
       op->getResult(idx).setType(type);
     }
   }
-  return;
 }
 
 static void populateSoftwareBF16Patterns(MLIRContext *ctx,
@@ -363,7 +368,8 @@ static void populateSoftwareBF16Patterns(MLIRContext *ctx,
 }
 
 namespace {
-struct SoftwareBF16Pass : public SoftwareBF16Base<SoftwareBF16Pass> {
+struct SoftwareBF16Pass
+    : public LLVM::impl::SoftwareBF16Base<SoftwareBF16Pass> {
   void runOnOperation() override {
     auto m = getOperation();
     MLIRContext *ctx = m->getContext();

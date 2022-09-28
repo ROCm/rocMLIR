@@ -19,13 +19,10 @@
 // adding padding and group dimensions if needed.
 //
 //===-----------------------------------------------------===//
-
-#include "PassDetail.h"
-
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GemmContext.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 
@@ -36,6 +33,13 @@
 #include "llvm/Support/Debug.h"
 #include <memory>
 
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKGEMMTOGRIDWISEPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
+
 #define DEBUG_TYPE "rock-gemm-to-gridwise"
 
 using namespace mlir;
@@ -43,7 +47,7 @@ using namespace mlir::rock;
 
 namespace {
 class RockGemmToGridwisePass
-    : public RockGemmToGridwisePassBase<RockGemmToGridwisePass> {
+    : public rock::impl::RockGemmToGridwisePassBase<RockGemmToGridwisePass> {
   void runOnOperation() override;
 };
 
@@ -155,7 +159,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                     ConversionPatternRewriter &rw) const {
   Location loc = op->getLoc();
 
-  Attribute params = op.params().getValueOr(nullptr);
+  Attribute params = op.params().value_or(nullptr);
   if (!params) {
     return op.emitOpError("cannot lower gemm without tuning parameters");
   }
@@ -172,13 +176,13 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   ArrayRef<int64_t> bShape = b.getType().cast<MemRefType>().getShape();
   GemmContext size(/*m=*/aShape[2], /*k=*/aShape[1], /*n=*/bShape[2]);
   GemmContext extraPad =
-      requiredPadding(params, size).getValueOr(GemmContext{0, 0, 0});
+      requiredPadding(params, size).value_or(GemmContext{0, 0, 0});
 
   a = padMatrix(a, rw, loc, "gemmK", extraPad.k, "gemmM", extraPad.m);
   b = padMatrix(b, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
 
-  bool isXdlops = bitEnumContains(op.features(), GemmFeatures::mfma);
+  bool isXdlops = bitEnumContainsAll(op.features(), GemmFeatures::mfma);
   // TODO: temporary code for befor the gridwise gemm is rewritten to not do
   // this
   if (isXdlops) {
@@ -225,8 +229,4 @@ void RockGemmToGridwisePass::runOnOperation() {
                                     std::move(patterns)))) {
     signalPassFailure();
   }
-}
-
-std::unique_ptr<Pass> mlir::rock::createRockGemmToGridwisePass() {
-  return std::make_unique<RockGemmToGridwisePass>();
 }

@@ -57,12 +57,14 @@ void registerTosaTestQuantUtilAPIPass();
 void registerVectorizerTestPass();
 
 namespace test {
+void registerCommutativityUtils();
 void registerConvertCallOpPass();
 void registerInliner();
 void registerMemRefBoundCheck();
 void registerPatternsTestPass();
 void registerSimpleParametricTilingPass();
 void registerTestAffineLoopParametricTilingPass();
+void registerTestArithmeticEmulateWideIntPass();
 void registerTestAliasAnalysisPass();
 void registerTestBuiltinAttributeInterfaces();
 void registerTestCallGraphPass();
@@ -86,14 +88,10 @@ void registerTestGenericIRVisitorsPass();
 void registerTestGenericIRVisitorsInterruptPass();
 void registerTestInterfaces();
 void registerTestLastModifiedPass();
-void registerTestLinalgCodegenStrategy();
+void registerTestLinalgDecomposeOps();
 void registerTestLinalgElementwiseFusion();
-void registerTestLinalgFusionTransforms();
-void registerTestLinalgTensorFusionTransforms();
-void registerTestLinalgTiledLoopFusionTransforms();
 void registerTestLinalgGreedyFusion();
 void registerTestLinalgHoisting();
-void registerTestLinalgTileAndFuseSequencePass();
 void registerTestLinalgTransforms();
 void registerTestLivenessPass();
 void registerTestLoopFusion();
@@ -115,14 +113,17 @@ void registerTestSliceAnalysisPass();
 void registerTestTensorTransforms();
 void registerTestTosaPartitionOptionsPass();
 void registerTestTilingInterface();
+void registerTestTopologicalSortAnalysisPass();
 void registerTestTransformDialectInterpreterPass();
 void registerTestVectorLowerings();
+void registerTestNvgpuLowerings();
 } // namespace test
 } // namespace mlir
 
 namespace test {
 void registerTestDialect(DialectRegistry &);
 void registerTestTransformDialectExtension(DialectRegistry &);
+void registerTestDynDialect(DialectRegistry &);
 } // namespace test
 
 #ifdef MLIR_INCLUDE_TESTS
@@ -154,6 +155,7 @@ void registerTestPasses() {
   registerVectorizerTestPass();
   registerTosaTestQuantUtilAPIPass();
 
+  mlir::test::registerCommutativityUtils();
   mlir::test::registerConvertCallOpPass();
   mlir::test::registerInliner();
   mlir::test::registerMemRefBoundCheck();
@@ -161,6 +163,7 @@ void registerTestPasses() {
   mlir::test::registerSimpleParametricTilingPass();
   mlir::test::registerTestAffineLoopParametricTilingPass();
   mlir::test::registerTestAliasAnalysisPass();
+  mlir::test::registerTestArithmeticEmulateWideIntPass();
   mlir::test::registerTestBuiltinAttributeInterfaces();
   mlir::test::registerTestCallGraphPass();
   mlir::test::registerTestConstantFold();
@@ -186,14 +189,10 @@ void registerTestPasses() {
   mlir::test::registerTestGenericIRVisitorsPass();
   mlir::test::registerTestInterfaces();
   mlir::test::registerTestLastModifiedPass();
-  mlir::test::registerTestLinalgCodegenStrategy();
+  mlir::test::registerTestLinalgDecomposeOps();
   mlir::test::registerTestLinalgElementwiseFusion();
-  mlir::test::registerTestLinalgFusionTransforms();
-  mlir::test::registerTestLinalgTensorFusionTransforms();
-  mlir::test::registerTestLinalgTiledLoopFusionTransforms();
   mlir::test::registerTestLinalgGreedyFusion();
   mlir::test::registerTestLinalgHoisting();
-  mlir::test::registerTestLinalgTileAndFuseSequencePass();
   mlir::test::registerTestLinalgTransforms();
   mlir::test::registerTestLivenessPass();
   mlir::test::registerTestLoopFusion();
@@ -214,8 +213,10 @@ void registerTestPasses() {
   mlir::test::registerTestTensorTransforms();
   mlir::test::registerTestTosaPartitionOptionsPass();
   mlir::test::registerTestTilingInterface();
+  mlir::test::registerTestTopologicalSortAnalysisPass();
   mlir::test::registerTestTransformDialectInterpreterPass();
   mlir::test::registerTestVectorLowerings();
+  mlir::test::registerTestNvgpuLowerings();
 }
 #endif
 
@@ -229,6 +230,7 @@ int main(int argc, char **argv) {
 #ifdef MLIR_INCLUDE_TESTS
   ::test::registerTestDialect(registry);
   ::test::registerTestTransformDialectExtension(registry);
+  ::test::registerTestDynDialect(registry);
 #endif
   return mlir::asMainReturnCode(
       mlir::MlirOptMain(argc, argv, "MLIR modular optimizer driver\n", registry,

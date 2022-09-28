@@ -21,6 +21,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
+#include "mlir/Conversion/RockToGPU/RockToGPU.h"
 #include "mlir/Dialect/Rock/Pipelines/XMIRPipelines.h"
 
 #include "mlir/Conversion/RocMLIRPasses.h"
@@ -50,7 +51,8 @@ void rock::buildPartitionPipeline(OpPassManager &pm,
     // clone 'kernel' funcs into __rock module
     /* rocmlir-opt --rock-clone-kernels
      */
-    pm.addPass(rock::createRockCloneKernelsPass(options.targetChips));
+    pm.addPass(rock::createRockCloneKernelsPass(
+        rock::RockCloneKernelsPassOptions{options.targetChips}));
   }
 }
 
@@ -63,7 +65,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
     // convert tosa.conv2d/matmul to rock.conv2d
     /* rocmlir-opt --tosa-to-rock
      */
-    pm.addNestedPass<func::FuncOp>(tosa::createTosaToRockPass());
+    pm.addNestedPass<func::FuncOp>(createTosaToRockPass());
   }
   // use tosa conversion pipeline
   // (see mlir/lib/Conversion/TosaToLinalg/TosaToLinalgPass.cpp)
@@ -103,6 +105,8 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   bufOpts.allowReturnAllocs = true;
   bufOpts.createDeallocs = noRock;
   bufOpts.bufferizeFunctionBoundaries = true;
+  bufOpts.functionBoundaryTypeConversion =
+      bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
   bufOpts.unknownTypeConverterFn =
     [](Value value, unsigned memorySpace,
                                       const bufferization::BufferizationOptions &options) {
@@ -110,8 +114,6 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
         value.getType().cast<TensorType>(), memorySpace);
   };
       //bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
-  bufOpts.functionBoundaryTypeConversion =
-      bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
   pm.addPass(createOneShotBufferizePass(bufOpts));
 
   pm.addPass(bufferization::createBufferResultsToOutParamsPass());
@@ -134,8 +136,9 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   /* rocmlir-opt --rock-affix-params  --rock-conv-to-gemm
    * --rock-gemm-to-gridwise --rock-gridwise-gemm-to-blockwise
    */
-  pm.addPass(
-      rock::createAffixTuningParametersPass(0, 0, options.tuningFallback));
+  pm.addPass(rock::createRockAffixTuningParametersPass(
+      rock::RockAffixTuningParametersPassOptions{0, 0,
+                                                 options.tuningFallback}));
   pm.addNestedPass<func::FuncOp>(rock::createRockConvToGemmPass());
   pm.addNestedPass<func::FuncOp>(rock::createRockGemmToGridwisePass());
   pm.addNestedPass<func::FuncOp>(rock::createRockGridwiseGemmToBlockwisePass());
@@ -161,7 +164,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     pm.addPass(rock::createRockSugarToLoopsPass());
     pm.addPass(rock::createRockCleanMathPass());
     pm.addPass(rock::createRockLoopsToCfPass());
-    pm.addPass(createLowerRockOpsToGPUPass());
+    pm.addPass(createConvertRockToGPUPass());
 
     // lowering linalg to cf
     /* rocmlir-opt --convert-linalg-to-affine-loops --lower-affine

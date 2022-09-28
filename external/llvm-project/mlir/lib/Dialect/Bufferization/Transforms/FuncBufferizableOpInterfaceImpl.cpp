@@ -15,6 +15,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/Interfaces/CallInterfaces.h"
 
 namespace mlir {
 namespace bufferization {
@@ -129,9 +130,9 @@ static FuncOpAnalysisState getFuncOpAnalysisState(const AnalysisState &state,
   Optional<const FuncAnalysisState *> maybeState =
       state.getDialectState<FuncAnalysisState>(
           func::FuncDialect::getDialectNamespace());
-  if (!maybeState.hasValue())
+  if (!maybeState.has_value())
     return FuncOpAnalysisState::NotAnalyzed;
-  const auto &analyzedFuncOps = maybeState.getValue()->analyzedFuncOps;
+  const auto &analyzedFuncOps = maybeState.value()->analyzedFuncOps;
   auto it = analyzedFuncOps.find(funcOp);
   if (it == analyzedFuncOps.end())
     return FuncOpAnalysisState::NotAnalyzed;
@@ -156,9 +157,9 @@ static Optional<int64_t> getEquivalentFuncArgIdx(FuncOp funcOp,
   return retValIt->getSecond();
 }
 
+template <typename T>
 struct CallOpInterface
-    : public BufferizableOpInterface::ExternalModel<CallOpInterface,
-                                                    mlir::CallOpInterface> {
+    : public BufferizableOpInterface::ExternalModel<CallOpInterface<T>, T> {
   bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
                               const AnalysisState &state) const {
     mlir::CallOpInterface callOp(op);
@@ -544,11 +545,13 @@ struct FuncOpInterface
 void mlir::bufferization::func_ext::
     registerBufferizableOpInterfaceExternalModels(DialectRegistry &registry) {
   registry.addExtension(+[](MLIRContext *ctx, func::FuncDialect *dialect) {
-    func::CallOp::attachInterface<func_ext::CallOpInterface>(*ctx);
+    func::CallOp::attachInterface<func_ext::CallOpInterface<func::CallOp>>(
+        *ctx);
     func::FuncOp::attachInterface<func_ext::FuncOpInterface>(*ctx);
     func::ReturnOp::attachInterface<func_ext::ReturnOpInterface>(*ctx);
   });
   registry.addExtension(+[](MLIRContext *ctx, async::AsyncDialect *dialect) {
-    async::LaunchOp::attachInterface<func_ext::CallOpInterface>(*ctx);
+    async::LaunchOp::attachInterface<
+        func_ext::CallOpInterface<async::LaunchOp>>(*ctx);
   });
 }

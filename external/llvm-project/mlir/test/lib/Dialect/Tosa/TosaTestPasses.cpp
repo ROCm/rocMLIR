@@ -10,9 +10,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
-#include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -20,6 +20,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/SmallVector.h"
 
 #define PASS_NAME "tosa-test-quant-utils"
 
@@ -43,7 +44,7 @@ ConvertTosaNegateOp::matchAndRewrite(Operation *op,
   auto tosaNegateOp = cast<tosa::NegateOp>(op);
 
   auto inputType =
-      tosaNegateOp.input1().getType().dyn_cast<mlir::RankedTensorType>();
+      tosaNegateOp.getInput1().getType().dyn_cast<mlir::RankedTensorType>();
   // skip if input is not ranked tensor type
   if (!inputType)
     return failure();
@@ -84,7 +85,7 @@ ConvertTosaNegateOp::matchAndRewrite(Operation *op,
                            rewriter.getBoolAttr(narrowRange)));
 
   ElementsAttr inputElems;
-  if (!matchPattern(tosaNegateOp.input1(), m_Constant(&inputElems)))
+  if (!matchPattern(tosaNegateOp.getInput1(), m_Constant(&inputElems)))
     return failure();
 
   auto newConstOp =
@@ -113,14 +114,14 @@ ConvertTosaConv2DOp::matchAndRewrite(Operation *op,
   auto tosaConv2DOp = cast<tosa::Conv2DOp>(op);
 
   auto inputType =
-      tosaConv2DOp.input().getType().dyn_cast<mlir::RankedTensorType>();
+      tosaConv2DOp.getInput().getType().dyn_cast<mlir::RankedTensorType>();
 
   // skip if input is not ranked tensor type
   if (!inputType)
     return failure();
 
   auto weightType =
-      tosaConv2DOp.weight().getType().dyn_cast<mlir::RankedTensorType>();
+      tosaConv2DOp.getWeight().getType().dyn_cast<mlir::RankedTensorType>();
 
   // skip if wt is not ranked tensor type
   if (!weightType)
@@ -147,9 +148,9 @@ ConvertTosaConv2DOp::matchAndRewrite(Operation *op,
       RankedTensorType::get(outputType.getShape(), rewriter.getIntegerType(32));
 
   auto newTosaConv2DOp = rewriter.create<tosa::Conv2DOp>(
-      op->getLoc(), newTosaConv2DOpType, tosaConv2DOp.input(),
-      tosaConv2DOp.weight(), tosaConv2DOp.bias(), tosaConv2DOp.pad(),
-      tosaConv2DOp.stride(), tosaConv2DOp.dilation());
+      op->getLoc(), newTosaConv2DOpType, tosaConv2DOp.getInput(),
+      tosaConv2DOp.getWeight(), tosaConv2DOp.getBias(), tosaConv2DOp.getPad(),
+      tosaConv2DOp.getStride(), tosaConv2DOp.getDilation());
 
   // Create rescale to quantized type
   double inputScale = inputQType.getScale();
@@ -232,33 +233,31 @@ public:
     if (defaultCase) {
       pm.addPass(createTosaPartitionPass());
     } else if (depthwiseOnly) {
-      class DepthwiseOnlyPartitionPass : public TosaPartitionPass {
-      public:
-        bool isAnchorOp(Operation *op) override {
-          return isa<tosa::DepthwiseConv2DOp>(op);
-        }
-      };
-      pm.addPass(std::make_unique<DepthwiseOnlyPartitionPass>());
+      SmallVector<std::string> anchors = {"tosa.depthwise_conv2d"};
+      TosaPartitionOptions options;
+      options.anchorOps = anchors;
+      pm.addPass(createTosaPartitionPass(options));
     } else if (convOnly) {
-      class ConvOnlyPartitionPass : public TosaPartitionPass {
-      public:
-        bool isAnchorOp(Operation *op) override {
-          return isa<tosa::Conv2DOp>(op);
-        }
-        StringRef partitionTag() override { return "four"; }
-      };
-      pm.addPass(std::make_unique<ConvOnlyPartitionPass>());
+      SmallVector<std::string> anchors = {"tosa.conv2d"};
+      TosaPartitionOptions options;
+      options.anchorOps = anchors;
+      options.partitionTagOpt = "four";
+      pm.addPass(createTosaPartitionPass(options));
     } else if (attrOne) {
-      class AttributeOnePartitionPass : public TosaPartitionPass {
-      public:
-        StringRef partitionTag() override { return "one"; }
-      };
-      pm.addPass(std::make_unique<AttributeOnePartitionPass>());
+      // TODO: Once list options can have defaults, use that
+      SmallVector<std::string> anchors = {"tosa.conv2d", "tosa.matmul",
+                                          "tosa.depthwise_conv2d"};
+      TosaPartitionOptions options;
+      options.anchorOps = anchors;
+      options.partitionTagOpt = "one";
+      pm.addPass(createTosaPartitionPass(options));
     } else if (nofrontArg) {
-      // Another way is to pass the values to the pass constructor.
-      pm.addPass(
-          std::make_unique<TosaPartitionPassWithOptions, ArrayRef<std::string>>(
-              {"tosa.depthwise_conv2d"}, "kernel", true));
+      SmallVector<std::string> anchors = {"tosa.depthwise_conv2d"};
+      TosaPartitionOptions options;
+      options.anchorOps = anchors;
+      options.trailingOnly = true;
+      options.partitionTagOpt = "three";
+      pm.addPass(createTosaPartitionPass(options));
     }
 
     if (failed(pm.run(module)))

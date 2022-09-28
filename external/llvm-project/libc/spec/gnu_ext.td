@@ -25,6 +25,7 @@ def GnuExtensions : StandardSpec<"GNUExtensions"> {
             RetValSpec<VoidType>,
             [ArgSpec<FloatType>, ArgSpec<FloatPtr>, ArgSpec<FloatPtr>]
         >,
+        FunctionSpec<"exp10f", RetValSpec<FloatType>, [ArgSpec<FloatType>]>,
       ]
   >;
   
@@ -111,11 +112,61 @@ def GnuExtensions : StandardSpec<"GNUExtensions"> {
       ]
   >;
 
+  HeaderSpec PThread = HeaderSpec<
+      "pthread.h",
+      [], // Macros
+      [], // Types
+      [], // Enumerations
+      [
+          FunctionSpec<
+              "pthread_setname_np",
+              RetValSpec<IntType>,
+              [ArgSpec<PThreadTType>, ArgSpec<ConstCharPtr>]
+          >,
+          FunctionSpec<
+              "pthread_getname_np",
+              RetValSpec<IntType>,
+              [ArgSpec<PThreadTType>, ArgSpec<CharPtr>, ArgSpec<SizeTType>]
+          >,
+      ]
+  >;
+
+  HeaderSpec SendFile = HeaderSpec<
+      "sys/sendfile.h",
+      [], // Macros
+      [OffTType, SizeTType, SSizeTType,], // Types
+      [], // Enumerations
+      [
+          FunctionSpec<
+              "sendfile",
+              RetValSpec<SSizeTType>,
+              [ArgSpec<IntType>, ArgSpec<IntType>, ArgSpec<OffTPtr>, ArgSpec<SizeTType>]
+          >,
+      ]
+  >;
+
+  HeaderSpec UniStd = HeaderSpec<
+    "unistd.h",
+    [], // Macros
+    [], // Types
+    [], // Enumerations
+    [
+        FunctionSpec<
+            "dup2",
+            RetValSpec<IntType>,
+            [ArgSpec<IntType>, ArgSpec<IntType>, ArgSpec<IntType>]
+        >,
+    ]
+  >;
+
   let Headers = [
     CType,
     FEnv,
     Math,
+    PThread,
+    SendFile,
     StdIO,
     String,
+    UniStd,
   ];
 }

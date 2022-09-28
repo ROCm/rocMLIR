@@ -387,7 +387,7 @@ static LinearExpression GetLinearExpression(
                                BOp, DT))
           return Val;
 
-        LLVM_FALLTHROUGH;
+        [[fallthrough]];
       case Instruction::Add: {
         E = GetLinearExpression(Val.withValue(BOp->getOperand(0)), DL,
                                 Depth + 1, AC, DT);
@@ -585,13 +585,6 @@ BasicAAResult::DecomposeGEPExpression(const Value *V, const DataLayout &DL,
 
     assert(GEPOp->getSourceElementType()->isSized() && "GEP must be sized");
 
-    // Don't attempt to analyze GEPs if index scale is not a compile-time
-    // constant.
-    if (isa<ScalableVectorType>(GEPOp->getSourceElementType())) {
-      Decomposed.Base = V;
-      return Decomposed;
-    }
-
     unsigned AS = GEPOp->getPointerAddressSpace();
     // Walk the indices of the GEP, accumulating them into BaseOff/VarIndices.
     gep_type_iterator GTI = gep_type_begin(GEPOp);
@@ -616,10 +609,23 @@ BasicAAResult::DecomposeGEPExpression(const Value *V, const DataLayout &DL,
       if (const ConstantInt *CIdx = dyn_cast<ConstantInt>(Index)) {
         if (CIdx->isZero())
           continue;
-        Decomposed.Offset +=
-            DL.getTypeAllocSize(GTI.getIndexedType()).getFixedSize() *
-            CIdx->getValue().sextOrTrunc(MaxIndexSize);
+
+        // Don't attempt to analyze GEPs if the scalable index is not zero.
+        TypeSize AllocTypeSize = DL.getTypeAllocSize(GTI.getIndexedType());
+        if (AllocTypeSize.isScalable()) {
+          Decomposed.Base = V;
+          return Decomposed;
+        }
+
+        Decomposed.Offset += AllocTypeSize.getFixedSize() *
+                             CIdx->getValue().sextOrTrunc(MaxIndexSize);
         continue;
+      }
+
+      TypeSize AllocTypeSize = DL.getTypeAllocSize(GTI.getIndexedType());
+      if (AllocTypeSize.isScalable()) {
+        Decomposed.Base = V;
+        return Decomposed;
       }
 
       GepHasConstantOffset = false;
@@ -633,8 +639,7 @@ BasicAAResult::DecomposeGEPExpression(const Value *V, const DataLayout &DL,
           CastedValue(Index, 0, SExtBits, TruncBits), DL, 0, AC, DT);
 
       // Scale by the type size.
-      unsigned TypeSize =
-          DL.getTypeAllocSize(GTI.getIndexedType()).getFixedSize();
+      unsigned TypeSize = AllocTypeSize.getFixedSize();
       LE = LE.mul(APInt(IndexSize, TypeSize), GEPOp->isInBounds());
       Decomposed.Offset += LE.Offset.sext(MaxIndexSize);
       APInt Scale = LE.Scale.sext(MaxIndexSize);
@@ -746,31 +751,30 @@ static bool isIntrinsicCall(const CallBase *Call, Intrinsic::ID IID) {
 FunctionModRefBehavior BasicAAResult::getModRefBehavior(const CallBase *Call) {
   if (Call->doesNotAccessMemory())
     // Can't do better than this.
-    return FMRB_DoesNotAccessMemory;
-
-  FunctionModRefBehavior Min = FMRB_UnknownModRefBehavior;
+    return FunctionModRefBehavior::none();
 
   // If the callsite knows it only reads memory, don't return worse
   // than that.
+  ModRefInfo MR = ModRefInfo::ModRef;
   if (Call->onlyReadsMemory())
-    Min = FMRB_OnlyReadsMemory;
+    MR = ModRefInfo::Ref;
   else if (Call->onlyWritesMemory())
-    Min = FMRB_OnlyWritesMemory;
+    MR = ModRefInfo::Mod;
 
+  FunctionModRefBehavior Min(MR);
   if (Call->onlyAccessesArgMemory())
-    Min = FunctionModRefBehavior(Min & FMRB_OnlyAccessesArgumentPointees);
+    Min = FunctionModRefBehavior::argMemOnly(MR);
   else if (Call->onlyAccessesInaccessibleMemory())
-    Min = FunctionModRefBehavior(Min & FMRB_OnlyAccessesInaccessibleMem);
+    Min = FunctionModRefBehavior::inaccessibleMemOnly(MR);
   else if (Call->onlyAccessesInaccessibleMemOrArgMem())
-    Min = FunctionModRefBehavior(Min & FMRB_OnlyAccessesInaccessibleOrArgMem);
+    Min = FunctionModRefBehavior::inaccessibleOrArgMemOnly(MR);
 
   // If the call has operand bundles then aliasing attributes from the function
   // it calls do not directly apply to the call.  This can be made more precise
   // in the future.
   if (!Call->hasOperandBundles())
     if (const Function *F = Call->getCalledFunction())
-      Min =
-          FunctionModRefBehavior(Min & getBestAAResults().getModRefBehavior(F));
+      Min &= getBestAAResults().getModRefBehavior(F);
 
   return Min;
 }
@@ -780,24 +784,22 @@ FunctionModRefBehavior BasicAAResult::getModRefBehavior(const CallBase *Call) {
 FunctionModRefBehavior BasicAAResult::getModRefBehavior(const Function *F) {
   // If the function declares it doesn't access memory, we can't do better.
   if (F->doesNotAccessMemory())
-    return FMRB_DoesNotAccessMemory;
-
-  FunctionModRefBehavior Min = FMRB_UnknownModRefBehavior;
+    return FunctionModRefBehavior::none();
 
   // If the function declares it only reads memory, go with that.
+  ModRefInfo MR = ModRefInfo::ModRef;
   if (F->onlyReadsMemory())
-    Min = FMRB_OnlyReadsMemory;
+    MR = ModRefInfo::Ref;
   else if (F->onlyWritesMemory())
-    Min = FMRB_OnlyWritesMemory;
+    MR = ModRefInfo::Mod;
 
   if (F->onlyAccessesArgMemory())
-    Min = FunctionModRefBehavior(Min & FMRB_OnlyAccessesArgumentPointees);
-  else if (F->onlyAccessesInaccessibleMemory())
-    Min = FunctionModRefBehavior(Min & FMRB_OnlyAccessesInaccessibleMem);
-  else if (F->onlyAccessesInaccessibleMemOrArgMem())
-    Min = FunctionModRefBehavior(Min & FMRB_OnlyAccessesInaccessibleOrArgMem);
-
-  return Min;
+    return FunctionModRefBehavior::argMemOnly(MR);
+  if (F->onlyAccessesInaccessibleMemory())
+    return FunctionModRefBehavior::inaccessibleMemOnly(MR);
+  if (F->onlyAccessesInaccessibleMemOrArgMem())
+    return FunctionModRefBehavior::inaccessibleOrArgMemOnly(MR);
+  return FunctionModRefBehavior(MR);
 }
 
 /// Returns true if this is a writeonly (i.e Mod only) parameter.
@@ -912,7 +914,6 @@ ModRefInfo BasicAAResult::getModRefInfo(const CallBase *Call,
     // Optimistically assume that call doesn't touch Object and check this
     // assumption in the following loop.
     ModRefInfo Result = ModRefInfo::NoModRef;
-    bool IsMustAlias = true;
 
     unsigned OperandNo = 0;
     for (auto CI = Call->data_operands_begin(), CE = Call->data_operands_end();
@@ -935,20 +936,18 @@ ModRefInfo BasicAAResult::getModRefInfo(const CallBase *Call,
       AliasResult AR = getBestAAResults().alias(
           MemoryLocation::getBeforeOrAfter(*CI),
           MemoryLocation::getBeforeOrAfter(Object), AAQI);
-      if (AR != AliasResult::MustAlias)
-        IsMustAlias = false;
       // Operand doesn't alias 'Object', continue looking for other aliases
       if (AR == AliasResult::NoAlias)
         continue;
       // Operand aliases 'Object', but call doesn't modify it. Strengthen
       // initial assumption and keep looking in case if there are more aliases.
       if (Call->onlyReadsMemory(OperandNo)) {
-        Result = setRef(Result);
+        Result |= ModRefInfo::Ref;
         continue;
       }
       // Operand aliases 'Object' but call only writes into it.
       if (Call->onlyWritesMemory(OperandNo)) {
-        Result = setMod(Result);
+        Result |= ModRefInfo::Mod;
         continue;
       }
       // This operand aliases 'Object' and call reads and writes into it.
@@ -958,17 +957,9 @@ ModRefInfo BasicAAResult::getModRefInfo(const CallBase *Call,
       break;
     }
 
-    // No operand aliases, reset Must bit. Add below if at least one aliases
-    // and all aliases found are MustAlias.
-    if (isNoModRef(Result))
-      IsMustAlias = false;
-
     // Early return if we improved mod ref information
-    if (!isModAndRefSet(Result)) {
-      if (isNoModRef(Result))
-        return ModRefInfo::NoModRef;
-      return IsMustAlias ? setMust(Result) : clearMust(Result);
-    }
+    if (!isModAndRefSet(Result))
+      return Result;
   }
 
   // If the call is malloc/calloc like, we can assume that it doesn't
@@ -999,9 +990,9 @@ ModRefInfo BasicAAResult::getModRefInfo(const CallBase *Call,
     // It's also possible for Loc to alias both src and dest, or neither.
     ModRefInfo rv = ModRefInfo::NoModRef;
     if (SrcAA != AliasResult::NoAlias || Call->hasReadingOperandBundles())
-      rv = setRef(rv);
+      rv |= ModRefInfo::Ref;
     if (DestAA != AliasResult::NoAlias || Call->hasClobberingOperandBundles())
-      rv = setMod(rv);
+      rv |= ModRefInfo::Mod;
     return rv;
   }
 
@@ -1063,12 +1054,12 @@ ModRefInfo BasicAAResult::getModRefInfo(const CallBase *Call1,
   // possibilities for guard intrinsics.
 
   if (isIntrinsicCall(Call1, Intrinsic::experimental_guard))
-    return isModSet(createModRefInfo(getModRefBehavior(Call2)))
+    return isModSet(getModRefBehavior(Call2).getModRef())
                ? ModRefInfo::Ref
                : ModRefInfo::NoModRef;
 
   if (isIntrinsicCall(Call2, Intrinsic::experimental_guard))
-    return isModSet(createModRefInfo(getModRefBehavior(Call1)))
+    return isModSet(getModRefBehavior(Call1).getModRef())
                ? ModRefInfo::Mod
                : ModRefInfo::NoModRef;
 
@@ -1764,7 +1755,7 @@ bool BasicAAResult::isValueEqualInPotentialCycles(const Value *V,
   // Make sure that the visited phis cannot reach the Value. This ensures that
   // the Values cannot come from different iterations of a potential cycle the
   // phi nodes could be involved in.
-  for (auto *P : VisitedPhiBBs)
+  for (const auto *P : VisitedPhiBBs)
     if (isPotentiallyReachable(&P->front(), Inst, nullptr, DT))
       return false;
 

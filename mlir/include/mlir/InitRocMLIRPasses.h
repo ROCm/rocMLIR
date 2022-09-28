@@ -15,6 +15,7 @@
 #define MLIR_INITROCMLIRPASSES_H_
 
 #include "mlir/Conversion/RocMLIRPasses.h"
+#include "mlir/Dialect/MIGraphX/Passes.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 
@@ -33,6 +34,7 @@ namespace mlir {
 // The global registry is interesting to interact with the command-line tools.
 inline void registerRocMLIRPasses() {
   registerRocMLIRConversionPasses();
+  migraphx::registerPasses();
   rock::registerPasses();
 
   rock::registerPipelines();

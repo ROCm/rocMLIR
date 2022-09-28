@@ -164,9 +164,14 @@ protected:
   void setTailCall(MCInst &Inst);
 
 public:
-  class InstructionIterator
-      : public std::iterator<std::bidirectional_iterator_tag, MCInst> {
+  class InstructionIterator {
   public:
+    using iterator_category = std::bidirectional_iterator_tag;
+    using value_type = MCInst;
+    using difference_type = std::ptrdiff_t;
+    using pointer = value_type *;
+    using reference = value_type &;
+
     class Impl {
     public:
       virtual Impl *Copy() const = 0;
@@ -1384,7 +1389,7 @@ public:
     llvm_unreachable("not implemented");
   }
 
-  /// Return true if the instruction CurInst, in combination with the recent
+  /// Return not 0 if the instruction CurInst, in combination with the recent
   /// history of disassembled instructions supplied by [Begin, End), is a linker
   /// generated veneer/stub that needs patching. This happens in AArch64 when
   /// the code is large and the linker needs to generate stubs, but it does
@@ -1394,11 +1399,14 @@ public:
   /// is put in TgtLowBits, and its pair in TgtHiBits. If the instruction in
   /// TgtHiBits does not have an immediate operand, but an expression, then
   /// this expression is put in TgtHiSym and Tgt only contains the lower bits.
-  virtual bool matchLinkerVeneer(InstructionIterator Begin,
-                                 InstructionIterator End, uint64_t Address,
-                                 const MCInst &CurInst, MCInst *&TargetHiBits,
-                                 MCInst *&TargetLowBits,
-                                 uint64_t &Target) const {
+  /// Return value is a total number of instructions that were used to create
+  /// a veneer.
+  virtual uint64_t matchLinkerVeneer(InstructionIterator Begin,
+                                     InstructionIterator End, uint64_t Address,
+                                     const MCInst &CurInst,
+                                     MCInst *&TargetHiBits,
+                                     MCInst *&TargetLowBits,
+                                     uint64_t &Target) const {
     llvm_unreachable("not implemented");
   }
 

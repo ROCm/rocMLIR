@@ -83,6 +83,7 @@ bool UnwindAssemblyInstEmulation::GetNonCallSiteUnwindPlanFromAssembly(
       const uint32_t addr_byte_size = m_arch.GetAddressByteSize();
       const bool show_address = true;
       const bool show_bytes = true;
+      const bool show_control_flow_kind = true;
       m_inst_emulator_up->GetRegisterInfo(unwind_plan.GetRegisterKind(),
                                           unwind_plan.GetInitialCFARegister(),
                                           m_cfa_reg_info);
@@ -244,7 +245,8 @@ bool UnwindAssemblyInstEmulation::GetNonCallSiteUnwindPlanFromAssembly(
               lldb_private::FormatEntity::Entry format;
               FormatEntity::Parse("${frame.pc}: ", format);
               inst->Dump(&strm, inst_list.GetMaxOpcocdeByteSize(), show_address,
-                         show_bytes, nullptr, nullptr, nullptr, &format, 0);
+                         show_bytes, show_control_flow_kind, nullptr, nullptr,
+                         nullptr, &format, 0);
               log->PutString(strm.GetString());
             }
 
@@ -453,7 +455,7 @@ size_t UnwindAssemblyInstEmulation::WriteMemory(
   case EmulateInstruction::eContextPushRegisterOnStack: {
     uint32_t reg_num = LLDB_INVALID_REGNUM;
     uint32_t generic_regnum = LLDB_INVALID_REGNUM;
-    assert(context.info_type ==
+    assert(context.GetInfoType() ==
                EmulateInstruction::eInfoTypeRegisterToRegisterPlusOffset &&
            "unhandled case, add code to handle this!");
     const uint32_t unwind_reg_kind = m_unwind_plan_ptr->GetRegisterKind();
@@ -572,7 +574,8 @@ bool UnwindAssemblyInstEmulation::WriteRegister(
     // with the same amount.
     lldb::RegisterKind kind = m_unwind_plan_ptr->GetRegisterKind();
     if (m_fp_is_cfa && reg_info->kinds[kind] == m_cfa_reg_info.kinds[kind] &&
-        context.info_type == EmulateInstruction::eInfoTypeRegisterPlusOffset &&
+        context.GetInfoType() ==
+            EmulateInstruction::eInfoTypeRegisterPlusOffset &&
         context.info.RegisterPlusOffset.reg.kinds[kind] ==
             m_cfa_reg_info.kinds[kind]) {
       const int64_t offset = context.info.RegisterPlusOffset.signed_offset;
@@ -583,18 +586,19 @@ bool UnwindAssemblyInstEmulation::WriteRegister(
 
   case EmulateInstruction::eContextAbsoluteBranchRegister:
   case EmulateInstruction::eContextRelativeBranchImmediate: {
-    if (context.info_type == EmulateInstruction::eInfoTypeISAAndImmediate &&
+    if (context.GetInfoType() == EmulateInstruction::eInfoTypeISAAndImmediate &&
         context.info.ISAAndImmediate.unsigned_data32 > 0) {
       m_forward_branch_offset =
           context.info.ISAAndImmediateSigned.signed_data32;
-    } else if (context.info_type ==
+    } else if (context.GetInfoType() ==
                    EmulateInstruction::eInfoTypeISAAndImmediateSigned &&
                context.info.ISAAndImmediateSigned.signed_data32 > 0) {
       m_forward_branch_offset = context.info.ISAAndImmediate.unsigned_data32;
-    } else if (context.info_type == EmulateInstruction::eInfoTypeImmediate &&
+    } else if (context.GetInfoType() ==
+                   EmulateInstruction::eInfoTypeImmediate &&
                context.info.unsigned_immediate > 0) {
       m_forward_branch_offset = context.info.unsigned_immediate;
-    } else if (context.info_type ==
+    } else if (context.GetInfoType() ==
                    EmulateInstruction::eInfoTypeImmediateSigned &&
                context.info.signed_immediate > 0) {
       m_forward_branch_offset = context.info.signed_immediate;
@@ -607,7 +611,7 @@ bool UnwindAssemblyInstEmulation::WriteRegister(
     const uint32_t generic_regnum = reg_info->kinds[eRegisterKindGeneric];
     if (reg_num != LLDB_INVALID_REGNUM &&
         generic_regnum != LLDB_REGNUM_GENERIC_SP) {
-      switch (context.info_type) {
+      switch (context.GetInfoType()) {
       case EmulateInstruction::eInfoTypeAddress:
         if (m_pushed_regs.find(reg_num) != m_pushed_regs.end() &&
             context.info.address == m_pushed_regs[reg_num]) {

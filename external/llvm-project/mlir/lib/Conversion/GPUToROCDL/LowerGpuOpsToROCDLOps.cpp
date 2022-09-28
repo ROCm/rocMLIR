@@ -17,7 +17,6 @@
 #include "mlir/Conversion/AMDGPUToROCDL/AMDGPUToROCDL.h"
 #include "mlir/Conversion/ArithmeticToLLVM/ArithmeticToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
-#include "mlir/Conversion/GPUToROCDL/Runtimes.h"
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
@@ -27,30 +26,23 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Math/IR/Math.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/MLIRContext.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/ADT/APInt.h"
 #include "llvm/Support/FormatVariadic.h"
-#include <iterator>
 
 #include "../GPUCommon/GPUOpsLowering.h"
 #include "../GPUCommon/IndexIntrinsicsOpLowering.h"
 #include "../GPUCommon/OpToFuncCallLowering.h"
-#include "../PassDetail.h"
+
+namespace mlir {
+#define GEN_PASS_DEF_CONVERTGPUOPSTOROCDLOPS
+#include "mlir/Conversion/Passes.h.inc"
+} // namespace mlir
 
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 
@@ -77,7 +69,7 @@ namespace {
 // This pass only handles device code and is not meant to be run on GPU host
 // code.
 struct LowerGpuOpsToROCDLOpsPass
-    : public ConvertGpuOpsToROCDLOpsBase<LowerGpuOpsToROCDLOpsPass> {
+    : public impl::ConvertGpuOpsToROCDLOpsBase<LowerGpuOpsToROCDLOpsPass> {
   LowerGpuOpsToROCDLOpsPass() = default;
   LowerGpuOpsToROCDLOpsPass(const std::string &chipset, unsigned indexBitwidth,
                             bool useBarePtrCallConv,
@@ -162,7 +154,7 @@ struct LowerGpuOpsToROCDLOpsPass
       signalPassFailure();
   }
 };
-} // anonymous namespace
+} // namespace
 
 void mlir::configureGpuToROCDLConversionLegality(ConversionTarget &target) {
   target.addIllegalOp<func::FuncOp>();
@@ -244,8 +236,8 @@ void mlir::populateGpuToROCDLConversionPatterns(
     patterns.add<GPUPrintfOpToLLVMCallLowering>(converter, /*addressSpace=*/4);
   }
 
-  patterns.add<OpToFuncCallLowering<math::AbsOp>>(converter, "__ocml_fabs_f32",
-                                                  "__ocml_fabs_f64");
+  patterns.add<OpToFuncCallLowering<math::AbsFOp>>(converter, "__ocml_fabs_f32",
+                                                   "__ocml_fabs_f64");
   patterns.add<OpToFuncCallLowering<math::AtanOp>>(converter, "__ocml_atan_f32",
                                                    "__ocml_atan_f64");
   patterns.add<OpToFuncCallLowering<math::Atan2Op>>(

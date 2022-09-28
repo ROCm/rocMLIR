@@ -16,6 +16,7 @@
 #include "CGCXXABI.h"
 #include "CGCleanup.h"
 #include "CGDebugInfo.h"
+#include "CGHLSLRuntime.h"
 #include "CGOpenMPRuntime.h"
 #include "CodeGenModule.h"
 #include "CodeGenPGO.h"
@@ -724,7 +725,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
     const bool SanitizeBounds = SanOpts.hasOneOf(SanitizerKind::Bounds);
     bool NoSanitizeCoverage = false;
 
-    for (auto Attr : D->specific_attrs<NoSanitizeAttr>()) {
+    for (auto *Attr : D->specific_attrs<NoSanitizeAttr>()) {
       // Apply the no_sanitize* attributes to SanOpts.
       SanitizerMask mask = Attr->getMask();
       SanOpts.Mask &= ~mask;
@@ -851,9 +852,18 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
     }
   }
 
-  if (CGM.getCodeGenOpts().getProfileInstr() != CodeGenOptions::ProfileNone)
-    if (CGM.isProfileInstrExcluded(Fn, Loc))
+  if (CGM.getCodeGenOpts().getProfileInstr() != CodeGenOptions::ProfileNone) {
+    switch (CGM.isFunctionBlockedFromProfileInstr(Fn, Loc)) {
+    case ProfileList::Skip:
+      Fn->addFnAttr(llvm::Attribute::SkipProfile);
+      break;
+    case ProfileList::Forbid:
       Fn->addFnAttr(llvm::Attribute::NoProfile);
+      break;
+    case ProfileList::Allow:
+      break;
+    }
+  }
 
   unsigned Count, Offset;
   if (const auto *Attr =
@@ -897,6 +907,20 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
 
   if (D && D->hasAttr<NoProfileFunctionAttr>())
     Fn->addFnAttr(llvm::Attribute::NoProfile);
+
+  if (D) {
+    // Function attributes take precedence over command line flags.
+    if (auto *A = D->getAttr<FunctionReturnThunksAttr>()) {
+      switch (A->getThunkType()) {
+      case FunctionReturnThunksAttr::Kind::Keep:
+        break;
+      case FunctionReturnThunksAttr::Kind::Extern:
+        Fn->addFnAttr(llvm::Attribute::FnRetThunkExtern);
+        break;
+      }
+    } else if (CGM.getCodeGenOpts().FunctionReturnThunks)
+      Fn->addFnAttr(llvm::Attribute::FnRetThunkExtern);
+  }
 
   if (FD && (getLangOpts().OpenCL ||
              (getLangOpts().HIP && getLangOpts().CUDAIsDevice))) {
@@ -1113,6 +1137,10 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
   // Emit OpenMP specific initialization of the device functions.
   if (getLangOpts().OpenMP && CurCodeDecl)
     CGM.getOpenMPRuntime().emitFunctionProlog(*this, CurCodeDecl);
+
+  // Handle emitting HLSL entry functions.
+  if (D && D->hasAttr<HLSLShaderAttr>())
+    CGM.getHLSLRuntime().emitEntryFunction(FD, Fn);
 
   EmitFunctionProlog(*CurFnInfo, CurFn, Args);
 
@@ -2200,7 +2228,6 @@ void CodeGenFunction::EmitVariablyModifiedType(QualType type) {
     case Type::ConstantMatrix:
     case Type::Record:
     case Type::Enum:
-    case Type::Elaborated:
     case Type::Using:
     case Type::TemplateSpecialization:
     case Type::ObjCTypeParam:
@@ -2209,6 +2236,10 @@ void CodeGenFunction::EmitVariablyModifiedType(QualType type) {
     case Type::ObjCObjectPointer:
     case Type::BitInt:
       llvm_unreachable("type class is never variably-modified!");
+
+    case Type::Elaborated:
+      type = cast<ElaboratedType>(ty)->getNamedType();
+      break;
 
     case Type::Adjusted:
       type = cast<AdjustedType>(ty)->getAdjustedType();
@@ -2412,8 +2443,6 @@ void CodeGenFunction::emitAlignmentAssumption(llvm::Value *PtrValue,
                                               SourceLocation AssumptionLoc,
                                               llvm::Value *Alignment,
                                               llvm::Value *OffsetValue) {
-  if (auto *CE = dyn_cast<CastExpr>(E))
-    E = CE->getSubExprAsWritten();
   QualType Ty = E->getType();
   SourceLocation Loc = E->getExprLoc();
 
@@ -2578,6 +2607,14 @@ void CodeGenFunction::EmitSanitizerStatReport(llvm::SanitizerStatKind SSK) {
   llvm::IRBuilder<> IRB(Builder.GetInsertBlock(), Builder.GetInsertPoint());
   IRB.SetCurrentDebugLocation(Builder.getCurrentDebugLocation());
   CGM.getSanStats().create(IRB, SSK);
+}
+
+void CodeGenFunction::EmitKCFIOperandBundle(
+    const CGCallee &Callee, SmallVectorImpl<llvm::OperandBundleDef> &Bundles) {
+  const FunctionProtoType *FP =
+      Callee.getAbstractInfo().getCalleeFunctionProtoType();
+  if (FP)
+    Bundles.emplace_back("kcfi", CGM.CreateKCFITypeId(FP->desugar()));
 }
 
 llvm::Value *

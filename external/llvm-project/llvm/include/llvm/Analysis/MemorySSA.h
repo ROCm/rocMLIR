@@ -272,12 +272,6 @@ public:
   /// Sets the optimized use for a MemoryDef.
   inline void setOptimized(MemoryAccess *);
 
-  // Retrieve AliasResult type of the optimized access. Ideally this would be
-  // returned by the caching walker and may go away in the future.
-  Optional<AliasResult> getOptimizedAccessType() const {
-    return isOptimized() ? OptimizedAccessAlias : None;
-  }
-
   /// Reset the ID of what this MemoryUse was optimized to, causing it to
   /// be rewalked by the walker if necessary.
   /// This really should only be called by tests.
@@ -291,31 +285,23 @@ protected:
                  DeleteValueTy DeleteValue, Instruction *MI, BasicBlock *BB,
                  unsigned NumOperands)
       : MemoryAccess(C, Vty, DeleteValue, BB, NumOperands),
-        MemoryInstruction(MI), OptimizedAccessAlias(AliasResult::MayAlias) {
+        MemoryInstruction(MI) {
     setDefiningAccess(DMA);
   }
 
   // Use deleteValue() to delete a generic MemoryUseOrDef.
   ~MemoryUseOrDef() = default;
 
-  void setOptimizedAccessType(Optional<AliasResult> AR) {
-    OptimizedAccessAlias = AR;
-  }
-
-  void setDefiningAccess(
-      MemoryAccess *DMA, bool Optimized = false,
-      Optional<AliasResult> AR = AliasResult(AliasResult::MayAlias)) {
+  void setDefiningAccess(MemoryAccess *DMA, bool Optimized = false) {
     if (!Optimized) {
       setOperand(0, DMA);
       return;
     }
     setOptimized(DMA);
-    setOptimizedAccessType(AR);
   }
 
 private:
   Instruction *MemoryInstruction;
-  Optional<AliasResult> OptimizedAccessAlias;
 };
 
 /// Represents read-only accesses to memory
@@ -1255,7 +1241,7 @@ private:
   /// Returns true if \p Ptr is guaranteed to be loop invariant for any possible
   /// loop. In particular, this guarantees that it only references a single
   /// MemoryLocation during execution of the containing function.
-  bool IsGuaranteedLoopInvariant(Value *Ptr) const;
+  bool IsGuaranteedLoopInvariant(const Value *Ptr) const;
 
   void fillInCurrentPair() {
     CurrentPair.first = *DefIterator;
@@ -1266,8 +1252,7 @@ private:
       // to unknown guarantees that any memory accesses that access locations
       // after the pointer are considered as clobbers, which is important to
       // catch loop carried dependences.
-      if (Location.Ptr &&
-          !IsGuaranteedLoopInvariant(const_cast<Value *>(Location.Ptr)))
+      if (!IsGuaranteedLoopInvariant(Location.Ptr))
         CurrentPair.second =
             Location.getWithNewSize(LocationSize::beforeOrAfterPointer());
       PHITransAddr Translator(
@@ -1282,7 +1267,7 @@ private:
           CurrentPair.second = CurrentPair.second.getWithNewPtr(TransAddr);
 
           if (TransAddr &&
-              !IsGuaranteedLoopInvariant(const_cast<Value *>(TransAddr)))
+              !IsGuaranteedLoopInvariant(TransAddr))
             CurrentPair.second = CurrentPair.second.getWithNewSize(
                 LocationSize::beforeOrAfterPointer());
 

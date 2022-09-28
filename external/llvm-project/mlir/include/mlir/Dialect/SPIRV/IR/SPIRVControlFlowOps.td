@@ -239,18 +239,6 @@ def SPV_FunctionCallOp : SPV_Op<"FunctionCall", [
     Optional<SPV_Type>:$result
   );
 
-  let extraClassDeclaration = [{
-    /// Return the call arguments of this operation.
-    Operation::operand_range getCallOperands() {
-      return arguments();
-    }
-
-    /// Return the callee of this operation.
-    CallInterfaceCallable getCallableForCallee() {
-      return calleeAttr();
-    }
-  }];
-
   let autogenSerialization = 0;
 
   let assemblyFormat = [{
@@ -376,7 +364,7 @@ def SPV_ReturnOp : SPV_Op<"Return", [InFunctionScope, NoSideEffect,
 // -----
 
 def SPV_UnreachableOp : SPV_Op<"Unreachable", [InFunctionScope, Terminator]> {
-  let summary = "Declares that this block is not reachable in the CFG.";
+  let summary = "Behavior is undefined if this instruction is executed.";
 
   let description = [{
     This instruction must be the last instruction in a block.

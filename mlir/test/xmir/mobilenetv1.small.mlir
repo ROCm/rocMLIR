@@ -31,8 +31,10 @@ module {
     }
      : (tensor<1x112x112x32xf32>, tensor<64x1x1x32xf32>, tensor<64xf32>) -> tensor<1x112x112x64xf32>
 
-    %relu1 = "tosa.reluN"(%conv1) {
+    %relu1 = "tosa.clamp"(%conv1) {
+      min_fp = 0.0 : f32,
       max_fp = 6.0 : f32,
+      min_int = 0 : i64,
       max_int = 6 : i64
     }
      : (tensor<1x112x112x64xf32>) -> tensor<1x112x112x64xf32>

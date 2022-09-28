@@ -18,7 +18,6 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
-#include "mlir/Dialect/Tosa/Transforms/PassDetail.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Utils/QuantUtils.h"
 #include "mlir/IR/BlockAndValueMapping.h"
@@ -40,10 +39,32 @@
 
 using llvm::SmallVector;
 
+// TODO(kdrewnia): Make it so list options can have defaults, and then get rid
+// of needing to set defaults here
+namespace mlir {
+namespace tosa {
+#define GEN_PASS_DEF_TOSAPARTITION
+#include "mlir/Dialect/Tosa/Transforms/Passes.h.inc"
+} // namespace tosa
+} // namespace mlir
+
 using namespace mlir;
 using namespace mlir::tosa;
 
 namespace {
+
+class TosaPartitionPass
+    : public tosa::impl::TosaPartitionBase<TosaPartitionPass> {
+public:
+  using tosa::impl::TosaPartitionBase<TosaPartitionPass>::TosaPartitionBase;
+  bool isAnchorOp(Operation *op);
+  bool isLeadingOp(Operation *op);
+  bool isTrailingOp(Operation *op);
+  StringRef partitionTag();
+  void traceInputs(Operation *op, SetVector<Operation *> &predecessors,
+                   SetVector<Value> &inputNodes);
+  void runOnOperation() override;
+};
 
 // Tosa ops can broadcast values along axes, which allows for
 // element-wise operations without fully-matching dimensions.  The
@@ -55,7 +76,6 @@ bool isElementwiseOp(Operation *op) {
          op->hasTrait<OpTrait::ResultsBroadcastableShape>() ||
          // clang-format off
     isa<tosa::ClampOp,
-        tosa::ReluNOp,
         tosa::SigmoidOp,
         tosa::TanhOp,
 // ResultsBroadcastableShape
@@ -453,16 +473,20 @@ void outlinePartitionOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
 } // namespace
 
 bool TosaPartitionPass::isAnchorOp(Operation *op) {
-  return isa<tosa::Conv2DOp, tosa::MatMulOp, tosa::DepthwiseConv2DOp>(op);
+  if (anchorOps.empty()) // ListOption doesn't have a default value.
+    anchorOps = {"tosa.conv2d", "tosa.matmul", "tosa.depthwise_conv2d"};
+
+  return llvm::is_contained(anchorOps, op->getName().getIdentifier().str());
 }
 
 bool TosaPartitionPass::isLeadingOp(Operation *op) {
-  return isConstantZero(op) || isSmallishConstant(op) || isFuseableOp(op);
+  return !trailingOnly &&
+         (isConstantZero(op) || isSmallishConstant(op) || isFuseableOp(op));
 }
 
 bool TosaPartitionPass::isTrailingOp(Operation *op) { return isFuseableOp(op); }
 
-StringRef TosaPartitionPass::partitionTag() { return "kernel"; }
+StringRef TosaPartitionPass::partitionTag() { return partitionTagOpt; }
 
 void TosaPartitionPass::traceInputs(Operation *op,
                                     SetVector<Operation *> &predecessors,
@@ -617,29 +641,11 @@ void TosaPartitionPass::runOnOperation() {
   }
 }
 
-TosaPartitionPassWithOptions::TosaPartitionPassWithOptions(
-    ArrayRef<std::string> anchorOps_, const std::string &attrName,
-    bool trailingOnly_) {
-  anchorOps = anchorOps_;
-  partitionTagOpt = attrName;
-  trailingOnly = trailingOnly_;
-}
-
-bool TosaPartitionPassWithOptions::isAnchorOp(Operation *op) {
-  if (anchorOps.empty()) // ListOption doesn't have a default value.
-    anchorOps = {"tosa.conv2d", "tosa.matmul", "tosa.depthwise_conv2d"};
-
-  return llvm::is_contained(anchorOps, op->getName().getIdentifier().str());
-}
-
-bool TosaPartitionPassWithOptions::isLeadingOp(Operation *op) {
-  return !trailingOnly && TosaPartitionPass::isLeadingOp(op);
-}
-
-StringRef TosaPartitionPassWithOptions::partitionTag() {
-  return partitionTagOpt;
-}
-
 std::unique_ptr<Pass> mlir::tosa::createTosaPartitionPass() {
-  return std::make_unique<TosaPartitionPassWithOptions>();
+  return std::make_unique<TosaPartitionPass>();
+}
+
+std::unique_ptr<Pass>
+mlir::tosa::createTosaPartitionPass(const TosaPartitionOptions &options) {
+  return std::make_unique<TosaPartitionPass>(options);
 }

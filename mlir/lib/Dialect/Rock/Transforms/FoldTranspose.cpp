@@ -14,17 +14,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 // ============================================================
-#include "PassDetail.h"
-
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/Passes.h"
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/Support/Debug.h"
+
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKFOLDTRANSPOSEPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
 
 #define DEBUG_TYPE "rock-fold-transpose"
 
@@ -33,7 +39,7 @@ using namespace mlir::rock;
 
 namespace {
 struct RockFoldTransposePass
-    : public RockFoldTransposePassBase<RockFoldTransposePass> {
+    : public rock::impl::RockFoldTransposePassBase<RockFoldTransposePass> {
   void runOnOperation() override;
 };
 } // end namespace
@@ -172,6 +178,7 @@ struct FoldTransposingConvAccess : OpRewritePattern<linalg::GenericOp> {
     }
 
     // Actually do the rewrites, if any
+    SmallVector<AffineMap> idxMaps = laGeneric.getIndexingMapsArray();
     for (auto &tuple : toReplace) {
       unsigned opIndex = std::get<0>(tuple);
       Value opValue = std::get<1>(tuple);
@@ -213,12 +220,10 @@ struct FoldTransposingConvAccess : OpRewritePattern<linalg::GenericOp> {
       // Correct indexing maps
       AffineMap composed =
           idxMap.compose(permuteMapAttr.getMap().getAffineMap());
-      Attribute newMaps =
-          laGeneric.indexing_maps().replaceImmediateSubAttribute(
-              {{opIndex, AffineMapAttr::get(composed)}});
-      laGeneric->setAttr(laGeneric.indexing_mapsAttrName(), newMaps);
+      idxMaps[opIndex] = composed;
     }
-
+    laGeneric->setAttr(laGeneric.indexing_mapsAttrName(),
+                       b.getAffineMapArrayAttr(idxMaps));
     return success(!toReplace.empty());
   }
 };
@@ -232,8 +237,4 @@ void RockFoldTransposePass::runOnOperation() {
   if (failed(
           applyPatternsAndFoldGreedily(getOperation(), std::move(patternsTP))))
     signalPassFailure();
-}
-
-std::unique_ptr<Pass> mlir::rock::createRockFoldTransposePass() {
-  return std::make_unique<RockFoldTransposePass>();
 }

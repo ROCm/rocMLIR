@@ -20,9 +20,7 @@
 namespace mlir {
 namespace migraphx {
 
-/// Create a pass to convert affine / loop to cf dialect.
-std::unique_ptr<Pass> createMIGraphXTransformPass();
-
+#define GEN_PASS_DECL_MIGRAPHXTRANSFORMPASS
 #define GEN_PASS_REGISTRATION
 #include "mlir/Dialect/MIGraphX/Passes.h.inc"
 

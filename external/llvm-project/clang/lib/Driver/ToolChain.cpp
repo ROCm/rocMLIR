@@ -185,11 +185,11 @@ static const DriverSuffix *FindDriverSuffix(StringRef ProgName, size_t &Pos) {
       {"clang-dxc", "--driver-mode=dxc"},
   };
 
-  for (size_t i = 0; i < llvm::array_lengthof(DriverSuffixes); ++i) {
-    StringRef Suffix(DriverSuffixes[i].Suffix);
+  for (const auto &DS : DriverSuffixes) {
+    StringRef Suffix(DS.Suffix);
     if (ProgName.endswith(Suffix)) {
       Pos = ProgName.size() - Suffix.size();
-      return &DriverSuffixes[i];
+      return &DS;
     }
   }
   return nullptr;
@@ -287,8 +287,9 @@ std::string ToolChain::getInputFilename(const InputInfo &Input) const {
   return Input.getFilename();
 }
 
-bool ToolChain::IsUnwindTablesDefault(const ArgList &Args) const {
-  return false;
+ToolChain::UnwindTableLevel
+ToolChain::getDefaultUnwindTableLevel(const ArgList &Args) const {
+  return UnwindTableLevel::None;
 }
 
 Tool *ToolChain::getClang() const {
@@ -351,12 +352,6 @@ Tool *ToolChain::getOffloadBundler() const {
   return OffloadBundler.get();
 }
 
-Tool *ToolChain::getOffloadWrapper() const {
-  if (!OffloadWrapper)
-    OffloadWrapper.reset(new tools::OffloadWrapper(*this));
-  return OffloadWrapper.get();
-}
-
 Tool *ToolChain::getOffloadPackager() const {
   if (!OffloadPackager)
     OffloadPackager.reset(new tools::OffloadPackager(*this));
@@ -406,8 +401,6 @@ Tool *ToolChain::getTool(Action::ActionClass AC) const {
   case Action::OffloadUnbundlingJobClass:
     return getOffloadBundler();
 
-  case Action::OffloadWrapperJobClass:
-    return getOffloadWrapper();
   case Action::OffloadPackagerJobClass:
     return getOffloadPackager();
   case Action::LinkerWrapperJobClass:
@@ -421,6 +414,9 @@ static StringRef getArchNameForCompilerRTLib(const ToolChain &TC,
                                              const ArgList &Args) {
   const llvm::Triple &Triple = TC.getTriple();
   bool IsWindows = Triple.isOSWindows();
+
+  if (TC.isBareMetal())
+    return Triple.getArchName();
 
   if (TC.getArch() == llvm::Triple::arm || TC.getArch() == llvm::Triple::armeb)
     return (arm::getARMFloatABI(TC, Args) == arm::FloatABI::Hard && !IsWindows)
@@ -459,7 +455,10 @@ StringRef ToolChain::getOSLibName() const {
 
 std::string ToolChain::getCompilerRTPath() const {
   SmallString<128> Path(getDriver().ResourceDir);
-  if (Triple.isOSUnknown()) {
+  if (isBareMetal()) {
+    llvm::sys::path::append(Path, "lib", getOSLibName());
+    Path += SelectedMultilib.gccSuffix();
+  } else if (Triple.isOSUnknown()) {
     llvm::sys::path::append(Path, "lib");
   } else {
     llvm::sys::path::append(Path, "lib", getOSLibName());
@@ -1013,6 +1012,8 @@ void ToolChain::AddCXXStdlibLibArgs(const ArgList &Args,
   switch (Type) {
   case ToolChain::CST_Libcxx:
     CmdArgs.push_back("-lc++");
+    if (Args.hasArg(options::OPT_fexperimental_library))
+      CmdArgs.push_back("-lc++experimental");
     break;
 
   case ToolChain::CST_Libstdcxx:
@@ -1082,6 +1083,9 @@ SanitizerMask ToolChain::getSupportedSanitizers() const {
       getTriple().isAArch64() || getTriple().isRISCV())
     Res |= SanitizerKind::CFIICall;
   if (getTriple().getArch() == llvm::Triple::x86_64 ||
+      getTriple().isAArch64(64))
+    Res |= SanitizerKind::KCFI;
+  if (getTriple().getArch() == llvm::Triple::x86_64 ||
       getTriple().isAArch64(64) || getTriple().isRISCV())
     Res |= SanitizerKind::ShadowCallStack;
   if (getTriple().isAArch64(64))
@@ -1096,7 +1100,7 @@ void ToolChain::AddHIPIncludeArgs(const ArgList &DriverArgs,
                                   ArgStringList &CC1Args) const {}
 
 llvm::SmallVector<ToolChain::BitCodeLibraryInfo, 12>
-ToolChain::getHIPDeviceLibs(const ArgList &DriverArgs) const {
+ToolChain::getDeviceLibs(const ArgList &DriverArgs) const {
   return {};
 }
 

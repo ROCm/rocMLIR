@@ -4,6 +4,7 @@ add_mlir_dialect_library(MLIRRockTransforms
   ApplyImpl.cpp
   AsyncLaunch.cpp
   BlockwiseGemmToThreadwise.cpp
+  BufferizableOpInterfaceImpl.cpp
   CleanMath.cpp
   CloneKernels.cpp
   CopyOpt.cpp
@@ -24,6 +25,8 @@ add_mlir_dialect_library(MLIRRockTransforms
 
   LINK_LIBS PUBLIC
   MLIRArithmeticTransforms
+  MLIRBufferizationDialect
+  MLIRBufferizationTransforms
   MLIRDialect
   MLIRFuncDialect
   MLIRIR

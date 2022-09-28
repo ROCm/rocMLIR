@@ -12,6 +12,7 @@
 // File creation flags
 #define O_CLOEXEC 02000000
 #define O_CREAT 00000100
+#define O_PATH 010000000
 
 #ifdef __aarch64__
 #define O_DIRECTORY 040000
@@ -68,5 +69,12 @@
 // Special flag to the function unlinkat to indicate that it
 // has to perform the equivalent of "rmdir" on the path argument.
 #define AT_REMOVEDIR 0x200
+
+// Values of SYS_fcntl commands.
+#define F_DUPFD 0
+#define F_GETFD 1
+#define F_SETFD 2
+#define F_GETFL 3
+#define F_SETFL 4
 
 #endif // __LLVM_LIBC_MACROS_LINUX_FCNTL_MACROS_H

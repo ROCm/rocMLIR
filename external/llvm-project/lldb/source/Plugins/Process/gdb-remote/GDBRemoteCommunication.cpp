@@ -30,7 +30,6 @@
 #include "lldb/Utility/FileSpec.h"
 #include "lldb/Utility/Log.h"
 #include "lldb/Utility/RegularExpression.h"
-#include "lldb/Utility/Reproducer.h"
 #include "lldb/Utility/StreamString.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/ScopedPrinter.h"
@@ -58,17 +57,16 @@ using namespace lldb_private;
 using namespace lldb_private::process_gdb_remote;
 
 // GDBRemoteCommunication constructor
-GDBRemoteCommunication::GDBRemoteCommunication(const char *comm_name,
-                                               const char *listener_name)
-    : Communication(comm_name),
+GDBRemoteCommunication::GDBRemoteCommunication()
+    : Communication(),
 #ifdef LLDB_CONFIGURATION_DEBUG
       m_packet_timeout(1000),
 #else
       m_packet_timeout(1),
 #endif
       m_echo_number(0), m_supports_qEcho(eLazyBoolCalculate), m_history(512),
-      m_send_acks(true), m_compression_type(CompressionType::None),
-      m_listen_url() {
+      m_send_acks(true), m_is_platform(false),
+      m_compression_type(CompressionType::None), m_listen_url() {
 }
 
 // Destructor
@@ -679,7 +677,7 @@ GDBRemoteCommunication::CheckForPacket(const uint8_t *src, size_t src_len,
 
     case '%': // Async notify packet
       isNotifyPacket = true;
-      LLVM_FALLTHROUGH;
+      [[fallthrough]];
 
     case '$':
       // Look for a standard gdb packet?
@@ -1225,11 +1223,6 @@ Status GDBRemoteCommunication::StartDebugserverProcess(
 
 void GDBRemoteCommunication::DumpHistory(Stream &strm) { m_history.Dump(strm); }
 
-void GDBRemoteCommunication::SetPacketRecorder(
-    repro::PacketRecorder *recorder) {
-  m_history.SetRecorder(recorder);
-}
-
 llvm::Error
 GDBRemoteCommunication::ConnectLocally(GDBRemoteCommunication &client,
                                        GDBRemoteCommunication &server) {
@@ -1266,7 +1259,7 @@ GDBRemoteCommunication::ConnectLocally(GDBRemoteCommunication &client,
 
 GDBRemoteCommunication::ScopedTimeout::ScopedTimeout(
     GDBRemoteCommunication &gdb_comm, std::chrono::seconds timeout)
-    : m_gdb_comm(gdb_comm), m_timeout_modified(false) {
+    : m_gdb_comm(gdb_comm), m_saved_timeout(0), m_timeout_modified(false) {
   auto curr_timeout = gdb_comm.GetPacketTimeout();
   // Only update the timeout if the timeout is greater than the current
   // timeout. If the current timeout is larger, then just use that.

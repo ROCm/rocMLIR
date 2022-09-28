@@ -15,16 +15,18 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
-#include "PassDetail.h"
-
-#include "mlir/Dialect/Affine/LoopUtils.h"
-#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
+#include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/Dialect/Affine/Utils.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Pass/PassManager.h"
@@ -38,6 +40,13 @@
 #include "llvm/Support/Debug.h"
 #include <numeric>
 
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKSUGARTOLOOPSPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
+
 #define DEBUG_TYPE "rock-sugar-to-loops"
 
 using namespace mlir;
@@ -46,7 +55,7 @@ using namespace mlir::rock;
 
 namespace {
 struct RockSugarToLoopsPass
-    : public RockSugarToLoopsPassBase<RockSugarToLoopsPass> {
+    : public rock::impl::RockSugarToLoopsPassBase<RockSugarToLoopsPass> {
   void runOnOperation() override;
 };
 
@@ -73,8 +82,8 @@ struct TransformingForRewritePattern
       strides.push_back(stride);
     }
 
-    bool useDiffs = op.useIndexDiffs().getValueOr(false);
-    bool unroll = op.forceUnroll().getValueOr(false);
+    bool useDiffs = op.useIndexDiffs().value_or(false);
+    bool unroll = op.forceUnroll().value_or(false);
 
     uint32_t nDomains = op.domains();
     // Compute the initial output values of the lower coordinates.
@@ -108,7 +117,7 @@ struct TransformingForRewritePattern
         composedMaps.push_back(composed);
         Optional<SmallVector<Value, 8>> init =
             expandAffineMap(b, loc, composed, op.getUpperInits(i));
-        if (!init.hasValue())
+        if (!init.has_value())
           return failure();
         lowerInit.push_back(std::move(*init));
       }
@@ -379,15 +388,15 @@ struct IndexDiffUpdateRewritePattern
 
     auto addToOriginal = [&b, loc](Value original, Value diff) -> Value {
       auto mbDiffConst = isConstantValue(diff);
-      if (mbDiffConst.hasValue()) {
-        int64_t diff = mbDiffConst.getValue();
+      if (mbDiffConst.has_value()) {
+        int64_t diff = mbDiffConst.value();
         if (diff == 0) {
           return original;
         }
         auto mbOriginalConst = isConstantValue(original);
-        if (mbOriginalConst.hasValue()) {
+        if (mbOriginalConst.has_value()) {
           return b.create<ConstantIndexOp>(loc,
-                                           diff + mbOriginalConst.getValue());
+                                           diff + mbOriginalConst.value());
         }
       }
       return b.create<AddIOp>(loc, original, diff);
@@ -414,10 +423,10 @@ struct IndexDiffUpdateRewritePattern
           uint32_t upperDim = p[iter];
           auto mbUpperDiff = isConstantValue(upperIndicesDiff[upperDim]);
           auto mbLowerDiff = isConstantValue(lowerDiff);
-          if (mbUpperDiff.hasValue() && mbLowerDiff.hasValue()) {
+          if (mbUpperDiff.has_value() && mbLowerDiff.has_value()) {
             lowerDiff = b.create<ConstantIndexOp>(
                 loc,
-                mbLowerDiff.getValue() + coefficient * mbUpperDiff.getValue());
+                mbLowerDiff.value() + coefficient * mbUpperDiff.value());
           } else {
             lowerDiff = b.create<AddIOp>(
                 loc, lowerDiff,
@@ -441,10 +450,10 @@ struct IndexDiffUpdateRewritePattern
           uint32_t upperDim = p[iter];
           auto mbUpperDiff = isConstantValue(upperIndicesDiff[upperDim]);
           auto mbLowerDiff = isConstantValue(lowerDiff);
-          if (mbUpperDiff.hasValue() && mbLowerDiff.hasValue()) {
+          if (mbUpperDiff.has_value() && mbLowerDiff.has_value()) {
             lowerDiff = b.create<ConstantIndexOp>(
                 loc,
-                mbUpperDiff.getValue() + coefficient * mbLowerDiff.getValue());
+                mbUpperDiff.value() + coefficient * mbLowerDiff.value());
           } else {
             lowerDiff = b.create<AddIOp>(
                 loc, upperIndicesDiff[upperDim],
@@ -480,9 +489,9 @@ struct IndexDiffUpdateRewritePattern
 
         SmallVector<Value, 8> lowerDiffModified;
         auto mbUpperDiffVal = isConstantValue(upperIndicesDiff[upperDim]);
-        if (mbUpperDiffVal.hasValue()) {
+        if (mbUpperDiffVal.has_value()) {
           // In case upper level diff is a constant, use constantFold.
-          int64_t upperDiff = mbUpperDiffVal.getValue();
+          int64_t upperDiff = mbUpperDiffVal.value();
 
           // Populate an upper diff vector with all indices 0, other than
           // upperDim dimension set as upperDiff.
@@ -524,7 +533,7 @@ struct IndexDiffUpdateRewritePattern
           // Apply map to compute index lower diff, from index upper diff using
           // expandAffineMap.
           lowerDiffModified =
-              expandAffineMap(b, loc, affineMap, upperDiffModified).getValue();
+              expandAffineMap(b, loc, affineMap, upperDiffModified).value();
           assert(lowerDiffModified.size() == lowerIndicesOriginal.size());
         }
 
@@ -588,9 +597,9 @@ struct IndexDiffUpdateRewritePattern
 
             // If we get lucky, everything is constant and so we have a constant
             // result
-            if (mbConstantIndex.hasValue() && mbConstantDiff.hasValue()) {
-              int64_t index = mbConstantIndex.getValue();
-              int64_t diff = mbConstantDiff.getValue();
+            if (mbConstantIndex.has_value() && mbConstantDiff.has_value()) {
+              int64_t index = mbConstantIndex.value();
+              int64_t diff = mbConstantDiff.value();
               if (index < upperBound) {
                 overflowOp = zeroConstantOp;
                 lowerIndicesCarryChecked[lowerDim] =
@@ -610,7 +619,7 @@ struct IndexDiffUpdateRewritePattern
               continue;
             }
             // No change -> no carry-out
-            if (mbConstantDiff.getValueOr(-1L) == 0) {
+            if (mbConstantDiff.value_or(-1L) == 0) {
               overflowOp = zeroConstantOp;
               lowerDiffsCarryChecked[lowerDim] = diff;
               lowerIndicesCarryChecked[lowerDim] = index;
@@ -660,7 +669,7 @@ struct IndexDiffUpdateRewritePattern
           Value lowerLenOp = b.create<ConstantIndexOp>(loc, lowerLen);
           auto mbUpperDiff = isConstantValue(upperIndicesDiff[p[i]]);
           Value wrappedDiff;
-          if (mbUpperDiff.hasValue()) {
+          if (mbUpperDiff.has_value()) {
             wrappedDiff =
                 b.create<ConstantIndexOp>(loc, *mbUpperDiff % lowerLen);
           } else {
@@ -830,10 +839,10 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
       coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
     IntegerAttr indexOffset =
         op.offset()
-            .map([&b](const APInt &offset) -> IntegerAttr {
+            .transform([&b](const APInt &offset) -> IntegerAttr {
               return b.getI32IntegerAttr(offset.getZExtValue());
             })
-            .getValueOr(IntegerAttr());
+            .value_or(IntegerAttr());
     b.replaceOpWithNewOp<amdgpu::RawBufferLoadOp>(
         op, loadedType, source, coordsI32, /*boundsCheck=*/true, indexOffset,
         /*sgprOffset=*/nullptr);
@@ -908,10 +917,10 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
       coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
     IntegerAttr indexOffset =
         op.offset()
-            .map([&b](const APInt &offset) -> IntegerAttr {
+            .transform([&b](const APInt &offset) -> IntegerAttr {
               return b.getI32IntegerAttr(offset.getZExtValue());
             })
-            .getValueOr(IntegerAttr());
+            .value_or(IntegerAttr());
 
     if (memoryOp == StoreMethod::AtomicAdd) {
       // TODO: test padding in atomic add kernels now that we can oob with them
@@ -919,8 +928,8 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
         int32_t nAtomics = dataVector.getNumElements();
         int32_t offset =
             op.offset()
-                .map([](const APInt &v) -> int32_t { return v.getZExtValue(); })
-                .getValueOr(0);
+                .transform([](const APInt &v) -> int32_t { return v.getZExtValue(); })
+                .value_or(0);
         for (int32_t i = 0; i < nAtomics; ++i) {
           Value item = b.create<vector::ExtractElementOp>(
               loc, data, b.create<ConstantIndexOp>(loc, i));
@@ -1046,7 +1055,7 @@ struct InWarpTransposeRewritePattern
     }
 
     Value laneInSwizzleGroup;
-    if (lanePerm.hasValue()) {
+    if (lanePerm.has_value()) {
       Value groupSizeConst = b.create<ConstantIndexOp>(loc, swizzleGroupSize);
       laneInSwizzleGroup = b.create<RemUIOp>(loc, laneId, groupSizeConst);
     }
@@ -1057,9 +1066,9 @@ struct InWarpTransposeRewritePattern
          logRotation += offset) {
       uint32_t rotation = 1 << logRotation;
       Value shouldParticipate;
-      if (lanePerm.hasValue()) {
+      if (lanePerm.has_value()) {
         // Non-standard arrangement of rows -> lanes, use longer test
-        ArrayRef<uint32_t> theLanePerm = lanePerm.getValue();
+        ArrayRef<uint32_t> theLanePerm = lanePerm.value();
         llvm::SmallVector<Value, swizzleGroupSize> comparisons;
         for (uint32_t i = 0; i < theLanePerm.size(); ++i) {
           if ((theLanePerm[i] & rotation) != 0) {
@@ -1361,7 +1370,3 @@ void RockSugarToLoopsPass::runOnOperation() {
     signalPassFailure();
 }
 } // end anonymous namespace
-
-std::unique_ptr<Pass> mlir::rock::createRockSugarToLoopsPass() {
-  return std::make_unique<RockSugarToLoopsPass>();
-}

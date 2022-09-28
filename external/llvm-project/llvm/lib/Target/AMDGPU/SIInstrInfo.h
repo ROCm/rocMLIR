@@ -184,8 +184,7 @@ public:
     return ST;
   }
 
-  bool isReallyTriviallyReMaterializable(const MachineInstr &MI,
-                                         AAResults *AA) const override;
+  bool isReallyTriviallyReMaterializable(const MachineInstr &MI) const override;
 
   bool isIgnorableUse(const MachineOperand &MO) const override;
 
@@ -277,6 +276,10 @@ public:
                              int64_t BrOffset) const override;
 
   MachineBasicBlock *getBranchDestBlock(const MachineInstr &MI) const override;
+
+  /// Return whether the block terminate with divergent branch.
+  /// Note this only work before lowering the pseudo control flow instructions.
+  bool hasDivergentBranch(const MachineBasicBlock *MBB) const;
 
   void insertIndirectBranch(MachineBasicBlock &MBB,
                             MachineBasicBlock &NewDestBB,

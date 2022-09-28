@@ -15,15 +15,15 @@ list(INSERT CMAKE_MODULE_PATH 0
 
 # We order libraries to mirror roughly how they are layered, except that compiler-rt can depend
 # on libc++, so we put it after.
-set(LLVM_DEFAULT_RUNTIMES "libc;libunwind;libcxxabi;libcxx;compiler-rt;openmp")
-set(LLVM_ALL_RUNTIMES "${LLVM_DEFAULT_RUNTIMES};llvm-libgcc")
+set(LLVM_DEFAULT_RUNTIMES "libc;libunwind;libcxxabi;pstl;libcxx;compiler-rt;openmp")
+set(LLVM_SUPPORTED_RUNTIMES "${LLVM_DEFAULT_RUNTIMES};llvm-libgcc")
 set(LLVM_ENABLE_RUNTIMES "" CACHE STRING
-  "Semicolon-separated list of runtimes to build (${LLVM_ALL_RUNTIMES}), or \"all\".")
+  "Semicolon-separated list of runtimes to build, or \"all\" (${LLVM_DEFAULT_RUNTIMES}). Supported runtimes are ${LLVM_SUPPORTED_RUNTIMES}.")
 if(LLVM_ENABLE_RUNTIMES STREQUAL "all" )
   set(LLVM_ENABLE_RUNTIMES ${LLVM_DEFAULT_RUNTIMES})
 endif()
 include(SortSubset)
-sort_subset("${LLVM_ALL_RUNTIMES}" "${LLVM_ENABLE_RUNTIMES}" LLVM_ENABLE_RUNTIMES)
+sort_subset("${LLVM_SUPPORTED_RUNTIMES}" "${LLVM_ENABLE_RUNTIMES}" LLVM_ENABLE_RUNTIMES)
 
 foreach(proj ${LLVM_ENABLE_RUNTIMES})
   set(proj_dir "${CMAKE_CURRENT_SOURCE_DIR}/../${proj}")
@@ -132,7 +132,7 @@ endif()
 # Check for -nostdlib++ first; if there's no C++ standard library yet,
 # all check_cxx_compiler_flag commands will fail until we add -nostdlib++
 # (or -nodefaultlibs).
-llvm_check_compiler_linker_flag(C "-nostdlib++" CXX_SUPPORTS_NOSTDLIBXX_FLAG)
+llvm_check_compiler_linker_flag(CXX "-nostdlib++" CXX_SUPPORTS_NOSTDLIBXX_FLAG)
 if (CXX_SUPPORTS_NOSTDLIBXX_FLAG)
   set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -nostdlib++")
 endif()
@@ -200,23 +200,6 @@ if(LLVM_INCLUDE_TESTS)
   set(LLVM_LIT_ARGS "${LIT_ARGS_DEFAULT}" CACHE STRING "Default options for lit")
 
   umbrella_lit_testsuite_begin(check-runtimes)
-endif()
-
-# llvm-libgcc incorporates both compiler-rt and libunwind as subprojects with very
-# specific flags, which causes clashes when they're independently built too.
-if("llvm-libgcc" IN_LIST runtimes)
-  if("compiler-rt" IN_LIST runtimes OR "compiler-rt" IN_LIST LLVM_ENABLE_PROJECTS)
-    message(FATAL_ERROR
-      "Attempting to build both compiler-rt and llvm-libgcc will cause irreconcilable "
-      "target clashes. Please choose one or the other, but not both.")
-  endif()
-
-  if("libunwind" IN_LIST runtimes)
-    message(
-      FATAL_ERROR
-      "Attempting to build both libunwind and llvm-libgcc will cause irreconcilable "
-      "target clashes. Please choose one or the other, but not both.")
-  endif()
 endif()
 
 # llvm-libgcc incorporates both compiler-rt and libunwind as subprojects with very

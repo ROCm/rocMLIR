@@ -21,7 +21,7 @@ if.then:
 
 if.end:
 ; CHECK: 3 = MemoryPhi({entry,1},{if.then,2})
-; NOLIMIT: MemoryUse(1) MayAlias
+; NOLIMIT: MemoryUse(1)
 ; NOLIMIT-NEXT: load i8, i8* %local, align 1
 ; LIMIT: MemoryUse(3)
 ; LIMIT-NEXT: load i8, i8* %local, align 1
@@ -64,7 +64,7 @@ phi.1:
 ; Order matters here; phi.2 needs to come before phi.3, because that's the order
 ; they're visited in.
 ; CHECK: 6 = MemoryPhi({phi.2,4},{phi.3,3})
-; NOLIMIT: MemoryUse(1) MayAlias
+; NOLIMIT: MemoryUse(1)
 ; NOLIMIT-NEXT: load i8, i8* %local
 ; LIMIT: MemoryUse(6)
 ; LIMIT-NEXT: load i8, i8* %local
@@ -77,7 +77,7 @@ define void @cross_phi(i8* noalias %p1, i8* noalias %p2) {
 ; CHECK: 1 = MemoryDef(liveOnEntry)
 ; CHECK-NEXT: store i8 0, i8* %p1
   store i8 0, i8* %p1
-; NOLIMIT: MemoryUse(1) MustAlias
+; NOLIMIT: MemoryUse(1)
 ; NOLIMIT-NEXT: load i8, i8* %p1
 ; LIMIT: MemoryUse(1)
 ; LIMIT-NEXT: load i8, i8* %p1
@@ -112,7 +112,7 @@ d:
 
 e:
 ; 8 = MemoryPhi({c,4},{d,5})
-; NOLIMIT: MemoryUse(1) MustAlias
+; NOLIMIT: MemoryUse(1)
 ; NOLIMIT-NEXT: load i8, i8* %p1
 ; LIMIT: MemoryUse(8)
 ; LIMIT-NEXT: load i8, i8* %p1
@@ -146,7 +146,7 @@ loop.3:
 ; CHECK: 4 = MemoryDef(7)
 ; CHECK-NEXT: store i8 2, i8* %p2
   store i8 2, i8* %p2
-; NOLIMIT: MemoryUse(1) MayAlias
+; NOLIMIT: MemoryUse(1)
 ; NOLIMIT-NEXT: load i8, i8* %p1
 ; LIMIT: MemoryUse(4)
 ; LIMIT-NEXT: load i8, i8* %p1
@@ -183,7 +183,7 @@ if.end:
 ; CHECK: 3 = MemoryDef(4)
 ; CHECK-NEXT: store i8 2, i8* %p2
   store i8 2, i8* %p2
-; NOLIMIT: MemoryUse(4) MayAlias
+; NOLIMIT: MemoryUse(4)
 ; NOLIMIT-NEXT: load i8, i8* %p1
 ; LIMIT: MemoryUse(3)
 ; LIMIT-NEXT: load i8, i8* %p1
@@ -422,6 +422,48 @@ storebb:
 
 exit:
   ret void
+}
+
+define i32 @phi_with_constant_values(i1 %cmp) {
+; CHECK-LABEL: define i32 @phi_with_constant_values
+; CHECK-LABEL: lhs:
+; CHECK:       ; 1 = MemoryDef(liveOnEntry)
+; CHECK-NEXT:  store i16 1, i16* %s1.ptr, align 2
+
+; CHECK-LABEL: rhs:
+; CHECK:       ; 2 = MemoryDef(liveOnEntry)
+; CHECK-NEXT:  store i16 1, i16* %s2.ptr, align 2
+
+; CHECK-LABEL: merge:
+; CHECK:       ; 3 = MemoryPhi({lhs,1},{rhs,2})
+; CHECK-NEXT   %storemerge2 = phi i32 [ 2, %lhs ], [ 3, %rhs ]
+; TODO: Here the defining access could be liveOnEntry. Since all incoming
+; values of phi node can be phi translated.
+; CHECK:       ; MemoryUse(3)
+; CHECK-NEXT:    %lv = load i16, i16* %arrayidx, align 2
+
+entry:
+  br i1 %cmp, label %lhs, label %rhs
+
+lhs:
+  %s1.ptr = getelementptr inbounds [2 x i16], [2 x i16]* @c, i64 0, i64 0
+  store i16 1, i16* %s1.ptr, align 2
+  br label %merge
+
+rhs:
+  %s2.ptr = getelementptr inbounds [2 x i16], [2 x i16]* @c, i64 0, i64 1
+  store i16 1, i16* %s2.ptr, align 2
+  br label %merge
+
+merge:                                         ; preds = %for.body, %entry
+  %storemerge2 = phi i32 [ 2, %lhs ], [ 3, %rhs ]
+  %idxprom1 = zext i32 %storemerge2 to i64
+  %arrayidx = getelementptr inbounds [2 x i16], [2 x i16]* @c, i64 0, i64 %idxprom1
+  %lv = load i16, i16* %arrayidx, align 2
+  br label %end
+
+end:                                          ; preds = %for.body
+  ret i32 0
 }
 
 ; CHECK-LABEL: define void @use_clobbered_by_def_in_loop()

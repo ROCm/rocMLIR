@@ -271,27 +271,6 @@ static Expected<DWARFVerify> getVerifyKind(opt::InputArgList &Args) {
   return DWARFVerify::None;
 }
 
-static Expected<DWARFVerify> getVerifyKind(opt::InputArgList &Args) {
-  if (Args.hasArg(OPT_verify))
-    return DWARFVerify::Output;
-  if (opt::Arg *Verify = Args.getLastArg(OPT_verify_dwarf)) {
-    StringRef S = Verify->getValue();
-    if (S == "input")
-      return DWARFVerify::Input;
-    if (S == "output")
-      return DWARFVerify::Output;
-    if (S == "all")
-      return DWARFVerify::All;
-    if (S == "none")
-      return DWARFVerify::None;
-    return make_error<StringError>(
-        "invalid verify type specified: '" + S +
-            "'. Support values are 'input', 'output', 'all' and 'none'.",
-        inconvertibleErrorCode());
-  }
-  return DWARFVerify::None;
-}
-
 /// Parses the command line options into the LinkOptions struct and performs
 /// some sanity checking. Returns an error in case the latter fails.
 static Expected<DsymutilOptions> getOptions(opt::InputArgList &Args) {

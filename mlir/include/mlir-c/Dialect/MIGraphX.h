@@ -11,8 +11,8 @@
 #ifndef MLIR_C_DIALECT_MIGRAPHX_H
 #define MLIR_C_DIALECT_MIGRAPHX_H
 
+#include "mlir-c/IR.h"
 #include "mlir-c/Pass.h"
-#include "mlir-c/Registration.h"
 
 #ifdef __cplusplus
 extern "C" {

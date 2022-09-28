@@ -11,13 +11,11 @@
 
 #include "mlir/Conversion/GPUToMIGraphX/GPUToMIGraphX.h"
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
-#include "mlir/Conversion/RockToGPU/RockToGPU.h"
 #include "mlir/Conversion/Passes.h"
+#include "mlir/Conversion/RockToGPU/RockToGPU.h"
 #include "mlir/Conversion/TosaToRock/TosaToRock.h"
-#include "mlir/Dialect/MIGraphX/Passes.h"
 
 namespace mlir {
-
 /// Generate the code for registering conversion passes.
 #define GEN_PASS_REGISTRATION
 #include "mlir/Conversion/RocMLIRPasses.h.inc"

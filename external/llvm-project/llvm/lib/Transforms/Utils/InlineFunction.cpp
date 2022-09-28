@@ -825,6 +825,35 @@ static void PropagateCallSiteMetadata(CallBase &CB, Function::iterator FStart,
   }
 }
 
+/// Bundle operands of the inlined function must be added to inlined call sites.
+static void PropagateOperandBundles(Function::iterator InlinedBB,
+                                    Instruction *CallSiteEHPad) {
+  for (Instruction &II : llvm::make_early_inc_range(*InlinedBB)) {
+    CallBase *I = dyn_cast<CallBase>(&II);
+    if (!I)
+      continue;
+    // Skip call sites which already have a "funclet" bundle.
+    if (I->getOperandBundle(LLVMContext::OB_funclet))
+      continue;
+    // Skip call sites which are nounwind intrinsics (as long as they don't
+    // lower into regular function calls in the course of IR transformations).
+    auto *CalledFn =
+        dyn_cast<Function>(I->getCalledOperand()->stripPointerCasts());
+    if (CalledFn && CalledFn->isIntrinsic() && I->doesNotThrow() &&
+        !IntrinsicInst::mayLowerToFunctionCall(CalledFn->getIntrinsicID()))
+      continue;
+
+    SmallVector<OperandBundleDef, 1> OpBundles;
+    I->getOperandBundlesAsDefs(OpBundles);
+    OpBundles.emplace_back("funclet", CallSiteEHPad);
+
+    Instruction *NewInst = CallBase::Create(I, OpBundles, I);
+    NewInst->takeName(I);
+    I->replaceAllUsesWith(NewInst);
+    I->eraseFromParent();
+  }
+}
+
 namespace {
 /// Utility for cloning !noalias and !alias.scope metadata. When a code region
 /// using scoped alias metadata is inlined, the aliasing relationships may not
@@ -1035,10 +1064,10 @@ static void AddAliasScopeMetadata(CallBase &CB, ValueToValueMapTy &VMap,
           FunctionModRefBehavior MRB = CalleeAAR->getModRefBehavior(Call);
 
           // We'll retain this knowledge without additional metadata.
-          if (AAResults::onlyAccessesInaccessibleMem(MRB))
+          if (MRB.onlyAccessesInaccessibleMem())
             continue;
 
-          if (AAResults::onlyAccessesArgPointees(MRB))
+          if (MRB.onlyAccessesArgPointees())
             IsArgMemOnlyCall = true;
         }
 
@@ -1757,7 +1786,8 @@ inlineRetainOrClaimRVCalls(CallBase &CB, objcarc::ARCInstKind RVCallKind,
 llvm::InlineResult llvm::InlineFunction(CallBase &CB, InlineFunctionInfo &IFI,
                                         AAResults *CalleeAAR,
                                         bool InsertLifetime,
-                                        Function *ForwardVarArgsTo) {
+                                        Function *ForwardVarArgsTo,
+                                        bool MergeAttributes) {
   assert(CB.getParent() && CB.getFunction() && "Instruction not in function!");
 
   // FIXME: we don't inline callbr yet.
@@ -1784,6 +1814,8 @@ llvm::InlineResult llvm::InlineFunction(CallBase &CB, InlineFunctionInfo &IFI,
       if (Tag == LLVMContext::OB_funclet)
         continue;
       if (Tag == LLVMContext::OB_clang_arc_attachedcall)
+        continue;
+      if (Tag == LLVMContext::OB_kcfi)
         continue;
 
       return InlineResult::failure("unsupported operand bundle");
@@ -2194,9 +2226,11 @@ llvm::InlineResult llvm::InlineFunction(CallBase &CB, InlineFunctionInfo &IFI,
         CI->setTailCallKind(ChildTCK);
         InlinedMustTailCalls |= CI->isMustTailCall();
 
-        // Calls inlined through a 'nounwind' call site should be marked
-        // 'nounwind'.
-        if (MarkNoUnwind)
+        // Call sites inlined through a 'nounwind' call site should be
+        // 'nounwind' as well. However, avoid marking call sites explicitly
+        // where possible. This helps expose more opportunities for CSE after
+        // inlining, commonly when the callee is an intrinsic.
+        if (MarkNoUnwind && !CI->doesNotThrow())
           CI->setDoesNotThrow();
       }
     }
@@ -2302,38 +2336,12 @@ llvm::InlineResult llvm::InlineFunction(CallBase &CB, InlineFunctionInfo &IFI,
   // Update the lexical scopes of the new funclets and callsites.
   // Anything that had 'none' as its parent is now nested inside the callsite's
   // EHPad.
-
   if (CallSiteEHPad) {
     for (Function::iterator BB = FirstNewBlock->getIterator(),
                             E = Caller->end();
          BB != E; ++BB) {
-      // Add bundle operands to any top-level call sites.
-      SmallVector<OperandBundleDef, 1> OpBundles;
-      for (Instruction &II : llvm::make_early_inc_range(*BB)) {
-        CallBase *I = dyn_cast<CallBase>(&II);
-        if (!I)
-          continue;
-
-        // Skip call sites which are nounwind intrinsics.
-        auto *CalledFn =
-            dyn_cast<Function>(I->getCalledOperand()->stripPointerCasts());
-        if (CalledFn && CalledFn->isIntrinsic() && I->doesNotThrow())
-          continue;
-
-        // Skip call sites which already have a "funclet" bundle.
-        if (I->getOperandBundle(LLVMContext::OB_funclet))
-          continue;
-
-        I->getOperandBundlesAsDefs(OpBundles);
-        OpBundles.emplace_back("funclet", CallSiteEHPad);
-
-        Instruction *NewInst = CallBase::Create(I, OpBundles, I);
-        NewInst->takeName(I);
-        I->replaceAllUsesWith(NewInst);
-        I->eraseFromParent();
-
-        OpBundles.clear();
-      }
+      // Add bundle operands to inlined call sites.
+      PropagateOperandBundles(BB, CallSiteEHPad);
 
       // It is problematic if the inlinee has a cleanupret which unwinds to
       // caller and we inline it into a call site which doesn't unwind but into
@@ -2502,6 +2510,9 @@ llvm::InlineResult llvm::InlineFunction(CallBase &CB, InlineFunctionInfo &IFI,
     // Since we are now done with the return instruction, delete it also.
     Returns[0]->eraseFromParent();
 
+    if (MergeAttributes)
+      AttributeFuncs::mergeAttributesForInlining(*Caller, *CalledFunc);
+
     // We are now done with the inlining.
     return InlineResult::success();
   }
@@ -2625,7 +2636,7 @@ llvm::InlineResult llvm::InlineFunction(CallBase &CB, InlineFunctionInfo &IFI,
   } else if (!CB.use_empty()) {
     // No returns, but something is using the return value of the call.  Just
     // nuke the result.
-    CB.replaceAllUsesWith(UndefValue::get(CB.getType()));
+    CB.replaceAllUsesWith(PoisonValue::get(CB.getType()));
   }
 
   // Since we are now done with the Call/Invoke, we can delete it.
@@ -2664,6 +2675,9 @@ llvm::InlineResult llvm::InlineFunction(CallBase &CB, InlineFunctionInfo &IFI,
       PHI->eraseFromParent();
     }
   }
+
+  if (MergeAttributes)
+    AttributeFuncs::mergeAttributesForInlining(*Caller, *CalledFunc);
 
   return InlineResult::success();
 }

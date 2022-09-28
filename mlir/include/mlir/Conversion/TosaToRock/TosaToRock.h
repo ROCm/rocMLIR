@@ -14,14 +14,13 @@
 #ifndef MLIR_CONVERSION_TOSATOROCK_TOSATOROCK_H
 #define MLIR_CONVERSION_TOSATOROCK_TOSATOROCK_H
 
-#include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
-namespace tosa {
+#define GEN_PASS_DECL_TOSATOROCKPASS
+#include "mlir/Conversion/RocMLIRPasses.h.inc"
 
-/// Create a pass to convert Tosa conv2d operations to Rock operations.
-std::unique_ptr<Pass> createTosaToRockPass();
+namespace tosa {
 
 /// Populates passes to convert from TOSA to Rock on buffers. At the end of
 /// the pass, the function will only contain Rock ops or standard ops if the
@@ -29,9 +28,8 @@ std::unique_ptr<Pass> createTosaToRockPass();
 void addTosaToRockPasses(OpPassManager &pm);
 
 /// Populates conversion passes from TOSA dialect to Rock dialect.
-void populateTosaToRockConversionPatterns(
-    bufferization::BufferizeTypeConverter &typeConverter, MLIRContext *context,
-    RewritePatternSet &patterns);
+void populateTosaToRockConversionPatterns(MLIRContext *context,
+                                          RewritePatternSet &patterns);
 
 void populateTosaToRockTensorConversionPatterns(MLIRContext *context,
                                                   RewritePatternSet &patterns);

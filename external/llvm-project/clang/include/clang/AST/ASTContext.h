@@ -130,6 +130,7 @@ class TemplateDecl;
 class TemplateParameterList;
 class TemplateTemplateParmDecl;
 class TemplateTypeParmDecl;
+class TypeConstraint;
 class UnresolvedSetIterator;
 class UsingShadowDecl;
 class VarTemplateDecl;
@@ -471,6 +472,9 @@ class ASTContext : public RefCountedBase<ASTContext> {
     void resolve(ASTContext &Ctx);
   };
   llvm::DenseMap<Module*, PerModuleInitializers*> ModuleInitializers;
+
+  /// For module code-gen cases, this is the top-level module we are building.
+  Module *TopLevelModule = nullptr;
 
   static constexpr unsigned ConstantArrayTypesLog2InitSize = 8;
   static constexpr unsigned GeneralTypesLog2InitSize = 9;
@@ -1075,6 +1079,12 @@ public:
   /// Get the initializations to perform when importing a module, if any.
   ArrayRef<Decl*> getModuleInitializers(Module *M);
 
+  /// Set the (C++20) module we are building.
+  void setModuleForCodeGen(Module *M) { TopLevelModule = M; }
+
+  /// Get module under construction, nullptr if this is not a C++20 module.
+  Module *getModuleForCodeGen() const { return TopLevelModule; }
+
   TranslationUnitDecl *getTranslationUnitDecl() const {
     return TUDecl->getMostRecentDecl();
   }
@@ -1356,6 +1366,9 @@ public:
   CanQualType getDecayedType(CanQualType T) const {
     return CanQualType::CreateUnsafe(getDecayedType((QualType) T));
   }
+  /// Return the uniqued reference to a specified decay from the original
+  /// type to the decayed type.
+  QualType getDecayedType(QualType Orig, QualType Decayed) const;
 
   /// Return the uniqued reference to the atomic type for the specified
   /// type.
@@ -1604,10 +1617,11 @@ public:
                                    QualType Wrapped);
 
   QualType getSubstTemplateTypeParmType(const TemplateTypeParmType *Replaced,
-                                        QualType Replacement) const;
-  QualType getSubstTemplateTypeParmPackType(
-                                          const TemplateTypeParmType *Replaced,
-                                            const TemplateArgument &ArgPack);
+                                        QualType Replacement,
+                                        Optional<unsigned> PackIndex) const;
+  QualType
+  getSubstTemplateTypeParmPackType(const TemplateTypeParmType *Replaced,
+                                   const TemplateArgument &ArgPack);
 
   QualType
   getTemplateTypeParmType(unsigned Depth, unsigned Index,
@@ -1623,7 +1637,7 @@ public:
                                          ArrayRef<TemplateArgument> Args) const;
 
   QualType getTemplateSpecializationType(TemplateName T,
-                                         const TemplateArgumentListInfo &Args,
+                                         ArrayRef<TemplateArgumentLoc> Args,
                                          QualType Canon = QualType()) const;
 
   TypeSourceInfo *
@@ -2527,6 +2541,9 @@ public:
     return getCanonicalType(T1) == getCanonicalType(T2);
   }
 
+  /// Determine whether the given expressions \p X and \p Y are equivalent.
+  bool hasSameExpr(const Expr *X, const Expr *Y) const;
+
   /// Return this type as a completely-unqualified array type,
   /// capturing the qualifiers in \p Quals.
   ///
@@ -2664,6 +2681,18 @@ public:
   /// that they may be used in declarations of the same template.
   bool isSameTemplateParameter(const NamedDecl *X, const NamedDecl *Y) const;
 
+  /// Determine whether two 'requires' expressions are similar enough that they
+  /// may be used in re-declarations.
+  ///
+  /// Use of 'requires' isn't mandatory, works with constraints expressed in
+  /// other ways too.
+  bool isSameConstraintExpr(const Expr *XCE, const Expr *YCE) const;
+
+  /// Determine whether two type contraint are similar enough that they could
+  /// used in declarations of the same template.
+  bool isSameTypeConstraint(const TypeConstraint *XTC,
+                            const TypeConstraint *YTC) const;
+
   /// Determine whether two default template arguments are similar enough
   /// that they may be used in declarations of the same template.
   bool isSameDefaultTemplateArgument(const NamedDecl *X,
@@ -2707,6 +2736,10 @@ public:
 
   /// Return number of constant array elements.
   uint64_t getConstantArrayElementCount(const ConstantArrayType *CA) const;
+
+  /// Return number of elements initialized in an ArrayInitLoopExpr.
+  uint64_t
+  getArrayInitLoopExprElementCount(const ArrayInitLoopExpr *AILE) const;
 
   /// Perform adjustment on the parameter type of a function.
   ///
@@ -2781,6 +2814,23 @@ public:
     return AddrSpaceMapMangling || isTargetAddressSpace(AS);
   }
 
+  // Merges two exception specifications, such that the resulting
+  // exception spec is the union of both. For example, if either
+  // of them can throw something, the result can throw it as well.
+  FunctionProtoType::ExceptionSpecInfo
+  mergeExceptionSpecs(FunctionProtoType::ExceptionSpecInfo ESI1,
+                      FunctionProtoType::ExceptionSpecInfo ESI2,
+                      SmallVectorImpl<QualType> &ExceptionTypeStorage,
+                      bool AcceptDependent);
+
+  // For two "same" types, return a type which has
+  // the common sugar between them. If Unqualified is true,
+  // both types need only be the same unqualified type.
+  // The result will drop the qualifiers which do not occur
+  // in both types.
+  QualType getCommonSugaredType(QualType X, QualType Y,
+                                bool Unqualified = false);
+
 private:
   // Helper for integer ordering
   unsigned getIntegerRank(const Type *T) const;
@@ -2798,14 +2848,20 @@ public:
   bool typesAreBlockPointerCompatible(QualType, QualType);
 
   bool isObjCIdType(QualType T) const {
+    if (const auto *ET = dyn_cast<ElaboratedType>(T))
+      T = ET->getNamedType();
     return T == getObjCIdType();
   }
 
   bool isObjCClassType(QualType T) const {
+    if (const auto *ET = dyn_cast<ElaboratedType>(T))
+      T = ET->getNamedType();
     return T == getObjCClassType();
   }
 
   bool isObjCSelType(QualType T) const {
+    if (const auto *ET = dyn_cast<ElaboratedType>(T))
+      T = ET->getNamedType();
     return T == getObjCSelType();
   }
 
@@ -3174,11 +3230,11 @@ OPT_LIST(V)
 
 #undef OPT_LIST
 
-    LLVM_NODISCARD ObjCEncOptions keepingOnly(ObjCEncOptions Mask) const {
+    [[nodiscard]] ObjCEncOptions keepingOnly(ObjCEncOptions Mask) const {
       return Bits & Mask.Bits;
     }
 
-    LLVM_NODISCARD ObjCEncOptions forComponentType() const {
+    [[nodiscard]] ObjCEncOptions forComponentType() const {
       ObjCEncOptions Mask = ObjCEncOptions()
                                 .setIsOutermostType()
                                 .setIsStructField();

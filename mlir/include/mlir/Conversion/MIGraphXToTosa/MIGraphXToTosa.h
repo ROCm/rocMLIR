@@ -23,9 +23,11 @@
 #include "mlir/Pass/Pass.h"
 
 namespace mlir {
+#define GEN_PASS_DECL_MIGRAPHXTOTOSAPASS
+#include "mlir/Conversion/RocMLIRPasses.h.inc"
+
 namespace migraphx {
 
-std::unique_ptr<Pass> createMIGraphXToTosaPass();
 void addMIGraphXToTosaPasses(OpPassManager &pm);
 
 /// Populates conversion passes from MIGraphX dialect to TOSA dialect.

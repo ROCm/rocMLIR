@@ -19,23 +19,27 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PassDetail.h"
-
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/SmallVector.h"
 
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKCLONEKERNELSPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
+
 using namespace mlir;
 
 namespace {
 
 struct RockCloneKernelsPass
-    : public RockCloneKernelsPassBase<RockCloneKernelsPass> {
-  RockCloneKernelsPass(ArrayRef<StringRef> _chips)
-      : chips{_chips.begin(), _chips.end()} {}
-
+    : public rock::impl::RockCloneKernelsPassBase<RockCloneKernelsPass> {
+  using rock::impl::RockCloneKernelsPassBase<
+      RockCloneKernelsPass>::RockCloneKernelsPassBase;
   void runOnOperation() override {
     const char *kernel = "kernel.module";
     ModuleOp mod = getOperation();
@@ -75,17 +79,6 @@ struct RockCloneKernelsPass
       }
     }
   }
-
-private:
-  SmallVector<SmallString<32>, 4> chips;
 };
 
 } // end anonymous namespace
-
-//===- Passes -------------------------------------------------------------===//
-//
-
-std::unique_ptr<Pass>
-mlir::rock::createRockCloneKernelsPass(ArrayRef<StringRef> _chips) {
-  return std::make_unique<RockCloneKernelsPass>(_chips);
-}

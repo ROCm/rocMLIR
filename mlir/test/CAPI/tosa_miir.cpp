@@ -17,7 +17,8 @@
 #include "mlir-c/Dialect/Tosa.h"
 #include "mlir-c/IR.h"
 #include "mlir-c/IntegerSet.h"
-#include "mlir-c/Registration.h"
+#include "mlir-c/RegisterEverything.h"
+#include "mlir-c/RegisterRocMLIR.h"
 
 #include "mlir/CAPI/IR.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
@@ -168,7 +169,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   MlirType relu0Type = mlirRankedTensorTypeGet(
       4, relu0Dims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
   MlirOperationState relu0State = mlirOperationStateGet(
-      mlirStringRefCreateFromCString("tosa.reluN"), location);
+      mlirStringRefCreateFromCString("tosa.clamp"), location);
   mlirOperationStateAddResults(&relu0State, 1, &relu0Type);
   mlirOperationStateAddOperands(&relu0State, 1, relu0Operands);
   mlirOperationStateAddAttributes(&relu0State, 4, relu0Attrs);
@@ -197,7 +198,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
   //     %0 = "tosa.conv2d"(%arg0, %arg1, %arg2) {dilation = [1, 1], pad = [0,
   //     0, 0, 0], stride = [1, 1]} : (tensor<1x64x56x56xf32>,
   //     tensor<64x64x1x1xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
-  //     %1 = "tosa.reluN"(%0) {max_fp = 1.000000e+00 : f32, max_int = 1 : i64,
+  //     %1 = "tosa.clamp"(%0) {max_fp = 1.000000e+00 : f32, max_int = 1 : i64,
   //     min_fp = -1.000000e+00 : f32, min_int = -1 : i64} :
   //     (tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32> return %1 :
   //     tensor<1x64x56x56xf32>
@@ -253,7 +254,14 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 
 int main() {
   MlirContext ctx = mlirContextCreate();
-  mlirRegisterAllDialects(ctx);
+  MlirDialectRegistry registry = mlirDialectRegistryCreate();
+  mlirRegisterAllDialects(registry);
+  mlirContextAppendDialectRegistry(ctx, registry);
+  // TODO: this is a emulation of an old behavior, we should load only the
+  // dialects we use
+  mlirContextLoadAllAvailableDialects(ctx);
+  mlirDialectRegistryDestroy(registry);
+
   if (!constructAndTraverseIr(ctx)) {
     printf("FAILED!\n");
     return 1;

@@ -13,7 +13,8 @@
 #include "mlir-c/BuiltinTypes.h"
 #include "mlir-c/Dialect/MIGraphX.h"
 #include "mlir-c/IR.h"
-#include "mlir-c/Registration.h"
+#include "mlir-c/RegisterEverything.h"
+#include "mlir-c/RegisterRocMLIR.h"
 
 #include <assert.h>
 #include <math.h>
@@ -226,9 +227,14 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 
 int main() {
   MlirContext ctx = mlirContextCreate();
-  MlirDialectHandle mixrHandle = mlirGetDialectHandle__migraphx__();
-  mlirDialectHandleRegisterDialect(mixrHandle, ctx);
-  mlirRegisterAllDialects(ctx);
+  MlirDialectRegistry registry = mlirDialectRegistryCreate();
+  mlirRegisterRocMLIRDialects(registry);
+  mlirRegisterAllDialects(registry);
+  mlirContextAppendDialectRegistry(ctx, registry);
+  // TODO: this is a emulation of an old behavior, we should load only the
+  // dialects we use
+  mlirContextLoadAllAvailableDialects(ctx);
+  mlirDialectRegistryDestroy(registry);
 
   if (!constructAndTraverseIr(ctx)) {
     printf("FAILED!\n");

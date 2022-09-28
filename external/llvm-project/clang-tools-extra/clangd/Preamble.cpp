@@ -552,7 +552,7 @@ buildPreamble(PathRef FileName, CompilerInvocation CI,
   }
 
   if (BuiltPreamble) {
-    vlog("Built preamble of size {0} for file {1} version {2} in {3} seconds",
+    log("Built preamble of size {0} for file {1} version {2} in {3} seconds",
          BuiltPreamble->getSize(), FileName, Inputs.Version,
          PreambleTimer.getTime());
     std::vector<Diag> Diags = PreambleDiagnostics.take();
@@ -566,10 +566,6 @@ buildPreamble(PathRef FileName, CompilerInvocation CI,
     Result->CanonIncludes = CapturedInfo.takeCanonicalIncludes();
     Result->StatCache = std::move(StatCache);
     Result->MainIsIncludeGuarded = CapturedInfo.isMainFileIncludeGuarded();
-    if (Stats != nullptr) {
-      Stats->TotalBuildTime = PreambleTimer.getTime();
-      Stats->FileSystemTime = TimedFS->getTime();
-    }
     return Result;
   }
 

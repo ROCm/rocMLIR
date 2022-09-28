@@ -156,7 +156,7 @@ std::tuple<ArrayAttr, ArrayAttr> mlir::rock::computeOobFromTransforms(
     Builder &b, ArrayAttr transforms,
     Optional<std::tuple<ArrayAttr, ArrayAttr>> initialOob) {
   IntSet upperOobLeft, upperOobRight, lowerOobLeft, lowerOobRight;
-  if (initialOob.hasValue()) {
+  if (initialOob.has_value()) {
     ArrayAttr initLeft, initRight;
     std::tie(initLeft, initRight) = *initialOob;
     for (APInt l : initLeft.getAsValueRange<IntegerAttr>())
@@ -281,7 +281,7 @@ struct VectorizationData {
 
   void debugPrint() {
     for (size_t i = 0, e = data.size(); i < e; ++i) {
-      if (data[i].hasValue())
+      if (data[i].has_value())
         LLVM_DEBUG(llvm::dbgs() << *data[i]);
       else
         LLVM_DEBUG(llvm::dbgs() << "?@? align(?)");
@@ -312,9 +312,9 @@ propagateUnmergeVectorization(T &&dimAndLength,
   for (auto pair : dimAndLength) {
     uint32_t upperDim = std::get<0>(pair);
     int64_t dimLength = std::get<1>(pair);
-    if (input[upperDim].hasValue()) {
+    if (input[upperDim].has_value()) {
       VectorizationInfo upperInfo = *input[upperDim];
-      if (!result.hasValue())
+      if (!result.has_value())
         result = VectorizationInfo(1, upperInfo.needsCoefficient, 1);
       // Catch
       // 1. Dimensions merged out of order and then
@@ -341,7 +341,7 @@ propagateUnmergeVectorization(T &&dimAndLength,
     previousDimsStride *= dimLength;
   }
   if (result.has_value())
-    result->alignment = previousAlign.getValueOr(1);
+    result->alignment = previousAlign.value_or(1);
   return result;
 }
 
@@ -372,7 +372,7 @@ propagateVectorizationInfo(TransformMapAttr map,
             params[2 * idx]; // , sliceEnd = params[2 * idx + 1];
         uint32_t upper, lower;
         std::tie(upper, lower) = data.value();
-        if (input[upper].hasValue()) {
+        if (input[upper].has_value()) {
           int64_t alignment =
               sliceBegin == 0
                   ? input[upper]->alignment
@@ -395,7 +395,7 @@ propagateVectorizationInfo(TransformMapAttr map,
         uint32_t upper, lower;
         std::tie(upper, lower) = data.value();
         Optional<VectorizationInfo> upperInfo = input[upper];
-        if (upperInfo.hasValue()) {
+        if (upperInfo.has_value()) {
           int64_t maxUpperLen = upperInfo->maxLength;
           int64_t upperAlign = upperInfo->alignment;
           int64_t maxVectorizationLeft =
@@ -424,7 +424,7 @@ propagateVectorizationInfo(TransformMapAttr map,
         uint32_t upper, lower;
         int64_t modulus;
         std::tie(upper, lower, modulus) = data;
-        if (input[upper].hasValue()) {
+        if (input[upper].has_value()) {
           int64_t lowerMaxLen =
               math_util::gcd(input[upper]->maxLength, modulus);
           int64_t lowerAlignment =
@@ -465,7 +465,7 @@ propagateVectorizationInfo(TransformMapAttr map,
         uint32_t upperDim = std::get<1>(pair);
         if (coefficient < 0)
           hasNegativeCoefficients = true;
-        if (input[upperDim].hasValue()) {
+        if (input[upperDim].has_value()) {
           if (coefficient == 0)
             continue;
 
@@ -473,7 +473,7 @@ propagateVectorizationInfo(TransformMapAttr map,
           int64_t needsCoeff = input[upperDim]->needsCoefficient;
           int64_t thisAlignment = input[upperDim]->alignment;
 
-          if (!ourResult.hasValue()) {
+          if (!ourResult.has_value()) {
             ourResult =
                 VectorizationInfo(1, coefficient, thisAlignment * coefficient);
             if (hasNegativeCoefficients) {
@@ -524,7 +524,7 @@ propagateVectorizationInfo(TransformMapAttr map,
     // coefficients, their vectorization will disappear.
     case TransformType::Merge: {
       int64_t upperDim = upperDims[0];
-      if (!input[upperDim].hasValue()) {
+      if (!input[upperDim].has_value()) {
         break;
       }
       int64_t maxLen = input[upperDim]->maxLength;
@@ -551,7 +551,7 @@ propagateVectorizationInfo(TransformMapAttr map,
     // dimmensions.
     case TransformType::Unfold: {
       int64_t upperDim = upperDims[0];
-      if (!input[upperDim].hasValue()) {
+      if (!input[upperDim].has_value()) {
         break;
       }
       int64_t maxLen = input[upperDim]->maxLength;

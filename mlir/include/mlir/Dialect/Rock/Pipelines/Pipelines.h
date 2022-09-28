@@ -32,7 +32,7 @@ struct PartitionOptions : public PassPipelineOptions<PartitionOptions> {
   PassOptions::Option<bool> cloneToRockModule{
       *this, "clone-to-rock",
       desc("Clone all kernel funcs into __kernel_<chip> modules"), init(true)};
-  PassOptions::ListOption<StringRef> targetChips{
+  PassOptions::ListOption<std::string> targetChips{
       *this, "target-chips",
       desc("list of target chip architectures to clone kernels for")};
 };
