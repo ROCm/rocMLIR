@@ -653,9 +653,9 @@ pipeline {
                     steps {
                         buildProject('ci-performance-scripts', '')
                         dir('build') {
-                           sh 'python3 ./bin/MIOpenDriver.py -bmiopen_use_tuned_mlir'
+                           sh 'python3 ./bin/MIOpenDriver.py --miopen_use_tuned_mlir'
                            sh 'rm -rf ${WORKSPACE}/MIOpen/build/MIOpenUserDB'
-                           sh 'python3 ./bin/MIOpenDriver.py -bmiopen_use_untuned_mlir'
+                           sh 'python3 ./bin/MIOpenDriver.py --miopen_use_untuned_mlir'
                         }
                     }
                 }

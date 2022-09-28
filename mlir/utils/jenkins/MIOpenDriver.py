@@ -63,7 +63,7 @@ def find_mlir_build_dir() -> str:
     for candidate_path in candidate_paths:
         if candidate_path.exists():
             rock_gen_path = candidate_path
-    
+
     if not rock_gen_path:
         try:
             # Prioritize the search in the current repo first.
@@ -72,7 +72,7 @@ def find_mlir_build_dir() -> str:
             # Else look in the home or WORKSPACE directory
             search_root = os.environ.get('WORKSPACE', str(Path.home()))
             assert search_root, "Cant find WORKSPACE env arg or home directory"
-        
+
         rock_gen_path = glob.glob(search_root + '/**/bin/rocmlir-gen', recursive=True)
         if len(rock_gen_path) == 0:
             # MLIR rock_gen not available
@@ -118,7 +118,7 @@ def create_paths(mlir_build_dir_path, miopen_build_dir_path) -> Paths:
     """Creates the composite Paths structure using build dir paths"""
 
     mlir_paths = None
-    if mlir_build_dir_path: 
+    if mlir_build_dir_path:
         mlir_bin_dir = str((Path(mlir_build_dir_path) / 'bin').resolve())
         mlir_lib_dir = str((Path(mlir_build_dir_path) / 'lib').resolve())
         llvm_lib_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/lib').resolve())
@@ -495,36 +495,22 @@ def is_xdlops_present() -> bool:
         return True
     return False
 
-def add_double_dash_convention(args):
-    """This function will correct single-dashed multi-char args to be double-dash to the parser"""
-    double_dash_args = list()
-    for arg in args:
-        # Only make non-single char args double dash
-        # that already had a single dash
-        if len(arg) > 2:
-            if arg[0:2] != '--' and arg[0] == '-':
-                double_dash_args.append('-' + arg)
-        else:
-            double_dash_args.append(arg)
-    return double_dash_args
-
-
 # Main function.
 def main(args=None):
     """
     usage examples:
 
     python3 MIOpenDriver.py
+    python3 MIOpenDriver.py --batch_both -o=output_file.csv
     python3 MIOpenDriver.py -b
-    python3 MIOpenDriver.py -bmiopen
-    python3 MIOpenDriver.py conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
-    python3 MIOpenDriver.py -miopen conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
-    python3 MIOpenDriver.py -bmiopen_use_tuned_mlir
-    python3 MIOpenDriver.py -bmiopen_use_untuned_mlir
+    python3 MIOpenDriver.py --batch_miopen
+    python3 MIOpenDriver.py -- conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+    python3 MIOpenDriver.py --miopen -- conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+    python3 MIOpenDriver.py --miopen_use_tuned_mlir
+    python3 MIOpenDriver.py --miopen_use_untuned_mlir
     """
     if args is None:
         args = sys.argv[1:]
-    args = add_double_dash_convention(args)
 
     parser = argparse.ArgumentParser(
         prog="MIOpenDriver Test Runner",
@@ -534,12 +520,12 @@ def main(args=None):
 
     mutex_arg_group = parser.add_mutually_exclusive_group()
     mutex_arg_group.add_argument(
-        "--bmiopen_use_tuned_mlir",
+        "--miopen_use_tuned_mlir",
         action="store_true",
         help="Run the benchmarks using tuned MLIR kernels",
     )
     mutex_arg_group.add_argument(
-        "--bmiopen_use_untuned_mlir",
+        "--miopen_use_untuned_mlir",
         action="store_true",
         help="Run the benchmarks using untuned MLIR kernels"
     )
@@ -549,14 +535,19 @@ def main(args=None):
         help="Only tune the MLIR kernels"
     )
     mutex_arg_group.add_argument(
-        "-b",
+        "-b", "--batch",
         action="store_true",
         help="CSV batch benchmarking mode with MLIR"
     )
     mutex_arg_group.add_argument(
-        "--bmiopen",
+        "--batch_miopen",
         action="store_true",
         help="CSV batch benchmarking mode with MIOpen"
+    )
+    mutex_arg_group.add_argument(
+        "--batch_both",
+        action="store_true",
+        help="CSV batch benchmarking with MLIR and MIOpen (defalut on no args)"
     )
     mutex_arg_group.add_argument(
         "--miopen",
@@ -583,14 +574,24 @@ def main(args=None):
         default=find_miopen_build_dir(),
         help="The build directory of MIOpen",
     )
-    parsed_args, _ = parser.parse_known_args(args)
+    parser.add_argument(
+        "config",
+        type=str,
+        nargs='*',
+        help="The specific config to test, if you want to test one"
+    )
+    parsed_args = parser.parse_args(args)
 
-    if parsed_args.miopen or parsed_args.bmiopen or parsed_args.bmiopen_use_tuned_mlir or \
-       parsed_args.bmiopen_use_untuned_mlir or parsed_args.tuning or len(sys.argv) == 1:
+    # Impose default behavior when no args have been passed
+    if len(args) == 0:
+        parsed_args.batch_both = True
+
+    if parsed_args.miopen or parsed_args.batch_miopen or parsed_args.miopen_use_tuned_mlir or \
+       parsed_args.miopen_use_untuned_mlir or parsed_args.tuning or parsed_args.batch_both:
         if not parsed_args.miopen_build_dir:
             raise RuntimeError("MIOpen build dir was not provided/found where the test requires it")
 
-    if parsed_args.b or len(sys.argv) == 1:
+    if parsed_args.batch or parsed_args.batch_both:
         if not parsed_args.mlir_build_dir:
             raise RuntimeError("MLIR build dir was not provided/found")
 
@@ -599,28 +600,28 @@ def main(args=None):
     configs = getConfigurations(paths.configuration_file_path)
 
     #If no arguments are passed, then benchmark with MLIR and MIOpen
-    if len(sys.argv) == 1:
+    if parsed_args.batch_both:
         # batch benchmark with MLIR and MIOpen.
         generatePerformanceResults(configs, xdlops, paths)
-    elif parsed_args.bmiopen_use_tuned_mlir:
+    elif parsed_args.miopen_use_tuned_mlir:
         benchmarkMIOpenWithMLIRKernels(configs, xdlops, reportUtils.MIOPEN_TUNED_REPORT_FILE, paths)
-    elif parsed_args.bmiopen_use_untuned_mlir:
+    elif parsed_args.miopen_use_untuned_mlir:
         benchmarkMIOpenWithMLIRKernels(configs, xdlops, reportUtils.MIOPEN_UNTUNED_REPORT_FILE, paths)
     elif parsed_args.tuning:
         tuneMLIRKernels(configs, xdlops, paths)
     else:
-        if parsed_args.b:
+        if parsed_args.batch:
             df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), xdlops, paths) for testVector in configs)
-        elif parsed_args.bmiopen:
+        elif parsed_args.batch_miopen:
             df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), xdlops, paths) for testVector in configs)
         elif parsed_args.miopen:
-            df = pd.DataFrame([benchmarkMIOpen(sys.argv[2:], xdlops, paths)])
+            df = pd.DataFrame([benchmarkMIOpen(parsed_args.config, xdlops, paths)])
         else:
             # Will only reach here with more than 1 unspecified arguments
             # These are arguments are directly passed through to benchmarkMLIR
             if not parsed_args.mlir_build_dir:
                 raise RuntimeError("MLIR build dir was not provided/found")
-            df = pd.DataFrame([benchmarkMLIR(sys.argv[1:], xdlops, paths)])
+            df = pd.DataFrame([benchmarkMLIR(parsed_args.config, xdlops, paths)])
         df.to_csv(parsed_args.fileName)
         with pd.option_context('display.precision', reportUtils.ROUND_DIGITS):
             print(df) # for interactive consumption
