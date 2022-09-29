@@ -1172,16 +1172,32 @@ struct GridwiseGemmV2RewritePattern
         (KPack > 1) ? GemmDimension::K : GemmDimension::MorN;
     std::tie(matrix_a_source_vector_read_dim, matrix_a_source_data_per_read) =
         bestVectorization(b, matA, aCopyPerThread, vectorTiebreaker);
-    if (matrix_a_source_vector_read_dim == GemmDimension::K) {
-      matrix_a_source_data_per_read =
-          std::min(matrix_a_source_data_per_read, KPack);
+    // Temporary clamping hack because the old logic expects certain invariants
+    // between the vectorization length and kPack
+    if (KPack > 1) {
+      if (matrix_a_source_vector_read_dim == GemmDimension::K) {
+        matrix_a_source_data_per_read =
+            std::min(matrix_a_source_data_per_read, KPack);
+      }
+      if (matrix_a_source_vector_read_dim == GemmDimension::MorN) {
+        matrix_a_source_data_per_read =
+          std::min(matrix_a_source_data_per_read, aCopyPerThread / KPack);
+      }
     }
 
     std::tie(matrix_b_source_vector_read_dim, matrix_b_source_data_per_read) =
         bestVectorization(b, matB, bCopyPerThread, vectorTiebreaker);
-    if (matrix_b_source_vector_read_dim == GemmDimension::K) {
-      matrix_b_source_data_per_read =
-          std::min(matrix_b_source_data_per_read, KPack);
+    // Temporary clamping hack because the old logic expects certain invariants
+    // between the vectorization length and kPack
+    if (KPack > 1) {
+      if (matrix_b_source_vector_read_dim == GemmDimension::K) {
+        matrix_b_source_data_per_read =
+            std::min(matrix_b_source_data_per_read, KPack);
+      }
+      if (matrix_b_source_vector_read_dim == GemmDimension::MorN) {
+        matrix_b_source_data_per_read =
+          std::min(matrix_b_source_data_per_read, bCopyPerThread / KPack);
+      }
     }
 
     // Obtain XDLOPS-related attributes.

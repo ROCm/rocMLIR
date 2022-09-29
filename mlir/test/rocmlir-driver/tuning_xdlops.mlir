@@ -1,7 +1,7 @@
 // Check the naming of tuning parameters for xdlops and matrix c vectorization values
 
-// RUN: miopen-gen -p -x2 | mlir-miopen-driver -miopen-affix-params -miopen-conv-to-gemm | FileCheck %s --check-prefix=STEP1
-// RUN: miopen-gen -p -x2 | mlir-miopen-driver -miopen-affix-params -miopen-conv-to-gemm -miopen-gridwise-gemm-to-blockwise | FileCheck %s --check-prefix=STEP2
+// RUN: rocmlir-gen -p -x2 | rocmlir-driver -rock-affix-params -rock-conv-to-gemm | FileCheck %s --check-prefix=STEP1
+// RUN: rocmlir-gen -p -x2 | rocmlir-driver -rock-affix-params -rock-conv-to-gemm -rock-gridwise-gemm-to-blockwise | FileCheck %s --check-prefix=STEP2
 
 // STEP1: mPerWave
 // STEP1: nPerWave
