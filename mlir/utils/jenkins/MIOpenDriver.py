@@ -535,7 +535,7 @@ def main(args=None):
         help="Only tune the MLIR kernels"
     )
     mutex_arg_group.add_argument(
-        "-b", "--batch",
+        "-b", "--batch_mlir",
         action="store_true",
         help="CSV batch benchmarking mode with MLIR"
     )
@@ -591,7 +591,7 @@ def main(args=None):
         if not parsed_args.miopen_build_dir:
             raise RuntimeError("MIOpen build dir was not provided/found where the test requires it")
 
-    if parsed_args.batch or parsed_args.batch_both:
+    if parsed_args.batch_mlir or parsed_args.batch_both:
         if not parsed_args.mlir_build_dir:
             raise RuntimeError("MLIR build dir was not provided/found")
 
@@ -610,7 +610,7 @@ def main(args=None):
     elif parsed_args.tuning:
         tuneMLIRKernels(configs, xdlops, paths)
     else:
-        if parsed_args.batch:
+        if parsed_args.batch_mlir:
             df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), xdlops, paths) for testVector in configs)
         elif parsed_args.batch_miopen:
             df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), xdlops, paths) for testVector in configs)
