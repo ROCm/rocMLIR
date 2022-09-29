@@ -527,7 +527,7 @@ void TosaPartitionPass::runOnOperation() {
       if (!isAnchorOp(op))
         return WalkResult::advance();
       Operation *anchorOp = op;
-      auto strCount = std::string("_outlined_part_") + std::to_string(count++);
+      auto strCount = std::string("__part_") + std::to_string(count++);
 
       // Given a Conv2DOp (or other anchor op), gather all the
       // element-wise ops that are reachable from its results,
