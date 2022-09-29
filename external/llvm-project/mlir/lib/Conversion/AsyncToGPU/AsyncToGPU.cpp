@@ -8,7 +8,6 @@
 
 #include "mlir/Conversion/AsyncToGPU/AsyncToGPU.h"
 
-#include "../PassDetail.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Async/IR/Async.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -20,6 +19,11 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #define DEBUG_TYPE "convert-async-to-gpu"
+
+namespace mlir {
+#define GEN_PASS_DEF_CONVERTASYNCTOGPU
+#include "mlir/Conversion/Passes.h.inc"
+} // namespace mlir
 
 using namespace mlir;
 using namespace mlir::async;
@@ -56,7 +60,7 @@ static Optional<func::FuncOp> getCalledFunc(async::LaunchOp op) {
 // Get target{gpu} attribute from called func
 static Optional<DictionaryAttr> getGPUTarget(async::LaunchOp op) {
   auto func = getCalledFunc(op);
-  if (!func.hasValue() || func->getNumResults() != 0)
+  if (!func.has_value() || func->getNumResults() != 0)
     return llvm::None;
 
   auto attr = (*func)->template getAttrOfType<ArrayAttr>("async.targets");
@@ -133,7 +137,7 @@ public:
     // 1. get target{gpu} attribute from func
 
     auto gpuAttr = getGPUTarget(op);
-    if (!gpuAttr.hasValue())
+    if (!gpuAttr.has_value())
       return op.emitOpError("requires a gpu target");
 
     auto arch = gpuAttr->get("arch");
@@ -299,7 +303,7 @@ public:
 
 namespace {
 struct ConvertAsyncToGPUPass
-    : public ConvertAsyncToGPUBase<ConvertAsyncToGPUPass> {
+    : public impl::ConvertAsyncToGPUBase<ConvertAsyncToGPUPass> {
   void runOnOperation() override;
 };
 } // namespace
@@ -324,7 +328,7 @@ void ConvertAsyncToGPUPass::runOnOperation() {
 
   // Except when async.launch has no GPU target.
   target.addDynamicallyLegalOp<async::LaunchOp>(
-      [&](async::LaunchOp op) { return !getGPUTarget(op).hasValue(); });
+      [&](async::LaunchOp op) { return !getGPUTarget(op).has_value(); });
   // TODO(sjw): Make async.token universal
   // target.addDynamicallyLegalOp<async::AwaitOp>([&](async::AwaitOp op) {
   //     return true;

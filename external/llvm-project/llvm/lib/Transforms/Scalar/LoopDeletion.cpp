@@ -98,7 +98,7 @@ static bool isLoopDead(Loop *L, ScalarEvolution &SE,
   }
 
   if (Changed)
-    SE.forgetLoopDispositions(L);
+    SE.forgetLoopDispositions();
 
   if (!AllEntriesInvariant || !AllOutgoingValuesSame)
     return false;
@@ -106,7 +106,7 @@ static bool isLoopDead(Loop *L, ScalarEvolution &SE,
   // Make sure that no instructions in the block have potential side-effects.
   // This includes instructions that could write to memory, and loads that are
   // marked volatile.
-  for (auto &I : L->blocks())
+  for (const auto &I : L->blocks())
     if (any_of(*I, [](Instruction &I) {
           return I.mayHaveSideEffects() && !I.isDroppable();
         }))

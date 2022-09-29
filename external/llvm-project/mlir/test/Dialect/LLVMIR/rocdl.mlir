@@ -29,6 +29,12 @@ func.func @rocdl_special_regs() -> i32 {
   llvm.return %0 : i32
 }
 
+func.func @rocdl.barrier() {
+  // CHECK: rocdl.barrier
+  rocdl.barrier
+  llvm.return
+}
+
 func.func @rocdl.xdlops(%arg0 : f32, %arg1 : f32,
                    %arg2 : vector<32xf32>, %arg3 : i32,
                    %arg4 : vector<16xf32>, %arg5 : vector<4xf32>,

@@ -17,11 +17,12 @@
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/Generator/AmdArchDb.h"
 #include "mlir/Dialect/Rock/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/AffineExpr.h"
@@ -37,6 +38,7 @@
 #include "mlir/IR/Types.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
+#include "mlir/InitRocMLIRDialects.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -894,7 +896,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
 
   // Initialize the result tensor
   mlir::BlockArgument resultTensor;
-  switch (genConfig.operation.getValue()) {
+  switch (genConfig.operation.value()) {
   case rock::ConvOpType::Fwd:
     resultTensor = block->getArgument(2);
     break;
@@ -919,7 +921,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   AffineExpr outputHeightExpr, outputWidthExpr;
   AffineMap outputHeightMap, outputWidthMap;
 
-  switch (genConfig.operation.getValue()) {
+  switch (genConfig.operation.value()) {
   case rock::ConvOpType::Fwd:
   case rock::ConvOpType::BwdWeight:
     // d0 * stride + d1 * dilation - padding
@@ -942,7 +944,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   widthMap = AffineMap::get(2, 0, {widthExpr}, b.getContext());
 
   // Create extra maps for backward data
-  if (genConfig.operation.getValue() == rock::ConvOpType::BwdData) {
+  if (genConfig.operation.value() == rock::ConvOpType::BwdData) {
     // d0 / stride
     outputHeightExpr = b.getAffineDimExpr(0).floorDiv(genConfig.strideHeight);
     outputWidthExpr = b.getAffineDimExpr(0).floorDiv(genConfig.strideWidth);
@@ -954,7 +956,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   SmallVector<AffineExpr, 6> exprs;
   SmallVector<bool, 6> eqFlags;
   IntegerSet condition;
-  if (genConfig.operation.getValue() == rock::ConvOpType::BwdData) {
+  if (genConfig.operation.value() == rock::ConvOpType::BwdData) {
     // out_h_tmp % stride_h == 0, out_w_tmp % stride_w == 0
     exprs.push_back(b.getAffineDimExpr(2) % genConfig.strideHeight);
     eqFlags.push_back(true);
@@ -971,7 +973,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   eqFlags.push_back(false);
   exprs.push_back(b.getAffineSymbolExpr(1) - b.getAffineDimExpr(1) - 1);
   eqFlags.push_back(false);
-  if (genConfig.operation.getValue() == rock::ConvOpType::BwdData) {
+  if (genConfig.operation.value() == rock::ConvOpType::BwdData) {
     condition = IntegerSet::get(4, 2, exprs, eqFlags);
   } else {
     condition = IntegerSet::get(2, 2, exprs, eqFlags);
@@ -985,10 +987,10 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   int64_t dimX, dimH, dimW;
   int64_t out_h, out_w;
   std::tie(dimX, dimH, dimW) =
-      getConv2dBounds(genConfig.operation.getValue(), genConfig);
+      getConv2dBounds(genConfig.operation.value(), genConfig);
 
   // Create the upper bounds
-  switch (genConfig.operation.getValue()) {
+  switch (genConfig.operation.value()) {
   case rock::ConvOpType::Fwd:
     llvm::copy(genConfig.outputDimension, std::back_inserter(upperBounds));
     upperBounds.push_back(dimX);
@@ -1021,7 +1023,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
     mlir::Value heightIdx, widthIdx;
     mlir::Value heightTempIdx, widthTempIdx;
 
-    switch (genConfig.operation.getValue()) {
+    switch (genConfig.operation.value()) {
     case rock::ConvOpType::Fwd:
       // in_h_idx = out_h_idx * stride_h + fil_h_idx * dilation_h - padding_h_l;
       // in_w_idx = out_w_idx * stride_w + fil_w_idx * dilation_w - padding_w_l;
@@ -1070,7 +1072,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
       else
         layout = genConfig.outputLayout;
       for (auto c : layout) {
-        auto direction = genConfig.operation.getValue();
+        auto direction = genConfig.operation.value();
         if ((direction == rock::ConvOpType::Fwd ||
              direction == rock::ConvOpType::BwdWeight) &&
             tensor == INPUT) {
@@ -1101,7 +1103,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
     auto dimWidth = b.create<arith::ConstantIndexOp>(loc, dimW);
 
     AffineIfOp ifOp;
-    if (genConfig.operation.getValue() == rock::ConvOpType::BwdData) {
+    if (genConfig.operation.value() == rock::ConvOpType::BwdData) {
       ifOp = b.create<mlir::AffineIfOp>(loc, condition,
                                         ValueRange{heightIdx, widthIdx,
                                                    heightTempIdx, widthTempIdx,
@@ -1118,7 +1120,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
     SmallVector<mlir::Value, 5> idx1, idx2;
     BlockArgument opd1, opd2, result;
 
-    switch (genConfig.operation.getValue()) {
+    switch (genConfig.operation.value()) {
     case rock::ConvOpType::Fwd:
       getIndices(FILTER, idx1);
       getIndices(INPUT, idx2);
@@ -1153,13 +1155,13 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
       auto muliOp = thenBody.create<arith::MulIOp>(loc, loadOp1, loadOp2);
       auto extsiOp = thenBody.create<arith::ExtSIOp>(loc, elemType, muliOp);
       auto addiOp = thenBody.create<arith::AddIOp>(loc, loadOutput, extsiOp);
-      auto storeOp = thenBody.create<memref::StoreOp>(
+      thenBody.create<memref::StoreOp>(
           loc, addiOp, result,
           ValueRange{ivs[0], ivs[1], ivs[2], ivs[3], ivs[4]});
     } else {
       auto mulfOp = thenBody.create<arith::MulFOp>(loc, loadOp1, loadOp2);
       auto addfOp = thenBody.create<arith::AddFOp>(loc, loadOutput, mulfOp);
-      auto storeOp = thenBody.create<memref::StoreOp>(
+      thenBody.create<memref::StoreOp>(
           loc, addfOp, result,
           ValueRange{ivs[0], ivs[1], ivs[2], ivs[3], ivs[4]});
     }
@@ -1270,7 +1272,7 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
 
   // reduce precision if !xdlops
   bool hasXdlops =
-      rock::bitEnumContains(genConfig.features, rock::GemmFeatures::xdlops);
+      rock::bitEnumContainsAll(genConfig.features, rock::GemmFeatures::mfma);
   auto xdlopsConstantOp =
       b.create<arith::ConstantIntOp>(loc, hasXdlops, intType);
 
@@ -1328,7 +1330,7 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
 
   std::string mcpuFuncName;
 
-  switch (genConfig.operation.getValue()) {
+  switch (genConfig.operation.value()) {
   case rock::ConvOpType::Fwd:
     mcpuFuncName = "mcpuConv2d";
     break;
@@ -1372,9 +1374,9 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
 static func::FuncOp
 createCPUConvFunc(ModuleOp module,
                   const rock::Conv2dGenerator::Config &genConfig) {
-  assert(genConfig.operation.hasValue());
+  assert(genConfig.operation.has_value());
   std::string funcName =
-      rock::getNameForConvOpType(genConfig.operation.getValue()).str();
+      rock::getNameForConvOpType(genConfig.operation.value()).str();
 
   funcName += "_cpu";
   func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
@@ -1389,7 +1391,7 @@ createCPUConvFunc(ModuleOp module,
   if (genConfig.dataTypeStr == "i8") {
     elemType = b.getI8Type();
     outputElemType = b.getIntegerType(32);
-    assert(genConfig.operation.getValue() == rock::ConvOpType::Fwd);
+    assert(genConfig.operation.value() == rock::ConvOpType::Fwd);
   }
 
   auto filterDimension = genConfig.filterDimension;
@@ -1848,8 +1850,8 @@ populateHostHarnessLogic(ModuleOp &module,
   b.setInsertionPoint(block, block->begin());
 
   int32_t outIdx = -1;
-  if (genConfig.operation.hasValue()) {
-    switch (genConfig.operation.getValue()) {
+  if (genConfig.operation.has_value()) {
+    switch (genConfig.operation.value()) {
     case rock::ConvOpType::Fwd:
       outIdx = 2;
       break;
@@ -2013,7 +2015,7 @@ populateHostHarnessLogic(ModuleOp &module,
 
   // Run validation
   bool hasXdlops =
-      rock::bitEnumContains(genConfig.features, rock::GemmFeatures::xdlops);
+      rock::bitEnumContainsAll(genConfig.features, rock::GemmFeatures::mfma);
   if (hasValidation) {
     if (validationType == "gpu" &&
         (hasXdlops || genConfig.dataTypeStr == "f16" ||
@@ -2106,6 +2108,7 @@ populateHostHarnessLogic(ModuleOp &module,
 int main(int argc, char **argv) {
   DialectRegistry registry;
   registerAllDialects(registry);
+  registerRocMLIRDialects(registry);
 #ifdef MLIR_INCLUDE_TESTS
   test::registerTestDialect(registry);
 #endif
@@ -2190,9 +2193,10 @@ int main(int argc, char **argv) {
 
       LogicalResult status = success();
 
-      rock::GemmFeatures enabledFeatures = rock::GemmFeatures::none;
-      if (xdlopsV2.getValue())
-        enabledFeatures = enabledFeatures | rock::GemmFeatures::xdlops;
+      rock::AmdArchInfo archInfo = rock::lookupArchInfo(chip);
+      rock::GemmFeatures enabledFeatures = archInfo.defaultFeatures;
+      enabledFeatures = rock::bitEnumSet(
+          enabledFeatures, rock::GemmFeatures::mfma, xdlopsV2.getValue());
       conv2dGenerator = rock::Conv2dGenerator(
           chip, triple, chipFeatures, perfConfig.getValue(), num_cu.getValue(),
           enabledFeatures, operation.getValue(), tensorDataType.getValue(),
@@ -2258,7 +2262,7 @@ int main(int argc, char **argv) {
 
   // Make KernelIFs for the roots, to pass to populateHostHarnessLogic().
   SmallVector<KernelIF, 8> rootIFs;
-  for (auto node : roots) {
+  for (auto *node : roots) {
     func::FuncOp func =
         dyn_cast<func::FuncOp>(node->getCallableRegion()->getParentOp());
     rootIFs.emplace_back(func);

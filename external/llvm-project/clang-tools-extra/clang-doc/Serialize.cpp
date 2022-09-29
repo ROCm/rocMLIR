@@ -10,6 +10,7 @@
 #include "BitcodeWriter.h"
 #include "clang/AST/Comment.h"
 #include "clang/Index/USRGeneration.h"
+#include "clang/Lex/Lexer.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/SHA1.h"
@@ -28,6 +29,8 @@ template <typename T>
 static void
 populateParentNamespaces(llvm::SmallVector<Reference, 4> &Namespaces,
                          const T *D, bool &IsAnonymousNamespace);
+
+static void populateMemberTypeInfo(MemberTypeInfo &I, const FieldDecl *D);
 
 // A function to extract the appropriate relative path for a given info's
 // documentation. The path returned is a composite of the parent namespaces.
@@ -166,7 +169,7 @@ void ClangDocCommentVisitor::visitVerbatimLineComment(
 }
 
 bool ClangDocCommentVisitor::isWhitespaceOnly(llvm::StringRef S) const {
-  return std::all_of(S.begin(), S.end(), isspace);
+  return llvm::all_of(S, isspace);
 }
 
 std::string ClangDocCommentVisitor::getCommandName(unsigned CommandID) const {
@@ -178,6 +181,13 @@ std::string ClangDocCommentVisitor::getCommandName(unsigned CommandID) const {
 }
 
 // Serializing functions.
+
+std::string getSourceCode(const Decl *D, const SourceRange &R) {
+  return Lexer::getSourceText(CharSourceRange::getTokenRange(R),
+                              D->getASTContext().getSourceManager(),
+                              D->getASTContext().getLangOpts())
+      .str();
+}
 
 template <typename T> static std::string serialize(T &I) {
   SmallString<2048> Buffer;
@@ -293,34 +303,50 @@ static void parseFields(RecordInfo &I, const RecordDecl *D, bool PublicOnly,
         continue;
       }
     }
-    I.Members.emplace_back(
+
+    auto& member = I.Members.emplace_back(
         F->getTypeSourceInfo()->getType().getAsString(), F->getNameAsString(),
         getFinalAccessSpecifier(Access, F->getAccessUnsafe()));
+    populateMemberTypeInfo(member, F);
   }
 }
 
 static void parseEnumerators(EnumInfo &I, const EnumDecl *D) {
-  for (const EnumConstantDecl *E : D->enumerators())
-    I.Members.emplace_back(E->getNameAsString());
+  for (const EnumConstantDecl *E : D->enumerators()) {
+    std::string ValueExpr;
+    if (const Expr *InitExpr = E->getInitExpr())
+      ValueExpr = getSourceCode(D, InitExpr->getSourceRange());
+
+    SmallString<16> ValueStr;
+    E->getInitVal().toString(ValueStr);
+    I.Members.emplace_back(E->getNameAsString(), ValueStr, ValueExpr);
+  }
 }
 
 static void parseParameters(FunctionInfo &I, const FunctionDecl *D) {
   for (const ParmVarDecl *P : D->parameters()) {
+    FieldTypeInfo *FieldInfo = nullptr;
     if (const auto *T = getDeclForType(P->getOriginalType())) {
       if (const auto *N = dyn_cast<EnumDecl>(T)) {
-        I.Params.emplace_back(getUSRForDecl(N), N->getNameAsString(),
-                              InfoType::IT_enum, getInfoRelativePath(N),
-                              P->getNameAsString());
-        continue;
+        FieldInfo = &I.Params.emplace_back(
+            getUSRForDecl(N), N->getNameAsString(), InfoType::IT_enum,
+            getInfoRelativePath(N), P->getNameAsString());
       } else if (const auto *N = dyn_cast<RecordDecl>(T)) {
-        I.Params.emplace_back(getUSRForDecl(N), N->getNameAsString(),
-                              InfoType::IT_record, getInfoRelativePath(N),
-                              P->getNameAsString());
-        continue;
+        FieldInfo = &I.Params.emplace_back(
+            getUSRForDecl(N), N->getNameAsString(), InfoType::IT_record,
+            getInfoRelativePath(N), P->getNameAsString());
       }
+      // Otherwise fall through to the default case below.
     }
-    I.Params.emplace_back(P->getOriginalType().getAsString(),
-                          P->getNameAsString());
+
+    if (!FieldInfo) {
+      FieldInfo = &I.Params.emplace_back(P->getOriginalType().getAsString(),
+                                         P->getNameAsString());
+    }
+
+    if (const Expr *DefaultArg = P->getDefaultArg()) {
+      FieldInfo->DefaultValue = getSourceCode(D, DefaultArg->getSourceRange());
+    }
   }
 }
 
@@ -429,6 +455,23 @@ static void populateFunctionInfo(FunctionInfo &I, const FunctionDecl *D,
     I.ReturnType = TypeInfo(D->getReturnType().getAsString());
   }
   parseParameters(I, D);
+}
+
+static void populateMemberTypeInfo(MemberTypeInfo &I, const FieldDecl *D) {
+  assert(D && "Expect non-null FieldDecl in populateMemberTypeInfo");
+
+  ASTContext& Context = D->getASTContext();
+  // TODO investigate whether we can use ASTContext::getCommentForDecl instead
+  // of this logic. See also similar code in Mapper.cpp.
+  RawComment *Comment = Context.getRawCommentForDeclNoCache(D);
+  if (!Comment)
+    return;
+
+  Comment->setAttached();
+  if (comments::FullComment* fc = Comment->parse(Context, nullptr, D)) {
+    I.Description.emplace_back();
+    parseFullComment(fc, I.Description.back());
+  }
 }
 
 static void
@@ -625,6 +668,8 @@ emitInfo(const EnumDecl *D, const FullComment *FC, int LineNumber,
     return {};
 
   Enum.Scoped = D->isScoped();
+  if (D->isFixed())
+    Enum.BaseType = TypeInfo(D->getIntegerType().getAsString());
   parseEnumerators(Enum, D);
 
   // Put in global namespace

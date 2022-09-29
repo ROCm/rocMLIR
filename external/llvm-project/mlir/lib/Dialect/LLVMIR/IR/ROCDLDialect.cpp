@@ -16,7 +16,6 @@
 
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 
-#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"

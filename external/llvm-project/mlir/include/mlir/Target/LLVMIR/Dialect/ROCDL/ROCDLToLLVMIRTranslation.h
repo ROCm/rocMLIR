@@ -26,7 +26,6 @@ void registerROCDLDialectTranslation(DialectRegistry &registry);
 /// associated with the given context.
 void registerROCDLDialectTranslation(MLIRContext &context);
 
-
 } // namespace mlir
 
 #endif // MLIR_TARGET_LLVMIR_DIALECT_ROCDL_ROCDLTOLLVMIRTRANSLATION_H

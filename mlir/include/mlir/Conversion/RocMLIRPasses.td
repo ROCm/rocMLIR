@@ -16,10 +16,9 @@ include "mlir/Pass/PassBase.td"
 // RockToGPU
 //===----------------------------------------------------------------------===//
 
-def ConvertRockToGPU : Pass<"convert-rock-to-gpu", "ModuleOp"> {
+def ConvertRockToGPUPass : Pass<"convert-rock-to-gpu", "ModuleOp"> {
   let summary = "Lower the operations from the Rock dialect into the GPU "
                 "dialect";
-  let constructor = "mlir::createLowerRockOpsToGPUPass()";
   let options = [
     Option<"kernelName", "kernel-name", "std::string",
            "\"rock_conv2d_kcyx_nchw_nkhw\"",
@@ -41,26 +40,29 @@ def ConvertRockToGPU : Pass<"convert-rock-to-gpu", "ModuleOp"> {
 // TosaToRock
 //===----------------------------------------------------------------------===//
 
-def TosaToRock : Pass<"tosa-to-rock", "::mlir::func::FuncOp"> {
+def TosaToRockPass : Pass<"tosa-to-rock", "::mlir::func::FuncOp"> {
   let summary = "Lower TOSA to Rock";
   let description = [{
     Pass that converts TOSA operations to bufferized Rock operations.
   }];
-
-  let constructor = "tosa::createTosaToRockPass()";
+  let dependentDialects = [
+    "bufferization::BufferizationDialect",
+    "func::FuncDialect",
+    "rock::RockDialect",
+    "tensor::TensorDialect"
+  ];
 }
 
 //===----------------------------------------------------------------------===//
 // MIGraphXToTosa
 //===----------------------------------------------------------------------===//
 
-def MIGraphXToTosa : Pass<"migraphx-to-tosa", "::mlir::func::FuncOp"> {
+def MIGraphXToTosaPass : Pass<"migraphx-to-tosa", "::mlir::func::FuncOp"> {
   let summary = "Lower MIGraphX to TOSA";
   let description = [{
     Pass that converts MIGraphX operations to TOSA operations.
   }];
 
-  let constructor = "migraphx::createMIGraphXToTosaPass()";
   let dependentDialects = [
     "func::FuncDialect",
     "tosa::TosaDialect"
@@ -68,29 +70,15 @@ def MIGraphXToTosa : Pass<"migraphx-to-tosa", "::mlir::func::FuncOp"> {
 }
 
 //===----------------------------------------------------------------------===//
-// MIGraphXTransform
-//===----------------------------------------------------------------------===//
-
-def MIGraphXTransforms : Pass<"migraphx-transform", "::mlir::func::FuncOp"> {
-  let summary = "Transform MIGraphX ops";
-  let description = [{
-    Pass that applies MIGraphX operations level optimization.
-  }];
-
-  let constructor = "migraphx::createMIGraphXTransformPass()";
-}
-
-//===----------------------------------------------------------------------===//
 // GPUToMIGraphX
 //===----------------------------------------------------------------------===//
 
-def GPUToMIGraphX : Pass<"gpu-to-migraphx", "::mlir::func::FuncOp"> {
+def GPUToMIGraphXPass : Pass<"gpu-to-migraphx", "::mlir::func::FuncOp"> {
   let summary = "Lower fused gpu launch to MIGraphX code object";
   let description = [{
     Pass that converts func operations with gpu.launch to MIGraphX operation.
   }];
 
-  let constructor = "migraphx::createGPUToMIGraphXPass()";
   let dependentDialects = [
     "migraphx::MIGraphXDialect",
     "func::FuncDialect",

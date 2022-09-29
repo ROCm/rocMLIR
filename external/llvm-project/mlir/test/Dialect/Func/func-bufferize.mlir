@@ -1,13 +1,13 @@
 // RUN: mlir-opt %s -func-bufferize -split-input-file -verify-diagnostics | FileCheck %s
 
-// CHECK-LABEL:   func.func @identity(
+// CHECK-LABEL:   func @identity(
 // CHECK-SAME:                   %[[ARG:.*]]: memref<f32>) -> memref<f32> {
 // CHECK:           return %[[ARG]] : memref<f32>
 func.func @identity(%arg0: tensor<f32>) -> tensor<f32> {
   return %arg0 : tensor<f32>
 }
 
-// CHECK-LABEL:   func.func @block_arguments(
+// CHECK-LABEL:   func @block_arguments(
 // CHECK-SAME:        %[[ARG:.*]]: memref<f32>) -> memref<f32> {
 // CHECK:           cf.br ^bb1(%[[ARG]] : memref<f32>)
 // CHECK:         ^bb1(%[[BBARG:.*]]: memref<f32>):
@@ -18,8 +18,8 @@ func.func @block_arguments(%arg0: tensor<f32>) -> tensor<f32> {
   return %bbarg : tensor<f32>
 }
 
-// CHECK-LABEL:   func.func private @source() -> memref<f32>
-// CHECK-LABEL:   func.func @call_source() -> memref<f32> {
+// CHECK-LABEL:   func private @source() -> memref<f32>
+// CHECK-LABEL:   func @call_source() -> memref<f32> {
 // CHECK:           %[[RET:.*]] = call @source() : () -> memref<f32>
 // CHECK:           return %[[RET]] : memref<f32>
 func.func private @source() -> tensor<f32>
@@ -27,7 +27,7 @@ func.func @call_source() -> tensor<f32> {
   %0 = call @source() : () -> tensor<f32>
   return %0 : tensor<f32>
 }
-// CHECK-LABEL:   func.func @call_sink(
+// CHECK-LABEL:   func @call_sink(
 // CHECK-SAME:                    %[[ARG:.*]]: memref<f32>) {
 // CHECK:           call @sink(%[[ARG]]) : (memref<f32>) -> ()
 // CHECK:           return
@@ -37,7 +37,7 @@ func.func @call_sink(%arg0: tensor<f32>) {
   return
 }
 
-// CHECK-LABEL:   func.func @unconverted_op_in_body() -> memref<f32> {
+// CHECK-LABEL:   func @unconverted_op_in_body() -> memref<f32> {
 // CHECK:           %[[TENSOR:.*]] = "test.source"() : () -> tensor<f32>
 // CHECK:           %[[MEMREF:.*]] = bufferization.to_memref %[[TENSOR]] : memref<f32>
 // CHECK:           return %[[MEMREF]] : memref<f32>

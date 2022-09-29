@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PassDetail.h"
 #include "mlir/Dialect/Async/IR/Async.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
@@ -23,10 +23,17 @@
 #include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/TypeSwitch.h"
 
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKASYNCLAUNCHPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
+
 using namespace mlir;
 namespace {
 class RockAsyncLaunchPass
-    : public RockAsyncLaunchPassBase<RockAsyncLaunchPass> {
+    : public rock::impl::RockAsyncLaunchPassBase<RockAsyncLaunchPass> {
 
   static bool isTerminator(Operation *op) {
     return op->mightHaveTrait<OpTrait::IsTerminator>();
@@ -146,7 +153,3 @@ public:
   }
 };
 } // namespace
-
-std::unique_ptr<Pass> mlir::rock::createRockAsyncLaunchPass() {
-  return std::make_unique<RockAsyncLaunchPass>();
-}

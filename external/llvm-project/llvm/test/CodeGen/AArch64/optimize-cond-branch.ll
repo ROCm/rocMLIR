@@ -29,8 +29,6 @@ define void @func() uwtable {
 ; CHECK-NEXT:    .cfi_restore w30
 ; CHECK-NEXT:    cbz w0, .LBB0_5
 ; CHECK-NEXT:  .LBB0_3: // %common.ret.sink.split
-; CHECK-NEXT:    .cfi_def_cfa wsp, 0
-; CHECK-NEXT:    .cfi_same_value w30
 ; CHECK-NEXT:    b extfunc
 ; CHECK-NEXT:  .LBB0_4: // %b2
 ; CHECK-NEXT:    .cfi_restore_state

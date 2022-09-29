@@ -98,19 +98,15 @@ func.func @host_{spec.name}() -> i1 {{
     %res = memref.alloc() : memref<1024xi32>
 
     memref.copy %init_mem, %arg : memref<1024xi32> to memref<1024xi32>
-    %arg_dyn = memref.cast %arg : memref<1024xi32> to memref<?xi32>
-    %arg_gpu_dyn = call @mgpuMemAllocInt32(%arg_dyn) : (memref<?xi32>) -> (memref<?xi32>)
-    call @mgpuMemCopyInt32(%arg_dyn, %arg_gpu_dyn, %cst1_i32) : (memref<?xi32>, memref<?xi32>, i32) -> ()
-    %arg_gpu = memref.cast %arg_gpu_dyn : memref<?xi32> to memref<1024xi32>
+    %arg_gpu = gpu.alloc() : memref<1024xi32>
+    gpu.memcpy %arg_gpu, %arg : memref<1024xi32>, memref<1024xi32>
 
-    %res_dyn = memref.cast %res : memref<1024xi32> to memref<?xi32>
-    %res_gpu_dyn = call @mgpuMemAllocInt32(%res_dyn) : (memref<?xi32>) -> (memref<?xi32>)
-    call @mgpuMemSetInt32(%res_gpu_dyn, %cst_deadbeef_i32) : (memref<?xi32>, i32) -> ()
-    %res_gpu = memref.cast %res_gpu_dyn : memref<?xi32> to memref<1024xi32>
+    %res_gpu = gpu.alloc() : memref<1024xi32>
+    gpu.memcpy %res_gpu, %res : memref<1024xi32>, memref<1024xi32>
 
-    call @{spec.name}_kern(%arg_gpu, %res_gpu) : (memref<1024xi32>, memref<1024xi32>) -> ()
+    func.call @{spec.name}_kern(%arg_gpu, %res_gpu) : (memref<1024xi32>, memref<1024xi32>) -> ()
 
-    call @mgpuMemCopyInt32(%res_gpu_dyn, %res_dyn, %cst2_i32) : (memref<?xi32>, memref<?xi32>, i32) -> ()
+    gpu.memcpy %res, %res_gpu : memref<1024xi32>, memref<1024xi32>
 
     %true = arith.constant 1 : i1
     %ret = affine.for %i = 0 to 1024 iter_args(%state = %true) -> (i1) {{
@@ -124,10 +120,10 @@ func.func @host_{spec.name}() -> i1 {{
         scf.yield
     }} else {{
         %res_no_shape = memref.cast %res : memref<1024xi32> to memref<*xi32>
-        call @print_memref_i32(%res_no_shape) : (memref<*xi32>) -> ()
+        func.call @printMemrefI32(%res_no_shape) : (memref<*xi32>) -> ()
     }}
-    call @mgpuMemDeallocInt32(%arg_gpu_dyn) : (memref<?xi32>) -> ()
-    call @mgpuMemDeallocInt32(%res_gpu_dyn) : (memref<?xi32>) -> ()
+    gpu.dealloc %arg_gpu : memref<1024xi32>
+    gpu.dealloc %res_gpu : memref<1024xi32>
     func.return %ret : i1
 }}
 """
@@ -136,18 +132,14 @@ func.func @host_{spec.name}() -> i1 {{
 def genTestProgram(specs: List[TestSpec]):
     ret: List[str] = [f"""
 module attributes {{gpu.container_module}} {{
-    func.func private @mgpuMemAllocInt32(%ptr : memref<?xi32>) -> (memref<?xi32>)
-    func.func private @mgpuMemDeallocInt32(%ptr : memref<?xi32>)
-    func.func private @mgpuMemSetInt32(%ptr : memref<?xi32>, %value: i32)
-    func.func private @mgpuMemCopyInt32(%src : memref<?xi32>, %dest : memref<?xi32>, %dir: i32)
-    func.func private @print_memref_i32(memref<*xi32>)
+    func.func private @printMemrefI32(memref<*xi32>)
 """]
     for spec in specs:
         ret.append(gpuCode(spec))
     for spec in specs:
         ret.append(hostCode(spec))
     ret.append("""
-func @main() -> i32 {
+func.func @main() -> i32 {
     %cst0_i32 = arith.constant 0 : i32
     %cst1_i32 = arith.constant 1 : i32
 """)

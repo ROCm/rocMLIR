@@ -20,19 +20,26 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PassDetail.h"
-
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKCOPYOPTPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
 
 using namespace mlir;
 
 namespace {
-struct RockCopyOptPass : public RockCopyOptPassBase<RockCopyOptPass> {
+struct RockCopyOptPass
+    : public rock::impl::RockCopyOptPassBase<RockCopyOptPass> {
   void runOnOperation() override;
 };
 
@@ -100,7 +107,7 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
         if (mrop.getSource() != mem)
           return fail;
         reader = mrop;
-      } else if (csop = dyn_cast<memref::CollapseShapeOp>(use.getOwner())) {
+      } else if ((csop = dyn_cast<memref::CollapseShapeOp>(use.getOwner()))) {
         // 1.4 catch the case it has collapse shape befor the copy
         if (reader)
           return fail;
@@ -149,8 +156,4 @@ void RockCopyOptPass::runOnOperation() {
   patterns.add<MICORewritePattern<memref::AllocOp>>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
-}
-
-std::unique_ptr<Pass> mlir::rock::createRockCopyOptPass() {
-  return std::make_unique<RockCopyOptPass>();
 }

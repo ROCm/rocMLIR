@@ -64,13 +64,13 @@ LogicalResult RawBufferAtomicFaddOp::verify() {
 
 //===----------------------------------------------------------------------===//
 // MFMAOp
-//===-----------------------
+//===----------------------------------------------------------------------===//
 LogicalResult MFMAOp::verify() {
   constexpr uint32_t waveSize = 64;
   Builder b(getContext());
 
-  Type sourceType = sourceA().getType();
-  Type destType = destC().getType();
+  Type sourceType = getSourceA().getType();
+  Type destType = getDestC().getType();
 
   Type sourceElem = sourceType, destElem = destType;
   uint32_t sourceLen = 1, destLen = 1;
@@ -93,29 +93,29 @@ LogicalResult MFMAOp::verify() {
     sourceElem = b.getI8Type();
   }
 
-  int64_t numSourceElems = (m() * k() * blocks()) / waveSize;
+  int64_t numSourceElems = (getM() * getK() * getBlocks()) / waveSize;
   if (sourceLen != numSourceElems)
     return emitOpError("expected " + Twine(numSourceElems) +
                        " source values for this operation but got " +
-                       Twine(numSourceElems));
+                       Twine(sourceLen));
 
-  int64_t numDestElems = (m() * n() * blocks()) / waveSize;
+  int64_t numDestElems = (getM() * getN() * getBlocks()) / waveSize;
   if (destLen != numDestElems)
     return emitOpError("expected " + Twine(numDestElems) +
                        " result values for this operation but got " +
-                       Twine(numSourceElems));
+                       Twine(destLen));
 
-  if (destElem.isF64() && blgp() != MFMAPermB::none)
+  if (destElem.isF64() && getBlgp() != MFMAPermB::none)
     return emitOpError(
-        "double-percision ops do not support permuting lanes of B");
-  if (destElem.isF64() && cbsz() != 0)
+        "double-precision ops do not support permuting lanes of B");
+  if (destElem.isF64() && getCbsz() != 0)
     return emitOpError(
         "double-precision ops do not support permuting lanes of A");
-  if (abid() >= (1 << cbsz()))
+  if (getAbid() >= (1u << getCbsz()))
     return emitOpError(
         "block ID for permuting A (abid) must be below 2 ** cbsz");
 
-  if ((negateA() || negateB() || negateC()) && !destElem.isF64())
+  if ((getNegateA() || getNegateB() || getNegateC()) && !destElem.isF64())
     return emitOpError(
         "negation flags only available for double-precision operations");
 

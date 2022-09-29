@@ -13,7 +13,7 @@ include "mlir/Pass/PassBase.td"
 
 def MIGraphXTransformPass : Pass<"migraphx-transform", "func::FuncOp"> {
   let summary = "apply migraphx operation optimization transform";
-  let constructor = "mlir::migraphx::createMIGraphXTransformPass()";
+  let dependentDialects = ["migraphx::MIGraphXDialect"];
 }
 
 #endif // MLIR_DIALECT_MIGRAPHX_PASSES

@@ -13,15 +13,15 @@
 #include "mlir/Conversion/TosaToRock/TosaToRock.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
-#include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Rock/Generator/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -52,7 +52,7 @@ static bool isConstantZero(Value v) {
   return false;
 }
 
-static Value expandMemRef(ConversionPatternRewriter &rw, Operation *op,
+static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
                           Value operand, uint32_t idx = 4) {
   auto loc = op->getLoc();
   auto oprType = operand.getType().template cast<ShapedType>();
@@ -76,24 +76,24 @@ static Value expandMemRef(ConversionPatternRewriter &rw, Operation *op,
   return rw.create<rock::TransformOp>(loc, operand, transform.get());
 }
 
-static LogicalResult
+static FailureOr<rock::TensorConv2DOp>
 makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
-                 StringRef inputLayout, Value filter, StringRef filterLayout,
-                 Value output, StringRef outputLayout, const ArrayAttr &pad,
-                 const ArrayAttr &stride, const ArrayAttr &dilation) {
+               StringRef inputLayout, Value filter, StringRef filterLayout,
+               Value output, StringRef outputLayout, const ArrayAttr &pad,
+               const ArrayAttr &stride, const ArrayAttr &dilation) {
   auto loc = op->getLoc();
   auto func = op->getParentOfType<func::FuncOp>();
   auto mod = func->getParentOfType<ModuleOp>();
 
   // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
-  auto inputExp = expandMemRef(rw, op, input);
-  auto filterExp = expandMemRef(rw, op, filter);
-  auto outputExp = expandMemRef(rw, op, output);
+  auto inputExp = expandTensor(rw, op, input);
+  auto filterExp = expandTensor(rw, op, filter);
+  auto outputExp = expandTensor(rw, op, output);
 
   // TODO(sjw): get these from options
   StringRef chip = "";
   uint32_t num_cu = 64;
-  bool xdlopsV2 = false;
+  Optional<bool> xdlopsV2 = None;
 
   if (auto attr = op->getAttrOfType<StringAttr>("arch"))
     chip = attr.getValue();
@@ -112,12 +112,13 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   else if (auto attr = func->getAttrOfType<BoolAttr>("xdlopsV2"))
     xdlopsV2 = attr.getValue();
 
-  rock::GemmFeatures features = rock::GemmFeatures::none;
-  if (xdlopsV2)
-    features = features | rock::GemmFeatures::xdlops;
-  auto cop = rw.create<rock::Conv2DOp>(
-      loc, filterExp, inputExp, outputExp, rw.getStringAttr(chip),
-      rw.getI32IntegerAttr(num_cu),
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(chip);
+  rock::GemmFeatures features = archInfo.defaultFeatures;
+  if (xdlopsV2.has_value())
+    features = rock::bitEnumSet(features, rock::GemmFeatures::mfma, *xdlopsV2);
+  auto cop = rw.create<rock::TensorConv2DOp>(
+      loc, outputExp.getType(), filterExp, inputExp, outputExp,
+      rw.getStringAttr(chip), rw.getI32IntegerAttr(num_cu),
       rw.getAttr<rock::GemmFeaturesAttr>(features),
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
   // translate attributes
@@ -172,7 +173,7 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
                               rw.getI32IntegerAttr(padRight),
                           }));
 
-  return success();
+  return cop;
 }
 
 class ConvConverter final : public OpConversionPattern<tosa::Conv2DOp> {
@@ -184,15 +185,14 @@ public:
                                 ConversionPatternRewriter &rw) const final {
     auto operands = adaptor.getOperands();
     auto loc = op->getLoc();
-    auto context = op->getContext();
+    auto *context = op->getContext();
     auto input = operands[0];
     auto filter = operands[1];
-    auto bias_mr = operands[2];
-    auto resultType = op.getType();
+    auto bias = operands[2];
+    auto outputType = op.getType().cast<RankedTensorType>();
 
-    auto outputType =
-        getTypeConverter()->convertType(resultType).cast<MemRefType>();
-    Value output = rw.create<memref::AllocOp>(loc, outputType);
+    Value output =
+        rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
 
     SmallString<5> filterLayout("kyxcg");
     if (auto attr = op->getAttrOfType<StringAttr>("filter_layout"))
@@ -204,24 +204,25 @@ public:
     if (auto attr = op->getAttrOfType<StringAttr>("output_layout"))
       outputLayout = Twine(attr.getValue() + "g").str();
 
-    if (failed(makeRockConv2D(rw, op, input, inputLayout, filter,
-                                filterLayout, output, outputLayout, op.pad(),
-                                op.stride(), op.dilation()))) {
+    FailureOr<rock::TensorConv2DOp> rockConv = makeRockConv2D(
+        rw, op, input, inputLayout, filter, filterLayout, output, outputLayout,
+        op.getPad(), op.getStride(), op.getDilation());
+    if (failed(rockConv))
       return failure();
-    }
 
+    Value result = rw.create<rock::TensorUntransformCastOp>(
+        loc, outputType, rockConv->getResult(), rockConv->getOutput());
     // test for zero bias, and ignore
     if (!isConstantZero(op.getOperand(2))) {
       // non-zero bias, replace with tosa.add w/ broadcast
-      auto conv_output_t = rw.create<bufferization::ToTensorOp>(loc, output);
-
-      auto biasType = bias_mr.getType().template cast<ShapedType>();
+      auto biasType = bias.getType().template cast<ShapedType>();
       if (!biasType.hasStaticShape())
         return failure();
 
-      SmallVector<int64_t, 4> bias_s{1, 1, 1};
-      bias_s.push_back(biasType.getShape()[0]);
-      auto newType = MemRefType::get(bias_s, biasType.getElementType());
+      SmallVector<int64_t, 4> biasShape{1, 1, 1};
+      biasShape.push_back(biasType.getShape()[0]);
+      auto newType =
+          RankedTensorType::get(biasShape, biasType.getElementType());
 
       SmallVector<ReassociationExprs, 1> reassociations;
 
@@ -230,15 +231,14 @@ public:
           {getAffineDimExpr(0, context), getAffineDimExpr(1, context),
            getAffineDimExpr(2, context), getAffineDimExpr(3, context)});
 
-      auto bias_expand_mr = rw.create<memref::ExpandShapeOp>(
-          loc, newType, bias_mr, reassociations);
+      auto biasExpand =
+          rw.create<tensor::ExpandShapeOp>(loc, newType, bias, reassociations);
 
-      auto bias_t = rw.create<bufferization::ToTensorOp>(loc, bias_expand_mr);
-      output = rw.create<tosa::AddOp>(loc, op.getType(),
-                                      ValueRange{conv_output_t, bias_t});
+      result = rw.create<tosa::AddOp>(loc, op.getType(),
+                                      ValueRange{result, biasExpand});
     }
 
-    rw.replaceOp(op, output);
+    rw.replaceOp(op, result);
 
     return success();
   }
@@ -255,17 +255,17 @@ public:
     auto operands = adaptor.getOperands();
     auto loc = op->getLoc();
     // A(BS,M,K) -> A(BS,1,M,K)
-    auto A = expandMemRef(rw, op, operands[0], 1);
+    auto A = expandTensor(rw, op, operands[0], 1);
     const char *ALayout = "ghwcn";
     // B(BS,K,N) -> B(BS,K,N,1)
-    auto B = expandMemRef(rw, op, operands[1], 3);
+    auto B = expandTensor(rw, op, operands[1], 3);
     const char *BLayout = "gckyx";
 
     // C(BS,M,N) -> C(BS,1,M,N)
-    auto outputType =
-        getTypeConverter()->convertType(op.getType()).cast<MemRefType>();
-    Value output = rw.create<memref::AllocOp>(loc, outputType);
-    auto C = expandMemRef(rw, op, output, 1);
+    auto outputType = op.getType().cast<RankedTensorType>();
+    Value output =
+        rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
+    auto C = expandTensor(rw, op, output, 1);
     const char *CLayout = "ghwkn";
 
     auto zero = rw.getIndexAttr(0);
@@ -273,12 +273,14 @@ public:
     auto one = rw.getIndexAttr(1);
     auto ones = rw.getArrayAttr({one, one});
 
-    if (failed(makeRockConv2D(rw, op, A, ALayout, B, BLayout, C, CLayout, pad,
-                                ones, ones))) {
+    FailureOr<rock::TensorConv2DOp> rockConv = makeRockConv2D(
+        rw, op, A, ALayout, B, BLayout, C, CLayout, pad, ones, ones);
+    if (failed(rockConv))
       return failure();
-    }
+    Value result = rw.create<rock::TensorUntransformCastOp>(
+        loc, outputType, rockConv->getResult(), rockConv->getOutput());
 
-    rw.replaceOp(op, output);
+    rw.replaceOp(op, result);
 
     return success();
   }
@@ -373,13 +375,12 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
 
 } // namespace
 
-void tosa::populateTosaToRockConversionPatterns(
-    bufferization::BufferizeTypeConverter &typeConverter, MLIRContext *context,
-    RewritePatternSet &patterns) {
-  patterns.insert<ConvConverter>(typeConverter, context);
-  patterns.insert<MatMulConverter>(typeConverter, context);
+void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
+                                                RewritePatternSet &patterns) {
+  patterns.add<ConvConverter, MatMulConverter>(context);
 }
+
 void tosa::populateTosaToRockTensorConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
-  patterns.insert<TransposeRewritePattern>(context);
+  patterns.add<TransposeRewritePattern>(context);
 }

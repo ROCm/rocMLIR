@@ -18,8 +18,6 @@
 // This pass converts rock.gridwise_gemm[_v2] into block- and threadwise ops
 //
 //===-----------------------------------------------------===//
-#include "PassDetail.h"
-
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -29,8 +27,10 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BlockAndValueMapping.h"
@@ -41,6 +41,13 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FormatVariadic.h"
 
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKGRIDWISEGEMMTOBLOCKWISEPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
+
 #define DEBUG_TYPE "rock-gridwise-to-blockwise"
 
 using namespace mlir;
@@ -49,7 +56,7 @@ using namespace mlir::rock;
 
 namespace {
 struct RockGridwiseGemmToBlockwisePass
-    : public RockGridwiseGemmToBlockwisePassBase<
+    : public rock::impl::RockGridwiseGemmToBlockwisePassBase<
           RockGridwiseGemmToBlockwisePass> {
   void runOnOperation() override;
 };
@@ -522,10 +529,14 @@ static TransformingForOp createLdsStoreLoop(PatternRewriter &b, Location loc,
   ArrayAttr bufferView;
   std::tie(rawBuffer, bufferView) = untransform(b, wrappedBuffer);
 
+  int64_t ldsStoreVectorization =
+      getMaxVectorization(bufferView, /*dim=*/1, dataPerThread,
+                          rawBuffer.getType().cast<MemRefType>().getShape());
   Type loadedType = loaded.getType();
   Type elementType = loadedType;
   if (auto vectorLoadTy = loadedType.dyn_cast<VectorType>())
     elementType = vectorLoadTy.getElementType();
+  Type storeType = vectorTypeOrSelf(elementType, ldsStoreVectorization);
 
   Value zero = b.createOrFold<ConstantIndexOp>(loc, 0);
   SmallVector<Value, 2> vecCoordInit(2, zero);
@@ -535,7 +546,7 @@ static TransformingForOp createLdsStoreLoop(PatternRewriter &b, Location loc,
       loc, ArrayRef<ValueRange>{vecCoordInit, ldsCoordInit},
       ArrayRef<Attribute>{ldsVectorMap, bufferView},
       /*bounds=*/ArrayRef<int64_t>{1, dataPerThread},
-      /*strides=*/ArrayRef<int64_t>{1, 1},
+      /*strides=*/ArrayRef<int64_t>{1, ldsStoreVectorization},
       /*forceUnroll=*/true, /*useIndexDiffs=*/true);
   {
     PatternRewriter::InsertionGuard guard(b);
@@ -543,8 +554,8 @@ static TransformingForOp createLdsStoreLoop(PatternRewriter &b, Location loc,
     Value toStore =
         dataPerThread == 1
             ? loaded
-            : b.create<vector::ExtractElementOp>(
-                  loc, loaded, loop.getLowerCoords(/*domain=*/0)[0]);
+            : b.create<ExtractSliceOp>(loc, storeType, loaded,
+                                       loop.getLowerCoords(/*domain=*/0)[0]);
     b.create<InBoundsStoreOp>(loc, toStore, rawBuffer,
                               loop.getLowerCoords(/*domain=*/1));
   }
@@ -829,12 +840,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     FailureOr<Value> maybeWrappedA = wrapMatrixForGlobalLoad(
         b, loc, op.a(), "m", bidGridOrder, bidGridLengths, gridSize, blockSize,
         kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread, aVectorDim);
-    if (!maybeWrappedA.has_value())
+    if (failed(maybeWrappedA))
       return maybeWrappedA;
     FailureOr<Value> maybeWrappedB = wrapMatrixForGlobalLoad(
         b, loc, op.b(), "n", bidGridOrder, bidGridLengths, gridSize, blockSize,
         kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread, bVectorDim);
-    if (!maybeWrappedB.has_value())
+    if (failed(maybeWrappedB))
       return maybeWrappedB;
     Value wrappedA = std::move(*maybeWrappedA),
           wrappedB = std::move(*maybeWrappedB);
@@ -856,11 +867,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
         b, loc, ldsMatrixASubviewOp, "m", aCopyKPerThread, copyMPerThread);
-    if (!maybeWrappedLdsA.has_value())
+    if (failed(maybeWrappedLdsA))
       return maybeWrappedLdsA;
     FailureOr<Value> maybeWrappedLdsB = wrapLDSBufferForStore(
         b, loc, ldsMatrixBSubviewOp, "n", bCopyKPerThread, copyNPerThread);
-    if (!maybeWrappedLdsB.has_value())
+    if (failed(maybeWrappedLdsB))
       return maybeWrappedLdsB;
     Value wrappedLdsA = std::move(*maybeWrappedLdsA),
           wrappedLdsB = std::move(*maybeWrappedLdsB);
@@ -2195,8 +2206,4 @@ void RockGridwiseGemmToBlockwisePass::runOnOperation() {
   OpPassManager cleanupPasses("func.func");
   cleanupPasses.addPass(mlir::createCanonicalizerPass());
   (void)runPipeline(cleanupPasses, getOperation());
-}
-
-std::unique_ptr<Pass> mlir::rock::createRockGridwiseGemmToBlockwisePass() {
-  return std::make_unique<RockGridwiseGemmToBlockwisePass>();
 }

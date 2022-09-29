@@ -21,7 +21,6 @@
 
 
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
-#include "../PassDetail.h"
 
 #include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
@@ -38,12 +37,19 @@
 
 #include "llvm/ADT/SmallVector.h"
 
+namespace mlir {
+#define GEN_PASS_DEF_CONVERTROCKTOGPUPASS
+#include "mlir/Conversion/RocMLIRPasses.h.inc"
+} // namespace mlir
+
 using namespace mlir;
 
 namespace {
-struct LowerRockOpsToGPUPass : public ConvertRockToGPUBase<LowerRockOpsToGPUPass> {
+struct LowerRockOpsToGPUPass
+    : public impl::ConvertRockToGPUPassBase<LowerRockOpsToGPUPass> {
 public:
-  LowerRockOpsToGPUPass() = default;
+  using impl::ConvertRockToGPUPassBase<
+      LowerRockOpsToGPUPass>::ConvertRockToGPUPassBase;
   void runOnOperation() override;
 };
 } // end anonymous namespace
@@ -249,9 +255,4 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     // Must have at least 1 gpu.module for rocm-runner
     makeGpuModule("rock_gpu_module");
   }
-}
-
-std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
-mlir::createLowerRockOpsToGPUPass() {
-  return std::make_unique<LowerRockOpsToGPUPass>();
 }

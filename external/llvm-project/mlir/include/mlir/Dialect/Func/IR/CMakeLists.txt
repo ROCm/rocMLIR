@@ -6,4 +6,3 @@ mlir_tablegen(FuncOpsDialect.cpp.inc -gen-dialect-defs)
 add_public_tablegen_target(MLIRFuncOpsIncGen)
 
 add_mlir_doc(FuncOps FuncOps Dialects/ -gen-op-doc)
-

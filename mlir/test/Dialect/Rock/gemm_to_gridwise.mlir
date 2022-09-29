@@ -28,7 +28,7 @@ func.func @gemm_easy_case_from_conv(%a: memref<1x72x128xf32>, %b: memref<1x72x51
 // CHECK-SAME: (%[[a:.*]]: memref<1x72x128xf32>, %[[b:.*]]: memref<1x72x512xf32>, %[[c:.*]]: memref<1x128x512xf32>)
 func.func @gemm_easy_case_from_conv_xdlops(%a: memref<1x72x128xf32>, %b: memref<1x72x512xf32>, %c: memref<1x128x512xf32>) {
   // CHECK-NEXT: rock.gridwise_gemm_v2(%[[a]], %[[b]], %[[c]])
-  rock.gemm %c = tr %a * %b features = xdlops storeMethod = set {
+  rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add storeMethod = set {
     arch = "gfx908",
     blockSize = 256 : i32,
     gridSize = 4 : i32,
@@ -97,7 +97,7 @@ func.func @gemm_kpack(%a: memref<1x72x128xf32>, %b: memref<1x72x512xf32>, %c: me
   // CHECK-DAG: %[[kpackA:.*]] = rock.transform %[[a]] by {{.*}} : memref<1x72x128xf32> to memref<1x18x128x4xf32{{.*}}>
   // CHECK-DAG: %[[kpackB:.*]] = rock.transform %[[b]] by {{.*}} : memref<1x72x512xf32> to memref<1x18x512x4xf32{{.*}}>
   // CHECK-NEXT: rock.gridwise_gemm_v2(%[[kpackA]], %[[kpackB]], %[[c]])
-  rock.gemm %c = tr %a * %b features = xdlops storeMethod = set {
+  rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add storeMethod = set {
     arch = "gfx908",
     blockSize = 256 : i32,
     gridSize = 4 : i32,

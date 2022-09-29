@@ -503,7 +503,7 @@ private:
     for (auto it = evaluationList.begin(), end = evaluationList.end();
          it != end; ++it) {
       auto &eval = *it;
-      if (eval.isA<parser::EntryStmt>()) {
+      if (eval.isA<parser::EntryStmt>() || eval.isIntermediateConstructStmt()) {
         ifCandidateStack.clear();
         continue;
       }
@@ -939,6 +939,7 @@ private:
             eval.constructExit = &eval.evaluationList->back();
           },
           [&](const parser::DoConstruct &) { setConstructExit(eval); },
+          [&](const parser::ForallConstruct &) { setConstructExit(eval); },
           [&](const parser::IfConstruct &) { setConstructExit(eval); },
           [&](const parser::SelectRankConstruct &) {
             setConstructExit(eval);
@@ -948,6 +949,7 @@ private:
             setConstructExit(eval);
             eval.isUnstructured = true;
           },
+          [&](const parser::WhereConstruct &) { setConstructExit(eval); },
 
           // Default - Common analysis for IO statements; otherwise nop.
           [&](const auto &stmt) {

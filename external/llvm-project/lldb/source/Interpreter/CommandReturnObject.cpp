@@ -115,11 +115,6 @@ void CommandReturnObject::SetError(llvm::Error error) {
     AppendError(llvm::toString(std::move(error)));
 }
 
-void CommandReturnObject::SetError(llvm::Error error) {
-  if (error)
-    AppendError(llvm::toString(std::move(error)));
-}
-
 // Similar to AppendError, but do not prepend 'Status: ' to message, and don't
 // append "\n" to the end of it.
 

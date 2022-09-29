@@ -231,6 +231,12 @@ enum LogHandlerKind {
   eLogHandlerDefault = eLogHandlerStream,
 };
 
+enum LoadDependentFiles {
+  eLoadDependentsDefault,
+  eLoadDependentsYes,
+  eLoadDependentsNo,
+};
+
 inline std::string GetStatDescription(lldb_private::StatisticKind K) {
    switch (K) {
    case StatisticKind::ExpressionSuccessful:

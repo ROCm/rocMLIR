@@ -2343,7 +2343,7 @@ bool AMDGPULegalizerInfo::legalizeExtractVectorElt(
       getIConstantVRegValWithLookThrough(MI.getOperand(2).getReg(), MRI);
   if (!MaybeIdxVal) // Dynamic case will be selected to register indexing.
     return true;
-  const int64_t IdxVal = MaybeIdxVal->Value.getSExtValue();
+  const uint64_t IdxVal = MaybeIdxVal->Value.getZExtValue();
 
   Register Dst = MI.getOperand(0).getReg();
   Register Vec = MI.getOperand(1).getReg();
@@ -2378,7 +2378,7 @@ bool AMDGPULegalizerInfo::legalizeInsertVectorElt(
   if (!MaybeIdxVal) // Dynamic case will be selected to register indexing.
     return true;
 
-  int64_t IdxVal = MaybeIdxVal->Value.getSExtValue();
+  const uint64_t IdxVal = MaybeIdxVal->Value.getZExtValue();
   Register Dst = MI.getOperand(0).getReg();
   Register Vec = MI.getOperand(1).getReg();
   Register Ins = MI.getOperand(2).getReg();
@@ -4197,6 +4197,35 @@ bool AMDGPULegalizerInfo::legalizeImplicitArgPtr(MachineInstr &MI,
   return true;
 }
 
+bool AMDGPULegalizerInfo::getLDSKernelId(Register DstReg,
+                                         MachineRegisterInfo &MRI,
+                                         MachineIRBuilder &B) const {
+  Function &F = B.getMF().getFunction();
+  Optional<uint32_t> KnownSize =
+      AMDGPUMachineFunction::getLDSKernelIdMetadata(F);
+  if (KnownSize.has_value())
+    B.buildConstant(DstReg, KnownSize.value());
+  return false;
+}
+
+bool AMDGPULegalizerInfo::legalizeLDSKernelId(MachineInstr &MI,
+                                              MachineRegisterInfo &MRI,
+                                              MachineIRBuilder &B) const {
+
+  const SIMachineFunctionInfo *MFI = B.getMF().getInfo<SIMachineFunctionInfo>();
+  if (!MFI->isEntryFunction()) {
+    return legalizePreloadedArgIntrin(MI, MRI, B,
+                                      AMDGPUFunctionArgInfo::LDS_KERNEL_ID);
+  }
+
+  Register DstReg = MI.getOperand(0).getReg();
+  if (!getLDSKernelId(DstReg, MRI, B))
+    return false;
+
+  MI.eraseFromParent();
+  return true;
+}
+
 bool AMDGPULegalizerInfo::legalizeIsAddrSpace(MachineInstr &MI,
                                               MachineRegisterInfo &MRI,
                                               MachineIRBuilder &B,
@@ -5636,6 +5665,9 @@ bool AMDGPULegalizerInfo::legalizeIntrinsic(LegalizerHelper &Helper,
   case Intrinsic::amdgcn_workgroup_id_z:
     return legalizePreloadedArgIntrin(MI, MRI, B,
                                       AMDGPUFunctionArgInfo::WORKGROUP_ID_Z);
+  case Intrinsic::amdgcn_lds_kernel_id:
+    return legalizePreloadedArgIntrin(MI, MRI, B,
+                                      AMDGPUFunctionArgInfo::LDS_KERNEL_ID);
   case Intrinsic::amdgcn_dispatch_ptr:
     return legalizePreloadedArgIntrin(MI, MRI, B,
                                       AMDGPUFunctionArgInfo::DISPATCH_PTR);

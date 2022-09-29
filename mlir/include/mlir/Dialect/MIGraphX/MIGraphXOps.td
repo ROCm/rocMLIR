@@ -22,6 +22,9 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 def MIGraphX_Dialect : Dialect {
   let name = "migraphx";
   let cppNamespace = "mlir::migraphx";
+
+    // TODO: move this to Prefixed by removing it
+  let emitAccessorPrefix = kEmitAccessorPrefix_Both;
 }
 
 // Base class for MIGraphX dialect ops.
@@ -349,7 +352,7 @@ def MIGraphX_ConstantOp :
     MIGraphX_Op<"constant">,
     Arguments<(ins OptionalAttr<ElementsAttr>:$value,
                    OptionalAttr<I64ArrayAttr>:$shape,
-                   OptionalAttr<TypeAttr>:$type
+                   OptionalAttr<TypeAttr>:$valueType
                    )>,
 	Results<(outs AnyRankedTensor:$output)> {
   let summary = "constant tensor operation";

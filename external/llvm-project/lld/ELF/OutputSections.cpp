@@ -17,6 +17,7 @@
 #include "lld/Common/Memory.h"
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/Config/llvm-config.h" // LLVM_ENABLE_ZLIB
+#include "llvm/Support/Compression.h"
 #include "llvm/Support/Parallel.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/TimeProfiler.h"
@@ -320,19 +321,35 @@ static SmallVector<uint8_t, 0> deflateShard(ArrayRef<uint8_t> in, int level,
 
 // Compress section contents if this section contains debug info.
 template <class ELFT> void OutputSection::maybeCompress() {
-#if LLVM_ENABLE_ZLIB
   using Elf_Chdr = typename ELFT::Chdr;
 
   // Compress only DWARF debug sections.
-  if (!config->compressDebugSections || (flags & SHF_ALLOC) ||
-      !name.startswith(".debug_") || size == 0)
+  if (config->compressDebugSections == DebugCompressionType::None ||
+      (flags & SHF_ALLOC) || !name.startswith(".debug_") || size == 0)
     return;
 
   llvm::TimeTraceScope timeScope("Compress debug sections");
-
-  // Write uncompressed data to a temporary zero-initialized buffer.
+  compressed.uncompressedSize = size;
   auto buf = std::make_unique<uint8_t[]>(size);
-  writeTo<ELFT>(buf.get());
+  if (config->compressDebugSections == DebugCompressionType::Zstd) {
+    {
+      parallel::TaskGroup tg;
+      writeTo<ELFT>(buf.get(), tg);
+    }
+    compressed.shards = std::make_unique<SmallVector<uint8_t, 0>[]>(1);
+    compression::zstd::compress(makeArrayRef(buf.get(), size),
+                                compressed.shards[0]);
+    size = sizeof(Elf_Chdr) + compressed.shards[0].size();
+    flags |= SHF_COMPRESSED;
+    return;
+  }
+
+#if LLVM_ENABLE_ZLIB
+  // Write uncompressed data to a temporary zero-initialized buffer.
+  {
+    parallel::TaskGroup tg;
+    writeTo<ELFT>(buf.get(), tg);
+  }
   // We chose 1 (Z_BEST_SPEED) as the default compression level because it is
   // the fastest. If -O2 is given, we use level 6 to compress debug info more by
   // ~15%. We found that level 7 to 9 doesn't make much difference (~1% more
@@ -358,7 +375,6 @@ template <class ELFT> void OutputSection::maybeCompress() {
 
   // Update section size and combine Alder-32 checksums.
   uint32_t checksum = 1;       // Initial Adler-32 value
-  compressed.uncompressedSize = size;
   size = sizeof(Elf_Chdr) + 2; // Elf_Chdir and zlib header
   for (size_t i = 0; i != numShards; ++i) {
     size += shardsOut[i].size();
@@ -386,7 +402,8 @@ static void writeInt(uint8_t *buf, uint64_t data, uint64_t size) {
     llvm_unreachable("unsupported Size argument");
 }
 
-template <class ELFT> void OutputSection::writeTo(uint8_t *buf) {
+template <class ELFT>
+void OutputSection::writeTo(uint8_t *buf, parallel::TaskGroup &tg) {
   llvm::TimeTraceScope timeScope("Write sections", name);
   if (type == SHT_NOBITS)
     return;
@@ -396,10 +413,15 @@ template <class ELFT> void OutputSection::writeTo(uint8_t *buf) {
   // just write it down.
   if (compressed.shards) {
     auto *chdr = reinterpret_cast<typename ELFT::Chdr *>(buf);
-    chdr->ch_type = ELFCOMPRESS_ZLIB;
     chdr->ch_size = compressed.uncompressedSize;
     chdr->ch_addralign = alignment;
     buf += sizeof(*chdr);
+    if (config->compressDebugSections == DebugCompressionType::Zstd) {
+      chdr->ch_type = ELFCOMPRESS_ZSTD;
+      memcpy(buf, compressed.shards[0].data(), compressed.shards[0].size());
+      return;
+    }
+    chdr->ch_type = ELFCOMPRESS_ZLIB;
 
     // Compute shard offsets.
     auto offsets = std::make_unique<size_t[]>(compressed.numShards);
@@ -419,41 +441,68 @@ template <class ELFT> void OutputSection::writeTo(uint8_t *buf) {
   }
 
   // Write leading padding.
-  SmallVector<InputSection *, 0> storage;
   ArrayRef<InputSection *> sections = getInputSections(*this, storage);
   std::array<uint8_t, 4> filler = getFiller();
   bool nonZeroFiller = read32(filler.data()) != 0;
   if (nonZeroFiller)
     fill(buf, sections.empty() ? size : sections[0]->outSecOff, filler);
 
-  parallelFor(0, sections.size(), [&](size_t i) {
-    InputSection *isec = sections[i];
-    if (auto *s = dyn_cast<SyntheticSection>(isec))
-      s->writeTo(buf + isec->outSecOff);
-    else
-      isec->writeTo<ELFT>(buf + isec->outSecOff);
-
-    // Fill gaps between sections.
-    if (nonZeroFiller) {
-      uint8_t *start = buf + isec->outSecOff + isec->getSize();
-      uint8_t *end;
-      if (i + 1 == sections.size())
-        end = buf + size;
+  auto fn = [=](size_t begin, size_t end) {
+    size_t numSections = sections.size();
+    for (size_t i = begin; i != end; ++i) {
+      InputSection *isec = sections[i];
+      if (auto *s = dyn_cast<SyntheticSection>(isec))
+        s->writeTo(buf + isec->outSecOff);
       else
-        end = buf + sections[i + 1]->outSecOff;
-      if (isec->nopFiller) {
-        assert(target->nopInstrs);
-        nopInstrFill(start, end - start);
-      } else
-        fill(start, end - start, filler);
-    }
-  });
+        isec->writeTo<ELFT>(buf + isec->outSecOff);
 
-  // Linker scripts may have BYTE()-family commands with which you
-  // can write arbitrary bytes to the output. Process them if any.
+      // Fill gaps between sections.
+      if (nonZeroFiller) {
+        uint8_t *start = buf + isec->outSecOff + isec->getSize();
+        uint8_t *end;
+        if (i + 1 == numSections)
+          end = buf + size;
+        else
+          end = buf + sections[i + 1]->outSecOff;
+        if (isec->nopFiller) {
+          assert(target->nopInstrs);
+          nopInstrFill(start, end - start);
+        } else
+          fill(start, end - start, filler);
+      }
+    }
+  };
+
+  // If there is any BYTE()-family command (rare), write the section content
+  // first then process BYTE to overwrite the filler content. The write is
+  // serial due to the limitation of llvm/Support/Parallel.h.
+  bool written = false;
+  size_t numSections = sections.size();
   for (SectionCommand *cmd : commands)
-    if (auto *data = dyn_cast<ByteCommand>(cmd))
+    if (auto *data = dyn_cast<ByteCommand>(cmd)) {
+      if (!std::exchange(written, true))
+        fn(0, numSections);
       writeInt(buf + data->offset, data->expression().getValue(), data->size);
+    }
+  if (written || !numSections)
+    return;
+
+  // There is no data command. Write content asynchronously to overlap the write
+  // time with other output sections. Note, if a linker script specifies
+  // overlapping output sections (needs --noinhibit-exec or --no-check-sections
+  // to supress the error), the output may be non-deterministic.
+  const size_t taskSizeLimit = 4 << 20;
+  for (size_t begin = 0, i = 0, taskSize = 0;;) {
+    taskSize += sections[i]->getSize();
+    bool done = ++i == numSections;
+    if (done || taskSize >= taskSizeLimit) {
+      tg.execute([=] { fn(begin, i); });
+      if (done)
+        break;
+      begin = i;
+      taskSize = 0;
+    }
+  }
 }
 
 static void finalizeShtGroup(OutputSection *os, InputSection *section) {
@@ -673,10 +722,14 @@ template void OutputSection::writeHeaderTo<ELF32BE>(ELF32BE::Shdr *Shdr);
 template void OutputSection::writeHeaderTo<ELF64LE>(ELF64LE::Shdr *Shdr);
 template void OutputSection::writeHeaderTo<ELF64BE>(ELF64BE::Shdr *Shdr);
 
-template void OutputSection::writeTo<ELF32LE>(uint8_t *Buf);
-template void OutputSection::writeTo<ELF32BE>(uint8_t *Buf);
-template void OutputSection::writeTo<ELF64LE>(uint8_t *Buf);
-template void OutputSection::writeTo<ELF64BE>(uint8_t *Buf);
+template void OutputSection::writeTo<ELF32LE>(uint8_t *,
+                                              llvm::parallel::TaskGroup &);
+template void OutputSection::writeTo<ELF32BE>(uint8_t *,
+                                              llvm::parallel::TaskGroup &);
+template void OutputSection::writeTo<ELF64LE>(uint8_t *,
+                                              llvm::parallel::TaskGroup &);
+template void OutputSection::writeTo<ELF64BE>(uint8_t *,
+                                              llvm::parallel::TaskGroup &);
 
 template void OutputSection::maybeCompress<ELF32LE>();
 template void OutputSection::maybeCompress<ELF32BE>();

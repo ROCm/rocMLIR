@@ -31,6 +31,7 @@
 #include "llvm/IR/PatternMatch.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
+#include "llvm/Transforms/Utils/BuildLibCalls.h"
 #include "llvm/Transforms/Utils/Local.h"
 
 using namespace llvm;
@@ -427,27 +428,240 @@ static bool tryToFPToSat(Instruction &I, TargetTransformInfo &TTI) {
   return true;
 }
 
+/// Try to replace a mathlib call to sqrt with the LLVM intrinsic. This avoids
+/// pessimistic codegen that has to account for setting errno and can enable
+/// vectorization.
+static bool
+foldSqrt(Instruction &I, TargetTransformInfo &TTI, TargetLibraryInfo &TLI) {
+  // Match a call to sqrt mathlib function.
+  auto *Call = dyn_cast<CallInst>(&I);
+  if (!Call)
+    return false;
+
+  Module *M = Call->getModule();
+  LibFunc Func;
+  if (!TLI.getLibFunc(*Call, Func) || !isLibFuncEmittable(M, &TLI, Func))
+    return false;
+
+  if (Func != LibFunc_sqrt && Func != LibFunc_sqrtf && Func != LibFunc_sqrtl)
+    return false;
+
+  // If (1) this is a sqrt libcall, (2) we can assume that NAN is not created
+  // (because NNAN or the operand arg must not be less than -0.0) and (2) we
+  // would not end up lowering to a libcall anyway (which could change the value
+  // of errno), then:
+  // (1) errno won't be set.
+  // (2) it is safe to convert this to an intrinsic call.
+  Type *Ty = Call->getType();
+  Value *Arg = Call->getArgOperand(0);
+  if (TTI.haveFastSqrt(Ty) &&
+      (Call->hasNoNaNs() || CannotBeOrderedLessThanZero(Arg, &TLI))) {
+    IRBuilder<> Builder(&I);
+    IRBuilderBase::FastMathFlagGuard Guard(Builder);
+    Builder.setFastMathFlags(Call->getFastMathFlags());
+
+    Function *Sqrt = Intrinsic::getDeclaration(M, Intrinsic::sqrt, Ty);
+    Value *NewSqrt = Builder.CreateCall(Sqrt, Arg, "sqrt");
+    I.replaceAllUsesWith(NewSqrt);
+
+    // Explicitly erase the old call because a call with side effects is not
+    // trivially dead.
+    I.eraseFromParent();
+    return true;
+  }
+
+  return false;
+}
+
+// Check if this array of constants represents a cttz table.
+// Iterate over the elements from \p Table by trying to find/match all
+// the numbers from 0 to \p InputBits that should represent cttz results.
+static bool isCTTZTable(const ConstantDataArray &Table, uint64_t Mul,
+                        uint64_t Shift, uint64_t InputBits) {
+  unsigned Length = Table.getNumElements();
+  if (Length < InputBits || Length > InputBits * 2)
+    return false;
+
+  APInt Mask = APInt::getBitsSetFrom(InputBits, Shift);
+  unsigned Matched = 0;
+
+  for (unsigned i = 0; i < Length; i++) {
+    uint64_t Element = Table.getElementAsInteger(i);
+    if (Element >= InputBits)
+      continue;
+
+    // Check if \p Element matches a concrete answer. It could fail for some
+    // elements that are never accessed, so we keep iterating over each element
+    // from the table. The number of matched elements should be equal to the
+    // number of potential right answers which is \p InputBits actually.
+    if ((((Mul << Element) & Mask.getZExtValue()) >> Shift) == i)
+      Matched++;
+  }
+
+  return Matched == InputBits;
+}
+
+// Try to recognize table-based ctz implementation.
+// E.g., an example in C (for more cases please see the llvm/tests):
+// int f(unsigned x) {
+//    static const char table[32] =
+//      {0, 1, 28, 2, 29, 14, 24, 3, 30,
+//       22, 20, 15, 25, 17, 4, 8, 31, 27,
+//       13, 23, 21, 19, 16, 7, 26, 12, 18, 6, 11, 5, 10, 9};
+//    return table[((unsigned)((x & -x) * 0x077CB531U)) >> 27];
+// }
+// this can be lowered to `cttz` instruction.
+// There is also a special case when the element is 0.
+//
+// Here are some examples or LLVM IR for a 64-bit target:
+//
+// CASE 1:
+// %sub = sub i32 0, %x
+// %and = and i32 %sub, %x
+// %mul = mul i32 %and, 125613361
+// %shr = lshr i32 %mul, 27
+// %idxprom = zext i32 %shr to i64
+// %arrayidx = getelementptr inbounds [32 x i8], [32 x i8]* @ctz1.table, i64 0,
+// i64 %idxprom %0 = load i8, i8* %arrayidx, align 1, !tbaa !8
+//
+// CASE 2:
+// %sub = sub i32 0, %x
+// %and = and i32 %sub, %x
+// %mul = mul i32 %and, 72416175
+// %shr = lshr i32 %mul, 26
+// %idxprom = zext i32 %shr to i64
+// %arrayidx = getelementptr inbounds [64 x i16], [64 x i16]* @ctz2.table, i64
+// 0, i64 %idxprom %0 = load i16, i16* %arrayidx, align 2, !tbaa !8
+//
+// CASE 3:
+// %sub = sub i32 0, %x
+// %and = and i32 %sub, %x
+// %mul = mul i32 %and, 81224991
+// %shr = lshr i32 %mul, 27
+// %idxprom = zext i32 %shr to i64
+// %arrayidx = getelementptr inbounds [32 x i32], [32 x i32]* @ctz3.table, i64
+// 0, i64 %idxprom %0 = load i32, i32* %arrayidx, align 4, !tbaa !8
+//
+// CASE 4:
+// %sub = sub i64 0, %x
+// %and = and i64 %sub, %x
+// %mul = mul i64 %and, 283881067100198605
+// %shr = lshr i64 %mul, 58
+// %arrayidx = getelementptr inbounds [64 x i8], [64 x i8]* @table, i64 0, i64
+// %shr %0 = load i8, i8* %arrayidx, align 1, !tbaa !8
+//
+// All this can be lowered to @llvm.cttz.i32/64 intrinsic.
+static bool tryToRecognizeTableBasedCttz(Instruction &I) {
+  LoadInst *LI = dyn_cast<LoadInst>(&I);
+  if (!LI)
+    return false;
+
+  Type *AccessType = LI->getType();
+  if (!AccessType->isIntegerTy())
+    return false;
+
+  GetElementPtrInst *GEP = dyn_cast<GetElementPtrInst>(LI->getPointerOperand());
+  if (!GEP || !GEP->isInBounds() || GEP->getNumIndices() != 2)
+    return false;
+
+  if (!GEP->getSourceElementType()->isArrayTy())
+    return false;
+
+  uint64_t ArraySize = GEP->getSourceElementType()->getArrayNumElements();
+  if (ArraySize != 32 && ArraySize != 64)
+    return false;
+
+  GlobalVariable *GVTable = dyn_cast<GlobalVariable>(GEP->getPointerOperand());
+  if (!GVTable || !GVTable->hasInitializer() || !GVTable->isConstant())
+    return false;
+
+  ConstantDataArray *ConstData =
+      dyn_cast<ConstantDataArray>(GVTable->getInitializer());
+  if (!ConstData)
+    return false;
+
+  if (!match(GEP->idx_begin()->get(), m_ZeroInt()))
+    return false;
+
+  Value *Idx2 = std::next(GEP->idx_begin())->get();
+  Value *X1;
+  uint64_t MulConst, ShiftConst;
+  // FIXME: 64-bit targets have `i64` type for the GEP index, so this match will
+  // probably fail for other (e.g. 32-bit) targets.
+  if (!match(Idx2, m_ZExtOrSelf(
+                       m_LShr(m_Mul(m_c_And(m_Neg(m_Value(X1)), m_Deferred(X1)),
+                                    m_ConstantInt(MulConst)),
+                              m_ConstantInt(ShiftConst)))))
+    return false;
+
+  unsigned InputBits = X1->getType()->getScalarSizeInBits();
+  if (InputBits != 32 && InputBits != 64)
+    return false;
+
+  // Shift should extract top 5..7 bits.
+  if (InputBits - Log2_32(InputBits) != ShiftConst &&
+      InputBits - Log2_32(InputBits) - 1 != ShiftConst)
+    return false;
+
+  if (!isCTTZTable(*ConstData, MulConst, ShiftConst, InputBits))
+    return false;
+
+  auto ZeroTableElem = ConstData->getElementAsInteger(0);
+  bool DefinedForZero = ZeroTableElem == InputBits;
+
+  IRBuilder<> B(LI);
+  ConstantInt *BoolConst = B.getInt1(!DefinedForZero);
+  Type *XType = X1->getType();
+  auto Cttz = B.CreateIntrinsic(Intrinsic::cttz, {XType}, {X1, BoolConst});
+  Value *ZExtOrTrunc = nullptr;
+
+  if (DefinedForZero) {
+    ZExtOrTrunc = B.CreateZExtOrTrunc(Cttz, AccessType);
+  } else {
+    // If the value in elem 0 isn't the same as InputBits, we still want to
+    // produce the value from the table.
+    auto Cmp = B.CreateICmpEQ(X1, ConstantInt::get(XType, 0));
+    auto Select =
+        B.CreateSelect(Cmp, ConstantInt::get(XType, ZeroTableElem), Cttz);
+
+    // NOTE: If the table[0] is 0, but the cttz(0) is defined by the Target
+    // it should be handled as: `cttz(x) & (typeSize - 1)`.
+
+    ZExtOrTrunc = B.CreateZExtOrTrunc(Select, AccessType);
+  }
+
+  LI->replaceAllUsesWith(ZExtOrTrunc);
+
+  return true;
+}
+
 /// This is the entry point for folds that could be implemented in regular
 /// InstCombine, but they are separated because they are not expected to
 /// occur frequently and/or have more than a constant-length pattern match.
 static bool foldUnusualPatterns(Function &F, DominatorTree &DT,
-                                TargetTransformInfo &TTI) {
+                                TargetTransformInfo &TTI,
+                                TargetLibraryInfo &TLI) {
   bool MadeChange = false;
   for (BasicBlock &BB : F) {
     // Ignore unreachable basic blocks.
     if (!DT.isReachableFromEntry(&BB))
       continue;
-    // Do not delete instructions under here and invalidate the iterator.
+
     // Walk the block backwards for efficiency. We're matching a chain of
     // use->defs, so we're more likely to succeed by starting from the bottom.
     // Also, we want to avoid matching partial patterns.
     // TODO: It would be more efficient if we removed dead instructions
     // iteratively in this loop rather than waiting until the end.
-    for (Instruction &I : llvm::reverse(BB)) {
+    for (Instruction &I : make_early_inc_range(llvm::reverse(BB))) {
       MadeChange |= foldAnyOrAllBitsSet(I);
       MadeChange |= foldGuardedFunnelShift(I, DT);
       MadeChange |= tryToRecognizePopCount(I);
       MadeChange |= tryToFPToSat(I, TTI);
+      MadeChange |= tryToRecognizeTableBasedCttz(I);
+      // NOTE: This function introduces erasing of the instruction `I`, so it
+      // needs to be called at the end of this sequence, otherwise we may make
+      // bugs.
+      MadeChange |= foldSqrt(I, TTI, TLI);
     }
   }
 
@@ -467,7 +681,7 @@ static bool runImpl(Function &F, AssumptionCache &AC, TargetTransformInfo &TTI,
   const DataLayout &DL = F.getParent()->getDataLayout();
   TruncInstCombine TIC(AC, TLI, DL, DT);
   MadeChange |= TIC.run(F);
-  MadeChange |= foldUnusualPatterns(F, DT, TTI);
+  MadeChange |= foldUnusualPatterns(F, DT, TTI, TLI);
   return MadeChange;
 }
 

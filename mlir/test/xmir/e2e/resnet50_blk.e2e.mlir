@@ -3,7 +3,7 @@
 module {
 // CHECK: Unranked Memref base@ = 0x{{.*}} rank = 4 offset = 0 sizes = [1, 32, 32, 64] strides = [65536, 2048, 64, 1] data =
 // CHECK-NEXT: 0.680375,     -0.211234,     0.566198,     6.59688,     0.823295,     -0.604897,     5.67045,     6.53646,     5.55555,     6.10794,
-    
+
 
   func.func @resnet50(%arg0: tensor<1x32x32x64xf32>, %arg1: tensor<64x3x3x64xf32>, %arg2: tensor<64x3x3x64xf32>) -> tensor<1x32x32x64xf32> {
 
@@ -15,8 +15,10 @@ module {
     }
      : (tensor<1x32x32x64xf32>, tensor<64x3x3x64xf32>, tensor<64xf32>) -> tensor<1x32x32x64xf32>
 
-    %1 = "tosa.reluN"(%0) {
+    %1 = "tosa.clamp"(%0) {
+      min_fp = 0.0 : f32,
       max_fp = 6.0 : f32,
+      min_int = 0 : i64,
       max_int = 6 : i64
     }
      : (tensor<1x32x32x64xf32>) -> tensor<1x32x32x64xf32>
@@ -29,8 +31,10 @@ module {
     }
      : (tensor<1x32x32x64xf32>, tensor<64x3x3x64xf32>, tensor<64xf32>) -> tensor<1x32x32x64xf32>
 
-    %3 = "tosa.reluN"(%2) {
+    %3 = "tosa.clamp"(%2) {
+      min_fp = 0.0 : f32,
       max_fp = 6.0 : f32,
+      min_int = 0 : i64,
       max_int = 6 : i64
     }
      : (tensor<1x32x32x64xf32>) -> tensor<1x32x32x64xf32>

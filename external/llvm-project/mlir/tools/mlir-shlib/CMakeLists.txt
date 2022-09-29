@@ -30,10 +30,6 @@ if(MLIR_LINK_MLIR_DYLIB)
   set(INSTALL_WITH_TOOLCHAIN INSTALL_WITH_TOOLCHAIN)
 endif()
 
-if(MLIR_MIOPEN_SQLITE_ENABLED)
-  list(APPEND _DEPS "sqlite3")
-endif()
-
 if(LLVM_BUILD_LLVM_DYLIB)
   add_mlir_library(
     MLIR

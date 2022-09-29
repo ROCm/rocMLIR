@@ -31,6 +31,7 @@
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitAllDialects.h"
+#include "mlir/InitRocMLIRDialects.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
@@ -77,8 +78,6 @@ static cl::opt<bool>
     rocdlInput("rocdl-input",
                cl::desc("input is in the MLIR LLVM/ROCDL dialect"),
                cl::init(false));
-
-static constexpr const char kTargetTriple[] = "amdgcn-amd-amdhsa";
 
 // As per the coding standard of LLVM, anonymous namespace should only be used
 // for class declarations.
@@ -186,6 +185,7 @@ int main(int argc, char **argv) {
 
   DialectRegistry registry;
   registerAllDialects(registry);
+  registerRocMLIRDialects(registry);
 #ifdef MLIR_INCLUDE_TESTS
   ::test::registerTestDialect(registry);
 #endif

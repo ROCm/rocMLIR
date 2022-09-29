@@ -20,7 +20,6 @@
 #include "mlir/Support/FileUtilities.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/ScopeExit.h"
-#include "llvm/ADT/SetVector.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/CrashRecoveryContext.h"
 #include "llvm/Support/Mutex.h"
@@ -90,7 +89,7 @@ struct OpPassManagerImpl {
       : name(name == OpPassManager::getAnyOpAnchorName() ? "" : name.str()),
         initializationGeneration(0), nesting(nesting) {}
   OpPassManagerImpl(OpPassManager::Nesting nesting)
-      : name(""), initializationGeneration(0), nesting(nesting) {}
+      : initializationGeneration(0), nesting(nesting) {}
   OpPassManagerImpl(const OpPassManagerImpl &rhs)
       : name(rhs.name), opName(rhs.opName),
         initializationGeneration(rhs.initializationGeneration),

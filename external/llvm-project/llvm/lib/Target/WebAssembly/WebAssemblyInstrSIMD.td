@@ -811,6 +811,20 @@ def : Pat<(vec.vt (or (and (vec.vt V128:$c), (vec.vt V128:$v1)),
             (and (vnot V128:$c), (vec.vt V128:$v2)))),
           (BITSELECT $v1, $v2, $c)>;
 
+// Bitselect is also equivalent to ((v1 ^ v2) & c) ^ v2
+foreach vec = IntVecs in
+def : Pat<(vec.vt (xor (and (xor (vec.vt V128:$v1), (vec.vt V128:$v2)),
+                            (vec.vt V128:$c)),
+                       (vec.vt V128:$v2))),
+          (BITSELECT $v1, $v2, $c)>;
+
+// Same pattern with `c` negated so `a` and `b` get swapped.
+foreach vec = IntVecs in
+def : Pat<(vec.vt (xor (and (xor (vec.vt V128:$v1), (vec.vt V128:$v2)),
+                            (vnot (vec.vt V128:$c))),
+                       (vec.vt V128:$v2))),
+          (BITSELECT $v2, $v1, $c)>;
+
 // Also implement vselect in terms of bitselect
 foreach vec = AllVecs in
 def : Pat<(vec.vt (vselect
@@ -1452,3 +1466,15 @@ defm RELAXED_DOT_ADD :
                (v16i8 V128:$lhs), (v16i8 V128:$rhs), (v4i32 V128:$acc)))],
             "i32x4.dot_i8x16_i7x16_add_s\t$dst, $lhs, $rhs, $acc",
             "i32x4.dot_i8x16_i7x16_add_s", 0x113>;
+
+//===----------------------------------------------------------------------===//
+// Relaxed BFloat16 dot product
+//===----------------------------------------------------------------------===//
+
+defm RELAXED_DOT_BFLOAT :
+  RELAXED_I<(outs V128:$dst), (ins V128:$lhs, V128:$rhs, V128:$acc),
+            (outs), (ins),
+            [(set (v4f32 V128:$dst), (int_wasm_relaxed_dot_bf16x8_add_f32
+               (v8i16 V128:$lhs), (v8i16 V128:$rhs), (v4f32 V128:$acc)))],
+            "f32x4.relaxed_dot_bf16x8_add_f32\t$dst, $lhs, $rhs, $acc",
+            "f32x4.relaxed_dot_bf16x8_add_f32", 0x114>;
