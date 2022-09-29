@@ -1,5 +1,6 @@
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/Tuning/BlockStructureParams.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GemmContext.h"
 #include "mlir/Dialect/Rock/Tuning/SqliteDb.h"
@@ -528,32 +529,13 @@ LogicalResult PopulateParams::calculateGemmCBlockwiseCopyParams(
 }
 
 LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
-    const InitParamsNonXDL &param, const ConvolutionContext &ctx,
-    DerivedBlockGemmParams &derived) {
+    const InitParamsNonXDL &param, const ConvolutionContext &ctx) {
 
-  derived.gemmMThreadsPerCuwave = 0;
-  derived.gemmNThreadsPerCuwave = 0;
-  derived.gemmMCuwavesPerBlock = 0;
-  derived.gemmNCuwavesPerBlock = 0;
-
-  if (param.blockSize == 64) {
-    derived.gemmMThreadsPerCuwave = 4;
-    derived.gemmNThreadsPerCuwave = 4;
-    derived.gemmMCuwavesPerBlock = 2;
-    derived.gemmNCuwavesPerBlock = 2;
-  } else if (param.blockSize == 128) {
-    derived.gemmMThreadsPerCuwave = 4;
-    derived.gemmNThreadsPerCuwave = 4;
-    derived.gemmMCuwavesPerBlock = 4;
-    derived.gemmNCuwavesPerBlock = 2;
-  } else if (param.blockSize == 256) {
-    derived.gemmMThreadsPerCuwave = 4;
-    derived.gemmNThreadsPerCuwave = 4;
-    derived.gemmMCuwavesPerBlock = 4;
-    derived.gemmNCuwavesPerBlock = 4;
-  } else {
+  FailureOr<BlockStructureParams> maybeDerived =
+      blockStructureParams(param.blockSize);
+  if (failed(maybeDerived))
     return failure();
-  }
+  BlockStructureParams derived = std::move(*maybeDerived);
 
   if (!(param.gemmMPerThread >= 2 && param.gemmMPerThread <= 4))
     return failure();
@@ -569,9 +551,9 @@ LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
   const auto threadGemmNPerBlock = param.gemmNPerBlock / param.gemmNPerThread;
 
   const auto threadGemmMPerCluster =
-      derived.gemmMThreadsPerCuwave * derived.gemmMCuwavesPerBlock;
+      derived.mThreadsPerCuwave * derived.mCuwavesPerBlock;
   const auto threadGemmNPerCluster =
-      derived.gemmNThreadsPerCuwave * derived.gemmNCuwavesPerBlock;
+      derived.nThreadsPerCuwave * derived.nCuwavesPerBlock;
 
   if (!(threadGemmMPerBlock % threadGemmMPerCluster == 0) &&
       (threadGemmNPerBlock % threadGemmNPerCluster == 0))
@@ -590,7 +572,6 @@ LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
 LogicalResult PopulateParams::populateDerived(
     ConvolutionContext &ctx, const InitParamsNonXDL &params, GemmSize &gemmSize,
     DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
-    DerivedBlockGemmParams &blockGemmDerivedParam,
     DerivedOutParams &gemmCDerivedParams, uint32_t &gridSize) {
 
   auto gemmExtraPad =
@@ -626,8 +607,7 @@ LogicalResult PopulateParams::populateDerived(
     return failure();
   }
 
-  res = calculateBlockGemmPerformanceParameters(params, ctx,
-                                                blockGemmDerivedParam);
+  res = calculateBlockGemmPerformanceParameters(params, ctx);
 
   if (failed(res)) {
     LLVM_DEBUG(llvm::dbgs() << "Incoherent blockGemm tuning parameter "
@@ -648,7 +628,6 @@ LogicalResult PopulateParams::obtainTuningParameters(
     Operation *op, uint32_t blockSizeOverride, const std::string &perfConfig,
     InitParamsNonXDL &validParams, DerivedParams &gemmADerivedParam,
     DerivedParams &gemmBDerivedParam,
-    DerivedBlockGemmParams &blockGemmDerivedParam,
     DerivedOutParams &gemmCDerivedParam, uint32_t &gridSize) {
 
   ConvolutionContext ctx = populateConvContext(op);
@@ -664,8 +643,7 @@ LogicalResult PopulateParams::obtainTuningParameters(
     if (isValidPerfConfig) {
       LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
       return populateDerived(ctx, validParams, gemmSize, gemmADerivedParam,
-                             gemmBDerivedParam, blockGemmDerivedParam,
-                             gemmCDerivedParam, gridSize);
+                             gemmBDerivedParam, gemmCDerivedParam, gridSize);
     }
     // Signal the client if perfCofnig is passed in but is invalid
     return failure();
@@ -686,8 +664,7 @@ LogicalResult PopulateParams::obtainTuningParameters(
   if (loadRes) {
     LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
     return populateDerived(ctx, validParams, gemmSize, gemmADerivedParam,
-                           gemmBDerivedParam, blockGemmDerivedParam,
-                           gemmCDstPerWrite, gridSize);
+                           gemmBDerivedParam, gemmCDstPerWrite, gridSize);
   } else {
     LLVM_DEBUG(llvm::dbgs()
                << "DB load failed, falling back to backup path.\n");
@@ -706,8 +683,7 @@ LogicalResult PopulateParams::obtainTuningParameters(
     }
 
     res = populateDerived(ctx, params, gemmSize, gemmADerivedParam,
-                          gemmBDerivedParam, blockGemmDerivedParam,
-                          gemmCDerivedParam, gridSize);
+                          gemmBDerivedParam, gemmCDerivedParam, gridSize);
     if (failed(res)) {
       continue;
     }

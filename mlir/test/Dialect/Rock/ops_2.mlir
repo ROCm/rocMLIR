@@ -74,11 +74,7 @@ func.func @rock_blockwise_gemm(%A : memref<8x128x1xf32, 3>, %B : memref<8x128x1x
     kpack = 1,
     kPerThread = 1,
     mPerThread = 4,
-    mThreadsPerCuwave = 4,
-    mCuwavesPerBlock = 4,
-    nPerThread = 4,
-    nThreadsPerCuwave = 4,
-    nCuwavesPerBlock = 4>
+    nPerThread = 4>
   } :  memref<8x8xf32, 5> += memref<8x128x1xf32, 3> * memref<8x128x1xf32, 3>
   return
 }

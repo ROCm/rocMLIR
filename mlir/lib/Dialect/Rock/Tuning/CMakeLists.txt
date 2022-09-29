@@ -1,4 +1,5 @@
 add_mlir_dialect_library(MLIRRockTuning
+  BlockStructureParams.cpp
   ConvContext.cpp
   GemmContext.cpp
   SqliteDb.cpp
