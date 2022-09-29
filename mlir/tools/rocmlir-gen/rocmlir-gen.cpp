@@ -91,7 +91,7 @@ static cl::opt<mlir::rock::ConvOpType> operation(
 static cl::opt<std::string>
     arch("arch",
          cl::desc("amdgpu architecture, eg: gfx803, gfx900, gfx906, gfx908"),
-         cl::value_desc("GFX architecture string"), cl::init("gfx906"));
+         cl::value_desc("GFX architecture string"), cl::init(""));
 
 static cl::opt<int>
     num_cu("num_cu",
@@ -225,15 +225,15 @@ static cl::opt<bool>
              cl::init(false));
 
 // disable feature mfma
-static cl::opt<std::string>
-    featureInfo("feature", cl::desc("Requested feature:"
+static cl::opt<std::string> featureInfo(
+    "feature",
+    cl::desc("Requested feature:"
              "mfma: enable xdlops on gfx908 or gfx90a (cdnaInfo)"
              "pre-wmma: enable dot product instructions on gfx1030 (rdnaInfo)"
              "wmma: enable wmma instructions on gfx11 (gfx11Info)"
              "vanilla: enable dot product instructions on gfx906 (rdnaInfo)"
              "none: disable all features on gfx900 (gcnInfo)"),
-             cl::value_desc("feature"),
-             cl::init("vanilla"));
+    cl::value_desc("feature"), cl::init("vanilla"));
 
 // data type
 static cl::opt<std::string>
@@ -2188,14 +2188,17 @@ int main(int argc, char **argv) {
       }
       // Scenario 2: We use cl::opt to initialize everything
     } else {
-
+      if (arch.getValue().empty()) {
+        llvm::errs() << "--arch is not set\n";
+        exit(1);
+      }
       std::string chip = llvm::StringSwitch<std::string>(featureInfo.getValue())
-          .Case("mfma", "gfx908")
-          .Case("pre-wmma", "gfx1030")
-          .Case("wmma", "gfx1100")
-          .Case("vanilla", "gfx906")
-          .Case("none", "gfx900")
-          .Default("gfx906");
+                             .Case("mfma", "gfx908")
+                             .Case("pre-wmma", "gfx1030")
+                             .Case("wmma", "gfx1100")
+                             .Case("vanilla", "gfx906")
+                             .Case("none", "gfx900")
+                             .Default("gfx906");
       std::string triple("amdgcn-amd-amdhsa");
       std::string chipFeatures("");
 

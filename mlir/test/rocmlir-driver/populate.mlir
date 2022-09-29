@@ -1,7 +1,7 @@
-// RUN: rocmlir-gen -p | FileCheck %s --check-prefix=F32
-// RUN: rocmlir-gen -p -t f16 | FileCheck %s --check-prefix=F16
-// RUN: rocmlir-gen -p -t bf16 | FileCheck %s --check-prefix=BF16
-// RUN: rocmlir-gen -p -t i8 | FileCheck %s --check-prefix=INT8
+// RUN: rocmlir-gen --arch %targetChip -p | FileCheck %s --check-prefix=F32
+// RUN: rocmlir-gen --arch %targetChip -p -t f16 | FileCheck %s --check-prefix=F16
+// RUN: rocmlir-gen --arch %targetChip -p -t bf16 | FileCheck %s --check-prefix=BF16
+// RUN: rocmlir-gen --arch %targetChip -p -t i8 | FileCheck %s --check-prefix=INT8
 
 // F32-LABEL: module
 // F32-NEXT: func.func @rock_conv2d_gkcyx_ngchw_ngkhw_0({{.*}}: memref<1x128x8x3x3xf32>, {{.*}}: memref<128x1x8x32x32xf32>, {{.*}}: memref<128x1x128x30x30xf32>) attributes {kernel = 0 : i32}
