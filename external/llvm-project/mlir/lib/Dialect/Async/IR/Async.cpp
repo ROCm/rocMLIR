@@ -218,12 +218,10 @@ LogicalResult LaunchOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   if (!func)
     return emitOpError() << "'" << callable.getValue()
                          << "' does not reference a valid function";
-  if (!func->hasAttr("kernel"))
-    return emitOpError("requires a 'kernel' func reference");
 
   auto funcResultTypes = func.getResultTypes();
   // The result types should be a leading async.token and matching return types
-  // of the kernel func.
+  // of the func.
   auto resultTypes = getResultTypes();
   if (resultTypes.size() != (funcResultTypes.size() + 1))
     return emitOpError(
