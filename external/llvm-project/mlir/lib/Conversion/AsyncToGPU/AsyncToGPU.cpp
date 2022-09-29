@@ -17,6 +17,7 @@
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #define DEBUG_TYPE "convert-async-to-gpu"
 
@@ -82,9 +83,8 @@ static Optional<DictionaryAttr> getGPUTarget(async::LaunchOp op) {
 //===----------------------------------------------------------------------===//
 
 namespace {
-class LaunchOpConversion : public OpConversionPattern<async::LaunchOp> {
-public:
-  using OpConversionPattern::OpConversionPattern;
+struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
+  using OpRewritePattern<async::LaunchOp>::OpRewritePattern;
 
   Value makeWait(OpBuilder b, Location loc, ArrayRef<Value> deps = {}) const {
     auto tokenType = b.getType<gpu::AsyncTokenType>();
@@ -126,8 +126,8 @@ public:
     return dstMem;
   }
 
-  LogicalResult matchAndRewrite(async::LaunchOp op, OpAdaptor adaptor,
-                                ConversionPatternRewriter &rw) const override {
+  LogicalResult matchAndRewrite(async::LaunchOp op,
+                                PatternRewriter &rw) const override {
     Location loc = op.getLoc();
     auto module = op->getParentOfType<ModuleOp>();
     auto *ctx = module.getContext();
@@ -138,7 +138,7 @@ public:
 
     auto gpuAttr = getGPUTarget(op);
     if (!gpuAttr.has_value())
-      return op.emitOpError("requires a gpu target");
+      return rw.notifyMatchFailure(op, "no gpu target");
 
     auto arch = gpuAttr->get("arch");
     auto binary = gpuAttr->get("binary");
@@ -207,7 +207,7 @@ public:
     Value dynamicSharedMemorySize;
 
     // async dependencies
-    auto operands = adaptor.getOperands();
+    auto operands = op->getOperands();
     llvm::SmallVector<Value, 8> asyncDeps;
     llvm::SmallVector<Value, 8> gpuOperands;
     size_t diff = operands.size() - func.getNumArguments();
@@ -284,17 +284,21 @@ public:
 //===----------------------------------------------------------------------===//
 
 namespace {
-class AwaitOpConversion : public OpConversionPattern<async::AwaitOp> {
-public:
-  using OpConversionPattern::OpConversionPattern;
+struct AwaitRewritePattern : public OpRewritePattern<async::AwaitOp> {
+  using OpRewritePattern<async::AwaitOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(async::AwaitOp op, OpAdaptor adaptor,
-                                ConversionPatternRewriter &rw) const override {
+  LogicalResult matchAndRewrite(async::AwaitOp op,
+                                PatternRewriter &rw) const override {
     auto tokenType = rw.getType<gpu::AsyncTokenType>();
-    rw.create<gpu::WaitOp>(op.getLoc(), tokenType, adaptor.getOperands());
-    rw.eraseOp(op);
+    Value input = op->getOperand(0);
+    if (input.getType() == tokenType) {
+      assert(op.getResultType() == None);
+      rw.create<gpu::WaitOp>(op.getLoc(), tokenType, input);
+      rw.eraseOp(op);
+      return success();
+    }
 
-    return success();
+    return rw.notifyMatchFailure(op, "no gpu token");
   }
 };
 } // namespace
@@ -312,30 +316,23 @@ void ConvertAsyncToGPUPass::runOnOperation() {
   ModuleOp module = getOperation();
   MLIRContext *ctx = module->getContext();
 
-  // Convert async dialect types and operations to LLVM dialect.
-  AsyncGPUTypeConverter converter;
-  RewritePatternSet patterns(ctx);
+  {
+    // Convert async.launch to gpu.launch if async.targets[gpu] exists
+    RewritePatternSet patterns(ctx);
+    patterns.add<LaunchRewritePattern>(ctx);
 
-  patterns.add<LaunchOpConversion, AwaitOpConversion>(converter, ctx);
+    if (failed(applyPatternsAndFoldGreedily(module, std::move(patterns))))
+      signalPassFailure();
+  }
 
-  ConversionTarget target(*ctx);
-  target.addLegalOp<arith::ConstantOp, func::ConstantOp,
-                    UnrealizedConversionCastOp>();
-  target.addLegalDialect<gpu::GPUDialect>();
+  {
+    // Convert async.await to gpu.wait if has gpu.tokens
+    RewritePatternSet patterns(ctx);
+    patterns.add<AwaitRewritePattern>(ctx);
 
-  // All operations from Async dialect must be lowered to the GPU dialect.
-  target.addIllegalDialect<async::AsyncDialect>();
-
-  // Except when async.launch has no GPU target.
-  target.addDynamicallyLegalOp<async::LaunchOp>(
-      [&](async::LaunchOp op) { return !getGPUTarget(op).has_value(); });
-  // TODO(sjw): Make async.token universal
-  // target.addDynamicallyLegalOp<async::AwaitOp>([&](async::AwaitOp op) {
-  //     return true;
-  // });
-
-  if (failed(applyPartialConversion(module, target, std::move(patterns))))
-    signalPassFailure();
+    if (failed(applyPatternsAndFoldGreedily(module, std::move(patterns))))
+      signalPassFailure();
+  }
 }
 
 std::unique_ptr<Pass> mlir::createConvertAsyncToGPUPass() {
