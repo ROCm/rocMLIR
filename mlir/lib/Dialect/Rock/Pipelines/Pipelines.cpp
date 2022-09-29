@@ -43,9 +43,18 @@ void rock::buildPartitionPipeline(OpPassManager &pm,
                                     const rock::PartitionOptions &options) {
   // TOSA partitioning pass
   // make 'kernel' funcs with tosa dataflow
-  /* rocmlir-opt --tosa-partition
+  /* rocmlir-opt --tosa-layerwise-constant-fold --tosa-make-broadcastable
+         --tosa-optional-decompositions --tosa-partition
    */
+  pm.addNestedPass<func::FuncOp>(tosa::createTosaLayerwiseConstantFoldPass());
+  pm.addNestedPass<func::FuncOp>(tosa::createTosaMakeBroadcastablePass());
+  pm.addNestedPass<func::FuncOp>(tosa::createTosaOptionalDecompositions());
   pm.addPass(tosa::createTosaPartitionPass());
+
+  // make async kernel launch's
+  /* rocmlir-opt --rock-async-launch
+   */
+  pm.addNestedPass<func::FuncOp>(createRockAsyncLaunchPass());
 
   if (options.cloneToRockModule) {
     // clone 'kernel' funcs into __rock module
@@ -75,11 +84,6 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   /* rocmlir-opt --linalg-fuse-elementwise-ops
    */
   pm.addNestedPass<func::FuncOp>(createLinalgElementwiseOpFusionPass());
-
-  // make async kernel launch's
-  /* rocmlir-opt --rock-async-launch
-   */
-  pm.addNestedPass<func::FuncOp>(createRockAsyncLaunchPass());
 
   // for tosa control flow
   /* rocmlir-opt --tosa-to-scf --tosa-to-arith
