@@ -119,15 +119,15 @@ func.func @rock_gemm(%a : memref<32x64xf16>, %b : memref<1x32x128xf16>, %c : mem
 
 // test 1-1 dimension mappings.
 func.func @rock_transform_1_to_1(%memref: memref<1x2x3x4x5xf32, 3>) {
-  %transformed_memref = rock.transform %memref by [
-    #rock.transform_map<#map0 by [
-      #rock.transform<PassThrough ["g"] at [0] -> ["g"] at [1]>,
-      #rock.transform<PassThrough ["n"] at [1] -> ["n"] at [0]>,
-      #rock.transform<PassThrough ["c"] at [2] -> ["c"] at [2]>,
-      #rock.transform<Pad{1, 1} ["hipad"] at [3] -> ["hi"] at [3]>,
-      #rock.transform<Pad{2, 2} ["wipad"] at [4] -> ["wi"] at [4]>
+  %transformed_memref = rock.transform %memref by
+    <#map0 by [
+      <PassThrough ["g"] at [0] -> ["g"] at [1]>,
+      <PassThrough ["n"] at [1] -> ["n"] at [0]>,
+      <PassThrough ["c"] at [2] -> ["c"] at [2]>,
+      <Pad{1, 1} ["hipad"] at [3] -> ["hi"] at [3]>,
+      <Pad{2, 2} ["wipad"] at [4] -> ["wi"] at [4]>
     ] bounds = [2, 1, 3, 6, 9] -> [1, 2, 3, 4, 5]>
-  ] : memref<1x2x3x4x5xf32, 3> to memref<2x1x3x6x9xf32, #map0, 3>
+  : memref<1x2x3x4x5xf32, 3> to memref<2x1x3x6x9xf32, #map0, 3>
   return
 }
 // CHECK-LABEL: func.func @rock_transform_1_to_1
@@ -135,13 +135,13 @@ func.func @rock_transform_1_to_1(%memref: memref<1x2x3x4x5xf32, 3>) {
 
 // test multiple source dimensions map to 1 target dimension.
 func.func @rock_transform_n_to_1(%memref : memref<1x128x64x32x16xf32>) {
-  %transformed_memref = rock.transform %memref by [
-    #rock.transform_map<#map1 by [
+  %transformed_memref = rock.transform %memref by
+    <#map1 by [
       #rock.transform<PassThrough ["gemmG"] at [0] -> ["g"] at [0]>,
       #rock.transform<Merge{64, 32, 16} ["gemmK"] at [1] -> ["c", "y", "x"] at [2, 3, 4]>,
       #rock.transform<PassThrough ["gemmM"] at [2] -> ["k"] at [1]>
     ] bounds = [1, 32768, 128] -> [1, 128, 64, 32, 16]>
-  ] : memref<1x128x64x32x16xf32> to memref<1x32768x128xf32, #map1>
+  : memref<1x128x64x32x16xf32> to memref<1x32768x128xf32, #map1>
   return
 }
 // CHECK-LABEL: func.func @rock_transform_n_to_1
@@ -149,15 +149,15 @@ func.func @rock_transform_n_to_1(%memref : memref<1x128x64x32x16xf32>) {
 
 // test 1 source dimension map to multiple target dimensions.
 func.func @rock_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
-  %transformed_memref = rock.transform %memref by [
-    #rock.transform_map<#map2 by [
+  %transformed_memref = rock.transform %memref by
+    <#map2 by [
       #rock.transform<PassThrough ["n", "g", "c"] at [0, 1, 2] ->
         ["n", "g", "c"] at [1, 0, 2]>,
       #rock.transform<Embed{1, 1} ["y", "ho"] at [3, 4] -> ["hipad"] at [3]>,
       #rock.transform<Embed{1, 1} ["x", "wo"] at [5, 6] -> ["wipad"] at [4]>
       // Note: fake data should work fine for now
      ] bounds = [0, 0, 0, 0, 0, 0, 0] -> [0, 0, 0, 0, 0]>
-  ] : memref<?x?x?x?x?xf32> to memref<?x?x?x?x?x?x?xf32, #map2>
+  : memref<?x?x?x?x?xf32> to memref<?x?x?x?x?x?x?xf32, #map2>
   return
 }
 

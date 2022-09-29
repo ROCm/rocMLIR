@@ -123,16 +123,8 @@ struct TransformOpInterface
     if (failed(input))
       return failure();
 
-    ArrayAttr transforms = transformOp.getTransforms();
-    // We really need to replace the multi-transform form of transform(), it
-    // just adds pointless complexiyty and no on uses it. For now, just fail
-    // that case.
-    if (transforms.size() != 1)
-      return op->emitOpError(
-          "cannot bufferize with multiple transforms on one op");
-    auto transform = transforms[0].cast<TransformMapAttr>();
     replaceOpWithNewBufferizedOp<rock::TransformOp>(rewriter, op, *input,
-                                                    transform);
+                                                    transformOp.getTransform());
     return success();
   }
 };
