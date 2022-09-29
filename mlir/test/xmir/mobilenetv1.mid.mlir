@@ -2,18 +2,18 @@
 
 module {
 
-// CHECK:  func.func private @mobilenetv1_outlined_part_0(%arg0: memref<1x224x224x3xf32> {func.read_access}, %arg1: memref<32x3x3x3xf32> {func.read_access}, %arg2: memref<1x112x112x32xf32> {func.write_access}) attributes {kernel} {
+// CHECK:  func.func private @mobilenetv1__part_0(%arg0: memref<1x224x224x3xf32> {func.read_access}, %arg1: memref<32x3x3x3xf32> {func.read_access}, %arg2: memref<1x112x112x32xf32> {func.write_access}) {
 
 // CHECK: func.func @mobilenetv1(%arg0: memref<1x224x224x3xf32>, %arg1: memref<32x3x3x3xf32>, %arg2: memref<3x3x32x1xf32>, %arg3: memref<64x1x1x32xf32>, %arg4: memref<3x3x64x1xf32>, %arg5: memref<128x1x1x64xf32>, %arg6: memref<1x56x56x128xf32>) {
-// CHECK:   %token = async.launch @mobilenetv1_outlined_part_0 (%arg0, %arg1, %{{.*}}) : (memref<1x224x224x3xf32>, memref<32x3x3x3xf32>, memref<1x112x112x32xf32>)
+// CHECK:   %token = async.launch @mobilenetv1__part_0 (%arg0, %arg1, %{{.*}}) : (memref<1x224x224x3xf32>, memref<32x3x3x3xf32>, memref<1x112x112x32xf32>)
 
-// CHECK:   %token_0 = async.launch @mobilenetv1_outlined_part_1 [%token] (%{{.*}}, %arg2, %{{.*}}) : (memref<1x112x112x32xf32>, memref<3x3x32x1xf32>, memref<1x112x112x32xf32>)
+// CHECK:   %token_0 = async.launch @mobilenetv1__part_1 [%token] (%{{.*}}, %arg2, %{{.*}}) : (memref<1x112x112x32xf32>, memref<3x3x32x1xf32>, memref<1x112x112x32xf32>)
 
-// CHECK:   %token_1 = async.launch @mobilenetv1_outlined_part_2 [%token_0] (%{{.*}}, %arg3, %{{.*}}) : (memref<1x112x112x32xf32>, memref<64x1x1x32xf32>, memref<1x112x112x64xf32>)
+// CHECK:   %token_1 = async.launch @mobilenetv1__part_2 [%token_0] (%{{.*}}, %arg3, %{{.*}}) : (memref<1x112x112x32xf32>, memref<64x1x1x32xf32>, memref<1x112x112x64xf32>)
 
-// CHECK:   %token_2 = async.launch @mobilenetv1_outlined_part_3 [%token_1] (%{{.*}}, %arg4, %{{.*}}) : (memref<1x112x112x64xf32>, memref<3x3x64x1xf32>, memref<1x56x56x64xf32>)
+// CHECK:   %token_2 = async.launch @mobilenetv1__part_3 [%token_1] (%{{.*}}, %arg4, %{{.*}}) : (memref<1x112x112x64xf32>, memref<3x3x64x1xf32>, memref<1x56x56x64xf32>)
 
-// CHECK:   %token_3 = async.launch @mobilenetv1_outlined_part_4 [%token_2] (%{{.*}}, %arg5, %arg6) : (memref<1x56x56x64xf32>, memref<128x1x1x64xf32>, memref<1x56x56x128xf32>)
+// CHECK:   %token_3 = async.launch @mobilenetv1__part_4 [%token_2] (%{{.*}}, %arg5, %arg6) : (memref<1x56x56x64xf32>, memref<128x1x1x64xf32>, memref<1x56x56x128xf32>)
 // CHECK:   async.await %token_3 : !async.token
 
   func.func @mobilenetv1(%input_image: tensor<1x224x224x3xf32>, %f0: tensor<32x3x3x3xf32>, %f1: tensor<3x3x32x1xf32>, %f2: tensor<64x1x1x32xf32>, %f3: tensor<3x3x64x1xf32>, %f4: tensor<128x1x1x64xf32>) -> tensor<1x56x56x128xf32> {

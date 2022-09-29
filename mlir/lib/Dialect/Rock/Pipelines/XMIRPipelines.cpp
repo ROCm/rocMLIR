@@ -38,28 +38,40 @@ void xmir::buildModelPipeline(OpPassManager &pm,
   pm.addPass(rock::createRockApplyImplPass());
 }
 
+// Runner takes an Affine/SCF program with async retargetable launchs
+// and lowers to host LLVM runtime program. JitRunner then calls ORC
+// to generate X86 binary and runs it.
 void xmir::buildRunnerPipeline(OpPassManager &pm,
                                const xmir::RunnerOptions &options) {
   pm.addNestedPass<func::FuncOp>(createConvertLinalgToAffineLoopsPass());
   pm.addPass(createLowerAffinePass());
-  pm.addPass(createConvertSCFToCFPass());
-  if (options.cpuOnly) {
+  pm.addNestedPass<func::FuncOp>(createConvertSCFToCFPass());
 
-  } else {
-    pm.addPass(createConvertAsyncToGPUPass());
-    pm.addPass(createSymbolDCEPass());
-    pm.addPass(createGpuToLLVMConversionPass(
-        /*kernelBarePtrCallConv=*/options.barePtrMemrefs));
-    pm.addNestedPass<func::FuncOp>(createGpuAsyncRegionPass());
-  }
-  pm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
+  // Target async.launch to cpu.coro or gpu.launch_func
+  pm.addPass(createConvertAsyncToGPUPass());
+  pm.addPass(createAsyncParallelForPass());
+  pm.addPass(createAsyncToAsyncRuntimePass(options.enableCoroutines));
+  pm.addNestedPass<func::FuncOp>(createAsyncRuntimeRefCountingPass());
+  pm.addNestedPass<func::FuncOp>(createAsyncRuntimeRefCountingOptPass());
+  pm.addPass(createConvertAsyncToLLVMPass());
+
+  pm.addPass(createSymbolDCEPass());
+  pm.addNestedPass<func::FuncOp>(createConvertLinalgToLoopsPass());
+  pm.addNestedPass<func::FuncOp>(createConvertSCFToCFPass());
+
   pm.addPass(createConvertLinalgToLLVMPass());
-  pm.addPass(createAsyncToAsyncRuntimePass());
-  pm.addPass(createAsyncRuntimeRefCountingOptPass());
   pm.addPass(createConvertVectorToLLVMPass());
   pm.addPass(createMemRefToLLVMPass());
-  pm.addPass(createConvertAsyncToLLVMPass());
+  pm.addNestedPass<func::FuncOp>(arith::createConvertArithmeticToLLVMPass());
+  pm.addNestedPass<func::FuncOp>(createConvertMathToLLVMPass());
+
+  pm.addPass(createGpuToLLVMConversionPass(
+      /*kernelBarePtrCallConv=*/options.barePtrMemrefs));
+  pm.addNestedPass<func::FuncOp>(createGpuAsyncRegionPass());
+
   pm.addPass(createConvertFuncToLLVMPass());
+  pm.addPass(createReconcileUnrealizedCastsPass());
+
   pm.addPass(LLVM::createSoftwareBF16Pass());
 }
 
