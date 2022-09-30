@@ -17,6 +17,7 @@ set(LOCAL_CONFIG_FILE_BIN ${CMAKE_CURRENT_BINARY_DIR}/lit.local.cfg)
 set(CONFIGS
   Resnet50Config.toml
   Resnext101Config.toml
+  PaddedGemmConfig.toml
 )
 # Create a list for dummy files
 set(CONFIG_DUMMY_FILES ${CONFIGS})
