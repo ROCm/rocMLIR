@@ -1020,7 +1020,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // Emit rock.gemm op.
     auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
-    auto gemm = b.create<GemmOp>(
+    b.create<GemmOp>(
         loc, gemmA, gemmB, gemmC,
         /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
         /*cTransposed=*/nullptr, op.archAttr(), op.numCuAttr(),
