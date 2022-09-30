@@ -38,8 +38,12 @@ def : Pat<(MIGraphX_TanhOp $input1), (Tosa_TanhOp $input1)>;
 def : Pat<(MIGraphX_ReluOp $input1),
   (Tosa_ClampOp $input1, ConstantAttr<I64Attr, "0">:$mini, ConstantAttr<I64Attr, "2147483647">:$maxi,
     ConstantAttr<F32Attr, "0">:$minf, ConstantAttr<F32Attr, "3.40282347E+38">:$maxf)>;
-def : Pat<(MIGraphX_TransposeOp $input1, $permAttr),
-  (Tosa_TransposeOp $input1, (Arith_ConstantOp $permAttr))>;
+
+def ConvertI64ArrayAttrtoDenseElementsAttr : NativeCodeCall<
+    "DenseIntElementsAttr::get(RankedTensorType::get({static_cast<int64_t>($0.size())}, rewriter.getI64Type()), $0.getValue())">;
+def : Pat<(MIGraphX_TransposeOp $input1, $permAttr), 
+  (Tosa_TransposeOp $input1, (Arith_ConstantOp (ConvertI64ArrayAttrtoDenseElementsAttr $permAttr)))>;
+
 def : Pat<(MIGraphX_ReshapeOp $input1, $newshape), (Tosa_ReshapeOp $input1, $newshape)>;
 
 #endif // MLIR_CONVERSION_MIGRAPHX_TO_TOSA

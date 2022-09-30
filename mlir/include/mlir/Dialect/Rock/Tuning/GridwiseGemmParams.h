@@ -121,7 +121,41 @@ struct DerivedBlockGemmParams {
   int64_t gemmNCuwavesPerBlock;
 };
 
-class PopulateParams {
+template <typename InitParamType> class BasePopulateParams {
+protected:
+  // Interface function to check whether the given GEMM is valid
+  virtual LogicalResult isValidGemm(const InitParamType &param,
+                                    const GemmSize &gemmSize) const = 0;
+
+  // This function will order the initParams used in a non-tuning flow to
+  // prioritize params that does not require padding to come first while
+  // otherwise maintaining the provided order.
+  // TODO(@manupak) : improve this to order based on amount of padding added.
+  std::vector<InitParamType>
+  orderInitParams(const ArrayRef<InitParamType> &initParams,
+                  const GemmSize &gemmSize) {
+    std::vector<InitParamType> paddingRequiredParams;
+    std::vector<InitParamType> paddingNotRequiredParams;
+    for (const InitParamType &param : initParams) {
+      if (isValidGemm(param, gemmSize).succeeded()) {
+        paddingNotRequiredParams.emplace_back(param);
+      } else {
+        paddingRequiredParams.emplace_back(param);
+      }
+    }
+    std::vector<InitParamType> orderedParams;
+    std::move(paddingNotRequiredParams.begin(), paddingNotRequiredParams.end(),
+              std::back_inserter(orderedParams));
+    std::move(paddingRequiredParams.begin(), paddingRequiredParams.end(),
+              std::back_inserter(orderedParams));
+    return orderedParams;
+  }
+
+public:
+  virtual ~BasePopulateParams() {}
+};
+
+class PopulateParams : public BasePopulateParams<InitParamsNonXDL> {
 private:
   static constexpr size_t nInitParameters = 21;
   static const InitParamsNonXDL initParameters[nInitParameters];
@@ -157,10 +191,11 @@ public:
 
   const InitParams &getUniversalParameters() const;
 
-  LogicalResult isValidGemm(const InitParamsNonXDL &param, GemmSize &gemmSize);
+  LogicalResult isValidGemm(const InitParamsNonXDL &param,
+                            const GemmSize &gemmSize) const override;
 };
 
-class PopulateParamsXDL {
+class PopulateParamsXDL : public BasePopulateParams<InitParamsXDL> {
 private:
   static constexpr size_t nInitParameters = 9;
   // Initial tuning parameters for forward convolution and backward
@@ -180,8 +215,8 @@ private:
 
   uint32_t obtainBlockSize(const InitParamsXDL &params, int64_t waveSize);
 
-  LogicalResult getKBlocks(ConvolutionContext &ctx, const InitParamsXDL &params,
-                           int64_t &gemmKBlocks);
+  LogicalResult getKBlocks(ConvolutionContext &ctx, const GemmSize &gemmSize,
+                           const InitParamsXDL &params, int64_t &gemmKBlocks);
 
   LogicalResult isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
                                            ConvolutionContext &ctx,
@@ -208,13 +243,25 @@ public:
                                        uint32_t &blockSize, uint32_t &gridSize,
                                        int64_t &gemmKBlocks);
 
-  llvm::ArrayRef<InitParamsXDL> getTuningParameters(ConvOpType dir,
-                                                    Type dataType) const;
+  ArrayRef<InitParamsXDL> getTuningParameters(ConvOpType dir,
+                                              Type dataType) const;
   const InitParams &getUniversalParameters() const;
 
   LogicalResult isValidGemm(const InitParamsXDL &param,
-                            GemmSize &gemmSize) const;
+                            const GemmSize &gemmSize) const override;
 };
+
+// This core function to calculate the required padding amount
+// given a gemm size.
+Optional<GemmContext> calculatePadding(int64_t kPerBlock, int64_t mPerBlock,
+                                       int64_t nPerBlock,
+                                       const GemmContext &gemmSize,
+                                       int64_t kPack = 1);
+
+Optional<GemmContext> calculatePadding(int64_t kPerBlock, int64_t mPerBlock,
+                                       int64_t nPerBlock,
+                                       const GemmSize &gemmSize,
+                                       int64_t kPack = 1);
 
 // The function is used to compute extra padding sizes.
 // For example, if gemmM size is 3 and gemmMPerBlock is 64,
