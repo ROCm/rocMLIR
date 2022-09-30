@@ -369,14 +369,39 @@ bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {
   bool needExtraPad = false;
   if (!bitEnumContainsAll(config.features, GemmFeatures::mfma)) {
     PopulateParams populateParams;
-    needExtraPad =
-        calculatePaddingKernelSize(gemmSize, dir, dataType, populateParams)
-            .has_value();
+    InitParamsNonXDL validParams;
+    // If there is a perfConfig present in the configuration
+    // we just need to see if padding will be used in that config
+    if (validParams.deserialize(config.perfConfig)) {
+      needExtraPad =
+          calculatePadding(validParams.gemmKPerBlock, validParams.gemmMPerBlock,
+                           validParams.gemmNPerBlock, gemmSize)
+              .hasValue();
+    } else {
+      // This function will go through the list and pick a valid configuration
+      // the following code will return if the resulting config needs padding
+      needExtraPad =
+          calculatePaddingKernelSize(gemmSize, dir, dataType, populateParams)
+              .hasValue();
+    }
   } else {
     PopulateParamsXDL populateParamsXDL;
-    needExtraPad =
-        calculatePaddingKernelSize(gemmSize, dir, dataType, populateParamsXDL)
-            .has_value();
+    InitParamsXDL validParams;
+    // If there is a perfConfig present in the configuration
+    // we just need to see if padding will be used in that config
+    if (validParams.deserialize(config.perfConfig)) {
+      needExtraPad =
+          calculatePadding(validParams.gemmKPerBlock, validParams.gemmMPerBlock,
+                           validParams.gemmNPerBlock, gemmSize,
+                           validParams.gemmKPack)
+              .hasValue();
+    } else {
+      // This function will go through the list and pick a valid configuration
+      // the following code will return if the resulting config needs padding
+      needExtraPad =
+          calculatePaddingKernelSize(gemmSize, dir, dataType, populateParamsXDL)
+              .hasValue();
+    }
   }
   return needExtraPad;
 }

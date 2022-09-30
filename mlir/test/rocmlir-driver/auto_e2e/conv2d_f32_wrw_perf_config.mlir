@@ -1,0 +1,3 @@
+// RUN: rocmlir-gen --arch %targetChip --operation conv2d_bwd_weight --perf_config 64,64,2,64,64,2,1,1 -t f32 -x2 --fil_layout kcyx --in_layout nchw --out_layout nkhw --batchsize 512 --in_channels 512 --in_h 1 --in_w 1 --out_channels 512 --fil_h 1 --fil_w 1 --dilation_h 1 --dilation_w 1 --conv_stride_h 1 --conv_stride_w 1 --padding_h 0 --padding_w 0 %pv %random_data -x2 | rocmlir-driver -c | mlir-rocm-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CHECK_F32_WRW_PERF_CFG
+
+// CHECK_F32_WRW_PERF_CFG: [1 1 1]

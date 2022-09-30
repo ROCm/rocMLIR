@@ -7,6 +7,7 @@
 //===-----------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
@@ -16,12 +17,15 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-LogicalResult mlir::rock::calculateKBlockNum(
-    ConvolutionDims convDims, int64_t MPerBlock, int64_t NPerBlock,
-    int64_t KPerBlock, int64_t KPack, int64_t num_cu, int64_t &nKBlock) {
-  const int64_t gemmM = convDims.k;
-  const int64_t gemmN = convDims.c * convDims.y * convDims.x;
-  const int64_t gemmK = convDims.n * convDims.ho * convDims.wo;
+LogicalResult mlir::rock::calculateKBlockNum(const ConvolutionDims &convDims,
+                                             const GemmSize &gemmSize,
+                                             int64_t MPerBlock,
+                                             int64_t NPerBlock,
+                                             int64_t KPerBlock, int64_t KPack,
+                                             int64_t num_cu, int64_t &nKBlock) {
+  const int64_t gemmM = gemmSize.gemmM;
+  const int64_t gemmN = gemmSize.gemmN;
+  const int64_t gemmK = gemmSize.gemmK;
 
   int64_t gemmKBlock = 1;
 

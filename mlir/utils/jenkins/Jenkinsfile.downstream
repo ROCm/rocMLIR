@@ -148,7 +148,7 @@ pipeline {
                         stage("Build MIOpen with librockCompiler") {
                             steps {
                                 dir('MIOpen') {
-                                git branch: 'rename-MLIR', poll: false,\
+                                git branch: 'fix-kernel-count-MLIR', poll: false,\
                                     url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
                                 buildMIOpen("""-DMIOPEN_USE_MLIR=On
                                         -DMIOPEN_BACKEND=HIP
