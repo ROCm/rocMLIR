@@ -173,7 +173,7 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
     Optional<GemmContext> extraPadSizes = calculatePadding(
         gemmParams.getKPerBlock(), gemmParams.getMPerBlock(),
         gemmParams.getNPerBlock(), gemmSize, gemmParams.getKpack());
-    if (extraPadSizes.hasValue()) {
+    if (extraPadSizes.has_value()) {
       assert(gemmId == 0 &&
              "if there is padding, only a single kernel should be generated");
     } else {
@@ -231,14 +231,13 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
         signalPassFailure();
     }
 
-    ConvOpType dir = obtainConvDirection(op);
     Type dataType = obtainConvDataType(op);
 
     // Disable kpack in case we need padding kernel.
     Optional<GemmContext> gemmExtraPad = calculatePadding(
         validParams.gemmKPerBlock, validParams.gemmMPerBlock,
         validParams.gemmNPerBlock, gemmSize, validParams.gemmKPack);
-    if (gemmExtraPad.hasValue()) {
+    if (gemmExtraPad.has_value()) {
       validParams.gemmKPack = 1;
     }
 

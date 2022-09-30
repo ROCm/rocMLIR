@@ -577,7 +577,7 @@ LogicalResult PopulateParams::populateDerived(
   auto gemmExtraPad =
       calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
                        params.gemmNPerBlock, gemmSize);
-  if (gemmExtraPad.hasValue()) {
+  if (gemmExtraPad.has_value()) {
     gemmSize.gemmM += gemmExtraPad->m;
     gemmSize.gemmK += gemmExtraPad->k;
     gemmSize.gemmN += gemmExtraPad->n;
@@ -918,7 +918,7 @@ LogicalResult PopulateParamsXDL::populateDerived(
   auto gemmExtraPad =
       calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
                        params.gemmNPerBlock, gemmSize, params.gemmKPack);
-  if (gemmExtraPad.hasValue()) {
+  if (gemmExtraPad.has_value()) {
     gemmSize.gemmM += gemmExtraPad->m;
     gemmSize.gemmK += gemmExtraPad->k;
     gemmSize.gemmN += gemmExtraPad->n;
