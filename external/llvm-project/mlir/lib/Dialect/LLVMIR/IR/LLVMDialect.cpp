@@ -2805,15 +2805,30 @@ Value mlir::LLVM::createGlobalString(Location loc, OpBuilder &builder,
   auto module =
       builder.getInsertionBlock()->getParentOp()->getParentOfType<ModuleOp>();
   assert(module && "builder points to an op outside of a module");
+  MLIRContext *ctx = builder.getContext();
+
+  SmallString<64> uniqueName(name);
 
   // Create the global at the entry of the module.
-  OpBuilder moduleBuilder(module.getBodyRegion(), builder.getListener());
-  MLIRContext *ctx = builder.getContext();
-  auto type = LLVM::LLVMArrayType::get(IntegerType::get(ctx, 8), value.size());
-  auto global = moduleBuilder.create<LLVM::GlobalOp>(
-      loc, type, /*isConstant=*/true, linkage, name,
-      builder.getStringAttr(value), /*alignment=*/0);
-
+  // Uniquify if necessary or return found equivalent.
+  LLVM::GlobalOp global = module.lookupSymbol<LLVM::GlobalOp>(uniqueName);
+  APInt i(32, 0);
+  while (global) {
+    auto globalVal = global.getValueOrNull().dyn_cast<StringAttr>();
+    if (global.getConstant() && globalVal && globalVal == value)
+      break;
+    // uniquify the name
+    uniqueName = llvm::Twine(name, "_").str();
+    (++i).toString(uniqueName, 10, false);
+    global = module.lookupSymbol<LLVM::GlobalOp>(uniqueName);
+  }
+  if (!global) {
+    OpBuilder moduleBuilder(module.getBodyRegion(), builder.getListener());
+    auto type = LLVM::LLVMArrayType::get(IntegerType::get(ctx, 8), value.size());
+    global = moduleBuilder.create<LLVM::GlobalOp>(
+        loc, type, /*isConstant=*/true, linkage, uniqueName,
+        builder.getStringAttr(value), /*alignment=*/0);
+  }
   // Get the pointer to the first character in the global string.
   Value globalPtr = builder.create<LLVM::AddressOfOp>(loc, global);
   return builder.create<LLVM::GEPOp>(
