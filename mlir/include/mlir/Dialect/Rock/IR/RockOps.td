@@ -173,7 +173,7 @@ def Rock_GemmOp :
 
 def Rock_TransformOp :
     Rock_Op<"transform", [NoSideEffect, ViewLikeOpInterface]>,
-    Arguments<(ins AnyShaped:$input, TransformMapArrayAttr:$transforms)>,
+    Arguments<(ins AnyShaped:$input, Rock_TransformMapAttr:$transform)>,
     Results<(outs AnyShaped:$output)> {
   let summary = "Tensor transformation";
   let description = [{
@@ -197,12 +197,12 @@ def Rock_TransformOp :
      } else {
        upperType = lowerType.cloneWith(transform.getUpperBounds(), elemType);
      }
-     $_state.addAttribute("transforms", $_builder.getArrayAttr({transform}));
+     $_state.addAttribute("transform", transform);
      $_state.addTypes(upperType);
    }]>,
   ];
   let assemblyFormat = [{
-    $input `by` $transforms attr-dict `:` type($input) `to` type($output)
+    $input `by` $transform attr-dict `:` type($input) `to` type($output)
   }];
 
   let extraClassDeclaration = [{
