@@ -56,7 +56,11 @@ namespace {
 class TosaPartitionPass
     : public tosa::impl::TosaPartitionBase<TosaPartitionPass> {
 public:
-  using tosa::impl::TosaPartitionBase<TosaPartitionPass>::TosaPartitionBase;
+  typedef tosa::impl::TosaPartitionBase<TosaPartitionPass> Base;
+  
+  TosaPartitionPass();
+  TosaPartitionPass(const TosaPartitionOptions &options);
+  
   bool isAnchorOp(Operation *op);
   bool isLeadingOp(Operation *op);
   bool isTrailingOp(Operation *op);
@@ -472,10 +476,17 @@ void outlinePartitionOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
 
 } // namespace
 
-bool TosaPartitionPass::isAnchorOp(Operation *op) {
-  if (anchorOps.empty()) // ListOption doesn't have a default value.
-    anchorOps = {"tosa.conv2d", "tosa.matmul", "tosa.depthwise_conv2d"};
+TosaPartitionPass::TosaPartitionPass() : Base() {
+  anchorOps = {"tosa.conv2d", "tosa.matmul", "tosa.depthwise_conv2d", "tosa.fully_connected"};
+}
 
+TosaPartitionPass::TosaPartitionPass(const TosaPartitionOptions &options)
+    : Base(options) {
+  if (anchorOps.empty()) // ListOption doesn't have a default value.
+    anchorOps = {"tosa.conv2d", "tosa.matmul", "tosa.depthwise_conv2d", "tosa.fully_connected"};
+}
+
+bool TosaPartitionPass::isAnchorOp(Operation *op) {
   return llvm::is_contained(anchorOps, op->getName().getIdentifier().str());
 }
 
