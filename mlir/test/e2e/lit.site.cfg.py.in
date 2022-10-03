@@ -37,6 +37,7 @@ except KeyError:
 # because the default target will lead to compilation failures.
 config.no_AMD_GPU = False
 config.arch = ""
+config.arch_support_mfma = False
 if config.rocm_path:
     try:
         p = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator", "-name"],
@@ -49,6 +50,10 @@ if config.rocm_path:
                                 check=True, stdout=subprocess.PIPE)
             agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
         config.arch = ','.join(agents)
+        for x in config.arch:
+            if "gfx908" in x or "gfx90a" in x:
+                config.arch_support_mfma = True
+            # Check other features here
         if not config.arch:
             config.no_AMD_GPU = True
     except subprocess.CalledProcessError:
