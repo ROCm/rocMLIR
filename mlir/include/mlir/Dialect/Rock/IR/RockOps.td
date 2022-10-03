@@ -808,6 +808,7 @@ def Rock_BlockwiseGemmOp:
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixA,
                    MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixB,
                    MemRefRankOf<[F32, F16, BF16, I32], [2]>:$matrixC,
+                   I32Attr:$blockSize,
                    Rock_GeneralGemmParamsAttr:$params
                    )> {
   let summary = "Blockwise GEMM non-XDLOPS version";

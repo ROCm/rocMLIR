@@ -186,12 +186,6 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams"> {
     - mPerThread: The number of values of m to process as a unit on each thread
     - nPerThread: The number of values of n to process as a unit on each thread
     - kpack: The number of values of k to pack contiguously into the shared buffer
-    - mThreadsPerCuwave: The length of the m dimension in the grid the 16 threads
-      of a CU wave are arranged into
-    - nThreadsPerCuwave: The length of the n dimension of said thread grid
-    - mCuwavesPerBlock: The length of the m dimension of the grid the CU waves
-      composing each block is arranged in to
-    - nCuwavesPerBlock: The n dimension of said grid of CU waves
   }];
   let parameters = (ins
     "int64_t":$kPerBlock,
@@ -200,11 +194,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams"> {
     "int64_t":$kPerThread,
     "int64_t":$mPerThread,
     "int64_t":$nPerThread,
-    "int64_t":$kpack,
-    "int64_t":$mThreadsPerCuwave,
-    "int64_t":$nThreadsPerCuwave,
-    "int64_t":$mCuwavesPerBlock,
-    "int64_t":$nCuwavesPerBlock
+    "int64_t":$kpack
   );
 
   let assemblyFormat = [{

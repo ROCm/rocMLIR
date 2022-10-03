@@ -11,11 +11,7 @@ func.func @rock_blockwise_gemm_f16(%A : memref<8x128x1xf16, 3>, %B : memref<8x12
       nPerBlock = 256,
       kPerThread = 1,
       mPerThread = 4,
-      mThreadsPerCuwave = 4,
-      mCuwavesPerBlock = 4,
       nPerThread = 4,
-      nThreadsPerCuwave = 4,
-      nCuwavesPerBlock = 4,
       kpack = 1>
   } : memref<8x8xf16, 5> += memref<8x128x1xf16, 3> * memref<8x128x1xf16, 3>
   return

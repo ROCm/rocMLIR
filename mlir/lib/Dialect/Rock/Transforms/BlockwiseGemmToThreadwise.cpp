@@ -22,8 +22,9 @@
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
@@ -116,22 +117,34 @@ struct BlockwiseGemmRewritePattern
     // Obtain critical attributes.
     int64_t mC = bufferCType.getShape()[0];
     int64_t nC = bufferCType.getShape()[1];
+
+    uint32_t blockSize = op.getBlockSize();
+    GeneralGemmBlockStructure blockStructure =
+        *deriveGeneralGemmBlockStructure(blockSize);
+
     GeneralGemmParamsAttr params = op.params();
     int64_t kPerThread = params.getKPerThread();
     int64_t mPerThread = params.getMPerThread();
     int64_t nPerThread = params.getNPerThread();
 
-    int64_t mThreadsPerCuwave = params.getMThreadsPerCuwave();
-    int64_t nThreadsPerCuwave = params.getNThreadsPerCuwave();
+    int64_t mThreadsPerCuwave = blockStructure.mThreadsPerCuwave;
+    int64_t nThreadsPerCuwave = blockStructure.nThreadsPerCuwave;
     int64_t cuwaveLen = mThreadsPerCuwave * nThreadsPerCuwave;
 
-    int64_t mCuwavesPerBlock = params.getMCuwavesPerBlock();
-    int64_t nCuwavesPerBlock = params.getNCuwavesPerBlock();
+    int64_t mCuwavesPerBlock = blockStructure.mCuwavesPerBlock;
+    int64_t nCuwavesPerBlock = blockStructure.nCuwavesPerBlock;
     int64_t numCuwaves = mCuwavesPerBlock * nCuwavesPerBlock;
-    int64_t blockSize = numCuwaves * cuwaveLen;
+    int64_t derivedBlockSize = numCuwaves * cuwaveLen;
+    assert(blockSize == derivedBlockSize &&
+           "block structure parameters must multiply to block size");
 
     int64_t mRepeat = mC / mPerThread;
     int64_t nRepeat = nC / nPerThread;
+
+    if (mRepeat * mCuwavesPerBlock * mThreadsPerCuwave * mPerThread != m)
+      return op.emitOpError("The m turing attributes don't multiply to M_LDS");
+    if (nRepeat * nCuwavesPerBlock * nThreadsPerCuwave * nPerThread != n)
+      return op.emitOpError("The n turing parameters don't multiply to N_LDS");
 
     LLVM_DEBUG(llvm::dbgs()
                << "M: " << m << "\n"

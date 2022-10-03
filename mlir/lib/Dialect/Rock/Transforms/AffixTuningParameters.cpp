@@ -283,14 +283,13 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     InitParamsNonXDL validParams;
     DerivedParams gemmADerivedParam;
     DerivedParams gemmBDerivedParam;
-    DerivedBlockGemmParams blockGemmDerivedParam;
     DerivedOutParams gemmCDerivedParam;
     uint32_t gridSize;
 
     PopulateParams populateParams;
     LogicalResult status = populateParams.obtainTuningParameters(
         op, blockSizeOverride, perfConfig, validParams, gemmADerivedParam,
-        gemmBDerivedParam, blockGemmDerivedParam, gemmCDerivedParam, gridSize);
+        gemmBDerivedParam, gemmCDerivedParam, gridSize);
 
     if (failed(status)) {
       signalPassFailure();
@@ -313,10 +312,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
         validParams.gemmNPerBlock,
         /*kPerThread=*/1, validParams.gemmMPerThread,
         validParams.gemmNPerThread,
-        /*kpack=*/1, blockGemmDerivedParam.gemmMThreadsPerCuwave,
-        blockGemmDerivedParam.gemmNThreadsPerCuwave,
-        blockGemmDerivedParam.gemmMCuwavesPerBlock,
-        blockGemmDerivedParam.gemmNCuwavesPerBlock);
+        /*kpack=*/1);
     op->setAttr(op.paramsAttrName(), gemmParams);
 
     // Set attributes on the function.
