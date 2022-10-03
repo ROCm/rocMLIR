@@ -1,4 +1,4 @@
-//===- BlockStructureParams.h - Block structure derived parameters ----*-===//
+//===- GeneralGemmBlockStructure.cpp - block structure non-xdlops ----*-===//
 //
 // Part of the rocMLIR Project, under the Apache License v2.0 with LLVM
 // Exceptions. See https://llvm.org/LICENSE.txt for license information.
@@ -7,19 +7,19 @@
 // Copyright (c) 2022 Advanced Micro Devices INc.
 //===----------------------------------------------------------------------===//
 //
-// This file defines the BlockStructureParams structure, which describes how
-// the workitems of a workgroup are grouped into smaller parts based on.
+// This file defines the GeneralGemmBlockStructure structure, which describes
+// how the workitems of a workgroup are grouped into smaller parts based on.
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Rock/Tuning/BlockStructureParams.h"
+#include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 
 using namespace mlir;
 using namespace mlir::rock;
 
-FailureOr<BlockStructureParams>
-mlir::rock::blockStructureParams(uint32_t blockSize) {
-  BlockStructureParams ret;
+FailureOr<GeneralGemmBlockStructure>
+mlir::rock::deriveGeneralGemmBlockStructure(uint32_t blockSize) {
+  GeneralGemmBlockStructure ret;
 
   if (blockSize == 64) {
     ret.mThreadsPerCuwave = 4;

@@ -1,8 +1,8 @@
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/Tuning/BlockStructureParams.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GemmContext.h"
+#include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 #include "mlir/Dialect/Rock/Tuning/SqliteDb.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 
@@ -531,11 +531,11 @@ LogicalResult PopulateParams::calculateGemmCBlockwiseCopyParams(
 LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
     const InitParamsNonXDL &param, const ConvolutionContext &ctx) {
 
-  FailureOr<BlockStructureParams> maybeDerived =
-      blockStructureParams(param.blockSize);
+  FailureOr<GeneralGemmBlockStructure> maybeDerived =
+      deriveGeneralGemmBlockStructure(param.blockSize);
   if (failed(maybeDerived))
     return failure();
-  BlockStructureParams derived = std::move(*maybeDerived);
+  GeneralGemmBlockStructure derived = std::move(*maybeDerived);
 
   if (!(param.gemmMPerThread >= 2 && param.gemmMPerThread <= 4))
     return failure();

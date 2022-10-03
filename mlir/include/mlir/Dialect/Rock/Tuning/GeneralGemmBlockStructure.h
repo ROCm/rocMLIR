@@ -1,4 +1,4 @@
-//===- BlockStructureParams.h - Block structure derived parameters ----*-===//
+//===- GeneralGemmBlockStructure.h - Gemm block structure non-xdlops --*-===//
 //
 // Part of the rocMLIR Project, under the Apache License v2.0 with LLVM
 // Exceptions. See https://llvm.org/LICENSE.txt for license information.
@@ -7,13 +7,13 @@
 // Copyright (c) 2022 Advanced Micro Devices INc.
 //===----------------------------------------------------------------------===//
 //
-// This file defines the BlockStructureParams structure, which describes how
-// the workitems of a workgroup are grouped into smaller parts based on.
+// This file defines the GeneralGemmBlockStructure structure, which describes
+// how the workitems of a workgroup are grouped into smaller parts based on.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_DIALECT_ROCK_TUNING_BLOCKSTRUCTUREPARAMS_H
-#define MLIR_DIALECT_ROCK_TUNING_BLOCKSTRUCTUREPARAMS_H
+#ifndef MLIR_DIALECT_ROCK_TUNING_GENERALGEMMBLOCKSTRUCTURE_H
+#define MLIR_DIALECT_ROCK_TUNING_GENERALGEMMBLOCKSTRUCTURE_H
 
 #include "mlir/Support/LogicalResult.h"
 #include <cstdint>
@@ -29,15 +29,18 @@ namespace rock {
 /// - mCuwavesPerBlock: The length of the m dimension of the grid the CU waves
 ///   composing each block is arranged in to
 /// - nCuwavesPerBlock: The n dimension of said grid of CU waves
-struct BlockStructureParams {
+struct GeneralGemmBlockStructure {
   int64_t mThreadsPerCuwave;
   int64_t nThreadsPerCuwave;
   int64_t mCuwavesPerBlock;
   int64_t nCuwavesPerBlock;
 };
 
-FailureOr<BlockStructureParams> blockStructureParams(uint32_t blockSize);
+/// Gen the GeneralGemmBlockStructure for a given blockSize and return failure()
+/// if one cannot be found.
+FailureOr<GeneralGemmBlockStructure>
+deriveGeneralGemmBlockStructure(uint32_t blockSize);
 } // namespace rock
 } // namespace mlir
 
-#endif // MLIR_DIALECT_ROCK_TUNING_BLOCKSTRUCTUREPARAMS_H
+#endif // MLIR_DIALECT_ROCK_TUNING_GENERALGEMMBLOCKSTRUCTURE_H

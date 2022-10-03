@@ -24,7 +24,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
-#include "mlir/Dialect/Rock/Tuning/BlockStructureParams.h"
+#include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
@@ -119,7 +119,8 @@ struct BlockwiseGemmRewritePattern
     int64_t nC = bufferCType.getShape()[1];
 
     uint32_t blockSize = op.getBlockSize();
-    BlockStructureParams blockStructure = *blockStructureParams(blockSize);
+    GeneralGemmBlockStructure blockStructure =
+        *deriveGeneralGemmBlockStructure(blockSize);
 
     GeneralGemmParamsAttr params = op.params();
     int64_t kPerThread = params.getKPerThread();

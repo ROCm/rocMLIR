@@ -22,7 +22,7 @@
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/IR/XdlopsCodeSelection.h"
 #include "mlir/Dialect/Rock/Passes.h"
-#include "mlir/Dialect/Rock/Tuning/BlockStructureParams.h"
+#include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
@@ -683,7 +683,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     int64_t mPerThread = tuningParams.getMPerThread();
     int64_t nPerThread = tuningParams.getNPerThread();
 
-    BlockStructureParams blockStructure = *blockStructureParams(blockSize);
+    GeneralGemmBlockStructure blockStructure =
+        *deriveGeneralGemmBlockStructure(blockSize);
     int64_t mThreadsPerCuwave = blockStructure.mThreadsPerCuwave;
     int64_t nThreadsPerCuwave = blockStructure.nThreadsPerCuwave;
     int64_t mCuwavesPerBlock = blockStructure.mCuwavesPerBlock;
