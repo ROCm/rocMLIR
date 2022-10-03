@@ -12,6 +12,7 @@
 #include "mlir-c/BuiltinAttributes.h"
 #include "mlir-c/BuiltinTypes.h"
 #include "mlir-c/Dialect/MIGraphX.h"
+#include "mlir-c/Dialect/Rock.h"
 #include "mlir-c/IR.h"
 #include "mlir-c/RegisterEverything.h"
 #include "mlir-c/RegisterRocMLIR.h"
@@ -165,6 +166,20 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   mlirMIGraphXAddHighLevelPipeline(pm);
   mlirPassManagerRun(pm, module);
   MlirOperation moduleOp = mlirModuleGetOperation(module);
+
+  MlirRockTuningSpace tuningSpace = mlirRockTuningSpaceCreate(module);
+  int qNum = mlirRockTuningGetNumParamsQuick(tuningSpace);
+  int fNum = mlirRockTuningGetNumParamsFull(tuningSpace);
+  MlirRockTuningParam obtainedParam =
+      mlirRockTuningCreateParamAt(tuningSpace, 0);
+  mlirRockTuningSetParam(module, obtainedParam);
+  MlirStringRef paramStr = mlirRockTuningGetParamStr(obtainedParam);
+  mlirRockTuningParamDestroy(obtainedParam);
+  mlirRockTuningSpaceDestroy(tuningSpace);
+
+  printf("Got tuning space,\n");
+  printf("Obtained perfconfig : \"%s\"\n", paramStr.data);
+  printf("quick set = %d, full set = %d\n", qNum, fNum);
   mlirOperationDump(moduleOp);
   // CHECK-LABEL: func @main
 
