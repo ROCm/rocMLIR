@@ -197,7 +197,7 @@ pipeline {
                             steps {
                                 buildProject('check-mlir check-rocmlir', """
                                   -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
-                                  -DROCMLIR_GEN_FEATURES=${params.canXdlops ? '-mfma=on' : '-mfma=off'}
+                                  -DROCMLIR_GEN_FEATURES=${params.canXdlops ? '-mfma=on -atomic_add=on' : '-mfma=off -atomic_add=off'}
                                   -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
                                   -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
                                   -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
@@ -256,7 +256,7 @@ pipeline {
                             steps {
                                 buildProject('check-rocmlir',
                                              """-DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
-                                             -DROCMLIR_GEN_FEATURES=${params.canXdlops ? '-mfma=on' : '-mfma=off'}
+                                             -DROCMLIR_GEN_FEATURES=${params.canXdlops ? '-mfma=on -atomic_add=on' : '-mfma=off --atomic_add=off'}
                                              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
                                              -DROCK_E2E_TEST_ENABLED=1
                                              -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1

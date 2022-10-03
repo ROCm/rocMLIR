@@ -1,10 +1,10 @@
-// RUN: rocmlir-gen --arch %targetChip -p -prc | FileCheck %s --check-prefix=F32
+// RUN: rocmlir-gen --arch %arch -p -prc | FileCheck %s --check-prefix=F32
 
 // F32: func.func @main()
 // F32:  [[RES:%.*]] = memref.cast {{.*}} : memref<{{.*}}> to memref<*xf32>
 // F32-NEXT:    call @printMemrefF32([[RES]]) : (memref<*xf32>) -> ()
 
-// RUN: rocmlir-gen --arch %targetChip -p -prc -t f16 | FileCheck %s --check-prefix=F16
+// RUN: rocmlir-gen --arch %arch -p -prc -t f16 | FileCheck %s --check-prefix=F16
 
 // F16:    %{{.*}} = memref.alloc() : memref<1x128x8x3x3xf16>
 // F16:    call @_memcpy_f16_f32(%{{.*}}, %{{.*}}, %c{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>, index) -> ()
@@ -17,7 +17,7 @@
 // F16:    call @printMemrefF32([[RES2]]) : (memref<*xf32>) -> ()
 
 
-// RUN: rocmlir-gen --arch %targetChip -p -prc -t bf16 | FileCheck %s --check-prefix=BF16
+// RUN: rocmlir-gen --arch %arch -p -prc -t bf16 | FileCheck %s --check-prefix=BF16
 
 // BF16:    %{{.*}} = memref.alloc() : memref<1x128x8x3x3xbf16>
 // BF16:    call @_memcpy_bf16_f32(%{{.*}}, %{{.*}}, %c{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>, index) -> ()
@@ -29,7 +29,7 @@
 // BF16:    [[RES2:%.*]] = memref.cast [[RES1]] : memref<{{.*}}> to memref<*xf32>
 // BF16:    call @printMemrefF32([[RES2]]) : (memref<*xf32>) -> ()
 
-// RUN: rocmlir-gen --arch %targetChip -p -prc -t i8 | FileCheck %s --check-prefix=INT8
+// RUN: rocmlir-gen --arch %arch -p -prc -t i8 | FileCheck %s --check-prefix=INT8
 
 // INT8: func.func @main()
 // INT8:  call @_memcpy_i32_f32(%{{.*}}, %{{.*}}, %{{.*}}) : (memref<{{.*}}>, memref<{{.*}}>, index) -> ()
