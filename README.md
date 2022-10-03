@@ -17,13 +17,11 @@ cmake -G Ninja .. -DCMAKE_BUILD_TYPE=RelWithDebInfo
 ninja check-rocmlir
 ```
 
-By default, tests requiring xdlops are enabled, which requires
-MI-100, MI-200, or any other system that supports mfma instructions.
-To disable tests that require xdlops and run on gfx906 GPUs, add the flag 
-`-DROCMLIR_DRIVER_FEATURE=vanilla` to the `cmake` invocation above.
-To run tests on gfx900 GPUs, add the flag 
-`-DROCMLIR_DRIVER_FEATURE=none` to the `cmake` invocation above.
-In the future, the feature list will be extended as more chips are supported.
+By default, xdlops tests are enabled on MI-100, MI-200, and any other system
+that supports mfma instructions.
+xdlops tests are disabled on GPUs that do not support mfma instructions.
+To disable xdlops tests on GPUs that supports mfma instructions, 
+add `-DROCMLIR_GEN_FEATURES="-mfma=off"` to the `cmake` invocation above.
 
 To not actually run the tests, use `check-rocmlir-build-only`.
 
@@ -53,7 +51,8 @@ In general (with all invocations given from the build directory)
 - `./bin/rocmlir-gen` generates high-level convolution operations and
   host code. Many of the options control data layout, size, etc, but some other
   useful flags are:
-    - `-x2` (which enables mfma usage)
+    - `-mfma=on` (which enables mfma usage)
+    - `-mfma=off` (which disables mfma usage)
     - `-ph` (which causes host code to be generated)
     - `-pv` (which makes the host code validtae the results against a reference)
     - `-pv_with_gpu` (which uses a GPU validator instead)

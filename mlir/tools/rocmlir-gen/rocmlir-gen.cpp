@@ -218,23 +218,6 @@ static cl::opt<int> paddingWidthRight("padding_w_r",
                                       cl::value_desc("attribute value"),
                                       cl::init(0));
 
-// use XDLOPS
-static cl::opt<bool>
-    xdlopsV2("x2", cl::desc("To use XDLOPS V2 lowering pipeline"),
-             cl::value_desc("To use XDLOPS V2 lowering pipeline"),
-             cl::init(false));
-
-// disable feature mfma
-static cl::opt<std::string> featureInfo(
-    "feature",
-    cl::desc("Requested feature:"
-             "mfma: enable xdlops on gfx908 or gfx90a (cdnaInfo)"
-             "pre-wmma: enable dot product instructions on gfx1030 (rdnaInfo)"
-             "wmma: enable wmma instructions on gfx11 (gfx11Info)"
-             "vanilla: enable dot product instructions on gfx906 (rdnaInfo)"
-             "none: disable all features on gfx900 (gcnInfo)"),
-    cl::value_desc("feature"), cl::init("vanilla"));
-
 // A toggle to control whether a feature should be added to the feature list
 enum featureToggle { infer, on, off };
 
@@ -2214,9 +2197,13 @@ int main(int argc, char **argv) {
         llvm::errs() << "--arch is not set\n";
         exit(1);
       }
-      std::string chip = arch.getValue();
-      std::string triple("amdgcn-amd-amdhsa");
-      std::string chipFeatures("");
+
+      RocmDeviceName targetInfo;
+      if (failed(targetInfo.parse(arch.getValue())))
+        exit(1);
+      std::string triple = targetInfo.getTriple().str();
+      std::string chip = targetInfo.getChip().str();
+      std::string chipFeatures = targetInfo.getFeatures().str();
 
       LogicalResult status = success();
 
