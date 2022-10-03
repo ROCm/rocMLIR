@@ -2254,8 +2254,9 @@ int main(int argc, char **argv) {
     }
 
     // TODO: Extract isApplicable check to be its own component
-    if (failed(conv2dGenerator.isApplicable())) {
-      llvm::errs() << "Convolution configuration not applicable\n";
+    if (failed(conv2dGenerator.isApplicable(/* checkChip = */ false))) {
+      llvm::errs()
+          << "Convolution configuration does not have valid dimension\n";
       exit(1);
     }
   }
