@@ -1,4 +1,4 @@
-// RUN: rocmlir-driver -host-pipeline partition,highlevel -target %chip %s | FileCheck %s
+// RUN: rocmlir-driver -host-pipeline partition,highlevel -target gfx908 %s | FileCheck %s
 
 module {
 
