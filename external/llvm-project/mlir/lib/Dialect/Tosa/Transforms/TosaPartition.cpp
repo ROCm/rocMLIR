@@ -56,10 +56,7 @@ namespace {
 class TosaPartitionPass
     : public tosa::impl::TosaPartitionBase<TosaPartitionPass> {
 public:
-  typedef tosa::impl::TosaPartitionBase<TosaPartitionPass> Base;
-  
-  TosaPartitionPass();
-  TosaPartitionPass(const TosaPartitionOptions &options);
+  using tosa::impl::TosaPartitionBase<TosaPartitionPass>::TosaPartitionBase;
   
   bool isAnchorOp(Operation *op);
   bool isLeadingOp(Operation *op);
@@ -476,17 +473,9 @@ void outlinePartitionOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
 
 } // namespace
 
-TosaPartitionPass::TosaPartitionPass() : Base() {
-  anchorOps = {"tosa.conv2d", "tosa.matmul", "tosa.depthwise_conv2d", "tosa.fully_connected"};
-}
-
-TosaPartitionPass::TosaPartitionPass(const TosaPartitionOptions &options)
-    : Base(options) {
+bool TosaPartitionPass::isAnchorOp(Operation *op) {
   if (anchorOps.empty()) // ListOption doesn't have a default value.
     anchorOps = {"tosa.conv2d", "tosa.matmul", "tosa.depthwise_conv2d", "tosa.fully_connected"};
-}
-
-bool TosaPartitionPass::isAnchorOp(Operation *op) {
   return llvm::is_contained(anchorOps, op->getName().getIdentifier().str());
 }
 
@@ -652,11 +641,3 @@ void TosaPartitionPass::runOnOperation() {
   }
 }
 
-std::unique_ptr<Pass> mlir::tosa::createTosaPartitionPass() {
-  return std::make_unique<TosaPartitionPass>();
-}
-
-std::unique_ptr<Pass>
-mlir::tosa::createTosaPartitionPass(const TosaPartitionOptions &options) {
-  return std::make_unique<TosaPartitionPass>(options);
-}
