@@ -22,6 +22,7 @@ set(MLIR_CMAKE_CONFIG_DIR
 # Passed to lit.site.cfg.py.in to set up the path where to find the libraries
 # for linalg integration tests.
 set(MLIR_DIALECT_LINALG_INTEGRATION_TEST_LIB_DIR ${LLVM_EXTERNAL_LIB_DIR})
+set(MLIR_LIB_DIR ${LLVM_EXTERNAL_LIB_DIR})
 set(MLIR_RUNNER_UTILS_DIR ${LLVM_EXTERNAL_BIN_DIR})
 
 # Passed to lit.site.cfg.py.in to set up the path where to find the libraries
