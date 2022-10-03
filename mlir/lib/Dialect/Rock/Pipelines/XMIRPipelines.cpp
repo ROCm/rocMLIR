@@ -50,7 +50,9 @@ void xmir::buildRunnerPipeline(OpPassManager &pm,
   // Target async.launch to cpu.coro or gpu.launch_func
   pm.addPass(createConvertAsyncToGPUPass());
   pm.addPass(createAsyncParallelForPass());
-  pm.addPass(createAsyncToAsyncRuntimePass(options.enableCoroutines));
+  AsyncToAsyncRuntimeOptions a2arOpts;
+  a2arOpts.enableCoroutines = options.enableCoroutines;
+  pm.addPass(createAsyncToAsyncRuntime(a2arOpts));
   pm.addNestedPass<func::FuncOp>(createAsyncRuntimeRefCountingPass());
   pm.addNestedPass<func::FuncOp>(createAsyncRuntimeRefCountingOptPass());
   pm.addPass(createConvertAsyncToLLVMPass());
