@@ -50,7 +50,7 @@ config.enable_rock_driver_pr_e2e_test = @ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED@
 config.enable_rock_sqlite = @ROCMLIR_SQLITE_ENABLED@
 config.enable_bindings_python = @MLIR_BINDINGS_PYTHON_ENABLED@
 config.random_data = "@MLIR_RANDOM_DATA@"
-config.features = "@ROCMLIR_GEN_FEATURES@"
+config.rocmlir_gen_flags = "@ROCMLIR_GEN_FLAGS@"
 config.populate_validation = "@MLIR_POPULATE_VALIDATION@"
 config.rocm_path = "@ROCM_PATH@"
 
@@ -84,9 +84,6 @@ if config.rocm_path:
         for x in agents:
             if "gfx908" in x or "gfx90a" in x:
                 config.arch_support_mfma = True
-                print("testing on xdlops gpus\n")
-            if "gfx1030" in x:
-                print("Testing on navi21\n")
             # Check other features here
         if not config.arch:
             config.no_AMD_GPU = True

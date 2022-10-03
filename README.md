@@ -21,7 +21,7 @@ By default, xdlops tests are enabled on MI-100, MI-200, and any other system
 that supports mfma instructions.
 xdlops tests are disabled on GPUs that do not support mfma instructions.
 To disable xdlops tests on GPUs that supports mfma instructions, 
-add `-DROCMLIR_GEN_FEATURES="-mfma=off"` to the `cmake` invocation above.
+add `-DROCMLIR_GEN_FLAGS="-mfma=off"` to the `cmake` invocation above.
 
 To not actually run the tests, use `check-rocmlir-build-only`.
 
