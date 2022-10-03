@@ -401,9 +401,8 @@ LogicalResult Conv2DBwdWeightOp::verify() { return verifyConvOp(*this); }
 // GemmOp
 //===-----------------------------------------------------===//
 LogicalResult GemmOp::verify() {
-  auto typeA = a().getType().cast<MemRefType>(),
-       typeB = b().getType().cast<MemRefType>(),
-       typeC = c().getType().cast<MemRefType>();
+  MemRefType typeA = getA().getType(), typeB = getB().getType(),
+             typeC = getC().getType();
   Type inElems = typeA.getElementType(), outElems = typeC.getElementType();
   if (inElems.isa<IntegerType>() && !outElems.isInteger(32))
     return emitOpError("integer-valued multiply must have i32 as its result");
@@ -418,12 +417,12 @@ LogicalResult GemmOp::verify() {
           offsetC = dimsC.size() == 2 ? 0 : 1;
   int64_t gA = offsetA ? dimsA[0] : 1, gB = offsetB ? dimsB[0] : 1,
           gC = offsetC ? dimsC[0] : 1;
-  int64_t mA = dimsA[offsetA + (aTransposed() ? 1 : 0)],
-          kA = dimsA[offsetA + (aTransposed() ? 0 : 1)],
-          kB = dimsB[offsetB + (bTransposed() ? 1 : 0)],
-          nB = dimsB[offsetB + (bTransposed() ? 0 : 1)],
-          mC = dimsC[offsetC + (cTransposed() ? 1 : 0)],
-          nC = dimsC[offsetC + (cTransposed() ? 0 : 1)];
+  int64_t mA = dimsA[offsetA + (getATransposed() ? 1 : 0)],
+          kA = dimsA[offsetA + (getATransposed() ? 0 : 1)],
+          kB = dimsB[offsetB + (getBTransposed() ? 1 : 0)],
+          nB = dimsB[offsetB + (getBTransposed() ? 0 : 1)],
+          mC = dimsC[offsetC + (getCTransposed() ? 1 : 0)],
+          nC = dimsC[offsetC + (getCTransposed() ? 0 : 1)];
   if (gA != gB || gA != gC)
     return emitOpError("group dimensions don't match")
            << " g_a = " << gA << " g_b = " << gB << " g_c = " << gC;
@@ -437,17 +436,17 @@ LogicalResult GemmOp::verify() {
     return emitOpError("K dimensions don't match")
            << " k_a = " << kA << " k_b = " << kB;
 
-  bool isXdlops = bitEnumContainsAll(features(), GemmFeatures::mfma);
-  if (Attribute params = this->params().value_or(nullptr)) {
+  bool isXdlops = bitEnumContainsAll(getFeatures(), GemmFeatures::mfma);
+  if (Attribute params = this->getParams().value_or(nullptr)) {
     if (isXdlops && !params.isa<XdlopsGemmParamsAttr>())
       return emitOpError("an xdlops GEMM has non-xdlops tuning parameters");
-    if (features() == GemmFeatures::none &&
+    if (getFeatures() == GemmFeatures::none &&
         !params.isa<GeneralGemmParamsAttr>())
       return emitOpError("an all-hardware gemm must used the general gemm "
                          "tuning parameters");
   }
 
-  if (storeMethod() != StoreMethod::Set && !isXdlops) {
+  if (getStoreMethod() != StoreMethod::Set && !isXdlops) {
     return emitOpError("general kernels don't support non-set store methods");
   }
   return success();
@@ -460,17 +459,17 @@ LogicalResult ExtractSliceOp::canonicalize(ExtractSliceOp op,
                                            PatternRewriter &b) {
   // Extracting a vector of the same size as the source is a no-op, since it
   // has to happen from index 0 to ensure legality
-  if (op.result().getType() == op.vector().getType()) {
-    b.replaceOp(op, op.vector());
+  if (op.getResult().getType() == op.getVector().getType()) {
+    b.replaceOp(op, op.getVector());
     return success();
   }
   return failure();
 }
 
 LogicalResult ExtractSliceOp::verify() {
-  if (auto destType = result().getType().dyn_cast<VectorType>()) {
+  if (auto destType = getResult().getType().dyn_cast<VectorType>()) {
     size_t destSize = destType.getDimSize(0);
-    size_t sourceSize = vector().getType().cast<VectorType>().getDimSize(0);
+    size_t sourceSize = getVector().getType().getDimSize(0);
     if (destSize > sourceSize)
       return emitOpError("Output size " + Twine(destSize) +
                          " exceeds input size " + Twine(sourceSize));
@@ -485,16 +484,16 @@ LogicalResult InsertSliceOp::canonicalize(InsertSliceOp op,
                                           PatternRewriter &b) {
   // Per the in-bounds requirement, storing a slice of the same length as a
   // vector is just replacing dest with src, so drop the intermedation
-  if (op.source().getType() == op.dest().getType()) {
-    b.replaceOp(op, op.source());
+  if (op.getSource().getType() == op.getDest().getType()) {
+    b.replaceOp(op, op.getSource());
     return success();
   }
   return failure();
 }
 LogicalResult InsertSliceOp::verify() {
-  if (auto sourceType = source().getType().dyn_cast<VectorType>()) {
+  if (auto sourceType = getSource().getType().dyn_cast<VectorType>()) {
     size_t sourceSize = sourceType.getDimSize(0);
-    size_t destSize = dest().getType().cast<VectorType>().getDimSize(0);
+    size_t destSize = getDest().getType().getDimSize(0);
     if (sourceSize > destSize)
       return emitOpError(
           "Slice to store has length " + Twine(sourceSize) +
@@ -552,17 +551,17 @@ void TransformingForOp::build(OpBuilder &b, OperationState &state,
                               bool forceUnroll, bool useIndexDiffs,
                               ValueRange iterArgs) {
   // Set up user-provided attributes
-  state.addAttribute(boundsAttrName(state.name), bounds);
+  state.addAttribute(getBoundsAttrName(state.name), bounds);
   if (!strides) {
     SmallVector<int64_t> strideVec(bounds.size(), 1LL);
     strides = b.getIndexArrayAttr(strideVec);
   }
-  state.addAttribute(stridesAttrName(state.name), strides);
-  state.addAttribute(transformsAttrName(state.name), transforms);
+  state.addAttribute(getStridesAttrName(state.name), strides);
+  state.addAttribute(getTransformsAttrName(state.name), transforms);
   if (forceUnroll)
-    state.addAttribute(forceUnrollAttrName(state.name), b.getUnitAttr());
+    state.addAttribute(getForceUnrollAttrName(state.name), b.getUnitAttr());
   if (useIndexDiffs)
-    state.addAttribute(useIndexDiffsAttrName(state.name), b.getUnitAttr());
+    state.addAttribute(getUseIndexDiffsAttrName(state.name), b.getUnitAttr());
 
   int32_t upperLen = bounds.size();
   for (ValueRange upper : inits)
@@ -601,7 +600,7 @@ void TransformingForOp::build(OpBuilder &b, OperationState &state,
     nLower += len;
   }
   lowerStarts.push_back(nLower);
-  state.addAttribute(lowerStartsAttrName(state.name),
+  state.addAttribute(getLowerStartsAttrName(state.name),
                      b.getI32VectorAttr(lowerStarts));
 
   for (Value v : iterArgs)
@@ -695,9 +694,9 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
   }
   lowerStarts.push_back(lowerArgs.size());
 
-  result.addAttribute(TransformingForOp::transformsAttrName(result.name),
+  result.addAttribute(TransformingForOp::getTransformsAttrName(result.name),
                       b.getArrayAttr(transforms));
-  result.addAttribute(TransformingForOp::lowerStartsAttrName(result.name),
+  result.addAttribute(TransformingForOp::getLowerStartsAttrName(result.name),
                       b.getI32VectorAttr(lowerStarts));
 
   llvm::SMLoc iterArgsLoc = parser.getCurrentLocation();
@@ -736,7 +735,7 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
   if (boundsRes) {
     return failure();
   }
-  result.addAttribute(TransformingForOp::boundsAttrName(result.name),
+  result.addAttribute(TransformingForOp::getBoundsAttrName(result.name),
                       b.getIndexArrayAttr(bounds));
 
   if (parser.parseKeyword("strides")) {
@@ -751,7 +750,7 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
   if (stridesRes) {
     return failure();
   }
-  result.addAttribute(TransformingForOp::stridesAttrName(result.name),
+  result.addAttribute(TransformingForOp::getStridesAttrName(result.name),
                       b.getIndexArrayAttr(strides));
 
   SmallVector<OpAsmParser::Argument> regionArgs = std::move(lowerArgs);
@@ -782,8 +781,8 @@ ParseResult TransformingForOp::parse(OpAsmParser &parser,
 void TransformingForOp::print(OpAsmPrinter &p) {
   p.printOptionalAttrDict(getOperation()->getAttrs(), /*elidedAttrs=*/{
                               TransformingForOp::getOperandSegmentSizeAttr(),
-                              transformsAttrName(), lowerStartsAttrName(),
-                              boundsAttrName(), stridesAttrName()});
+                              getTransformsAttrName(), getLowerStartsAttrName(),
+                              getBoundsAttrName(), getStridesAttrName()});
   p << " ";
   for (uint32_t i = 0, e = domains(); i < e; ++i) {
     p << "(";
@@ -798,35 +797,35 @@ void TransformingForOp::print(OpAsmPrinter &p) {
     }
   }
 
-  if (iterInits().size() > 0) {
+  if (getIterInits().size() > 0) {
     p << " iter_args (";
-    llvm::interleaveComma(
-        llvm::zip(getIterArgs(), iterInits()), p, [&](auto i) {
-          Value init = std::get<1>(i);
-          p << std::get<0>(i) << " = " << init;
-        });
-    p << ") -> (" << iterInits().getTypes() << ")";
+    llvm::interleaveComma(llvm::zip(getIterArgs(), getIterInits()), p,
+                          [&](auto i) {
+                            Value init = std::get<1>(i);
+                            p << std::get<0>(i) << " = " << init;
+                          });
+    p << ") -> (" << getIterInits().getTypes() << ")";
   }
   p << " bounds [";
-  llvm::interleaveComma(bounds().getAsValueRange<IntegerAttr>(), p,
+  llvm::interleaveComma(getBounds().getAsValueRange<IntegerAttr>(), p,
                         [&](llvm::APInt bound) { p << bound; });
   p << "] ";
   p << "strides [";
-  llvm::interleaveComma(strides().getAsValueRange<IntegerAttr>(), p,
+  llvm::interleaveComma(getStrides().getAsValueRange<IntegerAttr>(), p,
                         [&](llvm::APInt stride) { p << stride; });
   p << "] ";
-  p.printRegion(region(), /*printEntryBlockArgs=*/false);
+  p.printRegion(getRegion(), /*printEntryBlockArgs=*/false);
 }
 
 LogicalResult TransformingForOp::verify() {
-  if (bounds().empty())
+  if (getBounds().empty())
     return emitOpError("Must have at least one iteration dimension");
-  if (bounds().size() != strides().size())
+  if (getBounds().size() != getStrides().size())
     return emitOpError("Bounds list and strides list must have same length");
 
-  for (size_t i = 0, e = bounds().size(); i < e; ++i) {
-    int64_t bound = bounds()[i].cast<IntegerAttr>().getInt();
-    int64_t stride = strides()[i].cast<IntegerAttr>().getInt();
+  for (size_t i = 0, e = getBounds().size(); i < e; ++i) {
+    int64_t bound = getBounds()[i].cast<IntegerAttr>().getInt();
+    int64_t stride = getStrides()[i].cast<IntegerAttr>().getInt();
     if (stride <= 0)
       return emitOpError("Negative and zero strides are not permitted");
     if (bound % stride != 0)
@@ -842,11 +841,11 @@ LogicalResult TransformingForOp::verify() {
   }
 
   uint32_t lowerArgsCount = 0;
-  if (lowerStarts().size() != domains() + 1) {
+  if (getLowerStarts().size() != domains() + 1) {
     return emitOpError(
         "Lower starts attribute doesn't have one entry per domain plus 1");
   }
-  if (lowerStart(0) != 0) {
+  if (getLowerStart(0) != 0) {
     return emitOpError("Region args don't start with lower coords");
   }
 
@@ -885,7 +884,7 @@ LogicalResult TransformingForOp::verify() {
       }
     }
     lowerArgsCount += lowerArgs.size();
-    if (lowerStart(i + 1) != lowerArgsCount) {
+    if (getLowerStart(i + 1) != lowerArgsCount) {
       return emitOpError("Lower starts attribute not accurate after domain #" +
                          Twine(i));
     }
@@ -894,9 +893,9 @@ LogicalResult TransformingForOp::verify() {
 }
 
 // Cribbed from AffineForOp
-Region &TransformingForOp::getLoopBody() { return region(); }
+Region &TransformingForOp::getLoopBody() { return getRegion(); }
 bool TransformingForOp::isDefinedOutsideOfLoop(Value value) {
-  return !region().isAncestor(value.getParentRegion());
+  return !getRegion().isAncestor(value.getParentRegion());
 }
 void TransformingForOp::moveOutOfLoop(ArrayRef<Operation *> ops) {
   for (auto *op : ops)
@@ -915,15 +914,15 @@ void IndexDiffUpdateOp::build(OpBuilder &b, OperationState &state,
 }
 
 LogicalResult IndexDiffUpdateOp::verify() {
-  TransformMapAttr transform = map();
-  size_t nLowerIn = lowerOrig().size();
-  size_t nLowerOut = lowerIndices().size();
+  TransformMapAttr transform = getMap();
+  size_t nLowerIn = getLowerOrig().size();
+  size_t nLowerOut = getLowerIndices().size();
 
   if (nLowerIn != nLowerOut)
     return emitOpError("Got " + Twine(nLowerIn) + " lower inputs but " +
                        Twine(nLowerOut) + " lower outputs");
 
-  size_t nUpper = upperDiffs().size();
+  size_t nUpper = getUpperDiffs().size();
   size_t nMapIn = transform.getUpperBounds().size();
   size_t nMapOut = transform.getLowerBounds().size();
 
@@ -940,9 +939,9 @@ LogicalResult IndexDiffUpdateOp::verify() {
 // BufferLoadOp
 //===-----------------------------------------------------===//
 LogicalResult BufferLoadOp::verify() {
-  auto sourceType = source().getType().cast<MemRefType>();
+  MemRefType sourceType = getSource().getType();
   size_t nDims = sourceType.getRank();
-  for (llvm::APInt dimVal : leftOobDims().getAsValueRange<IntegerAttr>()) {
+  for (llvm::APInt dimVal : getLeftOobDims().getAsValueRange<IntegerAttr>()) {
     int32_t dim = dimVal.getSExtValue();
     if (dim < 0)
       return emitOpError("Left OOB dimensions must be non-negative, got " +
@@ -952,7 +951,7 @@ LogicalResult BufferLoadOp::verify() {
           "Left OOB dims must refer to one of the " + Twine(nDims) +
           " dimensions of the memref but got dimension " + Twine(dim));
   }
-  for (llvm::APInt dimVal : rightOobDims().getAsValueRange<IntegerAttr>()) {
+  for (llvm::APInt dimVal : getRightOobDims().getAsValueRange<IntegerAttr>()) {
     int32_t dim = dimVal.getSExtValue();
     if (dim < 0)
       return emitOpError("Right OOB dimensions must be non-negative, got " +
@@ -963,11 +962,11 @@ LogicalResult BufferLoadOp::verify() {
           " dimensions of the memref but got dimension " + Twine(dim));
   }
 
-  if (coords().size() != nDims)
+  if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
   if (sourceType.getMemorySpaceAsInt() != 0)
     return emitOpError("Source memref must live in global memory");
-  if (mlir::getElementTypeOrSelf(result()) != sourceType.getElementType())
+  if (mlir::getElementTypeOrSelf(getResult()) != sourceType.getElementType())
     return emitOpError(
         "Result element type must match source memref's element type");
   return success();
@@ -977,9 +976,9 @@ LogicalResult BufferLoadOp::verify() {
 // BufferStoreOp
 //===-----------------------------------------------------===//
 LogicalResult BufferStoreOp::verify() {
-  auto destType = dest().getType().cast<MemRefType>();
+  MemRefType destType = getDest().getType();
   size_t nDims = destType.getRank();
-  for (llvm::APInt dimVal : leftOobDims().getAsValueRange<IntegerAttr>()) {
+  for (llvm::APInt dimVal : getLeftOobDims().getAsValueRange<IntegerAttr>()) {
     int32_t dim = dimVal.getSExtValue();
     if (dim < 0)
       return emitOpError("Left OOB dimensions must be non-negative, got " +
@@ -989,7 +988,7 @@ LogicalResult BufferStoreOp::verify() {
           "Left OOB dims must refer to one of the " + Twine(nDims) +
           " dimensions of the memref but got dimension " + Twine(dim));
   }
-  for (llvm::APInt dimVal : rightOobDims().getAsValueRange<IntegerAttr>()) {
+  for (llvm::APInt dimVal : getRightOobDims().getAsValueRange<IntegerAttr>()) {
     int32_t dim = dimVal.getSExtValue();
     if (dim < 0)
       return emitOpError("Right OOB dimensions must be non-negative, got " +
@@ -999,11 +998,11 @@ LogicalResult BufferStoreOp::verify() {
           "Right OOB dims must refer to one of the " + Twine(nDims) +
           " dimensions of the memref but got dimension " + Twine(dim));
   }
-  if (coords().size() != nDims)
+  if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
   if (destType.getMemorySpaceAsInt() != 0)
     return emitOpError("Destination memref must live in global memory");
-  if (mlir::getElementTypeOrSelf(data()) != destType.getElementType())
+  if (mlir::getElementTypeOrSelf(getData()) != destType.getElementType())
     return emitOpError(
         "Element type of data must match element type of destination memref");
   return success();
@@ -1013,11 +1012,11 @@ LogicalResult BufferStoreOp::verify() {
 // InBoundsLoadOp
 //===-----------------------------------------------------===//
 LogicalResult InBoundsLoadOp::verify() {
-  auto sourceType = source().getType().cast<MemRefType>();
+  MemRefType sourceType = getSource().getType();
   size_t nDims = sourceType.getRank();
-  if (coords().size() != nDims)
+  if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
-  Type resultType = result().getType();
+  Type resultType = getResult().getType();
   if (resultType.isa<ShapedType>() && !resultType.isa<VectorType>())
     return emitOpError(
         "Non-scalar loads must return vectors, not other shaped types");
@@ -1028,11 +1027,11 @@ LogicalResult InBoundsLoadOp::verify() {
 // InBoundsLoadOp
 //===-----------------------------------------------------===//
 LogicalResult InBoundsStoreOp::verify() {
-  auto destType = dest().getType().cast<MemRefType>();
+  MemRefType destType = getDest().getType();
   size_t nDims = destType.getRank();
-  if (coords().size() != nDims)
+  if (getCoords().size() != nDims)
     return emitOpError("Expected " + Twine(nDims) + " coordinates for store");
-  Type dataType = data().getType();
+  Type dataType = getData().getType();
   if (dataType.isa<ShapedType>() && !dataType.isa<VectorType>())
     return emitOpError(
         "Non-scalar data types must be vectors, not other shaped types");
@@ -1043,9 +1042,9 @@ LogicalResult InBoundsStoreOp::verify() {
 // BlockwiseGemmOp
 //===----------------------------------------------------------------------===//
 LogicalResult BlockwiseGemmOp::verify() {
-  auto blockAType = matrixA().getType().cast<MemRefType>();
-  auto blockBType = matrixB().getType().cast<MemRefType>();
-  auto bufferCType = matrixC().getType().cast<MemRefType>();
+  MemRefType blockAType = getMatrixA().getType(),
+             blockBType = getMatrixB().getType(),
+             bufferCType = getMatrixC().getType();
 
   int64_t k = blockAType.getShape()[0];
   int64_t m = blockAType.getShape()[1];
@@ -1062,7 +1061,7 @@ LogicalResult BlockwiseGemmOp::verify() {
   // Obtain critical attributes.
   int64_t mC = bufferCType.getShape()[0];
   int64_t nC = bufferCType.getShape()[1];
-  GeneralGemmParamsAttr params = paramsAttr();
+  GeneralGemmParamsAttr params = getParamsAttr();
   int64_t mPerThread = params.getMPerThread();
   int64_t nPerThread = params.getNPerThread();
 
@@ -1086,9 +1085,9 @@ LogicalResult BlockwiseGemmOp::verify() {
 // ThreadwiseGemmOp
 //===----------------------------------------------------------------------===//
 LogicalResult ThreadwiseGemmOp::verify() {
-  ArrayRef<int64_t> aShape = matrixA().getType().cast<MemRefType>().getShape(),
-                    bShape = matrixB().getType().cast<MemRefType>().getShape(),
-                    cShape = matrixC().getType().cast<MemRefType>().getShape();
+  ArrayRef<int64_t> aShape = getMatrixA().getType().getShape(),
+                    bShape = getMatrixB().getType().getShape(),
+                    cShape = getMatrixC().getType().getShape();
 
   if (aShape[0] != bShape[0])
     return emitOpError("K dimensions don't match");
@@ -1105,9 +1104,9 @@ LogicalResult ThreadwiseGemmOp::verify() {
 // XdlopsGemmV2Op
 //===----------------------------------------------------------------------===//
 LogicalResult XdlopsGemmV2Op::verify() {
-  ArrayRef<int64_t> aShape = matrixA().getType().cast<MemRefType>().getShape(),
-                    bShape = matrixB().getType().cast<MemRefType>().getShape(),
-                    cShape = matrixC().getType().cast<MemRefType>().getShape();
+  ArrayRef<int64_t> aShape = getMatrixA().getType().getShape(),
+                    bShape = getMatrixB().getType().getShape(),
+                    cShape = getMatrixC().getType().getShape();
 
   if (aShape[1] != bShape[1])
     return emitOpError("K dimensions don't match");
@@ -1124,29 +1123,29 @@ LogicalResult XdlopsGemmV2Op::verify() {
 LogicalResult InWarpTransposeOp::verify() {
   InWarpTransposeOp &op = *this;
   constexpr size_t swizzleGroupSize = InWarpTransposeOp::swizzleGroupSize;
-  if (!llvm::isPowerOf2_32(op.size())) {
-    return op.emitOpError("transpose size " + Twine(op.size()) +
+  if (!llvm::isPowerOf2_32(op.getSize())) {
+    return op.emitOpError("transpose size " + Twine(op.getSize()) +
                           "must be a power of 2");
   }
-  if (op.size() <= 0) {
+  if (op.getSize() <= 0) {
     return op.emitOpError("transpose size must be strictly positive");
   }
 
-  auto vectorLen = static_cast<size_t>(
-      op.vector().getType().cast<VectorType>().getNumElements());
+  auto vectorLen =
+      static_cast<size_t>(op.getVector().getType().getNumElements());
   if (vectorLen < swizzleGroupSize) {
     return op.emitOpError("Vector input must have at least" +
                           Twine(swizzleGroupSize) + "elements");
   }
-  if (vectorLen < op.size()) {
+  if (vectorLen < op.getSize()) {
     return op.emitError("Vector input can't be shorter than transpose size");
   }
 
-  if (op.vector().getType().cast<VectorType>().getRank() != 1) {
+  if (op.getVector().getType().getRank() != 1) {
     return op.emitError("Input vector must be 1-dimensional");
   }
 
-  auto inGroupPerm = op.inGroupPerm();
+  auto inGroupPerm = op.getInGroupPerm();
 
   llvm::SmallSet<uint32_t, swizzleGroupSize> expected;
   llvm::SmallSet<uint32_t, swizzleGroupSize> found;

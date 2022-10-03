@@ -174,13 +174,13 @@ static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
                                    ThreadwiseCopyV2Op op, Value srcOp,
                                    Value dest) {
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << srcOp.getType()
-                          << " dest type: " << op.dest().getType() << "\n");
+                          << " dest type: " << op.getDest().getType() << "\n");
   ArrayRef<int64_t> sType, dType;
   sType = srcOp.getType().cast<ShapedType>().getShape();
-  dType = op.dest().getType().cast<ShapedType>().getShape();
+  dType = op.getDest().getType().getShape();
   assert(sType.size() == dType.size() &&
          "Rank of extra fusion arguments matches shape of C tensor");
-  SmallVector<Value, 6> loadCoord = op.destCoord();
+  SmallVector<Value, 6> loadCoord = op.getDestCoord();
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
   for (unsigned i = 0; i < sType.size(); i++) {
     assert((sType[i] == dType[i] || sType[i] == 1) &&
@@ -199,13 +199,13 @@ static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
   Value source;
   std::tie(source, sourceTransformsFromOp) = untransform(b, srcOp);
 
-  int64_t copyLength = op.length().getSExtValue();
+  int64_t copyLength = op.getLength().getSExtValue();
   Type typeToLoad = dest.getType().cast<MemRefType>().getElementType();
   if (copyLength > 1)
     typeToLoad = VectorType::get({copyLength}, typeToLoad);
 
-  ArrayAttr sourceLeftOob = op.leftOobDims();
-  ArrayAttr sourceRightOob = op.rightOobDims();
+  ArrayAttr sourceLeftOob = op.getLeftOobDims();
+  ArrayAttr sourceRightOob = op.getRightOobDims();
 
   // In general, note that keeping the vectorization of the writeback is safe
   // on account of the fact that vectorization means that the maps for the
@@ -246,9 +246,9 @@ static Value makeTransformingCopyLoop(PatternRewriter &b,
                                       ThreadwiseCopyV2Op miTwCopy, Value inp) {
   // 0. capture the memref containing the outputs being written
   Location loc = miTwCopy.getLoc();
-  Value gemmOuts = miTwCopy.source();
+  Value gemmOuts = miTwCopy.getSource();
   auto gemmOutsType = gemmOuts.getType().cast<MemRefType>();
-  int64_t sliceLength = miTwCopy.length().getSExtValue();
+  int64_t sliceLength = miTwCopy.getLength().getSExtValue();
   auto sliceLengthType = gemmOutsType.clone(sliceLength).cast<MemRefType>();
 
   // 1. create a second allocation of the same type to hold loaded elements
@@ -272,7 +272,7 @@ Value applyTransforms(PatternRewriter &b, ThreadwiseCopyV2Op miTWCopy,
   }
 
   // 1. insert broadcast op if necessary
-  MemRefType outType = miTWCopy.dest().getType().cast<MemRefType>();
+  MemRefType outType = miTWCopy.getDest().getType();
   std::tie(ret, inpMap) = makeTransposeTransform(b, ret, inpMap);
   ret = makeBroadcast(b, outType, ret, inpMap);
 
@@ -335,7 +335,7 @@ static Value reconfigureLAGeneric(PatternRewriter &b,
                                   ThreadwiseCopyV2Op twcopy) {
   MLIRContext *ctx = laGeneric.getContext();
   Location loc = laGeneric.getLoc();
-  Value twout = twcopy.dest();
+  Value twout = twcopy.getDest();
   auto regType = laIn.getType().template cast<MemRefType>();
   auto laOut = b.create<GpuAllocOp>(loc, regType);
 
@@ -460,7 +460,7 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     out = expanded.getSrc();
   }
 
-  Value gemmV2Outs = copyOp.source();
+  Value gemmV2Outs = copyOp.getSource();
   auto gemmV2OutsType = gemmV2Outs.getType().cast<MemRefType>();
   {
     PatternRewriter::InsertionGuard guard(b);
@@ -470,7 +470,7 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
 
     // 2.1. Take out a slice of the result vector to create a vector-sized
     // slice to enable creating the fusion section.
-    int64_t sliceLength = copyOp.length().getSExtValue();
+    int64_t sliceLength = copyOp.getLength().getSExtValue();
     MemRefType sliceType = gemmV2OutsType.clone(sliceLength).cast<MemRefType>();
     Value fusionSlice = b.create<GpuAllocOp>(loc, sliceType);
     Type typeToCopy = sliceType.getElementType();
@@ -478,7 +478,7 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
       typeToCopy =
           VectorType::get(sliceType.getShape(), sliceType.getElementType());
     Value sliceVals = b.create<InBoundsLoadOp>(loc, typeToCopy, gemmV2Outs,
-                                               copyOp.sourceCoord());
+                                               copyOp.getSourceCoord());
     b.create<InBoundsStoreOp>(loc, sliceVals, fusionSlice, zero);
 
     // 2.2. Tile linalg.generic with vgpr as input, return output vgprs
@@ -494,11 +494,11 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     // Since the threadwise copy arg has gone through untransform()
     // its expected output type is the same as the output type of the
     // linalg.generic.
-    copyOp.sourceMutable().assign(laOutRegs);
+    copyOp.getSourceMutable().assign(laOutRegs);
     // The indexing has been moved into slice creation, reset source
     // coord.
-    copyOp.sourceCoordMutable().assign(zero);
-    copyOp.destMutable().assign(out);
+    copyOp.getSourceCoordMutable().assign(zero);
+    copyOp.getDestMutable().assign(out);
 
     return success();
   }

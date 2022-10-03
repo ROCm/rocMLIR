@@ -150,7 +150,7 @@ void AffixTuningParameters::affixBackwardDataUtilityKernels(
   // utility kernel.
   if (gemmIdAttr.getInt() < 0) {
     OpBuilder b(op.getContext());
-    setUtilityKernelSizes(b, op.input(), op, getOperation());
+    setUtilityKernelSizes(b, op.getInput(), op, getOperation());
   }
 }
 
@@ -160,7 +160,7 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
   assert(gemmIdAttr);
   int64_t gemmId = gemmIdAttr.getInt();
 
-  GemmFeatures features = op.features();
+  GemmFeatures features = op.getFeatures();
   if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
     OpBuilder b(op.getContext());
 
@@ -169,7 +169,7 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
         GemmContext::fromConvolution(ConvOpType::BwdWeight, convDims);
 
     auto gemmParams =
-        op->getAttrOfType<XdlopsGemmParamsAttr>(op.paramsAttrName());
+        op->getAttrOfType<XdlopsGemmParamsAttr>(op.getParamsAttrName());
     Optional<GemmContext> extraPadSizes = calculatePadding(
         gemmParams.getKPerBlock(), gemmParams.getMPerBlock(),
         gemmParams.getNPerBlock(), gemmSize, gemmParams.getKpack());
@@ -181,7 +181,7 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
       switch (gemmId) {
       case 0:
       case 2:
-        setUtilityKernelSizes(b, op.filter(), op, getOperation());
+        setUtilityKernelSizes(b, op.getFilter(), op, getOperation());
         break;
       case 1:
         break;
@@ -203,7 +203,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
           op->template getAttrOfType<StringAttr>("perf_config")) {
     perfConfig = perfConfigAttr.getValue().str();
   }
-  GemmFeatures features = op.features();
+  GemmFeatures features = op.getFeatures();
   if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
     PopulateParamsXDL populateParamsXDL;
     InitParamsXDL validParams;
@@ -243,18 +243,18 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     }
 
     gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
-    op->setAttr(op.blockSizeAttrName(), b.getI32IntegerAttr(blockSize));
-    op->setAttr(op.gridSizeAttrName(), b.getI32IntegerAttr(gridSize));
+    op->setAttr(op.getBlockSizeAttrName(), b.getI32IntegerAttr(blockSize));
+    op->setAttr(op.getGridSizeAttrName(), b.getI32IntegerAttr(gridSize));
 
     // Set kblocks attribute only for backward weight convolutions.
     if (auto bwdOp = dyn_cast<Conv2DBwdWeightOp>(op.getOperation()))
-      bwdOp->setAttr(bwdOp.kBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
+      bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
 
     Attribute gemmParams = b.getAttr<XdlopsGemmParamsAttr>(
         validParams.gemmKPerBlock, validParams.gemmMPerBlock,
         validParams.gemmNPerBlock, validParams.gemmKPack,
         validParams.gemmMPerWave, validParams.gemmNPerWave);
-    op->setAttr(op.paramsAttrName(), gemmParams);
+    op->setAttr(op.getParamsAttrName(), gemmParams);
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
@@ -298,9 +298,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
     gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
 
-    op->setAttr(op.blockSizeAttrName(),
+    op->setAttr(op.getBlockSizeAttrName(),
                 b.getI32IntegerAttr(validParams.blockSize));
-    op->setAttr(op.gridSizeAttrName(), b.getI32IntegerAttr(gridSize));
+    op->setAttr(op.getGridSizeAttrName(), b.getI32IntegerAttr(gridSize));
 
     // For non-XDLOPS path, do not use KPack for now.
 
@@ -317,7 +317,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
         blockGemmDerivedParam.gemmNThreadsPerCuwave,
         blockGemmDerivedParam.gemmMCuwavesPerBlock,
         blockGemmDerivedParam.gemmNCuwavesPerBlock);
-    op->setAttr(op.paramsAttrName(), gemmParams);
+    op->setAttr(op.getParamsAttrName(), gemmParams);
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size",

@@ -42,8 +42,8 @@ void MIGraphXDialect::initialize() {
 
 OpFoldResult RecipOp::fold(ArrayRef<Attribute> operands) {
   // 1/(1/x) = x
-  if (auto parentRecip = inA().getDefiningOp<RecipOp>()) {
-    return parentRecip.inA();
+  if (auto parentRecip = getInA().getDefiningOp<RecipOp>()) {
+    return parentRecip.getInA();
   }
   return {};
 }
