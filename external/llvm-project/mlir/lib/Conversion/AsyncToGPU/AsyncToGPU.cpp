@@ -290,8 +290,9 @@ struct AwaitRewritePattern : public OpRewritePattern<async::AwaitOp> {
   LogicalResult matchAndRewrite(async::AwaitOp op,
                                 PatternRewriter &rw) const override {
     auto tokenType = rw.getType<gpu::AsyncTokenType>();
-    Value input = op->getOperand(0);
+    Value input = op.getOperand();
     if (input.getType() == tokenType) {
+      // async.await with token type should never have a result type
       assert(op.getResultType() == None);
       rw.create<gpu::WaitOp>(op.getLoc(), tokenType, input);
       rw.eraseOp(op);

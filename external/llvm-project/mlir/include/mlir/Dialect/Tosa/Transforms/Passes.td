@@ -58,8 +58,6 @@ def TosaPartition : Pass<"tosa-partition", "ModuleOp"> {
     Outline kernels of tosa::Conv2D and surrounding elementwise ops.
   }];
 
-  let constructor = "createTosaPartitionPass()";
-
   let options = [
     ListOption<"anchorOps", "anchor-ops", "std::string",
                "One or more operations to be used as focus of partitioned "

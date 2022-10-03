@@ -958,9 +958,3 @@ void AsyncToAsyncRuntimePass::runOnOperation() {
   }
 }
 
-std::unique_ptr<OperationPass<ModuleOp>>
-mlir::createAsyncToAsyncRuntimePass(bool enableCoroutines) {
-  AsyncToAsyncRuntimeOptions opts;
-  opts.enableCoroutines = enableCoroutines;
-  return std::make_unique<AsyncToAsyncRuntimePass>(opts);
-}
