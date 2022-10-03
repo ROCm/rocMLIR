@@ -1,7 +1,7 @@
-// RUN: rocmlir-gen -p -ph -pr | FileCheck %s --check-prefix=F32
-// RUN: rocmlir-gen -p -ph -pr -t f16 | FileCheck %s --check-prefix=F16
-// RUN: rocmlir-gen -p -ph -pr -t bf16 | FileCheck %s --check-prefix=BF16
-// RUN: rocmlir-gen -p -ph -pr -t i8 | FileCheck %s --check-prefix=I8
+// RUN: rocmlir-gen --arch %targetChip -p -ph -pr | FileCheck %s --check-prefix=F32
+// RUN: rocmlir-gen --arch %targetChip -p -ph -pr -t f16 | FileCheck %s --check-prefix=F16
+// RUN: rocmlir-gen --arch %targetChip -p -ph -pr -t bf16 | FileCheck %s --check-prefix=BF16
+// RUN: rocmlir-gen --arch %targetChip -p -ph -pr -t i8 | FileCheck %s --check-prefix=I8
 
 // F32-NOT: func.func @_memcpy_
 

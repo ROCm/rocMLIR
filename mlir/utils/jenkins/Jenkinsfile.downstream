@@ -94,7 +94,9 @@ pipeline {
                             steps {
                                 buildProject('check-mlir check-rocmlir', """
                                   -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=1
-                                  -DROCMLIR_DRIVER_FEATURE=vanilla
+                                  -DROCMLIR_DRIVER_FORCE_MFMA=OFF
+                                  -DROCMLIR_DRIVER_FORCE_DOT=OFF
+                                  -DROCMLIR_DRIVER_FORCE_ATOMICADD=OFF
                                   -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
                                   -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=0
                                   -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
@@ -148,7 +150,7 @@ pipeline {
                         stage("Build MIOpen with librockCompiler") {
                             steps {
                                 dir('MIOpen') {
-                                git branch: 'rename-MLIR', poll: false,\
+                                git branch: 'fix-kernel-count-MLIR', poll: false,\
                                     url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
                                 buildMIOpen("""-DMIOPEN_USE_MLIR=On
                                         -DMIOPEN_BACKEND=HIP

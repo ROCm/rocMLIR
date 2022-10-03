@@ -1,6 +1,6 @@
 directory = "Resnet50"
 prefix = "rocmlir-gen"
-suffix = "%pv %random_data %feature | rocmlir-driver -c | mlir-rocm-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+suffix = "--arch %targetChip %pv %random_data %feature | rocmlir-driver -c | mlir-rocm-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
 
 [[axis]]
 name = "operation"
@@ -85,3 +85,6 @@ config = "-batchsize=64 -in_channels=64 -in_h=56 -in_w=56 -out_channels=64 -fil_
 
 [[suite.test]]
 config = "-batchsize=64 -in_channels=64 -in_h=56 -in_w=56 -out_channels=64 -fil_h=3 -fil_w=3 --dilation_h=1 --dilation_w=1 --conv_stride_h=1 --conv_stride_w=1 --padding_h=1 --padding_w=1"
+
+[[suite.test]]
+config = "-batchsize=256 -in_channels=3 -in_h=230 -in_w=230 -out_channels=64 -fil_h=7 -fil_w=7 --dilation_h=1 --dilation_w=1 --conv_stride_h=2 --conv_stride_w=2 --padding_h=1 --padding_w=1"

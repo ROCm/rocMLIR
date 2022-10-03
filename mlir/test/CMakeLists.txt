@@ -12,6 +12,9 @@ llvm_canonicalize_cmake_booleans(
   ROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED
   ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED
   ROCMLIR_SQLITE_ENABLED
+  ROCMLIR_DRIVER_FORCE_MFMA
+  ROCMLIR_DRIVER_FORCE_DOT
+  ROCMLIR_DRIVER_FORCE_ATOMICADD
   )
 
 # Passed to lit.site.cfg.py.so that the out of tree Standalone dialect test
@@ -45,10 +48,25 @@ if(ROCMLIR_DRIVER_XDLOPS_TEST_ENABLED)
   set(MLIR_XDLOPS "-x2")
 endif()
 
-# Passed to lit.site.cfg.py.in to set the --feature flag for the mlir E2E tests.
+# Passed to lit.site.cfg.py.in to set the %feature flag for the mlir E2E tests.
 set(ROCMLIR_FEATURE "")
-if(ROCMLIR_DRIVER_FEATURE)
-  set(ROCMLIR_FEATURE "--feature ${ROCMLIR_DRIVER_FEATURE}")
+# mfma feature
+if(ROCMLIR_DRIVER_FORCE_MFMA)
+  set(ROCMLIR_FEATURE "-mfma=on")
+else()
+  set(ROCMLIR_FEATURE "-mfma=off")
+endif()
+# dot feature
+if(ROCMLIR_DRIVER_FORCE_DOT)
+  set(ROCMLIR_FEATURE "${ROCMLIR_FEATURE} -dot=on")
+else()
+  set(ROCMLIR_FEATURE "${ROCMLIR_FEATURE} -dot=off")
+endif()
+# atomic_add feature
+if(ROCMLIR_DRIVER_FORCE_ATOMICADD)
+  set(ROCMLIR_FEATURE "${ROCMLIR_FEATURE} -atomic_add=on")
+else()
+  set(ROCMLIR_FEATURE "${ROCMLIR_FEATURE} -atomic_add=off")
 endif()
 
 message ("ROCMLIR_FEATURE: ${ROCMLIR_FEATURE}")

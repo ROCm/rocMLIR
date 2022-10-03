@@ -38,13 +38,16 @@ except KeyError:
 # If rocm_agent_enumerator shows no viable GPUs, skip tests that need one,
 # because the default target will lead to compilation failures.
 config.no_AMD_GPU = False
+config.targetChip = ""
 if config.rocm_path:
     try:
         p = subprocess.run([config.rocm_path + "/bin/rocm_agent_enumerator"],
                            check=True, stdout=subprocess.PIPE)
-        agents = [x for x in p.stdout.split() if x != b'gfx000']
+        agents = set(x.decode("utf-8") for x in p.stdout.split() if x != b"gfx000")
         if not agents:
             config.no_AMD_GPU = True
+        else:
+            config.targetChip = ','.join(agents)
     except subprocess.CalledProcessError:
         config.no_AMD_GPU = True
 

@@ -120,7 +120,7 @@ public:
                    [&targetSpec](int64_t p) { return targetSpec[p]; });
     return targetLayout;
   }
-  LogicalResult isApplicable() const;
+  LogicalResult isApplicable(bool checkChip = true) const;
 
   // Utility function to query if a config requires additional workspace.
   bool hasWorkspace(OpBuilder &builder) const;

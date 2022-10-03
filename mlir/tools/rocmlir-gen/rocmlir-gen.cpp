@@ -91,7 +91,7 @@ static cl::opt<mlir::rock::ConvOpType> operation(
 static cl::opt<std::string>
     arch("arch",
          cl::desc("amdgpu architecture, eg: gfx803, gfx900, gfx906, gfx908"),
-         cl::value_desc("GFX architecture string"), cl::init("gfx906"));
+         cl::value_desc("GFX architecture string"), cl::init(""));
 
 static cl::opt<int>
     num_cu("num_cu",
@@ -225,15 +225,43 @@ static cl::opt<bool>
              cl::init(false));
 
 // disable feature mfma
-static cl::opt<std::string>
-    featureInfo("feature", cl::desc("Requested feature:"
+static cl::opt<std::string> featureInfo(
+    "feature",
+    cl::desc("Requested feature:"
              "mfma: enable xdlops on gfx908 or gfx90a (cdnaInfo)"
              "pre-wmma: enable dot product instructions on gfx1030 (rdnaInfo)"
              "wmma: enable wmma instructions on gfx11 (gfx11Info)"
              "vanilla: enable dot product instructions on gfx906 (rdnaInfo)"
              "none: disable all features on gfx900 (gcnInfo)"),
-             cl::value_desc("feature"),
-             cl::init("vanilla"));
+    cl::value_desc("feature"), cl::init("vanilla"));
+
+// A toggle to control whether a feature should be added to the feature list
+enum featureToggle { infer, on, off };
+
+// use the toggle on each feature
+// mfma
+static cl::opt<featureToggle> mfmaFeature(
+    "mfma", cl::desc("toggle feature mfma"),
+    cl::values(clEnumVal(infer, "use the default value provided by the chip"),
+               clEnumVal(on, "force mfma into the feature list"),
+               clEnumVal(off, "remove mfma from the feature list")),
+    cl::init(infer));
+
+// dot
+static cl::opt<featureToggle> dotFeature(
+    "dot", cl::desc("toggle feature dot"),
+    cl::values(clEnumVal(infer, "use the default value provided by the chip"),
+               clEnumVal(on, "force dot into the feature list"),
+               clEnumVal(off, "remove dot from the feature list")),
+    cl::init(infer));
+
+// atomicAdd
+static cl::opt<featureToggle> atomicAddFeature(
+    "atomic_add", cl::desc("toggle feature atomic_add"),
+    cl::values(clEnumVal(infer, "use the default value provided by the chip"),
+               clEnumVal(on, "force atomic_add into the feature list"),
+               clEnumVal(off, "remove atomic_add from the feature list")),
+    cl::init(infer));
 
 // data type
 static cl::opt<std::string>
@@ -570,15 +598,9 @@ static void verifyLayout() {
 }
 
 static void populateDefaults() {
-  // arch is a required field to make lowering succeed. However,
-  // 1. rocmlir-lib get it from client
-  // 2. mlir-rocm-runner get it from the host machine
-  // We don't particularly care about this field in the lowering
-  // process unless it is tuning related. Therefore, setting this
-  // field to a default value regardless.
 
   if (populateDefaultValues == true) {
-    if (featureInfo.getValue() != "mfma") {
+    if (mfmaFeature != on) {
       groupSize.setValue(1);
       batchSize.setValue(128);
       inputChannel.setValue(8);
@@ -2188,14 +2210,11 @@ int main(int argc, char **argv) {
       }
       // Scenario 2: We use cl::opt to initialize everything
     } else {
-
-      std::string chip = llvm::StringSwitch<std::string>(featureInfo.getValue())
-          .Case("mfma", "gfx908")
-          .Case("pre-wmma", "gfx1030")
-          .Case("wmma", "gfx1100")
-          .Case("vanilla", "gfx906")
-          .Case("none", "gfx900")
-          .Default("gfx906");
+      if (arch.getValue().empty()) {
+        llvm::errs() << "--arch is not set\n";
+        exit(1);
+      }
+      std::string chip = arch.getValue();
       std::string triple("amdgcn-amd-amdhsa");
       std::string chipFeatures("");
 
@@ -2203,6 +2222,18 @@ int main(int argc, char **argv) {
 
       rock::AmdArchInfo archInfo = rock::lookupArchInfo(chip);
       rock::GemmFeatures enabledFeatures = archInfo.defaultFeatures;
+      // toggle feature list according to cl::opt inputs
+      if (mfmaFeature != infer)
+        enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::mfma,
+                                     mfmaFeature == on);
+      if (dotFeature != infer)
+        enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::dot,
+                                     dotFeature == on);
+      if (atomicAddFeature != infer)
+        enabledFeatures =
+            bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_add,
+                       atomicAddFeature == on);
+
       conv2dGenerator = rock::Conv2dGenerator(
           chip, triple, chipFeatures, perfConfig.getValue(), num_cu.getValue(),
           enabledFeatures, operation.getValue(), tensorDataType.getValue(),
@@ -2223,8 +2254,9 @@ int main(int argc, char **argv) {
     }
 
     // TODO: Extract isApplicable check to be its own component
-    if (failed(conv2dGenerator.isApplicable())) {
-      llvm::errs() << "Convolution configuration not applicable\n";
+    if (failed(conv2dGenerator.isApplicable(/* checkChip = */ false))) {
+      llvm::errs()
+          << "Convolution configuration does not have valid dimension\n";
       exit(1);
     }
   }
