@@ -173,14 +173,10 @@ func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf3
       kPerBlock = 8,
       kPerThread = 1,
       kpack = 1,
-      mCuwavesPerBlock = 4,
       mPerBlock = 128,
       mPerThread = 4,
-      mThreadsPerCuwave = 4,
-      nCuwavesPerBlock = 4,
       nPerBlock = 128,
-      nPerThread = 4,
-      nThreadsPerCuwave = 4>
+      nPerThread = 4>
   } : memref<2x128x256xf32> = memref<2x72x128xf32> * memref<2x72x256xf32>
   return
 }
