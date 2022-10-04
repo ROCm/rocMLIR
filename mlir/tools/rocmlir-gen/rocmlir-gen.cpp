@@ -1819,25 +1819,11 @@ void undoAsyncLaunchPass(Operation *cloneFunc) {
     OpBuilder builder(op);
     if (auto launch = dyn_cast<async::LaunchOp>(op)) {
       SymbolRefAttr calleeAttr = launch->getAttrOfType<SymbolRefAttr>("callee");
-
-      // Token is assumed to be the sole result of async.launch.
-      assert(launch->getNumResults() == 1);
-      auto aresults = launch->getResults();
-      mlir::Type tokenType = aresults.front().getType();
-
-      // Remove any token operands, at any position.
-      auto operands = launch->getOperands();
-      BitVector indicesToErase(launch.getNumOperands());
-      for (auto idx : llvm::seq<int>(0, launch.getNumOperands()))
-        if (!launch->getOperand(idx) ||
-            launch->getOperand(idx).getType() == tokenType)
-          indicesToErase.set(idx);
-      launch->eraseOperands(indicesToErase);
-      operands = launch->getOperands();
-
+      CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
+      assert(callInt);
+      auto operands = callInt.getCallOperands();
       auto call = builder.create<func::CallOp>(op->getLoc(), calleeAttr,
                                                TypeRange{}, operands);
-
       call->moveBefore(op);
       op->dropAllUses();
       op->erase();
@@ -1923,8 +1909,6 @@ insertValidationCalls(const rock::Conv2dGenerator::Config &genConfig,
     nameBuffer += "_cloned";
     cloneFuncOp.setName(nameBuffer);
     cloneFunc->removeAttr("kernel");
-    //     cloneFunc->setAttr("original_func", SymbolRefAttr::get(func));
-    //     func->setAttr("clone_func", SymbolRefAttr::get(cloneFunc));
     SymbolTable symbolTable(module);
     symbolTable.insert(cloneFunc);
     b.create<func::CallOp>(loc, SymbolRefAttr::get(cloneFunc), TypeRange{},
@@ -2140,23 +2124,19 @@ populateHostHarnessLogic(ModuleOp &module,
   }
 
   // Redirect calls to kernel functions to point at wrapped functions.
-  module.walk([&](Operation *op) -> WalkResult {
+  module.walk([&](CallOpInterface callOp) -> WalkResult {
     // Don't substitute the call inside the wrapper.
-    if (op->hasAttr("wrapped_call")) {
-      op->removeAttr("wrapped_call");
+    if (callOp->hasAttr("wrapped_call")) {
+      callOp->removeAttr("wrapped_call");
       return WalkResult::advance();
     }
 
     // If the callee matches a wrapped function, update the call.
-    CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
-    if (callInt) {
-      Operation *callableFromInt = callInt.resolveCallable();
-      if (callableFromInt) {
-        func::FuncOp fop = dyn_cast<func::FuncOp>(*callableFromInt);
-        if (wrappedFuncs.find(fop) != wrappedFuncs.end()) {
-          op->setAttr("callee", FlatSymbolRefAttr::get(
-                                    context, wrappedFuncs[fop].getSymName()));
-        }
+    Operation *callable = callOp.resolveCallable();
+    if (callable) {
+      func::FuncOp fop = dyn_cast<func::FuncOp>(*callable);
+      if (wrappedFuncs.find(fop) != wrappedFuncs.end()) {
+        callOp->setAttr("callee", FlatSymbolRefAttr::get(context, wrappedFuncs[fop].getSymName()));
       }
     }
     return WalkResult::advance();
