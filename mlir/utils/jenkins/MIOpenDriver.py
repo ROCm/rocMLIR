@@ -206,6 +206,7 @@ class ConvConfiguration:
         result = ' '.join([direction,
                            '-t', self.dataType,
                            '--arch', self.arch,
+                           '-mfma=on' if self.xdlops else '-mfma=off',
                            '--fil_layout', self.filterLayout,
                            '--in_layout', self.inputLayout,
                            '--out_layout', self.outputLayout,
