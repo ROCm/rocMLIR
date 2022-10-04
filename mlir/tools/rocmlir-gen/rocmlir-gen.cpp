@@ -2136,7 +2136,8 @@ populateHostHarnessLogic(ModuleOp &module,
     if (callable) {
       func::FuncOp fop = dyn_cast<func::FuncOp>(*callable);
       if (wrappedFuncs.find(fop) != wrappedFuncs.end()) {
-        callOp->setAttr("callee", FlatSymbolRefAttr::get(context, wrappedFuncs[fop].getSymName()));
+        callOp->setAttr("callee", FlatSymbolRefAttr::get(
+                                      context, wrappedFuncs[fop].getSymName()));
       }
     }
     return WalkResult::advance();
