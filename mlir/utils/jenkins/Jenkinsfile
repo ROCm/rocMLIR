@@ -49,6 +49,27 @@ void buildMIOpenWithMLIR() {
     }
 }
 
+void testSelectedMIOpenConfigs() {
+    dir('MIOpen/build/') {
+        timeout(time: 60, activity: true, unit: 'MINUTES') {
+         // no-tuning test configs
+         sh """
+         bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --no-tuning\
+            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
+         sh """
+         bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd --dtype int8 --no-tuning\
+            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
+         // tuning test configs
+         sh """
+         bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
+            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
+         sh """
+         bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd --dtype int8 --tuning\
+            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
+         }
+     }
+}
+
 void showEnv() {
     echo "$env.NODE_NAME"
     sh 'cat /etc/os-release'
@@ -118,12 +139,8 @@ void postProcessPerfRes() {
 
 //makes sure multiple builds are not triggered for branch indexing
 def resetBuild() {
-    if (currentBuild.getPreviousBuild() == null ||
-        currentBuild.getPreviousBuild().getBuildCauses().toString().contains('BranchIndexingCause')) {
-        def buildNumber = BUILD_NUMBER as int;
-        if (buildNumber > 1)
-            milestone(buildNumber - 1);
-        milestone(buildNumber)
+    if (currentBuild.getPreviousBuild() == null || currentBuild.getPreviousBuild().getBuildCauses().toString().contains('BranchIndexingCause')) {
+        def buildNumber = BUILD_NUMBER as int; if (buildNumber > 1) milestone(buildNumber - 1); milestone(buildNumber)
     }
 }
 
@@ -133,26 +150,24 @@ void setHeartbeat() {
     }
 }
 
-def rebootNode() {
-    build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
-}
-
-String getLabel(String nonxdlopsLabel) {
-    if (params.navi21) {
-        label = "navi21"
-    } else if (params.canXdlops) {
-        label = "mlir && (gfx908 || gfx90a)"
+String getLabelFromCodepath(String codepath) {
+    echo "codepath is ${codepath}"
+    if (codepath == "mfma") {
+        label = 'mlir && (gfx908 || gfx90a)'
+    } else if (codepath == "navi21") {
+        label = 'gfx1030'
+    } else if (codepath == "vanilla"){
+        label = 'mlir && gfx906'
     } else {
-        label = "mlir && ${nonxdlopsLabel}"
+        echo "${codepath} is not supported"
+        label = 'wrongLabel'
     }
+    echo "label is ${label}"
     return label
 }
 
-void printFeatureInfo() {
-    echo "${params.feature} is chosen"
-    if (params.feature == "mfma") {
-        echo "using params.feature == mfma"
-    }
+def rebootNode() {
+    build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
 }
 
 pipeline {
@@ -174,13 +189,11 @@ pipeline {
                      description: 'Run the static library stage')
         booleanParam(name: 'perfTest', defaultValue: true,
                      description: 'Run the performance testing stage')
-        booleanParam(name: 'navi21', defaultValue: true,
-                     description: 'Run on Navi 21 (gfx1030)')
-        choice(name: 'feature',
-               choices: ['mfma', 'wmma'],
-               description: 'Choose the feature to test')
-        choice(name: 'target chip',
-               choices: ['All', 'gfx1030'])
+
+        // choose the codepath for testing
+        choice(name: 'codepath',
+               choices: ['default', 'mfma', 'navi21', 'vanilla'],
+               description: 'Choose the codepath to test')
     }
     stages {
         stage("Set System Property") {
@@ -197,186 +210,141 @@ pipeline {
                 resetBuild()
             }
         }
-        stage("Feature info") {
-            steps {
-                printFeatureInfo()
-            }
-        }
         stage("Build and Test") {
-            parallel {
-                stage("Shared Library: fixed E2E tests") {
-                    when {
-                        beforeAgent true;
-                        equals expected: true, actual: params.sharedLib;
-                        equals expected: false, actual: params.weekly;
+            matrix {
+                axes {
+                    axis {
+                        name 'CODEPATH'
+                        values 'vanilla', 'mfma', 'navi21'
                     }
-                    agent {
-                        docker {
-                            image dockerImage()
-                            args dockerArgs()
-                            label getLabel("rocm")
-                            alwaysPull true
-                        }
+                }
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs()
+                        label getLabelFromCodepath("${CODEPATH}")
+                        alwaysPull true
                     }
-                    environment {
-                        HOME="${WORKSPACE}"
-                    }
-                    stages {
-                        stage('Environment') {
-                            steps {
-                                showEnv()
+                }
+                when {
+                    beforeAgent true
+                    anyOf {
+                        // When default codepath is selected, we test mfma and navi21 on private CI
+                        // and vanilla on public CI
+                        allOf {
+                            equals expected: "default", actual: params.codepath;
+                            anyOf {
+                                allOf {
+                                    anyOf {
+                                        equals expected: "mfma", actual: "${CODEPATH}";
+                                        equals expected: "navi21", actual: "${CODEPATH}";
+                                    }
+                                    equals expected: true, actual: params.canXdlops;
+                                }
+                                allOf {
+                                    equals expected: "vanilla", actual: "${CODEPATH}";
+                                    equals expected: false, actual: params.canXdlops;
+                                }
                             }
                         }
-                        stage("Shared library build and fixed tests") {
-                            steps {
-                                buildProject('check-mlir check-rocmlir', """
-                                  -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
-                                  -DROCMLIR_GEN_FLAGS="${params.canXdlops ? '-mfma=on -atomic_add=on' : '-mfma=off -atomic_add=off'}"
-                                  -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-                                  -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-                                  -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-                                  -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-                                  -DLLVM_LIT_ARGS='-v --time-tests'
-                                  -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-                                """)
+                        // When a particular codepath is selected, we only test the codepath
+                        // on private CI
+                        allOf {
+                            anyOf {
+                                equals expected: "mfma", actual: params.codepath;
+                                equals expected: "navi21", actual: params.codepath;
+                                equals expected: "vanilla", actual: params.codepath;
                             }
-                        }
-                        stage('Static Tests') {
-                            when { allOf {
-                                equals expected: false, actual: params.nightly;
-                                // Avoid this test running twice
-                                equals expected: true, actual: params.canXdlops
-                            } }
-                            steps {
-                               preMergeCheck()
-                           }
-                        }
-                     }
-                     post {
-                        unsuccessful {
-                            rebootNode()
-                        }
-                        always {
-                            cleanWs()
+                            equals expected: "${CODEPATH}", actual: params.codepath;
+                            equals expected: true, actual: params.canXdlops;
                         }
                     }
                 }
-                stage("Shared Library: random E2E tests") {
-                    when {
-                        beforeAgent true;
-                        allOf {
+                environment {
+                    PATH="/opt/rocm/llvm/bin:$PATH"
+                    HOME="${WORKSPACE}"
+                }
+                stages {
+                    stage('Environment') {
+                        steps {
+                            showEnv()
+                        }
+                    }
+                    stage("Shared Library: fixed E2E tests") {
+                        when {
+                            beforeAgent true;
                             equals expected: true, actual: params.sharedLib;
-                            equals expected: true, actual: params.nightly
+                            equals expected: false, actual: params.weekly;
+                        }
+                        steps {
+                            buildProject('check-mlir check-rocmlir', """
+                                      -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
+                                      -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+                                      -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+                                      -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+                                      -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
+                                      -DLLVM_LIT_ARGS='-v --time-tests'
+                                      -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+                                    """)
                         }
                     }
-                    agent {
-                        docker {
-                            image dockerImage()
-                            args dockerArgs()
-                            label getLabel("rocm")
-                            alwaysPull true
-                        }
-                    }
-                    environment {
-                        HOME="${WORKSPACE}"
-                    }
-                    stages {
-                        stage('Environment') {
-                            steps {
-                                showEnv()
+                    stage("Shared Library: random E2E tests") {
+                        when {
+                            beforeAgent true;
+                            allOf {
+                                equals expected: true, actual: params.sharedLib;
+                                equals expected: true, actual: params.nightly
                             }
                         }
-                        stage("Shared library build and random tests") {
-                            steps {
-                                buildProject('check-rocmlir', """
-                                          -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
-                                          -DROCMLIR_GEN_FLAGS="${params.canXdlops ? '-mfma=on -atomic_add=on' : '-mfma=off --atomic_add=off'}"
-                                          -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
-                                          -DROCK_E2E_TEST_ENABLED=1
-                                          -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
-                                          -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=0
-                                          -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
-                                          -DLLVM_LIT_ARGS='-v --time-tests'
-                                          -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-                                        """)
-                            }
+                        steps {
+                            buildProject('check-rocmlir', """
+                                      -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
+                                      -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
+                                      -DROCK_E2E_TEST_ENABLED=1
+                                      -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
+                                      -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=0
+                                      -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
+                                      -DLLVM_LIT_ARGS='-v --time-tests'
+                                      -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+                                    """)
                         }
                     }
-                    post {
-                        unsuccessful {
-                            rebootNode()
-                        }
-                        always {
-                            cleanWs()
-                        }
-                    }
-                }
-                stage("Static Library PR tests") {
-                    when {
-                        beforeAgent true;
-                        allOf {
+                    stage("Static Library: test librockCompiler with MIOpen") {
+                        when {
+                            beforeAgent true;
                             equals expected: true, actual: params.staticLib;
                             equals expected: false, actual: params.nightly;
                             equals expected: false, actual: params.weekly;
                         }
-                    }
-                    agent {
-                        docker {
-                            image dockerImage()
-                            args dockerArgs()
-                            label getLabel("gfx906")
-                            alwaysPull true
+                        environment {
+                            // Make libMIOpen.so accessible to the test driver
+                            LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                        }
+                        steps {
+                            sh 'rm build/CMakeCache.txt'
+                            buildMIOpenWithMLIR()
+                            testSelectedMIOpenConfigs()
                         }
                     }
-                    environment {
-                        PATH="/opt/rocm/llvm/bin:$PATH"
-                        HOME="${WORKSPACE}"
-                    }
-                    stages {
-                        stage('Environment') {
-                            steps {
-                                showEnv()
+                    stage('Static Tests') {
+                        when {
+                            allOf {
+                                equals expected: false, actual: params.nightly;
+                                // Avoid this test running multiple times
+                                equals expected: "mfma", actual: "${CODEPATH}"
                             }
                         }
-                        stage("Build MIOpen with librockCompiler") {
-                            steps {
-                                buildMIOpenWithMLIR()
-                            }
-                        }
-                        stage("Test selected MIOpen configs") {
-                            environment {
-                                // Make libMIOpen.so accessible to the test driver
-                                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
-                            }
-                            steps {
-                                timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                    dir('MIOpen/build/') {
-                                        // no-tuning test configs
-                                        sh """
-                                        bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --no-tuning\
-                                           < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
-                                        sh """
-                                        bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd --dtype int8 --no-tuning\
-                                           < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
-                                        // tuning test configs
-                                        sh """
-                                        bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
-                                           < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
-                                        sh """
-                                        bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd --dtype int8 --tuning\
-                                           < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
-                                    }
-                                }
-                            }
+                        steps {
+                            preMergeCheck()
                         }
                     }
-                    post {
-                        unsuccessful {
-                            rebootNode()
-                        }
-                        always {
-                            cleanWs()
-                        }
+                }
+                post {
+                    unsuccessful {
+                        rebootNode()
+                    }
+                    always {
+                        cleanWs()
                     }
                 }
             }
