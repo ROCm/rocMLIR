@@ -1188,6 +1188,11 @@ struct GridwiseGemmV2RewritePattern
           std::min(matrix_a_source_data_per_read, aCopyPerThread / KPack);
       }
     }
+    // Similar temporary clamp, avoids division by 0
+    if (matrix_a_source_vector_read_dim == GemmDimension::K) {
+      matrix_a_source_data_per_read =
+          std::min(matrix_a_source_data_per_read, KPerBlock);
+    }
 
     std::tie(matrix_b_source_vector_read_dim, matrix_b_source_data_per_read) =
         bestVectorization(b, matB, bCopyPerThread, vectorTiebreaker);
@@ -1202,6 +1207,11 @@ struct GridwiseGemmV2RewritePattern
         matrix_b_source_data_per_read =
           std::min(matrix_b_source_data_per_read, bCopyPerThread / KPack);
       }
+    }
+    // Similar temporary clamp, avoids division by 0
+    if (matrix_b_source_vector_read_dim == GemmDimension::K) {
+      matrix_b_source_data_per_read =
+          std::min(matrix_b_source_data_per_read, KPerBlock);
     }
 
     // Obtain XDLOPS-related attributes.
