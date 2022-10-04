@@ -11,7 +11,7 @@ MIOPEN_REPORT_FILE = 'miopen_perf.csv'
 MIOPEN_TUNED_REPORT_FILE = 'miopen_tuned_perf.csv'
 MIOPEN_UNTUNED_REPORT_FILE = 'miopen_untuned_perf.csv'
 
-TEST_PARAMETERS = ['Direction', 'DataType', 'XDLOPS', 'FilterLayout', 'InputLayout', 'OutputLayout',
+TEST_PARAMETERS = ['Direction', 'DataType', 'codepath', 'FilterLayout', 'InputLayout', 'OutputLayout',
                        'N', 'C', 'H', 'W', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW',
                        'PaddingH', 'PaddingW']
 ROUND_DIGITS = 2

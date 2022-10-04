@@ -182,7 +182,7 @@ class ConvConfiguration:
     def tableEntry(self, nanoSeconds):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
         result = OrderedDict()
-        values = [self.direction, self.dataType, self.xdlops, self.filterLayout, self.inputLayout, self.outputLayout,
+        values = [self.direction, self.dataType, self.codepath, self.filterLayout, self.inputLayout, self.outputLayout,
                    self.n, self.c, self.hi, self.wi, self.k, self.y, self.x, self.dilationH, self.dilationW,
                    self.convStrideH, self.convStrideW, self.paddingH, self.paddingW,
                    self.computeTFlops(nanoSeconds)]
@@ -196,7 +196,7 @@ class ConvConfiguration:
         return f"""ConvConfiguration(dtype={self.dataType!r}, direction={self.direction!r}, layout={self.inputLayout.upper()!r},
                 n={self.n!r}, c={self.c!r}, hi={self.hi!r}, wi={self.wi!r}, k={self.k!r}, y={self.y!r}, x={self.x!r},
                 convStrideH={self.convStrideH!r}, convStrideW={self.convStrideW!r}, paddingH={self.paddingH!r}, paddingW={self.paddingW!r},
-                dilationH={self.dilationH!r}, dilationW={self.dilationW!r}, group={self.group!r}, xdlops={self.xdlops!r}, arch={self.arch!r})"""
+                dilationH={self.dilationH!r}, dilationW={self.dilationW!r}, group={self.group!r}, codepath={self.codepath!r}, arch={self.arch!r})"""
 
     def generateMlirDriverCommandLine(self):
         direction = {'fwd':'--operation conv2d',
@@ -206,7 +206,7 @@ class ConvConfiguration:
         result = ' '.join([direction,
                            '-t', self.dataType,
                            '--arch', self.arch,
-                           '-mfma=on' if self.xdlops else '-mfma=off',
+                           '-mfma=on' if self.codepath == 'mfma' else '-mfma=off',
                            '--fil_layout', self.filterLayout,
                            '--in_layout', self.inputLayout,
                            '--out_layout', self.outputLayout,
@@ -230,7 +230,7 @@ class ConvConfiguration:
     MLIR_OUTPUT_LAYOUTS = {"NCHW": "nkhw", "NHWC": "nhwk"}
 
     @classmethod
-    def fromCommandLine(cls, argv, xdlops, arch=""):
+    def fromCommandLine(cls, argv, arch):
         # determine dataType from argv[1]
         if argv[0] == 'conv':
             dataType = 'f32'
@@ -313,12 +313,12 @@ class ConvConfiguration:
 
         return cls(dataType, direction, layout, n, c, hi, wi, k, y, x,
             convStrideH, convStrideW, paddingH, paddingW, dilationH, dilationW,
-                   group, xdlops, arch)
+                   group, arch)
 
     def __init__(self, dtype: str, direction: str, layout: str,
                     n: int, c: int, hi: int, wi: int, k: int, y: int, x: int,
                     convStrideH: int, convStrideW: int, paddingH: int, paddingW: int,
-                    dilationH: int, dilationW: int, group: int, xdlops: bool, arch: str):
+                    dilationH: int, dilationW: int, group: int, arch: str):
         if dtype not in {"f16", "f32", "bf16", "i8"}:
             raise ValueError(f"Invalid datatype: {dtype}")
         if direction not in {"fwd", "bwd", "wrw"}:
@@ -349,8 +349,17 @@ class ConvConfiguration:
         self.dilationW = dilationW
 
         self.group = group
-        self.xdlops = xdlops
         self.arch = arch
+        if 'gfx908' in arch or 'gfx90a' in arch:
+            self.codepath = 'mfma'
+        elif 'gfx1030' in arch:
+            self.codepath = 'navi21'
+        elif 'gfx906' in arch:
+            self.codepath = 'vanilla'
+        else:
+            # gfx900 will soon be dropped
+            self.codepath = 'none'
+
         self.ho = math.floor((self.hi + self.paddingH * 2 - (self.y - 1) * self.dilationH - 1 ) / self.convStrideH) + 1
         self.wo = math.floor((self.wi + self.paddingW * 2 - (self.x - 1) * self.dilationW - 1 ) / self.convStrideW) + 1
 
@@ -411,24 +420,24 @@ def runConfigWithMIOpenDriver(commandLine, paths: Paths, envs):
         return np.nan
 
 # Benchmarking function.
-def benchmarkMLIR(commandLine, xdlops, paths: Paths, arch):
-    config = ConvConfiguration.fromCommandLine(commandLine, xdlops, arch)
+def benchmarkMLIR(commandLine, paths: Paths, arch):
+    config = ConvConfiguration.fromCommandLine(commandLine, arch)
     runConfigWithMLIR(config, paths)
     # get nanoseconds from rocprof output.
     nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
     return config.tableEntry(nanoSeconds)
 
-def benchmarkMIOpen(commandLine, xdlops, paths: Paths, envs=dict()):
-    config = ConvConfiguration.fromCommandLine(commandLine, xdlops)
+def benchmarkMIOpen(commandLine, paths: Paths, arch, envs=dict()):
+    config = ConvConfiguration.fromCommandLine(commandLine, arch)
     # get nanoseconds from MIOpenDriver output
     nanoSeconds = runConfigWithMIOpenDriver(commandLine, paths, envs)
     return config.tableEntry(nanoSeconds)
 
 #Generate MLIR vs. MIOpen performance results
-def generatePerformanceResults(configs, xdlops, paths: Paths, arch):
-    mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), xdlops, paths, arch)
+def generatePerformanceResults(configs, paths: Paths, arch):
+    mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), paths, arch)
         for testVector in configs)
-    miopen_df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), xdlops, paths)
+    miopen_df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), paths, arch)
         for testVector in configs)
 
     df = mlir_df.merge(miopen_df, on=ConvConfiguration.TABLE_COLUMNS[:-1],
@@ -438,20 +447,20 @@ def generatePerformanceResults(configs, xdlops, paths: Paths, arch):
     df['MLIR/MIOpen'] = df['MLIR TFlops'] / df['MIOpen TFlops (no MLIR Kernels)']
     df.to_csv(reportUtils.PERF_REPORT_FILE, index=False)
 
-def getSolverName(testVector, xdlops):
-    config = ConvConfiguration.fromCommandLine(testVector.split(sep=' '), xdlops)
+def getSolverName(testVector, arch):
+    config = ConvConfiguration.fromCommandLine(testVector.split(sep=' '), arch)
     if config.direction == 'fwd':
        solverName = 'ConvMlirIgemmFwd'
     elif config.direction == 'bwd':
        solverName = 'ConvMlirIgemmBwd'
     else:
        solverName = 'ConvMlirIgemmWrW'
-    if xdlops == True:
+    if config.codepath == 'mfma':
        solverName+='Xdlops'
     return solverName
 
-def benchmarkMIOpenWithMLIRKernels(configs, xdlops, filename, paths: Paths):
-    solver_names = {testVector : getSolverName(testVector, xdlops) for testVector in configs}
+def benchmarkMIOpenWithMLIRKernels(configs, arch, filename, paths: Paths):
+    solver_names = {testVector : getSolverName(testVector, arch) for testVector in configs}
 
     # Set environment variables for running MIOpenDriver with MLIR kernels
     envs = os.environ.copy()
@@ -460,13 +469,13 @@ def benchmarkMIOpenWithMLIRKernels(configs, xdlops, filename, paths: Paths):
     perf_list = []
     for testVector in configs:
         envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER']=solver_names[testVector]
-        perf_list.append(benchmarkMIOpen(testVector.split(sep=' '), xdlops, paths, envs))
+        perf_list.append(benchmarkMIOpen(testVector.split(sep=' '), paths, arch, envs))
     df = pd.DataFrame(perf_list)
     df.to_csv(filename, index=False)
 
 #Tune MIOpen with MLIR kernels
-def tuneMLIRKernels(configs, xdlops, paths: Paths):
-    solver_names = {testVector : getSolverName(testVector, xdlops) for testVector in configs}
+def tuneMLIRKernels(configs, paths: Paths, arch):
+    solver_names = {testVector : getSolverName(testVector, arch) for testVector in configs}
 
     envs = os.environ.copy()
     envs['MIOPEN_FIND_ENFORCE'] = '4'
@@ -474,7 +483,7 @@ def tuneMLIRKernels(configs, xdlops, paths: Paths):
     for testVector in configs:
         envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER']=solver_names[testVector]
         commandLine = testVector.split(sep=' ')
-        config = ConvConfiguration.fromCommandLine(commandLine, xdlops)
+        config = ConvConfiguration.fromCommandLine(commandLine, arch)
         if config.inputLayout == 'nchw':
             MIOpenDriverCommand = [paths.miopen_driver_path, *commandLine,'-V', '0']
             print(' '.join(MIOpenDriverCommand))
@@ -612,38 +621,32 @@ def main(args=None):
 
     paths = create_paths(parsed_args.mlir_build_dir, parsed_args.miopen_build_dir)
     archNames = getArch()
-    xdlops = False
-    for x in archNames:
-        if "gfx908" in x or "gfx90a" in x:
-            xdlops = True
-
     arch = ','.join(archNames)
     configs = getConfigurations(paths.configuration_file_path)
-
 
     #If no arguments are passed, then benchmark with MLIR and MIOpen
     if parsed_args.batch_both:
         # batch benchmark with MLIR and MIOpen.
-        generatePerformanceResults(configs, xdlops, paths, arch)
+        generatePerformanceResults(configs, paths, arch)
     elif parsed_args.miopen_use_tuned_mlir:
-        benchmarkMIOpenWithMLIRKernels(configs, xdlops, reportUtils.MIOPEN_TUNED_REPORT_FILE, paths)
+        benchmarkMIOpenWithMLIRKernels(configs, arch, reportUtils.MIOPEN_TUNED_REPORT_FILE, paths)
     elif parsed_args.miopen_use_untuned_mlir:
-        benchmarkMIOpenWithMLIRKernels(configs, xdlops, reportUtils.MIOPEN_UNTUNED_REPORT_FILE, paths)
+        benchmarkMIOpenWithMLIRKernels(configs, arch, reportUtils.MIOPEN_UNTUNED_REPORT_FILE, paths)
     elif parsed_args.tuning:
-        tuneMLIRKernels(configs, xdlops, paths)
+        tuneMLIRKernels(configs, paths, arch)
     else:
         if parsed_args.batch_mlir:
-            df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), xdlops, paths, arch) for testVector in configs)
+            df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), paths, arch) for testVector in configs)
         elif parsed_args.batch_miopen:
-            df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), xdlops, paths) for testVector in configs)
+            df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), paths, arch) for testVector in configs)
         elif parsed_args.miopen:
-            df = pd.DataFrame([benchmarkMIOpen(parsed_args.config, xdlops, paths)])
+            df = pd.DataFrame([benchmarkMIOpen(parsed_args.config, paths, arch)])
         else:
             # Will only reach here with more than 1 unspecified arguments
             # These are arguments are directly passed through to benchmarkMLIR
             if not parsed_args.mlir_build_dir:
                 raise RuntimeError("MLIR build dir was not provided/found")
-            df = pd.DataFrame([benchmarkMLIR(parsed_args.config, xdlops, paths, arch)])
+            df = pd.DataFrame([benchmarkMLIR(parsed_args.config, paths, arch)])
         df.to_csv(parsed_args.fileName)
         with pd.option_context('display.precision', reportUtils.ROUND_DIGITS):
             print(df) # for interactive consumption
