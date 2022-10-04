@@ -57,7 +57,7 @@ class TosaPartitionPass
     : public tosa::impl::TosaPartitionBase<TosaPartitionPass> {
 public:
   using tosa::impl::TosaPartitionBase<TosaPartitionPass>::TosaPartitionBase;
-  
+
   bool isAnchorOp(Operation *op);
   bool isLeadingOp(Operation *op);
   bool isTrailingOp(Operation *op);
@@ -475,7 +475,8 @@ void outlinePartitionOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
 
 bool TosaPartitionPass::isAnchorOp(Operation *op) {
   if (anchorOps.empty()) // ListOption doesn't have a default value.
-    anchorOps = {"tosa.conv2d", "tosa.matmul", "tosa.depthwise_conv2d", "tosa.fully_connected"};
+    anchorOps = {"tosa.conv2d", "tosa.matmul", "tosa.depthwise_conv2d",
+                 "tosa.fully_connected"};
   return llvm::is_contained(anchorOps, op->getName().getIdentifier().str());
 }
 
