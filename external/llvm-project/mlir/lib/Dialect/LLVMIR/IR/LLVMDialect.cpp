@@ -2824,7 +2824,8 @@ Value mlir::LLVM::createGlobalString(Location loc, OpBuilder &builder,
   }
   if (!global) {
     OpBuilder moduleBuilder(module.getBodyRegion(), builder.getListener());
-    auto type = LLVM::LLVMArrayType::get(IntegerType::get(ctx, 8), value.size());
+    auto type =
+        LLVM::LLVMArrayType::get(IntegerType::get(ctx, 8), value.size());
     global = moduleBuilder.create<LLVM::GlobalOp>(
         loc, type, /*isConstant=*/true, linkage, uniqueName,
         builder.getStringAttr(value), /*alignment=*/0);
