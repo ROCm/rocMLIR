@@ -20,10 +20,10 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Rock/IR/GemmContext.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
-#include "mlir/Dialect/Rock/Tuning/GemmContext.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 
 #include "mlir/IR/BuiltinTypes.h"

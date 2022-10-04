@@ -1,7 +1,6 @@
 add_mlir_dialect_library(MLIRRockTuning
   GeneralGemmBlockStructure.cpp
   ConvContext.cpp
-  GemmContext.cpp
   SqliteDb.cpp
   GridwiseGemmParams.cpp
 

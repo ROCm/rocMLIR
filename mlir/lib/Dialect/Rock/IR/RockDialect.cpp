@@ -369,6 +369,85 @@ void RockDialect::initialize() {
 //===----------------------------------------------------------------------===//
 // Convolution operations
 //===----------------------------------------------------------------------===//
+static ConvolutionDims obtainConvDims(Operation *op) {
+  auto filterLayoutAttr = op->getAttrOfType<ArrayAttr>("filter_layout");
+  auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
+  auto outputLayoutAttr =
+      op->template getAttrOfType<ArrayAttr>("output_layout");
+
+  // Get shape of filter tensor.
+  auto filterType = op->getOperand(0).getType().template cast<MemRefType>();
+  ArrayRef<int64_t> filterShape = filterType.getShape();
+
+  // Get shape of input tensor.
+  auto inputType = op->getOperand(1).getType().template cast<MemRefType>();
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+
+  // Get shape of output tensor.
+  auto outputType = op->getOperand(2).getType().template cast<MemRefType>();
+  ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  int64_t y, x, ho, wo, hi, wi, k, c, n, g;
+  y = x = ho = wo = hi = wi = k = c = n = g = 0;
+
+  for (unsigned i = 0; i < filterLayoutAttr.size(); ++i) {
+    auto filterAttr = filterLayoutAttr.getValue()[i].cast<StringAttr>();
+    auto inputAttr = inputLayoutAttr.getValue()[i].cast<StringAttr>();
+    auto outputAttr = outputLayoutAttr.getValue()[i].cast<StringAttr>();
+
+    if (filterAttr.getValue() == "y") {
+      y = filterShape[i];
+    } else if (filterAttr.getValue() == "x") {
+      x = filterShape[i];
+    } else if (filterAttr.getValue() == "k") {
+      k = filterShape[i];
+    } else if (filterAttr.getValue() == "c") {
+      c = filterShape[i];
+    } else if (filterAttr.getValue() == "g") {
+      g = filterShape[i];
+    }
+
+    if (inputAttr.getValue() == "hi") {
+      hi = inputShape[i];
+    } else if (inputAttr.getValue() == "wi") {
+      wi = inputShape[i];
+    } else if (inputAttr.getValue() == "ni") {
+      n = inputShape[i];
+    }
+
+    if (outputAttr.getValue() == "ho") {
+      ho = outputShape[i];
+    } else if (outputAttr.getValue() == "wo") {
+      wo = outputShape[i];
+    }
+  }
+
+  return ConvolutionDims(y, x, ho, wo, hi, wi, k, c, n, g);
+}
+
+GemmContext GemmContext::fromConvolution(ConvOpType type,
+                                         const ConvolutionDims &sizes) {
+  int64_t gemmMSize, gemmKSize, gemmNSize;
+  switch (type) {
+  case ConvOpType::Fwd:
+    gemmMSize = sizes.k;
+    gemmKSize = sizes.c * sizes.y * sizes.x;
+    gemmNSize = sizes.n * sizes.ho * sizes.wo;
+    break;
+  case ConvOpType::BwdData:
+    gemmMSize = sizes.c;
+    gemmKSize = sizes.k * sizes.y * sizes.x;
+    gemmNSize = sizes.n * sizes.ho * sizes.wo;
+    break;
+  case ConvOpType::BwdWeight:
+    gemmMSize = sizes.k;
+    gemmKSize = sizes.n * sizes.ho * sizes.wo;
+    gemmNSize = sizes.c * sizes.y * sizes.x;
+    break;
+  }
+  return GemmContext(gemmMSize, gemmKSize, gemmNSize);
+}
+
 template <typename T> static LogicalResult verifyConvOp(T op) {
   auto isDisjointed = [&](llvm::StringRef tensor, llvm::StringRef dim1,
                           llvm::StringRef dim2) {
@@ -396,6 +475,31 @@ LogicalResult Conv2DOp::verify() { return verifyConvOp(*this); }
 LogicalResult Conv2DBwdDataOp::verify() { return verifyConvOp(*this); }
 
 LogicalResult Conv2DBwdWeightOp::verify() { return verifyConvOp(*this); }
+
+OpOperand &Conv2DOp::getOutArgument() { return (*this)->getOpOperand(2); }
+
+OpOperand &Conv2DBwdDataOp::getOutArgument() {
+  return (*this)->getOpOperand(1);
+}
+
+OpOperand &Conv2DBwdWeightOp::getOutArgument() {
+  return (*this)->getOpOperand(0);
+}
+
+GemmContext Conv2DOp::getGemmSize() {
+  ConvolutionDims sizes = obtainConvDims(*this);
+  return GemmContext::fromConvolution(ConvOpType::Fwd, sizes);
+}
+
+GemmContext Conv2DBwdDataOp::getGemmSize() {
+  ConvolutionDims sizes = obtainConvDims(*this);
+  return GemmContext::fromConvolution(ConvOpType::BwdData, sizes);
+}
+
+GemmContext Conv2DBwdWeightOp::getGemmSize() {
+  ConvolutionDims sizes = obtainConvDims(*this);
+  return GemmContext::fromConvolution(ConvOpType::BwdWeight, sizes);
+}
 
 //===-----------------------------------------------------===//
 // GemmOp
@@ -450,6 +554,19 @@ LogicalResult GemmOp::verify() {
     return emitOpError("general kernels don't support non-set store methods");
   }
   return success();
+}
+
+OpOperand &GemmOp::getOutArgument() { return (*this)->getOpOperand(2); }
+
+GemmContext GemmOp::getGemmSize() {
+  MemRefType typeA = getA().getType(), typeB = getB().getType();
+  ArrayRef<int64_t> dimsA = typeA.getShape(), dimsB = typeB.getShape();
+  int64_t offsetA = dimsA.size() == 2 ? 0 : 1,
+          offsetB = dimsB.size() == 2 ? 0 : 1;
+  int64_t m = dimsA[offsetA + (getATransposed() ? 1 : 0)],
+          k = dimsA[offsetA + (getATransposed() ? 0 : 1)],
+          n = dimsB[offsetB + (getBTransposed() ? 0 : 1)];
+  return GemmContext(m, k, n);
 }
 
 //===-----------------------------------------------------===//

@@ -13,8 +13,8 @@
 #ifndef MLIR_DIALECT_ROCK_GRIDWISE_GEMM_PARAMS_H
 #define MLIR_DIALECT_ROCK_GRIDWISE_GEMM_PARAMS_H
 
+#include "mlir/Dialect/Rock/IR/GemmContext.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/Tuning/GemmContext.h"
 #include "mlir/Dialect/Rock/Tuning/Serializable.h"
 
 namespace llvm {
