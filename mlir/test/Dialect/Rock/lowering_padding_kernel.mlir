@@ -7,7 +7,7 @@
 // CHECK-LABEL: func.func @rock_conv2d_kcyx_nchw_nkhw_padding_kernel
 // CHECK-SAME: %[[filter:.*]]: memref<32x128x2x3x3xf32>
 // CHECK: %[[gemmFilter:.*]] = rock.transform %[[filter]]
-// CHECK: %[[padK:.*]] = rock.transform %[[gemmFilter]] by [#[[$PAD_GEMMK]]]
+// CHECK: %[[padK:.*]] = rock.transform %[[gemmFilter]] by #[[$PAD_GEMMK]]
 // CHECK: rock.gridwise_gemm %{{.*}} = %[[padK]] * %{{.*}}
 func.func @rock_conv2d_kcyx_nchw_nkhw_padding_kernel(%filter : memref<32x128x2x3x3xf32>, %input : memref<64x32x2x11x11xf32>, %output : memref<64x32x128x9x9xf32>) {
   rock.conv2d(%filter, %input, %output) features = none {
@@ -44,7 +44,7 @@ func.func @rock_conv2d_kcyx_nchw_nkhw_no_extra_padding(%filter : memref<1x128x64
 // CHECK-LABEL: func.func @rock_conv2d_kcyx_nchw_nkhw_partial_padding_kernel
 // CHECK-SAME: %[[filter:.*]]: memref<32x128x2x3x3xf32>
 // CHECK: %[[gemmFilter:.*]] = rock.transform %[[filter]]
-// CHECK: %[[padK:.*]] = rock.transform %[[gemmFilter]] by [#[[$PAD_GEMMK]]]
+// CHECK: %[[padK:.*]] = rock.transform %[[gemmFilter]] by #[[$PAD_GEMMK]]
 // CHECK: rock.gridwise_gemm %{{.*}} = %[[padK]] * %{{.*}}
 
 func.func @rock_conv2d_kcyx_nchw_nkhw_partial_padding_kernel(%filter : memref<32x128x2x3x3xf32>, %input : memref<128x32x2x11x11xf32>, %output : memref<128x32x128x9x9xf32>) {

@@ -112,15 +112,6 @@ template <typename T> std::string genDebugForParams(T params) {
   return os.str();
 }
 
-// block gemm tuning params that sepcific the layout of thread-wise gemm in a
-// workgroup
-struct DerivedBlockGemmParams {
-  int64_t gemmMThreadsPerCuwave;
-  int64_t gemmNThreadsPerCuwave;
-  int64_t gemmMCuwavesPerBlock;
-  int64_t gemmNCuwavesPerBlock;
-};
-
 template <typename InitParamType> class BasePopulateParams {
 protected:
   // Interface function to check whether the given GEMM is valid
@@ -166,25 +157,24 @@ private:
 
   LogicalResult
   calculateBlockGemmPerformanceParameters(const InitParamsNonXDL &param,
-                                          const ConvolutionContext &ctx,
-                                          DerivedBlockGemmParams &derived);
+                                          const ConvolutionContext &ctx);
 
   LogicalResult populateDerived(ConvolutionContext &ctx,
                                 const InitParamsNonXDL &validParams,
                                 GemmSize &gemmSize,
-                                DerivedBlockGemmParams &blockGemmDerivedParam,
                                 uint32_t &gridSize);
 
-  LogicalResult populatePaddingKernelDerived(
-      ConvolutionContext &ctx, const InitParamsNonXDL &validParams,
-      GemmSize &gemmSize, DerivedBlockGemmParams &blockGemmDerivedParam,
-      uint32_t &gridSize);
+  LogicalResult
+  populatePaddingKernelDerived(ConvolutionContext &ctx,
+                               const InitParamsNonXDL &validParams,
+                               GemmSize &gemmSize, uint32_t &gridSize);
 
 public:
-  LogicalResult obtainTuningParameters(
-      Operation *op, uint32_t blockSizeOverride, const std::string &perfConfig,
-      InitParamsNonXDL &validParams,
-      DerivedBlockGemmParams &blockGemmDerivedParam, uint32_t &gridSize);
+  LogicalResult obtainTuningParameters(Operation *op,
+                                       uint32_t blockSizeOverride,
+                                       const std::string &perfConfig,
+                                       InitParamsNonXDL &validParams,
+                                       uint32_t &gridSize);
 
   ArrayRef<InitParamsNonXDL> getTuningParameters(ConvOpType dir,
                                                  Type dataType) const;

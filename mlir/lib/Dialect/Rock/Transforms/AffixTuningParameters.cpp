@@ -257,13 +257,11 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
   } else {
     InitParamsNonXDL validParams;
-    DerivedBlockGemmParams blockGemmDerivedParam;
     uint32_t gridSize;
 
     PopulateParams populateParams;
     LogicalResult status = populateParams.obtainTuningParameters(
-        op, blockSizeOverride, perfConfig, validParams, blockGemmDerivedParam,
-        gridSize);
+        op, blockSizeOverride, perfConfig, validParams, gridSize);
 
     if (failed(status)) {
       signalPassFailure();
@@ -286,10 +284,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
         validParams.gemmNPerBlock,
         /*kPerThread=*/1, validParams.gemmMPerThread,
         validParams.gemmNPerThread,
-        /*kpack=*/1, blockGemmDerivedParam.gemmMThreadsPerCuwave,
-        blockGemmDerivedParam.gemmNThreadsPerCuwave,
-        blockGemmDerivedParam.gemmMCuwavesPerBlock,
-        blockGemmDerivedParam.gemmNCuwavesPerBlock);
+        /*kpack=*/1);
     op->setAttr(op.paramsAttrName(), gemmParams);
 
     // Set attributes on the function.

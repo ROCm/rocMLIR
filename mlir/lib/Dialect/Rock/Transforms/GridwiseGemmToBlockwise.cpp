@@ -19,10 +19,11 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
-#include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/IR/XdlopsCodeSelection.h"
+#include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
+#include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -704,10 +705,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     int64_t nPerBlock = tuningParams.getNPerBlock();
     int64_t mPerThread = tuningParams.getMPerThread();
     int64_t nPerThread = tuningParams.getNPerThread();
-    int64_t mThreadsPerCuwave = tuningParams.getMThreadsPerCuwave();
-    int64_t nThreadsPerCuwave = tuningParams.getNThreadsPerCuwave();
-    int64_t mCuwavesPerBlock = tuningParams.getMCuwavesPerBlock();
-    int64_t nCuwavesPerBlock = tuningParams.getNCuwavesPerBlock();
+
+    GeneralGemmBlockStructure blockStructure =
+        *deriveGeneralGemmBlockStructure(blockSize);
+    int64_t mThreadsPerCuwave = blockStructure.mThreadsPerCuwave;
+    int64_t nThreadsPerCuwave = blockStructure.nThreadsPerCuwave;
+    int64_t mCuwavesPerBlock = blockStructure.mCuwavesPerBlock;
+    int64_t nCuwavesPerBlock = blockStructure.nCuwavesPerBlock;
 
     int64_t kPerBlock = kpacksPerBlock * kpack;
 
@@ -899,7 +903,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       // Emit blockwise GEMM.
       blockwiseGemmOp = b.create<BlockwiseGemmOp>(
           loc, ldsMatrixASubviewOp, ldsMatrixBSubviewOp, registerMatrixCViewOp,
-          op.paramsAttr());
+          op.blockSizeAttr(), op.paramsAttr());
 
       // LDS barrier.
       // This barrier prevents halo part of outputs having weird values.
