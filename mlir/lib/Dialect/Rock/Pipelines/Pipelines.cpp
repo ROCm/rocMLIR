@@ -49,7 +49,8 @@ void rock::buildPartitionPipeline(OpPassManager &pm,
   pm.addNestedPass<func::FuncOp>(tosa::createTosaLayerwiseConstantFoldPass());
   pm.addNestedPass<func::FuncOp>(tosa::createTosaMakeBroadcastablePass());
   pm.addNestedPass<func::FuncOp>(tosa::createTosaOptionalDecompositions());
-  pm.addPass(tosa::createTosaPartition({{"tosa.conv2d", "tosa.depthwise_conv2d"}}));
+  pm.addPass(
+      tosa::createTosaPartition({{"tosa.conv2d", "tosa.depthwise_conv2d"}}));
 
   // make async kernel launch's
   /* rocmlir-opt --rock-async-launch
