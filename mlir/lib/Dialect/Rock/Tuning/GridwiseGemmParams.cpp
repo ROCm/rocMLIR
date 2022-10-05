@@ -523,7 +523,8 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
     // 2. This is running mode and we have succeeded with a perfdb load
     bool isValidPerfConfig = validParams.deserialize(perfConfig);
     if (isValidPerfConfig) {
-      LLVM_DEBUG(llvm::dbgs() << "Got perf config: " << genDebugForParams(validParams));
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Got perf config: " << genDebugForParams(validParams));
       return populateDerived(ctx, validParams, gemmSize, blockSize, gridSize,
                              gemmKBlocks);
     }

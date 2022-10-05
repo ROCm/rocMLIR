@@ -1185,7 +1185,7 @@ struct GridwiseGemmV2RewritePattern
       }
       if (matrix_a_source_vector_read_dim == GemmDimension::MorN) {
         matrix_a_source_data_per_read =
-          std::min(matrix_a_source_data_per_read, aCopyPerThread / KPack);
+            std::min(matrix_a_source_data_per_read, aCopyPerThread / KPack);
       }
     }
     // Similar temporary clamp, avoids division by 0
@@ -1205,7 +1205,7 @@ struct GridwiseGemmV2RewritePattern
       }
       if (matrix_b_source_vector_read_dim == GemmDimension::MorN) {
         matrix_b_source_data_per_read =
-          std::min(matrix_b_source_data_per_read, bCopyPerThread / KPack);
+            std::min(matrix_b_source_data_per_read, bCopyPerThread / KPack);
       }
     }
     // Similar temporary clamp, avoids division by 0

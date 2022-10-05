@@ -161,8 +161,7 @@ private:
 
   LogicalResult populateDerived(ConvolutionContext &ctx,
                                 const InitParamsNonXDL &validParams,
-                                GemmSize &gemmSize,
-                                uint32_t &gridSize);
+                                GemmSize &gemmSize, uint32_t &gridSize);
 
   LogicalResult
   populatePaddingKernelDerived(ConvolutionContext &ctx,
