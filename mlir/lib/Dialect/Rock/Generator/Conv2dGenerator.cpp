@@ -376,13 +376,13 @@ bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {
       needExtraPad =
           calculatePadding(validParams.gemmKPerBlock, validParams.gemmMPerBlock,
                            validParams.gemmNPerBlock, gemmSize)
-              .hasValue();
+              .has_value();
     } else {
       // This function will go through the list and pick a valid configuration
       // the following code will return if the resulting config needs padding
       needExtraPad =
           calculatePaddingKernelSize(gemmSize, dir, dataType, populateParams)
-              .hasValue();
+              .has_value();
     }
   } else {
     PopulateParamsXDL populateParamsXDL;
@@ -394,13 +394,13 @@ bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {
           calculatePadding(validParams.gemmKPerBlock, validParams.gemmMPerBlock,
                            validParams.gemmNPerBlock, gemmSize,
                            validParams.gemmKPack)
-              .hasValue();
+              .has_value();
     } else {
       // This function will go through the list and pick a valid configuration
       // the following code will return if the resulting config needs padding
       needExtraPad =
           calculatePaddingKernelSize(gemmSize, dir, dataType, populateParamsXDL)
-              .hasValue();
+              .has_value();
     }
   }
   return needExtraPad;
