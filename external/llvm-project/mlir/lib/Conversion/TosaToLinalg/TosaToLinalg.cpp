@@ -635,6 +635,9 @@ elementwiseMatchAndRewriteHelper(Operation *operation,
         newShape.push_back(it.value());
         affineExprs.push_back(
             mlir::getAffineDimExpr(it.index(), rewriter.getContext()));
+      } else if (it.value() == 1) {
+        newShape.push_back(it.value());
+        affineExprs.push_back(getAffineConstantExpr(0, rewriter.getContext()));
       }
     }
 
