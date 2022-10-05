@@ -808,6 +808,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
     int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
+    if (aCopyPerThread == 0 || bCopyPerThread == 0) {
+      LLVM_DEBUG(llvm::dbgs() << "Block size too large, rejecting as invalid.\n");
+      return failure();
+    }
 
     GemmDimension vectorTiebreaker =
         (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
@@ -1174,6 +1178,11 @@ struct GridwiseGemmV2RewritePattern
 
     int64_t aCopyPerThread = (KPerBlock * KPack * MPerBlock) / blockSize;
     int64_t bCopyPerThread = (KPerBlock * KPack * NPerBlock) / blockSize;
+    if (aCopyPerThread == 0 || bCopyPerThread == 0) {
+      LLVM_DEBUG(llvm::dbgs() << "Block size too large, rejecting as invalid.\n");
+      return failure();
+    }
+
     GemmDimension vectorTiebreaker =
         (KPack > 1) ? GemmDimension::K : GemmDimension::MorN;
     std::tie(matrix_a_source_vector_read_dim, matrix_a_source_data_per_read) =
