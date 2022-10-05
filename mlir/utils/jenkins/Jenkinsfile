@@ -116,31 +116,35 @@ void testMIOpenDriver(String dtype, String layout, String direction, String tuni
     }
 }
 
-void postProcessPerfRes() {
+void postProcessPerfRes(String chip) {
     publishHTML (target: [
         allowMissing: false,
         alwaysLinkToLastBuild: false,
         keepAll: true,
         reportDir: 'build',
-        reportFiles: 'MLIR_Performance_Changes.html,MLIR_vs_MIOpen.html',
-        reportName: 'Performance report'
+        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html",
+        reportName: "Performance report for ${chip}"
     ])
 
-    plot csvFileName: 'plot-nightly-perf-results-000001.csv',\
-        csvSeries: [[file: 'build/mlir_vs_miopen_perf_for_plot.csv', displayTableFlag: false]],\
+    plot csvFileName: "${chip}_plot-nightly-perf-results-000001.csv",\
+        csvSeries: [[file: "build/${chip}_mlir_vs_miopen_perf_for_plot.csv", displayTableFlag: false]],\
         title: 'Test performance summary',\
         yaxis: 'TFlops',\
         style: 'line',\
         group: 'Performance plots'
 
     // Save results for future comparison
-    archiveArtifacts artifacts: 'build/mlir_*.csv,build/perf-run-date', onlyIfSuccessful: true
+    archiveArtifacts artifacts: 'build/*_mlir_*.csv,build/perf-run-date', onlyIfSuccessful: true
 }
 
 //makes sure multiple builds are not triggered for branch indexing
 def resetBuild() {
-    if (currentBuild.getPreviousBuild() == null || currentBuild.getPreviousBuild().getBuildCauses().toString().contains('BranchIndexingCause')) {
-        def buildNumber = BUILD_NUMBER as int; if (buildNumber > 1) milestone(buildNumber - 1); milestone(buildNumber)
+    if (currentBuild.getPreviousBuild() == null
+        || currentBuild.getPreviousBuild().getBuildCauses().toString().contains('BranchIndexingCause')) {
+        def buildNumber = BUILD_NUMBER as int;
+        if (buildNumber > 1)
+            milestone(buildNumber - 1);
+        milestone(buildNumber)
     }
 }
 
@@ -610,118 +614,140 @@ pipeline {
         }
         // FIXME: run perf tests on both gfx90a and gfx908
         stage("Benchmark and Report Performance") {
-            when {
-                beforeAgent true;
-                equals expected: true, actual: params.perfTest;
-                equals expected: true, actual: params.nightly;
-            }
-            agent {
-                docker {
-                    image dockerImage()
-                    args dockerArgs()
-                    label "mlir && ${params.canXdlops ? 'gfx90a' : 'gfx906' }"
-                    alwaysPull true
-                }
-            }
-            environment {
-                // Make libMIOpen.so accessible to the test driver
-                PATH="/opt/rocm/llvm/bin:$PATH"
-                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
-                HOME="${WORKSPACE}"
-            }
-            stages {
-                stage("Environment") {
-                    steps {
-                        showEnv()
+            matrix {
+                axes {
+                    axis {
+                        name 'CHIP'
+                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
                     }
                 }
-                stage("Build MLIR with librockCompiler") {
-                    steps {
-                        buildMIOpenWithMLIR()
-                    }
-                }
-                stage("Copy tuning database") {
-                    steps {
-                        copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
-                                               optional: true,\
-                                               flatten: true,\
-                                               projectName: "/MLIR/mlir-weekly",\
-                                               selector: lastSuccessful(),\
-                                               target: 'MIOpen/build/MIOpenUserDB'
-                        sh 'ls MIOpen/build/MIOpenUserDB'
-                        sh 'cat MIOpen/build/MIOpenUserDB/tuning-date'
-                    }
-                }
-                stage("Performance Test: Tuned vs Untuned") {
-                    steps {
-                        buildProject('ci-performance-scripts', '')
-                        dir('build') {
-                           sh 'python3 ./bin/MIOpenDriver.py --miopen_use_tuned_mlir'
-                           sh 'rm -rf ${WORKSPACE}/MIOpen/build/MIOpenUserDB'
-                           sh 'python3 ./bin/MIOpenDriver.py --miopen_use_untuned_mlir'
+                when {
+                    beforeAgent true;
+                    equals expected: true, actual: params.perfTest;
+                    equals expected: true, actual: params.nightly;
+                    anyOf {
+                        allOf {
+                            anyOf {
+                                equals expected: "gfx908", actual: "${CHIP}";
+                                equals expected: "gfx90a", actual: "${CHIP}";
+                                equals expected: "gfx1030", actual: "${CHIP}";
+                            }
+                            equals expected: true, actual: params.canXdlops;
+                        }
+                        allOf {
+                            equals expected: "gfx906", actual: "${CHIP}";
+                            equals expected: false, actual: params.canXdlops;
                         }
                     }
                 }
-                stage("Build MIOpen with HIP") {
-                    steps {
-                        sh 'rm -rf MIOpen'
-                        dir('MIOpen') {
-                            getAndBuildMIOpen("--prefix ${WORKSPACE}/MIOpen/MIOpenDeps",
-                                '''-DMIOPEN_BACKEND=HIP -DMIOPEN_USE_MLIR=OFF
-                                   -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
-                                   -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/MIOpen/build/MIOpenInstallDir
-                                   ''')
-                            sh 'cd build; make -j $(nproc)'
-                            sh 'cd build; make install'
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs()
+                        label "${CHIP}"
+                        alwaysPull true
+                    }
+                }
+                environment {
+                    // Make libMIOpen.so accessible to the test driver
+                    PATH="/opt/rocm/llvm/bin:$PATH"
+                    LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                    HOME="${WORKSPACE}"
+                }
+                stages {
+                    stage("Environment") {
+                        steps {
+                            showEnv()
+                        }
+                    }
+                    stage("Build MLIR with librockCompiler") {
+                        steps {
+                            buildMIOpenWithMLIR()
+                        }
+                    }
+                    stage("Copy tuning database") {
+                        steps {
+                            copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
+                                optional: true,\
+                                flatten: true,\
+                                projectName: "/MLIR/mlir-weekly",\
+                                selector: lastSuccessful(),\
+                                target: 'MIOpen/build/MIOpenUserDB'
+                                sh 'ls MIOpen/build/MIOpenUserDB'
+                                sh 'cat MIOpen/build/MIOpenUserDB/tuning-date'
+                        }
+                    }
+                    stage("Performance Test: Tuned vs Untuned") {
+                        steps {
+                            buildProject('ci-performance-scripts', '')
+                            dir('build') {
+                                sh 'python3 ./bin/MIOpenDriver.py --miopen_use_tuned_mlir'
+                                sh 'rm -rf ${WORKSPACE}/MIOpen/build/MIOpenUserDB'
+                                sh 'python3 ./bin/MIOpenDriver.py --miopen_use_untuned_mlir'
+                            }
+                        }
+                    }
+                    stage("Build MIOpen with HIP") {
+                        steps {
+                            sh 'rm -rf MIOpen'
+                            dir('MIOpen') {
+                                getAndBuildMIOpen("--prefix ${WORKSPACE}/MIOpen/MIOpenDeps", '''
+                                    -DMIOPEN_BACKEND=HIP -DMIOPEN_USE_MLIR=OFF
+                                    -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
+                                    -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/MIOpen/build/MIOpenInstallDir
+                                    ''')
+                                sh 'cd build; make -j $(nproc)'
+                                sh 'cd build; make install'
+                            }
+                        }
+                    }
+                    stage("Build MLIR") {
+                        steps {
+                            // Clean up build settings to disable static library and allow
+                            // mlir-rocm-runner
+                            sh 'rm build/CMakeCache.txt'
+                            buildProject('rocmlir-gen rocmlir-driver mlir-rocm-runner ci-performance-scripts', '')
+                        }
+                    }
+                    stage("Test MLIR vs MIOpen") {
+                        steps {
+                            dir('build') {
+                                sh 'date --utc +%Y-%m-%d > perf-run-date'
+                                // Run MLIR perf benchmarks
+                                sh 'python3 ./bin/MIOpenDriver.py'
+                            }
+                        }
+                    }
+                    stage("Copy earlier performance results") {
+                        steps {
+                            copyArtifacts filter: 'build/*.csv,build/perf-run-date',\
+                                optional: true,\
+                                flatten: true,\
+                                projectName: "/${JOB_NAME}",\
+                                selector: lastSuccessful(),\
+                                target: 'build/oldData'
+                        }
+                    }
+                    stage("Create performance reports") {
+                        steps {
+                            dir('build') {
+                                sh 'ls -l'
+                                sh 'python3 ./bin/createPerformanceReports.py ${CHIP}'
+                                sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
+                            }
+                            postProcessPerfRes("${CHIP}")
                         }
                     }
                 }
-                stage("Build MLIR") {
-                    steps {
-                        // Clean up build settings to disable static library and allow
-                        // mlir-rocm-runner
-                        sh 'rm build/CMakeCache.txt'
-                        buildProject('rocmlir-gen rocmlir-driver mlir-rocm-runner ci-performance-scripts', '')
+                post {
+                    unsuccessful {
+                        rebootNode()
                     }
-                }
-                stage("Test MLIR vs MIOpen") {
-                    steps {
-                        dir('build') {
-                            sh 'date --utc +%Y-%m-%d > perf-run-date'
-                            // Run MLIR perf benchmarks
-                            sh 'python3 ./bin/MIOpenDriver.py'
-                        }
-                    }
-                }
-                stage("Copy earlier performance results") {
-                    steps {
-                        copyArtifacts filter: 'build/*.csv,build/perf-run-date',\
-                                               optional: true,\
-                                               flatten: true,\
-                                               projectName: "/${JOB_NAME}",\
-                                               selector: lastSuccessful(),\
-                                               target: 'build/oldData'
-                    }
-                }
-                stage("Create performance reports") {
-                    steps {
-                        dir('build') {
-                            sh 'ls -l'
-                            sh 'python3 ./bin/createPerformanceReports.py'
-                            sh 'python3 ./bin/perfRegressionReport.py'
-                        }
-                        postProcessPerfRes()
+                    always {
+                        cleanWs()
                     }
                 }
             }
-            post {
-                unsuccessful {
-                    rebootNode()
-                }
-                always {
-                    cleanWs()
-                }
-             }
         }
     }
 }

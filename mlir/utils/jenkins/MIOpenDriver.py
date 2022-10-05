@@ -31,6 +31,8 @@ LAYOUTS = ['NHWC', 'NCHW']
 
 # Compiled regexp object used for extracting elapsed time from MIOpenDriver's output
 ELAPSED_TIME_RE = re.compile(r"Elapsed: (.*)ms")
+# Compiled regexp object used for extracting target chip from arch
+GFX_CHIP_RE = re.compile(r"gfx[0-9a-z]+")
 
 @dataclass
 class MLIRPaths:
@@ -135,7 +137,7 @@ def create_paths(mlir_build_dir_path, miopen_build_dir_path) -> Paths:
         miopen_driver_path = str((miopen_driver_bin_dir / 'MIOpenDriver').resolve())
 
     root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
-    configuration_dir = root_dir + '/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs'
+    configuration_dir = root_dir + '/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs-sample'
 
     return Paths(configuration_dir, mlir_paths, miopen_driver_path)
 
@@ -182,7 +184,7 @@ class ConvConfiguration:
     def tableEntry(self, nanoSeconds):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
         result = OrderedDict()
-        values = [self.direction, self.dataType, self.codepath, self.filterLayout, self.inputLayout, self.outputLayout,
+        values = [self.direction, self.dataType, self.chip, self.filterLayout, self.inputLayout, self.outputLayout,
                    self.n, self.c, self.hi, self.wi, self.k, self.y, self.x, self.dilationH, self.dilationW,
                    self.convStrideH, self.convStrideW, self.paddingH, self.paddingW,
                    self.computeTFlops(nanoSeconds)]
@@ -196,17 +198,20 @@ class ConvConfiguration:
         return f"""ConvConfiguration(dtype={self.dataType!r}, direction={self.direction!r}, layout={self.inputLayout.upper()!r},
                 n={self.n!r}, c={self.c!r}, hi={self.hi!r}, wi={self.wi!r}, k={self.k!r}, y={self.y!r}, x={self.x!r},
                 convStrideH={self.convStrideH!r}, convStrideW={self.convStrideW!r}, paddingH={self.paddingH!r}, paddingW={self.paddingW!r},
-                dilationH={self.dilationH!r}, dilationW={self.dilationW!r}, group={self.group!r}, codepath={self.codepath!r}, arch={self.arch!r})"""
+                dilationH={self.dilationH!r}, dilationW={self.dilationW!r}, group={self.group!r}, arch={self.arch!r})"""
 
     def generateMlirDriverCommandLine(self):
         direction = {'fwd':'--operation conv2d',
                      'bwd':'--operation conv2d_bwd_data',
                      'wrw':'--operation conv2d_bwd_weight'}[self.direction]
 
+        mfma = False
+        if self.chip == 'gfx908' or self.chip == 'gfx90a':
+            mfma = True
         result = ' '.join([direction,
                            '-t', self.dataType,
                            '--arch', self.arch,
-                           '-mfma=on' if self.codepath == 'mfma' else '-mfma=off',
+                           '-mfma=on' if mfma else '-mfma=off',
                            '--fil_layout', self.filterLayout,
                            '--in_layout', self.inputLayout,
                            '--out_layout', self.outputLayout,
@@ -350,15 +355,7 @@ class ConvConfiguration:
 
         self.group = group
         self.arch = arch
-        if 'gfx908' in arch or 'gfx90a' in arch:
-            self.codepath = 'mfma'
-        elif 'gfx1030' in arch:
-            self.codepath = 'navi21'
-        elif 'gfx906' in arch:
-            self.codepath = 'vanilla'
-        else:
-            # gfx900 will soon be dropped
-            self.codepath = 'none'
+        self.chip = GFX_CHIP_RE.search(arch).group(0)
 
         self.ho = math.floor((self.hi + self.paddingH * 2 - (self.y - 1) * self.dilationH - 1 ) / self.convStrideH) + 1
         self.wo = math.floor((self.wi + self.paddingW * 2 - (self.x - 1) * self.dilationW - 1 ) / self.convStrideW) + 1
@@ -369,7 +366,6 @@ def runConfigWithMLIR(config: ConvConfiguration, paths: Paths):
     commandLineOptions = config.generateMlirDriverCommandLine()
     print("Running MLIR Benchmark: ", repr(config))
     rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandLineOptions
-    print("rocmlir-gen command: ", rocmlirGenCommand)
     rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-c']
     mlir_rocm_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
     profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.rocm_runner_path] + mlir_rocm_runner_args
@@ -445,7 +441,8 @@ def generatePerformanceResults(configs, paths: Paths, arch):
     df.rename(columns={'TFlops': 'MLIR TFlops', 'TFlops (MIOpen)': 'MIOpen TFlops (no MLIR Kernels)'}, inplace=True)
 
     df['MLIR/MIOpen'] = df['MLIR TFlops'] / df['MIOpen TFlops (no MLIR Kernels)']
-    df.to_csv(reportUtils.PERF_REPORT_FILE, index=False)
+    chip = GFX_CHIP_RE.search(arch).group(0)
+    df.to_csv(chip + '_' + reportUtils.PERF_REPORT_FILE, index=False)
 
 def getSolverName(testVector, arch):
     config = ConvConfiguration.fromCommandLine(testVector.split(sep=' '), arch)
@@ -455,7 +452,7 @@ def getSolverName(testVector, arch):
        solverName = 'ConvMlirIgemmBwd'
     else:
        solverName = 'ConvMlirIgemmWrW'
-    if config.codepath == 'mfma':
+    if config.chip == 'gfx908' or config.chip == 'gfx90a':
        solverName+='Xdlops'
     return solverName
 
@@ -471,7 +468,8 @@ def benchmarkMIOpenWithMLIRKernels(configs, arch, filename, paths: Paths):
         envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER']=solver_names[testVector]
         perf_list.append(benchmarkMIOpen(testVector.split(sep=' '), paths, arch, envs))
     df = pd.DataFrame(perf_list)
-    df.to_csv(filename, index=False)
+    chip = GFX_CHIP_RE.search(arch).group(0)
+    df.to_csv(chip + '_' + filename, index=False)
 
 #Tune MIOpen with MLIR kernels
 def tuneMLIRKernels(configs, paths: Paths, arch):
@@ -647,7 +645,8 @@ def main(args=None):
             if not parsed_args.mlir_build_dir:
                 raise RuntimeError("MLIR build dir was not provided/found")
             df = pd.DataFrame([benchmarkMLIR(parsed_args.config, paths, arch)])
-        df.to_csv(parsed_args.fileName)
+        chip = GFX_CHIP_RE.search(arch).group(0)
+        df.to_csv(chip + '_' + parsed_args.fileName)
         with pd.option_context('display.precision', reportUtils.ROUND_DIGITS):
             print(df) # for interactive consumption
 
