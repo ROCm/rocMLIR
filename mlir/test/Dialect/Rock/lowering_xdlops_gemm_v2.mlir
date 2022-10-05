@@ -13,9 +13,9 @@ func.func @rock_xdlops_gemm_v2_nonreduction_nokpack(%matrixA : memref<8xf32, 5>,
   // CHECK: rock.in_bounds_load
   // CHECK: rock.in_bounds_load
   // CHECK: amdgpu.mfma
-  %A = rock.transform %matrixA by [#transform_map0] : memref<8xf32, 5> to memref<1x8xf32, #map0, 5>
-  %B = rock.transform %matrixB by [#transform_map1] : memref<8xf32, 5> to memref<1x8xf32, #map0, 5>
-  %C = rock.transform %matrixC by [#transform_map2] : memref<2xvector<32xf32>, 5> to memref<1x1x2xvector<32xf32>, #map1, 5>
+  %A = rock.transform %matrixA by #transform_map0 : memref<8xf32, 5> to memref<1x8xf32, #map0, 5>
+  %B = rock.transform %matrixB by #transform_map1 : memref<8xf32, 5> to memref<1x8xf32, #map0, 5>
+  %C = rock.transform %matrixC by #transform_map2 : memref<2xvector<32xf32>, 5> to memref<1x1x2xvector<32xf32>, #map1, 5>
   rock.xdlops_gemm_v2 %C += %A * %B {
     params = #rock.xdlops_gemm_params<
        kPerBlock = 8,
@@ -44,9 +44,9 @@ func.func @rock_xdlops_gemm_v2_nonreduction_kpack(%matrixA : memref<2xvector<2xf
   // CHECK: rock.extract_slice
   // CHECK: amdgpu.mfma
   // CHECK: amdgpu.mfma
-  %A = rock.transform %matrixA by [#transform_map3] : memref<2xvector<2xf32>, 5> to memref<1x2xvector<2xf32>, #map2, 5>
-  %B = rock.transform %matrixB by [#transform_map4] : memref<2xvector<2xf32>, 5> to memref<1x2xvector<2xf32>, #map2, 5>
-  %C = rock.transform %matrixC by [#transform_map5] : memref<2xvector<32xf32>, 5> to memref<1x1x2xvector<32xf32>, #map3, 5>
+  %A = rock.transform %matrixA by #transform_map3 : memref<2xvector<2xf32>, 5> to memref<1x2xvector<2xf32>, #map2, 5>
+  %B = rock.transform %matrixB by #transform_map4 : memref<2xvector<2xf32>, 5> to memref<1x2xvector<2xf32>, #map2, 5>
+  %C = rock.transform %matrixC by #transform_map5 : memref<2xvector<32xf32>, 5> to memref<1x1x2xvector<32xf32>, #map3, 5>
   rock.xdlops_gemm_v2 %C += %A * %B {
     params = #rock.xdlops_gemm_params<
       kPerBlock = 2,
@@ -68,9 +68,9 @@ func.func @rock_xdlops_gemm_v2_reduction_kpack(%matrixA : memref<2xvector<8xi8>,
   // CHECK: rock.extract_slice
   // CHECK: amdgpu.mfma
   // CHECK-NOT: amdgpu.mfma
-  %A = rock.transform %matrixA by [#transform_map3] : memref<2xvector<8xi8>, 5> to memref<1x2xvector<8xi8>, #map2, 5>
-  %B = rock.transform %matrixB by [#transform_map4] : memref<2xvector<8xi8>, 5> to memref<1x2xvector<8xi8>, #map2, 5>
-  %C = rock.transform %matrixC by [#transform_map5] : memref<1xvector<16xi32>, 5> to memref<1x1x1xvector<16xi32>, #map3, 5>
+  %A = rock.transform %matrixA by #transform_map3 : memref<2xvector<8xi8>, 5> to memref<1x2xvector<8xi8>, #map2, 5>
+  %B = rock.transform %matrixB by #transform_map4 : memref<2xvector<8xi8>, 5> to memref<1x2xvector<8xi8>, #map2, 5>
+  %C = rock.transform %matrixC by #transform_map5 : memref<1xvector<16xi32>, 5> to memref<1x1x1xvector<16xi32>, #map3, 5>
   rock.xdlops_gemm_v2 %C += %A * %B {
     params = #rock.xdlops_gemm_params<
       kPerBlock = 4,

@@ -50,6 +50,76 @@ struct RockCopyOptPass
 template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
   using OpRewritePattern<T>::OpRewritePattern;
 
+  // This function finds the destination-passing style
+  // argument that the kernel will copy into it. It might
+  // encounter view-like ops : CollapseShapeOp or ExpandShapeOp
+  // where the reverse expression need to be built up for
+  // the users of the found destination arg.
+  LogicalResult findCopyDestArg(PatternRewriter &rewriter, Operation *op,
+                                Value &copyDestArg) const {
+    if (auto copyOp = dyn_cast<memref::CopyOp>(op)) {
+      return findCopyDestArg(rewriter, copyOp, copyDestArg);
+    }
+    if (auto collapseOp = dyn_cast<memref::CollapseShapeOp>(op)) {
+      return findCopyDestArg(rewriter, collapseOp, copyDestArg);
+    }
+    if (auto expandOp = dyn_cast<memref::ExpandShapeOp>(op)) {
+      return findCopyDestArg(rewriter, expandOp, copyDestArg);
+    }
+    return failure();
+  }
+
+  // Finds the destination arg when the copy op is found
+  LogicalResult findCopyDestArg(PatternRewriter &rewriter,
+                                memref::CopyOp &copyOp,
+                                Value &copyDestArg) const {
+    if (copyDestArg) {
+      return failure();
+    }
+    if (copyOp.getTarget().getDefiningOp()) {
+      // If the target is defined within the kernel it should
+      // not be optimized out.
+      return failure();
+    }
+    copyDestArg = copyOp.getTarget();
+    copyOp->erase();
+    return success();
+  }
+
+  // If there is a view-like op, the reverse expression needs to
+  // be built up when the copy destination arg is found.
+  template <typename ReassociativeReshapeOp>
+  LogicalResult findCopyDestArg(PatternRewriter &rewriter,
+                                ReassociativeReshapeOp &reassociativeReshapeOp,
+                                Value &copyDestArg) const {
+    if (!reassociativeReshapeOp->hasOneUse()) {
+      return failure();
+    }
+    if (findCopyDestArg(rewriter,
+                        reassociativeReshapeOp->getUses().begin()->getOwner(),
+                        copyDestArg)
+            .failed()) {
+      return failure();
+    }
+
+    if (std::is_same<ReassociativeReshapeOp, memref::ExpandShapeOp>()) {
+      copyDestArg = rewriter.create<memref::CollapseShapeOp>(
+          reassociativeReshapeOp.getLoc(),
+          reassociativeReshapeOp->getOperand(0).getType(), copyDestArg,
+          reassociativeReshapeOp.getReassociation());
+    } else if (std::is_same<ReassociativeReshapeOp,
+                            memref::CollapseShapeOp>()) {
+      copyDestArg = rewriter.create<memref::ExpandShapeOp>(
+          reassociativeReshapeOp.getLoc(),
+          reassociativeReshapeOp->getOperand(0).getType(), copyDestArg,
+          reassociativeReshapeOp.getReassociation());
+    } else {
+      return failure();
+    }
+
+    return success();
+  }
+
   LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
     LogicalResult fail = failure();
 
@@ -61,19 +131,18 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
         memSpace == gpu::GPUDialect::getPrivateAddressSpace())
       return fail;
 
-    Value mem = op->getResult(0);
+    Value allocaMem = op->getResult(0);
 
     // 1. Capture allocation->copy pattern
     Operation *writer = nullptr;
-    memref::CopyOp reader = nullptr;
-    memref::CollapseShapeOp csop = nullptr;
-    for (auto &use : mem.getUses()) {
+    Value copyDestArg = nullptr;
+    for (auto &use : allocaMem.getUses()) {
       if (auto laop = dyn_cast<linalg::GenericOp>(use.getOwner())) {
         // 1.0 Output of linalg.generic
         if (writer)
           return fail;
         for (auto out : laop.outputs()) {
-          if (out == mem)
+          if (out == allocaMem)
             writer = laop;
         }
         if (!writer)
@@ -100,47 +169,20 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
         if (writer)
           return fail;
         writer = callop;
-      } else if (auto mrop = dyn_cast<memref::CopyOp>(use.getOwner())) {
-        // 1.2 Only one final memref.copy into interface memref
-        if (reader)
-          return fail;
-        if (mrop.getSource() != mem)
-          return fail;
-        reader = mrop;
-      } else if ((csop = dyn_cast<memref::CollapseShapeOp>(use.getOwner()))) {
-        // 1.4 catch the case it has collapse shape befor the copy
-        if (reader)
-          return fail;
-        if (!use.getOwner()->hasOneUse())
-          return fail;
-        for (auto &cop : use.getOwner()->getUses()) {
-          if (auto mrop = dyn_cast<memref::CopyOp>(cop.getOwner())) {
-            reader = mrop;
-          } else
-            return fail;
-        }
       } else {
-        // unsupported op
-        return fail;
+        // The remaining uses of the allocate node should lead to
+        // a copy node that copies the data to destination passing-style
+        // argument, if not fail the pass.
+        if (findCopyDestArg(b, use.getOwner(), copyDestArg).failed()) {
+          return fail;
+        }
       }
     }
 
     // 2. do it
-    if (reader && writer) {
-      auto realMem = reader.getTarget();
-
-      if (mem.getType() == realMem.getType()) {
-        mem.replaceAllUsesWith(realMem);
-        reader->erase();
-        return success();
-      } else if (csop) {
-        Location loc = mem.getLoc();
-        auto new_expand = b.create<memref::ExpandShapeOp>(
-            loc, mem.getType(), realMem, csop.getReassociation());
-        mem.replaceAllUsesWith(new_expand);
-        reader->erase();
-        return success();
-      }
+    if (copyDestArg && writer) {
+      allocaMem.replaceAllUsesWith(copyDestArg);
+      return success();
     }
 
     return fail;

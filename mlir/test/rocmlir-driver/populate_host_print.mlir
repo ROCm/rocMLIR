@@ -65,6 +65,8 @@
 // CHECK-NEXT: memref.store {{.*}}[%[[n]], %[[g]], %[[k]], %[[ho]], %[[wo]]] : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]>
 
 // CHECK: call @{{.*}}({{.*}}, {{.*}}, {{.*}}) : (memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>, memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>, memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]>) -> ()
+// CHECK-NEXT: memref.cast %{{.*}} : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]> to memref<*x[[TYPE]]>
+// CHECK-NEXT: call @printMemrefF32(%{{.*}}) : (memref<*x[[TYPE]]>) -> ()
 // CHECK-NEXT: memref.dealloc {{.*}} : memref<[[G]]x[[K]]x[[C]]x[[Y]]x[[X]]x[[TYPE]]>
 // CHECK-NEXT: memref.dealloc {{.*}} : memref<[[N]]x[[G]]x[[C]]x[[HI]]x[[WI]]x[[TYPE]]>
 
@@ -74,8 +76,6 @@
 // BF16: call @_memcpy_bf16_f32(%{{.*}}, %{{.*}}, %{{.*}}) : ({{.*}} -> ()
 // I8: memref.alloc() : memref<{{.*}}>
 // I8: call @_memcpy_i32_f32(%{{.*}}, %{{.*}}, %{{.*}}) : ({{.*}} -> ()
-// CHECK-NEXT: memref.cast %{{.*}} : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]> to memref<*x[[TYPE]]>
-// CHECK-NEXT: call @printMemrefF32(%{{.*}}) : (memref<*x[[TYPE]]>) -> ()
 // F16: memref.dealloc {{.*}} : memref<{{.*}}>
 // BF16: memref.dealloc {{.*}} : memref<{{.*}}>
 // I8: memref.dealloc {{.*}} : memref<{{.*}}>

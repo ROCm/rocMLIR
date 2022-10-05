@@ -194,8 +194,8 @@ mlir::rock::untransform(OpBuilder &b, Value transformed, ArrayAttr existing) {
     transformList.append(existing.begin(), existing.end());
   Value ret = transformed;
   while (auto transform = dyn_cast_or_null<TransformOp>(ret.getDefiningOp())) {
-    llvm::copy(transform.transforms(), std::back_inserter(transformList));
-    ret = transform.input();
+    transformList.push_back(transform.getTransform());
+    ret = transform.getInput();
   }
   return {ret, b.getArrayAttr(transformList)};
 }

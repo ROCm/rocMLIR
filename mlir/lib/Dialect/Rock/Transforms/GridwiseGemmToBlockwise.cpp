@@ -19,10 +19,11 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
-#include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/IR/XdlopsCodeSelection.h"
+#include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
+#include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -574,7 +575,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
   void computeLDSBlockSizes(GridwiseGemmOp op, int64_t &a_block_space,
                             int64_t &b_block_space, int64_t &block_space,
                             int64_t KPack = 1) const {
-    GeneralGemmParamsAttr tuningParams = op.params();
+    GeneralGemmParamsAttr tuningParams = op.getParams();
     int64_t ThreadGemmAThreadCopySrcDataPerRead_M =
         tuningParams.getMPerThread();
     int64_t ThreadGemmBThreadCopySrcDataPerRead_N =
@@ -631,8 +632,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Location loc = op.getLoc();
 
     // Obtain data type.
-    Type elementType = op.b().getType().cast<MemRefType>().getElementType();
-    Type destType = op.c().getType().cast<MemRefType>().getElementType();
+    Type elementType = op.getB().getType().getElementType();
+    Type destType = op.getC().getType().getElementType();
     Type accumulatorType = obtainAccumulatorType(b, elementType, destType);
 
     // Prepare some useful constants.
@@ -640,9 +641,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
     ArrayRef<int64_t> aShape, bShape, cShape;
-    aShape = op.a().getType().template cast<MemRefType>().getShape();
-    bShape = op.b().getType().template cast<MemRefType>().getShape();
-    cShape = op.c().getType().template cast<MemRefType>().getShape();
+    aShape = op.getA().getType().getShape();
+    bShape = op.getB().getType().getShape();
+    cShape = op.getC().getType().getShape();
     // Obtain critical matrix dimensions.
     int64_t G = aShape[0];
     int64_t K = aShape[1];
@@ -669,9 +670,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     }
 
     // Obtain critical tuning parameters.
-    uint32_t blockSize = op.blockSize();
-    uint32_t gridSize = op.gridSize();
-    GeneralGemmParamsAttr tuningParams = op.params();
+    uint32_t blockSize = op.getBlockSize();
+    uint32_t gridSize = op.getGridSize();
+    GeneralGemmParamsAttr tuningParams = op.getParams();
     int64_t kpack = tuningParams.getKpack();
     // TODO: kPerBlock, as defined in parameter selection etc,
     // is in units of kPack, not individual k. This should be changed
@@ -681,10 +682,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     int64_t nPerBlock = tuningParams.getNPerBlock();
     int64_t mPerThread = tuningParams.getMPerThread();
     int64_t nPerThread = tuningParams.getNPerThread();
-    int64_t mThreadsPerCuwave = tuningParams.getMThreadsPerCuwave();
-    int64_t nThreadsPerCuwave = tuningParams.getNThreadsPerCuwave();
-    int64_t mCuwavesPerBlock = tuningParams.getMCuwavesPerBlock();
-    int64_t nCuwavesPerBlock = tuningParams.getNCuwavesPerBlock();
+
+    GeneralGemmBlockStructure blockStructure =
+        *deriveGeneralGemmBlockStructure(blockSize);
+    int64_t mThreadsPerCuwave = blockStructure.mThreadsPerCuwave;
+    int64_t nThreadsPerCuwave = blockStructure.nThreadsPerCuwave;
+    int64_t mCuwavesPerBlock = blockStructure.mCuwavesPerBlock;
+    int64_t nCuwavesPerBlock = blockStructure.nCuwavesPerBlock;
 
     int64_t kPerBlock = kpacksPerBlock * kpack;
 
@@ -785,9 +789,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     int64_t aVectorLen, bVectorLen;
     GemmDimension aVectorDim, bVectorDim;
     std::tie(aVectorDim, aVectorLen) =
-        bestVectorization(b, op.a(), aCopyPerThread, vectorTiebreaker);
+        bestVectorization(b, op.getA(), aCopyPerThread, vectorTiebreaker);
     std::tie(bVectorDim, bVectorLen) =
-        bestVectorization(b, op.b(), bCopyPerThread, vectorTiebreaker);
+        bestVectorization(b, op.getB(), bCopyPerThread, vectorTiebreaker);
 
     LLVM_DEBUG(llvm::dbgs()
                << "aCopyPerThread: " << aCopyPerThread << "\n"
@@ -813,13 +817,15 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                                  : bCopyPerThread / bVectorLen;
 
     FailureOr<Value> maybeWrappedA = wrapMatrixForGlobalLoad(
-        b, loc, op.a(), "m", bidGridOrder, bidGridLengths, gridSize, blockSize,
-        kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread, aVectorDim);
+        b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
+        blockSize, kPerBlock, mPerBlock, aCopyKPerThread, copyMPerThread,
+        aVectorDim);
     if (failed(maybeWrappedA))
       return maybeWrappedA;
     FailureOr<Value> maybeWrappedB = wrapMatrixForGlobalLoad(
-        b, loc, op.b(), "n", bidGridOrder, bidGridLengths, gridSize, blockSize,
-        kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread, bVectorDim);
+        b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, gridSize,
+        blockSize, kPerBlock, nPerBlock, bCopyKPerThread, copyNPerThread,
+        bVectorDim);
     if (failed(maybeWrappedB))
       return maybeWrappedB;
     Value wrappedA = std::move(*maybeWrappedA),
@@ -874,7 +880,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       // Emit blockwise GEMM.
       blockwiseGemmOp = b.create<BlockwiseGemmOp>(
           loc, ldsMatrixASubviewOp, ldsMatrixBSubviewOp, registerMatrixCViewOp,
-          op.paramsAttr());
+          op.getBlockSizeAttr(), op.getParamsAttr());
 
       // LDS barrier.
       // This barrier prevents halo part of outputs having weird values.
@@ -991,7 +997,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Value tensorC;
     ArrayAttr idToTensorCMaps;
     std::tie(tensorC, idToTensorCMaps) =
-        untransform(b, op.c(), idToMatrixCMaps);
+        untransform(b, op.getC(), idToMatrixCMaps);
     auto writeOobDims = computeOobFromTransforms(b, idToTensorCMaps);
 
     ArrayRef<int64_t> tensorCShape =
@@ -1038,7 +1044,7 @@ struct GridwiseGemmV2RewritePattern
                             int64_t KPack = 1) const {
     int64_t max_lds_align = 1;
 
-    XdlopsGemmParamsAttr tuningParams = op.params();
+    XdlopsGemmParamsAttr tuningParams = op.getParams();
     int64_t KPerBlock = tuningParams.getKPerBlock();
     int64_t MPerBlock = tuningParams.getMPerBlock();
     int64_t NPerBlock = tuningParams.getNPerBlock();
@@ -1082,16 +1088,16 @@ struct GridwiseGemmV2RewritePattern
     auto loc = op.getLoc();
 
     // Obtain data type.
-    auto elementType = op.b().getType().cast<MemRefType>().getElementType();
+    auto elementType = op.getB().getType().getElementType();
 
     // Prepare some useful constants.
     Value zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
     // Obtain critical matrix dimensions.
     ArrayRef<int64_t> aShape, bShape, cShape;
-    aShape = op.a().getType().template cast<MemRefType>().getShape();
-    bShape = op.b().getType().template cast<MemRefType>().getShape();
-    cShape = op.c().getType().template cast<MemRefType>().getShape();
+    aShape = op.getA().getType().getShape();
+    bShape = op.getB().getType().getShape();
+    cShape = op.getC().getType().getShape();
     // Obtain critical matrix dimensions.
     int64_t G = aShape[0];
     int64_t K = aShape[1];
@@ -1117,9 +1123,9 @@ struct GridwiseGemmV2RewritePattern
     }
 
     // Obtain critical tuning parameters.
-    uint32_t blockSize = op.blockSize();
-    uint32_t gridSize = op.gridSize();
-    XdlopsGemmParamsAttr tuningParams = op.params();
+    uint32_t blockSize = op.getBlockSize();
+    uint32_t gridSize = op.getGridSize();
+    XdlopsGemmParamsAttr tuningParams = op.getParams();
     int64_t KPack = tuningParams.getKpack();
     int64_t KPerBlock = tuningParams.getKPerBlock();
     int64_t MPerBlock = tuningParams.getMPerBlock();
@@ -1704,7 +1710,7 @@ struct GridwiseGemmV2RewritePattern
     }
     // Emit blockwise load for matrix A.
     TransformingForOp blockwiseLoadA = createGlobalLoadLoop(
-        b, loc, op.a(), blockwiseLoadACoords, aLoadIntermediate, aLoadType,
+        b, loc, op.getA(), blockwiseLoadACoords, aLoadIntermediate, aLoadType,
         blockwiseCopyABounds, blockwiseVectorDimA, useIndexDiffs);
 
     SmallVector<Value, 4> blockwiseLoadBCoords;
@@ -1718,7 +1724,7 @@ struct GridwiseGemmV2RewritePattern
     }
     // Emit blockwise load for matrix B.
     TransformingForOp blockwiseLoadB = createGlobalLoadLoop(
-        b, loc, op.b(), blockwiseLoadBCoords, bLoadIntermediate, bLoadType,
+        b, loc, op.getB(), blockwiseLoadBCoords, bLoadIntermediate, bLoadType,
         blockwiseCopyBBounds, blockwiseVectorDimB, useIndexDiffs);
 
     SmallVector<Value, 4> blockwiseStoreACoords;
@@ -1844,7 +1850,7 @@ struct GridwiseGemmV2RewritePattern
     // -----
     // Logic to allocate 0-initialized vectors for C.
     int64_t regCVectorLen = vectorType.getNumElements();
-    Type destType = op.c().getType().cast<MemRefType>().getElementType();
+    Type destType = op.getC().getType().getElementType();
     Type accumulatorType = obtainAccumulatorType(b, elementType, destType);
     VectorType accumulatorVectorType =
         vectorType.cloneWith({}, accumulatorType);
@@ -1898,7 +1904,7 @@ struct GridwiseGemmV2RewritePattern
     mfmalb.create<BlockwiseGemmV2Op>(
         loc, ldsGpuAllocOp, ldsGpuAllocOp, b.getIndexAttr(ldsBlockAOffset),
         b.getIndexAttr(ldsBlockBOffset), mMyWaveOffsetA, mMyWaveOffsetB, arrayA,
-        arrayB, regCAllocOp, op.blockSizeAttr(), op.paramsAttr());
+        arrayB, regCAllocOp, op.getBlockSizeAttr(), op.getParamsAttr());
 
     // LDS barrier : defer the next LDS update until this round's GEMM
     // calculation is done. requires barrier only.
@@ -1932,7 +1938,7 @@ struct GridwiseGemmV2RewritePattern
     auto blockwiseGemmV2TailOp = b.create<BlockwiseGemmV2Op>(
         loc, ldsGpuAllocOp, ldsGpuAllocOp, b.getIndexAttr(ldsBlockAOffset),
         b.getIndexAttr(ldsBlockBOffset), mMyWaveOffsetA, mMyWaveOffsetB, arrayA,
-        arrayB, regCAllocOp, op.blockSizeAttr(), op.paramsAttr());
+        arrayB, regCAllocOp, op.getBlockSizeAttr(), op.getParamsAttr());
 
     // -----
 
@@ -2004,7 +2010,7 @@ struct GridwiseGemmV2RewritePattern
     Value tensorC;
     ArrayAttr idToTensorCMaps;
     std::tie(tensorC, idToTensorCMaps) =
-        untransform(b, op.c(), idToMatrixCMaps);
+        untransform(b, op.getC(), idToMatrixCMaps);
 
     constexpr int64_t swizzleGroup = 4;
     ArrayRef<int64_t> tensorCShape =
@@ -2126,7 +2132,7 @@ struct GridwiseGemmV2RewritePattern
       b.setInsertionPointToStart(outLoop.getBody());
       b.create<ThreadwiseCopyV2Op>(
           loc, registerC, tensorC, b.getIndexAttr(tensorCDataPerCopy),
-          op.storeMethodAttr(), std::get<0>(writeOobDims),
+          op.getStoreMethodAttr(), std::get<0>(writeOobDims),
           std::get<1>(writeOobDims), outLoop.getLowerCoords(/*domain=*/0)[0],
           outLoop.getLowerCoords(/*domain=*/1));
     }

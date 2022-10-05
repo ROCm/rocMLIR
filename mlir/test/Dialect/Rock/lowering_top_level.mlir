@@ -29,8 +29,8 @@
 // CHECK-DAG: #[[$MAP_BWD_WEIGHT_IN3:transform_map[0-9]+]] = {{.*}}by [<PassThrough ["gemmG"] at [0] -> ["gi"] at [1]>, <Merge{128, 30, 30} ["gemmK"] at [1] -> ["ni", "ho", "wo"] at [0, 4, 6]>, <Merge{8, 3, 3} ["gemmN"] at [2] -> ["ci", "y", "x"] at [2, 3, 5]>]
 // CHECK-DAG: #[[$MAP_BWD_WEIGHT_OUT:transform_map[0-9]+]] = {{.*}}by [<PassThrough ["gemmG"] at [0] -> ["go"] at [1]>, <Merge{128, 30, 30} ["gemmK"] at [1] -> ["no", "ho", "wo"] at [0, 3, 4]>, <PassThrough ["gemmM"] at [2] -> ["ko"] at [2]>]
 
-#general_gemm_params0 = #rock.general_gemm_params<kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1, mThreadsPerCuwave = 4, nThreadsPerCuwave = 4, mCuwavesPerBlock = 4, nCuwavesPerBlock = 4>
-#general_gemm_params1 = #rock.general_gemm_params<kPerBlock = 16, mPerBlock = 64, nPerBlock = 64, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1, mThreadsPerCuwave = 4, nThreadsPerCuwave = 4, mCuwavesPerBlock = 2, nCuwavesPerBlock = 2>
+#general_gemm_params0 = #rock.general_gemm_params<kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1>
+#general_gemm_params1 = #rock.general_gemm_params<kPerBlock = 16, mPerBlock = 64, nPerBlock = 64, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1>
 #xdlops_gemm_params0 = #rock.xdlops_gemm_params<kPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32>
 #xdlops_gemm_params1 = #rock.xdlops_gemm_params<kPerBlock = 4, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 64, nPerWave = 64>
 
@@ -52,11 +52,11 @@ func.func @rock_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x
 }
 // CHECK-LABEL: func.func {{@rock_conv2d.*%arg0.*%arg1.*%arg2}}
 // CHECK-NOT:   rock.conv2d
-// CHECK-NEXT:  %[[FILTER:.*]] = rock.transform %arg0 by [#[[$MAP_FILTER_FWD]]]
-// CHECK-NEXT:  %[[IN1:.*]] = rock.transform %arg1 by [#[[$MAP_INPUT1_FWD]]]
-// CHECK-NEXT:  %[[IN2:.*]] = rock.transform %[[IN1]] by [#[[$MAP_INPUT2_FWD]]]
-// CHECK-NEXT:  %[[IN3:.*]] = rock.transform %[[IN2]] by [#[[$MAP_INPUT3_FWD]]]
-// CHECK-NEXT:  %[[OUT:.*]] = rock.transform %arg2 by [#[[$MAP_OUTPUT_FWD]]]
+// CHECK-NEXT:  %[[FILTER:.*]] = rock.transform %arg0 by #[[$MAP_FILTER_FWD]]
+// CHECK-NEXT:  %[[IN1:.*]] = rock.transform %arg1 by #[[$MAP_INPUT1_FWD]]
+// CHECK-NEXT:  %[[IN2:.*]] = rock.transform %[[IN1]] by #[[$MAP_INPUT2_FWD]]
+// CHECK-NEXT:  %[[IN3:.*]] = rock.transform %[[IN2]] by #[[$MAP_INPUT3_FWD]]
+// CHECK-NEXT:  %[[OUT:.*]] = rock.transform %arg2 by #[[$MAP_OUTPUT_FWD]]
 // CHECK-NEXT:  rock.gemm %[[OUT]] = tr %[[FILTER]] * %[[IN3]]
 
 func.func @rock_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
@@ -77,11 +77,11 @@ func.func @rock_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<12
 }
 // CHECK-LABEL: func.func {{@rock_conv2d_f16.*%arg0.*%arg1.*%arg2}}
 // CHECK-NOT:   rock.conv2d
-// CHECK-NEXT:  %[[FILTER:.*]] = rock.transform %arg0 by [#[[$MAP_FILTER_FWD]]]
-// CHECK-NEXT:  %[[IN1:.*]] = rock.transform %arg1 by [#[[$MAP_INPUT1_FWD]]]
-// CHECK-NEXT:  %[[IN2:.*]] = rock.transform %[[IN1]] by [#[[$MAP_INPUT2_FWD]]]
-// CHECK-NEXT:  %[[IN3:.*]] = rock.transform %[[IN2]] by [#[[$MAP_INPUT3_FWD]]]
-// CHECK-NEXT:  %[[OUT:.*]] = rock.transform %arg2 by [#[[$MAP_OUTPUT_FWD]]]
+// CHECK-NEXT:  %[[FILTER:.*]] = rock.transform %arg0 by #[[$MAP_FILTER_FWD]]
+// CHECK-NEXT:  %[[IN1:.*]] = rock.transform %arg1 by #[[$MAP_INPUT1_FWD]]
+// CHECK-NEXT:  %[[IN2:.*]] = rock.transform %[[IN1]] by #[[$MAP_INPUT2_FWD]]
+// CHECK-NEXT:  %[[IN3:.*]] = rock.transform %[[IN2]] by #[[$MAP_INPUT3_FWD]]
+// CHECK-NEXT:  %[[OUT:.*]] = rock.transform %arg2 by #[[$MAP_OUTPUT_FWD]]
 // CHECK-NEXT:  rock.gemm %[[OUT]] = tr %[[FILTER]] * %[[IN3]]
 
 func.func @rock_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x1x8x32x32xi8>, %output : memref<128x1x128x30x30xi32>) {
@@ -102,11 +102,11 @@ func.func @rock_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x
 }
 // CHECK-LABEL: func.func {{@rock_conv2d_i8.*%arg0.*%arg1.*%arg2}}
 // CHECK-NOT:   rock.conv2d
-// CHECK-NEXT:  %[[FILTER:.*]] = rock.transform %arg0 by [#[[$MAP_FILTER_FWD]]]
-// CHECK-NEXT:  %[[IN1:.*]] = rock.transform %arg1 by [#[[$MAP_INPUT1_FWD]]]
-// CHECK-NEXT:  %[[IN2:.*]] = rock.transform %[[IN1]] by [#[[$MAP_INPUT2_FWD]]]
-// CHECK-NEXT:  %[[IN3:.*]] = rock.transform %[[IN2]] by [#[[$MAP_INPUT3_FWD]]]
-// CHECK-NEXT:  %[[OUT:.*]] = rock.transform %arg2 by [#[[$MAP_OUTPUT_FWD]]]
+// CHECK-NEXT:  %[[FILTER:.*]] = rock.transform %arg0 by #[[$MAP_FILTER_FWD]]
+// CHECK-NEXT:  %[[IN1:.*]] = rock.transform %arg1 by #[[$MAP_INPUT1_FWD]]
+// CHECK-NEXT:  %[[IN2:.*]] = rock.transform %[[IN1]] by #[[$MAP_INPUT2_FWD]]
+// CHECK-NEXT:  %[[IN3:.*]] = rock.transform %[[IN2]] by #[[$MAP_INPUT3_FWD]]
+// CHECK-NEXT:  %[[OUT:.*]] = rock.transform %arg2 by #[[$MAP_OUTPUT_FWD]]
 // CHECK-NEXT:  rock.gemm %[[OUT]] = tr %[[FILTER]] * %[[IN3]]
 
 
@@ -130,16 +130,16 @@ func.func @rock_conv2d_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: me
 
 // CHECK-LABEL: func.func {{@rock_conv2d_bwd_data.*%arg0.*%arg1.*%arg2}}
 // CHECK-NOT:   rock.conv2d_bwd_data
-// CHECK-NEXT:  %[[FIL1:.*]] = rock.transform %arg0 by [#[[$MAP_BWD_DATA_FIL1_NO_PAD]]]
-// CHECK-NEXT:  %[[FIL2:.*]] = rock.transform %[[FIL1]] by [#[[$MAP_BWD_DATA_FIL2_NO_PAD]]]
-// CHECK-NEXT:  %[[FIL3:.*]] = rock.transform %[[FIL2]] by [#[[$MAP_BWD_DATA_FIL3_NO_PAD]]]
-// CHECK-NEXT:  %[[IN1:.*]] = rock.transform %arg1 by [#[[$MAP_BWD_DATA_IN1_NO_PAD]]]
-// CHECK-NEXT:  %[[IN2:.*]] = rock.transform %[[IN1]] by [#[[$MAP_BWD_DATA_IN2_NO_PAD]]]
-// CHECK-NEXT:  %[[IN3:.*]] = rock.transform %[[IN2]] by [#[[$MAP_BWD_DATA_IN3_NO_PAD]]]
-// CHECK-NEXT:  %[[IN4:.*]] = rock.transform %[[IN3]] by [#[[$MAP_BWD_DATA_IN4_NO_PAD]]]
-// CHECK-NEXT:  %[[OUT1:.*]] = rock.transform %arg2 by [#[[$MAP_BWD_DATA_OUT1_NO_PAD]]]
-// CHECK-NEXT:  %[[OUT2:.*]] = rock.transform %[[OUT1]] by [#[[$MAP_BWD_DATA_OUT2_NO_PAD]]]
-// CHECK-NEXT:  %[[OUT3:.*]] = rock.transform %[[OUT2]] by [#[[$MAP_BWD_DATA_OUT3_NO_PAD]]]
+// CHECK-NEXT:  %[[FIL1:.*]] = rock.transform %arg0 by #[[$MAP_BWD_DATA_FIL1_NO_PAD]]
+// CHECK-NEXT:  %[[FIL2:.*]] = rock.transform %[[FIL1]] by #[[$MAP_BWD_DATA_FIL2_NO_PAD]]
+// CHECK-NEXT:  %[[FIL3:.*]] = rock.transform %[[FIL2]] by #[[$MAP_BWD_DATA_FIL3_NO_PAD]]
+// CHECK-NEXT:  %[[IN1:.*]] = rock.transform %arg1 by #[[$MAP_BWD_DATA_IN1_NO_PAD]]
+// CHECK-NEXT:  %[[IN2:.*]] = rock.transform %[[IN1]] by #[[$MAP_BWD_DATA_IN2_NO_PAD]]
+// CHECK-NEXT:  %[[IN3:.*]] = rock.transform %[[IN2]] by #[[$MAP_BWD_DATA_IN3_NO_PAD]]
+// CHECK-NEXT:  %[[IN4:.*]] = rock.transform %[[IN3]] by #[[$MAP_BWD_DATA_IN4_NO_PAD]]
+// CHECK-NEXT:  %[[OUT1:.*]] = rock.transform %arg2 by #[[$MAP_BWD_DATA_OUT1_NO_PAD]]
+// CHECK-NEXT:  %[[OUT2:.*]] = rock.transform %[[OUT1]] by #[[$MAP_BWD_DATA_OUT2_NO_PAD]]
+// CHECK-NEXT:  %[[OUT3:.*]] = rock.transform %[[OUT2]] by #[[$MAP_BWD_DATA_OUT3_NO_PAD]]
 // CHECK-NEXT:  rock.gemm %[[IN4]] = tr %[[FIL3]] * %[[OUT3]]{{.*}}
 
 func.func @rock_conv2d_bwd_data_f16(%filter: memref<1x1024x1024x1x1xf16>, %input: memref<128x1x1024x14x14xf16>, %output: memref<128x1x1024x14x14xf16>) attributes {kernel = 0 : i32} {
@@ -162,16 +162,16 @@ rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add {
 
 // CHECK-LABEL: func.func {{@rock_conv2d_bwd_data_f16.*%arg0.*%arg1.*%arg2}}
 // CHECK-NOT:   rock.conv2d_bwd_data
-// CHECK-NEXT:  %[[FIL1:.*]] = rock.transform %arg0 by [#[[$MAP_BWD_DATA_FIL1_NO_PAD]]]
-// CHECK-NEXT:  %[[FIL2:.*]] = rock.transform %[[FIL1]] by [#[[$MAP_BWD_DATA_FIL2_NO_PAD]]]
-// CHECK-NEXT:  %[[FIL3:.*]] = rock.transform %[[FIL2]] by [#[[$MAP_BWD_DATA_FIL3_NO_PAD]]]
-// CHECK-NEXT:  %[[IN1:.*]] = rock.transform %arg1 by [#[[$MAP_BWD_DATA_IN1_NO_PAD]]]
-// CHECK-NEXT:  %[[IN2:.*]] = rock.transform %[[IN1]] by [#[[$MAP_BWD_DATA_IN2_NO_PAD]]]
-// CHECK-NEXT:  %[[IN3:.*]] = rock.transform %[[IN2]] by [#[[$MAP_BWD_DATA_IN3_NO_PAD]]]
-// CHECK-NEXT:  %[[IN4:.*]] = rock.transform %[[IN3]] by [#[[$MAP_BWD_DATA_IN4_NO_PAD]]]
-// CHECK-NEXT:  %[[OUT1:.*]] = rock.transform %arg2 by [#[[$MAP_BWD_DATA_OUT1_NO_PAD]]]
-// CHECK-NEXT:  %[[OUT2:.*]] = rock.transform %[[OUT1]] by [#[[$MAP_BWD_DATA_OUT2_NO_PAD]]]
-// CHECK-NEXT:  %[[OUT3:.*]] = rock.transform %[[OUT2]] by [#[[$MAP_BWD_DATA_OUT3_NO_PAD]]]
+// CHECK-NEXT:  %[[FIL1:.*]] = rock.transform %arg0 by #[[$MAP_BWD_DATA_FIL1_NO_PAD]]
+// CHECK-NEXT:  %[[FIL2:.*]] = rock.transform %[[FIL1]] by #[[$MAP_BWD_DATA_FIL2_NO_PAD]]
+// CHECK-NEXT:  %[[FIL3:.*]] = rock.transform %[[FIL2]] by #[[$MAP_BWD_DATA_FIL3_NO_PAD]]
+// CHECK-NEXT:  %[[IN1:.*]] = rock.transform %arg1 by #[[$MAP_BWD_DATA_IN1_NO_PAD]]
+// CHECK-NEXT:  %[[IN2:.*]] = rock.transform %[[IN1]] by #[[$MAP_BWD_DATA_IN2_NO_PAD]]
+// CHECK-NEXT:  %[[IN3:.*]] = rock.transform %[[IN2]] by #[[$MAP_BWD_DATA_IN3_NO_PAD]]
+// CHECK-NEXT:  %[[IN4:.*]] = rock.transform %[[IN3]] by #[[$MAP_BWD_DATA_IN4_NO_PAD]]
+// CHECK-NEXT:  %[[OUT1:.*]] = rock.transform %arg2 by #[[$MAP_BWD_DATA_OUT1_NO_PAD]]
+// CHECK-NEXT:  %[[OUT2:.*]] = rock.transform %[[OUT1]] by #[[$MAP_BWD_DATA_OUT2_NO_PAD]]
+// CHECK-NEXT:  %[[OUT3:.*]] = rock.transform %[[OUT2]] by #[[$MAP_BWD_DATA_OUT3_NO_PAD]]
 // CHECK-NEXT:  rock.gemm %[[IN4]] = tr %[[FIL3]] * %[[OUT3]]{{.*}}
 
 func.func @rock_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
@@ -193,11 +193,11 @@ func.func @rock_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : me
 }
 // CHECK-LABEL: func.func {{@rock_conv2d_bwd_weight.*%arg0.*%arg1.*%arg2}}
 // CHECK-NOT:   rock.conv2d_bwd_weight
-// CHECK-NEXT:  %[[FIL1:.*]] = rock.transform %arg0 by [#[[$MAP_BWD_WEIGHT_FIL1]]]
-// CHECK-NEXT:  %[[IN1:.*]] = rock.transform %arg1 by [#[[$MAP_INPUT1_FWD]]]
-// CHECK-NEXT:  %[[IN2:.*]] = rock.transform %[[IN1]] by [#[[$MAP_INPUT2_FWD]]]
-// CHECK-NEXT:  %[[IN3:.*]] = rock.transform %[[IN2]] by [#[[$MAP_BWD_WEIGHT_IN3]]]
-// CHECK-NEXT:  %[[OUT:.*]] = rock.transform %arg2 by [#[[$MAP_BWD_WEIGHT_OUT]]]
+// CHECK-NEXT:  %[[FIL1:.*]] = rock.transform %arg0 by #[[$MAP_BWD_WEIGHT_FIL1]]
+// CHECK-NEXT:  %[[IN1:.*]] = rock.transform %arg1 by #[[$MAP_INPUT1_FWD]]
+// CHECK-NEXT:  %[[IN2:.*]] = rock.transform %[[IN1]] by #[[$MAP_INPUT2_FWD]]
+// CHECK-NEXT:  %[[IN3:.*]] = rock.transform %[[IN2]] by #[[$MAP_BWD_WEIGHT_IN3]]
+// CHECK-NEXT:  %[[OUT:.*]] = rock.transform %arg2 by #[[$MAP_BWD_WEIGHT_OUT]]
 // CHECK-NEXT:  rock.gemm %[[FIL1]] = tr %[[OUT]] * %[[IN3]]{{.*}}
 
 func.func @rock_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
@@ -219,9 +219,9 @@ func.func @rock_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input 
 }
 // CHECK-LABEL: func.func {{@rock_conv2d_bwd_weight_f16.*%arg0.*%arg1.*%arg2}}
 // CHECK-NOT:   rock.conv2d_bwd_weight
-// CHECK-NEXT:  %[[FIL1:.*]] = rock.transform %arg0 by [#[[$MAP_BWD_WEIGHT_FIL1]]]
-// CHECK-NEXT:  %[[IN1:.*]] = rock.transform %arg1 by [#[[$MAP_INPUT1_FWD]]]
-// CHECK-NEXT:  %[[IN2:.*]] = rock.transform %[[IN1]] by [#[[$MAP_INPUT2_FWD]]]
-// CHECK-NEXT:  %[[IN3:.*]] = rock.transform %[[IN2]] by [#[[$MAP_BWD_WEIGHT_IN3]]]
-// CHECK-NEXT:  %[[OUT:.*]] = rock.transform %arg2 by [#[[$MAP_BWD_WEIGHT_OUT]]]
+// CHECK-NEXT:  %[[FIL1:.*]] = rock.transform %arg0 by #[[$MAP_BWD_WEIGHT_FIL1]]
+// CHECK-NEXT:  %[[IN1:.*]] = rock.transform %arg1 by #[[$MAP_INPUT1_FWD]]
+// CHECK-NEXT:  %[[IN2:.*]] = rock.transform %[[IN1]] by #[[$MAP_INPUT2_FWD]]
+// CHECK-NEXT:  %[[IN3:.*]] = rock.transform %[[IN2]] by #[[$MAP_BWD_WEIGHT_IN3]]
+// CHECK-NEXT:  %[[OUT:.*]] = rock.transform %arg2 by #[[$MAP_BWD_WEIGHT_OUT]]
 // CHECK-NEXT:  rock.gemm %[[FIL1]] = tr %[[OUT]] * %[[IN3]]{{.*}}

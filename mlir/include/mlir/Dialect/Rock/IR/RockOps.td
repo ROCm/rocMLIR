@@ -173,7 +173,7 @@ def Rock_GemmOp :
 
 def Rock_TransformOp :
     Rock_Op<"transform", [NoSideEffect, ViewLikeOpInterface]>,
-    Arguments<(ins AnyShaped:$input, TransformMapArrayAttr:$transforms)>,
+    Arguments<(ins AnyShaped:$input, Rock_TransformMapAttr:$transform)>,
     Results<(outs AnyShaped:$output)> {
   let summary = "Tensor transformation";
   let description = [{
@@ -197,16 +197,16 @@ def Rock_TransformOp :
      } else {
        upperType = lowerType.cloneWith(transform.getUpperBounds(), elemType);
      }
-     $_state.addAttribute("transforms", $_builder.getArrayAttr({transform}));
+     $_state.addAttribute("transform", transform);
      $_state.addTypes(upperType);
    }]>,
   ];
   let assemblyFormat = [{
-    $input `by` $transforms attr-dict `:` type($input) `to` type($output)
+    $input `by` $transform attr-dict `:` type($input) `to` type($output)
   }];
 
   let extraClassDeclaration = [{
-    Value getViewSource() { return input(); }
+    Value getViewSource() { return getInput(); }
   }];
 }
 
@@ -514,7 +514,7 @@ def Rock_TransformingForOp :
   let regions = (region SizedRegion<1>:$region);
 
   DerivedAttr upperLen = DerivedAttr<"uint32_t", [{
-    return upperInits().size() / transforms().size();
+    return getUpperInits().size() / getTransforms().size();
   }], [{ $_builder.getI32IntegerAttr($_self) }]>;
 
   let skipDefaultBuilders = 1;
@@ -546,24 +546,24 @@ def Rock_TransformingForOp :
   let extraClassDeclaration = [{
     void moveOutOfLoop(ArrayRef<Operation *> ops);
 
-    uint32_t lowerStart(uint32_t n) {
-      return *(lowerStarts().getValues<uint32_t>().begin() + n);
+    uint32_t getLowerStart(uint32_t n) {
+      return *(getLowerStarts().getValues<uint32_t>().begin() + n);
     }
 
     // Retreive the block arguments corresponding to the lower coordinates
     // for a given iteration domain.
     Block::BlockArgListType getLowerCoords(uint32_t domain) {
-      uint32_t start = lowerStart(domain);
-      uint32_t end = lowerStart(domain + 1);
+      uint32_t start = getLowerStart(domain);
+      uint32_t end = getLowerStart(domain + 1);
       return getBody()->getArguments().slice(start, end - start);
     }
     Block::BlockArgListType getLowerCoords() {
-      assert(lowerStarts().size() == 2 && "Ambiguous call to getLowerCoords() with multple iteration domains");
-      return getBody()->getArguments().take_front(lowerStart(1));
+      assert(getLowerStarts().size() == 2 && "Ambiguous call to getLowerCoords() with multple iteration domains");
+      return getBody()->getArguments().take_front(getLowerStart(1));
     }
 
     Block::BlockArgListType getIterArgs() {
-      return getBody()->getArguments().drop_front(lowerStart(lowerStarts().size() - 1));
+      return getBody()->getArguments().drop_front(getLowerStart(getLowerStarts().size() - 1));
     }
 
     ValueTypeRange<Block::BlockArgListType> getIterArgTypes() {
@@ -571,16 +571,16 @@ def Rock_TransformingForOp :
     }
 
     Operation::operand_range getUpperInits(uint32_t domain) {
-      uint32_t theUpperLen = upperLen();
-      return upperInits().slice(domain * theUpperLen, theUpperLen);
+      uint32_t theUpperLen = getUpperLen();
+      return getUpperInits().slice(domain * theUpperLen, theUpperLen);
     }
 
     ArrayAttr getTransforms(uint32_t domain) {
-      return transforms()[domain].cast<ArrayAttr>();
+      return getTransforms()[domain].cast<ArrayAttr>();
     }
 
     uint32_t domains() {
-      return transforms().size();
+      return getTransforms().size();
     }
   }];
 
@@ -808,6 +808,7 @@ def Rock_BlockwiseGemmOp:
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixA,
                    MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixB,
                    MemRefRankOf<[F32, F16, BF16, I32], [2]>:$matrixC,
+                   I32Attr:$blockSize,
                    Rock_GeneralGemmParamsAttr:$params
                    )> {
   let summary = "Blockwise GEMM non-XDLOPS version";

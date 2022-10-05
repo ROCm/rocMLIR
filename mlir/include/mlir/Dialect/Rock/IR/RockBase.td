@@ -16,9 +16,6 @@ def Rock_Dialect : Dialect {
   let name = "rock";
   let cppNamespace = "::mlir::rock";
 
-  // TODO: move this to Prefixed by removing it
-  let emitAccessorPrefix = kEmitAccessorPrefix_Both;
-
   let useDefaultAttributePrinterParser = 1;
 
   let extraClassDeclaration = [{
