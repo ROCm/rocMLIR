@@ -159,17 +159,17 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                     ConversionPatternRewriter &rw) const {
   Location loc = op->getLoc();
 
-  Attribute params = op.params().value_or(nullptr);
+  Attribute params = op.getParams().value_or(nullptr);
   if (!params) {
     return op.emitOpError("cannot lower gemm without tuning parameters");
   }
 
-  Value a = adaptor.a(), b = adaptor.b(), c = adaptor.c();
+  Value a = adaptor.getA(), b = adaptor.getB(), c = adaptor.getC();
   // Note: the gridwise ops take K x M and K x N, so A must be transposed if
   // it's in the natural M x K form
-  a = normalizeMatrix(a, rw, loc, !op.aTransposed(), "gemmK", "gemmM");
-  b = normalizeMatrix(b, rw, loc, op.bTransposed(), "gemmK", "gemmN");
-  c = normalizeMatrix(c, rw, loc, op.cTransposed(), "gemmM", "gemmN");
+  a = normalizeMatrix(a, rw, loc, !op.getATransposed(), "gemmK", "gemmM");
+  b = normalizeMatrix(b, rw, loc, op.getBTransposed(), "gemmK", "gemmN");
+  c = normalizeMatrix(c, rw, loc, op.getCTransposed(), "gemmM", "gemmN");
 
   // Note, matrix dimension correctness is handled in the verifier
   ArrayRef<int64_t> aShape = a.getType().cast<MemRefType>().getShape();
@@ -182,7 +182,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   b = padMatrix(b, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
 
-  bool isXdlops = bitEnumContainsAll(op.features(), GemmFeatures::mfma);
+  bool isXdlops = bitEnumContainsAll(op.getFeatures(), GemmFeatures::mfma);
   // TODO: temporary code for befor the gridwise gemm is rewritten to not do
   // this
   if (isXdlops) {
@@ -191,22 +191,22 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     b = applyKpack(b, kpack, rw, loc, "gemmN");
   }
 
-  IntegerAttr blockSize = op.blockSizeAttr();
+  IntegerAttr blockSize = op.getBlockSizeAttr();
   if (!blockSize)
     return op.emitOpError("block size must be set at lowering");
-  IntegerAttr gridSize = op.gridSizeAttr();
+  IntegerAttr gridSize = op.getGridSizeAttr();
   if (!gridSize)
     return op.emitOpError("grid size must be set at lowering");
   if (isXdlops) {
     // Onne the attribute copies are gone, make this a replaceOp
     auto gridwise = rw.create<GridwiseGemmV2Op>(
-        loc, a, b, c, op.storeMethodAttr(), op.archAttr(), blockSize, gridSize,
-        params.cast<XdlopsGemmParamsAttr>());
+        loc, a, b, c, op.getStoreMethodAttr(), op.getArchAttr(), blockSize,
+        gridSize, params.cast<XdlopsGemmParamsAttr>());
     affixGridwiseGemmAttributes(op, gridwise);
     rw.eraseOp(op);
   } else {
     auto gridwise = rw.create<GridwiseGemmOp>(
-        loc, a, b, c, op.archAttr(), blockSize, gridSize,
+        loc, a, b, c, op.getArchAttr(), blockSize, gridSize,
         params.cast<GeneralGemmParamsAttr>());
     affixGridwiseGemmAttributes(op, gridwise);
     rw.eraseOp(op);

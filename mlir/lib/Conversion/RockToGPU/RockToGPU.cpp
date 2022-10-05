@@ -65,7 +65,7 @@ struct MIGPUAllocRewritePattern : public OpRewritePattern<rock::GpuAllocOp> {
 
   LogicalResult matchAndRewrite(rock::GpuAllocOp op,
                                 PatternRewriter &b) const override {
-    auto type = op.output().getType().cast<MemRefType>();
+    auto type = op.getOutput().getType();
     auto func = op->getParentOfType<gpu::GPUFuncOp>();
     Location loc = op->getLoc();
 

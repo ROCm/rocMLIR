@@ -32,6 +32,7 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/XdlopsCodeSelection.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -67,14 +68,15 @@ struct FillRewritePattern : public OpConversionPattern<FillOp> {
   LogicalResult matchAndRewrite(FillOp op, FillOpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
-    auto inputType = op.input().getType().cast<MemRefType>();
+    MemRefType inputType = op.getInput().getType();
     ArrayRef<int64_t> inputShape = inputType.getShape();
     llvm::SmallVector<int64_t> lbs(inputShape.size(), 0);
     llvm::SmallVector<int64_t> strides(inputShape.size(), 1);
 
     buildAffineLoopNest(b, loc, lbs, inputShape, strides,
-                        [value = adaptor.value(), input = adaptor.input()](
-                            OpBuilder &b, Location loc, ValueRange ivs) {
+                        [value = adaptor.getValue(),
+                         input = adaptor.getInput()](OpBuilder &b, Location loc,
+                                                     ValueRange ivs) {
                           b.create<memref::StoreOp>(loc, value, input, ivs);
                         });
 
@@ -101,9 +103,9 @@ struct BlockwiseGemmRewritePattern
     // Prepare some useful constants.
     Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
 
-    auto blockAType = op.matrixA().getType().cast<MemRefType>();
-    auto blockBType = op.matrixB().getType().cast<MemRefType>();
-    auto bufferCType = op.matrixC().getType().cast<MemRefType>();
+    MemRefType blockAType = op.getMatrixA().getType(),
+               blockBType = op.getMatrixB().getType(),
+               bufferCType = op.getMatrixC().getType();
 
     auto elementType = bufferCType.getElementType();
 
@@ -122,7 +124,7 @@ struct BlockwiseGemmRewritePattern
     GeneralGemmBlockStructure blockStructure =
         *deriveGeneralGemmBlockStructure(blockSize);
 
-    GeneralGemmParamsAttr params = op.params();
+    GeneralGemmParamsAttr params = op.getParams();
     int64_t kPerThread = params.getKPerThread();
     int64_t mPerThread = params.getMPerThread();
     int64_t nPerThread = params.getNPerThread();
@@ -203,10 +205,12 @@ struct BlockwiseGemmRewritePattern
 
     Value matrixA, matrixB;
     ArrayAttr transformsA, transformsB;
-    std::tie(matrixA, transformsA) = untransform(
-        b, adaptor.matrixA(), b.getArrayAttr({splitTidAAttr, toLdsIndexAAttr}));
-    std::tie(matrixB, transformsB) = untransform(
-        b, adaptor.matrixB(), b.getArrayAttr({splitTidBAttr, toLdsIndexBAttr}));
+    std::tie(matrixA, transformsA) =
+        untransform(b, adaptor.getMatrixA(),
+                    b.getArrayAttr({splitTidAAttr, toLdsIndexAAttr}));
+    std::tie(matrixB, transformsB) =
+        untransform(b, adaptor.getMatrixB(),
+                    b.getArrayAttr({splitTidBAttr, toLdsIndexBAttr}));
 
     int64_t threadANumRegisters = kPerThread * mC * kPack;
     int64_t threadBNumRegisters = kPerThread * nC * kPack;
@@ -287,7 +291,7 @@ struct BlockwiseGemmRewritePattern
         b, loc, threadBAllocOp, {"k", "n", "kpack"}, {kPerThread, nC, kPack});
     // Actually do the gemm - this goes inside the look over kOffset
     b.create<ThreadwiseGemmOp>(loc, reshapedARegisters, reshapedBRegisters,
-                               op.matrixC());
+                               op.getMatrixC());
 
     return success();
   }
@@ -306,7 +310,7 @@ struct BlockwiseGemmV2RewritePattern
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
-    XdlopsGemmParamsAttr tuningParams = op.params();
+    XdlopsGemmParamsAttr tuningParams = op.getParams();
     int64_t M = tuningParams.getMPerBlock();
     int64_t N = tuningParams.getNPerBlock();
     int64_t K = tuningParams.getKPerBlock();
@@ -326,14 +330,14 @@ struct BlockwiseGemmV2RewritePattern
     int64_t MPerXdlops = (MPerWave > 64) ? 64 : MPerWave;
     int64_t NPerXdlops = (NPerWave > 64) ? 64 : NPerWave;
 
-    int64_t ldsOffsetA = op.ldsBufferOffsetA().getSExtValue();
-    int64_t ldsOffsetB = op.ldsBufferOffsetB().getSExtValue();
+    int64_t ldsOffsetA = op.getLdsBufferOffsetA().getSExtValue();
+    int64_t ldsOffsetB = op.getLdsBufferOffsetB().getSExtValue();
 
     assert(ldsOffsetA % KPack == 0 &&
            "LDS buffer segment for A is kpack-aligned");
     assert(ldsOffsetB % KPack == 0 &&
            "LDS buffer segment for B is kpack-aligned");
-    auto dataType = adaptor.matrixA()
+    auto dataType = adaptor.getMatrixA()
                         .getType()
                         .template cast<MemRefType>()
                         .getElementType();
@@ -347,10 +351,10 @@ struct BlockwiseGemmV2RewritePattern
     // end) we must divide it by KPack here. Fortunately, this offset will be
     // KPack-alligned and so this is safe
     Value aBase =
-        b.create<AddIOp>(loc, adaptor.waveOffsetA(),
+        b.create<AddIOp>(loc, adaptor.getWaveOffsetA(),
                          b.create<ConstantIndexOp>(loc, ldsOffsetA / KPack));
     Value bBase =
-        b.create<AddIOp>(loc, adaptor.waveOffsetB(),
+        b.create<AddIOp>(loc, adaptor.getWaveOffsetB(),
                          b.create<ConstantIndexOp>(loc, ldsOffsetB / KPack));
 
     XdlopsCodeSelection xcs =
@@ -390,8 +394,8 @@ struct BlockwiseGemmV2RewritePattern
                << "argVectorType: " << argType << "\n"
                << "k_base: " << k_base << "\n"
                << "K: " << K << "\n"
-               << "bufferA type: " << adaptor.bufferA().getType() << "\n"
-               << "bufferB type: " << adaptor.bufferB().getType() << "\n");
+               << "bufferA type: " << adaptor.getBufferA().getType() << "\n"
+               << "bufferB type: " << adaptor.getBufferB().getType() << "\n");
 
     auto MConstantOp = b.create<ConstantIndexOp>(loc, M);
     auto NConstantOp = b.create<ConstantIndexOp>(loc, N);
@@ -400,10 +404,10 @@ struct BlockwiseGemmV2RewritePattern
     auto MPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, MPerXdlops);
     auto NPerXdlopsConstantOp = b.create<ConstantIndexOp>(loc, NPerXdlops);
 
-    Value bufferA = adaptor.bufferA();
-    Value bufferB = adaptor.bufferB();
-    auto bufferAType = adaptor.bufferA().getType().cast<MemRefType>();
-    auto bufferBType = adaptor.bufferB().getType().cast<MemRefType>();
+    Value bufferA = adaptor.getBufferA();
+    Value bufferB = adaptor.getBufferB();
+    auto bufferAType = adaptor.getBufferA().getType().cast<MemRefType>();
+    auto bufferBType = adaptor.getBufferB().getType().cast<MemRefType>();
     Type bufferAElementType = bufferAType.getElementType();
     Type bufferBElementType = bufferBType.getElementType();
 
@@ -442,8 +446,8 @@ struct BlockwiseGemmV2RewritePattern
 
       auto destOffsetA = ilmkb.create<AddIOp>(loc, ilmkiv, kOffsetA);
 
-      Value valueA = ilmkb.create<InBoundsLoadOp>(loc, bufferAElementType,
-                                                  op.matrixA(), sourceOffsetA);
+      Value valueA = ilmkb.create<InBoundsLoadOp>(
+          loc, bufferAElementType, op.getMatrixA(), sourceOffsetA);
       ilmkb.create<memref::StoreOp>(loc, valueA, bufferA,
                                     ValueRange{destOffsetA});
 
@@ -479,8 +483,8 @@ struct BlockwiseGemmV2RewritePattern
 
       auto destOffsetB = ilnkb.create<AddIOp>(loc, ilnkiv, kOffsetB);
 
-      Value valueB = ilnkb.create<InBoundsLoadOp>(loc, bufferBElementType,
-                                                  op.matrixB(), sourceOffsetB);
+      Value valueB = ilnkb.create<InBoundsLoadOp>(
+          loc, bufferBElementType, op.getMatrixB(), sourceOffsetB);
       ilnkb.create<memref::StoreOp>(loc, valueB, bufferB,
                                     ValueRange{destOffsetB});
     } else {
@@ -526,8 +530,8 @@ struct BlockwiseGemmV2RewritePattern
         sourceOffsetA = lklb.create<MulIOp>(
             loc, sourceOffsetA, lklb.create<ConstantIndexOp>(loc, KPack));
 
-      Value valueA = lklb.create<InBoundsLoadOp>(loc, bufferAElementType,
-                                                 op.matrixA(), sourceOffsetA);
+      Value valueA = lklb.create<InBoundsLoadOp>(
+          loc, bufferAElementType, op.getMatrixA(), sourceOffsetA);
       lklb.create<memref::StoreOp>(loc, valueA, bufferA, ValueRange{lkliv});
 
       Value sourceOffsetB = lklb.create<AddIOp>(
@@ -546,8 +550,8 @@ struct BlockwiseGemmV2RewritePattern
         sourceOffsetB = lklb.create<MulIOp>(
             loc, sourceOffsetB, lklb.create<ConstantIndexOp>(loc, KPack));
 
-      Value valueB = lklb.create<InBoundsLoadOp>(loc, bufferBElementType,
-                                                 op.matrixB(), sourceOffsetB);
+      Value valueB = lklb.create<InBoundsLoadOp>(
+          loc, bufferBElementType, op.getMatrixB(), sourceOffsetB);
       lklb.create<memref::StoreOp>(loc, valueB, bufferB, ValueRange{lkliv});
     }
 
@@ -556,11 +560,11 @@ struct BlockwiseGemmV2RewritePattern
     // TODO: amend this for tuning parameter selection as well
     xcs = XdlopsCodeSelection::get(dataType, MPerXdlops, NPerXdlops, b);
     Value reshapedARegisters = reshapeBuffer(
-        b, loc, adaptor.bufferA(), {"m", "k"}, {MRepeats, KPerThread});
+        b, loc, adaptor.getBufferA(), {"m", "k"}, {MRepeats, KPerThread});
     Value reshapedBRegisters = reshapeBuffer(
-        b, loc, adaptor.bufferB(), {"n", "k"}, {NRepeats, KPerThread});
+        b, loc, adaptor.getBufferB(), {"n", "k"}, {NRepeats, KPerThread});
     Value reshapedCRegisters =
-        reshapeBuffer(b, loc, adaptor.matrixC(), {"m", "n", "v"},
+        reshapeBuffer(b, loc, adaptor.getMatrixC(), {"m", "n", "v"},
                       {MRepeats, NRepeats, xcs.nResultVectors});
 
     b.replaceOpWithNewOp<XdlopsGemmV2Op>(op, reshapedARegisters,
@@ -579,13 +583,12 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
 
-    Value source = op.source();
-    auto sourceType = source.getType().cast<MemRefType>();
+    MemRefType sourceType = op.getSource().getType();
     Type sourceElemType = sourceType.getElementType();
     int64_t elemsPerWord = (32 / sourceElemType.getIntOrFloatBitWidth());
     int64_t maxLoadLen = 4 * elemsPerWord;
 
-    Type resType = op.result().getType();
+    Type resType = op.getResult().getType();
     int64_t totalLength = 1;
     if (auto vecType = resType.dyn_cast<VectorType>()) {
       totalLength = vecType.getNumElements();
@@ -614,9 +617,9 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
       IntegerAttr offsetAttr =
           (offset > 0) ? b.getIndexAttr(offset) : IntegerAttr();
 
-      Value loaded = b.create<BufferLoadOp>(loc, typeToLoad, op.source(),
-                                            op.leftOobDims(), op.rightOobDims(),
-                                            op.sourceCoord(), offsetAttr);
+      Value loaded = b.create<BufferLoadOp>(
+          loc, typeToLoad, op.getSource(), op.getLeftOobDims(),
+          op.getRightOobDims(), op.getSourceCoord(), offsetAttr);
       if (totalLength == 1) {
         result = loaded;
       } else {
@@ -643,15 +646,15 @@ struct ThreadwiseCopyV2RewritePattern
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
 
-    Value source = op.source();
-    auto sourceType = source.getType().cast<MemRefType>();
-    Value sourceCoord = op.sourceCoord();
+    Value source = op.getSource();
+    MemRefType sourceType = op.getSource().getType();
+    Value sourceCoord = op.getSourceCoord();
 
     Type sourceElemType = sourceType.getElementType();
-    Type destElemType = op.dest().getType().cast<MemRefType>().getElementType();
+    Type destElemType = op.getDest().getType().getElementType();
     int64_t elemsPerWord = (32 / destElemType.getIntOrFloatBitWidth());
     int64_t maxWriteLen = 4 * elemsPerWord;
-    int64_t remainingLength = op.length().getSExtValue();
+    int64_t remainingLength = op.getLength().getSExtValue();
     int64_t offset = 0;
     while (remainingLength > 0) {
       int64_t copyLength = std::min(remainingLength, maxWriteLen);
@@ -679,9 +682,9 @@ struct ThreadwiseCopyV2RewritePattern
           b.create<InBoundsLoadOp>(loc, typeToLoad, source, loadCoord);
       IntegerAttr offsetAttr =
           (offset > 0) ? b.getIndexAttr(offset) : IntegerAttr();
-      b.create<BufferStoreOp>(loc, loaded, op.dest(), op.leftOobDims(),
-                              op.rightOobDims(), op.destCoord(),
-                              op.storeMethodAttr(), offsetAttr);
+      b.create<BufferStoreOp>(loc, loaded, op.getDest(), op.getLeftOobDims(),
+                              op.getRightOobDims(), op.getDestCoord(),
+                              op.getStoreMethodAttr(), offsetAttr);
       remainingLength -= copyLength;
       offset += copyLength;
     }

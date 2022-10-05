@@ -72,9 +72,9 @@ struct ThreadwiseGemmRewritePattern
                                 ThreadwiseGemmOpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
-    Value gemmA = adaptor.matrixA();
-    Value gemmB = adaptor.matrixB();
-    Value gemmC = adaptor.matrixC();
+    Value gemmA = adaptor.getMatrixA();
+    Value gemmB = adaptor.getMatrixB();
+    Value gemmC = adaptor.getMatrixC();
     auto gemmAType = gemmA.getType().cast<MemRefType>();
     Type dataType = gemmAType.getElementType();
 
@@ -179,7 +179,7 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
-    XdlopsGemmParamsAttr tuningParams = op.params();
+    XdlopsGemmParamsAttr tuningParams = op.getParams();
     // Obtain critical information.
     int64_t KPack = tuningParams.getKpack();
     int64_t K = tuningParams.getKPerBlock();
@@ -193,12 +193,10 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     int64_t MPerXdlops = (MPerWave > waveSize) ? waveSize : MPerWave;
     int64_t NPerXdlops = (NPerWave > waveSize) ? waveSize : NPerWave;
 
-    auto dataType = adaptor.matrixA()
-                        .getType()
-                        .template cast<MemRefType>()
-                        .getElementType();
+    auto dataType =
+        adaptor.getMatrixA().getType().cast<MemRefType>().getElementType();
     if (dataType.isa<VectorType>()) {
-      dataType = dataType.template cast<VectorType>().getElementType();
+      dataType = dataType.cast<VectorType>().getElementType();
     }
 
     // Logic to do XDLOPS code selection.
@@ -222,11 +220,11 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
 
     bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
 
-    Value matrixA = adaptor.matrixA();
-    Value matrixB = adaptor.matrixB();
-    Value matrixC = adaptor.matrixC();
-    auto matrixAType = adaptor.matrixA().getType().cast<MemRefType>();
-    auto matrixBType = adaptor.matrixB().getType().cast<MemRefType>();
+    Value matrixA = adaptor.getMatrixA();
+    Value matrixB = adaptor.getMatrixB();
+    Value matrixC = adaptor.getMatrixC();
+    auto matrixAType = matrixA.getType().cast<MemRefType>();
+    auto matrixBType = matrixB.getType().cast<MemRefType>();
     Type matrixAElementType = matrixAType.getElementType();
     Type matrixBElementType = matrixBType.getElementType();
 
