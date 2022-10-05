@@ -2808,18 +2808,18 @@ Value mlir::LLVM::createGlobalString(Location loc, OpBuilder &builder,
   MLIRContext *ctx = builder.getContext();
 
   SmallString<64> uniqueName(name);
+  Twine nameU(name, "_");
 
   // Create the global at the entry of the module.
   // Uniquify if necessary or return found equivalent.
   LLVM::GlobalOp global = module.lookupSymbol<LLVM::GlobalOp>(uniqueName);
-  APInt i(32, 0);
+  uint32_t i = 0;
   while (global) {
     auto globalVal = global.getValueOrNull().dyn_cast<StringAttr>();
     if (global.getConstant() && globalVal && globalVal == value)
       break;
     // uniquify the name
-    uniqueName = llvm::Twine(name, "_").str();
-    (++i).toString(uniqueName, 10, false);
+    uniqueName = (nameU + Twine(++i)).str();
     global = module.lookupSymbol<LLVM::GlobalOp>(uniqueName);
   }
   if (!global) {
