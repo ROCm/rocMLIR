@@ -1225,6 +1225,12 @@ struct GridwiseGemmV2RewritePattern
           std::min(matrix_b_source_data_per_read, KPerBlock);
     }
 
+    if (matrix_a_source_data_per_read == 0 ||
+        matrix_b_source_data_per_read == 0) {
+      LLVM_DEBUG(llvm::dbgs() << "Source data per read derive failed.\n");
+      return failure();
+    }
+
     // Obtain XDLOPS-related attributes.
     int64_t MPerWave = tuningParams.getMPerWave();
     int64_t NPerWave = tuningParams.getNPerWave();
