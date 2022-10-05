@@ -69,21 +69,21 @@ struct TransformingForRewritePattern
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
     SmallVector<int64_t> bounds;
-    bounds.reserve(op.bounds().size());
-    for (llvm::APInt v : op.bounds().getAsValueRange<IntegerAttr>()) {
+    bounds.reserve(op.getBounds().size());
+    for (llvm::APInt v : op.getBounds().getAsValueRange<IntegerAttr>()) {
       int64_t bound = v.getZExtValue();
       bounds.push_back(bound);
     }
 
     SmallVector<int64_t> strides;
-    strides.reserve(op.strides().size());
-    for (llvm::APInt v : op.strides().getAsValueRange<IntegerAttr>()) {
+    strides.reserve(op.getStrides().size());
+    for (llvm::APInt v : op.getStrides().getAsValueRange<IntegerAttr>()) {
       int64_t stride = v.getZExtValue();
       strides.push_back(stride);
     }
 
-    bool useDiffs = op.useIndexDiffs().value_or(false);
-    bool unroll = op.forceUnroll().value_or(false);
+    bool useDiffs = op.getUseIndexDiffs().value_or(false);
+    bool unroll = op.getForceUnroll().value_or(false);
 
     uint32_t nDomains = op.domains();
     // Compute the initial output values of the lower coordinates.
@@ -134,7 +134,7 @@ struct TransformingForRewritePattern
       std::tie(bound, stride) = pair;
       llvm::SmallVector<Value, 3> iterInits;
       if (loops.empty())
-        llvm::copy(op.iterInits(), std::back_inserter(iterInits));
+        llvm::copy(op.getIterInits(), std::back_inserter(iterInits));
       else
         llvm::copy(loops[loops.size() - 1].getRegionIterArgs(),
                    std::back_inserter(iterInits));
@@ -179,9 +179,9 @@ struct TransformingForRewritePattern
             lastDiff = ilb.create<IndexDiffUpdateOp>(loc, t, ivs, lowerInit);
           else
             lastDiff = ilb.create<IndexDiffUpdateOp>(
-                loc, t, lastDiff.lowerDiff(), lowerInit);
+                loc, t, lastDiff.getLowerDiff(), lowerInit);
         }
-        for (auto p : llvm::zip(lower, lastDiff.lowerIndices())) {
+        for (auto p : llvm::zip(lower, lastDiff.getLowerIndices())) {
           cloneMap.map(std::get<0>(p), std::get<1>(p));
         }
       }
@@ -249,10 +249,10 @@ struct IndexDiffUpdateRewritePattern
   LogicalResult matchAndRewrite(IndexDiffUpdateOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
-    TransformMapAttr transformMap = op.map();
+    TransformMapAttr transformMap = op.getMap();
 
-    Operation::operand_range upperIndicesDiff = op.upperDiffs();
-    Operation::operand_range lowerIndicesOriginal = op.lowerOrig();
+    Operation::operand_range upperIndicesDiff = op.getUpperDiffs();
+    Operation::operand_range lowerIndicesOriginal = op.getLowerOrig();
 
     // Ensure index_diff_update is lowered in def-use order
     bool reevaluateOps = false;
@@ -710,13 +710,13 @@ struct ExtractSliceRewritePattern : public OpRewritePattern<ExtractSliceOp> {
   LogicalResult matchAndRewrite(ExtractSliceOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
-    Value base = op.coord();
-    if (auto destType = op.result().getType().dyn_cast<VectorType>()) {
-      if (destType == op.vector().getType().cast<VectorType>()) {
+    Value base = op.getCoord();
+    if (auto destType = op.getResult().getType().dyn_cast<VectorType>()) {
+      if (destType == op.getVector().getType().cast<VectorType>()) {
         // Extracting something the same size as the vector is a noop since
         // the index must be 0 for the op to be defined. This is here in case
         // the canonicalizer didn't catch this or didn't run.
-        b.replaceOp(op, op.vector());
+        b.replaceOp(op, op.getVector());
         return success();
       }
       int64_t size = destType.getNumElements();
@@ -724,12 +724,12 @@ struct ExtractSliceRewritePattern : public OpRewritePattern<ExtractSliceOp> {
       for (int64_t i = 0; i < size; ++i) {
         Value cDest = b.createOrFold<ConstantIndexOp>(loc, i);
         Value cSrc = b.createOrFold<AddIOp>(loc, base, cDest);
-        Value v = b.create<vector::ExtractElementOp>(loc, op.vector(), cSrc);
+        Value v = b.create<vector::ExtractElementOp>(loc, op.getVector(), cSrc);
         ret = b.create<vector::InsertElementOp>(loc, v, ret, cDest);
       }
       b.replaceOp(op, ret);
     } else {
-      b.replaceOpWithNewOp<vector::ExtractElementOp>(op, op.vector(), base);
+      b.replaceOpWithNewOp<vector::ExtractElementOp>(op, op.getVector(), base);
     }
     return success();
   }
@@ -744,27 +744,27 @@ struct InsertSliceRewritePattern : public OpRewritePattern<InsertSliceOp> {
   LogicalResult matchAndRewrite(InsertSliceOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
-    Value base = op.coord();
-    if (auto srcType = op.source().getType().dyn_cast<VectorType>()) {
-      if (srcType == op.dest().getType().cast<VectorType>()) {
+    Value base = op.getCoord();
+    if (auto srcType = op.getSource().getType().dyn_cast<VectorType>()) {
+      if (srcType == op.getDest().getType().cast<VectorType>()) {
         // Inserting a slice of the same size as the destination is a noop
         // since the index must be 0 for the op to be defined. This is here in
         // case the canonicalizer didn't run or didn't catch the problem.
-        b.replaceOp(op, op.source());
+        b.replaceOp(op, op.getSource());
         return success();
       }
       int64_t size = srcType.getNumElements();
-      Value ret = op.dest();
+      Value ret = op.getDest();
       for (int64_t i = 0; i < size; ++i) {
         Value cSrc = b.createOrFold<ConstantIndexOp>(loc, i);
         Value cDest = b.createOrFold<AddIOp>(loc, base, cSrc);
-        Value v = b.create<vector::ExtractElementOp>(loc, op.source(), cSrc);
+        Value v = b.create<vector::ExtractElementOp>(loc, op.getSource(), cSrc);
         ret = b.create<vector::InsertElementOp>(loc, v, ret, cDest);
       }
       b.replaceOp(op, ret);
     } else {
-      b.replaceOpWithNewOp<vector::InsertElementOp>(op, op.source(), op.dest(),
-                                                    base);
+      b.replaceOpWithNewOp<vector::InsertElementOp>(op, op.getSource(),
+                                                    op.getDest(), base);
     }
     return success();
   }
@@ -780,7 +780,7 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
   LogicalResult matchAndRewrite(BufferLoadOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
-    Value source = op.source();
+    Value source = op.getSource();
     auto sourceType = source.getType().cast<MemRefType>();
     ArrayRef<int64_t> sourceShape = sourceType.getShape();
     int64_t sourceNumElems = sourceType.getNumElements();
@@ -790,10 +790,10 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
       return op.emitOpError("Somehow we don't have static strides\n");
     }
 
-    Type loadedType = op.result().getType();
+    Type loadedType = op.getResult().getType();
     SmallVector<Value, 5> coords;
-    coords.reserve(op.coords().size());
-    llvm::copy(op.coords(), std::back_inserter(coords));
+    coords.reserve(op.getCoords().size());
+    llvm::copy(op.getCoords(), std::back_inserter(coords));
 
     Value zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
 
@@ -801,10 +801,10 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
 
     llvm::SmallDenseSet<uint32_t> leftOob, rightOob;
     for (llvm::APInt leftOobDim :
-         op.leftOobDims().getAsValueRange<IntegerAttr>())
+         op.getLeftOobDims().getAsValueRange<IntegerAttr>())
       leftOob.insert(leftOobDim.getZExtValue());
     for (llvm::APInt rightOobDim :
-         op.rightOobDims().getAsValueRange<IntegerAttr>())
+         op.getRightOobDims().getAsValueRange<IntegerAttr>())
       rightOob.insert(rightOobDim.getZExtValue());
 
     // If a coordinate is out of bounds, set that coordinate to the number of
@@ -838,7 +838,7 @@ struct BufferLoadRewritePattern : public OpRewritePattern<BufferLoadOp> {
     for (auto v : coords)
       coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
     IntegerAttr indexOffset =
-        op.offset()
+        op.getOffset()
             .transform([&b](const APInt &offset) -> IntegerAttr {
               return b.getI32IntegerAttr(offset.getZExtValue());
             })
@@ -860,8 +860,8 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
 
-    Value data = op.data();
-    Value dest = op.dest();
+    Value data = op.getData();
+    Value dest = op.getDest();
     auto destType = dest.getType().cast<MemRefType>();
     ArrayRef<int64_t> destShape = destType.getShape();
     int64_t destNumElems = destType.getNumElements();
@@ -872,18 +872,18 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
     }
 
     SmallVector<Value, 5> coords;
-    coords.reserve(op.coords().size());
-    llvm::copy(op.coords(), std::back_inserter(coords));
+    coords.reserve(op.getCoords().size());
+    llvm::copy(op.getCoords(), std::back_inserter(coords));
 
     Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
     Value falseOp = b.createOrFold<ConstantIntOp>(loc, 0, b.getI1Type());
 
     llvm::SmallDenseSet<uint32_t> leftOob, rightOob;
     for (llvm::APInt leftOobDim :
-         op.leftOobDims().getAsValueRange<IntegerAttr>())
+         op.getLeftOobDims().getAsValueRange<IntegerAttr>())
       leftOob.insert(leftOobDim.getZExtValue());
     for (llvm::APInt rightOobDim :
-         op.rightOobDims().getAsValueRange<IntegerAttr>())
+         op.getRightOobDims().getAsValueRange<IntegerAttr>())
       rightOob.insert(rightOobDim.getZExtValue());
 
     // If a coordinate is out of bounds, set that coordinate to the number of
@@ -911,12 +911,12 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
       }
     }
 
-    StoreMethod memoryOp = op.storeMethod();
+    StoreMethod memoryOp = op.getStoreMethod();
     SmallVector<Value, 5> coordsI32;
     for (Value v : coords)
       coordsI32.push_back(b.create<IndexCastOp>(loc, b.getI32Type(), v));
     IntegerAttr indexOffset =
-        op.offset()
+        op.getOffset()
             .transform([&b](const APInt &offset) -> IntegerAttr {
               return b.getI32IntegerAttr(offset.getZExtValue());
             })
@@ -926,10 +926,11 @@ struct BufferStoreRewritePattern : public OpRewritePattern<BufferStoreOp> {
       // TODO: test padding in atomic add kernels now that we can oob with them
       if (auto dataVector = data.getType().dyn_cast<VectorType>()) {
         int32_t nAtomics = dataVector.getNumElements();
-        int32_t offset =
-            op.offset()
-                .transform([](const APInt &v) -> int32_t { return v.getZExtValue(); })
-                .value_or(0);
+        int32_t offset = op.getOffset()
+                             .transform([](const APInt &v) -> int32_t {
+                               return v.getZExtValue();
+                             })
+                             .value_or(0);
         for (int32_t i = 0; i < nAtomics; ++i) {
           Value item = b.create<vector::ExtractElementOp>(
               loc, data, b.create<ConstantIndexOp>(loc, i));
@@ -961,12 +962,12 @@ struct InBoundsLoadRewritePattern : public OpRewritePattern<InBoundsLoadOp> {
 
   LogicalResult matchAndRewrite(InBoundsLoadOp op,
                                 PatternRewriter &b) const override {
-    if (auto destType = op.result().getType().dyn_cast<VectorType>()) {
+    if (auto destType = op.getResult().getType().dyn_cast<VectorType>()) {
       b.replaceOpWithNewOp<vector::TransferReadOp>(
-          op, destType, op.source(), op.coords(),
+          op, destType, op.getSource(), op.getCoords(),
           /*inbounds=*/ArrayRef<bool>(true));
     } else {
-      b.replaceOpWithNewOp<memref::LoadOp>(op, op.source(), op.coords());
+      b.replaceOpWithNewOp<memref::LoadOp>(op, op.getSource(), op.getCoords());
     }
     return success();
   }
@@ -980,13 +981,13 @@ struct InBoundsStoreRewritePattern : public OpRewritePattern<InBoundsStoreOp> {
 
   LogicalResult matchAndRewrite(InBoundsStoreOp op,
                                 PatternRewriter &b) const override {
-    if (auto srcType = op.data().getType().dyn_cast<VectorType>()) {
+    if (auto srcType = op.getData().getType().dyn_cast<VectorType>()) {
       b.replaceOpWithNewOp<vector::TransferWriteOp>(
-          op, op.data(), op.dest(), op.coords(),
+          op, op.getData(), op.getDest(), op.getCoords(),
           /*inbounds=*/ArrayRef<bool>(true));
     } else {
-      b.replaceOpWithNewOp<memref::StoreOp>(op, op.data(), op.dest(),
-                                            op.coords());
+      b.replaceOpWithNewOp<memref::StoreOp>(op, op.getData(), op.getDest(),
+                                            op.getCoords());
     }
     return success();
   }
@@ -1280,13 +1281,13 @@ struct InWarpTransposeRewritePattern
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
 
-    Value vector = op.vector();
+    Value vector = op.getVector();
     uint32_t totalSize = vector.getType().cast<VectorType>().getNumElements();
 
-    Value laneId = op.laneId();
-    uint32_t groupSize = op.size();
+    Value laneId = op.getLaneId();
+    uint32_t groupSize = op.getSize();
 
-    ArrayAttr inGroupPermAttr = op.inGroupPerm();
+    ArrayAttr inGroupPermAttr = op.getInGroupPerm();
     llvm::SmallVector<uint32_t, swizzleGroupSize> inGroupPerm;
     auto inGroupPermArr = inGroupPermAttr.getValue();
     // ::verify() ensures this is a permutation

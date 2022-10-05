@@ -51,7 +51,7 @@ static Operation *getConvUser(Value v) {
     if (isa<Conv2DOp, Conv2DBwdDataOp, Conv2DBwdWeightOp>(user))
       return user;
     if (auto transform = dyn_cast<TransformOp>(user))
-      if (Operation *upstream = getConvUser(transform.output()))
+      if (Operation *upstream = getConvUser(transform.getOutput()))
         return upstream;
   }
   return nullptr;

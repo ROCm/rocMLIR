@@ -22,9 +22,6 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 def MIGraphX_Dialect : Dialect {
   let name = "migraphx";
   let cppNamespace = "mlir::migraphx";
-
-    // TODO: move this to Prefixed by removing it
-  let emitAccessorPrefix = kEmitAccessorPrefix_Both;
 }
 
 // Base class for MIGraphX dialect ops.
