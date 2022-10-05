@@ -10,9 +10,8 @@
 // CHECK-DAG: #[[$XDLOPS_PARAMS_0:.*]] = #rock.xdlops_gemm_params<kPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32>
 // CHECK-DAG: #[[$XDLOPS_PARAMS_1:.*]] = #rock.xdlops_gemm_params<kPerBlock = 4, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 64, nPerWave = 64>
 // CHECK-DAG: #[[$XDLOPS_PARAMS_2:.*]] = #rock.xdlops_gemm_params<kPerBlock = 8, mPerBlock = 64, nPerBlock = 256, kpack = 1, mPerWave = 64, nPerWave = 64>
-// CHECK-DAG: #[[$XDLOPS_PARAMS_3:.*]] = #rock.xdlops_gemm_params<kPerBlock = 4, mPerBlock = 128, nPerBlock = 128, kpack = 1, mPerWave = 64, nPerWave = 64>
-// CHECK-DAG: #[[$XDLOPS_PARAMS_4:.*]] = #rock.xdlops_gemm_params<kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kpack = 1, mPerWave = 64, nPerWave = 64>
-// CHECK-DAG: #[[$XDLOPS_PARAMS_5:.*]] = #rock.xdlops_gemm_params<kPerBlock = 8, mPerBlock = 16, nPerBlock = 128, kpack = 1, mPerWave = 16, nPerWave = 64>
+// CHECK-DAG: #[[$XDLOPS_PARAMS_3:.*]] = #rock.xdlops_gemm_params<kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kpack = 1, mPerWave = 64, nPerWave = 64>
+// CHECK-DAG: #[[$XDLOPS_PARAMS_4:.*]] = #rock.xdlops_gemm_params<kPerBlock = 8, mPerBlock = 16, nPerBlock = 128, kpack = 1, mPerWave = 16, nPerWave = 64>
 
 
 // CHECK-LABEL: @rock_conv2d
@@ -247,7 +246,9 @@ func.func @rock_conv2d_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<2
     numCu = 120 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
-    perf_config = "64,256,8,64,64,4,1,1",
+    // Restore this once the kPack + padding support works
+    // perf_config = "64,256,8,64,64,4,1,1",
+    perf_config = "64,256,8,64,64,1,1,1",
     strides = [2 : i32, 2 : i32]
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
@@ -278,7 +279,7 @@ func.func @rock_conv2d_bwd_weight_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memr
   // CHECK: rock.conv2d_bwd_weight
   // CHECK-SAME: blockSize = 256
   // CHECK-SAME: gridSize = 512
-  // CHECK-SAME: params = #[[$XDLOPS_PARAMS_4]]
+  // CHECK-SAME: params = #[[$XDLOPS_PARAMS_3]]
   rock.conv2d_bwd_weight(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
     arch = "gfx908",
     dilations = [1 : i32, 1 : i32],
@@ -296,7 +297,7 @@ func.func @rock_conv2d_bwd_data_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1:
   // CHECK: rock.conv2d_bwd_data
   // CHECK-SAME: blockSize = 128
   // CHECK-SAME: gridSize = 26450
-  // CHECK-SAME: params = #[[$XDLOPS_PARAMS_5]]
+  // CHECK-SAME: params = #[[$XDLOPS_PARAMS_4]]
   rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
     arch = "gfx908",
     dilations = [1 : i32, 1 : i32],
@@ -306,7 +307,9 @@ func.func @rock_conv2d_bwd_data_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1:
     numCu = 120 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
-    perf_config = "16,128,8,16,64,4,1,1",
+    // Restore once kPack + padding work
+    // perf_config = "16,128,8,16,64,4,1,1",
+    perf_config = "16,128,8,16,64,1,1,1",
     strides = [2 : i32, 2 : i32]
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return

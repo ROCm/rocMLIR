@@ -173,7 +173,7 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
     Optional<GemmContext> extraPadSizes = calculatePadding(
         gemmParams.getKPerBlock(), gemmParams.getMPerBlock(),
         gemmParams.getNPerBlock(), gemmSize, gemmParams.getKpack());
-    if (extraPadSizes.hasValue()) {
+    if (extraPadSizes.has_value()) {
       assert(gemmId == 0 &&
              "if there is padding, only a single kernel should be generated");
     } else {
@@ -195,8 +195,6 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
   OpBuilder b(op.getContext());
 
   ConvolutionDims dims = obtainConvDims(op);
-  ConvOpType opType = obtainConvDirection(op);
-  GemmContext gemmSize = GemmContext::fromConvolution(opType, dims);
 
   std::string perfConfig;
   if (auto perfConfigAttr =
@@ -227,16 +225,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
         signalPassFailure();
     }
 
-    ConvOpType dir = obtainConvDirection(op);
     Type dataType = obtainConvDataType(op);
-
-    // Disable kpack in case we need padding kernel.
-    Optional<GemmContext> gemmExtraPad = calculatePadding(
-        validParams.gemmKPerBlock, validParams.gemmMPerBlock,
-        validParams.gemmNPerBlock, gemmSize, validParams.gemmKPack);
-    if (gemmExtraPad.hasValue()) {
-      validParams.gemmKPack = 1;
-    }
 
     gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
     op->setAttr(op.blockSizeAttrName(), b.getI32IntegerAttr(blockSize));

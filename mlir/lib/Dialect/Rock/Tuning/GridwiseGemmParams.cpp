@@ -451,6 +451,11 @@ LogicalResult PopulateParamsXDL::populateDerived(
       calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
                        params.gemmNPerBlock, gemmSize, params.gemmKPack);
   if (gemmExtraPad.has_value()) {
+    // TEMPORARY: The hardcoded load/store math in gridwise_gemm_v2 doesn't
+    // handle kPack > 1 in padding kernels correctly.
+    if (params.gemmKPack > 1) {
+      return failure();
+    }
     gemmSize.gemmM += gemmExtraPad->m;
     gemmSize.gemmK += gemmExtraPad->k;
     gemmSize.gemmN += gemmExtraPad->n;
@@ -518,7 +523,7 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
     // 2. This is running mode and we have succeeded with a perfdb load
     bool isValidPerfConfig = validParams.deserialize(perfConfig);
     if (isValidPerfConfig) {
-      LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
+      LLVM_DEBUG(llvm::dbgs() << "Got perf config: " << genDebugForParams(validParams));
       return populateDerived(ctx, validParams, gemmSize, blockSize, gridSize,
                              gemmKBlocks);
     }
@@ -567,6 +572,11 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
     break;
   }
   LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams) << "\n");
+  if (failed(res)) {
+    LLVM_DEBUG(llvm::dbgs() << "Couldn't pick heuristic values for ");
+    LLVM_DEBUG(op->print(llvm::dbgs()));
+    LLVM_DEBUG(llvm::dbgs() << "\n");
+  }
   return res;
 }
 
@@ -604,8 +614,6 @@ Optional<GemmContext> mlir::rock::calculatePadding(int64_t kPerBlock,
   int64_t nExtra = nPerBlock - math_util::mod_1_to_n(gemmSize.n, nPerBlock);
   if (mExtra == 0 && kExtra == 0 && nExtra == 0)
     return None;
-  // if padding is ever used, it will set KPack to 1.
-  kExtra = kPerBlock - math_util::mod_1_to_n(gemmSize.k, kPerBlock);
   return GemmContext(mExtra, kExtra, nExtra);
 }
 
