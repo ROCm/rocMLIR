@@ -25,39 +25,36 @@ namespace mlir {
 namespace rock {
 namespace {
 
-/// Bufferization of rock.tensor_conv2d, which rewrites to a rock.conv2d
-/// that operates on memrefs.
-struct TensorConv2DOpInterface
-    : public BufferizableOpInterface::ExternalModel<TensorConv2DOpInterface,
-                                                    rock::TensorConv2DOp> {
+/// Bufferization of gemm-like ops, which rewrite to themselves with memref
+/// arguments.
+template <typename Concrete>
+struct GemmLikeInterface
+    : public BufferizableOpInterface::ExternalModel<GemmLikeInterface<Concrete>,
+                                                    Concrete> {
   bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
                               const AnalysisState &state) const {
-    auto cop = mlir::cast<rock::TensorConv2DOp>(op);
-    Value operand = opOperand.get();
-    return (operand == cop.getFilter() || operand == cop.getInput());
+    auto cop = mlir::cast<Concrete>(op);
+    return (&opOperand != cop.getOutArgument());
   }
 
   bool bufferizesToMemoryWrite(Operation *op, OpOperand &opOperand,
                                const AnalysisState &state) const {
-    auto cop = mlir::cast<rock::TensorConv2DOp>(op);
-    Value operand = opOperand.get();
-    return (operand == cop.getOutput());
+    auto cop = mlir::cast<Concrete>(op);
+    return (&opOperand == cop.getOutArgument());
   }
 
   // The buffer corresponding to the destination must equal the buffer
   // corresponding to the returned tensor
   bool mustBufferizeInPlace(Operation *op, OpOperand &opOperand,
                             const AnalysisState &state) const {
-    auto cop = mlir::cast<rock::TensorConv2DOp>(op);
-    Value operand = opOperand.get();
-    return (operand == cop.getOutput());
+    auto cop = mlir::cast<Concrete>(op);
+    return (&opOperand == cop.getOutArgument());
   }
 
   SmallVector<OpResult> getAliasingOpResult(Operation *op, OpOperand &opOperand,
                                             const AnalysisState &state) const {
-    auto cop = mlir::cast<rock::TensorConv2DOp>(op);
-    Value operand = opOperand.get();
-    if (operand == cop.getOutput())
+    auto cop = mlir::cast<Concrete>(op);
+    if (&opOperand == cop.getOutArgument())
       return op->getOpResults();
     return {};
   }
@@ -70,21 +67,28 @@ struct TensorConv2DOpInterface
 
   LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
                           const BufferizationOptions &options) const {
-    auto cop = mlir::cast<rock::TensorConv2DOp>(op);
-    FailureOr<Value> filter = getBuffer(rewriter, cop.getFilter(), options);
-    if (failed(filter))
-      return failure();
-    FailureOr<Value> input = getBuffer(rewriter, cop.getInput(), options);
-    if (failed(input))
-      return failure();
-    FailureOr<Value> output = getBuffer(rewriter, cop.getOutput(), options);
-    if (failed(output))
-      return failure();
+    auto cop = mlir::cast<Concrete>(op);
+    SmallVector<Value> bufferArgs;
+    Value outBuffer;
 
-    SmallVector<Value> args = {*filter, *input, *output};
-    rewriter.create<rock::Conv2DOp>(op->getLoc(), TypeRange{}, args,
-                                    op->getAttrs());
-    replaceOpWithBufferizedValues(rewriter, op, {*output});
+    for (OpOperand &operand : op->getOpOperands()) {
+      FailureOr<Value> buffer = getBuffer(rewriter, operand.get(), options);
+      if (failed(buffer)) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Failed to bufferize value " << operand.get() << "\n");
+        return failure();
+      }
+      bufferArgs.push_back(*buffer);
+      if (&operand == cop.getOutArgument())
+        outBuffer = *buffer;
+    }
+    if (!outBuffer) {
+      return op->emitOpError("Couldn't find output argument\n");
+    }
+
+    rewriter.create<Concrete>(op->getLoc(), TypeRange{}, bufferArgs,
+                              op->getAttrs());
+    replaceOpWithBufferizedValues(rewriter, op, {outBuffer});
     return success();
   }
 };
@@ -200,7 +204,12 @@ struct TensorUntransformCastOpInterface
 void mlir::rock::registerBufferizableOpInterfaceExternalModels(
     DialectRegistry &registry) {
   registry.addExtension(+[](MLIRContext *ctx, rock::RockDialect *dialect) {
-    TensorConv2DOp::attachInterface<TensorConv2DOpInterface>(*ctx);
+    Conv2DOp::attachInterface<GemmLikeInterface<Conv2DOp>>(*ctx);
+    Conv2DBwdDataOp::attachInterface<GemmLikeInterface<Conv2DBwdDataOp>>(*ctx);
+    Conv2DBwdWeightOp::attachInterface<GemmLikeInterface<Conv2DBwdWeightOp>>(
+        *ctx);
+    GemmOp::attachInterface<GemmLikeInterface<GemmOp>>(*ctx);
+
     TransformOp::attachInterface<TransformOpInterface>(*ctx);
     TensorUntransformCastOp::attachInterface<TensorUntransformCastOpInterface>(
         *ctx);

@@ -33,7 +33,7 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
           Return the OpOperand that corresponds to the operand argument
           that corresponds to the output result of the operation.
         }],
-        /*retType=*/"OpOperand &",
+        /*retType=*/"OpOperand *",
         /*methodName=*/"getOutArgument",
         /*args=*/(ins),
         /*methodBody=*/"",
@@ -52,6 +52,17 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
       >
     // TODO: more methods here as needed
   ];
+
+  let verify = [{
+    auto concreteOp = ::mlir::cast<ConcreteOp>($_op);
+    if ($_op->getNumResults() == 1) {
+      if ($_op->getResult(0).getType() !=
+          concreteOp.getOutArgument()->get().getType()) {
+        return $_op->emitOpError("result type must match output argument type");
+      }
+    }
+    return ::mlir::success();
+  }];
 }
 
 #endif // ROCK_GEM_WRAPPER_INTERFACE
