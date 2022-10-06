@@ -156,7 +156,7 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   funcPm.addPass(createConvertMathToLLVMPass());
   pmHost.addPass(
       createGpuToLLVMConversionPass(/*kernelBarePtrCallConv=*/barePointers));
-  pmHost.addPass(createAsyncToAsyncRuntimePass());
+  pmHost.addPass(createAsyncToAsyncRuntime());
   pmHost.addPass(createConvertAsyncToLLVMPass());
   mlir::LowerToLLVMOptions lower_to_llvm_opts(m.getContext());
   pmHost.addPass(mlir::createConvertFuncToLLVMPass(lower_to_llvm_opts));

@@ -57,6 +57,7 @@ class TosaPartitionPass
     : public tosa::impl::TosaPartitionBase<TosaPartitionPass> {
 public:
   using tosa::impl::TosaPartitionBase<TosaPartitionPass>::TosaPartitionBase;
+
   bool isAnchorOp(Operation *op);
   bool isLeadingOp(Operation *op);
   bool isTrailingOp(Operation *op);
@@ -474,8 +475,8 @@ void outlinePartitionOps(Operation *anchorOp, ArrayRef<Operation *> trailingOps,
 
 bool TosaPartitionPass::isAnchorOp(Operation *op) {
   if (anchorOps.empty()) // ListOption doesn't have a default value.
-    anchorOps = {"tosa.conv2d", "tosa.matmul", "tosa.depthwise_conv2d"};
-
+    anchorOps = {"tosa.conv2d", "tosa.matmul", "tosa.depthwise_conv2d",
+                 "tosa.fully_connected"};
   return llvm::is_contained(anchorOps, op->getName().getIdentifier().str());
 }
 
@@ -527,7 +528,7 @@ void TosaPartitionPass::runOnOperation() {
       if (!isAnchorOp(op))
         return WalkResult::advance();
       Operation *anchorOp = op;
-      auto strCount = std::string("_outlined_part_") + std::to_string(count++);
+      auto strCount = std::string("__part_") + std::to_string(count++);
 
       // Given a Conv2DOp (or other anchor op), gather all the
       // element-wise ops that are reachable from its results,
@@ -641,11 +642,3 @@ void TosaPartitionPass::runOnOperation() {
   }
 }
 
-std::unique_ptr<Pass> mlir::tosa::createTosaPartitionPass() {
-  return std::make_unique<TosaPartitionPass>();
-}
-
-std::unique_ptr<Pass>
-mlir::tosa::createTosaPartitionPass(const TosaPartitionOptions &options) {
-  return std::make_unique<TosaPartitionPass>(options);
-}

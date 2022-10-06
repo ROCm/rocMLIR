@@ -41,9 +41,6 @@ std::unique_ptr<Pass> createTosaInferShapesPass();
 std::unique_ptr<Pass> createTosaMakeBroadcastablePass();
 std::unique_ptr<Pass> createTosaTestQuantUtilAPIPass();
 std::unique_ptr<Pass> createTosaOptionalDecompositions();
-std::unique_ptr<Pass> createTosaPartitionPass();
-std::unique_ptr<Pass>
-createTosaPartitionPass(const TosaPartitionOptions &options);
 
 #define GEN_PASS_REGISTRATION
 #include "mlir/Dialect/Tosa/Transforms/Passes.h.inc"

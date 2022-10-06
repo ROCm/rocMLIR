@@ -45,7 +45,9 @@ namespace {
 class AsyncToAsyncRuntimePass
     : public impl::AsyncToAsyncRuntimeBase<AsyncToAsyncRuntimePass> {
 public:
-  AsyncToAsyncRuntimePass() = default;
+  using impl::AsyncToAsyncRuntimeBase<
+      AsyncToAsyncRuntimePass>::AsyncToAsyncRuntimeBase;
+
   void runOnOperation() override;
 };
 
@@ -237,16 +239,65 @@ static Block *setupSetErrorBlock(CoroMachinery &coro) {
   return coro.setError;
 }
 
+/// Build coroutine logic in an outlined function.
+static CoroMachinery buildCoroutineLogic(Operation *execute, func::FuncOp func,
+                                         ArrayRef<Value> functionInputs) {
+  ModuleOp module = execute->getParentOfType<ModuleOp>();
+
+  MLIRContext *ctx = module.getContext();
+  Location loc = execute->getLoc();
+
+  // Adding entry/cleanup/suspend blocks.
+  CoroMachinery coro = setupCoroMachinery(func);
+
+  // Suspend async function at the end of an entry block, and resume it using
+  // Async resume operation (execution will be resumed in a thread managed by
+  // the async runtime).
+  {
+    cf::BranchOp branch = cast<cf::BranchOp>(coro.entry->getTerminator());
+    auto builder = ImplicitLocOpBuilder::atBlockEnd(loc, coro.entry);
+
+    // Save the coroutine state: async.coro.save
+    auto coroSaveOp =
+        builder.create<CoroSaveOp>(CoroStateType::get(ctx), coro.coroHandle);
+
+    // Pass coroutine to the runtime to be resumed on a runtime managed
+    // thread.
+    builder.create<RuntimeResumeOp>(coro.coroHandle);
+
+    // Add async.coro.suspend as a suspended block terminator.
+    builder.create<CoroSuspendOp>(coroSaveOp.state(), coro.suspend,
+                                  branch.getDest(), coro.cleanup);
+
+    branch.erase();
+  }
+
+  // Replace the original `async.execute` with a call to outlined function.
+  {
+    ImplicitLocOpBuilder callBuilder(loc, execute);
+    auto callOutlinedFunc = callBuilder.create<func::CallOp>(
+        func.getName(), execute->getResultTypes(), functionInputs);
+    execute->replaceAllUsesWith(callOutlinedFunc.getResults());
+    execute->erase();
+  }
+
+  return coro;
+}
+
 /// Outline the body region attached to the `async.execute` op into a standalone
 /// function.
 ///
 /// Note that this is not reversible transformation.
 static std::pair<func::FuncOp, CoroMachinery>
-outlineExecuteOp(SymbolTable &symbolTable, ExecuteOp execute) {
+outlineExecuteOp(SymbolTable &symbolTable, ExecuteOp execute,
+                 bool toCoroutine) {
   ModuleOp module = execute->getParentOfType<ModuleOp>();
 
   MLIRContext *ctx = module.getContext();
   Location loc = execute.getLoc();
+
+  // TODO(sjw): support call based
+  assert(toCoroutine);
 
   // Make sure that all constants will be inside the outlined async function to
   // reduce the number of function arguments.
@@ -304,41 +355,86 @@ outlineExecuteOp(SymbolTable &symbolTable, ExecuteOp execute) {
       builder.clone(op, valueMapping);
   }
 
-  // Adding entry/cleanup/suspend blocks.
-  CoroMachinery coro = setupCoroMachinery(func);
-
-  // Suspend async function at the end of an entry block, and resume it using
-  // Async resume operation (execution will be resumed in a thread managed by
-  // the async runtime).
-  {
-    cf::BranchOp branch = cast<cf::BranchOp>(coro.entry->getTerminator());
-    builder.setInsertionPointToEnd(coro.entry);
-
-    // Save the coroutine state: async.coro.save
-    auto coroSaveOp =
-        builder.create<CoroSaveOp>(CoroStateType::get(ctx), coro.coroHandle);
-
-    // Pass coroutine to the runtime to be resumed on a runtime managed
-    // thread.
-    builder.create<RuntimeResumeOp>(coro.coroHandle);
-
-    // Add async.coro.suspend as a suspended block terminator.
-    builder.create<CoroSuspendOp>(coroSaveOp.state(), coro.suspend,
-                                  branch.getDest(), coro.cleanup);
-
-    branch.erase();
-  }
-
-  // Replace the original `async.execute` with a call to outlined function.
-  {
-    ImplicitLocOpBuilder callBuilder(loc, execute);
-    auto callOutlinedFunc = callBuilder.create<func::CallOp>(
-        func.getName(), execute.getResultTypes(), functionInputs.getArrayRef());
-    execute.replaceAllUsesWith(callOutlinedFunc.getResults());
-    execute.erase();
-  }
+  CoroMachinery coro =
+      buildCoroutineLogic(execute, func, functionInputs.getArrayRef());
 
   return {func, coro};
+}
+
+/// Convert the func referenced by the `async.launch` op with async coroutine
+/// mechanics or call semantics.
+static std::pair<func::FuncOp, CoroMachinery>
+convertLaunchOp(LaunchOp launch, bool toCoroutine) {
+  CallOpInterface callIf(launch);
+  if (auto *callable = callIf.resolveCallable()) {
+    if (auto func = dyn_cast<func::FuncOp>(callable)) {
+      func->removeAttr("async.targets");
+
+      ModuleOp module = launch->getParentOfType<ModuleOp>();
+      MLIRContext *ctx = module.getContext();
+      Location loc = launch->getLoc();
+
+      if (toCoroutine) {
+        // Collect all outlined function inputs.
+        SmallVector<mlir::Value> operands(launch->getOperands());
+
+        // Collect types for the outlined function inputs and outputs.
+        auto typesRange = llvm::map_range(
+            operands, [](Value value) { return value.getType(); });
+        SmallVector<Type, 4> inputTypes(typesRange.begin(), typesRange.end());
+        auto outputTypes = launch.getResultTypes();
+
+        auto funcType = FunctionType::get(ctx, inputTypes, outputTypes);
+        func.setType(funcType);
+
+        // insert tokens and awaits
+        auto *block = &func.front();
+        auto builder = ImplicitLocOpBuilder::atBlockBegin(loc, block);
+        for (auto pair : llvm::enumerate(launch.dependencies())) {
+          auto dep = pair.value();
+          auto barg =
+              block->insertArgument(pair.index(), dep.getType(), dep.getLoc());
+          builder.create<AwaitOp>(barg);
+        }
+
+        // replace return with async.yield
+        for (Block &block : func.getBlocks()) {
+          Operation *terminator = block.getTerminator();
+          if (auto returnOp = dyn_cast<func::ReturnOp>(*terminator)) {
+            ImplicitLocOpBuilder builder(loc, returnOp);
+            builder.create<YieldOp>(returnOp.getOperands());
+            returnOp.erase();
+          }
+        }
+
+        // Adding entry/cleanup/suspend blocks.
+        CoroMachinery coro = buildCoroutineLogic(launch, func, operands);
+        return {func, coro};
+
+      } else {
+        // TODO(sjw): add result support
+        assert(func.getNumResults() == 0);
+
+        // Replace the original `async.execute` with a call to outlined
+        // function.
+        ImplicitLocOpBuilder cb(loc, launch);
+        cb.create<func::CallOp>(func.getName(), func.getResultTypes(),
+                                launch.getCallOperands());
+        // make dummy token
+        auto retToken =
+            cb.create<RuntimeCreateOp>(TokenType::get(ctx)).result();
+        cb.create<RuntimeSetAvailableOp>(retToken);
+
+        launch->replaceAllUsesWith(ValueRange{retToken});
+        launch->erase();
+
+        return {};
+      }
+    }
+  }
+
+  llvm_unreachable("async.launch func not found");
+  return {};
 }
 
 //===----------------------------------------------------------------------===//
@@ -608,6 +704,34 @@ private:
 };
 
 //===----------------------------------------------------------------------===//
+// Dead Token Elimination for Runtime Tokens
+//===----------------------------------------------------------------------===//
+
+struct RuntimeDCE : public OpRewritePattern<async::RuntimeCreateOp> {
+  using OpRewritePattern<async::RuntimeCreateOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(async::RuntimeCreateOp op,
+                                PatternRewriter &rw) const override {
+    SmallVector<Operation *, 4> ops;
+    for (auto &use : op.getResult().getUses()) {
+      auto *cop = use.getOwner();
+      if (op == cop) {
+      } else if (isa<async::RuntimeSetAvailableOp>(cop) ||
+                 isa<async::RuntimeDropRefOp>(cop)) {
+        ops.push_back(cop);
+      } else
+        return rw.notifyMatchFailure(op, "not dead");
+    }
+
+    // Erase all ops
+    for (auto *cop : ops)
+      cop->erase();
+    op.erase();
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 
 /// Rewrite a func as a coroutine by:
 /// 1) Wrapping the results into `async.value`.
@@ -747,7 +871,12 @@ void AsyncToAsyncRuntimePass::runOnOperation() {
   llvm::DenseMap<func::FuncOp, CoroMachinery> outlinedFunctions;
 
   module.walk([&](ExecuteOp execute) {
-    outlinedFunctions.insert(outlineExecuteOp(symbolTable, execute));
+    outlinedFunctions.insert(
+        outlineExecuteOp(symbolTable, execute, enableCoroutines));
+  });
+
+  module.walk([&](LaunchOp launch) {
+    outlinedFunctions.insert(convertLaunchOp(launch, enableCoroutines));
   });
 
   LLVM_DEBUG({
@@ -784,6 +913,9 @@ void AsyncToAsyncRuntimePass::runOnOperation() {
                     AwaitAllOpLowering, YieldOpLowering>(ctx,
                                                          outlinedFunctions);
 
+  if (!enableCoroutines)
+    asyncPatterns.add<RuntimeDCE>(ctx);
+
   // Lower assertions to conditional branches into error blocks.
   asyncPatterns.add<AssertOpLowering>(ctx, outlinedFunctions);
 
@@ -791,7 +923,8 @@ void AsyncToAsyncRuntimePass::runOnOperation() {
   ConversionTarget runtimeTarget(*ctx);
   runtimeTarget.addLegalDialect<AsyncDialect>();
   runtimeTarget.addIllegalOp<CreateGroupOp, AddToGroupOp>();
-  runtimeTarget.addIllegalOp<ExecuteOp, AwaitOp, AwaitAllOp, async::YieldOp>();
+  runtimeTarget
+      .addIllegalOp<LaunchOp, ExecuteOp, AwaitOp, AwaitAllOp, YieldOp>();
 
   // Decide if structured control flow has to be lowered to branch-based CFG.
   runtimeTarget.addDynamicallyLegalDialect<scf::SCFDialect>([&](Operation *op) {
@@ -825,6 +958,3 @@ void AsyncToAsyncRuntimePass::runOnOperation() {
   }
 }
 
-std::unique_ptr<OperationPass<ModuleOp>> mlir::createAsyncToAsyncRuntimePass() {
-  return std::make_unique<AsyncToAsyncRuntimePass>();
-}
