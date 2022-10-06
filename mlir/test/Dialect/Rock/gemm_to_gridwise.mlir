@@ -92,10 +92,10 @@ func.func @gemm_transposed_from_gridwise(%a: memref<1x128x72xf32>, %b: memref<1x
 // kPack shouldn't be applied this early, but the xdlops gemm implementation currently
 // expects that. Remove this test in the future
 // CHECK-LABEL: func.func @gemm_kpack
-// CHECK-SAME: (%[[a:.*]]: memref<1x72x128xf32>, %[[b:.*]]: memref<1x72x512xf32>, %[[c:.*]]: memref<1x128x512xf32>)
-func.func @gemm_kpack(%a: memref<1x72x128xf32>, %b: memref<1x72x512xf32>, %c: memref<1x128x512xf32>) {
-  // CHECK-DAG: %[[kpackA:.*]] = rock.transform %[[a]] by {{.*}} : memref<1x72x128xf32> to memref<1x18x128x4xf32{{.*}}>
-  // CHECK-DAG: %[[kpackB:.*]] = rock.transform %[[b]] by {{.*}} : memref<1x72x512xf32> to memref<1x18x512x4xf32{{.*}}>
+// CHECK-SAME: (%[[a:.*]]: memref<1x80x128xf32>, %[[b:.*]]: memref<1x80x512xf32>, %[[c:.*]]: memref<1x128x512xf32>)
+func.func @gemm_kpack(%a: memref<1x80x128xf32>, %b: memref<1x80x512xf32>, %c: memref<1x128x512xf32>) {
+  // CHECK-DAG: %[[kpackA:.*]] = rock.transform %[[a]] by {{.*}} : memref<1x80x128xf32> to memref<1x20x128x4xf32{{.*}}>
+  // CHECK-DAG: %[[kpackB:.*]] = rock.transform %[[b]] by {{.*}} : memref<1x80x512xf32> to memref<1x20x512x4xf32{{.*}}>
   // CHECK-NEXT: rock.gridwise_gemm_v2(%[[kpackA]], %[[kpackB]], %[[c]])
   rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add storeMethod = set {
     arch = "gfx908",
@@ -103,6 +103,6 @@ func.func @gemm_kpack(%a: memref<1x72x128xf32>, %b: memref<1x72x512xf32>, %c: me
     gridSize = 4 : i32,
     numCu = 64 : i32,
     params = #xdlops_gemm_params1
-  } : memref<1x128x512xf32> = memref<1x72x128xf32> * memref<1x72x512xf32>
+  } : memref<1x128x512xf32> = memref<1x80x128xf32> * memref<1x80x512xf32>
   func.return
 }

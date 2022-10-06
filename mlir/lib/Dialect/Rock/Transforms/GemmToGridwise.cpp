@@ -136,24 +136,6 @@ static Value applyKpack(Value matrix, int64_t kpack,
   return b.create<TransformOp>(loc, matrix, addKpackAttr);
 }
 
-/// Copy heuristic vector lengths from gemm to gridwise gemm.
-/// TODO: remove this once both xdlops and non-xdlops gemm use the new
-/// vectorization scheme
-static void maybeSetAttr(StringRef attr, Operation *from, Operation *to) {
-  Attribute maybeValue = from->getAttr(attr);
-  if (maybeValue)
-    to->setAttr(attr, maybeValue);
-}
-static void affixGridwiseGemmAttributes(GemmOp src, Operation *dest) {
-  maybeSetAttr("matrix_a_source_data_per_read", src, dest);
-  maybeSetAttr("matrix_a_source_vector_read_dim", src, dest);
-  maybeSetAttr("matrix_b_source_data_per_read", src, dest);
-  maybeSetAttr("matrix_b_source_vector_read_dim", src, dest);
-  maybeSetAttr("matrix_c_data_per_copy", src, dest);
-  maybeSetAttr("matrix_c_dest_vector_write_dim", src, dest);
-  maybeSetAttr("matrix_c_source_vector_read_dim", src, dest);
-}
-
 LogicalResult
 GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                     ConversionPatternRewriter &rw) const {
@@ -199,16 +181,13 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     return op.emitOpError("grid size must be set at lowering");
   if (isXdlops) {
     // Onne the attribute copies are gone, make this a replaceOp
-    auto gridwise = rw.create<GridwiseGemmV2Op>(
-        loc, a, b, c, op.getStoreMethodAttr(), op.getArchAttr(), blockSize,
-        gridSize, params.cast<XdlopsGemmParamsAttr>());
-    affixGridwiseGemmAttributes(op, gridwise);
+    rw.create<GridwiseGemmV2Op>(loc, a, b, c, op.getStoreMethodAttr(),
+                                op.getArchAttr(), blockSize, gridSize,
+                                params.cast<XdlopsGemmParamsAttr>());
     rw.eraseOp(op);
   } else {
-    auto gridwise = rw.create<GridwiseGemmOp>(
-        loc, a, b, c, op.getArchAttr(), blockSize, gridSize,
-        params.cast<GeneralGemmParamsAttr>());
-    affixGridwiseGemmAttributes(op, gridwise);
+    rw.create<GridwiseGemmOp>(loc, a, b, c, op.getArchAttr(), blockSize,
+                              gridSize, params.cast<GeneralGemmParamsAttr>());
     rw.eraseOp(op);
   }
   return success();

@@ -250,7 +250,9 @@ func.func @rock_conv2d_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<2
     numCu = 120 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
-    perf_config = "64,256,8,64,64,4,1,1",
+    // Restore this once the kPack + padding support works
+    // perf_config = "64,256,8,64,64,4,1,1",
+    perf_config = "64,256,8,64,64,1,1,1",
     strides = [2 : i32, 2 : i32]
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
@@ -309,7 +311,9 @@ func.func @rock_conv2d_bwd_data_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1:
     numCu = 120 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
-    perf_config = "16,128,8,16,64,4,1,1",
+    // Restore once kPack + padding work
+    // perf_config = "16,128,8,16,64,4,1,1",
+    perf_config = "16,128,8,16,64,1,1,1",
     strides = [2 : i32, 2 : i32]
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
