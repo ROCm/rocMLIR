@@ -136,20 +136,23 @@ class RockAsyncLaunchPass
   }
 
 public:
-  // Replaces synchronous GPU ops in the op's region with asynchronous ones and
-  // inserts the necessary synchronization (as gpu.wait ops). Assumes sequential
-  // execution semantics and that no GPU ops are asynchronous yet.
+  // Replaces synchronous call ops in the op's region with asynchronous ones and
+  // inserts the necessary synchronization (as async.await ops). Assumes
+  // sequential execution semantics and that no asynchronous ops yet.
   void runOnOperation() override {
-    auto walker = [this](Block *block) {
-      for (Operation &op : make_early_inc_range(*block)) {
-        if (failed(visit(&op)))
-          return WalkResult::interrupt();
-      }
-      return WalkResult::advance();
-    };
+    func::FuncOp func = getOperation();
+    if (!func->hasAttr("kernel")) {
+      auto walker = [this](Block *block) {
+        for (Operation &op : make_early_inc_range(*block)) {
+          if (failed(visit(&op)))
+            return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      };
 
-    if (getOperation()->walk(walker).wasInterrupted())
-      return signalPassFailure();
+      if (getOperation()->walk(walker).wasInterrupted())
+        signalPassFailure();
+    }
   }
 };
 } // namespace

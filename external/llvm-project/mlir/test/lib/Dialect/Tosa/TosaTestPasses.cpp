@@ -231,18 +231,18 @@ public:
     ModuleOp module = getOperation();
     PassManager pm(module.getContext(), mlir::PassManager::Nesting::Implicit);
     if (defaultCase) {
-      pm.addPass(createTosaPartitionPass());
+      pm.addPass(createTosaPartition());
     } else if (depthwiseOnly) {
       SmallVector<std::string> anchors = {"tosa.depthwise_conv2d"};
       TosaPartitionOptions options;
       options.anchorOps = anchors;
-      pm.addPass(createTosaPartitionPass(options));
+      pm.addPass(createTosaPartition(options));
     } else if (convOnly) {
       SmallVector<std::string> anchors = {"tosa.conv2d"};
       TosaPartitionOptions options;
       options.anchorOps = anchors;
       options.partitionTagOpt = "four";
-      pm.addPass(createTosaPartitionPass(options));
+      pm.addPass(createTosaPartition(options));
     } else if (attrOne) {
       // TODO: Once list options can have defaults, use that
       SmallVector<std::string> anchors = {"tosa.conv2d", "tosa.matmul",
@@ -250,14 +250,14 @@ public:
       TosaPartitionOptions options;
       options.anchorOps = anchors;
       options.partitionTagOpt = "one";
-      pm.addPass(createTosaPartitionPass(options));
+      pm.addPass(createTosaPartition(options));
     } else if (nofrontArg) {
       SmallVector<std::string> anchors = {"tosa.depthwise_conv2d"};
       TosaPartitionOptions options;
       options.anchorOps = anchors;
       options.trailingOnly = true;
       options.partitionTagOpt = "three";
-      pm.addPass(createTosaPartitionPass(options));
+      pm.addPass(createTosaPartition(options));
     }
 
     if (failed(pm.run(module)))

@@ -1851,7 +1851,11 @@ struct GridwiseGemmV2RewritePattern
 
     // Logic to do XDLOPS code selection.
     XdlopsCodeSelection xcs =
-        XdlopsCodeSelection::get(elementType, MPerWave, NPerWave, b);
+        XdlopsCodeSelection::get(elementType, MPerWave, NPerWave);
+    if (!xcs.isValid(KPack, KPerBlock)) {
+      LLVM_DEBUG(llvm::dbgs() << "XdlopsCodeSelection is not valid.\n");
+      return failure();
+    }
 
     // Extract values from XdlopsCodeSelection.
     int64_t MRepeats = xcs.MRepeats;
@@ -1869,7 +1873,6 @@ struct GridwiseGemmV2RewritePattern
     int64_t m = xcs.mfmaNonKDim;
     // Note n has the 4x4 => 4x64 behavior that necessitated inputSpansPerMfmaIn
     int64_t n = xcs.inputSpanLen;
-    int64_t k_base = xcs.k_base;
 
     int64_t blocksPerRepeat = (mPerRepeat * nPerRepeat) / (m * n);
     // -----
@@ -1903,17 +1906,6 @@ struct GridwiseGemmV2RewritePattern
                              : (KPerBlock / inputSpansPerMfmaIn * NRepeats);
     Type arrayAType, arrayBType;
     if (KPack > 1) {
-      // Should pack at least k_base elements and avoid waste xdlopsgemm
-      // cycles
-      if (KPack < k_base) {
-        return failure();
-      }
-
-      // When reduction, KPerBlock must be at least num_input_blks
-      if (IsKReduction && KPerBlock < inputSpansPerMfmaIn) {
-        return failure();
-      }
-
       arrayAType =
           MemRefType::get({arrayASize}, VectorType::get({KPack}, elementType),
                           {}, gpu::GPUDialect::getPrivateAddressSpace());
@@ -1921,16 +1913,6 @@ struct GridwiseGemmV2RewritePattern
           MemRefType::get({arrayBSize}, VectorType::get({KPack}, elementType),
                           {}, gpu::GPUDialect::getPrivateAddressSpace());
     } else {
-      // When non-reduction, KPerBlock must be at least k_base
-      if (!IsKReduction && KPerBlock < k_base) {
-        return failure();
-      }
-
-      // When reduction, KPerBlock must be at least k_base * num_input_blks
-      if (IsKReduction && KPerBlock < k_base * inputSpansPerMfmaIn) {
-        return failure();
-      }
-
       arrayAType = MemRefType::get({arrayASize}, elementType, {},
                                    gpu::GPUDialect::getPrivateAddressSpace());
       arrayBType = MemRefType::get({arrayBSize}, elementType, {},
@@ -2233,6 +2215,7 @@ struct GridwiseGemmV2RewritePattern
     return success();
   }
 };
+
 } // end anonymous namespace
 
 void RockGridwiseGemmToBlockwisePass::runOnOperation() {

@@ -113,32 +113,68 @@ template <typename T> std::string genDebugForParams(T params) {
 }
 
 template <typename InitParamType> class BasePopulateParams {
+private:
+  struct InitParamData {
+    InitParamType paramSet;
+    size_t original_pos;
+    int64_t padding_amount;
+
+    bool operator<(const InitParamData &rhs) {
+      if (this->padding_amount < rhs.padding_amount) {
+        return true;
+      } else if (this->padding_amount == rhs.padding_amount) {
+        if (this->original_pos < rhs.original_pos) {
+          return true;
+        }
+        return false;
+      }
+      return false;
+    }
+  };
+
+  std::vector<InitParamData>
+  createParamData(const ArrayRef<InitParamType> &initParams,
+                  const GemmSize &gemmSize) {
+    std::vector<InitParamData> res;
+    for (size_t pos = 0; pos < initParams.size(); pos++) {
+      InitParamType paramSet = initParams[pos];
+      InitParamData paramData;
+      paramData.paramSet = paramSet;
+      paramData.original_pos = pos;
+      paramData.padding_amount = calculatePaddingAmount(paramSet, gemmSize);
+      assert(paramData.original_pos >= 0);
+      assert(paramData.padding_amount >= 0);
+      res.push_back(paramData);
+    }
+    return res;
+  }
+
 protected:
   // Interface function to check whether the given GEMM is valid
   virtual LogicalResult isValidGemm(const InitParamType &param,
                                     const GemmSize &gemmSize) const = 0;
 
+  // Interface function to calculate padding amount of a given param set
+  virtual int64_t calculatePaddingAmount(const InitParamType &params,
+                                         const GemmSize &gemmSize) const = 0;
+
   // This function will order the initParams used in a non-tuning flow to
   // prioritize params that does not require padding to come first while
   // otherwise maintaining the provided order.
-  // TODO(@manupak) : improve this to order based on amount of padding added.
   std::vector<InitParamType>
   orderInitParams(const ArrayRef<InitParamType> &initParams,
                   const GemmSize &gemmSize) {
-    std::vector<InitParamType> paddingRequiredParams;
-    std::vector<InitParamType> paddingNotRequiredParams;
-    for (const InitParamType &param : initParams) {
-      if (isValidGemm(param, gemmSize).succeeded()) {
-        paddingNotRequiredParams.emplace_back(param);
-      } else {
-        paddingRequiredParams.emplace_back(param);
-      }
-    }
+    std::vector<InitParamData> initParamData =
+        createParamData(initParams, gemmSize);
+    std::sort(initParamData.begin(), initParamData.end());
+
     std::vector<InitParamType> orderedParams;
-    std::move(paddingNotRequiredParams.begin(), paddingNotRequiredParams.end(),
-              std::back_inserter(orderedParams));
-    std::move(paddingRequiredParams.begin(), paddingRequiredParams.end(),
-              std::back_inserter(orderedParams));
+    orderedParams.resize(initParams.size());
+    std::transform(initParamData.begin(), initParamData.end(),
+                   orderedParams.begin(),
+                   [](InitParamData paramData) -> InitParamType {
+                     return paramData.paramSet;
+                   });
     return orderedParams;
   }
 
@@ -175,13 +211,16 @@ public:
                                        InitParamsNonXDL &validParams,
                                        uint32_t &gridSize);
 
-  ArrayRef<InitParamsNonXDL> getTuningParameters(ConvOpType dir,
-                                                 Type dataType) const;
+  std::vector<InitParamsNonXDL> getTuningParameters(ConvOpType dir,
+                                                    Type dataType) const;
 
   const InitParams &getUniversalParameters() const;
 
   LogicalResult isValidGemm(const InitParamsNonXDL &param,
                             const GemmSize &gemmSize) const override;
+
+  int64_t calculatePaddingAmount(const InitParamsNonXDL &params,
+                                 const GemmSize &gemmSize) const override;
 };
 
 class PopulateParamsXDL : public BasePopulateParams<InitParamsXDL> {
@@ -232,12 +271,15 @@ public:
                                        uint32_t &blockSize, uint32_t &gridSize,
                                        int64_t &gemmKBlocks);
 
-  ArrayRef<InitParamsXDL> getTuningParameters(ConvOpType dir,
-                                              Type dataType) const;
+  std::vector<InitParamsXDL> getTuningParameters(ConvOpType dir,
+                                                 Type dataType) const;
   const InitParams &getUniversalParameters() const;
 
   LogicalResult isValidGemm(const InitParamsXDL &param,
                             const GemmSize &gemmSize) const override;
+
+  int64_t calculatePaddingAmount(const InitParamsXDL &params,
+                                 const GemmSize &gemmSize) const override;
 };
 
 // This core function to calculate the required padding amount

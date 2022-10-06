@@ -37,7 +37,11 @@ void buildModelPipeline(OpPassManager &pm,
 struct RunnerOptions : public PassPipelineOptions<RunnerOptions> {
 
   PassOptions::Option<bool> cpuOnly{
-      *this, "cpu-only", desc("Generate CPU-only code "), init(false)};
+      *this, "cpu-only", desc("Generate CPU-only code"), init(false)};
+
+  PassOptions::Option<bool> enableCoroutines{
+      *this, "enable-coroutines", desc("Generate coroutines in CPU execution"),
+      init(false)};
 
   PassOptions::Option<bool> barePtrMemrefs{
       *this, "bare-ptr-memref-kernels",

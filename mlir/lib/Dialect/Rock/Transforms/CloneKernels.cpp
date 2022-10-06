@@ -46,8 +46,14 @@ struct RockCloneKernelsPass
     if (mod->hasAttr(kernel))
       return;
 
+    SmallVector<func::FuncOp, 8> kernelFuncs;
+    for (auto func : mod.getOps<func::FuncOp>()) {
+      if (func->hasAttr("kernel"))
+        kernelFuncs.push_back(func);
+    }
+
     for (auto chip : chips) {
-      SmallString<32> modName(Twine("__kernel_", chip).str());
+      SmallString<32> modName(Twine("__kernel_module_", chip).str());
 
       auto *ctx = &getContext();
       auto kernelMod = mod.lookupSymbol<ModuleOp>(modName);
@@ -65,18 +71,21 @@ struct RockCloneKernelsPass
       }
       SymbolTable symbolTable(kernelMod);
 
-      for (auto func : mod.getOps<func::FuncOp>()) {
-        if (func->hasAttr("kernel")) {
-          // clone the func
-          auto kernelFunc = func.clone();
-          kernelFunc->setAttr("original_func", SymbolRefAttr::get(func));
+      for (auto func : kernelFuncs) {
+        // clone the func
+        auto kernelFunc = func.clone();
+        kernelFunc->setAttr("original_func", SymbolRefAttr::get(func));
 
-          // add the KERNELModuleOp into the symbol table.
-          symbolTable.insert(kernelFunc);
+        // add the KERNELModuleOp into the symbol table.
+        symbolTable.insert(kernelFunc);
 
-          // TODO: also find all calls and import callee
-        }
+        // TODO: also find all calls and import callee
       }
+    }
+
+    // remove kernel attribute from kernelFuncs
+    for (auto func : kernelFuncs) {
+      func->removeAttr("kernel");
     }
   }
 };

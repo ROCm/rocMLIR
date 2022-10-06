@@ -1,5 +1,6 @@
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/XdlopsCodeSelection.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GemmContext.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
@@ -173,6 +174,7 @@ LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
 
   return success();
 }
+
 LogicalResult PopulateParams::populateDerived(ConvolutionContext &ctx,
                                               const InitParamsNonXDL &params,
                                               GemmSize &gemmSize,
@@ -250,7 +252,7 @@ LogicalResult PopulateParams::obtainTuningParameters(
 
   // Backup path: Use the set of default tuning parameters
   LogicalResult res = failure();
-  ArrayRef<InitParamsNonXDL> paramSets =
+  std::vector<InitParamsNonXDL> paramSets =
       getTuningParameters(ctx.getOpType(), ctx.getDataType());
   for (auto &params : orderInitParams(paramSets, gemmSize)) {
     // We have an override on the blockSize, only loop through the
@@ -271,9 +273,10 @@ LogicalResult PopulateParams::obtainTuningParameters(
   return res;
 }
 
-ArrayRef<InitParamsNonXDL>
+std::vector<InitParamsNonXDL>
 PopulateParams::getTuningParameters(ConvOpType dir, Type dataType) const {
-  return {initParameters, nInitParameters};
+  ArrayRef<InitParamsNonXDL> params = {initParameters, nInitParameters};
+  return std::vector<InitParamsNonXDL>(params);
 }
 
 const InitParams &PopulateParams::getUniversalParameters() const {
@@ -288,6 +291,39 @@ LogicalResult PopulateParams::isValidGemm(const InitParamsNonXDL &param,
     return failure();
   }
   return success();
+}
+
+static int64_t calculatePaddingComplexity(const GemmContext &paddingAmount,
+                                          const GemmSize &gemmSize) {
+  int64_t nonPaddedComplexity =
+      gemmSize.gemmM * gemmSize.gemmK * gemmSize.gemmN;
+  int64_t paddedComplexity = (gemmSize.gemmM + paddingAmount.m) *
+                             (gemmSize.gemmK + paddingAmount.k) *
+                             (gemmSize.gemmN + paddingAmount.n);
+  return paddedComplexity - nonPaddedComplexity;
+}
+
+int64_t PopulateParams::calculatePaddingAmount(const InitParamsNonXDL &params,
+                                               const GemmSize &gemmSize) const {
+  Optional<GemmContext> maybeGemmExtraPad =
+      calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
+                       params.gemmNPerBlock, gemmSize);
+  if (maybeGemmExtraPad.has_value()) {
+    return calculatePaddingComplexity(maybeGemmExtraPad.value(), gemmSize);
+  }
+  return 0;
+}
+
+int64_t
+PopulateParamsXDL::calculatePaddingAmount(const InitParamsXDL &params,
+                                          const GemmSize &gemmSize) const {
+  Optional<GemmContext> maybeGemmExtraPad =
+      calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
+                       params.gemmNPerBlock, gemmSize, params.gemmKPack);
+  if (maybeGemmExtraPad.has_value()) {
+    return calculatePaddingComplexity(maybeGemmExtraPad.value(), gemmSize);
+  }
+  return 0;
 }
 
 /// Xdlops
@@ -554,7 +590,7 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
 #endif // MLIR_ENABLE_SQLITE
 
   LogicalResult res = failure();
-  ArrayRef<InitParamsXDL> paramSets =
+  std::vector<InitParamsXDL> paramSets =
       getTuningParameters(ctx.getOpType(), ctx.getDataType());
   for (const auto &params : orderInitParams(paramSets, gemmSize)) {
     blockSize = obtainBlockSize(params, waveSize);
@@ -581,13 +617,23 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
   return res;
 }
 
-ArrayRef<InitParamsXDL>
+std::vector<InitParamsXDL>
 PopulateParamsXDL::getTuningParameters(ConvOpType dir, Type dataType) const {
+  ArrayRef<InitParamsXDL> params;
   if (dataType.isInteger(8)) {
-    return {initParametersForwardI8, nInitParametersForwardI8};
+    params = {initParametersForwardI8, nInitParametersForwardI8};
+  } else {
+    params = {initParameters, nInitParameters};
   }
-
-  return {initParameters, nInitParameters};
+  std::vector<InitParamsXDL> res;
+  // Only return valid XDLOp params
+  std::copy_if(params.begin(), params.end(), std::back_inserter(res),
+               [&](const InitParamsXDL &param) {
+                 return XdlopsCodeSelection::get(dataType, param.gemmMPerWave,
+                                                 param.gemmNPerWave)
+                     .isValid(param.gemmKPack, param.gemmKPerBlock);
+               });
+  return res;
 }
 
 const InitParams &PopulateParamsXDL::getUniversalParameters() const {
