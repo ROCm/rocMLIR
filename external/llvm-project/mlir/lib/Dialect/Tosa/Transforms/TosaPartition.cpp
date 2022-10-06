@@ -641,4 +641,3 @@ void TosaPartitionPass::runOnOperation() {
     }
   }
 }
-
