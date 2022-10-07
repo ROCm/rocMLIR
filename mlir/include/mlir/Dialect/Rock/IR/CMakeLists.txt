@@ -10,3 +10,4 @@ mlir_tablegen(RockAttrDefs.h.inc -gen-attrdef-decls)
 mlir_tablegen(RockAttrDefs.cpp.inc -gen-attrdef-defs)
 add_public_tablegen_target(MLIRRockAttrDefsIncGen)
 
+add_mlir_interface(RockGemmWrapperInterface)

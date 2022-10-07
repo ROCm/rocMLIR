@@ -8,6 +8,7 @@ add_mlir_dialect_library(MLIRRockOps
 
   DEPENDS
   MLIRRockAttrDefsIncGen
+  MLIRRockGemmWrapperInterfaceIncGen
   MLIRRockOpsIncGen
   )
 target_link_libraries(MLIRRockOps

@@ -14,6 +14,8 @@
 #define ROCK_OPS
 
 include "mlir/Dialect/Rock/IR/RockAttrDefs.td"
+include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
+
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
 include "mlir/Interfaces/LoopLikeInterface.td"
@@ -61,7 +63,7 @@ def Rock_TensorConv2DOp :
 
 
 def Rock_Conv2DOp :
-    Rock_Op<"conv2d">,
+    Rock_Op<"conv2d", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>]>,
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [5]>:$filter,
                    MemRefRankOf<[F32, F16, BF16, I8], [5]>:$input,
                    MemRefRankOf<[F32, F16, BF16, I32], [5]>:$output,
@@ -82,7 +84,7 @@ def Rock_Conv2DOp :
 }
 
 def Rock_Conv2DBwdDataOp :
-    Rock_Op<"conv2d_bwd_data">,
+    Rock_Op<"conv2d_bwd_data", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>]>,
     Arguments<(ins MemRefRankOf<[F32, F16, BF16], [5]>:$filter,
                    MemRefRankOf<[F32, F16, BF16], [5]>:$input,
                    MemRefRankOf<[F32, F16, BF16], [5]>:$output,
@@ -103,7 +105,7 @@ def Rock_Conv2DBwdDataOp :
 }
 
 def Rock_Conv2DBwdWeightOp :
-    Rock_Op<"conv2d_bwd_weight">,
+    Rock_Op<"conv2d_bwd_weight", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>]>,
     Arguments<(ins MemRefRankOf<[F32, F16, BF16], [5]>:$filter,
                    MemRefRankOf<[F32, F16, BF16], [5]>:$input,
                    MemRefRankOf<[F32, F16, BF16], [5]>:$output,
@@ -126,7 +128,8 @@ def Rock_Conv2DBwdWeightOp :
 }
 
 def Rock_GemmOp :
-    Rock_Op<"gemm", [AllElementTypesMatch<["a", "b"]>]>,
+    Rock_Op<"gemm", [AllElementTypesMatch<["a", "b"]>,
+                     DeclareOpInterfaceMethods<RockGemmWrapperInterface>]>,
     Arguments<(ins Arg<MemRefRankOf<[F32, F16, BF16, I8], [2, 3]>,
                        "matrix A", [MemRead]>:$a,
                    Arg<MemRefRankOf<[F32, F16, BF16, I8], [2, 3]>,

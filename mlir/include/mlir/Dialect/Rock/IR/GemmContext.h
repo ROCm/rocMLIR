@@ -11,15 +11,17 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_DIALECT_ROCK_TUNING_GEMMCONTEXT_H
-#define MLIR_DIALECT_ROCK_TUNING_GEMMCONTEXT_H
+#ifndef MLIR_DIALECT_ROCK_IR_GEMMCONTEXT_H
+#define MLIR_DIALECT_ROCK_IR_GEMMCONTEXT_H
 
-#include "mlir/Dialect/Rock/IR/Rock.h"
+#include <cstdint>
 
 namespace mlir {
-class Operation;
 namespace rock {
 struct ConvolutionDims;
+enum class ConvOpType : uint32_t;
+
+/// Structure for holding the sizes of a matrix multiplication operation.
 struct GemmContext {
   int64_t m;
   int64_t k;
@@ -28,9 +30,9 @@ struct GemmContext {
   GemmContext(int64_t m, int64_t k, int64_t n) : m(m), k(k), n(n) {}
 
   /// Compute the gemm size given a convolution type and its dimensions.
-  static GemmContext fromConvolution(ConvOpType type, ConvolutionDims sizes);
+  static GemmContext fromConvolution(ConvOpType type,
+                                     const ConvolutionDims &sizes);
 };
 } // end namespace rock
 } // end namespace mlir
-
-#endif // MLIR_DIALECT_ROCK_TUNING_GEMMCONTEXT_H
+#endif // MLIR_DIALECT_ROCK_IR_GEMMCONTEXT_H

@@ -28,23 +28,6 @@ struct DimIndexAndSize {
   int64_t size;
 };
 
-struct ConvolutionDims {
-  int64_t y;
-  int64_t x;
-  int64_t ho;
-  int64_t wo;
-  int64_t hi;
-  int64_t wi;
-  int64_t k;
-  int64_t c;
-  int64_t n;
-  int64_t g;
-
-  ConvolutionDims(int64_t y, int64_t x, int64_t ho, int64_t wo, int64_t hi,
-                  int64_t wi, int64_t k, int64_t c, int64_t n, int64_t g)
-      : y(y), x(x), ho(ho), wo(wo), hi(hi), wi(wi), k(k), c(c), n(n), g(g) {}
-};
-
 struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
   llvm::SmallString<8> arch;
   int num_cu;
@@ -134,7 +117,6 @@ struct ConvolutionContext : SQLiteSerializable<ConvolutionContext> {
 // Populate ConvContext from a given Convolution Op.
 // TODO(whchung): adopt ConvolutionOp OpTrait check after supporting PR is in.
 ConvolutionContext populateConvContext(Operation *op);
-
 } // namespace rock
 } // namespace mlir
 #endif // MLIR_DIALECT_ROCK_CONVCONTEXT_H

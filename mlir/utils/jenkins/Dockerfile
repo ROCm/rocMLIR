@@ -120,11 +120,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
 
-# --------------------- Section 3: Rock dependencies ---------------
-WORKDIR /RockDepsWork
-RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/Rock/develop/requirements.txt \
-    && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/Rock/develop/install_deps.cmake \
+# --------------------- Section 3: MIOpen dependencies ---------------
+WORKDIR /MIOpenDepsWork
+RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/develop/requirements.txt \
+    && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/develop/install_deps.cmake \
     && sed -i -e '/llvm-project-mlir/d' requirements.txt \
     && cmake -P install_deps.cmake --prefix /usr/local
-RUN echo $(git ls-remote https://github.com/ROCmSoftwarePlatform/Rock HEAD) > rock-deps-commit-hash
+RUN echo $(git ls-remote https://github.com/ROCmSoftwarePlatform/MIOpen HEAD) > rock-deps-commit-hash
 WORKDIR /
