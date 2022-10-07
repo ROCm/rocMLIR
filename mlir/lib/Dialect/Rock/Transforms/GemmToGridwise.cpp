@@ -20,7 +20,7 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
-#include "mlir/Dialect/Rock/IR/GemmContext.h"
+#include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -159,9 +159,10 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   // Note, matrix dimension correctness is handled in the verifier
   ArrayRef<int64_t> aShape = a.getType().cast<MemRefType>().getShape();
   ArrayRef<int64_t> bShape = b.getType().cast<MemRefType>().getShape();
-  GemmContext size(/*m=*/aShape[2], /*k=*/aShape[1], /*n=*/bShape[2]);
-  GemmContext extraPad =
-      requiredPadding(params, size).value_or(GemmContext{0, 0, 0});
+  GemmSize size(/*g=*/aShape[0], /*m=*/aShape[2], /*k=*/aShape[1],
+                /*n=*/bShape[2]);
+  GemmSize extraPad =
+      requiredPadding(params, size).value_or(GemmSize{0, 0, 0, 0});
 
   a = padMatrix(a, rw, loc, "gemmK", extraPad.k, "gemmM", extraPad.m);
   b = padMatrix(b, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);

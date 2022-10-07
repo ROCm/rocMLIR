@@ -338,3 +338,29 @@ func.func @rock_conv2d_bwd_data_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
 }
+
+// CHECK-LABEL: @rock_gemm_from_conv2d
+func.func @rock_gemm_from_conv2d(%a : memref<1x72x128xf32>, %b : memref<1x72x115200xf32>, %c : memref<1x128x115200xf32>) {
+  // CHECK: rock.gemm
+  // CHECK-SAME: blockSize = 256
+  // CHECK-SAME: gridSize = 900
+  // CHECK-SAME: params = #[[$GENERAL_PARAMS_0]]
+  rock.gemm %c = tr %a * %b features = none storeMethod = set {
+    arch = "gfx906",
+    numCu = 64 : i32
+  } : memref<1x128x115200xf32> = memref<1x72x128xf32> * memref<1x72x115200xf32>
+  return
+}
+
+// CHECK-LABEL: func.func @rock_gemm_from_i8_conv2d
+func.func @rock_gemm_from_i8_conv2d(%a : memref<1x72x128xi8>, %b : memref<1x72x115200xi8>, %c : memref<1x128x115200xi32>) {
+  // CHECK: rock.gemm
+  // CHECK-SAME: blockSize = 256
+  // CHECK-SAME: gridSize = 3600
+  // CHECK-SAME: params = #[[$XDLOPS_PARAMS_0]]
+  rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add storeMethod = set {
+    arch = "gfx908",
+    numCu = 120 : i32
+  } : memref<1x128x115200xi32> = memref<1x72x128xi8> * memref<1x72x115200xi8>
+  return
+}
