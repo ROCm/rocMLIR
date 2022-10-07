@@ -21,11 +21,11 @@
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/GemmContext.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
-#include "mlir/Dialect/Rock/Tuning/GemmContext.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/UtilityParams.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
@@ -816,7 +816,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     }
 
     Attribute tuningParams = op.getParamsAttr();
-    GemmContext gemmSize = GemmContext::fromConvolution(convOpType, convDims);
+    GemmContext gemmSize = op.getGemmSize();
     Optional<GemmContext> maybeGemmExtraPad;
 
     if (tuningParams) {
