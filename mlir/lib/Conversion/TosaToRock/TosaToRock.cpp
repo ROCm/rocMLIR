@@ -76,7 +76,7 @@ static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
   return rw.create<rock::TransformOp>(loc, operand, transform.get());
 }
 
-static FailureOr<rock::TensorConv2DOp>
+static FailureOr<rock::Conv2DOp>
 makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
                StringRef inputLayout, Value filter, StringRef filterLayout,
                Value output, StringRef outputLayout, const ArrayAttr &pad,
@@ -116,7 +116,7 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   rock::GemmFeatures features = archInfo.defaultFeatures;
   if (xdlopsV2.has_value())
     features = rock::bitEnumSet(features, rock::GemmFeatures::mfma, *xdlopsV2);
-  auto cop = rw.create<rock::TensorConv2DOp>(
+  auto cop = rw.create<rock::Conv2DOp>(
       loc, outputExp.getType(), filterExp, inputExp, outputExp,
       rw.getStringAttr(chip), rw.getI32IntegerAttr(num_cu),
       rw.getAttr<rock::GemmFeaturesAttr>(features),
@@ -204,7 +204,7 @@ public:
     if (auto attr = op->getAttrOfType<StringAttr>("output_layout"))
       outputLayout = Twine(attr.getValue() + "g").str();
 
-    FailureOr<rock::TensorConv2DOp> rockConv = makeRockConv2D(
+    FailureOr<rock::Conv2DOp> rockConv = makeRockConv2D(
         rw, op, input, inputLayout, filter, filterLayout, output, outputLayout,
         op.getPad(), op.getStride(), op.getDilation());
     if (failed(rockConv))
@@ -273,7 +273,7 @@ public:
     auto one = rw.getIndexAttr(1);
     auto ones = rw.getArrayAttr({one, one});
 
-    FailureOr<rock::TensorConv2DOp> rockConv = makeRockConv2D(
+    FailureOr<rock::Conv2DOp> rockConv = makeRockConv2D(
         rw, op, A, ALayout, B, BLayout, C, CLayout, pad, ones, ones);
     if (failed(rockConv))
       return failure();

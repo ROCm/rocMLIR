@@ -38,103 +38,92 @@ def ArgTransformsAttr : TypedArrayAttrBase<TransformMapArrayAttr,
 
 class ArgTransforms<int n> : ConfinedAttr<ArgTransformsAttr, [ArrayCount<n>]>;
 
-def Rock_TensorConv2DOp :
-    Rock_Op<"tensor_conv2d", [AllTypesMatch<["output", "result"]>]>,
-    Arguments<(ins TensorRankOf<[F32, F16, BF16, I8], [5]>:$filter,
-                   TensorRankOf<[F32, F16, BF16, I8], [5]>:$input,
-                   TensorRankOf<[F32, F16, BF16, I32], [5]>:$output,
+class TensorOrMemRefRankOf<list<Type> allowedTypes, list<int> ranks> :
+  AnyTypeOf<[TensorRankOf<allowedTypes, ranks>,
+             MemRefRankOf<allowedTypes, ranks>],
+             /*summary=*/"",
+             "::mlir::ShapedType">;
+
+
+def Rock_Conv2DOp :
+    Rock_Op<"conv2d", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>]>,
+    Arguments<(ins TensorOrMemRefRankOf<[F32, F16, BF16, I8], [5]>:$filter,
+                   TensorOrMemRefRankOf<[F32, F16, BF16, I8], [5]>:$input,
+                   TensorOrMemRefRankOf<[F32, F16, BF16, I32], [5]>:$output,
                    StrAttr:$arch,
                    I32Attr:$numCu,
                    Rock_GemmFeaturesAttr:$features,
                    OptionalAttr<I32Attr>:$blockSize,
                    OptionalAttr<I32Attr>:$gridSize,
                    Rock_OptionalGemmParams:$params)>,
-    Results<(outs TensorRankOf<[F32, F16, BF16, I32], [5]>:$result)> {
-  let summary = "2D convolution forward, tensor version";
-  let description = [{
-    The `rock.tensor_conv2d` op computes 2D convolution forward.
-    TEMPORARY HACK: we'll make the conv operators all tensor ops later or something
-    No, seriously, TEMPORARY HACK!
-  }];
-  let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features attr-dict `:` type($filter) `,` type($input) `,` type($output)
-  }];
-}
-
-
-def Rock_Conv2DOp :
-    Rock_Op<"conv2d", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>]>,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [5]>:$filter,
-                   MemRefRankOf<[F32, F16, BF16, I8], [5]>:$input,
-                   MemRefRankOf<[F32, F16, BF16, I32], [5]>:$output,
-                   StrAttr:$arch,
-                   I32Attr:$numCu,
-                   Rock_GemmFeaturesAttr:$features,
-                   OptionalAttr<I32Attr>:$blockSize,
-                   OptionalAttr<I32Attr>:$gridSize,
-                   Rock_OptionalGemmParams:$params)> {
+    Results<(outs Optional<AnyRankedTensor>:$result)> {
   let summary = "2D convolution forward";
   let description = [{
     The `rock.conv2d` op computes 2D convolution forward.
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
+    `(` operands `)` `features` `=` $features attr-dict
+    `:` type(operands) (`->` type($result)^)?
   }];
 }
 
 def Rock_Conv2DBwdDataOp :
     Rock_Op<"conv2d_bwd_data", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>]>,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [5]>:$filter,
-                   MemRefRankOf<[F32, F16, BF16], [5]>:$input,
-                   MemRefRankOf<[F32, F16, BF16], [5]>:$output,
+    Arguments<(ins TensorOrMemRefRankOf<[F32, F16, BF16], [5]>:$filter,
+                   TensorOrMemRefRankOf<[F32, F16, BF16], [5]>:$input,
+                   TensorOrMemRefRankOf<[F32, F16, BF16], [5]>:$output,
                    StrAttr:$arch,
                    I32Attr:$numCu,
                    Rock_GemmFeaturesAttr:$features,
                    OptionalAttr<I32Attr>:$blockSize,
                    OptionalAttr<I32Attr>:$gridSize,
-                   Rock_OptionalGemmParams:$params)> {
+                   Rock_OptionalGemmParams:$params)>,
+    Results<(outs Optional<AnyRankedTensor>:$result)> {
   let summary = "2D convolution backward data";
   let description = [{
     The `rock.conv2d_bwd_data` op computes 2D convolution backward data.
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
+    `(` operands `)` `features` `=` $features attr-dict
+    `:` type(operands) (`->` type($result)^)?
   }];
 }
 
 def Rock_Conv2DBwdWeightOp :
     Rock_Op<"conv2d_bwd_weight", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>]>,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16], [5]>:$filter,
-                   MemRefRankOf<[F32, F16, BF16], [5]>:$input,
-                   MemRefRankOf<[F32, F16, BF16], [5]>:$output,
-                   Optional<MemRefRankOf<[F32], [5]>>:$workspace,
+    Arguments<(ins TensorOrMemRefRankOf<[F32, F16, BF16], [5]>:$filter,
+                   TensorOrMemRefRankOf<[F32, F16, BF16], [5]>:$input,
+                   TensorOrMemRefRankOf<[F32, F16, BF16], [5]>:$output,
+                   Optional<TensorOrMemRefRankOf<[F32], [5]>>:$workspace,
                    StrAttr:$arch,
                    I32Attr:$numCu,
                    Rock_GemmFeaturesAttr:$features,
                    OptionalAttr<I32Attr>:$blockSize,
                    OptionalAttr<I32Attr>:$gridSize,
                    Rock_OptionalGemmParams:$params,
-                   OptionalAttr<IndexAttr>:$kBlocks)> {
+                   OptionalAttr<IndexAttr>:$kBlocks)>,
+    Results<(outs Optional<AnyRankedTensor>:$result)> {
   let summary = "2D convolution backward weight";
   let description = [{
     The `rock.conv2d_bwd_weight` op computes 2D convolution backward weight.
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features attr-dict `:` type(operands)
+    `(` operands `)` `features` `=` $features attr-dict
+    `:` type(operands) (`->` type($result)^)?
   }];
 }
 
 def Rock_GemmOp :
     Rock_Op<"gemm", [AllElementTypesMatch<["a", "b"]>,
                      DeclareOpInterfaceMethods<RockGemmWrapperInterface>]>,
-    Arguments<(ins Arg<MemRefRankOf<[F32, F16, BF16, I8], [2, 3]>,
+    Arguments<(ins Arg<TensorOrMemRefRankOf<[F32, F16, BF16, I8], [2, 3]>,
                        "matrix A", [MemRead]>:$a,
-                   Arg<MemRefRankOf<[F32, F16, BF16, I8], [2, 3]>,
+                   Arg<TensorOrMemRefRankOf<[F32, F16, BF16, I8], [2, 3]>,
                        "matrix B", [MemRead]>:$b,
-                   Arg<MemRefRankOf<[F32, F16, BF16, I32], [2, 3]>,
+                   Arg<TensorOrMemRefRankOf<[F32, F16, BF16, I32], [2, 3]>,
                        "matrix C", [MemRead, MemWrite]>:$c,
                    UnitAttr:$aTransposed,
                    UnitAttr:$bTransposed,
@@ -145,7 +134,8 @@ def Rock_GemmOp :
                    StoreMethodAttr:$storeMethod,
                    OptionalAttr<I32Attr>:$blockSize,
                    OptionalAttr<I32Attr>:$gridSize,
-                   Rock_OptionalGemmParams:$params)> {
+                   Rock_OptionalGemmParams:$params)>,
+    Results<(outs Optional<AnyRankedTensor>:$result)> {
   let summary = "General matrix multiplication (GEMM)";
   let description = [{
     Performs the operation C += A * B.
@@ -170,7 +160,7 @@ def Rock_GemmOp :
   let assemblyFormat = [{
     (`tr` $cTransposed^)? $c `=` (`tr` $aTransposed^)? $a `*` (`tr` $bTransposed^)? $b
     `features` `=` $features `storeMethod` `=` $storeMethod attr-dict
-    `:` type($c) `=` type($a) `*` type($b)
+    `:` type($c) `=` type($a) `*` type($b) (`->` type($result)^)?
   }];
 }
 
