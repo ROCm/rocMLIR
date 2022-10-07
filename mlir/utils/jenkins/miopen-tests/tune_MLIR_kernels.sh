@@ -22,24 +22,44 @@ printUsage() {
     echo "  Run a single config with direction=fwd, dtype=fp16, layout=NHWC with tuning and logging on"
 }
 
-ROCMLIR_DIR=~/rocMLIR
+ROCMLIR_DIR=$(git rev-parse --show-toplevel || echo "${HOME}/rocMLIR/")
 WORKSPACE=${ROCMLIR_DIR}
 MIOPEN_DIR=${WORKSPACE}/MIOpen
 DRIVER="${MIOPEN_DIR}/build/bin/MIOpenDriver"
 CONFIG_POOL=${ROCMLIR_DIR}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs
+JENKINSFILE=${WORKSPACE}/mlir/utils/jenkins/Jenkinsfile
+
+getMIOpenBranchName() {
+    # get MIOpen branch name from the "git branch" field in
+    # getAndBuildMIOpen() function in Jenkinsfile
+    result=$(grep "git branch:" ${JENKINSFILE} | head -n 1)
+    result=${result#*git branch:\ *\'}
+    result=${result%%\',*}
+    echo "$result"
+}
 
 gitCheckoutMIOpen() {
     cd ${ROCMLIR_DIR}
-    echo ">>> git clone MIOpen@fix-kernel-count-MLIR"
-    git clone -b fix-kernel-count-MLIR https://github.com/ROCmSoftwarePlatform/MIOpen.git
+    miopen_branch=$(getMIOpenBranchName)
+    if [[ -d ${MIOPEN_DIR} ]]; then
+        echo ">>> MIOpen exists, update branch ${miopen_branch}"
+        pushd ${MIOPEN_DIR}
+        git fetch origin
+        git checkout ${miopen_branch}
+        git pull
+        popd
+    else
+        echo ">>> git clone MIOpen@${miopen_branch}"
+        git clone -b ${miopen_branch} https://github.com/ROCmSoftwarePlatform/MIOpen.git
+    fi
 }
 
 buildlibrockCompiler() {
     echo ">>> build librockCompiler"
     cd ${WORKSPACE}
-    rm -f build/CMakeCache.txt
-    cmake . -G Ninja -B build -DBUILD_FAT_LIBROCKCOMPILER=ON
-    cd build
+    rm -f build-static/CMakeCache.txt
+    cmake . -G Ninja -B build-static -DBUILD_FAT_LIBROCKCOMPILER=ON
+    cd build-static
     ninja
     cmake --install . --prefix ${WORKSPACE}/MIOpenDeps
 }
