@@ -198,6 +198,9 @@ pipeline {
         choice(name: 'codepath',
                choices: ['default', 'mfma', 'navi21', 'vanilla'],
                description: 'Choose the codepath to test')
+        // option to disable navi21 cells in case nodes are offline
+        booleanParam(name: 'disableNavi21', defaultValue: false,
+                     description: 'Disable testing on Navi21')
     }
     stages {
         stage("Set System Property") {
@@ -215,6 +218,11 @@ pipeline {
             }
         }
         stage("Build and Test") {
+            when {
+                beforeAgent true
+                // Skip this part of testing as early as possible
+                equals expected: false, actual: params.weekly;
+            }
             matrix {
                 axes {
                     axis {
@@ -241,7 +249,10 @@ pipeline {
                                 allOf {
                                     anyOf {
                                         equals expected: "mfma", actual: "${CODEPATH}";
-                                        equals expected: "navi21", actual: "${CODEPATH}";
+                                        allOf {
+                                            equals expected: "navi21", actual: "${CODEPATH}";
+                                            equals expected: false, actual: params.disableNavi21;
+                                        }
                                     }
                                     equals expected: true, actual: params.canXdlops;
                                 }
@@ -256,7 +267,10 @@ pipeline {
                         allOf {
                             anyOf {
                                 equals expected: "mfma", actual: params.codepath;
-                                equals expected: "navi21", actual: params.codepath;
+                                allOf {
+                                    equals expected: "navi21", actual: params.codepath;
+                                    equals expected: false, actual: params.disableNavi21;
+                                }
                                 equals expected: "vanilla", actual: params.codepath;
                             }
                             equals expected: "${CODEPATH}", actual: params.codepath;
@@ -278,7 +292,6 @@ pipeline {
                         when {
                             beforeAgent true;
                             equals expected: true, actual: params.sharedLib;
-                            equals expected: false, actual: params.weekly;
                         }
                         steps {
                             buildProject('check-mlir check-rocmlir', """
@@ -318,7 +331,6 @@ pipeline {
                             beforeAgent true;
                             equals expected: true, actual: params.staticLib;
                             equals expected: false, actual: params.nightly;
-                            equals expected: false, actual: params.weekly;
                         }
                         environment {
                             // Make libMIOpen.so accessible to the test driver
@@ -630,7 +642,10 @@ pipeline {
                             anyOf {
                                 equals expected: "gfx908", actual: "${CHIP}";
                                 equals expected: "gfx90a", actual: "${CHIP}";
-                                equals expected: "gfx1030", actual: "${CHIP}";
+                                allOf {
+                                    equals expected: "gfx1030", actual: "${CHIP}";
+                                    equals expected: false, actual: params.disableNavi21;
+                                }
                             }
                             equals expected: true, actual: params.canXdlops;
                         }
