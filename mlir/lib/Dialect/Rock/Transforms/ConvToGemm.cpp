@@ -136,22 +136,6 @@ LogicalResult getConvDimNames(T op, SmallVectorImpl<StringRef> &filterNames,
   return success();
 }
 
-// To be removed on migration to new vectorization scheme
-static void maybeSetAttr(StringRef attr, Operation *from, Operation *to) {
-  Attribute maybeValue = from->getAttr(attr);
-  if (maybeValue)
-    to->setAttr(attr, maybeValue);
-}
-void affixGemmAttributes(Operation *convOp, Operation *gop, OpBuilder &b) {
-  maybeSetAttr("matrix_a_source_data_per_read", convOp, gop);
-  maybeSetAttr("matrix_a_source_vector_read_dim", convOp, gop);
-  maybeSetAttr("matrix_b_source_data_per_read", convOp, gop);
-  maybeSetAttr("matrix_b_source_vector_read_dim", convOp, gop);
-  maybeSetAttr("matrix_c_data_per_copy", convOp, gop);
-  maybeSetAttr("matrix_c_dest_vector_write_dim", convOp, gop);
-  maybeSetAttr("matrix_c_source_vector_read_dim", convOp, gop);
-}
-
 /// Create an elementwise utility kernel.
 /// The callback has type (builder, location, collapsedBuffers, coordinate).
 /// Note: you are expected to handle out of bounds, such as by using
@@ -537,7 +521,6 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
       op.getFeaturesAttr(), storeMethod, op.getBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
   gemm->setAttr("gemm_id", gemmIdAttr);
-  affixGemmAttributes(op, gemm, b);
 
   // Finally, erase the original Conv2D op.
   b.eraseOp(op);
@@ -780,7 +763,6 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
       op.getFeaturesAttr(), storeMethod, op.getBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
   gemm->setAttr("gemm_id", gemmIdAttr);
-  affixGemmAttributes(op, gemm, b);
 
   // Finally, erase the original Conv2D op.
   b.eraseOp(op);
@@ -1039,13 +1021,11 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // Emit rock.gemm op.
     auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
-    auto gemm = b.create<GemmOp>(
-        loc, gemmA, gemmB, gemmC,
-        /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-        /*cTransposed=*/nullptr, op.getArchAttr(), op.getNumCuAttr(),
-        op.getFeaturesAttr(), storeMethod, op.getBlockSizeAttr(),
-        op.getGridSizeAttr(), tuningParams);
-    affixGemmAttributes(op, gemm, b);
+    b.create<GemmOp>(loc, gemmA, gemmB, gemmC,
+                     /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
+                     /*cTransposed=*/nullptr, op.getArchAttr(),
+                     op.getNumCuAttr(), op.getFeaturesAttr(), storeMethod,
+                     op.getBlockSizeAttr(), op.getGridSizeAttr(), tuningParams);
 
     // Finally, erase the original Conv2D op.
     b.eraseOp(op);

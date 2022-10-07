@@ -195,8 +195,6 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
   OpBuilder b(op.getContext());
 
   ConvolutionDims dims = obtainConvDims(op);
-  ConvOpType opType = obtainConvDirection(op);
-  GemmContext gemmSize = GemmContext::fromConvolution(opType, dims);
 
   std::string perfConfig;
   if (auto perfConfigAttr =
@@ -207,24 +205,20 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
   if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
     PopulateParamsXDL populateParamsXDL;
     InitParamsXDL validParams;
-    DerivedParams gemmADerivedParam;
-    DerivedParams gemmBDerivedParam;
-    DerivedOutParams gemmCDerivedParam;
     uint32_t blockSize = 0;
     uint32_t gridSize = 0;
     int64_t gemmKBlocks = 1;
 
     LogicalResult status = populateParamsXDL.obtainTuningParameters(
-        op, blockSizeOverride, perfConfig, validParams, gemmADerivedParam,
-        gemmBDerivedParam, gemmCDerivedParam, blockSize, gridSize, gemmKBlocks);
+        op, blockSizeOverride, perfConfig, validParams, blockSize, gridSize,
+        gemmKBlocks);
 
     if (failed(status)) {
       // Try again if allowed.
       if (fallBackNoConfig) {
         perfConfig.clear();
         status = populateParamsXDL.obtainTuningParameters(
-            op, blockSizeOverride, perfConfig, validParams, gemmADerivedParam,
-            gemmBDerivedParam, gemmCDerivedParam, blockSize, gridSize,
+            op, blockSizeOverride, perfConfig, validParams, blockSize, gridSize,
             gemmKBlocks);
       }
       if (failed(status))
@@ -232,14 +226,6 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     }
 
     Type dataType = obtainConvDataType(op);
-
-    // Disable kpack in case we need padding kernel.
-    Optional<GemmContext> gemmExtraPad = calculatePadding(
-        validParams.gemmKPerBlock, validParams.gemmMPerBlock,
-        validParams.gemmNPerBlock, gemmSize, validParams.gemmKPack);
-    if (gemmExtraPad.has_value()) {
-      validParams.gemmKPack = 1;
-    }
 
     gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
     op->setAttr(op.getBlockSizeAttrName(), b.getI32IntegerAttr(blockSize));
@@ -258,37 +244,13 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     // Set attributes on the function.
     getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
     getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
-
-    // Derived parameters for gemmA.
-    // All this goes away after new-style vectorization is implemented.
-    op->setAttr("matrix_a_source_data_per_read",
-                b.getI32IntegerAttr(gemmADerivedParam.srcDataPerRead));
-    op->setAttr("matrix_a_source_vector_read_dim",
-                b.getI32IntegerAttr(gemmADerivedParam.srcVectorReadDim));
-
-    // Derived parameters for gemmB.
-    op->setAttr("matrix_b_source_data_per_read",
-                b.getI32IntegerAttr(gemmBDerivedParam.srcDataPerRead));
-    op->setAttr("matrix_b_source_vector_read_dim",
-                b.getI32IntegerAttr(gemmBDerivedParam.srcVectorReadDim));
-
-    op->setAttr("matrix_c_data_per_copy",
-                b.getI32IntegerAttr(gemmCDerivedParam.dataPerCopy));
-    op->setAttr("matrix_c_source_vector_read_dim",
-                b.getI32IntegerAttr(gemmCDerivedParam.gemmVectorDim));
-    op->setAttr("matrix_c_dest_vector_write_dim",
-                b.getI32IntegerAttr(gemmCDerivedParam.destVectorDim));
   } else {
     InitParamsNonXDL validParams;
-    DerivedParams gemmADerivedParam;
-    DerivedParams gemmBDerivedParam;
-    DerivedOutParams gemmCDerivedParam;
     uint32_t gridSize;
 
     PopulateParams populateParams;
     LogicalResult status = populateParams.obtainTuningParameters(
-        op, blockSizeOverride, perfConfig, validParams, gemmADerivedParam,
-        gemmBDerivedParam, gemmCDerivedParam, gridSize);
+        op, blockSizeOverride, perfConfig, validParams, gridSize);
 
     if (failed(status)) {
       signalPassFailure();
@@ -318,25 +280,5 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
     getOperation()->setAttr("block_size",
                             b.getI32IntegerAttr(validParams.blockSize));
     getOperation()->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
-
-    // Derived parameters for gemmA.
-    // Will be dead with new vectorization scheme.
-    op->setAttr("matrix_a_source_data_per_read",
-                b.getI32IntegerAttr(gemmADerivedParam.srcDataPerRead));
-    op->setAttr("matrix_a_source_vector_read_dim",
-                b.getI32IntegerAttr(gemmADerivedParam.srcVectorReadDim));
-
-    // Derived parameters for gemmB.
-    op->setAttr("matrix_b_source_data_per_read",
-                b.getI32IntegerAttr(gemmBDerivedParam.srcDataPerRead));
-    op->setAttr("matrix_b_source_vector_read_dim",
-                b.getI32IntegerAttr(gemmBDerivedParam.srcVectorReadDim));
-
-    op->setAttr("matrix_c_data_per_copy",
-                b.getI32IntegerAttr(gemmCDerivedParam.dataPerCopy));
-    op->setAttr("matrix_c_source_vector_read_dim",
-                b.getI32IntegerAttr(gemmCDerivedParam.gemmVectorDim));
-    op->setAttr("matrix_c_dest_vector_write_dim",
-                b.getI32IntegerAttr(gemmCDerivedParam.destVectorDim));
   }
 }
