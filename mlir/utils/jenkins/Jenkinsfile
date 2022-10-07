@@ -159,7 +159,7 @@ String getLabelFromCodepath(String codepath) {
     if (codepath == "mfma") {
         label = 'mlir && (gfx908 || gfx90a)'
     } else if (codepath == "navi21") {
-        label = 'gfx1030'
+        label = 'mlir && gfx1030'
     } else if (codepath == "vanilla"){
         label = 'mlir && gfx906'
     } else {
@@ -431,7 +431,7 @@ pipeline {
                 axes {
                     axis {
                         name 'ARCH'
-                        values 'gfx906', 'gfx908', 'gfx90a'
+                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
                     }
                 }
                 agent {
@@ -453,6 +453,7 @@ pipeline {
                             anyOf {
                                 equals expected: "gfx908", actual: "${ARCH}";
                                 equals expected: "gfx90a", actual: "${ARCH}";
+                                equals expected: "gfx1030", actual: "${ARCH}";
                             }
                             equals expected: true, actual: params.canXdlops;
                         }
