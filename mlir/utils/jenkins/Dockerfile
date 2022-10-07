@@ -126,5 +126,5 @@ RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/develop/r
     && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/develop/install_deps.cmake \
     && sed -i -e '/rocMLIR/d' requirements.txt \
     && cmake -P install_deps.cmake --prefix /usr/local
-RUN echo $(git ls-remote https://github.com/ROCmSoftwarePlatform/MIOpen HEAD) > rock-deps-commit-hash
+RUN echo $(git ls-remote https://github.com/ROCmSoftwarePlatform/MIOpen HEAD) > miopen-deps-commit-hash
 WORKDIR /
