@@ -1,5 +1,6 @@
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/XdlopsCodeSelection.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GemmContext.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
@@ -24,381 +25,6 @@ llvm::raw_ostream &mlir::rock::operator<<(llvm::raw_ostream &os,
   case GemmDimension::MorN:
     return os << "GemmDimension::MorN";
   }
-}
-
-static void
-obtainGemmADimKVectorizable(ConvOpType opType,
-                            llvm::StringMap<DimIndexAndSize> &dimIndexAndSize,
-                            bool &input1GemmKVectorizable) {
-  // Vectorizable flag is opposite between forwad and bwd_data
-  if (opType == ConvOpType::Fwd) {
-    // When K is not the fastest changing dimension,
-    // gemmK dimension is vectorizable, gemmM is not, and vice versa.
-    // Vectorization width depending on which among C, Y, X be the fastest
-    // changing dimension.
-    if (dimIndexAndSize["k"].index == 4) {
-      input1GemmKVectorizable = false;
-    } else {
-      input1GemmKVectorizable = true;
-    }
-  } else if (opType == ConvOpType::BwdData) {
-    // always load gemmM first
-    input1GemmKVectorizable = false;
-  } else if (opType == ConvOpType::BwdWeight) {
-    // When K is the fastest changing dimension,
-    // gemmM dimension is vectorizable, gemmK is not, and vice versa.
-    // Vectorization width depending on which among N, and HoWo be the fastest
-    // changing dimension.
-    if (dimIndexAndSize["k"].index == 4) {
-      input1GemmKVectorizable = false;
-    } else {
-      input1GemmKVectorizable = true;
-    }
-  }
-}
-
-static void
-obtainGemmBDimKVectorizable(ConvOpType opType,
-                            llvm::StringMap<DimIndexAndSize> &dimIndexAndSize,
-                            bool &input2GemmKVectorizable) {
-  // Vectorizable flag is opposite between forwad and bwd_data
-  if (opType == ConvOpType::Fwd) {
-    // For input tensor.
-    // When C is the fastest changing dimension,
-    // gemmK dimension is vectorizable, gemmN is not, and vice versa.
-    // Vectorization width depending on length of C.
-    if (dimIndexAndSize["ci"].index == 4) {
-      input2GemmKVectorizable = true;
-    } else {
-      input2GemmKVectorizable = false;
-    }
-  } else if (opType == ConvOpType::BwdData) {
-    // For output tensor.
-    // When K is the fastest changing dimension(3),
-    // gemmK dimension is vectorizable, gemmN is not, and vice versa.
-    // Vectorization width depending on length of K.
-    if (dimIndexAndSize["ko"].index == 4) {
-      input2GemmKVectorizable = true;
-    } else {
-      input2GemmKVectorizable = false;
-    }
-  } else if (opType == ConvOpType::BwdWeight) {
-    // For input tensor
-    // When C is the fastest changing dimension,
-    // gemmN dimension is vectorizable, gemmK is not, and vice versa.
-    // Vectorization width depending on length of C.
-    if (dimIndexAndSize["ci"].index == 4) {
-      input2GemmKVectorizable = false;
-    } else {
-      input2GemmKVectorizable = true;
-    }
-  }
-}
-
-static void obtainFilterVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
-  auto dimIndexAndSize = ctx.dimIndexAndSize;
-  // Vectorization length logic is the same for forward and bwd_data
-  if (dimIndexAndSize["k"].index == 4) {
-    vecLen = dimIndexAndSize["k"].size;
-  } else if (dimIndexAndSize["k"].index == 1) {
-    // dimKF is the lowest changing dimension, which means dimC/dimY/dimX
-    vecLen = dimIndexAndSize["c"].size * dimIndexAndSize["y"].size *
-             dimIndexAndSize["x"].size;
-  } else if (dimIndexAndSize["k"].index == 2) {
-    // K's position is at 2, vectorization legnth is last two dimension
-    if (dimIndexAndSize["c"].index == 1) {
-      vecLen = dimIndexAndSize["y"].size * dimIndexAndSize["x"].size;
-    } else if (dimIndexAndSize["y"].index == 1) {
-      vecLen = dimIndexAndSize["c"].size * dimIndexAndSize["x"].size;
-    } else {
-      vecLen = dimIndexAndSize["c"].size * dimIndexAndSize["y"].size;
-    }
-  } else {
-    // K's position is 3, vectorization legnth is last dimension
-    if (dimIndexAndSize["c"].index == 4) {
-      vecLen = dimIndexAndSize["c"].size;
-    } else if (dimIndexAndSize["y"].index == 4) {
-      vecLen = dimIndexAndSize["y"].size;
-    } else {
-      vecLen = dimIndexAndSize["x"].size;
-    }
-  }
-}
-
-static void obtainBwdDataFilterVecLen(ConvolutionContext &ctx,
-                                      int64_t &vecLen) {
-  auto dimIndexAndSize = ctx.dimIndexAndSize;
-  // Vectorization length logic is the same for forward and bwd_data
-  if (dimIndexAndSize["c"].index == 4) {
-    vecLen = dimIndexAndSize["c"].size;
-  } else if (dimIndexAndSize["c"].index == 2) {
-    // C's position is at 2, vectorization legnth depend last two dimension
-    if (dimIndexAndSize["y"].size == 1 && dimIndexAndSize["x"].size == 1) {
-      vecLen = dimIndexAndSize["c"].size;
-    } else {
-      vecLen = 1;
-    }
-  } else {
-    vecLen = 1;
-  }
-}
-static void obtainInputVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
-  auto dimIndexAndSize = ctx.dimIndexAndSize;
-  if (dimIndexAndSize["ni"].index == 4) {
-    vecLen = dimIndexAndSize["ni"].size;
-  } else if (dimIndexAndSize["ci"].index == 4) {
-    vecLen = dimIndexAndSize["ci"].size;
-  } else {
-    if (dimIndexAndSize["x"].size == 1 && dimIndexAndSize["y"].size == 1 &&
-        ctx.strideVal[0] == 1 && ctx.strideVal[1] == 1 &&
-        ctx.paddingVal[0] == 0 && ctx.paddingVal[1] == 0 &&
-        ctx.paddingVal[2] == 0 && ctx.paddingVal[3] == 0)
-      vecLen = dimIndexAndSize["ho"].size * dimIndexAndSize["wo"].size;
-    else
-      vecLen = 1;
-  }
-}
-static void obtainBwdDataOutputVecLen(ConvolutionContext &ctx,
-                                      int64_t &vecLen) {
-  auto dimIndexAndSize = ctx.dimIndexAndSize;
-  if (dimIndexAndSize["ko"].index == 4) {
-    vecLen = dimIndexAndSize["ko"].size;
-  } else if (dimIndexAndSize["no"].index == 4) {
-    vecLen = dimIndexAndSize["no"].size;
-  } else if (dimIndexAndSize["no"].index == 0) {
-    if (dimIndexAndSize["ho"].index == 3 && dimIndexAndSize["wo"].index == 4) {
-      if (dimIndexAndSize["y"].size == 1 && dimIndexAndSize["x"].size == 1)
-        vecLen = dimIndexAndSize["ho"].size * dimIndexAndSize["wo"].size;
-      else
-        vecLen = 1;
-    } else
-      vecLen = 1;
-  } else {
-    vecLen = 1;
-  }
-}
-
-static void obtainOutputVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
-  auto dimIndexAndSize = ctx.dimIndexAndSize;
-  if (dimIndexAndSize["ko"].index == 4) {
-    vecLen = dimIndexAndSize["ko"].size;
-  } else if (dimIndexAndSize["ko"].index == 1) {
-    // dimKO is the lowest changing dimension, which means dimN/dimHo/dimWo
-    vecLen = dimIndexAndSize["no"].size * dimIndexAndSize["ho"].size *
-             dimIndexAndSize["wo"].size;
-  } else if (dimIndexAndSize["ko"].index == 2) {
-    // Ko's position is at 2, vectorization legnth is last two dimensions
-    if (dimIndexAndSize["no"].index == 0) {
-      vecLen = dimIndexAndSize["ho"].size * dimIndexAndSize["wo"].size;
-    } else if (dimIndexAndSize["ho"].index == 0) {
-      vecLen = dimIndexAndSize["no"].size * dimIndexAndSize["wo"].size;
-    } else {
-      vecLen = dimIndexAndSize["no"].size * dimIndexAndSize["ho"].size;
-    }
-  } else {
-    // K's position is 3, vectorization legnth is last dimension
-    if (dimIndexAndSize["no"].index == 4) {
-      vecLen = dimIndexAndSize["no"].size;
-    } else if (dimIndexAndSize["ho"].index == 4) {
-      vecLen = dimIndexAndSize["ho"].size;
-    } else {
-      vecLen = dimIndexAndSize["wo"].size;
-    }
-  }
-}
-
-static void obtainGemmAVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
-  auto opType = ctx.opType;
-  if (opType == ConvOpType::Fwd) {
-    obtainFilterVecLen(ctx, vecLen);
-  } else if (opType == ConvOpType::BwdData) {
-    obtainBwdDataFilterVecLen(ctx, vecLen);
-  } else if (opType == ConvOpType::BwdWeight) {
-    obtainOutputVecLen(ctx, vecLen);
-  }
-}
-
-static void obtainGemmBVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
-  auto opType = ctx.opType;
-  if (opType == ConvOpType::Fwd) {
-    obtainInputVecLen(ctx, vecLen);
-  } else if (opType == ConvOpType::BwdData) {
-    obtainBwdDataOutputVecLen(ctx, vecLen);
-  } else if (opType == ConvOpType::BwdWeight) {
-    obtainInputVecLen(ctx, vecLen);
-  }
-}
-
-static void obtainGemmCVecLen(ConvolutionContext &ctx, int64_t &vecLen) {
-  auto opType = ctx.opType;
-  if (opType == ConvOpType::Fwd) {
-    obtainOutputVecLen(ctx, vecLen);
-  } else if (opType == ConvOpType::BwdData) {
-    obtainInputVecLen(ctx, vecLen);
-  } else if (opType == ConvOpType::BwdWeight) {
-    obtainFilterVecLen(ctx, vecLen);
-  }
-}
-
-LogicalResult calculateInputDerivedParams(const InitParams &param,
-                                          int64_t blockSize,
-                                          ConvolutionContext &ctx, bool isGemmA,
-                                          DerivedParams &derived) {
-
-  bool gemmKVectorizable = false;
-  int64_t vectorizableLength = 0;
-  if (isGemmA) {
-    obtainGemmADimKVectorizable(ctx.opType, ctx.dimIndexAndSize,
-                                gemmKVectorizable);
-    obtainGemmAVecLen(ctx, vectorizableLength);
-  } else {
-    obtainGemmBDimKVectorizable(ctx.opType, ctx.dimIndexAndSize,
-                                gemmKVectorizable);
-    obtainGemmBVecLen(ctx, vectorizableLength);
-  }
-
-  // calculate threadwise copy size
-  int64_t dataPerThreadCopy = 0;
-  if (isGemmA) {
-    dataPerThreadCopy = (param.gemmKPerBlock * param.gemmMPerBlock) / blockSize;
-  } else {
-    dataPerThreadCopy = (param.gemmKPerBlock * param.gemmNPerBlock) / blockSize;
-  }
-
-  if (!(dataPerThreadCopy > 0))
-    return failure();
-
-  // Compute the maximum possible vectorization size for the data type used
-  // in the algorithm.
-  int64_t vectorizationSize = 1;
-  auto dataType = ctx.getDataType();
-
-  // TODO: Revert the vectorizationSize decision with below commented code:
-  // unsigned dataWidth = dataType.getIntOrFloatBitWidth();
-  // const size_t highestPotentialVectorizationLen = 128;
-  // vectorizationSize = highestPotentialVectorizationLen / dataWidth;
-  if (dataType.isF32()) {
-    vectorizationSize = 4;
-  } else if (dataType.isF16() || dataType.isBF16()) {
-    // Nonxdlops on fp16 resnet50 fail for vectorization size > 4
-    // Xdlops is okay on 4, 8
-    vectorizationSize = 4;
-  } else if (dataType.isInteger(8)) {
-    // Nonxdlops on in8 resnet50 fail for vectorization size > 4
-    // Xdlops is okay on 4, 8, 16
-    vectorizationSize = 4;
-  }
-
-  // FIXME: set vectorizationSize be 1 for backward data and backward
-  // weight for now.
-  // The logic for deciding vectorization size and dimension for
-  // backward data and backward weight has to be reviewed.
-  auto opType = ctx.opType;
-  if (opType == ConvOpType::BwdData || opType == ConvOpType::BwdWeight) {
-    vectorizationSize = 1;
-  }
-
-  // srcDataPerRead bounded by size of threadwise copy
-  if ((vectorizableLength > 0) && (vectorizableLength % 4 == 0)) {
-    derived.srcDataPerRead =
-        math_util::gcd(vectorizationSize, dataPerThreadCopy);
-  }
-
-  // decide threadwise copy lengths
-  const auto dataPerThreadCopyGemmVectorized = derived.srcDataPerRead;
-  const auto dataPerThreadCopyGemmNonvectorized =
-      dataPerThreadCopy / dataPerThreadCopyGemmVectorized;
-
-  int64_t dataPerThreadCopyGemmPos1 = 0;
-  int64_t dataPerThreadCopyGemmPos2 = 0;
-  if (gemmKVectorizable) {
-    dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmVectorized;
-    dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmNonvectorized;
-    derived.srcVectorReadDim = GemmK;
-  } else {
-    dataPerThreadCopyGemmPos1 = dataPerThreadCopyGemmNonvectorized;
-    dataPerThreadCopyGemmPos2 = dataPerThreadCopyGemmVectorized;
-    derived.srcVectorReadDim = GemmMorN;
-  }
-  assert(derived.srcVectorReadDim != GemmG);
-
-  // calculate blockwise copy thread cluster lengths
-  if (isGemmA) {
-    derived.clusterLenGemmPos1 =
-        param.gemmKPerBlock / dataPerThreadCopyGemmPos1;
-    derived.clusterLenGemmPos2 =
-        param.gemmMPerBlock / dataPerThreadCopyGemmPos2;
-  } else {
-    derived.clusterLenGemmPos1 =
-        param.gemmKPerBlock / dataPerThreadCopyGemmPos1;
-    derived.clusterLenGemmPos2 =
-        param.gemmNPerBlock / dataPerThreadCopyGemmPos2;
-  }
-  if (!(derived.clusterLenGemmPos1 > 0 && derived.clusterLenGemmPos2 > 0))
-    return failure();
-
-  return success();
-}
-
-LogicalResult calculateOutputDerivedParams(const InitParams &params,
-                                           int64_t blockSize,
-                                           ConvolutionContext &ctx,
-                                           DerivedOutParams &out) {
-  int64_t cVectorLength = 0;
-  ConvOpType op = ctx.getOpType();
-
-  obtainGemmCVecLen(ctx, cVectorLength);
-  int64_t dataPerThread =
-      (params.gemmMPerBlock * params.gemmNPerBlock) / blockSize;
-  if (!(dataPerThread > 0)) {
-    return failure();
-  }
-
-  // TODO: Allow vectorization group size of 2
-  int64_t vectorizationSize = 4;
-  // No swizzling or vectorization for backward data
-  // TODO(kdrewnia): Understand when it might be possible
-  if (ConvOpType::BwdData == op) {
-    vectorizationSize = 1;
-  }
-
-  if ((cVectorLength > 0) && (dataPerThread % vectorizationSize == 0) &&
-      (cVectorLength % vectorizationSize == 0)) {
-    out.dataPerCopy = math_util::gcd(dataPerThread, vectorizationSize);
-  } else {
-    out.dataPerCopy = 1;
-  }
-
-  auto &dimIndexAndSize = ctx.dimIndexAndSize;
-  // Find dimensions in which the copy will take place
-  switch (op) {
-  case ConvOpType::Fwd:
-    if (dimIndexAndSize["ko"].index == 4) {
-      out.gemmVectorDim = gemmCDimM;
-      out.destVectorDim = 4;
-    } else {
-      out.gemmVectorDim = gemmCDimN;
-      // This relies on assumptions about how we load our data for GEMM
-      out.destVectorDim = dimIndexAndSize["wo"].index;
-    }
-    break;
-  case ConvOpType::BwdWeight:
-    if (dimIndexAndSize["k"].index == 4) {
-      out.gemmVectorDim = gemmCDimM;
-      out.destVectorDim = 4;
-    } else {
-      out.gemmVectorDim = gemmCDimN;
-      // Backward weight computations fold the {c, y, x} dimensions
-      // into N using the native order
-      out.destVectorDim = 4;
-    }
-    break;
-  case ConvOpType::BwdData:
-    out.gemmVectorDim = -1;
-    out.destVectorDim = -1;
-    break;
-  }
-  return success();
 }
 
 static void obtainGemmSize(ConvolutionContext &ctx, GemmSize &gemmSize) {
@@ -507,27 +133,6 @@ PopulateParams::initParameters[PopulateParams::nInitParameters] = {
 
 const InitParams PopulateParams::universalParameters = {64, 64, 16};
 
-LogicalResult PopulateParams::calculateGemmABlockCopyPerformanceParameters(
-    const InitParamsNonXDL &param, ConvolutionContext &ctx,
-    DerivedParams &derived) {
-  return calculateInputDerivedParams(param, param.blockSize, ctx, true,
-                                     derived);
-}
-
-LogicalResult PopulateParams::calculateGemmBBlockCopyPerformanceParameters(
-    const InitParamsNonXDL &param, ConvolutionContext &ctx,
-    DerivedParams &derived) {
-
-  return calculateInputDerivedParams(param, param.blockSize, ctx, false,
-                                     derived);
-}
-
-LogicalResult PopulateParams::calculateGemmCBlockwiseCopyParams(
-    const InitParamsNonXDL &params, ConvolutionContext &ctx,
-    DerivedOutParams &out) {
-  return calculateOutputDerivedParams(params, params.blockSize, ctx, out);
-}
-
 LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
     const InitParamsNonXDL &param, const ConvolutionContext &ctx) {
 
@@ -569,11 +174,11 @@ LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
 
   return success();
 }
-LogicalResult PopulateParams::populateDerived(
-    ConvolutionContext &ctx, const InitParamsNonXDL &params, GemmSize &gemmSize,
-    DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
-    DerivedOutParams &gemmCDerivedParams, uint32_t &gridSize) {
 
+LogicalResult PopulateParams::populateDerived(ConvolutionContext &ctx,
+                                              const InitParamsNonXDL &params,
+                                              GemmSize &gemmSize,
+                                              uint32_t &gridSize) {
   auto gemmExtraPad =
       calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
                        params.gemmNPerBlock, gemmSize);
@@ -590,24 +195,7 @@ LogicalResult PopulateParams::populateDerived(
     return failure();
   }
 
-  LogicalResult res = calculateGemmABlockCopyPerformanceParameters(
-      params, ctx, gemmADerivedParam);
-  if (failed(res)) {
-    LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmA tuning parameter "
-                            << " size.\n");
-    return failure();
-  }
-
-  res = calculateGemmBBlockCopyPerformanceParameters(params, ctx,
-                                                     gemmBDerivedParam);
-
-  if (failed(res)) {
-    LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmB tuning parameter "
-                            << " size.\n");
-    return failure();
-  }
-
-  res = calculateBlockGemmPerformanceParameters(params, ctx);
+  LogicalResult res = calculateBlockGemmPerformanceParameters(params, ctx);
 
   if (failed(res)) {
     LLVM_DEBUG(llvm::dbgs() << "Incoherent blockGemm tuning parameter "
@@ -616,19 +204,12 @@ LogicalResult PopulateParams::populateDerived(
   }
 
   gridSize = obtainGridSize(gemmSize, params);
-  res = calculateGemmCBlockwiseCopyParams(params, ctx, gemmCDerivedParams);
-  if (failed(res)) {
-    LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmC tuning parametrs.\n");
-    return failure();
-  }
   return success();
 }
 
 LogicalResult PopulateParams::obtainTuningParameters(
     Operation *op, uint32_t blockSizeOverride, const std::string &perfConfig,
-    InitParamsNonXDL &validParams, DerivedParams &gemmADerivedParam,
-    DerivedParams &gemmBDerivedParam,
-    DerivedOutParams &gemmCDerivedParam, uint32_t &gridSize) {
+    InitParamsNonXDL &validParams, uint32_t &gridSize) {
 
   ConvolutionContext ctx = populateConvContext(op);
 
@@ -642,8 +223,7 @@ LogicalResult PopulateParams::obtainTuningParameters(
     bool isValidPerfConfig = validParams.deserialize(perfConfig);
     if (isValidPerfConfig) {
       LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
-      return populateDerived(ctx, validParams, gemmSize, gemmADerivedParam,
-                             gemmBDerivedParam, gemmCDerivedParam, gridSize);
+      return populateDerived(ctx, validParams, gemmSize, gridSize);
     }
     // Signal the client if perfCofnig is passed in but is invalid
     return failure();
@@ -663,8 +243,7 @@ LogicalResult PopulateParams::obtainTuningParameters(
   bool loadRes = perfDb.load(ctx, solverId, validParams);
   if (loadRes) {
     LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
-    return populateDerived(ctx, validParams, gemmSize, gemmADerivedParam,
-                           gemmBDerivedParam, gemmCDstPerWrite, gridSize);
+    return populateDerived(ctx, validParams, gemmSize, gridSize);
   } else {
     LLVM_DEBUG(llvm::dbgs()
                << "DB load failed, falling back to backup path.\n");
@@ -673,7 +252,7 @@ LogicalResult PopulateParams::obtainTuningParameters(
 
   // Backup path: Use the set of default tuning parameters
   LogicalResult res = failure();
-  ArrayRef<InitParamsNonXDL> paramSets =
+  std::vector<InitParamsNonXDL> paramSets =
       getTuningParameters(ctx.getOpType(), ctx.getDataType());
   for (auto &params : orderInitParams(paramSets, gemmSize)) {
     // We have an override on the blockSize, only loop through the
@@ -682,8 +261,7 @@ LogicalResult PopulateParams::obtainTuningParameters(
       continue;
     }
 
-    res = populateDerived(ctx, params, gemmSize, gemmADerivedParam,
-                          gemmBDerivedParam, gemmCDerivedParam, gridSize);
+    res = populateDerived(ctx, params, gemmSize, gridSize);
     if (failed(res)) {
       continue;
     }
@@ -691,12 +269,14 @@ LogicalResult PopulateParams::obtainTuningParameters(
     validParams = params;
     break;
   }
+
   return res;
 }
 
-ArrayRef<InitParamsNonXDL>
+std::vector<InitParamsNonXDL>
 PopulateParams::getTuningParameters(ConvOpType dir, Type dataType) const {
-  return {initParameters, nInitParameters};
+  ArrayRef<InitParamsNonXDL> params = {initParameters, nInitParameters};
+  return std::vector<InitParamsNonXDL>(params);
 }
 
 const InitParams &PopulateParams::getUniversalParameters() const {
@@ -711,6 +291,39 @@ LogicalResult PopulateParams::isValidGemm(const InitParamsNonXDL &param,
     return failure();
   }
   return success();
+}
+
+static int64_t calculatePaddingComplexity(const GemmContext &paddingAmount,
+                                          const GemmSize &gemmSize) {
+  int64_t nonPaddedComplexity =
+      gemmSize.gemmM * gemmSize.gemmK * gemmSize.gemmN;
+  int64_t paddedComplexity = (gemmSize.gemmM + paddingAmount.m) *
+                             (gemmSize.gemmK + paddingAmount.k) *
+                             (gemmSize.gemmN + paddingAmount.n);
+  return paddedComplexity - nonPaddedComplexity;
+}
+
+int64_t PopulateParams::calculatePaddingAmount(const InitParamsNonXDL &params,
+                                               const GemmSize &gemmSize) const {
+  Optional<GemmContext> maybeGemmExtraPad =
+      calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
+                       params.gemmNPerBlock, gemmSize);
+  if (maybeGemmExtraPad.has_value()) {
+    return calculatePaddingComplexity(maybeGemmExtraPad.value(), gemmSize);
+  }
+  return 0;
+}
+
+int64_t
+PopulateParamsXDL::calculatePaddingAmount(const InitParamsXDL &params,
+                                          const GemmSize &gemmSize) const {
+  Optional<GemmContext> maybeGemmExtraPad =
+      calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
+                       params.gemmNPerBlock, gemmSize, params.gemmKPack);
+  if (maybeGemmExtraPad.has_value()) {
+    return calculatePaddingComplexity(maybeGemmExtraPad.value(), gemmSize);
+  }
+  return 0;
 }
 
 /// Xdlops
@@ -770,48 +383,6 @@ LogicalResult PopulateParamsXDL::getKBlocks(ConvolutionContext &ctx,
   return calculateKBlockNum(convDims, gemmSize, params.gemmMPerBlock,
                             params.gemmNPerBlock, params.gemmKPerBlock,
                             params.gemmKPack, ctx.num_cu, gemmKBlocks);
-}
-
-LogicalResult PopulateParamsXDL::calculateGemmABlockCopyPerformanceParameters(
-    const InitParamsXDL &param, ConvolutionContext &ctx,
-    DerivedParams &derived) {
-  int64_t blockSize = obtainBlockSize(param, waveSize);
-  return calculateInputDerivedParams(param, blockSize, ctx, true, derived);
-}
-
-LogicalResult PopulateParamsXDL::calculateGemmBBlockCopyPerformanceParameters(
-    const InitParamsXDL &param, ConvolutionContext &ctx,
-    DerivedParams &derived) {
-  int64_t blockSize = obtainBlockSize(param, waveSize);
-  return calculateInputDerivedParams(param, blockSize, ctx, false, derived);
-}
-
-LogicalResult PopulateParamsXDL::calculateLdsNumberOfByte(
-    const InitParamsXDL &param, const ConvolutionContext &ctx,
-    DerivedParams gemmADerived, DerivedParams gemmBDerived, size_t &ldsSize) {
-
-  int64_t threadGemmDataPerRead_GemmM =
-      param.gemmMPerBlock / gemmADerived.clusterLenGemmPos2;
-  int64_t threadGemmDataPerRead_GemmN =
-      param.gemmNPerBlock / gemmBDerived.clusterLenGemmPos2;
-
-  const auto max_lds_align =
-      math_util::lcm(threadGemmDataPerRead_GemmM, threadGemmDataPerRead_GemmN);
-
-  const auto a_block_space =
-      param.gemmKPerBlock *
-      math_util::integer_least_multiple(param.gemmMPerBlock, max_lds_align);
-  const auto b_block_space =
-      param.gemmKPerBlock *
-      math_util::integer_least_multiple(param.gemmNPerBlock, max_lds_align);
-
-  ldsSize = (a_block_space + b_block_space) * sizeof(float);
-
-  if (ldsSize > 64 * 1024) {
-    return failure();
-  }
-
-  return success();
 }
 
 LogicalResult PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(
@@ -911,14 +482,16 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(
 
 LogicalResult PopulateParamsXDL::populateDerived(
     ConvolutionContext &ctx, const InitParamsXDL &params, GemmSize &gemmSize,
-    DerivedParams &gemmADerivedParam, DerivedParams &gemmBDerivedParam,
-    DerivedOutParams &gemmCDerivedParam, uint32_t &blockSize,
-    uint32_t &gridSize, int64_t &gemmKBlocks) {
-
+    uint32_t &blockSize, uint32_t &gridSize, int64_t &gemmKBlocks) {
   auto gemmExtraPad =
       calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
                        params.gemmNPerBlock, gemmSize, params.gemmKPack);
   if (gemmExtraPad.has_value()) {
+    // TEMPORARY: The hardcoded load/store math in gridwise_gemm_v2 doesn't
+    // handle kPack > 1 in padding kernels correctly.
+    if (params.gemmKPack > 1) {
+      return failure();
+    }
     gemmSize.gemmM += gemmExtraPad->m;
     gemmSize.gemmK += gemmExtraPad->k;
     gemmSize.gemmN += gemmExtraPad->n;
@@ -938,31 +511,6 @@ LogicalResult PopulateParamsXDL::populateDerived(
     return failure();
   }
 
-  res = calculateGemmABlockCopyPerformanceParameters(params, ctx,
-                                                     gemmADerivedParam);
-  if (failed(res)) {
-    LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmA tuning parameter "
-                            << " size.\n");
-    return failure();
-  }
-
-  res = calculateGemmBBlockCopyPerformanceParameters(params, ctx,
-                                                     gemmBDerivedParam);
-  if (failed(res)) {
-    LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmB tuning parameter "
-                            << " size.\n");
-    return failure();
-  }
-
-  std::size_t ldsSize = 0;
-  res = calculateLdsNumberOfByte(params, ctx, gemmADerivedParam,
-                                 gemmBDerivedParam, ldsSize);
-
-  if (failed(res)) {
-    LLVM_DEBUG(llvm::dbgs() << "LDS size too large.\n");
-    return failure();
-  }
-
   // parameters derivable from tunable parameters.
   gemmKBlocks = 1;
   if (ctx.opType == ConvOpType::BwdWeight &&
@@ -975,12 +523,6 @@ LogicalResult PopulateParamsXDL::populateDerived(
     }
   }
   gridSize = obtainGridSize(gemmSize, params) * gemmKBlocks;
-
-  res = calculateOutputDerivedParams(params, blockSize, ctx, gemmCDerivedParam);
-  if (failed(res)) {
-    LLVM_DEBUG(llvm::dbgs() << "Incoherent gemmC tuning parameters\n");
-    return failure();
-  }
 
   return success();
 }
@@ -1003,9 +545,8 @@ LogicalResult PopulateParamsXDL::isValidGridGemmXdlops(GemmSize &gemmSize) {
 
 LogicalResult PopulateParamsXDL::obtainTuningParameters(
     Operation *op, uint32_t blockSizeOverride, const std::string &perfConfig,
-    InitParamsXDL &validParams, DerivedParams &gemmADerivedParam,
-    DerivedParams &gemmBDerivedParam, DerivedOutParams &gemmCDerivedParam,
-    uint32_t &blockSize, uint32_t &gridSize, int64_t &gemmKBlocks) {
+    InitParamsXDL &validParams, uint32_t &blockSize, uint32_t &gridSize,
+    int64_t &gemmKBlocks) {
 
   ConvolutionContext ctx = populateConvContext(op);
 
@@ -1018,10 +559,10 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
     // 2. This is running mode and we have succeeded with a perfdb load
     bool isValidPerfConfig = validParams.deserialize(perfConfig);
     if (isValidPerfConfig) {
-      LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
-      return populateDerived(ctx, validParams, gemmSize, gemmADerivedParam,
-                             gemmBDerivedParam, gemmCDerivedParam, blockSize,
-                             gridSize, gemmKBlocks);
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Got perf config: " << genDebugForParams(validParams));
+      return populateDerived(ctx, validParams, gemmSize, blockSize, gridSize,
+                             gemmKBlocks);
     }
     // Signal the client if perfCofnig is passed in but is invalid
     return failure();
@@ -1041,8 +582,7 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
   bool loadRes = perfDb.load(ctx, solverId, validParams);
   if (loadRes) {
     LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams));
-    return populateDerived(ctx, validParams, gemmSize, gemmADerivedParam,
-                           gemmBDerivedParam, blockSize, gridSize);
+    return populateDerived(ctx, validParams, gemmSize, blockSize, gridSize);
   } else {
     LLVM_DEBUG(llvm::dbgs()
                << "DB load failed, falling back to backup path.\n");
@@ -1050,7 +590,7 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
 #endif // MLIR_ENABLE_SQLITE
 
   LogicalResult res = failure();
-  ArrayRef<InitParamsXDL> paramSets =
+  std::vector<InitParamsXDL> paramSets =
       getTuningParameters(ctx.getOpType(), ctx.getDataType());
   for (const auto &params : orderInitParams(paramSets, gemmSize)) {
     blockSize = obtainBlockSize(params, waveSize);
@@ -1059,10 +599,9 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
     if ((blockSizeOverride != 0) && (blockSizeOverride != blockSize)) {
       continue;
     }
-    res = populateDerived(ctx, params, gemmSize, gemmADerivedParam,
-                          gemmBDerivedParam, gemmCDerivedParam, blockSize,
-                          gridSize, gemmKBlocks);
 
+    res = populateDerived(ctx, params, gemmSize, blockSize, gridSize,
+                          gemmKBlocks);
     if (failed(res)) {
       continue;
     }
@@ -1070,16 +609,31 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
     break;
   }
   LLVM_DEBUG(llvm::dbgs() << genDebugForParams(validParams) << "\n");
+  if (failed(res)) {
+    LLVM_DEBUG(llvm::dbgs() << "Couldn't pick heuristic values for ");
+    LLVM_DEBUG(op->print(llvm::dbgs()));
+    LLVM_DEBUG(llvm::dbgs() << "\n");
+  }
   return res;
 }
 
-ArrayRef<InitParamsXDL>
+std::vector<InitParamsXDL>
 PopulateParamsXDL::getTuningParameters(ConvOpType dir, Type dataType) const {
+  ArrayRef<InitParamsXDL> params;
   if (dataType.isInteger(8)) {
-    return {initParametersForwardI8, nInitParametersForwardI8};
+    params = {initParametersForwardI8, nInitParametersForwardI8};
+  } else {
+    params = {initParameters, nInitParameters};
   }
-
-  return {initParameters, nInitParameters};
+  std::vector<InitParamsXDL> res;
+  // Only return valid XDLOp params
+  std::copy_if(params.begin(), params.end(), std::back_inserter(res),
+               [&](const InitParamsXDL &param) {
+                 return XdlopsCodeSelection::get(dataType, param.gemmMPerWave,
+                                                 param.gemmNPerWave)
+                     .isValid(param.gemmKPack, param.gemmKPerBlock);
+               });
+  return res;
 }
 
 const InitParams &PopulateParamsXDL::getUniversalParameters() const {
@@ -1107,8 +661,6 @@ Optional<GemmContext> mlir::rock::calculatePadding(int64_t kPerBlock,
   int64_t nExtra = nPerBlock - math_util::mod_1_to_n(gemmSize.n, nPerBlock);
   if (mExtra == 0 && kExtra == 0 && nExtra == 0)
     return None;
-  // if padding is ever used, it will set KPack to 1.
-  kExtra = kPerBlock - math_util::mod_1_to_n(gemmSize.k, kPerBlock);
   return GemmContext(mExtra, kExtra, nExtra);
 }
 

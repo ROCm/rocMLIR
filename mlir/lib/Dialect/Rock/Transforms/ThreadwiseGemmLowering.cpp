@@ -206,7 +206,7 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
                             << "NPerXdlops: " << NPerXdlops << "\n");
 
     XdlopsCodeSelection xcs =
-        XdlopsCodeSelection::get(dataType, MPerXdlops, NPerXdlops, b);
+        XdlopsCodeSelection::get(dataType, MPerXdlops, NPerXdlops);
 
     VectorType vectorType = xcs.vectorType;
     int64_t nResultVectors = xcs.nResultVectors;

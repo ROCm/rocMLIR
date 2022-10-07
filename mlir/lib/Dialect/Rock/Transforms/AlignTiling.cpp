@@ -173,6 +173,9 @@ static Value makeBroadcast(PatternRewriter &b, MemRefType outType, Value inp,
 static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
                                    ThreadwiseCopyV2Op op, Value srcOp,
                                    Value dest) {
+  while (auto expOp = srcOp.getDefiningOp<memref::ExpandShapeOp>()) {
+    srcOp = expOp.getOperand();
+  }
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << srcOp.getType()
                           << " dest type: " << op.getDest().getType() << "\n");
   ArrayRef<int64_t> sType, dType;

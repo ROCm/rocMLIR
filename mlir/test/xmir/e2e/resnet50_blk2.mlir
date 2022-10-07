@@ -2,20 +2,13 @@
 
 module {
 // CHECK: Unranked Memref base@ = 0x{{.*}} rank = 4 offset = 0 sizes = [1, 32, 32, 64] strides = [65536, 2048, 64, 1] data =
-// CHECK-NEXT: 0.680375,     -0.211234,     0.566198,     6.59688,     0.823295,     -0.604897,     5.67045,     6.53646,     5.55555,     6.10794,
 
-// CLONE: Number of elements: 65536
-// CLONE-NEXT: maxAbsDiff info:
-// CLONE-NEXT: maxRelDiff info:
-// CLONE-NEXT: RMS =
-// CLONE-NEXT: Histogram of relDiff:
-// CLONE: [1 1 0]
-// CLONE-NEXT: Unranked Memref base@ = 0x{{.*}} rank = 4 offset = 0 sizes = [1, 32, 32, 64] strides = [65536, 2048, 64, 1] data =
-// CLONE-NEXT: 0.680375,     -0.211234,     0.566198,     6.59688,     0.823295,     -0.604897,     5.67045,     6.53646,     5.55555,     6.10794,
 
-  func.func @resnet50(%arg0: tensor<1x32x32x64xf32>, %arg1: tensor<64x3x3x64xf32>, %arg2: tensor<64x3x3x64xf32>) -> tensor<1x32x32x64xf32> {
+  func.func @resnet50(%arg0: tensor<1x32x32x64xf32>, %arg1: tensor<64x3x3x64xf32>, %arg2: tensor<64x3x3x64xf32>, %arg3: tensor<64x3x3x64xf32>, %arg4: tensor<64x3x3x64xf32>) -> tensor<1x32x32x64xf32> {
 
     %cst = arith.constant dense<0.0> : tensor<64xf32>
+
+    // Block 0
     %0 = "tosa.conv2d"(%arg0, %arg1, %cst) {
       dilation = [1, 1],
       pad = [1, 1, 1, 1],
@@ -31,7 +24,6 @@ module {
     }
      : (tensor<1x32x32x64xf32>) -> tensor<1x32x32x64xf32>
 
-    //%cst1 = arith.constant dense<0.0> : tensor<64xf32>
     %2 = "tosa.conv2d"(%1, %arg2, %cst) {
       dilation = [1, 1],
       pad = [1, 1, 1, 1],
@@ -50,6 +42,41 @@ module {
     %4 = "tosa.add"(%arg0, %3)
      : (tensor<1x32x32x64xf32>, tensor<1x32x32x64xf32>) -> tensor<1x32x32x64xf32>
 
-    return %4 : tensor<1x32x32x64xf32>
+    // Block 1
+    %5 = "tosa.conv2d"(%4, %arg3, %cst) {
+      dilation = [1, 1],
+      pad = [1, 1, 1, 1],
+      stride = [1, 1]
+    }
+     : (tensor<1x32x32x64xf32>, tensor<64x3x3x64xf32>, tensor<64xf32>) -> tensor<1x32x32x64xf32>
+
+    %6 = "tosa.clamp"(%5) {
+      min_fp = 0.0 : f32,
+      max_fp = 6.0 : f32,
+      min_int = 0 : i64,
+      max_int = 6 : i64
+    }
+     : (tensor<1x32x32x64xf32>) -> tensor<1x32x32x64xf32>
+
+    %7 = "tosa.conv2d"(%6, %arg4, %cst) {
+      dilation = [1, 1],
+      pad = [1, 1, 1, 1],
+      stride = [1, 1]
+    }
+     : (tensor<1x32x32x64xf32>, tensor<64x3x3x64xf32>, tensor<64xf32>) -> tensor<1x32x32x64xf32>
+
+    %8 = "tosa.clamp"(%7) {
+      min_fp = 0.0 : f32,
+      max_fp = 6.0 : f32,
+      min_int = 0 : i64,
+      max_int = 6 : i64
+    }
+     : (tensor<1x32x32x64xf32>) -> tensor<1x32x32x64xf32>
+
+    %9 = "tosa.add"(%arg0, %8)
+     : (tensor<1x32x32x64xf32>, tensor<1x32x32x64xf32>) -> tensor<1x32x32x64xf32>
+
+    return %9 : tensor<1x32x32x64xf32>
   }
 }
+
