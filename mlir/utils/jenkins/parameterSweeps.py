@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Script to sweep the parameters of the Rock driver for bugs
+"""Script to sweep the parameters of the rocmlir driver for bugs
 
 Note: This requires Python 3.7 or newer, use pyenv or the like to install it temporarily
 
@@ -14,6 +14,7 @@ import itertools
 import math
 import re
 import os
+import subprocess
 import sys
 
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ class Options:
     debug: bool
     quiet: bool
     xdlops: bool
+    arch: str
     concurrent_tests: int
 
 class MLIROnlyConfig(ConvConfiguration):
@@ -37,7 +39,7 @@ class MLIROnlyConfig(ConvConfiguration):
                 n={self.n!r}, c={self.c!r}, hi={self.hi!r}, wi={self.wi!r}, k={self.k!r}, y={self.y!r}, x={self.x!r},
                 convStrideH={self.convStrideH!r}, convStrideW={self.convStrideW!r}, paddingHL={self.paddingHL!r}, paddingHR={self.paddingHR!r},
                 paddingWL={self.paddingWL!r}, paddingWR={self.paddingWR!r}, dilationH={self.dilationH!r}, dilationW={self.dilationW!r},
-                group={self.group!r}, xdlops={self.xdlops!r}, perfConfig={self.perfConfig!r})"""
+                group={self.group!r}, xdlops={self.xdlops!r}, arch={self.arch!r}, perfConfig={self.perfConfig!r})"""
 
     def generateMlirDriverCommandLine(self) -> Sequence[str]:
         direction = {'fwd': 'conv2d',
@@ -46,6 +48,8 @@ class MLIROnlyConfig(ConvConfiguration):
 
         result = ['--operation', direction,
                     '-t', self.dataType,
+                    '--arch', self.arch,
+                    '-mfma=on' if self.xdlops else '-mfma=off',
                     '--fil_layout', self.filterLayout,
                     '--in_layout', self.inputLayout,
                     '--out_layout', self.outputLayout,
@@ -65,8 +69,6 @@ class MLIROnlyConfig(ConvConfiguration):
                     '--padding_w_l', str(self.paddingWL),
                     '--padding_w_r', str(self.paddingWR)]
 
-        if self.xdlops:
-            result.append('-x2')
         if self.perfConfig is not None:
             result.append('--perf_config')
             result.append(','.join(str(v) for v in self.perfConfig))
@@ -77,7 +79,7 @@ class MLIROnlyConfig(ConvConfiguration):
                     n: int, c: int, hi: int, wi: int, k: int, y: int, x: int,
                     convStrideH: int, convStrideW: int,
                     paddingHL: int, paddingHR: int, paddingWL: int, paddingWR: int,
-                    dilationH: int, dilationW: int, group: int, xdlops: bool,
+                    dilationH: int, dilationW: int, group: int, xdlops: bool, arch: str,
                     perfConfig: Optional[Sequence[int]]=None):
         if dtype not in {"f16", "f32", "bf16", "i8"}:
             raise ValueError(f"Invalid datatype: {dtype}")
@@ -112,6 +114,7 @@ class MLIROnlyConfig(ConvConfiguration):
 
         self.group = group
         self.xdlops = xdlops
+        self.arch = arch
         self.perfConfig = perfConfig
         self.ho = math.floor((self.hi + self.paddingHL + self.paddingHR - (self.y - 1) * self.dilationH - 1 ) / self.convStrideH) + 1
         self.wo = math.floor((self.wi + self.paddingWL + self.paddingWR * 2 - (self.x - 1) * self.dilationW - 1 ) / self.convStrideW) + 1
@@ -127,18 +130,18 @@ class TestResult(enum.Enum):
 async def testConfig(config: MLIROnlyConfig, options: Options, paths: Paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
-    rockGenOpts = config.generateMlirDriverCommandLine()
-    rockGenOpts.append('-pv')
+    rocmlirGenOpts = config.generateMlirDriverCommandLine()
+    rocmlirGenOpts.append('-pv')
 
     applicableFromGen, genToApplicable = os.pipe()
     generator = await asyncio.create_subprocess_exec(
-        paths.mlir_paths.rock_gen_path,
-        *rockGenOpts, stdout=genToApplicable, stderr=asyncio.subprocess.PIPE,
+        paths.mlir_paths.rocmlir_gen_path,
+        *rocmlirGenOpts, stdout=genToApplicable, stderr=asyncio.subprocess.PIPE,
         stdin=asyncio.subprocess.DEVNULL)
     os.close(genToApplicable)
 
     applicability = await asyncio.create_subprocess_exec(
-        paths.mlir_paths.mlir_rock_driver_path,
+        paths.mlir_paths.rocmlir_driver_path,
         '--kernel-pipeline=applicability', '-', stdin=applicableFromGen,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     os.close(applicableFromGen)
@@ -148,7 +151,7 @@ async def testConfig(config: MLIROnlyConfig, options: Options, paths: Paths) -> 
     if generator.returncode != 0:
         if options.debug:
             print(f"""rocmlir-gen failed for config {config!r}
-Command line = {rockGenOpts}
+Command line = {rocmlirGenOpts}
 Return code = {generator.returncode}
 Errors = {genErrs.decode('utf-8')}
 """)
@@ -157,7 +160,7 @@ Errors = {genErrs.decode('utf-8')}
     if applicability.returncode != 0:
         if options.debug:
             print(f"""rocmlir-driver applicability pipeline failed for config {config!r}
-Generator command line = {rockGenOpts}
+Generator command line = {rocmlirGenOpts}
 Return code = {applicability.returncode}
 Errors = {tuneErrs.decode('utf-8')}
 """)
@@ -165,7 +168,7 @@ Errors = {tuneErrs.decode('utf-8')}
 
     runnerFromLowering, loweringToRunner = os.pipe()
     lowering = await asyncio.create_subprocess_exec(
-        paths.mlir_paths.mlir_rock_driver_path,
+        paths.mlir_paths.rocmlir_driver_path,
         '--kernel-pipeline=gpu', '-', stdin=asyncio.subprocess.PIPE,
         stdout=loweringToRunner, stderr=asyncio.subprocess.PIPE)
     os.close(loweringToRunner)
@@ -184,7 +187,7 @@ Errors = {tuneErrs.decode('utf-8')}
     if lowering.returncode != 0:
         if options.debug:
             print(f"""Low-level lowering did not complete succesfully for config {config!r}
-Command line = {rockGenOpts}
+Command line = {rocmlirGenOpts}
 Errors = {loweringErrs.decode('utf-8')}
 Return code = {lowering.returncode}""")
         return TestResult.FAIL
@@ -284,7 +287,7 @@ def to_conv_structure_type_test(params, options: Options) -> MLIROnlyConfig:
         # Values of n, c, k, meant to be small and to hit the padding kernel
         n, c, k = 1, 7, 7
     return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw,
-        phl, phr, pwl, pwr, dh, dw, g, options.xdlops)
+        phl, phr, pwl, pwr, dh, dw, g, options.xdlops, options.arch)
 
 XDLOPS_PERF_CONFIG = itertools.product(
     # op
@@ -314,7 +317,7 @@ def to_xdlops_perf_config_test(params, options: Options) -> MLIROnlyConfig:
     perf_config = (1 << m_per_block, 1 << n_per_block, 1 << k_per_block,
         1 << m_per_wave, 1 << n_per_wave, 1 << kpack, 1, 1)
     return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw, phl,
-        phr, pwl, pwr, dh, dw, g, True, perf_config)
+        phr, pwl, pwr, dh, dw, g, True, options.arch, perf_config)
 
 NON_XDLOPS_PERF_CONFIG = itertools.product(
     # op
@@ -344,7 +347,7 @@ def to_non_xdlops_perf_config_test(params, options: Options) -> MLIROnlyConfig:
     perf_config = (1 << block_size, 1 << m_per_block, 1 << n_per_block,
         1 << k_per_block, 1 << m_per_thread, n_per_thread)
     return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw, phl,
-        phr, pwl, pwr, dh, dw, g, False, perf_config)
+        phr, pwl, pwr, dh, dw, g, False, options.arch, perf_config)
 
 async def runConfig(paramIter: Iterable[IterType],
         toConfig: Callable[[IterType, Options], MLIROnlyConfig],
@@ -357,6 +360,18 @@ async def runConfig(paramIter: Iterable[IterType],
             print(' '.join(c.generateMlirDriverCommandLine()))
     print(f"Passed: {n_passes}, Invalid: {n_invalids}, Failed: {len(failures)}")
     return len(failures) == 0
+
+def getArch():
+    p = subprocess.run(["/opt/rocm/bin/rocm_agent_enumerator", "-name"], check=True,
+                       stdout=subprocess.PIPE)
+    agents = set(x.decode("utf-8") for x in p.stdout.split())
+    if not agents:
+        # TODO: Remove this workaround for a bug in rocm_agent_enumerator -name
+        # Once https://github.com/RadeonOpenCompute/rocminfo/pull/59 lands
+        q = subprocess.run(["/opt/rocm/bin/rocm_agent_enumerator"],
+                              check=True, stdout=subprocess.PIPE)
+        agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
+    return agents
 
 def main() -> bool:
     parser = argparse.ArgumentParser(
@@ -393,7 +408,7 @@ def main() -> bool:
     )
     args = parser.parse_args()
     options = Options(debug=args.debug, quiet=args.quiet, xdlops=args.xdlops,
-        concurrent_tests=args.jobs)
+        arch=','.join(getArch()), concurrent_tests=args.jobs)
     paths = MIOpenDriver.create_paths(args.mlir_build_dir, args.miopen_build_dir)
 
     config = args.config

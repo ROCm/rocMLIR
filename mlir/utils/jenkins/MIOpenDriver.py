@@ -34,8 +34,8 @@ ELAPSED_TIME_RE = re.compile(r"Elapsed: (.*)ms")
 
 @dataclass
 class MLIRPaths:
-    rock_gen_path: str
-    mlir_rock_driver_path: str
+    rocmlir_gen_path: str
+    rocmlir_driver_path: str
     rocm_runner_path : str
     libmlir_rocm_runtime_path : str
     libconv_validation_wrappers_path : str
@@ -53,7 +53,7 @@ def find_mlir_build_dir() -> str:
     Finds mlir build dir searching either WORKSPACE dir
     or home dir
     """
-    rock_gen_path = None
+    rocmlir_gen_path = None
     candidate_paths = [
         # if the script is run from build dir
         Path('./bin/rocmlir-gen'),
@@ -62,9 +62,9 @@ def find_mlir_build_dir() -> str:
     ]
     for candidate_path in candidate_paths:
         if candidate_path.exists():
-            rock_gen_path = candidate_path
+            rocmlir_gen_path = candidate_path
 
-    if not rock_gen_path:
+    if not rocmlir_gen_path:
         try:
             # Prioritize the search in the current repo first.
             search_root = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
@@ -73,14 +73,14 @@ def find_mlir_build_dir() -> str:
             search_root = os.environ.get('WORKSPACE', str(Path.home()))
             assert search_root, "Cant find WORKSPACE env arg or home directory"
 
-        rock_gen_path = glob.glob(search_root + '/**/bin/rocmlir-gen', recursive=True)
-        if len(rock_gen_path) == 0:
-            # MLIR rock_gen not available
+        rocmlir_gen_path = glob.glob(search_root + '/**/bin/rocmlir-gen', recursive=True)
+        if len(rocmlir_gen_path) == 0:
+            # rocmlir_gen not available
             return None
-        assert len(rock_gen_path) == 1, "Multiple paths found to contain */bin/rocmlir-gen"
-        rock_gen_path = rock_gen_path[0]
+        assert len(rocmlir_gen_path) == 1, "Multiple paths found to contain */bin/rocmlir-gen"
+        rocmlir_gen_path = rocmlir_gen_path[0]
 
-    build_dir = Path(rock_gen_path).parent.parent
+    build_dir = Path(rocmlir_gen_path).parent.parent
     return str(build_dir)
 
 
@@ -122,8 +122,8 @@ def create_paths(mlir_build_dir_path, miopen_build_dir_path) -> Paths:
         mlir_bin_dir = str((Path(mlir_build_dir_path) / 'bin').resolve())
         mlir_lib_dir = str((Path(mlir_build_dir_path) / 'lib').resolve())
         llvm_lib_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/lib').resolve())
-        mlir_paths = MLIRPaths(rock_gen_path = mlir_bin_dir + '/rocmlir-gen',
-        mlir_rock_driver_path = mlir_bin_dir + '/rocmlir-driver',
+        mlir_paths = MLIRPaths(rocmlir_gen_path = mlir_bin_dir + '/rocmlir-gen',
+        rocmlir_driver_path = mlir_bin_dir + '/rocmlir-driver',
         rocm_runner_path = mlir_bin_dir + '/mlir-rocm-runner',
         libmlir_rocm_runtime_path =  llvm_lib_dir + '/libmlir_rocm_runtime.so',
         libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',
@@ -196,7 +196,7 @@ class ConvConfiguration:
         return f"""ConvConfiguration(dtype={self.dataType!r}, direction={self.direction!r}, layout={self.inputLayout.upper()!r},
                 n={self.n!r}, c={self.c!r}, hi={self.hi!r}, wi={self.wi!r}, k={self.k!r}, y={self.y!r}, x={self.x!r},
                 convStrideH={self.convStrideH!r}, convStrideW={self.convStrideW!r}, paddingH={self.paddingH!r}, paddingW={self.paddingW!r},
-                dilationH={self.dilationH!r}, dilationW={self.dilationW!r}, group={self.group!r}, xdlops={self.xdlops!r})"""
+                dilationH={self.dilationH!r}, dilationW={self.dilationW!r}, group={self.group!r}, xdlops={self.xdlops!r}, arch={self.arch!r})"""
 
     def generateMlirDriverCommandLine(self):
         direction = {'fwd':'--operation conv2d',
@@ -205,7 +205,8 @@ class ConvConfiguration:
 
         result = ' '.join([direction,
                            '-t', self.dataType,
-                           '-x2' if self.xdlops else '',
+                           '--arch', self.arch,
+                           '-mfma=on' if self.xdlops else '-mfma=off',
                            '--fil_layout', self.filterLayout,
                            '--in_layout', self.inputLayout,
                            '--out_layout', self.outputLayout,
@@ -229,7 +230,7 @@ class ConvConfiguration:
     MLIR_OUTPUT_LAYOUTS = {"NCHW": "nkhw", "NHWC": "nhwk"}
 
     @classmethod
-    def fromCommandLine(cls, argv, xdlops):
+    def fromCommandLine(cls, argv, xdlops, arch=""):
         # determine dataType from argv[1]
         if argv[0] == 'conv':
             dataType = 'f32'
@@ -312,12 +313,12 @@ class ConvConfiguration:
 
         return cls(dataType, direction, layout, n, c, hi, wi, k, y, x,
             convStrideH, convStrideW, paddingH, paddingW, dilationH, dilationW,
-            group, xdlops)
+                   group, xdlops, arch)
 
     def __init__(self, dtype: str, direction: str, layout: str,
                     n: int, c: int, hi: int, wi: int, k: int, y: int, x: int,
                     convStrideH: int, convStrideW: int, paddingH: int, paddingW: int,
-                    dilationH: int, dilationW: int, group: int, xdlops: bool):
+                    dilationH: int, dilationW: int, group: int, xdlops: bool, arch: str):
         if dtype not in {"f16", "f32", "bf16", "i8"}:
             raise ValueError(f"Invalid datatype: {dtype}")
         if direction not in {"fwd", "bwd", "wrw"}:
@@ -349,6 +350,7 @@ class ConvConfiguration:
 
         self.group = group
         self.xdlops = xdlops
+        self.arch = arch
         self.ho = math.floor((self.hi + self.paddingH * 2 - (self.y - 1) * self.dilationH - 1 ) / self.convStrideH) + 1
         self.wo = math.floor((self.wi + self.paddingW * 2 - (self.x - 1) * self.dilationW - 1 ) / self.convStrideW) + 1
 
@@ -357,15 +359,16 @@ def runConfigWithMLIR(config: ConvConfiguration, paths: Paths):
     os.system("rm "+BENCHMARKING_RESULT_FILE_NAME)
     commandLineOptions = config.generateMlirDriverCommandLine()
     print("Running MLIR Benchmark: ", repr(config))
-    miopenGenCommand = paths.mlir_paths.rock_gen_path + ' -ph ' + commandLineOptions
-    mlirMiopenDriverCommand = [paths.mlir_paths.mlir_rock_driver_path, '-c']
+    rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandLineOptions
+    print("rocmlir-gen command: ", rocmlirGenCommand)
+    rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-c']
     mlir_rocm_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
     profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.rocm_runner_path] + mlir_rocm_runner_args
 
-    # invoke miopen-gen.
-    p1 = subprocess.Popen(miopenGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    # pipe to mlir-miopen-driver
-    p2 = subprocess.Popen(mlirMiopenDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    # invoke rocmlir-gen.
+    p1 = subprocess.Popen(rocmlirGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    # pipe to rocmlir-driver
+    p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     p1.stdout.close() # Allow p1 to receive a SIGPIPE if p2 exits.
     # pipe to rocprof + mlir-rocm-runner.
     p3 = subprocess.Popen(profilerCommand, stdin=p2.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -375,9 +378,9 @@ def runConfigWithMLIR(config: ConvConfiguration, paths: Paths):
         outs, errs = p3.communicate(timeout=60)
         if len(errs) > 0:
             print("Test printed errors: ", errs.decode('utf-8'))
-            print("Failing command line: ", miopenGenCommand)
+            print("Failing command line: ", rocmlirGenCommand)
     except subprocess.TimeoutExpired:
-        print("Test timed out: ", miopenGenCommand)
+        print("Test timed out: ", rocmlirGenCommand)
         p3.kill()
         outs, errs = p3.communicate()
 
@@ -408,8 +411,8 @@ def runConfigWithMIOpenDriver(commandLine, paths: Paths, envs):
         return np.nan
 
 # Benchmarking function.
-def benchmarkMLIR(commandLine, xdlops, paths: Paths):
-    config = ConvConfiguration.fromCommandLine(commandLine, xdlops)
+def benchmarkMLIR(commandLine, xdlops, paths: Paths, arch):
+    config = ConvConfiguration.fromCommandLine(commandLine, xdlops, arch)
     runConfigWithMLIR(config, paths)
     # get nanoseconds from rocprof output.
     nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
@@ -422,8 +425,8 @@ def benchmarkMIOpen(commandLine, xdlops, paths: Paths, envs=dict()):
     return config.tableEntry(nanoSeconds)
 
 #Generate MLIR vs. MIOpen performance results
-def generatePerformanceResults(configs, xdlops, paths: Paths):
-    mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), xdlops, paths)
+def generatePerformanceResults(configs, xdlops, paths: Paths, arch):
+    mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), xdlops, paths, arch)
         for testVector in configs)
     miopen_df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), xdlops, paths)
         for testVector in configs)
@@ -494,6 +497,18 @@ def is_xdlops_present() -> bool:
     if r.returncode == 0:
         return True
     return False
+
+def getArch():
+    p = subprocess.run(["/opt/rocm/bin/rocm_agent_enumerator", "-name"], check=True,
+                       stdout=subprocess.PIPE)
+    agents = set(x.decode("utf-8") for x in p.stdout.split())
+    if not agents:
+        # TODO: Remove this workaround for a bug in rocm_agent_enumerator -name
+        # Once https://github.com/RadeonOpenCompute/rocminfo/pull/59 lands
+        q = subprocess.run(["/opt/rocm/bin/rocm_agent_enumerator"],
+                              check=True, stdout=subprocess.PIPE)
+        agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
+    return agents
 
 # Main function.
 def main(args=None):
@@ -596,13 +611,20 @@ def main(args=None):
             raise RuntimeError("MLIR build dir was not provided/found")
 
     paths = create_paths(parsed_args.mlir_build_dir, parsed_args.miopen_build_dir)
-    xdlops = is_xdlops_present()
+    archNames = getArch()
+    xdlops = False
+    for x in archNames:
+        if "gfx908" in x or "gfx90a" in x:
+            xdlops = True
+
+    arch = ','.join(archNames)
     configs = getConfigurations(paths.configuration_file_path)
+
 
     #If no arguments are passed, then benchmark with MLIR and MIOpen
     if parsed_args.batch_both:
         # batch benchmark with MLIR and MIOpen.
-        generatePerformanceResults(configs, xdlops, paths)
+        generatePerformanceResults(configs, xdlops, paths, arch)
     elif parsed_args.miopen_use_tuned_mlir:
         benchmarkMIOpenWithMLIRKernels(configs, xdlops, reportUtils.MIOPEN_TUNED_REPORT_FILE, paths)
     elif parsed_args.miopen_use_untuned_mlir:
@@ -611,7 +633,7 @@ def main(args=None):
         tuneMLIRKernels(configs, xdlops, paths)
     else:
         if parsed_args.batch_mlir:
-            df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), xdlops, paths) for testVector in configs)
+            df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), xdlops, paths, arch) for testVector in configs)
         elif parsed_args.batch_miopen:
             df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), xdlops, paths) for testVector in configs)
         elif parsed_args.miopen:
@@ -621,7 +643,7 @@ def main(args=None):
             # These are arguments are directly passed through to benchmarkMLIR
             if not parsed_args.mlir_build_dir:
                 raise RuntimeError("MLIR build dir was not provided/found")
-            df = pd.DataFrame([benchmarkMLIR(parsed_args.config, xdlops, paths)])
+            df = pd.DataFrame([benchmarkMLIR(parsed_args.config, xdlops, paths, arch)])
         df.to_csv(parsed_args.fileName)
         with pd.option_context('display.precision', reportUtils.ROUND_DIGITS):
             print(df) # for interactive consumption

@@ -32,7 +32,8 @@ config.substitutions.append(('%PATH%', config.environment['PATH']))
 config.substitutions.append(('%shlibext', config.llvm_shlib_ext))
 config.substitutions.append(("%mlir_src_root", config.mlir_src_root))
 config.substitutions.append(('%random_data', config.random_data))
-config.substitutions.append(('%xdlops', config.xdlops))
+config.substitutions.append(('%rocmlir_gen_flags', config.rocmlir_gen_flags))
+config.substitutions.append(('%arch', config.arch))
 config.substitutions.append(('%pv', config.populate_validation))
 
 llvm_config.with_system_environment(

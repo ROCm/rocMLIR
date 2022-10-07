@@ -125,12 +125,12 @@ static LogicalResult smallEnough(const ArrayRef<int64_t> dims, size_t elemWidth,
   return success();
 }
 
-LogicalResult Conv2dGenerator::isApplicable() const {
+LogicalResult Conv2dGenerator::isApplicable(bool checkChip) const {
   if (failed(hasValidDimension())) {
     return failure();
   }
 
-  if (failed(hasValidChip())) {
+  if (checkChip && failed(hasValidChip())) {
     return failure();
   }
 

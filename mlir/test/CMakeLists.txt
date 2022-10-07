@@ -40,12 +40,6 @@ set(LLVM_TOOLS_DIR ${LLVM_EXTERNAL_BIN_DIR})
 set(MLIR_TOOLS_DIR ${LLVM_EXTERNAL_BIN_DIR})
 set(ROCMLIR_TOOLS_DIR ${ROCMLIR_BIN_DIR})
 
-# Passed to lit.site.cfg.py.in to set the -x2 flag for the mlir E2E tests.
-set(MLIR_XDLOPS "")
-if(ROCMLIR_DRIVER_XDLOPS_TEST_ENABLED)
-  set(MLIR_XDLOPS "-x2")
-endif()
-
 # Passed to lit.site.cfg.py.in to set the -rand flag for the mlir E2E tests.
 set(MLIR_RANDOM_DATA "")
 if(NOT ROCMLIR_DRIVER_RANDOM_DATA_SEED STREQUAL "none")

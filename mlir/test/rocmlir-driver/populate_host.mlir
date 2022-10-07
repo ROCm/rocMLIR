@@ -1,5 +1,5 @@
-// RUN: rocmlir-gen -p -ph | FileCheck %s
-// RUN: rocmlir-gen -p -ph -t f16 | FileCheck %s
+// RUN: rocmlir-gen --arch %arch -p -ph | FileCheck %s
+// RUN: rocmlir-gen --arch %arch -p -ph -t f16 | FileCheck %s
 
 // CHECK-LABEL: func.func @main()
 // CHECK-NEXT: memref.alloc() : memref<[[G:[0-9]+]]x[[K:[0-9]+]]x[[C:[0-9]+]]x[[Y:[0-9]+]]x[[X:[0-9]+]]x[[TYPE:[a-zA-Z0-9]+]]>
@@ -96,7 +96,7 @@
 // CHECK-NEXT: gpu.dealloc  %{{.*}} : memref<[[N]]x[[G]]x[[K]]x[[HO]]x[[WO]]x[[TYPE]]>
 // CHECK-NEXT: return
 
-// RUN: rocmlir-gen -p -ph -t i8 | FileCheck %s --check-prefix=INT8
+// RUN: rocmlir-gen --arch %arch -p -ph -t i8 | FileCheck %s --check-prefix=INT8
 
 // INT8-LABEL: func.func @main()
 // INT8-NEXT: memref.alloc() : memref<[[G:[0-9]+]]x[[K:[0-9]+]]x[[C:[0-9]+]]x[[Y:[0-9]+]]x[[X:[0-9]+]]x[[TYPE:i8]]>

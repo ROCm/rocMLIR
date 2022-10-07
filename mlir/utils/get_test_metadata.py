@@ -24,7 +24,7 @@ ROCMLIR_DRIVER = ROCK_BIN / 'rocmlir-driver'
 E2E_TEST_ROOT = ROCK_ROOT / 'mlir' / 'test' / 'rocmlir-driver'
 
 CONV_CONFIG_RE = re.compile(r'rocmlir-gen\s*([^|]+)\s*\|')
-UNNEEDED_PARAMS_RE = re.compile(r'%pv|%random_data|%xdlops|-x2|-pv|-pv_with_gpu|-ph')
+UNNEEDED_PARAMS_RE = re.compile(r'%pv|%random_data|%feature|-x2|-pv|-pv_with_gpu|-ph')
 def clean_configs_from(data: str) -> List[str]:
     ret = []
     for match in CONV_CONFIG_RE.finditer(data):
