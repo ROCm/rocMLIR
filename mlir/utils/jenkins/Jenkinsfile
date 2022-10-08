@@ -174,6 +174,98 @@ def rebootNode() {
     build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
 }
 
+void tuneMLIRKernels() {
+    dir('MIOpen/build/') {
+        sh """
+            bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
+            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+        sh """
+            bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd --dtype int8 --tuning\
+            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+        sh 'ls -l MIOpenUserDB'
+    }
+}
+
+void check_fixedE2ETests(boolean nightly) {
+    buildProject('check-mlir check-rocmlir', """
+              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${nightly ? '0' : '1'}
+              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${nightly ? '1' : '0'}
+              -DROCK_E2E_TEST_ENABLED=${nightly ? '1' : '0'}
+              -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=${nightly ? '1' : '0'}
+              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
+              -DLLVM_LIT_ARGS='-v --time-tests'
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+             """)
+}
+
+void check_randomE2ETests() {
+    buildProject('check-rocmlir', """
+              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
+              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
+              -DROCK_E2E_TEST_ENABLED=1
+              -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
+              -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=0
+              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
+              -DLLVM_LIT_ARGS='-v --time-tests'
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+             """)
+}
+
+void parameterSweep(String codepath, String CONFIG) {
+    if (codepath == "mfma") {
+        xdlopsArg = '--xdlops'
+    } else {
+        xdlopsArg = '--no-xdlops'
+    }
+    dir('build') {
+        timeout(time: 60, activity: true, unit: 'MINUTES') {
+            sh """python3 ./bin/parameterSweeps.py ${xdlopsArg} ${CONFIG}"""
+        }
+    }
+}
+
+boolean shouldRunFromCodepath(String codepath) {
+    // Run vanilla on public CI
+    if ((codepath == "vanilla") && (params.canXdlops == false)) {
+        return true
+    }
+    // Run mfma on private CI
+    if ((codepath == "mfma") && params.canXdlops) {
+        return true
+    }
+    // Run navi21 on private CI only if it is not disabled
+    if (params.canXdlops && (params.disableNavi21 == false) && (codepath == "navi21")) {
+        return true
+    }
+    return false
+}
+
+boolean shouldRunFromChip(String chip) {
+    switch (chip) {
+        case "gfx906":
+            return shouldRunFromCodepath("vanilla")
+        case "gfx908":
+        case "gfx90a":
+            return shouldRunFromCodepath("mfma")
+        case "gfx1030":
+            return shouldRunFromCodepath("navi21")
+    }
+}
+
+void archivePerfDB() {
+    // Note: add additional architectures here
+    dir ('MIOpen/build/MIOpenUserDB') {
+        unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx908' : 'gfx906'}"
+        // This'll stop being a duplicate once Navi CI starts
+        unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx90a' : 'gfx906'}"
+        if (params.disableNavi21 == false)
+            unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx1030' : 'gfx906'}"
+        sh 'date --utc +%Y-%m-%d >tuning-date'
+    }
+    archiveArtifacts artifacts: 'MIOpen/build/MIOpenUserDB/**',\
+    onlyIfSuccessful: true
+}
+
 pipeline {
     agent none
     parameters {
@@ -245,22 +337,7 @@ pipeline {
                         // and vanilla on public CI
                         allOf {
                             equals expected: "default", actual: params.codepath;
-                            anyOf {
-                                allOf {
-                                    anyOf {
-                                        equals expected: "mfma", actual: "${CODEPATH}";
-                                        allOf {
-                                            equals expected: "navi21", actual: "${CODEPATH}";
-                                            equals expected: false, actual: params.disableNavi21;
-                                        }
-                                    }
-                                    equals expected: true, actual: params.canXdlops;
-                                }
-                                allOf {
-                                    equals expected: "vanilla", actual: "${CODEPATH}";
-                                    equals expected: false, actual: params.canXdlops;
-                                }
-                            }
+                            expression { return shouldRunFromCodepath("$CODEPATH")}
                         }
                         // When a particular codepath is selected, we only test the codepath
                         // on private CI
@@ -294,15 +371,7 @@ pipeline {
                             equals expected: true, actual: params.sharedLib;
                         }
                         steps {
-                            buildProject('check-mlir check-rocmlir', """
-                                      -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
-                                      -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-                                      -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-                                      -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-                                      -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-                                      -DLLVM_LIT_ARGS='-v --time-tests'
-                                      -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-                                    """)
+                            check_fixedE2ETests(params.nightly)
                         }
                     }
                     stage("Shared Library: random E2E tests") {
@@ -314,16 +383,7 @@ pipeline {
                             }
                         }
                         steps {
-                            buildProject('check-rocmlir', """
-                                      -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
-                                      -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
-                                      -DROCK_E2E_TEST_ENABLED=1
-                                      -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
-                                      -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=0
-                                      -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
-                                      -DLLVM_LIT_ARGS='-v --time-tests'
-                                      -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-                                    """)
+                            check_randomE2ETests()
                         }
                     }
                     stage("Static Library: test librockCompiler with MIOpen") {
@@ -374,17 +434,21 @@ pipeline {
             matrix {
                 axes {
                     axis {
-                        name 'CONFIG'
-                        values 'conv_structure', 'perf_config'
+                        name 'CODEPATH'
+                        values 'mfma', 'vanilla', 'navi21'
                     }
                 }
                 agent {
                     docker {
                         image dockerImage()
                         args dockerArgs()
-                        label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a) && multi_gpu' : 'rocm' }"
+                        label getLabelFromCodepath("${CODEPATH}")
                         alwaysPull true
                     }
+                }
+                when {
+                    beforeAgent true
+                    expression { return shouldRunFromCodepath("$CODEPATH") }
                 }
                 environment {
                     HOME="${WORKSPACE}"
@@ -395,19 +459,16 @@ pipeline {
                             showEnv()
                         }
                     }
-                    stage("Sweep parameters") {
+                    stage("Prepare Performance Scripts") {
                         steps {
                             setHeartbeat()
-                            buildProject(
-                                'check-rocmlir-build-only ci-performance-scripts',
-                                '')
-                            dir('build') {
-                                timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                    sh """python3 ./bin/parameterSweeps.py \
-                                        ${params.canXdlops ? '--xdlops' : '--no-xdlops'} \
-                                        ${CONFIG}"""
-                                }
-                            }
+                            buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                        }
+                    }
+                    stage("Parameter Sweep") {
+                        steps {
+                            parameterSweep("${CODEPATH}", "conv_structure")
+                            parameterSweep("${CODEPATH}", "perf_config")
                         }
                     }
                 }
@@ -444,20 +505,7 @@ pipeline {
                 }
                 when {
                     beforeAgent true
-                    anyOf {
-                        allOf {
-                            equals expected: "gfx906", actual: "${ARCH}";
-                            equals expected: false, actual: params.canXdlops;
-                        }
-                        allOf {
-                            anyOf {
-                                equals expected: "gfx908", actual: "${ARCH}";
-                                equals expected: "gfx90a", actual: "${ARCH}";
-                                equals expected: "gfx1030", actual: "${ARCH}";
-                            }
-                            equals expected: true, actual: params.canXdlops;
-                        }
-                    }
+                    expression { return shouldRunFromChip("${ARCH}") }
                 }
                 environment {
                     PATH="/opt/rocm/llvm/bin:$PATH"
@@ -489,15 +537,7 @@ pipeline {
                             LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
                         }
                         steps {
-                            dir('MIOpen/build/') {
-                                sh """
-                                bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
-                                    < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
-                                sh """
-                                bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd --dtype int8 --tuning\
-                                    < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
-                                sh 'ls -l MIOpenUserDB'
-                            }
+                            tuneMLIRKernels()
                             // Save user database for nightly jobs
                             dir ('MIOpen/build/MIOpenUserDB') {
                                 stash name: "MLIR-PerfDB-${ARCH}", includes: "**"
@@ -523,15 +563,7 @@ pipeline {
                 skipDefaultCheckout()
             }
             steps {
-                // Note: add additional architectures here
-                dir ('MIOpen/build/MIOpenUserDB') {
-                    unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx908' : 'gfx906'}"
-                    // This'll stop being a duplicate once Navi CI starts
-                    unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx90a' : 'gfx906'}"
-                    sh 'date --utc +%Y-%m-%d >tuning-date'
-                }
-                archiveArtifacts artifacts: 'MIOpen/build/MIOpenUserDB/**',\
-                    onlyIfSuccessful: true
+                archivePerfDB()
             }
             post {
                 always {
@@ -638,23 +670,7 @@ pipeline {
                     beforeAgent true;
                     equals expected: true, actual: params.perfTest;
                     equals expected: true, actual: params.nightly;
-                    anyOf {
-                        allOf {
-                            anyOf {
-                                equals expected: "gfx908", actual: "${CHIP}";
-                                equals expected: "gfx90a", actual: "${CHIP}";
-                                allOf {
-                                    equals expected: "gfx1030", actual: "${CHIP}";
-                                    equals expected: false, actual: params.disableNavi21;
-                                }
-                            }
-                            equals expected: true, actual: params.canXdlops;
-                        }
-                        allOf {
-                            equals expected: "gfx906", actual: "${CHIP}";
-                            equals expected: false, actual: params.canXdlops;
-                        }
-                    }
+                    expression { return shouldRunFromChip("${CHIP}")}
                 }
                 agent {
                     docker {
