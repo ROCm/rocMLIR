@@ -90,7 +90,7 @@ struct FillRewritePattern : public OpConversionPattern<FillOp> {
 //===----------------------------------------------------------------------===//
 
 // The structure of this lowing is documented at
-// https://github.com/ROCmSoftwarePlatform/llvm-project-mlir/issues/719
+// https://github.com/ROCmSoftwarePlatform/rocMLIR/issues/719
 struct BlockwiseGemmRewritePattern
     : public OpConversionPattern<BlockwiseGemmOp> {
   using OpConversionPattern<BlockwiseGemmOp>::OpConversionPattern;
