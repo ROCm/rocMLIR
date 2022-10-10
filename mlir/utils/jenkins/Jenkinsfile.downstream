@@ -59,6 +59,8 @@ pipeline {
             description: 'Run shared library tests')
         booleanParam(name: 'staticLib', defaultValue: true,
             description: 'Run static library and MIOpen integration tests')
+        string(name: 'MIOpenBranch', defaultValue: 'develop',
+            description: 'The MIOpen branch to be used with the job')
     }
     stages {
         stage('Kill old PR builds') {
@@ -148,7 +150,7 @@ pipeline {
                         stage("Build MIOpen with librockCompiler") {
                             steps {
                                 dir('MIOpen') {
-                                git branch: 'fix-kernel-count-MLIR', poll: false,\
+                                git branch: params.MIOpenBranch, poll: false,\
                                     url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
                                 buildMIOpen("""-DMIOPEN_USE_MLIR=On
                                         -DMIOPEN_USE_COMPOSABLEKERNEL=Off
