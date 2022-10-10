@@ -20,7 +20,7 @@ start_clean_docker() {
 
 # Build the docker image and push it to the repository
 build_rocm_image() {
-  if docker build -t rocm-mlir -f ./mlir/utils/jenkins/Dockerfile.rocm ./mlir/utils/jenkins ; then
+  if docker build -t rocm-mlir -f ./mlir/utils/jenkins/Dockerfile ./mlir/utils/jenkins ; then
     err Docker image build failed
     exit 1
   fi
@@ -29,7 +29,7 @@ build_rocm_image() {
   local docker_repository="rocm/mlir"
 
   local rocm_full_version rocm_short_version git_commit_hash
-  rocm_full_version=$(grep "ROCM_PATH" ./mlir/utils/jenkins/Dockerfile.rocm | sed 's/.*-\([0-9][0-9]*[.][0-9][0-9.]*\)/\1/')
+  rocm_full_version=$(grep "ROCM_PATH" ./mlir/utils/jenkins/Dockerfile | sed 's/.*-\([0-9][0-9]*[.][0-9][0-9.]*\)/\1/')
   rocm_short_version="rocm${rocm_full_version%.*}"
   git_commit_hash=$(git rev-parse --short HEAD)
 
@@ -58,7 +58,7 @@ build_rocm_image() {
 
 main() {
   if [[ " ${ARGS[*]} " =~ " --force " ]] || \
-      git diff --name-only HEAD^ HEAD | grep -q "Dockerfile.rocm"; then
+      git diff --name-only HEAD^ HEAD | grep -q "Dockerfile"; then
     echo "Start a new build"
     start_clean_docker
     build_rocm_image

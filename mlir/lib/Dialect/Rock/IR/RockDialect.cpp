@@ -476,14 +476,14 @@ LogicalResult Conv2DBwdDataOp::verify() { return verifyConvOp(*this); }
 
 LogicalResult Conv2DBwdWeightOp::verify() { return verifyConvOp(*this); }
 
-OpOperand &Conv2DOp::getOutArgument() { return (*this)->getOpOperand(2); }
+OpOperand *Conv2DOp::getOutArgument() { return &(*this)->getOpOperand(2); }
 
-OpOperand &Conv2DBwdDataOp::getOutArgument() {
-  return (*this)->getOpOperand(1);
+OpOperand *Conv2DBwdDataOp::getOutArgument() {
+  return &(*this)->getOpOperand(1);
 }
 
-OpOperand &Conv2DBwdWeightOp::getOutArgument() {
-  return (*this)->getOpOperand(0);
+OpOperand *Conv2DBwdWeightOp::getOutArgument() {
+  return &(*this)->getOpOperand(0);
 }
 
 GemmContext Conv2DOp::getGemmSize() {
@@ -505,7 +505,7 @@ GemmContext Conv2DBwdWeightOp::getGemmSize() {
 // GemmOp
 //===-----------------------------------------------------===//
 LogicalResult GemmOp::verify() {
-  MemRefType typeA = getA().getType(), typeB = getB().getType(),
+  ShapedType typeA = getA().getType(), typeB = getB().getType(),
              typeC = getC().getType();
   Type inElems = typeA.getElementType(), outElems = typeC.getElementType();
   if (inElems.isa<IntegerType>() && !outElems.isInteger(32))
@@ -556,10 +556,10 @@ LogicalResult GemmOp::verify() {
   return success();
 }
 
-OpOperand &GemmOp::getOutArgument() { return (*this)->getOpOperand(2); }
+OpOperand *GemmOp::getOutArgument() { return &(*this)->getOpOperand(2); }
 
 GemmContext GemmOp::getGemmSize() {
-  MemRefType typeA = getA().getType(), typeB = getB().getType();
+  ShapedType typeA = getA().getType(), typeB = getB().getType();
   ArrayRef<int64_t> dimsA = typeA.getShape(), dimsB = typeB.getShape();
   int64_t offsetA = dimsA.size() == 2 ? 0 : 1,
           offsetB = dimsB.size() == 2 ? 0 : 1;

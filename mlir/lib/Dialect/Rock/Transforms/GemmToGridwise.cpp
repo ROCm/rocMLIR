@@ -141,6 +141,9 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                     ConversionPatternRewriter &rw) const {
   Location loc = op->getLoc();
 
+  if (!adaptor.getA().getType().isa<MemRefType>())
+    return op.emitOpError("Cannot lower unbufferized gemm to gridwise");
+
   Attribute params = op.getParams().value_or(nullptr);
   if (!params) {
     return op.emitOpError("cannot lower gemm without tuning parameters");

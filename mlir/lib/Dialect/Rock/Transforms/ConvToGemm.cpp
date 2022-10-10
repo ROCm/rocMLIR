@@ -136,6 +136,15 @@ LogicalResult getConvDimNames(T op, SmallVectorImpl<StringRef> &filterNames,
   return success();
 }
 
+/// Return the type of v if the underlying convolution has a result, otherwise
+/// return null, allowing the lowering here to be, in principle, generic over
+/// tensors and memrefs.
+Type getResultType(Operation *convOp, Value outArg) {
+  if (convOp->getNumResults() == 1)
+    return outArg.getType();
+  return nullptr;
+}
+
 /// Create an elementwise utility kernel.
 /// The callback has type (builder, location, collapsedBuffers, coordinate).
 /// Note: you are expected to handle out of bounds, such as by using
@@ -157,6 +166,11 @@ LogicalResult createElementwiseLoop(
 
   SmallVector<Value, 2> collapsedBufs;
   for (Value memref : memrefs) {
+    if (!memref.getType().isa<MemRefType>()) {
+      // TODO: determine if we can relax this if we push bufferization down
+      return convOp->emitOpError(
+          "Arguments to utility kernels must be memrefs");
+    }
     if (auto transform =
             dyn_cast_or_null<TransformOp>(memref.getDefiningOp())) {
       return convOp->emitOpError(
@@ -194,8 +208,8 @@ LogicalResult createElementwiseLoop(
 /// The output is the input tensor.
 LogicalResult zeroInit(Conv2DBwdDataOp op, PatternRewriter &b) {
   auto loc = op.getLoc();
-  Value output = op.getInput();
-  Type outputType = output.getType().cast<MemRefType>().getElementType();
+  TypedValue<ShapedType> output = op.getInput();
+  Type outputType = output.getType().getElementType();
   constexpr int64_t kZeroInitVecLen = 4;
   Type storeType = VectorType::get(kZeroInitVecLen, outputType);
   Value zeroOp = createZeroConstantOp(b, loc, storeType);
@@ -225,7 +239,7 @@ LogicalResult zeroInit(Conv2DBwdDataOp op, PatternRewriter &b) {
 LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
   Location loc = op.getLoc();
   Type filterDataType = op.getFilter().getType().getElementType();
-  Value output;
+  TypedValue<ShapedType> output(nullptr);
   if (filterDataType == b.getF32Type()) {
     output = op.getFilter();
   } else if (filterDataType == b.getF16Type()) {
@@ -236,7 +250,7 @@ LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
     return op.emitOpError("Unsupported zeroing data type");
   }
 
-  Type outputType = output.getType().cast<MemRefType>().getElementType();
+  Type outputType = output.getType().getElementType();
   constexpr int64_t kZeroInitVecLen = 4;
   Type storeType = VectorType::get(kZeroInitVecLen, outputType);
   Value zeroOp = createZeroConstantOp(b, loc, storeType);
@@ -266,11 +280,10 @@ LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
   Location loc = op.getLoc();
   if (!op.getWorkspace())
     return op.emitOpError("op has no workspace");
-  Value filter = op.getFilter();
-  Value workspace = op.getWorkspace();
-  Type filterDataType = filter.getType().cast<MemRefType>().getElementType();
-  Type workspaceDataType =
-      workspace.getType().cast<MemRefType>().getElementType();
+  TypedValue<ShapedType> filter = op.getFilter();
+  TypedValue<ShapedType> workspace = op.getWorkspace();
+  Type filterDataType = filter.getType().getElementType();
+  Type workspaceDataType = workspace.getType().getElementType();
 
   int64_t kConversionVectorLen = 4;
   Type loadType = VectorType::get(kConversionVectorLen, workspaceDataType);
@@ -319,7 +332,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   bool isXdlops = bitEnumContainsAll(features, GemmFeatures::mfma);
 
   // Get shape of filter tensor.
-  MemRefType filterType = op.getFilter().getType();
+  ShapedType filterType = op.getFilter().getType();
   auto filterShape = filterType.getShape();
 
   // Determine whether to use workspace.
@@ -353,11 +366,11 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     return op->emitOpError("atomic add kernel requires xdlops");
 
   // Get shape of input tensor.
-  MemRefType inputType = op.getInput().getType();
+  ShapedType inputType = op.getInput().getType();
   ArrayRef<int64_t> inputShape = inputType.getShape();
 
   // Get shape of output tensor.
-  MemRefType outputType = op.getOutput().getType();
+  ShapedType outputType = op.getOutput().getType();
   ArrayRef<int64_t> outputShape = outputType.getShape();
 
   // Obtain convolution parameters: padding / dialtion / stride.
@@ -515,7 +528,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::AtomicAdd);
 
   auto gemm = b.create<GemmOp>(
-      loc, gemmOutput, gemmInput, gemmFilter,
+      loc, getResultType(op, gemmFilter), gemmOutput, gemmInput, gemmFilter,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
       /*cTransposed=*/nullptr, op.getArchAttr(), op.getNumCuAttr(),
       op.getFeaturesAttr(), storeMethod, op.getBlockSizeAttr(),
@@ -535,15 +548,15 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   ConvolutionContext ctx = populateConvContext(op);
 
   // Get shape of filter tensor.
-  MemRefType filterType = op.getFilter().getType();
+  ShapedType filterType = op.getFilter().getType();
   ArrayRef<int64_t> filterShape = filterType.getShape();
 
   // Get shape of input tensor.
-  MemRefType inputType = op.getInput().getType();
+  ShapedType inputType = op.getInput().getType();
   ArrayRef<int64_t> inputShape = inputType.getShape();
 
   // Get shape of output tensor.
-  MemRefType outputType = op.getOutput().getType();
+  ShapedType outputType = op.getOutput().getType();
   ArrayRef<int64_t> outputShape = outputType.getShape();
 
   // Obtain convolution parameters: padding / dialtion / stride.
@@ -757,7 +770,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   // Emit rock.gemm op.
   auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
   auto gemm = b.create<GemmOp>(
-      loc, gemmFilter, gemmOutput, gemmInput,
+      loc, getResultType(op, gemmInput), gemmFilter, gemmOutput, gemmInput,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
       /*cTransposed=*/nullptr, op.getArchAttr(), op.getNumCuAttr(),
       op.getFeaturesAttr(), storeMethod, op.getBlockSizeAttr(),
@@ -787,15 +800,15 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     ConvolutionContext ctx = populateConvContext(op);
 
     // Get shape of filter tensor.
-    MemRefType filterType = op.getFilter().getType();
+    ShapedType filterType = op.getFilter().getType();
     ArrayRef<int64_t> filterShape = filterType.getShape();
 
     // Get shape of input tensor.
-    MemRefType inputType = op.getInput().getType();
+    ShapedType inputType = op.getInput().getType();
     ArrayRef<int64_t> inputShape = inputType.getShape();
 
     // Get shape of output tensor.
-    MemRefType outputType = op.getOutput().getType();
+    ShapedType outputType = op.getOutput().getType();
     ArrayRef<int64_t> outputShape = outputType.getShape();
 
     // Obtain convolution parameters: padding / dialtion / stride.
@@ -1021,7 +1034,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     // Emit rock.gemm op.
     auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
-    b.create<GemmOp>(loc, gemmA, gemmB, gemmC,
+    b.create<GemmOp>(loc, getResultType(op, gemmC), gemmA, gemmB, gemmC,
                      /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
                      /*cTransposed=*/nullptr, op.getArchAttr(),
                      op.getNumCuAttr(), op.getFeaturesAttr(), storeMethod,
