@@ -125,6 +125,7 @@ WORKDIR /MIOpenDepsWork
 RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/develop/requirements.txt \
     && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/develop/install_deps.cmake \
     && sed -i -e '/rocMLIR/d' requirements.txt \
+    && sed -i -e '/composable_kernel/d' requirements.txt \
     && cmake -P install_deps.cmake --prefix /usr/local
 RUN echo $(git ls-remote https://github.com/ROCmSoftwarePlatform/MIOpen HEAD) > miopen-deps-commit-hash
 WORKDIR /
