@@ -2243,15 +2243,20 @@ int main(int argc, char **argv) {
       }
 
       RocmDeviceName targetInfo;
-      if (failed(targetInfo.parse(arch.getValue())))
+      if (failed(targetInfo.parse(arch.getValue()))) {
+        llvm::errs() << "Invalid architecture name: " << arch << "\n";
         exit(1);
+      }
       std::string triple = targetInfo.getTriple().str();
       std::string chip = targetInfo.getChip().str();
-      std::string chipFeatures = targetInfo.getFeatures().str();
+      std::string chipFeatures = targetInfo.getFeaturesForBackend();
+      SmallString<64> canonicalArch;
+      targetInfo.getFullName(canonicalArch);
+      arch = canonicalArch.str().str();
 
       LogicalResult status = success();
 
-      rock::AmdArchInfo archInfo = rock::lookupArchInfo(chip);
+      rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
       rock::GemmFeatures enabledFeatures = archInfo.defaultFeatures;
       // toggle feature list according to cl::opt inputs
       if (mfmaFeature != infer)
@@ -2266,14 +2271,14 @@ int main(int argc, char **argv) {
                        atomicAddFeature == on);
 
       conv2dGenerator = rock::Conv2dGenerator(
-          chip, triple, chipFeatures, perfConfig.getValue(), num_cu.getValue(),
-          enabledFeatures, operation.getValue(), tensorDataType.getValue(),
-          dilationHeight.getValue(), dilationWidth.getValue(),
-          strideHeight.getValue(), strideWidth.getValue(),
-          paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
-          paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
-          filterLayout.getValue(), inputLayout.getValue(),
-          outputLayout.getValue());
+          arch, chip, triple, chipFeatures, perfConfig.getValue(),
+          num_cu.getValue(), enabledFeatures, operation.getValue(),
+          tensorDataType.getValue(), dilationHeight.getValue(),
+          dilationWidth.getValue(), strideHeight.getValue(),
+          strideWidth.getValue(), paddingHeightLeft.getValue(),
+          paddingHeightRight.getValue(), paddingWidthLeft.getValue(),
+          paddingWidthRight.getValue(), filterLayout.getValue(),
+          inputLayout.getValue(), outputLayout.getValue());
 
       status = conv2dGenerator.parseConvDims(
           batchSize, groupSize, inputChannel, inputHeight, inputWidth,

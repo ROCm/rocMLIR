@@ -62,7 +62,7 @@ void rock::buildPartitionPipeline(OpPassManager &pm,
     /* rocmlir-opt --rock-clone-kernels
      */
     pm.addPass(rock::createRockCloneKernelsPass(
-        rock::RockCloneKernelsPassOptions{options.targetChips}));
+        rock::RockCloneKernelsPassOptions{options.targets}));
   }
 }
 

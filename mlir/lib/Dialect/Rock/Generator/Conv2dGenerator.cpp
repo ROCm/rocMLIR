@@ -33,7 +33,7 @@ using namespace mlir::rock;
 #define DEBUG_TYPE "conv2d-gen"
 
 Conv2dGenerator::Conv2dGenerator(
-    const std::string &chip, const std::string &triple,
+    const std::string &arch, const std::string &chip, const std::string &triple,
     const std::string &chipFeatures, const std::string &perfConfig, int num_cu,
     GemmFeatures features, const Optional<ConvOpType> operation,
     const std::string &dataTypeStr, int dilationHeight, int dilationWidth,
@@ -41,7 +41,8 @@ Conv2dGenerator::Conv2dGenerator(
     int paddingHeightRight, int paddingWidthLeft, int paddingWidthRight,
     const std::string &filterLayout, const std::string &inputLayout,
     const std::string &outputLayout, const std::string &kernelBaseName)
-    : config{chip,
+    : config{arch,
+             chip,
              triple,
              chipFeatures,
              perfConfig,
@@ -559,8 +560,14 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   if (failed(splitter.parse(arch))) {
     return failure();
   }
+  // Canonicalize architecture name
+  SmallString<64> canonicalArch;
+  splitter.getFullName(canonicalArch);
+  arch = canonicalArch.str();
+
+  config.arch = arch;
   config.chip = splitter.getChip().str();
-  config.chipFeatures = splitter.getFeatures().str();
+  config.chipFeatures = splitter.getFeaturesForBackend();
   config.triple = splitter.getTriple().str();
   AmdArchInfo archInfo = lookupArchInfo(splitter.getChip());
   config.features = archInfo.defaultFeatures;
@@ -776,14 +783,18 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
     kernel_id = 0;
 
   // Annotate kernel attribute to the FuncOp.
-  SmallVector<NamedAttribute, 1> kernelAttrs{
+  NamedAttribute archAttr =
+      builder.getNamedAttr("kernel.arch", builder.getStringAttr(config.arch));
+  SmallVector<NamedAttribute, 2> kernelAttrs = {
       builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernel_id)),
-  };
+      archAttr};
 
   // Construct the FuncOp.
   func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
                               ArrayRef<NamedAttribute>(kernelAttrs));
   module.push_back(func);
+  if (!is_verifier)
+    module->setAttr(archAttr.getName(), archAttr.getValue());
   if (func.getName() != kernelName) {
     return failure();
   }

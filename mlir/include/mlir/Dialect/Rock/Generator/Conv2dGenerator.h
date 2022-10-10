@@ -28,6 +28,8 @@ struct ConvolutionDims;
 class Conv2dGenerator {
 public:
   struct Config {
+    std::string arch;
+    // TODO: drop these
     std::string chip;
     std::string triple;
     std::string chipFeatures;
@@ -56,7 +58,8 @@ public:
     int filterWidth;
   };
 
-  Conv2dGenerator(const std::string &chip = "", const std::string &triple = "",
+  Conv2dGenerator(const std::string &arch = "", const std::string &chip = "",
+                  const std::string &triple = "",
                   const std::string &chipFeatures = "",
                   const std::string &perfConfig = "", int num_cu = 0,
                   GemmFeatures features = GemmFeatures::none,

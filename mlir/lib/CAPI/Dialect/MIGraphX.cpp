@@ -131,6 +131,6 @@ MLIR_CAPI_EXPORTED void mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   opts.chip = chip;
   opts.features = features;
   opts.optLevel = 3;
-  opts.indexBitwidth = 64;
+  opts.indexBitwidth = 32;
   mlir::rock::buildBackendPipeline(*passMan, opts);
 }

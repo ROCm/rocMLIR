@@ -22,8 +22,13 @@ static constexpr AmdArchInfo gcnInfo(GemmFeatures::none, /*waveSize=*/64),
     rdnaInfo(GemmFeatures::dot, /*waveSize=*/32),
     gfx11Info(GemmFeatures::dot | GemmFeatures::atomic_add, /*waveSize=*/32);
 
-AmdArchInfo mlir::rock::lookupArchInfo(StringRef chip) {
-  chip = chip.split(':').first;
+AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
+  StringRef firstPart, remainingParts;
+  std::tie(firstPart, remainingParts) = arch.split(':');
+  if (firstPart.contains('-')) { // target triple
+    std::tie(firstPart, remainingParts) = remainingParts.split(':');
+  }
+  StringRef chip = firstPart;
 
   StringRef minor = chip.take_back(2);
   StringRef major = chip.slice(0, chip.size() - 2);
@@ -46,8 +51,7 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef chip) {
     // We know these chips have common features per backend
     return gfx11Info;
   }
-  llvm::errs()
-      << "Warning: unknown chipset major revision, falling back to defaults: "
-      << chip << "\n";
+  llvm::errs() << "Warning: unknown architecture, falling back to defaults: "
+               << arch << "\n";
   return gcnInfo;
 }

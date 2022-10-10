@@ -14,7 +14,7 @@ include "mlir/Pass/PassBase.td"
 def RockCloneKernelsPass : Pass<"rock-clone-kernels", "ModuleOp"> {
   let summary = "clone all kernel funcs into rock module";
   let options = [
-    ListOption<"chips", "chips", "std::string", "List of chip architectures">
+    ListOption<"targets", "targets", "std::string", "List of target architectures">
   ];
 }
 
