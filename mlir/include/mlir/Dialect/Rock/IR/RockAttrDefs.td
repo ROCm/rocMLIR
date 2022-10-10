@@ -242,7 +242,9 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
     "int64_t":$nPerBlock,
     "int64_t":$kpack,
     "int64_t":$mPerWave,
-    "int64_t":$nPerWave
+    "int64_t":$nPerWave,
+    "bool":$forceUnroll,
+    "bool":$useIndexDiff
   );
 
   let extraClassDeclaration = [{

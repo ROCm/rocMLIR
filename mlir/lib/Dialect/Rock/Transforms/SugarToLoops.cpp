@@ -85,6 +85,7 @@ struct TransformingForRewritePattern
     bool useDiffs = op.getUseIndexDiffs().value_or(false);
     bool unroll = op.getForceUnroll().value_or(false);
 
+llvm::errs()<<"\nSugarToLoops: useDiffs="<<useDiffs<<"; unroll="<<unroll<<"\n";
     uint32_t nDomains = op.domains();
     // Compute the initial output values of the lower coordinates.
     // In the case of an index diff map-based loop, compute all intermediate

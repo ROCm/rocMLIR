@@ -1,0 +1,1433 @@
+
+<!doctype html>
+<html lang="en_US">
+<head>
+<meta charset="utf-8">
+<title>MLIR Performance Changes: Direction = fwd, XDLOPS = True, N = 256, DilationH = 1, DilationW = 1</title>
+<style type="text/css">
+caption {
+    caption-side: bottom;
+    padding: 0.5em;
+}
+</style>
+</head>
+<body>
+<h1>MLIR Performance Changes: Direction = fwd, XDLOPS = True, N = 256, DilationH = 1, DilationW = 1</h1>
+<h2>Summary</h2>
+
+<style type="text/css">
+#T_b2eb9 tbody tr:nth-child(odd) {
+  background-color: #e0e0e0;
+}
+#T_b2eb9 tbody tr:nth-child(even) {
+  background-color: #eeeeee;
+}
+#T_b2eb9 table {
+  background-color: #dddddd;
+  border-collapse: collapse;
+}
+#T_b2eb9 th {
+  padding: 0.5em;
+  text-align: center;
+  max-width: 150px;
+}
+#T_b2eb9  td {
+  padding: 0.5em;
+  text-align: center;
+  max-width: 150px;
+}
+</style>
+<table id="T_b2eb9">
+  <caption>Summary statistics for MLIR Performance Changes</caption>
+  <thead>
+    <tr>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank level0" >&nbsp;</th>
+      <th id="T_b2eb9_level0_col0" class="col_heading level0 col0" colspan="2">MLIR TFlops (old)</th>
+      <th id="T_b2eb9_level0_col2" class="col_heading level0 col2" colspan="2">MLIR TFlops (new)</th>
+      <th id="T_b2eb9_level0_col4" class="col_heading level0 col4" colspan="2">Current/Previous</th>
+    </tr>
+    <tr>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank level1" >&nbsp;</th>
+      <th id="T_b2eb9_level1_col0" class="col_heading level1 col0" >Geo. mean</th>
+      <th id="T_b2eb9_level1_col1" class="col_heading level1 col1" >Arith. mean</th>
+      <th id="T_b2eb9_level1_col2" class="col_heading level1 col2" >Geo. mean</th>
+      <th id="T_b2eb9_level1_col3" class="col_heading level1 col3" >Arith. mean</th>
+      <th id="T_b2eb9_level1_col4" class="col_heading level1 col4" >Geo. mean</th>
+      <th id="T_b2eb9_level1_col5" class="col_heading level1 col5" >Arith. mean</th>
+    </tr>
+    <tr>
+      <th class="index_name level0" >Direction</th>
+      <th class="index_name level1" >DataType</th>
+      <th class="index_name level2" >InputLayout</th>
+      <th class="blank col0" >&nbsp;</th>
+      <th class="blank col1" >&nbsp;</th>
+      <th class="blank col2" >&nbsp;</th>
+      <th class="blank col3" >&nbsp;</th>
+      <th class="blank col4" >&nbsp;</th>
+      <th class="blank col5" >&nbsp;</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th id="T_b2eb9_level0_row0" class="row_heading level0 row0" rowspan="4">fwd</th>
+      <th id="T_b2eb9_level1_row0" class="row_heading level1 row0" rowspan="2">f16</th>
+      <th id="T_b2eb9_level2_row0" class="row_heading level2 row0" >nchw</th>
+      <td id="T_b2eb9_row0_col0" class="data row0 col0" >64.35</td>
+      <td id="T_b2eb9_row0_col1" class="data row0 col1" >67.00</td>
+      <td id="T_b2eb9_row0_col2" class="data row0 col2" >63.51</td>
+      <td id="T_b2eb9_row0_col3" class="data row0 col3" >66.72</td>
+      <td id="T_b2eb9_row0_col4" class="data row0 col4" >0.99</td>
+      <td id="T_b2eb9_row0_col5" class="data row0 col5" >0.99</td>
+    </tr>
+    <tr>
+      <th id="T_b2eb9_level2_row1" class="row_heading level2 row1" >nhwc</th>
+      <td id="T_b2eb9_row1_col0" class="data row1 col0" >51.97</td>
+      <td id="T_b2eb9_row1_col1" class="data row1 col1" >54.28</td>
+      <td id="T_b2eb9_row1_col2" class="data row1 col2" >50.23</td>
+      <td id="T_b2eb9_row1_col3" class="data row1 col3" >53.90</td>
+      <td id="T_b2eb9_row1_col4" class="data row1 col4" >0.97</td>
+      <td id="T_b2eb9_row1_col5" class="data row1 col5" >0.98</td>
+    </tr>
+    <tr>
+      <th id="T_b2eb9_level1_row2" class="row_heading level1 row2" rowspan="2">f32</th>
+      <th id="T_b2eb9_level2_row2" class="row_heading level2 row2" >nchw</th>
+      <td id="T_b2eb9_row2_col0" class="data row2 col0" >25.89</td>
+      <td id="T_b2eb9_row2_col1" class="data row2 col1" >26.22</td>
+      <td id="T_b2eb9_row2_col2" class="data row2 col2" >25.43</td>
+      <td id="T_b2eb9_row2_col3" class="data row2 col3" >25.95</td>
+      <td id="T_b2eb9_row2_col4" class="data row2 col4" >0.98</td>
+      <td id="T_b2eb9_row2_col5" class="data row2 col5" >0.99</td>
+    </tr>
+    <tr>
+      <th id="T_b2eb9_level2_row3" class="row_heading level2 row3" >nhwc</th>
+      <td id="T_b2eb9_row3_col0" class="data row3 col0" >23.35</td>
+      <td id="T_b2eb9_row3_col1" class="data row3 col1" >23.77</td>
+      <td id="T_b2eb9_row3_col2" class="data row3 col2" >22.65</td>
+      <td id="T_b2eb9_row3_col3" class="data row3 col3" >23.38</td>
+      <td id="T_b2eb9_row3_col4" class="data row3 col4" >0.97</td>
+      <td id="T_b2eb9_row3_col5" class="data row3 col5" >0.98</td>
+    </tr>
+    <tr>
+      <th id="T_b2eb9_level0_row4" class="row_heading level0 row4" >All</th>
+      <th id="T_b2eb9_level1_row4" class="row_heading level1 row4" >All</th>
+      <th id="T_b2eb9_level2_row4" class="row_heading level2 row4" >All</th>
+      <td id="T_b2eb9_row4_col0" class="data row4 col0" >37.71</td>
+      <td id="T_b2eb9_row4_col1" class="data row4 col1" >42.82</td>
+      <td id="T_b2eb9_row4_col2" class="data row4 col2" >36.81</td>
+      <td id="T_b2eb9_row4_col3" class="data row4 col3" >42.49</td>
+      <td id="T_b2eb9_row4_col4" class="data row4 col4" >0.98</td>
+      <td id="T_b2eb9_row4_col5" class="data row4 col5" >0.98</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Details</h2>
+<style type="text/css">
+#T_479be tbody tr:nth-child(odd) {
+  background-color: #e0e0e0;
+}
+#T_479be tbody tr:nth-child(even) {
+  background-color: #eeeeee;
+}
+#T_479be table {
+  background-color: #dddddd;
+  border-collapse: collapse;
+}
+#T_479be th {
+  padding: 0.5em;
+  text-align: center;
+  max-width: 150px;
+}
+#T_479be  td {
+  padding: 0.5em;
+  text-align: center;
+  max-width: 150px;
+}
+#T_479be_row13_col2, #T_479be_row91_col2 {
+  background-color: #dddd00;
+}
+#T_479be_row22_col2, #T_479be_row45_col2, #T_479be_row68_col2 {
+  background-color: #ff0000;
+  color: #ffffff;
+}
+</style>
+<table id="T_479be">
+  <caption>MLIR Performance Changes: Per-test breakdown</caption>
+  <thead>
+    <tr>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank" >&nbsp;</th>
+      <th class="blank level0" >&nbsp;</th>
+      <th id="T_479be_level0_col0" class="col_heading level0 col0" >MLIR TFlops (new)</th>
+      <th id="T_479be_level0_col1" class="col_heading level0 col1" >MLIR TFlops (old)</th>
+      <th id="T_479be_level0_col2" class="col_heading level0 col2" >Current/Previous</th>
+    </tr>
+    <tr>
+      <th class="index_name level0" >DataType</th>
+      <th class="index_name level1" >Layout</th>
+      <th class="index_name level2" >C</th>
+      <th class="index_name level3" >H</th>
+      <th class="index_name level4" >W</th>
+      <th class="index_name level5" >K</th>
+      <th class="index_name level6" >Y</th>
+      <th class="index_name level7" >X</th>
+      <th class="index_name level8" >StrideH</th>
+      <th class="index_name level9" >StrideW</th>
+      <th class="index_name level10" >PaddingH</th>
+      <th class="index_name level11" >PaddingW</th>
+      <th class="blank col0" >&nbsp;</th>
+      <th class="blank col1" >&nbsp;</th>
+      <th class="blank col2" >&nbsp;</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th id="T_479be_level0_row0" class="row_heading level0 row0" rowspan="46">f32</th>
+      <th id="T_479be_level1_row0" class="row_heading level1 row0" rowspan="23">nhwc</th>
+      <th id="T_479be_level2_row0" class="row_heading level2 row0" rowspan="3">1024</th>
+      <th id="T_479be_level3_row0" class="row_heading level3 row0" rowspan="3">14</th>
+      <th id="T_479be_level4_row0" class="row_heading level4 row0" rowspan="3">14</th>
+      <th id="T_479be_level5_row0" class="row_heading level5 row0" >2048</th>
+      <th id="T_479be_level6_row0" class="row_heading level6 row0" >1</th>
+      <th id="T_479be_level7_row0" class="row_heading level7 row0" >1</th>
+      <th id="T_479be_level8_row0" class="row_heading level8 row0" >2</th>
+      <th id="T_479be_level9_row0" class="row_heading level9 row0" >2</th>
+      <th id="T_479be_level10_row0" class="row_heading level10 row0" >0</th>
+      <th id="T_479be_level11_row0" class="row_heading level11 row0" >0</th>
+      <td id="T_479be_row0_col0" class="data row0 col0" >28.87</td>
+      <td id="T_479be_row0_col1" class="data row0 col1" >28.66</td>
+      <td id="T_479be_row0_col2" class="data row0 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row1" class="row_heading level5 row1" >256</th>
+      <th id="T_479be_level6_row1" class="row_heading level6 row1" >1</th>
+      <th id="T_479be_level7_row1" class="row_heading level7 row1" >1</th>
+      <th id="T_479be_level8_row1" class="row_heading level8 row1" >1</th>
+      <th id="T_479be_level9_row1" class="row_heading level9 row1" >1</th>
+      <th id="T_479be_level10_row1" class="row_heading level10 row1" >0</th>
+      <th id="T_479be_level11_row1" class="row_heading level11 row1" >0</th>
+      <td id="T_479be_row1_col0" class="data row1 col0" >25.74</td>
+      <td id="T_479be_row1_col1" class="data row1 col1" >25.48</td>
+      <td id="T_479be_row1_col2" class="data row1 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row2" class="row_heading level5 row2" >512</th>
+      <th id="T_479be_level6_row2" class="row_heading level6 row2" >1</th>
+      <th id="T_479be_level7_row2" class="row_heading level7 row2" >1</th>
+      <th id="T_479be_level8_row2" class="row_heading level8 row2" >1</th>
+      <th id="T_479be_level9_row2" class="row_heading level9 row2" >1</th>
+      <th id="T_479be_level10_row2" class="row_heading level10 row2" >0</th>
+      <th id="T_479be_level11_row2" class="row_heading level11 row2" >0</th>
+      <td id="T_479be_row2_col0" class="data row2 col0" >27.92</td>
+      <td id="T_479be_row2_col1" class="data row2 col1" >27.48</td>
+      <td id="T_479be_row2_col2" class="data row2 col2" >1.02</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row3" class="row_heading level2 row3" rowspan="3">128</th>
+      <th id="T_479be_level3_row3" class="row_heading level3 row3" rowspan="2">28</th>
+      <th id="T_479be_level4_row3" class="row_heading level4 row3" rowspan="2">28</th>
+      <th id="T_479be_level5_row3" class="row_heading level5 row3" >128</th>
+      <th id="T_479be_level6_row3" class="row_heading level6 row3" >3</th>
+      <th id="T_479be_level7_row3" class="row_heading level7 row3" >3</th>
+      <th id="T_479be_level8_row3" class="row_heading level8 row3" >1</th>
+      <th id="T_479be_level9_row3" class="row_heading level9 row3" >1</th>
+      <th id="T_479be_level10_row3" class="row_heading level10 row3" >1</th>
+      <th id="T_479be_level11_row3" class="row_heading level11 row3" >1</th>
+      <td id="T_479be_row3_col0" class="data row3 col0" >26.63</td>
+      <td id="T_479be_row3_col1" class="data row3 col1" >26.56</td>
+      <td id="T_479be_row3_col2" class="data row3 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row4" class="row_heading level5 row4" >512</th>
+      <th id="T_479be_level6_row4" class="row_heading level6 row4" >1</th>
+      <th id="T_479be_level7_row4" class="row_heading level7 row4" >1</th>
+      <th id="T_479be_level8_row4" class="row_heading level8 row4" >1</th>
+      <th id="T_479be_level9_row4" class="row_heading level9 row4" >1</th>
+      <th id="T_479be_level10_row4" class="row_heading level10 row4" >0</th>
+      <th id="T_479be_level11_row4" class="row_heading level11 row4" >0</th>
+      <td id="T_479be_row4_col0" class="data row4 col0" >21.02</td>
+      <td id="T_479be_row4_col1" class="data row4 col1" >20.90</td>
+      <td id="T_479be_row4_col2" class="data row4 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row5" class="row_heading level3 row5" >58</th>
+      <th id="T_479be_level4_row5" class="row_heading level4 row5" >58</th>
+      <th id="T_479be_level5_row5" class="row_heading level5 row5" >128</th>
+      <th id="T_479be_level6_row5" class="row_heading level6 row5" >3</th>
+      <th id="T_479be_level7_row5" class="row_heading level7 row5" >3</th>
+      <th id="T_479be_level8_row5" class="row_heading level8 row5" >2</th>
+      <th id="T_479be_level9_row5" class="row_heading level9 row5" >2</th>
+      <th id="T_479be_level10_row5" class="row_heading level10 row5" >0</th>
+      <th id="T_479be_level11_row5" class="row_heading level11 row5" >0</th>
+      <td id="T_479be_row5_col0" class="data row5 col0" >26.51</td>
+      <td id="T_479be_row5_col1" class="data row5 col1" >26.39</td>
+      <td id="T_479be_row5_col2" class="data row5 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row6" class="row_heading level2 row6" >2048</th>
+      <th id="T_479be_level3_row6" class="row_heading level3 row6" >7</th>
+      <th id="T_479be_level4_row6" class="row_heading level4 row6" >7</th>
+      <th id="T_479be_level5_row6" class="row_heading level5 row6" >512</th>
+      <th id="T_479be_level6_row6" class="row_heading level6 row6" >1</th>
+      <th id="T_479be_level7_row6" class="row_heading level7 row6" >1</th>
+      <th id="T_479be_level8_row6" class="row_heading level8 row6" >1</th>
+      <th id="T_479be_level9_row6" class="row_heading level9 row6" >1</th>
+      <th id="T_479be_level10_row6" class="row_heading level10 row6" >0</th>
+      <th id="T_479be_level11_row6" class="row_heading level11 row6" >0</th>
+      <td id="T_479be_row6_col0" class="data row6 col0" >24.30</td>
+      <td id="T_479be_row6_col1" class="data row6 col1" >24.25</td>
+      <td id="T_479be_row6_col2" class="data row6 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row7" class="row_heading level2 row7" rowspan="6">256</th>
+      <th id="T_479be_level3_row7" class="row_heading level3 row7" rowspan="2">14</th>
+      <th id="T_479be_level4_row7" class="row_heading level4 row7" rowspan="2">14</th>
+      <th id="T_479be_level5_row7" class="row_heading level5 row7" >1024</th>
+      <th id="T_479be_level6_row7" class="row_heading level6 row7" >1</th>
+      <th id="T_479be_level7_row7" class="row_heading level7 row7" >1</th>
+      <th id="T_479be_level8_row7" class="row_heading level8 row7" >1</th>
+      <th id="T_479be_level9_row7" class="row_heading level9 row7" >1</th>
+      <th id="T_479be_level10_row7" class="row_heading level10 row7" >0</th>
+      <th id="T_479be_level11_row7" class="row_heading level11 row7" >0</th>
+      <td id="T_479be_row7_col0" class="data row7 col0" >25.58</td>
+      <td id="T_479be_row7_col1" class="data row7 col1" >25.45</td>
+      <td id="T_479be_row7_col2" class="data row7 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row8" class="row_heading level5 row8" >256</th>
+      <th id="T_479be_level6_row8" class="row_heading level6 row8" >3</th>
+      <th id="T_479be_level7_row8" class="row_heading level7 row8" >3</th>
+      <th id="T_479be_level8_row8" class="row_heading level8 row8" >1</th>
+      <th id="T_479be_level9_row8" class="row_heading level9 row8" >1</th>
+      <th id="T_479be_level10_row8" class="row_heading level10 row8" >1</th>
+      <th id="T_479be_level11_row8" class="row_heading level11 row8" >1</th>
+      <td id="T_479be_row8_col0" class="data row8 col0" >26.38</td>
+      <td id="T_479be_row8_col1" class="data row8 col1" >26.39</td>
+      <td id="T_479be_row8_col2" class="data row8 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row9" class="row_heading level3 row9" >30</th>
+      <th id="T_479be_level4_row9" class="row_heading level4 row9" >30</th>
+      <th id="T_479be_level5_row9" class="row_heading level5 row9" >256</th>
+      <th id="T_479be_level6_row9" class="row_heading level6 row9" >3</th>
+      <th id="T_479be_level7_row9" class="row_heading level7 row9" >3</th>
+      <th id="T_479be_level8_row9" class="row_heading level8 row9" >2</th>
+      <th id="T_479be_level9_row9" class="row_heading level9 row9" >2</th>
+      <th id="T_479be_level10_row9" class="row_heading level10 row9" >0</th>
+      <th id="T_479be_level11_row9" class="row_heading level11 row9" >0</th>
+      <td id="T_479be_row9_col0" class="data row9 col0" >25.87</td>
+      <td id="T_479be_row9_col1" class="data row9 col1" >25.60</td>
+      <td id="T_479be_row9_col2" class="data row9 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row10" class="row_heading level3 row10" rowspan="3">56</th>
+      <th id="T_479be_level4_row10" class="row_heading level4 row10" rowspan="3">56</th>
+      <th id="T_479be_level5_row10" class="row_heading level5 row10" >128</th>
+      <th id="T_479be_level6_row10" class="row_heading level6 row10" >1</th>
+      <th id="T_479be_level7_row10" class="row_heading level7 row10" >1</th>
+      <th id="T_479be_level8_row10" class="row_heading level8 row10" >1</th>
+      <th id="T_479be_level9_row10" class="row_heading level9 row10" >1</th>
+      <th id="T_479be_level10_row10" class="row_heading level10 row10" >0</th>
+      <th id="T_479be_level11_row10" class="row_heading level11 row10" >0</th>
+      <td id="T_479be_row10_col0" class="data row10 col0" >23.07</td>
+      <td id="T_479be_row10_col1" class="data row10 col1" >22.95</td>
+      <td id="T_479be_row10_col2" class="data row10 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row11" class="row_heading level5 row11" >512</th>
+      <th id="T_479be_level6_row11" class="row_heading level6 row11" >1</th>
+      <th id="T_479be_level7_row11" class="row_heading level7 row11" >1</th>
+      <th id="T_479be_level8_row11" class="row_heading level8 row11" >2</th>
+      <th id="T_479be_level9_row11" class="row_heading level9 row11" >2</th>
+      <th id="T_479be_level10_row11" class="row_heading level10 row11" >0</th>
+      <th id="T_479be_level11_row11" class="row_heading level11 row11" >0</th>
+      <td id="T_479be_row11_col0" class="data row11 col0" >24.89</td>
+      <td id="T_479be_row11_col1" class="data row11 col1" >24.82</td>
+      <td id="T_479be_row11_col2" class="data row11 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row12" class="row_heading level5 row12" >64</th>
+      <th id="T_479be_level6_row12" class="row_heading level6 row12" >1</th>
+      <th id="T_479be_level7_row12" class="row_heading level7 row12" >1</th>
+      <th id="T_479be_level8_row12" class="row_heading level8 row12" >1</th>
+      <th id="T_479be_level9_row12" class="row_heading level9 row12" >1</th>
+      <th id="T_479be_level10_row12" class="row_heading level10 row12" >0</th>
+      <th id="T_479be_level11_row12" class="row_heading level11 row12" >0</th>
+      <td id="T_479be_row12_col0" class="data row12 col0" >17.58</td>
+      <td id="T_479be_row12_col1" class="data row12 col1" >17.73</td>
+      <td id="T_479be_row12_col2" class="data row12 col2" >0.99</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row13" class="row_heading level2 row13" rowspan="6">512</th>
+      <th id="T_479be_level3_row13" class="row_heading level3 row13" >16</th>
+      <th id="T_479be_level4_row13" class="row_heading level4 row13" >16</th>
+      <th id="T_479be_level5_row13" class="row_heading level5 row13" >512</th>
+      <th id="T_479be_level6_row13" class="row_heading level6 row13" >3</th>
+      <th id="T_479be_level7_row13" class="row_heading level7 row13" >3</th>
+      <th id="T_479be_level8_row13" class="row_heading level8 row13" >2</th>
+      <th id="T_479be_level9_row13" class="row_heading level9 row13" >2</th>
+      <th id="T_479be_level10_row13" class="row_heading level10 row13" >0</th>
+      <th id="T_479be_level11_row13" class="row_heading level11 row13" >0</th>
+      <td id="T_479be_row13_col0" class="data row13 col0" >19.82</td>
+      <td id="T_479be_row13_col1" class="data row13 col1" >25.18</td>
+      <td id="T_479be_row13_col2" class="data row13 col2" >0.79</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row14" class="row_heading level3 row14" rowspan="3">28</th>
+      <th id="T_479be_level4_row14" class="row_heading level4 row14" rowspan="3">28</th>
+      <th id="T_479be_level5_row14" class="row_heading level5 row14" >1024</th>
+      <th id="T_479be_level6_row14" class="row_heading level6 row14" >1</th>
+      <th id="T_479be_level7_row14" class="row_heading level7 row14" >1</th>
+      <th id="T_479be_level8_row14" class="row_heading level8 row14" >2</th>
+      <th id="T_479be_level9_row14" class="row_heading level9 row14" >2</th>
+      <th id="T_479be_level10_row14" class="row_heading level10 row14" >0</th>
+      <th id="T_479be_level11_row14" class="row_heading level11 row14" >0</th>
+      <td id="T_479be_row14_col0" class="data row14 col0" >27.51</td>
+      <td id="T_479be_row14_col1" class="data row14 col1" >27.19</td>
+      <td id="T_479be_row14_col2" class="data row14 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row15" class="row_heading level5 row15" >128</th>
+      <th id="T_479be_level6_row15" class="row_heading level6 row15" >1</th>
+      <th id="T_479be_level7_row15" class="row_heading level7 row15" >1</th>
+      <th id="T_479be_level8_row15" class="row_heading level8 row15" >1</th>
+      <th id="T_479be_level9_row15" class="row_heading level9 row15" >1</th>
+      <th id="T_479be_level10_row15" class="row_heading level10 row15" >0</th>
+      <th id="T_479be_level11_row15" class="row_heading level11 row15" >0</th>
+      <td id="T_479be_row15_col0" class="data row15 col0" >26.12</td>
+      <td id="T_479be_row15_col1" class="data row15 col1" >25.44</td>
+      <td id="T_479be_row15_col2" class="data row15 col2" >1.03</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row16" class="row_heading level5 row16" >256</th>
+      <th id="T_479be_level6_row16" class="row_heading level6 row16" >1</th>
+      <th id="T_479be_level7_row16" class="row_heading level7 row16" >1</th>
+      <th id="T_479be_level8_row16" class="row_heading level8 row16" >1</th>
+      <th id="T_479be_level9_row16" class="row_heading level9 row16" >1</th>
+      <th id="T_479be_level10_row16" class="row_heading level10 row16" >0</th>
+      <th id="T_479be_level11_row16" class="row_heading level11 row16" >0</th>
+      <td id="T_479be_row16_col0" class="data row16 col0" >26.81</td>
+      <td id="T_479be_row16_col1" class="data row16 col1" >26.17</td>
+      <td id="T_479be_row16_col2" class="data row16 col2" >1.02</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row17" class="row_heading level3 row17" rowspan="2">7</th>
+      <th id="T_479be_level4_row17" class="row_heading level4 row17" rowspan="2">7</th>
+      <th id="T_479be_level5_row17" class="row_heading level5 row17" >2048</th>
+      <th id="T_479be_level6_row17" class="row_heading level6 row17" >1</th>
+      <th id="T_479be_level7_row17" class="row_heading level7 row17" >1</th>
+      <th id="T_479be_level8_row17" class="row_heading level8 row17" >1</th>
+      <th id="T_479be_level9_row17" class="row_heading level9 row17" >1</th>
+      <th id="T_479be_level10_row17" class="row_heading level10 row17" >0</th>
+      <th id="T_479be_level11_row17" class="row_heading level11 row17" >0</th>
+      <td id="T_479be_row17_col0" class="data row17 col0" >28.22</td>
+      <td id="T_479be_row17_col1" class="data row17 col1" >27.94</td>
+      <td id="T_479be_row17_col2" class="data row17 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row18" class="row_heading level5 row18" >512</th>
+      <th id="T_479be_level6_row18" class="row_heading level6 row18" >3</th>
+      <th id="T_479be_level7_row18" class="row_heading level7 row18" >3</th>
+      <th id="T_479be_level8_row18" class="row_heading level8 row18" >1</th>
+      <th id="T_479be_level9_row18" class="row_heading level9 row18" >1</th>
+      <th id="T_479be_level10_row18" class="row_heading level10 row18" >1</th>
+      <th id="T_479be_level11_row18" class="row_heading level11 row18" >1</th>
+      <td id="T_479be_row18_col0" class="data row18 col0" >25.47</td>
+      <td id="T_479be_row18_col1" class="data row18 col1" >25.43</td>
+      <td id="T_479be_row18_col2" class="data row18 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row19" class="row_heading level2 row19" rowspan="3">64</th>
+      <th id="T_479be_level3_row19" class="row_heading level3 row19" rowspan="3">56</th>
+      <th id="T_479be_level4_row19" class="row_heading level4 row19" rowspan="3">56</th>
+      <th id="T_479be_level5_row19" class="row_heading level5 row19" >256</th>
+      <th id="T_479be_level6_row19" class="row_heading level6 row19" >1</th>
+      <th id="T_479be_level7_row19" class="row_heading level7 row19" >1</th>
+      <th id="T_479be_level8_row19" class="row_heading level8 row19" >1</th>
+      <th id="T_479be_level9_row19" class="row_heading level9 row19" >1</th>
+      <th id="T_479be_level10_row19" class="row_heading level10 row19" >0</th>
+      <th id="T_479be_level11_row19" class="row_heading level11 row19" >0</th>
+      <td id="T_479be_row19_col0" class="data row19 col0" >15.25</td>
+      <td id="T_479be_row19_col1" class="data row19 col1" >15.34</td>
+      <td id="T_479be_row19_col2" class="data row19 col2" >0.99</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row20" class="row_heading level5 row20" rowspan="2">64</th>
+      <th id="T_479be_level6_row20" class="row_heading level6 row20" >1</th>
+      <th id="T_479be_level7_row20" class="row_heading level7 row20" >1</th>
+      <th id="T_479be_level8_row20" class="row_heading level8 row20" >1</th>
+      <th id="T_479be_level9_row20" class="row_heading level9 row20" >1</th>
+      <th id="T_479be_level10_row20" class="row_heading level10 row20" >0</th>
+      <th id="T_479be_level11_row20" class="row_heading level11 row20" >0</th>
+      <td id="T_479be_row20_col0" class="data row20 col0" >13.50</td>
+      <td id="T_479be_row20_col1" class="data row20 col1" >13.46</td>
+      <td id="T_479be_row20_col2" class="data row20 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level6_row21" class="row_heading level6 row21" >3</th>
+      <th id="T_479be_level7_row21" class="row_heading level7 row21" >3</th>
+      <th id="T_479be_level8_row21" class="row_heading level8 row21" >1</th>
+      <th id="T_479be_level9_row21" class="row_heading level9 row21" >1</th>
+      <th id="T_479be_level10_row21" class="row_heading level10 row21" >1</th>
+      <th id="T_479be_level11_row21" class="row_heading level11 row21" >1</th>
+      <td id="T_479be_row21_col0" class="data row21 col0" >21.41</td>
+      <td id="T_479be_row21_col1" class="data row21 col1" >20.49</td>
+      <td id="T_479be_row21_col2" class="data row21 col2" >1.04</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row22" class="row_heading level2 row22" >3</th>
+      <th id="T_479be_level3_row22" class="row_heading level3 row22" >230</th>
+      <th id="T_479be_level4_row22" class="row_heading level4 row22" >230</th>
+      <th id="T_479be_level5_row22" class="row_heading level5 row22" >64</th>
+      <th id="T_479be_level6_row22" class="row_heading level6 row22" >7</th>
+      <th id="T_479be_level7_row22" class="row_heading level7 row22" >7</th>
+      <th id="T_479be_level8_row22" class="row_heading level8 row22" >2</th>
+      <th id="T_479be_level9_row22" class="row_heading level9 row22" >2</th>
+      <th id="T_479be_level10_row22" class="row_heading level10 row22" >0</th>
+      <th id="T_479be_level11_row22" class="row_heading level11 row22" >0</th>
+      <td id="T_479be_row22_col0" class="data row22 col0" >9.17</td>
+      <td id="T_479be_row22_col1" class="data row22 col1" >17.43</td>
+      <td id="T_479be_row22_col2" class="data row22 col2" >0.53</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level1_row23" class="row_heading level1 row23" rowspan="23">nchw</th>
+      <th id="T_479be_level2_row23" class="row_heading level2 row23" rowspan="3">1024</th>
+      <th id="T_479be_level3_row23" class="row_heading level3 row23" rowspan="3">14</th>
+      <th id="T_479be_level4_row23" class="row_heading level4 row23" rowspan="3">14</th>
+      <th id="T_479be_level5_row23" class="row_heading level5 row23" >2048</th>
+      <th id="T_479be_level6_row23" class="row_heading level6 row23" >1</th>
+      <th id="T_479be_level7_row23" class="row_heading level7 row23" >1</th>
+      <th id="T_479be_level8_row23" class="row_heading level8 row23" >2</th>
+      <th id="T_479be_level9_row23" class="row_heading level9 row23" >2</th>
+      <th id="T_479be_level10_row23" class="row_heading level10 row23" >0</th>
+      <th id="T_479be_level11_row23" class="row_heading level11 row23" >0</th>
+      <td id="T_479be_row23_col0" class="data row23 col0" >27.83</td>
+      <td id="T_479be_row23_col1" class="data row23 col1" >27.86</td>
+      <td id="T_479be_row23_col2" class="data row23 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row24" class="row_heading level5 row24" >256</th>
+      <th id="T_479be_level6_row24" class="row_heading level6 row24" >1</th>
+      <th id="T_479be_level7_row24" class="row_heading level7 row24" >1</th>
+      <th id="T_479be_level8_row24" class="row_heading level8 row24" >1</th>
+      <th id="T_479be_level9_row24" class="row_heading level9 row24" >1</th>
+      <th id="T_479be_level10_row24" class="row_heading level10 row24" >0</th>
+      <th id="T_479be_level11_row24" class="row_heading level11 row24" >0</th>
+      <td id="T_479be_row24_col0" class="data row24 col0" >30.51</td>
+      <td id="T_479be_row24_col1" class="data row24 col1" >31.09</td>
+      <td id="T_479be_row24_col2" class="data row24 col2" >0.98</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row25" class="row_heading level5 row25" >512</th>
+      <th id="T_479be_level6_row25" class="row_heading level6 row25" >1</th>
+      <th id="T_479be_level7_row25" class="row_heading level7 row25" >1</th>
+      <th id="T_479be_level8_row25" class="row_heading level8 row25" >1</th>
+      <th id="T_479be_level9_row25" class="row_heading level9 row25" >1</th>
+      <th id="T_479be_level10_row25" class="row_heading level10 row25" >0</th>
+      <th id="T_479be_level11_row25" class="row_heading level11 row25" >0</th>
+      <td id="T_479be_row25_col0" class="data row25 col0" >30.85</td>
+      <td id="T_479be_row25_col1" class="data row25 col1" >30.84</td>
+      <td id="T_479be_row25_col2" class="data row25 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row26" class="row_heading level2 row26" rowspan="3">128</th>
+      <th id="T_479be_level3_row26" class="row_heading level3 row26" rowspan="2">28</th>
+      <th id="T_479be_level4_row26" class="row_heading level4 row26" rowspan="2">28</th>
+      <th id="T_479be_level5_row26" class="row_heading level5 row26" >128</th>
+      <th id="T_479be_level6_row26" class="row_heading level6 row26" >3</th>
+      <th id="T_479be_level7_row26" class="row_heading level7 row26" >3</th>
+      <th id="T_479be_level8_row26" class="row_heading level8 row26" >1</th>
+      <th id="T_479be_level9_row26" class="row_heading level9 row26" >1</th>
+      <th id="T_479be_level10_row26" class="row_heading level10 row26" >1</th>
+      <th id="T_479be_level11_row26" class="row_heading level11 row26" >1</th>
+      <td id="T_479be_row26_col0" class="data row26 col0" >28.12</td>
+      <td id="T_479be_row26_col1" class="data row26 col1" >28.26</td>
+      <td id="T_479be_row26_col2" class="data row26 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row27" class="row_heading level5 row27" >512</th>
+      <th id="T_479be_level6_row27" class="row_heading level6 row27" >1</th>
+      <th id="T_479be_level7_row27" class="row_heading level7 row27" >1</th>
+      <th id="T_479be_level8_row27" class="row_heading level8 row27" >1</th>
+      <th id="T_479be_level9_row27" class="row_heading level9 row27" >1</th>
+      <th id="T_479be_level10_row27" class="row_heading level10 row27" >0</th>
+      <th id="T_479be_level11_row27" class="row_heading level11 row27" >0</th>
+      <td id="T_479be_row27_col0" class="data row27 col0" >26.19</td>
+      <td id="T_479be_row27_col1" class="data row27 col1" >25.89</td>
+      <td id="T_479be_row27_col2" class="data row27 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row28" class="row_heading level3 row28" >58</th>
+      <th id="T_479be_level4_row28" class="row_heading level4 row28" >58</th>
+      <th id="T_479be_level5_row28" class="row_heading level5 row28" >128</th>
+      <th id="T_479be_level6_row28" class="row_heading level6 row28" >3</th>
+      <th id="T_479be_level7_row28" class="row_heading level7 row28" >3</th>
+      <th id="T_479be_level8_row28" class="row_heading level8 row28" >2</th>
+      <th id="T_479be_level9_row28" class="row_heading level9 row28" >2</th>
+      <th id="T_479be_level10_row28" class="row_heading level10 row28" >0</th>
+      <th id="T_479be_level11_row28" class="row_heading level11 row28" >0</th>
+      <td id="T_479be_row28_col0" class="data row28 col0" >25.67</td>
+      <td id="T_479be_row28_col1" class="data row28 col1" >26.19</td>
+      <td id="T_479be_row28_col2" class="data row28 col2" >0.98</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row29" class="row_heading level2 row29" >2048</th>
+      <th id="T_479be_level3_row29" class="row_heading level3 row29" >7</th>
+      <th id="T_479be_level4_row29" class="row_heading level4 row29" >7</th>
+      <th id="T_479be_level5_row29" class="row_heading level5 row29" >512</th>
+      <th id="T_479be_level6_row29" class="row_heading level6 row29" >1</th>
+      <th id="T_479be_level7_row29" class="row_heading level7 row29" >1</th>
+      <th id="T_479be_level8_row29" class="row_heading level8 row29" >1</th>
+      <th id="T_479be_level9_row29" class="row_heading level9 row29" >1</th>
+      <th id="T_479be_level10_row29" class="row_heading level10 row29" >0</th>
+      <th id="T_479be_level11_row29" class="row_heading level11 row29" >0</th>
+      <td id="T_479be_row29_col0" class="data row29 col0" >29.33</td>
+      <td id="T_479be_row29_col1" class="data row29 col1" >29.61</td>
+      <td id="T_479be_row29_col2" class="data row29 col2" >0.99</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row30" class="row_heading level2 row30" rowspan="6">256</th>
+      <th id="T_479be_level3_row30" class="row_heading level3 row30" rowspan="2">14</th>
+      <th id="T_479be_level4_row30" class="row_heading level4 row30" rowspan="2">14</th>
+      <th id="T_479be_level5_row30" class="row_heading level5 row30" >1024</th>
+      <th id="T_479be_level6_row30" class="row_heading level6 row30" >1</th>
+      <th id="T_479be_level7_row30" class="row_heading level7 row30" >1</th>
+      <th id="T_479be_level8_row30" class="row_heading level8 row30" >1</th>
+      <th id="T_479be_level9_row30" class="row_heading level9 row30" >1</th>
+      <th id="T_479be_level10_row30" class="row_heading level10 row30" >0</th>
+      <th id="T_479be_level11_row30" class="row_heading level11 row30" >0</th>
+      <td id="T_479be_row30_col0" class="data row30 col0" >30.14</td>
+      <td id="T_479be_row30_col1" class="data row30 col1" >30.41</td>
+      <td id="T_479be_row30_col2" class="data row30 col2" >0.99</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row31" class="row_heading level5 row31" >256</th>
+      <th id="T_479be_level6_row31" class="row_heading level6 row31" >3</th>
+      <th id="T_479be_level7_row31" class="row_heading level7 row31" >3</th>
+      <th id="T_479be_level8_row31" class="row_heading level8 row31" >1</th>
+      <th id="T_479be_level9_row31" class="row_heading level9 row31" >1</th>
+      <th id="T_479be_level10_row31" class="row_heading level10 row31" >1</th>
+      <th id="T_479be_level11_row31" class="row_heading level11 row31" >1</th>
+      <td id="T_479be_row31_col0" class="data row31 col0" >26.57</td>
+      <td id="T_479be_row31_col1" class="data row31 col1" >26.40</td>
+      <td id="T_479be_row31_col2" class="data row31 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row32" class="row_heading level3 row32" >30</th>
+      <th id="T_479be_level4_row32" class="row_heading level4 row32" >30</th>
+      <th id="T_479be_level5_row32" class="row_heading level5 row32" >256</th>
+      <th id="T_479be_level6_row32" class="row_heading level6 row32" >3</th>
+      <th id="T_479be_level7_row32" class="row_heading level7 row32" >3</th>
+      <th id="T_479be_level8_row32" class="row_heading level8 row32" >2</th>
+      <th id="T_479be_level9_row32" class="row_heading level9 row32" >2</th>
+      <th id="T_479be_level10_row32" class="row_heading level10 row32" >0</th>
+      <th id="T_479be_level11_row32" class="row_heading level11 row32" >0</th>
+      <td id="T_479be_row32_col0" class="data row32 col0" >25.36</td>
+      <td id="T_479be_row32_col1" class="data row32 col1" >25.45</td>
+      <td id="T_479be_row32_col2" class="data row32 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row33" class="row_heading level3 row33" rowspan="3">56</th>
+      <th id="T_479be_level4_row33" class="row_heading level4 row33" rowspan="3">56</th>
+      <th id="T_479be_level5_row33" class="row_heading level5 row33" >128</th>
+      <th id="T_479be_level6_row33" class="row_heading level6 row33" >1</th>
+      <th id="T_479be_level7_row33" class="row_heading level7 row33" >1</th>
+      <th id="T_479be_level8_row33" class="row_heading level8 row33" >1</th>
+      <th id="T_479be_level9_row33" class="row_heading level9 row33" >1</th>
+      <th id="T_479be_level10_row33" class="row_heading level10 row33" >0</th>
+      <th id="T_479be_level11_row33" class="row_heading level11 row33" >0</th>
+      <td id="T_479be_row33_col0" class="data row33 col0" >27.08</td>
+      <td id="T_479be_row33_col1" class="data row33 col1" >28.18</td>
+      <td id="T_479be_row33_col2" class="data row33 col2" >0.96</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row34" class="row_heading level5 row34" >512</th>
+      <th id="T_479be_level6_row34" class="row_heading level6 row34" >1</th>
+      <th id="T_479be_level7_row34" class="row_heading level7 row34" >1</th>
+      <th id="T_479be_level8_row34" class="row_heading level8 row34" >2</th>
+      <th id="T_479be_level9_row34" class="row_heading level9 row34" >2</th>
+      <th id="T_479be_level10_row34" class="row_heading level10 row34" >0</th>
+      <th id="T_479be_level11_row34" class="row_heading level11 row34" >0</th>
+      <td id="T_479be_row34_col0" class="data row34 col0" >25.18</td>
+      <td id="T_479be_row34_col1" class="data row34 col1" >24.61</td>
+      <td id="T_479be_row34_col2" class="data row34 col2" >1.02</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row35" class="row_heading level5 row35" >64</th>
+      <th id="T_479be_level6_row35" class="row_heading level6 row35" >1</th>
+      <th id="T_479be_level7_row35" class="row_heading level7 row35" >1</th>
+      <th id="T_479be_level8_row35" class="row_heading level8 row35" >1</th>
+      <th id="T_479be_level9_row35" class="row_heading level9 row35" >1</th>
+      <th id="T_479be_level10_row35" class="row_heading level10 row35" >0</th>
+      <th id="T_479be_level11_row35" class="row_heading level11 row35" >0</th>
+      <td id="T_479be_row35_col0" class="data row35 col0" >23.42</td>
+      <td id="T_479be_row35_col1" class="data row35 col1" >23.36</td>
+      <td id="T_479be_row35_col2" class="data row35 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row36" class="row_heading level2 row36" rowspan="6">512</th>
+      <th id="T_479be_level3_row36" class="row_heading level3 row36" >16</th>
+      <th id="T_479be_level4_row36" class="row_heading level4 row36" >16</th>
+      <th id="T_479be_level5_row36" class="row_heading level5 row36" >512</th>
+      <th id="T_479be_level6_row36" class="row_heading level6 row36" >3</th>
+      <th id="T_479be_level7_row36" class="row_heading level7 row36" >3</th>
+      <th id="T_479be_level8_row36" class="row_heading level8 row36" >2</th>
+      <th id="T_479be_level9_row36" class="row_heading level9 row36" >2</th>
+      <th id="T_479be_level10_row36" class="row_heading level10 row36" >0</th>
+      <th id="T_479be_level11_row36" class="row_heading level11 row36" >0</th>
+      <td id="T_479be_row36_col0" class="data row36 col0" >24.23</td>
+      <td id="T_479be_row36_col1" class="data row36 col1" >23.84</td>
+      <td id="T_479be_row36_col2" class="data row36 col2" >1.02</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row37" class="row_heading level3 row37" rowspan="3">28</th>
+      <th id="T_479be_level4_row37" class="row_heading level4 row37" rowspan="3">28</th>
+      <th id="T_479be_level5_row37" class="row_heading level5 row37" >1024</th>
+      <th id="T_479be_level6_row37" class="row_heading level6 row37" >1</th>
+      <th id="T_479be_level7_row37" class="row_heading level7 row37" >1</th>
+      <th id="T_479be_level8_row37" class="row_heading level8 row37" >2</th>
+      <th id="T_479be_level9_row37" class="row_heading level9 row37" >2</th>
+      <th id="T_479be_level10_row37" class="row_heading level10 row37" >0</th>
+      <th id="T_479be_level11_row37" class="row_heading level11 row37" >0</th>
+      <td id="T_479be_row37_col0" class="data row37 col0" >27.19</td>
+      <td id="T_479be_row37_col1" class="data row37 col1" >26.61</td>
+      <td id="T_479be_row37_col2" class="data row37 col2" >1.02</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row38" class="row_heading level5 row38" >128</th>
+      <th id="T_479be_level6_row38" class="row_heading level6 row38" >1</th>
+      <th id="T_479be_level7_row38" class="row_heading level7 row38" >1</th>
+      <th id="T_479be_level8_row38" class="row_heading level8 row38" >1</th>
+      <th id="T_479be_level9_row38" class="row_heading level9 row38" >1</th>
+      <th id="T_479be_level10_row38" class="row_heading level10 row38" >0</th>
+      <th id="T_479be_level11_row38" class="row_heading level11 row38" >0</th>
+      <td id="T_479be_row38_col0" class="data row38 col0" >29.27</td>
+      <td id="T_479be_row38_col1" class="data row38 col1" >29.11</td>
+      <td id="T_479be_row38_col2" class="data row38 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row39" class="row_heading level5 row39" >256</th>
+      <th id="T_479be_level6_row39" class="row_heading level6 row39" >1</th>
+      <th id="T_479be_level7_row39" class="row_heading level7 row39" >1</th>
+      <th id="T_479be_level8_row39" class="row_heading level8 row39" >1</th>
+      <th id="T_479be_level9_row39" class="row_heading level9 row39" >1</th>
+      <th id="T_479be_level10_row39" class="row_heading level10 row39" >0</th>
+      <th id="T_479be_level11_row39" class="row_heading level11 row39" >0</th>
+      <td id="T_479be_row39_col0" class="data row39 col0" >29.90</td>
+      <td id="T_479be_row39_col1" class="data row39 col1" >29.61</td>
+      <td id="T_479be_row39_col2" class="data row39 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row40" class="row_heading level3 row40" rowspan="2">7</th>
+      <th id="T_479be_level4_row40" class="row_heading level4 row40" rowspan="2">7</th>
+      <th id="T_479be_level5_row40" class="row_heading level5 row40" >2048</th>
+      <th id="T_479be_level6_row40" class="row_heading level6 row40" >1</th>
+      <th id="T_479be_level7_row40" class="row_heading level7 row40" >1</th>
+      <th id="T_479be_level8_row40" class="row_heading level8 row40" >1</th>
+      <th id="T_479be_level9_row40" class="row_heading level9 row40" >1</th>
+      <th id="T_479be_level10_row40" class="row_heading level10 row40" >0</th>
+      <th id="T_479be_level11_row40" class="row_heading level11 row40" >0</th>
+      <td id="T_479be_row40_col0" class="data row40 col0" >30.31</td>
+      <td id="T_479be_row40_col1" class="data row40 col1" >30.24</td>
+      <td id="T_479be_row40_col2" class="data row40 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row41" class="row_heading level5 row41" >512</th>
+      <th id="T_479be_level6_row41" class="row_heading level6 row41" >3</th>
+      <th id="T_479be_level7_row41" class="row_heading level7 row41" >3</th>
+      <th id="T_479be_level8_row41" class="row_heading level8 row41" >1</th>
+      <th id="T_479be_level9_row41" class="row_heading level9 row41" >1</th>
+      <th id="T_479be_level10_row41" class="row_heading level10 row41" >1</th>
+      <th id="T_479be_level11_row41" class="row_heading level11 row41" >1</th>
+      <td id="T_479be_row41_col0" class="data row41 col0" >24.83</td>
+      <td id="T_479be_row41_col1" class="data row41 col1" >24.88</td>
+      <td id="T_479be_row41_col2" class="data row41 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row42" class="row_heading level2 row42" rowspan="3">64</th>
+      <th id="T_479be_level3_row42" class="row_heading level3 row42" rowspan="3">56</th>
+      <th id="T_479be_level4_row42" class="row_heading level4 row42" rowspan="3">56</th>
+      <th id="T_479be_level5_row42" class="row_heading level5 row42" >256</th>
+      <th id="T_479be_level6_row42" class="row_heading level6 row42" >1</th>
+      <th id="T_479be_level7_row42" class="row_heading level7 row42" >1</th>
+      <th id="T_479be_level8_row42" class="row_heading level8 row42" >1</th>
+      <th id="T_479be_level9_row42" class="row_heading level9 row42" >1</th>
+      <th id="T_479be_level10_row42" class="row_heading level10 row42" >0</th>
+      <th id="T_479be_level11_row42" class="row_heading level11 row42" >0</th>
+      <td id="T_479be_row42_col0" class="data row42 col0" >21.20</td>
+      <td id="T_479be_row42_col1" class="data row42 col1" >20.87</td>
+      <td id="T_479be_row42_col2" class="data row42 col2" >1.02</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row43" class="row_heading level5 row43" rowspan="2">64</th>
+      <th id="T_479be_level6_row43" class="row_heading level6 row43" >1</th>
+      <th id="T_479be_level7_row43" class="row_heading level7 row43" >1</th>
+      <th id="T_479be_level8_row43" class="row_heading level8 row43" >1</th>
+      <th id="T_479be_level9_row43" class="row_heading level9 row43" >1</th>
+      <th id="T_479be_level10_row43" class="row_heading level10 row43" >0</th>
+      <th id="T_479be_level11_row43" class="row_heading level11 row43" >0</th>
+      <td id="T_479be_row43_col0" class="data row43 col0" >15.54</td>
+      <td id="T_479be_row43_col1" class="data row43 col1" >15.61</td>
+      <td id="T_479be_row43_col2" class="data row43 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level6_row44" class="row_heading level6 row44" >3</th>
+      <th id="T_479be_level7_row44" class="row_heading level7 row44" >3</th>
+      <th id="T_479be_level8_row44" class="row_heading level8 row44" >1</th>
+      <th id="T_479be_level9_row44" class="row_heading level9 row44" >1</th>
+      <th id="T_479be_level10_row44" class="row_heading level10 row44" >1</th>
+      <th id="T_479be_level11_row44" class="row_heading level11 row44" >1</th>
+      <td id="T_479be_row44_col0" class="data row44 col0" >26.22</td>
+      <td id="T_479be_row44_col1" class="data row44 col1" >26.06</td>
+      <td id="T_479be_row44_col2" class="data row44 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row45" class="row_heading level2 row45" >3</th>
+      <th id="T_479be_level3_row45" class="row_heading level3 row45" >230</th>
+      <th id="T_479be_level4_row45" class="row_heading level4 row45" >230</th>
+      <th id="T_479be_level5_row45" class="row_heading level5 row45" >64</th>
+      <th id="T_479be_level6_row45" class="row_heading level6 row45" >7</th>
+      <th id="T_479be_level7_row45" class="row_heading level7 row45" >7</th>
+      <th id="T_479be_level8_row45" class="row_heading level8 row45" >2</th>
+      <th id="T_479be_level9_row45" class="row_heading level9 row45" >2</th>
+      <th id="T_479be_level10_row45" class="row_heading level10 row45" >0</th>
+      <th id="T_479be_level11_row45" class="row_heading level11 row45" >0</th>
+      <td id="T_479be_row45_col0" class="data row45 col0" >11.88</td>
+      <td id="T_479be_row45_col1" class="data row45 col1" >18.19</td>
+      <td id="T_479be_row45_col2" class="data row45 col2" >0.65</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level0_row46" class="row_heading level0 row46" rowspan="46">f16</th>
+      <th id="T_479be_level1_row46" class="row_heading level1 row46" rowspan="23">nhwc</th>
+      <th id="T_479be_level2_row46" class="row_heading level2 row46" rowspan="3">1024</th>
+      <th id="T_479be_level3_row46" class="row_heading level3 row46" rowspan="3">14</th>
+      <th id="T_479be_level4_row46" class="row_heading level4 row46" rowspan="3">14</th>
+      <th id="T_479be_level5_row46" class="row_heading level5 row46" >2048</th>
+      <th id="T_479be_level6_row46" class="row_heading level6 row46" >1</th>
+      <th id="T_479be_level7_row46" class="row_heading level7 row46" >1</th>
+      <th id="T_479be_level8_row46" class="row_heading level8 row46" >2</th>
+      <th id="T_479be_level9_row46" class="row_heading level9 row46" >2</th>
+      <th id="T_479be_level10_row46" class="row_heading level10 row46" >0</th>
+      <th id="T_479be_level11_row46" class="row_heading level11 row46" >0</th>
+      <td id="T_479be_row46_col0" class="data row46 col0" >69.45</td>
+      <td id="T_479be_row46_col1" class="data row46 col1" >68.90</td>
+      <td id="T_479be_row46_col2" class="data row46 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row47" class="row_heading level5 row47" >256</th>
+      <th id="T_479be_level6_row47" class="row_heading level6 row47" >1</th>
+      <th id="T_479be_level7_row47" class="row_heading level7 row47" >1</th>
+      <th id="T_479be_level8_row47" class="row_heading level8 row47" >1</th>
+      <th id="T_479be_level9_row47" class="row_heading level9 row47" >1</th>
+      <th id="T_479be_level10_row47" class="row_heading level10 row47" >0</th>
+      <th id="T_479be_level11_row47" class="row_heading level11 row47" >0</th>
+      <td id="T_479be_row47_col0" class="data row47 col0" >59.06</td>
+      <td id="T_479be_row47_col1" class="data row47 col1" >56.50</td>
+      <td id="T_479be_row47_col2" class="data row47 col2" >1.05</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row48" class="row_heading level5 row48" >512</th>
+      <th id="T_479be_level6_row48" class="row_heading level6 row48" >1</th>
+      <th id="T_479be_level7_row48" class="row_heading level7 row48" >1</th>
+      <th id="T_479be_level8_row48" class="row_heading level8 row48" >1</th>
+      <th id="T_479be_level9_row48" class="row_heading level9 row48" >1</th>
+      <th id="T_479be_level10_row48" class="row_heading level10 row48" >0</th>
+      <th id="T_479be_level11_row48" class="row_heading level11 row48" >0</th>
+      <td id="T_479be_row48_col0" class="data row48 col0" >67.33</td>
+      <td id="T_479be_row48_col1" class="data row48 col1" >66.56</td>
+      <td id="T_479be_row48_col2" class="data row48 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row49" class="row_heading level2 row49" rowspan="3">128</th>
+      <th id="T_479be_level3_row49" class="row_heading level3 row49" rowspan="2">28</th>
+      <th id="T_479be_level4_row49" class="row_heading level4 row49" rowspan="2">28</th>
+      <th id="T_479be_level5_row49" class="row_heading level5 row49" >128</th>
+      <th id="T_479be_level6_row49" class="row_heading level6 row49" >3</th>
+      <th id="T_479be_level7_row49" class="row_heading level7 row49" >3</th>
+      <th id="T_479be_level8_row49" class="row_heading level8 row49" >1</th>
+      <th id="T_479be_level9_row49" class="row_heading level9 row49" >1</th>
+      <th id="T_479be_level10_row49" class="row_heading level10 row49" >1</th>
+      <th id="T_479be_level11_row49" class="row_heading level11 row49" >1</th>
+      <td id="T_479be_row49_col0" class="data row49 col0" >66.07</td>
+      <td id="T_479be_row49_col1" class="data row49 col1" >65.70</td>
+      <td id="T_479be_row49_col2" class="data row49 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row50" class="row_heading level5 row50" >512</th>
+      <th id="T_479be_level6_row50" class="row_heading level6 row50" >1</th>
+      <th id="T_479be_level7_row50" class="row_heading level7 row50" >1</th>
+      <th id="T_479be_level8_row50" class="row_heading level8 row50" >1</th>
+      <th id="T_479be_level9_row50" class="row_heading level9 row50" >1</th>
+      <th id="T_479be_level10_row50" class="row_heading level10 row50" >0</th>
+      <th id="T_479be_level11_row50" class="row_heading level11 row50" >0</th>
+      <td id="T_479be_row50_col0" class="data row50 col0" >40.47</td>
+      <td id="T_479be_row50_col1" class="data row50 col1" >39.95</td>
+      <td id="T_479be_row50_col2" class="data row50 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row51" class="row_heading level3 row51" >58</th>
+      <th id="T_479be_level4_row51" class="row_heading level4 row51" >58</th>
+      <th id="T_479be_level5_row51" class="row_heading level5 row51" >128</th>
+      <th id="T_479be_level6_row51" class="row_heading level6 row51" >3</th>
+      <th id="T_479be_level7_row51" class="row_heading level7 row51" >3</th>
+      <th id="T_479be_level8_row51" class="row_heading level8 row51" >2</th>
+      <th id="T_479be_level9_row51" class="row_heading level9 row51" >2</th>
+      <th id="T_479be_level10_row51" class="row_heading level10 row51" >0</th>
+      <th id="T_479be_level11_row51" class="row_heading level11 row51" >0</th>
+      <td id="T_479be_row51_col0" class="data row51 col0" >61.12</td>
+      <td id="T_479be_row51_col1" class="data row51 col1" >60.94</td>
+      <td id="T_479be_row51_col2" class="data row51 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row52" class="row_heading level2 row52" >2048</th>
+      <th id="T_479be_level3_row52" class="row_heading level3 row52" >7</th>
+      <th id="T_479be_level4_row52" class="row_heading level4 row52" >7</th>
+      <th id="T_479be_level5_row52" class="row_heading level5 row52" >512</th>
+      <th id="T_479be_level6_row52" class="row_heading level6 row52" >1</th>
+      <th id="T_479be_level7_row52" class="row_heading level7 row52" >1</th>
+      <th id="T_479be_level8_row52" class="row_heading level8 row52" >1</th>
+      <th id="T_479be_level9_row52" class="row_heading level9 row52" >1</th>
+      <th id="T_479be_level10_row52" class="row_heading level10 row52" >0</th>
+      <th id="T_479be_level11_row52" class="row_heading level11 row52" >0</th>
+      <td id="T_479be_row52_col0" class="data row52 col0" >61.33</td>
+      <td id="T_479be_row52_col1" class="data row52 col1" >60.91</td>
+      <td id="T_479be_row52_col2" class="data row52 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row53" class="row_heading level2 row53" rowspan="6">256</th>
+      <th id="T_479be_level3_row53" class="row_heading level3 row53" rowspan="2">14</th>
+      <th id="T_479be_level4_row53" class="row_heading level4 row53" rowspan="2">14</th>
+      <th id="T_479be_level5_row53" class="row_heading level5 row53" >1024</th>
+      <th id="T_479be_level6_row53" class="row_heading level6 row53" >1</th>
+      <th id="T_479be_level7_row53" class="row_heading level7 row53" >1</th>
+      <th id="T_479be_level8_row53" class="row_heading level8 row53" >1</th>
+      <th id="T_479be_level9_row53" class="row_heading level9 row53" >1</th>
+      <th id="T_479be_level10_row53" class="row_heading level10 row53" >0</th>
+      <th id="T_479be_level11_row53" class="row_heading level11 row53" >0</th>
+      <td id="T_479be_row53_col0" class="data row53 col0" >51.46</td>
+      <td id="T_479be_row53_col1" class="data row53 col1" >51.06</td>
+      <td id="T_479be_row53_col2" class="data row53 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row54" class="row_heading level5 row54" >256</th>
+      <th id="T_479be_level6_row54" class="row_heading level6 row54" >3</th>
+      <th id="T_479be_level7_row54" class="row_heading level7 row54" >3</th>
+      <th id="T_479be_level8_row54" class="row_heading level8 row54" >1</th>
+      <th id="T_479be_level9_row54" class="row_heading level9 row54" >1</th>
+      <th id="T_479be_level10_row54" class="row_heading level10 row54" >1</th>
+      <th id="T_479be_level11_row54" class="row_heading level11 row54" >1</th>
+      <td id="T_479be_row54_col0" class="data row54 col0" >68.65</td>
+      <td id="T_479be_row54_col1" class="data row54 col1" >68.48</td>
+      <td id="T_479be_row54_col2" class="data row54 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row55" class="row_heading level3 row55" >30</th>
+      <th id="T_479be_level4_row55" class="row_heading level4 row55" >30</th>
+      <th id="T_479be_level5_row55" class="row_heading level5 row55" >256</th>
+      <th id="T_479be_level6_row55" class="row_heading level6 row55" >3</th>
+      <th id="T_479be_level7_row55" class="row_heading level7 row55" >3</th>
+      <th id="T_479be_level8_row55" class="row_heading level8 row55" >2</th>
+      <th id="T_479be_level9_row55" class="row_heading level9 row55" >2</th>
+      <th id="T_479be_level10_row55" class="row_heading level10 row55" >0</th>
+      <th id="T_479be_level11_row55" class="row_heading level11 row55" >0</th>
+      <td id="T_479be_row55_col0" class="data row55 col0" >63.47</td>
+      <td id="T_479be_row55_col1" class="data row55 col1" >63.30</td>
+      <td id="T_479be_row55_col2" class="data row55 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row56" class="row_heading level3 row56" rowspan="3">56</th>
+      <th id="T_479be_level4_row56" class="row_heading level4 row56" rowspan="3">56</th>
+      <th id="T_479be_level5_row56" class="row_heading level5 row56" >128</th>
+      <th id="T_479be_level6_row56" class="row_heading level6 row56" >1</th>
+      <th id="T_479be_level7_row56" class="row_heading level7 row56" >1</th>
+      <th id="T_479be_level8_row56" class="row_heading level8 row56" >1</th>
+      <th id="T_479be_level9_row56" class="row_heading level9 row56" >1</th>
+      <th id="T_479be_level10_row56" class="row_heading level10 row56" >0</th>
+      <th id="T_479be_level11_row56" class="row_heading level11 row56" >0</th>
+      <td id="T_479be_row56_col0" class="data row56 col0" >45.86</td>
+      <td id="T_479be_row56_col1" class="data row56 col1" >45.09</td>
+      <td id="T_479be_row56_col2" class="data row56 col2" >1.02</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row57" class="row_heading level5 row57" >512</th>
+      <th id="T_479be_level6_row57" class="row_heading level6 row57" >1</th>
+      <th id="T_479be_level7_row57" class="row_heading level7 row57" >1</th>
+      <th id="T_479be_level8_row57" class="row_heading level8 row57" >2</th>
+      <th id="T_479be_level9_row57" class="row_heading level9 row57" >2</th>
+      <th id="T_479be_level10_row57" class="row_heading level10 row57" >0</th>
+      <th id="T_479be_level11_row57" class="row_heading level11 row57" >0</th>
+      <td id="T_479be_row57_col0" class="data row57 col0" >54.08</td>
+      <td id="T_479be_row57_col1" class="data row57 col1" >54.00</td>
+      <td id="T_479be_row57_col2" class="data row57 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row58" class="row_heading level5 row58" >64</th>
+      <th id="T_479be_level6_row58" class="row_heading level6 row58" >1</th>
+      <th id="T_479be_level7_row58" class="row_heading level7 row58" >1</th>
+      <th id="T_479be_level8_row58" class="row_heading level8 row58" >1</th>
+      <th id="T_479be_level9_row58" class="row_heading level9 row58" >1</th>
+      <th id="T_479be_level10_row58" class="row_heading level10 row58" >0</th>
+      <th id="T_479be_level11_row58" class="row_heading level11 row58" >0</th>
+      <td id="T_479be_row58_col0" class="data row58 col0" >33.83</td>
+      <td id="T_479be_row58_col1" class="data row58 col1" >33.53</td>
+      <td id="T_479be_row58_col2" class="data row58 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row59" class="row_heading level2 row59" rowspan="6">512</th>
+      <th id="T_479be_level3_row59" class="row_heading level3 row59" >16</th>
+      <th id="T_479be_level4_row59" class="row_heading level4 row59" >16</th>
+      <th id="T_479be_level5_row59" class="row_heading level5 row59" >512</th>
+      <th id="T_479be_level6_row59" class="row_heading level6 row59" >3</th>
+      <th id="T_479be_level7_row59" class="row_heading level7 row59" >3</th>
+      <th id="T_479be_level8_row59" class="row_heading level8 row59" >2</th>
+      <th id="T_479be_level9_row59" class="row_heading level9 row59" >2</th>
+      <th id="T_479be_level10_row59" class="row_heading level10 row59" >0</th>
+      <th id="T_479be_level11_row59" class="row_heading level11 row59" >0</th>
+      <td id="T_479be_row59_col0" class="data row59 col0" >67.94</td>
+      <td id="T_479be_row59_col1" class="data row59 col1" >66.63</td>
+      <td id="T_479be_row59_col2" class="data row59 col2" >1.02</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row60" class="row_heading level3 row60" rowspan="3">28</th>
+      <th id="T_479be_level4_row60" class="row_heading level4 row60" rowspan="3">28</th>
+      <th id="T_479be_level5_row60" class="row_heading level5 row60" >1024</th>
+      <th id="T_479be_level6_row60" class="row_heading level6 row60" >1</th>
+      <th id="T_479be_level7_row60" class="row_heading level7 row60" >1</th>
+      <th id="T_479be_level8_row60" class="row_heading level8 row60" >2</th>
+      <th id="T_479be_level9_row60" class="row_heading level9 row60" >2</th>
+      <th id="T_479be_level10_row60" class="row_heading level10 row60" >0</th>
+      <th id="T_479be_level11_row60" class="row_heading level11 row60" >0</th>
+      <td id="T_479be_row60_col0" class="data row60 col0" >63.79</td>
+      <td id="T_479be_row60_col1" class="data row60 col1" >63.20</td>
+      <td id="T_479be_row60_col2" class="data row60 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row61" class="row_heading level5 row61" >128</th>
+      <th id="T_479be_level6_row61" class="row_heading level6 row61" >1</th>
+      <th id="T_479be_level7_row61" class="row_heading level7 row61" >1</th>
+      <th id="T_479be_level8_row61" class="row_heading level8 row61" >1</th>
+      <th id="T_479be_level9_row61" class="row_heading level9 row61" >1</th>
+      <th id="T_479be_level10_row61" class="row_heading level10 row61" >0</th>
+      <th id="T_479be_level11_row61" class="row_heading level11 row61" >0</th>
+      <td id="T_479be_row61_col0" class="data row61 col0" >53.35</td>
+      <td id="T_479be_row61_col1" class="data row61 col1" >52.25</td>
+      <td id="T_479be_row61_col2" class="data row61 col2" >1.02</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row62" class="row_heading level5 row62" >256</th>
+      <th id="T_479be_level6_row62" class="row_heading level6 row62" >1</th>
+      <th id="T_479be_level7_row62" class="row_heading level7 row62" >1</th>
+      <th id="T_479be_level8_row62" class="row_heading level8 row62" >1</th>
+      <th id="T_479be_level9_row62" class="row_heading level9 row62" >1</th>
+      <th id="T_479be_level10_row62" class="row_heading level10 row62" >0</th>
+      <th id="T_479be_level11_row62" class="row_heading level11 row62" >0</th>
+      <td id="T_479be_row62_col0" class="data row62 col0" >60.36</td>
+      <td id="T_479be_row62_col1" class="data row62 col1" >60.21</td>
+      <td id="T_479be_row62_col2" class="data row62 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row63" class="row_heading level3 row63" rowspan="2">7</th>
+      <th id="T_479be_level4_row63" class="row_heading level4 row63" rowspan="2">7</th>
+      <th id="T_479be_level5_row63" class="row_heading level5 row63" >2048</th>
+      <th id="T_479be_level6_row63" class="row_heading level6 row63" >1</th>
+      <th id="T_479be_level7_row63" class="row_heading level7 row63" >1</th>
+      <th id="T_479be_level8_row63" class="row_heading level8 row63" >1</th>
+      <th id="T_479be_level9_row63" class="row_heading level9 row63" >1</th>
+      <th id="T_479be_level10_row63" class="row_heading level10 row63" >0</th>
+      <th id="T_479be_level11_row63" class="row_heading level11 row63" >0</th>
+      <td id="T_479be_row63_col0" class="data row63 col0" >59.29</td>
+      <td id="T_479be_row63_col1" class="data row63 col1" >58.85</td>
+      <td id="T_479be_row63_col2" class="data row63 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row64" class="row_heading level5 row64" >512</th>
+      <th id="T_479be_level6_row64" class="row_heading level6 row64" >3</th>
+      <th id="T_479be_level7_row64" class="row_heading level7 row64" >3</th>
+      <th id="T_479be_level8_row64" class="row_heading level8 row64" >1</th>
+      <th id="T_479be_level9_row64" class="row_heading level9 row64" >1</th>
+      <th id="T_479be_level10_row64" class="row_heading level10 row64" >1</th>
+      <th id="T_479be_level11_row64" class="row_heading level11 row64" >1</th>
+      <td id="T_479be_row64_col0" class="data row64 col0" >76.22</td>
+      <td id="T_479be_row64_col1" class="data row64 col1" >77.79</td>
+      <td id="T_479be_row64_col2" class="data row64 col2" >0.98</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row65" class="row_heading level2 row65" rowspan="3">64</th>
+      <th id="T_479be_level3_row65" class="row_heading level3 row65" rowspan="3">56</th>
+      <th id="T_479be_level4_row65" class="row_heading level4 row65" rowspan="3">56</th>
+      <th id="T_479be_level5_row65" class="row_heading level5 row65" >256</th>
+      <th id="T_479be_level6_row65" class="row_heading level6 row65" >1</th>
+      <th id="T_479be_level7_row65" class="row_heading level7 row65" >1</th>
+      <th id="T_479be_level8_row65" class="row_heading level8 row65" >1</th>
+      <th id="T_479be_level9_row65" class="row_heading level9 row65" >1</th>
+      <th id="T_479be_level10_row65" class="row_heading level10 row65" >0</th>
+      <th id="T_479be_level11_row65" class="row_heading level11 row65" >0</th>
+      <td id="T_479be_row65_col0" class="data row65 col0" >27.07</td>
+      <td id="T_479be_row65_col1" class="data row65 col1" >26.95</td>
+      <td id="T_479be_row65_col2" class="data row65 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row66" class="row_heading level5 row66" rowspan="2">64</th>
+      <th id="T_479be_level6_row66" class="row_heading level6 row66" >1</th>
+      <th id="T_479be_level7_row66" class="row_heading level7 row66" >1</th>
+      <th id="T_479be_level8_row66" class="row_heading level8 row66" >1</th>
+      <th id="T_479be_level9_row66" class="row_heading level9 row66" >1</th>
+      <th id="T_479be_level10_row66" class="row_heading level10 row66" >0</th>
+      <th id="T_479be_level11_row66" class="row_heading level11 row66" >0</th>
+      <td id="T_479be_row66_col0" class="data row66 col0" >24.65</td>
+      <td id="T_479be_row66_col1" class="data row66 col1" >24.64</td>
+      <td id="T_479be_row66_col2" class="data row66 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level6_row67" class="row_heading level6 row67" >3</th>
+      <th id="T_479be_level7_row67" class="row_heading level7 row67" >3</th>
+      <th id="T_479be_level8_row67" class="row_heading level8 row67" >1</th>
+      <th id="T_479be_level9_row67" class="row_heading level9 row67" >1</th>
+      <th id="T_479be_level10_row67" class="row_heading level10 row67" >1</th>
+      <th id="T_479be_level11_row67" class="row_heading level11 row67" >1</th>
+      <td id="T_479be_row67_col0" class="data row67 col0" >53.58</td>
+      <td id="T_479be_row67_col1" class="data row67 col1" >53.63</td>
+      <td id="T_479be_row67_col2" class="data row67 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row68" class="row_heading level2 row68" >3</th>
+      <th id="T_479be_level3_row68" class="row_heading level3 row68" >230</th>
+      <th id="T_479be_level4_row68" class="row_heading level4 row68" >230</th>
+      <th id="T_479be_level5_row68" class="row_heading level5 row68" >64</th>
+      <th id="T_479be_level6_row68" class="row_heading level6 row68" >7</th>
+      <th id="T_479be_level7_row68" class="row_heading level7 row68" >7</th>
+      <th id="T_479be_level8_row68" class="row_heading level8 row68" >2</th>
+      <th id="T_479be_level9_row68" class="row_heading level9 row68" >2</th>
+      <th id="T_479be_level10_row68" class="row_heading level10 row68" >0</th>
+      <th id="T_479be_level11_row68" class="row_heading level11 row68" >0</th>
+      <td id="T_479be_row68_col0" class="data row68 col0" >11.27</td>
+      <td id="T_479be_row68_col1" class="data row68 col1" >29.37</td>
+      <td id="T_479be_row68_col2" class="data row68 col2" >0.38</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level1_row69" class="row_heading level1 row69" rowspan="23">nchw</th>
+      <th id="T_479be_level2_row69" class="row_heading level2 row69" rowspan="3">1024</th>
+      <th id="T_479be_level3_row69" class="row_heading level3 row69" rowspan="3">14</th>
+      <th id="T_479be_level4_row69" class="row_heading level4 row69" rowspan="3">14</th>
+      <th id="T_479be_level5_row69" class="row_heading level5 row69" >2048</th>
+      <th id="T_479be_level6_row69" class="row_heading level6 row69" >1</th>
+      <th id="T_479be_level7_row69" class="row_heading level7 row69" >1</th>
+      <th id="T_479be_level8_row69" class="row_heading level8 row69" >2</th>
+      <th id="T_479be_level9_row69" class="row_heading level9 row69" >2</th>
+      <th id="T_479be_level10_row69" class="row_heading level10 row69" >0</th>
+      <th id="T_479be_level11_row69" class="row_heading level11 row69" >0</th>
+      <td id="T_479be_row69_col0" class="data row69 col0" >70.99</td>
+      <td id="T_479be_row69_col1" class="data row69 col1" >70.41</td>
+      <td id="T_479be_row69_col2" class="data row69 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row70" class="row_heading level5 row70" >256</th>
+      <th id="T_479be_level6_row70" class="row_heading level6 row70" >1</th>
+      <th id="T_479be_level7_row70" class="row_heading level7 row70" >1</th>
+      <th id="T_479be_level8_row70" class="row_heading level8 row70" >1</th>
+      <th id="T_479be_level9_row70" class="row_heading level9 row70" >1</th>
+      <th id="T_479be_level10_row70" class="row_heading level10 row70" >0</th>
+      <th id="T_479be_level11_row70" class="row_heading level11 row70" >0</th>
+      <td id="T_479be_row70_col0" class="data row70 col0" >83.94</td>
+      <td id="T_479be_row70_col1" class="data row70 col1" >81.42</td>
+      <td id="T_479be_row70_col2" class="data row70 col2" >1.03</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row71" class="row_heading level5 row71" >512</th>
+      <th id="T_479be_level6_row71" class="row_heading level6 row71" >1</th>
+      <th id="T_479be_level7_row71" class="row_heading level7 row71" >1</th>
+      <th id="T_479be_level8_row71" class="row_heading level8 row71" >1</th>
+      <th id="T_479be_level9_row71" class="row_heading level9 row71" >1</th>
+      <th id="T_479be_level10_row71" class="row_heading level10 row71" >0</th>
+      <th id="T_479be_level11_row71" class="row_heading level11 row71" >0</th>
+      <td id="T_479be_row71_col0" class="data row71 col0" >96.03</td>
+      <td id="T_479be_row71_col1" class="data row71 col1" >96.14</td>
+      <td id="T_479be_row71_col2" class="data row71 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row72" class="row_heading level2 row72" rowspan="3">128</th>
+      <th id="T_479be_level3_row72" class="row_heading level3 row72" rowspan="2">28</th>
+      <th id="T_479be_level4_row72" class="row_heading level4 row72" rowspan="2">28</th>
+      <th id="T_479be_level5_row72" class="row_heading level5 row72" >128</th>
+      <th id="T_479be_level6_row72" class="row_heading level6 row72" >3</th>
+      <th id="T_479be_level7_row72" class="row_heading level7 row72" >3</th>
+      <th id="T_479be_level8_row72" class="row_heading level8 row72" >1</th>
+      <th id="T_479be_level9_row72" class="row_heading level9 row72" >1</th>
+      <th id="T_479be_level10_row72" class="row_heading level10 row72" >1</th>
+      <th id="T_479be_level11_row72" class="row_heading level11 row72" >1</th>
+      <td id="T_479be_row72_col0" class="data row72 col0" >77.26</td>
+      <td id="T_479be_row72_col1" class="data row72 col1" >76.88</td>
+      <td id="T_479be_row72_col2" class="data row72 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row73" class="row_heading level5 row73" >512</th>
+      <th id="T_479be_level6_row73" class="row_heading level6 row73" >1</th>
+      <th id="T_479be_level7_row73" class="row_heading level7 row73" >1</th>
+      <th id="T_479be_level8_row73" class="row_heading level8 row73" >1</th>
+      <th id="T_479be_level9_row73" class="row_heading level9 row73" >1</th>
+      <th id="T_479be_level10_row73" class="row_heading level10 row73" >0</th>
+      <th id="T_479be_level11_row73" class="row_heading level11 row73" >0</th>
+      <td id="T_479be_row73_col0" class="data row73 col0" >62.62</td>
+      <td id="T_479be_row73_col1" class="data row73 col1" >64.52</td>
+      <td id="T_479be_row73_col2" class="data row73 col2" >0.97</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row74" class="row_heading level3 row74" >58</th>
+      <th id="T_479be_level4_row74" class="row_heading level4 row74" >58</th>
+      <th id="T_479be_level5_row74" class="row_heading level5 row74" >128</th>
+      <th id="T_479be_level6_row74" class="row_heading level6 row74" >3</th>
+      <th id="T_479be_level7_row74" class="row_heading level7 row74" >3</th>
+      <th id="T_479be_level8_row74" class="row_heading level8 row74" >2</th>
+      <th id="T_479be_level9_row74" class="row_heading level9 row74" >2</th>
+      <th id="T_479be_level10_row74" class="row_heading level10 row74" >0</th>
+      <th id="T_479be_level11_row74" class="row_heading level11 row74" >0</th>
+      <td id="T_479be_row74_col0" class="data row74 col0" >67.74</td>
+      <td id="T_479be_row74_col1" class="data row74 col1" >68.00</td>
+      <td id="T_479be_row74_col2" class="data row74 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row75" class="row_heading level2 row75" >2048</th>
+      <th id="T_479be_level3_row75" class="row_heading level3 row75" >7</th>
+      <th id="T_479be_level4_row75" class="row_heading level4 row75" >7</th>
+      <th id="T_479be_level5_row75" class="row_heading level5 row75" >512</th>
+      <th id="T_479be_level6_row75" class="row_heading level6 row75" >1</th>
+      <th id="T_479be_level7_row75" class="row_heading level7 row75" >1</th>
+      <th id="T_479be_level8_row75" class="row_heading level8 row75" >1</th>
+      <th id="T_479be_level9_row75" class="row_heading level9 row75" >1</th>
+      <th id="T_479be_level10_row75" class="row_heading level10 row75" >0</th>
+      <th id="T_479be_level11_row75" class="row_heading level11 row75" >0</th>
+      <td id="T_479be_row75_col0" class="data row75 col0" >83.06</td>
+      <td id="T_479be_row75_col1" class="data row75 col1" >81.41</td>
+      <td id="T_479be_row75_col2" class="data row75 col2" >1.02</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row76" class="row_heading level2 row76" rowspan="6">256</th>
+      <th id="T_479be_level3_row76" class="row_heading level3 row76" rowspan="2">14</th>
+      <th id="T_479be_level4_row76" class="row_heading level4 row76" rowspan="2">14</th>
+      <th id="T_479be_level5_row76" class="row_heading level5 row76" >1024</th>
+      <th id="T_479be_level6_row76" class="row_heading level6 row76" >1</th>
+      <th id="T_479be_level7_row76" class="row_heading level7 row76" >1</th>
+      <th id="T_479be_level8_row76" class="row_heading level8 row76" >1</th>
+      <th id="T_479be_level9_row76" class="row_heading level9 row76" >1</th>
+      <th id="T_479be_level10_row76" class="row_heading level10 row76" >0</th>
+      <th id="T_479be_level11_row76" class="row_heading level11 row76" >0</th>
+      <td id="T_479be_row76_col0" class="data row76 col0" >78.64</td>
+      <td id="T_479be_row76_col1" class="data row76 col1" >79.39</td>
+      <td id="T_479be_row76_col2" class="data row76 col2" >0.99</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row77" class="row_heading level5 row77" >256</th>
+      <th id="T_479be_level6_row77" class="row_heading level6 row77" >3</th>
+      <th id="T_479be_level7_row77" class="row_heading level7 row77" >3</th>
+      <th id="T_479be_level8_row77" class="row_heading level8 row77" >1</th>
+      <th id="T_479be_level9_row77" class="row_heading level9 row77" >1</th>
+      <th id="T_479be_level10_row77" class="row_heading level10 row77" >1</th>
+      <th id="T_479be_level11_row77" class="row_heading level11 row77" >1</th>
+      <td id="T_479be_row77_col0" class="data row77 col0" >74.06</td>
+      <td id="T_479be_row77_col1" class="data row77 col1" >74.26</td>
+      <td id="T_479be_row77_col2" class="data row77 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row78" class="row_heading level3 row78" >30</th>
+      <th id="T_479be_level4_row78" class="row_heading level4 row78" >30</th>
+      <th id="T_479be_level5_row78" class="row_heading level5 row78" >256</th>
+      <th id="T_479be_level6_row78" class="row_heading level6 row78" >3</th>
+      <th id="T_479be_level7_row78" class="row_heading level7 row78" >3</th>
+      <th id="T_479be_level8_row78" class="row_heading level8 row78" >2</th>
+      <th id="T_479be_level9_row78" class="row_heading level9 row78" >2</th>
+      <th id="T_479be_level10_row78" class="row_heading level10 row78" >0</th>
+      <th id="T_479be_level11_row78" class="row_heading level11 row78" >0</th>
+      <td id="T_479be_row78_col0" class="data row78 col0" >70.74</td>
+      <td id="T_479be_row78_col1" class="data row78 col1" >70.90</td>
+      <td id="T_479be_row78_col2" class="data row78 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row79" class="row_heading level3 row79" rowspan="3">56</th>
+      <th id="T_479be_level4_row79" class="row_heading level4 row79" rowspan="3">56</th>
+      <th id="T_479be_level5_row79" class="row_heading level5 row79" >128</th>
+      <th id="T_479be_level6_row79" class="row_heading level6 row79" >1</th>
+      <th id="T_479be_level7_row79" class="row_heading level7 row79" >1</th>
+      <th id="T_479be_level8_row79" class="row_heading level8 row79" >1</th>
+      <th id="T_479be_level9_row79" class="row_heading level9 row79" >1</th>
+      <th id="T_479be_level10_row79" class="row_heading level10 row79" >0</th>
+      <th id="T_479be_level11_row79" class="row_heading level11 row79" >0</th>
+      <td id="T_479be_row79_col0" class="data row79 col0" >69.25</td>
+      <td id="T_479be_row79_col1" class="data row79 col1" >70.01</td>
+      <td id="T_479be_row79_col2" class="data row79 col2" >0.99</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row80" class="row_heading level5 row80" >512</th>
+      <th id="T_479be_level6_row80" class="row_heading level6 row80" >1</th>
+      <th id="T_479be_level7_row80" class="row_heading level7 row80" >1</th>
+      <th id="T_479be_level8_row80" class="row_heading level8 row80" >2</th>
+      <th id="T_479be_level9_row80" class="row_heading level9 row80" >2</th>
+      <th id="T_479be_level10_row80" class="row_heading level10 row80" >0</th>
+      <th id="T_479be_level11_row80" class="row_heading level11 row80" >0</th>
+      <td id="T_479be_row80_col0" class="data row80 col0" >56.55</td>
+      <td id="T_479be_row80_col1" class="data row80 col1" >55.01</td>
+      <td id="T_479be_row80_col2" class="data row80 col2" >1.03</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row81" class="row_heading level5 row81" >64</th>
+      <th id="T_479be_level6_row81" class="row_heading level6 row81" >1</th>
+      <th id="T_479be_level7_row81" class="row_heading level7 row81" >1</th>
+      <th id="T_479be_level8_row81" class="row_heading level8 row81" >1</th>
+      <th id="T_479be_level9_row81" class="row_heading level9 row81" >1</th>
+      <th id="T_479be_level10_row81" class="row_heading level10 row81" >0</th>
+      <th id="T_479be_level11_row81" class="row_heading level11 row81" >0</th>
+      <td id="T_479be_row81_col0" class="data row81 col0" >45.75</td>
+      <td id="T_479be_row81_col1" class="data row81 col1" >45.41</td>
+      <td id="T_479be_row81_col2" class="data row81 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row82" class="row_heading level2 row82" rowspan="6">512</th>
+      <th id="T_479be_level3_row82" class="row_heading level3 row82" >16</th>
+      <th id="T_479be_level4_row82" class="row_heading level4 row82" >16</th>
+      <th id="T_479be_level5_row82" class="row_heading level5 row82" >512</th>
+      <th id="T_479be_level6_row82" class="row_heading level6 row82" >3</th>
+      <th id="T_479be_level7_row82" class="row_heading level7 row82" >3</th>
+      <th id="T_479be_level8_row82" class="row_heading level8 row82" >2</th>
+      <th id="T_479be_level9_row82" class="row_heading level9 row82" >2</th>
+      <th id="T_479be_level10_row82" class="row_heading level10 row82" >0</th>
+      <th id="T_479be_level11_row82" class="row_heading level11 row82" >0</th>
+      <td id="T_479be_row82_col0" class="data row82 col0" >64.77</td>
+      <td id="T_479be_row82_col1" class="data row82 col1" >65.75</td>
+      <td id="T_479be_row82_col2" class="data row82 col2" >0.99</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row83" class="row_heading level3 row83" rowspan="3">28</th>
+      <th id="T_479be_level4_row83" class="row_heading level4 row83" rowspan="3">28</th>
+      <th id="T_479be_level5_row83" class="row_heading level5 row83" >1024</th>
+      <th id="T_479be_level6_row83" class="row_heading level6 row83" >1</th>
+      <th id="T_479be_level7_row83" class="row_heading level7 row83" >1</th>
+      <th id="T_479be_level8_row83" class="row_heading level8 row83" >2</th>
+      <th id="T_479be_level9_row83" class="row_heading level9 row83" >2</th>
+      <th id="T_479be_level10_row83" class="row_heading level10 row83" >0</th>
+      <th id="T_479be_level11_row83" class="row_heading level11 row83" >0</th>
+      <td id="T_479be_row83_col0" class="data row83 col0" >67.00</td>
+      <td id="T_479be_row83_col1" class="data row83 col1" >67.20</td>
+      <td id="T_479be_row83_col2" class="data row83 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row84" class="row_heading level5 row84" >128</th>
+      <th id="T_479be_level6_row84" class="row_heading level6 row84" >1</th>
+      <th id="T_479be_level7_row84" class="row_heading level7 row84" >1</th>
+      <th id="T_479be_level8_row84" class="row_heading level8 row84" >1</th>
+      <th id="T_479be_level9_row84" class="row_heading level9 row84" >1</th>
+      <th id="T_479be_level10_row84" class="row_heading level10 row84" >0</th>
+      <th id="T_479be_level11_row84" class="row_heading level11 row84" >0</th>
+      <td id="T_479be_row84_col0" class="data row84 col0" >72.77</td>
+      <td id="T_479be_row84_col1" class="data row84 col1" >74.50</td>
+      <td id="T_479be_row84_col2" class="data row84 col2" >0.98</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row85" class="row_heading level5 row85" >256</th>
+      <th id="T_479be_level6_row85" class="row_heading level6 row85" >1</th>
+      <th id="T_479be_level7_row85" class="row_heading level7 row85" >1</th>
+      <th id="T_479be_level8_row85" class="row_heading level8 row85" >1</th>
+      <th id="T_479be_level9_row85" class="row_heading level9 row85" >1</th>
+      <th id="T_479be_level10_row85" class="row_heading level10 row85" >0</th>
+      <th id="T_479be_level11_row85" class="row_heading level11 row85" >0</th>
+      <td id="T_479be_row85_col0" class="data row85 col0" >88.70</td>
+      <td id="T_479be_row85_col1" class="data row85 col1" >84.99</td>
+      <td id="T_479be_row85_col2" class="data row85 col2" >1.04</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level3_row86" class="row_heading level3 row86" rowspan="2">7</th>
+      <th id="T_479be_level4_row86" class="row_heading level4 row86" rowspan="2">7</th>
+      <th id="T_479be_level5_row86" class="row_heading level5 row86" >2048</th>
+      <th id="T_479be_level6_row86" class="row_heading level6 row86" >1</th>
+      <th id="T_479be_level7_row86" class="row_heading level7 row86" >1</th>
+      <th id="T_479be_level8_row86" class="row_heading level8 row86" >1</th>
+      <th id="T_479be_level9_row86" class="row_heading level9 row86" >1</th>
+      <th id="T_479be_level10_row86" class="row_heading level10 row86" >0</th>
+      <th id="T_479be_level11_row86" class="row_heading level11 row86" >0</th>
+      <td id="T_479be_row86_col0" class="data row86 col0" >81.85</td>
+      <td id="T_479be_row86_col1" class="data row86 col1" >81.39</td>
+      <td id="T_479be_row86_col2" class="data row86 col2" >1.01</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row87" class="row_heading level5 row87" >512</th>
+      <th id="T_479be_level6_row87" class="row_heading level6 row87" >3</th>
+      <th id="T_479be_level7_row87" class="row_heading level7 row87" >3</th>
+      <th id="T_479be_level8_row87" class="row_heading level8 row87" >1</th>
+      <th id="T_479be_level9_row87" class="row_heading level9 row87" >1</th>
+      <th id="T_479be_level10_row87" class="row_heading level10 row87" >1</th>
+      <th id="T_479be_level11_row87" class="row_heading level11 row87" >1</th>
+      <td id="T_479be_row87_col0" class="data row87 col0" >66.18</td>
+      <td id="T_479be_row87_col1" class="data row87 col1" >68.41</td>
+      <td id="T_479be_row87_col2" class="data row87 col2" >0.97</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row88" class="row_heading level2 row88" rowspan="3">64</th>
+      <th id="T_479be_level3_row88" class="row_heading level3 row88" rowspan="3">56</th>
+      <th id="T_479be_level4_row88" class="row_heading level4 row88" rowspan="3">56</th>
+      <th id="T_479be_level5_row88" class="row_heading level5 row88" >256</th>
+      <th id="T_479be_level6_row88" class="row_heading level6 row88" >1</th>
+      <th id="T_479be_level7_row88" class="row_heading level7 row88" >1</th>
+      <th id="T_479be_level8_row88" class="row_heading level8 row88" >1</th>
+      <th id="T_479be_level9_row88" class="row_heading level9 row88" >1</th>
+      <th id="T_479be_level10_row88" class="row_heading level10 row88" >0</th>
+      <th id="T_479be_level11_row88" class="row_heading level11 row88" >0</th>
+      <td id="T_479be_row88_col0" class="data row88 col0" >43.52</td>
+      <td id="T_479be_row88_col1" class="data row88 col1" >43.48</td>
+      <td id="T_479be_row88_col2" class="data row88 col2" >1.00</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level5_row89" class="row_heading level5 row89" rowspan="2">64</th>
+      <th id="T_479be_level6_row89" class="row_heading level6 row89" >1</th>
+      <th id="T_479be_level7_row89" class="row_heading level7 row89" >1</th>
+      <th id="T_479be_level8_row89" class="row_heading level8 row89" >1</th>
+      <th id="T_479be_level9_row89" class="row_heading level9 row89" >1</th>
+      <th id="T_479be_level10_row89" class="row_heading level10 row89" >0</th>
+      <th id="T_479be_level11_row89" class="row_heading level11 row89" >0</th>
+      <td id="T_479be_row89_col0" class="data row89 col0" >29.62</td>
+      <td id="T_479be_row89_col1" class="data row89 col1" >29.84</td>
+      <td id="T_479be_row89_col2" class="data row89 col2" >0.99</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level6_row90" class="row_heading level6 row90" >3</th>
+      <th id="T_479be_level7_row90" class="row_heading level7 row90" >3</th>
+      <th id="T_479be_level8_row90" class="row_heading level8 row90" >1</th>
+      <th id="T_479be_level9_row90" class="row_heading level9 row90" >1</th>
+      <th id="T_479be_level10_row90" class="row_heading level10 row90" >1</th>
+      <th id="T_479be_level11_row90" class="row_heading level11 row90" >1</th>
+      <td id="T_479be_row90_col0" class="data row90 col0" >62.88</td>
+      <td id="T_479be_row90_col1" class="data row90 col1" >63.97</td>
+      <td id="T_479be_row90_col2" class="data row90 col2" >0.98</td>
+    </tr>
+    <tr>
+      <th id="T_479be_level2_row91" class="row_heading level2 row91" >3</th>
+      <th id="T_479be_level3_row91" class="row_heading level3 row91" >230</th>
+      <th id="T_479be_level4_row91" class="row_heading level4 row91" >230</th>
+      <th id="T_479be_level5_row91" class="row_heading level5 row91" >64</th>
+      <th id="T_479be_level6_row91" class="row_heading level6 row91" >7</th>
+      <th id="T_479be_level7_row91" class="row_heading level7 row91" >7</th>
+      <th id="T_479be_level8_row91" class="row_heading level8 row91" >2</th>
+      <th id="T_479be_level9_row91" class="row_heading level9 row91" >2</th>
+      <th id="T_479be_level10_row91" class="row_heading level10 row91" >0</th>
+      <th id="T_479be_level11_row91" class="row_heading level11 row91" >0</th>
+      <td id="T_479be_row91_col0" class="data row91 col0" >20.62</td>
+      <td id="T_479be_row91_col1" class="data row91 col1" >27.60</td>
+      <td id="T_479be_row91_col2" class="data row91 col2" >0.75</td>
+    </tr>
+  </tbody>
+</table>
+
+
+</body>
+</html>
+

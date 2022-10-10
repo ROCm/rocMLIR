@@ -334,7 +334,13 @@ pipeline {
             when {
                 beforeAgent true
                 // Skip this part of testing as early as possible
+                allOf {
                 equals expected: false, actual: params.weekly;
+                anyOf {
+                        equals expected: true, actual: params.sharedLib;
+                        equals expected: true, actual: params.staticLib;
+                      }
+                }
             }
             matrix {
                 axes {
@@ -506,7 +512,8 @@ pipeline {
                 axes {
                     axis {
                         name 'ARCH'
-                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
+                        //values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
+                        values 'gfx908'
                     }
                 }
                 agent {
@@ -679,7 +686,8 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
+                        //values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
+                        values 'gfx908'
                     }
                 }
                 when {

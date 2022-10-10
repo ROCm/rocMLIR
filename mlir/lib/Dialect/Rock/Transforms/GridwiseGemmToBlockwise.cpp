@@ -982,6 +982,7 @@ struct GridwiseGemmV2RewritePattern
     int64_t nPerBlock = tuningParams.getNPerBlock();
     int64_t mBlocks = M / mPerBlock;
     int64_t nBlocks = N / nPerBlock;
+    bool forceUnroll = tuningParams.getForceUnroll();
 
     int64_t kPerBlock = kpacksPerBlock * kpack;
 
@@ -1479,7 +1480,8 @@ struct GridwiseGemmV2RewritePattern
         ArrayRef<Attribute>{b.getArrayAttr({}),
                             b.getArrayAttr(toRegCScalarAttr)},
         /*bounds=*/regCAllocType.getShape(), /*strides=*/llvm::None,
-        /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+        ///*useIndexDiffs=*/true, /*forceUnroll=*/true);
+        forceUnroll, /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(convertLoop.getBody());
@@ -1506,7 +1508,7 @@ struct GridwiseGemmV2RewritePattern
                             idToTensorCMaps},
         ArrayRef<int64_t>{1, 1, numElements},
         ArrayRef<int64_t>{1, 1, tensorCDataPerCopy},
-        /*forceUnroll=*/true, /*useIndexDiffs=*/useIndexDiffs);
+        forceUnroll, /*useIndexDiffs=*/useIndexDiffs);
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(outLoop.getBody());
