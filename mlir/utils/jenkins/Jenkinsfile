@@ -49,27 +49,6 @@ void buildMIOpenWithMLIR() {
     }
 }
 
-void testSelectedMIOpenConfigs() {
-    dir('MIOpen/build/') {
-        timeout(time: 60, activity: true, unit: 'MINUTES') {
-         // no-tuning test configs
-         sh """
-         bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --no-tuning\
-            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
-         sh """
-         bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd --dtype int8 --no-tuning\
-            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
-         // tuning test configs
-         sh """
-         bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
-            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
-         sh """
-         bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd --dtype int8 --tuning\
-            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
-         }
-     }
-}
-
 void showEnv() {
     echo "$env.NODE_NAME"
     sh 'cat /etc/os-release'
@@ -101,17 +80,20 @@ void preMergeCheck() {
     sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
 }
 
-void testMIOpenDriver(String dtype, String layout, String direction, String tuning) {
-    echo "Config is (${dtype}, ${layout}, dir=${direction}, tuning=${tuning})"
+void testMIOpenDriver(boolean testInt8, boolean tuning, String configFilename) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
         dir('MIOpen/build/') {
             sh """
-            bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh \
-            --layout ${layout} \
-            --direction ${direction} \
-            --dtype ${dtype} \
-            ${tuning == '1' ? '--tuning' : '--no-tuning'} \
-            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+            bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all\
+            ${tuning ? '--tuning' : '--no-tuning'} \
+            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/${configFilename}"""
+            if (testInt8) {
+                sh """
+                bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd\
+                --dtype int8\
+                ${tuning ? '--tuning' : '--no-tuning'} \
+                < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/${configFilename}"""
+            }
         }
     }
 }
@@ -212,8 +194,8 @@ void check_randomE2ETests() {
 }
 
 void parameterSweep(String CONFIG) {
-    dir('build') {
-        timeout(time: 60, activity: true, unit: 'MINUTES') {
+    timeout(time: 60, activity: true, unit: 'MINUTES') {
+        dir('build') {
             sh """python3 ./bin/parameterSweeps.py ${CONFIG}"""
         }
     }
@@ -394,7 +376,8 @@ pipeline {
                         steps {
                             sh 'rm build/CMakeCache.txt'
                             buildMIOpenWithMLIR()
-                            testSelectedMIOpenConfigs()
+                            testMIOpenDriver(/*testInt8=*/true, /*tuning=*/false, "selected-resnet50-miopen-configs")
+                            testMIOpenDriver(/*testInt8=*/true, /*tuning=*/true, "selected-resnet50-miopen-configs")
                         }
                     }
                     stage('Static Tests') {
@@ -566,88 +549,81 @@ pipeline {
                 }
             }
         }
-
         stage("MIOpen Resnet50 Config Test") {
-            when { allOf {
+            when {
+                allOf {
                     equals expected: true, actual: params.nightly;
                     equals expected: true, actual: params.staticLib;
-            }}
+                }
+            }
             matrix {
                 axes {
                     axis {
-                        name 'DTYPE'
-                        values 'fp16', 'fp32'
-                    }
-                    axis {
-                        name 'LAYOUT'
-                        values 'NCHW', 'NHWC'
+                        name 'CODEPATH'
+                        values 'mfma', 'vanilla', 'navi21'
                     }
                 }
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs()
+                        label getLabelFromCodepath("${CODEPATH}")
+                        alwaysPull true
+                    }
+                }
+                when {
+                    beforeAgent true
+                    expression { return shouldRunFromCodepath("${CODEPATH}") }
+                }
                 stages {
-                    stage('Test MIOpen integration') {
-                        agent {
-                            docker {
-                                image dockerImage()
-                                args dockerArgs()
-                                label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'gfx906'}"
-                                alwaysPull true
-                            }
+                    stage('Environment') {
+                        steps {
+                            echo "codepath is ${CODEPATH}"
+                            showEnv()
                         }
-                        stages {
-                            stage('Environment') {
-                                steps {
-                                    echo "Config is ($DTYPE, $LAYOUT)"
-                                    showEnv()
-                                }
-                            }
-                            stage("Build MIOpen with librockCompiler") {
-                                environment {
-                                    PATH="/opt/rocm/llvm/bin:$PATH"
-                                    HOME="${WORKSPACE}"
-                                }
-                                steps {
-                                    buildMIOpenWithMLIR()
-                                }
-                            }
-                            stage("Copy perfdb") {
-                                steps {
-                                    copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
-                                               optional: true,\
-                                               flatten: true,\
-                                               projectName: "/MLIR/mlir-weekly",\
-                                               selector: lastSuccessful(),\
-                                               target: 'MIOpen/build/MIOpenUserDB'
-                                    sh 'ls MIOpen/build/MIOpenUserDB'
-                                    sh 'cat MIOpen/build/MIOpenUserDB/tuning-date'
-                                }
-                            }
-                            stage("Test MIOpen config") {
-                                environment {
-                                    // Make libMIOpen.so accessible to the test driver
-                                    LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
-                                    HOME="${WORKSPACE}"
-                                }
-                                steps {
-                                    // Test with perfDb
-                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "1", "0")
-                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "2", "0")
-                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "4", "0")
-                                    // Test without perfDb
-                                    sh 'rm -rf ${WORKSPACE}/MIOpen/build/MIOpenUserDB'
-                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "1", "0")
-                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "2", "0")
-                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "4", "0")
-                                }
-                            }
+                    }
+                    stage("Build MIOpen with librockCompiler") {
+                        environment {
+                            PATH="/opt/rocm/llvm/bin:$PATH"
+                            HOME="${WORKSPACE}"
                         }
-                        post {
-                            unsuccessful {
-                                rebootNode()
-                            }
-                            always {
-                                cleanWs()
-                            }
+                        steps {
+                            buildMIOpenWithMLIR()
                         }
+                    }
+                    stage("Copy perfdb") {
+                        steps {
+                            copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
+                            optional: true,\
+                            flatten: true,\
+                            projectName: "/MLIR/mlir-weekly",\
+                            selector: lastSuccessful(),\
+                            target: 'MIOpen/build/MIOpenUserDB'
+                            sh 'ls MIOpen/build/MIOpenUserDB'
+                            sh 'cat MIOpen/build/MIOpenUserDB/tuning-date'
+                        }
+                    }
+                    stage("Test MIOpen config") {
+                        environment {
+                            // Make libMIOpen.so accessible to the test driver
+                            LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                            HOME="${WORKSPACE}"
+                        }
+                        steps {
+                            // Test with perfDb
+                            testMIOpenDriver(/*testInt8=*/false, /*tuning=*/false, "resnet50-miopen-configs")
+                            // Test without perfDb
+                            sh 'rm -rf ${WORKSPACE}/MIOpen/build/MIOpenUserDB'
+                            testMIOpenDriver(/*testInt8=*/false, /*tuning=*/false, "resnet50-miopen-configs")
+                        }
+                    }
+                }
+                post {
+                    unsuccessful {
+                        rebootNode()
+                    }
+                    always {
+                        cleanWs()
                     }
                 }
             }
