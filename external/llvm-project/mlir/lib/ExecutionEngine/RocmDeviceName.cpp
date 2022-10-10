@@ -11,7 +11,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/StringMapEntry.h"
 #include "llvm/Support/Error.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace mlir;
 
@@ -20,23 +24,25 @@ static constexpr const char kGcnDefaultTriple[] = "amdgcn-amd-amdhsa";
 // This function converts the arch name to target features:
 // sramecc+:xnack- to +sramecc,-xnack
 static LogicalResult parseTargetFeatures(ArrayRef<StringRef> tokens,
-                                         SmallString<32> &gcnArchFeatures) {
+                                         llvm::StringMap<bool> &features) {
   // Convert each feature and append to feature result
-  bool first = true;
-  SmallVector<SmallString<8>, 2> featureTokens;
   for (auto &token : tokens) {
-    if (!first)
-      gcnArchFeatures += ",";
-    first = false;
     char modifier = token.back();
     if (modifier != '+' && modifier != '-') {
       llvm::errs() << "Malformed token: must end with +/-.\n";
       return failure();
     }
-    gcnArchFeatures += modifier;
-    gcnArchFeatures += token.substr(0, token.size() - 1);
+    features.insert_or_assign(token.drop_back(), modifier == '+');
   }
   return success();
+}
+
+static void sortFeatures(const llvm::StringMap<bool> &features,
+                         SmallVectorImpl<std::pair<StringRef, bool>> &out) {
+  for (const llvm::StringMapEntry<bool> &feature : features) {
+    out.emplace_back(feature.getKey(), feature.getValue());
+  }
+  std::sort(out.begin(), out.end());
 }
 
 LogicalResult RocmDeviceName::parse(StringRef devName) {
@@ -57,7 +63,7 @@ LogicalResult RocmDeviceName::parse(StringRef devName) {
   }
 
   // get chip name
-  if (tokens.size()) {
+  if (!tokens.empty()) {
     chip = tokens.front();
     tokens.erase(tokens.begin());
     if (chip.startswith("gfx")) {
@@ -69,11 +75,29 @@ LogicalResult RocmDeviceName::parse(StringRef devName) {
   return failure();
 }
 
-SmallString<256> RocmDeviceName::getFullName() const {
-  SmallString<256> fullName = chip.str();
-  if (features.size()) {
-    fullName += ":";
-    fullName += features;
+std::string RocmDeviceName::getFeaturesForBackend() const {
+  std::string result;
+  llvm::raw_string_ostream stream(result);
+  // We don't sort these earlier to prevent the references into the map keys
+  // from moving out from under us. They need to be sorted to ensure we have
+  // the arch name in canonical form.
+  SmallVector<std::pair<StringRef, bool>, 2> sortedFeatures;
+  sortFeatures(features, sortedFeatures);
+  llvm::interleave(
+      sortedFeatures, stream,
+      [&stream](const auto &pair) {
+        stream << (pair.second ? "+" : "-") << pair.first;
+      },
+      ",");
+  return result;
+}
+
+void RocmDeviceName::getFullName(SmallVectorImpl<char> &out) const {
+  (Twine(triple) + ":" + Twine(chip)).toVector(out);
+  llvm::raw_svector_ostream outStream(out);
+  SmallVector<std::pair<StringRef, bool>, 2> sortedFeatures;
+  sortFeatures(features, sortedFeatures);
+  for (const auto &pair : sortedFeatures) {
+    outStream << ':' << pair.first << (pair.second ? "+" : "-");
   }
-  return fullName;
 }

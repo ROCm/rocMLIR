@@ -30,22 +30,18 @@ using namespace mlir;
 ///
 CpuSystemDetect::CpuSystemDetect() {
   // collect all CPU
-  auto targetTriple = llvm::sys::getProcessTriple();
-  llvm::SmallString<32> cpu(llvm::sys::getHostCPUName());
+  llvm::SmallString<32> targetTriple(llvm::sys::getProcessTriple());
+  llvm::SmallString<8> cpu(llvm::sys::getHostCPUName());
+  llvm::StringMap<bool> features;
+  if (!llvm::sys::getHostCPUFeatures(features)) {
+    // System detect can't fail but we somehow missed the features;
+    features.clear();
+  }
   uint32_t count = llvm::sys::getHostNumPhysicalCores();
 
   // cleanup
-  SystemDevice dev{SystemDevice::Type::ECPU,
-                   cpu,
-                   count,
-                   {{"llvm_triple", llvm::StringRef(targetTriple)}}};
+  SystemDevice dev{
+      SystemDevice::Type::ECPU, targetTriple, cpu, features, count, {}};
 
-  llvm::StringMap<bool> hostFeatures;
-  if (llvm::sys::getHostCPUFeatures(hostFeatures)) {
-    for (auto &f : hostFeatures) {
-      llvm::StringRef val(f.second ? "1" : "0");
-      dev.properties.insert({f.first().str(), val});
-    }
-  }
   push_back(std::move(dev));
 }
