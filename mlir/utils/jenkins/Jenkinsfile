@@ -24,7 +24,7 @@ void buildMIOpen(String cmakeOpts) {
 }
 
 void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
-    git branch: 'develop', poll: false,\
+    git branch: 'fix-kernel-count-MLIR', poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
     buildMIOpen(cmakeOpts)
 }
@@ -36,7 +36,7 @@ void buildMIOpenWithMLIR() {
         installation: 'InSearchPath', workingDir: 'build'
 
     dir('MIOpen') {
-        git branch: 'develop', poll: false,\
+        git branch: 'fix-kernel-count-MLIR', poll: false,\
             url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
         // Note: setting cxxflags here works around https://github.com/ROCmSoftwarePlatform/MIOpen/issues/1604
         buildMIOpen("""-DMIOPEN_USE_MLIR=On
