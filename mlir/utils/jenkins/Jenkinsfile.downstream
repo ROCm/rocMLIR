@@ -151,6 +151,7 @@ pipeline {
                                 git branch: 'fix-kernel-count-MLIR', poll: false,\
                                     url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
                                 buildMIOpen("""-DMIOPEN_USE_MLIR=On
+                                        -DMIOPEN_USE_COMPOSABLEKERNEL=Off
                                         -DMIOPEN_BACKEND=HIP
                                         -DCMAKE_PREFIX_PATH=${WORKSPACE}/MIOpenDeps
                                         -DCMAKE_CXX_FLAGS="-isystem ${WORKSPACE}/MIOpenDeps/include"

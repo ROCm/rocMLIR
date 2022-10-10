@@ -40,12 +40,13 @@ void buildMIOpenWithMLIR() {
             url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
         // Note: setting cxxflags here works around https://github.com/ROCmSoftwarePlatform/MIOpen/issues/1604
         buildMIOpen("""-DMIOPEN_USE_MLIR=On
-                        -DMIOPEN_BACKEND=HIP
-                        -DCMAKE_PREFIX_PATH=${WORKSPACE}/MIOpenDeps
-                        -DCMAKE_CXX_FLAGS="-isystem ${WORKSPACE}/MIOpenDeps/include"
-                        -DMIOPEN_USER_DB_PATH=${WORKSPACE}/MIOpen/build/MIOpenUserDB
-                        -DMIOPEN_TEST_FLAGS="--verbose --disable-verification-cache"
-                        """)
+                       -DMIOPEN_USE_COMPOSABLEKERNEL=Off
+                       -DMIOPEN_BACKEND=HIP
+                       -DCMAKE_PREFIX_PATH=${WORKSPACE}/MIOpenDeps
+                       -DCMAKE_CXX_FLAGS="-isystem ${WORKSPACE}/MIOpenDeps/include"
+                       -DMIOPEN_USER_DB_PATH=${WORKSPACE}/MIOpen/build/MIOpenUserDB
+                       -DMIOPEN_TEST_FLAGS="--verbose --disable-verification-cache"
+                       """)
     }
 }
 
@@ -665,7 +666,9 @@ pipeline {
                         sh 'rm -rf MIOpen'
                         dir('MIOpen') {
                             getAndBuildMIOpen("--prefix ${WORKSPACE}/MIOpen/MIOpenDeps",
-                                '''-DMIOPEN_BACKEND=HIP -DMIOPEN_USE_MLIR=OFF
+                                '''-DMIOPEN_USE_MLIR=OFF
+                                   -DMIOPEN_USE_COMPOSABLEKERNEL=Off
+                                   -DMIOPEN_BACKEND=HIP
                                    -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
                                    -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/MIOpen/build/MIOpenInstallDir
                                    ''')
