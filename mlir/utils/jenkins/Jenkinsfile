@@ -211,15 +211,10 @@ void check_randomE2ETests() {
              """)
 }
 
-void parameterSweep(String codepath, String CONFIG) {
-    if (codepath == "mfma") {
-        xdlopsArg = '--xdlops'
-    } else {
-        xdlopsArg = '--no-xdlops'
-    }
+void parameterSweep(String CONFIG) {
     dir('build') {
         timeout(time: 60, activity: true, unit: 'MINUTES') {
-            sh """python3 ./bin/parameterSweeps.py ${xdlopsArg} ${CONFIG}"""
+            sh """python3 ./bin/parameterSweeps.py ${CONFIG}"""
         }
     }
 }
@@ -467,8 +462,8 @@ pipeline {
                     }
                     stage("Parameter Sweep") {
                         steps {
-                            parameterSweep("${CODEPATH}", "conv_structure")
-                            parameterSweep("${CODEPATH}", "perf_config")
+                            parameterSweep("conv_structure")
+                            parameterSweep("perf_config")
                         }
                     }
                 }
