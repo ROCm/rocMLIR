@@ -1,9 +1,8 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Rock/IR/GemmContext.h"
+#include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/Passes.h"
-#include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/UtilityParams.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
@@ -48,30 +47,29 @@ private:
   //   coherent tuning parameters with the pre-set block size.
 
   // Actual implementation.
-  template <typename T> void affixTuningParametersImpl(T &op);
+  void affixTuningParametersImpl(RockGemmWrapperInterface op);
 
-  void affixBackwardWeightUtilityKernels(Conv2DBwdWeightOp &op);
-  void affixBackwardDataUtilityKernels(Conv2DBwdDataOp &op);
+  void affixBackwardWeightUtilityKernels(Conv2DBwdWeightOp op);
+  void affixBackwardDataUtilityKernels(Conv2DBwdDataOp op);
 };
 } // anonymous namespace
 
 void AffixTuningParameters::runOnOperation() {
   func::FuncOp func = getOperation();
 
-  func.walk([&](Conv2DOp op) { affixTuningParametersImpl(op); });
+  func.walk(
+      [&](RockGemmWrapperInterface op) { affixTuningParametersImpl(op); });
   func.walk([&](Conv2DBwdDataOp op) {
-    affixTuningParametersImpl(op);
     affixBackwardDataUtilityKernels(op);
   });
   func.walk([&](Conv2DBwdWeightOp op) {
-    affixTuningParametersImpl(op);
     affixBackwardWeightUtilityKernels(op);
   });
 }
 
 static void setUtilityKernelSizes(OpBuilder &b, Value arg, Operation *convOp,
                                   Operation *funcOp) {
-  int64_t numElements = arg.getType().cast<MemRefType>().getNumElements();
+  int64_t numElements = arg.getType().cast<ShapedType>().getNumElements();
   uint32_t blockSize = kUtilityKernelBlockSize;
   int64_t elemsPerThread = kUtilityKernelElemsPerThread;
   uint32_t gridSize =
@@ -88,7 +86,7 @@ static void setUtilityKernelSizes(OpBuilder &b, Value arg, Operation *convOp,
 }
 
 void AffixTuningParameters::affixBackwardDataUtilityKernels(
-    Conv2DBwdDataOp &op) {
+    Conv2DBwdDataOp op) {
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
 
   // In case the gemm ID is -1, override grid_size and block_size for the
@@ -100,7 +98,7 @@ void AffixTuningParameters::affixBackwardDataUtilityKernels(
 }
 
 void AffixTuningParameters::affixBackwardWeightUtilityKernels(
-    Conv2DBwdWeightOp &op) {
+    Conv2DBwdWeightOp op) {
   auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
   assert(gemmIdAttr);
   int64_t gemmId = gemmIdAttr.getInt();
@@ -109,11 +107,11 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
   if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
     OpBuilder b(op.getContext());
 
-    GemmContext gemmSize = op.getGemmSize();
+    GemmSize gemmSize = op.getGemmSize();
 
     auto gemmParams =
         op->getAttrOfType<XdlopsGemmParamsAttr>(op.getParamsAttrName());
-    Optional<GemmContext> extraPadSizes = calculatePadding(
+    Optional<GemmSize> extraPadSizes = calculatePadding(
         gemmParams.getKPerBlock(), gemmParams.getMPerBlock(),
         gemmParams.getNPerBlock(), gemmSize, gemmParams.getKpack());
     if (extraPadSizes.has_value()) {
@@ -133,8 +131,8 @@ void AffixTuningParameters::affixBackwardWeightUtilityKernels(
   }
 }
 
-template <typename T>
-void AffixTuningParameters::affixTuningParametersImpl(T &op) {
+void AffixTuningParameters::affixTuningParametersImpl(
+    RockGemmWrapperInterface op) {
   OpBuilder b(op.getContext());
 
   std::string perfConfig;
@@ -142,7 +140,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
           op->template getAttrOfType<StringAttr>("perf_config")) {
     perfConfig = perfConfigAttr.getValue().str();
   }
-  GemmFeatures features = op.getFeatures();
+  GemmFeatures features = op.getGemmFeatures();
   if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
     PopulateParamsXDL populateParamsXDL;
     InitParamsXDL validParams;
@@ -166,11 +164,9 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
         signalPassFailure();
     }
 
-    Type dataType = obtainConvDataType(op);
-
     gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
-    op->setAttr(op.getBlockSizeAttrName(), b.getI32IntegerAttr(blockSize));
-    op->setAttr(op.getGridSizeAttrName(), b.getI32IntegerAttr(gridSize));
+    op.setBlockSizeAttr(b.getI32IntegerAttr(blockSize));
+    op.setGridSizeAttr(b.getI32IntegerAttr(gridSize));
 
     // Set kblocks attribute only for backward weight convolutions.
     if (auto bwdOp = dyn_cast<Conv2DBwdWeightOp>(op.getOperation()))
@@ -180,7 +176,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
         validParams.gemmKPerBlock, validParams.gemmMPerBlock,
         validParams.gemmNPerBlock, validParams.gemmKPack,
         validParams.gemmMPerWave, validParams.gemmNPerWave);
-    op->setAttr(op.getParamsAttrName(), gemmParams);
+    op.setGemmParamsAttr(gemmParams);
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
@@ -199,9 +195,8 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
 
     gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
 
-    op->setAttr(op.getBlockSizeAttrName(),
-                b.getI32IntegerAttr(validParams.blockSize));
-    op->setAttr(op.getGridSizeAttrName(), b.getI32IntegerAttr(gridSize));
+    op.setBlockSizeAttr(b.getI32IntegerAttr(validParams.blockSize));
+    op.setGridSizeAttr(b.getI32IntegerAttr(gridSize));
 
     // For non-XDLOPS path, do not use KPack for now.
 
@@ -215,7 +210,7 @@ void AffixTuningParameters::affixTuningParametersImpl(T &op) {
         /*kPerThread=*/1, validParams.gemmMPerThread,
         validParams.gemmNPerThread,
         /*kpack=*/1);
-    op->setAttr(op.getParamsAttrName(), gemmParams);
+    op.setGemmParamsAttr(gemmParams);
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size",

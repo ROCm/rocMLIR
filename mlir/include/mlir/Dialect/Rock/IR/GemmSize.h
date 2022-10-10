@@ -1,4 +1,4 @@
-//===--------- GemmContext.h - utility struct for GEMM ----------===//
+//===--------- GemmSize.h - utility struct for GEMM ----------===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file defines a utility struct, GemmContext, that packages the sizes of a
+// This file defines a utility struct, GemmSize, that packages the sizes of a
 // matrix multiplication to ensure a cleaner API.
 //
 //===----------------------------------------------------------------------===//
@@ -22,16 +22,18 @@ struct ConvolutionDims;
 enum class ConvOpType : uint32_t;
 
 /// Structure for holding the sizes of a matrix multiplication operation.
-struct GemmContext {
+struct GemmSize {
+  int64_t g;
   int64_t m;
   int64_t k;
   int64_t n;
 
-  GemmContext(int64_t m, int64_t k, int64_t n) : m(m), k(k), n(n) {}
+  GemmSize(int64_t g, int64_t m, int64_t k, int64_t n)
+      : g(g), m(m), k(k), n(n) {}
 
   /// Compute the gemm size given a convolution type and its dimensions.
-  static GemmContext fromConvolution(ConvOpType type,
-                                     const ConvolutionDims &sizes);
+  static GemmSize fromConvolution(ConvOpType type,
+                                  const ConvolutionDims &sizes);
 };
 } // end namespace rock
 } // end namespace mlir

@@ -8,6 +8,7 @@ add_mlir_dialect_library(MLIRRockTuning
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Rock/Tuning
 
   DEPENDS
+  MLIRRockOps
   MLIRSupport
   MLIRRockPassIncGen
 )

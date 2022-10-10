@@ -35,10 +35,10 @@ class PatternRewriter;
 //  Rock Dialect
 //===----------------------------------------------------------------------===//
 #include "mlir/Dialect/Rock/IR/RockOpsDialect.h.inc"
-#include "mlir/Dialect/Rock/IR/RockTypes.h.inc"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 
 #include "mlir/Dialect/Rock/IR/ConvolutionDims.h"
-#include "mlir/Dialect/Rock/IR/GemmContext.h"
+#include "mlir/Dialect/Rock/IR/GemmSize.h"
 
 namespace mlir {
 namespace rock {

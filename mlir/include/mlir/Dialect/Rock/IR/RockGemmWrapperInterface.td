@@ -44,12 +44,83 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
           Return the size of the matrix multiplication that this op will eventually
           perform.
         }],
-        /*retType=*/"::mlir::rock::GemmContext",
+        /*retType=*/"::mlir::rock::GemmSize",
         /*methodName=*/"getGemmSize",
         /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
+      >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Return the element type of the input to this operation.
+        }],
+        /*retType=*/"::mlir::Type",
+        /*methodName=*/"getInputType",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/[{
+          return $_op->getOperand(1).getType().template cast<::mlir::ShapedType>()
+            .getElementType();
+        }]
+      >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Return the features attribute of this op.
+        }],
+        /*retType=*/"::mlir::rock::GemmFeatures",
+        /*methodName=*/"getGemmFeatures",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/[{
+          return $_op.getFeatures();
+        }]
+      >,
+
+    /// Setters for tuning-related data
+    InterfaceMethod<
+        /*desc=*/[{
+          Set the block size attribute of this operation
+
+          This is needed for --affix-tuning-params to work and can go away if it does
+        }],
+        /*retType=*/"void",
+        /*methodName=*/"setBlockSizeAttr",
+        /*args=*/(ins "::mlir::IntegerAttr":$blockSize),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/[{
+          $_op->setAttr($_op.getBlockSizeAttrName(), blockSize);
+        }]
+      >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Set the grid size attribute of this operation
+
+          This is needed for --affix-tuning-params to work and can go away if it does
+        }],
+        /*retType=*/"void",
+        /*methodName=*/"setGridSizeAttr",
+        /*args=*/(ins "::mlir::IntegerAttr":$gridSize),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/[{
+          $_op->setAttr($_op.getGridSizeAttrName(), gridSize);
+        }]
+      >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Set the tuning parameters attribute of this operation
+
+          This is needed for --affix-tuning-params to work and can go away if it does
+        }],
+        /*retType=*/"void",
+        /*methodName=*/"setGemmParamsAttr",
+        /*args=*/(ins "::mlir::Attribute":$params),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/[{
+          $_op->setAttr($_op.getParamsAttrName(), params);
+        }]
       >
+
+
     // TODO: more methods here as needed
   ];
 

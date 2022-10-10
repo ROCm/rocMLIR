@@ -7,12 +7,12 @@
 //===-----------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
-#include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "llvm/Support/ErrorHandling.h"
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -23,9 +23,9 @@ LogicalResult mlir::rock::calculateKBlockNum(const ConvolutionDims &convDims,
                                              int64_t NPerBlock,
                                              int64_t KPerBlock, int64_t KPack,
                                              int64_t num_cu, int64_t &nKBlock) {
-  const int64_t gemmM = gemmSize.gemmM;
-  const int64_t gemmN = gemmSize.gemmN;
-  const int64_t gemmK = gemmSize.gemmK;
+  const int64_t gemmM = gemmSize.m;
+  const int64_t gemmN = gemmSize.n;
+  const int64_t gemmK = gemmSize.k;
 
   int64_t gemmKBlock = 1;
 
@@ -107,18 +107,12 @@ SmallVector<int64_t> mlir::rock::populateBackwardDataGemmIds(
   return gemmIds;
 }
 
-ConvOpType mlir::rock::obtainConvDirection(Operation *op) {
-  ConvOpType opType = ConvOpType::Fwd;
-  if (isa<Conv2DOp>(*op)) {
-    opType = ConvOpType::Fwd;
-  } else if (isa<Conv2DBwdDataOp>(*op)) {
-    opType = ConvOpType::BwdData;
-  } else if (isa<Conv2DBwdWeightOp>(*op)) {
-    opType = ConvOpType::BwdWeight;
-  }
-  return opType;
-}
-
-Type mlir::rock::obtainConvDataType(Operation *op) {
-  return op->getOperand(1).getType().cast<MemRefType>().getElementType();
+Optional<ConvOpType> mlir::rock::obtainConvDirection(Operation *op) {
+  if (isa<Conv2DOp>(*op))
+    return ConvOpType::Fwd;
+  if (isa<Conv2DBwdDataOp>(*op))
+    return ConvOpType::BwdData;
+  if (isa<Conv2DBwdWeightOp>(*op))
+    return ConvOpType::BwdWeight;
+  return None;
 }
