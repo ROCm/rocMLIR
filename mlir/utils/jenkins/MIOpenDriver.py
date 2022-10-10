@@ -137,7 +137,7 @@ def create_paths(mlir_build_dir_path, miopen_build_dir_path) -> Paths:
         miopen_driver_path = str((miopen_driver_bin_dir / 'MIOpenDriver').resolve())
 
     root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
-    configuration_dir = root_dir + '/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs-sample'
+    configuration_dir = root_dir + '/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs'
 
     return Paths(configuration_dir, mlir_paths, miopen_driver_path)
 
