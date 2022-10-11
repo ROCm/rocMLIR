@@ -68,17 +68,22 @@ String dockerImage() {
     return 'rocm/mlir:rocm5.2-latest'
 }
 
-void preMergeCheck() {
-    sh '''
-    if [ ! -f ./build/compile_commands.json ];  then
-      echo "No compile commands, bailing."
-      exit 1
-    fi
-    if [ ! -f ./compile_commands.json ]; then
-      ln -s build/compile_commands.json compile_commands.json
-    fi
-    '''
-    sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
+void preMergeCheck(String codepath) {
+    // Only do static check on mfma codepath during PR CI
+    if ( (params.nightly == false) && (codepath == "mfma") ) {
+        sh '''
+        if [ ! -f ./build/compile_commands.json ];  then
+          echo "No compile commands, bailing."
+          exit 1
+        fi
+        if [ ! -f ./compile_commands.json ]; then
+          ln -s build/compile_commands.json compile_commands.json
+        fi
+        '''
+        sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
+    } else {
+        echo "Static Test step skipped"
+    }
 }
 
 void testMIOpenDriver(boolean testInt8, boolean tuning, String configFilename) {
@@ -111,7 +116,7 @@ void postProcessPerfRes(String chip) {
 
     plot csvFileName: "${chip}_plot-nightly-perf-results-000001.csv",\
         csvSeries: [[file: "build/${chip}_mlir_vs_miopen_perf_for_plot.csv", displayTableFlag: false]],\
-        title: 'Test performance summary',\
+        title: "Test performance summary ${chip}",\
         yaxis: 'TFlops',\
         style: 'line',\
         group: 'Performance plots'
@@ -169,12 +174,12 @@ void tuneMLIRKernels() {
     }
 }
 
-void check_fixedE2ETests(boolean nightly) {
-    buildProject('check-mlir check-rocmlir', """
-              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${nightly ? '0' : '1'}
-              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${nightly ? '1' : '0'}
-              -DROCK_E2E_TEST_ENABLED=${nightly ? '1' : '0'}
-              -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=${nightly ? '1' : '0'}
+void build_fixedE2ETests() {
+    buildProject('check-mlir-build-only check-rocmlir-build-only', """
+              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
+              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+              -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+              -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
               -DLLVM_LIT_ARGS='-v --time-tests'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
@@ -349,7 +354,9 @@ pipeline {
                             equals expected: true, actual: params.sharedLib;
                         }
                         steps {
-                            check_fixedE2ETests(params.nightly)
+                            build_fixedE2ETests()
+                            preMergeCheck("${CODEPATH}")
+                            sh 'cd build; ninja check-mlir check-rocmlir'
                         }
                     }
                     stage("Shared Library: random E2E tests") {
@@ -379,18 +386,6 @@ pipeline {
                             buildMIOpenWithMLIR()
                             testMIOpenDriver(/*testInt8=*/true, /*tuning=*/false, "selected-resnet50-miopen-configs")
                             testMIOpenDriver(/*testInt8=*/true, /*tuning=*/true, "selected-resnet50-miopen-configs")
-                        }
-                    }
-                    stage('Static Tests') {
-                        when {
-                            allOf {
-                                equals expected: false, actual: params.nightly;
-                                // Avoid this test running multiple times
-                                equals expected: "mfma", actual: "${CODEPATH}"
-                            }
-                        }
-                        steps {
-                            preMergeCheck()
                         }
                     }
                 }
