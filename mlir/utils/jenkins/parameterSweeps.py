@@ -30,6 +30,7 @@ class Options:
     debug: bool
     quiet: bool
     arch: str
+    codepath: str
     concurrent_tests: int
 
 class MLIROnlyConfig(ConvConfiguration):
@@ -40,17 +41,24 @@ class MLIROnlyConfig(ConvConfiguration):
                 paddingWL={self.paddingWL!r}, paddingWR={self.paddingWR!r}, dilationH={self.dilationH!r}, dilationW={self.dilationW!r},
                 group={self.group!r}, arch={self.arch!r}, perfConfig={self.perfConfig!r})"""
 
-    def generateMlirDriverCommandLine(self) -> Sequence[str]:
+    def generateMlirDriverCommandLine(self, codepath) -> Sequence[str]:
         direction = {'fwd': 'conv2d',
                      'bwd': 'conv2d_bwd_data',
                      'wrw':'conv2d_bwd_weight'}[self.direction]
-        mfma = False
-        if 'gfx908' in self.arch or 'gfx90a' in self.arch:
-            mfma = True
+
+        feature_flags = ''
+        if codepath == 'mfma':
+            feature_flags = '-mfma=on -dot=on -atomic_add=on'
+        elif codepath == 'vanilla':
+            feature_flags = '-mfma=off -dot=on -atomic_add=off'
+        else:
+            # unknow codepath
+            print("unknown codepath: " + codepath)
+
         result = ['--operation', direction,
                     '-t', self.dataType,
                     '--arch', self.arch,
-                    '-mfma=on' if mfma else '-mfma=off',
+                    feature_flags,
                     '--fil_layout', self.filterLayout,
                     '--in_layout', self.inputLayout,
                     '--out_layout', self.outputLayout,
@@ -130,7 +138,7 @@ class TestResult(enum.Enum):
 async def testConfig(config: MLIROnlyConfig, options: Options, paths: Paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
-    rocmlirGenOpts = config.generateMlirDriverCommandLine()
+    rocmlirGenOpts = config.generateMlirDriverCommandLine(options.codepath)
     rocmlirGenOpts.append('-pv')
 
     applicableFromGen, genToApplicable = os.pipe()
@@ -357,7 +365,7 @@ async def runConfig(paramIter: Iterable[IterType],
     if len(failures) != 0:
         print("*** Summary of failures ***")
         for c in failures:
-            print(' '.join(c.generateMlirDriverCommandLine()))
+            print(' '.join(c.generateMlirDriverCommandLine(options.codepath)))
     print(f"Passed: {n_passes}, Invalid: {n_invalids}, Failed: {len(failures)}")
     return len(failures) == 0
 
@@ -391,6 +399,12 @@ def main() -> bool:
         help='Use xdlops when generating kernels (default off)')
     parser.add_argument('--no-xdlops', '-X', dest='xdlops', action='store_false',
         help='Explicitly disable xdlops usage')
+    parser.add_argument(
+        '--codepath',
+        type=str,
+        default='none',
+        help="codepath to control kernel generation"
+    )
     parser.add_argument('--jobs', '-j', type=int,
         default=(len(os.sched_getaffinity(0)) // 2),
         help="Number of jobs to run in parallel (default %(default)s)")
@@ -407,18 +421,21 @@ def main() -> bool:
         help="The build directory of MIOpen",
     )
     args = parser.parse_args()
-    options = Options(debug=args.debug, quiet=args.quiet,
-        arch=','.join(getArch()), concurrent_tests=args.jobs)
-    paths = MIOpenDriver.create_paths(args.mlir_build_dir, args.miopen_build_dir)
 
-    codepath = "none"
-    if 'gfx908' in options.arch or 'gfx90a' in options.arch:
-        codepath = 'mfma'
-    elif 'gfx906' in options.arch:
-        codepath = 'vanilla'
-    elif 'gfx1030' in options.arch:
-        # Use vanilla codepath for gfx1030 untilit has its own perf configs
-        codepath = 'vanilla'
+    arch = ','.join(getArch())
+    codepath = args.codepath
+    if codepath == 'none':
+        if 'gfx908' in arch or 'gfx90a' in arch:
+            codepath = 'mfma'
+        elif 'gfx906' in arch:
+            codepath = 'vanilla'
+        elif 'gfx1030' in arch:
+            # Use vanilla codepath for gfx1030 until it has its own perf configs
+            codepath = 'vanilla'
+
+    options = Options(debug=args.debug, quiet=args.quiet,
+        arch=arch, codepath=codepath, concurrent_tests=args.jobs)
+    paths = MIOpenDriver.create_paths(args.mlir_build_dir, args.miopen_build_dir)
 
     config = args.config
     if config == 'perf_config':

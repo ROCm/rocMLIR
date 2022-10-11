@@ -345,6 +345,7 @@ pipeline {
                 stages {
                     stage('Environment') {
                         steps {
+                            echo "codepath is ${CODEPATH}"
                             showEnv()
                         }
                     }
@@ -526,7 +527,7 @@ pipeline {
                 }
             }
         }
-        stage("Archive weekly xdlops tuning perfDB") {
+        stage("Archive weekly tuning perfDB") {
             when {
                 beforeAgent true;
                 equals expected: true, actual: params.weekly;
@@ -643,7 +644,7 @@ pipeline {
                     docker {
                         image dockerImage()
                         args dockerArgs()
-                        label "${CHIP}"
+                        label "mlir && ${CHIP}"
                         alwaysPull true
                     }
                 }
