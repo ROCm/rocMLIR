@@ -21,7 +21,9 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -76,31 +78,22 @@ static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
   return rw.create<rock::TransformOp>(loc, operand, transform.get());
 }
 
-static FailureOr<rock::Conv2DOp>
-makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
-               StringRef inputLayout, Value filter, StringRef filterLayout,
-               Value output, StringRef outputLayout, const ArrayAttr &pad,
-               const ArrayAttr &stride, const ArrayAttr &dilation) {
-  auto loc = op->getLoc();
+static std::tuple<StringAttr, uint32_t, rock::GemmFeatures>
+getArchAttributes(Operation *op) {
   auto func = op->getParentOfType<func::FuncOp>();
   auto mod = func->getParentOfType<ModuleOp>();
 
-  // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
-  auto inputExp = expandTensor(rw, op, input);
-  auto filterExp = expandTensor(rw, op, filter);
-  auto outputExp = expandTensor(rw, op, output);
-
   // TODO(sjw): get these from options
-  StringRef chip = "";
+  StringAttr chip = StringAttr::get(op->getContext(), "");
   uint32_t num_cu = 64;
   Optional<bool> xdlopsV2 = None;
 
   if (auto attr = op->getAttrOfType<StringAttr>("arch"))
-    chip = attr.getValue();
+    chip = attr;
   else if (auto attr = func->getAttrOfType<StringAttr>("arch"))
-    chip = attr.getValue();
+    chip = attr;
   else if (auto attr = mod->getAttrOfType<StringAttr>("kernel.chip"))
-    chip = attr.getValue();
+    chip = attr;
 
   if (auto attr = op->getAttrOfType<IntegerAttr>("num_cu"))
     num_cu = attr.getValue().getZExtValue();
@@ -116,9 +109,30 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   rock::GemmFeatures features = archInfo.defaultFeatures;
   if (xdlopsV2.has_value())
     features = rock::bitEnumSet(features, rock::GemmFeatures::mfma, *xdlopsV2);
+
+  return {chip, num_cu, features};
+}
+
+static FailureOr<rock::Conv2DOp>
+makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
+               StringRef inputLayout, Value filter, StringRef filterLayout,
+               Value output, StringRef outputLayout, const ArrayAttr &pad,
+               const ArrayAttr &stride, const ArrayAttr &dilation) {
+  Location loc = op->getLoc();
+
+  // expand tensors from rank 4 (NHWC) to rank 5 (NHWCG)
+  auto inputExp = expandTensor(rw, op, input);
+  auto filterExp = expandTensor(rw, op, filter);
+  auto outputExp = expandTensor(rw, op, output);
+
+  StringAttr chip;
+  uint32_t num_cu;
+  rock::GemmFeatures features;
+  std::tie(chip, num_cu, features) = getArchAttributes(op);
+
   auto cop = rw.create<rock::Conv2DOp>(
-      loc, outputExp.getType(), filterExp, inputExp, outputExp,
-      rw.getStringAttr(chip), rw.getI32IntegerAttr(num_cu),
+      loc, outputExp.getType(), filterExp, inputExp, outputExp, chip,
+      rw.getI32IntegerAttr(num_cu),
       rw.getAttr<rock::GemmFeaturesAttr>(features),
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
   // translate attributes
@@ -248,39 +262,42 @@ class MatMulConverter final : public OpConversionPattern<tosa::MatMulOp> {
 public:
   using OpConversionPattern<tosa::MatMulOp>::OpConversionPattern;
 
+  UnitAttr getTranspose(tosa::MatMulOp op, StringRef name) const {
+    if (auto attr = op->getAttrOfType<BoolAttr>(name)) {
+      if (attr.getValue())
+        return UnitAttr::get(op->getContext());
+    }
+    return nullptr;
+  }
+
   LogicalResult matchAndRewrite(tosa::MatMulOp op,
                                 tosa::MatMulOp::Adaptor adaptor,
                                 ConversionPatternRewriter &rw) const final {
-    // BS must equal 1
-    auto operands = adaptor.getOperands();
-    auto loc = op->getLoc();
-    // A(BS,M,K) -> A(BS,1,M,K)
-    auto A = expandTensor(rw, op, operands[0], 1);
-    const char *ALayout = "ghwcn";
-    // B(BS,K,N) -> B(BS,K,N,1)
-    auto B = expandTensor(rw, op, operands[1], 3);
-    const char *BLayout = "gckyx";
-
-    // C(BS,M,N) -> C(BS,1,M,N)
+    Location loc = op->getLoc();
     auto outputType = op.getType().cast<RankedTensorType>();
     Value output =
         rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
-    auto C = expandTensor(rw, op, output, 1);
-    const char *CLayout = "ghwkn";
 
-    auto zero = rw.getIndexAttr(0);
-    auto pad = rw.getArrayAttr({zero, zero, zero, zero});
-    auto one = rw.getIndexAttr(1);
-    auto ones = rw.getArrayAttr({one, one});
+    UnitAttr transposeA = getTranspose(op, "transpose_a"),
+             transposeB = getTranspose(op, "transpose_b"),
+             transposeC = getTranspose(op, "transpose_c");
 
-    FailureOr<rock::Conv2DOp> rockConv = makeRockConv2D(
-        rw, op, A, ALayout, B, BLayout, C, CLayout, pad, ones, ones);
-    if (failed(rockConv))
-      return failure();
-    Value result = rw.create<rock::TensorUntransformCastOp>(
-        loc, outputType, rockConv->getResult(), rockConv->getOutput());
+    StringAttr chip;
+    uint32_t num_cu;
+    rock::GemmFeatures features;
+    std::tie(chip, num_cu, features) = getArchAttributes(op);
 
-    rw.replaceOp(op, result);
+    auto rockGemm = rw.create<rock::GemmOp>(
+        loc, outputType, adaptor.getA(), adaptor.getB(), output, transposeA,
+        transposeB, transposeC, chip, rw.getI32IntegerAttr(num_cu),
+        rw.getAttr<rock::GemmFeaturesAttr>(features),
+        rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
+        /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
+
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      rockGemm->setAttr("perf_config", attr);
+
+    rw.replaceOp(op, rockGemm.getResult());
 
     return success();
   }
@@ -321,6 +338,14 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
     op->setAttr(attrKey, StringAttr::get(op->getContext(), layout));
   }
 
+  void setTranspose(Operation *op, StringRef name, bool isNonTrivial) const {
+    bool currentValue = false;
+    if (auto attr = op->getAttrOfType<BoolAttr>(name))
+      currentValue = attr.getValue();
+    bool newValue = currentValue ^ isNonTrivial;
+    op->setAttr(name, BoolAttr::get(op->getContext(), newValue));
+  }
+
   // Fold transpose ops and convert convolution into changed layout.
   // case #0 : fold TP(NCHW2NHWC)+tosa.conv.NHWC+TP(NHWC2NCHW) back to
   //           rock.conv.NCHW
@@ -329,10 +354,21 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
                                 PatternRewriter &b) const final {
     auto dims = getTransposeDims(top.getOperand(1));
 
-    if (dims.size() != 4) {
+    bool isConvDims = dims.size() == 4;
+    bool isMatmulDims = dims.size() == 3;
+    if (!(isConvDims || isMatmulDims)) {
       return b.notifyMatchFailure(top, [&](::mlir::Diagnostic &diag) {
         diag << "Bad constant transpose dims";
       });
+    }
+    bool matmulNonTrivial = false;
+    if (isMatmulDims) {
+      if (dims[0] != 0) {
+        return b.notifyMatchFailure(top, [&](Diagnostic &diag) {
+          diag << "Can't transpose the batch dimension out of place";
+        });
+      }
+      matmulNonTrivial = (dims[1] == 2 && dims[2] == 1);
     }
 
     Value tInput = top.getOperand(0);
@@ -343,27 +379,43 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
       permuteLayout(convOp, "output_layout", "nhwk", dims);
       convOp->getResult(0).setType(tOutput.getType());
       top->replaceAllUsesWith(convOp);
+    } else if (tosa::MatMulOp matMulOp =
+                   tInput.getDefiningOp<tosa::MatMulOp>()) {
+      setTranspose(matMulOp, "transpose_c", matmulNonTrivial);
+      matMulOp->getResult(0).setType(tOutput.getType());
+      top->replaceAllUsesWith(matMulOp);
     } else {
       // trace output to tosa.conv2d
       for (auto &use : tOutput.getUses()) {
         if (auto op = dyn_cast<tosa::Conv2DOp>(use.getOwner())) {
-          if (convOp)
+          if (convOp || matMulOp)
             return failure();
           convOp = op;
+        } else if (auto op = dyn_cast<tosa::MatMulOp>(use.getOwner())) {
+          if (convOp || matMulOp)
+            return failure();
+          matMulOp = op;
         } else {
           return failure();
         }
       }
 
       // conv Input Modifier
-      if (convOp.getOperand(0) == tOutput) {
+      if (convOp && convOp.getOperand(0) == tOutput) {
         // input feature map
         permuteLayout(convOp, "input_layout", "nhwc", dims, true);
         top.replaceAllUsesWith({tInput});
-      } else {
+      } else if (convOp) {
         // filter
         assert(convOp.getOperand(1) == tOutput);
         permuteLayout(convOp, "filter_layout", "kyxc", dims, true);
+        top.replaceAllUsesWith({tInput});
+      } else if (matMulOp && matMulOp.getA() == tOutput) {
+        setTranspose(matMulOp, "transpose_a", matmulNonTrivial);
+        top.replaceAllUsesWith({tInput});
+      } else if (matMulOp) {
+        assert(matMulOp.getB() == tOutput);
+        setTranspose(matMulOp, "transpose_b", matmulNonTrivial);
         top.replaceAllUsesWith({tInput});
       }
     }
