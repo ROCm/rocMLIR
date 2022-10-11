@@ -2355,7 +2355,7 @@ int main(int argc, char **argv) {
     });
   } else {
     auto func = module.lookupSymbol<func::FuncOp>(testFuncName);
-    assert(func);
+    assert(func && "does -fut point to the wrong function?");
     kernels.emplace_back(func); // +++pf: should it be a kernel?
     rootIFs.emplace_back(func);
   }
