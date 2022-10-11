@@ -81,3 +81,7 @@
 // RUN: rocmlir-gen --arch gfx900 -mfma=off -atomic_add=off -dot=off -p -t i8 | rocmlir-opt -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise -rock-threadwise-gemm-lowering -rock-sugar-to-loops -rock-clean-math -rock-loops-to-cf -convert-rock-to-gpu "-convert-gpu-to-rocdl=chipset=gfx900 index-bitwidth=32" | rocmlir-translate -gpu-module-to-rocdlir | opt -passes='default<O3>,strip' -S | llc -mcpu=gfx900
 // RUN: rocmlir-gen --arch gfx900 -mfma=off -atomic_add=off -dot=off -p -t i8 | rocmlir-driver -kernel-pipeline=gpu,rocdl --arch=gfx900 | rocmlir-translate -gpu-module-to-rocdlir | opt -passes='default<O3>,strip' -S | llc -mcpu=gfx900
 // RUN: rocmlir-gen --arch gfx900 -mfma=off -atomic_add=off -dot=off -p -t i8 --operation conv2d | rocmlir-driver -kernel-pipeline=gpu,rocdl --arch=gfx900 | rocmlir-translate -gpu-module-to-rocdlir | opt -passes='default<O3>,strip' -S | llc -mcpu=gfx900
+
+// Check for MLIRContext options
+
+// RUN: rocmlir-gen --arch gfx900 -mfma=off -atomic_add=off -dot=off -p -t i8 --operation conv2d --mlir-disable-threading | rocmlir-driver -kernel-pipeline=gpu,rocdl --arch=gfx900 --mlir-disable-threading | rocmlir-translate -gpu-module-to-rocdlir --mlir-disable-threading | opt -passes='default<O3>,strip' -S | llc -mcpu=gfx900

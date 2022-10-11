@@ -96,6 +96,7 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
 
 int main(int argc, char **argv) {
   registerPassManagerCLOptions();
+  registerMLIRContextCLOptions();
   llvm::InitLLVM y(argc, argv);
   llvm::InitializeAllTargets();
   llvm::InitializeAllTargetInfos();

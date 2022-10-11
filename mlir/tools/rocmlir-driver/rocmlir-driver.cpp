@@ -381,11 +381,11 @@ int main(int argc, char **argv) {
 
   // Register any pass manager command line options.
   mlir::registerPassManagerCLOptions();
+  mlir::registerMLIRContextCLOptions();
   mlir::PassPipelineCLParser passPipeline("", "compiler passes to run");
 
   // Parse pass names in main to ensure static initialization completed.
   cl::ParseCommandLineOptions(argc, argv, "MLIR Rock Dialect driver\n");
-
   OpBuilder builder(&context);
   ModuleOp module;
 
