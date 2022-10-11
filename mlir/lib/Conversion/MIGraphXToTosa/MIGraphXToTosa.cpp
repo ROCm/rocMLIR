@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -61,12 +62,13 @@ class ConvConverter final
 public:
   using OpConversionPattern<migraphx::ConvolutionOp>::OpConversionPattern;
 
-  Value getZero(Location loc, Type elemType,
-                ConversionPatternRewriter &rewriter) const {
-    auto biasTy = RankedTensorType::get({1}, elemType);
-    auto zeroAttr =
-        DenseElementsAttr::get(biasTy, rewriter.getZeroAttr(elemType));
-    return rewriter.create<arith::ConstantOp>(loc, zeroAttr);
+  Value getZeroBias(Location loc, Type elemType, int64_t filterOutputChannels,
+                    ConversionPatternRewriter &rewriter) const {
+    auto biasTy = RankedTensorType::get({filterOutputChannels}, elemType);
+    auto arithZero =
+        rewriter.create<arith::ConstantOp>(loc, rewriter.getZeroAttr(elemType));
+    auto biasTensor = rewriter.create<tensor::SplatOp>(loc, biasTy, arithZero);
+    return biasTensor;
   }
 
   tosa::TransposeOp getRank4TransposeOp(Location loc, Value input,
@@ -117,7 +119,11 @@ public:
     // Construct a new Conv2DOp.
     auto cop = rewriter.create<tosa::Conv2DOp>(
         loc, newOutTy,
-        ValueRange{input_t, filter_t, getZero(loc, elementTy, rewriter)});
+        ValueRange{
+            input_t, filter_t,
+            getZeroBias(loc, elementTy,
+                        filter_t.getType().cast<ShapedType>().getShape()[0],
+                        rewriter)});
 
     // translate attributes
     auto padAttr = op->getAttr("padding").cast<ArrayAttr>();
