@@ -431,6 +431,7 @@ pipeline {
                 stages {
                     stage('Environment') {
                         steps {
+                            echo "codepath is ${CODEPATH}"
                             showEnv()
                         }
                     }
@@ -657,6 +658,7 @@ pipeline {
                 stages {
                     stage("Environment") {
                         steps {
+                            echo "chip is ${CHIP}"
                             showEnv()
                         }
                     }
