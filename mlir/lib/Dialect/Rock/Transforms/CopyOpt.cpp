@@ -24,9 +24,14 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
+#include "llvm/Support/Debug.h"
+
+#define DEBUG_TYPE "rock-copy-opt"
 
 namespace mlir {
 namespace rock {
@@ -147,23 +152,45 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
         }
         if (!writer)
           return fail;
-      } else if (auto mrop = dyn_cast<rock::TransformOp>(use.getOwner())) {
-        // 1.1 Input of rock.transform
+      } else if (auto mrop =
+                     dyn_cast<rock::RockGemmWrapperInterface>(use.getOwner())) {
+        // 1.1 Direct output of a gemm-wrapping operation (mainly gemm itself,
+        // which doesn't get transform()s after it)
         if (writer)
           return fail;
-        Value mrval = mrop;
-        // 1.1.0 Confirm output of rock.conv2d
+        if (mrop.getOutArgument()->get() != allocaMem) {
+          LLVM_DEBUG(
+              llvm::dbgs()
+              << "Allocation argument isn't in output position on gemm-like op"
+              << mrop << "\n");
+          return fail;
+        }
+        writer = mrop;
+      } else if (auto mrop = dyn_cast<rock::TransformOp>(use.getOwner())) {
+        // 1.2 Input of rock.transform
+        if (writer)
+          return fail;
+        rock::TransformOp originalMrop = mrop;
+        Value mrval = mrop.getResult();
+        // Dig through chains of transposes
+        while (mrval.hasOneUse() && (mrop = dyn_cast_or_null<rock::TransformOp>(
+                                         mrval.getUses().begin()->getOwner())))
+          mrval = mrop.getResult();
+        // 1.2.0 Confirm output of a gemm-like operation
         int cnt = 0;
         for (auto &mruse : mrval.getUses()) {
-          if (auto convop = dyn_cast<rock::Conv2DOp>(mruse.getOwner())) {
-            if (convop.getOperand(2) != mrval)
+          if (auto gemmLike =
+                  dyn_cast<rock::RockGemmWrapperInterface>(mruse.getOwner())) {
+            LLVM_DEBUG(llvm::dbgs()
+                       << "Found gemm-like op " << gemmLike << "\n");
+            if (gemmLike.getOutArgument()->get() != mrval)
               return fail;
           }
           cnt++;
         }
         if (cnt != 1)
           return fail;
-        writer = mrop;
+        writer = originalMrop;
       } else if (auto callop = dyn_cast<CallOpInterface>(use.getOwner())) {
         // 1.3 Assume call is the writer (fails for multiple calls)
         if (writer)
@@ -178,7 +205,8 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
         }
       }
     }
-
+    LLVM_DEBUG(llvm::dbgs() << "Found copy dest arg = " << copyDestArg
+                            << " and writer " << writer << "\n");
     // 2. do it
     if (copyDestArg && writer) {
       allocaMem.replaceAllUsesWith(copyDestArg);

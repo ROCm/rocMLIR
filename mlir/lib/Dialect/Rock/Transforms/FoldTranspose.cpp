@@ -18,6 +18,7 @@
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 
@@ -45,13 +46,13 @@ struct RockFoldTransposePass
 } // end namespace
 
 /// If there is a chain of operations that leads from `v` to
-/// a rock.conv2d* op, return that convolution.
-static Operation *getConvUser(Value v) {
+/// a gemm-wrapping op, return that op.
+static Operation *getGemmWrapperUser(Value v) {
   for (Operation *user : v.getUsers()) {
-    if (isa<Conv2DOp, Conv2DBwdDataOp, Conv2DBwdWeightOp>(user))
+    if (isa<RockGemmWrapperInterface>(user))
       return user;
     if (auto transform = dyn_cast<TransformOp>(user))
-      if (Operation *upstream = getConvUser(transform.getOutput()))
+      if (Operation *upstream = getGemmWrapperUser(transform.getOutput()))
         return upstream;
   }
   return nullptr;
@@ -152,7 +153,7 @@ struct FoldTransposingConvAccess : OpRewritePattern<linalg::GenericOp> {
 
     for (OpOperand &operand : laGeneric->getOpOperands()) {
       Value opValue = operand.get();
-      Operation *convUser = getConvUser(opValue);
+      Operation *convUser = getGemmWrapperUser(opValue);
       if (!convUser)
         continue;
 
