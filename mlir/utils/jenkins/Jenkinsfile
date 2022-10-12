@@ -24,7 +24,7 @@ void buildMIOpen(String cmakeOpts) {
 }
 
 void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
-    git branch: 'fix-kernel-count-MLIR', poll: false,\
+    git branch: params.MIOpenBranch, poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
     buildMIOpen(cmakeOpts)
 }
@@ -36,7 +36,7 @@ void buildMIOpenWithMLIR() {
         installation: 'InSearchPath', workingDir: 'build'
 
     dir('MIOpen') {
-        git branch: 'fix-kernel-count-MLIR', poll: false,\
+        git branch: params.MIOpenBranch, poll: false,\
             url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
         // Note: setting cxxflags here works around https://github.com/ROCmSoftwarePlatform/MIOpen/issues/1604
         buildMIOpen("""-DMIOPEN_USE_MLIR=On
@@ -259,6 +259,8 @@ pipeline {
                      description: 'Can this CI instance use xdlops (no for public server)')
         booleanParam(name: 'weekly', defaultValue: params.weekly ? true : false,
                      description: 'Run weekly-only jobs')
+        string(name: 'MIOpenBranch', defaultValue: 'develop',
+               description: 'The MIOpen branch to be used with the job')
 
         // Each below control whether to run a individual stage from parallel run
         // They default to true or empty but deverloper can toggle them for debugging purpose

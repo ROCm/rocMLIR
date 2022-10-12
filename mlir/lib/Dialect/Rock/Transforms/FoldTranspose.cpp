@@ -231,6 +231,10 @@ struct FoldTransposingConvAccess : OpRewritePattern<linalg::GenericOp> {
 
 void RockFoldTransposePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
+  auto func = getOperation();
+  if (!func->hasAttr("kernel")) {
+    return;
+  }
 
   RewritePatternSet patternsTP(ctx);
   patternsTP.add<RemoveTrivialTransposePattern, FoldTransposingConvAccess>(ctx);

@@ -1,7 +1,7 @@
 #include "mlir/Dialect/Rock/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/Generator/AmdArchDb.h"
-#include "mlir/Dialect/Rock/IR/GemmContext.h"
+#include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
@@ -357,6 +357,58 @@ Type Conv2dGenerator::getDataType(OpBuilder &builder) const {
   return dataType;
 }
 
+// The function is used to compute extra padding sizes.
+// For example, if gemmM size is 3 and gemmMPerBlock is 64,
+// we set gemmMExtra be 64 so (gemmM+gemmMExtra)%gemmMPerBlock=0.
+//
+// If padding is needed, returns a GemmSize containing the number of elements
+// needed to pad the M, N, and K dimensions (**not** the new gemm size).
+// Otherwise, returns None
+template <typename T>
+static Optional<GemmSize>
+calculatePaddingKernelSize(GemmSize gemmSize, ConvOpType dir, Type dataType,
+                           T populateParams) {
+  bool needExtraPad = false;
+  int64_t gemmMExtra, gemmNExtra, gemmKExtra;
+  gemmMExtra = gemmNExtra = gemmKExtra = 0;
+
+  auto configParams = populateParams.getTuningParameters(dir, dataType);
+  size_t numOfFailedConfigs = 0;
+  for (auto &params : configParams) {
+    if (gemmSize.m % params.gemmMPerBlock == 0 &&
+        gemmSize.k % params.gemmKPerBlock == 0 &&
+        gemmSize.n % params.gemmNPerBlock == 0) {
+      break;
+    }
+    numOfFailedConfigs++;
+  }
+
+  auto extraParams = populateParams.getUniversalParameters();
+  if (numOfFailedConfigs == configParams.size()) {
+    needExtraPad = true;
+    int64_t gemmMRemain, gemmKRemain, gemmNRemain;
+
+    gemmMRemain = gemmSize.m % extraParams.gemmMPerBlock;
+    if (gemmMRemain != 0)
+      gemmMExtra = extraParams.gemmMPerBlock - gemmMRemain;
+
+    gemmNRemain = gemmSize.n % extraParams.gemmNPerBlock;
+    if (gemmNRemain != 0)
+      gemmNExtra = extraParams.gemmNPerBlock - gemmNRemain;
+
+    gemmKRemain = gemmSize.k % extraParams.gemmKPerBlock;
+    if (gemmKRemain != 0)
+      gemmKExtra = extraParams.gemmKPerBlock - gemmKRemain;
+
+    // llvm::errs() << "gemmMExtra: " << gemmMExtra << "gemmNExtra: " <<
+    // gemmNExtra << "gemmKExtra: " << gemmKExtra << "\n";
+  }
+
+  if (needExtraPad)
+    return GemmSize(gemmSize.g, gemmMExtra, gemmKExtra, gemmNExtra);
+  return llvm::None;
+}
+
 bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {
   Type dataType = getDataType(builder);
   ConvOpType dir = config.operation.value();
@@ -364,7 +416,7 @@ bool Conv2dGenerator::needExtraPadBwdWeight(OpBuilder &builder) const {
          "This method should only be called for wrw ops");
 
   ConvolutionDims convDims = getConvolutionDims();
-  GemmContext gemmSize = GemmContext::fromConvolution(dir, convDims);
+  GemmSize gemmSize = GemmSize::fromConvolution(dir, convDims);
 
   bool needExtraPad = false;
   if (!bitEnumContainsAll(config.features, GemmFeatures::mfma)) {

@@ -59,11 +59,8 @@ populateBackwardDataGemmIds(int64_t strideHeight, int64_t strideWidth,
 
 /// Obtain convolution direction given a Convolution Op.
 /// TODO(whchung): apply ConvolutionOp OpTrait check after supporting PR is in.
-ConvOpType obtainConvDirection(Operation *op);
+Optional<ConvOpType> obtainConvDirection(Operation *op);
 
-/// Obtain convolution input data type given a Convolution Op.
-/// TODO(whchung): apply ConvolutionOp OpTrait check after supporting PR is in.
-Type obtainConvDataType(Operation *op);
 } // end namespace rock
 } // end namespace mlir
 #endif

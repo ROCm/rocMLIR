@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/utility/math.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/AffineMap.h"
@@ -369,7 +370,7 @@ void RockDialect::initialize() {
 //===----------------------------------------------------------------------===//
 // Convolution operations
 //===----------------------------------------------------------------------===//
-static ConvolutionDims obtainConvDims(Operation *op) {
+ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
   auto filterLayoutAttr = op->getAttrOfType<ArrayAttr>("filter_layout");
   auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
   auto outputLayoutAttr =
@@ -425,27 +426,29 @@ static ConvolutionDims obtainConvDims(Operation *op) {
   return ConvolutionDims(y, x, ho, wo, hi, wi, k, c, n, g);
 }
 
-GemmContext GemmContext::fromConvolution(ConvOpType type,
-                                         const ConvolutionDims &sizes) {
-  int64_t gemmMSize, gemmKSize, gemmNSize;
+GemmSize GemmSize::fromConvolution(ConvOpType type,
+                                   const ConvolutionDims &sizes) {
+  assert(type != ConvOpType::BwdData &&
+         "Backward data convolutions cannot have their size computed without "
+         "gemm_id and other parameters. Use op.getGemmSize() instead");
+  int64_t gemmGSize, gemmMSize, gemmKSize, gemmNSize;
   switch (type) {
   case ConvOpType::Fwd:
+    gemmGSize = sizes.g;
     gemmMSize = sizes.k;
     gemmKSize = sizes.c * sizes.y * sizes.x;
     gemmNSize = sizes.n * sizes.ho * sizes.wo;
     break;
-  case ConvOpType::BwdData:
-    gemmMSize = sizes.c;
-    gemmKSize = sizes.k * sizes.y * sizes.x;
-    gemmNSize = sizes.n * sizes.ho * sizes.wo;
-    break;
   case ConvOpType::BwdWeight:
+    gemmGSize = sizes.g;
     gemmMSize = sizes.k;
     gemmKSize = sizes.n * sizes.ho * sizes.wo;
     gemmNSize = sizes.c * sizes.y * sizes.x;
     break;
+  case ConvOpType::BwdData:
+    llvm_unreachable("Should've been caught be an assert");
   }
-  return GemmContext(gemmMSize, gemmKSize, gemmNSize);
+  return GemmSize(gemmGSize, gemmMSize, gemmKSize, gemmNSize);
 }
 
 template <typename T> static LogicalResult verifyConvOp(T op) {
@@ -486,19 +489,75 @@ OpOperand *Conv2DBwdWeightOp::getOutArgument() {
   return &(*this)->getOpOperand(0);
 }
 
-GemmContext Conv2DOp::getGemmSize() {
-  ConvolutionDims sizes = obtainConvDims(*this);
-  return GemmContext::fromConvolution(ConvOpType::Fwd, sizes);
+GemmSize Conv2DOp::getGemmSize() {
+  auto sizes = ConvolutionDims::fromOp(*this);
+  return GemmSize::fromConvolution(ConvOpType::Fwd, sizes);
 }
 
-GemmContext Conv2DBwdDataOp::getGemmSize() {
-  ConvolutionDims sizes = obtainConvDims(*this);
-  return GemmContext::fromConvolution(ConvOpType::BwdData, sizes);
+GemmSize Conv2DBwdDataOp::getGemmSize() {
+  auto getSeqAttr = [&](StringRef name, SmallVectorImpl<int64_t> &dest) {
+    transform((*this)->getAttrOfType<ArrayAttr>(name).getAsRange<IntegerAttr>(),
+              std::back_inserter(dest),
+              [](IntegerAttr x) -> int64_t { return x.getInt(); });
+  };
+
+  auto sizes = ConvolutionDims::fromOp(*this);
+  SmallVector<int64_t, 2> strides, dilations;
+  getSeqAttr("strides", strides);
+  getSeqAttr("dilations", dilations);
+  SmallVector<int64_t, 4> padding;
+  getSeqAttr("padding", padding);
+  int64_t gemmId = (*this)->getAttrOfType<IntegerAttr>("gemm_id").getInt();
+
+  int64_t strideH = strides[0];
+  int64_t strideW = strides[1];
+  int64_t dilationH = dilations[0];
+  int64_t dilationW = dilations[1];
+  int64_t leftPadH = padding[0];
+  int64_t leftPadW = padding[2];
+
+  int64_t gcdStrideDilationH = math_util::gcd(strideH, dilationH);
+  int64_t gcdStrideDilationW = math_util::gcd(strideW, dilationW);
+
+  int64_t yTilda = strideH / gcdStrideDilationH;
+  int64_t xTilda = strideW / gcdStrideDilationW;
+
+  int64_t hTilda = sizes.ho + math_util::integer_divide_ceil(
+                                  dilationH * (sizes.y - 1), strideH);
+  int64_t wTilda = sizes.wo + math_util::integer_divide_ceil(
+                                  dilationW * (sizes.x - 1), strideW);
+
+  int64_t iHTildaLeft = math_util::integer_divide_floor(
+      std::max(0l, leftPadH - dilationH * (yTilda - 1)), strideH);
+  int64_t iWTildaLeft = math_util::integer_divide_floor(
+      std::max(0l, leftPadW - dilationW * (xTilda - 1)), strideW);
+
+  int64_t iHTildaRight = std::min(
+      hTilda,
+      math_util::integer_divide_ceil(leftPadH + sizes.hi - 1, strideH) + 1);
+  int64_t iWTildaRight = std::min(
+      wTilda,
+      math_util::integer_divide_ceil(leftPadW + sizes.wi - 1, strideW) + 1);
+
+  int64_t hTildaSlice = iHTildaRight - iHTildaLeft;
+  int64_t wTildaSlice = iWTildaRight - iWTildaLeft;
+
+  int64_t iYTilda = gemmId / xTilda;
+  int64_t iXTilda = gemmId % xTilda;
+  int64_t yDotSlice = math_util::integer_divide_ceil(sizes.y - iYTilda, yTilda);
+  int64_t xDotSlice = math_util::integer_divide_ceil(sizes.x - iXTilda, xTilda);
+
+  int64_t g = sizes.g;
+  int64_t m = sizes.c;
+  int64_t k = sizes.k * yDotSlice * xDotSlice;
+  int64_t n = sizes.n * hTildaSlice * wTildaSlice;
+
+  return GemmSize(g, m, k, n);
 }
 
-GemmContext Conv2DBwdWeightOp::getGemmSize() {
-  ConvolutionDims sizes = obtainConvDims(*this);
-  return GemmContext::fromConvolution(ConvOpType::BwdWeight, sizes);
+GemmSize Conv2DBwdWeightOp::getGemmSize() {
+  auto sizes = ConvolutionDims::fromOp(*this);
+  return GemmSize::fromConvolution(ConvOpType::BwdWeight, sizes);
 }
 
 //===-----------------------------------------------------===//
@@ -558,15 +617,16 @@ LogicalResult GemmOp::verify() {
 
 OpOperand *GemmOp::getOutArgument() { return &(*this)->getOpOperand(2); }
 
-GemmContext GemmOp::getGemmSize() {
+GemmSize GemmOp::getGemmSize() {
   ShapedType typeA = getA().getType(), typeB = getB().getType();
   ArrayRef<int64_t> dimsA = typeA.getShape(), dimsB = typeB.getShape();
   int64_t offsetA = dimsA.size() == 2 ? 0 : 1,
           offsetB = dimsB.size() == 2 ? 0 : 1;
-  int64_t m = dimsA[offsetA + (getATransposed() ? 1 : 0)],
+  int64_t g = offsetA ? dimsA[0] : 1,
+          m = dimsA[offsetA + (getATransposed() ? 1 : 0)],
           k = dimsA[offsetA + (getATransposed() ? 0 : 1)],
           n = dimsB[offsetB + (getBTransposed() ? 0 : 1)];
-  return GemmContext(m, k, n);
+  return GemmSize(g, m, k, n);
 }
 
 //===-----------------------------------------------------===//

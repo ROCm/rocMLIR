@@ -1,4 +1,5 @@
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
+#include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -46,7 +47,7 @@ ConvolutionDims ConvolutionContext::getConvDims() {
 }
 
 ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
-  ConvOpType opType = obtainConvDirection(op);
+  ConvOpType opType = *obtainConvDirection(op);
 
   // XXX: Do we need these, especially since we're not actually serializing
   // anything to sqlite?
@@ -91,7 +92,7 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
       op->getOperand(2).getType().template cast<MemRefType>().getShape(),
       dimIndexAndSize);
 
-  auto dataType = obtainConvDataType(op);
+  Type dataType = cast<RockGemmWrapperInterface>(op).getInputType();
 
   return {archVal,     numCuVal,   opType, dimIndexAndSize, strideVal,
           dilationVal, paddingVal, gemmId, dataType};

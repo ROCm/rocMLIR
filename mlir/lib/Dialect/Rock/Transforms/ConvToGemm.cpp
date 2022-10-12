@@ -21,7 +21,7 @@
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/Rock/IR/GemmContext.h"
+#include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -829,8 +829,8 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     }
 
     Attribute tuningParams = op.getParamsAttr();
-    GemmContext gemmSize = op.getGemmSize();
-    Optional<GemmContext> maybeGemmExtraPad;
+    GemmSize gemmSize = op.getGemmSize();
+    Optional<GemmSize> maybeGemmExtraPad;
 
     if (tuningParams) {
       maybeGemmExtraPad = requiredPadding(tuningParams, gemmSize);
@@ -838,7 +838,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       // We don't know if this'll be a padding kernel, so we can't promise an
       // unfold or rely on atomic add, and so set the extraPad to a nonsense but
       // existing value.
-      maybeGemmExtraPad = GemmContext{-1, -1, -1};
+      maybeGemmExtraPad = GemmSize{-1, -1, -1, -1};
     }
 
     // TODO: don't restrict this to xdlops only once we've validated on a gfx11
@@ -851,7 +851,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
       // fp32 / fp16.
       return backwardWeightAtomicAdd(cast<Conv2DBwdWeightOp>(op), b);
     }
-    auto gemmExtraPad = maybeGemmExtraPad.value_or(GemmContext{0, 0, 0});
+    auto gemmExtraPad = maybeGemmExtraPad.value_or(GemmSize{0, 0, 0, 0});
 
     // Transform filter tensor.
 
