@@ -30,7 +30,7 @@ class Options:
     debug: bool
     quiet: bool
     arch: str
-    codepath: str
+    flags: str
     concurrent_tests: int
 
 class MLIROnlyConfig(ConvConfiguration):
@@ -41,24 +41,14 @@ class MLIROnlyConfig(ConvConfiguration):
                 paddingWL={self.paddingWL!r}, paddingWR={self.paddingWR!r}, dilationH={self.dilationH!r}, dilationW={self.dilationW!r},
                 group={self.group!r}, arch={self.arch!r}, perfConfig={self.perfConfig!r})"""
 
-    def generateMlirDriverCommandLine(self, codepath) -> Sequence[str]:
+    def generateMlirDriverCommandLine(self, rocmlir_gen_flags) -> Sequence[str]:
         direction = {'fwd': 'conv2d',
                      'bwd': 'conv2d_bwd_data',
                      'wrw':'conv2d_bwd_weight'}[self.direction]
 
-        feature_flags = ''
-        if codepath == 'mfma':
-            feature_flags = '-mfma=on -dot=on -atomic_add=on'
-        elif codepath == 'vanilla':
-            feature_flags = '-mfma=off -dot=on -atomic_add=off'
-        else:
-            # unknow codepath
-            print("unknown codepath: " + codepath)
-
         result = ['--operation', direction,
                     '-t', self.dataType,
                     '--arch', self.arch,
-                    feature_flags,
                     '--fil_layout', self.filterLayout,
                     '--in_layout', self.inputLayout,
                     '--out_layout', self.outputLayout,
@@ -77,6 +67,8 @@ class MLIROnlyConfig(ConvConfiguration):
                     '--padding_h_r', str(self.paddingHR),
                     '--padding_w_l', str(self.paddingWL),
                     '--padding_w_r', str(self.paddingWR)]
+
+        result += rocmlir_gen_flags.split()
 
         if self.perfConfig is not None:
             result.append('--perf_config')
@@ -138,7 +130,7 @@ class TestResult(enum.Enum):
 async def testConfig(config: MLIROnlyConfig, options: Options, paths: Paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
-    rocmlirGenOpts = config.generateMlirDriverCommandLine(options.codepath)
+    rocmlirGenOpts = config.generateMlirDriverCommandLine(options.flags)
     rocmlirGenOpts.append('-pv')
 
     applicableFromGen, genToApplicable = os.pipe()
@@ -365,7 +357,7 @@ async def runConfig(paramIter: Iterable[IterType],
     if len(failures) != 0:
         print("*** Summary of failures ***")
         for c in failures:
-            print(' '.join(c.generateMlirDriverCommandLine(options.codepath)))
+            print(' '.join(c.generateMlirDriverCommandLine(options.flags)))
     print(f"Passed: {n_passes}, Invalid: {n_invalids}, Failed: {len(failures)}")
     return len(failures) == 0
 
@@ -423,18 +415,27 @@ def main() -> bool:
     args = parser.parse_args()
 
     arch = ','.join(getArch())
+    supported_codepath = ['mfma', 'vanilla']
+    # If codepath not provided or not supported, infer it from the arch
     codepath = args.codepath
-    if codepath == 'none':
+    rocmlir_gen_flags = ''
+    if codepath not in supported_codepath:
         if 'gfx908' in arch or 'gfx90a' in arch:
             codepath = 'mfma'
+            rocmlir_gen_flags = '-mfma=on -dot=on -atomic_add=on'
         elif 'gfx906' in arch:
             codepath = 'vanilla'
+            rocmlir_gen_flags = '-mfma=off -dot=on -atomic_add=off'
         elif 'gfx1030' in arch:
             # Use vanilla codepath for gfx1030 until it has its own perf configs
             codepath = 'vanilla'
+            rocmlir_gen_flags = '-mfma=off -dot=on -atomic_add=off'
+        else:
+            # unknow arch info
+            print(f"""Unknown arch {arch}""", file=sys.stderr)
 
     options = Options(debug=args.debug, quiet=args.quiet,
-        arch=arch, codepath=codepath, concurrent_tests=args.jobs)
+        arch=arch, flags=rocmlir_gen_flags, concurrent_tests=args.jobs)
     paths = MIOpenDriver.create_paths(args.mlir_build_dir, args.miopen_build_dir)
 
     config = args.config

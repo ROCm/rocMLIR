@@ -205,17 +205,9 @@ class ConvConfiguration:
                      'bwd':'--operation conv2d_bwd_data',
                      'wrw':'--operation conv2d_bwd_weight'}[self.direction]
 
-        feature_flags = rocmlir_gen_flags
-        if rocmlir_gen_flags == '':
-            if self.chip == 'gfx908' or self.chip == 'gfx90a':
-                feature_flags = '-mfma=on -dot=on -atomic_add=on'
-            else:
-                feature_flags = '-mfma=off -dot=on -atomic_add=off'
-
         result = ' '.join([direction,
                            '-t', self.dataType,
                            '--arch', self.arch,
-                           feature_flags,
                            '--fil_layout', self.filterLayout,
                            '--in_layout', self.inputLayout,
                            '--out_layout', self.outputLayout,
@@ -231,7 +223,8 @@ class ConvConfiguration:
                            '--conv_stride_h', str(self.convStrideH),
                            '--conv_stride_w', str(self.convStrideW),
                            '--padding_h', str(self.paddingH),
-                           '--padding_w', str(self.paddingW)])
+                           '--padding_w', str(self.paddingW)] +
+                        rocmlir_gen_flags.split())
 
         return result
 
@@ -620,8 +613,24 @@ def main(args=None):
 
     parsed_args = parser.parse_args(args)
 
-    # Impose default behavior when no args have been passed
-    if len(args) == 0:
+    # If rocmlir_gen_flags not provided, infer it from the chip
+    rocmlir_gen_flags = parsed_args.rocmlir_gen_flags
+    if rocmlir_gen_flags == '':
+        if chip == 'gfx908' or chip == 'gfx90a':
+            rocmlir_gen_flags = '-mfma=on -dot=on -atomic_add=on'
+        elif chip == 'gfx906':
+            rocmlir_gen_flags = '-mfma=off -dot=on -atomic_add=off'
+        elif chip == 'gfx1030':
+            rocmlir_gen_flags = '-mfma=off -dot=on -atomic_add=off'
+        else:
+            # unknow chip info
+            print("Unknown chip: " + self.chip)
+
+    # Impose default behavior when no args (except rocmlir_gen_flags) have been passed
+    args_len = len(args)
+    if 'rocmlir_gen_flags' in parsed_args:
+        args_len = args_len - 1
+    if args_len == 0:
         parsed_args.batch_both = True
 
     if parsed_args.miopen or parsed_args.batch_miopen or parsed_args.miopen_use_tuned_mlir or \
@@ -639,7 +648,7 @@ def main(args=None):
     #If no arguments are passed, then benchmark with MLIR and MIOpen
     if parsed_args.batch_both:
         # batch benchmark with MLIR and MIOpen.
-        generatePerformanceResults(configs, paths, arch, parsed_args.rocmlir_gen_flags)
+        generatePerformanceResults(configs, paths, arch, rocmlir_gen_flags)
     elif parsed_args.miopen_use_tuned_mlir:
         benchmarkMIOpenWithMLIRKernels(configs, arch, reportUtils.MIOPEN_TUNED_REPORT_FILE, paths)
     elif parsed_args.miopen_use_untuned_mlir:
@@ -648,7 +657,7 @@ def main(args=None):
         tuneMLIRKernels(configs, paths, arch)
     else:
         if parsed_args.batch_mlir:
-            df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), paths, arch, parsed_args.rocmlir_gen_flags) for testVector in configs)
+            df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), paths, arch, rocmlir_gen_flags) for testVector in configs)
         elif parsed_args.batch_miopen:
             df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), paths, arch) for testVector in configs)
         elif parsed_args.miopen:
@@ -658,7 +667,7 @@ def main(args=None):
             # These are arguments are directly passed through to benchmarkMLIR
             if not parsed_args.mlir_build_dir:
                 raise RuntimeError("MLIR build dir was not provided/found")
-            df = pd.DataFrame([benchmarkMLIR(parsed_args.config, paths, arch, parsed_args.rocmlir_gen_flags)])
+            df = pd.DataFrame([benchmarkMLIR(parsed_args.config, paths, arch, rocmlir_gen_flags)])
         df.to_csv(parsed_args.fileName)
         with pd.option_context('display.precision', reportUtils.ROUND_DIGITS):
             print(df) # for interactive consumption
