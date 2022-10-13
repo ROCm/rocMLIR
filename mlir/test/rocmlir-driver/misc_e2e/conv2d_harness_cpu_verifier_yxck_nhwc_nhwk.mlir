@@ -11,9 +11,10 @@ module {
     %1 = memref.alloc() : memref<128x32x32x1x8xf32>
     %2 = memref.alloc() : memref<128x30x30x1x128xf32>
 
-    %3 = memref.cast %0 : memref<1x3x3x8x128xf32> to memref<?x?x?x?x?xf32>
-    %4 = memref.cast %1 : memref<128x32x32x1x8xf32> to memref<?x?x?x?x?xf32>
-    %5 = memref.cast %2 : memref<128x30x30x1x128xf32> to memref<?x?x?x?x?xf32>
+    %cst = 1.0 : f32
+    linalg.fill ins(%cst : f32) outs(%0 : memref<1x3x3x8x128xf32>)
+    linalg.fill ins(%cst : f32) outs(%1 : memref<128x32x32x1x8xf32>)
+    linalg.fill ins(%cst : f32) outs(%2 : memref<128x30x30x1x128xf32>)
 
     // populate initial values
     %c0_i16 = arith.constant 0 : i16
@@ -29,14 +30,13 @@ module {
 
     // allocate CPU memory and initialized
     %6 = memref.alloc() : memref<1x3x3x8x128xf32>
-    %7 = memref.cast %6 : memref<1x3x3x8x128xf32> to memref<?x?x?x?x?xf32>
-    call @mcpuMemset5DFloatRandInt(%7, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
+    linalg.fill ins(%cst : f32) outs(%6 : memref<1x3x3x8x128xf32>)
+
     %9 = memref.alloc() : memref<128x32x32x1x8xf32>
-    %10 = memref.cast %9 : memref<128x32x32x1x8xf32> to memref<?x?x?x?x?xf32>
-    call @mcpuMemset5DFloatRandInt(%10, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
+    linalg.fill ins(%cst : f32) outs(%9 : memref<128x32x32x1x8xf32>)
+
     %12 = memref.alloc() : memref<128x30x30x1x128xf32>
-    %13 = memref.cast %12 : memref<128x30x30x1x128xf32> to memref<?x?x?x?x?xf32>
-    call @mcpuMemset5DFloatRandInt(%13, %c0_i16, %c0_i16, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
+    linalg.fill ins(%cst : f32) outs(%12 : memref<128x30x30x1x128xf32>)
 
     // launch cpu convolution
     call @conv2d_host(%6, %9, %12) : (memref<1x3x3x8x128xf32>, memref<128x32x32x1x8xf32>, memref<128x30x30x1x128xf32>) -> ()
@@ -53,9 +53,6 @@ module {
     memref.dealloc %12 : memref<128x30x30x1x128xf32>
     return
   }
-
-  func.func private @mcpuMemset5DFloatRandInt(memref<?x?x?x?x?xf32>, i16, i16, i32)
-  func.func private @mcpuMemCopy5DFloat(memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>)
 
   func.func @gpu_conv(%arg0: memref<1x3x3x8x128xf32>, %arg1: memref<128x32x32x1x8xf32>, %arg2: memref<128x30x30x1x128xf32>) {
     // allocate GPU memory.

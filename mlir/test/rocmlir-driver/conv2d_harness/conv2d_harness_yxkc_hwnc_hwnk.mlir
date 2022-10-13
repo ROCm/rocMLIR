@@ -15,16 +15,11 @@ func.func @main() {
   %1 = memref.alloc() : memref<32x32x128x1x8xf32>
   %2 = memref.alloc() : memref<30x30x128x1x128xf32>
 
-  %3 = memref.cast %0 : memref<1x3x3x128x8xf32> to memref<?x?x?x?x?xf32>
-  %4 = memref.cast %1 : memref<32x32x128x1x8xf32> to memref<?x?x?x?x?xf32>
-  %5 = memref.cast %2 : memref<30x30x128x1x128xf32> to memref<?x?x?x?x?xf32>
-
   // populate initial values.
   %cst = arith.constant 1.0 : f32
-  %cst0 = arith.constant 0.0 : f32
-  call @mcpuMemset5DFloat(%3, %cst) : (memref<?x?x?x?x?xf32>, f32) -> ()
-  call @mcpuMemset5DFloat(%4, %cst) : (memref<?x?x?x?x?xf32>, f32) -> ()
-  call @mcpuMemset5DFloat(%5, %cst0) : (memref<?x?x?x?x?xf32>, f32) -> ()
+  linalg.fill ins(%cst : f32) outs(%0 : memref<1x3x3x128x8xf32>)
+  linalg.fill ins(%cst : f32) outs(%1 : memref<32x32x128x1x8xf32>)
+  linalg.fill ins(%cst : f32) outs(%2 : memref<30x30x128x1x128xf32>)
 
   // memref.allocate GPU memory.
   %filter = gpu.alloc  () : memref<1x3x3x128x8xf32>
@@ -60,7 +55,6 @@ func.func @main() {
   return
 }
 
-func.func private @mcpuMemset5DFloat(%ptr : memref<?x?x?x?x?xf32>, %value: f32) -> ()
 func.func private @printMemrefF32(%ptr : memref<*xf32>)
 // LOWERING: gpu.module @rock_conv2d_gyxkc_hwngc_hwngk_0_module
 // LOWERING: gpu.func @rock_conv2d_gyxkc_hwngc_hwngk_0
