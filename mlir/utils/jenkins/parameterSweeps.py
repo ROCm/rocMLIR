@@ -30,7 +30,7 @@ class Options:
     debug: bool
     quiet: bool
     arch: str
-    flags: str
+    flags: list
     concurrent_tests: int
 
 class MLIROnlyConfig(ConvConfiguration):
@@ -68,7 +68,7 @@ class MLIROnlyConfig(ConvConfiguration):
                     '--padding_w_l', str(self.paddingWL),
                     '--padding_w_r', str(self.paddingWR)]
 
-        result += rocmlir_gen_flags.split()
+        result += rocmlir_gen_flags
 
         if self.perfConfig is not None:
             result.append('--perf_config')
@@ -418,18 +418,18 @@ def main() -> bool:
     supported_codepath = ['mfma', 'vanilla']
     # If codepath not provided or not supported, infer it from the arch
     codepath = args.codepath
-    rocmlir_gen_flags = ''
+    rocmlir_gen_flags = []
     if codepath not in supported_codepath:
         if 'gfx908' in arch or 'gfx90a' in arch:
             codepath = 'mfma'
-            rocmlir_gen_flags = '-mfma=on -dot=on -atomic_add=on'
+            rocmlir_gen_flags = ['-mfma=on', '-dot=on', '-atomic_add=on']
         elif 'gfx906' in arch:
             codepath = 'vanilla'
-            rocmlir_gen_flags = '-mfma=off -dot=on -atomic_add=off'
+            rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=off']
         elif 'gfx1030' in arch:
             # Use vanilla codepath for gfx1030 until it has its own perf configs
             codepath = 'vanilla'
-            rocmlir_gen_flags = '-mfma=off -dot=on -atomic_add=off'
+            rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=off']
         else:
             # unknow arch info
             print(f"""Unknown arch {arch}""", file=sys.stderr)

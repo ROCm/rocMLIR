@@ -223,9 +223,9 @@ class ConvConfiguration:
                            '--conv_stride_h', str(self.convStrideH),
                            '--conv_stride_w', str(self.convStrideW),
                            '--padding_h', str(self.paddingH),
-                           '--padding_w', str(self.paddingW)] +
-                        rocmlir_gen_flags.split())
-
+                           '--padding_w', str(self.paddingW)])
+        if rocmlir_gen_flags != '':
+            result += ' '.join(rocmlir_gen_flags.split())
         return result
 
     MLIR_FILTER_LAYOUTS = {"NCHW": "kcyx", "NHWC": "kyxc"}
@@ -607,29 +607,19 @@ def main(args=None):
     parser.add_argument(
         "--rocmlir_gen_flags",
         type=str,
-        default='',
+        default=argparse.SUPPRESS,
         help="rocmlir-gen flags to toggle each feature"
     )
 
     parsed_args = parser.parse_args(args)
 
-    # If rocmlir_gen_flags not provided, infer it from the chip
-    rocmlir_gen_flags = parsed_args.rocmlir_gen_flags
-    if rocmlir_gen_flags == '':
-        if chip == 'gfx908' or chip == 'gfx90a':
-            rocmlir_gen_flags = '-mfma=on -dot=on -atomic_add=on'
-        elif chip == 'gfx906':
-            rocmlir_gen_flags = '-mfma=off -dot=on -atomic_add=off'
-        elif chip == 'gfx1030':
-            rocmlir_gen_flags = '-mfma=off -dot=on -atomic_add=off'
-        else:
-            # unknow chip info
-            print("Unknown chip: " + self.chip)
+    args_len = len(args)
+    rocmlir_gen_flags = ''
+    if 'rocmlir_gen_flags' in parsed_args:
+        rocmlir_gen_flags = parsed_args.rocmlir_gen_flags
+        args_len = args_len - 1
 
     # Impose default behavior when no args (except rocmlir_gen_flags) have been passed
-    args_len = len(args)
-    if 'rocmlir_gen_flags' in parsed_args:
-        args_len = args_len - 1
     if args_len == 0:
         parsed_args.batch_both = True
 
