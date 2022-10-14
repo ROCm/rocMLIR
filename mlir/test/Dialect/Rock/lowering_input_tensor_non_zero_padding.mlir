@@ -10,7 +10,6 @@
 func.func @rock_conv2d_gcyxk_gcnhw_gknhw(%filter : memref<1x8x3x3x128xf32>, %input : memref<1x8x128x32x32xf32>, %output : memref<1x128x128x32x32xf32>) {
   rock.conv2d(%filter, %input, %output) features = none {
     arch = "gfx906",
-    numCu = 64 : i32,
     filter_layout = ["g", "c", "y", "x", "k"],
     input_layout = ["gi", "ci", "ni", "hi", "wi"],
     output_layout = ["go", "ko", "no", "ho", "wo"],

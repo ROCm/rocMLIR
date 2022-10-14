@@ -85,7 +85,7 @@ getArchAttributes(Operation *op) {
 
   // TODO(sjw): get these from options
   StringAttr arch = StringAttr::get(op->getContext(), "");
-  uint32_t num_cu = 64;
+  Optional<uint32_t> num_cu = None;
   Optional<bool> xdlopsV2 = None;
 
   if (auto attr = op->getAttrOfType<StringAttr>("arch"))
@@ -134,8 +134,8 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
 
   auto cop = rw.create<rock::Conv2DOp>(
       loc, outputExp.getType(), filterExp, inputExp, outputExp, arch,
-      rw.getI32IntegerAttr(num_cu),
       rw.getAttr<rock::GemmFeaturesAttr>(features),
+      rw.getI32IntegerAttr(num_cu),
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
   // translate attributes
   int32_t padTop = pad[0].dyn_cast<IntegerAttr>().getInt();

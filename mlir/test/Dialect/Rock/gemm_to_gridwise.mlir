@@ -1,8 +1,6 @@
 // Ensures that the padding application, group application, etc. in gemm-to-gridwise
 // function as expected.
 
-// Note: numCu values are made up
-
 // RUN: rocmlir-opt -rock-gemm-to-gridwise %s | FileCheck %s
 
 #general_gemm_params0 = #rock.general_gemm_params<kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1>
@@ -18,7 +16,6 @@ func.func @gemm_easy_case_from_conv(%a: memref<1x72x128xf32>, %b: memref<1x72x51
     arch = "gfx906",
     blockSize = 256 : i32,
     gridSize = 4 : i32,
-    numCu = 64 : i32,
     params = #general_gemm_params0
   } : memref<1x128x512xf32> = memref<1x72x128xf32> * memref<1x72x512xf32>
   func.return
@@ -32,7 +29,6 @@ func.func @gemm_easy_case_from_conv_xdlops(%a: memref<1x72x128xf32>, %b: memref<
     arch = "gfx908",
     blockSize = 256 : i32,
     gridSize = 4 : i32,
-    numCu = 64 : i32,
     params = #xdlops_gemm_params0
   } : memref<1x128x512xf32> = memref<1x72x128xf32> * memref<1x72x512xf32>
   func.return
@@ -49,7 +45,6 @@ func.func @gemm_most_general_padding_case(%a: memref<1x1x1xf32>, %b: memref<1x1x
     arch = "gfx906",
     blockSize = 64 : i32,
     gridSize = 1 : i32,
-    numCu = 64 : i32,
     params = #general_gemm_params1
   } : memref<1x1x1xf32> = memref<1x1x1xf32> * memref<1x1x1xf32>
   func.return
@@ -66,7 +61,6 @@ func.func @gemm_in_standard_form(%a: memref<128x72xf32>, %b: memref<72x512xf32>,
     arch = "gfx906",
     blockSize = 256 : i32,
     gridSize = 4 : i32,
-    numCu = 64 : i32,
     params = #general_gemm_params0
   } : memref<128x512xf32> = memref<128x72xf32> * memref<72x512xf32>
   func.return
@@ -83,7 +77,6 @@ func.func @gemm_transposed_from_gridwise(%a: memref<1x128x72xf32>, %b: memref<1x
     arch = "gfx906",
     blockSize = 256 : i32,
     gridSize = 4 : i32,
-    numCu = 64 : i32,
     params = #general_gemm_params0
   } : memref<1x512x128xf32> = memref<1x128x72xf32> * memref<1x512x72xf32>
   func.return
@@ -101,7 +94,6 @@ func.func @gemm_kpack(%a: memref<1x80x128xf32>, %b: memref<1x80x512xf32>, %c: me
     arch = "gfx908",
     blockSize = 256 : i32,
     gridSize = 4 : i32,
-    numCu = 64 : i32,
     params = #xdlops_gemm_params1
   } : memref<1x128x512xf32> = memref<1x80x128xf32> * memref<1x80x512xf32>
   func.return

@@ -492,10 +492,11 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
         "in_channels", "in_h",         "in_w",      "out_layout",
         "out_type",    "out_channels", "out_h",     "out_w",
         "fil_layout",  "fil_type",     "fil_w",     "fil_h"};
-    if (!std::all_of(
-        validKeys.cbegin(), validKeys.cend(),
-        [&argMap](const std::string &key) { return argMap.count(key) > 0; })) {
-          return false;
+    if (!std::all_of(validKeys.cbegin(), validKeys.cend(),
+                     [&argMap](const std::string &key) {
+                       return argMap.count(key) > 0;
+                     })) {
+      return false;
     }
     static const std::vector<std::string> layoutArgs = {
         "fil_layout", "in_layout", "out_layout"};
@@ -814,7 +815,6 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
   std::vector<NamedAttribute> attributes{
       builder.getNamedAttr("gemm_id", builder.getI32IntegerAttr(gemmId)),
       builder.getNamedAttr("arch", builder.getStringAttr(config.chip)),
-      builder.getNamedAttr("numCu", builder.getI32IntegerAttr(config.num_cu)),
 
       builder.getNamedAttr(
           "filter_layout",
@@ -846,6 +846,11 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
                          builder.getI32IntegerAttr(config.paddingWidthRight),
                      })),
   };
+
+  if (config.operation.value() == ConvOpType::BwdWeight) {
+    attributes.push_back(builder.getNamedAttr(
+        "numCu", builder.getI32IntegerAttr(config.num_cu)));
+  }
 
   // features
   attributes.push_back(builder.getNamedAttr(
