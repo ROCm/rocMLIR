@@ -29,7 +29,9 @@
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/ExecutionEngine/JitRunner.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitRocMLIRDialects.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -57,17 +59,9 @@ static cl::opt<int> gpuOpt("gO",
                            cl::desc("Optimization level for GPU compilation"),
                            cl::value_desc("Integer from 0 to 3"), cl::init(3));
 
-static cl::opt<std::string> tripleName("triple", cl::desc("target triple"),
-                                       cl::value_desc("triple string"),
-                                       cl::init(""));
-
-static cl::opt<std::string> targetChip("target", cl::desc("target chip"),
-                                       cl::value_desc("AMDGPU ISA version"),
-                                       cl::init(""));
-
-static cl::opt<std::string> features("feature", cl::desc("target features"),
-                                     cl::value_desc("AMDGPU target features"),
-                                     cl::init(""));
+static cl::opt<std::string> arch("arch", cl::desc("target arch"),
+                                 cl::value_desc("target architecture"),
+                                 cl::init(""));
 
 static cl::opt<bool> barePointers(
     "bare-ptr-memref-kernels",
@@ -111,38 +105,45 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
     return failure();
   }
 
-  if (tripleName.empty() && targetChip.empty() && features.empty()) {
-    std::string gcnArchName;
-    getGpuGCNArchName(0, gcnArchName);
-    RocmDeviceName rocmDevice;
-    if (failed(rocmDevice.parse(gcnArchName))) {
-      llvm_unreachable("HIP ArchName parsing should never fail.");
-    }
-    tripleName = rocmDevice.getTriple().str();
-    targetChip = rocmDevice.getChip().str();
-    features = rocmDevice.getFeatures().str();
-  }
-
   // Find Rock module and compile kernel funcs
   ModuleOp kernelModule = m;
   if (auto rockModule = kernelModule.lookupSymbol<ModuleOp>(
           rock::RockDialect::kKernelModuleName)) {
     kernelModule = rockModule;
   }
+  if (arch.empty() && kernelModule->hasAttrOfType<StringAttr>("kernel.arch")) {
+    arch =
+        kernelModule->getAttrOfType<StringAttr>("kernel.arch").getValue().str();
+  }
+
+  if (arch.empty()) {
+    emitWarning(kernelModule->getLoc(),
+                "Falling back to runtime architecture lookup");
+    std::string gcnArchName;
+    getGpuGCNArchName(0, gcnArchName);
+    arch = gcnArchName;
+  }
+
+  RocmDeviceName rocmDevice;
+  if (failed(rocmDevice.parse(arch))) {
+    llvm_unreachable("HIP ArchName parsing should never fail.");
+  }
 
   pm.addPass(createConvertSCFToCFPass());
   pm.addPass(createGpuKernelOutliningPass());
   auto &kernelPm = pm.nest<gpu::GPUModuleOp>();
   kernelPm.addPass(createStripDebugInfoPass());
+  std::string chip = rocmDevice.getChip().str();
   if (!rocdlInput.getValue()) {
     kernelPm.addPass(
-        createLowerGpuOpsToROCDLOpsPass(/*chipset=*/targetChip,
+        createLowerGpuOpsToROCDLOpsPass(/*chipset=*/chip,
                                         /*indexBitWidth=*/32,
                                         /*useBarePtrCallConv=*/barePointers,
                                         /*runtime=*/gpu::amd::Runtime::HIP));
   }
-  kernelPm.addPass(createGpuSerializeToHsacoPass(tripleName, targetChip,
-                                                 features, optLevel));
+  kernelPm.addPass(createGpuSerializeToHsacoPass(
+      rocmDevice.getTriple().str(), chip, rocmDevice.getFeaturesForBackend(),
+      optLevel));
 
   if (failed(pm.run(kernelModule))) {
     return failure();

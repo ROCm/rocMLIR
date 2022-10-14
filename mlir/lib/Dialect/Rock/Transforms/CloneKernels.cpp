@@ -21,9 +21,15 @@
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Debug.h"
+#include <iterator>
+
+#define DEBUG_TYPE "rock-clone-kernels"
 
 namespace mlir {
 namespace rock {
@@ -52,8 +58,19 @@ struct RockCloneKernelsPass
         kernelFuncs.push_back(func);
     }
 
-    for (auto chip : chips) {
-      SmallString<32> modName(Twine("__kernel_module_", chip).str());
+    for (auto &target : targets) {
+      SmallString<32> escapedTarget;
+      escapedTarget.reserve(target.size());
+      llvm::replace_copy_if(
+          target, std::back_inserter(escapedTarget),
+          [](char c) { return (c == '-' || c == ':' || c == ','); }, '_');
+      for (char &c : escapedTarget) {
+        if (c == '+')
+          c = 'Y';
+      }
+
+      SmallString<32> modName(Twine("__kernel_module_", escapedTarget).str());
+      LLVM_DEBUG(llvm::dbgs() << "Cloning to module " << modName << "\n");
 
       auto *ctx = &getContext();
       auto kernelMod = mod.lookupSymbol<ModuleOp>(modName);
@@ -63,7 +80,7 @@ struct RockCloneKernelsPass
         // exist.
         kernelMod = b.create<ModuleOp>(mod.getLoc(), StringRef(modName));
         kernelMod->setAttr(kernel, b.getUnitAttr());
-        kernelMod->setAttr("kernel.chip", b.getStringAttr(chip));
+        kernelMod->setAttr("kernel.arch", b.getStringAttr(target));
 
         // add the KERNELModuleOp into the symbol table.
         SymbolTable symbolTable(mod);

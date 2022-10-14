@@ -17,6 +17,7 @@
 #include "mlir/ExecutionEngine/CpuSystemDetect.h"
 #include "mlir/ExecutionEngine/JitRunner.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
+#include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/ExecutionEngine/RocmSystemDetect.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitAllDialects.h"
@@ -27,6 +28,7 @@
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/TargetSelect.h"
@@ -50,11 +52,27 @@ void registerTestDialect(DialectRegistry &);
 } // namespace test
 
 static LogicalResult runMLIRPasses(ModuleOp m) {
+  // Canonicalize target chip
+  if (targetType == "gpu" && !targetChip.empty()) {
+    RocmDeviceName devName;
+    if (failed(devName.parse(targetChip))) {
+      llvm::errs() << "Invalid ROCm GPU target spec: " << targetChip << "\n";
+      return failure();
+    }
+    SmallString<64> canonicalArch;
+    devName.getFullName(canonicalArch);
+    targetChip = canonicalArch.str().str();
+  }
 
-  auto testChip = [](StringRef chip) -> bool {
+  SystemDevice::Type targetTypeEnum =
+      llvm::StringSwitch<SystemDevice::Type>(targetType)
+          .CaseLower("gpu", SystemDevice::Type::EGPU)
+          .CaseLower("cpu", SystemDevice::Type::ECPU);
+
+  auto testChip = [&targetTypeEnum](StringRef chip) -> bool {
     if (targetChip.getValue().empty()) {
       auto devices = SystemDevices::get<CpuSystemDetect, RocmSystemDetect>();
-      return devices.find(chip.str()) != devices.end();
+      return succeeded(devices.find(targetTypeEnum, chip));
     }
     return targetChip == chip;
   };
@@ -71,6 +89,7 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
           if (type == targetType && testChip(chip.getValue())) {
             // test perf?
             targetDict = dictAttr;
+            break;
           }
         }
       }

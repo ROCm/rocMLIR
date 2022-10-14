@@ -84,16 +84,18 @@ getArchAttributes(Operation *op) {
   auto mod = func->getParentOfType<ModuleOp>();
 
   // TODO(sjw): get these from options
-  StringAttr chip = StringAttr::get(op->getContext(), "");
+  StringAttr arch = StringAttr::get(op->getContext(), "");
   uint32_t num_cu = 64;
   Optional<bool> xdlopsV2 = None;
 
   if (auto attr = op->getAttrOfType<StringAttr>("arch"))
-    chip = attr;
+    arch = attr;
+  else if (auto attr = func->getAttrOfType<StringAttr>("kernel.arch"))
+    arch = attr;
   else if (auto attr = func->getAttrOfType<StringAttr>("arch"))
-    chip = attr;
-  else if (auto attr = mod->getAttrOfType<StringAttr>("kernel.chip"))
-    chip = attr;
+    arch = attr;
+  else if (auto attr = mod->getAttrOfType<StringAttr>("kernel.arch"))
+    arch = attr;
 
   if (auto attr = op->getAttrOfType<IntegerAttr>("num_cu"))
     num_cu = attr.getValue().getZExtValue();
@@ -105,12 +107,12 @@ getArchAttributes(Operation *op) {
   else if (auto attr = func->getAttrOfType<BoolAttr>("xdlopsV2"))
     xdlopsV2 = attr.getValue();
 
-  rock::AmdArchInfo archInfo = rock::lookupArchInfo(chip);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   rock::GemmFeatures features = archInfo.defaultFeatures;
   if (xdlopsV2.has_value())
     features = rock::bitEnumSet(features, rock::GemmFeatures::mfma, *xdlopsV2);
 
-  return {chip, num_cu, features};
+  return {arch, num_cu, features};
 }
 
 static FailureOr<rock::Conv2DOp>
@@ -125,13 +127,13 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   auto filterExp = expandTensor(rw, op, filter);
   auto outputExp = expandTensor(rw, op, output);
 
-  StringAttr chip;
+  StringAttr arch;
   uint32_t num_cu;
   rock::GemmFeatures features;
-  std::tie(chip, num_cu, features) = getArchAttributes(op);
+  std::tie(arch, num_cu, features) = getArchAttributes(op);
 
   auto cop = rw.create<rock::Conv2DOp>(
-      loc, outputExp.getType(), filterExp, inputExp, outputExp, chip,
+      loc, outputExp.getType(), filterExp, inputExp, outputExp, arch,
       rw.getI32IntegerAttr(num_cu),
       rw.getAttr<rock::GemmFeaturesAttr>(features),
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
@@ -282,14 +284,14 @@ public:
              transposeB = getTranspose(op, "transpose_b"),
              transposeC = getTranspose(op, "transpose_c");
 
-    StringAttr chip;
+    StringAttr arch;
     uint32_t num_cu;
     rock::GemmFeatures features;
-    std::tie(chip, num_cu, features) = getArchAttributes(op);
+    std::tie(arch, num_cu, features) = getArchAttributes(op);
 
     auto rockGemm = rw.create<rock::GemmOp>(
         loc, outputType, adaptor.getA(), adaptor.getB(), output, transposeA,
-        transposeB, transposeC, chip, rw.getI32IntegerAttr(num_cu),
+        transposeB, transposeC, arch, rw.getI32IntegerAttr(num_cu),
         rw.getAttr<rock::GemmFeaturesAttr>(features),
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
