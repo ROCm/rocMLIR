@@ -3,7 +3,8 @@
 
 // RUN: rocmlir-opt \
 // RUN: --rock-sugar-to-loops --rock-loops-to-cf --convert-rock-to-gpu %s \
-// RUN:  | mlir-rocm-runner \
+// RUN:  | rocmlir-driver --arch %arch --kernel-pipeline binary --host-pipeline runner \
+// RUN:  | mlir-cpu-runner -O2 \
 // RUN: --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext \
 // RUN: --entry-point-result=i32 | FileCheck %s
 

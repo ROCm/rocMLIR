@@ -63,7 +63,8 @@ static cl::opt<bool> legacyRockPipeline("c", cl::Hidden, cl::init(false),
                                           cl::Optional,
                                           cl::cb<void, bool>([](bool v) {
                                             if (v) {
-                                              kernelPipeline.setValue("gpu");
+                                              kernelPipeline.setValue("full");
+                                              hostPipeline.setValue("runner");
                                             }
                                           }));
 
@@ -75,6 +76,17 @@ static cl::opt<bool> cpuOnly("cpu-only", cl::Hidden, cl::init(false),
 static cl::opt<int> gpuOpt("gO",
                            cl::desc("Optimization level for GPU compilation"),
                            cl::value_desc("Integer from 0 to 3"), cl::init(3));
+
+static cl::opt<bool> barePointers(
+    "bare-ptr-memref-kernels",
+    cl::desc("Use bare pointers to represent memrefs when calling kernels"),
+    cl::init(true));
+
+static cl::opt<bool> hostAsyncCoroutines(
+    "host-async-coroutines",
+    cl::desc("Use coroutines when lowering async ops to LLVM"),
+    // FIXME: This should be true to match upstream
+    cl::init(false));
 
 static cl::opt<std::string> targets("targets", cl::desc("list of target"),
                                     cl::init(""));
@@ -159,7 +171,7 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
     pm.addPass(
         createLowerGpuOpsToROCDLOpsPass(/*chipset=*/devName.getChip().str(),
                                         /*indexBitWidth=*/32,
-                                        /*useBarePtrCallConv*/ true));
+                                        /*useBarePtrCallConv*/ barePointers));
   }
   if (kernelPipelineSet.contains("binary")) {
     // Set up the lowering pipeline which goes down to ELF Binary
@@ -231,7 +243,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   }
 
   llvm::SmallDenseSet<StringRef> hostPipelineOptions{"partition", "highlevel",
-                                                     "xmodel"};
+                                                     "xmodel", "runner"};
   llvm::SmallDenseSet<StringRef> hostPipelineSet;
   if (failed(parsePipeline(hostPipeline.getValue(), hostPipelineSet,
                            hostPipelineOptions, hostPipelineOptions))) {
@@ -328,6 +340,24 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     }
   }
 
+  // Run host code lowering that makes the result of this operation accetable
+  // to mlir-cpu-runner. Explicitly aborts in the case of multiple xmodel
+  // targets to prevent confusing behavior.
+  if (hostPipelineSet.contains("runner")) {
+    if (targetList.size() > 1) {
+      llvm::errs() << "Expected at most one xmodel target when compling from "
+                      "within rocmlir-driver\n";
+      return failure();
+    }
+    PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
+    applyPassManagerCLOptions(pm);
+    xmir::RunnerOptions runnerOptions;
+    runnerOptions.barePtrMemrefs = barePointers.getValue();
+    runnerOptions.enableCoroutines = hostAsyncCoroutines.getValue();
+    xmir::buildRunnerPipeline(pm, runnerOptions);
+    if (failed(pm.run(module)))
+      return failure();
+  }
   return success();
 }
 

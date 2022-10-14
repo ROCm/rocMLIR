@@ -1,13 +1,13 @@
 // RUN: rocmlir-gen --arch %arch -p -fil_layout=gckyx -in_layout=gcnhw -out_layout=gknhw --host %s | FileCheck %s --check-prefix=HARNESS
 // RUN: rocmlir-gen --arch %arch -p -fil_layout=gckyx -in_layout=gcnhw -out_layout=gknhw --host %s | rocmlir-driver -c | FileCheck %s --check-prefix=LOWERING
-// RUN: rocmlir-gen --arch %arch -p -fil_layout=gckyx -in_layout=gcnhw -out_layout=gknhw --host %s | rocmlir-driver -c | mlir-rocm-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
+// RUN: rocmlir-gen --arch %arch -p -fil_layout=gckyx -in_layout=gcnhw -out_layout=gknhw --host %s | rocmlir-driver -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=E2E
 
 func.func private @rock_conv2d_gckyx_gcnhw_gknhw_0(%filter : memref<1x8x128x3x3xf32>, %input : memref<1x8x128x32x32xf32>, %output : memref<1x128x128x30x30xf32>) -> ()
 
 // HARNESS: module
 // HARNESS: func.func @rock_conv2d_gckyx_gcnhw_gknhw_0([[FILTER_MEMREF:%.*]]: memref<1x8x128x3x3xf32>, [[INPUT_MEMREF:%.*]]: memref<1x8x128x32x32xf32>, [[OUTPUT_MEMREF:%.*]]: memref<1x128x128x30x30xf32>)
 // LOWERING: module
-// LOWERING: gpu.launch_func  @rock_conv2d_gckyx_gcnhw_gknhw_0_module::@rock_conv2d_gckyx_gcnhw_gknhw_0 blocks in (%{{.*}}, %{{.*}}, %{{.*}}) threads in (%{{.*}}, %{{.*}}, %{{.*}}) dynamic_shared_memory_size %{{.*}} args(%{{.*}} : memref<1x8x128x3x3xf32>, %{{.*}} : memref<1x8x128x32x32xf32>, %{{.*}} : memref<1x128x128x30x30xf32>)
+// LOWERING: llvm.mlir.global internal constant @rock_conv2d_gckyx_gcnhw_gknhw_0_module_gpubin_cst
 
 func.func @main() {
   // memref.allocate CPU memory.
@@ -62,7 +62,4 @@ func.func @main() {
 
 func.func private @mcpuMemset5DFloat(%ptr : memref<?x?x?x?x?xf32>, %value: f32) -> ()
 func.func private @printMemrefF32(%ptr : memref<*xf32>)
-// LOWERING: gpu.module @rock_conv2d_gckyx_gcnhw_gknhw_0_module
-// LOWERING: gpu.func @rock_conv2d_gckyx_gcnhw_gknhw_0
-// TBD. Add more verifying logic.
 // E2E: Unranked Memref base@ = 0x{{.*}} rank = 5 offset = 0 sizes = [1, 128, 128, 30, 30] strides = [14745600, 115200, 900, 30, 1] data =

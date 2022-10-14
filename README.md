@@ -20,7 +20,7 @@ ninja check-rocmlir
 By default, xdlops tests are enabled on MI-100, MI-200, and any other system
 that supports mfma instructions.
 xdlops tests are disabled on GPUs that do not support mfma instructions.
-To disable xdlops tests on GPUs that supports mfma instructions, 
+To disable xdlops tests on GPUs that supports mfma instructions,
 add `-DROCMLIR_GEN_FLAGS="-mfma=off"` to the `cmake` invocation above.
 
 To not actually run the tests, use `check-rocmlir-build-only`.
@@ -58,17 +58,21 @@ In general (with all invocations given from the build directory)
     - `-pv_with_gpu` (which uses a GPU validator instead)
     - `-pr` (which prints kkrnel results)
 - `./bin/rocmlir-driver` is a wrapper around the kernel generation pipeline.
-  Use `-c` (or `--kernel-pipeline=gpu`) to run the default pipeline
-- `./bin/mlir-rocm-runner` runs kernels by compiling the GPU code and
-  JIT-compiling (as in `mlir-cpu-runner`) the host code.
+  Use `-c` (or `--kernel-pipeline=full --host-pipeline=runner`) to run the
+  default pipeline
 
-`mlir-rocm-runner` needs to be told to link the generated kernels against utility
-libraries that map from MLIR operations to the HIP runtime.
+
+The result of the above pipeline can be passed to
+`./external/llvm-project/llvm/bin/mlir-cpu-runner` .
+
+`mlir-cpu-runner` needs to link the generated host code against libraries that
+map from MLIR operations to the HIP runtime.
 The required command-line arguments (if running from `build/`) are
 
 ```sh
-./bin/mlir-rocm-runner --shared-libs=./external/llvm-project/llvm/lib/libmlir_rocm_runtime.so,./lib/libconv-validation-wrappers.so,./external/llvm-project/llvm/lib/libmlir_runner_utils.so --entry-point-result=void
+./external/llvm-project/llvm/bin/mlir-cpu-runner --shared-libs=./external/llvm-project/llvm/lib/libmlir_rocm_runtime.so,./lib/libconv-validation-wrappers.so,./external/llvm-project/llvm/lib/libmlir_runner_utils.so --entry-point-result=void
 ```
 
-Adding `--debug-only=serialize-to-blob` will cause the GCN assembly code for the
-kernels being executed to be dumped to standard error.
+Adding `--debug-only=serialize-to-blob` to the `rocmlir-driver` invocation
+will cause the GCN assembly code for the kernels being executed to be dumped to
+standard error.

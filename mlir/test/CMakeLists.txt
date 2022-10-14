@@ -87,7 +87,9 @@ list(APPEND ROCMLIR_TEST_DEPENDS RocMLIRUnitTests)
 
 if(MLIR_ENABLE_ROCM_RUNNER)
   list(APPEND ROCMLIR_TEST_DEPENDS
-    mlir-rocm-runner
+    mlir_rocm_runtime
+    conv-validation-wrappers
+    mlir-cpu-runner
     xmir-runner
   )
 endif()
