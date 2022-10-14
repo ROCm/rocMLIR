@@ -110,7 +110,7 @@ struct LowerGpuOpsToROCDLOpsPass
       options.useBarePtrCallConv = true;
       WalkResult canUseBarePointers =
           m.walk([](gpu::GPUFuncOp func) -> WalkResult {
-            if (canBeCalledWithBarePointers(func))
+            if (func->hasAttr("bare-ptr-memref") && canBeCalledWithBarePointers(func))
               return WalkResult::advance();
             return WalkResult::interrupt();
           });

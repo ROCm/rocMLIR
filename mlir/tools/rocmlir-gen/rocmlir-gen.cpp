@@ -821,6 +821,7 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
 
   auto gpuWrapperFunc =
       func::FuncOp::create(loc, StringRef(funcName), gpuWrapperFuncType);
+  gpuWrapperFunc->setAttr("bare-ptr-memref", b.getBoolAttr(true));
   module.push_back(gpuWrapperFunc);
 
   // Emit gpu convolution logic.
