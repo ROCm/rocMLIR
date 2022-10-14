@@ -38,36 +38,11 @@ def ArgTransformsAttr : TypedArrayAttrBase<TransformMapArrayAttr,
 
 class ArgTransforms<int n> : ConfinedAttr<ArgTransformsAttr, [ArrayCount<n>]>;
 
-<<<<<<< HEAD
 class TensorOrMemRefRankOf<list<Type> allowedTypes, list<int> ranks> :
   AnyTypeOf<[TensorRankOf<allowedTypes, ranks>,
              MemRefRankOf<allowedTypes, ranks>],
              /*summary=*/"",
              "::mlir::ShapedType">;
-=======
-def Rock_TensorConv2DOp :
-    Rock_Op<"tensor_conv2d", [AllTypesMatch<["output", "result"]>]>,
-    Arguments<(ins TensorRankOf<[F32, F16, BF16, I8], [5]>:$filter,
-                   TensorRankOf<[F32, F16, BF16, I8], [5]>:$input,
-                   TensorRankOf<[F32, F16, BF16, I32], [5]>:$output,
-                   StrAttr:$arch,
-                   Rock_GemmFeaturesAttr:$features,
-                   OptionalAttr<I32Attr>:$numCu,
-                   OptionalAttr<I32Attr>:$blockSize,
-                   OptionalAttr<I32Attr>:$gridSize,
-                   Rock_OptionalGemmParams:$params)>,
-    Results<(outs TensorRankOf<[F32, F16, BF16, I32], [5]>:$result)> {
-  let summary = "2D convolution forward, tensor version";
-  let description = [{
-    The `rock.tensor_conv2d` op computes 2D convolution forward.
-    TEMPORARY HACK: we'll make the conv operators all tensor ops later or something
-    No, seriously, TEMPORARY HACK!
-  }];
-  let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features attr-dict `:` type($filter) `,` type($input) `,` type($output)
-  }];
-}
->>>>>>> fec385c8b89c... Make num_cu optional
 
 
 def Rock_Conv2DOp :
