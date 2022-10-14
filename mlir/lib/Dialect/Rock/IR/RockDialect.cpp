@@ -612,6 +612,14 @@ LogicalResult GemmOp::verify() {
   if (getStoreMethod() != StoreMethod::Set && !isXdlops) {
     return emitOpError("general kernels don't support non-set store methods");
   }
+
+  int64_t twoGbits = (1LL << (31 + 3));
+  if (!typeA.hasStaticShape() || typeA.getSizeInBits() >= twoGbits)
+    return emitOpError("matrix A cannot potentially be over 2 GB");
+  if (!typeB.hasStaticShape() || typeB.getSizeInBits() >= twoGbits)
+    return emitOpError("matrix B cannot potentially be over 2 GB");
+  if (!typeC.hasStaticShape() || typeC.getSizeInBits() >= twoGbits)
+    return emitOpError("matrix C cannot potentially be over 2 GB");
   return success();
 }
 

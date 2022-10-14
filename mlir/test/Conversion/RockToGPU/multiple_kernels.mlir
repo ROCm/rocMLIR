@@ -12,8 +12,8 @@
 // CHECK-LABEL: gpu.func @step1
 
 module  {
-  func.func @step1(%arg0: memref<1x1216x16x3x3xf32>, %arg1: memref<1216x1x16x32x32xf32>, %arg2: memref<1216x1x1216x30x30xf32>) attributes {kernel, arch = "gfx906"} {
-    rock.conv2d(%arg0, %arg1, %arg2) features = dot {arch = "gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], numCu = 64 : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32], strides = [1 : i32, 1 : i32]} : memref<1x1216x16x3x3xf32>, memref<1216x1x16x32x32xf32>, memref<1216x1x1216x30x30xf32>
+  func.func @step1(%arg0: memref<1x512x16x3x3xf32>, %arg1: memref<512x1x16x32x32xf32>, %arg2: memref<512x1x512x30x30xf32>) attributes {kernel, arch = "gfx906"} {
+    rock.conv2d(%arg0, %arg1, %arg2) features = dot {arch = "gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], numCu = 64 : i32, output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32], strides = [1 : i32, 1 : i32]} : memref<1x512x16x3x3xf32>, memref<512x1x16x32x32xf32>, memref<512x1x512x30x30xf32>
     return
   }
 
