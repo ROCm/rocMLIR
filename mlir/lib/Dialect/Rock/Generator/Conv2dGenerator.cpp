@@ -114,18 +114,6 @@ static LogicalResult hasDimensions(const llvm::StringMap<int64_t> &map,
   return success();
 }
 
-static LogicalResult smallEnough(const ArrayRef<int64_t> dims, size_t elemWidth,
-                                 StringRef name) {
-  int64_t size = std::accumulate(dims.begin(), dims.end(), 1LL,
-                                 std::multiplies<int64_t>()) *
-                 elemWidth;
-  if (size >= (1LL << 31)) { // 2^31 = 2 GB
-    LLVM_DEBUG(llvm::dbgs() << name << " tensor cannot be larger than 2 GB\n");
-    return failure();
-  }
-  return success();
-}
-
 LogicalResult Conv2dGenerator::isApplicable(bool checkChip) const {
   if (failed(hasValidDimension())) {
     return failure();
@@ -252,12 +240,6 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
       filDim["x"]) {
     LLVM_DEBUG(llvm::dbgs()
                << "Input, including padding, is narrower than the filter\n");
-    return failure();
-  }
-
-  if (failed(smallEnough(config.inputDimension, elementWidth, "input")) ||
-      failed(smallEnough(config.filterDimension, elementWidth, "filter")) ||
-      failed(smallEnough(config.outputDimension, elementWidth, "output"))) {
     return failure();
   }
 
