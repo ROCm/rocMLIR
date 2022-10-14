@@ -21,6 +21,7 @@
 #include "mlir/Dialect/Rock/Generator/AmdArchDb.h"
 #include "mlir/Dialect/Rock/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -79,15 +80,16 @@ static cl::alias aliasTestFuncName("fut", cl::aliasopt(testFuncName));
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 //// Rock Convolution spec
 
-static cl::opt<mlir::rock::ConvOpType> operation(
+static cl::opt<mlir::rock::KernelType> operation(
     "operation", cl::desc("Convolution operation,"),
-    cl::values(clEnumValN(rock::ConvOpType::Fwd, "conv2d",
-                          "Forward convolution"),
-               clEnumValN(rock::ConvOpType::BwdData, "conv2d_bwd_data",
-                          "Backpropogate convolution data"),
-               clEnumValN(rock::ConvOpType::BwdWeight, "conv2d_bwd_weight",
-                          "Backpropogate convolution weights")),
-    cl::value_desc("convolution type"), cl::init(rock::ConvOpType::Fwd));
+    cl::values(
+        clEnumValN(rock::KernelType::Conv2D, "conv2d", "Forward convolution"),
+        clEnumValN(rock::KernelType::Conv2DBwdData, "conv2d_bwd_data",
+                   "Backpropogate convolution data"),
+        clEnumValN(rock::KernelType::Conv2DBwdWeight, "conv2d_bwd_weight",
+                   "Backpropogate convolution weights"),
+        clEnumValN(rock::KernelType::Gemm, "gemm", "Matrix multiplication")),
+    cl::value_desc("kernel type"), cl::init(rock::KernelType::Conv2D));
 
 static cl::opt<std::string>
     arch("arch",
@@ -2272,7 +2274,8 @@ int main(int argc, char **argv) {
 
       conv2dGenerator = rock::Conv2dGenerator(
           arch, chip, triple, chipFeatures, perfConfig.getValue(),
-          num_cu.getValue(), enabledFeatures, operation.getValue(),
+          num_cu.getValue(), enabledFeatures,
+          rock::convOpTypeFromKernelType(operation.getValue()),
           tensorDataType.getValue(), dilationHeight.getValue(),
           dilationWidth.getValue(), strideHeight.getValue(),
           strideWidth.getValue(), paddingHeightLeft.getValue(),
