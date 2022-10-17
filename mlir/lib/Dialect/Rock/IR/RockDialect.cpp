@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -426,6 +427,31 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
   return ConvolutionDims(y, x, ho, wo, hi, wi, k, c, n, g);
 }
 
+ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
+  switch (kernelType) {
+  case KernelType::Conv2D:
+    return ConvOpType::Fwd;
+  case KernelType::Conv2DBwdData:
+    return ConvOpType::BwdData;
+  case KernelType::Conv2DBwdWeight:
+    return ConvOpType::BwdWeight;
+  case KernelType::Gemm:
+    llvm_unreachable(
+        "Gemm ops shouldn't be in convolution-specific lowering passes");
+  }
+}
+
+KernelType mlir::rock::kernelTypeFromConvOpType(ConvOpType convOpType) {
+  switch (convOpType) {
+  case ConvOpType::Fwd:
+    return KernelType::Conv2D;
+  case ConvOpType::BwdData:
+    return KernelType::Conv2DBwdData;
+  case ConvOpType::BwdWeight:
+    return KernelType::Conv2DBwdWeight;
+  }
+}
+
 GemmSize GemmSize::fromConvolution(ConvOpType type,
                                    const ConvolutionDims &sizes) {
   assert(type != ConvOpType::BwdData &&
@@ -478,6 +504,16 @@ LogicalResult Conv2DOp::verify() { return verifyConvOp(*this); }
 LogicalResult Conv2DBwdDataOp::verify() { return verifyConvOp(*this); }
 
 LogicalResult Conv2DBwdWeightOp::verify() { return verifyConvOp(*this); }
+
+KernelType Conv2DOp::getKernelType() { return KernelType::Conv2D; }
+
+KernelType Conv2DBwdDataOp::getKernelType() {
+  return KernelType::Conv2DBwdData;
+}
+
+KernelType Conv2DBwdWeightOp::getKernelType() {
+  return KernelType::Conv2DBwdWeight;
+}
 
 OpOperand *Conv2DOp::getOutArgument() { return &(*this)->getOpOperand(2); }
 
@@ -622,6 +658,8 @@ LogicalResult GemmOp::verify() {
     return emitOpError("matrix C cannot potentially be over 2 GB");
   return success();
 }
+
+KernelType GemmOp::getKernelType() { return KernelType::Gemm; }
 
 OpOperand *GemmOp::getOutArgument() { return &(*this)->getOpOperand(2); }
 

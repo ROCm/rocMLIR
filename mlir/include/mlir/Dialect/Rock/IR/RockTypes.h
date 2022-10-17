@@ -19,4 +19,11 @@
 
 #include "mlir/Dialect/Rock/IR/RockTypes.h.inc"
 
+namespace mlir {
+namespace rock {
+ConvOpType convOpTypeFromKernelType(KernelType kernelType);
+KernelType kernelTypeFromConvOpType(ConvOpType convOpType);
+} // namespace rock
+} // namespace mlir
+
 #endif // MLIR_DILACET_ROCK_IR_ROCKTYPES_H

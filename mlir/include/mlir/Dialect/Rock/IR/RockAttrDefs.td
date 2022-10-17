@@ -53,6 +53,16 @@ def ConvOp2DBwdWeightType : I32EnumAttrCase<"BwdWeight", 2, "conv2d_bwd_weight">
 def ConvOpType : Rock_I32Enum<"ConvOpType", "The type of a 2D convolution operation",
   [ConvOp2DType, ConvOp2DBwdDataType, ConvOp2DBwdWeightType]>;
 
+/// Kerneltype
+def KernelTypeConv2D : I32EnumAttrCase<"Conv2D", 0>;
+def KernelTypeConv2DBwdData : I32EnumAttrCase<"Conv2DBwdData", 1>;
+def KernelTypeConv2DBwdWeight : I32EnumAttrCase<"Conv2DBwdWeight", 2>;
+def KernelTypeGemm : I32EnumAttrCase<"Gemm", 3>;
+
+def KernelType : Rock_I32Enum<"KernelType", "Any of the possible types of a rock kernel",
+  [KernelTypeConv2D, KernelTypeConv2DBwdData,
+    KernelTypeConv2DBwdWeight, KernelTypeGemm]>;
+
 /// TransformType
 def PassThrough : I32EnumAttrCase<"PassThrough", 0>;
 def Pad : I32EnumAttrCase<"Pad", 1>;

@@ -3,6 +3,7 @@
 #include "mlir/Dialect/Rock/Generator/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
@@ -355,7 +356,8 @@ calculatePaddingKernelSize(GemmSize gemmSize, ConvOpType dir, Type dataType,
   int64_t gemmMExtra, gemmNExtra, gemmKExtra;
   gemmMExtra = gemmNExtra = gemmKExtra = 0;
 
-  auto configParams = populateParams.getTuningParameters(dir, dataType);
+  auto configParams = populateParams.getTuningParameters(
+      kernelTypeFromConvOpType(dir), dataType);
   size_t numOfFailedConfigs = 0;
   for (auto &params : configParams) {
     if (gemmSize.m % params.gemmMPerBlock == 0 &&

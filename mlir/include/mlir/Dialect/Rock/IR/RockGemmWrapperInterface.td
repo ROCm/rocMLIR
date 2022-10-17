@@ -30,6 +30,17 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
   let methods = [
     InterfaceMethod<
         /*desc=*/[{
+          Return the KernelType of this op
+        }],
+        /*retType=*/"::mlir::rock::KernelType",
+        /*methodName=*/"getKernelType",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/""
+      >,
+
+    InterfaceMethod<
+        /*desc=*/[{
           Return the OpOperand that corresponds to the operand argument
           that corresponds to the output result of the operation.
         }],
