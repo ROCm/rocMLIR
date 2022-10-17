@@ -27,6 +27,7 @@
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/MathExtras.h"
 
 #include "llvm/ADT/APInt.h"
@@ -599,6 +600,16 @@ GemmSize Conv2DBwdWeightOp::getGemmSize() {
 //===-----------------------------------------------------===//
 // GemmOp
 //===-----------------------------------------------------===//
+
+LogicalResult checkGemmSize(ShapedType type, Operation *op, StringRef name) {
+  constexpr int64_t fourGbits = (1LL << (32LL + 3LL));
+  if (!type.hasStaticShape() || type.getSizeInBits() >= fourGbits) {
+    return op->emitOpError()
+           << "matrix " << name << " cannot potentially be 4 GB or more";
+  }
+  return success();
+}
+
 LogicalResult GemmOp::verify() {
   ShapedType typeA = getA().getType(), typeB = getB().getType(),
              typeC = getC().getType();
@@ -649,13 +660,11 @@ LogicalResult GemmOp::verify() {
     return emitOpError("general kernels don't support non-set store methods");
   }
 
-  int64_t twoGbits = (1LL << (31 + 3));
-  if (!typeA.hasStaticShape() || typeA.getSizeInBits() >= twoGbits)
-    return emitOpError("matrix A cannot potentially be over 2 GB");
-  if (!typeB.hasStaticShape() || typeB.getSizeInBits() >= twoGbits)
-    return emitOpError("matrix B cannot potentially be over 2 GB");
-  if (!typeC.hasStaticShape() || typeC.getSizeInBits() >= twoGbits)
-    return emitOpError("matrix C cannot potentially be over 2 GB");
+  if (failed(checkGemmSize(typeA, *this, "A")) ||
+      failed(checkGemmSize(typeB, *this, "B")) ||
+      failed(checkGemmSize(typeC, *this, "C"))) {
+    return failure();
+  }
   return success();
 }
 
