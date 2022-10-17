@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -601,11 +602,20 @@ GemmSize Conv2DBwdWeightOp::getGemmSize() {
 // GemmOp
 //===-----------------------------------------------------===//
 
-LogicalResult checkGemmSize(ShapedType type, Operation *op, StringRef name) {
+LogicalResult checkGemmSize(Value matrix, Operation *op, StringRef name) {
   constexpr int64_t fourGbits = (1LL << (32LL + 3LL));
+  // Hack: remove padding, other transformations that add "size" to a matrix
+  // without affecting the underlying buffer's maximum index, which must be
+  // fittable within a uint32_t (as a byte offset) for buffer_load or
+  // buffer_store to work correctly. And we can't use untransform() here because
+  // it's in a library that depends on this.
+  Value raw = matrix;
+  while (auto transform = raw.getDefiningOp<rock::TransformOp>())
+    raw = transform.getInput();
+  ShapedType type = raw.getType().cast<ShapedType>();
   if (!type.hasStaticShape() || type.getSizeInBits() >= fourGbits) {
-    return op->emitOpError()
-           << "matrix " << name << " cannot potentially be 4 GB or more";
+    return op->emitOpError() << "underlying storage for matrix " << name
+                             << " cannot potentially be 4 GB or more";
   }
   return success();
 }
@@ -660,9 +670,9 @@ LogicalResult GemmOp::verify() {
     return emitOpError("general kernels don't support non-set store methods");
   }
 
-  if (failed(checkGemmSize(typeA, *this, "A")) ||
-      failed(checkGemmSize(typeB, *this, "B")) ||
-      failed(checkGemmSize(typeC, *this, "C"))) {
+  if (failed(checkGemmSize(getA(), *this, "A")) ||
+      failed(checkGemmSize(getB(), *this, "B")) ||
+      failed(checkGemmSize(getC(), *this, "C"))) {
     return failure();
   }
   return success();
