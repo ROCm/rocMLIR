@@ -613,14 +613,12 @@ def main(args=None):
 
     parsed_args = parser.parse_args(args)
 
-    args_len = len(args)
     rocmlir_gen_flags = ''
     if 'rocmlir_gen_flags' in parsed_args:
         rocmlir_gen_flags = parsed_args.rocmlir_gen_flags
-        args_len = args_len - 1
 
-    # Impose default behavior when no args (except rocmlir_gen_flags) have been passed
-    if args_len == 0:
+    # Impose default behavior when no args have been passed
+    if len(args) == 0:
         parsed_args.batch_both = True
 
     if parsed_args.miopen or parsed_args.batch_miopen or parsed_args.miopen_use_tuned_mlir or \
