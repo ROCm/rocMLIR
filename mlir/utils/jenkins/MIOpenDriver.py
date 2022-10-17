@@ -36,7 +36,7 @@ ELAPSED_TIME_RE = re.compile(r"Elapsed: (.*)ms")
 class MLIRPaths:
     rocmlir_gen_path: str
     rocmlir_driver_path: str
-    rocm_runner_path : str
+    cpu_runner_path : str
     libmlir_rocm_runtime_path : str
     libconv_validation_wrappers_path : str
     libmlir_runtime_utils_path : str
@@ -120,11 +120,12 @@ def create_paths(mlir_build_dir_path, miopen_build_dir_path) -> Paths:
     mlir_paths = None
     if mlir_build_dir_path:
         mlir_bin_dir = str((Path(mlir_build_dir_path) / 'bin').resolve())
+        llvm_bin_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/bin').resolve())
         mlir_lib_dir = str((Path(mlir_build_dir_path) / 'lib').resolve())
         llvm_lib_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/lib').resolve())
         mlir_paths = MLIRPaths(rocmlir_gen_path = mlir_bin_dir + '/rocmlir-gen',
         rocmlir_driver_path = mlir_bin_dir + '/rocmlir-driver',
-        rocm_runner_path = mlir_bin_dir + '/mlir-rocm-runner',
+        cpu_runner_path = llvm_bin_dir + '/mlir-cpu-runner',
         libmlir_rocm_runtime_path =  llvm_lib_dir + '/libmlir_rocm_runtime.so',
         libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',
         libmlir_runtime_utils_path = llvm_lib_dir + '/libmlir_runner_utils.so')
@@ -362,15 +363,15 @@ def runConfigWithMLIR(config: ConvConfiguration, paths: Paths):
     rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandLineOptions
     print("rocmlir-gen command: ", rocmlirGenCommand)
     rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-c']
-    mlir_rocm_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
-    profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.rocm_runner_path] + mlir_rocm_runner_args
+    mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
+    profilerCommand = [ROCPROF, '--stats', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
 
     # invoke rocmlir-gen.
     p1 = subprocess.Popen(rocmlirGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     # pipe to rocmlir-driver
     p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     p1.stdout.close() # Allow p1 to receive a SIGPIPE if p2 exits.
-    # pipe to rocprof + mlir-rocm-runner.
+    # pipe to rocprof + mlir-cpu-runner.
     p3 = subprocess.Popen(profilerCommand, stdin=p2.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     p2.stdout.close() # Allow p2 to receive a SIGPIPE if p3 exits.
     # get output.

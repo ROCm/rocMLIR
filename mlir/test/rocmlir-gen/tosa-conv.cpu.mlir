@@ -1,4 +1,8 @@
-// RUN: rocmlir-opt -pass-pipeline="func.func(tosa-to-linalg-named)" -pass-pipeline="func.func(tosa-to-linalg)" -linalg-fuse-elementwise-ops -linalg-init-tensor-to-alloc-tensor -linalg-bufferize -func-bufferize -bufferization-bufferize -buffer-results-to-out-params -finalizing-bufferize -rock-copy-opt  %s | rocmlir-gen -ph -pr -rand 1 -fut test_fusion - | rocmlir-opt -convert-linalg-to-loops -lower-affine -convert-scf-to-cf | mlir-rocm-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
+// RUN: rocmlir-opt -pass-pipeline="func.func(tosa-to-linalg-named)" -pass-pipeline="func.func(tosa-to-linalg)" -linalg-fuse-elementwise-ops -linalg-init-tensor-to-alloc-tensor -linalg-bufferize -func-bufferize -bufferization-bufferize -buffer-results-to-out-params -finalizing-bufferize -rock-copy-opt  %s |\
+// RUN: rocmlir-gen -ph -pr -rand 1 -fut test_fusion - |\
+// RUN: rocmlir-opt -convert-linalg-to-loops -lower-affine -convert-scf-to-cf \
+// RUN:   --convert-arith-to-llvm --convert-memref-to-llvm --convert-func-to-llvm --reconcile-unrealized-casts \
+// RUN: | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
 
 module {
   // CHECK:  [0,     0,     6,     6,     0,     6,     0,     0,     3,     6,     0,     6,     6,     6,     6,     6]
