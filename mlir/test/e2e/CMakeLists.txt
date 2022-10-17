@@ -16,11 +16,18 @@ set(CONFIG_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(LOCAL_CONFIG_FILE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/lit.local.cfg)
 set(LOCAL_CONFIG_FILE_BIN ${CMAKE_CURRENT_BINARY_DIR}/lit.local.cfg)
 # Create a list for configs
-set(CONFIGS
-  Resnet50Config.toml
-  Resnext101Config.toml
-  PaddedGemmConfig.toml
-)
+if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
+  list(APPEND CONFIGS
+    PrGemm.toml)
+endif()
+if (ROCK_E2E_TEST_ENABLED)
+  list(APPEND CONFIGS
+    GemmVariants.toml
+    Resnet50Config.toml
+    Resnext101Config.toml
+    PaddedGemmConfig.toml
+  )
+endif()
 # Create a list for dummy files
 set(CONFIG_DUMMY_FILES ${CONFIGS})
 list(TRANSFORM CONFIG_DUMMY_FILES PREPEND ${E2E_DIR}/)
