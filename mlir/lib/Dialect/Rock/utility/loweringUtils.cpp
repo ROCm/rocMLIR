@@ -106,13 +106,3 @@ SmallVector<int64_t> mlir::rock::populateBackwardDataGemmIds(
   }
   return gemmIds;
 }
-
-Optional<ConvOpType> mlir::rock::obtainConvDirection(Operation *op) {
-  if (isa<Conv2DOp>(*op))
-    return ConvOpType::Fwd;
-  if (isa<Conv2DBwdDataOp>(*op))
-    return ConvOpType::BwdData;
-  if (isa<Conv2DBwdWeightOp>(*op))
-    return ConvOpType::BwdWeight;
-  return None;
-}

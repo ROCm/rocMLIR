@@ -18,7 +18,6 @@ class Operation;
 class Type;
 
 namespace rock {
-enum class ConvOpType : uint32_t;
 struct ConvolutionDims;
 struct GemmSize;
 
@@ -56,10 +55,6 @@ SmallVector<int64_t>
 populateBackwardDataGemmIds(int64_t strideHeight, int64_t strideWidth,
                             int64_t dilationHeight, int64_t dilationWidth,
                             int64_t filterHeight, int64_t filterWidth);
-
-/// Obtain convolution direction given a Convolution Op.
-/// TODO(whchung): apply ConvolutionOp OpTrait check after supporting PR is in.
-Optional<ConvOpType> obtainConvDirection(Operation *op);
 
 } // end namespace rock
 } // end namespace mlir

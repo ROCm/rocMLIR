@@ -348,6 +348,12 @@ public:
     // Construct tosa.matmul.
     auto mop = rewriter.create<tosa::MatMulOp>(loc, newOutType, in_A, in_B);
 
+    // Convert optional attributes
+    if (auto attr = op->getAttrOfType<BoolAttr>("xdlopsV2"))
+      mop->setAttr("xdlopsV2", attr);
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      mop->setAttr("perf_config", attr);
+
     if (outRank > 3) {
       auto rop = rewriter.create<tosa::ReshapeOp>(
           loc, outputTy, mop, rewriter.getI64ArrayAttr(orgOutDims));

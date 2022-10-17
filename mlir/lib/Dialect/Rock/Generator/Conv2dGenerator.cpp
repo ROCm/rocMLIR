@@ -3,6 +3,7 @@
 #include "mlir/Dialect/Rock/Generator/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
@@ -33,7 +34,7 @@ using namespace mlir::rock;
 #define DEBUG_TYPE "conv2d-gen"
 
 Conv2dGenerator::Conv2dGenerator(
-    const std::string &chip, const std::string &triple,
+    const std::string &arch, const std::string &chip, const std::string &triple,
     const std::string &chipFeatures, const std::string &perfConfig, int num_cu,
     GemmFeatures features, const Optional<ConvOpType> operation,
     const std::string &dataTypeStr, int dilationHeight, int dilationWidth,
@@ -41,7 +42,8 @@ Conv2dGenerator::Conv2dGenerator(
     int paddingHeightRight, int paddingWidthLeft, int paddingWidthRight,
     const std::string &filterLayout, const std::string &inputLayout,
     const std::string &outputLayout, const std::string &kernelBaseName)
-    : config{chip,
+    : config{arch,
+             chip,
              triple,
              chipFeatures,
              perfConfig,
@@ -109,18 +111,6 @@ static LogicalResult hasDimensions(const llvm::StringMap<int64_t> &map,
                               << " tensor missing dimension: " << key << "\n");
       return failure();
     }
-  }
-  return success();
-}
-
-static LogicalResult smallEnough(const ArrayRef<int64_t> dims, size_t elemWidth,
-                                 StringRef name) {
-  int64_t size = std::accumulate(dims.begin(), dims.end(), 1LL,
-                                 std::multiplies<int64_t>()) *
-                 elemWidth;
-  if (size >= (1LL << 31)) { // 2^31 = 2 GB
-    LLVM_DEBUG(llvm::dbgs() << name << " tensor cannot be larger than 2 GB\n");
-    return failure();
   }
   return success();
 }
@@ -254,12 +244,6 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
     return failure();
   }
 
-  if (failed(smallEnough(config.inputDimension, elementWidth, "input")) ||
-      failed(smallEnough(config.filterDimension, elementWidth, "filter")) ||
-      failed(smallEnough(config.outputDimension, elementWidth, "output"))) {
-    return failure();
-  }
-
   return success();
 }
 
@@ -372,7 +356,8 @@ calculatePaddingKernelSize(GemmSize gemmSize, ConvOpType dir, Type dataType,
   int64_t gemmMExtra, gemmNExtra, gemmKExtra;
   gemmMExtra = gemmNExtra = gemmKExtra = 0;
 
-  auto configParams = populateParams.getTuningParameters(dir, dataType);
+  auto configParams = populateParams.getTuningParameters(
+      kernelTypeFromConvOpType(dir), dataType);
   size_t numOfFailedConfigs = 0;
   for (auto &params : configParams) {
     if (gemmSize.m % params.gemmMPerBlock == 0 &&
@@ -509,10 +494,11 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
         "in_channels", "in_h",         "in_w",      "out_layout",
         "out_type",    "out_channels", "out_h",     "out_w",
         "fil_layout",  "fil_type",     "fil_w",     "fil_h"};
-    if (!std::all_of(
-        validKeys.cbegin(), validKeys.cend(),
-        [&argMap](const std::string &key) { return argMap.count(key) > 0; })) {
-          return false;
+    if (!std::all_of(validKeys.cbegin(), validKeys.cend(),
+                     [&argMap](const std::string &key) {
+                       return argMap.count(key) > 0;
+                     })) {
+      return false;
     }
     static const std::vector<std::string> layoutArgs = {
         "fil_layout", "in_layout", "out_layout"};
@@ -559,8 +545,14 @@ LogicalResult Conv2dGenerator::parseConvConfig(const char *arguments) {
   if (failed(splitter.parse(arch))) {
     return failure();
   }
+  // Canonicalize architecture name
+  SmallString<64> canonicalArch;
+  splitter.getFullName(canonicalArch);
+  arch = canonicalArch.str();
+
+  config.arch = arch;
   config.chip = splitter.getChip().str();
-  config.chipFeatures = splitter.getFeatures().str();
+  config.chipFeatures = splitter.getFeaturesForBackend();
   config.triple = splitter.getTriple().str();
   AmdArchInfo archInfo = lookupArchInfo(splitter.getChip());
   config.features = archInfo.defaultFeatures;
@@ -776,14 +768,18 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
     kernel_id = 0;
 
   // Annotate kernel attribute to the FuncOp.
-  SmallVector<NamedAttribute, 1> kernelAttrs{
+  NamedAttribute archAttr =
+      builder.getNamedAttr("kernel.arch", builder.getStringAttr(config.arch));
+  SmallVector<NamedAttribute, 2> kernelAttrs = {
       builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernel_id)),
-  };
+      archAttr};
 
   // Construct the FuncOp.
   func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
                               ArrayRef<NamedAttribute>(kernelAttrs));
   module.push_back(func);
+  if (!is_verifier)
+    module->setAttr(archAttr.getName(), archAttr.getValue());
   if (func.getName() != kernelName) {
     return failure();
   }
@@ -821,7 +817,6 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
   std::vector<NamedAttribute> attributes{
       builder.getNamedAttr("gemm_id", builder.getI32IntegerAttr(gemmId)),
       builder.getNamedAttr("arch", builder.getStringAttr(config.chip)),
-      builder.getNamedAttr("numCu", builder.getI32IntegerAttr(config.num_cu)),
 
       builder.getNamedAttr(
           "filter_layout",
@@ -853,6 +848,11 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
                          builder.getI32IntegerAttr(config.paddingWidthRight),
                      })),
   };
+
+  if (config.operation.value() == ConvOpType::BwdWeight) {
+    attributes.push_back(builder.getNamedAttr(
+        "numCu", builder.getI32IntegerAttr(config.num_cu)));
+  }
 
   // features
   attributes.push_back(builder.getNamedAttr(

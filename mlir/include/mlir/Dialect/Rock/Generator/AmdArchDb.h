@@ -23,7 +23,7 @@ struct AmdArchInfo {
       : defaultFeatures(defaultFeatures), waveSize(waveSize) {}
 };
 
-AmdArchInfo lookupArchInfo(StringRef chip);
+AmdArchInfo lookupArchInfo(StringRef arch);
 } // namespace rock
 } // namespace mlir
 

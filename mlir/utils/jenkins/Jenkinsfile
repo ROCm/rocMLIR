@@ -710,9 +710,9 @@ pipeline {
                     stage("Build MLIR") {
                         steps {
                             // Clean up build settings to disable static library and allow
-                            // mlir-rocm-runner
+                            // ROCm testing
                             sh 'rm build/CMakeCache.txt'
-                            buildProject('rocmlir-gen rocmlir-driver mlir-rocm-runner ci-performance-scripts', '')
+                            buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                         }
                     }
                     stage("Test MLIR vs MIOpen") {

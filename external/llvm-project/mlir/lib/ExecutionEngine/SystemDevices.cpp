@@ -11,10 +11,15 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/ExecutionEngine/SystemDevices.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/ExecutionEngine/RocmSystemDetect.h"
+#include "mlir/Support/LogicalResult.h"
 
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Error.h"
+#include "llvm/Support/raw_ostream.h"
 
 #define DEBUG_TYPE "execution-engine-system-devices"
 
@@ -28,12 +33,67 @@ static const char *getDeviceTypeStr(SystemDevice::Type type) {
                    : type == SystemDevice::Type::ENPU ? "NPU" : "ALT";
 }
 
+FailureOr<const SystemDevice *const>
+SystemDevices::find(SystemDevice::Type type,
+                    llvm::StringRef partialArchName) const {
+  llvm::SmallVector<StringRef, 3> parts;
+
+  StringRef maybeTriple, remainder;
+  std::tie(maybeTriple, remainder) = partialArchName.split(':');
+  if (maybeTriple.contains('-')) {
+    // First part is a triple, ignore it
+    partialArchName = remainder;
+  } else {
+    maybeTriple = "";
+  }
+
+  StringRef chip, rawFeatures;
+  std::tie(chip, rawFeatures) = partialArchName.split(':');
+
+  llvm::SmallVector<StringRef, 1> featureTokens;
+  rawFeatures.split(featureTokens, ':');
+  llvm::StringMap<bool> features;
+  for (StringRef feature : featureTokens) {
+    feature = feature.trim();
+    if (!feature.empty()) {
+      features.insert_or_assign(feature.drop_back(), feature.back() == '+');
+    }
+  }
+
+  for (const SystemDevice *const device : devices) {
+    bool matches = (type == device->type) &&
+                   (maybeTriple.empty() || maybeTriple == device->llvmTriple) &&
+                   (chip.empty() || chip == device->chip);
+    if (matches && !features.empty()) {
+      for (const llvm::StringMapEntry<bool> &feature : features) {
+        StringRef key = feature.getKey();
+        matches &= (device->features.count(key) != 0 &&
+                    device->features.lookup(key) == feature.getValue());
+      }
+    }
+    if (matches)
+      return device;
+  }
+  return failure();
+}
+
 void SystemDevices::dump() const {
-  for (auto &entry : *this) {
-    auto &device = entry.second;
-    llvm::errs() << "Device(" << getDeviceTypeStr(device.type)
-                 << "): " << device.chip << "(" << device.count << ") {\n";
-    for (auto &pair : device.properties) {
+  for (const SystemDevice *device : devices) {
+    llvm::errs() << "Device(" << getDeviceTypeStr(device->type) << ") x "
+                 << device->count << "\n"
+                 << " triple = " << device->llvmTriple
+                 << " chip = " << device->chip;
+    if (!device->features.empty()) {
+      llvm::errs() << " features = ";
+      llvm::interleave(
+          device->features, llvm::errs(),
+          [](const llvm::StringMapEntry<bool> &entry) {
+            llvm::errs() << entry.getKey() << (entry.getValue() ? "+" : "-");
+          },
+          ":");
+    }
+    llvm::errs() << " {\n";
+    for (auto &pair : device->properties) {
       llvm::errs() << "  " << pair.first() << " = " << pair.second << "\n";
     }
     llvm::errs() << "}\n";

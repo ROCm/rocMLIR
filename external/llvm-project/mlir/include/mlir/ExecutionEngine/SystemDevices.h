@@ -13,11 +13,14 @@
 #ifndef MLIR_EXECUTIONENGINE_SYSTEMDEVICES_H_
 #define MLIR_EXECUTIONENGINE_SYSTEMDEVICES_H_
 
+#include "mlir/Support/LogicalResult.h"
+
 #include <string>
 #include <unordered_map>
 
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/StringRef.h"
 
 namespace mlir {
 
@@ -28,7 +31,9 @@ struct SystemDevice {
   enum class Type : int32_t { ECPU, EGPU, ENPU, EALT };
 
   Type type;
-  llvm::SmallString<32> chip;
+  llvm::SmallString<32> llvmTriple;
+  llvm::SmallString<8> chip;
+  llvm::StringMap<bool> features;
   uint32_t count = 1;
   llvm::StringMap<llvm::SmallString<8>> properties = {};
 };
@@ -36,7 +41,7 @@ struct SystemDevice {
 /// SystemDevices captures devices for the current system.
 /// - singleton - map references SystemDevice objects from device
 ///   singletons
-class SystemDevices : public llvm::StringMap<const SystemDevice &> {
+class SystemDevices {
 public:
   // Singleton per SystemDetect Types
   template <typename... Targs>
@@ -44,6 +49,9 @@ public:
     static SystemDevices s_systemDevices(types<Targs...>{});
     return s_systemDevices;
   }
+
+  FailureOr<const SystemDevice *const>
+  find(SystemDevice::Type type, llvm::StringRef partialArchName) const;
 
   void dump() const;
 
@@ -61,7 +69,7 @@ private:
   template <typename Tsys>
   void registerSystem() {
     for (const auto &dev : Tsys::get())
-      insert({dev.chip, dev});
+      devices.push_back(&dev);
   }
 
   template <typename Tsys, typename... Targs>
@@ -71,6 +79,8 @@ private:
   }
   // terminus
   void registerSystems(types<>) {}
+
+  llvm::SmallVector<const SystemDevice *, 0> devices;
 };
 
 } // namespace mlir

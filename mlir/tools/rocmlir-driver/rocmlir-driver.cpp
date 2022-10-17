@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Pipelines/XMIRPipelines.h"
+#include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/InitRocMLIRDialects.h"
@@ -62,7 +63,8 @@ static cl::opt<bool> legacyRockPipeline("c", cl::Hidden, cl::init(false),
                                           cl::Optional,
                                           cl::cb<void, bool>([](bool v) {
                                             if (v) {
-                                              kernelPipeline.setValue("gpu");
+                                              kernelPipeline.setValue("full");
+                                              hostPipeline.setValue("runner");
                                             }
                                           }));
 
@@ -75,18 +77,23 @@ static cl::opt<int> gpuOpt("gO",
                            cl::desc("Optimization level for GPU compilation"),
                            cl::value_desc("Integer from 0 to 3"), cl::init(3));
 
-static cl::opt<std::string>
-    tripleName("triple", cl::desc("target triple: amdgcn-amd-amdhsa"),
-               cl::value_desc("triple string"), cl::init(""));
+static cl::opt<bool> barePointers(
+    "bare-ptr-memref-kernels",
+    cl::desc("Use bare pointers to represent memrefs when calling kernels"),
+    cl::init(true));
 
-static cl::opt<std::string>
-    targetChips("targets", cl::desc("list of target chips"), cl::init(""));
+static cl::opt<bool> hostAsyncCoroutines(
+    "host-async-coroutines",
+    cl::desc("Use coroutines when lowering async ops to LLVM"),
+    // FIXME: This should be true to match upstream
+    cl::init(false));
 
-static cl::alias aliasTargetChips("target", cl::aliasopt(targetChips));
+static cl::opt<std::string> targets("targets", cl::desc("list of target"),
+                                    cl::init(""));
 
-static cl::opt<std::string> features("feature", cl::desc("target features"),
-                                     cl::value_desc("AMDGPU target features"),
-                                     cl::init(""));
+static cl::opt<std::string> arch("arch", cl::desc("target architecture"),
+                                 cl::value_desc("Target GPU architecture"),
+                                 cl::init(""));
 
 static cl::opt<int> blockSize("block_size",
                               cl::desc("Override block size for tuning"),
@@ -125,10 +132,24 @@ parsePipeline(StringRef pipeline, llvm::SmallDenseSet<StringRef> &pipelineSet,
 }
 
 static LogicalResult
-runKernelPipeline(StringRef chip, ModuleOp kmod, bool isHighLevel,
+runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
                   llvm::SmallDenseSet<StringRef> &kernelPipelineSet) {
   PassManager pm(kmod.getContext(), PassManager::Nesting::Implicit);
   applyPassManagerCLOptions(pm);
+
+  bool needArch = kernelPipelineSet.contains("rocdl") ||
+                  kernelPipelineSet.contains("binary");
+  RocmDeviceName devName;
+  if (arch.empty() && needArch) {
+    llvm::errs()
+        << "Architecture not specified for this pipeline, but one is required\n"
+        << "Use --arch or set kernel.arch\n";
+    return failure();
+  }
+  if (failed(devName.parse(arch)) && needArch) {
+    llvm::errs() << "Invalid architecture: " << arch << "\n";
+    return failure();
+  }
 
   if (isHighLevel) {
     rock::BufferizeOptions opts;
@@ -147,9 +168,10 @@ runKernelPipeline(StringRef chip, ModuleOp kmod, bool isHighLevel,
     rock::buildKernelPipeline(pm);
   }
   if (kernelPipelineSet.contains("rocdl")) {
-    pm.addPass(createLowerGpuOpsToROCDLOpsPass(/*chipset=*/chip.str(),
-                                               /*indexBitWidth=*/32,
-                                               /*useBarePtrCallConv*/ true));
+    pm.addPass(
+        createLowerGpuOpsToROCDLOpsPass(/*chipset=*/devName.getChip().str(),
+                                        /*indexBitWidth=*/32,
+                                        /*useBarePtrCallConv*/ barePointers));
   }
   if (kernelPipelineSet.contains("binary")) {
     // Set up the lowering pipeline which goes down to ELF Binary
@@ -160,9 +182,9 @@ runKernelPipeline(StringRef chip, ModuleOp kmod, bool isHighLevel,
     }
 
     rock::BackendOptions opts;
-    opts.triple = tripleName.getValue();
-    opts.chip = chip.str();
-    opts.features = features.getValue();
+    opts.triple = devName.getTriple().str();
+    opts.chip = devName.getChip().str();
+    opts.features = devName.getFeaturesForBackend();
     opts.optLevel = optLevel;
     rock::buildBackendPipeline(pm, opts);
   }
@@ -173,14 +195,34 @@ runKernelPipeline(StringRef chip, ModuleOp kmod, bool isHighLevel,
 static LogicalResult runMLIRPasses(ModuleOp &module,
                                    mlir::PassPipelineCLParser &passPipeline) {
 
-  llvm::SmallVector<StringRef, 4> chips;
-  StringRef targetsStr = targetChips.getValue();
+  llvm::SmallVector<std::string, 4> targetList;
+  StringRef targetsStr = targets.getValue();
   SmallVector<StringRef, 4> tokens;
   targetsStr.split(tokens, ',');
   for (auto str : tokens) {
-    auto chip = str.trim();
-    if (!chip.empty())
-      chips.push_back(chip);
+    auto target = str.trim();
+    if (!target.empty()) {
+      RocmDeviceName targetDevName;
+      if (failed(targetDevName.parse(target))) {
+        llvm::errs() << "Invalid target " << target << " in --targets\n";
+        return failure();
+      }
+      SmallString<64> canonicalTarget;
+      targetDevName.getFullName(canonicalTarget);
+      targetList.push_back(canonicalTarget.str().str());
+    }
+  }
+
+  // Canonicalize arch name
+  if (!arch.empty()) {
+    RocmDeviceName devName;
+    if (failed(devName.parse(arch))) {
+      llvm::errs() << "Unknown value for --arch " << arch << "\n";
+      return failure();
+    }
+    SmallString<64> canonicalArch;
+    devName.getFullName(canonicalArch);
+    arch = canonicalArch.str().str();
   }
 
   llvm::SmallDenseSet<StringRef> kernelPipelineOptions{"applicability", "gpu",
@@ -192,25 +234,6 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     return failure();
   }
   if (kernelPipelineSet.size()) {
-    // test for target spec
-    if (kernelPipelineSet.contains("binary")) {
-      if (tripleName.empty() || chips.empty()) {
-        llvm::errs() << "Target triple (-triple) and chip (-target) not "
-                        "specified for binary backend\n";
-        return failure();
-      }
-    } else if (kernelPipelineSet.contains("rocdl")) {
-      if (chips.empty()) {
-        llvm::errs()
-            << "Target chip (-target) not specified for ROCDL backend\n";
-        return failure();
-      }
-    } else if (!tripleName.empty() || !chips.empty() || !features.empty()) {
-      llvm::errs() << "Target (-triple,-target,-features) should not be set "
-                      "except for kernel-pipeline=binary\n";
-      return failure();
-    }
-
     if (kernelPipelineSet.contains("applicability") &&
         kernelPipelineSet.size() != 1) {
       llvm::errs() << "The `applicability` pipeline cannot be combined with "
@@ -220,7 +243,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   }
 
   llvm::SmallDenseSet<StringRef> hostPipelineOptions{"partition", "highlevel",
-                                                     "xmodel"};
+                                                     "xmodel", "runner"};
   llvm::SmallDenseSet<StringRef> hostPipelineSet;
   if (failed(parsePipeline(hostPipeline.getValue(), hostPipelineSet,
                            hostPipelineOptions, hostPipelineOptions))) {
@@ -234,11 +257,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 
     rock::PartitionOptions opts;
     opts.cloneToRockModule = !cpuOnly.getValue();
-    SmallVector<std::string> chipClones;
-    chipClones.reserve(chips.size());
-    for (StringRef chip : chips)
-      chipClones.push_back(chip.str());
-    opts.targetChips = chipClones;
+    opts.targets = targetList;
     rock::buildPartitionPipeline(pm, opts);
 
     if (failed(pm.run(module))) {
@@ -255,18 +274,28 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     // If sub-modules exists with kernel.chip specified and in set
     // of targetChips, run KernelPipeline
     module->walk([&](ModuleOp kernelModule) {
-      auto chipAttr = kernelModule->getAttrOfType<StringAttr>("kernel.chip");
-      hasKernels |= (bool)chipAttr;
-      if (chipAttr && llvm::find(chips, chipAttr.getValue())) {
-        kernelResult = runKernelPipeline(chipAttr.getValue(), kernelModule,
+      auto archAttr = kernelModule->getAttrOfType<StringAttr>("kernel.arch");
+      hasKernels |= (bool)archAttr;
+      if (archAttr && llvm::find(targetList, archAttr.getValue())) {
+        kernelResult = runKernelPipeline(archAttr.getValue(), kernelModule,
                                          isHighLevel, kernelPipelineSet);
       }
     });
     if (!hasKernels) {
       // If no sub-modules, run KernelPipeline on top-level module
-      StringRef chip(chips.size() ? chips.front() : "");
+      StringRef onlyArch;
+      if (targetList.size())
+        onlyArch = targetList.front();
+      else
+        onlyArch = arch;
+      if (onlyArch.empty()) {
+        if (module->hasAttrOfType<StringAttr>("kernel.arch")) {
+          onlyArch =
+              module->getAttrOfType<StringAttr>("kernel.arch").getValue();
+        }
+      }
       kernelResult =
-          runKernelPipeline(chip, module, isHighLevel, kernelPipelineSet);
+          runKernelPipeline(onlyArch, module, isHighLevel, kernelPipelineSet);
     }
     if (failed(kernelResult))
       return kernelResult;
@@ -311,6 +340,24 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     }
   }
 
+  // Run host code lowering that makes the result of this operation accetable
+  // to mlir-cpu-runner. Explicitly aborts in the case of multiple xmodel
+  // targets to prevent confusing behavior.
+  if (hostPipelineSet.contains("runner")) {
+    if (targetList.size() > 1) {
+      llvm::errs() << "Expected at most one xmodel target when compling from "
+                      "within rocmlir-driver\n";
+      return failure();
+    }
+    PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
+    applyPassManagerCLOptions(pm);
+    xmir::RunnerOptions runnerOptions;
+    runnerOptions.barePtrMemrefs = barePointers.getValue();
+    runnerOptions.enableCoroutines = hostAsyncCoroutines.getValue();
+    xmir::buildRunnerPipeline(pm, runnerOptions);
+    if (failed(pm.run(module)))
+      return failure();
+  }
   return success();
 }
 

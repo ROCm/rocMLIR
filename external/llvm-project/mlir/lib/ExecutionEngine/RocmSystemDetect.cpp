@@ -40,27 +40,27 @@ RocmSystemDetect::RocmSystemDetect() {
     hipDeviceProp_t deviceProps;
     herr = hipGetDeviceProperties(&deviceProps, i);
     if (herr == hipSuccess) {
-      RocmDeviceName chip;
-      if (succeeded(chip.parse(deviceProps.gcnArchName))) {
-        llvm::StringRef chipName(chip.getChip());
+      RocmDeviceName arch;
+      if (succeeded(arch.parse(deviceProps.gcnArchName))) {
+        llvm::StringRef chip(arch.getChip());
         llvm::StringRef vendor("AMD");
-        llvm::StringRef features(chip.getFeatures());
-        llvm::StringRef triple(chip.getTriple());
+        llvm::StringMap<bool> features = arch.getFeatures();
+        llvm::StringRef triple(arch.getTriple());
 
         auto itr = std::find_if(begin(), end(), [&](const SystemDevice &dev) {
-          return dev.chip == chipName;
+          return dev.chip == chip && dev.features == features &&
+                 dev.llvmTriple == triple;
         });
         if (itr != end()) {
           itr->count++;
         } else {
           push_back(
               {SystemDevice::Type::EGPU,
-               chipName,
+               triple,
+               chip,
+               features,
                1,
                {{"vendor", vendor},
-                {"chip", chipName},
-                {"features", features},
-                {"triple", triple},
                 {"major", TO_STR(deviceProps.major)},
                 {"minor", TO_STR(deviceProps.minor)},
                 {"multiProcessorCount",

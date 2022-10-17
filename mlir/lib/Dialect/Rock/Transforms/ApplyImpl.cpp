@@ -71,7 +71,7 @@ struct RockApplyImplPass
               if (auto kernelFunc = mod.lookupSymbol<func::FuncOp>(attr)) {
                 std::vector<NamedAttribute> attributes{
                     b.getNamedAttr("type", b.getStringAttr("gpu")),
-                    b.getNamedAttr("arch", gpuMod->getAttr("arch")),
+                    b.getNamedAttr("arch", kernelMod->getAttr("kernel.arch")),
                     b.getNamedAttr("grid_size", func->getAttr("grid_size")),
                     b.getNamedAttr("block_size", func->getAttr("block_size")),
                     b.getNamedAttr("binary", binaryAttr)};

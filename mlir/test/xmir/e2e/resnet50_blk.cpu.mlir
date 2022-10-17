@@ -1,8 +1,8 @@
-// RUN: rocmlir-driver -host-pipeline partition,highlevel -targets gfx908 %s | rocmlir-gen -ph -print-results -fut resnet50 - | rocmlir-driver -host-pipeline xmodel -kernel-pipeline full -triple amdgcn-amd-amdhsa -target gfx908 | xmir-runner --target-chip cpu --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
+// RUN: rocmlir-driver -host-pipeline partition,highlevel -targets %arch,gfx908 %s | rocmlir-gen -ph -print-results -fut resnet50 - | rocmlir-driver -host-pipeline xmodel -kernel-pipeline full -targets gfx908 | xmir-runner --target-type cpu --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
 
 module {
 // CHECK: Unranked Memref base@ = 0x{{.*}} rank = 4 offset = 0 sizes = [1, 32, 32, 64] strides = [65536, 2048, 64, 1] data =
-    
+
 
   func.func @resnet50(%arg0: tensor<1x32x32x64xf32>, %arg1: tensor<64x3x3x64xf32>, %arg2: tensor<64x3x3x64xf32>) -> tensor<1x32x32x64xf32> {
 

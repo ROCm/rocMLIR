@@ -15,6 +15,7 @@
 
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/StringMap.h"
 
 namespace mlir {
 
@@ -24,14 +25,15 @@ public:
   LogicalResult parse(StringRef devName);
 
   StringRef getChip() const { return chip; }
-  StringRef getFeatures() const { return features; }
+  const llvm::StringMap<bool> &getFeatures() const { return features; }
+  std::string getFeaturesForBackend() const;
   StringRef getTriple() const { return triple; }
 
-  SmallString<256> getFullName() const;
+  void getFullName(SmallVectorImpl<char> &out) const;
 
 private:
-  SmallString<32> chip;
-  SmallString<32> features;
+  SmallString<8> chip;
+  llvm::StringMap<bool> features;
   SmallString<32> triple;
 };
 

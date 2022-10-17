@@ -4,7 +4,7 @@
 Note: This requires Python 3.7 or newer, use pyenv or the like to install it temporarily
 
 Usage:
-$ ninja rocmlir-gen rocmlir-driver mlir-rocm-runner ci-performance-scripts
+$ ninja rocmlir-gen rocmlir-driver mlir-cpu-runner ci-performance-scripts
 $ stdbuf --output=L python3 ./bin/parameterSweeps.py [config] | stdbuf --output=L tee [output-file-of-choice]"""
 
 import argparse
@@ -169,14 +169,15 @@ Errors = {tuneErrs.decode('utf-8')}
     runnerFromLowering, loweringToRunner = os.pipe()
     lowering = await asyncio.create_subprocess_exec(
         paths.mlir_paths.rocmlir_driver_path,
-        '--kernel-pipeline=gpu', '-', stdin=asyncio.subprocess.PIPE,
+        '--kernel-pipeline=full', '--host-pipeline=runner',
+        '-', stdin=asyncio.subprocess.PIPE,
         stdout=loweringToRunner, stderr=asyncio.subprocess.PIPE)
     os.close(loweringToRunner)
 
-    mlir_rocm_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
+    mlir_cpu_runner_args = ['-O2', f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}', '--entry-point-result=void']
     runner = await asyncio.create_subprocess_exec(
-        paths.mlir_paths.rocm_runner_path,
-        *mlir_rocm_runner_args, stdin=runnerFromLowering,
+        paths.mlir_paths.cpu_runner_path,
+        *mlir_cpu_runner_args, stdin=runnerFromLowering,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     os.close(runnerFromLowering)
 

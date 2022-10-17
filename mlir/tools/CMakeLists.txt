@@ -1,7 +1,6 @@
 add_subdirectory(rocmlir-lsp-server)
 add_subdirectory(rocmlir-opt)
 add_subdirectory(rocmlir-gen)
-add_subdirectory(mlir-rocm-runner)
 add_subdirectory(rocmlir-translate)
 add_subdirectory(xmir-runner)
 add_subdirectory(rocmlir-driver)

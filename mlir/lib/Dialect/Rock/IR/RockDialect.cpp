@@ -7,9 +7,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -26,6 +28,7 @@
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/Support/LogicalResult.h"
 #include "mlir/Support/MathExtras.h"
 
 #include "llvm/ADT/APInt.h"
@@ -426,6 +429,31 @@ ConvolutionDims ConvolutionDims::fromOp(Operation *op) {
   return ConvolutionDims(y, x, ho, wo, hi, wi, k, c, n, g);
 }
 
+ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
+  switch (kernelType) {
+  case KernelType::Conv2D:
+    return ConvOpType::Fwd;
+  case KernelType::Conv2DBwdData:
+    return ConvOpType::BwdData;
+  case KernelType::Conv2DBwdWeight:
+    return ConvOpType::BwdWeight;
+  case KernelType::Gemm:
+    llvm_unreachable(
+        "Gemm ops shouldn't be in convolution-specific lowering passes");
+  }
+}
+
+KernelType mlir::rock::kernelTypeFromConvOpType(ConvOpType convOpType) {
+  switch (convOpType) {
+  case ConvOpType::Fwd:
+    return KernelType::Conv2D;
+  case ConvOpType::BwdData:
+    return KernelType::Conv2DBwdData;
+  case ConvOpType::BwdWeight:
+    return KernelType::Conv2DBwdWeight;
+  }
+}
+
 GemmSize GemmSize::fromConvolution(ConvOpType type,
                                    const ConvolutionDims &sizes) {
   assert(type != ConvOpType::BwdData &&
@@ -478,6 +506,16 @@ LogicalResult Conv2DOp::verify() { return verifyConvOp(*this); }
 LogicalResult Conv2DBwdDataOp::verify() { return verifyConvOp(*this); }
 
 LogicalResult Conv2DBwdWeightOp::verify() { return verifyConvOp(*this); }
+
+KernelType Conv2DOp::getKernelType() { return KernelType::Conv2D; }
+
+KernelType Conv2DBwdDataOp::getKernelType() {
+  return KernelType::Conv2DBwdData;
+}
+
+KernelType Conv2DBwdWeightOp::getKernelType() {
+  return KernelType::Conv2DBwdWeight;
+}
 
 OpOperand *Conv2DOp::getOutArgument() { return &(*this)->getOpOperand(2); }
 
@@ -563,6 +601,25 @@ GemmSize Conv2DBwdWeightOp::getGemmSize() {
 //===-----------------------------------------------------===//
 // GemmOp
 //===-----------------------------------------------------===//
+
+LogicalResult checkGemmSize(Value matrix, Operation *op, StringRef name) {
+  constexpr int64_t fourGbits = (1LL << (32LL + 3LL));
+  // Hack: remove padding, other transformations that add "size" to a matrix
+  // without affecting the underlying buffer's maximum index, which must be
+  // fittable within a uint32_t (as a byte offset) for buffer_load or
+  // buffer_store to work correctly. And we can't use untransform() here because
+  // it's in a library that depends on this.
+  Value raw = matrix;
+  while (auto transform = raw.getDefiningOp<rock::TransformOp>())
+    raw = transform.getInput();
+  ShapedType type = raw.getType().cast<ShapedType>();
+  if (!type.hasStaticShape() || type.getSizeInBits() >= fourGbits) {
+    return op->emitOpError() << "underlying storage for matrix " << name
+                             << " cannot potentially be 4 GB or more";
+  }
+  return success();
+}
+
 LogicalResult GemmOp::verify() {
   ShapedType typeA = getA().getType(), typeB = getB().getType(),
              typeC = getC().getType();
@@ -612,8 +669,16 @@ LogicalResult GemmOp::verify() {
   if (getStoreMethod() != StoreMethod::Set && !isXdlops) {
     return emitOpError("general kernels don't support non-set store methods");
   }
+
+  if (failed(checkGemmSize(getA(), *this, "A")) ||
+      failed(checkGemmSize(getB(), *this, "B")) ||
+      failed(checkGemmSize(getC(), *this, "C"))) {
+    return failure();
+  }
   return success();
 }
+
+KernelType GemmOp::getKernelType() { return KernelType::Gemm; }
 
 OpOperand *GemmOp::getOutArgument() { return &(*this)->getOpOperand(2); }
 

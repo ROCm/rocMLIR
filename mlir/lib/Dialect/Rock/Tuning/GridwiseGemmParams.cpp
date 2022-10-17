@@ -183,7 +183,7 @@ LogicalResult PopulateParams::obtainTuningParameters(
   // Backup path: Use the set of default tuning parameters
   LogicalResult res = failure();
   std::vector<InitParamsNonXDL> paramSets =
-      getTuningParameters(obtainConvDirection(op), op.getInputType());
+      getTuningParameters(op.getKernelType(), op.getInputType());
   for (auto &params : orderInitParams(paramSets, gemmSize)) {
     // We have an override on the blockSize, only loop through the
     // initParameters with the same blockSize
@@ -204,8 +204,7 @@ LogicalResult PopulateParams::obtainTuningParameters(
 }
 
 std::vector<InitParamsNonXDL>
-PopulateParams::getTuningParameters(Optional<ConvOpType> dir,
-                                    Type dataType) const {
+PopulateParams::getTuningParameters(KernelType opType, Type dataType) const {
   ArrayRef<InitParamsNonXDL> params = {initParameters, nInitParameters};
   return std::vector<InitParamsNonXDL>(params);
 }
@@ -522,7 +521,7 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
 
   LogicalResult res = failure();
   std::vector<InitParamsXDL> paramSets =
-      getTuningParameters(obtainConvDirection(op), op.getInputType());
+      getTuningParameters(op.getKernelType(), op.getInputType());
   for (const auto &params : orderInitParams(paramSets, gemmSize)) {
     blockSize = obtainBlockSize(params, waveSize);
     // We have an override on the blockSize, only loop through the
@@ -549,8 +548,7 @@ LogicalResult PopulateParamsXDL::obtainTuningParameters(
 }
 
 std::vector<InitParamsXDL>
-PopulateParamsXDL::getTuningParameters(Optional<ConvOpType> dir,
-                                       Type dataType) const {
+PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataType) const {
   ArrayRef<InitParamsXDL> params;
   if (dataType.isInteger(8)) {
     params = {initParametersForwardI8, nInitParametersForwardI8};

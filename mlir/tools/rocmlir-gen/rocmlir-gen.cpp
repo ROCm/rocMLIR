@@ -21,6 +21,7 @@
 #include "mlir/Dialect/Rock/Generator/AmdArchDb.h"
 #include "mlir/Dialect/Rock/Generator/Conv2dGenerator.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -79,15 +80,16 @@ static cl::alias aliasTestFuncName("fut", cl::aliasopt(testFuncName));
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 //// Rock Convolution spec
 
-static cl::opt<mlir::rock::ConvOpType> operation(
+static cl::opt<mlir::rock::KernelType> operation(
     "operation", cl::desc("Convolution operation,"),
-    cl::values(clEnumValN(rock::ConvOpType::Fwd, "conv2d",
-                          "Forward convolution"),
-               clEnumValN(rock::ConvOpType::BwdData, "conv2d_bwd_data",
-                          "Backpropogate convolution data"),
-               clEnumValN(rock::ConvOpType::BwdWeight, "conv2d_bwd_weight",
-                          "Backpropogate convolution weights")),
-    cl::value_desc("convolution type"), cl::init(rock::ConvOpType::Fwd));
+    cl::values(
+        clEnumValN(rock::KernelType::Conv2D, "conv2d", "Forward convolution"),
+        clEnumValN(rock::KernelType::Conv2DBwdData, "conv2d_bwd_data",
+                   "Backpropogate convolution data"),
+        clEnumValN(rock::KernelType::Conv2DBwdWeight, "conv2d_bwd_weight",
+                   "Backpropogate convolution weights"),
+        clEnumValN(rock::KernelType::Gemm, "gemm", "Matrix multiplication")),
+    cl::value_desc("kernel type"), cl::init(rock::KernelType::Conv2D));
 
 static cl::opt<std::string>
     arch("arch",
@@ -2243,15 +2245,20 @@ int main(int argc, char **argv) {
       }
 
       RocmDeviceName targetInfo;
-      if (failed(targetInfo.parse(arch.getValue())))
+      if (failed(targetInfo.parse(arch.getValue()))) {
+        llvm::errs() << "Invalid architecture name: " << arch << "\n";
         exit(1);
+      }
       std::string triple = targetInfo.getTriple().str();
       std::string chip = targetInfo.getChip().str();
-      std::string chipFeatures = targetInfo.getFeatures().str();
+      std::string chipFeatures = targetInfo.getFeaturesForBackend();
+      SmallString<64> canonicalArch;
+      targetInfo.getFullName(canonicalArch);
+      arch = canonicalArch.str().str();
 
       LogicalResult status = success();
 
-      rock::AmdArchInfo archInfo = rock::lookupArchInfo(chip);
+      rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
       rock::GemmFeatures enabledFeatures = archInfo.defaultFeatures;
       // toggle feature list according to cl::opt inputs
       if (mfmaFeature != infer)
@@ -2266,14 +2273,15 @@ int main(int argc, char **argv) {
                        atomicAddFeature == on);
 
       conv2dGenerator = rock::Conv2dGenerator(
-          chip, triple, chipFeatures, perfConfig.getValue(), num_cu.getValue(),
-          enabledFeatures, operation.getValue(), tensorDataType.getValue(),
-          dilationHeight.getValue(), dilationWidth.getValue(),
-          strideHeight.getValue(), strideWidth.getValue(),
-          paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
-          paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
-          filterLayout.getValue(), inputLayout.getValue(),
-          outputLayout.getValue());
+          arch, chip, triple, chipFeatures, perfConfig.getValue(),
+          num_cu.getValue(), enabledFeatures,
+          rock::convOpTypeFromKernelType(operation.getValue()),
+          tensorDataType.getValue(), dilationHeight.getValue(),
+          dilationWidth.getValue(), strideHeight.getValue(),
+          strideWidth.getValue(), paddingHeightLeft.getValue(),
+          paddingHeightRight.getValue(), paddingWidthLeft.getValue(),
+          paddingWidthRight.getValue(), filterLayout.getValue(),
+          inputLayout.getValue(), outputLayout.getValue());
 
       status = conv2dGenerator.parseConvDims(
           batchSize, groupSize, inputChannel, inputHeight, inputWidth,
@@ -2355,7 +2363,7 @@ int main(int argc, char **argv) {
     });
   } else {
     auto func = module.lookupSymbol<func::FuncOp>(testFuncName);
-    assert(func);
+    assert(func && "does -fut point to the wrong function?");
     kernels.emplace_back(func); // +++pf: should it be a kernel?
     rootIFs.emplace_back(func);
   }

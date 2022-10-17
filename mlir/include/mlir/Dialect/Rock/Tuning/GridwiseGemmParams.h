@@ -198,7 +198,7 @@ public:
                                        InitParamsNonXDL &validParams,
                                        uint32_t &gridSize);
 
-  std::vector<InitParamsNonXDL> getTuningParameters(Optional<ConvOpType> dir,
+  std::vector<InitParamsNonXDL> getTuningParameters(KernelType opType,
                                                     Type dataType) const;
 
   const InitParams &getUniversalParameters() const;
@@ -258,7 +258,7 @@ public:
                                        uint32_t &blockSize, uint32_t &gridSize,
                                        int64_t &gemmKBlocks);
 
-  std::vector<InitParamsXDL> getTuningParameters(Optional<ConvOpType> dir,
+  std::vector<InitParamsXDL> getTuningParameters(KernelType opType,
                                                  Type dataType) const;
   const InitParams &getUniversalParameters() const;
 
