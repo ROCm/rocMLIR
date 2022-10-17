@@ -71,6 +71,7 @@ String dockerImage() {
 void preMergeCheck(String codepath) {
     // Only do static check on mfma codepath during PR CI
     if ( (params.nightly == false) && (codepath == "mfma") ) {
+        echo "Performing Static Test (preMergeCheck)"
         sh '''
         if [ ! -f ./build/compile_commands.json ];  then
           echo "No compile commands, bailing."
@@ -147,7 +148,7 @@ String getLabelFromCodepath(String codepath) {
     if (codepath == "mfma") {
         label = 'mlir && (gfx908 || gfx90a)'
     } else if (codepath == "navi21") {
-        label = 'mlir && gfx1030'
+        label = 'navi_workstation'
     } else if (codepath == "vanilla"){
         label = 'mlir && gfx906'
     } else {
