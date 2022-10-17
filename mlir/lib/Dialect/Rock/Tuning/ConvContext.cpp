@@ -5,6 +5,14 @@
 using namespace mlir;
 using namespace mlir::rock;
 
+static int getOptionalIntAttribute(Operation *op, StringRef attrName,
+                                   int defaultValue) {
+  if (op->hasAttrOfType<IntegerAttr>(attrName)) {
+    return op->getAttrOfType<IntegerAttr>(attrName).getInt();
+  }
+  return defaultValue;
+}
+
 static void
 populateDimIndexAndSize(const ArrayAttr &layoutAttr,
                         const ArrayRef<int64_t> &dim,
@@ -53,31 +61,28 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
 
   // XXX: Do we need these, especially since we're not actually serializing
   // anything to sqlite?
-  auto archVal = op->template getAttrOfType<StringAttr>("arch").getValue();
-  int numCuVal = op->template getAttrOfType<IntegerAttr>("numCu").getInt();
-  auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
-  int gemmId = 0;
-  if (gemmIdAttr) {
-    gemmId = gemmIdAttr.getInt();
+  if (opType == ConvOpType::BwdWeight) {
+    assert(op->hasAttrOfType<IntegerAttr>("numCu"));
   }
+  auto archVal = op->getAttrOfType<StringAttr>("arch").getValue();
+  int numCu = getOptionalIntAttribute(op, "numCu", 64);
+  int gemmId = getOptionalIntAttribute(op, "gemmId", 0);
 
   llvm::StringMap<DimIndexAndSize> dimIndexAndSize;
 
-  auto filterLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("filter_layout");
-  auto inputLayoutAttr = op->template getAttrOfType<ArrayAttr>("input_layout");
-  auto outputLayoutAttr =
-      op->template getAttrOfType<ArrayAttr>("output_layout");
+  auto filterLayoutAttr = op->getAttrOfType<ArrayAttr>("filter_layout");
+  auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
+  auto outputLayoutAttr = op->getAttrOfType<ArrayAttr>("output_layout");
 
-  auto strideAttr = op->template getAttrOfType<ArrayAttr>("strides");
+  auto strideAttr = op->getAttrOfType<ArrayAttr>("strides");
   llvm::SmallVector<int64_t, 2> strideVal;
   populateSeqVal(strideAttr, strideVal);
 
-  auto dilationAttr = op->template getAttrOfType<ArrayAttr>("dilations");
+  auto dilationAttr = op->getAttrOfType<ArrayAttr>("dilations");
   llvm::SmallVector<int64_t, 2> dilationVal;
   populateSeqVal(dilationAttr, dilationVal);
 
-  auto paddingAttr = op->template getAttrOfType<ArrayAttr>("padding");
+  auto paddingAttr = op->getAttrOfType<ArrayAttr>("padding");
   llvm::SmallVector<int64_t, 4> paddingVal;
   populateSeqVal(paddingAttr, paddingVal);
 
@@ -96,6 +101,6 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
 
   Type dataType = cast<RockGemmWrapperInterface>(op).getInputType();
 
-  return {archVal,     numCuVal,   opType, dimIndexAndSize, strideVal,
+  return {archVal,     numCu,      opType, dimIndexAndSize, strideVal,
           dilationVal, paddingVal, gemmId, dataType};
 }

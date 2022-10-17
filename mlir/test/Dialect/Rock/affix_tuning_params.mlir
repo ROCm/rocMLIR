@@ -26,7 +26,6 @@ func.func @rock_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_0]]
   rock.conv2d(%filter, %input, %output) features = none {
     arch = "gfx906",
-    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -45,7 +44,6 @@ func.func @rock_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<12
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_0]]
   rock.conv2d(%filter, %input, %output) features = none {
     arch = "gfx906",
-    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -64,7 +62,6 @@ func.func @rock_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_0]]
   rock.conv2d(%filter, %input, %output) features = mfma|dot|atomic_add {
     arch = "gfx908",
-    numCu = 120 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -87,7 +84,6 @@ func.func @rock_conv2d_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: me
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 0 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    numCu = 120 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 , 0 , 0 , 0],
     strides = [1 : i32, 1 : i32]
@@ -107,7 +103,6 @@ func.func @rock_conv2d_bwd_data_f16(%filter: memref<1x1024x1024x1x1xf16>, %input
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 0 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    numCu = 120 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 , 0 , 0 , 0],
     strides = [1 : i32, 1 : i32]
@@ -123,7 +118,6 @@ func.func @rock_conv2d_bwd_data_padMN(%filter : memref<1x64x3x1x1xf32>, %input :
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_1]]
   rock.conv2d_bwd_data(%filter, %input, %output) features = none {
     arch = "gfx906",
-    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -143,7 +137,6 @@ func.func @rock_conv2d_bwd_data_padMK(%filter : memref<1x11x3x1x1xf32>, %input :
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_2]]
   rock.conv2d_bwd_data(%filter, %input, %output) features = none {
     arch = "gfx906",
-    numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -247,7 +240,6 @@ func.func @rock_conv2d_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<2
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 0 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    numCu = 120 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
     // Restore this once the kPack + padding support works
@@ -270,7 +262,6 @@ func.func @rock_conv2d_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 0 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    numCu = 120 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
     strides = [2 : i32, 2 : i32]
@@ -308,7 +299,6 @@ func.func @rock_conv2d_bwd_data_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1:
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 1 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    numCu = 120 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
     // Restore once kPack + padding work
@@ -331,7 +321,6 @@ func.func @rock_conv2d_bwd_data_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 1 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    numCu = 120 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
     strides = [2 : i32, 2 : i32]

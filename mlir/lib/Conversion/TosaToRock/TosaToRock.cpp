@@ -78,14 +78,14 @@ static Value expandTensor(ConversionPatternRewriter &rw, Operation *op,
   return rw.create<rock::TransformOp>(loc, operand, transform.get());
 }
 
-static std::tuple<StringAttr, uint32_t, rock::GemmFeatures>
+static std::tuple<StringAttr, Optional<uint32_t>, rock::GemmFeatures>
 getArchAttributes(Operation *op) {
   auto func = op->getParentOfType<func::FuncOp>();
   auto mod = func->getParentOfType<ModuleOp>();
 
   // TODO(sjw): get these from options
   StringAttr arch = StringAttr::get(op->getContext(), "");
-  uint32_t num_cu = 64;
+  Optional<uint32_t> num_cu = None;
   Optional<bool> xdlopsV2 = None;
 
   if (auto attr = op->getAttrOfType<StringAttr>("arch"))
@@ -128,14 +128,14 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   auto outputExp = expandTensor(rw, op, output);
 
   StringAttr arch;
-  uint32_t num_cu;
+  Optional<uint32_t> num_cu;
   rock::GemmFeatures features;
   std::tie(arch, num_cu, features) = getArchAttributes(op);
 
   auto cop = rw.create<rock::Conv2DOp>(
       loc, outputExp.getType(), filterExp, inputExp, outputExp, arch,
-      rw.getI32IntegerAttr(num_cu),
       rw.getAttr<rock::GemmFeaturesAttr>(features),
+      num_cu.has_value() ? rw.getI32IntegerAttr(num_cu.value()) : nullptr,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
   // translate attributes
   int32_t padTop = pad[0].dyn_cast<IntegerAttr>().getInt();
@@ -285,13 +285,14 @@ public:
              transposeC = getTranspose(op, "transpose_c");
 
     StringAttr arch;
-    uint32_t num_cu;
+    Optional<uint32_t> num_cu;
     rock::GemmFeatures features;
     std::tie(arch, num_cu, features) = getArchAttributes(op);
 
     auto rockGemm = rw.create<rock::GemmOp>(
         loc, outputType, adaptor.getA(), adaptor.getB(), output, transposeA,
-        transposeB, transposeC, arch, rw.getI32IntegerAttr(num_cu),
+        transposeB, transposeC, arch,
+        num_cu.has_value() ? rw.getI32IntegerAttr(num_cu.value()) : nullptr,
         rw.getAttr<rock::GemmFeaturesAttr>(features),
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
