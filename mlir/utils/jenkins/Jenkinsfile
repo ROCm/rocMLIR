@@ -134,6 +134,18 @@ def rebootNode() {
     build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
 }
 
+String getLabel(String nonxdlopsLabel)
+{
+    if (params.navi21) {
+        label = "navi21"
+    } else if (params.canXdlops) {
+        label = "mlir && (gfx908 || gfx90a)"
+    } else {
+        label = "mlir && ${nonxdlopsLabel}"
+    }
+    return label
+}
+
 pipeline {
     agent none
     parameters {
@@ -155,6 +167,8 @@ pipeline {
                      description: 'Run the static library stage')
         booleanParam(name: 'perfTest', defaultValue: true,
                      description: 'Run the performance testing stage')
+        booleanParam(name: 'navi21', defaultValue: false,
+                     description: 'Run on Navi 21 (gfx1030)')
     }
     stages {
         stage("Set System Property") {
@@ -183,7 +197,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
+                            label getLabel("rocm")
                             alwaysPull true
                         }
                     }
@@ -242,7 +256,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
+                            label getLabel("rocm")
                             alwaysPull true
                         }
                     }
@@ -293,7 +307,7 @@ pipeline {
                         docker {
                             image dockerImage()
                             args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'gfx906' }"
+                            label getLabel("gfx906")
                             alwaysPull true
                         }
                     }
