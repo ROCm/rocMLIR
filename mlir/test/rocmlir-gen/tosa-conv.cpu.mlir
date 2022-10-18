@@ -5,7 +5,7 @@
 // RUN: | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s
 
 module {
-  // CHECK:  [0,     0,     6,     6,     0,     6,     0,     0,     3,     6,     0,     6,     6,     6,     6,     6]
+  // CHECK:  [6,     2,     0,     0,     6,     6,     6,     6,     6,     0,     0,     6,     6,     0,     0,     0]
   func.func @test_fusion(%arg0: tensor<1x32x32x8xf32>, %arg1: tensor<16x3x3x8xf32>) -> tensor<1x30x30x16xf32> {
 
     %cst = arith.constant dense<0.0> : tensor<16xf32>
