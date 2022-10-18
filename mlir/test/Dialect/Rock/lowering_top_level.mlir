@@ -35,17 +35,14 @@
 #xdlops_gemm_params1 = #rock.xdlops_gemm_params<kPerBlock = 4, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 64, nPerWave = 64>
 
 func.func @rock_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
-  rock.conv2d(%filter, %input, %output) features = none {
+  rock.conv2d(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
     arch = "gfx906",
     blockSize = 256 : i32,
-    dilations = [1, 1],
     filter_layout = ["g", "k", "c", "y", "x"],
     gridSize = 900 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    padding = [0, 0, 0 ,0],
-    params = #general_gemm_params0,
-    strides = [1, 1]
+    params = #general_gemm_params0
   } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }
@@ -59,17 +56,14 @@ func.func @rock_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x
 // CHECK-NEXT:  rock.gemm %[[OUT]] = tr %[[FILTER]] * %[[IN3]]
 
 func.func @rock_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
-  rock.conv2d(%filter, %input, %output) features = none {
+  rock.conv2d(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
     arch = "gfx906",
     blockSize = 256 : i32,
-    dilations = [1, 1],
     filter_layout = ["g", "k", "c", "y", "x"],
     gridSize = 900 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    padding = [0, 0, 0 ,0],
-    params = #general_gemm_params0,
-    strides = [1, 1]
+    params = #general_gemm_params0
   } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
   return
 }
@@ -83,17 +77,14 @@ func.func @rock_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<12
 // CHECK-NEXT:  rock.gemm %[[OUT]] = tr %[[FILTER]] * %[[IN3]]
 
 func.func @rock_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x1x8x32x32xi8>, %output : memref<128x1x128x30x30xi32>) {
-  rock.conv2d(%filter, %input, %output) features = mfma|dot|atomic_add {
+  rock.conv2d(%filter, %input, %output) features = mfma|dot|atomic_add, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
     arch = "gfx908",
     blockSize = 256 : i32,
-    dilations = [1, 1],
     filter_layout = ["g", "k", "c", "y", "x"],
     gridSize = 3600 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    padding = [0, 0, 0 ,0],
-    params = #xdlops_gemm_params0,
-    strides = [1, 1]
+    params = #xdlops_gemm_params0
   } : memref<1x128x8x3x3xi8>, memref<128x1x8x32x32xi8>, memref<128x1x128x30x30xi32>
   return
 }
@@ -108,18 +99,15 @@ func.func @rock_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x
 
 
 func.func @rock_conv2d_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: memref<128x1x1024x14x14xf32>, %output: memref<128x1x1024x14x14xf32>) attributes {kernel = 0 : i32} {
-  rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add {
+  rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
     arch = "gfx908",
     blockSize = 256 : i32,
-    dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 0 : i32,
     gridSize = 900 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    padding = [0 , 0 , 0 , 0],
-    params = #xdlops_gemm_params1,
-    strides = [1 : i32, 1 : i32]
+    params = #xdlops_gemm_params1
   } : memref<1x1024x1024x1x1xf32>, memref<128x1x1024x14x14xf32>, memref<128x1x1024x14x14xf32>
   return
 }
@@ -139,18 +127,15 @@ func.func @rock_conv2d_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: me
 // CHECK-NEXT:  rock.gemm %[[IN4]] = tr %[[FIL3]] * %[[OUT3]]{{.*}}
 
 func.func @rock_conv2d_bwd_data_f16(%filter: memref<1x1024x1024x1x1xf16>, %input: memref<128x1x1024x14x14xf16>, %output: memref<128x1x1024x14x14xf16>) attributes {kernel = 0 : i32} {
-rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add {
+rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
     arch = "gfx908",
     blockSize = 256 : i32,
-    dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 0 : i32,
     gridSize = 1568 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    padding = [0 , 0 , 0 , 0],
-    params = #xdlops_gemm_params1,
-    strides = [1 : i32, 1 : i32]
+    params = #xdlops_gemm_params1
   } : memref<1x1024x1024x1x1xf16>, memref<128x1x1024x14x14xf16>, memref<128x1x1024x14x14xf16>
   return
 }
@@ -170,19 +155,16 @@ rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add {
 // CHECK-NEXT:  rock.gemm %[[IN4]] = tr %[[FIL3]] * %[[OUT3]]{{.*}}
 
 func.func @rock_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
-  rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
+  rock.conv2d_bwd_weight(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
     arch = "gfx906",
     blockSize = 64 : i32,
-    dilations = [1, 1],
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 0,
     gridSize = 4 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     numCu = 64 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    padding = [0, 0, 0 ,0],
-    params = #general_gemm_params1,
-    strides = [1, 1]
+    params = #general_gemm_params1
   } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }
@@ -196,19 +178,16 @@ func.func @rock_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : me
 // CHECK-NEXT:  rock.gemm %[[FIL1]] = tr %[[OUT]] * %[[IN3]]{{.*}}
 
 func.func @rock_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
-  rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
+  rock.conv2d_bwd_weight(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]}{
     arch = "gfx906",
     blockSize = 64 : i32,
-    dilations = [1, 1],
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 0,
     gridSize = 4 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     numCu = 64 : i32,
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    padding = [0, 0, 0 ,0],
-    params = #general_gemm_params1,
-    strides = [1, 1]
+    params = #general_gemm_params1
   } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
   return
 }

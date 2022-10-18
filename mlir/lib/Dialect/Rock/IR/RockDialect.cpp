@@ -352,6 +352,13 @@ LogicalResult TransformMapAttr::verify(
   return success();
 }
 
+LogicalResult
+ConvParamsAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()>,
+                       llvm::ArrayRef<int64_t>, llvm::ArrayRef<int64_t>,
+                       llvm::ArrayRef<int64_t>) {
+  return success();
+}
+
 } // namespace rock
 } // namespace mlir
 //===----------------------------------------------------------------------===//
@@ -533,18 +540,10 @@ GemmSize Conv2DOp::getGemmSize() {
 }
 
 GemmSize Conv2DBwdDataOp::getGemmSize() {
-  auto getSeqAttr = [&](StringRef name, SmallVectorImpl<int64_t> &dest) {
-    transform((*this)->getAttrOfType<ArrayAttr>(name).getAsRange<IntegerAttr>(),
-              std::back_inserter(dest),
-              [](IntegerAttr x) -> int64_t { return x.getInt(); });
-  };
-
   auto sizes = ConvolutionDims::fromOp(*this);
-  SmallVector<int64_t, 2> strides, dilations;
-  getSeqAttr("strides", strides);
-  getSeqAttr("dilations", dilations);
-  SmallVector<int64_t, 4> padding;
-  getSeqAttr("padding", padding);
+  auto padding = this->getPadding();
+  auto strides = this->getStride();
+  auto dilations = this->getDilation();
   int64_t gemmId = (*this)->getAttrOfType<IntegerAttr>("gemm_id").getInt();
 
   int64_t strideH = strides[0];

@@ -212,6 +212,26 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams"> {
   }];
 }
 
+// ConvParamsAttr
+def Rock_ConvParamsAttr : Rock_Attr<"ConvParams"> {
+    let mnemonic = "conv_params";
+    let description = [{
+      This attribute acts like a container for shared convolution attributes
+      among conv2d, conv2d_bwd and conv2d_bww
+    }];
+
+    let parameters = (ins
+      ArrayRefParameter<"int64_t", "Convolution padding">:$padding,
+      ArrayRefParameter<"int64_t", "Convolution stride">:$stride,
+      ArrayRefParameter<"int64_t", "Convolution dilation">:$dilation
+    );
+
+    let assemblyFormat = [{
+        `{` `padding` `:` `[` $padding`]` `,` `stride` `:` `[` $stride`]` `,` `dilation` `:` `[` $dilation`]` `}`
+    }];
+    let genVerifyDecl = 1;
+}
+
 def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams"> {
   let mnemonic = "xdlops_gemm_params";
   let description = [{

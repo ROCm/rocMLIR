@@ -830,23 +830,6 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
           builder.getArrayAttr(ArrayRef<Attribute>(outputLayoutSpec.begin(),
                                                    outputLayoutSpec.end()))),
 
-      builder.getNamedAttr("dilations",
-                           builder.getArrayAttr({
-                               builder.getI32IntegerAttr(config.dilationHeight),
-                               builder.getI32IntegerAttr(config.dilationWidth),
-                           })),
-      builder.getNamedAttr("strides",
-                           builder.getArrayAttr({
-                               builder.getI32IntegerAttr(config.strideHeight),
-                               builder.getI32IntegerAttr(config.strideWidth),
-                           })),
-      builder.getNamedAttr(
-          "padding", builder.getArrayAttr({
-                         builder.getI32IntegerAttr(config.paddingHeightLeft),
-                         builder.getI32IntegerAttr(config.paddingHeightRight),
-                         builder.getI32IntegerAttr(config.paddingWidthLeft),
-                         builder.getI32IntegerAttr(config.paddingWidthRight),
-                     })),
   };
 
   if (config.operation.value() == ConvOpType::BwdWeight) {
@@ -857,6 +840,18 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
   // features
   attributes.push_back(builder.getNamedAttr(
       "features", builder.getAttr<GemmFeaturesAttr>(config.features)));
+
+  auto paddingArray = SmallVector<int64_t, 4>{
+      config.paddingHeightLeft, config.paddingHeightRight,
+      config.paddingWidthLeft, config.paddingWidthRight};
+  auto strideArray =
+      SmallVector<int64_t, 2>{config.strideHeight, config.strideWidth};
+  auto dilationArray =
+      SmallVector<int64_t, 2>{config.dilationHeight, config.dilationWidth};
+
+  attributes.push_back(builder.getNamedAttr(
+      "convParams", builder.getAttr<ConvParamsAttr>(paddingArray, strideArray,
+                                                    dilationArray)));
 
   // perf_config
   if (!ignoreTuning && !config.perfConfig.empty()) {

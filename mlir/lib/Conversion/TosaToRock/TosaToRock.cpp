@@ -130,13 +130,9 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   StringAttr arch;
   Optional<uint32_t> num_cu;
   rock::GemmFeatures features;
+
   std::tie(arch, num_cu, features) = getArchAttributes(op);
 
-  auto cop = rw.create<rock::Conv2DOp>(
-      loc, outputExp.getType(), filterExp, inputExp, outputExp, arch,
-      rw.getAttr<rock::GemmFeaturesAttr>(features),
-      num_cu.has_value() ? rw.getI32IntegerAttr(num_cu.value()) : nullptr,
-      /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
   // translate attributes
   int32_t padTop = pad[0].dyn_cast<IntegerAttr>().getInt();
   int32_t padBottom = pad[1].dyn_cast<IntegerAttr>().getInt();
@@ -146,6 +142,20 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   int32_t strideWidth = stride[1].dyn_cast<IntegerAttr>().getInt();
   int32_t dilationHeight = dilation[0].dyn_cast<IntegerAttr>().getInt();
   int32_t dilationWidth = dilation[1].dyn_cast<IntegerAttr>().getInt();
+
+  auto paddingArray =
+      SmallVector<int64_t, 4>{padTop, padBottom, padLeft, padRight};
+  auto strideArray = SmallVector<int64_t, 2>{strideHeight, strideWidth};
+  auto dilationArray = SmallVector<int64_t, 2>{dilationHeight, dilationWidth};
+
+  auto cop = rw.create<rock::Conv2DOp>(
+      loc, outputExp.getType(), filterExp, inputExp, outputExp, arch,
+      rw.getAttr<rock::GemmFeaturesAttr>(features),
+      num_cu.has_value() ? rw.getI32IntegerAttr(num_cu.value()) : nullptr,
+      /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+      rw.getAttr<rock::ConvParamsAttr>(paddingArray, strideArray,
+                                       dilationArray),
+      /*params=*/nullptr);
 
   // specify layout attributes
   SmallVector<StringAttr, 5> filterLayoutSpec;
@@ -173,21 +183,6 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   cop->setAttr("output_layout",
                rw.getArrayAttr(ArrayRef<Attribute>(outputLayoutSpec.begin(),
                                                    outputLayoutSpec.end())));
-
-  cop->setAttr("dilations", rw.getArrayAttr({
-                                rw.getI32IntegerAttr(dilationHeight),
-                                rw.getI32IntegerAttr(dilationWidth),
-                            }));
-  cop->setAttr("strides", rw.getArrayAttr({
-                              rw.getI32IntegerAttr(strideHeight),
-                              rw.getI32IntegerAttr(strideWidth),
-                          }));
-  cop->setAttr("padding", rw.getArrayAttr({
-                              rw.getI32IntegerAttr(padTop),
-                              rw.getI32IntegerAttr(padBottom),
-                              rw.getI32IntegerAttr(padLeft),
-                              rw.getI32IntegerAttr(padRight),
-                          }));
 
   return cop;
 }
