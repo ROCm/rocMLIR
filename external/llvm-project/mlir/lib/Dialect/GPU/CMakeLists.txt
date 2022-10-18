@@ -127,6 +127,11 @@ if(MLIR_ENABLE_ROCM_CONVERSIONS)
       "Building mlir with ROCm support requires the AMDGPU backend")
   endif()
 
+  if (NOT ("lld" IN_LIST LLVM_ENABLE_PROJECTS))
+    message(SEND_ERROR
+      "LLD is not enabled, please reconfigure llvm build")
+  endif()
+
   set(DEFAULT_ROCM_PATH "/opt/rocm" CACHE PATH "Fallback path to search for ROCm installs")
   target_compile_definitions(obj.MLIRGPUTransforms
     PRIVATE
@@ -134,9 +139,21 @@ if(MLIR_ENABLE_ROCM_CONVERSIONS)
     MLIR_GPU_TO_HSACO_PASS_ENABLE=1
   )
 
+  target_include_directories(obj.MLIRGPUTransforms
+    PRIVATE
+    ${MLIR_SOURCE_DIR}/../lld/include
+  )
+
   target_link_libraries(MLIRGPUTransforms
     PRIVATE
+    lldELF
+    lldCommon
     MLIRExecutionEngine
     MLIRROCDLToLLVMIRTranslation
   )
+
+  # Link lldELF also to libmlir.so. Create an alias that starts with LLVM
+  # because LINK_COMPONENTS elements are implicitly prefixed with LLVM.
+  add_library(LLVMAliasTolldELF ALIAS lldELF)
+  set_property(GLOBAL APPEND PROPERTY MLIR_LLVM_LINK_COMPONENTS AliasTolldELF)
 endif()
