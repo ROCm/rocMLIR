@@ -11,19 +11,10 @@ module {
     %1 = memref.alloc() : memref<128x32x32x1x8xf32>
     %2 = memref.alloc() : memref<128x30x30x1x128xf32>
 
-    %cst = 1.0 : f32
+    %cst = arith.constant 1.0 : f32
     linalg.fill ins(%cst : f32) outs(%0 : memref<1x3x3x8x128xf32>)
     linalg.fill ins(%cst : f32) outs(%1 : memref<128x32x32x1x8xf32>)
     linalg.fill ins(%cst : f32) outs(%2 : memref<128x30x30x1x128xf32>)
-
-    // populate initial values
-    %c0_i16 = arith.constant 0 : i16
-    %c1_i16 = arith.constant 1 : i16
-    %c1_i16_0 = arith.constant 1 : i16
-    %c1_i32 = arith.constant 1 : i32
-    call @mcpuMemset5DFloatRandInt(%3, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
-    call @mcpuMemset5DFloatRandInt(%4, %c1_i16, %c1_i16_0, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
-    call @mcpuMemset5DFloatRandInt(%5, %c0_i16, %c0_i16, %c1_i32) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
 
     // launch gpu convolution
     call @gpu_conv(%0, %1, %2) : (memref<1x3x3x8x128xf32>, memref<128x32x32x1x8xf32>, memref<128x30x30x1x128xf32>) -> ()
