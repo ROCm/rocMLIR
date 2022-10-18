@@ -1,5 +1,4 @@
-//===- MIGraphX.cpp - C Interface for MIGraphX dialect
-//------------------------===//
+//===- MIGraphX.cpp - C Interface for MIGraphX dialect---------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -33,14 +32,15 @@ void createConv2DFwdTuningRangeBF(struct rock::TunableParams *newSpace,
   if (bXdlops != nullptr && bXdlops.getValue() == true) {
     // XDLOPS
     // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-    std::vector<std::vector<uint32_t>> tParams = {{4, 8, 16, 32, 64, 128},
-                                                  {16, 32, 64, 128},
-                                                  {16, 32, 64, 128},
-                                                  {16, 32, 64},
-                                                  {16, 32, 64},
-                                                  {1, 4},
-                                                  {0},
-                                                  {0}};
+    constexpr std::vector<std::vector<uint32_t>> tParams = {
+        {4, 8, 16, 32, 64, 128},
+        {16, 32, 64, 128},
+        {16, 32, 64, 128},
+        {16, 32, 64},
+        {16, 32, 64},
+        {1, 4},
+        {0},
+        {0}};
 
     for (uint32_t t0 : tParams[0]) {
       for (uint32_t t1 : tParams[1]) {
@@ -64,9 +64,9 @@ void createConv2DFwdTuningRangeBF(struct rock::TunableParams *newSpace,
   } else {
     // Non-XDLOPS
     // blockSize M/block N/block K/block M/thread N/thread
-    std::vector<std::vector<uint32_t>> tParams = {{64, 128, 256}, {32, 64, 128},
-                                                  {32, 64, 128},  {4, 8, 16},
-                                                  {2, 4},         {2, 4}};
+    constexpr std::vector<std::vector<uint32_t>> tParams = {
+        {64, 128, 256}, {32, 64, 128}, {32, 64, 128},
+        {4, 8, 16},     {2, 4},        {2, 4}};
     for (uint32_t t0 : tParams[0]) {
       for (uint32_t t1 : tParams[1]) {
         for (uint32_t t2 : tParams[2]) {
@@ -156,16 +156,17 @@ void createConv2DFwdTuningRangeMLR(struct rock::TunableParams *newSpace,
   // ((16+1)*8) number of quick set can be also set by MLR
 
   // clang-format off
-  //                                         in_ch ;   in_h;   in_w;  fil_h;  fil_w; out_ch;  batch;  lPadH;  lPadW;  rPadH;  rPadW;   strH;   strW;   dilH;   dilW;  group;  const;
   // From gfx90878_1.1.0.udb tuned at 9.Oct.2022  Weekly CI xdlops
-  std::vector<std::vector<float>> coeffs = {{ 0.0175,-1.1229,-1.1229,-12.153,-12.153,-0.0413, 0.0000,47.5203,47.5203,47.5203,47.5203,55.0025,55.0025, 0.0000, 0.0000, 0.0000, 108.5339},
-                                            { -0.014, 0.0725, 0.0725,-4.2654,-4.2654,   0.01,      0,-3.6256,-3.6256,-3.6256,-3.6256,-8.0965,-8.0965,      0,      0,      0, 150.3692},
-                                            { 0.0001, 0.0179, 0.0179, 0.0814, 0.0814, 0.0004,      0,-0.0223,-0.0223,-0.0223,-0.0223,-0.4386,-0.4386,      0,      0,      0, 3.866194},
-                                            { 0.0045, -0.132, -0.132,-0.7859,-0.7859, 0.0063,      0,-0.5036,-0.5036,-0.5036,-0.5036,  3.624,  3.624,      0,      0,      0, 70.81350},
-                                            { -0.009,-0.1434,-0.1434,-4.4541,-4.4541, 0.0004,      0, 9.2506, 9.2506, 9.2506, 9.2506, 9.3834, 9.3834,      0,      0,      0, 71.10590},
-                                            {      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      4.0},
-                                            {      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      1.0},
-                                            {      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      1.0}};
+  constexpr std::vector<std::vector<float>> coeffs = {
+  //  in_ch ;   in_h;   in_w;  fil_h;  fil_w; out_ch;  batch;  lPadH;  lPadW;  rPadH;  rPadW;   strH;   strW;   dilH;   dilW;  group;  const;
+    { 0.0175,-1.1229,-1.1229,-12.153,-12.153,-0.0413, 0.0000,47.5203,47.5203,47.5203,47.5203,55.0025,55.0025, 0.0000, 0.0000, 0.0000, 108.5339},
+    { -0.014, 0.0725, 0.0725,-4.2654,-4.2654,   0.01,      0,-3.6256,-3.6256,-3.6256,-3.6256,-8.0965,-8.0965,      0,      0,      0, 150.3692},
+    { 0.0001, 0.0179, 0.0179, 0.0814, 0.0814, 0.0004,      0,-0.0223,-0.0223,-0.0223,-0.0223,-0.4386,-0.4386,      0,      0,      0, 3.866194},
+    { 0.0045, -0.132, -0.132,-0.7859,-0.7859, 0.0063,      0,-0.5036,-0.5036,-0.5036,-0.5036,  3.624,  3.624,      0,      0,      0, 70.81350},
+    { -0.009,-0.1434,-0.1434,-4.4541,-4.4541, 0.0004,      0, 9.2506, 9.2506, 9.2506, 9.2506, 9.3834, 9.3834,      0,      0,      0, 71.10590},
+    {      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      4.0},
+    {      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      1.0},
+    {      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      1.0}};
   // clang-format on
 
   std::vector<float> variables = {
