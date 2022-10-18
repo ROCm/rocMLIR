@@ -38,6 +38,8 @@
 #include "llvm/IRReader/IRReader.h"
 #include "llvm/Linker/Linker.h"
 
+#include "lld/Common/Driver.h"
+
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCCodeEmitter.h"
@@ -468,15 +470,17 @@ SerializeToHsacoPass::createHsaco(const SmallVectorImpl<char> &isaBinary) {
   }
   llvm::FileRemover cleanupHsaco(tempHsacoFilename);
 
-  std::string theRocmPath = getRocmPath();
-  llvm::SmallString<32> lldPath(theRocmPath);
-  llvm::sys::path::append(lldPath, "llvm", "bin", "ld.lld");
-  int lldResult = llvm::sys::ExecuteAndWait(
-      lldPath,
-      {"ld.lld", "-shared", tempIsaBinaryFilename, "-o", tempHsacoFilename});
-  if (lldResult != 0) {
-    emitError(loc, "lld invocation error");
-    return {};
+  {
+    static std::mutex mutex;
+    const std::lock_guard<std::mutex> lock(mutex);
+    // Invoke lld. Expect a true return value from lld.
+    if (!lld::elf::link({"ld.lld", "-shared", tempIsaBinaryFilename.c_str(),
+                         "-o", tempHsacoFilename.c_str()},
+                        llvm::outs(), llvm::errs(), false, false)) {
+      emitError(loc, "lld invocation error");
+      return {};
+    }
+    lld::CommonLinkerContext::destroy();
   }
 
   // Load the HSA code object.
