@@ -11,6 +11,7 @@ module {
     %1 = memref.alloc() : memref<128x32x32x1x8xf32>
     %2 = memref.alloc() : memref<128x30x30x1x128xf32>
 
+    %cst = arith.constant 1.0 : f32
     linalg.fill ins(%cst : f32) outs(%0 : memref<1x128x3x3x8xf32>)
     linalg.fill ins(%cst : f32) outs(%1 : memref<128x32x32x1x8xf32>)
     linalg.fill ins(%cst : f32) outs(%2 : memref<128x30x30x1x128xf32>)
