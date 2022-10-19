@@ -21,6 +21,7 @@ set(LIBS
   MLIRExecutionEngine
   MLIRRockOps
   MLIRRockPipeline
+  MLIRXModelPipeline
   MLIRParser
   MLIRPass
   MLIRQuantDialect

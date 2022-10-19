@@ -22,7 +22,6 @@
 
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
-#include "mlir/Dialect/Rock/Pipelines/XMIRPipelines.h"
 
 #include "mlir/Conversion/RocMLIRPasses.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
@@ -38,33 +37,6 @@
 using namespace mlir;
 
 //===- Consolidate the Rock Pipelines here ---------------------===//
-
-void rock::buildPartitionPipeline(OpPassManager &pm,
-                                    const rock::PartitionOptions &options) {
-  // TOSA partitioning pass
-  // make 'kernel' funcs with tosa dataflow
-  /* rocmlir-opt --tosa-layerwise-constant-fold --tosa-make-broadcastable
-         --tosa-optional-decompositions --tosa-partition
-   */
-  pm.addNestedPass<func::FuncOp>(tosa::createTosaLayerwiseConstantFoldPass());
-  pm.addNestedPass<func::FuncOp>(tosa::createTosaMakeBroadcastablePass());
-  pm.addNestedPass<func::FuncOp>(tosa::createTosaOptionalDecompositions());
-  pm.addPass(
-      tosa::createTosaPartition({{"tosa.conv2d", "tosa.depthwise_conv2d"}}));
-
-  // make async kernel launch's
-  /* rocmlir-opt --rock-async-launch
-   */
-  pm.addNestedPass<func::FuncOp>(createRockAsyncLaunchPass());
-
-  if (options.cloneToRockModule) {
-    // clone 'kernel' funcs into __rock module
-    /* rocmlir-opt --rock-clone-kernels
-     */
-    pm.addPass(rock::createRockCloneKernelsPass(
-        rock::RockCloneKernelsPassOptions{options.targets}));
-  }
-}
 
 void rock::buildBufferizePipeline(OpPassManager &pm,
                                     const rock::BufferizeOptions &options) {
@@ -200,10 +172,6 @@ void rock::buildBackendPipeline(OpPassManager &pm,
 //===----------------------------------------------------------------------===//
 
 void rock::registerPipelines() {
-  PassPipelineRegistration<rock::PartitionOptions>(
-      "rock-partition-pipeline",
-      " representations and algorithms for sparse tensors.",
-      buildPartitionPipeline);
   PassPipelineRegistration<rock::BufferizeOptions>(
       "rock-bufferize-pipeline",
       " representations and algorithms for sparse tensors.",
@@ -216,6 +184,4 @@ void rock::registerPipelines() {
       "rock-backend-pipeline",
       " representations and algorithms for sparse tensors.",
       buildBackendPipeline);
-
-  xmir::registerPipelines();
 }

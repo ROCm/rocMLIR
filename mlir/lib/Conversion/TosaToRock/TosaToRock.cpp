@@ -90,11 +90,11 @@ getArchAttributes(Operation *op) {
 
   if (auto attr = op->getAttrOfType<StringAttr>("arch"))
     arch = attr;
-  else if (auto attr = func->getAttrOfType<StringAttr>("kernel.arch"))
+  else if (auto attr = func->getAttrOfType<StringAttr>("xmodel.arch"))
     arch = attr;
   else if (auto attr = func->getAttrOfType<StringAttr>("arch"))
     arch = attr;
-  else if (auto attr = mod->getAttrOfType<StringAttr>("kernel.arch"))
+  else if (auto attr = mod->getAttrOfType<StringAttr>("xmodel.arch"))
     arch = attr;
 
   if (auto attr = op->getAttrOfType<IntegerAttr>("num_cu"))

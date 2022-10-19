@@ -1,12 +1,10 @@
 add_mlir_dialect_library(MLIRRockPipeline
   Pipelines.cpp
-  XMIRPipelines.cpp
 
   LINK_LIBS PUBLIC
   MLIRDialect
   MLIRFuncDialect
   MLIRTensorToLinalg
-  MLIRAsyncToGPU
   MLIRTosaToRock
   MLIRTosaToLinalg
   MLIRTosaToSCF
