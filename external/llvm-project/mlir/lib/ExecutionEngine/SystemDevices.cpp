@@ -61,18 +61,24 @@ SystemDevices::find(SystemDevice::Type type,
   }
 
   for (const SystemDevice *const device : devices) {
-    bool matches = (type == device->type) &&
-                   (maybeTriple.empty() || maybeTriple == device->llvmTriple) &&
-                   (chip.empty() || chip == device->chip);
-    if (matches && !features.empty()) {
-      for (const llvm::StringMapEntry<bool> &feature : features) {
-        StringRef key = feature.getKey();
-        matches &= (device->features.count(key) != 0 &&
-                    device->features.lookup(key) == feature.getValue());
+    if (partialArchName.empty()) {
+      if (type == device->type)
+        return device;
+    } else {
+      bool matches =
+          (type == device->type) &&
+          (maybeTriple.empty() || maybeTriple == device->llvmTriple) &&
+          (chip.empty() || chip == device->chip);
+      if (matches && !features.empty()) {
+        for (const llvm::StringMapEntry<bool> &feature : features) {
+          StringRef key = feature.getKey();
+          matches &= (device->features.count(key) != 0 &&
+                      device->features.lookup(key) == feature.getValue());
+        }
       }
+      if (matches)
+        return device;
     }
-    if (matches)
-      return device;
   }
   return failure();
 }
