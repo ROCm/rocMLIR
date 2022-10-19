@@ -34,6 +34,8 @@
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Transform/Transforms/Passes.h"
 #include "mlir/Dialect/Vector/Transforms/Passes.h"
+#include "mlir/Dialect/XModel/Pipelines/Pipelines.h"
+#include "mlir/Dialect/XModel/Transforms/Passes.h"
 #include "mlir/Transforms/Passes.h"
 
 #include <cstdlib>
@@ -75,9 +77,11 @@ inline void registerAllPasses() {
   tosa::registerTosaOptPasses();
   transform::registerTransformPasses();
   vector::registerVectorPasses();
+  xmodel::registerPasses();
 
   // Dialect pipelines
   sparse_tensor::registerSparseTensorPipelines();
+  xmodel::registerPipelines();
 }
 
 } // namespace mlir
