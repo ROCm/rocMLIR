@@ -351,6 +351,19 @@ llvm.func @rocdl.raw.buffer.i32(%rsrc : vector<4xi32>,
   llvm.return
 }
 
+llvm.func @rocdl.waitcnt(%arg0 : i32) {
+  // CHECK-LABEL: rocdl.waitcnt
+  // CHECK: rocdl.waitcnt
+  rocdl.waitcnt %arg0
+  llvm.return
+}
+
+llvm.func @rocdl.s.barrier() {
+  // CHECK-LABEL: rocdl.s.barrier
+  // CHECK: rocdl.s.barrier
+  rocdl.s.barrier
+  llvm.return
+}
 // -----
 
 // expected-error@below {{attribute attached to unexpected op}}
