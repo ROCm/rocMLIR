@@ -196,6 +196,12 @@ SerializeToHsacoPass::translateToLLVMIR(llvm::LLVMContext &llvmContext) {
     return ret;
   }
 
+  gpu::GPUModuleOp gpuMod = getOperation();
+  OpBuilder b(gpuMod->getContext());
+  gpuMod->setAttr("xmodel.chip", b.getStringAttr(chip));
+  gpuMod->setAttr("xmodel.triple", b.getStringAttr(triple));
+  gpuMod->setAttr("xmodel.features", b.getStringAttr(features));
+
   // Walk the LLVM module in order to determine if we need to link in device
   // libs
   bool needOpenCl = false;
