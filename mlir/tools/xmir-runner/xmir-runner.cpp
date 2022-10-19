@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Rock/Pipelines/XMIRPipelines.h"
+#include "mlir/Dialect/XModel/Pipelines/Pipelines.h"
 
 #include "mlir/ExecutionEngine/CpuSystemDetect.h"
 #include "mlir/ExecutionEngine/JitRunner.h"
@@ -42,8 +42,8 @@ using namespace llvm;
 // CLI switch for launch-mode
 static cl::opt<std::string> targetType("target-type",
                                        cl::desc("Kernel target type"),
-                                       cl::value_desc("valid options: gpu,cpu"),
-                                       cl::init("gpu"));
+                                       cl::value_desc("valid options: GPU,CPU"),
+                                       cl::init("GPU"));
 static cl::opt<std::string>
     targetChip("target-chip", cl::desc("Specify target chip"), cl::init(""));
 
@@ -69,43 +69,25 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
           .CaseLower("gpu", SystemDevice::Type::EGPU)
           .CaseLower("cpu", SystemDevice::Type::ECPU);
 
-  auto testChip = [&targetTypeEnum](StringRef chip) -> bool {
-    if (targetChip.getValue().empty()) {
-      auto devices = SystemDevices::get<CpuSystemDetect, RocmSystemDetect>();
-      return succeeded(devices.find(targetTypeEnum, chip));
-    }
-    return targetChip == chip;
-  };
-
-  // walk and select targets
-  OpBuilder b(m);
-  m->walk([&](func::FuncOp func) {
-    if (auto targets = func->getAttrOfType<ArrayAttr>("async.targets")) {
-      DictionaryAttr targetDict;
-      for (auto targetAttr : targets.getValue()) {
-        auto dictAttr = targetAttr.cast<DictionaryAttr>();
-        if (auto type = dictAttr.getAs<StringAttr>("type")) {
-          auto chip = dictAttr.getAs<StringAttr>("arch");
-          if (type == targetType && testChip(chip.getValue())) {
-            // test perf?
-            targetDict = dictAttr;
-            break;
-          }
-        }
-      }
-      if (targetDict)
-        func->setAttr("async.targets", b.getArrayAttr(targetDict));
-      else {
-        func->removeAttr("async.targets");
-      }
-    }
-  });
+  SmallVector<std::string, 4> targetChips;
+  if (targetChip.getValue().empty()) {
+    auto devices = SystemDevices::get<CpuSystemDetect, RocmSystemDetect>();
+    auto device = devices.find(targetTypeEnum);
+    if (succeeded(device))
+      targetChips.push_back((*device)->chip.str().str());
+  } else {
+    targetChips.push_back(targetChip);
+  }
 
   // Host Compiler/Scheduler Pipeline
   PassManager pm(m.getContext());
   applyPassManagerCLOptions(pm);
 
-  xmir::buildRunnerPipeline(pm);
+  xmodel::RunnerOptions opts;
+  opts.targetTypes = {targetType};
+  opts.targetChips = targetChips;
+
+  xmodel::buildRunnerPipeline(pm);
 
   return pm.run(m);
 }

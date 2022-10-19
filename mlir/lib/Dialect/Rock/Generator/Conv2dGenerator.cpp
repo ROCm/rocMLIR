@@ -769,7 +769,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
 
   // Annotate kernel attribute to the FuncOp.
   NamedAttribute archAttr =
-      builder.getNamedAttr("kernel.arch", builder.getStringAttr(config.arch));
+      builder.getNamedAttr("xmodel.arch", builder.getStringAttr(config.arch));
   SmallVector<NamedAttribute, 2> kernelAttrs = {
       builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernel_id)),
       archAttr};

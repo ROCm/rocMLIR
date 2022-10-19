@@ -1,12 +1,9 @@
 add_mlir_dialect_library(MLIRRockTransforms
   AffixTuningParameters.cpp
   AlignTiling.cpp
-  ApplyImpl.cpp
-  AsyncLaunch.cpp
   BlockwiseGemmToThreadwise.cpp
   BufferizableOpInterfaceImpl.cpp
   CleanMath.cpp
-  CloneKernels.cpp
   CopyOpt.cpp
   ConvToGemm.cpp
   FoldTranspose.cpp
@@ -28,6 +25,7 @@ add_mlir_dialect_library(MLIRRockTransforms
   MLIRBufferizationDialect
   MLIRBufferizationTransforms
   MLIRDialect
+  MLIRXModel
   MLIRFuncDialect
   MLIRIR
   MLIRPass
