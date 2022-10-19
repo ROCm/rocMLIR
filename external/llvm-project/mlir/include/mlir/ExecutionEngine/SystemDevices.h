@@ -51,7 +51,7 @@ public:
   }
 
   FailureOr<const SystemDevice *const>
-  find(SystemDevice::Type type, llvm::StringRef partialArchName) const;
+  find(SystemDevice::Type type, llvm::StringRef partialArchName = "") const;
 
   void dump() const;
 
