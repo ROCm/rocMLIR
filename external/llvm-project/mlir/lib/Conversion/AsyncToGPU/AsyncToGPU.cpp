@@ -64,7 +64,7 @@ static Optional<DictionaryAttr> getGPUTarget(async::LaunchOp op) {
   if (!func.has_value() || func->getNumResults() != 0)
     return llvm::None;
 
-  auto attr = (*func)->template getAttrOfType<ArrayAttr>("async.targets");
+  auto attr = (*func)->template getAttrOfType<ArrayAttr>("xmodel.targets");
   if (!attr)
     return llvm::None;
 
@@ -318,7 +318,7 @@ void ConvertAsyncToGPUPass::runOnOperation() {
   MLIRContext *ctx = module->getContext();
 
   {
-    // Convert async.launch to gpu.launch if async.targets[gpu] exists
+    // Convert async.launch to gpu.launch if xmodel.targets[gpu] exists
     RewritePatternSet patterns(ctx);
     patterns.add<LaunchRewritePattern>(ctx);
 
