@@ -240,7 +240,7 @@ struct rock::TunableParams *
 createTunableParams(rock::RockGemmWrapperInterface op) {
   struct rock::TunableParams *newSpace;
   newSpace = new rock::TunableParams();
-  newSpace->primaryOpType = op->getKernelType();
+  newSpace->primaryOpType =  op.getKernelType();
   // create range and heuristic
   createGemmTuningRangeBF(newSpace, op);
   return newSpace;
@@ -254,17 +254,18 @@ createTunableParams(rock::RockGemmWrapperInterface op) {
 // Stringfy given param
 std::string toPerfConfig(Attribute param) {
   std::string result;
-  if (auto paramAttr = dyn_cast<rock::XdlopsGemmParamsAttr>(param)) {
-    result.append(std::to_string(paramAttr.getMPerBlock()));
+  if (auto paramXAttr = dyn_cast<rock::XdlopsGemmParamsAttr>(param)) {
+    result.append(std::to_string(paramXAttr.getMPerBlock()));
     result.append(",");
-    result.append(std::to_string(paramAttr.getNPerBlock()));
+    result.append(std::to_string(paramXAttr.getNPerBlock()));
     result.append(",");
-    result.append(std::to_string(paramAttr.getKPerBlock()));
+    result.append(std::to_string(paramXAttr.getKPerBlock()));
     result.append(",");
-    result.append(std::to_string(paramAttr.getMPerWave()));
+    result.append(std::to_string(paramXAttr.getMPerWave()));
     result.append(",");
-    result.append(std::to_string(paramAttr.getNPerWave()));
+    result.append(std::to_string(paramXAttr.getNPerWave()));
   } else {
+    auto paramAttr = dyn_cast<rock::GeneralGemmParamsAttr>(param);
     result.append(std::to_string(paramAttr.getMPerBlock()));
     result.append(",");
     result.append(std::to_string(paramAttr.getNPerBlock()));
