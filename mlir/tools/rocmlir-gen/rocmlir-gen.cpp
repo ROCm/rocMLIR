@@ -25,6 +25,7 @@
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/AffineExpr.h"
@@ -506,6 +507,11 @@ static llvm::cl::opt<int> deviceNum(
                          "Omission leaves current device intact."));
 static llvm::cl::alias deviceShort("dev", llvm::cl::aliasopt(deviceNum));
 
+static llvm::cl::opt<int> kernelRepeats(
+    "kernel-repeats",
+    llvm::cl::desc("Number of times to repeat the kernel invocation"),
+    llvm::cl::value_desc("positive integer"), llvm::cl::init(1));
+
 ////////////////////////////////////////////////////////////////////////////////
 ////  Struct KernelIF
 ////  - Detected/capture kernel interface
@@ -845,9 +851,28 @@ static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
     b.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{gpuAlloc, arg});
   }
 
-  // Emit kernel function call.
-  auto wrappedCall = b.create<func::CallOp>(loc, kernel.func, gpuMem);
-  wrappedCall->setAttr("wrapped_call", b.getUnitAttr());
+  // Emit kernel function call, repeating it if needed.
+  // We assume that the repeated atomic add usages in a wrw kernel will not
+  // substantially impact performance as the result becomes large
+  auto emitWrappedCall = [&kernel, &gpuMem](OpBuilder &b, Location loc,
+                                            Value ignoredIv,
+                                            ValueRange noArgs) {
+    auto wrappedCall = b.create<func::CallOp>(loc, kernel.func, gpuMem);
+    wrappedCall->setAttr("wrapped_call", b.getUnitAttr());
+    if (ignoredIv) { // we're creating an actual loop
+      b.create<scf::YieldOp>(loc);
+    }
+  };
+  if (kernelRepeats > 1) {
+    Value zeroOp = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+    Value kernelRepeatsOp =
+        b.createOrFold<arith::ConstantIndexOp>(loc, kernelRepeats);
+    Value step = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
+    b.create<scf::ForOp>(loc, zeroOp, kernelRepeatsOp, step,
+                         /*args=*/llvm::None, emitWrappedCall);
+  } else {
+    emitWrappedCall(b, loc, nullptr, {});
+  }
 
   for (auto &pair : llvm::enumerate(kernel.params)) {
     uint32_t i = pair.index();

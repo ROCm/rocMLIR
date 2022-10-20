@@ -76,10 +76,9 @@ def find_mlir_build_dir() -> str:
             assert search_root, "Cant find WORKSPACE env arg or home directory"
 
         rocmlir_gen_path = glob.glob(search_root + '/**/bin/rocmlir-gen', recursive=True)
-        if len(rocmlir_gen_path) == 0:
-            # rocmlir_gen not available
+        if len(rocmlir_gen_path) != 1:
+            # rocmlir_gen not available or ambiguous
             return None
-        assert len(rocmlir_gen_path) == 1, "Multiple paths found to contain */bin/rocmlir-gen"
         rocmlir_gen_path = rocmlir_gen_path[0]
 
     build_dir = Path(rocmlir_gen_path).parent.parent
@@ -107,10 +106,9 @@ def find_miopen_build_dir() -> str:
         search_root = os.environ.get('WORKSPACE', str(Path.home()))
         assert search_root, "Cant find WORKSPACE env arg or home directory"
         miopen_driver_path = glob.glob(search_root + '/**/bin/MIOpenDriver', recursive=True)
-        if len(miopen_driver_path) == 0:
-            # MIOpen driver not available
+        if len(miopen_driver_path) != 1:
+            # MIOpen driver not available or ambiguous
             return None
-        assert len(miopen_driver_path) == 1, "Multiple paths found to contain */bin/MIOpenDriver"
         miopen_driver_path = miopen_driver_path[0]
 
     miopen_build_dir = Path(miopen_driver_path).parent.parent
@@ -178,9 +176,11 @@ def getNanoSeconds(fileName):
 class ConvConfiguration:
     def computeTFlops(self, ns):
         # NaN will propagate as expected
+        # Repeats are handled by the fact that we're using avarageNs
         return (2.0 * self.n * self.c * self.k * self.ho * self.wo * self.y * self.x) / (float(ns) * 1e-9) / 1e12
 
     TABLE_COLUMNS = reportUtils.TEST_PARAMETERS + ['TFlops']
+    MLIR_N_REPEATS = 5
 
     def tableEntry(self, nanoSeconds):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
@@ -224,13 +224,15 @@ class ConvConfiguration:
                            '--conv_stride_h', str(self.convStrideH),
                            '--conv_stride_w', str(self.convStrideW),
                            '--padding_h', str(self.paddingH),
-                           '--padding_w', str(self.paddingW)])
+                           '--padding_w', str(self.paddingW),
+                           '--kernel-repeats', str(self.MLIR_N_REPEATS)])
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
         return result
 
     MLIR_FILTER_LAYOUTS = {"NCHW": "kcyx", "NHWC": "kyxc"}
     MLIR_OUTPUT_LAYOUTS = {"NCHW": "nkhw", "NHWC": "nhwk"}
+
 
     @classmethod
     def fromCommandLine(cls, argv, arch):
