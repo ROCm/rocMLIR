@@ -37,15 +37,14 @@ void createGemmTuningRangeBF(struct rock::TunableParams *newSpace,
   if (bitEnumContainsAll(currentFeatures, rock::GemmFeatures::mfma)) {
     // XDLOPS
     // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-    constexpr std::vector<std::vector<uint32_t>> tParams = {
-        {4, 8, 16, 32, 64, 128},
-        {16, 32, 64, 128},
-        {16, 32, 64, 128},
-        {16, 32, 64},
-        {16, 32, 64},
-        {1, 4},
-        {0},
-        {0}};
+    const std::vector<std::vector<uint32_t>> tParams = {{4, 8, 16, 32, 64, 128},
+                                                        {16, 32, 64, 128},
+                                                        {16, 32, 64, 128},
+                                                        {16, 32, 64},
+                                                        {16, 32, 64},
+                                                        {1, 4},
+                                                        {0},
+                                                        {0}};
 
     for (uint32_t gemmMPerBlock : tParams[0]) {
       for (uint32_t gemmNPerBlock : tParams[1]) {
@@ -66,7 +65,7 @@ void createGemmTuningRangeBF(struct rock::TunableParams *newSpace,
   } else {
     // Non-XDLOPS
     // M/block N/block K/block M/thread N/thread
-    constexpr std::vector<std::vector<uint32_t>> tParams = {
+    const std::vector<std::vector<uint32_t>> tParams = {
         {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
     for (uint32_t gemmMPerBlock : tParams[0]) {
       for (uint32_t gemmNPerBlock : tParams[1]) {
@@ -160,7 +159,7 @@ void createConv2DFwdTuningRangeMLR(struct rock::TunableParams *newSpace,
 
   // clang-format off
   // From gfx90878_1.1.0.udb tuned at 9.Oct.2022  Weekly CI xdlops
-  constexpr std::vector<std::vector<float>> coeffs = {
+  const std::vector<std::vector<float>> coeffs = {
   //  in_ch ;   in_h;   in_w;  fil_h;  fil_w; out_ch;  batch;  lPadH;  lPadW;
 rPadH;  rPadW;   strH;   strW;   dilH;   dilW;  group;  const; {
 0.0175,-1.1229,-1.1229,-12.153,-12.153,-0.0413,
@@ -238,13 +237,13 @@ rPadH;  rPadW;   strH;   strW;   dilH;   dilW;  group;  const; {
 */
 
 struct rock::TunableParams *
-createTunableParams(rock::RockGemmWrapperInterface *op) {
+createTunableParams(rock::RockGemmWrapperInterface &op) {
   struct rock::TunableParams *newSpace;
   // FIXME : cases per conv direction
   rock::KernelType primaryType = op->getKernelType();
   if (primaryType == rock::KernelType::KernelTypeConv2D) {
     newSpace = new rock::TunableParams();
-    newSpace->opType = rock::KernelType::KernelTypeConv2D;
+    newSpace->primaryOpType = rock::KernelType::KernelTypeConv2D;
     // create range and heuristic
     createGemmTuningRangeBF(newSpace, op);
   } else if (primaryType == rock::KernelType::KernelTypeGemm) {
@@ -258,11 +257,8 @@ createTunableParams(rock::RockGemmWrapperInterface *op) {
 /// rockTuningImpl.cpp----------///////////
 
 //////// This one to gemm wrapper interfasce
-M / block N / block K / block M / wave N /
-    wave kPack aCopyMore bCopyMore
-        // Stringfy given param
-        std::string
-        toPerfConfig(Attribute param) {
+// Stringfy given param
+std::string toPerfConfig(Attribute param) {
   std::string result;
   if (auto paramAttr = dyn_cast<rock::XdlopsGemmParams>(param)) {
     result.append(std::to_string(paramAttr.getMPerBlock()));
