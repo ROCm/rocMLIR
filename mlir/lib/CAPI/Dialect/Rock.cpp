@@ -254,7 +254,7 @@ createTunableParams(rock::RockGemmWrapperInterface op) {
 // Stringfy given param
 std::string toPerfConfig(Attribute param) {
   std::string result;
-  if (auto paramXAttr = dyn_cast<rock::XdlopsGemmParamsAttr>(param)) {
+  if (auto paramXAttr = param.dyn_cast<rock::XdlopsGemmParamsAttr>()) {
     result.append(std::to_string(paramXAttr.getMPerBlock()));
     result.append(",");
     result.append(std::to_string(paramXAttr.getNPerBlock()));
@@ -265,7 +265,7 @@ std::string toPerfConfig(Attribute param) {
     result.append(",");
     result.append(std::to_string(paramXAttr.getNPerWave()));
   } else {
-    auto paramAttr = dyn_cast<rock::GeneralGemmParamsAttr>(param);
+    auto paramAttr = param.dyn_cast<rock::GeneralGemmParamsAttr>();
     result.append(std::to_string(paramAttr.getMPerBlock()));
     result.append(",");
     result.append(std::to_string(paramAttr.getNPerBlock()));
