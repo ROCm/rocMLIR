@@ -904,18 +904,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());
 
-      // LDS barrier.
-      b.create<LDSBarrierOp>(loc);
-
-      // Emit blockwise GEMM.
-      blockwiseGemmOp = b.create<BlockwiseGemmOp>(
-          loc, ldsMatrixASubviewOp, ldsMatrixBSubviewOp, registerMatrixCViewOp,
-          op.getBlockSizeAttr(), op.getParamsAttr());
-
-      // LDS barrier.
-      // This barrier prevents halo part of outputs having weird values.
-      b.create<LDSBarrierOp>(loc);
-
       // We don't update in the clone becasue we might accidentally replace
       // other zeroes.
       Value iv = loopOp.getInductionVar();
@@ -933,6 +921,18 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
           blockwiseLoadBClone.getUpperInits(/*domain=*/0)
               .getBeginOperandIndex(),
           iv);
+
+      // LDS barrier.
+      b.create<LDSBarrierOp>(loc);
+
+      // Emit blockwise GEMM.
+      blockwiseGemmOp = b.create<BlockwiseGemmOp>(
+          loc, ldsMatrixASubviewOp, ldsMatrixBSubviewOp, registerMatrixCViewOp,
+          op.getBlockSizeAttr(), op.getParamsAttr());
+
+      // LDS barrier.
+      // This barrier prevents halo part of outputs having weird values.
+      b.create<LDSBarrierOp>(loc);
 
       // Emit blockwise stores
       BlockAndValueMapping storeAUpdates, storeBUpdates;
