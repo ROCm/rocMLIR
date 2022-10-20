@@ -11,7 +11,6 @@
 #define MLIR_C_DIALECT_ROCK_H
 
 #include "mlir-c/Pass.h"
-#include "mlir-c/Registration.h"
 
 #ifdef __cplusplus
 extern "C" {

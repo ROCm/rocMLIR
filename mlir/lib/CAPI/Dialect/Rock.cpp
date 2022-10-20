@@ -34,7 +34,7 @@ void createGemmTuningRangeBF(struct rock::TunableParams *newSpace,
 
   OpBuilder b(gemmOp.getContext());
   rock::GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
-  if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
+  if (bitEnumContainsAll(currentFeatures, rock::GemmFeatures::mfma)) {
     // XDLOPS
     // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
     constexpr std::vector<std::vector<uint32_t>> tParams = {
@@ -53,7 +53,7 @@ void createGemmTuningRangeBF(struct rock::TunableParams *newSpace,
           for (uint32_t gemmMPerWave : tParams[3]) {
             for (uint32_t gemmNPerWave : tParams[4]) {
               for (uint32_t gemmKPack : tParams[5]) {
-                Attribute gemmParams = b.getAttr<XdlopsGemmParamsAttr>(
+                Attribute gemmParams = b.getAttr<rock::XdlopsGemmParamsAttr>(
                     gemmKPerBlock, gemmMPerBlock, gemmNPerBlock, gemmKPack,
                     gemmMPerWave, gemmNPerWave);
                 newSpace->tuningRange.push_back(gemmParams);
@@ -73,7 +73,7 @@ void createGemmTuningRangeBF(struct rock::TunableParams *newSpace,
         for (uint32_t gemmKPerBlock : tParams[2]) {
           for (uint32_t gemmMPerThread : tParams[3]) {
             for (uint32_t gemmNPerThread : tParams[4]) {
-              Attribute gemmParams = b.getAttr<GeneralGemmParamsAttr>(
+              Attribute gemmParams = b.getAttr<rock::GeneralGemmParamsAttr>(
                   gemmKPerBlock, gemmMPerBlock, gemmNPerBlock,
                   /*kPerThread=*/1, gemmMPerThread, gemmNPerThread,
                   /*kpack=*/1);
@@ -242,12 +242,12 @@ createTunableParams(rock::RockGemmWrapperInterface *op) {
   struct rock::TunableParams *newSpace;
   // FIXME : cases per conv direction
   rock::KernelType primaryType = op->getKernelType();
-  if (primaryType == rock::KernelTypeConv2D) {
+  if (primaryType == rock::KernelType::KernelTypeConv2D) {
     newSpace = new rock::TunableParams();
-    newSpace->opType = rock::KernelTypeConv2D;
+    newSpace->opType = rock::KernelType::KernelTypeConv2D;
     // create range and heuristic
     createGemmTuningRangeBF(newSpace, op);
-  } else if (primaryType == rock::KernelTypeGemm) {
+  } else if (primaryType == rock::KernelType::KernelTypeGemm) {
     newSpace = nullptr; // not supported yet
   }
   return newSpace;
@@ -264,7 +264,7 @@ M / block N / block K / block M / wave N /
         std::string
         toPerfConfig(Attribute param) {
   std::string result;
-  if (auto paramAttr = dyn_cast<XdlopsGemmParams>(param)) {
+  if (auto paramAttr = dyn_cast<rock::XdlopsGemmParams>(param)) {
     result.append(std::to_string(paramAttr.getMPerBlock()));
     result.append(",");
     result.append(std::to_string(paramAttr.getNPerBlock()));
