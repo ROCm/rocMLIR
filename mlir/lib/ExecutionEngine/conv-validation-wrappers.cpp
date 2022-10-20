@@ -23,493 +23,29 @@
 #include <cmath>
 #include <unordered_map>
 
-typedef union bf16_fp32_cvt {
-  uint u32;
-  unsigned short ushortvec[2];
-  float f32;
-} bf16_fp32_cvt_t;
-
-static float bfloat16_to_float(ushort src_val) {
-  bf16_fp32_cvt_t target_val;
-  target_val.ushortvec[1] = src_val;
-  target_val.ushortvec[0] = 0;
-  return target_val.f32;
+extern "C" void seedRandomValues(uint32_t seed) {
+  if (seed == 0)
+    std::srand(time(0));
+  else
+    std::srand(seed);
 }
 
-static unsigned short float_to_bfloat16(float src_val) {
-  bf16_fp32_cvt_t target_val;
-  target_val.f32 = src_val;
-  return target_val.ushortvec[1];
-}
-
-// Generate tables for float-to-fp16 conversion
-// ref. http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
-static int generateTables(unsigned short *basetable,
-                          unsigned char *shifttable) {
-  unsigned int i;
-  int e;
-  for (i = 0; i < 256; ++i) {
-    e = i - 127;
-    if (e < -24) { // Very small numbers map to zero
-      basetable[i | 0x000] = 0x0000;
-      basetable[i | 0x100] = 0x8000;
-      shifttable[i | 0x000] = 24;
-      shifttable[i | 0x100] = 24;
-    } else if (e < -14) { // Small numbers map to denorms
-      basetable[i | 0x000] = (0x0400 >> (-e - 14));
-      basetable[i | 0x100] = (0x0400 >> (-e - 14)) | 0x8000;
-      shifttable[i | 0x000] = -e - 1;
-      shifttable[i | 0x100] = -e - 1;
-    } else if (e <= 15) { // Normal numbers just lose precision
-      basetable[i | 0x000] = ((e + 15) << 10);
-      basetable[i | 0x100] = ((e + 15) << 10) | 0x8000;
-      shifttable[i | 0x000] = 13;
-      shifttable[i | 0x100] = 13;
-    } else if (e < 128) { // Large numbers map to Infinity
-      basetable[i | 0x000] = 0x7C00;
-      basetable[i | 0x100] = 0xFC00;
-      shifttable[i | 0x000] = 24;
-      shifttable[i | 0x100] = 24;
-    } else { // Infinity and NaN's stay Infinity and NaN's
-      basetable[i | 0x000] = 0x7C00;
-      basetable[i | 0x100] = 0xFC00;
-      shifttable[i | 0x000] = 13;
-      shifttable[i | 0x100] = 13;
-    }
-  }
-
-  return 1;
-}
-
-static unsigned short float_to_fp16(float src_val) {
-  // Generate tables for converting float to fp16
-  static unsigned short basetable[512];
-  static unsigned char shifttable[512];
-  static std::once_flag flag;
-  std::call_once(flag, generateTables, basetable, shifttable);
-
-  // ref. http://www.fox-toolkit.org/ftp/fasthalffloatconversion.pdf
-  bf16_fp32_cvt_t target_val;
-  target_val.f32 = src_val;
-
-  unsigned int b = target_val.u32;
-  unsigned short h = basetable[(b >> 23) & 0x1ff] +
-                     ((b & 0x007fffff) >> shifttable[(b >> 23) & 0x1ff]);
-  return h;
-}
-
-short randomIntegerValue(short min, short max) {
+extern "C" float randomIntegerValue(int16_t min, int16_t max) {
   if (min == max)
     return min;
-  return (std::rand() % (max - min)) + min;
+  int16_t randVal = (std::rand() % (max - min)) + min;
+  return static_cast<float>(randVal);
 }
 
-float randomFloatValue(short min, short max) {
+extern "C" float randomFloatValue(int16_t min, int16_t max) {
   auto minAsF = static_cast<float>(min);
   if (min == max)
-    return minAsF * 0.1f; // avoid inf
+    // Lower float values to prevent inf in big fp16 tests where not all sides
+    // are randomized
+    return minAsF * 0.1;
   return static_cast<float>((max - min) * static_cast<double>(std::rand()) /
                             static_cast<double>(RAND_MAX)) +
          minAsF;
-}
-
-extern "C" void mcpuMemset(float *allocated, float *aligned, int64_t offset,
-                           int64_t size, int64_t stride, float value) {
-  for (unsigned i = 0; i < size; ++i) {
-    aligned[i] = value;
-  }
-}
-
-extern "C" void
-mcpuMemset5DInt8RandInt(int8_t *allocated, int8_t *aligned, int64_t offset,
-                        int64_t size0, int64_t size1, int64_t size2,
-                        int64_t size3, int64_t size4, int64_t stride0,
-                        int64_t stride1, int64_t stride2, int64_t stride3,
-                        int64_t stride4, short min, short max, uint32_t seed) {
-  if (seed == 0)
-    std::srand(time(0));
-  else
-    std::srand(seed);
-
-  int8_t value;
-  for (unsigned i = 0; i < size0; ++i)
-    for (unsigned j = 0; j < size1; ++j)
-      for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l)
-          for (unsigned m = 0; m < size4; ++m) {
-            value = (int8_t)randomIntegerValue(min, max);
-            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
-                    m * stride4] = value;
-          }
-}
-
-extern "C" void
-mcpuMemset5DInt32RandInt(int32_t *allocated, int32_t *aligned, int64_t offset,
-                         int64_t size0, int64_t size1, int64_t size2,
-                         int64_t size3, int64_t size4, int64_t stride0,
-                         int64_t stride1, int64_t stride2, int64_t stride3,
-                         int64_t stride4, short min, short max, uint32_t seed) {
-  if (seed == 0)
-    std::srand(time(0));
-  else
-    std::srand(seed);
-
-  int32_t value;
-  for (unsigned i = 0; i < size0; ++i)
-    for (unsigned j = 0; j < size1; ++j)
-      for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l)
-          for (unsigned m = 0; m < size4; ++m) {
-            value = (int32_t)randomIntegerValue(min, max);
-            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
-                    m * stride4] = value;
-          }
-}
-
-extern "C" void mcpuMem5DFloatConvertHalf(
-    float *sourceAllocated, float *sourceAligned, int64_t sourceOffset,
-    int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
-    int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
-    int64_t stride4, unsigned short *destAllocated, unsigned short *destAligned,
-    int64_t destOffset, int64_t size5, int64_t size6, int64_t size7,
-    int64_t size8, int64_t size9, int64_t stride5, int64_t stride6,
-    int64_t stride7, int64_t stride8, int64_t stride9) {
-  assert(size0 * size1 * size2 * size3 * size4 ==
-         size5 * size6 * size7 * size8 * size9);
-
-  int64_t dataSize = size0 * size1 * size2 * size3 * size4;
-  for (int64_t i = 0; i < dataSize; i++) {
-    destAligned[i] = float_to_fp16(sourceAligned[i]);
-  }
-}
-
-extern "C" void mcpuMem5DFloatConvertBF16(
-    float *sourceAllocated, float *sourceAligned, int64_t sourceOffset,
-    int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
-    int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
-    int64_t stride4, unsigned short *destAllocated, unsigned short *destAligned,
-    int64_t destOffset, int64_t size5, int64_t size6, int64_t size7,
-    int64_t size8, int64_t size9, int64_t stride5, int64_t stride6,
-    int64_t stride7, int64_t stride8, int64_t stride9) {
-  assert(size0 * size1 * size2 * size3 * size4 ==
-         size5 * size6 * size7 * size8 * size9);
-
-  int64_t dataSize = size0 * size1 * size2 * size3 * size4;
-  for (int64_t i = 0; i < dataSize; i++) {
-    destAligned[i] = float_to_bfloat16(sourceAligned[i]);
-  }
-}
-
-extern "C" void mcpuMem5DBF16ConvertFloat(
-    unsigned short *sourceAllocated, unsigned short *sourceAligned,
-    int64_t sourceOffset, int64_t size0, int64_t size1, int64_t size2,
-    int64_t size3, int64_t size4, int64_t stride0, int64_t stride1,
-    int64_t stride2, int64_t stride3, int64_t stride4, float *destAllocated,
-    float *destAligned, int64_t destOffset, int64_t size5, int64_t size6,
-    int64_t size7, int64_t size8, int64_t size9, int64_t stride5,
-    int64_t stride6, int64_t stride7, int64_t stride8, int64_t stride9) {
-  assert(size0 * size1 * size2 * size3 * size4 ==
-         size5 * size6 * size7 * size8 * size9);
-  int64_t dataSize = size0 * size1 * size2 * size3 * size4;
-  for (int64_t i = 0; i < dataSize; i++) {
-    destAligned[i] = bfloat16_to_float(sourceAligned[i]);
-  }
-}
-
-extern "C" void mcpuPrintBF16(unsigned short *allocated,
-                              unsigned short *aligned, int64_t offset,
-                              int64_t size0, int64_t size1, int64_t size2,
-                              int64_t size3, int64_t stride0, int64_t stride1,
-                              int64_t stride2, int64_t stride3) {
-  int64_t dataSize = size0 * size1 * size2 * size3;
-  for (int64_t i = 0; i < dataSize; i++) {
-    float fvalue = bfloat16_to_float(aligned[i]);
-    printf("%f\t", fvalue);
-  }
-}
-
-extern "C" void mcpuPrintF32(float f1, float f2) {
-  printf("Values: %f, %f\n", f1, f2);
-}
-
-extern "C" void mcpuPrintInt32(int32_t d1, int32_t d2) {
-  printf("Values: %d, %d\n", d1, d2);
-}
-
-// 2D float memref utility routines.
-
-extern "C" void mcpuMemset2DFloat(float *allocated, float *aligned,
-                                  int64_t offset, int64_t size0, int64_t size1,
-                                  int64_t stride0, int64_t stride1,
-                                  float value) {
-  for (unsigned i = 0; i < size0; ++i)
-    for (unsigned j = 0; j < size1; ++j)
-      aligned[i * stride0 + j * stride1] = value;
-}
-
-// 3D float memref utility routines.
-
-extern "C" void mcpuMemset3DFloat(float *allocated, float *aligned,
-                                  int64_t offset, int64_t size0, int64_t size1,
-                                  int64_t size2, int64_t stride0,
-                                  int64_t stride1, int64_t stride2,
-                                  float value) {
-  for (unsigned i = 0; i < size0; ++i)
-    for (unsigned j = 0; j < size1; ++j)
-      for (unsigned k = 0; k < size2; ++k)
-        aligned[i * stride0 + j * stride1 + k * stride2] = value;
-}
-
-// 4D float memref utility routines.
-
-extern "C" void mcpuMemset4DFloat(float *allocated, float *aligned,
-                                  int64_t offset, int64_t size0, int64_t size1,
-                                  int64_t size2, int64_t size3, int64_t stride0,
-                                  int64_t stride1, int64_t stride2,
-                                  int64_t stride3, float value) {
-  for (unsigned i = 0; i < size0; ++i)
-    for (unsigned j = 0; j < size1; ++j)
-      for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l) {
-          aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3] =
-              value;
-        }
-}
-
-extern "C" void mcpuMemset5DFloat(float *allocated, float *aligned,
-                                  int64_t offset, int64_t size0, int64_t size1,
-                                  int64_t size2, int64_t size3, int64_t size4,
-                                  int64_t stride0, int64_t stride1,
-                                  int64_t stride2, int64_t stride3,
-                                  int64_t stride4, float value) {
-  for (unsigned i = 0; i < size0; ++i)
-    for (unsigned j = 0; j < size1; ++j)
-      for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l)
-          for (unsigned m = 0; m < size4; ++m)
-            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
-                    m * stride4] = value;
-}
-
-extern "C" void
-mcpuMemset5DFloatRandInt(float *allocated, float *aligned, int64_t offset,
-                         int64_t size0, int64_t size1, int64_t size2,
-                         int64_t size3, int64_t size4, int64_t stride0,
-                         int64_t stride1, int64_t stride2, int64_t stride3,
-                         int64_t stride4, short min, short max, uint32_t seed) {
-  if (seed == 0)
-    std::srand(time(0));
-  else
-    std::srand(seed);
-
-  float value;
-  for (unsigned i = 0; i < size0; ++i)
-    for (unsigned j = 0; j < size1; ++j)
-      for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l)
-          for (unsigned m = 0; m < size4; ++m) {
-            value = (float)randomIntegerValue(min, max);
-            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
-                    m * stride4] = value;
-          }
-}
-
-extern "C" void mcpuMemset5DFloatRandFloat(
-    float *allocated, float *aligned, int64_t offset, int64_t size0,
-    int64_t size1, int64_t size2, int64_t size3, int64_t size4, int64_t stride0,
-    int64_t stride1, int64_t stride2, int64_t stride3, int64_t stride4,
-    short min, short max, uint32_t seed) {
-  if (seed == 0)
-    std::srand(time(0));
-  else
-    std::srand(seed);
-
-  float value;
-  for (unsigned i = 0; i < size0; ++i)
-    for (unsigned j = 0; j < size1; ++j)
-      for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l)
-          for (unsigned m = 0; m < size4; ++m) {
-            value = randomFloatValue(min, max);
-            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
-                    m * stride4] = value;
-          }
-}
-
-// Copy Float to Float
-extern "C" void mcpuMemCopy5DFloat(
-    float *sourceAllocated, float *sourceAligned, int64_t sourceOffset,
-    int64_t sourceSize0, int64_t sourceSize1, int64_t sourceSize2,
-    int64_t sourceSize3, int64_t sourceSize4, int64_t sourceStride0,
-    int64_t sourceStride1, int64_t sourceStride2, int64_t sourceStride3,
-    int64_t sourceStride4, float *destAllocated, float *destAligned,
-    int64_t destOffset, int64_t destSize0, int64_t destSize1, int64_t destSize2,
-    int64_t destSize3, int64_t destSize4, int64_t destStride0,
-    int64_t destStride1, int64_t destStride2, int64_t destStride3,
-    int64_t destStride4) {
-
-  assert(sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 * sourceSize4 ==
-         destSize0 * destSize1 * destSize2 * destSize3 * destSize4);
-  int64_t dataSize =
-      sourceSize0 * sourceSize1 * sourceSize2 * sourceSize3 * sourceSize4;
-  for (int64_t i = 0; i < dataSize; i++)
-    destAligned[i] = sourceAligned[i];
-}
-
-// 4D half memref utility routines.
-
-extern "C" void mcpuMemset4DHalf(unsigned short *allocated,
-                                 unsigned short *aligned, int64_t offset,
-                                 int64_t size0, int64_t size1, int64_t size2,
-                                 int64_t size3, int64_t stride0,
-                                 int64_t stride1, int64_t stride2,
-                                 int64_t stride3, unsigned short value) {
-  for (unsigned i = 0; i < size0; ++i)
-    for (unsigned j = 0; j < size1; ++j)
-      for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l)
-          aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3] =
-              value;
-}
-
-extern "C" void mcpuMemset5DHalfRandInt(
-    unsigned short *allocated, unsigned short *aligned, int64_t offset,
-    int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
-    int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
-    int64_t stride4, short min, short max, uint32_t seed) {
-
-  if (seed == 0)
-    std::srand(time(0));
-  else
-    std::srand(seed);
-
-  float value;
-  for (unsigned i = 0; i < size0; ++i)
-    for (unsigned j = 0; j < size1; ++j)
-      for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l)
-          for (unsigned m = 0; m < size4; ++m) {
-            value = (float)randomIntegerValue(min, max);
-            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
-                    m * stride4] = float_to_fp16(value);
-          }
-}
-
-extern "C" void mcpuMemset5DHalfRandFloat(
-    unsigned short *allocated, unsigned short *aligned, int64_t offset,
-    int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
-    int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
-    int64_t stride4, short min, short max, uint32_t seed) {
-
-  if (seed == 0)
-    std::srand(time(0));
-  else
-    std::srand(seed);
-
-  float value;
-  for (unsigned i = 0; i < size0; ++i)
-    for (unsigned j = 0; j < size1; ++j)
-      for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l)
-          for (unsigned m = 0; m < size4; ++m) {
-            value = randomFloatValue(min, max);
-            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
-                    m * stride4] = float_to_fp16(value);
-          }
-}
-
-extern "C" void mcpuMemset5DHalf(unsigned short *allocated,
-                                 unsigned short *aligned, int64_t offset,
-                                 int64_t size0, int64_t size1, int64_t size2,
-                                 int64_t size3, int64_t size4, int64_t stride0,
-                                 int64_t stride1, int64_t stride2,
-                                 int64_t stride3, int64_t stride4,
-                                 unsigned short value) {
-  for (unsigned i = 0; i < size0; ++i)
-    for (unsigned j = 0; j < size1; ++j)
-      for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l)
-          for (unsigned m = 0; m < size4; ++m)
-            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
-                    m * stride4] = value;
-}
-
-// 4D bf16 memref utility routines.
-
-extern "C" void mcpuMemset4DBF16(unsigned short *allocated,
-                                 unsigned short *aligned, int64_t offset,
-                                 int64_t size0, int64_t size1, int64_t size2,
-                                 int64_t size3, int64_t stride0,
-                                 int64_t stride1, int64_t stride2,
-                                 int64_t stride3, unsigned short value) {
-  for (unsigned i = 0; i < size0; ++i)
-    for (unsigned j = 0; j < size1; ++j)
-      for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l)
-          aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3] =
-              value;
-}
-
-extern "C" void mcpuMemset5DBF16RandInt(
-    unsigned short *allocated, unsigned short *aligned, int64_t offset,
-    int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
-    int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
-    int64_t stride4, short min, short max, uint32_t seed) {
-
-  if (seed == 0)
-    std::srand(time(0));
-  else
-    std::srand(seed);
-
-  unsigned short value;
-  for (unsigned i = 0; i < size0; ++i)
-    for (unsigned j = 0; j < size1; ++j)
-      for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l)
-          for (unsigned m = 0; m < size4; ++m) {
-            value = float_to_bfloat16((float)randomIntegerValue(min, max));
-            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
-                    m * stride4] = value;
-          }
-}
-
-extern "C" void mcpuMemset5DBF16RandFloat(
-    unsigned short *allocated, unsigned short *aligned, int64_t offset,
-    int64_t size0, int64_t size1, int64_t size2, int64_t size3, int64_t size4,
-    int64_t stride0, int64_t stride1, int64_t stride2, int64_t stride3,
-    int64_t stride4, short min, short max, uint32_t seed) {
-
-  if (seed == 0)
-    std::srand(time(0));
-  else
-    std::srand(seed);
-
-  unsigned short value;
-  for (unsigned i = 0; i < size0; ++i)
-    for (unsigned j = 0; j < size1; ++j)
-      for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l)
-          for (unsigned m = 0; m < size4; ++m) {
-            value = float_to_bfloat16(randomFloatValue(min, max));
-            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
-                    m * stride4] = value;
-          }
-}
-
-extern "C" void mcpuMemset5DBF16(unsigned short *allocated,
-                                 unsigned short *aligned, int64_t offset,
-                                 int64_t size0, int64_t size1, int64_t size2,
-                                 int64_t size3, int64_t size4, int64_t stride0,
-                                 int64_t stride1, int64_t stride2,
-                                 int64_t stride3, int64_t stride4,
-                                 unsigned short value) {
-  for (unsigned i = 0; i < size0; ++i)
-    for (unsigned j = 0; j < size1; ++j)
-      for (unsigned k = 0; k < size2; ++k)
-        for (unsigned l = 0; l < size3; ++l)
-          for (unsigned m = 0; m < size4; ++m)
-            aligned[i * stride0 + j * stride1 + k * stride2 + l * stride3 +
-                    m * stride4] = value;
 }
 
 // Extract proper tensor sizes and strides based on layouts
@@ -999,38 +535,27 @@ void mcpuVerify(T *gpuResults, T *validationResults, int64_t dataSize,
 }
 
 // Compare the results in f32
-extern "C" void
-mcpuVerify5DFloat(float *gpuAllocated, float *gpuAligned, int64_t gpuOffset,
-                  int64_t gpuSize0, int64_t gpuSize1, int64_t gpuSize2,
-                  int64_t gpuSize3, int64_t gpuSize4, int64_t gpuStride0,
-                  int64_t gpuStride1, int64_t gpuStride2, int64_t gpuStride3,
-                  int64_t gpuStride4, float *valAllocated, float *valAligned,
-                  int64_t valOffset, int64_t valSize0, int64_t valSize1,
-                  int64_t valSize2, int64_t valSize3, int64_t valSize4,
-                  int64_t valStride0, int64_t valStride1, int64_t valStride2,
-                  int64_t valStride3, int64_t valStride4, float thr_RMS,
-                  float thr_absDiff, float thr_relDiff, char printDebug) {
-  assert(gpuSize0 * gpuSize1 * gpuSize2 * gpuSize3 * gpuSize4 ==
-         valSize0 * valSize1 * valSize2 * valSize3 * valSize4);
-  int64_t dataSize = valSize0 * valSize1 * valSize2 * valSize3 * valSize4;
-  mcpuVerify<float>(gpuAligned, valAligned, dataSize, thr_RMS, thr_absDiff,
+extern "C" void mcpuVerifyFloat(float *gpuAllocated, float *gpuAligned,
+                                int64_t gpuOffset, int64_t gpuSize,
+                                int64_t gpuStride, float *valAllocated,
+                                float *valAligned, int64_t valOffset,
+                                int64_t valSize, int64_t valStride,
+                                float thr_RMS, float thr_absDiff,
+                                float thr_relDiff, char printDebug) {
+  assert(gpuSize == valSize);
+  mcpuVerify<float>(gpuAligned, valAligned, valSize, thr_RMS, thr_absDiff,
                     thr_relDiff, printDebug);
 }
 
 // Compare the results in int32
-extern "C" void mcpuVerify5DInt32(
-    int32_t *gpuAllocated, int32_t *gpuAligned, int64_t gpuOffset,
-    int64_t gpuSize0, int64_t gpuSize1, int64_t gpuSize2, int64_t gpuSize3,
-    int64_t gpuSize4, int64_t gpuStride0, int64_t gpuStride1,
-    int64_t gpuStride2, int64_t gpuStride3, int64_t gpuStride4,
-    int32_t *valAllocated, int32_t *valAligned, int64_t valOffset,
-    int64_t valSize0, int64_t valSize1, int64_t valSize2, int64_t valSize3,
-    int64_t valSize4, int64_t valStride0, int64_t valStride1,
-    int64_t valStride2, int64_t valStride3, int64_t valStride4, float thr_RMS,
-    float thr_absDiff, float thr_relDiff, char printDebug) {
-  assert(gpuSize0 * gpuSize1 * gpuSize2 * gpuSize3 * gpuSize4 ==
-         valSize0 * valSize1 * valSize2 * valSize3 * valSize4);
-  int64_t dataSize = valSize0 * valSize1 * valSize2 * valSize3 * valSize4;
-  mcpuVerify<int32_t>(gpuAligned, valAligned, dataSize, thr_RMS, thr_absDiff,
+extern "C" void mcpuVerifyInt32(int32_t *gpuAllocated, int32_t *gpuAligned,
+                                int64_t gpuOffset, int64_t gpuSize,
+                                int64_t gpuStride, int32_t *valAllocated,
+                                int32_t *valAligned, int64_t valOffset,
+                                int64_t valSize, int64_t valStride,
+                                float thr_RMS, float thr_absDiff,
+                                float thr_relDiff, char printDebug) {
+  assert(gpuSize == valSize);
+  mcpuVerify<int32_t>(gpuAligned, valAligned, valSize, thr_RMS, thr_absDiff,
                       thr_relDiff, printDebug);
 }

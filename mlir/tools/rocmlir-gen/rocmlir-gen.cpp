@@ -32,6 +32,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/IntegerSet.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
@@ -51,6 +52,7 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ToolOutputFile.h"
@@ -652,7 +654,7 @@ static func::FuncOp makeFuncDecl(ModuleOp module, StringRef funcName,
 }
 
 static mlir::Value makeNDMemRef(OpBuilder &b, mlir::Value var, uint32_t ndim) {
-  auto context = b.getContext();
+  MLIRContext *context = b.getContext();
   auto oprType = var.getType().template cast<ShapedType>();
   if (!oprType.hasStaticShape())
     return mlir::Value();
@@ -714,7 +716,7 @@ static mlir::Value makeNDMemRef(OpBuilder &b, mlir::Value var, uint32_t ndim) {
 }
 
 static func::FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
-  auto context = module.getContext();
+  MLIRContext *context = module.getContext();
   OpBuilder b(context);
   auto loc = kernel.func->getLoc();
 
@@ -728,7 +730,7 @@ static func::FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
   module.push_back(gpuWrapperFunc);
 
   // Emit gpu convolution logic.
-  auto block = gpuWrapperFunc.addEntryBlock();
+  Block *block = gpuWrapperFunc.addEntryBlock();
   b.setInsertionPoint(block, block->begin());
 
   // Emit device selection
@@ -770,9 +772,15 @@ static func::FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
 }
 
 // Determine the range and seed for the random data generator
-static std::tuple<short, short, int> getRandomTestData(int idx) {
-  short min, max = min = 1;
-  int seed = 1;
+static int getRandomSeed() {
+  std::string rseed = randomSeed;
+  if (rseed[0] >= '0' and rseed[0] <= '9')
+    return std::stoi(rseed);
+  return -1;
+}
+
+static std::tuple<short, short> getRandomTestData(int idx) {
+  short min = 1, max = 1;
 
   int32_t idx_spec = -1;
   switch (randomSide.getValue()[0]) {
@@ -801,48 +809,149 @@ static std::tuple<short, short, int> getRandomTestData(int idx) {
       min = -1;
       max = 1;
     }
-    std::string rseed = randomSeed;
-    if (rseed[0] >= '0' and rseed[0] <= '9')
-      seed = std::stoi(rseed);
+  }
+  return std::make_tuple(min, max);
+}
+
+llvm::SmallVector<float, 3> getTensorInitPattern(mlir::Type elemType) {
+  llvm::SmallVector<float, 3> pattern;
+  if (randomSeed == "none") {
+    float fixedVal = 1.0f;
+    if (randomDataType == "float")
+      // Clamp the fixed rondam float by 0.1 to avoid infs in some f16 tests
+      fixedVal *= 0.1f;
+    pattern = {static_cast<float>(fixedVal)};
+  } else if (randomSeed == "fixed") {
+    if (elemType.isIntOrIndex())
+      pattern = {1.0, -1.0, 2.0};
     else
-      seed = -1;
+      pattern = {0.5, -1, 0.75};
+  } else {
+    llvm_unreachable("We shouldn't be here for random values");
   }
-  return std::make_tuple(min, max, seed);
+  return pattern;
 }
 
-static std::string getMemsetFuncName(mlir::Type dataType) {
-  std::string memsetFuncName;
-  if (dataType.isF32()) {
-    memsetFuncName = "mcpuMemset5DFloatRand";
-  } else if (dataType.isF16()) {
-    memsetFuncName = "mcpuMemset5DHalfRand";
-  } else if (dataType.isBF16()) {
-    memsetFuncName = "mcpuMemset5DBF16Rand";
-  } else if (dataType.isInteger(8)) {
-    memsetFuncName = "mcpuMemset5DInt8Rand";
-  } else if (dataType.isInteger(32)) {
-    memsetFuncName = "mcpuMemset5DInt32Rand";
+static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
+                                             mlir::Location loc,
+                                             ArrayRef<float> pattern,
+                                             mlir::Type elemType,
+                                             mlir::Value toFill) {
+  // TODO(kdrewnia) Refactor this to create the constant vector up front
+  // TODO(kdrewnia) Factor out the anti-bf16 pass from GPU lowering, apply
+  // it here
+  mlir::Type i16 = b.getIntegerType(16);
+  mlir::Value constantsVec;
+  if (elemType == b.getBF16Type()) {
+    uint16_t init = 0;
+    constantsVec = b.create<arith::ConstantOp>(
+        loc, mlir::SplatElementsAttr::get(
+                 mlir::VectorType::get(pattern.size(), i16), init));
+  } else {
+    constantsVec = mlir::rock::createZeroConstantOp(
+        b, loc, mlir::VectorType::get(pattern.size(), elemType));
   }
-  if (randomDataType == "float")
-    memsetFuncName += "Float";
+  for (auto v : llvm::enumerate(pattern)) {
+    mlir::Value vOp;
+    if (elemType == b.getBF16Type()) {
+      llvm::APFloat fl(v.value());
+      bool losesInfo = false;
+      fl.convert(llvm::APFloat::BFloat(), llvm::APFloat::rmNearestTiesToEven,
+                 &losesInfo);
+      llvm::APInt val = fl.bitcastToAPInt();
+      vOp = b.create<arith::ConstantOp>(loc, b.getIntegerAttr(i16, val));
+    } else if (elemType.isIntOrIndex()) {
+      vOp = mlir::rock::createConstantIntOp(b, loc, elemType, elemType,
+                                            static_cast<int64_t>(v.value()));
+    } else {
+      vOp = mlir::rock::createConstantFloatOp(b, loc, elemType, elemType,
+                                              v.value());
+    }
+    constantsVec = b.create<vector::InsertElementOp>(
+                        loc, vOp, constantsVec,
+                        b.create<arith::ConstantIndexOp>(loc, v.index()))
+                       .getResult();
+  }
+
+  mlir::Value toFillFlat = makeNDMemRef(b, toFill, 1);
+  mlir::MemRefType flatType = toFillFlat.getType().cast<MemRefType>();
+  SmallVector<int64_t, 1> lowerBounds(1, 0);
+  SmallVector<int64_t, 1> upperBounds = {flatType.getNumElements()};
+  SmallVector<int64_t, 1> steps(1, 1);
+  AffineExpr rowMajor = b.getAffineDimExpr(0);
+  rowMajor = rowMajor % b.getAffineConstantExpr(pattern.size());
+  AffineMap rowMajorMap = AffineMap::get(1, 0, {rowMajor}, b.getContext());
+
+  mlir::buildAffineLoopNest(
+      b, loc, lowerBounds, upperBounds, steps,
+      [rowMajorMap, &constantsVec, toFillFlat,
+       elemType](OpBuilder &b, Location loc, ValueRange ivs) {
+        auto selectorOp = b.create<AffineApplyOp>(loc, rowMajorMap, ivs);
+        mlir::Value toStore = b.create<vector::ExtractElementOp>(
+                                   loc, constantsVec, selectorOp->getResult(0))
+                                  .getResult();
+        if (elemType == b.getBF16Type())
+          toStore = b.create<arith::BitcastOp>(loc, b.getBF16Type(), toStore);
+        b.create<memref::StoreOp>(loc, toStore, toFillFlat, ivs);
+      });
+  return success();
+}
+
+static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
+                                                   ModuleOp module,
+                                                   mlir::Type elemType,
+                                                   mlir::Value toFill,
+                                                   int idx) {
+
+  llvm::SmallDenseMap<short, mlir::Value> i16vals;
+  auto getI16Val = [&](short v) {
+    if (i16vals.find(v) == i16vals.end()) {
+      auto i16Type = b.getIntegerType(16);
+      i16vals.try_emplace(
+          v, b.createOrFold<arith::ConstantIntOp>(loc, v, i16Type));
+    }
+    return i16vals[v];
+  };
+
+  mlir::Value toFillFlat = makeNDMemRef(b, toFill, 1);
+  auto flatType = toFillFlat.getType().cast<MemRefType>();
+
+  bool isRandFloat = (randomDataType == "float");
+  func::FuncOp randFunc;
+  mlir::Type i16 = b.getI16Type();
+  mlir::Type f32 = b.getF32Type();
+  if (isRandFloat)
+    randFunc = makeFuncDecl(module, "randomFloatValue", {i16, i16}, {f32});
   else
-    memsetFuncName += "Int";
-  return memsetFuncName;
-}
+    randFunc = makeFuncDecl(module, "randomIntegerValue", {i16, i16}, {f32});
 
-static func::FuncOp getMemsetFunc(ModuleOp module, mlir::Type elemType) {
-  OpBuilder b(module.getContext());
+  short min, max;
+  std::tie(min, max) = getRandomTestData(idx);
+  mlir::Value minConst = getI16Val(min), maxConst = getI16Val(max);
 
-  auto int16Type = b.getIntegerType(16);
-  auto int32Type = b.getIntegerType(32);
+  SmallVector<int64_t, 1> lowerBounds(1, 0);
+  SmallVector<int64_t, 1> upperBounds = {flatType.getNumElements()};
+  SmallVector<int64_t, 1> steps(1, 1);
 
-  // Emit CPU memset function calls.
-  std::string memsetFuncName = getMemsetFuncName(elemType);
-  auto fiveDimUnknownSizeMemRefType =
-      MemRefType::get({-1, -1, -1, -1, -1}, elemType);
-  return makeFuncDecl(
-      module, memsetFuncName,
-      {fiveDimUnknownSizeMemRefType, int16Type, int16Type, int32Type});
+  mlir::buildAffineLoopNest(
+      b, loc, lowerBounds, upperBounds, steps,
+      [elemType, randFunc, toFillFlat, minConst,
+       maxConst](OpBuilder &b, Location loc, ValueRange ivs) {
+        auto randFloatCall = b.create<func::CallOp>(
+            loc, randFunc, ValueRange{minConst, maxConst});
+        mlir::Value randFloat = randFloatCall.getResult(0);
+        mlir::Value randVal;
+        if (elemType.isIntOrIndex())
+          randVal = b.create<arith::FPToSIOp>(loc, elemType, randFloat);
+        else if (!elemType.isF32())
+          randVal = b.create<arith::TruncFOp>(loc, elemType, randFloat);
+        else
+          randVal = randFloat;
+
+        b.create<memref::StoreOp>(loc, randVal, toFillFlat, ivs);
+      });
+
+  return success();
 }
 
 static std::tuple<int64_t, int64_t, int64_t>
@@ -890,8 +999,6 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   b.setInsertionPoint(block, block->begin());
 
   Location loc = b.getUnknownLoc();
-  auto zeroI16Op = b.create<arith::ConstantIntOp>(loc, 0, b.getIntegerType(16));
-  auto zeroI32Op = b.create<arith::ConstantIntOp>(loc, 0, b.getIntegerType(32));
 
   // Initialize the result tensor
   mlir::BlockArgument resultTensor;
@@ -908,11 +1015,10 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   }
   auto resultType = resultTensor.getType().template dyn_cast<MemRefType>();
   mlir::Type elemType = resultType.getElementType();
-  MemRefType mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
-  auto memrefCastOp = b.create<memref::CastOp>(loc, mr5DUnkType, resultTensor);
-  b.create<func::CallOp>(
-      loc, getMemsetFunc(module, elemType),
-      ValueRange{memrefCastOp, zeroI16Op, zeroI16Op, zeroI32Op});
+  SmallVector<float, 1> zeroPattern = {0.0};
+  if (failed(
+          populateTensorFillLogic(b, loc, zeroPattern, elemType, resultTensor)))
+    llvm_unreachable("Tensor fill logic population shouldn't fail");
 
   // Create affine maps
   AffineExpr heightExpr, widthExpr;
@@ -1018,7 +1124,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
     break;
   }
 
-  auto createConv2dLoopNest = [&](OpBuilder b, Location loc, ValueRange ivs) {
+  auto createConv2dLoopNest = [&](OpBuilder &b, Location loc, ValueRange ivs) {
     mlir::Value heightIdx, widthIdx;
     mlir::Value heightTempIdx, widthTempIdx;
 
@@ -1431,36 +1537,44 @@ createCPUConvFunc(ModuleOp module,
   return func;
 }
 
-std::string getTypeStr(const mlir::Type &type) {
-  std::string typeName;
-  llvm::raw_string_ostream nameStream(typeName);
-  nameStream << type;
-  return nameStream.str();
-}
-
 static func::FuncOp getMemcpyFuncDecl(ModuleOp &module,
-                                      const mlir::Type &srcElemType,
-                                      const mlir::Type &dstElemType) {
+                                      const mlir::MemRefType srcType,
+                                      const mlir::MemRefType destType) {
   OpBuilder b(module.getContext());
 
-  // memcpy_<srcElemType>_<dstElemType>
+  assert(srcType.getRank() == 1 && "Memcopy takes 1-D sources");
+  assert(destType.getRank() == 1 && "Memcopy takes 1-D destinations");
+
+  mlir::Type srcElemType = srcType.getElementType();
+  mlir::Type dstElemType = destType.getElementType();
+  // memcpy_<srcElemType>_<dstElemType>_(srcSize|any)
   std::string funcName = "_memcpy_";
-  funcName += getTypeStr(srcElemType);
-  funcName += "_";
-  funcName += getTypeStr(dstElemType);
+  llvm::raw_string_ostream funcNameStr(funcName);
+  funcNameStr << srcElemType << "_" << dstElemType << "_";
+
+  int64_t numElements = -1;
+  if (srcType.hasStaticShape())
+    numElements = srcType.getNumElements();
+
+  if (numElements != -1)
+    funcNameStr << numElements;
+  else
+    funcNameStr << "any";
+
+  if ((numElements == -1 && !destType.hasStaticShape()) ||
+      numElements != destType.getNumElements())
+    assert(0 && "Called for an uneven memcpy");
 
   func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
   if (func) // already exists
     return func;
 
-  auto loc = b.getUnknownLoc();
-
-  auto rSrcType = MemRefType::get({-1}, srcElemType);
-  auto rDstType = MemRefType::get({-1}, dstElemType);
+  mlir::Location loc = b.getUnknownLoc();
 
   // clang-format off
-  // func _memcpy_<srcElemType>_<dstElemType> (%arg0 : memref<?xf32>, %arg1 : memref<?xf16, %arg2 : index) {
-  //   scf.for %i0 = %c0 to %arg2 step %c1 {
+  // func _memcpy_<srcElemType>_<dstElemType>_<size> (%arg0 : memref<sizexf32>, %arg1 : memref<sizexf16>) {
+  //   %size = memref.dim %arg0(%c0)
+  //   scf.for %i0 = %c0 to %size step %c1 {
   //     %2 = load %arg0[%i0] : memref<?xf32>
   //     store %2, %arg1[%i0] : memref<?xf32>
   //   }
@@ -1468,9 +1582,8 @@ static func::FuncOp getMemcpyFuncDecl(ModuleOp &module,
   // clang-format on
 
   // Emit function definition
-  func = func::FuncOp::create(
-      loc, funcName,
-      b.getFunctionType({rSrcType, rDstType, b.getIndexType()}, {}));
+  func = func::FuncOp::create(loc, funcName,
+                              b.getFunctionType({srcType, destType}, {}));
 
   module.push_back(func);
 
@@ -1478,12 +1591,12 @@ static func::FuncOp getMemcpyFuncDecl(ModuleOp &module,
   Block *block = func.addEntryBlock();
   b.setInsertionPoint(block, block->begin());
 
-  auto src = block->getArgument(0);
-  auto dst = block->getArgument(1);
-  auto size = block->getArgument(2);
-
   auto cst0Op = b.create<arith::ConstantIndexOp>(loc, 0);
   auto cst1Op = b.create<arith::ConstantIndexOp>(loc, 1);
+
+  auto src = block->getArgument(0);
+  auto dst = block->getArgument(1);
+  auto size = b.create<memref::DimOp>(loc, src, cst0Op);
 
   auto loop0 = b.create<scf::ForOp>(loc, cst0Op, size, cst1Op);
   auto bt0 = OpBuilder::atBlockTerminator(loop0.getBody());
@@ -1521,26 +1634,13 @@ static void emitMemcpy(OpBuilder &b, mlir::Value src, mlir::Value dst) {
   auto module = b.getBlock()->getParentOp()->getParentOfType<ModuleOp>();
   auto loc = b.getUnknownLoc();
 
-  auto srcType = src.getType().template dyn_cast<MemRefType>();
-  auto dstType = dst.getType().template dyn_cast<MemRefType>();
+  mlir::Value srcFlat = makeNDMemRef(b, src, 1);
+  mlir::Value dstFlat = makeNDMemRef(b, dst, 1);
+  auto srcFlatType = srcFlat.getType().cast<mlir::MemRefType>();
+  auto dstFlatType = dstFlat.getType().cast<mlir::MemRefType>();
+  auto memcpyFunc = getMemcpyFuncDecl(module, srcFlatType, dstFlatType);
 
-  auto srcElemType = srcType.getElementType();
-  auto dstElemType = dstType.getElementType();
-
-  auto memcpyFunc = getMemcpyFuncDecl(module, srcElemType, dstElemType);
-
-  // Emit call to memcopy
-  auto srcFlatType = MemRefType::get({-1}, srcElemType);
-  auto srcFlat =
-      b.create<memref::CastOp>(loc, srcFlatType, makeNDMemRef(b, src, 1));
-  auto dstFlatType = MemRefType::get({-1}, dstElemType);
-  auto dstFlat =
-      b.create<memref::CastOp>(loc, dstFlatType, makeNDMemRef(b, dst, 1));
-
-  auto cstSize =
-      b.create<arith::ConstantIndexOp>(loc, srcType.getNumElements());
-  b.create<func::CallOp>(loc, memcpyFunc,
-                         ValueRange{srcFlat, dstFlat, cstSize});
+  b.create<func::CallOp>(loc, memcpyFunc, ValueRange{srcFlat, dstFlat});
 }
 
 static void emitPrintTensor(OpBuilder &b, mlir::Value var) {
@@ -1599,12 +1699,18 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   // obtain function arguments
   // arg0: test result
   // arg1: validation result
-  auto arg0 = block->getArgument(0);
-  auto arg1 = block->getArgument(1);
+  auto test = block->getArgument(0);
+  auto val = block->getArgument(1);
   // obtain element type
-  auto valElemType = valType.getElementType();
   auto testOutType = testType.getElementType();
+  auto valElemType = valType.getElementType();
 
+  // Flatten the arguments to 1D for passing to the verification function
+  // %test_flat = memref.collapse_shape %arg0 ...
+  // %val_flat = memref.collapse_shape %arg1 ...
+  mlir::Value testFlat = makeNDMemRef(b, test, 1);
+  mlir::Value valFlat = makeNDMemRef(b, val, 1);
+  auto valFlatType = valFlat.getType().cast<mlir::MemRefType>();
   // Emit constants for thresholds
 
   // clang-format off
@@ -1648,7 +1754,7 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
       b.create<arith::ConstantIntOp>(loc, printDebug, charType);
 
   // obtain function name of the verifier wrapper
-  std::string verifyFuncName = "mcpuVerify5D";
+  std::string verifyFuncName = "mcpuVerify";
   if (valElemType.isF32()) {
     verifyFuncName += "Float";
   } else if (valElemType.isInteger(32)) {
@@ -1660,7 +1766,8 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     exit(1);
   }
 
-  auto mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, valElemType);
+  auto mr1DUnkType = MemRefType::get({-1}, valElemType);
+
   bool isTestAndValSameType =
       (testOutType.isInteger(32) || testOutType.isF32());
 
@@ -1673,19 +1780,14 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     // Cast test result to the same type as valid result
 
     // clang-format off
-    // %0 = memref.alloc() : memref<1x1x64x112x112xf32>
-    // %1 = memref.collapse_shape %arg0 [[0, 1, 2, 3, 4]] : memref<1x1x64x112x112xf16> into memref<802816xf16>
-    // %2 = memref.cast %1 : memref<802816xf16> to memref<?xf16>
-    // %3 = memref.collapse_shape %0 [[0, 1, 2, 3, 4]] : memref<1x1x64x112x112xf32> into memref<802816xf32>
-    // %4 = memref.cast %3 : memref<802816xf32> to memref<?xf32>
-    // %c802816 = arith.constant 802816 : index
-    // call @_memcpy_f16_f32(%2, %4, %c802816) : (memref<?xf16>, memref<?xf32>, index) -> ()
-    // %5 = memref.cast %0 : memref<1x1x64x112x112xf32> to memref<?x?x?x?x?xf32>
+    // %0 = memref.alloc() : memref<802816xf32>
+    // call @_memcpy_f16_f32_802816(%test_flat, %0) : (memref<802816xf16>, memref<802816xf32>) -> ()
+    // %5 = memref.cast %0 : memref<802816xf32> to memref<?x?x?x?x?xf32>
     // clang-format on
 
-    testResultNew = b.create<memref::AllocOp>(loc, valType);
-    emitMemcpy(b, arg0, testResultNew);
-    testResult = b.create<memref::CastOp>(loc, mr5DUnkType, testResultNew);
+    testResultNew = b.create<memref::AllocOp>(loc, valFlatType);
+    emitMemcpy(b, testFlat, testResultNew);
+    testResult = b.create<memref::CastOp>(loc, mr1DUnkType, testResultNew);
 
     // Cast valid result down to the same type as test result and cast back
     //   For f16 and bf16 datatypes, gpu hardware outputs f32 results, which are
@@ -1694,49 +1796,38 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     //   the validation results.
 
     // clang-format off
-    // affine.for %arg2 = 0 to 1 {
-    //   affine.for %arg3 = 0 to 1 {
-    //     affine.for %arg4 = 0 to 64 {
-    //       affine.for %arg5 = 0 to 112 {
-    //         affine.for %arg6 = 0 to 112 {
-    //           %7 = memref.load %arg1[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<1x1x64x112x112xf32>
-    //           %8 = arith.truncf %7 : f32 to f16
-    //           %9 = arith.extf %8 : f16 to f32
-    //           memref.store %9, %arg1[%arg2, %arg3, %arg4, %arg5, %arg6] : memref<1x1x64x112x112xf32>
-    //         }
-    //       }
-    //     }
-    //   }
+    // affine.for %arg2 = 0 to 802816 {
+    //   %7 = memref.load %arg1[%arg2] : memref<802816xf32>
+    //   %8 = arith.truncf %7 : f32 to f16
+    //   %9 = arith.extf %8 : f16 to f32
+    //   memref.store %9, %arg1[%arg2] : memref<802816xf32>
     // }
     // clang-format on
 
-    SmallVector<int64_t, 5> lowerBounds(5, 0);
-    SmallVector<int64_t, 5> upperBounds;
-    llvm::copy(valType.getShape(), std::back_inserter(upperBounds));
-    SmallVector<int64_t, 5> steps(5, 1);
+    SmallVector<int64_t, 1> lowerBounds(1, 0);
+    SmallVector<int64_t, 1> upperBounds = {valFlatType.getNumElements()};
+    SmallVector<int64_t, 1> steps(1, 1);
 
     mlir::buildAffineLoopNest(
         b, loc, lowerBounds, upperBounds, steps,
-        [arg1, testOutType, valElemType](OpBuilder b, Location loc,
-                                         ValueRange ivs) {
-          auto valOrig = b.create<memref::LoadOp>(loc, arg1, ivs);
+        [valFlat, testOutType, valElemType](OpBuilder &b, Location loc,
+                                            ValueRange ivs) {
+          auto valOrig = b.create<memref::LoadOp>(loc, valFlat, ivs);
           auto valTruncated =
               b.create<arith::TruncFOp>(loc, testOutType, valOrig);
           auto valExt = b.create<arith::ExtFOp>(loc, valElemType, valTruncated);
-          b.create<memref::StoreOp>(loc, valExt, arg1, ivs);
+          b.create<memref::StoreOp>(loc, valExt, valFlat, ivs);
         });
   } else {
-    testResult = makeNDMemRef(b, arg0, 5);
-    testResult = b.create<memref::CastOp>(loc, mr5DUnkType, testResult);
+    testResult = b.create<memref::CastOp>(loc, mr1DUnkType, testFlat);
   }
 
   // Prepare the validation result for the verify function
-  valResult = makeNDMemRef(b, arg1, 5);
-  valResult = b.create<memref::CastOp>(loc, mr5DUnkType, valResult);
+  valResult = b.create<memref::CastOp>(loc, mr1DUnkType, valFlat);
   // Declare and call the wrapper verify function
   auto verifyFuncDecl = makeFuncDecl(
       module, verifyFuncName,
-      {mr5DUnkType, mr5DUnkType, floatType, floatType, floatType, charType});
+      {mr1DUnkType, mr1DUnkType, floatType, floatType, floatType, charType});
   b.create<func::CallOp>(loc, verifyFuncDecl,
                          ValueRange{testResult, valResult, thr_RMS, thr_absDiff,
                                     thr_relDiff, printDebugVal});
@@ -1751,77 +1842,6 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   return func;
 }
 
-static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
-                                             mlir::Location loc,
-                                             mlir::Type elemType,
-                                             mlir::Value lv5D) {
-  auto lv5DType = lv5D.getType().template cast<mlir::MemRefType>();
-  llvm::SmallVector<float, 3> pattern;
-  if (elemType.isIntOrIndex())
-    pattern = {1.0, -1.0, 2.0};
-  else
-    pattern = {0.5, -1, 0.75};
-  // TODO(kdrewnia) Refactor this to create the constant vector up front
-  // TODO(kdrewnia) Factor out the anti-bf16 pass from GPU lowering, apply
-  // it here
-  mlir::Type i16 = b.getIntegerType(16);
-  mlir::Value constantsVec;
-  if (elemType == b.getBF16Type()) {
-    uint16_t init = 0;
-    constantsVec = b.create<arith::ConstantOp>(
-        loc, mlir::SplatElementsAttr::get(
-                 mlir::VectorType::get(pattern.size(), i16), init));
-  } else {
-    constantsVec = mlir::rock::createZeroConstantOp(
-        b, loc, mlir::VectorType::get(pattern.size(), elemType));
-  }
-  for (auto v : llvm::enumerate(pattern)) {
-    mlir::Value vOp;
-    if (elemType == b.getBF16Type()) {
-      llvm::APFloat fl(v.value());
-      bool losesInfo = false;
-      fl.convert(llvm::APFloat::BFloat(), llvm::APFloat::rmNearestTiesToEven,
-                 &losesInfo);
-      llvm::APInt val = fl.bitcastToAPInt();
-      vOp = b.create<arith::ConstantOp>(loc, b.getIntegerAttr(i16, val));
-    } else if (elemType.isIntOrIndex()) {
-      vOp = mlir::rock::createConstantIntOp(b, loc, elemType, elemType,
-                                              static_cast<int64_t>(v.value()));
-    } else {
-      vOp = mlir::rock::createConstantFloatOp(b, loc, elemType, elemType,
-                                                v.value());
-    }
-    constantsVec = b.create<vector::InsertElementOp>(
-                        loc, vOp, constantsVec,
-                        b.create<arith::ConstantIndexOp>(loc, v.index()))
-                       .getResult();
-  }
-
-  SmallVector<int64_t, 5> lowerBounds(5, 0);
-  SmallVector<int64_t, 5> upperBounds;
-  llvm::copy(lv5DType.getShape(), std::back_inserter(upperBounds));
-  SmallVector<int64_t, 5> steps(5, 1);
-  AffineExpr rowMajor = b.getAffineConstantExpr(0);
-  for (uint32_t i = 0; i < 5; ++i) {
-    rowMajor = b.getAffineDimExpr(i) + lv5DType.getDimSize(i) * rowMajor;
-  }
-  rowMajor = rowMajor % b.getAffineConstantExpr(pattern.size());
-  AffineMap rowMajorMap = AffineMap::get(5, 0, {rowMajor}, b.getContext());
-
-  mlir::buildAffineLoopNest(
-      b, loc, lowerBounds, upperBounds, steps,
-      [rowMajorMap, &constantsVec, lv5D, elemType](OpBuilder b, Location loc,
-                                                   ValueRange ivs) {
-        auto selectorOp = b.create<AffineApplyOp>(loc, rowMajorMap, ivs);
-        mlir::Value toStore = b.create<vector::ExtractElementOp>(
-                                   loc, constantsVec, selectorOp->getResult(0))
-                                  .getResult();
-        if (elemType == b.getBF16Type())
-          toStore = b.create<arith::BitcastOp>(loc, b.getBF16Type(), toStore);
-        b.create<memref::StoreOp>(loc, toStore, lv5D, ivs);
-      });
-  return success();
-}
 
 // Convert the async.launch/async.await pattern back to func.call.
 void undoAsyncLaunchPass(Operation *cloneFunc) {
@@ -1941,7 +1961,7 @@ populateHostHarnessLogic(ModuleOp &module,
                          const SmallVector<KernelIF, 8> &kernels,
                          const SmallVector<KernelIF, 8> &roots,
                          const rock::Conv2dGenerator::Config &genConfig) {
-  auto context = module.getContext();
+  MLIRContext *context = module.getContext();
   OpBuilder b(context);
   auto loc = b.getUnknownLoc();
 
@@ -1968,15 +1988,6 @@ populateHostHarnessLogic(ModuleOp &module,
     }
   }
 
-  llvm::SmallDenseMap<short, mlir::Value> i16vals;
-  auto getI16Val = [&](short v) {
-    if (i16vals.find(v) == i16vals.end()) {
-      auto i16Type = b.getIntegerType(16);
-      i16vals.try_emplace(v, b.create<arith::ConstantIntOp>(loc, v, i16Type));
-    }
-    return i16vals[v];
-  };
-
   llvm::SmallDenseMap<int32_t, mlir::Value> i32vals;
   auto getI32Val = [&](int32_t v) {
     if (i32vals.find(v) == i32vals.end()) {
@@ -1998,6 +2009,15 @@ populateHostHarnessLogic(ModuleOp &module,
   bool isCPUKernel = !root0.func->hasAttr("kernel");
   bool hasValidation = !validationType.empty() && !genCPUKernel.getValue();
   bool hasCloneValidation = hasValidation && (validationType == "clone");
+  bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
+
+  if (isRandom) {
+    auto seedFunc = makeFuncDecl(module, "seedRandomValues", {b.getI32Type()});
+    int seed = getRandomSeed();
+    mlir::Value seedConst = getI32Val(seed);
+    b.create<func::CallOp>(loc, seedFunc, seedConst);
+  }
+
   SmallVector<mlir::Value, 5> localVars;
   SmallVector<mlir::Value, 5> valVars;
   int32_t idx = 0;
@@ -2022,24 +2042,16 @@ populateHostHarnessLogic(ModuleOp &module,
       }
       paramMRType = MemRefType::get(paramMRType.getShape(), elemType);
     }
-    auto mr5DUnkType = MemRefType::get({-1, -1, -1, -1, -1}, elemType);
     auto lvar = b.create<memref::AllocOp>(loc, paramMRType);
     localVars.push_back(lvar);
-
-    auto lv5D = makeNDMemRef(b, lvar, 5);
-    if (randomSeed.getValue() == "fixed") {
-      if (failed(populateTensorFillLogic(b, loc, elemType, lv5D)))
+    if (!isRandom) {
+      SmallVector<float, 3> initPattern = getTensorInitPattern(elemType);
+      if (failed(populateTensorFillLogic(b, loc, initPattern, elemType, lvar)))
         return failure();
     } else {
-      auto lvU5D = b.create<memref::CastOp>(loc, mr5DUnkType, lv5D);
-
-      short min, max;
-      int seed = 1;
-      std::tie(min, max, seed) = getRandomTestData(idx);
-
-      b.create<func::CallOp>(
-          loc, getMemsetFunc(module, elemType),
-          ValueRange{lvU5D, getI16Val(min), getI16Val(max), getI32Val(seed)});
+      if (failed(populateRandomTensorFillLogic(b, loc, module, elemType, lvar,
+                                               idx)))
+        return failure();
     }
 
     if (hasValidation ||

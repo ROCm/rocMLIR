@@ -3,7 +3,15 @@
 //PV: [[FIL1:%.*]] = memref.alloc() : memref<1x2048x1024x1x1xf32>
 //PV: [[FIL2:%.*]] = memref.alloc() : memref<1x2048x1024x1x1xf32>
 //PV: call @mlir_gen_igemm_conv2d_v4r4_wrw_xdlops_0_verify([[FIL1]], [[FIL2]])
-//PV: call @mcpuMemset5DFloatRandInt(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}) : (memref<?x?x?x?x?xf32>, i16, i16, i32) -> ()
+//PV: @conv2d_bwd_weight_cpu
+//PV: %[[f32_0:.*]] = arith.constant 0.000000e+00 : f32
+//PV: vector.insertelement %[[f32_0]]
+//PV-NEXT: %[[filterFlat:.*]] = memref.collapse_shape {{.*}} : memref<{{.*}}> into memref<[[GKCYX:.*]]xf32>
+//PV-NEXT: affine.for %{{.*}} = 0 to [[GKCYX]] {
+//PV-NEXT: affine.apply
+//PV-NEXT: vector.extractelement
+//PV-NEXT: memref.store %{{.*}}, %[[filterFlat]]
+//PV-NEXT: }
 //PV-NEXT: affine.for [[ARG3:%.*]] = 0 to 1 {
 //PV-NEXT:      affine.for [[ARG4:%.*]] = 0 to 2048 {
 //PV-NEXT:        affine.for [[ARG5:%.*]] = 0 to 1024 {
@@ -12,8 +20,8 @@
 //PV-NEXT:              affine.for [[ARG8:%.*]] = 0 to 256 {
 //PV-NEXT:                affine.for [[ARG9:%.*]] = 0 to 8 {
 //PV-NEXT:                  affine.for [[ARG10:%.*]] = 0 to 8 {
-//PV:                         [[INH:%.*]] = affine.apply #map3([[ARG9]], [[ARG6]])
-//PV:                         [[INW:%.*]] = affine.apply #map3([[ARG10]], [[ARG7]])
+//PV:                         [[INH:%.*]] = affine.apply #map2([[ARG9]], [[ARG6]])
+//PV:                         [[INW:%.*]] = affine.apply #map2([[ARG10]], [[ARG7]])
 //PV:                         [[C14:%.*]] = arith.constant 14 : index
 //PV:                         [[C14_0:%.*]] = arith.constant 14 : index
 //PV:                        affine.if #set([[INH]], [[INW]])[[[C14]], [[C14_0]]] {
