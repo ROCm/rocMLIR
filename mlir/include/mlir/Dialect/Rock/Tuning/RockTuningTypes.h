@@ -18,21 +18,20 @@
 namespace mlir {
 namespace rock {
 
-enum TunableOpType { TunableOpConv2dFwd, TunableOpGemm };
-
 // Tuning parameter struct
 typedef std::vector<uint32_t> TuningParam;
 
 // Parameter container holding a parameter and serialized string
 struct ParamEntry {
-  TuningParam param;
+  Attribute param;
   std::string perfString;
+  KernelType primaryOpType;
 };
 
 // Total tuning space
 struct TunableParams {
-  std::vector<TuningParam> tuningRange;
-  TunableOpType opType;
+  std::vector<Attribute> tuningRange;
+  KernelType primaryOpType;
   int numHeuristicQuick;
 };
 

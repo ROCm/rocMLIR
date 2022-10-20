@@ -24,12 +24,17 @@ DEFINE_C_API_PTR_METHODS(MlirRockTuningParam, mlir::rock::ParamEntry)
 
 using namespace mlir;
 
-// Brute-force search in incremental order
-void createConv2DFwdTuningRangeBF(struct rock::TunableParams *newSpace,
-                                  rock::Conv2DOp convOp) {
+//////--------------- FIX! --------- Will be relocaetd  to
+/// rockTuningImpl.cpp----------///////////
+// vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 
-  auto bXdlops = convOp->getAttrOfType<BoolAttr>("xdlopsV2");
-  if (bXdlops != nullptr && bXdlops.getValue() == true) {
+// Brute-force search in incremental order
+void createGemmTuningRangeBF(struct rock::TunableParams *newSpace,
+                             rock::RockGemmWrapperInterface gemmOp) {
+
+  OpBuilder b(gemmOp.getContext());
+  rock::GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
+  if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
     // XDLOPS
     // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
     constexpr std::vector<std::vector<uint32_t>> tParams = {
@@ -42,19 +47,16 @@ void createConv2DFwdTuningRangeBF(struct rock::TunableParams *newSpace,
         {0},
         {0}};
 
-    for (uint32_t t0 : tParams[0]) {
-      for (uint32_t t1 : tParams[1]) {
-        for (uint32_t t2 : tParams[2]) {
-          for (uint32_t t3 : tParams[3]) {
-            for (uint32_t t4 : tParams[4]) {
-              for (uint32_t t5 : tParams[5]) {
-                for (uint32_t t6 : tParams[6]) {
-                  for (uint32_t t7 : tParams[7]) {
-                    std::vector<uint32_t> tParam = {t0, t1, t2, t3,
-                                                    t4, t5, t6, t7};
-                    newSpace->tuningRange.push_back(tParam);
-                  }
-                }
+    for (uint32_t gemmMPerBlock : tParams[0]) {
+      for (uint32_t gemmNPerBlock : tParams[1]) {
+        for (uint32_t gemmKPerBlock : tParams[2]) {
+          for (uint32_t gemmMPerWave : tParams[3]) {
+            for (uint32_t gemmNPerWave : tParams[4]) {
+              for (uint32_t gemmKPack : tParams[5]) {
+                Attribute gemmParams = b.getAttr<XdlopsGemmParamsAttr>(
+                    gemmKPerBlock, gemmMPerBlock, gemmNPerBlock, gemmKPack,
+                    gemmMPerWave, gemmNPerWave);
+                newSpace->tuningRange.push_back(gemmParams);
               }
             }
           }
@@ -63,19 +65,19 @@ void createConv2DFwdTuningRangeBF(struct rock::TunableParams *newSpace,
     }
   } else {
     // Non-XDLOPS
-    // blockSize M/block N/block K/block M/thread N/thread
+    // M/block N/block K/block M/thread N/thread
     constexpr std::vector<std::vector<uint32_t>> tParams = {
-        {64, 128, 256}, {32, 64, 128}, {32, 64, 128},
-        {4, 8, 16},     {2, 4},        {2, 4}};
-    for (uint32_t t0 : tParams[0]) {
-      for (uint32_t t1 : tParams[1]) {
-        for (uint32_t t2 : tParams[2]) {
-          for (uint32_t t3 : tParams[3]) {
-            for (uint32_t t4 : tParams[4]) {
-              for (uint32_t t5 : tParams[5]) {
-                std::vector<uint32_t> tParam = {t0, t1, t2, t3, t4, t5};
-                newSpace->tuningRange.push_back(tParam);
-              }
+        {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
+    for (uint32_t gemmMPerBlock : tParams[0]) {
+      for (uint32_t gemmNPerBlock : tParams[1]) {
+        for (uint32_t gemmKPerBlock : tParams[2]) {
+          for (uint32_t gemmMPerThread : tParams[3]) {
+            for (uint32_t gemmNPerThread : tParams[4]) {
+              Attribute gemmParams = b.getAttr<GeneralGemmParamsAttr>(
+                  gemmKPerBlock, gemmMPerBlock, gemmNPerBlock,
+                  /*kPerThread=*/1, gemmMPerThread, gemmNPerThread,
+                  /*kpack=*/1);
+              newSpace->tuningRange.push_back(gemmParams);
             }
           }
         }
@@ -86,6 +88,7 @@ void createConv2DFwdTuningRangeBF(struct rock::TunableParams *newSpace,
   newSpace->numHeuristicQuick = 0;
 }
 
+/*
 void createConv2DFwdTuningRangeMLR(struct rock::TunableParams *newSpace,
                                    rock::Conv2DOp convOp) {
   // Initial point determined by Multi Linear Regression coefficients and
@@ -158,15 +161,23 @@ void createConv2DFwdTuningRangeMLR(struct rock::TunableParams *newSpace,
   // clang-format off
   // From gfx90878_1.1.0.udb tuned at 9.Oct.2022  Weekly CI xdlops
   constexpr std::vector<std::vector<float>> coeffs = {
-  //  in_ch ;   in_h;   in_w;  fil_h;  fil_w; out_ch;  batch;  lPadH;  lPadW;  rPadH;  rPadW;   strH;   strW;   dilH;   dilW;  group;  const;
-    { 0.0175,-1.1229,-1.1229,-12.153,-12.153,-0.0413, 0.0000,47.5203,47.5203,47.5203,47.5203,55.0025,55.0025, 0.0000, 0.0000, 0.0000, 108.5339},
-    { -0.014, 0.0725, 0.0725,-4.2654,-4.2654,   0.01,      0,-3.6256,-3.6256,-3.6256,-3.6256,-8.0965,-8.0965,      0,      0,      0, 150.3692},
-    { 0.0001, 0.0179, 0.0179, 0.0814, 0.0814, 0.0004,      0,-0.0223,-0.0223,-0.0223,-0.0223,-0.4386,-0.4386,      0,      0,      0, 3.866194},
-    { 0.0045, -0.132, -0.132,-0.7859,-0.7859, 0.0063,      0,-0.5036,-0.5036,-0.5036,-0.5036,  3.624,  3.624,      0,      0,      0, 70.81350},
-    { -0.009,-0.1434,-0.1434,-4.4541,-4.4541, 0.0004,      0, 9.2506, 9.2506, 9.2506, 9.2506, 9.3834, 9.3834,      0,      0,      0, 71.10590},
-    {      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      4.0},
-    {      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      1.0},
-    {      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      0,      1.0}};
+  //  in_ch ;   in_h;   in_w;  fil_h;  fil_w; out_ch;  batch;  lPadH;  lPadW;
+rPadH;  rPadW;   strH;   strW;   dilH;   dilW;  group;  const; {
+0.0175,-1.1229,-1.1229,-12.153,-12.153,-0.0413,
+0.0000,47.5203,47.5203,47.5203,47.5203,55.0025,55.0025, 0.0000, 0.0000, 0.0000,
+108.5339}, { -0.014, 0.0725, 0.0725,-4.2654,-4.2654,   0.01,
+0,-3.6256,-3.6256,-3.6256,-3.6256,-8.0965,-8.0965,      0,      0,      0,
+150.3692}, { 0.0001, 0.0179, 0.0179, 0.0814, 0.0814, 0.0004,
+0,-0.0223,-0.0223,-0.0223,-0.0223,-0.4386,-0.4386,      0,      0, 0, 3.866194},
+    { 0.0045, -0.132, -0.132,-0.7859,-0.7859, 0.0063,
+0,-0.5036,-0.5036,-0.5036,-0.5036,  3.624,  3.624,      0,      0, 0, 70.81350},
+    { -0.009,-0.1434,-0.1434,-4.4541,-4.4541, 0.0004,
+0, 9.2506, 9.2506, 9.2506, 9.2506, 9.3834, 9.3834,      0,      0, 0, 71.10590},
+    {      0,      0,      0,      0,      0,      0,      0,      0,      0, 0,
+0,      0,      0,      0,      0,      0,      4.0}, {      0,      0,      0,
+0,      0,      0,      0,      0,      0,      0,      0,      0,      0, 0, 0,
+0,      1.0}, {      0,      0,      0,      0,      0,      0,      0,      0,
+0,      0,      0,      0,      0,      0,      0,      0,      1.0}};
   // clang-format on
 
   std::vector<float> variables = {
@@ -224,30 +235,56 @@ void createConv2DFwdTuningRangeMLR(struct rock::TunableParams *newSpace,
   }
   newSpace->numHeuristicQuick = 1;
 }
+*/
 
-struct rock::TunableParams *createTunableParams(Operation *op) {
+struct rock::TunableParams *
+createTunableParams(rock::RockGemmWrapperInterface *op) {
   struct rock::TunableParams *newSpace;
   // FIXME : cases per conv direction
-  if (isa<rock::Conv2DOp>(op)) {
+  rock::KernelType primaryType = op->getKernelType();
+  if (primaryType == rock::KernelTypeConv2D) {
     newSpace = new rock::TunableParams();
-    newSpace->opType = rock::TunableOpConv2dFwd;
+    newSpace->opType = rock::KernelTypeConv2D;
     // create range and heuristic
-    createConv2DFwdTuningRangeBF(newSpace, dyn_cast<rock::Conv2DOp>(op));
-  } else if (isa<rock::GemmOp>(op)) {
+    createGemmTuningRangeBF(newSpace, op);
+  } else if (primaryType == rock::KernelTypeGemm) {
     newSpace = nullptr; // not supported yet
   }
   return newSpace;
 }
 
-// Stringfy given param
-std::string getPerfConfigStr(std::vector<uint32_t> param) {
+// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//////--------------- FIX! --------- Will be relocaetd  to
+/// rockTuningImpl.cpp----------///////////
+
+//////// This one to gemm wrapper interfasce
+M / block N / block K / block M / wave N /
+    wave kPack aCopyMore bCopyMore
+        // Stringfy given param
+        std::string
+        toPerfConfig(Attribute param) {
   std::string result;
-  int i = 0;
-  for (; i < param.size() - 1; i++) {
-    result.append(std::to_string(param[i]));
+  if (auto paramAttr = dyn_cast<XdlopsGemmParams>(param)) {
+    result.append(std::to_string(paramAttr.getMPerBlock()));
     result.append(",");
+    result.append(std::to_string(paramAttr.getNPerBlock()));
+    result.append(",");
+    result.append(std::to_string(paramAttr.getKPerBlock()));
+    result.append(",");
+    result.append(std::to_string(paramAttr.getMPerWave()));
+    result.append(",");
+    result.append(std::to_string(paramAttr.getNPerWave()));
+  } else {
+    result.append(std::to_string(paramAttr.getMPerBlock()));
+    result.append(",");
+    result.append(std::to_string(paramAttr.getNPerBlock()));
+    result.append(",");
+    result.append(std::to_string(paramAttr.getKPerBlock()));
+    result.append(",");
+    result.append(std::to_string(paramAttr.getMPerThread()));
+    result.append(",");
+    result.append(std::to_string(paramAttr.getNPerThread()));
   }
-  result.append(std::to_string(param[i]));
   return result;
 }
 
@@ -258,21 +295,32 @@ mlirRockTuningSpaceCreate(MlirModule module) {
   bool bFound = false;
   auto mod = unwrap(module);
 
-  // rock.conv2d
-  mod->walk([&](rock::Conv2DOp convOp) {
+  mod->walk([&](rock::RockGemmWrapperInterface op) {
     if (!bFound) {
       bFound = true;
-      newParams = createTunableParams(convOp);
+      newParams = createTunableParams(op);
     }
   });
-  // rock.gemm
-  mod->walk([&](rock::GemmOp gemmOp) {
-    if (!bFound) {
-      bFound = true;
-      newParams = createTunableParams(gemmOp);
-    }
-  });
-
+  /*
+    // rock.conv2d
+    mod->walk([&](rock::Conv2DOp convOp) {
+      if (!bFound) {
+        bFound = true;
+        rock::RockGemmWrapperInterface op
+            dyn_cast<rock::RockGemmWrapperInterface>(convOp);
+        newParams = createTunableParams(op);
+      }
+    });
+    // rock.gemm
+    mod->walk([&](rock::GemmOp gemmOp) {
+      if (!bFound) {
+        bFound = true;
+        rock::RockGemmWrapperInterface op
+            dyn_cast<rock::RockGemmWrapperInterface>(gemmOp);
+        newParams = createTunableParams(op);
+      }
+    });
+  */
   return wrap(newParams);
 }
 
@@ -294,7 +342,7 @@ mlirRockTuningCreateParamAt(MlirRockTuningSpace params, int pos) {
   auto tuningSpace = unwrap(params);
   rock::ParamEntry *param = new rock::ParamEntry();
   param->param = tuningSpace->tuningRange[pos];
-  param->perfString = getPerfConfigStr(param->param);
+  param->perfString = toPerfConfig(param->param);
   return wrap(param);
 }
 
