@@ -2,6 +2,7 @@
 #include "mlir/Dialect/Rock/IR/RockConvInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -58,9 +59,9 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
   auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
   auto outputLayoutAttr = op->getAttrOfType<ArrayAttr>("output_layout");
 
-  auto strideVal = convOp.getStride();
-  auto dilationVal = convOp.getDilation();
-  auto paddingVal = convOp.getPadding();
+  auto strideVal = extractFromI64ArrayAttr(convOp.getStrides());
+  auto dilationVal = extractFromI64ArrayAttr(convOp.getDilations());
+  auto paddingVal = extractFromI64ArrayAttr(convOp.getPadding());
 
   populateDimIndexAndSize(
       filterLayoutAttr,

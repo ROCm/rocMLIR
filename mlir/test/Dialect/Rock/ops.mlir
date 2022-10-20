@@ -4,11 +4,14 @@
 
 
 func.func @rock_conv2d(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
-  rock.conv2d(%filter, %input, %output) features = none,  convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d(%filter, %input, %output) features = none {
     arch = "gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
-    output_layout = ["n", "go", "k", "ho", "wo"]
+    output_layout = ["n", "go", "k", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0 : i32,  0 : i32]
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }
@@ -16,11 +19,14 @@ func.func @rock_conv2d(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x
 // CHECK-NEXT: rock.conv2d
 
 func.func @rock_conv2d_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
-  rock.conv2d(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d(%filter, %input, %output) features = none {
     arch = "gfx906",
     filter_layout = ["g" ,"k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
-    output_layout = ["n", "go", "k", "ho", "wo"]
+    output_layout = ["n", "go", "k", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0 : i32,  0 : i32]
   } : memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>
   return
 }
@@ -28,11 +34,14 @@ func.func @rock_conv2d_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x
 // CHECK-NEXT: rock.conv2d
 
 func.func @rock_conv2d_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
-  rock.conv2d_bwd_data(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d_bwd_data(%filter, %input, %output) features = none {
     arch = "gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
-    output_layout = ["n", "go", "k", "ho", "wo"]
+    output_layout = ["n", "go", "k", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0 : i32,  0 : i32]
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }
@@ -40,11 +49,14 @@ func.func @rock_conv2d_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memref
 // CHECK-NEXT: rock.conv2d_bwd_data
 
 func.func @rock_conv2d_bwd_data_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
-  rock.conv2d_bwd_data(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d_bwd_data(%filter, %input, %output) features = none {
     arch = "gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
-    output_layout = ["n", "go", "k", "ho", "wo"]
+    output_layout = ["n", "go", "k", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0 : i32,  0 : i32]
   } : memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>
   return
 }
@@ -52,12 +64,15 @@ func.func @rock_conv2d_bwd_data_f16(%filter : memref<?x?x?x?x?xf16>, %input : me
 // CHECK-NEXT: rock.conv2d_bwd_data
 
 func.func @rock_conv2d_bwd_weight(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
-  rock.conv2d_bwd_weight(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
-    output_layout = ["n", "go", "k", "ho", "wo"]
+    output_layout = ["n", "go", "k", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0 : i32,  0 : i32]
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }
@@ -65,12 +80,15 @@ func.func @rock_conv2d_bwd_weight(%filter : memref<?x?x?x?x?xf32>, %input : memr
 // CHECK-NEXT: rock.conv2d_bwd_weight
 
 func.func @rock_conv2d_bwd_weight_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
-  rock.conv2d_bwd_weight(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
-    output_layout = ["n", "go", "k", "ho", "wo"]
+    output_layout = ["n", "go", "k", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0 : i32,  0 : i32]
   } : memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>
   return
 }

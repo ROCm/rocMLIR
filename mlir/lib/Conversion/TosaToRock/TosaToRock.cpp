@@ -144,18 +144,18 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   int32_t dilationWidth = dilation[1].dyn_cast<IntegerAttr>().getInt();
 
   auto paddingArray =
-      SmallVector<int64_t, 4>{padTop, padBottom, padLeft, padRight};
-  auto strideArray = SmallVector<int64_t, 2>{strideHeight, strideWidth};
-  auto dilationArray = SmallVector<int64_t, 2>{dilationHeight, dilationWidth};
+      SmallVector<int32_t, 4>{padTop, padBottom, padLeft, padRight};
+  auto strideArray = SmallVector<int32_t, 2>{strideHeight, strideWidth};
+  auto dilationArray = SmallVector<int32_t, 2>{dilationHeight, dilationWidth};
 
   auto cop = rw.create<rock::Conv2DOp>(
       loc, outputExp.getType(), filterExp, inputExp, outputExp, arch,
       rw.getAttr<rock::GemmFeaturesAttr>(features),
-      num_cu.has_value() ? rw.getI32IntegerAttr(num_cu.value()) : nullptr,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr,
-      rw.getAttr<rock::ConvParamsAttr>(paddingArray, strideArray,
-                                       dilationArray),
-      /*params=*/nullptr);
+      rw.getI32ArrayAttr(paddingArray), rw.getI32ArrayAttr(strideArray),
+      rw.getI32ArrayAttr(dilationArray),
+      /*params=*/nullptr,
+      num_cu.has_value() ? rw.getI32IntegerAttr(num_cu.value()) : nullptr);
 
   // specify layout attributes
   SmallVector<StringAttr, 5> filterLayoutSpec;

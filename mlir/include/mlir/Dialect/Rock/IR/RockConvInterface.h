@@ -20,6 +20,8 @@
 
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
+
 #include "mlir/Dialect/Rock/IR/RockConvInterface.h.inc"
 
 #endif // MLIR_DIALECT_ROCK_IR_ROCKCONVINTERFACE_H

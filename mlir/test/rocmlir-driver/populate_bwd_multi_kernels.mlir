@@ -18,8 +18,8 @@
 // STRIDE2_GKYXC: {{rock.gemm.*gemm_id = 2 : i32.*}}
 // STRIDE2_GKYXC: {{rock.gemm.*gemm_id = 3 : i32.*}}
 
-// STRIDE2_1x1_TOP_LEVEL: rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features = {{.*}}, convParams = {padding : [1, 1, 1, 1], stride : [2, 2], dilation : [1, 1]} {arch = {{.*}}, filter_layout = ["g", "k", "c", "y", "x"], gemm_id = -1 : i32, input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"]} : memref<1x32x32x1x1xf32>, memref<32x1x32x14x14xf32>, memref<32x1x32x8x8xf32>
-// STRIDE2_1x1_TOP_LEVEL: rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features = {{.*}}, convParams = {padding : [1, 1, 1, 1], stride : [2, 2], dilation : [1, 1]} {arch = {{.*}}, filter_layout = ["g", "k", "c", "y", "x"], gemm_id = 0 : i32, input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"]} : memref<1x32x32x1x1xf32>, memref<32x1x32x14x14xf32>, memref<32x1x32x8x8xf32>
+// STRIDE2_1x1_TOP_LEVEL: rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features = {{.*}} {arch = {{.*}}, dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], gemm_id = -1 : i32, input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"], padding = [1 : i32, 1 : i32, 1 : i32, 1 : i32], strides = [2 : i32, 2 : i32]} : memref<1x32x32x1x1xf32>, memref<32x1x32x14x14xf32>, memref<32x1x32x8x8xf32>
+// STRIDE2_1x1_TOP_LEVEL: rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features = {{.*}} {arch = {{.*}}, dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], gemm_id = 0 : i32, input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"], padding = [1 : i32, 1 : i32, 1 : i32, 1 : i32], strides = [2 : i32, 2 : i32]} : memref<1x32x32x1x1xf32>, memref<32x1x32x14x14xf32>, memref<32x1x32x8x8xf32>
 
 // STRIDE2_1x1_LOWERING-NOT: {{rock.gemm.*gemm_id = -1 : i32.*}}
 // STRIDE2_1x1_LOWERING: {{rock.gemm.*gemm_id = 0 : i32.*}}

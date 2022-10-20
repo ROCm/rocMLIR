@@ -24,31 +24,25 @@ def RockConvInterface : OpInterface<"RockConvInterface"> {
   let methods = [
     InterfaceMethod<
         /*desc=*/[{Return convolution padding values.}],
-        /*retType=*/"ArrayRef<int64_t>",
+        /*retType=*/"ArrayAttr",
         /*methodName=*/"getPadding",
         /*args=*/(ins),
         /*methodBody=*/"",
-        /*defaultImplementation=*/[{
-          return $_op.getConvParams().getPadding();
-        }]>,
+        /*defaultImplementation=*/[{ return $_op.getPadding(); }]>,
     InterfaceMethod<
         /*desc=*/[{Return convolution stride values.}],
-        /*retType=*/"ArrayRef<int64_t>",
-        /*methodName=*/"getStride",
+        /*retType=*/"ArrayAttr",
+        /*methodName=*/"getStrides",
         /*args=*/(ins),
         /*methodBody=*/"",
-        /*defaultImplementation=*/[{
-          return $_op.getConvParams().getStride();
-        }]>,
+        /*defaultImplementation=*/[{ return $_op.getStrides(); }]>,
     InterfaceMethod<
         /*desc=*/[{Return convolution dilation values.}],
-        /*retType=*/"ArrayRef<int64_t>",
-        /*methodName=*/"getDilation",
+        /*retType=*/"ArrayAttr",
+        /*methodName=*/"getDilations",
         /*args=*/(ins),
         /*methodBody=*/"",
-        /*defaultImplementation=*/[{
-          return $_op.getConvParams().getDilation();
-        }]>,
+        /*defaultImplementation=*/[{ return $_op.getDilations(); }]>,
 
     // TODO: more methods here as needed
   ];

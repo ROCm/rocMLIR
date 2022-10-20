@@ -841,17 +841,22 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
   attributes.push_back(builder.getNamedAttr(
       "features", builder.getAttr<GemmFeaturesAttr>(config.features)));
 
-  auto paddingArray = SmallVector<int64_t, 4>{
+  auto paddingArray = SmallVector<int32_t, 4>{
       config.paddingHeightLeft, config.paddingHeightRight,
       config.paddingWidthLeft, config.paddingWidthRight};
   auto strideArray =
-      SmallVector<int64_t, 2>{config.strideHeight, config.strideWidth};
+      SmallVector<int32_t, 2>{config.strideHeight, config.strideWidth};
   auto dilationArray =
-      SmallVector<int64_t, 2>{config.dilationHeight, config.dilationWidth};
+      SmallVector<int32_t, 2>{config.dilationHeight, config.dilationWidth};
+
+  attributes.push_back(
+      builder.getNamedAttr("padding", builder.getI32ArrayAttr(paddingArray)));
+
+  attributes.push_back(
+      builder.getNamedAttr("strides", builder.getI32ArrayAttr(strideArray)));
 
   attributes.push_back(builder.getNamedAttr(
-      "convParams", builder.getAttr<ConvParamsAttr>(paddingArray, strideArray,
-                                                    dilationArray)));
+      "dilations", builder.getI32ArrayAttr(dilationArray)));
 
   // perf_config
   if (!ignoreTuning && !config.perfConfig.empty()) {

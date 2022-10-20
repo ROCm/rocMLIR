@@ -10,11 +10,14 @@
 // CHECK: %[[padK:.*]] = rock.transform %[[gemmFilter]] by #[[$PAD_GEMMK]]
 // CHECK: rock.gridwise_gemm %{{.*}} = %[[padK]] * %{{.*}}
 func.func @rock_conv2d_kcyx_nchw_nkhw_padding_kernel(%filter : memref<32x128x2x3x3xf32>, %input : memref<64x32x2x11x11xf32>, %output : memref<64x32x128x9x9xf32>) {
-  rock.conv2d(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d(%filter, %input, %output) features = none {
     arch = "gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni","gi", "ci", "hi", "wi"],
-    output_layout = ["no", "go",  "ko", "ho", "wo"]
+    output_layout = ["no", "go",  "ko", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
   } : memref<32x128x2x3x3xf32>, memref<64x32x2x11x11xf32>, memref<64x32x128x9x9xf32>
   return
 }
@@ -24,11 +27,14 @@ func.func @rock_conv2d_kcyx_nchw_nkhw_padding_kernel(%filter : memref<32x128x2x3
 // CHECK: %[[gemmFilter:.*]] = rock.transform %[[filter]]
 // CHECK: rock.gridwise_gemm %{{.*}} = %[[gemmFilter]] * %{{.*}}
 func.func @rock_conv2d_kcyx_nchw_nkhw_no_extra_padding(%filter : memref<1x128x64x3x3xf32>, %input : memref<128x1x64x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
-  rock.conv2d(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d(%filter, %input, %output) features = none {
     arch = "gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni","gi", "ci", "hi", "wi"],
-    output_layout = ["no", "go",  "ko", "ho", "wo"]
+    output_layout = ["no", "go",  "ko", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
   } : memref<1x128x64x3x3xf32>, memref<128x1x64x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }
@@ -40,11 +46,14 @@ func.func @rock_conv2d_kcyx_nchw_nkhw_no_extra_padding(%filter : memref<1x128x64
 // CHECK: rock.gridwise_gemm %{{.*}} = %[[padK]] * %{{.*}}
 
 func.func @rock_conv2d_kcyx_nchw_nkhw_partial_padding_kernel(%filter : memref<32x128x2x3x3xf32>, %input : memref<128x32x2x11x11xf32>, %output : memref<128x32x128x9x9xf32>) {
-  rock.conv2d(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d(%filter, %input, %output) features = none {
     arch = "gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni","gi", "ci", "hi", "wi"],
-    output_layout = ["no", "go",  "ko", "ho", "wo"]
+    output_layout = ["no", "go",  "ko", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
   } : memref<32x128x2x3x3xf32>, memref<128x32x2x11x11xf32>, memref<128x32x128x9x9xf32>
   return
 }

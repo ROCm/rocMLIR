@@ -19,16 +19,19 @@
 // CHECK-DAG: #[[$XDLOPS_PARAMS_6:.*]] = #rock.xdlops_gemm_params<kPerBlock = 16, mPerBlock = 4, nPerBlock = 64, kpack = 1, mPerWave = 4, nPerWave = 64>
 
 // CHECK-LABEL: @rock_conv2d
-func.func @rock_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>){
+func.func @rock_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
   // CHECK: rock.conv2d
   // CHECK-SAME: blockSize = 256
   // CHECK-SAME: gridSize = 900
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_0]]
-  rock.conv2d(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]}{
+  rock.conv2d(%filter, %input, %output) features = none {
     arch = "gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    output_layout = ["no", "go", "ko", "ho", "wo"]
+    output_layout = ["no", "go", "ko", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
   } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }
@@ -39,11 +42,14 @@ func.func @rock_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<12
   // CHECK-SAME: blockSize = 256
   // CHECK-SAME: gridSize = 900
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_0]]
-  rock.conv2d(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d(%filter, %input, %output) features = none {
     arch = "gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    output_layout = ["no", "go", "ko", "ho", "wo"]
+    output_layout = ["no", "go", "ko", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
   } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
   return
 }
@@ -54,11 +60,14 @@ func.func @rock_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x
   // CHECK-SAME: blockSize = 256
   // CHECK-SAME: gridSize = 3600
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_0]]
-  rock.conv2d(%filter, %input, %output) features = mfma|dot|atomic_add, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d(%filter, %input, %output) features = mfma|dot|atomic_add {
     arch = "gfx908",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    output_layout = ["no", "go", "ko", "ho", "wo"]
+    output_layout = ["no", "go", "ko", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
   } : memref<1x128x8x3x3xi8>, memref<128x1x8x32x32xi8>, memref<128x1x128x30x30xi32>
   return
 }
@@ -69,12 +78,15 @@ func.func @rock_conv2d_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: me
   // CHECK-SAME: blockSize = 256
   // CHECK-SAME: gridSize = 1568
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_1]]
-  rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add {
     arch = "gfx908",
+    dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 0 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    output_layout = ["no", "go", "ko", "ho", "wo"]
+    output_layout = ["no", "go", "ko", "ho", "wo"],
+    padding = [0  : i32,  0  : i32,  0  : i32,  0 : i32],
+    strides = [1 : i32, 1 : i32]
   } : memref<1x1024x1024x1x1xf32>, memref<128x1x1024x14x14xf32>, memref<128x1x1024x14x14xf32>
   return
 }
@@ -85,12 +97,15 @@ func.func @rock_conv2d_bwd_data_f16(%filter: memref<1x1024x1024x1x1xf16>, %input
   // CHECK-SAME: blockSize = 256
   // CHECK-SAME: gridSize = 1568
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_1]]
-  rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add {
     arch = "gfx908",
+    dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 0 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    output_layout = ["no", "go", "ko", "ho", "wo"]
+    output_layout = ["no", "go", "ko", "ho", "wo"],
+    padding = [0  : i32,  0  : i32,  0  : i32,  0 : i32],
+    strides = [1 : i32, 1 : i32]
   } : memref<1x1024x1024x1x1xf16>, memref<128x1x1024x14x14xf16>, memref<128x1x1024x14x14xf16>
   return
 }
@@ -101,11 +116,14 @@ func.func @rock_conv2d_bwd_data_padMN(%filter : memref<1x64x3x1x1xf32>, %input :
   // CHECK-SAME: blockSize = 64
   // CHECK-SAME: gridSize = 39
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_1]]
-  rock.conv2d_bwd_data(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d_bwd_data(%filter, %input, %output) features = none {
     arch = "gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
     gemm_id = 0
   } : memref<1x64x3x1x1xf32>, memref<11x1x3x15x15xf32>, memref<11x1x64x15x15xf32>
   return
@@ -117,11 +135,14 @@ func.func @rock_conv2d_bwd_data_padMK(%filter : memref<1x11x3x1x1xf32>, %input :
   // CHECK-SAME: blockSize = 64
   // CHECK-SAME: gridSize = 450
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_2]]
-  rock.conv2d_bwd_data(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d_bwd_data(%filter, %input, %output) features = none {
     arch = "gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
     gemm_id = 0
   } : memref<1x11x3x1x1xf32>, memref<128x1x3x15x15xf32>, memref<128x1x11x15x15xf32>
   return
@@ -133,12 +154,15 @@ func.func @rock_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : me
   // CHECK-SAME: blockSize = 64
   // CHECK-SAME: gridSize = 6
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_3]]
-  rock.conv2d_bwd_weight(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
     gemm_id = 0
   } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
   return
@@ -150,12 +174,15 @@ func.func @rock_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input 
   // CHECK-SAME: blockSize = 64
   // CHECK-SAME: gridSize = 6
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_3]]
-  rock.conv2d_bwd_weight(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
     gemm_id = 0
   } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
   return
@@ -167,12 +194,15 @@ func.func @rock_conv2d_bwd_weight_padALL(%filter : memref<1x20x8x3x3xf32>, %inpu
   // CHECK-SAME: blockSize = 64
   // CHECK-SAME: gridSize = 3
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_4]]
-  rock.conv2d_bwd_weight(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
     gemm_id = 0
   } : memref<1x20x8x3x3xf32>, memref<7x1x8x32x32xf32>, memref<7x1x20x30x30xf32>
   return
@@ -184,12 +214,15 @@ func.func @rock_conv2d_bwd_weight_padALL_f16(%filter : memref<1x20x8x3x3xf16>, %
   // CHECK-SAME: blockSize = 64
   // CHECK-SAME: gridSize = 3
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_4]]
-  rock.conv2d_bwd_weight(%filter, %input, %output) features = none, convParams = {padding : [0, 0, 0, 0], stride : [1, 1], dilation : [1, 1]} {
+  rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
     arch = "gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
     gemm_id = 0
   } : memref<1x20x8x3x3xf16>, memref<7x1x8x32x32xf16>, memref<7x1x20x30x30xf16>
   return
@@ -201,15 +234,18 @@ func.func @rock_conv2d_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<2
   // CHECK-SAME: blockSize = 256
   // CHECK-SAME: gridSize = 12544
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_2]]
-  rock.conv2d(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add, convParams = {padding : [0, 0, 0, 0], stride : [2, 2], dilation : [1, 1]} {
+  rock.conv2d(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
     arch = "gfx908",
+    dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 0 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
+    padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
     // Restore this once the kPack + padding support works
     // perf_config = "64,256,8,64,64,4,1,1",
-    perf_config = "64,256,8,64,64,1,1,1"
+    perf_config = "64,256,8,64,64,1,1,1",
+    strides = [2 : i32, 2 : i32]
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
 }
@@ -220,12 +256,15 @@ func.func @rock_conv2d_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x
   // CHECK-SAME: blockSize = 64
   // CHECK-SAME: gridSize = 100352
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_3]]
-  rock.conv2d(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add, convParams = {padding : [0, 0, 0, 0], stride : [2, 2], dilation : [1, 1]} {
+  rock.conv2d(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
     arch = "gfx908",
+    dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 0 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    output_layout = ["no", "go", "ko", "ho", "wo"]
+    output_layout = ["no", "go", "ko", "ho", "wo"],
+    padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
+    strides = [2 : i32, 2 : i32]
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
 }
@@ -236,11 +275,14 @@ func.func @rock_conv2d_bwd_weight_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memr
   // CHECK-SAME: blockSize = 64
   // CHECK-SAME: gridSize = 1280
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_4]]
-  rock.conv2d_bwd_weight(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add, convParams = {padding : [0, 0, 0, 0], stride : [2, 2], dilation : [1, 1]} {
+  rock.conv2d_bwd_weight(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
     arch = "gfx908",
+    dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 0 : i32, input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    numCu = 120 : i32, output_layout = ["no", "go", "ko", "ho", "wo"]
+    numCu = 120 : i32, output_layout = ["no", "go", "ko", "ho", "wo"],
+    padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
+    strides = [2 : i32, 2 : i32]
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
 }
@@ -251,15 +293,18 @@ func.func @rock_conv2d_bwd_data_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1:
   // CHECK-SAME: blockSize = 128
   // CHECK-SAME: gridSize = 26450
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_5]]
-  rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add, convParams = {padding : [0, 0, 0, 0], stride : [2, 2], dilation : [1, 1]} {
+  rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
     arch = "gfx908",
+    dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 1 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
+    padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
     // Restore once kPack + padding work
     // perf_config = "16,128,8,16,64,4,1,1",
-    perf_config = "16,128,8,16,64,1,1,1"
+    perf_config = "16,128,8,16,64,1,1,1",
+    strides = [2 : i32, 2 : i32]
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
 }
@@ -270,12 +315,15 @@ func.func @rock_conv2d_bwd_data_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref
   // CHECK-SAME: blockSize = 64
   // CHECK-SAME: gridSize = 52900
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_6]]
-  rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add, convParams = {padding : [0, 0, 0, 0], stride : [2, 2], dilation : [1, 1]} {
+  rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
     arch = "gfx908",
+    dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
     gemm_id = 1 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    output_layout = ["no", "go", "ko", "ho", "wo"]
+    output_layout = ["no", "go", "ko", "ho", "wo"],
+    padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
+    strides = [2 : i32, 2 : i32]
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
 }
