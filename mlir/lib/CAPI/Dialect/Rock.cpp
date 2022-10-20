@@ -237,18 +237,12 @@ rPadH;  rPadW;   strH;   strW;   dilH;   dilW;  group;  const; {
 */
 
 struct rock::TunableParams *
-createTunableParams(rock::RockGemmWrapperInterface &op) {
+createTunableParams(rock::RockGemmWrapperInterface op) {
   struct rock::TunableParams *newSpace;
-  // FIXME : cases per conv direction
-  rock::KernelType primaryType = op->getKernelType();
-  if (primaryType == rock::KernelType::KernelTypeConv2D) {
-    newSpace = new rock::TunableParams();
-    newSpace->primaryOpType = rock::KernelType::KernelTypeConv2D;
-    // create range and heuristic
-    createGemmTuningRangeBF(newSpace, op);
-  } else if (primaryType == rock::KernelType::KernelTypeGemm) {
-    newSpace = nullptr; // not supported yet
-  }
+  newSpace = new rock::TunableParams();
+  newSpace->primaryOpType = op->getKernelType();
+  // create range and heuristic
+  createGemmTuningRangeBF(newSpace, op);
   return newSpace;
 }
 
@@ -260,7 +254,7 @@ createTunableParams(rock::RockGemmWrapperInterface &op) {
 // Stringfy given param
 std::string toPerfConfig(Attribute param) {
   std::string result;
-  if (auto paramAttr = dyn_cast<rock::XdlopsGemmParams>(param)) {
+  if (auto paramAttr = dyn_cast<rock::XdlopsGemmParamsAttr>(param)) {
     result.append(std::to_string(paramAttr.getMPerBlock()));
     result.append(",");
     result.append(std::to_string(paramAttr.getNPerBlock()));
