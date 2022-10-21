@@ -1,3 +1,5 @@
+add_subdirectory(rocblas-benchmark-driver)
+
 set(PERFORMANCE_SCRIPTS
   createPerformanceReports.py
   MIOpenDriver.py
