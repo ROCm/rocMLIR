@@ -45,12 +45,3 @@ add_llvm_executable(rocmlir-driver
 llvm_update_compile_flags(rocmlir-driver)
 target_link_libraries(rocmlir-driver PRIVATE ${LIBS})
 mlir_check_link_libraries(rocmlir-driver)
-
-# Performance test scripts
-# Defined here since mlir/utils/ isn't in Jenkins
-file(GLOB PERFORMANCE_SCRIPTS
-  "${CMAKE_CURRENT_SOURCE_DIR}/../../utils/jenkins/*.py"
-)
-
-add_custom_target(ci-performance-scripts
-	COMMAND ${CMAKE_COMMAND} -E copy ${PERFORMANCE_SCRIPTS} ${ROCMLIR_BIN_DIR})
