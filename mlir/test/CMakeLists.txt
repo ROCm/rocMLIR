@@ -12,6 +12,7 @@ llvm_canonicalize_cmake_booleans(
   ROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED
   ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED
   ROCMLIR_SQLITE_ENABLED
+  ROCK_E2E_TEST_ENABLED
   )
 
 # Passed to lit.site.cfg.py.so that the out of tree Standalone dialect test
@@ -115,7 +116,7 @@ if(ROCMLIR_DRIVER_ENABLED)
 endif()
 
 # Enable the ROCK E2E tests if -DROCK_E2E_TEST_ENABLED=1
-if(ROCK_E2E_TEST_ENABLED)
+if(ROCK_E2E_TEST_ENABLED OR ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
   list(APPEND ROCMLIR_TEST_DEPENDS e2e_tests)
   add_subdirectory(e2e)
 endif()

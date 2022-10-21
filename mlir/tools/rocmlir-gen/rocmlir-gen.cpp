@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Generator/AmdArchDb.h"
 #include "mlir/Dialect/Rock/Generator/Conv2dGenerator.h"
@@ -39,6 +40,7 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Types.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/InitRocMLIRDialects.h"
@@ -49,6 +51,7 @@
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/Support/CommandLine.h"
@@ -63,211 +66,272 @@
 
 #include <tuple>
 
-using namespace llvm;
 using namespace mlir;
 
-static cl::opt<std::string> inputFilename(llvm::cl::Positional,
-                                          llvm::cl::desc("<input file>"),
-                                          llvm::cl::init(""));
+static llvm::cl::opt<std::string> inputFilename(llvm::cl::Positional,
+                                                llvm::cl::desc("<input file>"),
+                                                llvm::cl::init(""));
 
-static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
-                                           cl::value_desc("filename"),
-                                           cl::init("-"));
+static llvm::cl::opt<std::string>
+    outputFilename("o", llvm::cl::desc("Output filename"),
+                   llvm::cl::value_desc("filename"), llvm::cl::init("-"));
 
-static cl::opt<std::string> testFuncName("func-under-test",
-                                         cl::desc("Name of func to test"),
-                                         cl::init(""));
-static cl::alias aliasTestFuncName("fut", cl::aliasopt(testFuncName));
+static llvm::cl::opt<std::string>
+    testFuncName("func-under-test", llvm::cl::desc("Name of func to test"),
+                 llvm::cl::init(""));
+static llvm::cl::alias aliasTestFuncName("fut",
+                                         llvm::cl::aliasopt(testFuncName));
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 //// Rock Convolution spec
 
-static cl::opt<mlir::rock::KernelType> operation(
-    "operation", cl::desc("Convolution operation,"),
-    cl::values(
+static llvm::cl::opt<rock::KernelType> operation(
+    "operation", llvm::cl::desc("Convolution operation,"),
+    llvm::cl::values(
         clEnumValN(rock::KernelType::Conv2D, "conv2d", "Forward convolution"),
         clEnumValN(rock::KernelType::Conv2DBwdData, "conv2d_bwd_data",
                    "Backpropogate convolution data"),
         clEnumValN(rock::KernelType::Conv2DBwdWeight, "conv2d_bwd_weight",
                    "Backpropogate convolution weights"),
         clEnumValN(rock::KernelType::Gemm, "gemm", "Matrix multiplication")),
-    cl::value_desc("kernel type"), cl::init(rock::KernelType::Conv2D));
+    llvm::cl::value_desc("kernel type"),
+    llvm::cl::init(rock::KernelType::Conv2D));
 
-static cl::opt<std::string>
-    arch("arch",
-         cl::desc("amdgpu architecture, eg: gfx803, gfx900, gfx906, gfx908"),
-         cl::value_desc("GFX architecture string"), cl::init(""));
+static llvm::cl::opt<std::string> arch(
+    "arch",
+    llvm::cl::desc("amdgpu architecture, eg: gfx803, gfx900, gfx906, gfx908"),
+    llvm::cl::value_desc("GFX architecture string"), llvm::cl::init(""));
 
-static cl::opt<int>
-    num_cu("num_cu",
-           cl::desc("Number of compute units, valid combinations include: "
-                    "gfx803(36/64), gfx900(56/64), "
-                    "gfx906(60/64), gfx908(120)"),
-           cl::value_desc("compute unit value"), cl::init(64));
+static llvm::cl::opt<int> num_cu(
+    "num_cu",
+    llvm::cl::desc("Number of compute units, valid combinations include: "
+                   "gfx803(36/64), gfx900(56/64), "
+                   "gfx906(60/64), gfx908(120)"),
+    llvm::cl::value_desc("compute unit value"), llvm::cl::init(64));
 
-static cl::opt<std::string>
-    perfConfig("perf_config",
-               cl::desc("performance config data used for tuning"),
-               cl::value_desc("Serialized tuning parameters"), cl::init(""));
+static llvm::cl::opt<std::string> perfConfig(
+    "perf_config", llvm::cl::desc("performance config data used for tuning"),
+    llvm::cl::value_desc("Serialized tuning parameters"), llvm::cl::init(""));
 
-static cl::opt<std::string> filterLayout("fil_layout",
-                                         cl::desc("Filter layout"),
-                                         cl::value_desc("layout string"),
-                                         cl::init("gkcyx"));
+static llvm::cl::opt<std::string>
+    filterLayout("fil_layout", llvm::cl::desc("Filter layout"),
+                 llvm::cl::value_desc("layout string"),
+                 llvm::cl::init("gkcyx"));
 
-static cl::opt<std::string> inputLayout("in_layout", cl::desc("Input layout"),
-                                        cl::value_desc("layout string"),
-                                        cl::init("ngchw"));
+static llvm::cl::opt<std::string>
+    inputLayout("in_layout", llvm::cl::desc("Input layout"),
+                llvm::cl::value_desc("layout string"), llvm::cl::init("ngchw"));
 
-static cl::opt<std::string> outputLayout("out_layout",
-                                         cl::desc("Output layout"),
-                                         cl::value_desc("layout string"),
-                                         cl::init("ngkhw"));
+static llvm::cl::opt<std::string>
+    outputLayout("out_layout", llvm::cl::desc("Output layout"),
+                 llvm::cl::value_desc("layout string"),
+                 llvm::cl::init("ngkhw"));
 
-static cl::opt<int64_t> groupSize("groupsize", cl::desc("Group size"),
-                                  cl::value_desc("dimension value"),
-                                  cl::init(1));
+static llvm::cl::opt<int64_t> groupSize("groupsize",
+                                        llvm::cl::desc("Group size"),
+                                        llvm::cl::value_desc("dimension value"),
+                                        llvm::cl::init(1));
+static llvm::cl::alias groupSizeShort("g",
+                                      llvm::cl::desc("alias for -groupsize"),
+                                      llvm::cl::aliasopt(groupSize));
+
 // N
-static cl::opt<int64_t> batchSize("batchsize", cl::desc("Batch size"),
-                                  cl::value_desc("dimension value"),
-                                  cl::init(-1));
+static llvm::cl::opt<int64_t> batchSize("batchsize",
+                                        llvm::cl::desc("Batch size"),
+                                        llvm::cl::value_desc("dimension value"),
+                                        llvm::cl::init(-1));
 
 // C
-static cl::opt<int64_t> inputChannel("in_channels", cl::desc("Input channels"),
-                                     cl::value_desc("dimension value"),
-                                     cl::init(-1));
+static llvm::cl::opt<int64_t>
+    inputChannel("in_channels", llvm::cl::desc("Input channels"),
+                 llvm::cl::value_desc("dimension value"), llvm::cl::init(-1));
 
 // Hi
-static cl::opt<int64_t> inputHeight("in_h", cl::desc("Input height"),
-                                    cl::value_desc("dimension value"),
-                                    cl::init(-1));
+static llvm::cl::opt<int64_t>
+    inputHeight("in_h", llvm::cl::desc("Input height"),
+                llvm::cl::value_desc("dimension value"), llvm::cl::init(-1));
 
 // Wi
-static cl::opt<int64_t> inputWidth("in_w", cl::desc("Input width"),
-                                   cl::value_desc("dimension value"),
-                                   cl::init(-1));
+static llvm::cl::opt<int64_t>
+    inputWidth("in_w", llvm::cl::desc("Input width"),
+               llvm::cl::value_desc("dimension value"), llvm::cl::init(-1));
 
 // K
-static cl::opt<int64_t> outputChannel("out_channels",
-                                      cl::desc("Output channels"),
-                                      cl::value_desc("dimension value"),
-                                      cl::init(-1));
+static llvm::cl::opt<int64_t>
+    outputChannel("out_channels", llvm::cl::desc("Output channels"),
+                  llvm::cl::value_desc("dimension value"), llvm::cl::init(-1));
 
 // Y
-static cl::opt<int64_t> filterWidth("fil_w", cl::desc("Filter width"),
-                                    cl::value_desc("dimension value"),
-                                    cl::init(-1));
+static llvm::cl::opt<int64_t>
+    filterWidth("fil_w", llvm::cl::desc("Filter width"),
+                llvm::cl::value_desc("dimension value"), llvm::cl::init(-1));
 
 // X
-static cl::opt<int64_t> filterHeight("fil_h", cl::desc("Filter height"),
-                                     cl::value_desc("dimension value"),
-                                     cl::init(-1));
+static llvm::cl::opt<int64_t>
+    filterHeight("fil_h", llvm::cl::desc("Filter height"),
+                 llvm::cl::value_desc("dimension value"), llvm::cl::init(-1));
 
 // Ho
-static cl::opt<int64_t>
-    outputHeight("out_h", cl::desc("Output height"),
-                 cl::value_desc("ouput dimension value, does not need to set."),
-                 cl::init(-1));
+static llvm::cl::opt<int64_t> outputHeight(
+    "out_h", llvm::cl::desc("Output height"),
+    llvm::cl::value_desc("ouput dimension value, does not need to set."),
+    llvm::cl::init(-1));
 
 // Wo
-static cl::opt<int64_t>
-    outputWidth("out_w", cl::desc("Output width"),
-                cl::value_desc("ouput dimension value, does not need to set."),
-                cl::init(-1));
+static llvm::cl::opt<int64_t> outputWidth(
+    "out_w", llvm::cl::desc("Output width"),
+    llvm::cl::value_desc("ouput dimension value, does not need to set."),
+    llvm::cl::init(-1));
 
 // dilation height
-static cl::opt<int> dilationHeight("dilation_h", cl::desc("Dilation height"),
-                                   cl::value_desc("attribute value"),
-                                   cl::init(1));
+static llvm::cl::opt<int>
+    dilationHeight("dilation_h", llvm::cl::desc("Dilation height"),
+                   llvm::cl::value_desc("attribute value"), llvm::cl::init(1));
 
 // dilation width
-static cl::opt<int> dilationWidth("dilation_w", cl::desc("Dilation width"),
-                                  cl::value_desc("attribute value"),
-                                  cl::init(1));
+static llvm::cl::opt<int> dilationWidth("dilation_w",
+                                        llvm::cl::desc("Dilation width"),
+                                        llvm::cl::value_desc("attribute value"),
+                                        llvm::cl::init(1));
 
 // stride height
-static cl::opt<int> strideHeight("conv_stride_h", cl::desc("Stride height"),
-                                 cl::value_desc("attribute value"),
-                                 cl::init(1));
+static llvm::cl::opt<int> strideHeight("conv_stride_h",
+                                       llvm::cl::desc("Stride height"),
+                                       llvm::cl::value_desc("attribute value"),
+                                       llvm::cl::init(1));
 
 // stride width
-static cl::opt<int> strideWidth("conv_stride_w", cl::desc("Stride width"),
-                                cl::value_desc("attribute value"), cl::init(1));
+static llvm::cl::opt<int> strideWidth("conv_stride_w",
+                                      llvm::cl::desc("Stride width"),
+                                      llvm::cl::value_desc("attribute value"),
+                                      llvm::cl::init(1));
 
 // padding height
-static cl::opt<int> paddingHeight("padding_h", cl::desc("Padding height"),
-                                  cl::value_desc("attribute value"),
-                                  cl::init(0));
+static llvm::cl::opt<int> paddingHeight("padding_h",
+                                        llvm::cl::desc("Padding height"),
+                                        llvm::cl::value_desc("attribute value"),
+                                        llvm::cl::init(0));
 
-static cl::opt<int> paddingHeightLeft("padding_h_l",
-                                      cl::desc("Padding height Left"),
-                                      cl::value_desc("attribute value"),
-                                      cl::init(0));
+static llvm::cl::opt<int>
+    paddingHeightLeft("padding_h_l", llvm::cl::desc("Padding height Left"),
+                      llvm::cl::value_desc("attribute value"),
+                      llvm::cl::init(0));
 
-static cl::opt<int> paddingHeightRight("padding_h_r",
-                                       cl::desc("Padding height Right"),
-                                       cl::value_desc("attribute value"),
-                                       cl::init(0));
+static llvm::cl::opt<int>
+    paddingHeightRight("padding_h_r", llvm::cl::desc("Padding height Right"),
+                       llvm::cl::value_desc("attribute value"),
+                       llvm::cl::init(0));
 // padding width
-static cl::opt<int> paddingWidth("padding_w", cl::desc("Padding width"),
-                                 cl::value_desc("attribute value"),
-                                 cl::init(0));
+static llvm::cl::opt<int> paddingWidth("padding_w",
+                                       llvm::cl::desc("Padding width"),
+                                       llvm::cl::value_desc("attribute value"),
+                                       llvm::cl::init(0));
 
-static cl::opt<int> paddingWidthLeft("padding_w_l",
-                                     cl::desc("Padding width Left"),
-                                     cl::value_desc("attribute value"),
-                                     cl::init(0));
+static llvm::cl::opt<int>
+    paddingWidthLeft("padding_w_l", llvm::cl::desc("Padding width Left"),
+                     llvm::cl::value_desc("attribute value"),
+                     llvm::cl::init(0));
 
-static cl::opt<int> paddingWidthRight("padding_w_r",
-                                      cl::desc("Padding width Right"),
-                                      cl::value_desc("attribute value"),
-                                      cl::init(0));
+static llvm::cl::opt<int>
+    paddingWidthRight("padding_w_r", llvm::cl::desc("Padding width Right"),
+                      llvm::cl::value_desc("attribute value"),
+                      llvm::cl::init(0));
+
+/// Matrix options
+static llvm::cl::opt<int64_t> gemmM("m",
+                                    llvm::cl::desc("M dimennsion of gemm()"),
+                                    llvm::cl::value_desc("positive integer"),
+                                    llvm::cl::init(-1));
+
+static llvm::cl::opt<int64_t> gemmK("k",
+                                    llvm::cl::desc("K dimennsion of gemm()"),
+                                    llvm::cl::value_desc("positive integer"),
+                                    llvm::cl::init(-1));
+
+static llvm::cl::opt<int64_t> gemmN("n",
+                                    llvm::cl::desc("N dimennsion of gemm()"),
+                                    llvm::cl::value_desc("positive integer"),
+                                    llvm::cl::init(-1));
+
+static llvm::cl::opt<bool>
+    transposeA("transA",
+               llvm::cl::desc("whether matrix A is GxMxK (default) or GxKxM"),
+               llvm::cl::init(false));
+
+static llvm::cl::opt<bool>
+    transposeB("transB",
+               llvm::cl::desc("whether matrix B is GxKxN (default) or GxNxK"),
+               llvm::cl::init(false));
+
+static llvm::cl::opt<bool>
+    transposeC("transC",
+               llvm::cl::desc("whether matrix C is GxMxN (default) or GxNxM"),
+               llvm::cl::init(false));
+
+static llvm::cl::opt<rock::StoreMethod> storeMethod(
+    "store-method", llvm::cl::desc("storage method for gemm"),
+    llvm::cl::values(
+        clEnumValN(rock::StoreMethod::Set, "set", "set results in C (default)"),
+        clEnumValN(rock::StoreMethod::AtomicAdd, "atomic_add",
+                   "atomically add results to values in matrix C")),
+    llvm::cl::init(rock::StoreMethod::Set));
 
 // A toggle to control whether a feature should be added to the feature list
-enum featureToggle { infer, on, off };
+enum class FeatureToggle : uint32_t { infer, on, off };
 
 // use the toggle on each feature
 // mfma
-static cl::opt<featureToggle> mfmaFeature(
-    "mfma", cl::desc("toggle feature mfma"),
-    cl::values(clEnumVal(infer, "use the default value provided by the chip"),
-               clEnumVal(on, "force mfma into the feature list"),
-               clEnumVal(off, "remove mfma from the feature list")),
-    cl::init(infer));
+static llvm::cl::opt<FeatureToggle> mfmaFeature(
+    "mfma", llvm::cl::desc("toggle feature mfma"),
+    llvm::cl::values(clEnumValN(FeatureToggle::infer, "infer",
+                                "use the default value provided by the chip"),
+                     clEnumValN(FeatureToggle::on, "on",
+                                "force mfma into the feature list"),
+                     clEnumValN(FeatureToggle::off, "off",
+                                "remove mfma from the feature list")),
+    llvm::cl::init(FeatureToggle::infer));
 
 // dot
-static cl::opt<featureToggle> dotFeature(
-    "dot", cl::desc("toggle feature dot"),
-    cl::values(clEnumVal(infer, "use the default value provided by the chip"),
-               clEnumVal(on, "force dot into the feature list"),
-               clEnumVal(off, "remove dot from the feature list")),
-    cl::init(infer));
+static llvm::cl::opt<FeatureToggle> dotFeature(
+    "dot", llvm::cl::desc("toggle feature dot"),
+    llvm::cl::values(clEnumValN(FeatureToggle::infer, "infer",
+                                "use the default value provided by the chip"),
+                     clEnumValN(FeatureToggle::on, "on",
+                                "force dot into the feature list"),
+                     clEnumValN(FeatureToggle::off, "off",
+                                "remove dot from the feature list")),
+    llvm::cl::init(FeatureToggle::infer));
 
 // atomicAdd
-static cl::opt<featureToggle> atomicAddFeature(
-    "atomic_add", cl::desc("toggle feature atomic_add"),
-    cl::values(clEnumVal(infer, "use the default value provided by the chip"),
-               clEnumVal(on, "force atomic_add into the feature list"),
-               clEnumVal(off, "remove atomic_add from the feature list")),
-    cl::init(infer));
+static llvm::cl::opt<FeatureToggle> atomicAddFeature(
+    "atomic_add", llvm::cl::desc("toggle feature atomic_add"),
+    llvm::cl::values(clEnumValN(FeatureToggle::infer, "infer",
+                                "use the default value provided by the chip"),
+                     clEnumValN(FeatureToggle::on, "on",
+                                "force atomic_add into the feature list"),
+                     clEnumValN(FeatureToggle::off, "off",
+                                "remove atomic_add from the feature list")),
+    llvm::cl::init(FeatureToggle::infer));
 
 // data type
-static cl::opt<std::string>
-    tensorDataType("t", cl::desc("Data type for convolution"),
-                   cl::value_desc("Data type for convolution"),
-                   cl::init("f32"));
+static llvm::cl::opt<std::string>
+    tensorDataType("t", llvm::cl::desc("Data type for convolution"),
+                   llvm::cl::value_desc("Data type for convolution"),
+                   llvm::cl::init("f32"));
 
 // conv-config
-static cl::opt<std::string> populateConvConfig(
+static llvm::cl::opt<std::string> populateConvConfig(
     "conv-config",
-    cl::desc("Populate full config settings (overrides all specific settings)"),
-    cl::value_desc("config settings matching the C-API"), cl::init(""));
+    llvm::cl::desc(
+        "Populate full config settings (overrides all specific settings)"),
+    llvm::cl::value_desc("config settings matching the C-API"),
+    llvm::cl::init(""));
 
 // populate default values
-static cl::opt<bool>
-    populateDefaultValues("p", cl::desc("To populate default values"),
-                          cl::value_desc("To populate default values"),
-                          cl::init(false));
+static llvm::cl::opt<bool>
+    populateDefaultValues("p", llvm::cl::desc("To populate default values"),
+                          llvm::cl::value_desc("To populate default values"),
+                          llvm::cl::init(false));
 
 //////////////////////////////////////////////////////////////////////////
 ////  Host Generator options
@@ -290,150 +354,157 @@ static cl::opt<bool>
 //////////////////////////////////////////////////////////////////////////
 
 // generate host harness program.
-static cl::opt<bool> readHostHarness("host", cl::desc("To use host harness"),
-                                     cl::value_desc("To use host harness"),
-                                     cl::init(false));
+static llvm::cl::opt<bool>
+    readHostHarness("host", llvm::cl::desc("To use host harness"),
+                    llvm::cl::value_desc("To use host harness"),
+                    llvm::cl::init(false));
 
-static cl::opt<bool> genHostHarness("host-harness",
-                                    cl::desc("To use host harness"),
-                                    cl::value_desc("To use host harness"),
-                                    cl::init(false));
+static llvm::cl::opt<bool>
+    genHostHarness("host-harness", llvm::cl::desc("To use host harness"),
+                   llvm::cl::value_desc("To use host harness"),
+                   llvm::cl::init(false));
 
-static cl::alias aliasGenHostHarness("ph", cl::aliasopt(genHostHarness));
+static llvm::cl::alias aliasGenHostHarness("ph",
+                                           llvm::cl::aliasopt(genHostHarness));
 
 // print results
-static cl::opt<bool> printResults("print-results",
-                                  cl::desc("To print result tensor"),
-                                  cl::init(false));
-static cl::alias aliasPrintResults("pr", cl::aliasopt(printResults));
+static llvm::cl::opt<bool>
+    printResults("print-results", llvm::cl::desc("To print result tensor"),
+                 llvm::cl::init(false));
+static llvm::cl::alias aliasPrintResults("pr",
+                                         llvm::cl::aliasopt(printResults));
 
-static cl::opt<bool> printInputs("print-inputs",
-                                 cl::desc("To print input tensors"),
-                                 cl::init(false));
-static cl::alias aliasPrintInputs("pi", cl::aliasopt(printInputs));
+static llvm::cl::opt<bool> printInputs("print-inputs",
+                                       llvm::cl::desc("To print input tensors"),
+                                       llvm::cl::init(false));
+static llvm::cl::alias aliasPrintInputs("pi", llvm::cl::aliasopt(printInputs));
 
-static cl::opt<bool>
-    printValidationResults("print-validation-results",
-                           cl::desc("To print result tensor for validation"),
-                           cl::init(false));
-static cl::alias
-    aliasPrintValidationResults("pvr", cl::aliasopt(printValidationResults));
+static llvm::cl::opt<bool> printValidationResults(
+    "print-validation-results",
+    llvm::cl::desc("To print result tensor for validation"),
+    llvm::cl::init(false));
+static llvm::cl::alias
+    aliasPrintValidationResults("pvr",
+                                llvm::cl::aliasopt(printValidationResults));
 
 // populate host validation logic.
-static cl::opt<std::string> genValidation(
+static llvm::cl::opt<std::string> genValidation(
     "verifier",
-    cl::desc(
+    llvm::cl::desc(
         "Select verification from: none(default), cpu, gpu, cpp, mlir, clone"),
-    cl::cb<void, std::string>([](const std::string &v) {
+    llvm::cl::cb<void, std::string>([](const std::string &v) {
       if (!v.empty())
         genHostHarness = true;
     }),
-    cl::value_desc("Specify host validation logic"), cl::init(""));
+    llvm::cl::value_desc("Specify host validation logic"), llvm::cl::init(""));
 
-static cl::opt<bool> genCPUValidation("pv", cl::Hidden, cl::init(false),
-                                      cl::Optional,
-                                      cl::cb<void, bool>([](bool v) {
-                                        if (v) {
-                                          genValidation = "mlir";
-                                          genHostHarness = true;
-                                        }
-                                      }));
+static llvm::cl::opt<bool>
+    genCPUValidation("pv", llvm::cl::Hidden, llvm::cl::init(false),
+                     llvm::cl::Optional, llvm::cl::cb<void, bool>([](bool v) {
+                       if (v) {
+                         genValidation = "mlir";
+                         genHostHarness = true;
+                       }
+                     }));
 
-static cl::opt<bool> genCPPValidation("pv_with_cpp", cl::Hidden,
-                                      cl::init(false), cl::Optional,
-                                      cl::cb<void, bool>([](bool v) {
-                                        if (v) {
-                                          genValidation = "cpp";
-                                          genHostHarness = true;
-                                        }
-                                      }));
+static llvm::cl::opt<bool>
+    genCPPValidation("pv_with_cpp", llvm::cl::Hidden, llvm::cl::init(false),
+                     llvm::cl::Optional, llvm::cl::cb<void, bool>([](bool v) {
+                       if (v) {
+                         genValidation = "cpp";
+                         genHostHarness = true;
+                       }
+                     }));
 
-static cl::opt<bool> genMLIRValidation("pv_with_mlir", cl::Hidden,
-                                       cl::init(false), cl::Optional,
-                                       cl::cb<void, bool>([](bool v) {
-                                         if (v) {
-                                           genValidation = "mlir";
-                                           genHostHarness = true;
-                                         }
-                                       }));
+static llvm::cl::opt<bool>
+    genMLIRValidation("pv_with_mlir", llvm::cl::Hidden, llvm::cl::init(false),
+                      llvm::cl::Optional, llvm::cl::cb<void, bool>([](bool v) {
+                        if (v) {
+                          genValidation = "mlir";
+                          genHostHarness = true;
+                        }
+                      }));
 
-static cl::opt<bool> genGPUValidation("pv_with_gpu", cl::Hidden,
-                                      cl::init(false), cl::Optional,
-                                      cl::cb<void, bool>([](bool v) {
-                                        if (v) {
-                                          genValidation = "gpu";
-                                          genHostHarness = true;
-                                        }
-                                      }));
+static llvm::cl::opt<bool>
+    genGPUValidation("pv_with_gpu", llvm::cl::Hidden, llvm::cl::init(false),
+                     llvm::cl::Optional, llvm::cl::cb<void, bool>([](bool v) {
+                       if (v) {
+                         genValidation = "gpu";
+                         genHostHarness = true;
+                       }
+                     }));
 
-static cl::opt<bool> genCPUKernel("cpu-kernels",
-                                  cl::desc("Generate CPU kernel for test"),
-                                  cl::init(false), cl::Optional,
-                                  cl::cb<void, bool>([](bool v) {
-                                    if (v) {
-                                      genValidation = "mlir";
-                                      genHostHarness = true;
-                                      printResults = true;
-                                    }
-                                  }));
-static cl::alias aliasGenCPUKernel("prc", cl::aliasopt(genCPUKernel));
+static llvm::cl::opt<bool>
+    genCPUKernel("cpu-kernels", llvm::cl::desc("Generate CPU kernel for test"),
+                 llvm::cl::init(false), llvm::cl::Optional,
+                 llvm::cl::cb<void, bool>([](bool v) {
+                   if (v) {
+                     genValidation = "mlir";
+                     genHostHarness = true;
+                     printResults = true;
+                   }
+                 }));
+static llvm::cl::alias aliasGenCPUKernel("prc",
+                                         llvm::cl::aliasopt(genCPUKernel));
 
 // Input data spec
-static cl::opt<std::string> randomSeed(
+static llvm::cl::opt<std::string> randomSeed(
     "rand",
-    cl::desc(
+    llvm::cl::desc(
         "A positive integer or zero indicates the seed of random data generator"
         "for convolution inputs, e.g. -rand 1. If not specifed, or 'fixed', "
         "use a fixed nonuniform test pattern. If 'none', use all 1s as the "
         "values. If 0, use time(0) as the seed."),
-    cl::value_desc("seed"), cl::init("fixed"));
+    llvm::cl::value_desc("seed"), llvm::cl::init("fixed"));
 
-static cl::opt<std::string>
-    randomDataType("rand_type",
-                   cl::desc("To specify data type for random number generator,"
-                            "e.g. -rand_type float, -rand_type int (default)."),
-                   cl::value_desc("type"), cl::init("int"));
+static llvm::cl::opt<std::string> randomDataType(
+    "rand_type",
+    llvm::cl::desc("To specify data type for random number generator,"
+                   "e.g. -rand_type float, -rand_type int (default)."),
+    llvm::cl::value_desc("type"), llvm::cl::init("int"));
 
-static cl::opt<std::string> randomSide(
+static llvm::cl::opt<std::string> randomSide(
     "rand_side",
-    cl::desc("To populate random numbers to a specified tensor: "
-             "For conv2d, -rand_side filter or -rand_side input; "
-             "For conv2d_bwd_data, -rand_side filter or -rand_side output; "
-             "For conv2d_bwd_weight, -rand_side input or -rand_side output. "
-             "By default, populate random numbers to both tensors."),
-    cl::value_desc("tensor"), cl::init("both"));
+    llvm::cl::desc(
+        "To populate random numbers to a specified tensor: "
+        "For conv2d, -rand_side filter or -rand_side input; "
+        "For conv2d_bwd_data, -rand_side filter or -rand_side output; "
+        "For conv2d_bwd_weight, -rand_side input or -rand_side output. "
+        "By default, populate random numbers to both tensors."),
+    llvm::cl::value_desc("tensor"), llvm::cl::init("both"));
 
 // Verification function options
-static cl::opt<float> RMSThreshold("RMS_threshold",
-                                   cl::desc("Threshold for RMS metric"),
-                                   cl::value_desc("error"), cl::init(0.00003f));
+static llvm::cl::opt<float>
+    RMSThreshold("RMS_threshold", llvm::cl::desc("Threshold for RMS metric"),
+                 llvm::cl::value_desc("error"), llvm::cl::init(0.00003f));
 
-static cl::opt<float> absDiffThreshold("absDiff_threshold",
-                                       cl::desc("Threshold for absDiff metric"),
-                                       cl::value_desc("error"),
-                                       cl::init(100.0f));
+static llvm::cl::opt<float>
+    absDiffThreshold("absDiff_threshold",
+                     llvm::cl::desc("Threshold for absDiff metric"),
+                     llvm::cl::value_desc("error"), llvm::cl::init(100.0f));
 
-static cl::opt<float> relDiffThreshold("relDiff_threshold",
-                                       cl::desc("Threshold for relDiff metric"),
-                                       cl::value_desc("error"),
-                                       cl::init(100.0f));
-static cl::opt<std::string> printVerifyResults(
+static llvm::cl::opt<float>
+    relDiffThreshold("relDiff_threshold",
+                     llvm::cl::desc("Threshold for relDiff metric"),
+                     llvm::cl::value_desc("error"), llvm::cl::init(100.0f));
+static llvm::cl::opt<std::string> printVerifyResults(
     "print-verify-results",
-    cl::desc("Choose when to print verbose debug information in the "
-             "verification function:"
-             "always: print debug info"
-             "failure: print debug info if the test fails (default)"
-             "off: do not print debug info"),
-    cl::value_desc("info"), cl::init("failure"));
-static cl::alias aliasPrintVerifyResults("p_verify",
-                                         cl::aliasopt(printVerifyResults));
+    llvm::cl::desc("Choose when to print verbose debug information in the "
+                   "verification function:"
+                   "always: print debug info"
+                   "failure: print debug info if the test fails (default)"
+                   "off: do not print debug info"),
+    llvm::cl::value_desc("info"), llvm::cl::init("failure"));
+static llvm::cl::alias
+    aliasPrintVerifyResults("p_verify", llvm::cl::aliasopt(printVerifyResults));
 
-static cl::opt<int> deviceNum(
+static llvm::cl::opt<int> deviceNum(
     "device",
-    cl::desc("Device index on which to run the kernel (only with host code)"),
-    cl::value_desc("Between 0 and number of GPUs on system. "
-                   "Omission leaves current device intact."));
-static cl::alias deviceShort("dev", cl::aliasopt(deviceNum));
+    llvm::cl::desc(
+        "Device index on which to run the kernel (only with host code)"),
+    llvm::cl::value_desc("Between 0 and number of GPUs on system. "
+                         "Omission leaves current device intact."));
+static llvm::cl::alias deviceShort("dev", llvm::cl::aliasopt(deviceNum));
 
 ////////////////////////////////////////////////////////////////////////////////
 ////  Struct KernelIF
@@ -441,7 +512,7 @@ static cl::alias deviceShort("dev", cl::aliasopt(deviceNum));
 ////////////////////////////////////////////////////////////////////////////////
 struct KernelIF {
   func::FuncOp func;
-  SmallVector<mlir::Type, 8> params;
+  SmallVector<Type, 8> params;
 
   // CTOR w/ FuncOp
   KernelIF(func::FuncOp _f) : func(_f) {
@@ -451,11 +522,18 @@ struct KernelIF {
   }
 };
 
+struct GenParams {
+  llvm::Optional<rock::KernelType> operation = llvm::None;
+  Type dtype = nullptr;
+  rock::GemmFeatures features = rock::GemmFeatures::none;
+  llvm::Optional<const rock::Conv2dGenerator::Config *> convConfig = llvm::None;
+};
+
 namespace test {
 void registerTestDialect(DialectRegistry &);
 } // namespace test
 
-static void correctParameters() {
+static void correctConvParameters() {
   std::string filterLayoutValue = filterLayout.getValue();
   std::string inputLayoutValue = inputLayout.getValue();
   std::string outputLayoutValue = outputLayout.getValue();
@@ -481,8 +559,9 @@ static void correctParameters() {
   else if (inputLayoutValue.size() == 4)
     inputLayout = "g" + inputLayoutValue;
 
-  auto validatePadding = [](cl::opt<int> &combined, cl::opt<int> &left,
-                            cl::opt<int> &right, StringRef name) {
+  auto validatePadding = [](llvm::cl::opt<int> &combined,
+                            llvm::cl::opt<int> &left, llvm::cl::opt<int> &right,
+                            StringRef name) {
     if (combined.getValue() > 0) {
       int combinedVal = combined.getValue();
       int leftVal = left.getValue();
@@ -554,7 +633,7 @@ static void correctParameters() {
     paddingWidthRight = in_right_pad_w + (wi_minimum - wi_specified);
 }
 
-static void verifyLayout() {
+static void verifyConvLayout() {
   std::string filterLayoutValue = filterLayout.getValue();
   std::string inputLayoutValue = inputLayout.getValue();
 
@@ -573,8 +652,15 @@ static void verifyLayout() {
 }
 
 static void populateDefaults() {
+  bool isGemm = operation == rock::KernelType::Gemm;
   if (populateDefaultValues) {
-    if (mfmaFeature != on) {
+    if (isGemm) {
+      gemmM = 1024;
+      gemmK = 769;
+      gemmN = 512;
+      groupSize = 1;
+    }
+    if (mfmaFeature != FeatureToggle::on) {
       groupSize = 1;
       batchSize = 128;
       inputChannel = 8;
@@ -612,13 +698,13 @@ static void populateDefaults() {
     }
   }
 
-  if (outputHeight.getNumOccurrences() == 0) {
+  if (!isGemm && outputHeight.getNumOccurrences() == 0) {
     outputHeight = rock::Conv2dGenerator::outputDim(
         inputHeight.getValue(), filterHeight.getValue(),
         paddingHeightLeft.getValue(), paddingHeightRight.getValue(),
         strideHeight.getValue(), dilationHeight.getValue());
   }
-  if (outputWidth.getNumOccurrences() == 0) {
+  if (!isGemm && outputWidth.getNumOccurrences() == 0) {
     outputWidth = rock::Conv2dGenerator::outputDim(
         inputWidth.getValue(), filterWidth.getValue(),
         paddingWidthLeft.getValue(), paddingWidthRight.getValue(),
@@ -627,11 +713,14 @@ static void populateDefaults() {
 }
 
 static LogicalResult detectMissingArguments() {
-  const static std::vector<const cl::opt<int64_t> *> requiredArgs = {
+  const static std::vector<const llvm::cl::opt<int64_t> *> requiredConvArgs = {
       &groupSize,  &batchSize,     &inputChannel, &inputHeight,
       &inputWidth, &outputChannel, &filterWidth,  &filterHeight};
-  for (auto *arg : requiredArgs) {
-    if (arg->getValue() < 0) {
+  const static std::vector<const llvm::cl::opt<int64_t> *> requiredGemmArgs = {
+      &groupSize, &gemmM, &gemmK, &gemmN};
+  for (auto *arg : ((operation == rock::KernelType::Gemm) ? requiredGemmArgs
+                                                          : requiredConvArgs)) {
+    if (arg->getValue() <= 0) {
       llvm::errs() << "Value for: " << arg->ArgStr << " not specified\n";
       return failure();
     }
@@ -653,11 +742,11 @@ static func::FuncOp makeFuncDecl(ModuleOp module, StringRef funcName,
   return func;
 }
 
-static mlir::Value makeNDMemRef(OpBuilder &b, mlir::Value var, uint32_t ndim) {
+static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
   MLIRContext *context = b.getContext();
   auto oprType = var.getType().template cast<ShapedType>();
   if (!oprType.hasStaticShape())
-    return mlir::Value();
+    return Value();
 
   auto shape = oprType.getShape();
   auto loc = var.getLoc();
@@ -715,7 +804,7 @@ static mlir::Value makeNDMemRef(OpBuilder &b, mlir::Value var, uint32_t ndim) {
   return var;
 }
 
-static func::FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
+static func::FuncOp createGPUWrapper(ModuleOp module, const KernelIF &kernel) {
   MLIRContext *context = module.getContext();
   OpBuilder b(context);
   auto loc = kernel.func->getLoc();
@@ -739,17 +828,17 @@ static func::FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
         loc, b.create<arith::ConstantIntOp>(loc, deviceNum.getValue(),
                                             b.getIntegerType(32)));
 
-  SmallVector<mlir::Value, 4> cpuMem;
-  SmallVector<mlir::Value, 4> gpuMem;
+  SmallVector<Value, 4> cpuMem;
+  SmallVector<Value, 4> gpuMem;
   for (auto pair : llvm::enumerate(kernel.params)) {
-    mlir::Value arg = block->getArgument(pair.index());
+    Value arg = block->getArgument(pair.index());
     cpuMem.push_back(arg);
 
     // Emit GPU memory allocation function calls.
     auto gpuAllocOp = b.create<gpu::AllocOp>(
-        loc, arg.getType(), mlir::Type(), /*asyncDependencies=*/ValueRange{},
+        loc, arg.getType(), Type(), /*asyncDependencies=*/ValueRange{},
         /*dynamicSizes=*/ValueRange{}, /*symbolOperands=*/ValueRange{});
-    mlir::Value gpuAlloc = gpuAllocOp.getResult(0);
+    Value gpuAlloc = gpuAllocOp.getResult(0);
     gpuMem.push_back(gpuAlloc);
 
     // Emit CPU->GPU memcpy function calls.
@@ -769,6 +858,21 @@ static func::FuncOp createGPUWrapper(ModuleOp &module, const KernelIF &kernel) {
   b.create<func::ReturnOp>(loc, ValueRange{});
 
   return gpuWrapperFunc;
+}
+
+// Map data type string to MLIR type
+static Type typeFromString(StringRef name, MLIRContext *ctx) {
+  llvm::Optional<Type> result = llvm::StringSwitch<llvm::Optional<Type>>(name)
+                                    .Case("f32", Float32Type::get(ctx))
+                                    .Case("f16", Float16Type::get(ctx))
+                                    .Case("bf16", BFloat16Type::get(ctx))
+                                    .Case("i8", IntegerType::get(ctx, 8))
+                                    .Default(llvm::None);
+  if (!result) {
+    llvm::errs() << "Unknown data type: " << name << "\n";
+    exit(1);
+  }
+  return *result;
 }
 
 // Determine the range and seed for the random data generator
@@ -813,7 +917,7 @@ static std::tuple<short, short> getRandomTestData(int idx) {
   return std::make_tuple(min, max);
 }
 
-llvm::SmallVector<float, 3> getTensorInitPattern(mlir::Type elemType) {
+llvm::SmallVector<float, 3> getTensorInitPattern(Type elemType) {
   llvm::SmallVector<float, 3> pattern;
   if (randomSeed == "none") {
     float fixedVal = 1.0f;
@@ -832,27 +936,25 @@ llvm::SmallVector<float, 3> getTensorInitPattern(mlir::Type elemType) {
   return pattern;
 }
 
-static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
-                                             mlir::Location loc,
+static LogicalResult populateTensorFillLogic(OpBuilder &b, Location loc,
                                              ArrayRef<float> pattern,
-                                             mlir::Type elemType,
-                                             mlir::Value toFill) {
+                                             Type elemType, Value toFill) {
   // TODO(kdrewnia) Refactor this to create the constant vector up front
   // TODO(kdrewnia) Factor out the anti-bf16 pass from GPU lowering, apply
   // it here
-  mlir::Type i16 = b.getIntegerType(16);
-  mlir::Value constantsVec;
+  Type i16 = b.getIntegerType(16);
+  Value constantsVec;
   if (elemType == b.getBF16Type()) {
     uint16_t init = 0;
     constantsVec = b.create<arith::ConstantOp>(
-        loc, mlir::SplatElementsAttr::get(
-                 mlir::VectorType::get(pattern.size(), i16), init));
+        loc,
+        SplatElementsAttr::get(VectorType::get(pattern.size(), i16), init));
   } else {
-    constantsVec = mlir::rock::createZeroConstantOp(
-        b, loc, mlir::VectorType::get(pattern.size(), elemType));
+    constantsVec = rock::createZeroConstantOp(
+        b, loc, VectorType::get(pattern.size(), elemType));
   }
   for (auto v : llvm::enumerate(pattern)) {
-    mlir::Value vOp;
+    Value vOp;
     if (elemType == b.getBF16Type()) {
       llvm::APFloat fl(v.value());
       bool losesInfo = false;
@@ -861,11 +963,10 @@ static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
       llvm::APInt val = fl.bitcastToAPInt();
       vOp = b.create<arith::ConstantOp>(loc, b.getIntegerAttr(i16, val));
     } else if (elemType.isIntOrIndex()) {
-      vOp = mlir::rock::createConstantIntOp(b, loc, elemType, elemType,
-                                            static_cast<int64_t>(v.value()));
+      vOp = rock::createConstantIntOp(b, loc, elemType, elemType,
+                                      static_cast<int64_t>(v.value()));
     } else {
-      vOp = mlir::rock::createConstantFloatOp(b, loc, elemType, elemType,
-                                              v.value());
+      vOp = rock::createConstantFloatOp(b, loc, elemType, elemType, v.value());
     }
     constantsVec = b.create<vector::InsertElementOp>(
                         loc, vOp, constantsVec,
@@ -873,8 +974,8 @@ static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
                        .getResult();
   }
 
-  mlir::Value toFillFlat = makeNDMemRef(b, toFill, 1);
-  mlir::MemRefType flatType = toFillFlat.getType().cast<MemRefType>();
+  Value toFillFlat = makeNDMemRef(b, toFill, 1);
+  MemRefType flatType = toFillFlat.getType().cast<MemRefType>();
   SmallVector<int64_t, 1> lowerBounds(1, 0);
   SmallVector<int64_t, 1> upperBounds = {flatType.getNumElements()};
   SmallVector<int64_t, 1> steps(1, 1);
@@ -882,14 +983,14 @@ static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
   rowMajor = rowMajor % b.getAffineConstantExpr(pattern.size());
   AffineMap rowMajorMap = AffineMap::get(1, 0, {rowMajor}, b.getContext());
 
-  mlir::buildAffineLoopNest(
+  buildAffineLoopNest(
       b, loc, lowerBounds, upperBounds, steps,
       [rowMajorMap, &constantsVec, toFillFlat,
        elemType](OpBuilder &b, Location loc, ValueRange ivs) {
         auto selectorOp = b.create<AffineApplyOp>(loc, rowMajorMap, ivs);
-        mlir::Value toStore = b.create<vector::ExtractElementOp>(
-                                   loc, constantsVec, selectorOp->getResult(0))
-                                  .getResult();
+        Value toStore = b.create<vector::ExtractElementOp>(
+                             loc, constantsVec, selectorOp->getResult(0))
+                            .getResult();
         if (elemType == b.getBF16Type())
           toStore = b.create<arith::BitcastOp>(loc, b.getBF16Type(), toStore);
         b.create<memref::StoreOp>(loc, toStore, toFillFlat, ivs);
@@ -899,11 +1000,10 @@ static LogicalResult populateTensorFillLogic(mlir::OpBuilder &b,
 
 static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
                                                    ModuleOp module,
-                                                   mlir::Type elemType,
-                                                   mlir::Value toFill,
+                                                   Type elemType, Value toFill,
                                                    int idx) {
 
-  llvm::SmallDenseMap<short, mlir::Value> i16vals;
+  llvm::SmallDenseMap<short, Value> i16vals;
   auto getI16Val = [&](short v) {
     if (i16vals.find(v) == i16vals.end()) {
       auto i16Type = b.getIntegerType(16);
@@ -913,13 +1013,13 @@ static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
     return i16vals[v];
   };
 
-  mlir::Value toFillFlat = makeNDMemRef(b, toFill, 1);
+  Value toFillFlat = makeNDMemRef(b, toFill, 1);
   auto flatType = toFillFlat.getType().cast<MemRefType>();
 
   bool isRandFloat = (randomDataType == "float");
   func::FuncOp randFunc;
-  mlir::Type i16 = b.getI16Type();
-  mlir::Type f32 = b.getF32Type();
+  Type i16 = b.getI16Type();
+  Type f32 = b.getF32Type();
   if (isRandFloat)
     randFunc = makeFuncDecl(module, "randomFloatValue", {i16, i16}, {f32});
   else
@@ -927,20 +1027,20 @@ static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
 
   short min, max;
   std::tie(min, max) = getRandomTestData(idx);
-  mlir::Value minConst = getI16Val(min), maxConst = getI16Val(max);
+  Value minConst = getI16Val(min), maxConst = getI16Val(max);
 
   SmallVector<int64_t, 1> lowerBounds(1, 0);
   SmallVector<int64_t, 1> upperBounds = {flatType.getNumElements()};
   SmallVector<int64_t, 1> steps(1, 1);
 
-  mlir::buildAffineLoopNest(
+  buildAffineLoopNest(
       b, loc, lowerBounds, upperBounds, steps,
       [elemType, randFunc, toFillFlat, minConst,
        maxConst](OpBuilder &b, Location loc, ValueRange ivs) {
         auto randFloatCall = b.create<func::CallOp>(
             loc, randFunc, ValueRange{minConst, maxConst});
-        mlir::Value randFloat = randFloatCall.getResult(0);
-        mlir::Value randVal;
+        Value randFloat = randFloatCall.getResult(0);
+        Value randVal;
         if (elemType.isIntOrIndex())
           randVal = b.create<arith::FPToSIOp>(loc, elemType, randFloat);
         else if (!elemType.isF32())
@@ -1001,7 +1101,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   Location loc = b.getUnknownLoc();
 
   // Initialize the result tensor
-  mlir::BlockArgument resultTensor;
+  BlockArgument resultTensor;
   switch (genConfig.operation.value()) {
   case rock::ConvOpType::Fwd:
     resultTensor = block->getArgument(2);
@@ -1014,7 +1114,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
     break;
   }
   auto resultType = resultTensor.getType().template dyn_cast<MemRefType>();
-  mlir::Type elemType = resultType.getElementType();
+  Type elemType = resultType.getElementType();
   SmallVector<float, 1> zeroPattern = {0.0};
   if (failed(
           populateTensorFillLogic(b, loc, zeroPattern, elemType, resultTensor)))
@@ -1125,8 +1225,8 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   }
 
   auto createConv2dLoopNest = [&](OpBuilder &b, Location loc, ValueRange ivs) {
-    mlir::Value heightIdx, widthIdx;
-    mlir::Value heightTempIdx, widthTempIdx;
+    Value heightIdx, widthIdx;
+    Value heightTempIdx, widthTempIdx;
 
     switch (genConfig.operation.value()) {
     case rock::ConvOpType::Fwd:
@@ -1168,7 +1268,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
     }
 
     enum TENSOR { FILTER = 0, INPUT = 1, OUTPUT = 2 };
-    auto getIndices = [&](TENSOR tensor, SmallVectorImpl<mlir::Value> &result) {
+    auto getIndices = [&](TENSOR tensor, SmallVectorImpl<Value> &result) {
       std::string layout;
       if (tensor == FILTER)
         layout = genConfig.filterLayout;
@@ -1208,20 +1308,19 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
 
     AffineIfOp ifOp;
     if (genConfig.operation.value() == rock::ConvOpType::BwdData) {
-      ifOp = b.create<mlir::AffineIfOp>(loc, condition,
-                                        ValueRange{heightIdx, widthIdx,
-                                                   heightTempIdx, widthTempIdx,
-                                                   dimHeight, dimWidth},
-                                        false);
+      ifOp = b.create<AffineIfOp>(loc, condition,
+                                  ValueRange{heightIdx, widthIdx, heightTempIdx,
+                                             widthTempIdx, dimHeight, dimWidth},
+                                  false);
     } else {
-      ifOp = b.create<mlir::AffineIfOp>(
+      ifOp = b.create<AffineIfOp>(
           loc, condition, ValueRange{heightIdx, widthIdx, dimHeight, dimWidth},
           false);
     }
     auto thenBody = ifOp.getThenBodyBuilder();
 
     // Perform MAC operation
-    SmallVector<mlir::Value, 5> idx1, idx2;
+    SmallVector<Value, 5> idx1, idx2;
     BlockArgument opd1, opd2, result;
 
     switch (genConfig.operation.value()) {
@@ -1247,10 +1346,10 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
       result = block->getArgument(1);
       break;
     }
-    llvm::ArrayRef<mlir::Value> idxRef1(idx1.data(), idx1.size());
+    llvm::ArrayRef<Value> idxRef1(idx1.data(), idx1.size());
     auto loadOp1 =
         thenBody.create<memref::LoadOp>(loc, opd1, ValueRange{idxRef1});
-    llvm::ArrayRef<mlir::Value> idxRef2(idx2.data(), idx2.size());
+    llvm::ArrayRef<Value> idxRef2(idx2.data(), idx2.size());
     auto loadOp2 =
         thenBody.create<memref::LoadOp>(loc, opd2, ValueRange{idxRef2});
     auto loadOutput = thenBody.create<memref::LoadOp>(
@@ -1272,8 +1371,8 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
   };
 
   // Generate the loop nest
-  mlir::buildAffineLoopNest(b, loc, lowerBounds, upperBounds, steps,
-                            createConv2dLoopNest);
+  buildAffineLoopNest(b, loc, lowerBounds, upperBounds, steps,
+                      createConv2dLoopNest);
 
   b.create<func::ReturnOp>(loc, ValueRange{});
   return;
@@ -1289,7 +1388,7 @@ createCPUConvWithCPP(ModuleOp module, func::FuncOp &func,
 
   auto loc = b.getUnknownLoc();
 
-  mlir::Type elemType = b.getF32Type();
+  Type elemType = b.getF32Type();
   if (genConfig.dataTypeStr == "i8") {
     elemType = b.getI8Type();
   }
@@ -1490,8 +1589,8 @@ createCPUConvFunc(ModuleOp module,
   OpBuilder b(module.getContext());
   auto loc = b.getUnknownLoc();
 
-  mlir::Type elemType = b.getF32Type();
-  mlir::Type outputElemType = b.getF32Type();
+  Type elemType = b.getF32Type();
+  Type outputElemType = b.getF32Type();
   if (genConfig.dataTypeStr == "i8") {
     elemType = b.getI8Type();
     outputElemType = b.getIntegerType(32);
@@ -1510,14 +1609,14 @@ createCPUConvFunc(ModuleOp module,
   rock::Conv2dGenerator conv2dGenerator(genConfig);
 
   bool hasWorkspace = conv2dGenerator.hasWorkspace(b);
-  mlir::Type workspaceArgType;
+  Type workspaceArgType;
   if (hasWorkspace) {
     workspaceArgType = MemRefType::get(
         ArrayRef<int64_t>(filterDimension.begin(), filterDimension.end()),
         b.getF32Type());
   }
 
-  SmallVector<mlir::Type, 3> funcArgTypes = {filterType, inputType, outputType};
+  SmallVector<Type, 3> funcArgTypes = {filterType, inputType, outputType};
 
   if (hasWorkspace) {
     funcArgTypes = {filterType, inputType, outputType, workspaceArgType};
@@ -1536,16 +1635,134 @@ createCPUConvFunc(ModuleOp module,
   return func;
 }
 
-static func::FuncOp getMemcpyFuncDecl(ModuleOp &module,
-                                      const mlir::MemRefType srcType,
-                                      const mlir::MemRefType destType) {
+static void getGemmTypes(Type inType, SmallVectorImpl<Type> &result) {
+  Type outType = inType;
+  if (inType.isInteger(8))
+    outType = IntegerType::get(inType.getContext(), 32);
+
+  SmallVector<int64_t> aDims = {groupSize, transposeA ? gemmK : gemmM,
+                                transposeA ? gemmM : gemmK},
+                       bDims = {groupSize, transposeB ? gemmN : gemmK,
+                                transposeB ? gemmK : gemmN},
+                       cDims = {groupSize, transposeC ? gemmN : gemmM,
+                                transposeC ? gemmM : gemmN};
+
+  MemRefType aType = MemRefType::get(aDims, inType),
+             bType = MemRefType::get(bDims, inType),
+             cType = MemRefType::get(cDims, outType);
+  result.push_back(aType);
+  result.push_back(bType);
+  result.push_back(cType);
+}
+
+static void createGpuGemmKernel(ModuleOp module, StringRef arch,
+                                const GenParams &params) {
+  MLIRContext *ctx = module.getContext();
+  Location loc = module->getLoc();
+  OpBuilder b(ctx);
+
+  // Set kernel.arch on module to make compilation pipeline work
+  StringAttr archAttr = b.getStringAttr(arch);
+  if (!module->hasAttr("kernel.arch"))
+    module->setAttr("kernel.arch", archAttr);
+
+  SmallVector<Type, 3> argTypes;
+  getGemmTypes(params.dtype, argTypes);
+  constexpr StringLiteral kernelName("rock_gemm");
+  SmallVector<NamedAttribute, 2> funcAttrs = {
+      b.getNamedAttr("kernel", b.getUnitAttr()),
+      b.getNamedAttr("kernel.arch", archAttr)};
+  auto func = b.create<func::FuncOp>(
+      loc, kernelName, b.getFunctionType(argTypes, {}), funcAttrs);
+
+  Block *block = func.addEntryBlock();
+  b.setInsertionPointToStart(block);
+  Value aVal = block->getArgument(0), bVal = block->getArgument(1),
+        cVal = block->getArgument(2);
+  IntegerAttr numCuAttr = nullptr;
+  if (num_cu.getNumOccurrences() > 0)
+    numCuAttr = b.getI32IntegerAttr(num_cu);
+  b.create<rock::GemmOp>(
+      loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, transposeA,
+      transposeB, transposeC, archAttr.getValue(), numCuAttr, params.features,
+      storeMethod,
+      /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
+  b.create<func::ReturnOp>(loc);
+
+  module.push_back(func);
+}
+
+static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
+                                                const GenParams &params) {
+  MLIRContext *ctx = module.getContext();
+  OpBuilder b(ctx);
+  Location loc = module->getLoc();
+
+  Type cpuInType = params.dtype;
+  // Raise floats to f32
+  if (cpuInType.isa<FloatType>())
+    cpuInType = b.getF32Type();
+
+  SmallVector<Type, 3> argTypes;
+  getGemmTypes(cpuInType, argTypes);
+
+  constexpr llvm::StringLiteral cpuKernName("host_naive_gemm");
+  auto func =
+      b.create<func::FuncOp>(loc, cpuKernName, b.getFunctionType(argTypes, {}));
+
+  Block *block = func.addEntryBlock();
+  b.setInsertionPointToStart(block);
+
+  Value aVal = block->getArgument(0), bVal = block->getArgument(1),
+        cVal = block->getArgument(2);
+  auto cType = argTypes[2].cast<MemRefType>();
+  Value zeroOut = rock::createZeroConstantOp(b, loc, cType.getElementType());
+
+  b.create<linalg::FillOp>(loc, zeroOut, cVal);
+
+  constexpr llvm::StringLiteral parallel("parallel"), reduction("reduction");
+  AffineExpr g = b.getAffineDimExpr(0), m = b.getAffineDimExpr(1),
+             n = b.getAffineDimExpr(2), k = b.getAffineDimExpr(3);
+  AffineMap aMap = AffineMap::get(
+                4, 0, {g, transposeA ? k : m, transposeA ? m : k}, ctx),
+            bMap = AffineMap::get(
+                4, 0, {g, transposeB ? n : k, transposeB ? k : n}, ctx),
+            cMap = AffineMap::get(
+                4, 0, {g, transposeC ? n : m, transposeC ? m : n}, ctx);
+  b.create<linalg::GenericOp>(
+      loc, ValueRange{aVal, bVal}, ValueRange{cVal},
+      ArrayRef<AffineMap>{aMap, bMap, cMap},
+      ArrayRef<StringRef>{parallel, parallel, parallel, reduction},
+      /*doc=*/"", /*library_call=*/"",
+      [](OpBuilder &builder, Location loc, ValueRange elems) {
+        Value a = elems[0], b = elems[1], c = elems[2];
+        Type cType = c.getType();
+        if (cType.isa<IntegerType>()) {
+          Value aExt = rock::createTypeConversionOp(builder, loc, a, cType);
+          Value bExt = rock::createTypeConversionOp(builder, loc, b, cType);
+          Value mul = builder.create<arith::MulIOp>(loc, aExt, bExt);
+          Value add = builder.create<arith::AddIOp>(loc, mul, c);
+          builder.create<linalg::YieldOp>(loc, add);
+        } else {
+          Value mul = builder.create<arith::MulFOp>(loc, a, b);
+          Value add = builder.create<arith::AddFOp>(loc, mul, c);
+          builder.create<linalg::YieldOp>(loc, add);
+        }
+      });
+  b.create<func::ReturnOp>(loc);
+  module.push_back(func);
+  return func;
+}
+
+static func::FuncOp getMemcpyFuncDecl(ModuleOp module, const MemRefType srcType,
+                                      const MemRefType destType) {
   OpBuilder b(module.getContext());
 
   assert(srcType.getRank() == 1 && "Memcopy takes 1-D sources");
   assert(destType.getRank() == 1 && "Memcopy takes 1-D destinations");
 
-  mlir::Type srcElemType = srcType.getElementType();
-  mlir::Type dstElemType = destType.getElementType();
+  Type srcElemType = srcType.getElementType();
+  Type dstElemType = destType.getElementType();
   // memcpy_<srcElemType>_<dstElemType>_(srcSize|any)
   std::string funcName = "_memcpy_";
   llvm::raw_string_ostream funcNameStr(funcName);
@@ -1568,7 +1785,7 @@ static func::FuncOp getMemcpyFuncDecl(ModuleOp &module,
   if (func) // already exists
     return func;
 
-  mlir::Location loc = b.getUnknownLoc();
+  Location loc = b.getUnknownLoc();
 
   // clang-format off
   // func _memcpy_<srcElemType>_<dstElemType>_<size> (%arg0 : memref<sizexf32>, %arg1 : memref<sizexf16>) {
@@ -1601,7 +1818,7 @@ static func::FuncOp getMemcpyFuncDecl(ModuleOp &module,
   auto bt0 = OpBuilder::atBlockTerminator(loop0.getBody());
   auto iv0 = loop0.getInductionVar();
 
-  mlir::Value loadOp = bt0.create<memref::LoadOp>(loc, src, ValueRange{iv0});
+  Value loadOp = bt0.create<memref::LoadOp>(loc, src, ValueRange{iv0});
   if (srcElemType != dstElemType) {
     // insert conversion logic
     auto srcBitWidth = srcElemType.getIntOrFloatBitWidth();
@@ -1629,27 +1846,27 @@ static func::FuncOp getMemcpyFuncDecl(ModuleOp &module,
   return func;
 }
 
-static void emitMemcpy(OpBuilder &b, mlir::Value src, mlir::Value dst) {
+static void emitMemcpy(OpBuilder &b, Value src, Value dst) {
   auto module = b.getBlock()->getParentOp()->getParentOfType<ModuleOp>();
   auto loc = b.getUnknownLoc();
 
-  mlir::Value srcFlat = makeNDMemRef(b, src, 1);
-  mlir::Value dstFlat = makeNDMemRef(b, dst, 1);
-  auto srcFlatType = srcFlat.getType().cast<mlir::MemRefType>();
-  auto dstFlatType = dstFlat.getType().cast<mlir::MemRefType>();
+  Value srcFlat = makeNDMemRef(b, src, 1);
+  Value dstFlat = makeNDMemRef(b, dst, 1);
+  auto srcFlatType = srcFlat.getType().cast<MemRefType>();
+  auto dstFlatType = dstFlat.getType().cast<MemRefType>();
   auto memcpyFunc = getMemcpyFuncDecl(module, srcFlatType, dstFlatType);
 
   b.create<func::CallOp>(loc, memcpyFunc, ValueRange{srcFlat, dstFlat});
 }
 
-static void emitPrintTensor(OpBuilder &b, mlir::Value var) {
+static void emitPrintTensor(OpBuilder &b, Value var) {
   auto loc = b.getUnknownLoc();
   auto varType = var.getType().template dyn_cast<MemRefType>();
   auto elemType = varType.getElementType();
   auto floatType = b.getF32Type();
 
   // get print func
-  mlir::Value pvar = var;
+  Value pvar = var;
   if (elemType != floatType) {
     // make copy
     auto pvarType = MemRefType::get(varType.getShape(), floatType);
@@ -1671,9 +1888,9 @@ static void emitPrintTensor(OpBuilder &b, mlir::Value var) {
   }
 }
 
-static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
-                                       mlir::MemRefType testType,
-                                       mlir::MemRefType valType) {
+static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
+                                       MemRefType testType,
+                                       MemRefType valType) {
   auto kfunc = kernel.func;
   std::string funcName = kfunc.getName().str() + "_verify";
   func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
@@ -1707,9 +1924,9 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   // Flatten the arguments to 1D for passing to the verification function
   // %test_flat = memref.collapse_shape %arg0 ...
   // %val_flat = memref.collapse_shape %arg1 ...
-  mlir::Value testFlat = makeNDMemRef(b, test, 1);
-  mlir::Value valFlat = makeNDMemRef(b, val, 1);
-  auto valFlatType = valFlat.getType().cast<mlir::MemRefType>();
+  Value testFlat = makeNDMemRef(b, test, 1);
+  Value valFlat = makeNDMemRef(b, val, 1);
+  auto valFlatType = valFlat.getType().cast<MemRefType>();
   // Emit constants for thresholds
 
   // clang-format off
@@ -1718,7 +1935,7 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   // %cst_1 = arith.constant 1.000000e+02 : f32
   // clang-format on
 
-  auto getF32Val = [&](float val) -> mlir::Value {
+  auto getF32Val = [&](float val) -> Value {
     llvm::APFloat apVal(val);
     return b.create<arith::ConstantFloatOp>(loc, apVal, floatType);
   };
@@ -1730,7 +1947,7 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   //         0.000001f for other data types
   auto thr_RMS = getF32Val(RMSThreshold.getValue());
   auto thr_absDiff = getF32Val(absDiffThreshold.getValue());
-  mlir::Value thr_relDiff;
+  Value thr_relDiff;
   if (testOutType.isF16())
     thr_relDiff = getF32Val(relDiffThreshold.getValue());
   else
@@ -1770,8 +1987,8 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
   bool isTestAndValSameType =
       (testOutType.isInteger(32) || testOutType.isF32());
 
-  mlir::Value testResult, valResult; // Values passed to the verify function
-  mlir::Value testResultNew;         // Values used for type conversion
+  Value testResult, valResult; // Values passed to the verify function
+  Value testResultNew;         // Values used for type conversion
   if (!isTestAndValSameType) {
     // When gpu kernel output data type = f16 | bf16, type conversions
     // are required before calling the verify function
@@ -1807,7 +2024,7 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
     SmallVector<int64_t, 1> upperBounds = {valFlatType.getNumElements()};
     SmallVector<int64_t, 1> steps(1, 1);
 
-    mlir::buildAffineLoopNest(
+    buildAffineLoopNest(
         b, loc, lowerBounds, upperBounds, steps,
         [valFlat, testOutType, valElemType](OpBuilder &b, Location loc,
                                             ValueRange ivs) {
@@ -1868,19 +2085,20 @@ void undoAsyncLaunchPass(Operation *cloneFunc) {
   }
 }
 
-static void
-insertValidationCalls(const rock::Conv2dGenerator::Config &genConfig,
-                      OpBuilder &b, ModuleOp &module,
-                      SmallVectorImpl<mlir::Value> &valVars,
-                      SmallVectorImpl<mlir::Value> &localVars, int32_t outIdx,
-                      Operation *func, KernelIF &root0) {
+static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
+                                  ModuleOp module,
+                                  SmallVectorImpl<Value> &valVars,
+                                  SmallVectorImpl<Value> &localVars,
+                                  int32_t outIdx, Operation *func,
+                                  KernelIF &root0) {
   auto validationType = genValidation.getValue();
   auto loc = b.getUnknownLoc();
   bool hasXdlops =
-      rock::bitEnumContainsAll(genConfig.features, rock::GemmFeatures::mfma);
-  if (validationType == "gpu" && (hasXdlops || genConfig.dataTypeStr == "f16" ||
-                                  genConfig.dataTypeStr == "bf16")) {
+      rock::bitEnumContainsAll(genParams.features, rock::GemmFeatures::mfma);
+  if (genParams.convConfig.has_value() && validationType == "gpu" &&
+      (hasXdlops || genParams.dtype.isF16() || genParams.dtype.isBF16())) {
     // generate generic kernels
+    const auto &genConfig = **genParams.convConfig;
     rock::Conv2dGenerator conv2dGenerator(genConfig);
     // use non-xdlops kernels to verify xdlops kernels
     if (hasXdlops)
@@ -1924,8 +2142,23 @@ insertValidationCalls(const rock::Conv2dGenerator::Config &genConfig,
     conv2dGenerator.setKernelName(kernelBaseName);
   } else if (validationType != "clone") { // -pv_with_cpp or -pv_with_mlir (-pv)
     // Emit call to host_<conv>
-    auto cpuConvFunc = createCPUConvFunc(module, genConfig);
-    b.create<func::CallOp>(loc, cpuConvFunc, valVars);
+    if (genParams.convConfig.has_value()) {
+      const auto &genConfig = **genParams.convConfig;
+      auto cpuConvFunc = createCPUConvFunc(module, genConfig);
+      b.create<func::CallOp>(loc, cpuConvFunc, valVars);
+    } else if (genParams.operation == rock::KernelType::Gemm) {
+      // Emit call to host gemm
+      if (validationType == "cpp") {
+        llvm::errs() << "External gemm validator is not available\n";
+        exit(1);
+      }
+      auto cpuGemmFunc = createCpuGemmKernelWithMlir(module, genParams);
+      b.create<func::CallOp>(loc, cpuGemmFunc, valVars);
+    } else {
+      llvm::errs()
+          << "Validation generation requested, but no operation specified\n";
+      exit(1);
+    }
   } else { // clone
     // Clone the kernel-calling function.  xmir-runner will call the appropriate
     // binary kernel from the async.launch ops;  here, we'll replace those with
@@ -1945,8 +2178,8 @@ insertValidationCalls(const rock::Conv2dGenerator::Config &genConfig,
   }
 
   // Emit call to verifier
-  mlir::Value testResult = localVars[outIdx];
-  mlir::Value valResult = valVars[outIdx];
+  Value testResult = localVars[outIdx];
+  Value valResult = valVars[outIdx];
 
   auto testType = testResult.getType().dyn_cast<MemRefType>();
   auto valType = valResult.getType().dyn_cast<MemRefType>();
@@ -1954,11 +2187,9 @@ insertValidationCalls(const rock::Conv2dGenerator::Config &genConfig,
   b.create<func::CallOp>(loc, verifierFunc, ValueRange{testResult, valResult});
 }
 
-static LogicalResult
-populateHostHarnessLogic(ModuleOp &module,
-                         const SmallVector<KernelIF, 8> &kernels,
-                         const SmallVector<KernelIF, 8> &roots,
-                         const rock::Conv2dGenerator::Config &genConfig) {
+static LogicalResult populateHostHarnessLogic(
+    ModuleOp module, const SmallVector<KernelIF, 8> &kernels,
+    const SmallVector<KernelIF, 8> &roots, const GenParams &genParams) {
   MLIRContext *context = module.getContext();
   OpBuilder b(context);
   auto loc = b.getUnknownLoc();
@@ -1972,21 +2203,22 @@ populateHostHarnessLogic(ModuleOp &module,
   b.setInsertionPoint(block, block->begin());
 
   int32_t outIdx = -1;
-  if (genConfig.operation.has_value()) {
-    switch (genConfig.operation.value()) {
-    case rock::ConvOpType::Fwd:
+  if (genParams.operation.has_value()) {
+    switch (genParams.operation.value()) {
+    case rock::KernelType::Conv2D:
+    case rock::KernelType::Gemm:
       outIdx = 2;
       break;
-    case rock::ConvOpType::BwdData:
+    case rock::KernelType::Conv2DBwdData:
       outIdx = 1;
       break;
-    case rock::ConvOpType::BwdWeight:
+    case rock::KernelType::Conv2DBwdWeight:
       outIdx = 0;
       break;
     }
   }
 
-  llvm::SmallDenseMap<int32_t, mlir::Value> i32vals;
+  llvm::SmallDenseMap<int32_t, Value> i32vals;
   auto getI32Val = [&](int32_t v) {
     if (i32vals.find(v) == i32vals.end()) {
       auto i32Type = b.getIntegerType(32);
@@ -2012,12 +2244,12 @@ populateHostHarnessLogic(ModuleOp &module,
   if (isRandom) {
     auto seedFunc = makeFuncDecl(module, "seedRandomValues", {b.getI32Type()});
     int seed = getRandomSeed();
-    mlir::Value seedConst = getI32Val(seed);
+    Value seedConst = getI32Val(seed);
     b.create<func::CallOp>(loc, seedFunc, seedConst);
   }
 
-  SmallVector<mlir::Value, 5> localVars;
-  SmallVector<mlir::Value, 5> valVars;
+  SmallVector<Value, 5> localVars;
+  SmallVector<Value, 5> valVars;
   int32_t idx = 0;
   for (auto &paramType : root0.params) {
     auto paramMRType = paramType.template dyn_cast<MemRefType>();
@@ -2026,19 +2258,12 @@ populateHostHarnessLogic(ModuleOp &module,
     if (isCPUKernel) {
       assert(elemType.isF32() || elemType.isInteger(8) ||
              elemType.isInteger(32));
-      if (genConfig.dataTypeStr == "f32")
-        elemType = b.getF32Type();
-      else if (genConfig.dataTypeStr == "f16")
-        elemType = b.getF16Type();
-      else if (genConfig.dataTypeStr == "bf16")
-        elemType = b.getBF16Type();
-      else if (genConfig.dataTypeStr == "i8") {
-        elemType = b.getI8Type();
-        if (idx == 2) {
+      if (genParams.operation.has_value()) {
+        elemType = genParams.dtype;
+        if (elemType.isInteger(8) && idx == 2)
           elemType = b.getIntegerType(32);
-        }
+        paramMRType = MemRefType::get(paramMRType.getShape(), elemType);
       }
-      paramMRType = MemRefType::get(paramMRType.getShape(), elemType);
     }
     auto lvar = b.create<memref::AllocOp>(loc, paramMRType);
     localVars.push_back(lvar);
@@ -2055,9 +2280,9 @@ populateHostHarnessLogic(ModuleOp &module,
     if (hasValidation ||
         (isCPUKernel && (elemType.isF16() || elemType.isBF16()))) {
       // Emit validation var
-      mlir::Type valElemType = elemType;
+      Type valElemType = elemType;
       valElemType = floatType; // QY fix this later
-      if (genConfig.dataTypeStr == "i8") {
+      if (genParams.operation.has_value() && genParams.dtype.isInteger(8)) {
         valElemType = elemType;
       }
       auto valType = MemRefType::get(paramMRType.getShape(), valElemType);
@@ -2099,13 +2324,13 @@ populateHostHarnessLogic(ModuleOp &module,
     // Clone-style validation wants to validate each root function.
     // Non-clone validation validates at end;  the roots are related kernels.
     if (hasCloneValidation)
-      insertValidationCalls(genConfig, b, module, valVars, localVars, outIdx,
+      insertValidationCalls(genParams, b, module, valVars, localVars, outIdx,
                             root.func, root0);
   }
 
   // Run validation
   if (hasValidation && !hasCloneValidation)
-    insertValidationCalls(genConfig, b, module, valVars, localVars, outIdx,
+    insertValidationCalls(genParams, b, module, valVars, localVars, outIdx,
                           func, root0);
 
   // Print and cleanup validation vars
@@ -2178,20 +2403,24 @@ int main(int argc, char **argv) {
   context.loadDialect<rock::RockDialect, func::FuncDialect, scf::SCFDialect,
                       AffineDialect, memref::MemRefDialect, math::MathDialect,
                       arith::ArithmeticDialect, vector::VectorDialect,
-                      gpu::GPUDialect>();
+                      gpu::GPUDialect, linalg::LinalgDialect>();
 
   // Parse pass names in main to ensure static initialization completed.
-  cl::ParseCommandLineOptions(argc, argv,
-                              "MLIR Rock Dialect host generation\n");
+  llvm::cl::ParseCommandLineOptions(argc, argv,
+                                    "MLIR Rock Dialect host generation\n");
 
   OpBuilder builder(&context);
   ModuleOp module;
 
-  verifyLayout();
-  correctParameters();
+  if (operation != rock::KernelType::Gemm) {
+    verifyConvLayout();
+    correctConvParameters();
+  }
   populateDefaults();
 
   rock::Conv2dGenerator conv2dGenerator;
+
+  GenParams genParams;
 
   auto testFuncNameVal = testFuncName.getValue();
   bool hasUserKernel = !testFuncNameVal.empty();
@@ -2207,7 +2436,7 @@ int main(int argc, char **argv) {
     }
 
     // Parse the input file.
-    SourceMgr sourceMgr;
+    llvm::SourceMgr sourceMgr;
     sourceMgr.AddNewSourceBuffer(std::move(file), SMLoc());
     OwningOpRef<ModuleOp> moduleRef =
         parseSourceFile<ModuleOp>(sourceMgr, &context);
@@ -2235,7 +2464,13 @@ int main(int argc, char **argv) {
   }
 
   if (!hasUserKernel) {
+    bool isGemm = operation == rock::KernelType::Gemm;
     auto convConfig = populateConvConfig.getValue();
+
+    if (!convConfig.empty() && isGemm) {
+      llvm::errs() << "Cannot use --conv-config with gemm operations\n";
+      exit(1);
+    }
 
     if (convConfig.empty() && failed(detectMissingArguments())) {
       exit(1);
@@ -2247,7 +2482,14 @@ int main(int argc, char **argv) {
         llvm::errs() << "Module population failed.\n";
         exit(1);
       }
-      // Scenario 2: We use cl::opt to initialize everything
+      OpBuilder b(&context);
+      genParams.dtype = conv2dGenerator.getDataType(b);
+      const auto *convConfig = &conv2dGenerator.getConfig();
+      genParams.convConfig = convConfig;
+      genParams.features = convConfig->features;
+      genParams.operation =
+          rock::kernelTypeFromConvOpType(convConfig->operation.value());
+      // Scenario 2: We use llvm::cl::opt to initialize everything
     } else {
       if (arch.getValue().empty()) {
         llvm::errs() << "--arch is not set\n";
@@ -2270,49 +2512,61 @@ int main(int argc, char **argv) {
 
       rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
       rock::GemmFeatures enabledFeatures = archInfo.defaultFeatures;
-      // toggle feature list according to cl::opt inputs
-      if (mfmaFeature != infer)
+      // toggle feature list according to llvm::cl::opt inputs
+      if (mfmaFeature != FeatureToggle::infer)
         enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::mfma,
-                                     mfmaFeature == on);
-      if (dotFeature != infer)
+                                     mfmaFeature == FeatureToggle::on);
+      if (dotFeature != FeatureToggle::infer)
         enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::dot,
-                                     dotFeature == on);
-      if (atomicAddFeature != infer)
+                                     dotFeature == FeatureToggle::on);
+      if (atomicAddFeature != FeatureToggle::infer)
         enabledFeatures =
             bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_add,
-                       atomicAddFeature == on);
+                       atomicAddFeature == FeatureToggle::on);
+      genParams.operation = operation;
+      genParams.features = enabledFeatures;
+      if (isGemm) {
+        Type elemType = typeFromString(tensorDataType, &context);
+        genParams.dtype = elemType;
+        genParams.convConfig = llvm::None;
+        createGpuGemmKernel(module, arch, genParams);
+      } else {
+        conv2dGenerator = rock::Conv2dGenerator(
+            arch, chip, triple, chipFeatures, perfConfig.getValue(),
+            num_cu.getValue(), enabledFeatures,
+            rock::convOpTypeFromKernelType(operation.getValue()),
+            tensorDataType.getValue(), dilationHeight.getValue(),
+            dilationWidth.getValue(), strideHeight.getValue(),
+            strideWidth.getValue(), paddingHeightLeft.getValue(),
+            paddingHeightRight.getValue(), paddingWidthLeft.getValue(),
+            paddingWidthRight.getValue(), filterLayout.getValue(),
+            inputLayout.getValue(), outputLayout.getValue());
 
-      conv2dGenerator = rock::Conv2dGenerator(
-          arch, chip, triple, chipFeatures, perfConfig.getValue(),
-          num_cu.getValue(), enabledFeatures,
-          rock::convOpTypeFromKernelType(operation.getValue()),
-          tensorDataType.getValue(), dilationHeight.getValue(),
-          dilationWidth.getValue(), strideHeight.getValue(),
-          strideWidth.getValue(), paddingHeightLeft.getValue(),
-          paddingHeightRight.getValue(), paddingWidthLeft.getValue(),
-          paddingWidthRight.getValue(), filterLayout.getValue(),
-          inputLayout.getValue(), outputLayout.getValue());
-
-      status = conv2dGenerator.parseConvDims(
-          batchSize, groupSize, inputChannel, inputHeight, inputWidth,
-          outputChannel, outputHeight, outputWidth, filterHeight, filterWidth);
-      if (failed(status)) {
-        llvm::errs() << "Could not parse convolution dimensions\n";
-        exit(1);
+        status = conv2dGenerator.parseConvDims(
+            batchSize, groupSize, inputChannel, inputHeight, inputWidth,
+            outputChannel, outputHeight, outputWidth, filterHeight,
+            filterWidth);
+        if (failed(status)) {
+          llvm::errs() << "Could not parse convolution dimensions\n";
+          exit(1);
+        }
+        genParams.dtype =
+            typeFromString(conv2dGenerator.getConfig().dataTypeStr, &context);
+        genParams.convConfig = &conv2dGenerator.getConfig();
       }
     }
 
     // TODO: Extract isApplicable check to be its own component
-    if (failed(conv2dGenerator.isApplicable(/* checkChip = */ false))) {
+    if (!isGemm &&
+        failed(conv2dGenerator.isApplicable(/* checkChip = */ false))) {
       llvm::errs()
           << "Convolution configuration does not have valid dimension\n";
       exit(1);
     }
   }
 
-  const auto &genConfig = conv2dGenerator.getConfig();
-
-  if (!hasUserKernel) {
+  if (!hasUserKernel && genParams.convConfig.has_value()) {
+    const auto &genConfig = **genParams.convConfig;
     if (genCPUKernel.getValue()) {
       (void)createCPUConvFunc(module, genConfig);
     } else {
@@ -2348,7 +2602,7 @@ int main(int argc, char **argv) {
     // have edges to them.  Use SetVector because we want to preserve the
     // order to match an older implementation.
     CallGraph cg(module);
-    mlir::SetVector<CallGraphNode *> roots(cg.begin(), cg.end());
+    SetVector<CallGraphNode *> roots(cg.begin(), cg.end());
     for (auto &node : roots) {
       for (auto &edge : *node)
         roots.remove(edge.getTarget());
@@ -2380,7 +2634,7 @@ int main(int argc, char **argv) {
 
   // populate host logic.
   if (genHostHarness.getValue()) {
-    if (failed(populateHostHarnessLogic(module, kernels, rootIFs, genConfig))) {
+    if (failed(populateHostHarnessLogic(module, kernels, rootIFs, genParams))) {
       llvm::errs() << "Host logic populated failed.\n";
       exit(1);
     }

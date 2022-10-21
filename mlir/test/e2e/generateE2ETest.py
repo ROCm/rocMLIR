@@ -11,7 +11,9 @@ The configuration files are in TOML format.  Below is an example:
     [[axis]]
     name = "operation"
     values = ["conv2d", "conv2d_bwd_weight", "conv2d_bwd_data"]
-    prefix = "--operation"
+    # Note the space, unlike with other prefixes, it is required here to also hande
+    # the opt=value case
+    prefix = "--operation "
 
     ## Resnet50
     [[suite]]
@@ -39,7 +41,7 @@ def generate_option_list(prefixes: dict, table: list, key1: str, key2: str):
         options=[]
         for value in item[key2]:
             if item["name"] in prefixes:
-                opt = prefixes[item["name"]] + ' ' + value
+                opt = prefixes[item["name"]] + value
             else:
                 opt = value
             options.append(opt)
@@ -118,7 +120,7 @@ if __name__ == '__main__':
                     exclusions = generate_option_list(axis_prefixes, test, "exclude", "values")
                 for opt in combinations:
                     # Only generate i8 data type for fwd convolutions
-                    if "i8" in opt[2] and ("conv2d_bwd_data" in opt[0] or "conv2d_bwd_weight" in opt[0]):
+                    if len(opt) >= 3 and "i8" in opt[2] and ("conv2d_bwd_data" in opt[0] or "conv2d_bwd_weight" in opt[0]):
                       continue
                     opt_idx = opt_idx + 1
                     config = prefix + ' ' +test["config"]
@@ -136,5 +138,5 @@ if __name__ == '__main__':
                     f.write(f"""
 // CHECK_{suite_name}_{test_idx}_{opt_idx}: [1 1 1]
 
-""")                
+""")
     print("DONE!")
