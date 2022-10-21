@@ -59,12 +59,9 @@ void AffixTuningParameters::runOnOperation() {
 
   func.walk(
       [&](RockGemmWrapperInterface op) { affixTuningParametersImpl(op); });
-  func.walk([&](Conv2DBwdDataOp op) {
-    affixBackwardDataUtilityKernels(op);
-  });
-  func.walk([&](Conv2DBwdWeightOp op) {
-    affixBackwardWeightUtilityKernels(op);
-  });
+  func.walk([&](Conv2DBwdDataOp op) { affixBackwardDataUtilityKernels(op); });
+  func.walk(
+      [&](Conv2DBwdWeightOp op) { affixBackwardWeightUtilityKernels(op); });
 }
 
 static void setUtilityKernelSizes(OpBuilder &b, Value arg, Operation *convOp,

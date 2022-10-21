@@ -43,7 +43,6 @@ struct InitParams {
   int64_t gemmKPerBlock;
 };
 
-
 struct InitParamsNonXDL : InitParams, Serializable<InitParamsNonXDL> {
   constexpr InitParamsNonXDL(uint32_t bSize, int64_t mPerBlock,
                              int64_t nPerBlock, int64_t kPerBlock,

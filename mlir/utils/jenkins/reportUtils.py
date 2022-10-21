@@ -11,7 +11,7 @@ MIOPEN_REPORT_FILE = 'miopen_perf.csv'
 MIOPEN_TUNED_REPORT_FILE = 'miopen_tuned_perf.csv'
 MIOPEN_UNTUNED_REPORT_FILE = 'miopen_untuned_perf.csv'
 
-TEST_PARAMETERS = ['Direction', 'DataType', 'XDLOPS', 'FilterLayout', 'InputLayout', 'OutputLayout',
+TEST_PARAMETERS = ['Direction', 'DataType', 'Chip', 'FilterLayout', 'InputLayout', 'OutputLayout',
                        'N', 'C', 'H', 'W', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW',
                        'PaddingH', 'PaddingW']
 ROUND_DIGITS = 2
@@ -42,8 +42,8 @@ def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedupCols: list):
         {'selector': 'tbody tr:nth-child(even)', 'props': [('background-color', '#eeeeee')]},
         {'selector': 'table', 'props': [('background-color', '#dddddd'), ('border-collapse', 'collapse')]},
         {'selector': 'th, td', 'props': [('padding', '0.5em'), ('text-align', 'center'), ('max-width', '150px')]}])
-    styler.set_precision(ROUND_DIGITS)
-    styler.set_na_rep("FAILED")
+    styler.format(precision=ROUND_DIGITS)
+    styler.format(na_rep="FAILED")
     for col in speedupCols:
         if col in styler.columns:
             styler.applymap(colorForSpeedups, subset=[col])
@@ -108,7 +108,7 @@ caption {{
     statsPrinter = stats.style
     statsPrinter.set_caption(f"Summary statistics for {title}")
     setCommonStyles(statsPrinter, speedupCols)
-    print(statsPrinter.render(), file=stream)
+    print(statsPrinter.to_html(), file=stream)
 
     print("<h2>Details</h2>", file=stream)
     dataPrinter = data.style
@@ -117,7 +117,7 @@ caption {{
         dataPrinter = indexed.style
         dataPrinter.set_caption(f"{title}: Per-test breakdown")
         setCommonStyles(dataPrinter, speedupCols)
-        print(dataPrinter.render(), file=stream)
+        print(dataPrinter.to_html(), file=stream)
     print("""
 </body>
 </html>

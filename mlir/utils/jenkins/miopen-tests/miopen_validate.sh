@@ -2,7 +2,6 @@
 
 declare -a FIXED_CONFIG_ARGS
 declare -g TMPFILE
-declare -ig XDLOPS=-1
 declare -ig TUNING=0
 declare -ig TESTALL=0
 declare -ig TESTFWD=0
@@ -10,6 +9,8 @@ declare -g DTYPE=""
 declare -g DIRECTION=""
 declare -g LAYOUT=""
 declare -g DRIVER="./bin/MIOpenDriver"
+declare -g CODEPATH="none"
+
 
 declare -a ALL_DTYPES=(fp16 fp32)
 declare -a ALL_DIRECTIONS=(1 2 4)
@@ -19,7 +20,7 @@ declare -a ALL_CONFIGS=()
 function usage() {
     cat <<END
 $0: [-d | --direction] DIR [-t | --dtype] [int8 | fp16 | fp32] [-l | --layout] LAYOUT
-[-x | --xdlops] [-X | --no-xdlops (default)] [--tuning | --no-tuning (default)]
+[-c | --codepath CODEPATH (default none)] [--tuning | --no-tuning (default)]
 [--driver DRIVER (default bin/MIOpenDriver)] [--test-all]
 
 DIR is either 1 (forward (fwd)) 2 (backward data (bwd)), or
@@ -41,8 +42,8 @@ function parse_options() {
     local -i got_direction=0
 
     local parsed_args
-    parsed_args=$(getopt -n "$0" -o d:t:l:xXh \
-                         --long direction:,dtype:,layout:,xdlops,no-xdlops,driver:,driver:,tuning,no-tuning,test-all,test-fwd,help -- "$@")
+    parsed_args=$(getopt -n "$0" -o d:t:l:c:h \
+                         --long direction:,dtype:,layout:,codepath:,driver:,tuning,no-tuning,test-all,test-fwd,help -- "$@")
     local -i valid_args=$?
     if [[ $valid_args -ne 0 ]]; then
         usage
@@ -52,12 +53,11 @@ function parse_options() {
     do
         case "$1" in
             -h | --help ) usage ;;
-            -x | --xdlops ) XDLOPS=1; shift; ;;
-            -X | --no-xdlops ) XDLOPS=0; shift ;;
             --tuning ) TUNING=1; shift; ;;
             --no-tuning ) TUNING=0; shift; ;;
             --test-all ) TESTALL=1; shift; ;;
             --test-fwd) TESTFWD=1; shift; ;;
+            -c | --codepath ) CODEPATH="$2"; shift 2 ;;
             -d | --direction ) got_direction=1; DIRECTION="$2"; shift 2 ;;
             -l | --layout ) got_layout=1; LAYOUT="$2"; shift 2 ;;
             -t | --dtype ) got_dtype=1; DTYPE="$2"; shift 2 ;;
@@ -79,12 +79,13 @@ function parse_options() {
         esac
     fi
 
-    # Detect XDLOPS if not specified
-    if [[ $XDLOPS == -1 ]]; then
+    # Detect CODEPATH if not specified
+    if [[ "$CODEPATH" == "none" ]]; then
       case $(/opt/rocm/bin/rocm_agent_enumerator) in
-          *gfx908*|*gfx90a*)           XDLOPS=1 ;;
-          *gfx906*|*gfx900*|*gfx1030*) XDLOPS=0 ;;
-          *)                           echo "No useful GPU found." ; exit 2 ;;
+          *gfx908*|*gfx90a*) CODEPATH="mfma" ;;
+          *gfx1030*)         CODEPATH="navi21" ;;
+          *gfx906*|*gfx900*) CODEPATH="vanilla" ;;
+          *)                 echo "No useful GPU found." ; exit 2 ;;
       esac
     fi
 }
@@ -153,7 +154,7 @@ function setup_environment() {
         *) echo "$0: Unsupported direction flag $DIRECTION"; exit 2
     esac
 
-    if [[ $XDLOPS == 1 ]]; then
+    if [[ "$CODEPATH" == "mfma" ]]; then
        MIOPEN_DEBUG_FIND_ONLY_SOLVER+="Xdlops"
     fi
     export MIOPEN_DEBUG_FIND_ONLY_SOLVER
@@ -177,7 +178,7 @@ function run_tests() {
     exit_status=$?
 
     rm "$TMPFILE"
-    echo -n "$DTYPE $LAYOUT XDLOPS=$XDLOPS DIR=$DIRECTION: "
+    echo -n "$DTYPE $LAYOUT CODEPATH=$CODEPATH DIR=$DIRECTION: "
     if [[ $exit_status != 0 ]]; then
         echo "$exit_status tests failed"
         exit $exit_status

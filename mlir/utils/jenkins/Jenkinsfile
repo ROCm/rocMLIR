@@ -68,59 +68,72 @@ String dockerImage() {
     return 'rocm/mlir:rocm5.2-latest'
 }
 
-void preMergeCheck() {
-    sh '''
-    if [ ! -f ./build/compile_commands.json ];  then
-      echo "No compile commands, bailing."
-      exit 1
-    fi
-    if [ ! -f ./compile_commands.json ]; then
-      ln -s build/compile_commands.json compile_commands.json
-    fi
-    '''
-    sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
+void preMergeCheck(String codepath) {
+    // Only do static check on mfma codepath during PR CI
+    if ( (params.nightly == false) && (codepath == "mfma") ) {
+        echo "Performing Static Test (preMergeCheck)"
+        sh '''
+        if [ ! -f ./build/compile_commands.json ];  then
+          echo "No compile commands, bailing."
+          exit 1
+        fi
+        if [ ! -f ./compile_commands.json ]; then
+          ln -s build/compile_commands.json compile_commands.json
+        fi
+        '''
+        sh 'python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py'
+    } else {
+        echo "Static Test step skipped"
+    }
 }
 
-void testMIOpenDriver(String dtype, String layout, String direction, String tuning) {
-    echo "Config is (${dtype}, ${layout}, dir=${direction}, tuning=${tuning})"
+void testMIOpenDriver(boolean testInt8, boolean tuning, String configFilename) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
         dir('MIOpen/build/') {
             sh """
-            bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh \
-            --layout ${layout} \
-            --direction ${direction} \
-            --dtype ${dtype} \
-            ${tuning == '1' ? '--tuning' : '--no-tuning'} \
-            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+            bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all\
+            ${tuning ? '--tuning' : '--no-tuning'} \
+            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/${configFilename}"""
+            if (testInt8) {
+                sh """
+                bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd\
+                --dtype int8\
+                ${tuning ? '--tuning' : '--no-tuning'} \
+                < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/${configFilename}"""
+            }
         }
     }
 }
 
-void postProcessPerfRes() {
+void postProcessPerfRes(String chip) {
     publishHTML (target: [
         allowMissing: false,
         alwaysLinkToLastBuild: false,
         keepAll: true,
         reportDir: 'build',
-        reportFiles: 'MLIR_Performance_Changes.html,MLIR_vs_MIOpen.html',
-        reportName: 'Performance report'
+        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html",
+        reportName: "Performance report for ${chip}"
     ])
 
-    plot csvFileName: 'plot-nightly-perf-results-000001.csv',\
-        csvSeries: [[file: 'build/mlir_vs_miopen_perf_for_plot.csv', displayTableFlag: false]],\
-        title: 'Test performance summary',\
+    plot csvFileName: "${chip}_plot-nightly-perf-results-000001.csv",\
+        csvSeries: [[file: "build/${chip}_mlir_vs_miopen_perf_for_plot.csv", displayTableFlag: false]],\
+        title: "Test performance summary ${chip}",\
         yaxis: 'TFlops',\
         style: 'line',\
         group: 'Performance plots'
 
     // Save results for future comparison
-    archiveArtifacts artifacts: 'build/mlir_*.csv,build/perf-run-date', onlyIfSuccessful: true
+    archiveArtifacts artifacts: 'build/*_mlir_*.csv,build/perf-run-date', onlyIfSuccessful: true
 }
 
 //makes sure multiple builds are not triggered for branch indexing
 def resetBuild() {
-    if (currentBuild.getPreviousBuild() == null || currentBuild.getPreviousBuild().getBuildCauses().toString().contains('BranchIndexingCause')) {
-        def buildNumber = BUILD_NUMBER as int; if (buildNumber > 1) milestone(buildNumber - 1); milestone(buildNumber)
+    if (currentBuild.getPreviousBuild() == null
+        || currentBuild.getPreviousBuild().getBuildCauses().toString().contains('BranchIndexingCause')) {
+        def buildNumber = BUILD_NUMBER as int;
+        if (buildNumber > 1)
+            milestone(buildNumber - 1);
+        milestone(buildNumber)
     }
 }
 
@@ -130,8 +143,111 @@ void setHeartbeat() {
     }
 }
 
+String getLabelFromCodepath(String codepath) {
+    echo "codepath is ${codepath}"
+    if (codepath == "mfma") {
+        label = 'mlir && (gfx908 || gfx90a)'
+    } else if (codepath == "navi21") {
+        label = 'navi_workstation'
+    } else if (codepath == "vanilla"){
+        label = 'mlir && gfx906'
+    } else {
+        echo "${codepath} is not supported"
+        label = 'wrongLabel'
+    }
+    echo "label is ${label}"
+    return label
+}
+
 def rebootNode() {
     build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
+}
+
+void tuneMLIRKernels() {
+    dir('MIOpen/build/') {
+        sh """
+            bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
+            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+        sh """
+            bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd --dtype int8 --tuning\
+            < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
+        sh 'ls -l MIOpenUserDB'
+    }
+}
+
+void build_fixedE2ETests() {
+    buildProject('check-mlir-build-only check-rocmlir-build-only', """
+              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
+              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+              -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+              -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
+              -DLLVM_LIT_ARGS='-v --time-tests'
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+             """)
+}
+
+void check_randomE2ETests() {
+    buildProject('check-rocmlir', """
+              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
+              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
+              -DROCK_E2E_TEST_ENABLED=1
+              -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
+              -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=0
+              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
+              -DLLVM_LIT_ARGS='-v --time-tests'
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+             """)
+}
+
+void parameterSweep(String CONFIG) {
+    timeout(time: 60, activity: true, unit: 'MINUTES') {
+        dir('build') {
+            sh """python3 ./bin/parameterSweeps.py ${CONFIG}"""
+        }
+    }
+}
+
+boolean shouldRunFromCodepath(String codepath) {
+    // Run vanilla on public CI
+    if ((codepath == "vanilla") && (params.canXdlops == false)) {
+        return true
+    }
+    // Run mfma on private CI
+    if ((codepath == "mfma") && params.canXdlops) {
+        return true
+    }
+    // Run navi21 on private CI only if it is not disabled
+    if (params.canXdlops && (params.disableNavi21 == false) && (codepath == "navi21")) {
+        return true
+    }
+    return false
+}
+
+boolean shouldRunFromChip(String chip) {
+    switch (chip) {
+        case "gfx906":
+            return shouldRunFromCodepath("vanilla")
+        case "gfx908":
+        case "gfx90a":
+            return shouldRunFromCodepath("mfma")
+        case "gfx1030":
+            return shouldRunFromCodepath("navi21")
+    }
+}
+
+void archivePerfDB() {
+    // Note: add additional architectures here
+    dir ('MIOpen/build/MIOpenUserDB') {
+        unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx908' : 'gfx906'}"
+        // This'll stop being a duplicate once Navi CI starts
+        unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx90a' : 'gfx906'}"
+        if (params.disableNavi21 == false)
+            unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx1030' : 'gfx906'}"
+        sh 'date --utc +%Y-%m-%d >tuning-date'
+    }
+    archiveArtifacts artifacts: 'MIOpen/build/MIOpenUserDB/**',\
+    onlyIfSuccessful: true
 }
 
 pipeline {
@@ -155,6 +271,14 @@ pipeline {
                      description: 'Run the static library stage')
         booleanParam(name: 'perfTest', defaultValue: true,
                      description: 'Run the performance testing stage')
+
+        // choose the codepath for testing
+        choice(name: 'codepath',
+               choices: ['default', 'mfma', 'navi21', 'vanilla'],
+               description: 'Choose the codepath to test')
+        // option to disable navi21 cells in case nodes are offline
+        booleanParam(name: 'disableNavi21', defaultValue: true,
+                     description: 'Disable testing on Navi21')
     }
     stages {
         stage("Set System Property") {
@@ -172,180 +296,109 @@ pipeline {
             }
         }
         stage("Build and Test") {
-            parallel {
-                stage("Shared Library: fixed E2E tests") {
-                    when {
-                        beforeAgent true;
-                        equals expected: true, actual: params.sharedLib;
-                        equals expected: false, actual: params.weekly;
+            when {
+                beforeAgent true
+                // Skip this part of testing as early as possible
+                equals expected: false, actual: params.weekly;
+            }
+            matrix {
+                axes {
+                    axis {
+                        name 'CODEPATH'
+                        values 'vanilla', 'mfma', 'navi21'
                     }
-                    agent {
-                        docker {
-                            image dockerImage()
-                            args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
-                            alwaysPull true
+                }
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs()
+                        label getLabelFromCodepath("${CODEPATH}")
+                        alwaysPull true
+                    }
+                }
+                when {
+                    beforeAgent true
+                    anyOf {
+                        // When default codepath is selected, we test mfma and navi21 on private CI
+                        // and vanilla on public CI
+                        allOf {
+                            equals expected: "default", actual: params.codepath;
+                            expression { return shouldRunFromCodepath("$CODEPATH")}
                         }
-                    }
-                    environment {
-                        HOME="${WORKSPACE}"
-                    }
-                    stages {
-                        stage('Environment') {
-                            steps {
-                                showEnv()
+                        // When a particular codepath is selected, we only test the codepath
+                        // on private CI
+                        allOf {
+                            anyOf {
+                                equals expected: "mfma", actual: params.codepath;
+                                allOf {
+                                    equals expected: "navi21", actual: params.codepath;
+                                    equals expected: false, actual: params.disableNavi21;
+                                }
+                                equals expected: "vanilla", actual: params.codepath;
                             }
-                        }
-                        stage("Shared library build and fixed tests") {
-                            steps {
-                                buildProject('check-mlir check-rocmlir', """
-                                  -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
-                                  -DROCMLIR_GEN_FLAGS="${params.canXdlops ? '-mfma=on -atomic_add=on' : '-mfma=off -atomic_add=off'}"
-                                  -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-                                  -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-                                  -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-                                  -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-                                  -DLLVM_LIT_ARGS='-v --time-tests'
-                                  -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-                                """)
-                            }
-                        }
-                        stage('Static Tests') {
-                            when { allOf {
-                                equals expected: false, actual: params.nightly;
-                                // Avoid this test running twice
-                                equals expected: true, actual: params.canXdlops
-                            } }
-                            steps {
-                               preMergeCheck()
-                           }
-                        }
-                     }
-                     post {
-                        unsuccessful {
-                            rebootNode()
-                        }
-                        always {
-                            cleanWs()
+                            equals expected: "${CODEPATH}", actual: params.codepath;
+                            equals expected: true, actual: params.canXdlops;
                         }
                     }
                 }
-                stage("Shared Library: random E2E tests") {
-                    when {
-                        beforeAgent true;
-                        allOf {
+                environment {
+                    PATH="/opt/rocm/llvm/bin:$PATH"
+                    HOME="${WORKSPACE}"
+                }
+                stages {
+                    stage('Environment') {
+                        steps {
+                            echo "codepath is ${CODEPATH}"
+                            showEnv()
+                        }
+                    }
+                    stage("Shared Library: fixed E2E tests") {
+                        when {
+                            beforeAgent true;
                             equals expected: true, actual: params.sharedLib;
-                            equals expected: true, actual: params.nightly
+                        }
+                        steps {
+                            build_fixedE2ETests()
+                            preMergeCheck("${CODEPATH}")
+                            sh 'cd build; ninja check-mlir check-rocmlir'
                         }
                     }
-                    agent {
-                        docker {
-                            image dockerImage()
-                            args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'rocm' }"
-                            alwaysPull true
-                        }
-                    }
-                    environment {
-                        HOME="${WORKSPACE}"
-                    }
-                    stages {
-                        stage('Environment') {
-                            steps {
-                                showEnv()
+                    stage("Shared Library: random E2E tests") {
+                        when {
+                            beforeAgent true;
+                            allOf {
+                                equals expected: true, actual: params.sharedLib;
+                                equals expected: true, actual: params.nightly
                             }
                         }
-                        stage("Shared library build and random tests") {
-                            steps {
-                                buildProject('check-rocmlir', """
-                                          -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
-                                          -DROCMLIR_GEN_FLAGS="${params.canXdlops ? '-mfma=on -atomic_add=on' : '-mfma=off --atomic_add=off'}"
-                                          -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
-                                          -DROCK_E2E_TEST_ENABLED=1
-                                          -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
-                                          -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=0
-                                          -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
-                                          -DLLVM_LIT_ARGS='-v --time-tests'
-                                          -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-                                        """)
-                            }
+                        steps {
+                            check_randomE2ETests()
                         }
                     }
-                    post {
-                        unsuccessful {
-                            rebootNode()
-                        }
-                        always {
-                            cleanWs()
-                        }
-                    }
-                }
-                stage("Static Library PR tests") {
-                    when {
-                        beforeAgent true;
-                        allOf {
+                    stage("Static Library: test librockCompiler with MIOpen") {
+                        when {
+                            beforeAgent true;
                             equals expected: true, actual: params.staticLib;
                             equals expected: false, actual: params.nightly;
-                            equals expected: false, actual: params.weekly;
+                        }
+                        environment {
+                            // Make libMIOpen.so accessible to the test driver
+                            LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                        }
+                        steps {
+                            sh 'rm build/CMakeCache.txt'
+                            buildMIOpenWithMLIR()
+                            testMIOpenDriver(/*testInt8=*/true, /*tuning=*/false, "selected-resnet50-miopen-configs")
+                            testMIOpenDriver(/*testInt8=*/true, /*tuning=*/true, "selected-resnet50-miopen-configs")
                         }
                     }
-                    agent {
-                        docker {
-                            image dockerImage()
-                            args dockerArgs()
-                            label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'gfx906' }"
-                            alwaysPull true
-                        }
+                }
+                post {
+                    unsuccessful {
+                        rebootNode()
                     }
-                    environment {
-                        PATH="/opt/rocm/llvm/bin:$PATH"
-                        HOME="${WORKSPACE}"
-                    }
-                    stages {
-                        stage('Environment') {
-                            steps {
-                                showEnv()
-                            }
-                        }
-                        stage("Build MIOpen with librockCompiler") {
-                            steps {
-                                buildMIOpenWithMLIR()
-                            }
-                        }
-                        stage("Test selected MIOpen configs") {
-                            environment {
-                                // Make libMIOpen.so accessible to the test driver
-                                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
-                            }
-                            steps {
-                                timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                    dir('MIOpen/build/') {
-                                        // no-tuning test configs
-                                        sh """
-                                        bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --no-tuning\
-                                           < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
-                                        sh """
-                                        bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd --dtype int8 --no-tuning\
-                                           < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
-                                        // tuning test configs
-                                        sh """
-                                        bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
-                                           < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
-                                        sh """
-                                        bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd --dtype int8 --tuning\
-                                           < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/selected-resnet50-miopen-configs"""
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    post {
-                        unsuccessful {
-                            rebootNode()
-                        }
-                        always {
-                            cleanWs()
-                        }
+                    always {
+                        cleanWs()
                     }
                 }
             }
@@ -359,17 +412,21 @@ pipeline {
             matrix {
                 axes {
                     axis {
-                        name 'CONFIG'
-                        values 'conv_structure', 'perf_config'
+                        name 'CODEPATH'
+                        values 'mfma', 'vanilla', 'navi21'
                     }
                 }
                 agent {
                     docker {
                         image dockerImage()
                         args dockerArgs()
-                        label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a) && multi_gpu' : 'rocm' }"
+                        label getLabelFromCodepath("${CODEPATH}")
                         alwaysPull true
                     }
+                }
+                when {
+                    beforeAgent true
+                    expression { return shouldRunFromCodepath("$CODEPATH") }
                 }
                 environment {
                     HOME="${WORKSPACE}"
@@ -377,22 +434,20 @@ pipeline {
                 stages {
                     stage('Environment') {
                         steps {
+                            echo "codepath is ${CODEPATH}"
                             showEnv()
                         }
                     }
-                    stage("Sweep parameters") {
+                    stage("Prepare Performance Scripts") {
                         steps {
                             setHeartbeat()
-                            buildProject(
-                                'check-rocmlir-build-only ci-performance-scripts',
-                                '')
-                            dir('build') {
-                                timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                    sh """python3 ./bin/parameterSweeps.py \
-                                        ${params.canXdlops ? '--xdlops' : '--no-xdlops'} \
-                                        ${CONFIG}"""
-                                }
-                            }
+                            buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                        }
+                    }
+                    stage("Parameter Sweep") {
+                        steps {
+                            parameterSweep("conv_structure")
+                            parameterSweep("perf_config")
                         }
                     }
                 }
@@ -416,7 +471,7 @@ pipeline {
                 axes {
                     axis {
                         name 'ARCH'
-                        values 'gfx906', 'gfx908', 'gfx90a'
+                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
                     }
                 }
                 agent {
@@ -429,19 +484,7 @@ pipeline {
                 }
                 when {
                     beforeAgent true
-                    anyOf {
-                        allOf {
-                            equals expected: "gfx906", actual: "${ARCH}";
-                            equals expected: false, actual: params.canXdlops;
-                        }
-                        allOf {
-                            anyOf {
-                                equals expected: "gfx908", actual: "${ARCH}";
-                                equals expected: "gfx90a", actual: "${ARCH}";
-                            }
-                            equals expected: true, actual: params.canXdlops;
-                        }
-                    }
+                    expression { return shouldRunFromChip("${ARCH}") }
                 }
                 environment {
                     PATH="/opt/rocm/llvm/bin:$PATH"
@@ -473,15 +516,7 @@ pipeline {
                             LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
                         }
                         steps {
-                            dir('MIOpen/build/') {
-                                sh """
-                                bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-all --tuning\
-                                    < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
-                                sh """
-                                bash ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/miopen_validate.sh --test-fwd --dtype int8 --tuning\
-                                    < ${WORKSPACE}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs"""
-                                sh 'ls -l MIOpenUserDB'
-                            }
+                            tuneMLIRKernels()
                             // Save user database for nightly jobs
                             dir ('MIOpen/build/MIOpenUserDB') {
                                 stash name: "MLIR-PerfDB-${ARCH}", includes: "**"
@@ -496,7 +531,7 @@ pipeline {
                 }
             }
         }
-        stage("Archive weekly xdlops tuning perfDB") {
+        stage("Archive weekly tuning perfDB") {
             when {
                 beforeAgent true;
                 equals expected: true, actual: params.weekly;
@@ -507,15 +542,7 @@ pipeline {
                 skipDefaultCheckout()
             }
             steps {
-                // Note: add additional architectures here
-                dir ('MIOpen/build/MIOpenUserDB') {
-                    unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx908' : 'gfx906'}"
-                    // This'll stop being a duplicate once Navi CI starts
-                    unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx90a' : 'gfx906'}"
-                    sh 'date --utc +%Y-%m-%d >tuning-date'
-                }
-                archiveArtifacts artifacts: 'MIOpen/build/MIOpenUserDB/**',\
-                    onlyIfSuccessful: true
+                archivePerfDB()
             }
             post {
                 always {
@@ -523,208 +550,210 @@ pipeline {
                 }
             }
         }
-
         stage("MIOpen Resnet50 Config Test") {
-            when { allOf {
+            when {
+                allOf {
                     equals expected: true, actual: params.nightly;
                     equals expected: true, actual: params.staticLib;
-            }}
+                }
+            }
             matrix {
                 axes {
                     axis {
-                        name 'DTYPE'
-                        values 'fp16', 'fp32'
-                    }
-                    axis {
-                        name 'LAYOUT'
-                        values 'NCHW', 'NHWC'
+                        name 'CODEPATH'
+                        values 'mfma', 'vanilla', 'navi21'
                     }
                 }
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs()
+                        label getLabelFromCodepath("${CODEPATH}")
+                        alwaysPull true
+                    }
+                }
+                when {
+                    beforeAgent true
+                    expression { return shouldRunFromCodepath("${CODEPATH}") }
+                }
                 stages {
-                    stage('Test MIOpen integration') {
-                        agent {
-                            docker {
-                                image dockerImage()
-                                args dockerArgs()
-                                label "mlir && ${params.canXdlops ? '(gfx908 || gfx90a)' : 'gfx906'}"
-                                alwaysPull true
-                            }
+                    stage('Environment') {
+                        steps {
+                            echo "codepath is ${CODEPATH}"
+                            showEnv()
                         }
-                        stages {
-                            stage('Environment') {
-                                steps {
-                                    echo "Config is ($DTYPE, $LAYOUT)"
-                                    showEnv()
-                                }
-                            }
-                            stage("Build MIOpen with librockCompiler") {
-                                environment {
-                                    PATH="/opt/rocm/llvm/bin:$PATH"
-                                    HOME="${WORKSPACE}"
-                                }
-                                steps {
-                                    buildMIOpenWithMLIR()
-                                }
-                            }
-                            stage("Copy perfdb") {
-                                steps {
-                                    copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
-                                               optional: true,\
-                                               flatten: true,\
-                                               projectName: "/MLIR/mlir-weekly",\
-                                               selector: lastSuccessful(),\
-                                               target: 'MIOpen/build/MIOpenUserDB'
-                                    sh 'ls MIOpen/build/MIOpenUserDB'
-                                    sh 'cat MIOpen/build/MIOpenUserDB/tuning-date'
-                                }
-                            }
-                            stage("Test MIOpen config") {
-                                environment {
-                                    // Make libMIOpen.so accessible to the test driver
-                                    LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
-                                    HOME="${WORKSPACE}"
-                                }
-                                steps {
-                                    // Test with perfDb
-                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "1", "0")
-                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "2", "0")
-                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "4", "0")
-                                    // Test without perfDb
-                                    sh 'rm -rf ${WORKSPACE}/MIOpen/build/MIOpenUserDB'
-                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "1", "0")
-                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "2", "0")
-                                    testMIOpenDriver("$DTYPE", "$LAYOUT", "4", "0")
-                                }
-                            }
+                    }
+                    stage("Build MIOpen with librockCompiler") {
+                        environment {
+                            PATH="/opt/rocm/llvm/bin:$PATH"
+                            HOME="${WORKSPACE}"
                         }
-                        post {
-                            unsuccessful {
-                                rebootNode()
-                            }
-                            always {
-                                cleanWs()
-                            }
+                        steps {
+                            buildMIOpenWithMLIR()
                         }
+                    }
+                    stage("Copy perfdb") {
+                        steps {
+                            copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
+                            optional: true,\
+                            flatten: true,\
+                            projectName: "/MLIR/mlir-weekly",\
+                            selector: lastSuccessful(),\
+                            target: 'MIOpen/build/MIOpenUserDB'
+                            sh 'ls MIOpen/build/MIOpenUserDB'
+                            sh 'cat MIOpen/build/MIOpenUserDB/tuning-date'
+                        }
+                    }
+                    stage("Test MIOpen config") {
+                        environment {
+                            // Make libMIOpen.so accessible to the test driver
+                            LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                            HOME="${WORKSPACE}"
+                        }
+                        steps {
+                            // Test with perfDb
+                            testMIOpenDriver(/*testInt8=*/false, /*tuning=*/false, "resnet50-miopen-configs")
+                            // Test without perfDb
+                            sh 'rm -rf ${WORKSPACE}/MIOpen/build/MIOpenUserDB'
+                            testMIOpenDriver(/*testInt8=*/false, /*tuning=*/false, "resnet50-miopen-configs")
+                        }
+                    }
+                }
+                post {
+                    unsuccessful {
+                        rebootNode()
+                    }
+                    always {
+                        cleanWs()
                     }
                 }
             }
         }
         // FIXME: run perf tests on both gfx90a and gfx908
         stage("Benchmark and Report Performance") {
-            when {
-                beforeAgent true;
-                equals expected: true, actual: params.perfTest;
-                equals expected: true, actual: params.nightly;
-            }
-            agent {
-                docker {
-                    image dockerImage()
-                    args dockerArgs()
-                    label "mlir && ${params.canXdlops ? 'gfx90a' : 'gfx906' }"
-                    alwaysPull true
-                }
-            }
-            environment {
-                // Make libMIOpen.so accessible to the test driver
-                PATH="/opt/rocm/llvm/bin:$PATH"
-                LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
-                HOME="${WORKSPACE}"
-            }
-            stages {
-                stage("Environment") {
-                    steps {
-                        showEnv()
+            matrix {
+                axes {
+                    axis {
+                        name 'CHIP'
+                        values 'gfx906', 'gfx908', 'gfx90a', 'gfx1030'
                     }
                 }
-                stage("Build MLIR with librockCompiler") {
-                    steps {
-                        buildMIOpenWithMLIR()
+                when {
+                    beforeAgent true;
+                    equals expected: true, actual: params.perfTest;
+                    equals expected: true, actual: params.nightly;
+                    expression { return shouldRunFromChip("${CHIP}")}
+                }
+                agent {
+                    docker {
+                        image dockerImage()
+                        args dockerArgs()
+                        label "mlir && ${CHIP}"
+                        alwaysPull true
                     }
                 }
-                stage("Copy tuning database") {
-                    steps {
-                        copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
-                                               optional: true,\
-                                               flatten: true,\
-                                               projectName: "/MLIR/mlir-weekly",\
-                                               selector: lastSuccessful(),\
-                                               target: 'MIOpen/build/MIOpenUserDB'
-                        sh 'ls MIOpen/build/MIOpenUserDB'
-                        sh 'cat MIOpen/build/MIOpenUserDB/tuning-date'
-                    }
+                environment {
+                    // Make libMIOpen.so accessible to the test driver
+                    PATH="/opt/rocm/llvm/bin:$PATH"
+                    LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
+                    HOME="${WORKSPACE}"
                 }
-                stage("Performance Test: Tuned vs Untuned") {
-                    steps {
-                        buildProject('ci-performance-scripts', '')
-                        dir('build') {
-                           sh 'python3 ./bin/MIOpenDriver.py --miopen_use_tuned_mlir'
-                           sh 'rm -rf ${WORKSPACE}/MIOpen/build/MIOpenUserDB'
-                           sh 'python3 ./bin/MIOpenDriver.py --miopen_use_untuned_mlir'
+                stages {
+                    stage("Environment") {
+                        steps {
+                            echo "chip is ${CHIP}"
+                            showEnv()
+                        }
+                    }
+                    stage("Build MLIR with librockCompiler") {
+                        steps {
+                            buildMIOpenWithMLIR()
+                        }
+                    }
+                    stage("Copy tuning database") {
+                        steps {
+                            copyArtifacts filter: 'MIOpen/build/MIOpenUserDB/**',\
+                                optional: true,\
+                                flatten: true,\
+                                projectName: "/MLIR/mlir-weekly",\
+                                selector: lastSuccessful(),\
+                                target: 'MIOpen/build/MIOpenUserDB'
+                                sh 'ls MIOpen/build/MIOpenUserDB'
+                                sh 'cat MIOpen/build/MIOpenUserDB/tuning-date'
+                        }
+                    }
+                    stage("Performance Test: Tuned vs Untuned") {
+                        steps {
+                            buildProject('ci-performance-scripts', '')
+                            dir('build') {
+                                sh 'python3 ./bin/MIOpenDriver.py --miopen_use_tuned_mlir'
+                                sh 'rm -rf ${WORKSPACE}/MIOpen/build/MIOpenUserDB'
+                                sh 'python3 ./bin/MIOpenDriver.py --miopen_use_untuned_mlir'
+                            }
+                        }
+                    }
+                    stage("Build MIOpen with HIP") {
+                        steps {
+                            sh 'rm -rf MIOpen'
+                            dir('MIOpen') {
+                                getAndBuildMIOpen("--prefix ${WORKSPACE}/MIOpen/MIOpenDeps", '''
+                                    -DMIOPEN_BACKEND=HIP -DMIOPEN_USE_MLIR=OFF
+                                    -DMIOPEN_USE_COMPOSABLEKERNEL=Off
+                                    -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
+                                    -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/MIOpen/build/MIOpenInstallDir
+                                    ''')
+                                sh 'cd build; make -j $(nproc)'
+                                sh 'cd build; make install'
+                            }
+                        }
+                    }
+                    stage("Build MLIR") {
+                        steps {
+                            // Clean up build settings to disable static library and allow
+                            // ROCm testing
+                            sh 'rm build/CMakeCache.txt'
+                            buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                        }
+                    }
+                    stage("Test MLIR vs MIOpen") {
+                        steps {
+                            dir('build') {
+                                sh 'date --utc +%Y-%m-%d > perf-run-date'
+                                // Run MLIR perf benchmarks
+                                sh 'python3 ./bin/MIOpenDriver.py'
+                            }
+                        }
+                    }
+                    stage("Copy earlier performance results") {
+                        steps {
+                            copyArtifacts filter: 'build/*.csv,build/perf-run-date',\
+                                optional: true,\
+                                flatten: true,\
+                                projectName: "/${JOB_NAME}",\
+                                selector: lastSuccessful(),\
+                                target: 'build/oldData'
+                        }
+                    }
+                    stage("Create performance reports") {
+                        steps {
+                            dir('build') {
+                                sh 'ls -l'
+                                sh 'python3 ./bin/createPerformanceReports.py ${CHIP}'
+                                sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
+                            }
+                            postProcessPerfRes("${CHIP}")
                         }
                     }
                 }
-                stage("Build MIOpen with HIP") {
-                    steps {
-                        sh 'rm -rf MIOpen'
-                        dir('MIOpen') {
-                            getAndBuildMIOpen("--prefix ${WORKSPACE}/MIOpen/MIOpenDeps",
-                                '''-DMIOPEN_USE_MLIR=OFF
-                                   -DMIOPEN_USE_COMPOSABLEKERNEL=Off
-                                   -DMIOPEN_BACKEND=HIP
-                                   -DCMAKE_PREFIX_PATH="${WORKSPACE}/MIOpen/MIOpenDeps"
-                                   -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/MIOpen/build/MIOpenInstallDir
-                                   ''')
-                            sh 'cd build; make -j $(nproc)'
-                            sh 'cd build; make install'
-                        }
+                post {
+                    unsuccessful {
+                        rebootNode()
                     }
-                }
-                stage("Build MLIR") {
-                    steps {
-                        // Clean up build settings to disable static library and allow
-                        // ROCm testing
-                        sh 'rm build/CMakeCache.txt'
-                        buildProject('check-rocmlir-build-only ci-performance-scripts', '')
-                    }
-                }
-                stage("Test MLIR vs MIOpen") {
-                    steps {
-                        dir('build') {
-                            sh 'date --utc +%Y-%m-%d > perf-run-date'
-                            // Run MLIR perf benchmarks
-                            sh 'python3 ./bin/MIOpenDriver.py'
-                        }
-                    }
-                }
-                stage("Copy earlier performance results") {
-                    steps {
-                        copyArtifacts filter: 'build/*.csv,build/perf-run-date',\
-                                               optional: true,\
-                                               flatten: true,\
-                                               projectName: "/${JOB_NAME}",\
-                                               selector: lastSuccessful(),\
-                                               target: 'build/oldData'
-                    }
-                }
-                stage("Create performance reports") {
-                    steps {
-                        dir('build') {
-                            sh 'ls -l'
-                            sh 'python3 ./bin/createPerformanceReports.py'
-                            sh 'python3 ./bin/perfRegressionReport.py'
-                        }
-                        postProcessPerfRes()
+                    always {
+                        cleanWs()
                     }
                 }
             }
-            post {
-                unsuccessful {
-                    rebootNode()
-                }
-                always {
-                    cleanWs()
-                }
-             }
         }
     }
 }

@@ -29,8 +29,8 @@ class Options:
     """Class for keeping option state for the parameter sweep script."""
     debug: bool
     quiet: bool
-    xdlops: bool
     arch: str
+    flags: list
     concurrent_tests: int
 
 class MLIROnlyConfig(ConvConfiguration):
@@ -39,9 +39,9 @@ class MLIROnlyConfig(ConvConfiguration):
                 n={self.n!r}, c={self.c!r}, hi={self.hi!r}, wi={self.wi!r}, k={self.k!r}, y={self.y!r}, x={self.x!r},
                 convStrideH={self.convStrideH!r}, convStrideW={self.convStrideW!r}, paddingHL={self.paddingHL!r}, paddingHR={self.paddingHR!r},
                 paddingWL={self.paddingWL!r}, paddingWR={self.paddingWR!r}, dilationH={self.dilationH!r}, dilationW={self.dilationW!r},
-                group={self.group!r}, xdlops={self.xdlops!r}, arch={self.arch!r}, perfConfig={self.perfConfig!r})"""
+                group={self.group!r}, arch={self.arch!r}, perfConfig={self.perfConfig!r})"""
 
-    def generateMlirDriverCommandLine(self) -> Sequence[str]:
+    def generateMlirDriverCommandLine(self, rocmlir_gen_flags) -> Sequence[str]:
         direction = {'fwd': 'conv2d',
                      'bwd': 'conv2d_bwd_data',
                      'wrw':'conv2d_bwd_weight'}[self.direction]
@@ -49,7 +49,6 @@ class MLIROnlyConfig(ConvConfiguration):
         result = ['--operation', direction,
                     '-t', self.dataType,
                     '--arch', self.arch,
-                    '-mfma=on' if self.xdlops else '-mfma=off',
                     '--fil_layout', self.filterLayout,
                     '--in_layout', self.inputLayout,
                     '--out_layout', self.outputLayout,
@@ -69,6 +68,8 @@ class MLIROnlyConfig(ConvConfiguration):
                     '--padding_w_l', str(self.paddingWL),
                     '--padding_w_r', str(self.paddingWR)]
 
+        result += rocmlir_gen_flags
+
         if self.perfConfig is not None:
             result.append('--perf_config')
             result.append(','.join(str(v) for v in self.perfConfig))
@@ -79,7 +80,7 @@ class MLIROnlyConfig(ConvConfiguration):
                     n: int, c: int, hi: int, wi: int, k: int, y: int, x: int,
                     convStrideH: int, convStrideW: int,
                     paddingHL: int, paddingHR: int, paddingWL: int, paddingWR: int,
-                    dilationH: int, dilationW: int, group: int, xdlops: bool, arch: str,
+                    dilationH: int, dilationW: int, group: int, arch: str,
                     perfConfig: Optional[Sequence[int]]=None):
         if dtype not in {"f16", "f32", "bf16", "i8"}:
             raise ValueError(f"Invalid datatype: {dtype}")
@@ -113,7 +114,6 @@ class MLIROnlyConfig(ConvConfiguration):
         self.dilationW = dilationW
 
         self.group = group
-        self.xdlops = xdlops
         self.arch = arch
         self.perfConfig = perfConfig
         self.ho = math.floor((self.hi + self.paddingHL + self.paddingHR - (self.y - 1) * self.dilationH - 1 ) / self.convStrideH) + 1
@@ -130,7 +130,7 @@ class TestResult(enum.Enum):
 async def testConfig(config: MLIROnlyConfig, options: Options, paths: Paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
-    rocmlirGenOpts = config.generateMlirDriverCommandLine()
+    rocmlirGenOpts = config.generateMlirDriverCommandLine(options.flags)
     rocmlirGenOpts.append('-pv')
 
     applicableFromGen, genToApplicable = os.pipe()
@@ -288,9 +288,9 @@ def to_conv_structure_type_test(params, options: Options) -> MLIROnlyConfig:
         # Values of n, c, k, meant to be small and to hit the padding kernel
         n, c, k = 1, 7, 7
     return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw,
-        phl, phr, pwl, pwr, dh, dw, g, options.xdlops, options.arch)
+        phl, phr, pwl, pwr, dh, dw, g, options.arch)
 
-XDLOPS_PERF_CONFIG = itertools.product(
+MFMA_PERF_CONFIG = itertools.product(
     # op
     ['fwd', 'wrw', 'bwd'],
     # layout
@@ -310,7 +310,7 @@ XDLOPS_PERF_CONFIG = itertools.product(
     # KPack (exponent)
     range(1, 4)
 )
-def to_xdlops_perf_config_test(params, options: Options) -> MLIROnlyConfig:
+def to_mfma_perf_config_test(params, options: Options) -> MLIROnlyConfig:
     n, g, c, hi, wi, k, y, x, sw, sh, phl, phr, pwl, pwr, dh, dw =\
          512, 1, 512, 1, 1, 512, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1
     op, layout, dtype, m_per_block, n_per_block, k_per_block, m_per_wave,\
@@ -318,9 +318,9 @@ def to_xdlops_perf_config_test(params, options: Options) -> MLIROnlyConfig:
     perf_config = (1 << m_per_block, 1 << n_per_block, 1 << k_per_block,
         1 << m_per_wave, 1 << n_per_wave, 1 << kpack, 1, 1)
     return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw, phl,
-        phr, pwl, pwr, dh, dw, g, True, options.arch, perf_config)
+        phr, pwl, pwr, dh, dw, g, options.arch, perf_config)
 
-NON_XDLOPS_PERF_CONFIG = itertools.product(
+VANILLA_PERF_CONFIG = itertools.product(
     # op
     ['fwd', 'wrw', 'bwd'],
     # layout
@@ -340,7 +340,7 @@ NON_XDLOPS_PERF_CONFIG = itertools.product(
     # NPerThread (exponent)
     range(1, 3)
 )
-def to_non_xdlops_perf_config_test(params, options: Options) -> MLIROnlyConfig:
+def to_vanilla_perf_config_test(params, options: Options) -> MLIROnlyConfig:
     n, g, c, hi, wi, k, y, x, sw, sh, phl, phr, pwl, pwr, dh, dw =\
          512, 1, 512, 1, 1, 512, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1
     op, layout, dtype, block_size, m_per_block, n_per_block, k_per_block,\
@@ -348,7 +348,7 @@ def to_non_xdlops_perf_config_test(params, options: Options) -> MLIROnlyConfig:
     perf_config = (1 << block_size, 1 << m_per_block, 1 << n_per_block,
         1 << k_per_block, 1 << m_per_thread, n_per_thread)
     return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw, phl,
-        phr, pwl, pwr, dh, dw, g, False, options.arch, perf_config)
+        phr, pwl, pwr, dh, dw, g, options.arch, perf_config)
 
 async def runConfig(paramIter: Iterable[IterType],
         toConfig: Callable[[IterType, Options], MLIROnlyConfig],
@@ -358,7 +358,7 @@ async def runConfig(paramIter: Iterable[IterType],
     if len(failures) != 0:
         print("*** Summary of failures ***")
         for c in failures:
-            print(' '.join(c.generateMlirDriverCommandLine()))
+            print(' '.join(c.generateMlirDriverCommandLine(options.flags)))
     print(f"Passed: {n_passes}, Invalid: {n_invalids}, Failed: {len(failures)}")
     return len(failures) == 0
 
@@ -379,7 +379,7 @@ def main() -> bool:
             description='Sweep parameter values to check correctness of MLIR')
     parser.add_argument('config',
         help="The configuration to test",
-        choices=['conv_structure', 'xdlops_perf_config', 'non_xdlops_perf_config', 'perf_config'])
+        choices=['conv_structure', 'mfma_perf_config', 'vanilla_perf_config', 'perf_config'])
     parser.add_argument('--debug', '-d', action='store_true', default=False,
         help='Turn on debug output (print error messages on failure or inapplicability)')
     parser.add_argument('--no-debug', '-D', dest='debug', action='store_false',
@@ -392,6 +392,12 @@ def main() -> bool:
         help='Use xdlops when generating kernels (default off)')
     parser.add_argument('--no-xdlops', '-X', dest='xdlops', action='store_false',
         help='Explicitly disable xdlops usage')
+    parser.add_argument(
+        '--codepath',
+        type=str,
+        default='none',
+        help="codepath to control kernel generation"
+    )
     parser.add_argument('--jobs', '-j', type=int,
         default=(len(os.sched_getaffinity(0)) // 2),
         help="Number of jobs to run in parallel (default %(default)s)")
@@ -408,23 +414,44 @@ def main() -> bool:
         help="The build directory of MIOpen",
     )
     args = parser.parse_args()
-    options = Options(debug=args.debug, quiet=args.quiet, xdlops=args.xdlops,
-        arch=','.join(getArch()), concurrent_tests=args.jobs)
+
+    arch = ','.join(getArch())
+    supported_codepath = ['mfma', 'vanilla']
+    # If codepath not provided or not supported, infer it from the arch
+    codepath = args.codepath
+    rocmlir_gen_flags = []
+    if codepath not in supported_codepath:
+        if 'gfx908' in arch or 'gfx90a' in arch:
+            codepath = 'mfma'
+            rocmlir_gen_flags = ['-mfma=on', '-dot=on', '-atomic_add=on']
+        elif 'gfx906' in arch:
+            codepath = 'vanilla'
+            rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=off']
+        elif 'gfx1030' in arch:
+            # Use vanilla codepath for gfx1030 until it has its own perf configs
+            codepath = 'vanilla'
+            rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=off']
+        else:
+            # unknow arch info
+            print(f"""Unknown arch {arch}""", file=sys.stderr)
+
+    options = Options(debug=args.debug, quiet=args.quiet,
+        arch=arch, flags=rocmlir_gen_flags, concurrent_tests=args.jobs)
     paths = MIOpenDriver.create_paths(args.mlir_build_dir, args.miopen_build_dir)
 
     config = args.config
     if config == 'perf_config':
-        config = ('xdlops_' if options.xdlops else 'non_xdlops_') + config
+        config = codepath + '_' + config
     succeeded = False
     if config == 'conv_structure':
         succeeded = asyncio.run(runConfig(CONV_STRUCTURE,
             to_conv_structure_type_test, options, paths))
-    elif config == 'xdlops_perf_config':
-        succeeded = asyncio.run(runConfig(XDLOPS_PERF_CONFIG,
-            to_xdlops_perf_config_test, options, paths))
-    elif config == 'non_xdlops_perf_config':
-        succeeded = asyncio.run(runConfig(NON_XDLOPS_PERF_CONFIG,
-            to_non_xdlops_perf_config_test, options, paths))
+    elif config == 'mfma_perf_config':
+        succeeded = asyncio.run(runConfig(MFMA_PERF_CONFIG,
+            to_mfma_perf_config_test, options, paths))
+    elif config == 'vanilla_perf_config':
+        succeeded = asyncio.run(runConfig(VANILLA_PERF_CONFIG,
+            to_vanilla_perf_config_test, options, paths))
     else:
         print(f"Unknown config: {config}", file=sys.stderr)
     return succeeded

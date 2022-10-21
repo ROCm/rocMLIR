@@ -60,12 +60,13 @@ def getPerfDate(statsPath: PurePath, default="???"):
         return default
 
 if __name__ == '__main__':
-    oldDataPath = PurePath(sys.argv[1]) if len(sys.argv) >= 2\
-        else PurePath('./', 'oldData/', reportUtils.PERF_REPORT_FILE)
-    newDataPath = PurePath(sys.argv[2]) if len(sys.argv) >= 3\
-        else PurePath('./', reportUtils.PERF_REPORT_FILE)
-    outputPath = PurePath(sys.argv[3]) if len(sys.argv) >= 4\
-        else PurePath('./', 'MLIR_Performance_Changes.html')
+    chip = sys.argv[1]
+    oldDataPath = PurePath(sys.argv[2]) if len(sys.argv) >= 3\
+        else PurePath('./', 'oldData/', chip + '_' + reportUtils.PERF_REPORT_FILE)
+    newDataPath = PurePath(sys.argv[3]) if len(sys.argv) >= 4\
+        else PurePath('./', chip + '_' + reportUtils.PERF_REPORT_FILE)
+    outputPath = PurePath(sys.argv[4]) if len(sys.argv) >= 5\
+        else PurePath('./', chip + '_' + 'MLIR_Performance_Changes.html')
 
     try:
         newDf = loadMlirData(str(newDataPath))
