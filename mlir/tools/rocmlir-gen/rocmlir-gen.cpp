@@ -1188,8 +1188,7 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp &func,
             result.push_back(widthIdx);
             continue;
           }
-        } else if (direction == rock::ConvOpType::BwdData &&
-                   tensor == OUTPUT) {
+        } else if (direction == rock::ConvOpType::BwdData && tensor == OUTPUT) {
           if (c == 'h') {
             result.push_back(heightIdx);
             continue;
@@ -1841,7 +1840,6 @@ static func::FuncOp createVerifierFunc(ModuleOp &module, const KernelIF &kernel,
 
   return func;
 }
-
 
 // Convert the async.launch/async.await pattern back to func.call.
 void undoAsyncLaunchPass(Operation *cloneFunc) {
