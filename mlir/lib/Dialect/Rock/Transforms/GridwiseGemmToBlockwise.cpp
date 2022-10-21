@@ -592,7 +592,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                                      int64_t &b_block_space,
                                      int64_t &block_space,
                                      int64_t KPack = 1) const {
-    GeneralGemmParamsAttr tuningParams = op.getParams();
+    GeneralGemmParamsAttr tuningParams = op.getParamsAttr().cast<GeneralGemmParamsAttr>();
     int64_t ThreadGemmAThreadCopySrcDataPerRead_M =
         tuningParams.getMPerThread();
     int64_t ThreadGemmBThreadCopySrcDataPerRead_N =
@@ -695,7 +695,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // Obtain critical tuning parameters.
     uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
-    GeneralGemmParamsAttr tuningParams = op.getParams();
+    GeneralGemmParamsAttr tuningParams = op.getParamsAttr().cast<GeneralGemmParamsAttr>();
     int64_t kpack = tuningParams.getKpack();
     // TODO: kPerBlock, as defined in parameter selection etc,
     // is in units of kPack, not individual k. This should be changed
@@ -1076,7 +1076,7 @@ struct GridwiseGemmV2RewritePattern
                                      int64_t KPack = 1) const {
     int64_t max_lds_align = 1;
 
-    XdlopsGemmParamsAttr tuningParams = op.getParams();
+    XdlopsGemmParamsAttr tuningParams = op.getParamsAttr().cast<XdlopsGemmParamsAttr>();
     int64_t KPerBlock = tuningParams.getKPerBlock();
     int64_t MPerBlock = tuningParams.getMPerBlock();
     int64_t NPerBlock = tuningParams.getNPerBlock();
@@ -1166,7 +1166,7 @@ struct GridwiseGemmV2RewritePattern
     // Obtain critical tuning parameters.
     uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
-    XdlopsGemmParamsAttr tuningParams = op.getParams();
+    XdlopsGemmParamsAttr tuningParams = op.getParamsAttr().cast<XdlopsGemmParamsAttr>();
     int64_t KPack = tuningParams.getKpack();
     int64_t KPerBlock = tuningParams.getKPerBlock();
     int64_t MPerBlock = tuningParams.getMPerBlock();

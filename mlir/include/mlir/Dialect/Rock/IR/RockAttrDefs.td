@@ -10,6 +10,8 @@
 #define ROCK_ATTRS
 
 include "mlir/Dialect/Rock/IR/RockBase.td"
+include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
+include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
 
@@ -182,7 +184,7 @@ def Rock_TransformMapAttr : Rock_Attr<"TransformMap"> {
     let genVerifyDecl = 1;
 }
 
-def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams"> {
+def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParamAttrInterface]> {
   let mnemonic = "general_gemm_params";
   let description = [{
     The tuning parameters for a general (no special instructions) matrix
@@ -207,12 +209,23 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams"> {
     "int64_t":$kpack
   );
 
+  let extraClassDeclaration = [{
+    std::string getPerfConfigStr(){
+      std::string result = std::to_string(getMPerBlock()) + ","
+      + std::to_string(getNPerBlock()) + ","
+      + std::to_string(getNPerBlock()) + ","
+      + std::to_string(getMPerThread()) + ","
+      + std::to_string(getNPerThread());
+      return result;
+    }
+  }];
+
   let assemblyFormat = [{
     `<` struct(params) `>`
   }];
 }
 
-def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams"> {
+def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface]> {
   let mnemonic = "xdlops_gemm_params";
   let description = [{
     The tuning parameters for an xdlops-based matrix multiplication.
@@ -228,14 +241,21 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams"> {
     "int64_t":$nPerWave
   );
 
+  let extraClassDeclaration = [{
+    std::string getPerfConfigStr(){
+      std::string result = std::to_string(getMPerBlock()) + ","
+        + std::to_string(getNPerBlock()) + ","
+        + std::to_string(getKPerBlock()) + ","
+        + std::to_string(getMPerWave()) + ","
+        + std::to_string(getNPerWave());
+      return result;
+    }
+  }];
+
   let assemblyFormat = [{
     `<` struct(params) `>`
   }];
 }
-
-def Rock_OptionalGemmParams : OptionalAttr<AnyAttrOf<[
-  Rock_GeneralGemmParamsAttr,
-  Rock_XdlopsGemmParamsAttr]>>;
 
 // GEMM Features
 def Rock_GemmFeatures_None : I32BitEnumAttrCaseNone<"none">;

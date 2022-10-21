@@ -16,7 +16,7 @@
 include "mlir/Dialect/Rock/IR/RockAttrDefs.td"
 include "mlir/Dialect/Rock/IR/RockConvInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
-
+include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
 include "mlir/Interfaces/LoopLikeInterface.td"
@@ -60,7 +60,7 @@ class Rock_Conv2DOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16],
                    I32ArrayLength<4>:$padding,
                    I32ArrayLength<2>:$strides,
                    I32ArrayLength<2>:$dilations,
-                   Rock_OptionalGemmParams:$params);
+                   OptionalAttr<RockTuningParamAttrInterface>:$params);
     let results = (outs Optional<AnyRankedTensor>:$result);
 }
 
@@ -129,7 +129,7 @@ def Rock_GemmOp :
                    StoreMethodAttr:$storeMethod,
                    OptionalAttr<I32Attr>:$blockSize,
                    OptionalAttr<I32Attr>:$gridSize,
-                   Rock_OptionalGemmParams:$params)>,
+                   OptionalAttr<RockTuningParamAttrInterface>:$params)>,
     Results<(outs Optional<AnyRankedTensor>:$result)> {
   let summary = "General matrix multiplication (GEMM)";
   let description = [{
@@ -239,7 +239,7 @@ def Rock_GridwiseGemmOp :
                    // arch isn't either, but I'm passing it down just in case
                    I32Attr:$blockSize,
                    I32Attr:$gridSize,
-                   Rock_GeneralGemmParamsAttr:$params)> {
+                   OptionalAttr<RockTuningParamAttrInterface>:$params)> {
   let summary = "Gridwise GEMM";
   let description = [{
     The `rock.gridwise_gemm` op computes gridwise GEMM.
@@ -260,7 +260,7 @@ def Rock_GridwiseGemmV2Op :
                    // Note: num_cu isn't used
                    I32Attr:$blockSize,
                    I32Attr:$gridSize,
-                   Rock_XdlopsGemmParamsAttr:$params)> {
+                   OptionalAttr<RockTuningParamAttrInterface>:$params)> {
   let summary = "Gridwise GEMM V2";
   let description = [{
     The `rock.gridwise_gemm` op computes gridwise GEMM with XDLOPS.
@@ -797,7 +797,7 @@ def Rock_BlockwiseGemmOp:
                    MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixB,
                    MemRefRankOf<[F32, F16, BF16, I32], [2]>:$matrixC,
                    I32Attr:$blockSize,
-                   Rock_GeneralGemmParamsAttr:$params
+                   OptionalAttr<RockTuningParamAttrInterface>:$params
                    )> {
   let summary = "Blockwise GEMM non-XDLOPS version";
   let description = [{
@@ -840,7 +840,7 @@ def Rock_BlockwiseGemmV2Op:
                    MemRefOf<[F32, F16, BF16, I32,
                              VectorOf<[F32, F16, BF16, I32]>]>:$matrixC,
                    I32Attr:$blockSize,
-                   Rock_XdlopsGemmParamsAttr:$params)>{
+                   OptionalAttr<RockTuningParamAttrInterface>:$params)>{
   let summary = "Blockwise GEMM XDLOPS version";
   let description = [{
     The `rock.block_gemm` op does GEMM at workgroup (block) level.
@@ -893,7 +893,7 @@ def Rock_XdlopsGemmV2Op:
                       VectorOfLengthAndType<[4, 8, 16], [I8]>], [2]>:$matrixB,
                    MemRefRankOf<[F32, F16, BF16, I32,
                       VectorOf<[F32, F16, BF16, I32]>], [3]>:$matrixC,
-                   Rock_XdlopsGemmParamsAttr:$params)> {
+                   OptionalAttr<RockTuningParamAttrInterface>:$params)> {
   let summary = "XDLOPS GEMM V2";
   let description = [{
     The `rock.xdlops_gemm_v2` op is an abstraction of doing GEMM based on XDLOPS.

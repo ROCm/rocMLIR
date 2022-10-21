@@ -179,7 +179,7 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
-    XdlopsGemmParamsAttr tuningParams = op.getParams();
+    XdlopsGemmParamsAttr tuningParams = op.getParamsAttr().cast<XdlopsGemmParamsAttr>();
     // Obtain critical information.
     int64_t KPack = tuningParams.getKpack();
     int64_t K = tuningParams.getKPerBlock();
