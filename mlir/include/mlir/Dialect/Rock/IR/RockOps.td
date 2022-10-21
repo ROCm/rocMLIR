@@ -14,6 +14,7 @@
 #define ROCK_OPS
 
 include "mlir/Dialect/Rock/IR/RockAttrDefs.td"
+include "mlir/Dialect/Rock/IR/RockConvInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
 
 include "mlir/Interfaces/ControlFlowInterfaces.td"
@@ -44,19 +45,28 @@ class TensorOrMemRefRankOf<list<Type> allowedTypes, list<int> ranks> :
              /*summary=*/"",
              "::mlir::ShapedType">;
 
+class I32ArrayLength<int n> : ConfinedAttr<I32ArrayAttr, [ArrayCount<n>]>;
 
-def Rock_Conv2DOp :
-    Rock_Op<"conv2d", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>]>,
-    Arguments<(ins TensorOrMemRefRankOf<[F32, F16, BF16, I8], [5]>:$filter,
-                   TensorOrMemRefRankOf<[F32, F16, BF16, I8], [5]>:$input,
-                   TensorOrMemRefRankOf<[F32, F16, BF16, I32], [5]>:$output,
+class Rock_Conv2DOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], list<Type> outputTypes=[F32, F16, BF16]> :
+    Rock_Op<mnemonic, [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
+                       DeclareOpInterfaceMethods<RockConvInterface>]>{
+    dag commonConvArgs = (ins TensorOrMemRefRankOf<inputTypes, [5]>:$filter,
+                   TensorOrMemRefRankOf<inputTypes, [5]>:$input,
+                   TensorOrMemRefRankOf<outputTypes, [5]>:$output,
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
-                   OptionalAttr<I32Attr>:$numCu,
                    OptionalAttr<I32Attr>:$blockSize,
                    OptionalAttr<I32Attr>:$gridSize,
-                   Rock_OptionalGemmParams:$params)>,
-    Results<(outs Optional<AnyRankedTensor>:$result)> {
+                   I32ArrayLength<4>:$padding,
+                   I32ArrayLength<2>:$strides,
+                   I32ArrayLength<2>:$dilations,
+                   Rock_OptionalGemmParams:$params);
+    let results = (outs Optional<AnyRankedTensor>:$result);
+}
+
+def Rock_Conv2DOp : Rock_Conv2DOpBase<"conv2d", [F32, F16, BF16, I8], [F32, F16, BF16, I32]> {
+  dag additionalArgs = (ins OptionalAttr<I32Attr>:$numCu);
+  let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "2D convolution forward";
   let description = [{
     The `rock.conv2d` op computes 2D convolution forward.
@@ -68,18 +78,10 @@ def Rock_Conv2DOp :
   }];
 }
 
-def Rock_Conv2DBwdDataOp :
-    Rock_Op<"conv2d_bwd_data", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>]>,
-    Arguments<(ins TensorOrMemRefRankOf<[F32, F16, BF16], [5]>:$filter,
-                   TensorOrMemRefRankOf<[F32, F16, BF16], [5]>:$input,
-                   TensorOrMemRefRankOf<[F32, F16, BF16], [5]>:$output,
-                   StrAttr:$arch,
-                   Rock_GemmFeaturesAttr:$features,
-                   OptionalAttr<I32Attr>:$numCu,
-                   OptionalAttr<I32Attr>:$blockSize,
-                   OptionalAttr<I32Attr>:$gridSize,
-                   Rock_OptionalGemmParams:$params)>,
-    Results<(outs Optional<AnyRankedTensor>:$result)> {
+def Rock_Conv2DBwdDataOp : Rock_Conv2DOpBase<"conv2d_bwd_data">
+{
+  dag additionalArgs = (ins OptionalAttr<I32Attr>:$numCu);
+  let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "2D convolution backward data";
   let description = [{
     The `rock.conv2d_bwd_data` op computes 2D convolution backward data.
@@ -91,20 +93,13 @@ def Rock_Conv2DBwdDataOp :
   }];
 }
 
-def Rock_Conv2DBwdWeightOp :
-    Rock_Op<"conv2d_bwd_weight", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>]>,
-    Arguments<(ins TensorOrMemRefRankOf<[F32, F16, BF16], [5]>:$filter,
-                   TensorOrMemRefRankOf<[F32, F16, BF16], [5]>:$input,
-                   TensorOrMemRefRankOf<[F32, F16, BF16], [5]>:$output,
-                   Optional<TensorOrMemRefRankOf<[F32], [5]>>:$workspace,
-                   StrAttr:$arch,
-                   I32Attr:$numCu,
-                   Rock_GemmFeaturesAttr:$features,
-                   OptionalAttr<I32Attr>:$blockSize,
-                   OptionalAttr<I32Attr>:$gridSize,
-                   Rock_OptionalGemmParams:$params,
-                   OptionalAttr<IndexAttr>:$kBlocks)>,
-    Results<(outs Optional<AnyRankedTensor>:$result)> {
+                   
+def Rock_Conv2DBwdWeightOp : Rock_Conv2DOpBase<"conv2d_bwd_weight">
+{
+  dag additionalArgs = (ins Optional<TensorOrMemRefRankOf<[F32], [5]>>:$workspace,
+                            OptionalAttr<IndexAttr>:$kBlocks,
+                            I32Attr:$numCu);
+  let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "2D convolution backward weight";
   let description = [{
     The `rock.conv2d_bwd_weight` op computes 2D convolution backward weight.

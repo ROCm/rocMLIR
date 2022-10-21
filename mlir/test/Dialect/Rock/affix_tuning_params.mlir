@@ -29,9 +29,9 @@ func.func @rock_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1, 1],
-    strides = [1, 1],
-    padding = [0, 0, 0 ,0]
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
   } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }
@@ -47,9 +47,9 @@ func.func @rock_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<12
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1, 1],
-    strides = [1, 1],
-    padding = [0, 0, 0 ,0]
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
   } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
   return
 }
@@ -65,9 +65,9 @@ func.func @rock_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1, 1],
-    strides = [1, 1],
-    padding = [0, 0, 0 ,0]
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
   } : memref<1x128x8x3x3xi8>, memref<128x1x8x32x32xi8>, memref<128x1x128x30x30xi32>
   return
 }
@@ -85,7 +85,7 @@ func.func @rock_conv2d_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: me
     gemm_id = 0 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    padding = [0 , 0 , 0 , 0],
+    padding = [0  : i32,  0  : i32,  0  : i32,  0 : i32],
     strides = [1 : i32, 1 : i32]
   } : memref<1x1024x1024x1x1xf32>, memref<128x1x1024x14x14xf32>, memref<128x1x1024x14x14xf32>
   return
@@ -104,7 +104,7 @@ func.func @rock_conv2d_bwd_data_f16(%filter: memref<1x1024x1024x1x1xf16>, %input
     gemm_id = 0 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    padding = [0 , 0 , 0 , 0],
+    padding = [0  : i32,  0  : i32,  0  : i32,  0 : i32],
     strides = [1 : i32, 1 : i32]
   } : memref<1x1024x1024x1x1xf16>, memref<128x1x1024x14x14xf16>, memref<128x1x1024x14x14xf16>
   return
@@ -121,9 +121,9 @@ func.func @rock_conv2d_bwd_data_padMN(%filter : memref<1x64x3x1x1xf32>, %input :
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1, 1],
-    strides = [1, 1],
-    padding = [0, 0, 0 ,0],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
     gemm_id = 0
   } : memref<1x64x3x1x1xf32>, memref<11x1x3x15x15xf32>, memref<11x1x64x15x15xf32>
   return
@@ -140,9 +140,9 @@ func.func @rock_conv2d_bwd_data_padMK(%filter : memref<1x11x3x1x1xf32>, %input :
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1, 1],
-    strides = [1, 1],
-    padding = [0, 0, 0 ,0],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
     gemm_id = 0
   } : memref<1x11x3x1x1xf32>, memref<128x1x3x15x15xf32>, memref<128x1x11x15x15xf32>
   return
@@ -160,9 +160,9 @@ func.func @rock_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : me
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1, 1],
-    strides = [1, 1],
-    padding = [0, 0, 0 ,0],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
     gemm_id = 0
   } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
   return
@@ -180,9 +180,9 @@ func.func @rock_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input 
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1, 1],
-    strides = [1, 1],
-    padding = [0, 0, 0 ,0],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
     gemm_id = 0
   } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
   return
@@ -200,9 +200,9 @@ func.func @rock_conv2d_bwd_weight_padALL(%filter : memref<1x20x8x3x3xf32>, %inpu
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1, 1],
-    strides = [1, 1],
-    padding = [0, 0, 0 ,0],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
     gemm_id = 0
   } : memref<1x20x8x3x3xf32>, memref<7x1x8x32x32xf32>, memref<7x1x20x30x30xf32>
   return
@@ -220,9 +220,9 @@ func.func @rock_conv2d_bwd_weight_padALL_f16(%filter : memref<1x20x8x3x3xf16>, %
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
-    dilations = [1, 1],
-    strides = [1, 1],
-    padding = [0, 0, 0 ,0],
+    dilations = [1 : i32,  1 : i32],
+    strides = [1 : i32,  1 : i32],
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
     gemm_id = 0
   } : memref<1x20x8x3x3xf16>, memref<7x1x8x32x32xf16>, memref<7x1x20x30x30xf16>
   return

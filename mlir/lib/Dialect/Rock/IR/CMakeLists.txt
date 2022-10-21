@@ -3,6 +3,7 @@ add_mlir_dialect_library(MLIRRockOps
   TransformMapBuilder.cpp
   RockDialect.cpp
   RockGemmWrapperInterface.cpp
+  RockConvInterface.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Rock

@@ -1,6 +1,9 @@
-#include "mlir/Dialect/Rock/Tuning/ConvContext.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
+
+#include "mlir/Dialect/Rock/IR/RockConvInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
+#include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -26,27 +29,6 @@ populateDimIndexAndSize(const ArrayAttr &layoutAttr,
   }
 }
 
-static void populateSeqVal(const ArrayAttr &seqAttr,
-                           SmallVectorImpl<int64_t> &seqVal) {
-  size_t seqValSize = seqAttr.size();
-  for (size_t i = 0; i < seqValSize; ++i) {
-    // Not nested array, push back the value and be done
-    if (seqAttr.getValue()[i].dyn_cast<ArrayAttr>() == nullptr) {
-      seqVal.push_back(seqAttr.getValue()[i].cast<IntegerAttr>().getInt());
-      continue;
-    }
-    // There is nested values, continue to populate those
-    for (size_t j = 0; j < seqAttr.getValue()[i].cast<ArrayAttr>().size();
-         ++j) {
-      seqVal.push_back(seqAttr.getValue()[i]
-                           .cast<ArrayAttr>()
-                           .getValue()[j]
-                           .cast<IntegerAttr>()
-                           .getInt());
-    }
-  }
-}
-
 ConvolutionDims ConvolutionContext::getConvDims() {
   return ConvolutionDims(dimIndexAndSize["y"].size, dimIndexAndSize["x"].size,
                          dimIndexAndSize["ho"].size, dimIndexAndSize["wo"].size,
@@ -58,6 +40,10 @@ ConvolutionDims ConvolutionContext::getConvDims() {
 ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
   ConvOpType opType = convOpTypeFromKernelType(
       cast<RockGemmWrapperInterface>(op).getKernelType());
+
+  assert(isa<RockConvInterface>(op) &&
+         "The operation should be a conv-like operation");
+  auto convOp = dyn_cast<RockConvInterface>(op);
 
   // XXX: Do we need these, especially since we're not actually serializing
   // anything to sqlite?
@@ -74,17 +60,9 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
   auto inputLayoutAttr = op->getAttrOfType<ArrayAttr>("input_layout");
   auto outputLayoutAttr = op->getAttrOfType<ArrayAttr>("output_layout");
 
-  auto strideAttr = op->getAttrOfType<ArrayAttr>("strides");
-  llvm::SmallVector<int64_t, 2> strideVal;
-  populateSeqVal(strideAttr, strideVal);
-
-  auto dilationAttr = op->getAttrOfType<ArrayAttr>("dilations");
-  llvm::SmallVector<int64_t, 2> dilationVal;
-  populateSeqVal(dilationAttr, dilationVal);
-
-  auto paddingAttr = op->getAttrOfType<ArrayAttr>("padding");
-  llvm::SmallVector<int64_t, 4> paddingVal;
-  populateSeqVal(paddingAttr, paddingVal);
+  auto strideVal = extractFromI64ArrayAttr(convOp.getStrides());
+  auto dilationVal = extractFromI64ArrayAttr(convOp.getDilations());
+  auto paddingVal = extractFromI64ArrayAttr(convOp.getPadding());
 
   populateDimIndexAndSize(
       filterLayoutAttr,

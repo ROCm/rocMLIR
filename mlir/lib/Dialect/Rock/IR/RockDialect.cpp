@@ -12,6 +12,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -533,18 +534,10 @@ GemmSize Conv2DOp::getGemmSize() {
 }
 
 GemmSize Conv2DBwdDataOp::getGemmSize() {
-  auto getSeqAttr = [&](StringRef name, SmallVectorImpl<int64_t> &dest) {
-    transform((*this)->getAttrOfType<ArrayAttr>(name).getAsRange<IntegerAttr>(),
-              std::back_inserter(dest),
-              [](IntegerAttr x) -> int64_t { return x.getInt(); });
-  };
-
   auto sizes = ConvolutionDims::fromOp(*this);
-  SmallVector<int64_t, 2> strides, dilations;
-  getSeqAttr("strides", strides);
-  getSeqAttr("dilations", dilations);
-  SmallVector<int64_t, 4> padding;
-  getSeqAttr("padding", padding);
+  auto padding = extractFromI64ArrayAttr(this->getPadding());
+  auto strides = extractFromI64ArrayAttr(this->getStrides());
+  auto dilations = extractFromI64ArrayAttr(this->getDilations());
   int64_t gemmId = (*this)->getAttrOfType<IntegerAttr>("gemm_id").getInt();
 
   int64_t strideH = strides[0];

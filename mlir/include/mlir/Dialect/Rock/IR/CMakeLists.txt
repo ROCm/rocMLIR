@@ -11,3 +11,4 @@ mlir_tablegen(RockAttrDefs.cpp.inc -gen-attrdef-defs)
 add_public_tablegen_target(MLIRRockAttrDefsIncGen)
 
 add_mlir_interface(RockGemmWrapperInterface)
+add_mlir_interface(RockConvInterface)

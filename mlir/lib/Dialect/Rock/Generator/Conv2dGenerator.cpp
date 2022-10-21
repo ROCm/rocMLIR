@@ -830,23 +830,6 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
           builder.getArrayAttr(ArrayRef<Attribute>(outputLayoutSpec.begin(),
                                                    outputLayoutSpec.end()))),
 
-      builder.getNamedAttr("dilations",
-                           builder.getArrayAttr({
-                               builder.getI32IntegerAttr(config.dilationHeight),
-                               builder.getI32IntegerAttr(config.dilationWidth),
-                           })),
-      builder.getNamedAttr("strides",
-                           builder.getArrayAttr({
-                               builder.getI32IntegerAttr(config.strideHeight),
-                               builder.getI32IntegerAttr(config.strideWidth),
-                           })),
-      builder.getNamedAttr(
-          "padding", builder.getArrayAttr({
-                         builder.getI32IntegerAttr(config.paddingHeightLeft),
-                         builder.getI32IntegerAttr(config.paddingHeightRight),
-                         builder.getI32IntegerAttr(config.paddingWidthLeft),
-                         builder.getI32IntegerAttr(config.paddingWidthRight),
-                     })),
   };
 
   if (config.operation.value() == ConvOpType::BwdWeight) {
@@ -857,6 +840,22 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
   // features
   attributes.push_back(builder.getNamedAttr(
       "features", builder.getAttr<GemmFeaturesAttr>(config.features)));
+
+  SmallVector<int32_t, 4> paddingArray{
+      config.paddingHeightLeft, config.paddingHeightRight,
+      config.paddingWidthLeft, config.paddingWidthRight};
+  SmallVector<int32_t, 2> strideArray{config.strideHeight, config.strideWidth};
+  SmallVector<int32_t, 2> dilationArray{config.dilationHeight,
+                                        config.dilationWidth};
+
+  attributes.push_back(
+      builder.getNamedAttr("padding", builder.getI32ArrayAttr(paddingArray)));
+
+  attributes.push_back(
+      builder.getNamedAttr("strides", builder.getI32ArrayAttr(strideArray)));
+
+  attributes.push_back(builder.getNamedAttr(
+      "dilations", builder.getI32ArrayAttr(dilationArray)));
 
   // perf_config
   if (!ignoreTuning && !config.perfConfig.empty()) {
