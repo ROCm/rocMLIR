@@ -47,12 +47,12 @@ class TensorOrMemRefRankOf<list<Type> allowedTypes, list<int> ranks> :
 
 class I32ArrayLength<int n> : ConfinedAttr<I32ArrayAttr, [ArrayCount<n>]>;
 
-class Rock_Conv2DOpBase<string mnemonic> :
+class Rock_Conv2DOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], list<Type> outputTypes=[F32, F16, BF16]> :
     Rock_Op<mnemonic, [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
                        DeclareOpInterfaceMethods<RockConvInterface>]>{
-    dag commonConvArgs = (ins TensorOrMemRefRankOf<[F32, F16, BF16, I8], [5]>:$filter,
-                   TensorOrMemRefRankOf<[F32, F16, BF16, I8], [5]>:$input,
-                   TensorOrMemRefRankOf<[F32, F16, BF16, I32], [5]>:$output,
+    dag commonConvArgs = (ins TensorOrMemRefRankOf<inputTypes, [5]>:$filter,
+                   TensorOrMemRefRankOf<inputTypes, [5]>:$input,
+                   TensorOrMemRefRankOf<outputTypes, [5]>:$output,
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
                    OptionalAttr<I32Attr>:$blockSize,
@@ -64,7 +64,7 @@ class Rock_Conv2DOpBase<string mnemonic> :
     let results = (outs Optional<AnyRankedTensor>:$result);
 }
 
-def Rock_Conv2DOp : Rock_Conv2DOpBase<"conv2d"> {
+def Rock_Conv2DOp : Rock_Conv2DOpBase<"conv2d", [F32, F16, BF16, I8], [F32, F16, BF16, I32]> {
   dag additionalArgs = (ins OptionalAttr<I32Attr>:$numCu);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "2D convolution forward";

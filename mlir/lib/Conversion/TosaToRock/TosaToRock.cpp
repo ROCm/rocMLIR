@@ -143,10 +143,9 @@ makeRockConv2D(ConversionPatternRewriter &rw, Operation *op, Value input,
   int32_t dilationHeight = dilation[0].dyn_cast<IntegerAttr>().getInt();
   int32_t dilationWidth = dilation[1].dyn_cast<IntegerAttr>().getInt();
 
-  auto paddingArray =
-      SmallVector<int32_t, 4>{padTop, padBottom, padLeft, padRight};
-  auto strideArray = SmallVector<int32_t, 2>{strideHeight, strideWidth};
-  auto dilationArray = SmallVector<int32_t, 2>{dilationHeight, dilationWidth};
+  SmallVector<int32_t, 4> paddingArray{padTop, padBottom, padLeft, padRight};
+  SmallVector<int32_t, 2> strideArray{strideHeight, strideWidth};
+  SmallVector<int32_t, 2> dilationArray{dilationHeight, dilationWidth};
 
   auto cop = rw.create<rock::Conv2DOp>(
       loc, outputExp.getType(), filterExp, inputExp, outputExp, arch,

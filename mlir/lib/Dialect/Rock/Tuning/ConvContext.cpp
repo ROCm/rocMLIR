@@ -1,8 +1,9 @@
-#include "mlir/Dialect/Rock/Tuning/ConvContext.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
+
 #include "mlir/Dialect/Rock/IR/RockConvInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
-#include "mlir/Dialect/Utils/StaticValueUtils.h"
+#include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 
 using namespace mlir;
 using namespace mlir::rock;

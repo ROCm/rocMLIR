@@ -841,13 +841,12 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
   attributes.push_back(builder.getNamedAttr(
       "features", builder.getAttr<GemmFeaturesAttr>(config.features)));
 
-  auto paddingArray = SmallVector<int32_t, 4>{
+  SmallVector<int32_t, 4> paddingArray{
       config.paddingHeightLeft, config.paddingHeightRight,
       config.paddingWidthLeft, config.paddingWidthRight};
-  auto strideArray =
-      SmallVector<int32_t, 2>{config.strideHeight, config.strideWidth};
-  auto dilationArray =
-      SmallVector<int32_t, 2>{config.dilationHeight, config.dilationWidth};
+  SmallVector<int32_t, 2> strideArray{config.strideHeight, config.strideWidth};
+  SmallVector<int32_t, 2> dilationArray{config.dilationHeight,
+                                        config.dilationWidth};
 
   attributes.push_back(
       builder.getNamedAttr("padding", builder.getI32ArrayAttr(paddingArray)));
