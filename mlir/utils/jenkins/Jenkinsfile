@@ -277,7 +277,7 @@ pipeline {
                choices: ['default', 'mfma', 'navi21', 'vanilla'],
                description: 'Choose the codepath to test')
         // option to disable navi21 cells in case nodes are offline
-        booleanParam(name: 'disableNavi21', defaultValue: true,
+        booleanParam(name: 'disableNavi21', defaultValue: false,
                      description: 'Disable testing on Navi21')
     }
     stages {
