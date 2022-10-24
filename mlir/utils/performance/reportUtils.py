@@ -5,15 +5,19 @@ import scipy.stats
 from typing import Tuple, List
 
 PERF_REPORT_FILE = 'mlir_vs_miopen_perf.csv'
+PERF_REPORT_GEMM_FILE = 'mlir_vs_rocblas_perf.csv'
 PERF_PLOT_REPORT_FILE = 'mlir_vs_miopen_perf_for_plot.csv'
-PERF_STATS_REPORT_FILE = 'mlir_vs_miopen_perf_means.csv'
+PERF_PLOT_REPORT_GEMM_FILE = 'mlir_vs_rocblas_perf_for_plot.csv'
+PERF_STATS_REPORT_GEMM_FILE = 'mlir_vs_rocblas_perf_means.csv'
 MIOPEN_REPORT_FILE = 'miopen_perf.csv'
 MIOPEN_TUNED_REPORT_FILE = 'miopen_tuned_perf.csv'
 MIOPEN_UNTUNED_REPORT_FILE = 'miopen_untuned_perf.csv'
 
-TEST_PARAMETERS = ['Direction', 'DataType', 'Chip', 'FilterLayout', 'InputLayout', 'OutputLayout',
-                       'N', 'C', 'H', 'W', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW',
-                       'PaddingH', 'PaddingW']
+CONV_TEST_PARAMETERS = ['Direction', 'DataType', 'Chip', 'FilterLayout',
+                        'InputLayout', 'OutputLayout', 'N', 'C', 'H', 'W', 'K', 'Y',
+                        'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW',
+                        'PaddingH', 'PaddingW']
+GEMM_TEST_PARAMETERS = ['DataType', 'Chip', 'TransA', 'TransB', 'G', 'M', 'K', 'N']
 ROUND_DIGITS = 2
 
 def geoMean(data):
@@ -42,8 +46,7 @@ def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedupCols: list):
         {'selector': 'tbody tr:nth-child(even)', 'props': [('background-color', '#eeeeee')]},
         {'selector': 'table', 'props': [('background-color', '#dddddd'), ('border-collapse', 'collapse')]},
         {'selector': 'th, td', 'props': [('padding', '0.5em'), ('text-align', 'center'), ('max-width', '150px')]}])
-    styler.format(precision=ROUND_DIGITS)
-    styler.format(na_rep="FAILED")
+    styler.format(precision=ROUND_DIGITS, na_rep="FAILED")
     for col in speedupCols:
         if col in styler.columns:
             styler.applymap(colorForSpeedups, subset=[col])
@@ -56,7 +59,9 @@ def uniqueCols(df: pd.DataFrame) -> List[str]:
 
 def cleanDataForHumans(data: pd.DataFrame, title: str)\
         -> Tuple[pd.DataFrame, str, List[str]]:
-    indexCols = {k: k for k in TEST_PARAMETERS} # Preserves order
+    isGemm = "TransA" in data
+    parameters = GEMM_TEST_PARAMETERS if isGemm else CONV_TEST_PARAMETERS
+    indexCols = {k: k for k in parameters} # Preserves order
     if all((x in data.columns) for x in {"FilterLayout", "InputLayout",
                                               "OutputLayout"}):
         if (((data["FilterLayout"] == "kcyx") & (data["InputLayout"] == "nchw") &

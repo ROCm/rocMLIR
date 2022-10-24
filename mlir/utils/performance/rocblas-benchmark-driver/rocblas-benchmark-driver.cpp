@@ -92,6 +92,12 @@ static llvm::cl::opt<DataType>
                               clEnumValN(DataType::I8, "i8", "8-bit integer")),
              llvm::cl::Required);
 
+static llvm::cl::opt<std::string> operation("operation", llvm::cl::desc("Operation (ignored, for MLIR compat)"),
+  llvm::cl::init("gemm"));
+
+static llvm::cl::opt<std::string> arch("arch", llvm::cl::desc("Arch (ignored, MLIR compat)"),
+  llvm::cl::init("gemm"));
+
 static size_t getByteSize(size_t elems, bool isOut) {
   switch (dataType) {
   case DataType::F32:

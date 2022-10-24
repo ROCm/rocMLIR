@@ -2,6 +2,7 @@
 
 from typing import NamedTuple
 import reportUtils
+from perfCommonUtils import Operation
 
 import csv
 from collections import OrderedDict
@@ -28,6 +29,8 @@ BENCHMARKING_RESULT_FILE_NAME = 'results.stats.csv'
 DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 DATA_TYPES = ['conv', 'convfp16', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
+
+DATA_TYPES_GEMM = ['f32', 'f16', 'i8']
 
 # Compiled regexp object used for extracting elapsed time from MIOpenDriver's output
 ELAPSED_TIME_RE = re.compile(r"Elapsed: (.*)ms")
@@ -137,12 +140,48 @@ def create_paths(config_file_path, mlir_build_dir_path, miopen_build_dir_path) -
 
     miopen_driver_path = None
     if miopen_build_dir_path:
-        miopen_driver_bin_dir = Path(miopen_build_dir_path) / 'bin'
-        miopen_driver_path = str((miopen_driver_bin_dir / 'MIOpenDriver').resolve())
+        miopen_driver_location = (Path(miopen_build_dir_path) / 'bin' / 'MIOpenDriver').resolve()
+        miopen_driver_path = str(miopen_driver_location) if miopen_driver_location.exists() else None
 
     return Paths(config_file_path, mlir_paths, miopen_driver_path)
 
 # utility functions.
+def getNanoSeconds(fileName):
+    if not os.path.exists(fileName):
+        return np.nan
+    with open(fileName, 'r') as csv_file:
+        reader = csv.DictReader(csv_file, delimiter = ',')
+
+        result = 0
+        for row in reader:
+            result += int(row['AverageNs'])
+        csv_file.close()
+        return result
+
+class PerfConfiguration:
+    TABLE_COLUMNS = []
+    MLIR_N_REPEATS = 5
+
+    def computeTFlops(self, ns: int) -> float:
+        raise NotImplementedError()
+
+    def tableEntry(self, nanoSeconds):
+        raise NotImplementedError()
+
+    def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
+        raise NotImplementedError()
+
+    @classmethod
+    def fromCommandLine(cls, argv, arch) -> 'self':
+        raise NotImplementedError()
+
+    @classmethod
+    def benchmarkExternal(cls, commandLine, paths: Paths, arch, envs=dict()):
+        raise NotImplementedError()
+
+    EXTERNAL_NAME = "unknown"
+
+# convolution configurations.
 def getConvConfigurations(fileName):
     configs = [];
     if fileName:
@@ -164,27 +203,14 @@ def getConvConfigurations(fileName):
                 configs.append(oneConfig)
     return configs
 
-def getNanoSeconds(fileName):
-    if not os.path.exists(fileName):
-        return np.nan
-    with open(fileName, 'r') as csv_file:
-        reader = csv.DictReader(csv_file, delimiter = ',')
+class ConvConfiguration(PerfConfiguration):
+    TABLE_COLUMNS = reportUtils.CONV_TEST_PARAMETERS + ['TFlops']
+    EXTERNAL_NAME = "MIOpen"
 
-        result = 0
-        for row in reader:
-            result += int(row['AverageNs'])
-        csv_file.close()
-        return result
-
-# convolution configurations.
-class ConvConfiguration:
     def computeTFlops(self, ns):
         # NaN will propagate as expected
         # Repeats are handled by the fact that we're using avarageNs
         return (2.0 * self.n * self.c * self.k * self.ho * self.wo * self.y * self.x) / (float(ns) * 1e-9) / 1e12
-
-    TABLE_COLUMNS = reportUtils.TEST_PARAMETERS + ['TFlops']
-    MLIR_N_REPEATS = 5
 
     def tableEntry(self, nanoSeconds):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
@@ -236,7 +262,6 @@ class ConvConfiguration:
 
     MLIR_FILTER_LAYOUTS = {"NCHW": "kcyx", "NHWC": "kyxc"}
     MLIR_OUTPUT_LAYOUTS = {"NCHW": "nkhw", "NHWC": "nhwk"}
-
 
     @classmethod
     def fromCommandLine(cls, argv, arch):
@@ -364,7 +389,169 @@ class ConvConfiguration:
         self.ho = math.floor((self.hi + self.paddingH * 2 - (self.y - 1) * self.dilationH - 1 ) / self.convStrideH) + 1
         self.wo = math.floor((self.wi + self.paddingW * 2 - (self.x - 1) * self.dilationW - 1 ) / self.convStrideW) + 1
 
-def runConfigWithMLIR(config: ConvConfiguration, paths: Paths, rocmlir_gen_flags):
+    @classmethod
+    def benchmarkExternal(cls, commandLine, paths: Paths, arch, envs=dict()):
+        config = cls.fromCommandLine(commandLine, arch)
+        MIOpenDriverCommand = [paths.miopen_driver_path, *commandLine, '-V', '0']
+        print("Running MIOpen Benchmark: ", ' '.join(commandLine))
+        # invoke MIOpenDriver.
+        p1 = subprocess.Popen(MIOpenDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envs)
+        # get output.
+        nanoSeconds = np.nan
+        try:
+            outs, errs = p1.communicate(timeout=300)
+            if len(errs) > 0:
+                print("MIOpen benchmark produced errors: ", errs.decode('utf-8'))
+            else:
+                # convert bytes to str
+                outs = outs.decode('utf-8')
+                # Extract Elapsed time in ms from the output of MIOpenDriver
+                # Use regular expression to match the contents between
+                # "Elasped: " (note the space at the end) and "ms"
+                elapsedTimeInMs = ELAPSED_TIME_RE.search(outs).group(1)
+                nanoSeconds = float(elapsedTimeInMs)*1.0e6
+        except subprocess.TimeoutExpired:
+            p1.kill()
+            print("MIOpen benchmark timed out")
+            outs, errs = p1.communicate()
+        return config.tableEntry(nanoSeconds)
+
+def getGemmConfigurations(fileName):
+    configs = []
+    if fileName:
+        with open(fileName, 'r') as configFile:
+            lines = configFile.readlines()
+            # All combinations of conv direction, type and layouts
+            for datatype, transA, transB, line in \
+                    itertools.product(DATA_TYPES_GEMM, ['false', 'true'], ['false', 'true'], lines):
+                line = line.strip()
+
+                # Skip empty lines
+                if len(line) == 0 or line[0] == '#':
+                    continue
+                    continue
+
+                oneConfig = f"-t {datatype} -transA {transA} -transB {transB} {line}"
+                configs.append(oneConfig)
+    return configs
+
+class GemmConfiguration(PerfConfiguration):
+    TABLE_COLUMNS = reportUtils.GEMM_TEST_PARAMETERS + ['TFlops']
+    EXTERNAL_NAME = "rocBLAS"
+    def computeTFlops(self, ns):
+        # NaN will propagate as expected
+        # Repeats are handled by the fact that we're using avarageNs
+        return (2.0 * self.g * self.m * self.k * self.n) / (float(ns) * 1e-9) / 1e12
+
+    def tableEntry(self, nanoSeconds):
+        # Future(kdrewnia): This can just be a dict literal on Python 3.7+
+        result = OrderedDict()
+        values = [self.dataType, self.chip, self.transA, self.transB, \
+                   self.g, self.m, self.k, self.n, self.computeTFlops(nanoSeconds)]
+        assert(len(self.TABLE_COLUMNS) == len(values))
+
+        for k, v in zip(self.TABLE_COLUMNS, values):
+            result[k] = v
+        return result
+
+    def __repr__(self):
+        return f"""GemmConfiguration(dtype={self.dataType!r}, g={self.g!r}, m={self.m!r}, k={self.k!r}, n={self.n!r},
+                transA={self.transA!r}, transB={self.transB!r}, arch={self.arch!r})"""
+
+    def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
+        result = ' '.join(['-operation', 'gemm',
+                           '-t', self.dataType,
+                           '--arch', self.arch,
+                           '-g', str(self.g),
+                           '-m', str(self.m),
+                           '-k', str(self.k),
+                           '-n', str(self.n),
+                           f"-transA={self.transA}",
+                           f"-transB={self.transB}",
+                           '--kernel-repeats', str(self.MLIR_N_REPEATS)])
+        if rocmlir_gen_flags != '':
+            result += ' '.join(rocmlir_gen_flags.split())
+        return result
+
+    @classmethod
+    def fromCommandLine(cls, argv, arch):
+        dtype = None
+        g = None
+        m = None
+        k = None
+        n = None
+        transA = None
+        transB = None
+
+        for i in range(0, len(argv), 2):
+            opt = argv[i]
+            val = argv[i + 1]
+            if opt == '-t':
+                dtype = val
+            elif opt == '-g':
+                g = int(val)
+            elif opt == '-m':
+                m = int(val)
+            elif opt == '-k':
+                k = int(val)
+            elif opt == '-n':
+                n = int(val)
+            elif opt.endswith("-transA"):
+                transA = (val.lower() in ["1", "true"])
+            elif opt.endswith("-transB"):
+                transB = (val.lower() in ["1", "true"])
+            else:
+                raise ValueError(f"Unknown GEMM config argument {opt} -> {val}")
+        for v in [dtype, g, m, k, n, transA, transB]:
+            if v is None:
+                raise ValueError("Incomplete GEMM configuration")
+
+        return cls(dtype, g, m, k, n, transA, transB, arch)
+
+    def __init__(self, dtype: str, g: int, m: int, k: int, n: int,
+                 transA: bool, transB: bool, arch: str):
+        if dtype not in {"f16", "f32", "bf16", "i8"}:
+            raise ValueError(f"Invalid datatype: {dtype}")
+        self.dataType = dtype
+        self.g = g
+        self.m = m
+        self.k = k
+        self.n = n
+        self.transA = transA
+        self.transB = transB
+
+        self.arch = arch
+        self.chip = GFX_CHIP_RE.search(arch).group(0)
+
+    @classmethod
+    def benchmarkExternal(cls, commandLine, paths: Paths, arch, envs=dict()):
+        config = cls.fromCommandLine(commandLine, arch)
+        if not paths.mlir_paths.rocblas_benchmark_driver_path:
+            raise ValueError("rocblas-benchmark-driver not built")
+        benchmarkArgs = config.generateMlirDriverCommandLine("")
+        # remove the result file generated by rocprof in previous benchmarking
+        os.system("rm "+BENCHMARKING_RESULT_FILE_NAME)
+
+        print(f"Running rocBLAS benchmark {config!r}")
+        profilerCommand = [ROCPROF, '--stats', \
+            paths.mlir_paths.rocblas_benchmark_driver_path] + \
+            benchmarkArgs.split()
+        p = subprocess.Popen(profilerCommand, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # get output.
+        try:
+            outs, errs = p.communicate(timeout=60)
+            if len(errs) > 0:
+                print("Test printed errors: ", errs.decode('utf-8'))
+                print("Failing command line: ", profilerCommand)
+        except subprocess.TimeoutExpired:
+            print("Test timed out: ", profilerCommand)
+            p.kill()
+            outs, errs = p.communicate()
+        nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
+        return config.tableEntry(nanoSeconds)
+
+def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, rocmlir_gen_flags):
     # remove the result file generated by rocprof in previous benchmarking
     os.system("rm "+BENCHMARKING_RESULT_FILE_NAME)
     commandLineOptions = config.generateMlirDriverCommandLine(rocmlir_gen_flags)
@@ -393,60 +580,32 @@ def runConfigWithMLIR(config: ConvConfiguration, paths: Paths, rocmlir_gen_flags
         p3.kill()
         outs, errs = p3.communicate()
 
-def runConfigWithMIOpenDriver(commandLine, paths: Paths, envs):
-    MIOpenDriverCommand = [paths.miopen_driver_path, *commandLine, '-V', '0']
-    print("Running MIOpen Benchmark: ", ' '.join(commandLine))
-    # invoke MIOpenDriver.
-    p1 = subprocess.Popen(MIOpenDriverCommand, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envs)
-    # get output.
-    try:
-        outs, errs = p1.communicate(timeout=300)
-        if len(errs) > 0:
-            print("MIOpen benchmark produced errors: ", errs.decode('utf-8'))
-            return np.nan
-        else:
-            # convert bytes to str
-            outs=outs.decode('utf-8')
-            # Extract Elapsed time in ms from the output of MIOpenDriver
-            # Use regular expression to match the contents between
-            # "Elasped: " (note the space at the end) and "ms"
-            elapsedTimeInMs = ELAPSED_TIME_RE.search(outs).group(1)
-            return float(elapsedTimeInMs)*1.0e6
-    except subprocess.TimeoutExpired:
-        p1.kill()
-        print("MIOpen benchmark timed out")
-        outs, errs = p1.communicate()
-        ## make sure timeout does not break this script
-        return np.nan
-
 # Benchmarking function.
-def benchmarkMLIR(commandLine, paths: Paths, arch, rocmlir_gen_flags):
-    config = ConvConfiguration.fromCommandLine(commandLine, arch)
+def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, rocmlir_gen_flags):
+    config = confClass.fromCommandLine(commandLine, arch)
     runConfigWithMLIR(config, paths, rocmlir_gen_flags)
     # get nanoseconds from rocprof output.
     nanoSeconds = getNanoSeconds(BENCHMARKING_RESULT_FILE_NAME)
     return config.tableEntry(nanoSeconds)
 
-def benchmarkMIOpen(commandLine, paths: Paths, arch, envs=dict()):
-    config = ConvConfiguration.fromCommandLine(commandLine, arch)
-    # get nanoseconds from MIOpenDriver output
-    nanoSeconds = runConfigWithMIOpenDriver(commandLine, paths, envs)
-    return config.tableEntry(nanoSeconds)
-
-#Generate MLIR vs. MIOpen performance results
-def generatePerformanceResults(configs, paths: Paths, arch, rocmlir_gen_flags):
-    mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), paths, arch, rocmlir_gen_flags)
+#Generate MLIR vs. MIOpen or rocBLAS performance results
+def generatePerformanceResults(configs, confClass, paths: Paths, arch, rocmlir_gen_flags):
+    mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, rocmlir_gen_flags)
         for testVector in configs)
-    miopen_df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), paths, arch)
+    external_df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch)
         for testVector in configs)
 
-    df = mlir_df.merge(miopen_df, on=ConvConfiguration.TABLE_COLUMNS[:-1],
-                           suffixes=('', ' (MIOpen)'))
-    df.rename(columns={'TFlops': 'MLIR TFlops', 'TFlops (MIOpen)': 'MIOpen TFlops (no MLIR Kernels)'}, inplace=True)
+    externalName = confClass.EXTERNAL_NAME
+    df = mlir_df.merge(external_df, on=confClass.TABLE_COLUMNS[:-1],
+                           suffixes=('', f" ({externalName})"))
+    df.rename(columns={'TFlops': 'MLIR TFlops', f"TFlops ({externalName})": f"{externalName} TFlops (no MLIR Kernels)"}, inplace=True)
 
-    df['MLIR/MIOpen'] = df['MLIR TFlops'] / df['MIOpen TFlops (no MLIR Kernels)']
+    df[f"MLIR/{externalName}"] = df['MLIR TFlops'] / df[f"{externalName} TFlops (no MLIR Kernels)"]
     chip = GFX_CHIP_RE.search(arch).group(0)
-    df.to_csv(chip + '_' + reportUtils.PERF_REPORT_FILE, index=False)
+    reportFile = reportUtils.PERF_REPORT_GEMM_FILE \
+        if confClass is GemmConfiguration \
+        else reportUtils.PERF_REPORT_FILE
+    df.to_csv(chip + '_' + reportFile, index=False)
 
 def getSolverName(testVector, arch):
     config = ConvConfiguration.fromCommandLine(testVector.split(sep=' '), arch)
@@ -470,7 +629,7 @@ def benchmarkMIOpenWithMLIRKernels(configs, arch, filename, paths: Paths):
     perf_list = []
     for testVector in configs:
         envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER']=solver_names[testVector]
-        perf_list.append(benchmarkMIOpen(testVector.split(sep=' '), paths, arch, envs))
+        perf_list.append(ConvConfiguration.benchmarkExternal(testVector.split(sep=' '), paths, arch, envs))
     df = pd.DataFrame(perf_list)
     chip = GFX_CHIP_RE.search(arch).group(0)
     df.to_csv(chip + '_' + filename, index=False)
@@ -521,6 +680,14 @@ def getArch():
         agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
     return agents
 
+def foundExternalTool(paths: Paths, opType: Operation):
+    if opType == Operation.CONV and not paths.miopen_driver_path:
+        return False
+    if opType == Operation.GEMM and \
+            (not paths.mlir_paths or not paths.mlir_paths.rocblas_benchmark_driver_path):
+        return False
+    return True
+
 # Main function.
 def main(args=None):
     """
@@ -551,6 +718,10 @@ def main(args=None):
         allow_abbrev=False,
     )
 
+    parser.add_argument("--op", "--operation", choices=['conv', 'gemm'],
+        default='conv',
+        help="Operation to benchmark")
+
     mutex_arg_group = parser.add_mutually_exclusive_group()
     mutex_arg_group.add_argument(
         "--miopen_use_tuned_mlir",
@@ -573,19 +744,19 @@ def main(args=None):
         help="CSV batch benchmarking mode with MLIR"
     )
     mutex_arg_group.add_argument(
-        "--batch_miopen",
+        "--batch_external",
         action="store_true",
-        help="CSV batch benchmarking mode with MIOpen"
+        help="CSV batch benchmarking mode with external reference"
     )
     mutex_arg_group.add_argument(
         "--batch_both",
         action="store_true",
-        help="CSV batch benchmarking with MLIR and MIOpen (defalut on no args)"
+        help="CSV batch benchmarking with MLIR and external reference (defalut on no args)"
     )
     mutex_arg_group.add_argument(
-        "--miopen",
+        "--external",
         action="store_true",
-        help="benchmark a single config"
+        help="benchmark a single config externally"
     )
 
     parser.add_argument(
@@ -638,23 +809,39 @@ def main(args=None):
     if len(args) == 0:
         parsed_args.batch_both = True
 
-    if parsed_args.miopen or parsed_args.batch_miopen or parsed_args.miopen_use_tuned_mlir or \
-       parsed_args.miopen_use_untuned_mlir or parsed_args.tuning or parsed_args.batch_both:
-        if not parsed_args.miopen_build_dir:
-            raise RuntimeError("MIOpen build dir was not provided/found where the test requires it")
-
-    if parsed_args.batch_mlir or parsed_args.batch_both:
-        if not parsed_args.mlir_build_dir:
-            raise RuntimeError("MLIR build dir was not provided/found")
+    confClass = PerfConfiguration
+    opType = Operation.fromName(parsed_args.op)
+    if opType == Operation.CONV:
+        confClass = ConvConfiguration
+    elif opType == Operation.GEMM:
+        confClass = GemmConfiguration
 
     configs_path = None if parsed_args.config else parsed_args.configs_file
     paths = create_paths(configs_path, parsed_args.mlir_build_dir, parsed_args.miopen_build_dir)
-    configs = getConvConfigurations(paths.configuration_file_path)
+    configs = []
+    if opType == Operation.CONV:
+        configs = getConvConfigurations(paths.configuration_file_path)
+    elif opType == Operation.GEMM:
+        configs = getGemmConfigurations(paths.configuration_file_path)
+
+    if parsed_args.external or parsed_args.batch_external or parsed_args.batch_both:
+        if not foundExternalTool(paths, opType):
+            raise RuntimeError("External benchmark reference (MIOpen or rocBLAS driver) needed but not found")
+
+    if parsed_args.miopen_use_tuned_mlir or parsed_args.miopen_use_untuned_mlir \
+            or parsed_args.tuning:
+        if not paths.miopen_driver_path:
+            raise RuntimeError("MIOpen build dir was not provided/found where the test requires it")
+
+    if parsed_args.batch_mlir or parsed_args.batch_both:
+        if not paths.mlir_paths:
+            raise RuntimeError("MLIR build dir was not provided/found")
+
 
     #If no arguments are passed, then benchmark with MLIR and MIOpen
     if parsed_args.batch_both:
         # batch benchmark with MLIR and MIOpen.
-        generatePerformanceResults(configs, paths, arch, rocmlir_gen_flags)
+        generatePerformanceResults(configs, confClass, paths, arch, rocmlir_gen_flags)
     elif parsed_args.miopen_use_tuned_mlir:
         benchmarkMIOpenWithMLIRKernels(configs, arch, reportUtils.MIOPEN_TUNED_REPORT_FILE, paths)
     elif parsed_args.miopen_use_untuned_mlir:
@@ -664,10 +851,10 @@ def main(args=None):
     else:
         if parsed_args.batch_mlir:
             df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), paths, arch, rocmlir_gen_flags) for testVector in configs)
-        elif parsed_args.batch_miopen:
-            df = pd.DataFrame(benchmarkMIOpen(testVector.split(sep=' '), paths, arch) for testVector in configs)
+        elif parsed_args.batch_external:
+            df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch) for testVector in configs)
         elif parsed_args.miopen:
-            df = pd.DataFrame([benchmarkMIOpen(parsed_args.config, paths, arch)])
+            df = pd.DataFrame([confClass.benchmarkExternal(parsed_args.config, paths, arch)])
         else:
             # Will only reach here with more than 1 unspecified arguments
             # These are arguments are directly passed through to benchmarkMLIR

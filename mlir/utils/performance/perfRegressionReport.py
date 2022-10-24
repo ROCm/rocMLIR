@@ -11,7 +11,8 @@ import pandas as pd
 def loadMlirData(filename: str):
     df = pd.read_csv(filename, sep=',', header=0, index_col=False)
     COLUMNS_DROPPED = ['MIOpen TFlops (no MLIR Kernels)', 'MLIR/MIOpen', 'MIOpen TFlops (Tuned MLIR Kernels)',
-                       'MIOpen TFlops (Untuned MLIR Kernels)', 'Tuned/Untuned', 'Tuned/MIOpen']
+                       'MIOpen TFlops (Untuned MLIR Kernels)', 'Tuned/Untuned', 'Tuned/MIOpen',
+                       'rocBLAS TFlops (no MLIR kernels)', 'MLIR/rocBLAS']
     df.drop(columns=COLUMNS_DROPPED, inplace=True, errors='ignore')
     return df
 
@@ -21,8 +22,10 @@ def summarizeStat(grouped, func, data):
     return ret
 
 def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, newLabel: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    isGemm = "TransA" in newDf
+    joinCols = reportUtils.GEMM_TEST_PARAMETERS if isGemm else reportUtils.CONV_TEST_PARAMETERS
     try:
-        data = newDf.merge(oldDf, on=reportUtils.TEST_PARAMETERS, suffixes=('_new', '_old'))
+        data = newDf.merge(oldDf, on=joinCols, suffixes=('_new', '_old'))
     except KeyError as e:
         print("Missing columns in data, forcing copy: ", e, file=sys.stderr)
         return computePerfStats(newDf.copy(), newDf, "forced copy", newLabel)
@@ -45,7 +48,8 @@ def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str, ne
     columnsToAverage = [oldLabel, newLabel, 'Current/Previous']
     STATISTICS = [("Geo. mean", reportUtils.geoMean),
         ("Arith. mean", "mean")]
-    grouped = data.groupby(["Direction", "DataType", "InputLayout"])[columnsToAverage]
+    groups = ["DataType", "TransA", "TransB"] if isGemm else ["Direction", "DataType", "InputLayout"]
+    grouped = data.groupby(groups)[columnsToAverage]
     stats = pd.concat({name: summarizeStat(grouped, func, data[columnsToAverage])
             for name, func in STATISTICS}, axis=0).unstack(level=0)
 
@@ -83,5 +87,9 @@ if __name__ == '__main__':
         oldLabel = "copy"
 
     data, summary = computePerfStats(oldDf, newDf, oldLabel, newLabel)
+    isGemm = ("TransA" in data)
+    if isGemm and len(sys.argv) < 5:
+        outputPath = PurePath('./', chip + '_' + 'MLIR_Performance_Changes_Gemm.html')
     with open(outputPath, "w") as outputStream:
-        reportUtils.htmlReport(data, summary, "MLIR Performance Changes", ["Current/Previous"], outputStream)
+        reportUtils.htmlReport(data, summary, "MLIR Performance Changes, " + ("GEMM" if isGemm else "Conv"),
+            ["Current/Previous"], outputStream)
