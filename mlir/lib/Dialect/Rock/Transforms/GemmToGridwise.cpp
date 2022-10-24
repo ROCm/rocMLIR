@@ -169,13 +169,6 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
 
   bool isXdlops = bitEnumContainsAll(op.getFeatures(), GemmFeatures::mfma);
-  // TODO: temporary code for befor the gridwise gemm is rewritten to not do
-  // this
-  if (isXdlops) {
-    int64_t kpack = params.cast<XdlopsGemmParamsAttr>().getKpack();
-    a = applyKpack(a, kpack, rw, loc, "gemmM");
-    b = applyKpack(b, kpack, rw, loc, "gemmN");
-  }
 
   IntegerAttr blockSize = op.getBlockSizeAttr();
   if (!blockSize)
