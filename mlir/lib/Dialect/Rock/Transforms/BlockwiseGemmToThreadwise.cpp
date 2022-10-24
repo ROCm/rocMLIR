@@ -124,7 +124,8 @@ struct BlockwiseGemmRewritePattern
     GeneralGemmBlockStructure blockStructure =
         *deriveGeneralGemmBlockStructure(blockSize);
 
-    GeneralGemmParamsAttr params = op.getParamsAttr().cast<GeneralGemmParamsAttr>();
+    GeneralGemmParamsAttr params =
+        op.getParamsAttr().cast<GeneralGemmParamsAttr>();
     int64_t kPerThread = params.getKPerThread();
     int64_t mPerThread = params.getMPerThread();
     int64_t nPerThread = params.getNPerThread();
@@ -240,8 +241,7 @@ struct BlockwiseGemmRewritePattern
     TransformMapAttr threadBCopyViewAttr = viewB.get();
 
     // Main loop.
-    Value workitem =
-        b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
+    Value workitem = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
     LLVM_DEBUG(llvm::dbgs() << "Outer loop:\n "
                             << "k =  " << k << "\n"
                             << " kPerThread = " << kPerThread << "\n");
@@ -310,7 +310,8 @@ struct BlockwiseGemmV2RewritePattern
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
-    XdlopsGemmParamsAttr tuningParams = op.getParamsAttr().cast<XdlopsGemmParamsAttr>();
+    XdlopsGemmParamsAttr tuningParams =
+        op.getParamsAttr().cast<XdlopsGemmParamsAttr>();
     int64_t M = tuningParams.getMPerBlock();
     int64_t N = tuningParams.getNPerBlock();
     int64_t K = tuningParams.getKPerBlock();
