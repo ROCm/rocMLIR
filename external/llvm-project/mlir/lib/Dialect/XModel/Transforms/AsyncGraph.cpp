@@ -1,5 +1,4 @@
-//===- XModelAsyncGraph.cpp - Convert kernel func call ops to async.launch
-//-----===//
+//===- AsyncGraph.cpp - Kernel func call ops to async.launch --------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.

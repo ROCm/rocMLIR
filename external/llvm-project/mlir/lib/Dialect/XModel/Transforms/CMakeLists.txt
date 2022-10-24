@@ -15,6 +15,7 @@ add_mlir_dialect_library(MLIRXModelTransforms
   MLIRDialect
   MLIRXModel
   MLIRFuncDialect
+  MLIRExecutionEngineUtils
   MLIRGPUTransforms
   MLIRIR
   MLIRPass

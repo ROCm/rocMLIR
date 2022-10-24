@@ -1,5 +1,4 @@
-//===- XModelTargetKernels.cpp
-//---------------------------------------------------===//
+//===- TargetKernels.cpp --------------------------------------------------===//
 //
 // Copyright 2020 The MLIR Authors.
 //
@@ -52,7 +51,7 @@ struct XModelTargetKernelsPass
       XModelTargetKernelsPass>::XModelTargetKernelsPassBase;
 
   void runOnOperation() override {
-    const char *kernel = "xmodel.module";
+    constexpr llvm::StringLiteral kernel("xmodel.module");
     ModuleOp mod = getOperation();
     if (mod->hasAttr(kernel))
       return;

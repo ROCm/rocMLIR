@@ -22,8 +22,6 @@
 
 #include "mlir/Dialect/XModel/Pipelines/Pipelines.h"
 
-//#include "mlir/Dialect/Func/IR/FuncOps.h"
-//#include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/XModel/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
@@ -80,7 +78,7 @@ void xmodel::buildRunnerPipeline(OpPassManager &pm,
   // Select targets
   XModelSelectTargetsPassOptions targetOpts;
   targetOpts.targetTypes = options.targetTypes;
-  targetOpts.targetChips = options.targetChips;
+  targetOpts.targetArchs = options.targetArchs;
   pm.addNestedPass<func::FuncOp>(createXModelSelectTargetsPass());
 
   auto &funcPm1 = pm.nest<func::FuncOp>();

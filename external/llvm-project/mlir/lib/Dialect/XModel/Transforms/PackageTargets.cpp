@@ -1,4 +1,4 @@
-//===- PackageTargets.cpp -------------------------------------------===//
+//===- PackageTargets.cpp -------------------------------------------------===//
 //
 // Copyright 2020 The MLIR Authors.
 //
@@ -90,7 +90,7 @@ struct XModelPackageTargetsPass
                                          b.getNamedAttr("features", features)});
 
                 auto xobj = xmodel::TargetObjectAttr::get(
-                    b.getContext(), "ELF", archName, objAttrs, binaryAttr);
+                    b.getContext(), xmodel::TargetObjectType::ELF, archName, objAttrs, binaryAttr);
 
                 DictionaryAttr pkgAttrs;
                 // = b.getDictionaryAttr({

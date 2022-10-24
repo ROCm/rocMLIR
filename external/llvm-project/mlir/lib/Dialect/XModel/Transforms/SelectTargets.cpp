@@ -14,6 +14,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/XModel/IR/XModel.h"
 #include "mlir/Dialect/XModel/Transforms/Passes.h"
+#include "mlir/ExecutionEngine/SystemDevices.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/PatternMatch.h"
@@ -48,10 +49,19 @@ struct XModelSelectTargetsPass
     return false;
   }
 
-  bool testChip(StringRef chip) const {
-    for (auto targetChip : targetChips) {
-      if (targetChip == chip)
-        return true;
+  bool testArch(xmodel::TargetType type, StringRef arch) const {
+    if (!testType(type))
+      return false;
+    SystemDevice testDev{SystemDevice::Type::EGPU};
+    if (failed(testDev.parse(arch)))
+      return false;
+
+    for (auto targetArch : targetArchs) {
+      SystemDevice targetDev{SystemDevice::Type::EGPU};
+      if (succeeded(targetDev.parse(targetArch))) {
+        if (targetDev.isCompatible(testDev))
+          return true;
+      }
     }
     return false;
   }
@@ -60,24 +70,24 @@ struct XModelSelectTargetsPass
   // inserts the necessary synchronization (as async.await ops). Assumes
   // sequential execution semantics and that no asynchronous ops yet.
   void runOnOperation() override {
-    const char *targets_tag = "xmodel.targets";
+    constexpr llvm::StringLiteral targetsTag = "xmodel.targets";
     func::FuncOp func = getOperation();
     OpBuilder b(func);
-    if (auto targets = func->getAttrOfType<ArrayAttr>(targets_tag)) {
+    if (auto targets = func->getAttrOfType<ArrayAttr>(targetsTag)) {
       xmodel::KernelPackageAttr targetKrn;
       for (auto targetAttr : targets.getValue()) {
         auto pkgAttr = targetAttr.cast<xmodel::KernelPackageAttr>();
         auto type = pkgAttr.getType();
-        auto chip = pkgAttr.getTarget();
-        if (testType(type) && testChip(chip)) {
+        auto arch = pkgAttr.getTarget();
+        if (testArch(type, arch)) {
           // TODO(sjw): test perf
           targetKrn = pkgAttr;
         }
       }
       if (targetKrn)
-        func->setAttr(targets_tag, b.getArrayAttr(targetKrn));
+        func->setAttr(targetsTag, b.getArrayAttr(targetKrn));
       else {
-        func->removeAttr(targets_tag);
+        func->removeAttr(targetsTag);
       }
     }
   }

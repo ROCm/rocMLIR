@@ -53,6 +53,13 @@ mlir::Attribute TargetObjectAttr::parse(mlir::AsmParser &parser,
     return {};
   }
 
+  llvm::SMLoc typeLoc = parser.getCurrentLocation();
+  Optional<TargetObjectType> targetType = getTargetObjectTypeForName(typeName);
+  if (!targetType.has_value()) {
+    parser.emitError(typeLoc, "expected a name of a known target object type");
+    return {};
+  }
+
   if (parser.parseEqual()) {
     return {};
   }
@@ -82,12 +89,13 @@ mlir::Attribute TargetObjectAttr::parse(mlir::AsmParser &parser,
   }
 
   return parser.getChecked<TargetObjectAttr>(startLoc, parser.getContext(),
-                                             typeName, archName, attrs, binary);
+                                             targetType.value(), archName, attrs, binary);
 }
 
 void TargetObjectAttr::print(mlir::AsmPrinter &printer) const {
   printer << "<";
-  printer.printKeywordOrString(getType());
+  StringRef name = getNameForTargetObjectType(getType());
+  printer.printKeywordOrString(name);
 
   printer << " = ";
   printer.printKeywordOrString(getArch());
