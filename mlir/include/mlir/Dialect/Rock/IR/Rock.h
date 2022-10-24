@@ -55,7 +55,7 @@ ArrayAttr getIndexArrayAttr(Builder &b, ArrayRef<int64_t> values);
 } // end namespace rock
 } // end namespace mlir
 
-#include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
+#include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h.inc"
 #define GET_ATTRDEF_CLASSES
 #include "mlir/Dialect/Rock/IR/RockAttrDefs.h.inc"
 
