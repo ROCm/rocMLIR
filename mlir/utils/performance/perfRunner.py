@@ -42,6 +42,7 @@ class MLIRPaths:
     libmlir_rocm_runtime_path : str
     libconv_validation_wrappers_path : str
     libmlir_runtime_utils_path : str
+    rocblas_benchmark_driver_path : Optional[str] = None
 
 @dataclass
 class Paths:
@@ -114,50 +115,53 @@ def find_miopen_build_dir() -> str:
     miopen_build_dir = Path(miopen_driver_path).parent.parent
     return str(miopen_build_dir)
 
-def create_paths(mlir_build_dir_path, miopen_build_dir_path) -> Paths:
+def create_paths(config_file_path, mlir_build_dir_path, miopen_build_dir_path) -> Paths:
     """Creates the composite Paths structure using build dir paths"""
 
     mlir_paths = None
     if mlir_build_dir_path:
-        mlir_bin_dir = str((Path(mlir_build_dir_path) / 'bin').resolve())
+        mlir_bin_dir_path = (Path(mlir_build_dir_path) / 'bin').resolve()
+        mlir_bin_dir = str(mlir_bin_dir_path)
+        rocblas_benchmark_driver_location = mlir_bin_dir_path / 'rocblas-benchmark-driver'
         llvm_bin_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/bin').resolve())
         mlir_lib_dir = str((Path(mlir_build_dir_path) / 'lib').resolve())
         llvm_lib_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/lib').resolve())
         mlir_paths = MLIRPaths(rocmlir_gen_path = mlir_bin_dir + '/rocmlir-gen',
-        rocmlir_driver_path = mlir_bin_dir + '/rocmlir-driver',
-        cpu_runner_path = llvm_bin_dir + '/mlir-cpu-runner',
-        libmlir_rocm_runtime_path =  llvm_lib_dir + '/libmlir_rocm_runtime.so',
-        libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',
-        libmlir_runtime_utils_path = llvm_lib_dir + '/libmlir_runner_utils.so')
+            rocmlir_driver_path = mlir_bin_dir + '/rocmlir-driver',
+            cpu_runner_path = llvm_bin_dir + '/mlir-cpu-runner',
+            libmlir_rocm_runtime_path =  llvm_lib_dir + '/libmlir_rocm_runtime.so',
+            libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',
+            libmlir_runtime_utils_path = llvm_lib_dir + '/libmlir_runner_utils.so',
+            rocblas_benchmark_driver_path = str(rocblas_benchmark_driver_location) \
+              if rocblas_benchmark_driver_location.exists() else None)
 
     miopen_driver_path = None
     if miopen_build_dir_path:
         miopen_driver_bin_dir = Path(miopen_build_dir_path) / 'bin'
         miopen_driver_path = str((miopen_driver_bin_dir / 'MIOpenDriver').resolve())
 
-    root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
-    configuration_dir = root_dir + '/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs'
-
-    return Paths(configuration_dir, mlir_paths, miopen_driver_path)
+    return Paths(config_file_path, mlir_paths, miopen_driver_path)
 
 # utility functions.
-def getConfigurations(fileName):
-    configFile = open(fileName, 'r')
-    lines = configFile.readlines()
+def getConvConfigurations(fileName):
     configs = [];
-    # All combinations of conv direction, type and layouts
-    for direction, datatype, layout, line in itertools.product(DIRECTIONS, DATA_TYPES, LAYOUTS, lines):
-        line = line.strip()
+    if fileName:
+        with open(fileName, 'r') as configFile:
+            lines = configFile.readlines()
+            # All combinations of conv direction, type and layouts
+            for direction, datatype, layout, line in \
+                    itertools.product(DIRECTIONS, DATA_TYPES, LAYOUTS, lines):
+                line = line.strip()
 
-        # Skip empty lines
-        if len(line) == 0 or line[0] == '#':
-            continue
-        # Skip int8 non-fwd convolutions
-        if datatype == 'convint8' and direction != '-F 1':
-            continue
+                # Skip empty lines
+                if len(line) == 0 or line[0] == '#':
+                    continue
+                # Skip int8 non-fwd convolutions
+                if datatype == 'convint8' and direction != '-F 1':
+                    continue
 
-        oneConfig = f"{datatype} {direction} -f {layout} -I {layout} -O {layout} {line}"
-        configs.append(oneConfig)
+                oneConfig = f"{datatype} {direction} -f {layout} -I {layout} -O {layout} {line}"
+                configs.append(oneConfig)
     return configs
 
 def getNanoSeconds(fileName):
@@ -538,8 +542,11 @@ def main(args=None):
     arch = ','.join(archNames)
     chip = GFX_CHIP_RE.search(arch).group(0)
 
+    root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
+    default_conv_configs = root_dir + '/mlir/utils/jenkins/miopen-tests/resnet50-miopen-configs'
+
     parser = argparse.ArgumentParser(
-        prog="MIOpenDriver Test Runner",
+        prog="rocMLIR performance test runner",
         description="A test runner script for MIOpen and MLIR-based kernel generator",
         allow_abbrev=False,
     )
@@ -579,6 +586,13 @@ def main(args=None):
         "--miopen",
         action="store_true",
         help="benchmark a single config"
+    )
+
+    parser.add_argument(
+        "-c", "--configs_file",
+        type=str,
+        default=default_conv_configs,
+        help="File of configurations to test"
     )
 
     parser.add_argument(
@@ -633,8 +647,9 @@ def main(args=None):
         if not parsed_args.mlir_build_dir:
             raise RuntimeError("MLIR build dir was not provided/found")
 
-    paths = create_paths(parsed_args.mlir_build_dir, parsed_args.miopen_build_dir)
-    configs = getConfigurations(paths.configuration_file_path)
+    configs_path = None if parsed_args.config else parsed_args.configs_file
+    paths = create_paths(configs_path, parsed_args.mlir_build_dir, parsed_args.miopen_build_dir)
+    configs = getConvConfigurations(paths.configuration_file_path)
 
     #If no arguments are passed, then benchmark with MLIR and MIOpen
     if parsed_args.batch_both:
