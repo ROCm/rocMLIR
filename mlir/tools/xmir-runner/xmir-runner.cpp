@@ -45,23 +45,23 @@ static cl::opt<std::string> targetType("target-type",
                                        cl::value_desc("valid options: GPU,CPU"),
                                        cl::init("GPU"));
 static cl::opt<std::string>
-    targetChip("target-chip", cl::desc("Specify target chip"), cl::init(""));
+    targetArch("target-arch", cl::desc("Specify target architecture"), cl::init(""));
 
 namespace test {
 void registerTestDialect(DialectRegistry &);
 } // namespace test
 
 static LogicalResult runMLIRPasses(ModuleOp m) {
-  // Canonicalize target chip
-  if (targetType == "gpu" && !targetChip.empty()) {
+  // Canonicalize target arch
+  if (targetType == "gpu" && !targetArch.empty()) {
     RocmDeviceName devName;
-    if (failed(devName.parse(targetChip))) {
-      llvm::errs() << "Invalid ROCm GPU target spec: " << targetChip << "\n";
+    if (failed(devName.parse(targetArch))) {
+      llvm::errs() << "Invalid ROCm GPU target spec: " << targetArch << "\n";
       return failure();
     }
     SmallString<64> canonicalArch;
     devName.getFullName(canonicalArch);
-    targetChip = canonicalArch.str().str();
+    targetArch = canonicalArch.str().str();
   }
 
   SystemDevice::Type targetTypeEnum =
@@ -69,14 +69,14 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
           .CaseLower("gpu", SystemDevice::Type::EGPU)
           .CaseLower("cpu", SystemDevice::Type::ECPU);
 
-  SmallVector<std::string, 4> targetChips;
-  if (targetChip.getValue().empty()) {
+  SmallVector<std::string, 4> targetArchs;
+  if (targetArch.getValue().empty()) {
     auto devices = SystemDevices::get<CpuSystemDetect, RocmSystemDetect>();
     auto device = devices.find(targetTypeEnum);
     if (succeeded(device))
-      targetChips.push_back((*device)->chip.str().str());
+      targetArchs.push_back(device.value()->getArch());
   } else {
-    targetChips.push_back(targetChip);
+    targetArchs.push_back(targetArch);
   }
 
   // Host Compiler/Scheduler Pipeline
@@ -85,7 +85,7 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
 
   xmodel::RunnerOptions opts;
   opts.targetTypes = {targetType};
-  opts.targetChips = targetChips;
+  opts.targetArchs = targetArchs;
 
   xmodel::buildRunnerPipeline(pm);
 
