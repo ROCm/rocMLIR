@@ -56,8 +56,11 @@ ArrayAttr getIndexArrayAttr(Builder &b, ArrayRef<int64_t> values);
 } // end namespace mlir
 
 #define GET_ATTRDEF_CLASSES
+// Headers need to be in this order.
+// NOLINTBEGIN
+#include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
 #include "mlir/Dialect/Rock/IR/RockAttrDefs.h.inc"
-#include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h.inc"
+// NOLINTEND
 
 #include "mlir/Dialect/Rock/IR/RockConvInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
