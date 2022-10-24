@@ -31,7 +31,7 @@ def XModelSelectTargetsPass : Pass<"xmodel-select-targets", "func::FuncOp"> {
   let summary = "Select runtime target for execution";
   let options = [
     ListOption<"targetTypes", "target-types", "std::string", "List of target types">,
-    ListOption<"targetChips", "chips", "std::string", "List of chip architectures">
+    ListOption<"targetArchs", "archs", "std::string", "List of chip architectures">
   ];
 }
 

@@ -12,9 +12,8 @@ target_link_libraries(MLIRXModel
   MLIRInferIntRangeInterface
   MLIRDialect
   MLIRAnalysis
-  MLIRExecutionEngine
+  MLIRExecutionEngineUtils
   MLIRParser
-  MLIRROCDLDialect
   MLIRSupport
   MLIRTargetLLVMIRExport
   MLIRToLLVMIRTranslationRegistration

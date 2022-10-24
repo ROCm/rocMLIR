@@ -50,8 +50,8 @@ struct RunnerOptions : public PassPipelineOptions<RunnerOptions> {
   PassOptions::ListOption<std::string> targetTypes{
       *this, "target-types",
       desc("list of target architecture types to select from")};
-  PassOptions::ListOption<std::string> targetChips{
-      *this, "target-chips",
+  PassOptions::ListOption<std::string> targetArchs{
+      *this, "target-archs",
       desc("list of target architecture chips to select from")};
 
   PassOptions::Option<bool> enableCoroutines{

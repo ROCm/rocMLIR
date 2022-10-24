@@ -31,11 +31,16 @@ struct SystemDevice {
   enum class Type : int32_t { ECPU, EGPU, ENPU, EALT };
 
   Type type;
-  llvm::SmallString<32> llvmTriple;
-  llvm::SmallString<8> chip;
-  llvm::StringMap<bool> features;
+  llvm::SmallString<32> llvmTriple = {};
+  llvm::SmallString<8> chip = {};
+  llvm::StringMap<bool> features = {};
   uint32_t count = 1;
   llvm::StringMap<llvm::SmallString<8>> properties = {};
+
+  LogicalResult parse(StringRef arch);
+  bool isCompatible(const SystemDevice &that) const;
+  std::string getArch() const;
+  void dump() const;
 };
 
 /// SystemDevices captures devices for the current system.

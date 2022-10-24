@@ -26,6 +26,15 @@ class XModel_I32Enum<string name, string summary, list<I32EnumAttrCase> cases>
 class XModel_Attr<string name, list<Trait> traits = []> :
     AttrDef<XModel_Dialect, name, traits>;
 
+/// TargetObjectType
+def ELFType : I32EnumAttrCase<"ELF", 0>;
+def SPIRVType : I32EnumAttrCase<"SPIRV", 1>;
+def LLVMIRType : I32EnumAttrCase<"LLVMIR", 2>;
+
+def TargetObjectType : XModel_I32Enum<"TargetObjectType",
+    "The target object type",
+    [ELFType, SPIRVType, LLVMIRType]>;
+
 /// TargetObjectAttr
 def XModel_TargetObjectAttr : XModel_Attr<"TargetObject"> {
     let mnemonic = "target_obj";
@@ -47,8 +56,8 @@ def XModel_TargetObjectAttr : XModel_Attr<"TargetObject"> {
     }];
 
     let parameters = (ins
-      StringRefParameter<"The object type">:$type,
-      StringRefParameter<"The object type">:$arch,
+      AttrParameter<"::mlir::xmodel::TargetObjectType", "The target object type">:$type,
+      StringRefParameter<"The architecture target">:$arch,
       AttrParameter<"DictionaryAttr", "The object type">:$attributes,
       StringRefParameter<"The object binary">:$binary
     );
@@ -64,7 +73,7 @@ def NPUType : I32EnumAttrCase<"NPU", 2>;
 def ALTType : I32EnumAttrCase<"ALT", 3>;
 
 def TargetType : XModel_I32Enum<"TargetType",
-    "The operation type for a coordinate transformation",
+    "The IP type for a kernel package/target object",
     [CPUType, GPUType, NPUType, ALTType]>;
 
 /// KernelPackageAttr
