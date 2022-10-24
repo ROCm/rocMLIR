@@ -239,7 +239,7 @@ def Rock_GridwiseGemmOp :
                    // arch isn't either, but I'm passing it down just in case
                    I32Attr:$blockSize,
                    I32Attr:$gridSize,
-                   OptionalAttr<GeneralGemmParams>:$params)> {
+                   GeneralGemmParams:$params)> {
   let summary = "Gridwise GEMM";
   let description = [{
     The `rock.gridwise_gemm` op computes gridwise GEMM.
@@ -260,7 +260,7 @@ def Rock_GridwiseGemmV2Op :
                    // Note: num_cu isn't used
                    I32Attr:$blockSize,
                    I32Attr:$gridSize,
-                   OptionalAttr<XdlopsGemmParams>:$params)> {
+                   XdlopsGemmParams:$params)> {
   let summary = "Gridwise GEMM V2";
   let description = [{
     The `rock.gridwise_gemm` op computes gridwise GEMM with XDLOPS.
@@ -797,7 +797,7 @@ def Rock_BlockwiseGemmOp:
                    MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixB,
                    MemRefRankOf<[F32, F16, BF16, I32], [2]>:$matrixC,
                    I32Attr:$blockSize,
-                   OptionalAttr<GeneralGemmParams>:$params
+                   GeneralGemmParams:$params
                    )> {
   let summary = "Blockwise GEMM non-XDLOPS version";
   let description = [{
@@ -840,7 +840,7 @@ def Rock_BlockwiseGemmV2Op:
                    MemRefOf<[F32, F16, BF16, I32,
                              VectorOf<[F32, F16, BF16, I32]>]>:$matrixC,
                    I32Attr:$blockSize,
-                   OptionalAttr<XdlopsGemmParams>:$params)>{
+                   XdlopsGemmParams:$params)>{
   let summary = "Blockwise GEMM XDLOPS version";
   let description = [{
     The `rock.block_gemm` op does GEMM at workgroup (block) level.
