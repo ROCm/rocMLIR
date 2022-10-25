@@ -16,7 +16,7 @@
 include "mlir/Dialect/Rock/IR/RockAttrDefs.td"
 include "mlir/Dialect/Rock/IR/RockConvInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
-
+include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferIntRangeInterface.td"
 include "mlir/Interfaces/LoopLikeInterface.td"
@@ -60,7 +60,7 @@ class Rock_Conv2DOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16],
                    I32ArrayLength<4>:$padding,
                    I32ArrayLength<2>:$strides,
                    I32ArrayLength<2>:$dilations,
-                   Rock_OptionalGemmParams:$params);
+                   OptionalAttr<RockTuningParamAttrInterface>:$params);
     let results = (outs Optional<AnyRankedTensor>:$result);
 }
 
@@ -129,7 +129,7 @@ def Rock_GemmOp :
                    StoreMethodAttr:$storeMethod,
                    OptionalAttr<I32Attr>:$blockSize,
                    OptionalAttr<I32Attr>:$gridSize,
-                   Rock_OptionalGemmParams:$params)>,
+                   OptionalAttr<RockTuningParamAttrInterface>:$params)>,
     Results<(outs Optional<AnyRankedTensor>:$result)> {
   let summary = "General matrix multiplication (GEMM)";
   let description = [{
