@@ -35,6 +35,8 @@ struct TunableParams {
 
 TunableParams *createTunableParams(RockGemmWrapperInterface op);
 
+bool tuningSetParam(module &mod, ParamEntry &paramEntry);
+
 } // namespace rock
 } // namespace mlir
 #endif // MLIR_DIALECT_ROCK_ROCKTUNINGTYPE_H

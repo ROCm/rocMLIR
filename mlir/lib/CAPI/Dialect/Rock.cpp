@@ -27,17 +27,8 @@ using namespace mlir;
 MLIR_CAPI_EXPORTED MlirRockTuningSpace
 mlirRockTuningSpaceCreate(MlirModule module) {
   struct rock::TunableParams *newParams;
-  int32_t numParams;
-  bool bFound = false;
   auto mod = unwrap(module);
-
-  mod->walk([&](rock::RockGemmWrapperInterface op) {
-    if (!bFound) {
-      bFound = true;
-      newParams = rock::createTunableParams(op);
-    }
-  });
-
+  newParams = rock::createTunableParams(module, op);
   return wrap(newParams);
 }
 
@@ -85,15 +76,5 @@ bool mlirRockTuningSetParam(MlirModule module, MlirRockTuningParam param) {
   bool bFound = false;
   auto mod = unwrap(module);
   auto paramEntry = unwrap(param);
-
-  mod->walk([&](rock::RockGemmWrapperInterface op) {
-    if (!bFound) {
-      bFound = true;
-      auto ctx = op.getContext();
-      StringAttr attr = StringAttr::get(ctx, paramEntry->perfString);
-      op->setAttr("perf_config", attr);
-    }
-  });
-
-  return bFound;
+  return rock::tuningSetParam(module, paramEntry);
 }
