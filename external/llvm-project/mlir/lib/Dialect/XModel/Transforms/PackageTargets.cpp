@@ -81,13 +81,7 @@ struct XModelPackageTargetsPass
                 uint32_t blockSize =
                     func->getAttrOfType<IntegerAttr>("block_size").getInt();
 
-                auto chip = gpuMod->getAttr("xmodel.chip");
-                auto triple = gpuMod->getAttr("xmodel.triple");
-                auto features = gpuMod->getAttr("xmodel.features");
-                DictionaryAttr objAttrs =
-                    b.getDictionaryAttr({b.getNamedAttr("chip", chip),
-                                         b.getNamedAttr("triple", triple),
-                                         b.getNamedAttr("features", features)});
+                DictionaryAttr objAttrs;
 
                 auto xobj = xmodel::TargetObjectAttr::get(
                     b.getContext(), xmodel::TargetObjectType::ELF, archName, objAttrs, binaryAttr);

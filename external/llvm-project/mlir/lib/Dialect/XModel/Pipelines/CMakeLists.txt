@@ -5,7 +5,6 @@ add_mlir_dialect_library(MLIRXModelPipeline
   MLIRDialect
   MLIRFuncDialect
   MLIRTensorToLinalg
-  MLIRAsyncToGPU
   MLIRAsyncTransforms
   MLIRTosaToLinalg
   MLIRTosaToSCF
@@ -14,6 +13,7 @@ add_mlir_dialect_library(MLIRXModelPipeline
   MLIRMathToLLVM
   MLIRGPUToROCDLTransforms
   MLIRReconcileUnrealizedCasts
+  MLIRXModelToGPU
   MLIRXModelTransforms
   MLIRIR
   MLIRPass
