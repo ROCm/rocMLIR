@@ -34,9 +34,9 @@ struct TunableParams {
   int numHeuristicQuick;
 };
 
-TunableParams *createTunableParams(module &mod);
+TunableParams *createTunableParams(ModuleOp &mod);
 
-bool tuningSetParam(module &mod, ParamEntry &paramEntry);
+bool tuningSetParam(ModuleOp &mod, ParamEntry &paramEntry);
 
 } // namespace rock
 } // namespace mlir

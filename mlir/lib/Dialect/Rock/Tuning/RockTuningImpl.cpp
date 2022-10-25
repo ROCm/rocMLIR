@@ -226,7 +226,7 @@ rPadH;  rPadW;   strH;   strW;   dilH;   dilW;  group;  const; {
 }
 */
 
-TunableParams *createTunableParams(module &mod) {
+TunableParams *createTunableParams(ModuleOp &mod) {
   struct TunableParams *newSpace;
   newSpace = new TunableParams();
   newSpace->primaryOpType = op.getKernelType();
@@ -243,7 +243,7 @@ TunableParams *createTunableParams(module &mod) {
   return newSpace;
 }
 
-bool tuningSetParam(module &mod, ParamEntry &paramEntry) {
+bool tuningSetParam(ModuleOp &mod, ParamEntry &paramEntry) {
   bool bFound = false;
   mod->walk([&](rock::RockGemmWrapperInterface op) {
     if (!bFound) {
