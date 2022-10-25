@@ -16,7 +16,6 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-
 // Brute-force search in incremental order
 void createGemmTuningRangeBF(struct TunableParams *newSpace,
                              RockGemmWrapperInterface gemmOp) {
@@ -26,7 +25,7 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
   if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
     // XDLOPS
     // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-    constexpr std::vector<std::vector<uint32_t>,6> tParams = {{4, 8, 16, 32, 64, 128},
+    const std::vector<std::vector<uint32_t>> tParams = {{4, 8, 16, 32, 64, 128},
                                                         {16, 32, 64, 128},
                                                         {16, 32, 64, 128},
                                                         {16, 32, 64},
@@ -39,10 +38,12 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
           for (uint32_t gemmMPerWave : tParams[3]) {
             for (uint32_t gemmNPerWave : tParams[4]) {
               for (uint32_t gemmKPack : tParams[5]) {
-                Attribute gemmParams = b.getAttr<XdlopsGemmParamsAttr>(
-                    gemmKPerBlock, gemmMPerBlock, gemmNPerBlock, gemmKPack,
-                    gemmMPerWave, gemmNPerWave);
-                newSpace->tuningRange.push_back(gemmParams.cast<RockTuningParamAttrInterface>());
+                XdlopsGemmParamsAttr gemmParams =
+                    b.getAttr<XdlopsGemmParamsAttr>(
+                        gemmKPerBlock, gemmMPerBlock, gemmNPerBlock, gemmKPack,
+                        gemmMPerWave, gemmNPerWave);
+                newSpace->tuningRange.push_back(
+                    gemmParams.cast<RockTuningParamAttrInterface>());
               }
             }
           }
@@ -52,18 +53,20 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
   } else {
     // Non-XDLOPS
     // M/block N/block K/block M/thread N/thread
-    constexpr std::vector<std::vector<uint32_t>, 5> tParams = {
+    const std::vector<std::vector<uint32_t>> tParams = {
         {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
     for (uint32_t gemmMPerBlock : tParams[0]) {
       for (uint32_t gemmNPerBlock : tParams[1]) {
         for (uint32_t gemmKPerBlock : tParams[2]) {
           for (uint32_t gemmMPerThread : tParams[3]) {
             for (uint32_t gemmNPerThread : tParams[4]) {
-              Attribute gemmParams = b.getAttr<GeneralGemmParamsAttr>(
-                  gemmKPerBlock, gemmMPerBlock, gemmNPerBlock,
-                  /*kPerThread=*/1, gemmMPerThread, gemmNPerThread,
-                  /*kpack=*/1);
-              newSpace->tuningRange.push_back(gemmParams.cast<RockTuningParamAttrInterface>());
+              GeneralGemmParamsAttr gemmParams =
+                  b.getAttr<GeneralGemmParamsAttr>(
+                      gemmKPerBlock, gemmMPerBlock, gemmNPerBlock,
+                      /*kPerThread=*/1, gemmMPerThread, gemmNPerThread,
+                      /*kpack=*/1);
+              newSpace->tuningRange.push_back(
+                  gemmParams.cast<RockTuningParamAttrInterface>());
             }
           }
         }
@@ -223,11 +226,10 @@ rPadH;  rPadW;   strH;   strW;   dilH;   dilW;  group;  const; {
 }
 */
 
-struct TunableParams *
-createTunableParams(RockGemmWrapperInterface op) {
+struct TunableParams *createTunableParams(RockGemmWrapperInterface op) {
   struct TunableParams *newSpace;
   newSpace = new TunableParams();
-  newSpace->primaryOpType =  op.getKernelType();
+  newSpace->primaryOpType = op.getKernelType();
   // create range and heuristic
   createGemmTuningRangeBF(newSpace, op);
   return newSpace;
