@@ -893,7 +893,7 @@ def Rock_XdlopsGemmV2Op:
                       VectorOfLengthAndType<[4, 8, 16], [I8]>], [2]>:$matrixB,
                    MemRefRankOf<[F32, F16, BF16, I32,
                       VectorOf<[F32, F16, BF16, I32]>], [3]>:$matrixC,
-                   OptionalAttr<Rock_XdlopsGemmParamsAttr>:$params)> {
+                   Rock_XdlopsGemmParamsAttr:$params)> {
   let summary = "XDLOPS GEMM V2";
   let description = [{
     The `rock.xdlops_gemm_v2` op is an abstraction of doing GEMM based on XDLOPS.
