@@ -229,7 +229,6 @@ rPadH;  rPadW;   strH;   strW;   dilH;   dilW;  group;  const; {
 TunableParams *createTunableParams(ModuleOp &mod) {
   struct TunableParams *newSpace;
   newSpace = new TunableParams();
-  newSpace->primaryOpType = op.getKernelType();
 
   // create range and heuristic
   bool bFound = false;
@@ -237,6 +236,7 @@ TunableParams *createTunableParams(ModuleOp &mod) {
     if (!bFound) {
       bFound = true;
       createGemmTuningRangeBF(newSpace, op);
+      newSpace->primaryOpType = op.getKernelType();
     }
   });
 
@@ -249,7 +249,7 @@ bool tuningSetParam(ModuleOp &mod, ParamEntry &paramEntry) {
     if (!bFound) {
       bFound = true;
       auto ctx = op.getContext();
-      StringAttr attr = StringAttr::get(ctx, paramEntry->perfString);
+      StringAttr attr = StringAttr::get(ctx, paramEntry.perfString);
       op->setAttr("perf_config", attr);
     }
   });
