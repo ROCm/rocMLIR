@@ -243,7 +243,7 @@ TunableParams *createTunableParams(ModuleOp &mod) {
   return newSpace;
 }
 
-bool tuningSetParam(ModuleOp &mod, ParamEntry paramEntry) {
+bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry) {
   bool bFound = false;
   mod->walk([&](rock::RockGemmWrapperInterface op) {
     if (!bFound) {
