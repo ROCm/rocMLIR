@@ -226,7 +226,7 @@ rPadH;  rPadW;   strH;   strW;   dilH;   dilW;  group;  const; {
 }
 */
 
-TunableParams *createTunableParams(module &mod, RockGemmWrapperInterface op) {
+TunableParams *createTunableParams(module &mod) {
   struct TunableParams *newSpace;
   newSpace = new TunableParams();
   newSpace->primaryOpType = op.getKernelType();

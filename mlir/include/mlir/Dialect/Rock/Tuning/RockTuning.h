@@ -15,6 +15,7 @@
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
+#include "mlir/IR/BuiltinOps.h"
 
 namespace mlir {
 namespace rock {
@@ -33,7 +34,7 @@ struct TunableParams {
   int numHeuristicQuick;
 };
 
-TunableParams *createTunableParams(RockGemmWrapperInterface op);
+TunableParams *createTunableParams(module &mod);
 
 bool tuningSetParam(module &mod, ParamEntry &paramEntry);
 

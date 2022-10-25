@@ -28,7 +28,7 @@ MLIR_CAPI_EXPORTED MlirRockTuningSpace
 mlirRockTuningSpaceCreate(MlirModule module) {
   struct rock::TunableParams *newParams;
   auto mod = unwrap(module);
-  newParams = rock::createTunableParams(module, op);
+  newParams = rock::createTunableParams(module);
   return wrap(newParams);
 }
 
