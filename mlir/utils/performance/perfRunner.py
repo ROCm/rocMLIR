@@ -693,14 +693,16 @@ def main(args=None):
     """
     usage examples:
 
-    python3 MIOpenDriver.py
-    python3 MIOpenDriver.py --batch_both -o=output_file.csv
-    python3 MIOpenDriver.py -b
-    python3 MIOpenDriver.py --batch_miopen
-    python3 MIOpenDriver.py -- conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
-    python3 MIOpenDriver.py --miopen -- conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
-    python3 MIOpenDriver.py --miopen_use_tuned_mlir
-    python3 MIOpenDriver.py --miopen_use_untuned_mlir
+    python3 perfRunner.py
+    python3 perfRunner.py --batch_both -o=output_file.csv
+    python3 perfRunner.py -b
+    python3 perfRunner.py --batch_external
+    python3 perfRunner.py --operation gemm --external # rocblas tests
+    python3 perfRunner.py -- conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+    python3 perfRunner.py --external -- conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
+    python3 perfRunner.py --operation gemm [--external] -- -t f32 -transA true -transB true -g 1 -m 1024 -k 769 -n 512
+    python3 perfRunner.py --miopen_use_tuned_mlir
+    python3 perfRunner.py --miopen_use_untuned_mlir
     """
     if args is None:
         args = sys.argv[1:]
@@ -853,14 +855,14 @@ def main(args=None):
             df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), paths, arch, rocmlir_gen_flags) for testVector in configs)
         elif parsed_args.batch_external:
             df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch) for testVector in configs)
-        elif parsed_args.miopen:
+        elif parsed_args.external:
             df = pd.DataFrame([confClass.benchmarkExternal(parsed_args.config, paths, arch)])
         else:
             # Will only reach here with more than 1 unspecified arguments
             # These are arguments are directly passed through to benchmarkMLIR
             if not parsed_args.mlir_build_dir:
                 raise RuntimeError("MLIR build dir was not provided/found")
-            df = pd.DataFrame([benchmarkMLIR(parsed_args.config, paths, arch, rocmlir_gen_flags)])
+            df = pd.DataFrame([benchmarkMLIR(parsed_args.config, confClass, paths, arch, rocmlir_gen_flags)])
         df.to_csv(parsed_args.fileName)
         with pd.option_context('display.precision', reportUtils.ROUND_DIGITS):
             print(df) # for interactive consumption
