@@ -14,23 +14,21 @@
 #define MLIR_DIALECT_ROCK_ROCKTUNINGTYPE_H
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
 
 namespace mlir {
 namespace rock {
 
-// Tuning parameter struct
-typedef std::vector<uint32_t> TuningParam;
-
 // Parameter container holding a parameter and serialized string
 struct ParamEntry {
-  Attribute param;
+  RockTuningParamAttrInterface param;
   std::string perfString;
   KernelType primaryOpType;
 };
 
 // Total tuning space
 struct TunableParams {
-  std::vector<Attribute> tuningRange;
+  std::vector<RockTuningParamAttrInterface> tuningRange;
   KernelType primaryOpType;
   int numHeuristicQuick;
 };

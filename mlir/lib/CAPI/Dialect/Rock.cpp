@@ -24,10 +24,6 @@ DEFINE_C_API_PTR_METHODS(MlirRockTuningParam, mlir::rock::ParamEntry)
 
 using namespace mlir;
 
-//////--------------- FIX! --------- Will be relocaetd  to
-/// rockTuningImpl.cpp----------///////////
-// vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-
 MLIR_CAPI_EXPORTED MlirRockTuningSpace
 mlirRockTuningSpaceCreate(MlirModule module) {
   struct rock::TunableParams *newParams;
@@ -38,7 +34,7 @@ mlirRockTuningSpaceCreate(MlirModule module) {
   mod->walk([&](rock::RockGemmWrapperInterface op) {
     if (!bFound) {
       bFound = true;
-      newParams = createTunableParams(op);
+      newParams = rock::createTunableParams(op);
     }
   });
 
@@ -63,7 +59,7 @@ mlirRockTuningCreateParamAt(MlirRockTuningSpace params, int pos) {
   auto tuningSpace = unwrap(params);
   rock::ParamEntry *param = new rock::ParamEntry();
   param->param = tuningSpace->tuningRange[pos];
-  param->perfString = toPerfConfig(param->param);
+  param->perfString = param->param.getPerfConfigStr();
   return wrap(param);
 }
 

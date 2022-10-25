@@ -18,12 +18,12 @@ using namespace mlir::rock;
 
 
 // Brute-force search in incremental order
-void createGemmTuningRangeBF(struct rock::TunableParams *newSpace,
-                             rock::RockGemmWrapperInterface gemmOp) {
+void createGemmTuningRangeBF(struct TunableParams *newSpace,
+                             RockGemmWrapperInterface gemmOp) {
 
   OpBuilder b(gemmOp.getContext());
-  rock::GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
-  if (bitEnumContainsAll(currentFeatures, rock::GemmFeatures::mfma)) {
+  GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
+  if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
     // XDLOPS
     // M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
     constexpr std::vector<std::vector<uint32_t>,6> tParams = {{4, 8, 16, 32, 64, 128},
@@ -39,10 +39,10 @@ void createGemmTuningRangeBF(struct rock::TunableParams *newSpace,
           for (uint32_t gemmMPerWave : tParams[3]) {
             for (uint32_t gemmNPerWave : tParams[4]) {
               for (uint32_t gemmKPack : tParams[5]) {
-                Attribute gemmParams = b.getAttr<rock::XdlopsGemmParamsAttr>(
+                Attribute gemmParams = b.getAttr<XdlopsGemmParamsAttr>(
                     gemmKPerBlock, gemmMPerBlock, gemmNPerBlock, gemmKPack,
                     gemmMPerWave, gemmNPerWave);
-                newSpace->tuningRange.push_back(gemmParams);
+                newSpace->tuningRange.push_back(gemmParams.cast<RockTuningParamAttrInterface>());
               }
             }
           }
@@ -59,11 +59,11 @@ void createGemmTuningRangeBF(struct rock::TunableParams *newSpace,
         for (uint32_t gemmKPerBlock : tParams[2]) {
           for (uint32_t gemmMPerThread : tParams[3]) {
             for (uint32_t gemmNPerThread : tParams[4]) {
-              Attribute gemmParams = b.getAttr<rock::GeneralGemmParamsAttr>(
+              Attribute gemmParams = b.getAttr<GeneralGemmParamsAttr>(
                   gemmKPerBlock, gemmMPerBlock, gemmNPerBlock,
                   /*kPerThread=*/1, gemmMPerThread, gemmNPerThread,
                   /*kpack=*/1);
-              newSpace->tuningRange.push_back(gemmParams);
+              newSpace->tuningRange.push_back(gemmParams.cast<RockTuningParamAttrInterface>());
             }
           }
         }
@@ -223,45 +223,12 @@ rPadH;  rPadW;   strH;   strW;   dilH;   dilW;  group;  const; {
 }
 */
 
-struct rock::TunableParams *
-createTunableParams(rock::RockGemmWrapperInterface op) {
-  struct rock::TunableParams *newSpace;
-  newSpace = new rock::TunableParams();
+struct TunableParams *
+createTunableParams(RockGemmWrapperInterface op) {
+  struct TunableParams *newSpace;
+  newSpace = new TunableParams();
   newSpace->primaryOpType =  op.getKernelType();
   // create range and heuristic
   createGemmTuningRangeBF(newSpace, op);
   return newSpace;
-}
-
-// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-//////--------------- FIX! --------- Will be relocaetd  to
-/// rockTuningImpl.cpp----------///////////
-
-//////// This one to gemm wrapper interfasce
-// Stringfy given param
-std::string toPerfConfig(Attribute param) {
-  std::string result;
-  if (auto paramXAttr = param.dyn_cast<rock::XdlopsGemmParamsAttr>()) {
-    result.append(std::to_string(paramXAttr.getMPerBlock()));
-    result.append(",");
-    result.append(std::to_string(paramXAttr.getNPerBlock()));
-    result.append(",");
-    result.append(std::to_string(paramXAttr.getKPerBlock()));
-    result.append(",");
-    result.append(std::to_string(paramXAttr.getMPerWave()));
-    result.append(",");
-    result.append(std::to_string(paramXAttr.getNPerWave()));
-  } else {
-    auto paramAttr = param.dyn_cast<rock::GeneralGemmParamsAttr>();
-    result.append(std::to_string(paramAttr.getMPerBlock()));
-    result.append(",");
-    result.append(std::to_string(paramAttr.getNPerBlock()));
-    result.append(",");
-    result.append(std::to_string(paramAttr.getKPerBlock()));
-    result.append(",");
-    result.append(std::to_string(paramAttr.getMPerThread()));
-    result.append(",");
-    result.append(std::to_string(paramAttr.getNPerThread()));
-  }
-  return result;
 }
