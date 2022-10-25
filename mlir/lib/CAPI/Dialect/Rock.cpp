@@ -73,7 +73,6 @@ MlirStringRef mlirRockTuningGetParamStr(MlirRockTuningParam param) {
 
 MLIR_CAPI_EXPORTED
 bool mlirRockTuningSetParam(MlirModule module, MlirRockTuningParam param) {
-  bool bFound = false;
   auto mod = unwrap(module);
   auto paramEntry = unwrap(param);
   return rock::tuningSetParam(mod, paramEntry);

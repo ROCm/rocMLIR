@@ -36,7 +36,7 @@ struct TunableParams {
 
 TunableParams *createTunableParams(ModuleOp &mod);
 
-bool tuningSetParam(ModuleOp &mod, ParamEntry &paramEntry);
+bool tuningSetParam(ModuleOp &mod, ParamEntry paramEntry);
 
 } // namespace rock
 } // namespace mlir
