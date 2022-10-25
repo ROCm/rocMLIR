@@ -33,7 +33,7 @@ struct TunableParams {
   int numHeuristicQuick;
 };
 
-struct TunableParams *createTunableParams(RockGemmWrapperInterface op);
+TunableParams *createTunableParams(RockGemmWrapperInterface op);
 
 } // namespace rock
 } // namespace mlir

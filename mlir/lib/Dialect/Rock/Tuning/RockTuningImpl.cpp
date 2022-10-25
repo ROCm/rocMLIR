@@ -13,8 +13,8 @@
 
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 
-using namespace mlir;
-using namespace mlir::rock;
+namespace mlir {
+namespace rock {
 
 // Brute-force search in incremental order
 void createGemmTuningRangeBF(struct TunableParams *newSpace,
@@ -38,12 +38,10 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
           for (uint32_t gemmMPerWave : tParams[3]) {
             for (uint32_t gemmNPerWave : tParams[4]) {
               for (uint32_t gemmKPack : tParams[5]) {
-                XdlopsGemmParamsAttr gemmParams =
-                    b.getAttr<XdlopsGemmParamsAttr>(
-                        gemmKPerBlock, gemmMPerBlock, gemmNPerBlock, gemmKPack,
-                        gemmMPerWave, gemmNPerWave);
-                newSpace->tuningRange.push_back(
-                    gemmParams.cast<RockTuningParamAttrInterface>());
+                XdlopsGemmParamsAttr gemmParams = b.getAttr<XdlopsGemmParamsAttr>(
+                    gemmKPerBlock, gemmMPerBlock, gemmNPerBlock, gemmKPack,
+                    gemmMPerWave, gemmNPerWave);
+                newSpace->tuningRange.push_back(gemmParams.cast<RockTuningParamAttrInterface>());
               }
             }
           }
@@ -60,13 +58,11 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
         for (uint32_t gemmKPerBlock : tParams[2]) {
           for (uint32_t gemmMPerThread : tParams[3]) {
             for (uint32_t gemmNPerThread : tParams[4]) {
-              GeneralGemmParamsAttr gemmParams =
-                  b.getAttr<GeneralGemmParamsAttr>(
-                      gemmKPerBlock, gemmMPerBlock, gemmNPerBlock,
-                      /*kPerThread=*/1, gemmMPerThread, gemmNPerThread,
-                      /*kpack=*/1);
-              newSpace->tuningRange.push_back(
-                  gemmParams.cast<RockTuningParamAttrInterface>());
+              GeneralGemmParamsAttr gemmParams = b.getAttr<GeneralGemmParamsAttr>(
+                  gemmKPerBlock, gemmMPerBlock, gemmNPerBlock,
+                  /*kPerThread=*/1, gemmMPerThread, gemmNPerThread,
+                  /*kpack=*/1);
+              newSpace->tuningRange.push_back(gemmParams.cast<RockTuningParamAttrInterface>());
             }
           }
         }
@@ -226,11 +222,15 @@ rPadH;  rPadW;   strH;   strW;   dilH;   dilW;  group;  const; {
 }
 */
 
-struct TunableParams *createTunableParams(RockGemmWrapperInterface op) {
+TunableParams *
+createTunableParams(RockGemmWrapperInterface op) {
   struct TunableParams *newSpace;
   newSpace = new TunableParams();
-  newSpace->primaryOpType = op.getKernelType();
+  newSpace->primaryOpType =  op.getKernelType();
   // create range and heuristic
   createGemmTuningRangeBF(newSpace, op);
   return newSpace;
 }
+
+} // namespace rock
+} // namespace mlir
