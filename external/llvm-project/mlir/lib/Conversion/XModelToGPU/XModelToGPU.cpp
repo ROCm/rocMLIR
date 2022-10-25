@@ -1,4 +1,4 @@
-//===- AsyncToGPU.cpp - Convert Async to GPU dialect ----------------------===//
+//===- XModelToGPU.cpp - Convert XModel to GPU dialect --------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Conversion/AsyncToGPU/AsyncToGPU.h"
+#include "mlir/Conversion/XModelToGPU/XModelToGPU.h"
 
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/Dialect/Async/IR/Async.h"
@@ -22,7 +22,7 @@
 #define DEBUG_TYPE "convert-async-to-gpu"
 
 namespace mlir {
-#define GEN_PASS_DEF_CONVERTASYNCTOGPU
+#define GEN_PASS_DEF_CONVERTXMODELTOGPU
 #include "mlir/Conversion/Passes.h.inc"
 } // namespace mlir
 
@@ -30,15 +30,15 @@ using namespace mlir;
 using namespace mlir::async;
 
 //===----------------------------------------------------------------------===//
-// Convert Async dialect types to GPU types.
+// Convert XModel dialect types to GPU types.
 //===----------------------------------------------------------------------===//
 
 namespace {
-/// AsyncGPUTypeConverter only converts types from the Async dialect to
+/// XModelGPUTypeConverter only converts types from the XModel dialect to
 /// the corresponding GPU type and does not convert any other types.
-class AsyncGPUTypeConverter : public TypeConverter {
+class XModelGPUTypeConverter : public TypeConverter {
 public:
-  AsyncGPUTypeConverter() {
+  XModelGPUTypeConverter() {
     addConversion([](Type type) { return type; });
     addConversion([](TokenType type) {
       return gpu::AsyncTokenType::get(type.getContext());
@@ -307,13 +307,13 @@ struct AwaitRewritePattern : public OpRewritePattern<async::AwaitOp> {
 //===----------------------------------------------------------------------===//
 
 namespace {
-struct ConvertAsyncToGPUPass
-    : public impl::ConvertAsyncToGPUBase<ConvertAsyncToGPUPass> {
+struct ConvertXModelToGPUPass
+    : public impl::ConvertXModelToGPUBase<ConvertXModelToGPUPass> {
   void runOnOperation() override;
 };
 } // namespace
 
-void ConvertAsyncToGPUPass::runOnOperation() {
+void ConvertXModelToGPUPass::runOnOperation() {
   ModuleOp module = getOperation();
   MLIRContext *ctx = module->getContext();
 
@@ -336,6 +336,6 @@ void ConvertAsyncToGPUPass::runOnOperation() {
   }
 }
 
-std::unique_ptr<Pass> mlir::createConvertAsyncToGPUPass() {
-  return std::make_unique<ConvertAsyncToGPUPass>();
+std::unique_ptr<Pass> mlir::createConvertXModelToGPUPass() {
+  return std::make_unique<ConvertXModelToGPUPass>();
 }

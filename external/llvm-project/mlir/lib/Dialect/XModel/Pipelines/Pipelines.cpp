@@ -40,7 +40,7 @@ void xmodel::buildGraphPipeline(OpPassManager &pm,
                                 const xmodel::GraphOptions &options) {
   // TOSA partitioning pass
   // make 'kernel' funcs with tosa dataflow
-  /* rocmlir-opt --tosa-layerwise-constant-fold --tosa-make-broadcastable
+  /* mlir-opt --tosa-layerwise-constant-fold --tosa-make-broadcastable
          --tosa-optional-decompositions --tosa-partition
    */
   pm.addNestedPass<func::FuncOp>(tosa::createTosaLayerwiseConstantFoldPass());
@@ -50,22 +50,21 @@ void xmodel::buildGraphPipeline(OpPassManager &pm,
       tosa::createTosaPartition({{"tosa.conv2d", "tosa.depthwise_conv2d"}}));
 
   // make async kernel launch's
-  /* rocmlir-opt --xmodel-async-graph
+  /* mlir-opt --xmodel-async-graph
    */
   pm.addNestedPass<func::FuncOp>(createXModelAsyncGraphPass());
 
-  // clone 'kernel' funcs into __rock module
-  /* rocmlir-opt --xmodel-target-kernels
+  // clone 'kernel' funcs into __kernel_<arch> module
+  /* mlir-opt --xmodel-target-kernels
    */
   pm.addPass(xmodel::createXModelTargetKernelsPass(
       xmodel::XModelTargetKernelsPassOptions{options.targets}));
 }
 
-//===- Consolidate the XMIR Pipelines here ---------------------===//
-
+/// Collect target objects and package with host partitioned kernels
 void xmodel::buildPackagePipeline(OpPassManager &pm,
                                   const xmodel::PackageOptions &options) {
-  /* rocmlir-opt --xmodel-package-targets
+  /* mlir-opt --xmodel-package-targets
    */
   pm.addPass(xmodel::createXModelPackageTargetsPass());
 }
@@ -87,7 +86,7 @@ void xmodel::buildRunnerPipeline(OpPassManager &pm,
   funcPm1.addPass(createConvertSCFToCFPass());
 
   // Target async.launch to cpu.coro or gpu.launch_func
-  pm.addPass(createConvertAsyncToGPUPass());
+  pm.addPass(createConvertXModelToGPUPass());
   pm.addPass(createAsyncParallelForPass());
   // Make gpu ops async if they didn't come from the async world
   pm.addNestedPass<func::FuncOp>(createGpuAsyncRegionPass());
@@ -125,7 +124,7 @@ void xmodel::buildRunnerPipeline(OpPassManager &pm,
 void xmodel::registerPipelines() {
   PassPipelineRegistration<xmodel::GraphOptions>(
       "xmodel-graph-pipeline",
-      " representations and algorithms for sparse tensors.",
+      "The XModel graph pipeline optimizes and partitions TOSA dataflow graphs.",
       buildGraphPipeline);
   PassPipelineRegistration<xmodel::PackageOptions>(
       "xmodel-package-pipeline",

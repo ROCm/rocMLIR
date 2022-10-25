@@ -1,8 +1,8 @@
-add_mlir_conversion_library(MLIRAsyncToGPU
-  AsyncToGPU.cpp
+add_mlir_conversion_library(MLIRXModelToGPU
+  XModelToGPU.cpp
 
   ADDITIONAL_HEADER_DIRS
-  ${MLIR_MAIN_INCLUDE_DIR}/mlir/Conversion/AsyncToGPU
+  ${MLIR_MAIN_INCLUDE_DIR}/mlir/Conversion/XModelToGPU
 
   DEPENDS
   MLIRConversionPassIncGen
