@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/XModel/IR/XModel.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Pass/Pass.h"
@@ -59,7 +60,7 @@ static Optional<func::FuncOp> getCalledFunc(async::LaunchOp op) {
 }
 
 // Get target{gpu} attribute from called func
-static Optional<DictionaryAttr> getGPUTarget(async::LaunchOp op) {
+static Optional<xmodel::KernelPackageAttr> getGPUTarget(async::LaunchOp op) {
   auto func = getCalledFunc(op);
   if (!func.has_value() || func->getNumResults() != 0)
     return llvm::None;
@@ -69,10 +70,9 @@ static Optional<DictionaryAttr> getGPUTarget(async::LaunchOp op) {
     return llvm::None;
 
   for (auto targetAttr : attr.getValue()) {
-    auto dictAttr = targetAttr.cast<DictionaryAttr>();
-    auto type = dictAttr.get("type");
-    if (type && type.template cast<StringAttr>() == "gpu")
-      return dictAttr;
+    auto kernelPkg = targetAttr.cast<xmodel::KernelPackageAttr>();
+    if (kernelPkg && kernelPkg.getType() == xmodel::TargetType::GPU)
+      return kernelPkg;
   }
   return llvm::None;
 }
@@ -136,14 +136,18 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
 
     // 1. get target{gpu} attribute from func
 
-    auto gpuAttr = getGPUTarget(op);
-    if (!gpuAttr.has_value())
+    auto kernelPkg = getGPUTarget(op);
+    if (!kernelPkg.has_value())
       return rw.notifyMatchFailure(op, "no gpu target");
 
-    auto arch = gpuAttr->get("arch");
-    auto binary = gpuAttr->get("binary");
-    auto blockSize = gpuAttr->get("block_size").cast<IntegerAttr>();
-    auto gridSize = gpuAttr->get("grid_size").cast<IntegerAttr>();
+    auto arch = kernelPkg->getTarget();
+    auto targetObj = kernelPkg->getObject();
+    auto binary = targetObj.getBinary();
+    auto launchDims = kernelPkg->getLaunchDims();
+    if (launchDims.size() != 2)
+      return rw.notifyMatchFailure(op, "bad launch dims");
+    auto gridSize = launchDims[0];
+    auto blockSize = launchDims[1];
 
     auto func = *getCalledFunc(op);
     Location floc = func.getLoc();
@@ -164,8 +168,8 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
     if (!gpuModule) {
       OpBuilder b(ctx);
       gpuModule = b.create<gpu::GPUModuleOp>(floc, gpuModuleName.str());
-      gpuModule->setAttr("arch", arch);
-      gpuModule->setAttr("gpu.binary", binary);
+      gpuModule->setAttr("arch", b.getStringAttr(arch));
+      gpuModule->setAttr("gpu.binary", b.getStringAttr(binary));
 
       SymbolTable symbolTable(module);
       symbolTable.insert(gpuModule);
@@ -176,8 +180,8 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
       OpBuilder b(gpuModule.getContext());
       gpuFunc =
           b.create<gpu::GPUFuncOp>(floc, funcName, func.getFunctionType());
-      gpuFunc->setAttr("block_size", blockSize);
-      gpuFunc->setAttr("grid_size", gridSize);
+      gpuFunc->setAttr("block_size", b.getI32IntegerAttr(blockSize));
+      gpuFunc->setAttr("grid_size", b.getI32IntegerAttr(gridSize));
       gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(),
                        b.getUnitAttr());
 
@@ -200,10 +204,9 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
     auto tokenType = rw.getType<gpu::AsyncTokenType>();
 
     Value oneIdx = rw.createOrFold<arith::ConstantIndexOp>(loc, 1);
-    Value blockSizeIdx = rw.createOrFold<arith::ConstantIndexOp>(
-        loc, blockSize.getValue().getLimitedValue());
-    Value gridSizeIdx = rw.createOrFold<arith::ConstantIndexOp>(
-        loc, gridSize.getValue().getLimitedValue());
+    Value blockSizeIdx =
+        rw.createOrFold<arith::ConstantIndexOp>(loc, blockSize);
+    Value gridSizeIdx = rw.createOrFold<arith::ConstantIndexOp>(loc, gridSize);
     Value dynamicSharedMemorySize;
 
     // async dependencies
