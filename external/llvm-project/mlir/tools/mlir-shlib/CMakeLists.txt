@@ -39,6 +39,7 @@ if(LLVM_BUILD_LLVM_DYLIB)
     ${_OBJECTS}
     LINK_LIBS
     ${_DEPS}
+    lldCommon
 
     LINK_COMPONENTS
     ${mlir_llvm_link_components}
