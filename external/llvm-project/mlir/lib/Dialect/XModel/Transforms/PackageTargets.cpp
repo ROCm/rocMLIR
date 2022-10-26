@@ -1,4 +1,4 @@
-//===- ApplyImpl.cpp ------------------------------------------------------===//
+//===- PackageTargets.cpp -------------------------------------------------===//
 //
 // Copyright 2020 The MLIR Authors.
 //
@@ -22,37 +22,40 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/XModel/IR/XModel.h"
+#include "mlir/Dialect/XModel/Transforms/Passes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir {
-namespace rock {
-#define GEN_PASS_DEF_ROCKAPPLYIMPLPASS
-#include "mlir/Dialect/Rock/Passes.h.inc"
-} // namespace rock
+namespace xmodel {
+#define GEN_PASS_DEF_XMODELPACKAGETARGETSPASS
+#include "mlir/Dialect/XModel/Transforms/Passes.h.inc"
+} // namespace xmodel
 } // namespace mlir
+
+#define DEBUG_TYPE "xmodel-package-targets"
 
 using namespace mlir;
 
 namespace {
 
-struct RockApplyImplPass
-    : public rock::impl::RockApplyImplPassBase<RockApplyImplPass> {
+struct XModelPackageTargetsPass
+    : public xmodel::impl::XModelPackageTargetsPassBase<
+          XModelPackageTargetsPass> {
 
   void runOnOperation() override {
     ModuleOp mod = getOperation();
     OpBuilder b(mod.getContext());
 
     llvm::SmallVector<ModuleOp, 8> kernelMods;
-    llvm::SmallDenseMap<func::FuncOp, llvm::SmallVector<DictionaryAttr, 4>>
+    llvm::SmallDenseMap<func::FuncOp, llvm::SmallVector<Attribute, 4>>
         kernelImpls;
 
     mod->walk([&](ModuleOp kernelMod) {
-      if (kernelMod->hasAttr("kernel.module")) {
-
+      if (kernelMod->hasAttr("xmodel.module")) {
         SmallVector<gpu::GPUModuleOp, 8> gpuMods;
         kernelMod->walk([&](gpu::GPUModuleOp gpuMod) {
           auto binaryAttr = gpuMod->getAttrOfType<StringAttr>(
@@ -69,15 +72,29 @@ struct RockApplyImplPass
             if (auto attr =
                     func->getAttrOfType<SymbolRefAttr>("original_func")) {
               if (auto kernelFunc = mod.lookupSymbol<func::FuncOp>(attr)) {
-                std::vector<NamedAttribute> attributes{
-                    b.getNamedAttr("type", b.getStringAttr("gpu")),
-                    b.getNamedAttr("arch", kernelMod->getAttr("kernel.arch")),
-                    b.getNamedAttr("grid_size", func->getAttr("grid_size")),
-                    b.getNamedAttr("block_size", func->getAttr("block_size")),
-                    b.getNamedAttr("binary", binaryAttr)};
+                auto archName =
+                    kernelMod->getAttrOfType<StringAttr>("xmodel.arch")
+                        .getValue();
+                auto funcName = attr.getLeafReference().getValue();
+                uint32_t gridSize =
+                    func->getAttrOfType<IntegerAttr>("grid_size").getInt();
+                uint32_t blockSize =
+                    func->getAttrOfType<IntegerAttr>("block_size").getInt();
 
-                kernelImpls[kernelFunc].push_back(
-                    b.getDictionaryAttr(attributes));
+                DictionaryAttr objAttrs;
+
+                auto xobj = xmodel::TargetObjectAttr::get(
+                    b.getContext(), xmodel::TargetObjectType::ELF, archName, objAttrs, binaryAttr);
+
+                DictionaryAttr pkgAttrs;
+                // = b.getDictionaryAttr({
+                //     b.getNamedAttr("bare_ptr_abi", true)
+                // });
+                auto xpkg = xmodel::KernelPackageAttr::get(
+                    b.getContext(), xmodel::TargetType::GPU, archName, funcName,
+                    {gridSize, blockSize}, pkgAttrs, xobj);
+
+                kernelImpls[kernelFunc].push_back(xpkg);
               }
             }
           });
@@ -94,8 +111,9 @@ struct RockApplyImplPass
     });
 
     for (auto pair : kernelImpls) {
-      pair.first->setAttr("async.targets", b.getArrayAttr({pair.second.begin(),
-                                                           pair.second.end()}));
+      pair.first->setAttr(
+          "xmodel.targets",
+          b.getArrayAttr({pair.second.begin(), pair.second.end()}));
     }
 
     // cleanup

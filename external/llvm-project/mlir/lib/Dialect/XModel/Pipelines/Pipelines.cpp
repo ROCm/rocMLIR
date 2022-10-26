@@ -1,4 +1,4 @@
-//===- XMIRPipeline.cpp - Create XMIR runtime pipeline --------------------===//
+//===- Pipelines.cpp - Create XModel compilation pipelines ---------------===//
 //
 // Copyright 2021 The MLIR Authors.
 //
@@ -15,42 +15,78 @@
 // limitations under the License.
 // =============================================================================
 //
-// This interface adds the Rock compilation pipeline for various flows but
+// This interface adds the XModel compilation pipeline for various flows but
 // keeping a unified ordering of the pipeline.
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Rock/Pipelines/XMIRPipelines.h"
+#include "mlir/Dialect/XModel/Pipelines/Pipelines.h"
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
+#include "mlir/Dialect/XModel/Transforms/Passes.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Transforms/Passes.h"
 
+#include "llvm/Support/TargetSelect.h"
+
 using namespace mlir;
 
-//===- Consolidate the XMIR Pipelines here ---------------------===//
+//===- Consolidate the XModel Pipelines here ---------------------===//
 
-void xmir::buildModelPipeline(OpPassManager &pm,
-                              const xmir::ModelOptions &options) {
-  pm.addPass(rock::createRockApplyImplPass());
+void xmodel::buildGraphPipeline(OpPassManager &pm,
+                                const xmodel::GraphOptions &options) {
+  // TOSA partitioning pass
+  // make 'kernel' funcs with tosa dataflow
+  /* mlir-opt --tosa-layerwise-constant-fold --tosa-make-broadcastable
+         --tosa-optional-decompositions --tosa-partition
+   */
+  pm.addNestedPass<func::FuncOp>(tosa::createTosaLayerwiseConstantFoldPass());
+  pm.addNestedPass<func::FuncOp>(tosa::createTosaMakeBroadcastablePass());
+  pm.addNestedPass<func::FuncOp>(tosa::createTosaOptionalDecompositions());
+  pm.addPass(
+      tosa::createTosaPartition({{"tosa.conv2d", "tosa.depthwise_conv2d"}}));
+
+  // make async kernel launch's
+  /* mlir-opt --xmodel-async-graph
+   */
+  pm.addNestedPass<func::FuncOp>(createXModelAsyncGraphPass());
+
+  // clone 'kernel' funcs into __kernel_<arch> module
+  /* mlir-opt --xmodel-target-kernels
+   */
+  pm.addPass(xmodel::createXModelTargetKernelsPass(
+      xmodel::XModelTargetKernelsPassOptions{options.targets}));
+}
+
+/// Collect target objects and package with host partitioned kernels
+void xmodel::buildPackagePipeline(OpPassManager &pm,
+                                  const xmodel::PackageOptions &options) {
+  /* mlir-opt --xmodel-package-targets
+   */
+  pm.addPass(xmodel::createXModelPackageTargetsPass());
 }
 
 // Runner takes an Affine/SCF program with async retargetable launchs
 // and lowers to host LLVM runtime program. JitRunner then calls ORC
 // to generate X86 binary and runs it.
-void xmir::buildRunnerPipeline(OpPassManager &pm,
-                               const xmir::RunnerOptions &options) {
+void xmodel::buildRunnerPipeline(OpPassManager &pm,
+                                 const xmodel::RunnerOptions &options) {
+  // Select targets
+  XModelSelectTargetsPassOptions targetOpts;
+  targetOpts.targetTypes = options.targetTypes;
+  targetOpts.targetArchs = options.targetArchs;
+  pm.addNestedPass<func::FuncOp>(createXModelSelectTargetsPass());
+
   auto &funcPm1 = pm.nest<func::FuncOp>();
   funcPm1.addPass(createConvertLinalgToAffineLoopsPass());
   funcPm1.addPass(createLowerAffinePass());
   funcPm1.addPass(createConvertSCFToCFPass());
 
   // Target async.launch to cpu.coro or gpu.launch_func
-  pm.addPass(createConvertAsyncToGPUPass());
+  pm.addPass(createConvertXModelToGPUPass());
   pm.addPass(createAsyncParallelForPass());
   // Make gpu ops async if they didn't come from the async world
   pm.addNestedPass<func::FuncOp>(createGpuAsyncRegionPass());
@@ -85,14 +121,18 @@ void xmir::buildRunnerPipeline(OpPassManager &pm,
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
 
-void xmir::registerPipelines() {
-  PassPipelineRegistration<xmir::ModelOptions>(
-      "xmir-model-pipeline",
-      "The XMIR model pipeline collects implementations and applies them"
+void xmodel::registerPipelines() {
+  PassPipelineRegistration<xmodel::GraphOptions>(
+      "xmodel-graph-pipeline",
+      "The XModel graph pipeline optimizes and partitions TOSA dataflow graphs.",
+      buildGraphPipeline);
+  PassPipelineRegistration<xmodel::PackageOptions>(
+      "xmodel-package-pipeline",
+      "The XModel package pipeline collects implementations and applies them"
       " to the appropriate the default func.",
-      buildModelPipeline);
-  PassPipelineRegistration<xmir::RunnerOptions>(
-      "xmir-runner-pipeline",
+      buildPackagePipeline);
+  PassPipelineRegistration<xmodel::RunnerOptions>(
+      "xmodel-runner-pipeline",
       "The XMIR runner pipeline selects target implementations and generates"
       " host code to run them.",
       buildRunnerPipeline);

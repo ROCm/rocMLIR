@@ -11,22 +11,6 @@
 
 include "mlir/Pass/PassBase.td"
 
-def RockCloneKernelsPass : Pass<"rock-clone-kernels", "ModuleOp"> {
-  let summary = "clone all kernel funcs into rock module";
-  let options = [
-    ListOption<"targets", "targets", "std::string", "List of target architectures">
-  ];
-}
-
-def RockApplyImplPass : Pass<"rock-apply-impl", "ModuleOp"> {
-  let summary = "apply target implementation to host kernel funcs";
-}
-
-def RockAsyncLaunchPass : Pass<"rock-async-launch", "func::FuncOp"> {
-  let summary = "convert kernel func call ops to async.launch ops with dependencies";
-  let dependentDialects = ["rock::RockDialect", "async::AsyncDialect"];
-}
-
 def RockFoldTransposePass : Pass<"rock-fold-transpose", "::mlir::func::FuncOp"> {
   let summary = "fold transposes to enable fusion with convolution and GEMM";
   let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "memref::MemRefDialect"];

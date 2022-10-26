@@ -14,7 +14,8 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
-#include "mlir/Dialect/Rock/Pipelines/XMIRPipelines.h"
+#include "mlir/Dialect/XModel/IR/XModel.h"
+#include "mlir/Dialect/XModel/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
@@ -143,7 +144,7 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
   if (arch.empty() && needArch) {
     llvm::errs()
         << "Architecture not specified for this pipeline, but one is required\n"
-        << "Use --arch or set kernel.arch\n";
+        << "Use --arch or set xmodel.arch\n";
     return failure();
   }
   if (failed(devName.parse(arch)) && needArch) {
@@ -255,10 +256,9 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
     applyPassManagerCLOptions(pm);
 
-    rock::PartitionOptions opts;
-    opts.cloneToRockModule = !cpuOnly.getValue();
+    xmodel::GraphOptions opts;
     opts.targets = targetList;
-    rock::buildPartitionPipeline(pm, opts);
+    xmodel::buildGraphPipeline(pm, opts);
 
     if (failed(pm.run(module))) {
       return failure();
@@ -274,7 +274,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     // If sub-modules exists with kernel.chip specified and in set
     // of targetChips, run KernelPipeline
     module->walk([&](ModuleOp kernelModule) {
-      auto archAttr = kernelModule->getAttrOfType<StringAttr>("kernel.arch");
+      auto archAttr = kernelModule->getAttrOfType<StringAttr>("xmodel.arch");
       hasKernels |= (bool)archAttr;
       if (archAttr && llvm::find(targetList, archAttr.getValue())) {
         kernelResult = runKernelPipeline(archAttr.getValue(), kernelModule,
@@ -289,9 +289,9 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
       else
         onlyArch = arch;
       if (onlyArch.empty()) {
-        if (module->hasAttrOfType<StringAttr>("kernel.arch")) {
+        if (module->hasAttrOfType<StringAttr>("xmodel.arch")) {
           onlyArch =
-              module->getAttrOfType<StringAttr>("kernel.arch").getValue();
+              module->getAttrOfType<StringAttr>("xmodel.arch").getValue();
         }
       }
       kernelResult =
@@ -334,7 +334,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   if (hostPipelineSet.contains("xmodel")) {
     PassManager pm(module.getContext());
     applyPassManagerCLOptions(pm);
-    xmir::buildModelPipeline(pm);
+    xmodel::buildPackagePipeline(pm);
     if (failed(pm.run(module))) {
       return failure();
     }
@@ -351,10 +351,10 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     }
     PassManager pm(module.getContext(), PassManager::Nesting::Implicit);
     applyPassManagerCLOptions(pm);
-    xmir::RunnerOptions runnerOptions;
+    xmodel::RunnerOptions runnerOptions;
     runnerOptions.barePtrMemrefs = barePointers.getValue();
     runnerOptions.enableCoroutines = hostAsyncCoroutines.getValue();
-    xmir::buildRunnerPipeline(pm, runnerOptions);
+    xmodel::buildRunnerPipeline(pm, runnerOptions);
     if (failed(pm.run(module)))
       return failure();
   }
@@ -370,9 +370,9 @@ int main(int argc, char **argv) {
 #endif
   MLIRContext context(registry);
   context
-      .loadDialect<rock::RockDialect, func::FuncDialect, scf::SCFDialect,
-                   AffineDialect, memref::MemRefDialect, math::MathDialect,
-                   arith::ArithmeticDialect, gpu::GPUDialect,
+      .loadDialect<xmodel::XModelDialect, rock::RockDialect, func::FuncDialect,
+                   scf::SCFDialect, AffineDialect, memref::MemRefDialect,
+                   math::MathDialect, arith::ArithmeticDialect, gpu::GPUDialect,
                    bufferization::BufferizationDialect, async::AsyncDialect>();
   mlir::registerAllPasses();
   mlir::registerRocMLIRConversionPasses();

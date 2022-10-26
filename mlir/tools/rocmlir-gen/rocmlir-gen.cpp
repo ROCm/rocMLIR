@@ -1686,17 +1686,17 @@ static void createGpuGemmKernel(ModuleOp module, StringRef arch,
   Location loc = module->getLoc();
   OpBuilder b(ctx);
 
-  // Set kernel.arch on module to make compilation pipeline work
+  // Set xmodel.arch on module to make compilation pipeline work
   StringAttr archAttr = b.getStringAttr(arch);
-  if (!module->hasAttr("kernel.arch"))
-    module->setAttr("kernel.arch", archAttr);
+  if (!module->hasAttr("xmodel.arch"))
+    module->setAttr("xmodel.arch", archAttr);
 
   SmallVector<Type, 3> argTypes;
   getGemmTypes(params.dtype, argTypes);
   constexpr StringLiteral kernelName("rock_gemm");
   SmallVector<NamedAttribute, 2> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
-      b.getNamedAttr("kernel.arch", archAttr)};
+      b.getNamedAttr("xmodel.arch", archAttr)};
   auto func = b.create<func::FuncOp>(
       loc, kernelName, b.getFunctionType(argTypes, {}), funcAttrs);
 

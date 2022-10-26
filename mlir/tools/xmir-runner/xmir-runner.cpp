@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Rock/Pipelines/XMIRPipelines.h"
+#include "mlir/Dialect/XModel/Pipelines/Pipelines.h"
 
 #include "mlir/ExecutionEngine/CpuSystemDetect.h"
 #include "mlir/ExecutionEngine/JitRunner.h"
@@ -42,26 +42,26 @@ using namespace llvm;
 // CLI switch for launch-mode
 static cl::opt<std::string> targetType("target-type",
                                        cl::desc("Kernel target type"),
-                                       cl::value_desc("valid options: gpu,cpu"),
-                                       cl::init("gpu"));
+                                       cl::value_desc("valid options: GPU,CPU"),
+                                       cl::init("GPU"));
 static cl::opt<std::string>
-    targetChip("target-chip", cl::desc("Specify target chip"), cl::init(""));
+    targetArch("target-arch", cl::desc("Specify target architecture"), cl::init(""));
 
 namespace test {
 void registerTestDialect(DialectRegistry &);
 } // namespace test
 
 static LogicalResult runMLIRPasses(ModuleOp m) {
-  // Canonicalize target chip
-  if (targetType == "gpu" && !targetChip.empty()) {
+  // Canonicalize target arch
+  if (targetType == "gpu" && !targetArch.empty()) {
     RocmDeviceName devName;
-    if (failed(devName.parse(targetChip))) {
-      llvm::errs() << "Invalid ROCm GPU target spec: " << targetChip << "\n";
+    if (failed(devName.parse(targetArch))) {
+      llvm::errs() << "Invalid ROCm GPU target spec: " << targetArch << "\n";
       return failure();
     }
     SmallString<64> canonicalArch;
     devName.getFullName(canonicalArch);
-    targetChip = canonicalArch.str().str();
+    targetArch = canonicalArch.str().str();
   }
 
   SystemDevice::Type targetTypeEnum =
@@ -69,43 +69,25 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
           .CaseLower("gpu", SystemDevice::Type::EGPU)
           .CaseLower("cpu", SystemDevice::Type::ECPU);
 
-  auto testChip = [&targetTypeEnum](StringRef chip) -> bool {
-    if (targetChip.getValue().empty()) {
-      auto devices = SystemDevices::get<CpuSystemDetect, RocmSystemDetect>();
-      return succeeded(devices.find(targetTypeEnum, chip));
-    }
-    return targetChip == chip;
-  };
-
-  // walk and select targets
-  OpBuilder b(m);
-  m->walk([&](func::FuncOp func) {
-    if (auto targets = func->getAttrOfType<ArrayAttr>("async.targets")) {
-      DictionaryAttr targetDict;
-      for (auto targetAttr : targets.getValue()) {
-        auto dictAttr = targetAttr.cast<DictionaryAttr>();
-        if (auto type = dictAttr.getAs<StringAttr>("type")) {
-          auto chip = dictAttr.getAs<StringAttr>("arch");
-          if (type == targetType && testChip(chip.getValue())) {
-            // test perf?
-            targetDict = dictAttr;
-            break;
-          }
-        }
-      }
-      if (targetDict)
-        func->setAttr("async.targets", b.getArrayAttr(targetDict));
-      else {
-        func->removeAttr("async.targets");
-      }
-    }
-  });
+  SmallVector<std::string, 4> targetArchs;
+  if (targetArch.getValue().empty()) {
+    auto devices = SystemDevices::get<CpuSystemDetect, RocmSystemDetect>();
+    auto device = devices.find(targetTypeEnum);
+    if (succeeded(device))
+      targetArchs.push_back(device.value()->getArch());
+  } else {
+    targetArchs.push_back(targetArch);
+  }
 
   // Host Compiler/Scheduler Pipeline
   PassManager pm(m.getContext());
   applyPassManagerCLOptions(pm);
 
-  xmir::buildRunnerPipeline(pm);
+  xmodel::RunnerOptions opts;
+  opts.targetTypes = {targetType};
+  opts.targetArchs = targetArchs;
+
+  xmodel::buildRunnerPipeline(pm);
 
   return pm.run(m);
 }

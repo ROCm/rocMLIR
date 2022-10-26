@@ -64,6 +64,8 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/X86Vector/X86VectorDialect.h"
+#include "mlir/Dialect/XModel/IR/XModel.h"
+#include "mlir/Dialect/XModel/Pipelines/Pipelines.h"
 #include "mlir/IR/Dialect.h"
 
 namespace mlir {
@@ -106,7 +108,8 @@ inline void registerAllDialects(DialectRegistry &registry) {
                   tensor::TensorDialect,
                   transform::TransformDialect,
                   tosa::TosaDialect,
-                  x86vector::X86VectorDialect>();
+                  x86vector::X86VectorDialect,
+                  xmodel::XModelDialect>();
   // clang-format on
 
   // Register all dialect extensions.

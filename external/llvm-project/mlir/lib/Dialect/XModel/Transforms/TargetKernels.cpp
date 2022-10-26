@@ -1,4 +1,4 @@
-//===- CloneKernels.cpp ---------------------------------------------------===//
+//===- TargetKernels.cpp --------------------------------------------------===//
 //
 // Copyright 2020 The MLIR Authors.
 //
@@ -15,13 +15,15 @@
 // limitations under the License.
 // =============================================================================
 //
-// This pass clones all kernel functions into an Rock Module.
+// This pass clones all kernel functions into an XModel Module.
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/Passes.h"
-#include "mlir/Support/LLVM.h"
+//#include "mlir/Dialect/Rock/IR/Rock.h"
+//#include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/XModel/IR/XModel.h"
+#include "mlir/Dialect/XModel/Transforms/Passes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/STLExtras.h"
@@ -29,25 +31,27 @@
 #include "llvm/Support/Debug.h"
 #include <iterator>
 
-#define DEBUG_TYPE "rock-clone-kernels"
-
 namespace mlir {
-namespace rock {
-#define GEN_PASS_DEF_ROCKCLONEKERNELSPASS
-#include "mlir/Dialect/Rock/Passes.h.inc"
-} // namespace rock
+namespace xmodel {
+#define GEN_PASS_DEF_XMODELTARGETKERNELSPASS
+#include "mlir/Dialect/XModel/Transforms/Passes.h.inc"
+} // namespace xmodel
 } // namespace mlir
+
+#define DEBUG_TYPE "xmodel-target-kernels"
 
 using namespace mlir;
 
 namespace {
 
-struct RockCloneKernelsPass
-    : public rock::impl::RockCloneKernelsPassBase<RockCloneKernelsPass> {
-  using rock::impl::RockCloneKernelsPassBase<
-      RockCloneKernelsPass>::RockCloneKernelsPassBase;
+struct XModelTargetKernelsPass
+    : public xmodel::impl::XModelTargetKernelsPassBase<
+          XModelTargetKernelsPass> {
+  using xmodel::impl::XModelTargetKernelsPassBase<
+      XModelTargetKernelsPass>::XModelTargetKernelsPassBase;
+
   void runOnOperation() override {
-    const char *kernel = "kernel.module";
+    constexpr llvm::StringLiteral kernel("xmodel.module");
     ModuleOp mod = getOperation();
     if (mod->hasAttr(kernel))
       return;
@@ -69,7 +73,7 @@ struct RockCloneKernelsPass
           c = 'Y';
       }
 
-      SmallString<32> modName(Twine("__kernel_module_", escapedTarget).str());
+      SmallString<32> modName(Twine("__xmodule_", escapedTarget).str());
       LLVM_DEBUG(llvm::dbgs() << "Cloning to module " << modName << "\n");
 
       auto *ctx = &getContext();
@@ -80,7 +84,7 @@ struct RockCloneKernelsPass
         // exist.
         kernelMod = b.create<ModuleOp>(mod.getLoc(), StringRef(modName));
         kernelMod->setAttr(kernel, b.getUnitAttr());
-        kernelMod->setAttr("kernel.arch", b.getStringAttr(target));
+        kernelMod->setAttr("xmodel.arch", b.getStringAttr(target));
 
         // add the KERNELModuleOp into the symbol table.
         SymbolTable symbolTable(mod);

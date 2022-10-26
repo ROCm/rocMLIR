@@ -1,4 +1,4 @@
-//===- AsyncLaunch.cpp - Convert kernel func call ops to async.launch -----===//
+//===- AsyncGraph.cpp - Kernel func call ops to async.launch --------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -13,8 +13,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Async/IR/Async.h"
-#include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/XModel/Transforms/Passes.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/PatternMatch.h"
@@ -24,16 +24,18 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 namespace mlir {
-namespace rock {
-#define GEN_PASS_DEF_ROCKASYNCLAUNCHPASS
-#include "mlir/Dialect/Rock/Passes.h.inc"
-} // namespace rock
+namespace xmodel {
+#define GEN_PASS_DEF_XMODELASYNCGRAPHPASS
+#include "mlir/Dialect/XModel/Transforms/Passes.h.inc"
+} // namespace xmodel
 } // namespace mlir
+
+#define DEBUG_TYPE "xmodel-async-graph"
 
 using namespace mlir;
 namespace {
-class RockAsyncLaunchPass
-    : public rock::impl::RockAsyncLaunchPassBase<RockAsyncLaunchPass> {
+class XModelAsyncGraphPass
+    : public xmodel::impl::XModelAsyncGraphPassBase<XModelAsyncGraphPass> {
 
   static bool isTerminator(Operation *op) {
     return op->mightHaveTrait<OpTrait::IsTerminator>();

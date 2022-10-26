@@ -240,8 +240,7 @@ struct BlockwiseGemmRewritePattern
     TransformMapAttr threadBCopyViewAttr = viewB.get();
 
     // Main loop.
-    Value workitem =
-        b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
+    Value workitem = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
     LLVM_DEBUG(llvm::dbgs() << "Outer loop:\n "
                             << "k =  " << k << "\n"
                             << " kPerThread = " << kPerThread << "\n");
