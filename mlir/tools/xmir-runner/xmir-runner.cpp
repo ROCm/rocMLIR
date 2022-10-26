@@ -44,8 +44,9 @@ static cl::opt<std::string> targetType("target-type",
                                        cl::desc("Kernel target type"),
                                        cl::value_desc("valid options: GPU,CPU"),
                                        cl::init("GPU"));
-static cl::opt<std::string>
-    targetArch("target-arch", cl::desc("Specify target architecture"), cl::init(""));
+static cl::opt<std::string> targetArch("target-arch",
+                                       cl::desc("Specify target architecture"),
+                                       cl::init(""));
 
 namespace test {
 void registerTestDialect(DialectRegistry &);
