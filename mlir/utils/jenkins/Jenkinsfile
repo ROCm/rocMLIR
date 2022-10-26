@@ -386,7 +386,6 @@ pipeline {
                             LD_LIBRARY_PATH="${WORKSPACE}/MIOpen/build/lib:$LD_LIBRARY_PATH:"
                         }
                         steps {
-                            sh 'rm build/CMakeCache.txt'
                             buildMIOpenWithMLIR()
                             testMIOpenDriver(/*testInt8=*/true, /*tuning=*/false, "selected-resnet50-miopen-configs")
                             testMIOpenDriver(/*testInt8=*/true, /*tuning=*/true, "selected-resnet50-miopen-configs")
@@ -709,10 +708,10 @@ pipeline {
                     }
                     stage("Build MLIR") {
                         steps {
-                            // Clean up build settings to disable static library and allow
-                            // ROCm testing
-                            sh 'rm build/CMakeCache.txt'
-                            buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                            // We must explicitly turn libRockCompiler off here to ensure
+                            // we get the executables needed for ROCm testing
+                            buildProject('check-rocmlir-build-only ci-performance-scripts',
+                                '-DBUILD_FAT_LIBROCKCOMPILER=OFF')
                         }
                     }
                     stage("Test MLIR vs MIOpen") {

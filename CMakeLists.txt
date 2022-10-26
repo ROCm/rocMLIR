@@ -52,30 +52,45 @@ message(STATUS "ROCMLIR_BIN_DIR: ${ROCMLIR_BIN_DIR}")
 set(CMAKE_BUILD_RPATH "${ROCMLIR_LIB_DIR};${LLVM_EXTERNAL_LIB_DIR}")
 message(STATUS "CMAKE_BUILD_RPATH: ${CMAKE_BUILD_RPATH}")
 
+set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE STRING "")
+
+function(_maybe_force_set var val type docs force)
+  if (${force})
+    set(${var} ${val} CACHE ${type} "${docs}" FORCE)
+  else()
+    set(${var} ${val} CACHE ${type} "${docs}")
+  endif()
+endfunction()
+
+function(_set_librockcompiler_varying_bools value force)
+  _maybe_force_set(BUILD_SHARED_LIBS ${value} BOOL "" ${force})
+  _maybe_force_set(LLVM_BUILD_LLVM_DYLIB ${value} BOOL "" ${force})
+  _maybe_force_set(LLVM_BUILD_EXAMPLES ${value} BOOL "" ${force})
+  _maybe_force_set(MLIR_ENABLE_ROCM_RUNNER ${value} BOOL "" ${force})
+  _maybe_force_set(MLIR_INCLUDE_INTEGRATION_TESTS ${value} BOOL "" ${force})
+  _maybe_force_set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED ${value}
+    BOOL "Enable build PR-triggered E2E tests for Rock driver" ${force})
+endfunction()
+
+# Set up defaults for not using librockcompiler either way
+_set_librockcompiler_varying_bools(ON OFF)
+
 if(BUILD_MIXR_TARGET)
   set(BUILD_FAT_LIBROCKCOMPILER ON CACHE BOOL "Build static librockCompiler")
   set(EXPORT_ALL_HEADERS ON CACHE BOOL "Export internal headers")
 endif()
 
 # Library type and linkage settings
-if( NOT DEFINED BUILD_FAT_LIBROCKCOMPILER )
+if(NOT DEFINED BUILD_FAT_LIBROCKCOMPILER)
   set(BUILD_FAT_LIBROCKCOMPILER OFF CACHE BOOL "Build fat librockCompiler to link into Rock driver")
 endif()
-if( BUILD_FAT_LIBROCKCOMPILER )
-  set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
-  set(LLVM_BUILD_LLVM_DYLIB OFF CACHE BOOL "")
-  # rocm-runner is not supported with static libraries
-  set(MLIR_ENABLE_ROCM_RUNNER 0 CACHE BOOL "")
-  set(MLIR_INCLUDE_INTEGRATION_TESTS OFF CACHE BOOL "")
-  set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE STRING "")
-  set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
-else()
-  set(BUILD_SHARED_LIBS ON CACHE BOOL "")
-  set(LLVM_BUILD_LLVM_DYLIB ON CACHE BOOL "")
-  set(LLVM_BUILD_EXAMPLES ON CACHE BOOL "")
-  set(MLIR_ENABLE_ROCM_RUNNER 1 CACHE BOOL "")
-  set(MLIR_INCLUDE_INTEGRATION_TESTS ON CACHE BOOL "")
-  set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED 1 CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
+
+if(BUILD_FAT_LIBROCKCOMPILER)
+  _set_librockcompiler_varying_bools(OFF ON)
+  set(FAT_LIBROCKCOMPILER_OPTS_APPLIED ON CACHE INTERNAL "was fat librockcompiler used before?" FORCE)
+elseif(FAT_LIBROCKCOMPILER_OPTS_APPLIED)
+  _set_librockcompiler_varying_bools(ON ON)
+  set(FAT_LIBROCKCOMPILER_OPTS_APPLIED OFF CACHE INTERNAL "was fat librockcompiler used before?" FORCE)
 endif()
 
 # Set up the build for the LLVM/MLIR git-submodule
