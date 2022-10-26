@@ -1,7 +1,7 @@
-// RUN: rocmlir-driver -host-pipeline partition,highlevel -targets %arch,gfx908,gfx90a %s | rocmlir-gen -ph -print-results -rand_type float -rand 1 -fut resnet50 --verifier clone - | rocmlir-driver -host-pipeline xmodel -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CLONE
+// RUN: rocmlir-driver -host-pipeline partition,highlevel -targets gfx900 %s | rocmlir-gen -ph -print-results -rand_type float -rand 1 -fut resnet50 --verifier clone - | rocmlir-driver -host-pipeline xmodel -kernel-pipeline full | not xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void 2>&1 | FileCheck %s
 
 module {
-// CLONE: [1 1 0]
+// CHECK: Target not found
 
   func.func @resnet50(%arg0: tensor<1x32x32x64xf32>, %arg1: tensor<64x3x3x64xf32>, %arg2: tensor<64x3x3x64xf32>) -> tensor<1x32x32x64xf32> {
 
