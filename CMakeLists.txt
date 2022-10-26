@@ -65,15 +65,13 @@ endfunction()
 function(_set_librockcompiler_varying_bools value force)
   _maybe_force_set(BUILD_SHARED_LIBS ${value} BOOL "" ${force})
   _maybe_force_set(LLVM_BUILD_LLVM_DYLIB ${value} BOOL "" ${force})
-  _maybe_force_set(LLVM_BUILD_EXAMPLES ${value} BOOL "" ${force})
+  # Don't force LLVM_BUILD_EXAMPLES, swaping it changes CFLAGS
+  set(LLVM_BUILD_EXAMPLES ${value} CACHE BOOL "")
   _maybe_force_set(MLIR_ENABLE_ROCM_RUNNER ${value} BOOL "" ${force})
   _maybe_force_set(MLIR_INCLUDE_INTEGRATION_TESTS ${value} BOOL "" ${force})
   _maybe_force_set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED ${value}
     BOOL "Enable build PR-triggered E2E tests for Rock driver" ${force})
 endfunction()
-
-# Set up defaults for not using librockcompiler either way
-_set_librockcompiler_varying_bools(ON OFF)
 
 if(BUILD_MIXR_TARGET)
   set(BUILD_FAT_LIBROCKCOMPILER ON CACHE BOOL "Build static librockCompiler")
@@ -91,6 +89,9 @@ if(BUILD_FAT_LIBROCKCOMPILER)
 elseif(FAT_LIBROCKCOMPILER_OPTS_APPLIED)
   _set_librockcompiler_varying_bools(ON ON)
   set(FAT_LIBROCKCOMPILER_OPTS_APPLIED OFF CACHE INTERNAL "was fat librockcompiler used before?" FORCE)
+else()
+  # Set up defaults for not using librockcompiler either way
+  _set_librockcompiler_varying_bools(ON OFF)
 endif()
 
 # Set up the build for the LLVM/MLIR git-submodule
