@@ -53,7 +53,7 @@ void registerTestDialect(DialectRegistry &);
 
 static LogicalResult runMLIRPasses(ModuleOp m) {
   // Canonicalize target arch
-  if (targetType == "gpu" && !targetArch.empty()) {
+  if (targetType == "GPU" && !targetArch.empty()) {
     RocmDeviceName devName;
     if (failed(devName.parse(targetArch))) {
       llvm::errs() << "Invalid ROCm GPU target spec: " << targetArch << "\n";
@@ -68,6 +68,7 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
       llvm::StringSwitch<SystemDevice::Type>(targetType)
           .CaseLower("gpu", SystemDevice::Type::EGPU)
           .CaseLower("cpu", SystemDevice::Type::ECPU);
+  SmallVector<std::string, 4> targetTypes{targetType};
 
   SmallVector<std::string, 4> targetArchs;
   if (targetArch.getValue().empty()) {
@@ -84,10 +85,10 @@ static LogicalResult runMLIRPasses(ModuleOp m) {
   applyPassManagerCLOptions(pm);
 
   xmodel::RunnerOptions opts;
-  opts.targetTypes = {targetType};
+  opts.targetTypes = targetTypes;
   opts.targetArchs = targetArchs;
 
-  xmodel::buildRunnerPipeline(pm);
+  xmodel::buildRunnerPipeline(pm, opts);
 
   return pm.run(m);
 }
