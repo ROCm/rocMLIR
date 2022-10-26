@@ -89,7 +89,8 @@ mlir::Attribute TargetObjectAttr::parse(mlir::AsmParser &parser,
   }
 
   return parser.getChecked<TargetObjectAttr>(startLoc, parser.getContext(),
-                                             targetType.value(), archName, attrs, binary);
+                                             targetType.value(), archName,
+                                             attrs, binary);
 }
 
 void TargetObjectAttr::print(mlir::AsmPrinter &printer) const {
