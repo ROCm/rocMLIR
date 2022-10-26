@@ -21,8 +21,8 @@
 #include "hip/hip_runtime.h"
 
 static bool isVerbose() {
-  static char *envval = getenv("XMIR_DIAG_LEVEL");
-  return envval && envval[0] != '0';
+  static char *envval = std::getenv("ROCMLIR_RUNTIME_TRACE");
+  return envval != nullptr && envval[0] != '0';
 }
 
 #define HIP_DIAG(...)                                                          \
