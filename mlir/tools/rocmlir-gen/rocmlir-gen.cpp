@@ -1682,11 +1682,13 @@ static void createGpuGemmKernel(ModuleOp module, StringRef arch,
   IntegerAttr numCuAttr = nullptr;
   if (num_cu.getNumOccurrences() > 0)
     numCuAttr = b.getI32IntegerAttr(num_cu);
-  b.create<rock::GemmOp>(
+  auto gemm = b.create<rock::GemmOp>(
       loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, transposeA,
       transposeB, transposeC, archAttr.getValue(), numCuAttr, params.features,
       storeMethod,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
+  if (!perfConfig.empty())
+    gemm->setAttr("perf_config", b.getStringAttr(perfConfig));
   b.create<func::ReturnOp>(loc);
 
   module.push_back(func);
