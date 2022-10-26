@@ -50,15 +50,14 @@ LogicalResult SystemDevice::parse(StringRef arch) {
   StringRef rawFeatures;
   std::tie(chip, rawFeatures) = remainder.split(':');
 
-  llvm::SmallVector<StringRef, 1> featureTokens;
-  rawFeatures.split(featureTokens, ':'); // check for CSV
-  llvm::StringMap<bool> features;
-  for (StringRef feature : featureTokens) {
-    feature = feature.trim();
-    if (!feature.empty()) {
-      features.insert_or_assign(feature.drop_back(), feature.back() == '+');
-    } else {
-      return failure();
+  if (!rawFeatures.empty()) {
+    llvm::SmallVector<StringRef, 1> featureTokens;
+    rawFeatures.split(featureTokens, ':'); // check for CSV
+    for (StringRef feature : featureTokens) {
+      feature = feature.trim();
+      if (!feature.empty()) {
+        features.insert_or_assign(feature.drop_back(), feature.back() == '+');
+      }
     }
   }
   return success();

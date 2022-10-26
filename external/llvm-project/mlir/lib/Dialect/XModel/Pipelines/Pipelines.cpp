@@ -78,7 +78,7 @@ void xmodel::buildRunnerPipeline(OpPassManager &pm,
   XModelSelectTargetsPassOptions targetOpts;
   targetOpts.targetTypes = options.targetTypes;
   targetOpts.targetArchs = options.targetArchs;
-  pm.addNestedPass<func::FuncOp>(createXModelSelectTargetsPass());
+  pm.addNestedPass<func::FuncOp>(createXModelSelectTargetsPass(targetOpts));
 
   auto &funcPm1 = pm.nest<func::FuncOp>();
   funcPm1.addPass(createConvertLinalgToAffineLoopsPass());
