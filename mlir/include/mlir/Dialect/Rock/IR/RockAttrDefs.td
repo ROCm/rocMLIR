@@ -213,7 +213,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
     std::string getPerfConfigStr(){
       const Twine paramsConcat = Twine(getMPerBlock()) + ","
       + Twine(getNPerBlock()) + ","
-      + Twine(getNPerBlock()) + ","
+      + Twine(getKPerBlock()) + ","
       + Twine(getMPerThread()) + ","
       + Twine(getNPerThread());
       return paramsConcat.str();
