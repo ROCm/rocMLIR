@@ -90,8 +90,7 @@ struct XModelSelectTargetsPass
         func->setAttr(targetsTag, b.getArrayAttr(targetKrn));
       else {
         if (targetArchs.size()) {
-          auto msg = Twine("Target not found for '") + func.getName() + "'\n";
-          llvm::errs() << msg;
+          func.emitError("target object not found");
           signalPassFailure();
         }
         func->removeAttr(targetsTag);
