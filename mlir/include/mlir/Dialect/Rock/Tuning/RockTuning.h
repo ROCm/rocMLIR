@@ -23,7 +23,7 @@ namespace rock {
 // Parameter container holding a parameter and serialized string
 struct ParamEntry {
   RockTuningParamAttrInterface param;
-  StringAttr perfString;
+  std::string perfString;
   KernelType primaryOpType;
 };
 

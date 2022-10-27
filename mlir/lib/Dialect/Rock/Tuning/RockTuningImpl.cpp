@@ -95,7 +95,9 @@ TunableParams *createTunableParams(ModuleOp &mod) {
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry) {
   WalkResult setPrimary mod->walk([&](rock::RockGemmWrapperInterface op) {
     if (!WalkResult::interrupt()) {
-      op->setAttr("perf_config", paramEntry->perfString);
+      auto ctx = op.getContext();
+      StringAttr attr = StringAttr::get(ctx, paramEntry->perfString);
+      op->setAttr("perf_config", attr);
     }
   });
   return setPrimary.wasInterrupted();
