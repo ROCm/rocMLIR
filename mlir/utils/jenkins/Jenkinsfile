@@ -148,7 +148,9 @@ String getLabelFromCodepath(String codepath) {
     if (codepath == "mfma") {
         label = 'mlir && (gfx908 || gfx90a)'
     } else if (codepath == "navi21") {
-        label = 'navi_workstation'
+        // For now, both navi21 workstations (gfx1030w) and CI nodes (gfx1030) works
+        // for PR CI tests
+        label = 'mlir && (gfx1030w || gfx1030)'
     } else if (codepath == "vanilla"){
         label = 'mlir && gfx906'
     } else {
@@ -219,7 +221,9 @@ boolean shouldRunFromCodepath(String codepath) {
     }
     // Run navi21 on private CI only if it is not disabled
     if (params.canXdlops && (params.disableNavi21 == false) && (codepath == "navi21")) {
-        return true
+        // Temporarily disable navi21 codepath for nightly and weekly
+        if ((params.weekly == false) && (params.nightly == false))
+            return true
     }
     return false
 }
