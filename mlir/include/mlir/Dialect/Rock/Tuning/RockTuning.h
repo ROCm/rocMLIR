@@ -1,4 +1,4 @@
-//===--------- ConvContext.h - MLIR tuning parameter generation ----------===//
+//===--------- RockTuning.h - MLIR tuning parameter generation ----------===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -23,7 +23,7 @@ namespace rock {
 // Parameter container holding a parameter and serialized string
 struct ParamEntry {
   RockTuningParamAttrInterface param;
-  std::string perfString;
+  StringAttr perfString;
   KernelType primaryOpType;
 };
 

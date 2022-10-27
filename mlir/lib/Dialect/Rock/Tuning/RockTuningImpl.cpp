@@ -82,29 +82,23 @@ TunableParams *createTunableParams(ModuleOp &mod) {
   newSpace = new TunableParams();
 
   // create range and heuristic
-  bool bFound = false;
-  mod->walk([&](rock::RockGemmWrapperInterface op) {
-    if (!bFound) {
-      bFound = true;
+  WalkResult findPrimary mod->walk([&](rock::RockGemmWrapperInterface op) {
+    if (!WalkResult::interrupt()) {
       createGemmTuningRangeBF(newSpace, op);
       newSpace->primaryOpType = op.getKernelType();
     }
   });
 
-  return newSpace;
+  return findPrimary.wasInterrupted();
 }
 
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry) {
-  bool bFound = false;
-  mod->walk([&](rock::RockGemmWrapperInterface op) {
-    if (!bFound) {
-      bFound = true;
-      auto ctx = op.getContext();
-      StringAttr attr = StringAttr::get(ctx, paramEntry->perfString);
-      op->setAttr("perf_config", attr);
+  WalkResult setPrimary mod->walk([&](rock::RockGemmWrapperInterface op) {
+    if (!WalkResult::interrupt()) {
+      op->setAttr("perf_config", paramEntry->perfString);
     }
   });
-  return bFound;
+  return setPrimary.wasInterrupted();
 }
 
 } // namespace rock
