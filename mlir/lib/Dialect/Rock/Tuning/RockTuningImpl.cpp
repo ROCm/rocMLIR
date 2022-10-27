@@ -54,19 +54,23 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
     // Non-XDLOPS
     // M/block N/block K/block M/thread N/thread
     const std::vector<std::vector<uint32_t>> tParams = {
-        {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
-    for (uint32_t gemmMPerBlock : tParams[0]) {
-      for (uint32_t gemmNPerBlock : tParams[1]) {
-        for (uint32_t gemmKPerBlock : tParams[2]) {
-          for (uint32_t gemmMPerThread : tParams[3]) {
-            for (uint32_t gemmNPerThread : tParams[4]) {
-              GeneralGemmParamsAttr gemmParams =
-                  b.getAttr<GeneralGemmParamsAttr>(
-                      gemmKPerBlock, gemmMPerBlock, gemmNPerBlock,
-                      /*kPerThread=*/1, gemmMPerThread, gemmNPerThread,
-                      /*kpack=*/1);
-              newSpace->tuningRange.push_back(
-                  gemmParams.cast<RockTuningParamAttrInterface>());
+        {64, 128, 256}, {32, 64, 128}, {32, 64, 128},
+        {4, 8, 16},     {2, 4},        {2, 4}};
+    for (uint32_t blockSize : tParams[0]) {
+      for (uint32_t gemmMPerBlock : tParams[1]) {
+        for (uint32_t gemmNPerBlock : tParams[2]) {
+          for (uint32_t gemmKPerBlock : tParams[3]) {
+            for (uint32_t gemmMPerThread : tParams[4]) {
+              for (uint32_t gemmNPerThread : tParams[5]) {
+
+                GeneralGemmParamsAttr gemmParams =
+                    b.getAttr<GeneralGemmParamsAttr>(
+                        blockSize, gemmKPerBlock, gemmMPerBlock, gemmNPerBlock,
+                        /*kPerThread=*/1, gemmMPerThread, gemmNPerThread,
+                        /*kpack=*/1);
+                newSpace->tuningRange.push_back(
+                    gemmParams.cast<RockTuningParamAttrInterface>());
+              }
             }
           }
         }
