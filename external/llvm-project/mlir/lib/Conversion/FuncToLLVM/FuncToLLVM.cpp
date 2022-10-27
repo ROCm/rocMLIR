@@ -395,7 +395,73 @@ protected:
 
     return newFuncOp;
   }
+
+  LogicalResult
+  convertBareFuncOp(func::FuncOp funcOp,
+                  ConversionPatternRewriter &rewriter) const {
+
+    // TODO: bare ptr conversion could be handled by argument materialization
+    // and most of the code below would go away. But to do this, we would need a
+    // way to distinguish between FuncOp and other regions in the
+    // addArgumentMaterialization hook.
+
+    // Store the type of memref-typed arguments before the conversion so that we
+    // can promote them to MemRef descriptor at the beginning of the function.
+    SmallVector<Type, 8> oldArgTypes =
+        llvm::to_vector<8>(funcOp.getFunctionType().getInputs());
+
+    auto newFuncOp = convertFuncOpToLLVMFuncOp(funcOp, rewriter);
+    if (!newFuncOp)
+      return failure();
+    if (newFuncOp.getBody().empty()) {
+      rewriter.eraseOp(funcOp);
+      return success();
+    }
+
+    // Promote bare pointers from memref arguments to memref descriptors at the
+    // beginning of the function so that all the memrefs in the function have a
+    // uniform representation.
+    Block *entryBlock = &newFuncOp.getBody().front();
+    auto blockArgs = entryBlock->getArguments();
+    assert(blockArgs.size() == oldArgTypes.size() &&
+           "The number of arguments and types doesn't match");
+
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToStart(entryBlock);
+    for (auto it : llvm::zip(blockArgs, oldArgTypes)) {
+      BlockArgument arg = std::get<0>(it);
+      Type argTy = std::get<1>(it);
+
+      // Unranked memrefs are not supported in the bare pointer calling
+      // convention. We should have bailed out before in the presence of
+      // unranked memrefs.
+      assert(!argTy.isa<UnrankedMemRefType>() &&
+             "Unranked memref is not supported");
+      auto memrefTy = argTy.dyn_cast<MemRefType>();
+      if (!memrefTy)
+        continue;
+
+      // Replace barePtr with a placeholder (undef), promote barePtr to a ranked
+      // or unranked memref descriptor and replace placeholder with the last
+      // instruction of the memref descriptor.
+      // TODO: The placeholder is needed to avoid replacing barePtr uses in the
+      // MemRef descriptor instructions. We may want to have a utility in the
+      // rewriter to properly handle this use case.
+      Location loc = funcOp.getLoc();
+      auto placeholder = rewriter.create<LLVM::UndefOp>(
+          loc, getTypeConverter()->convertType(memrefTy));
+      rewriter.replaceUsesOfBlockArgument(arg, placeholder);
+
+      Value desc = MemRefDescriptor::fromStaticShape(
+          rewriter, loc, *getTypeConverter(), memrefTy, arg);
+      rewriter.replaceOp(placeholder, {desc});
+    }
+
+    rewriter.eraseOp(funcOp);
+    return success();
+  }
 };
+
 
 /// FuncOp legalization pattern that converts MemRef arguments to pointers to
 /// MemRef descriptors (LLVM struct data types) containing all the MemRef type
@@ -407,6 +473,10 @@ struct FuncOpConversion : public FuncOpConversionBase {
   LogicalResult
   matchAndRewrite(func::FuncOp funcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+
+    if (funcOp->hasAttr("bare-ptr-memref"))
+      return convertBareFuncOp(funcOp, rewriter);
+
     auto newFuncOp = convertFuncOpToLLVMFuncOp(funcOp, rewriter);
     if (!newFuncOp)
       return failure();
@@ -686,9 +756,9 @@ struct ReturnOpLowering : public ConvertOpToLLVMPattern<func::ReturnOp> {
 
 void mlir::populateFuncToLLVMFuncOpConversionPattern(
     LLVMTypeConverter &converter, RewritePatternSet &patterns) {
-  if (converter.getOptions().useBarePtrCallConv)
-    patterns.add<BarePtrFuncOpConversion>(converter);
-  else
+//  if (converter.getOptions().useBarePtrCallConv)
+//    patterns.add<BarePtrFuncOpConversion>(converter);
+//  else
     patterns.add<FuncOpConversion>(converter);
 }
 
