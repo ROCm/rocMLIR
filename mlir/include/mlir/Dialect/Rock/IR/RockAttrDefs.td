@@ -201,7 +201,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
     - kpack: The number of values of k to pack contiguously into the shared buffer
   }];
   let parameters = (ins
-    Optional<"uint32_t">:$blockSize,
+    "uint32_t":$blockSize,
     "int64_t":$kPerBlock,
     "int64_t":$mPerBlock,
     "int64_t":$nPerBlock,
