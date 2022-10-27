@@ -82,7 +82,7 @@ TunableParams *createTunableParams(ModuleOp &mod) {
   newSpace = new TunableParams();
 
   // create range and heuristic
-  WalkResult findPrimary mod->walk([&](rock::RockGemmWrapperInterface op) {
+  WalkResult findPrimary = mod->walk([&](rock::RockGemmWrapperInterface op) {
     if (!WalkResult::interrupt()) {
       createGemmTuningRangeBF(newSpace, op);
       newSpace->primaryOpType = op.getKernelType();
@@ -93,7 +93,7 @@ TunableParams *createTunableParams(ModuleOp &mod) {
 }
 
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry) {
-  WalkResult setPrimary mod->walk([&](rock::RockGemmWrapperInterface op) {
+  WalkResult setPrimary = mod->walk([&](rock::RockGemmWrapperInterface op) {
     if (!WalkResult::interrupt()) {
       auto ctx = op.getContext();
       StringAttr attr = StringAttr::get(ctx, paramEntry->perfString);
