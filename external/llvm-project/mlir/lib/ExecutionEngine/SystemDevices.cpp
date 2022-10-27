@@ -33,7 +33,8 @@ static const char *getDeviceTypeStr(SystemDevice::Type type) {
                    : type == SystemDevice::Type::ENPU ? "NPU" : "ALT";
 }
 
-// SystemDevice::SystemDevice(Type _type, StringRef _triple, StringRef _chip, llvm::StringMap<bool> _features)
+// SystemDevice::SystemDevice(Type _type, StringRef _triple, StringRef _chip,
+// llvm::StringMap<bool> _features)
 //     : type(_type), llvmTriple(_triple), chip(_chip), features(_features) {}
 
 LogicalResult SystemDevice::parse(StringRef arch) {
@@ -65,10 +66,10 @@ LogicalResult SystemDevice::parse(StringRef arch) {
 }
 
 bool SystemDevice::isCompatible(const SystemDevice &that) const {
-  bool matches =
-      (type == that.type) &&
-      (llvmTriple.empty() || that.llvmTriple.empty() || llvmTriple == that.llvmTriple) &&
-      (chip.empty() || that.chip.empty() || chip == that.chip);
+  bool matches = (type == that.type) &&
+                 (llvmTriple.empty() || that.llvmTriple.empty() ||
+                  llvmTriple == that.llvmTriple) &&
+                 (chip.empty() || that.chip.empty() || chip == that.chip);
   if (matches && !features.empty()) {
     for (const llvm::StringMapEntry<bool> &feature : features) {
       StringRef key = feature.getKey();
@@ -87,8 +88,8 @@ std::string SystemDevice::getArch() const {
   }
   if (!chip.empty())
     arch += chip.str();
-  
-  for (const auto &entry : features ) {
+
+  for (const auto &entry : features) {
     arch += ":";
     arch += entry.getKey().str();
     arch += (entry.getValue() ? "+" : "-");
@@ -98,10 +99,8 @@ std::string SystemDevice::getArch() const {
 }
 
 void SystemDevice::dump() const {
-  llvm::errs() << "Device(" << getDeviceTypeStr(type) << ") x "
-               << count << "\n"
-               << "\n  triple = " << llvmTriple
-               << "\n  chip = " << chip;
+  llvm::errs() << "Device(" << getDeviceTypeStr(type) << ") x " << count << "\n"
+               << "\n  triple = " << llvmTriple << "\n  chip = " << chip;
   if (!features.empty()) {
     llvm::errs() << "\n  features = ";
     llvm::interleave(

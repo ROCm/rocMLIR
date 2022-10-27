@@ -124,7 +124,8 @@ void xmodel::buildRunnerPipeline(OpPassManager &pm,
 void xmodel::registerPipelines() {
   PassPipelineRegistration<xmodel::GraphOptions>(
       "xmodel-graph-pipeline",
-      "The XModel graph pipeline optimizes and partitions TOSA dataflow graphs.",
+      "The XModel graph pipeline optimizes and partitions TOSA dataflow "
+      "graphs.",
       buildGraphPipeline);
   PassPipelineRegistration<xmodel::PackageOptions>(
       "xmodel-package-pipeline",

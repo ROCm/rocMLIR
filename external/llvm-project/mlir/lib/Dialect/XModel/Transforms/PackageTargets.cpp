@@ -84,7 +84,8 @@ struct XModelPackageTargetsPass
                 DictionaryAttr objAttrs;
 
                 auto xobj = xmodel::TargetObjectAttr::get(
-                    b.getContext(), xmodel::TargetObjectType::ELF, archName, objAttrs, binaryAttr);
+                    b.getContext(), xmodel::TargetObjectType::ELF, archName,
+                    objAttrs, binaryAttr);
 
                 DictionaryAttr pkgAttrs;
                 // = b.getDictionaryAttr({
