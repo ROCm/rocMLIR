@@ -132,10 +132,21 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
       >,
     InterfaceMethod<
         /*desc=*/[{
-          Get blocksize if it is non-Xdlops and given in the gemmParam
-
+          Get Optional blocksize
         }],
         /*retType=*/"Optional<uint32_t>",
+        /*methodName=*/"getDerivedBlockSize",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/""
+        }]
+      >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Get blocksize if it is non-Xdlops and given in the gemmParam
+          Return 0 otherwise
+        }],
+        /*retType=*/"uint32_t",
         /*methodName=*/"getBlockSize",
         /*args=*/(ins),
         /*methodBody=*/"",
