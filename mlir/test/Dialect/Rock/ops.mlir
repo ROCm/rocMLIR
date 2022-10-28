@@ -179,7 +179,7 @@ func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf3
 // CHECK-LABEL: func.func @rock_gridwise_gemm
 //  CHECK-NEXT: rock.gridwise_gemm
 
-func.func @rock_gridwise_gemm_v2(%A : memref<2x256x1024x4xf32>, %B : memref<2x256x2048x4xf32>, %C : memref<2x1024x2048xf32>) {
+func.func @rock_gridwise_gemm_v2(%A : memref<2x1024x1024xf32>, %B : memref<2x1024x2048xf32>, %C : memref<2x1024x2048xf32>) {
   rock.gridwise_gemm_v2(%A, %B, %C) storeMethod(set) {
     arch = "gfx908",
     blockSize = 256 : i32,
@@ -191,7 +191,7 @@ func.func @rock_gridwise_gemm_v2(%A : memref<2x256x1024x4xf32>, %B : memref<2x25
       mPerWave = 64,
       nPerBlock = 128,
       nPerWave = 64>
-  } : memref<2x256x1024x4xf32>, memref<2x256x2048x4xf32>, memref<2x1024x2048xf32>
+  } : memref<2x1024x1024xf32>, memref<2x1024x2048xf32>, memref<2x1024x2048xf32>
   return
 }
 

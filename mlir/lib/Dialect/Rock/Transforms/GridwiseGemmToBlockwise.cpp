@@ -71,29 +71,6 @@ static Type vectorTypeOrSelf(Type elementType, int64_t len) {
   return VectorType::get({len}, elementType);
 }
 
-//===----------------------------------------------------------------------===//
-// Utility function to determine the type to be loaded
-//===----------------------------------------------------------------------===//
-static void computeLoadStoreTypeInfo(OpBuilder &b,
-                                     ArrayRef<int64_t> sliceLengths,
-                                     int64_t loadLength, uint32_t &vectorDim,
-                                     int64_t kPack, Type elementType,
-                                     Type &loadType, Type &intermediateType) {
-
-  // In case kpack and vector load is used, and we vector load on GemmK
-  // dimension (1), use the last dimension (Gemmkpack) instead.
-  if ((loadLength > 1) && (kPack > 1) && (vectorDim == 1)) {
-    vectorDim = sliceLengths.size() - 1;
-  }
-
-  int64_t itemsToCopy = 1;
-  for (int64_t len : sliceLengths) {
-    itemsToCopy *= len;
-  }
-  intermediateType = vectorTypeOrSelf(elementType, itemsToCopy);
-  loadType = vectorTypeOrSelf(elementType, loadLength);
-}
-
 static Type obtainAccumulatorType(OpBuilder &b, Type &elementType,
                                   Type &destType) {
   // Determine the type used on VGPR to act as accumulator.
@@ -108,182 +85,6 @@ static Type obtainAccumulatorType(OpBuilder &b, Type &elementType,
     accumulatorType = b.getI32Type();
   }
   return accumulatorType;
-}
-
-// Create a transformation domain that computes the linear, row-major iteration
-// index over a rectangular space with dimensions `sliceLengths`.
-// The iteration starts at all-zeros
-static ArrayAttr makeLinearDomain(OpBuilder &b, Location loc,
-                                  ArrayRef<int64_t> sliceLengths) {
-  size_t nDims = sliceLengths.size();
-  SmallVector<SmallString<4>, 5> dimNames;
-  dimNames.reserve(nDims);
-  SmallVector<int64_t> strides;
-  strides.reserve(nDims);
-  int64_t stride = 1;
-  for (size_t e = sliceLengths.size(), i = e - 1; i < e; --i) {
-    strides.push_back(stride);
-    stride *= sliceLengths[i];
-    SmallString<4> dimName;
-    ("dim" + Twine(i)).toVector(dimName);
-    dimNames.push_back(std::move(dimName));
-  }
-  std::reverse(dimNames.begin(), dimNames.end());
-  std::reverse(strides.begin(), strides.end());
-
-  SmallVector<StringRef, 5> dimNameRefs;
-  dimNameRefs.reserve(nDims);
-  llvm::copy(dimNames, std::back_inserter(dimNameRefs));
-  TopDownTMBuilder builder(b, dimNameRefs, sliceLengths, loc);
-  builder.embed("iter", 0, stride, dimNameRefs, strides);
-  TransformMapAttr ret = builder.get();
-  return b.getArrayAttr(ret);
-}
-
-//===----------------------------------------------------------------------===//
-// Building load/store loops
-//===----------------------------------------------------------------------===//
-static TransformingForOp
-createGlobalLoadLoop(OpBuilder &b, Location loc, Value global,
-                     ValueRange globalStart, Type resultType, Type loadType,
-                     ArrayRef<int64_t> sliceLengths, uint32_t vectorDim,
-                     bool useIndexDiffs) {
-  bool fullyScalar = !resultType.isa<ShapedType>();
-  int64_t loadLength = 1;
-  if (auto loadVectorType = loadType.dyn_cast<VectorType>())
-    loadLength = loadVectorType.getNumElements();
-
-  size_t nUpper = globalStart.size();
-  bool complexVectorLoad = (loadLength > 1) && (vectorDim != nUpper - 1);
-
-  Value zero = b.createOrFold<ConstantIndexOp>(loc, 0);
-  SmallVector<Value, 5> linearInit(nUpper, zero);
-
-  ArrayAttr globalTransforms;
-  std::tie(global, globalTransforms) = untransform(b, global);
-
-  ArrayAttr leftOobDims, rightOobDims;
-  std::tie(leftOobDims, rightOobDims) =
-      computeOobFromTransforms(b, globalTransforms);
-
-  ArrayAttr noTransforms = b.getArrayAttr({});
-  ArrayAttr resultIdxMap = makeLinearDomain(b, loc, sliceLengths);
-
-  SmallVector<int64_t, 4> loopBounds(sliceLengths.begin(), sliceLengths.end());
-  assert(loopBounds[vectorDim] % loadLength == 0 && "Uneven vector load");
-  loopBounds[vectorDim] /= loadLength;
-
-  SmallVector<Attribute> loopTransforms = {globalTransforms, resultIdxMap};
-  if (complexVectorLoad)
-    loopTransforms[1] = noTransforms;
-
-  Value dest = createZeroConstantOp(b, loc, resultType);
-  auto loop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{globalStart, linearInit}, loopTransforms,
-      loopBounds, /*strides=*/llvm::None,
-      /*forceUnroll=*/true, useIndexDiffs, dest);
-  OpBuilder::InsertionGuard guard(b);
-  b.setInsertionPointToStart(loop.getBody());
-  Value loaded =
-      b.create<GlobalLoadOp>(loc, loadType, global, leftOobDims, rightOobDims,
-                             loop.getLowerCoords(/*domain=*/0));
-  Value toYield = loaded;
-  if (!fullyScalar) {
-    Value loopArg = loop.getIterArgs()[0];
-    if (complexVectorLoad) {
-      // The results of a vectorized load are not necessarily in the order
-      // they'll be stored in. Account for that here with an inner loop that
-      // spreads out the loaded elements to appropriate indices. If the
-      // vectorization dimension is the fastest-moving dimension of the loop, we
-      // don't need to do this
-      SmallVector<int64_t, 4> vectorIdxBounds(nUpper, 1);
-      vectorIdxBounds[vectorDim] = loadLength;
-      ArrayAttr loadedValIdxMap = makeLinearDomain(b, loc, vectorIdxBounds);
-
-      TransformingForOp scatterLoop = b.create<TransformingForOp>(
-          loc,
-          ArrayRef<ValueRange>{linearInit, loop.getLowerCoords(/*domain=*/1)},
-          ArrayRef<Attribute>{loadedValIdxMap, resultIdxMap}, vectorIdxBounds,
-          /*strides=*/llvm::None, /*forceUnroll=*/true, /*useIndexDiffs=*/true,
-          loopArg);
-
-      {
-        OpBuilder::InsertionGuard innerGuard(b);
-        b.setInsertionPointToStart(scatterLoop.getBody());
-        Value toScatter = b.create<vector::ExtractElementOp>(
-            loc, loaded, scatterLoop.getLowerCoords(/*domain=*/0)[0]);
-        Value toYieldInner = b.create<vector::InsertElementOp>(
-            loc, toScatter, scatterLoop.getIterArgs()[0],
-            scatterLoop.getLowerCoords(/*domain=*/1)[0]);
-        b.create<rock::YieldOp>(loc, toYieldInner);
-      }
-      toYield = scatterLoop.getResults()[0];
-    } else {
-      toYield = b.create<InsertSliceOp>(loc, resultType, loaded, loopArg,
-                                        loop.getLowerCoords(/*domain=*/1)[0]);
-    }
-  }
-  b.create<rock::YieldOp>(loc, toYield);
-  return loop;
-}
-
-static TransformingForOp createLdsStoreLoop(OpBuilder &b, Location loc,
-                                            Value loaded, Value buffer,
-                                            ValueRange bufferStart,
-                                            ArrayRef<int64_t> sliceLengths) {
-  Type loadedType = loaded.getType();
-  Type elementType = loadedType;
-  if (auto loadedVector = loadedType.dyn_cast<ShapedType>())
-    elementType = loadedVector.getElementType();
-  bool fullyScalar = (loadedType == elementType);
-
-  size_t nUpper = bufferStart.size();
-
-  Value zero = b.createOrFold<ConstantIndexOp>(loc, 0);
-  SmallVector<Value, 5> linearInit(nUpper, zero);
-
-  ArrayAttr bufferTransforms;
-  std::tie(buffer, bufferTransforms) = untransform(b, buffer);
-  ArrayAttr resultIdxMap = makeLinearDomain(b, loc, sliceLengths);
-
-  SmallVector<int64_t, 4> loopBounds(sliceLengths.begin(), sliceLengths.end());
-
-  SmallVector<Attribute> loopTransforms = {resultIdxMap, bufferTransforms};
-
-  auto loop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{linearInit, bufferStart}, loopTransforms,
-      loopBounds,
-      /*strides=*/llvm::None, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-  {
-    OpBuilder::InsertionGuard guard(b);
-    b.setInsertionPointToStart(loop.getBody());
-    if (fullyScalar) {
-      b.create<InBoundsStoreOp>(loc, loaded, buffer,
-                                loop.getLowerCoords(/*domain=*/1));
-    } else {
-      Value toStore = b.create<vector::ExtractElementOp>(
-          loc, loaded, loop.getLowerCoords(/*domain=*/0)[0]);
-      b.create<InBoundsStoreOp>(loc, toStore, buffer,
-                                loop.getLowerCoords(/*domain=*/1));
-    }
-  }
-  return loop;
-}
-
-/// Temporary function to remove the kPack transformation currently being
-/// introduced in conv-to-gemm. kPack is a LDS-specific transformation and
-/// should not have been applied to the gridwise gemm argument. Future work will
-/// make the conversion stop doing that, and we'll be able to get rid of this.
-static Value unKpack(OpBuilder &b, Value matrix) {
-  ArrayRef<int64_t> shape = matrix.getType().cast<MemRefType>().getShape();
-  if (shape.size() != 4)
-    return matrix;
-  BottomUpTMBuilder unkpack(b, {"g", "k", "d", "kpack"}, shape,
-                            matrix.getLoc());
-  unkpack.passThrough({"g", "d"});
-  unkpack.merge("k", 1, {"k", "kpack"});
-  TransformMapAttr unkpackAttr = unkpack.get();
-  return b.create<TransformOp>(matrix.getLoc(), matrix, unkpackAttr);
 }
 
 /// Given a G x K x D matrix and the block tuning parameters and how much data
@@ -428,21 +229,23 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
 static ArrayAttr globalVectorLayout(OpBuilder &b, Location loc, StringRef dName,
                                     int64_t kPerThread, int64_t dPerThread,
                                     int64_t kpack, GemmDimension vectorDim) {
-  int64_t kOuter = kPerThread / std::min(kPerThread, kpack);
+  int64_t kpackPerThread = std::min(kPerThread, kpack);
+  int64_t kOuter = kPerThread / kpackPerThread;
+
   int64_t dataPerThread = kPerThread * dPerThread;
 
   TopDownTMBuilder splitIter(b, {"iter"}, {dataPerThread});
   if (vectorDim == GemmDimension::K)
-    splitIter.merge({dName, "k", "kpack"}, {0, 1, 2}, "iter",
-                    {dPerThread, kOuter, kpack});
+    splitIter.merge({dName, "k", "kpack_thread"}, {0, 1, 2}, "iter",
+                    {dPerThread, kOuter, kpackPerThread});
   else
-    splitIter.merge({"k", "kpack", dName}, {0, 1, 2}, "iter",
-                    {kOuter, kpack, dPerThread});
+    splitIter.merge({"k", "kpack_thread", dName}, {0, 1, 2}, "iter",
+                    {kOuter, kpackPerThread, dPerThread});
   TransformMapAttr splitIterAttr = splitIter.get();
 
   auto toVector = TopDownTMBuilder::below(splitIter, splitIterAttr);
-  toVector.unmerge("raw", 0, {"k", dName, "kpack"},
-                   {kOuter, dPerThread, kpack});
+  toVector.unmerge("raw", 0, {"k", dName, "kpack_thread"},
+                   {kOuter, dPerThread, kpackPerThread});
   TransformMapAttr toVectorAttr = toVector.get();
   return b.getArrayAttr({splitIterAttr, toVectorAttr});
 }
@@ -1405,12 +1208,12 @@ struct GridwiseGemmV2RewritePattern
     // Logic to setup buffers for blockwise_gemm_v2.
 
     bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
-    int64_t arrayASize = (!IsKReduction)
-                             ? (kPerBlock * MRepeats)
-                             : (kPerBlock / inputSpansPerMfmaIn * MRepeats);
-    int64_t arrayBSize = (!IsKReduction)
-                             ? (kPerBlock * NRepeats)
-                             : (kPerBlock / inputSpansPerMfmaIn * NRepeats);
+    int64_t arrayASize =
+        (!IsKReduction) ? (kpacksPerBlock * MRepeats)
+                        : (kpacksPerBlock / inputSpansPerMfmaIn * MRepeats);
+    int64_t arrayBSize =
+        (!IsKReduction) ? (kpacksPerBlock * NRepeats)
+                        : (kpacksPerBlock / inputSpansPerMfmaIn * NRepeats);
     Type arrayAType, arrayBType;
     if (kpack > 1) {
       arrayAType =
@@ -1516,8 +1319,8 @@ struct GridwiseGemmV2RewritePattern
     int64_t numElements = regCVectorLen * nResultVectors;
     TopDownTMBuilder splitMemoryCoords(b, {"bid", "tid", "item"},
                                        {gridSize, blockSize, numElements}, loc);
-    splitMemoryCoords.merge({"g", "n", "m"}, {0, 1, 2}, {"bid"},
-                            {gridSize / GStride, GStride / mBlocks, mBlocks});
+    splitMemoryCoords.merge({"g", "m", "n"}, {0, 1, 2}, {"bid"},
+                            {gridSize / GStride, GStride / nBlocks, nBlocks});
     splitMemoryCoords.merge(
         {"wave", "m_tid", "n_tid"}, {3, 4, 5}, "tid",
         {wavesInKernelBlock, waveSize / inputSpanLen, inputSpanLen});

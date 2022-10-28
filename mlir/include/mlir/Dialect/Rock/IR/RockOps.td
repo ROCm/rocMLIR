@@ -231,9 +231,9 @@ def Rock_TensorUntransformCastOp :
 
 def Rock_GridwiseGemmOp :
     Rock_Op<"gridwise_gemm">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$a,
-                   MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$b,
-                   MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$c,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$a,
+                   MemRefRankOf<[F32, F16, BF16, I8], [3]>:$b,
+                   MemRefRankOf<[F32, F16, BF16, I32], [3]>:$c,
                    StrAttr:$arch,
                    // Note: num_cu is not used
                    // arch isn't either, but I'm passing it down just in case
@@ -252,9 +252,9 @@ def Rock_GridwiseGemmOp :
 // gridwise_gemm_v2
 def Rock_GridwiseGemmV2Op :
     Rock_Op<"gridwise_gemm_v2">,
-    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$a,
-                   MemRefRankOf<[F32, F16, BF16, I8], [3, 4]>:$b,
-                   MemRefRankOf<[F32, F16, BF16, I32], [3, 4]>:$c,
+    Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$a,
+                   MemRefRankOf<[F32, F16, BF16, I8], [3]>:$b,
+                   MemRefRankOf<[F32, F16, BF16, I32], [3]>:$c,
                    StoreMethodAttr:$storeMethod,
                    StrAttr:$arch,
                    // Note: num_cu isn't used
