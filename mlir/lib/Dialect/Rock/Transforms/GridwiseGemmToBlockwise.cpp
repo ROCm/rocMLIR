@@ -528,13 +528,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     }
 
     // Obtain critical tuning parameters.
-    uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
     GeneralGemmParamsAttr tuningParams = op.getParams();
     int64_t kpack = tuningParams.getKpack();
     // TODO: kPerBlock, as defined in parameter selection etc,
     // is in units of kPack, not individual k. This should be changed
     // at some future point, but it'll be worked around for now.
+    uint32_t blockSize = tuningParams.getBlockSize();
     int64_t kpacksPerBlock = tuningParams.getKPerBlock();
     int64_t mPerBlock = tuningParams.getMPerBlock();
     int64_t nPerBlock = tuningParams.getNPerBlock();
@@ -761,7 +761,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       // Emit blockwise GEMM.
       blockwiseGemmOp = b.create<BlockwiseGemmOp>(
           loc, ldsMatrixASubviewOp, ldsMatrixBSubviewOp, registerMatrixCViewOp,
-          op.getBlockSizeAttr(), op.getParamsAttr());
+          op.getParamsAttr());
 
       // LDS barrier.
       // This barrier prevents halo part of outputs having weird values.
@@ -997,7 +997,7 @@ struct GridwiseGemmV2RewritePattern
     }
 
     // Obtain critical tuning parameters.
-    uint32_t blockSize = op.getBlockSize();
+    uint32_t blockSize = op.getDerivedBlockSize();
     uint32_t gridSize = op.getGridSize();
     XdlopsGemmParamsAttr tuningParams = op.getParams();
     int64_t kpack = tuningParams.getKpack();

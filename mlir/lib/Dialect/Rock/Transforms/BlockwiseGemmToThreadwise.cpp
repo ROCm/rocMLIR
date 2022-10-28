@@ -120,11 +120,11 @@ struct BlockwiseGemmRewritePattern
     int64_t mC = bufferCType.getShape()[0];
     int64_t nC = bufferCType.getShape()[1];
 
-    uint32_t blockSize = op.getBlockSize();
     GeneralGemmBlockStructure blockStructure =
         *deriveGeneralGemmBlockStructure(blockSize);
 
     GeneralGemmParamsAttr params = op.getParams();
+    uint32_t blockSize = params.getBlockSize();
     int64_t kPerThread = params.getKPerThread();
     int64_t mPerThread = params.getMPerThread();
     int64_t nPerThread = params.getNPerThread();

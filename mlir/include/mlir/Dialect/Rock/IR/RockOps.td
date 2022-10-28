@@ -55,7 +55,7 @@ class Rock_Conv2DOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16],
                    TensorOrMemRefRankOf<outputTypes, [5]>:$output,
                    StrAttr:$arch,
                    Rock_GemmFeaturesAttr:$features,
-                   OptionalAttr<I32Attr>:$blockSize,
+                   OptionalAttr<I32Attr>:$derivedBlockSize,
                    OptionalAttr<I32Attr>:$gridSize,
                    I32ArrayLength<4>:$padding,
                    I32ArrayLength<2>:$strides,
@@ -127,7 +127,7 @@ def Rock_GemmOp :
                    OptionalAttr<I32Attr>:$numCU,
                    Rock_GemmFeaturesAttr:$features,
                    StoreMethodAttr:$storeMethod,
-                   OptionalAttr<I32Attr>:$blockSize,
+                   OptionalAttr<I32Attr>:$derivedBlockSize,
                    OptionalAttr<I32Attr>:$gridSize,
                    OptionalAttr<RockTuningParamAttrInterface>:$params)>,
     Results<(outs Optional<AnyRankedTensor>:$result)> {
@@ -145,7 +145,7 @@ def Rock_GemmOp :
 
     Those creating a `rock.gemm` must specify the GPU architecture being targetted
     and the number of compute units (numCu) available. The parameters
-    `blockSize`, `gridSize`, and `params` are optional as they can be inferred by
+    `derivedBlockSize`, `gridSize`, and `params` are optional as they can be inferred by
     a tuning process or a heuristic, but they must be set before the `gemm` is
     lowered into the `gridwise_gemm` stage of the code generation pipeline.
 
@@ -237,7 +237,6 @@ def Rock_GridwiseGemmOp :
                    StrAttr:$arch,
                    // Note: num_cu is not used
                    // arch isn't either, but I'm passing it down just in case
-                   I32Attr:$blockSize,
                    I32Attr:$gridSize,
                    Rock_GeneralGemmParamsAttr:$params)> {
   let summary = "Gridwise GEMM";
@@ -796,7 +795,6 @@ def Rock_BlockwiseGemmOp:
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixA,
                    MemRefRankOf<[F32, F16, BF16, I8], [3]>:$matrixB,
                    MemRefRankOf<[F32, F16, BF16, I32], [2]>:$matrixC,
-                   I32Attr:$blockSize,
                    Rock_GeneralGemmParamsAttr:$params
                    )> {
   let summary = "Blockwise GEMM non-XDLOPS version";

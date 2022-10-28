@@ -95,11 +95,11 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
           This is needed for --affix-tuning-params to work and can go away if it does
         }],
         /*retType=*/"void",
-        /*methodName=*/"setBlockSizeAttr",
+        /*methodName=*/"setDerivedBlockSizeAttr",
         /*args=*/(ins "::mlir::IntegerAttr":$blockSize),
         /*methodBody=*/"",
         /*defaultImplementation=*/[{
-          $_op->setAttr($_op.getBlockSizeAttrName(), blockSize);
+          $_op->setAttr($_op.getDerivedBlockSizeAttrName(), blockSize);
         }]
       >,
     InterfaceMethod<
@@ -129,8 +129,20 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
         /*defaultImplementation=*/[{
           $_op->setAttr($_op.getParamsAttrName(), params);
         }]
-      >
+      >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Get blocksize if it is non-Xdlops and given in the gemmParam
 
+        }],
+        /*retType=*/"Optional<uint32_t>",
+        /*methodName=*/"getBlockSize",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/[{
+          $_op->getDerivedBlockSize().value_or($_op->getParams().getBlockSize());
+        }]
+      >
 
     // TODO: more methods here as needed
   ];

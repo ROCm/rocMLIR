@@ -153,7 +153,7 @@ LogicalResult createElementwiseLoop(
     OpBuilder &b, Location loc, Operation *convOp, ValueRange memrefs,
     int64_t vectorLen,
     function_ref<void(OpBuilder &, Location, ValueRange, Value)> emitBodyFunc) {
-  uint32_t blockSize = convOp->getAttrOfType<IntegerAttr>("blockSize").getInt();
+  uint32_t blockSize = convOp->getBlockSize();
   int64_t elemsPerThread =
       convOp->getAttrOfType<IntegerAttr>("elems_per_thread").getInt();
   if (elemsPerThread % vectorLen != 0)
@@ -414,7 +414,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     Value filterTensorInUse =
         (hasWorkspace) ? op.getWorkspace() : op.getFilter();
     Value withKBlock = b.create<rock::TransformOp>(loc, filterTensorInUse,
-                                                     addKBlockTransformAttr);
+                                                   addKBlockTransformAttr);
 
     // Create GEMM filter tensor
     // Here, we merge the KBlock dimension into the G dimension
@@ -531,7 +531,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
       loc, getResultType(op, gemmFilter), gemmOutput, gemmInput, gemmFilter,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
       /*cTransposed=*/nullptr, op.getArchAttr(), op.getNumCuAttr(),
-      op.getFeaturesAttr(), storeMethod, op.getBlockSizeAttr(),
+      op.getFeaturesAttr(), storeMethod, op.getDerivedBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
   gemm->setAttr("gemm_id", gemmIdAttr);
 
@@ -773,7 +773,7 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
       loc, getResultType(op, gemmInput), gemmFilter, gemmOutput, gemmInput,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
       /*cTransposed=*/nullptr, op.getArchAttr(), op.getNumCuAttr(),
-      op.getFeaturesAttr(), storeMethod, op.getBlockSizeAttr(),
+      op.getFeaturesAttr(), storeMethod, op.getDerivedBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
   gemm->setAttr("gemm_id", gemmIdAttr);
 
@@ -1034,7 +1034,8 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
                      /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
                      /*cTransposed=*/nullptr, op.getArchAttr(),
                      op.getNumCuAttr(), op.getFeaturesAttr(), storeMethod,
-                     op.getBlockSizeAttr(), op.getGridSizeAttr(), tuningParams);
+                     op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
+                     tuningParams);
 
     // Finally, erase the original Conv2D op.
     b.eraseOp(op);

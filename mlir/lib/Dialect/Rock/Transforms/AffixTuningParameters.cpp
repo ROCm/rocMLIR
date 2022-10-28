@@ -162,7 +162,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     }
 
     gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
-    op.setBlockSizeAttr(b.getI32IntegerAttr(blockSize));
+    op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
     op.setGridSizeAttr(b.getI32IntegerAttr(gridSize));
 
     // Set kblocks attribute only for backward weight convolutions.
@@ -191,8 +191,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
     }
 
     gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
-
-    op.setBlockSizeAttr(b.getI32IntegerAttr(validParams.blockSize));
     op.setGridSizeAttr(b.getI32IntegerAttr(gridSize));
 
     // For non-XDLOPS path, do not use KPack for now.
