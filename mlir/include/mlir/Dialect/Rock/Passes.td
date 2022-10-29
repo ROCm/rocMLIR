@@ -84,6 +84,7 @@ def RockBufferLoadMergePass : Pass<"rock-buffer-load-merge", "::mlir::func::Func
 
 def RockLoopsToCfPass : Pass<"rock-loops-to-cf", "ModuleOp"> {
   let summary = "expand loop / affine dialects to control flow. Notice GPU dialect will explicitly NOT be used in this pass";
+  let dependentDialects = ["scf::SCFDialect"];
 }
 
 #endif // MLIR_DIALECT_ROCK_PASSES
