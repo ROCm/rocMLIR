@@ -10,9 +10,7 @@ set(LIBS
   ${rocmlir_conversion_libs}
   )
 
-add_llvm_executable(rocmlir-gen
-  PARTIAL_SOURCES_INTENDED
-
+add_llvm_tool(rocmlir-gen
   rocmlir-gen.cpp
 
   DEPENDS

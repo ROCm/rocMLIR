@@ -14,8 +14,8 @@ set(LIBS
   MLIRXModelPipeline
   )
 
-add_llvm_executable(rocmlir-driver
-  PARTIAL_SOURCES_INTENDED
+add_llvm_tool(rocmlir-driver
+#  PARTIAL_SOURCES_INTENDED
 
   rocmlir-driver.cpp
 
