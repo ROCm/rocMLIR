@@ -78,6 +78,11 @@ MlirLogicalResult mlirParsePassPipeline(MlirOpPassManager passManager,
   return wrap(mlir::parsePassPipeline(unwrap(pipeline), *unwrap(passManager)));
 }
 
+void mlirSetNestingImplicit(MlirPassManager passManager) {
+  return unwrap(passManager)->setNesting(PassManager::Nesting::Implicit);
+}
+
+
 //===----------------------------------------------------------------------===//
 // External Pass API.
 //===----------------------------------------------------------------------===//

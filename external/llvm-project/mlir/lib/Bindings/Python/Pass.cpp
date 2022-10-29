@@ -80,6 +80,12 @@ void mlir::python::populatePassManagerSubmodule(py::module &m) {
             mlirPassManagerEnableVerifier(passManager.get(), enable);
           },
           py::arg("enable"), "Enable / disable verify-each.")
+      .def(
+          "set_nesting_implicit",
+          [](PyPassManager &passManager) {
+            mlirSetNestingImplicit(passManager.get());
+          },
+          "Enable implicit nesting.")
       .def_static(
           "parse",
           [](const std::string pipeline, DefaultingPyMlirContext context) {

@@ -117,6 +117,10 @@ MLIR_CAPI_EXPORTED void mlirPrintPassPipeline(MlirOpPassManager passManager,
 MLIR_CAPI_EXPORTED MlirLogicalResult
 mlirParsePassPipeline(MlirOpPassManager passManager, MlirStringRef pipeline);
 
+/// Enable implicit nesting.
+MLIR_CAPI_EXPORTED void
+mlirSetNestingImplicit(MlirPassManager passManager);
+
 //===----------------------------------------------------------------------===//
 // External Pass API.
 //
