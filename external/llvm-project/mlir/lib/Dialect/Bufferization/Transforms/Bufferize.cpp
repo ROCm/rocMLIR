@@ -172,12 +172,37 @@ parseLayoutMapOption(const std::string &s) {
   llvm_unreachable("invalid layout map option");
 }
 
+static std::string
+layoutMapOptionToString(const BufferizationOptions::LayoutMapOption &s) {
+  switch (s) {
+  case BufferizationOptions::LayoutMapOption::FullyDynamicLayoutMap:
+    return "fully-dynamic-layout-map";
+  case BufferizationOptions::LayoutMapOption::IdentityLayoutMap:
+    return "identity-layout-map";
+  case BufferizationOptions::LayoutMapOption::InferLayoutMap:
+    return "infer-layout-map";
+  }
+}
+
 struct OneShotBufferizePass
     : public bufferization::impl::OneShotBufferizeBase<OneShotBufferizePass> {
   OneShotBufferizePass() {}
 
   explicit OneShotBufferizePass(const OneShotBufferizationOptions &options)
-      : options(options) {}
+      : options(options) {
+    allowReturnAllocs = options.allowReturnAllocs;
+    allowUnknownOps = options.allowUnknownOps;
+    analysisFuzzerSeed = options.analysisFuzzerSeed;
+    copyBeforeWrite = options.copyBeforeWrite;
+    createDeallocs = options.createDeallocs;
+    functionBoundaryTypeConversion
+      = layoutMapOptionToString(options.functionBoundaryTypeConversion);
+//     unknownTypeConversion
+//       = layoutMapOptionToString(options.unknownTypeConversion);
+    printConflicts = options.printConflicts;
+    testAnalysisOnly = options.testAnalysisOnly;
+    bufferizeFunctionBoundaries = options.bufferizeFunctionBoundaries;
+  }
 
   void getDependentDialects(DialectRegistry &registry) const override {
     registry
