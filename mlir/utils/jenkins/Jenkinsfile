@@ -148,7 +148,10 @@ String getLabelFromCodepath(String codepath) {
     if (codepath == "mfma") {
         label = 'mlir && (gfx908 || gfx90a)'
     } else if (codepath == "navi21") {
-        label = 'navi_workstation'
+        // For now, both navi21 workstations (gfx1030w) and CI nodes (gfx1030) work
+        // for PR CI tests
+        // But only navi workstations (gfx1030w) work for nightly CI tests
+        label = 'mlir && gfx1030w'
     } else if (codepath == "vanilla"){
         label = 'mlir && gfx906'
     } else {
@@ -175,19 +178,25 @@ void tuneMLIRKernels() {
     }
 }
 
-void build_fixedE2ETests() {
+void build_fixedE2ETests(String codepath) {
+    // Limit the number of lit workers to 8 for navi21 codepath on nightly CI as a workaround for issue#702
+    limit_lit_workers = false
+    if ( (codepath == 'navi21') && (params.nightly == true) ) {
+        limit_lit_workers = true
+    }
     buildProject('check-mlir-build-only check-rocmlir-build-only', """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-              -DLLVM_LIT_ARGS='-v --time-tests'
+              -DLLVM_LIT_ARGS='-v --time-tests ${ limit_lit_workers ? '-j 8' : ' ' }'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
 }
 
-void check_randomE2ETests() {
+void check_randomE2ETests(String codepath) {
+    // Limit the number of lit workers to 8 for navi21 codepath on nightly CI as a workaround for issue#702
     buildProject('check-rocmlir', """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
@@ -195,7 +204,7 @@ void check_randomE2ETests() {
               -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
               -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=0
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
-              -DLLVM_LIT_ARGS='-v --time-tests'
+              -DLLVM_LIT_ARGS='-v --time-tests ${ codepath == 'navi21' ? '-j 8' : ' ' }'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
 }
@@ -219,7 +228,9 @@ boolean shouldRunFromCodepath(String codepath) {
     }
     // Run navi21 on private CI only if it is not disabled
     if (params.canXdlops && (params.disableNavi21 == false) && (codepath == "navi21")) {
-        return true
+        // Temporarily disable navi21 codepath for weekly
+        if (params.weekly == false)
+            return true
     }
     return false
 }
@@ -277,7 +288,7 @@ pipeline {
                choices: ['default', 'mfma', 'navi21', 'vanilla'],
                description: 'Choose the codepath to test')
         // option to disable navi21 cells in case nodes are offline
-        booleanParam(name: 'disableNavi21', defaultValue: true,
+        booleanParam(name: 'disableNavi21', defaultValue: false,
                      description: 'Disable testing on Navi21')
     }
     stages {
@@ -358,7 +369,7 @@ pipeline {
                             equals expected: true, actual: params.sharedLib;
                         }
                         steps {
-                            build_fixedE2ETests()
+                            build_fixedE2ETests("${CODEPATH}")
                             preMergeCheck("${CODEPATH}")
                             sh 'cd build; ninja check-mlir check-rocmlir'
                         }
@@ -372,7 +383,7 @@ pipeline {
                             }
                         }
                         steps {
-                            check_randomE2ETests()
+                            check_randomE2ETests("${CODEPATH}")
                         }
                     }
                     stage("Static Library: test librockCompiler with MIOpen") {
