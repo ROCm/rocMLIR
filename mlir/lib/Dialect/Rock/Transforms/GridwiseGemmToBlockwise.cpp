@@ -1016,19 +1016,41 @@ struct GridwiseGemmV2RewritePattern
                << "bVectorLen: " << bVectorLen << "\n"
                << "vectorTiebreaker: " << vectorTiebreaker << "\n");
 
-    // Vectorization lengths evenly devide *CopyPerThread, this is safe.
-    int64_t aCopyKPerThread = aVectorDim == GemmDimension::K
-                                  ? aVectorLen
-                                  : aCopyPerThread / aVectorLen;
-    int64_t copyMPerThread = aVectorDim == GemmDimension::MorN
-                                 ? aVectorLen
-                                 : aCopyPerThread / aVectorLen;
-    int64_t bCopyKPerThread = bVectorDim == GemmDimension::K
-                                  ? bVectorLen
-                                  : bCopyPerThread / bVectorLen;
-    int64_t copyNPerThread = bVectorDim == GemmDimension::MorN
-                                 ? bVectorLen
-                                 : bCopyPerThread / bVectorLen;
+    int64_t aCopyKPerThread = 0;
+    int64_t copyMPerThread = 0;
+    if (aVectorDim == GemmDimension::K) {
+      aCopyKPerThread = std::min(aVectorLen, kPerBlock);
+      copyMPerThread = aCopyPerThread / aCopyKPerThread;
+    } else {
+      copyMPerThread = std::min(aVectorLen, mPerBlock);
+      aCopyKPerThread = aCopyPerThread / copyMPerThread;
+    }
+    if (aCopyKPerThread == 0 || copyMPerThread == 0) {
+      LLVM_DEBUG(llvm::dbgs() << "gemmA copy size too small.\n");
+      return failure();
+    }
+
+    int64_t bCopyKPerThread = 0;
+    int64_t copyNPerThread = 0;
+    if (bVectorDim == GemmDimension::K) {
+      bCopyKPerThread = std::min(bVectorLen, kPerBlock);
+      copyNPerThread = bCopyPerThread / bCopyKPerThread;
+    } else {
+      copyNPerThread = std::min(bVectorLen, nPerBlock);
+      bCopyKPerThread = bCopyPerThread / copyNPerThread;
+    }
+    if (bCopyKPerThread == 0 || copyNPerThread == 0) {
+      LLVM_DEBUG(llvm::dbgs() << "gemmB copy size too small.\n");
+      return failure();
+    }
+
+    LLVM_DEBUG(llvm::dbgs() << "kPerBlock: " << kPerBlock << "\n"
+                            << "mPerBlock: " << mPerBlock << "\n"
+                            << "nPerBlock: " << mPerBlock << "\n"
+                            << "aCopyKPerThread: " << aCopyKPerThread << "\n"
+                            << "bCopyKPerThread: " << bCopyKPerThread << "\n"
+                            << "copyMPerThread: " << copyMPerThread << "\n"
+                            << "copyNPerThread: " << copyNPerThread << "\n");
 
     FailureOr<Value> maybeWrappedA = wrapMatrixForGlobalLoad(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
