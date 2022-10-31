@@ -35,6 +35,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BlockAndValueMapping.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
@@ -1026,8 +1027,14 @@ struct GridwiseGemmV2RewritePattern
       aCopyKPerThread = aCopyPerThread / copyMPerThread;
     }
     if (aCopyKPerThread == 0 || copyMPerThread == 0) {
-      LLVM_DEBUG(llvm::dbgs() << "gemmA copy size too small.\n");
-      return failure();
+      return emitError(loc) << "gemmA copy size too small,"
+                            << " aCopyKPerThread: " << aCopyKPerThread
+                            << " copyMPerThread: " << copyMPerThread << "\n";
+    }
+    if (kPerBlock < aCopyKPerThread || mPerBlock < copyMPerThread) {
+      return mlir::emitError(loc)
+             << "gemmA per thread copy smaller than per"
+             << " block copy, incohereant tuning parameters\n";
     }
 
     int64_t bCopyKPerThread = 0;
@@ -1040,8 +1047,13 @@ struct GridwiseGemmV2RewritePattern
       bCopyKPerThread = bCopyPerThread / copyNPerThread;
     }
     if (bCopyKPerThread == 0 || copyNPerThread == 0) {
-      LLVM_DEBUG(llvm::dbgs() << "gemmB copy size too small.\n");
-      return failure();
+      return emitError(loc) << "gemmB copy size too small,"
+                            << " bCopyKPerThread: " << bCopyKPerThread
+                            << " copyNPerThread: " << copyNPerThread << "\n";
+    }
+    if (kPerBlock < bCopyKPerThread || nPerBlock < copyNPerThread) {
+      return emitError(loc) << "gemmB per thread copy smaller than per"
+                            << " block copy, incohereant tuning parameters\n";
     }
 
     LLVM_DEBUG(llvm::dbgs() << "kPerBlock: " << kPerBlock << "\n"
