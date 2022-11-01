@@ -19,6 +19,7 @@
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/TargetSelect.h"
 #include <mutex>
 #include <vector>
@@ -125,9 +126,9 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   mlir::rock::KernelOptions kOpts;
   kOpts.tuningFallback = true;
   mlir::rock::buildKernelPipeline(*passMan, kOpts);
-  StringRef archStr(arch);
-  RocmDeviceName devName;
-  if (archStr.empty() || failed(devName.parse(archStr))) {
+  llvm::StringRef archStr(arch);
+  mlir::RocmDeviceName devName;
+  if (archStr.empty() || mlir::failed(devName.parse(archStr))) {
     llvm::errs() << "Invalid architecture: " << archStr << "\n";
     return false;
   }
