@@ -139,7 +139,6 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
         /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
-        }]
       >,
     InterfaceMethod<
         /*desc=*/[{
