@@ -636,12 +636,11 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// ThreadwiseCopyV2 lowering.
+// GlobalStore lowering.
 //===----------------------------------------------------------------------===//
-struct ThreadwiseCopyV2RewritePattern
-    : public OpRewritePattern<ThreadwiseCopyV2Op> {
-  using OpRewritePattern<ThreadwiseCopyV2Op>::OpRewritePattern;
-  LogicalResult matchAndRewrite(ThreadwiseCopyV2Op op,
+struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
+  using OpRewritePattern<GlobalStoreOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(GlobalStoreOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
 
@@ -696,14 +695,14 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
   target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmV2Op, GlobalLoadOp,
-                      ThreadwiseCopyV2Op>();
+                      GlobalStoreOp>();
   target.addLegalDialect<arith::ArithmeticDialect, rock::RockDialect,
                          AffineDialect, memref::MemRefDialect>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<FillRewritePattern, BlockwiseGemmRewritePattern,
                BlockwiseGemmV2RewritePattern, GlobalLoadRewritePattern,
-               ThreadwiseCopyV2RewritePattern>(ctx);
+               GlobalStoreRewritePattern>(ctx);
   if (failed(
           applyPartialConversion(getOperation(), target, std::move(patterns))))
     signalPassFailure();

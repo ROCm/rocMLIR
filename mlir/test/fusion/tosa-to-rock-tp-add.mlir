@@ -5,9 +5,9 @@
 // CHECK: rock.transforming_for
 // CHECK-SAME: [#[[MAP2]]]
 // CHECK-SAME: bounds [1, 1, 1, 1]
-// CHECK-NEXT: rock.buffer_load %arg2
+// CHECK-NEXT: rock.global_load %arg2
 // CHECK: linalg.generic{{.*}} outs(%[[outBuf:.*]] : memref<1xf32, 5>)
-// CHECK: threadwise_copy_v2 %[[outBuf]]{{.*}} -> %arg3
+// CHECK: global_store %[[outBuf]]{{.*}} -> %arg3
 // to test transpose is converted as transform and fused.
 
 func.func @test_fusion(%arg0: tensor<256x28x28x128xf32>, %arg1: tensor<64x3x3x128xf32>, %arg2: tensor<256x64x28x28xf32>) -> tensor<256x28x28x64xf32> attributes {kernel, arch = ""} {

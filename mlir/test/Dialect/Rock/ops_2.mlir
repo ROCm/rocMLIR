@@ -458,14 +458,14 @@ func.func @rock_global_load(%source : memref<?x?x?x?x?xf32>) -> vector<8xf32> {
 // CHECK: rock.global_load
 
 // --------------------------
-// threadwise_copy_v2 tests.
+// global_store tests.
 
-func.func @rock_threadwise_copy_v2(%source : memref<32xf32, 5>,
+func.func @rock_global_store(%source : memref<32xf32, 5>,
                                 %dest : memref<?x?x?x?x?xf32>) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
   // check source and destination with coordinate transforms.
-  rock.threadwise_copy_v2
+  rock.global_store
     %source[%c0] ->
     %dest[%c1, %c1, %c1, %c1, %c1]
     storeMethod(set)
@@ -476,8 +476,8 @@ func.func @rock_threadwise_copy_v2(%source : memref<32xf32, 5>,
   return
 }
 
-// CHECK-LABEL: func.func @rock_threadwise_copy_v2
-// CHECK: rock.threadwise_copy_v2
+// CHECK-LABEL: func.func @rock_global_store
+// CHECK: rock.global_store
 
 func.func @rock_threadwise_gemm(%lhs : memref<4x8x1xf32, 5>, %rhs : memref<4x8x1xf32, 5>, %output : memref<8x8xf32, 5>) {
   rock.threadwise_gemm %output += %lhs * %rhs

@@ -758,9 +758,9 @@ def Rock_GlobalLoadOp :
   }];
 }
 
-// threadwise_copy_v2
-def Rock_ThreadwiseCopyV2Op :
-    Rock_Op<"threadwise_copy_v2", [AllElementTypesMatch<["source", "dest"]>]>,
+// global_store
+def Rock_GlobalStoreOp :
+    Rock_Op<"global_store", [AllElementTypesMatch<["source", "dest"]>]>,
     Arguments<(ins MemRefRankOf<[F32, F16, BF16, I32], [1]>:$source,
                    AnyMemRef:$dest,
                    IndexAttr:$length,
@@ -771,7 +771,7 @@ def Rock_ThreadwiseCopyV2Op :
                    Variadic<Index>:$destCoord)> {
   let summary = "Marker for stores to global memory";
   let description = [{
-    The `threadwise_copy_v2` op is a wrapper around storing to a global buffer.
+    The `global_store` op is a wrapper around storing to a global buffer.
     This is used in order to make it easier for operator
     fusion to identify the write out to global memory produced within a gridwise
     gemm.
