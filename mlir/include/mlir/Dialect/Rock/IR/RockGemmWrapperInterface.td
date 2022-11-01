@@ -132,7 +132,7 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
       >,
     InterfaceMethod<
         /*desc=*/[{
-          Get Optional blocksize
+          Get the value of the derived block size attribute if it is set.
         }],
         /*retType=*/"Optional<uint32_t>",
         /*methodName=*/"getDerivedBlockSize",
@@ -142,15 +142,18 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
       >,
     InterfaceMethod<
         /*desc=*/[{
-          Get blocksize if it is non-Xdlops and given in the gemmParam
-          Return 0 otherwise
+          Return the block size this operation will execute with if it has been selected 
+          or None otherwise. Prioritizes the block size defined in tuning parameters
         }],
         /*retType=*/"uint32_t",
         /*methodName=*/"getBlockSize",
         /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/[{
-          $_op->getDerivedBlockSize().value_or($_op->getParams().getBlockSize());
+          if (auto generalParams = $_op.getParamsAttr().dyn_cast_or_null<GeneralGemmParams>()) {
+            return generalParams.getBlockSize();
+          } 
+          return $_op.getDerivedBlockSize();
         }]
       >
 
