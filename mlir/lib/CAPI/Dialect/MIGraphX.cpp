@@ -18,6 +18,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
+#include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "llvm/Support/TargetSelect.h"
 #include <mutex>
 #include <vector>
@@ -111,10 +112,8 @@ void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
   mlir::rock::buildBufferizePipeline(*passMan);
 }
 
-MLIR_CAPI_EXPORTED void mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
-                                                       const char *chip,
-                                                       const char *triple,
-                                                       const char *features) {
+MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
+                                                       const char *arch) {
   static std::mutex target_mutex;
   target_mutex.lock();
   // Some calls included in regiserGpuSerializeToHsacoPass() are not thread safe
@@ -126,11 +125,19 @@ MLIR_CAPI_EXPORTED void mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   mlir::rock::KernelOptions kOpts;
   kOpts.tuningFallback = true;
   mlir::rock::buildKernelPipeline(*passMan, kOpts);
+  StringRef archStr(arch);
+  RocmDeviceName devName;
+    if (archStr.empty() || failed(devName.parse(archStr))) {
+    llvm::errs() << "Invalid architecture: " << archStr << "\n";
+    return false;
+  }
   mlir::rock::BackendOptions opts;
-  opts.triple = triple;
-  opts.chip = chip;
-  opts.features = features;
+  opts.triple = devName.getTriple().str();
+  opts.chip = devName.getChip().str();
+  opts.features = devName.getFeaturesForBackend();
   opts.optLevel = 3;
   opts.indexBitwidth = 32;
   mlir::rock::buildBackendPipeline(*passMan, opts);
+
+  return true;
 }
