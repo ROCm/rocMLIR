@@ -43,9 +43,7 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, int *size, char *bin);
 MLIR_CAPI_EXPORTED void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm);
 
 MLIR_CAPI_EXPORTED void mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
-                                                       const char *chip,
-                                                       const char *triple,
-                                                       const char *features);
+                                                       const char *arch);
 #ifdef __cplusplus
 }
 #endif
