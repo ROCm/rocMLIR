@@ -127,7 +127,7 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   mlir::rock::buildKernelPipeline(*passMan, kOpts);
   StringRef archStr(arch);
   RocmDeviceName devName;
-    if (archStr.empty() || failed(devName.parse(archStr))) {
+  if (archStr.empty() || failed(devName.parse(archStr))) {
     llvm::errs() << "Invalid architecture: " << archStr << "\n";
     return false;
   }

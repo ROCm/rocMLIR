@@ -194,7 +194,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 
   // 2nd pipeline to call
   const char *deviceName = "gfx908:sramecc+:xnack-";
-  if(!mlirMIGraphXAddBackendPipeline(pm1, deviceName)){
+  if (!mlirMIGraphXAddBackendPipeline(pm1, deviceName)) {
     printf("Errors in building backend pipeline\n");
     return false;
   }
