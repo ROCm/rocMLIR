@@ -1344,6 +1344,11 @@ struct GridwiseGemmV2RewritePattern
         b.getIndexAttr(ldsBlockBOffset), mMyWaveOffsetA, mMyWaveOffsetB, arrayA,
         arrayB, regCAllocOp, op.getBlockSizeAttr(), op.getParamsAttr());
 
+    // Apparently, the canonicalizer doesn't get rid of empty loops without
+    // results properly, remove them ourselves.
+    if (nIterations <= 1)
+      b.eraseOp(loopOp);
+
     // -----
 
     // Matrix C write out logic.
