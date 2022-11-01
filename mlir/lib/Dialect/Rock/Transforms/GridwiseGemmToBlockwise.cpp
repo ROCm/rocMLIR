@@ -997,7 +997,7 @@ struct GridwiseGemmV2RewritePattern
     }
 
     // Obtain critical tuning parameters.
-    uint32_t blockSize = op.getDerivedBlockSize();
+    uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
     XdlopsGemmParamsAttr tuningParams = op.getParams();
     int64_t kpack = tuningParams.getKpack();

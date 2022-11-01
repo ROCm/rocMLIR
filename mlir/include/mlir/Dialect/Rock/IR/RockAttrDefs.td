@@ -251,8 +251,8 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
           Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
         + Twine(getKPerBlock()) + ","
+        + Twine(getKpack()) + ","
         + Twine(getMPerWave()) + ","
-        + Twine(getNPerWave()) + ","
         + Twine(getNPerWave()) + ","
         + "1,1"; /* *ThreadCopyMore* */
       return paramsConcat.str();
