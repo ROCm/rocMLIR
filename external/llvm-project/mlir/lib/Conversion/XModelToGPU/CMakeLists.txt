@@ -12,6 +12,7 @@ add_mlir_conversion_library(MLIRXModelToGPU
 
   LINK_LIBS PUBLIC
   MLIRAsyncDialect
+  MLIRXModel
   MLIRGPUOps
   MLIRLLVMDialect
   MLIRTransforms

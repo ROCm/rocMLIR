@@ -41,6 +41,8 @@ struct XModelSelectTargetsPass
       XModelSelectTargetsPass>::XModelSelectTargetsPassBase;
 
   bool testType(xmodel::TargetType type) const {
+    if (targetTypes.empty())
+      return true;
     auto typeStr = xmodel::getNameForTargetType(type);
     for (auto targetType : targetTypes) {
       if (targetType == typeStr)
@@ -87,6 +89,10 @@ struct XModelSelectTargetsPass
       if (targetKrn)
         func->setAttr(targetsTag, b.getArrayAttr(targetKrn));
       else {
+        if (targetArchs.size()) {
+          func.emitError("target object not found");
+          signalPassFailure();
+        }
         func->removeAttr(targetsTag);
       }
     }
