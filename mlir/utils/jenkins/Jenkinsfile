@@ -248,9 +248,7 @@ boolean shouldRunFromCodepath(String codepath) {
     }
     // Run navi21 on private CI only if it is not disabled
     if (params.canXdlops && (params.disableNavi21 == false) && (codepath == "navi21")) {
-        // Temporarily disable navi21 codepath for weekly
-        if (params.weekly == false)
-            return true
+        return true
     }
     return false
 }
