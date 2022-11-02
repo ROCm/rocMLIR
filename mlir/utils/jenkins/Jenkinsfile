@@ -269,7 +269,6 @@ void archivePerfDB() {
     // Note: add additional architectures here
     dir ('MIOpen/build/MIOpenUserDB') {
         unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx908' : 'gfx906'}"
-        // This'll stop being a duplicate once Navi CI starts
         unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx90a' : 'gfx906'}"
         if (params.disableNavi21 == false)
             unstash name: "MLIR-PerfDB-${params.canXdlops ? 'gfx1030' : 'gfx906'}"
