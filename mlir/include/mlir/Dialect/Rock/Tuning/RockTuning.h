@@ -23,7 +23,6 @@ namespace rock {
 // Parameter container holding a parameter and serialized string
 struct ParamEntry {
   RockTuningParamAttrInterface param;
-  std::string perfString;
   KernelType primaryOpType;
 };
 
@@ -34,7 +33,7 @@ struct TunableParams {
   int numHeuristicQuick;
 };
 
-TunableParams *createTunableParams(ModuleOp &mod);
+TunableParams *createTunableParamSpace(ModuleOp &mod);
 
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry);
 

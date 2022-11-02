@@ -69,7 +69,7 @@ void createGemmTuningRangeBF(struct TunableParams *newSpace,
   newSpace->numHeuristicQuick = 0;
 }
 
-TunableParams *createTunableParams(ModuleOp &mod) {
+TunableParams *createTunableParamSpace(ModuleOp &mod) {
   struct TunableParams *newSpace;
   newSpace = new TunableParams();
 

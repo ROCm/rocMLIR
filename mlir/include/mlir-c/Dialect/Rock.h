@@ -28,27 +28,41 @@ DEFINE_C_API_STRUCT(MlirRockTuningSpace, void);
 DEFINE_C_API_STRUCT(MlirRockTuningParam, void);
 DEFINE_C_API_STRUCT(MlirRockTuningKey, const void);
 
+// Create full range of the tuning params space
 MLIR_CAPI_EXPORTED MlirRockTuningSpace
 mlirRockTuningSpaceCreate(MlirModule module);
 
+// Returns the estimated number of tuning params that user can quickly find the
+// optimal solution in the sorted array
 MLIR_CAPI_EXPORTED int
 mlirRockTuningGetNumParamsQuick(MlirRockTuningSpace params);
 
+// Returns total number of the tuning params in the array
 MLIR_CAPI_EXPORTED int
 mlirRockTuningGetNumParamsFull(MlirRockTuningSpace params);
 
-MLIR_CAPI_EXPORTED void
-mlirRockTuningSpaceDestroy(MlirRockTuningSpace tuningSpace);
-
+// Allocate memory for a single instance of the tuning params
 MLIR_CAPI_EXPORTED MlirRockTuningParam
-mlirRockTuningCreateParamAt(MlirRockTuningSpace params, int pos);
+mlirRockTuningParamCreate(MlirRockTuningSpace params);
 
+// Destroy given params allocation
 MLIR_CAPI_EXPORTED
 void mlirRockTuningParamDestroy(MlirRockTuningParam param);
 
+// Destroy the tuning params space
 MLIR_CAPI_EXPORTED
-MlirStringRef mlirRockTuningGetParamStr(MlirRockTuningParam param);
+void mlirRockTuningSpaceDestroy(MlirRockTuningSpace params);
 
+// Get tuning params at the given position and update the dest param
+MLIR_CAPI_EXPORTED
+bool mlirRockTuningParamGet(MlirRockTuningSpace params, int pos,
+                            MlirRockTuningParam param);
+
+// Returns cstring of the serialized perfconfig
+MLIR_CAPI_EXPORTED
+char *mlirRockTuningGetParamStr(MlirRockTuningParam param);
+
+// Set the tuning params of the given module using provided param
 MLIR_CAPI_EXPORTED bool mlirRockTuningSetParam(MlirModule module,
                                                MlirRockTuningParam param);
 

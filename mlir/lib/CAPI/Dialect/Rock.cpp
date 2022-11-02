@@ -28,7 +28,7 @@ MLIR_CAPI_EXPORTED MlirRockTuningSpace
 mlirRockTuningSpaceCreate(MlirModule module) {
   struct rock::TunableParams *newParams;
   auto mod = unwrap(module);
-  newParams = rock::createTunableParams(mod);
+  newParams = rock::createTunableParamSpace(mod);
   return wrap(newParams);
 }
 
@@ -44,13 +44,11 @@ int mlirRockTuningGetNumParamsFull(MlirRockTuningSpace params) {
   return tuningSpace->tuningRange.size();
 }
 
-// Allocate parameter entry to hold string allocation and pass it more easily.
 MLIR_CAPI_EXPORTED MlirRockTuningParam
-mlirRockTuningCreateParamAt(MlirRockTuningSpace params, int pos) {
+mlirRockTuningParamCreate(MlirRockTuningSpace params) {
   auto tuningSpace = unwrap(params);
   rock::ParamEntry *param = new rock::ParamEntry();
   param->param = tuningSpace->tuningRange[pos];
-  param->perfString = param->param.getPerfConfigStr();
   return wrap(param);
 }
 
@@ -65,10 +63,22 @@ void mlirRockTuningSpaceDestroy(MlirRockTuningSpace params) {
 }
 
 MLIR_CAPI_EXPORTED
-MlirStringRef mlirRockTuningGetParamStr(MlirRockTuningParam param) {
+bool mlirRockTuningParamGet(MlirRockTuningSpace params, int pos,
+                            MlirRockTuningParam param) {
+  auto tuningSpace = unwrap(params);
   auto paramEntry = unwrap(param);
-  llvm::StringRef strRef = paramEntry->perfString;
-  return wrap(strRef);
+  // out of bound check.
+  if (pos > tuningSpace->tuningRange.size() - 1)
+    return false;
+  paramEntry->param = tuningSpace->tuningRange[pos];
+  return true;
+}
+
+MLIR_CAPI_EXPORTED
+char *mlirRockTuningGetParamStr(MlirRockTuningParam param) {
+  auto paramEntry = unwrap(param);
+  llvm::StringRef strRef = paramEntry.getPerfConfigStr();
+  return strRef.data;
 }
 
 MLIR_CAPI_EXPORTED

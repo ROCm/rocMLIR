@@ -170,12 +170,17 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   MlirRockTuningSpace tuningSpace = mlirRockTuningSpaceCreate(module);
   int qNum = mlirRockTuningGetNumParamsQuick(tuningSpace);
   int fNum = mlirRockTuningGetNumParamsFull(tuningSpace);
-  MlirRockTuningParam obtainedParam =
-      mlirRockTuningCreateParamAt(tuningSpace, 0);
-  mlirRockTuningSetParam(module, obtainedParam);
-  MlirStringRef paramStr = mlirRockTuningGetParamStr(obtainedParam);
-  mlirRockTuningParamDestroy(obtainedParam);
+  MlirRockTuningParam tuningParam =
+      mlirRockTuningParamCreate(tuningSpace);
+  if (!mlirRockTuningParamGet(tuningSpace, 0, tuningParam)) {
+    printf("fails to obtain param\n");
+    return false;
+  }
+  mlirRockTuningSetParam(module, tuningParam);
+  char *paramStr = strdup(mlirRockTuningGetParamStr(tuningParam));
+  mlirRockTuningParamDestroy(tuningParam);
   mlirRockTuningSpaceDestroy(tuningSpace);
+  free paramStr;
 
   printf("Got tuning space,\n");
   printf("Obtained perfconfig : \"%s\"\n", paramStr.data);
