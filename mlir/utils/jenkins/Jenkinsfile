@@ -111,13 +111,20 @@ void postProcessPerfRes(String chip) {
         alwaysLinkToLastBuild: false,
         keepAll: true,
         reportDir: 'build',
-        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html",
+        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html,${chip}_MLIR_Performance_Changes_Gemm.html,${chip}_MLIR_vs_rocBLAS.html",
         reportName: "Performance report for ${chip}"
     ])
 
     plot csvFileName: "${chip}_plot-nightly-perf-results-000001.csv",\
         csvSeries: [[file: "build/${chip}_mlir_vs_miopen_perf_for_plot.csv", displayTableFlag: false]],\
-        title: "Test performance summary ${chip}",\
+        title: "Test performance summary ${chip}, Conv",\
+        yaxis: 'TFlops',\
+        style: 'line',\
+        group: 'Performance plots'
+
+    plot csvFileName: "${chip}_plot-nightly-perf-results-gemm-000001.csv",\
+        csvSeries: [[file: "build/${chip}_mlir_vs_rocblas_perf_for_plot.csv", displayTableFlag: false]],\
+        title: "Test performance summary ${chip}, GEMM",\
         yaxis: 'TFlops',\
         style: 'line',\
         group: 'Performance plots'
@@ -697,9 +704,9 @@ pipeline {
                         steps {
                             buildProject('ci-performance-scripts', '')
                             dir('build') {
-                                sh 'python3 ./bin/MIOpenDriver.py --miopen_use_tuned_mlir'
+                                sh 'python3 ./bin/perfRunner.py --miopen_use_tuned_mlir'
                                 sh 'rm -rf ${WORKSPACE}/MIOpen/build/MIOpenUserDB'
-                                sh 'python3 ./bin/MIOpenDriver.py --miopen_use_untuned_mlir'
+                                sh 'python3 ./bin/perfRunner.py --miopen_use_untuned_mlir'
                             }
                         }
                     }
@@ -723,7 +730,7 @@ pipeline {
                             // Clean up build settings to disable static library and allow
                             // ROCm testing
                             sh 'rm build/CMakeCache.txt'
-                            buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                            buildProject('check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver', '')
                         }
                     }
                     stage("Test MLIR vs MIOpen") {
@@ -731,7 +738,8 @@ pipeline {
                             dir('build') {
                                 sh 'date --utc +%Y-%m-%d > perf-run-date'
                                 // Run MLIR perf benchmarks
-                                sh 'python3 ./bin/MIOpenDriver.py'
+                                sh 'python3 ./bin/perfRunner.py'
+                                sh 'python3 ./bin/perfRunner.py --op=gemm --batch_both --configs_file=../mlir/utils/performance/toy-gemm-configs'
                             }
                         }
                     }
@@ -750,7 +758,9 @@ pipeline {
                             dir('build') {
                                 sh 'ls -l'
                                 sh 'python3 ./bin/createPerformanceReports.py ${CHIP}'
+                                sh 'python3 ./bin/createGemmPerformanceReports.py ${CHIP}'
                                 sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
+                                sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ./${CHIP}_mlir_vs_rocblas_perf.csv'
                             }
                             postProcessPerfRes("${CHIP}")
                         }

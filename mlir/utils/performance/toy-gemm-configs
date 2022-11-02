@@ -1,0 +1,4 @@
+# These should be replaced by bert-gemm-configs once we have them
+-g 3 -m 1024 -k 769 -n 512
+-g 1 -m 4096 -k 4096 -n 4096
+-g 1 -m 1 -k 1 -n 1
