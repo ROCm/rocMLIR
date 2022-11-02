@@ -150,10 +150,12 @@ Type getResultType(Operation *convOp, Value outArg) {
 /// Note: you are expected to handle out of bounds, such as by using
 /// rock.buffer_store
 LogicalResult createElementwiseLoop(
-    OpBuilder &b, Location loc, RockGemmWrapperInterface convOp,
-    ValueRange memrefs, int64_t vectorLen,
+    OpBuilder &b, Location loc, Operation *convOp, ValueRange memrefs,
+    int64_t vectorLen,
     function_ref<void(OpBuilder &, Location, ValueRange, Value)> emitBodyFunc) {
-  uint32_t blockSize = convOp->getBlockSize();
+  RockGemmWrapperInterface gemmWrapper =
+      convOp->getResult(0).getDefiningOp<RockGemmWrapperInterface>();
+  uint32_t blockSize = gemmWrapper.getBlockSize();
   int64_t elemsPerThread =
       convOp->getAttrOfType<IntegerAttr>("elems_per_thread").getInt();
   if (elemsPerThread % vectorLen != 0)
