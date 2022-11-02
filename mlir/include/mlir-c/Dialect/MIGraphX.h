@@ -20,7 +20,9 @@ extern "C" {
 
 // Version 2: Use bare pointer ABI (kernels take just a pointer to the data
 // buffer, not an entire memref struct). Also introduces this constant.
-#define MLIR_MIGRAPHX_DIALECT_API_VERSION 2
+// Version 3: mlirMIGraphXAddBackendPipeline() to get full arch name instead of
+// split strings of triple/chip/features
+#define MLIR_MIGRAPHX_DIALECT_API_VERSION 3
 
 MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(MIGraphX, migraphx);
 
