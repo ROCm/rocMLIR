@@ -2426,6 +2426,8 @@ int main(int argc, char **argv) {
 #ifdef MLIR_INCLUDE_TESTS
   test::registerTestDialect(registry);
 #endif
+  // Parse pass names in main to ensure static initialization completed.
+  mlir::registerMLIRContextCLOptions();
   MLIRContext context(registry);
   context.loadDialect<rock::RockDialect, func::FuncDialect, scf::SCFDialect,
                       AffineDialect, memref::MemRefDialect, math::MathDialect,
