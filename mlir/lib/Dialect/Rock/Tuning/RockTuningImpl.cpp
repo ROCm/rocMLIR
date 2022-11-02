@@ -88,7 +88,7 @@ bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry) {
   WalkResult setPrimary =
       mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
         auto ctx = op.getContext();
-        StringAttr attr = StringAttr::get(ctx, paramEntry->perfString);
+        StringAttr attr = StringAttr::get(ctx, paramEntry->param..getPerfConfigStr());
         op->setAttr("perf_config", attr);
         WalkResult::interrupt();
       });

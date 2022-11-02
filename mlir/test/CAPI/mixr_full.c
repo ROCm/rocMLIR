@@ -180,10 +180,10 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   char *paramStr = strdup(mlirRockTuningGetParamStr(tuningParam));
   mlirRockTuningParamDestroy(tuningParam);
   mlirRockTuningSpaceDestroy(tuningSpace);
-  free paramStr;
+  free (paramStr);
 
   printf("Got tuning space,\n");
-  printf("Obtained perfconfig : \"%s\"\n", paramStr.data);
+  printf("Obtained perfconfig : \"%s\"\n", paramStr);
   printf("quick set = %d, full set = %d\n", qNum, fNum);
   mlirOperationDump(moduleOp);
   // CHECK-LABEL: func @main
