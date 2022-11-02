@@ -44,9 +44,7 @@ int mlirRockTuningGetNumParamsFull(MlirRockTuningSpace params) {
   return tuningSpace->tuningRange.size();
 }
 
-MLIR_CAPI_EXPORTED MlirRockTuningParam
-mlirRockTuningParamCreate(MlirRockTuningSpace params) {
-  auto tuningSpace = unwrap(params);
+MLIR_CAPI_EXPORTED MlirRockTuningParam mlirRockTuningParamCreate() {
   rock::ParamEntry *param = new rock::ParamEntry();
   return wrap(param);
 }
@@ -74,7 +72,7 @@ bool mlirRockTuningParamGet(MlirRockTuningSpace params, int pos,
 }
 
 MLIR_CAPI_EXPORTED
-char *mlirRockTuningGetParamStr(MlirRockTuningParam param) {
+const char *mlirRockTuningGetParamStr(MlirRockTuningParam param) {
   auto paramEntry = unwrap(param);
   llvm::StringRef strRef = paramEntry->param.getPerfConfigStr();
   return strRef.data();

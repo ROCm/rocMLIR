@@ -16,6 +16,9 @@
 extern "C" {
 #endif
 
+// Version 1: Add tuning API
+#define MLIR_ROCK_C_API_VERSION 1
+
 MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(Rock, rock);
 
 #define DEFINE_C_API_STRUCT(name, storage)                                     \
@@ -42,8 +45,7 @@ MLIR_CAPI_EXPORTED int
 mlirRockTuningGetNumParamsFull(MlirRockTuningSpace params);
 
 // Allocate memory for a single instance of the tuning params
-MLIR_CAPI_EXPORTED MlirRockTuningParam
-mlirRockTuningParamCreate(MlirRockTuningSpace params);
+MLIR_CAPI_EXPORTED MlirRockTuningParam mlirRockTuningParamCreate();
 
 // Destroy given params allocation
 MLIR_CAPI_EXPORTED
@@ -60,7 +62,7 @@ bool mlirRockTuningParamGet(MlirRockTuningSpace params, int pos,
 
 // Returns cstring of the serialized perfconfig
 MLIR_CAPI_EXPORTED
-char *mlirRockTuningGetParamStr(MlirRockTuningParam param);
+const char *mlirRockTuningGetParamStr(MlirRockTuningParam param);
 
 // Set the tuning params of the given module using provided param
 MLIR_CAPI_EXPORTED bool mlirRockTuningSetParam(MlirModule module,

@@ -37,19 +37,6 @@ TunableParams *createTunableParamSpace(ModuleOp &mod);
 
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry);
 
-// blockSize M/block N/block K/block M/thread N/thread
-const std::vector<std::vector<uint32_t>> ValidRangeGeneralGemmParams = {
-    {64, 128, 256}, {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
-
-// M/block N/block K/block M/wave N/wave kPack aCopyMore bCopyMore
-const std::vector<std::vector<uint32_t>> ValidRangeXdlopsGemmParams = {
-    {4, 8, 16, 32, 64, 128},
-    {16, 32, 64, 128},
-    {16, 32, 64, 128},
-    {16, 32, 64},
-    {16, 32, 64},
-    {1, 4}};
-
 } // namespace rock
 } // namespace mlir
 #endif // MLIR_DIALECT_ROCK_ROCKTUNINGTYPE_H
