@@ -66,7 +66,7 @@ func.func @rock_indexing() {
 
 func.func @rock_blockwise_gemm(%A : memref<8x128x1xf32, 3>, %B : memref<8x128x1xf32, 3>, %C : memref<8x8xf32, 5>) {
   rock.blockwise_gemm %C += %A * %B {
-    blockSize = 256 : i32,
+    blockSize = 256,
     params = #rock.general_gemm_params<
     kPerBlock = 8,
     mPerBlock = 128,

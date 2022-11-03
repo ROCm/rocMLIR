@@ -165,6 +165,7 @@ func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf3
     blockSize = 256 : i32,
     gridSize = 1 : i32,
     params = #rock.general_gemm_params<
+      blockSize = 128,
       kPerBlock = 8,
       kPerThread = 1,
       kpack = 1,
