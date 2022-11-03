@@ -78,8 +78,8 @@ struct LowerGpuOpsToROCDLOpsPass
       this->chipset = chipset;
     if (this->indexBitwidth.getNumOccurrences() == 0)
       this->indexBitwidth = indexBitwidth;
-    if (this->useBarePtrCallConv.getNumOccurrences() == 0)
-      this->useBarePtrCallConv = useBarePtrCallConv;
+ //   if (this->useBarePtrCallConv.getNumOccurrences() == 0)
+ //     this->useBarePtrCallConv = useBarePtrCallConv;
     if (this->runtime.getNumOccurrences() == 0)
       this->runtime = runtime;
   }
@@ -106,13 +106,21 @@ struct LowerGpuOpsToROCDLOpsPass
     if (indexBitwidth != kDeriveIndexBitwidthFromDataLayout)
       options.overrideIndexBitwidth(indexBitwidth);
 
-    if (useBarePtrCallConv) {
-      options.useBarePtrCallConv = true;
+    //if (useBarePtrCallConv) {
       WalkResult canUseBarePointers =
-          m.walk([](gpu::GPUFuncOp func) -> WalkResult {
-            if (func->hasAttr("bare-ptr-memref") && canBeCalledWithBarePointers(func))
+          m.walk([&options](gpu::GPUFuncOp func) -> WalkResult {
+            if (func->hasAttr("bare_ptr_memref"))
+               llvm::errs()<<"has a bareptr attribute\n";
+            if (func->hasAttr("bare_ptr_memref"))
+            {
+              if (canBeCalledWithBarePointers(func))
+              {
+              options.useBarePtrCallConv = true;
               return WalkResult::advance();
-            return WalkResult::interrupt();
+              } 
+              else return WalkResult::interrupt();
+            }
+            return WalkResult::advance();
           });
       if (canUseBarePointers.wasInterrupted()) {
         emitError(UnknownLoc::get(ctx),
@@ -120,7 +128,7 @@ struct LowerGpuOpsToROCDLOpsPass
                   "have static shape and use the identity map");
         return signalPassFailure();
       }
-    }
+  //  }
 
     LLVMTypeConverter converter(ctx, options);
 

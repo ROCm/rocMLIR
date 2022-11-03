@@ -208,9 +208,10 @@ Type LLVMTypeConverter::convertFunctionType(FunctionType type) {
 // they are into an LLVM StructType in their order of appearance.
 Type LLVMTypeConverter::convertFunctionSignature(
     FunctionType funcTy, bool isVariadic,
-    LLVMTypeConverter::SignatureConversion &result) {
+    LLVMTypeConverter::SignatureConversion &result, bool useBarePtrCallConv=false) {
   // Select the argument converter depending on the calling convention.
-  auto funcArgConverter = options.useBarePtrCallConv
+  //auto funcArgConverter = options.useBarePtrCallConv
+  auto funcArgConverter = useBarePtrCallConv
                               ? barePtrFuncArgTypeConverter
                               : structFuncArgTypeConverter;
   // Convert argument types one by one and check for errors.

@@ -407,6 +407,7 @@ protected:
 
     // Store the type of memref-typed arguments before the conversion so that we
     // can promote them to MemRef descriptor at the beginning of the function.
+getTypeConverter()->getOptions().useBarePtrCallConv = true;
     SmallVector<Type, 8> oldArgTypes =
         llvm::to_vector<8>(funcOp.getFunctionType().getInputs());
 
@@ -423,6 +424,11 @@ protected:
     // uniform representation.
     Block *entryBlock = &newFuncOp.getBody().front();
     auto blockArgs = entryBlock->getArguments();
+llvm::errs()<<blockArgs.size()<< " " << oldArgTypes.size();
+llvm::errs()<<"\n"<<oldArgTypes;
+llvm::errs()<<"\nblock args: ";
+for (auto a:blockArgs) llvm::errs()<<a.getType()<<" ";
+
     assert(blockArgs.size() == oldArgTypes.size() &&
            "The number of arguments and types doesn't match");
 
@@ -474,8 +480,11 @@ struct FuncOpConversion : public FuncOpConversionBase {
   matchAndRewrite(func::FuncOp funcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    if (funcOp->hasAttr("bare-ptr-memref"))
+    if (funcOp->hasAttr("bare_ptr_memref"))
+    {
+llvm::errs()<<"FuncOpConversion has bare_ptr_memref\n";
       return convertBareFuncOp(funcOp, rewriter);
+    }
 
     auto newFuncOp = convertFuncOpToLLVMFuncOp(funcOp, rewriter);
     if (!newFuncOp)
@@ -782,7 +791,7 @@ struct ConvertFuncToLLVMPass
   ConvertFuncToLLVMPass(bool useBarePtrCallConv, unsigned indexBitwidth,
                         bool useAlignedAlloc,
                         const llvm::DataLayout &dataLayout) {
-    this->useBarePtrCallConv = useBarePtrCallConv;
+    //this->useBarePtrCallConv = useBarePtrCallConv;
     this->indexBitwidth = indexBitwidth;
     this->dataLayout = dataLayout.getStringRepresentation();
   }
@@ -802,7 +811,7 @@ struct ConvertFuncToLLVMPass
 
     LowerToLLVMOptions options(&getContext(),
                                dataLayoutAnalysis.getAtOrAbove(m));
-    options.useBarePtrCallConv = useBarePtrCallConv;
+    //options.useBarePtrCallConv = useBarePtrCallConv;
     if (indexBitwidth != kDeriveIndexBitwidthFromDataLayout)
       options.overrideIndexBitwidth(indexBitwidth);
     options.dataLayout = llvm::DataLayout(this->dataLayout);
