@@ -20,9 +20,9 @@ import sys
 from dataclasses import dataclass
 from typing import Callable, Iterable, List, Sequence, Optional, Tuple, TypeVar, Union
 
-import MIOpenDriver
-from MIOpenDriver import ConvConfiguration
-from MIOpenDriver import Paths
+import perfRunner
+from perfRunner import ConvConfiguration
+from perfRunner import Paths
 
 @dataclass(frozen=True)
 class Options:
@@ -404,13 +404,13 @@ def main() -> bool:
     parser.add_argument(
         "--mlir-build-dir",
         type=str,
-        default=MIOpenDriver.find_mlir_build_dir(),
+        default=perfRunner.find_mlir_build_dir(),
         help="The build directory of MLIR based kernel generator",
     )
     parser.add_argument(
         "--miopen-build-dir",
         type=str,
-        default=MIOpenDriver.find_miopen_build_dir(),
+        default=perfRunner.find_miopen_build_dir(),
         help="The build directory of MIOpen",
     )
     args = parser.parse_args()
@@ -437,7 +437,7 @@ def main() -> bool:
 
     options = Options(debug=args.debug, quiet=args.quiet,
         arch=arch, flags=rocmlir_gen_flags, concurrent_tests=args.jobs)
-    paths = MIOpenDriver.create_paths(args.mlir_build_dir, args.miopen_build_dir)
+    paths = perfRunner.create_paths(None, args.mlir_build_dir, args.miopen_build_dir)
 
     config = args.config
     if config == 'perf_config':
