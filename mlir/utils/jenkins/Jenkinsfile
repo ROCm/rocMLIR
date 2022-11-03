@@ -169,6 +169,19 @@ String getLabelFromCodepath(String codepath) {
     return label
 }
 
+String getLabelFromChip(String chip) {
+    switch (chip) {
+        case "gfx906":
+            return getLabelFromCodepath("vanilla")
+        case "gfx908":
+            return "mlir && gfx908"
+        case "gfx90a":
+            return "mlir && gfx90a"
+        case "gfx1030":
+            return getLabelFromCodepath("navi21")
+    }
+}
+
 def rebootNode() {
     build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
 }
@@ -496,7 +509,7 @@ pipeline {
                     docker {
                         image dockerImage()
                         args dockerArgs()
-                        label "mlir && ${ARCH}"
+                        label getLabelFromChip("${ARCH}")
                         alwaysPull true
                     }
                 }
@@ -666,7 +679,7 @@ pipeline {
                     docker {
                         image dockerImage()
                         args dockerArgs()
-                        label "mlir && ${CHIP}"
+                        label getLabelFromChip("${CHIP}")
                         alwaysPull true
                     }
                 }
