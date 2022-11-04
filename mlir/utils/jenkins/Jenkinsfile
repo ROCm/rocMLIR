@@ -155,10 +155,9 @@ String getLabelFromCodepath(String codepath) {
     if (codepath == "mfma") {
         label = 'mlir && (gfx908 || gfx90a)'
     } else if (codepath == "navi21") {
-        // For now, both navi21 workstations (gfx1030w) and CI nodes (gfx1030) work
-        // for PR CI tests
-        // But only navi workstations (gfx1030w) work for nightly CI tests
-        label = 'mlir && gfx1030w'
+        // For non-performance related testing, use both workstations (gfx1030w)
+        // and server nodes (gfx1030)
+        label = 'mlir && ( gfx1030w || gfx1030 )'
     } else if (codepath == "vanilla"){
         label = 'mlir && gfx906'
     } else {
@@ -178,7 +177,9 @@ String getLabelFromChip(String chip) {
         case "gfx90a":
             return "mlir && gfx90a"
         case "gfx1030":
-            return getLabelFromCodepath("navi21")
+            // For [Tune MLIR Kernels] and [Performance report] stages,
+            // fix the vm-1 workstation for testing
+            return "mlir && vm-1"
     }
 }
 
