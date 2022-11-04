@@ -421,9 +421,8 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   if (!outIdxMap.isIdentity())
     return failure();
 
-  // 1. Trace input to threadwise_copy. Collect transforms (to be applied to
-  // other inputs).
-  // 1.1. Find the conv2d output
+  // 1. Trace input to global_store.
+  // 1.1. Find the (implicit) gemm output
   GlobalStoreOp gemmStoreOp;
   for (auto pair : llvm::zip(idxMaps, laGeneric.inputs())) {
     AffineMap inpIdxMap = std::get<0>(pair);
