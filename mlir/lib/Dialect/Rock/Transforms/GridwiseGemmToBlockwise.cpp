@@ -1020,10 +1020,12 @@ struct GridwiseGemmV2RewritePattern
     int64_t aCopyKPerThread = 0;
     int64_t copyMPerThread = 0;
     if (aVectorDim == GemmDimension::K) {
-      aCopyKPerThread = std::min(aVectorLen, kPerBlock);
+      aVectorLen = std::min(aVectorLen, kPerBlock);
+      aCopyKPerThread = aVectorLen;
       copyMPerThread = aCopyPerThread / aCopyKPerThread;
     } else {
-      copyMPerThread = std::min(aVectorLen, mPerBlock);
+      aVectorLen = std::min(aVectorLen, mPerBlock);
+      copyMPerThread = aVectorLen;
       aCopyKPerThread = aCopyPerThread / copyMPerThread;
     }
     if (aCopyKPerThread == 0 || copyMPerThread == 0) {
@@ -1040,10 +1042,12 @@ struct GridwiseGemmV2RewritePattern
     int64_t bCopyKPerThread = 0;
     int64_t copyNPerThread = 0;
     if (bVectorDim == GemmDimension::K) {
-      bCopyKPerThread = std::min(bVectorLen, kPerBlock);
+      bVectorLen = std::min(bVectorLen, kPerBlock);
+      bCopyKPerThread = bVectorLen;
       copyNPerThread = bCopyPerThread / bCopyKPerThread;
     } else {
-      copyNPerThread = std::min(bVectorLen, nPerBlock);
+      bVectorLen = std::min(bVectorLen, nPerBlock);
+      copyNPerThread = bVectorLen;
       bCopyKPerThread = bCopyPerThread / copyNPerThread;
     }
     if (bCopyKPerThread == 0 || copyNPerThread == 0) {
@@ -1058,7 +1062,7 @@ struct GridwiseGemmV2RewritePattern
 
     LLVM_DEBUG(llvm::dbgs() << "kPerBlock: " << kPerBlock << "\n"
                             << "mPerBlock: " << mPerBlock << "\n"
-                            << "nPerBlock: " << mPerBlock << "\n"
+                            << "nPerBlock: " << nPerBlock << "\n"
                             << "aCopyKPerThread: " << aCopyKPerThread << "\n"
                             << "bCopyKPerThread: " << bCopyKPerThread << "\n"
                             << "copyMPerThread: " << copyMPerThread << "\n"
@@ -1339,10 +1343,8 @@ struct GridwiseGemmV2RewritePattern
     b.create<LDSBarrierOp>(loc);
 
     // Emit blockwise GEMM for the loop tail.
-    auto blockwiseGemmV2TailOp = b.create<BlockwiseGemmV2Op>(
-        loc, ldsGpuAllocOp, ldsGpuAllocOp, b.getIndexAttr(ldsBlockAOffset),
-        b.getIndexAttr(ldsBlockBOffset), mMyWaveOffsetA, mMyWaveOffsetB, arrayA,
-        arrayB, regCAllocOp, op.getBlockSizeAttr(), op.getParamsAttr());
+    BlockAndValueMapping tailGemmCloneMap;
+    auto blockwiseGemmV2TailOp = b.clone(*blockwiseGemmV2Op, tailGemmCloneMap);
 
     // Apparently, the canonicalizer doesn't get rid of empty loops without
     // results properly, remove them ourselves.
