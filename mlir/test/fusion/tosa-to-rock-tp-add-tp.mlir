@@ -3,7 +3,7 @@
 // CHECK-DAG: #[[MAP2:.*]] = #rock.transform_map<{{.*}} by [<PassThrough ["dim0", "dim2", "dim3", "dim1"] at [0, 1, 2, 3] -> ["dim0", "dim2", "dim3", "dim1"] at [0, 2, 3, 1]>] bounds = [256, 28, 28, 64] -> [256, 64, 28, 28]>
 // CHECK: rock.transforming_for{{.*}} #[[MAP1]], #[[MAP2]]
 // CHECK: linalg.generic{{.*}} outs(%[[outBuf:.*]] : memref<4xf32, 5>)
-// CHECK: threadwise_copy_v2 %[[outBuf]]{{.*}} -> %arg3
+// CHECK: global_store %[[outBuf]]{{.*}} -> %arg3
 // to test transpose is converted as transform and fused.
 
 func.func @test_fusion(%arg0: tensor<256x28x28x128xf32>, %arg1: tensor<64x3x3x128xf32>, %arg2: tensor<256x64x28x28xf32>) -> tensor<256x64x28x28xf32> attributes {kernel, arch = ""} {

@@ -170,20 +170,20 @@ static Value makeBroadcast(PatternRewriter &b, MemRefType outType, Value inp,
   return inp;
 }
 
-static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
-                                   ThreadwiseCopyV2Op op, Value srcOp,
-                                   Value dest) {
+static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
+                                      GlobalStoreOp gemmStoreOp, Value srcOp,
+                                      Value dest) {
   while (auto expOp = srcOp.getDefiningOp<memref::ExpandShapeOp>()) {
     srcOp = expOp.getOperand();
   }
-  LLVM_DEBUG(llvm::dbgs() << "Src type: " << srcOp.getType()
-                          << " dest type: " << op.getDest().getType() << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "Src type: " << srcOp.getType() << " dest type: "
+                          << gemmStoreOp.getDest().getType() << "\n");
   ArrayRef<int64_t> sType, dType;
   sType = srcOp.getType().cast<ShapedType>().getShape();
-  dType = op.getDest().getType().getShape();
+  dType = gemmStoreOp.getDest().getType().getShape();
   assert(sType.size() == dType.size() &&
          "Rank of extra fusion arguments matches shape of C tensor");
-  SmallVector<Value, 6> loadCoord = op.getDestCoord();
+  SmallVector<Value, 6> loadCoord = gemmStoreOp.getDestCoord();
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
   for (unsigned i = 0; i < sType.size(); i++) {
     assert((sType[i] == dType[i] || sType[i] == 1) &&
@@ -194,21 +194,21 @@ static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
       loadCoord[i] = zero;
   }
 
-  auto writeCLoop = op->getParentOfType<TransformingForOp>();
-  assert(writeCLoop && "threadwise_copy_v2 must be in a transforming_for");
+  auto writeCLoop = gemmStoreOp->getParentOfType<TransformingForOp>();
+  assert(writeCLoop && "global_store must be in a transforming_for");
 
   // Handle broadcasts introduced during fusion.
   ArrayAttr sourceTransformsFromOp;
   Value source;
   std::tie(source, sourceTransformsFromOp) = untransform(b, srcOp);
 
-  int64_t copyLength = op.getLength().getSExtValue();
+  int64_t copyLength = gemmStoreOp.getLength().getSExtValue();
   Type typeToLoad = dest.getType().cast<MemRefType>().getElementType();
   if (copyLength > 1)
     typeToLoad = VectorType::get({copyLength}, typeToLoad);
 
-  ArrayAttr sourceLeftOob = op.getLeftOobDims();
-  ArrayAttr sourceRightOob = op.getRightOobDims();
+  ArrayAttr sourceLeftOob = gemmStoreOp.getLeftOobDims();
+  ArrayAttr sourceRightOob = gemmStoreOp.getRightOobDims();
 
   // In general, note that keeping the vectorization of the writeback is safe
   // on account of the fact that vectorization means that the maps for the
@@ -217,9 +217,8 @@ static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
 
   // If there are no broadcasts, re-use the coordianes for the writeback
   if (sourceTransformsFromOp.empty()) {
-    Value loaded = b.create<BufferLoadOp>(
-        loc, typeToLoad, source, sourceLeftOob, sourceRightOob, loadCoord,
-        /*offset=*/IntegerAttr());
+    Value loaded = b.create<GlobalLoadOp>(
+        loc, typeToLoad, source, sourceLeftOob, sourceRightOob, loadCoord);
     b.create<InBoundsStoreOp>(loc, loaded, dest, zero);
   } else {
     // Note: this is a hack around the fact that we don't have a good way
@@ -237,36 +236,36 @@ static void insertCopyFromOtherArg(PatternRewriter &b, Location loc,
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(copyLoop.getBody());
-      Value loaded = b.create<BufferLoadOp>(
+      Value loaded = b.create<GlobalLoadOp>(
           loc, typeToLoad, source, sourceLeftOob, sourceRightOob,
-          copyLoop.getLowerCoords(/*domain=*/0), /*offset=*/IntegerAttr());
+          copyLoop.getLowerCoords(/*domain=*/0));
       b.create<InBoundsStoreOp>(loc, loaded, dest, zero);
     }
   }
 }
 
-static Value makeTransformingCopyLoop(PatternRewriter &b,
-                                      ThreadwiseCopyV2Op miTwCopy, Value inp) {
+static Value makeTransformingCopyLoop(PatternRewriter &b, GlobalStoreOp storeOp,
+                                      Value inp) {
   // 0. capture the memref containing the outputs being written
-  Location loc = miTwCopy.getLoc();
-  Value gemmOuts = miTwCopy.getSource();
+  Location loc = storeOp.getLoc();
+  Value gemmOuts = storeOp.getSource();
   auto gemmOutsType = gemmOuts.getType().cast<MemRefType>();
-  int64_t sliceLength = miTwCopy.getLength().getSExtValue();
+  int64_t sliceLength = storeOp.getLength().getSExtValue();
   auto sliceLengthType = gemmOutsType.clone(sliceLength).cast<MemRefType>();
 
   // 1. create a second allocation of the same type to hold loaded elements
   Value alloc = b.create<GpuAllocOp>(loc, sliceLengthType);
 
   // 2. clone twcopy for <addend> -> regs as transforming_for
-  insertCopyFromOtherArg(b, loc, miTwCopy, inp, alloc);
+  insertLoadFromOtherSource(b, loc, storeOp, inp, alloc);
   return alloc;
 }
 
-Value applyTransforms(PatternRewriter &b, ThreadwiseCopyV2Op miTWCopy,
-                      Value inp, AffineMap inpMap) {
+Value applyTransforms(PatternRewriter &b, GlobalStoreOp gemmStoreOp, Value inp,
+                      AffineMap inpMap) {
   Value ret = inp;
   // 0. move all input preceding ops before
-  Operation *pred = miTWCopy;
+  Operation *pred = gemmStoreOp;
   while (Operation *op = inp.getDefiningOp()) {
     assert(isa<memref::ExpandShapeOp>(op) || isa<memref::CollapseShapeOp>(op));
     op->moveBefore(pred);
@@ -275,21 +274,21 @@ Value applyTransforms(PatternRewriter &b, ThreadwiseCopyV2Op miTWCopy,
   }
 
   // 1. insert broadcast op if necessary
-  MemRefType outType = miTWCopy.getDest().getType();
+  MemRefType outType = gemmStoreOp.getDest().getType();
   std::tie(ret, inpMap) = makeTransposeTransform(b, ret, inpMap);
   ret = makeBroadcast(b, outType, ret, inpMap);
 
-  // 2. also create threadwise_copy_v2 from global to regs
+  // 2. also create global_store from global to regs
   //    TODO(sjw): make sure output buffer writes (means these inputs will be
   //    buffer reads)
-  return makeTransformingCopyLoop(b, miTWCopy, ret);
+  return makeTransformingCopyLoop(b, gemmStoreOp, ret);
 }
 
-static ThreadwiseCopyV2Op traceToThreadwiseCopy(Value inp) {
+static GlobalStoreOp traceToGlobalStore(Value inp) {
   // 1. Validate that the only uses of the linalg.generic input are the one
   // generic and a copy operation or transform.
   bool allValidUses = true;
-  ThreadwiseCopyV2Op result;
+  GlobalStoreOp result;
   for (Operation *use : inp.getUsers()) {
     if (isa<memref::DeallocOp>(use)) {
       // ignore
@@ -297,13 +296,14 @@ static ThreadwiseCopyV2Op traceToThreadwiseCopy(Value inp) {
     }
     if (isa<linalg::GenericOp>(use)) {
       // reader
-    } else if (auto copy = dyn_cast<ThreadwiseCopyV2Op>(use)) {
+    } else if (auto store = dyn_cast<GlobalStoreOp>(use)) {
       // Threadwise copy that is already unttransformed (new style)
       if (result) {
-        LLVM_DEBUG(llvm::dbgs() << "Multiple copies somehow, no fusion\n");
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Multiple global stores somehow, no fusion\n");
         allValidUses = false;
       }
-      result = copy;
+      result = store;
     } else {
       allValidUses = false;
     }
@@ -314,12 +314,13 @@ static ThreadwiseCopyV2Op traceToThreadwiseCopy(Value inp) {
   if (auto expanded = inp.getDefiningOp<memref::ExpandShapeOp>()) {
     auto src = expanded.getSrc();
     for (Operation *use : src.getUsers()) {
-      if (auto copy = dyn_cast<ThreadwiseCopyV2Op>(use)) {
+      if (auto store = dyn_cast<GlobalStoreOp>(use)) {
         if (result) {
-          LLVM_DEBUG(llvm::dbgs() << "Multiple copies somehow, no fusion\n");
+          LLVM_DEBUG(llvm::dbgs()
+                     << "Multiple global stores somehow, no fusion\n");
           allValidUses = false;
         }
-        result = copy;
+        result = store;
       }
     }
   }
@@ -328,17 +329,17 @@ static ThreadwiseCopyV2Op traceToThreadwiseCopy(Value inp) {
     LLVM_DEBUG(llvm::dbgs() << "Align tiling: generic not tracing to copy");
   if (!allValidUses)
     LLVM_DEBUG(llvm::dbgs() << "Align tiling: found invalid use\n");
-  return allValidUses ? result : ThreadwiseCopyV2Op();
+  return allValidUses ? result : GlobalStoreOp();
 }
 
 // Returns the value of the buffer that's meant to be the new writeback.
 static Value reconfigureLAGeneric(PatternRewriter &b,
                                   linalg::GenericOp laGeneric, Value laIn,
                                   ArrayRef<AffineMap> idxMaps,
-                                  ThreadwiseCopyV2Op twcopy) {
+                                  GlobalStoreOp gemmGlobalStore) {
   MLIRContext *ctx = laGeneric.getContext();
   Location loc = laGeneric.getLoc();
-  Value twout = twcopy.getDest();
+  Value twout = gemmGlobalStore.getDest();
   auto regType = laIn.getType().template cast<MemRefType>();
   auto laOut = b.create<GpuAllocOp>(loc, regType);
 
@@ -353,7 +354,7 @@ static Value reconfigureLAGeneric(PatternRewriter &b,
         newInput = laIn;
       } else {
         // 2.1.1. Align tiling of other inputs
-        newInput = applyTransforms(b, twcopy, inp, inpIdxMap);
+        newInput = applyTransforms(b, gemmGlobalStore, inp, inpIdxMap);
       }
       newInputs.push_back(newInput);
       laGenericAMaps.push_back(AffineMap::getMultiDimIdentityMap(
@@ -420,16 +421,15 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   if (!outIdxMap.isIdentity())
     return failure();
 
-  // 1. Trace input to threadwise_copy. Collect transforms (to be applied to
-  // other inputs).
-  // 1.1. Find the conv2d output
-  ThreadwiseCopyV2Op copyOp;
+  // 1. Trace input to global_store.
+  // 1.1. Find the (implicit) gemm output
+  GlobalStoreOp gemmStoreOp;
   for (auto pair : llvm::zip(idxMaps, laGeneric.inputs())) {
     AffineMap inpIdxMap = std::get<0>(pair);
     Value inp = std::get<1>(pair);
-    ThreadwiseCopyV2Op maybeCopy = traceToThreadwiseCopy(inp);
-    if (maybeCopy) {
-      if (copyOp) {
+    GlobalStoreOp maybeStore = traceToGlobalStore(inp);
+    if (maybeStore) {
+      if (gemmStoreOp) {
         LLVM_DEBUG(llvm::dbgs()
                    << "Multiple generic inputs come from writeback\n");
         return failure();
@@ -439,7 +439,7 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
                                    "- earlier lowering should've fixed\n");
         return failure();
       }
-      copyOp = maybeCopy;
+      gemmStoreOp = maybeStore;
     } else {
       // Other inputs must have access maps compatible with current fusion
       // rewrites
@@ -451,7 +451,7 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
       }
     }
   }
-  if (!copyOp) {
+  if (!gemmStoreOp) {
     LLVM_DEBUG(llvm::dbgs() << "Align tiling: couldn't find writeback\n");
     return failure();
   }
@@ -463,45 +463,45 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     out = expanded.getSrc();
   }
 
-  Value gemmV2Outs = copyOp.getSource();
-  auto gemmV2OutsType = gemmV2Outs.getType().cast<MemRefType>();
+  Value gemmOuts = gemmStoreOp.getSource();
+  auto gemmOutsType = gemmOuts.getType().cast<MemRefType>();
   {
     PatternRewriter::InsertionGuard guard(b);
     // 2.0. Reset insertion point to before the copy.
-    b.setInsertionPoint(copyOp);
+    b.setInsertionPoint(gemmStoreOp);
     Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
 
     // 2.1. Take out a slice of the result vector to create a vector-sized
     // slice to enable creating the fusion section.
-    int64_t sliceLength = copyOp.getLength().getSExtValue();
-    MemRefType sliceType = gemmV2OutsType.clone(sliceLength).cast<MemRefType>();
+    int64_t sliceLength = gemmStoreOp.getLength().getSExtValue();
+    MemRefType sliceType = gemmOutsType.clone(sliceLength).cast<MemRefType>();
     Value fusionSlice = b.create<GpuAllocOp>(loc, sliceType);
     Type typeToCopy = sliceType.getElementType();
     if (sliceType.getNumElements() > 1)
       typeToCopy =
           VectorType::get(sliceType.getShape(), sliceType.getElementType());
-    Value sliceVals = b.create<InBoundsLoadOp>(loc, typeToCopy, gemmV2Outs,
-                                               copyOp.getSourceCoord());
+    Value sliceVals = b.create<InBoundsLoadOp>(loc, typeToCopy, gemmOuts,
+                                               gemmStoreOp.getSourceCoord());
     b.create<InBoundsStoreOp>(loc, sliceVals, fusionSlice, zero);
 
     // 2.2. Tile linalg.generic with vgpr as input, return output vgprs
     Value laOutRegs =
-        reconfigureLAGeneric(b, laGeneric, fusionSlice, idxMaps, copyOp);
+        reconfigureLAGeneric(b, laGeneric, fusionSlice, idxMaps, gemmStoreOp);
     // 2.2.0. Move the generic before the write-back. This'll put all
     // the copy loops for other inputs before the generic due to insertion
     // order.
-    laGeneric->moveBefore(copyOp);
+    laGeneric->moveBefore(gemmStoreOp);
 
     // 2.3. Replace twcopy inputs with la.generic result vgprs
 
     // Since the threadwise copy arg has gone through untransform()
     // its expected output type is the same as the output type of the
     // linalg.generic.
-    copyOp.getSourceMutable().assign(laOutRegs);
+    gemmStoreOp.getSourceMutable().assign(laOutRegs);
     // The indexing has been moved into slice creation, reset source
     // coord.
-    copyOp.getSourceCoordMutable().assign(zero);
-    copyOp.getDestMutable().assign(out);
+    gemmStoreOp.getSourceCoordMutable().assign(zero);
+    gemmStoreOp.getDestMutable().assign(out);
 
     return success();
   }

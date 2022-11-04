@@ -18,13 +18,13 @@ module {
 //CHECK: rock.transforming_for
 
 // 2. Check if ops are fused and copy_v2 is not present here
-//CHECK-NOT: rock.threadwise_copy_v2
+//CHECK-NOT: rock.global_store
 
 // 3. Check correct sequence of load-linalg-store
 //CHECK: rock.transforming_for
 //CHECK: rock.yield
 //CHECK: linalg.generic
-//CHECK: rock.threadwise_copy_v2
+//CHECK: rock.global_store
 
 // 4. Check if there is leftover ops.
 //CHECK: rock.yield

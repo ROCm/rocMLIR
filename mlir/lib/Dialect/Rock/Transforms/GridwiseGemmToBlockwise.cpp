@@ -1046,7 +1046,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(outLoop.getBody());
-      b.create<ThreadwiseCopyV2Op>(
+      b.create<GlobalStoreOp>(
           loc, registerC, tensorC,
           /*length=*/b.getIndexAttr(tensorCDataPerCopy),
           StoreMethodAttr::get(op.getContext(), StoreMethod::Set),
@@ -2206,7 +2206,7 @@ struct GridwiseGemmV2RewritePattern
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(outLoop.getBody());
-      b.create<ThreadwiseCopyV2Op>(
+      b.create<GlobalStoreOp>(
           loc, registerC, tensorC, b.getIndexAttr(tensorCDataPerCopy),
           op.getStoreMethodAttr(), std::get<0>(writeOobDims),
           std::get<1>(writeOobDims), outLoop.getLowerCoords(/*domain=*/0)[0],
