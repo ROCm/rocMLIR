@@ -8,7 +8,6 @@
 // Tuning: nPerBlock = 32
 // Tuning: mPerThread = 2
 // Tuning: nPerThread = 2
-// Tuning: blockSize = 64
 // Tuning-xdlops: kPerBlock = 8
 // Tuning-xdlops: mPerBlock = 128
 // Tuning-xdlops: nPerBlock = 128
