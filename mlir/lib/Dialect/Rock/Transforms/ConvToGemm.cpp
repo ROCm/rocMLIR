@@ -154,7 +154,7 @@ LogicalResult createElementwiseLoop(
     int64_t vectorLen,
     function_ref<void(OpBuilder &, Location, ValueRange, Value)> emitBodyFunc) {
   RockGemmWrapperInterface gemmWrapper = cast<RockGemmWrapperInterface>(convOp);
-  uint32_t blockSize = gemmWrapper.getBlockSize();
+  uint32_t blockSize = gemmWrapper.getDerivedBlockSize();
   int64_t elemsPerThread =
       convOp->getAttrOfType<IntegerAttr>("elems_per_thread").getInt();
   if (elemsPerThread % vectorLen != 0)

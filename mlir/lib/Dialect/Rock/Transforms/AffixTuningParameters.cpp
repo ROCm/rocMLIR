@@ -75,16 +75,9 @@ static void setUtilityKernelSizes(OpBuilder &b, Value arg, Operation *convOp,
   IntegerAttr blockSizeAttr = b.getI32IntegerAttr(blockSize);
   IntegerAttr gridSizeAttr = b.getI32IntegerAttr(gridSize);
 
-  GemmFeatures features = convOp.getFeatures();
-  if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
-    convOp->setAttr("derivedBlockSize", blockSizeAttr);
-  }
-  else {
-    GeneralGemmParamsAttr gemmParams = convOp.getParams();
-    convOp->getAttrOfType<GeneralGemmParamsAttr>(convOp.getParamsAttrName());
-    gemmParams.setBlockSize(blockSize);
-    convOp->setGemmParamsAttr(gemmParams);
-  }
+  // Clean up params for convolution and override correct block size.
+  convOp->removeAttr("params");
+  convOp->setAttr("derivedBlockSize", blockSizeAttr);
   convOp->setAttr("gridSize", gridSizeAttr);
   convOp->setAttr("elems_per_thread", b.getIndexAttr(elemsPerThread));
 
