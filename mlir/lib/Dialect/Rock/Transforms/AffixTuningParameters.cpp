@@ -75,13 +75,11 @@ static void setUtilityKernelSizes(OpBuilder &b, Value arg, Operation *convOp,
   IntegerAttr blockSizeAttr = b.getI32IntegerAttr(blockSize);
   IntegerAttr gridSizeAttr = b.getI32IntegerAttr(gridSize);
 
-  // Clean up params for convolution and override correct block size.
-  convOp->removeAttr("params");
-  convOp->setAttr("derivedBlockSize", blockSizeAttr);
+  // Tracking utility kernel block size separately.
+  convOp->setAttr("utilityBlockSize", blockSizeAttr);
   convOp->setAttr("gridSize", gridSizeAttr);
   convOp->setAttr("elems_per_thread", b.getIndexAttr(elemsPerThread));
 
-  funcOp->setAttr("block_size", blockSizeAttr);
   funcOp->setAttr("grid_size", gridSizeAttr);
 }
 
