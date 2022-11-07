@@ -193,8 +193,11 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   printf("kernel name : %s\n", nameData);
 
   // 2nd pipeline to call
-  const char *deviceName = "gfx908";
-  mlirMIGraphXAddBackendPipeline(pm1, deviceName, "amdgcn-amd-amdhsa", "");
+  const char *deviceName = "gfx908:sramecc+:xnack-";
+  if (!mlirMIGraphXAddBackendPipeline(pm1, deviceName)) {
+    printf("Errors in building backend pipeline\n");
+    return false;
+  }
   mlirPassManagerRun(pm1, module);
 
   uint32_t attrs[2];
