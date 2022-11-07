@@ -64,16 +64,19 @@ LogicalResult SystemDevice::parse(StringRef arch) {
   return success();
 }
 
+// Note: Device `this` is a real device (must specify `chip` and `type`)
+// and `that` must be a subset of the spec.
 bool SystemDevice::isCompatible(const SystemDevice &that) const {
   bool matches = (type == that.type) &&
                  (llvmTriple.empty() || that.llvmTriple.empty() ||
                   llvmTriple == that.llvmTriple) &&
-                 (chip.empty() || that.chip.empty() || chip == that.chip);
-  if (matches && !features.empty()) {
-    for (const llvm::StringMapEntry<bool> &feature : features) {
+                 (that.chip.empty() || chip == that.chip);
+  if (matches && !that.features.empty()) {
+    // If `that` does not specify a feature, it is compatible
+    for (const llvm::StringMapEntry<bool> &feature : that.features) {
       StringRef key = feature.getKey();
-      matches &= (that.features.count(key) != 0 &&
-                  that.features.lookup(key) == feature.getValue());
+      matches &= (features.count(key) != 0 &&
+                  features.lookup(key) == feature.getValue());
     }
   }
   return matches;
