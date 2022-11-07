@@ -480,7 +480,8 @@ GemmSize GemmSize::fromConvolution(ConvOpType type,
   return GemmSize(gemmGSize, gemmMSize, gemmKSize, gemmNSize);
 }
 
-template <typename T> static LogicalResult verifyConvOp(T op) {
+static LogicalResult verifyConvOp(RockConvInterface convOp) {
+  Operation *op = convOp.getOperation();
   auto isDisjointed = [&](llvm::StringRef tensor, llvm::StringRef dim1,
                           llvm::StringRef dim2) {
     auto layout = op->getAttr(tensor).template cast<ArrayAttr>().getValue();
@@ -491,20 +492,18 @@ template <typename T> static LogicalResult verifyConvOp(T op) {
       if (layout[i].template cast<StringAttr>().getValue() == dim2)
         pos2 = i;
     }
-
     return (pos2 != pos1 + 1) && (pos1 != pos2 + 1);
   };
 
   if (isDisjointed("filter_layout", "y", "x") ||
       isDisjointed("input_layout", "hi", "wi"))
-    return op.emitError("Disjointed yx or hw!");
+    return op->emitError("Disjointed yx or hw!");
 
-  bool isXdlops = bitEnumContainsAll(
-      op->getAttr("features").template cast<GemmFeaturesAttr>().getValue(),
-      GemmFeatures::mfma);
-  if (op->hasAttr("derivedBlockSize") && !isXdlops) {
-    return op.emitOpError(
-        "general conv kernels shouldn't have derived block size.");
+  bool isXdlops = bitEnumContainsAll(convOp.getFeatures(), GemmFeatures::mfma);
+  RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
+  if (gemmOp.getDerivedBlockSize().hasValue() && !isXdlops) {
+    return op->emitOpError(
+        "general kernels shouldn't have derived block size.");
   }
 
   return success();

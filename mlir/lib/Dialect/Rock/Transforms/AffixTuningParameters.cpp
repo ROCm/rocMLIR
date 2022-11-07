@@ -80,6 +80,7 @@ static void setUtilityKernelSizes(OpBuilder &b, Value arg, Operation *convOp,
   convOp->setAttr("gridSize", gridSizeAttr);
   convOp->setAttr("elems_per_thread", b.getIndexAttr(elemsPerThread));
 
+  funcOp->setAttr("block_size", blockSizeAttr);
   funcOp->setAttr("grid_size", gridSizeAttr);
 }
 
