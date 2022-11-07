@@ -499,10 +499,12 @@ template <typename T> static LogicalResult verifyConvOp(T op) {
       isDisjointed("input_layout", "hi", "wi"))
     return op.emitError("Disjointed yx or hw!");
 
-  RockConvInterface convInterface = cast<RockConvInterface>(op);
-  bool isXdlops = bitEnumContainsAll(convInterface->getFeatures(), GemmFeatures::mfma);
-  if (convInterface->getDerivedBlockSize().has_value() && !isXdlops) {
-    return op.emitOpError("general kernels shouldn't have derived block size.");
+  bool isXdlops = bitEnumContainsAll(
+      op->getAttr("features").template cast<GemmFeaturesAttr>().getValue(),
+      GemmFeatures::mfma);
+  if (op->hasAttr("derivedBlockSize") && !isXdlops) {
+    return op.emitOpError(
+        "general conv kernels shouldn't have derived block size.");
   }
 
   return success();
@@ -670,7 +672,8 @@ LogicalResult GemmOp::verify() {
   }
 
   if (getDerivedBlockSize().has_value() && !isXdlops) {
-    return emitOpError("general kernels shouldn't have derived block size.");
+    return emitOpError(
+        "general gemm kernels shouldn't have derived block size.");
   }
 
   if (failed(checkGemmSize(getA(), *this, "A")) ||
