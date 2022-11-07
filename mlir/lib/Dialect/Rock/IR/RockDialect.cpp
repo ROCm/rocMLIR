@@ -499,6 +499,12 @@ template <typename T> static LogicalResult verifyConvOp(T op) {
       isDisjointed("input_layout", "hi", "wi"))
     return op.emitError("Disjointed yx or hw!");
 
+  RockConvInterface convInterface = cast<RockConvInterface>(op);
+  bool isXdlops = bitEnumContainsAll(convInterface->getFeatures(), GemmFeatures::mfma);
+  if (convInterface->getDerivedBlockSize().has_value() && !isXdlops) {
+    return op.emitOpError("general kernels shouldn't have derived block size.");
+  }
+
   return success();
 }
 
@@ -661,6 +667,10 @@ LogicalResult GemmOp::verify() {
 
   if (getStoreMethod() != StoreMethod::Set && !isXdlops) {
     return emitOpError("general kernels don't support non-set store methods");
+  }
+
+  if (getDerivedBlockSize().has_value() && !isXdlops) {
+    return emitOpError("general kernels shouldn't have derived block size.");
   }
 
   if (failed(checkGemmSize(getA(), *this, "A")) ||
