@@ -51,7 +51,7 @@
 // KERNELCOUNT2: Kernel count=2
 // BIN2: ELF
 // BIN2: ELF
-// TUNING2_0: globalSize=100352, localSize=64
+// TUNING2_0: globalSize=401408, localSize=256
 // TUNING2_1: globalSize{{.*}}localSize{{.*}}
 // DRIVER2: rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features = dot {arch = "gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], gemm_id = -1 : i32, input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32], strides = [2 : i32, 2 : i32]} : memref<1x2048x1024x1x1xf32>, memref<256x1x1024x14x14xf32>, memref<256x1x2048x7x7xf32>
 // DRIVER2: rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features = dot {arch = "gfx906", dilations = [1 : i32, 1 : i32], filter_layout = ["g", "k", "c", "y", "x"], gemm_id = 0 : i32, input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32], strides = [2 : i32, 2 : i32]} : memref<1x2048x1024x1x1xf32>, memref<256x1x1024x14x14xf32>, memref<256x1x2048x7x7xf32>
