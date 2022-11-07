@@ -89,7 +89,7 @@ struct XModelSelectTargetsPass
       if (targetKrn)
         func->setAttr(targetsTag, b.getArrayAttr(targetKrn));
       else {
-        if (targetArchs.size()) {
+        if (targetArchs.size() && !testType(xmodel::TargetType::CPU)) {
           func.emitError("target object not found");
           signalPassFailure();
         }
