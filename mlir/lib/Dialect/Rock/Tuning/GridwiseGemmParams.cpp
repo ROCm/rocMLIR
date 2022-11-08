@@ -417,6 +417,7 @@ LogicalResult PopulateParamsXDL::populateDerived(RockGemmWrapperInterface op,
                                                  uint32_t &blockSize,
                                                  uint32_t &gridSize,
                                                  int64_t &gemmKBlocks) {
+  bool requiredPadding = false;
   auto gemmExtraPad =
       calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
                        params.gemmNPerBlock, gemmSize, params.gemmKPack);
@@ -429,6 +430,7 @@ LogicalResult PopulateParamsXDL::populateDerived(RockGemmWrapperInterface op,
     gemmSize.m += gemmExtraPad->m;
     gemmSize.k += gemmExtraPad->k;
     gemmSize.n += gemmExtraPad->n;
+    requiredPadding = true;
   }
 
   if (isa<Conv2DBwdDataOp>(op) && failed(isValidGridGemmXdlops(gemmSize))) {
@@ -444,19 +446,22 @@ LogicalResult PopulateParamsXDL::populateDerived(RockGemmWrapperInterface op,
     return failure();
   }
 
+  gridSize = obtainGridSize(gemmSize, params);
+
   // parameters derivable from tunable parameters.
   gemmKBlocks = 1;
   Type inputType = op.getInputType();
   auto maybeWrwOp = dyn_cast<Conv2DBwdWeightOp>(*op);
-  if (maybeWrwOp && (inputType.isF32() || inputType.isF16())) {
+  if (maybeWrwOp &&
+      isWrWAtomicKernel(op.getGemmFeatures(), inputType, requiredPadding)) {
     res = getKBlocks(maybeWrwOp, gemmSize, params, gemmKBlocks);
     if (failed(res)) {
       LLVM_DEBUG(llvm::dbgs()
                  << "Invalid tuning parameters for computing KBlocks.\n");
       return failure();
     }
+    gridSize *= gemmKBlocks;
   }
-  gridSize = obtainGridSize(gemmSize, params) * gemmKBlocks;
 
   return success();
 }

@@ -844,11 +844,7 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     // TODO: don't restrict this to xdlops only once we've validated on a gfx11
     // machine
     if (ConvOpType::BwdWeight == convOpType &&
-        bitEnumContainsAll(features, GemmFeatures::mfma | GemmFeatures::atomic_add) &&
-        (dataType == b.getF32Type() || dataType == b.getF16Type()) &&
-        !maybeGemmExtraPad.has_value()) {
-      // current backward weight with atomic_add can only run under xdlops +
-      // fp32 / fp16.
+        isWrWAtomicKernel(features, dataType, maybeGemmExtraPad.has_value())) {
       return backwardWeightAtomicAdd(cast<Conv2DBwdWeightOp>(op), b);
     }
     auto gemmExtraPad = maybeGemmExtraPad.value_or(GemmSize{0, 0, 0, 0});

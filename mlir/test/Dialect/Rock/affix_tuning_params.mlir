@@ -273,7 +273,7 @@ func.func @rock_conv2d_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x
 func.func @rock_conv2d_bwd_weight_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>) attributes {kernel = 0 : i32} {
   // CHECK: rock.conv2d_bwd_weight
   // CHECK-SAME: blockSize = 64
-  // CHECK-SAME: gridSize = 1280
+  // CHECK-SAME: gridSize = 40
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_4]]
   rock.conv2d_bwd_weight(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
     arch = "gfx908",

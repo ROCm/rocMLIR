@@ -9,6 +9,7 @@
 #ifndef ROCK_UTILITY_LOWERINGUTILS_H
 #define ROCK_UTILITY_LOWERINGUTILS_H
 
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -20,6 +21,9 @@ class Type;
 namespace rock {
 struct ConvolutionDims;
 struct GemmSize;
+
+bool isWrWAtomicKernel(GemmFeatures features, const Type &dataType,
+                       bool requiredPadding);
 
 // Heuristic logic to compute KBlock for backward weight atomic add kernel.
 // The logic is adopted from MIOpen.
