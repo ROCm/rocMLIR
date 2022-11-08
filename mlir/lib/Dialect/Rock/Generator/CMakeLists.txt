@@ -2,20 +2,9 @@ set(LLVM_LINK_COMPONENTS
   Support
   )
 
-get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
+get_property(rocm_dialect_libs GLOBAL PROPERTY ROCMLIR_DIALECT_LIBS)
 
-set(LIBS
-  ${dialect_libs}
-  MLIRDialect
-  MLIRRockOps
-  MLIRRockUtility
-  MLIRParser
-  MLIRTransforms
-  MLIRSupport
-  MLIRIR
-)
-
-add_mlir_dialect_library(MLIRRockConv2dGenerator
+add_rocmlir_dialect_library(MLIRRockConv2dGenerator
   AmdArchDb.cpp
   Conv2dGenerator.cpp
 
@@ -28,7 +17,5 @@ add_mlir_dialect_library(MLIRRockConv2dGenerator
 
 target_link_libraries(MLIRRockConv2dGenerator
   PRIVATE
-  MLIRIR
-  MLIRRockOps
-  ${LIBS}
+  ${rocm_dialect_libs}
 )

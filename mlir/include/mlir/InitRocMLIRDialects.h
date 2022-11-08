@@ -14,10 +14,41 @@
 #ifndef MLIR_INITROCMLIRDIALECTS_H_
 #define MLIR_INITROCMLIRDIALECTS_H_
 
+// rocMLIR includes
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Transforms/BufferizableOpInterfaceImpl.h"
 
+// MLIR includes
+#include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
+#include "mlir/Dialect/Arithmetic/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Async/IR/Async.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Bufferization/TransformOps/BufferizationTransformOps.h"
+#include "mlir/Dialect/Bufferization/Transforms/FuncBufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/TransformOps/LinalgTransformOps.h"
+#include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Linalg/Transforms/TilingInterfaceImpl.h"
+#include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/SCF/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Tensor/IR/TensorInferTypeOpInterfaceImpl.h"
+#include "mlir/Dialect/Tensor/IR/TensorTilingInterfaceImpl.h"
+#include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/Tosa/IR/TosaOps.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
+#include "mlir/Dialect/XModel/IR/XModel.h"
 #include "mlir/IR/Dialect.h"
 
 namespace mlir {
@@ -25,10 +56,49 @@ namespace mlir {
 // Add all the MLIR dialects to the provided registry.
 inline void registerRocMLIRDialects(DialectRegistry &registry) {
   // clang-format off
-  registry.insert<rock::RockDialect,
-                  migraphx::MIGraphXDialect>();
+  registry.insert<
+                  // rockMLIR specific dialects
+                  rock::RockDialect,
+                  migraphx::MIGraphXDialect,
+
+                  // Generic MLIR dialects
+                  AffineDialect, 
+                  amdgpu::AMDGPUDialect,
+                  arith::ArithmeticDialect, 
+                  async::AsyncDialect,
+                  bufferization::BufferizationDialect,
+                  cf::ControlFlowDialect,
+                  gpu::GPUDialect, 
+                  func::FuncDialect,
+                  LLVM::LLVMDialect, 
+                  linalg::LinalgDialect,
+                  math::MathDialect,
+                  memref::MemRefDialect,
+                  scf::SCFDialect,
+                  vector::VectorDialect,
+                  ROCDL::ROCDLDialect,
+                  tensor::TensorDialect,
+                  tosa::TosaDialect,
+                  xmodel::XModelDialect>();
   // clang-format on
+
+  // Register bufferization hooks for rock interfaces
   rock::registerBufferizableOpInterfaceExternalModels(registry);
+
+  // Register all dialect extensions.
+  bufferization::registerTransformDialectExtension(registry);
+
+  // Register all external models.
+  arith::registerBufferizableOpInterfaceExternalModels(registry);
+  bufferization::func_ext::registerBufferizableOpInterfaceExternalModels(
+      registry);
+  linalg::registerBufferizableOpInterfaceExternalModels(registry);
+  linalg::registerTilingInterfaceExternalModels(registry);
+  scf::registerBufferizableOpInterfaceExternalModels(registry);
+  tensor::registerBufferizableOpInterfaceExternalModels(registry);
+  tensor::registerInferTypeOpInterfaceExternalModels(registry);
+  tensor::registerTilingInterfaceExternalModels(registry);
+  vector::registerBufferizableOpInterfaceExternalModels(registry);
 }
 
 } // namespace mlir

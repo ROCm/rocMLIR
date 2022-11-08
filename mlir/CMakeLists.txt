@@ -37,6 +37,11 @@ add_subdirectory(lib)
 add_subdirectory(lib/CAPI)
 
 if (MLIR_INCLUDE_TESTS)
+  set_property(GLOBAL PROPERTY ROCMLIR_TEST_LIBS
+    MLIRRockTestPasses
+    MLIRTestIR
+    MLIRTestPass
+  )
   add_definitions(-DMLIR_INCLUDE_TESTS)
   add_custom_target(RocMLIRUnitTests)
   if (EXISTS ${LLVM_MAIN_SRC_DIR}/utils/unittest/googletest/include/gtest/gtest.h)

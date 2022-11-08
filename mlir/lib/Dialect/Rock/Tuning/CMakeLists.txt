@@ -1,4 +1,4 @@
-add_mlir_dialect_library(MLIRRockTuning
+add_rocmlir_dialect_library(MLIRRockTuning
   GeneralGemmBlockStructure.cpp
   ConvContext.cpp
   SqliteDb.cpp

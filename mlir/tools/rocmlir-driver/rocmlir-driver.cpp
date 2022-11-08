@@ -17,9 +17,8 @@
 #include "mlir/Dialect/XModel/IR/XModel.h"
 #include "mlir/Dialect/XModel/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
-#include "mlir/InitAllDialects.h"
-#include "mlir/InitAllPasses.h"
 #include "mlir/InitRocMLIRDialects.h"
+#include "mlir/InitRocMLIRPasses.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -54,20 +53,19 @@ static cl::opt<std::string>
                    cl::init(""));
 
 static cl::opt<std::string>
-    hostPipeline("host-pipeline",
-                 cl::desc("rocmlir-driver host pipeline list"),
+    hostPipeline("host-pipeline", cl::desc("rocmlir-driver host pipeline list"),
                  cl::value_desc("comma separated list of rock pipelines: "
                                 "partition,highlevel,execmodel or full"),
                  cl::init(""));
 
 static cl::opt<bool> legacyRockPipeline("c", cl::Hidden, cl::init(false),
-                                          cl::Optional,
-                                          cl::cb<void, bool>([](bool v) {
-                                            if (v) {
-                                              kernelPipeline.setValue("full");
-                                              hostPipeline.setValue("runner");
-                                            }
-                                          }));
+                                        cl::Optional,
+                                        cl::cb<void, bool>([](bool v) {
+                                          if (v) {
+                                            kernelPipeline.setValue("full");
+                                            hostPipeline.setValue("runner");
+                                          }
+                                        }));
 
 /////////////////////////////////////////////////////////////////////////////
 //// Backend target spec
@@ -363,7 +361,6 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 
 int main(int argc, char **argv) {
   DialectRegistry registry;
-  registerAllDialects(registry);
   registerRocMLIRDialects(registry);
 #ifdef MLIR_INCLUDE_TESTS
   test::registerTestDialect(registry);
@@ -374,9 +371,7 @@ int main(int argc, char **argv) {
                    scf::SCFDialect, AffineDialect, memref::MemRefDialect,
                    math::MathDialect, arith::ArithmeticDialect, gpu::GPUDialect,
                    bufferization::BufferizationDialect, async::AsyncDialect>();
-  mlir::registerAllPasses();
-  mlir::registerRocMLIRConversionPasses();
-  rock::registerPasses();
+  mlir::registerRocMLIRPasses();
   InitLLVM y(argc, argv);
 
   // Register any pass manager command line options.

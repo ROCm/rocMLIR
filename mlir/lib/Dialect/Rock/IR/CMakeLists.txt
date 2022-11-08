@@ -1,5 +1,5 @@
 
-add_mlir_dialect_library(MLIRRockOps
+add_rocmlir_dialect_library(MLIRRockOps
   TransformMapBuilder.cpp
   RockDialect.cpp
   RockGemmWrapperInterface.cpp
@@ -15,6 +15,7 @@ add_mlir_dialect_library(MLIRRockOps
   MLIRRockTuningParamAttrInterfaceIncGen
   MLIRRockOpsIncGen
   )
+
 
 target_link_libraries(MLIRRockOps
   PUBLIC

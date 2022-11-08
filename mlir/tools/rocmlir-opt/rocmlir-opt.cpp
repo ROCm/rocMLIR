@@ -33,7 +33,6 @@ void registerRockTestPasses() {
 #endif
 
 int main(int argc, char **argv) {
-  registerAllPasses();
   registerRocMLIRPasses();
 
 #ifdef MLIR_INCLUDE_TESTS
@@ -41,7 +40,6 @@ int main(int argc, char **argv) {
 #endif
 
   DialectRegistry registry;
-  registerAllDialects(registry);
   registerRocMLIRDialects(registry);
   return mlir::asMainReturnCode(
       mlir::MlirOptMain(argc, argv, "MLIR+Rock modular optimizer driver\n",

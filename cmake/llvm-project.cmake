@@ -51,3 +51,10 @@ list(APPEND LLVM_INCLUDE_DIRS
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath -Wl,${CMAKE_CURRENT_BINARY_DIR}/external/llvm-project/llvm/lib")
 
 add_subdirectory("${LLVM_PROJ_SRC}/llvm" "external/llvm-project/llvm" EXCLUDE_FROM_ALL)
+
+function(add_rocmlir_dialect_library name)
+  set_property(GLOBAL APPEND PROPERTY ROCMLIR_DIALECT_LIBS ${name})
+  set_property(GLOBAL APPEND PROPERTY MLIR_DIALECT_LIBS ${name})
+  add_mlir_library(${ARGV} DEPENDS mlir-headers)
+  #add_mlir_dialect_library(name ${ARGV})
+endfunction(add_rocmlir_dialect_library)

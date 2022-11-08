@@ -108,7 +108,6 @@ int main(int argc, char **argv) {
   llvm::InitializeNativeTargetAsmParser();
 
   DialectRegistry registry;
-  mlir::registerAllDialects(registry);
   mlir::registerRocMLIRDialects(registry);
   mlir::registerLLVMDialectTranslation(registry);
 #ifdef MLIR_INCLUDE_TESTS

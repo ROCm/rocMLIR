@@ -1,4 +1,4 @@
-add_mlir_dialect_library(MLIRRockPipeline
+add_rocmlir_dialect_library(MLIRRockPipeline
   Pipelines.cpp
 
   LINK_LIBS PUBLIC
@@ -20,6 +20,4 @@ add_mlir_dialect_library(MLIRRockPipeline
   MLIRRockTuning
   MLIRSCFToControlFlow
   MLIRSupport
-  MLIRTransforms
-  MLIRTransformUtils
 )
