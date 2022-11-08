@@ -261,6 +261,9 @@ struct IndexDiffUpdateRewritePattern
       for (Value v : op->getOperands()) {
         Operation *defOp = v.getDefiningOp();
         if (auto pred = dyn_cast_or_null<IndexDiffUpdateOp>(defOp)) {
+          PatternRewriter::InsertionGuard predGuard(b);
+          // Prevent def-after-use errors
+          b.setInsertionPoint(pred);
           if (failed(matchAndRewrite(pred, b)))
             return failure();
           reevaluateOps = true;
@@ -673,14 +676,14 @@ struct IndexDiffUpdateRewritePattern
             wrappedDiff =
                 b.create<ConstantIndexOp>(loc, *mbUpperDiff % lowerLen);
           } else {
-            wrappedDiff =
-                b.create<RemUIOp>(loc, upperIndicesDiff[p[i]], lowerLenOp);
+            wrappedDiff = b.createOrFold<RemUIOp>(loc, upperIndicesDiff[p[i]],
+                                                  lowerLenOp);
           }
           Value newLower =
               addToOriginal(lowerIndicesOriginal[q[i]], wrappedDiff);
-          newLower = b.create<RemUIOp>(loc, newLower, lowerLenOp);
+          newLower = b.createOrFold<RemUIOp>(loc, newLower, lowerLenOp);
           Value lowerDiff =
-              b.create<SubIOp>(loc, newLower, lowerIndicesOriginal[q[i]]);
+              b.createOrFold<SubIOp>(loc, newLower, lowerIndicesOriginal[q[i]]);
           lowerIndicesDiffMap[q[i]] = lowerDiff;
           lowerIndicesUpdatedMap[q[i]] = newLower;
         }
