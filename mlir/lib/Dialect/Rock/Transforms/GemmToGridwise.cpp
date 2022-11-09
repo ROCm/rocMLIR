@@ -117,25 +117,6 @@ static Value padMatrix(Value matrix, ConversionPatternRewriter &b, Location loc,
   return b.create<TransformOp>(loc, matrix, padAttr);
 }
 
-/// Split the k dimension of the matrix into k and kpack if kpack is > 1.
-/// The matrix must be GxKxD for some `nonKDim` d.
-/// TODO: this is only temporarily needed to handle the old xdlops gemm lowering
-/// and should be removed after xdlops gemm is converted to the new global load
-/// style.
-static Value applyKpack(Value matrix, int64_t kpack,
-                        ConversionPatternRewriter &b, Location loc,
-                        StringRef nonKDim) {
-  if (kpack == 1)
-    return matrix;
-  ArrayRef<int64_t> shape = matrix.getType().cast<MemRefType>().getShape();
-  int64_t kLen = shape[1];
-  BottomUpTMBuilder addKpack(b, {"gemmG", "gemmK", nonKDim}, shape, loc);
-  addKpack.passThrough({"gemmG", nonKDim});
-  addKpack.unmerge({"k", "kpack"}, {1, 3}, "gemmK", {kLen / kpack, kpack});
-  TransformMapAttr addKpackAttr = addKpack.get();
-  return b.create<TransformOp>(loc, matrix, addKpackAttr);
-}
-
 LogicalResult
 GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                     ConversionPatternRewriter &rw) const {
@@ -169,13 +150,6 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
 
   bool isXdlops = bitEnumContainsAll(op.getFeatures(), GemmFeatures::mfma);
-  // TODO: temporary code for befor the gridwise gemm is rewritten to not do
-  // this
-  if (isXdlops) {
-    int64_t kpack = params.cast<XdlopsGemmParamsAttr>().getKpack();
-    a = applyKpack(a, kpack, rw, loc, "gemmM");
-    b = applyKpack(b, kpack, rw, loc, "gemmN");
-  }
 
   IntegerAttr blockSize = op.getBlockSizeAttr();
   if (!blockSize)

@@ -17,6 +17,13 @@
 using namespace mlir;
 using namespace mlir::rock;
 
+bool mlir::rock::isWrWAtomicKernel(GemmFeatures features, const Type &dataType,
+                                   bool requiredPadding) {
+  return bitEnumContainsAll(features,
+                            GemmFeatures::mfma | GemmFeatures::atomic_add) &&
+         (dataType.isF32() || dataType.isF16()) && !requiredPadding;
+}
+
 LogicalResult mlir::rock::calculateKBlockNum(const ConvolutionDims &convDims,
                                              const GemmSize &gemmSize,
                                              int64_t MPerBlock,
