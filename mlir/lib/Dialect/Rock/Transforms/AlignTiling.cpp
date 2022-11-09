@@ -203,9 +203,7 @@ static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
   std::tie(source, sourceTransformsFromOp) = untransform(b, srcOp);
 
   int64_t copyLength = gemmStoreOp.getLength().getSExtValue();
-  Type typeToLoad = dest.getType().cast<MemRefType>().getElementType();
-  if (copyLength > 1)
-    typeToLoad = VectorType::get({copyLength}, typeToLoad);
+  Type destElemType = dest.getType().cast<MemRefType>().getElementType();
 
   ArrayAttr sourceLeftOob = gemmStoreOp.getLeftOobDims();
   ArrayAttr sourceRightOob = gemmStoreOp.getRightOobDims();
@@ -217,21 +215,41 @@ static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
 
   // If there are no broadcasts, re-use the coordianes for the writeback
   if (sourceTransformsFromOp.empty()) {
+    Type typeToLoad = destElemType;
+    if (copyLength > 1)
+      typeToLoad = VectorType::get({copyLength}, typeToLoad);
+
     Value loaded = b.create<GlobalLoadOp>(
         loc, typeToLoad, source, sourceLeftOob, sourceRightOob, loadCoord);
     b.create<InBoundsStoreOp>(loc, loaded, dest, zero);
   } else {
-    // Note: this is a hack around the fact that we don't have a good way
-    // to add a domain to the enclosing loop currently.
+    // Note: the vectorization of extra argument may be smaller than the
+    // vectorization of the convolution.
     size_t extraMapInSize = loadCoord.size();
-    SmallVector<int64_t> consts(extraMapInSize, 1LL);
     std::tie(sourceLeftOob, sourceRightOob) = computeOobFromTransforms(
         b, sourceTransformsFromOp, {{sourceLeftOob, sourceRightOob}});
 
+    int64_t lastDim = extraMapInSize - 1;
+    int64_t maxVectorLen =
+        getMaxVectorization(sourceTransformsFromOp, lastDim, copyLength,
+                            source.getType().cast<MemRefType>().getShape());
+
+    SmallVector<int64_t> bounds(extraMapInSize, 1LL),
+        strides(extraMapInSize, 1LL);
+    bounds[lastDim] = copyLength;
+    strides[lastDim] = maxVectorLen;
+
+    SmallVector<Value> zeroes(extraMapInSize, zero);
+
+    Type typeToLoad = destElemType;
+    if (maxVectorLen > 1)
+      typeToLoad = VectorType::get(maxVectorLen, typeToLoad);
+
     auto copyLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{loadCoord},
-        ArrayRef<Attribute>{sourceTransformsFromOp}, /*bounds=*/consts,
-        /*strides=*/ArrayRef<int64_t>(consts), /*forceUnroll=*/true,
+        loc, ArrayRef<ValueRange>{loadCoord, zeroes},
+        ArrayRef<Attribute>{sourceTransformsFromOp, b.getArrayAttr({})},
+        /*bounds=*/ArrayRef<int64_t>(bounds),
+        /*strides=*/ArrayRef<int64_t>(strides), /*forceUnroll=*/true,
         /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard guard(b);
@@ -239,7 +257,8 @@ static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
       Value loaded = b.create<GlobalLoadOp>(
           loc, typeToLoad, source, sourceLeftOob, sourceRightOob,
           copyLoop.getLowerCoords(/*domain=*/0));
-      b.create<InBoundsStoreOp>(loc, loaded, dest, zero);
+      b.create<InBoundsStoreOp>(loc, loaded, dest,
+                                copyLoop.getLowerCoords(/*domain=*/1)[lastDim]);
     }
   }
 }
