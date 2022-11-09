@@ -96,7 +96,8 @@ static Type obtainAccumulatorType(OpBuilder &b, Type &elementType,
 /// equal, which should be the vectorization dimension of the store to LDS.
 static std::pair<GemmDimension, int64_t>
 bestVectorization(OpBuilder &b, Value matrix, int64_t dataPerThread,
-                  GemmDimension tiebreaker) {
+                  GemmDimension tiebreaker, int64_t kPerBlock,
+                  int64_t dPerBlock) {
   Value tensor;
   ArrayAttr transforms;
   std::tie(tensor, transforms) = untransform(b, matrix);
@@ -105,14 +106,44 @@ bestVectorization(OpBuilder &b, Value matrix, int64_t dataPerThread,
   int64_t kVectorLen =
       getMaxVectorization(transforms, static_cast<uint32_t>(GemmDimension::K),
                           dataPerThread, tensorShape);
+  kVectorLen = std::min(kVectorLen, kPerBlock);
+
   int64_t dVectorLen = getMaxVectorization(
       transforms, static_cast<uint32_t>(GemmDimension::MorN), dataPerThread,
       tensorShape);
+  dVectorLen = std::min(dVectorLen, dPerBlock);
+
   if (kVectorLen > dVectorLen)
     return {GemmDimension::K, kVectorLen};
   if (dVectorLen > kVectorLen)
     return {GemmDimension::MorN, dVectorLen};
   return {tiebreaker, kVectorLen};
+}
+
+static FailureOr<std::pair<int64_t, int64_t>>
+computeCopyPerThread(GemmDimension dim, int64_t vectorLen,
+                     int64_t copyPerThread, int64_t kPerBlock,
+                     int64_t dPerBlock, Location loc) {
+  int64_t copyKPerThread = 0;
+  int64_t copyDPerThread = 0;
+  if (dim == GemmDimension::K) {
+    copyKPerThread = vectorLen;
+    copyDPerThread = copyPerThread / copyKPerThread;
+  } else {
+    copyDPerThread = vectorLen;
+    copyKPerThread = copyPerThread / copyDPerThread;
+  }
+  if (copyKPerThread == 0 || copyDPerThread == 0) {
+    return emitError(loc) << "gemmA copy size too small,"
+                          << " copyKPerThread: " << copyKPerThread
+                          << " copyDPerThread: " << copyDPerThread << "\n";
+  }
+  if (kPerBlock < copyKPerThread || dPerBlock < copyDPerThread) {
+    return mlir::emitError(loc)
+           << "gemmA per thread copy smaller than per"
+           << " block copy, incohereant tuning parameters\n";
+  }
+  return std::make_pair(copyKPerThread, copyDPerThread);
 }
 
 /// Applies the transforms that take a G x K x D matrix to a k_iter x bid x tid
@@ -620,10 +651,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
     int64_t aVectorLen, bVectorLen;
     GemmDimension aVectorDim, bVectorDim;
-    std::tie(aVectorDim, aVectorLen) =
-        bestVectorization(b, op.getA(), aCopyPerThread, vectorTiebreaker);
-    std::tie(bVectorDim, bVectorLen) =
-        bestVectorization(b, op.getB(), bCopyPerThread, vectorTiebreaker);
+    std::tie(aVectorDim, aVectorLen) = bestVectorization(
+        b, op.getA(), aCopyPerThread, vectorTiebreaker, kPerBlock, mPerBlock);
+    std::tie(bVectorDim, bVectorLen) = bestVectorization(
+        b, op.getB(), bCopyPerThread, vectorTiebreaker, kPerBlock, nPerBlock);
 
     LLVM_DEBUG(llvm::dbgs()
                << "aCopyPerThread: " << aCopyPerThread << "\n"
@@ -634,19 +665,19 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                << "bVectorLen: " << bVectorLen << "\n"
                << "vectorTiebreaker: " << vectorTiebreaker << "\n");
 
-    // Vectorization lengths evenly devide *CopyPerThread, this is safe.
-    int64_t aCopyKPerThread = aVectorDim == GemmDimension::K
-                                  ? aVectorLen
-                                  : aCopyPerThread / aVectorLen;
-    int64_t copyMPerThread = aVectorDim == GemmDimension::MorN
-                                 ? aVectorLen
-                                 : aCopyPerThread / aVectorLen;
-    int64_t bCopyKPerThread = bVectorDim == GemmDimension::K
-                                  ? bVectorLen
-                                  : bCopyPerThread / bVectorLen;
-    int64_t copyNPerThread = bVectorDim == GemmDimension::MorN
-                                 ? bVectorLen
-                                 : bCopyPerThread / bVectorLen;
+    auto maybeCopyAPerThread = computeCopyPerThread(
+        aVectorDim, aVectorLen, aCopyPerThread, kPerBlock, mPerBlock, loc);
+    if (failed(maybeCopyAPerThread))
+      return maybeCopyAPerThread;
+    int64_t aCopyKPerThread = (*maybeCopyAPerThread).first;
+    int64_t copyMPerThread = (*maybeCopyAPerThread).second;
+
+    auto maybeCopyBPerThread = computeCopyPerThread(
+        bVectorDim, bVectorLen, bCopyPerThread, kPerBlock, nPerBlock, loc);
+    if (failed(maybeCopyBPerThread))
+      return maybeCopyBPerThread;
+    int64_t bCopyKPerThread = (*maybeCopyBPerThread).first;
+    int64_t copyNPerThread = (*maybeCopyBPerThread).second;
 
     FailureOr<Value> maybeWrappedA = wrapMatrixForGlobalLoad(
         b, loc, op.getA(), "m", bidGridOrder, bidGridLengths, gridSize,
@@ -997,10 +1028,10 @@ struct GridwiseGemmV2RewritePattern
 
     GemmDimension vectorTiebreaker =
         (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
-    std::tie(aVectorDim, aVectorLen) =
-        bestVectorization(b, matA, aCopyPerThread, vectorTiebreaker);
-    std::tie(bVectorDim, bVectorLen) =
-        bestVectorization(b, matB, bCopyPerThread, vectorTiebreaker);
+    std::tie(aVectorDim, aVectorLen) = bestVectorization(
+        b, matA, aCopyPerThread, vectorTiebreaker, kPerBlock, mPerBlock);
+    std::tie(bVectorDim, bVectorLen) = bestVectorization(
+        b, matB, bCopyPerThread, vectorTiebreaker, kPerBlock, nPerBlock);
 
     LLVM_DEBUG(llvm::dbgs()
                << "gridSize: " << gridSize << "\n"
@@ -1013,48 +1044,19 @@ struct GridwiseGemmV2RewritePattern
                << "bVectorLen: " << bVectorLen << "\n"
                << "vectorTiebreaker: " << vectorTiebreaker << "\n");
 
-    int64_t aCopyKPerThread = 0;
-    int64_t copyMPerThread = 0;
-    if (aVectorDim == GemmDimension::K) {
-      aVectorLen = std::min(aVectorLen, kPerBlock);
-      aCopyKPerThread = aVectorLen;
-      copyMPerThread = aCopyPerThread / aCopyKPerThread;
-    } else {
-      aVectorLen = std::min(aVectorLen, mPerBlock);
-      copyMPerThread = aVectorLen;
-      aCopyKPerThread = aCopyPerThread / copyMPerThread;
-    }
-    if (aCopyKPerThread == 0 || copyMPerThread == 0) {
-      return emitError(loc) << "gemmA copy size too small,"
-                            << " aCopyKPerThread: " << aCopyKPerThread
-                            << " copyMPerThread: " << copyMPerThread << "\n";
-    }
-    if (kPerBlock < aCopyKPerThread || mPerBlock < copyMPerThread) {
-      return mlir::emitError(loc)
-             << "gemmA per thread copy smaller than per"
-             << " block copy, incohereant tuning parameters\n";
-    }
+    auto maybeCopyAPerThread = computeCopyPerThread(
+        aVectorDim, aVectorLen, aCopyPerThread, kPerBlock, mPerBlock, loc);
+    if (failed(maybeCopyAPerThread))
+      return maybeCopyAPerThread;
+    int64_t aCopyKPerThread = (*maybeCopyAPerThread).first;
+    int64_t copyMPerThread = (*maybeCopyAPerThread).second;
 
-    int64_t bCopyKPerThread = 0;
-    int64_t copyNPerThread = 0;
-    if (bVectorDim == GemmDimension::K) {
-      bVectorLen = std::min(bVectorLen, kPerBlock);
-      bCopyKPerThread = bVectorLen;
-      copyNPerThread = bCopyPerThread / bCopyKPerThread;
-    } else {
-      bVectorLen = std::min(bVectorLen, nPerBlock);
-      copyNPerThread = bVectorLen;
-      bCopyKPerThread = bCopyPerThread / copyNPerThread;
-    }
-    if (bCopyKPerThread == 0 || copyNPerThread == 0) {
-      return emitError(loc) << "gemmB copy size too small,"
-                            << " bCopyKPerThread: " << bCopyKPerThread
-                            << " copyNPerThread: " << copyNPerThread << "\n";
-    }
-    if (kPerBlock < bCopyKPerThread || nPerBlock < copyNPerThread) {
-      return emitError(loc) << "gemmB per thread copy smaller than per"
-                            << " block copy, incohereant tuning parameters\n";
-    }
+    auto maybeCopyBPerThread = computeCopyPerThread(
+        bVectorDim, bVectorLen, bCopyPerThread, kPerBlock, nPerBlock, loc);
+    if (failed(maybeCopyBPerThread))
+      return maybeCopyBPerThread;
+    int64_t bCopyKPerThread = (*maybeCopyBPerThread).first;
+    int64_t copyNPerThread = (*maybeCopyBPerThread).second;
 
     LLVM_DEBUG(llvm::dbgs() << "kPerBlock: " << kPerBlock << "\n"
                             << "mPerBlock: " << mPerBlock << "\n"
