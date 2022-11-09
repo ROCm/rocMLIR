@@ -76,9 +76,6 @@ set(ROCMLIR_TEST_DEPENDS
   mlir-mixr-full-test
   mlir-mixr-fullc-test
   mlir-tosa-miir-test
-  mlir-opt
-  mlir-reduce
-  mlir-translate
   mlir_runner_utils
   mlir_c_runner_utils
   mlir_async_runtime
