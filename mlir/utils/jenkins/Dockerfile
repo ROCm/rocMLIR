@@ -1,11 +1,10 @@
-# This Dockerfile provides the enviornment for a ROCm installation of MLIR
-FROM ubuntu:bionic
+FROM ubuntu:20.04
 MAINTAINER Zhuoran Yin <zhuoran.yin@amd.com>
 
-ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/5.2.3/
-ARG ROCM_BUILD_NAME=ubuntu
+ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/5.3.2/
+ARG ROCM_BUILD_NAME=focal
 ARG ROCM_BUILD_NUM=main
-ARG ROCM_PATH=/opt/rocm-5.2.3
+ARG ROCM_PATH=/opt/rocm-5.3.2
 
 ENV DEBIAN_FRONTEND noninteractive
 
@@ -64,7 +63,8 @@ RUN ln -s /usr/bin/clang-10 /usr/bin/clang;\
 RUN apt-get update && apt-get install -y --no-install-recommends \
   apt-utils \
   apt-transport-https \
-  curl  \
+  curl \
+  gpg \
   libnuma-dev \
   software-properties-common
 
@@ -93,9 +93,10 @@ RUN wget --no-check-certificate -qO - http://repo.radeon.com/rocm/rocm.gpg.key 2
 RUN echo "deb [arch=amd64] $ROCM_DEB_REPO $ROCM_BUILD_NAME $ROCM_BUILD_NUM" > /etc/apt/sources.list.d/rocm.list
 
 # Install cmake distribution
-RUN wget --no-check-certificate -qO - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | apt-key add -
-RUN apt-add-repository 'deb https://apt.kitware.com/ubuntu/ bionic main'
-
+RUN wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | \
+    tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null
+RUN echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ focal main' | \
+    tee /etc/apt/sources.list.d/kitware.list >/dev/null
 
 # Note instead of installing the latest, we should always manually bump cmake version when necessary.
 # This make sure that we don't accidentally use newer cmake features incompatible with our client.
@@ -113,8 +114,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   kmod \
   file \
   netcat-openbsd \
-  cmake-data=3.22.1-0kitware1ubuntu18.04.1 \
-  cmake=3.22.1-0kitware1ubuntu18.04.1 \
+  cmake-data=3.22.1-0kitware1ubuntu20.04.1 \
+  cmake=3.22.1-0kitware1ubuntu20.04.1 \
   libsqlite3-dev \
   parallel && \
   apt-get clean && \
