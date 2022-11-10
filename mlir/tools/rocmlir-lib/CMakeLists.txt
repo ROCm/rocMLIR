@@ -1,11 +1,9 @@
 get_property(rocmlir_dialect_libs GLOBAL PROPERTY ROCMLIR_DIALECT_LIBS)
 
-set(LLVM_LINK_COMPONENTS
-  X86
-  )
 
 set(LIBS
   ${rocmlir_dialect_libs}
+  LLVMX86AsmParser
 )
 
 set(CMAKE_BUILD_RPATH ${CMAKE_BUILD_DIR}/external/llvm-project/llvm/lib)
@@ -17,6 +15,11 @@ PARTIAL_SOURCES_INTENDED
 
   LINK_LIBS
   ${LIBS}
+
+  LINK_COMPONENTS
+  X86CodeGen
+  X86Desc
+  X86Info
   )
 
 add_llvm_executable(rocmlir-lib-test
