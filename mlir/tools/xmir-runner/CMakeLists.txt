@@ -14,6 +14,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     LLVMX86AsmParser
     MLIRParser
     MLIRRocmExecutionEngineUtils
+    MLIRJitRunner
   )
 
   add_llvm_tool(xmir-runner

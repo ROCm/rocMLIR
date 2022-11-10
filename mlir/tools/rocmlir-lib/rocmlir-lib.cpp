@@ -8,7 +8,6 @@
 
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
-#include "mlir/InitAllDialects.h"
 #include "llvm/Support/TargetSelect.h"
 
 #include "llvm/Support/raw_ostream.h"
@@ -41,7 +40,6 @@ private:
   MLIRContext &getContext() {
     auto getRegistry = []() {
       DialectRegistry registry;
-      registerAllDialects(registry);
       registerRocMLIRDialects(registry);
       return registry;
     };
@@ -86,16 +84,17 @@ void miirLazyInit() {
 }
 
 LogicalResult RockEnabled(const mlir::rock::Conv2dGenerator::Config &conf) {
-  const std::string& inLayout = conf.inputLayout;
-  const std::string& filLayout = conf.filterLayout;
-  const std::string& outLayout = conf.outputLayout;
+  const std::string &inLayout = conf.inputLayout;
+  const std::string &filLayout = conf.filterLayout;
+  const std::string &outLayout = conf.outputLayout;
 
-  const static std::set<std::tuple<std::string, std::string, std::string>> supportedLayouts = {
-    {"ngchw", "gkcyx", "ngkhw"},
-    {"nhwgc", "gkyxc", "nhwgk"}
-  };
+  const static std::set<std::tuple<std::string, std::string, std::string>>
+      supportedLayouts = {{"ngchw", "gkcyx", "ngkhw"},
+                          {"nhwgc", "gkyxc", "nhwgk"}};
 
-  bool layoutSupported = supportedLayouts.count(std::make_tuple(inLayout, filLayout, outLayout)) > 0;
+  bool layoutSupported =
+      supportedLayouts.count(std::make_tuple(inLayout, filLayout, outLayout)) >
+      0;
   bool noBF16 = conf.dataTypeStr != "bf16";
   return LogicalResult::success(layoutSupported && noBF16);
 }
@@ -285,7 +284,8 @@ extern "C" MiirStatus miirBufferGet(MiirHandle mlirHandle, char *buffer,
   // 1st call: give client the size of buffer to allocate
   if ((buffer == nullptr) && (size != nullptr)) {
     module.walk([&](gpu::GPUModuleOp gpuModule) {
-      auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>(gpu::getDefaultGpuBinaryAnnotation());
+      auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>(
+          gpu::getDefaultGpuBinaryAnnotation());
       if (hsacoAttr) {
         *size = hsacoAttr.getValue().size();
       }
@@ -293,7 +293,8 @@ extern "C" MiirStatus miirBufferGet(MiirHandle mlirHandle, char *buffer,
     // 2nd call: copy the hsaco to the target buffer
   } else {
     module.walk([&](gpu::GPUModuleOp gpuModule) {
-      auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>(gpu::getDefaultGpuBinaryAnnotation());
+      auto hsacoAttr = gpuModule->getAttrOfType<StringAttr>(
+          gpu::getDefaultGpuBinaryAnnotation());
       if (hsacoAttr) {
         std::string hsaco = hsacoAttr.getValue().str();
         std::copy(hsaco.begin(), hsaco.end(), buffer);

@@ -27,12 +27,12 @@
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/InitAllPasses.h"
+#include "mlir/Transforms/Passes.h"
 
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
-#include "mlir/InitAllDialects.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "llvm/Support/TargetSelect.h"
 
 using namespace mlir;

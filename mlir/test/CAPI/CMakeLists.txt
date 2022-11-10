@@ -5,7 +5,9 @@ set(LLVM_OPTIONAL_SOURCES
   mixr_full.c
 )
 
-set(LLVM_LINK_COMPONENTS)
+set(LLVM_LINK_COMPONENTS
+  X86
+)
 
 add_llvm_executable(mlir-mixr-capi-test
   mixrir.c

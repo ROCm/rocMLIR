@@ -1,11 +1,11 @@
 get_property(rocmlir_dialect_libs GLOBAL PROPERTY ROCMLIR_DIALECT_LIBS)
-get_property(rocmlir_conversion_libs GLOBAL PROPERTY ROCMLIR_CONVERSION_LIBS)
+
+set(LLVM_LINK_COMPONENTS
+  X86
+  )
 
 set(LIBS
   ${rocmlir_dialect_libs}
-  LLVMAMDGPUAsmParser
-  LLVMX86AsmParser
-  MLIRParser
 )
 
 set(CMAKE_BUILD_RPATH ${CMAKE_BUILD_DIR}/external/llvm-project/llvm/lib)
