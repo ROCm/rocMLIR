@@ -168,8 +168,10 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   MlirOperation moduleOp = mlirModuleGetOperation(module);
 
   MlirRockTuningSpace tuningSpace = mlirRockTuningSpaceCreate(module);
+  printf("Got tuning space,\n");
   int qNum = mlirRockTuningGetNumParamsQuick(tuningSpace);
   int fNum = mlirRockTuningGetNumParamsFull(tuningSpace);
+  printf("quick set = %d, full set = %d\n", qNum, fNum);
   MlirRockTuningParam tuningParam = mlirRockTuningParamCreate();
   if (!mlirRockTuningParamGet(tuningSpace, 0, tuningParam)) {
     printf("fails to obtain param\n");
@@ -179,11 +181,9 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   char *paramStr = strdup(mlirRockTuningGetParamStr(tuningParam));
   mlirRockTuningParamDestroy(tuningParam);
   mlirRockTuningSpaceDestroy(tuningSpace);
+  printf("Obtained perfconfig : \"%s\"\n", paramStr);
   free(paramStr);
 
-  printf("Got tuning space,\n");
-  printf("Obtained perfconfig : \"%s\"\n", paramStr);
-  printf("quick set = %d, full set = %d\n", qNum, fNum);
   mlirOperationDump(moduleOp);
   // CHECK-LABEL: func @main
 

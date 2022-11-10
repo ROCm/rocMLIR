@@ -24,6 +24,7 @@ namespace rock {
 struct ParamEntry {
   RockTuningParamAttrInterface param;
   KernelType primaryOpType;
+  std::string configStr;
 };
 
 // Total tuning space

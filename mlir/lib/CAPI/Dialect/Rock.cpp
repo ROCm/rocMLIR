@@ -75,7 +75,8 @@ MLIR_CAPI_EXPORTED
 const char *mlirRockTuningGetParamStr(MlirRockTuningParam param) {
   auto paramEntry = unwrap(param);
   llvm::StringRef strRef = paramEntry->param.getPerfConfigStr();
-  return strRef.data();
+  paramEntry->configStr = strRef.data();
+  return paramEntry->configStr.c_str();
 }
 
 MLIR_CAPI_EXPORTED
