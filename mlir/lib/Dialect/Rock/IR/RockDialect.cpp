@@ -664,6 +664,11 @@ LogicalResult GemmOp::verify() {
         !params.isa<GeneralGemmParamsAttr>())
       return emitOpError("an all-hardware gemm must used the general gemm "
                          "tuning parameters");
+    if (getDerivedBlockSize().has_value() &&
+        params.isa<GeneralGemmParamsAttr>()) {
+      return emitOpError(
+          "cannot have derivedBlockSize when gemm has generalGemmParams");
+    }
   }
 
   if (getStoreMethod() != StoreMethod::Set && !isXdlops) {

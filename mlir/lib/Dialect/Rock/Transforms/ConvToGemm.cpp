@@ -153,7 +153,10 @@ LogicalResult createElementwiseLoop(
     OpBuilder &b, Location loc, Operation *convOp, ValueRange memrefs,
     int64_t vectorLen,
     function_ref<void(OpBuilder &, Location, ValueRange, Value)> emitBodyFunc) {
-  uint32_t blockSize = convOp->getAttrOfType<IntegerAttr>("utilityBlockSize").getInt();
+  uint32_t blockSize =
+      convOp->getAttrOfType<IntegerAttr>("utilityBlockSize").getInt();
+  // Now, this convOp is confirmed as a utility kernel, deleting params.
+  convOp->removeAttr("params");
   int64_t elemsPerThread =
       convOp->getAttrOfType<IntegerAttr>("elems_per_thread").getInt();
   if (elemsPerThread % vectorLen != 0)
