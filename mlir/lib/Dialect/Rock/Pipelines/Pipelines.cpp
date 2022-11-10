@@ -140,6 +140,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     pm.addPass(rock::createRockThreadwiseGemmLoweringPass());
     pm.addPass(rock::createRockSugarToLoopsPass());
     pm.addPass(rock::createRockCleanMathPass());
+    pm.addPass(rock::createRockBufferLoadMergePass());
     pm.addPass(rock::createRockLoopsToCfPass());
     pm.addPass(createConvertRockToGPUPass());
 
