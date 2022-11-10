@@ -9,3 +9,13 @@ add_mlir_public_c_api_library(MLIRCAPIMIGraphX
   MLIRRockPipeline
   MLIRGPUTransforms
 )
+
+add_mlir_public_c_api_library(MLIRCAPIRock
+  Rock.cpp
+
+  PARTIAL_SOURCES_INTENDED
+  LINK_LIBS PUBLIC
+  MLIRCAPIIR
+  MLIRRockOps
+  MLIRRockTuning
+)

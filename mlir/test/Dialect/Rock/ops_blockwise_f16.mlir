@@ -4,8 +4,8 @@
 
 func.func @rock_blockwise_gemm_f16(%A : memref<8x128x1xf16, 3>, %B : memref<8x128x1xf16, 3>, %C : memref<8x8xf16, 5>) {
   rock.blockwise_gemm %C += %A * %B {
-    blockSize = 256 : i32,
     params = #rock.general_gemm_params<
+      blockSize = 256,
       kPerBlock = 8,
       mPerBlock = 256,
       nPerBlock = 256,

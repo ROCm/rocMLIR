@@ -151,8 +151,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   bool isXdlops = bitEnumContainsAll(op.getFeatures(), GemmFeatures::mfma);
 
-  IntegerAttr blockSize = op.getBlockSizeAttr();
-  if (!blockSize)
+  IntegerAttr blockSize = op.getDerivedBlockSizeAttr();
+  if (isXdlops && !blockSize)
     return op.emitOpError("block size must be set at lowering");
   IntegerAttr gridSize = op.getGridSizeAttr();
   if (!gridSize)
@@ -164,7 +164,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                 params.cast<XdlopsGemmParamsAttr>());
     rw.eraseOp(op);
   } else {
-    rw.create<GridwiseGemmOp>(loc, a, b, c, op.getArchAttr(), blockSize,
+    rw.create<GridwiseGemmOp>(loc, a, b, c, op.getArchAttr(), 
                               gridSize, params.cast<GeneralGemmParamsAttr>());
     rw.eraseOp(op);
   }

@@ -74,7 +74,9 @@ static void setUtilityKernelSizes(OpBuilder &b, Value arg, Operation *convOp,
 
   IntegerAttr blockSizeAttr = b.getI32IntegerAttr(blockSize);
   IntegerAttr gridSizeAttr = b.getI32IntegerAttr(gridSize);
-  convOp->setAttr("blockSize", blockSizeAttr);
+
+  // Tracking utility kernel block size separately.
+  convOp->setAttr("utilityBlockSize", blockSizeAttr);
   convOp->setAttr("gridSize", gridSizeAttr);
   convOp->setAttr("elems_per_thread", b.getIndexAttr(elemsPerThread));
 
@@ -162,7 +164,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     }
 
     gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
-    op.setBlockSizeAttr(b.getI32IntegerAttr(blockSize));
+    op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
     op.setGridSizeAttr(b.getI32IntegerAttr(gridSize));
 
     // Set kblocks attribute only for backward weight convolutions.
@@ -191,8 +193,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
     }
 
     gridSize = gridSizeOverride ? gridSizeOverride : gridSize;
-
-    op.setBlockSizeAttr(b.getI32IntegerAttr(validParams.blockSize));
     op.setGridSizeAttr(b.getI32IntegerAttr(gridSize));
 
     // For non-XDLOPS path, do not use KPack for now.
@@ -202,8 +202,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
     // gridwise_convolution_implicit_gemm_v4r4_nchw_kcyx_nkhw for details
 
     Attribute gemmParams = b.getAttr<GeneralGemmParamsAttr>(
-        validParams.gemmKPerBlock, validParams.gemmMPerBlock,
-        validParams.gemmNPerBlock,
+        validParams.blockSize, validParams.gemmKPerBlock,
+        validParams.gemmMPerBlock, validParams.gemmNPerBlock,
         /*kPerThread=*/1, validParams.gemmMPerThread,
         validParams.gemmNPerThread,
         /*kpack=*/1);

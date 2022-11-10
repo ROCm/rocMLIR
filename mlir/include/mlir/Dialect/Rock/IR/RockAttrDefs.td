@@ -190,6 +190,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
     The tuning parameters for a general (no special instructions) matrix
     multiplication.
 
+    - blockSize: Optional parameter to specify the block size of the kernel
     - kPerBlock: The number of values of k to process during each main loop
       iteration within a workgroup
     - mPerBlock: The number of values of m to process in each workgroup
@@ -200,6 +201,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
     - kpack: The number of values of k to pack contiguously into the shared buffer
   }];
   let parameters = (ins
+    "uint32_t":$blockSize,
     "int64_t":$kPerBlock,
     "int64_t":$mPerBlock,
     "int64_t":$nPerBlock,
@@ -211,9 +213,11 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
 
   let extraClassDeclaration = [{
     std::string getPerfConfigStr(){
-      const Twine paramsConcat = Twine(getMPerBlock()) + ","
+      const Twine paramsConcat =
+        Twine(getBlockSize()) + ","
+      + Twine(getMPerBlock()) + ","
       + Twine(getNPerBlock()) + ","
-      + Twine(getNPerBlock()) + ","
+      + Twine(getKPerBlock()) + ","
       + Twine(getMPerThread()) + ","
       + Twine(getNPerThread());
       return paramsConcat.str();
@@ -243,11 +247,14 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
 
   let extraClassDeclaration = [{
     std::string getPerfConfigStr(){
-      const Twine paramsConcat = Twine(getMPerBlock()) + ","
+      const Twine paramsConcat = 
+          Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
         + Twine(getKPerBlock()) + ","
         + Twine(getMPerWave()) + ","
-        + Twine(getNPerWave()) + ",1,1";
+        + Twine(getNPerWave()) + ","
+        + Twine(getKpack()) + ","
+        + "1,1"; /* *ThreadCopyMore* */
       return paramsConcat.str();
     }
   }];

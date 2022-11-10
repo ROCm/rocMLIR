@@ -67,5 +67,6 @@ target_link_libraries(mlir-mixr-fullc-test
   MLIRCAPIRegisterEverything
   MLIRCAPIRegisterRocMLIR
   MLIRCAPIMIGraphX
+  MLIRCAPIRock
   MLIRCAPIGPU
 )

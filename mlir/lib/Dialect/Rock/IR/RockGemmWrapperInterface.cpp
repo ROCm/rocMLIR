@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 
 namespace mlir {
 namespace rock {

@@ -95,11 +95,11 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
           This is needed for --affix-tuning-params to work and can go away if it does
         }],
         /*retType=*/"void",
-        /*methodName=*/"setBlockSizeAttr",
+        /*methodName=*/"setDerivedBlockSizeAttr",
         /*args=*/(ins "::mlir::IntegerAttr":$blockSize),
         /*methodBody=*/"",
         /*defaultImplementation=*/[{
-          $_op->setAttr($_op.getBlockSizeAttrName(), blockSize);
+          $_op->setAttr($_op.getDerivedBlockSizeAttrName(), blockSize);
         }]
       >,
     InterfaceMethod<
@@ -129,8 +129,33 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
         /*defaultImplementation=*/[{
           $_op->setAttr($_op.getParamsAttrName(), params);
         }]
+      >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Get the value of the derived block size attribute if it is set.
+        }],
+        /*retType=*/"Optional<uint32_t>",
+        /*methodName=*/"getDerivedBlockSize",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/""
+      >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Return the block size this operation will execute with if it has been selected 
+          or None otherwise. Prioritizes the block size defined in tuning parameters
+        }],
+        /*retType=*/"uint32_t",
+        /*methodName=*/"getBlockSize",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/[{
+          if (auto generalParams = $_op.getParamsAttr().template dyn_cast_or_null<GeneralGemmParamsAttr>()) {
+            return generalParams.getBlockSize();
+          }
+          return $_op.getDerivedBlockSize().value_or(0);
+        }]
       >
-
 
     // TODO: more methods here as needed
   ];

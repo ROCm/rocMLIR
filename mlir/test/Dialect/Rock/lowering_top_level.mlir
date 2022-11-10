@@ -29,8 +29,8 @@
 // CHECK-DAG: #[[$MAP_BWD_WEIGHT_IN3:transform_map[0-9]+]] = {{.*}}by [<PassThrough ["gemmG"] at [0] -> ["gi"] at [1]>, <Merge{128, 30, 30} ["gemmK"] at [1] -> ["ni", "ho", "wo"] at [0, 4, 6]>, <Merge{8, 3, 3} ["gemmN"] at [2] -> ["ci", "y", "x"] at [2, 3, 5]>]
 // CHECK-DAG: #[[$MAP_BWD_WEIGHT_OUT:transform_map[0-9]+]] = {{.*}}by [<PassThrough ["gemmG"] at [0] -> ["go"] at [1]>, <Merge{128, 30, 30} ["gemmK"] at [1] -> ["no", "ho", "wo"] at [0, 3, 4]>, <PassThrough ["gemmM"] at [2] -> ["ko"] at [2]>]
 
-#general_gemm_params0 = #rock.general_gemm_params<kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1>
-#general_gemm_params1 = #rock.general_gemm_params<kPerBlock = 16, mPerBlock = 64, nPerBlock = 64, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1>
+#general_gemm_params0 = #rock.general_gemm_params<blockSize = 64, kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1>
+#general_gemm_params1 = #rock.general_gemm_params<blockSize = 64, kPerBlock = 16, mPerBlock = 64, nPerBlock = 64, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1>
 #xdlops_gemm_params0 = #rock.xdlops_gemm_params<kPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32>
 #xdlops_gemm_params1 = #rock.xdlops_gemm_params<kPerBlock = 4, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 64, nPerWave = 64>
 
