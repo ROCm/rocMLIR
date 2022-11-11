@@ -164,8 +164,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                 params.cast<XdlopsGemmParamsAttr>());
     rw.eraseOp(op);
   } else {
-    rw.create<GridwiseGemmOp>(loc, a, b, c, op.getArchAttr(), 
-                              gridSize, params.cast<GeneralGemmParamsAttr>());
+    rw.create<GridwiseGemmOp>(loc, a, b, c, op.getArchAttr(), gridSize,
+                              params.cast<GeneralGemmParamsAttr>());
     rw.eraseOp(op);
   }
   return success();

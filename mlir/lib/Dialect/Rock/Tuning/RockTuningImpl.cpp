@@ -19,7 +19,7 @@ namespace rock {
 // Brute-force search in incremental order
 void createGemmTuningRangeBF(struct TunableParams *newSpace,
                              RockGemmWrapperInterface gemmOp) {
-  
+
   // blockSize M/block N/block K/block M/thread N/thread
   const std::vector<std::vector<uint32_t>> ValidRangeGeneralGemmParams = {
       {64, 128, 256}, {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
