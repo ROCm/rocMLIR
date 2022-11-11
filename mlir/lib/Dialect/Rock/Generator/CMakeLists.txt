@@ -17,5 +17,6 @@ add_rocmlir_dialect_library(MLIRRockConv2dGenerator
 
 target_link_libraries(MLIRRockConv2dGenerator
   PRIVATE
-  ${rocm_dialect_libs}
+  MLIRRockTransforms
+  MLIRRockOps
 )

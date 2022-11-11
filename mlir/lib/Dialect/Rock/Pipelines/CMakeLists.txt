@@ -2,22 +2,13 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   Pipelines.cpp
 
   LINK_LIBS PUBLIC
-  MLIRDialect
-  MLIRFuncDialect
+  MLIRGPUToROCDLTransforms
   MLIRTensorToLinalg
   MLIRTosaToRock
   MLIRTosaToLinalg
   MLIRTosaToSCF
   MLIRTosaToArith
-  MLIRLinalgToLLVM
   MLIRRockToGPU
-  MLIRGPUToROCDLTransforms
-  MLIRIR
-  MLIRPass
-  MLIRLLVMDialect
-  MLIRAffineToStandard
   MLIRRockOps
-  MLIRRockTuning
-  MLIRSCFToControlFlow
-  MLIRSupport
+  MLIRRockTransforms
 )

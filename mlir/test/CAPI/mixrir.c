@@ -247,7 +247,7 @@ static int constructAndTraverseIr(MlirContext ctx) {
 int main() {
   MlirContext ctx = mlirContextCreate();
   MlirDialectRegistry registry = mlirDialectRegistryCreate();
-  mlirRegisterAllDialects(registry);
+  mlirRegisterRocMLIRDialects(registry);
   mlirContextAppendDialectRegistry(ctx, registry);
   // TODO: this is a emulation of an old behavior, we should load only the
   // dialects we use

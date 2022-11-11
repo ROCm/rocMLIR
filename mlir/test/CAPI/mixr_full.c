@@ -251,7 +251,6 @@ int main() {
   MlirContext ctx = mlirContextCreate();
   MlirDialectRegistry registry = mlirDialectRegistryCreate();
   mlirRegisterRocMLIRDialects(registry);
-  mlirRegisterAllDialects(registry);
   mlirContextAppendDialectRegistry(ctx, registry);
   // TODO: this is a emulation of an old behavior, we should load only the
   // dialects we use
