@@ -127,6 +127,6 @@ def run_clang_tidy(base_commit, ignore_config):
 
 
 if __name__ == '__main__':
-  if  not (   run_clang_format('HEAD^','./mlir/utils/jenkins/static-checks/clang-format.ignore')
-          and run_clang_tidy('HEAD^', './mlir/utils/jenkins/static-checks/clang-tidy.ignore') ):
+  if  not (   run_clang_format('HEAD~1','./mlir/utils/jenkins/static-checks/clang-format.ignore')
+          and run_clang_tidy('HEAD~1', './mlir/utils/jenkins/static-checks/clang-tidy.ignore') ):
     exit(1)
