@@ -34,7 +34,6 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-//#include "mlir/Dialect/Linalg/TransformOps/LinalgTransformOps.h"
 #include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Linalg/Transforms/TilingInterfaceImpl.h"
 #include "mlir/Dialect/Math/IR/Math.h"
@@ -53,16 +52,9 @@
 
 namespace mlir {
 
-// Add all the MLIR dialects to the provided registry.
-inline void registerRocMLIRDialects(DialectRegistry &registry) {
+inline void registerUpstreamDialects(DialectRegistry &registry) {
   // clang-format off
-  registry.insert<
-                  // rockMLIR specific dialects
-                  rock::RockDialect,
-                  migraphx::MIGraphXDialect,
-
-                  // Generic MLIR dialects
-                  AffineDialect, 
+  registry.insert<AffineDialect, 
                   amdgpu::AMDGPUDialect,
                   arith::ArithmeticDialect, 
                   async::AsyncDialect,
@@ -99,6 +91,15 @@ inline void registerRocMLIRDialects(DialectRegistry &registry) {
   tensor::registerInferTypeOpInterfaceExternalModels(registry);
   tensor::registerTilingInterfaceExternalModels(registry);
   vector::registerBufferizableOpInterfaceExternalModels(registry);
+}
+
+// Add all the MLIR dialects to the provided registry.
+inline void registerRocMLIRDialects(DialectRegistry &registry) {
+  // Register rocMLIR specific dialects
+  registry.insert<rock::RockDialect, migraphx::MIGraphXDialect>();
+
+  // Register auxiliary Upstream dialects
+  registerUpstreamDialects(registry);
 }
 
 } // namespace mlir

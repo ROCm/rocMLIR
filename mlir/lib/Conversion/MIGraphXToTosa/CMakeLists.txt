@@ -2,7 +2,7 @@ set(LLVM_TARGET_DEFINITIONS MIGraphXToTosa.td)
 mlir_tablegen(MIGraphXToTosa.cpp.inc -gen-rewriters)
 add_public_tablegen_target(MLIRMIGraphXToTosaConversionIncGen)
 
-add_mlir_conversion_library(MLIRMIGraphXToTosa
+add_rocmlir_conversion_library(MLIRMIGraphXToTosa
   MIGraphXToTosa.cpp
   MIGraphXToTosaPass.cpp
 

@@ -3,7 +3,7 @@ set(LLVM_OPTIONAL_SOURCES
 )
 
 get_property(rocmlir_dialect_libs GLOBAL PROPERTY ROCMLIR_DIALECT_LIBS)
-get_property(rocmlir_test_libs GLOBAL PROPERTY ROCMLIR_TEST_LIBS)
+get_property(rocmlir_conversion_libs GLOBAL PROPERTY ROCMLIR_CONVERSION_LIBS)
 
 set(LLVM_LINK_COMPONENTS
   Core
@@ -13,7 +13,7 @@ set(LLVM_LINK_COMPONENTS
 
 set(LIBS
   ${rocmlir_dialect_libs}
-  ${rocmlir_test_libs}
+  ${rocmlir_conversion_libs}
   MLIRLspServerLib
   )
 

@@ -1,4 +1,4 @@
-add_mlir_conversion_library(MLIRGPUToMIGraphX
+add_rocmlir_conversion_library(MLIRGPUToMIGraphX
   GPUToMIGraphX.cpp
   GPUToMIGraphXPass.cpp
 

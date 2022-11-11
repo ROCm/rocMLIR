@@ -108,9 +108,6 @@ int main(int argc, char **argv) {
   DialectRegistry registry;
   mlir::registerRocMLIRDialects(registry);
   mlir::registerLLVMDialectTranslation(registry);
-#ifdef MLIR_INCLUDE_TESTS
-  ::test::registerTestDialect(registry);
-#endif
 
   mlir::JitRunnerConfig jitRunnerConfig;
   jitRunnerConfig.mlirTransformer = runMLIRPasses;

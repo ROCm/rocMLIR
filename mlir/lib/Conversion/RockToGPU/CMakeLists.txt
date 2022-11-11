@@ -1,4 +1,4 @@
-add_mlir_conversion_library(MLIRRockToGPU
+add_rocmlir_conversion_library(MLIRRockToGPU
   RockToGPU.cpp
 
   ADDITIONAL_HEADER_DIRS

@@ -2420,9 +2420,6 @@ static LogicalResult populateHostHarnessLogic(
 int main(int argc, char **argv) {
   DialectRegistry registry;
   registerRocMLIRDialects(registry);
-#ifdef MLIR_INCLUDE_TESTS
-  test::registerTestDialect(registry);
-#endif
   // Parse pass names in main to ensure static initialization completed.
   mlir::registerMLIRContextCLOptions();
   MLIRContext context(registry);

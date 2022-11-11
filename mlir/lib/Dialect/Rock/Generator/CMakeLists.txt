@@ -2,8 +2,6 @@ set(LLVM_LINK_COMPONENTS
   Support
   )
 
-get_property(rocm_dialect_libs GLOBAL PROPERTY ROCMLIR_DIALECT_LIBS)
-
 add_rocmlir_dialect_library(MLIRRockConv2dGenerator
   AmdArchDb.cpp
   Conv2dGenerator.cpp

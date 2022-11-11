@@ -362,9 +362,6 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 int main(int argc, char **argv) {
   DialectRegistry registry;
   registerRocMLIRDialects(registry);
-#ifdef MLIR_INCLUDE_TESTS
-  test::registerTestDialect(registry);
-#endif
   MLIRContext context(registry);
   context
       .loadDialect<xmodel::XModelDialect, rock::RockDialect, func::FuncDialect,
