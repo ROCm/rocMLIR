@@ -113,3 +113,10 @@ SmallVector<int64_t> mlir::rock::populateBackwardDataGemmIds(
   }
   return gemmIds;
 }
+
+// TODO(kdrewnia): Could rank-0 vectors clear some of this up?
+Type mlir::rock::vectorTypeOrSelf(Type elementType, int64_t len) {
+  if (len == 1)
+    return elementType;
+  return VectorType::get({len}, elementType);
+}

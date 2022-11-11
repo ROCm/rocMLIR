@@ -60,6 +60,10 @@ populateBackwardDataGemmIds(int64_t strideHeight, int64_t strideWidth,
                             int64_t dilationHeight, int64_t dilationWidth,
                             int64_t filterHeight, int64_t filterWidth);
 
+/// Return a vector type of length `len` if `len` is more than 1, otherwise,
+/// return `type`.
+Type vectorTypeOrSelf(Type elementType, int64_t len);
+
 } // end namespace rock
 } // end namespace mlir
 #endif

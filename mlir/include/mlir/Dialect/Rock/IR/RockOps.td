@@ -39,6 +39,11 @@ def ArgTransformsAttr : TypedArrayAttrBase<TransformMapArrayAttr,
 
 class ArgTransforms<int n> : ConfinedAttr<ArgTransformsAttr, [ArrayCount<n>]>;
 
+def AnyTensorOrMemRef :
+  AnyTypeOf<[AnyTensor, AnyMemRef],
+             /*summary=*/"",
+             "::mlir::ShapedType">;
+
 class TensorOrMemRefRankOf<list<Type> allowedTypes, list<int> ranks> :
   AnyTypeOf<[TensorRankOf<allowedTypes, ranks>,
              MemRefRankOf<allowedTypes, ranks>],
@@ -94,7 +99,7 @@ def Rock_Conv2DBwdDataOp : Rock_Conv2DOpBase<"conv2d_bwd_data">
   }];
 }
 
-                   
+
 def Rock_Conv2DBwdWeightOp : Rock_Conv2DOpBase<"conv2d_bwd_weight">
 {
   dag additionalArgs = (ins Optional<TensorOrMemRefRankOf<[F32], [5]>>:$workspace,
@@ -159,6 +164,68 @@ def Rock_GemmOp :
     `features` `=` $features `storeMethod` `=` $storeMethod attr-dict
     `:` type($c) `=` type($a) `*` type($b) (`->` type($result)^)?
   }];
+}
+
+def Rock_ZeroInitKernelOp :
+    Rock_Op<"zero_init_kernel", []>,
+    Arguments<(ins AnyTensorOrMemRef:$buffer,
+                  StrAttr:$arch,
+                  OptionalAttr<I32Attr>:$blockSize,
+                  OptionalAttr<I32Attr>:$gridSize,
+                  OptionalAttr<IndexAttr>:$elemsPerThread)>,
+    Results<(outs Optional<AnyTensor>:$result)> {
+  let summary = "Zero-initialize a buffer";
+
+  let description = [{
+    Zero-initialize a given buffer.
+
+    This operation is meant to operate as its own kernel, and is needed
+    for correctness in some cases (backwards data kernels where not all
+    pixels are written and backwards weight atomic add kernels).
+  }];
+
+  let assemblyFormat = [{
+    $buffer attr-dict `:` type($buffer) (`->` type($result)^)?
+  }];
+
+  // Declaration to enable the bufferization implementation to work as if this werr
+  // a gemm wrapper kernel
+  let extraClassDeclaration = [{
+    ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(0); }
+  }];
+}
+
+def Rock_ConvertingCopyKernelOp :
+    Rock_Op<"converting_copy_kernel", [AllShapesMatch<["input", "output"]>]>,
+    Arguments<(ins AnyTensorOrMemRef:$input,
+                  AnyTensorOrMemRef:$output,
+                  StrAttr:$arch,
+                  OptionalAttr<I32Attr>:$blockSize,
+                  OptionalAttr<I32Attr>:$gridSize,
+                  OptionalAttr<IndexAttr>:$elemsPerThread)>,
+    Results<(outs Optional<AnyTensor>:$result)> {
+  let summary = "Copy input to output, performing a type conversion";
+
+  let description = [{
+    Copies an input buffer to an output buffer, converting the type of each element,
+    as its own kernel.
+
+    This operation is needed for backwards weight atomic add kernels where
+    the output is a float smaller than f32, since the atomic add instructions
+    for smaller floating point types are not accurate enough for our purposes.
+  }];
+
+  let assemblyFormat = [{
+    $input `to` $output attr-dict
+    `:` type($input) `to` type($output) (`->` type($result)^)?
+  }];
+
+  // Declaration to enable the bufferization implementation to work as if this werr
+  // a gemm wrapper kernel
+  let extraClassDeclaration = [{
+    ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
+  }];
+
 }
 
 def Rock_TransformOp :

@@ -767,8 +767,9 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
     kernel_id = 0;
 
   // Annotate kernel attribute to the FuncOp.
-  NamedAttribute archAttr =
-      builder.getNamedAttr("xmodel.arch", builder.getStringAttr(config.arch));
+  StringAttr archStrAttr = builder.getStringAttr(config.arch);
+  NamedAttribute archAttr = builder.getNamedAttr("xmodel.arch", archStrAttr);
+
   SmallVector<NamedAttribute, 2> kernelAttrs = {
       builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernel_id)),
       archAttr};
@@ -815,7 +816,7 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
 
   std::vector<NamedAttribute> attributes{
       builder.getNamedAttr("gemm_id", builder.getI32IntegerAttr(gemmId)),
-      builder.getNamedAttr("arch", builder.getStringAttr(config.chip)),
+      builder.getNamedAttr("arch", archStrAttr),
 
       builder.getNamedAttr(
           "filter_layout",
@@ -875,14 +876,41 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
     block->push_front(convOp);
   } break;
   case ConvOpType::BwdData: {
-    auto convOp = builder.create<Conv2DBwdDataOp>(
-        builder.getUnknownLoc(), ArrayRef<Type>{}, args, attributes);
-    block->push_front(convOp);
+    if (gemmId < 0) {
+      // zero init input tensor
+      auto zeroInit = builder.create<ZeroInitKernelOp>(
+          builder.getUnknownLoc(), /*resultType=*/TypeRange{}, args[1],
+          archStrAttr, /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+          /*elemsPerThread=*/nullptr);
+      block->push_front(zeroInit);
+    } else {
+      auto convOp = builder.create<Conv2DBwdDataOp>(
+          builder.getUnknownLoc(), ArrayRef<Type>{}, args, attributes);
+      block->push_front(convOp);
+    }
   } break;
   case ConvOpType::BwdWeight: {
-    auto convOp = builder.create<Conv2DBwdWeightOp>(
-        builder.getUnknownLoc(), ArrayRef<Type>{}, args, attributes);
-    block->push_back(convOp);
+    bool hasUtilities = getBwdWeightKernelCount(builder) > 1;
+    if (hasUtilities && gemmId == 0) {
+      // If there is a workspace, zero-init it, otherwise fill the filter tensor
+      auto zeroInitOp = builder.create<ZeroInitKernelOp>(
+          builder.getUnknownLoc(), /*resultType=*/TypeRange{},
+          args[hasWorkspace ? 3 : 0], archStrAttr,
+          /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+          /*elemsPerThread=*/nullptr);
+      block->push_front(zeroInitOp);
+    } else if (hasUtilities && gemmId == 2) {
+      // Workspace -> filter tensor
+      auto conversionOp = builder.create<ConvertingCopyKernelOp>(
+          builder.getUnknownLoc(), /*resultType=*/TypeRange{}, args[3], args[0],
+          archStrAttr, /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+          /*elemsPerThread=*/nullptr);
+      block->push_front(conversionOp);
+    } else {
+      auto convOp = builder.create<Conv2DBwdWeightOp>(
+          builder.getUnknownLoc(), ArrayRef<Type>{}, args, attributes);
+      block->push_back(convOp);
+    }
   } break;
   }
 

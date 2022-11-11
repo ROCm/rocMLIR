@@ -25,6 +25,7 @@
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
@@ -63,14 +64,6 @@ struct RockGridwiseGemmToBlockwisePass
   void runOnOperation() override;
 };
 } // end anonymous namespace
-
-// TODO(kdrewnia): Could rank-0 vectors clear some of this up?
-// Utility function for crafting optional vector types
-static Type vectorTypeOrSelf(Type elementType, int64_t len) {
-  if (len == 1)
-    return elementType;
-  return VectorType::get({len}, elementType);
-}
 
 static Type obtainAccumulatorType(OpBuilder &b, Type &elementType,
                                   Type &destType) {
