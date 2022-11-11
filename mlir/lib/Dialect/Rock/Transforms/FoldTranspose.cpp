@@ -70,8 +70,8 @@ struct RemoveTrivialTransposePattern
       : OpRewritePattern<linalg::GenericOp>(ctx, /*benefit=*/2) {}
 
   rock::TransformOp makeTranspose(PatternRewriter &b, Value inp,
-                                    const AffineMapAttr &inMap,
-                                    const AffineMapAttr &outMap) const {
+                                  const AffineMapAttr &inMap,
+                                  const AffineMapAttr &outMap) const {
     AffineMap inpIdxMap = inMap.getAffineMap();
     AffineMap outpIdxMap = outMap.getAffineMap();
     Location loc = inp.getLoc();

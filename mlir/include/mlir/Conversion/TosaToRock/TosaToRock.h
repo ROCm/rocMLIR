@@ -32,7 +32,7 @@ void populateTosaToRockConversionPatterns(MLIRContext *context,
                                           RewritePatternSet &patterns);
 
 void populateTosaToRockTensorConversionPatterns(MLIRContext *context,
-                                                  RewritePatternSet &patterns);
+                                                RewritePatternSet &patterns);
 
 } // namespace tosa
 

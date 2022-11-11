@@ -202,13 +202,13 @@ mlir::rock::untransform(OpBuilder &b, Value transformed, ArrayAttr existing) {
 
 std::tuple<Value, ArrayAttr>
 mlir::rock::untransform(OpBuilder &b, Value transformed,
-                          ArrayRef<Attribute> existing) {
+                        ArrayRef<Attribute> existing) {
   return untransform(b, transformed, b.getArrayAttr(existing));
 }
 
-TransformOp mlir::rock::reshapeBuffer(OpBuilder &b, Location loc,
-                                        Value buffer, ArrayRef<StringRef> names,
-                                        ArrayRef<int64_t> shape) {
+TransformOp mlir::rock::reshapeBuffer(OpBuilder &b, Location loc, Value buffer,
+                                      ArrayRef<StringRef> names,
+                                      ArrayRef<int64_t> shape) {
   MemRefType bufferType = buffer.getType().cast<MemRefType>();
   ArrayRef<int64_t> outShape = bufferType.getShape();
   assert(outShape.size() == 1 && "Buffer being reshaped must start linear");
@@ -573,8 +573,8 @@ propagateVectorizationInfo(TransformMapAttr map,
 }
 
 int64_t mlir::rock::getMaxVectorization(ArrayAttr transforms, uint32_t dim,
-                                          int64_t len,
-                                          ArrayRef<int64_t> outputShape) {
+                                        int64_t len,
+                                        ArrayRef<int64_t> outputShape) {
   int64_t numInitialDims = transforms.empty() ? outputShape.size()
                                               : transforms[0]
                                                     .cast<TransformMapAttr>()

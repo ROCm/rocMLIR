@@ -19,7 +19,7 @@ using namespace mlir;
 using namespace mlir::rock;
 
 llvm::raw_ostream &mlir::rock::operator<<(llvm::raw_ostream &os,
-                                            GemmDimension dim) {
+                                          GemmDimension dim) {
   switch (dim) {
   case GemmDimension::G:
     return os << "GemmDimmension::G";
