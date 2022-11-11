@@ -81,7 +81,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
       mlirAttributeParseGet(ctx, mlirStringRefCreateFromCString("\"main\""));
   MlirNamedAttribute funcAttrs[] = {
       mlirNamedAttributeGet(
-          mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("type")),
+          mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("func_type")),
           funcTypeAttr),
       mlirNamedAttributeGet(
           mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("sym_name")),
@@ -89,7 +89,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
 
   // Set func op
   MlirOperationState funcState = mlirOperationStateGet(
-      mlirStringRefCreateFromCString("builtin.func"), location);
+      mlirStringRefCreateFromCString("func.func"), location);
   mlirOperationStateAddAttributes(&funcState, 2, funcAttrs);
   mlirOperationStateAddOwnedRegions(&funcState, 1, &funcBodyRegion);
   MlirOperation func = mlirOperationCreate(&funcState);
@@ -196,11 +196,13 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 
   MlirOperation moduleMO = mlirModuleGetOperation(moduleOp1);
 
+  mlir::PassManager pm0(module.getContext(),
+                        mlir::PassManager::Nesting::Implicit);
   mlir::PassManager pm(module.getContext(),
                        mlir::PassManager::Nesting::Implicit);
 
-  mlir::migraphx::addHighLevelPipeline(pm);
-  (void)pm.run(module);
+  mlir::migraphx::addHighLevelPipeline(pm0);
+  (void)pm0.run(module);
   mlirOperationDump(moduleMO);
 
   mlir::rock::buildBufferizePipeline(pm);
