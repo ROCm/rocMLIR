@@ -65,7 +65,7 @@ bool mlirRockTuningParamGet(MlirRockTuningSpace params, int pos,
   auto tuningSpace = unwrap(params);
   auto paramEntry = unwrap(param);
   // out of bound check.
-  if (pos > tuningSpace->tuningRange.size() - 1)
+  if (pos < 0 || (unsigned int)pos > tuningSpace->tuningRange.size() - 1)
     return false;
   paramEntry->param = tuningSpace->tuningRange[pos];
   return true;
@@ -74,8 +74,7 @@ bool mlirRockTuningParamGet(MlirRockTuningSpace params, int pos,
 MLIR_CAPI_EXPORTED
 const char *mlirRockTuningGetParamStr(MlirRockTuningParam param) {
   auto paramEntry = unwrap(param);
-  llvm::StringRef strRef = paramEntry->param.getPerfConfigStr();
-  paramEntry->configStr = strRef.data();
+  paramEntry->param.getPerfConfigStr(paramEntry->configStr);
   return paramEntry->configStr.c_str();
 }
 

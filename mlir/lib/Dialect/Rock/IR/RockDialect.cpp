@@ -501,7 +501,7 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
 
   bool isXdlops = bitEnumContainsAll(convOp.getFeatures(), GemmFeatures::mfma);
   RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
-  if (gemmOp.getDerivedBlockSize().hasValue() && !isXdlops) {
+  if (gemmOp.getDerivedBlockSize().has_value() && !isXdlops) {
     return op->emitOpError(
         "general kernels shouldn't have derived block size.");
   }

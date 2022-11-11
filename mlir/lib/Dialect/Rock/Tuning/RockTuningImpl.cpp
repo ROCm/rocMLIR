@@ -19,7 +19,7 @@ namespace rock {
 // Brute-force search in incremental order
 void createGemmTuningRangeBF(struct TunableParams *newSpace,
                              RockGemmWrapperInterface gemmOp) {
-  
+
   // blockSize M/block N/block K/block M/thread N/thread
   const std::vector<std::vector<uint32_t>> ValidRangeGeneralGemmParams = {
       {64, 128, 256}, {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
@@ -91,9 +91,11 @@ TunableParams *createTunableParamSpace(ModuleOp &mod) {
       mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
         createGemmTuningRangeBF(newSpace, op);
         newSpace->primaryOpType = op.getKernelType();
-        WalkResult::interrupt();
+        return WalkResult::interrupt();
       });
-
+  if (!findPrimary.wasInterrupted()) {
+    delete newSpace;
+  }
   return newSpace;
 }
 
@@ -101,10 +103,12 @@ bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry) {
   WalkResult setPrimary =
       mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
         auto ctx = op.getContext();
+        std::string perfConfig;
+        paramEntry->param.getPerfConfigStr(perfConfig);
         StringAttr attr =
-            StringAttr::get(ctx, paramEntry->param.getPerfConfigStr());
+            StringAttr::get(ctx, perfConfig);
         op->setAttr("perf_config", attr);
-        WalkResult::interrupt();
+        return WalkResult::interrupt();
       });
   return setPrimary.wasInterrupted();
 }

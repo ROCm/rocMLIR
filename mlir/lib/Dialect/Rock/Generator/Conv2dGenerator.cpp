@@ -161,7 +161,6 @@ LogicalResult Conv2dGenerator::hasValidDimension() const {
     LLVM_DEBUG(llvm::dbgs()
                << config.dataTypeStr << " is not a known datatype\n");
   }
-  size_t elementWidth = typeWidths.lookup(config.dataTypeStr);
 
   if (!checkDimSizes(config.inputDimension)) {
     LLVM_DEBUG(llvm::dbgs()
