@@ -1,4 +1,4 @@
-//===- MIGraphXOps.h - MIGraphX MLIR Operations ---------------------*- C++ -*-===//
+//===- MIGraphXOps.h - MIGraphX MLIR Operations --------------*- C++-* -===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -15,23 +15,22 @@
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/Types.h"
-#include "mlir/IR/BuiltinTypes.h"
 
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 namespace mlir {
-namespace migraphx {
-
-} // end namespace migraphx
+namespace migraphx {} // end namespace migraphx
 } // end namespace mlir
 
 #include "mlir/Dialect/MIGraphX/MIGraphXOpsDialect.h.inc"
 
-#define GET_OP_CLASSES
 #include "mlir/Dialect/MIGraphX/MIGraphXTypes.h.inc"
+
+#define GET_OP_CLASSES
 #include "mlir/Dialect/MIGraphX/MIGraphXOps.h.inc"
 
 #endif // MLIR_MIGRAPHXOPS_OPS_H_

@@ -39,7 +39,7 @@ using namespace mlir;
 //===- Consolidate the Rock Pipelines here ---------------------===//
 
 void rock::buildBufferizePipeline(OpPassManager &pm,
-                                    const rock::BufferizeOptions &options) {
+                                  const rock::BufferizeOptions &options) {
   bool noRock = options.disableRock;
 
   // TOSA conversion to rock and/or linalg with async.launch's
@@ -85,12 +85,12 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   bufOpts.functionBoundaryTypeConversion =
       bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
   bufOpts.unknownTypeConverterFn =
-    [](Value value, unsigned memorySpace,
-                                      const bufferization::BufferizationOptions &options) {
-    return bufferization::getMemRefTypeWithStaticIdentityLayout(
-        value.getType().cast<TensorType>(), memorySpace);
-  };
-      //bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
+      [](Value value, unsigned memorySpace,
+         const bufferization::BufferizationOptions &options) {
+        return bufferization::getMemRefTypeWithStaticIdentityLayout(
+            value.getType().cast<TensorType>(), memorySpace);
+      };
+  // bufferization::BufferizationOptions::LayoutMapOption::IdentityLayoutMap;
   pm.addPass(createOneShotBufferizePass(bufOpts));
 
   pm.addPass(bufferization::createBufferResultsToOutParamsPass());
@@ -102,7 +102,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
 }
 
 void rock::buildKernelPipeline(OpPassManager &pm,
-                                 const rock::KernelOptions &options) {
+                               const rock::KernelOptions &options) {
   // Pre kernel lowering fixups for patterns that aren't amenable to lawer
   // fusion
   /* rocmlir-opt --rock-fold-transpose */
@@ -154,7 +154,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
 }
 
 void rock::buildBackendPipeline(OpPassManager &pm,
-                                  const rock::BackendOptions &options) {
+                                const rock::BackendOptions &options) {
   // lowering ROCDL (LLVM) to binary
   /* rocmlir-opt --strip-debuginfo
    *   "--convert-gpu-to-rocdl=chipset=$chip index-bitwidth=32"

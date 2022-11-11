@@ -54,20 +54,19 @@ static cl::opt<std::string>
                    cl::init(""));
 
 static cl::opt<std::string>
-    hostPipeline("host-pipeline",
-                 cl::desc("rocmlir-driver host pipeline list"),
+    hostPipeline("host-pipeline", cl::desc("rocmlir-driver host pipeline list"),
                  cl::value_desc("comma separated list of rock pipelines: "
                                 "partition,highlevel,execmodel or full"),
                  cl::init(""));
 
 static cl::opt<bool> legacyRockPipeline("c", cl::Hidden, cl::init(false),
-                                          cl::Optional,
-                                          cl::cb<void, bool>([](bool v) {
-                                            if (v) {
-                                              kernelPipeline.setValue("full");
-                                              hostPipeline.setValue("runner");
-                                            }
-                                          }));
+                                        cl::Optional,
+                                        cl::cb<void, bool>([](bool v) {
+                                          if (v) {
+                                            kernelPipeline.setValue("full");
+                                            hostPipeline.setValue("runner");
+                                          }
+                                        }));
 
 /////////////////////////////////////////////////////////////////////////////
 //// Backend target spec

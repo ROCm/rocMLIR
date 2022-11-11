@@ -19,7 +19,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
 
 #include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
@@ -69,7 +68,8 @@ struct MIGPUAllocRewritePattern : public OpRewritePattern<rock::GpuAllocOp> {
     auto func = op->getParentOfType<gpu::GPUFuncOp>();
     Location loc = op->getLoc();
 
-    if (type.getMemorySpaceAsInt() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+    if (type.getMemorySpaceAsInt() ==
+        gpu::GPUDialect::getWorkgroupAddressSpace()) {
       Value attribution = func.addWorkgroupAttribution(type, loc);
       op.replaceAllUsesWith(attribution);
     } else if (type.getMemorySpaceAsInt() ==

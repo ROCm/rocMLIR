@@ -398,8 +398,7 @@ struct IndexDiffUpdateRewritePattern
         }
         auto mbOriginalConst = isConstantValue(original);
         if (mbOriginalConst.has_value()) {
-          return b.create<ConstantIndexOp>(loc,
-                                           diff + mbOriginalConst.value());
+          return b.create<ConstantIndexOp>(loc, diff + mbOriginalConst.value());
         }
       }
       return b.create<AddIOp>(loc, original, diff);
@@ -428,8 +427,7 @@ struct IndexDiffUpdateRewritePattern
           auto mbLowerDiff = isConstantValue(lowerDiff);
           if (mbUpperDiff.has_value() && mbLowerDiff.has_value()) {
             lowerDiff = b.create<ConstantIndexOp>(
-                loc,
-                mbLowerDiff.value() + coefficient * mbUpperDiff.value());
+                loc, mbLowerDiff.value() + coefficient * mbUpperDiff.value());
           } else {
             lowerDiff = b.create<AddIOp>(
                 loc, lowerDiff,
@@ -455,8 +453,7 @@ struct IndexDiffUpdateRewritePattern
           auto mbLowerDiff = isConstantValue(lowerDiff);
           if (mbUpperDiff.has_value() && mbLowerDiff.has_value()) {
             lowerDiff = b.create<ConstantIndexOp>(
-                loc,
-                mbUpperDiff.value() + coefficient * mbLowerDiff.value());
+                loc, mbUpperDiff.value() + coefficient * mbLowerDiff.value());
           } else {
             lowerDiff = b.create<AddIOp>(
                 loc, upperIndicesDiff[upperDim],
