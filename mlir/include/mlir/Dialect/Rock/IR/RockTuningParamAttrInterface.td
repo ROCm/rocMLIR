@@ -30,9 +30,9 @@ def RockTuningParamAttrInterface : AttrInterface<"RockTuningParamAttrInterface">
         /*desc=*/[{
           Return serialize perfconfig (comma separated) string
         }],
-        /*retType=*/"std::string",
+        /*retType=*/"void",
         /*methodName=*/"getPerfConfigStr",
-        /*args=*/(ins),
+        /*args=*/(ins "std::string &":$perfStr),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
       >
