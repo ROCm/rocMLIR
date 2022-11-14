@@ -1,25 +1,9 @@
-get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
-get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
+get_property(rocmlir_dialect_libs GLOBAL PROPERTY ROCMLIR_DIALECT_LIBS)
+
 
 set(LIBS
-  ${dialect_libs}
-  ${conversion_libs}
-  LLVMAMDGPUAsmParser
+  ${rocmlir_dialect_libs}
   LLVMX86AsmParser
-  MLIRAnalysis
-  MLIRExecutionEngine
-  MLIRRockOps
-  MLIRRockPipeline
-  MLIRParser
-  MLIRPass
-  MLIRQuantDialect
-  MLIRShapeDialect
-  MLIRTransforms
-  MLIRSupport
-  MLIRGPUTransforms
-  MLIRTargetLLVMIRExport
-  MLIRToLLVMIRTranslationRegistration
-  MLIRIR
 )
 
 set(CMAKE_BUILD_RPATH ${CMAKE_BUILD_DIR}/external/llvm-project/llvm/lib)
@@ -31,6 +15,11 @@ PARTIAL_SOURCES_INTENDED
 
   LINK_LIBS
   ${LIBS}
+
+  LINK_COMPONENTS
+  X86CodeGen
+  X86Desc
+  X86Info
   )
 
 add_llvm_executable(rocmlir-lib-test

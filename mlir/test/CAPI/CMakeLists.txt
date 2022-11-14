@@ -5,7 +5,9 @@ set(LLVM_OPTIONAL_SOURCES
   mixr_full.c
 )
 
-set(LLVM_LINK_COMPONENTS)
+set(LLVM_LINK_COMPONENTS
+  X86
+)
 
 add_llvm_executable(mlir-mixr-capi-test
   mixrir.c
@@ -16,7 +18,6 @@ get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 target_link_libraries(mlir-mixr-capi-test
   PRIVATE
   MLIRCAPIIR
-  MLIRCAPIRegisterEverything
   MLIRCAPIRegisterRocMLIR
 )
 
@@ -29,7 +30,6 @@ get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 target_link_libraries(mlir-tosa-miir-test
   PRIVATE
   MLIRCAPIIR
-  MLIRCAPIRegisterEverything
   MLIRCAPIRegisterRocMLIR
   MLIRRockPipeline
   LLVMAMDGPUAsmParser
@@ -45,7 +45,6 @@ get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 target_link_libraries(mlir-mixr-full-test
   PRIVATE
   MLIRCAPIIR
-  MLIRCAPIRegisterEverything
   MLIRCAPIRegisterRocMLIR
   MLIRCAPIMIGraphX
   MLIRCAPIGPU
@@ -64,7 +63,6 @@ get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 target_link_libraries(mlir-mixr-fullc-test
   PRIVATE
   MLIRCAPIIR
-  MLIRCAPIRegisterEverything
   MLIRCAPIRegisterRocMLIR
   MLIRCAPIMIGraphX
   MLIRCAPIRock

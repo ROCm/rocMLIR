@@ -1,4 +1,4 @@
-add_mlir_dialect_library(MLIRRockTransforms
+add_rocmlir_dialect_library(MLIRRockTransforms
   AffixTuningParameters.cpp
   AlignTiling.cpp
   BlockwiseGemmToThreadwise.cpp
@@ -21,6 +21,7 @@ add_mlir_dialect_library(MLIRRockTransforms
   MLIRRockPassIncGen
 
   LINK_LIBS PUBLIC
+  MLIRAffineTransforms
   MLIRArithmeticTransforms
   MLIRBufferizationDialect
   MLIRBufferizationTransforms
@@ -30,12 +31,14 @@ add_mlir_dialect_library(MLIRRockTransforms
   MLIRIR
   MLIRPass
   MLIRLLVMDialect
+  MLIRMathToLLVM
+  MLIRMemRefTransforms
   MLIRAffineToStandard
+  MLIRReconcileUnrealizedCasts
   MLIRRockOps
   MLIRRockTuning
   MLIRRockUtility
   MLIRSCFToControlFlow
   MLIRSupport
-  MLIRTransformUtils
 )
 

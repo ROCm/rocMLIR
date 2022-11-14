@@ -1,5 +1,5 @@
 file(GLOB globbed *.c *.cpp)
-add_mlir_dialect_library(MLIRMIGraphX
+add_rocmlir_dialect_library(MLIRMIGraphX
   ${globbed}
 
   ADDITIONAL_HEADER_DIRS

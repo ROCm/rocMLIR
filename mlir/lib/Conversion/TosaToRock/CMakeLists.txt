@@ -1,4 +1,4 @@
-add_mlir_conversion_library(MLIRTosaToRock
+add_rocmlir_conversion_library(MLIRTosaToRock
   TosaToRock.cpp
   TosaToRockPass.cpp
 

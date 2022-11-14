@@ -20,8 +20,6 @@
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/ExecutionEngine/RocmSystemDetect.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "mlir/InitAllDialects.h"
-#include "mlir/InitAllPasses.h"
 #include "mlir/InitRocMLIRDialects.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
@@ -108,12 +106,8 @@ int main(int argc, char **argv) {
   llvm::InitializeNativeTargetAsmParser();
 
   DialectRegistry registry;
-  mlir::registerAllDialects(registry);
   mlir::registerRocMLIRDialects(registry);
   mlir::registerLLVMDialectTranslation(registry);
-#ifdef MLIR_INCLUDE_TESTS
-  ::test::registerTestDialect(registry);
-#endif
 
   mlir::JitRunnerConfig jitRunnerConfig;
   jitRunnerConfig.mlirTransformer = runMLIRPasses;

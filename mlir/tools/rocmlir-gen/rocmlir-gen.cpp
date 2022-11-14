@@ -42,8 +42,6 @@
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/ValueRange.h"
-#include "mlir/InitAllDialects.h"
-#include "mlir/InitAllPasses.h"
 #include "mlir/InitRocMLIRDialects.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/Pass.h"
@@ -2421,11 +2419,7 @@ static LogicalResult populateHostHarnessLogic(
 
 int main(int argc, char **argv) {
   DialectRegistry registry;
-  registerAllDialects(registry);
   registerRocMLIRDialects(registry);
-#ifdef MLIR_INCLUDE_TESTS
-  test::registerTestDialect(registry);
-#endif
   // Parse pass names in main to ensure static initialization completed.
   mlir::registerMLIRContextCLOptions();
   MLIRContext context(registry);

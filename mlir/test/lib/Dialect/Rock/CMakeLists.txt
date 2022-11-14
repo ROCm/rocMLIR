@@ -1,4 +1,4 @@
-add_mlir_library(MLIRRockTestPasses
+add_rocmlir_test_library(MLIRRockTestPasses
   TestVectorizationInference.cpp
   EXCLUDE_FROM_LIBMLIR
 

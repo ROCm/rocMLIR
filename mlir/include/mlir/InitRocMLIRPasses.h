@@ -14,16 +14,65 @@
 #ifndef MLIR_INITROCMLIRPASSES_H_
 #define MLIR_INITROCMLIRPASSES_H_
 
+// rocMLIR includes
 #include "mlir/Conversion/RocMLIRPasses.h"
 #include "mlir/Dialect/MIGraphX/Passes.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 
+// MLIR includes
+#include "mlir/Dialect/Affine/Passes.h"
+#include "mlir/Dialect/Arithmetic/Transforms/Passes.h"
+#include "mlir/Dialect/Bufferization/Transforms/Passes.h"
+#include "mlir/Dialect/Func/Transforms/Passes.h"
+#include "mlir/Dialect/GPU/Transforms/Passes.h"
+#include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
+#include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/MemRef/Transforms/Passes.h"
+#include "mlir/Dialect/SCF/Transforms/Passes.h"
+#include "mlir/Dialect/Tensor/Transforms/Passes.h"
+#include "mlir/Dialect/Tosa/Transforms/Passes.h"
+#include "mlir/Dialect/Transform/Transforms/Passes.h"
+#include "mlir/Dialect/Vector/Transforms/Passes.h"
 #include "mlir/Transforms/Passes.h"
 
 #include <cstdlib>
 
 namespace mlir {
+
+inline void registerUpstreamPasses() {
+
+  // Conversion passes
+  registerConvertAffineToStandard();
+  registerConvertAMDGPUToROCDL();
+  registerConvertArithmeticToLLVM();
+  registerConvertFuncToLLVM();
+  registerConvertGpuOpsToROCDLOps();
+  registerConvertMathToLLVM();
+  registerConvertMemRefToLLVM();
+  registerReconcileUnrealizedCasts();
+  registerSCFToControlFlow();
+  registerTosaToArith();
+  registerTosaToLinalg();
+  registerTosaToLinalgNamed();
+  registerTosaToSCF();
+
+  // MLIR passes
+  registerTransformsPasses();
+  registerAffinePasses();
+  arith::registerArithmeticPasses();
+  bufferization::registerBufferizationPasses();
+  func::registerFuncPasses();
+  registerGPUPasses();
+  registerGpuSerializeToHsacoPass();
+  registerLinalgPasses();
+  LLVM::registerLLVMPasses();
+  memref::registerMemRefPasses();
+  registerSCFPasses();
+  tensor::registerTensorPasses();
+  tosa::registerTosaOptPasses();
+  vector::registerVectorPasses();
+}
 
 // This function may be called to register the rocMLIR passes with the
 // global registry.
@@ -36,8 +85,9 @@ inline void registerRocMLIRPasses() {
   registerRocMLIRConversionPasses();
   migraphx::registerPasses();
   rock::registerPasses();
-
   rock::registerPipelines();
+
+  registerUpstreamPasses();
 }
 
 } // namespace mlir

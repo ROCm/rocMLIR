@@ -1,5 +1,5 @@
 
-add_mlir_dialect_library(MLIRRockOps
+add_rocmlir_dialect_library(MLIRRockOps
   TransformMapBuilder.cpp
   RockDialect.cpp
   RockGemmWrapperInterface.cpp
@@ -16,19 +16,24 @@ add_mlir_dialect_library(MLIRRockOps
   MLIRRockOpsIncGen
   )
 
+
 target_link_libraries(MLIRRockOps
   PUBLIC
+  MLIRAffineDialect
+  MLIRBufferizationDialect
+  MLIRBufferizationTransformOps
   MLIRGPUOps
+  MLIRAMDGPUDialect
   MLIRIR
   MLIRInferIntRangeInterface
   MLIRDialect
-  MLIRJitRunner
   MLIRAnalysis
-  MLIRExecutionEngine
   MLIRParser
   MLIRROCDLDialect
   MLIRSupport
   MLIRTargetLLVMIRExport
+  MLIRTensorDialect
+  MLIRTensorInferTypeOpInterfaceImpl
   MLIRToLLVMIRTranslationRegistration
   MLIRTransforms
   LLVMSupport

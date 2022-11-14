@@ -17,9 +17,8 @@
 #include "mlir/Dialect/XModel/IR/XModel.h"
 #include "mlir/Dialect/XModel/Pipelines/Pipelines.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
-#include "mlir/InitAllDialects.h"
-#include "mlir/InitAllPasses.h"
 #include "mlir/InitRocMLIRDialects.h"
+#include "mlir/InitRocMLIRPasses.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -362,20 +361,14 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 
 int main(int argc, char **argv) {
   DialectRegistry registry;
-  registerAllDialects(registry);
   registerRocMLIRDialects(registry);
-#ifdef MLIR_INCLUDE_TESTS
-  test::registerTestDialect(registry);
-#endif
   MLIRContext context(registry);
   context
       .loadDialect<xmodel::XModelDialect, rock::RockDialect, func::FuncDialect,
                    scf::SCFDialect, AffineDialect, memref::MemRefDialect,
                    math::MathDialect, arith::ArithmeticDialect, gpu::GPUDialect,
                    bufferization::BufferizationDialect, async::AsyncDialect>();
-  mlir::registerAllPasses();
-  mlir::registerRocMLIRConversionPasses();
-  rock::registerPasses();
+  mlir::registerRocMLIRPasses();
   InitLLVM y(argc, argv);
 
   // Register any pass manager command line options.

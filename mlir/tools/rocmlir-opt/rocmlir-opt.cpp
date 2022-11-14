@@ -11,8 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/InitAllDialects.h"
-#include "mlir/InitAllPasses.h"
 #include "mlir/InitRocMLIRDialects.h"
 #include "mlir/InitRocMLIRPasses.h"
 #include "mlir/Tools/mlir-opt/MlirOptMain.h"
@@ -33,7 +31,6 @@ void registerRockTestPasses() {
 #endif
 
 int main(int argc, char **argv) {
-  registerAllPasses();
   registerRocMLIRPasses();
 
 #ifdef MLIR_INCLUDE_TESTS
@@ -41,7 +38,6 @@ int main(int argc, char **argv) {
 #endif
 
   DialectRegistry registry;
-  registerAllDialects(registry);
   registerRocMLIRDialects(registry);
   return mlir::asMainReturnCode(
       mlir::MlirOptMain(argc, argv, "MLIR+Rock modular optimizer driver\n",

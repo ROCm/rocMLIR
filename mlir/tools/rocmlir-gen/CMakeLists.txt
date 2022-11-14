@@ -2,34 +2,12 @@ set(LLVM_LINK_COMPONENTS
   Support
   )
 
-get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
-get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
-
-if(MLIR_INCLUDE_TESTS)
-  set(test_libs
-    MLIRTestDialect
-    )
-endif()
+get_property(rocmlir_dialect_libs GLOBAL PROPERTY ROCMLIR_DIALECT_LIBS)
+get_property(rocmlir_conversion_libs GLOBAL PROPERTY ROCMLIR_CONVERSION_LIBS)
 
 set(LIBS
-  ${dialect_libs}
-  ${conversion_libs}
-  ${test_libs}
-  LLVMAMDGPUAsmParser
-  LLVMX86AsmParser
-  MLIRAnalysis
-  MLIRExecutionEngine
-  MLIRRockOps
-  MLIRRockPipeline
-  MLIRRockUtility
-  MLIRParser
-  MLIRPass
-  MLIRQuantDialect
-  MLIRShapeDialect
-  MLIRTransforms
-  MLIRSupport
-  MLIRIR
-  MLIRRockThin
+  ${rocmlir_dialect_libs}
+  ${rocmlir_conversion_libs}
   )
 
 add_llvm_executable(rocmlir-gen

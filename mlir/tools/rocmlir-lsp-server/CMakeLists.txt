@@ -2,43 +2,19 @@ set(LLVM_OPTIONAL_SOURCES
   null.cpp
 )
 
-get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
-get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
+get_property(rocmlir_dialect_libs GLOBAL PROPERTY ROCMLIR_DIALECT_LIBS)
+get_property(rocmlir_conversion_libs GLOBAL PROPERTY ROCMLIR_CONVERSION_LIBS)
+
 set(LLVM_LINK_COMPONENTS
   Core
   Support
   AsmParser
   )
 
-if(MLIR_INCLUDE_TESTS)
-  set(test_libs
-    MLIRAffineTransformsTestPasses
-    MLIRShapeTestPasses
-    MLIRSPIRVTestPasses
-    MLIRTestAnalysis
-    MLIRTestDialect
-    MLIRTestIR
-    MLIRTestPass
-    MLIRTestReducer
-    MLIRTestRewrite
-    MLIRTestTransforms
-    )
-endif()
-
 set(LIBS
-  ${dialect_libs}
-  ${conversion_libs}
-  ${test_libs}
-  MLIRAffineAnalysis
-  MLIRAnalysis
-  MLIRDialect
+  ${rocmlir_dialect_libs}
+  ${rocmlir_conversion_libs}
   MLIRLspServerLib
-  MLIRParser
-  MLIRPass
-  MLIRTransforms
-  MLIRTransformUtils
-  MLIRSupport
-  MLIRIR
   )
 
 add_llvm_tool(rocmlir-lsp-server
