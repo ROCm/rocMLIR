@@ -68,22 +68,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libnuma-dev \
   software-properties-common
 
-RUN apt-add-repository ppa:deadsnakes/ppa && apt-get update \
-     && apt-get install -y --no-install-recommends \
-            python3.8 python3.8-dev python3.8-venv python3-psutil \
-            python3-pip python3-setuptools \
-     && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 10 \
-     && apt upgrade \
-     && python3 -m pip install --upgrade pip \
-     && pip3 install pandas numpy scipy jinja2 tomli \
-     && pip3 install -r requirements.txt \
-     && sed -i -e 's#/usr/bin/python3#/usr/bin/python3.6#' /usr/bin/apt-add-repository /usr/bin/add-apt-repository
+RUN apt-get update && apt-get install -y --no-install-recommends \
+           python3.8 python3.8-dev python3.8-venv python3-psutil \
+           python3-pip python3-setuptools \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 10 \
+    && apt upgrade \
+    && python3 -m pip install --upgrade pip \
+    && pip3 install pandas numpy scipy jinja2 tomli \
+    && pip3 install -r requirements.txt
     # ^ pip install pandas... is needed to output performance tests and regenerate test suites
     # Has a copy of the requirements.txt install bit for the new python version
-    # Note: the 'sed' above is a result of the python3.8 not being able to use the
-    # system copies of `gobject` and `apt_pkg`, which are build strictly for
-    # Python 3.6. It can be removed, along with the entire invocation of deadsnakes
-    # when we move to Ubuntu >= 20.04.
 
 # Need "render" group because some CI hosts have /dev/kfd under it.
 RUN groupadd -g 109 render
@@ -109,6 +103,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   rocblas \
   rocblas-dev \
   libelf1 \
+  pkg-config \
   sudo \
   vim \
   kmod \
