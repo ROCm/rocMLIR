@@ -77,6 +77,11 @@ def RockCleanMathPass : Pass<"rock-clean-math", "::mlir::func::FuncOp"> {
   let summary = "Clean up math using integer range analysis and other MLIR passes";
 }
 
+def RockBufferLoadMergePass : Pass<"rock-buffer-load-merge", "::mlir::func::FuncOp"> {
+  let summary = "Merge identical memory loads to buffers only read. Assumes noalias.";
+  let dependentDialects = ["::mlir::amdgpu::AMDGPUDialect"];
+}
+
 def RockLoopsToCfPass : Pass<"rock-loops-to-cf", "ModuleOp"> {
   let summary = "expand loop / affine dialects to control flow. Notice GPU dialect will explicitly NOT be used in this pass";
 }
