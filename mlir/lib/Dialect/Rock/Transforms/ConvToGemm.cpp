@@ -300,8 +300,7 @@ struct ConvertingCopyKernelRewritePattern final
 /// Lowerings for particular convolution algorithms (TODO, new file?)
 LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
                                       PatternRewriter &b) {
-  auto loc = op.getLoc();
-  auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
+  Location loc = op.getLoc();
 
   Attribute tuningParams = op.getParamsAttr();
   if (!tuningParams) {
@@ -497,13 +496,12 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   // This kernel is not run when there is padding on the GEMM
   auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::AtomicAdd);
 
-  auto gemm = b.create<GemmOp>(
+  b.create<GemmOp>(
       loc, getResultType(op, gemmFilter), gemmOutput, gemmInput, gemmFilter,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
       /*cTransposed=*/nullptr, op.getArchAttr(), op.getNumCuAttr(),
       op.getFeaturesAttr(), storeMethod, op.getDerivedBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
-  gemm->setAttr("gemm_id", gemmIdAttr);
 
   // Finally, erase the original Conv2D op.
   b.eraseOp(op);
@@ -513,7 +511,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
 
 LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   Location loc = op.getLoc();
-  auto gemmIdAttr = op->getAttrOfType<IntegerAttr>("gemm_id");
+  IntegerAttr kernelIdAttr = op.getKernelIdAttr();
 
   ConvolutionContext ctx = populateConvContext(op);
 
@@ -571,9 +569,9 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
       wTilda,
       math_util::integer_divide_ceil(leftPadW + convDims.wi - 1, strideW) + 1);
 
-  int64_t gemmId = gemmIdAttr.getInt();
-  int64_t iYTilda = gemmId / xTilda;
-  int64_t iXTilda = gemmId % xTilda;
+  int64_t kernelId = kernelIdAttr.getInt();
+  int64_t iYTilda = kernelId / xTilda;
+  int64_t iXTilda = kernelId % xTilda;
   int64_t yDotSlice =
       math_util::integer_divide_ceil(convDims.y - iYTilda, yTilda);
   int64_t xDotSlice =
@@ -740,7 +738,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
       /*cTransposed=*/nullptr, op.getArchAttr(), op.getNumCuAttr(),
       op.getFeaturesAttr(), storeMethod, op.getDerivedBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
-  gemm->setAttr("gemm_id", gemmIdAttr);
+  // Bounced along for debugging purposes, not used below
+  gemm->setAttr("kernelId", kernelIdAttr);
 
   // Finally, erase the original Conv2D op.
   b.eraseOp(op);

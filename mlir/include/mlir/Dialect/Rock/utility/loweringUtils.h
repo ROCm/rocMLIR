@@ -46,19 +46,18 @@ LogicalResult calculateKBlockNum(const ConvolutionDims &convDims,
                                  int64_t KPack, int64_t num_cu,
                                  int64_t &nKBlock);
 
-/// Populate a vector of gemm IDs to be used by a backward data convolution
+/// Populate a vector of kernel IDs to be used by a backward data convolution
 /// algorithm. In the current v4r1 algorithm, several kernels may be needed to
 /// realize a complete backward data convolution.
 ///
-/// The values of gemm IDs would be 0, or a positive integer to denote the IDs
-/// of the actual implicit GEMM kernels to partipate the backward data
-/// convolution, or it could be -1 in case a zero initialization utility kernel
-/// is needed. The zero initialization kernel, if needed, would be placed in the
-/// front of the vector.
+/// A non-negative kernel ID denotes an actual implicit GEMM kernels to
+/// partipate the backward data convolution. The ID -1 represents a zero
+/// initialization utility kernel The zero initialization kernel, if needed,
+/// would be placed in the front of the vector.
 SmallVector<int64_t>
-populateBackwardDataGemmIds(int64_t strideHeight, int64_t strideWidth,
-                            int64_t dilationHeight, int64_t dilationWidth,
-                            int64_t filterHeight, int64_t filterWidth);
+backwardDataKernelIds(int64_t strideHeight, int64_t strideWidth,
+                      int64_t dilationHeight, int64_t dilationWidth,
+                      int64_t filterHeight, int64_t filterWidth);
 
 /// Return a vector type of length `len` if `len` is more than 1, otherwise,
 /// return `type`.

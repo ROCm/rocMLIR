@@ -86,11 +86,14 @@ def Rock_Conv2DOp : Rock_Conv2DOpBase<"conv2d", [F32, F16, BF16, I8], [F32, F16,
 def Rock_Conv2DBwdDataOp : Rock_Conv2DOpBase<"conv2d_bwd_data">
 {
   dag additionalArgs = (ins OptionalAttr<I32Attr>:$numCu,
-                            OptionalAttr<I32Attr>:$utilityBlockSize);
+                            IndexAttr:$kernelId);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "2D convolution backward data";
   let description = [{
     The `rock.conv2d_bwd_data` op computes 2D convolution backward data.
+
+    The kernel ID represents which of the multiple backwards data kernels
+    needed for the correct computation of the result this kernel is.
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
@@ -104,8 +107,7 @@ def Rock_Conv2DBwdWeightOp : Rock_Conv2DOpBase<"conv2d_bwd_weight">
 {
   dag additionalArgs = (ins Optional<TensorOrMemRefRankOf<[F32], [5]>>:$workspace,
                             OptionalAttr<IndexAttr>:$kBlocks,
-                            I32Attr:$numCu,
-                            OptionalAttr<I32Attr>:$utilityBlockSize);
+                            I32Attr:$numCu);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "2D convolution backward weight";
   let description = [{

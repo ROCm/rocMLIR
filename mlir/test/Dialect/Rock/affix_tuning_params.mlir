@@ -24,7 +24,7 @@ func.func @rock_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x
   // CHECK-SAME: gridSize = 900
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_0]]
   rock.conv2d(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -41,7 +41,7 @@ func.func @rock_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<12
   // CHECK-SAME: gridSize = 900
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_0]]
   rock.conv2d(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -59,7 +59,7 @@ func.func @rock_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x
   // CHECK-SAME: gridSize = 3600
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_0]]
   rock.conv2d(%filter, %input, %output) features = mfma|dot|atomic_add {
-    arch = "gfx908",
+    arch = "amdgcn-amd-amdhsa:gfx908",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
@@ -77,10 +77,10 @@ func.func @rock_conv2d_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: me
   // CHECK-SAME: gridSize = 1568
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_1]]
   rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add {
-    arch = "gfx908",
+    arch = "amdgcn-amd-amdhsa:gfx908",
     dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
-    gemm_id = 0 : i32,
+    kernelId = 0 : index,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0  : i32,  0  : i32,  0  : i32,  0 : i32],
@@ -96,10 +96,10 @@ func.func @rock_conv2d_bwd_data_f16(%filter: memref<1x1024x1024x1x1xf16>, %input
   // CHECK-SAME: gridSize = 1568
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_1]]
   rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add {
-    arch = "gfx908",
+    arch = "amdgcn-amd-amdhsa:gfx908",
     dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
-    gemm_id = 0 : i32,
+    kernelId = 0 : index,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0  : i32,  0  : i32,  0  : i32,  0 : i32],
@@ -114,14 +114,14 @@ func.func @rock_conv2d_bwd_data_padMN(%filter : memref<1x64x3x1x1xf32>, %input :
   // CHECK-SAME: gridSize = 39
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_1]]
   rock.conv2d_bwd_data(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1 : i32,  1 : i32],
     strides = [1 : i32,  1 : i32],
     padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
-    gemm_id = 0
+    kernelId = 0 : index
   } : memref<1x64x3x1x1xf32>, memref<11x1x3x15x15xf32>, memref<11x1x64x15x15xf32>
   return
 }
@@ -132,14 +132,14 @@ func.func @rock_conv2d_bwd_data_padMK(%filter : memref<1x11x3x1x1xf32>, %input :
   // CHECK-SAME: gridSize = 450
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_2]]
   rock.conv2d_bwd_data(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1 : i32,  1 : i32],
     strides = [1 : i32,  1 : i32],
     padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
-    gemm_id = 0
+    kernelId = 0 : index
   } : memref<1x11x3x1x1xf32>, memref<128x1x3x15x15xf32>, memref<128x1x11x15x15xf32>
   return
 }
@@ -150,15 +150,14 @@ func.func @rock_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : me
   // CHECK-SAME: gridSize = 6
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_3]]
   rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1 : i32,  1 : i32],
     strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
-    gemm_id = 0
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
   } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }
@@ -169,15 +168,14 @@ func.func @rock_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input 
   // CHECK-SAME: gridSize = 6
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_3]]
   rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1 : i32,  1 : i32],
     strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
-    gemm_id = 0
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
   } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
   return
 }
@@ -188,15 +186,14 @@ func.func @rock_conv2d_bwd_weight_padALL(%filter : memref<1x20x8x3x3xf32>, %inpu
   // CHECK-SAME: gridSize = 3
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_4]]
   rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1 : i32,  1 : i32],
     strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
-    gemm_id = 0
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
   } : memref<1x20x8x3x3xf32>, memref<7x1x8x32x32xf32>, memref<7x1x20x30x30xf32>
   return
 }
@@ -207,15 +204,14 @@ func.func @rock_conv2d_bwd_weight_padALL_f16(%filter : memref<1x20x8x3x3xf16>, %
   // CHECK-SAME: gridSize = 3
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_4]]
   rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
     dilations = [1 : i32,  1 : i32],
     strides = [1 : i32,  1 : i32],
-    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32],
-    gemm_id = 0
+    padding = [0 : i32,  0 : i32,  0  : i32, 0 : i32]
   } : memref<1x20x8x3x3xf16>, memref<7x1x8x32x32xf16>, memref<7x1x20x30x30xf16>
   return
 }
@@ -227,10 +223,9 @@ func.func @rock_conv2d_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<2
   // CHECK-SAME: gridSize = 12544
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_2]]
   rock.conv2d(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
-    arch = "gfx908",
+    arch = "amdgcn-amd-amdhsa:gfx908",
     dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
-    gemm_id = 0 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
@@ -249,10 +244,9 @@ func.func @rock_conv2d_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x
   // CHECK-SAME: gridSize = 100352
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_3]]
   rock.conv2d(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
-    arch = "gfx908",
+    arch = "amdgcn-amd-amdhsa:gfx908",
     dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
-    gemm_id = 0 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
@@ -268,11 +262,12 @@ func.func @rock_conv2d_bwd_weight_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memr
   // CHECK-SAME: gridSize = 40
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_4]]
   rock.conv2d_bwd_weight(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
-    arch = "gfx908",
+    arch = "amdgcn-amd-amdhsa:gfx908",
     dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
-    gemm_id = 0 : i32, input_layout = ["ni", "gi", "ci", "hi", "wi"],
-    numCu = 120 : i32, output_layout = ["no", "go", "ko", "ho", "wo"],
+    input_layout = ["ni", "gi", "ci", "hi", "wi"],
+    numCu = 120 : i32,
+    output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
     strides = [2 : i32, 2 : i32]
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
@@ -286,10 +281,10 @@ func.func @rock_conv2d_bwd_data_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1:
   // CHECK-SAME: gridSize = 26450
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_5]]
   rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
-    arch = "gfx908",
+    arch = "amdgcn-amd-amdhsa:gfx908",
     dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
-    gemm_id = 1 : i32,
+    kernelId = 1 : index,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
@@ -308,10 +303,10 @@ func.func @rock_conv2d_bwd_data_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref
   // CHECK-SAME: gridSize = 52900
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_6]]
   rock.conv2d_bwd_data(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add {
-    arch = "gfx908",
+    arch = "amdgcn-amd-amdhsa:gfx908",
     dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
-    gemm_id = 1 : i32,
+    kernelId = 1 : index,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0 : i32, 0 : i32, 0 : i32, 0 : i32],
@@ -326,7 +321,7 @@ func.func @rock_gemm_from_conv2d(%a : memref<1x72x128xf32>, %b : memref<1x72x115
   // CHECK-SAME: gridSize = 900
   // CHECK-SAME: params = #[[$GENERAL_PARAMS_0]]
   rock.gemm %c = tr %a * %b features = none storeMethod = set {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     numCu = 64 : i32
   } : memref<1x128x115200xf32> = memref<1x72x128xf32> * memref<1x72x115200xf32>
   return
@@ -339,7 +334,7 @@ func.func @rock_gemm_from_i8_conv2d(%a : memref<1x72x128xi8>, %b : memref<1x72x1
   // CHECK-SAME: gridSize = 3600
   // CHECK-SAME: params = #[[$XDLOPS_PARAMS_0]]
   rock.gemm %c = tr %a * %b features = mfma|dot|atomic_add storeMethod = set {
-    arch = "gfx908",
+    arch = "amdgcn-amd-amdhsa:gfx908",
     numCu = 120 : i32
   } : memref<1x128x115200xi32> = memref<1x72x128xi8> * memref<1x72x115200xi8>
   return

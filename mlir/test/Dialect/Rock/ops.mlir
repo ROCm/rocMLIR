@@ -5,7 +5,7 @@
 
 func.func @rock_conv2d(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
   rock.conv2d(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
     output_layout = ["n", "go", "k", "ho", "wo"],
@@ -20,7 +20,7 @@ func.func @rock_conv2d(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x
 
 func.func @rock_conv2d_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
   rock.conv2d(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     filter_layout = ["g" ,"k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
     output_layout = ["n", "go", "k", "ho", "wo"],
@@ -35,8 +35,9 @@ func.func @rock_conv2d_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x
 
 func.func @rock_conv2d_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
   rock.conv2d_bwd_data(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
+    kernelId = 0 : index,
     input_layout = ["n", "gi", "c", "hi", "wi"],
     output_layout = ["n", "go", "k", "ho", "wo"],
     dilations = [1 : i32,  1 : i32],
@@ -50,8 +51,9 @@ func.func @rock_conv2d_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memref
 
 func.func @rock_conv2d_bwd_data_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
   rock.conv2d_bwd_data(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     filter_layout = ["g", "k", "c", "y", "x"],
+    kernelId = 0 : index,
     input_layout = ["n", "gi", "c", "hi", "wi"],
     output_layout = ["n", "go", "k", "ho", "wo"],
     dilations = [1 : i32,  1 : i32],
@@ -65,7 +67,7 @@ func.func @rock_conv2d_bwd_data_f16(%filter : memref<?x?x?x?x?xf16>, %input : me
 
 func.func @rock_conv2d_bwd_weight(%filter : memref<?x?x?x?x?xf32>, %input : memref<?x?x?x?x?xf32>, %output : memref<?x?x?x?x?xf32>) {
   rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
@@ -81,7 +83,7 @@ func.func @rock_conv2d_bwd_weight(%filter : memref<?x?x?x?x?xf32>, %input : memr
 
 func.func @rock_conv2d_bwd_weight_f16(%filter : memref<?x?x?x?x?xf16>, %input : memref<?x?x?x?x?xf16>, %output : memref<?x?x?x?x?xf16>) {
   rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     numCu = 64 : i32,
     filter_layout = ["g", "k", "c", "y", "x"],
     input_layout = ["n", "gi", "c", "hi", "wi"],
@@ -98,7 +100,7 @@ func.func @rock_conv2d_bwd_weight_f16(%filter : memref<?x?x?x?x?xf16>, %input : 
 
 func.func @rock_gemm(%a : memref<32x64xf16>, %b : memref<1x32x128xf16>, %c : memref<64x128xf32>) {
   rock.gemm %c = tr %a * %b features = none storeMethod = set {
-    arch = "gfx906"
+    arch = "amdgcn-amd-amdhsa:gfx906"
   } : memref<64x128xf32> = memref<32x64xf16> * memref<1x32x128xf16>
   func.return
 }
@@ -161,7 +163,7 @@ func.func @rock_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
 
 func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf32>, %C : memref<2x128x256xf32>) {
   rock.gridwise_gemm %C = %A * %B {
-    arch = "gfx900",
+    arch = "amdgcn-amd-amdhsa:gfx900",
     blockSize = 256 : i32,
     gridSize = 1 : i32,
     params = #rock.general_gemm_params<
@@ -182,7 +184,7 @@ func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf3
 
 func.func @rock_gridwise_gemm_v2(%A : memref<2x1024x1024xf32>, %B : memref<2x1024x2048xf32>, %C : memref<2x1024x2048xf32>) {
   rock.gridwise_gemm_v2(%A, %B, %C) storeMethod(set) {
-    arch = "gfx908",
+    arch = "amdgcn-amd-amdhsa:gfx908",
     blockSize = 256 : i32,
     gridSize = 1 : i32,
     params = #rock.xdlops_gemm_params<
