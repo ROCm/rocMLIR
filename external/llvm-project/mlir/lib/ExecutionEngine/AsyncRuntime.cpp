@@ -26,6 +26,9 @@
 
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/ThreadPool.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/Error.h"
+#include "llvm/Support/Host.h"
 
 using namespace mlir::runtime;
 
@@ -225,36 +228,36 @@ struct AsyncGroup : public RefCounted {
 };
 
 // Adds references to reference counted runtime object.
-extern "C" void mlirAsyncRuntimeAddRef(RefCountedObjPtr ptr, int64_t count) {
+extern "C"  __attribute__((visibility("default"))) void mlirAsyncRuntimeAddRef(RefCountedObjPtr ptr, int64_t count) {
   RefCounted *refCounted = static_cast<RefCounted *>(ptr);
   refCounted->addRef(count);
 }
 
 // Drops references from reference counted runtime object.
-extern "C" void mlirAsyncRuntimeDropRef(RefCountedObjPtr ptr, int64_t count) {
+extern "C"  __attribute__((visibility("default"))) void mlirAsyncRuntimeDropRef(RefCountedObjPtr ptr, int64_t count) {
   RefCounted *refCounted = static_cast<RefCounted *>(ptr);
   refCounted->dropRef(count);
 }
 
 // Creates a new `async.token` in not-ready state.
-extern "C" AsyncToken *mlirAsyncRuntimeCreateToken() {
+extern "C"  __attribute__((visibility("default"))) AsyncToken *mlirAsyncRuntimeCreateToken() {
   AsyncToken *token = new AsyncToken(getDefaultAsyncRuntime());
   return token;
 }
 
 // Creates a new `async.value` in not-ready state.
-extern "C" AsyncValue *mlirAsyncRuntimeCreateValue(int64_t size) {
+extern "C"  __attribute__((visibility("default"))) AsyncValue *mlirAsyncRuntimeCreateValue(int64_t size) {
   AsyncValue *value = new AsyncValue(getDefaultAsyncRuntime(), size);
   return value;
 }
 
 // Create a new `async.group` in empty state.
-extern "C" AsyncGroup *mlirAsyncRuntimeCreateGroup(int64_t size) {
+extern "C"  __attribute__((visibility("default"))) AsyncGroup *mlirAsyncRuntimeCreateGroup(int64_t size) {
   AsyncGroup *group = new AsyncGroup(getDefaultAsyncRuntime(), size);
   return group;
 }
 
-extern "C" int64_t mlirAsyncRuntimeAddTokenToGroup(AsyncToken *token,
+extern "C"  __attribute__((visibility("default"))) int64_t mlirAsyncRuntimeAddTokenToGroup(AsyncToken *token,
                                                    AsyncGroup *group) {
   std::unique_lock<std::mutex> lockToken(token->mu);
   std::unique_lock<std::mutex> lockGroup(group->mu);
@@ -340,66 +343,66 @@ static void setValueState(AsyncValue *value, State state) {
   value->dropRef();
 }
 
-extern "C" void mlirAsyncRuntimeEmplaceToken(AsyncToken *token) {
+extern "C"  __attribute__((visibility("default"))) void mlirAsyncRuntimeEmplaceToken(AsyncToken *token) {
   setTokenState(token, State::kAvailable);
 }
 
-extern "C" void mlirAsyncRuntimeEmplaceValue(AsyncValue *value) {
+extern "C"  __attribute__((visibility("default"))) void mlirAsyncRuntimeEmplaceValue(AsyncValue *value) {
   setValueState(value, State::kAvailable);
 }
 
-extern "C" void mlirAsyncRuntimeSetTokenError(AsyncToken *token) {
+extern "C"  __attribute__((visibility("default"))) void mlirAsyncRuntimeSetTokenError(AsyncToken *token) {
   setTokenState(token, State::kError);
 }
 
-extern "C" void mlirAsyncRuntimeSetValueError(AsyncValue *value) {
+extern "C"  __attribute__((visibility("default"))) void mlirAsyncRuntimeSetValueError(AsyncValue *value) {
   setValueState(value, State::kError);
 }
 
-extern "C" bool mlirAsyncRuntimeIsTokenError(AsyncToken *token) {
+extern "C"  __attribute__((visibility("default"))) bool mlirAsyncRuntimeIsTokenError(AsyncToken *token) {
   return State(token->state).isError();
 }
 
-extern "C" bool mlirAsyncRuntimeIsValueError(AsyncValue *value) {
+extern "C"  __attribute__((visibility("default"))) bool mlirAsyncRuntimeIsValueError(AsyncValue *value) {
   return State(value->state).isError();
 }
 
-extern "C" bool mlirAsyncRuntimeIsGroupError(AsyncGroup *group) {
+extern "C"  __attribute__((visibility("default"))) bool mlirAsyncRuntimeIsGroupError(AsyncGroup *group) {
   return group->numErrors.load() > 0;
 }
 
-extern "C" void mlirAsyncRuntimeAwaitToken(AsyncToken *token) {
+extern "C"  __attribute__((visibility("default"))) void mlirAsyncRuntimeAwaitToken(AsyncToken *token) {
   std::unique_lock<std::mutex> lock(token->mu);
   if (!State(token->state).isAvailableOrError())
     token->cv.wait(
         lock, [token] { return State(token->state).isAvailableOrError(); });
 }
 
-extern "C" void mlirAsyncRuntimeAwaitValue(AsyncValue *value) {
+extern "C"  __attribute__((visibility("default"))) void mlirAsyncRuntimeAwaitValue(AsyncValue *value) {
   std::unique_lock<std::mutex> lock(value->mu);
   if (!State(value->state).isAvailableOrError())
     value->cv.wait(
         lock, [value] { return State(value->state).isAvailableOrError(); });
 }
 
-extern "C" void mlirAsyncRuntimeAwaitAllInGroup(AsyncGroup *group) {
+extern "C"  __attribute__((visibility("default"))) void mlirAsyncRuntimeAwaitAllInGroup(AsyncGroup *group) {
   std::unique_lock<std::mutex> lock(group->mu);
   if (group->pendingTokens != 0)
     group->cv.wait(lock, [group] { return group->pendingTokens == 0; });
 }
 
 // Returns a pointer to the storage owned by the async value.
-extern "C" ValueStorage mlirAsyncRuntimeGetValueStorage(AsyncValue *value) {
+extern "C"  __attribute__((visibility("default"))) ValueStorage mlirAsyncRuntimeGetValueStorage(AsyncValue *value) {
   assert(!State(value->state).isError() && "unexpected error state");
   return value->storage.data();
 }
 
-extern "C" void mlirAsyncRuntimeExecute(CoroHandle handle, CoroResume resume) {
+extern "C"  __attribute__((visibility("default"))) void mlirAsyncRuntimeExecute(CoroHandle handle, CoroResume resume) {
   auto *runtime = getDefaultAsyncRuntime();
   runtime->getThreadPool().async([handle, resume]() { (*resume)(handle); });
 }
 
-extern "C" void mlirAsyncRuntimeAwaitTokenAndExecute(AsyncToken *token,
+extern "C"  __attribute__((visibility("default"))) void mlirAsyncRuntimeAwaitTokenAndExecute(AsyncToken *token,
                                                      CoroHandle handle,
                                                      CoroResume resume) {
   auto execute = [handle, resume]() { (*resume)(handle); };
@@ -412,7 +415,7 @@ extern "C" void mlirAsyncRuntimeAwaitTokenAndExecute(AsyncToken *token,
   }
 }
 
-extern "C" void mlirAsyncRuntimeAwaitValueAndExecute(AsyncValue *value,
+extern "C"  __attribute__((visibility("default"))) void mlirAsyncRuntimeAwaitValueAndExecute(AsyncValue *value,
                                                      CoroHandle handle,
                                                      CoroResume resume) {
   auto execute = [handle, resume]() { (*resume)(handle); };
@@ -425,7 +428,7 @@ extern "C" void mlirAsyncRuntimeAwaitValueAndExecute(AsyncValue *value,
   }
 }
 
-extern "C" void mlirAsyncRuntimeAwaitAllInGroupAndExecute(AsyncGroup *group,
+extern "C"  __attribute__((visibility("default"))) void mlirAsyncRuntimeAwaitAllInGroupAndExecute(AsyncGroup *group,
                                                           CoroHandle handle,
                                                           CoroResume resume) {
   auto execute = [handle, resume]() { (*resume)(handle); };
@@ -438,7 +441,7 @@ extern "C" void mlirAsyncRuntimeAwaitAllInGroupAndExecute(AsyncGroup *group,
   }
 }
 
-extern "C" int64_t mlirAsyncRuntimGetNumWorkerThreads() {
+extern "C"  __attribute__((visibility("default"))) int64_t mlirAsyncRuntimGetNumWorkerThreads() {
   return getDefaultAsyncRuntime()->getThreadPool().getThreadCount();
 }
 
@@ -446,7 +449,7 @@ extern "C" int64_t mlirAsyncRuntimGetNumWorkerThreads() {
 // Small async runtime support library for testing.
 //===----------------------------------------------------------------------===//
 
-extern "C" void mlirAsyncRuntimePrintCurrentThreadId() {
+extern "C"  __attribute__((visibility("default"))) void mlirAsyncRuntimePrintCurrentThreadId() {
   static thread_local std::thread::id thisId = std::this_thread::get_id();
   std::cout << "Current thread id: " << thisId << std::endl;
 }
