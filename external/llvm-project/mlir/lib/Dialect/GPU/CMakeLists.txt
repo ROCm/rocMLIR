@@ -9,6 +9,7 @@ endif()
 if (MLIR_ENABLE_ROCM_CONVERSIONS)
   set(AMDGPU_LIBS
     IRReader
+    IPO
     linker
     MCParser
     AMDGPUAsmParser
@@ -148,7 +149,6 @@ if(MLIR_ENABLE_ROCM_CONVERSIONS)
     PRIVATE
     lldELF
     lldCommon
-    MLIRExecutionEngine
     MLIRROCDLToLLVMIRTranslation
   )
 
