@@ -23,6 +23,27 @@ def RockConvInterface : OpInterface<"RockConvInterface"> {
 
   let methods = [
     InterfaceMethod<
+        /*desc=*/[{Return filter tensor.}],
+        /*retType=*/"::mlir::TypedValue<::mlir::ShapedType>",
+        /*methodName=*/"getFilter",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/[{ return $_op.getFilter(); }]>,
+    InterfaceMethod<
+        /*desc=*/[{Return input tensor.}],
+        /*retType=*/"::mlir::TypedValue<::mlir::ShapedType>",
+        /*methodName=*/"getInput",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/[{ return $_op.getInput(); }]>,
+    InterfaceMethod<
+        /*desc=*/[{Return output tensor.}],
+        /*retType=*/"::mlir::TypedValue<::mlir::ShapedType>",
+        /*methodName=*/"getOutput",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/[{ return $_op.getOutput(); }]>,
+    InterfaceMethod<
         /*desc=*/[{Return convolution padding values.}],
         /*retType=*/"ArrayAttr",
         /*methodName=*/"getPadding",

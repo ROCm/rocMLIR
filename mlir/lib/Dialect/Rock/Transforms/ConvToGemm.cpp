@@ -23,6 +23,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockConvInterface.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
@@ -33,12 +34,17 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Debug.h"
+#include <iterator>
 
 namespace mlir {
 namespace rock {
@@ -91,6 +97,17 @@ LogicalResult checkNames(ArrayRef<StringRef> actual,
     }
   }
   return success();
+}
+
+// Sort the dimensions in `names` so that they are in the order they appear in
+// within `transform`. This allows Merge{} operations to not preform
+// transposes that are not needed.
+void matchUnderlyingOrder(SmallVectorImpl<StringRef> &names,
+                          BottomUpTMBuilder &transform) {
+  std::sort(names.begin(), names.end(),
+            [&transform](const StringRef &v1, const StringRef &v2) -> bool {
+              return transform.startIndex(v1) < transform.startIndex(v2);
+            });
 }
 
 /// Get the dimension names for the given `op` into `filterNames`, `inputNames`
@@ -306,6 +323,128 @@ struct ConvertingCopyKernelRewritePattern final
   }
 };
 
+/// Layout normalization.
+
+/// In most cases, we can treat the CYX or YXC parts of the filter dimension
+/// as a single unit for the purposes of vectorization, coordinate computations,
+/// and so on. However, if the filter layout is created by transposing the
+/// underlying memory in order to match another tensor, we cannot do this
+/// and so must flag when we have performed such a relayout.
+///
+/// This is a nominally temporary hack that should be removed once we can more
+/// precisely handle Unfold{} by static analysis instead of by heuristic.
+/// As such, it'll probably presist for quite some time.
+constexpr llvm::StringLiteral dontUnfoldAttrName("has_relayout_do_not_unfold");
+/// Make the dimensions that are the values in `mapping` and exist within
+/// `toLayout` be in the same relative order as the dimensions that the keys of
+/// `mappping` have within `fromLayout`, where both layout are given by the
+/// names of the attributes containing them.
+///
+/// To enable usage in rewrite patterns, returns failure() when no change is
+/// made.
+LogicalResult makeToLayoutLikeFromLayoutAlong(
+    PatternRewriter &b, RockConvInterface op, StringRef fromLayoutAttrName,
+    TypedValue<ShapedType> toArg, StringRef toLayoutAttrName,
+    const llvm::StringMap<StringAttr> &mapping) {
+  llvm::SmallVector<StringAttr> expectedOrder;
+  auto fromLayout = op->getAttrOfType<ArrayAttr>(fromLayoutAttrName);
+  auto toLayout = op->getAttrOfType<ArrayAttr>(toLayoutAttrName);
+  for (StringRef fromName : fromLayout.getAsValueRange<StringAttr>()) {
+    auto maybeCorresponding = mapping.find(fromName);
+    if (maybeCorresponding != mapping.end())
+      expectedOrder.push_back(maybeCorresponding->getValue());
+  }
+
+  llvm::SmallDenseMap<StringAttr, size_t> toLayoutIdxs;
+  for (auto pair : llvm::enumerate(toLayout.getAsRange<StringAttr>()))
+    toLayoutIdxs.insert({pair.value(), pair.index()});
+
+  bool inOrder = true;
+  size_t prevIndex = 0;
+  for (StringAttr expected : expectedOrder) {
+    size_t thisIndex = toLayoutIdxs.find(expected)->getSecond();
+    if (thisIndex <
+        prevIndex) { // the values are not in the relative expected order
+      inOrder = false;
+    }
+    // Defensively prevent possible weirdness that might arise when
+    // thisIndex < prevIndex.
+    prevIndex = std::max(thisIndex, prevIndex);
+  }
+  if (inOrder)
+    return failure();
+
+  /// And now we have to actually do the thing
+  // Is just an attribute to allow array builder
+  SmallVector<Attribute> newToLayout;
+  llvm::SmallDenseSet<StringAttr> permutedDimsSet;
+  for (StringAttr toPermute : expectedOrder)
+    permutedDimsSet.insert(toPermute);
+
+  SmallVector<StringAttr>::const_iterator expectedOrderIter =
+      expectedOrder.begin();
+  for (StringAttr dim : toLayout.getAsRange<StringAttr>()) {
+    if (permutedDimsSet.contains(dim)) {
+      newToLayout.push_back(*expectedOrderIter);
+      ++expectedOrderIter;
+    } else {
+      newToLayout.push_back(dim);
+    }
+  }
+
+  SmallVector<StringRef> oldToLayoutRefs;
+  llvm::copy(toLayout.getAsValueRange<StringAttr>(),
+             std::back_inserter(oldToLayoutRefs));
+  ArrayRef<int64_t> toShape = toArg.getType().getShape();
+
+  BottomUpTMBuilder relayout(b, oldToLayoutRefs, toShape, op.getLoc());
+  llvm::StringMap<uint32_t> newToLayoutIdxs;
+  for (auto pair : llvm::enumerate(newToLayout)) {
+    StringRef value = pair.value().cast<StringAttr>().getValue();
+    newToLayoutIdxs.insert({value, pair.index()});
+  }
+  BottomUpTMTopDimsWrapper relayoutWrapped(relayout,
+                                           std::move(newToLayoutIdxs));
+
+  relayoutWrapped.passThrough(oldToLayoutRefs);
+  TransformMapAttr relayoutAttr = relayout.get();
+
+  Value transformed = b.create<TransformOp>(op.getLoc(), toArg, relayoutAttr);
+  for (OpOperand &operand : op->getOpOperands())
+    if (operand.get() == toArg)
+      operand.set(transformed);
+
+  op->setAttr(toLayoutAttrName, b.getArrayAttr(newToLayout));
+  if (toLayoutAttrName == "filter_layout")
+    op->setAttr(dontUnfoldAttrName, b.getUnitAttr());
+  return success();
+}
+
+struct MatchLayoutsToInput final
+    : public OpInterfaceRewritePattern<RockConvInterface> {
+  using OpInterfaceRewritePattern<RockConvInterface>::OpInterfaceRewritePattern;
+
+  LogicalResult matchAndRewrite(RockConvInterface op,
+                                PatternRewriter &b) const override {
+    TypedValue<ShapedType> filter = op.getFilter(), output = op.getOutput();
+    const llvm::StringMap<StringAttr> inputToFilter = {
+        {"ci", b.getStringAttr("c")},
+        {"hi", b.getStringAttr("y")},
+        {"wi", b.getStringAttr("x")}};
+    const llvm::StringMap<StringAttr> inputToOutput = {
+        {"ni", b.getStringAttr("no")},
+        {"hi", b.getStringAttr("ho")},
+        {"wi", b.getStringAttr("wo")}};
+
+    LogicalResult didRelayoutFilter = makeToLayoutLikeFromLayoutAlong(
+        b, op, "input_layout", filter, "filter_layout", inputToFilter);
+    LogicalResult didRelayoutOutput = makeToLayoutLikeFromLayoutAlong(
+        b, op, "input_layout", output, "output_layout", inputToOutput);
+    return success(didRelayoutFilter.succeeded() ||
+                   didRelayoutOutput.succeeded());
+  }
+};
+
 /// Lowerings for particular convolution algorithms (TODO, new file?)
 LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
                                       PatternRewriter &b) {
@@ -398,10 +537,12 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     // Here, we merge the KBlock dimension into the G dimension
     // keeping the kBlock dimension as the minor index
     // and send K to the M dimension and CYX to the N dimension as usual
+    bool forceNoUnfold = op->hasAttr(dontUnfoldAttrName);
     bool isUnfold = (addKBlockTransform.endIndex("c") + 1 ==
                      addKBlockTransform.endIndex("y")) &&
                     (addKBlockTransform.endIndex("y") + 1 ==
-                     addKBlockTransform.endIndex("x"));
+                     addKBlockTransform.endIndex("x")) &&
+                    !forceNoUnfold;
     auto gemmTransform =
         BottomUpTMBuilder::above(addKBlockTransform, addKBlockTransformAttr);
     gemmTransform.merge("gemmG", 0, {"g", "kBlock"});
@@ -457,17 +598,15 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
         BottomUpTMBuilder::above(embedTransform, embedTransformAttr);
 
     llvm::SmallVector<StringRef, 3> nonNHWDims = {"ci", "y", "x"};
-    std::sort(nonNHWDims.begin(), nonNHWDims.end(),
-              [&gemmInputTransform](const StringRef &v1,
-                                    const StringRef &v2) -> bool {
-                return gemmInputTransform.startIndex(v1) <
-                       gemmInputTransform.startIndex(v2);
-              });
+    matchUnderlyingOrder(nonNHWDims, gemmInputTransform);
+    llvm::SmallVector<StringRef, 3> nhwDims = {"n1", "ho", "wo"};
+    matchUnderlyingOrder(nhwDims, gemmInputTransform);
+
     // In the gemmG dimension, unlike with gemmN, we don't have the same
     // traversal order concerns - a step in the G dimension always first visits
     // kBlock/N0 and then moves on to the next G
     gemmInputTransform.merge("gemmG", 0, {"gi", "n0"});
-    gemmInputTransform.merge("gemmK", 1, {"n1", "ho", "wo"});
+    gemmInputTransform.merge("gemmK", 1, nhwDims);
     gemmInputTransform.merge("gemmN", 2, nonNHWDims);
 
     TransformMapAttr gemmInputTransformAttr = gemmInputTransform.get();
@@ -493,8 +632,10 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
     // Map G and N0 to gemmG, N1HW to gemmK and K to gemmM
     auto gemmOutputTransform =
         BottomUpTMBuilder::above(firstTransform, firstTransformAttr);
+    llvm::SmallVector<StringRef, 3> nhwDims = {"n1", "ho", "wo"};
+    matchUnderlyingOrder(nhwDims, gemmOutputTransform);
     gemmOutputTransform.merge("gemmG", 0, {"go", "n0"});
-    gemmOutputTransform.merge("gemmK", 1, {"n1", "ho", "wo"});
+    gemmOutputTransform.merge("gemmK", 1, nhwDims);
     gemmOutputTransform.passThrough({"gemmM"}, {2}, {"ko"});
 
     TransformMapAttr gemmOutputTransformAttr = gemmOutputTransform.get();
@@ -846,10 +987,11 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
 
     BottomUpTMBuilder filterTransform(b, filterNames, filterShape, loc);
     filterTransform.passThrough({"gemmG"}, {0}, {"g"});
+    bool forceNoUnfold = op->hasAttr(dontUnfoldAttrName);
     bool isUnfold = filterTransform.startIndex("g") == 0 &&
                     (filterTransform.startIndex("k") == 1 ||
                      filterTransform.startIndex("k") == 4) &&
-                    noNonKPad;
+                    noNonKPad && !forceNoUnfold;
     switch (convOpType) {
     case ConvOpType::Fwd:
       filterTransform.merge("gemmK", 1, filterNonKDims, isUnfold);
@@ -933,21 +1075,18 @@ template <typename T> struct Conv2DRewritePattern : public OpRewritePattern<T> {
     gemmInputTransform.passThrough({"gemmG"}, {0}, {"gi"});
 
     llvm::SmallVector<StringRef, 3> nonNHWDims = {"ci", "y", "x"};
-    std::sort(nonNHWDims.begin(), nonNHWDims.end(),
-              [&gemmInputTransform](const StringRef &v1,
-                                    const StringRef &v2) -> bool {
-                return gemmInputTransform.startIndex(v1) <
-                       gemmInputTransform.startIndex(v2);
-              });
+    matchUnderlyingOrder(nonNHWDims, gemmInputTransform);
+    llvm::SmallVector<StringRef, 3> nhwDims = {"ni", "ho", "wo"};
+    matchUnderlyingOrder(nhwDims, gemmInputTransform);
 
     llvm::SmallVector<StringRef, 3> mergeToK, mergeToN;
     switch (convOpType) {
     case ConvOpType::Fwd:
       mergeToK = std::move(nonNHWDims);
-      mergeToN = {"ni", "ho", "wo"};
+      mergeToN = std::move(nhwDims);
       break;
     case ConvOpType::BwdWeight:
-      mergeToK = {"ni", "ho", "wo"};
+      mergeToK = std::move(nhwDims);
       mergeToN = std::move(nonNHWDims);
       break;
     case ConvOpType::BwdData:
@@ -1052,6 +1191,15 @@ template struct Conv2DRewritePattern<Conv2DBwdWeightOp>;
 
 void RockConvToGemmPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
+  RewritePatternSet preConvToGemmPatterns(ctx);
+  preConvToGemmPatterns.add<MatchLayoutsToInput>(ctx);
+
+  if (failed(applyPatternsAndFoldGreedily(getOperation(),
+                                          std::move(preConvToGemmPatterns)))) {
+    signalPassFailure();
+    return;
+  }
+
   ConversionTarget target(*ctx);
 
   target.addIllegalOp<rock::Conv2DOp, rock::Conv2DBwdDataOp,

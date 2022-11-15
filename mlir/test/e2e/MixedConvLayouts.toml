@@ -1,0 +1,39 @@
+# Tests for mixed filter/input/output layouts, using
+# a small config thaw was previoously known to trigger such bugs
+
+# Each test fixes a different input layout and tries all corresponding output and
+# filter layouts
+
+directory = "MixedConvLayouts"
+prefix = "rocmlir-gen"
+suffix = "--arch %arch %pv %random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+
+[[axis]]
+name = "operation"
+values = ["conv2d", "conv2d_bwd_data", "conv2d_bwd_weight"]
+prefix = "-operation "
+
+[[axis]]
+name = "fil_layout"
+values = ["gkcyx", "gkyxc"]
+prefix = "-fil_layout="
+
+[[axis]]
+name = "out_layout"
+values = ["ngchw", "nghwc", "hwcgn"]
+prefix = "-out_layout="
+
+[[suite]]
+name = "MixedConvLayouts"
+
+# NGCHW
+[[suite.test]]
+config = "-in_layout=ngchw -batchsize=32 -in_channels=2 -out_channels=4 -in_h=2 -in_w=2 -fil_h=2 -fil_w=2 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=1 --conv_stride_w=1 -p=false -t f32"
+
+# NGHWC
+[[suite.test]]
+config = "-in_layout=nghwc -batchsize=32 -in_channels=2 -out_channels=4 -in_h=2 -in_w=2 -fil_h=2 -fil_w=2 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=1 --conv_stride_w=1 -p=false -t f32"
+
+# HWCGN
+[[suite.test]]
+config = "-in_layout=hwcgn -batchsize=32 -in_channels=2 -out_channels=4 -in_h=2 -in_w=2 -fil_h=2 -fil_w=2 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=1 --conv_stride_w=1 -p=false -t f32"
