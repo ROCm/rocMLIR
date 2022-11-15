@@ -94,7 +94,7 @@ def Rock_Conv2DBwdDataOp : Rock_Conv2DOpBase<"conv2d_bwd_data">
   }];
 }
 
-                   
+
 def Rock_Conv2DBwdWeightOp : Rock_Conv2DOpBase<"conv2d_bwd_weight">
 {
   dag additionalArgs = (ins Optional<TensorOrMemRefRankOf<[F32], [5]>>:$workspace,
@@ -248,6 +248,7 @@ def Rock_GridwiseGemmOp :
   let assemblyFormat = [{
     $c `=` $a `*` $b attr-dict `:` type($c) `=` type($a) `*` type($b)
   }];
+  let hasVerifier = 1;
 }
 
 // gridwise_gemm_v2
@@ -269,6 +270,7 @@ def Rock_GridwiseGemmV2Op :
   let assemblyFormat = [{
     `(` operands `)` `storeMethod` `(` $storeMethod `)` attr-dict `:` type(operands)
   }];
+  let hasVerifier = 1;
 }
 
 // Memory allocation on GPU memory hierachy.

@@ -705,6 +705,60 @@ GemmSize GemmOp::getGemmSize() {
 }
 
 //===-----------------------------------------------------===//
+// GridwiseGemmOp and GridwiseGemmV2 Op
+//===-----------------------------------------------------===//
+template <typename GridOp> static LogicalResult verifyGridwiseGemm(GridOp op) {
+  MemRefType aType = op.getA().getType(), bType = op.getB().getType(),
+             cType = op.getC().getType();
+  Type aElem = aType.getElementType(), bElem = bType.getElementType(),
+       cElem = cType.getElementType();
+  if (aElem != bElem)
+    return op.emitOpError("cannot mix element types for A and B");
+  if (cElem.isInteger(32) && !aElem.isInteger(8))
+    return op.emitOpError("i32 output requires i8 input");
+  if (aElem.isInteger(8) && !cElem.isInteger(32))
+    return op.emitOpError("i8 input requires i32 output");
+
+  ArrayRef<int64_t> aShape = aType.getShape(), bShape = bType.getShape(),
+                    cShape = cType.getShape();
+  int64_t g = aShape[0], k = aShape[1], m = aShape[2], n = bShape[2];
+  if (bShape[0] != g || cShape[0] != g) {
+    return op.emitOpError("Mismatched G dimensions in matrix multiply;")
+           << " A[0] = " << g << " b[0] = " << bShape[0]
+           << " C[0] = " << cShape[0];
+  }
+  if (cShape[1] != m)
+    return op.emitOpError("Mismatched M dimensions in matrix multiply:")
+           << " A[2] = " << m << " C[1] = " << cShape[1];
+  if (bShape[1] != k)
+    return op.emitOpError("Mismatched K dimensions in matrix multiply:")
+           << " A[1] = " << k << " B[1] = " << bShape[1];
+  if (cShape[2] != n)
+    return op.emitOpError("Mismatched N dimensions in matrix multiply:")
+           << " B[2] = " << n << " C[2] = " << cShape[2];
+
+  constexpr int64_t intMax = std::numeric_limits<int32_t>::max();
+  if (g > intMax)
+    return op.emitOpError("G dimmension ")
+           << g << " cannot be greater than int32_max " << intMax;
+  if (m > intMax)
+    return op.emitOpError("M dimmension ")
+           << m << " cannot be greater than int32_max " << intMax;
+  if (k > intMax)
+    return op.emitOpError("K dimmension ")
+           << k << " cannot be greater than int32_max " << intMax;
+  if (n > intMax)
+    return op.emitOpError("N dimmension ")
+           << n << " cannot be greater than int32_max " << intMax;
+
+  return success();
+}
+
+LogicalResult GridwiseGemmOp::verify() { return verifyGridwiseGemm(*this); }
+
+LogicalResult GridwiseGemmV2Op::verify() { return verifyGridwiseGemm(*this); }
+
+//===-----------------------------------------------------===//
 // ExtractSliceOp
 //===-----------------------------------------------------===//
 LogicalResult ExtractSliceOp::canonicalize(ExtractSliceOp op,

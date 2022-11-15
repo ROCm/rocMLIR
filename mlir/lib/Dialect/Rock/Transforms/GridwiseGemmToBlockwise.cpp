@@ -978,24 +978,6 @@ struct GridwiseGemmV2RewritePattern
     int64_t M = aShape[2];
     int64_t N = bShape[2];
 
-    if (bShape[0] != G || cShape[0] != G) {
-      return op.emitOpError("Mismatched G dimensions in matrix multiply;")
-             << " A[0] = " << G << " b[0] = " << bShape[0]
-             << " C[0] = " << cShape[0];
-    }
-    if (cShape[1] != M) {
-      return op.emitOpError("Mismatched M dimensions in matrix multiply:")
-             << " A[2] = " << M << " C[1] = " << cShape[1];
-    }
-    if (bShape[1] != K) {
-      return op.emitOpError("Mismatched K dimensions in matrix multiply:")
-             << " A[1] = " << K << " B[1] = " << bShape[1];
-    }
-    if (cShape[2] != N) {
-      return op.emitOpError("Mismatched N dimensions in matrix multiply:")
-             << " B[2] = " << N << " C[2] = " << cShape[2];
-    }
-
     // Obtain critical tuning parameters.
     uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
