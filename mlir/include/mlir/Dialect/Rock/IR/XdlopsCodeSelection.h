@@ -566,16 +566,16 @@ struct XdlopsCodeSelection {
 
   // Checks whether given XDLOp config is valid for a given
   // KPack and KPerBlock values.
-  bool isValid(int64_t KPack, int64_t KPerBlock) {
-    bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
-    if (KPack > 1) {
-      if (KPack < k_base) {
+  bool isValid(int64_t kpack, int64_t kPerBlock) {
+    bool isKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
+    if (kpack > 1) {
+      if (kpack < k_base) {
         // llvm::dbgs()
         //     << "Should pack at least k_base elements and avoid waste
         //     xdlopsgemm cycles\n";
         return false;
       }
-      if (IsKReduction && KPerBlock < inputSpansPerMfmaIn) {
+      if (isKReduction && kPerBlock < inputSpansPerMfmaIn) {
         // llvm::dbgs()
         //     << " When reduction, KPerBlock must be at least
         //     num_input_blks\n";
@@ -583,12 +583,12 @@ struct XdlopsCodeSelection {
       }
       return true;
     } else {
-      if (!IsKReduction && KPerBlock < k_base) {
+      if (!isKReduction && kPerBlock < k_base) {
         // llvm::dbgs()
         //     << "When non-reduction, KPerBlock must be at least k_base\n";
         return false;
       }
-      if (IsKReduction && KPerBlock < k_base * inputSpansPerMfmaIn) {
+      if (isKReduction && kPerBlock < k_base * inputSpansPerMfmaIn) {
         // llvm::dbgs()
         //     << "When reduction, KPerBlock must be at least k_base *
         //     num_input_blks\n";

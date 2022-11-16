@@ -248,8 +248,6 @@ private:
                                              uint32_t &blockSize,
                                              uint32_t &gridSize);
 
-  LogicalResult isValidGridGemmXdlops(GemmSize &gemmSize);
-
 public:
   LogicalResult obtainTuningParameters(RockGemmWrapperInterface op,
                                        uint32_t blockSizeOverride,

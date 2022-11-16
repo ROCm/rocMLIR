@@ -97,14 +97,6 @@ LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
       (threadGemmNPerBlock % threadGemmNPerCluster == 0))
     return failure();
 
-  int64_t clusterMPerBlock = threadGemmMPerBlock / threadGemmMPerCluster;
-  int64_t clusterNPerBlock = threadGemmNPerBlock / threadGemmNPerCluster;
-
-  // inline asm only support clusterMPerBlock = 2 andclusterNPerBlock =
-  // 2
-  if (!(clusterMPerBlock == 2 && clusterNPerBlock == 2))
-    return failure();
-
   return success();
 }
 
@@ -119,12 +111,6 @@ LogicalResult PopulateParams::populateDerived(RockGemmWrapperInterface op,
     gemmSize.m += gemmExtraPad->m;
     gemmSize.k += gemmExtraPad->k;
     gemmSize.n += gemmExtraPad->n;
-  }
-
-  if (isa<Conv2DBwdDataOp>(op) &&
-      !(gemmSize.m % 32 == 0 && gemmSize.n % 32 == 0 && gemmSize.k % 4 == 0)) {
-    LLVM_DEBUG(llvm::dbgs() << "Invalid gemm sizes for backward data.\n");
-    return failure();
   }
 
   LogicalResult res = calculateBlockGemmPerformanceParameters(params, op);
@@ -376,38 +362,14 @@ PopulateParamsXDL::isValidBlockwiseGemmXDLOPS(const InitParamsXDL &param,
   if ((param.gemmNPerBlock % param.gemmNPerWave) != 0)
     return failure();
 
-  // TODO Remove. Note KPerBlock and KPack are independent tuning parameters.
-  // There's no need to check if they are divide exactly
-  if ((param.gemmKPerBlock % param.gemmKPack) != 0)
-    return failure();
-
   // Reject invalid KPACK values.
-  // For fp32: reject anything wider than 4.
-  // For fp16/bf16: reject anything narrower than 4, or greater than 8.
-  if (dataType.isF32() && param.gemmKPack > 4) {
-    LLVM_DEBUG(llvm::dbgs() << "Invalid KPACK tuning parameter: "
-                            << param.gemmKPack << "\n");
-    return failure();
-  }
-  if ((dataType.isF16() || dataType.isBF16()) && (param.gemmKPack != 1) &&
-      ((param.gemmKPack < 4) || (param.gemmKPack > 8))) {
-    LLVM_DEBUG(llvm::dbgs() << "Invalid KPACK tuning parameter: "
-                            << param.gemmKPack << "\n");
-    return failure();
-  }
-
-  // XXX FIXME: Temporarily reject KPACK=4 for fp32 backward weight
-  // convolution. It has been verified some configs would cause intermittent
-  // failures.
-  // TODO(whchung): Get to the bottom of this.
-  if ((param.gemmKPack == 4) && isa<Conv2DBwdWeightOp>(op) &&
-      dataType.isF32()) {
+  if (!XdlopsCodeSelection::get(dataType, param.gemmMPerWave,
+                                param.gemmNPerWave)
+           .isValid(param.gemmKPack, param.gemmKPerBlock)) {
     LLVM_DEBUG(llvm::dbgs()
-               << "Invalid config: fp32 XDLOPS backward weight convolution "
-                  "with KPACK=4\n");
+               << "Invalid kPack value " << param.gemmKPack << "\n");
     return failure();
   }
-
   return success();
 }
 
@@ -422,22 +384,12 @@ LogicalResult PopulateParamsXDL::populateDerived(RockGemmWrapperInterface op,
       calculatePadding(params.gemmKPerBlock, params.gemmMPerBlock,
                        params.gemmNPerBlock, gemmSize, params.gemmKPack);
   if (gemmExtraPad.has_value()) {
-    // TEMPORARY: The hardcoded load/store math in gridwise_gemm_v2 doesn't
-    // handle kPack > 1 in padding kernels correctly.
-    if (params.gemmKPack > 1) {
-      return failure();
-    }
     gemmSize.m += gemmExtraPad->m;
     gemmSize.k += gemmExtraPad->k;
     gemmSize.n += gemmExtraPad->n;
     requiredPadding = true;
   }
 
-  if (isa<Conv2DBwdDataOp>(op) && failed(isValidGridGemmXdlops(gemmSize))) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Invalid XDLops gemm sizes for backward data.\n");
-    return failure();
-  }
   blockSize = obtainBlockSize(params, waveSize);
 
   LogicalResult res = isValidBlockwiseGemmXDLOPS(params, op, blockSize);
@@ -464,22 +416,6 @@ LogicalResult PopulateParamsXDL::populateDerived(RockGemmWrapperInterface op,
   }
 
   return success();
-}
-
-LogicalResult PopulateParamsXDL::isValidGridGemmXdlops(GemmSize &gemmSize) {
-  auto gemmM = gemmSize.m;
-  auto gemmN = gemmSize.n;
-  auto gemmK = gemmSize.k;
-
-  // unsupported xdlops-gemm
-  if (gemmM % 16 != 0 && gemmN % 64 != 0)
-    return failure();
-
-  if ((gemmM * gemmN) % 256 == 0 && (gemmK * gemmM) % waveSize == 0 &&
-      (gemmK * gemmN) % waveSize == 0 && gemmN % 16 == 0 && gemmM % 4 == 0 &&
-      gemmK % 4 == 0)
-    return success();
-  return failure();
 }
 
 LogicalResult PopulateParamsXDL::obtainTuningParameters(
