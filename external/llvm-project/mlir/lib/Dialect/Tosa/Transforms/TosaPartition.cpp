@@ -59,9 +59,10 @@ public:
   using tosa::impl::TosaPartitionBase<TosaPartitionPass>::TosaPartitionBase;
 
   bool isAnchorOp(Operation *op);
-  bool isLeadingOp(Operation *op);
-  bool isTrailingOp(Operation *op);
-  StringRef partitionTag();
+  bool isTransposeOp(Operation *op) const;
+  bool isLeadingOp(Operation *op) const;
+  bool isTrailingOp(Operation *op) const;
+  StringRef partitionTag() const;
   void traceInputs(Operation *op, SetVector<Operation *> &predecessors,
                    SetVector<Value> &inputNodes);
   void runOnOperation() override;
@@ -115,9 +116,7 @@ bool isElementwiseOp(Operation *op) {
   // clang-format on
 }
 
-bool isFuseableOp(Operation *op) {
-  return isElementwiseOp(op) || isa<tosa::TransposeOp, tosa::ReshapeOp>(op);
-}
+bool isFuseableOp(Operation *op) { return isElementwiseOp(op); }
 
 bool isZeroAttribute(Attribute value) {
   if (auto intValue = value.dyn_cast<IntegerAttr>())
@@ -480,21 +479,28 @@ bool TosaPartitionPass::isAnchorOp(Operation *op) {
   return llvm::is_contained(anchorOps, op->getName().getIdentifier().str());
 }
 
-bool TosaPartitionPass::isLeadingOp(Operation *op) {
-  return !trailingOnly &&
-         (isConstantZero(op) || isSmallishConstant(op) || isFuseableOp(op));
+bool TosaPartitionPass::isTransposeOp(Operation *op) const {
+  return isa<tosa::TransposeOp, tosa::ReshapeOp>(op);
 }
 
-bool TosaPartitionPass::isTrailingOp(Operation *op) { return isFuseableOp(op); }
+bool TosaPartitionPass::isLeadingOp(Operation *op) const {
+  return isConstantZero(op) || isSmallishConstant(op) || isTransposeOp(op) ||
+         (!trailingOnly && isFuseableOp(op));
+}
 
-StringRef TosaPartitionPass::partitionTag() { return partitionTagOpt; }
+bool TosaPartitionPass::isTrailingOp(Operation *op) const {
+  return isa<tosa::TransposeOp, tosa::ReshapeOp>(op) || isFuseableOp(op);
+}
+
+StringRef TosaPartitionPass::partitionTag() const { return partitionTagOpt; }
 
 void TosaPartitionPass::traceInputs(Operation *op,
                                     SetVector<Operation *> &predecessors,
                                     SetVector<Value> &inputNodes) {
   for (const auto &opnd : op->getOperands()) {
     Operation *usedOp = opnd.getDefiningOp();
-    if (usedOp && isLeadingOp(usedOp)) {
+    if (usedOp && (isTransposeOp(op) ? isSmallishConstant(usedOp)
+                                     : isLeadingOp(usedOp))) {
       if (predecessors.contains(
               usedOp)) // If already present, move it for new use.
         predecessors.remove(usedOp);
