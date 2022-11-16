@@ -104,6 +104,22 @@ makeTransposeTransform(PatternRewriter &b, Value inp, AffineMap inpMap) {
   return {inp, inpMap};
 }
 
+static bool isMajorIdentityWithBroadcasting(AffineMap amap) {
+  if (amap.getNumDims() <= amap.getNumResults())
+    return false;
+  for (const auto &idxAndExpr : llvm::enumerate(amap.getResults())) {
+    unsigned resIdx = idxAndExpr.index();
+    AffineExpr expr = idxAndExpr.value();
+    if (auto dimExpr = expr.dyn_cast<AffineDimExpr>()) {
+      if (dimExpr.getPosition() != resIdx)
+        return false;
+    } else {
+      return false;
+    }
+  }
+  return true;
+}
+
 static Value makeBroadcast(PatternRewriter &b, MemRefType outType, Value inp,
                            AffineMap inpIdxMap) {
   if (!inpIdxMap.isIdentity()) {
@@ -140,22 +156,27 @@ static Value makeBroadcast(PatternRewriter &b, MemRefType outType, Value inp,
 
       inpType = inp.getType().template cast<MemRefType>();
       inpShape = inpType.getShape();
+    } else if (inpIdxMap.isMinorIdentityWithBroadcasting(&bcastDims)) {
+    } else if (isMajorIdentityWithBroadcasting(inpIdxMap)) {
+      for (uint32_t i = 0; i < inpShape.size(); ++i) {
+        if (inpShape[i] != outShape[i]) {
+          assert((outShape[i] % inpShape[i]) == 0);
+          bcastDims.push_back(i);
+        }
+      }
     } else {
-      inpIdxMap.isMinorIdentityWithBroadcasting(&bcastDims);
-      // Check if it's transposed.
-      if (bcastDims.size() == 0)
-        return inp;
-      LLVM_DEBUG(llvm::dbgs() << "Broadcast dims: ");
-      LLVM_DEBUG(llvm::interleaveComma(bcastDims, llvm::dbgs()));
-      LLVM_DEBUG(llvm::dbgs() << "\n");
+      return inp;
     }
+
+    LLVM_DEBUG(llvm::dbgs() << "Broadcast dims: ");
+    LLVM_DEBUG(llvm::interleaveComma(bcastDims, llvm::dbgs()));
+    LLVM_DEBUG(llvm::dbgs() << "\n");
 
     // 1. insert a broadcast rock.transform
     SmallVector<uint32_t, 8> ptDims;
     SmallVector<int64_t, 8> bcastSizes;
     for (uint32_t dim = 0; dim < inpShape.size(); ++dim) {
-      if (std::find(bcastDims.begin(), bcastDims.end(), dim) !=
-          bcastDims.end()) {
+      if (llvm::is_contained(bcastDims, dim)) {
         bcastSizes.push_back(outShape[dim]);
       } else {
         ptDims.push_back(dim);
