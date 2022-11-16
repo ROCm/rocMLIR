@@ -49,8 +49,7 @@ private:
   // Actual implementation.
   void affixTuningParametersImpl(RockGemmWrapperInterface op);
 
-  void affixBackwardWeightUtilityKernels(Conv2DBwdWeightOp op);
-  void affixBackwardDataUtilityKernels(Conv2DBwdDataOp op);
+  template <typename T> void setUtilityKernelSizes(Value arg, T utilityOp);
 };
 } // anonymous namespace
 
@@ -59,13 +58,17 @@ void AffixTuningParameters::runOnOperation() {
 
   func.walk(
       [&](RockGemmWrapperInterface op) { affixTuningParametersImpl(op); });
-  func.walk([&](Conv2DBwdDataOp op) { affixBackwardDataUtilityKernels(op); });
   func.walk(
-      [&](Conv2DBwdWeightOp op) { affixBackwardWeightUtilityKernels(op); });
+      [&](ZeroInitKernelOp op) { setUtilityKernelSizes(op.getBuffer(), op); });
+  func.walk([&](ConvertingCopyKernelOp op) {
+    setUtilityKernelSizes(op.getInput(), op);
+  });
 }
 
-static void setUtilityKernelSizes(OpBuilder &b, Value arg, Operation *convOp,
-                                  Operation *funcOp) {
+template <typename T>
+void AffixTuningParameters::setUtilityKernelSizes(Value arg, T utilityOp) {
+  OpBuilder b(&getContext());
+
   int64_t numElements = arg.getType().cast<ShapedType>().getNumElements();
   uint32_t blockSize = kUtilityKernelBlockSize;
   int64_t elemsPerThread = kUtilityKernelElemsPerThread;
@@ -76,58 +79,13 @@ static void setUtilityKernelSizes(OpBuilder &b, Value arg, Operation *convOp,
   IntegerAttr gridSizeAttr = b.getI32IntegerAttr(gridSize);
 
   // Tracking utility kernel block size separately.
-  convOp->setAttr("utilityBlockSize", blockSizeAttr);
-  convOp->setAttr("gridSize", gridSizeAttr);
-  convOp->setAttr("elems_per_thread", b.getIndexAttr(elemsPerThread));
+  utilityOp->setAttr("blockSize", blockSizeAttr);
+  utilityOp->setAttr("gridSize", gridSizeAttr);
+  utilityOp->setAttr("elemsPerThread", b.getIndexAttr(elemsPerThread));
 
+  func::FuncOp funcOp = getOperation();
   funcOp->setAttr("block_size", blockSizeAttr);
   funcOp->setAttr("grid_size", gridSizeAttr);
-}
-
-void AffixTuningParameters::affixBackwardDataUtilityKernels(
-    Conv2DBwdDataOp op) {
-  auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
-
-  // In case the gemm ID is -1, override grid_size and block_size for the
-  // utility kernel.
-  if (gemmIdAttr.getInt() < 0) {
-    OpBuilder b(op.getContext());
-    setUtilityKernelSizes(b, op.getInput(), op, getOperation());
-  }
-}
-
-void AffixTuningParameters::affixBackwardWeightUtilityKernels(
-    Conv2DBwdWeightOp op) {
-  auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
-  assert(gemmIdAttr);
-  int64_t gemmId = gemmIdAttr.getInt();
-
-  GemmFeatures features = op.getFeatures();
-  if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
-    OpBuilder b(op.getContext());
-
-    GemmSize gemmSize = op.getGemmSize();
-
-    auto gemmParams =
-        op->getAttrOfType<XdlopsGemmParamsAttr>(op.getParamsAttrName());
-    Optional<GemmSize> extraPadSizes = calculatePadding(
-        gemmParams.getKPerBlock(), gemmParams.getMPerBlock(),
-        gemmParams.getNPerBlock(), gemmSize, gemmParams.getKpack());
-    if (extraPadSizes.has_value()) {
-      assert(gemmId == 0 &&
-             "if there is padding, only a single kernel should be generated");
-    } else {
-      assert((gemmId >= 0) && (gemmId < 3));
-      switch (gemmId) {
-      case 0:
-      case 2:
-        setUtilityKernelSizes(b, op.getFilter(), op, getOperation());
-        break;
-      case 1:
-        break;
-      }
-    }
-  }
 }
 
 void AffixTuningParameters::affixTuningParametersImpl(

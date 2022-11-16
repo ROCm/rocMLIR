@@ -210,6 +210,11 @@ void mlir::rock::registerBufferizableOpInterfaceExternalModels(
         *ctx);
     GemmOp::attachInterface<GemmLikeInterface<GemmOp>>(*ctx);
 
+    // While these utility kernels aren't gemm wrappers, strictly, they still bufferize
+    // like them
+    ZeroInitKernelOp::attachInterface<GemmLikeInterface<ZeroInitKernelOp>>(*ctx);
+    ConvertingCopyKernelOp::attachInterface<GemmLikeInterface<ConvertingCopyKernelOp>>(*ctx);
+
     TransformOp::attachInterface<TransformOpInterface>(*ctx);
     TensorUntransformCastOp::attachInterface<TensorUntransformCastOpInterface>(
         *ctx);

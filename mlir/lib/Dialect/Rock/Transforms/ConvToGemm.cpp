@@ -145,22 +145,35 @@ Type getResultType(Operation *convOp, Value outArg) {
   return nullptr;
 }
 
+static int64_t getUtilityVectorizationLen(ShapedType shape,
+                                          int64_t elemsPerThread) {
+  int64_t numElems = shape.getNumElements();
+  constexpr int64_t kMaxVectorOpLen = 4; // words
+  int64_t elemsPerWord = (32 / shape.getElementTypeBitWidth());
+  return math_util::gcd(math_util::gcd(numElems, elemsPerThread),
+                        kMaxVectorOpLen * elemsPerWord);
+}
+
 /// Create an elementwise utility kernel.
 /// The callback has type (builder, location, collapsedBuffers, coordinate).
 /// Note: you are expected to handle out of bounds, such as by using
 /// rock.buffer_store
+template <typename OpType>
 LogicalResult createElementwiseLoop(
-    OpBuilder &b, Location loc, Operation *convOp, ValueRange memrefs,
+    OpBuilder &b, Location loc, OpType kernelOp, ValueRange memrefs,
     int64_t vectorLen,
     function_ref<void(OpBuilder &, Location, ValueRange, Value)> emitBodyFunc) {
-  uint32_t blockSize =
-      convOp->getAttrOfType<IntegerAttr>("utilityBlockSize").getInt();
-  // Now, this convOp is confirmed as a utility kernel, deleting params.
-  convOp->removeAttr("params");
-  int64_t elemsPerThread =
-      convOp->getAttrOfType<IntegerAttr>("elems_per_thread").getInt();
+  if (!kernelOp.getBlockSize().has_value())
+    return kernelOp.emitOpError("block size not defined for utility kernel");
+  if (!kernelOp.getGridSize().has_value())
+    return kernelOp.emitOpError("grid size not defined for utility kernel");
+  if (!kernelOp.getElemsPerThread().has_value())
+    return kernelOp.emitOpError(
+        "elemsPerThread not defined fer utility kernel");
+  uint32_t blockSize = *kernelOp.getBlockSize();
+  int64_t elemsPerThread = kernelOp.getElemsPerThread()->getSExtValue();
   if (elemsPerThread % vectorLen != 0)
-    return convOp->emitOpError("Unevenly vectorized elementwise kernel");
+    return kernelOp.emitOpError("unevenly vectorized elementwise kernel");
 
   Value workgroupId = b.create<WorkgroupIdOp>(loc, b.getIndexType());
   Value workgroupDim = b.create<ConstantIndexOp>(loc, blockSize);
@@ -171,13 +184,13 @@ LogicalResult createElementwiseLoop(
   for (Value memref : memrefs) {
     if (!memref.getType().isa<MemRefType>()) {
       // TODO: determine if we can relax this if we push bufferization down
-      return convOp->emitOpError(
-          "Arguments to utility kernels must be memrefs");
+      return kernelOp.emitOpError(
+          "arguments to utility kernels must be memrefs");
     }
     if (auto transform =
             dyn_cast_or_null<TransformOp>(memref.getDefiningOp())) {
-      return convOp->emitOpError(
-          "Arguments to utility kernels must be pure memrefs");
+      return kernelOp.emitOpError(
+          "arguments to utility kernels must be pure memrefs");
     }
     Value collapsed = createCollapseShapeOp(b, loc, memref);
     collapsedBufs.push_back(collapsed);
@@ -186,8 +199,8 @@ LogicalResult createElementwiseLoop(
       collapsedBufs[0].getType().cast<MemRefType>().getShape()[0];
   for (Value c : collapsedBufs)
     if (c.getType().cast<MemRefType>().getNumElements() != collapsedLen)
-      return convOp->emitOpError(
-          "Utility kernel arguments have different lengths");
+      return kernelOp.emitOpError(
+          "utility kernel arguments have different lengths");
 
   Value offset = b.create<MulIOp>(
       loc,
@@ -207,118 +220,96 @@ LogicalResult createElementwiseLoop(
   return success();
 }
 
-/// 0-initialize the output for a backward data convolution.
-/// The output is the input tensor.
-LogicalResult zeroInit(Conv2DBwdDataOp op, PatternRewriter &b) {
-  auto loc = op.getLoc();
-  TypedValue<ShapedType> output = op.getInput();
-  Type outputType = output.getType().getElementType();
-  constexpr int64_t kZeroInitVecLen = 4;
-  Type storeType = VectorType::get(kZeroInitVecLen, outputType);
-  Value zeroOp = createZeroConstantOp(b, loc, storeType);
-  ArrayAttr leftOob = b.getI32ArrayAttr({});
-  ArrayAttr rightOob = b.getI32ArrayAttr({0});
+/// 0-initialize a given buffer.
+struct ZeroInitKernelRewritePattern final
+    : public OpConversionPattern<ZeroInitKernelOp> {
+  using OpConversionPattern<ZeroInitKernelOp>::OpConversionPattern;
 
-  auto loopBody = [&zeroOp, &leftOob, &rightOob](OpBuilder &b, Location loc,
-                                                 ValueRange collapsed,
-                                                 Value index) {
-    b.create<BufferStoreOp>(loc, zeroOp, collapsed[0], leftOob, rightOob, index,
-                            b.getAttr<StoreMethodAttr>(StoreMethod::Set),
-                            /*offset=*/IntegerAttr());
-  };
-  LogicalResult res =
-      createElementwiseLoop(b, loc, op, output, kZeroInitVecLen, loopBody);
-  if (failed(res))
-    return failure();
+  LogicalResult matchAndRewrite(ZeroInitKernelOp op,
+                                ZeroInitKernelOpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const override {
+    Location loc = op.getLoc();
+    TypedValue<ShapedType> buffer = op.getBuffer();
+    Type bufferType = buffer.getType().getElementType();
+    if (!op.getElemsPerThread().has_value())
+      return op->emitOpError("elems per thread not set");
 
-  b.eraseOp(op);
-  return success();
-}
+    int64_t zeroInitVectorLen = getUtilityVectorizationLen(
+        buffer.getType(), op.getElemsPerThread()->getZExtValue());
+    Type storeType = vectorTypeOrSelf(bufferType, zeroInitVectorLen);
+    Value zeroOp = createZeroConstantOp(b, loc, storeType);
+    ArrayAttr leftOob = b.getI32ArrayAttr({});
+    ArrayAttr rightOob = b.getI32ArrayAttr({0});
 
-/// 0-initialize the output for a backward weight convolution which uses
-/// atomic adds.
-/// For f32 type, the output is the filter tensor.
-/// for f16 type, the output is the workspace.
-LogicalResult zeroInit(Conv2DBwdWeightOp op, PatternRewriter &b) {
-  Location loc = op.getLoc();
-  Type filterDataType = op.getFilter().getType().getElementType();
-  TypedValue<ShapedType> output(nullptr);
-  if (filterDataType == b.getF32Type()) {
-    output = op.getFilter();
-  } else if (filterDataType == b.getF16Type()) {
-    if (!op.getWorkspace())
-      return op.emitOpError("op has no workspace");
-    output = op.getWorkspace();
-  } else {
-    return op.emitOpError("Unsupported zeroing data type");
+    auto loopBody = [&zeroOp, &leftOob, &rightOob](OpBuilder &b, Location loc,
+                                                   ValueRange collapsed,
+                                                   Value index) {
+      b.create<BufferStoreOp>(loc, zeroOp, collapsed[0], leftOob, rightOob,
+                              index,
+                              b.getAttr<StoreMethodAttr>(StoreMethod::Set),
+                              /*offset=*/IntegerAttr());
+    };
+    LogicalResult res =
+        createElementwiseLoop(b, loc, op, buffer, zeroInitVectorLen, loopBody);
+    if (failed(res))
+      return failure();
+
+    b.eraseOp(op);
+    return success();
   }
-
-  Type outputType = output.getType().getElementType();
-  constexpr int64_t kZeroInitVecLen = 4;
-  Type storeType = VectorType::get(kZeroInitVecLen, outputType);
-  Value zeroOp = createZeroConstantOp(b, loc, storeType);
-  ArrayAttr leftOob = b.getI32ArrayAttr({});
-  ArrayAttr rightOob = b.getI32ArrayAttr({0});
-
-  auto loopBody = [&zeroOp, &leftOob, &rightOob](OpBuilder &b, Location loc,
-                                                 ValueRange collapsed,
-                                                 Value index) {
-    b.create<BufferStoreOp>(loc, zeroOp, collapsed[0], leftOob, rightOob, index,
-                            b.getAttr<StoreMethodAttr>(StoreMethod::Set),
-                            /*offset=*/IntegerAttr());
-  };
-
-  LogicalResult res =
-      createElementwiseLoop(b, loc, op, output, kZeroInitVecLen, loopBody);
-  if (failed(res))
-    return failure();
-
-  b.eraseOp(op);
-  return success();
-}
+};
 
 /// Element-wise conversion from the workspace to the output (filter tensor)
 /// for a backward weight convolution which uses atomic adds.
-LogicalResult elementwiseConversion(Conv2DBwdWeightOp op, PatternRewriter &b) {
-  Location loc = op.getLoc();
-  if (!op.getWorkspace())
-    return op.emitOpError("op has no workspace");
-  TypedValue<ShapedType> filter = op.getFilter();
-  TypedValue<ShapedType> workspace = op.getWorkspace();
-  Type filterDataType = filter.getType().getElementType();
-  Type workspaceDataType = workspace.getType().getElementType();
+struct ConvertingCopyKernelRewritePattern final
+    : public OpConversionPattern<ConvertingCopyKernelOp> {
+  using OpConversionPattern<ConvertingCopyKernelOp>::OpConversionPattern;
 
-  int64_t kConversionVectorLen = 4;
-  Type loadType = VectorType::get(kConversionVectorLen, workspaceDataType);
-  Type storeType = VectorType::get(kConversionVectorLen, filterDataType);
-  ArrayAttr leftOob = b.getI32ArrayAttr({});
-  ArrayAttr rightOob = b.getI32ArrayAttr({0});
+  LogicalResult matchAndRewrite(ConvertingCopyKernelOp op,
+                                ConvertingCopyKernelOpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const override {
+    Location loc = op.getLoc();
+    TypedValue<ShapedType> input = adaptor.getInput();
+    TypedValue<ShapedType> output = adaptor.getOutput();
+    Type inputDataType = input.getType().getElementType();
+    Type outputDataType = output.getType().getElementType();
+    if (!op.getElemsPerThread().has_value())
+      return op->emitOpError("elems per thread not set");
 
-  auto loopBody = [&loadType, &storeType, &leftOob,
-                   &rightOob](OpBuilder &b, Location loc, ValueRange collapsed,
-                              Value index) {
-    Value loaded =
-        b.create<BufferLoadOp>(loc, loadType, collapsed[0], leftOob, rightOob,
-                               index, /*offset=*/IntegerAttr());
-    Value converted = createTypeConversionOp(b, loc, loaded, storeType);
-    b.create<BufferStoreOp>(loc, converted, collapsed[1], leftOob, rightOob,
-                            index, b.getAttr<StoreMethodAttr>(StoreMethod::Set),
-                            /*offset=*/IntegerAttr());
-  };
-  LogicalResult res = createElementwiseLoop(b, loc, op, {workspace, filter},
-                                            kConversionVectorLen, loopBody);
-  if (failed(res))
-    return failure();
+    int64_t conversionVectorLen = getUtilityVectorizationLen(
+        input.getType(), op.getElemsPerThread()->getZExtValue());
 
-  b.eraseOp(op);
-  return success();
-}
+    Type loadType = vectorTypeOrSelf(inputDataType, conversionVectorLen);
+    Type storeType = vectorTypeOrSelf(outputDataType, conversionVectorLen);
+    ArrayAttr leftOob = b.getI32ArrayAttr({});
+    ArrayAttr rightOob = b.getI32ArrayAttr({0});
+
+    auto loopBody = [&loadType, &storeType, &leftOob,
+                     &rightOob](OpBuilder &b, Location loc,
+                                ValueRange collapsed, Value index) {
+      Value loaded =
+          b.create<BufferLoadOp>(loc, loadType, collapsed[0], leftOob, rightOob,
+                                 index, /*offset=*/IntegerAttr());
+      Value converted = createTypeConversionOp(b, loc, loaded, storeType);
+      b.create<BufferStoreOp>(loc, converted, collapsed[1], leftOob, rightOob,
+                              index,
+                              b.getAttr<StoreMethodAttr>(StoreMethod::Set),
+                              /*offset=*/IntegerAttr());
+    };
+    LogicalResult res = createElementwiseLoop(b, loc, op, {input, output},
+                                              conversionVectorLen, loopBody);
+    if (failed(res))
+      return failure();
+
+    b.eraseOp(op);
+    return success();
+  }
+};
 
 /// Lowerings for particular convolution algorithms (TODO, new file?)
 LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
                                       PatternRewriter &b) {
-  auto loc = op.getLoc();
-  auto gemmIdAttr = op->template getAttrOfType<IntegerAttr>("gemm_id");
+  Location loc = op.getLoc();
 
   Attribute tuningParams = op.getParamsAttr();
   if (!tuningParams) {
@@ -346,22 +337,6 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
         "workspace needed for f16 atomic add but none provided");
   }
 
-  // Emit utility kernels.
-  int64_t gemmId = gemmIdAttr.getInt();
-  assert((gemmId >= 0) && (gemmId < 3));
-  switch (gemmId) {
-  case 0:
-    // The 0th kernel will 0-init the output (filter tensor).
-    return zeroInit(op, b);
-  case 2:
-    // The 2nd kernel, if used, will conduct element-wise fp32->fp16 conversion
-    // from the workspace to the output (filter tensor).
-    assert(hasWorkspace);
-    return elementwiseConversion(op, b);
-  case 1:
-  default:
-    break;
-  }
   // The 1st kernel will conduct the actual backward weight convolution using
   // atomic adds.
 
@@ -530,13 +505,12 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
   // This kernel is not run when there is padding on the GEMM
   auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::AtomicAdd);
 
-  auto gemm = b.create<GemmOp>(
+  b.create<GemmOp>(
       loc, getResultType(op, gemmFilter), gemmOutput, gemmInput, gemmFilter,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
       /*cTransposed=*/nullptr, op.getArchAttr(), op.getNumCuAttr(),
       op.getFeaturesAttr(), storeMethod, op.getDerivedBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
-  gemm->setAttr("gemm_id", gemmIdAttr);
 
   // Finally, erase the original Conv2D op.
   b.eraseOp(op);
@@ -546,7 +520,7 @@ LogicalResult backwardWeightAtomicAdd(Conv2DBwdWeightOp op,
 
 LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
   Location loc = op.getLoc();
-  auto gemmIdAttr = op->getAttrOfType<IntegerAttr>("gemm_id");
+  IntegerAttr kernelIdAttr = op.getKernelIdAttr();
 
   ConvolutionContext ctx = populateConvContext(op);
 
@@ -604,14 +578,9 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
       wTilda,
       math_util::integer_divide_ceil(leftPadW + convDims.wi - 1, strideW) + 1);
 
-  int64_t gemmId = gemmIdAttr.getInt();
-  // In case the actual gemm ID is -1, emit the zero initialization kernel.
-  if (gemmId < 0) {
-    return zeroInit(op, b);
-  }
-
-  int64_t iYTilda = gemmId / xTilda;
-  int64_t iXTilda = gemmId % xTilda;
+  int64_t kernelId = kernelIdAttr.getInt();
+  int64_t iYTilda = kernelId / xTilda;
+  int64_t iXTilda = kernelId % xTilda;
   int64_t yDotSlice =
       math_util::integer_divide_ceil(convDims.y - iYTilda, yTilda);
   int64_t xDotSlice =
@@ -778,7 +747,8 @@ LogicalResult backwardData(Conv2DBwdDataOp op, PatternRewriter &b) {
       /*cTransposed=*/nullptr, op.getArchAttr(), op.getNumCuAttr(),
       op.getFeaturesAttr(), storeMethod, op.getDerivedBlockSizeAttr(),
       op.getGridSizeAttr(), op.getParamsAttr());
-  gemm->setAttr("gemm_id", gemmIdAttr);
+  // Bounced along for debugging purposes, not used below
+  gemm->setAttr("kernelId", kernelIdAttr);
 
   // Finally, erase the original Conv2D op.
   b.eraseOp(op);
@@ -1085,7 +1055,8 @@ void RockConvToGemmPass::runOnOperation() {
   ConversionTarget target(*ctx);
 
   target.addIllegalOp<rock::Conv2DOp, rock::Conv2DBwdDataOp,
-                      rock::Conv2DBwdWeightOp>();
+                      rock::Conv2DBwdWeightOp, rock::ZeroInitKernelOp,
+                      rock::ConvertingCopyKernelOp>();
   target.addLegalOp<rock::TransformOp, rock::GemmOp, rock::WorkgroupIdOp,
                     rock::WorkitemIdOp, rock::BufferLoadOp,
                     rock::BufferStoreOp>();
@@ -1094,9 +1065,10 @@ void RockConvToGemmPass::runOnOperation() {
                          scf::SCFDialect>();
 
   RewritePatternSet patterns(ctx);
-  patterns.add<Conv2DRewritePattern<Conv2DOp>,
-               Conv2DRewritePattern<Conv2DBwdDataOp>,
-               Conv2DRewritePattern<Conv2DBwdWeightOp>>(ctx);
+  patterns.add<
+      Conv2DRewritePattern<Conv2DOp>, Conv2DRewritePattern<Conv2DBwdDataOp>,
+      Conv2DRewritePattern<Conv2DBwdWeightOp>, ZeroInitKernelRewritePattern,
+      ConvertingCopyKernelRewritePattern>(ctx);
 
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {

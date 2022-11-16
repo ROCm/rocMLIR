@@ -320,7 +320,7 @@ int Conv2dGenerator::getBwdWeightKernelCount(OpBuilder &builder) const {
 }
 
 int Conv2dGenerator::getBwdDataKernelCount() const {
-  llvm::SmallVector<int64_t> gemmIds = populateBackwardDataGemmIds(
+  llvm::SmallVector<int64_t> gemmIds = backwardDataKernelIds(
       config.strideHeight, config.strideWidth, config.dilationHeight,
       config.dilationWidth, config.filterHeight, config.filterWidth);
   return static_cast<int>(gemmIds.size());
@@ -704,7 +704,7 @@ ConvolutionDims Conv2dGenerator::getConvolutionDims() const {
                          inDim["n"], inDim["g"]);
 }
 
-LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
+LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int rawKernelId,
                                              bool is_verifier,
                                              bool ignoreTuning) {
   OpBuilder builder(module.getContext());
@@ -760,17 +760,18 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
     func.erase();
   }
 
-  // Fix kernel_id in case it is less than 0.
+  // Fix raw kernel ID in case it is less than 0.
   // The only case this could happen is to query the number of kernels needed
-  // from MIIR API, where the kernel_id is not yet unknown.
-  if (kernel_id < 0)
-    kernel_id = 0;
+  // from MIIR API, where the kernel ID is not yet unknown.
+  if (rawKernelId < 0)
+    rawKernelId = 0;
 
   // Annotate kernel attribute to the FuncOp.
-  NamedAttribute archAttr =
-      builder.getNamedAttr("xmodel.arch", builder.getStringAttr(config.arch));
+  StringAttr archStrAttr = builder.getStringAttr(config.arch);
+  NamedAttribute archAttr = builder.getNamedAttr("xmodel.arch", archStrAttr);
+
   SmallVector<NamedAttribute, 2> kernelAttrs = {
-      builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernel_id)),
+      builder.getNamedAttr("kernel", builder.getI32IntegerAttr(rawKernelId)),
       archAttr};
 
   // Construct the FuncOp.
@@ -800,22 +801,22 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
         (StringRef(&config.outputLayout[i], 1) + "o").str()));
   }
 
-  // Set gemm ID be the same as kernel ID.
+  // Set kernel ID to  be the same as the raw kernel ID.
   // For backward data convolution, additional processing is needed below.
-  int64_t gemmId = kernel_id;
+  int64_t kernelId = rawKernelId;
 
-  // Obtain gemm ID from kernel_id for backward data convolution.
+  // Obtain kernel ID as used by backwards data kernels from the raw, 0-indexed
+  // kernel ID.
   if (config.operation.value() == ConvOpType::BwdData) {
-    llvm::SmallVector<int64_t> gemmIds = populateBackwardDataGemmIds(
+    llvm::SmallVector<int64_t> kernelIds = backwardDataKernelIds(
         config.strideHeight, config.strideWidth, config.dilationHeight,
         config.dilationWidth, config.filterHeight, config.filterWidth);
-    assert(gemmIds.size() > static_cast<size_t>(kernel_id));
-    gemmId = gemmIds[kernel_id];
+    assert(kernelIds.size() > static_cast<size_t>(rawKernelId));
+    kernelId = kernelIds[rawKernelId];
   }
 
   std::vector<NamedAttribute> attributes{
-      builder.getNamedAttr("gemm_id", builder.getI32IntegerAttr(gemmId)),
-      builder.getNamedAttr("arch", builder.getStringAttr(config.chip)),
+      builder.getNamedAttr("arch", archStrAttr),
 
       builder.getNamedAttr(
           "filter_layout",
@@ -836,6 +837,13 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
         "numCu", builder.getI32IntegerAttr(config.num_cu)));
   }
 
+  // The backwards data kernel needs to know its kernel ID, as there are
+  // multiple copies of it that compute different parts of the input tensor in
+  // some contexts. No other kernel has a meaningful use for the kernel ID.
+  if (config.operation.value() == ConvOpType::BwdData) {
+    attributes.push_back(
+        builder.getNamedAttr("kernelId", builder.getIndexAttr(kernelId)));
+  }
   // features
   attributes.push_back(builder.getNamedAttr(
       "features", builder.getAttr<GemmFeaturesAttr>(config.features)));
@@ -875,14 +883,41 @@ LogicalResult Conv2dGenerator::genConvModule(ModuleOp &module, int kernel_id,
     block->push_front(convOp);
   } break;
   case ConvOpType::BwdData: {
-    auto convOp = builder.create<Conv2DBwdDataOp>(
-        builder.getUnknownLoc(), ArrayRef<Type>{}, args, attributes);
-    block->push_front(convOp);
+    if (kernelId < 0) {
+      // zero init input tensor
+      auto zeroInit = builder.create<ZeroInitKernelOp>(
+          builder.getUnknownLoc(), /*resultType=*/TypeRange{}, args[1],
+          archStrAttr, /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+          /*elemsPerThread=*/nullptr);
+      block->push_front(zeroInit);
+    } else {
+      auto convOp = builder.create<Conv2DBwdDataOp>(
+          builder.getUnknownLoc(), ArrayRef<Type>{}, args, attributes);
+      block->push_front(convOp);
+    }
   } break;
   case ConvOpType::BwdWeight: {
-    auto convOp = builder.create<Conv2DBwdWeightOp>(
-        builder.getUnknownLoc(), ArrayRef<Type>{}, args, attributes);
-    block->push_back(convOp);
+    bool hasUtilities = getBwdWeightKernelCount(builder) > 1;
+    if (hasUtilities && kernelId == 0) {
+      // If there is a workspace, zero-init it, otherwise fill the filter tensor
+      auto zeroInitOp = builder.create<ZeroInitKernelOp>(
+          builder.getUnknownLoc(), /*resultType=*/TypeRange{},
+          args[hasWorkspace ? 3 : 0], archStrAttr,
+          /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+          /*elemsPerThread=*/nullptr);
+      block->push_front(zeroInitOp);
+    } else if (hasUtilities && kernelId == 2) {
+      // Workspace -> filter tensor
+      auto conversionOp = builder.create<ConvertingCopyKernelOp>(
+          builder.getUnknownLoc(), /*resultType=*/TypeRange{}, args[3], args[0],
+          archStrAttr, /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+          /*elemsPerThread=*/nullptr);
+      block->push_front(conversionOp);
+    } else {
+      auto convOp = builder.create<Conv2DBwdWeightOp>(
+          builder.getUnknownLoc(), ArrayRef<Type>{}, args, attributes);
+      block->push_back(convOp);
+    }
   } break;
   }
 

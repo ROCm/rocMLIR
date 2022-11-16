@@ -459,7 +459,7 @@ GemmSize GemmSize::fromConvolution(ConvOpType type,
                                    const ConvolutionDims &sizes) {
   assert(type != ConvOpType::BwdData &&
          "Backward data convolutions cannot have their size computed without "
-         "gemm_id and other parameters. Use op.getGemmSize() instead");
+         "kernelId and other parameters. Use op.getGemmSize() instead");
   int64_t gemmGSize, gemmMSize, gemmKSize, gemmNSize;
   switch (type) {
   case ConvOpType::Fwd:
@@ -545,7 +545,7 @@ GemmSize Conv2DBwdDataOp::getGemmSize() {
   auto padding = extractFromI64ArrayAttr(this->getPadding());
   auto strides = extractFromI64ArrayAttr(this->getStrides());
   auto dilations = extractFromI64ArrayAttr(this->getDilations());
-  int64_t gemmId = (*this)->getAttrOfType<IntegerAttr>("gemm_id").getInt();
+  int64_t kernelId = getKernelId().getSExtValue();
 
   int64_t strideH = strides[0];
   int64_t strideW = strides[1];
@@ -580,8 +580,8 @@ GemmSize Conv2DBwdDataOp::getGemmSize() {
   int64_t hTildaSlice = iHTildaRight - iHTildaLeft;
   int64_t wTildaSlice = iWTildaRight - iWTildaLeft;
 
-  int64_t iYTilda = gemmId / xTilda;
-  int64_t iXTilda = gemmId % xTilda;
+  int64_t iYTilda = kernelId / xTilda;
+  int64_t iXTilda = kernelId % xTilda;
   int64_t yDotSlice = math_util::integer_divide_ceil(sizes.y - iYTilda, yTilda);
   int64_t xDotSlice = math_util::integer_divide_ceil(sizes.x - iXTilda, xTilda);
 

@@ -36,7 +36,7 @@
 
 func.func @rock_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
   rock.conv2d(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     blockSize = 256 : i32,
     dilations = [1 : i32,  1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
@@ -60,7 +60,7 @@ func.func @rock_conv2d(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x
 
 func.func @rock_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
   rock.conv2d(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     blockSize = 256 : i32,
     dilations = [1 : i32,  1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
@@ -84,7 +84,7 @@ func.func @rock_conv2d_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<12
 
 func.func @rock_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x1x8x32x32xi8>, %output : memref<128x1x128x30x30xi32>) {
   rock.conv2d(%filter, %input, %output) features = mfma|dot|atomic_add {
-    arch = "gfx908",
+    arch = "amdgcn-amd-amdhsa:gfx908",
     blockSize = 256 : i32,
     dilations = [1 : i32,  1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
@@ -109,12 +109,12 @@ func.func @rock_conv2d_i8(%filter : memref<1x128x8x3x3xi8>, %input : memref<128x
 
 func.func @rock_conv2d_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: memref<128x1x1024x14x14xf32>, %output: memref<128x1x1024x14x14xf32>) attributes {kernel = 0 : i32} {
   rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add {
-    arch = "gfx908",
+    arch = "amdgcn-amd-amdhsa:gfx908",
     blockSize = 256 : i32,
     dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
-    gemm_id = 0 : i32,
     gridSize = 900 : i32,
+    kernelId = 0 : index,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0  : i32,  0  : i32,  0  : i32,  0 : i32],
@@ -140,12 +140,12 @@ func.func @rock_conv2d_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: me
 
 func.func @rock_conv2d_bwd_data_f16(%filter: memref<1x1024x1024x1x1xf16>, %input: memref<128x1x1024x14x14xf16>, %output: memref<128x1x1024x14x14xf16>) attributes {kernel = 0 : i32} {
 rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add {
-    arch = "gfx908",
+    arch = "amdgcn-amd-amdhsa:gfx908",
     blockSize = 256 : i32,
     dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
-    gemm_id = 0 : i32,
     gridSize = 1568 : i32,
+    kernelId = 0 : index,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     output_layout = ["no", "go", "ko", "ho", "wo"],
     padding = [0  : i32,  0  : i32,  0  : i32,  0 : i32],
@@ -171,11 +171,10 @@ rock.conv2d_bwd_data(%filter, %input, %output) features = mfma|dot|atomic_add {
 
 func.func @rock_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) {
   rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     blockSize = 64 : i32,
     dilations = [1 : i32, 1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
-    gemm_id = 0,
     gridSize = 4 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     numCu = 64 : i32,
@@ -197,11 +196,10 @@ func.func @rock_conv2d_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : me
 
 func.func @rock_conv2d_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) {
   rock.conv2d_bwd_weight(%filter, %input, %output) features = none {
-    arch = "gfx906",
+    arch = "amdgcn-amd-amdhsa:gfx906",
     blockSize = 64 : i32,
     dilations = [1 : i32,  1 : i32],
     filter_layout = ["g", "k", "c", "y", "x"],
-    gemm_id = 0,
     gridSize = 4 : i32,
     input_layout = ["ni", "gi", "ci", "hi", "wi"],
     numCu = 64 : i32,

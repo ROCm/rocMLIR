@@ -65,9 +65,10 @@ LogicalResult mlir::rock::calculateKBlockNum(const ConvolutionDims &convDims,
   return success();
 }
 
-SmallVector<int64_t> mlir::rock::populateBackwardDataGemmIds(
-    int64_t strideHeight, int64_t strideWidth, int64_t dilationHeight,
-    int64_t dilationWidth, int64_t filterHeight, int64_t filterWidth) {
+SmallVector<int64_t>
+mlir::rock::backwardDataKernelIds(int64_t strideHeight, int64_t strideWidth,
+                                  int64_t dilationHeight, int64_t dilationWidth,
+                                  int64_t filterHeight, int64_t filterWidth) {
   int64_t gcdStrideDilationH = math_util::gcd(strideHeight, dilationHeight);
   int64_t gcdStrideDilationW = math_util::gcd(strideWidth, dilationWidth);
 
@@ -93,23 +94,30 @@ SmallVector<int64_t> mlir::rock::populateBackwardDataGemmIds(
   };
   bool needZeroInitKernel = !isEveryPixelWritten();
 
-  llvm::SmallVector<int64_t> gemmIds;
+  llvm::SmallVector<int64_t> kernelIds;
   if (needZeroInitKernel)
-    gemmIds.push_back(-1);
+    kernelIds.push_back(-1);
 
-  // Populate the gemm IDs according to the current backward data convolution
+  // Populate the kernel IDs according to the current backward data convolution
   // algorithm implementation.
-  for (int64_t gemmId = 0; gemmId < yTilda * xTilda; ++gemmId) {
+  for (int64_t kernelId = 0; kernelId < yTilda * xTilda; ++kernelId) {
     // gemmK size is different for each GEMM
-    const int64_t iYTilda = gemmId / xTilda;
-    const int64_t iXTilda = gemmId % xTilda;
+    const int64_t iYTilda = kernelId / xTilda;
+    const int64_t iXTilda = kernelId % xTilda;
 
     int64_t yDotSlice = math_util::integer_divide_ceil(y - iYTilda, yTilda);
     int64_t xDotSlice = math_util::integer_divide_ceil(x - iXTilda, xTilda);
     // gemmK must > 0, otherwise not need to run
     if (yDotSlice * xDotSlice > 0) {
-      gemmIds.push_back(gemmId);
+      kernelIds.push_back(kernelId);
     }
   }
-  return gemmIds;
+  return kernelIds;
+}
+
+// TODO(kdrewnia): Could rank-0 vectors clear some of this up?
+Type mlir::rock::vectorTypeOrSelf(Type elementType, int64_t len) {
+  if (len == 1)
+    return elementType;
+  return VectorType::get({len}, elementType);
 }
