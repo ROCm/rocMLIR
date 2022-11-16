@@ -47,6 +47,7 @@ struct RockCloneKernelsPass
   using rock::impl::RockCloneKernelsPassBase<
       RockCloneKernelsPass>::RockCloneKernelsPassBase;
   void runOnOperation() override {
+    llvm::errs() << "clone-kernels pass\n";
     const char *kernel = "kernel.module";
     ModuleOp mod = getOperation();
     if (mod->hasAttr(kernel))

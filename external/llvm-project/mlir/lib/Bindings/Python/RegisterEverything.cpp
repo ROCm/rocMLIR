@@ -12,15 +12,23 @@
 
 #include "mlir/Bindings/Python/PybindAdaptors.h"
 
+extern MLIR_CAPI_EXPORTED void
+mlirRegisterRocMLIRDialects(MlirDialectRegistry registry);
+MLIR_CAPI_EXPORTED void mlirRegisterRocMLIRPasses();
+
 PYBIND11_MODULE(_mlirRegisterEverything, m) {
   m.doc() = "MLIR All Upstream Dialects and Passes Registration";
 
   m.def("register_dialects", [](MlirDialectRegistry registry) {
     mlirRegisterAllDialects(registry);
+    mlirRegisterRocMLIRDialects(registry);
   });
+
+  m.def("foo", []() {});
 
   // Register all passes on load.
   mlirRegisterAllPasses();
   mlirRegisterConversionPasses();
   mlirRegisterTransformsPasses();
+  mlirRegisterRocMLIRPasses();
 }

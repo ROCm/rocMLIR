@@ -47,3 +47,5 @@ if (MLIR_INCLUDE_TESTS)
   add_subdirectory(test)
 endif()
 add_subdirectory(tools)
+
+#add_subdirectory(bindings)

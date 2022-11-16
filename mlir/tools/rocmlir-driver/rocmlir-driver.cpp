@@ -379,6 +379,8 @@ int main(int argc, char **argv) {
   rock::registerPasses();
   InitLLVM y(argc, argv);
 
+  registerMLIRContextCLOptions();
+
   // Register any pass manager command line options.
   mlir::registerPassManagerCLOptions();
   mlir::PassPipelineCLParser passPipeline("", "compiler passes to run");

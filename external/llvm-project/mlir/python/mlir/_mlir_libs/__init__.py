@@ -29,7 +29,7 @@ def get_include_dirs() -> Sequence[str]:
 
 # Perform Python level site initialization. This involves:
 #   1. Attempting to load initializer modules, specific to the distribution.
-#   2. Defining the concrete mlir.ir.Context that does site specific 
+#   2. Defining the concrete mlir.ir.Context that does site specific
 #      initialization.
 #
 # Aside from just being far more convenient to do this at the Python level,
@@ -38,13 +38,13 @@ def get_include_dirs() -> Sequence[str]:
 # in the scope of the base class __init__).
 #
 # For #1, we:
-#   a. Probe for modules named '_mlirRegisterEverything' and 
-#     '_site_initialize_{i}', where 'i' is a number starting at zero and 
+#   a. Probe for modules named '_mlirRegisterEverything' and
+#     '_site_initialize_{i}', where 'i' is a number starting at zero and
 #     proceeding so long as a module with the name is found.
 #   b. If the module has a 'register_dialects' attribute, it will be called
 #     immediately with a DialectRegistry to populate.
 #   c. If the module has a 'context_init_hook', it will be added to a list
-#     of callbacks that are invoked as the last step of Context 
+#     of callbacks that are invoked as the last step of Context
 #     initialization (and passed the Context under construction).
 #
 # This facility allows downstreams to customize Context creation to their
@@ -58,11 +58,13 @@ def _site_initialize():
   post_init_hooks = []
 
   def process_initializer_module(module_name):
+#     print(f"[trying to initialize {module_name}]")
+#     logging.basicConfig(level=logging.DEBUG)
     try:
       m = importlib.import_module(f".{module_name}", __name__)
     except ModuleNotFoundError:
+#       print("(nope)")
       return False
-
     logging.debug("Initializing MLIR with module: %s", module_name)
     if hasattr(m, "register_dialects"):
       logging.debug("Registering dialects from initializer %r", m)
