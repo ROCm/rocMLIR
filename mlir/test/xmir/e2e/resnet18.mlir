@@ -1,6 +1,5 @@
-// RUN-DISABLE: rocmlir-driver -host-pipeline partition,highlevel -targets %arch,gfx908 %s | rocmlir-gen -ph -print-results -rand_type float -rand 1 -fut forward - | rocmlir-driver -host-pipeline xmodel -kernel-pipeline full  -targets %arch,gfx908 | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext --entry-point-result=void | FileCheck %s
-// RUN: rocmlir-driver -host-pipeline partition,highlevel -targets %arch,gfx900 %s | rocmlir-gen -ph -print-results -rand_type float -rand 1 -fut forward - | rocmlir-driver -host-pipeline xmodel -kernel-pipeline full | FileCheck %s
-// CHECK: @forward__part_19
+// RUN: rocmlir-driver -host-pipeline partition,highlevel -targets %arch %s | rocmlir-gen -ph -print-results -verifier clone -fut forward - | rocmlir-driver -host-pipeline xmodel -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
+// CHECK: [1 1 1]
 module attributes {torch.debug_module_name = "ResNet"} {
   func.func @forward(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x1000xf32> {
     %0 = "tosa.const"() {value = dense<"0xCC1834BE"> : tensor<1x512x1x1xf32>} : () -> tensor<1x512x1x1xf32>
