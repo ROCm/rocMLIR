@@ -91,37 +91,65 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
     return b.create<gpu::WaitOp>(loc, tokenType, deps).asyncToken();
   }
 
-  Value moveMemory(OpBuilder b, Value opr, uint32_t fidx, bool readAccess,
-                   bool writeAccess, llvm::SmallVector<Value> &copyBackOprs,
+  bool isOnDevice(ArrayRef<Operation *> oprUsers) const {
+    for (auto opUse : oprUsers) {
+      auto launch = dyn_cast<async::LaunchOp>(opUse);
+      // assumes the same GPU
+      if (!launch || !getGPUTarget(launch).has_value())
+        return false;
+    }
+    return true;
+  }
+
+  Value moveMemory(OpBuilder b, async::LaunchOp launchOp, Value opr,
+                   uint32_t fidx, bool readAccess, bool writeAccess,
+                   llvm::SmallVector<Value> &copyBackOprs,
                    llvm::SmallVector<Value, 8> &asyncDeps) const {
     Location loc = opr.getLoc();
     auto tokenType = b.getType<gpu::AsyncTokenType>();
     auto oprAllocOp = opr.getDefiningOp<memref::AllocOp>();
+    auto bAlloc = b;
     if (oprAllocOp)
-      b.setInsertionPoint(oprAllocOp);
+      bAlloc.setInsertionPoint(oprAllocOp);
 
-    Value allocWait = makeWait(b, loc);
+    Value allocWait = makeWait(bAlloc, loc);
     Type gpuMemType = opr.getType();
-    auto dst = b.create<gpu::AllocOp>(loc, gpuMemType, tokenType,
-                                      ValueRange{allocWait}, ValueRange{},
-                                      ValueRange{});
+    auto dst = bAlloc.create<gpu::AllocOp>(loc, gpuMemType, tokenType,
+                                           ValueRange{allocWait}, ValueRange{},
+                                           ValueRange{});
     Value dstMem = dst.getResult(0);
     Value dstToken = dst.getResult(1);
-    // if alloc, convert to gpu.alloc
+
+    bool copyFlag = false;
+    auto makeCopy = [&]() {
+      if (!copyFlag) {
+        copyFlag = true;
+        if (readAccess) {
+          // copy to device
+          auto memcpyToken = b.create<gpu::MemcpyOp>(
+              loc, tokenType, ValueRange{dstToken}, dstMem, opr);
+          dstToken = memcpyToken.getResult(0);
+        }
+        if (writeAccess) {
+          // copy from device
+          copyBackOprs[fidx] = oprAllocOp ? opr : dstMem;
+        }
+      }
+    };
+
     if (oprAllocOp) {
-      // TODO(sjw): make sure accessors are all on the GPU
-      oprAllocOp->replaceAllUsesWith(ValueRange{dstMem});
-    } else {
-      if (readAccess) {
-        // else copy to device
-        auto memcpyToken = b.create<gpu::MemcpyOp>(
-            loc, tokenType, ValueRange{dstToken}, dstMem, opr);
-        dstToken = memcpyToken.getResult(0);
+      // if alloc, convert to gpu.alloc and gpu.memcpy's
+      SmallVector<Operation *, 4> oprUsers(opr.getUsers());
+      if (isOnDevice(oprUsers)) {
+        opr.replaceAllUsesWith(dstMem);
+      } else {
+        // substitute
+        launchOp->replaceUsesOfWith(opr, dstMem);
+        makeCopy();
       }
-      if (writeAccess) {
-        copyBackOprs[fidx] = dstMem;
-      }
-    }
+    } else
+      makeCopy();
+
     asyncDeps.push_back(dstToken);
     return dstMem;
   }
@@ -129,7 +157,8 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
   LogicalResult matchAndRewrite(async::LaunchOp op,
                                 PatternRewriter &rw) const override {
     Location loc = op.getLoc();
-    auto module = op->getParentOfType<ModuleOp>();
+    auto caller = op->getParentOfType<func::FuncOp>();
+    auto module = caller->getParentOfType<ModuleOp>();
     auto *ctx = module.getContext();
 
     assert(op->getNumResults() == 1); // only 1 async.token
@@ -139,6 +168,9 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
     auto kernelPkg = getGPUTarget(op);
     if (!kernelPkg.has_value())
       return rw.notifyMatchFailure(op, "no gpu target");
+
+    // Signal that func is already in gpu.async mode
+    caller->setAttr("gpu.is_async", UnitAttr::get(ctx));
 
     auto arch = kernelPkg->getTarget();
     auto targetObj = kernelPkg->getObject();
@@ -232,8 +264,8 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
             func.getArgAttr(fidx, func::FuncOp::getReadAccessAttrName())};
         bool writeAccess{
             func.getArgAttr(fidx, func::FuncOp::getWriteAccessAttrName())};
-        opr = moveMemory(rw, opr, fidx, readAccess, writeAccess, copyBackOprs,
-                         asyncDeps);
+        opr = moveMemory(rw, op, opr, fidx, readAccess, writeAccess,
+                         copyBackOprs, asyncDeps);
       }
       gpuOperands.push_back(opr);
     }
@@ -260,6 +292,8 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
     for (auto pair : llvm::enumerate(copyBackOprs)) {
       if (auto gpuMem = pair.value()) {
         auto dst = operands[diff + pair.index()];
+        if (gpuMem.getDefiningOp<memref::AllocOp>())
+          std::swap(gpuMem, dst);
         auto memcpy = rw.create<gpu::MemcpyOp>(loc, tokenType,
                                                ValueRange{token}, dst, gpuMem);
         tokens.push_back(memcpy.getResult(0));
@@ -275,7 +309,8 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
 
     rw.replaceOp(op, {token});
 
-    module->setAttr("gpu.container_module", rw.getUnitAttr());
+    module->setAttr(gpu::GPUDialect::getContainerModuleAttrName(),
+                    rw.getUnitAttr());
 
     return success();
   }
@@ -297,7 +332,7 @@ struct AwaitRewritePattern : public OpRewritePattern<async::AwaitOp> {
     if (input.getType() == tokenType) {
       // async.await with token type should never have a result type
       assert(op.getResultType() == None);
-      rw.create<gpu::WaitOp>(op.getLoc(), tokenType, input);
+      rw.create<gpu::WaitOp>(op.getLoc(), Type(), input);
       rw.eraseOp(op);
       return success();
     }

@@ -339,13 +339,17 @@ struct GpuAsyncRegionPass::SingleTokenUseCallback {
 // inserts the necessary synchronization (as gpu.wait ops). Assumes sequential
 // execution semantics and that no GPU ops are asynchronous yet.
 void GpuAsyncRegionPass::runOnOperation() {
-  if (getOperation()->walk(ThreadTokenCallback(getContext())).wasInterrupted())
+  func::FuncOp func = getOperation();
+  if (func->hasAttr("gpu.is_async"))
+    return;
+
+  if (func->walk(ThreadTokenCallback(getContext())).wasInterrupted())
     return signalPassFailure();
 
   // Collect gpu.wait ops that we can move out of async.execute regions.
-  getOperation().getRegion().walk(DeferWaitCallback());
+  func.getRegion().walk(DeferWaitCallback());
   // Makes each !gpu.async.token returned from async.execute op have single use.
-  getOperation().getRegion().walk(SingleTokenUseCallback());
+  func.getRegion().walk(SingleTokenUseCallback());
 }
 
 std::unique_ptr<OperationPass<func::FuncOp>> mlir::createGpuAsyncRegionPass() {
