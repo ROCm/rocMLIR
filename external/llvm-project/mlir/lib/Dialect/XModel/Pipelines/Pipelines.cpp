@@ -59,13 +59,22 @@ void xmodel::buildGraphPipeline(OpPassManager &pm,
   // TOSA partitioning pass
   // make 'kernel' funcs with tosa dataflow
   /* mlir-opt --tosa-layerwise-constant-fold --tosa-make-broadcastable
-         --tosa-optional-decompositions --tosa-partition
+         --tosa-partition
    */
   pm.addNestedPass<func::FuncOp>(tosa::createTosaLayerwiseConstantFoldPass());
   pm.addNestedPass<func::FuncOp>(tosa::createTosaMakeBroadcastablePass());
-  pm.addNestedPass<func::FuncOp>(tosa::createTosaOptionalDecompositions());
-  pm.addPass(
-      tosa::createTosaPartition({{"tosa.conv2d", "tosa.depthwise_conv2d"}}));
+
+  // Disable decompositions, converts matmul to fully_connected
+  // pm.addNestedPass<func::FuncOp>(tosa::createTosaOptionalDecompositions());
+
+  // Canonicalizer applies Transpose ops to constant tensors
+  //  - disabled because it causes mixed layout in conv2d
+  // pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
+
+  tosa::TosaPartitionOptions opts;
+  opts.anchorOps = {"tosa.conv2d", "tosa.depthwise_conv2d"};
+  opts.trailingOnly = true;
+  pm.addPass(tosa::createTosaPartition(opts));
 
   // make async kernel launch's
   /* mlir-opt --xmodel-async-graph
