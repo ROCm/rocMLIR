@@ -145,11 +145,13 @@ Type getResultType(Operation *convOp, Value outArg) {
   return nullptr;
 }
 
-static int64_t getUtilityVectorizationLen(ShapedType shape) {
+static int64_t getUtilityVectorizationLen(ShapedType shape,
+                                          int64_t elemsPerThread) {
   int64_t numElems = shape.getNumElements();
   constexpr int64_t kMaxVectorOpLen = 4; // words
   int64_t elemsPerWord = (32 / shape.getElementTypeBitWidth());
-  return math_util::gcd(numElems, kMaxVectorOpLen * elemsPerWord);
+  return math_util::gcd(math_util::gcd(numElems, elemsPerThread),
+                        kMaxVectorOpLen * elemsPerWord);
 }
 
 /// Create an elementwise utility kernel.
@@ -229,7 +231,11 @@ struct ZeroInitKernelRewritePattern final
     Location loc = op.getLoc();
     TypedValue<ShapedType> buffer = op.getBuffer();
     Type bufferType = buffer.getType().getElementType();
-    int64_t zeroInitVectorLen = getUtilityVectorizationLen(buffer.getType());
+    if (!op.getElemsPerThread().has_value())
+      return op->emitOpError("elems per thread not set");
+
+    int64_t zeroInitVectorLen = getUtilityVectorizationLen(
+        buffer.getType(), op.getElemsPerThread()->getZExtValue());
     Type storeType = vectorTypeOrSelf(bufferType, zeroInitVectorLen);
     Value zeroOp = createZeroConstantOp(b, loc, storeType);
     ArrayAttr leftOob = b.getI32ArrayAttr({});
@@ -267,8 +273,11 @@ struct ConvertingCopyKernelRewritePattern final
     TypedValue<ShapedType> output = adaptor.getOutput();
     Type inputDataType = input.getType().getElementType();
     Type outputDataType = output.getType().getElementType();
+    if (!op.getElemsPerThread().has_value())
+      return op->emitOpError("elems per thread not set");
 
-    int64_t conversionVectorLen = getUtilityVectorizationLen(input.getType());
+    int64_t conversionVectorLen = getUtilityVectorizationLen(
+        input.getType(), op.getElemsPerThread()->getZExtValue());
 
     Type loadType = vectorTypeOrSelf(inputDataType, conversionVectorLen);
     Type storeType = vectorTypeOrSelf(outputDataType, conversionVectorLen);
