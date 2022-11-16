@@ -366,10 +366,9 @@ LogicalResult makeToLayoutLikeFromLayoutAlong(
     if (thisIndex <
         prevIndex) { // the values are not in the relative expected order
       inOrder = false;
+      break;
     }
-    // Defensively prevent possible weirdness that might arise when
-    // thisIndex < prevIndex.
-    prevIndex = std::max(thisIndex, prevIndex);
+    prevIndex = thisIndex;
   }
   if (inOrder)
     return failure();
