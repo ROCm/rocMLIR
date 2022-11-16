@@ -48,12 +48,13 @@
 // TWO: call @test_fusion8__part_0
 
 // THREE-LABEL: func private @test_fusion8__part_0
+// THREE-NEXT: arith.constant
+// THREE-NEXT: tosa.transpose
 // THREE-NEXT: tosa.depthwise_conv2d
 // THREE-NEXT: tosa.abs
 // THREE-NEXT: tosa.add
 // THREE-NEXT: return
 // THREE: func @test_fusion8
-// THREE: tosa.transpose
 // THREE: tosa.conv2d
 // THREE: call @test_fusion8__part_0
 
