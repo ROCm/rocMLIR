@@ -12,13 +12,18 @@
 
 #include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
 
+#include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "llvm/ADT/TypeSwitch.h"
+
+#include <limits>
 
 using namespace mlir;
 using namespace mlir::amdgpu;
@@ -60,6 +65,97 @@ LogicalResult RawBufferStoreOp::verify() { return verifyRawBufferOp(*this); }
 
 LogicalResult RawBufferAtomicFaddOp::verify() {
   return verifyRawBufferOp(*this);
+}
+
+static Optional<uint32_t> getConstantUint32(Value v) {
+  APInt cst;
+  if (!v.getType().isInteger(32))
+    return None;
+  if (matchPattern(v, m_ConstantInt(&cst)))
+    return cst.getZExtValue();
+  return None;
+}
+
+template <typename OpType>
+static LogicalResult staticallyOutOfBounds(OpType op) {
+  if (!op.getBoundsCheck())
+    return failure();
+  MemRefType bufferType = op.getMemref().getType();
+  if (!bufferType.hasStaticShape())
+    return failure();
+  int64_t offset;
+  SmallVector<int64_t> strides;
+  if (failed(getStridesAndOffset(bufferType, strides, offset)))
+    return failure();
+  int64_t result = offset + op.getIndexOffset().value_or(0);
+  if (op.getSgprOffset()) {
+    Optional<uint32_t> sgprOffset = getConstantUint32(op.getSgprOffset());
+    if (!sgprOffset)
+      return failure();
+    result += *sgprOffset;
+  }
+  if (strides.size() != op.getIndices().size())
+    return failure();
+  int64_t indexVal = 0;
+  for (auto pair : llvm::zip(strides, op.getIndices())) {
+    int64_t stride = std::get<0>(pair);
+    Value idx = std::get<1>(pair);
+    Optional<uint32_t> idxVal = getConstantUint32(idx);
+    if (!idxVal)
+      return failure();
+    indexVal += stride * idxVal.value();
+  }
+  result += indexVal;
+  if (result > std::numeric_limits<uint32_t>::max())
+    // Overflow means don't drop
+    return failure();
+  return success(result >= bufferType.getNumElements());
+}
+
+namespace {
+struct RemoveStaticallyOobBufferLoads final
+    : public OpRewritePattern<RawBufferLoadOp> {
+  using OpRewritePattern<RawBufferLoadOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(RawBufferLoadOp op,
+                                PatternRewriter &rw) const override {
+    if (succeeded(staticallyOutOfBounds(op))) {
+      Type loadType = op.getResult().getType();
+      rw.replaceOpWithNewOp<arith::ConstantOp>(op, loadType,
+                                               rw.getZeroAttr(loadType));
+      return success();
+    }
+    return failure();
+  }
+};
+
+template <typename OpType>
+struct RemoveStaticallyOobBufferWrites final : public OpRewritePattern<OpType> {
+  using OpRewritePattern<OpType>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(OpType op, PatternRewriter &rw) const override {
+    if (succeeded(staticallyOutOfBounds(op))) {
+      rw.eraseOp(op);
+      return success();
+    }
+    return failure();
+  }
+};
+} // end namespace
+
+void RawBufferLoadOp::getCanonicalizationPatterns(RewritePatternSet &results,
+                                                  MLIRContext *context) {
+  results.add<RemoveStaticallyOobBufferLoads>(context);
+}
+
+void RawBufferStoreOp::getCanonicalizationPatterns(RewritePatternSet &results,
+                                                   MLIRContext *context) {
+  results.add<RemoveStaticallyOobBufferWrites<RawBufferStoreOp>>(context);
+}
+
+void RawBufferAtomicFaddOp::getCanonicalizationPatterns(
+    RewritePatternSet &results, MLIRContext *context) {
+  results.add<RemoveStaticallyOobBufferWrites<RawBufferAtomicFaddOp>>(context);
 }
 
 //===----------------------------------------------------------------------===//

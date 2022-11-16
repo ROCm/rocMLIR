@@ -83,6 +83,7 @@ def AMDGPU_RawBufferLoadOp :
       (`sgprOffset` $sgprOffset^)? `:`
       type($memref) `,` type($indices) `->` type($value)
   }];
+  let hasCanonicalizer = 1;
   let hasVerifier = 1;
 }
 
@@ -124,6 +125,7 @@ def AMDGPU_RawBufferStoreOp :
       (`sgprOffset` $sgprOffset^)? `:`
       type($value) `->` type($memref) `,` type($indices)
   }];
+  let hasCanonicalizer = 1;
   let hasVerifier = 1;
 }
 
@@ -162,6 +164,7 @@ def AMDGPU_RawBufferAtomicFaddOp :
       (`sgprOffset` $sgprOffset^)? `:`
       type($value) `->` type($memref) `,` type($indices)
   }];
+  let hasCanonicalizer = 1;
   let hasVerifier = 1;
 }
 
