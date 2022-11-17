@@ -49,6 +49,7 @@ inline void registerUpstreamPasses() {
   registerConvertGpuOpsToROCDLOps();
   registerConvertMathToLLVM();
   registerConvertMemRefToLLVM();
+  registerConvertTensorToLinalg();
   registerReconcileUnrealizedCasts();
   registerSCFToControlFlow();
   registerTosaToArith();
