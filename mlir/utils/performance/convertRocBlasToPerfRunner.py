@@ -35,9 +35,12 @@ def convertToPerfRunner(rocblasIns):
             perfRunnerIns["-t"] = t
         elif rocblasIns[ii] == "--batch_count":
             perfRunnerIns["-g"] = rocblasIns[ii + 1]
-        elif rocblasIns[ii] == "--transposeA" and rocblasIns[ii + 1] != "N":
+        # When MIGraphX is sending non-transposed data to rocBLAS, this means non-transposed
+        # column-major data. Our tools work in row-major format, and this means we need to transpose
+        # when we receive a non-transposed data layout.
+        elif rocblasIns[ii] == "--transposeA" and rocblasIns[ii + 1] == "N":
             perfRunnerIns["-transA"] = "true"
-        elif rocblasIns[ii] == "--transposeB" and rocblasIns[ii + 1] != "N":
+        elif rocblasIns[ii] == "--transposeB" and rocblasIns[ii + 1] == "N":
             perfRunnerIns["-transB"] = "true"
 
     return stringify(perfRunnerIns)
@@ -73,7 +76,8 @@ def main():
     fout = open(parsed_args.output_file, 'w')
     cmdLine = subprocess.list2cmdline(sys.argv[0:])
 
-    print("# This file has been generated with the following command:", file=fout)
+    print("# This file has been generated with the following command:",
+          file=fout)
     print(f"# {cmdLine}\n", file=fout)
 
     for config in configs:

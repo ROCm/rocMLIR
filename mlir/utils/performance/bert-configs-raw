@@ -13,3 +13,4 @@
 ./rocblas-bench -f gemm_ex --transposeA N --transposeB N -m 768 -n 16384 -k 768 --alpha 1 --a_type f32_r --lda 768 --b_type f32_r --ldb 768 --beta 0 --c_type f32_r --ldc 768 --d_type f32_r --ldd 768 --compute_type f32_r --algo 0 --solution_index 0 --flags 1
 ./rocblas-bench -f gemm_strided_batched_ex --transposeA N --transposeB N -m 64 -n 256 -k 256 --alpha 1 --a_type f32_r --lda 64 --stride_a 16384 --b_type f32_r --ldb 256 --stride_b 65536 --beta 0 --c_type f32_r --ldc 64 --stride_c 16384 --d_type f32_r --ldd 64 --stride_d 16384 --batch_count 768 --compute_type f32_r --algo 0 --solution_index 0 --flags 1
 ./rocblas-bench -f gemm_strided_batched_ex --transposeA T --transposeB N -m 256 -n 256 -k 64 --alpha 1 --a_type f32_r --lda 64 --stride_a 16384 --b_type f32_r --ldb 64 --stride_b 16384 --beta 0 --c_type f32_r --ldc 256 --stride_c 65536 --d_type f32_r --ldd 256 --stride_d 65536 --batch_count 768 --compute_type f32_r --algo 0 --solution_index 0 --flags 1
+
