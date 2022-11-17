@@ -32,7 +32,6 @@
 #include "mlir/Dialect/SCF/Transforms/Passes.h"
 #include "mlir/Dialect/Tensor/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
-#include "mlir/Dialect/Transform/Transforms/Passes.h"
 #include "mlir/Dialect/Vector/Transforms/Passes.h"
 #include "mlir/Transforms/Passes.h"
 
