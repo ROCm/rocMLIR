@@ -208,14 +208,18 @@ int main(int argc, char **argv) {
   rocblas_operation blasTransA, blasTransB;
   size_t lda, ldb;
 
-  if (transposeA) {
+  // Please note: rocMLIR is using a row-major format
+  // to store matrices, while rocBLAS is using a
+  // column-major format. This means that transposition concepts are
+  // inverted
+  if (!transposeA) {
     blasTransA = rocblas_operation_transpose;
     lda = gemmK;
   } else {
     blasTransA = rocblas_operation_none;
     lda = gemmM;
   }
-  if (transposeB) {
+  if (!transposeB) {
     blasTransB = rocblas_operation_transpose;
     ldb = gemmN;
   } else {
@@ -242,6 +246,11 @@ int main(int argc, char **argv) {
   void *aHost = allocAndFill(aBytes, false);
   void *bHost = allocAndFill(bBytes, false);
   void *cHost = allocAndFill(cBytes, true);
+  float *aHostFloat = static_cast<float *>(aHost);
+  for (int i = 0; i < gemmM * gemmN; i++) {
+    llvm::errs() << aHostFloat[i] << " ";
+  }
+  llvm::errs() << "\n";
 
   void *aDevice = getGpuBuffer(aHost, aBytes);
   void *bDevice = getGpuBuffer(bHost, bBytes);
