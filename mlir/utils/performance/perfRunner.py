@@ -421,7 +421,8 @@ def getGemmConfigurations(fileName):
     if fileName:
         with open(fileName, 'r') as configFile:
             lines = configFile.readlines()
-            # All combinations of conv direction, type and layouts
+
+            # All combinations of types and transposition (A and B)
             for datatype, transA, transB, line in \
                     itertools.product(DATA_TYPES_GEMM, ['false', 'true'], ['false', 'true'], lines):
                 line = line.strip()
@@ -429,10 +430,26 @@ def getGemmConfigurations(fileName):
                 # Skip empty lines
                 if len(line) == 0 or line[0] == '#':
                     continue
-                    continue
+                
+                # Skip type if already in
+                dataTypeString = ""
+                if "-t" not in line:
+                    dataTypeString = f"-t {datatype}" 
 
-                oneConfig = f"-t {datatype} -transA {transA} -transB {transB} {line}"
-                configs.append(oneConfig)
+                # Skip transA if already in
+                transAString = ""
+                if "-transA" not in line:
+                    transAString = f"-transA {transA}"
+                
+                # Skip transB if already in
+                transBString = ""
+                if "-transB" not in line:
+                    transBString = f"-transB {transB}"
+
+                # Strip to avoid spurious spaces
+                oneConfig = f"{dataTypeString} {transAString} {transBString} {line}".strip()
+                if oneConfig not in configs:
+                    configs.append(oneConfig)
     return configs
 
 class GemmConfiguration(PerfConfiguration):
@@ -852,7 +869,7 @@ def main(args=None):
         tuneMLIRKernels(configs, paths, arch)
     else:
         if parsed_args.batch_mlir:
-            df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), paths, arch, rocmlir_gen_flags) for testVector in configs)
+            df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, rocmlir_gen_flags) for testVector in configs)
         elif parsed_args.batch_external:
             df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch) for testVector in configs)
         elif parsed_args.external:

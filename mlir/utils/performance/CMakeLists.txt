@@ -1,6 +1,7 @@
 add_subdirectory(rocblas-benchmark-driver)
 
 set(PERFORMANCE_SCRIPTS
+  convertRocBlasToPerfRunner.py
   createGemmPerformanceReports.py
   createPerformanceReports.py
   perfCommonUtils.py
