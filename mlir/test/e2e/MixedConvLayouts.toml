@@ -15,7 +15,7 @@ prefix = "-operation "
 
 [[axis]]
 name = "fil_layout"
-values = ["gkcyx", "gkyxc"]
+values = ["gkcyx", "gkyxc", "gyxck"]
 prefix = "-fil_layout="
 
 [[axis]]
