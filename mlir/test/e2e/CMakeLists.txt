@@ -15,10 +15,18 @@ set(E2E_GEN_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/generateE2ETest.py")
 set(CONFIG_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(LOCAL_CONFIG_FILE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/lit.local.cfg)
 set(LOCAL_CONFIG_FILE_BIN ${CMAKE_CURRENT_BINARY_DIR}/lit.local.cfg)
+
 # Create a list for configs
+# GEN_MODE is used by E2E_GEN_SCRIPT to determine the test generation format.
+# By default, each generated file contains all combinations of one config in
+# the toml file. When GEN_MODE is set to '-s', each generated file contains
+# only one test.
+# single_mode is enabled for nightly CI and disabled for PR CI
+set(GEN_MODE "-s")
 if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
   list(APPEND CONFIGS
     PrGemm.toml)
+  set(GEN_MODE "")
 endif()
 if (ROCK_E2E_TEST_ENABLED)
   list(APPEND CONFIGS
@@ -53,7 +61,7 @@ foreach(config ${CONFIGS})
   set(config_file_copy ${E2E_DIR}/${config}.copy)
   add_custom_command(OUTPUT ${config_file_copy}
     COMMAND ${CMAKE_COMMAND} -E copy ${config_file} ${config_file_copy}
-    COMMAND ${Python3_EXECUTABLE} ${E2E_GEN_SCRIPT} -d ${E2E_DIR} -i ${config_file}
+    COMMAND ${Python3_EXECUTABLE} ${E2E_GEN_SCRIPT} -d ${E2E_DIR} -i ${config_file} ${GEN_MODE}
     DEPENDS ${config_file}
     COMMENT "Generating rock E2E tests for ${config}"
   )
