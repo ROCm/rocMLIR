@@ -34,12 +34,8 @@ if (ROCK_E2E_TEST_ENABLED)
     Resnet50Config.toml
     Resnext101Config.toml
     PaddedGemmConfig.toml
-  )
-endif()
-if (ROCMLIR_DRIVER_E2E_TEST_ENABLED)
-  list(APPEND CONFIGS
-    conv2d_host_validation_fwd.toml
-    conv2d_host_validation_bwd.toml
+    conv2d_regression_fwd.toml
+    conv2d_regression_bwd.toml
   )
 endif()
 # Create a list for dummy files
