@@ -246,11 +246,6 @@ int main(int argc, char **argv) {
   void *aHost = allocAndFill(aBytes, false);
   void *bHost = allocAndFill(bBytes, false);
   void *cHost = allocAndFill(cBytes, true);
-  float *aHostFloat = static_cast<float *>(aHost);
-  for (int i = 0; i < gemmM * gemmN; i++) {
-    llvm::errs() << aHostFloat[i] << " ";
-  }
-  llvm::errs() << "\n";
 
   void *aDevice = getGpuBuffer(aHost, aBytes);
   void *bDevice = getGpuBuffer(bHost, bBytes);
