@@ -28,6 +28,14 @@ if (ROCK_E2E_TEST_ENABLED)
     PaddedGemmConfig.toml
   )
 endif()
+if (ROCMLIR_DRIVER_E2E_TEST_ENABLED)
+  list(APPEND CONFIGS
+    conv2d_host_validation_f32_fwd.toml
+    conv2d_host_validation_f32_bwd.toml
+    conv2d_host_validation_f16_fwd.toml
+    conv2d_host_validation_f16_bwd.toml
+  )
+endif()
 # Create a list for dummy files
 set(CONFIG_DUMMY_FILES ${CONFIGS})
 list(TRANSFORM CONFIG_DUMMY_FILES PREPEND ${E2E_DIR}/)
