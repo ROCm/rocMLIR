@@ -28,6 +28,7 @@ llvm::raw_ostream &mlir::rock::operator<<(llvm::raw_ostream &os,
   case GemmDimension::MorN:
     return os << "GemmDimension::MorN";
   }
+  return os;
 }
 
 static int64_t obtainGridSize(const GemmSize &gemmSize,
