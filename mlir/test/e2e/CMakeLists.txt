@@ -38,10 +38,8 @@ if (ROCK_E2E_TEST_ENABLED)
 endif()
 if (ROCMLIR_DRIVER_E2E_TEST_ENABLED)
   list(APPEND CONFIGS
-    conv2d_host_validation_f32_fwd.toml
-    conv2d_host_validation_f32_bwd.toml
-    conv2d_host_validation_f16_fwd.toml
-    conv2d_host_validation_f16_bwd.toml
+    conv2d_host_validation_fwd.toml
+    conv2d_host_validation_bwd.toml
   )
 endif()
 # Create a list for dummy files
