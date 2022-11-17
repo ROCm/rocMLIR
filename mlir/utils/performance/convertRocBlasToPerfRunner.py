@@ -70,6 +70,8 @@ def main():
         rocblasInputs = l.split(' ')
         if l.startswith("#"):
             continue
+        if l.isspace():
+            continue
         configs.append(convertToPerfRunner(rocblasInputs))
 
     # Save the result into the output file
