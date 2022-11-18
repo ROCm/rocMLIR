@@ -91,11 +91,13 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
     return b.create<gpu::WaitOp>(loc, tokenType, deps).asyncToken();
   }
 
-  bool isOnDevice(ArrayRef<Operation *> oprUsers) const {
+  template <typename T>
+  bool isOnDevice(const T &oprUsers) const {
     for (auto opUse : oprUsers) {
+      auto gpuLaunch = dyn_cast<gpu::LaunchFuncOp>(opUse);
       auto launch = dyn_cast<async::LaunchOp>(opUse);
       // assumes the same GPU
-      if (!launch || !getGPUTarget(launch).has_value())
+      if (!gpuLaunch && !(launch && getGPUTarget(launch).has_value()))
         return false;
     }
     return true;
@@ -105,12 +107,19 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
                    uint32_t fidx, bool readAccess, bool writeAccess,
                    llvm::SmallVector<Value> &copyBackOprs,
                    llvm::SmallVector<Value, 8> &asyncDeps) const {
+    if (auto gpuAllocOp = opr.getDefiningOp<gpu::AllocOp>()) {
+      // TEST: convergence or multi-input??
+      assert(isOnDevice(opr.getUsers()));
+      asyncDeps.push_back(gpuAllocOp.getAsyncToken());
+      return opr;
+    }
+
     Location loc = opr.getLoc();
     auto tokenType = b.getType<gpu::AsyncTokenType>();
     auto oprAllocOp = opr.getDefiningOp<memref::AllocOp>();
     auto bAlloc = b;
     if (oprAllocOp)
-      bAlloc.setInsertionPoint(oprAllocOp);
+      bAlloc.setInsertionPointAfter(oprAllocOp);
 
     Value allocWait = makeWait(bAlloc, loc);
     Type gpuMemType = opr.getType();
@@ -120,20 +129,16 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
     Value dstMem = dst.getResult(0);
     Value dstToken = dst.getResult(1);
 
-    bool copyFlag = false;
     auto makeCopy = [&]() {
-      if (!copyFlag) {
-        copyFlag = true;
-        if (readAccess) {
-          // copy to device
-          auto memcpyToken = b.create<gpu::MemcpyOp>(
-              loc, tokenType, ValueRange{dstToken}, dstMem, opr);
-          dstToken = memcpyToken.getResult(0);
-        }
-        if (writeAccess) {
-          // copy from device
-          copyBackOprs[fidx] = oprAllocOp ? opr : dstMem;
-        }
+      if (readAccess) {
+        // copy to device
+        auto memcpyToken = b.create<gpu::MemcpyOp>(
+            loc, tokenType, ValueRange{dstToken}, dstMem, opr);
+        dstToken = memcpyToken.getResult(0);
+      }
+      if (writeAccess) {
+        // copy from device
+        copyBackOprs[fidx] = oprAllocOp ? opr : dstMem;
       }
     };
 
@@ -168,9 +173,6 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
     auto kernelPkg = getGPUTarget(op);
     if (!kernelPkg.has_value())
       return rw.notifyMatchFailure(op, "no gpu target");
-
-    // Signal that func is already in gpu.async mode
-    caller->setAttr("gpu.is_async", UnitAttr::get(ctx));
 
     auto arch = kernelPkg->getTarget();
     auto targetObj = kernelPkg->getObject();
@@ -258,8 +260,7 @@ struct LaunchRewritePattern : public OpRewritePattern<async::LaunchOp> {
       auto fidx = i - diff;
       Value opr = operands[i];
       // move input memories to GPU
-      if (opr.getType().isa<MemRefType>() &&
-          !opr.getDefiningOp<gpu::AllocOp>()) {
+      if (opr.getType().isa<MemRefType>()) {
         bool readAccess{
             func.getArgAttr(fidx, func::FuncOp::getReadAccessAttrName())};
         bool writeAccess{

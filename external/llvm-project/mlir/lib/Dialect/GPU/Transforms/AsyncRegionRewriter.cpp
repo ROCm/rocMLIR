@@ -62,6 +62,27 @@ struct GpuAsyncRegionPass::ThreadTokenCallback {
     return WalkResult::advance();
   }
 
+  void addToken(Value tok) {
+    // Only add tokens that are not already used
+    if (tok && tok.use_empty())
+      tokens.push_back(tok);
+  }
+
+  void removeTokens(ValueRange toks) {
+    for (auto t : toks) {
+      auto ii = llvm::find(tokens, t);
+      if (ii != tokens.end())
+        tokens.erase(ii);
+    }
+  }
+
+  void applyTokens(gpu::AsyncOpInterface asyncOp) {
+    for (auto tok : tokens)
+      asyncOp.addAsyncDependency(tok);
+    tokens.clear();
+    addToken(asyncOp.getAsyncToken());
+  }
+
 private:
   // If `op` implements the AsyncOpInterface, insert a `gpu.wait async` to
   // create a current token (unless it already exists), and 'thread' that token
@@ -75,19 +96,24 @@ private:
     if (isa<gpu::LaunchOp>(op))
       return op->emitOpError("replace with gpu.launch_func first");
     if (auto waitOp = llvm::dyn_cast<gpu::WaitOp>(op)) {
-      if (currentToken)
-        waitOp.addAsyncDependency(currentToken);
-      currentToken = waitOp.asyncToken();
+      auto waitToken = waitOp.asyncToken(); // host sync/async
+      // If host sync and no deps, get current tokens
+      if (!waitToken && waitOp.getAsyncDependencies().size() == 0)
+        applyTokens(waitOp);
+      else {
+        removeTokens(waitOp.getAsyncDependencies());
+        addToken(waitToken);
+      }
       return success();
     }
     builder.setInsertionPoint(op);
     if (auto asyncOp = dyn_cast<gpu::AsyncOpInterface>(op))
       return rewriteAsyncOp(asyncOp); // Replace GPU op with async version.
-    if (!currentToken)
+    if (tokens.empty())
       return success();
     // Insert host synchronization before terminator or op with side effects.
     if (isTerminator(op) || hasSideEffects(op))
-      currentToken = createWaitOp(op->getLoc(), Type(), {currentToken});
+      createWaitOp(op->getLoc(), Type());
     return success();
   }
 
@@ -96,43 +122,52 @@ private:
     auto *op = asyncOp.getOperation();
     auto tokenType = builder.getType<gpu::AsyncTokenType>();
 
-    // If there is no current token, insert a `gpu.wait async` without
-    // dependencies to create one.
-    if (!currentToken)
-      currentToken = createWaitOp(op->getLoc(), tokenType, {});
-    asyncOp.addAsyncDependency(currentToken);
+    // Keep existing dependency chain
+    if (asyncOp.getAsyncDependencies().size() == 0) {
+      // If there is no current token, insert a `gpu.wait async` without
+      // dependencies to create one.
+      if (tokens.empty())
+        createWaitOp(op->getLoc(), tokenType);
+      applyTokens(asyncOp);
+    } else {
+      removeTokens(asyncOp.getAsyncDependencies());
+    }
 
-    // Return early if op returns a token already.
-    currentToken = asyncOp.getAsyncToken();
-    if (currentToken)
-      return success();
+    // If no asyncToken, make it
+    Value aToken = asyncOp.getAsyncToken();
+    if (!aToken) {
+      // Clone the op to return a token in addition to the other results.
+      SmallVector<Type, 1> resultTypes;
+      resultTypes.reserve(1 + op->getNumResults());
+      copy(op->getResultTypes(), std::back_inserter(resultTypes));
+      resultTypes.push_back(tokenType);
+      auto *newOp = Operation::create(
+          op->getLoc(), op->getName(), resultTypes, op->getOperands(),
+          op->getAttrDictionary(), op->getSuccessors(), op->getNumRegions());
 
-    // Clone the op to return a token in addition to the other results.
-    SmallVector<Type, 1> resultTypes;
-    resultTypes.reserve(1 + op->getNumResults());
-    copy(op->getResultTypes(), std::back_inserter(resultTypes));
-    resultTypes.push_back(tokenType);
-    auto *newOp = Operation::create(op->getLoc(), op->getName(), resultTypes,
-                                    op->getOperands(), op->getAttrDictionary(),
-                                    op->getSuccessors(), op->getNumRegions());
+      // Clone regions into new op.
+      BlockAndValueMapping mapping;
+      for (auto pair : llvm::zip_first(op->getRegions(), newOp->getRegions()))
+        std::get<0>(pair).cloneInto(&std::get<1>(pair), mapping);
 
-    // Clone regions into new op.
-    BlockAndValueMapping mapping;
-    for (auto pair : llvm::zip_first(op->getRegions(), newOp->getRegions()))
-      std::get<0>(pair).cloneInto(&std::get<1>(pair), mapping);
+      // Replace the op with the async clone.
+      auto results = newOp->getResults();
+      aToken = results.back();
+      builder.insert(newOp);
+      op->replaceAllUsesWith(results.drop_back());
+      op->erase();
+    }
 
-    // Replace the op with the async clone.
-    auto results = newOp->getResults();
-    currentToken = results.back();
-    builder.insert(newOp);
-    op->replaceAllUsesWith(results.drop_back());
-    op->erase();
-
+    addToken(aToken);
     return success();
   }
 
-  Value createWaitOp(Location loc, Type resultType, ValueRange operands) {
-    return builder.create<gpu::WaitOp>(loc, resultType, operands).asyncToken();
+  Value createWaitOp(Location loc, Type resultType) {
+    Value token =
+        builder.create<gpu::WaitOp>(loc, resultType, tokens).asyncToken();
+    tokens.clear();
+    addToken(token);
+    return token;
   }
 
   OpBuilder builder;
@@ -141,7 +176,7 @@ private:
   // range starts with a `gpu.wait async` op, and ends with a `gpu.wait` op.
   // In between, each gpu::AsyncOpInterface depends on the current token and
   // produces the new one.
-  Value currentToken = {};
+  SmallVector<Value, 4> tokens;
 };
 
 /// Erases `executeOp` and returns a clone with additional `results`.
@@ -340,8 +375,6 @@ struct GpuAsyncRegionPass::SingleTokenUseCallback {
 // execution semantics and that no GPU ops are asynchronous yet.
 void GpuAsyncRegionPass::runOnOperation() {
   func::FuncOp func = getOperation();
-  if (func->hasAttr("gpu.is_async"))
-    return;
 
   if (func->walk(ThreadTokenCallback(getContext())).wasInterrupted())
     return signalPassFailure();
