@@ -58,11 +58,13 @@ gitCheckoutMIOpen() {
 buildlibrockCompiler() {
     echo ">>> build librockCompiler"
     cd ${WORKSPACE}
-    cmake . -G Ninja -B build-static -DBUILD_FAT_LIBROCKCOMPILER=ON
+    cmake . -G Ninja -B build-static \
+          -DBUILD_FAT_LIBROCKCOMPILER=ON \
+          -DCMAKE_BUILD_TYPE=Release # or RelWithDebInfo
     cd build-static
-    ninja
+    ninja librockCompiler
     rm -rf ${WORKSPACE}/MIOpenDeps
-    cmake --install . --prefix ${WORKSPACE}/MIOpenDeps
+    cmake --install . --component librockCompiler --prefix ${WORKSPACE}/MIOpenDeps
 }
 
 buildMIOpenWithlibrockCompiler() {

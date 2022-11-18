@@ -86,17 +86,20 @@ LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
         param.gemmNPerBlock % param.gemmNPerThread == 0))
     return failure();
 
-  int64_t threadGemmMPerBlock = param.gemmMPerBlock / param.gemmMPerThread;
-  int64_t threadGemmNPerBlock = param.gemmNPerBlock / param.gemmNPerThread;
+  int64_t threadGemmMPerCluster = param.gemmMPerThread *
+                                  derived.mThreadsPerCuwave *
+                                  derived.mCuwavesPerBlock;
+  int64_t threadGemmNPerCluster = param.gemmNPerThread *
+                                  derived.nThreadsPerCuwave *
+                                  derived.nCuwavesPerBlock;
 
-  int64_t threadGemmMPerCluster =
-      derived.mThreadsPerCuwave * derived.mCuwavesPerBlock;
-  int64_t threadGemmNPerCluster =
-      derived.nThreadsPerCuwave * derived.nCuwavesPerBlock;
-
-  if (!(threadGemmMPerBlock % threadGemmMPerCluster == 0) &&
-      (threadGemmNPerBlock % threadGemmNPerCluster == 0))
+  if ((param.gemmMPerBlock % threadGemmMPerCluster != 0) ||
+      (param.gemmNPerBlock % threadGemmNPerCluster != 0)) {
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "M per block or N per block aren't divisible by M/N per cluster\n");
     return failure();
+  }
 
   return success();
 }
