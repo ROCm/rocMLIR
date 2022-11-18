@@ -23,6 +23,7 @@ endif()
 if (ROCK_E2E_TEST_ENABLED)
   list(APPEND CONFIGS
     GemmVariants.toml
+    MixedConvLayouts.toml
     Resnet50Config.toml
     Resnext101Config.toml
     PaddedGemmConfig.toml
