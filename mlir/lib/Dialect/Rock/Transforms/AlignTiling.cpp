@@ -59,6 +59,166 @@ struct RockLinalgAlignPass
   void runOnOperation() override;
 };
 
+// This rewrite will rewrite the linalg IO that has view like-ops surrounding
+// them to be consumed by the linalg operation itself adjusting the indexing
+// maps to faithfully represent them.
+struct InlineViewLikeOperandsLinalgRewritePattern
+    : public OpRewritePattern<linalg::GenericOp> {
+  using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(linalg::GenericOp laGeneric,
+                                PatternRewriter &rewriter) const override;
+};
+
+// This function will take strides calculated using reassociation of dimensions
+// that are modified by view-like ops and recompute the affine expr from src
+// view to dest view.
+llvm::SmallVector<mlir::AffineExpr, 4>
+getDelinearizedAffineExpr(mlir::ArrayRef<int64_t> strides,
+                          mlir::ArrayRef<int64_t> shapes, Builder &b,
+                          unsigned int position) {
+  AffineExpr resultExpr = b.getAffineDimExpr(position);
+  int64_t rank = strides.size();
+  SmallVector<AffineExpr, 4> vectorOffsets(rank);
+  // If the rank is 1, expand or collapse shapes will just
+  // pass-through the dimensions.
+  if (rank == 1) {
+    vectorOffsets[0] = resultExpr;
+    return vectorOffsets;
+  }
+  for (unsigned i = 0; i < rank; i++) {
+    // If the current shape is 1 and the rank is non-zero,
+    // could only mean it is being broadcasted. Hence,
+    // putting zero.
+    if (shapes[i] == 1) {
+      vectorOffsets[i] = resultExpr * 0;
+    } else {
+      // Recording the vector offsets here.
+      vectorOffsets[i] = resultExpr;
+      // There is no point of putting a modulo if the size
+      // is equivalent to that.
+      if (i - 1 >= 0 && shapes[i] != strides[i - 1]) {
+        vectorOffsets[i] = vectorOffsets[i] % strides[i - 1];
+      }
+      vectorOffsets[i] = vectorOffsets[i].floorDiv(strides[i]);
+
+      // The resultExpr has to propagated anyway for
+      // other dimensions where the recording in the above
+      // will do the neccesary checks to remove the modulo
+      if (i - 1 >= 0) {
+        resultExpr = resultExpr % strides[i - 1];
+      }
+      resultExpr = resultExpr.floorDiv(strides[i]);
+    }
+  }
+  return vectorOffsets;
+}
+
+// This function will traverse the operands of the linalg.generic folding
+// the view like ops to the indexing maps and returning the ultimate
+// folded map as well as the root operand.
+LogicalResult
+foldViewLikeOperands(PatternRewriter &rewriter, Value op, AffineMap &foldedMap,
+                     Value &rootOp,
+                     SmallVectorImpl<Operation *> &toBeErasedViewLikeOps) {
+  if (memref::CollapseShapeOp collapseOp =
+          op.getDefiningOp<memref::CollapseShapeOp>()) {
+    SmallVector<AffineExpr, 4> resultExprs;
+    int iDimCount = 0;
+    for (SmallVector<int64_t, 2> groups :
+         collapseOp.getReassociationIndices()) {
+      assert(!groups.empty() && "association indices groups cannot be empty");
+      unsigned groupSize = groups.size();
+      SmallVector<int64_t> suffixProduct(groupSize);
+      // Calculate suffix product for all collapse op source dimension sizes.
+      suffixProduct[groupSize - 1] = 1;
+      for (unsigned i = groupSize - 1; i > 0; i--)
+        suffixProduct[i - 1] =
+            suffixProduct[i] * collapseOp.getSrcType().getDimSize(groups[i]);
+      // Derive the index values along all dimensions of the source
+      // corresponding to the index wrt to collapsed shape op output.
+      SmallVector<AffineExpr, 4> srcIndexExpr = getDelinearizedAffineExpr(
+          suffixProduct, collapseOp.getSrcType().cast<ShapedType>().getShape(),
+          rewriter, iDimCount++);
+      for (unsigned i = 0; i < groupSize; i++) {
+        resultExprs.push_back(srcIndexExpr[i]);
+      }
+    }
+    auto representativeMap = AffineMap::get(
+        /*numDims=*/collapseOp.getType().cast<ShapedType>().getShape().size(),
+        /*numSymbols=*/0, resultExprs, rewriter.getContext());
+    foldedMap = representativeMap.compose(foldedMap);
+    toBeErasedViewLikeOps.push_back(collapseOp);
+    return foldViewLikeOperands(rewriter, collapseOp.getViewSource(), foldedMap,
+                                rootOp, toBeErasedViewLikeOps);
+  }
+  if (memref::ExpandShapeOp expandShapeOp =
+          op.getDefiningOp<memref::ExpandShapeOp>()) {
+    LLVM_DEBUG(llvm::dbgs() << "InlineViewLikeOperandsLinalgRewritePattern "
+                               "does not currently support expand shapes as it "
+                               "is unlikely encounter with drop unit dims\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "If needed, it would be similiar to add logic as above.\n");
+    return failure();
+  }
+  rootOp = op;
+  return success();
+}
+
+LogicalResult InlineViewLikeOperandsLinalgRewritePattern::matchAndRewrite(
+    linalg::GenericOp laGeneric, PatternRewriter &rewriter) const {
+  auto loc = laGeneric.getLoc();
+  int ioCount = 0;
+
+  SmallVector<AffineMap, 4U> newMaps;
+  SmallVector<Value, 4U> newInputs;
+  unsigned int changedIOCount = 0;
+
+  SmallVector<Operation *> toBeErasedViewLikeOps;
+  for (auto input : laGeneric.inputs()) {
+    AffineMap resMap = laGeneric.getIndexingMapsArray()[ioCount++];
+    Value rootOp;
+    if (foldViewLikeOperands(rewriter, input, resMap, rootOp,
+                             toBeErasedViewLikeOps)
+            .failed()) {
+      return failure();
+    }
+    if (rootOp != input)
+      changedIOCount++;
+    newInputs.push_back(rootOp);
+    newMaps.push_back(resMap);
+  }
+  SmallVector<Value, 4U> newOutputs;
+  for (auto output : laGeneric.outputs()) {
+    AffineMap resMap = laGeneric.getIndexingMapsArray()[ioCount++];
+    Value rootOp;
+    if (foldViewLikeOperands(rewriter, output, resMap, rootOp,
+                             toBeErasedViewLikeOps)
+            .failed()) {
+      return failure();
+    }
+    if (rootOp != output)
+      changedIOCount++;
+    newOutputs.push_back(rootOp);
+    newMaps.push_back(resMap);
+  }
+  if (changedIOCount == 0)
+    return failure();
+
+  SmallVector<StringRef> iteratorTypes = llvm::to_vector<4>(
+      laGeneric.getIteratorTypes().getAsValueRange<StringAttr>());
+  auto newLaGenericOp = rewriter.create<linalg::GenericOp>(
+      loc, newInputs, newOutputs, newMaps, iteratorTypes);
+  rewriter.inlineRegionBefore(laGeneric->getRegion(0),
+                              newLaGenericOp.getRegion(),
+                              newLaGenericOp.getRegion().begin());
+  rewriter.replaceOp(laGeneric, newLaGenericOp.getResults());
+  for (auto op : toBeErasedViewLikeOps) {
+    rewriter.eraseOp(op);
+  }
+  return success();
+}
+
 struct MILARewritePattern : public OpRewritePattern<linalg::GenericOp> {
   using OpRewritePattern<linalg::GenericOp>::OpRewritePattern;
 
@@ -173,9 +333,6 @@ static Value makeBroadcast(PatternRewriter &b, MemRefType outType, Value inp,
 static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
                                       GlobalStoreOp gemmStoreOp, Value srcOp,
                                       Value dest) {
-  while (auto expOp = srcOp.getDefiningOp<memref::ExpandShapeOp>()) {
-    srcOp = expOp.getOperand();
-  }
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << srcOp.getType() << " dest type: "
                           << gemmStoreOp.getDest().getType() << "\n");
   ArrayRef<int64_t> sType, dType;
@@ -281,21 +438,13 @@ static Value makeTransformingCopyLoop(PatternRewriter &b, GlobalStoreOp storeOp,
 }
 
 Value applyTransforms(PatternRewriter &b, GlobalStoreOp gemmStoreOp, Value inp,
-                      AffineMap inpMap) {
+                      AffineMap outToInpMap) {
   Value ret = inp;
-  // 0. move all input preceding ops before
-  Operation *pred = gemmStoreOp;
-  while (Operation *op = inp.getDefiningOp()) {
-    assert(isa<memref::ExpandShapeOp>(op) || isa<memref::CollapseShapeOp>(op));
-    op->moveBefore(pred);
-    pred = op;
-    inp = op->getOperand(0);
-  }
 
   // 1. insert broadcast op if necessary
   MemRefType outType = gemmStoreOp.getDest().getType();
-  std::tie(ret, inpMap) = makeTransposeTransform(b, ret, inpMap);
-  ret = makeBroadcast(b, outType, ret, inpMap);
+  std::tie(ret, outToInpMap) = makeTransposeTransform(b, ret, outToInpMap);
+  ret = makeBroadcast(b, outType, ret, outToInpMap);
 
   // 2. also create global_store from global to regs
   //    TODO(sjw): make sure output buffer writes (means these inputs will be
@@ -328,24 +477,8 @@ static GlobalStoreOp traceToGlobalStore(Value inp) {
     }
   }
 
-  // Additionally catch the case when gemm result had to be expanded before
-  // being fed.
-  if (auto expanded = inp.getDefiningOp<memref::ExpandShapeOp>()) {
-    auto src = expanded.getSrc();
-    for (Operation *use : src.getUsers()) {
-      if (auto store = dyn_cast<GlobalStoreOp>(use)) {
-        if (result) {
-          LLVM_DEBUG(llvm::dbgs()
-                     << "Multiple global stores somehow, no fusion\n");
-          allValidUses = false;
-        }
-        result = store;
-      }
-    }
-  }
-
   if (!result)
-    LLVM_DEBUG(llvm::dbgs() << "Align tiling: generic not tracing to copy");
+    LLVM_DEBUG(llvm::dbgs() << "Align tiling: generic not tracing to copy\n");
   if (!allValidUses)
     LLVM_DEBUG(llvm::dbgs() << "Align tiling: found invalid use\n");
   return allValidUses ? result : GlobalStoreOp();
@@ -362,18 +495,21 @@ static Value reconfigureLAGeneric(PatternRewriter &b,
   auto regType = laIn.getType().template cast<MemRefType>();
   auto laOut = b.create<GpuAllocOp>(loc, regType);
 
+  AffineMap outIdxMap = idxMaps.back();
+
   SmallVector<AffineMap, 5> laGenericAMaps;
   SmallVector<Value, 5> newInputs;
   for (auto pair : llvm::zip(laGeneric.inputs(), idxMaps)) {
     if (Value inp = std::get<0>(pair)) {
       AffineMap inpIdxMap = std::get<1>(pair);
+      auto invertOutIdxMap = inversePermutation(outIdxMap);
+      auto outToInMap = inpIdxMap.compose(invertOutIdxMap);
       Value newInput;
-      auto expanded = inp.getDefiningOp<memref::ExpandShapeOp>();
-      if (inp == twout || (expanded && expanded.getSrc() == twout)) {
+      if (inp == twout) {
         newInput = laIn;
       } else {
         // 2.1.1. Align tiling of other inputs
-        newInput = applyTransforms(b, gemmGlobalStore, inp, inpIdxMap);
+        newInput = applyTransforms(b, gemmGlobalStore, inp, outToInMap);
       }
       newInputs.push_back(newInput);
       laGenericAMaps.push_back(AffineMap::getMultiDimIdentityMap(
@@ -395,19 +531,6 @@ static Value reconfigureLAGeneric(PatternRewriter &b,
   laGeneric.iterator_typesAttr(b.getArrayAttr(ArrayRef<Attribute>(
       laGenericIteratorArr.begin(), laGenericIteratorArr.end())));
   return laOut;
-}
-
-static bool checkCompatibleTypes(AffineMap inpMap, AffineMap outMap) {
-  if (inpMap == outMap && inpMap.isIdentity())
-    return true;
-
-  // Failing that, the more complicated check is to ensure the input map
-  // can be transformed into the output map.
-  if (inpMap.getNumDims() == outMap.getNumDims()) {
-    SmallVector<uint32_t, 4> permutation;
-    return inpMap.isProjectedPermutation(/*allowZeroInResults=*/true);
-  }
-  return false;
 }
 
 LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
@@ -435,16 +558,15 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   }
 
   SmallVector<AffineMap> idxMaps = laGeneric.getIndexingMapsArray();
-  // Output must be indexed by identity map for this to work
   AffineMap outIdxMap = idxMaps.back();
-  if (!outIdxMap.isIdentity())
-    return failure();
 
   // 1. Trace input to global_store.
   // 1.1. Find the (implicit) gemm output
   GlobalStoreOp gemmStoreOp;
   for (auto pair : llvm::zip(idxMaps, laGeneric.inputs())) {
     AffineMap inpIdxMap = std::get<0>(pair);
+    auto invertOutIdxMap = inversePermutation(outIdxMap);
+    auto outToInMap = inpIdxMap.compose(invertOutIdxMap);
     Value inp = std::get<1>(pair);
     GlobalStoreOp maybeStore = traceToGlobalStore(inp);
     if (maybeStore) {
@@ -453,19 +575,31 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
                    << "Multiple generic inputs come from writeback\n");
         return failure();
       }
-      if (!inpIdxMap.isIdentity()) {
-        LLVM_DEBUG(llvm::dbgs() << "Writeback input not read with identity map "
-                                   "- earlier lowering should've fixed\n");
+      SmallVector<unsigned> broadcastedDims;
+      // This is not to allow broadcasting but due to canonical linalg
+      // form if the unit dims can carry affine expr to be zero in the
+      // translation, hence there is a following check.
+      if (!outToInMap.isMinorIdentityWithBroadcasting(&broadcastedDims)) {
+        LLVM_DEBUG(
+            llvm::dbgs()
+            << "The store is not even a minor identity with broadcasting.\n");
         return failure();
+      }
+      auto inpShape = inp.getType().cast<ShapedType>().getShape();
+      for (auto bDim : broadcastedDims) {
+        if (inpShape[bDim] != 1) {
+          LLVM_DEBUG(llvm::dbgs()
+                     << "The store input cannot be a real broacast.\n");
+          return failure();
+        };
       }
       gemmStoreOp = maybeStore;
     } else {
-      // Other inputs must have access maps compatible with current fusion
-      // rewrites
-      if (!checkCompatibleTypes(inpIdxMap, outIdxMap)) {
-        LLVM_DEBUG(llvm::dbgs() << "Input index map " << inpIdxMap
-                                << " incompatible with output index map "
-                                << outIdxMap << "\n");
+      SmallVector<unsigned> permutedDims;
+      if (!outToInMap.isProjectedPermutation(/*allowZeroInResults=*/true)) {
+        LLVM_DEBUG(llvm::dbgs() << outToInMap << "\n");
+        LLVM_DEBUG(llvm::dbgs() << "^ is not a isProjectedPermutation from "
+                                   "output coords to fusion input\n");
         return failure();
       }
     }
@@ -475,12 +609,6 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     return failure();
   }
   // 2. Apply if input found
-
-  // point back to original memory.
-  if (memref::ExpandShapeOp expanded =
-          out.getDefiningOp<memref::ExpandShapeOp>()) {
-    out = expanded.getSrc();
-  }
 
   Value gemmOuts = gemmStoreOp.getSource();
   auto gemmOutsType = gemmOuts.getType().cast<MemRefType>();
@@ -531,6 +659,7 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
 void RockLinalgAlignPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   RewritePatternSet patterns(ctx);
+  patterns.add<InlineViewLikeOperandsLinalgRewritePattern>(ctx);
   patterns.add<MILARewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
