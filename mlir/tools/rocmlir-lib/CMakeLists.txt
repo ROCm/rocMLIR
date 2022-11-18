@@ -1,8 +1,9 @@
 get_property(rocmlir_dialect_libs GLOBAL PROPERTY ROCMLIR_DIALECT_LIBS)
-
+get_property(rocmlir_capi_libs GLOBAL PROPERTY ROCMLIR_PUBLIC_C_API_LIBS)
 
 set(LIBS
   ${rocmlir_dialect_libs}
+  ${rocmlir_capi_libs}
   LLVMX86AsmParser
 )
 

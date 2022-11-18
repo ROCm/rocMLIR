@@ -68,3 +68,25 @@ function(add_rocmlir_test_library name)
   set_property(GLOBAL APPEND PROPERTY ROCMLIR_TEST_LIBS ${name})
   add_mlir_library(${ARGV} DEPENDS mlir-headers)
 endfunction(add_rocmlir_test_library)
+
+function(add_rocmlir_public_c_api_library name)
+  set_property(GLOBAL APPEND PROPERTY ROCMLIR_PUBLIC_C_API_LIBS ${name})
+  add_mlir_library(${name}
+    ${ARGN}
+    EXCLUDE_FROM_LIBMLIR
+    ENABLE_AGGREGATION
+    ADDITIONAL_HEADER_DIRS
+    ${MLIR_MAIN_INCLUDE_DIR}/mlir-c
+  )
+  # API libraries compile with hidden visibility and macros that enable
+  # exporting from the DLL. Only apply to the obj lib, which only affects
+  # the exports via a shared library.
+  set_target_properties(obj.${name}
+    PROPERTIES
+    CXX_VISIBILITY_PRESET hidden
+  )
+  target_compile_definitions(obj.${name}
+    PRIVATE
+    -DMLIR_CAPI_BUILDING_LIBRARY=1
+  )
+endfunction()
