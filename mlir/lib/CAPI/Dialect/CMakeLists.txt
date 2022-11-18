@@ -1,4 +1,4 @@
-add_mlir_public_c_api_library(MLIRCAPIMIGraphX
+add_rocmlir_public_c_api_library(MLIRCAPIMIGraphX
   MIGraphX.cpp
 
   PARTIAL_SOURCES_INTENDED
@@ -10,7 +10,7 @@ add_mlir_public_c_api_library(MLIRCAPIMIGraphX
   MLIRGPUTransforms
 )
 
-add_mlir_public_c_api_library(MLIRCAPIRock
+add_rocmlir_public_c_api_library(MLIRCAPIRock
   Rock.cpp
 
   PARTIAL_SOURCES_INTENDED
