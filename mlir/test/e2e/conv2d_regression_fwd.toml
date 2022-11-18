@@ -16,6 +16,10 @@ name = "data type"
 values = ["f32", "f16"]
 prefix = "-t "
 
+[[axis]]
+name = "rand type"
+values = ["float"]
+prefix = "-rand_type "
 
 [[suite]]
 name = "config"
