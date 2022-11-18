@@ -57,8 +57,8 @@ extern "C" hipModule_t mgpuModuleLoad(void *data) {
 }
 
 extern "C" void mgpuModuleUnload(hipModule_t module) {
-  HIP_REPORT_IF_ERROR(hipModuleUnload(module));
   HIP_DIAG("mgpuModuleUnload(0x%lx)\n", (uint64_t)module);
+  HIP_REPORT_IF_ERROR(hipModuleUnload(module));
 }
 
 extern "C" hipFunction_t mgpuModuleGetFunction(hipModule_t module,
@@ -79,13 +79,13 @@ extern "C" void mgpuLaunchKernel(hipFunction_t function, intptr_t gridX,
                                  intptr_t blockZ, int32_t smem,
                                  hipStream_t stream, void **params,
                                  void **extra) {
-  HIP_REPORT_IF_ERROR(hipModuleLaunchKernel(function, gridX, gridY, gridZ,
-                                            blockX, blockY, blockZ, smem,
-                                            stream, params, extra));
   HIP_DIAG("mgpuLaunchKernel(0x%lx, %ld, %ld, %ld, %ld, %ld, %ld, %d, 0x%lx, "
            "0x%lx, 0x%lx)\n",
            (uint64_t)function, gridX, gridY, gridZ, blockX, blockY, blockZ,
            smem, (uint64_t)stream, (uint64_t)params, (uint64_t)extra);
+  HIP_REPORT_IF_ERROR(hipModuleLaunchKernel(function, gridX, gridY, gridZ,
+                                            blockX, blockY, blockZ, smem,
+                                            stream, params, extra));
 }
 
 extern "C" hipStream_t mgpuStreamCreate() {
@@ -96,19 +96,19 @@ extern "C" hipStream_t mgpuStreamCreate() {
 }
 
 extern "C" void mgpuStreamDestroy(hipStream_t stream) {
-  HIP_REPORT_IF_ERROR(hipStreamDestroy(stream));
   HIP_DIAG("mgpuStreamDestroy(0x%lx)\n", (uint64_t)stream);
+  HIP_REPORT_IF_ERROR(hipStreamDestroy(stream));
 }
 
 extern "C" void mgpuStreamSynchronize(hipStream_t stream) {
-  HIP_REPORT_IF_ERROR(hipStreamSynchronize(stream));
   HIP_DIAG("mgpuStreamSynchronize(0x%lx)\n", (uint64_t)stream);
+  HIP_REPORT_IF_ERROR(hipStreamSynchronize(stream));
 }
 
 extern "C" void mgpuStreamWaitEvent(hipStream_t stream, hipEvent_t event) {
-  HIP_REPORT_IF_ERROR(hipStreamWaitEvent(stream, event, /*flags=*/0));
   HIP_DIAG("mgpuStreamWaitEvent(0x%lx, 0x%lx)\n", (uint64_t)stream,
            (uint64_t)event);
+  HIP_REPORT_IF_ERROR(hipStreamWaitEvent(stream, event, /*flags=*/0));
 }
 
 extern "C" hipEvent_t mgpuEventCreate() {
@@ -119,19 +119,19 @@ extern "C" hipEvent_t mgpuEventCreate() {
 }
 
 extern "C" void mgpuEventDestroy(hipEvent_t event) {
-  HIP_REPORT_IF_ERROR(hipEventDestroy(event));
   HIP_DIAG("mgpuEventDestroy(0x%lx)\n", (uint64_t)event);
+  HIP_REPORT_IF_ERROR(hipEventDestroy(event));
 }
 
 extern "C" void mgpuEventSynchronize(hipEvent_t event) {
-  HIP_REPORT_IF_ERROR(hipEventSynchronize(event));
   HIP_DIAG("mgpuEventSynchronize(0x%lx)\n", (uint64_t)event);
+  HIP_REPORT_IF_ERROR(hipEventSynchronize(event));
 }
 
 extern "C" void mgpuEventRecord(hipEvent_t event, hipStream_t stream) {
-  HIP_REPORT_IF_ERROR(hipEventRecord(event, stream));
   HIP_DIAG("mgpuEventRecord(0x%lx, 0x%lx)\n", (uint64_t)event,
            (uint64_t)stream);
+  HIP_REPORT_IF_ERROR(hipEventRecord(event, stream));
 }
 
 extern "C" void *mgpuMemAlloc(uint64_t sizeBytes, hipStream_t /*stream*/) {
@@ -142,24 +142,24 @@ extern "C" void *mgpuMemAlloc(uint64_t sizeBytes, hipStream_t /*stream*/) {
 }
 
 extern "C" void mgpuMemFree(void *ptr, hipStream_t /*stream*/) {
-  HIP_REPORT_IF_ERROR(hipFree(ptr));
   HIP_DIAG("mgpuMemFree(0x%lx)\n", (uint64_t)ptr);
+  HIP_REPORT_IF_ERROR(hipFree(ptr));
 }
 
 extern "C" void mgpuMemcpy(void *dst, void *src, size_t sizeBytes,
                            hipStream_t stream) {
-  HIP_REPORT_IF_ERROR(
-      hipMemcpyAsync(dst, src, sizeBytes, hipMemcpyDefault, stream));
   HIP_DIAG("mgpuMemcpy(0x%lx, 0x%lx, %ld, 0x%lx)\n", (uint64_t)dst,
            (uint64_t)src, sizeBytes, (uint64_t)stream);
+  HIP_REPORT_IF_ERROR(
+      hipMemcpyAsync(dst, src, sizeBytes, hipMemcpyDefault, stream));
 }
 
 extern "C" void mgpuMemset32(void *dst, int value, size_t count,
                              hipStream_t stream) {
-  HIP_REPORT_IF_ERROR(hipMemsetD32Async(reinterpret_cast<hipDeviceptr_t>(dst),
-                                        value, count, stream));
   HIP_DIAG("mgpuMemset32(0x%lx, 0x%x, %ld, 0x%lx)\n", (uint64_t)dst, value,
            count, (uint64_t)stream);
+  HIP_REPORT_IF_ERROR(hipMemsetD32Async(reinterpret_cast<hipDeviceptr_t>(dst),
+                                        value, count, stream));
 }
 
 /// Helper functions for writing mlir example code
