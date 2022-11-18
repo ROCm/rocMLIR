@@ -3,32 +3,9 @@
 // CHECK: RMS = {{.*}}e-07
 // COM: CHECK: RMS = {{.*}}e-0[[#%d,RMS:]]
 // COM: how to check min(7, RMS) == 7
+// CHECK: [1 1 0]
 module attributes {torch.debug_module_name = "ResNet"} {
-  func.func @forward(%arg0: tensor<1x3x224x224xf32>) -> tensor<1x64x56x56xf32> {
-    %0 = "tosa.const"() {value = dense<"0xCC1834BE"> : tensor<1x512x1x1xf32>} : () -> tensor<1x512x1x1xf32>
-    %1 = "tosa.const"() {value = dense<"0xC525D8BC"> : tensor<1x256x1x1xf32>} : () -> tensor<1x256x1x1xf32>
-    %2 = "tosa.const"() {value = dense<"0xCA32C93C"> : tensor<1x128x1x1xf32>} : () -> tensor<1x128x1x1xf32>
-    %3 = "tosa.const"() {value = dense<"0xDD5697BC"> : tensor<1000x512xf32>} : () -> tensor<1000x512xf32>
-    %4 = "tosa.const"() {value = dense<"0xFF9E9639"> : tensor<512x512x3x3xf32>} : () -> tensor<512x512x3x3xf32>
-    %5 = "tosa.const"() {value = dense<"0x598903BC"> : tensor<512x512x3x3xf32>} : () -> tensor<512x512x3x3xf32>
-    %6 = "tosa.const"() {value = dense<"0x50B0BA3B"> : tensor<512x256x1x1xf32>} : () -> tensor<512x256x1x1xf32>
-    %7 = "tosa.const"() {value = dense<"0x350F2A39"> : tensor<512x512x3x3xf32>} : () -> tensor<512x512x3x3xf32>
-    %8 = "tosa.const"() {value = dense<"0x9ECC3EBC"> : tensor<512x256x3x3xf32>} : () -> tensor<512x256x3x3xf32>
-    %9 = "tosa.const"() {value = dense<"0x0C5C2EBD"> : tensor<256x256x3x3xf32>} : () -> tensor<256x256x3x3xf32>
-    %10 = "tosa.const"() {value = dense<"0x6E1C463D"> : tensor<256x256x3x3xf32>} : () -> tensor<256x256x3x3xf32>
-    %11 = "tosa.const"() {value = dense<"0xEC7B043C"> : tensor<256x128x1x1xf32>} : () -> tensor<256x128x1x1xf32>
-    %12 = "tosa.const"() {value = dense<"0x900018BC"> : tensor<256x256x3x3xf32>} : () -> tensor<256x256x3x3xf32>
-    %13 = "tosa.const"() {value = dense<"0x684C82BC"> : tensor<256x128x3x3xf32>} : () -> tensor<256x128x3x3xf32>
-    %14 = "tosa.const"() {value = dense<"0x0D5484BC"> : tensor<128x128x3x3xf32>} : () -> tensor<128x128x3x3xf32>
-    %15 = "tosa.const"() {value = dense<"0xB2CA81BA"> : tensor<128x128x3x3xf32>} : () -> tensor<128x128x3x3xf32>
-    %16 = "tosa.const"() {value = dense<"0x6C61823C"> : tensor<128x64x1x1xf32>} : () -> tensor<128x64x1x1xf32>
-    %17 = "tosa.const"() {value = dense<"0xEBB9F3BB"> : tensor<128x128x3x3xf32>} : () -> tensor<128x128x3x3xf32>
-    %18 = "tosa.const"() {value = dense<"0x6C8B92BD"> : tensor<128x64x3x3xf32>} : () -> tensor<128x64x3x3xf32>
-    %19 = "tosa.const"() {value = dense<"0x51BBB0BC"> : tensor<64x64x3x3xf32>} : () -> tensor<64x64x3x3xf32>
-    %20 = "tosa.const"() {value = dense<"0x057BA13C"> : tensor<64x64x3x3xf32>} : () -> tensor<64x64x3x3xf32>
-    %21 = "tosa.const"() {value = dense<"0x538ED43C"> : tensor<64x64x3x3xf32>} : () -> tensor<64x64x3x3xf32>
-    %22 = "tosa.const"() {value = dense<"0x14E76B3D"> : tensor<64x64x3x3xf32>} : () -> tensor<64x64x3x3xf32>
-    %23 = "tosa.const"() {value = dense<"0xEBB52ABC"> : tensor<64x3x7x7xf32>} : () -> tensor<64x3x7x7xf32>
+  func.func @forward(%arg0: tensor<1x3x224x224xf32>, %arg1: tensor<64x3x7x7xf32>, %arg2: tensor<64x64x3x3xf32>, %arg3: tensor<64x64x3x3xf32>) -> tensor<1x64x56x56xf32> {
     %24 = "tosa.const"() {value = dense<0.000000e+00> : tensor<64xf32>} : () -> tensor<64xf32>
     %25 = "tosa.const"() {value = dense<[0, 2, 3, 1]> : tensor<4xi32>} : () -> tensor<4xi32>
     %26 = "tosa.const"() {value = dense<[0, 3, 1, 2]> : tensor<4xi32>} : () -> tensor<4xi32>
@@ -51,7 +28,7 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %103 = "tosa.const"() {value = dense<9.99999974E-6> : tensor<1x1x1xf32>} : () -> tensor<1x1x1xf32>
     
     %107 = "tosa.transpose"(%arg0, %25) : (tensor<1x3x224x224xf32>, tensor<4xi32>) -> tensor<1x224x224x3xf32>
-    %108 = "tosa.transpose"(%23, %25) : (tensor<64x3x7x7xf32>, tensor<4xi32>) -> tensor<64x7x7x3xf32>
+    %108 = "tosa.transpose"(%arg1, %25) : (tensor<64x3x7x7xf32>, tensor<4xi32>) -> tensor<64x7x7x3xf32>
     %109 = "tosa.conv2d"(%107, %108, %24) {dilation = [1, 1], pad = [3, 3, 3, 3], stride = [2, 2]} : (tensor<1x224x224x3xf32>, tensor<64x7x7x3xf32>, tensor<64xf32>) -> tensor<1x112x112x64xf32>
     %110 = "tosa.transpose"(%109, %26) : (tensor<1x112x112x64xf32>, tensor<4xi32>) -> tensor<1x64x112x112xf32>
     %111 = "tosa.sub"(%110, %32) : (tensor<1x64x112x112xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x112x112xf32>
@@ -66,7 +43,7 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %120 = "tosa.max_pool2d"(%119) {kernel = [3, 3], pad = [1, 1, 1, 1], stride = [2, 2]} : (tensor<1x112x112x64xf32>) -> tensor<1x56x56x64xf32>
     %121 = "tosa.transpose"(%120, %26) : (tensor<1x56x56x64xf32>, tensor<4xi32>) -> tensor<1x64x56x56xf32>
     %122 = "tosa.transpose"(%121, %25) : (tensor<1x64x56x56xf32>, tensor<4xi32>) -> tensor<1x56x56x64xf32>
-    %123 = "tosa.transpose"(%22, %25) : (tensor<64x64x3x3xf32>, tensor<4xi32>) -> tensor<64x3x3x64xf32>
+    %123 = "tosa.transpose"(%arg2, %25) : (tensor<64x64x3x3xf32>, tensor<4xi32>) -> tensor<64x3x3x64xf32>
     %124 = "tosa.conv2d"(%122, %123, %24) {dilation = [1, 1], pad = [1, 1, 1, 1], stride = [1, 1]} : (tensor<1x56x56x64xf32>, tensor<64x3x3x64xf32>, tensor<64xf32>) -> tensor<1x56x56x64xf32>
     %125 = "tosa.transpose"(%124, %26) : (tensor<1x56x56x64xf32>, tensor<4xi32>) -> tensor<1x64x56x56xf32>
     %126 = "tosa.sub"(%125, %36) : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
@@ -78,7 +55,7 @@ module attributes {torch.debug_module_name = "ResNet"} {
     %132 = "tosa.add"(%131, %38) : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
     %133 = "tosa.clamp"(%132) {max_fp = 3.40282347E+38 : f32, max_int = 2147483647 : i64, min_fp = 0.000000e+00 : f32, min_int = 0 : i64} : (tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32>
     %134 = "tosa.transpose"(%133, %25) : (tensor<1x64x56x56xf32>, tensor<4xi32>) -> tensor<1x56x56x64xf32>
-    %135 = "tosa.transpose"(%21, %25) : (tensor<64x64x3x3xf32>, tensor<4xi32>) -> tensor<64x3x3x64xf32>
+    %135 = "tosa.transpose"(%arg3, %25) : (tensor<64x64x3x3xf32>, tensor<4xi32>) -> tensor<64x3x3x64xf32>
     %136 = "tosa.conv2d"(%134, %135, %24) {dilation = [1, 1], pad = [1, 1, 1, 1], stride = [1, 1]} : (tensor<1x56x56x64xf32>, tensor<64x3x3x64xf32>, tensor<64xf32>) -> tensor<1x56x56x64xf32>
     %137 = "tosa.transpose"(%136, %26) : (tensor<1x56x56x64xf32>, tensor<4xi32>) -> tensor<1x64x56x56xf32>
     %138 = "tosa.sub"(%137, %40) : (tensor<1x64x56x56xf32>, tensor<1x64x1x1xf32>) -> tensor<1x64x56x56xf32>
