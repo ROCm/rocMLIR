@@ -23,17 +23,14 @@ name = "out_layout"
 values = ["ngchw", "nghwc", "hwcgn"]
 prefix = "-out_layout="
 
+[[axis]]
+name = "in_layout"
+values = ["ngchw", "nghwc", "hwcgn"]
+prefix = "-in_layout="
+
+
 [[suite]]
 name = "MixedConvLayouts"
 
-# NGCHW
 [[suite.test]]
-config = "-in_layout=ngchw -batchsize=32 -in_channels=2 -out_channels=4 -in_h=2 -in_w=2 -fil_h=2 -fil_w=2 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=1 --conv_stride_w=1 -p=false -t f32"
-
-# NGHWC
-[[suite.test]]
-config = "-in_layout=nghwc -batchsize=32 -in_channels=2 -out_channels=4 -in_h=2 -in_w=2 -fil_h=2 -fil_w=2 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=1 --conv_stride_w=1 -p=false -t f32"
-
-# HWCGN
-[[suite.test]]
-config = "-in_layout=hwcgn -batchsize=32 -in_channels=2 -out_channels=4 -in_h=2 -in_w=2 -fil_h=2 -fil_w=2 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=1 --conv_stride_w=1 -p=false -t f32"
+config = "-batchsize=32 -in_channels=2 -out_channels=4 -in_h=2 -in_w=2 -fil_h=2 -fil_w=2 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=1 --conv_stride_w=1 -t f32"
