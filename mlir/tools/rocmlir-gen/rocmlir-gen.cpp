@@ -1723,8 +1723,8 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   return func;
 }
 
-static func::FuncOp
-createCpuGemmKernelWithMlir(ModuleOp module, const GenParams &params) {
+static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
+                                                const GenParams &params) {
   MLIRContext *ctx = module.getContext();
   OpBuilder b(ctx);
   Location loc = module->getLoc();
@@ -2198,7 +2198,6 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       }
     }
   } else if (validationType != "clone") { // -pv_with_cpp or -pv_with_mlir (-pv)
-
     // Emit call to host_<conv>
     if (genParams.convConfig.has_value()) {
       const auto &genConfig = **genParams.convConfig;
