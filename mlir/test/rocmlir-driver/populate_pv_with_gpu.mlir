@@ -1,4 +1,4 @@
-// RUN: rocmlir-gen --arch %arch  -p -mfma=on -dot=on -atomic_add=on -pv_with_gpu | FileCheck %s
+// RUN: rocmlir-gen --arch gfx908  -p -mfma=on -dot=on -atomic_add=on -pv_with_gpu | FileCheck %s
 
 // CHECK: func.func @rock_conv2d_gkcyx_ngchw_ngkhw_0({{.*}}) attributes {kernel = 0 : i32, xmodel.arch = "{{.*}}"} {
 // CHECK: rock.conv2d({{.*}}) features = mfma|dot|atomic_add {[[PARMS:.*]]} : memref<[[FILTERDIMS:[x0-9]+]]xf32>, memref<[[INPUTDIMS:[x0-9]+]]xf32>, memref<[[OUTPUTDIMS:[x0-9]+]]xf32>
@@ -7,7 +7,16 @@
 // CHECK: func.func @rock_conv2d_gkcyx_ngchw_ngkhw_0_ver({{.*}}) attributes {kernel = 0 : i32, xmodel.arch = "{{.*}}"} {
 // CHECK: rock.conv2d({{.*}}) features = dot|atomic_add {{{.*}}} : memref<[[FILTERDIMS]]xf32>, memref<[[INPUTDIMS]]xf32>, memref<[[OUTPUTDIMS]]xf32>
 
-// RUN: rocmlir-gen --arch %arch -mfma=off -atomic_add=off -dot=on  -p -t f16 -pv_with_gpu | FileCheck %s --check-prefix=F16-CHECK
+// RUN: rocmlir-gen --operation gemm --arch gfx908  -p -mfma=on -dot=on -atomic_add=on -pv_with_gpu | FileCheck %s --check-prefix=GEMM-CHECK
+
+// GEMM-CHECK: func.func @rock_gemm({{.*}}) attributes {kernel, xmodel.arch = "{{.*}}"} {
+// GEMM-CHECK: rock.gemm {{.*}} = {{.*}} * {{.*}} features = mfma|dot|atomic_add storeMethod = {{.*}} {[[PARMS:.*]]} : memref<[[CDIMS:[x0-9]+]]xf32> = memref<[[ADIMS:[x0-9]+]]xf32> * memref<[[BDIMS:[x0-9]+]]xf32>
+// GEMM-CHECK: call @rock_gemm_gpu({{.*}}) : (memref<[[ADIMS]]xf32>, memref<[[BDIMS]]xf32>, memref<[[CDIMS]]xf32>) -> ()
+// GEMM-CHECK: call @rock_gemm_ver_gpu({{.*}}) : (memref<[[ADIMS]]xf32>, memref<[[BDIMS]]xf32>, memref<[[CDIMS]]xf32>) -> ()
+// GEMM-CHECK: func.func @rock_gemm_ver({{.*}}) attributes {kernel, xmodel.arch = "{{.*}}"} {
+// GEMM-CHECK: rock.gemm {{.*}} = {{.*}} * {{.*}} features = dot|atomic_add storeMethod = {{.*}} {[[PARMS:.*]]} : memref<[[CDIMS:[x0-9]+]]xf32> = memref<[[ADIMS:[x0-9]+]]xf32> * memref<[[BDIMS:[x0-9]+]]xf32>
+
+// RUN: rocmlir-gen --arch gfx908 -mfma=off -atomic_add=off -dot=on  -p -t f16 -pv_with_gpu | FileCheck %s --check-prefix=F16-CHECK
 
 // F16-CHECK: func.func @rock_conv2d_gkcyx_ngchw_ngkhw_0({{.*}}) attributes {kernel = 0 : i32, xmodel.arch = "{{.*}}"} {
 // F16-CHECK: rock.conv2d({{.*}}) features = dot {[[PARMS:.*]]} : memref<[[FILTERDIMS:[x0-9]+]]xf16>, memref<[[INPUTDIMS:[x0-9]+]]xf16>, memref<[[OUTPUTDIMS:[x0-9]+]]xf16>
@@ -15,3 +24,12 @@
 // F16-CHECK: call @rock_conv2d_gkcyx_ngchw_ngkhw_0_ver_gpu({{.*}}) : (memref<[[FILTERDIMS]]xf32>, memref<[[INPUTDIMS]]xf32>, memref<[[OUTPUTDIMS]]xf32>) -> ()
 // F16-CHECK: func.func @rock_conv2d_gkcyx_ngchw_ngkhw_0_ver({{.*}}) attributes {kernel = 0 : i32, xmodel.arch = "{{.*}}"} {
 // F16-CHECK: rock.conv2d({{.*}}) features = dot {{{.*}} : memref<[[FILTERDIMS]]xf32>, memref<[[INPUTDIMS]]xf32>, memref<[[OUTPUTDIMS]]xf32>
+
+// RUN: rocmlir-gen --operation gemm --arch gfx908 -mfma=off -atomic_add=off -dot=on -p -t f16 -pv_with_gpu | FileCheck %s --check-prefix=GEMM-F16-CHECK
+
+// GEMM-F16-CHECK: func.func @rock_gemm({{.*}}) attributes {kernel, xmodel.arch = "{{.*}}"} {
+// GEMM-F16-CHECK: rock.gemm {{.*}} = {{.*}} * {{.*}} features = dot storeMethod = {{.*}} {[[PARMS:.*]]} : memref<[[CDIMS:[x0-9]+]]xf16> = memref<[[ADIMS:[x0-9]+]]xf16> * memref<[[BDIMS:[x0-9]+]]xf16>
+// GEMM-F16-CHECK: call @rock_gemm_gpu({{.*}}) : (memref<[[ADIMS]]xf16>, memref<[[BDIMS]]xf16>, memref<[[CDIMS]]xf16>) -> ()
+// GEMM-F16-CHECK: call @rock_gemm_ver_gpu({{.*}}) : (memref<[[ADIMS]]xf32>, memref<[[BDIMS]]xf32>, memref<[[CDIMS]]xf32>) -> ()
+// GEMM-F16-CHECK: func.func @rock_gemm_ver({{.*}}) attributes {kernel, xmodel.arch = "{{.*}}"} {
+// GEMM-F16-CHECK: rock.gemm {{.*}} = {{.*}} * {{.*}} features = dot storeMethod = {{.*}} {[[PARMS:.*]]} : memref<[[CDIMS:[x0-9]+]]xf32> = memref<[[ADIMS:[x0-9]+]]xf32> * memref<[[BDIMS:[x0-9]+]]xf32>

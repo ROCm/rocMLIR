@@ -531,6 +531,7 @@ struct GenParams {
   Type dtype = nullptr;
   rock::GemmFeatures features = rock::GemmFeatures::none;
   llvm::Optional<const rock::Conv2dGenerator::Config *> convConfig = llvm::None;
+  StringRef arch;
 };
 
 namespace test {
@@ -1678,25 +1679,29 @@ static void getGemmTypes(Type inType, SmallVectorImpl<Type> &result) {
   result.push_back(cType);
 }
 
-static void createGpuGemmKernel(ModuleOp module, StringRef arch,
-                                const GenParams &params) {
+static func::FuncOp createGpuGemmKernel(ModuleOp module,
+                                        const GenParams &params,
+                                        bool is_verifier = false) {
   MLIRContext *ctx = module.getContext();
   Location loc = module->getLoc();
   OpBuilder b(ctx);
 
   // Set xmodel.arch on module to make compilation pipeline work
-  StringAttr archAttr = b.getStringAttr(arch);
+  StringAttr archAttr = b.getStringAttr(params.arch);
   if (!module->hasAttr("xmodel.arch"))
     module->setAttr("xmodel.arch", archAttr);
 
   SmallVector<Type, 3> argTypes;
   getGemmTypes(params.dtype, argTypes);
   constexpr StringLiteral kernelName("rock_gemm");
+  constexpr StringLiteral kernelNameVerifier("rock_gemm_ver");
+
   SmallVector<NamedAttribute, 2> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
       b.getNamedAttr("xmodel.arch", archAttr)};
-  auto func = b.create<func::FuncOp>(
-      loc, kernelName, b.getFunctionType(argTypes, {}), funcAttrs);
+  auto func =
+      b.create<func::FuncOp>(loc, is_verifier ? kernelNameVerifier : kernelName,
+                             b.getFunctionType(argTypes, {}), funcAttrs);
 
   Block *block = func.addEntryBlock();
   b.setInsertionPointToStart(block);
@@ -1715,6 +1720,7 @@ static void createGpuGemmKernel(ModuleOp module, StringRef arch,
   b.create<func::ReturnOp>(loc);
 
   module.push_back(func);
+  return func;
 }
 
 static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
@@ -2120,51 +2126,77 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
   auto loc = b.getUnknownLoc();
   bool hasXdlops =
       rock::bitEnumContainsAll(genParams.features, rock::GemmFeatures::mfma);
-  if (genParams.convConfig.has_value() && validationType == "gpu" &&
+  if (validationType == "gpu" &&
       (hasXdlops || genParams.dtype.isF16() || genParams.dtype.isBF16())) {
-    // generate generic kernels
-    const auto &genConfig = **genParams.convConfig;
-    rock::Conv2dGenerator conv2dGenerator(genConfig);
-    // use non-xdlops kernels to verify xdlops kernels
-    if (hasXdlops)
-      conv2dGenerator.flipXdlops();
-    if (!hasXdlops || genConfig.dataTypeStr != "i8")
-      // use f32 data type to verify non-f32 or xdlops f32 kernels
-      // except that i8 xdlops is verified with i8 non-xdlops
-      conv2dGenerator.setDataType("f32");
 
-    int kernelStart = genConfig.kernelId;
-    int kernelCount = conv2dGenerator.getKernelCount(b);
-    if (kernelStart < 0) {
-      kernelStart = 0;
-    } else {
-      kernelCount = kernelStart + 1;
-    }
-    // generate all sub-kernels, and get corresponding gemmId
-    std::string kernelBaseName = genConfig.kernelBaseName;
-    for (int i = kernelStart; i < kernelCount; ++i) {
-      conv2dGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
-      if (failed(conv2dGenerator.genConvModule(module, i, true,
-                                               /*ignoreTuning=*/true))) {
-        llvm::errs() << "Module population failed.\n";
-        exit(1);
+    if (genParams.convConfig.has_value()) { // conv GPU validation
+      // generate generic kernels
+      const auto &genConfig = **genParams.convConfig;
+      rock::Conv2dGenerator conv2dGenerator(genConfig);
+      // use non-xdlops kernels to verify xdlops kernels
+      if (hasXdlops)
+        conv2dGenerator.flipXdlops();
+      if (!hasXdlops || genConfig.dataTypeStr != "i8")
+        // use f32 data type to verify non-f32 or xdlops f32 kernels
+        // except that i8 xdlops is verified with i8 non-xdlops
+        conv2dGenerator.setDataType("f32");
+
+      int kernelStart = genConfig.kernelId;
+      int kernelCount = conv2dGenerator.getKernelCount(b);
+      if (kernelStart < 0) {
+        kernelStart = 0;
+      } else {
+        kernelCount = kernelStart + 1;
       }
-      KernelIF kernel(conv2dGenerator.getKernelFunc());
-      rock::Conv2dGenerator::Config newConfig = conv2dGenerator.getConfig();
-      auto kernelWrapperFunc = createGPUWrapper(module, kernel);
+      // generate all sub-kernels, and get corresponding gemmId
+      std::string kernelBaseName = genConfig.kernelBaseName;
+      llvm::errs() << kernelBaseName << "\n";
+      for (int i = kernelStart; i < kernelCount; ++i) {
+        conv2dGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
+        if (failed(conv2dGenerator.genConvModule(module, i, true,
+                                                 /*ignoreTuning=*/true))) {
+          llvm::errs() << "Module population failed.\n";
+          exit(1);
+        }
+        KernelIF kernel(conv2dGenerator.getKernelFunc());
+        rock::Conv2dGenerator::Config newConfig = conv2dGenerator.getConfig();
+        auto kernelWrapperFunc = createGPUWrapper(module, kernel);
 
-      // Decide whether to trim the last workspace argument to the verifier
-      // GPU kernel.
-      rock::Conv2dGenerator originalConv2dGenerator(genConfig);
-      bool originalHasWorkspace = originalConv2dGenerator.hasWorkspace(b);
-      bool verifierHasWorkspace = conv2dGenerator.hasWorkspace(b);
-      if (originalHasWorkspace && !verifierHasWorkspace) {
-        valVars.resize(valVars.size() - 1);
+        // Decide whether to trim the last workspace argument to the verifier
+        // GPU kernel.
+        rock::Conv2dGenerator originalConv2dGenerator(genConfig);
+        bool originalHasWorkspace = originalConv2dGenerator.hasWorkspace(b);
+        bool verifierHasWorkspace = conv2dGenerator.hasWorkspace(b);
+        if (originalHasWorkspace && !verifierHasWorkspace) {
+          valVars.resize(valVars.size() - 1);
+        }
+
+        b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
       }
+      conv2dGenerator.setKernelName(kernelBaseName);
+    } else { // gemm GPU validation
+      bool hasXdlops = rock::bitEnumContainsAll(genParams.features,
+                                                rock::GemmFeatures::mfma);
 
-      b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
+      if (validationType == "gpu" &&
+          (hasXdlops || genParams.dtype.isF16() || genParams.dtype.isBF16())) {
+        GenParams newParams = genParams;
+
+        if (hasXdlops)
+          newParams.features =
+              genParams.features ^ mlir::rock::GemmFeatures::mfma;
+
+        if (!hasXdlops || !genParams.dtype.isInteger(8))
+          // use f32 data type to verify non-f32 or xdlops f32 kernels
+          // except that i8 xdlops is verified with i8 non-xdlops
+          newParams.dtype = b.getF32Type();
+
+        KernelIF kernel(
+            createGpuGemmKernel(module, newParams, /*is_verifier=*/true));
+        auto kernelWrapperFunc = createGPUWrapper(module, kernel);
+        b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
+      }
     }
-    conv2dGenerator.setKernelName(kernelBaseName);
   } else if (validationType != "clone") { // -pv_with_cpp or -pv_with_mlir (-pv)
     // Emit call to host_<conv>
     if (genParams.convConfig.has_value()) {
@@ -2552,7 +2584,8 @@ int main(int argc, char **argv) {
         Type elemType = typeFromString(tensorDataType, &context);
         genParams.dtype = elemType;
         genParams.convConfig = llvm::None;
-        createGpuGemmKernel(module, arch, genParams);
+        genParams.arch = arch;
+        (void)createGpuGemmKernel(module, genParams);
       } else {
         conv2dGenerator = rock::Conv2dGenerator(
             arch, chip, triple, chipFeatures, perfConfig.getValue(),
