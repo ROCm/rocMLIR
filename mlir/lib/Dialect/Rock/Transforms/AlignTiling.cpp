@@ -114,6 +114,39 @@ getDelinearizedAffineExpr(mlir::ArrayRef<int64_t> strides,
   return vectorOffsets;
 }
 
+// This function will create a affine map that represent the mapping
+// from higher rank memref type to lower rank memref type.
+static AffineMap createHigherToLowerRankViewAffineMap(PatternRewriter &rewriter,
+                                                      ArrayRef<ReassociationIndices> reassociationIndices,
+                                                      const MemRefType& higherRankType,
+                                                      const MemRefType& lowerRankType){
+    SmallVector<AffineExpr, 4> resultExprs;
+    int iDimCount = 0;
+    for (SmallVector<int64_t, 2> groups :
+         reassociationIndices) {
+      assert(!groups.empty() && "association indices groups cannot be empty");
+      unsigned groupSize = groups.size();
+      SmallVector<int64_t> suffixProduct(groupSize);
+      // Calculate suffix product for all collapse op source dimension sizes.
+      suffixProduct[groupSize - 1] = 1;
+      for (unsigned i = groupSize - 1; i > 0; i--)
+        suffixProduct[i - 1] =
+            suffixProduct[i] * higherRankType.getDimSize(groups[i]);
+      // Derive the index values along all dimensions of the source
+      // corresponding to the index wrt to collapsed shape op output.
+      SmallVector<AffineExpr, 4> srcIndexExpr = getDelinearizedAffineExpr(
+          suffixProduct, higherRankType.cast<ShapedType>().getShape(),
+          rewriter, iDimCount++);
+      for (unsigned i = 0; i < groupSize; i++) {
+        resultExprs.push_back(srcIndexExpr[i]);
+      }
+    }
+    auto representativeMap = AffineMap::get(
+        /*numDims=*/lowerRankType.cast<ShapedType>().getShape().size(),
+        /*numSymbols=*/0, resultExprs, rewriter.getContext());
+    return representativeMap;
+}
+
 // This function will traverse the operands of the linalg.generic folding
 // the view like ops to the indexing maps and returning the ultimate
 // folded map as well as the root operand.
@@ -123,43 +156,27 @@ foldViewLikeOperands(PatternRewriter &rewriter, Value op, AffineMap &foldedMap,
                      SmallVectorImpl<Operation *> &toBeErasedViewLikeOps) {
   if (memref::CollapseShapeOp collapseOp =
           op.getDefiningOp<memref::CollapseShapeOp>()) {
-    SmallVector<AffineExpr, 4> resultExprs;
-    int iDimCount = 0;
-    for (SmallVector<int64_t, 2> groups :
-         collapseOp.getReassociationIndices()) {
-      assert(!groups.empty() && "association indices groups cannot be empty");
-      unsigned groupSize = groups.size();
-      SmallVector<int64_t> suffixProduct(groupSize);
-      // Calculate suffix product for all collapse op source dimension sizes.
-      suffixProduct[groupSize - 1] = 1;
-      for (unsigned i = groupSize - 1; i > 0; i--)
-        suffixProduct[i - 1] =
-            suffixProduct[i] * collapseOp.getSrcType().getDimSize(groups[i]);
-      // Derive the index values along all dimensions of the source
-      // corresponding to the index wrt to collapsed shape op output.
-      SmallVector<AffineExpr, 4> srcIndexExpr = getDelinearizedAffineExpr(
-          suffixProduct, collapseOp.getSrcType().cast<ShapedType>().getShape(),
-          rewriter, iDimCount++);
-      for (unsigned i = 0; i < groupSize; i++) {
-        resultExprs.push_back(srcIndexExpr[i]);
-      }
-    }
-    auto representativeMap = AffineMap::get(
-        /*numDims=*/collapseOp.getType().cast<ShapedType>().getShape().size(),
-        /*numSymbols=*/0, resultExprs, rewriter.getContext());
+    SmallVector<mlir::ReassociationIndices, 4U> reassociationIndices = collapseOp.getReassociationIndices();
+    MemRefType lowerRankType = collapseOp.getType();
+    MemRefType higherRankType = collapseOp.getSrcType();
+    auto representativeMap = createHigherToLowerRankViewAffineMap(rewriter, reassociationIndices, higherRankType, lowerRankType);
     foldedMap = representativeMap.compose(foldedMap);
     toBeErasedViewLikeOps.push_back(collapseOp);
     return foldViewLikeOperands(rewriter, collapseOp.getViewSource(), foldedMap,
                                 rootOp, toBeErasedViewLikeOps);
   }
-  if (memref::ExpandShapeOp expandShapeOp =
+  if (memref::ExpandShapeOp expandOp =
           op.getDefiningOp<memref::ExpandShapeOp>()) {
-    LLVM_DEBUG(llvm::dbgs() << "InlineViewLikeOperandsLinalgRewritePattern "
-                               "does not currently support expand shapes as it "
-                               "is unlikely encounter with drop unit dims\n");
-    LLVM_DEBUG(llvm::dbgs()
-               << "If needed, it would be similiar to add logic as above.\n");
-    return failure();
+    SmallVector<mlir::ReassociationIndices, 4U> reassociationIndices = expandOp.getReassociationIndices();
+    MemRefType higherRankType = expandOp.getType();
+    MemRefType lowerRankType = expandOp.getSrcType();
+    auto representativeMap = createHigherToLowerRankViewAffineMap(rewriter, reassociationIndices, higherRankType, lowerRankType);
+    // We take the inverse here because in expand shape it is going from lower to higher rank.
+    representativeMap = inversePermutation(representativeMap);
+    foldedMap = representativeMap.compose(foldedMap);
+    toBeErasedViewLikeOps.push_back(expandOp);
+    return foldViewLikeOperands(rewriter, expandOp.getViewSource(), foldedMap,
+                                rootOp, toBeErasedViewLikeOps);
   }
   rootOp = op;
   return success();
