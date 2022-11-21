@@ -84,7 +84,6 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   pm.addPass(createConvertTensorToLinalgPass());
   pm.addNestedPass<func::FuncOp>(createLinalgInitTensorToAllocTensorPass());
   pm.addNestedPass<func::FuncOp>(createLinalgFoldUnitExtentDimsPass());
-  pm.addNestedPass<func::FuncOp>(memref::createFoldMemRefAliasOpsPass());
 
   bufferization::OneShotBufferizationOptions bufOpts;
   bufOpts.allowReturnAllocs = true;
