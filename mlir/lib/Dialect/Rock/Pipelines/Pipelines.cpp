@@ -28,6 +28,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
+#include "mlir/Dialect/MemRef/Transforms/Passes.h"
 
 #include "mlir/Conversion/RocMLIRPasses.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
@@ -61,6 +62,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   /* rocmlir-opt --linalg-fuse-elementwise-ops
    */
   pm.addNestedPass<func::FuncOp>(createLinalgElementwiseOpFusionPass());
+  pm.addNestedPass<func::FuncOp>(createLinalgFoldUnitExtentDimsPass());
 
   // for tosa control flow
   /* rocmlir-opt --tosa-to-scf --tosa-to-arith
@@ -81,6 +83,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
 
   pm.addPass(createConvertTensorToLinalgPass());
   pm.addNestedPass<func::FuncOp>(createLinalgInitTensorToAllocTensorPass());
+  pm.addNestedPass<func::FuncOp>(createLinalgFoldUnitExtentDimsPass());
 
   bufferization::OneShotBufferizationOptions bufOpts;
   bufOpts.allowReturnAllocs = true;
