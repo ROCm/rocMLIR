@@ -1,7 +1,7 @@
 // RUN: rocmlir-opt -migraphx-to-tosa %s | rocmlir-driver -host-pipeline highlevel | rocmlir-opt --rock-fold-transpose -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-gridwise-gemm-to-blockwise -rock-linalg-align | FileCheck %s
 
 module {
-    // CHECK-DAG: #[[MAP:.*]] = #rock.transform_map<affine_map<(d0, d1, d2, d3) -> (0, d1, 0, 0)> by [<PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <Broadcast{1, 1, 1} ["dim0", "dim2", "dim3"] at [0, 2, 3] -> ["dim0", "dim2", "dim3"] at [0, 2, 3]>] bounds = [4, 4, 1, 1] -> [1, 4, 1, 1]>
+    // CHECK-DAG: #[[MAP:.*]] = #rock.transform_map<affine_map<(d0, d1, d2, d3) -> (0, d1, 0, 0)> by [<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <Broadcast{1} ["dim2"] at [2] -> ["dim2"] at [2]>, <Broadcast{1} ["dim3"] at [3] -> ["dim3"] at [3]>] bounds = [4, 4, 1, 1] -> [1, 4, 1, 1]>
     // CHECK: rock.transforming_for{{.*}}#[[MAP]]
     // CHECK-NEXT: %[[ldVal:.*]] = rock.global_load{{.*}}: memref<1x4x1x1xf32> -> f32
     // CHECK-NEXT: rock.in_bounds_store %[[ldVal]]{{.*}}: f32 -> memref<1xf32, 5>, index
