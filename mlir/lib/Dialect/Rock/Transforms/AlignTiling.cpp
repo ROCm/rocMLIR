@@ -85,7 +85,7 @@ static void getDelinearizedAffineExpr(mlir::ArrayRef<int64_t> strides,
     res[0] = resultExpr;
     return;
   }
-  for (unsigned i = 0; i < rank; i++) {
+  for (int i = 0; i < rank; i++) {
     // If the current shape is 1 and the rank is non-zero,
     // could only mean it is being broadcasted. Hence,
     // putting zero.
@@ -99,7 +99,16 @@ static void getDelinearizedAffineExpr(mlir::ArrayRef<int64_t> strides,
       if (i - 1 >= 0 && shapes[i] != strides[i - 1]) {
         res[i] = res[i] % strides[i - 1];
       }
-      res[i] = res[i].floorDiv(strides[i]);
+
+      if (shapes[i] > strides[i]) {
+        // We only need the floorDiv if the dimSize
+        // is larger than the stride
+        res[i] = res[i].floorDiv(strides[i]);
+      } else if (shapes[i] < strides[i]) {
+        // if the shape is smaller than the stride
+        // expr might as well be zero.
+        res[i] = res[i] * 0;
+      }
 
       // The resultExpr has to propagated anyway for
       // other dimensions where the recording in the above
@@ -130,12 +139,15 @@ static AffineMap createHigherToLowerRankViewAffineMap(
     for (unsigned i = groupSize - 1; i > 0; i--)
       suffixProduct[i - 1] =
           suffixProduct[i] * higherRankType.getDimSize(groups[i]);
+    SmallVector<int64_t> shapes(groupSize);
+    for (unsigned i = 0; i < groupSize; i++) {
+      shapes[i] = higherRankType.getDimSize(groups[i]);
+    }
     // Derive the index values along all dimensions of the source
     // corresponding to the index wrt to collapsed shape op output.
     SmallVector<AffineExpr, 4> srcIndexExpr(suffixProduct.size());
-    getDelinearizedAffineExpr(suffixProduct,
-                              higherRankType.cast<ShapedType>().getShape(),
-                              rewriter, iDimCount++, srcIndexExpr);
+    getDelinearizedAffineExpr(suffixProduct, shapes, rewriter, iDimCount++,
+                              srcIndexExpr);
     for (unsigned i = 0; i < groupSize; i++) {
       resultExprs.push_back(srcIndexExpr[i]);
     }
