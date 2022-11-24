@@ -72,7 +72,7 @@ void xmodel::buildGraphPipeline(OpPassManager &pm,
   // pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
 
   tosa::TosaPartitionOptions opts;
-  opts.anchorOps = {"tosa.conv2d", "tosa.depthwise_conv2d"};
+  opts.anchorOps = {"tosa.conv2d", "tosa.depthwise_conv2d", "tosa.matmul"};
   opts.trailingOnly = true;
   pm.addPass(tosa::createTosaPartition(opts));
 
