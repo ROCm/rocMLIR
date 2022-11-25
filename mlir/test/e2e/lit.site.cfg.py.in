@@ -51,7 +51,7 @@ if config.rocm_path:
                                 check=True, stdout=subprocess.PIPE)
             agents = set(x.decode("utf-8") for x in q.stdout.split() if x != b"gfx000")
         config.arch = ','.join(agents)
-        for x in config.arch:
+        for x in agents:
             if "gfx908" in x or "gfx90a" in x:
                 config.arch_support_mfma = True
             # Check other features here
