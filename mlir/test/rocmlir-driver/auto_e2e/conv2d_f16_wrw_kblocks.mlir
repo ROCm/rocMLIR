@@ -1,3 +1,0 @@
-// RUN: rocmlir-gen --arch %arch --operation conv2d_bwd_weight -t f16 --fil_layout kcyx --in_layout nchw --out_layout nkhw --batchsize 64 --in_channels 64 --in_h 4 --in_w 4 --out_channels 64 --fil_h 2 --fil_w 2 --dilation_h 1 --dilation_w 1 --conv_stride_h 2 --conv_stride_w 2 --padding_h_l 2 --padding_h_r 1 --padding_w_l 2 --padding_w_r 0 %pv %random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-cpu-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CHECK_F16_WRW_KBLOCKS
-
-// CHECK_F16_WRW_KBLOCKS: [1 1 1]
