@@ -40,6 +40,11 @@ if (ROCK_E2E_TEST_ENABLED)
     conv2d_wrw_perf_config
   )
 endif()
+if (ROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED)
+  list(APPEND CONFIGS
+    Resnet101Config
+  )
+endif()
 # Create a list for dummy files
 set(CONFIG_DUMMY_FILES ${CONFIGS})
 list(TRANSFORM CONFIG_DUMMY_FILES PREPEND ${E2E_DIR}/)
