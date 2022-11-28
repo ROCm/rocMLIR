@@ -38,10 +38,6 @@ if (ROCK_E2E_TEST_ENABLED)
     conv2d_regression_fwd
     conv2d_regression_bwd
     conv2d_wrw_perf_config
-  )
-endif()
-if (ROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED)
-  list(APPEND CONFIGS
     Resnet101Config
   )
 endif()
