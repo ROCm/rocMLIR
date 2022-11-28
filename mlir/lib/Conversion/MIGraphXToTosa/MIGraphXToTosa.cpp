@@ -41,7 +41,7 @@ static bool isBroadcastable(Operation *op, Operation *operand) {
 template <typename TosaOp, typename... Args>
 static TosaOp createOpAndInfer(mlir::PatternRewriter &rewriter,
                                mlir::Location loc, Type elemType,
-                               Args &&... args) {
+                               Args &&...args) {
   auto op =
       rewriter.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
   InferShapedTypeOpInterface shapeInterface =
@@ -320,7 +320,8 @@ public:
     ArrayRef<int64_t> orgOutDims = outputTy.getShape();
     RankedTensorType newOutType = RankedTensorType::get(orgOutDims, elementTy);
     size_t outRank = orgOutDims.size();
-    if (outRank > 3) { // A, B, Out have the same rank
+
+    if (outRank != 3) { // A, B, Out have the same rank. rank=2 assumes batch=1
       ArrayRef<int64_t> orgDimsA = in_A.getType().cast<ShapedType>().getShape();
       ArrayRef<int64_t> orgDimsB = in_B.getType().cast<ShapedType>().getShape();
       int64_t batchSize = 1;
@@ -354,7 +355,7 @@ public:
     if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
       mop->setAttr("perf_config", attr);
 
-    if (outRank > 3) {
+    if (outRank != 3) {
       auto rop = rewriter.create<tosa::ReshapeOp>(
           loc, outputTy, mop, rewriter.getI64ArrayAttr(orgOutDims));
       rewriter.replaceOp(op, {rop});

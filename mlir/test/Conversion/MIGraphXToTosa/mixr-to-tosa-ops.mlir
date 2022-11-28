@@ -15,6 +15,13 @@ module  {
      return %0 : tensor<2x16x256x768xf32>
   }
 
+  // CHECK-LABEL: func.func @matmul_rank2
+  // CHECK: tosa.matmul
+  func.func @matmul_rank2(%arg0: tensor<32x72xf32>, %arg1: tensor<72x64xf32>) -> tensor<32x64xf32> {
+    %0 = "migraphx.dot"(%arg0, %arg1) : (tensor<32x72xf32>, tensor<72x64xf32>) -> tensor<32x64xf32>
+     return %0 : tensor<32x64xf32>
+  }
+
   // CHECK-LABEL: func.func @func_power
   // CHECK: tosa.pow
   func.func @func_power(%arg0: tensor<16xf32>, %arg1: tensor<16xf32>) -> tensor<16xf32> {
