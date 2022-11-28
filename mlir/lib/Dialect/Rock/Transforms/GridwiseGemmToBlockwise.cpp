@@ -96,15 +96,13 @@ bestVectorization(OpBuilder &b, Value matrix, int64_t dataPerThread,
   std::tie(tensor, transforms) = untransform(b, matrix);
   ArrayRef<int64_t> tensorShape =
       tensor.getType().cast<MemRefType>().getShape();
-  int64_t kVectorLen =
-      getMaxVectorization(transforms, static_cast<uint32_t>(GemmDimension::K),
-                          dataPerThread, tensorShape);
-  kVectorLen = std::min(kVectorLen, kPerBlock);
+  int64_t kVectorLen = getMaxVectorization(
+      transforms, static_cast<uint32_t>(GemmDimension::K),
+      math_util::gcd(dataPerThread, kPerBlock), tensorShape);
 
   int64_t dVectorLen = getMaxVectorization(
-      transforms, static_cast<uint32_t>(GemmDimension::MorN), dataPerThread,
-      tensorShape);
-  dVectorLen = std::min(dVectorLen, dPerBlock);
+      transforms, static_cast<uint32_t>(GemmDimension::MorN),
+      math_util::gcd(dataPerThread, dPerBlock), tensorShape);
 
   if (kVectorLen > dVectorLen)
     return {GemmDimension::K, kVectorLen};
