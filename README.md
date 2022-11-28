@@ -1,5 +1,5 @@
 # MLIR-based convolution and GEMM kernel generator for ROCm
-
+ 
 This is the repository for a MLIR-based convolution and GEMM kernel generator
 targetting AMD hardware. This generator is mainly used from
 [MIOpen](https://github.com/ROCmSoftwarePlatform/MIOpen/)
