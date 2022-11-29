@@ -25,7 +25,9 @@ set(LOCAL_CONFIG_FILE_BIN ${CMAKE_CURRENT_BINARY_DIR}/lit.local.cfg)
 set(GEN_MODE "-s")
 if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
   list(APPEND CONFIGS
-    PrGemm)
+    PrGemm
+    PrResnet50
+  )
   set(GEN_MODE "")
 endif()
 if (ROCK_E2E_TEST_ENABLED)
