@@ -329,8 +329,12 @@ static Value insertTransposeAndBroadcastTransforms(PatternRewriter &b,
         (inpIdxMap.isMinorIdentityWithBroadcasting(&bcastDims)) &&
         "this is guranteed by createPermutationForMinorIdentityWithBroadcast");
 
+    // Broadcast those dimensions that the original linalg.generic map specifies
+    // are broadcast and collect their locations, accounting for the leading
+    // dimensions not represented in that map but which are present in the gemm
+    // coordinates
     BottomUpTMBuilder bcastTransform(b, inpShape, loc);
-    bool isBcastDone = false;
+    bool hasBcast = false;
     for (uint32_t i = 0; i < inpShape.size(); ++i) {
       if (!llvm::is_contained(bcastDims, i)) {
         // Here the diff correspond to leading dropped dimensions when going
@@ -339,15 +343,20 @@ static Value insertTransposeAndBroadcastTransforms(PatternRewriter &b,
         passThroughInDims.push_back(diff + i);
         bcastTransform.passThrough({i}, {i});
       } else {
-        isBcastDone = true;
+        hasBcast = true;
         bcastInDims.push_back(diff + i);
         bcastTransform.broadcast({i}, {outShape[diff + i]});
       }
     }
-    if (isBcastDone) {
+    if (hasBcast) {
       inp = b.create<TransformOp>(loc, inp, bcastTransform.get());
     }
 
+    // Then, add dimensions that are present in the writeback coordinates but
+    // are not present in the additional fusion argument with matching sizes.
+    // This, combined with the previous step, ensures that the view of the
+    // fusion argument has the same dimensions as the gemm output, though they
+    // are not necessarily in the same order.
     bool isDimAdded = false;
     BottomUpTMBuilder addDimtransform(
         b, inp.getType().cast<ShapedType>().getShape(), loc);
@@ -368,6 +377,12 @@ static Value insertTransposeAndBroadcastTransforms(PatternRewriter &b,
       inp = b.create<TransformOp>(loc, inp, addDimtransform.get());
     }
 
+    // Permute the dimensions of the fusion argument to match those of the gemm
+    // writeback by applying the inverse of the permutation that would have made
+    // the original indexing map into a minor identity with broadcast. The
+    // inverse of that permutation takes the gemm writeback coordinates and
+    // scatters them into positions that match the non-identity indexing pattern
+    // of the fusion argument.
     if (!permMap.isIdentity()) {
         BottomUpTMBuilder permtransform(b, inp.getType().cast<ShapedType>().getShape(), loc);
         llvm::SmallVector<uint32_t, 4> identityVec;
