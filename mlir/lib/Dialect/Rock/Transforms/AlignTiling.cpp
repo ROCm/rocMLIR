@@ -264,6 +264,11 @@ struct MILARewritePattern : public OpRewritePattern<linalg::GenericOp> {
 // This function will create a permutation that will permute the originalMap to
 // be a MinorIdentityWithBroadcast. This is used to add a permutation later in
 // the chain.
+// e.g. :
+// (d0, d1, d2, d4) -> (0, d1) was the map
+// This function will return a permutation : [0, 3, 2, 1] s.t.
+// apply it to the original map would result in
+// (d0, d4, d2, d1) -> (0, d1) in effect.
 static void createPermutationForMinorIdentityWithBroadcast(
     const AffineMap &originalMap, SmallVectorImpl<uint32_t> &perm) {
   for (uint32_t i = 0; i < originalMap.getNumInputs(); ++i) {
@@ -273,7 +278,7 @@ static void createPermutationForMinorIdentityWithBroadcast(
   llvm::SmallSet<uint32_t, 4> foundInputDims;
   for (const auto &idxAndValue : llvm::enumerate(originalMap.getResults())) {
     auto idx = idxAndValue.index();
-    auto resultExpr = idxAndValue.value();
+    AffineExpr resultExpr = idxAndValue.value();
     if (resultExpr.isa<AffineDimExpr>()) {
       foundInputDims.insert(originalMap.getDimPosition(idx));
     }
@@ -281,7 +286,7 @@ static void createPermutationForMinorIdentityWithBroadcast(
 
   for (const auto &idxAndValue : llvm::enumerate(originalMap.getResults())) {
     auto idx = idxAndValue.index();
-    auto resultExpr = idxAndValue.value();
+    AffineExpr resultExpr = idxAndValue.value();
     if (resultExpr.isa<AffineDimExpr>()) {
       auto swap1 = originalMap.getDimPosition(idx);
       auto swap2 =
@@ -309,7 +314,7 @@ static Value insertTransposeAndBroadcastTransforms(PatternRewriter &b,
     ArrayRef<int64_t> inpShape = inpType.getShape();
     ArrayRef<int64_t> outShape = outType.getShape();
 
-    uint32_t diff = outShape.size() - inpShape.size();
+    int64_t diff = outShape.size() - inpShape.size();
     LLVM_DEBUG(llvm::dbgs() << "Reached makeBroadcast with map " << inpIdxMap
                             << " and diff = " << diff << "\n");
 
@@ -347,10 +352,11 @@ static Value insertTransposeAndBroadcastTransforms(PatternRewriter &b,
     BottomUpTMBuilder addDimtransform(
         b, inp.getType().cast<ShapedType>().getShape(), loc);
     for (uint32_t i = 0; i < outShape.size(); ++i) {
+      unsigned int startIdx = i - diff;
       if (llvm::is_contained(bcastInDims, i)) {
-        addDimtransform.passThrough({i}, {i - diff});
+        addDimtransform.passThrough({i}, {startIdx});
       } else if (llvm::is_contained(passThroughInDims, i)) {
-        addDimtransform.passThrough({i}, {i - diff});
+        addDimtransform.passThrough({i}, {startIdx});
       } else {
         isDimAdded = true;
         SmallString<8> name;
@@ -362,15 +368,14 @@ static Value insertTransposeAndBroadcastTransforms(PatternRewriter &b,
       inp = b.create<TransformOp>(loc, inp, addDimtransform.get());
     }
 
-    BottomUpTMBuilder permtransform(
-        b, inp.getType().cast<ShapedType>().getShape(), loc);
-    llvm::SmallVector<uint32_t, 4> identityVec;
-    for (uint32_t i = 0; i < outShape.size(); ++i) {
-      identityVec.push_back(i);
-    }
-    permtransform.passThrough(identityVec, perm);
     if (!permMap.isIdentity()) {
-      inp = b.create<TransformOp>(loc, inp, permtransform.get());
+        BottomUpTMBuilder permtransform(b, inp.getType().cast<ShapedType>().getShape(), loc);
+        llvm::SmallVector<uint32_t, 4> identityVec;
+        for (uint32_t i = 0; i < outShape.size(); ++i) {
+          identityVec.push_back(i);
+        }
+        permtransform.passThrough(identityVec, perm);
+        inp = b.create<TransformOp>(loc, inp, permtransform.get());
     }
     return inp;
   }
@@ -517,21 +522,6 @@ static GlobalStoreOp traceToGlobalStore(Value inp) {
   return allValidUses ? result : GlobalStoreOp();
 }
 
-static AffineMap findAliasingOutputIdxMap(linalg::GenericOp laGeneric,
-                                          Value output) {
-  auto inpsAndIdxMaps =
-      llvm::zip(laGeneric.inputs(), laGeneric.getIndexingMapsArray());
-  auto aliasingOutput = std::find_if(
-      inpsAndIdxMaps.begin(), inpsAndIdxMaps.end(), [&](auto inpAndIndMap) {
-        Value inp = std::get<0>(inpAndIndMap);
-        if (inp == output) {
-          return true;
-        }
-        return false;
-      });
-  return std::get<1>(*aliasingOutput);
-}
-
 // Returns the value of the buffer that's meant to be the new writeback.
 static Value reconfigureLAGeneric(PatternRewriter &b,
                                   linalg::GenericOp laGeneric, Value laIn,
@@ -595,8 +585,10 @@ static LogicalResult findGlobalStore(linalg::GenericOp laGeneric,
         return failure();
       }
 
-      auto aliasingOutputMap = findAliasingOutputIdxMap(laGeneric, input);
-      AffineMap invertOutIdxMap = inversePermutation(aliasingOutputMap);
+      auto laGenericOut = laGeneric.getOutputOperand(0);
+      auto laGenericOutIdxMap =
+      laGeneric.getTiedIndexingMap(laGenericOut);
+      auto invertOutIdxMap = inversePermutation(laGenericOutIdxMap);
       auto outToInMap = inpIdxMap.compose(invertOutIdxMap);
       SmallVector<unsigned> permutedDims;
       // This is not to allow broadcasting but due to canonical linalg
@@ -669,9 +661,8 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   // 1.1. Find the (implicit) gemm output
   GlobalStoreOp gemmStoreOp;
   Value laGenericInputLeadingToGlobalStore;
-  if (findGlobalStore(laGeneric, laGenericInputLeadingToGlobalStore,
-                      gemmStoreOp)
-          .failed()) {
+  if (failed(findGlobalStore(laGeneric, laGenericInputLeadingToGlobalStore,
+                      gemmStoreOp))) {
     return failure();
   }
   auto actualLAGenericOut = laGeneric.getOutputOperand(0);
