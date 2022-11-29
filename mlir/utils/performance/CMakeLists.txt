@@ -9,6 +9,7 @@ set(PERFORMANCE_SCRIPTS
   parameterSweeps.py
   perfRegressionReport.py
   reportUtils.py
+  tuningRunner.py
 )
 
 list(TRANSFORM PERFORMANCE_SCRIPTS PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
