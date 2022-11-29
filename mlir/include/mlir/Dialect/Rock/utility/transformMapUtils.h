@@ -62,6 +62,13 @@ int64_t getMaxVectorization(ArrayAttr transforms, uint32_t dim, int64_t len,
 /// Returns null when passed an empty array.
 AffineMap composeTransforms(ArrayAttr transforms);
 
+// This function will take a input Value and a index map that represents the
+// coordinate mapping that could be a combination of tranposes and broadcasts
+// and insert the necessary TransformOps
+Value insertTransposeAndBroadcastTransforms(OpBuilder &b,
+                                            ArrayRef<int64_t> outShape,
+                                            Value inp, AffineMap inpIdxMap);
+
 } // end namespace rock
 } // end namespace mlir
 #endif
