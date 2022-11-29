@@ -2314,7 +2314,7 @@ static LogicalResult populateHostHarnessLogic(
     auto elemType = paramMRType.getElementType();
     if (isCPUKernel) {
       assert(elemType.isF32() || elemType.isInteger(8) ||
-             elemType.isInteger(32));
+             elemType.isF16() || elemType.isInteger(32));
       if (genParams.operation.has_value()) {
         elemType = genParams.dtype;
         if (elemType.isInteger(8) && idx == 2)
@@ -2338,7 +2338,7 @@ static LogicalResult populateHostHarnessLogic(
         (isCPUKernel && (elemType.isF16() || elemType.isBF16()))) {
       // Emit validation var
       Type valElemType = elemType;
-      valElemType = floatType; // QY fix this later
+//      valElemType = floatType; // QY fix this later
       if (genParams.operation.has_value() && genParams.dtype.isInteger(8)) {
         valElemType = elemType;
       }
