@@ -4,6 +4,7 @@ set(LLVM_LINK_COMPONENTS
 
 get_property(rocm_dialect_libs GLOBAL PROPERTY ROCMLIR_DIALECT_LIBS)
 get_property(translation_libs GLOBAL PROPERTY MLIR_TRANSLATION_LIBS)
+get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 
 add_llvm_tool(rocmlir-translate
   rocmlir-translate.cpp
@@ -13,6 +14,7 @@ target_link_libraries(rocmlir-translate
   PRIVATE
   ${rocm_dialect_libs}
   ${translation_libs}
+  ${conversion_libs}
   ${test_libs}
   MLIRROCDLToLLVMIRTranslation
   GpuModuleToRocdlirTranslation

@@ -15,6 +15,7 @@
 #define MLIR_INITROCMLIRPASSES_H_
 
 // rocMLIR includes
+#include "mlir/Conversion/XModelToGPU/XModelToGPU.h"
 #include "mlir/Conversion/RocMLIRPasses.h"
 #include "mlir/Dialect/MIGraphX/Passes.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -50,6 +51,7 @@ inline void registerUpstreamPasses() {
   registerConvertMathToLLVM();
   registerConvertMemRefToLLVM();
   registerConvertTensorToLinalg();
+  registerConvertXModelToGPU();
   registerReconcileUnrealizedCasts();
   registerSCFToControlFlow();
   registerTosaToArith();
