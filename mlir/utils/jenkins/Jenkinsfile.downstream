@@ -98,7 +98,6 @@ pipeline {
                                   -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=1
                                   -DROCMLIR_GEN_FLAGS="-mfma=off -atomic_add=off"
                                   -DROCMLIR_DRIVER_E2E_TEST_ENABLED=0
-                                  -DROCMLIR_DRIVER_MISC_E2E_TEST_ENABLED=0
                                   -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
                                   -DLLVM_LIT_ARGS=-v
                                   -DCMAKE_EXPORT_COMPILE_COMMANDS=1

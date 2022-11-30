@@ -38,6 +38,7 @@ if (ROCK_E2E_TEST_ENABLED)
     conv2d_regression_fwd
     conv2d_regression_bwd
     conv2d_wrw_perf_config
+    Resnet101Config
   )
 endif()
 # Create a list for dummy files
