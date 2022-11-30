@@ -36,6 +36,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
 
@@ -260,126 +261,138 @@ struct MILARewritePattern : public OpRewritePattern<linalg::GenericOp> {
 };
 } // end anonymous namespace
 
-/// If `inpMap` is a map of the form
-/// (d0, d1, ..., dk) -> (d(i0), d(i1), ..., d(ik))
-/// where thi i's don't make it the identity map, wrap `inp` in a
-/// rock.transform that corresponds to the map, and returns the indexing map
-/// that is the result of applying the permutation. If no permutation is needed,
-/// returns its inputs.
-static std::tuple<Value, AffineMap>
-makeTransposeTransform(PatternRewriter &b, Value inp, AffineMap inpMap) {
-  if (!inpMap.isMinorIdentityWithBroadcasting()) {
-    // permumation[i] says where the map output i should be sent.
-    SmallVector<uint32_t> permutation;
-    if (inpMap.isPermutationOfMinorIdentityWithBroadcasting(permutation)) {
-      Location loc = inp.getLoc();
-      MemRefType inputType = inp.getType().cast<MemRefType>();
-      ArrayRef<int64_t> inputShape = inputType.getShape();
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Transpose input type : " << inputType << "\n");
-      BottomUpTMBuilder permuteBuilder(b, inputShape, loc);
+// This function will create a permutation that will permute the originalMap to
+// be a MinorIdentityWithBroadcast. This is used to add a permutation later in
+// the chain.
+// e.g. :
+// (d0, d1, d2, d4) -> (0, d1) was the map
+// This function will return a permutation : [0, 3, 2, 1] s.t.
+// apply it to the original map would result in
+// (d0, d4, d2, d1) -> (0, d1) in effect.
+static void createPermutationForMinorIdentityWithBroadcast(
+    const AffineMap &originalMap, SmallVectorImpl<uint32_t> &perm) {
+  for (uint32_t i = 0; i < originalMap.getNumInputs(); ++i) {
+    perm.push_back(i);
+  }
 
-      SmallVector<uint32_t> identityIdxs;
-      identityIdxs.reserve(inputShape.size());
-      for (uint32_t idx = 0, e = inputShape.size(); idx < e; ++idx)
-        identityIdxs.push_back(idx);
-
-      permuteBuilder.passThrough(permutation, identityIdxs);
-      TransformMapAttr permuteAttr = permuteBuilder.get();
-      Value ret = b.create<TransformOp>(loc, inp, permuteAttr);
-      AffineMap composed = permuteAttr.getMap().getAffineMap().compose(inpMap);
-      LLVM_DEBUG(llvm::dbgs() << "indexing = " << inpMap << " then transform "
-                              << permuteAttr.getMap().getAffineMap() << " is "
-                              << composed << "\n");
-      return {ret, composed};
+  llvm::SmallSet<uint32_t, 4> foundInputDims;
+  for (const auto &idxAndValue : llvm::enumerate(originalMap.getResults())) {
+    auto idx = idxAndValue.index();
+    AffineExpr resultExpr = idxAndValue.value();
+    if (resultExpr.isa<AffineDimExpr>()) {
+      foundInputDims.insert(originalMap.getDimPosition(idx));
     }
   }
-  return {inp, inpMap};
-}
 
-static bool isMajorIdentityWithBroadcasting(AffineMap amap) {
-  if (amap.getNumDims() <= amap.getNumResults())
-    return false;
-  for (const auto &idxAndExpr : llvm::enumerate(amap.getResults())) {
-    unsigned resIdx = idxAndExpr.index();
-    AffineExpr expr = idxAndExpr.value();
-    if (auto dimExpr = expr.dyn_cast<AffineDimExpr>()) {
-      if (dimExpr.getPosition() != resIdx)
-        return false;
-    } else {
-      return false;
+  for (const auto &idxAndValue : llvm::enumerate(originalMap.getResults())) {
+    auto idx = idxAndValue.index();
+    AffineExpr resultExpr = idxAndValue.value();
+    if (resultExpr.isa<AffineDimExpr>()) {
+      auto swap1 = originalMap.getDimPosition(idx);
+      auto swap2 =
+          originalMap.getNumInputs() - originalMap.getNumResults() + idx;
+      perm[swap1] = swap2;
+      // Only do swap if the output expr does not define another place for the
+      // other input dim
+      if (!foundInputDims.contains(swap2)) {
+        perm[swap2] = swap1;
+      }
     }
   }
-  return true;
 }
 
-static Value makeBroadcast(PatternRewriter &b, MemRefType outType, Value inp,
-                           AffineMap inpIdxMap) {
+// This function will take a input Value and a index map that represents the
+// coordinate mapping that could be a combination of tranposes and broadcasts
+// and insert the necessary TransformOps
+static Value insertTransposeAndBroadcastTransforms(PatternRewriter &b,
+                                                   MemRefType outType,
+                                                   Value inp,
+                                                   AffineMap inpIdxMap) {
   if (!inpIdxMap.isIdentity()) {
     Location loc = inp.getLoc();
     auto inpType = inp.getType().template cast<MemRefType>();
     ArrayRef<int64_t> inpShape = inpType.getShape();
     ArrayRef<int64_t> outShape = outType.getShape();
 
-    uint32_t diff = outShape.size() - inpShape.size();
-    SmallVector<uint32_t> bcastDims;
+    int64_t diff = outShape.size() - inpShape.size();
     LLVM_DEBUG(llvm::dbgs() << "Reached makeBroadcast with map " << inpIdxMap
                             << " and diff = " << diff << "\n");
-    if (diff) {
-      // 0.1 expand dims (size = 1) in front
-      SmallVector<uint32_t, 8> endDims;
-      SmallVector<uint32_t, 8> startDims;
-      for (uint32_t i = 0, e = inpShape.size(); i < e; ++i) {
-        startDims.push_back(i);
-        endDims.push_back(inpIdxMap.getDimPosition(i));
+
+    SmallVector<uint32_t> bcastDims;
+    SmallVector<uint32_t> bcastInDims;
+    SmallVector<uint32_t> passThroughInDims;
+    SmallVector<uint32_t> perm;
+    createPermutationForMinorIdentityWithBroadcast(inpIdxMap, perm);
+    auto permMap = AffineMap::getPermutationMap(perm, b.getContext());
+    inpIdxMap = inpIdxMap.compose(permMap);
+    assert(
+        (inpIdxMap.isMinorIdentityWithBroadcasting(&bcastDims)) &&
+        "this is guranteed by createPermutationForMinorIdentityWithBroadcast");
+
+    // Broadcast those dimensions that the original linalg.generic map specifies
+    // are broadcast and collect their locations, accounting for the leading
+    // dimensions not represented in that map but which are present in the gemm
+    // coordinates
+    BottomUpTMBuilder bcastTransform(b, inpShape, loc);
+    bool hasBcast = false;
+    for (uint32_t i = 0; i < inpShape.size(); ++i) {
+      if (!llvm::is_contained(bcastDims, i)) {
+        // Here the diff correspond to leading dropped dimensions when going
+        // from output co-ordinates to input co-ordinates.
+        assert(inpIdxMap.getDimPosition(i) == diff + i);
+        passThroughInDims.push_back(diff + i);
+        bcastTransform.passThrough({i}, {i});
+      } else {
+        hasBcast = true;
+        bcastInDims.push_back(diff + i);
+        bcastTransform.broadcast({i}, {outShape[diff + i]});
       }
-      BottomUpTMBuilder transform(b, inpShape, loc);
-      transform.passThrough(endDims, startDims);
-      for (uint32_t i = 0; i < outShape.size(); ++i) {
-        uint32_t *it = llvm::find(endDims, i);
-        if (it != endDims.end())
-          continue;
+    }
+    if (hasBcast) {
+      inp = b.create<TransformOp>(loc, inp, bcastTransform.get());
+    }
+
+    // Then, add dimensions that are present in the writeback coordinates but
+    // are not present in the additional fusion argument with matching sizes.
+    // This, combined with the previous step, ensures that the view of the
+    // fusion argument has the same dimensions as the gemm output, though they
+    // are not necessarily in the same order.
+    bool isDimAdded = false;
+    BottomUpTMBuilder addDimtransform(
+        b, inp.getType().cast<ShapedType>().getShape(), loc);
+    for (uint32_t i = 0; i < outShape.size(); ++i) {
+      unsigned int startIdx = i - diff;
+      if (llvm::is_contained(bcastInDims, i)) {
+        addDimtransform.passThrough({i}, {startIdx});
+      } else if (llvm::is_contained(passThroughInDims, i)) {
+        addDimtransform.passThrough({i}, {startIdx});
+      } else {
+        isDimAdded = true;
         SmallString<8> name;
         ("exp" + Twine(i)).toVector(name);
-        transform.addDim(name, i, 1);
-        bcastDims.push_back(i);
+        addDimtransform.addDim(name, i, outShape[perm[i]]);
       }
+    }
+    if (isDimAdded) {
+      inp = b.create<TransformOp>(loc, inp, addDimtransform.get());
+    }
 
-      inp = b.create<TransformOp>(loc, inp, transform.get());
-
-      inpType = inp.getType().template cast<MemRefType>();
-      inpShape = inpType.getShape();
-    } else if (inpIdxMap.isMinorIdentityWithBroadcasting(&bcastDims)) {
-    } else if (isMajorIdentityWithBroadcasting(inpIdxMap)) {
-      for (uint32_t i = 0; i < inpShape.size(); ++i) {
-        if (inpShape[i] != outShape[i]) {
-          assert((outShape[i] % inpShape[i]) == 0);
-          bcastDims.push_back(i);
+    // Permute the dimensions of the fusion argument to match those of the gemm
+    // writeback by applying the inverse of the permutation that would have made
+    // the original indexing map into a minor identity with broadcast. The
+    // inverse of that permutation takes the gemm writeback coordinates and
+    // scatters them into positions that match the non-identity indexing pattern
+    // of the fusion argument.
+    if (!permMap.isIdentity()) {
+        BottomUpTMBuilder permtransform(b, inp.getType().cast<ShapedType>().getShape(), loc);
+        llvm::SmallVector<uint32_t, 4> identityVec;
+        for (uint32_t i = 0; i < outShape.size(); ++i) {
+          identityVec.push_back(i);
         }
-      }
-    } else {
-      return inp;
+        permtransform.passThrough(identityVec, perm);
+        inp = b.create<TransformOp>(loc, inp, permtransform.get());
     }
-
-    LLVM_DEBUG(llvm::dbgs() << "Broadcast dims: ");
-    LLVM_DEBUG(llvm::interleaveComma(bcastDims, llvm::dbgs()));
-    LLVM_DEBUG(llvm::dbgs() << "\n");
-
-    // 1. insert a broadcast rock.transform
-    SmallVector<uint32_t, 8> ptDims;
-    SmallVector<int64_t, 8> bcastSizes;
-    for (uint32_t dim = 0; dim < inpShape.size(); ++dim) {
-      if (llvm::is_contained(bcastDims, dim)) {
-        bcastSizes.push_back(outShape[dim]);
-      } else {
-        ptDims.push_back(dim);
-      }
-    }
-    BottomUpTMBuilder transform(b, inpShape, loc);
-    transform.passThrough(ptDims, ptDims);
-    transform.broadcast(bcastDims, bcastSizes);
-
-    inp = b.create<TransformOp>(loc, inp, transform.get());
+    return inp;
   }
   return inp;
 }
@@ -389,21 +402,8 @@ static void insertLoadFromOtherSource(PatternRewriter &b, Location loc,
                                       Value dest) {
   LLVM_DEBUG(llvm::dbgs() << "Src type: " << srcOp.getType() << " dest type: "
                           << gemmStoreOp.getDest().getType() << "\n");
-  ArrayRef<int64_t> sType, dType;
-  sType = srcOp.getType().cast<ShapedType>().getShape();
-  dType = gemmStoreOp.getDest().getType().getShape();
-  assert(sType.size() == dType.size() &&
-         "Rank of extra fusion arguments matches shape of C tensor");
   SmallVector<Value, 6> loadCoord = gemmStoreOp.getDestCoord();
   Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-  for (unsigned i = 0; i < sType.size(); i++) {
-    assert((sType[i] == dType[i] || sType[i] == 1) &&
-           "shape of extra fusion arguments matches shape of C tensor or "
-           "broadcastable");
-    // broadcast source.
-    if (sType[i] != dType[i])
-      loadCoord[i] = zero;
-  }
 
   auto writeCLoop = gemmStoreOp->getParentOfType<TransformingForOp>();
   assert(writeCLoop && "global_store must be in a transforming_for");
@@ -497,8 +497,7 @@ Value applyTransforms(PatternRewriter &b, GlobalStoreOp gemmStoreOp, Value inp,
 
   // 1. insert broadcast op if necessary
   MemRefType outType = gemmStoreOp.getDest().getType();
-  std::tie(ret, outToInpMap) = makeTransposeTransform(b, ret, outToInpMap);
-  ret = makeBroadcast(b, outType, ret, outToInpMap);
+  ret = insertTransposeAndBroadcastTransforms(b, outType, ret, outToInpMap);
 
   // 2. also create global_store from global to regs
   //    TODO(sjw): make sure output buffer writes (means these inputs will be
@@ -551,7 +550,6 @@ static Value reconfigureLAGeneric(PatternRewriter &b,
 
   AffineMap outIdxMap = idxMaps.back();
   auto invertOutIdxMap = inversePermutation(outIdxMap);
-
   SmallVector<AffineMap, 5> laGenericAMaps;
   SmallVector<Value, 5> newInputs;
   for (auto pair : llvm::zip(laGeneric.inputs(), idxMaps)) {
@@ -587,6 +585,63 @@ static Value reconfigureLAGeneric(PatternRewriter &b,
   return laOut;
 }
 
+static LogicalResult findGlobalStore(linalg::GenericOp laGeneric,
+                                     Value &inputLeadingToGlobalStore,
+                                     GlobalStoreOp &gemmStoreOp) {
+  for (auto pair :
+       llvm::zip(laGeneric.inputs(), laGeneric.getIndexingMapsArray())) {
+    AffineMap inpIdxMap = std::get<1>(pair);
+    Value input = std::get<0>(pair);
+    GlobalStoreOp maybeStore = traceToGlobalStore(input);
+    if (maybeStore) {
+      if (gemmStoreOp) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Multiple generic inputs come from writeback\n");
+        return failure();
+      }
+
+      auto laGenericOut = laGeneric.getOutputOperand(0);
+      auto laGenericOutIdxMap =
+      laGeneric.getTiedIndexingMap(laGenericOut);
+      auto invertOutIdxMap = inversePermutation(laGenericOutIdxMap);
+      auto outToInMap = inpIdxMap.compose(invertOutIdxMap);
+      SmallVector<unsigned> permutedDims;
+      // This is not to allow broadcasting but due to canonical linalg
+      // form if the unit dims can carry affine expr to be zero in the
+      // translation, hence there is a following check.
+      if (!outToInMap.isMinorIdentityWithBroadcasting(&permutedDims)) {
+        LLVM_DEBUG(llvm::dbgs() << outToInMap << "\n");
+        LLVM_DEBUG(
+            llvm::dbgs()
+            << "The store is not even a minor identity with broadcasting.\n");
+        return failure();
+      }
+      auto inpShape = input.getType().cast<ShapedType>().getShape();
+      LLVM_DEBUG(llvm::dbgs() << "outToInMap = " << outToInMap << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "inp shape = "
+                              << input.getType().cast<ShapedType>() << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "permutedDims = ");
+      LLVM_DEBUG(llvm::interleaveComma(permutedDims, llvm::dbgs()));
+      LLVM_DEBUG(llvm::dbgs() << "\n");
+
+      for (auto bDim : permutedDims) {
+        if (inpShape[bDim] != 1) {
+          LLVM_DEBUG(llvm::dbgs()
+                     << "The store input cannot be a real broacast.\n");
+          return failure();
+        };
+      }
+      gemmStoreOp = maybeStore;
+      inputLeadingToGlobalStore = input;
+    }
+  }
+  if (!gemmStoreOp) {
+    LLVM_DEBUG(llvm::dbgs() << "No input is leading to a global store.\n");
+    return failure();
+  }
+  return success();
+}
+
 LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
                                                   PatternRewriter &b) const {
   Location loc = laGeneric.getLoc();
@@ -611,44 +666,41 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
     }
   }
 
-  SmallVector<AffineMap> idxMaps = laGeneric.getIndexingMapsArray();
-  AffineMap outIdxMap = idxMaps.back();
-  auto invertOutIdxMap = inversePermutation(outIdxMap);
+  if (laGeneric.getNumOutputs() != 1) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "Currently, multi-output fusion is not supported.\n");
+    return failure();
+  }
 
   // 1. Trace input to global_store.
   // 1.1. Find the (implicit) gemm output
   GlobalStoreOp gemmStoreOp;
+  Value laGenericInputLeadingToGlobalStore;
+  if (failed(findGlobalStore(laGeneric, laGenericInputLeadingToGlobalStore,
+                      gemmStoreOp))) {
+    return failure();
+  }
+  auto actualLAGenericOut = laGeneric.getOutputOperand(0);
+  auto actualLAGenericOutIdxMap =
+      laGeneric.getTiedIndexingMap(actualLAGenericOut);
+  auto invertOutIdxMap = inversePermutation(actualLAGenericOutIdxMap);
+  if (laGenericInputLeadingToGlobalStore.getType() !=
+      actualLAGenericOut->get().getType()) {
+    LLVM_DEBUG(llvm::dbgs() << "Currently, we assume the shape of gemmStore op "
+                               "and linalg output is the same.\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "This instance it differs : "
+               << laGenericInputLeadingToGlobalStore.getType() << " vs "
+               << actualLAGenericOut->get().getType() << " .\n");
+    return failure();
+  }
+
+  SmallVector<AffineMap> idxMaps = laGeneric.getIndexingMapsArray();
   for (auto pair : llvm::zip(idxMaps, laGeneric.inputs())) {
     AffineMap inpIdxMap = std::get<0>(pair);
     auto outToInMap = inpIdxMap.compose(invertOutIdxMap);
     Value inp = std::get<1>(pair);
-    GlobalStoreOp maybeStore = traceToGlobalStore(inp);
-    if (maybeStore) {
-      if (gemmStoreOp) {
-        LLVM_DEBUG(llvm::dbgs()
-                   << "Multiple generic inputs come from writeback\n");
-        return failure();
-      }
-      SmallVector<unsigned> broadcastedDims;
-      // This is not to allow broadcasting but due to canonical linalg
-      // form if the unit dims can carry affine expr to be zero in the
-      // translation, hence there is a following check.
-      if (!outToInMap.isMinorIdentityWithBroadcasting(&broadcastedDims)) {
-        LLVM_DEBUG(
-            llvm::dbgs()
-            << "The store is not even a minor identity with broadcasting.\n");
-        return failure();
-      }
-      auto inpShape = inp.getType().cast<ShapedType>().getShape();
-      for (auto bDim : broadcastedDims) {
-        if (inpShape[bDim] != 1) {
-          LLVM_DEBUG(llvm::dbgs()
-                     << "The store input cannot be a real broacast.\n");
-          return failure();
-        };
-      }
-      gemmStoreOp = maybeStore;
-    } else {
+    if (inp != laGenericInputLeadingToGlobalStore) {
       SmallVector<unsigned> permutedDims;
       if (!outToInMap.isProjectedPermutation(/*allowZeroInResults=*/true)) {
         LLVM_DEBUG(llvm::dbgs() << outToInMap << "\n");
