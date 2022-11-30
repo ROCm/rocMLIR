@@ -31,10 +31,10 @@ CONFIG_POOL=${ROCMLIR_DIR}/mlir/utils/jenkins/miopen-tests/resnet50-miopen-confi
 JENKINSFILE=${WORKSPACE}/mlir/utils/jenkins/Jenkinsfile
 
 getMIOpenBranchName() {
-    # get MIOpen branch name from the "git branch" field in
-    # getAndBuildMIOpen() function in Jenkinsfile
-    result=$(grep "git branch:" ${JENKINSFILE} | head -n 1)
-    result=${result#*git branch:\ *\'}
+    # get MIOpen branch name from the defaultValue of
+    # parameter MIOpenBranch
+    result=$(grep -e "MIOpenBranch.*defaultValue" ${JENKINSFILE} | head -n 1)
+    result=${result#*defaultValue:\ *\'}
     result=${result%%\',*}
     echo "$result"
 }
