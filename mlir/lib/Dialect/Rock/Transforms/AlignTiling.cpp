@@ -370,7 +370,7 @@ static Value insertTransposeAndBroadcastTransforms(PatternRewriter &b,
         isDimAdded = true;
         SmallString<8> name;
         ("exp" + Twine(i)).toVector(name);
-        addDimtransform.addDim(name, i, outShape[i]);
+        addDimtransform.addDim(name, i, outShape[perm[i]]);
       }
     }
     if (isDimAdded) {
