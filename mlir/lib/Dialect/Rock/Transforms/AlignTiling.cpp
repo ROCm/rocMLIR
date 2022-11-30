@@ -384,13 +384,14 @@ static Value insertTransposeAndBroadcastTransforms(PatternRewriter &b,
     // scatters them into positions that match the non-identity indexing pattern
     // of the fusion argument.
     if (!permMap.isIdentity()) {
-        BottomUpTMBuilder permtransform(b, inp.getType().cast<ShapedType>().getShape(), loc);
-        llvm::SmallVector<uint32_t, 4> identityVec;
-        for (uint32_t i = 0; i < outShape.size(); ++i) {
-          identityVec.push_back(i);
-        }
-        permtransform.passThrough(identityVec, perm);
-        inp = b.create<TransformOp>(loc, inp, permtransform.get());
+      BottomUpTMBuilder permtransform(
+          b, inp.getType().cast<ShapedType>().getShape(), loc);
+      llvm::SmallVector<uint32_t, 4> identityVec;
+      for (uint32_t i = 0; i < outShape.size(); ++i) {
+        identityVec.push_back(i);
+      }
+      permtransform.passThrough(identityVec, perm);
+      inp = b.create<TransformOp>(loc, inp, permtransform.get());
     }
     return inp;
   }
@@ -601,8 +602,7 @@ static LogicalResult findGlobalStore(linalg::GenericOp laGeneric,
       }
 
       auto laGenericOut = laGeneric.getOutputOperand(0);
-      auto laGenericOutIdxMap =
-      laGeneric.getTiedIndexingMap(laGenericOut);
+      auto laGenericOutIdxMap = laGeneric.getTiedIndexingMap(laGenericOut);
       auto invertOutIdxMap = inversePermutation(laGenericOutIdxMap);
       auto outToInMap = inpIdxMap.compose(invertOutIdxMap);
       SmallVector<unsigned> permutedDims;
@@ -677,7 +677,7 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   GlobalStoreOp gemmStoreOp;
   Value laGenericInputLeadingToGlobalStore;
   if (failed(findGlobalStore(laGeneric, laGenericInputLeadingToGlobalStore,
-                      gemmStoreOp))) {
+                             gemmStoreOp))) {
     return failure();
   }
   auto actualLAGenericOut = laGeneric.getOutputOperand(0);
