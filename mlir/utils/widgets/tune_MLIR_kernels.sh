@@ -9,6 +9,7 @@ printUsage() {
     echo "  -c <\"config\">: Run MIOpenDriver on a single config"
     echo "                 Otherwise, on all configs in resnet50-miopen-configs"
     echo "  -u: turn off tuning (tuning is on be default)"
+    echo "  -b: don't run any tuning, just the compilation actions"
     echo "  -d <direction>: choose one direction"
     echo "                  Otherwise, run config(s) with all directions (1,2,4)"
     echo "  -l <layout>: choose one layout"
@@ -57,17 +58,18 @@ gitCheckoutMIOpen() {
 buildlibrockCompiler() {
     echo ">>> build librockCompiler"
     cd ${WORKSPACE}
-    rm -f build-static/CMakeCache.txt
-    cmake . -G Ninja -B build-static -DBUILD_FAT_LIBROCKCOMPILER=ON
+    cmake . -G Ninja -B build-static \
+          -DBUILD_FAT_LIBROCKCOMPILER=ON \
+          -DCMAKE_BUILD_TYPE=Release # or RelWithDebInfo
     cd build-static
-    ninja
-    cmake --install . --prefix ${WORKSPACE}/MIOpenDeps
+    ninja librockCompiler
+    rm -rf ${WORKSPACE}/MIOpenDeps
+    cmake --install . --component librockCompiler --prefix ${WORKSPACE}/MIOpenDeps
 }
 
 buildMIOpenWithlibrockCompiler() {
     echo ">>> build MIOpenDriver with librockCompiler"
     cd ${MIOPEN_DIR}
-    rm -f build/CMakeCache.txt
     cmake . -G "Unix Makefiles" -B build -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ \
           -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang \
@@ -156,6 +158,7 @@ run_a_single_test() {
     ${DRIVER} ${FIXED_CONFIG_ARGS[@]} $4
 }
 
+# b (build only)
 # d <direction>
 # l <layout>
 # t <datatype>
@@ -164,6 +167,7 @@ run_a_single_test() {
 # s: build librockCompiler
 # c <"config">
 # v: verbose
+build_only=0
 got_direction=0
 got_layout=0
 got_dtype=0
@@ -172,11 +176,14 @@ checkoutMIOpen=0
 buildStaticLib=0
 SINGLE_CONFIG=""
 VERBOSE=0
-while getopts "hd:l:t:umsc:v" opt; do
+while getopts "hd:l:t:umsbc:v" opt; do
     case "$opt" in
         h)
             printUsage
             exit 0
+            ;;
+        b)
+            build_only=1
             ;;
         d)
             got_direction=1
@@ -227,20 +234,28 @@ if [[ $checkoutMIOpen -eq 1 ]]; then
     buildMIOpenWithlibrockCompiler
 fi
 
-# Step 3: Run MIOpenDriver with MLIR solver
 declare -a ALL_DTYPES=(fp16 fp32 int8)
 declare -a ALL_DIRECTIONS=(1 2 4)
 declare -a ALL_LAYOUTS=(NCHW NHWC)
 
-if [[ "${SINGLE_CONFIG}" == "" ]]; then
-    while read -r config
-    do
-        run_tests_for_a_config "${config}"
-    done < ${CONFIG_POOL}
-else
-    run_tests_for_a_config "${SINGLE_CONFIG}"
+# Step 3: Run MIOpenDriver with MLIR solver
+if [[ $build_only -eq 0 ]]; then
+# Step 3.1: Clean out stale tuning databases
+    if [[ -d ${MIOPEN_DIR}/build/MIOpenUserDB ]]; then
+        rm -rf ${MIOPEN_DIR}/build/MIOpenUserDB
+    fi
+    if [[ -d ${HOME}/.cache/miopen ]]; then
+        rm -rf ${HOME}/.cache/miopen
+    fi
+
+
+    if [[ "${SINGLE_CONFIG}" == "" ]]; then
+        while read -r config
+        do
+            run_tests_for_a_config "${config}"
+        done < ${CONFIG_POOL}
+    else
+        run_tests_for_a_config "${SINGLE_CONFIG}"
+    fi
 fi
-
-
-
 

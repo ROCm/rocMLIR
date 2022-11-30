@@ -73,3 +73,4 @@ pythonenv*
 .dir-locals.el
 /.ccls-cache
 .ipynb_checkpoints
+/MIOpenDeps
