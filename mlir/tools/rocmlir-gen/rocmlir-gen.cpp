@@ -472,6 +472,15 @@ static llvm::cl::opt<std::string> randomSide(
         "By default, populate random numbers to both tensors."),
     llvm::cl::value_desc("tensor"), llvm::cl::init("both"));
 
+// float random inputs range
+static llvm::cl::opt<int>
+    randMin("rand_min", llvm::cl::desc("lower bound for float random input"),
+            llvm::cl::value_desc("range"), llvm::cl::init(-1));
+
+static llvm::cl::opt<int>
+    randMax("rand_max", llvm::cl::desc("upper bound for float random input"),
+            llvm::cl::value_desc("range"), llvm::cl::init(1));
+
 // Verification function options
 static llvm::cl::opt<float>
     RMSThreshold("RMS_threshold", llvm::cl::desc("Threshold for RMS metric"),
@@ -485,7 +494,7 @@ static llvm::cl::opt<float>
 static llvm::cl::opt<float>
     relDiffThreshold("relDiff_threshold",
                      llvm::cl::desc("Threshold for relDiff metric"),
-                     llvm::cl::value_desc("error"), llvm::cl::init(100.0f));
+                     llvm::cl::value_desc("error"), llvm::cl::init(0.000001f));
 static llvm::cl::opt<std::string> printVerifyResults(
     "print-verify-results",
     llvm::cl::desc(
@@ -935,9 +944,9 @@ static std::tuple<short, short> getRandomTestData(int idx) {
       min = -5;
       max = 5;
     } else {
-      // generate random floats in [-1, 1)
-      min = -1;
-      max = 1;
+      // generate random floats in [rand_min, rand_max)
+      min = randMin.getValue();
+      max = randMax.getValue();
     }
   }
   return std::make_tuple(min, max);
@@ -1980,11 +1989,9 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   //         0.000001f for other data types
   auto thr_RMS = getF32Val(RMSThreshold.getValue());
   auto thr_absDiff = getF32Val(absDiffThreshold.getValue());
-  Value thr_relDiff;
+  Value thr_relDiff = getF32Val(relDiffThreshold.getValue());
   if (testOutType.isF16())
-    thr_relDiff = getF32Val(relDiffThreshold.getValue());
-  else
-    thr_relDiff = getF32Val(0.000001f);
+    thr_relDiff = getF32Val(100.0f);
   char printDebug = 1;
   std::string printVerifyOption = printVerifyResults.getValue();
   if (printVerifyOption == "always") {
