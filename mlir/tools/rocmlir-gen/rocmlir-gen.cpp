@@ -488,12 +488,14 @@ static llvm::cl::opt<float>
                      llvm::cl::value_desc("error"), llvm::cl::init(100.0f));
 static llvm::cl::opt<std::string> printVerifyResults(
     "print-verify-results",
-    llvm::cl::desc("Choose when to print verbose debug information in the "
-                   "verification function:"
-                   "always: print debug info"
-                   "failure: print debug info if the test fails (default)"
-                   "off: do not print debug info"),
-    llvm::cl::value_desc("info"), llvm::cl::init("failure"));
+    llvm::cl::desc(
+        "Choose when to print verbose debug information in the "
+        "verification function:"
+        "always: print debug info"
+        "failure: print debug info (elem-wise diff + summary) if the test fails"
+        "summary: print summary info if the test fails (default)"
+        "off: do not print debug info"),
+    llvm::cl::value_desc("info"), llvm::cl::init("summary"));
 static llvm::cl::alias
     aliasPrintVerifyResults("p_verify", llvm::cl::aliasopt(printVerifyResults));
 
@@ -1986,15 +1988,17 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   char printDebug = 1;
   std::string printVerifyOption = printVerifyResults.getValue();
   if (printVerifyOption == "always") {
-    printDebug = 2;
+    printDebug = 3;
   } else if (printVerifyOption == "failure") {
+    printDebug = 2;
+  } else if (printVerifyOption == "summary") {
     printDebug = 1;
   } else if (printVerifyOption == "off") {
     printDebug = 0;
   } else {
     llvm::errs() << "Unsupported print-verify-results option: "
                  << printVerifyOption;
-    llvm::errs() << " (supported options: always, failure, off)\n";
+    llvm::errs() << " (supported options: always, failure, summary, off)\n";
     exit(1);
   }
   auto printDebugVal =

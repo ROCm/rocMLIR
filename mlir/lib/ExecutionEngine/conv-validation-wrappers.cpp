@@ -466,8 +466,9 @@ void mcpuVerify(T *gpuResults, T *validationResults, int64_t dataSize,
   int hist_relDiff[NUM_BUCKETS] = {0};
   // Obtain print debug info option
   enum class PrintOption : char {
-    Always = 2,  // always print debug info
-    Failure = 1, // print debug info only if the test fails
+    Always = 3,  // always print debug info
+    Failure = 2, // print elem-wise diff + summary only if the test fails
+    Summary = 1, // print summary info only if the test fails
     Off = 0      // do not print debug info
   };
   PrintOption print_option = static_cast<PrintOption>(printDebug);
@@ -509,8 +510,10 @@ void mcpuVerify(T *gpuResults, T *validationResults, int64_t dataSize,
       }
       // Accumulate square root
       sumDiffSq += static_cast<double>(absDiff) * static_cast<double>(absDiff);
-      // Print out values if difference is larger than threshold
-      if (print_option != PrintOption::Off &&
+      // Print out values if print mode is Always||Failure
+      // and difference is larger than threshold
+      if ((print_option == PrintOption::Always ||
+           print_option == PrintOption::Failure) &&
           (absDiff > thr_absDiff || relDiff > thr_relDiff))
         printf("%ld: %f %f %f %lf\n", i, valNum, gpuNum, absDiff, relDiff);
     }
@@ -526,7 +529,9 @@ void mcpuVerify(T *gpuResults, T *validationResults, int64_t dataSize,
   int all_pass = (RMS_pass && absDiff_pass && relDiff_pass) ? 1 : 0;
   // Verbose information about the difference
   if (print_option == PrintOption::Always ||
-      (print_option == PrintOption::Failure && all_pass == 0))
+      ((print_option == PrintOption::Failure ||
+        print_option == PrintOption::Summary) &&
+       all_pass == 0))
     printDebugVerifyResults(dataSize, maxAbsDiff, maxVAL_abs, maxGPU_abs,
                             aveAbsDiff, maxRelDiff, maxVAL_rel, maxGPU_rel,
                             aveRelDiff, err_RMS, BUCKET_BOUNDARIES, NUM_BUCKETS,
