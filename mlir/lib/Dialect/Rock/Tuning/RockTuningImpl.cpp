@@ -112,5 +112,39 @@ bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry) {
   return setPrimary.wasInterrupted();
 }
 
+bool tuningSetStr(ModuleOp &mod, std::string perfConfig) {
+  WalkResult setPrimary =
+      mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
+        auto ctx = op.getContext();
+        StringAttr attr = StringAttr::get(ctx, perfConfig);
+        op->setAttr("perf_config", attr);
+        return WalkResult::interrupt();
+      });
+  return setPrimary.wasInterrupted();
+}
+
+TuningTable *tableCreate(){
+  struct TuningTable *newTable = new TuningTable();
+  return newTable;
+}
+
+bool tableUpdate(TuningTable perfTable, RockGemmWrapperInterface primaryOp, std:string perfConfig, float time){
+  if (auto search = perfTable->tuningMap.find(primaryOp); search != perfTable->tuningMap.end()) {
+    auto entry = perfTable->tuningMap[primaryOp];
+    if (entry.second <= time) {
+      return false;
+  }
+  perfTable->tuningMap[primaryOp] = std::pair<std::string, float> newPair = std::make_pair(perfConfig, time);
+}
+
+std::string tableLookup(TuningTable perfTable, RockGemmWrapperInterface primaryOp){
+  if (auto search = perfTable->tuningMap.find(primaryOp); search != perfTable->tuningMap.end()) {
+    auto entry = perfTable->tuningMap[primaryOp];
+      return entry.first;
+  }
+  return nullptr;
+}
+
+
 } // namespace rock
 } // namespace mlir
