@@ -135,6 +135,10 @@ static AffineMap createHigherToLowerRankViewAffineMap(
       resultExprs.push_back(srcIndexExpr[i]);
     }
   }
+  if (reassociationIndices.empty()) {
+    resultExprs = SmallVector<AffineExpr, 4>(higherRankType.getRank(),
+                                             rewriter.getAffineConstantExpr(0));
+  }
   auto representativeMap = AffineMap::get(
       /*numDims=*/lowerRankType.cast<ShapedType>().getShape().size(),
       /*numSymbols=*/0, resultExprs, rewriter.getContext());
