@@ -36,10 +36,10 @@
 // SEED2: %[[two:.*]] = arith.constant 2 : i32
 // SEED2: call @seedRandomValues(%[[two]])
 
-// RUN: rocmlir-gen --arch %arch -ph -p -rand 1 -rand_type float | rocmlir-opt -canonicalize | FileCheck %s --check-prefix=RAND_FLOAT
+// RUN: rocmlir-gen --arch %arch -ph -p -rand 1 -rand_type float -rand_min 1 -rand_max 3 | rocmlir-opt -canonicalize | FileCheck %s --check-prefix=RAND_FLOAT
 
-// RAND_FLOAT-DAG: %[[min:.*]] = arith.constant -1 : i16
-// RAND_FLOAT-DAG: %[[max:.*]] = arith.constant 1 : i16
+// RAND_FLOAT-DAG: %[[min:.*]] = arith.constant 1 : i16
+// RAND_FLOAT-DAG: %[[max:.*]] = arith.constant 3 : i16
 // RAND_FLOAT-DAG: %[[one:.*]] = arith.constant 1 : i32
 // RAND_FLOAT: call @seedRandomValues(%[[one]])
 
