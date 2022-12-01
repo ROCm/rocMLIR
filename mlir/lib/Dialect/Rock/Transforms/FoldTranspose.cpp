@@ -53,15 +53,16 @@ struct InlineViewLikeOperandsLinalgRewritePattern
                                 PatternRewriter &rewriter) const override;
 };
 
-// This function will take strides calculated using reassociation of dimensions
-// that are modified by view-like ops and recompute the affine expr from src
-// view to dest view.
-static void getDelinearizedAffineExpr(mlir::ArrayRef<int64_t> strides,
-                                      mlir::ArrayRef<int64_t> shapes,
-                                      Builder &b, unsigned int position,
-                                      SmallVectorImpl<mlir::AffineExpr> &res) {
+// This function will take strides of the original layout of corresponding
+// dimensions being reassociated and the expected resultant dim sizes of
+// post-reassociation --> then, produce the set of resultant AffineExprs after
+// the reassociation.
+static void getDelinearizedAffineExpr(
+    ArrayRef<int64_t> originalStridesDimsBeingReassociated,
+    ArrayRef<int64_t> postReassociatedDimSizes, Builder &b,
+    unsigned int position, SmallVectorImpl<mlir::AffineExpr> &res) {
   AffineExpr resultExpr = b.getAffineDimExpr(position);
-  int64_t rank = strides.size();
+  int64_t rank = originalStridesDimsBeingReassociated.size();
   // If the rank is 1, expand or collapse shapes will just
   // pass-through the dimensions.
   if (rank == 1) {
@@ -69,25 +70,28 @@ static void getDelinearizedAffineExpr(mlir::ArrayRef<int64_t> strides,
     return;
   }
   for (int i = 0; i < rank; i++) {
-    // If the current shape is 1 and the rank is non-zero,
+    // If the postReassociatedDimSize is 1 and the rank is non-zero,
     // could only mean it is being broadcasted. Hence,
     // putting zero.
-    if (shapes[i] == 1) {
+    if (postReassociatedDimSizes[i] == 1) {
       res[i] = resultExpr * 0;
     } else {
       // Recording the vector offsets here.
       res[i] = resultExpr;
       // There is no point of putting a modulo if the size
       // is equivalent to that.
-      if (i - 1 >= 0 && shapes[i] != strides[i - 1]) {
-        res[i] = res[i] % strides[i - 1];
+      if (i - 1 >= 0 && postReassociatedDimSizes[i] !=
+                            originalStridesDimsBeingReassociated[i - 1]) {
+        res[i] = res[i] % originalStridesDimsBeingReassociated[i - 1];
       }
 
-      if (shapes[i] > strides[i]) {
+      if (postReassociatedDimSizes[i] >
+          originalStridesDimsBeingReassociated[i]) {
         // We only need the floorDiv if the dimSize
         // is larger than the stride
-        res[i] = res[i].floorDiv(strides[i]);
-      } else if (shapes[i] < strides[i]) {
+        res[i] = res[i].floorDiv(originalStridesDimsBeingReassociated[i]);
+      } else if (postReassociatedDimSizes[i] <
+                 originalStridesDimsBeingReassociated[i]) {
         // if the shape is smaller than the stride
         // expr might as well be zero.
         res[i] = res[i] * 0;
@@ -97,9 +101,9 @@ static void getDelinearizedAffineExpr(mlir::ArrayRef<int64_t> strides,
       // other dimensions where the recording in the above
       // will do the neccesary checks to remove the modulo
       if (i - 1 >= 0) {
-        resultExpr = resultExpr % strides[i - 1];
+        resultExpr = resultExpr % originalStridesDimsBeingReassociated[i - 1];
       }
-      resultExpr = resultExpr.floorDiv(strides[i]);
+      resultExpr = resultExpr.floorDiv(originalStridesDimsBeingReassociated[i]);
     }
   }
   return;
