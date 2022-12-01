@@ -52,8 +52,8 @@ struct RockCopyOptPass
 
 //===- MICORewritePattern -------------------------------------------------===//
 //===-  ------------------------------------------------===//
-template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
-  using OpRewritePattern<T>::OpRewritePattern;
+struct MICORewritePattern : public OpRewritePattern<memref::AllocOp> {
+  using OpRewritePattern<memref::AllocOp>::OpRewritePattern;
 
   // This function finds the destination-passing style
   // argument that the kernel will copy into it. It might
@@ -61,15 +61,15 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
   // where the reverse expression need to be built up for
   // the users of the found destination arg.
   LogicalResult findCopyDestArg(PatternRewriter &rewriter, Operation *op,
-                                Value &copyDestArg) const {
+                                Value &copyDestArg, memref::CopyOp &copyDest) const {
     if (auto copyOp = dyn_cast<memref::CopyOp>(op)) {
-      return findCopyDestArg(rewriter, copyOp, copyDestArg);
+      return findCopyDestArg(rewriter, copyOp, copyDestArg, copyDest);
     }
     if (auto collapseOp = dyn_cast<memref::CollapseShapeOp>(op)) {
-      return findCopyDestArg(rewriter, collapseOp, copyDestArg);
+      return findCopyDestArg(rewriter, collapseOp, copyDestArg, copyDest);
     }
     if (auto expandOp = dyn_cast<memref::ExpandShapeOp>(op)) {
-      return findCopyDestArg(rewriter, expandOp, copyDestArg);
+      return findCopyDestArg(rewriter, expandOp, copyDestArg, copyDest);
     }
     return failure();
   }
@@ -77,7 +77,7 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
   // Finds the destination arg when the copy op is found
   LogicalResult findCopyDestArg(PatternRewriter &rewriter,
                                 memref::CopyOp &copyOp,
-                                Value &copyDestArg) const {
+                                Value &copyDestArg, memref::CopyOp &copyDest) const {
     if (copyDestArg) {
       return failure();
     }
@@ -87,7 +87,7 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
       return failure();
     }
     copyDestArg = copyOp.getTarget();
-    copyOp->erase();
+    copyDest = copyOp;
     return success();
   }
 
@@ -96,13 +96,13 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
   template <typename ReassociativeReshapeOp>
   LogicalResult findCopyDestArg(PatternRewriter &rewriter,
                                 ReassociativeReshapeOp &reassociativeReshapeOp,
-                                Value &copyDestArg) const {
+                                Value &copyDestArg, memref::CopyOp &copyDest) const {
     if (!reassociativeReshapeOp->hasOneUse()) {
       return failure();
     }
     if (findCopyDestArg(rewriter,
                         reassociativeReshapeOp->getUses().begin()->getOwner(),
-                        copyDestArg)
+                        copyDestArg, copyDest)
             .failed()) {
       return failure();
     }
@@ -125,7 +125,7 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
     return success();
   }
 
-  LogicalResult matchAndRewrite(T op, PatternRewriter &b) const override {
+  LogicalResult matchAndRewrite(memref::AllocOp op, PatternRewriter &b) const override {
     LogicalResult fail = failure();
 
     // 0. Test compatibility
@@ -140,9 +140,11 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
 
     // 1. Capture allocation->copy pattern
     Operation *writer = nullptr;
-    Value copyDestArg = nullptr;
+    memref::CopyOp copyDest;
+    Value copyDestArg;
     for (auto &use : allocaMem.getUses()) {
-      if (auto laop = dyn_cast<linalg::GenericOp>(use.getOwner())) {
+      Operation *useOp = use.getOwner();
+      if (auto laop = dyn_cast<linalg::GenericOp>(useOp)) {
         // 1.0 Output of linalg.generic
         if (writer)
           return fail;
@@ -153,7 +155,7 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
         if (!writer)
           return fail;
       } else if (auto mrop =
-                     dyn_cast<rock::RockGemmWrapperInterface>(use.getOwner())) {
+                     dyn_cast<rock::RockGemmWrapperInterface>(useOp)) {
         // 1.1 Direct output of a gemm-wrapping operation (mainly gemm itself,
         // which doesn't get transform()s after it)
         if (writer)
@@ -166,7 +168,7 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
           return fail;
         }
         writer = mrop;
-      } else if (auto mrop = dyn_cast<rock::TransformOp>(use.getOwner())) {
+      } else if (auto mrop = dyn_cast<rock::TransformOp>(useOp)) {
         // 1.2 Input of rock.transform
         if (writer)
           return fail;
@@ -191,7 +193,7 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
         if (cnt != 1)
           return fail;
         writer = originalMrop;
-      } else if (auto callop = dyn_cast<CallOpInterface>(use.getOwner())) {
+      } else if (auto callop = dyn_cast<CallOpInterface>(useOp)) {
         // 1.3 Assume call is the writer (fails for multiple calls)
         if (writer)
           return fail;
@@ -200,7 +202,7 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
         // The remaining uses of the allocate node should lead to
         // a copy node that copies the data to destination passing-style
         // argument, if not fail the pass.
-        if (findCopyDestArg(b, use.getOwner(), copyDestArg).failed()) {
+        if (findCopyDestArg(b, useOp, copyDestArg, copyDest).failed()) {
           return fail;
         }
       }
@@ -209,6 +211,8 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
                             << " and writer " << writer << "\n");
     // 2. do it
     if (copyDestArg && writer) {
+      if (copyDest)
+        copyDest->erase();
       allocaMem.replaceAllUsesWith(copyDestArg);
       return success();
     }
@@ -223,7 +227,7 @@ template <typename T> struct MICORewritePattern : public OpRewritePattern<T> {
 void RockCopyOptPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   RewritePatternSet patterns(ctx);
-  patterns.add<MICORewritePattern<memref::AllocOp>>(ctx);
+  patterns.add<MICORewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 }
