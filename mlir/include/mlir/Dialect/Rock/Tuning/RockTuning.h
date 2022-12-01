@@ -38,6 +38,48 @@ TunableParams *createTunableParamSpace(ModuleOp &mod);
 
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry);
 
+struct ProblemCompare {
+  bool operator()(RockGemmWrapperInterface lhs,
+                  RockGemmWrapperInterface rhs) const {
+    KernelType commonType = lhs->getKernelType();
+    if (commonType < rhs->getKernelType())
+      return false;
+    // conv case
+    if (commonType == Conv2D) {
+      RockConvInterface lhsConv = dyn_cast<RockConvInterface>(lhs);
+      RockConvInterface rhsConv = dyn_cast<RockConvInterface>(rhs);
+      if (lhsConv.getFilter().getType() != rhsConv.getFilter().getType())
+        return false;
+      if (lhsConv.getInput().getType() != rhsConv.getInput().getType())
+        return false;
+      if (lhsConv.getPadding() != rhsConv.getPadding())
+        return false;
+      if (lhsConv.getStrides() != rhsConv.getStrides())
+        return false;
+      if (lhsConv.getDilations() != rhsConv.getDilations())
+        return false;
+      if (lhsConv.getFeatures() != rhsConv.getFeatures())
+        return false;
+    }
+    // gemm case
+    else if (commonType == Gemm) {
+      if (lhs.getInputType() != rhsConv.getInputType())
+        return false;
+      if (lhs.getGemmSize() != rhsConv.getGemmSize())
+        return false;
+      if (lhs.getGemmFeatures() != rhsConv.getGemmFeatures())
+        return false;
+    } else
+      return false;
+
+    return true;
+  }
+}
+
+struct TuningTable {
+  std::map <RockGemmWrapperInterface, std::pair<std::string, float>, ProblemCompare> tuningMap;
+}
+
 } // namespace rock
 } // namespace mlir
 #endif // MLIR_DIALECT_ROCK_ROCKTUNINGTYPE_H

@@ -84,3 +84,19 @@ bool mlirRockTuningSetParam(MlirModule module, MlirRockTuningParam param) {
   auto paramEntry = unwrap(param);
   return rock::tuningSetParam(mod, paramEntry);
 }
+
+// set perf config from the given string.
+bool mlirRockTuningSetFromStr(MlirRockTuningParam param, char *perfStr) {
+
+// opaque pointer to tuning storage, can be db, in memory map for now.
+mlirRockTuningTableCreate()
+
+mlirRockTuningUpdateTable()
+
+mlirRockTuningLookupTable()
+
+// For now, we only tune primary ops (rockGemmWrapperInterface)
+const char
+*mlirRockTuningSerializeProblem(MlirModule module)
+
+MlirRockGemmWrapperInterface mlirRockTuningDeserializeProblem(const char* prob)
