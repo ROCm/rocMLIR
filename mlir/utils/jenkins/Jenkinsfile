@@ -178,8 +178,8 @@ String getLabelFromChip(String chip) {
             return "mlir && gfx90a"
         case "gfx1030":
             // For [Tune MLIR Kernels] and [Performance report] stages,
-            // fix the vm-1 workstation for testing
-            return "mlir && vm-1"
+            // fix the vm-5 workstation for testing
+            return "mlir && vm-5"
     }
 }
 
