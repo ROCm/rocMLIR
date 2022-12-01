@@ -495,16 +495,29 @@ static llvm::cl::opt<float>
     relDiffThreshold("relDiff_threshold",
                      llvm::cl::desc("Threshold for relDiff metric"),
                      llvm::cl::value_desc("error"), llvm::cl::init(0.000001f));
-static llvm::cl::opt<std::string> printVerifyResults(
+
+// A toggle to control what to print in the verification function
+enum class VerificationPrintToggle : char {
+  Always = 3,
+  Failure = 2,
+  Summary = 1,
+  Off = 0
+};
+
+static llvm::cl::opt<VerificationPrintToggle> printVerifyResults(
     "print-verify-results",
-    llvm::cl::desc(
-        "Choose when to print verbose debug information in the "
-        "verification function:"
-        "always: print debug info"
-        "failure: print debug info (elem-wise diff + summary) if the test fails"
-        "summary: print summary info if the test fails (default)"
-        "off: do not print debug info"),
-    llvm::cl::value_desc("info"), llvm::cl::init("summary"));
+    llvm::cl::desc("Choose when to print verbose debug information in the "
+                   "verification function:"),
+    llvm::cl::values(
+        clEnumValN(VerificationPrintToggle::Always, "always",
+                   "always print debug info"),
+        clEnumValN(VerificationPrintToggle::Failure, "failure",
+                   "print elem-wise diff + summary only if the test fails"),
+        clEnumValN(VerificationPrintToggle::Summary, "summary",
+                   "print summary info only if the test fails"),
+        clEnumValN(VerificationPrintToggle::Off, "off",
+                   "do not print debug info")),
+    llvm::cl::init(VerificationPrintToggle::Summary));
 static llvm::cl::alias
     aliasPrintVerifyResults("p_verify", llvm::cl::aliasopt(printVerifyResults));
 
@@ -1992,22 +2005,8 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   Value thr_relDiff = getF32Val(relDiffThreshold.getValue());
   if (testOutType.isF16())
     thr_relDiff = getF32Val(100.0f);
-  char printDebug = 1;
-  std::string printVerifyOption = printVerifyResults.getValue();
-  if (printVerifyOption == "always") {
-    printDebug = 3;
-  } else if (printVerifyOption == "failure") {
-    printDebug = 2;
-  } else if (printVerifyOption == "summary") {
-    printDebug = 1;
-  } else if (printVerifyOption == "off") {
-    printDebug = 0;
-  } else {
-    llvm::errs() << "Unsupported print-verify-results option: "
-                 << printVerifyOption;
-    llvm::errs() << " (supported options: always, failure, summary, off)\n";
-    exit(1);
-  }
+  char printDebug = static_cast<char>(printVerifyResults.getValue());
+
   auto printDebugVal =
       b.create<arith::ConstantIntOp>(loc, printDebug, charType);
 
