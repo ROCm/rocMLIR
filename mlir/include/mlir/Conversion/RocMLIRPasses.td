@@ -32,7 +32,9 @@ def ConvertRockToGPUPass : Pass<"convert-rock-to-gpu", "ModuleOp"> {
     "amdgpu::AMDGPUDialect",
     "cf::ControlFlowDialect",
     "func::FuncDialect",
-    "gpu::GPUDialect"
+    "gpu::GPUDialect",
+    "arith::ArithmeticDialect",
+    "LLVM::LLVMDialect",
   ];
 }
 

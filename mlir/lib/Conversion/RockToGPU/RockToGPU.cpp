@@ -26,15 +26,19 @@
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/IR/BlockAndValueMapping.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/Rewrite/FrozenRewritePatternSet.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/RegionUtils.h"
 
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 
 namespace mlir {
 #define GEN_PASS_DEF_CONVERTROCKTOGPUPASS
@@ -71,16 +75,15 @@ struct MIGPUAllocRewritePattern : public OpRewritePattern<rock::GpuAllocOp> {
     if (type.getMemorySpaceAsInt() ==
         gpu::GPUDialect::getWorkgroupAddressSpace()) {
       Value attribution = func.addWorkgroupAttribution(type, loc);
-      op.replaceAllUsesWith(attribution);
+      b.replaceOp(op, attribution);
     } else if (type.getMemorySpaceAsInt() ==
                gpu::GPUDialect::getPrivateAddressSpace()) {
       Value attribution = func.addPrivateAttribution(type, loc);
-      op.replaceAllUsesWith(attribution);
+      b.replaceOp(op, attribution);
     } else {
       // TBD: return failure.
       llvm::errs() << "unsupported addrspace!\n";
     }
-    op.erase();
     return success();
   }
 };
@@ -90,21 +93,37 @@ struct MIOpRewritePattern : public OpRewritePattern<Tmi> {
   using OpRewritePattern<Tmi>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(Tmi op, PatternRewriter &b) const override {
-    b.create<Tgpu>(op.getLoc());
-    op.erase();
+    b.replaceOpWithNewOp<Tgpu>(op);
     return success();
   }
 };
 
 template <typename Tmi, typename Tgpu>
 struct MIIdRewritePattern : public OpRewritePattern<Tmi> {
-  using OpRewritePattern<Tmi>::OpRewritePattern;
+  StringAttr maxValueAttr;
+
+  explicit MIIdRewritePattern(MLIRContext *context, StringAttr maxValueAttr)
+      : OpRewritePattern<Tmi>::OpRewritePattern(context),
+        maxValueAttr(maxValueAttr) {}
 
   LogicalResult matchAndRewrite(Tmi op, PatternRewriter &b) const override {
-    Value nop =
-        b.create<Tgpu>(op.getLoc(), b.getIndexType(), gpu::Dimension::x);
-    op.replaceAllUsesWith(nop);
-    op.erase();
+    auto nop =
+        b.replaceOpWithNewOp<Tgpu>(op, b.getIndexType(), gpu::Dimension::x);
+
+    // We know a few things about block or grid sizes that the LLVM frontend
+    // does not. Therefore, if we can, toss in a llvm.assume to indicate the
+    // upper bounds on the attribute.
+    auto func = nop->template getParentOfType<gpu::GPUFuncOp>();
+    if (func && func->template hasAttrOfType<IntegerAttr>(maxValueAttr)) {
+      Location loc = nop.getLoc();
+      auto boundAttr = func->template getAttrOfType<IntegerAttr>(maxValueAttr);
+      // For some reason, needed to avoid crashes
+      b.setInsertionPointAfter(nop);
+      Value bound = b.create<arith::ConstantIndexOp>(loc, boundAttr.getInt());
+      Value cond = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ult,
+                                           nop.getResult(), bound);
+      b.create<LLVM::AssumeOp>(loc, cond);
+    }
     return success();
   }
 };
@@ -120,6 +139,19 @@ void LowerRockOpsToGPUPass::runOnOperation() {
   op->setAttr(gpu::GPUDialect::getContainerModuleAttrName(),
               UnitAttr::get(ctx));
 
+  RewritePatternSet patterns(ctx);
+
+  // rock-lowering
+  patterns.add<MIGPUAllocRewritePattern,
+               MIOpRewritePattern<rock::WorkgroupBarrierOp, gpu::BarrierOp>,
+               MIOpRewritePattern<rock::LDSBarrierOp, amdgpu::LDSBarrierOp>,
+               MIOpRewritePattern<func::ReturnOp, gpu::ReturnOp>>(ctx);
+  patterns.add<MIIdRewritePattern<rock::WorkgroupIdOp, gpu::BlockIdOp>>(
+      ctx, b.getStringAttr("grid_size"));
+  patterns.add<MIIdRewritePattern<rock::WorkitemIdOp, gpu::ThreadIdOp>>(
+      ctx, b.getStringAttr("block_size"));
+
+  const FrozenRewritePatternSet localRewrites = std::move(patterns);
   auto makeGpuModule = [&](StringRef name) {
     // create a GPUModuleOp in case the GPU module specified does not exist.
     auto gpuModule = b.create<gpu::GPUModuleOp>(loc, name);
@@ -137,7 +169,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     SymbolTable gpuModuleSymbolTable(gpuMod);
     // Reset builder insertion point to the beginning of the GPU module,
     // as it would be modified inside the lambda.
-    OpBuilder b(gpuMod.getContext());
+    OpBuilder b(ctx);
 
     // create a GPUFuncOp.
     FunctionType gpuFuncType = theFunc.getFunctionType();
@@ -178,7 +210,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     b.create<cf::BranchOp>(loc, clonedFuncEntry);
 
     // copy original_func attribute
-    const char *attrName = "original_func";
+    constexpr llvm::StringLiteral attrName("original_func");
     if (auto attr = theFunc->getAttrOfType<SymbolRefAttr>(attrName)) {
       gpuFunc->setAttr(attrName, attr);
     }
@@ -234,20 +266,10 @@ void LowerRockOpsToGPUPass::runOnOperation() {
 
   // Convert Rock ops to GPU Ops
   int gpuModCount = 0;
-  op.walk([this, &gpuModCount](gpu::GPUModuleOp gpuMod) {
+  op.walk([this, &gpuModCount, &localRewrites](gpu::GPUModuleOp gpuMod) {
     gpuModCount++;
-    auto *ctx = &getContext();
-    RewritePatternSet patterns(ctx);
 
-    // rock-lowering
-    patterns.add<MIGPUAllocRewritePattern,
-                 MIOpRewritePattern<rock::WorkgroupBarrierOp, gpu::BarrierOp>,
-                 MIOpRewritePattern<rock::LDSBarrierOp, amdgpu::LDSBarrierOp>,
-                 MIIdRewritePattern<rock::WorkgroupIdOp, gpu::BlockIdOp>,
-                 MIIdRewritePattern<rock::WorkitemIdOp, gpu::ThreadIdOp>,
-                 MIOpRewritePattern<func::ReturnOp, gpu::ReturnOp>>(ctx);
-
-    if (failed(applyPatternsAndFoldGreedily(gpuMod, std::move(patterns))))
+    if (failed(applyPatternsAndFoldGreedily(gpuMod, localRewrites)))
       signalPassFailure();
   });
 
