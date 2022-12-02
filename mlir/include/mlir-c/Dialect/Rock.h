@@ -68,6 +68,35 @@ const char *mlirRockTuningGetParamStr(MlirRockTuningParam param);
 MLIR_CAPI_EXPORTED bool mlirRockTuningSetParam(MlirModule module,
                                                MlirRockTuningParam param);
 
+// Set the tuning params of the given module using provided perf string
+MLIR_CAPI_EXPORTED
+bool mlirRockTuningSetFromStr(MlirModule module, char *perfCStr);
+
+// Opaque pointer to tuning table storage, can be db, in memory map for now.
+MLIR_CAPI_EXPORTED
+MlirRockTuningTable mlirRockTuningTableCreate();
+
+// Destroy (close) the tuning table storage
+MLIR_CAPI_EXPORTED
+void mlirRockTuningTableDestroy(MlirRockTuningTable table);
+
+// Update the table entry, compare and keep the faster if exists
+MLIR_CAPI_EXPORTED
+bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable,
+                               MlirRockGemmWrapperInterface primaryOp,
+                               char *perfCStr, float time);
+
+// Get stored perfconfig
+MLIR_CAPI_EXPORTED
+const char *mlirRockTuningLookupTable(MlirRockTuningTable perfTable,
+                                      MlirRockGemmWrapperInterface primaryOp);
+
+MLIR_CAPI_EXPORTED
+const char *mlirRockTuningSerializeProblem(MlirModule module);
+
+MLIR_CAPI_EXPORTED
+MlirRockGemmWrapperInterface mlirRockTuningDeserializeProblem(const char *prob);
+
 MLIR_CAPI_EXPORTED MlirRockTuningKey
 mlirRockTuningGetKey(MlirRockTuningSpace params);
 

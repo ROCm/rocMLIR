@@ -77,7 +77,9 @@ struct ProblemCompare {
 }
 
 struct TuningTable {
-  std::map <RockGemmWrapperInterface, std::pair<std::string, float>, ProblemCompare> tuningMap;
+  std::map<RockGemmWrapperInterface, std::pair<std::string, float>,
+           ProblemCompare>
+      tuningMap;
 }
 
 } // namespace rock
