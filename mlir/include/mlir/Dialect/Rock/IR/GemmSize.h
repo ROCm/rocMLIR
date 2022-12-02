@@ -35,11 +35,8 @@ struct GemmSize {
   static GemmSize fromConvolution(ConvOpType type,
                                   const ConvolutionDims &sizes);
 
-  bool operator==(const GemmSize &lhs, const GemmSize &rhs) {
-    if (lhs.g == rhs.g && lhs.m == rhs.m && lhs.k == rhs.k && lhs.n == rhs.n)
-      return true;
-    else
-      return false;
+  bool operator==(const GemmSize &rhs) {
+    return g == rhs.g && m == rhs.m && k == rhs.k && n == rhs.n;
   }
 };
 } // end namespace rock
