@@ -20,6 +20,9 @@
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(Rock, rock, mlir::rock::RockDialect)
 DEFINE_C_API_PTR_METHODS(MlirRockTuningSpace, mlir::rock::TunableParams)
 DEFINE_C_API_PTR_METHODS(MlirRockTuningParam, mlir::rock::ParamEntry)
+DEFINE_C_API_PTR_METHODS(MlirRockTuningTable, mlir::rock::TuningTable)
+DEFINE_C_API_PTR_METHODS(MlirRockGemmWrapperInterface,
+                         mlir::rock::RockGemmWrapperInterface)
 // DEFINE_C_API_METHOD(MlirRockTuningKey, const void);
 
 using namespace mlir;
@@ -85,18 +88,40 @@ bool mlirRockTuningSetParam(MlirModule module, MlirRockTuningParam param) {
   return rock::tuningSetParam(mod, paramEntry);
 }
 
-// set perf config from the given string.
-bool mlirRockTuningSetFromStr(MlirRockTuningParam param, char *perfStr) {
+MLIR_CAPI_EXPORTED
+bool mlirRockTuningSetFromStr(MlirModule module, char *perfCStr) {
+  auto mod = unwrap(module);
+  MlirStringRef perfStringRef = mlirStringRefCreateFromCString(perfCStr);
+  std::string perfConfig = unwrap(perfStringRef).str();
+  return rock::tuningSetStr(mod, perfConfig);
+}
 
 // opaque pointer to tuning storage, can be db, in memory map for now.
-mlirRockTuningTableCreate()
+MLIR_CAPI_EXPORTED
+MlirRockTuningTable mlirRockTuningTableCreate() {
+  struct rock::TuningTable *newTable = rock::tableCreate();
+  return wrap(newTable);
+}
 
-mlirRockTuningUpdateTable()
+MLIR_CAPI_EXPORTED
+void mlirRockTuningTableDestroy(MlirRockTuningTable table) {
+  delete unwrap(table);
+}
 
-mlirRockTuningLookupTable()
+MLIR_CAPI_EXPORTED
+bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable,
+                               MlirRockGemmWrapperInterface primaryOp,
+                               char *perfCStr, float time) {
+  MlirStringRef perfStringRef = mlirStringRefCreateFromCString(perfCStr);
+  std::string perfConfig = unwrap(perfStringRef).str();
+  return rock::tableUpdate(unwrap(perfTable), unwrap(primaryOp), perfConfig,
+                           time);
+}
 
-// For now, we only tune primary ops (rockGemmWrapperInterface)
-const char
-*mlirRockTuningSerializeProblem(MlirModule module)
-
-MlirRockGemmWrapperInterface mlirRockTuningDeserializeProblem(const char* prob)
+MLIR_CAPI_EXPORTED
+const char *mlirRockTuningLookupTable(MlirRockTuningTable perfTable,
+                                      MlirRockGemmWrapperInterface primaryOp) {
+  std::string perfConfig =
+      rock::tableLookup(unwrap(perfTable), unwrap(primaryOp));
+  return perfConfig.c_str();
+}
