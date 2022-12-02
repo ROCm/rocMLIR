@@ -61,7 +61,8 @@ struct MICORewritePattern : public OpRewritePattern<memref::AllocOp> {
   // where the reverse expression need to be built up for
   // the users of the found destination arg.
   LogicalResult findCopyDestArg(PatternRewriter &rewriter, Operation *op,
-                                Value &copyDestArg, memref::CopyOp &copyDest) const {
+                                Value &copyDestArg,
+                                memref::CopyOp &copyDest) const {
     if (auto copyOp = dyn_cast<memref::CopyOp>(op)) {
       return findCopyDestArg(rewriter, copyOp, copyDestArg, copyDest);
     }
@@ -76,8 +77,8 @@ struct MICORewritePattern : public OpRewritePattern<memref::AllocOp> {
 
   // Finds the destination arg when the copy op is found
   LogicalResult findCopyDestArg(PatternRewriter &rewriter,
-                                memref::CopyOp &copyOp,
-                                Value &copyDestArg, memref::CopyOp &copyDest) const {
+                                memref::CopyOp &copyOp, Value &copyDestArg,
+                                memref::CopyOp &copyDest) const {
     if (copyDestArg) {
       return failure();
     }
@@ -96,7 +97,8 @@ struct MICORewritePattern : public OpRewritePattern<memref::AllocOp> {
   template <typename ReassociativeReshapeOp>
   LogicalResult findCopyDestArg(PatternRewriter &rewriter,
                                 ReassociativeReshapeOp &reassociativeReshapeOp,
-                                Value &copyDestArg, memref::CopyOp &copyDest) const {
+                                Value &copyDestArg,
+                                memref::CopyOp &copyDest) const {
     if (!reassociativeReshapeOp->hasOneUse()) {
       return failure();
     }
@@ -125,7 +127,8 @@ struct MICORewritePattern : public OpRewritePattern<memref::AllocOp> {
     return success();
   }
 
-  LogicalResult matchAndRewrite(memref::AllocOp op, PatternRewriter &b) const override {
+  LogicalResult matchAndRewrite(memref::AllocOp op,
+                                PatternRewriter &b) const override {
     LogicalResult fail = failure();
 
     // 0. Test compatibility
@@ -154,8 +157,7 @@ struct MICORewritePattern : public OpRewritePattern<memref::AllocOp> {
         }
         if (!writer)
           return fail;
-      } else if (auto mrop =
-                     dyn_cast<rock::RockGemmWrapperInterface>(useOp)) {
+      } else if (auto mrop = dyn_cast<rock::RockGemmWrapperInterface>(useOp)) {
         // 1.1 Direct output of a gemm-wrapping operation (mainly gemm itself,
         // which doesn't get transform()s after it)
         if (writer)
@@ -228,6 +230,5 @@ void RockCopyOptPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   RewritePatternSet patterns(ctx);
   patterns.add<MICORewritePattern>(ctx);
-  if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
-    signalPassFailure();
+  (void)applyPatternsAndFoldGreedily(getOperation(), std::move(patterns));
 }
