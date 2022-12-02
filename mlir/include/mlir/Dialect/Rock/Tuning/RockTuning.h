@@ -45,8 +45,8 @@ struct ProblemCompare {
       return false;
     // conv case
     if (commonType == KernelType::Conv2D) {
-      RockConvInterface lhsConv = dyn_cast<RockConvInterface>(lhs);
-      RockConvInterface rhsConv = dyn_cast<RockConvInterface>(rhs);
+      RockConvInterface lhsConv = cast<RockConvInterface>(lhs);
+      RockConvInterface rhsConv = cast<RockConvInterface>(rhs);
       if (lhsConv.getFilter().getType() != rhsConv.getFilter().getType())
         return false;
       if (lhsConv.getInput().getType() != rhsConv.getInput().getType())
