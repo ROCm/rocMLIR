@@ -84,7 +84,7 @@ struct TuningTable {
 };
 
 TuningTable *tuningTableCreate();
-bool tuningTableUpdate(TuningTable &perfTable,
+bool tuningTableUpdate(TuningTable perfTable,
                        RockGemmWrapperInterface primaryOp,
                        std::string perfConfig, float time);
 std::string tuningTableLookup(TuningTable perfTable,
