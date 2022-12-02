@@ -45,7 +45,7 @@ struct ProblemCompare {
     if (commonType < rhs->getKernelType())
       return false;
     // conv case
-    if (commonType == Conv2D) {
+    if (commonType == KernelType::Conv2D) {
       RockConvInterface lhsConv = dyn_cast<RockConvInterface>(lhs);
       RockConvInterface rhsConv = dyn_cast<RockConvInterface>(rhs);
       if (lhsConv.getFilter().getType() != rhsConv.getFilter().getType())
@@ -62,25 +62,25 @@ struct ProblemCompare {
         return false;
     }
     // gemm case
-    else if (commonType == Gemm) {
-      if (lhs.getInputType() != rhsConv.getInputType())
+    else if (commonType == KernelType::Gemm) {
+      if (lhs.getInputType() != rhs.getInputType())
         return false;
-      if (lhs.getGemmSize() != rhsConv.getGemmSize())
+      if (lhs.getGemmSize() != rhs.getGemmSize())
         return false;
-      if (lhs.getGemmFeatures() != rhsConv.getGemmFeatures())
+      if (lhs.getGemmFeatures() != rhs.getGemmFeatures())
         return false;
     } else
       return false;
 
     return true;
   }
-}
+};
 
 struct TuningTable {
   std::map<RockGemmWrapperInterface, std::pair<std::string, float>,
            ProblemCompare>
       tuningMap;
-}
+};
 
 } // namespace rock
 } // namespace mlir
