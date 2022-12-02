@@ -39,8 +39,7 @@ TunableParams *createTunableParamSpace(ModuleOp &mod);
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry);
 
 struct ProblemCompare {
-  bool operator()(RockGemmWrapperInterface lhs,
-                  RockGemmWrapperInterface rhs) const {
+  bool operator()(RockGemmWrapperInterface lhs, RockGemmWrapperInterface rhs) {
     KernelType commonType = lhs->getKernelType();
     if (commonType < rhs->getKernelType())
       return false;
