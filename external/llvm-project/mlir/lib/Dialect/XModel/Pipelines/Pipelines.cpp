@@ -64,15 +64,13 @@ void xmodel::buildGraphPipeline(OpPassManager &pm,
   pm.addNestedPass<func::FuncOp>(tosa::createTosaLayerwiseConstantFoldPass());
   pm.addNestedPass<func::FuncOp>(tosa::createTosaMakeBroadcastablePass());
 
-  // Disable decompositions, converts matmul to fully_connected
-  // pm.addNestedPass<func::FuncOp>(tosa::createTosaOptionalDecompositions());
+  // Canonicalizer applies constant/transpose folding
+  pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
 
-  // Canonicalizer applies Transpose ops to constant tensors
-  //  - disabled because it causes mixed layout in conv2d
-  // pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
-
+  SmallVector<std::string, 4> anchors{"tosa.conv2d", "tosa.depthwise_conv2d",
+                                      "tosa.matmul"};
   tosa::TosaPartitionOptions opts;
-  opts.anchorOps = {"tosa.conv2d", "tosa.depthwise_conv2d"};
+  opts.anchorOps = anchors;
   opts.trailingOnly = true;
   pm.addPass(tosa::createTosaPartition(opts));
 
