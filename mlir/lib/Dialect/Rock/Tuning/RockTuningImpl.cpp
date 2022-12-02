@@ -128,27 +128,31 @@ TuningTable *tableCreate() {
   return newTable;
 }
 
-bool tableUpdate(TuningTable perfTable, RockGemmWrapperInterface primaryOp, std
+bool tableUpdate(TuningTable &perfTable, RockGemmWrapperInterface primaryOp, std
                  : string perfConfig, float time) {
-  if (auto search = perfTable->tuningMap.find(primaryOp);
-      search != perfTable->tuningMap.end()) {
-    auto entry = perfTable->tuningMap[primaryOp];
-    if (entry.second <= time) {
-      return false;
+  if (auto search = perfTable->tuningMap.find(primaryOp)) {
+    if (search != perfTable->tuningMap.end()) {
+      auto entry = perfTable->tuningMap[primaryOp];
+      if (entry.second <= time) {
+        return true;
+      }
     }
     perfTable->tuningMap[primaryOp] = std::pair<std::string, float> newPair =
         std::make_pair(perfConfig, time);
+    return true;
   }
+  return false;
+}
 
-  std::string tableLookup(TuningTable perfTable,
-                          RockGemmWrapperInterface primaryOp) {
-    if (auto search = perfTable->tuningMap.find(primaryOp);
-        search != perfTable->tuningMap.end()) {
-      auto entry = perfTable->tuningMap[primaryOp];
-      return entry.first;
-    }
-    return nullptr;
+std::string tableLookup(TuningTable perfTable,
+                        RockGemmWrapperInterface primaryOp) {
+  if (auto search = perfTable->tuningMap.find(primaryOp);
+      search != perfTable->tuningMap.end()) {
+    auto entry = perfTable->tuningMap[primaryOp];
+    return entry.first;
   }
+  return nullptr;
+}
 
 } // namespace rock
 } // namespace mlir
