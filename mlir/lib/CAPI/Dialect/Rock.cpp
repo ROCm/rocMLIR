@@ -99,7 +99,7 @@ bool mlirRockTuningSetFromStr(MlirModule module, char *perfCStr) {
 // opaque pointer to tuning storage, can be db, in memory map for now.
 MLIR_CAPI_EXPORTED
 MlirRockTuningTable mlirRockTuningTableCreate() {
-  struct rock::TuningTable *newTable = rock::tableCreate();
+  struct rock::TuningTable *newTable = rock::tuningTableCreate();
   return wrap(newTable);
 }
 
@@ -114,14 +114,14 @@ bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable,
                                char *perfCStr, float time) {
   MlirStringRef perfStringRef = mlirStringRefCreateFromCString(perfCStr);
   std::string perfConfig = unwrap(perfStringRef).str();
-  return rock::tableUpdate(unwrap(perfTable), unwrap(primaryOp), perfConfig,
-                           time);
+  return rock::tuningTableUpdate(unwrap(perfTable), unwrap(primaryOp),
+                                 perfConfig, time);
 }
 
 MLIR_CAPI_EXPORTED
 const char *mlirRockTuningLookupTable(MlirRockTuningTable perfTable,
                                       MlirRockGemmWrapperInterface primaryOp) {
   std::string perfConfig =
-      rock::tableLookup(unwrap(perfTable), unwrap(primaryOp));
+      rock::tuningTableLookup(unwrap(perfTable), unwrap(primaryOp));
   return perfConfig.c_str();
 }

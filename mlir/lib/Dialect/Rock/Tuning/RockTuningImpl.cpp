@@ -123,13 +123,14 @@ bool tuningSetStr(ModuleOp &mod, std::string perfConfig) {
   return setPrimary.wasInterrupted();
 }
 
-TuningTable *tableCreate() {
+TuningTable *tuningTableCreate() {
   struct TuningTable *newTable = new TuningTable();
   return newTable;
 }
 
-bool tableUpdate(TuningTable &perfTable, RockGemmWrapperInterface primaryOp,
-                 std::string perfConfig, float time) {
+bool tuningTableUpdate(TuningTable &perfTable,
+                       RockGemmWrapperInterface primaryOp,
+                       std::string perfConfig, float time) {
   if (auto search = perfTable.tuningMap.find(primaryOp)) {
     if (search != perfTable.tuningMap.end()) {
       auto entry = perfTable.tuningMap[primaryOp];
@@ -143,8 +144,8 @@ bool tableUpdate(TuningTable &perfTable, RockGemmWrapperInterface primaryOp,
   return false;
 }
 
-std::string tableLookup(TuningTable perfTable,
-                        RockGemmWrapperInterface primaryOp) {
+std::string tuningTableLookup(TuningTable perfTable,
+                              RockGemmWrapperInterface primaryOp) {
   if (auto search = perfTable->tuningMap.find(primaryOp);
       search != perfTable->tuningMap.end()) {
     auto entry = perfTable->tuningMap[primaryOp];
