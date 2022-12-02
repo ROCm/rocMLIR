@@ -37,12 +37,6 @@ struct TunableParams {
 TunableParams *createTunableParamSpace(ModuleOp &mod);
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry);
 bool tuningSetStr(ModuleOp &mod, std::string perfConfig);
-TuningTable *tuningTableCreate();
-bool tuningTableUpdate(TuningTable &perfTable,
-                       RockGemmWrapperInterface primaryOp,
-                       std::string perfConfig, float time);
-std::string tuningTableLookup(TuningTable perfTable,
-                              RockGemmWrapperInterface primaryOp);
 
 struct ProblemCompare {
   bool operator()(RockGemmWrapperInterface lhs, RockGemmWrapperInterface rhs) {
@@ -86,6 +80,13 @@ struct TuningTable {
            ProblemCompare>
       tuningMap;
 };
+
+TuningTable *tuningTableCreate();
+bool tuningTableUpdate(TuningTable &perfTable,
+                       RockGemmWrapperInterface primaryOp,
+                       std::string perfConfig, float time);
+std::string tuningTableLookup(TuningTable perfTable,
+                              RockGemmWrapperInterface primaryOp);
 
 } // namespace rock
 } // namespace mlir
