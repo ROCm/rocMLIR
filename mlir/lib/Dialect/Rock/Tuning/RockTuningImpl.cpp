@@ -138,7 +138,7 @@ bool tuningTableUpdate(TuningTable perfTable,
       return false;
     }
   }
-  perfTable->tuningMap[primaryOp] = std::make_pair(perfConfig, time);
+  perfTable.tuningMap[primaryOp] = std::make_pair(perfConfig, time);
   return true;
 }
 
