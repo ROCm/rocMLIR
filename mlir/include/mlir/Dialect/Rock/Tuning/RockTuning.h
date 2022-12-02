@@ -46,8 +46,8 @@ std::string tuningTableLookup(TuningTable perfTable,
 
 struct ProblemCompare {
   bool operator()(RockGemmWrapperInterface lhs, RockGemmWrapperInterface rhs) {
-    KernelType commonType = lhs->getKernelType();
-    if (commonType < rhs->getKernelType())
+    KernelType commonType = lhs.getKernelType();
+    if (commonType < rhs.getKernelType())
       return false;
     // conv case
     if (commonType == KernelType::Conv2D) {
