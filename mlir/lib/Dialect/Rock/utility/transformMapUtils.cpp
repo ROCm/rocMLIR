@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "llvm/ADT/IndexedMap.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Debug.h"
@@ -621,4 +622,139 @@ AffineMap mlir::rock::composeTransforms(ArrayAttr transforms) {
       result = map;
   }
   return result;
+}
+
+// This function will create a permutation that will permute the originalMap to
+// be a MinorIdentityWithBroadcast. This is used to add a permutation later in
+// the chain.
+// e.g. :
+// (d0, d1, d2, d4) -> (0, d1) was the map
+// This function will return a permutation : [0, 3, 2, 1] s.t.
+// apply it to the original map would result in
+// (d0, d4, d2, d1) -> (0, d1) in effect.
+static void createPermutationForMinorIdentityWithBroadcast(
+    const AffineMap &originalMap, SmallVectorImpl<uint32_t> &perm) {
+  for (uint32_t i = 0; i < originalMap.getNumInputs(); ++i) {
+    perm.push_back(i);
+  }
+
+  llvm::SmallSet<uint32_t, 4> foundInputDims;
+  for (const auto &idxAndValue : llvm::enumerate(originalMap.getResults())) {
+    auto idx = idxAndValue.index();
+    AffineExpr resultExpr = idxAndValue.value();
+    if (resultExpr.isa<AffineDimExpr>()) {
+      foundInputDims.insert(originalMap.getDimPosition(idx));
+    }
+  }
+
+  for (const auto &idxAndValue : llvm::enumerate(originalMap.getResults())) {
+    auto idx = idxAndValue.index();
+    AffineExpr resultExpr = idxAndValue.value();
+    if (resultExpr.isa<AffineDimExpr>()) {
+      auto swap1 = originalMap.getDimPosition(idx);
+      auto swap2 =
+          originalMap.getNumInputs() - originalMap.getNumResults() + idx;
+      perm[swap1] = swap2;
+      // Only do swap if the output expr does not define another place for the
+      // other input dim
+      if (!foundInputDims.contains(swap2)) {
+        perm[swap2] = swap1;
+      }
+    }
+  }
+}
+
+Value mlir::rock::insertTransposeAndBroadcastTransforms(
+    OpBuilder &b, ArrayRef<int64_t> outShape, Value inp, AffineMap inpIdxMap) {
+  if (!inpIdxMap.isIdentity()) {
+    Location loc = inp.getLoc();
+    auto inpType = inp.getType().template cast<MemRefType>();
+    ArrayRef<int64_t> inpShape = inpType.getShape();
+
+    int64_t diff = outShape.size() - inpShape.size();
+    LLVM_DEBUG(llvm::dbgs() << "Reached makeBroadcast with map " << inpIdxMap
+                            << " and diff = " << diff << "\n");
+
+    SmallVector<uint32_t> bcastDims;
+    SmallVector<uint32_t> bcastInDims;
+    SmallVector<uint32_t> passThroughInDims;
+    SmallVector<uint32_t> perm;
+    createPermutationForMinorIdentityWithBroadcast(inpIdxMap, perm);
+    auto permMap = AffineMap::getPermutationMap(perm, b.getContext());
+    inpIdxMap = inpIdxMap.compose(permMap);
+    assert(
+        (inpIdxMap.isMinorIdentityWithBroadcasting(&bcastDims)) &&
+        "this is guranteed by createPermutationForMinorIdentityWithBroadcast");
+
+    // Broadcast those dimensions that the original linalg.generic map specifies
+    // are broadcast and collect their locations, accounting for the leading
+    // dimensions not represented in that map but which are present in the gemm
+    // coordinates
+    BottomUpTMBuilder bcastTransform(b, inpShape, loc);
+    bool hasBcast = false;
+    for (uint32_t i = 0; i < inpShape.size(); ++i) {
+      if (!llvm::is_contained(bcastDims, i)) {
+        // Here the diff correspond to leading dropped dimensions when going
+        // from output co-ordinates to input co-ordinates.
+        assert(inpIdxMap.getDimPosition(i) == diff + i);
+        passThroughInDims.push_back(diff + i);
+        bcastTransform.passThrough({i}, {i});
+      } else if (outShape[perm[diff + i]] == 1) {
+        // We can pass-through if the outshape is 1 and it is not realistically
+        // a broadcast.
+        passThroughInDims.push_back(diff + i);
+        bcastTransform.passThrough({i}, {i});
+      } else {
+        hasBcast = true;
+        bcastInDims.push_back(diff + i);
+        bcastTransform.broadcast({i}, {outShape[perm[diff + i]]});
+      }
+    }
+    if (hasBcast) {
+      inp = b.create<TransformOp>(loc, inp, bcastTransform.get());
+    }
+
+    // Then, add dimensions that are present in the writeback coordinates but
+    // are not present in the additional fusion argument with matching sizes.
+    // This, combined with the previous step, ensures that the view of the
+    // fusion argument has the same dimensions as the gemm output, though they
+    // are not necessarily in the same order.
+    bool isDimAdded = false;
+    BottomUpTMBuilder addDimtransform(
+        b, inp.getType().cast<ShapedType>().getShape(), loc);
+    for (uint32_t i = 0; i < outShape.size(); ++i) {
+      unsigned int startIdx = i - diff;
+      if (llvm::is_contained(bcastInDims, i)) {
+        addDimtransform.passThrough({i}, {startIdx});
+      } else if (llvm::is_contained(passThroughInDims, i)) {
+        addDimtransform.passThrough({i}, {startIdx});
+      } else {
+        isDimAdded = true;
+        SmallString<8> name;
+        ("exp" + Twine(i)).toVector(name);
+        addDimtransform.addDim(name, i, outShape[perm[i]]);
+      }
+    }
+    if (isDimAdded) {
+      inp = b.create<TransformOp>(loc, inp, addDimtransform.get());
+    }
+
+    // Permute the dimensions of the fusion argument to match those of the gemm
+    // writeback by applying the inverse of the permutation that would have made
+    // the original indexing map into a minor identity with broadcast. The
+    // inverse of that permutation takes the gemm writeback coordinates and
+    // scatters them into positions that match the non-identity indexing pattern
+    // of the fusion argument.
+    if (!permMap.isIdentity()) {
+      BottomUpTMBuilder permtransform(
+          b, inp.getType().cast<ShapedType>().getShape(), loc);
+      llvm::SmallVector<uint32_t, 4> identityVec;
+      for (uint32_t i = 0; i < outShape.size(); ++i) {
+        identityVec.push_back(i);
+      }
+      permtransform.passThrough(identityVec, perm);
+      inp = b.create<TransformOp>(loc, inp, permtransform.get());
+    }
+  }
+  return inp;
 }
