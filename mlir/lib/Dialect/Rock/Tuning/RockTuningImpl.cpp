@@ -131,17 +131,15 @@ TuningTable *tuningTableCreate() {
 bool tuningTableUpdate(TuningTable &perfTable,
                        RockGemmWrapperInterface primaryOp,
                        std::string perfConfig, float time) {
-  if (auto search = perfTable.tuningMap.find(primaryOp)) {
-    if (search != perfTable.tuningMap.end()) {
-      auto entry = perfTable.tuningMap[primaryOp];
-      if (entry.second <= time) {
-        return true;
-      }
+  auto search = perfTable.tuningMap.find(primaryOp);
+  if (search != perfTable.tuningMap.end()) {
+    auto entry = perfTable.tuningMap[primaryOp];
+    if (entry.second <= time) {
+      return false;
     }
-    perfTable->tuningMap[primaryOp] = std::make_pair(perfConfig, time);
-    return true;
   }
-  return false;
+  perfTable->tuningMap[primaryOp] = std::make_pair(perfConfig, time);
+  return true;
 }
 
 std::string tuningTableLookup(TuningTable perfTable,
