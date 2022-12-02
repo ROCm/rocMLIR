@@ -34,10 +34,6 @@ struct GemmSize {
   /// Compute the gemm size given a convolution type and its dimensions.
   static GemmSize fromConvolution(ConvOpType type,
                                   const ConvolutionDims &sizes);
-
-  bool operator==(const GemmSize &rhs) {
-    return g == rhs.g && m == rhs.m && k == rhs.k && n == rhs.n;
-  }
 };
 } // end namespace rock
 } // end namespace mlir

@@ -64,7 +64,9 @@ struct ProblemCompare {
     else if (commonType == KernelType::Gemm) {
       if (lhs.getInputType() != rhs.getInputType())
         return false;
-      if (lhs.getGemmSize() != rhs.getGemmSize())
+      if (lhs.getGemmSize().m != rhs.getGemmSize().m ||
+          lhs.getGemmSize().k != rhs.getGemmSize().k ||
+          lhs.getGemmSize().n != rhs.getGemmSize().n)
         return false;
       if (lhs.getGemmFeatures() != rhs.getGemmFeatures())
         return false;
