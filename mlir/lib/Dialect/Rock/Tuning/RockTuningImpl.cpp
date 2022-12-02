@@ -144,12 +144,12 @@ bool tuningTableUpdate(TuningTable &perfTable,
 
 std::string tuningTableLookup(TuningTable perfTable,
                               RockGemmWrapperInterface primaryOp) {
-  if (auto search = perfTable->tuningMap.find(primaryOp);
-      search != perfTable->tuningMap.end()) {
+  auto search = perfTable.tuningMap.find(primaryOp);
+  if (search != perfTable.tuningMap.end()) {
     auto entry = perfTable->tuningMap[primaryOp];
     return entry.first;
   }
-  return nullptr;
+  return {};
 }
 
 } // namespace rock
