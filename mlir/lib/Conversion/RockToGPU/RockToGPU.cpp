@@ -148,16 +148,20 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     gpuModuleSymbolTable.insert(gpuFunc);
 
     // Set kernel attribute.
-    uint32_t gridSize = 0;
-    uint32_t blockSize = 0;
+    int32_t gridSize = 0;
+    int32_t blockSize = 0;
     gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(), b.getUnitAttr());
     if (auto attr = theFunc->getAttr("block_size")) {
       gpuFunc->setAttr("block_size", attr);
       blockSize = attr.template cast<IntegerAttr>().getInt();
+      gpuFunc->setAttr(gpu::GPUFuncOp::getKnownBlockSizeAttrName(),
+                       b.getDenseI32ArrayAttr({blockSize, 1, 1}));
     }
     if (auto attr = theFunc->getAttr("grid_size")) {
       gpuFunc->setAttr("grid_size", attr);
       gridSize = attr.template cast<IntegerAttr>().getInt();
+      gpuFunc->setAttr(gpu::GPUFuncOp::getKnownGridSizeAttrName(),
+                       b.getDenseI32ArrayAttr({gridSize, 1, 1}));
     }
 
     // associate arguments for newly created GPUFuncOp.
