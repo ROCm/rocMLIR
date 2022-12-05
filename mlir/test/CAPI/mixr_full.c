@@ -173,16 +173,34 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   int fNum = mlirRockTuningGetNumParamsFull(tuningSpace);
   printf("quick set = %d, full set = %d\n", qNum, fNum);
   MlirRockTuningParam tuningParam = mlirRockTuningParamCreate();
-  if (!mlirRockTuningParamGet(tuningSpace, 0, tuningParam)) {
-    printf("fails to obtain param\n");
+  MlirRockTuningTable tuningTable = mlirRockTuningTableCreate();
+  MlirRockGemmWrapperInterface primaryOp = mlirRockTuningGetPrimaryOp(module);
+  for (int i = 0; i < 2; i++) {
+    if (!mlirRockTuningParamGet(tuningSpace, i, tuningParam)) {
+      printf("fails to obtain param\n");
+      return false;
+    }
+    float fakeTime = (float)(2 - i);
+    char *paramStr = strdup(mlirRockTuningGetParamStr(tuningParam));
+    printf("Update perfconfig : \"%s\" with time %f\n", paramStr, fakeTime);
+    if (!mlirRockTuningUpdateTable(tuningTable, primaryOp, paramStr,
+                                   fakeTime)) {
+      printf("fails to update table, maybe existing config is faster\n");
+    }
+    free(paramStr);
+  }
+  char *fastestConfig = strdup(mlirRockTuningLookupTable(tuningTable, primaryOp);
+
+  if(!mlirRockTuningSetFromStr(module, fastestConfig)) {
+    printf("fails to set param\n");
     return false;
   }
-  mlirRockTuningSetParam(module, tuningParam);
-  char *paramStr = strdup(mlirRockTuningGetParamStr(tuningParam));
+
+  mlirRockTuningTableDestroy(tuningTable);
   mlirRockTuningParamDestroy(tuningParam);
   mlirRockTuningSpaceDestroy(tuningSpace);
-  printf("Obtained perfconfig : \"%s\"\n", paramStr);
-  free(paramStr);
+
+  free(fastestConfig);
 
   mlirOperationDump(moduleOp);
   // CHECK-LABEL: func @main

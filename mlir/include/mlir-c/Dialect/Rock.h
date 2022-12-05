@@ -88,10 +88,14 @@ bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable,
                                MlirRockGemmWrapperInterface primaryOp,
                                char *perfCStr, float time);
 
-// Get stored perfconfig
+// Get stored perfconfig from the table.
 MLIR_CAPI_EXPORTED
 const char *mlirRockTuningLookupTable(MlirRockTuningTable perfTable,
                                       MlirRockGemmWrapperInterface primaryOp);
+
+// Get a primary op to tune.
+MLIR_CAPI_EXPORTED
+MlirRockGemmWrapperInterface mlirRockTuningGetPrimaryOp(MlirModule module);
 
 MLIR_CAPI_EXPORTED
 const char *mlirRockTuningSerializeProblem(MlirModule module);

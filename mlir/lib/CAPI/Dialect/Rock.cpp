@@ -125,3 +125,15 @@ const char *mlirRockTuningLookupTable(MlirRockTuningTable perfTable,
       rock::tuningTableLookup(unwrap(perfTable), unwrap(primaryOp));
   return perfConfig.c_str();
 }
+
+MLIR_CAPI_EXPORTED
+MlirRockGemmWrapperInterface mlirRockTuningGetPrimaryOp(MlirModule module) {
+  auto mod = unwrap(module);
+  rock::RockGemmWrapperInterface primaryOp;
+  WalkResult findPrimary =
+      mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
+        primaryOp = op;
+        return WalkResult::interrupt();
+      });
+  return primaryOp;
+}
