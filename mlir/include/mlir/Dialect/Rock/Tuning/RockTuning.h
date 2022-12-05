@@ -40,8 +40,8 @@ bool tuningSetStr(ModuleOp &mod, std::string perfConfig);
 
 struct ProblemCompare {
   bool operator()(RockGemmWrapperInterface lhs, RockGemmWrapperInterface rhs) {
-    Operation lhsOp = cast<Operation>(lhs);
-    Operation rhsOp = cast<Operation>(rhs)
+    Operation lhsOp = static_cast<Operation>(lhs);
+    Operation rhsOp = static_cast<Operation>(rhs)
     KernelType commonType = lhs.getKernelType();
     if (commonType < rhs.getKernelType())
       return false;
