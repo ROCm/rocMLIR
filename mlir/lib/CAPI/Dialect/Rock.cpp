@@ -131,7 +131,7 @@ MlirRockGemmWrapperInterface mlirRockTuningGetPrimaryOp(MlirModule module) {
   auto mod = unwrap(module);
   rock::RockGemmWrapperInterface *primaryOp;
   mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-    Operation clone = op.getOperation()->cloneWithoutRegions();
+    Operation* clone = op.getOperation()->cloneWithoutRegions();
     rock::RockGemmWrapperInterface gemmClone =
         dyn_cast<rock::RockGemmWrapperInterface>(clone);
     primaryOp = &gemmClone;
