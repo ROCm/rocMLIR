@@ -87,10 +87,10 @@ struct TuningTable {
 
 TuningTable *tuningTableCreate();
 bool tuningTableUpdate(TuningTable *perfTable,
-                       RockGemmWrapperInterface primaryOp,
+                       RockGemmWrapperInterface *primaryOp,
                        std::string perfConfig, float time);
 std::string tuningTableLookup(TuningTable *perfTable,
-                              RockGemmWrapperInterface primaryOp);
+                              RockGemmWrapperInterface *primaryOp);
 
 } // namespace rock
 } // namespace mlir
