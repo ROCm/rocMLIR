@@ -60,7 +60,7 @@ struct InlineViewLikeOperandsLinalgRewritePattern
 static void getDelinearizedAffineExpr(
     ArrayRef<int64_t> originalStridesDimsBeingReassociated,
     ArrayRef<int64_t> postReassociatedDimSizes, Builder &b,
-    unsigned int position, SmallVectorImpl<mlir::AffineExpr> &res) {
+    unsigned int position, SmallVectorImpl<AffineExpr> &res) {
   AffineExpr resultExpr = b.getAffineDimExpr(position);
   int64_t rank = originalStridesDimsBeingReassociated.size();
   // If the rank is 1, expand or collapse shapes will just
@@ -158,7 +158,7 @@ foldViewLikeOperands(PatternRewriter &rewriter, Value op, AffineMap &foldedMap,
                      SmallVectorImpl<Operation *> &toBeErasedViewLikeOps) {
   if (memref::CollapseShapeOp collapseOp =
           op.getDefiningOp<memref::CollapseShapeOp>()) {
-    SmallVector<mlir::ReassociationIndices, 4U> reassociationIndices =
+    SmallVector<ReassociationIndices, 4U> reassociationIndices =
         collapseOp.getReassociationIndices();
     MemRefType lowerRankType = collapseOp.getType();
     MemRefType higherRankType = collapseOp.getSrcType();
@@ -171,7 +171,7 @@ foldViewLikeOperands(PatternRewriter &rewriter, Value op, AffineMap &foldedMap,
   }
   if (memref::ExpandShapeOp expandOp =
           op.getDefiningOp<memref::ExpandShapeOp>()) {
-    SmallVector<mlir::ReassociationIndices, 4U> reassociationIndices =
+    SmallVector<ReassociationIndices, 4U> reassociationIndices =
         expandOp.getReassociationIndices();
     MemRefType higherRankType = expandOp.getType();
     MemRefType lowerRankType = expandOp.getSrcType();
