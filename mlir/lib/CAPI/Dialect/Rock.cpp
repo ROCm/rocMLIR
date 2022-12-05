@@ -21,8 +21,8 @@ MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(Rock, rock, mlir::rock::RockDialect)
 DEFINE_C_API_PTR_METHODS(MlirRockTuningSpace, mlir::rock::TunableParams)
 DEFINE_C_API_PTR_METHODS(MlirRockTuningParam, mlir::rock::ParamEntry)
 DEFINE_C_API_PTR_METHODS(MlirRockTuningTable, mlir::rock::TuningTable)
-DEFINE_C_API_PTR_METHODS(MlirRockGemmWrapperInterface,
-                         mlir::rock::RockGemmWrapperInterface)
+//DEFINE_C_API_PTR_METHODS(MlirRockGemmWrapperInterface,
+//                         mlir::rock::RockGemmWrapperInterface)
 // DEFINE_C_API_METHOD(MlirRockTuningKey, const void);
 
 using namespace mlir;
