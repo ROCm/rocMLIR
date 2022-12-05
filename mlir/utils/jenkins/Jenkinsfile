@@ -796,4 +796,16 @@ pipeline {
             }
         }
     }
+    post {
+        failure {
+            emailext subject: "${env.JOB_NAME} - Build # ${env.BUILD_NUMBER} - Failed",
+                     mimeType: 'text/html', to: "paul.fuqua@amd.com",
+                     body: """<p>Check console output at <a href="${env.BUILD_URL}">${env.JOB_NAME}</a></p>"""
+            }
+        success {
+            emailext subject: "${env.JOB_NAME} - Build # ${env.BUILD_NUMBER} - Successful",
+                     mimeType: 'text/html', to: "paul.fuqua@amd.com",
+                     body: """<p>Check console output at <a href="${env.BUILD_URL}">${env.JOB_NAME}</a></p>"""
+          }
+    }
 }
