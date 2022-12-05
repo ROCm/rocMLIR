@@ -130,10 +130,12 @@ MLIR_CAPI_EXPORTED
 MlirRockGemmWrapperInterface mlirRockTuningGetPrimaryOp(MlirModule module) {
   auto mod = unwrap(module);
   rock::RockGemmWrapperInterface *primaryOp;
-  WalkResult findPrimary =
-      mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-        primaryOp = &op;
-        return WalkResult::interrupt();
-      });
+  mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
+    Operation clone = op.getOperation().cloneWithoutRegions();
+    rock::RockGemmWrapperInterface gemmClone =
+        dyn_cast<rock::RockGemmWrapperInterface>(clone);
+    primaryOp = &gemmClone;
+    return WalkResult::interrupt();
+  });
   return wrap(primaryOp);
 }
