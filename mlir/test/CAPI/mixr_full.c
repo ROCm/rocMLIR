@@ -189,7 +189,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
     }
     free(paramStr);
   }
-  char *fastestConfig = strdup(mlirRockTuningLookupTable(tuningTable, primaryOp);
+  char *fastestConfig = strdup(mlirRockTuningLookupTable(tuningTable, primaryOp));
 
   if(!mlirRockTuningSetFromStr(module, fastestConfig)) {
     printf("fails to set param\n");

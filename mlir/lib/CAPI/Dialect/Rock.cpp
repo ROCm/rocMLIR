@@ -132,7 +132,7 @@ MlirRockGemmWrapperInterface mlirRockTuningGetPrimaryOp(MlirModule module) {
   rock::RockGemmWrapperInterface *primaryOp;
   WalkResult findPrimary =
       mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-        primaryOp = op;
+        primaryOp = &op;
         return WalkResult::interrupt();
       });
   return wrap(primaryOp);
