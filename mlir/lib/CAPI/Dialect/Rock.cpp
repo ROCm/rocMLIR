@@ -135,5 +135,5 @@ MlirRockGemmWrapperInterface mlirRockTuningGetPrimaryOp(MlirModule module) {
         primaryOp = op;
         return WalkResult::interrupt();
       });
-  return primaryOp;
+  return wrap(primaryOp);
 }
