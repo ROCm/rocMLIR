@@ -40,13 +40,13 @@ bool tuningSetStr(ModuleOp &mod, std::string perfConfig);
 
 struct ProblemCompare {
   bool operator()(RockGemmWrapperInterface lhs, RockGemmWrapperInterface rhs) {
+    Operation lhsOp = cast<Operation>(lhs);
+    Operation rhsOp = cast<Operation>(rhs)
     KernelType commonType = lhs.getKernelType();
     if (commonType < rhs.getKernelType())
       return false;
     // conv case
     if (commonType == KernelType::Conv2D) {
-      Operation lhsOp = cast<Operation>(lhs);
-      Operation rhsOp = cast<Operation>(rhs)
       RockConvInterface lhsConv = dyn_cast<RockConvInterface>(lhsOp);
       RockConvInterface rhsConv = dyn_cast<RockConvInterface>(rhsOp);
       if (lhsConv.getFilter().getType() != rhsConv.getFilter().getType())
