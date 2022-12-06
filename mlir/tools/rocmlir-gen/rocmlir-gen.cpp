@@ -475,7 +475,7 @@ static llvm::cl::opt<std::string> randomSide(
 // float random inputs range
 static llvm::cl::opt<int>
     randMin("rand_min", llvm::cl::desc("lower bound for float random input"),
-            llvm::cl::value_desc("range"), llvm::cl::init(-1));
+            llvm::cl::value_desc("range"), llvm::cl::init(0));
 
 static llvm::cl::opt<int>
     randMax("rand_max", llvm::cl::desc("upper bound for float random input"),

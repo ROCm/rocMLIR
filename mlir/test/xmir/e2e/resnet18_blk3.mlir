@@ -1,6 +1,6 @@
 // RUN: rocmlir-driver -host-pipeline partition,highlevel -targets %arch %s | rocmlir-gen -ph -print-results -rand 1 -rand_type float -verifier clone -fut forward - | rocmlir-driver -host-pipeline xmodel -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
 
-// CHECK: RMS = {{.*}}e-08
+// CHECK: RMS = {{.*}}e-07
 // COM: CHECK: RMS = {{.*}}e-0[[#%d,RMS:]]
 // COM: how to check min(7, RMS) == 7
 // CHECK: [1 1 0]
