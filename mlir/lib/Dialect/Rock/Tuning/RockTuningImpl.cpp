@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
+#include "llvm/ADT/Hashing.h"
 
 namespace mlir {
 namespace rock {
@@ -128,12 +129,31 @@ TuningTable *tuningTableCreate() {
   return newTable;
 }
 
+unsigned getGemmTuningHash(RockGemmWrapperInterface gemmOp) {
+
+  KernelType opType = gemmOp.getKernelType();
+  llvm::hash_code hash = llvm::hash_code(opType);
+  // conv case
+  if (opType == KernelType::Conv2D) {
+    RockConvInterface convIF = dyn_cast<RockConvInterface>(gemmOp);
+    hash = llvm::hash_combine(hash, convIF.getFilter(), convIF.getInput(),
+                              convIF.getPadding(), convIF.getStrides(),
+                              convIF.getDilations(), convIF.getFeatures());
+  }
+  // gemm case
+  else if (opType == KernelType::Gemm) {
+    hash = llvm::hash_combine(hash, gemmOp.getInputType(), gemmOp.getGemmSize());
+  }
+  return hash.size_t();
+}
+
 bool tuningTableUpdate(TuningTable *perfTable,
-                       RockGemmWrapperInterface *primaryOp,
+                       RockGemmWrapperInterface primaryOp,
                        std::string perfConfig, float time) {
-  auto search = perfTable->tuningMap.find(*primaryOp);
+  size_t hashKey = getGemmTuningHash(primaryOp);
+  auto search = perfTable->tuningMap.find(hashKey);
   if (search != perfTable->tuningMap.end()) {
-    auto entry = perfTable->tuningMap[*primaryOp];
+    auto entry = perfTable->tuningMap[hashKey];
     if (entry.second <= time) {
       return false;
     }
@@ -143,10 +163,11 @@ bool tuningTableUpdate(TuningTable *perfTable,
 }
 
 std::string tuningTableLookup(TuningTable *perfTable,
-                              RockGemmWrapperInterface *primaryOp) {
-  auto search = perfTable->tuningMap.find(*primaryOp);
+                              RockGemmWrapperInterface primaryOp) {
+  size_t hashKey = getGemmTuningHash(primaryOp);
+  auto search = perfTable->tuningMap.find(hashKey);
   if (search != perfTable->tuningMap.end()) {
-    auto entry = perfTable->tuningMap[*primaryOp];
+    auto entry = perfTable->tuningMap[hashKey];
     return entry.first;
   }
   return std::string();

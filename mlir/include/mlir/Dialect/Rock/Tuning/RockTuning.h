@@ -80,17 +80,16 @@ struct ProblemCompare {
 };
 
 struct TuningTable {
-  std::map<RockGemmWrapperInterface, std::pair<std::string, float>,
-           ProblemCompare>
+  std::map<size_t, std::pair<std::string, float>>
       tuningMap;
 };
 
 TuningTable *tuningTableCreate();
 bool tuningTableUpdate(TuningTable *perfTable,
-                       RockGemmWrapperInterface *primaryOp,
+                       RockGemmWrapperInterface primaryOp,
                        std::string perfConfig, float time);
 std::string tuningTableLookup(TuningTable *perfTable,
-                              RockGemmWrapperInterface *primaryOp);
+                              RockGemmWrapperInterface primaryOp);
 
 } // namespace rock
 } // namespace mlir
