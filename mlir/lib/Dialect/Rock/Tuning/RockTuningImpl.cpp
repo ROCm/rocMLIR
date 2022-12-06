@@ -132,19 +132,19 @@ TuningTable *tuningTableCreate() {
 unsigned getGemmTuningHash(RockGemmWrapperInterface gemmIF) {
 
   KernelType opType = gemmIF.getKernelType();
-  llvm::hash_code hash = llvm::hash_code(opType);
+  llvm::hash_code hash;
   Operation *gemmOp = gemmIF.getOperation();
   // conv case
   if (opType == KernelType::Conv2D) {
     RockConvInterface convIF = dyn_cast<RockConvInterface>(gemmOp);
-    hash = llvm::hash_combine(hash, convIF.getFilter(), convIF.getInput(),
+    hash = llvm::hash_combine(opType, convIF.getFilter(), convIF.getInput(),
                               convIF.getPadding(), convIF.getStrides(),
                               convIF.getDilations(), convIF.getFeatures());
   }
   // gemm case
   else if (opType == KernelType::Gemm) {
     hash =
-        llvm::hash_combine(hash, gemmIF.getInputType(), gemmIF.getGemmSize());
+        llvm::hash_combine(opType, gemmIF.getInputType(), gemmIF.getGemmSize());
   }
   return hash.size_t();
 }
@@ -168,7 +168,7 @@ bool tuningTableUpdate(TuningTable *perfTable, ModuleOp &mod,
       return false;
     }
   }
-  perfTable->tuningMap[*primaryOp] = std::make_pair(perfConfig, time);
+  perfTable->tuningMap[hashKey] = std::make_pair(perfConfig, time);
   return true;
 }
 
