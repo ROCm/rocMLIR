@@ -72,7 +72,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
            python3.8 python3.8-dev python3.8-venv python3-psutil \
            python3-pip python3-setuptools \
     && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 10 \
-    && apt upgrade \
+    && apt upgrade -y \
     && python3 -m pip install --upgrade pip \
     && pip3 install pandas numpy scipy jinja2 tomli \
     && pip3 install -r requirements.txt
@@ -124,4 +124,17 @@ RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/MIOpen/develop/r
     && sed -i -e '/composable_kernel/d' requirements.txt \
     && cmake -P install_deps.cmake --prefix /usr/local
 RUN echo $(git ls-remote https://github.com/ROCmSoftwarePlatform/MIOpen HEAD) > miopen-deps-commit-hash
+WORKDIR /
+# --------------------- Section 4: MIGraphX dependencies ---------------
+WORKDIR /MIGraphXDeps
+RUN pip3 install setuptools wheel
+# Install MIGraphX python dependencies
+RUN pip3 install https://github.com/RadeonOpenCompute/rbuild/archive/master.tar.gz
+RUN pip3 install onnx==1.8.1 numpy==1.21.6 typing==3.7.4 pytest==6.0.1 packaging==16.8
+RUN pip3 install protobuf==3.20.0
+# Get the requirement files from the commit be70702dc80d59126d6b4011d6cc7913193db566
+RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/AMDMIGraphX/be70702dc80d59126d6b4011d6cc7913193db566/requirements.txt \
+    && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/AMDMIGraphX/be70702dc80d59126d6b4011d6cc7913193db566/dev-requirements.txt \
+    && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/AMDMIGraphX/be70702dc80d59126d6b4011d6cc7913193db566/rbuild.ini
+RUN rbuild prepare -d $PWD -s develop --cxx=/opt/rocm/llvm/bin/clang++
 WORKDIR /
