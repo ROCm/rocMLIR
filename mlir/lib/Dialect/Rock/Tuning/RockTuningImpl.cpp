@@ -129,7 +129,7 @@ TuningTable *tuningTableCreate() {
   return newTable;
 }
 
-unsigned getGemmTuningHash(RockGemmWrapperInterface gemmIF) {
+size_t getGemmTuningHash(RockGemmWrapperInterface gemmIF) {
 
   KernelType opType = gemmIF.getKernelType();
   llvm::hash_code hash;
@@ -146,7 +146,7 @@ unsigned getGemmTuningHash(RockGemmWrapperInterface gemmIF) {
     hash =
         llvm::hash_combine(opType, gemmIF.getInputType(), gemmIF.getGemmSize());
   }
-  return hash.size_t();
+  return hash;
 }
 
 bool tuningTableUpdate(TuningTable *perfTable, ModuleOp &mod,
