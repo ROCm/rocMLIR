@@ -94,14 +94,14 @@ const char *mlirRockTuningLookupTable(MlirRockTuningTable perfTable,
                                       MlirModule module);
 
 // Get a primary op to tune.
-MLIR_CAPI_EXPORTED
-MlirRockGemmWrapperInterface mlirRockTuningGetPrimaryOp(MlirModule module);
+//MLIR_CAPI_EXPORTED
+//MlirRockGemmWrapperInterface mlirRockTuningGetPrimaryOp(MlirModule module);
 
-MLIR_CAPI_EXPORTED
-const char *mlirRockTuningSerializeProblem(MlirModule module);
+//MLIR_CAPI_EXPORTED
+//const char *mlirRockTuningSerializeProblem(MlirModule module);
 
-MLIR_CAPI_EXPORTED
-MlirRockGemmWrapperInterface mlirRockTuningDeserializeProblem(const char *prob);
+//MLIR_CAPI_EXPORTED
+//MlirRockGemmWrapperInterface mlirRockTuningDeserializeProblem(const char *prob);
 
 MLIR_CAPI_EXPORTED MlirRockTuningKey
 mlirRockTuningGetKey(MlirRockTuningSpace params);
