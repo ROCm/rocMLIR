@@ -175,12 +175,12 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   MlirRockTuningParam tuningParam = mlirRockTuningParamCreate();
   MlirRockTuningTable tuningTable = mlirRockTuningTableCreate();
 
-  for (int i = 1; i > -1; i--) {
+  for (int i = 0; i < 2; i++) {
     if (!mlirRockTuningParamGet(tuningSpace, i, tuningParam)) {
       printf("fails to obtain param\n");
       return false;
     }
-    float fakeTime = (float)(2 - i);
+    float fakeTime = (float)(i + 1);
     char *paramStr = strdup(mlirRockTuningGetParamStr(tuningParam));
     printf("Update perfconfig : \"%s\" with time %f\n", paramStr, fakeTime);
     if (!mlirRockTuningUpdateTable(tuningTable, module, paramStr, fakeTime)) {
