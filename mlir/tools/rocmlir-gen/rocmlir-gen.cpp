@@ -1948,11 +1948,12 @@ static void checkRandomInputsE2E() {
       randomDataType == "float") {
     int min = randMin.getValue();
     int max = randMax.getValue();
-    if ((-1 <= min && min < 1) || (-1 < max && max <= 1)) {
-      llvm::outs() << "WARNING: E2E tests with float random inputs within ";
-      llvm::outs() << "[-1, 1] may fail\n";
-      llvm::outs() << "         Try range [1, 3] by setting ";
-      llvm::outs() << "\"-rand_min 1 -rand_max 3\"\n";
+    if (min < 0 && max > 0) {
+      llvm::errs() << "WARNING: E2E tests with float random inputs within ";
+      llvm::errs() << "WARNING: E2E tests may fail with both positive and ";
+      llvm::errs() << "negative float random inputs\n";
+      llvm::errs() << "         Try range [1, 3] by setting ";
+      llvm::errs() << "\"-rand_min 1 -rand_max 3\"\n";
     }
   }
 }
