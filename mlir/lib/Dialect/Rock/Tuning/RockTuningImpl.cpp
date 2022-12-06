@@ -143,8 +143,9 @@ size_t getGemmTuningHash(RockGemmWrapperInterface gemmIF) {
   }
   // gemm case
   else if (opType == KernelType::Gemm) {
-    hash =
-        llvm::hash_combine(opType, gemmIF.getInputType(), gemmIF.getGemmSize());
+    hash = llvm::hash_combine(opType, gemmIF.getInputType(),
+                              gemmIF.getGemmSize().m, gemmIF.getGemmSize().k,
+                              gemmIF.getGemmSize().n);
   }
   return hash;
 }
@@ -180,7 +181,7 @@ std::string tuningTableLookup(TuningTable *perfTable, ModuleOp &mod) {
         return WalkResult::interrupt();
       });
   if (!findPrimary.wasInterrupted())
-    return false;
+    return std::string();
 
   size_t hashKey = getGemmTuningHash(primaryOp);
   auto search = perfTable->tuningMap.find(hashKey);
