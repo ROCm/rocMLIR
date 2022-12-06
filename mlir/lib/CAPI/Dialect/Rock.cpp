@@ -129,12 +129,15 @@ const char *mlirRockTuningLookupTable(MlirRockTuningTable perfTable,
 MLIR_CAPI_EXPORTED
 MlirRockGemmWrapperInterface mlirRockTuningGetPrimaryOp(MlirModule module) {
   auto mod = unwrap(module);
-  rock::RockGemmWrapperInterface *primaryOp;
+  rock::RockGemmWrapperInterface primaryOp;
   mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
+    primaryOp = const_cast<rock::RockGemmWrapperInterface>(op);
+    /*
     Operation* clone = op.getOperation()->cloneWithoutRegions();
     rock::RockGemmWrapperInterface gemmClone =
         dyn_cast<rock::RockGemmWrapperInterface>(clone);
     primaryOp = &gemmClone;
+*/
     return WalkResult::interrupt();
   });
   return wrap(primaryOp);
