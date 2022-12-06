@@ -145,7 +145,7 @@ size_t getGemmTuningHash(RockGemmWrapperInterface gemmIF) {
   else if (opType == KernelType::Gemm) {
     hash = llvm::hash_combine(opType, gemmIF.getInputType(),
                               gemmIF.getGemmSize().m, gemmIF.getGemmSize().k,
-                              gemmIF.getGemmSize().n);
+                              gemmIF.getGemmSize().n, gemmIF.getGemmFeatures());
   }
   return hash;
 }
