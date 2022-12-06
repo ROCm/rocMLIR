@@ -142,14 +142,22 @@ unsigned getGemmTuningHash(RockGemmWrapperInterface gemmOp) {
   }
   // gemm case
   else if (opType == KernelType::Gemm) {
-    hash = llvm::hash_combine(hash, gemmOp.getInputType(), gemmOp.getGemmSize());
+    hash =
+        llvm::hash_combine(hash, gemmOp.getInputType(), gemmOp.getGemmSize());
   }
   return hash.size_t();
 }
 
-bool tuningTableUpdate(TuningTable *perfTable,
-                       RockGemmWrapperInterface primaryOp,
+bool tuningTableUpdate(TuningTable *perfTable, ModuleOp &mod,
                        std::string perfConfig, float time) {
+  rock::RockGemmWrapperInterface primaryOp;
+  WalkResult findPrimary =
+      mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
+        primaryOp = op return WalkResult::interrupt();
+      });
+  if (!setPrimary.wasInterrupted())
+    return false;
+
   size_t hashKey = getGemmTuningHash(primaryOp);
   auto search = perfTable->tuningMap.find(hashKey);
   if (search != perfTable->tuningMap.end()) {
@@ -162,8 +170,15 @@ bool tuningTableUpdate(TuningTable *perfTable,
   return true;
 }
 
-std::string tuningTableLookup(TuningTable *perfTable,
-                              RockGemmWrapperInterface primaryOp) {
+std::string tuningTableLookup(TuningTable *perfTable, ModuleOp &mod) {
+  rock::RockGemmWrapperInterface primaryOp;
+  WalkResult findPrimary =
+      mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
+        primaryOp = op return WalkResult::interrupt();
+      });
+  if (!setPrimary.wasInterrupted())
+    return false;
+    
   size_t hashKey = getGemmTuningHash(primaryOp);
   auto search = perfTable->tuningMap.find(hashKey);
   if (search != perfTable->tuningMap.end()) {

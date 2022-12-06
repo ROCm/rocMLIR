@@ -21,9 +21,9 @@ MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(Rock, rock, mlir::rock::RockDialect)
 DEFINE_C_API_PTR_METHODS(MlirRockTuningSpace, mlir::rock::TunableParams)
 DEFINE_C_API_PTR_METHODS(MlirRockTuningParam, mlir::rock::ParamEntry)
 DEFINE_C_API_PTR_METHODS(MlirRockTuningTable, mlir::rock::TuningTable)
-//DEFINE_C_API_PTR_METHODS(MlirRockGemmWrapperInterface,
-//                         mlir::rock::RockGemmWrapperInterface)
-// DEFINE_C_API_METHOD(MlirRockTuningKey, const void);
+// DEFINE_C_API_PTR_METHODS(MlirRockGemmWrapperInterface,
+//                          mlir::rock::RockGemmWrapperInterface)
+//  DEFINE_C_API_METHOD(MlirRockTuningKey, const void);
 
 using namespace mlir;
 
@@ -109,36 +109,18 @@ void mlirRockTuningTableDestroy(MlirRockTuningTable table) {
 }
 
 MLIR_CAPI_EXPORTED
-bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable,
-                               MlirRockGemmWrapperInterface primaryOp,
+bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable, MlirModule module,
                                char *perfCStr, float time) {
   MlirStringRef perfStringRef = mlirStringRefCreateFromCString(perfCStr);
   std::string perfConfig = unwrap(perfStringRef).str();
-  return rock::tuningTableUpdate(unwrap(perfTable), unwrap(primaryOp),
+  return rock::tuningTableUpdate(unwrap(perfTable), unwrap(module),
                                  perfConfig, time);
 }
 
 MLIR_CAPI_EXPORTED
 const char *mlirRockTuningLookupTable(MlirRockTuningTable perfTable,
-                                      MlirRockGemmWrapperInterface primaryOp) {
+                                      MlirModule module) {
   std::string perfConfig =
-      rock::tuningTableLookup(unwrap(perfTable), unwrap(primaryOp));
+      rock::tuningTableLookup(unwrap(perfTable), unwrap(module));
   return perfConfig.c_str();
-}
-
-MLIR_CAPI_EXPORTED
-MlirRockGemmWrapperInterface mlirRockTuningGetPrimaryOp(MlirModule module) {
-  auto mod = unwrap(module);
-  rock::RockGemmWrapperInterface primaryOp;
-  mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-    primaryOp = const_cast<rock::RockGemmWrapperInterface>(op);
-    /*
-    Operation* clone = op.getOperation()->cloneWithoutRegions();
-    rock::RockGemmWrapperInterface gemmClone =
-        dyn_cast<rock::RockGemmWrapperInterface>(clone);
-    primaryOp = &gemmClone;
-*/
-    return WalkResult::interrupt();
-  });
-  return wrap(primaryOp);
 }

@@ -30,7 +30,7 @@ MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(Rock, rock);
 DEFINE_C_API_STRUCT(MlirRockTuningSpace, void);
 DEFINE_C_API_STRUCT(MlirRockTuningParam, void);
 DEFINE_C_API_STRUCT(MlirRockTuningTable, void);
-DEFINE_C_API_STRUCT(MlirRockGemmWrapperInterface, const void);
+//DEFINE_C_API_STRUCT(MlirRockGemmWrapperInterface, void);
 DEFINE_C_API_STRUCT(MlirRockTuningKey, const void);
 
 // Create full range of the tuning params space
@@ -85,13 +85,13 @@ void mlirRockTuningTableDestroy(MlirRockTuningTable table);
 // Update the table entry, compare and keep the faster if exists
 MLIR_CAPI_EXPORTED
 bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable,
-                               MlirRockGemmWrapperInterface primaryOp,
+                               MlirModule module,
                                char *perfCStr, float time);
 
 // Get stored perfconfig from the table.
 MLIR_CAPI_EXPORTED
 const char *mlirRockTuningLookupTable(MlirRockTuningTable perfTable,
-                                      MlirRockGemmWrapperInterface primaryOp);
+                                      MlirModule module);
 
 // Get a primary op to tune.
 MLIR_CAPI_EXPORTED
