@@ -131,7 +131,7 @@ TuningTable *tuningTableCreate() {
 
 unsigned getGemmTuningHash(RockGemmWrapperInterface gemmIF) {
 
-  KernelType opType = gemmOp.getKernelType();
+  KernelType opType = gemmIF.getKernelType();
   llvm::hash_code hash = llvm::hash_code(opType);
   Operation *gemmOp = gemmIF.getOperation();
   // conv case

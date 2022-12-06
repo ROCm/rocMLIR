@@ -113,14 +113,16 @@ bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable, MlirModule module,
                                char *perfCStr, float time) {
   MlirStringRef perfStringRef = mlirStringRefCreateFromCString(perfCStr);
   std::string perfConfig = unwrap(perfStringRef).str();
-  return rock::tuningTableUpdate(unwrap(perfTable), unwrap(module),
-                                 perfConfig, time);
+  auto pTable = unwrap(perfTable);
+  auto mod = unwrap(module);
+  return rock::tuningTableUpdate(pTable, mod, perfConfig, time);
 }
 
 MLIR_CAPI_EXPORTED
 const char *mlirRockTuningLookupTable(MlirRockTuningTable perfTable,
                                       MlirModule module) {
-  std::string perfConfig =
-      rock::tuningTableLookup(unwrap(perfTable), unwrap(module));
+  auto pTable = unwrap(perfTable);
+  auto mod = unwrap(module);
+  std::string perfConfig = rock::tuningTableLookup(pTable, mod);
   return perfConfig.c_str();
 }
