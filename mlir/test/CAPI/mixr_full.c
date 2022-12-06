@@ -175,7 +175,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   MlirRockTuningParam tuningParam = mlirRockTuningParamCreate();
   MlirRockTuningTable tuningTable = mlirRockTuningTableCreate();
 
-  for (int i = 0; i < 2; i++) {
+  for (int i = 1; i > -1; i--) {
     if (!mlirRockTuningParamGet(tuningSpace, i, tuningParam)) {
       printf("fails to obtain param\n");
       return false;
