@@ -119,10 +119,10 @@ bool mlirRockTuningUpdateTable(MlirRockTuningTable perfTable, MlirModule module,
 }
 
 MLIR_CAPI_EXPORTED
-const char *mlirRockTuningLookupTable(MlirRockTuningTable perfTable,
-                                      MlirModule module) {
+bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
+                                MlirModule module) {
   auto pTable = unwrap(perfTable);
   auto mod = unwrap(module);
   std::string perfConfig = rock::tuningTableLookup(pTable, mod);
-  return perfConfig.c_str();
+  return rock::tuningSetStr(mod, perfConfig);
 }

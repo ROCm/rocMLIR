@@ -38,58 +38,14 @@ TunableParams *createTunableParamSpace(ModuleOp &mod);
 bool tuningSetParam(ModuleOp &mod, ParamEntry *paramEntry);
 bool tuningSetStr(ModuleOp &mod, std::string perfConfig);
 
-struct ProblemCompare {
-  bool operator()(RockGemmWrapperInterface lhs, RockGemmWrapperInterface rhs) {
-    Operation *lhsOp = lhs.getOperation();
-    Operation *rhsOp = rhs.getOperation();
-    KernelType commonType = lhs.getKernelType();
-    if (commonType < rhs.getKernelType())
-      return false;
-    // conv case
-    if (commonType == KernelType::Conv2D) {
-      RockConvInterface lhsConv = dyn_cast<RockConvInterface>(lhsOp);
-      RockConvInterface rhsConv = dyn_cast<RockConvInterface>(rhsOp);
-      if (lhsConv.getFilter().getType() != rhsConv.getFilter().getType())
-        return false;
-      if (lhsConv.getInput().getType() != rhsConv.getInput().getType())
-        return false;
-      if (lhsConv.getPadding() != rhsConv.getPadding())
-        return false;
-      if (lhsConv.getStrides() != rhsConv.getStrides())
-        return false;
-      if (lhsConv.getDilations() != rhsConv.getDilations())
-        return false;
-      if (lhsConv.getFeatures() != rhsConv.getFeatures())
-        return false;
-    }
-    // gemm case
-    else if (commonType == KernelType::Gemm) {
-      if (lhs.getInputType() != rhs.getInputType())
-        return false;
-      if (lhs.getGemmSize().m != rhs.getGemmSize().m ||
-          lhs.getGemmSize().k != rhs.getGemmSize().k ||
-          lhs.getGemmSize().n != rhs.getGemmSize().n)
-        return false;
-      if (lhs.getGemmFeatures() != rhs.getGemmFeatures())
-        return false;
-    } else
-      return false;
-
-    return true;
-  }
-};
-
 struct TuningTable {
-  std::map<size_t, std::pair<std::string, float>>
-      tuningMap;
+  std::map<size_t, std::pair<std::string, float>> tuningMap;
 };
 
 TuningTable *tuningTableCreate();
-bool tuningTableUpdate(TuningTable *perfTable,
-                       ModuleOp &mod,
+bool tuningTableUpdate(TuningTable *perfTable, ModuleOp &mod,
                        std::string perfConfig, float time);
-std::string tuningTableLookup(TuningTable *perfTable,
-                              ModuleOp &mod);
+std::string tuningTableLookup(TuningTable *perfTable, ModuleOp &mod);
 
 } // namespace rock
 } // namespace mlir

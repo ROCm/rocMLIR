@@ -188,9 +188,8 @@ static bool constructAndTraverseIr(MlirContext ctx) {
     }
     free(paramStr);
   }
-  char *fastestConfig = strdup(mlirRockTuningLookupTable(tuningTable, module));
 
-  if (!mlirRockTuningSetFromStr(module, fastestConfig)) {
+  if (!mlirRockTuningSetFromTable(tuningTable, module)) {
     printf("fails to set param\n");
     return false;
   }
@@ -198,8 +197,6 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   mlirRockTuningTableDestroy(tuningTable);
   mlirRockTuningParamDestroy(tuningParam);
   mlirRockTuningSpaceDestroy(tuningSpace);
-
-  free(fastestConfig);
 
   mlirOperationDump(moduleOp);
   // CHECK-LABEL: func @main
