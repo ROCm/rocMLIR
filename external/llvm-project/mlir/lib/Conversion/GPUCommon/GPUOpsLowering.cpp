@@ -50,7 +50,7 @@ GPUFuncOpLowering::matchAndRewrite(gpu::GPUFuncOp gpuFuncOp, OpAdaptor adaptor,
   TypeConverter::SignatureConversion signatureConversion(
       gpuFuncOp.front().getNumArguments());
   getTypeConverter()->convertFunctionSignature(
-      gpuFuncOp.getFunctionType(), /*isVariadic=*/false, signatureConversion);
+      gpuFuncOp.getFunctionType(), /*isVariadic=*/false, signatureConversion, gpuFuncOp->hasAttr("bare_ptr_memref"));
 
   // Create the new function operation. Only copy those attributes that are
   // not specific to function modeling.
@@ -140,7 +140,8 @@ GPUFuncOpLowering::matchAndRewrite(gpu::GPUFuncOp gpuFuncOp, OpAdaptor adaptor,
   // If bare memref pointers are being used, remap them back to memref
   // descriptors This must be done after signature conversion to get rid of the
   // unrealized casts.
-  if (getTypeConverter()->getOptions().useBarePtrCallConv) {
+  //if (getTypeConverter()->getOptions().useBarePtrCallConv) {
+  if (gpuFuncOp->hasAttr("bare_ptr_memref")) {
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointToStart(&llvmFuncOp.getBody().front());
     for (const auto &en : llvm::enumerate(gpuFuncOp.getArgumentTypes())) {

@@ -107,14 +107,20 @@ struct LowerGpuOpsToROCDLOpsPass
       options.overrideIndexBitwidth(indexBitwidth);
 
     //if (useBarePtrCallConv) {
-      WalkResult canUseBarePointers =
-          m.walk([&options](gpu::GPUFuncOp func) -> WalkResult {
+    //llvm::SmallDenseSet<StringRef> barePtrFuncSet;
+    WalkResult canUseBarePointers =
+          m.walk([&options, &ctx](gpu::GPUFuncOp func) -> WalkResult {
             if (func->hasAttr("bare_ptr_memref"))
                llvm::errs()<<"has a bareptr attribute\n";
             if (func->hasAttr("bare_ptr_memref"))
             {
               if (canBeCalledWithBarePointers(func))
               {
+                 //barePtrFuncSet.insert(func->getName());
+                 func.walk([&ctx](gpu::ReturnOp returnOp) {
+ llvm::errs()<<"set bare_ptr to a returnOp";
+                    returnOp->setAttr("bare_ptr_memref", BoolAttr::get(ctx, true));
+                 });
               options.useBarePtrCallConv = true;
               return WalkResult::advance();
               } 
@@ -128,6 +134,10 @@ struct LowerGpuOpsToROCDLOpsPass
                   "have static shape and use the identity map");
         return signalPassFailure();
       }
+
+    //m.walk([](gpu::LaunchFuncOp callOp) {
+    //  if(auto callable = call. 
+    //}
   //  }
 
     LLVMTypeConverter converter(ctx, options);

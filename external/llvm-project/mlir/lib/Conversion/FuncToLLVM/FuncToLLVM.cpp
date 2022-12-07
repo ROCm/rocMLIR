@@ -297,7 +297,7 @@ protected:
     TypeConverter::SignatureConversion result(funcOp.getNumArguments());
     auto llvmType = getTypeConverter()->convertFunctionSignature(
         funcOp.getFunctionType(), varargsAttr && varargsAttr.getValue(),
-        result);
+        result, funcOp->hasAttr("bare_ptr_memref"));
     if (!llvmType)
       return nullptr;
 
@@ -407,7 +407,12 @@ protected:
 
     // Store the type of memref-typed arguments before the conversion so that we
     // can promote them to MemRef descriptor at the beginning of the function.
-getTypeConverter()->getOptions().useBarePtrCallConv = true;
+
+//    funcOp.walk([&rewriter](func::ReturnOp returnOp) {
+// llvm::errs()<<"set bare_ptr to a returnOp";
+//                    returnOp->setAttr("bare_ptr_memref", rewriter.getBoolAttr(true));
+//                 });
+
     SmallVector<Type, 8> oldArgTypes =
         llvm::to_vector<8>(funcOp.getFunctionType().getInputs());
 
@@ -424,11 +429,13 @@ getTypeConverter()->getOptions().useBarePtrCallConv = true;
     // uniform representation.
     Block *entryBlock = &newFuncOp.getBody().front();
     auto blockArgs = entryBlock->getArguments();
+/*
 llvm::errs()<<blockArgs.size()<< " " << oldArgTypes.size();
 llvm::errs()<<"\n"<<oldArgTypes;
 llvm::errs()<<"\nblock args: ";
 for (auto a:blockArgs) llvm::errs()<<a.getType()<<" ";
-
+llvm::errs()<<"\n";
+*/
     assert(blockArgs.size() == oldArgTypes.size() &&
            "The number of arguments and types doesn't match");
 
@@ -618,19 +625,21 @@ struct CallOpInterfaceLowering : public ConvertOpToLLVMPattern<CallOpType> {
     unsigned numResults = callOp.getNumResults();
     auto resultTypes = llvm::to_vector<4>(callOp.getResultTypes());
 
+    bool useBarePtrCallConv = callOp->hasAttr("bare_ptr_memref");
     if (numResults != 0) {
       if (!(packedResult =
-                this->getTypeConverter()->packFunctionResults(resultTypes)))
+                this->getTypeConverter()->packFunctionResults(resultTypes, useBarePtrCallConv)))
         return failure();
     }
 
     auto promoted = this->getTypeConverter()->promoteOperands(
         callOp.getLoc(), /*opOperands=*/callOp->getOperands(),
-        adaptor.getOperands(), rewriter);
+        adaptor.getOperands(), rewriter, useBarePtrCallConv);
     auto newOp = rewriter.create<LLVM::CallOp>(
         callOp.getLoc(), packedResult ? TypeRange(packedResult) : TypeRange(),
         promoted, callOp->getAttrs());
-
+llvm::errs()<<"\n newOp\n";
+newOp.dump();
     SmallVector<Value, 4> results;
     if (numResults < 2) {
       // If < 2 results, packing did not do anything and we can just return.
@@ -645,9 +654,11 @@ struct CallOpInterfaceLowering : public ConvertOpToLLVMPattern<CallOpType> {
       }
     }
 
-    if (this->getTypeConverter()->getOptions().useBarePtrCallConv) {
+    //if (this->getTypeConverter()->getOptions().useBarePtrCallConv) {
       // For the bare-ptr calling convention, promote memref results to
       // descriptors.
+    if (useBarePtrCallConv) {
+llvm::errs()<<"\npromoteBarePtrsToDescriptors()\n";
       assert(results.size() == resultTypes.size() &&
              "The number of arguments and types doesn't match");
       this->getTypeConverter()->promoteBarePtrsToDescriptors(
@@ -657,6 +668,9 @@ struct CallOpInterfaceLowering : public ConvertOpToLLVMPattern<CallOpType> {
                                                     /*toDynamic=*/false))) {
       return failure();
     }
+callOp.dump();
+llvm::errs()<<"\nreplace callOp\n";
+for(auto v : results) v.dump();
 
     rewriter.replaceOp(callOp, results);
     return success();
@@ -715,7 +729,9 @@ struct ReturnOpLowering : public ConvertOpToLLVMPattern<func::ReturnOp> {
     unsigned numArguments = op.getNumOperands();
     SmallVector<Value, 4> updatedOperands;
 
-    if (getTypeConverter()->getOptions().useBarePtrCallConv) {
+    //if (getTypeConverter()->getOptions().useBarePtrCallConv) {
+    if (op->hasAttr("bare_ptr_memref")) {
+ llvm::errs()<<"convert a bare_ptr returnOp\n";
       // For the bare-ptr calling convention, extract the aligned pointer to
       // be returned from the memref descriptor.
       for (auto it : llvm::zip(op->getOperands(), adaptor.getOperands())) {
@@ -733,6 +749,7 @@ struct ReturnOpLowering : public ConvertOpToLLVMPattern<func::ReturnOp> {
         updatedOperands.push_back(newOperand);
       }
     } else {
+llvm::errs()<<"convert a non-bareptr returnOp\n";
       updatedOperands = llvm::to_vector<4>(adaptor.getOperands());
       (void)copyUnrankedDescriptors(rewriter, loc, op.getOperands().getTypes(),
                                     updatedOperands,
@@ -749,7 +766,7 @@ struct ReturnOpLowering : public ConvertOpToLLVMPattern<func::ReturnOp> {
     // Otherwise, we need to pack the arguments into an LLVM struct type before
     // returning.
     auto packedType =
-        getTypeConverter()->packFunctionResults(op.getOperandTypes());
+        getTypeConverter()->packFunctionResults(op.getOperandTypes(), op->hasAttr("bare_ptr_memref"));
 
     Value packed = rewriter.create<LLVM::UndefOp>(loc, packedType);
     for (auto &it : llvm::enumerate(updatedOperands)) {
@@ -791,7 +808,7 @@ struct ConvertFuncToLLVMPass
   ConvertFuncToLLVMPass(bool useBarePtrCallConv, unsigned indexBitwidth,
                         bool useAlignedAlloc,
                         const llvm::DataLayout &dataLayout) {
-    //this->useBarePtrCallConv = useBarePtrCallConv;
+    this->useBarePtrCallConv = useBarePtrCallConv;
     this->indexBitwidth = indexBitwidth;
     this->dataLayout = dataLayout.getStringRepresentation();
   }
@@ -807,11 +824,38 @@ struct ConvertFuncToLLVMPass
     }
 
     ModuleOp m = getOperation();
+    MLIRContext *ctx = &getContext();
     const auto &dataLayoutAnalysis = getAnalysis<DataLayoutAnalysis>();
 
+    llvm::SmallDenseSet<StringRef> barePtrFuncSet;
+    m.walk([ctx, &barePtrFuncSet](func::FuncOp func) {
+            if (func->hasAttr("bare_ptr_memref"))
+            {
+               llvm::errs()<<"has a bareptr attribute\n";
+               barePtrFuncSet.insert(func.getName());
+
+               func.walk([&ctx](func::ReturnOp returnOp) {
+ llvm::errs()<<"set bare_ptr to a returnOp";
+                    returnOp->setAttr("bare_ptr_memref", BoolAttr::get(ctx, true));
+                 });
+              }
+          });
+    
+    m.walk([ctx, &barePtrFuncSet](func::CallOp call) {
+      if (auto callable = call.getCallableForCallee()) {
+        if (FlatSymbolRefAttr symRef = callable.dyn_cast<SymbolRefAttr>()
+                                           .dyn_cast<FlatSymbolRefAttr>()) {
+          if (barePtrFuncSet.contains(symRef.getValue())) {
+              llvm::errs()<<"set bare_ptr to a callOp "<<symRef.getValue();
+              call->setAttr("bare_ptr_memref", BoolAttr::get(ctx, true));
+          }
+        }
+      }
+    });
+ 
     LowerToLLVMOptions options(&getContext(),
                                dataLayoutAnalysis.getAtOrAbove(m));
-    //options.useBarePtrCallConv = useBarePtrCallConv;
+//    options.useBarePtrCallConv = useBarePtrCallConv;
     if (indexBitwidth != kDeriveIndexBitwidthFromDataLayout)
       options.overrideIndexBitwidth(indexBitwidth);
     options.dataLayout = llvm::DataLayout(this->dataLayout);

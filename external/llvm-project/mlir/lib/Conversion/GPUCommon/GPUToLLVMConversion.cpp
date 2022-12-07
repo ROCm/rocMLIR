@@ -453,7 +453,7 @@ LogicalResult ConvertHostRegisterOpToGpuRuntimeCallPattern::matchAndRewrite(
   auto elementSize = getSizeInBytes(loc, elementType, rewriter);
 
   auto arguments = getTypeConverter()->promoteOperands(
-      loc, op->getOperands(), adaptor.getOperands(), rewriter);
+      loc, op->getOperands(), adaptor.getOperands(), rewriter, /*useBarePtrCallConv=*/false);
   arguments.push_back(elementSize);
   hostRegisterCallBuilder.create(loc, rewriter, arguments);
 
@@ -663,12 +663,12 @@ Value ConvertLaunchFuncOpToGpuRuntimeCallPattern::generateParamsArray(
     converter->dangerousSetOptions(overrideToMatchKernelOpts);
     arguments = converter->promoteOperands(
         loc, launchOp.getOperands().take_back(numKernelOperands),
-        adaptor.getOperands().take_back(numKernelOperands), builder);
+        adaptor.getOperands().take_back(numKernelOperands), builder, true);
     converter->dangerousSetOptions(options);
   } else {
     arguments = getTypeConverter()->promoteOperands(
         loc, launchOp.getOperands().take_back(numKernelOperands),
-        adaptor.getOperands().take_back(numKernelOperands), builder);
+        adaptor.getOperands().take_back(numKernelOperands), builder, false);
   }
 
   auto numArguments = arguments.size();
