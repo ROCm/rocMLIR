@@ -58,13 +58,10 @@ void xmodel::buildGraphPipeline(OpPassManager &pm,
                                 const xmodel::GraphOptions &options) {
   // TOSA partitioning pass
   // make 'kernel' funcs with tosa dataflow
-  /* mlir-opt --tosa-layerwise-constant-fold --tosa-make-broadcastable
+  /* mlir-opt --tosa-make-broadcastable
          --tosa-partition
    */
-  pm.addNestedPass<func::FuncOp>(tosa::createTosaLayerwiseConstantFoldPass());
   pm.addNestedPass<func::FuncOp>(tosa::createTosaMakeBroadcastablePass());
-
-  // Canonicalizer applies constant/transpose folding
   pm.addNestedPass<func::FuncOp>(createCanonicalizerPass());
 
   SmallVector<std::string, 4> anchors{"tosa.conv2d", "tosa.depthwise_conv2d",
