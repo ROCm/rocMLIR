@@ -199,24 +199,24 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
       dataType = dataType.cast<VectorType>().getElementType();
     }
 
-    // Logic to do XDLOPS code selection.
-    LLVM_DEBUG(llvm::dbgs() << "Invoke XDLOPS code selection logic:\n"
-                            << "dataType: " << dataType << "\n"
-                            << "MPerXdlops: " << MPerXdlops << "\n"
-                            << "NPerXdlops: " << NPerXdlops << "\n");
+    auto maybeMfmaInsnGroup =
+        MfmaInsnGroup::select(dataType, MPerXdlops, NPerXdlops);
+    if (failed(maybeMfmaInsnGroup)) {
+      return emitError(loc) << "Failed to select xdlops instruction group.\n";
+    }
+    MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
 
-    XdlopsCodeSelection xcs =
-        XdlopsCodeSelection::get(dataType, MPerXdlops, NPerXdlops);
+    VectorType vectorType = mfmaGroup.getRetType();
+    auto imms = mfmaGroup.getImms();
+    int64_t nResultVectors = imms.size();
+    Type argType = mfmaGroup.getArgType();
 
-    VectorType vectorType = xcs.vectorType;
-    int64_t nResultVectors = xcs.nResultVectors;
-    ArrayRef<MFMAParams> imms(xcs.imms);
-    Type argType = xcs.argType;
+    MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
 
-    int64_t mfmaNonKDim = xcs.mfmaNonKDim;
-    int64_t inputSpansPerMfmaIn = xcs.inputSpansPerMfmaIn;
-    int64_t blocksInOutRegs = xcs.blocksInOutRegs;
-    int64_t k_base = xcs.k_base;
+    int64_t mfmaNonKDim = mfmaAttr.mfmaNonKDim;
+    int64_t inputSpansPerMfmaIn = mfmaAttr.inputSpansPerMfmaIn;
+    int64_t blocksInOutRegs = mfmaAttr.blocksInOutRegs;
+    int64_t k_base = mfmaAttr.k_base;
 
     bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
 
@@ -273,8 +273,9 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
         auto vectorC =
             b.create<memref::LoadOp>(loc, vectorType, bufferC, offset);
         auto mfma = b.create<amdgpu::MFMAOp>(
-            loc, vectorType, mfmaNonKDim, mfmaNonKDim, xcs.k, xcs.blocksMfma,
-            argA, argB, vectorC, /*cbsz=*/imms[i].cbsz, /*abid=*/imms[i].abid,
+            loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k,
+            mfmaAttr.blocksMfma, argA, argB, vectorC, /*cbsz=*/imms[i].cbsz,
+            /*abid=*/imms[i].abid,
             /*blgp=*/imms[i].blgp, /*reducePrecision=*/false, /*negateA=*/false,
             /*negateB=*/false, /*negateC=*/false);
         auto vectorD = mfma.getDestD();

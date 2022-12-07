@@ -40,11 +40,11 @@ Value createConstantIntOp(OpBuilder &b, Location loc, Type type,
 Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
                             Type elementType, float value) {
   auto semantics = static_cast<APFloat::Semantics>(-1);
-  if (elementType == b.getF32Type()) {
+  if (elementType.isF32()) {
     semantics = APFloat::S_IEEEsingle;
-  } else if (elementType == b.getF16Type()) {
+  } else if (elementType.isF16()) {
     semantics = APFloat::S_IEEEhalf;
-  } else if (elementType == b.getBF16Type()) {
+  } else if (elementType.isBF16()) {
     semantics = APFloat::S_BFloat;
   } else {
     llvm_unreachable("Unexpected float semantics");

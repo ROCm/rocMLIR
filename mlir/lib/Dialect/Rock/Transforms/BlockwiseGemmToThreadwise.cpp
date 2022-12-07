@@ -356,16 +356,20 @@ struct BlockwiseGemmV2RewritePattern
         b.create<AddIOp>(loc, adaptor.getWaveOffsetB(),
                          b.create<ConstantIndexOp>(loc, ldsOffsetB / KPack));
 
-    XdlopsCodeSelection xcs =
-        XdlopsCodeSelection::get(dataType, MPerWave, NPerWave);
+    auto maybeMfmaInsnGroup =
+        MfmaInsnGroup::select(dataType, MPerWave, NPerWave);
+    if (failed(maybeMfmaInsnGroup)) {
+      return emitError(loc) << "Failed to select xdlops instruction group.\n";
+    }
+    MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
 
-    // Extract values from XdlopsCodeSelection.
-    Type argType = xcs.argType;
+    Type argType = mfmaGroup.getArgType();
 
-    int64_t inputSpanLen = xcs.inputSpanLen;
-    int64_t inputSpansPerMfmaIn = xcs.inputSpansPerMfmaIn;
-    int64_t blocksInOutRegs = xcs.blocksInOutRegs;
-    int64_t k_base = xcs.k_base;
+    MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
+    int64_t inputSpanLen = mfmaAttr.inputSpanLen;
+    int64_t inputSpansPerMfmaIn = mfmaAttr.inputSpansPerMfmaIn;
+    int64_t blocksInOutRegs = mfmaAttr.blocksInOutRegs;
+    int64_t k_base = mfmaAttr.k_base;
 
     bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
 
@@ -557,14 +561,21 @@ struct BlockwiseGemmV2RewritePattern
     // Workload of either MPerWave and NPerWave that are larger
     // than wave size of 64 will be executed by repeats
     // TODO: amend this for tuning parameter selection as well
-    xcs = XdlopsCodeSelection::get(dataType, MPerXdlops, NPerXdlops);
+    maybeMfmaInsnGroup =
+        MfmaInsnGroup::select(dataType, MPerXdlops, NPerXdlops);
+    if (failed(maybeMfmaInsnGroup)) {
+      return emitError(loc) << "Failed to select xdlops instruction group.\n";
+    }
+    mfmaGroup = *maybeMfmaInsnGroup;
+    int64_t nResultVectors = mfmaGroup.getImms().size();
+
     Value reshapedARegisters = reshapeBuffer(
         b, loc, adaptor.getBufferA(), {"m", "k"}, {MRepeats, KPerThread});
     Value reshapedBRegisters = reshapeBuffer(
         b, loc, adaptor.getBufferB(), {"n", "k"}, {NRepeats, KPerThread});
     Value reshapedCRegisters =
         reshapeBuffer(b, loc, adaptor.getMatrixC(), {"m", "n", "v"},
-                      {MRepeats, NRepeats, xcs.nResultVectors});
+                      {MRepeats, NRepeats, nResultVectors});
 
     b.replaceOpWithNewOp<XdlopsGemmV2Op>(op, reshapedARegisters,
                                          reshapedBRegisters, reshapedCRegisters,

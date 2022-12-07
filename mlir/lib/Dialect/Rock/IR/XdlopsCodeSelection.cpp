@@ -2,394 +2,285 @@
 #include "mlir/Dialect/Rock/IR/XdlopsCodeSelection.h"
 
 #include "mlir/Dialect/AMDGPU/AMDGPUDialect.h"
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <cstdint>
 
+#define DEBUG_TYPE "rock-mfma-insn-group"
+
 using namespace mlir;
+using namespace mlir::rock;
 
-void XdlopsCodeSelection::dumpUnsupported(const mlir::Type &dataType,
-                                          int64_t MPerWave, int64_t NPerWave) {
-  llvm::errs() << "Unsupported case:\n";
-  llvm::errs() << "MPerWave: " << MPerWave << "\n";
-  llvm::errs() << "NPerWave: " << NPerWave << "\n";
-  llvm::errs() << "dataType: ";
-  dataType.dump();
-  llvm::errs() << "\n";
-}
+// The static initialization will follow the defined ordering
+// of the below lambdas
+const llvm::StringMap<MfmaInsnInfo> MfmaInsn::mfmaInsnInfoMap = [] {
+  return llvm::StringMap<MfmaInsnInfo>{
+      // fp32
+      {ROCDL::mfma_f32_32x32x1f32::getOperationName(),
+       {MfmaTypeId::Fp32TyId, 32, 1, 2}},
+      {ROCDL::mfma_f32_32x32x2f32::getOperationName(),
+       {MfmaTypeId::Fp32TyId, 32, 2, 1}},
+      {ROCDL::mfma_f32_16x16x1f32::getOperationName(),
+       {MfmaTypeId::Fp32TyId, 16, 1, 4}},
+      {ROCDL::mfma_f32_16x16x4f32::getOperationName(),
+       {MfmaTypeId::Fp32TyId, 16, 4, 1}},
+      {ROCDL::mfma_f32_4x4x1f32::getOperationName(),
+       {MfmaTypeId::Fp32TyId, 4, 1, 16}},
 
-XdlopsCodeSelection XdlopsCodeSelection::get(mlir::Type dataType,
-                                             int64_t MPerWave,
-                                             int64_t NPerWave) {
-  using amdgpu::MFMAPermB;
+      // fp16
+      {ROCDL::mfma_f32_32x32x4f16::getOperationName(),
+       {MfmaTypeId::Fp16TyId, 32, 4, 2}},
+      {ROCDL::mfma_f32_32x32x8f16::getOperationName(),
+       {MfmaTypeId::Fp16TyId, 32, 8, 1}},
+      {ROCDL::mfma_f32_16x16x4f16::getOperationName(),
+       {MfmaTypeId::Fp16TyId, 16, 4, 4}},
+      {ROCDL::mfma_f32_16x16x16f16::getOperationName(),
+       {MfmaTypeId::Fp16TyId, 16, 16, 1}},
+      {ROCDL::mfma_f32_4x4x4f16::getOperationName(),
+       {MfmaTypeId::Fp16TyId, 4, 4, 16}},
+
+      // bf16
+      {ROCDL::mfma_f32_32x32x2bf16::getOperationName(),
+       {MfmaTypeId::Bf16TyId, 32, 2, 2}},
+      {ROCDL::mfma_f32_32x32x4bf16::getOperationName(),
+       {MfmaTypeId::Bf16TyId, 32, 4, 1}},
+      {ROCDL::mfma_f32_16x16x2bf16::getOperationName(),
+       {MfmaTypeId::Bf16TyId, 16, 2, 4}},
+      {ROCDL::mfma_f32_16x16x8bf16::getOperationName(),
+       {MfmaTypeId::Bf16TyId, 16, 8, 1}},
+      {ROCDL::mfma_f32_4x4x2bf16::getOperationName(),
+       {MfmaTypeId::Bf16TyId, 4, 2, 16}},
+
+      // i8
+      {ROCDL::mfma_i32_32x32x8i8::getOperationName(),
+       {MfmaTypeId::I8TyId, 32, 8, 1}},
+      {ROCDL::mfma_i32_16x16x16i8::getOperationName(),
+       {MfmaTypeId::I8TyId, 16, 16, 1}}};
+}();
+
+const llvm::StringMap<MfmaInsnAttr> MfmaInsn::mfmaInsnAttrMap = [] {
+  llvm::StringMap<MfmaInsnAttr> insnDb;
+  for (const auto &insn : mfmaInsnInfoMap) {
+    StringRef key = insn.getKey();
+    MfmaInsnInfo info = insn.getValue();
+    insnDb.insert(std::make_pair(key, deriveAttr(info)));
+  };
+  return insnDb;
+}();
+
+const std::map<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr>
+    MfmaInsnGroup::mfmaInsnGroupAttrMap = [] {
+      using amdgpu::MFMAPermB;
+      return std::map<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr>{
+          {{MfmaTypeId::Fp32TyId, 128, 64},
+           {ROCDL::mfma_f32_32x32x1f32::getOperationName(),
+            2,
+            1,
+            {{1, 0, MFMAPermB::none},
+             {1, 1, MFMAPermB::none},
+             {1, 0, MFMAPermB::none},
+             {1, 1, MFMAPermB::none}}}},
+          {{MfmaTypeId::Fp32TyId, 64, 128},
+           {ROCDL::mfma_f32_32x32x1f32::getOperationName(),
+            1,
+            2,
+            {{1, 0, MFMAPermB::none},
+             {1, 1, MFMAPermB::none},
+             {1, 0, MFMAPermB::none},
+             {1, 1, MFMAPermB::none}}}},
+          {{MfmaTypeId::Fp32TyId, 64, 64},
+           {ROCDL::mfma_f32_32x32x1f32::getOperationName(),
+            1,
+            1,
+            {{1, 0, MFMAPermB::none}, {1, 1, MFMAPermB::none}}}},
+          {{MfmaTypeId::Fp32TyId, 64, 32},
+           {ROCDL::mfma_f32_32x32x1f32::getOperationName(),
+            1,
+            1,
+            {{0, 0, MFMAPermB::bcast_first_32}}}},
+          {{MfmaTypeId::Fp32TyId, 32, 64},
+           {ROCDL::mfma_f32_32x32x1f32::getOperationName(),
+            1,
+            1,
+            {{1, 0, MFMAPermB::none}}}},
+          {{MfmaTypeId::Fp32TyId, 64, 16},
+           {ROCDL::mfma_f32_16x16x1f32::getOperationName(),
+            1,
+            1,
+            {{0, 0, MFMAPermB::bcast_first_16}}}},
+          {{MfmaTypeId::Fp32TyId, 16, 64},
+           {ROCDL::mfma_f32_16x16x1f32::getOperationName(),
+            1,
+            1,
+            {{2, 0, MFMAPermB::none}}}},
+          {{MfmaTypeId::Fp32TyId, 8, 64},
+           {ROCDL::mfma_f32_4x4x1f32::getOperationName(),
+            1,
+            1,
+            {{4, 0, MFMAPermB::none}, {4, 1, MFMAPermB::none}}}},
+          {{MfmaTypeId::Fp32TyId, 4, 64},
+           {ROCDL::mfma_f32_4x4x1f32::getOperationName(),
+            1,
+            1,
+            {{4, 0, MFMAPermB::none}}}},
+          {{MfmaTypeId::Fp32TyId, 32, 32},
+           {ROCDL::mfma_f32_32x32x2f32::getOperationName(),
+            1,
+            1,
+            {{0, 0, MFMAPermB::none}}}},
+          {{MfmaTypeId::Fp32TyId, 16, 16},
+           {ROCDL::mfma_f32_16x16x4f32::getOperationName(),
+            1,
+            1,
+            {{0, 0, MFMAPermB::none}}}},
+
+          {{MfmaTypeId::Fp16TyId, 128, 64},
+           {ROCDL::mfma_f32_32x32x4f16::getOperationName(),
+            2,
+            1,
+            {{1, 0, MFMAPermB::none},
+             {1, 1, MFMAPermB::none},
+             {1, 0, MFMAPermB::none},
+             {1, 1, MFMAPermB::none}}}},
+          {{MfmaTypeId::Fp16TyId, 64, 128},
+           {ROCDL::mfma_f32_32x32x4f16::getOperationName(),
+            1,
+            2,
+            {{1, 0, MFMAPermB::none},
+             {1, 1, MFMAPermB::none},
+             {1, 0, MFMAPermB::none},
+             {1, 1, MFMAPermB::none}}}},
+          {{MfmaTypeId::Fp16TyId, 64, 64},
+           {ROCDL::mfma_f32_32x32x4f16::getOperationName(),
+            1,
+            1,
+            {{1, 0, MFMAPermB::none}, {1, 1, MFMAPermB::none}}}},
+          {{MfmaTypeId::Fp16TyId, 64, 32},
+           {ROCDL::mfma_f32_32x32x4f16::getOperationName(),
+            1,
+            1,
+            {{1, 0, MFMAPermB::bcast_first_32}}}},
+          {{MfmaTypeId::Fp16TyId, 64, 16},
+           {ROCDL::mfma_f32_16x16x4f16::getOperationName(),
+            1,
+            1,
+            {{0, 0, MFMAPermB::bcast_first_16}}}},
+          {{MfmaTypeId::Fp16TyId, 16, 64},
+           {ROCDL::mfma_f32_16x16x4f16::getOperationName(),
+            1,
+            1,
+            {{2, 0, MFMAPermB::none}}}},
+          {{MfmaTypeId::Fp16TyId, 8, 64},
+           {ROCDL::mfma_f32_4x4x4f16::getOperationName(),
+            1,
+            1,
+            {{4, 0, MFMAPermB::none}, {4, 1, MFMAPermB::none}}}},
+          {{MfmaTypeId::Fp16TyId, 4, 64},
+           {ROCDL::mfma_f32_4x4x4f16::getOperationName(),
+            1,
+            1,
+            {{4, 0, MFMAPermB::none}}}},
+          {{MfmaTypeId::Fp16TyId, 32, 32},
+           {ROCDL::mfma_f32_32x32x8f16::getOperationName(),
+            1,
+            1,
+            {{1, 0, MFMAPermB::none}}}},
+          {{MfmaTypeId::Fp16TyId, 32, 64},
+           {ROCDL::mfma_f32_32x32x4f16::getOperationName(),
+            1,
+            1,
+            {{1, 0, MFMAPermB::none}}}},
+          {{MfmaTypeId::Fp16TyId, 16, 16},
+           {ROCDL::mfma_f32_16x16x16f16::getOperationName(),
+            1,
+            1,
+            {{0, 0, MFMAPermB::none}}}},
+
+          {{MfmaTypeId::Bf16TyId, 128, 64},
+           {ROCDL::mfma_f32_32x32x2bf16::getOperationName(),
+            2,
+            1,
+            {{1, 0, MFMAPermB::none},
+             {1, 1, MFMAPermB::none},
+             {1, 0, MFMAPermB::none},
+             {1, 1, MFMAPermB::none}}}},
+          {{MfmaTypeId::Bf16TyId, 64, 128},
+           {ROCDL::mfma_f32_32x32x2bf16::getOperationName(),
+            1,
+            2,
+            {{1, 0, MFMAPermB::none},
+             {1, 1, MFMAPermB::none},
+             {1, 0, MFMAPermB::none},
+             {1, 1, MFMAPermB::none}}}},
+          {{MfmaTypeId::Bf16TyId, 64, 64},
+           {ROCDL::mfma_f32_32x32x2bf16::getOperationName(),
+            1,
+            1,
+            {{1, 0, MFMAPermB::none}, {1, 1, MFMAPermB::none}}}},
+          {{MfmaTypeId::Bf16TyId, 64, 32},
+           {ROCDL::mfma_f32_32x32x2bf16::getOperationName(),
+            1,
+            1,
+            {{0, 0, MFMAPermB::bcast_first_32}}}},
+          {{MfmaTypeId::Bf16TyId, 32, 64},
+           {ROCDL::mfma_f32_32x32x2bf16::getOperationName(),
+            1,
+            1,
+            {{1, 0, MFMAPermB::none}}}},
+          {{MfmaTypeId::Bf16TyId, 64, 16},
+           {ROCDL::mfma_f32_16x16x2bf16::getOperationName(),
+            1,
+            1,
+            {{1, 0, MFMAPermB::bcast_first_16}}}},
+          {{MfmaTypeId::Bf16TyId, 16, 64},
+           {ROCDL::mfma_f32_16x16x2bf16::getOperationName(),
+            1,
+            1,
+            {{2, 0, MFMAPermB::none}}}},
+          {{MfmaTypeId::Bf16TyId, 8, 64},
+           {ROCDL::mfma_f32_4x4x2bf16::getOperationName(),
+            1,
+            1,
+            {{4, 0, MFMAPermB::none}, {4, 1, MFMAPermB::none}}}},
+          {{MfmaTypeId::Bf16TyId, 4, 64},
+           {ROCDL::mfma_f32_4x4x2bf16::getOperationName(),
+            1,
+            1,
+            {{4, 0, MFMAPermB::none}}}},
+          {{MfmaTypeId::Bf16TyId, 32, 32},
+           {ROCDL::mfma_f32_32x32x4bf16::getOperationName(),
+            1,
+            1,
+            {{0, 0, MFMAPermB::none}}}},
+          {{MfmaTypeId::Bf16TyId, 16, 16},
+           {ROCDL::mfma_f32_16x16x8bf16::getOperationName(),
+            1,
+            1,
+            {{0, 0, MFMAPermB::none}}}},
+
+          {{MfmaTypeId::I8TyId, 32, 32},
+           {ROCDL::mfma_i32_32x32x8i8::getOperationName(),
+            1,
+            1,
+            {{0, 0, MFMAPermB::none}}}},
+          {{MfmaTypeId::I8TyId, 16, 16},
+           {ROCDL::mfma_i32_16x16x16i8::getOperationName(),
+            1,
+            1,
+            {{0, 0, MFMAPermB::none}}}}};
+    }();
+
+MfmaInsnAttr MfmaInsn::deriveAttr(MfmaInsnInfo info) {
+  int64_t mfmaNonKDim = info.mfmaNonKDim;
+  int64_t k = info.k;
+  int64_t blocksMfma = info.blocksMfma;
+
   constexpr int64_t waveSize = 64;
-  // Determine which XDLOPS be used.
-  int64_t mfmaNonKDim = 0, MRepeats = 0, NRepeats = 0, k = 0, blocksMfma = 0;
-  SmallVector<MFMAParams, 2> imms;
-  if (dataType.isF32()) {
-    if (MPerWave == 128 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x1f32;
-      mfmaNonKDim = 32;
-      k = 1;
-      blocksMfma = 2;
-
-      MRepeats = 2;
-      NRepeats = 1;
-      imms.push_back({1, 0, MFMAPermB::none});
-      imms.push_back({1, 1, MFMAPermB::none});
-      imms.push_back({1, 0, MFMAPermB::none});
-      imms.push_back({1, 1, MFMAPermB::none});
-    } else if (MPerWave == 64 && NPerWave == 128) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x1f32;
-      mfmaNonKDim = 32;
-      k = 1;
-      blocksMfma = 2;
-
-      MRepeats = 1;
-      NRepeats = 2;
-      imms.push_back({1, 0, MFMAPermB::none});
-      imms.push_back({1, 1, MFMAPermB::none});
-      imms.push_back({1, 0, MFMAPermB::none});
-      imms.push_back({1, 1, MFMAPermB::none});
-    } else if (MPerWave == 64 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x1f32;
-      mfmaNonKDim = 32;
-      k = 1;
-      blocksMfma = 2;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({1, 0, MFMAPermB::none});
-      imms.push_back({1, 1, MFMAPermB::none});
-    } else if (MPerWave == 64 && NPerWave == 32) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x1f32;
-      mfmaNonKDim = 32;
-      k = 1;
-      blocksMfma = 2;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({0, 0, MFMAPermB::bcast_first_32});
-    } else if (MPerWave == 32 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x1f32;
-      mfmaNonKDim = 32;
-      k = 1;
-      blocksMfma = 2;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({1, 0, MFMAPermB::none});
-    } else if (MPerWave == 64 && NPerWave == 16) {
-      // instr = amdgpu::MFMAInstr::f32_16x16x1f32;
-      mfmaNonKDim = 16;
-      k = 1;
-      blocksMfma = 4;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({0, 0, MFMAPermB::bcast_first_16});
-    } else if (MPerWave == 16 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_16x16x1f32;
-      mfmaNonKDim = 16;
-      k = 1;
-      blocksMfma = 4;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({2, 0, MFMAPermB::none});
-    } else if (MPerWave == 8 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_4x4x1f32;
-      mfmaNonKDim = 4;
-      k = 1;
-      blocksMfma = 16;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({4, 0, MFMAPermB::none});
-      imms.push_back({4, 1, MFMAPermB::none});
-    } else if (MPerWave == 4 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_4x4x1f32;
-      mfmaNonKDim = 4;
-      k = 1;
-      blocksMfma = 16;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({4, 0, MFMAPermB::none});
-    } else if (MPerWave == 32 && NPerWave == 32) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x2f32;
-      mfmaNonKDim = 32;
-      k = 2;
-      blocksMfma = 1;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({0, 0, MFMAPermB::none});
-    } else if (MPerWave == 16 && NPerWave == 16) {
-      // instr = amdgpu::MFMAInstr::f32_16x16x4f32;
-      mfmaNonKDim = 16;
-      k = 4;
-      blocksMfma = 1;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({0, 0, MFMAPermB::none});
-    } else {
-      dumpUnsupported(dataType, MPerWave, NPerWave);
-      llvm_unreachable("Can't meaningfully continue xdlop generation");
-    }
-  } else if (dataType.isF16()) {
-    if (MPerWave == 128 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x4f16;
-      mfmaNonKDim = 32;
-      k = 4;
-      blocksMfma = 2;
-
-      MRepeats = 2;
-      NRepeats = 1;
-      imms.push_back({1, 0, MFMAPermB::none});
-      imms.push_back({1, 1, MFMAPermB::none});
-      imms.push_back({1, 0, MFMAPermB::none});
-      imms.push_back({1, 1, MFMAPermB::none});
-    } else if (MPerWave == 64 && NPerWave == 128) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x4f16;
-      mfmaNonKDim = 32;
-      k = 4;
-      blocksMfma = 2;
-
-      MRepeats = 1;
-      NRepeats = 2;
-      imms.push_back({1, 0, MFMAPermB::none});
-      imms.push_back({1, 1, MFMAPermB::none});
-      imms.push_back({1, 0, MFMAPermB::none});
-      imms.push_back({1, 1, MFMAPermB::none});
-    } else if (MPerWave == 64 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x4f16;
-      mfmaNonKDim = 32;
-      k = 4;
-      blocksMfma = 2;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({1, 0, MFMAPermB::none});
-      imms.push_back({1, 1, MFMAPermB::none});
-    } else if (MPerWave == 64 && NPerWave == 32) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x4f16;
-      mfmaNonKDim = 32;
-      k = 4;
-      blocksMfma = 2;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({0, 0, MFMAPermB::bcast_first_32});
-    } else if (MPerWave == 64 && NPerWave == 16) {
-      // instr = amdgpu::MFMAInstr::f32_16x16x4f16;
-      mfmaNonKDim = 16;
-      k = 4;
-      blocksMfma = 4;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({0, 0, MFMAPermB::bcast_first_16});
-    } else if (MPerWave == 16 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_16x16x4f16;
-      mfmaNonKDim = 16;
-      k = 4;
-      blocksMfma = 4;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({2, 0, MFMAPermB::none});
-    } else if (MPerWave == 8 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_4x4x4f16;
-      mfmaNonKDim = 4;
-      k = 4;
-      blocksMfma = 16;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({4, 0, MFMAPermB::none});
-      imms.push_back({4, 1, MFMAPermB::none});
-    } else if (MPerWave == 4 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_4x4x4f16;
-      mfmaNonKDim = 4;
-      k = 4;
-      blocksMfma = 16;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({4, 0, MFMAPermB::none});
-    } else if (MPerWave == 32 && NPerWave == 32) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x8f16;
-      mfmaNonKDim = 32;
-      k = 8;
-      blocksMfma = 1;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({0, 0, MFMAPermB::none});
-    } else if (MPerWave == 32 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x4f16;
-      mfmaNonKDim = 32;
-      k = 4;
-      blocksMfma = 2;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({1, 0, MFMAPermB::none});
-    } else if (MPerWave == 16 && NPerWave == 16) {
-      // instr = amdgpu::MFMAInstr::f32_16x16x16f16;
-      mfmaNonKDim = 16;
-      k = 16;
-      blocksMfma = 1;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({0, 0, MFMAPermB::none});
-    } else {
-      dumpUnsupported(dataType, MPerWave, NPerWave);
-      llvm_unreachable("Can't meaningfully continue xdlop generation");
-    }
-  } else if (dataType.isBF16()) {
-    if (MPerWave == 128 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x2bf16;
-      mfmaNonKDim = 32;
-      k = 2;
-      blocksMfma = 2;
-
-      MRepeats = 2;
-      NRepeats = 1;
-      imms.push_back({1, 0, MFMAPermB::none});
-      imms.push_back({1, 1, MFMAPermB::none});
-      imms.push_back({1, 0, MFMAPermB::none});
-      imms.push_back({1, 1, MFMAPermB::none});
-    } else if (MPerWave == 64 && NPerWave == 128) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x2bf16;
-      mfmaNonKDim = 32;
-      k = 2;
-      blocksMfma = 2;
-
-      MRepeats = 1;
-      NRepeats = 2;
-      imms.push_back({1, 0, MFMAPermB::none});
-      imms.push_back({1, 1, MFMAPermB::none});
-      imms.push_back({1, 0, MFMAPermB::none});
-      imms.push_back({1, 1, MFMAPermB::none});
-    } else if (MPerWave == 64 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x2bf16;
-      mfmaNonKDim = 32;
-      k = 2;
-      blocksMfma = 2;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({1, 0, MFMAPermB::none});
-      imms.push_back({1, 1, MFMAPermB::none});
-    } else if (MPerWave == 64 && NPerWave == 32) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x2bf16;
-      mfmaNonKDim = 32;
-      k = 2;
-      blocksMfma = 2;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({0, 0, MFMAPermB::bcast_first_32});
-    } else if (MPerWave == 32 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x2bf16;
-      mfmaNonKDim = 32;
-      k = 2;
-      blocksMfma = 2;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({1, 0, MFMAPermB::none});
-    } else if (MPerWave == 64 && NPerWave == 16) {
-      // instr = amdgpu::MFMAInstr::f32_16x16x2bf16;
-      mfmaNonKDim = 16;
-      k = 2;
-      blocksMfma = 4;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({0, 0, MFMAPermB::bcast_first_16});
-    } else if (MPerWave == 16 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_16x16x2bf16;
-      mfmaNonKDim = 16;
-      k = 2;
-      blocksMfma = 4;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({2, 0, MFMAPermB::none});
-    } else if (MPerWave == 8 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_4x4x2bf16;
-      mfmaNonKDim = 4;
-      k = 2;
-      blocksMfma = 16;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({4, 0, MFMAPermB::none});
-      imms.push_back({4, 1, MFMAPermB::none});
-    } else if (MPerWave == 4 && NPerWave == 64) {
-      // instr = amdgpu::MFMAInstr::f32_4x4x2bf16;
-      mfmaNonKDim = 4;
-      k = 2;
-      blocksMfma = 16;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({4, 0, MFMAPermB::none});
-    } else if (MPerWave == 32 && NPerWave == 32) {
-      // instr = amdgpu::MFMAInstr::f32_32x32x4bf16;
-      mfmaNonKDim = 32;
-      k = 4;
-      blocksMfma = 1;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({0, 0, MFMAPermB::none});
-    } else if (MPerWave == 16 && NPerWave == 16) {
-      // instr = amdgpu::MFMAInstr::f32_16x16x8bf16;
-      mfmaNonKDim = 16;
-      k = 8;
-      blocksMfma = 1;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({0, 0, MFMAPermB::none});
-    } else {
-      dumpUnsupported(dataType, MPerWave, NPerWave);
-      llvm_unreachable("Can't meaningfully continue xdlop generation");
-    }
-  } else if (dataType.isInteger(8)) {
-    if (MPerWave == 32 && NPerWave == 32) {
-      // instr = amdgpu::MFMAInstr::i32_32x32x8i8;
-      mfmaNonKDim = 32;
-      k = 8;
-      blocksMfma = 1;
-
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({0, 0, MFMAPermB::none});
-    } else if (MPerWave == 16 && NPerWave == 16) {
-      // instr = amdgpu::MFMAInstr::i32_16x16x16i8;
-      mfmaNonKDim = 16;
-      k = 16;
-      blocksMfma = 1;
-      MRepeats = 1;
-      NRepeats = 1;
-      imms.push_back({0, 0, MFMAPermB::none});
-    } else {
-      dumpUnsupported(dataType, MPerWave, NPerWave);
-      llvm_unreachable("Can't meaningfully continue xdlop generation");
-    }
-  } else {
-    llvm_unreachable("XDLOPs for unsupported data types should be rejected");
-  }
-
   // Derived properties of the individual MFMA. These are computed here
   // and used in places throughout the code and may not all be needed.
   int64_t kPerMfmaInput =
@@ -401,19 +292,7 @@ XdlopsCodeSelection XdlopsCodeSelection::get(mlir::Type dataType,
   // Number of logical values each thread needs to pass in to the MFMA in
   // order for the correct number of input values to be passed to the MFMA.
   int64_t nInputsToMfma = (mfmaNonKDim * blocksMfma * k) / waveSize;
-  Type argType = nInputsToMfma == 1
-                     ? dataType
-                     : VectorType::get({nInputsToMfma}, dataType);
-
   int64_t nOutputsOfMfma = (mfmaNonKDim * mfmaNonKDim * blocksMfma) / waveSize;
-
-  Builder builder(dataType.getContext());
-  Type vectorElem;
-  if (dataType.isa<IntegerType>())
-    vectorElem = builder.getI32Type();
-  else
-    vectorElem = builder.getF32Type();
-  VectorType vectorType = VectorType::get({nOutputsOfMfma}, vectorElem);
 
   constexpr int64_t rowGroupSize = 4;
   // The number of rows in each MFMA output item (usually a VGPR, except in
@@ -446,12 +325,6 @@ XdlopsCodeSelection XdlopsCodeSelection::get(mlir::Type dataType,
   // registers on any given lane.
   int64_t blocksInOutRegs = blocksMfma / blocksPerMfmaOutput;
 
-  // Properties of th selected bundle of MFMA instructions, or of how they
-  // are used to implement GEMM.
-
-  // Rename this field in future refactoring
-  int64_t nResultVectors = imms.size();
-
   // Because the 4x4xk instructions are the only ones with blocksPerOutput > 1
   // and because they're only used for broadcast operations, we have
   // historically represented them as 4x64 operations that have one large
@@ -462,89 +335,144 @@ XdlopsCodeSelection XdlopsCodeSelection::get(mlir::Type dataType,
   int64_t inputSpanLen = mfmaNonKDim * blocksPerMfmaOutput;
   int64_t inputSpansPerMfmaIn = waveSize / inputSpanLen;
 
-  // Populate result.
-  XdlopsCodeSelection result;
-  result.mfmaNonKDim = mfmaNonKDim;
-  result.k = k;
-  result.blocksMfma = blocksMfma;
-
-  result.MRepeats = MRepeats;
-  result.NRepeats = NRepeats;
-  result.nResultVectors = nResultVectors;
-
-  result.vectorType = vectorType;
-  result.imms = imms;
-  result.argType = argType;
-  result.k_base = k_base;
-
-  result.rowGroupSize = rowGroupSize;
-  result.rowGroupsPerBlock = rowGroupsPerBlock;
-  result.rowsPerMfmaOutput = rowsPerMfmaOutput;
-  result.blocksPerMfmaOutput = blocksPerMfmaOutput;
-  result.blocksInOutRegs = blocksInOutRegs;
-
-  result.inputSpanLen = inputSpanLen;
-  result.inputSpansPerMfmaIn = inputSpansPerMfmaIn;
-  // llvm::errs() << "XDLOPS code selection result:\n";
-  // llvm::errs() << "mfmaInstr: " << mfmaInstr << "\n";
-  // llvm::errs() << "MPerXdlops: " << MPerXdlops << "\n";
-  // llvm::errs() << "NPerXdlops: " << NPerXdlops << "\n";
-  // llvm::errs() << "MRepeats: " << MRepeats << "\n";
-  // llvm::errs() << "NRepeats: " << NRepeats << "\n";
-  // llvm::errs() << "vectorType: " << vectorType << "\n";
-  // llvm::errs() << "vectorNumber: " << vectorNumber << "\n";
-  // llvm::errs() << "imms:\n";
-  // for (auto imm : imms) {
-  //         llvm::errs() << imm[0] << " " << imm[1] << " " << imm[2] << "\n";
-  // }
-  // llvm::errs() << "argType: " << argType << "\n";
-
-  // llvm::errs() << "group_size: " << group_size << "\n";
-  // llvm::errs() << "num_groups_blk: " << num_groups_blk << "\n";
-  // llvm::errs() << "num_regs_blk: " << num_regs_blk << "\n";
-  // llvm::errs() << "num_threads_blk: " << num_threads_blk << "\n";
-  // llvm::errs() << "num_input_blks: " << num_input_blks << "\n";
-  // llvm::errs() << "num_output_blks: " << num_output_blks << "\n";
-  // llvm::errs() << "num_regs_xdlops: " << num_regs_xdlops << "\n";
-  // llvm::errs() << "m: " << m << "\n";
-  // llvm::errs() << "n: " << n << "\n";
-  // llvm::errs() << "k: " << k << "\n";
-  // llvm::errs() << "cycles: " << cycles << "\n";
-  // llvm::errs() << "k_base: " << k_base << "\n";
-
-  return result;
+  return {
+      mfmaNonKDim,
+      k,
+      blocksMfma,
+      nInputsToMfma,
+      k_base,
+      inputSpanLen,
+      inputSpansPerMfmaIn,
+      nOutputsOfMfma,
+      rowGroupSize,
+      rowsPerMfmaOutput,
+      blocksPerMfmaOutput,
+      rowGroupsPerBlock,
+      blocksInOutRegs,
+  };
 }
 
-// Checks whether given XDLOp config is valid for a given
-// KPack and KPerBlock values.
-bool XdlopsCodeSelection::isValid(int64_t kpack, int64_t kPerBlock) {
-  bool isKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
+FailureOr<MfmaInsn> MfmaInsn::select(StringRef mfmaInsn) {
+  auto it = mfmaInsnAttrMap.find(mfmaInsn);
+  if (it == mfmaInsnAttrMap.end())
+    return failure();
+  else
+    return MfmaInsn((*it).getValue());
+}
+
+MfmaInsn::MfmaInsn(const MfmaInsnAttr &mfmaInsnAttr) : attr(mfmaInsnAttr) {}
+
+MfmaInsnAttr MfmaInsn::getAttr() { return attr; }
+
+Type MfmaInsn::getArgType(Type elementType) {
+  return attr.nInputsToMfma == 1
+             ? elementType
+             : VectorType::get({attr.nInputsToMfma}, elementType);
+}
+
+VectorType MfmaInsn::getRetType(Type elementType) {
+  Builder b(elementType.getContext());
+  Type vectorElem;
+  if (elementType.isa<IntegerType>())
+    vectorElem = b.getI32Type();
+  else
+    vectorElem = b.getF32Type();
+  return VectorType::get({attr.nOutputsOfMfma}, vectorElem);
+}
+
+bool MfmaInsn::isCohereantWithK(int64_t kpack, int64_t kPerBlock) {
+  bool isKReduction =
+      (attr.blocksInOutRegs == 1) && (attr.inputSpansPerMfmaIn > 1);
   if (kpack > 1) {
-    if (kpack < k_base) {
-      // llvm::dbgs()
-      //     << "Should pack at least k_base elements and avoid waste
-      //     xdlopsgemm cycles\n";
+    if (kpack < attr.k_base) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Should pack at least k_base elements and avoid waste "
+                    "xdlopsgemm cycles\n");
       return false;
     }
-    if (isKReduction && kPerBlock < inputSpansPerMfmaIn) {
-      // llvm::dbgs()
-      //     << " When reduction, KPerBlock must be at least
-      //     num_input_blks\n";
+    if (isKReduction && kPerBlock < attr.inputSpansPerMfmaIn) {
+      LLVM_DEBUG(
+          llvm::dbgs()
+          << "When reduction, KPerBlock must be at least num_input_blks\n");
       return false;
     }
     return true;
   } else {
-    if (!isKReduction && kPerBlock < k_base) {
-      // llvm::dbgs()
-      //     << "When non-reduction, KPerBlock must be at least k_base\n";
+    if (!isKReduction && kPerBlock < attr.k_base) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "When non-reduction, KPerBlock must be at least k_base\n");
       return false;
     }
-    if (isKReduction && kPerBlock < k_base * inputSpansPerMfmaIn) {
-      // llvm::dbgs()
-      //     << "When reduction, KPerBlock must be at least k_base *
-      //     num_input_blks\n";
+    if (isKReduction && kPerBlock < attr.k_base * attr.inputSpansPerMfmaIn) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "When reduction, KPerBlock must be at least k_base * "
+                    "num_input_blks\n");
       return false;
     }
     return true;
   }
+}
+
+MfmaTypeId convertTypeToId(mlir::Type dataType) {
+  MfmaTypeId id;
+  if (dataType.isF32()) {
+    id = MfmaTypeId::Fp32TyId;
+  } else if (dataType.isF16()) {
+    id = MfmaTypeId::Fp16TyId;
+  } else if (dataType.isBF16()) {
+    id = MfmaTypeId::Bf16TyId;
+  } else if (dataType.isInteger(8)) {
+    id = MfmaTypeId::I8TyId;
+  } else {
+    llvm_unreachable("Unsupported input argument type.");
+  }
+  return id;
+}
+
+FailureOr<MfmaInsnGroup> MfmaInsnGroup::select(mlir::Type elementType,
+                                               int64_t MPerWave,
+                                               int64_t NPerWave) {
+  LLVM_DEBUG(llvm::dbgs() << "Invoke Mfma group selection:\n"
+                          << "elementType: " << elementType << "\n"
+                          << "MPerWave: " << MPerWave << "\n"
+                          << "NPerWave: " << NPerWave << "\n");
+
+  MfmaInsnGroupSelectKey key = {convertTypeToId(elementType), MPerWave,
+                                NPerWave};
+  auto it = mfmaInsnGroupAttrMap.find(key);
+  if (it != mfmaInsnGroupAttrMap.end()) {
+    MfmaInsnGroupAttr groupAttr = (*it).second;
+    auto maybeInsn = MfmaInsn::select(groupAttr.insn);
+    if (failed(maybeInsn)) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Unsupported instruction: " << groupAttr.insn << "\n");
+      return failure();
+    }
+    return MfmaInsnGroup(elementType, *maybeInsn, groupAttr);
+  } else {
+    LLVM_DEBUG(llvm::dbgs() << "Unsupported combination\n");
+    return failure();
+  }
+}
+
+MfmaInsnGroup::MfmaInsnGroup(Type dataType, const MfmaInsn &mfmaInsn,
+                             const MfmaInsnGroupAttr &mfmaInsnGroupAttr)
+    : elementType(dataType), insn(mfmaInsn), groupAttr(mfmaInsnGroupAttr) {}
+
+int64_t MfmaInsnGroup::getMRepeats() { return groupAttr.MRepeats; }
+
+int64_t MfmaInsnGroup::getNRepeats() { return groupAttr.NRepeats; }
+
+MfmaInsnAttr MfmaInsnGroup::getInsnAttr() { return insn.getAttr(); }
+
+Type MfmaInsnGroup::getArgType() { return insn.getArgType(elementType); }
+
+VectorType MfmaInsnGroup::getRetType() { return insn.getRetType(elementType); }
+
+SmallVector<mlir::rock::MFMAParams, 2> MfmaInsnGroup::getImms() {
+  return groupAttr.imms;
+}
+
+bool MfmaInsnGroup::isCohereantWithK(int64_t kpack, int64_t kPerBlock) {
+  return insn.isCohereantWithK(kpack, kPerBlock);
 }
