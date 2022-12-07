@@ -177,6 +177,7 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
   LogicalResult matchAndRewrite(XdlopsGemmV2Op op,
                                 XdlopsGemmV2OpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override {
+    llvm::errs()<<"hereeeeeeeee\n";
     Location loc = op.getLoc();
 
     XdlopsGemmParamsAttr tuningParams = op.getParams();
@@ -199,6 +200,7 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
       dataType = dataType.cast<VectorType>().getElementType();
     }
 
+<<<<<<< HEAD
     auto maybeMfmaInsnGroup =
         MfmaInsnGroup::select(dataType, MPerXdlops, NPerXdlops);
     if (failed(maybeMfmaInsnGroup)) {
@@ -210,6 +212,11 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     auto imms = mfmaGroup.getImms();
     int64_t nResultVectors = imms.size();
     Type argType = mfmaGroup.getArgType();
+=======
+    // Logic to do XDLOPS code selection.
+    XdlopsCodeSelection xcs =
+        XdlopsCodeSelection::get(dataType, MPerXdlops, NPerXdlops);
+>>>>>>> 4565abe22442 (Adding a Composable Kernel driver)
 
     MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
 
@@ -219,6 +226,15 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     int64_t k_base = mfmaAttr.k_base;
 
     bool IsKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
+    LLVM_DEBUG(llvm::dbgs() << "Invoke XDLOPS code selection logic:\n"
+                            << "dataType: " << dataType << "\n"
+                            << "K: " << K << "\n"
+                            << "KPack: " << KPack<< "\n"
+                            << "MPerXdlops: " << MPerXdlops << "\n"
+                            << "NPerXdlops: " << NPerXdlops << "\n"
+                            << "IsKReduction: " << IsKReduction << "\n"
+                            );
+
 
     Value matrixA = adaptor.getMatrixA();
     Value matrixB = adaptor.getMatrixB();
@@ -234,6 +250,10 @@ struct XdlopsGemmV2RewritePattern : public OpConversionPattern<XdlopsGemmV2Op> {
     int64_t nRepeats = bShape[0];
 
     int64_t KPerThread = IsKReduction ? K / inputSpansPerMfmaIn : K;
+    LLVM_DEBUG(llvm::dbgs() << "MRepeats: " << MRepeats << "\n"
+                            << "NRepeats: " << NRepeats << "\n"
+                            << "MPerXdlops: " << MPerXdlops << "\n"
+                            << "NPerXdlops: " << NPerXdlops << "\n");
 
     SmallVector<int64_t> dimensions = {mRepeats, nRepeats, KPerThread,
                                        nResultVectors};

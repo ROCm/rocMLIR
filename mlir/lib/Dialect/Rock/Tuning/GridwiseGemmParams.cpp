@@ -411,6 +411,7 @@ LogicalResult PopulateParamsXDL::populateDerived(RockGemmWrapperInterface op,
 
   LogicalResult res = isValidBlockwiseGemmXDLOPS(params, op, blockSize);
   if (failed(res)) {
+      llvm::errs()<<"here\n";
     LLVM_DEBUG(llvm::dbgs() << "Invalid XDLOPS gemm.\n");
     return failure();
   }
