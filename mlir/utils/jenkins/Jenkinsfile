@@ -23,6 +23,18 @@ void buildMIOpen(String cmakeOpts) {
     sh 'cd build; make -j $(nproc) MIOpenDriver'
 }
 
+void buildCK(String cmakeOpts) {
+    sh '[ ! -d build ] || rm -rf build'
+    cmakeBuild generator: 'Unix Makefiles',\
+        buildDir: 'build',\
+        buildType: 'Release',\
+        installation: 'InSearchPath',\
+        cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/bin/hipcc
+                     ${cmakeOpts}
+                     """
+    sh 'cd build; make -j $(nproc) device_operations'
+}
+
 void getAndBuildMIOpen(String prefixOpt, String cmakeOpts) {
     git branch: params.MIOpenBranch, poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/MIOpen.git'
@@ -43,6 +55,12 @@ void getAndBuildMIGraphX(String cmakeOpts) {
     git branch: params.MIGraphXBranch, poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git'
     buildMIGraphX(cmakeOpts)
+}
+
+void getAndBuildCK(String cmakeOpts) {
+    git branch: params.CKBranch, poll: false,\
+        url: 'https://github.com/ROCmSoftwarePlatform/composable_kernel.git'
+    buildCK(cmakeOpts)
 }
 
 void buildMIOpenWithMLIR() {
@@ -790,6 +808,20 @@ pipeline {
                             }
                         }
                     }
+                    stage("Build Composable Kernels") {
+                        steps {
+                            sh 'rm -rf composable_kernel'
+                            dir('composable_kernel') {
+                                getAndBuildCK('''
+                                    -DGPU_TARGETS="gfx1030;gfx908;gfx90a"
+                                    -DCMAKE_CXX_FLAGS="-O3"
+                                    -DCMAKE_PREFIX_PATH="/opt/rocm"
+                                    -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                    ''')
+                                sh 'cd build; make install'
+                            }
+                        }
+                    }
                     stage("Build MLIR") {
                         steps {
                             // Clean up build settings to disable static library and allow
@@ -805,8 +837,9 @@ pipeline {
                                 // Run MLIR perf benchmarks
                                 sh 'python3 ./bin/perfRunner.py'
                                 sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
---configs_file=${WORKSPACE}/mlir/utils/performance/bert-configs \
---tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv"""
+					--configs_file=${WORKSPACE}/mlir/utils/performance/bert-configs \
+					--tuning_db=${WORKSPACE}/mlir_tuning_${CHIP}.tsv"""
+                                sh 'python3 ./bin/perfRunner.py --op=gemm --batch_both --configs_file=../mlir/utils/performance/bert-configs --external-gemm-library CK'
                             }
                         }
                     }

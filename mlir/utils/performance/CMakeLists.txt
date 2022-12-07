@@ -1,4 +1,5 @@
 add_subdirectory(rocblas-benchmark-driver)
+add_subdirectory(ck-benchmark-driver)
 
 set(PERFORMANCE_SCRIPTS
   convertRocBlasToPerfRunner.py
