@@ -128,10 +128,7 @@ WORKDIR /
 # --------------------- Section 4: MIGraphX dependencies ---------------
 WORKDIR /MIGraphXDeps
 RUN pip3 install setuptools wheel
-# Install MIGraphX python dependencies
 RUN pip3 install https://github.com/RadeonOpenCompute/rbuild/archive/master.tar.gz
-RUN pip3 install onnx==1.8.1 numpy==1.21.6 typing==3.7.4 pytest==6.0.1 packaging==16.8
-RUN pip3 install protobuf==3.20.0
 # Get the requirement files from the commit be70702dc80d59126d6b4011d6cc7913193db566
 RUN wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/AMDMIGraphX/be70702dc80d59126d6b4011d6cc7913193db566/requirements.txt \
     && wget https://raw.githubusercontent.com/ROCmSoftwarePlatform/AMDMIGraphX/be70702dc80d59126d6b4011d6cc7913193db566/dev-requirements.txt \
