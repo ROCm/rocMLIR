@@ -92,19 +92,7 @@ MLIR_CAPI_EXPORTED
 bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
                                 MlirModule module);
 
-// Get a primary op to tune.
-// MLIR_CAPI_EXPORTED
-// MlirRockGemmWrapperInterface mlirRockTuningGetPrimaryOp(MlirModule module);
-
-// MLIR_CAPI_EXPORTED
-// const char *mlirRockTuningSerializeProblem(MlirModule module);
-
-// MLIR_CAPI_EXPORTED
-// MlirRockGemmWrapperInterface mlirRockTuningDeserializeProblem(const char
-// *prob);
-
-MLIR_CAPI_EXPORTED MlirRockTuningKey
-mlirRockTuningGetKey(MlirRockTuningSpace params);
+MLIR_CAPI_EXPORTED size_t mlirRockTuningGetKey(MlirModule module);
 
 #ifdef __cplusplus
 }

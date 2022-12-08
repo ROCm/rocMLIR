@@ -182,7 +182,9 @@ static bool constructAndTraverseIr(MlirContext ctx) {
     }
     float fakeTime = (float)(i + 1);
     char *paramStr = strdup(mlirRockTuningGetParamStr(tuningParam));
-    printf("Update perfconfig : \"%s\" with time %f\n", paramStr, fakeTime);
+    size_t problemKey = mlirRockTuningGetKey(module);
+    printf("Update perfconfig for the problem (0x%lx): \"%s\" with time %f\n",
+           problemKey, paramStr, fakeTime);
     if (!mlirRockTuningUpdateTable(tuningTable, module, paramStr, fakeTime)) {
       printf("fails to update table, maybe existing config is faster\n");
     }

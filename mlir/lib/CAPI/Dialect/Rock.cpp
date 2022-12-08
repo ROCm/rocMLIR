@@ -126,3 +126,8 @@ bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
   std::string perfConfig = rock::tuningTableLookup(pTable, mod);
   return rock::tuningSetStr(mod, perfConfig);
 }
+
+MLIR_CAPI_EXPORTED size_t mlirRockTuningGetKey(MlirModule module) {
+  auto mod = unwrap(module);
+  return getTuningHash(mod);
+}

@@ -43,6 +43,7 @@ struct TuningTable {
 };
 
 TuningTable *tuningTableCreate();
+size_t getTuningHash(ModuleOp &mod);
 bool tuningTableUpdate(TuningTable *perfTable, ModuleOp &mod,
                        std::string perfConfig, float time);
 std::string tuningTableLookup(TuningTable *perfTable, ModuleOp &mod);

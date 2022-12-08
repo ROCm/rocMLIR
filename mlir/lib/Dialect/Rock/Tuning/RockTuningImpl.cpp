@@ -129,8 +129,17 @@ TuningTable *tuningTableCreate() {
   return newTable;
 }
 
-size_t getGemmTuningHash(RockGemmWrapperInterface gemmIF) {
-
+// Suppose to return the encoding of the given problem, currently only returns
+// hash of its primary operation
+size_t getTuningHash(ModuleOp &mod) {
+  rock::RockGemmWrapperInterface gemmIF;
+  WalkResult findPrimary =
+      mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
+        gemmIF = op;
+        return WalkResult::interrupt();
+      });
+  if (!findPrimary.wasInterrupted())
+    return 0;
   KernelType opType = gemmIF.getKernelType();
   llvm::hash_code hash;
   Operation *gemmOp = gemmIF.getOperation();
@@ -152,16 +161,9 @@ size_t getGemmTuningHash(RockGemmWrapperInterface gemmIF) {
 
 bool tuningTableUpdate(TuningTable *perfTable, ModuleOp &mod,
                        std::string perfConfig, float time) {
-  rock::RockGemmWrapperInterface primaryOp;
-  WalkResult findPrimary =
-      mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-        primaryOp = op;
-        return WalkResult::interrupt();
-      });
-  if (!findPrimary.wasInterrupted())
+  size_t hashKey = getTuningHash(mod);
+  if (hashKey == 0)
     return false;
-
-  size_t hashKey = getGemmTuningHash(primaryOp);
   auto search = perfTable->tuningMap.find(hashKey);
   if (search != perfTable->tuningMap.end()) {
     auto entry = perfTable->tuningMap[hashKey];
@@ -174,16 +176,9 @@ bool tuningTableUpdate(TuningTable *perfTable, ModuleOp &mod,
 }
 
 std::string tuningTableLookup(TuningTable *perfTable, ModuleOp &mod) {
-  rock::RockGemmWrapperInterface primaryOp;
-  WalkResult findPrimary =
-      mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-        primaryOp = op;
-        return WalkResult::interrupt();
-      });
-  if (!findPrimary.wasInterrupted())
-    return std::string();
-
   size_t hashKey = getGemmTuningHash(primaryOp);
+  if (hashKey == 0)
+    return std::string();
   auto search = perfTable->tuningMap.find(hashKey);
   if (search != perfTable->tuningMap.end()) {
     auto entry = perfTable->tuningMap[hashKey];
