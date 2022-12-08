@@ -33,6 +33,7 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Visitors.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/STLExtras.h"
@@ -433,10 +434,27 @@ LogicalResult MILARewritePattern::matchAndRewrite(linalg::GenericOp laGeneric,
   return failure();
 }
 
+static bool isUnfusedKernelStore(rock::GlobalStoreOp store) {
+  bool ret = isa_and_nonnull<memref::AllocOp>(store.getDest().getDefiningOp());
+  if (ret) {
+    store.getDest().getDefiningOp()->emitOpError(
+        "could not use fusion to eliminate this intermediate buffer. Kernel "
+        "compilation canot proceed");
+  }
+  return ret;
+}
+
 void RockLinalgAlignPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   RewritePatternSet patterns(ctx);
   patterns.add<MILARewritePattern>(ctx);
   if (failed(applyPatternsAndFoldGreedily(getOperation(), std::move(patterns))))
+    signalPassFailure();
+  WalkResult verifyAllStores =
+      getOperation().walk([](rock::GlobalStoreOp store) {
+        return isUnfusedKernelStore(store) ? WalkResult::interrupt()
+                                           : WalkResult::advance();
+      });
+  if (verifyAllStores.wasInterrupted())
     signalPassFailure();
 }
