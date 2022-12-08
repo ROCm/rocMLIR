@@ -40,7 +40,7 @@ void buildMIGraphX(String cmakeOpts) {
 }
 
 void getAndBuildMIGraphX(String cmakeOpts) {
-    git branch: 'be70702dc80d59126d6b4011d6cc7913193db566', poll: false,\
+    git branch: params.MIGraphXBranch, poll: false,\
         url: 'https://github.com/ROCmSoftwarePlatform/AMDMIGraphX.git'
     buildMIGraphX(cmakeOpts)
 }
@@ -314,6 +314,11 @@ pipeline {
                      description: 'Run weekly-only jobs')
         string(name: 'MIOpenBranch', defaultValue: 'develop',
                description: 'The MIOpen branch to be used with the job')
+        // MIGRAPHX_COMMIT is defined in the Dockerfile
+        // So in order to update the commit, please change the Dockerfile
+        string(name: 'MIGraphXBranch', defaultValue: '${MIGRAPHX_COMMIT}',
+               description: 'The MIGraphX branch/commit to verify against.')
+
 
         // Each below control whether to run a individual stage from parallel run
         // They default to true or empty but deverloper can toggle them for debugging purpose
@@ -826,6 +831,7 @@ pipeline {
             when {
                 beforeAgent true;
                 equals expected: true, actual: params.checkMIGraphX;
+                equals expected: true, actual: params.nightly;
             }
             matrix {
                 axes {
@@ -858,15 +864,17 @@ pipeline {
                     }
                     stage("Install MIGraphX Dependencies") {
                         steps {
+                            // We are installing miopen-hip here (and not in Dockerfile) to avoid collision with MIOpen checks above
                             sh 'apt-get install miopen-hip'
-                            sh 'cget -p /MIGraphXDeps install ${WORKSPACE} -DBUILD_MIXR_TARGET=On -DLLVM_ENABLE_ZSTD=Off -DLLVM_ENABLE_THREADS=Off'
+                            // Package and install current checkout of rocMLIR as MIGraphX dependency.
+                            sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_MIXR_TARGET=On -DLLVM_ENABLE_ZSTD=Off -DLLVM_ENABLE_THREADS=Off'
                         }
                     }
                     stage("Build MIGraphX with MLIR") {
                         steps {
                             sh 'rm -rf MIGraphX'
                             dir('MIGraphX') {
-                                getAndBuildMIGraphX("-DCMAKE_PREFIX_PATH=/MIGraphXDeps -DMIGRAPHX_ENABLE_MLIR=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++")
+                                getAndBuildMIGraphX("-DCMAKE_PREFIX_PATH='/MIGraphXDeps;${WORKSPACE}/MIGraphXDeps' -DMIGRAPHX_ENABLE_MLIR=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++")
                             }
                         }
                     }
